@@ -1,0 +1,28 @@
+// sonic.proto describes the message format for streaming service provided by SONiC
+syntax = "proto3";
+
+import "github.com/openconfig/gnmi/proto/gnmi/gnmi.proto";
+
+package gnmi.sonic;
+
+enum Target {
+  option allow_alias = true;
+  APPL_DB         = 0;
+  ASIC_DB         = 1;
+  COUNTERS_DB     = 2;
+  LOGLEVEL_DB     = 3;
+  CONFIG_DB       = 4;
+  // PFC_WD_DB shares the the same db number with FLEX_COUNTER_DB
+  PFC_WD_DB       = 5;
+  FLEX_COUNTER_DB = 5;
+  STATE_DB        = 6;
+  // For none-DB data
+  OTHERS          = 100;
+}
+
+message Credentials {
+  string username =1;
+  string password = 2;
+}
+
+
