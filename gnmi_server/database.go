@@ -11,20 +11,81 @@ import (
 
 	swsscommon "github.com/Azure/sonic-swss-common"
 	spb "github.com/jipanyang/sonic-telemetry/proto"
-	gpb "github.com/openconfig/gnmi/proto/gnmi"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 )
 
-// gnmiFullPath builds the full path from the prefix and path.
-func gnmiFullPath(prefix, path *gpb.Path) *gpb.Path {
+var target2Db = make(map[string]swsscommon.DBConnector)
 
-	fullPath := &gpb.Path{Origin: path.Origin}
-	if path.GetElement() != nil {
-		fullPath.Element = append(prefix.GetElement(), path.GetElement()...)
+type tablePath struct {
+	dbName    string
+	tableName string
+	tableKey  string
+	delimitor string
+	table     swsscommon.Table
+}
+
+// Fetch data from the db table path and marshall it into json byte stream
+func tableData2Json(tblPath *tablePath) ([]byte, error) {
+	dbkeys := []string{}
+
+	log.V(5).Infof("tablePath %v, SONiC table name: %s", *tblPath, tblPath.table.GetTableName())
+
+	if tblPath.tableKey == "" {
+		// tables in COUNTERS_DB other than COUNTERS table doesn't have keys
+		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
+			dbkeys = append(dbkeys, tblPath.tableKey)
+		} else {
+			keys := swsscommon.NewVectorString()
+			defer swsscommon.DeleteVectorString(keys)
+
+			// Poll all keys in table
+			tblPath.table.GetKeys(keys)
+			for i := 0; i < int(keys.Size()); i++ {
+				dbkeys = append(dbkeys, keys.Get(i))
+			}
+		}
+
+		log.V(5).Infof("dbkeys len: %v", len(dbkeys))
+	} else {
+		// Poll specific key in table.
+		dbkeys = append(dbkeys, tblPath.tableKey)
 	}
-	if path.GetElem() != nil {
-		fullPath.Elem = append(prefix.GetElem(), path.GetElem()...)
+
+	mpv := make(map[string]interface{})
+
+	for idx, dbkey := range dbkeys {
+		vpsr := swsscommon.NewFieldValuePairs()
+		defer swsscommon.DeleteFieldValuePairs(vpsr)
+
+		ret := tblPath.table.Get(dbkey, vpsr)
+		if ret != true {
+			// TODO: Key might gets deleted
+			log.V(1).Infof("%v table get failed", dbkey)
+			continue
+		}
+
+		var err error
+		if tblPath.tableKey != "" {
+			err = makeJSON(&mpv, nil, nil, vpsr)
+		} else {
+			err = makeJSON(&mpv, &dbkey, nil, vpsr)
+		}
+		if err != nil {
+			log.V(2).Infof("makeJSON err %s for vpsr %v", err, vpsr)
+			return nil, err
+		}
+
+		log.V(5).Infof("Added idex %v vpsr #%v ", idx, vpsr)
 	}
-	return fullPath
+
+	jv, err := emitJSON(&mpv)
+	if err != nil {
+		log.V(2).Infof("emitJSON err %s for  %v", err, mpv)
+		return nil, fmt.Errorf("emitJSON err %s for  %v", err, mpv)
+	}
+	return jv, nil
 }
 
 func getTableKeySeparator(target string) (string, error) {
@@ -46,26 +107,120 @@ func getTableKeySeparator(target string) (string, error) {
 	return separator, nil
 }
 
-// Populate SONiC data path from prefix and subscription path.
-func (c *Client) populateDbPath(sublist *gpb.SubscriptionList, tableOnly bool) error {
-	var buffer bytes.Buffer
-
-	prefix := sublist.GetPrefix()
-	log.V(6).Infof("prefix : %#v SubscribRequest : %#v", sublist)
-
-	// Path target in prefix stores DB name
-	c.target = prefix.GetTarget()
-
-	if _, ok := spb.Target_value[c.target]; !ok {
-		log.V(1).Infof("Invalid target %s for %s", c.target, c)
-		return fmt.Errorf("Invalid target %s for %s", c.target, c)
-
+func createDBConnector() {
+	for dbName, dbn := range spb.Target_value {
+		if dbName != "OTHERS" {
+			db := swsscommon.NewDBConnector(int(dbn), swsscommon.DBConnectorDEFAULT_UNIXSOCKET, uint(0))
+			target2Db[dbName] = db
+		}
 	}
+}
 
-	separator, err := getTableKeySeparator(c.target)
+func deleteDBConnector() {
+	for _, db := range target2Db {
+		swsscommon.DeleteDBConnector(db)
+	}
+}
+
+func getDBConnector(target string) (db swsscommon.DBConnector, err error) {
+	db, ok := target2Db[target]
+	if !ok {
+		return nil, fmt.Errorf("Failed to find db connector for %s", target)
+	}
+	return db, nil
+}
+
+// Populate table path in DB from gnmi path
+func createDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[tablePath]*gnmipb.Path) error {
+	var buffer bytes.Buffer
+	var dbPath string
+	var tblPath tablePath
+
+	db, err := getDBConnector(target)
 	if err != nil {
 		return err
 	}
+
+	fullPath := path
+	if prefix != nil {
+		fullPath = gnmiFullPath(prefix, path)
+	}
+
+	separator, _ := getTableKeySeparator(target)
+
+	elems := fullPath.GetElem()
+	if elems != nil {
+		for i, elem := range elems {
+			// TODO: Usage of key field
+			log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
+			if i != 0 {
+				buffer.WriteString(separator)
+			}
+			buffer.WriteString(elem.GetName())
+		}
+		dbPath = buffer.String()
+	}
+
+	tblPath.dbName = target
+	tblPath.delimitor = separator
+	stringSlice := strings.Split(dbPath, tblPath.delimitor)
+	// TODO: For counter table in COUNTERS_DB and FLEX_COUNTER_DB/PFC_WD_DB, remapping is needed
+	tblPath.tableName = stringSlice[0]
+	switch len(stringSlice) {
+	case 1:
+		tblPath.tableKey = ""
+	case 2:
+		tblPath.tableKey = stringSlice[1]
+	case 3:
+		tblPath.tableKey = stringSlice[1] + tblPath.delimitor + stringSlice[2]
+	default:
+		log.Errorf("Invalid db table Path %v for get", dbPath)
+		return fmt.Errorf("Invalid db table Path %v for get", dbPath)
+	}
+	tbl := swsscommon.NewTable(db, tblPath.tableName, separator)
+	tblPath.table = tbl
+	(*pathS2G)[tblPath] = path
+	log.V(5).Infof("tablePath %+v", tblPath)
+	return nil
+}
+
+func deleteDbTablePath(pathS2G map[tablePath]*gnmipb.Path) {
+	for tbl, _ := range pathS2G {
+		swsscommon.DeleteTable(tbl.table)
+	}
+}
+
+// set DB target for subscribe request processing
+func setClientSubscribeTarget(c *Client) error {
+	prefix := c.subscribe.GetPrefix()
+
+	if prefix == nil {
+		// use CONFIG_DB as target of subscription by default
+		c.target = "CONFIG_DB"
+		return nil
+	}
+	// Path target in prefix stores DB name
+	c.target = prefix.GetTarget()
+
+	if c.target == "OTHERS" {
+		return grpc.Errorf(codes.Unimplemented, "Unsupported target %s for %s", c.target, c)
+	}
+	if c.target != "" {
+		if _, ok := target2Db[c.target]; !ok {
+			log.V(1).Infof("Invalid target %s for %s", c.target, c)
+			return grpc.Errorf(codes.InvalidArgument, "Invalid target %s for %s", c.target, c)
+		}
+	} else {
+		c.target = "CONFIG_DB"
+	}
+
+	return nil
+}
+
+// Populate SONiC data path from prefix and subscription path.
+func (c *Client) populateDbPathSubscrition(sublist *gnmipb.SubscriptionList, tableOnly bool) error {
+	prefix := sublist.GetPrefix()
+	log.V(6).Infof("prefix : %#v SubscribRequest : %#v", sublist)
 
 	subscriptions := sublist.GetSubscription()
 	if subscriptions == nil {
@@ -74,33 +229,10 @@ func (c *Client) populateDbPath(sublist *gpb.SubscriptionList, tableOnly bool) e
 
 	for _, subscription := range subscriptions {
 		path := subscription.GetPath()
-		fullPath := gnmiFullPath(prefix, path)
 
-		// Element deprecated
-		elements := fullPath.GetElement()
-		if elements != nil {
-			// log.V(2).Infof("path.Element : %#v", elements)
-		}
-
-		buffer.Reset()
-		elems := fullPath.GetElem()
-		if elems != nil {
-			if tableOnly && len(elems) != 1 {
-				return fmt.Errorf("Invalid table name Elem %s", elems)
-			}
-			for i, elem := range elems {
-				// TODO: Usage of key field
-				log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
-				if i != 0 {
-					buffer.WriteString(separator)
-				}
-				buffer.WriteString(elem.GetName())
-			}
-			dbPath := buffer.String()
-
-			// Also save the mapping from sonic path to gNMI path, will need this for populating
-			// subsribe response to client.
-			c.pathS2G[dbPath] = path
+		err := createDbTablePath(path, prefix, c.target, &c.pathS2G)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -157,22 +289,21 @@ func emitJSON(v *map[string]interface{}) ([]byte, error) {
 }
 
 func subscribeDb(c *Client) {
-	var buffer bytes.Buffer
 	var sstables []*swsscommon.SubscriberStateTable
 
-	dbn := spb.Target_value[c.target]
-	db := swsscommon.NewDBConnector(int(dbn), swsscommon.DBConnectorDEFAULT_UNIXSOCKET, uint(0))
-	defer swsscommon.DeleteDBConnector(db)
-
+	// skipping error check here for it has been done in setClientSubscribeTarget().
+	db, _ := getDBConnector(c.target)
 	sel := swsscommon.NewSelect()
 	defer swsscommon.DeleteSelect(sel)
 
-	// TODO: verify table name and dbn
-	for table, _ := range c.pathS2G {
-		sstable := swsscommon.NewSubscriberStateTable(db, table)
+	sst2GnmiPath := map[*swsscommon.SubscriberStateTable]*gnmipb.Path{}
+	// TODO: verify table name
+	for table, gnmiPath := range c.pathS2G {
+		sstable := swsscommon.NewSubscriberStateTable(db, table.tableName)
 		defer swsscommon.DeleteSubscriberStateTable(sstable)
 		sel.AddSelectable(sstable.SwigGetSelectable())
 		sstables = append(sstables, &sstable)
+		sst2GnmiPath[&sstable] = gnmiPath
 	}
 
 	for {
@@ -219,24 +350,6 @@ func subscribeDb(c *Client) {
 
 				(*sstable).Pop(ko, vpsr)
 
-				path := (*sstable).GetTableName()
-				if _, ok := c.pathS2G[path]; !ok {
-					log.V(1).Infof("%v not in gNMI subscription path", path)
-					log.Errorf("%v not in gNMI subscription path", path)
-				}
-
-				buffer.Reset()
-				buffer.WriteString(ko.GetFirst())
-				buffer.WriteString(ko.GetSecond())
-				for n := vpsr.Size() - 1; n >= 0; n-- {
-					fieldpair := vpsr.Get(int(n))
-					buffer.WriteString("|")
-					buffer.WriteString(fieldpair.GetFirst())
-					buffer.WriteString("=")
-					buffer.WriteString(fieldpair.GetSecond())
-				}
-				log.V(6).Infof("path %#v, buffer %v", path, buffer)
-
 				// check err
 				v := map[string]interface{}{}
 				key := ko.GetFirst()
@@ -253,11 +366,11 @@ func subscribeDb(c *Client) {
 				}
 
 				spbv := &spb.Value{
-					Path:      path,
+					Path:      sst2GnmiPath[sstable],
 					Timestamp: time.Now().UnixNano(),
-					Val: &gpb.TypedValue{
-						Value: &gpb.TypedValue_JsonVal{
-							JsonVal: jv,
+					Val: &gnmipb.TypedValue{
+						Value: &gnmipb.TypedValue_JsonIetfVal{
+							JsonIetfVal: jv,
 						},
 					},
 				}
@@ -269,125 +382,29 @@ func subscribeDb(c *Client) {
 	}
 }
 
-type tablePath struct {
-	tableName string
-	tableKey  string
-	delimitor string
-	table     swsscommon.Table
-}
-
-// Support fixed COUNTERS_DB for now
 func pollDb(c *Client) {
-	var tblPaths []tablePath
-
-	dbn := spb.Target_value[c.target]
-	db := swsscommon.NewDBConnector(int(dbn), swsscommon.DBConnectorDEFAULT_UNIXSOCKET, uint(0))
-	defer swsscommon.DeleteDBConnector(db)
-
-	separator, _ := getTableKeySeparator(c.target)
-	//For polling,  the path could contain both table name and key
-	for path, _ := range c.pathS2G {
-		var tblPath tablePath
-		tblPath.delimitor = separator
-		stringSlice := strings.Split(path, tblPath.delimitor)
-		tblPath.tableName = stringSlice[0]
-		switch len(stringSlice) {
-		case 1:
-			tblPath.tableKey = ""
-		case 2:
-			tblPath.tableKey = stringSlice[1]
-		case 3:
-			tblPath.tableKey = stringSlice[1] + tblPath.delimitor + stringSlice[2]
-		default:
-			log.Errorf("Invalid db table path %v for polling", path)
-			c.Close()
-			return
-		}
-		tbl := swsscommon.NewTable(db, tblPath.tableName)
-		defer swsscommon.DeleteTable(tbl)
-		tblPath.table = tbl
-		tblPaths = append(tblPaths, tblPath)
-	}
-
-	// get all keys in DB first
-	keys := swsscommon.NewVectorString()
-	defer swsscommon.DeleteVectorString(keys)
-
-	dbkeys := []string{}
-
+	// Upon exit of pollDB, clean table path resource
+	defer deleteDbTablePath(c.pathS2G)
 	for {
-		// reset dbkeys slice
-		dbkeys = dbkeys[:0]
-
 		_, more := <-c.polled
 		if !more {
 			log.V(1).Infof("%v polled channel closed, exiting pollDb routine", c)
 			return
 		}
 
-		for _, tblPath := range tblPaths {
-			if tblPath.tableKey == "" {
-				// Poll all keys in table
-				tblPath.table.GetKeys(keys)
-				for i := 0; i < int(keys.Size()); i++ {
-					dbkeys = append(dbkeys, keys.Get(i))
-				}
-
-				log.V(2).Infof("dbkeys len: %v", len(dbkeys))
-			} else {
-				// Poll specific key in table.
-				dbkeys = append(dbkeys, tblPath.tableKey)
-			}
-
-			mpv := make(map[string]interface{})
-
-			for idx, dbkey := range dbkeys {
-				vpsr := swsscommon.NewFieldValuePairs()
-				defer swsscommon.DeleteFieldValuePairs(vpsr)
-
-				ret := tblPath.table.Get(dbkey, vpsr)
-				if ret != true {
-					// TODO: Key might gets deleted
-					log.V(1).Infof("%v table get failed", dbkey)
-					continue
-				}
-
-				var err error
-				if tblPath.tableKey != "" {
-					err = makeJSON(&mpv, nil, nil, vpsr)
-				} else {
-					err = makeJSON(&mpv, &dbkey, nil, vpsr)
-				}
-				if err != nil {
-					log.V(2).Infof("makeJSON err %s for vpsr %v", err, vpsr)
-				}
-
-				log.V(5).Infof("Added idex %v vpsr #%v ", idx, vpsr)
-			}
-
-			if len(mpv) == 0 {
-				log.V(5).Infof("No data exists for %v ", mpv)
-				continue
-			}
-			jv, err := emitJSON(&mpv)
+		for tblPath, gnmiPath := range c.pathS2G {
+			jv, err := tableData2Json(&tblPath)
 			if err != nil {
-				log.V(2).Infof("emitJSON err %s for  %v", err, mpv)
-			}
-
-			var path string
-			if tblPath.tableKey == "" {
-				path = tblPath.tableName
-			} else {
-				path = tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+				return
 			}
 
 			spbv := &spb.Value{
-				Path:         path,
+				Path:         gnmiPath,
 				Timestamp:    time.Now().UnixNano(),
 				SyncResponse: false,
-				Val: &gpb.TypedValue{
-					Value: &gpb.TypedValue_JsonVal{
-						JsonVal: jv,
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_JsonIetfVal{
+						JsonIetfVal: jv,
 					},
 				},
 			}

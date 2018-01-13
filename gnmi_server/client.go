@@ -12,11 +12,11 @@ import (
 	"google.golang.org/grpc/codes"
 
 	spb "github.com/jipanyang/sonic-telemetry/proto"
-	gpb "github.com/openconfig/gnmi/proto/gnmi"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
-var syncResp = &gpb.SubscribeResponse{
-	Response: &gpb.SubscribeResponse_SyncResponse{
+var syncResp = &gnmipb.SubscribeResponse{
+	Response: &gnmipb.SubscribeResponse_SyncResponse{
 		SyncResponse: true,
 	},
 }
@@ -36,7 +36,7 @@ func (val Value) Compare(other queue.Item) int {
 	return -1
 }
 
-// Client contains information about a client that has connected to the server.
+// Client contains information about a subscribe client that has connected to the server.
 type Client struct {
 	addr      net.Addr
 	sendMsg   int64
@@ -47,9 +47,9 @@ type Client struct {
 	mu        sync.RWMutex
 	q         *queue.PriorityQueue
 	synced    bool
-	subscribe *gpb.SubscriptionList
+	subscribe *gnmipb.SubscriptionList
 	// mapping from SONiC path to gNMI path
-	pathS2G map[string]*gpb.Path
+	pathS2G map[tablePath]*gnmipb.Path
 	// target of subscribe request, it is db number in SONiC
 	target string
 }
@@ -61,7 +61,7 @@ func NewClient(addr net.Addr) *Client {
 		addr:    addr,
 		synced:  false,
 		q:       pq,
-		pathS2G: map[string]*gpb.Path{},
+		pathS2G: map[tablePath]*gnmipb.Path{},
 	}
 }
 
@@ -74,7 +74,7 @@ func (c *Client) String() string {
 // SubscriptionList. Once the client is started, it will run until the stream
 // is closed or the schedule completes. For Poll queries the Run will block
 // internally after sync until a Poll request is made to the server.
-func (c *Client) Run(stream gpb.GNMI_SubscribeServer) (err error) {
+func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	if stream == nil {
 		return grpc.Errorf(codes.FailedPrecondition, "cannot start client: stream is nil")
 	}
@@ -101,19 +101,24 @@ func (c *Client) Run(stream gpb.GNMI_SubscribeServer) (err error) {
 		return grpc.Errorf(codes.InvalidArgument, "first message must be SubscriptionList: %q", query)
 	}
 
+	err = setClientSubscribeTarget(c)
+	if err != nil {
+		return err
+	}
+
 	switch mode := c.subscribe.GetMode(); mode {
-	case gpb.SubscriptionList_STREAM:
-		err = c.populateDbPath(c.subscribe, true)
+	case gnmipb.SubscriptionList_STREAM:
+		err = c.populateDbPathSubscrition(c.subscribe, true)
 		if err != nil {
-			return grpc.Errorf(codes.InvalidArgument, "Invalid subscription path: %s %q", err, query)
+			return grpc.Errorf(codes.InvalidArgument, "Invalid subscription path: %v %q", err, query)
 		}
 		c.stop = make(chan struct{}, 1)
 		// Close of stop channel serves as signal to stop subscribDB routine
 		defer close(c.stop)
 		go subscribeDb(c)
 
-	case gpb.SubscriptionList_POLL:
-		err = c.populateDbPath(c.subscribe, false)
+	case gnmipb.SubscriptionList_POLL:
+		err = c.populateDbPathSubscrition(c.subscribe, false)
 		if err != nil {
 			return grpc.Errorf(codes.InvalidArgument, "Invalid subscription path: %s %q", err, query)
 		}
@@ -123,7 +128,7 @@ func (c *Client) Run(stream gpb.GNMI_SubscribeServer) (err error) {
 		c.polled <- struct{}{}
 		go pollDb(c)
 
-	case gpb.SubscriptionList_ONCE:
+	case gnmipb.SubscriptionList_ONCE:
 		return grpc.Errorf(codes.Unimplemented, "SubscriptionList_ONCE is not implemented for SONiC gRPC/gNMI yet: %q", query)
 	default:
 		return grpc.Errorf(codes.InvalidArgument, "Unkown subscription mode: %q", query)
@@ -146,7 +151,7 @@ func (c *Client) Close() {
 	}
 }
 
-func (c *Client) recv(stream gpb.GNMI_SubscribeServer) {
+func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 	for {
 		log.V(5).Infof("Client %s blocking on stream.Recv()", c)
 		event, err := stream.Recv()
@@ -164,9 +169,9 @@ func (c *Client) recv(stream gpb.GNMI_SubscribeServer) {
 		case nil:
 		}
 
-		if c.subscribe.Mode == gpb.SubscriptionList_POLL {
+		if c.subscribe.Mode == gnmipb.SubscriptionList_POLL {
 			log.V(1).Infof("Client %s received Poll event: %v", c, event)
-			if _, ok := event.Request.(*gpb.SubscribeRequest_Poll); !ok {
+			if _, ok := event.Request.(*gnmipb.SubscribeRequest_Poll); !ok {
 				log.V(1).Infof("Client %s received invalid Poll event: %v", c, event)
 				c.Close()
 				return
@@ -182,7 +187,7 @@ func (c *Client) recv(stream gpb.GNMI_SubscribeServer) {
 // The gNMI worker routines subscribeDb and pollDb push data into the client queue,
 // processQueue works as consumber of the queue. The data is popped from queue, converted
 // from sonic_gnmi data into a gNMI notification, then sent on stream.
-func (c *Client) processQueue(stream gpb.GNMI_SubscribeServer) error {
+func (c *Client) processQueue(stream gnmipb.GNMI_SubscribeServer) error {
 	for {
 		items, err := c.q.Get(1)
 
@@ -194,7 +199,7 @@ func (c *Client) processQueue(stream gpb.GNMI_SubscribeServer) error {
 			return fmt.Errorf("unexpected queue Gext(1): %v", err)
 		}
 
-		var resp *gpb.SubscribeResponse
+		var resp *gnmipb.SubscribeResponse
 		switch v := items[0].(type) {
 		case Value:
 			if resp, err = c.valToResp(v); err != nil {
@@ -218,7 +223,7 @@ func (c *Client) processQueue(stream gpb.GNMI_SubscribeServer) error {
 }
 
 // send runs until process Queue returns an error.
-func (c *Client) send(stream gpb.GNMI_SubscribeServer) {
+func (c *Client) send(stream gnmipb.GNMI_SubscribeServer) {
 	for {
 		if err := c.processQueue(stream); err != nil {
 			log.Errorf("Client %s error: %v", c, err)
@@ -227,7 +232,7 @@ func (c *Client) send(stream gpb.GNMI_SubscribeServer) {
 	}
 }
 
-func getGnmiPathPrefix(c *Client) (*gpb.Path, error) {
+func getGnmiPathPrefix(c *Client) (*gnmipb.Path, error) {
 	sublist := c.subscribe
 	if sublist == nil {
 		return nil, fmt.Errorf("No SubscriptionList")
@@ -240,31 +245,31 @@ func getGnmiPathPrefix(c *Client) (*gpb.Path, error) {
 
 // Convert from SONiC Value to its corresponding gNMI proto stream
 // response type.
-func (c *Client) valToResp(val Value) (*gpb.SubscribeResponse, error) {
+func (c *Client) valToResp(val Value) (*gnmipb.SubscribeResponse, error) {
 	switch val.GetSyncResponse() {
 	case true:
-		return &gpb.SubscribeResponse{
-			Response: &gpb.SubscribeResponse_SyncResponse{
+		return &gnmipb.SubscribeResponse{
+			Response: &gnmipb.SubscribeResponse_SyncResponse{
 				SyncResponse: true,
 			},
 		}, nil
 	default:
-		gnmiPath, ok := c.pathS2G[val.GetPath()]
-		if !ok {
-			return nil, fmt.Errorf("Failed to find gNMI path for %v", val.GetPath())
-		}
+		//gnmiPath, ok := c.pathS2G[val.GetPath()]
+		//if !ok {
+		//	return nil, fmt.Errorf("Failed to find gNMI path for %v", val.GetPath())
+		//}
 		prefix, err := getGnmiPathPrefix(c)
 		if err != nil {
 			return nil, err
 		}
-		return &gpb.SubscribeResponse{
-			Response: &gpb.SubscribeResponse_Update{
-				Update: &gpb.Notification{
+		return &gnmipb.SubscribeResponse{
+			Response: &gnmipb.SubscribeResponse_Update{
+				Update: &gnmipb.Notification{
 					Timestamp: val.GetTimestamp(),
 					Prefix:    prefix,
-					Update: []*gpb.Update{
+					Update: []*gnmipb.Update{
 						{
-							Path: gnmiPath,
+							Path: val.GetPath(),
 							Val:  val.GetVal(),
 						},
 					},

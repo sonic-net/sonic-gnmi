@@ -16,7 +16,7 @@ enum State {
 
 message Value {
   // The device specific, or path corresponding to a value.
-  string path = 1;
+  gnmi.Path path = 1;
   // timestamp for the corresponding value, nanoseconds since epoch.
   // If timestamp is not set the default will assume to
   // be the current system time.
