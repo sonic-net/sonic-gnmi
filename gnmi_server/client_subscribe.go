@@ -52,6 +52,8 @@ type Client struct {
 	pathS2G map[tablePath]*gnmipb.Path
 	// target of subscribe request, it is db number in SONiC
 	target string
+	w      sync.WaitGroup
+	fatal  bool
 }
 
 // NewClient returns a new initialized client.
@@ -94,7 +96,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		return grpc.Errorf(grpc.Code(err), "received error from client")
 	}
 
-	log.V(1).Infof("Client %s recieved initial query with go struct : %#v %v", c, query, query)
+	log.V(2).Infof("Client %s recieved initial query %v", c, query)
 
 	c.subscribe = query.GetSubscribe()
 	if c.subscribe == nil {
@@ -108,23 +110,19 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 
 	switch mode := c.subscribe.GetMode(); mode {
 	case gnmipb.SubscriptionList_STREAM:
-		err = c.populateDbPathSubscrition(c.subscribe, true)
+		err = c.populateDbPathSubscrition(c.subscribe)
 		if err != nil {
 			return grpc.Errorf(codes.InvalidArgument, "Invalid subscription path: %v %q", err, query)
 		}
 		c.stop = make(chan struct{}, 1)
-		// Close of stop channel serves as signal to stop subscribDB routine
-		defer close(c.stop)
 		go subscribeDb(c)
 
 	case gnmipb.SubscriptionList_POLL:
-		err = c.populateDbPathSubscrition(c.subscribe, false)
+		err = c.populateDbPathSubscrition(c.subscribe)
 		if err != nil {
 			return grpc.Errorf(codes.InvalidArgument, "Invalid subscription path: %s %q", err, query)
 		}
 		c.polled = make(chan struct{}, 1)
-		// Close of polled channel serves as signal to stop pollDb routine
-		defer close(c.polled)
 		c.polled <- struct{}{}
 		go pollDb(c)
 
@@ -136,22 +134,38 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 
 	log.V(1).Infof("Client %s running", c)
 	go c.recv(stream)
-	c.send(stream)
+	err = c.send(stream)
+	c.Close()
+	// Wait until all child go routines exited
+	c.w.Wait()
 	log.V(1).Infof("Client %s shutdown", c)
-
-	return nil
+	return grpc.Errorf(codes.InvalidArgument, "%s", err)
 }
 
 // Closing of client queue is triggered upon end of stream receive or stream error
 // or fatal error of any client go routine .
 // it will cause cancle of client context and exit of the send goroutines.
 func (c *Client) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.q != nil {
+		if c.q.Disposed() {
+			return
+		}
 		c.q.Dispose()
+	}
+	if c.stop != nil {
+		close(c.stop)
+	}
+	if c.polled != nil {
+		close(c.polled)
 	}
 }
 
 func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
+	defer c.Close()
+
 	for {
 		log.V(5).Infof("Client %s blocking on stream.Recv()", c)
 		event, err := stream.Recv()
@@ -160,20 +174,16 @@ func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 		switch err {
 		default:
 			log.V(1).Infof("Client %s received error: %v", c, err)
-			c.Close()
 			return
 		case io.EOF:
 			log.V(1).Infof("Client %s received io.EOF", c)
-			c.Close()
 			return
 		case nil:
 		}
 
 		if c.subscribe.Mode == gnmipb.SubscriptionList_POLL {
-			log.V(1).Infof("Client %s received Poll event: %v", c, event)
+			log.V(3).Infof("Client %s received Poll event: %v", c, event)
 			if _, ok := event.Request.(*gnmipb.SubscribeRequest_Poll); !ok {
-				log.V(1).Infof("Client %s received invalid Poll event: %v", c, event)
-				c.Close()
 				return
 			}
 			c.polled <- struct{}{}
@@ -218,16 +228,16 @@ func (c *Client) processQueue(stream gnmipb.GNMI_SubscribeServer) error {
 			c.errors++
 			return err
 		}
-		log.V(2).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
+		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
 	}
 }
 
 // send runs until process Queue returns an error.
-func (c *Client) send(stream gnmipb.GNMI_SubscribeServer) {
+func (c *Client) send(stream gnmipb.GNMI_SubscribeServer) error {
 	for {
 		if err := c.processQueue(stream); err != nil {
-			log.Errorf("Client %s error: %v", c, err)
-			return
+			log.Errorf("Client %s : %v", c, err)
+			return err
 		}
 	}
 }
@@ -254,10 +264,11 @@ func (c *Client) valToResp(val Value) (*gnmipb.SubscribeResponse, error) {
 			},
 		}, nil
 	default:
-		//gnmiPath, ok := c.pathS2G[val.GetPath()]
-		//if !ok {
-		//	return nil, fmt.Errorf("Failed to find gNMI path for %v", val.GetPath())
-		//}
+		// In case the subscribe/poll routing encountered fatal error
+		if fatal := val.GetFatal(); fatal != "" {
+			return nil, fmt.Errorf("%s", fatal)
+		}
+
 		prefix, err := getGnmiPathPrefix(c)
 		if err != nil {
 			return nil, err

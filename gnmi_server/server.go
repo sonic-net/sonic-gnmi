@@ -188,8 +188,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 	pathS2G := map[tablePath]*gnmipb.Path{}
 	for _, path := range paths {
-		err := createDbTablePath(path, prefix, target, &pathS2G)
-		defer deleteDbTablePath(pathS2G)
+		err := populateDbTablePath(path, prefix, target, &pathS2G)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, err.Error())
 		}
@@ -199,17 +198,14 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	index := 0
 	log.V(5).Infof("GetRequest path: %v", pathS2G)
 	for tblPath, _ := range pathS2G {
-		jv, err := tableData2Json(&tblPath)
+		val, err := tableData2TypedValue_redis(&tblPath)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, err.Error())
 		}
+
 		update := &gnmipb.Update{
 			Path: pathS2G[tblPath],
-			Val: &gnmipb.TypedValue{
-				Value: &gnmipb.TypedValue_JsonIetfVal{
-					JsonIetfVal: jv,
-				},
-			},
+			Val:  val,
 		}
 
 		notifications[index] = &gnmipb.Notification{

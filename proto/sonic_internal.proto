@@ -12,8 +12,7 @@ enum State {
   RUNNING = 2;
 }
 
-// Value is the main message that reprents a stream of updates for a given path.
-
+// Value is the message that reprents a stream of updates for a given path, used internally.
 message Value {
   // The device specific, or path corresponding to a value.
   gnmi.Path path = 1;
@@ -29,5 +28,7 @@ message Value {
   // Indicate target has sent all values associated with the subscription
   // at least once.
   bool sync_response = 4;
-}
 
+  // fatal error happened.
+  string fatal = 5;
+}
