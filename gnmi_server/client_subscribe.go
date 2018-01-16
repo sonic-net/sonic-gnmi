@@ -77,6 +77,8 @@ func (c *Client) String() string {
 // is closed or the schedule completes. For Poll queries the Run will block
 // internally after sync until a Poll request is made to the server.
 func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
+	defer log.V(1).Infof("Client %s shutdown", c)
+
 	if stream == nil {
 		return grpc.Errorf(codes.FailedPrecondition, "cannot start client: stream is nil")
 	}
@@ -138,7 +140,6 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	c.Close()
 	// Wait until all child go routines exited
 	c.w.Wait()
-	log.V(1).Infof("Client %s shutdown", c)
 	return grpc.Errorf(codes.InvalidArgument, "%s", err)
 }
 

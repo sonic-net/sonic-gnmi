@@ -78,7 +78,6 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 
 // Serve will start the Server serving and block until closed.
 func (srv *Server) Serve() error {
-	defer deleteDBConnector()
 	s := srv.s
 	if s == nil {
 		return fmt.Errorf("Serve() failed: not initialized")
@@ -198,7 +197,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	index := 0
 	log.V(5).Infof("GetRequest path: %v", pathS2G)
 	for tblPath, _ := range pathS2G {
-		val, err := tableData2TypedValue_redis(&tblPath)
+		val, err := tableData2TypedValue_redis(&tblPath, false, nil)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, err.Error())
 		}

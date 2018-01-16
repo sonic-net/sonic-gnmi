@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
 	log "github.com/golang/glog"
 
-	swsscommon "github.com/Azure/sonic-swss-common"
 	"github.com/go-redis/redis"
 	spb "github.com/jipanyang/sonic-telemetry/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -17,8 +18,12 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-var target2SwssDb = make(map[string]swsscommon.DBConnector)
-var dbTable2SwssTable = make(map[dbTable]swsscommon.Table)
+const (
+	// indentString represents the default indentation string used for
+	// JSON. Two spaces are used here.
+	indentString       string = "  "
+	default_UNIXSOCKET string = "/var/run/redis/redis.sock"
+)
 
 var target2RedisDb = make(map[string]*redis.Client)
 
@@ -56,14 +61,10 @@ func getTableKeySeparator(target string) (string, error) {
 func createDBConnector() {
 	for dbName, dbn := range spb.Target_value {
 		if dbName != "OTHERS" {
-			// DB connector for swss-common operations
-			swssDb := swsscommon.NewDBConnector(int(dbn), swsscommon.DBConnectorDEFAULT_UNIXSOCKET, uint(0))
-			target2SwssDb[dbName] = swssDb
-
 			// DB connector for direct redis operation
 			redisDb := redis.NewClient(&redis.Options{
 				Network:     "unix",
-				Addr:        swsscommon.DBConnectorDEFAULT_UNIXSOCKET,
+				Addr:        default_UNIXSOCKET,
 				Password:    "", // no password set
 				DB:          int(dbn),
 				DialTimeout: 0,
@@ -71,35 +72,6 @@ func createDBConnector() {
 			target2RedisDb[dbName] = redisDb
 		}
 	}
-}
-
-func deleteDBConnector() {
-	for _, db := range target2SwssDb {
-		swsscommon.DeleteDBConnector(db)
-	}
-}
-
-func getSwssDBConnector(target string) (db swsscommon.DBConnector, err error) {
-	db, ok := target2SwssDb[target]
-	if !ok {
-		return nil, fmt.Errorf("Failed to find db connector for %s", target)
-	}
-	return db, nil
-}
-
-func getSwssTable(tblPath *tablePath) swsscommon.Table {
-	db, _ := getSwssDBConnector(tblPath.dbName)
-	dbt := dbTable{
-		dbName:    tblPath.dbName,
-		tableName: tblPath.tableName,
-	}
-
-	table, ok := dbTable2SwssTable[dbt]
-	if !ok {
-		table = swsscommon.NewTable(db, tblPath.tableName, tblPath.delimitor)
-		dbTable2SwssTable[dbt] = table
-	}
-	return table
 }
 
 // Populate table path in DB from gnmi path
@@ -110,9 +82,9 @@ func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[
 	var tblPath tablePath
 
 	// Verify it is a valid db name
-	_, err := getSwssDBConnector(target)
-	if err != nil {
-		return err
+	_, ok := target2RedisDb[target]
+	if !ok {
+		return fmt.Errorf("Invalid target name %v", target)
 	}
 
 	fullPath := path
@@ -172,6 +144,7 @@ func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[
 		key := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
 		n, _ := redisDb.Exists(key).Result()
 		if n != 1 {
+			log.V(2).Infof("No valid entry found on %v", dbPath)
 			return fmt.Errorf("No valid entry found on %v", dbPath)
 		}
 	}
@@ -197,7 +170,7 @@ func setClientSubscribeTarget(c *Client) error {
 		return grpc.Errorf(codes.Unimplemented, "Unsupported target %s for %s", c.target, c)
 	}
 	if c.target != "" {
-		if _, ok := target2SwssDb[c.target]; !ok {
+		if _, ok := target2RedisDb[c.target]; !ok {
 			log.V(1).Infof("Invalid target %s for %s", c.target, c)
 			return grpc.Errorf(codes.InvalidArgument, "Invalid target %s for %s", c.target, c)
 		}
@@ -232,36 +205,6 @@ func (c *Client) populateDbPathSubscrition(sublist *gnmipb.SubscriptionList) err
 }
 
 // makeJSON renders the database Key op value_pairs to map[string]interface{} for JSON marshall.
-func makeJSON(mpv *map[string]interface{}, key *string, op *string, vpsr swsscommon.FieldValuePairs) error {
-	if key == nil && op == nil {
-		for n := vpsr.Size() - 1; n >= 0; n-- {
-			fieldpair := vpsr.Get(int(n))
-			(*mpv)[fieldpair.GetFirst()] = fieldpair.GetSecond()
-		}
-		return nil
-	}
-
-	fp := map[string]interface{}{}
-
-	for n := vpsr.Size() - 1; n >= 0; n-- {
-		fieldpair := vpsr.Get(int(n))
-		fp[fieldpair.GetFirst()] = fieldpair.GetSecond()
-	}
-
-	if op == nil {
-		(*mpv)[*key] = fp
-	} else {
-		// Also have operation layer
-		of := map[string]interface{}{}
-
-		of[*op] = fp
-		(*mpv)[*key] = of
-	}
-
-	return nil
-}
-
-// makeJSON renders the database Key op value_pairs to map[string]interface{} for JSON marshall.
 func makeJSON_redis(msi *map[string]interface{}, key *string, op *string, mfv map[string]string) error {
 	if key == nil && op == nil {
 		for f, v := range mfv {
@@ -275,7 +218,9 @@ func makeJSON_redis(msi *map[string]interface{}, key *string, op *string, mfv ma
 		fp[f] = v
 	}
 
-	if op == nil {
+	if key == nil {
+		(*msi)[*op] = fp
+	} else if op == nil {
 		(*msi)[*key] = fp
 	} else {
 		// Also have operation layer
@@ -286,12 +231,6 @@ func makeJSON_redis(msi *map[string]interface{}, key *string, op *string, mfv ma
 	}
 	return nil
 }
-
-const (
-	// indentString represents the default indentation string used for
-	// JSON. Two spaces are used here.
-	indentString string = "  "
-)
 
 // emitJSON marshalls map[string]interface{} to JSON byte stream.
 func emitJSON(v *map[string]interface{}) ([]byte, error) {
@@ -305,7 +244,7 @@ func emitJSON(v *map[string]interface{}) ([]byte, error) {
 	return j, nil
 }
 
-func tableData2TypedValue_redis(tblPath *tablePath) (*gnmipb.TypedValue, error) {
+func tableData2TypedValue_redis(tblPath *tablePath, useKey bool, op *string) (*gnmipb.TypedValue, error) {
 	redisDb := target2RedisDb[tblPath.dbName]
 
 	// table path includes table, key and field
@@ -354,11 +293,11 @@ func tableData2TypedValue_redis(tblPath *tablePath) (*gnmipb.TypedValue, error) 
 			return nil, err
 		}
 
-		if tblPath.tableKey != "" || tblPath.tableName == dbkey {
-			err = makeJSON_redis(&msi, nil, nil, fv)
+		if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
+			err = makeJSON_redis(&msi, nil, op, fv)
 		} else {
 			key := dbkey[len(tblPath.tableName+tblPath.delimitor):]
-			err = makeJSON_redis(&msi, &key, nil, fv)
+			err = makeJSON_redis(&msi, &key, op, fv)
 		}
 		if err != nil {
 			log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
@@ -379,85 +318,14 @@ func tableData2TypedValue_redis(tblPath *tablePath) (*gnmipb.TypedValue, error) 
 
 }
 
-/*
-// Fetch data from the db table path and marshall it into gnmi typed value
-func tableData2TypedValue(tblPath *tablePath) (*gnmipb.TypedValue, error) {
-	dbkeys := []string{}
-
-	log.V(5).Infof("tablePath %v", *tblPath)
-
-	if tblPath.tableKey == "" {
-		// tables in COUNTERS_DB other than COUNTERS table doesn't have keys
-		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
-			dbkeys = append(dbkeys, tblPath.tableKey)
-		} else {
-			keys := swsscommon.NewVectorString()
-			defer swsscommon.DeleteVectorString(keys)
-
-			// Poll all keys in table
-			table := getSwssTable(tblPath)
-			table.GetKeys(keys)
-			for i := 0; i < int(keys.Size()); i++ {
-				dbkeys = append(dbkeys, keys.Get(i))
-			}
-		}
-		log.V(5).Infof("dbkeys len: %v", len(dbkeys))
-	} else if tblPath.field == "" {
-		// Poll specific key in table.
-		dbkeys = append(dbkeys, tblPath.tableKey)
-	} else {
-		// run redis get directly for field value
-		redisDb := target2RedisDb[tblPath.dbName]
-		key := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
-		val, err := redisDb.HGet(key, tblPath.field).Result()
-		if err != nil {
-			log.V(1).Infof("redis HGet failed for %v", tblPath)
-			return nil, err
-		}
-		return &gnmipb.TypedValue{
-			Value: &gnmipb.TypedValue_StringVal{
-				StringVal: val,
-			}}, nil
-	}
-
-	mpv := make(map[string]interface{})
-
-	for idx, dbkey := range dbkeys {
-		vpsr := swsscommon.NewFieldValuePairs()
-		defer swsscommon.DeleteFieldValuePairs(vpsr)
-
-		table := getSwssTable(tblPath)
-		ret := table.Get(dbkey, vpsr)
-		if ret != true {
-			// TODO: Key might gets deleted
-			log.V(1).Infof("%v table get failed", dbkey)
-			continue
-		}
-
-		var err error
-		if tblPath.tableKey != "" {
-			err = makeJSON(&mpv, nil, nil, vpsr)
-		} else {
-			err = makeJSON(&mpv, &dbkey, nil, vpsr)
-		}
-		if err != nil {
-			log.V(2).Infof("makeJSON err %s for vpsr %v", err, vpsr)
-			return nil, err
-		}
-		log.V(5).Infof("Added idex %v vpsr #%v ", idx, vpsr)
-	}
-
-	jv, err := emitJSON(&mpv)
-	if err != nil {
-		log.V(2).Infof("emitJSON err %s for  %v", err, mpv)
-		return nil, fmt.Errorf("emitJSON err %s for  %v", err, mpv)
-	}
-	return &gnmipb.TypedValue{
-		Value: &gnmipb.TypedValue_JsonIetfVal{
-			JsonIetfVal: jv,
-		}}, nil
+func enqueFatalMsg(c *Client, msg string) {
+	c.q.Put(Value{
+		&spb.Value{
+			Timestamp: time.Now().UnixNano(),
+			Fatal:     msg,
+		},
+	})
 }
-*/
 
 // for subscribe request with granularity of table field, the value is fetched periodically.
 // Upon value change, it will be put to queue for furhter notification
@@ -488,12 +356,7 @@ func dbFieldSubscribe(tblPath tablePath, c *Client) {
 			}
 			if err != nil {
 				log.V(1).Infof(" redis HGet error on %v with key %v", tblPath.field, key)
-				c.q.Put(Value{
-					&spb.Value{
-						Timestamp: time.Now().UnixNano(),
-						Fatal:     fmt.Sprintf(" redis HGet error on %v with key %v", tblPath.field, key),
-					},
-				})
+				enqueFatalMsg(c, fmt.Sprintf(" redis HGet error on %v with key %v", tblPath.field, key))
 				return
 			}
 			if newVal != val {
@@ -520,49 +383,156 @@ func dbFieldSubscribe(tblPath tablePath, c *Client) {
 
 }
 
-// TODO:  Upon error, inform creator of this routine
-func subscribeDb(c *Client) {
-	var sstables []*swsscommon.SubscriberStateTable
+func dbTableKeySubscribe(tblPath tablePath, c *Client) {
 	c.w.Add(1)
 	defer c.w.Done()
 
-	// skipping error check here for it has been done in setClientSubscribeTarget().
-	db, _ := getSwssDBConnector(c.target)
-	sel := swsscommon.NewSelect()
-	defer swsscommon.DeleteSelect(sel)
+	redisDb := target2RedisDb[tblPath.dbName]
 
-	sst2GnmiPath := map[*swsscommon.SubscriberStateTable]*gnmipb.Path{}
-	// TODO: verify table name
-	for table, gnmiPath := range c.pathS2G {
-		if table.field != "" {
-			go dbFieldSubscribe(table, c)
-			continue
-		}
-		if table.tableKey != "" {
+	// Subscribe to keyspace notification
+	pattern := "__keyspace@" + strconv.Itoa(int(spb.Target_value[tblPath.dbName])) + "__:"
+	pattern += tblPath.tableName
+	if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
+		// tables in COUNTERS_DB other than COUNTERS don't have keys, skip delimitor
+	} else {
+		pattern += tblPath.delimitor
+	}
 
-			continue
-		}
-		sstable := swsscommon.NewSubscriberStateTable(db, table.tableName)
-		defer swsscommon.DeleteSubscriberStateTable(sstable)
-		sel.AddSelectable(sstable.SwigGetSelectable())
-		sstables = append(sstables, &sstable)
-		sst2GnmiPath[&sstable] = gnmiPath
+	var prefixLen int
+	if tblPath.tableKey != "" {
+		pattern += tblPath.tableKey
+		prefixLen = len(pattern)
+	} else {
+		prefixLen = len(pattern)
+		pattern += "*"
+	}
+
+	pubsub := redisDb.PSubscribe(pattern)
+	defer pubsub.Close()
+
+	msgi, err := pubsub.ReceiveTimeout(time.Second)
+	if err != nil {
+		enqueFatalMsg(c, fmt.Sprintf("psubscribe to %s failed for %v", pattern, tblPath))
+		return
+	}
+	subscr := msgi.(*redis.Subscription)
+	if subscr.Channel != pattern {
+		enqueFatalMsg(c, fmt.Sprintf("psubscribe to %s failed for %v", pattern, tblPath))
+		return
+	}
+	log.V(3).Infof("Psubscribe succeeded for %v: %v", tblPath, subscr)
+
+	val, err := tableData2TypedValue_redis(&tblPath, false, nil)
+	if err != nil {
+		enqueFatalMsg(c, err.Error())
+		return
+	}
+	var spbv *spb.Value
+	spbv = &spb.Value{
+		Path:      c.pathS2G[tblPath],
+		Timestamp: time.Now().UnixNano(),
+		Val:       val,
+	}
+	if err = c.q.Put(Value{spbv}); err != nil {
+		log.V(1).Infof("Queue error:  %v", err)
+		return
 	}
 
 	for {
-		fd := []int{0}
-		var timeout uint = 200
-		var ret int
 		select {
 		default:
-			ret = sel.Xselect(fd, timeout)
+			msgi, err := pubsub.ReceiveTimeout(time.Millisecond * 1000)
+			if err != nil {
+				neterr, ok := err.(net.Error)
+				if ok {
+					if neterr.Timeout() == true {
+						continue
+					}
+				}
+				log.V(1).Infof("pubsub.ReceiveTimeout err %v", err)
+				continue
+			}
+
+			subscr := msgi.(*redis.Message)
+			if subscr.Payload == "del" || subscr.Payload == "hdel" {
+				msi := map[string]interface{}{}
+
+				if tblPath.tableKey != "" {
+					//msi["DEL"] = ""
+				} else {
+					fp := map[string]interface{}{}
+					//fp["DEL"] = ""
+					if len(subscr.Channel) < prefixLen {
+						log.V(1).Infof("Invalid psubscribe channel notification %v for pattern %v", subscr.Channel, pattern)
+						continue
+					}
+					key := subscr.Channel[prefixLen:]
+					msi[key] = fp
+				}
+
+				jv, _ := emitJSON(&msi)
+				spbv = &spb.Value{
+					Path:      c.pathS2G[tblPath],
+					Timestamp: time.Now().UnixNano(),
+					Val: &gnmipb.TypedValue{
+						Value: &gnmipb.TypedValue_JsonIetfVal{
+							JsonIetfVal: jv,
+						},
+					},
+				}
+			} else if subscr.Payload == "hset" {
+				var val *gnmipb.TypedValue
+				//op := "SET"
+				if tblPath.tableKey != "" {
+					val, err = tableData2TypedValue_redis(&tblPath, false, nil)
+				} else {
+					tblPath := tblPath
+					if len(subscr.Channel) < prefixLen {
+						log.V(1).Infof("Invalid psubscribe channel notification %v for pattern %v", subscr.Channel, pattern)
+						continue
+					}
+					tblPath.tableKey = subscr.Channel[prefixLen:]
+					val, err = tableData2TypedValue_redis(&tblPath, true, nil)
+				}
+				spbv = &spb.Value{
+					Path:      c.pathS2G[tblPath],
+					Timestamp: time.Now().UnixNano(),
+					Val:       val,
+				}
+			} else {
+				log.V(1).Infof("Invalid psubscribe payload notification:  %v", subscr.Payload)
+				continue
+			}
+			log.V(5).Infof("dbTableKeySubscribe enque: %v", spbv)
+			if err = c.q.Put(Value{spbv}); err != nil {
+				log.V(1).Infof("Queue error:  %v", err)
+				return
+			}
 		case <-c.stop:
 			log.V(1).Infof("Stopping subscribeDb routine for Client %s ", c)
 			return
 		}
+	}
+}
 
-		if ret == swsscommon.SelectTIMEOUT {
-			log.V(6).Infof("SelectTIMEOUT")
+// TODO:  Upon error, inform creator of this routine
+func subscribeDb(c *Client) {
+	c.w.Add(1)
+	defer c.w.Done()
+
+	for table, _ := range c.pathS2G {
+		if table.field != "" {
+			go dbFieldSubscribe(table, c)
+			continue
+		}
+		go dbTableKeySubscribe(table, c)
+		continue
+	}
+
+	for {
+		select {
+		default:
+			time.Sleep(time.Second)
 			if c.synced == true {
 				continue
 			}
@@ -576,54 +546,9 @@ func subscribeDb(c *Client) {
 
 			log.V(1).Infof("Client %s synced", c)
 			c.synced = true
-			continue
-		}
-		if ret != swsscommon.SelectOBJECT {
-			log.V(1).Infof("Error: Client %s Expecting : %v", c, swsscommon.SelectOBJECT)
-			continue
-		}
-
-		for _, sstable := range sstables {
-			if sel.IsSelected((*sstable).SwigGetSelectable()) {
-				vpsr := swsscommon.NewFieldValuePairs()
-				defer swsscommon.DeleteFieldValuePairs(vpsr)
-
-				ko := swsscommon.NewStringPair()
-				defer swsscommon.DeleteStringPair(ko)
-
-				(*sstable).Pop(ko, vpsr)
-
-				// check err
-				v := map[string]interface{}{}
-				key := ko.GetFirst()
-				op := ko.GetSecond()
-
-				err := makeJSON(&v, &key, &op, vpsr)
-				if err != nil {
-					log.V(2).Infof("makeJSON err %s for  %v %v %v", err, key, op, vpsr)
-				}
-
-				jv, err := emitJSON(&v)
-				if err != nil {
-					log.V(2).Infof("emitJSON err %s for  %v", err, v)
-				}
-
-				spbv := &spb.Value{
-					Path:      sst2GnmiPath[sstable],
-					Timestamp: time.Now().UnixNano(),
-					Val: &gnmipb.TypedValue{
-						Value: &gnmipb.TypedValue_JsonIetfVal{
-							JsonIetfVal: jv,
-						},
-					},
-				}
-
-				if err = c.q.Put(Value{spbv}); err != nil {
-					log.V(1).Infof("Queue error:  %v", err, v)
-					return
-				}
-				log.V(5).Infof("Added spbv #%v", spbv)
-			}
+		case <-c.stop:
+			log.V(1).Infof("Stopping subscribeDb routine for Client %s ", c)
+			return
 		}
 	}
 	log.V(2).Infof("Exiting subscribeDb for %v", c)
@@ -641,7 +566,7 @@ func pollDb(c *Client) {
 		}
 
 		for tblPath, gnmiPath := range c.pathS2G {
-			val, err := tableData2TypedValue_redis(&tblPath)
+			val, err := tableData2TypedValue_redis(&tblPath, false, nil)
 			if err != nil {
 				return
 			}
