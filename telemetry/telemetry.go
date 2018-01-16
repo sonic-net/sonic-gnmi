@@ -19,7 +19,7 @@ var (
 	caCert            = flag.String("ca_crt", "", "CA certificate for client certificate validation. Optional.")
 	serverCert        = flag.String("server_crt", "", "TLS server certificate")
 	serverKey         = flag.String("server_key", "", "TLS server private key")
-	allowNoClientCert = flag.Bool("allow_no_client_auth", false, "When set, fake_server will request but not require a client certificate.")
+	allowNoClientCert = flag.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate.")
 )
 
 func main() {
@@ -32,8 +32,8 @@ func main() {
 	case *serverKey == "":
 		log.Errorf("serverKey must be set.")
 		return
-	case *port < 0:
-		log.Errorf("port must be >= 0.")
+	case *port <= 0:
+		log.Errorf("port must be > 0.")
 		return
 	}
 

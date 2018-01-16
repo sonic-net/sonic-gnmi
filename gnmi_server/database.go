@@ -376,8 +376,8 @@ func dbFieldSubscribe(tblPath tablePath, c *Client) {
 					return
 				}
 			}
-			// check again after 1000 millisends
-			time.Sleep(time.Millisecond * 1000)
+			// check again after 500 millisends
+			time.Sleep(time.Millisecond * 500)
 		}
 	}
 
