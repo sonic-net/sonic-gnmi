@@ -69,30 +69,33 @@ The binary built from this repo is named as telemetry. To start gRPC data stream
 root@ASW:~# ./telemetry --help
 Usage of ./telemetry:
   -allow_no_client_auth
-    	When set, telemetry server will request but not require a client certificate.
+      When set, telemetry server will request but not require a client certificate.
   -alsologtostderr
-    	log to standard error as well as files
+      log to standard error as well as files
   -ca_crt string
-    	CA certificate for client certificate validation. Optional.
+      CA certificate for client certificate validation. Optional.
+  -insecure
+      Skip providing TLS cert and key, for testing only!
   -log_backtrace_at value
-    	when logging hits line file:N, emit a stack trace
+      when logging hits line file:N, emit a stack trace
   -log_dir string
-    	If non-empty, write log files in this directory
+      If non-empty, write log files in this directory
   -logtostderr
-    	log to standard error instead of files
+      log to standard error instead of files
   -port int
-    	port to listen on (default -1)
+      port to listen on (default -1)
   -server_crt string
-    	TLS server certificate
+      TLS server certificate
   -server_key string
-    	TLS server private key
+      TLS server private key
   -stderrthreshold value
-    	logs at or above this threshold go to stderr
+      logs at or above this threshold go to stderr
   -v value
-    	log level for V logs
+      log level for V logs
   -vmodule value
-    	comma-separated list of pattern=N settings for file-filtered logging
+      comma-separated list of pattern=N settings for file-filtered logging
 ```
+
 ```
 root@ASW:~# ./telemetry --port 8080 --server_crt /etc/tls/publickey.cer --server_key /etc/tls/private.key --allow_no_client_auth --logtostderr
 ```
