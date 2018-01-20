@@ -102,10 +102,11 @@ func (srv *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 
 	pr, ok := peer.FromContext(ctx)
 	if !ok {
-		return fmt.Errorf("failed to get peer from ctx")
+		return grpc.Errorf(codes.InvalidArgument, "failed to get peer from ctx")
+		//return fmt.Errorf("failed to get peer from ctx")
 	}
 	if pr.Addr == net.Addr(nil) {
-		return fmt.Errorf("failed to get peer address")
+		return grpc.Errorf(codes.InvalidArgument, "failed to get peer address")
 	}
 
 	/* TODO: authorize the user

@@ -252,7 +252,7 @@ func tableData2TypedValue_redis(tblPath *tablePath, useKey bool, op *string) (*g
 		key := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
 		val, err := redisDb.HGet(key, tblPath.field).Result()
 		if err != nil {
-			log.V(1).Infof("redis HGet failed for %v", tblPath)
+			log.V(2).Infof("redis HGet failed for %v", tblPath)
 			return nil, err
 		}
 		return &gnmipb.TypedValue{
@@ -275,7 +275,7 @@ func tableData2TypedValue_redis(tblPath *tablePath, useKey bool, op *string) (*g
 		}
 		dbkeys, err = redisDb.Keys(pattern).Result()
 		if err != nil {
-			log.V(1).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
+			log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
 			return nil, err
 		}
 	} else {
@@ -289,7 +289,7 @@ func tableData2TypedValue_redis(tblPath *tablePath, useKey bool, op *string) (*g
 	for idx, dbkey := range dbkeys {
 		fv, err = redisDb.HGetAll(dbkey).Result()
 		if err != nil {
-			log.V(1).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
+			log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
 			return nil, err
 		}
 
@@ -345,7 +345,7 @@ func dbFieldSubscribe(tblPath tablePath, c *Client) {
 		default:
 			newVal, err := redisDb.HGet(key, tblPath.field).Result()
 			if err == redis.Nil {
-				log.V(1).Infof("%v doesn't exist with key %v in db", tblPath.field, key)
+				log.V(2).Infof("%v doesn't exist with key %v in db", tblPath.field, key)
 				c.q.Put(Value{
 					&spb.Value{
 						Timestamp: time.Now().UnixNano(),
@@ -412,15 +412,17 @@ func dbTableKeySubscribe(tblPath tablePath, c *Client) {
 
 	msgi, err := pubsub.ReceiveTimeout(time.Second)
 	if err != nil {
+		log.V(1).Infof("psubscribe to %s failed for %v", pattern, tblPath)
 		enqueFatalMsg(c, fmt.Sprintf("psubscribe to %s failed for %v", pattern, tblPath))
 		return
 	}
 	subscr := msgi.(*redis.Subscription)
 	if subscr.Channel != pattern {
+		log.V(1).Infof("psubscribe to %s failed for %v", pattern, tblPath)
 		enqueFatalMsg(c, fmt.Sprintf("psubscribe to %s failed for %v", pattern, tblPath))
 		return
 	}
-	log.V(3).Infof("Psubscribe succeeded for %v: %v", tblPath, subscr)
+	log.V(2).Infof("Psubscribe succeeded for %v: %v", tblPath, subscr)
 
 	val, err := tableData2TypedValue_redis(&tblPath, false, nil)
 	if err != nil {
@@ -449,7 +451,7 @@ func dbTableKeySubscribe(tblPath tablePath, c *Client) {
 						continue
 					}
 				}
-				log.V(1).Infof("pubsub.ReceiveTimeout err %v", err)
+				log.V(2).Infof("pubsub.ReceiveTimeout err %v", err)
 				continue
 			}
 
@@ -463,7 +465,7 @@ func dbTableKeySubscribe(tblPath tablePath, c *Client) {
 					fp := map[string]interface{}{}
 					//fp["DEL"] = ""
 					if len(subscr.Channel) < prefixLen {
-						log.V(1).Infof("Invalid psubscribe channel notification %v for pattern %v", subscr.Channel, pattern)
+						log.V(2).Infof("Invalid psubscribe channel notification %v for pattern %v", subscr.Channel, pattern)
 						continue
 					}
 					key := subscr.Channel[prefixLen:]
@@ -488,7 +490,7 @@ func dbTableKeySubscribe(tblPath tablePath, c *Client) {
 				} else {
 					tblPath := tblPath
 					if len(subscr.Channel) < prefixLen {
-						log.V(1).Infof("Invalid psubscribe channel notification %v for pattern %v", subscr.Channel, pattern)
+						log.V(2).Infof("Invalid psubscribe channel notification %v for pattern %v", subscr.Channel, pattern)
 						continue
 					}
 					tblPath.tableKey = subscr.Channel[prefixLen:]
@@ -500,7 +502,7 @@ func dbTableKeySubscribe(tblPath tablePath, c *Client) {
 					Val:       val,
 				}
 			} else {
-				log.V(1).Infof("Invalid psubscribe payload notification:  %v", subscr.Payload)
+				log.V(2).Infof("Invalid psubscribe payload notification:  %v", subscr.Payload)
 				continue
 			}
 			log.V(5).Infof("dbTableKeySubscribe enque: %v", spbv)
@@ -544,7 +546,7 @@ func subscribeDb(c *Client) {
 				},
 			})
 
-			log.V(1).Infof("Client %s synced", c)
+			log.V(2).Infof("Client %s synced", c)
 			c.synced = true
 		case <-c.stop:
 			log.V(1).Infof("Stopping subscribeDb routine for Client %s ", c)
@@ -554,7 +556,7 @@ func subscribeDb(c *Client) {
 	log.V(2).Infof("Exiting subscribeDb for %v", c)
 }
 
-// TODO:  Upon error, inform creator of this routine
+// Read db upon poll signal
 func pollDb(c *Client) {
 	c.w.Add(1)
 	defer c.w.Done()
