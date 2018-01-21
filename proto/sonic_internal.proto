@@ -1,4 +1,4 @@
-// sonic_internal.proto describes the message format for streaming service provided by SONiC
+// sonic_internal.proto describes the message format used internally by SONiC
 syntax = "proto3";
 
 import "github.com/openconfig/gnmi/proto/gnmi/gnmi.proto";

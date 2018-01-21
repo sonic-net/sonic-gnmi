@@ -1,4 +1,4 @@
-// sonic.proto describes the message format for streaming service provided by SONiC
+// sonic_stat.proto describes the stats name used as part of path for gNMI message
 syntax = "proto3";
 
 import "github.com/openconfig/gnmi/proto/gnmi/gnmi.proto";

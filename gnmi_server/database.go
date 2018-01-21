@@ -25,6 +25,10 @@ const (
 	default_UNIXSOCKET string = "/var/run/redis/redis.sock"
 )
 
+// Port name to oid map in COUNTERS table of COUNTERS_DB
+var countersPortNameMap = make(map[string]string)
+
+// redis client connected to each DB
 var target2RedisDb = make(map[string]*redis.Client)
 
 type tablePath struct {
@@ -74,15 +78,53 @@ func createDBConnector() {
 	}
 }
 
+// Get the mapping between objects in counters DB, Ex. port name to oid in "COUNTERS_PORT_NAME_MAP" table.
+// Aussuming static port name to oid map in COUNTERS table
+func getCountersMap(tableName string) (map[string]string, error) {
+	redisDb, _ := target2RedisDb["COUNTERS_DB"]
+	fv, err := redisDb.HGetAll(tableName).Result()
+	if err != nil {
+		log.V(2).Infof("redis HGetAll failed for COUNTERS_DB, tableName: %s", tableName)
+		return nil, err
+	}
+	log.V(6).Infof("tableName: %s, map %v", tableName, fv)
+	return fv, nil
+}
+
+// Do special table key remapping for some db entries.
+// Ex port name to oid in "COUNTERS_PORT_NAME_MAP" table of COUNTERS_DB
+func remapTableKey(dbName, tableName, keyName string) (string, error) {
+	if dbName != "COUNTERS_DB" {
+		return keyName, nil
+	}
+	if tableName != "COUNTERS" {
+		return keyName, nil
+	}
+
+	var err error
+	if len(countersPortNameMap) == 0 {
+		countersPortNameMap, err = getCountersMap("COUNTERS_PORT_NAME_MAP")
+		if err != nil {
+			return "", err
+		}
+	}
+	if mappedKey, ok := countersPortNameMap[keyName]; ok {
+		log.V(5).Infof("tableKey %s to be remapped to %s for %s %s ", keyName, mappedKey, dbName, tableName)
+		return mappedKey, nil
+	}
+	return keyName, nil
+}
+
 // Populate table path in DB from gnmi path
 // TODO: validate DB path
 func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[tablePath]*gnmipb.Path) error {
 	var buffer bytes.Buffer
 	var dbPath string
 	var tblPath tablePath
+	var mappedKey string
 
 	// Verify it is a valid db name
-	_, ok := target2RedisDb[target]
+	redisDb, ok := target2RedisDb[target]
 	if !ok {
 		return fmt.Errorf("Invalid target name %v", target)
 	}
@@ -113,14 +155,23 @@ func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[
 	// TODO: For counter table in COUNTERS_DB and FLEX_COUNTER_DB/PFC_WD_DB, remapping is needed
 	tblPath.tableName = stringSlice[0]
 
-	redisDb := target2RedisDb[tblPath.dbName]
+	if len(stringSlice) > 1 {
+		// Second slice is table key or first part of the table key
+		// Do name map if needed.
+		var err error
+		mappedKey, err = remapTableKey(tblPath.dbName, tblPath.tableName, stringSlice[1])
+		if err != nil {
+			return err
+		}
+	}
 	switch len(stringSlice) {
 	case 1:
 		tblPath.tableKey = ""
 	case 2:
-		tblPath.tableKey = stringSlice[1]
+		tblPath.tableKey = mappedKey
 	case 3:
-		tblPath.tableKey = stringSlice[1] + tblPath.delimitor + stringSlice[2]
+
+		tblPath.tableKey = mappedKey + tblPath.delimitor + stringSlice[2]
 		// verify whether this key exists
 		key := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
 		n, err := redisDb.Exists(key).Result()
@@ -129,11 +180,11 @@ func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[
 		}
 		// Looks like the third slice is not part of the key
 		if n != 1 {
-			tblPath.tableKey = stringSlice[1]
+			tblPath.tableKey = mappedKey
 			tblPath.field = stringSlice[2]
 		}
 	case 4:
-		tblPath.tableKey = stringSlice[1] + tblPath.delimitor + stringSlice[2]
+		tblPath.tableKey = mappedKey + tblPath.delimitor + stringSlice[2]
 		tblPath.field = stringSlice[3]
 	default:
 		log.V(2).Infof("Invalid db table Path %v", dbPath)
