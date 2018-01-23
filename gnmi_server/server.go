@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
-	spb "github.com/jipanyang/sonic-telemetry/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
@@ -40,8 +39,6 @@ type Config struct {
 	// Port for the Server to listen on. If 0 or unset the Server will pick a port
 	// for this Server.
 	Port int64
-	// Per RPC credentials for the Server. If not set no per RPC auth will be used.
-	Credentials *spb.Credentials
 	// TLS cert for use on the Server. If not set the transport will not be TLS.
 	Cert []byte
 }
@@ -128,6 +125,7 @@ func (srv *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	delete(srv.clients, c.String())
 	srv.cMu.Unlock()
 
+	log.Flush()
 	return err
 }
 

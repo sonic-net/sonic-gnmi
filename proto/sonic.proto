@@ -5,6 +5,7 @@ import "github.com/openconfig/gnmi/proto/gnmi/gnmi.proto";
 
 package gnmi.sonic;
 
+// target - the name of the target for which the path is a member. Only set in prefix for a path.
 enum Target {
   option allow_alias = true;
   APPL_DB         = 0;
@@ -18,9 +19,4 @@ enum Target {
   STATE_DB        = 6;
   // For none-DB data
   OTHERS          = 100;
-}
-
-message Credentials {
-  string username =1;
-  string password = 2;
 }

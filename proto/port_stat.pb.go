@@ -10,7 +10,6 @@ It is generated from these files:
 	sonic_internal.proto
 
 It has these top-level messages:
-	Credentials
 	Value
 */
 package gnmi_sonic

@@ -119,4 +119,5 @@ n6Mu9QKR+diUnqGtENDrD0NDJv8pyT1qXa0lXwF/Nw==
 
 	log.V(1).Infof("Starting RPC server on address: %s", s.Address())
 	s.Serve() // blocks until close
+	log.Flush()
 }
