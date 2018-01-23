@@ -150,7 +150,7 @@ Usage of ./gnmi_get:
 ```
 
 target in gNMI path prefix is set as "COUNTERS_DB", table name "COUNTERS_PORT_NAME_MAP" is set as value of path.
-The example below shows how to get the interface name to object oid mapping.
+The example below shows how to get the interface name to object oid mapping. It can be used to find all Ethernet interfaces available on this system.
 
 ```
 jipan@6068794801d2:/sonic/go/src/github.com/google/gnxi/gnmi_get$ ./gnmi_get -xpath_target COUNTERS_DB -xpath COUNTERS_PORT_NAME_MAP -target_addr 30.57.185.38:8080 -alsologtostderr -insecure true
@@ -184,9 +184,10 @@ notification: <
 >
 ```
 
-The oid of Ethernet9 is oid:0x100000000000b, here it is used to get the real counters for the Ethernet9. Later we'll use the same path "COUNTERS/oid:0x100000000000b" in SubscribeRequest.
+Let's fetch all counters under Ethernet9:
+
 ```
-jipan@6068794801d2:/sonic/go/src/github.com/google/gnxi/gnmi_get$ ./gnmi_get -xpath_target COUNTERS_DB -xpath COUNTERS/oid:0x100000000000b -target_addr 30.57.185.38:8080 -alsologtostderr -insecure true
+jipan@6068794801d2:/sonic/go/src/github.com/google/gnxi/gnmi_get$ ./gnmi_get -xpath_target COUNTERS_DB -xpath COUNTERS/Ethernet9 -target_addr 30.57.185.38:8080 -alsologtostderr -insecure true
 == getRequest:
 prefix: <
   target: "COUNTERS_DB"
@@ -196,14 +197,14 @@ path: <
     name: "COUNTERS"
   >
   elem: <
-    name: "oid:0x100000000000b"
+    name: "Ethernet9"
   >
 >
 encoding: JSON_IETF
 
 == getResponse:
 notification: <
-  timestamp: 1516153528223062096
+  timestamp: 1516668828794942666
   prefix: <
     target: "COUNTERS_DB"
   >
@@ -213,7 +214,7 @@ notification: <
         name: "COUNTERS"
       >
       elem: <
-        name: "oid:0x100000000000b"
+        name: "Ethernet9"
       >
     >
     val: <
@@ -221,23 +222,77 @@ notification: <
     >
   >
 >
+
 ```
+
+Or just one specific counter "SAI_PORT_STAT_PFC_7_RX_PKTS":
+
+```
+jipan@6068794801d2:/sonic/go/src/github.com/google/gnxi/gnmi_get$ ./gnmi_get -xpath_target COUNTERS_DB -xpath COUNTERS/Ethernet9/SAI_PORT_STAT_PFC_7_RX_PKTS -target_addr 30.57.185.38:8080 -alsologtostderr -insecure true
+== getRequest:
+prefix: <
+  target: "COUNTERS_DB"
+>
+path: <
+  elem: <
+    name: "COUNTERS"
+  >
+  elem: <
+    name: "Ethernet9"
+  >
+  elem: <
+    name: "SAI_PORT_STAT_PFC_7_RX_PKTS"
+  >
+>
+encoding: JSON_IETF
+
+== getResponse:
+notification: <
+  timestamp: 1516669320434130423
+  prefix: <
+    target: "COUNTERS_DB"
+  >
+  update: <
+    path: <
+      elem: <
+        name: "COUNTERS"
+      >
+      elem: <
+        name: "Ethernet9"
+      >
+      elem: <
+        name: "SAI_PORT_STAT_PFC_7_RX_PKTS"
+      >
+    >
+    val: <
+      string_val: "0"
+    >
+  >
+>
+```
+
+It is also possible to specifify multiple xpath values. Here we get values for both SAI_PORT_STAT_PFC_7_RX_PKTS and SAI_PORT_STAT_PFC_1_RX_PKTS:
+```
+jipan@6068794801d2:/sonic/go/src/github.com/google/gnxi/gnmi_get$ ./gnmi_get -xpath_target COUNTERS_DB -xpath "COUNTERS/Ethernet9/SAI_PORT_STAT_PFC_7_RX_PKTS" -xpath "COUNTERS/Ethernet9/SAI_PORT_STAT_PFC_1_RX_PKTS" -target_addr 30.57.185.38:8080 -alsologtostderr -insecure true
+```
+
 ## SubscribeRequest
 ### Stream mode
 With stream mode of SubscribeRequest, SONiC will first send all data on the requested path to data collector, then stream data to collector upon any change on the path.
 
 [gnmi_cli](https://github.com/jipanyang/gnmi/tree/master/cmd/gnmi_cli) could be used to excersize gRPC SubscribeRequest here.
 
-Any time the PFC counter on queue 7 of Ethernet9 (which is identified with oid:0x100000000000b) "COUNTERS/oid:0x100000000000b/SAI_PORT_STAT_PFC_7_RX_PKTS" has change, the update is streamed to gnmi_cli collector.
+Any time the PFC counter on queue 7 of Ethernet9 "COUNTERS/Ethernet9/SAI_PORT_STAT_PFC_7_RX_PKTS" has change, the update is streamed to gnmi_cli collector.
+
 
 ```
-jipan@6068794801d2:/sonic/go/src/github.com/openconfig/gnmi/cmd/gnmi_cli$ ./gnmi_cli -client_types=gnmi -a 30.57.185.38:8080 -q COUNTERS/oid:0x100000000000b/SAI_PORT_STAT_PFC_7_RX_PKTS -logtostderr -insecure -qt s  -t COUNTERS_DB -v 0 -timestamp on
-sendQueryAndDisplay: GROUP 3 query.Queries: [[COUNTERS oid:0x100000000000b SAI_PORT_STAT_PFC_7_RX_PKTS]]
+jipan@6068794801d2:/sonic/go/src/github.com/openconfig/gnmi/cmd/gnmi_cli$ ./gnmi_cli --client_types=gnmi -a 30.57.185.38:8080 -q "COUNTERS/Ethernet9/SAI_PORT_STAT_PFC_7_RX_PKTS" -logtostderr -insecure -timestamp on -t COUNTERS_DB -v 0 -qt s
+sendQueryAndDisplay: GROUP 3 query.Queries: [[COUNTERS Ethernet9 SAI_PORT_STAT_PFC_7_RX_PKTS]]
 {
   "COUNTERS": {
-    "oid:0x100000000000b": {
+    "Ethernet9": {
       "SAI_PORT_STAT_PFC_7_RX_PKTS": {
-        "timestamp": "2018-01-17T02:03:40.420598699Z",
+        "timestamp": "2018-01-23T01:15:40.117234683Z",
         "value": "0"
       }
     }
@@ -245,9 +300,9 @@ sendQueryAndDisplay: GROUP 3 query.Queries: [[COUNTERS oid:0x100000000000b SAI_P
 }
 {
   "COUNTERS": {
-    "oid:0x100000000000b": {
+    "Ethernet9": {
       "SAI_PORT_STAT_PFC_7_RX_PKTS": {
-        "timestamp": "2018-01-17T02:03:55.425800193Z",
+        "timestamp": "2018-01-23T01:15:50.124350782Z",
         "value": "1"
       }
     }
@@ -259,13 +314,13 @@ sendQueryAndDisplay: GROUP 3 query.Queries: [[COUNTERS oid:0x100000000000b SAI_P
 With poll mode SubscribeRequest, collector poll the data path periodically. Example below shows the command line used and the corresponding output: ( -qt p -pi 10s) query type is polling and polling interval of 10s.
 
 ```
-jipan@6068794801d2:/sonic/go/src/github.com/openconfig/gnmi/cmd/gnmi_cli$ ./gnmi_cli -client_types=gnmi -a 30.57.185.38:8080 -q COUNTERS/oid:0x100000000000b/SAI_PORT_STAT_PFC_7_RX_PKTS -logtostderr -insecure -qt p -pi 10s  -t COUNTERS_DB -v 0 -timestamp on
-sendQueryAndDisplay: GROUP 2 query.Queries: [[COUNTERS oid:0x100000000000b SAI_PORT_STAT_PFC_7_RX_PKTS]]
+jipan@6068794801d2:/sonic/go/src/github.com/openconfig/gnmi/cmd/gnmi_cli$ ./gnmi_cli --client_types=gnmi -a 30.57.185.38:8080 -q "COUNTERS/Ethernet9/SAI_PORT_STAT_PFC_7_RX_PKTS" -logtostderr -insecure -timestamp on -t COUNTERS_DB -v 0 -qt p -pi 10s
+sendQueryAndDisplay: GROUP 2 query.Queries: [[COUNTERS Ethernet9 SAI_PORT_STAT_PFC_7_RX_PKTS]]
 {
   "COUNTERS": {
-    "oid:0x100000000000b": {
+    "Ethernet9": {
       "SAI_PORT_STAT_PFC_7_RX_PKTS": {
-        "timestamp": "2018-01-17-02:08:57.637157422",
+        "timestamp": "2018-01-23-01:16:59.522832875",
         "value": "0"
       }
     }
@@ -273,19 +328,9 @@ sendQueryAndDisplay: GROUP 2 query.Queries: [[COUNTERS oid:0x100000000000b SAI_P
 }
 {
   "COUNTERS": {
-    "oid:0x100000000000b": {
+    "Ethernet9": {
       "SAI_PORT_STAT_PFC_7_RX_PKTS": {
-        "timestamp": "2018-01-17-02:09:07.638710016",
-        "value": "0"
-      }
-    }
-  }
-}
-{
-  "COUNTERS": {
-    "oid:0x100000000000b": {
-      "SAI_PORT_STAT_PFC_7_RX_PKTS": {
-        "timestamp": "2018-01-17-02:09:17.640400999",
+        "timestamp": "2018-01-23-01:17:09.524504884",
         "value": "0"
       }
     }
