@@ -285,9 +285,8 @@ func makeJSON_redis(msi *map[string]interface{}, key *string, op *string, mfv ma
 
 // emitJSON marshalls map[string]interface{} to JSON byte stream.
 func emitJSON(v *map[string]interface{}) ([]byte, error) {
-
-	j, err := json.MarshalIndent(*v, "", indentString)
-
+	//j, err := json.MarshalIndent(*v, "", indentString)
+	j, err := json.Marshal(*v)
 	if err != nil {
 		return nil, fmt.Errorf("JSON marshalling error: %v", err)
 	}
