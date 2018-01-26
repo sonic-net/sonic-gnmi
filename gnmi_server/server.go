@@ -39,8 +39,6 @@ type Config struct {
 	// Port for the Server to listen on. If 0 or unset the Server will pick a port
 	// for this Server.
 	Port int64
-	// TLS cert for use on the Server. If not set the transport will not be TLS.
-	Cert []byte
 }
 
 // New returns an initialized Server.

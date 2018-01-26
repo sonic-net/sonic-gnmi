@@ -116,7 +116,7 @@ func remapTableKey(dbName, tableName, keyName string) (string, error) {
 }
 
 // Populate table path in DB from gnmi path
-// TODO: validate DB path
+// TODO: Do more validation on DB path
 func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[tablePath]*gnmipb.Path) error {
 	var buffer bytes.Buffer
 	var dbPath string
@@ -152,7 +152,6 @@ func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[
 	tblPath.dbName = target
 	tblPath.delimitor = separator
 	stringSlice := strings.Split(dbPath, tblPath.delimitor)
-	// TODO: For counter table in COUNTERS_DB and FLEX_COUNTER_DB/PFC_WD_DB, remapping is needed
 	tblPath.tableName = stringSlice[0]
 
 	if len(stringSlice) > 1 {
@@ -567,7 +566,7 @@ func dbTableKeySubscribe(tblPath tablePath, c *Client) {
 	}
 }
 
-// TODO:  Upon error, inform creator of this routine
+// Entry point for stream mode of SubscribeRequest processing
 func subscribeDb(c *Client) {
 	c.w.Add(1)
 	defer c.w.Done()
