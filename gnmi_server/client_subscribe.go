@@ -265,7 +265,7 @@ func (c *Client) valToResp(val Value) (*gnmipb.SubscribeResponse, error) {
 			},
 		}, nil
 	default:
-		// In case the subscribe/poll routing encountered fatal error
+		// In case the subscribe/poll routines encountered fatal error
 		if fatal := val.GetFatal(); fatal != "" {
 			return nil, fmt.Errorf("%s", fatal)
 		}

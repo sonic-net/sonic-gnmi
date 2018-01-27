@@ -21,9 +21,12 @@ import (
 const (
 	// indentString represents the default indentation string used for
 	// JSON. Two spaces are used here.
-	indentString       string = "  "
-	default_UNIXSOCKET string = "/var/run/redis/redis.sock"
+	indentString                 string = "  "
+	default_UNIXSOCKET           string = "/var/run/redis/redis.sock"
+	default_REDIS_LOCAL_TCP_PORT string = "localhost:6379"
 )
+
+var useRedisLocalTcpPort bool = false
 
 // Port name to oid map in COUNTERS table of COUNTERS_DB
 var countersPortNameMap = make(map[string]string)
@@ -66,13 +69,25 @@ func createDBConnector() {
 	for dbName, dbn := range spb.Target_value {
 		if dbName != "OTHERS" {
 			// DB connector for direct redis operation
-			redisDb := redis.NewClient(&redis.Options{
-				Network:     "unix",
-				Addr:        default_UNIXSOCKET,
-				Password:    "", // no password set
-				DB:          int(dbn),
-				DialTimeout: 0,
-			})
+			var redisDb *redis.Client
+			if useRedisLocalTcpPort {
+				redisDb = redis.NewClient(&redis.Options{
+					Network:     "tcp",
+					Addr:        default_REDIS_LOCAL_TCP_PORT,
+					Password:    "", // no password set
+					DB:          int(dbn),
+					DialTimeout: 0,
+				})
+			} else {
+				redisDb = redis.NewClient(&redis.Options{
+					Network:     "unix",
+					Addr:        default_UNIXSOCKET,
+					Password:    "", // no password set
+					DB:          int(dbn),
+					DialTimeout: 0,
+				})
+			}
+
 			target2RedisDb[dbName] = redisDb
 		}
 	}
@@ -165,6 +180,11 @@ func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[
 	}
 	switch len(stringSlice) {
 	case 1:
+		res, err := redisDb.Keys(tblPath.tableName + "*").Result()
+		if err != nil || len(res) < 1 {
+			log.V(2).Infof("Invalid db table Path %v %v", target, dbPath)
+			return fmt.Errorf("Failed to find %v %v %v %v", target, dbPath, err, res)
+		}
 		tblPath.tableKey = ""
 	case 2:
 		tblPath.tableKey = mappedKey

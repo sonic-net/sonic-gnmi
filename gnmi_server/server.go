@@ -177,6 +177,10 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		if target == "" {
 			target = "CONFIG_DB"
 		}
+		// TODO: add support for fetching non-db data
+		if target == "OTHERS" {
+			return nil, status.Error(codes.Unimplemented, "Non-DB target data not supported yet")
+		}
 	}
 
 	paths := req.GetPath()
@@ -186,7 +190,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	for _, path := range paths {
 		err := populateDbTablePath(path, prefix, target, &pathS2G)
 		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, err.Error())
+			return nil, status.Errorf(codes.NotFound, err.Error())
 		}
 	}
 
@@ -196,7 +200,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	for tblPath, _ := range pathS2G {
 		val, err := tableData2TypedValue_redis(&tblPath, false, nil)
 		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, err.Error())
+			return nil, status.Errorf(codes.NotFound, err.Error())
 		}
 
 		update := &gnmipb.Update{
