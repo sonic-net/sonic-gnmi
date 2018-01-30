@@ -331,17 +331,6 @@ func TestGnmiGet(t *testing.T) {
 	s.s.Stop()
 }
 
-// SubscriptionMode is the mode of the subscription, specifying how the
-// target must return values in a subscription.
-// Reference: gNMI Specification Section 3.5.1.3
-// type SubscriptionMode int32
-
-// const (
-// 	SubscriptionMode_TARGET_DEFINED SubscriptionMode = 0
-//	SubscriptionMode_ON_CHANGE      SubscriptionMode = 1
-//	SubscriptionMode_SAMPLE         SubscriptionMode = 2
-// )
-
 type tablePathValue struct {
 	dbName    string
 	tableName string
@@ -388,18 +377,16 @@ func runTestTableStream(t *testing.T) {
 	countersEthernet68JsonUpdate3["SAI_PORT_STAT_PFC_7_RX_PKTS"] = "3"
 
 	tests := []struct {
-		desc       string
-		q          client.Query
-		updates    []tablePathValue
-		disableEOF bool
-		wantErr    bool
-		wantNoti   []client.Notification
+		desc     string
+		q        client.Query
+		updates  []tablePathValue
+		wantErr  bool
+		wantNoti []client.Notification
 
 		poll        int
 		wantPollErr string
 	}{{
-		desc:       "Subscribe table with stream mode",
-		disableEOF: true,
+		desc: "stream query for table with update of new field",
 		q: client.Query{
 			Target:  "COUNTERS_DB",
 			Type:    client.Stream,
@@ -419,8 +406,7 @@ func runTestTableStream(t *testing.T) {
 			client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJsonUpdate},
 		},
 	}, {
-		desc:       "Subscribe table and key with stream mode",
-		disableEOF: true,
+		desc: "stream query for table key with update of new field",
 		q: client.Query{
 			Target:  "COUNTERS_DB",
 			Type:    client.Stream,
@@ -442,8 +428,7 @@ func runTestTableStream(t *testing.T) {
 			client.Update{Path: []string{"COUNTERS", "Ethernet68"}, TS: time.Unix(0, 200), Val: countersEthernet68JsonUpdate},
 		},
 	}, {
-		desc:       "Subscribe table key and field with stream mode",
-		disableEOF: true,
+		desc: "stream query for table key field with update of filed value",
 		q: client.Query{
 			Target:  "COUNTERS_DB",
 			Type:    client.Stream,
@@ -463,6 +448,34 @@ func runTestTableStream(t *testing.T) {
 			client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
 			client.Sync{},
 			client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
+		},
+	}, {
+		desc: "poll query with table key field with x3 by Poll()",
+		poll: 3,
+		q: client.Query{
+			Target:  "COUNTERS_DB",
+			Type:    client.Poll,
+			Queries: []client.Path{{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}},
+			TLS:     &tls.Config{InsecureSkipVerify: true},
+		},
+		updates: []tablePathValue{{
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS",
+			tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+			delimitor: ":",
+			field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			value:     "4", // be changed to 3 from 4
+		}},
+		wantNoti: []client.Notification{
+			client.Connected{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
+			client.Sync{},
 		},
 	}}
 
@@ -487,9 +500,10 @@ func runTestTableStream(t *testing.T) {
 				return nil
 			}
 			go func() {
-				err := c.Subscribe(context.Background(), q)
-				t.Log("c.Subscribe err:", err)
+				c.Subscribe(context.Background(), q)
 				/*
+					err := c.Subscribe(context.Background(), q)
+					t.Log("c.Subscribe err:", err)
 					switch {
 					case tt.wantErr && err != nil:
 						return

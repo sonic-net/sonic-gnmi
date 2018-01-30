@@ -10,6 +10,7 @@
          * [Poll mode](#poll-mode)
    * [Authentication](#authentication)
    * [Encryption](#encryption)
+   * [AutoTest](#autotest)
 
 # Overview of gRPC data telemetry in SONiC
 
@@ -342,6 +343,39 @@ To be implemented, may support integration with SONiC TACACS. User will be authe
 
 # Encryption
 TLS encryption is supported with gRPC communication.
+
+# AutoTest
+A series of auto test cases are available using Go "testing" package and standard redis-server.
+Assuming go environment has been set up and redis-server is running, run `go test -v` under gnmi_server folder:
+```
+jipan@6068794801d2:/sonic/go/src/github.com/jipanyang/sonic-telemetry/gnmi_server$ go test -v
+=== RUN   TestGnmiGet
+=== RUN   TestGnmiGet/Test_non-existing_path_Target
+=== RUN   TestGnmiGet/Test_Unimplemented_path_target
+=== RUN   TestGnmiGet/Get_valid_but_non-existing_node
+=== RUN   TestGnmiGet/Get_COUNTERS_PORT_NAME_MAP
+=== RUN   TestGnmiGet/get_COUNTERS:Ethernet68
+=== RUN   TestGnmiGet/get_COUNTERS:Ethernet68_SAI_PORT_STAT_PFC_7_RX_PKTS
+--- PASS: TestGnmiGet (0.01s)
+    --- PASS: TestGnmiGet/Test_non-existing_path_Target (0.00s)
+    --- PASS: TestGnmiGet/Test_Unimplemented_path_target (0.00s)
+    --- PASS: TestGnmiGet/Get_valid_but_non-existing_node (0.00s)
+    --- PASS: TestGnmiGet/Get_COUNTERS_PORT_NAME_MAP (0.00s)
+    --- PASS: TestGnmiGet/get_COUNTERS:Ethernet68 (0.00s)
+    --- PASS: TestGnmiGet/get_COUNTERS:Ethernet68_SAI_PORT_STAT_PFC_7_RX_PKTS (0.00s)
+=== RUN   TestGnmiSubscribe
+=== RUN   TestGnmiSubscribe/stream_query_for_table_with_update_of_new_field
+=== RUN   TestGnmiSubscribe/stream_query_for_table_key_with_update_of_new_field
+=== RUN   TestGnmiSubscribe/stream_query_for_table_key_field_with_update_of_filed_value
+=== RUN   TestGnmiSubscribe/poll_query_with_table_key_field_with_x3_by_Poll()
+--- PASS: TestGnmiSubscribe (6.01s)
+    --- PASS: TestGnmiSubscribe/stream_query_for_table_with_update_of_new_field (1.50s)
+    --- PASS: TestGnmiSubscribe/stream_query_for_table_key_with_update_of_new_field (1.50s)
+    --- PASS: TestGnmiSubscribe/stream_query_for_table_key_field_with_update_of_filed_value (1.50s)
+    --- PASS: TestGnmiSubscribe/poll_query_with_table_key_field_with_x3_by_Poll() (1.50s)
+PASS
+ok    github.com/jipanyang/sonic-telemetry/gnmi_server  6.032s
+```
 
 
 
