@@ -340,9 +340,9 @@ type tablePathValue struct {
 	value     string
 }
 
-// runTestTableStream subscribe a table in stream mode
-// the return code and response value are expected.
-func runTestTableStream(t *testing.T) {
+// runTestSubscribe subscribe DB path in stream mode or poll mode.
+// The return code and response value are compared with expected code and value.
+func runTestSubscribe(t *testing.T) {
 	fileName := "testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -542,13 +542,12 @@ func runTestTableStream(t *testing.T) {
 	}
 }
 
-// TODO:
 func TestGnmiSubscribe(t *testing.T) {
 	s := createServer(t)
 	go runServer(t, s)
 	prepareDb(t)
 
-	runTestTableStream(t)
+	runTestSubscribe(t)
 
 	s.s.Stop()
 }

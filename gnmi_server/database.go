@@ -512,7 +512,7 @@ func dbTableKeySubscribe(tblPath tablePath, c *Client) {
 		log.V(1).Infof("Queue error:  %v", err)
 		return
 	}
-	// Fist sync for this key is done
+	// First sync for this key is done
 	c.synced.Done()
 
 	for {
