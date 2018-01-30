@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -313,22 +314,10 @@ func emitJSON(v *map[string]interface{}) ([]byte, error) {
 	return j, nil
 }
 
-func tableData2TypedValue_redis(tblPath *tablePath, useKey bool, op *string) (*gnmipb.TypedValue, error) {
+// tableData2Msi renders the redis DB data to map[string]interface{}
+// which may be marshaled to JSON format
+func tableData2Msi(tblPath *tablePath, useKey bool, op *string) (map[string]interface{}, error) {
 	redisDb := target2RedisDb[tblPath.dbName]
-
-	// table path includes table, key and field
-	if tblPath.field != "" {
-		key := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
-		val, err := redisDb.HGet(key, tblPath.field).Result()
-		if err != nil {
-			log.V(2).Infof("redis HGet failed for %v", tblPath)
-			return nil, err
-		}
-		return &gnmipb.TypedValue{
-			Value: &gnmipb.TypedValue_StringVal{
-				StringVal: val,
-			}}, nil
-	}
 
 	var pattern string
 	var dbkeys []string
@@ -375,6 +364,10 @@ func tableData2TypedValue_redis(tblPath *tablePath, useKey bool, op *string) (*g
 		log.V(5).Infof("Added idex %v fv %v ", idx, fv)
 	}
 
+	return msi, nil
+}
+
+func msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
 	jv, err := emitJSON(&msi)
 	if err != nil {
 		log.V(2).Infof("emitJSON err %s for  %v", err, msi)
@@ -385,6 +378,29 @@ func tableData2TypedValue_redis(tblPath *tablePath, useKey bool, op *string) (*g
 			JsonIetfVal: jv,
 		}}, nil
 
+}
+
+func tableData2TypedValue_redis(tblPath *tablePath, useKey bool, op *string) (*gnmipb.TypedValue, error) {
+	redisDb := target2RedisDb[tblPath.dbName]
+
+	// table path includes table, key and field
+	if tblPath.field != "" {
+		key := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+		val, err := redisDb.HGet(key, tblPath.field).Result()
+		if err != nil {
+			log.V(2).Infof("redis HGet failed for %v", tblPath)
+			return nil, err
+		}
+		return &gnmipb.TypedValue{
+			Value: &gnmipb.TypedValue_StringVal{
+				StringVal: val,
+			}}, nil
+	}
+	msi, err := tableData2Msi(tblPath, false, nil)
+	if err != nil {
+		return nil, err
+	}
+	return msi2TypedValue(msi)
 }
 
 func enqueFatalMsg(c *Client, msg string) {
@@ -497,7 +513,12 @@ func dbTableKeySubscribe(tblPath tablePath, c *Client) {
 	}
 	log.V(2).Infof("Psubscribe succeeded for %v: %v", tblPath, subscr)
 
-	val, err := tableData2TypedValue_redis(&tblPath, false, nil)
+	msi, err := tableData2Msi(&tblPath, false, nil)
+	if err != nil {
+		enqueFatalMsg(c, err.Error())
+		return
+	}
+	val, err := msi2TypedValue(msi)
 	if err != nil {
 		enqueFatalMsg(c, err.Error())
 		return
@@ -559,9 +580,14 @@ func dbTableKeySubscribe(tblPath tablePath, c *Client) {
 				}
 			} else if subscr.Payload == "hset" {
 				var val *gnmipb.TypedValue
+				var newMsi map[string]interface{}
 				//op := "SET"
 				if tblPath.tableKey != "" {
-					val, err = tableData2TypedValue_redis(&tblPath, false, nil)
+					newMsi, err = tableData2Msi(&tblPath, false, nil)
+					if err != nil {
+						enqueFatalMsg(c, err.Error())
+						return
+					}
 				} else {
 					tblPath := tblPath
 					if len(subscr.Channel) < prefixLen {
@@ -569,7 +595,21 @@ func dbTableKeySubscribe(tblPath tablePath, c *Client) {
 						continue
 					}
 					tblPath.tableKey = subscr.Channel[prefixLen:]
-					val, err = tableData2TypedValue_redis(&tblPath, true, nil)
+					newMsi, err = tableData2Msi(&tblPath, false, nil)
+					if err != nil {
+						enqueFatalMsg(c, err.Error())
+						return
+					}
+				}
+				if reflect.DeepEqual(newMsi, msi) {
+					// No change from previous data
+					continue
+				}
+				msi = newMsi
+				val, err := msi2TypedValue(msi)
+				if err != nil {
+					enqueFatalMsg(c, err.Error())
+					return
 				}
 				spbv = &spb.Value{
 					Path:      c.pathS2G[tblPath],

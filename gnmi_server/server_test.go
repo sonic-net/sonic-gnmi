@@ -338,6 +338,7 @@ type tablePathValue struct {
 	delimitor string
 	field     string
 	value     string
+	op        string
 }
 
 // runTestSubscribe subscribe DB path in stream mode or poll mode.
@@ -420,6 +421,13 @@ func runTestSubscribe(t *testing.T) {
 			delimitor: ":",
 			field:     "test_field",
 			value:     "test_value",
+		}, { //Same value set should not trigger multiple updates
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS",
+			tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+			delimitor: ":",
+			field:     "test_field",
+			value:     "test_value",
 		}},
 		wantNoti: []client.Notification{
 			client.Connected{},
@@ -442,6 +450,13 @@ func runTestSubscribe(t *testing.T) {
 			delimitor: ":",
 			field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
 			value:     "3", // be changed to 3 from 2
+		}, { //Same value set should not trigger multiple updates
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS",
+			tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+			delimitor: ":",
+			field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			value:     "3", // be changed to 3 from 2
 		}},
 		wantNoti: []client.Notification{
 			client.Connected{},
@@ -450,7 +465,34 @@ func runTestSubscribe(t *testing.T) {
 			client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
 		},
 	}, {
-		desc: "poll query with table key field with x3 by Poll()",
+		desc: "poll query for table with field delete",
+		poll: 3,
+		q: client.Query{
+			Target:  "COUNTERS_DB",
+			Type:    client.Poll,
+			Queries: []client.Path{{"COUNTERS_PORT_NAME_MAP"}},
+			TLS:     &tls.Config{InsecureSkipVerify: true},
+		},
+		updates: []tablePathValue{{
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS_PORT_NAME_MAP",
+			field:     "test_field",
+			op:        "hdel",
+		}},
+		wantNoti: []client.Notification{
+			client.Connected{},
+			// We are starting from the result data of "stream query for table with update of new field",
+			client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJsonUpdate},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJson},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJson},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJson},
+			client.Sync{},
+		},
+	}, {
+		desc: "poll query with table key field with field value change",
 		poll: 3,
 		q: client.Query{
 			Target:  "COUNTERS_DB",
@@ -517,10 +559,16 @@ func runTestSubscribe(t *testing.T) {
 			// wait for hald second for subscribeRequest to sync
 			time.Sleep(time.Millisecond * 500)
 			for _, update := range tt.updates {
-				rclient.HSet(update.tableName+update.delimitor+update.tableKey, update.field, update.value)
+				switch update.op {
+				case "hdel":
+					rclient.HDel(update.tableName+update.delimitor+update.tableKey, update.field)
+				default:
+					rclient.HSet(update.tableName+update.delimitor+update.tableKey, update.field, update.value)
+				}
+				time.Sleep(time.Millisecond * 1000)
 			}
-			// wait for one second for change to sync
-			time.Sleep(time.Millisecond * 1000)
+			// wait for half second for change to sync
+			time.Sleep(time.Millisecond * 500)
 
 			for i := 0; i < tt.poll; i++ {
 				err := c.Poll()

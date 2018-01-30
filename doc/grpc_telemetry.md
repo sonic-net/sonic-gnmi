@@ -356,7 +356,7 @@ jipan@6068794801d2:/sonic/go/src/github.com/jipanyang/sonic-telemetry/gnmi_serve
 === RUN   TestGnmiGet/Get_COUNTERS_PORT_NAME_MAP
 === RUN   TestGnmiGet/get_COUNTERS:Ethernet68
 === RUN   TestGnmiGet/get_COUNTERS:Ethernet68_SAI_PORT_STAT_PFC_7_RX_PKTS
---- PASS: TestGnmiGet (0.01s)
+--- PASS: TestGnmiGet (0.02s)
     --- PASS: TestGnmiGet/Test_non-existing_path_Target (0.00s)
     --- PASS: TestGnmiGet/Test_Unimplemented_path_target (0.00s)
     --- PASS: TestGnmiGet/Get_valid_but_non-existing_node (0.00s)
@@ -367,14 +367,16 @@ jipan@6068794801d2:/sonic/go/src/github.com/jipanyang/sonic-telemetry/gnmi_serve
 === RUN   TestGnmiSubscribe/stream_query_for_table_with_update_of_new_field
 === RUN   TestGnmiSubscribe/stream_query_for_table_key_with_update_of_new_field
 === RUN   TestGnmiSubscribe/stream_query_for_table_key_field_with_update_of_filed_value
-=== RUN   TestGnmiSubscribe/poll_query_with_table_key_field_with_x3_by_Poll()
---- PASS: TestGnmiSubscribe (6.01s)
-    --- PASS: TestGnmiSubscribe/stream_query_for_table_with_update_of_new_field (1.50s)
-    --- PASS: TestGnmiSubscribe/stream_query_for_table_key_with_update_of_new_field (1.50s)
-    --- PASS: TestGnmiSubscribe/stream_query_for_table_key_field_with_update_of_filed_value (1.50s)
-    --- PASS: TestGnmiSubscribe/poll_query_with_table_key_field_with_x3_by_Poll() (1.50s)
+=== RUN   TestGnmiSubscribe/poll_query_for_table_with_field_delete
+=== RUN   TestGnmiSubscribe/poll_query_with_table_key_field_with_field_value_change
+--- PASS: TestGnmiSubscribe (12.02s)
+    --- PASS: TestGnmiSubscribe/stream_query_for_table_with_update_of_new_field (2.00s)
+    --- PASS: TestGnmiSubscribe/stream_query_for_table_key_with_update_of_new_field (3.00s)
+    --- PASS: TestGnmiSubscribe/stream_query_for_table_key_field_with_update_of_filed_value (3.00s)
+    --- PASS: TestGnmiSubscribe/poll_query_for_table_with_field_delete (2.00s)
+    --- PASS: TestGnmiSubscribe/poll_query_with_table_key_field_with_field_value_change (2.00s)
 PASS
-ok    github.com/jipanyang/sonic-telemetry/gnmi_server  6.032s
+ok    github.com/jipanyang/sonic-telemetry/gnmi_server  12.040s
 ```
 
 
