@@ -9,6 +9,8 @@ import (
 	"github.com/go-redis/redis"
 	"github.com/golang/protobuf/proto"
 	spb "github.com/jipanyang/sonic-telemetry/proto"
+	"github.com/kylelemons/godebug/pretty"
+	"github.com/openconfig/gnmi/client"
 	pb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/openconfig/gnmi/value"
 	"golang.org/x/net/context"
@@ -17,10 +19,16 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 	"io/ioutil"
+	"os"
+	"os/exec"
 	"reflect"
 	"testing"
 	"time"
+	// Register supported client types.
+	gclient "github.com/openconfig/gnmi/client/gnmi"
 )
+
+var clientTypes = []string{gclient.Type}
 
 func loadConfig(t *testing.T, key string, in []byte) map[string]interface{} {
 	var fvp map[string]interface{}
@@ -38,11 +46,11 @@ func loadConfig(t *testing.T, key string, in []byte) map[string]interface{} {
 }
 
 // assuming input data is in key field/value pair format
-func loadDB(t *testing.T, client *redis.Client, mpi map[string]interface{}) {
+func loadDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{}) {
 	for key, fv := range mpi {
 		switch fv.(type) {
 		case map[string]interface{}:
-			_, err := client.HMSet(key, fv.(map[string]interface{})).Result()
+			_, err := rclient.HMSet(key, fv.(map[string]interface{})).Result()
 			if err != nil {
 				t.Fatal("Invalid data for db: ", key, fv, err)
 			}
@@ -52,6 +60,7 @@ func loadDB(t *testing.T, client *redis.Client, mpi map[string]interface{}) {
 	}
 }
 
+// TODO: func NewCert() (tls.Certificate, error)
 func createServer(t *testing.T) *Server {
 	certPEMBlock := []byte(`-----BEGIN CERTIFICATE-----
 MIICWDCCAcGgAwIBAgIJAISaMNtAwNWSMA0GCSqGSIb3DQEBCwUAMEUxCzAJBgNV
@@ -121,7 +130,6 @@ func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 		Path:     []*pb.Path{&pbPath},
 		Encoding: pb.Encoding_JSON_IETF,
 	}
-	t.Log("pb.GetRequest", req)
 
 	resp, err := gClient.Get(ctx, req)
 	// Check return code
@@ -170,34 +178,41 @@ func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 }
 
 func runServer(t *testing.T, s *Server) {
-	t.Log("Starting RPC server on address:", s.Address())
+	//t.Log("Starting RPC server on address:", s.Address())
 	err := s.Serve() // blocks until close
 	if err != nil {
 		t.Fatal("gRPC server err: %v", err)
 	}
-	t.Log("Exiting RPC server on address", s.Address())
+	//t.Log("Exiting RPC server on address", s.Address())
 }
 
-func TestGnmiGet(t *testing.T) {
-	t.Log("Start server")
-	s := createServer(t)
-	go runServer(t, s)
-
-	t.Log("Prepare redis db environment, assuming redis server have been running")
+func getRedisClient(t *testing.T) *redis.Client {
 	dbn := spb.Target_value["COUNTERS_DB"]
-	client := redis.NewClient(&redis.Options{
+	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
 		Addr:        "localhost:6379",
 		Password:    "", // no password set
 		DB:          int(dbn),
 		DialTimeout: 0,
 	})
-
-	_, err := client.Ping().Result()
+	_, err := rclient.Ping().Result()
 	if err != nil {
 		t.Fatal("failed to connect to redis server ", err)
 	}
-	client.FlushDb()
+	return rclient
+}
+
+func prepareDb(t *testing.T) {
+	rclient := getRedisClient(t)
+	defer rclient.Close()
+	rclient.FlushDb()
+	//Enable keysapce notification
+	os.Setenv("PATH", "/usr/bin:/sbin:/bin")
+	cmd := exec.Command("redis-cli", "config", "set", "notify-keyspace-events", "KEA")
+	_, err := cmd.Output()
+	if err != nil {
+		t.Fatal("failed to enable redis keyspace notification ", err)
+	}
 
 	fileName := "testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
@@ -205,19 +220,26 @@ func TestGnmiGet(t *testing.T) {
 		t.Fatal("read file %v err: %v", fileName, err)
 	}
 	mpi_name_map := loadConfig(t, "COUNTERS_PORT_NAME_MAP", countersPortNameMapByte)
-	loadDB(t, client, mpi_name_map)
+	loadDB(t, rclient, mpi_name_map)
 
 	fileName = "testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatal("read file %v err: %v", fileName, err)
 	}
-
 	// "Ethernet68": "oid:0x1000000000039",
 	mpi_counter := loadConfig(t, "COUNTERS:oid:0x1000000000039", countersEthernet68Byte)
-	loadDB(t, client, mpi_counter)
+	loadDB(t, rclient, mpi_counter)
+}
 
-	t.Log("Start gNMI client")
+func TestGnmiGet(t *testing.T) {
+	//t.Log("Start server")
+	s := createServer(t)
+	go runServer(t, s)
+
+	prepareDb(t)
+
+	//t.Log("Start gNMI client")
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
 
@@ -232,6 +254,18 @@ func TestGnmiGet(t *testing.T) {
 	gClient := pb.NewGNMIClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	fileName := "testdata/COUNTERS_PORT_NAME_MAP.txt"
+	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatal("read file %v err: %v", fileName, err)
+	}
+
+	fileName = "testdata/COUNTERS:Ethernet68.txt"
+	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatal("read file %v err: %v", fileName, err)
+	}
 
 	tds := []struct {
 		desc        string
@@ -294,6 +328,213 @@ func TestGnmiGet(t *testing.T) {
 			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal)
 		})
 	}
+	s.s.Stop()
+}
+
+// SubscriptionMode is the mode of the subscription, specifying how the
+// target must return values in a subscription.
+// Reference: gNMI Specification Section 3.5.1.3
+// type SubscriptionMode int32
+
+// const (
+// 	SubscriptionMode_TARGET_DEFINED SubscriptionMode = 0
+//	SubscriptionMode_ON_CHANGE      SubscriptionMode = 1
+//	SubscriptionMode_SAMPLE         SubscriptionMode = 2
+// )
+
+type tablePathValue struct {
+	dbName    string
+	tableName string
+	tableKey  string
+	delimitor string
+	field     string
+	value     string
+}
+
+// runTestTableStream subscribe a table in stream mode
+// the return code and response value are expected.
+func runTestTableStream(t *testing.T) {
+	fileName := "testdata/COUNTERS_PORT_NAME_MAP.txt"
+	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatal("read file %v err: %v", fileName, err)
+	}
+	var countersPortNameMapJson interface{}
+	json.Unmarshal(countersPortNameMapByte, &countersPortNameMapJson)
+	var tmp interface{}
+	json.Unmarshal(countersPortNameMapByte, &tmp)
+	countersPortNameMapJsonUpdate := tmp.(map[string]interface{})
+	countersPortNameMapJsonUpdate["test_field"] = "test_value"
+
+	// for table key subscription
+	fileName = "testdata/COUNTERS:Ethernet68.txt"
+	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatal("read file %v err: %v", fileName, err)
+	}
+	var countersEthernet68Json interface{}
+	json.Unmarshal(countersEthernet68Byte, &countersEthernet68Json)
+
+	var tmp2 interface{}
+	json.Unmarshal(countersEthernet68Byte, &tmp2)
+	countersEthernet68JsonUpdate := tmp2.(map[string]interface{})
+	countersEthernet68JsonUpdate["test_field"] = "test_value"
+
+	// for field subscription, init value is 2 as in COUNTERS:Ethernet68.txt
+	countersEthernet68JsonUpdate2 := map[string]interface{}{}
+	countersEthernet68JsonUpdate2["SAI_PORT_STAT_PFC_7_RX_PKTS"] = "2"
+
+	countersEthernet68JsonUpdate3 := map[string]interface{}{}
+	countersEthernet68JsonUpdate3["SAI_PORT_STAT_PFC_7_RX_PKTS"] = "3"
+
+	tests := []struct {
+		desc       string
+		q          client.Query
+		updates    []tablePathValue
+		disableEOF bool
+		wantErr    bool
+		wantNoti   []client.Notification
+
+		poll        int
+		wantPollErr string
+	}{{
+		desc:       "Subscribe table with stream mode",
+		disableEOF: true,
+		q: client.Query{
+			Target:  "COUNTERS_DB",
+			Type:    client.Stream,
+			Queries: []client.Path{{"COUNTERS_PORT_NAME_MAP"}},
+			TLS:     &tls.Config{InsecureSkipVerify: true},
+		},
+		updates: []tablePathValue{{
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS_PORT_NAME_MAP",
+			field:     "test_field",
+			value:     "test_value",
+		}},
+		wantNoti: []client.Notification{
+			client.Connected{},
+			client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJson},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJsonUpdate},
+		},
+	}, {
+		desc:       "Subscribe table and key with stream mode",
+		disableEOF: true,
+		q: client.Query{
+			Target:  "COUNTERS_DB",
+			Type:    client.Stream,
+			Queries: []client.Path{{"COUNTERS", "Ethernet68"}},
+			TLS:     &tls.Config{InsecureSkipVerify: true},
+		},
+		updates: []tablePathValue{{
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS",
+			tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+			delimitor: ":",
+			field:     "test_field",
+			value:     "test_value",
+		}},
+		wantNoti: []client.Notification{
+			client.Connected{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68"}, TS: time.Unix(0, 200), Val: countersEthernet68Json},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68"}, TS: time.Unix(0, 200), Val: countersEthernet68JsonUpdate},
+		},
+	}, {
+		desc:       "Subscribe table key and field with stream mode",
+		disableEOF: true,
+		q: client.Query{
+			Target:  "COUNTERS_DB",
+			Type:    client.Stream,
+			Queries: []client.Path{{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}},
+			TLS:     &tls.Config{InsecureSkipVerify: true},
+		},
+		updates: []tablePathValue{{
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS",
+			tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+			delimitor: ":",
+			field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			value:     "3", // be changed to 3 from 2
+		}},
+		wantNoti: []client.Notification{
+			client.Connected{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
+		},
+	}}
+
+	rclient := getRedisClient(t)
+	defer rclient.Close()
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8080"}
+			c := client.New()
+			defer c.Close()
+			var gotNoti []client.Notification
+			q.NotificationHandler = func(n client.Notification) error {
+				//t.Logf("reflect.TypeOf(n) %v :  %v", reflect.TypeOf(n), n)
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				} else {
+					gotNoti = append(gotNoti, n)
+				}
+
+				return nil
+			}
+			go func() {
+				err := c.Subscribe(context.Background(), q)
+				t.Log("c.Subscribe err:", err)
+				/*
+					switch {
+					case tt.wantErr && err != nil:
+						return
+					case tt.wantErr && err == nil:
+						t.Fatalf("c.Subscribe(): got nil error, expected non-nil")
+					case !tt.wantErr && err != nil:
+						t.Fatalf("c.Subscribe(): got error %v, expected nil", err)
+					}
+				*/
+			}()
+			// wait for hald second for subscribeRequest to sync
+			time.Sleep(time.Millisecond * 500)
+			for _, update := range tt.updates {
+				rclient.HSet(update.tableName+update.delimitor+update.tableKey, update.field, update.value)
+			}
+			// wait for one second for change to sync
+			time.Sleep(time.Millisecond * 1000)
+
+			for i := 0; i < tt.poll; i++ {
+				err := c.Poll()
+				switch {
+				case err == nil && tt.wantPollErr != "":
+					t.Errorf("c.Poll(): got nil error, expected non-nil %v", tt.wantPollErr)
+				case err != nil && tt.wantPollErr == "":
+					t.Errorf("c.Poll(): got error %v, expected nil", err)
+				case err != nil && err.Error() != tt.wantPollErr:
+					t.Errorf("c.Poll(): got error %v, expected error %v", err, tt.wantPollErr)
+				}
+			}
+			// t.Log("\n Want: \n", tt.wantNoti)
+			// t.Log("\n Got : \n", gotNoti)
+			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+				t.Errorf("unexpected updates:\n%s", diff)
+			}
+		})
+	}
+}
+
+// TODO:
+func TestGnmiSubscribe(t *testing.T) {
+	s := createServer(t)
+	go runServer(t, s)
+	prepareDb(t)
+
+	runTestTableStream(t)
 
 	s.s.Stop()
 }

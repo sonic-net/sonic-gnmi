@@ -5,7 +5,7 @@
    * [gRPC operations for data telemetry in SONiC](#grpc-operations-for-data-telemetry-in-sonic)
       * [Usage of SONiC telemetry server binary](#usage-of-sonic-telemetry-server-binary)
       * [GetRequest/GetResponse](#getrequestgetresponse)
-      * [SubscribeRequest](#subscriberequest)
+      * [SubscribeRequest/SubscribeResponse](#subscriberequestsubscriberesponse)
          * [Stream mode](#stream-mode)
          * [Poll mode](#poll-mode)
    * [Authentication](#authentication)
@@ -276,7 +276,7 @@ It is also possible to specifify multiple xpath values. Here we get values for b
 jipan@6068794801d2:/sonic/go/src/github.com/google/gnxi/gnmi_get$ ./gnmi_get -xpath_target COUNTERS_DB -xpath "COUNTERS/Ethernet9/SAI_PORT_STAT_PFC_7_RX_PKTS" -xpath "COUNTERS/Ethernet9/SAI_PORT_STAT_PFC_1_RX_PKTS" -target_addr 30.57.185.38:8080 -alsologtostderr -insecure true
 ```
 
-## SubscribeRequest
+## SubscribeRequest/SubscribeResponse
 ### Stream mode
 With stream mode of SubscribeRequest, SONiC will first send all data on the requested path to data collector, then stream data to collector upon any change on the path.
 

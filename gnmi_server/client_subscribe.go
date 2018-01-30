@@ -46,13 +46,15 @@ type Client struct {
 	stop      chan struct{}
 	mu        sync.RWMutex
 	q         *queue.PriorityQueue
-	synced    bool
 	subscribe *gnmipb.SubscriptionList
 	// mapping from SONiC path to gNMI path
 	pathS2G map[tablePath]*gnmipb.Path
 	// target of subscribe request, it is db number in SONiC
 	target string
-	w      sync.WaitGroup
+	// Wait for all sub go routine to finish
+	w sync.WaitGroup
+	// Control when to send gNMI sync_response
+	synced sync.WaitGroup
 	fatal  bool
 }
 
@@ -61,7 +63,6 @@ func NewClient(addr net.Addr) *Client {
 	pq := queue.NewPriorityQueue(1, false)
 	return &Client{
 		addr:    addr,
-		synced:  false,
 		q:       pq,
 		pathS2G: map[tablePath]*gnmipb.Path{},
 	}
@@ -237,7 +238,7 @@ func (c *Client) processQueue(stream gnmipb.GNMI_SubscribeServer) error {
 func (c *Client) send(stream gnmipb.GNMI_SubscribeServer) error {
 	for {
 		if err := c.processQueue(stream); err != nil {
-			log.Errorf("Client %s : %v", c, err)
+			log.V(2).Infof("Client %s : %v", c, err)
 			return err
 		}
 	}

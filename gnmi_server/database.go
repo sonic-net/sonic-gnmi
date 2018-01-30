@@ -429,13 +429,12 @@ func dbFieldSubscribe(tblPath tablePath, c *Client) {
 				return
 			}
 			if newVal != val {
-				val = newVal
 				spbv := &spb.Value{
 					Path:      c.pathS2G[tblPath],
 					Timestamp: time.Now().UnixNano(),
 					Val: &gnmipb.TypedValue{
 						Value: &gnmipb.TypedValue_StringVal{
-							StringVal: val,
+							StringVal: newVal,
 						},
 					},
 				}
@@ -444,6 +443,11 @@ func dbFieldSubscribe(tblPath tablePath, c *Client) {
 					log.V(1).Infof("Queue error:  %v", err)
 					return
 				}
+				// If old val is empty, assumming this is initial sync
+				if val == "" {
+					c.synced.Done()
+				}
+				val = newVal
 			}
 			// check again after 500 millisends
 			time.Sleep(time.Millisecond * 500)
@@ -508,6 +512,8 @@ func dbTableKeySubscribe(tblPath tablePath, c *Client) {
 		log.V(1).Infof("Queue error:  %v", err)
 		return
 	}
+	// Fist sync for this key is done
+	c.synced.Done()
 
 	for {
 		select {
@@ -593,30 +599,30 @@ func subscribeDb(c *Client) {
 
 	for table, _ := range c.pathS2G {
 		if table.field != "" {
+			c.synced.Add(1)
 			go dbFieldSubscribe(table, c)
 			continue
 		}
+		c.synced.Add(1)
 		go dbTableKeySubscribe(table, c)
 		continue
 	}
 
+	// Wait untilall data values corresponding to the path(s) specified
+	// in the SubscriptionList has been transmitted at least once
+	c.synced.Wait()
+	// Inject sync message after first timeout.
+	c.q.Put(Value{
+		&spb.Value{
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: true,
+		},
+	})
+	log.V(2).Infof("Client %s synced", c)
 	for {
 		select {
 		default:
 			time.Sleep(time.Second)
-			if c.synced == true {
-				continue
-			}
-			// Inject sync message after first timeout.
-			c.q.Put(Value{
-				&spb.Value{
-					Timestamp:    time.Now().UnixNano(),
-					SyncResponse: true,
-				},
-			})
-
-			log.V(2).Infof("Client %s synced", c)
-			c.synced = true
 		case <-c.stop:
 			log.V(1).Infof("Stopping subscribeDb routine for Client %s ", c)
 			return
