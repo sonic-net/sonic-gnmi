@@ -132,7 +132,6 @@ func remapTableKey(dbName, tableName, keyName string) (string, error) {
 }
 
 // Populate table path in DB from gnmi path
-// TODO: Do more validation on DB path
 func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[tablePath]*gnmipb.Path) error {
 	var buffer bytes.Buffer
 	var dbPath string
@@ -151,7 +150,6 @@ func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[
 	}
 
 	separator, _ := getTableKeySeparator(target)
-
 	elems := fullPath.GetElem()
 	if elems != nil {
 		for i, elem := range elems {
@@ -180,17 +178,24 @@ func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[
 		}
 	}
 	switch len(stringSlice) {
-	case 1:
+	case 1: // only table name provided
 		res, err := redisDb.Keys(tblPath.tableName + "*").Result()
 		if err != nil || len(res) < 1 {
 			log.V(2).Infof("Invalid db table Path %v %v", target, dbPath)
 			return fmt.Errorf("Failed to find %v %v %v %v", target, dbPath, err, res)
 		}
 		tblPath.tableKey = ""
-	case 2:
-		tblPath.tableKey = mappedKey
-	case 3:
-
+	case 2: // Second element could be table key; or field name in which case table name itself is the key too
+		n, err := redisDb.Exists(tblPath.tableName + tblPath.delimitor + mappedKey).Result()
+		if err != nil {
+			return fmt.Errorf("redis Exists op failed for %v", dbPath)
+		}
+		if n == 1 {
+			tblPath.tableKey = mappedKey
+		} else {
+			tblPath.field = mappedKey
+		}
+	case 3: // Third element could part of the table key or field name
 		tblPath.tableKey = mappedKey + tblPath.delimitor + stringSlice[2]
 		// verify whether this key exists
 		key := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
@@ -203,7 +208,7 @@ func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[
 			tblPath.tableKey = mappedKey
 			tblPath.field = stringSlice[2]
 		}
-	case 4:
+	case 4: // both second and third element are part of table key, fourth element must be field name
 		tblPath.tableKey = mappedKey + tblPath.delimitor + stringSlice[2]
 		tblPath.field = stringSlice[3]
 	default:
@@ -211,8 +216,13 @@ func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[
 		return fmt.Errorf("Invalid db table Path %v", dbPath)
 	}
 
+	var key string
 	if tblPath.tableKey != "" {
-		key := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+		key = tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+	} else if tblPath.field != "" {
+		key = tblPath.tableName
+	}
+	if key != "" {
 		n, _ := redisDb.Exists(key).Result()
 		if n != 1 {
 			log.V(2).Infof("No valid entry found on %v", dbPath)
@@ -385,7 +395,13 @@ func tableData2TypedValue_redis(tblPath *tablePath, useKey bool, op *string) (*g
 
 	// table path includes table, key and field
 	if tblPath.field != "" {
-		key := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+		var key string
+		if tblPath.tableKey != "" {
+			key = tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+		} else {
+			key = tblPath.tableName
+		}
+
 		val, err := redisDb.HGet(key, tblPath.field).Result()
 		if err != nil {
 			log.V(2).Infof("redis HGet failed for %v", tblPath)
@@ -419,7 +435,13 @@ func dbFieldSubscribe(tblPath tablePath, c *Client) {
 	defer c.w.Done()
 	// run redis get directly for field value
 	redisDb := target2RedisDb[tblPath.dbName]
-	key := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+
+	var key string
+	if tblPath.tableKey != "" {
+		key = tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+	} else {
+		key = tblPath.tableName
+	}
 
 	var val string
 	for {

@@ -115,7 +115,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	case gnmipb.SubscriptionList_STREAM:
 		err = c.populateDbPathSubscrition(c.subscribe)
 		if err != nil {
-			return grpc.Errorf(codes.InvalidArgument, "Invalid subscription path: %v %q", err, query)
+			return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
 		}
 		c.stop = make(chan struct{}, 1)
 		go subscribeDb(c)
@@ -123,7 +123,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	case gnmipb.SubscriptionList_POLL:
 		err = c.populateDbPathSubscrition(c.subscribe)
 		if err != nil {
-			return grpc.Errorf(codes.InvalidArgument, "Invalid subscription path: %s %q", err, query)
+			return grpc.Errorf(codes.NotFound, "Invalid subscription path: %s %q", err, query)
 		}
 		c.polled = make(chan struct{}, 1)
 		c.polled <- struct{}{}

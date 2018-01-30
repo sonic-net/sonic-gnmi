@@ -556,7 +556,7 @@ func runTestSubscribe(t *testing.T) {
 					}
 				*/
 			}()
-			// wait for hald second for subscribeRequest to sync
+			// wait for half second for subscribeRequest to sync
 			time.Sleep(time.Millisecond * 500)
 			for _, update := range tt.updates {
 				switch update.op {
