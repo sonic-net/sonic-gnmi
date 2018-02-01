@@ -115,6 +115,11 @@ func (srv *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	c := NewClient(pr.Addr)
 
 	srv.cMu.Lock()
+	if oc, ok := srv.clients[c.String()]; ok {
+		log.V(2).Infof("Delete duplicate client %s", oc)
+		oc.Close()
+		delete(srv.clients, c.String())
+	}
 	srv.clients[c.String()] = c
 	srv.cMu.Unlock()
 

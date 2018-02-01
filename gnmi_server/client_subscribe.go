@@ -118,6 +118,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 			return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
 		}
 		c.stop = make(chan struct{}, 1)
+		c.w.Add(1)
 		go subscribeDb(c)
 
 	case gnmipb.SubscriptionList_POLL:
@@ -127,6 +128,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		}
 		c.polled = make(chan struct{}, 1)
 		c.polled <- struct{}{}
+		c.w.Add(1)
 		go pollDb(c)
 
 	case gnmipb.SubscriptionList_ONCE:
@@ -150,7 +152,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 func (c *Client) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
+	log.V(1).Infof("Client %s Close, sendMsg %v recvMsg %v errors %v", c, c.sendMsg, c.recvMsg, c.errors)
 	if c.q != nil {
 		if c.q.Disposed() {
 			return
@@ -226,7 +228,7 @@ func (c *Client) processQueue(stream gnmipb.GNMI_SubscribeServer) error {
 		c.sendMsg++
 		err = stream.Send(resp)
 		if err != nil {
-			log.V(1).Infof("Client %s sending error:%v", c, resp)
+			log.V(1).Infof("Client %s sending error:%v", c, err)
 			c.errors++
 			return err
 		}

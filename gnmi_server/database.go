@@ -431,7 +431,6 @@ func enqueFatalMsg(c *Client, msg string) {
 // for subscribe request with granularity of table field, the value is fetched periodically.
 // Upon value change, it will be put to queue for furhter notification
 func dbFieldSubscribe(tblPath tablePath, c *Client) {
-	c.w.Add(1)
 	defer c.w.Done()
 	// run redis get directly for field value
 	redisDb := target2RedisDb[tblPath.dbName]
@@ -495,7 +494,6 @@ func dbFieldSubscribe(tblPath tablePath, c *Client) {
 }
 
 func dbTableKeySubscribe(tblPath tablePath, c *Client) {
-	c.w.Add(1)
 	defer c.w.Done()
 
 	redisDb := target2RedisDb[tblPath.dbName]
@@ -656,15 +654,16 @@ func dbTableKeySubscribe(tblPath tablePath, c *Client) {
 
 // Entry point for stream mode of SubscribeRequest processing
 func subscribeDb(c *Client) {
-	c.w.Add(1)
 	defer c.w.Done()
 
 	for table, _ := range c.pathS2G {
 		if table.field != "" {
+			c.w.Add(1)
 			c.synced.Add(1)
 			go dbFieldSubscribe(table, c)
 			continue
 		}
+		c.w.Add(1)
 		c.synced.Add(1)
 		go dbTableKeySubscribe(table, c)
 		continue
@@ -673,7 +672,7 @@ func subscribeDb(c *Client) {
 	// Wait untilall data values corresponding to the path(s) specified
 	// in the SubscriptionList has been transmitted at least once
 	c.synced.Wait()
-	// Inject sync message after first timeout.
+	// Inject sync message
 	c.q.Put(Value{
 		&spb.Value{
 			Timestamp:    time.Now().UnixNano(),
@@ -695,7 +694,6 @@ func subscribeDb(c *Client) {
 
 // Read db upon poll signal
 func pollDb(c *Client) {
-	c.w.Add(1)
 	defer c.w.Done()
 	for {
 		_, more := <-c.polled
