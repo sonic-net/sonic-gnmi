@@ -32,6 +32,9 @@ var useRedisLocalTcpPort bool = false
 // Port name to oid map in COUNTERS table of COUNTERS_DB
 var countersPortNameMap = make(map[string]string)
 
+// Port oid to name map in COUNTERS table of COUNTERS_DB
+var countersPortOidMap = make(map[string]string)
+
 // redis client connected to each DB
 var target2RedisDb = make(map[string]*redis.Client)
 
@@ -164,9 +167,9 @@ func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathS2G *map[
 	}
 
 	tblPath.dbName = target
-	tblPath.delimitor = separator
-	stringSlice := strings.Split(dbPath, tblPath.delimitor)
+	stringSlice := strings.Split(dbPath, separator)
 	tblPath.tableName = stringSlice[0]
+	tblPath.delimitor = separator
 
 	if len(stringSlice) > 1 {
 		// Second slice is table key or first part of the table key
@@ -364,7 +367,10 @@ func tableData2Msi(tblPath *tablePath, useKey bool, op *string) (map[string]inte
 		if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
 			err = makeJSON_redis(&msi, nil, op, fv)
 		} else {
-			key := dbkey[len(tblPath.tableName+tblPath.delimitor):]
+			var key string
+			// Split dbkey string into two parts and second part is key in table
+			keys := strings.SplitN(dbkey, tblPath.delimitor, 2)
+			key = keys[1]
 			err = makeJSON_redis(&msi, &key, op, fv)
 		}
 		if err != nil {
@@ -701,7 +707,7 @@ func pollDb(c *Client) {
 			log.V(1).Infof("%v polled channel closed, exiting pollDb routine", c)
 			return
 		}
-
+		t1 := time.Now()
 		for tblPath, gnmiPath := range c.pathS2G {
 			val, err := tableData2TypedValue_redis(&tblPath, false, nil)
 			if err != nil {
@@ -725,7 +731,8 @@ func pollDb(c *Client) {
 				SyncResponse: true,
 			},
 		})
-		log.V(4).Infof("Sync done!")
+		ms := int64(time.Since(t1) / time.Millisecond)
+		log.V(4).Infof("Sync done, poll time taken: %v ms", ms)
 	}
 	log.V(2).Infof("Exiting pollDB for %v", c)
 }
