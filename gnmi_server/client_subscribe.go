@@ -47,8 +47,8 @@ type Client struct {
 	mu        sync.RWMutex
 	q         *queue.PriorityQueue
 	subscribe *gnmipb.SubscriptionList
-	// mapping from SONiC path to gNMI path
-	pathS2G map[tablePath]*gnmipb.Path
+	// mapping from gNMI path to SONiC path, 1 to many
+	pathG2S map[*gnmipb.Path][]TablePath
 	// target of subscribe request, it is db number in SONiC
 	target string
 	// Wait for all sub go routine to finish
@@ -64,7 +64,7 @@ func NewClient(addr net.Addr) *Client {
 	return &Client{
 		addr:    addr,
 		q:       pq,
-		pathS2G: map[tablePath]*gnmipb.Path{},
+		pathG2S: map[*gnmipb.Path][]TablePath{},
 	}
 }
 

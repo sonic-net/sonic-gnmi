@@ -48,7 +48,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	// create DB connectors for all redis DBs
-	createDBConnector()
+	CreateDBConnector()
 
 	s := grpc.NewServer(opts...)
 	reflection.Register(s)
@@ -191,9 +191,9 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	paths := req.GetPath()
 	notifications := make([]*gnmipb.Notification, len(paths))
 
-	pathS2G := map[tablePath]*gnmipb.Path{}
+	pathG2S := map[*gnmipb.Path][]TablePath{}
 	for _, path := range paths {
-		err := populateDbTablePath(path, prefix, target, &pathS2G)
+		err := populateDbTablePath(path, prefix, target, &pathG2S)
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, err.Error())
 		}
@@ -201,15 +201,15 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 	ts := time.Now().UnixNano()
 	index := 0
-	log.V(5).Infof("GetRequest path: %v", pathS2G)
-	for tblPath, _ := range pathS2G {
-		val, err := tableData2TypedValue_redis(&tblPath, false, nil)
+	log.V(5).Infof("GetRequest path: %v", pathG2S)
+	for gnmiPath, tblPaths := range pathG2S {
+		val, err := tableData2TypedValue_redis(tblPaths, false, nil)
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, err.Error())
 		}
 
 		update := &gnmipb.Update{
-			Path: pathS2G[tblPath],
+			Path: gnmiPath,
 			Val:  val,
 		}
 
