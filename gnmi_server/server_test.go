@@ -9,7 +9,7 @@ import (
 	"github.com/go-redis/redis"
 	"github.com/golang/protobuf/proto"
 	testcert "github.com/jipanyang/sonic-telemetry/gnmi_server/testdata/tls"
-	spb "github.com/jipanyang/sonic-telemetry/proto"
+
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/openconfig/gnmi/client"
 	pb "github.com/openconfig/gnmi/proto/gnmi"
@@ -26,6 +26,8 @@ import (
 	"testing"
 	"time"
 	// Register supported client types.
+	spb "github.com/jipanyang/sonic-telemetry/proto"
+	sdc "github.com/jipanyang/sonic-telemetry/sonic_data_client"
 	gclient "github.com/openconfig/gnmi/client/gnmi"
 )
 
@@ -70,9 +72,6 @@ func createServer(t *testing.T) *Server {
 		ClientAuth:   tls.RequestClientCert,
 		Certificates: []tls.Certificate{certificate},
 	}
-
-	// Inform gNMI server to use redis tcp localhost connection
-	useRedisLocalTcpPort = true
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{Port: 8080}
@@ -567,4 +566,9 @@ func TestGnmiSubscribe(t *testing.T) {
 	runTestSubscribe(t)
 
 	s.s.Stop()
+}
+
+func init() {
+	// Inform gNMI server to use redis tcp localhost connection
+	sdc.UseRedisLocalTcpPort = true
 }

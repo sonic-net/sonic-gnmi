@@ -6,7 +6,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"time"
 
 	log "github.com/golang/glog"
 	"golang.org/x/net/context"
@@ -16,6 +15,7 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
+	sdc "github.com/jipanyang/sonic-telemetry/sonic_data_client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
@@ -46,9 +46,6 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if config == nil {
 		return nil, errors.New("config not provided")
 	}
-
-	// create DB connectors for all redis DBs
-	CreateDBConnector()
 
 	s := grpc.NewServer(opts...)
 	reflection.Register(s)
@@ -148,19 +145,6 @@ func (s *Server) checkEncodingAndModel(encoding gnmipb.Encoding, models []*gnmip
 	return nil
 }
 
-// gnmiFullPath builds the full path from the prefix and path.
-func gnmiFullPath(prefix, path *gnmipb.Path) *gnmipb.Path {
-
-	fullPath := &gnmipb.Path{Origin: path.Origin}
-	if path.GetElement() != nil {
-		fullPath.Element = append(prefix.GetElement(), path.GetElement()...)
-	}
-	if path.GetElem() != nil {
-		fullPath.Elem = append(prefix.GetElem(), path.GetElem()...)
-	}
-	return fullPath
-}
-
 // Get implements the Get RPC in gNMI spec.
 func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
 	var err error
@@ -173,48 +157,38 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		return nil, status.Error(codes.Unimplemented, err.Error())
 	}
 
-	var target string
 	prefix := req.GetPrefix()
 	if prefix == nil {
-		target = "CONFIG_DB"
+		return nil, status.Error(codes.Unimplemented, "No target specified in prefix")
 	} else {
-		target = prefix.GetTarget()
-		if target == "" {
-			target = "CONFIG_DB"
-		}
-		// TODO: add support for fetching non-db data
-		if target == "OTHERS" {
+		target := prefix.GetTarget()
+		// TODO: add data client support for fetching non-db data
+		if target == "" || target == "OTHERS" {
 			return nil, status.Error(codes.Unimplemented, "Non-DB target data not supported yet")
 		}
 	}
 
 	paths := req.GetPath()
+	log.V(5).Infof("GetRequest paths: %v", paths)
+	dc, err := sdc.NewDbClient(paths, prefix)
+	if err != nil {
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
 	notifications := make([]*gnmipb.Notification, len(paths))
 
-	pathG2S := map[*gnmipb.Path][]TablePath{}
-	for _, path := range paths {
-		err := populateDbTablePath(path, prefix, target, &pathG2S)
-		if err != nil {
-			return nil, status.Errorf(codes.NotFound, err.Error())
-		}
+	spbValues, err := dc.Get(nil)
+	if err != nil {
+		return nil, status.Error(codes.NotFound, err.Error())
 	}
 
-	ts := time.Now().UnixNano()
-	index := 0
-	log.V(5).Infof("GetRequest path: %v", pathG2S)
-	for gnmiPath, tblPaths := range pathG2S {
-		val, err := tableData2TypedValue_redis(tblPaths, false, nil)
-		if err != nil {
-			return nil, status.Errorf(codes.NotFound, err.Error())
-		}
-
+	for index, spbValue := range spbValues {
 		update := &gnmipb.Update{
-			Path: gnmiPath,
-			Val:  val,
+			Path: spbValue.GetPath(),
+			Val:  spbValue.GetVal(),
 		}
 
 		notifications[index] = &gnmipb.Notification{
-			Timestamp: ts,
+			Timestamp: spbValue.GetTimestamp(),
 			Prefix:    prefix,
 			Update:    []*gnmipb.Update{update},
 		}

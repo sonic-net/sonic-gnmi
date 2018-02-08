@@ -1,4 +1,5 @@
-package gnmi
+// Package client provides a generic access layer for data available in system
+package client
 
 import (
 	"bytes"
@@ -8,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/golang/glog"
@@ -15,11 +17,8 @@ import (
 	"github.com/go-redis/redis"
 	spb "github.com/jipanyang/sonic-telemetry/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
+	"github.com/workiva/go-datastructures/queue"
 )
-
-// TODO:  make db operation an interface
 
 const (
 	// indentString represents the default indentation string used for
@@ -29,7 +28,29 @@ const (
 	default_REDIS_LOCAL_TCP_PORT string = "localhost:6379"
 )
 
-var useRedisLocalTcpPort bool = false
+// Client defines a set of methods which every client must implement.
+// This package provides one implmentation for now: the DbClient
+//
+type Client interface {
+	// Stream will start watching service on data source
+	// and enqueue data change to the priority queue.
+	// It stops all activities upon receiving signal on stop channel
+	// It should run as a go routine
+	Stream(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup)
+	// Poll will  start service to respond poll signal received on poll channel.
+	// data read from data source will be enqueued on to the priority queue
+	// The service will stop upon detection of poll channel closing.
+	// It should run as a go routine
+	Poll(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup)
+	// Get return data from the data source in format of *spb.Value
+	Get(w *sync.WaitGroup) (*spb.Value, error)
+	// Close provides implemenation for explicit cleanup of Client
+	Close() error
+}
+
+// Let it be variable visible to other packages for now.
+// May add an interface function for it.
+var UseRedisLocalTcpPort bool = false
 
 // Port name to oid map in COUNTERS table of COUNTERS_DB
 var countersPortNameMap = make(map[string]string)
@@ -40,12 +61,167 @@ var countersPortOidMap = make(map[string]string)
 // redis client connected to each DB
 var Target2RedisDb = make(map[string]*redis.Client)
 
-type TablePath struct {
+type tablePath struct {
 	dbName    string
 	tableName string
 	tableKey  string
 	delimitor string
 	field     string
+	// path name to be used in json data which may be different
+	// from the real data path. Ex. in Counters table, real tableKey
+	// is oid:0x####, while key name like Ethernet## may be put
+	// in json data. They are to be filled in populateDbtablePath()
+	jsonTableName string
+	jsonTableKey  string
+	jsonDelimitor string
+	jsonField     string
+}
+
+type Value struct {
+	*spb.Value
+}
+
+// Implement Compare method for priority queue
+func (val Value) Compare(other queue.Item) int {
+	oval := other.(Value)
+	if val.GetTimestamp() > oval.GetTimestamp() {
+		return 1
+	} else if val.GetTimestamp() == oval.GetTimestamp() {
+		return 0
+	}
+	return -1
+}
+
+type DbClient struct {
+	pathG2S map[*gnmipb.Path][]tablePath
+	q       *queue.PriorityQueue
+	channel chan struct{}
+
+	synced sync.WaitGroup  // Control when to send gNMI sync_response
+	w      *sync.WaitGroup // wait for all sub go routines to finish
+}
+
+func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (*DbClient, error) {
+	var client DbClient
+	// Testing program may ask to use redis local tcp connection
+	if UseRedisLocalTcpPort {
+		useRedisTcpClient()
+	}
+	client.pathG2S = make(map[*gnmipb.Path][]tablePath)
+	err := populateAllDbtablePath(paths, prefix, &client.pathG2S)
+	if err != nil {
+		return nil, err
+	} else {
+		return &client, nil
+	}
+}
+
+func (c *DbClient) Stream(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup) {
+	c.w = w
+	defer c.w.Done()
+	c.q = q
+	c.channel = stop
+
+	for gnmiPath, tblPaths := range c.pathG2S {
+		if tblPaths[0].field != "" {
+			c.w.Add(1)
+			c.synced.Add(1)
+			go dbFieldSubscribe(gnmiPath, c)
+			continue
+		}
+		c.w.Add(1)
+		c.synced.Add(1)
+		go dbTableKeySubscribe(gnmiPath, c)
+		continue
+	}
+
+	// Wait untilall data values corresponding to the path(s) specified
+	// in the SubscriptionList has been transmitted at least once
+	c.synced.Wait()
+	// Inject sync message
+	c.q.Put(Value{
+		&spb.Value{
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: true,
+		},
+	})
+	log.V(2).Infof("Client %s synced", c)
+	for {
+		select {
+		default:
+			time.Sleep(time.Second)
+		case <-c.channel:
+			log.V(1).Infof("Stopping subscribeDb routine for Client %s ", c)
+			return
+		}
+	}
+	log.V(2).Infof("Exiting subscribeDb for %v", c)
+}
+
+func (c *DbClient) Poll(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup) {
+	c.w = w
+	defer c.w.Done()
+	c.q = q
+	c.channel = poll
+
+	for {
+		_, more := <-c.channel
+		if !more {
+			log.V(1).Infof("%v polled channel closed, exiting pollDb routine", c)
+			return
+		}
+		t1 := time.Now()
+		for gnmiPath, tblPaths := range c.pathG2S {
+			val, err := tableData2TypedValue_redis(tblPaths, false, nil)
+			if err != nil {
+				return
+			}
+
+			spbv := &spb.Value{
+				Path:         gnmiPath,
+				Timestamp:    time.Now().UnixNano(),
+				SyncResponse: false,
+				Val:          val,
+			}
+
+			c.q.Put(Value{spbv})
+			log.V(6).Infof("Added spbv #%v", spbv)
+		}
+
+		c.q.Put(Value{
+			&spb.Value{
+				Timestamp:    time.Now().UnixNano(),
+				SyncResponse: true,
+			},
+		})
+		ms := int64(time.Since(t1) / time.Millisecond)
+		log.V(4).Infof("Sync done, poll time taken: %v ms", ms)
+	}
+	log.V(2).Infof("Exiting pollDB for %v", c)
+}
+
+func (c *DbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
+	// wait sync for Get not used for now
+	c.w = w
+
+	var values []*spb.Value
+	ts := time.Now()
+	for gnmiPath, tblPaths := range c.pathG2S {
+		val, err := tableData2TypedValue_redis(tblPaths, false, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		values = append(values, &spb.Value{
+			Path:      gnmiPath,
+			Timestamp: ts.UnixNano(),
+			Val:       val,
+		})
+	}
+	log.V(6).Infof("Getting #%v", values)
+	ms := int64(time.Since(ts) / time.Millisecond)
+	log.V(4).Infof("Get done, total time taken: %v ms", ms)
+	return values, nil
 }
 
 func GetTableKeySeparator(target string) (string, error) {
@@ -67,12 +243,13 @@ func GetTableKeySeparator(target string) (string, error) {
 	return separator, nil
 }
 
-func CreateDBConnector() {
+// For testing only
+func useRedisTcpClient() {
 	for dbName, dbn := range spb.Target_value {
 		if dbName != "OTHERS" {
 			// DB connector for direct redis operation
 			var redisDb *redis.Client
-			if useRedisLocalTcpPort {
+			if UseRedisLocalTcpPort {
 				redisDb = redis.NewClient(&redis.Options{
 					Network:     "tcp",
 					Addr:        default_REDIS_LOCAL_TCP_PORT,
@@ -80,16 +257,26 @@ func CreateDBConnector() {
 					DB:          int(dbn),
 					DialTimeout: 0,
 				})
-			} else {
-				redisDb = redis.NewClient(&redis.Options{
-					Network:     "unix",
-					Addr:        default_UNIXSOCKET,
-					Password:    "", // no password set
-					DB:          int(dbn),
-					DialTimeout: 0,
-				})
 			}
+			Target2RedisDb[dbName] = redisDb
+		}
+	}
+}
 
+// Client package sets up connection to all DBs automatically
+func init() {
+	for dbName, dbn := range spb.Target_value {
+		if dbName != "OTHERS" {
+			// DB connector for direct redis operation
+			var redisDb *redis.Client
+
+			redisDb = redis.NewClient(&redis.Options{
+				Network:     "unix",
+				Addr:        default_UNIXSOCKET,
+				Password:    "", // no password set
+				DB:          int(dbn),
+				DialTimeout: 0,
+			})
 			Target2RedisDb[dbName] = redisDb
 		}
 	}
@@ -132,13 +319,37 @@ func remapTableKey(dbName, tableName, keyName string) (string, error) {
 	return keyName, nil
 }
 
+// gnmiFullPath builds the full path from the prefix and path.
+func gnmiFullPath(prefix, path *gnmipb.Path) *gnmipb.Path {
+
+	fullPath := &gnmipb.Path{Origin: path.Origin}
+	if path.GetElement() != nil {
+		fullPath.Element = append(prefix.GetElement(), path.GetElement()...)
+	}
+	if path.GetElem() != nil {
+		fullPath.Elem = append(prefix.GetElem(), path.GetElem()...)
+	}
+	return fullPath
+}
+
+func populateAllDbtablePath(paths []*gnmipb.Path, prefix *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
+	for _, path := range paths {
+		err := populateDbtablePath(path, prefix, pathG2S)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Populate table path in DB from gnmi path
-func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathG2S *map[*gnmipb.Path][]TablePath) error {
+func populateDbtablePath(path, prefix *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
 	var buffer bytes.Buffer
 	var dbPath string
-	var tblPath TablePath
+	var tblPath tablePath
 	var mappedKey string
 
+	target := prefix.GetTarget()
 	// Verify it is a valid db name
 	redisDb, ok := Target2RedisDb[target]
 	if !ok {
@@ -231,58 +442,8 @@ func populateDbTablePath(path, prefix *gnmipb.Path, target string, pathG2S *map[
 		}
 	}
 
-	(*pathG2S)[path] = []TablePath{tblPath}
-	log.V(5).Infof("TablePath %+v", tblPath)
-	return nil
-}
-
-// set DB target for subscribe request processing
-func setClientSubscribeTarget(c *Client) error {
-	prefix := c.subscribe.GetPrefix()
-
-	if prefix == nil {
-		// use CONFIG_DB as target of subscription by default
-		c.target = "CONFIG_DB"
-		return nil
-	}
-	// Path target in prefix stores DB name
-	c.target = prefix.GetTarget()
-
-	if c.target == "OTHERS" {
-		return grpc.Errorf(codes.Unimplemented, "Unsupported target %s for %s", c.target, c)
-	}
-	if c.target != "" {
-		if _, ok := Target2RedisDb[c.target]; !ok {
-			log.V(1).Infof("Invalid target %s for %s", c.target, c)
-			return grpc.Errorf(codes.InvalidArgument, "Invalid target %s for %s", c.target, c)
-		}
-	} else {
-		c.target = "CONFIG_DB"
-	}
-
-	return nil
-}
-
-// Populate SONiC data path from prefix and subscription path.
-func (c *Client) populateDbPathSubscrition(sublist *gnmipb.SubscriptionList) error {
-	prefix := sublist.GetPrefix()
-	log.V(6).Infof("prefix : %#v SubscribRequest : %#v", sublist)
-
-	subscriptions := sublist.GetSubscription()
-	if subscriptions == nil {
-		return fmt.Errorf("No Subscription")
-	}
-
-	for _, subscription := range subscriptions {
-		path := subscription.GetPath()
-
-		err := populateDbTablePath(path, prefix, c.target, &c.pathG2S)
-		if err != nil {
-			return err
-		}
-	}
-
-	log.V(6).Infof("dbpaths : %v", c.pathG2S)
+	(*pathG2S)[path] = []tablePath{tblPath}
+	log.V(5).Infof("tablePath %+v", tblPath)
 	return nil
 }
 
@@ -327,7 +488,7 @@ func emitJSON(v *map[string]interface{}) ([]byte, error) {
 
 // tableData2Msi renders the redis DB data to map[string]interface{}
 // which may be marshaled to JSON format
-func tableData2Msi(tblPath *TablePath, useKey bool, op *string, msi *map[string]interface{}) error {
+func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]interface{}) error {
 	redisDb := Target2RedisDb[tblPath.dbName]
 
 	var pattern string
@@ -393,7 +554,7 @@ func msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
 
 }
 
-func tableData2TypedValue_redis(tblPaths []TablePath, useKey bool, op *string) (*gnmipb.TypedValue, error) {
+func tableData2TypedValue_redis(tblPaths []tablePath, useKey bool, op *string) (*gnmipb.TypedValue, error) {
 
 	msi := make(map[string]interface{})
 	for _, tblPath := range tblPaths {
@@ -412,6 +573,7 @@ func tableData2TypedValue_redis(tblPaths []TablePath, useKey bool, op *string) (
 				log.V(2).Infof("redis HGet failed for %v", tblPath)
 				return nil, err
 			}
+			// TODO: support multiple table paths
 			return &gnmipb.TypedValue{
 				Value: &gnmipb.TypedValue_StringVal{
 					StringVal: val,
@@ -426,7 +588,7 @@ func tableData2TypedValue_redis(tblPaths []TablePath, useKey bool, op *string) (
 	return msi2TypedValue(msi)
 }
 
-func enqueFatalMsg(c *Client, msg string) {
+func enqueFatalMsg(c *DbClient, msg string) {
 	c.q.Put(Value{
 		&spb.Value{
 			Timestamp: time.Now().UnixNano(),
@@ -437,7 +599,7 @@ func enqueFatalMsg(c *Client, msg string) {
 
 // for subscribe request with granularity of table field, the value is fetched periodically.
 // Upon value change, it will be put to queue for furhter notification
-func dbFieldSubscribe(gnmiPath *gnmipb.Path, c *Client) {
+func dbFieldSubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
 	defer c.w.Done()
 
 	tblPaths := c.pathG2S[gnmiPath]
@@ -457,7 +619,7 @@ func dbFieldSubscribe(gnmiPath *gnmipb.Path, c *Client) {
 	var val string
 	for {
 		select {
-		case <-c.stop:
+		case <-c.channel:
 			log.V(1).Infof("Stopping dbFieldSubscribe routine for Client %s ", c)
 			return
 		default:
@@ -498,14 +660,13 @@ func dbFieldSubscribe(gnmiPath *gnmipb.Path, c *Client) {
 				}
 				val = newVal
 			}
-			// check again after 500 millisends
+			// check again after 500 millisends, to use configured variable
 			time.Sleep(time.Millisecond * 500)
 		}
 	}
-
 }
 
-func dbTableKeySubscribe(gnmiPath *gnmipb.Path, c *Client) {
+func dbTableKeySubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
 	defer c.w.Done()
 
 	tblPaths := c.pathG2S[gnmiPath]
@@ -661,88 +822,9 @@ func dbTableKeySubscribe(gnmiPath *gnmipb.Path, c *Client) {
 				log.V(1).Infof("Queue error:  %v", err)
 				return
 			}
-		case <-c.stop:
+		case <-c.channel:
 			log.V(1).Infof("Stopping subscribeDb routine for Client %s ", c)
 			return
 		}
 	}
-}
-
-// Entry point for stream mode of SubscribeRequest processing
-func subscribeDb(c *Client) {
-	defer c.w.Done()
-
-	for gnmiPath, tblPaths := range c.pathG2S {
-		if tblPaths[0].field != "" {
-			c.w.Add(1)
-			c.synced.Add(1)
-			go dbFieldSubscribe(gnmiPath, c)
-			continue
-		}
-		c.w.Add(1)
-		c.synced.Add(1)
-		go dbTableKeySubscribe(gnmiPath, c)
-		continue
-	}
-
-	// Wait untilall data values corresponding to the path(s) specified
-	// in the SubscriptionList has been transmitted at least once
-	c.synced.Wait()
-	// Inject sync message
-	c.q.Put(Value{
-		&spb.Value{
-			Timestamp:    time.Now().UnixNano(),
-			SyncResponse: true,
-		},
-	})
-	log.V(2).Infof("Client %s synced", c)
-	for {
-		select {
-		default:
-			time.Sleep(time.Second)
-		case <-c.stop:
-			log.V(1).Infof("Stopping subscribeDb routine for Client %s ", c)
-			return
-		}
-	}
-	log.V(2).Infof("Exiting subscribeDb for %v", c)
-}
-
-// Read db upon poll signal
-func pollDb(c *Client) {
-	defer c.w.Done()
-	for {
-		_, more := <-c.polled
-		if !more {
-			log.V(1).Infof("%v polled channel closed, exiting pollDb routine", c)
-			return
-		}
-		t1 := time.Now()
-		for gnmiPath, tblPaths := range c.pathG2S {
-			val, err := tableData2TypedValue_redis(tblPaths, false, nil)
-			if err != nil {
-				return
-			}
-
-			spbv := &spb.Value{
-				Path:         gnmiPath,
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: false,
-				Val:          val,
-			}
-
-			c.q.Put(Value{spbv})
-			log.V(6).Infof("Added spbv #%v", spbv)
-		}
-
-		c.q.Put(Value{
-			&spb.Value{
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: true,
-			},
-		})
-		ms := int64(time.Since(t1) / time.Millisecond)
-		log.V(4).Infof("Sync done, poll time taken: %v ms", ms)
-	}
-	log.V(2).Infof("Exiting pollDB for %v", c)
 }

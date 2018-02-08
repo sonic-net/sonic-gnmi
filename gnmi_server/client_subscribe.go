@@ -11,30 +11,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 
-	spb "github.com/jipanyang/sonic-telemetry/proto"
+	//spb "github.com/jipanyang/sonic-telemetry/proto"
+	sdc "github.com/jipanyang/sonic-telemetry/sonic_data_client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
-
-var syncResp = &gnmipb.SubscribeResponse{
-	Response: &gnmipb.SubscribeResponse_SyncResponse{
-		SyncResponse: true,
-	},
-}
-
-type Value struct {
-	*spb.Value
-}
-
-// Implement Compare method for priority queue
-func (val Value) Compare(other queue.Item) int {
-	oval := other.(Value)
-	if val.GetTimestamp() > oval.GetTimestamp() {
-		return 1
-	} else if val.GetTimestamp() == oval.GetTimestamp() {
-		return 0
-	}
-	return -1
-}
 
 // Client contains information about a subscribe client that has connected to the server.
 type Client struct {
@@ -47,30 +27,44 @@ type Client struct {
 	mu        sync.RWMutex
 	q         *queue.PriorityQueue
 	subscribe *gnmipb.SubscriptionList
-	// mapping from gNMI path to SONiC path, 1 to many
-	pathG2S map[*gnmipb.Path][]TablePath
-	// target of subscribe request, it is db number in SONiC
-	target string
 	// Wait for all sub go routine to finish
-	w sync.WaitGroup
-	// Control when to send gNMI sync_response
-	synced sync.WaitGroup
-	fatal  bool
+	w     sync.WaitGroup
+	fatal bool
 }
 
 // NewClient returns a new initialized client.
 func NewClient(addr net.Addr) *Client {
 	pq := queue.NewPriorityQueue(1, false)
 	return &Client{
-		addr:    addr,
-		q:       pq,
-		pathG2S: map[*gnmipb.Path][]TablePath{},
+		addr: addr,
+		q:    pq,
 	}
 }
 
 // String returns the target the client is querying.
 func (c *Client) String() string {
 	return c.addr.String()
+}
+
+// Populate SONiC data path from prefix and subscription path.
+func (c *Client) populateDbPathSubscrition(sublist *gnmipb.SubscriptionList) ([]*gnmipb.Path, error) {
+	var paths []*gnmipb.Path
+
+	prefix := sublist.GetPrefix()
+	log.V(6).Infof("prefix : %#v SubscribRequest : %#v", prefix, sublist)
+
+	subscriptions := sublist.GetSubscription()
+	if subscriptions == nil {
+		return nil, fmt.Errorf("No Subscription")
+	}
+
+	for _, subscription := range subscriptions {
+		path := subscription.GetPath()
+		paths = append(paths, path)
+	}
+
+	log.V(6).Infof("gnmi Paths : %v", paths)
+	return paths, nil
 }
 
 // Run starts the subscribe client. The first message received must be a
@@ -106,31 +100,36 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		return grpc.Errorf(codes.InvalidArgument, "first message must be SubscriptionList: %q", query)
 	}
 
-	err = setClientSubscribeTarget(c)
+	prefix := c.subscribe.GetPrefix()
+	if prefix == nil {
+		return grpc.Errorf(codes.Unimplemented, "No target specified in prefix")
+	} else {
+		target := prefix.GetTarget()
+		// TODO: add data client support for fetching non-db data
+		if target == "" || target == "OTHERS" {
+			return grpc.Errorf(codes.Unimplemented, "Non-DB target data not supported yet")
+		}
+	}
+
+	paths, err := c.populateDbPathSubscrition(c.subscribe)
 	if err != nil {
-		return err
+		return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
+	}
+	dc, err := sdc.NewDbClient(paths, prefix)
+	if err != nil {
+		return grpc.Errorf(codes.NotFound, "%v", err)
 	}
 
 	switch mode := c.subscribe.GetMode(); mode {
 	case gnmipb.SubscriptionList_STREAM:
-		err = c.populateDbPathSubscrition(c.subscribe)
-		if err != nil {
-			return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
-		}
 		c.stop = make(chan struct{}, 1)
 		c.w.Add(1)
-		go subscribeDb(c)
-
+		go dc.Stream(c.q, c.stop, &c.w)
 	case gnmipb.SubscriptionList_POLL:
-		err = c.populateDbPathSubscrition(c.subscribe)
-		if err != nil {
-			return grpc.Errorf(codes.NotFound, "Invalid subscription path: %s %q", err, query)
-		}
 		c.polled = make(chan struct{}, 1)
 		c.polled <- struct{}{}
 		c.w.Add(1)
-		go pollDb(c)
-
+		go dc.Poll(c.q, c.polled, &c.w)
 	case gnmipb.SubscriptionList_ONCE:
 		return grpc.Errorf(codes.Unimplemented, "SubscriptionList_ONCE is not implemented for SONiC gRPC/gNMI yet: %q", query)
 	default:
@@ -215,7 +214,7 @@ func (c *Client) processQueue(stream gnmipb.GNMI_SubscribeServer) error {
 
 		var resp *gnmipb.SubscribeResponse
 		switch v := items[0].(type) {
-		case Value:
+		case sdc.Value:
 			if resp, err = c.valToResp(v); err != nil {
 				c.errors++
 				return err
@@ -259,7 +258,7 @@ func getGnmiPathPrefix(c *Client) (*gnmipb.Path, error) {
 
 // Convert from SONiC Value to its corresponding gNMI proto stream
 // response type.
-func (c *Client) valToResp(val Value) (*gnmipb.SubscribeResponse, error) {
+func (c *Client) valToResp(val sdc.Value) (*gnmipb.SubscribeResponse, error) {
 	switch val.GetSyncResponse() {
 	case true:
 		return &gnmipb.SubscribeResponse{
