@@ -124,12 +124,12 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	case gnmipb.SubscriptionList_STREAM:
 		c.stop = make(chan struct{}, 1)
 		c.w.Add(1)
-		go dc.Stream(c.q, c.stop, &c.w)
+		go dc.StreamRun(c.q, c.stop, &c.w)
 	case gnmipb.SubscriptionList_POLL:
 		c.polled = make(chan struct{}, 1)
 		c.polled <- struct{}{}
 		c.w.Add(1)
-		go dc.Poll(c.q, c.polled, &c.w)
+		go dc.PollRun(c.q, c.polled, &c.w)
 	case gnmipb.SubscriptionList_ONCE:
 		return grpc.Errorf(codes.Unimplemented, "SubscriptionList_ONCE is not implemented for SONiC gRPC/gNMI yet: %q", query)
 	default:

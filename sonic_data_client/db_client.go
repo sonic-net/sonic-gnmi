@@ -32,16 +32,16 @@ const (
 // This package provides one implmentation for now: the DbClient
 //
 type Client interface {
-	// Stream will start watching service on data source
+	// StreamRun will start watching service on data source
 	// and enqueue data change to the priority queue.
 	// It stops all activities upon receiving signal on stop channel
 	// It should run as a go routine
-	Stream(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup)
+	StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup)
 	// Poll will  start service to respond poll signal received on poll channel.
 	// data read from data source will be enqueued on to the priority queue
 	// The service will stop upon detection of poll channel closing.
 	// It should run as a go routine
-	Poll(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup)
+	PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup)
 	// Get return data from the data source in format of *spb.Value
 	Get(w *sync.WaitGroup) (*spb.Value, error)
 	// Close provides implemenation for explicit cleanup of Client
@@ -116,7 +116,7 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (*DbClient, error) {
 	}
 }
 
-func (c *DbClient) Stream(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup) {
+func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup) {
 	c.w = w
 	defer c.w.Done()
 	c.q = q
@@ -135,7 +135,7 @@ func (c *DbClient) Stream(q *queue.PriorityQueue, stop chan struct{}, w *sync.Wa
 		continue
 	}
 
-	// Wait untilall data values corresponding to the path(s) specified
+	// Wait until all data values corresponding to the path(s) specified
 	// in the SubscriptionList has been transmitted at least once
 	c.synced.Wait()
 	// Inject sync message
@@ -158,7 +158,7 @@ func (c *DbClient) Stream(q *queue.PriorityQueue, stop chan struct{}, w *sync.Wa
 	log.V(2).Infof("Exiting subscribeDb for %v", c)
 }
 
-func (c *DbClient) Poll(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup) {
+func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup) {
 	c.w = w
 	defer c.w.Done()
 	c.q = q
@@ -736,7 +736,7 @@ func dbTableKeySubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
 	for {
 		select {
 		default:
-			msgi, err := pubsub.ReceiveTimeout(time.Millisecond * 1000)
+			msgi, err := pubsub.ReceiveTimeout(time.Millisecond * 500)
 			if err != nil {
 				neterr, ok := err.(net.Error)
 				if ok {
