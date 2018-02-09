@@ -56,15 +56,15 @@ var Target_value = map[string]int32{
 func (x Target) String() string {
 	return proto.EnumName(Target_name, int32(x))
 }
-func (Target) EnumDescriptor() ([]byte, []int) { return fileDescriptor1, []int{0} }
+func (Target) EnumDescriptor() ([]byte, []int) { return fileDescriptor2, []int{0} }
 
 func init() {
 	proto.RegisterEnum("gnmi.sonic.Target", Target_name, Target_value)
 }
 
-func init() { proto.RegisterFile("sonic.proto", fileDescriptor1) }
+func init() { proto.RegisterFile("sonic.proto", fileDescriptor2) }
 
-var fileDescriptor1 = []byte{
+var fileDescriptor2 = []byte{
 	// 205 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x2c, 0xce, 0x4f, 0x4e, 0x84, 0x30,
 	0x14, 0xc7, 0x71, 0x19, 0xb5, 0xea, 0x43, 0x33, 0xa4, 0xee, 0xe6, 0x08, 0x2e, 0xc0, 0xc4, 0x13,
