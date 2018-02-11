@@ -281,32 +281,6 @@ func init() {
 	}
 }
 
-/*
-// Do special table key remapping for some db entries.
-// Ex port name to oid in "COUNTERS_PORT_NAME_MAP" table of COUNTERS_DB
-func remapTableKey(dbName, tableName, keyName string) (string, error) {
-	if dbName != "COUNTERS_DB" {
-		return keyName, nil
-	}
-	if tableName != "COUNTERS" {
-		return keyName, nil
-	}
-
-	var err error
-	if len(countersPortNameMap) == 0 {
-		countersPortNameMap, err = getCountersMap("COUNTERS_PORT_NAME_MAP")
-		if err != nil {
-			return "", err
-		}
-	}
-	if mappedKey, ok := countersPortNameMap[keyName]; ok {
-		log.V(5).Infof("tableKey %s to be remapped to %s for %s %s ", keyName, mappedKey, dbName, tableName)
-		return mappedKey, nil
-	}
-	return keyName, nil
-}
-*/
-
 // gnmiFullPath builds the full path from the prefix and path.
 func gnmiFullPath(prefix, path *gnmipb.Path) *gnmipb.Path {
 
@@ -377,17 +351,7 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	tblPath.dbName = target
 	tblPath.tableName = stringSlice[1]
 	tblPath.delimitor = separator
-	/*
-		if len(stringSlice) > 1 {
-			// Second slice is table key or first part of the table key
-			// Do name map if needed.
-			var err error
-			mappedKey, err = remapTableKey(tblPath.dbName, tblPath.tableName, stringSlice[1])
-			if err != nil {
-				return err
-			}
-		}
-	*/
+
 	var mappedKey string
 	if len(stringSlice) > 2 { // tmp, to remove mappedKey
 		mappedKey = stringSlice[2]
