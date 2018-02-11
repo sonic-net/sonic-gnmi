@@ -144,7 +144,7 @@ func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync
 			SyncResponse: true,
 		},
 	})
-	log.V(2).Infof("Client %s synced", c)
+
 	for {
 		select {
 		default:
@@ -518,7 +518,7 @@ func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 		dbkeys, err = redisDb.Keys(pattern).Result()
 		if err != nil {
 			log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
-			return err
+			return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
 		}
 	} else {
 		// both table name and key provided
@@ -529,8 +529,9 @@ func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 	if tblPath.jsonField != "" && tblPath.jsonTableKey != "" {
 		val, err := redisDb.HGet(dbkeys[0], tblPath.field).Result()
 		if err != nil {
-			log.V(2).Infof("redis HGet failed for %v %v", tblPath, err)
-			return err
+			log.V(3).Infof("redis HGet failed for %v %v", tblPath, err)
+			// ignore non-existing field which was derived from virtual path
+			return nil
 		}
 		fv = map[string]string{tblPath.jsonField: val}
 		makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)

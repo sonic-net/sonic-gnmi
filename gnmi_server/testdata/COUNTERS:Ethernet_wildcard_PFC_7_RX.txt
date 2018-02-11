@@ -1,0 +1,8 @@
+{
+	"Ethernet1": {
+	  "SAI_PORT_STAT_PFC_7_RX_PKTS": "1"
+	},
+	"Ethernet68": {
+	  "SAI_PORT_STAT_PFC_7_RX_PKTS": "2"
+	}
+}

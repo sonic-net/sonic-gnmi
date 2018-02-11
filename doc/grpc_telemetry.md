@@ -8,19 +8,20 @@
       * [SubscribeRequest/SubscribeResponse](#subscriberequestsubscriberesponse)
          * [Stream mode](#stream-mode)
          * [Poll mode](#poll-mode)
+      * [Virtual path](#virtual-path)
    * [Authentication](#authentication)
    * [Encryption](#encryption)
    * [AutoTest](#autotest)
 
 # Overview of gRPC data telemetry in SONiC
 
-At the daily operation of datacenter network, being able to get the underlying characteristics of the network devices - either operational state or configuration, efficiently and quickly in structured format will greatly facilitate the analysis of network status and improve network stability.  Besides the traditional data collecting methods like SNMP, syslog and CLI,  gRPC is the modern communication protocol supported by SONiC for telemetry streaming.
+At the daily operation of datacenter network, being able to get the underlying characteristics of the network devices - either operational state or configuration, efficiently and quickly in structured format, will greatly facilitate the analysis of network status and improve network stability.  Besides the traditional data collecting methods like SNMP, syslog and CLI,  gRPC is the modern communication protocol supported by SONiC for telemetry streaming.
 
 The implementation of gRPC data telemetry is largely based on [gNMI](https://github.com/openconfig/reference/blob/master/rpc/gnmi/gnmi-specification.md) (gRPC Network Management Interface) with customization for SONiC.
 
 # Data available in SONiC
 
-In SONiC, most of the critical network and system data is stored in redisDB. Based on the data type and usage, they are spread in 6 DBs
+In SONiC, most of the critical network and system data is stored in redisDB. Based on the data type and usage, they are spread in 7 DBs
 
 |DB name    |   DB No. |     Description|
 |  ----     |:----:| ----|
@@ -29,13 +30,12 @@ In SONiC, most of the critical network and system data is stored in redisDB. Bas
 |COUNTERS_DB | 2 |   Counter data for port, lag, queue
 |LOGLEVEL_DB | 3 |   Log level control for SONiC modules
 |CONFIG_DB   | 4 |   Source of truth for SONiC configuration
-|PFC_WD_DB   | 5 |   For PFC watch dog counters control
-|FLEX_COUNTER_DB| 5 | Alias for PFC_WD_DB
+|FLEX_COUNTER_DB| 5 | For PFC watch dog counters control and other plugin extensions
 |STATE_DB       | 6 | Configuration state for object in CONFIG_DB
 
 The role and layer of each DB is also shown in the diagram below:
 
-![SONiC DB](img/sonic_db.png)
+![SONiC TELEMETRY](img/sonic_telemetry.png)
 
 Within each DB,  the data usually is organized in hierarchy of Table, key, field, value. Ex.  for "CONFIG_DB", there is "VLAN" table, and "Vlan1500" is one of the keys in this table,  associated with "Vlan1500" there is one field named "admin_status" with value of "up"
 
@@ -338,6 +338,101 @@ sendQueryAndDisplay: GROUP 2 query.Queries: [[COUNTERS Ethernet9 SAI_PORT_STAT_P
   }
 }
 ```
+
+## Virtual path
+Some of the SONiC database tables contain aggregated data. Ex. COUNTERS in COUNTER_DB stores stats of Ports, Queues and others type of SONiC objects, also the key in table is oid which is only meaningful inside SONiC. The virtual path concept is introduced for SONiC telemetry. It doesn't exist in SONiC redis database, telemetry module performs internal translation to map it to real data path and returns data accordingly. Virtual paths supported so far:
+
+|  DB target|   Virtual Path  |     Description|
+|  ----     |:----:| ----|
+|COUNTERS_DB | "COUNTERS/Ethernet*"|  All counters on all Ethernet ports
+|COUNTERS_DB | "COUNTERS/Ethernet*/``<counter name``>"|  One counter on all Ethernet ports
+|COUNTERS_DB | "COUNTERS/Ethernet``<port number``>/``<counter name``>"|  One counter on one Ethernet ports
+
+Virtual path supports Get and Subscribe Poll operations.
+
+```
+jipan@6068794801d2:/sonic/go/src/github.com/google/gnxi/gnmi_get$ go run gnmi_get.go -xpath_target COUNTERS_DB -xpath "COUNTERS/Ethernet*" -target_addr 30.57.185.38:8080 -alsologtostderr -insecure true
+== getRequest:
+prefix: <
+  target: "COUNTERS_DB"
+>
+path: <
+  elem: <
+    name: "COUNTERS"
+  >
+  elem: <
+    name: "Ethernet*"
+  >
+>
+encoding: JSON_IETF
+
+== getResponse:
+notification: <
+  timestamp: 1518331479776983023
+  prefix: <
+    target: "COUNTERS_DB"
+  >
+  update: <
+    path: <
+      elem: <
+        name: "COUNTERS"
+      >
+      elem: <
+        name: "Ethernet*"
+      >
+    >
+    val: <
+      json_ietf_val: "{\"Ethernet0\":{\"SAI_PORT_STAT_ETHER_IN_PKTS_1024_TO_1518_OCTETS\":\"0\",\"SAI_PORT_STAT_ETHER_IN_PKTS_128_TO_255_OCTETS\":\"0\",\"SAI_PORT_STAT_ETHER_IN_PKTS_1519_TO_2047_OCTETS\":\"0\",\"SAI_PORT_STAT_ETHER_IN_PKTS_2048_TO_4095_OCTETS\":\"0\", .........},
+      \"Ethernet9\":{\"SAI_PORT_STAT_ETHER_IN_PKTS_1024_TO_1518_OCTETS\":\"0\",....\"SAI_PORT_STAT_PFC_7_TX_PKTS\":\"0\"}}"
+    >
+  >
+>
+```
+
+```
+jipan@6068794801d2:/sonic/go/src/github.com/google/gnxi/gnmi_get$ go run gnmi_get.go -xpath_target COUNTERS_DB -xpath "COUNTERS/Ethernet*/SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS" -target_addr 30.57.185.38:8080 -alsologtostderr -insecure true
+== getRequest:
+prefix: <
+  target: "COUNTERS_DB"
+>
+path: <
+  elem: <
+    name: "COUNTERS"
+  >
+  elem: <
+    name: "Ethernet*"
+  >
+  elem: <
+    name: "SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS"
+  >
+>
+encoding: JSON_IETF
+
+== getResponse:
+notification: <
+  timestamp: 1518331688431153677
+  prefix: <
+    target: "COUNTERS_DB"
+  >
+  update: <
+    path: <
+      elem: <
+        name: "COUNTERS"
+      >
+      elem: <
+        name: "Ethernet*"
+      >
+      elem: <
+        name: "SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS"
+      >
+    >
+    val: <
+      json_ietf_val: "{\"Ethernet0\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet1\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet10\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet11\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet12\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet13\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet14\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet15\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet16\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet17\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet18\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet19\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet2\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet20\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet21\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet22\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet23\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet24\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet25\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet26\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet27\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet28\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet29\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet3\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet30\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet31\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet32\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet33\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet34\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet35\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet36\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet37\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet38\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet39\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet4\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet40\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet41\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet42\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet43\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet44\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet45\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet46\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet47\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet48\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet5\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet52\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet56\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet6\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet60\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet64\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet68\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet7\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet8\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"},\"Ethernet9\":{\"SAI_PORT_STAT_PFC_7_ON2OFF_RX_PKTS\":\"0\"}}"
+    >
+  >
+>
+```
+
 # Authentication
 To be implemented, may support integration with SONiC TACACS. User will be authenticated on per RPC basis.
 
@@ -348,7 +443,7 @@ TLS encryption is supported with gRPC communication.
 A series of auto test cases are available using Go "testing" package and standard redis-server.
 Assuming go environment has been set up and redis-server is running, run `go test -v` under gnmi_server folder:
 ```
-jipan@6068794801d2:/sonic/go/src/github.com/jipanyang/sonic-telemetry/gnmi_server$ go test -v
+jipan@6068794801d2:/sonic/go/src/github.com/jipanyang/sonic-telemetry$ go test -v ./gnmi_server/
 === RUN   TestGnmiGet
 === RUN   TestGnmiGet/Test_non-existing_path_Target
 === RUN   TestGnmiGet/Test_Unimplemented_path_target
@@ -356,27 +451,31 @@ jipan@6068794801d2:/sonic/go/src/github.com/jipanyang/sonic-telemetry/gnmi_serve
 === RUN   TestGnmiGet/Get_COUNTERS_PORT_NAME_MAP
 === RUN   TestGnmiGet/get_COUNTERS:Ethernet68
 === RUN   TestGnmiGet/get_COUNTERS:Ethernet68_SAI_PORT_STAT_PFC_7_RX_PKTS
---- PASS: TestGnmiGet (0.02s)
-    --- PASS: TestGnmiGet/Test_non-existing_path_Target (0.00s)
+=== RUN   TestGnmiGet/get_COUNTERS:Ethernet*
+=== RUN   TestGnmiGet/get_COUNTERS:Ethernet*_SAI_PORT_STAT_PFC_7_RX_PKTS
+--- PASS: TestGnmiGet (6.32s)
+    --- PASS: TestGnmiGet/Test_non-existing_path_Target (0.02s)
     --- PASS: TestGnmiGet/Test_Unimplemented_path_target (0.00s)
     --- PASS: TestGnmiGet/Get_valid_but_non-existing_node (0.00s)
     --- PASS: TestGnmiGet/Get_COUNTERS_PORT_NAME_MAP (0.00s)
     --- PASS: TestGnmiGet/get_COUNTERS:Ethernet68 (0.00s)
     --- PASS: TestGnmiGet/get_COUNTERS:Ethernet68_SAI_PORT_STAT_PFC_7_RX_PKTS (0.00s)
+    --- PASS: TestGnmiGet/get_COUNTERS:Ethernet* (0.00s)
+    --- PASS: TestGnmiGet/get_COUNTERS:Ethernet*_SAI_PORT_STAT_PFC_7_RX_PKTS (0.00s)
 === RUN   TestGnmiSubscribe
 === RUN   TestGnmiSubscribe/stream_query_for_table_with_update_of_new_field
 === RUN   TestGnmiSubscribe/stream_query_for_table_key_with_update_of_new_field
 === RUN   TestGnmiSubscribe/stream_query_for_table_key_field_with_update_of_filed_value
 === RUN   TestGnmiSubscribe/poll_query_for_table_with_field_delete
 === RUN   TestGnmiSubscribe/poll_query_with_table_key_field_with_field_value_change
---- PASS: TestGnmiSubscribe (12.02s)
+--- PASS: TestGnmiSubscribe (13.63s)
     --- PASS: TestGnmiSubscribe/stream_query_for_table_with_update_of_new_field (2.00s)
     --- PASS: TestGnmiSubscribe/stream_query_for_table_key_with_update_of_new_field (3.00s)
     --- PASS: TestGnmiSubscribe/stream_query_for_table_key_field_with_update_of_filed_value (3.00s)
     --- PASS: TestGnmiSubscribe/poll_query_for_table_with_field_delete (2.00s)
     --- PASS: TestGnmiSubscribe/poll_query_with_table_key_field_with_field_value_change (2.00s)
 PASS
-ok    github.com/jipanyang/sonic-telemetry/gnmi_server  12.040s
+ok    github.com/jipanyang/sonic-telemetry/gnmi_server  19.959s
 ```
 
 

@@ -198,6 +198,24 @@ func prepareDb(t *testing.T) {
 	// "Ethernet68": "oid:0x1000000000039",
 	mpi_counter := loadConfig(t, "COUNTERS:oid:0x1000000000039", countersEthernet68Byte)
 	loadDB(t, rclient, mpi_counter)
+
+	fileName = "testdata/COUNTERS:Ethernet1.txt"
+	countersEthernet1Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatal("read file %v err: %v", fileName, err)
+	}
+	// "Ethernet1": "oid:0x1000000000003",
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000003", countersEthernet1Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet64:0": "oid:0x1500000000092a"  : queue counter, to work as data noise
+	fileName = "testdata/COUNTERS:oid:0x1500000000092a.txt"
+	counters92aByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatal("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000092a", counters92aByte)
+	loadDB(t, rclient, mpi_counter)
 }
 
 func TestGnmiGet(t *testing.T) {
@@ -231,6 +249,18 @@ func TestGnmiGet(t *testing.T) {
 
 	fileName = "testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatal("read file %v err: %v", fileName, err)
+	}
+
+	fileName = "testdata/COUNTERS:Ethernet_wildcard.txt"
+	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatal("read file %v err: %v", fileName, err)
+	}
+
+	fileName = "testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX.txt"
+	countersEthernetWildcardPfcByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatal("read file %v err: %v", fileName, err)
 	}
@@ -289,6 +319,25 @@ func TestGnmiGet(t *testing.T) {
 				`,
 		wantRetCode: codes.OK,
 		wantRespVal: "2",
+	}, {
+		desc:       "get COUNTERS:Ethernet*",
+		pathTarget: "COUNTERS_DB",
+		textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "Ethernet*" >
+				`,
+		wantRetCode: codes.OK,
+		wantRespVal: countersEthernetWildcardByte,
+	}, {
+		desc:       "get COUNTERS:Ethernet* SAI_PORT_STAT_PFC_7_RX_PKTS",
+		pathTarget: "COUNTERS_DB",
+		textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "Ethernet*" >
+					elem: <name: "SAI_PORT_STAT_PFC_7_RX_PKTS" >
+				`,
+		wantRetCode: codes.OK,
+		wantRespVal: countersEthernetWildcardPfcByte,
 	}}
 
 	for _, td := range tds {
