@@ -512,24 +512,25 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 	clientCfg = ccfg
 	dbn := spb.Target_value["CONFIG_DB"]
+
+	redisDb := redis.NewClient(&redis.Options{
+		Network:     "unix",
+		Addr:        sdc.Default_REDIS_UNIXSOCKET,
+		Password:    "", // no password set
+		DB:          int(dbn),
+		DialTimeout: 0,
+	})
+
 	/*
+		sdc.UseRedisLocalTcpPort = true
 		redisDb := redis.NewClient(&redis.Options{
-			Network:     "unix",
-			Addr:        sdc.Default_REDIS_UNIXSOCKET,
+			Network:     "tcp",
+			Addr:        sdc.Default_REDIS_LOCAL_TCP_PORT,
 			Password:    "", // no password set
 			DB:          int(dbn),
 			DialTimeout: 0,
 		})
 	*/
-
-	sdc.UseRedisLocalTcpPort = true
-	redisDb := redis.NewClient(&redis.Options{
-		Network:     "tcp",
-		Addr:        sdc.Default_REDIS_LOCAL_TCP_PORT,
-		Password:    "", // no password set
-		DB:          int(dbn),
-		DialTimeout: 0,
-	})
 	separator, _ := sdc.GetTableKeySeparator("CONFIG_DB")
 	pattern := "__keyspace@" + strconv.Itoa(int(dbn)) + "__:TELEMETRY_CLIENT" + separator
 	prefixLen := len(pattern)
