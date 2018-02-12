@@ -1,3 +1,5 @@
+# SONiC telemetry in dialout mode
+
    * [Overview of telemetry in dialout mode](#overview-of-telemetry-in-dialout-mode)
    * [Services provided in dialout mode](#services-provided-in-dialout-mode)
    * [Configurations for dialout mode](#configurations-for-dialout-mode)
