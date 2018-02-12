@@ -357,7 +357,7 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 		mappedKey = stringSlice[2]
 	}
 
-	// The expect real db path could be in one of the formats (excluding DB name):
+	// The expect real db path could be in one of the formats:
 	// <1> DB Table
 	// <2> DB Table Key
 	// <3> DB Table Field

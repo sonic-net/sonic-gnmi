@@ -1,12 +1,11 @@
-# SONiC telemetry in dialout mode
+# SONiC telemetry in dial-out mode
 
    * [Overview of telemetry in dialout mode](#overview-of-telemetry-in-dialout-mode)
    * [Services provided in dialout mode](#services-provided-in-dialout-mode)
    * [Configurations for dialout mode](#configurations-for-dialout-mode)
    * [dialout_client_cli and dialout_server_cli](#dialout_client_cli-and-dialout_server_cli)
    * [AutoTest](#autotest)
-   * [Performand and Scale Test](#performand-and-scale-test)
-
+   * [Performance and Scale Test](#performance-and-scale-test)
 
 # Overview of telemetry in dialout mode
 
@@ -154,7 +153,7 @@ update: <
 # AutoTest
 To be provided
 
-# Performand and Scale Test
+# Performance and Scale Test
 To be provided
 
 
