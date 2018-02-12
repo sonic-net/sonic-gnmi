@@ -236,10 +236,10 @@ restart: //Remote server might go down, in that case we restart with next destin
 			return
 		default:
 		}
-		log.V(1).Infof("Dialout connection for %v failed: %v, cs.conTryCnt %v", dest, cs.name, err, cs.conTryCnt)
+		log.V(1).Infof("Dialout connection for %v failed for %v, %v cs.conTryCnt %v", dest, cs.name, err, cs.conTryCnt)
 		goto restart
 	}
-
+	log.V(1).Infof("Dialout service connected to %v successfully for %v", dest, cs.name)
 	pub, err := c.client.Publish(ctx)
 	if err != nil {
 		log.V(1).Infof("Publish to %v for %v failed: %v, retrying", dest, cs.name, err)
@@ -283,7 +283,7 @@ restart: //Remote server might go down, in that case we restart with next destin
 				log.V(6).Infof("cs %s sending \n\t%v \n To %s", cs.name, response, dest)
 				err = pub.Send(response)
 				if err != nil {
-					log.V(1).Infof("Client %s pub Send error:%v, cs.conTryCnt %v", c, err, cs.conTryCnt)
+					log.V(1).Infof("Client %v pub Send error:%v, cs.conTryCnt %v", cs.name, err, cs.conTryCnt)
 					c.Close()
 					// Retry
 					goto restart
@@ -502,6 +502,7 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 					return fmt.Errorf("Invalid field %v value %v", field, value)
 				}
 			}
+			ClientSubscriptionNameMap[name] = &cs
 			cs.NewInstance(ctx)
 		}
 	}

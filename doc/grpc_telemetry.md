@@ -12,6 +12,7 @@
    * [Authentication](#authentication)
    * [Encryption](#encryption)
    * [AutoTest](#autotest)
+   * [Performand and Scale Test](#performand-and-scale-test)
 
 # Overview of gRPC data telemetry in SONiC
 
@@ -478,5 +479,7 @@ PASS
 ok    github.com/jipanyang/sonic-telemetry/gnmi_server  19.959s
 ```
 
+# Performand and Scale Test
+To be provided
 
 
