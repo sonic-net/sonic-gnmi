@@ -93,6 +93,7 @@ type DbClient struct {
 
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
 	w      *sync.WaitGroup // wait for all sub go routines to finish
+	mu     sync.RWMutex    // Mutex for data protection among routines for DbClient
 }
 
 func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (*DbClient, error) {
@@ -144,17 +145,16 @@ func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync
 			SyncResponse: true,
 		},
 	})
-
+	log.V(2).Infof("%v Synced", c.pathG2S)
 	for {
 		select {
 		default:
 			time.Sleep(time.Second)
 		case <-c.channel:
-			log.V(1).Infof("Stopping subscribeDb routine for Client %s ", c)
+			log.V(1).Infof("Exiting StreamRun routine for Client %v", c.pathG2S)
 			return
 		}
 	}
-	log.V(2).Infof("Exiting subscribeDb for %v", c)
 }
 
 func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup) {
@@ -404,14 +404,10 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	var key string
 	if tblPath.tableKey != "" {
 		key = tblPath.tableName + tblPath.delimitor + tblPath.tableKey
-	} else {
-		key = tblPath.tableName
-	}
-	if key != "" {
 		n, _ := redisDb.Exists(key).Result()
 		if n != 1 {
-			log.V(2).Infof("No valid entry found on %v", dbPath)
-			return fmt.Errorf("No valid entry found on %v", dbPath)
+			log.V(2).Infof("No valid entry found on %v with key %v", dbPath, key)
+			return fmt.Errorf("No valid entry found on %v with key %v", dbPath, key)
 		}
 	}
 
@@ -660,55 +656,146 @@ func dbFieldSubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
 	}
 }
 
+type redisSubData struct {
+	tblPath   tablePath
+	pubsub    *redis.PubSub
+	prefixLen int
+}
+
+// TODO: For delete operation, the exact content returned is to be clarified.
+func dbSingleTableKeySubscribe(rsd redisSubData, c *DbClient, msiOut *map[string]interface{}) {
+	tblPath := rsd.tblPath
+	pubsub := rsd.pubsub
+	prefixLen := rsd.prefixLen
+	msi := make(map[string]interface{})
+
+	for {
+		select {
+		default:
+			msgi, err := pubsub.ReceiveTimeout(time.Millisecond * 500)
+			if err != nil {
+				neterr, ok := err.(net.Error)
+				if ok {
+					if neterr.Timeout() == true {
+						continue
+					}
+				}
+				log.V(2).Infof("pubsub.ReceiveTimeout err %v", err)
+				continue
+			}
+			newMsi := make(map[string]interface{})
+			subscr := msgi.(*redis.Message)
+			if subscr.Payload == "del" || subscr.Payload == "hdel" {
+				if tblPath.tableKey != "" {
+					//msi["DEL"] = ""
+				} else {
+					fp := map[string]interface{}{}
+					//fp["DEL"] = ""
+					if len(subscr.Channel) < prefixLen {
+						log.V(2).Infof("Invalid psubscribe channel notification %v, shorter than %v", subscr.Channel, prefixLen)
+						continue
+					}
+					key := subscr.Channel[prefixLen:]
+					newMsi[key] = fp
+				}
+			} else if subscr.Payload == "hset" {
+				//op := "SET"
+				if tblPath.tableKey != "" {
+					err = tableData2Msi(&tblPath, false, nil, &newMsi)
+					if err != nil {
+						enqueFatalMsg(c, err.Error())
+						return
+					}
+				} else {
+					tblPath := tblPath
+					if len(subscr.Channel) < prefixLen {
+						log.V(2).Infof("Invalid psubscribe channel notification %v, shorter than %v", subscr.Channel, prefixLen)
+						continue
+					}
+					tblPath.tableKey = subscr.Channel[prefixLen:]
+					err = tableData2Msi(&tblPath, false, nil, &newMsi)
+					if err != nil {
+						enqueFatalMsg(c, err.Error())
+						return
+					}
+				}
+				if reflect.DeepEqual(newMsi, msi) {
+					// No change from previous data
+					continue
+				}
+				msi = newMsi
+			} else {
+				log.V(2).Infof("Invalid psubscribe payload notification:  %v", subscr.Payload)
+				continue
+			}
+			c.mu.Lock()
+			for k, v := range newMsi {
+				(*msiOut)[k] = v
+			}
+			c.mu.Unlock()
+
+		case <-c.channel:
+			log.V(2).Infof("Stopping dbSingleTableKeySubscribe routine for %+v", tblPath)
+			return
+		}
+	}
+}
+
 func dbTableKeySubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
 	defer c.w.Done()
 
 	tblPaths := c.pathG2S[gnmiPath]
-	//TODO: support multiple tble paths
-	tblPath := tblPaths[0]
-
-	redisDb := Target2RedisDb[tblPath.dbName]
-
-	// Subscribe to keyspace notification
-	pattern := "__keyspace@" + strconv.Itoa(int(spb.Target_value[tblPath.dbName])) + "__:"
-	pattern += tblPath.tableName
-	if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
-		// tables in COUNTERS_DB other than COUNTERS don't have keys, skip delimitor
-	} else {
-		pattern += tblPath.delimitor
-	}
-
-	var prefixLen int
-	if tblPath.tableKey != "" {
-		pattern += tblPath.tableKey
-		prefixLen = len(pattern)
-	} else {
-		prefixLen = len(pattern)
-		pattern += "*"
-	}
-
-	pubsub := redisDb.PSubscribe(pattern)
-	defer pubsub.Close()
-
-	msgi, err := pubsub.ReceiveTimeout(time.Second)
-	if err != nil {
-		log.V(1).Infof("psubscribe to %s failed for %v", pattern, tblPath)
-		enqueFatalMsg(c, fmt.Sprintf("psubscribe to %s failed for %v", pattern, tblPath))
-		return
-	}
-	subscr := msgi.(*redis.Subscription)
-	if subscr.Channel != pattern {
-		log.V(1).Infof("psubscribe to %s failed for %v", pattern, tblPath)
-		enqueFatalMsg(c, fmt.Sprintf("psubscribe to %s failed for %v", pattern, tblPath))
-		return
-	}
-	log.V(2).Infof("Psubscribe succeeded for %v: %v", tblPath, subscr)
 	msi := make(map[string]interface{})
-	err = tableData2Msi(&tblPath, false, nil, &msi)
-	if err != nil {
-		enqueFatalMsg(c, err.Error())
-		return
+
+	for _, tblPath := range tblPaths {
+		// Subscribe to keyspace notification
+		pattern := "__keyspace@" + strconv.Itoa(int(spb.Target_value[tblPath.dbName])) + "__:"
+		pattern += tblPath.tableName
+		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
+			// tables in COUNTERS_DB other than COUNTERS don't have keys, skip delimitor
+		} else {
+			pattern += tblPath.delimitor
+		}
+
+		var prefixLen int
+		if tblPath.tableKey != "" {
+			pattern += tblPath.tableKey
+			prefixLen = len(pattern)
+		} else {
+			prefixLen = len(pattern)
+			pattern += "*"
+		}
+		redisDb := Target2RedisDb[tblPath.dbName]
+		pubsub := redisDb.PSubscribe(pattern)
+		defer pubsub.Close()
+
+		msgi, err := pubsub.ReceiveTimeout(time.Second)
+		if err != nil {
+			log.V(1).Infof("psubscribe to %s failed for %v", pattern, tblPath)
+			enqueFatalMsg(c, fmt.Sprintf("psubscribe to %s failed for %v", pattern, tblPath))
+			return
+		}
+		subscr := msgi.(*redis.Subscription)
+		if subscr.Channel != pattern {
+			log.V(1).Infof("psubscribe to %s failed for %v", pattern, tblPath)
+			enqueFatalMsg(c, fmt.Sprintf("psubscribe to %s failed for %v", pattern, tblPath))
+			return
+		}
+		log.V(2).Infof("Psubscribe succeeded for %v: %v", tblPath, subscr)
+
+		err = tableData2Msi(&tblPath, false, nil, &msi)
+		if err != nil {
+			enqueFatalMsg(c, err.Error())
+			return
+		}
+		rsd := redisSubData{
+			tblPath:   tblPath,
+			pubsub:    pubsub,
+			prefixLen: prefixLen,
+		}
+		go dbSingleTableKeySubscribe(rsd, c, &msi)
 	}
+
 	val, err := msi2TypedValue(msi)
 	if err != nil {
 		enqueFatalMsg(c, err.Error())
@@ -726,98 +813,45 @@ func dbTableKeySubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
 	}
 	// First sync for this key is done
 	c.synced.Done()
-
+	for k := range msi {
+		delete(msi, k)
+	}
 	for {
 		select {
 		default:
-			msgi, err := pubsub.ReceiveTimeout(time.Millisecond * 500)
-			if err != nil {
-				neterr, ok := err.(net.Error)
-				if ok {
-					if neterr.Timeout() == true {
-						continue
-					}
+			val = nil
+			err = nil
+			c.mu.Lock()
+			if len(msi) > 0 {
+				val, err = msi2TypedValue(msi)
+				for k := range msi {
+					delete(msi, k)
 				}
-				log.V(2).Infof("pubsub.ReceiveTimeout err %v", err)
-				continue
 			}
-
-			subscr := msgi.(*redis.Message)
-			if subscr.Payload == "del" || subscr.Payload == "hdel" {
-				msi := map[string]interface{}{}
-
-				if tblPath.tableKey != "" {
-					//msi["DEL"] = ""
-				} else {
-					fp := map[string]interface{}{}
-					//fp["DEL"] = ""
-					if len(subscr.Channel) < prefixLen {
-						log.V(2).Infof("Invalid psubscribe channel notification %v for pattern %v", subscr.Channel, pattern)
-						continue
-					}
-					key := subscr.Channel[prefixLen:]
-					msi[key] = fp
-				}
-
-				jv, _ := emitJSON(&msi)
-				spbv = &spb.Value{
-					Path:      gnmiPath,
-					Timestamp: time.Now().UnixNano(),
-					Val: &gnmipb.TypedValue{
-						Value: &gnmipb.TypedValue_JsonIetfVal{
-							JsonIetfVal: jv,
-						},
-					},
-				}
-			} else if subscr.Payload == "hset" {
-				var val *gnmipb.TypedValue
-				newMsi := make(map[string]interface{})
-				//op := "SET"
-				if tblPath.tableKey != "" {
-					err = tableData2Msi(&tblPath, false, nil, &newMsi)
-					if err != nil {
-						enqueFatalMsg(c, err.Error())
-						return
-					}
-				} else {
-					tblPath := tblPath
-					if len(subscr.Channel) < prefixLen {
-						log.V(2).Infof("Invalid psubscribe channel notification %v for pattern %v", subscr.Channel, pattern)
-						continue
-					}
-					tblPath.tableKey = subscr.Channel[prefixLen:]
-					err = tableData2Msi(&tblPath, false, nil, &newMsi)
-					if err != nil {
-						enqueFatalMsg(c, err.Error())
-						return
-					}
-				}
-				if reflect.DeepEqual(newMsi, msi) {
-					// No change from previous data
-					continue
-				}
-				msi = newMsi
-				val, err := msi2TypedValue(msi)
-				if err != nil {
-					enqueFatalMsg(c, err.Error())
-					return
-				}
+			c.mu.Unlock()
+			if err != nil {
+				enqueFatalMsg(c, err.Error())
+				return
+			}
+			if val != nil {
 				spbv = &spb.Value{
 					Path:      gnmiPath,
 					Timestamp: time.Now().UnixNano(),
 					Val:       val,
 				}
-			} else {
-				log.V(2).Infof("Invalid psubscribe payload notification:  %v", subscr.Payload)
-				continue
+
+				log.V(5).Infof("dbTableKeySubscribe enque: %v", spbv)
+				if err = c.q.Put(Value{spbv}); err != nil {
+					log.V(1).Infof("Queue error:  %v", err)
+					return
+				}
 			}
-			log.V(5).Infof("dbTableKeySubscribe enque: %v", spbv)
-			if err = c.q.Put(Value{spbv}); err != nil {
-				log.V(1).Infof("Queue error:  %v", err)
-				return
-			}
+
+			// check possible value change every 100 millisecond
+			// TODO: make all the instances of wait timer consistent
+			time.Sleep(time.Millisecond * 100)
 		case <-c.channel:
-			log.V(1).Infof("Stopping subscribeDb routine for Client %s ", c)
+			log.V(1).Infof("Stopping dbTableKeySubscribe routine for %v ", c.pathG2S)
 			return
 		}
 	}
