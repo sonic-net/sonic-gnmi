@@ -48,6 +48,10 @@ type Client interface {
 	Close() error
 }
 
+type Stream interface {
+	Send(m *gnmipb.SubscribeResponse) error
+}
+
 // Let it be variable visible to other packages for now.
 // May add an interface function for it.
 var UseRedisLocalTcpPort bool = false
@@ -87,6 +91,7 @@ func (val Value) Compare(other queue.Item) int {
 }
 
 type DbClient struct {
+	prefix  *gnmipb.Path
 	pathG2S map[*gnmipb.Path][]tablePath
 	q       *queue.PriorityQueue
 	channel chan struct{}
@@ -94,9 +99,13 @@ type DbClient struct {
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
 	w      *sync.WaitGroup // wait for all sub go routines to finish
 	mu     sync.RWMutex    // Mutex for data protection among routines for DbClient
+
+	sendMsg int64
+	recvMsg int64
+	errors  int64
 }
 
-func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (*DbClient, error) {
+func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, q *queue.PriorityQueue) (*DbClient, error) {
 	var client DbClient
 	// Testing program may ask to use redis local tcp connection
 	if UseRedisLocalTcpPort {
@@ -106,9 +115,10 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (*DbClient, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	client.prefix = prefix
 	client.pathG2S = make(map[*gnmipb.Path][]tablePath)
 	err = populateAllDbtablePath(prefix, paths, &client.pathG2S)
+	client.q = q
 	if err != nil {
 		return nil, err
 	} else {
@@ -225,6 +235,77 @@ func (c *DbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	ms := int64(time.Since(ts) / time.Millisecond)
 	log.V(4).Infof("Get done, total time taken: %v ms", ms)
 	return values, nil
+}
+
+// The gNMI worker routines subscribeDb and pollDb push data into the client queue,
+// processQueue works as consumber of the queue. The data is popped from queue, converted
+// from sonic_gnmi data into a gNMI notification, then sent on stream.
+func (c *DbClient) ProcessQueue(stream Stream) error {
+	for {
+		items, err := c.q.Get(1)
+
+		if items == nil {
+			return fmt.Errorf("queue closed %v", err)
+		}
+		if err != nil {
+			c.errors++
+			return fmt.Errorf("unexpected queue Gext(1): %v", err)
+		}
+
+		var resp *gnmipb.SubscribeResponse
+		switch v := items[0].(type) {
+		case Value:
+			if resp, err = c.valToResp(v); err != nil {
+				c.errors++
+				return err
+			}
+		default:
+			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], c)
+			c.errors++
+		}
+
+		c.sendMsg++
+		err = stream.Send(resp)
+		if err != nil {
+			log.V(1).Infof("Client %s sending error:%v", c, err)
+			c.errors++
+			return err
+		}
+		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
+	}
+}
+
+// Convert from SONiC Value to its corresponding gNMI proto stream
+// response type.
+func (c *DbClient) valToResp(val Value) (*gnmipb.SubscribeResponse, error) {
+	switch val.GetSyncResponse() {
+	case true:
+		return &gnmipb.SubscribeResponse{
+			Response: &gnmipb.SubscribeResponse_SyncResponse{
+				SyncResponse: true,
+			},
+		}, nil
+	default:
+		// In case the subscribe/poll routines encountered fatal error
+		if fatal := val.GetFatal(); fatal != "" {
+			return nil, fmt.Errorf("%s", fatal)
+		}
+
+		return &gnmipb.SubscribeResponse{
+			Response: &gnmipb.SubscribeResponse_Update{
+				Update: &gnmipb.Notification{
+					Timestamp: val.GetTimestamp(),
+					Prefix:    c.prefix,
+					Update: []*gnmipb.Update{
+						{
+							Path: val.GetPath(),
+							Val:  val.GetVal(),
+						},
+					},
+				},
+			},
+		}, nil
+	}
 }
 
 func GetTableKeySeparator(target string) (string, error) {

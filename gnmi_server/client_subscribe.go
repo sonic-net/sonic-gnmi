@@ -115,7 +115,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	if err != nil {
 		return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
 	}
-	dc, err := sdc.NewDbClient(paths, prefix)
+	dc, err := sdc.NewDbClient(paths, prefix, c.q)
 	if err != nil {
 		return grpc.Errorf(codes.NotFound, "%v", err)
 	}
@@ -138,7 +138,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 
 	log.V(1).Infof("Client %s running", c)
 	go c.recv(stream)
-	err = c.send(stream)
+	err = c.send(dc, stream)
 	c.Close()
 	// Wait until all child go routines exited
 	c.w.Wait()
@@ -197,98 +197,12 @@ func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 	log.V(1).Infof("Client %s exit from recv()", c)
 }
 
-// The gNMI worker routines subscribeDb and pollDb push data into the client queue,
-// processQueue works as consumber of the queue. The data is popped from queue, converted
-// from sonic_gnmi data into a gNMI notification, then sent on stream.
-func (c *Client) processQueue(stream gnmipb.GNMI_SubscribeServer) error {
-	for {
-		items, err := c.q.Get(1)
-
-		if items == nil {
-			return fmt.Errorf("queue closed %v", err)
-		}
-		if err != nil {
-			c.errors++
-			return fmt.Errorf("unexpected queue Gext(1): %v", err)
-		}
-
-		var resp *gnmipb.SubscribeResponse
-		switch v := items[0].(type) {
-		case sdc.Value:
-			if resp, err = c.valToResp(v); err != nil {
-				c.errors++
-				return err
-			}
-		default:
-			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], c)
-			c.errors++
-		}
-
-		c.sendMsg++
-		err = stream.Send(resp)
-		if err != nil {
-			log.V(1).Infof("Client %s sending error:%v", c, err)
-			c.errors++
-			return err
-		}
-		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
-	}
-}
-
 // send runs until process Queue returns an error.
-func (c *Client) send(stream gnmipb.GNMI_SubscribeServer) error {
+func (c *Client) send(dc *sdc.DbClient, stream gnmipb.GNMI_SubscribeServer) error {
 	for {
-		if err := c.processQueue(stream); err != nil {
+		if err := dc.ProcessQueue(stream); err != nil {
 			log.V(2).Infof("Client %s : %v", c, err)
 			return err
 		}
-	}
-}
-
-func getGnmiPathPrefix(c *Client) (*gnmipb.Path, error) {
-	sublist := c.subscribe
-	if sublist == nil {
-		return nil, fmt.Errorf("No SubscriptionList")
-	}
-	prefix := sublist.GetPrefix()
-	log.V(6).Infof("prefix : %#v SubscribRequest : %#v", sublist)
-
-	return prefix, nil
-}
-
-// Convert from SONiC Value to its corresponding gNMI proto stream
-// response type.
-func (c *Client) valToResp(val sdc.Value) (*gnmipb.SubscribeResponse, error) {
-	switch val.GetSyncResponse() {
-	case true:
-		return &gnmipb.SubscribeResponse{
-			Response: &gnmipb.SubscribeResponse_SyncResponse{
-				SyncResponse: true,
-			},
-		}, nil
-	default:
-		// In case the subscribe/poll routines encountered fatal error
-		if fatal := val.GetFatal(); fatal != "" {
-			return nil, fmt.Errorf("%s", fatal)
-		}
-
-		prefix, err := getGnmiPathPrefix(c)
-		if err != nil {
-			return nil, err
-		}
-		return &gnmipb.SubscribeResponse{
-			Response: &gnmipb.SubscribeResponse_Update{
-				Update: &gnmipb.Notification{
-					Timestamp: val.GetTimestamp(),
-					Prefix:    prefix,
-					Update: []*gnmipb.Update{
-						{
-							Path: val.GetPath(),
-							Val:  val.GetVal(),
-						},
-					},
-				},
-			},
-		}, nil
 	}
 }
