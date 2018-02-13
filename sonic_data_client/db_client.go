@@ -126,7 +126,11 @@ func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync
 		if tblPaths[0].field != "" {
 			c.w.Add(1)
 			c.synced.Add(1)
-			go dbFieldSubscribe(gnmiPath, c)
+			if len(tblPaths) > 1 {
+				go dbFieldMultiSubscribe(gnmiPath, c)
+			} else {
+				go dbFieldSubscribe(gnmiPath, c)
+			}
 			continue
 		}
 		c.w.Add(1)
@@ -589,12 +593,89 @@ func enqueFatalMsg(c *DbClient, msg string) {
 
 // for subscribe request with granularity of table field, the value is fetched periodically.
 // Upon value change, it will be put to queue for furhter notification
-func dbFieldSubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
+func dbFieldMultiSubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
 	defer c.w.Done()
 
 	tblPaths := c.pathG2S[gnmiPath]
 
-	//TODO: support multiple tble paths
+	// Init the path to value map, it saves the previous value
+	path2ValueMap := make(map[tablePath]string)
+	for _, tblPath := range tblPaths {
+		path2ValueMap[tblPath] = ""
+	}
+	synced := bool(false)
+
+	for {
+		select {
+		case <-c.channel:
+			log.V(1).Infof("Stopping dbFieldSubscribe routine for Client %s ", c)
+			return
+		default:
+			msi := make(map[string]interface{})
+			for _, tblPath := range tblPaths {
+				var key string
+				if tblPath.tableKey != "" {
+					key = tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+				} else {
+					key = tblPath.tableName
+				}
+				// run redis get directly for field value
+				redisDb := Target2RedisDb[tblPath.dbName]
+				val, err := redisDb.HGet(key, tblPath.field).Result()
+				if err == redis.Nil {
+					log.V(2).Infof("%v doesn't exist with key %v in db", tblPath.field, key)
+					enqueFatalMsg(c, fmt.Sprintf("%v doesn't exist with key %v in db", tblPath.field, key))
+					return
+				}
+				if err != nil {
+					log.V(1).Infof(" redis HGet error on %v with key %v", tblPath.field, key)
+					enqueFatalMsg(c, fmt.Sprintf(" redis HGet error on %v with key %v", tblPath.field, key))
+					return
+				}
+				if val == path2ValueMap[tblPath] {
+					continue
+				}
+				path2ValueMap[tblPath] = val
+				fv := map[string]string{tblPath.jsonField: val}
+				msi[tblPath.jsonTableKey] = fv
+				log.V(6).Infof("new value %v for %v", val, tblPath)
+			}
+
+			if len(msi) != 0 {
+				val, err := msi2TypedValue(msi)
+				if err != nil {
+					enqueFatalMsg(c, err.Error())
+					return
+				}
+
+				spbv := &spb.Value{
+					Path:      gnmiPath,
+					Timestamp: time.Now().UnixNano(),
+					Val:       val,
+				}
+
+				if err = c.q.Put(Value{spbv}); err != nil {
+					log.V(1).Infof("Queue error:  %v", err)
+					return
+				}
+
+				if !synced {
+					c.synced.Done()
+					synced = true
+				}
+			}
+			// check again after 200 millisends, to use configured variable
+			time.Sleep(time.Millisecond * 200)
+		}
+	}
+}
+
+// for subscribe request with granularity of table field, the value is fetched periodically.
+// Upon value change, it will be put to queue for furhter notification
+func dbFieldSubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
+	defer c.w.Done()
+
+	tblPaths := c.pathG2S[gnmiPath]
 	tblPath := tblPaths[0]
 	// run redis get directly for field value
 	redisDb := Target2RedisDb[tblPath.dbName]
@@ -616,12 +697,7 @@ func dbFieldSubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
 			newVal, err := redisDb.HGet(key, tblPath.field).Result()
 			if err == redis.Nil {
 				log.V(2).Infof("%v doesn't exist with key %v in db", tblPath.field, key)
-				c.q.Put(Value{
-					&spb.Value{
-						Timestamp: time.Now().UnixNano(),
-						Fatal:     fmt.Sprintf("%v doesn't exist with key %v in db", tblPath.field, key),
-					},
-				})
+				enqueFatalMsg(c, fmt.Sprintf("%v doesn't exist with key %v in db", tblPath.field, key))
 				return
 			}
 			if err != nil {
