@@ -41,7 +41,7 @@ func main() {
 		cancel()
 	}()
 	log.V(1).Infof("Starting telemetry publish client")
-	dc.DialOutRun(ctx, &clientCfg)
-	log.V(1).Infof("Exiting telemetry publish client")
+	err := dc.DialOutRun(ctx, &clientCfg)
+	log.V(1).Infof("Exiting telemetry publish client: %v", err)
 	log.Flush()
 }

@@ -6,21 +6,21 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/go-redis/redis"
 	log "github.com/golang/glog"
+	spb "github.com/jipanyang/sonic-telemetry/proto"
+	sdc "github.com/jipanyang/sonic-telemetry/sonic_data_client"
+	gpb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/openconfig/ygot/ygot"
+	"github.com/workiva/go-datastructures/queue"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"net"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	// "github.com/golang/protobuf/proto"
-	"github.com/go-redis/redis"
-	spb "github.com/jipanyang/sonic-telemetry/proto"
-	sdc "github.com/jipanyang/sonic-telemetry/sonic_data_client"
-	gpb "github.com/openconfig/gnmi/proto/gnmi"
-	"github.com/openconfig/ygot/ygot"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
 const (
@@ -117,9 +117,12 @@ type clientSubscription struct {
 
 	// Running time data
 	cMu    sync.Mutex
-	client *Client
-	stop   chan struct{} // Inform publishRun routine to stop
-	//subRoutineChan chan struct{} // used for communication with sub-routine
+	client *Client              // GNMIDialOutClient
+	dc     *sdc.DbClient        // SONiC data client
+	stop   chan struct{}        // Inform publishRun routine to stop
+	q      *queue.PriorityQueue // for data passing among go routine
+	w      sync.WaitGroup       // Wait for all sub go routine to finish
+	closed bool
 
 	conTryCnt uint64 //Number of time trying to connect
 	sendMsg   uint64
@@ -142,14 +145,24 @@ type Client struct {
 }
 
 func (cs *clientSubscription) Close() {
+	cs.cMu.Lock()
+	defer cs.cMu.Unlock()
+	if cs.closed {
+		return
+	}
 	if cs.stop != nil {
 		close(cs.stop) //Inform the clientSubscription publish service routine to stop
 	}
-	cs.cMu.Lock()
-	defer cs.cMu.Unlock()
+	if cs.q != nil {
+		if !cs.q.Disposed() {
+			cs.q.Dispose()
+		}
+	}
 	if cs.client != nil {
+
 		cs.client.Close() // Close GNMIDialOutClient
 	}
+	cs.closed = true
 }
 
 func (cs *clientSubscription) NewInstance(ctx context.Context) error {
@@ -173,14 +186,30 @@ func (cs *clientSubscription) NewInstance(ctx context.Context) error {
 		log.V(1).Infof("Connection to DB for %v failed: %v", *cs, err)
 		return fmt.Errorf("Connection to DB for %v failed: %v", *cs, err)
 	}
+	cs.dc = dc
 	cs.stop = make(chan struct{}, 1)
-
+	cs.q = queue.NewPriorityQueue(1, false)
 	go publishRun(ctx, cs, dests, dc)
 
 	return nil
 }
 
-// newClient returns a new initialized client.
+// send runs until process Queue returns an error.
+func (cs *clientSubscription) send(dc *sdc.DbClient, stream spb.GNMIDialOut_PublishClient) error {
+	if err := dc.ProcessQueue(stream); err != nil {
+		log.V(2).Infof("Client %s : %v", cs, err)
+		return err
+	}
+	return nil
+}
+
+// String returns the target the client is querying.
+func (cs *clientSubscription) String() string {
+	return fmt.Sprintf(" %s:%s:%s prefix %v paths %v interval %v, sendMsg %v, recvMsg %v",
+		cs.name, cs.destGroupName, cs.reportType, cs.prefix.GetTarget(), cs.paths, cs.interval, cs.sendMsg, cs.recvMsg)
+}
+
+// newClient returns a new initialized GNMIDialout client.
 // it connects to destination and publish service
 // TODO: TLS credential support
 func newClient(ctx context.Context, dest Destination) (*Client, error) {
@@ -221,9 +250,6 @@ func publishRun(ctx context.Context, cs *clientSubscription, dests []Destination
 	destNum = len(dests)
 	destIdx = 0
 
-	//ctx, cancel = context.WithTimeout(ctx, cs.interval)
-	//defer cancel()
-
 restart: //Remote server might go down, in that case we restart with next destination in the group
 	cs.conTryCnt++
 	dest := dests[destIdx]
@@ -251,7 +277,8 @@ restart: //Remote server might go down, in that case we restart with next destin
 	cs.client = c
 	cs.cMu.Unlock()
 
-	if cs.reportType == Periodic {
+	switch cs.reportType {
+	case Periodic:
 		for {
 			select {
 			default:
@@ -296,13 +323,21 @@ restart: //Remote server might go down, in that case we restart with next destin
 			case <-cs.stop:
 				// _, more := <-cs.stop
 				// if !more {
-				log.V(1).Infof("%v stop channel closed, exiting publishRun routine for destination %c", cs, dest)
+				log.V(1).Infof("%v exiting publishRun routine for destination %s", cs, dest)
 				return
 				//}
 			}
 		}
-	} else {
-		// TODO: change triggered streaming
+	case Stream:
+
+		cs.w.Add(1)
+		go dc.StreamRun(cs.q, cs.stop, &cs.w)
+		err = cs.send(dc, pub)
+		cs.Close()
+		cs.w.Wait()
+		log.V(1).Infof("%v exiting publishRun routine for destination %s %v", cs, dest, err)
+	default:
+		log.V(1).Infof("Unsupported report type %s in %v ", cs.reportType, cs)
 	}
 }
 
@@ -471,10 +506,6 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 					cs.destGroupName = value
 				case "report_type":
 					cs.reportType = NewReportType(value)
-					if cs.reportType != Periodic {
-						log.V(2).Infof("Report type %v not supported, fallback to %s", value, Periodic)
-						cs.reportType = Periodic
-					}
 				case "report_interval":
 					intvl, err := strconv.ParseUint(value, 10, 64)
 					if err != nil {
@@ -502,6 +533,7 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 					return fmt.Errorf("Invalid field %v value %v", field, value)
 				}
 			}
+			log.V(2).Infof("New clientSubscription %v", cs)
 			ClientSubscriptionNameMap[name] = &cs
 			cs.NewInstance(ctx)
 		}
@@ -585,6 +617,12 @@ func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 		} else {
 			log.V(2).Infof("Invalid psubscribe payload notification:  %v", subscr)
 			continue
+		}
+		// Check if ctx was canceled.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
 	}
 }

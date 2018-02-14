@@ -170,7 +170,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 	paths := req.GetPath()
 	log.V(5).Infof("GetRequest paths: %v", paths)
-	dc, err := sdc.NewDbClient(paths, prefix, nil)
+	dc, err := sdc.NewDbClient(paths, prefix)
 	if err != nil {
 		return nil, status.Error(codes.NotFound, err.Error())
 	}

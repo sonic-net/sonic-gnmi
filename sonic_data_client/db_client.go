@@ -105,7 +105,7 @@ type DbClient struct {
 	errors  int64
 }
 
-func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, q *queue.PriorityQueue) (*DbClient, error) {
+func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (*DbClient, error) {
 	var client DbClient
 	// Testing program may ask to use redis local tcp connection
 	if UseRedisLocalTcpPort {
@@ -118,12 +118,19 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, q *queue.PriorityQue
 	client.prefix = prefix
 	client.pathG2S = make(map[*gnmipb.Path][]tablePath)
 	err = populateAllDbtablePath(prefix, paths, &client.pathG2S)
-	client.q = q
+
 	if err != nil {
 		return nil, err
 	} else {
 		return &client, nil
 	}
+}
+
+// String returns the target the client is querying.
+func (c *DbClient) String() string {
+	// TODO: print gnmiPaths of this DbClient
+	return fmt.Sprintf(" Prefix %v  sendMsg %v, recvMsg%v",
+		c.prefix.GetTarget(), c.sendMsg, c.recvMsg)
 }
 
 func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup) {
@@ -241,6 +248,10 @@ func (c *DbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 // processQueue works as consumber of the queue. The data is popped from queue, converted
 // from sonic_gnmi data into a gNMI notification, then sent on stream.
 func (c *DbClient) ProcessQueue(stream Stream) error {
+	defer log.V(1).Infof("%v exiting ProcessQueue()", c)
+	for c.q == nil { // Wait until the queue is ready
+		time.Sleep(time.Millisecond * 50)
+	}
 	for {
 		items, err := c.q.Get(1)
 

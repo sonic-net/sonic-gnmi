@@ -115,7 +115,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	if err != nil {
 		return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
 	}
-	dc, err := sdc.NewDbClient(paths, prefix, c.q)
+	dc, err := sdc.NewDbClient(paths, prefix)
 	if err != nil {
 		return grpc.Errorf(codes.NotFound, "%v", err)
 	}
@@ -199,10 +199,9 @@ func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 
 // send runs until process Queue returns an error.
 func (c *Client) send(dc *sdc.DbClient, stream gnmipb.GNMI_SubscribeServer) error {
-	for {
-		if err := dc.ProcessQueue(stream); err != nil {
-			log.V(2).Infof("Client %s : %v", c, err)
-			return err
-		}
+	if err := dc.ProcessQueue(stream); err != nil {
+		log.V(2).Infof("Client %s : %v", c, err)
+		return err
 	}
+	return nil
 }
