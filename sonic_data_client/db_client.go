@@ -640,11 +640,11 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 	for _, tblPath := range tblPaths {
 		redisDb := Target2RedisDb[tblPath.dbName]
 
-		if tblPath.jsonField == "" { // Not asked to include field in json value
+		if tblPath.jsonField == "" { // Not asked to include field in json value, which means not wildcard query
 			// table path includes table, key and field
 			if tblPath.field != "" {
 				if len(tblPaths) != 1 {
-					log.V(2).Infof("WARNING: more than paths exists at field granularity: %v", tblPaths)
+					log.V(2).Infof("WARNING: more than one path exists for field granularity query: %v", tblPaths)
 				}
 				var key string
 				if tblPath.tableKey != "" {
@@ -715,6 +715,10 @@ func dbFieldMultiSubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
 				redisDb := Target2RedisDb[tblPath.dbName]
 				val, err := redisDb.HGet(key, tblPath.field).Result()
 				if err == redis.Nil {
+					if tblPath.jsonField != "" {
+						// ignore non-existing field which was derived from virtual path
+						continue
+					}
 					log.V(2).Infof("%v doesn't exist with key %v in db", tblPath.field, key)
 					enqueFatalMsg(c, fmt.Sprintf("%v doesn't exist with key %v in db", tblPath.field, key))
 					return

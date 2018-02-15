@@ -442,9 +442,9 @@ TLS encryption is supported with gRPC communication.
 
 # AutoTest
 A series of auto test cases are available using Go "testing" package and standard redis-server.
-Assuming go environment has been set up and redis-server is running, run `go test -v` under gnmi_server folder:
+Assuming go environment has been set up and redis-server is running, run `go test -v -cover` under gnmi_server folder:
 ```
-jipan@6068794801d2:/sonic/go/src/github.com/jipanyang/sonic-telemetry$ go test -v ./gnmi_server/
+jipan@6068794801d2:/sonic/go/src/github.com/jipanyang/sonic-telemetry/telemetry$ go test -v ../gnmi_server/ -cover
 === RUN   TestGnmiGet
 === RUN   TestGnmiGet/Test_non-existing_path_Target
 === RUN   TestGnmiGet/Test_Unimplemented_path_target
@@ -454,7 +454,7 @@ jipan@6068794801d2:/sonic/go/src/github.com/jipanyang/sonic-telemetry$ go test -
 === RUN   TestGnmiGet/get_COUNTERS:Ethernet68_SAI_PORT_STAT_PFC_7_RX_PKTS
 === RUN   TestGnmiGet/get_COUNTERS:Ethernet*
 === RUN   TestGnmiGet/get_COUNTERS:Ethernet*_SAI_PORT_STAT_PFC_7_RX_PKTS
---- PASS: TestGnmiGet (6.32s)
+--- PASS: TestGnmiGet (1.17s)
     --- PASS: TestGnmiGet/Test_non-existing_path_Target (0.02s)
     --- PASS: TestGnmiGet/Test_Unimplemented_path_target (0.00s)
     --- PASS: TestGnmiGet/Get_valid_but_non-existing_node (0.00s)
@@ -464,19 +464,30 @@ jipan@6068794801d2:/sonic/go/src/github.com/jipanyang/sonic-telemetry$ go test -
     --- PASS: TestGnmiGet/get_COUNTERS:Ethernet* (0.00s)
     --- PASS: TestGnmiGet/get_COUNTERS:Ethernet*_SAI_PORT_STAT_PFC_7_RX_PKTS (0.00s)
 === RUN   TestGnmiSubscribe
-=== RUN   TestGnmiSubscribe/stream_query_for_table_with_update_of_new_field
-=== RUN   TestGnmiSubscribe/stream_query_for_table_key_with_update_of_new_field
-=== RUN   TestGnmiSubscribe/stream_query_for_table_key_field_with_update_of_filed_value
-=== RUN   TestGnmiSubscribe/poll_query_for_table_with_field_delete
-=== RUN   TestGnmiSubscribe/poll_query_with_table_key_field_with_field_value_change
---- PASS: TestGnmiSubscribe (13.63s)
-    --- PASS: TestGnmiSubscribe/stream_query_for_table_with_update_of_new_field (2.00s)
-    --- PASS: TestGnmiSubscribe/stream_query_for_table_key_with_update_of_new_field (3.00s)
-    --- PASS: TestGnmiSubscribe/stream_query_for_table_key_field_with_update_of_filed_value (3.00s)
-    --- PASS: TestGnmiSubscribe/poll_query_for_table_with_field_delete (2.00s)
-    --- PASS: TestGnmiSubscribe/poll_query_with_table_key_field_with_field_value_change (2.00s)
+=== RUN   TestGnmiSubscribe/stream_query_for_table_COUNTERS_PORT_NAME_MAP_with_new_test_field_field
+=== RUN   TestGnmiSubscribe/stream_query_for_table_key_Ethernet68_with_new_test_field_field
+=== RUN   TestGnmiSubscribe/stream_query_for_COUNTERS/Ethernet68/SAI_PORT_STAT_PFC_7_RX_PKTS_with_update_of_filed_value
+=== RUN   TestGnmiSubscribe/stream_query_for_table_key_Ethernet*_with_new_test_field_field_on_Ethernet68
+=== RUN   TestGnmiSubscribe/stream_query_for_table_key_Ethernet*/SAI_PORT_STAT_PFC_7_RX_PKTS_with_field_value_update
+=== RUN   TestGnmiSubscribe/poll_query_for_table_COUNTERS_PORT_NAME_MAP_with_new_field_test_field
+=== RUN   TestGnmiSubscribe/poll_query_for_table_COUNTERS_PORT_NAME_MAP_with_test_field_delete
+=== RUN   TestGnmiSubscribe/poll_query_for_COUNTERS/Ethernet68/SAI_PORT_STAT_PFC_7_RX_PKTS_with_field_value_change
+=== RUN   TestGnmiSubscribe/poll_query_for_table_key_Ethernet*_with_Ethernet68/SAI_PORT_STAT_PFC_7_RX_PKTS_field_value_change
+=== RUN   TestGnmiSubscribe/poll_query_for_table_key_field_Ethernet*/SAI_PORT_STAT_PFC_7_RX_PKTS_with_Ethernet68/SAI_PORT_STAT_PFC_7_RX_PKTS_field_value_change
+--- PASS: TestGnmiSubscribe (35.39s)
+    --- PASS: TestGnmiSubscribe/stream_query_for_table_COUNTERS_PORT_NAME_MAP_with_new_test_field_field (2.00s)
+    --- PASS: TestGnmiSubscribe/stream_query_for_table_key_Ethernet68_with_new_test_field_field (3.00s)
+    --- PASS: TestGnmiSubscribe/stream_query_for_COUNTERS/Ethernet68/SAI_PORT_STAT_PFC_7_RX_PKTS_with_update_of_filed_value (3.00s)
+    --- PASS: TestGnmiSubscribe/stream_query_for_table_key_Ethernet*_with_new_test_field_field_on_Ethernet68 (3.00s)
+    --- PASS: TestGnmiSubscribe/stream_query_for_table_key_Ethernet*/SAI_PORT_STAT_PFC_7_RX_PKTS_with_field_value_update (2.00s)
+    --- PASS: TestGnmiSubscribe/poll_query_for_table_COUNTERS_PORT_NAME_MAP_with_new_field_test_field (2.00s)
+    --- PASS: TestGnmiSubscribe/poll_query_for_table_COUNTERS_PORT_NAME_MAP_with_test_field_delete (2.00s)
+    --- PASS: TestGnmiSubscribe/poll_query_for_COUNTERS/Ethernet68/SAI_PORT_STAT_PFC_7_RX_PKTS_with_field_value_change (2.00s)
+    --- PASS: TestGnmiSubscribe/poll_query_for_table_key_Ethernet*_with_Ethernet68/SAI_PORT_STAT_PFC_7_RX_PKTS_field_value_change (2.01s)
+    --- PASS: TestGnmiSubscribe/poll_query_for_table_key_field_Ethernet*/SAI_PORT_STAT_PFC_7_RX_PKTS_with_Ethernet68/SAI_PORT_STAT_PFC_7_RX_PKTS_field_value_change (2.01s)
 PASS
-ok    github.com/jipanyang/sonic-telemetry/gnmi_server  19.959s
+coverage: 79.0% of statements
+ok    github.com/jipanyang/sonic-telemetry/gnmi_server  36.567s
 ```
 
 # Performance and Scale Test
