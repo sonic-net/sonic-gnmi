@@ -6,7 +6,6 @@ Package gnmi_sonic is a generated protocol buffer package.
 
 It is generated from these files:
 	dial_out.proto
-	port_stat.proto
 	sonic.proto
 	sonic_internal.proto
 
