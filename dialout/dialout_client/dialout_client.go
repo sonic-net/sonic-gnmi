@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"net"
-	"reflect"
+	//"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,11 +76,8 @@ var (
 	// For finding clientSubscription quickly
 	ClientSubscriptionNameMap = make(map[string]*clientSubscription)
 
-	// map for storing clientSubscription users of the destination group
-	DestGrp2ClientSubMap = make(map[string][]*clientSubscription)
-
-	// map from clientSubscription to Destination Group name
-	ClientSub2DestGrpNameMap = make(map[*clientSubscription]string)
+	// map for storing name of clientSubscription which are users of the destination group
+	DestGrp2ClientSubMap = make(map[string][]string)
 )
 
 type Destination struct {
@@ -102,6 +99,7 @@ type ClientConfig struct {
 	Encoding       gpb.Encoding
 	Unidirectional bool        // by default, no reponse from remote server
 	TLS            *tls.Config // TLS config to use when connecting to target. Optional.
+	RedisConType   string      // "unix"  or "tcp"
 }
 
 // clientSubscription is the container for config data,
@@ -122,7 +120,7 @@ type clientSubscription struct {
 	stop   chan struct{}        // Inform publishRun routine to stop
 	q      *queue.PriorityQueue // for data passing among go routine
 	w      sync.WaitGroup       // Wait for all sub go routine to finish
-	closed bool
+	open   bool                 // whether there is open instance for this client subscription
 
 	conTryCnt uint64 //Number of time trying to connect
 	sendMsg   uint64
@@ -147,7 +145,7 @@ type Client struct {
 func (cs *clientSubscription) Close() {
 	cs.cMu.Lock()
 	defer cs.cMu.Unlock()
-	if cs.closed {
+	if cs.open == false {
 		return
 	}
 	if cs.stop != nil {
@@ -162,17 +160,21 @@ func (cs *clientSubscription) Close() {
 
 		cs.client.Close() // Close GNMIDialOutClient
 	}
-	cs.closed = true
+	cs.open = false
+	log.V(2).Infof("Closed %v", cs)
 }
 
 func (cs *clientSubscription) NewInstance(ctx context.Context) error {
-
+	cs.cMu.Lock()
+	defer cs.cMu.Unlock()
+	if cs.open == true {
+		log.V(2).Infof("There is open instance for %v", cs)
+		return nil
+	}
 	if cs.destGroupName == "" {
 		log.V(2).Infof("Destination group is not set for %v", cs)
 		return fmt.Errorf("Destination group is not set for %v", cs)
 	}
-	// Add this clientSubscription to the user list of Destination group
-	DestGrp2ClientSubMap[cs.destGroupName] = append(DestGrp2ClientSubMap[cs.destGroupName], cs)
 
 	dests, ok := destGrpNameMap[cs.destGroupName]
 	if !ok {
@@ -190,7 +192,8 @@ func (cs *clientSubscription) NewInstance(ctx context.Context) error {
 	cs.stop = make(chan struct{}, 1)
 	cs.q = queue.NewPriorityQueue(1, false)
 	go publishRun(ctx, cs, dests, dc)
-
+	cs.open = true
+	log.V(2).Infof("publishRun for %v with destination %v", cs, dests)
 	return nil
 }
 
@@ -274,7 +277,14 @@ restart: //Remote server might go down, in that case we restart with next destin
 	}
 	// TODO: think about lock!!
 	cs.cMu.Lock()
-	cs.client = c
+	if cs.client == nil {
+		cs.client = c
+	} else {
+		log.V(1).Infof("connection to %v already exists for %v, exiting publishRun", dest, cs)
+		c.Close()
+		cs.cMu.Unlock()
+		return
+	}
 	cs.cMu.Unlock()
 
 	switch cs.reportType {
@@ -365,11 +375,12 @@ restart: //Remote server might go down, in that case we restart with next destin
 	report_interval = 1*8DIGIT      ; In millisecond,
 */
 
-// clearDestGroupClient delete client instances for all clientSubscription using
+// closeDestGroupClient close client instances for all clientSubscription using
 // this Destination Group
-func clearDestGroupClient(destGroupName string) {
-	if css, ok := DestGrp2ClientSubMap[destGroupName]; ok {
-		for _, cs := range css {
+func closeDestGroupClient(destGroupName string) {
+	if names, ok := DestGrp2ClientSubMap[destGroupName]; ok {
+		for _, name := range names {
+			cs := ClientSubscriptionNameMap[name]
 			cs.Close()
 		}
 	}
@@ -378,8 +389,9 @@ func clearDestGroupClient(destGroupName string) {
 // setupDestGroupClients create client instances for all clientSubscription using
 // this Destination Group
 func setupDestGroupClients(ctx context.Context, destGroupName string) {
-	if css, ok := DestGrp2ClientSubMap[destGroupName]; ok {
-		for _, cs := range css {
+	if names, ok := DestGrp2ClientSubMap[destGroupName]; ok {
+		for _, name := range names {
+			cs := ClientSubscriptionNameMap[name]
 			cs.NewInstance(ctx)
 		}
 	}
@@ -432,6 +444,8 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 		if destGroupName == "" {
 			return fmt.Errorf("Empty  Destination Group name %v", key)
 		}
+		// Close any client intances targeting this Destination group
+		closeDestGroupClient(destGroupName)
 		//DestGrp2ClientSubMap
 		if op == "hdel" {
 			if _, ok := DestGrp2ClientSubMap[destGroupName]; ok {
@@ -442,8 +456,6 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 			log.V(3).Infof("Deleted  DestinationGroup %v", destGroupName)
 			return nil
 		} else {
-			// Clear any client intances targeting this Destination group
-			clearDestGroupClient(destGroupName)
 			var dests []Destination
 			for field, value := range fv {
 				switch field {
@@ -476,19 +488,16 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 		}
 
 		if op == "hdel" {
-			var destGrpName string
-			destGrpName, ok = ClientSub2DestGrpNameMap[csub]
-			if ok {
-				// Remove this ClientSubscrition from the list of the Destination group users
-				csubs := DestGrp2ClientSubMap[destGrpName]
-				for i, cs := range csubs {
-					if reflect.DeepEqual(cs, csub) {
-						csubs = append(csubs[:i], csubs[i+1:]...)
-						break
-					}
+			destGrpName := csub.destGroupName
+			// Remove this ClientSubscrition from the list of the Destination group users
+			csNames := DestGrp2ClientSubMap[destGrpName]
+			for i, csName := range csNames {
+				if name == csName {
+					csNames = append(csNames[:i], csNames[i+1:]...)
+					break
 				}
-				DestGrp2ClientSubMap[destGrpName] = csubs
 			}
+			DestGrp2ClientSubMap[destGrpName] = csNames
 			// Delete clientSubscription from name map
 			delete(ClientSubscriptionNameMap, name)
 			log.V(3).Infof("Deleted  Client Subscription %v", name)
@@ -534,7 +543,23 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 				}
 			}
 			log.V(2).Infof("New clientSubscription %v", cs)
-			ClientSubscriptionNameMap[name] = &cs
+			if cs.destGroupName == "" {
+				// not destination configured, just return
+				return nil
+			}
+
+			var found bool
+			for _, na := range DestGrp2ClientSubMap[cs.destGroupName] {
+				if na == cs.name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				// Add this clientSubscription to the user list of Destination group
+				DestGrp2ClientSubMap[cs.destGroupName] = append(DestGrp2ClientSubMap[cs.destGroupName], cs.name)
+			}
+			ClientSubscriptionNameMap[cs.name] = &cs
 			cs.NewInstance(ctx)
 		}
 	}
@@ -546,24 +571,25 @@ func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 	clientCfg = ccfg
 	dbn := spb.Target_value["CONFIG_DB"]
 
-	redisDb := redis.NewClient(&redis.Options{
-		Network:     "unix",
-		Addr:        sdc.Default_REDIS_UNIXSOCKET,
-		Password:    "", // no password set
-		DB:          int(dbn),
-		DialTimeout: 0,
-	})
-
-	/*
-		sdc.UseRedisLocalTcpPort = true
-		redisDb := redis.NewClient(&redis.Options{
+	var redisDb *redis.Client
+	if sdc.UseRedisLocalTcpPort == false {
+		redisDb = redis.NewClient(&redis.Options{
+			Network:     "unix",
+			Addr:        sdc.Default_REDIS_UNIXSOCKET,
+			Password:    "", // no password set
+			DB:          int(dbn),
+			DialTimeout: 0,
+		})
+	} else {
+		redisDb = redis.NewClient(&redis.Options{
 			Network:     "tcp",
 			Addr:        sdc.Default_REDIS_LOCAL_TCP_PORT,
 			Password:    "", // no password set
 			DB:          int(dbn),
 			DialTimeout: 0,
 		})
-	*/
+	}
+
 	separator, _ := sdc.GetTableKeySeparator("CONFIG_DB")
 	pattern := "__keyspace@" + strconv.Itoa(int(dbn)) + "__:TELEMETRY_CLIENT" + separator
 	prefixLen := len(pattern)
@@ -582,7 +608,7 @@ func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 		log.V(1).Infof("psubscribe to %s failed", pattern)
 		return fmt.Errorf("psubscribe to %s", pattern)
 	}
-	log.V(2).Infof("Psubscribe succeeded for %v", subscr)
+	log.V(2).Infof("Psubscribe succeeded: %v", subscr)
 
 	var dbkeys []string
 	dbkey_prefix := "TELEMETRY_CLIENT" + separator

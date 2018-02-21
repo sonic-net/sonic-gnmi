@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	gnmi "github.com/jipanyang/sonic-telemetry/gnmi_server"
-	testcert "github.com/jipanyang/sonic-telemetry/gnmi_server/testdata/tls"
+	testcert "github.com/jipanyang/sonic-telemetry/testdata/tls"
 )
 
 var (

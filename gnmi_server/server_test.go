@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"github.com/go-redis/redis"
 	"github.com/golang/protobuf/proto"
-	testcert "github.com/jipanyang/sonic-telemetry/gnmi_server/testdata/tls"
+	testcert "github.com/jipanyang/sonic-telemetry/testdata/tls"
 
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/openconfig/gnmi/client"
@@ -175,14 +175,14 @@ func prepareDb(t *testing.T) {
 	defer rclient.Close()
 	rclient.FlushDb()
 	//Enable keysapce notification
-	os.Setenv("PATH", "/usr/bin:/sbin:/bin")
+	os.Setenv("PATH", "/usr/bin:/sbin:/bin:/usr/local/bin")
 	cmd := exec.Command("redis-cli", "config", "set", "notify-keyspace-events", "KEA")
 	_, err := cmd.Output()
 	if err != nil {
 		t.Fatal("failed to enable redis keyspace notification ", err)
 	}
 
-	fileName := "testdata/COUNTERS_PORT_NAME_MAP.txt"
+	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatal("read file %v err: %v", fileName, err)
@@ -190,7 +190,7 @@ func prepareDb(t *testing.T) {
 	mpi_name_map := loadConfig(t, "COUNTERS_PORT_NAME_MAP", countersPortNameMapByte)
 	loadDB(t, rclient, mpi_name_map)
 
-	fileName = "testdata/COUNTERS:Ethernet68.txt"
+	fileName = "../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatal("read file %v err: %v", fileName, err)
@@ -199,7 +199,7 @@ func prepareDb(t *testing.T) {
 	mpi_counter := loadConfig(t, "COUNTERS:oid:0x1000000000039", countersEthernet68Byte)
 	loadDB(t, rclient, mpi_counter)
 
-	fileName = "testdata/COUNTERS:Ethernet1.txt"
+	fileName = "../testdata/COUNTERS:Ethernet1.txt"
 	countersEthernet1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatal("read file %v err: %v", fileName, err)
@@ -209,7 +209,7 @@ func prepareDb(t *testing.T) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet64:0": "oid:0x1500000000092a"  : queue counter, to work as data noise
-	fileName = "testdata/COUNTERS:oid:0x1500000000092a.txt"
+	fileName = "../testdata/COUNTERS:oid:0x1500000000092a.txt"
 	counters92aByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatal("read file %v err: %v", fileName, err)
@@ -241,25 +241,25 @@ func TestGnmiGet(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	fileName := "testdata/COUNTERS_PORT_NAME_MAP.txt"
+	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatal("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "testdata/COUNTERS:Ethernet68.txt"
+	fileName = "../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatal("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "testdata/COUNTERS:Ethernet_wildcard.txt"
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatal("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX.txt"
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX.txt"
 	countersEthernetWildcardPfcByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatal("read file %v err: %v", fileName, err)
@@ -361,7 +361,7 @@ type tablePathValue struct {
 // runTestSubscribe subscribe DB path in stream mode or poll mode.
 // The return code and response value are compared with expected code and value.
 func runTestSubscribe(t *testing.T) {
-	fileName := "testdata/COUNTERS_PORT_NAME_MAP.txt"
+	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatal("read file %v err: %v", fileName, err)
@@ -374,7 +374,7 @@ func runTestSubscribe(t *testing.T) {
 	countersPortNameMapJsonUpdate["test_field"] = "test_value"
 
 	// for table key subscription
-	fileName = "testdata/COUNTERS:Ethernet68.txt"
+	fileName = "../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatal("read file %v err: %v", fileName, err)
@@ -393,7 +393,7 @@ func runTestSubscribe(t *testing.T) {
 	// field SAI_PORT_STAT_PFC_7_RX_PKTS has new value of 4
 	countersEthernet68JsonPfcUpdate["SAI_PORT_STAT_PFC_7_RX_PKTS"] = "4"
 
-	fileName = "testdata/COUNTERS:Ethernet_wildcard.txt"
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatal("read file %v err: %v", fileName, err)
@@ -408,7 +408,7 @@ func runTestSubscribe(t *testing.T) {
 	json.Unmarshal(countersEthernetWildcardByte, &countersFieldUpdate)
 	countersFieldUpdate["Ethernet68"] = countersEthernet68JsonPfcUpdate
 
-	fileName = "testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX.txt"
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX.txt"
 	countersEthernetWildcardPfcByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatal("read file %v err: %v", fileName, err)

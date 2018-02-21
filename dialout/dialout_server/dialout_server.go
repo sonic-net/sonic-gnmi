@@ -21,15 +21,16 @@ var (
 	supportedEncodings = []gpb.Encoding{gpb.Encoding_JSON, gpb.Encoding_JSON_IETF}
 )
 
-// Server manages a single gNMI Server implementation. Each client that connects
-// via Subscribe or Get will receive a stream of updates based on the requested
-// path. Set request is processed by server too.
+// Server manages a single GNMIDialOut_PublishServer implementation. Each client that connects
+// via PublistRequest sends subscribeResponse to the server.
 type Server struct {
-	s       *grpc.Server
-	lis     net.Listener
-	config  *Config
-	cMu     sync.Mutex
-	clients map[string]*Client
+	s         *grpc.Server
+	lis       net.Listener
+	config    *Config
+	cMu       sync.Mutex
+	clients   map[string]*Client
+	sRWMu     sync.RWMutex //for protection of appending data to data store
+	dataStore interface{}  //For storing the data received
 }
 
 // Config is a collection of values for Server
@@ -75,6 +76,16 @@ func (srv *Server) Serve() error {
 	return srv.s.Serve(srv.lis)
 }
 
+// Serve will start the Server serving and block until closed.
+func (srv *Server) Stop() error {
+	s := srv.s
+	if s == nil {
+		return fmt.Errorf("Serve() failed: not initialized")
+	}
+	srv.s.Stop()
+	return nil
+}
+
 // Address returns the port the Server is listening to.
 func (srv *Server) Address() string {
 	addr := srv.lis.Addr().String()
@@ -84,6 +95,11 @@ func (srv *Server) Address() string {
 // Port returns the port the Server is listening to.
 func (srv *Server) Port() int64 {
 	return srv.config.Port
+}
+
+// Port returns the port the Server is listening to.
+func (srv *Server) SetDataStore(dataStore interface{}) {
+	srv.dataStore = dataStore
 }
 
 // Publish implements the GNMI DialOut Publish RPC.
@@ -118,7 +134,7 @@ func (srv *Server) Publish(stream spb.GNMIDialOut_PublishServer) error {
 	srv.clients[c.String()] = c
 	srv.cMu.Unlock()
 
-	err := c.Run(stream)
+	err := c.Run(srv, stream)
 	c.Close()
 
 	srv.cMu.Lock()
@@ -156,7 +172,7 @@ func (c *Client) String() string {
 // SubscriptionList. Once the client is started, it will run until the stream
 // is closed or the schedule completes. For Poll queries the Run will block
 // internally after sync until a Poll request is made to the server.
-func (c *Client) Run(stream spb.GNMIDialOut_PublishServer) (err error) {
+func (c *Client) Run(srv *Server, stream spb.GNMIDialOut_PublishServer) (err error) {
 	defer log.V(1).Infof("Client %s shutdown", c)
 
 	if stream == nil {
@@ -179,8 +195,22 @@ func (c *Client) Run(stream spb.GNMIDialOut_PublishServer) (err error) {
 			return grpc.Errorf(grpc.Code(err), "received error from client")
 		}
 
-		fmt.Println("== subscribeResponse:")
-		utils.PrintProto(subscribeResponse)
+		srv.sRWMu.Lock()
+		if srv.dataStore != nil {
+			switch ds := srv.dataStore.(type) {
+			default:
+				log.V(1).Infof("unexpected type %T\n", srv.dataStore)
+			case *[]*gpb.SubscribeResponse:
+				*ds = append(*ds, subscribeResponse)
+			}
+		}
+		srv.sRWMu.Unlock()
+
+		if srv.dataStore == nil {
+			fmt.Println("== subscribeResponse:")
+			utils.PrintProto(subscribeResponse)
+		}
+
 		// TODO: send back (m *PublishResponse))
 	}
 	return grpc.Errorf(codes.InvalidArgument, "Exiting")
