@@ -19,6 +19,7 @@ import (
 	//"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	//"google.golang.org/grpc/status"
+	//"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -221,6 +222,40 @@ func compareUpdateValue(t *testing.T, want *pb.Notification, got *pb.Notificatio
 
 }
 
+// Type defines the type of ServerOp.
+type ServerOp int
+
+const (
+	_                = iota
+	S1Start ServerOp = iota
+	S1Stop
+	S2Start
+	S2Stop
+)
+
+var s1, s2 *sds.Server
+
+func serverOp(t *testing.T, sop ServerOp) {
+	cfg := &sds.Config{Port: 8080}
+	var tmpStore []*pb.SubscribeResponse
+	switch sop {
+	case S1Stop:
+		s1.Stop()
+	case S2Stop:
+		s2.Stop()
+	case S1Start:
+		s1 = createServer(t, cfg)
+		s1.SetDataStore(&tmpStore)
+		go runServer(t, s1)
+	case S2Start:
+		cfg.Port = 8081
+		s2 = createServer(t, cfg)
+		s2.SetDataStore(&tmpStore)
+		go runServer(t, s2)
+	}
+}
+
+//
 func TestGNMIDialOutPublish(t *testing.T) {
 
 	fileName := "../../testdata/COUNTERS_PORT_NAME_MAP.txt"
@@ -253,18 +288,6 @@ func TestGNMIDialOutPublish(t *testing.T) {
 
 	_ = countersEthernetWildcardPfcByte
 
-	cfg := &sds.Config{Port: 8080}
-	s1 := createServer(t, cfg)
-	var store1 []*pb.SubscribeResponse
-	s1.SetDataStore(&store1)
-	go runServer(t, s1)
-
-	cfg.Port = 8081
-	s2 := createServer(t, cfg)
-	var store2 []*pb.SubscribeResponse
-	s2.SetDataStore(&store2)
-	go runServer(t, s2)
-
 	clientCfg := ClientConfig{
 		SrcIp:          "",
 		RetryInterval:  5 * time.Second,
@@ -276,16 +299,19 @@ func TestGNMIDialOutPublish(t *testing.T) {
 
 	go DialOutRun(ctx, &clientCfg)
 
-	exe_cmd(t, "redis-cli -n 4 hset TELEMETRY_CLIENT|Global retry_interval 30")
+	exe_cmd(t, "redis-cli -n 4 hset TELEMETRY_CLIENT|Global retry_interval 5")
 	exe_cmd(t, "redis-cli -n 4 hset TELEMETRY_CLIENT|Global encoding JSON_IETF")
 	exe_cmd(t, "redis-cli -n 4 hset TELEMETRY_CLIENT|Global unidirectional true")
 	exe_cmd(t, "redis-cli -n 4 hset TELEMETRY_CLIENT|Global src_ip  30.57.185.38")
 
 	tests := []struct {
-		desc        string
-		prepares    []tablePathValue // extra preparation of redis db
-		cmds        []string         // commands to execute
-		updates     []tablePathValue
+		desc     string
+		prepares []tablePathValue // extra preparation of redis db
+		cmds     []string         // commands to execute
+		sop      ServerOp         // Server operation done after commonds
+		updates  []tablePathValue // Update to db data
+		waitTime time.Duration    // Wait ftime after server operation
+
 		wantErr     bool
 		collector   string
 		wantRespVal interface{}
@@ -303,12 +329,55 @@ func TestGNMIDialOutPublish(t *testing.T) {
 						//Timestamp: GetTimestamp(),
 						//Prefix:    prefix,
 						Update: []*pb.Update{
-							{
-								Val: &pb.TypedValue{
-									Value: &pb.TypedValue_JsonIetfVal{
-										JsonIetfVal: countersEthernetWildcardByte,
-									}},
-								//Path: GetPath(),
+							{Val: &pb.TypedValue{
+								Value: &pb.TypedValue_JsonIetfVal{
+									JsonIetfVal: countersEthernetWildcardByte,
+								}},
+							//Path: GetPath(),
+							},
+						},
+					},
+				},
+			},
+			&pb.SubscribeResponse{
+				Response: &pb.SubscribeResponse_SyncResponse{
+					SyncResponse: true,
+				},
+			},
+		},
+	}, {
+		desc: "DialOut to second collector in stream mode upon failure of first collector",
+		cmds: []string{
+			"redis-cli -n 4 hset TELEMETRY_CLIENT|DestinationGroup_HS dst_addr 127.0.0.1:8080,127.0.0.1:8081",
+			"redis-cli -n 4 hmset TELEMETRY_CLIENT|Subscription_HS_RDMA path_target COUNTERS_DB dst_group HS report_type stream paths COUNTERS/Ethernet*/SAI_PORT_STAT_PFC_7_RX_PKTS",
+		},
+		collector: "s2",
+		sop:       S1Stop,
+		updates: []tablePathValue{{
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS",
+			tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+			delimitor: ":",
+			field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			value:     "3", // be changed to 3 from 2
+		}, {
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS",
+			tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+			delimitor: ":",
+			field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			value:     "2", // be changed to 2 from 3
+		}},
+		waitTime: clientCfg.RetryInterval + time.Second,
+		wantRespVal: []*pb.SubscribeResponse{
+			&pb.SubscribeResponse{
+				Response: &pb.SubscribeResponse_Update{
+					Update: &pb.Notification{
+						Update: []*pb.Update{
+							{Val: &pb.TypedValue{
+								Value: &pb.TypedValue_JsonIetfVal{
+									JsonIetfVal: countersEthernetWildcardPfcByte,
+								}},
 							},
 						},
 					},
@@ -322,19 +391,36 @@ func TestGNMIDialOutPublish(t *testing.T) {
 		},
 	}}
 
+	rclient := getRedisClient(t)
+	defer rclient.Close()
 	for _, tt := range tests {
 		prepareDb(t)
-		// Extra cmd preparation for this test case
-		for _, cmd := range tt.cmds {
-			exe_cmd(t, cmd)
-		}
-		time.Sleep(time.Millisecond * 1000)
+		serverOp(t, S1Start)
+		serverOp(t, S2Start)
 		t.Run(tt.desc, func(t *testing.T) {
 			var store []*pb.SubscribeResponse
 			if tt.collector == "s1" {
-				store = store1
+				s1.SetDataStore(&store)
 			} else {
-				store = store2
+				s2.SetDataStore(&store)
+			}
+			// Extra cmd preparation for this test case
+			for _, cmd := range tt.cmds {
+				exe_cmd(t, cmd)
+			}
+			time.Sleep(time.Millisecond * 500)
+			serverOp(t, tt.sop)
+			for _, update := range tt.updates {
+				switch update.op {
+				case "hdel":
+					rclient.HDel(update.tableName+update.delimitor+update.tableKey, update.field)
+				default:
+					rclient.HSet(update.tableName+update.delimitor+update.tableKey, update.field, update.value)
+				}
+				time.Sleep(time.Millisecond * 500)
+			}
+			if tt.waitTime != 0 {
+				time.Sleep(tt.waitTime)
 			}
 			wantRespVal := tt.wantRespVal.([]*pb.SubscribeResponse)
 			if len(store) != len(wantRespVal) {
@@ -354,10 +440,11 @@ func TestGNMIDialOutPublish(t *testing.T) {
 				}
 			}
 		})
+		serverOp(t, S1Stop)
+		serverOp(t, S2Stop)
 	}
 	cancel()
-	s1.Stop()
-	s2.Stop()
+
 }
 
 func init() {

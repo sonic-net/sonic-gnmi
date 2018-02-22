@@ -121,6 +121,7 @@ type clientSubscription struct {
 	q      *queue.PriorityQueue // for data passing among go routine
 	w      sync.WaitGroup       // Wait for all sub go routine to finish
 	open   bool                 // whether there is open instance for this client subscription
+	cancel context.CancelFunc
 
 	conTryCnt uint64 //Number of time trying to connect
 	sendMsg   uint64
@@ -151,6 +152,7 @@ func (cs *clientSubscription) Close() {
 	if cs.stop != nil {
 		close(cs.stop) //Inform the clientSubscription publish service routine to stop
 	}
+
 	if cs.q != nil {
 		if !cs.q.Disposed() {
 			cs.q.Dispose()
@@ -167,10 +169,7 @@ func (cs *clientSubscription) Close() {
 func (cs *clientSubscription) NewInstance(ctx context.Context) error {
 	cs.cMu.Lock()
 	defer cs.cMu.Unlock()
-	if cs.open == true {
-		log.V(2).Infof("There is open instance for %v", cs)
-		return nil
-	}
+
 	if cs.destGroupName == "" {
 		log.V(2).Infof("Destination group is not set for %v", cs)
 		return fmt.Errorf("Destination group is not set for %v", cs)
@@ -181,7 +180,10 @@ func (cs *clientSubscription) NewInstance(ctx context.Context) error {
 		log.V(2).Infof("Destination group %v doesn't exist", cs.destGroupName)
 		return fmt.Errorf("Destination group %v doesn't exist", cs.destGroupName)
 	}
-
+	if cs.dc != nil {
+		log.V(2).Infof("publishRun instance exists for %v with destination %v", cs, dests)
+		return fmt.Errorf("publishRun instance exists for %v with destination %v", cs, dests)
+	}
 	// Connection to system database
 	dc, err := sdc.NewDbClient(cs.paths, cs.prefix)
 	if err != nil {
@@ -189,10 +191,7 @@ func (cs *clientSubscription) NewInstance(ctx context.Context) error {
 		return fmt.Errorf("Connection to DB for %v failed: %v", *cs, err)
 	}
 	cs.dc = dc
-	cs.stop = make(chan struct{}, 1)
-	cs.q = queue.NewPriorityQueue(1, false)
-	go publishRun(ctx, cs, dests, dc)
-	cs.open = true
+	go publishRun(ctx, cs, dests)
 	log.V(2).Infof("publishRun for %v with destination %v", cs, dests)
 	return nil
 }
@@ -246,7 +245,7 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-func publishRun(ctx context.Context, cs *clientSubscription, dests []Destination, dc *sdc.DbClient) {
+func publishRun(ctx context.Context, cs *clientSubscription, dests []Destination) {
 	var err error
 	var c *Client
 	var destNum, destIdx int
@@ -254,28 +253,38 @@ func publishRun(ctx context.Context, cs *clientSubscription, dests []Destination
 	destIdx = 0
 
 restart: //Remote server might go down, in that case we restart with next destination in the group
+	cs.cMu.Lock()
+	cs.stop = make(chan struct{}, 1)
+	cs.q = queue.NewPriorityQueue(1, false)
+	cs.open = true
+	cs.client = nil
+	cs.cMu.Unlock()
+
 	cs.conTryCnt++
 	dest := dests[destIdx]
 	destIdx = (destIdx + 1) % destNum
 	c, err = newClient(ctx, dest)
+	select {
+	case <-ctx.Done():
+		cs.Close()
+		log.V(1).Infof("%v: %v, cs.conTryCnt %v", cs, err, cs.conTryCnt)
+		return
+	default:
+	}
 	if err != nil {
-		select {
-		case <-ctx.Done():
-			log.V(1).Infof("%v connection: %v, cs.conTryCnt %v", dest, cs.name, err, cs.conTryCnt)
-			return
-		default:
-		}
 		log.V(1).Infof("Dialout connection for %v failed for %v, %v cs.conTryCnt %v", dest, cs.name, err, cs.conTryCnt)
 		goto restart
 	}
+
 	log.V(1).Infof("Dialout service connected to %v successfully for %v", dest, cs.name)
 	pub, err := c.client.Publish(ctx)
 	if err != nil {
 		log.V(1).Infof("Publish to %v for %v failed: %v, retrying", dest, cs.name, err)
 		c.Close()
+		cs.Close()
 		goto restart
 	}
-	// TODO: think about lock!!
+
 	cs.cMu.Lock()
 	if cs.client == nil {
 		cs.client = c
@@ -292,7 +301,7 @@ restart: //Remote server might go down, in that case we restart with next destin
 		for {
 			select {
 			default:
-				spbValues, err := dc.Get(nil)
+				spbValues, err := cs.dc.Get(nil)
 				if err != nil {
 					// TODO: need to inform
 					log.V(2).Infof("Data read error %v for %v", err, cs)
@@ -321,7 +330,7 @@ restart: //Remote server might go down, in that case we restart with next destin
 				err = pub.Send(response)
 				if err != nil {
 					log.V(1).Infof("Client %v pub Send error:%v, cs.conTryCnt %v", cs.name, err, cs.conTryCnt)
-					c.Close()
+					cs.Close()
 					// Retry
 					goto restart
 				}
@@ -331,21 +340,30 @@ restart: //Remote server might go down, in that case we restart with next destin
 
 				time.Sleep(cs.interval)
 			case <-cs.stop:
-				// _, more := <-cs.stop
-				// if !more {
 				log.V(1).Infof("%v exiting publishRun routine for destination %s", cs, dest)
 				return
-				//}
 			}
 		}
 	case Stream:
+		select {
+		default:
+			cs.w.Add(1)
+			go cs.dc.StreamRun(cs.q, cs.stop, &cs.w)
+			time.Sleep(100 * time.Millisecond)
+			err = cs.send(cs.dc, pub)
+			if err != nil {
+				log.V(1).Infof("Client %v pub Send error:%v, cs.conTryCnt %v", cs.name, err, cs.conTryCnt)
+			}
+			cs.Close()
+			cs.w.Wait()
+			// Don't restart immediatly
+			time.Sleep(clientCfg.RetryInterval)
+			goto restart
 
-		cs.w.Add(1)
-		go dc.StreamRun(cs.q, cs.stop, &cs.w)
-		err = cs.send(dc, pub)
-		cs.Close()
-		cs.w.Wait()
-		log.V(1).Infof("%v exiting publishRun routine for destination %s %v", cs, dest, err)
+		case <-cs.stop:
+			log.V(1).Infof("%v exiting publishRun routine for destination %s", cs, dest)
+			return
+		}
 	default:
 		log.V(1).Infof("Unsupported report type %s in %v ", cs.reportType, cs)
 	}
@@ -392,6 +410,7 @@ func setupDestGroupClients(ctx context.Context, destGroupName string) {
 	if names, ok := DestGrp2ClientSubMap[destGroupName]; ok {
 		for _, name := range names {
 			cs := ClientSubscriptionNameMap[name]
+			log.V(2).Infof("NewInstance with destGroup change for %s to %s", name, destGroupName)
 			cs.NewInstance(ctx)
 		}
 	}
@@ -411,6 +430,8 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 	log.V(2).Infof("Processing %v %v", tableKey, fv)
 	configMu.Lock()
 	defer configMu.Unlock()
+
+	ctx, cancel := context.WithCancel(ctx)
 
 	if key == "Global" {
 		if op == "hdel" {
@@ -485,6 +506,7 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 		csub, ok := ClientSubscriptionNameMap[name]
 		if ok {
 			csub.Close()
+			csub.cancel()
 		}
 
 		if op == "hdel" {
@@ -508,6 +530,7 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 			cs := clientSubscription{
 				interval: 5000, // default to 5000 milliseconds
 				name:     name,
+				cancel:   cancel,
 			}
 			for field, value := range fv {
 				switch field {
@@ -560,6 +583,7 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 				DestGrp2ClientSubMap[cs.destGroupName] = append(DestGrp2ClientSubMap[cs.destGroupName], cs.name)
 			}
 			ClientSubscriptionNameMap[cs.name] = &cs
+			log.V(2).Infof("NewInstance with Subscription change for %s to %s", cs.name, cs.destGroupName)
 			cs.NewInstance(ctx)
 		}
 	}

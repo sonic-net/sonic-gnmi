@@ -76,13 +76,13 @@ func (srv *Server) Serve() error {
 	return srv.s.Serve(srv.lis)
 }
 
-// Serve will start the Server serving and block until closed.
 func (srv *Server) Stop() error {
 	s := srv.s
 	if s == nil {
 		return fmt.Errorf("Serve() failed: not initialized")
 	}
 	srv.s.Stop()
+	log.V(1).Infof("Server stopped on %s", srv.Address())
 	return nil
 }
 

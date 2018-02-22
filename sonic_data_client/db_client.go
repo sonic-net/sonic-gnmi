@@ -129,7 +129,7 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (*DbClient, error) {
 // String returns the target the client is querying.
 func (c *DbClient) String() string {
 	// TODO: print gnmiPaths of this DbClient
-	return fmt.Sprintf(" Prefix %v  sendMsg %v, recvMsg%v",
+	return fmt.Sprintf("DbClient Prefix %v  sendMsg %v, recvMsg %v",
 		c.prefix.GetTarget(), c.sendMsg, c.recvMsg)
 }
 
@@ -256,10 +256,12 @@ func (c *DbClient) ProcessQueue(stream Stream) error {
 		items, err := c.q.Get(1)
 
 		if items == nil {
-			return fmt.Errorf("queue closed %v", err)
+			log.V(1).Infof("%v", err)
+			return err
 		}
 		if err != nil {
 			c.errors++
+			log.V(1).Infof("%v", err)
 			return fmt.Errorf("unexpected queue Gext(1): %v", err)
 		}
 
