@@ -151,8 +151,18 @@ update: <
 ```
 
 # AutoTest
-To be provided
-
+![Test Topology](img/dialout.png)
+```
+bogon:sonic-telemetry jipanyang$ go test -v ./dialout/dialout_client/
+=== RUN   TestGNMIDialOutPublish
+=== RUN   TestGNMIDialOutPublish/DialOut_to_first_collector_in_stream_mode_and_synced
+=== RUN   TestGNMIDialOutPublish/DialOut_to_second_collector_in_stream_mode_upon_failure_of_first_collector
+--- PASS: TestGNMIDialOutPublish (26.22s)
+    --- PASS: TestGNMIDialOutPublish/DialOut_to_first_collector_in_stream_mode_and_synced (0.52s)
+    --- PASS: TestGNMIDialOutPublish/DialOut_to_second_collector_in_stream_mode_upon_failure_of_first_collector (7.53s)
+PASS
+ok    github.com/jipanyang/sonic-telemetry/dialout/dialout_client 26.233s
+```
 # Performance and Scale Test
 To be provided
 

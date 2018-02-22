@@ -859,6 +859,8 @@ func dbSingleTableKeySubscribe(rsd redisSubData, c *DbClient, msiOut *map[string
 			}
 			newMsi := make(map[string]interface{})
 			subscr := msgi.(*redis.Message)
+
+			// TODO: support for "Delete []*Path"
 			if subscr.Payload == "del" || subscr.Payload == "hdel" {
 				if tblPath.tableKey != "" {
 					//msi["DEL"] = ""
