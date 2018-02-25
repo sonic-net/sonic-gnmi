@@ -100,14 +100,15 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		return grpc.Errorf(codes.InvalidArgument, "first message must be SubscriptionList: %q", query)
 	}
 
+	var target string
 	prefix := c.subscribe.GetPrefix()
 	if prefix == nil {
 		return grpc.Errorf(codes.Unimplemented, "No target specified in prefix")
 	} else {
-		target := prefix.GetTarget()
+		target = prefix.GetTarget()
 		// TODO: add data client support for fetching non-db data
-		if target == "" || target == "OTHERS" {
-			return grpc.Errorf(codes.Unimplemented, "Non-DB target data not supported yet")
+		if target == "" {
+			return grpc.Errorf(codes.Unimplemented, "Empty target data not supported yet")
 		}
 	}
 
@@ -115,7 +116,13 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	if err != nil {
 		return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
 	}
-	dc, err := sdc.NewDbClient(paths, prefix)
+	var dc sdc.Client
+	if target == "OTHERS" {
+		dc, err = sdc.NewNonDbClient(paths, prefix)
+	} else {
+		dc, err = sdc.NewDbClient(paths, prefix)
+	}
+
 	if err != nil {
 		return grpc.Errorf(codes.NotFound, "%v", err)
 	}
@@ -138,7 +145,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 
 	log.V(1).Infof("Client %s running", c)
 	go c.recv(stream)
-	err = c.send(dc, stream)
+	err = c.send(stream)
 	c.Close()
 	// Wait until all child go routines exited
 	c.w.Wait()
@@ -198,10 +205,39 @@ func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 }
 
 // send runs until process Queue returns an error.
-func (c *Client) send(dc *sdc.DbClient, stream gnmipb.GNMI_SubscribeServer) error {
-	if err := dc.ProcessQueue(stream); err != nil {
-		log.V(2).Infof("Client %s : %v", c, err)
-		return err
+func (c *Client) send(stream gnmipb.GNMI_SubscribeServer) error {
+	for {
+		items, err := c.q.Get(1)
+
+		if items == nil {
+			log.V(1).Infof("%v", err)
+			return err
+		}
+		if err != nil {
+			c.errors++
+			log.V(1).Infof("%v", err)
+			return fmt.Errorf("unexpected queue Gext(1): %v", err)
+		}
+
+		var resp *gnmipb.SubscribeResponse
+		switch v := items[0].(type) {
+		case sdc.Value:
+			if resp, err = sdc.ValToResp(v); err != nil {
+				c.errors++
+				return err
+			}
+		default:
+			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], c)
+			c.errors++
+		}
+
+		c.sendMsg++
+		err = stream.Send(resp)
+		if err != nil {
+			log.V(1).Infof("Client %s sending error:%v", c, err)
+			c.errors++
+			return err
+		}
+		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
 	}
-	return nil
 }

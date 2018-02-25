@@ -116,7 +116,7 @@ type clientSubscription struct {
 	// Running time data
 	cMu    sync.Mutex
 	client *Client              // GNMIDialOutClient
-	dc     *sdc.DbClient        // SONiC data client
+	dc     sdc.Client           // SONiC data client
 	stop   chan struct{}        // Inform publishRun routine to stop
 	q      *queue.PriorityQueue // for data passing among go routine
 	w      sync.WaitGroup       // Wait for all sub go routine to finish
@@ -126,6 +126,7 @@ type clientSubscription struct {
 	conTryCnt uint64 //Number of time trying to connect
 	sendMsg   uint64
 	recvMsg   uint64
+	errors    uint64
 }
 
 // Client handles execution of the telemetry publish service.
@@ -184,8 +185,21 @@ func (cs *clientSubscription) NewInstance(ctx context.Context) error {
 		log.V(2).Infof("publishRun instance exists for %v with destination %v", cs, dests)
 		return fmt.Errorf("publishRun instance exists for %v with destination %v", cs, dests)
 	}
-	// Connection to system database
-	dc, err := sdc.NewDbClient(cs.paths, cs.prefix)
+
+	target := cs.prefix.GetTarget()
+	// TODO: add data client support for fetching non-db data
+	if target == "" {
+		return fmt.Errorf("Empty target data not supported yet")
+	}
+
+	// Connection to system data source
+	var dc sdc.Client
+	var err error
+	if target == "OTHERS" {
+		dc, err = sdc.NewNonDbClient(cs.paths, cs.prefix)
+	} else {
+		dc, err = sdc.NewDbClient(cs.paths, cs.prefix)
+	}
 	if err != nil {
 		log.V(1).Infof("Connection to DB for %v failed: %v", *cs, err)
 		return fmt.Errorf("Connection to DB for %v failed: %v", *cs, err)
@@ -197,12 +211,41 @@ func (cs *clientSubscription) NewInstance(ctx context.Context) error {
 }
 
 // send runs until process Queue returns an error.
-func (cs *clientSubscription) send(dc *sdc.DbClient, stream spb.GNMIDialOut_PublishClient) error {
-	if err := dc.ProcessQueue(stream); err != nil {
-		log.V(2).Infof("Client %s : %v", cs, err)
-		return err
+func (cs *clientSubscription) send(stream spb.GNMIDialOut_PublishClient) error {
+	for {
+		items, err := cs.q.Get(1)
+
+		if items == nil {
+			log.V(1).Infof("%v", err)
+			return err
+		}
+		if err != nil {
+			cs.errors++
+			log.V(1).Infof("%v", err)
+			return fmt.Errorf("unexpected queue Gext(1): %v", err)
+		}
+
+		var resp *gpb.SubscribeResponse
+		switch v := items[0].(type) {
+		case sdc.Value:
+			if resp, err = sdc.ValToResp(v); err != nil {
+				cs.errors++
+				return err
+			}
+		default:
+			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], cs)
+			cs.errors++
+		}
+
+		cs.sendMsg++
+		err = stream.Send(resp)
+		if err != nil {
+			log.V(1).Infof("Client %s sending error:%v", cs, err)
+			cs.errors++
+			return err
+		}
+		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", cs, cs.sendMsg, resp)
 	}
-	return nil
 }
 
 // String returns the target the client is querying.
@@ -350,7 +393,7 @@ restart: //Remote server might go down, in that case we restart with next destin
 			cs.w.Add(1)
 			go cs.dc.StreamRun(cs.q, cs.stop, &cs.w)
 			time.Sleep(100 * time.Millisecond)
-			err = cs.send(cs.dc, pub)
+			err = cs.send(pub)
 			if err != nil {
 				log.V(1).Infof("Client %v pub Send error:%v, cs.conTryCnt %v", cs.name, err, cs.conTryCnt)
 			}

@@ -14,21 +14,21 @@ enum State {
 
 // Value is the message that reprents a stream of updates for a given path, used internally.
 message Value {
+  // prefix used with path
+  gnmi.Path prefix = 1;
   // The device specific, or path corresponding to a value.
-  gnmi.Path path = 1;
+  gnmi.Path path = 2;
   // timestamp for the corresponding value, nanoseconds since epoch.
   // If timestamp is not set the default will assume to
   // be the current system time.
-  int64 timestamp = 2;
+  int64 timestamp = 3;
 
-  // The initial value of the chosen type including configuration on how the
-  // value will mutate for subsequent updates.
-  TypedValue val = 3;
+  TypedValue val = 4;
 
   // Indicate target has sent all values associated with the subscription
   // at least once.
-  bool sync_response = 4;
+  bool sync_response = 5;
 
   // fatal error happened.
-  string fatal = 5;
+  string fatal = 6;
 }

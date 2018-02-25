@@ -279,8 +279,8 @@ func TestGnmiGet(t *testing.T) {
 		`,
 		wantRetCode: codes.NotFound,
 	}, {
-		desc:       "Test Unimplemented path target",
-		pathTarget: "OTHERS",
+		desc:       "Test empty path target",
+		pathTarget: "",
 		textPbPath: `
 			elem: <name: "MyCounters" >
 		`,

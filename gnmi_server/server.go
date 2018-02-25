@@ -157,25 +157,30 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		return nil, status.Error(codes.Unimplemented, err.Error())
 	}
 
+	var target string
 	prefix := req.GetPrefix()
 	if prefix == nil {
 		return nil, status.Error(codes.Unimplemented, "No target specified in prefix")
 	} else {
-		target := prefix.GetTarget()
-		// TODO: add data client support for fetching non-db data
-		if target == "" || target == "OTHERS" {
-			return nil, status.Error(codes.Unimplemented, "Non-DB target data not supported yet")
+		target = prefix.GetTarget()
+		if target == "" {
+			return nil, status.Error(codes.Unimplemented, "Empty target data not supported yet")
 		}
 	}
 
 	paths := req.GetPath()
 	log.V(5).Infof("GetRequest paths: %v", paths)
-	dc, err := sdc.NewDbClient(paths, prefix)
+
+	var dc sdc.Client
+	if target == "OTHERS" {
+		dc, err = sdc.NewNonDbClient(paths, prefix)
+	} else {
+		dc, err = sdc.NewDbClient(paths, prefix)
+	}
 	if err != nil {
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 	notifications := make([]*gnmipb.Notification, len(paths))
-
 	spbValues, err := dc.Get(nil)
 	if err != nil {
 		return nil, status.Error(codes.NotFound, err.Error())

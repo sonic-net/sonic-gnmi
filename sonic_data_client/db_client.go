@@ -43,7 +43,7 @@ type Client interface {
 	// It should run as a go routine
 	PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup)
 	// Get return data from the data source in format of *spb.Value
-	Get(w *sync.WaitGroup) (*spb.Value, error)
+	Get(w *sync.WaitGroup) ([]*spb.Value, error)
 	// Close provides implemenation for explicit cleanup of Client
 	Close() error
 }
@@ -105,16 +105,20 @@ type DbClient struct {
 	errors  int64
 }
 
-func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (*DbClient, error) {
+func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
 	var client DbClient
+	var err error
 	// Testing program may ask to use redis local tcp connection
 	if UseRedisLocalTcpPort {
 		useRedisTcpClient()
 	}
-	err := initCountersPortNameMap()
-	if err != nil {
-		return nil, err
+	if prefix.GetTarget() == "COUNTERS_DB" {
+		err = initCountersPortNameMap()
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	client.prefix = prefix
 	client.pathG2S = make(map[*gnmipb.Path][]tablePath)
 	err = populateAllDbtablePath(prefix, paths, &client.pathG2S)
@@ -198,6 +202,7 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 			}
 
 			spbv := &spb.Value{
+				Prefix:       c.prefix,
 				Path:         gnmiPath,
 				Timestamp:    time.Now().UnixNano(),
 				SyncResponse: false,
@@ -214,14 +219,12 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 				SyncResponse: true,
 			},
 		})
-		ms := int64(time.Since(t1) / time.Millisecond)
-		log.V(4).Infof("Sync done, poll time taken: %v ms", ms)
+		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
-	log.V(2).Infof("Exiting pollDB for %v", c)
 }
 
 func (c *DbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
-	// wait sync for Get not used for now
+	// wait sync for Get, not used for now
 	c.w = w
 
 	var values []*spb.Value
@@ -233,64 +236,25 @@ func (c *DbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 		}
 
 		values = append(values, &spb.Value{
+			Prefix:    c.prefix,
 			Path:      gnmiPath,
 			Timestamp: ts.UnixNano(),
 			Val:       val,
 		})
 	}
 	log.V(6).Infof("Getting #%v", values)
-	ms := int64(time.Since(ts) / time.Millisecond)
-	log.V(4).Infof("Get done, total time taken: %v ms", ms)
+	log.V(4).Infof("Get done, total time taken: %v ms", int64(time.Since(ts)/time.Millisecond))
 	return values, nil
 }
 
-// The gNMI worker routines subscribeDb and pollDb push data into the client queue,
-// processQueue works as consumber of the queue. The data is popped from queue, converted
-// from sonic_gnmi data into a gNMI notification, then sent on stream.
-func (c *DbClient) ProcessQueue(stream Stream) error {
-	defer log.V(1).Infof("%v exiting ProcessQueue()", c)
-	for c.q == nil { // Wait until the queue is ready
-		time.Sleep(time.Millisecond * 50)
-	}
-	for {
-		items, err := c.q.Get(1)
-
-		if items == nil {
-			log.V(1).Infof("%v", err)
-			return err
-		}
-		if err != nil {
-			c.errors++
-			log.V(1).Infof("%v", err)
-			return fmt.Errorf("unexpected queue Gext(1): %v", err)
-		}
-
-		var resp *gnmipb.SubscribeResponse
-		switch v := items[0].(type) {
-		case Value:
-			if resp, err = c.valToResp(v); err != nil {
-				c.errors++
-				return err
-			}
-		default:
-			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], c)
-			c.errors++
-		}
-
-		c.sendMsg++
-		err = stream.Send(resp)
-		if err != nil {
-			log.V(1).Infof("Client %s sending error:%v", c, err)
-			c.errors++
-			return err
-		}
-		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
-	}
+// TODO: Log data related to this session
+func (c *DbClient) Close() error {
+	return nil
 }
 
 // Convert from SONiC Value to its corresponding gNMI proto stream
 // response type.
-func (c *DbClient) valToResp(val Value) (*gnmipb.SubscribeResponse, error) {
+func ValToResp(val Value) (*gnmipb.SubscribeResponse, error) {
 	switch val.GetSyncResponse() {
 	case true:
 		return &gnmipb.SubscribeResponse{
@@ -308,7 +272,7 @@ func (c *DbClient) valToResp(val Value) (*gnmipb.SubscribeResponse, error) {
 			Response: &gnmipb.SubscribeResponse_Update{
 				Update: &gnmipb.Notification{
 					Timestamp: val.GetTimestamp(),
-					Prefix:    c.prefix,
+					Prefix:    val.GetPrefix(),
 					Update: []*gnmipb.Update{
 						{
 							Path: val.GetPath(),
@@ -747,6 +711,7 @@ func dbFieldMultiSubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
 				}
 
 				spbv := &spb.Value{
+					Prefix:    c.prefix,
 					Path:      gnmiPath,
 					Timestamp: time.Now().UnixNano(),
 					Val:       val,
@@ -805,6 +770,7 @@ func dbFieldSubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
 			}
 			if newVal != val {
 				spbv := &spb.Value{
+					Prefix:    c.prefix,
 					Path:      gnmiPath,
 					Timestamp: time.Now().UnixNano(),
 					Val: &gnmipb.TypedValue{
@@ -979,6 +945,7 @@ func dbTableKeySubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
 	}
 	var spbv *spb.Value
 	spbv = &spb.Value{
+		Prefix:    c.prefix,
 		Path:      gnmiPath,
 		Timestamp: time.Now().UnixNano(),
 		Val:       val,
