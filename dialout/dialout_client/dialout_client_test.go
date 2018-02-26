@@ -423,13 +423,15 @@ func TestGNMIDialOutPublish(t *testing.T) {
 				time.Sleep(tt.waitTime)
 			}
 			wantRespVal := tt.wantRespVal.([]*pb.SubscribeResponse)
-			if len(store) != len(wantRespVal) {
+			if len(store) < len(wantRespVal) {
 				t.Logf("len not match %v %s %v", len(store), " : ", len(wantRespVal))
 				t.Logf("want: ", wantRespVal)
 				t.Fatal("got: ", store)
 			}
+			slen := len(store)
+			wlen := len(wantRespVal)
 			for idx, resp := range wantRespVal {
-				switch store[idx].GetResponse().(type) {
+				switch store[slen-wlen+idx].GetResponse().(type) {
 				case *pb.SubscribeResponse_SyncResponse:
 					if _, ok := resp.GetResponse().(*pb.SubscribeResponse_SyncResponse); !ok {
 						t.Fatal("Expecting %v, got SyncResponse", resp.GetResponse())

@@ -2,7 +2,6 @@ package telemetry_dialout
 
 import (
 	// "encoding/json"
-	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/openconfig/ygot/ygot"
 	"github.com/workiva/go-datastructures/queue"
+	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"net"
@@ -120,7 +120,7 @@ type clientSubscription struct {
 	stop   chan struct{}        // Inform publishRun routine to stop
 	q      *queue.PriorityQueue // for data passing among go routine
 	w      sync.WaitGroup       // Wait for all sub go routine to finish
-	open   bool                 // whether there is open instance for this client subscription
+	opened bool                 // whether there is opened instance for this client subscription
 	cancel context.CancelFunc
 
 	conTryCnt uint64 //Number of time trying to connect
@@ -147,7 +147,8 @@ type Client struct {
 func (cs *clientSubscription) Close() {
 	cs.cMu.Lock()
 	defer cs.cMu.Unlock()
-	if cs.open == false {
+	if cs.opened == false {
+		log.V(5).Infof("Opened is false: %v", cs)
 		return
 	}
 	if cs.stop != nil {
@@ -163,7 +164,7 @@ func (cs *clientSubscription) Close() {
 
 		cs.client.Close() // Close GNMIDialOutClient
 	}
-	cs.open = false
+	cs.opened = false
 	log.V(2).Infof("Closed %v", cs)
 }
 
@@ -181,13 +182,8 @@ func (cs *clientSubscription) NewInstance(ctx context.Context) error {
 		log.V(2).Infof("Destination group %v doesn't exist", cs.destGroupName)
 		return fmt.Errorf("Destination group %v doesn't exist", cs.destGroupName)
 	}
-	if cs.dc != nil {
-		log.V(2).Infof("publishRun instance exists for %v with destination %v", cs, dests)
-		return fmt.Errorf("publishRun instance exists for %v with destination %v", cs, dests)
-	}
 
 	target := cs.prefix.GetTarget()
-	// TODO: add data client support for fetching non-db data
 	if target == "" {
 		return fmt.Errorf("Empty target data not supported yet")
 	}
@@ -299,7 +295,7 @@ restart: //Remote server might go down, in that case we restart with next destin
 	cs.cMu.Lock()
 	cs.stop = make(chan struct{}, 1)
 	cs.q = queue.NewPriorityQueue(1, false)
-	cs.open = true
+	cs.opened = true
 	cs.client = nil
 	cs.cMu.Unlock()
 
@@ -443,6 +439,7 @@ func closeDestGroupClient(destGroupName string) {
 		for _, name := range names {
 			cs := ClientSubscriptionNameMap[name]
 			cs.Close()
+			cs.cancel()
 		}
 	}
 }
@@ -452,9 +449,11 @@ func closeDestGroupClient(destGroupName string) {
 func setupDestGroupClients(ctx context.Context, destGroupName string) {
 	if names, ok := DestGrp2ClientSubMap[destGroupName]; ok {
 		for _, name := range names {
-			cs := ClientSubscriptionNameMap[name]
+			// Create a copy of Client subscription, existing one might be closing, don't interfere with it.
+			cs := *ClientSubscriptionNameMap[name]
 			log.V(2).Infof("NewInstance with destGroup change for %s to %s", name, destGroupName)
 			cs.NewInstance(ctx)
+			ClientSubscriptionNameMap[name] = &cs
 		}
 	}
 }
@@ -501,7 +500,11 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 					clientCfg.Unidirectional = true
 				}
 			}
-			// TODO: Apply changes to all running instances
+			// Apply changes to all running instances
+			for grpName := range destGrpNameMap {
+				closeDestGroupClient(grpName)
+				setupDestGroupClients(ctx, grpName)
+			}
 		}
 	} else if strings.HasPrefix(key, "DestinationGroup_") {
 		destGroupName := strings.TrimPrefix(key, "DestinationGroup_")

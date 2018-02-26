@@ -2,12 +2,12 @@
 package main
 
 import (
-	"context"
 	"crypto/tls"
 	"flag"
 	log "github.com/golang/glog"
 	dc "github.com/jipanyang/sonic-telemetry/dialout/dialout_client"
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
+	"golang.org/x/net/context"
 	"os"
 	"os/signal"
 	"time"
