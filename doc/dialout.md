@@ -9,14 +9,15 @@
 
 # Overview of telemetry in dialout mode
 
-When the telemetry service works in dialout mode, it initiates connections towards collectors then streams data to them. The exact list of collectors, paths of data, and various connection related variables are driven by configuration from other channels like netconf or CLI.
+When the telemetry service works in dialout mode, it initiates connections towards collectors then streams data to them. The exact list of collectors, paths of data, and various connection related variables are configured via other channels like netconf or CLI.
 
 It is useful in some scenarios. A few typical examples:
-<1> Firewall/Nat service sits between network device and telemetry collectors, and the collectors cannot initiate connections.
-<2> Collectors prefer to work in stateless mode and shed the complexity of maintaining telemetry state of each and every network element to another configuration system.
+
+* Firewall/Nat service sits between network device and telemetry collectors, and the collectors cannot initiate connections.
+* Collectors prefer to work in stateless mode and shed the complexity of maintaining telemetry state of each and every network element to another configuration system.
 
 # Services provided in dialout mode
-gNMIDialout service is defined for telemetry in dialout mode. It has one streaming RPC: Publish. The message from client to collector reuses [SubscribeResponse](https://github.com/openconfig/gnmi/blob/f6185680be3b63e2b17e155f06bfc892f74fc3e7/proto/gnmi/gnmi.proto#L216) from gNMI spec, while the PublishResponse message is optional and may be skipped by default.
+gNMIDialout service is defined for telemetry in dialout mode. It has one streaming RPC: Publish. The message from client to collector reuses [SubscribeResponse](https://github.com/openconfig/gnmi/blob/f6185680be3b63e2b17e155f06bfc892f74fc3e7/proto/gnmi/gnmi.proto#L216) from gNMI spec, while the PublishResponse message is optional and skipped by default.
 
 ```
 // gNMIDialOut defines a service which is used by a target system (typically a
@@ -48,7 +49,7 @@ message PublishResponse {
 ```
 
 # Configurations for dialout mode
-The configuration of dialout telemetry in SONiC refered to openconfig [telemetry yang model](https://github.com/openconfig/public/blob/master/release/models/telemetry/openconfig-telemetry.yang)
+The configuration of dialout telemetry in SONiC is implemented with reference to openconfig [telemetry yang model](https://github.com/openconfig/public/blob/master/release/models/telemetry/openconfig-telemetry.yang)
 
 There are three categories of configuration:
 * Global
