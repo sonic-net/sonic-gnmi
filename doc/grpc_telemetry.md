@@ -491,6 +491,47 @@ ok    github.com/jipanyang/sonic-telemetry/gnmi_server  39.075s
 ```
 
 # Performance and Scale Test
-To be provided
+Test has been done with counters on all Ethernet ports. In the example testing switch, there are 54 Ethernet ports and 106 counters under eatch ports.  All the 5724 counters are polled every second.
+[gnmi_cli](https://github.com/jipanyang/gnmi/tree/master/cmd/gnmi_cli) was used to collect the poll/response latency and cpu utilization rate on the switch. The latency and cpu utilization graphs were plotted at the same time.
 
+`
+jipan@6068794801d2:/sonic/go/src/github.com/openconfig/gnmi/cmd/gnmi_cli$ go run gnmi_cli.go  -a 30.57.185.38:8080 -q COUNTERS/Ethernet*  -logtostderr -insecure -qt p -pi 1s -timestamp on -t COUNTERS_DB  -count 60  -concurrent 1 -concurrent_max 1  -display_type gh -v 1
+`
 
+Average latency is 68 Milliseconds for each poll/response of all the counters in the period of 60 seconds with telemetry collector running on a standalone server.
+![Session latency](img/session_latency.png)
+
+Without the counter polling activity, the average cpu utilization rate in 60 seconds is 12%. The number changed to 13% with Ethernet ports counters polling every second.
+![Cpu Utilization](img/cpu_utilization.png)
+
+` go run gnmi_cli.go  -a 30.57.185.38:8080 -q COUNTERS/Ethernet*  -logtostderr -insecure -qt p  -timestamp on -t COUNTERS_DB  -count 600  -concurrent 1 -concurrent_max 1  -display_type gh -v 1 -pi 100ms`
+Increasing the polling frequency to every 100 Milliseconds, poll/response latency reduced to 64 Milliseconds, but cpu utilization rate increased significantly to 23% from 13%
+![Session latency](img/session_latency_100ms.png)
+![Cpu Utilization](img/cpu_utilization_100ms.png)
+
+```
+root@sonic:/proc# lscpu
+Architecture:          x86_64
+CPU op-mode(s):        32-bit, 64-bit
+Byte Order:            Little Endian
+CPU(s):                4
+On-line CPU(s) list:   0-3
+Thread(s) per core:    1
+Core(s) per socket:    4
+Socket(s):             1
+NUMA node(s):          1
+Vendor ID:             GenuineIntel
+CPU family:            6
+Model:                 77
+Model name:            Intel(R) Atom(TM) CPU  C2558  @ 2.40GHz
+Stepping:              8
+CPU MHz:               1200.000
+CPU max MHz:           2400.0000
+CPU min MHz:           1200.0000
+BogoMIPS:              4787.94
+Virtualization:        VT-x
+L1d cache:             24K
+L1i cache:             32K
+L2 cache:              1024K
+NUMA node0 CPU(s):     0-3
+```
