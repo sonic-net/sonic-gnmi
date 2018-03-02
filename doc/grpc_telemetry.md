@@ -62,7 +62,7 @@ Some data like COUNTERS table in COUNTERS_DB doesn't have key, but field and val
 
 Refer to [SONiC data schema](https://github.com/Azure/sonic-swss-common/blob/master/common/schema.h) for more info about DB and table.
 
-For data not available in DBs, we designate top name "OTHERS" for that category of data, paths like platform/cpu or proc/loadavg follow it to represent the full path.
+For data not available in DBs, Target name "OTHERS" is designated for that category of data, paths like platform/cpu or proc/loadavg under "OTHERS" target may be used get/subscribe the data.
 
 # gRPC operations for data telemetry in SONiC
 As mentioned at the beginning, SONiC gRPC data telemetry is largely based on gNMI protocol,  the GetRquest/GetResponse and SubscribeRequest/SubscribeResponse RPC have been implemented. Since SONiC doesn't have complete YANG data model yet, the DB, TABLE, KEY and Field path hierarchy is used as path to uniquely identify the configuration/state and counter data.
@@ -342,7 +342,7 @@ sendQueryAndDisplay: GROUP poll [[COUNTERS Ethernet9 SAI_PORT_STAT_PFC_7_RX_PKTS
 }
 ```
 
-The data not available in DB also support poll subscription and get.  So far under "OTHERS" target, platform/cpu, proc/meminfo, proc/loadavg, proc/vmstat, and proc/diskstats are the paths supported.
+The data not available in DB also support poll subscription and get.  So far under "OTHERS" target, platform/cpu, proc/stat, proc/meminfo, proc/loadavg, proc/vmstat, and proc/diskstats are the paths supported.
 ```
 jipan@sonicvm1:~/work/go/src/github.com/jipanyang/gnmi/cmd/gnmi_cli$ ./gnmi_cli -client_types=gnmi -a 30.57.185.38:8080 -t OTHERS -logtostderr -insecure -qt p -pi 10s -q proc/loadavg
 sendQueryAndDisplay: GROUP poll [[proc loadavg]]

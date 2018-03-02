@@ -59,6 +59,10 @@ var (
 			path:    []string{"OTHERS", "proc", "vmstat"},
 			getFunc: dataGetFunc(getProcVmstat),
 		},
+		{ // Get proc stat
+			path:    []string{"OTHERS", "proc", "stat"},
+			getFunc: dataGetFunc(getProcStat),
+		},
 	}
 )
 
@@ -228,6 +232,17 @@ func getProcVmstat() ([]byte, error) {
 		return b, err
 	}
 	log.V(4).Infof("getProcVmstat, output %v", string(b))
+	return b, nil
+}
+
+func getProcStat() ([]byte, error) {
+	stat, _ := linuxproc.ReadStat("/proc/stat")
+	b, err := json.Marshal(stat)
+	if err != nil {
+		log.V(2).Infof("%v", err)
+		return b, err
+	}
+	log.V(4).Infof("getProcStat, output %v", string(b))
 	return b, nil
 }
 
