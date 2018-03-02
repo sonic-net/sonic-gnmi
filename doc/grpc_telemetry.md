@@ -62,6 +62,8 @@ Some data like COUNTERS table in COUNTERS_DB doesn't have key, but field and val
 
 Refer to [SONiC data schema](https://github.com/Azure/sonic-swss-common/blob/master/common/schema.h) for more info about DB and table.
 
+For data not available in DBs, we designate top name "OTHERS" for that category of data, paths like platform/cpu or proc/loadavg follow it to represent the full path.
+
 # gRPC operations for data telemetry in SONiC
 As mentioned at the beginning, SONiC gRPC data telemetry is largely based on gNMI protocol,  the GetRquest/GetResponse and SubscribeRequest/SubscribeResponse RPC have been implemented. Since SONiC doesn't have complete YANG data model yet, the DB, TABLE, KEY and Field path hierarchy is used as path to uniquely identify the configuration/state and counter data.
 
@@ -230,7 +232,7 @@ notification: <
 Or just one specific counter "SAI_PORT_STAT_PFC_7_RX_PKTS":
 
 ```
-jipan@6068794801d2:/sonic/go/src/github.com/google/gnxi/gnmi_get$ ./gnmi_get -xpath_target COUNTERS_DB -xpath COUNTERS/Ethernet9/SAI_PORT_STAT_PFC_7_RX_PKTS -target_addr 30.57.185.38:8080 -alsologtostderr -insecure true
+jipan@sonicvm1:~/work/go/src/github.com/jipanyang/gnmi/cmd/gnmi_cli$ ./gnmi_get -xpath_target COUNTERS_DB -xpath COUNTERS/Ethernet9/SAI_PORT_STAT_PFC_7_RX_PKTS -target_addr 30.57.185.38:8080 -alsologtostderr -insecure true
 == getRequest:
 prefix: <
   target: "COUNTERS_DB"
@@ -288,7 +290,7 @@ Any time the PFC counter on queue 7 of Ethernet9 "COUNTERS/Ethernet9/SAI_PORT_ST
 
 
 ```
-jipan@6068794801d2:/sonic/go/src/github.com/openconfig/gnmi/cmd/gnmi_cli$ ./gnmi_cli --client_types=gnmi -a 30.57.185.38:8080 -q "COUNTERS/Ethernet9/SAI_PORT_STAT_PFC_7_RX_PKTS" -logtostderr -insecure -timestamp on -t COUNTERS_DB -v 0 -qt s
+jipan@sonicvm1:~/work/go/src/github.com/jipanyang/gnmi/cmd/gnmi_cli$ ./gnmi_cli --client_types=gnmi -a 30.57.185.38:8080 -q "COUNTERS/Ethernet9/SAI_PORT_STAT_PFC_7_RX_PKTS" -logtostderr -insecure -timestamp on -t COUNTERS_DB -v 0 -qt s
 sendQueryAndDisplay: GROUP 3 query.Queries: [[COUNTERS Ethernet9 SAI_PORT_STAT_PFC_7_RX_PKTS]]
 {
   "COUNTERS": {
@@ -316,13 +318,13 @@ sendQueryAndDisplay: GROUP 3 query.Queries: [[COUNTERS Ethernet9 SAI_PORT_STAT_P
 With poll mode SubscribeRequest, collector poll the data path periodically. Example below shows the command line used and the corresponding output: ( -qt p -pi 10s) query type is polling and polling interval of 10s.
 
 ```
-jipan@6068794801d2:/sonic/go/src/github.com/openconfig/gnmi/cmd/gnmi_cli$ ./gnmi_cli --client_types=gnmi -a 30.57.185.38:8080 -q "COUNTERS/Ethernet9/SAI_PORT_STAT_PFC_7_RX_PKTS" -logtostderr -insecure -timestamp on -t COUNTERS_DB -v 0 -qt p -pi 10s
-sendQueryAndDisplay: GROUP 2 query.Queries: [[COUNTERS Ethernet9 SAI_PORT_STAT_PFC_7_RX_PKTS]]
+jipan@sonicvm1:~/work/go/src/github.com/jipanyang/gnmi/cmd/gnmi_cli$ ./gnmi_cli --client_types=gnmi -a 30.57.185.38:8080 -q "COUNTERS/Ethernet9/SAI_PORT_STAT_PFC_7_RX_PKTS" -logtostderr -insecure -timestamp on -t COUNTERS_DB -v 0 -qt p -pi 10s
+sendQueryAndDisplay: GROUP poll [[COUNTERS Ethernet9 SAI_PORT_STAT_PFC_7_RX_PKTS]]
 {
   "COUNTERS": {
     "Ethernet9": {
       "SAI_PORT_STAT_PFC_7_RX_PKTS": {
-        "timestamp": "2018-01-23-01:16:59.522832875",
+        "timestamp": "2018-03-01-18:40:45.775251073",
         "value": "0"
       }
     }
@@ -332,13 +334,44 @@ sendQueryAndDisplay: GROUP 2 query.Queries: [[COUNTERS Ethernet9 SAI_PORT_STAT_P
   "COUNTERS": {
     "Ethernet9": {
       "SAI_PORT_STAT_PFC_7_RX_PKTS": {
-        "timestamp": "2018-01-23-01:17:09.524504884",
+        "timestamp": "2018-03-01-18:40:55.776494910",
         "value": "0"
       }
     }
   }
 }
 ```
+
+The data not available in DB also support poll subscription and get.  So far under "OTHERS" target, platform/cpu, proc/meminfo, proc/loadavg, proc/vmstat, and proc/diskstats are the paths supported.
+```
+jipan@sonicvm1:~/work/go/src/github.com/jipanyang/gnmi/cmd/gnmi_cli$ ./gnmi_cli -client_types=gnmi -a 30.57.185.38:8080 -t OTHERS -logtostderr -insecure -qt p -pi 10s -q proc/loadavg
+sendQueryAndDisplay: GROUP poll [[proc loadavg]]
+{
+  "proc": {
+    "loadavg": {
+      "last15min": 0.89,
+      "last1min": 1.13,
+      "last5min": 0.85,
+      "last_pid": 868,
+      "process_running": 2,
+      "process_total": 530
+    }
+  }
+}
+{
+  "proc": {
+    "loadavg": {
+      "last15min": 0.91,
+      "last1min": 1.34,
+      "last5min": 0.91,
+      "last_pid": 868,
+      "process_running": 2,
+      "process_total": 530
+    }
+  }
+}
+```
+
 
 ## Virtual path
 Some of the SONiC database tables contain aggregated data. Ex. COUNTERS in COUNTER_DB stores stats of Ports, Queues and others type of SONiC objects, also the key in table is oid which is only meaningful inside SONiC. The virtual path concept is introduced for SONiC telemetry. It doesn't exist in SONiC redis database, telemetry module performs internal translation to map it to real data path and returns data accordingly. Virtual paths supported so far:
@@ -349,7 +382,7 @@ Some of the SONiC database tables contain aggregated data. Ex. COUNTERS in COUNT
 |COUNTERS_DB | "COUNTERS/Ethernet*/``<counter name``>"|  One counter on all Ethernet ports
 |COUNTERS_DB | "COUNTERS/Ethernet``<port number``>/``<counter name``>"|  One counter on one Ethernet ports
 
-Virtual path supports Get and Subscribe Poll operations.
+Virtual path supports Get, Subscribe Poll and stream operations.
 
 ```
 jipan@6068794801d2:/sonic/go/src/github.com/google/gnxi/gnmi_get$ go run gnmi_get.go -xpath_target COUNTERS_DB -xpath "COUNTERS/Ethernet*" -target_addr 30.57.185.38:8080 -alsologtostderr -insecure true

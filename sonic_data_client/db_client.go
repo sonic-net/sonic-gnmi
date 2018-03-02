@@ -666,7 +666,7 @@ func dbFieldMultiSubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
 	for {
 		select {
 		case <-c.channel:
-			log.V(1).Infof("Stopping dbFieldSubscribe routine for Client %s ", c)
+			log.V(1).Infof("Stopping dbFieldMultiSubscribe routine for Client %s ", c)
 			return
 		default:
 			msi := make(map[string]interface{})

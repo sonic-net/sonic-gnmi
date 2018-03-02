@@ -43,6 +43,22 @@ var (
 			path:    []string{"OTHERS", "platform", "cpu"},
 			getFunc: dataGetFunc(getCpuUtil),
 		},
+		{ // Get proc meminfo
+			path:    []string{"OTHERS", "proc", "meminfo"},
+			getFunc: dataGetFunc(getProcMeminfo),
+		},
+		{ // Get proc diskstats
+			path:    []string{"OTHERS", "proc", "diskstats"},
+			getFunc: dataGetFunc(getProcDiskstats),
+		},
+		{ // Get proc loadavg
+			path:    []string{"OTHERS", "proc", "loadavg"},
+			getFunc: dataGetFunc(getProcLoadavg),
+		},
+		{ // Get proc vmstat
+			path:    []string{"OTHERS", "proc", "vmstat"},
+			getFunc: dataGetFunc(getProcVmstat),
+		},
 	}
 )
 
@@ -168,6 +184,50 @@ func getCpuUtil() ([]byte, error) {
 		return b, err
 	}
 	log.V(4).Infof("getCpuUtil, output %v", string(b))
+	return b, nil
+}
+
+func getProcMeminfo() ([]byte, error) {
+	memInfo, _ := linuxproc.ReadMemInfo("/proc/meminfo")
+	b, err := json.Marshal(memInfo)
+	if err != nil {
+		log.V(2).Infof("%v", err)
+		return b, err
+	}
+	log.V(4).Infof("getProcMeminfo, output %v", string(b))
+	return b, nil
+}
+
+func getProcDiskstats() ([]byte, error) {
+	diskStats, _ := linuxproc.ReadDiskStats("/proc/diskstats")
+	b, err := json.Marshal(diskStats)
+	if err != nil {
+		log.V(2).Infof("%v", err)
+		return b, err
+	}
+	log.V(4).Infof("getProcDiskstats, output %v", string(b))
+	return b, nil
+}
+
+func getProcLoadavg() ([]byte, error) {
+	loadAvg, _ := linuxproc.ReadLoadAvg("/proc/loadavg")
+	b, err := json.Marshal(loadAvg)
+	if err != nil {
+		log.V(2).Infof("%v", err)
+		return b, err
+	}
+	log.V(4).Infof("getProcLoadavg, output %v", string(b))
+	return b, nil
+}
+
+func getProcVmstat() ([]byte, error) {
+	vmStat, _ := linuxproc.ReadVMStat("/proc/vmstat")
+	b, err := json.Marshal(vmStat)
+	if err != nil {
+		log.V(2).Infof("%v", err)
+		return b, err
+	}
+	log.V(4).Infof("getProcVmstat, output %v", string(b))
 	return b, nil
 }
 
