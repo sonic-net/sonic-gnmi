@@ -118,7 +118,7 @@ func exe_cmd(t *testing.T, cmd string) {
 
 	_, err := exec.Command(head, parts...).Output()
 	if err != nil {
-		t.Fatalf("%s", err)
+		t.Fatalf("%s %s", cmd, err)
 	}
 	// fmt.Printf("%s", out)
 	// wg.Done() // Need to signal to waitgroup that this goroutine is done

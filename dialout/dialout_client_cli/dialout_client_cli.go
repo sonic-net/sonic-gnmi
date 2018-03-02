@@ -1,4 +1,4 @@
-// The telemetry_client program implements the telemetry publish client.
+// The dialout_client_cli program implements the telemetry publish client.
 package main
 
 import (

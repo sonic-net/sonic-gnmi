@@ -26,9 +26,9 @@ import (
 	"testing"
 	"time"
 	// Register supported client types.
+	gclient "github.com/jipanyang/gnmi/client/gnmi"
 	spb "github.com/jipanyang/sonic-telemetry/proto"
 	sdc "github.com/jipanyang/sonic-telemetry/sonic_data_client"
-	gclient "github.com/openconfig/gnmi/client/gnmi"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -38,7 +38,7 @@ func loadConfig(t *testing.T, key string, in []byte) map[string]interface{} {
 
 	err := json.Unmarshal(in, &fvp)
 	if err != nil {
-		t.Fatal("Failed to Unmarshal %v err: %v", in, err)
+		t.Errorf("Failed to Unmarshal %v err: %v", in, err)
 	}
 	if key != "" {
 		kv := map[string]interface{}{}
@@ -55,10 +55,10 @@ func loadDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{}) {
 		case map[string]interface{}:
 			_, err := rclient.HMSet(key, fv.(map[string]interface{})).Result()
 			if err != nil {
-				t.Fatal("Invalid data for db: ", key, fv, err)
+				t.Errorf("Invalid data for db:  %v : %v %v", key, fv, err)
 			}
 		default:
-			t.Fatal("Invalid data for db: %v : %v", key, fv)
+			t.Errorf("Invalid data for db: %v : %v", key, fv)
 		}
 	}
 }
@@ -66,7 +66,7 @@ func loadDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{}) {
 func createServer(t *testing.T) *Server {
 	certificate, err := testcert.NewCert()
 	if err != nil {
-		t.Fatal("could not load server key pair: %s", err)
+		t.Errorf("could not load server key pair: %s", err)
 	}
 	tlsCfg := &tls.Config{
 		ClientAuth:   tls.RequestClientCert,
@@ -77,7 +77,7 @@ func createServer(t *testing.T) *Server {
 	cfg := &Config{Port: 8080}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
-		t.Fatal("Failed to create gNMI server: %v", err)
+		t.Errorf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
@@ -149,7 +149,7 @@ func runServer(t *testing.T, s *Server) {
 	//t.Log("Starting RPC server on address:", s.Address())
 	err := s.Serve() // blocks until close
 	if err != nil {
-		t.Fatal("gRPC server err: %v", err)
+		t.Fatalf("gRPC server err: %v", err)
 	}
 	//t.Log("Exiting RPC server on address", s.Address())
 }
@@ -165,7 +165,7 @@ func getRedisClient(t *testing.T) *redis.Client {
 	})
 	_, err := rclient.Ping().Result()
 	if err != nil {
-		t.Fatal("failed to connect to redis server ", err)
+		t.Fatalf("failed to connect to redis server %v", err)
 	}
 	return rclient
 }
@@ -185,7 +185,7 @@ func prepareDb(t *testing.T) {
 	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	mpi_name_map := loadConfig(t, "COUNTERS_PORT_NAME_MAP", countersPortNameMapByte)
 	loadDB(t, rclient, mpi_name_map)
@@ -193,7 +193,7 @@ func prepareDb(t *testing.T) {
 	fileName = "../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	// "Ethernet68": "oid:0x1000000000039",
 	mpi_counter := loadConfig(t, "COUNTERS:oid:0x1000000000039", countersEthernet68Byte)
@@ -202,7 +202,7 @@ func prepareDb(t *testing.T) {
 	fileName = "../testdata/COUNTERS:Ethernet1.txt"
 	countersEthernet1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	// "Ethernet1": "oid:0x1000000000003",
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000003", countersEthernet1Byte)
@@ -212,7 +212,7 @@ func prepareDb(t *testing.T) {
 	fileName = "../testdata/COUNTERS:oid:0x1500000000092a.txt"
 	counters92aByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000092a", counters92aByte)
 	loadDB(t, rclient, mpi_counter)
@@ -233,7 +233,7 @@ func TestGnmiGet(t *testing.T) {
 	targetAddr := "127.0.0.1:8080"
 	conn, err := grpc.Dial(targetAddr, opts...)
 	if err != nil {
-		t.Fatal("Dialing to %q failed: %v", targetAddr, err)
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
 	}
 	defer conn.Close()
 
@@ -244,25 +244,25 @@ func TestGnmiGet(t *testing.T) {
 	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
 	fileName = "../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
 	fileName = "../testdata/COUNTERS:Ethernet_wildcard.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
 	fileName = "../testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX.txt"
 	countersEthernetWildcardPfcByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
 	tds := []struct {
@@ -364,7 +364,7 @@ func runTestSubscribe(t *testing.T) {
 	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	var countersPortNameMapJson interface{}
 	json.Unmarshal(countersPortNameMapByte, &countersPortNameMapJson)
@@ -377,7 +377,7 @@ func runTestSubscribe(t *testing.T) {
 	fileName = "../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	var countersEthernet68Json interface{}
 	json.Unmarshal(countersEthernet68Byte, &countersEthernet68Json)
@@ -396,7 +396,7 @@ func runTestSubscribe(t *testing.T) {
 	fileName = "../testdata/COUNTERS:Ethernet_wildcard.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	var countersEthernetWildcardJson interface{}
 	json.Unmarshal(countersEthernetWildcardByte, &countersEthernetWildcardJson)
@@ -411,7 +411,7 @@ func runTestSubscribe(t *testing.T) {
 	fileName = "../testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX.txt"
 	countersEthernetWildcardPfcByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	var countersEthernetWildcardPfcJson interface{}
 	json.Unmarshal(countersEthernetWildcardPfcByte, &countersEthernetWildcardPfcJson)
