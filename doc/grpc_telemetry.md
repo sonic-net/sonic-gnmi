@@ -1,8 +1,9 @@
 # SONiC gRPC data telemetry
 
-   * [Overview of gRPC data telemetry in SONiC](#overview-of-grpc-data-telemetry-in-sonic)
+   * [Overview of gRPC system data telemetry in SONiC](#overview-of-grpc-system-data-telemetry-in-sonic)
    * [Data available in SONiC](#data-available-in-sonic)
-   * [gRPC operations for data telemetry in SONiC](#grpc-operations-for-data-telemetry-in-sonic)
+   * [SONiC system telemetry software architecture](#sonic-system-telemetry-software-architecture)
+   * [gRPC operations for system telemetry in SONiC](#grpc-operations-for-system-telemetry-in-sonic)
       * [Usage of SONiC telemetry server binary](#usage-of-sonic-telemetry-server-binary)
       * [GetRequest/GetResponse](#getrequestgetresponse)
       * [SubscribeRequest/SubscribeResponse](#subscriberequestsubscriberesponse)
@@ -14,11 +15,11 @@
    * [AutoTest](#autotest)
    * [Performance and Scale Test](#performance-and-scale-test)
 
-# Overview of gRPC data telemetry in SONiC
+# Overview of gRPC system data telemetry in SONiC
 
 At the daily operation of datacenter network, being able to get the underlying characteristics of the network devices - either operational state or configuration, efficiently and quickly in structured format, will greatly facilitate the analysis of network status and improve network stability.  Besides the traditional data collecting methods like SNMP, syslog and CLI,  gRPC is the modern communication protocol supported by SONiC for telemetry streaming.
 
-The implementation of gRPC data telemetry is largely based on [gNMI](https://github.com/openconfig/reference/blob/master/rpc/gnmi/gnmi-specification.md) (gRPC Network Management Interface) with customization for SONiC.
+The implementation of gRPC system data telemetry is largely based on [gNMI](https://github.com/openconfig/reference/blob/master/rpc/gnmi/gnmi-specification.md) (gRPC Network Management Interface) with customization for SONiC.
 
 # Data available in SONiC
 
@@ -64,7 +65,10 @@ Refer to [SONiC data schema](https://github.com/Azure/sonic-swss-common/blob/mas
 
 For data not available in DBs, Target name "OTHERS" is designated for that category of data, paths like platform/cpu or proc/loadavg under "OTHERS" target may be used get/subscribe the data.
 
-# gRPC operations for data telemetry in SONiC
+# SONiC system telemetry software architecture
+System telemetry in SONiC supports both dial-in mode and dial-out mode. The DB client takes care of retrieving data from SONiC redis database, while non-DB client serves data outside of redis databases. gRPC dial-in server (gNMI server) is described in this document,
+![SOFTWARE ARCHITECTURE](img/dial_in_out.png)
+# gRPC operations for system telemetry in SONiC
 As mentioned at the beginning, SONiC gRPC data telemetry is largely based on gNMI protocol,  the GetRquest/GetResponse and SubscribeRequest/SubscribeResponse RPC have been implemented. Since SONiC doesn't have complete YANG data model yet, the DB, TABLE, KEY and Field path hierarchy is used as path to uniquely identify the configuration/state and counter data.
 
 ## Usage of SONiC telemetry server binary

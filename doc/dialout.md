@@ -1,6 +1,7 @@
 # SONiC telemetry in dial-out mode
 
    * [Overview of telemetry in dialout mode](#overview-of-telemetry-in-dialout-mode)
+   * [SONiC system telemetry software architecture](#sonic-system-telemetry-software-architecture)
    * [Services provided in dialout mode](#services-provided-in-dialout-mode)
    * [Configurations for dialout mode](#configurations-for-dialout-mode)
    * [dialout_client_cli and dialout_server_cli](#dialout_client_cli-and-dialout_server_cli)
@@ -15,6 +16,10 @@ It is useful in some scenarios. A few typical examples:
 
 * Firewall/Nat service sits between network device and telemetry collectors, and the collectors cannot initiate connections.
 * Collectors prefer to work in stateless mode and shed the complexity of maintaining telemetry state of each and every network element to another configuration system.
+
+# SONiC system telemetry software architecture
+System telemetry in SONiC supports both dial-in mode and dial-out mode. The DB client takes care of retrieving data from SONiC redis database, while non-DB client serves data outside of redis databases. gRPC dial-out client is described in this document,
+![SOFTWARE ARCHITECTURE](img/dial_in_out.png)
 
 # Services provided in dialout mode
 gNMIDialout service is defined for telemetry in dialout mode. It has one streaming RPC: Publish. The message from client to collector reuses [SubscribeResponse](https://github.com/openconfig/gnmi/blob/f6185680be3b63e2b17e155f06bfc892f74fc3e7/proto/gnmi/gnmi.proto#L216) from gNMI spec, while the PublishResponse message is optional and skipped by default.
