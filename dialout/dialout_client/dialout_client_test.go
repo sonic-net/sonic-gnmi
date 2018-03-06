@@ -41,7 +41,7 @@ func loadConfig(t *testing.T, key string, in []byte) map[string]interface{} {
 
 	err := json.Unmarshal(in, &fvp)
 	if err != nil {
-		t.Fatal("Failed to Unmarshal %v err: %v", in, err)
+		t.Fatalf("Failed to Unmarshal %v err: %v", in, err)
 	}
 	if key != "" {
 		kv := map[string]interface{}{}
@@ -61,7 +61,7 @@ func loadDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{}) {
 				t.Fatal("Invalid data for db: ", key, fv, err)
 			}
 		default:
-			t.Fatal("Invalid data for db: %v : %v", key, fv)
+			t.Fatalf("Invalid data for db: %v : %v", key, fv)
 		}
 	}
 }
@@ -69,7 +69,7 @@ func loadDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{}) {
 func createServer(t *testing.T, cfg *sds.Config) *sds.Server {
 	certificate, err := testcert.NewCert()
 	if err != nil {
-		t.Fatal("could not load server key pair: %s", err)
+		t.Fatalf("could not load server key pair: %s", err)
 	}
 	tlsCfg := &tls.Config{
 		ClientAuth:   tls.RequestClientCert,
@@ -80,7 +80,7 @@ func createServer(t *testing.T, cfg *sds.Config) *sds.Server {
 
 	s, err := sds.NewServer(cfg, opts)
 	if err != nil {
-		t.Fatal("Failed to create gNMIDialOut server: %v", err)
+		t.Fatalf("Failed to create gNMIDialOut server: %v", err)
 	}
 	return s
 }
@@ -89,7 +89,7 @@ func runServer(t *testing.T, s *sds.Server) {
 	//t.Log("Starting RPC server on address:", s.Address())
 	err := s.Serve() // blocks until close
 	if err != nil {
-		t.Fatal("gRPC server err: %v", err)
+		t.Fatalf("gRPC server err: %v", err)
 	}
 	//t.Log("Exiting RPC server on address", s.Address())
 }
@@ -139,7 +139,7 @@ func prepareDb(t *testing.T) {
 	fileName := "../../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	mpi_name_map := loadConfig(t, "COUNTERS_PORT_NAME_MAP", countersPortNameMapByte)
 	loadDB(t, rclient, mpi_name_map)
@@ -147,7 +147,7 @@ func prepareDb(t *testing.T) {
 	fileName = "../../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	// "Ethernet68": "oid:0x1000000000039",
 	mpi_counter := loadConfig(t, "COUNTERS:oid:0x1000000000039", countersEthernet68Byte)
@@ -156,7 +156,7 @@ func prepareDb(t *testing.T) {
 	fileName = "../../testdata/COUNTERS:Ethernet1.txt"
 	countersEthernet1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	// "Ethernet1": "oid:0x1000000000003",
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000003", countersEthernet1Byte)
@@ -166,7 +166,7 @@ func prepareDb(t *testing.T) {
 	fileName = "../../testdata/COUNTERS:oid:0x1500000000092a.txt"
 	counters92aByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000092a", counters92aByte)
 	loadDB(t, rclient, mpi_counter)
@@ -261,21 +261,21 @@ func TestGNMIDialOutPublish(t *testing.T) {
 	fileName := "../../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	_ = countersPortNameMapByte
 
 	fileName = "../../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	_ = countersEthernet68Byte
 
 	fileName = "../../testdata/COUNTERS:Ethernet_wildcard.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
 	_ = countersEthernetWildcardByte
@@ -283,7 +283,7 @@ func TestGNMIDialOutPublish(t *testing.T) {
 	fileName = "../../testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX.txt"
 	countersEthernetWildcardPfcByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		t.Fatal("read file %v err: %v", fileName, err)
+		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
 	_ = countersEthernetWildcardPfcByte
@@ -425,7 +425,7 @@ func TestGNMIDialOutPublish(t *testing.T) {
 			wantRespVal := tt.wantRespVal.([]*pb.SubscribeResponse)
 			if len(store) < len(wantRespVal) {
 				t.Logf("len not match %v %s %v", len(store), " : ", len(wantRespVal))
-				t.Logf("want: ", wantRespVal)
+				t.Logf("want: %v", wantRespVal)
 				t.Fatal("got: ", store)
 			}
 			slen := len(store)
@@ -434,7 +434,7 @@ func TestGNMIDialOutPublish(t *testing.T) {
 				switch store[slen-wlen+idx].GetResponse().(type) {
 				case *pb.SubscribeResponse_SyncResponse:
 					if _, ok := resp.GetResponse().(*pb.SubscribeResponse_SyncResponse); !ok {
-						t.Fatal("Expecting %v, got SyncResponse", resp.GetResponse())
+						t.Fatalf("Expecting %v, got SyncResponse", resp.GetResponse())
 					}
 				case *pb.SubscribeResponse_Update:
 					compareUpdateValue(t, resp.GetUpdate(), store[idx].GetUpdate())
