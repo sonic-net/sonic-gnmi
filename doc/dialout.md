@@ -18,7 +18,7 @@ It is useful in some scenarios. A few typical examples:
 * Collectors prefer to work in stateless mode and shed the complexity of maintaining telemetry state of each and every network element to another configuration system.
 
 # SONiC system telemetry software architecture
-System telemetry in SONiC supports both dial-in mode and dial-out mode. The DB client takes care of retrieving data from SONiC redis database, while non-DB client serves data outside of redis databases. gRPC dial-out client is described in this document,
+System telemetry in SONiC supports both dial-in mode and dial-out mode. The DB client takes care of retrieving data from SONiC redis databases, while non-DB client serves data outside of redis databases. gRPC dial-out client is described in this document,
 ![SOFTWARE ARCHITECTURE](img/dial_in_out.png)
 
 # Services provided in dialout mode
@@ -74,7 +74,8 @@ There are three categories of configuration:
 
 One example configuration:
 ```
-    "TELEMETRY_CLIENT": {
+{
+  "TELEMETRY_CLIENT": {
         "Global": {
             "encoding": "JSON_IETF",
             "retry_interval": "30",
@@ -87,11 +88,12 @@ One example configuration:
         "Subscription_HS_RDMA": {
             "dst_group": "HS",
             "path_target": "COUNTERS_DB",
-            "paths": "COUNTERS/Ethernet*","COUNTERS_PORT_NAME_MAP",
+            "paths": "COUNTERS/Ethernet*,COUNTERS_PORT_NAME_MAP",
             "report_interval": "5000",
             "report_type": "periodic"
         }
     }
+}
 ```
 
 # dialout_client_cli and dialout_server_cli
