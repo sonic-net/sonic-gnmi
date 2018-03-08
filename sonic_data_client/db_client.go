@@ -117,6 +117,10 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
 		if err != nil {
 			return nil, err
 		}
+		err = initCountersQueueNameMap()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	client.prefix = prefix

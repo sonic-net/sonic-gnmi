@@ -190,6 +190,14 @@ func prepareDb(t *testing.T) {
 	mpi_name_map := loadConfig(t, "COUNTERS_PORT_NAME_MAP", countersPortNameMapByte)
 	loadDB(t, rclient, mpi_name_map)
 
+	fileName = "../testdata/COUNTERS_QUEUE_NAME_MAP.txt"
+	countersQueueNameMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_qname_map := loadConfig(t, "COUNTERS_QUEUE_NAME_MAP", countersQueueNameMapByte)
+	loadDB(t, rclient, mpi_qname_map)
+
 	fileName = "../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -215,6 +223,15 @@ func prepareDb(t *testing.T) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000092a", counters92aByte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet68:1": "oid:0x1500000000091c"  : queue counter, for COUNTERS/Ethernet68/Queue vpath test
+	fileName = "../testdata/COUNTERS:oid:0x1500000000091c.txt"
+	countersEeth68_1Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091c", countersEeth68_1Byte)
 	loadDB(t, rclient, mpi_counter)
 }
 
@@ -424,6 +441,24 @@ func runTestSubscribe(t *testing.T) {
 	json.Unmarshal(countersEthernetWildcardPfcByte, &allPortPfcJsonUpdate)
 	//allPortPfcJsonUpdate := countersEthernetWildcardPfcJson.(map[string]interface{})
 	allPortPfcJsonUpdate["Ethernet68"] = pfc7Map
+
+	fileName = "../testdata/COUNTERS:Ethernet68:Queues.txt"
+	countersEthernet68QueuesByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var countersEthernet68QueuesJson interface{}
+	json.Unmarshal(countersEthernet68QueuesByte, &countersEthernet68QueuesJson)
+
+	countersEthernet68QueuesJsonUpdate := make(map[string]interface{})
+	json.Unmarshal(countersEthernet68QueuesByte, &countersEthernet68QueuesJsonUpdate)
+	eth68_1 := map[string]interface{}{
+		"SAI_QUEUE_STAT_BYTES":           "0",
+		"SAI_QUEUE_STAT_DROPPED_BYTES":   "0",
+		"SAI_QUEUE_STAT_DROPPED_PACKETS": "4",
+		"SAI_QUEUE_STAT_PACKETS":         "0",
+	}
+	countersEthernet68QueuesJsonUpdate["Ethernet68:1"] = eth68_1
 
 	tests := []struct {
 		desc     string
@@ -722,6 +757,38 @@ func runTestSubscribe(t *testing.T) {
 			client.Sync{},
 			client.Update{Path: []string{"COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"},
 				TS: time.Unix(0, 200), Val: allPortPfcJsonUpdate},
+			client.Sync{},
+		},
+	}, {
+		desc: "poll query for COUNTERS/Ethernet68/Queues with field value change",
+		poll: 3,
+		q: client.Query{
+			Target:  "COUNTERS_DB",
+			Type:    client.Poll,
+			Queries: []client.Path{{"COUNTERS", "Ethernet68", "Queues"}},
+			TLS:     &tls.Config{InsecureSkipVerify: true},
+		},
+		updates: []tablePathValue{{
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS",
+			tableKey:  "oid:0x1500000000091c", // "Ethernet68:1": "oid:0x1500000000091c",
+			delimitor: ":",
+			field:     "SAI_QUEUE_STAT_DROPPED_PACKETS",
+			value:     "4", // being changed to 0 from 4
+		}},
+		wantNoti: []client.Notification{
+			client.Connected{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68", "Queues"},
+				TS: time.Unix(0, 200), Val: countersEthernet68QueuesJson},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68", "Queues"},
+				TS: time.Unix(0, 200), Val: countersEthernet68QueuesJsonUpdate},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68", "Queues"},
+				TS: time.Unix(0, 200), Val: countersEthernet68QueuesJsonUpdate},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68", "Queues"},
+				TS: time.Unix(0, 200), Val: countersEthernet68QueuesJsonUpdate},
 			client.Sync{},
 		},
 	}}

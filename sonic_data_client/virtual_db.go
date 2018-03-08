@@ -31,6 +31,9 @@ var (
 	// Port name to oid map in COUNTERS table of COUNTERS_DB
 	countersPortNameMap = make(map[string]string)
 
+	// Queue name to oid map in COUNTERS table of COUNTERS_DB
+	countersQueueNameMap = make(map[string]string)
+
 	// path2TFuncTbl is used to populate trie tree which is reponsible
 	// for virtual path to real data path translation
 	pathTransFuncTbl = []pathTransFunc{
@@ -40,6 +43,9 @@ var (
 		}, { // specific field stats for one or all Ethernet ports
 			path:      []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "*"},
 			transFunc: v2rTranslate(v2rEthPortFieldStats),
+		}, { // Queue stats for one or all Ethernet ports
+			path:      []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Queues"},
+			transFunc: v2rTranslate(v2rEthPortQueStats),
 		},
 	}
 )
@@ -54,6 +60,17 @@ func (t *Trie) v2rTriePopulate() {
 		}
 
 	}
+}
+
+func initCountersQueueNameMap() error {
+	var err error
+	if len(countersQueueNameMap) == 0 {
+		countersQueueNameMap, err = getCountersMap("COUNTERS_QUEUE_NAME_MAP")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func initCountersPortNameMap() error {
@@ -148,6 +165,44 @@ func v2rEthPortFieldStats(paths []string) ([]tablePath, error) {
 		}}
 	}
 	log.V(6).Infof("v2rEthPortFieldStats: %+v", tblPaths)
+	return tblPaths, nil
+}
+
+// Populate real data paths from paths like
+// [COUNTER_DB COUNTERS Ethernet* Queues] or [COUNTER_DB COUNTERS Ethernet68 Queues]
+func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
+	separator, _ := GetTableKeySeparator(paths[DbIdx])
+	var tblPaths []tablePath
+	if strings.HasSuffix(paths[KeyIdx], "*") { // queues on all Ethernet ports
+		for que, oid := range countersQueueNameMap {
+			tblPath := tablePath{
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx],
+				tableKey:     oid,
+				delimitor:    separator,
+				jsonTableKey: que,
+			}
+			tblPaths = append(tblPaths, tblPath)
+		}
+	} else { //queues on single port
+		portName := paths[KeyIdx]
+		for que, oid := range countersQueueNameMap {
+			//que is in formate of "Ethernet64:12"
+			names := strings.Split(que, separator)
+			if portName != names[0] {
+				continue
+			}
+			tblPath := tablePath{
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx],
+				tableKey:     oid,
+				delimitor:    separator,
+				jsonTableKey: que,
+			}
+			tblPaths = append(tblPaths, tblPath)
+		}
+	}
+	log.V(6).Infof("v2rEthPortQueStats: %v", tblPaths)
 	return tblPaths, nil
 }
 
