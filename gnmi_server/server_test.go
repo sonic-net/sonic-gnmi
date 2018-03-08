@@ -442,6 +442,14 @@ func runTestSubscribe(t *testing.T) {
 	//allPortPfcJsonUpdate := countersEthernetWildcardPfcJson.(map[string]interface{})
 	allPortPfcJsonUpdate["Ethernet68"] = pfc7Map
 
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Queues.txt"
+	countersEthernetWildQueuesByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var countersEthernetWildQueuesJson interface{}
+	json.Unmarshal(countersEthernetWildQueuesByte, &countersEthernetWildQueuesJson)
+
 	fileName = "../testdata/COUNTERS:Ethernet68:Queues.txt"
 	countersEthernet68QueuesByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -757,6 +765,24 @@ func runTestSubscribe(t *testing.T) {
 			client.Sync{},
 			client.Update{Path: []string{"COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"},
 				TS: time.Unix(0, 200), Val: allPortPfcJsonUpdate},
+			client.Sync{},
+		},
+	}, {
+		desc: "poll query for COUNTERS/Ethernet*/Queues",
+		poll: 1,
+		q: client.Query{
+			Target:  "COUNTERS_DB",
+			Type:    client.Poll,
+			Queries: []client.Path{{"COUNTERS", "Ethernet*", "Queues"}},
+			TLS:     &tls.Config{InsecureSkipVerify: true},
+		},
+		wantNoti: []client.Notification{
+			client.Connected{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet*", "Queues"},
+				TS: time.Unix(0, 200), Val: countersEthernetWildQueuesJson},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet*", "Queues"},
+				TS: time.Unix(0, 200), Val: countersEthernetWildQueuesJson},
 			client.Sync{},
 		},
 	}, {
