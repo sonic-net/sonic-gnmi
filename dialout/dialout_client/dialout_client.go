@@ -596,16 +596,18 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 						Target: value,
 					}
 				case "paths":
-					paths := strings.Split(value, ",")
-					for _, path := range paths {
-						pp, err := ygot.StringToPath(path, ygot.StructuredPath)
+					ps := strings.Split(value, ",")
+					newPaths := []*gpb.Path{}
+					for _, p := range ps {
+						pp, err := ygot.StringToPath(p, ygot.StructuredPath)
 						if err != nil {
 							log.V(2).Infof("Invalid paths %v", value)
 							return fmt.Errorf("Invalid paths %v", value)
 						}
 						// append *gpb.Path
-						cs.paths = append(cs.paths, pp)
+						newPaths = append(newPaths, pp)
 					}
+					cs.paths = newPaths
 				default:
 					log.V(2).Infof("Invalid field %v value %v", field, value)
 					return fmt.Errorf("Invalid field %v value %v", field, value)
