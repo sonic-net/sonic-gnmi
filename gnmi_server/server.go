@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
-	sdc "github.com/jipanyang/sonic-telemetry/sonic_data_client"
+	sdc "github.com/Azure/sonic-telemetry/sonic_data_client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 

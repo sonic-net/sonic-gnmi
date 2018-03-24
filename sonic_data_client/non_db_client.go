@@ -3,9 +3,9 @@ package client
 import (
 	"encoding/json"
 	"fmt"
+	spb "github.com/Azure/sonic-telemetry/proto"
 	linuxproc "github.com/c9s/goprocinfo/linux"
 	log "github.com/golang/glog"
-	spb "github.com/jipanyang/sonic-telemetry/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/workiva/go-datastructures/queue"
 	"sync"

@@ -14,8 +14,8 @@ import (
 
 	log "github.com/golang/glog"
 
+	spb "github.com/Azure/sonic-telemetry/proto"
 	"github.com/go-redis/redis"
-	spb "github.com/jipanyang/sonic-telemetry/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/workiva/go-datastructures/queue"
 )
