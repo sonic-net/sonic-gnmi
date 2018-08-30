@@ -170,6 +170,50 @@ func getRedisClient(t *testing.T) *redis.Client {
 	return rclient
 }
 
+func getConfigDbClient(t *testing.T) *redis.Client {
+	dbn := spb.Target_value["CONFIG_DB"]
+	rclient := redis.NewClient(&redis.Options{
+		Network:     "tcp",
+		Addr:        "localhost:6379",
+		Password:    "", // no password set
+		DB:          int(dbn),
+		DialTimeout: 0,
+	})
+	_, err := rclient.Ping().Result()
+	if err != nil {
+		t.Fatalf("failed to connect to redis server %v", err)
+	}
+	return rclient
+}
+
+func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{}) {
+	for key, fv := range mpi {
+		switch fv.(type) {
+		case map[string]interface{}:
+			_, err := rclient.HMSet(key, fv.(map[string]interface{})).Result()
+			if err != nil {
+				t.Errorf("Invalid data for db: %v : %v %v", key, fv, err)
+			}
+		default:
+			t.Errorf("Invalid data for db: %v : %v", key, fv)
+		}
+	}
+}
+
+func prepareConfigDb(t *testing.T) {
+	rclient := getConfigDbClient(t)
+	defer rclient.Close()
+	rclient.FlushDb()
+
+	fileName := "../testdata/COUNTERS_PORT_ALIAS_MAP.txt"
+	countersPortAliasMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_alias_map := loadConfig(t, "", countersPortAliasMapByte)
+	loadConfigDB(t, rclient, mpi_alias_map)
+}
+
 func prepareDb(t *testing.T) {
 	rclient := getRedisClient(t)
 	defer rclient.Close()
@@ -233,6 +277,9 @@ func prepareDb(t *testing.T) {
 	}
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091c", countersEeth68_1Byte)
 	loadDB(t, rclient, mpi_counter)
+
+	// Load CONFIG_DB for alias translation
+	prepareConfigDb(t)
 }
 
 func TestGnmiGet(t *testing.T) {
@@ -270,13 +317,13 @@ func TestGnmiGet(t *testing.T) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard.txt"
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard_alias.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX.txt"
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX_alias.txt"
 	countersEthernetWildcardPfcByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -332,6 +379,25 @@ func TestGnmiGet(t *testing.T) {
 		textPbPath: `
 					elem: <name: "COUNTERS" >
 					elem: <name: "Ethernet68" >
+					elem: <name: "SAI_PORT_STAT_PFC_7_RX_PKTS" >
+				`,
+		wantRetCode: codes.OK,
+		wantRespVal: "2",
+	}, {
+		desc:       "get COUNTERS (use vendor alias):Ethernet68/1",
+		pathTarget: "COUNTERS_DB",
+		textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "Ethernet68/1" >
+				`,
+		wantRetCode: codes.OK,
+		wantRespVal: countersEthernet68Byte,
+	}, {
+		desc:       "get COUNTERS (use vendor alias):Ethernet68/1 SAI_PORT_STAT_PFC_7_RX_PKTS",
+		pathTarget: "COUNTERS_DB",
+		textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "Ethernet68/1" >
 					elem: <name: "SAI_PORT_STAT_PFC_7_RX_PKTS" >
 				`,
 		wantRetCode: codes.OK,
@@ -410,7 +476,7 @@ func runTestSubscribe(t *testing.T) {
 	// field SAI_PORT_STAT_PFC_7_RX_PKTS has new value of 4
 	countersEthernet68JsonPfcUpdate["SAI_PORT_STAT_PFC_7_RX_PKTS"] = "4"
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard.txt"
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard_alias.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -418,14 +484,14 @@ func runTestSubscribe(t *testing.T) {
 	var countersEthernetWildcardJson interface{}
 	json.Unmarshal(countersEthernetWildcardByte, &countersEthernetWildcardJson)
 	// Will have "test_field" : "test_value" in Ethernet68,
-	countersEtherneWildcardJsonUpdate := map[string]interface{}{"Ethernet68": countersEthernet68JsonUpdate}
+	countersEtherneWildcardJsonUpdate := map[string]interface{}{"Ethernet68/1": countersEthernet68JsonUpdate}
 
 	// all counters on all ports with change on one field of one port
 	var countersFieldUpdate map[string]interface{}
 	json.Unmarshal(countersEthernetWildcardByte, &countersFieldUpdate)
-	countersFieldUpdate["Ethernet68"] = countersEthernet68JsonPfcUpdate
+	countersFieldUpdate["Ethernet68/1"] = countersEthernet68JsonPfcUpdate
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX.txt"
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX_alias.txt"
 	countersEthernetWildcardPfcByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -435,14 +501,14 @@ func runTestSubscribe(t *testing.T) {
 	//The update with new value of 4 (original value is 2)
 	pfc7Map := map[string]interface{}{"SAI_PORT_STAT_PFC_7_RX_PKTS": "4"}
 	singlePortPfcJsonUpdate := make(map[string]interface{})
-	singlePortPfcJsonUpdate["Ethernet68"] = pfc7Map
+	singlePortPfcJsonUpdate["Ethernet68/1"] = pfc7Map
 
 	allPortPfcJsonUpdate := make(map[string]interface{})
 	json.Unmarshal(countersEthernetWildcardPfcByte, &allPortPfcJsonUpdate)
 	//allPortPfcJsonUpdate := countersEthernetWildcardPfcJson.(map[string]interface{})
-	allPortPfcJsonUpdate["Ethernet68"] = pfc7Map
+	allPortPfcJsonUpdate["Ethernet68/1"] = pfc7Map
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Queues.txt"
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Queues_alias.txt"
 	countersEthernetWildQueuesByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -467,6 +533,19 @@ func runTestSubscribe(t *testing.T) {
 		"SAI_QUEUE_STAT_PACKETS":         "0",
 	}
 	countersEthernet68QueuesJsonUpdate["Ethernet68:1"] = eth68_1
+
+	// Alias translation for query Ethernet68/1:Queues
+	fileName = "../testdata/COUNTERS:Ethernet68:Queues_alias.txt"
+	countersEthernet68QueuesAliasByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var countersEthernet68QueuesAliasJson interface{}
+	json.Unmarshal(countersEthernet68QueuesAliasByte, &countersEthernet68QueuesAliasJson)
+
+	countersEthernet68QueuesAliasJsonUpdate := make(map[string]interface{})
+	json.Unmarshal(countersEthernet68QueuesAliasByte, &countersEthernet68QueuesAliasJsonUpdate)
+	countersEthernet68QueuesAliasJsonUpdate["Ethernet68/1:1"] = eth68_1
 
 	tests := []struct {
 		desc     string
@@ -528,6 +607,35 @@ func runTestSubscribe(t *testing.T) {
 			client.Update{Path: []string{"COUNTERS", "Ethernet68"}, TS: time.Unix(0, 200), Val: countersEthernet68JsonUpdate},
 		},
 	}, {
+		desc: "(use vendor alias) stream query for table key Ethernet68/1 with new test_field field",
+		q: client.Query{
+			Target:  "COUNTERS_DB",
+			Type:    client.Stream,
+			Queries: []client.Path{{"COUNTERS", "Ethernet68/1"}},
+			TLS:     &tls.Config{InsecureSkipVerify: true},
+		},
+		updates: []tablePathValue{{
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS",
+			tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+			delimitor: ":",
+			field:     "test_field",
+			value:     "test_value",
+		}, { //Same value set should not trigger multiple updates
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS",
+			tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+			delimitor: ":",
+			field:     "test_field",
+			value:     "test_value",
+		}},
+		wantNoti: []client.Notification{
+			client.Connected{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68/1"}, TS: time.Unix(0, 200), Val: countersEthernet68Json},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68/1"}, TS: time.Unix(0, 200), Val: countersEthernet68JsonUpdate},
+		},
+	}, {
 		desc: "stream query for COUNTERS/Ethernet68/SAI_PORT_STAT_PFC_7_RX_PKTS with update of filed value",
 		q: client.Query{
 			Target:  "COUNTERS_DB",
@@ -555,6 +663,35 @@ func runTestSubscribe(t *testing.T) {
 			client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
 			client.Sync{},
 			client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
+		},
+	}, {
+		desc: "(use vendor alias) stream query for COUNTERS/[Ethernet68/1]/SAI_PORT_STAT_PFC_7_RX_PKTS with update of filed value",
+		q: client.Query{
+			Target:  "COUNTERS_DB",
+			Type:    client.Stream,
+			Queries: []client.Path{{"COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}},
+			TLS:     &tls.Config{InsecureSkipVerify: true},
+		},
+		updates: []tablePathValue{{
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS",
+			tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+			delimitor: ":",
+			field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			value:     "3", // be changed to 3 from 2
+		}, { //Same value set should not trigger multiple updates
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS",
+			tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+			delimitor: ":",
+			field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			value:     "3", // be changed to 3 from 2
+		}},
+		wantNoti: []client.Notification{
+			client.Connected{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
 		},
 	}, {
 		desc: "stream query for table key Ethernet* with new test_field field on Ethernet68",
@@ -704,6 +841,38 @@ func runTestSubscribe(t *testing.T) {
 			client.Sync{},
 		},
 	}, {
+		desc: "(use vendor alias) poll query for COUNTERS/[Ethernet68/1]/SAI_PORT_STAT_PFC_7_RX_PKTS with field value change",
+		poll: 3,
+		q: client.Query{
+			Target:  "COUNTERS_DB",
+			Type:    client.Poll,
+			Queries: []client.Path{{"COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}},
+			TLS:     &tls.Config{InsecureSkipVerify: true},
+		},
+		updates: []tablePathValue{{
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS",
+			tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+			delimitor: ":",
+			field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			value:     "4", // being changed to 4 from 2
+		}},
+		wantNoti: []client.Notification{
+			client.Connected{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"},
+				TS: time.Unix(0, 200), Val: "2"},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"},
+				TS: time.Unix(0, 200), Val: "4"},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"},
+				TS: time.Unix(0, 200), Val: "4"},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"},
+				TS: time.Unix(0, 200), Val: "4"},
+			client.Sync{},
+		},
+	}, {
 		desc: "poll query for table key Ethernet* with Ethernet68/SAI_PORT_STAT_PFC_7_RX_PKTS field value change",
 		poll: 3,
 		q: client.Query{
@@ -817,6 +986,38 @@ func runTestSubscribe(t *testing.T) {
 				TS: time.Unix(0, 200), Val: countersEthernet68QueuesJsonUpdate},
 			client.Sync{},
 		},
+	}, {
+		desc: "(use vendor alias) poll query for COUNTERS/Ethernet68/Queues with field value change",
+		poll: 3,
+		q: client.Query{
+			Target:  "COUNTERS_DB",
+			Type:    client.Poll,
+			Queries: []client.Path{{"COUNTERS", "Ethernet68/1", "Queues"}},
+			TLS:     &tls.Config{InsecureSkipVerify: true},
+		},
+		updates: []tablePathValue{{
+			dbName:    "COUNTERS_DB",
+			tableName: "COUNTERS",
+			tableKey:  "oid:0x1500000000091c", // "Ethernet68:1": "oid:0x1500000000091c",
+			delimitor: ":",
+			field:     "SAI_QUEUE_STAT_DROPPED_PACKETS",
+			value:     "4", // being changed to 0 from 4
+		}},
+		wantNoti: []client.Notification{
+			client.Connected{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Queues"},
+				TS: time.Unix(0, 200), Val: countersEthernet68QueuesAliasJson},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Queues"},
+				TS: time.Unix(0, 200), Val: countersEthernet68QueuesAliasJsonUpdate},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Queues"},
+				TS: time.Unix(0, 200), Val: countersEthernet68QueuesAliasJsonUpdate},
+			client.Sync{},
+			client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Queues"},
+				TS: time.Unix(0, 200), Val: countersEthernet68QueuesAliasJsonUpdate},
+			client.Sync{},
+		},
 	}}
 
 	rclient := getRedisClient(t)
@@ -893,7 +1094,7 @@ func runTestSubscribe(t *testing.T) {
 			// t.Log("\n Want: \n", tt.wantNoti)
 			// t.Log("\n Got : \n", gotNoti)
 			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
-				// t.Log("\n Want: \n", tt.wantNoti)
+				t.Log("\n Want: \n", tt.wantNoti)
 				t.Log("\n Got : \n", gotNoti)
 				t.Errorf("unexpected updates:\n%s", diff)
 			}

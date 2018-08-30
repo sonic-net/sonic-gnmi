@@ -124,6 +124,50 @@ func exe_cmd(t *testing.T, cmd string) {
 	// wg.Done() // Need to signal to waitgroup that this goroutine is done
 }
 
+func getConfigDbClient(t *testing.T) *redis.Client {
+	dbn := spb.Target_value["CONFIG_DB"]
+	rclient := redis.NewClient(&redis.Options{
+		Network:     "tcp",
+		Addr:        "localhost:6379",
+		Password:    "", // no password set
+		DB:          int(dbn),
+		DialTimeout: 0,
+	})
+	_, err := rclient.Ping().Result()
+	if err != nil {
+		t.Fatalf("failed to connect to redis server %v", err)
+	}
+	return rclient
+}
+
+func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{}) {
+	for key, fv := range mpi {
+		switch fv.(type) {
+		case map[string]interface{}:
+			_, err := rclient.HMSet(key, fv.(map[string]interface{})).Result()
+			if err != nil {
+				t.Errorf("Invalid data for db: %v : %v %v", key, fv, err)
+			}
+		default:
+			t.Errorf("Invalid data for db: %v : %v", key, fv)
+		}
+	}
+}
+
+func prepareConfigDb(t *testing.T) {
+	rclient := getConfigDbClient(t)
+	defer rclient.Close()
+	rclient.FlushDb()
+
+	fileName := "../../testdata/COUNTERS_PORT_ALIAS_MAP.txt"
+	countersPortAliasMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_alias_map := loadConfig(t, "", countersPortAliasMapByte)
+	loadConfigDB(t, rclient, mpi_alias_map)
+}
+
 func prepareDb(t *testing.T) {
 	rclient := getRedisClient(t)
 	defer rclient.Close()
@@ -170,6 +214,9 @@ func prepareDb(t *testing.T) {
 	}
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000092a", counters92aByte)
 	loadDB(t, rclient, mpi_counter)
+
+	// Load CONFIG_DB for alias translation
+	prepareConfigDb(t)
 }
 
 type tablePathValue struct {
@@ -272,7 +319,7 @@ func TestGNMIDialOutPublish(t *testing.T) {
 	}
 	_ = countersEthernet68Byte
 
-	fileName = "../../testdata/COUNTERS:Ethernet_wildcard.txt"
+	fileName = "../../testdata/COUNTERS:Ethernet_wildcard_alias.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -280,7 +327,7 @@ func TestGNMIDialOutPublish(t *testing.T) {
 
 	_ = countersEthernetWildcardByte
 
-	fileName = "../../testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX.txt"
+	fileName = "../../testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX_alias.txt"
 	countersEthernetWildcardPfcByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)

@@ -34,6 +34,11 @@ var (
 	// Queue name to oid map in COUNTERS table of COUNTERS_DB
 	countersQueueNameMap = make(map[string]string)
 
+	// Alias translation: from vendor port name to sonic interface name
+	alias2nameMap = make(map[string]string)
+	// Alias translation: from sonic interface name to vendor port name
+	name2aliasMap = make(map[string]string)
+
 	// path2TFuncTbl is used to populate trie tree which is reponsible
 	// for virtual path to real data path translation
 	pathTransFuncTbl = []pathTransFunc{
@@ -84,6 +89,50 @@ func initCountersPortNameMap() error {
 	return nil
 }
 
+func initAliasMap() error {
+	var err error
+	if len(alias2nameMap) == 0 {
+		alias2nameMap, name2aliasMap, err = getAliasMap()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Get the mapping between sonic interface name and vendor alias
+func getAliasMap() (map[string]string, map[string]string, error) {
+	var alias2name_map = make(map[string]string)
+	var name2alias_map = make(map[string]string)
+
+	redisDb, _ := Target2RedisDb["CONFIG_DB"]
+	_, err := redisDb.Ping().Result()
+	if err != nil {
+		log.V(1).Infof("Can not connect to CONFIG_DB, %v", err)
+		return nil, nil, err
+	}
+	resp, err := redisDb.Keys("PORT|*").Result()
+	if err != nil {
+		log.V(1).Infof("redis get keys failed for CONFIG_DB, %v", err)
+		return nil, nil, err
+	}
+	for _, key := range resp {
+		alias, err := redisDb.HGet(key, "alias").Result()
+		if err != nil {
+			log.V(1).Infof("redis get field failes for CONFIG_DB, key = %v, %v", key, err)
+			// clear aliasMap
+			alias2name_map = make(map[string]string)
+			name2alias_map = make(map[string]string)
+			return nil, nil, err
+		}
+		alias2name_map[alias] = key[5:]
+		name2alias_map[key[5:]] = alias
+	}
+	log.V(6).Infof("alias2nameMap: %v", alias2name_map)
+	log.V(6).Infof("name2aliasMap: %v", name2alias_map)
+	return alias2name_map, name2alias_map, nil
+}
+
 // Get the mapping between objects in counters DB, Ex. port name to oid in "COUNTERS_PORT_NAME_MAP" table.
 // Aussuming static port name to oid map in COUNTERS table
 func getCountersMap(tableName string) (map[string]string, error) {
@@ -104,19 +153,33 @@ func v2rEthPortStats(paths []string) ([]tablePath, error) {
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
 		for port, oid := range countersPortNameMap {
+			var oport string
+			if alias, ok := name2aliasMap[port]; ok {
+				oport = alias
+			} else {
+				log.V(2).Infof("%v does not have a vendor alias", port)
+				oport = port
+			}
+
 			tblPath := tablePath{
-				dbName:       paths[DbIdx],
-				tableName:    paths[TblIdx],
-				tableKey:     oid,
-				delimitor:    separator,
-				jsonTableKey: port,
+				dbName:    paths[DbIdx],
+				tableName: paths[TblIdx],
+				tableKey:  oid,
+				delimitor: separator,
+				jsonTableKey: oport,
 			}
 			tblPaths = append(tblPaths, tblPath)
 		}
 	} else { //single port
-		oid, ok := countersPortNameMap[paths[KeyIdx]]
+		var alias, name string
+		alias = paths[KeyIdx]
+		name = alias
+		if val, ok := alias2nameMap[alias]; ok {
+			name = val
+		}
+		oid, ok := countersPortNameMap[name]
 		if !ok {
-			return nil, fmt.Errorf(" %v not a valid port ", paths[KeyIdx])
+			return nil, fmt.Errorf("%v not a valid sonic interface port, vendor alias is %v", name, alias)
 		}
 		tblPaths = []tablePath{{
 			dbName:    paths[DbIdx],
@@ -140,21 +203,35 @@ func v2rEthPortFieldStats(paths []string) ([]tablePath, error) {
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") {
 		for port, oid := range countersPortNameMap {
+			var oport string
+			if alias, ok := name2aliasMap[port]; ok {
+				oport = alias
+			} else {
+				log.V(2).Infof("%v dose not have a vendor alias", port)
+				oport = port
+			}
+
 			tblPath := tablePath{
-				dbName:       paths[DbIdx],
-				tableName:    paths[TblIdx],
-				tableKey:     oid,
-				field:        paths[FieldIdx],
-				delimitor:    separator,
-				jsonTableKey: port,
+				dbName:    paths[DbIdx],
+				tableName: paths[TblIdx],
+				tableKey:  oid,
+				field:     paths[FieldIdx],
+				delimitor: separator,
+				jsonTableKey: oport,
 				jsonField:    paths[FieldIdx],
 			}
 			tblPaths = append(tblPaths, tblPath)
 		}
 	} else { //single port
-		oid, ok := countersPortNameMap[paths[KeyIdx]]
+		var alias, name string
+		alias = paths[KeyIdx]
+		name = alias
+		if val, ok := alias2nameMap[alias]; ok {
+			name = val
+		}
+		oid, ok := countersPortNameMap[name]
 		if !ok {
-			return nil, fmt.Errorf(" %v not a valid port ", paths[KeyIdx])
+			return nil, fmt.Errorf(" %v not a valid sonic interface port, vendor alias is %v ", name, alias)
 		}
 		tblPaths = []tablePath{{
 			dbName:    paths[DbIdx],
@@ -175,6 +252,16 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // queues on all Ethernet ports
 		for que, oid := range countersQueueNameMap {
+			// que is in format of "Internal_Ethernet:12"
+			names := strings.Split(que, separator)
+			var oname string
+			if alias, ok := name2aliasMap[names[0]]; ok {
+				oname = alias
+			} else {
+				log.V(2).Infof(" %v dose not have a vendor alias", names[0])
+				oname = names[0]
+			}
+			que = strings.Join([]string{oname, names[1]}, ":")
 			tblPath := tablePath{
 				dbName:       paths[DbIdx],
 				tableName:    paths[TblIdx],
@@ -185,13 +272,18 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 			tblPaths = append(tblPaths, tblPath)
 		}
 	} else { //queues on single port
-		portName := paths[KeyIdx]
+		alias := paths[KeyIdx]
+		name := alias
+		if val, ok := alias2nameMap[alias]; ok {
+			name = val
+		}
 		for que, oid := range countersQueueNameMap {
 			//que is in formate of "Ethernet64:12"
 			names := strings.Split(que, separator)
-			if portName != names[0] {
+			if name != names[0] {
 				continue
 			}
+			que = strings.Join([]string{alias, names[1]}, ":")
 			tblPath := tablePath{
 				dbName:       paths[DbIdx],
 				tableName:    paths[TblIdx],
