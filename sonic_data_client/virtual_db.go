@@ -39,6 +39,9 @@ var (
 	// Alias translation: from sonic interface name to vendor port name
 	name2aliasMap = make(map[string]string)
 
+	// SONiC interface name to their PFC-WD enabled queues, then to oid map
+	countersPfcwdNameMap = make(map[string]map[string]string)
+
 	// path2TFuncTbl is used to populate trie tree which is reponsible
 	// for virtual path to real data path translation
 	pathTransFuncTbl = []pathTransFunc{
@@ -51,6 +54,9 @@ var (
 		}, { // Queue stats for one or all Ethernet ports
 			path:      []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Queues"},
 			transFunc: v2rTranslate(v2rEthPortQueStats),
+		}, { // PFC WD stats for one or all Ethernet ports
+			path:      []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"},
+			transFunc: v2rTranslate(v2rEthPortPfcwdStats),
 		},
 	}
 )
@@ -100,26 +106,131 @@ func initAliasMap() error {
 	return nil
 }
 
+func initCountersPfcwdNameMap() error {
+	var err error
+	if len(countersPfcwdNameMap) == 0 {
+		countersPfcwdNameMap, err = getPfcwdMap()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Get the mapping between sonic interface name and oids of their PFC-WD enabled queues in COUNTERS_DB
+func getPfcwdMap() (map[string]map[string]string, error) {
+	var pfcwdName_map = make(map[string]map[string]string)
+
+	dbName := "CONFIG_DB"
+	separator, _ := GetTableKeySeparator(dbName)
+	redisDb, _ := Target2RedisDb[dbName]
+	_, err := redisDb.Ping().Result()
+	if err != nil {
+		log.V(1).Infof("Can not connect to %v, err: %v", dbName, err)
+		return nil, err
+	}
+
+	keyName := fmt.Sprintf("PFC_WD_TABLE%v*", separator)
+	resp, err := redisDb.Keys(keyName).Result()
+	if err != nil {
+		log.V(1).Infof("redis get keys failed for %v, key = %v, err: %v", dbName, keyName, err)
+		return nil, err
+	}
+
+	if len(resp) == 0 {
+		// PFC WD service not enabled on device
+		log.V(1).Infof("PFC WD not enabled on device")
+		return nil, nil
+	}
+
+	for _, key := range resp {
+		name := key[13:]
+		pfcwdName_map[name] = make(map[string]string)
+	}
+
+	// Get Queue indexes that are enabled with PFC-WD
+	keyName = "PORT_QOS_MAP*"
+	resp, err = redisDb.Keys(keyName).Result()
+	if err != nil {
+		log.V(1).Infof("redis get keys failed for %v, key = %v, err: %v", dbName, keyName, err)
+		return nil, err
+	}
+	if len(resp) == 0 {
+		log.V(1).Infof("PFC WD not enabled on device")
+		return nil, nil
+	}
+	qos_key := resp[0]
+
+	fieldName := "pfc_enable"
+	priorities, err := redisDb.HGet(qos_key, fieldName).Result()
+	if err != nil {
+		log.V(1).Infof("redis get field failed for %v, key = %v, field = %v, err: %v", dbName, qos_key, fieldName, err)
+		return nil, err
+	}
+
+	keyName = fmt.Sprintf("MAP_PFC_PRIORITY_TO_QUEUE%vAZURE", separator)
+	pfc_queue_map, err := redisDb.HGetAll(keyName).Result()
+	if err != nil {
+		log.V(1).Infof("redis get fields failed for %v, key = %v, err: %v", dbName, keyName, err)
+		return nil, err
+	}
+
+	var indices []string
+	for _, p := range strings.Split(priorities, ",") {
+		_, ok := pfc_queue_map[p]
+		if !ok {
+			log.V(1).Infof("Missing mapping between PFC priority %v to queue", p)
+		} else {
+			indices = append(indices, pfc_queue_map[p])
+		}
+	}
+
+	if len(countersQueueNameMap) == 0 {
+		log.V(1).Infof("COUNTERS_QUEUE_NAME_MAP is empty")
+		return nil, nil
+	}
+
+	var queue_key string
+	queue_separator, _ := GetTableKeySeparator("COUNTERS_DB")
+	for port, _ := range pfcwdName_map {
+		for _, indice := range indices {
+			queue_key = port + queue_separator + indice
+			oid, ok := countersQueueNameMap[queue_key]
+			if !ok {
+				return nil, fmt.Errorf("key %v not exists in COUNTERS_QUEUE_NAME_MAP", queue_key)
+			}
+			pfcwdName_map[port][queue_key] = oid
+		}
+	}
+
+	log.V(6).Infof("countersPfcwdNameMap: %v", pfcwdName_map)
+	return pfcwdName_map, nil
+}
+
 // Get the mapping between sonic interface name and vendor alias
 func getAliasMap() (map[string]string, map[string]string, error) {
 	var alias2name_map = make(map[string]string)
 	var name2alias_map = make(map[string]string)
 
-	redisDb, _ := Target2RedisDb["CONFIG_DB"]
+	dbName := "CONFIG_DB"
+	separator, _ := GetTableKeySeparator(dbName)
+	redisDb, _ := Target2RedisDb[dbName]
 	_, err := redisDb.Ping().Result()
 	if err != nil {
-		log.V(1).Infof("Can not connect to CONFIG_DB, %v", err)
+		log.V(1).Infof("Can not connect to %v, err: %v", dbName, err)
 		return nil, nil, err
 	}
-	resp, err := redisDb.Keys("PORT|*").Result()
+
+	keyName := fmt.Sprintf("PORT%v*", separator)
+	resp, err := redisDb.Keys(keyName).Result()
 	if err != nil {
-		log.V(1).Infof("redis get keys failed for CONFIG_DB, %v", err)
+		log.V(1).Infof("redis get keys failed for %v, key = %v, err: %v", dbName, keyName, err)
 		return nil, nil, err
 	}
 	for _, key := range resp {
 		alias, err := redisDb.HGet(key, "alias").Result()
 		if err != nil {
-			log.V(1).Infof("redis get field failes for CONFIG_DB, key = %v, %v", key, err)
+			log.V(1).Infof("redis get field alias failed for %v, key = %v, err: %v", dbName, key, err)
 			// clear aliasMap
 			alias2name_map = make(map[string]string)
 			name2alias_map = make(map[string]string)
@@ -162,10 +273,10 @@ func v2rEthPortStats(paths []string) ([]tablePath, error) {
 			}
 
 			tblPath := tablePath{
-				dbName:    paths[DbIdx],
-				tableName: paths[TblIdx],
-				tableKey:  oid,
-				delimitor: separator,
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx],
+				tableKey:     oid,
+				delimitor:    separator,
 				jsonTableKey: oport,
 			}
 			tblPaths = append(tblPaths, tblPath)
@@ -179,7 +290,7 @@ func v2rEthPortStats(paths []string) ([]tablePath, error) {
 		}
 		oid, ok := countersPortNameMap[name]
 		if !ok {
-			return nil, fmt.Errorf("%v not a valid sonic interface port, vendor alias is %v", name, alias)
+			return nil, fmt.Errorf("%v not a valid sonic interface. Vendor alias is %v", name, alias)
 		}
 		tblPaths = []tablePath{{
 			dbName:    paths[DbIdx],
@@ -212,11 +323,11 @@ func v2rEthPortFieldStats(paths []string) ([]tablePath, error) {
 			}
 
 			tblPath := tablePath{
-				dbName:    paths[DbIdx],
-				tableName: paths[TblIdx],
-				tableKey:  oid,
-				field:     paths[FieldIdx],
-				delimitor: separator,
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx],
+				tableKey:     oid,
+				field:        paths[FieldIdx],
+				delimitor:    separator,
 				jsonTableKey: oport,
 				jsonField:    paths[FieldIdx],
 			}
@@ -231,7 +342,7 @@ func v2rEthPortFieldStats(paths []string) ([]tablePath, error) {
 		}
 		oid, ok := countersPortNameMap[name]
 		if !ok {
-			return nil, fmt.Errorf(" %v not a valid sonic interface port, vendor alias is %v ", name, alias)
+			return nil, fmt.Errorf(" %v not a valid sonic interface. Vendor alias is %v ", name, alias)
 		}
 		tblPaths = []tablePath{{
 			dbName:    paths[DbIdx],
@@ -242,6 +353,66 @@ func v2rEthPortFieldStats(paths []string) ([]tablePath, error) {
 		}}
 	}
 	log.V(6).Infof("v2rEthPortFieldStats: %+v", tblPaths)
+	return tblPaths, nil
+}
+
+// Populate real data paths from paths like
+// [COUNTER_DB COUNTERS Ethernet* Pfcwd] or [COUNTER_DB COUNTERS Ethernet68 Pfcwd]
+func v2rEthPortPfcwdStats(paths []string) ([]tablePath, error) {
+	separator, _ := GetTableKeySeparator(paths[DbIdx])
+	var tblPaths []tablePath
+	if strings.HasSuffix(paths[KeyIdx], "*") { // Pfcwd on all Ethernet ports
+		for _, pfcqueues := range countersPfcwdNameMap {
+			for pfcque, oid := range pfcqueues {
+				// pfcque is in format of "Interface:12"
+				names := strings.Split(pfcque, separator)
+				var oname string
+				if alias, ok := name2aliasMap[names[0]]; ok {
+					oname = alias
+				} else {
+					log.V(2).Infof(" %v does not have a vendor alias", names[0])
+					oname = names[0]
+				}
+				que := strings.Join([]string{oname, names[1]}, separator)
+				tblPath := tablePath{
+					dbName:       paths[DbIdx],
+					tableName:    paths[TblIdx],
+					tableKey:     oid,
+					delimitor:    separator,
+					jsonTableKey: que,
+				}
+				tblPaths = append(tblPaths, tblPath)
+			}
+		}
+	} else { // pfcwd counters on single port
+		alias := paths[KeyIdx]
+		name := alias
+		if val, ok := alias2nameMap[alias]; ok {
+			name = val
+		}
+		_, ok := countersPortNameMap[name]
+		if !ok {
+			return nil, fmt.Errorf("%v not a valid SONiC interface. Vendor alias is %v", name, alias)
+		}
+
+		pfcqueues, ok := countersPfcwdNameMap[name]
+		if ok {
+			for pfcque, oid := range pfcqueues {
+				// pfcque is in format of Ethernet64:12
+				names := strings.Split(pfcque, separator)
+				que := strings.Join([]string{alias, names[1]}, separator)
+				tblPath := tablePath{
+					dbName:       paths[DbIdx],
+					tableName:    paths[TblIdx],
+					tableKey:     oid,
+					delimitor:    separator,
+					jsonTableKey: que,
+				}
+				tblPaths = append(tblPaths, tblPath)
+			}
+		}
+	}
+	log.V(6).Infof("v2rEthPortPfcwdStats: %v", tblPaths)
 	return tblPaths, nil
 }
 
@@ -261,7 +432,7 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 				log.V(2).Infof(" %v dose not have a vendor alias", names[0])
 				oname = names[0]
 			}
-			que = strings.Join([]string{oname, names[1]}, ":")
+			que = strings.Join([]string{oname, names[1]}, separator)
 			tblPath := tablePath{
 				dbName:       paths[DbIdx],
 				tableName:    paths[TblIdx],
@@ -278,12 +449,12 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 			name = val
 		}
 		for que, oid := range countersQueueNameMap {
-			//que is in formate of "Ethernet64:12"
+			//que is in format of "Ethernet64:12"
 			names := strings.Split(que, separator)
 			if name != names[0] {
 				continue
 			}
-			que = strings.Join([]string{alias, names[1]}, ":")
+			que = strings.Join([]string{alias, names[1]}, separator)
 			tblPath := tablePath{
 				dbName:       paths[DbIdx],
 				tableName:    paths[TblIdx],

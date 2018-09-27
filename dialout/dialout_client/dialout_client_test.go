@@ -166,6 +166,14 @@ func prepareConfigDb(t *testing.T) {
 	}
 	mpi_alias_map := loadConfig(t, "", countersPortAliasMapByte)
 	loadConfigDB(t, rclient, mpi_alias_map)
+
+	fileName = "../../testdata/CONFIG_PFCWD_PORTS.txt"
+	configPfcwdByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_pfcwd_map := loadConfig(t, "", configPfcwdByte)
+	loadConfigDB(t, rclient, mpi_pfcwd_map)
 }
 
 func prepareDb(t *testing.T) {
