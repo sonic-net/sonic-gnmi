@@ -26,8 +26,8 @@ import (
 	"testing"
 	"time"
 	// Register supported client types.
-	spb "github.com/Azure/sonic-telemetry/proto"
 	sdc "github.com/Azure/sonic-telemetry/sonic_data_client"
+	sdcfg "github.com/Azure/sonic-telemetry/sonic_db_config"
 	gclient "github.com/jipanyang/gnmi/client/gnmi"
 )
 
@@ -155,12 +155,11 @@ func runServer(t *testing.T, s *Server) {
 }
 
 func getRedisClient(t *testing.T) *redis.Client {
-	dbn := spb.Target_value["COUNTERS_DB"]
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        "localhost:6379",
+		Addr:        sdcfg.GetDbTcpAddr("COUNTERS_DB"),
 		Password:    "", // no password set
-		DB:          int(dbn),
+		DB:          sdcfg.GetDbId("COUNTERS_DB"),
 		DialTimeout: 0,
 	})
 	_, err := rclient.Ping().Result()
@@ -171,12 +170,11 @@ func getRedisClient(t *testing.T) *redis.Client {
 }
 
 func getConfigDbClient(t *testing.T) *redis.Client {
-	dbn := spb.Target_value["CONFIG_DB"]
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        "localhost:6379",
+		Addr:        sdcfg.GetDbTcpAddr("CONFIG_DB"),
 		Password:    "", // no password set
-		DB:          int(dbn),
+		DB:          sdcfg.GetDbId("CONFIG_DB"),
 		DialTimeout: 0,
 	})
 	_, err := rclient.Ping().Result()
@@ -203,7 +201,7 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 func prepareConfigDb(t *testing.T) {
 	rclient := getConfigDbClient(t)
 	defer rclient.Close()
-	rclient.FlushDb()
+	rclient.FlushDB()
 
 	fileName := "../testdata/COUNTERS_PORT_ALIAS_MAP.txt"
 	countersPortAliasMapByte, err := ioutil.ReadFile(fileName)
@@ -225,7 +223,7 @@ func prepareConfigDb(t *testing.T) {
 func prepareDb(t *testing.T) {
 	rclient := getRedisClient(t)
 	defer rclient.Close()
-	rclient.FlushDb()
+	rclient.FlushDB()
 	//Enable keysapce notification
 	os.Setenv("PATH", "/usr/bin:/sbin:/bin:/usr/local/bin")
 	cmd := exec.Command("redis-cli", "config", "set", "notify-keyspace-events", "KEA")

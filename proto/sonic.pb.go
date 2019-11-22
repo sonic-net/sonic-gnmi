@@ -7,6 +7,7 @@ import proto "github.com/golang/protobuf/proto"
 import fmt "fmt"
 import math "math"
 import _ "github.com/openconfig/gnmi/proto/gnmi"
+import sdcfg "github.com/Azure/sonic-telemetry/sonic_db_config"
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal
@@ -16,40 +17,10 @@ var _ = math.Inf
 // target - the name of the target for which the path is a member. Only set in prefix for a path.
 type Target int32
 
-const (
-	Target_APPL_DB     Target = 0
-	Target_ASIC_DB     Target = 1
-	Target_COUNTERS_DB Target = 2
-	Target_LOGLEVEL_DB Target = 3
-	Target_CONFIG_DB   Target = 4
-	// PFC_WD_DB shares the the same db number with FLEX_COUNTER_DB
-	Target_PFC_WD_DB       Target = 5
-	Target_FLEX_COUNTER_DB Target = 5
-	Target_STATE_DB        Target = 6
-	// For none-DB data
-	Target_OTHERS Target = 100
-)
-
 var Target_name = map[int32]string{
-	0: "APPL_DB",
-	1: "ASIC_DB",
-	2: "COUNTERS_DB",
-	3: "LOGLEVEL_DB",
-	4: "CONFIG_DB",
-	5: "PFC_WD_DB",
-	// Duplicate value: 5: "FLEX_COUNTER_DB",
-	6:   "STATE_DB",
 	100: "OTHERS",
 }
 var Target_value = map[string]int32{
-	"APPL_DB":         0,
-	"ASIC_DB":         1,
-	"COUNTERS_DB":     2,
-	"LOGLEVEL_DB":     3,
-	"CONFIG_DB":       4,
-	"PFC_WD_DB":       5,
-	"FLEX_COUNTER_DB": 5,
-	"STATE_DB":        6,
 	"OTHERS":          100,
 }
 
@@ -58,7 +29,17 @@ func (x Target) String() string {
 }
 func (Target) EnumDescriptor() ([]byte, []int) { return fileDescriptor1, []int{0} }
 
+func setTarget() {
+    db_list := sdcfg.GetDbList()
+    for dbname, v := range db_list {
+        id := v.(map[string]interface{})["id"].(float64)
+        Target_value[dbname] = int32(id)
+        Target_name[int32(id)] = dbname
+    }
+}
+
 func init() {
+	setTarget()
 	proto.RegisterEnum("gnmi.sonic.Target", Target_name, Target_value)
 }
 

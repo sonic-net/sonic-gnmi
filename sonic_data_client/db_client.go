@@ -15,6 +15,7 @@ import (
 	log "github.com/golang/glog"
 
 	spb "github.com/Azure/sonic-telemetry/proto"
+	sdcfg "github.com/Azure/sonic-telemetry/sonic_db_config"
 	"github.com/go-redis/redis"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/workiva/go-datastructures/queue"
@@ -24,8 +25,6 @@ const (
 	// indentString represents the default indentation string used for
 	// JSON. Two spaces are used here.
 	indentString                 string = "  "
-	Default_REDIS_UNIXSOCKET     string = "/var/run/redis/redis.sock"
-	Default_REDIS_LOCAL_TCP_PORT string = "localhost:6379"
 )
 
 // Client defines a set of methods which every client must implement.
@@ -304,15 +303,7 @@ func GetTableKeySeparator(target string) (string, error) {
 		return "", fmt.Errorf("%v not a valid path target", target)
 	}
 
-	var separator string
-	switch target {
-	case "CONFIG_DB":
-		separator = "|"
-	case "STATE_DB":
-		separator = "|"
-	default:
-		separator = ":"
-	}
+	var separator string = sdcfg.GetDbSeparator(target)
 	return separator, nil
 }
 
@@ -325,7 +316,7 @@ func useRedisTcpClient() {
 			if UseRedisLocalTcpPort {
 				redisDb = redis.NewClient(&redis.Options{
 					Network:     "tcp",
-					Addr:        Default_REDIS_LOCAL_TCP_PORT,
+					Addr:        sdcfg.GetDbTcpAddr(dbName),
 					Password:    "", // no password set
 					DB:          int(dbn),
 					DialTimeout: 0,
@@ -345,7 +336,7 @@ func init() {
 
 			redisDb = redis.NewClient(&redis.Options{
 				Network:     "unix",
-				Addr:        Default_REDIS_UNIXSOCKET,
+				Addr:        sdcfg.GetDbSock(dbName),
 				Password:    "", // no password set
 				DB:          int(dbn),
 				DialTimeout: 0,

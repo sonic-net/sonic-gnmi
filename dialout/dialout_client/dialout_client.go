@@ -7,6 +7,7 @@ import (
 	"fmt"
 	spb "github.com/Azure/sonic-telemetry/proto"
 	sdc "github.com/Azure/sonic-telemetry/sonic_data_client"
+	sdcfg "github.com/Azure/sonic-telemetry/sonic_db_config"
 	"github.com/go-redis/redis"
 	log "github.com/golang/glog"
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
@@ -641,23 +642,23 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 // read configDB data for telemetry client and start publishing service for client subscription
 func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 	clientCfg = ccfg
-	dbn := spb.Target_value["CONFIG_DB"]
+	dbn := sdcfg.GetDbId("CONFIG_DB")
 
 	var redisDb *redis.Client
 	if sdc.UseRedisLocalTcpPort == false {
 		redisDb = redis.NewClient(&redis.Options{
 			Network:     "unix",
-			Addr:        sdc.Default_REDIS_UNIXSOCKET,
+			Addr:        sdcfg.GetDbSock("CONFIG_DB"),
 			Password:    "", // no password set
-			DB:          int(dbn),
+			DB:          dbn,
 			DialTimeout: 0,
 		})
 	} else {
 		redisDb = redis.NewClient(&redis.Options{
 			Network:     "tcp",
-			Addr:        sdc.Default_REDIS_LOCAL_TCP_PORT,
+			Addr:        sdcfg.GetDbTcpAddr("CONFIG_DB"),
 			Password:    "", // no password set
-			DB:          int(dbn),
+			DB:          dbn,
 			DialTimeout: 0,
 		})
 	}
