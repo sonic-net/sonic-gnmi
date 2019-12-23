@@ -7,11 +7,10 @@ import (
 	"sync"
 
 	log "github.com/golang/glog"
-	"github.com/workiva/go-datastructures/queue"
+	"github.com/Workiva/go-datastructures/queue"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 
-	//spb "github.com/Azure/sonic-telemetry/proto"
 	sdc "github.com/Azure/sonic-telemetry/sonic_data_client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
@@ -24,6 +23,7 @@ type Client struct {
 	errors    int64
 	polled    chan struct{}
 	stop      chan struct{}
+	once      chan struct{}
 	mu        sync.RWMutex
 	q         *queue.PriorityQueue
 	subscribe *gnmipb.SubscriptionList
@@ -117,28 +117,36 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
 	}
 	var dc sdc.Client
-	if target == "OTHERS" {
-		dc, err = sdc.NewNonDbClient(paths, prefix)
-	} else {
-		dc, err = sdc.NewDbClient(paths, prefix)
-	}
 
-	if err != nil {
-		return grpc.Errorf(codes.NotFound, "%v", err)
-	}
+    if target == "OTHERS" {
+            dc, err = sdc.NewNonDbClient(paths, prefix)
+    } else if isTargetDb(target) == true {
+            dc, err = sdc.NewDbClient(paths, prefix)
+    } else {
+            /* For any other target or no target create new Transl Client. */
+            dc, err = sdc.NewTranslClient(prefix, paths)
+    }
+
+    if err != nil {
+            return grpc.Errorf(codes.NotFound, "%v", err)
+    }
+
 
 	switch mode := c.subscribe.GetMode(); mode {
 	case gnmipb.SubscriptionList_STREAM:
 		c.stop = make(chan struct{}, 1)
 		c.w.Add(1)
-		go dc.StreamRun(c.q, c.stop, &c.w)
+		go dc.StreamRun(c.q, c.stop, &c.w, c.subscribe)
 	case gnmipb.SubscriptionList_POLL:
 		c.polled = make(chan struct{}, 1)
 		c.polled <- struct{}{}
 		c.w.Add(1)
 		go dc.PollRun(c.q, c.polled, &c.w)
 	case gnmipb.SubscriptionList_ONCE:
-		return grpc.Errorf(codes.Unimplemented, "SubscriptionList_ONCE is not implemented for SONiC gRPC/gNMI yet: %q", query)
+		c.once = make(chan struct{}, 1)
+		c.once <- struct{}{}
+		c.w.Add(1)
+		go dc.OnceRun(c.q, c.once, &c.w)
 	default:
 		return grpc.Errorf(codes.InvalidArgument, "Unkown subscription mode: %q", query)
 	}
@@ -170,6 +178,9 @@ func (c *Client) Close() {
 	}
 	if c.polled != nil {
 		close(c.polled)
+	}
+	if c.once != nil {
+		close(c.once)
 	}
 }
 

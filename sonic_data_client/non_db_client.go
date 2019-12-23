@@ -7,7 +7,7 @@ import (
 	linuxproc "github.com/c9s/goprocinfo/linux"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	"github.com/workiva/go-datastructures/queue"
+	"github.com/Workiva/go-datastructures/queue"
 	"sync"
 	"time"
 )
@@ -310,7 +310,6 @@ func lookupGetFunc(prefix, path *gnmipb.Path) (dataGetFunc, error) {
 
 func NewNonDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
 	var ndc NonDbClient
-
 	ndc.path2Getter = make(map[*gnmipb.Path]dataGetFunc)
 	ndc.prefix = prefix
 	for _, path := range paths {
@@ -332,7 +331,7 @@ func (c *NonDbClient) String() string {
 }
 
 // To be implemented
-func (c *NonDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup) {
+func (c *NonDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	return
 }
 
@@ -378,7 +377,9 @@ func (c *NonDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *syn
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
 }
-
+func (c *NonDbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup) {
+	return
+}
 func (c *NonDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	// wait sync for Get, not used for now
 	c.w = w
@@ -409,3 +410,11 @@ func (c *NonDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 func (c *NonDbClient) Close() error {
 	return nil
 }
+
+func  (c *NonDbClient) Set(path *gnmipb.Path, t *gnmipb.TypedValue, flagop int) error {
+	return nil
+}
+func (c *NonDbClient) Capabilities() ([]gnmipb.ModelData) {
+	return nil
+}
+

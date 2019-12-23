@@ -18,7 +18,7 @@ import (
 	sdcfg "github.com/Azure/sonic-telemetry/sonic_db_config"
 	"github.com/go-redis/redis"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	"github.com/workiva/go-datastructures/queue"
+	"github.com/Workiva/go-datastructures/queue"
 )
 
 const (
@@ -35,14 +35,20 @@ type Client interface {
 	// and enqueue data change to the priority queue.
 	// It stops all activities upon receiving signal on stop channel
 	// It should run as a go routine
-	StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup)
+	StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
 	// Poll will  start service to respond poll signal received on poll channel.
 	// data read from data source will be enqueued on to the priority queue
 	// The service will stop upon detection of poll channel closing.
 	// It should run as a go routine
 	PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup)
+	OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup)
 	// Get return data from the data source in format of *spb.Value
 	Get(w *sync.WaitGroup) ([]*spb.Value, error)
+	// Set data based on path and value
+	Set(path *gnmipb.Path,  t *gnmipb.TypedValue, op int) error
+	// Capabilities of the switch
+	Capabilities() ([]gnmipb.ModelData)
+
 	// Close provides implemenation for explicit cleanup of Client
 	Close() error
 }
@@ -107,6 +113,7 @@ type DbClient struct {
 func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
 	var client DbClient
 	var err error
+
 	// Testing program may ask to use redis local tcp connection
 	if UseRedisLocalTcpPort {
 		useRedisTcpClient()
@@ -148,7 +155,7 @@ func (c *DbClient) String() string {
 		c.prefix.GetTarget(), c.sendMsg, c.recvMsg)
 }
 
-func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup) {
+func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 	defer c.w.Done()
 	c.q = q
@@ -233,7 +240,9 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
 }
-
+func (c *DbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup) {
+	return
+}
 func (c *DbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	// wait sync for Get, not used for now
 	c.w = w
@@ -1002,3 +1011,11 @@ func dbTableKeySubscribe(gnmiPath *gnmipb.Path, c *DbClient) {
 		}
 	}
 }
+
+func  (c *DbClient) Set(path *gnmipb.Path, t *gnmipb.TypedValue, flagop int) error {
+	return nil
+}
+func (c *DbClient) Capabilities() ([]gnmipb.ModelData) {
+	return nil
+}
+

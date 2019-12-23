@@ -160,23 +160,29 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	var target string
 	prefix := req.GetPrefix()
 	if prefix == nil {
-		return nil, status.Error(codes.Unimplemented, "No target specified in prefix")
+	       return nil, status.Error(codes.Unimplemented, "No target specified in prefix")
 	} else {
-		target = prefix.GetTarget()
-		if target == "" {
-			return nil, status.Error(codes.Unimplemented, "Empty target data not supported yet")
-		}
+	       target = prefix.GetTarget()
+	       if target == "" {
+	               return nil, status.Error(codes.Unimplemented, "Empty target data not supported yet")
+	       }
 	}
 
 	paths := req.GetPath()
+        target = prefix.GetTarget()
 	log.V(5).Infof("GetRequest paths: %v", paths)
 
 	var dc sdc.Client
+
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
-	} else {
+	} else if isTargetDb(target) == true {
 		dc, err = sdc.NewDbClient(paths, prefix)
+	} else {
+		/* If no prefix target is specified create new Transl Data Client . */
+		dc, err = sdc.NewTranslClient(prefix, paths)
 	}
+
 	if err != nil {
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
@@ -203,11 +209,114 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 }
 
 // Set method is not implemented. Refer to gnxi for examples with openconfig integration
-func (srv *Server) Set(context.Context, *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
-	return nil, grpc.Errorf(codes.Unimplemented, "Set() is not implemented")
+func (srv *Server) Set(ctx context.Context,req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
+		var results []*gnmipb.UpdateResult
+		var err error
+
+		/* Fetch the prefix. */
+		prefix := req.GetPrefix()
+
+               /* Create Transl client. */
+		dc, _ := sdc.NewTranslClient(prefix, nil)
+
+		/* DELETE */
+		for _, path := range req.GetDelete() {
+			log.V(2).Infof("Delete path: %v", path)
+
+			err := dc.Set(path, nil, sdc.DELETE)
+
+			if err != nil {
+				return nil, err
+			}
+
+			res := gnmipb.UpdateResult{
+							Path: path,
+	      						Op:   gnmipb.UpdateResult_DELETE,
+     			    		          }
+
+			/* Add to Set response results. */
+     			results = append(results, &res)
+
+		}
+
+		/* REPLACE */
+		for _, path := range req.GetReplace(){
+			log.V(2).Infof("Replace path: %v ", path)
+
+			err = dc.Set(path.GetPath(), path.GetVal(), sdc.REPLACE)
+
+			if err != nil {
+				return nil, err
+			}
+			res := gnmipb.UpdateResult{
+							Path: path.GetPath(),
+	      						Op:   gnmipb.UpdateResult_REPLACE,
+    				                  }
+			/* Add to Set response results. */
+     			results = append(results, &res)
+		}
+
+
+		/* UPDATE */
+		for _, path := range req.GetUpdate(){
+			log.V(2).Infof("Update path: %v ", path)
+
+			err = dc.Set(path.GetPath(), path.GetVal(), sdc.UPDATE)
+
+			if err != nil {
+				return nil, err
+			}
+
+			res := gnmipb.UpdateResult{
+							Path: path.GetPath(),
+	      						Op:   gnmipb.UpdateResult_UPDATE,
+     					          }
+			/* Add to Set response results. */
+     			results = append(results, &res)
+		}
+
+
+
+	return &gnmipb.SetResponse{
+ 					Prefix:   req.GetPrefix(),
+		  			Response: results,
+				  }, nil
+
 }
 
 // Capabilities method is not implemented. Refer to gnxi for examples with openconfig integration
 func (srv *Server) Capabilities(context.Context, *gnmipb.CapabilityRequest) (*gnmipb.CapabilityResponse, error) {
-	return nil, grpc.Errorf(codes.Unimplemented, "Capabilities() is not implemented")
+
+	dc, _ := sdc.NewTranslClient(nil , nil)
+
+		/* Fetch the client capabitlities. */
+		supportedModels := dc.Capabilities()
+		suppModels := make([]*gnmipb.ModelData, len(supportedModels))
+
+		for index, model := range supportedModels {
+			suppModels[index] = &gnmipb.ModelData{
+						    	     	Name: model.Name, 
+								Organization: model.Organization, 
+								Version: model.Version,
+			}
+		}
+
+	return &gnmipb.CapabilityResponse{SupportedModels: suppModels, 
+				 	  SupportedEncodings: supportedEncodings,
+					  GNMIVersion: "0.7.0"}, nil
 }
+
+func  isTargetDb ( target string) (bool) {
+	isDbClient := false 
+	dbTargetSupported := []string { "APPL_DB", "ASIC_DB" , "COUNTERS_DB", "LOGLEVEL_DB", "CONFIG_DB", "PFC_WD_DB", "FLEX_COUNTER_DB", "STATE_DB"}
+
+	    for _, name := range  dbTargetSupported {
+		    if  target ==  name {
+			    isDbClient = true
+				    return isDbClient
+		    }
+	    }
+
+	    return isDbClient
+}
+
