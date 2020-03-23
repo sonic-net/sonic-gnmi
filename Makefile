@@ -15,6 +15,9 @@ SRC_FILES=$(shell find . -name '*.go' | grep -v '_test.go' | grep -v '/tests/')
 TEST_FILES=$(wildcard *_test.go)
 TELEMETRY_TEST_DIR = $(GO_MGMT_PATH)/build/tests/gnmi_server
 TELEMETRY_TEST_BIN = $(TELEMETRY_TEST_DIR)/server.test
+ifeq ($(SONIC_TELEMETRY_READWRITE),y)
+BLD_FLAGS := -tags readwrite
+endif
 
 .phony: mgmt-deps
 
@@ -60,7 +63,7 @@ mgmt-deps:
 	make -C $(GO_MGMT_PATH)/models/yang/sonic
 
 sonic-telemetry: go.mod mgmt-deps
-	$(GO) install -mod=vendor github.com/Azure/sonic-telemetry/telemetry
+	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/Azure/sonic-telemetry/telemetry
 	$(GO) install -mod=vendor github.com/Azure/sonic-telemetry/dialout/dialout_client_cli
 	$(GO) install github.com/jipanyang/gnxi/gnmi_get
 	$(GO) install github.com/jipanyang/gnxi/gnmi_set
