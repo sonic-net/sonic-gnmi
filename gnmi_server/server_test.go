@@ -413,7 +413,9 @@ func prepareDbTranslib(t *testing.T) {
 }
 
 func TestGnmiSet(t *testing.T) {
-	//t.Log("Start server")
+	if !READ_WRITE_MODE {
+		t.Skip("skipping test in read-only mode.")
+	}
 	s := createServer(t)
 	go runServer(t, s)
 

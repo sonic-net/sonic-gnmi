@@ -64,7 +64,7 @@ mgmt-deps:
 
 sonic-telemetry: go.mod mgmt-deps
 	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/Azure/sonic-telemetry/telemetry
-	$(GO) install -mod=vendor github.com/Azure/sonic-telemetry/dialout/dialout_client_cli
+	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/Azure/sonic-telemetry/dialout/dialout_client_cli
 	$(GO) install github.com/jipanyang/gnxi/gnmi_get
 	$(GO) install github.com/jipanyang/gnxi/gnmi_set
 	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
@@ -74,8 +74,8 @@ check:
 	sudo cp ./testdata/database_config.json ${DBDIR}
 	sudo mkdir -p /usr/models/yang || true
 	sudo find $(GO_MGMT_PATH)/models -name '*.yang' -exec cp {} /usr/models/yang/ \;
-	-$(GO) test -mod=vendor -v github.com/Azure/sonic-telemetry/gnmi_server
-	-$(GO) test -mod=vendor -v github.com/Azure/sonic-telemetry/dialout/dialout_client
+	-$(GO) test -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/gnmi_server
+	-$(GO) test -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/dialout/dialout_client
 
 clean:
 	rm -rf cvl
@@ -86,7 +86,7 @@ clean:
 	rm -f src
 
 $(TELEMETRY_TEST_BIN): $(TEST_FILES) $(SRC_FILES)
-	$(GO) test -mod=vendor -c -cover github.com/Azure/sonic-telemetry/gnmi_server -o $@
+	$(GO) test -mod=vendor $(BLD_FLAGS) -c -cover github.com/Azure/sonic-telemetry/gnmi_server -o $@
 	cp -r testdata $(TELEMETRY_TEST_DIR)
 	cp -r $(GO_MGMT_PATH)/src/cvl/schema $(TELEMETRY_TEST_DIR)
 
