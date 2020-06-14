@@ -11,7 +11,7 @@ import (
 	"time"
 	"fmt"
 	"reflect"
-	"github.com/Azure/sonic-telemetry/translib"
+	"github.com/Azure/sonic-mgmt-common/translib"
 	"bytes"
 	"encoding/json"
 )
