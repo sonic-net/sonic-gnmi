@@ -131,7 +131,8 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 	for i,sub := range subscribe.Subscription {
 		stringPaths[i] = c.path2URI[sub.Path]
 	}
-	subSupport,_ := translib.IsSubscribeSupported(stringPaths)
+	req := translib.IsSubscribeRequest{Paths:stringPaths}
+	subSupport,_ := translib.IsSubscribeSupported(req)
 	var onChangeSubsString []string
 	var onChangeSubsgNMI []*gnmipb.Path
 	onChangeMap := make(map[string]*gnmipb.Path)
@@ -303,7 +304,8 @@ func TranslSubscribe(gnmiPaths []*gnmipb.Path, stringPaths []string, pathMap map
 	defer c.w.Done()
 	q := queue.NewPriorityQueue(1, false)
 	var sync_done bool
-	translib.Subscribe(stringPaths, q, c.channel)
+	req := translib.SubscribeRequest{Paths:stringPaths, Q:q, Stop:c.channel}
+	translib.Subscribe(req)
 	for {
 		items, err := q.Get(1)
 		if err != nil {
