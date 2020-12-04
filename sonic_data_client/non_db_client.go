@@ -73,6 +73,10 @@ var (
 			path:    []string{"OTHERS", "platform", "cpu"},
 			getFunc: dataGetFunc(getCpuUtil),
 		},
+		{ // Get host uptime
+			path:    []string{"OTHERS", "proc", "uptime"},
+			getFunc: dataGetFunc(getSysUptime),
+		},
 		{ // Get proc meminfo
 			path:    []string{"OTHERS", "proc", "meminfo"},
 			getFunc: dataGetFunc(getProcMeminfo),
@@ -278,6 +282,18 @@ func getProcStat() ([]byte, error) {
 	}
 	log.V(4).Infof("getProcStat, output %v", string(b))
 	return b, nil
+}
+
+func getSysUptime() ([]byte, error) {
+    uptime, _ := linuxproc.ReadUptime("/proc/uptime")
+    b, err := json.Marshal(uptime)
+    if err != nil {
+        log.V(2).Infof("%v", err)
+        return b, err
+    }
+
+    log.V(4).Infof("getSysUptime, output %v", string(b))
+    return b, nil
 }
 
 func getBuildVersion() ([]byte, error) {
