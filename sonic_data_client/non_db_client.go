@@ -285,15 +285,15 @@ func getProcStat() ([]byte, error) {
 }
 
 func getSysUptime() ([]byte, error) {
-    uptime, _ := linuxproc.ReadUptime("/proc/uptime")
-    b, err := json.Marshal(uptime)
-    if err != nil {
-        log.V(2).Infof("%v", err)
-        return b, err
-    }
+	uptime, _ := linuxproc.ReadUptime("/proc/uptime")
+	b, err := json.Marshal(uptime)
+	if err != nil {
+		log.V(2).Infof("%v", err)
+		return b, err
+	}
 
-    log.V(4).Infof("getSysUptime, output %v", string(b))
-    return b, nil
+	log.V(4).Infof("getSysUptime, output %v", string(b))
+	return b, nil
 }
 
 func getBuildVersion() ([]byte, error) {
@@ -416,9 +416,109 @@ func (c *NonDbClient) String() string {
 		c.prefix.GetTarget(), c.sendMsg, c.recvMsg)
 }
 
-// To be implemented
+// StreamRun implements stream subscription for non-DB queries. It supports SAMPLE mode only.
 func (c *NonDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
-	return
+	c.w = w
+	defer c.w.Done()
+	c.q = q
+
+	validatedSubs := make(map[*gnmipb.Subscription]time.Duration)
+
+	// Validate all subs
+	for _, sub := range subscribe.GetSubscription() {
+		subMode := sub.GetMode()
+		if subMode != gnmipb.SubscriptionMode_SAMPLE {
+			putFatalMsg(c.q, fmt.Sprintf("Unsupported subscription mode: %v.", subMode))
+			return
+		}
+
+		interval, err := validateSampleInterval(sub)
+		if err != nil {
+			putFatalMsg(c.q, err.Error())
+			return
+		}
+
+		gnmiPath := sub.GetPath()
+		_, ok := c.path2Getter[gnmiPath]
+		if !ok {
+			log.V(3).Infof("Cannot find getter for the path: %v", gnmiPath)
+			continue
+		}
+
+		validatedSubs[sub] = interval
+	}
+
+	if len(validatedSubs) == 0 {
+		log.V(3).Infof("No valid sub for stream subscription.")
+		return
+	}
+
+	for sub := range validatedSubs {
+		gnmiPath := sub.GetPath()
+		getter, _ := c.path2Getter[gnmiPath]
+		runGetterAndSend(c, gnmiPath, getter)
+	}
+
+	c.q.Put(Value{
+		&spb.Value{
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: true,
+		},
+	})
+
+	// Start a GO routine for each sub as they might have different intervals
+	for sub, interval := range validatedSubs {
+		go streamSample(c, stop, sub, interval)
+	}
+
+	log.V(1).Infof("Started non-db sampling routines for %s ", c)
+	<-stop
+	log.V(1).Infof("Stopping NonDbClient.StreamRun routine for Client %s ", c)
+}
+
+// streamSample implements the sampling loop for a streaming subscription.
+func streamSample(c *NonDbClient, stop chan struct{}, sub *gnmipb.Subscription, interval time.Duration) {
+	log.V(1).Infof("Starting sampling routine sub: '%s' client: '%s'", sub, c)
+
+	gnmiPath := sub.GetPath()
+	getter, _ := c.path2Getter[gnmiPath] // this is already a validated sub, getter should be there.
+
+	for {
+		select {
+		case <-stop:
+			log.V(1).Infof("Stopping NonDbClient.streamSample routine for sub '%s'", sub)
+			return
+		case <-time.After(interval):
+			runGetterAndSend(c, gnmiPath, getter)
+		}
+	}
+}
+
+// runGetterAndSend runs a given getter method and puts the result to client queue.
+func runGetterAndSend(c *NonDbClient, gnmiPath *gnmipb.Path, getter dataGetFunc) error {
+	v, err := getter()
+	if err != nil {
+		log.V(3).Infof("runGetterAndSend getter error %v, %v", gnmiPath, err)
+	}
+
+	spbv := &spb.Value{
+		Prefix:       c.prefix,
+		Path:         gnmiPath,
+		Timestamp:    time.Now().UnixNano(),
+		SyncResponse: false,
+		Val: &gnmipb.TypedValue{
+			Value: &gnmipb.TypedValue_JsonIetfVal{
+				JsonIetfVal: v,
+			}},
+	}
+
+	err = c.q.Put(Value{spbv})
+	if err != nil {
+		log.V(3).Infof("Failed to put for %v, %v", gnmiPath, err)
+	} else {
+		log.V(6).Infof("Added spbv #%v", spbv)
+	}
+	return err
 }
 
 func (c *NonDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup) {
@@ -435,23 +535,7 @@ func (c *NonDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *syn
 		}
 		t1 := time.Now()
 		for gnmiPath, getter := range c.path2Getter {
-			v, err := getter()
-			if err != nil {
-				log.V(3).Infof("PollRun getter error %v for %v", err, v)
-			}
-			spbv := &spb.Value{
-				Prefix:       c.prefix,
-				Path:         gnmiPath,
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: false,
-				Val: &gnmipb.TypedValue{
-					Value: &gnmipb.TypedValue_JsonIetfVal{
-						JsonIetfVal: v,
-					}},
-			}
-
-			c.q.Put(Value{spbv})
-			log.V(6).Infof("Added spbv #%v", spbv)
+			runGetterAndSend(c, gnmiPath, getter)
 		}
 
 		c.q.Put(Value{
