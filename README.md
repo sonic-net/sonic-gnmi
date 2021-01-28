@@ -37,6 +37,7 @@ You can also build a debian package and install it:
 ### Running
 * See [SONiC gRPC telemetry](./doc/grpc_telemetry.md) for how to run dial-in mode system telemetry server
 * See [SONiC telemetry in dial-out mode](./doc/dialout.md) for how to run dial-out mode system telemetry client
+* See [gNMI Usage Examples](./doc/gNMI_usage_examples.md) for gNMI client usage examples.
 
 ## Need Help?
 
