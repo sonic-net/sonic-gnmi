@@ -24,6 +24,7 @@ import (
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/openconfig/gnmi/client"
 	pb "github.com/openconfig/gnmi/proto/gnmi"
+	ext_pb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	"github.com/openconfig/gnmi/value"
 	"github.com/openconfig/ygot/ygot"
 
@@ -34,9 +35,13 @@ import (
 	"google.golang.org/grpc/status"
 
 	// Register supported client types.
+	spb "github.com/Azure/sonic-telemetry/proto"
+	sgpb "github.com/Azure/sonic-telemetry/proto/gnoi"
 	sdc "github.com/Azure/sonic-telemetry/sonic_data_client"
 	sdcfg "github.com/Azure/sonic-telemetry/sonic_db_config"
 	gclient "github.com/jipanyang/gnmi/client/gnmi"
+	"github.com/jipanyang/gnxi/utils/xpath"
+	gnoi_system_pb "github.com/openconfig/gnoi/system"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -80,23 +85,23 @@ func loadDBNotStrict(t *testing.T, rclient *redis.Client, mpi map[string]interfa
 	}
 }
 
-func createServer(t *testing.T) *Server {
-	certificate, err := testcert.NewCert()
-	if err != nil {
-		t.Errorf("could not load server key pair: %s", err)
-	}
-	tlsCfg := &tls.Config{
-		ClientAuth:   tls.RequestClientCert,
-		Certificates: []tls.Certificate{certificate},
-	}
+func createServer(t *testing.T, port int64) *Server {
+    certificate, err := testcert.NewCert()
+    if err != nil {
+        t.Errorf("could not load server key pair: %s", err)
+    }
+    tlsCfg := &tls.Config{
+        ClientAuth:   tls.RequestClientCert,
+        Certificates: []tls.Certificate{certificate},
+    }
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: 8081}
-	s, err := NewServer(cfg, opts)
-	if err != nil {
-		t.Errorf("Failed to create gNMI server: %v", err)
-	}
-	return s
+    opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+    cfg := &Config{Port: port}
+    s, err := NewServer(cfg, opts)
+    if err != nil {
+        t.Errorf("Failed to create gNMI server: %v", err)
+    }
+    return s
 }
 
 // runTestGet requests a path from the server by Get grpc call, and compares if
@@ -584,7 +589,7 @@ func TestGnmiSet(t *testing.T) {
 	if !READ_WRITE_MODE {
 		t.Skip("skipping test in read-only mode.")
 	}
-	s := createServer(t)
+	s := createServer(t, 8081)
 	go runServer(t, s)
 
 	prepareDbTranslib(t)
@@ -682,7 +687,7 @@ func TestGnmiSet(t *testing.T) {
 
 func TestGnmiGet(t *testing.T) {
 	//t.Log("Start server")
-	s := createServer(t)
+	s := createServer(t, 8081)
 	go runServer(t, s)
 
 	prepareDb(t)
@@ -944,7 +949,7 @@ func TestGnmiGet(t *testing.T) {
 
 func TestGnmiGetTranslib(t *testing.T) {
 	//t.Log("Start server")
-	s := createServer(t)
+	s := createServer(t, 8081)
 	go runServer(t, s)
 
 	prepareDbTranslib(t)
@@ -2164,7 +2169,7 @@ func runTestSubscribe(t *testing.T) {
 }
 
 func TestGnmiSubscribe(t *testing.T) {
-	s := createServer(t)
+	s := createServer(t, 8081)
 	go runServer(t, s)
 
 	runTestSubscribe(t)
@@ -2174,7 +2179,7 @@ func TestGnmiSubscribe(t *testing.T) {
 
 func TestCapabilities(t *testing.T) {
 	//t.Log("Start server")
-	s := createServer(t)
+	s := createServer(t, 8085)
 	go runServer(t, s)
 
 	// prepareDb(t)
@@ -2184,7 +2189,7 @@ func TestCapabilities(t *testing.T) {
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
 
 	//targetAddr := "30.57.185.38:8080"
-	targetAddr := "127.0.0.1:8081"
+	targetAddr := "127.0.0.1:8085"
 	conn, err := grpc.Dial(targetAddr, opts...)
 	if err != nil {
 		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
@@ -2203,6 +2208,210 @@ func TestCapabilities(t *testing.T) {
 	if len(resp.SupportedModels) == 0 {
 		t.Fatalf("No Supported Models found!")
 	}
+
+}
+
+func TestGNOI(t *testing.T) {
+    s := createServer(t, 8086)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    // prepareDb(t)
+
+    //t.Log("Start gNMI client")
+    tlsConfig := &tls.Config{InsecureSkipVerify: true}
+    opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+    //targetAddr := "30.57.185.38:8080"
+    targetAddr := "127.0.0.1:8086"
+    conn, err := grpc.Dial(targetAddr, opts...)
+    if err != nil {
+        t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+    }
+    defer conn.Close()
+
+
+    ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
+    defer cancel()
+
+    t.Run("SystemTime", func(t *testing.T) {
+        sc := gnoi_system_pb.NewSystemClient(conn)
+        resp,err := sc.Time(ctx, new(gnoi_system_pb.TimeRequest))
+        if err != nil {
+            t.Fatal(err.Error())
+        }
+        ctime := uint64(time.Now().UnixNano())
+        if ctime - resp.Time < 0 || ctime - resp.Time > 1e9 {
+            t.Fatalf("Invalid System Time %d", resp.Time)
+        }
+    })
+    t.Run("SonicShowTechsupport", func(t *testing.T) {
+        sc := sgpb.NewSonicServiceClient(conn)
+        rtime := time.Now().AddDate(0,-1,0)
+        req := &sgpb.TechsupportRequest {
+            Input: &sgpb.TechsupportRequest_Input{
+                Date: rtime.Format("20060102_150405"),
+            },
+        }
+        resp,err := sc.ShowTechsupport(ctx, req)
+        if err != nil {
+            t.Fatal(err.Error())
+        }
+
+        if len(resp.Output.OutputFilename) == 0 {
+            t.Fatalf("Invalid Output Filename: %s", resp.Output.OutputFilename)
+        }
+    })
+
+    type configData struct {
+	    source string
+	    destination string
+	    overwrite bool
+	    status int32
+    }
+
+    var cfg_data = []configData {
+	    configData{"running-configuration", "startup-configuration", false, 0},
+    	    configData{"running-configuration", "file://etc/sonic/config_db_test.json", false, 0},
+            configData{"file://etc/sonic/config_db_test.json", "running-configuration", false, 0},
+            configData{"startup-configuration", "running-configuration", false, 0},
+            configData{"file://etc/sonic/config_db_3.json", "running-configuration", false, 1}}
+    
+    for  _,v := range cfg_data {
+
+    t.Run("SonicCopyConfig", func(t *testing.T) {
+	    sc := sgpb.NewSonicServiceClient(conn)
+	    req := &sgpb.CopyConfigRequest {
+		Input: &sgpb.CopyConfigRequest_Input{
+		   Source: v.source,
+		   Destination: v.destination,
+		   Overwrite: v.overwrite,
+	},
+	}
+	t.Logf("source: %s dest: %s overwrite: %t", v.source, v.destination, v.overwrite)
+	resp, err := sc.CopyConfig(ctx, req)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	if resp.Output.Status != v.status {
+		t.Fatalf("Copy Failed: status %d,  %s", resp.Output.Status, resp.Output.StatusDetail)
+	}
+    })
+    }
+}
+
+func TestBundleVersion(t *testing.T) {
+    s := createServer(t, 8087)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    // prepareDb(t)
+
+    //t.Log("Start gNMI client")
+    tlsConfig := &tls.Config{InsecureSkipVerify: true}
+    opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+    //targetAddr := "30.57.185.38:8080"
+    targetAddr := "127.0.0.1:8087"
+    conn, err := grpc.Dial(targetAddr, opts...)
+    if err != nil {
+        t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+    }
+    defer conn.Close()
+
+    gClient := pb.NewGNMIClient(conn)
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+    t.Run("Invalid Bundle Version Format", func(t *testing.T) {
+        var pbPath *pb.Path
+        pbPath, err := xpath.ToGNMIPath("openconfig-interfaces:interfaces/interface[name=Ethernet0]/config")
+	prefix := pb.Path{Target: "OC-YANG"}
+        if err != nil {
+            t.Fatalf("error in unmarshaling path: %v", err)
+        }
+        bundleVersion := "50.0.0"
+        bv, err := proto.Marshal(&spb.BundleVersion{
+            Version: bundleVersion,
+        })
+        if err != nil {
+            t.Fatalf("%v", err)
+        }
+        req := &pb.GetRequest{
+            Path:     []*pb.Path{pbPath},
+            Prefix:   &prefix,
+            Encoding: pb.Encoding_JSON_IETF,
+        }
+        req.Extension = append(req.Extension, &ext_pb.Extension{
+                    Ext: &ext_pb.Extension_RegisteredExt {
+                        RegisteredExt: &ext_pb.RegisteredExtension {
+                        Id: spb.BUNDLE_VERSION_EXT,
+                        Msg: bv,
+                    }}})
+
+       
+
+        _, err = gClient.Get(ctx, req)
+        gotRetStatus, ok := status.FromError(err)
+        if !ok {
+            t.Fatal("got a non-grpc error from grpc call")
+        }
+        if gotRetStatus.Code() != codes.NotFound {
+            t.Log("err: ", err)
+            t.Fatalf("got return code %v, want %v", gotRetStatus.Code(), codes.OK)
+        }
+    })
+}
+
+func TestBulkSet(t *testing.T) {
+    s := createServer(t, 8088)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    // prepareDb(t)
+
+    //t.Log("Start gNMI client")
+    tlsConfig := &tls.Config{InsecureSkipVerify: true}
+    opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+    //targetAddr := "30.57.185.38:8080"
+    targetAddr := "127.0.0.1:8088"
+    conn, err := grpc.Dial(targetAddr, opts...)
+    if err != nil {
+        t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+    }
+    defer conn.Close()
+
+    gClient := pb.NewGNMIClient(conn)
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+    t.Run("Set Multiple mtu", func(t *testing.T) {
+        pbPath1, _ := xpath.ToGNMIPath("openconfig-interfaces:interfaces/interface[name=Ethernet0]/config/mtu")
+        v := &pb.TypedValue{
+            Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte("{\"mtu\": 9104}")}}
+        update1 := &pb.Update {
+            Path: pbPath1,
+            Val: v,
+        }
+        pbPath2, _ := xpath.ToGNMIPath("openconfig-interfaces:interfaces/interface[name=Ethernet4]/config/mtu")
+        v2 := &pb.TypedValue{
+            Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte("{\"mtu\": 9105}")}}
+        update2 := &pb.Update {
+            Path: pbPath2,
+            Val: v2,
+        }
+       
+
+        req := &pb.SetRequest{
+            Update:     []*pb.Update{update1, update2},
+        }
+
+        _, err = gClient.Set(ctx, req)
+        _, ok := status.FromError(err)
+        if !ok {
+            t.Fatal("got a non-grpc error from grpc call")
+        }
+
+    })
 
 }
 

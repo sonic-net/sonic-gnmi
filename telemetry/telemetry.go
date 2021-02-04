@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"flag"
 	"io/ioutil"
+	"time"
 
 	log "github.com/golang/glog"
 	"google.golang.org/grpc"
@@ -15,6 +16,7 @@ import (
 )
 
 var (
+        userAuth = gnmi.AuthTypes{"password": false, "cert": false, "jwt": false}
 	port = flag.Int("port", -1, "port to listen on")
 	// Certificate files.
 	caCert            = flag.String("ca_crt", "", "CA certificate for client certificate validation. Optional.")
@@ -23,16 +25,36 @@ var (
 	insecure          = flag.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!")
 	noTLS             = flag.Bool("noTLS", false, "disable TLS, for testing only!")
 	allowNoClientCert = flag.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate.")
+	jwtRefInt         = flag.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed.")
+	jwtValInt         = flag.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for.")
 )
 
 func main() {
+	flag.Var(userAuth, "client_auth", "Client auth mode(s) - none,cert,password")
 	flag.Parse()
+
+	var defUserAuth gnmi.AuthTypes
+	if gnmi.READ_WRITE_MODE {
+		//In read/write mode we want to enable auth by default.
+		defUserAuth = gnmi.AuthTypes{"password": true, "cert": false, "jwt": true}
+	}else {
+		defUserAuth = gnmi.AuthTypes{"jwt": false, "password": false, "cert": false}
+	}
+
+        if isFlagPassed("client_auth") {
+                log.V(1).Infof("client_auth provided")
+        }else {
+                log.V(1).Infof("client_auth not provided, using defaults.")
+                userAuth = defUserAuth
+        }
 
 	switch {
 	case *port <= 0:
 		log.Errorf("port must be > 0.")
 		return
 	}
+	gnmi.JwtRefreshInt = time.Duration(*jwtRefInt*uint64(time.Second))
+	gnmi.JwtValidInt = time.Duration(*jwtValInt*uint64(time.Second))
 
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*port)
@@ -94,9 +116,19 @@ func main() {
 			log.Exit("failed to append CA certificate")
 		}
 		tlsCfg.ClientCAs = certPool
+	} else {
+		if userAuth.Enabled("cert") {
+			userAuth.Unset("cert")
+			log.Warning("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
+		}
 	}
 
 	opts = []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &gnmi.Config{}
+	cfg.Port = int64(*port)
+	cfg.UserAuth = userAuth
+
+	gnmi.GenerateJwtSecretKey()
 }
 
 	s, err := gnmi.NewServer(cfg, opts)
@@ -105,7 +137,18 @@ func main() {
 		return
 	}
 
+	log.V(1).Infof("Auth Modes: ", userAuth)
 	log.V(1).Infof("Starting RPC server on address: %s", s.Address())
 	s.Serve() // blocks until close
 	log.Flush()
+}
+
+func isFlagPassed(name string) bool {
+    found := false
+    flag.Visit(func(f *flag.Flag) {
+        if f.Name == name {
+            found = true
+        }
+    })
+    return found
 }

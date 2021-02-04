@@ -6,12 +6,14 @@ Package gnmi_sonic is a generated protocol buffer package.
 
 It is generated from these files:
 	dial_out.proto
-	sonic.proto
 	sonic_internal.proto
+	sonic.proto
 
 It has these top-level messages:
 	PublishResponse
 	Value
+	SupportedBundleVersions
+	BundleVersion
 */
 package gnmi_sonic
 

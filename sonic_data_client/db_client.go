@@ -40,12 +40,12 @@ type Client interface {
 	// data read from data source will be enqueued on to the priority queue
 	// The service will stop upon detection of poll channel closing.
 	// It should run as a go routine
-	PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup)
-	OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup)
+	PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
+	OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
 	// Get return data from the data source in format of *spb.Value
 	Get(w *sync.WaitGroup) ([]*spb.Value, error)
 	// Set data based on path and value
-	Set(path *gnmipb.Path, t *gnmipb.TypedValue, op int) error
+	Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error
 	// Capabilities of the switch
 	Capabilities() []gnmipb.ModelData
 
@@ -262,7 +262,7 @@ func streamSampleSubscription(c *DbClient, sub *gnmipb.Subscription, updateOnly 
 	}
 }
 
-func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup) {
+func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 	defer c.w.Done()
 	c.q = q
@@ -302,7 +302,7 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
 }
-func (c *DbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup) {
+func (c *DbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	return
 }
 func (c *DbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
@@ -1160,7 +1160,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 	}
 }
 
-func (c *DbClient) Set(path *gnmipb.Path, t *gnmipb.TypedValue, flagop int) error {
+func  (c *DbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	return nil
 }
 func (c *DbClient) Capabilities() []gnmipb.ModelData {

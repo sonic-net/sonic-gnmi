@@ -5,15 +5,19 @@ import (
 	spb "github.com/Azure/sonic-telemetry/proto"
 	transutil "github.com/Azure/sonic-telemetry/transl_utils"
 	log "github.com/golang/glog"
+	"github.com/golang/protobuf/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	"github.com/Workiva/go-datastructures/queue"
 	"sync"
 	"time"
 	"fmt"
 	"reflect"
 	"github.com/Azure/sonic-mgmt-common/translib"
+	"github.com/Azure/sonic-telemetry/common_utils"
 	"bytes"
 	"encoding/json"
+	"context"
 )
 
 const (
@@ -32,14 +36,16 @@ type TranslClient struct {
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
 	w      *sync.WaitGroup // wait for all sub go routines to finish
 	mu     sync.RWMutex    // Mutex for data protection among routines for transl_client
-
+	ctx context.Context //Contains Auth info and request info
+	extensions []*gnmi_extpb.Extension
 }
 
-func NewTranslClient(prefix *gnmipb.Path, getpaths []*gnmipb.Path) (Client, error) {
+func NewTranslClient(prefix *gnmipb.Path, getpaths []*gnmipb.Path, ctx context.Context, extensions []*gnmi_extpb.Extension) (Client, error) {
 	var client TranslClient
 	var err error
-
+	client.ctx = ctx
 	client.prefix = prefix
+	client.extensions = extensions
 	if getpaths != nil {
 		client.path2URI = make(map[*gnmipb.Path]string)
 		/* Populate GNMI path to REST URL map. */
@@ -54,14 +60,19 @@ func NewTranslClient(prefix *gnmipb.Path, getpaths []*gnmipb.Path) (Client, erro
 }
 
 func (c *TranslClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
-
+	rc, ctx := common_utils.GetContext(c.ctx)
+	c.ctx = ctx
 	var values []*spb.Value
 	ts := time.Now()
 
+	version := getBundleVersion(c.extensions)
+	if version != nil {
+		rc.BundleVersion = version
+	}
 	/* Iterate through all GNMI paths. */
 	for gnmiPath, URIPath := range c.path2URI {
 		/* Fill values for each GNMI path. */
-		val, err := transutil.TranslProcessGet(URIPath, nil)
+		val, err := transutil.TranslProcessGet(URIPath, nil, c.ctx)
 
 		if err != nil {
 			return nil, err
@@ -85,22 +96,35 @@ func (c *TranslClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	return values, nil
 }
 
-func (c *TranslClient) Set(path *gnmipb.Path, val *gnmipb.TypedValue, flagop int) error {
+func (c *TranslClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
+	rc, ctx := common_utils.GetContext(c.ctx)
+	c.ctx = ctx
 	var uri string
-	var err error
-
-	/* Convert the GNMI Path to URI. */
-	transutil.ConvertToURI(c.prefix, path, &uri)
-
-	if flagop == DELETE {
-		err = transutil.TranslProcessDelete(uri)
-	} else if flagop == REPLACE {
-		err = transutil.TranslProcessReplace(uri, val)
-	} else if flagop == UPDATE {
-		err = transutil.TranslProcessUpdate(uri, val)
+	version := getBundleVersion(c.extensions)
+	if version != nil {
+		rc.BundleVersion = version
 	}
 
-	return err
+	if (len(delete) + len(replace) + len(update)) > 1 {
+		return transutil.TranslProcessBulk(delete, replace, update, c.prefix, c.ctx)
+	} else {
+		if len(delete) == 1 {
+			/* Convert the GNMI Path to URI. */
+			transutil.ConvertToURI(c.prefix, delete[0], &uri)
+			return transutil.TranslProcessDelete(uri, c.ctx)
+		}
+		if len(replace) == 1 {
+			/* Convert the GNMI Path to URI. */
+			transutil.ConvertToURI(c.prefix, replace[0].GetPath(), &uri)
+			return transutil.TranslProcessReplace(uri, replace[0].GetVal(), c.ctx)
+		}
+		if len(update) == 1 {
+			/* Convert the GNMI Path to URI. */
+			transutil.ConvertToURI(c.prefix, update[0].GetPath(), &uri)
+			return transutil.TranslProcessUpdate(uri, update[0].GetVal(), c.ctx)
+		}
+	}
+	return nil
 }
 func enqueFatalMsgTranslib(c *TranslClient, msg string) {
 	c.q.Put(Value{
@@ -117,11 +141,17 @@ type ticker_info struct{
 }
 
 func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+	rc, ctx := common_utils.GetContext(c.ctx)
+	c.ctx = ctx
 	c.w = w
+
 	defer c.w.Done()
 	c.q = q
 	c.channel = stop
-
+	version := getBundleVersion(c.extensions)
+	if version != nil {
+		rc.BundleVersion = version
+	}
 
 	ticker_map := make(map[int][]*ticker_info)
 	var cases []reflect.SelectCase
@@ -189,21 +219,25 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 					return
 				}
 			}
-			//Send initial data now so we can send sync response.
-			val, err := transutil.TranslProcessGet(c.path2URI[sub.Path], nil)
-			if err != nil {
-				return
+			if !subscribe.UpdatesOnly {
+				//Send initial data now so we can send sync response.
+				val, err := transutil.TranslProcessGet(c.path2URI[sub.Path], nil, c.ctx)
+				if err != nil {
+					return
+				}
+				spbv := &spb.Value{
+					Prefix:       c.prefix,
+					Path:         sub.Path,
+					Timestamp:    time.Now().UnixNano(),
+					SyncResponse: false,
+					Val:          val,
+				}
+				c.q.Put(Value{spbv})
+				valueCache[c.path2URI[sub.Path]] = string(val.GetJsonIetfVal())
 			}
-			spbv := &spb.Value{
-				Prefix:       c.prefix,
-				Path:         sub.Path,
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: false,
-				Val:          val,
-			}
-			c.q.Put(Value{spbv})
-			valueCache[c.path2URI[sub.Path]] = string(val.GetJsonIetfVal())
+
 			addTimer(c, ticker_map, &cases, cases_map, interval, sub, false)
+
 			//Heartbeat intervals are valid for SAMPLE in the case suppress_redundant is specified
 			if sub.SuppressRedundant && sub.HeartbeatInterval > 0 {
 				if int(sub.HeartbeatInterval) < subSupport[i].MinInterval * int(time.Second) {
@@ -252,7 +286,7 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 
 		for _,tick := range ticker_map[cases_map[chosen]] {
 			fmt.Printf("tick, heartbeat: %t, path: %s", tick.heartbeat, c.path2URI[tick.sub.Path])
-			val, err := transutil.TranslProcessGet(c.path2URI[tick.sub.Path], nil)
+			val, err := transutil.TranslProcessGet(c.path2URI[tick.sub.Path], nil, c.ctx)
 			if err != nil {
 				return
 			}
@@ -302,9 +336,20 @@ func addTimer(c *TranslClient, ticker_map map[int][]*ticker_info, cases *[]refle
 
 func TranslSubscribe(gnmiPaths []*gnmipb.Path, stringPaths []string, pathMap map[string]*gnmipb.Path, c *TranslClient, updates_only bool) {
 	defer c.w.Done()
+	rc, ctx := common_utils.GetContext(c.ctx)
+	c.ctx = ctx
 	q := queue.NewPriorityQueue(1, false)
 	var sync_done bool
 	req := translib.SubscribeRequest{Paths:stringPaths, Q:q, Stop:c.channel}
+	if rc.BundleVersion != nil {
+		nver, err := translib.NewVersion(*rc.BundleVersion)
+		if err != nil {
+			log.V(2).Infof("Subscribe operation failed with error =%v", err.Error())
+			enqueFatalMsgTranslib(c, fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
+			return
+		}
+		req.ClientVersion = nver
+	}
 	translib.Subscribe(req)
 	for {
 		items, err := q.Get(1)
@@ -363,12 +408,18 @@ func TranslSubscribe(gnmiPaths []*gnmipb.Path, stringPaths []string, pathMap map
 
 
 
-func (c *TranslClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup) {
+func (c *TranslClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+	rc, ctx := common_utils.GetContext(c.ctx)
+	c.ctx = ctx
 	c.w = w
 	defer c.w.Done()
 	c.q = q
 	c.channel = poll
-
+	version := getBundleVersion(c.extensions)
+	if version != nil {
+		rc.BundleVersion = version
+	}
+	synced := false
 	for {
 		_, more := <-c.channel
 		if !more {
@@ -377,11 +428,60 @@ func (c *TranslClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sy
 		}
 		t1 := time.Now()
 		for gnmiPath, URIPath := range c.path2URI {
-			val, err := transutil.TranslProcessGet(URIPath, nil)
-			if err != nil {
-				return
-			}
+			if synced || !subscribe.UpdatesOnly {
+				val, err := transutil.TranslProcessGet(URIPath, nil, c.ctx)
+				if err != nil {
+					return
+				}
 
+				spbv := &spb.Value{
+					Prefix:       c.prefix,
+					Path:         gnmiPath,
+					Timestamp:    time.Now().UnixNano(),
+					SyncResponse: false,
+					Val:          val,
+				}
+
+				c.q.Put(Value{spbv})
+				log.V(6).Infof("Added spbv #%v", spbv)
+			}
+		}
+
+		c.q.Put(Value{
+			&spb.Value{
+				Timestamp:    time.Now().UnixNano(),
+				SyncResponse: true,
+			},
+		})
+		synced = true
+		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
+	}
+}
+func (c *TranslClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+	rc, ctx := common_utils.GetContext(c.ctx)
+	c.ctx = ctx
+	c.w = w
+	defer c.w.Done()
+	c.q = q
+	c.channel = once
+
+	version := getBundleVersion(c.extensions)
+	if version != nil {
+		rc.BundleVersion = version
+	}
+	_, more := <-c.channel
+	if !more {
+		log.V(1).Infof("%v once channel closed, exiting onceDb routine", c)
+		return
+	}
+	t1 := time.Now()
+	for gnmiPath, URIPath := range c.path2URI {
+		val, err := transutil.TranslProcessGet(URIPath, nil, c.ctx)
+		if err != nil {
+			return
+		}
+
+		if !subscribe.UpdatesOnly && val != nil {
 			spbv := &spb.Value{
 				Prefix:       c.prefix,
 				Path:         gnmiPath,
@@ -393,45 +493,6 @@ func (c *TranslClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sy
 			c.q.Put(Value{spbv})
 			log.V(6).Infof("Added spbv #%v", spbv)
 		}
-
-		c.q.Put(Value{
-			&spb.Value{
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: true,
-			},
-		})
-		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
-	}
-}
-func (c *TranslClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup) {
-	c.w = w
-	defer c.w.Done()
-	c.q = q
-	c.channel = once
-
-	
-	_, more := <-c.channel
-	if !more {
-		log.V(1).Infof("%v once channel closed, exiting onceDb routine", c)
-		return
-	}
-	t1 := time.Now()
-	for gnmiPath, URIPath := range c.path2URI {
-		val, err := transutil.TranslProcessGet(URIPath, nil)
-		if err != nil {
-			return
-		}
-
-		spbv := &spb.Value{
-			Prefix:       c.prefix,
-			Path:         gnmiPath,
-			Timestamp:    time.Now().UnixNano(),
-			SyncResponse: false,
-			Val:          val,
-		}
-
-		c.q.Put(Value{spbv})
-		log.V(6).Infof("Added spbv #%v", spbv)
 	}
 
 	c.q.Put(Value{
@@ -445,12 +506,32 @@ func (c *TranslClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sy
 }
 
 func (c *TranslClient) Capabilities() []gnmipb.ModelData {
-
+	rc, ctx := common_utils.GetContext(c.ctx)
+	c.ctx = ctx
+	version := getBundleVersion(c.extensions)
+	if version != nil {
+		rc.BundleVersion = version
+	}
 	/* Fetch the supported models. */
 	supportedModels := transutil.GetModels()
 	return supportedModels
 }
 
 func (c *TranslClient) Close() error {
+	return nil
+}
+
+func getBundleVersion(extensions []*gnmi_extpb.Extension) *string {
+	for _,e := range extensions {
+		switch v := e.Ext.(type) {
+			case *gnmi_extpb.Extension_RegisteredExt:
+				if v.RegisteredExt.Id == spb.BUNDLE_VERSION_EXT {
+					var bv spb.BundleVersion
+					proto.Unmarshal(v.RegisteredExt.Msg, &bv)
+					return &bv.Version
+				}
+			
+		}
+	}
 	return nil
 }

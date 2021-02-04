@@ -521,7 +521,7 @@ func runGetterAndSend(c *NonDbClient, gnmiPath *gnmipb.Path, getter dataGetFunc)
 	return err
 }
 
-func (c *NonDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup) {
+func (c *NonDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 	defer c.w.Done()
 	c.q = q
@@ -547,7 +547,7 @@ func (c *NonDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *syn
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
 }
-func (c *NonDbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup) {
+func (c *NonDbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	return
 }
 func (c *NonDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
@@ -581,7 +581,7 @@ func (c *NonDbClient) Close() error {
 	return nil
 }
 
-func (c *NonDbClient) Set(path *gnmipb.Path, t *gnmipb.TypedValue, flagop int) error {
+func  (c *NonDbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	return nil
 }
 func (c *NonDbClient) Capabilities() []gnmipb.ModelData {

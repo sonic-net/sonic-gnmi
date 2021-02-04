@@ -35,7 +35,7 @@ var State_value = map[string]int32{
 func (x State) String() string {
 	return proto.EnumName(State_name, int32(x))
 }
-func (State) EnumDescriptor() ([]byte, []int) { return fileDescriptor2, []int{0} }
+func (State) EnumDescriptor() ([]byte, []int) { return fileDescriptor1, []int{0} }
 
 // Value is the message that reprents a stream of updates for a given path, used internally.
 type Value struct {
@@ -58,7 +58,7 @@ type Value struct {
 func (m *Value) Reset()                    { *m = Value{} }
 func (m *Value) String() string            { return proto.CompactTextString(m) }
 func (*Value) ProtoMessage()               {}
-func (*Value) Descriptor() ([]byte, []int) { return fileDescriptor2, []int{0} }
+func (*Value) Descriptor() ([]byte, []int) { return fileDescriptor1, []int{0} }
 
 func (m *Value) GetPrefix() *gnmi.Path {
 	if m != nil {
@@ -107,9 +107,9 @@ func init() {
 	proto.RegisterEnum("gnmi.sonic.State", State_name, State_value)
 }
 
-func init() { proto.RegisterFile("sonic_internal.proto", fileDescriptor2) }
+func init() { proto.RegisterFile("sonic_internal.proto", fileDescriptor1) }
 
-var fileDescriptor2 = []byte{
+var fileDescriptor1 = []byte{
 	// 269 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x64, 0x8f, 0x4f, 0x4b, 0xc3, 0x30,
 	0x18, 0xc6, 0xcd, 0xfa, 0xc7, 0xed, 0x9d, 0x42, 0x09, 0x3b, 0x04, 0x11, 0x29, 0xf5, 0x52, 0x14,
