@@ -30,15 +30,12 @@ go.mod:
 	$(GO) mod init github.com/Azure/sonic-telemetry
 
 $(GO_DEPS): go.mod $(PATCHES)
-	# FIXME temporary workaround for crypto not downloading..
-	$(GO) get golang.org/x/crypto/ssh/terminal@e9b2fee46413
-	$(GO) get github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0
-	$(GO) get github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802
 	$(GO) mod vendor
-	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
+	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
+	$(GO) mod download github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0
 	cp -r $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413/* vendor/golang.org/x/crypto/
-	mkdir -p vendor/github.com/jipanyang/gnxi/
 	cp -r $(GOPATH)/pkg/mod/github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0/* vendor/github.com/jipanyang/gnxi/
+	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
 	chmod -R u+w vendor
 	patch -d vendor -p0 < patches/gnmi_cli.all.patch
 	patch -d vendor -p0 < patches/gnmi_set.patch
