@@ -29,3 +29,4 @@ require (
 )
 
 replace github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common
+replace github.com/openconfig/gnoi => github.com/openconfig/gnoi v0.0.0-20201210212451-209899112bb7
