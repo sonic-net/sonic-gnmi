@@ -1,0 +1,12 @@
+{
+    "INCLUDES" : [
+        {
+            "include" : "../../redis/sonic-db/database_config.json"
+	},
+        {
+            "namespace" : "asic0",
+            "include" : "../../redis0/sonic-db/database_config_asic0.json"
+        }
+    ],
+    "VERSION" : "1.0"
+}

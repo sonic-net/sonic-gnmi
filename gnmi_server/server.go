@@ -1,29 +1,29 @@
 package gnmi
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
-	"net"
-	"strings"
-	"sync"
+	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/Azure/sonic-telemetry/common_utils"
+	spb "github.com/Azure/sonic-telemetry/proto"
+	spb_gnoi "github.com/Azure/sonic-telemetry/proto/gnoi"
+	spb_jwt_gnoi "github.com/Azure/sonic-telemetry/proto/gnoi/jwt"
+	sdc "github.com/Azure/sonic-telemetry/sonic_data_client"
 	log "github.com/golang/glog"
+	"github.com/golang/protobuf/proto"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
+	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
-	"github.com/golang/protobuf/proto"
-	gnoi_system_pb "github.com/openconfig/gnoi/system"
-	sdc "github.com/Azure/sonic-telemetry/sonic_data_client"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
-	spb_gnoi "github.com/Azure/sonic-telemetry/proto/gnoi"
-	spb "github.com/Azure/sonic-telemetry/proto"
-	"github.com/Azure/sonic-mgmt-common/translib"
-	spb_jwt_gnoi "github.com/Azure/sonic-telemetry/proto/gnoi/jwt"
-	"bytes"
+	"net"
+	"strings"
+	"sync"
 )
 
 var (
@@ -41,80 +41,80 @@ type Server struct {
 	clients map[string]*Client
 }
 type AuthTypes map[string]bool
+
 // Config is a collection of values for Server
 type Config struct {
 	// Port for the Server to listen on. If 0 or unset the Server will pick a port
 	// for this Server.
-	Port int64
+	Port     int64
 	UserAuth AuthTypes
 }
 
 var AuthLock sync.Mutex
 
 func (i AuthTypes) String() string {
-        if i["none"] {
-                return ""
-        }
-        b := new(bytes.Buffer)
-        for key, value := range i {
-                if value {
-                        fmt.Fprintf(b, "%s ", key)
-                }
-        }
-        return b.String()
+	if i["none"] {
+		return ""
+	}
+	b := new(bytes.Buffer)
+	for key, value := range i {
+		if value {
+			fmt.Fprintf(b, "%s ", key)
+		}
+	}
+	return b.String()
 }
 
 func (i AuthTypes) Any() bool {
-        if i["none"] {
-                return false
-        }
-        for _, value := range i {
-                if value {
-                        return true
-                }
-        }
-        return false
+	if i["none"] {
+		return false
+	}
+	for _, value := range i {
+		if value {
+			return true
+		}
+	}
+	return false
 }
 
 func (i AuthTypes) Enabled(mode string) bool {
-        if i["none"] {
-                return false
-        }
-        if value, exist := i[mode]; exist && value {
-                return true
-        }
-        return false
+	if i["none"] {
+		return false
+	}
+	if value, exist := i[mode]; exist && value {
+		return true
+	}
+	return false
 }
 
 func (i AuthTypes) Set(mode string) error {
-        modes := strings.Split(mode, ",")
-        for _, m := range modes {
-                m = strings.Trim(m, " ")
-                if m == "none" || m == "" {
-                        i["none"] = true
-                        return nil
-                }
+	modes := strings.Split(mode, ",")
+	for _, m := range modes {
+		m = strings.Trim(m, " ")
+		if m == "none" || m == "" {
+			i["none"] = true
+			return nil
+		}
 
-                if _, exist := i[m]; !exist {
-                        return fmt.Errorf("Expecting one or more of 'cert', 'password' or 'jwt'")
-                }
-                i[m] = true
-        }
-        return nil
+		if _, exist := i[m]; !exist {
+			return fmt.Errorf("Expecting one or more of 'cert', 'password' or 'jwt'")
+		}
+		i[m] = true
+	}
+	return nil
 }
 
 func (i AuthTypes) Unset(mode string) error {
-        modes := strings.Split(mode, ",")
-        for _, m := range modes {
-                m = strings.Trim(m, " ")
-                if _, exist := i[m]; !exist {
-                        return fmt.Errorf("Expecting one or more of 'cert', 'password' or 'jwt'")
-                }
-                i[m] = false
-        }
-        return nil
+	modes := strings.Split(mode, ",")
+	for _, m := range modes {
+		m = strings.Trim(m, " ")
+		if _, exist := i[m]; !exist {
+			return fmt.Errorf("Expecting one or more of 'cert', 'password' or 'jwt'")
+		}
+		i[m] = false
+	}
+	return nil
 }
-
 
 // New returns an initialized Server.
 func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
@@ -168,7 +168,7 @@ func (srv *Server) Port() int64 {
 	return srv.config.Port
 }
 
-func authenticate(UserAuth AuthTypes, ctx context.Context) (context.Context,error) {
+func authenticate(UserAuth AuthTypes, ctx context.Context) (context.Context, error) {
 	var err error
 	success := false
 	rc, ctx := common_utils.GetContext(ctx)
@@ -185,13 +185,13 @@ func authenticate(UserAuth AuthTypes, ctx context.Context) (context.Context,erro
 		}
 	}
 	if !success && UserAuth.Enabled("jwt") {
-		_,ctx,err = JwtAuthenAndAuthor(ctx)
+		_, ctx, err = JwtAuthenAndAuthor(ctx)
 		if err == nil {
 			success = true
 		}
 	}
 	if !success && UserAuth.Enabled("cert") {
-		ctx,err = ClientCertAuthenAndAuthor(ctx)
+		ctx, err = ClientCertAuthenAndAuthor(ctx)
 		if err == nil {
 			success = true
 		}
@@ -200,20 +200,19 @@ func authenticate(UserAuth AuthTypes, ctx context.Context) (context.Context,erro
 	//Allow for future authentication mechanisms here...
 
 	if !success {
-		return ctx,status.Error(codes.Unauthenticated, "Unauthenticated")
-	} 
+		return ctx, status.Error(codes.Unauthenticated, "Unauthenticated")
+	}
 
-	return ctx,nil
+	return ctx, nil
 }
 
 // Subscribe implements the gNMI Subscribe RPC.
 func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	ctx := stream.Context()
-        ctx, err := authenticate(s.config.UserAuth, ctx)
-        if err != nil {
-                return err
-        }
-
+	ctx, err := authenticate(s.config.UserAuth, ctx)
+	if err != nil {
+		return err
+	}
 
 	pr, ok := peer.FromContext(ctx)
 	if !ok {
@@ -270,10 +269,10 @@ func (s *Server) checkEncodingAndModel(encoding gnmipb.Encoding, models []*gnmip
 
 // Get implements the Get RPC in gNMI spec.
 func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
-        ctx, err := authenticate(s.config.UserAuth, ctx)
-        if err != nil {
-                return nil, err
-        }
+	ctx, err := authenticate(s.config.UserAuth, ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	if req.GetType() != gnmipb.GetRequest_ALL {
 		return nil, status.Errorf(codes.Unimplemented, "unsupported request type: %s", gnmipb.GetRequest_DataType_name[int32(req.GetType())])
@@ -286,24 +285,24 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	var target string
 	prefix := req.GetPrefix()
 	if prefix == nil {
-	       return nil, status.Error(codes.Unimplemented, "No target specified in prefix")
+		return nil, status.Error(codes.Unimplemented, "No target specified in prefix")
 	} else {
-	       target = prefix.GetTarget()
-	       if target == "" {
-	               return nil, status.Error(codes.Unimplemented, "Empty target data not supported yet")
-	       }
+		target = prefix.GetTarget()
+		if target == "" {
+			return nil, status.Error(codes.Unimplemented, "Empty target data not supported yet")
+		}
 	}
 
 	paths := req.GetPath()
 	extensions := req.GetExtension()
-        target = prefix.GetTarget()
+	target = prefix.GetTarget()
 	log.V(5).Infof("GetRequest paths: %v", paths)
 
 	var dc sdc.Client
 
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
-	} else if isTargetDb(target) == true {
+	} else if _, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
 	} else {
 		/* If no prefix target is specified create new Transl Data Client . */
@@ -335,68 +334,65 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	return &gnmipb.GetResponse{Notification: notifications}, nil
 }
 
-func (s *Server) Set(ctx context.Context,req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
-		if !READ_WRITE_MODE {
-			return nil, grpc.Errorf(codes.Unimplemented, "Telemetry is in read-only mode")
-		}
-		ctx, err := authenticate(s.config.UserAuth, ctx)
-		if err != nil {
-		        return nil, err
-		}
-		var results []*gnmipb.UpdateResult
+func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
+	if !READ_WRITE_MODE {
+		return nil, grpc.Errorf(codes.Unimplemented, "Telemetry is in read-only mode")
+	}
+	ctx, err := authenticate(s.config.UserAuth, ctx)
+	if err != nil {
+		return nil, err
+	}
+	var results []*gnmipb.UpdateResult
 
-		/* Fetch the prefix. */
-		prefix := req.GetPrefix()
-		extensions := req.GetExtension()
-               /* Create Transl client. */
-		dc, _ := sdc.NewTranslClient(prefix, nil, ctx, extensions)
+	/* Fetch the prefix. */
+	prefix := req.GetPrefix()
+	extensions := req.GetExtension()
+	/* Create Transl client. */
+	dc, _ := sdc.NewTranslClient(prefix, nil, ctx, extensions)
 
-		/* DELETE */
-		for _, path := range req.GetDelete() {
-			log.V(2).Infof("Delete path: %v", path)
-	
-			res := gnmipb.UpdateResult{
-							Path: path,
-	      						Op:   gnmipb.UpdateResult_DELETE,
-	 			    		          }
-	
-			/* Add to Set response results. */
-	 			results = append(results, &res)
-	
+	/* DELETE */
+	for _, path := range req.GetDelete() {
+		log.V(2).Infof("Delete path: %v", path)
+
+		res := gnmipb.UpdateResult{
+			Path: path,
+			Op:   gnmipb.UpdateResult_DELETE,
 		}
-	
-		/* REPLACE */
-		for _, path := range req.GetReplace(){
-			log.V(2).Infof("Replace path: %v ", path)
-	
-			res := gnmipb.UpdateResult{
-							Path: path.GetPath(),
-	      						Op:   gnmipb.UpdateResult_REPLACE,
-					                  }
-			/* Add to Set response results. */
-	 			results = append(results, &res)
+
+		/* Add to Set response results. */
+		results = append(results, &res)
+
+	}
+
+	/* REPLACE */
+	for _, path := range req.GetReplace() {
+		log.V(2).Infof("Replace path: %v ", path)
+
+		res := gnmipb.UpdateResult{
+			Path: path.GetPath(),
+			Op:   gnmipb.UpdateResult_REPLACE,
 		}
-	
-	
-		/* UPDATE */
-		for _, path := range req.GetUpdate(){
-			log.V(2).Infof("Update path: %v ", path)
-	
-			res := gnmipb.UpdateResult{
-							Path: path.GetPath(),
-	      						Op:   gnmipb.UpdateResult_UPDATE,
-	 					          }
-			/* Add to Set response results. */
-	 			results = append(results, &res)
+		/* Add to Set response results. */
+		results = append(results, &res)
+	}
+
+	/* UPDATE */
+	for _, path := range req.GetUpdate() {
+		log.V(2).Infof("Update path: %v ", path)
+
+		res := gnmipb.UpdateResult{
+			Path: path.GetPath(),
+			Op:   gnmipb.UpdateResult_UPDATE,
 		}
-		err = dc.Set(req.GetDelete(), req.GetReplace(), req.GetUpdate())
-	
-	
-	
-		return &gnmipb.SetResponse{
-	 					Prefix:   req.GetPrefix(),
-			  			Response: results,
-					  }, err
+		/* Add to Set response results. */
+		results = append(results, &res)
+	}
+	err = dc.Set(req.GetDelete(), req.GetReplace(), req.GetUpdate())
+
+	return &gnmipb.SetResponse{
+		Prefix:   req.GetPrefix(),
+		Response: results,
+	}, err
 
 }
 
@@ -406,7 +402,7 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 		return nil, err
 	}
 	extensions := req.GetExtension()
-	dc, _ := sdc.NewTranslClient(nil , nil, ctx, extensions)
+	dc, _ := sdc.NewTranslClient(nil, nil, ctx, extensions)
 
 	/* Fetch the client capabitlities. */
 	supportedModels := dc.Capabilities()
@@ -414,41 +410,26 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 
 	for index, model := range supportedModels {
 		suppModels[index] = &gnmipb.ModelData{
-					    	     	Name: model.Name, 
-							Organization: model.Organization, 
-							Version: model.Version,
+			Name:         model.Name,
+			Organization: model.Organization,
+			Version:      model.Version,
 		}
 	}
 
 	sup_bver := spb.SupportedBundleVersions{
 		BundleVersion: translib.GetYangBundleVersion().String(),
-		BaseVersion: translib.GetYangBaseVersion().String(),
+		BaseVersion:   translib.GetYangBaseVersion().String(),
 	}
 	sup_msg, _ := proto.Marshal(&sup_bver)
 	ext := gnmi_extpb.Extension{}
-	ext.Ext = &gnmi_extpb.Extension_RegisteredExt {
-		RegisteredExt: &gnmi_extpb.RegisteredExtension {
-			Id: spb.SUPPORTED_VERSIONS_EXT,
+	ext.Ext = &gnmi_extpb.Extension_RegisteredExt{
+		RegisteredExt: &gnmi_extpb.RegisteredExtension{
+			Id:  spb.SUPPORTED_VERSIONS_EXT,
 			Msg: sup_msg}}
 	exts := []*gnmi_extpb.Extension{&ext}
 
-	return &gnmipb.CapabilityResponse{SupportedModels: suppModels, 
-				 	  SupportedEncodings: supportedEncodings,
-					  GNMIVersion: "0.7.0",
-					  Extension: exts}, nil
+	return &gnmipb.CapabilityResponse{SupportedModels: suppModels,
+		SupportedEncodings: supportedEncodings,
+		GNMIVersion:        "0.7.0",
+		Extension:          exts}, nil
 }
-
-func  isTargetDb ( target string) (bool) {
-	isDbClient := false 
-	dbTargetSupported := []string { "APPL_DB", "ASIC_DB" , "COUNTERS_DB", "LOGLEVEL_DB", "CONFIG_DB", "PFC_WD_DB", "FLEX_COUNTER_DB", "STATE_DB"}
-
-	    for _, name := range  dbTargetSupported {
-		    if  target ==  name {
-			    isDbClient = true
-				    return isDbClient
-		    }
-	    }
-
-	    return isDbClient
-}
-

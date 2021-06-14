@@ -62,7 +62,7 @@ type Stream interface {
 var UseRedisLocalTcpPort bool = false
 
 // redis client connected to each DB
-var Target2RedisDb = make(map[string]*redis.Client)
+var Target2RedisDb = make(map[string]map[string]*redis.Client)
 
 // MinSampleInterval is the lowest sampling interval for streaming subscriptions.
 // Any non-zero value that less than this threshold is considered invalid argument.
@@ -75,11 +75,12 @@ var IntervalTicker = func(interval time.Duration) <-chan time.Time {
 }
 
 type tablePath struct {
-	dbName    string
-	tableName string
-	tableKey  string
-	delimitor string
-	field     string
+	dbNamespace string
+	dbName      string
+	tableName   string
+	tableKey    string
+	delimitor   string
+	field       string
 	// path name to be used in json data which may be different
 	// from the real data path. Ex. in Counters table, real tableKey
 	// is oid:0x####, while key name like Ethernet## may be put
@@ -127,24 +128,6 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
 	// Testing program may ask to use redis local tcp connection
 	if UseRedisLocalTcpPort {
 		useRedisTcpClient()
-	}
-	if prefix.GetTarget() == "COUNTERS_DB" {
-		err = initCountersPortNameMap()
-		if err != nil {
-			return nil, err
-		}
-		err = initCountersQueueNameMap()
-		if err != nil {
-			return nil, err
-		}
-		err = initAliasMap()
-		if err != nil {
-			return nil, err
-		}
-		err = initCountersPfcwdNameMap()
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	client.prefix = prefix
@@ -367,52 +350,97 @@ func ValToResp(val Value) (*gnmipb.SubscribeResponse, error) {
 	}
 }
 
-func GetTableKeySeparator(target string) (string, error) {
+func GetTableKeySeparator(target string, ns string) (string, error) {
 	_, ok := spb.Target_value[target]
 	if !ok {
 		log.V(1).Infof(" %v not a valid path target", target)
 		return "", fmt.Errorf("%v not a valid path target", target)
 	}
 
-	var separator string = sdcfg.GetDbSeparator(target)
+	var separator string = sdcfg.GetDbSeparator(target, ns)
 	return separator, nil
+}
+
+func GetRedisClientsForDb(target string) map[string]*redis.Client {
+	redis_client_map := make(map[string]*redis.Client)
+	if sdcfg.CheckDbMultiNamespace() {
+		ns_list := sdcfg.GetDbNonDefaultNamespaces()
+		for _, ns := range ns_list {
+			redis_client_map[ns] = Target2RedisDb[ns][target]
+		}
+	} else {
+		ns := sdcfg.GetDbDefaultNamespace()
+		redis_client_map[ns] = Target2RedisDb[ns][target]
+	}
+	return redis_client_map
+}
+
+// This function get target present in GNMI Request and
+// returns: 1. DbName (string) 2. Is DbName valid (bool)
+//          3. DbNamespace (string) 4. Is DbNamespace present in Target (bool)
+func IsTargetDb(target string) (string, bool, string, bool) {
+	targetname := strings.Split(target, "/")
+	dbName := targetname[0]
+	dbNameSpaceExist := false
+	dbNamespace := sdcfg.GetDbDefaultNamespace()
+
+	if len(targetname) > 2 {
+		log.V(1).Infof("target format is not correct")
+		return dbName, false, dbNamespace, dbNameSpaceExist
+	}
+
+	if len(targetname) > 1 {
+		dbNamespace = targetname[1]
+		dbNameSpaceExist = true
+	}
+	for name, _ := range spb.Target_value {
+		if name == dbName {
+			return dbName, true, dbNamespace, dbNameSpaceExist
+		}
+	}
+
+	return dbName, false, dbNamespace, dbNameSpaceExist
 }
 
 // For testing only
 func useRedisTcpClient() {
-	for dbName, dbn := range spb.Target_value {
-		if dbName != "OTHERS" {
-			// DB connector for direct redis operation
-			var redisDb *redis.Client
-			if UseRedisLocalTcpPort {
-				redisDb = redis.NewClient(&redis.Options{
+	if !UseRedisLocalTcpPort {
+		return
+	}
+	for _, dbNamespace := range sdcfg.GetDbAllNamespaces() {
+		Target2RedisDb[dbNamespace] = make(map[string]*redis.Client)
+		for dbName, dbn := range spb.Target_value {
+			if dbName != "OTHERS" {
+				// DB connector for direct redis operation
+				redisDb := redis.NewClient(&redis.Options{
 					Network:     "tcp",
-					Addr:        sdcfg.GetDbTcpAddr(dbName),
+					Addr:        sdcfg.GetDbTcpAddr(dbName, dbNamespace),
 					Password:    "", // no password set
 					DB:          int(dbn),
 					DialTimeout: 0,
 				})
+				Target2RedisDb[dbNamespace][dbName] = redisDb
 			}
-			Target2RedisDb[dbName] = redisDb
 		}
 	}
 }
 
 // Client package prepare redis clients to all DBs automatically
 func init() {
-	for dbName, dbn := range spb.Target_value {
-		if dbName != "OTHERS" {
-			// DB connector for direct redis operation
-			var redisDb *redis.Client
-
-			redisDb = redis.NewClient(&redis.Options{
-				Network:     "unix",
-				Addr:        sdcfg.GetDbSock(dbName),
-				Password:    "", // no password set
-				DB:          int(dbn),
-				DialTimeout: 0,
-			})
-			Target2RedisDb[dbName] = redisDb
+	for _, dbNamespace := range sdcfg.GetDbAllNamespaces() {
+		Target2RedisDb[dbNamespace] = make(map[string]*redis.Client)
+		for dbName, dbn := range spb.Target_value {
+			if dbName != "OTHERS" {
+				// DB connector for direct redis operation
+				redisDb := redis.NewClient(&redis.Options{
+					Network:     "unix",
+					Addr:        sdcfg.GetDbSock(dbName, dbNamespace),
+					Password:    "", // no password set
+					DB:          int(dbn),
+					DialTimeout: 0,
+				})
+				Target2RedisDb[dbNamespace][dbName] = redisDb
+			}
 		}
 	}
 }
@@ -447,19 +475,45 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	var tblPath tablePath
 
 	target := prefix.GetTarget()
+	targetDbName, targetDbNameValid, targetDbNameSpace, targetDbNameSpaceExist := IsTargetDb(target)
 	// Verify it is a valid db name
-	redisDb, ok := Target2RedisDb[target]
-	if !ok {
-		return fmt.Errorf("Invalid target name %v", target)
+	if !targetDbNameValid {
+		return fmt.Errorf("Invalid target dbName %v", targetDbName)
 	}
+
+	// Verify Namespace is valid
+	dbNamespace, ok := sdcfg.GetDbNamespaceFromTarget(targetDbNameSpace)
+	if !ok {
+		return fmt.Errorf("Invalid target dbNameSpace %v", targetDbNameSpace)
+	}
+
+	if targetDbName == "COUNTERS_DB" {
+        err := initCountersPortNameMap()
+		if err != nil {
+			return err
+		}
+		err = initCountersQueueNameMap()
+		if err != nil {
+			return err
+		}
+		err = initAliasMap()
+		if err != nil {
+			return err
+		}
+		err = initCountersPfcwdNameMap()
+		if err != nil {
+			return err
+		}
+	}
+
 
 	fullPath := path
 	if prefix != nil {
 		fullPath = gnmiFullPath(prefix, path)
 	}
 
-	stringSlice := []string{target}
-	separator, _ := GetTableKeySeparator(target)
+	stringSlice := []string{targetDbName}
+	separator, _ := GetTableKeySeparator(targetDbName, dbNamespace)
 	elems := fullPath.GetElem()
 	if elems != nil {
 		for i, elem := range elems {
@@ -477,20 +531,28 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	// First lookup the Virtual path to Real path mapping tree
 	// The path from gNMI might not be real db path
 	if tblPaths, err := lookupV2R(stringSlice); err == nil {
+		if targetDbNameSpaceExist {
+			return fmt.Errorf("Target having %v namespace is not supported for V2R Dataset", dbNamespace)
+		}
 		(*pathG2S)[path] = tblPaths
 		log.V(5).Infof("v2r from %v to %+v ", stringSlice, tblPaths)
 		return nil
 	} else {
 		log.V(5).Infof("v2r lookup failed for %v %v", stringSlice, err)
 	}
-
-	tblPath.dbName = target
+	tblPath.dbNamespace = dbNamespace
+	tblPath.dbName = targetDbName
 	tblPath.tableName = stringSlice[1]
 	tblPath.delimitor = separator
 
 	var mappedKey string
 	if len(stringSlice) > 2 { // tmp, to remove mappedKey
 		mappedKey = stringSlice[2]
+	}
+
+	redisDb, ok := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
+	if !ok {
+		return fmt.Errorf("Redis Client not present for dbName %v dbNamespace %v", targetDbName, dbNamespace)
 	}
 
 	// The expect real db path could be in one of the formats:
@@ -596,7 +658,7 @@ func emitJSON(v *map[string]interface{}) ([]byte, error) {
 // If only table name provided in the tablePath, find all keys in the table, otherwise
 // Use tableName + tableKey as key to get all field value paires
 func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]interface{}) error {
-	redisDb := Target2RedisDb[tblPath.dbName]
+	redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
 
 	var pattern string
 	var dbkeys []string
@@ -678,7 +740,7 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 	var useKey bool
 	msi := make(map[string]interface{})
 	for _, tblPath := range tblPaths {
-		redisDb := Target2RedisDb[tblPath.dbName]
+		redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
 
 		if tblPath.jsonField == "" { // Not asked to include field in json value, which means not wildcard query
 			// table path includes table, key and field
@@ -750,7 +812,7 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 				key = tblPath.tableName
 			}
 			// run redis get directly for field value
-			redisDb := Target2RedisDb[tblPath.dbName]
+			redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
 			val, err := redisDb.HGet(key, tblPath.field).Result()
 			if err == redis.Nil {
 				if tblPath.jsonField != "" {
@@ -836,7 +898,7 @@ func dbFieldSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interva
 	tblPaths := c.pathG2S[gnmiPath]
 	tblPath := tblPaths[0]
 	// run redis get directly for field value
-	redisDb := Target2RedisDb[tblPath.dbName]
+	redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
 
 	var key string
 	if tblPath.tableKey != "" {
@@ -1066,7 +1128,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 			prefixLen = len(pattern)
 			pattern += "*"
 		}
-		redisDb := Target2RedisDb[tblPath.dbName]
+		redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
 		pubsub := redisDb.PSubscribe(pattern)
 		defer pubsub.Close()
 
@@ -1160,9 +1222,10 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 	}
 }
 
-func  (c *DbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
+func (c *DbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	return nil
 }
+
 func (c *DbClient) Capabilities() []gnmipb.ModelData {
 	return nil
 }

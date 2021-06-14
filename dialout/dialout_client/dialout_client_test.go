@@ -97,9 +97,9 @@ func runServer(t *testing.T, s *sds.Server) {
 func getRedisClient(t *testing.T) *redis.Client {
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("COUNTERS_DB"),
+		Addr:        sdcfg.GetDbTcpAddr("COUNTERS_DB", sdcfg.GetDbDefaultNamespace()),
 		Password:    "", // no password set
-		DB:          sdcfg.GetDbId("COUNTERS_DB"),
+		DB:          sdcfg.GetDbId("COUNTERS_DB", sdcfg.GetDbDefaultNamespace()),
 		DialTimeout: 0,
 	})
 	_, err := rclient.Ping().Result()
@@ -126,9 +126,9 @@ func exe_cmd(t *testing.T, cmd string) {
 func getConfigDbClient(t *testing.T) *redis.Client {
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("CONFIG_DB"),
+		Addr:        sdcfg.GetDbTcpAddr("CONFIG_DB", sdcfg.GetDbDefaultNamespace()),
 		Password:    "", // no password set
-		DB:          sdcfg.GetDbId("CONFIG_DB"),
+		DB:          sdcfg.GetDbId("CONFIG_DB", sdcfg.GetDbDefaultNamespace()),
 		DialTimeout: 0,
 	})
 	_, err := rclient.Ping().Result()

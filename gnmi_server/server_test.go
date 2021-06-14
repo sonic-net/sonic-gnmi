@@ -2,7 +2,6 @@ package gnmi
 
 // server_test covers gNMI get, subscribe (stream and poll) test
 // Prerequisite: redis-server should be running.
-
 import (
 	"crypto/tls"
 	"encoding/json"
@@ -39,6 +38,7 @@ import (
 	sgpb "github.com/Azure/sonic-telemetry/proto/gnoi"
 	sdc "github.com/Azure/sonic-telemetry/sonic_data_client"
 	sdcfg "github.com/Azure/sonic-telemetry/sonic_db_config"
+	"github.com/Azure/sonic-telemetry/test_utils"
 	gclient "github.com/jipanyang/gnmi/client/gnmi"
 	"github.com/jipanyang/gnxi/utils/xpath"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
@@ -86,22 +86,22 @@ func loadDBNotStrict(t *testing.T, rclient *redis.Client, mpi map[string]interfa
 }
 
 func createServer(t *testing.T, port int64) *Server {
-    certificate, err := testcert.NewCert()
-    if err != nil {
-        t.Errorf("could not load server key pair: %s", err)
-    }
-    tlsCfg := &tls.Config{
-        ClientAuth:   tls.RequestClientCert,
-        Certificates: []tls.Certificate{certificate},
-    }
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Errorf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
 
-    opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-    cfg := &Config{Port: port}
-    s, err := NewServer(cfg, opts)
-    if err != nil {
-        t.Errorf("Failed to create gNMI server: %v", err)
-    }
-    return s
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &Config{Port: port}
+	s, err := NewServer(cfg, opts)
+	if err != nil {
+		t.Errorf("Failed to create gNMI server: %v", err)
+	}
+	return s
 }
 
 // runTestGet requests a path from the server by Get grpc call, and compares if
@@ -230,10 +230,10 @@ func runServer(t *testing.T, s *Server) {
 	//t.Log("Exiting RPC server on address", s.Address())
 }
 
-func getRedisClientN(t *testing.T, n int) *redis.Client {
+func getRedisClientN(t *testing.T, n int, namespace string) *redis.Client {
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("COUNTERS_DB"),
+		Addr:        sdcfg.GetDbTcpAddr("COUNTERS_DB", namespace),
 		Password:    "", // no password set
 		DB:          n,
 		DialTimeout: 0,
@@ -245,12 +245,13 @@ func getRedisClientN(t *testing.T, n int) *redis.Client {
 	return rclient
 }
 
-func getRedisClient(t *testing.T) *redis.Client {
+func getRedisClient(t *testing.T, namespace string) *redis.Client {
+
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("COUNTERS_DB"),
+		Addr:        sdcfg.GetDbTcpAddr("COUNTERS_DB", namespace),
 		Password:    "", // no password set
-		DB:          sdcfg.GetDbId("COUNTERS_DB"),
+		DB:          sdcfg.GetDbId("COUNTERS_DB", namespace),
 		DialTimeout: 0,
 	})
 	_, err := rclient.Ping().Result()
@@ -260,12 +261,13 @@ func getRedisClient(t *testing.T) *redis.Client {
 	return rclient
 }
 
-func getConfigDbClient(t *testing.T) *redis.Client {
+func getConfigDbClient(t *testing.T, namespace string) *redis.Client {
+
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("CONFIG_DB"),
+		Addr:        sdcfg.GetDbTcpAddr("CONFIG_DB", namespace),
 		Password:    "", // no password set
-		DB:          sdcfg.GetDbId("CONFIG_DB"),
+		DB:          sdcfg.GetDbId("CONFIG_DB", namespace),
 		DialTimeout: 0,
 	})
 	_, err := rclient.Ping().Result()
@@ -289,8 +291,8 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 	}
 }
 
-func prepareConfigDb(t *testing.T) {
-	rclient := getConfigDbClient(t)
+func prepareConfigDb(t *testing.T, namespace string) {
+	rclient := getConfigDbClient(t, namespace)
 	defer rclient.Close()
 	rclient.FlushDB()
 
@@ -310,9 +312,15 @@ func prepareConfigDb(t *testing.T) {
 	mpi_pfcwd_map := loadConfig(t, "", configPfcwdByte)
 	loadConfigDB(t, rclient, mpi_pfcwd_map)
 }
+func prepareStateDb(t *testing.T, namespace string) {
+	rclient := getRedisClientN(t, 6, namespace)
+	defer rclient.Close()
+	rclient.FlushDB()
+	rclient.HSet("SWITCH_CAPABILITY|switch", "test_field", "test_value")
+}
 
-func prepareDb(t *testing.T) {
-	rclient := getRedisClient(t)
+func prepareDb(t *testing.T, namespace string) {
+	rclient := getRedisClient(t, namespace)
 	defer rclient.Close()
 	rclient.FlushDB()
 	//Enable keysapce notification
@@ -394,11 +402,14 @@ func prepareDb(t *testing.T) {
 	loadDB(t, rclient, mpi_counter)
 
 	// Load CONFIG_DB for alias translation
-	prepareConfigDb(t)
+	prepareConfigDb(t, namespace)
+
+	//Load STATE_DB to test non V2R dataset
+	prepareStateDb(t, namespace)
 }
 
 func prepareDbTranslib(t *testing.T) {
-	rclient := getRedisClient(t)
+	rclient := getRedisClient(t, sdcfg.GetDbDefaultNamespace())
 	rclient.FlushDB()
 	rclient.Close()
 
@@ -418,7 +429,7 @@ func prepareDbTranslib(t *testing.T) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	for n, v := range rj {
-		rclient := getRedisClientN(t, n)
+		rclient := getRedisClientN(t, n, sdcfg.GetDbDefaultNamespace())
 		loadDBNotStrict(t, rclient, v)
 		rclient.Close()
 	}
@@ -685,13 +696,7 @@ func TestGnmiSet(t *testing.T) {
 	s.s.Stop()
 }
 
-func TestGnmiGet(t *testing.T) {
-	//t.Log("Start server")
-	s := createServer(t, 8081)
-	go runServer(t, s)
-
-	prepareDb(t)
-
+func runGnmiTestGet(t *testing.T, namespace string) {
 	//t.Log("Start gNMI client")
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
@@ -749,6 +754,12 @@ func TestGnmiGet(t *testing.T) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
+	stateDBPath := "STATE_DB"
+
+	if namespace != sdcfg.GetDbDefaultNamespace() {
+		stateDBPath = "STATE_DB" + "/" + namespace
+	}
+
 	type testCase struct {
 		desc        string
 		pathTarget  string
@@ -804,108 +815,138 @@ func TestGnmiGet(t *testing.T) {
 		`,
 		wantRetCode: codes.Unimplemented,
 	}, {
-		desc:       "Get valid but non-existing node",
-		pathTarget: "COUNTERS_DB",
+		desc:       "Test passing asic in path for V2R Dataset Target",
+		pathTarget: "COUNTER_DB" + "/" + namespace,
 		textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "Ethernet68" >
+				`,
+		wantRetCode: codes.NotFound,
+	},
+		{
+			desc:       "Get valid but non-existing node",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
 			elem: <name: "MyCounters" >
 		`,
-		wantRetCode: codes.NotFound,
-	}, {
-		desc:       "Get COUNTERS_PORT_NAME_MAP",
-		pathTarget: "COUNTERS_DB",
-		textPbPath: `
+			wantRetCode: codes.NotFound,
+		}, {
+			desc:       "Get COUNTERS_PORT_NAME_MAP",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
 			elem: <name: "COUNTERS_PORT_NAME_MAP" >
 		`,
-		wantRetCode: codes.OK,
-		wantRespVal: countersPortNameMapByte,
-	}, {
-		desc:       "get COUNTERS:Ethernet68",
-		pathTarget: "COUNTERS_DB",
-		textPbPath: `
+			wantRetCode: codes.OK,
+			wantRespVal: countersPortNameMapByte,
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS:Ethernet68",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
 					elem: <name: "COUNTERS" >
 					elem: <name: "Ethernet68" >
 				`,
-		wantRetCode: codes.OK,
-		wantRespVal: countersEthernet68Byte,
-	}, {
-		desc:       "get COUNTERS:Ethernet68 SAI_PORT_STAT_PFC_7_RX_PKTS",
-		pathTarget: "COUNTERS_DB",
-		textPbPath: `
+			wantRetCode: codes.OK,
+			wantRespVal: countersEthernet68Byte,
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS:Ethernet68 SAI_PORT_STAT_PFC_7_RX_PKTS",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
 					elem: <name: "COUNTERS" >
 					elem: <name: "Ethernet68" >
 					elem: <name: "SAI_PORT_STAT_PFC_7_RX_PKTS" >
 				`,
-		wantRetCode: codes.OK,
-		wantRespVal: "2",
-	}, {
-		desc:       "get COUNTERS:Ethernet68 Pfcwd",
-		pathTarget: "COUNTERS_DB",
-		textPbPath: `
+			wantRetCode: codes.OK,
+			wantRespVal: "2",
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS:Ethernet68 Pfcwd",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
 					elem: <name: "COUNTERS" >
 					elem: <name: "Ethernet68" >
 					elem: <name: "Pfcwd" >
 				`,
-		wantRetCode: codes.OK,
-		wantRespVal: countersEthernet68PfcwdByte,
-	}, {
-		desc:       "get COUNTERS (use vendor alias):Ethernet68/1",
-		pathTarget: "COUNTERS_DB",
-		textPbPath: `
+			wantRetCode: codes.OK,
+			wantRespVal: countersEthernet68PfcwdByte,
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS (use vendor alias):Ethernet68/1",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
 					elem: <name: "COUNTERS" >
 					elem: <name: "Ethernet68/1" >
 				`,
-		wantRetCode: codes.OK,
-		wantRespVal: countersEthernet68Byte,
-	}, {
-		desc:       "get COUNTERS (use vendor alias):Ethernet68/1 SAI_PORT_STAT_PFC_7_RX_PKTS",
-		pathTarget: "COUNTERS_DB",
-		textPbPath: `
+			wantRetCode: codes.OK,
+			wantRespVal: countersEthernet68Byte,
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS (use vendor alias):Ethernet68/1 SAI_PORT_STAT_PFC_7_RX_PKTS",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
 					elem: <name: "COUNTERS" >
 					elem: <name: "Ethernet68/1" >
 					elem: <name: "SAI_PORT_STAT_PFC_7_RX_PKTS" >
 				`,
-		wantRetCode: codes.OK,
-		wantRespVal: "2",
-	}, {
-		desc:       "get COUNTERS (use vendor alias):Ethernet68/1 Pfcwd",
-		pathTarget: "COUNTERS_DB",
-		textPbPath: `
+			wantRetCode: codes.OK,
+			wantRespVal: "2",
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS (use vendor alias):Ethernet68/1 Pfcwd",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
 					elem: <name: "COUNTERS" >
 					elem: <name: "Ethernet68/1" >
 					elem: <name: "Pfcwd" >
 				`,
-		wantRetCode: codes.OK,
-		wantRespVal: countersEthernet68PfcwdAliasByte,
-	}, {
-		desc:       "get COUNTERS:Ethernet*",
-		pathTarget: "COUNTERS_DB",
-		textPbPath: `
+			wantRetCode: codes.OK,
+			wantRespVal: countersEthernet68PfcwdAliasByte,
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS:Ethernet*",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
 					elem: <name: "COUNTERS" >
 					elem: <name: "Ethernet*" >
 				`,
-		wantRetCode: codes.OK,
-		wantRespVal: countersEthernetWildcardByte,
-	}, {
-		desc:       "get COUNTERS:Ethernet* SAI_PORT_STAT_PFC_7_RX_PKTS",
-		pathTarget: "COUNTERS_DB",
-		textPbPath: `
+			wantRetCode: codes.OK,
+			wantRespVal: countersEthernetWildcardByte,
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS:Ethernet* SAI_PORT_STAT_PFC_7_RX_PKTS",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
 					elem: <name: "COUNTERS" >
 					elem: <name: "Ethernet*" >
 					elem: <name: "SAI_PORT_STAT_PFC_7_RX_PKTS" >
 				`,
-		wantRetCode: codes.OK,
-		wantRespVal: countersEthernetWildcardPfcByte,
-	}, {
-		desc:       "get COUNTERS:Ethernet* Pfcwd",
-		pathTarget: "COUNTERS_DB",
-		textPbPath: `
+			wantRetCode: codes.OK,
+			wantRespVal: countersEthernetWildcardPfcByte,
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS:Ethernet* Pfcwd",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
 					elem: <name: "COUNTERS" >
 					elem: <name: "Ethernet*" >
 					elem: <name: "Pfcwd" >
 				`,
-		wantRetCode: codes.OK,
-		wantRespVal: countersEthernetWildcardPfcwdByte,
-	},
+			wantRetCode: codes.OK,
+			wantRespVal: countersEthernetWildcardPfcwdByte,
+			valTest:     true,
+		}, {
+			desc:       "get State DB Data for SWITCH_CAPABILITY switch",
+			pathTarget: stateDBPath,
+			textPbPath: `
+					elem: <name: "SWITCH_CAPABILITY" >
+					elem: <name: "switch" >
+				`,
+			valTest:     true,
+			wantRetCode: codes.OK,
+			wantRespVal: []byte(`{"test_field": "test_value"}`),
+		},
+
 		// Happy path
 		createBuildVersionTestCase(
 			"get osversion/build",                                  // query path
@@ -944,9 +985,45 @@ func TestGnmiGet(t *testing.T) {
 			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
 		})
 	}
-	s.s.Stop()
+
 }
 
+func TestGnmiGet(t *testing.T) {
+	//t.Log("Start server")
+	s := createServer(t, 8081)
+	go runServer(t, s)
+
+	prepareDb(t, sdcfg.GetDbDefaultNamespace())
+
+	runGnmiTestGet(t, sdcfg.GetDbDefaultNamespace())
+
+	s.s.Stop()
+}
+func TestGnmiGetMultiNs(t *testing.T) {
+	sdcfg.Init()
+	err := test_utils.SetupMultiNamespace()
+	if err != nil {
+		t.Fatalf("error Setting up MultiNamespace files with err %T", err)
+	}
+
+	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
+	t.Cleanup(func() {
+		if err := test_utils.CleanUpMultiNamespace(); err != nil {
+			t.Fatalf("error Cleaning up MultiNamespace files with err %T", err)
+
+		}
+	})
+
+	//t.Log("Start server")
+	s := createServer(t, 8081)
+	go runServer(t, s)
+
+	prepareDb(t, test_utils.GetMultiNsNamespace())
+
+	runGnmiTestGet(t, test_utils.GetMultiNsNamespace())
+
+	s.s.Stop()
+}
 func TestGnmiGetTranslib(t *testing.T) {
 	//t.Log("Start server")
 	s := createServer(t, 8081)
@@ -1102,7 +1179,7 @@ type tablePathValue struct {
 
 // runTestSubscribe subscribe DB path in stream mode or poll mode.
 // The return code and response value are compared with expected code and value.
-func runTestSubscribe(t *testing.T) {
+func runTestSubscribe(t *testing.T, namespace string) {
 	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -2069,10 +2146,10 @@ func runTestSubscribe(t *testing.T) {
 		},
 	}
 
-	rclient := getRedisClient(t)
+	rclient := getRedisClient(t, namespace)
 	defer rclient.Close()
 	for _, tt := range tests {
-		prepareDb(t)
+		prepareDb(t, namespace)
 		// Extra db preparation for this test case
 		for _, prepare := range tt.prepares {
 			switch prepare.op {
@@ -2083,6 +2160,7 @@ func runTestSubscribe(t *testing.T) {
 			}
 		}
 
+		sdcIntervalTicker := sdc.IntervalTicker
 		intervalTickerChan := make(chan time.Time)
 		if tt.generateIntervals {
 			sdc.IntervalTicker = func(interval time.Duration) <-chan time.Time {
@@ -2165,6 +2243,9 @@ func runTestSubscribe(t *testing.T) {
 				t.Errorf("unexpected updates:\n%s", diff)
 			}
 		})
+		if tt.generateIntervals {
+			sdc.IntervalTicker = sdcIntervalTicker
+		}
 	}
 }
 
@@ -2172,7 +2253,29 @@ func TestGnmiSubscribe(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
 
-	runTestSubscribe(t)
+	runTestSubscribe(t, sdcfg.GetDbDefaultNamespace())
+
+	s.s.Stop()
+}
+func TestGnmiSubscribeMultiNs(t *testing.T) {
+	sdcfg.Init()
+	err := test_utils.SetupMultiNamespace()
+	if err != nil {
+		t.Fatalf("error Setting up MultiNamespace files with err %T", err)
+	}
+
+	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
+	t.Cleanup(func() {
+		if err := test_utils.CleanUpMultiNamespace(); err != nil {
+			t.Fatalf("error Cleaning up MultiNamespace files with err %T", err)
+
+		}
+	})
+
+	s := createServer(t, 8081)
+	go runServer(t, s)
+
+	runTestSubscribe(t, test_utils.GetMultiNsNamespace())
 
 	s.s.Stop()
 }
@@ -2212,206 +2315,202 @@ func TestCapabilities(t *testing.T) {
 }
 
 func TestGNOI(t *testing.T) {
-    s := createServer(t, 8086)
-    go runServer(t, s)
-    defer s.s.Stop()
+	s := createServer(t, 8086)
+	go runServer(t, s)
+	defer s.s.Stop()
 
-    // prepareDb(t)
+	// prepareDb(t)
 
-    //t.Log("Start gNMI client")
-    tlsConfig := &tls.Config{InsecureSkipVerify: true}
-    opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	//t.Log("Start gNMI client")
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
 
-    //targetAddr := "30.57.185.38:8080"
-    targetAddr := "127.0.0.1:8086"
-    conn, err := grpc.Dial(targetAddr, opts...)
-    if err != nil {
-        t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
-    }
-    defer conn.Close()
-
-
-    ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
-    defer cancel()
-
-    t.Run("SystemTime", func(t *testing.T) {
-        sc := gnoi_system_pb.NewSystemClient(conn)
-        resp,err := sc.Time(ctx, new(gnoi_system_pb.TimeRequest))
-        if err != nil {
-            t.Fatal(err.Error())
-        }
-        ctime := uint64(time.Now().UnixNano())
-        if ctime - resp.Time < 0 || ctime - resp.Time > 1e9 {
-            t.Fatalf("Invalid System Time %d", resp.Time)
-        }
-    })
-    t.Run("SonicShowTechsupport", func(t *testing.T) {
-        sc := sgpb.NewSonicServiceClient(conn)
-        rtime := time.Now().AddDate(0,-1,0)
-        req := &sgpb.TechsupportRequest {
-            Input: &sgpb.TechsupportRequest_Input{
-                Date: rtime.Format("20060102_150405"),
-            },
-        }
-        resp,err := sc.ShowTechsupport(ctx, req)
-        if err != nil {
-            t.Fatal(err.Error())
-        }
-
-        if len(resp.Output.OutputFilename) == 0 {
-            t.Fatalf("Invalid Output Filename: %s", resp.Output.OutputFilename)
-        }
-    })
-
-    type configData struct {
-	    source string
-	    destination string
-	    overwrite bool
-	    status int32
-    }
-
-    var cfg_data = []configData {
-	    configData{"running-configuration", "startup-configuration", false, 0},
-    	    configData{"running-configuration", "file://etc/sonic/config_db_test.json", false, 0},
-            configData{"file://etc/sonic/config_db_test.json", "running-configuration", false, 0},
-            configData{"startup-configuration", "running-configuration", false, 0},
-            configData{"file://etc/sonic/config_db_3.json", "running-configuration", false, 1}}
-    
-    for  _,v := range cfg_data {
-
-    t.Run("SonicCopyConfig", func(t *testing.T) {
-	    sc := sgpb.NewSonicServiceClient(conn)
-	    req := &sgpb.CopyConfigRequest {
-		Input: &sgpb.CopyConfigRequest_Input{
-		   Source: v.source,
-		   Destination: v.destination,
-		   Overwrite: v.overwrite,
-	},
-	}
-	t.Logf("source: %s dest: %s overwrite: %t", v.source, v.destination, v.overwrite)
-	resp, err := sc.CopyConfig(ctx, req)
+	//targetAddr := "30.57.185.38:8080"
+	targetAddr := "127.0.0.1:8086"
+	conn, err := grpc.Dial(targetAddr, opts...)
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
 	}
-	if resp.Output.Status != v.status {
-		t.Fatalf("Copy Failed: status %d,  %s", resp.Output.Status, resp.Output.StatusDetail)
+	defer conn.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
+	defer cancel()
+
+	t.Run("SystemTime", func(t *testing.T) {
+		sc := gnoi_system_pb.NewSystemClient(conn)
+		resp, err := sc.Time(ctx, new(gnoi_system_pb.TimeRequest))
+		if err != nil {
+			t.Fatal(err.Error())
+		}
+		ctime := uint64(time.Now().UnixNano())
+		if ctime-resp.Time < 0 || ctime-resp.Time > 1e9 {
+			t.Fatalf("Invalid System Time %d", resp.Time)
+		}
+	})
+	t.Run("SonicShowTechsupport", func(t *testing.T) {
+		sc := sgpb.NewSonicServiceClient(conn)
+		rtime := time.Now().AddDate(0, -1, 0)
+		req := &sgpb.TechsupportRequest{
+			Input: &sgpb.TechsupportRequest_Input{
+				Date: rtime.Format("20060102_150405"),
+			},
+		}
+		resp, err := sc.ShowTechsupport(ctx, req)
+		if err != nil {
+			t.Fatal(err.Error())
+		}
+
+		if len(resp.Output.OutputFilename) == 0 {
+			t.Fatalf("Invalid Output Filename: %s", resp.Output.OutputFilename)
+		}
+	})
+
+	type configData struct {
+		source      string
+		destination string
+		overwrite   bool
+		status      int32
 	}
-    })
-    }
+
+	var cfg_data = []configData{
+		configData{"running-configuration", "startup-configuration", false, 0},
+		configData{"running-configuration", "file://etc/sonic/config_db_test.json", false, 0},
+		configData{"file://etc/sonic/config_db_test.json", "running-configuration", false, 0},
+		configData{"startup-configuration", "running-configuration", false, 0},
+		configData{"file://etc/sonic/config_db_3.json", "running-configuration", false, 1}}
+
+	for _, v := range cfg_data {
+
+		t.Run("SonicCopyConfig", func(t *testing.T) {
+			sc := sgpb.NewSonicServiceClient(conn)
+			req := &sgpb.CopyConfigRequest{
+				Input: &sgpb.CopyConfigRequest_Input{
+					Source:      v.source,
+					Destination: v.destination,
+					Overwrite:   v.overwrite,
+				},
+			}
+			t.Logf("source: %s dest: %s overwrite: %t", v.source, v.destination, v.overwrite)
+			resp, err := sc.CopyConfig(ctx, req)
+			if err != nil {
+				t.Fatal(err.Error())
+			}
+			if resp.Output.Status != v.status {
+				t.Fatalf("Copy Failed: status %d,  %s", resp.Output.Status, resp.Output.StatusDetail)
+			}
+		})
+	}
 }
 
 func TestBundleVersion(t *testing.T) {
-    s := createServer(t, 8087)
-    go runServer(t, s)
-    defer s.s.Stop()
+	s := createServer(t, 8087)
+	go runServer(t, s)
+	defer s.s.Stop()
 
-    // prepareDb(t)
+	// prepareDb(t)
 
-    //t.Log("Start gNMI client")
-    tlsConfig := &tls.Config{InsecureSkipVerify: true}
-    opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	//t.Log("Start gNMI client")
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
 
-    //targetAddr := "30.57.185.38:8080"
-    targetAddr := "127.0.0.1:8087"
-    conn, err := grpc.Dial(targetAddr, opts...)
-    if err != nil {
-        t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
-    }
-    defer conn.Close()
+	//targetAddr := "30.57.185.38:8080"
+	targetAddr := "127.0.0.1:8087"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
 
-    gClient := pb.NewGNMIClient(conn)
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
-    t.Run("Invalid Bundle Version Format", func(t *testing.T) {
-        var pbPath *pb.Path
-        pbPath, err := xpath.ToGNMIPath("openconfig-interfaces:interfaces/interface[name=Ethernet0]/config")
-	prefix := pb.Path{Target: "OC-YANG"}
-        if err != nil {
-            t.Fatalf("error in unmarshaling path: %v", err)
-        }
-        bundleVersion := "50.0.0"
-        bv, err := proto.Marshal(&spb.BundleVersion{
-            Version: bundleVersion,
-        })
-        if err != nil {
-            t.Fatalf("%v", err)
-        }
-        req := &pb.GetRequest{
-            Path:     []*pb.Path{pbPath},
-            Prefix:   &prefix,
-            Encoding: pb.Encoding_JSON_IETF,
-        }
-        req.Extension = append(req.Extension, &ext_pb.Extension{
-                    Ext: &ext_pb.Extension_RegisteredExt {
-                        RegisteredExt: &ext_pb.RegisteredExtension {
-                        Id: spb.BUNDLE_VERSION_EXT,
-                        Msg: bv,
-                    }}})
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	t.Run("Invalid Bundle Version Format", func(t *testing.T) {
+		var pbPath *pb.Path
+		pbPath, err := xpath.ToGNMIPath("openconfig-interfaces:interfaces/interface[name=Ethernet0]/config")
+		prefix := pb.Path{Target: "OC-YANG"}
+		if err != nil {
+			t.Fatalf("error in unmarshaling path: %v", err)
+		}
+		bundleVersion := "50.0.0"
+		bv, err := proto.Marshal(&spb.BundleVersion{
+			Version: bundleVersion,
+		})
+		if err != nil {
+			t.Fatalf("%v", err)
+		}
+		req := &pb.GetRequest{
+			Path:     []*pb.Path{pbPath},
+			Prefix:   &prefix,
+			Encoding: pb.Encoding_JSON_IETF,
+		}
+		req.Extension = append(req.Extension, &ext_pb.Extension{
+			Ext: &ext_pb.Extension_RegisteredExt{
+				RegisteredExt: &ext_pb.RegisteredExtension{
+					Id:  spb.BUNDLE_VERSION_EXT,
+					Msg: bv,
+				}}})
 
-       
-
-        _, err = gClient.Get(ctx, req)
-        gotRetStatus, ok := status.FromError(err)
-        if !ok {
-            t.Fatal("got a non-grpc error from grpc call")
-        }
-        if gotRetStatus.Code() != codes.NotFound {
-            t.Log("err: ", err)
-            t.Fatalf("got return code %v, want %v", gotRetStatus.Code(), codes.OK)
-        }
-    })
+		_, err = gClient.Get(ctx, req)
+		gotRetStatus, ok := status.FromError(err)
+		if !ok {
+			t.Fatal("got a non-grpc error from grpc call")
+		}
+		if gotRetStatus.Code() != codes.NotFound {
+			t.Log("err: ", err)
+			t.Fatalf("got return code %v, want %v", gotRetStatus.Code(), codes.OK)
+		}
+	})
 }
 
 func TestBulkSet(t *testing.T) {
-    s := createServer(t, 8088)
-    go runServer(t, s)
-    defer s.s.Stop()
+	s := createServer(t, 8088)
+	go runServer(t, s)
+	defer s.s.Stop()
 
-    // prepareDb(t)
+	// prepareDb(t)
 
-    //t.Log("Start gNMI client")
-    tlsConfig := &tls.Config{InsecureSkipVerify: true}
-    opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	//t.Log("Start gNMI client")
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
 
-    //targetAddr := "30.57.185.38:8080"
-    targetAddr := "127.0.0.1:8088"
-    conn, err := grpc.Dial(targetAddr, opts...)
-    if err != nil {
-        t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
-    }
-    defer conn.Close()
+	//targetAddr := "30.57.185.38:8080"
+	targetAddr := "127.0.0.1:8088"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
 
-    gClient := pb.NewGNMIClient(conn)
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
-    t.Run("Set Multiple mtu", func(t *testing.T) {
-        pbPath1, _ := xpath.ToGNMIPath("openconfig-interfaces:interfaces/interface[name=Ethernet0]/config/mtu")
-        v := &pb.TypedValue{
-            Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte("{\"mtu\": 9104}")}}
-        update1 := &pb.Update {
-            Path: pbPath1,
-            Val: v,
-        }
-        pbPath2, _ := xpath.ToGNMIPath("openconfig-interfaces:interfaces/interface[name=Ethernet4]/config/mtu")
-        v2 := &pb.TypedValue{
-            Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte("{\"mtu\": 9105}")}}
-        update2 := &pb.Update {
-            Path: pbPath2,
-            Val: v2,
-        }
-       
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	t.Run("Set Multiple mtu", func(t *testing.T) {
+		pbPath1, _ := xpath.ToGNMIPath("openconfig-interfaces:interfaces/interface[name=Ethernet0]/config/mtu")
+		v := &pb.TypedValue{
+			Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte("{\"mtu\": 9104}")}}
+		update1 := &pb.Update{
+			Path: pbPath1,
+			Val:  v,
+		}
+		pbPath2, _ := xpath.ToGNMIPath("openconfig-interfaces:interfaces/interface[name=Ethernet4]/config/mtu")
+		v2 := &pb.TypedValue{
+			Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte("{\"mtu\": 9105}")}}
+		update2 := &pb.Update{
+			Path: pbPath2,
+			Val:  v2,
+		}
 
-        req := &pb.SetRequest{
-            Update:     []*pb.Update{update1, update2},
-        }
+		req := &pb.SetRequest{
+			Update: []*pb.Update{update1, update2},
+		}
 
-        _, err = gClient.Set(ctx, req)
-        _, ok := status.FromError(err)
-        if !ok {
-            t.Fatal("got a non-grpc error from grpc call")
-        }
+		_, err = gClient.Set(ctx, req)
+		_, ok := status.FromError(err)
+		if !ok {
+			t.Fatal("got a non-grpc error from grpc call")
+		}
 
-    })
+	})
 
 }
 

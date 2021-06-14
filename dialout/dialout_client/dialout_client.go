@@ -8,11 +8,11 @@ import (
 	spb "github.com/Azure/sonic-telemetry/proto"
 	sdc "github.com/Azure/sonic-telemetry/sonic_data_client"
 	sdcfg "github.com/Azure/sonic-telemetry/sonic_db_config"
+	"github.com/Workiva/go-datastructures/queue"
 	"github.com/go-redis/redis"
 	log "github.com/golang/glog"
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/openconfig/ygot/ygot"
-	"github.com/Workiva/go-datastructures/queue"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -462,7 +462,7 @@ func setupDestGroupClients(ctx context.Context, destGroupName string) {
 // start/stop/update telemetry publist client as requested
 // TODO: more validation on db data
 func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, key string, op string) error {
-	separator, _ := sdc.GetTableKeySeparator("CONFIG_DB")
+	separator, _ := sdc.GetTableKeySeparator("CONFIG_DB", sdcfg.GetDbDefaultNamespace())
 	tableKey := "TELEMETRY_CLIENT" + separator + key
 	fv, err := redisDb.HGetAll(tableKey).Result()
 	if err != nil {
@@ -642,13 +642,13 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 // read configDB data for telemetry client and start publishing service for client subscription
 func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 	clientCfg = ccfg
-	dbn := sdcfg.GetDbId("CONFIG_DB")
+	dbn := sdcfg.GetDbId("CONFIG_DB", sdcfg.GetDbDefaultNamespace())
 
 	var redisDb *redis.Client
 	if sdc.UseRedisLocalTcpPort == false {
 		redisDb = redis.NewClient(&redis.Options{
 			Network:     "unix",
-			Addr:        sdcfg.GetDbSock("CONFIG_DB"),
+			Addr:        sdcfg.GetDbSock("CONFIG_DB", sdcfg.GetDbDefaultNamespace()),
 			Password:    "", // no password set
 			DB:          dbn,
 			DialTimeout: 0,
@@ -656,14 +656,14 @@ func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 	} else {
 		redisDb = redis.NewClient(&redis.Options{
 			Network:     "tcp",
-			Addr:        sdcfg.GetDbTcpAddr("CONFIG_DB"),
+			Addr:        sdcfg.GetDbTcpAddr("CONFIG_DB", sdcfg.GetDbDefaultNamespace()),
 			Password:    "", // no password set
 			DB:          dbn,
 			DialTimeout: 0,
 		})
 	}
 
-	separator, _ := sdc.GetTableKeySeparator("CONFIG_DB")
+	separator, _ := sdc.GetTableKeySeparator("CONFIG_DB", sdcfg.GetDbDefaultNamespace())
 	pattern := "__keyspace@" + strconv.Itoa(int(dbn)) + "__:TELEMETRY_CLIENT" + separator
 	prefixLen := len(pattern)
 	pattern += "*"
