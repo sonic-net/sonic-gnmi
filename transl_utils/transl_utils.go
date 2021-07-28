@@ -23,8 +23,11 @@ func __log_audit_msg(ctx context.Context, reqType string, uriPath string, err er
     var err1 error
     username := "invalid"
     statusMsg := "failure"
+    errMsg := "None"
     if (err == nil) {
         statusMsg = "success"
+    } else {
+        errMsg = err.Error()
     }
 
     if Writer == nil {
@@ -38,7 +41,7 @@ func __log_audit_msg(ctx context.Context, reqType string, uriPath string, err er
     common_utils.GetUsername(ctx, &username)
 
     auditMsg := fmt.Sprintf("User \"%s\" request \"%s %s\" status - %s error - %s",
-                            username, reqType, uriPath, statusMsg, err.Error())
+                            username, reqType, uriPath, statusMsg, errMsg)
     Writer.Info(auditMsg)
 }
 
