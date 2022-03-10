@@ -1,3 +1,7 @@
+path_classifiers:
+  generated:
+    - cfg
+
 extraction:
   go:
     before_index:
