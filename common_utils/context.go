@@ -54,7 +54,7 @@ func GetContext(ctx context.Context) (*RequestContext, context.Context) {
 }
 
 func GetUsername(ctx context.Context, username *string) {
-        rc, ctx := GetContext(ctx)
+	rc, _ := GetContext(ctx)
         if rc != nil {
             *username = rc.Auth.User
         }

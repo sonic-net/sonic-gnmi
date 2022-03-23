@@ -234,10 +234,7 @@ func getAliasMap() (map[string]string, map[string]string, map[string]string, err
 			alias, err := redisDb.HGet(key, "alias").Result()
 			if err != nil {
 				log.V(1).Infof("redis get field alias failed for %v in namsepace %v, key = %v, err: %v", dbName, namespace, key, err)
-				// clear aliasMap
-				alias2name_map = make(map[string]string)
-				name2alias_map = make(map[string]string)
-				port2namespace_map = make(map[string]string)
+				// redis get alias failed so return nil for maps and the error
 				return nil, nil, nil, err
 			}
 			alias2name_map[alias] = key[5:]

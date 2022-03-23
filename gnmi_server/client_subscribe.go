@@ -223,7 +223,6 @@ func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 		}
 		log.V(1).Infof("Client %s received invalid event: %s", c, event)
 	}
-	log.V(1).Infof("Client %s exit from recv()", c)
 }
 
 // send runs until process Queue returns an error.

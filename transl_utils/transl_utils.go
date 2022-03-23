@@ -113,7 +113,7 @@ func ConvertToURI(prefix *gnmipb.Path, path *gnmipb.Path, req *string) error {
 func TranslProcessGet(uriPath string, op *string, ctx context.Context) (*gnmipb.TypedValue, error) {
 	var jv []byte
 	var data []byte
-	rc, ctx := common_utils.GetContext(ctx)
+	rc, _ := common_utils.GetContext(ctx)
 
 	req := translib.GetRequest{Path:uriPath, User: translib.UserRoles{Name: rc.Auth.User, Roles: rc.Auth.Roles}}
 	if rc.BundleVersion != nil {
@@ -153,7 +153,7 @@ func TranslProcessGet(uriPath string, op *string, ctx context.Context) (*gnmipb.
 func TranslProcessDelete(uri string, ctx context.Context) error {
 	var str3 string
 	payload := []byte(str3)
-	rc, ctx := common_utils.GetContext(ctx)
+	rc, _ := common_utils.GetContext(ctx)
 	req := translib.SetRequest{Path:uri, Payload:payload, User: translib.UserRoles{Name: rc.Auth.User, Roles: rc.Auth.Roles}}
 	if rc.BundleVersion != nil {
 		nver, err := translib.NewVersion(*rc.BundleVersion)
@@ -183,7 +183,7 @@ func TranslProcessReplace(uri string, t *gnmipb.TypedValue, ctx context.Context)
 	log.V(2).Info("Incoming JSON body is", str)
 
 	payload := []byte(str3)
-	rc, ctx := common_utils.GetContext(ctx)
+	rc, _ := common_utils.GetContext(ctx)
 	req := translib.SetRequest{Path:uri, Payload:payload, User: translib.UserRoles{Name: rc.Auth.User, Roles: rc.Auth.Roles}}
 	if rc.BundleVersion != nil {
 		nver, err := translib.NewVersion(*rc.BundleVersion)
@@ -215,7 +215,7 @@ func TranslProcessUpdate(uri string, t *gnmipb.TypedValue, ctx context.Context) 
 	log.V(2).Info("Incoming JSON body is", str)
 
 	payload := []byte(str3)
-	rc, ctx := common_utils.GetContext(ctx)
+	rc, _ := common_utils.GetContext(ctx)
 	req := translib.SetRequest{Path:uri, Payload:payload, User: translib.UserRoles{Name: rc.Auth.User, Roles: rc.Auth.Roles}}
 	if rc.BundleVersion != nil {
 		nver, err := translib.NewVersion(*rc.BundleVersion)

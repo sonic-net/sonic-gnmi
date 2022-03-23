@@ -16,7 +16,7 @@ import (
 )
 
 func (srv *Server) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -24,7 +24,7 @@ func (srv *Server) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest
 	return nil, status.Errorf(codes.Unimplemented, "")
 }
 func (srv *Server) RebootStatus(ctx context.Context, req *gnoi_system_pb.RebootStatusRequest) (*gnoi_system_pb.RebootStatusResponse, error) {
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +32,7 @@ func (srv *Server) RebootStatus(ctx context.Context, req *gnoi_system_pb.RebootS
 	return nil, status.Errorf(codes.Unimplemented, "")
 }
 func (srv *Server) CancelReboot(ctx context.Context, req *gnoi_system_pb.CancelRebootRequest) (*gnoi_system_pb.CancelRebootResponse, error) {
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func (srv *Server) CancelReboot(ctx context.Context, req *gnoi_system_pb.CancelR
 }
 func (srv *Server) Ping(req *gnoi_system_pb.PingRequest, rs gnoi_system_pb.System_PingServer) error {
 	ctx := rs.Context()
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return err
 	}
@@ -50,7 +50,7 @@ func (srv *Server) Ping(req *gnoi_system_pb.PingRequest, rs gnoi_system_pb.Syste
 }
 func (srv *Server) Traceroute(req *gnoi_system_pb.TracerouteRequest, rs gnoi_system_pb.System_TracerouteServer) error {
 	ctx := rs.Context()
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func (srv *Server) Traceroute(req *gnoi_system_pb.TracerouteRequest, rs gnoi_sys
 }
 func (srv *Server) SetPackage(rs gnoi_system_pb.System_SetPackageServer) error {
 	ctx := rs.Context()
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func (srv *Server) SetPackage(rs gnoi_system_pb.System_SetPackageServer) error {
 	return status.Errorf(codes.Unimplemented, "")
 }
 func (srv *Server) SwitchControlProcessor(ctx context.Context, req *gnoi_system_pb.SwitchControlProcessorRequest) (*gnoi_system_pb.SwitchControlProcessorResponse, error) {
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (srv *Server) SwitchControlProcessor(ctx context.Context, req *gnoi_system_
 	return nil, status.Errorf(codes.Unimplemented, "")
 }
 func (srv *Server) Time(ctx context.Context, req *gnoi_system_pb.TimeRequest) (*gnoi_system_pb.TimeResponse, error) {
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRe
 
 }
 func (srv *Server) Refresh(ctx context.Context, req *spb_jwt.RefreshRequest) (*spb_jwt.RefreshResponse, error) {
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	ctx, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (srv *Server) Refresh(ctx context.Context, req *spb_jwt.RefreshRequest) (*s
 		return nil, status.Errorf(codes.Unimplemented, "")
 	}
 
-	token, ctx, err := JwtAuthenAndAuthor(ctx)
+	token, _, err := JwtAuthenAndAuthor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +140,7 @@ func (srv *Server) Refresh(ctx context.Context, req *spb_jwt.RefreshRequest) (*s
 }
 
 func (srv *Server) ClearNeighbors(ctx context.Context, req *spb.ClearNeighborsRequest) (*spb.ClearNeighborsResponse, error) {
-    ctx,err := authenticate(srv.config.UserAuth, ctx)
+    ctx, err := authenticate(srv.config.UserAuth, ctx)
     if err != nil {
         return nil, err
     }
@@ -172,7 +172,7 @@ func (srv *Server) ClearNeighbors(ctx context.Context, req *spb.ClearNeighborsRe
 }
 
 func (srv *Server) CopyConfig(ctx context.Context, req *spb.CopyConfigRequest) (*spb.CopyConfigResponse, error) {
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	ctx, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +203,7 @@ func (srv *Server) CopyConfig(ctx context.Context, req *spb.CopyConfigRequest) (
 }
 
 func (srv *Server) ShowTechsupport(ctx context.Context, req *spb.TechsupportRequest) (*spb.TechsupportResponse, error) {
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	ctx, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ func (srv *Server) ShowTechsupport(ctx context.Context, req *spb.TechsupportRequ
 }
 
 func (srv *Server) ImageInstall(ctx context.Context, req *spb.ImageInstallRequest) (*spb.ImageInstallResponse, error) {
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	ctx, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +267,7 @@ func (srv *Server) ImageInstall(ctx context.Context, req *spb.ImageInstallReques
 }
 
 func (srv *Server) ImageRemove(ctx context.Context, req *spb.ImageRemoveRequest) (*spb.ImageRemoveResponse, error) {
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	ctx, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +299,7 @@ func (srv *Server) ImageRemove(ctx context.Context, req *spb.ImageRemoveRequest)
 }
 
 func (srv *Server) ImageDefault(ctx context.Context, req *spb.ImageDefaultRequest) (*spb.ImageDefaultResponse, error) {
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	ctx, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
