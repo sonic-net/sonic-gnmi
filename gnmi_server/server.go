@@ -329,7 +329,6 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 			Prefix:    prefix,
 			Update:    []*gnmipb.Update{update},
 		}
-		index++
 	}
 	return &gnmipb.GetResponse{Notification: notifications}, nil
 }

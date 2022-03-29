@@ -256,9 +256,7 @@ func (cs *clientSubscription) String() string {
 // TODO: TLS credential support
 func newClient(ctx context.Context, dest Destination) (*Client, error) {
 	timeout := clientCfg.RetryInterval
-
-	cancel := func() {}
-	ctx, cancel = context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	opts := []grpc.DialOption{
