@@ -1,0 +1,34 @@
+// sonic_internal.proto describes the message format used internally by SONiC
+syntax = "proto3";
+
+import "github.com/openconfig/gnmi/proto/gnmi/gnmi.proto";
+
+package gnmi.sonic;
+
+
+enum State {
+  STOPPED = 0;
+  INIT = 1;
+  RUNNING = 2;
+}
+
+// Value is the message that reprents a stream of updates for a given path, used internally.
+message Value {
+  // prefix used with path
+  gnmi.Path prefix = 1;
+  // The device specific, or path corresponding to a value.
+  gnmi.Path path = 2;
+  // timestamp for the corresponding value, nanoseconds since epoch.
+  // If timestamp is not set the default will assume to
+  // be the current system time.
+  int64 timestamp = 3;
+
+  TypedValue val = 4;
+
+  // Indicate target has sent all values associated with the subscription
+  // at least once.
+  bool sync_response = 5;
+
+  // fatal error happened.
+  string fatal = 6;
+}

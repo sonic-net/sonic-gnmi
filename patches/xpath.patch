@@ -1,0 +1,1042 @@
+diff --git a/build.go b/build.go
+index b7f850f..1f65aec 100644
+--- a/build.go
++++ b/build.go
+@@ -44,7 +44,8 @@ func axisPredicate(root *axisNode) func(NodeNavigator) bool {
+ 	predicate := func(n NodeNavigator) bool {
+ 		if typ == n.NodeType() || typ == allNode || typ == TextNode {
+ 			if nametest {
+-				if root.LocalName == n.LocalName() && root.Prefix == n.Prefix() {
++				prefix := n.Prefix()
++				if root.LocalName == n.LocalName() && (root.Prefix == prefix || prefix == n.CurrentPrefix()) {
+ 					return true
+ 				}
+ 			} else {
+@@ -118,7 +119,7 @@ func (b *builder) processAxisNode(root *axisNode) (query, error) {
+ 			}
+ 			return v
+ 		}
+-		qyOutput = &childQuery{Input: qyInput, Predicate: filter}
++		qyOutput = &childQuery{Name: &root.LocalName, Prefix: &root.Prefix, Input: qyInput, Predicate: filter}
+ 	case "descendant":
+ 		qyOutput = &descendantQuery{Input: qyInput, Predicate: predicate}
+ 	case "descendant-or-self":
+@@ -141,9 +142,64 @@ func (b *builder) processAxisNode(root *axisNode) (query, error) {
+ 		err = fmt.Errorf("unknown axe type: %s", root.AxeType)
+ 		return nil, err
+ 	}
++
++	b.setCaller(qyInput, qyOutput)
++
+ 	return qyOutput, nil
+ }
+ 
++func isKey(keys []string, name string) int {
++	for  idx := 0; idx < len(keys); idx++ {
++		if keys[idx] == name {
++			return idx
++		}
++	}
++
++	return -1
++}
++
++func (b *builder) setCaller(callee, caller query) {
++	isCallerFilterQ := false
++	switch typ := caller.(type) {
++	case *parentQuery:
++		isCallerFilterQ = typ.SFilter.UnderFilter
++	case *childQuery:
++		isCallerFilterQ = typ.SFilter.UnderFilter
++	case *booleanQuery:
++		isCallerFilterQ = typ.SFilter.UnderFilter
++	case *functionQuery:
++		isCallerFilterQ = typ.SFilter.UnderFilter
++	case *logicalQuery:
++		isCallerFilterQ = typ.SFilter.UnderFilter
++	case *filterQuery:
++		isCallerFilterQ = true
++	}
++
++	switch typ := callee.(type) {
++	case *parentQuery:
++		typ.Caller = caller
++		typ.SFilter.UnderFilter = isCallerFilterQ
++	case *childQuery:
++		typ.Caller = caller
++		typ.SFilter.UnderFilter = isCallerFilterQ
++	case *booleanQuery:
++		typ.Caller = caller
++		typ.SFilter.UnderFilter = isCallerFilterQ
++	case *functionQuery:
++		typ.Caller = caller
++		typ.SFilter.UnderFilter = isCallerFilterQ
++	case *logicalQuery:
++		typ.Caller = caller
++		typ.SFilter.UnderFilter = isCallerFilterQ
++	case *filterQuery:
++		typ.Caller = caller
++		typ.SFilter.UnderFilter = isCallerFilterQ
++	case *currentQuery:
++		typ.Caller = caller
++		typ.SFilter.UnderFilter = isCallerFilterQ
++	}
++}
++
+ // processFilterNode builds query for the XPath filter predicate.
+ func (b *builder) processFilterNode(root *filterNode) (query, error) {
+ 	b.flag |= filterFlag
+@@ -157,6 +213,10 @@ func (b *builder) processFilterNode(root *filterNode) (query, error) {
+ 		return nil, err
+ 	}
+ 	qyOutput := &filterQuery{Input: qyInput, Predicate: qyCond}
++
++	b.setCaller(qyCond, qyOutput)
++	b.setCaller(qyInput, qyOutput)
++
+ 	return qyOutput, nil
+ }
+ 
+@@ -369,6 +429,7 @@ func (b *builder) processFunctionNode(root *functionNode) (query, error) {
+ 			return nil, err
+ 		}
+ 		qyOutput = &functionQuery{Input: argQuery, Func: countFunc}
++		b.setCaller(argQuery, qyOutput)
+ 	case "sum":
+ 		if len(root.Args) == 0 {
+ 			return nil, fmt.Errorf("xpath: sum(node-sets) function must with have parameters node-sets")
+@@ -418,6 +479,9 @@ func (b *builder) processFunctionNode(root *functionNode) (query, error) {
+ 			return nil, err
+ 		}
+ 		qyOutput = &transformFunctionQuery{Input: argQuery, Func: reverseFunc}
++	case "current":
++		qyOutput = &functionQuery{Input: &currentQuery{}, Func: currentFunc}
++		b.setCaller(qyOutput.(*functionQuery).Input, qyOutput)
+ 	default:
+ 		return nil, fmt.Errorf("not yet support this function %s()", root.FuncName)
+ 	}
+@@ -435,13 +499,15 @@ func (b *builder) processOperatorNode(root *operatorNode) (query, error) {
+ 	}
+ 	var qyOutput query
+ 	switch root.Op {
+-	case "+", "-", "div", "mod": // Numeric operator
++	case "+", "-", "*", "div", "mod": // Numeric operator
+ 		var exprFunc func(interface{}, interface{}) interface{}
+ 		switch root.Op {
+ 		case "+":
+ 			exprFunc = plusFunc
+ 		case "-":
+ 			exprFunc = minusFunc
++		case "*":
++			exprFunc = mulFunc
+ 		case "div":
+ 			exprFunc = divFunc
+ 		case "mod":
+@@ -474,6 +540,10 @@ func (b *builder) processOperatorNode(root *operatorNode) (query, error) {
+ 	case "|":
+ 		qyOutput = &unionQuery{Left: left, Right: right}
+ 	}
++
++	b.setCaller(left, qyOutput)
++	b.setCaller(right, qyOutput)
++
+ 	return qyOutput, nil
+ }
+ 
+diff --git a/func.go b/func.go
+index bcfee55..a0a80a4 100644
+--- a/func.go
++++ b/func.go
+@@ -36,6 +36,11 @@ func predicate(q query) func(NodeNavigator) bool {
+ 	return func(NodeNavigator) bool { return true }
+ }
+ 
++// currentFunc is a XPath Node Set functions current()
++func currentFunc(q query, t iterator) interface{} {
++	return functionArgs(q).Evaluate(t)
++}
++
+ // positionFunc is a XPath Node Set functions position().
+ func positionFunc(q query, t iterator) interface{} {
+ 	var (
+@@ -73,16 +78,56 @@ func lastFunc(q query, t iterator) interface{} {
+ // countFunc is a XPath Node Set functions count(node-set).
+ func countFunc(q query, t iterator) interface{} {
+ 	var count = 0
+-	q = functionArgs(q)
++	//q = functionArgs(q)
++	var fQuery *functionQuery = nil
++
++	switch qtyp := q.(type) {
++	case *childQuery:
++		switch pQtyp :=  qtyp.Caller.(type) {
++		case *functionQuery:
++			fQuery = pQtyp
++		}
++	case *filterQuery:
++		switch pQtyp :=  qtyp.Caller.(type) {
++		case *functionQuery:
++			fQuery = pQtyp
++		}
++	}
++
++	//Reset count first
++	if (fQuery != nil) {
++		fQuery.CountFuncVal = 0
++	}
++
+ 	test := predicate(q)
+ 	switch typ := q.Evaluate(t).(type) {
+ 	case query:
+ 		for node := typ.Select(t); node != nil; node = typ.Select(t) {
++			tmpNode := node.Copy()
++			if (strings.HasSuffix(node.LocalName(), "_LIST") == false) {
++				//Go to leaf's parent i.e. list
++				tmpNode.MoveToParent()
++			}
++			//Go to 2nd attribute
++			if tmpNode.MoveToNextAttribute() && tmpNode.MoveToNextAttribute() {
++				if (tmpNode.LocalName() == "db") {
++					//Don't count list entry brought from db
++					//which is already counted during path evaluation
++					continue
++				}
++			}
++
+ 			if test(node) {
+ 				count++
+ 			}
+ 		}
+ 	}
++	if (fQuery != nil) && (fQuery.CountFuncVal > 0) {
++		// -1 since first data always gets added before
++		//starting xpath evaluation, then count is fetched from Redis
++		return (float64(count) + (fQuery.CountFuncVal))
++	}
++
+ 	return float64(count)
+ }
+ 
+@@ -561,6 +606,9 @@ func functionArgs(q query) query {
+ 	if _, ok := q.(*functionQuery); ok {
+ 		return q
+ 	}
++	if _, ok := q.(*currentQuery); ok {
++		return q
++	}
+ 	return q.Clone()
+ }
+ 
+diff --git a/operator.go b/operator.go
+index 8c2f31f..d726a5d 100644
+--- a/operator.go
++++ b/operator.go
+@@ -165,15 +165,46 @@ func cmpNodeSetString(t iterator, op string, m, n interface{}) bool {
+ func cmpNodeSetNodeSet(t iterator, op string, m, n interface{}) bool {
+ 	a := m.(query)
+ 	b := n.(query)
+-	x := a.Select(t)
+-	if x == nil {
+-		return false
+-	}
+-	y := b.Select(t)
+-	if y == nil {
+-		return false
++
++	for {
++		node := a.Select(t)
++		if node == nil {
++			break
++		}
++
++		b.Evaluate(t)
++		for {
++			node1 := b.Select(t)
++			if node1 == nil {
++				break
++			}
++			opnd1 := node.Value()
++			opnd2 := node1.Value()
++
++			Log("cmpNodeSetNodeSet(): Comparing  (%v %v %v)", opnd1, op, opnd2)
++
++			//Check if both are number, then use cmpNumericNumeric
++			num1, err1 := strconv.ParseFloat(opnd1, 64)
++			if err1 == nil {
++				num2, err2 := strconv.ParseFloat(opnd2, 64)
++				if err2 == nil {
++					if cmpNumberNumberF(op, num1, num2) {
++						return true
++					}
++				} else {
++					if cmpStringStringF(op, opnd1, opnd2) {
++						return true
++					}
++				}
++			} else {
++				if cmpStringStringF(op, opnd1, opnd2) {
++					return true
++				}
++			}
++		}
+ 	}
+-	return cmpStringStringF(op, x.Value(), y.Value())
++
++	return false
+ }
+ 
+ func cmpStringNumeric(t iterator, op string, m, n interface{}) bool {
+diff --git a/query.go b/query.go
+index 47f8076..b66285b 100644
+--- a/query.go
++++ b/query.go
+@@ -5,6 +5,9 @@ import (
+ 	"fmt"
+ 	"hash/fnv"
+ 	"reflect"
++	"runtime"
++	"strings"
++	"regexp"
+ )
+ 
+ type iterator interface {
+@@ -33,10 +36,234 @@ func (nopQuery) Evaluate(iterator) interface{} { return nil }
+ 
+ func (nopQuery) Clone() query { return nopQuery{} }
+ 
++type currentQuery struct {
++	posit    int
++	iterator func() NodeNavigator
++	Caller query
++	SFilter scriptFilter
++}
++
++//Set lua script in query
++func setScriptFilter(q query, val interface{}) (sFilter *scriptFilter) {
++	var sf *scriptFilter = nil
++
++	defer func() {
++		if (sFilter != nil) && (sFilter.Predicate != "") {
++			Log("setScriptFilter() : Filter : %v", sFilter.Predicate)
++		}
++	}()
++
++	switch typ := q.(type) {
++	case *currentQuery:
++		if (val != nil) {
++			typ.SFilter.Predicate = fmt.Sprintf("%v", val)
++		}
++		sf = &typ.SFilter
++	case *childQuery:
++		//Reach to the parent list or first filter and then parent list
++		var caller query = typ.Caller
++		fQuery := false
++
++		for (caller != nil) {
++			var fieldVal reflect.Value
++			if (reflect.TypeOf(caller) == reflect.TypeOf(&filterQuery{})) {
++				fieldVal = reflect.ValueOf(caller).Elem().FieldByName("Input")
++				fQuery = true
++			} else {
++				//Once filter query is reached, look for child query only
++				if (fQuery == true) && (reflect.TypeOf(caller) != reflect.TypeOf(&childQuery{})) {
++					caller = nil
++					break
++				}
++
++				fieldVal = reflect.ValueOf(caller).Elem().FieldByName("Caller")
++			}
++			if fieldVal.IsValid() && fieldVal.IsNil() == false {
++				//caller = caller.Caller ... previous caller
++				caller = fieldVal.Interface().(query)
++			} else {
++				caller = nil
++				break
++			}
++
++			nameVal := reflect.ValueOf(caller).Elem().FieldByName("Name")
++			if nameVal.IsValid() && strings.HasSuffix(nameVal.Elem().String(), "_LIST") {
++				//List element found
++				break
++			} else if (fQuery == true) {
++				//If filter query is found but list is not found break
++				caller = nil
++				break
++			}
++		}
++
++		if (caller != nil) {
++			switch typ1 := caller.(type) {
++			case *childQuery:
++				listName := *typ1.Name
++				if (strings.HasSuffix(listName, "_LIST") == false) {
++					break
++				}
++
++				keyNames := getKeysClbk(listName[:len(listName)-5])
++				if (typ1.SFilter.Key == nil) {
++					typ1.SFilter.Key  = make([]string, len(keyNames))
++				}
++
++				isChildAKey := false
++				for idx:=0; idx < len(keyNames); idx++ {
++					typ1.SFilter.Key[idx] = "*"
++					if (keyNames[idx] == *typ.Name) { //check with child name
++						//typ1.SFilter.Key[idx] = typ.SFilter.Predicate
++						isChildAKey = true
++					}/* else {
++						typ1.SFilter.Key[idx] = "*"
++					}*/
++				}
++
++				if *(typ1.Prefix) == *(typ.Prefix) {
++					//Check parent caller is a parent query
++					switch typ.Input.(type) {
++					case *functionQuery: // current()/<leaf>
++						break
++					case *parentQuery: // current()/../<leaf>
++						//Just break, since the value should be used for filter script
++						break
++					default:
++						if (isChildAKey == true) {
++							//match with keys
++							typ.SFilter.Predicate = "k['" + *(typ.Name) + "']"
++						} else {
++							//match with hash-field
++							typ.SFilter.Predicate = "h['" + *(typ.Name) + "']"
++						}
++					}
++				}
++			}
++		} else {
++			typ.SFilter.Predicate = *(typ.Name)
++		}
++
++		sf = &typ.SFilter
++	case *constantQuery:
++		if (val != nil) {
++			typ.SFilter.Predicate = fmt.Sprintf("%v", val)
++		}
++
++		sf = &typ.SFilter
++	case *logicalQuery:
++		sfl := setScriptFilter(typ.Left, nil)
++		sfr := setScriptFilter(typ.Right, nil)
++		op := ""
++
++		lFunc := runtime.FuncForPC(reflect.ValueOf(typ.Do).Pointer()).Name()
++
++		//Check which logical operator
++		switch lFunc[len(lFunc) - 6:] { //take out 'xpath:' prefix
++		case "eqFunc":
++			op = " == "
++		}
++		if (sfl != nil && sfr != nil) {
++			if (strings.Contains(sfr.Predicate, ",")) { //multi value
++				typ.SFilter.Predicate =  "(string.match('" + sfr.Predicate + "', " + sfl.Predicate + "..'[,]*') ~= nil)"
++			} else {
++				typ.SFilter.Predicate = "(" + sfl.Predicate + op + "'" + sfr.Predicate + "')"
++			}
++		}
++
++		sf = &typ.SFilter
++	case *booleanQuery:
++		sfl := setScriptFilter(typ.Left, nil)
++		sfr := setScriptFilter(typ.Right, nil)
++		op := "and"
++
++		if (typ.IsOr == true) {
++			op = "or"
++		}
++
++		if (sfl != nil && sfr != nil) {
++			typ.SFilter.Predicate = fmt.Sprintf("(%s %s %s)", sfl.Predicate, op, sfr.Predicate)
++		}
++
++		sf = &typ.SFilter
++	case *functionQuery:
++		sfi := setScriptFilter(typ.Input, nil)
++		if (sfi != nil) {
++			switch typ.Input.(type) {
++			case *currentQuery:
++				typ.SFilter.Predicate = sfi.Predicate
++			}
++		}
++
++		sf = &typ.SFilter
++	}
++
++	return sf
++}
++
++// currentQuery returns the current context node under which the xpath query is invoked
++func (c *currentQuery) Select(t iterator) (node NodeNavigator) {
++	if c.iterator == nil {
++		c.posit = 0
++		node = t.Current().Copy()
++		if node == nil {
++			return nil
++		}
++
++		//Current node is the root node i.e. under which the xpath query is invoked
++		node.MoveToContext()
++		first := true
++		rootLocalName := node.LocalName()
++		rootPrefix :=  node.Prefix()
++
++		c.iterator = func() NodeNavigator {
++			for {
++				if (first && node == nil) || (!first && !node.MoveToNext()) {
++					return nil
++				}
++
++				first = false
++
++				nodeLocalName := node.LocalName()
++
++				if (rootLocalName == nodeLocalName) && (rootPrefix == node.Prefix()) {
++					return node
++				}
++
++				//Other node started
++				if (nodeLocalName[0:1] != "\n") && (nodeLocalName[0:1] != " ") {
++					return nil
++				}
++			}
++		}
++	}
++
++	if n := c.iterator(); n != nil {
++		c.posit++
++		setScriptFilter(c, n.Value())
++
++		return n
++	}
++	c.iterator = nil
++
++	return nil
++}
++
++func (c *currentQuery) Evaluate(iterator) interface{} {
++	c.posit = 0
++	c.iterator = nil
++	return c
++}
++
++func (c *currentQuery) Clone() query {
++	return &currentQuery{posit: c.posit}
++}
++
+ // contextQuery is returns current node on the iterator object query.
+ type contextQuery struct {
+ 	count int
+ 	Root  bool // Moving to root-level node in the current context iterator.
++	Caller query
+ }
+ 
+ func (c *contextQuery) Select(t iterator) (n NodeNavigator) {
+@@ -165,13 +392,97 @@ func (a *attributeQuery) Clone() query {
+ 	return &attributeQuery{Input: a.Input.Clone(), Predicate: a.Predicate}
+ }
+ 
++type scriptFilter struct {
++	Key []string //all keys in slice |*|Key2|*
++	Predicate string //Keys and fields as lua condition in filter
++					 // - (h.Key1 == 'Test' and h.Field1 == 'test')
++	Fields string  //Fields to retrieve |Field1|Field2|Field3|
++	UnderFilter bool //If the query is within filter query
++}
++
+ // childQuery is an XPath child node query.(child::*)
+ type childQuery struct {
++	Name *string
++	Prefix *string
+ 	posit    int
+ 	iterator func() NodeNavigator
+ 
+ 	Input     query
+ 	Predicate func(NodeNavigator) bool
++	Caller query
++	SFilter scriptFilter
++	execFilter bool // Execute filter only once during expression
++}
++
++//Check for count("../TABLE_LIST"), count("../TABLE_LIST/field"),
++//count("../TABLE_LIST[key='val']"), count ("../TABLE_LIST[key='val']/field")
++func checkIfCountFunc(q query) (*functionQuery, string) {
++	if (q == nil) {
++		return nil, ""
++	}
++
++	switch typ := q.(type) {
++	case *childQuery:
++		if (strings.HasSuffix(*typ.Name, "_LIST")) {
++			return checkIfCountFunc(typ.Caller)
++		} else {
++			funcQ, _ := checkIfCountFunc(typ.Caller)
++			return funcQ, *typ.Name
++		}
++	case *filterQuery:
++		return checkIfCountFunc(typ.Caller)
++	case *functionQuery:
++		funcName := runtime.FuncForPC(reflect.ValueOf(typ.Func).Pointer()).Name()
++
++		if (strings.HasSuffix(funcName, ".countFunc")) { //take out 'xpath:' prefix
++			return typ, ""
++		}
++		return nil, ""
++	}
++
++	return nil, ""
++}
++
++//Execute filter if no predicate is provided
++func executeFilterWithoutPred(c *childQuery) {
++	//Should be a list and filter should have not excuted already
++	if (strings.HasSuffix(*c.Name, "_LIST") == false) || (c.execFilter == true) {
++		return
++	}
++
++	//Should not be a filterQuery i.e. no predicate
++	if (c.Caller == nil) || (reflect.TypeOf(c.Caller) == reflect.TypeOf(&filterQuery{})) {
++		return
++	}
++
++	funcQ, fieldName := checkIfCountFunc(c)
++	listName := *c.Name
++	listName = listName[:len(listName) - len("_LIST")]
++
++	redisTblname := ""
++	switch typContainer := c.Input.(type) {
++	case *childQuery:
++		//Get table name from container
++		redisTblname = *typContainer.Name
++	default:
++		//Get table name from list name
++		redisTblname = listName
++	}
++
++	keys := getKeysClbk(listName)
++	keyNames := ""
++
++	if (keys != nil) {
++		keyNames = strings.Join(keys, "|")
++	}
++
++	if (funcQ != nil) { //Within a count function
++		funcQ.CountFuncVal = getDepDataCntClbk(depDataCtxt, redisTblname + "|*", keyNames, "", fieldName)
++	} else {
++		getDepDataClbk(depDataCtxt, []string{}, redisTblname + "|*", keyNames, "true", "", "")
++	}
++
++	c.execFilter = true
+ }
+ 
+ func (c *childQuery) Select(t iterator) NodeNavigator {
+@@ -182,6 +493,10 @@ func (c *childQuery) Select(t iterator) NodeNavigator {
+ 			if node == nil {
+ 				return nil
+ 			}
++
++			//Execute filter without any filterQuery
++			executeFilterWithoutPred(c)
++
+ 			node = node.Copy()
+ 			first := true
+ 			c.iterator = func() NodeNavigator {
+@@ -199,6 +514,10 @@ func (c *childQuery) Select(t iterator) NodeNavigator {
+ 
+ 		if node := c.iterator(); node != nil {
+ 			c.posit++
++			if (c.SFilter.Fields != *c.Name) {
++				//If fields already retrieved from db don't overwrite
++				c.SFilter.Predicate = node.Value()
++			}
+ 			return node
+ 		}
+ 		c.iterator = nil
+@@ -208,6 +527,12 @@ func (c *childQuery) Select(t iterator) NodeNavigator {
+ func (c *childQuery) Evaluate(t iterator) interface{} {
+ 	c.Input.Evaluate(t)
+ 	c.iterator = nil
++
++	//Reset execFilter flag in LIST node
++	if (strings.HasSuffix(*c.Name, "_LIST")) {
++		c.execFilter = false
++	}
++
+ 	return c
+ }
+ 
+@@ -216,7 +541,7 @@ func (c *childQuery) Test(n NodeNavigator) bool {
+ }
+ 
+ func (c *childQuery) Clone() query {
+-	return &childQuery{Input: c.Input.Clone(), Predicate: c.Predicate}
++	return &childQuery{Name: c.Name, Prefix: c.Prefix, Input: c.Input.Clone(), Predicate: c.Predicate}
+ }
+ 
+ // position returns a position of current NodeNavigator.
+@@ -479,6 +804,8 @@ func (p *precedingQuery) position() int {
+ type parentQuery struct {
+ 	Input     query
+ 	Predicate func(NodeNavigator) bool
++	Caller query
++	SFilter scriptFilter
+ }
+ 
+ func (p *parentQuery) Select(t iterator) NodeNavigator {
+@@ -511,6 +838,8 @@ func (p *parentQuery) Test(n NodeNavigator) bool {
+ type selfQuery struct {
+ 	Input     query
+ 	Predicate func(NodeNavigator) bool
++	Caller query
++	SFilter scriptFilter
+ }
+ 
+ func (s *selfQuery) Select(t iterator) NodeNavigator {
+@@ -545,6 +874,9 @@ type filterQuery struct {
+ 	Predicate query
+ 	posit     int
+ 	positmap  map[int]int
++	//execFilter bool // Execute filter only once during expression
++	Caller query
++	SFilter scriptFilter
+ }
+ 
+ func (f *filterQuery) do(t iterator) bool {
+@@ -569,7 +901,149 @@ func (f *filterQuery) position() int {
+ 	return f.posit
+ }
+ 
++var reSanitizer *regexp.Regexp = nil
++var reKeyPred *regexp.Regexp = nil
++func init() {
++	reSanitizer = regexp.MustCompile(`(\()|(\))|(')`) // remove (, ) and '
++	//Regexp to check (k.k1 == 'val1' and k.k2 == 'val2') like pattern
++	reKeyPred = regexp.MustCompile(`(k\.([a-zA-Z0-9-_]+)( == )(.*)( and )?)+`)
++}
++
++func checkForKeyFilter(keys []string, predicate string) string {
++	if (predicate == "") {
++		return ""
++	}
++
++	tmpPredicate := reSanitizer.ReplaceAllLiteralString(predicate, "")
++
++	if (reKeyPred.MatchString(tmpPredicate) == false) {
++		return ""
++	}
++
++	keyFilter := make([]string, len(keys))
++	for idx :=0 ; idx < len(keys); idx++ {
++		keyFilter[idx] = "*" //fill with default pattern
++	}
++
++	//All are keys in predicate, form the key filter and remove generic predicate
++
++	//first split by 'and'
++	for _, keyEqExpr := range strings.Split(tmpPredicate, " and ") {
++		//Then split by '=='
++		keyValPair := strings.Split(keyEqExpr, " == ")
++
++		if (len(keyValPair) != 2) {
++			return ""
++		}
++
++		//Check with which key it does match
++		for idx, key := range keys {
++			tmpKey :=  "k." + key
++			if (tmpKey == keyValPair[0]) { //matching with left side of ==
++				keyFilter[idx] = keyValPair[1]
++				break
++			} else if (tmpKey == keyValPair[1]) { //matching with right side of ==
++				keyFilter[idx] = keyValPair[0]
++				break
++			}
++		}
++	}
++
++	return strings.Join(keyFilter, "|")
++}
++
++//Excute filter to get dependent data
++func executeFilter(f *filterQuery) {
++	switch typ := f.Predicate.(type) {
++	case *logicalQuery:
++		f.SFilter = typ.SFilter
++		Log("executeFilter() for logicalQuery: getting filtered data, predicate=%s", f.SFilter.Predicate)
++	case *booleanQuery:
++		f.SFilter = typ.SFilter
++		Log("executeFilter() for booleanQuery: getting filtered data, predicate=%s", f.SFilter.Predicate)
++	}
++	//All filter must be executed only once
++	//Need to excute filter script and then collect leaf data
++	//for multiple data it should be separated by ","
++	//Filter script should have - strings.match("Eth1,Eth2,Eth4", "Eth1[,]*))
++
++	//Get leaf data
++	var cq *childQuery = nil
++	if (f.Caller != nil) {
++		switch typ := f.Caller.(type) {
++		case *childQuery:
++			cq = typ
++		}
++	}
++
++	if (f.Input != nil) {
++		switch typ := f.Input.(type) {
++		case *childQuery:
++			listName := *typ.Name
++			listName = listName[:len(listName) - len("_LIST")]
++
++			redisTblname := ""
++			switch typContainer := typ.Input.(type) {
++			case *childQuery:
++				//Get table name from container
++				redisTblname = *typContainer.Name
++			default:
++				//Get table name from list name
++				redisTblname = listName
++			}
++
++			keys := getKeysClbk(listName)
++			keyNames := ""
++
++			if (keys != nil) {
++				keyNames = strings.Join(keys, "|")
++			}
++
++			//Check the predicate, if all fields are
++			//key and having equality check with 'and',
++			//should use as key filter
++			keyFilter := checkForKeyFilter(keys, f.SFilter.Predicate)
++			if (keyFilter != "") {
++				f.SFilter.Predicate = ""
++				keyFilter = redisTblname + "|" + keyFilter
++			} else {
++				keyFilter = redisTblname + "|*"
++			}
++
++			//Check if count(), just store the count from 
++			//Redis without fetching data
++			funcQ, fieldName := checkIfCountFunc(f)
++			if (funcQ != nil) {
++				funcQ.CountFuncVal = getDepDataCntClbk(depDataCtxt,
++				keyFilter, keyNames,
++				f.SFilter.Predicate, fieldName)
++
++				return
++			}
++
++			if (cq != nil) {
++				//Child query through filter 
++				cq.SFilter.Fields = *cq.Name
++
++				data := getDepDataClbk(depDataCtxt, []string{},
++				keyFilter,
++				keyNames,
++				f.SFilter.Predicate,
++				cq.SFilter.Fields, "")
++
++				//Set single field data to child
++				cq.SFilter.Predicate = data
++				Log("executeFilter(): value returned for '%s' is '%s' inside predicate", cq.SFilter.Fields, data)
++			} else {
++				//Just filter query
++				getDepDataClbk(depDataCtxt, []string{}, keyFilter, keyNames, f.SFilter.Predicate, "", "")
++			}
++		}
++	}
++}
++
+ func (f *filterQuery) Select(t iterator) NodeNavigator {
++	success := false
+ 	if f.positmap == nil {
+ 		f.positmap = make(map[int]int)
+ 	}
+@@ -588,6 +1062,27 @@ func (f *filterQuery) Select(t iterator) NodeNavigator {
+ 			level := getNodeDepth(f.Input)
+ 			f.positmap[level]++
+ 			f.posit = f.positmap[level]
++			success = true
++		}
++
++		/*
++		if (f.execFilter == false) {
++			executeFilter(f)
++			f.execFilter = true
++		}*/
++
++		if (f.Input != nil) {
++			//check the filter flag in list node
++			switch typ := f.Input.(type) {
++			case *childQuery:
++				if strings.HasSuffix(*typ.Name, "_LIST") && (typ.execFilter == false) {
++					executeFilter(f)
++					typ.execFilter = true
++				}
++			}
++		}
++
++		if (success == true) {
+ 			return node
+ 		}
+ 	}
+@@ -608,9 +1103,19 @@ func (f *filterQuery) Clone() query {
+ type functionQuery struct {
+ 	Input query                             // Node Set
+ 	Func  func(query, iterator) interface{} // The xpath function.
++	//CVL specific callback for getting Redis count directly
++	//Handles count (//table), count(//table[k1=a][k2=b])
++	CountFuncVal float64 //count of elements in query
++	Caller query
++	SFilter scriptFilter
+ }
+ 
+ func (f *functionQuery) Select(t iterator) NodeNavigator {
++	_, ok := f.Input.(*currentQuery)
++	if ok {
++		f.SFilter = f.Input.(*currentQuery).SFilter
++		return f.Input.(*currentQuery).Select(t)
++	}
+ 	return nil
+ }
+ 
+@@ -655,6 +1160,8 @@ func (f *transformFunctionQuery) Clone() query {
+ // constantQuery is an XPath constant operand.
+ type constantQuery struct {
+ 	Val interface{}
++	Caller query
++	SFilter scriptFilter
+ }
+ 
+ func (c *constantQuery) Select(t iterator) NodeNavigator {
+@@ -662,6 +1169,7 @@ func (c *constantQuery) Select(t iterator) NodeNavigator {
+ }
+ 
+ func (c *constantQuery) Evaluate(t iterator) interface{} {
++	setScriptFilter(c, c.Val)
+ 	return c.Val
+ }
+ 
+@@ -674,6 +1182,8 @@ type logicalQuery struct {
+ 	Left, Right query
+ 
+ 	Do func(iterator, interface{}, interface{}) interface{}
++	Caller query
++	SFilter scriptFilter
+ }
+ 
+ func (l *logicalQuery) Select(t iterator) NodeNavigator {
+@@ -692,7 +1202,13 @@ func (l *logicalQuery) Select(t iterator) NodeNavigator {
+ func (l *logicalQuery) Evaluate(t iterator) interface{} {
+ 	m := l.Left.Evaluate(t)
+ 	n := l.Right.Evaluate(t)
+-	return l.Do(t, m, n)
++	v := l.Do(t, m, n)
++
++	if (l.SFilter.UnderFilter == true) {
++		setScriptFilter(l, nil)
++	}
++
++	return v
+ }
+ 
+ func (l *logicalQuery) Clone() query {
+@@ -713,7 +1229,7 @@ func (n *numericQuery) Select(t iterator) NodeNavigator {
+ func (n *numericQuery) Evaluate(t iterator) interface{} {
+ 	m := n.Left.Evaluate(t)
+ 	k := n.Right.Evaluate(t)
+-	return n.Do(m, k)
++	return n.Do(asNumber(t, m), asNumber(t, k))
+ }
+ 
+ func (n *numericQuery) Clone() query {
+@@ -724,6 +1240,8 @@ type booleanQuery struct {
+ 	IsOr        bool
+ 	Left, Right query
+ 	iterator    func() NodeNavigator
++	Caller query
++	SFilter scriptFilter
+ }
+ 
+ func (b *booleanQuery) Select(t iterator) NodeNavigator {
+@@ -793,12 +1311,20 @@ func (b *booleanQuery) Select(t iterator) NodeNavigator {
+ func (b *booleanQuery) Evaluate(t iterator) interface{} {
+ 	m := b.Left.Evaluate(t)
+ 	left := asBool(t, m)
++
++	if (b.SFilter.UnderFilter == true) {
++		m = b.Right.Evaluate(t)
++		setScriptFilter(b, nil)
++	}
++
+ 	if b.IsOr && left {
+ 		return true
+ 	} else if !b.IsOr && !left {
+ 		return false
+ 	}
+-	m = b.Right.Evaluate(t)
++	if (b.SFilter.UnderFilter == false) {
++		m = b.Right.Evaluate(t)
++	}
+ 	return asBool(t, m)
+ }
+ 
+diff --git a/xpath.go b/xpath.go
+index 5f6aa89..b10245b 100644
+--- a/xpath.go
++++ b/xpath.go
+@@ -45,6 +45,10 @@ type NodeNavigator interface {
+ 	// Copy does a deep copy of the NodeNavigator and all its components.
+ 	Copy() NodeNavigator
+ 
++	MoveToContext()
++
++	CurrentPrefix() string
++
+ 	// MoveToRoot moves the NodeNavigator to the root node of the current node.
+ 	MoveToRoot()
+ 
+@@ -151,6 +155,12 @@ func Compile(expr string) (*Expr, error) {
+ 	return &Expr{s: expr, q: qy}, nil
+ }
+ 
++var getKeysClbk func(string) []string
++var getDepDataClbk func(interface{}, []string, string, string, string, string, string) string
++var getDepDataCntClbk func(interface{},  string, string, string, string) float64
++var logClbk func(string, ...interface{})
++var depDataCtxt interface{}
++
+ // MustCompile compiles an XPath expression string and ignored error.
+ func MustCompile(expr string) *Expr {
+ 	exp, err := Compile(expr)
+@@ -159,3 +169,27 @@ func MustCompile(expr string) *Expr {
+ 	}
+ 	return exp
+ }
++
++func SetKeyGetClbk(keyFetchCb func(string) []string) {
++	getKeysClbk = keyFetchCb
++}
++
++func SetDepDataClbk(ctxt interface{}, depDataCb func(interface{}, []string, string, string, string, string, string) string) {
++	depDataCtxt = ctxt
++	getDepDataClbk = depDataCb
++}
++
++func SetDepDataCntClbk(ctxt interface{}, depDataCntCb func(interface{},  string, string, string, string) float64) {
++	depDataCtxt = ctxt
++	getDepDataCntClbk = depDataCntCb
++}
++
++func SetLogCallback(clbk func(string, ...interface{})) {
++	logClbk = clbk
++}
++
++func Log(fmt string, args...interface{}) {
++	if (logClbk != nil) {
++		logClbk(fmt, args...)
++	}
++}

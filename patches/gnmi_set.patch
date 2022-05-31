@@ -1,0 +1,95 @@
+--- ./github.com/jipanyang/gnxi/gnmi_set/gnmi_set.go	2019-11-26 15:44:07.303598063 -0800
++++ ./github.com/jipanyang/gnxi/gnmi_set/gnmi_set.go	2020-02-12 10:13:46.247988021 -0800
+@@ -31,8 +31,9 @@
+ 
+ 	"github.com/google/gnxi/utils"
+ 	"github.com/google/gnxi/utils/credentials"
+-	"github.com/google/gnxi/utils/xpath"
+-
++	//"github.com/google/gnxi/utils/xpath"
++	"github.com/jipanyang/gnxi/utils/xpath"
++	"google.golang.org/grpc/metadata"
+ 	pb "github.com/openconfig/gnmi/proto/gnmi"
+ )
+ 
+@@ -54,22 +55,45 @@
+ 	targetAddr = flag.String("target_addr", "localhost:10161", "The target address in the format of host:port")
+ 	targetName = flag.String("target_name", "hostname.com", "The target name use to verify the hostname returned by TLS handshake")
+ 	timeOut    = flag.Duration("time_out", 10*time.Second, "Timeout for the Get request, 10 seconds by default")
++	pathTarget = flag.String("xpath_target", "", "name of the target for which the path is a member")
++	jwtToken   = flag.String("jwt_token", "", "JWT Token if required")
+ )
+ 
+ func buildPbUpdateList(pathValuePairs []string) []*pb.Update {
+ 	var pbUpdateList []*pb.Update
+ 	for _, item := range pathValuePairs {
+-		pathValuePair := strings.SplitN(item, ":", 2)
+-		// TODO (leguo): check if any path attribute contains ':'
++		modName := strings.SplitN(item, "/", 3)
++		
++		pathValuePair := make([]string, 2)
++		lc := strings.LastIndex(modName[2],":")
++		
++		if lc == -1 {
++			log.Exitf("invalid path-value pair: %v", item)
++		}
++		pathValuePair_r := strings.SplitN(modName[2], ":", 2)
++		// pathValuePair[0] = modName[2][0:lc]
++
++		pathValuePair[0] = "/" + modName[1] + "/" + pathValuePair_r[0]
++
++		pathValuePair[1] = modName[2][lc+1:]
++		fmt.Println(pathValuePair[0])
++		fmt.Println(pathValuePair[1])
++
++
+ 		if len(pathValuePair) != 2 || len(pathValuePair[1]) == 0 {
+ 			log.Exitf("invalid path-value pair: %v", item)
++			log.Exitf("invalid path-value pair: %v", modName)
+ 		}
++
++
+ 		pbPath, err := xpath.ToGNMIPath(pathValuePair[0])
+ 		if err != nil {
+ 			log.Exitf("error in parsing xpath %q to gnmi path", pathValuePair[0])
+ 		}
+ 		var pbVal *pb.TypedValue
+-		if pathValuePair[1][0] == '@' {
++		if pathValuePair[1][0] == '#' {
++			pbVal = nil
++		} else if pathValuePair[1][0] == '@' {
+ 			jsonFile := pathValuePair[1][1:]
+ 			jsonConfig, err := ioutil.ReadFile(jsonFile)
+ 			if err != nil {
+@@ -144,8 +168,10 @@
+ 	}
+ 	replaceList := buildPbUpdateList(replaceOpt)
+ 	updateList := buildPbUpdateList(updateOpt)
+-
++	var prefix pb.Path
++	prefix.Target = *pathTarget
+ 	setRequest := &pb.SetRequest{
++		Prefix:    &prefix,
+ 		Delete:  deleteList,
+ 		Replace: replaceList,
+ 		Update:  updateList,
+@@ -155,11 +181,17 @@
+ 	utils.PrintProto(setRequest)
+ 
+ 	cli := pb.NewGNMIClient(conn)
+-	setResponse, err := cli.Set(context.Background(), setRequest)
++	ctx, cancel := context.WithTimeout(context.Background(), *timeOut)
++	defer cancel()
++
++	if len(*jwtToken) > 0 {
++		ctx = metadata.AppendToOutgoingContext(ctx, "access_token", *jwtToken)
++	}
++	setResponse, err := cli.Set(ctx, setRequest)
+ 	if err != nil {
+ 		log.Exitf("Set failed: %v", err)
+ 	}
+ 
+-	fmt.Println("== getResponse:")
++	fmt.Println("== setResponse:")
+ 	utils.PrintProto(setResponse)
+ }

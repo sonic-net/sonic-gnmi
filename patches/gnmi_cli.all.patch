@@ -1,0 +1,72 @@
+--- ./github.com/openconfig/gnmi/client/gnmi/client.go	2019-11-22 14:03:29.839103602 -0800
++++ ./github.com/openconfig/gnmi/client/gnmi/client.go	2019-10-11 13:48:49.226145599 -0700
+@@ -257,7 +257,7 @@
+ 		if err != nil {
+ 			return nil, fmt.Errorf("invalid query path %q: %v", qq, err)
+ 		}
+-		s.Subscribe.Subscription = append(s.Subscribe.Subscription, &gpb.Subscription{Path: pp})
++		s.Subscribe.Subscription = append(s.Subscribe.Subscription, &gpb.Subscription{Path: pp, Mode: q.Streaming_type, SampleInterval: q.Streaming_sample_int, HeartbeatInterval: q.Heartbeat_int, SuppressRedundant: q.Suppress_redundant})
+ 	}
+ 	return &gpb.SubscribeRequest{Request: s}, nil
+ }
+--- ./github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go	2019-11-22 14:03:29.839103602 -0800
++++ ./github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go	2019-11-21 09:30:52.453893674 -0800
+@@ -76,6 +76,11 @@
+ 	caCert     = flag.String("ca_crt", "", "CA certificate file. Used to verify server TLS certificate.")
+ 	clientCert = flag.String("client_crt", "", "Client certificate file. Used for client certificate-based authentication.")
+ 	clientKey  = flag.String("client_key", "", "Client private key file. Used for client certificate-based authentication.")
++	//Subscribe Options
++	streaming_type = flag.String("streaming_type", "TARGET_DEFINED", "One of TARGET_DEFINED, ON_CHANGE or SAMPLE")
++	streaming_sample_int = flag.Uint("streaming_sample_interval", 0, "Streaming sample inteval seconds, 0 means lowest supported.")
++	heartbeat_int = flag.Uint("heartbeat_interval", 0, "Heartbeat inteval seconds.")
++	suppress_redundant = flag.Bool("suppress_redundant", false, "Suppress Redundant Subscription Updates")
+ )
+ 
+ func init() {
+@@ -278,6 +283,22 @@
+ 	if len(*queryFlag) == 0 {
+ 		return errors.New("--query must be set")
+ 	}
++	if *streaming_type == "TARGET_DEFINED" {
++		q.Streaming_type = gpb.SubscriptionMode(0)
++	} else if *streaming_type ==  "ON_CHANGE" {
++		q.Streaming_type =  gpb.SubscriptionMode(1)
++	} else if *streaming_type ==  "SAMPLE" {
++		q.Streaming_type = gpb.SubscriptionMode(2)
++	} else {
++		return errors.New("-streaming_type must be one of: (TARGET_DEFINED, ON_CHANGE, SAMPLE)")
++	}
++	q.Streaming_sample_int = uint64(*streaming_sample_int)*uint64(time.Second)
++	if *queryType == "streaming" || *queryType == "s" {
++		q.Heartbeat_int = uint64(*heartbeat_int)*uint64(time.Second)
++	} else if *heartbeat_int > 0  {
++		return errors.New("-heartbeat_interval only valid with streaming query type")
++	}
++	q.Suppress_redundant = bool(*suppress_redundant)
+ 	for _, path := range *queryFlag {
+ 		query, err := parseQuery(path, cfg.Delimiter)
+ 		if err != nil {
+--- ./github.com/openconfig/gnmi/client/query.go	2019-11-22 14:03:29.839103602 -0800
++++ ./github.com/openconfig/gnmi/client/query.go	2019-10-11 13:48:49.226145599 -0700
+@@ -172,6 +172,10 @@
+ 	// SubReq is an optional field. If not nil, gnmi client implementation uses
+ 	// it rather than generating from client.Query while sending gnmi Subscribe RPC.
+ 	SubReq *gpb.SubscribeRequest
++	Streaming_type gpb.SubscriptionMode
++	Streaming_sample_int uint64
++	Heartbeat_int uint64
++	Suppress_redundant bool
+ }
+ 
+ // Destination extracts a Destination instance out of Query fields.
+--- ./github.com/openconfig/gnmi/value/value.go	2019-11-22 14:03:29.847103498 -0800
++++ ./github.com/openconfig/gnmi/value/value.go	2019-10-11 13:48:49.234145530 -0700
+@@ -117,6 +117,8 @@
+ 		i = ss
+ 	case *pb.TypedValue_BytesVal:
+ 		i = tv.GetBytesVal()
++	case *pb.TypedValue_JsonIetfVal:
++		i = string(tv.GetJsonIetfVal())
+ 	default:
+ 		return nil, fmt.Errorf("non-scalar type %+v", tv.Value)
+ 	}
