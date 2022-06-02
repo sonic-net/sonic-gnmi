@@ -16,6 +16,7 @@ BLD_FLAGS := -tags readwrite
 
 GO_DEPS := vendor/.done
 PATCHES := $(wildcard patches/*.patch)
+UNIT_TEST := $(shell if sudo [ -e /var/run/redis/redis.sock ]; then echo "exist"; else echo "noexist"; fi)
 
 all: sonic-gnmi
 
@@ -59,7 +60,19 @@ else
 endif
 
 check:
-
+ifeq ("$(UNIT_TEST)", "exist")
+ifeq ($(wildcard ${DBDIR}/database_config.json),)
+	sudo mkdir -p ${DBDIR}
+	sudo cp ./testdata/database_config.json ${DBDIR}
+endif
+	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_get
+	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_set
+	cd ./gnmi_server && sudo $(GO) test -coverprofile=coverage-gnmi.txt -covermode=count -mod=vendor -coverpkg ./,../sonic_data_client
+	$(GO) get github.com/axw/gocov/...
+	$(GO) get github.com/AlekSi/gocov-xml
+	gocov convert ./gnmi_server/coverage-gnmi.txt | gocov-xml -source $(shell pwd) > coverage.xml
+	rm -rf ./gnmi_server/coverage-gnmi.txt
+endif
 
 clean:
 	$(RM) -r build

@@ -7,6 +7,7 @@ require (
 	github.com/Azure/sonic-mgmt-common v0.0.0-00010101000000-000000000000
 	github.com/Workiva/go-datastructures v1.0.50
 	github.com/axw/gocov v1.1.0 // indirect
+	github.com/bgentry/speakeasy v0.1.0 // indirect
 	github.com/c9s/goprocinfo v0.0.0-20191125144613-4acdd056c72d
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/go-redis/redis v6.15.6+incompatible
@@ -15,9 +16,9 @@ require (
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/golang/protobuf v1.4.3
 	github.com/google/gnxi v0.0.0-20191016182648-6697a080bc2d
-	github.com/jipanyang/gnmi v0.0.0-20180820232453-cb4d464fa018
+	github.com/jipanyang/gnmi v0.0.0-20180820232453-cb4d464fa018 // indirect
 	github.com/jipanyang/gnxi v0.0.0-20181221084354-f0a90cca6fd0
-	github.com/kylelemons/godebug v1.1.0
+	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/msteinert/pam v0.0.0-20201130170657-e61372126161
 	github.com/onsi/ginkgo v1.10.3 // indirect
 	github.com/onsi/gomega v1.7.1 // indirect
