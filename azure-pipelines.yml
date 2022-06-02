@@ -73,6 +73,9 @@ stages:
         # PYTEST
         sudo pip3 install -U pytest
     
+        # DEPENDENCY
+        sudo apt-get install -y python3-dev
+    
         # REDIS
         sudo apt-get install -y redis-server
         sudo sed -ri 's/^# unixsocket/unixsocket/' /etc/redis/redis.conf
