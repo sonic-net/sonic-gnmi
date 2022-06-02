@@ -36,7 +36,7 @@ stages:
       DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)/sonic-gnmi
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-buster:latest
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bullseye:latest
 
     steps:
     - checkout: self
@@ -72,9 +72,6 @@ stages:
     - script: |
         # PYTEST
         sudo pip3 install -U pytest
-    
-        # DEPENDENCY
-        sudo apt-get install -y python3-dev
     
         # REDIS
         sudo apt-get install -y redis-server
