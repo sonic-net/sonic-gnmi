@@ -3,7 +3,6 @@ package gnmi
 import (
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"errors"
-	"net"
 	"github.com/golang/glog"
 	"github.com/msteinert/pam"
 	"golang.org/x/crypto/ssh"
