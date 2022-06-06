@@ -16,7 +16,7 @@ import (
 )
 
 func (srv *Server) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
-	ctx,err := authenticate(srv.config.UserAuth, ctx)
+	_,err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}

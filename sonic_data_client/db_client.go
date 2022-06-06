@@ -812,7 +812,7 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 					if err == nil {
 						var output []byte
 						slice := strings.Split(val, ",")
-						output, err = json.Marshal(slice)
+						_, err = json.Marshal(slice)
 						return &gnmipb.TypedValue{
 							Value: &gnmipb.TypedValue_StringVal{
 								StringVal: string(output),
@@ -1008,6 +1008,9 @@ func handleTableData(tblPaths []tablePath) error {
 							value := strings.Join(slice, ",")
 							log.V(5).Infof("handleTableData: HSet key %v field %v value %v", dbkey, field, value)
 							err = redisDb.HSet(dbkey, field, value).Err()
+							if err != nil {
+								return err
+							}
 						} else {
 							return fmt.Errorf("Unsupported value %v type %v", vres, reflect.TypeOf(vres))
 						}
@@ -1044,6 +1047,9 @@ func handleTableData(tblPaths []tablePath) error {
 									value := strings.Join(slice, ",")
 									log.V(5).Infof("handleTableData: HSet key %v field %v value %v", dbkey, field, value)
 									err = redisDb.HSet(dbkey, field, value).Err()
+									if err != nil {
+										return err
+									}
 								} else {
 									return fmt.Errorf("Unsupported value %v type %v", fres, reflect.TypeOf(fres))
 								}
@@ -1613,6 +1619,9 @@ func (c *DbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb
 	log.V(2).Infof("JsonPatch: %s", text)
 	patchFile := c.workPath + "/gcu.patch"
 	err = ioutil.WriteFile(patchFile, []byte(text), 0644)
+	if err != nil {
+		return err
+	}
 
 	var sc ssc.Service
 	sc, err = ssc.NewDbusClient()

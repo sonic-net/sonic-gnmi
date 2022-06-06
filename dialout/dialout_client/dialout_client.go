@@ -257,7 +257,7 @@ func (cs *clientSubscription) String() string {
 func newClient(ctx context.Context, dest Destination) (*Client, error) {
 	timeout := clientCfg.RetryInterval
 
-	cancel := func() {}
+	var cancel func()
 	ctx, cancel = context.WithTimeout(ctx, timeout)
 	defer cancel()
 

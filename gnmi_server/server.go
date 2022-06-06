@@ -230,7 +230,7 @@ func authenticate(UserAuth AuthTypes, ctx context.Context) (context.Context, err
 // Subscribe implements the gNMI Subscribe RPC.
 func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	ctx := stream.Context()
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	_, err := authenticate(s.config.UserAuth, ctx)
 	if err != nil {
 		return err
 	}
@@ -306,7 +306,7 @@ func IsSupportedOrigin(origin string) bool {
 
 // Get implements the Get RPC in gNMI spec.
 func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	_, err := authenticate(s.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -389,13 +389,12 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 			Prefix:    prefix,
 			Update:    []*gnmipb.Update{update},
 		}
-		index++
 	}
 	return &gnmipb.GetResponse{Notification: notifications}, nil
 }
 
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	_, err := authenticate(s.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
