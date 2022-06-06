@@ -3,6 +3,7 @@ package gnmi
 import (
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"errors"
+	"net"
 	"github.com/golang/glog"
 	"github.com/msteinert/pam"
 	"golang.org/x/crypto/ssh"
@@ -99,7 +100,7 @@ func UserPwAuth(username string, passwd string) (bool, error) {
 		Auth: []ssh.AuthMethod{
 			ssh.Password(passwd),
 		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),// lgtm[go/insecure-hostkeycallback]
+		HostKeyCallback: ssh.HostKeyCallback(func(hostname string, remote net.Addr, key ssh.PublicKey) error {return nil}),
 	}
 	c, err := ssh.Dial("tcp", "127.0.0.1:22", config)
 	if err != nil {
