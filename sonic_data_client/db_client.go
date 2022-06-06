@@ -812,7 +812,10 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 					if err == nil {
 						var output []byte
 						slice := strings.Split(val, ",")
-						_, err = json.Marshal(slice)
+						output, err = json.Marshal(slice)
+						if err != nil {
+							return nil, err
+						}
 						return &gnmipb.TypedValue{
 							Value: &gnmipb.TypedValue_StringVal{
 								StringVal: string(output),

@@ -99,7 +99,7 @@ func UserPwAuth(username string, passwd string) (bool, error) {
 		Auth: []ssh.AuthMethod{
 			ssh.Password(passwd),
 		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),// lgtm[go/insecure-hostkeycallback]
 	}
 	c, err := ssh.Dial("tcp", "127.0.0.1:22", config)
 	if err != nil {
