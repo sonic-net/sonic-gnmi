@@ -39,10 +39,23 @@ def gnmi_get(path_list):
     ret, msg = run_cmd(cmd)
     if ret == 0:
         msg = msg.replace('\\', '')
-        find_list_1 = re.findall( r'json_ietf_val:\s*"(.*?)"\s*>', msg)
-        find_list_2 = re.findall( r'string_val:\s*"(.*?)"\s*>', msg)
-        if find_list_1 or find_list_2:
-            return ret, find_list_1, find_list_2
+        find_list = re.findall( r'json_ietf_val:\s*"(.*?)"\s*>', msg)
+        if find_list:
+            return ret, find_list
         else:
-            return -1, [msg], []
-    return ret, [msg], []
+            return -1, [msg]
+    return ret, [msg]
+
+def gnmi_dump(name):
+    path = os.getcwd()
+    cmd = 'sudo ' + path + '/build/bin/gnmi_dump'
+    ret, msg = run_cmd(cmd)
+    if ret == 0:
+        msg_list = msg.split('\n')
+        for line in msg_list:
+            if '---' in line:
+                current = line.split('---')
+                if current[0] == name:
+                    return 0, int(current[1])
+        return -1, 0
+    return ret, 0

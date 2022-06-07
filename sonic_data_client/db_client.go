@@ -797,16 +797,16 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 						return nil, fmt.Errorf("Invalid index %v for %v", tblPath.index, slice)
 					}
 					return &gnmipb.TypedValue{
-						Value: &gnmipb.TypedValue_StringVal{
-							StringVal: slice[tblPath.index],
+						Value: &gnmipb.TypedValue_JsonIetfVal{
+							JsonIetfVal: []byte(`"` + slice[tblPath.index] + `"`),
 						}}, nil
 				} else {
 					field := tblPath.field
 					val, err := redisDb.HGet(key, field).Result()
 					if err == nil {
 						return &gnmipb.TypedValue{
-							Value: &gnmipb.TypedValue_StringVal{
-								StringVal: val,
+							Value: &gnmipb.TypedValue_JsonIetfVal{
+								JsonIetfVal: []byte(`"` + val + `"`),
 							}}, nil
 					}
 					field = field + "@"
@@ -819,8 +819,8 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 							return nil, err
 						}
 						return &gnmipb.TypedValue{
-							Value: &gnmipb.TypedValue_StringVal{
-								StringVal: string(output),
+							Value: &gnmipb.TypedValue_JsonIetfVal{
+								JsonIetfVal: []byte(output),
 							}}, nil
 					}
 					log.V(2).Infof("redis HGet failed for %v", tblPath)
