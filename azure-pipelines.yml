@@ -85,6 +85,6 @@ stages:
     - task: PublishCodeCoverageResults@1
       inputs:
         codeCoverageTool: Cobertura
-        summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
+        summaryFileLocation: '$(System.DefaultWorkingDirectory)/coverage.xml'
       displayName: 'Publish coverage'
 
