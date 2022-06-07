@@ -13,13 +13,6 @@ pr:
     include:
     - master
 
-resources:
-  repositories:
-  - repository: sonic-mgmt-common
-    type: github
-    name: Azure/sonic-mgmt-common
-    endpoint: build
-
 stages:
 - stage: Build
   jobs:
@@ -81,8 +74,6 @@ stages:
     - script: |
         set -ex
         ls -l
-
-        pushd sonic-gnmi
 
         dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build"
