@@ -44,11 +44,6 @@ stages:
       submodules: recursive
       displayName: 'Checkout code'
 
-    - checkout: sonic-mgmt-common
-      clean: true
-      submodules: recursive
-      displayName: 'Checkout code'
-
     - task: DownloadPipelineArtifact@2
       inputs:
         source: specific
@@ -58,16 +53,6 @@ stages:
         runVersion: 'latestFromBranch'
         runBranch: 'refs/heads/master'
       displayName: "Download sonic buildimage"
-
-    - task: DownloadPipelineArtifact@2
-      inputs:
-        source: specific
-        project: build
-        pipeline: 127
-        artifact: sonic-mgmt-common
-        runVersion: 'latestFromBranch'
-        runBranch: 'refs/heads/master'
-      displayName: "Download sonic-mgmt-common"
 
     - script: |
         # PYTEST
