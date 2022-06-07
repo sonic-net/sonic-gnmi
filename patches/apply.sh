@@ -42,9 +42,6 @@ patch -d ${DEST_DIR}/github.com/openconfig -p1 < ${PATCH_DIR}/ygot/ygot.patch
 
 patch -d ${DEST_DIR}/github.com/openconfig/goyang -p1 < ${PATCH_DIR}/goyang/goyang.patch
 
-patch -d ${DEST_DIR}/github.com/antchfx/jsonquery -p1 < ${PATCH_DIR}/jsonquery.patch
-patch -d ${DEST_DIR}/github.com/antchfx/xmlquery -p1 < ${PATCH_DIR}/xmlquery.patch
-patch -d ${DEST_DIR}/github.com/antchfx/xpath -p1 < ${PATCH_DIR}/xpath.patch
 
 patch -d ${DEST_DIR}/github.com/golang/glog  -p1 < ${PATCH_DIR}/glog.patch
 

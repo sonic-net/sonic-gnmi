@@ -1,5 +1,2 @@
 extraction:
   go:
-    before_index:
-    - "git clone https://github.com/Azure/sonic-mgmt-common.git"
-    - "sed -i 's@replace github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common@replace github.com/Azure/sonic-mgmt-common => ./sonic-mgmt-common@g' go.mod"

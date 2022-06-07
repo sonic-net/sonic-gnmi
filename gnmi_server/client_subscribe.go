@@ -73,7 +73,6 @@ func (c *Client) populateDbPathSubscrition(sublist *gnmipb.SubscriptionList) ([]
 // internally after sync until a Poll request is made to the server.
 func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	defer log.V(1).Infof("Client %s shutdown", c)
-	ctx := stream.Context()
 
 	if stream == nil {
 		return grpc.Errorf(codes.FailedPrecondition, "cannot start client: stream is nil")
@@ -97,7 +96,6 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	log.V(2).Infof("Client %s recieved initial query %v", c, query)
 
 	c.subscribe = query.GetSubscribe()
-	extensions := query.GetExtension()
 
 	if c.subscribe == nil {
 		return grpc.Errorf(codes.InvalidArgument, "first message must be SubscriptionList: %q", query)
@@ -121,13 +119,8 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	}
 	var dc sdc.Client
 
-	if target == "OTHERS" {
-		dc, err = sdc.NewNonDbClient(paths, prefix)
-	} else if _, ok, _, _ := sdc.IsTargetDb(target); ok {
+	if _, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix, "", "", false)
-	} else {
-		/* For any other target or no target create new Transl Client. */
-		dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions)
 	}
 
 	if err != nil {
