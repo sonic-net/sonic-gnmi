@@ -15,6 +15,10 @@ pr:
 
 resources:
   repositories:
+  - repository: sonic-mgmt-common
+    type: github
+    name: Azure/sonic-mgmt-common
+    endpoint: build
 
 stages:
 - stage: Build
@@ -40,6 +44,11 @@ stages:
       submodules: recursive
       displayName: 'Checkout code'
 
+    - checkout: sonic-mgmt-common
+      clean: true
+      submodules: recursive
+      displayName: 'Checkout code'
+
     - task: DownloadPipelineArtifact@2
       inputs:
         source: specific
@@ -49,6 +58,16 @@ stages:
         runVersion: 'latestFromBranch'
         runBranch: 'refs/heads/master'
       displayName: "Download sonic buildimage"
+
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        source: specific
+        project: build
+        pipeline: 127
+        artifact: sonic-mgmt-common
+        runVersion: 'latestFromBranch'
+        runBranch: 'refs/heads/master'
+      displayName: "Download sonic-mgmt-common"
 
     - script: |
         # PYTEST
@@ -78,6 +97,12 @@ stages:
         set -ex
         ls -l
 
+        pushd sonic-mgmt-common
+
+        NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
+
+        popd
+
         pushd sonic-gnmi
 
         dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
@@ -92,4 +117,3 @@ stages:
         codeCoverageTool: Cobertura
         summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
       displayName: 'Publish coverage'
-
