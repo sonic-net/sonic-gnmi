@@ -97,12 +97,6 @@ stages:
         set -ex
         ls -l
 
-        pushd sonic-mgmt-common
-
-        NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
-
-        popd
-
         pushd sonic-gnmi
 
         dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
@@ -117,3 +111,4 @@ stages:
         codeCoverageTool: Cobertura
         summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
       displayName: 'Publish coverage'
+
