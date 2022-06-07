@@ -34,7 +34,7 @@ func createServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port}
+	cfg := &Config{Port: port, TestMode: true}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
@@ -60,7 +60,7 @@ func TestAll(t *testing.T) {
 	path = filepath.Dir(path)
 
 	var cmd *exec.Cmd
-	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest")
+	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest -s")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)

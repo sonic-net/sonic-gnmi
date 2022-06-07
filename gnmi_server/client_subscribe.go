@@ -124,7 +124,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
 	} else if _, ok, _, _ := sdc.IsTargetDb(target); ok {
-		dc, err = sdc.NewDbClient(paths, prefix, "", "")
+		dc, err = sdc.NewDbClient(paths, prefix, "", "", false)
 	} else {
 		/* For any other target or no target create new Transl Client. */
 		dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions)

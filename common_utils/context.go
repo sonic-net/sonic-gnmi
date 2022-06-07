@@ -1,8 +1,8 @@
 package common_utils
 
 import (
-	"context"
 	"fmt"
+	"context"
 	"sync/atomic"
 )
 
@@ -36,17 +36,24 @@ const requestContextKey contextkey = 0
 // Request Id generator
 var requestCounter uint64
 
-type ShareCounters struct {
-    Gnmi_get_cnt uint64
-    Gnmi_get_fail_cnt uint64
-    Gnmi_set_cnt uint64
-    Gnmi_set_fail_cnt uint64
-	Gnoi_reboot_cnt uint64
-	Dbus_cnt uint64
-	Dbus_fail_cnt uint64
+var CountersName = [...]string{
+	"GMNI get",
+	"GMNI get fail",
+	"GNMI set",
+	"GNMI set fail",
+	"GNOI reboot",
+	"DBUS",
+	"DBUS fail",
+	"DBUS apply patch db",
+	"DBUS apply patch yang",
+	"DBUS create checkpoint",
+	"DBUS delete checkpoint",
+	"DBUS config save",
+	"DBUS config reload",
 }
 
-var globalCounters ShareCounters
+var globalCounters [len(CountersName)]uint64
+
 
 // GetContext function returns the RequestContext object for a
 // gRPC request. RequestContext is maintained as a context value of
@@ -73,47 +80,19 @@ func GetUsername(ctx context.Context, username *string) {
 }
 
 func InitCounters() {
-	globalCounters.Gnmi_get_cnt = 0
-	globalCounters.Gnmi_get_fail_cnt = 0
-	globalCounters.Gnmi_set_cnt = 0
-	globalCounters.Gnmi_set_fail_cnt = 0
-	globalCounters.Gnoi_reboot_cnt = 0
-	globalCounters.Dbus_cnt = 0
-	globalCounters.Dbus_fail_cnt = 0
+	for i := 0; i < len(CountersName); i++ {
+		globalCounters[i] = 0
+	}
 	SetMemCounters(&globalCounters)
 }
 
-func IncGnmiGetCnt() {
-	atomic.AddUint64(&globalCounters.Gnmi_get_cnt, 1)
+func IncCounter(name string) {
+	for i := 0; i < len(CountersName); i++ {
+		if CountersName[i] == name {
+			atomic.AddUint64(&globalCounters[i], 1)
+			break
+		}
+	}
 	SetMemCounters(&globalCounters)
 }
 
-func IncGnmiGetFailCnt() {
-	atomic.AddUint64(&globalCounters.Gnmi_get_fail_cnt, 1)
-	SetMemCounters(&globalCounters)
-}
-
-func IncGnmiSetCnt() {
-	atomic.AddUint64(&globalCounters.Gnmi_set_cnt, 1)
-	SetMemCounters(&globalCounters)
-}
-
-func IncGnmiSetFailCnt() {
-	atomic.AddUint64(&globalCounters.Gnmi_set_fail_cnt, 1)
-	SetMemCounters(&globalCounters)
-}
-
-func IncGnoiRebootCnt() {
-	atomic.AddUint64(&globalCounters.Gnoi_reboot_cnt, 1)
-	SetMemCounters(&globalCounters)
-}
-
-func IncDbusCnt() {
-	atomic.AddUint64(&globalCounters.Dbus_cnt, 1)
-	SetMemCounters(&globalCounters)
-}
-
-func IncDbusFailCnt() {
-	atomic.AddUint64(&globalCounters.Dbus_fail_cnt, 1)
-	SetMemCounters(&globalCounters)
-}

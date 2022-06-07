@@ -64,6 +64,7 @@ type Config struct {
 	// for this Server.
 	Port     int64
 	UserAuth AuthTypes
+	TestMode bool
 }
 
 var AuthLock sync.Mutex
@@ -310,15 +311,15 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	if err != nil {
 		return nil, err
 	}
-	common_utils.IncGnmiGetCnt()
+	common_utils.IncCounter("GMNI get")
 
 	if req.GetType() != gnmipb.GetRequest_ALL {
-		common_utils.IncGnmiGetFailCnt()
+		common_utils.IncCounter("GMNI get fail")
 		return nil, status.Errorf(codes.Unimplemented, "unsupported request type: %s", gnmipb.GetRequest_DataType_name[int32(req.GetType())])
 	}
 
 	if err = s.checkEncodingAndModel(req.GetEncoding(), req.GetUseModels()); err != nil {
-		common_utils.IncGnmiGetFailCnt()
+		common_utils.IncCounter("GMNI get fail")
 		return nil, status.Error(codes.Unimplemented, err.Error())
 	}
 
@@ -337,23 +338,23 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	if target == "" {
 		target, err = ParseTarget(target, paths)
 		if err != nil {
-			common_utils.IncGnmiGetFailCnt()
+			common_utils.IncCounter("GMNI get fail")
 			return nil, err
 		}
 	}
 	if origin == "" {
 		origin, err = ParseOrigin(origin, paths)
 		if err != nil {
-			common_utils.IncGnmiGetFailCnt()
+			common_utils.IncCounter("GMNI get fail")
 			return nil, err
 		}
 	}
 	if check := IsSupportedOrigin(origin); !check {
-		common_utils.IncGnmiGetFailCnt()
+		common_utils.IncCounter("GMNI get fail")
 		return nil, status.Errorf(codes.Unimplemented, "Invalid origin: %s", origin)
 	}
 	if origin == "sonic-yang" {
-		common_utils.IncGnmiGetFailCnt()
+		common_utils.IncCounter("GMNI get fail")
 		return nil, status.Errorf(codes.Unimplemented, "SONiC Yang Schema is not implemented yet")
 	}
 	log.V(5).Infof("GetRequest paths: %v", paths)
@@ -361,20 +362,20 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	var dc sdc.Client
 
 	if _, ok, _, _ := sdc.IsTargetDb(target); ok {
-		dc, err = sdc.NewDbClient(paths, prefix, target, origin)
+		dc, err = sdc.NewDbClient(paths, prefix, target, origin, s.config.TestMode)
 	} else {
-		common_utils.IncGnmiGetFailCnt()
+		common_utils.IncCounter("GMNI get fail")
 		return nil, status.Errorf(codes.Unimplemented, "Invalid target: %s", target)
 	}
 
 	if err != nil {
-		common_utils.IncGnmiGetFailCnt()
+		common_utils.IncCounter("GMNI get fail")
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 	notifications := make([]*gnmipb.Notification, len(paths))
 	spbValues, err := dc.Get(nil)
 	if err != nil {
-		common_utils.IncGnmiGetFailCnt()
+		common_utils.IncCounter("GMNI get fail")
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 
@@ -400,7 +401,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	}
 	var results []*gnmipb.UpdateResult
 
-	common_utils.IncGnmiSetCnt()
+	common_utils.IncCounter("GMNI set")
 	target := ""
 	origin := ""
 	prefix := req.GetPrefix()
@@ -422,37 +423,37 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	if target == "" {
 		target, err = ParseTarget(target, paths)
 		if err != nil {
-			common_utils.IncGnmiSetFailCnt()
+			common_utils.IncCounter("GMNI set fail")
 			return nil, err
 		}
 	}
 	if origin == "" {
 		origin, err = ParseOrigin(origin, paths)
 		if err != nil {
-			common_utils.IncGnmiSetFailCnt()
+			common_utils.IncCounter("GMNI set fail")
 			return nil, err
 		}
 	}
 	if check := IsSupportedOrigin(origin); !check {
-		common_utils.IncGnmiSetFailCnt()
+		common_utils.IncCounter("GMNI set fail")
 		return nil, status.Errorf(codes.Unimplemented, "Invalid origin: %s", origin)
 	}
 	if origin == "sonic-yang" {
-		common_utils.IncGnmiSetFailCnt()
+		common_utils.IncCounter("GMNI set fail")
 		return nil, status.Errorf(codes.Unimplemented, "SONiC Yang Schema is not implemented yet")
 	}
 
 	var dc sdc.Client
 
 	if _, ok, _, _ := sdc.IsTargetDb(target); ok {
-		dc, err = sdc.NewDbClient(nil, prefix, target, origin)
+		dc, err = sdc.NewDbClient(nil, prefix, target, origin, s.config.TestMode)
 	} else {
-		common_utils.IncGnmiSetFailCnt()
+		common_utils.IncCounter("GMNI set fail")
 		return nil, status.Errorf(codes.Unimplemented, "Invalid target: %s", target)
 	}
 
 	if err != nil {
-		common_utils.IncGnmiSetFailCnt()
+		common_utils.IncCounter("GMNI set fail")
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 
@@ -495,7 +496,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	}
 	err = dc.Set(req.GetDelete(), req.GetReplace(), req.GetUpdate())
 	if err != nil {
-		common_utils.IncGnmiSetFailCnt()
+		common_utils.IncCounter("GMNI set fail")
 	}
 
 	return &gnmipb.SetResponse{

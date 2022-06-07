@@ -129,6 +129,7 @@ type DbClient struct {
 	target  string
 	origin  string
 	workPath string
+	testMode bool
 
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
 	w      *sync.WaitGroup // wait for all sub go routines to finish
@@ -139,7 +140,7 @@ type DbClient struct {
 	errors  int64
 }
 
-func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, target string, origin string) (Client, error) {
+func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, target string, origin string, testMode bool) (Client, error) {
 	var client DbClient
 	var err error
 
@@ -151,6 +152,7 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, target string, origi
 	client.prefix = prefix
 	client.target = target
 	client.origin = origin
+	client.testMode = testMode
 	client.workPath = "/etc/sonic/gnmi"
 
 	if paths != nil {
@@ -1627,7 +1629,7 @@ func (c *DbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb
 	}
 
 	var sc ssc.Service
-	sc, err = ssc.NewDbusClient()
+	sc, err = ssc.NewDbusClient(c.testMode)
 	if err != nil {
 		return err
 	}
@@ -1642,9 +1644,9 @@ func (c *DbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb
 	return err
 }
 
-func RebootSystem(fileName string) error {
+func RebootSystem(fileName string, testMode bool) error {
 	log.V(2).Infof("Rebooting with %s...", fileName)
-	sc, err := ssc.NewDbusClient()
+	sc, err := ssc.NewDbusClient(testMode)
 	if err != nil {
 		return err
 	}
@@ -1664,8 +1666,10 @@ func (c *DbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.Update
 	if err != nil {
 		return err
 	}
-	// TODO: Add Yang validation
-	PyCodeInGo :=
+
+	if c.testMode == false {
+		// TODO: Add Yang validation
+		PyCodeInGo :=
 `
 import sonic_yang
 import json
@@ -1682,15 +1686,16 @@ except sonic_yang.SonicYangException as e:
     raise
 `
 
-	PyCodeInGo = fmt.Sprintf(PyCodeInGo, ietf_json_val)
-	err = RunPyCode(PyCodeInGo)
-	if err != nil {
-		return fmt.Errorf("Yang validation failed!")
+		PyCodeInGo = fmt.Sprintf(PyCodeInGo, ietf_json_val)
+		err = RunPyCode(PyCodeInGo)
+		if err != nil {
+			return fmt.Errorf("Yang validation failed!")
+		}
 	}
 
 	go func() {
 		time.Sleep(10 * time.Second)
-		RebootSystem(fileName)
+		RebootSystem(fileName, c.testMode)
 	} ()
 
 	return nil

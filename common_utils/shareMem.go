@@ -12,7 +12,7 @@ var (
 	memMode = 01600
 )
 
-func SetMemCounters(counters *ShareCounters) error {
+func SetMemCounters(counters *[len(CountersName)]uint64) error {
 	shmid, _, err := syscall.Syscall(syscall.SYS_SHMGET, uintptr(memKey), uintptr(memSize), uintptr(memMode))
 	if int(shmid) == -1 {
 		return fmt.Errorf("syscall error, err: %v\n", err)
@@ -24,18 +24,17 @@ func SetMemCounters(counters *ShareCounters) error {
 	}
 	defer syscall.Syscall(syscall.SYS_SHMDT, shmaddr, 0, 0)
 
-	data := (*ShareCounters)(unsafe.Pointer(uintptr(shmaddr)))
-	data.Gnmi_get_cnt = counters.Gnmi_get_cnt
-	data.Gnmi_get_fail_cnt = counters.Gnmi_get_fail_cnt
-	data.Gnmi_set_cnt = counters.Gnmi_set_cnt
-	data.Gnmi_set_fail_cnt = counters.Gnmi_set_fail_cnt
-	data.Gnoi_reboot_cnt = counters.Gnoi_reboot_cnt
-	data.Dbus_cnt = counters.Dbus_cnt
-	data.Dbus_fail_cnt = counters.Dbus_fail_cnt
+	const size = unsafe.Sizeof(uint64(0))
+	addr := uintptr(unsafe.Pointer(shmaddr))
+
+	for i := 0; i < len(counters); i++ {
+		*(*uint64)(unsafe.Pointer(addr)) = counters[i]
+		addr += size
+	}
 	return nil
 }
 
-func GetMemCounters(counters *ShareCounters) error {
+func GetMemCounters(counters *[len(CountersName)]uint64) error {
 	shmid, _, err := syscall.Syscall(syscall.SYS_SHMGET, uintptr(memKey), uintptr(memSize), uintptr(memMode))
 	if int(shmid) == -1 {
 		return fmt.Errorf("syscall error, err: %v\n", err)
@@ -47,13 +46,13 @@ func GetMemCounters(counters *ShareCounters) error {
 	}
 	defer syscall.Syscall(syscall.SYS_SHMDT, shmaddr, 0, 0)
 
-	data := (*ShareCounters)(unsafe.Pointer(uintptr(shmaddr)))
-	counters.Gnmi_get_cnt = data.Gnmi_get_cnt
-	counters.Gnmi_get_fail_cnt = data.Gnmi_get_fail_cnt
-	counters.Gnmi_set_cnt = data.Gnmi_set_cnt
-	counters.Gnmi_set_fail_cnt = data.Gnmi_set_fail_cnt
-	counters.Gnoi_reboot_cnt = data.Gnoi_reboot_cnt
-	counters.Dbus_cnt = data.Dbus_cnt
-	counters.Dbus_fail_cnt = data.Dbus_fail_cnt
+	const size = unsafe.Sizeof(uint64(0))
+	addr := uintptr(unsafe.Pointer(shmaddr))
+
+	for i := 0; i < len(counters); i++ {
+		counters[i] = *(*uint64)(unsafe.Pointer(addr))
+		addr += size
+	}
 	return nil
 }
+
