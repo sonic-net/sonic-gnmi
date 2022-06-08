@@ -1633,6 +1633,11 @@ func (c *DbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb
 	if err != nil {
 		return err
 	}
+	err = sc.CreateCheckPoint(c.workPath + "/config")
+	if err != nil {
+		return err
+	}
+	defer sc.DeleteCheckPoint(c.workPath + "/config")
 	if c.origin == "sonic-db" {
 		err = sc.ApplyPatchDb(patchFile)
 	} else if c.origin == "sonic-yang" {
@@ -1640,7 +1645,10 @@ func (c *DbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb
 	} else {
 		return fmt.Errorf("Invalid schema %s", c.origin)
 	}
-	
+
+	if err == nil {
+		err = sc.ConfigSave("/etc/sonic/config_db.json")
+	}
 	return err
 }
 

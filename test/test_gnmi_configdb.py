@@ -56,7 +56,13 @@ class TestGNMIApplDb:
             file_object.close()
             update_list.append(path + ':@./' + file_name)
 
-        ret, old_cnt = gnmi_dump("DBUS apply patch db")
+        ret, old_apply_patch_cnt = gnmi_dump("DBUS apply patch db")
+        assert ret == 0, 'Fail to read counter'
+        ret, old_create_checkpoint_cnt = gnmi_dump("DBUS create checkpoint")
+        assert ret == 0, 'Fail to read counter'
+        ret, old_delete_checkpoint_cnt = gnmi_dump("DBUS delete checkpoint")
+        assert ret == 0, 'Fail to read counter'
+        ret, old_config_save_cnt = gnmi_dump("DBUS config save")
         assert ret == 0, 'Fail to read counter'
         ret, msg = gnmi_set([], update_list, [])
         assert ret == 0, msg
@@ -72,9 +78,18 @@ class TestGNMIApplDb:
                     break
             else:
                 pytest.fail('No item in patch: %s'%str(item))
-        ret, new_cnt = gnmi_dump("DBUS apply patch db")
+        ret, new_apply_patch_cnt = gnmi_dump("DBUS apply patch db")
         assert ret == 0, 'Fail to read counter'
-        assert new_cnt == old_cnt+1, 'DBUS API is not invoked'
+        assert new_apply_patch_cnt == old_apply_patch_cnt + 1, 'DBUS API is not invoked'
+        ret, new_create_checkpoint_cnt = gnmi_dump("DBUS create checkpoint")
+        assert ret == 0, 'Fail to read counter'
+        assert new_create_checkpoint_cnt == old_create_checkpoint_cnt + 1, 'DBUS API is not invoked'
+        ret, new_delete_checkpoint_cnt = gnmi_dump("DBUS delete checkpoint")
+        assert ret == 0, 'Fail to read counter'
+        assert new_delete_checkpoint_cnt == old_delete_checkpoint_cnt + 1, 'DBUS API is not invoked'
+        ret, new_config_save_cnt = gnmi_dump("DBUS config save")
+        assert ret == 0, 'Fail to read counter'
+        assert new_config_save_cnt == old_config_save_cnt + 1, 'DBUS API is not invoked'
 
     @pytest.mark.parametrize("test_data", test_data_update_normal)
     def test_gnmi_incremental_delete(self, test_data):

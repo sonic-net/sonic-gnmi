@@ -91,8 +91,8 @@ func DbusApi(busName string, busPath string, intName string, timeout int, args .
 }
 
 func (c *DbusClient) ConfigReload(fileName string) error {
+	common_utils.IncCounter("DBUS config reload")
 	if c.testMode == true {
-		common_utils.IncCounter("DBUS config reload")
 		return nil
 	}
 	modName := "config"
@@ -104,8 +104,8 @@ func (c *DbusClient) ConfigReload(fileName string) error {
 }
 
 func (c *DbusClient) ConfigSave(fileName string) error {
+	common_utils.IncCounter("DBUS config save")
 	if c.testMode == true {
-		common_utils.IncCounter("DBUS config save")
 		return nil
 	}
 	modName := "config"
@@ -117,8 +117,8 @@ func (c *DbusClient) ConfigSave(fileName string) error {
 }
 
 func (c *DbusClient) ApplyPatchYang(fileName string) error {
+	common_utils.IncCounter("DBUS apply patch yang")
 	if c.testMode == true {
-		common_utils.IncCounter("DBUS apply patch yang")
 		return nil
 	}
 	modName := "gcu"
@@ -130,8 +130,8 @@ func (c *DbusClient) ApplyPatchYang(fileName string) error {
 }
 
 func (c *DbusClient) ApplyPatchDb(fileName string) error {
+	common_utils.IncCounter("DBUS apply patch db")
 	if c.testMode == true {
-		common_utils.IncCounter("DBUS apply patch db")
 		return nil
 	}
 	modName := "gcu"
@@ -143,8 +143,8 @@ func (c *DbusClient) ApplyPatchDb(fileName string) error {
 }
 
 func (c *DbusClient) CreateCheckPoint(fileName string) error {
+	common_utils.IncCounter("DBUS create checkpoint")
 	if c.testMode == true {
-		common_utils.IncCounter("DBUS create checkpoint")
 		return nil
 	}
 	modName := "gcu"
@@ -156,8 +156,8 @@ func (c *DbusClient) CreateCheckPoint(fileName string) error {
 }
 
 func (c *DbusClient) DeleteCheckPoint(fileName string) error {
+	common_utils.IncCounter("DBUS delete checkpoint")
 	if c.testMode == true {
-		common_utils.IncCounter("DBUS delete checkpoint")
 		return nil
 	}
 	modName := "gcu"
