@@ -248,6 +248,9 @@ func DecodeJsonListItem(list []interface{}, index string) (*string, error) {
 func (c *DbClient) GetCheckPoint() ([]*spb.Value, error) {
 	fileName := c.workPath + "/config.cp.json"
 	ok, err := PathExists(fileName)
+	if err!= nil {
+		return nil, err
+	}
 	if ok == false {
 		return nil, fmt.Errorf("No check point") 
 	}
