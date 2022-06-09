@@ -65,8 +65,6 @@ ifeq ($(wildcard ${DBDIR}/database_config.json),)
 	sudo mkdir -p ${DBDIR}
 	sudo cp ./testdata/database_config.json ${DBDIR}
 endif
-	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_get
-	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_set
 	cd ./gnmi_server && sudo $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor -coverpkg ./,../sonic_data_client
 	$(GO) get github.com/axw/gocov/...
 	$(GO) get github.com/AlekSi/gocov-xml

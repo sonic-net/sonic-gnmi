@@ -39,8 +39,81 @@ test_data_update_normal = [
     ]
 ]
 
+test_json_checkpoint = {
+    "DASH_QOS": {
+        'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+        'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
+    },
+    "DASH_VNET": {
+        'vnet_3721': {
+            'address_spaces': ["10.250.0.0", "192.168.3.0", "139.66.72.9"]
+        }
+    }
+}
+
+test_data_checkpoint = [
+    [
+        {
+            'path': '/sonic-db:CONFIG_DB/DASH_QOS',
+            'value': {
+                'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+                'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
+            }
+        },
+        {
+            'path': '/sonic-db:CONFIG_DB/DASH_VNET',
+            'value': {
+                'vnet_3721': {
+                    'address_spaces': ["10.250.0.0", "192.168.3.0", "139.66.72.9"]
+                }
+            }
+        }
+    ],
+    [
+        {
+            'path': '/sonic-db:CONFIG_DB/DASH_QOS/qos_01',
+            'value': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+        },
+        {
+            'path': '/sonic-db:CONFIG_DB/DASH_QOS/qos_02',
+            'value': {'bw': '6000', 'cps': '200', 'flows': '101'}
+        },
+        {
+            'path': '/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721',
+            'value': {
+                'address_spaces': ["10.250.0.0", "192.168.3.0", "139.66.72.9"]
+            }
+        }
+    ],
+    [
+        {
+            'path': '/sonic-db:CONFIG_DB/DASH_QOS/qos_01/flows',
+            'value': '300'
+        },
+        {
+            'path': '/sonic-db:CONFIG_DB/DASH_QOS/qos_02/bw',
+            'value': '6000'
+        },
+        {
+            'path': '/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces',
+            'value': ["10.250.0.0", "192.168.3.0", "139.66.72.9"]
+        }
+    ],
+    [
+        {
+            'path': '/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces/0',
+            'value': "10.250.0.0"
+        },
+        {
+            'path': '/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces/1',
+            'value': "192.168.3.0"
+        }
+    ]
+]
+
 patch_file = '/etc/sonic/gnmi/gcu.patch'
 config_file = '/etc/sonic/gnmi/config_db.json.tmp'
+checkpoint_file = '/etc/sonic/gnmi/config.cp.json'
 
 class TestGNMIApplDb:
 
@@ -177,3 +250,42 @@ class TestGNMIApplDb:
         ret, new_cnt = gnmi_dump("DBUS config reload")
         assert ret == 0, 'Fail to read counter'
         assert new_cnt == old_cnt+1, 'DBUS API is not invoked'
+
+    @pytest.mark.parametrize("test_data", test_data_checkpoint)
+    def test_gnmi_get_checkpoint(self, test_data):
+        if os.path.isfile(checkpoint_file):
+            os.remove(checkpoint_file)
+
+        get_list = []
+        for data in test_data:
+            path = data['path']
+            get_list.append(path)
+
+        ret, msg_list = gnmi_get(get_list)
+        if ret == 0:
+            for msg in msg_list:
+                assert msg == '{}', 'Invalid result'
+
+        value = json.dumps(test_json_checkpoint)
+        file_object = open(checkpoint_file, 'w')
+        file_object.write(value)
+        file_object.close()
+
+        get_list = []
+        for data in test_data:
+            path = data['path']
+            value = json.dumps(data['value'])
+            get_list.append(path)
+
+        ret, msg_list = gnmi_get(get_list)
+        assert ret == 0, 'Invalid return code'
+        assert len(msg_list), 'Invalid msg: ' + str(msg_list)
+        for data in test_data:
+            hit = False
+            for msg in msg_list:
+                rx_data = json.loads(msg)
+                if data['value'] == rx_data:
+                    hit = True
+                    break
+            assert hit == True, 'No match for %s'%str(data['value'])
+
