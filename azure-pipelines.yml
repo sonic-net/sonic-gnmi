@@ -50,7 +50,8 @@ stages:
     - script: |
         # PYTEST
         sudo pip3 install -U pytest
-    
+        sudo apt-get install -y python
+
         # REDIS
         sudo apt-get install -y redis-server
         sudo sed -ri 's/^# unixsocket/unixsocket/' /etc/redis/redis.conf
