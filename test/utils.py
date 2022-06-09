@@ -46,6 +46,14 @@ def gnmi_get(path_list):
             return -1, [msg]
     return ret, [msg]
 
+def gnmi_capabilities():
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnmi_cli '
+    cmd += '-client_types=gnmi -a 127.0.0.1:8080 -logtostderr -insecure '
+    cmd += '-capabilities '
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
 def gnmi_dump(name):
     path = os.getcwd()
     cmd = 'sudo ' + path + '/build/bin/gnmi_dump'
