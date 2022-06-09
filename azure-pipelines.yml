@@ -50,7 +50,6 @@ stages:
     - script: |
         # PYTEST
         sudo pip3 install -U pytest
-        sudo apt-get install -y python
 
         # REDIS
         sudo apt-get install -y redis-server
@@ -74,7 +73,10 @@ stages:
 
     - script: |
         set -ex
+        echo "hello", $(System.DefaultWorkingDirectory)
         ls -l
+
+        pushd sonic-gnmi
 
         dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build"
