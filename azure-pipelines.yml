@@ -34,6 +34,7 @@ stages:
     steps:
     - checkout: self
       clean: true
+      path: sonic-gnmi
       submodules: recursive
       displayName: 'Checkout code'
 
@@ -88,6 +89,6 @@ stages:
     - task: PublishCodeCoverageResults@1
       inputs:
         codeCoverageTool: Cobertura
-        summaryFileLocation: '$(System.DefaultWorkingDirectory)/coverage.xml'
+        summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
       displayName: 'Publish coverage'
 
