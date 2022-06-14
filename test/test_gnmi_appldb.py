@@ -55,6 +55,7 @@ test_data_update_normal = [
     ]
 ]
 
+@pytest.mark.noauth
 class TestGNMIApplDb:
 
     @pytest.mark.parametrize('test_data', test_data_update_normal)

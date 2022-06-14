@@ -42,6 +42,25 @@ func createServer(t *testing.T, port int64) *Server {
 	return s
 }
 
+func createAuthServer(t *testing.T, port int64) *Server {
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Errorf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &Config{Port: port, TestMode: true, UserAuth: AuthTypes{"password": true, "cert": true, "jwt": true}}
+	s, err := NewServer(cfg, opts)
+	if err != nil {
+		t.Errorf("Failed to create gNMI server: %v", err)
+	}
+	return s
+}
+
 func runServer(t *testing.T, s *Server) {
 	//t.Log("Starting RPC server on address:", s.Address())
 	err := s.Serve() // blocks until close
@@ -60,7 +79,25 @@ func TestAll(t *testing.T) {
 	path = filepath.Dir(path)
 
 	var cmd *exec.Cmd
-	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest -s")
+	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest -s -m noauth")
+	if result, err := cmd.Output(); err != nil {
+		fmt.Println(string(result))
+		t.Errorf("Fail to execute pytest: %v", err)
+	} else {
+		fmt.Println(string(result))
+	}
+}
+
+func TestAuth(t *testing.T) {
+	s := createAuthServer(t, 8080)
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	path, _ := os.Getwd()
+	path = filepath.Dir(path)
+
+	var cmd *exec.Cmd
+	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m auth")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)

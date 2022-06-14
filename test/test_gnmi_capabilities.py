@@ -1,5 +1,7 @@
+import pytest
 from utils import gnmi_capabilities
 
+@pytest.mark.noauth
 class TestGNMICapabilities:
 
     def test_gnmi_cap(self):

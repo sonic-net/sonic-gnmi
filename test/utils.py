@@ -46,6 +46,42 @@ def gnmi_get(path_list):
             return -1, [msg]
     return ret, [msg]
 
+def gnmi_get_with_password(path_list, user, password):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnmi_get '
+    cmd += '-insecure -username %s -password %s '%(user, password)
+    cmd += '-target_addr 127.0.0.1:8080 '
+    cmd += '-alsologtostderr '
+    for path in path_list:
+        cmd += " -xpath " + path
+    ret, msg = run_cmd(cmd)
+    if ret == 0:
+        msg = msg.replace('\\', '')
+        find_list = re.findall( r'json_ietf_val:\s*"(.*?)"\s*>', msg)
+        if find_list:
+            return ret, find_list
+        else:
+            return -1, [msg]
+    return ret, [msg]
+
+def gnmi_get_with_jwt(path_list, token):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnmi_get '
+    cmd += '-insecure -jwt_token ' + token + ' '
+    cmd += '-target_addr 127.0.0.1:8080 '
+    cmd += '-alsologtostderr '
+    for path in path_list:
+        cmd += " -xpath " + path
+    ret, msg = run_cmd(cmd)
+    if ret == 0:
+        msg = msg.replace('\\', '')
+        find_list = re.findall( r'json_ietf_val:\s*"(.*?)"\s*>', msg)
+        if find_list:
+            return ret, find_list
+        else:
+            return -1, [msg]
+    return ret, [msg]
+
 def gnmi_capabilities():
     path = os.getcwd()
     cmd = path + '/build/bin/gnmi_cli '
@@ -67,3 +103,4 @@ def gnmi_dump(name):
                     return 0, int(current[1])
         return -1, 0
     return ret, 0
+

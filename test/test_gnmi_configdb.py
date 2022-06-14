@@ -115,6 +115,7 @@ patch_file = '/etc/sonic/gnmi/gcu.patch'
 config_file = '/etc/sonic/gnmi/config_db.json.tmp'
 checkpoint_file = '/etc/sonic/gnmi/config.cp.json'
 
+@pytest.mark.noauth
 class TestGNMIApplDb:
 
     @pytest.mark.parametrize("test_data", test_data_update_normal)
