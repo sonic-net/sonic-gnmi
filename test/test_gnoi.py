@@ -1,5 +1,5 @@
 import pytest
-from utils import gnoi_time, gnoi_switchcontrolprocessor
+from utils import gnoi_time, gnoi_setpackage, gnoi_switchcontrolprocessor
 from utils import gnoi_reboot, gnoi_rebootstatus, gnoi_cancelreboot
 from utils import gnoi_ping, gnoi_traceroute, gnmi_dump
 
@@ -42,6 +42,11 @@ class TestGNOI:
         ret, msg = gnoi_traceroute('6.6.6.6')
         assert ret == 0, msg
         assert 'ClientStream' in msg
+
+    def test_gnoi_setpackage(self):
+        ret, msg = gnoi_setpackage()
+        assert ret != 0, 'SetPackage should fail' + msg
+        assert 'Unimplemented' in msg
 
     def test_gnoi_switchcontrolprocessor(self):
         ret, msg = gnoi_switchcontrolprocessor()

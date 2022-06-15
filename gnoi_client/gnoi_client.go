@@ -60,6 +60,8 @@ func main() {
 			systemPing(sc, ctx)
 		case "Traceroute":
 			systemTraceroute(sc, ctx)
+		case "SetPackage":
+			systemSetPackage(sc, ctx)
 		case "SwitchControlProcessor":
 			systemSwitchControlProcessor(sc, ctx)
 		default:
@@ -165,6 +167,29 @@ func systemTraceroute(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	req := &gnoi_system_pb.TracerouteRequest {}
 	json.Unmarshal([]byte(*args), req)
 	resp, err := sc.Traceroute(ctx, req)
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
+}
+
+func systemSetPackage(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System SetPackage")
+	ctx = setUserCreds(ctx)
+	stream, err := sc.SetPackage(context.Background())
+	if err != nil {
+		panic(err.Error())
+	}
+	req := &gnoi_system_pb.SetPackageRequest {}
+	json.Unmarshal([]byte(*args), req)
+	if err := stream.Send(req); err != nil {
+		panic(err.Error())
+	}
+	resp, err := stream.CloseAndRecv()
 	if err != nil {
 		panic(err.Error())
 	}
