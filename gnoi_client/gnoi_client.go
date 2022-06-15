@@ -174,7 +174,7 @@ func systemTraceroute(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 
 func systemSetPackage(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println("System SetPackage")
-	ctx = setUserCreds(ctx)
+	_ = setUserCreds(ctx)
 	stream, err := sc.SetPackage(context.Background())
 	if err != nil {
 		panic(err.Error())
