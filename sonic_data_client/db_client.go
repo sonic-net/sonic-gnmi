@@ -1306,16 +1306,6 @@ func (c *DbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb
 	return err
 }
 
-func RebootSystem(fileName string, testMode bool) error {
-	log.V(2).Infof("Rebooting with %s...", fileName)
-	sc, err := ssc.NewDbusClient(testMode)
-	if err != nil {
-		return err
-	}
-	err = sc.ConfigReload(fileName)
-	return err
-}
-
 func (c *DbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	val := update[0].GetVal()
 	ietf_json_val := val.GetJsonIetfVal()
@@ -1354,11 +1344,6 @@ except sonic_yang.SonicYangException as e:
 			return fmt.Errorf("Yang validation failed!")
 		}
 	}
-
-	go func() {
-		time.Sleep(10 * time.Second)
-		RebootSystem(fileName, c.testMode)
-	} ()
 
 	return nil
 }

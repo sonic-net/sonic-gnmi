@@ -239,18 +239,12 @@ class TestGNMIApplDb:
         delete_list = ['/sonic-db:CONFIG_DB/']
         update_list = ['/sonic-db:CONFIG_DB/' + ':@./' + file_name]
 
-        ret, old_cnt = gnmi_dump("DBUS config reload")
-        assert ret == 0, 'Fail to read counter'
         ret, msg = gnmi_set(delete_list, update_list, [])
         assert ret == 0, msg
         assert os.path.exists(config_file), "No config file"
         with open(config_file,'r') as cf:
             config_json = json.load(cf)
         assert test_data == config_json, "Wrong config file"
-        time.sleep(12)
-        ret, new_cnt = gnmi_dump("DBUS config reload")
-        assert ret == 0, 'Fail to read counter'
-        assert new_cnt == old_cnt+1, 'DBUS API is not invoked'
 
     @pytest.mark.parametrize("test_data", test_data_checkpoint)
     def test_gnmi_get_checkpoint(self, test_data):

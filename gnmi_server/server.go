@@ -7,7 +7,6 @@ import (
 	"os"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	//spb "github.com/sonic-net/sonic-gnmi/proto"
-	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	log "github.com/golang/glog"
@@ -159,10 +158,8 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 	gnmipb.RegisterGNMIServer(srv.s, srv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
-	if READ_WRITE_MODE {
-		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
-		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
-	}
+	gnoi_system_pb.RegisterSystemServer(srv.s, srv)
+
 	log.V(1).Infof("Created Server on %s", srv.Address())
 	return srv, nil
 }

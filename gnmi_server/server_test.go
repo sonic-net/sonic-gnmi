@@ -79,7 +79,7 @@ func TestAll(t *testing.T) {
 	path = filepath.Dir(path)
 
 	var cmd *exec.Cmd
-	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest -s -m noauth")
+	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m noauth")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)

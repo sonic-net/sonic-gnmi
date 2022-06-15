@@ -2,25 +2,48 @@ package gnmi
 
 import (
 	"context"
+	"errors"
+	"os"
+	"os/user"
+	"time"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	log "github.com/golang/glog"
-	"time"
-	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
+	io "io/ioutil"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/codes"
-	"os/user"
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
+func RebootSystem(fileName string, testMode bool) error {
+	log.V(2).Infof("Rebooting with %s...", fileName)
+	sc, err := ssc.NewDbusClient(testMode)
+	if err != nil {
+		return err
+	}
+	err = sc.ConfigReload(fileName)
+	return err
+}
+
 func (srv *Server) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
+	fileName := "/etc/sonic/gnmi/config_db.json.tmp"
 	_,err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
 	log.V(1).Info("gNOI: Reboot")
-	return nil, status.Errorf(codes.Unimplemented, "")
+	log.V(1).Info("Request:", req)
+	log.V(1).Info("Reboot system now, delay is ignored...")
+	_, err = io.ReadFile(fileName)
+	if errors.Is(err, os.ErrNotExist) {
+		fileName = ""
+	}
+	RebootSystem(fileName, srv.config.TestMode)
+	var resp gnoi_system_pb.RebootResponse
+	return &resp, nil
 }
+
 func (srv *Server) RebootStatus(ctx context.Context, req *gnoi_system_pb.RebootStatusRequest) (*gnoi_system_pb.RebootStatusResponse, error) {
 	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
@@ -29,6 +52,7 @@ func (srv *Server) RebootStatus(ctx context.Context, req *gnoi_system_pb.RebootS
 	log.V(1).Info("gNOI: RebootStatus")
 	return nil, status.Errorf(codes.Unimplemented, "")
 }
+
 func (srv *Server) CancelReboot(ctx context.Context, req *gnoi_system_pb.CancelRebootRequest) (*gnoi_system_pb.CancelRebootResponse, error) {
 	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
@@ -37,6 +61,7 @@ func (srv *Server) CancelReboot(ctx context.Context, req *gnoi_system_pb.CancelR
 	log.V(1).Info("gNOI: CancelReboot")
 	return nil, status.Errorf(codes.Unimplemented, "")
 }
+
 func (srv *Server) Ping(req *gnoi_system_pb.PingRequest, rs gnoi_system_pb.System_PingServer) error {
 	ctx := rs.Context()
 	_, err := authenticate(srv.config.UserAuth, ctx)
@@ -46,6 +71,7 @@ func (srv *Server) Ping(req *gnoi_system_pb.PingRequest, rs gnoi_system_pb.Syste
 	log.V(1).Info("gNOI: Ping")
 	return status.Errorf(codes.Unimplemented, "")
 }
+
 func (srv *Server) Traceroute(req *gnoi_system_pb.TracerouteRequest, rs gnoi_system_pb.System_TracerouteServer) error {
 	ctx := rs.Context()
 	_, err := authenticate(srv.config.UserAuth, ctx)
@@ -55,6 +81,7 @@ func (srv *Server) Traceroute(req *gnoi_system_pb.TracerouteRequest, rs gnoi_sys
 	log.V(1).Info("gNOI: Traceroute")
 	return status.Errorf(codes.Unimplemented, "")
 }
+
 func (srv *Server) SetPackage(rs gnoi_system_pb.System_SetPackageServer) error {
 	ctx := rs.Context()
 	_, err := authenticate(srv.config.UserAuth, ctx)
@@ -64,6 +91,7 @@ func (srv *Server) SetPackage(rs gnoi_system_pb.System_SetPackageServer) error {
 	log.V(1).Info("gNOI: SetPackage")
 	return status.Errorf(codes.Unimplemented, "")
 }
+
 func (srv *Server) SwitchControlProcessor(ctx context.Context, req *gnoi_system_pb.SwitchControlProcessorRequest) (*gnoi_system_pb.SwitchControlProcessorResponse, error) {
 	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
@@ -72,6 +100,7 @@ func (srv *Server) SwitchControlProcessor(ctx context.Context, req *gnoi_system_
 	log.V(1).Info("gNOI: SwitchControlProcessor")
 	return nil, status.Errorf(codes.Unimplemented, "")
 }
+
 func (srv *Server) Time(ctx context.Context, req *gnoi_system_pb.TimeRequest) (*gnoi_system_pb.TimeResponse, error) {
 	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
@@ -109,6 +138,7 @@ func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRe
 	return nil, status.Errorf(codes.PermissionDenied, "Invalid Username or Password")
 
 }
+
 func (srv *Server) Refresh(ctx context.Context, req *spb_jwt.RefreshRequest) (*spb_jwt.RefreshResponse, error) {
 	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
@@ -134,59 +164,5 @@ func (srv *Server) Refresh(ctx context.Context, req *spb_jwt.RefreshRequest) (*s
 	}
 	
 	return &spb_jwt.RefreshResponse{Token: tokenResp(claims.Username, claims.Roles)}, nil
-
 }
 
-func (srv *Server) ClearNeighbors(ctx context.Context, req *spb.ClearNeighborsRequest) (*spb.ClearNeighborsResponse, error) {
-	_, err := authenticate(srv.config.UserAuth, ctx)
-	if err != nil {
-		return nil, err
-	}
-	log.V(1).Info("gNOI: Sonic ClearNeighbors")
-	return nil, status.Errorf(codes.Unimplemented, "")
-}
-
-func (srv *Server) CopyConfig(ctx context.Context, req *spb.CopyConfigRequest) (*spb.CopyConfigResponse, error) {
-	_, err := authenticate(srv.config.UserAuth, ctx)
-	if err != nil {
-		return nil, err
-	}
-	log.V(1).Info("gNOI: Sonic CopyConfig")
-	return nil, status.Errorf(codes.Unimplemented, "")
-}
-
-func (srv *Server) ShowTechsupport(ctx context.Context, req *spb.TechsupportRequest) (*spb.TechsupportResponse, error) {
-	_, err := authenticate(srv.config.UserAuth, ctx)
-	if err != nil {
-		return nil, err
-	}
-	log.V(1).Info("gNOI: Sonic ShowTechsupport")
-	return nil, status.Errorf(codes.Unimplemented, "")
-}
-
-func (srv *Server) ImageInstall(ctx context.Context, req *spb.ImageInstallRequest) (*spb.ImageInstallResponse, error) {
-	_, err := authenticate(srv.config.UserAuth, ctx)
-	if err != nil {
-		return nil, err
-	}
-	log.V(1).Info("gNOI: Sonic ImageInstall")
-	return nil, status.Errorf(codes.Unimplemented, "")
-}
-
-func (srv *Server) ImageRemove(ctx context.Context, req *spb.ImageRemoveRequest) (*spb.ImageRemoveResponse, error) {
-	_,err := authenticate(srv.config.UserAuth, ctx)
-	if err != nil {
-		return nil, err
-	}
-	log.V(1).Info("gNOI: Sonic ImageRemove")
-	return nil, status.Errorf(codes.Unimplemented, "")
-}
-
-func (srv *Server) ImageDefault(ctx context.Context, req *spb.ImageDefaultRequest) (*spb.ImageDefaultResponse, error) {
-	_,err := authenticate(srv.config.UserAuth, ctx)
-	if err != nil {
-		return nil, err
-	}
-	log.V(1).Info("gNOI: Sonic ImageDefault")
-	return nil, status.Errorf(codes.Unimplemented, "")
-}

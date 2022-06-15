@@ -104,3 +104,21 @@ def gnmi_dump(name):
         return -1, 0
     return ret, 0
 
+def gnoi_time():
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnoi_client '
+    cmd += '-insecure -target 127.0.0.1:8080 '
+    cmd += '-rpc Time '
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+def gnoi_reboot(method, delay, message):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnoi_client '
+    cmd += '-insecure -target 127.0.0.1:8080 '
+    cmd += '-rpc Reboot '
+    cmd += '-jsonin "{\\\"method\\\":%d, \\\"delay\\\":%d, \\\"message\\\":\\\"%s\\\"}"'%(method, delay, message)
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+
