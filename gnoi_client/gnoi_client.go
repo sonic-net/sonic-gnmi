@@ -103,15 +103,10 @@ func systemReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	ctx = setUserCreds(ctx)
 	req := &gnoi_system_pb.RebootRequest {}
 	json.Unmarshal([]byte(*args), req)
-	resp,err := sc.Reboot(ctx, req)
+	_,err := sc.Reboot(ctx, req)
 	if err != nil {
-		panic(err.Error())
+		fmt.Println(err.Error())
 	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
 }
 
 func systemCancelReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
