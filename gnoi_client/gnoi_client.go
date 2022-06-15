@@ -52,6 +52,16 @@ func main() {
 			systemTime(sc, ctx)
 		case "Reboot":
 			systemReboot(sc, ctx)
+		case "CancelReboot":
+			systemCancelReboot(sc, ctx)
+		case "RebootStatus":
+			systemRebootStatus(sc, ctx)
+		case "Ping":
+			systemPing(sc, ctx)
+		case "Traceroute":
+			systemTraceroute(sc, ctx)
+		case "SwitchControlProcessor":
+			systemSwitchControlProcessor(sc, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
@@ -92,6 +102,85 @@ func systemReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	req := &gnoi_system_pb.RebootRequest {}
 	json.Unmarshal([]byte(*args), req)
 	resp,err := sc.Reboot(ctx, req)
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
+}
+
+func systemCancelReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System CancelReboot")
+	ctx = setUserCreds(ctx)
+	req := &gnoi_system_pb.CancelRebootRequest {}
+	json.Unmarshal([]byte(*args), req)
+	resp,err := sc.CancelReboot(ctx, req)
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
+}
+
+func systemRebootStatus(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System RebootStatus")
+	ctx = setUserCreds(ctx)
+	req := &gnoi_system_pb.RebootStatusRequest {}
+	resp,err := sc.RebootStatus(ctx, req)
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
+}
+
+func systemPing(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System Ping")
+	ctx = setUserCreds(ctx)
+	req := &gnoi_system_pb.PingRequest {}
+	json.Unmarshal([]byte(*args), req)
+	resp, err := sc.Ping(ctx, req)
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
+}
+
+func systemTraceroute(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System Traceroute")
+	ctx = setUserCreds(ctx)
+	req := &gnoi_system_pb.TracerouteRequest {}
+	json.Unmarshal([]byte(*args), req)
+	resp, err := sc.Traceroute(ctx, req)
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
+}
+
+func systemSwitchControlProcessor(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System SwitchControlProcessor")
+	ctx = setUserCreds(ctx)
+	req := &gnoi_system_pb.SwitchControlProcessorRequest {}
+	json.Unmarshal([]byte(*args), req)
+	resp, err := sc.SwitchControlProcessor(ctx, req)
 	if err != nil {
 		panic(err.Error())
 	}

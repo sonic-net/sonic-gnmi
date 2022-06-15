@@ -121,4 +121,47 @@ def gnoi_reboot(method, delay, message):
     ret, msg = run_cmd(cmd)
     return ret, msg
 
+def gnoi_rebootstatus():
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnoi_client '
+    cmd += '-insecure -target 127.0.0.1:8080 '
+    cmd += '-rpc RebootStatus '
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+def gnoi_cancelreboot(message):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnoi_client '
+    cmd += '-insecure -target 127.0.0.1:8080 '
+    cmd += '-rpc CancelReboot '
+    cmd += '-jsonin "{\\\"message\\\":\\\"%s\\\"}"'%(message)
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+def gnoi_ping(dst):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnoi_client '
+    cmd += '-insecure -target 127.0.0.1:8080 '
+    cmd += '-rpc Ping '
+    cmd += '-jsonin "{\\\"destination\\\":\\\"%s\\\"}"'%(dst)
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+
+def gnoi_traceroute(dst):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnoi_client '
+    cmd += '-insecure -target 127.0.0.1:8080 '
+    cmd += '-rpc Traceroute '
+    cmd += '-jsonin "{\\\"destination\\\":\\\"%s\\\"}"'%(dst)
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+def gnoi_switchcontrolprocessor():
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnoi_client '
+    cmd += '-insecure -target 127.0.0.1:8080 '
+    cmd += '-rpc SwitchControlProcessor '
+    ret, msg = run_cmd(cmd)
+    return ret, msg
 
