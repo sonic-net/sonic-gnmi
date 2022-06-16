@@ -108,6 +108,37 @@ func TestAuth(t *testing.T) {
 	}
 }
 
+func TestAuthType(t *testing.T) {
+	var ret bool
+	var err error
+	at := AuthTypes{"password": true, "cert": true, "jwt": true}
+	ret = at.Enabled("password")
+	if ret != true {
+		t.Errorf("Enable ret is wrong: %v", ret)
+	}
+	ret = at.Enabled("invalid")
+	if ret != false {
+		t.Errorf("Enable ret is wrong: %v", ret)
+	}
+	err = at.Set("password")
+	if err != nil {
+		t.Errorf("Set ret is wrong: %v", err)
+	}
+	err = at.Set("invalid")
+	if err == nil {
+		t.Errorf("Set ret is wrong: %v", err)
+	}
+	err = at.Unset("password")
+	if err != nil {
+		t.Errorf("Unset ret is wrong: %v", err)
+	}
+	err = at.Unset("invalid")
+	if err == nil {
+		t.Errorf("Unset ret is wrong: %v", err)
+	}
+	fmt.Println(at.String())
+}
+
 func init() {
 	// Enable logs at UT setup
 	flag.Lookup("v").Value.Set("10")

@@ -258,10 +258,6 @@ class TestGNMIApplDb:
         ret, msg_list = gnmi_get(get_list)
         assert ret != 0, 'Invalid return code'
 
-    def test_gnmi_set_empty_01(self):
-        ret, msg = gnmi_set([], [], [])
-        assert ret != 0, msg
-
     def test_gnmi_invalid_origin_01(self):
         path = '/sonic-invalid:APPL_DB/DASH_QOS'
         value = {
@@ -280,6 +276,105 @@ class TestGNMIApplDb:
         assert ret != 0, 'Origin is invalid'
         assert 'Invalid origin' in msg
 
+        get_list = [path]
+        ret, msg_list = gnmi_get(get_list)
+        assert ret != 0, 'Origin is invalid'
+        hit = False
+        exp = 'Invalid origin'
+        for msg in msg_list:
+            if exp in msg:
+                hit = True
+                break
+        assert hit == True, 'No expected error: %s'%exp
+
+    def test_gnmi_invalid_origin_02(self):
+        path = '/sonic-yang:APPL_DB/DASH_QOS'
+        value = {
+            'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+            'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
+        }
+        update_list = []
+        text = json.dumps(value)
+        file_name = 'update.txt'
+        file_object = open(file_name, 'w')
+        file_object.write(text)
+        file_object.close()
+        update_list = [path + ':@./' + file_name]
+
+        ret, msg = gnmi_set([], update_list, [])
+        assert ret != 0, 'Origin is invalid'
+        assert 'not implemented' in msg
+
+        get_list = [path]
+        ret, msg_list = gnmi_get(get_list)
+        assert ret != 0, 'Origin is invalid'
+        hit = False
+        exp = 'not implemented'
+        for msg in msg_list:
+            if exp in msg:
+                hit = True
+                break
+        assert hit == True, 'No expected error: %s'%exp
+
+    def test_gnmi_invalid_origin_03(self):
+        path1 = '/sonic-db:APPL_DB/DASH_QOS'
+        path2 = '/sonic-yang:APPL_DB/DASH_QOS'
+        value = {
+            'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+            'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
+        }
+        update_list = []
+        text = json.dumps(value)
+        file_name = 'update.txt'
+        file_object = open(file_name, 'w')
+        file_object.write(text)
+        file_object.close()
+        update_list = [path1 + ':@./' + file_name, path2 + ':@./' + file_name]
+
+        ret, msg = gnmi_set([], update_list, [])
+        assert ret != 0, 'Origin is invalid'
+        assert 'Origin conflict' in msg
+
+        get_list = [path1, path2]
+        ret, msg_list = gnmi_get(get_list)
+        assert ret != 0, 'Origin is invalid'
+        hit = False
+        exp = 'Origin conflict'
+        for msg in msg_list:
+            if exp in msg:
+                hit = True
+                break
+        assert hit == True, 'No expected error: %s'%exp
+
+    def test_gnmi_invalid_origin_04(self):
+        path = '/APPL_DB/DASH_QOS'
+        value = {
+            'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+            'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
+        }
+        update_list = []
+        text = json.dumps(value)
+        file_name = 'update.txt'
+        file_object = open(file_name, 'w')
+        file_object.write(text)
+        file_object.close()
+        update_list = [path + ':@./' + file_name]
+
+        ret, msg = gnmi_set([], update_list, [])
+        assert ret != 0, 'Origin is invalid'
+        assert 'No origin' in msg
+
+        get_list = [path]
+        ret, msg_list = gnmi_get(get_list)
+        assert ret != 0, 'Origin is invalid'
+        hit = False
+        exp = 'No origin'
+        for msg in msg_list:
+            if exp in msg:
+                hit = True
+                break
+        assert hit == True, 'No expected error: %s'%exp
+
     def test_gnmi_invalid_target_01(self):
         path = '/sonic-db:INVALID_DB/DASH_QOS'
         value = {
@@ -297,3 +392,62 @@ class TestGNMIApplDb:
         ret, msg = gnmi_set([], update_list, [])
         assert ret != 0, 'Target is invalid'
         assert 'Invalid target' in msg
+
+        get_list = [path]
+        ret, msg_list = gnmi_get(get_list)
+        assert ret != 0, 'Target is invalid'
+        hit = False
+        exp = 'Invalid target'
+        for msg in msg_list:
+            if exp in msg:
+                hit = True
+                break
+        assert hit == True, 'No expected error: %s'%exp
+
+    def test_gnmi_invalid_target_02(self):
+        path = '/sonic-db:ASIC_DB/DASH_QOS'
+        value = {
+            'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+            'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
+        }
+        update_list = []
+        text = json.dumps(value)
+        file_name = 'update.txt'
+        file_object = open(file_name, 'w')
+        file_object.write(text)
+        file_object.close()
+        update_list = [path + ':@./' + file_name]
+
+        ret, msg = gnmi_set([], update_list, [])
+        assert ret != 0, 'Target is invalid'
+        assert 'Set RPC does not support ASIC_DB' in msg
+
+    def test_gnmi_invalid_target_03(self):
+        path1 = '/sonic-db:APPL_DB/DASH_QOS'
+        path2 = '/sonic-db:CONFIG_DB/DASH_QOS'
+        value = {
+            'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+            'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
+        }
+        update_list = []
+        text = json.dumps(value)
+        file_name = 'update.txt'
+        file_object = open(file_name, 'w')
+        file_object.write(text)
+        file_object.close()
+        update_list = [path1 + ':@./' + file_name, path2 + ':@./' + file_name]
+
+        ret, msg = gnmi_set([], update_list, [])
+        assert ret != 0, 'Target is invalid'
+        assert 'Target conflict' in msg
+
+        get_list = [path1, path2]
+        ret, msg_list = gnmi_get(get_list)
+        assert ret != 0, 'Target is invalid'
+        hit = False
+        exp = 'Target conflict'
+        for msg in msg_list:
+            if exp in msg:
+                hit = True
+                break
+        assert hit == True, 'No expected error: %s'%exp

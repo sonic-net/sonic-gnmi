@@ -693,20 +693,6 @@ func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 		dbkeys = []string{tblPath.tableName + tblPath.delimitor + tblPath.tableKey}
 	}
 
-	// Asked to use jsonField and jsonTableKey in the final json value
-	if tblPath.jsonField != "" && tblPath.jsonTableKey != "" {
-		val, err := redisDb.HGet(dbkeys[0], tblPath.field).Result()
-		if err != nil {
-			log.V(3).Infof("redis HGet failed for %v %v", tblPath, err)
-			// ignore non-existing field which was derived from virtual path
-			return nil
-		}
-		fv = map[string]string{tblPath.jsonField: val}
-		makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
-		log.V(6).Infof("Added json key %v fv %v ", tblPath.jsonTableKey, fv)
-		return nil
-	}
-
 	for idx, dbkey := range dbkeys {
 		fv, err = redisDb.HGetAll(dbkey).Result()
 		if err != nil {
@@ -1282,10 +1268,7 @@ func (c *DbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Update, 
 	deleteLen := len(delete)
 	replaceLen := len(replace)
 	updateLen := len(update)
-	if (deleteLen == 0 && replaceLen == 0 && updateLen == 0) {
-		/* Empty request. */
-		return nil
-	} else if (deleteLen == 1 && replaceLen == 0 && updateLen == 1) {
+	if (deleteLen == 1 && replaceLen == 0 && updateLen == 1) {
 		deletePath := gnmiFullPath(c.prefix, delete[0])
 		updatePath := gnmiFullPath(c.prefix, update[0].GetPath())
 		if (len(deletePath.GetElem()) == 0) && (len(updatePath.GetElem()) == 0) {
