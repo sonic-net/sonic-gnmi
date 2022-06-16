@@ -257,3 +257,43 @@ class TestGNMIApplDb:
         get_list = [path]
         ret, msg_list = gnmi_get(get_list)
         assert ret != 0, 'Invalid return code'
+
+    def test_gnmi_set_empty_01(self):
+        ret, msg = gnmi_set([], [], [])
+        assert ret != 0, msg
+
+    def test_gnmi_invalid_origin_01(self):
+        path = '/sonic-invalid:APPL_DB/DASH_QOS'
+        value = {
+            'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+            'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
+        }
+        update_list = []
+        text = json.dumps(value)
+        file_name = 'update.txt'
+        file_object = open(file_name, 'w')
+        file_object.write(text)
+        file_object.close()
+        update_list = [path + ':@./' + file_name]
+
+        ret, msg = gnmi_set([], update_list, [])
+        assert ret != 0, 'Origin is invalid'
+        assert 'Invalid origin' in msg
+
+    def test_gnmi_invalid_target_01(self):
+        path = '/sonic-db:INVALID_DB/DASH_QOS'
+        value = {
+            'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+            'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
+        }
+        update_list = []
+        text = json.dumps(value)
+        file_name = 'update.txt'
+        file_object = open(file_name, 'w')
+        file_object.write(text)
+        file_object.close()
+        update_list = [path + ':@./' + file_name]
+
+        ret, msg = gnmi_set([], update_list, [])
+        assert ret != 0, 'Target is invalid'
+        assert 'Invalid target' in msg

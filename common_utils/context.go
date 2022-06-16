@@ -37,8 +37,8 @@ const requestContextKey contextkey = 0
 var requestCounter uint64
 
 var CountersName = [...]string{
-	"GMNI get",
-	"GMNI get fail",
+	"GNMI get",
+	"GNMI get fail",
 	"GNMI set",
 	"GNMI set fail",
 	"GNOI reboot",

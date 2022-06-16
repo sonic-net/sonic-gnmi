@@ -43,30 +43,13 @@ const (
 // This package provides one implmentation for now: the DbClient
 //
 type Client interface {
-	// StreamRun will start watching service on data source
-	// and enqueue data change to the priority queue.
-	// It stops all activities upon receiving signal on stop channel
-	// It should run as a go routine
-	StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
-	// Poll will  start service to respond poll signal received on poll channel.
-	// data read from data source will be enqueued on to the priority queue
-	// The service will stop upon detection of poll channel closing.
-	// It should run as a go routine
-	PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
-	OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
 	// Get return data from the data source in format of *spb.Value
 	Get(w *sync.WaitGroup) ([]*spb.Value, error)
 	// Set data based on path and value
 	Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error
-	// Capabilities of the switch
-	Capabilities() []gnmipb.ModelData
 
 	// Close provides implemenation for explicit cleanup of Client
 	Close() error
-}
-
-type Stream interface {
-	Send(m *gnmipb.SubscribeResponse) error
 }
 
 // Let it be variable visible to other packages for now.
@@ -75,16 +58,6 @@ var UseRedisLocalTcpPort bool = false
 
 // redis client connected to each DB
 var Target2RedisDb = make(map[string]map[string]*redis.Client)
-
-// MinSampleInterval is the lowest sampling interval for streaming subscriptions.
-// Any non-zero value that less than this threshold is considered invalid argument.
-var MinSampleInterval = time.Second
-
-// IntervalTicker is a factory method to implement interval ticking.
-// Exposed for UT purposes.
-var IntervalTicker = func(interval time.Duration) <-chan time.Time {
-	return time.After(interval)
-}
 
 type tablePath struct {
 	dbNamespace string
@@ -108,17 +81,6 @@ type tablePath struct {
 
 type Value struct {
 	*spb.Value
-}
-
-// Implement Compare method for priority queue
-func (val Value) Compare(other queue.Item) int {
-	oval := other.(Value)
-	if val.GetTimestamp() > oval.GetTimestamp() {
-		return 1
-	} else if val.GetTimestamp() == oval.GetTimestamp() {
-		return 0
-	}
-	return -1
 }
 
 type DbClient struct {
@@ -157,18 +119,6 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, target string, origi
 	client.workPath = "/etc/sonic/gnmi"
 
 	return &client, nil
-}
-
-func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
-	return
-}
-
-func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
-	return
-}
-
-func (c *DbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
-	return
 }
 
 func PathExists(path string) (bool, error) {
@@ -430,39 +380,6 @@ func (c *DbClient) Close() error {
 	return nil
 }
 
-// Convert from SONiC Value to its corresponding gNMI proto stream
-// response type.
-func ValToResp(val Value) (*gnmipb.SubscribeResponse, error) {
-	switch val.GetSyncResponse() {
-	case true:
-		return &gnmipb.SubscribeResponse{
-			Response: &gnmipb.SubscribeResponse_SyncResponse{
-				SyncResponse: true,
-			},
-		}, nil
-	default:
-		// In case the subscribe/poll routines encountered fatal error
-		if fatal := val.GetFatal(); fatal != "" {
-			return nil, fmt.Errorf("%s", fatal)
-		}
-
-		return &gnmipb.SubscribeResponse{
-			Response: &gnmipb.SubscribeResponse_Update{
-				Update: &gnmipb.Notification{
-					Timestamp: val.GetTimestamp(),
-					Prefix:    val.GetPrefix(),
-					Update: []*gnmipb.Update{
-						{
-							Path: val.GetPath(),
-							Val:  val.GetVal(),
-						},
-					},
-				},
-			},
-		}, nil
-	}
-}
-
 func GetTableKeySeparator(target string, ns string) (string, error) {
 	_, ok := spb.Target_value[target]
 	if !ok {
@@ -474,20 +391,6 @@ func GetTableKeySeparator(target string, ns string) (string, error) {
 	return separator, nil
 }
 
-func GetRedisClientsForDb(target string) map[string]*redis.Client {
-	redis_client_map := make(map[string]*redis.Client)
-	if sdcfg.CheckDbMultiNamespace() {
-		ns_list := sdcfg.GetDbNonDefaultNamespaces()
-		for _, ns := range ns_list {
-			redis_client_map[ns] = Target2RedisDb[ns][target]
-		}
-	} else {
-		ns := sdcfg.GetDbDefaultNamespace()
-		redis_client_map[ns] = Target2RedisDb[ns][target]
-	}
-	return redis_client_map
-}
-
 // This function get target present in GNMI Request and
 // returns: 1. DbName (string) 2. Is DbName valid (bool)
 //          3. DbNamespace (string) 4. Is DbNamespace present in Target (bool)
@@ -497,15 +400,6 @@ func IsTargetDb(target string) (string, bool, string, bool) {
 	dbNameSpaceExist := false
 	dbNamespace := sdcfg.GetDbDefaultNamespace()
 
-	if len(targetname) > 2 {
-		log.V(1).Infof("target format is not correct")
-		return dbName, false, dbNamespace, dbNameSpaceExist
-	}
-
-	if len(targetname) > 1 {
-		dbNamespace = targetname[1]
-		dbNameSpaceExist = true
-	}
 	for name, _ := range spb.Target_value {
 		if name == dbName {
 			return dbName, true, dbNamespace, dbNameSpaceExist
@@ -1162,19 +1056,6 @@ func handleTableData(tblPaths []tablePath) error {
 	return nil
 }
 
-func enqueueFatalMsg(c *DbClient, msg string) {
-	putFatalMsg(c.q, msg)
-}
-
-func putFatalMsg(q *queue.PriorityQueue, msg string) {
-	q.Put(Value{
-		&spb.Value{
-			Timestamp: time.Now().UnixNano(),
-			Fatal:     msg,
-		},
-	})
-}
-
 /* Populate the JsonPatch corresponding each GNMI operation. */
 func ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Path, t *gnmipb.TypedValue, output *string) error {
 	if t != nil {
@@ -1296,8 +1177,6 @@ func (c *DbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb
 		err = sc.ApplyPatchDb(patchFile)
 	} else if c.origin == "sonic-yang" {
 		err = sc.ApplyPatchYang(patchFile)
-	} else {
-		return fmt.Errorf("Invalid schema %s", c.origin)
 	}
 
 	if err == nil {
@@ -1319,9 +1198,13 @@ func (c *DbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.Update
 		return err
 	}
 
-	if c.testMode == false {
-		// TODO: Add Yang validation
-		PyCodeInGo :=
+	PyCodeInGo :=
+`
+print('No Yang validation for test mode...')
+print('%s')
+`
+	if c.testMode != true {
+		PyCodeInGo =
 `
 import sonic_yang
 import json
@@ -1337,12 +1220,12 @@ except sonic_yang.SonicYangException as e:
     print("Yang validation error: {}".format(str(e)))
     raise
 `
+	}
 
-		PyCodeInGo = fmt.Sprintf(PyCodeInGo, ietf_json_val)
-		err = RunPyCode(PyCodeInGo)
-		if err != nil {
-			return fmt.Errorf("Yang validation failed!")
-		}
+	PyCodeInGo = fmt.Sprintf(PyCodeInGo, ietf_json_val)
+	err = RunPyCode(PyCodeInGo)
+	if err != nil {
+		return fmt.Errorf("Yang validation failed!")
 	}
 
 	return nil
@@ -1417,13 +1300,7 @@ func (c *DbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update [
 		return c.SetConfigDB(delete, replace, update)
 	} else if c.target == "APPL_DB" {
 		return c.SetDB(delete, replace, update)
-	} else if c.target == "DASH_APP_DB" {
-		return c.SetDB(delete, replace, update)
 	}
 	return fmt.Errorf("Set RPC does not support %v", c.target)
-}
-
-func (c *DbClient) Capabilities() []gnmipb.ModelData {
-	return nil
 }
 

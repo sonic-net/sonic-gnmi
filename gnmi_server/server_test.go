@@ -15,6 +15,8 @@ import (
 	"testing"
 
 	_ "github.com/openconfig/gnmi/client"
+	_ "github.com/openconfig/ygot/ygot"
+	_ "github.com/google/gnxi/utils"
 	_ "github.com/jipanyang/gnxi/utils/xpath"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"

@@ -246,6 +246,14 @@ class TestGNMIApplDb:
             config_json = json.load(cf)
         assert test_data == config_json, "Wrong config file"
 
+    def test_gnmi_full_negative(self):
+        delete_list = ['/sonic-db:CONFIG_DB/']
+        update_list = ['/sonic-db:CONFIG_DB/' + ':abc']
+
+        ret, msg = gnmi_set(delete_list, update_list, [])
+        assert ret != 0, 'Invalid ietf_json_val'
+        assert 'IETF JSON' in msg
+
     @pytest.mark.parametrize("test_data", test_data_checkpoint)
     def test_gnmi_get_checkpoint(self, test_data):
         if os.path.isfile(checkpoint_file):
@@ -283,4 +291,37 @@ class TestGNMIApplDb:
                     hit = True
                     break
             assert hit == True, 'No match for %s'%str(data['value'])
+
+    def test_gnmi_get_checkpoint_negative_01(self):
+        value = json.dumps(test_json_checkpoint)
+        file_object = open(checkpoint_file, 'w')
+        file_object.write(value)
+        file_object.close()
+
+        get_list = ['/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces/0/abc']
+ 
+        ret, msg_list = gnmi_get(get_list)
+        assert ret != 0, 'Invalid path'
+
+    def test_gnmi_get_checkpoint_negative_02(self):
+        value = json.dumps(test_json_checkpoint)
+        file_object = open(checkpoint_file, 'w')
+        file_object.write(value)
+        file_object.close()
+
+        get_list = ['/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces/abc']
+ 
+        ret, msg_list = gnmi_get(get_list)
+        assert ret != 0, 'Invalid path'
+
+    def test_gnmi_get_checkpoint_negative_03(self):
+        value = json.dumps(test_json_checkpoint)
+        file_object = open(checkpoint_file, 'w')
+        file_object.write(value)
+        file_object.close()
+
+        get_list = ['/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces/1000']
+ 
+        ret, msg_list = gnmi_get(get_list)
+        assert ret != 0, 'Invalid path'
 
