@@ -1161,8 +1161,6 @@ func (c *DbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb
 	defer sc.DeleteCheckPoint(c.workPath + "/config")
 	if c.origin == "sonic-db" {
 		err = sc.ApplyPatchDb(patchFile)
-	} else if c.origin == "sonic-yang" {
-		err = sc.ApplyPatchYang(patchFile)
 	}
 
 	if err == nil {

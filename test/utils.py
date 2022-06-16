@@ -46,6 +46,25 @@ def gnmi_get(path_list):
             return -1, [msg]
     return ret, [msg]
 
+def gnmi_get_with_encoding(path_list, encoding):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnmi_get '
+    cmd += '-insecure -username admin -password sonicadmin '
+    cmd += '-target_addr 127.0.0.1:8080 '
+    cmd += '-alsologtostderr '
+    cmd += '-encoding %s '%(encoding)
+    for path in path_list:
+        cmd += " -xpath " + path
+    ret, msg = run_cmd(cmd)
+    if ret == 0:
+        msg = msg.replace('\\', '')
+        find_list = re.findall( r'json_ietf_val:\s*"(.*?)"\s*>', msg)
+        if find_list:
+            return ret, find_list
+        else:
+            return -1, [msg]
+    return ret, [msg]
+
 def gnmi_get_with_password(path_list, user, password):
     path = os.getcwd()
     cmd = path + '/build/bin/gnmi_get '

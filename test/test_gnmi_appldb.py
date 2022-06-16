@@ -1,6 +1,6 @@
 
 import json
-from utils import gnmi_set, gnmi_get
+from utils import gnmi_set, gnmi_get, gnmi_get_with_encoding
 
 import pytest
 
@@ -451,3 +451,17 @@ class TestGNMIApplDb:
                 hit = True
                 break
         assert hit == True, 'No expected error: %s'%exp
+
+    def test_gnmi_invalid_encoding(self):
+        path = '/sonic-db:APPL_DB/DASH_QOS'
+        get_list = [path]
+        ret, msg_list = gnmi_get_with_encoding(get_list, "PROTO")
+        assert ret != 0, 'Encoding is not supported'
+        hit = False
+        exp = 'unsupported encoding'
+        for msg in msg_list:
+            if exp in msg:
+                hit = True
+                break
+        assert hit == True, 'No expected error: %s'%exp
+

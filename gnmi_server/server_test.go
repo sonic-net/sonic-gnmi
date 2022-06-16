@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	// Register supported client types.
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
@@ -40,6 +41,24 @@ func createServer(t *testing.T, port int64) *Server {
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
+	}
+	return s
+}
+
+func createInvalidServer(t *testing.T, port int64) *Server {
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Errorf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	s, err := NewServer(nil, opts)
+	if err != nil {
+		return nil
 	}
 	return s
 }
@@ -88,6 +107,24 @@ func TestAll(t *testing.T) {
 	} else {
 		fmt.Println(string(result))
 	}
+	return
+}
+
+func TestServerPort(t *testing.T) {
+	s := createServer(t, -8080)
+	port := s.Port()
+	if port != 0 {
+		t.Errorf("Invalid port: %d", port)
+	}
+	return
+}
+
+func TestInvalidServer(t *testing.T) {
+	s := createInvalidServer(t, 8080)
+	if s != nil {
+		t.Errorf("Should not create invalid server")
+	}
+	return
 }
 
 func TestAuth(t *testing.T) {
@@ -106,6 +143,7 @@ func TestAuth(t *testing.T) {
 	} else {
 		fmt.Println(string(result))
 	}
+	return
 }
 
 func TestAuthType(t *testing.T) {
@@ -137,6 +175,19 @@ func TestAuthType(t *testing.T) {
 		t.Errorf("Unset ret is wrong: %v", err)
 	}
 	fmt.Println(at.String())
+}
+
+func TestAuthUser(t *testing.T) {
+	var err error
+	auth := common_utils.AuthInfo{}
+	err = PopulateAuthStruct("root", &auth, nil)
+	if err != nil {
+		t.Errorf("PopulateAuthStruct failed: %v", err)
+	}
+	err = PopulateAuthStruct("invalid_user_name", &auth, nil)
+	if err == nil {
+		t.Errorf("PopulateAuthStruct failed: %v", err)
+	}
 }
 
 func init() {
