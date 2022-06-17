@@ -125,6 +125,9 @@ func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRe
 		return nil, status.Errorf(codes.Unimplemented, "")
 	}
 	auth_success, _ := UserPwAuth(req.Username, req.Password)
+	if srv.config.TestMode == true {
+		auth_success = true
+	}
 	if  auth_success {
 		usr, err := user.Lookup(req.Username)
 		if err == nil {

@@ -28,6 +28,40 @@ def gnmi_set(delete_list, update_list, replace_list):
         return ret, ''
     return ret, msg
 
+def gnmi_set_with_password(delete_list, update_list, replace_list, user, password):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnmi_set '
+    cmd += '-insecure -username %s -password %s '%(user, password)
+    cmd += '-target_addr 127.0.0.1:8080 '
+    cmd += '-alsologtostderr '
+    for delete in delete_list:
+        cmd += " -delete " + delete
+    for update in update_list:
+        cmd += " -update " + update
+    for replace in replace_list:
+        cmd += " -replace " + replace
+    ret, msg = run_cmd(cmd)
+    if ret == 0:
+        return ret, ''
+    return ret, msg
+
+def gnmi_set_with_jwt(delete_list, update_list, replace_list, token):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnmi_set '
+    cmd += '-insecure -jwt_token ' + token + ' '
+    cmd += '-target_addr 127.0.0.1:8080 '
+    cmd += '-alsologtostderr '
+    for delete in delete_list:
+        cmd += " -delete " + delete
+    for update in update_list:
+        cmd += " -update " + update
+    for replace in replace_list:
+        cmd += " -replace " + replace
+    ret, msg = run_cmd(cmd)
+    if ret == 0:
+        return ret, ''
+    return ret, msg
+
 def gnmi_get(path_list):
     path = os.getcwd()
     cmd = path + '/build/bin/gnmi_get '
@@ -189,6 +223,24 @@ def gnoi_switchcontrolprocessor():
     cmd = path + '/build/bin/gnoi_client '
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc SwitchControlProcessor '
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+def gnoi_authenticate(username, password):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnoi_client '
+    cmd += '-insecure -target 127.0.0.1:8080 '
+    cmd += '-module Sonic -rpc authenticate '
+    cmd += '-jsonin "{\\\"Username\\\":\\\"%s\\\", \\\"Password\\\":\\\"%s\\\"}"'%(username, password)
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+def gnoi_refresh_with_jwt(token):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnoi_client '
+    cmd += '-insecure -target 127.0.0.1:8080 '
+    cmd += '-jwt_token ' + token + ' '
+    cmd += '-module Sonic -rpc refresh '
     ret, msg = run_cmd(cmd)
     return ret, msg
 

@@ -43,11 +43,6 @@ class TestGNOI:
         assert ret == 0, msg
         assert 'ClientStream' in msg
 
-    def test_gnoi_setpackage(self):
-        ret, msg = gnoi_setpackage()
-        assert ret != 0, 'SetPackage should fail' + msg
-        assert 'Unimplemented' in msg
-
     def test_gnoi_switchcontrolprocessor(self):
         ret, msg = gnoi_switchcontrolprocessor()
         assert ret != 0, 'SwitchControlProcessor should fail' + msg
