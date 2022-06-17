@@ -44,7 +44,10 @@ class TestGNMIAuth:
         assert 'Unauthenticated' in msg
 
     def test_gnmi_set_with_jwt(self):
-        ret, msg = gnoi_authenticate('gnmitest', 'wrongpass')
+        username = 'gnmitest1'
+        password = 'password1'
+        run_cmd('sudo useradd -p %s %s'%(password, username))
+        ret, msg = gnoi_authenticate(username, password)
         assert ret == 0, msg
         assert 'access_token' in msg
         searchObj = re.search( r'"access_token":"(.*?)"', msg, re.M|re.I)
@@ -70,7 +73,10 @@ class TestGNMIAuth:
 class TestGNOIAuth:
 
     def test_gnoi_authenticate(self):
-        ret, msg = gnoi_authenticate('gnmitest', 'wrongpass')
+        username = 'gnmitest2'
+        password = 'password2'
+        run_cmd('sudo useradd -p %s %s'%(password, username))
+        ret, msg = gnoi_authenticate(username, password)
         assert ret == 0, msg
         assert 'access_token' in msg
         searchObj = re.search( r'"access_token":"(.*?)"', msg, re.M|re.I)
