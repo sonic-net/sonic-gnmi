@@ -1,9 +1,9 @@
 Source: sonic-gnmi
 Section: devel
 Priority: optional
-Maintainer: Jipan Yang <jipan.yang@alibaba-inc.com>
+Maintainer: Gang Lv <ganglv@microsoft.com>
 Build-Depends: debhelper (>= 8.0.0),
-Standards-Version: 3.9.3
+Standards-Version: 1.0.0
 Homepage: https://github.com/sonic-net/sonic-gnmi
 XS-Go-Import-Path: github.com/sonic-net/sonic-gnmi
 
