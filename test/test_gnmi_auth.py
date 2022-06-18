@@ -46,7 +46,8 @@ class TestGNMIAuth:
     def test_gnmi_set_with_jwt(self):
         username = 'gnmitest1'
         password = 'password1'
-        run_cmd('sudo useradd -p %s %s'%(password, username))
+        run_cmd('sudo userdel %s'%(username))
+        run_cmd('sudo useradd %s'%(username))
         ret, msg = gnoi_authenticate(username, password)
         assert ret == 0, msg
         assert 'access_token' in msg
@@ -75,7 +76,8 @@ class TestGNOIAuth:
     def test_gnoi_authenticate(self):
         username = 'gnmitest2'
         password = 'password2'
-        run_cmd('sudo useradd -p %s %s'%(password, username))
+        run_cmd('sudo userdel %s'%(username))
+        run_cmd('sudo useradd %s'%(username))
         ret, msg = gnoi_authenticate(username, password)
         assert ret == 0, msg
         assert 'access_token' in msg
