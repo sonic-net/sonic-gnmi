@@ -1,10 +1,9 @@
 build/
 debian/.debhelper/
 debian/files
-debian/sonic-telemetry.debhelper.log
-debian/sonic-telemetry.substvars
-debian/sonic-telemetry/
+debian/sonic-gnmi.debhelper.log
+debian/sonic-gnmi.substvars
+debian/sonic-gnmi/
 vendor
 src
 cvl
-translib

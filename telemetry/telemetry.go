@@ -11,12 +11,12 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	gnmi "github.com/Azure/sonic-telemetry/gnmi_server"
-	testcert "github.com/Azure/sonic-telemetry/testdata/tls"
+	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
+	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 )
 
 var (
-        userAuth = gnmi.AuthTypes{"password": false, "cert": false, "jwt": false}
+	userAuth = gnmi.AuthTypes{"password": false, "cert": false, "jwt": false}
 	port = flag.Int("port", -1, "port to listen on")
 	// Certificate files.
 	caCert            = flag.String("ca_crt", "", "CA certificate for client certificate validation. Optional.")
@@ -131,6 +131,7 @@ func main() {
 	gnmi.GenerateJwtSecretKey()
 }
 
+	cfg.TestMode = false
 	s, err := gnmi.NewServer(cfg, opts)
 	if err != nil {
 		log.Errorf("Failed to create gNMI server: %v", err)

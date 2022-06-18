@@ -1,0 +1,13 @@
+diff --git a/glog.go b/glog.go
+index 54bd7af..dccc3c7 100644
+--- a/glog.go
++++ b/glog.go
+@@ -677,7 +677,7 @@ func (l *loggingT) output(s severity, buf *buffer, file string, line int, alsoTo
+ 	}
+ 	data := buf.Bytes()
+ 	if !flag.Parsed() {
+-		os.Stderr.Write([]byte("ERROR: logging before flag.Parse: "))
++		//os.Stderr.Write([]byte("ERROR: logging before flag.Parse: "))
+ 		os.Stderr.Write(data)
+ 	} else if l.toStderr {
+ 		os.Stderr.Write(data)

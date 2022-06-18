@@ -13,13 +13,6 @@ pr:
     include:
     - master
 
-resources:
-  repositories:
-  - repository: sonic-mgmt-common
-    type: github
-    name: Azure/sonic-mgmt-common
-    endpoint: build
-
 stages:
 - stage: Build
   jobs:
@@ -31,21 +24,17 @@ stages:
       vmImage: ubuntu-20.04
 
     variables:
-      DIFF_COVER_CHECK_THRESHOLD: 80
+      DIFF_COVER_CHECK_THRESHOLD: 50
       DIFF_COVER_ENABLE: 'true'
-      DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)/sonic-telemetry
+      DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-buster:latest
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bullseye:latest
 
     steps:
     - checkout: self
       clean: true
-      submodules: recursive
-      displayName: 'Checkout code'
-
-    - checkout: sonic-mgmt-common
-      clean: true
+      path: sonic-gnmi
       submodules: recursive
       displayName: 'Checkout code'
 
@@ -59,17 +48,10 @@ stages:
         runBranch: 'refs/heads/master'
       displayName: "Download sonic buildimage"
 
-    - task: DownloadPipelineArtifact@2
-      inputs:
-        source: specific
-        project: build
-        pipeline: 127
-        artifact: sonic-mgmt-common
-        runVersion: 'latestFromBranch'
-        runBranch: 'refs/heads/master'
-      displayName: "Download sonic-mgmt-common"
-
     - script: |
+        # PYTEST
+        sudo pip3 install -U pytest
+
         # REDIS
         sudo apt-get install -y redis-server
         sudo sed -ri 's/^# unixsocket/unixsocket/' /etc/redis/redis.conf
@@ -85,7 +67,7 @@ stages:
         set -ex
         # Install .NET CORE
         curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-        sudo apt-add-repository https://packages.microsoft.com/debian/10/prod
+        sudo apt-add-repository https://packages.microsoft.com/debian/11/prod
         sudo apt-get update
         sudo apt-get install -y dotnet-sdk-5.0
       displayName: "Install .NET CORE"
@@ -94,23 +76,16 @@ stages:
         set -ex
         ls -l
 
-        pushd sonic-mgmt-common
-
-        NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
-
-        popd
-
-        pushd sonic-telemetry
-
         dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build"
 
     - publish: $(Build.ArtifactStagingDirectory)/
-      artifact: sonic-telemetry
+      artifact: sonic-gnmi
       displayName: "Archive artifacts"
 
     - task: PublishCodeCoverageResults@1
       inputs:
         codeCoverageTool: Cobertura
-        summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-telemetry/coverage.xml'
+        summaryFileLocation: '$(System.DefaultWorkingDirectory)/coverage.xml'
       displayName: 'Publish coverage'
+

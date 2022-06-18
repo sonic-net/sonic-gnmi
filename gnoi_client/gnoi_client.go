@@ -3,8 +3,7 @@ package main
 import (
 	"google.golang.org/grpc"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
-	spb "github.com/Azure/sonic-telemetry/proto/gnoi"
-	spb_jwt "github.com/Azure/sonic-telemetry/proto/gnoi/jwt"
+	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	"context"
 	"os"
 	"os/signal"
@@ -51,35 +50,31 @@ func main() {
 		switch *rpc {
 		case "Time":
 			systemTime(sc, ctx)
+		case "Reboot":
+			systemReboot(sc, ctx)
+		case "CancelReboot":
+			systemCancelReboot(sc, ctx)
+		case "RebootStatus":
+			systemRebootStatus(sc, ctx)
+		case "Ping":
+			systemPing(sc, ctx)
+		case "Traceroute":
+			systemTraceroute(sc, ctx)
+		case "SetPackage":
+			systemSetPackage(sc, ctx)
+		case "SwitchControlProcessor":
+			systemSwitchControlProcessor(sc, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
 	case "Sonic":
 		switch *rpc {
-		case "showtechsupport":
-			sc := spb.NewSonicServiceClient(conn)
-			sonicShowTechSupport(sc, ctx)
-		case "copyConfig":
-			sc := spb.NewSonicServiceClient(conn)
-			copyConfig(sc, ctx)
 		case "authenticate":
 			sc := spb_jwt.NewSonicJwtServiceClient(conn)
 			authenticate(sc, ctx)
-		case "imageInstall":
-			sc := spb.NewSonicServiceClient(conn)
-			imageInstall(sc, ctx)
-		case "imageDefault":
-			sc := spb.NewSonicServiceClient(conn)
-			imageDefault(sc, ctx)
-		case "imageRemove":
-			sc := spb.NewSonicServiceClient(conn)
-			imageRemove(sc, ctx)
 		case "refresh":
 			sc := spb_jwt.NewSonicJwtServiceClient(conn)
 			refresh(sc, ctx)
-		case "clearNeighbors":
-			sc := spb.NewSonicServiceClient(conn)
-			clearNeighbors(sc, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
@@ -103,18 +98,23 @@ func systemTime(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println(string(respstr))
 }
 
-func sonicShowTechSupport(sc spb.SonicServiceClient, ctx context.Context) {
-	fmt.Println("Sonic ShowTechsupport")
+func systemReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System Reboot")
 	ctx = setUserCreds(ctx)
-	req := &spb.TechsupportRequest {
-		Input: &spb.TechsupportRequest_Input{
-			
-		},
-	}
-
+	req := &gnoi_system_pb.RebootRequest {}
 	json.Unmarshal([]byte(*args), req)
-	
-	resp,err := sc.ShowTechsupport(ctx, req)
+	_,err := sc.Reboot(ctx, req)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+}
+
+func systemCancelReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System CancelReboot")
+	ctx = setUserCreds(ctx)
+	req := &gnoi_system_pb.CancelRebootRequest {}
+	json.Unmarshal([]byte(*args), req)
+	resp,err := sc.CancelReboot(ctx, req)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -125,54 +125,11 @@ func sonicShowTechSupport(sc spb.SonicServiceClient, ctx context.Context) {
 	fmt.Println(string(respstr))
 }
 
-func copyConfig(sc spb.SonicServiceClient, ctx context.Context) {
-	fmt.Println("Sonic CopyConfig")
+func systemRebootStatus(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System RebootStatus")
 	ctx = setUserCreds(ctx)
-	req := &spb.CopyConfigRequest{
-		Input: &spb.CopyConfigRequest_Input{},
-	}
-	json.Unmarshal([]byte(*args), req)
-
-	resp,err := sc.CopyConfig(ctx, req)
-
-	if err != nil {
-		panic(err.Error())
-	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
-}
-func imageInstall(sc spb.SonicServiceClient, ctx context.Context) {
-	fmt.Println("Sonic ImageInstall")
-	ctx = setUserCreds(ctx)
-	req := &spb.ImageInstallRequest{
-		Input: &spb.ImageInstallRequest_Input{},
-	}
-	json.Unmarshal([]byte(*args), req)
-
-	resp,err := sc.ImageInstall(ctx, req)
-
-	if err != nil {
-		panic(err.Error())
-	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
-}
-func imageRemove(sc spb.SonicServiceClient, ctx context.Context) {
-	fmt.Println("Sonic ImageRemove")
-	ctx = setUserCreds(ctx)
-	req := &spb.ImageRemoveRequest{
-		Input: &spb.ImageRemoveRequest_Input{},
-	}
-	json.Unmarshal([]byte(*args), req)
-
-	resp,err := sc.ImageRemove(ctx, req)
-
+	req := &gnoi_system_pb.RebootStatusRequest {}
+	resp,err := sc.RebootStatus(ctx, req)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -183,16 +140,67 @@ func imageRemove(sc spb.SonicServiceClient, ctx context.Context) {
 	fmt.Println(string(respstr))
 }
 
-func imageDefault(sc spb.SonicServiceClient, ctx context.Context) {
-	fmt.Println("Sonic ImageDefault")
+func systemPing(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System Ping")
 	ctx = setUserCreds(ctx)
-	req := &spb.ImageDefaultRequest{
-		Input: &spb.ImageDefaultRequest_Input{},
-	}
+	req := &gnoi_system_pb.PingRequest {}
 	json.Unmarshal([]byte(*args), req)
+	resp, err := sc.Ping(ctx, req)
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
+}
 
-	resp,err := sc.ImageDefault(ctx, req)
+func systemTraceroute(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System Traceroute")
+	ctx = setUserCreds(ctx)
+	req := &gnoi_system_pb.TracerouteRequest {}
+	json.Unmarshal([]byte(*args), req)
+	resp, err := sc.Traceroute(ctx, req)
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
+}
 
+func systemSetPackage(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System SetPackage")
+	_ = setUserCreds(ctx)
+	stream, err := sc.SetPackage(context.Background())
+	if err != nil {
+		panic(err.Error())
+	}
+	req := &gnoi_system_pb.SetPackageRequest {}
+	json.Unmarshal([]byte(*args), req)
+	if err := stream.Send(req); err != nil {
+		panic(err.Error())
+	}
+	resp, err := stream.CloseAndRecv()
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
+}
+
+func systemSwitchControlProcessor(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System SwitchControlProcessor")
+	ctx = setUserCreds(ctx)
+	req := &gnoi_system_pb.SwitchControlProcessorRequest {}
+	json.Unmarshal([]byte(*args), req)
+	resp, err := sc.SwitchControlProcessor(ctx, req)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -239,22 +247,3 @@ func refresh(sc spb_jwt.SonicJwtServiceClient, ctx context.Context) {
 	fmt.Println(string(respstr))
 }
 
-func clearNeighbors(sc spb.SonicServiceClient, ctx context.Context) {
-    fmt.Println("Sonic ClearNeighbors")
-    ctx = setUserCreds(ctx)
-    req := &spb.ClearNeighborsRequest{
-        Input: &spb.ClearNeighborsRequest_Input{},
-    }
-    json.Unmarshal([]byte(*args), req)
-
-    resp,err := sc.ClearNeighbors(ctx, req)
-
-    if err != nil {
-        panic(err.Error())
-    }
-    respstr, err := json.Marshal(resp)
-    if err != nil {
-        panic(err.Error())
-    }
-    fmt.Println(string(respstr))
-}

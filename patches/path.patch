@@ -1,0 +1,36 @@
+--- ./github.com/jipanyang/gnxi/utils/xpath/path.go
++++ ./github.com/jipanyang/gnxi/utils/xpath/path.go
+@@ -18,6 +18,7 @@ package xpath
+ 
+ import (
+ 	"fmt"
++	"strings"
+ 
+ 	pb "github.com/openconfig/gnmi/proto/gnmi"
+ )
+@@ -45,9 +46,17 @@ func ToGNMIPath(xpath string) (*pb.Path, error) {
+ 		return nil, err
+ 	}
+ 	var pbPathElements []*pb.PathElem
+-	for _, elem := range xpathElements {
++	origin := ""
++	for i, elem := range xpathElements {
+ 		switch v := elem.(type) {
+ 		case string:
++			if i == 0 {
++				firstElement := strings.SplitN(v, ":", 2)
++				if len(firstElement) == 2 {
++					origin = firstElement[0]
++					v = firstElement[1]
++				}
++			}
+ 			pbPathElements = append(pbPathElements, &pb.PathElem{Name: v})
+ 		case map[string]string:
+ 			n := len(pbPathElements)
+@@ -62,5 +71,5 @@ func ToGNMIPath(xpath string) (*pb.Path, error) {
+ 			return nil, fmt.Errorf("wrong data type: %T", v)
+ 		}
+ 	}
+-	return &pb.Path{Elem: pbPathElements}, nil
++	return &pb.Path{Origin: origin, Elem: pbPathElements}, nil
+ }

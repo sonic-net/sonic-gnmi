@@ -4,21 +4,20 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/Azure/sonic-mgmt-common/translib"
-	"github.com/Azure/sonic-telemetry/common_utils"
-	spb "github.com/Azure/sonic-telemetry/proto"
-	spb_gnoi "github.com/Azure/sonic-telemetry/proto/gnoi"
-	spb_jwt_gnoi "github.com/Azure/sonic-telemetry/proto/gnoi/jwt"
-	sdc "github.com/Azure/sonic-telemetry/sonic_data_client"
+	"os"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
+	//spb "github.com/sonic-net/sonic-gnmi/proto"
+	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	log "github.com/golang/glog"
-	"github.com/golang/protobuf/proto"
+	//"github.com/golang/protobuf/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
+	//gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/peer"
+	//"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 	"net"
@@ -30,6 +29,21 @@ var (
 	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF}
 )
 
+var (
+	supportedModels = []*gnmipb.ModelData{
+		{
+			Name:         "sonic-yang",
+			Organization: "SONiC",
+			Version:      "0.1.0",
+		},
+		{
+			Name:         "sonic-db",
+			Organization: "SONiC",
+			Version:      "0.1.0",
+		},
+	}
+)
+
 // Server manages a single gNMI Server implementation. Each client that connects
 // via Subscribe or Get will receive a stream of updates based on the requested
 // path. Set request is processed by server too.
@@ -38,7 +52,6 @@ type Server struct {
 	lis     net.Listener
 	config  *Config
 	cMu     sync.Mutex
-	clients map[string]*Client
 }
 type AuthTypes map[string]bool
 
@@ -48,6 +61,7 @@ type Config struct {
 	// for this Server.
 	Port     int64
 	UserAuth AuthTypes
+	TestMode bool
 }
 
 var AuthLock sync.Mutex
@@ -122,13 +136,17 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		return nil, errors.New("config not provided")
 	}
 
+	workPath := "/etc/sonic/gnmi"
+	os.RemoveAll(workPath)
+	os.MkdirAll(workPath, 0777)
+	common_utils.InitCounters()
+
 	s := grpc.NewServer(opts...)
 	reflection.Register(s)
 
 	srv := &Server{
 		s:       s,
 		config:  config,
-		clients: map[string]*Client{},
 	}
 	var err error
 	if srv.config.Port < 0 {
@@ -140,11 +158,9 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 	gnmipb.RegisterGNMIServer(srv.s, srv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
-	if READ_WRITE_MODE {
-		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
-		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
-	}
-	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !READ_WRITE_MODE)
+	gnoi_system_pb.RegisterSystemServer(srv.s, srv)
+
+	log.V(1).Infof("Created Server on %s", srv.Address())
 	return srv, nil
 }
 
@@ -209,46 +225,11 @@ func authenticate(UserAuth AuthTypes, ctx context.Context) (context.Context, err
 // Subscribe implements the gNMI Subscribe RPC.
 func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	ctx := stream.Context()
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	_, err := authenticate(s.config.UserAuth, ctx)
 	if err != nil {
 		return err
 	}
-
-	pr, ok := peer.FromContext(ctx)
-	if !ok {
-		return grpc.Errorf(codes.InvalidArgument, "failed to get peer from ctx")
-		//return fmt.Errorf("failed to get peer from ctx")
-	}
-	if pr.Addr == net.Addr(nil) {
-		return grpc.Errorf(codes.InvalidArgument, "failed to get peer address")
-	}
-
-	/* TODO: authorize the user
-	msg, ok := credentials.AuthorizeUser(ctx)
-	if !ok {
-		log.Infof("denied a Set request: %v", msg)
-		return nil, status.Error(codes.PermissionDenied, msg)
-	}
-	*/
-
-	c := NewClient(pr.Addr)
-
-	s.cMu.Lock()
-	if oc, ok := s.clients[c.String()]; ok {
-		log.V(2).Infof("Delete duplicate client %s", oc)
-		oc.Close()
-		delete(s.clients, c.String())
-	}
-	s.clients[c.String()] = c
-	s.cMu.Unlock()
-
-	err = c.Run(stream)
-	s.cMu.Lock()
-	delete(s.clients, c.String())
-	s.cMu.Unlock()
-
-	log.Flush()
-	return err
+	return grpc.Errorf(codes.Unimplemented, "Capabilities is not supported")
 }
 
 // checkEncodingAndModel checks whether encoding and models are supported by the server. Return error if anything is unsupported.
@@ -267,54 +248,129 @@ func (s *Server) checkEncodingAndModel(encoding gnmipb.Encoding, models []*gnmip
 	return nil
 }
 
+func ParseTarget(target string, paths []*gnmipb.Path) (string, error) {
+	if len(paths) == 0 {
+		return "", nil
+	}
+	for i, path := range paths {
+		elems := path.GetElem()
+		if elems == nil {
+			return "", status.Error(codes.Unimplemented, "No target specified in path")
+		}
+		if target == "" {
+			if i == 0 {
+				target = elems[0].GetName()
+			}
+		} else if target != elems[0].GetName() {
+			return "", status.Error(codes.Unimplemented, "Target conflict in path")
+		}
+	}
+	if target == "" {
+		return "", status.Error(codes.Unimplemented, "No target specified in path")
+	}
+	return target, nil
+}
+
+func ParseOrigin(origin string, paths []*gnmipb.Path) (string, error) {
+	if len(paths) == 0 {
+		return origin, nil
+	}
+	for i, path := range paths {
+		if origin == "" {
+			if i == 0 {
+				origin = path.Origin
+			}
+		} else if origin != path.Origin {
+			return "", status.Error(codes.Unimplemented, "Origin conflict in path")
+		}
+	}
+	if origin == "" {
+		return origin, status.Error(codes.Unimplemented, "No origin specified in path")
+	}
+	return origin, nil
+}
+
+func IsSupportedOrigin(origin string) bool {
+	for _, model := range supportedModels {
+		if model.Name == origin {
+			return true
+		}
+	}
+	return false
+}
+
 // Get implements the Get RPC in gNMI spec.
 func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	_, err := authenticate(s.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
+	common_utils.IncCounter("GNMI get")
 
 	if req.GetType() != gnmipb.GetRequest_ALL {
+		common_utils.IncCounter("GNMI get fail")
 		return nil, status.Errorf(codes.Unimplemented, "unsupported request type: %s", gnmipb.GetRequest_DataType_name[int32(req.GetType())])
 	}
 
 	if err = s.checkEncodingAndModel(req.GetEncoding(), req.GetUseModels()); err != nil {
+		common_utils.IncCounter("GNMI get fail")
 		return nil, status.Error(codes.Unimplemented, err.Error())
 	}
 
-	var target string
+	target := ""
+	origin := ""
 	prefix := req.GetPrefix()
-	if prefix == nil {
-		return nil, status.Error(codes.Unimplemented, "No target specified in prefix")
-	} else {
-		target = prefix.GetTarget()
-		if target == "" {
-			return nil, status.Error(codes.Unimplemented, "Empty target data not supported yet")
+	if prefix != nil {
+		elems := prefix.GetElem()
+		if elems != nil {
+			target = elems[0].GetName()
 		}
+		origin = prefix.Origin
 	}
 
 	paths := req.GetPath()
-	extensions := req.GetExtension()
-	target = prefix.GetTarget()
+	if target == "" {
+		target, err = ParseTarget(target, paths)
+		if err != nil {
+			common_utils.IncCounter("GNMI get fail")
+			return nil, err
+		}
+	}
+	if origin == "" {
+		origin, err = ParseOrigin(origin, paths)
+		if err != nil {
+			common_utils.IncCounter("GNMI get fail")
+			return nil, err
+		}
+	}
+	if check := IsSupportedOrigin(origin); !check {
+		common_utils.IncCounter("GNMI get fail")
+		return nil, status.Errorf(codes.Unimplemented, "Invalid origin: %s", origin)
+	}
+	if origin == "sonic-yang" {
+		common_utils.IncCounter("GNMI get fail")
+		return nil, status.Errorf(codes.Unimplemented, "SONiC Yang Schema is not implemented yet")
+	}
 	log.V(5).Infof("GetRequest paths: %v", paths)
 
 	var dc sdc.Client
 
-	if target == "OTHERS" {
-		dc, err = sdc.NewNonDbClient(paths, prefix)
-	} else if _, ok, _, _ := sdc.IsTargetDb(target); ok {
-		dc, err = sdc.NewDbClient(paths, prefix)
+	if _, ok, _, _ := sdc.IsTargetDb(target); ok {
+		dc, err = sdc.NewDbClient(paths, prefix, target, origin, s.config.TestMode)
 	} else {
-		/* If no prefix target is specified create new Transl Data Client . */
-		dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions)
+		common_utils.IncCounter("GNMI get fail")
+		return nil, status.Errorf(codes.Unimplemented, "Invalid target: %s", target)
 	}
 
 	if err != nil {
+		common_utils.IncCounter("GNMI get fail")
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 	notifications := make([]*gnmipb.Notification, len(paths))
 	spbValues, err := dc.Get(nil)
+	dc.Close()
 	if err != nil {
+		common_utils.IncCounter("GNMI get fail")
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 
@@ -334,20 +390,67 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 }
 
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
-	if !READ_WRITE_MODE {
-		return nil, grpc.Errorf(codes.Unimplemented, "Telemetry is in read-only mode")
-	}
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	_, err := authenticate(s.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
 	var results []*gnmipb.UpdateResult
 
-	/* Fetch the prefix. */
+	common_utils.IncCounter("GNMI set")
+	target := ""
+	origin := ""
 	prefix := req.GetPrefix()
-	extensions := req.GetExtension()
-	/* Create Transl client. */
-	dc, _ := sdc.NewTranslClient(prefix, nil, ctx, extensions)
+	if prefix != nil {
+		elems := prefix.GetElem()
+		if elems != nil {
+			target = elems[0].GetName()
+		}
+		origin = prefix.Origin
+	}
+
+	paths := req.GetDelete()
+	for _, path := range req.GetReplace() {
+		paths = append(paths, path.GetPath())
+	}
+	for _, path := range req.GetUpdate() {
+		paths = append(paths, path.GetPath())
+	}
+	if target == "" {
+		target, err = ParseTarget(target, paths)
+		if err != nil {
+			common_utils.IncCounter("GNMI set fail")
+			return nil, err
+		}
+	}
+	if origin == "" {
+		origin, err = ParseOrigin(origin, paths)
+		if err != nil {
+			common_utils.IncCounter("GNMI set fail")
+			return nil, err
+		}
+	}
+	if check := IsSupportedOrigin(origin); !check {
+		common_utils.IncCounter("GNMI set fail")
+		return nil, status.Errorf(codes.Unimplemented, "Invalid origin: %s", origin)
+	}
+	if origin == "sonic-yang" {
+		common_utils.IncCounter("GNMI set fail")
+		return nil, status.Errorf(codes.Unimplemented, "SONiC Yang Schema is not implemented yet")
+	}
+
+	var dc sdc.Client
+
+	if _, ok, _, _ := sdc.IsTargetDb(target); ok {
+		dc, err = sdc.NewDbClient(nil, prefix, target, origin, s.config.TestMode)
+	} else {
+		common_utils.IncCounter("GNMI set fail")
+		return nil, status.Errorf(codes.Unimplemented, "Invalid target: %s", target)
+	}
+
+	if err != nil {
+		common_utils.IncCounter("GNMI set fail")
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
 
 	/* DELETE */
 	for _, path := range req.GetDelete() {
@@ -387,6 +490,10 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		results = append(results, &res)
 	}
 	err = dc.Set(req.GetDelete(), req.GetReplace(), req.GetUpdate())
+	dc.Close()
+	if err != nil {
+		common_utils.IncCounter("GNMI set fail")
+	}
 
 	return &gnmipb.SetResponse{
 		Prefix:   req.GetPrefix(),
@@ -396,39 +503,10 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 }
 
 func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest) (*gnmipb.CapabilityResponse, error) {
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	_, err := authenticate(s.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
-	extensions := req.GetExtension()
-	dc, _ := sdc.NewTranslClient(nil, nil, ctx, extensions)
-
-	/* Fetch the client capabitlities. */
-	supportedModels := dc.Capabilities()
-	suppModels := make([]*gnmipb.ModelData, len(supportedModels))
-
-	for index, model := range supportedModels {
-		suppModels[index] = &gnmipb.ModelData{
-			Name:         model.Name,
-			Organization: model.Organization,
-			Version:      model.Version,
-		}
-	}
-
-	sup_bver := spb.SupportedBundleVersions{
-		BundleVersion: translib.GetYangBundleVersion().String(),
-		BaseVersion:   translib.GetYangBaseVersion().String(),
-	}
-	sup_msg, _ := proto.Marshal(&sup_bver)
-	ext := gnmi_extpb.Extension{}
-	ext.Ext = &gnmi_extpb.Extension_RegisteredExt{
-		RegisteredExt: &gnmi_extpb.RegisteredExtension{
-			Id:  spb.SUPPORTED_VERSIONS_EXT,
-			Msg: sup_msg}}
-	exts := []*gnmi_extpb.Extension{&ext}
-
-	return &gnmipb.CapabilityResponse{SupportedModels: suppModels,
-		SupportedEncodings: supportedEncodings,
-		GNMIVersion:        "0.7.0",
-		Extension:          exts}, nil
+	return &gnmipb.CapabilityResponse{SupportedModels: supportedModels,
+		SupportedEncodings: supportedEncodings}, nil
 }

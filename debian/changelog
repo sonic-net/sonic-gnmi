@@ -1,5 +1,5 @@
-sonic-telemetry (0.1) UNRELEASED; urgency=medium
+sonic-gnmi (0.1) UNRELEASED; urgency=medium
 
   * Initial release.
 
- -- Jipan Yang <jipan.yang@alibaba-inc.com>  Sat, 24 Mar 2018 12:48:22 -0700
+ -- Gang Lv <ganglv@microsoft.com>  Sat, 18 Jun 2022 12:48:22 -0700
