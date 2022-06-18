@@ -65,11 +65,11 @@ ifeq ($(wildcard ${DBDIR}/database_config.json),)
 	sudo mkdir -p ${DBDIR}
 	sudo cp ./testdata/database_config.json ${DBDIR}
 endif
-	cd ./gnmi_server && sudo $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor -coverpkg ./,../sonic_data_client
+	sudo $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
 	$(GO) get github.com/axw/gocov/...
 	$(GO) get github.com/AlekSi/gocov-xml
-	gocov convert ./gnmi_server/coverage-gnmi.txt | gocov-xml -source $(shell pwd) > coverage.xml
-	rm -rf ./gnmi_server/coverage-gnmi.txt
+	gocov convert coverage-*.txt | gocov-xml -source $(shell pwd) > coverage.xml
+	rm -rf coverage-*.txt 
 endif
 
 clean:
