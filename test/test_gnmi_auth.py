@@ -2,13 +2,35 @@ from utils import run_cmd, gnmi_set_with_password, gnmi_set_with_jwt
 from utils import gnoi_authenticate, gnoi_refresh_with_jwt
 
 import re
+import pwd
 import json
 import pytest
+
+def del_user(username):
+    run_cmd('sudo userdel %s'%(username))
+    try:
+        return pwd.getpwnam(username) == None
+    except KeyError as err:
+        return True
+
+def add_user(username):
+
+    run_cmd('sudo useradd %s'%(username))
+    try:
+        return pwd.getpwnam(username) != None
+    except KeyError as err:
+        return False
 
 @pytest.mark.auth
 class TestGNMIAuth:
 
     def test_gnmi_set_with_pwd_neg(self):
+        username = 'gnmitest1'
+        password = 'password1'
+        ret = del_user(username)
+        if ret == False:
+            print("Fail to add user, skip this test...")
+            return
         path = '/sonic-db:APPL_DB/DASH_QOS'
         value = {
             'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
@@ -21,7 +43,7 @@ class TestGNMIAuth:
         file_object.close()
         update_list = [path + ':@./' + file_name]
 
-        ret, msg = gnmi_set_with_password([], update_list, [], 'gnmitest', 'wrongpass')
+        ret, msg = gnmi_set_with_password([], update_list, [], username, password)
         assert ret != 0, "Auth should fail"
         assert 'Unauthenticated' in msg
 
@@ -46,14 +68,18 @@ class TestGNMIAuth:
     def test_gnmi_set_with_jwt(self):
         username = 'gnmitest1'
         password = 'password1'
-        run_cmd('sudo userdel %s'%(username))
-        run_cmd('sudo useradd %s'%(username))
+        ret = add_user(username)
+        if ret == False:
+            print("Fail to add user, skip this test...")
+            return
         ret, msg = gnoi_authenticate(username, password)
         assert ret == 0, msg
         assert 'access_token' in msg
         searchObj = re.search( r'"access_token":"(.*?)"', msg, re.M|re.I)
         if searchObj:
             token = searchObj.group(1)
+        else:
+            pytest.fail("Fail to find token: %s"%msg)
 
         path = '/sonic-db:APPL_DB/DASH_QOS'
         value = {
@@ -76,14 +102,18 @@ class TestGNOIAuth:
     def test_gnoi_authenticate(self):
         username = 'gnmitest2'
         password = 'password2'
-        run_cmd('sudo userdel %s'%(username))
-        run_cmd('sudo useradd %s'%(username))
+        ret = add_user(username)
+        if ret == False:
+            print("Fail to add user, skip this test...")
+            return
         ret, msg = gnoi_authenticate(username, password)
         assert ret == 0, msg
         assert 'access_token' in msg
         searchObj = re.search( r'"access_token":"(.*?)"', msg, re.M|re.I)
         if searchObj:
             token = searchObj.group(1)
+        else:
+            pytest.fail("Fail to find token: %s"%msg)
 
         ret, msg = gnoi_refresh_with_jwt(token)
         assert ret == 0, msg

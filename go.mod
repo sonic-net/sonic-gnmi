@@ -5,6 +5,7 @@ go 1.12
 require (
 	github.com/AlekSi/gocov-xml v1.0.0 // indirect
 	github.com/Workiva/go-datastructures v1.0.50
+	github.com/agiledragon/gomonkey v2.0.2+incompatible
 	github.com/axw/gocov v1.1.0 // indirect
 	github.com/bgentry/speakeasy v0.1.0 // indirect
 	github.com/c9s/goprocinfo v0.0.0-20191125144613-4acdd056c72d // indirect

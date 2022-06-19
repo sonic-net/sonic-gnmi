@@ -8,6 +8,8 @@ github.com/Workiva/go-datastructures v1.0.50 h1:slDmfW6KCHcC7U+LP3DDBbm4fqTwZGn1
 github.com/Workiva/go-datastructures v1.0.50/go.mod h1:Z+F2Rca0qCsVYDS8z7bAGm8f3UkzuWYS/oBZz5a7VVA=
 github.com/Workiva/go-datastructures v1.0.52 h1:PLSK6pwn8mYdaoaCZEMsXBpBotr4HHn9abU0yMQt0NI=
 github.com/Workiva/go-datastructures v1.0.52/go.mod h1:Z+F2Rca0qCsVYDS8z7bAGm8f3UkzuWYS/oBZz5a7VVA=
+github.com/agiledragon/gomonkey v2.0.2+incompatible h1:eXKi9/piiC3cjJD1658mEE2o3NjkJ5vDLgYjCQu0Xlw=
+github.com/agiledragon/gomonkey v2.0.2+incompatible/go.mod h1:2NGfXu1a80LLr2cmWXGBDaHEjb1idR6+FVlX5T3D9hw=
 github.com/antchfx/jsonquery v1.0.0 h1:1Yhk496SrCoY6fJkFZqpXEqbwOw5sFtLns9la4NoK3I=
 github.com/antchfx/jsonquery v1.0.0/go.mod h1:h7950pvPrUZzJIflNqsELgDQovTpPNa0rAHf8NwjegY=
 github.com/antchfx/jsonquery v1.1.0 h1:ZeqeHheI8WsEN5blUqZXZ30w2jrbFvlQIq5B7X7Z86E=
