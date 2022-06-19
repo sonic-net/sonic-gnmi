@@ -24,7 +24,7 @@ var (
 	serverKey         = flag.String("server_key", "", "TLS server private key")
 	insecure          = flag.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!")
 	noTLS             = flag.Bool("noTLS", false, "disable TLS, for testing only!")
-	allowNoClientCert = flag.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate.")
+	allowNoClientCert = flag.Bool("allow_no_client_auth", false, "When set, gnxi server will request but not require a client certificate.")
 	jwtRefInt         = flag.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed.")
 	jwtValInt         = flag.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for.")
 )
