@@ -16,9 +16,9 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
-func RebootSystem(fileName string, testMode bool) error {
+func RebootSystem(fileName string) error {
 	log.V(2).Infof("Rebooting with %s...", fileName)
-	sc, err := ssc.NewDbusClient(testMode)
+	sc, err := ssc.NewDbusClient()
 	if err != nil {
 		return err
 	}
@@ -39,7 +39,7 @@ func (srv *Server) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest
 	if errors.Is(err, os.ErrNotExist) {
 		fileName = ""
 	}
-	RebootSystem(fileName, srv.config.TestMode)
+	RebootSystem(fileName)
 	var resp gnoi_system_pb.RebootResponse
 	return &resp, nil
 }
@@ -125,9 +125,6 @@ func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRe
 		return nil, status.Errorf(codes.Unimplemented, "")
 	}
 	auth_success, _ := UserPwAuth(req.Username, req.Password)
-	if srv.config.TestMode == true {
-		auth_success = true
-	}
 	if  auth_success {
 		usr, err := user.Lookup(req.Username)
 		if err == nil {

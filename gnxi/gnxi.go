@@ -131,7 +131,6 @@ func main() {
 	gnmi.GenerateJwtSecretKey()
 }
 
-	cfg.TestMode = false
 	s, err := gnmi.NewServer(cfg, opts)
 	if err != nil {
 		log.Errorf("Failed to create gNMI server: %v", err)

@@ -22,18 +22,16 @@ type DbusClient struct {
 	busNamePrefix string
 	busPathPrefix string
 	intNamePrefix string
-	testMode bool
 	channel chan struct{}
 }
 
-func NewDbusClient(testMode bool) (Service, error) {
+func NewDbusClient() (Service, error) {
 	var client DbusClient
 	var err error
 
 	client.busNamePrefix = "org.SONiC.HostService."
 	client.busPathPrefix = "/org/SONiC/HostService/"
 	client.intNamePrefix = "org.SONiC.HostService."
-	client.testMode = testMode
 	err = nil
 
 	return &client, err
@@ -92,9 +90,6 @@ func DbusApi(busName string, busPath string, intName string, timeout int, args .
 
 func (c *DbusClient) ConfigReload(fileName string) error {
 	common_utils.IncCounter("DBUS config reload")
-	if c.testMode == true {
-		return nil
-	}
 	modName := "config"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
@@ -105,9 +100,6 @@ func (c *DbusClient) ConfigReload(fileName string) error {
 
 func (c *DbusClient) ConfigSave(fileName string) error {
 	common_utils.IncCounter("DBUS config save")
-	if c.testMode == true {
-		return nil
-	}
 	modName := "config"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
@@ -118,9 +110,6 @@ func (c *DbusClient) ConfigSave(fileName string) error {
 
 func (c *DbusClient) ApplyPatchYang(fileName string) error {
 	common_utils.IncCounter("DBUS apply patch yang")
-	if c.testMode == true {
-		return nil
-	}
 	modName := "gcu"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
@@ -131,9 +120,6 @@ func (c *DbusClient) ApplyPatchYang(fileName string) error {
 
 func (c *DbusClient) ApplyPatchDb(fileName string) error {
 	common_utils.IncCounter("DBUS apply patch db")
-	if c.testMode == true {
-		return nil
-	}
 	modName := "gcu"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
@@ -144,9 +130,6 @@ func (c *DbusClient) ApplyPatchDb(fileName string) error {
 
 func (c *DbusClient) CreateCheckPoint(fileName string) error {
 	common_utils.IncCounter("DBUS create checkpoint")
-	if c.testMode == true {
-		return nil
-	}
 	modName := "gcu"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
@@ -157,9 +140,6 @@ func (c *DbusClient) CreateCheckPoint(fileName string) error {
 
 func (c *DbusClient) DeleteCheckPoint(fileName string) error {
 	common_utils.IncCounter("DBUS delete checkpoint")
-	if c.testMode == true {
-		return nil
-	}
 	modName := "gcu"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName

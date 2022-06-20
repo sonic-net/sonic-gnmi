@@ -26,7 +26,7 @@ func TestConfigReload(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient(false)
+	client, err := NewDbusClient()
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestConfigReloadNegative(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient(false)
+	client, err := NewDbusClient()
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestConfigSave(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient(false)
+	client, err := NewDbusClient()
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestConfigSaveNegative(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient(false)
+	client, err := NewDbusClient()
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestApplyPatchYang(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient(false)
+	client, err := NewDbusClient()
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestApplyPatchYangNegative(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient(false)
+	client, err := NewDbusClient()
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestApplyPatchDb(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient(false)
+	client, err := NewDbusClient()
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestApplyPatchDbNegative(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient(false)
+	client, err := NewDbusClient()
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestCreateCheckPoint(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient(false)
+	client, err := NewDbusClient()
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestCreateCheckPointNegative(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient(false)
+	client, err := NewDbusClient()
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestDeleteCheckPoint(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient(false)
+	client, err := NewDbusClient()
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestDeleteCheckPointNegative(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient(false)
+	client, err := NewDbusClient()
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}

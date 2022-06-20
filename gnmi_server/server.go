@@ -61,7 +61,6 @@ type Config struct {
 	// for this Server.
 	Port     int64
 	UserAuth AuthTypes
-	TestMode bool
 }
 
 var AuthLock sync.Mutex
@@ -356,7 +355,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	var dc sdc.Client
 
 	if _, ok, _, _ := sdc.IsTargetDb(target); ok {
-		dc, err = sdc.NewDbClient(paths, prefix, target, origin, s.config.TestMode)
+		dc, err = sdc.NewDbClient(paths, prefix, target, origin)
 	} else {
 		common_utils.IncCounter("GNMI get fail")
 		return nil, status.Errorf(codes.Unimplemented, "Invalid target: %s", target)
@@ -441,7 +440,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	var dc sdc.Client
 
 	if _, ok, _, _ := sdc.IsTargetDb(target); ok {
-		dc, err = sdc.NewDbClient(nil, prefix, target, origin, s.config.TestMode)
+		dc, err = sdc.NewDbClient(nil, prefix, target, origin)
 	} else {
 		common_utils.IncCounter("GNMI set fail")
 		return nil, status.Errorf(codes.Unimplemented, "Invalid target: %s", target)

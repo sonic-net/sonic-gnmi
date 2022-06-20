@@ -92,7 +92,6 @@ type DbClient struct {
 	target  string
 	origin  string
 	workPath string
-	testMode bool
 
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
 	w      *sync.WaitGroup // wait for all sub go routines to finish
@@ -103,7 +102,7 @@ type DbClient struct {
 	errors  int64
 }
 
-func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, target string, origin string, testMode bool) (Client, error) {
+func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, target string, origin string) (Client, error) {
 	var client DbClient
 
 	// Testing program may ask to use redis local tcp connection
@@ -115,7 +114,6 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, target string, origi
 	client.target = target
 	client.origin = origin
 	client.paths = paths
-	client.testMode = testMode
 	client.workPath = "/etc/sonic/gnmi"
 
 	return &client, nil
@@ -1150,7 +1148,7 @@ func (c *DbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb
 	}
 
 	var sc ssc.Service
-	sc, err = ssc.NewDbusClient(c.testMode)
+	sc, err = ssc.NewDbusClient()
 	if err != nil {
 		return err
 	}
@@ -1169,26 +1167,7 @@ func (c *DbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb
 	return err
 }
 
-func (c *DbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
-	val := update[0].GetVal()
-	ietf_json_val := val.GetJsonIetfVal()
-	if len(ietf_json_val) == 0 {
-		return fmt.Errorf("Value encoding is not IETF JSON")
-	}
-	content := []byte(ietf_json_val)
-	fileName := c.workPath + "/config_db.json.tmp"
-	err := ioutil.WriteFile(fileName, content, 0644)
-	if err != nil {
-		return err
-	}
-
-	PyCodeInGo :=
-`
-print('No Yang validation for test mode...')
-print('%s')
-`
-	if c.testMode != true {
-		PyCodeInGo =
+var PyCodeForYang string =
 `
 import sonic_yang
 import json
@@ -1204,9 +1183,21 @@ except sonic_yang.SonicYangException as e:
     print("Yang validation error: {}".format(str(e)))
     raise
 `
+
+func (c *DbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
+	val := update[0].GetVal()
+	ietf_json_val := val.GetJsonIetfVal()
+	if len(ietf_json_val) == 0 {
+		return fmt.Errorf("Value encoding is not IETF JSON")
+	}
+	content := []byte(ietf_json_val)
+	fileName := c.workPath + "/config_db.json.tmp"
+	err := ioutil.WriteFile(fileName, content, 0644)
+	if err != nil {
+		return err
 	}
 
-	PyCodeInGo = fmt.Sprintf(PyCodeInGo, ietf_json_val)
+	PyCodeInGo := fmt.Sprintf(PyCodeForYang, ietf_json_val)
 	err = RunPyCode(PyCodeInGo)
 	if err != nil {
 		return fmt.Errorf("Yang validation failed!")

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"fmt"
+	"reflect"
 
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
@@ -24,6 +25,9 @@ import (
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	// Register supported client types.
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+
+	"github.com/agiledragon/gomonkey"
+	"github.com/godbus/dbus/v5"
 )
 
 func createServer(t *testing.T, port int64) *Server {
@@ -37,7 +41,7 @@ func createServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, TestMode: true}
+	cfg := &Config{Port: port}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
@@ -74,7 +78,7 @@ func createAuthServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, TestMode: true, UserAuth: AuthTypes{"password": true, "cert": true, "jwt": true}}
+	cfg := &Config{Port: port, UserAuth: AuthTypes{"password": true, "cert": true, "jwt": true}}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
@@ -92,6 +96,27 @@ func runServer(t *testing.T, s *Server) {
 }
 
 func TestAll(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+	mockCode := 
+`
+print('No Yang validation for test mode...')
+print('%s')
+`
+	mock3 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
+	defer mock3.Reset()
+
 	s := createServer(t, 8080)
 	go runServer(t, s)
 	defer s.s.Stop()
@@ -128,6 +153,11 @@ func TestInvalidServer(t *testing.T) {
 }
 
 func TestAuth(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(UserPwAuth, func(username string, passwd string) (bool, error) {
+		return true, nil
+	})
+	defer mock1.Reset()
+
 	s := createAuthServer(t, 8080)
 	go runServer(t, s)
 	defer s.s.Stop()
