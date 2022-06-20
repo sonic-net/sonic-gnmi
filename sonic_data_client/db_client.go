@@ -1263,6 +1263,10 @@ func (c *DbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, update
 }
 
 func (c *DbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
+	// Full configuration will be overwritten next set request
+	fileName := c.workPath + "/config_db.json.tmp"
+	os.Remove(fileName)
+
 	deleteLen := len(delete)
 	replaceLen := len(replace)
 	updateLen := len(update)
