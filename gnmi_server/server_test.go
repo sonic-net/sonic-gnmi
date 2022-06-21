@@ -136,6 +136,20 @@ print('%s')
 	} else {
 		fmt.Println(string(result))
 	}
+
+	var counters [len(common_utils.CountersName)]uint64
+	err := common_utils.GetMemCounters(&counters)
+	if err != nil {
+		t.Errorf("Error: Fail to read counters, %v", err)
+	}
+	for i := 0; i < len(common_utils.CountersName); i++ {
+		if common_utils.CountersName[i] == "GNMI set" && counters[i] == 0 {
+			t.Errorf("GNMI set counter should not be 0")
+		}
+		if common_utils.CountersName[i] == "GNMI get" && counters[i] == 0 {
+			t.Errorf("GNMI get counter should not be 0")
+		}
+	}
 	return
 }
 
