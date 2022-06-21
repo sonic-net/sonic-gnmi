@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"fmt"
+	"time"
 	"reflect"
 
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
@@ -79,6 +80,9 @@ func createAuthServer(t *testing.T, port int64) *Server {
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{Port: port, UserAuth: AuthTypes{"password": true, "cert": true, "jwt": true}}
+	JwtRefreshInt = time.Duration(900*uint64(time.Second))
+	JwtValidInt = time.Duration(3600*uint64(time.Second))
+	GenerateJwtSecretKey()
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)

@@ -73,6 +73,15 @@ class TestGNMIAuth:
             print("Fail to add user, skip this test...")
             return
 
+        ret, msg = gnoi_authenticate(username, password)
+        assert ret == 0, msg
+        assert 'access_token' in msg
+        searchObj = re.search( r'"access_token":"(.*?)"', msg, re.M|re.I)
+        if searchObj:
+            token = searchObj.group(1)
+        else:
+            pytest.fail("Fail to find token: %s"%msg)
+
         path = '/sonic-db:APPL_DB/DASH_QOS'
         value = {
             'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
@@ -84,16 +93,6 @@ class TestGNMIAuth:
         file_object.write(text)
         file_object.close()
         update_list = [path + ':@./' + file_name]
-
-        ret, msg = gnoi_authenticate(username, password)
-        assert ret == 0, msg
-        assert 'access_token' in msg
-        searchObj = re.search( r'"access_token":"(.*?)"', msg, re.M|re.I)
-        if searchObj:
-            token = searchObj.group(1)
-        else:
-            pytest.fail("Fail to find token: %s"%msg)
-
         ret, msg = gnmi_set_with_jwt([], update_list, [], token)
         assert ret == 0, msg
 
@@ -118,6 +117,6 @@ class TestGNOIAuth:
             pytest.fail("Fail to find token: %s"%msg)
 
         ret, msg = gnoi_refresh_with_jwt(token)
-        assert ret == 0, msg
-        assert 'access_token' in msg
+        assert ret != 0, msg
+        assert "Invalid JWT Token" in msg
 
