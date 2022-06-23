@@ -66,6 +66,7 @@ ifeq ($(wildcard ${DBDIR}/database_config.json),)
 	sudo cp ./testdata/database_config.json ${DBDIR}
 endif
 	sudo $(GO) test -coverprofile=coverage-gnmi.tmp -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
+	sudo $(GO) test -coverprofile=coverage-json.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_data_client
 	sudo $(GO) test -coverprofile=coverage-dbus.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_service_client
 	$(GO) get github.com/axw/gocov/...
 	$(GO) get github.com/AlekSi/gocov-xml

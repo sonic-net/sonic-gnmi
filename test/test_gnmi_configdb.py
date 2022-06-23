@@ -115,11 +115,19 @@ patch_file = '/etc/sonic/gnmi/gcu.patch'
 config_file = '/etc/sonic/gnmi/config_db.json.tmp'
 checkpoint_file = '/etc/sonic/gnmi/config.cp.json'
 
+def create_checkpoint(file_name, text):
+    file_object = open(file_name, 'w')
+    file_object.write(text)
+    file_object.close()
+    return
+
 @pytest.mark.noauth
-class TestGNMIApplDb:
+class TestGNMIConfigDb:
 
     @pytest.mark.parametrize("test_data", test_data_update_normal)
     def test_gnmi_incremental_update(self, test_data):
+        create_checkpoint(checkpoint_file, '{}')
+
         update_list = []
         for i, data in enumerate(test_data):
             path = data['path']
@@ -165,13 +173,16 @@ class TestGNMIApplDb:
         assert ret == 0, 'Fail to read counter'
         assert new_config_save_cnt == old_config_save_cnt + 1, 'DBUS API is not invoked'
 
-    @pytest.mark.parametrize("test_data", test_data_update_normal)
+    @pytest.mark.parametrize("test_data", test_data_checkpoint)
     def test_gnmi_incremental_delete(self, test_data):
+        create_checkpoint(checkpoint_file, json.dumps(test_json_checkpoint))
+
+        if os.path.exists(patch_file):
+            os.remove(patch_file)
         delete_list = []
         for i, data in enumerate(test_data):
             path = data['path']
             delete_list.append(path)
-
         ret, old_cnt = gnmi_dump("DBUS apply patch db")
         assert ret == 0, 'Fail to read counter'
         ret, msg = gnmi_set(delete_list, [], [])
@@ -183,17 +194,38 @@ class TestGNMIApplDb:
             test_path = item['path']
             for patch_data in patch_json:
                 assert patch_data['op'] == 'remove', "Invalid operation"
-                assert 'value' not in patch_data, 'Invalid patch %s'%(str(patch_data))
                 if test_path == '/sonic-db:CONFIG_DB' + patch_data['path']:
                     break
             else:
                 pytest.fail('No item in patch: %s'%str(item))
         ret, new_cnt = gnmi_dump("DBUS apply patch db")
         assert ret == 0, 'Fail to read counter'
-        assert new_cnt == old_cnt+1, 'DBUS API is not invoked'
+        assert new_cnt == old_cnt+1, 'DBUS API should not be invoked'
+
+    @pytest.mark.parametrize("test_data", test_data_update_normal)
+    def test_gnmi_incremental_delete_negative(self, test_data):
+        create_checkpoint(checkpoint_file, '{}')
+        if os.path.exists(patch_file):
+            os.remove(patch_file)
+
+        delete_list = []
+        for i, data in enumerate(test_data):
+            path = data['path']
+            delete_list.append(path)
+
+        ret, old_cnt = gnmi_dump("DBUS apply patch db")
+        assert ret == 0, 'Fail to read counter'
+        ret, msg = gnmi_set(delete_list, [], [])
+        assert ret == 0, msg
+        assert not os.path.exists(patch_file), "Should not generate patch file"
+        ret, new_cnt = gnmi_dump("DBUS apply patch db")
+        assert ret == 0, 'Fail to read counter'
+        assert new_cnt == old_cnt, 'DBUS API should not be invoked'
 
     @pytest.mark.parametrize("test_data", test_data_update_normal)
     def test_gnmi_incremental_replace(self, test_data):
+        create_checkpoint(checkpoint_file, '{}')
+
         replace_list = []
         for i, data in enumerate(test_data):
             path = data['path']
@@ -269,10 +301,8 @@ class TestGNMIApplDb:
             for msg in msg_list:
                 assert msg == '{}', 'Invalid result'
 
-        value = json.dumps(test_json_checkpoint)
-        file_object = open(checkpoint_file, 'w')
-        file_object.write(value)
-        file_object.close()
+        text = json.dumps(test_json_checkpoint)
+        create_checkpoint(checkpoint_file, text)
 
         get_list = []
         for data in test_data:
@@ -293,35 +323,29 @@ class TestGNMIApplDb:
             assert hit == True, 'No match for %s'%str(data['value'])
 
     def test_gnmi_get_checkpoint_negative_01(self):
-        value = json.dumps(test_json_checkpoint)
-        file_object = open(checkpoint_file, 'w')
-        file_object.write(value)
-        file_object.close()
+        text = json.dumps(test_json_checkpoint)
+        create_checkpoint(checkpoint_file, text)
 
         get_list = ['/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces/0/abc']
  
-        ret, msg_list = gnmi_get(get_list)
+        ret, _ = gnmi_get(get_list)
         assert ret != 0, 'Invalid path'
 
     def test_gnmi_get_checkpoint_negative_02(self):
-        value = json.dumps(test_json_checkpoint)
-        file_object = open(checkpoint_file, 'w')
-        file_object.write(value)
-        file_object.close()
+        text = json.dumps(test_json_checkpoint)
+        create_checkpoint(checkpoint_file, text)
 
         get_list = ['/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces/abc']
  
-        ret, msg_list = gnmi_get(get_list)
+        ret, _ = gnmi_get(get_list)
         assert ret != 0, 'Invalid path'
 
     def test_gnmi_get_checkpoint_negative_03(self):
-        value = json.dumps(test_json_checkpoint)
-        file_object = open(checkpoint_file, 'w')
-        file_object.write(value)
-        file_object.close()
+        text = json.dumps(test_json_checkpoint)
+        create_checkpoint(checkpoint_file, text)
 
         get_list = ['/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces/1000']
  
-        ret, msg_list = gnmi_get(get_list)
+        ret, _ = gnmi_get(get_list)
         assert ret != 0, 'Invalid path'
 

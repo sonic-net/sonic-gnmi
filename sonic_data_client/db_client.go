@@ -92,6 +92,7 @@ type DbClient struct {
 	target  string
 	origin  string
 	workPath string
+	jClient *JsonClient
 
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
 	w      *sync.WaitGroup // wait for all sub go routines to finish
@@ -119,113 +120,17 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, target string, origi
 	return &client, nil
 }
 
-func PathExists(path string) (bool, error) {
-    _, err := os.Stat(path)
-    if err == nil {
-        return true, nil
-    }
-    if os.IsNotExist(err) {
-        return false, nil
-    }
-    return false, err
-}
-
-func DecodeJsonTable(database map[string]interface{}, tableName string) (map[string]interface{}, error) {
-	vtable, ok := database[tableName]
-	if !ok {
-		log.V(2).Infof("Invalid database %v", database)
-		return nil, fmt.Errorf("Invalid database %v", database)
-	}
-	v, ok := vtable.(map[string]interface{})
-	if !ok {
-		log.V(2).Infof("Invalid table %v", vtable)
-		return nil, fmt.Errorf("Invalid table %v", vtable)
-	}
-	return v, nil
-}
-
-func DecodeJsonEntry(table map[string]interface{}, entryName string) (map[string]interface{}, error) {
-	ventry, ok := table[entryName]
-	if !ok {
-		log.V(2).Infof("Invalid entry %v", table)
-		return nil, fmt.Errorf("Invalid entry %v", table)
-	}
-	v, ok := ventry.(map[string]interface{})
-	if !ok {
-		log.V(2).Infof("Invalid entry %v", ventry)
-		return nil, fmt.Errorf("Invalid entry %v", ventry)
-	}
-	return v, nil
-}
-
-func DecodeJsonField(entry map[string]interface{}, fieldName string) (*string, []interface{}, error) {
-	vfield, ok := entry[fieldName]
-	if !ok {
-		log.V(2).Infof("Invalid entry %v", entry)
-		return nil, nil, fmt.Errorf("Invalid entry %v", entry)
-	}
-	str, ok := vfield.(string)
-	if ok {
-		return &str, nil, nil
-	}
-	list, ok := vfield.([]interface{})
-	if ok {
-		return nil, list, nil
-	}
-	return nil, nil, fmt.Errorf("Invalid field %v", vfield)
-}
-
-func DecodeJsonListItem(list []interface{}, index string) (*string, error) {
-	id, err := strconv.Atoi(index)
-	if err != nil {
-		log.V(2).Infof("Invalid index %v", index)
-		return nil, fmt.Errorf("Invalid index %v", index)
-	}
-	if id < 0 || id >= len(list) {
-		log.V(2).Infof("Invalid index %v", index)
-		return nil, fmt.Errorf("Invalid index %v", index)
-	}
-	vitem := list[id]
-	str, ok := vitem.(string)
-	if ok {
-		return &str, nil
-	}
-	return nil, fmt.Errorf("Invalid item %v", vitem)
-}
-
 func (c *DbClient) GetCheckPoint() ([]*spb.Value, error) {
-	fileName := c.workPath + "/config.cp.json"
-	ok, err := PathExists(fileName)
-	if err!= nil {
-		return nil, err
-	}
-	if ok == false {
-		return nil, fmt.Errorf("No check point") 
-	}
-	jsonFile, err := os.Open(fileName)
-	if err != nil {
-		return nil, err
-	}
-	defer jsonFile.Close()
- 
-	jsonData, err := ioutil.ReadAll(jsonFile)
-	if err!= nil {
-		return nil, err
-	}
-	res, err := parseJson([]byte(jsonData))
-	if err != nil {
-		return nil, err
-	}
-	vdatabase, ok := res.(map[string]interface{})
-	if !ok {
-		log.V(2).Infof("Invalid checkpoint %v", fileName)
-		return nil, fmt.Errorf("Invalid checkpoint %v", fileName)
-	}
-
 	var values []*spb.Value
+	var err error
 	ts := time.Now()
 
-	log.V(2).Infof("Getting #%v", res)
+	fileName := c.workPath + "/config.cp.json"
+	c.jClient, err = NewJsonClient(fileName)
+	if err != nil {
+		return nil, fmt.Errorf("There's no check point")
+	}
+	log.V(2).Infof("Getting #%v", c.jClient.jsonData)
 	for _, path := range c.paths {
 		fullPath := path
 		if c.prefix != nil {
@@ -235,87 +140,15 @@ func (c *DbClient) GetCheckPoint() ([]*spb.Value, error) {
 
 		stringSlice := []string{}
 		elems := fullPath.GetElem()
-		jv := []byte{}
 		if elems != nil {
 			for i, elem := range elems {
 				// TODO: Usage of key field
 				log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
 				stringSlice = append(stringSlice, elem.GetName())
 			}
-			// The expect real db path could be in one of the formats:
-			// <1> DB Table
-			// <2> DB Table Key
-			// <3> DB Table Key Field
-			// <4> DB Table Key Field Index
-			switch len(stringSlice) {
-			case 1: // only table name provided
-				vtable, err := DecodeJsonTable(vdatabase, stringSlice[0])
-				if err != nil {
-					return nil, err
-				}
-				jv, err = emitJSON(&vtable)
-				if err != nil {
-					return nil, err
-				}
-			case 2: // Second element must be table key
-				vtable, err := DecodeJsonTable(vdatabase, stringSlice[0])
-				if err != nil {
-					return nil, err
-				}
-				ventry, err := DecodeJsonEntry(vtable, stringSlice[1])
-				if err != nil {
-					return nil, err
-				}
-				jv, err = emitJSON(&ventry)
-				if err != nil {
-					return nil, err
-				}
-			case 3: // Third element must be field name
-				vtable, err := DecodeJsonTable(vdatabase, stringSlice[0])
-				if err != nil {
-					return nil, err
-				}
-				ventry, err := DecodeJsonEntry(vtable, stringSlice[1])
-				if err != nil {
-					return nil, err
-				}
-				vstr, vlist, err := DecodeJsonField(ventry, stringSlice[2])
-				if err != nil {
-					return nil, err
-				}
-				if vstr != nil {
-					jv = []byte(`"` + *vstr + `"`)
-				} else if vlist != nil {
-					jv, err = json.Marshal(vlist)
-					if err != nil {
-						return nil, err
-					}
-				}
-			case 4: // Fourth element must be list index
-				vtable, err := DecodeJsonTable(vdatabase, stringSlice[0])
-				if err != nil {
-					return nil, err
-				}
-				ventry, err := DecodeJsonEntry(vtable, stringSlice[1])
-				if err != nil {
-					return nil, err
-				}
-				_, vlist, err := DecodeJsonField(ventry, stringSlice[2])
-				if err != nil {
-					return nil, err
-				}
-				vstr, err := DecodeJsonListItem(vlist, stringSlice[3])
-				if err != nil {
-					return nil, err
-				}
-				if vstr != nil {
-					jv = []byte(`"` + *vstr + `"`)
-				} else {
-					return nil, fmt.Errorf("Invalid db table Path %v", stringSlice)
-				}
-			default:
-				log.V(2).Infof("Invalid db table Path %v", stringSlice)
-				return nil, fmt.Errorf("Invalid db table Path %v", stringSlice)
+			jv, err := c.jClient.Get(stringSlice)
+			if err != nil {
+				return nil, err
 			}
 
 			val := gnmipb.TypedValue{
@@ -347,7 +180,7 @@ func (c *DbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 
 	if c.paths != nil {
 		c.pathG2S = make(map[*gnmipb.Path][]tablePath)
-		err := populateAllDbtablePath(c.prefix, c.target, c.paths, &c.pathG2S)
+		err := c.populateAllDbtablePath(c.paths, &c.pathG2S)
 		if err != nil {
 			return nil, err
 		}
@@ -473,9 +306,9 @@ func gnmiFullPath(prefix, path *gnmipb.Path) *gnmipb.Path {
 	return fullPath
 }
 
-func populateAllDbtablePath(prefix *gnmipb.Path, target string, paths []*gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
+func (c *DbClient) populateAllDbtablePath(paths []*gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
 	for _, path := range paths {
-		err := populateDbtablePath(prefix, target, path, nil, pathG2S)
+		err := c.populateDbtablePath(path, nil, pathG2S)
 		if err != nil {
 			return err
 		}
@@ -484,12 +317,12 @@ func populateAllDbtablePath(prefix *gnmipb.Path, target string, paths []*gnmipb.
 }
 
 // Populate table path in DB from gnmi path
-func populateDbtablePath(prefix *gnmipb.Path, target string, path *gnmipb.Path, value *gnmipb.TypedValue, pathG2S *map[*gnmipb.Path][]tablePath) error {
+func (c *DbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.TypedValue, pathG2S *map[*gnmipb.Path][]tablePath) error {
 	var buffer bytes.Buffer
 	var dbPath string
 	var tblPath tablePath
 
-	targetDbName, targetDbNameValid, targetDbNameSpace, _ := IsTargetDb(target)
+	targetDbName, targetDbNameValid, targetDbNameSpace, _ := IsTargetDb(c.target)
 	// Verify it is a valid db name
 	if !targetDbNameValid {
 		return fmt.Errorf("Invalid target dbName %v", targetDbName)
@@ -502,8 +335,8 @@ func populateDbtablePath(prefix *gnmipb.Path, target string, path *gnmipb.Path, 
 	}
 
 	fullPath := path
-	if prefix != nil {
-		fullPath = gnmiFullPath(prefix, path)
+	if c.prefix != nil {
+		fullPath = gnmiFullPath(c.prefix, path)
 	}
 
 	stringSlice := []string{targetDbName}
@@ -521,6 +354,10 @@ func populateDbtablePath(prefix *gnmipb.Path, target string, path *gnmipb.Path, 
 		}
 		dbPath = buffer.String()
 	}
+	value_str := ""
+	if value != nil {
+		value_str = string(value.GetJsonIetfVal())
+	}
 
 	tblPath.dbNamespace = dbNamespace
 	tblPath.dbName = targetDbName
@@ -530,7 +367,7 @@ func populateDbtablePath(prefix *gnmipb.Path, target string, path *gnmipb.Path, 
 	tblPath.index = -1
 	if value != nil {
 		tblPath.operation = opAdd
-		tblPath.value = string(value.GetJsonIetfVal())
+		tblPath.value = value_str
 	}
 
 	var mappedKey string
@@ -554,8 +391,8 @@ func populateDbtablePath(prefix *gnmipb.Path, target string, path *gnmipb.Path, 
 		if tblPath.operation == opRemove {
 			res, err := redisDb.Keys(tblPath.tableName + "*").Result()
 			if err != nil || len(res) < 1 {
-				log.V(2).Infof("Invalid db table Path %v %v", target, dbPath)
-				return fmt.Errorf("Failed to find %v %v %v %v", target, dbPath, err, res)
+				log.V(2).Infof("Invalid db table Path %v %v", c.target, dbPath)
+				return fmt.Errorf("Failed to find %v %v %v %v", c.target, dbPath, err, res)
 			}
 		}
 		tblPath.tableKey = ""
@@ -903,7 +740,7 @@ func handleTableData(tblPaths []tablePath) error {
 						}
 					}
 				} else {
-					return fmt.Errorf("Unsupported operation %s", tblPath.operation)
+					return fmt.Errorf("Unsupported operation %v", tblPath.operation)
 				}
 
 				if err != nil {
@@ -1108,44 +945,6 @@ func RunPyCode(text string) error {
 func (c *DbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	var err error
 	var curr string
-	text := `[`
-	/* DELETE */
-	for _, path := range delete {
-		curr = ``
-		err = ConvertToJsonPatch(c.prefix, path, nil, &curr)
-		if err != nil {
-			return err
-		}
-		text += curr + `,`
-	}
-
-	/* REPLACE */
-	for _, path := range replace {
-		curr = ``
-		err = ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), &curr)
-		if err != nil {
-			return err
-		}
-		text += curr + `,`
-	}
-
-	/* UPDATE */
-	for _, path := range update {
-		curr = ``
-		err = ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), &curr)
-		if err != nil {
-			return err
-		}
-		text += curr + `,`
-	}
-	text = strings.TrimSuffix(text, `,`)
-	text += `]`
-	log.V(2).Infof("JsonPatch: %s", text)
-	patchFile := c.workPath + "/gcu.patch"
-	err = ioutil.WriteFile(patchFile, []byte(text), 0644)
-	if err != nil {
-		return err
-	}
 
 	var sc ssc.Service
 	sc, err = ssc.NewDbusClient()
@@ -1157,6 +956,129 @@ func (c *DbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb
 		return err
 	}
 	defer sc.DeleteCheckPoint(c.workPath + "/config")
+	fileName := c.workPath + "/config.cp.json"
+	c.jClient, err = NewJsonClient(fileName)
+	if err != nil {
+		return err
+	}
+
+	text := `[`
+	/* DELETE */
+	for _, path := range delete {
+		fullPath := path
+		if c.prefix != nil {
+			fullPath = gnmiFullPath(c.prefix, path)
+		}
+		log.V(2).Infof("Path #%v", fullPath)
+
+		stringSlice := []string{}
+		elems := fullPath.GetElem()
+		if elems != nil {
+			for i, elem := range elems {
+				// TODO: Usage of key field
+				log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
+				stringSlice = append(stringSlice, elem.GetName())
+			}
+			err := c.jClient.Remove(stringSlice)
+			if err != nil {
+				// Remove failed, ignore
+				continue
+			}
+		}
+		curr = ``
+		err = ConvertToJsonPatch(c.prefix, path, nil, &curr)
+		if err != nil {
+			return err
+		}
+		text += curr + `,`
+	}
+
+	/* REPLACE */
+	for _, path := range replace {
+		fullPath := path.GetPath()
+		if c.prefix != nil {
+			fullPath = gnmiFullPath(c.prefix, path.GetPath())
+		}
+		log.V(2).Infof("Path #%v", fullPath)
+
+		stringSlice := []string{}
+		elems := fullPath.GetElem()
+		if elems != nil {
+			for i, elem := range elems {
+				// TODO: Usage of key field
+				log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
+				stringSlice = append(stringSlice, elem.GetName())
+			}
+			t := path.GetVal()
+			if t == nil {
+				err := c.jClient.Remove(stringSlice)
+				if err != nil {
+					// Remove failed, ignore
+					continue
+				}
+			} else {
+				err := c.jClient.Add(stringSlice, string(t.GetJsonIetfVal()))
+				if err != nil {
+					// Add failed
+					return err
+				}
+			}
+		}
+		curr = ``
+		err = ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), &curr)
+		if err != nil {
+			return err
+		}
+		text += curr + `,`
+	}
+
+	/* UPDATE */
+	for _, path := range update {
+		fullPath := path.GetPath()
+		if c.prefix != nil {
+			fullPath = gnmiFullPath(c.prefix, path.GetPath())
+		}
+		log.V(2).Infof("Path #%v", fullPath)
+
+		stringSlice := []string{}
+		elems := fullPath.GetElem()
+		if elems != nil {
+			for i, elem := range elems {
+				// TODO: Usage of key field
+				log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
+				stringSlice = append(stringSlice, elem.GetName())
+			}
+			t := path.GetVal()
+			if t == nil {
+				return fmt.Errorf("Invalid update %v", path)
+			} else {
+				err := c.jClient.Add(stringSlice, string(t.GetJsonIetfVal()))
+				if err != nil {
+					// Add failed
+					return err
+				}
+			}
+		}
+		curr = ``
+		err = ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), &curr)
+		if err != nil {
+			return err
+		}
+		text += curr + `,`
+	}
+	text = strings.TrimSuffix(text, `,`)
+	text += `]`
+	log.V(2).Infof("JsonPatch: %s", text)
+	if text == `[]` {
+		// No need to apply patch
+		return nil
+	}
+	patchFile := c.workPath + "/gcu.patch"
+	err = ioutil.WriteFile(patchFile, []byte(text), 0644)
+	if err != nil {
+		return err
+	}
+
 	if c.origin == "sonic-db" {
 		err = sc.ApplyPatchDb(patchFile)
 	}
@@ -1209,7 +1131,7 @@ func (c *DbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.Update
 func (c *DbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	/* DELETE */
 	deleteMap := make(map[*gnmipb.Path][]tablePath)
-	err := populateAllDbtablePath(c.prefix, c.target, delete, &deleteMap)
+	err := c.populateAllDbtablePath(delete, &deleteMap)
 	if err != nil {
 		return err
 	}
@@ -1224,7 +1146,7 @@ func (c *DbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, update
 	/* REPLACE */
 	replaceMap := make(map[*gnmipb.Path][]tablePath)
 	for _, item := range replace {
-		err = populateDbtablePath(c.prefix, c.target, item.GetPath(), item.GetVal(), &replaceMap)
+		err = c.populateDbtablePath(item.GetPath(), item.GetVal(), &replaceMap)
 		if err != nil {
 			return err
 		}
@@ -1239,7 +1161,7 @@ func (c *DbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, update
 	/* UPDATE */
 	updateMap := make(map[*gnmipb.Path][]tablePath)
 	for _, item := range update {
-		err = populateDbtablePath(c.prefix, c.target, item.GetPath(), item.GetVal(), &updateMap)
+		err = c.populateDbtablePath(item.GetPath(), item.GetVal(), &updateMap)
 		if err != nil {
 			return err
 		}
