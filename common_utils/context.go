@@ -36,7 +36,7 @@ const requestContextKey contextkey = 0
 // Request Id generator
 var requestCounter uint64
 
-var CountersName = [...]string{
+var CountersName = [...]string {
 	"GNMI get",
 	"GNMI get fail",
 	"GNMI set",
