@@ -19,13 +19,14 @@ import (
 	_ "github.com/openconfig/gnmi/client"
 	_ "github.com/openconfig/ygot/ygot"
 	_ "github.com/google/gnxi/utils"
-	_ "github.com/jipanyang/gnxi/utils/xpath"
+	"github.com/jipanyang/gnxi/utils/xpath"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	// Register supported client types.
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 
 	"github.com/agiledragon/gomonkey"
 	"github.com/godbus/dbus/v5"
@@ -235,6 +236,56 @@ func TestAuthUser(t *testing.T) {
 	err = PopulateAuthStruct("invalid_user_name", &auth, nil)
 	if err == nil {
 		t.Errorf("PopulateAuthStruct failed: %v", err)
+	}
+}
+
+func TestParseOrigin(t *testing.T) {
+	var test_paths []*gnmipb.Path
+	var err error
+
+	_, err = ParseOrigin("test", test_paths)
+	if err != nil {
+		t.Errorf("ParseOrigin failed for empty path: %v", err)
+	}
+
+	test_origin := "sonic-test"
+	path, err := xpath.ToGNMIPath(test_origin + ":CONFIG_DB/VLAN")
+	test_paths = append(test_paths, path)
+	origin, err := ParseOrigin("", test_paths)
+	if err != nil {
+		t.Errorf("ParseOrigin failed to get origin: %v", err)
+	}
+	if origin != test_origin {
+		t.Errorf("ParseOrigin return wrong origin: %v", origin)
+	}
+	origin, err = ParseOrigin("sonic-invalid", test_paths)
+	if err == nil {
+		t.Errorf("ParseOrigin should fail for conflict")
+	}
+}
+
+func TestParseTarget(t *testing.T) {
+	var test_paths []*gnmipb.Path
+	var err error
+
+	_, err = ParseTarget("test", test_paths)
+	if err != nil {
+		t.Errorf("ParseTarget failed for empty path: %v", err)
+	}
+
+	test_target := "TEST_DB"
+	path, err := xpath.ToGNMIPath("sonic-db:" + test_target + "/VLAN")
+	test_paths = append(test_paths, path)
+	target, err := ParseTarget("", test_paths)
+	if err != nil {
+		t.Errorf("ParseTarget failed to get target: %v", err)
+	}
+	if target != test_target {
+		t.Errorf("ParseTarget return wrong target: %v", target)
+	}
+	target, err = ParseTarget("INVALID_DB", test_paths)
+	if err == nil {
+		t.Errorf("ParseTarget should fail for conflict")
 	}
 }
 

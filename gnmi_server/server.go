@@ -6,18 +6,14 @@ import (
 	"fmt"
 	"os"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
-	//spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	log "github.com/golang/glog"
-	//"github.com/golang/protobuf/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	//gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	//"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 	"net"
@@ -135,9 +131,8 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		return nil, errors.New("config not provided")
 	}
 
-	workPath := "/etc/sonic/gnmi"
-	os.RemoveAll(workPath)
-	os.MkdirAll(workPath, 0777)
+	os.RemoveAll(common_utils.GNMI_WORK_PATH)
+	os.MkdirAll(common_utils.GNMI_WORK_PATH, 0777)
 	common_utils.InitCounters()
 
 	s := grpc.NewServer(opts...)
