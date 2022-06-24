@@ -11,6 +11,7 @@ import (
 	io "io/ioutil"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/codes"
 	jwt "github.com/dgrijalva/jwt-go"
@@ -27,7 +28,7 @@ func RebootSystem(fileName string) error {
 }
 
 func (srv *Server) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
-	fileName := "/etc/sonic/gnmi/config_db.json.tmp"
+	fileName := common_utils.GNMI_WORK_PATH + "/config_db.json.tmp"
 	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
