@@ -6,10 +6,13 @@ import (
 	"unsafe"
 )
 
+// Use share memory to dump GNMI internal counters,
+// GNMI server and gnmi_dump should use memKey to access the share memory,
+// memSize is 1024 bytes, so we can support 128 counters
 var (
 	memKey = 7749
 	memSize = 1024
-	memMode = 01600
+	memMode = 0x380
 )
 
 func SetMemCounters(counters *[len(CountersName)]uint64) error {

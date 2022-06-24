@@ -7,7 +7,8 @@ import (
 )
 
 const help = `
-gnmi_dump is used to dump internal counters for debugging purpose, including GNMI request counter, GNOI request counter and DBUS request counter.
+gnmi_dump is used to dump internal counters for debugging purpose,
+including GNMI request counter, GNOI request counter and DBUS request counter.
 `
 
 func main() {

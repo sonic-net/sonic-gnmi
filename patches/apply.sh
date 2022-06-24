@@ -8,7 +8,7 @@ DEST_DIR=vendor
 [ ! -z $1 ] && DEST_DIR=$1
 
 if [ ! -d "${DEST_DIR}" ]; then
-    echo "Unknown DEST_DIR \"${DEST_DIR}\""
+    echo "DEST_DIR \"${DEST_DIR}\" is not existing"
     exit 1
 fi
 
@@ -30,18 +30,5 @@ function copy() {
 
 set -x
 
-copy github.com/openconfig/ygot v0.7.1 ygen genutil generator
-
-copy github.com/openconfig/goyang v0.0.0-20200309174518-a00bece872fc .
-
 copy github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802 .
-
-# Apply patches
-
-patch -d ${DEST_DIR}/github.com/openconfig -p1 < ${PATCH_DIR}/ygot/ygot.patch
-
-patch -d ${DEST_DIR}/github.com/openconfig/goyang -p1 < ${PATCH_DIR}/goyang/goyang.patch
-
-
-patch -d ${DEST_DIR}/github.com/golang/glog  -p1 < ${PATCH_DIR}/glog.patch
 

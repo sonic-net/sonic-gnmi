@@ -28,13 +28,16 @@ func RebootSystem(fileName string) error {
 
 func (srv *Server) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
 	fileName := "/etc/sonic/gnmi/config_db.json.tmp"
-	_,err := authenticate(srv.config.UserAuth, ctx)
+	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
 	log.V(1).Info("gNOI: Reboot")
 	log.V(1).Info("Request:", req)
 	log.V(1).Info("Reboot system now, delay is ignored...")
+	// TODO: Support GNOI reboot delay
+	// Delay in nanoseconds before issuing reboot.
+	// https://github.com/openconfig/gnoi/blob/master/system/system.proto#L102-L115
 	_, err = io.ReadFile(fileName)
 	if errors.Is(err, os.ErrNotExist) {
 		fileName = ""

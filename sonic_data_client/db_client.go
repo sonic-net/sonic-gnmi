@@ -19,7 +19,7 @@ import (
 	"io/ioutil"
 
 	log "github.com/golang/glog"
-
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
@@ -115,7 +115,7 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, target string, origi
 	client.target = target
 	client.origin = origin
 	client.paths = paths
-	client.workPath = "/etc/sonic/gnmi"
+	client.workPath = common_utils.GNMI_WORK_PATH
 
 	return &client, nil
 }

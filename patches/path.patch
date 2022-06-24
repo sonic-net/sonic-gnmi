@@ -8,11 +8,12 @@
  
  	pb "github.com/openconfig/gnmi/proto/gnmi"
  )
-@@ -45,9 +46,17 @@ func ToGNMIPath(xpath string) (*pb.Path, error) {
+@@ -45,9 +46,18 @@ func ToGNMIPath(xpath string) (*pb.Path, error) {
  		return nil, err
  	}
  	var pbPathElements []*pb.PathElem
 -	for _, elem := range xpathElements {
++	// Add support for path origin
 +	origin := ""
 +	for i, elem := range xpathElements {
  		switch v := elem.(type) {

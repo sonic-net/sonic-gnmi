@@ -34,19 +34,14 @@ func main() {
 	flag.Parse()
 
 	var defUserAuth gnmi.AuthTypes
-	if gnmi.READ_WRITE_MODE {
-		//In read/write mode we want to enable auth by default.
-		defUserAuth = gnmi.AuthTypes{"password": true, "cert": false, "jwt": true}
-	}else {
-		defUserAuth = gnmi.AuthTypes{"jwt": false, "password": false, "cert": false}
-	}
+	defUserAuth = gnmi.AuthTypes{"password": true, "cert": false, "jwt": true}
 
-        if isFlagPassed("client_auth") {
-                log.V(1).Infof("client_auth provided")
-        }else {
-                log.V(1).Infof("client_auth not provided, using defaults.")
-                userAuth = defUserAuth
-        }
+	if isFlagPassed("client_auth") {
+		log.V(1).Infof("client_auth provided")
+	}else {
+		log.V(1).Infof("client_auth not provided, using defaults.")
+		userAuth = defUserAuth
+	}
 
 	switch {
 	case *port <= 0:
