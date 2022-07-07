@@ -2,7 +2,7 @@ package client
 
 /*
 #cgo CFLAGS: -g -Wall -I/sonic/src/sonic-swss-common/common -Wformat -Werror=format-security -fPIE 
-#cgo LDFLAGS: -lpthread -lboost_thread -lboost_system -lzmq -lboost_serialization -luuid -lswsscommon -Wl,-rpath,/sonic/target/files/bullseye
+#cgo LDFLAGS: -lpthread -lboost_thread -lboost_system -lzmq -lboost_serialization -luuid -lswsscommon
 #include <stdlib.h>
 #include "events_wrap.h"
 */
@@ -32,6 +32,8 @@ type EventClient struct {
     w           *sync.WaitGroup // wait for all sub go routines to finish
 
     subs_handle unsafe.Pointer
+
+    stopped     int
 }
 
 const SUBSCRIBER_TIMEOUT = 2
@@ -48,27 +50,30 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
     }
     log.Errorf("NewEventClient constructed")
 
+    C.swssSetLogPriority(7)
+
     /* Init subscriber with 2 seconds time out */
     subs_data := make(map[string]interface{})
     subs_data["recv_timeout"] = SUBSCRIBER_TIMEOUT
     j, err := json.Marshal(subs_data)
     if err != nil {
-        js := string(j)
-        evtc.subs_handle = C.events_init_subscriber_wrap(C.CString(js))
-        log.Errorf("events_init_subscriber: h=%v", evtc.subs_handle)
+        log.Errorf("events_init_subscriber: Failed to marshal")
         return nil, err
     }
-    log.Errorf("events_init_subscriber: Failed to marshal")
+    js := string(j)
+    evtc.subs_handle = C.events_init_subscriber_wrap(C.CString(js))
+    log.Errorf("events_init_subscriber: h=%v", evtc.subs_handle)
+    evtc.stopped = 0
     return &evtc, nil
 }
 
 // String returns the target the client is querying.
-func (c *EventClient) String() string {
-	return fmt.Sprintf("EventClient Prefix %v", c.prefix.GetTarget())
+func (evtc *EventClient) String() string {
+	return fmt.Sprintf("EventClient Prefix %v", evtc.prefix.GetTarget())
 }
 
 
-func get_events(c *EventClient, updateChannel chan string) {
+func get_events(evtc *EventClient, updateChannel chan string) {
     
     evt_ptr := C.malloc(C.sizeof_char * EVENT_BUFFSZ)
     missed_ptr := C.malloc(C.sizeof_char * MISSED_BUFFSZ)
@@ -76,56 +81,41 @@ func get_events(c *EventClient, updateChannel chan string) {
     defer C.free(unsafe.Pointer(evt_ptr))
     defer C.free(unsafe.Pointer(missed_ptr))
 
-    for {
-        c_eptr := (*C.char)(unsafe.Pointer(evt_ptr))
-        // c_eptr := (*C.char)(evt_ptr)
-        // c_mptr := (*C.char)(missed_ptr)
-        // c_hptr := (unsafe.Pointer)(c.subs_handle)
-        // rc := C.event_receive_wrap(c_hptr, c_eptr, EVENT_BUFFSZ, c_mptr, MISSED_BUFFSZ)
-        //rc := 5
-        // sz := C.int(20)
-        rc := event_receive_wrap_54(c_eptr)
-        C.events_init_subscriber_wrap(c_eptr) // Good
+    c_eptr := (*C.char)(unsafe.Pointer(evt_ptr))
+    c_mptr := (*C.char)(unsafe.Pointer(missed_ptr))
 
-        if rc == 0 {
+    for {
+        log.Errorf("Call C.event_receive_wrap")
+        rc := C.event_receive_wrap(evtc.subs_handle, c_eptr, EVENT_BUFFSZ, c_mptr, MISSED_BUFFSZ)
+        log.Errorf("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(evt_ptr))
+
+        if rc != 0 {
             updateChannel <- C.GoString((*C.char)(evt_ptr))
         }
-        _, more := <-c.channel
-        if !more {
-            log.V(1).Infof("%v stop channel closed, exiting get_events routine", c)
-            // c_hptr := (unsafe.Pointer)(c.subs_handle)
-            events_deinit_subscriber_wrap(c.subs_handle)
-            c.subs_handle = nil
+        if evtc.stopped == 1 {
+            log.V(1).Infof("%v stop channel closed, exiting get_events routine", evtc)
+            C.events_deinit_subscriber_wrap(evtc.subs_handle)
+            evtc.subs_handle = nil
             return
         }
+        log.Errorf("back to read loop")
+        // TODO: Record missed count in stats table.
+        // intVar, err := strconv.Atoi(C.GoString((*C.char)(c_mptr)))
     }
 }
 
 
-func send_event(c *EventClient, sval *string) error {
-    log.Errorf("send_event calling json.Marshal")
-
-    val, err := json.Marshal(sval)
-    if err != nil {
-        log.Errorf("Failed to marshall %V", err)
-    }
-
-    log.Errorf("send_event calling gnmipb.TypedValue")
-    tv := &gnmipb.TypedValue {
-        Value: &gnmipb.TypedValue_JsonIetfVal{
-            JsonIetfVal: val,
-        }}
-
+func send_event(evtc *EventClient, tv *gnmipb.TypedValue) error {
     spbv := &spb.Value{
-        Prefix:    c.prefix,
-        Path:    c.path,
+        Prefix:    evtc.prefix,
+        Path:    evtc.path,
         Timestamp: time.Now().UnixNano(),
         Val:  tv,
     }
 
     log.Errorf("Sending spbv")
     log.Errorf("spbv: %v", *spbv)
-    if err := c.q.Put(Value{spbv}); err != nil {
+    if err := evtc.q.Put(Value{spbv}); err != nil {
         log.Errorf("Queue error:  %v", err)
         return err
     }
@@ -133,39 +123,45 @@ func send_event(c *EventClient, sval *string) error {
     return nil
 }
 
-func (c *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
-    data := make(map[string]interface{})
-    data["heart"] = "beat"
-    hb, err := json.Marshal(data)
-    if err != nil {
-        log.Errorf("StreamRun: Failed to marshal hearbet data")
-        return
-    }
-    hstr := string(hb)
+func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+    hbData := make(map[string]interface{})
+    hbData["heart"] = "beat"
+    hbVal, _ := json.Marshal(hbData)
 
-	c.w = w
-    defer c.w.Done()
+    hbTv := &gnmipb.TypedValue {
+        Value: &gnmipb.TypedValue_JsonIetfVal{
+            JsonIetfVal: hbVal,
+        }}
 
-    c.q = q
-    c.channel = stop
+
+	evtc.w = w
+    defer evtc.w.Done()
+
+    evtc.q = q
+    evtc.channel = stop
 
     updateChannel := make(chan string)
-    go get_events(c, updateChannel)
+    go get_events(evtc, updateChannel)
 
     for {
         select {
         case nextEvent := <-updateChannel:
             log.Errorf("update received: %v", nextEvent)
-            if err := send_event(c, &nextEvent); err != nil {
+            evtTv := &gnmipb.TypedValue {
+                Value: &gnmipb.TypedValue_StringVal {
+                    StringVal: nextEvent,
+                }}
+            if err := send_event(evtc, evtTv); err != nil {
                 return
             }
 
         case <-IntervalTicker(time.Second * HEARTBEAT_TIMEOUT):
             log.Errorf("Ticker received")
-            if err := send_event(c, &hstr); err != nil {
+            if err := send_event(evtc, hbTv); err != nil {
                 return
             }
-        case <-c.channel:
+        case <-evtc.channel:
+            evtc.stopped = 1
             log.Errorf("Channel closed by client")
             return
         }
@@ -176,27 +172,27 @@ func (c *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *s
 
 // TODO: Log data related to this session
 
-func (c *EventClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
+func (evtc *EventClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
     return nil, nil
 }
 
-func (c *EventClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (evtc *EventClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
     return
 }
 
-func (c *EventClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (evtc *EventClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
     return
 }
 
 
-func (c *EventClient) Close() error {
+func (evtc *EventClient) Close() error {
 	return nil
 }
 
-func  (c *EventClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
+func  (evtc *EventClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	return nil
 }
-func (c *EventClient) Capabilities() []gnmipb.ModelData {
+func (evtc *EventClient) Capabilities() []gnmipb.ModelData {
 	return nil
 }
 
