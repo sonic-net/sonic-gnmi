@@ -17,6 +17,7 @@ import (
 
 var (
         userAuth = gnmi.AuthTypes{"password": false, "cert": false, "jwt": false}
+        logLevel = flag.Int("v", 3, "set log level 0 to 7; default: 3")
 	port = flag.Int("port", -1, "port to listen on")
 	// Certificate files.
 	caCert            = flag.String("ca_crt", "", "CA certificate for client certificate validation. Optional.")
@@ -59,6 +60,8 @@ func main() {
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*port)
 	var opts []grpc.ServerOption
+
+    cfg.LogLevel = *logLevel
 
 	if !*noTLS {
 		var certificate tls.Certificate

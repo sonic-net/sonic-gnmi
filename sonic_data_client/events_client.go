@@ -36,21 +36,21 @@ type EventClient struct {
     stopped     int
 }
 
-const SUBSCRIBER_TIMEOUT = 2
+const SUBSCRIBER_TIMEOUT = (2 * 1000)  // 2 seconds
 const HEARTBEAT_TIMEOUT = 2
 const EVENT_BUFFSZ = 4096
 const MISSED_BUFFSZ = 16
 
-func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
+func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Client, error) {
     var evtc EventClient
     evtc.prefix = prefix
     for _, path := range paths {
         // Only one path is expected. Take the last if many
         evtc.path = path
     }
-    log.Errorf("NewEventClient constructed")
+    log.Errorf("NewEventClient constructed. logLevel=%d", logLevel)
 
-    C.swssSetLogPriority(7)
+    C.swssSetLogPriority(C.int(logLevel))
 
     /* Init subscriber with 2 seconds time out */
     subs_data := make(map[string]interface{})
