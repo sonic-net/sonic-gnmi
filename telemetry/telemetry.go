@@ -17,7 +17,7 @@ import (
 )
 
 var (
-        userAuth = gnmi.AuthTypes{"password": false, "cert": false, "jwt": false}
+	userAuth = gnmi.AuthTypes{"password": false, "cert": false, "jwt": false}
 	port = flag.Int("port", -1, "port to listen on")
 	// Certificate files.
 	caCert            = flag.String("ca_crt", "", "CA certificate for client certificate validation. Optional.")
@@ -42,12 +42,12 @@ func main() {
 		defUserAuth = gnmi.AuthTypes{"jwt": false, "password": false, "cert": false}
 	}
 
-    if isFlagPassed("client_auth") {
-        log.V(1).Infof("client_auth provided")
-    }else {
-        log.V(1).Infof("client_auth not provided, using defaults.")
-        userAuth = defUserAuth
-    }
+	if isFlagPassed("client_auth") {
+		log.V(1).Infof("client_auth provided")
+	}else {
+		log.V(1).Infof("client_auth not provided, using defaults.")
+		userAuth = defUserAuth
+	}
 
 	switch {
 	case *port <= 0:
@@ -61,12 +61,12 @@ func main() {
 	cfg.Port = int64(*port)
 	var opts []grpc.ServerOption
 
-    cfg.LogLevel, _ = strconv.Atoi(getflag("v"))
-    log.Errorf("flag: log level %v", cfg.LogLevel)
-    if cfg.LogLevel == 0 {
-        log.Errorf("resetting log level 0 to 7")
-        cfg.LogLevel = 7
-    }
+	cfg.LogLevel, _ = strconv.Atoi(getflag("v"))
+	log.Errorf("flag: log level %v", cfg.LogLevel)
+	if cfg.LogLevel == 0 {
+		log.Errorf("resetting log level 0 to 7")
+		cfg.LogLevel = 7
+	}
 
 	if !*noTLS {
 		var certificate tls.Certificate
@@ -77,13 +77,13 @@ func main() {
 				log.Exitf("could not load server key pair: %s", err)
 			}
 		} else {
-			 switch {
-			   case *serverCert == "":
-				  log.Errorf("serverCert must be set.")
-				  return
-			   case *serverKey == "":
-				  log.Errorf("serverKey must be set.")
-				  return
+			switch {
+			case *serverCert == "":
+				log.Errorf("serverCert must be set.")
+				return
+			case *serverKey == "":
+				log.Errorf("serverKey must be set.")
+				return
 			}
 			certificate, err = tls.LoadX509KeyPair(*serverCert, *serverKey)
 			if err != nil {
@@ -152,21 +152,21 @@ func main() {
 }
 
 func isFlagPassed(name string) bool {
-    found := false
-    flag.Visit(func(f *flag.Flag) {
-        if f.Name == name {
-            found = true
-        }
-    })
-    return found
+	found := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
 }
 
 func getflag(name string) string {
-    val := ""
-    flag.VisitAll(func(f *flag.Flag) {
-        if f.Name == name {
-            val = f.Value.String()
-        }
-    })
-    return val
+	val := ""
+	flag.VisitAll(func(f *flag.Flag) {
+		if f.Name == name {
+			val = f.Value.String()
+		}
+	})
+	return val
 }
