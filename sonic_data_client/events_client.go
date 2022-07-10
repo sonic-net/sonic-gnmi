@@ -9,25 +9,25 @@ package client
 import "C"
 
 import (
-	"encoding/json"
+    "encoding/json"
     "fmt"
-	"sync"
-	"time"
-	"unsafe"
+    "sync"
+    "time"
+    "unsafe"
 
-	spb "github.com/Azure/sonic-telemetry/proto"
-	"github.com/Workiva/go-datastructures/queue"
-	log "github.com/golang/glog"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+    spb "github.com/Azure/sonic-telemetry/proto"
+    "github.com/Workiva/go-datastructures/queue"
+    log "github.com/golang/glog"
+    gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
 type EventClient struct {
 
-	prefix      *gnmipb.Path
+    prefix      *gnmipb.Path
     path        *gnmipb.Path
 
     q           *queue.PriorityQueue
-	channel     chan struct{}
+    channel     chan struct{}
 
     w           *sync.WaitGroup // wait for all sub go routines to finish
 
@@ -69,7 +69,7 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
 
 // String returns the target the client is querying.
 func (evtc *EventClient) String() string {
-	return fmt.Sprintf("EventClient Prefix %v", evtc.prefix.GetTarget())
+    return fmt.Sprintf("EventClient Prefix %v", evtc.prefix.GetTarget())
 }
 
 
@@ -134,7 +134,7 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
         }}
 
 
-	evtc.w = w
+    evtc.w = w
     defer evtc.w.Done()
 
     evtc.q = q
@@ -186,14 +186,14 @@ func (evtc *EventClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *
 
 
 func (evtc *EventClient) Close() error {
-	return nil
+    return nil
 }
 
 func  (evtc *EventClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
-	return nil
+    return nil
 }
 func (evtc *EventClient) Capabilities() []gnmipb.ModelData {
-	return nil
+    return nil
 }
 
 // cgo LDFLAGS: -L/sonic/target/files/bullseye -lxswsscommon -lpthread -lboost_thread -lboost_system -lzmq -lboost_serialization -luuid -lxxeventxx -Wl,-rpath,/sonic/target/files/bullseye

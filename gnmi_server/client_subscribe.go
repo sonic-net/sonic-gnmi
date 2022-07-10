@@ -142,7 +142,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
-    } else if ((target == "EVENTS") && (mode == gnmipb.SubscriptionList_STREAM)) {
+	} else if ((target == "EVENTS") && (mode == gnmipb.SubscriptionList_STREAM)) {
 		dc, err = sdc.NewEventClient(paths, prefix, c.logLevel)
 	} else if _, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
