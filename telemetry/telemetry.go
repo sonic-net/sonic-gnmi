@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"flag"
 	"io/ioutil"
+	"strconv"
 	"time"
 
 	log "github.com/golang/glog"
@@ -17,7 +18,6 @@ import (
 
 var (
         userAuth = gnmi.AuthTypes{"password": false, "cert": false, "jwt": false}
-        logLevel = flag.Int("v", 3, "set log level 0 to 7; default: 3")
 	port = flag.Int("port", -1, "port to listen on")
 	// Certificate files.
 	caCert            = flag.String("ca_crt", "", "CA certificate for client certificate validation. Optional.")
@@ -42,12 +42,12 @@ func main() {
 		defUserAuth = gnmi.AuthTypes{"jwt": false, "password": false, "cert": false}
 	}
 
-        if isFlagPassed("client_auth") {
-                log.V(1).Infof("client_auth provided")
-        }else {
-                log.V(1).Infof("client_auth not provided, using defaults.")
-                userAuth = defUserAuth
-        }
+    if isFlagPassed("client_auth") {
+        log.V(1).Infof("client_auth provided")
+    }else {
+        log.V(1).Infof("client_auth not provided, using defaults.")
+        userAuth = defUserAuth
+    }
 
 	switch {
 	case *port <= 0:
@@ -61,7 +61,12 @@ func main() {
 	cfg.Port = int64(*port)
 	var opts []grpc.ServerOption
 
-    cfg.LogLevel = *logLevel
+    cfg.LogLevel, _ = strconv.Atoi(getflag("v"))
+    log.Errorf("flag: log level %v", cfg.LogLevel)
+    if cfg.LogLevel == 0 {
+        log.Errorf("resetting log level 0 to 7")
+        cfg.LogLevel = 7
+    }
 
 	if !*noTLS {
 		var certificate tls.Certificate
@@ -154,4 +159,14 @@ func isFlagPassed(name string) bool {
         }
     })
     return found
+}
+
+func getflag(name string) string {
+    val := ""
+    flag.VisitAll(func(f *flag.Flag) {
+        if f.Name == name {
+            val = f.Value.String()
+        }
+    })
+    return val
 }
