@@ -85,9 +85,9 @@ func get_events(evtc *EventClient, updateChannel chan string) {
     c_mptr := (*C.char)(unsafe.Pointer(missed_ptr))
 
     for {
-        log.Errorf("Call C.event_receive_wrap")
+        log.V(7).("Call C.event_receive_wrap")
         rc := C.event_receive_wrap(evtc.subs_handle, c_eptr, EVENT_BUFFSZ, c_mptr, MISSED_BUFFSZ)
-        log.Errorf("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(evt_ptr))
+        log.V(7).("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(evt_ptr))
 
         if rc != 0 {
             updateChannel <- C.GoString((*C.char)(evt_ptr))
@@ -98,7 +98,6 @@ func get_events(evtc *EventClient, updateChannel chan string) {
             evtc.subs_handle = nil
             return
         }
-        log.Errorf("back to read loop")
         // TODO: Record missed count in stats table.
         // intVar, err := strconv.Atoi(C.GoString((*C.char)(c_mptr)))
     }
@@ -113,13 +112,13 @@ func send_event(evtc *EventClient, tv *gnmipb.TypedValue) error {
         Val:  tv,
     }
 
-    log.Errorf("Sending spbv")
-    log.Errorf("spbv: %v", *spbv)
+    log.V(7).("Sending spbv")
+    log.V(7).("spbv: %v", *spbv)
     if err := evtc.q.Put(Value{spbv}); err != nil {
         log.Errorf("Queue error:  %v", err)
         return err
     }
-    log.Errorf("send_event done")
+    log.V(7).("send_event done")
     return nil
 }
 
@@ -146,7 +145,7 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     for {
         select {
         case nextEvent := <-updateChannel:
-            log.Errorf("update received: %v", nextEvent)
+            log.V(7).("update received: %v", nextEvent)
             evtTv := &gnmipb.TypedValue {
                 Value: &gnmipb.TypedValue_StringVal {
                     StringVal: nextEvent,
@@ -156,7 +155,7 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
             }
 
         case <-IntervalTicker(time.Second * HEARTBEAT_TIMEOUT):
-            log.Errorf("Ticker received")
+            log.V(7).("Ticker received")
             if err := send_event(evtc, hbTv); err != nil {
                 return
             }
