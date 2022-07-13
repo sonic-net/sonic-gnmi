@@ -59,15 +59,13 @@ func main() {
 
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*port)
+	cfg.LogLevel = 3
 	var opts []grpc.ServerOption
 
-    if val, err := strconv.Atoi(getflag("v")); err == nil {
-        cfg.LogLevel = val
-        log.Errorf("flag: log level %v", cfg.LogLevel)
-    }
-    else {
-        cfg.LogLevel = 3
-    }
+	if val, err := strconv.Atoi(getflag("v")); err == nil {
+		cfg.LogLevel = val
+		log.Errorf("flag: log level %v", cfg.LogLevel)
+	}
 
 	if !*noTLS {
 		var certificate tls.Certificate
