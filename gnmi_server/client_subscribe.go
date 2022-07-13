@@ -49,13 +49,13 @@ func NewClient(addr net.Addr) *Client {
 }
 
 func (c *Client) setLogLevel(lvl int) {
-    if (lvl >= 0) {
-        if lvl < logLevelMax {
-            c.logLevel = lvl
-        } else {
-            c.logLevel = logLevelMax
-        }
-    }
+	if (lvl >= 0) {
+		if lvl < logLevelMax {
+			c.logLevel = lvl
+		} else {
+			c.logLevel = logLevelMax
+		}
+	}
 }
 
 // String returns the target the client is querying.

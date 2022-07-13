@@ -29,7 +29,7 @@ type EventClient struct {
     q           *queue.PriorityQueue
     channel     chan struct{}
 
-    w           *sync.WaitGroup // wait for all sub go routines to finish
+    wg          *sync.WaitGroup // wait for all sub go routines to finish
 
     subs_handle unsafe.Pointer
 
@@ -48,8 +48,6 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
         // Only one path is expected. Take the last if many
         evtc.path = path
     }
-    log.Errorf("NewEventClient constructed. logLevel=%d", logLevel)
-
     C.swssSetLogPriority(C.int(logLevel))
 
     /* Init subscriber with 2 seconds time out */
@@ -57,13 +55,15 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
     subs_data["recv_timeout"] = SUBSCRIBER_TIMEOUT
     j, err := json.Marshal(subs_data)
     if err != nil {
-        log.Errorf("events_init_subscriber: Failed to marshal")
+        log.V(3).Infof("events_init_subscriber: Failed to marshal")
         return nil, err
     }
     js := string(j)
     evtc.subs_handle = C.events_init_subscriber_wrap(C.CString(js))
-    log.Errorf("events_init_subscriber: h=%v", evtc.subs_handle)
     evtc.stopped = 0
+
+    log.V(7).Infof("NewEventClient constructed. logLevel=%d", logLevel)
+
     return &evtc, nil
 }
 
@@ -85,9 +85,8 @@ func get_events(evtc *EventClient, updateChannel chan string) {
     c_mptr := (*C.char)(unsafe.Pointer(missed_ptr))
 
     for {
-        log.V(7).("Call C.event_receive_wrap")
         rc := C.event_receive_wrap(evtc.subs_handle, c_eptr, EVENT_BUFFSZ, c_mptr, MISSED_BUFFSZ)
-        log.V(7).("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(evt_ptr))
+        log.V(7).Infof("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(evt_ptr))
 
         if rc != 0 {
             updateChannel <- C.GoString((*C.char)(evt_ptr))
@@ -112,17 +111,16 @@ func send_event(evtc *EventClient, tv *gnmipb.TypedValue) error {
         Val:  tv,
     }
 
-    log.V(7).("Sending spbv")
-    log.V(7).("spbv: %v", *spbv)
+    log.V(7).Infof("Sending spbv")
     if err := evtc.q.Put(Value{spbv}); err != nil {
-        log.Errorf("Queue error:  %v", err)
+        log.V(3).Infof("Queue error:  %v", err)
         return err
     }
-    log.V(7).("send_event done")
+    log.V(7).Infof("send_event done")
     return nil
 }
 
-func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
     hbData := make(map[string]interface{})
     hbData["heart"] = "beat"
     hbVal, _ := json.Marshal(hbData)
@@ -133,8 +131,8 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
         }}
 
 
-    evtc.w = w
-    defer evtc.w.Done()
+    evtc.wg = wg
+    defer evtc.wg.Done()
 
     evtc.q = q
     evtc.channel = stop
@@ -145,7 +143,7 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     for {
         select {
         case nextEvent := <-updateChannel:
-            log.V(7).("update received: %v", nextEvent)
+            log.V(7).Infof("update received: %v", nextEvent)
             evtTv := &gnmipb.TypedValue {
                 Value: &gnmipb.TypedValue_StringVal {
                     StringVal: nextEvent,
@@ -155,31 +153,29 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
             }
 
         case <-IntervalTicker(time.Second * HEARTBEAT_TIMEOUT):
-            log.V(7).("Ticker received")
+            log.V(7).Infof("Ticker received")
             if err := send_event(evtc, hbTv); err != nil {
                 return
             }
         case <-evtc.channel:
             evtc.stopped = 1
-            log.Errorf("Channel closed by client")
+            log.V(3).Infof("Channel closed by client")
             return
         }
     }
-    log.Errorf("Event exiting streamrun")
+    log.V(3).Infof("Event exiting streamrun")
 }
 
 
-// TODO: Log data related to this session
-
-func (evtc *EventClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
+func (evtc *EventClient) Get(wg *sync.WaitGroup) ([]*spb.Value, error) {
     return nil, nil
 }
 
-func (evtc *EventClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (evtc *EventClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
     return
 }
 
-func (evtc *EventClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (evtc *EventClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
     return
 }
 
