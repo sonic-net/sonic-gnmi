@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"flag"
 	"io/ioutil"
+	"strconv"
 	"time"
 
 	log "github.com/golang/glog"
@@ -16,7 +17,7 @@ import (
 )
 
 var (
-        userAuth = gnmi.AuthTypes{"password": false, "cert": false, "jwt": false}
+	userAuth = gnmi.AuthTypes{"password": false, "cert": false, "jwt": false}
 	port = flag.Int("port", -1, "port to listen on")
 	// Certificate files.
 	caCert            = flag.String("ca_crt", "", "CA certificate for client certificate validation. Optional.")
@@ -41,12 +42,12 @@ func main() {
 		defUserAuth = gnmi.AuthTypes{"jwt": false, "password": false, "cert": false}
 	}
 
-        if isFlagPassed("client_auth") {
-                log.V(1).Infof("client_auth provided")
-        }else {
-                log.V(1).Infof("client_auth not provided, using defaults.")
-                userAuth = defUserAuth
-        }
+	if isFlagPassed("client_auth") {
+		log.V(1).Infof("client_auth provided")
+	}else {
+		log.V(1).Infof("client_auth not provided, using defaults.")
+		userAuth = defUserAuth
+	}
 
 	switch {
 	case *port <= 0:
@@ -58,7 +59,13 @@ func main() {
 
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*port)
+	cfg.LogLevel = 3
 	var opts []grpc.ServerOption
+
+	if val, err := strconv.Atoi(getflag("v")); err == nil {
+		cfg.LogLevel = val
+		log.Errorf("flag: log level %v", cfg.LogLevel)
+	}
 
 	if !*noTLS {
 		var certificate tls.Certificate
@@ -69,13 +76,13 @@ func main() {
 				log.Exitf("could not load server key pair: %s", err)
 			}
 		} else {
-			 switch {
-			   case *serverCert == "":
-				  log.Errorf("serverCert must be set.")
-				  return
-			   case *serverKey == "":
-				  log.Errorf("serverKey must be set.")
-				  return
+			switch {
+			case *serverCert == "":
+				log.Errorf("serverCert must be set.")
+				return
+			case *serverKey == "":
+				log.Errorf("serverKey must be set.")
+				return
 			}
 			certificate, err = tls.LoadX509KeyPair(*serverCert, *serverKey)
 			if err != nil {
@@ -144,11 +151,21 @@ func main() {
 }
 
 func isFlagPassed(name string) bool {
-    found := false
-    flag.Visit(func(f *flag.Flag) {
-        if f.Name == name {
-            found = true
-        }
-    })
-    return found
+	found := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
+}
+
+func getflag(name string) string {
+	val := ""
+	flag.VisitAll(func(f *flag.Flag) {
+		if f.Name == name {
+			val = f.Value.String()
+		}
+	})
+	return val
 }
