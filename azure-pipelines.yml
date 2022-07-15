@@ -69,6 +69,7 @@ stages:
         sudo dpkg -i ../target/debs/bullseye/libnl-route-3-200_*.deb
         sudo dpkg -i ../target/debs/bullseye/libnl-nf-3-200_*.deb
         sudo dpkg -i ../target/debs/bullseye/libhiredis0.14_*.deb
+        sudo dpkg -i ../target/debs/bullseye/libhiredis-dev_*.deb
         sudo dpkg -i ../target/debs/bullseye/libswsscommon_1.0.0_amd64.deb
         sudo dpkg -i ../target/debs/bullseye/python3-swsscommon_1.0.0_amd64.deb
       displayName: "Install dependency"
