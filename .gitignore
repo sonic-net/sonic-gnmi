@@ -5,5 +5,4 @@ debian/sonic-gnmi.debhelper.log
 debian/sonic-gnmi.substvars
 debian/sonic-gnmi/
 vendor
-src
 cvl
