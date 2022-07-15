@@ -23,6 +23,7 @@ import (
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/Workiva/go-datastructures/queue"
 	"github.com/go-redis/redis"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -38,6 +39,10 @@ const (
     opAdd = iota
     opRemove
 )
+
+const REDIS_SOCK string = "/var/run/redis/redis.sock"
+const APPL_DB int = 0
+const SWSS_TIMEOUT uint = 0
 
 // Client defines a set of methods which every client must implement.
 // This package provides one implmentation for now: the DbClient
@@ -93,6 +98,8 @@ type DbClient struct {
 	origin  string
 	workPath string
 	jClient *JsonClient
+	applDB swsscommon.DBConnector
+	tableMap map[string]swsscommon.ProducerStateTable
 
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
 	w      *sync.WaitGroup // wait for all sub go routines to finish
@@ -101,6 +108,26 @@ type DbClient struct {
 	sendMsg int64
 	recvMsg int64
 	errors  int64
+}
+
+func (c *DbClient) DbSetTable(table string, key string, values map[string]string) error {
+	pt, ok := c.tableMap[table]
+	if !ok {
+		pt = swsscommon.NewProducerStateTable(c.applDB, table)
+		c.tableMap[table] = pt
+	}
+	pt.Set(key, values, "SET", "")
+	return nil
+}
+
+func (c *DbClient) DbDelTable(table string, key string) error {
+	pt, ok := c.tableMap[table]
+	if !ok {
+		pt = swsscommon.NewProducerStateTable(c.applDB, table)
+		c.tableMap[table] = pt
+	}
+	pt.Del(key, "DEL", "")
+	return nil
 }
 
 func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, target string, origin string) (Client, error) {
@@ -116,6 +143,8 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, target string, origi
 	client.origin = origin
 	client.paths = paths
 	client.workPath = common_utils.GNMI_WORK_PATH
+	client.applDB = swsscommon.NewDBConnector2(APPL_DB, REDIS_SOCK, SWSS_TIMEOUT)
+	client.tableMap = map[string]swsscommon.ProducerStateTable{}
 
 	return &client, nil
 }
@@ -208,6 +237,9 @@ func (c *DbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 
 // TODO: Log data related to this session
 func (c *DbClient) Close() error {
+	for _, pt := range c.tableMap {
+		pt.Delete()
+	}
 	return nil
 }
 
@@ -639,14 +671,36 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 	return msi2TypedValue(msi)
 }
 
-func handleTableData(tblPaths []tablePath) error {
-	//var useKey bool
+func ConverDbEntry(inputData map[string]interface{}) map[string]string {
+    outputData := map[string]string{}
+    for key, value := range inputData {
+        switch value.(type) {
+		case string:
+			outputData[key] = value.(string)
+		case []interface{}:
+			list := value.([]interface{})
+			key_redis := key + "@"
+			slice := []string{}
+			for _, item := range(list) {
+				if str, check := item.(string); check {
+					slice = append(slice, str)
+				} else {
+					continue
+				}
+			}
+			str_val := strings.Join(slice, ",")
+			outputData[key_redis] = str_val
+        }
+    }
+    return outputData
+}
+
+func (c *DbClient) handleTableData(tblPaths []tablePath) error {
 	var pattern string
 	var dbkeys []string
 	var err error
-	var fv map[string]string
 	var res interface{}
-	//msi := make(map[string]interface{})
+
 	for _, tblPath := range tblPaths {
 		log.V(5).Infof("handleTableData: tblPath %v", tblPath)
 		redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
@@ -657,98 +711,7 @@ func handleTableData(tblPaths []tablePath) error {
 				if len(tblPaths) != 1 {
 					log.V(2).Infof("WARNING: more than one path exists for field granularity query: %v", tblPaths)
 				}
-				var key string
-				if tblPath.tableKey != "" {
-					key = tblPath.tableName + tblPath.delimitor + tblPath.tableKey
-				} else {
-					key = tblPath.tableName
-				}
-				if tblPath.operation == opRemove {
-					log.V(5).Infof("handleTableData: HDel key %v field %v index %v", key, tblPath.field, tblPath.index)
-					var val string
-					// TODO: Use Yang model to identify leaf-list
-					field := tblPath.field
-					if tblPath.index >= 0 {
-						field = field + "@"
-						val, err = redisDb.HGet(key, field).Result()
-						if err != nil {
-							log.V(2).Infof("redis HGet failed for %v", tblPath)
-							return err
-						}
-						slice := strings.Split(val, ",")
-						if tblPath.index >= len(slice) {
-							return fmt.Errorf("Invalid index %v for %v", tblPath.index, slice)
-						}
-						slice = append(slice[:tblPath.index], slice[tblPath.index+1:]...)
-						val = strings.Join(slice, ",")
-						err = redisDb.HSet(key, field, val).Err()
-					} else {
-						err = redisDb.HDel(key, field).Err()
-						if err != nil {
-							log.V(5).Infof("HDel key %v field %v err %v", key, field, err)
-						}
-						field = field + "@"
-						err = redisDb.HDel(key, field).Err()
-						if err != nil {
-							log.V(5).Infof("HDel key %v field %v err %v", key, field, err)
-						}
-					}
-				} else if tblPath.operation == opAdd {
-					var value string
-					res, err = parseJson([]byte(tblPath.value))
-					if err != nil {
-						return err
-					}
-					if tblPath.index >= 0 {
-						if val, ok := res.(string); ok {
-							field := tblPath.field + "@"
-							value, err = redisDb.HGet(key, field).Result()
-							if err != nil {
-								log.V(2).Infof("redis HGet failed for %v", tblPath)
-								return err
-							}
-							slice := strings.Split(value, ",")
-							if tblPath.index > len(slice) {
-								return fmt.Errorf("Invalid index %v for %v", tblPath.index, slice)
-							}
-							slice = append(slice[:tblPath.index], append([]string{val}, slice[tblPath.index:]...)...)
-							value = strings.Join(slice, ",")
-							log.V(5).Infof("handleTableData: HSet key %v field %v value %v", key, field, value)
-							err = redisDb.HSet(key, field, value).Err()
-						} else {
-							return fmt.Errorf("Unsupported value %v type %v", res, reflect.TypeOf(res))
-						}
-					} else {
-						if val, ok := res.(string); ok {
-							log.V(5).Infof("handleTableData: HSet key %v field %v value %v", key, tblPath.field, val)
-							err = redisDb.HSet(key, tblPath.field, val).Err()
-						} else if list, ok := res.([]interface{}); ok {
-							field := tblPath.field + "@"
-							slice := []string{}
-							for _, item := range(list) {
-								if str, check := item.(string); check {
-									slice = append(slice, str)
-								} else {
-									return fmt.Errorf("Unsupported value %v type %v", item, reflect.TypeOf(item))
-								}
-							}
-							value = strings.Join(slice, ",")
-							log.V(5).Infof("handleTableData: HSet key %v field %v value %v", key, field, value)
-							err = redisDb.HSet(key, field, value).Err()
-						} else {
-							return fmt.Errorf("Unsupported value %v type %v", res, reflect.TypeOf(res))
-						}
-					}
-				} else {
-					return fmt.Errorf("Unsupported operation %v", tblPath.operation)
-				}
-
-				if err != nil {
-					log.V(2).Infof("redis operation failed for %v", tblPath)
-					return err
-				}
-
-				return nil
+				return fmt.Errorf("Unsupported path %v, can't update field", tblPath)
 			}
 		}
 
@@ -761,6 +724,7 @@ func handleTableData(tblPaths []tablePath) error {
 				} else {
 					pattern = tblPath.tableName + tblPath.delimitor + "*"
 				}
+				// Can't remove entry in temporary state table
 				dbkeys, err = redisDb.Keys(pattern).Result()
 				if err != nil {
 					log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
@@ -772,55 +736,26 @@ func handleTableData(tblPaths []tablePath) error {
 			}
 
 			for _, dbkey := range dbkeys {
-				fv, err = redisDb.HGetAll(dbkey).Result()
+				tableKey := strings.TrimPrefix(dbkey, tblPath.tableName + tblPath.delimitor)
+				err = c.DbDelTable(tblPath.tableName, tableKey)
 				if err != nil {
-					log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
+					log.V(2).Infof("swsscommon delete failed for  %v, dbkey %s", tblPath, dbkey)
 					return err
-				}
-				for field, _ := range fv {
-					log.V(5).Infof("handleTableData: HDel key %v field %v", dbkey, field)
-					err = redisDb.HDel(dbkey, field).Err()
-					if err != nil {
-						log.V(2).Infof("redis operation failed for %v", dbkey)
-						return err
-					}
 				}
 			}
 		} else if tblPath.operation == opAdd {
 			if tblPath.tableKey != "" {
 				// both table name and key provided
-				dbkey := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
 				res, err = parseJson([]byte(tblPath.value))
 				if err != nil {
 					return err
 				}
 				if vtable, ok := res.(map[string]interface{}); ok {
-					for field, vres := range vtable {
-						log.V(2).Infof("field %v, vres %v", field, vres)
-						if val, good := vres.(string); good {
-							err = redisDb.HSet(dbkey, field, val).Err()
-							if err != nil {
-								return err
-							}
-						} else if list, good := vres.([]interface{}); good {
-							field = field + "@"
-							slice := []string{}
-							for _, item := range(list) {
-								if str, check := item.(string); check {
-									slice = append(slice, str)
-								} else {
-									return fmt.Errorf("Unsupported value %v type %v", item, reflect.TypeOf(item))
-								}
-							}							
-							value := strings.Join(slice, ",")
-							log.V(5).Infof("handleTableData: HSet key %v field %v value %v", dbkey, field, value)
-							err = redisDb.HSet(dbkey, field, value).Err()
-							if err != nil {
-								return err
-							}
-						} else {
-							return fmt.Errorf("Unsupported value %v type %v", vres, reflect.TypeOf(vres))
-						}
+					outputData := ConverDbEntry(vtable)
+					err = c.DbSetTable(tblPath.tableName, tblPath.tableKey, outputData)
+					if err != nil {
+						log.V(2).Infof("swsscommon update failed for  %v, value %v", tblPath, outputData)
+						return err
 					}
 				} else {
 					return fmt.Errorf("Key %v: Unsupported value %v type %v", tblPath.tableKey, res, reflect.TypeOf(res))
@@ -833,33 +768,11 @@ func handleTableData(tblPaths []tablePath) error {
 				if vtable, ok := res.(map[string]interface{}); ok {
 					for tableKey, tres := range vtable {
 						if vt, ret := tres.(map[string]interface{}); ret {
-							for field, fres := range vt {
-								dbkey := tblPath.tableName + tblPath.delimitor + tableKey
-								if val, good := fres.(string); good {
-									log.V(5).Infof("handleTableData: HSet key %v field %v value %v", dbkey, field, val)
-									err = redisDb.HSet(dbkey, field, val).Err()
-									if err != nil {
-										return err
-									}
-								} else if list, good := fres.([]interface{}); good {
-									field = field + "@"
-									slice := []string{}
-									for _, item := range(list) {
-										if str, check := item.(string); check {
-											slice = append(slice, str)
-										} else {
-											return fmt.Errorf("Unsupported value %v type %v", item, reflect.TypeOf(item))
-										}				
-									}
-									value := strings.Join(slice, ",")
-									log.V(5).Infof("handleTableData: HSet key %v field %v value %v", dbkey, field, value)
-									err = redisDb.HSet(dbkey, field, value).Err()
-									if err != nil {
-										return err
-									}
-								} else {
-									return fmt.Errorf("Unsupported value %v type %v", fres, reflect.TypeOf(fres))
-								}
+							outputData := ConverDbEntry(vt)
+							err = c.DbSetTable(tblPath.tableName, tableKey, outputData)
+							if err != nil {
+								log.V(2).Infof("swsscommon update failed for  %v, value %v", tblPath, outputData)
+								return err
 							}
 						} else {
 							return fmt.Errorf("Key %v: Unsupported value %v type %v", tableKey, tres, reflect.TypeOf(tres))
@@ -1137,7 +1050,7 @@ func (c *DbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, update
 	}
 	
 	for _, tblPaths := range deleteMap {
-		err = handleTableData(tblPaths)
+		err = c.handleTableData(tblPaths)
 		if err != nil {
 			return err
 		}
@@ -1152,7 +1065,7 @@ func (c *DbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, update
 		}
 	}
 	for _, tblPaths := range replaceMap {
-		err = handleTableData(tblPaths)
+		err = c.handleTableData(tblPaths)
 		if err != nil {
 			return err
 		}
@@ -1167,7 +1080,7 @@ func (c *DbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, update
 		}
 	}
 	for _, tblPaths := range updateMap {
-		err = handleTableData(tblPaths)
+		err = c.handleTableData(tblPaths)
 		if err != nil {
 			return err
 		}

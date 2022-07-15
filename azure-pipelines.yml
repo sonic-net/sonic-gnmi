@@ -60,7 +60,7 @@ stages:
         sudo service redis-server start
 
         # LIBYANG
-        sudo dpkg -i ../target/debs/buster/libyang*1.0.73*.deb
+        sudo dpkg -i ../target/debs/bullseye/libyang*1.0.73*.deb
       displayName: "Install dependency"
 
     - script: |
