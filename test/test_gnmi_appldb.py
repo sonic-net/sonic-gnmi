@@ -85,6 +85,11 @@ class TestGNMIApplDb:
         get_list = []
         for i, data in enumerate(test_data):
             path = data['update_path']
+            path_length = path.count('/')
+            # path length is 2, path has table name, and has no key
+            # there's no consumer for unit test, and gnmi cannot delete temporary state table
+            if path_length <= 2:
+                continue
             get_path = data['get_path']
             value = json.dumps(data['value'])
             file_name = 'update' + str(i)
@@ -95,6 +100,8 @@ class TestGNMIApplDb:
             delete_list.append(path)
             get_list.append(get_path)
 
+        if len(update_list) == 0:
+            return
         ret, msg = gnmi_set([], update_list, [])
         assert ret == 0, msg
         ret, msg = gnmi_set(delete_list, [], [])
@@ -142,6 +149,11 @@ class TestGNMIApplDb:
         get_list = []
         for i, data in enumerate(test_data):
             path = data['update_path']
+            path_length = path.count('/')
+            # path length is 2, path has table name, and has no key
+            # there's no consumer for unit test, and gnmi cannot delete temporary state table
+            if path_length <= 2:
+                continue
             get_path = data['get_path']
             value = json.dumps(data['value'])
             file_name = 'update' + str(i)
@@ -152,6 +164,8 @@ class TestGNMIApplDb:
             replace_list.append(path + ':#')
             get_list.append(get_path)
 
+        if len(update_list) == 0:
+            return
         ret, msg = gnmi_set([], update_list, [])
         assert ret == 0, msg
         ret, msg = gnmi_set([], [], replace_list)
