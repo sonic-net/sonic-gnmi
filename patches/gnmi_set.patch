@@ -33,10 +33,10 @@
 +		if lc == -1 {
 +			log.Exitf("invalid path-value pair: %v", item)
 +		}
-+		pathValuePair_r := strings.SplitN(modName[2], ":", 2)
++		// pathValuePair_r := strings.SplitN(modName[2], ":", 2)
 +		// pathValuePair[0] = modName[2][0:lc]
 +
-+		pathValuePair[0] = "/" + modName[1] + "/" + pathValuePair_r[0]
++		pathValuePair[0] = "/" + modName[1] + "/" + modName[2][0:lc]
 +
 +		pathValuePair[1] = modName[2][lc+1:]
 +		fmt.Println(pathValuePair[0])
