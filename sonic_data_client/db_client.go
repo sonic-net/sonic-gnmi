@@ -752,6 +752,7 @@ func (c *DbClient) handleTableData(tblPaths []tablePath) error {
 				}
 				if vtable, ok := res.(map[string]interface{}); ok {
 					outputData := ConverDbEntry(vtable)
+					c.DbDelTable(tblPath.tableName, tblPath.tableKey)
 					err = c.DbSetTable(tblPath.tableName, tblPath.tableKey, outputData)
 					if err != nil {
 						log.V(2).Infof("swsscommon update failed for  %v, value %v", tblPath, outputData)
@@ -769,6 +770,7 @@ func (c *DbClient) handleTableData(tblPaths []tablePath) error {
 					for tableKey, tres := range vtable {
 						if vt, ret := tres.(map[string]interface{}); ret {
 							outputData := ConverDbEntry(vt)
+							c.DbDelTable(tblPath.tableName, tableKey)
 							err = c.DbSetTable(tblPath.tableName, tableKey, outputData)
 							if err != nil {
 								log.V(2).Infof("swsscommon update failed for  %v, value %v", tblPath, outputData)
