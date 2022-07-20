@@ -751,6 +751,19 @@ func (c *DbClient) handleTableData(tblPaths []tablePath) error {
 					return err
 				}
 				if vtable, ok := res.(map[string]interface{}); ok {
+					configMap := make(map[string]interface{})
+					tableMap := make(map[string]interface{})
+					tableMap[tblPath.tableKey] = vtable
+					configMap[tblPath.tableName] = tableMap
+					ietf_json_val, err := emitJSON(&configMap)
+					if err != nil {
+						return fmt.Errorf("Translate to json failed!")
+					}
+					PyCodeInGo := fmt.Sprintf(PyCodeForYang, ietf_json_val)
+					err = RunPyCode(PyCodeInGo)
+					if err != nil {
+						return fmt.Errorf("Yang validation failed!")
+					}
 					outputData := ConverDbEntry(vtable)
 					c.DbDelTable(tblPath.tableName, tblPath.tableKey)
 					err = c.DbSetTable(tblPath.tableName, tblPath.tableKey, outputData)
@@ -767,6 +780,17 @@ func (c *DbClient) handleTableData(tblPaths []tablePath) error {
 					return err
 				}
 				if vtable, ok := res.(map[string]interface{}); ok {
+					configMap := make(map[string]interface{})
+					configMap[tblPath.tableName] = vtable
+					ietf_json_val, err := emitJSON(&configMap)
+					if err != nil {
+						return fmt.Errorf("Translate to json failed!")
+					}
+					PyCodeInGo := fmt.Sprintf(PyCodeForYang, ietf_json_val)
+					err = RunPyCode(PyCodeInGo)
+					if err != nil {
+						return fmt.Errorf("Yang validation failed!")
+					}
 					for tableKey, tres := range vtable {
 						if vt, ret := tres.(map[string]interface{}); ret {
 							outputData := ConverDbEntry(vt)

@@ -19,7 +19,7 @@ test_data_update_normal = [
             'update_path': '/sonic-db:APPL_DB/DASH_VNET',
             'get_path': '/sonic-db:APPL_DB/_DASH_VNET',
             'value': {
-                'vnet_3721': {
+                'Vnet3721': {
                     'address_spaces': ["10.250.0.0", "192.168.3.0", "139.66.72.9"]
                 }
             }
@@ -37,8 +37,8 @@ test_data_update_normal = [
             'value': {'bw': '10002', 'cps': '1002', 'flows': '102'}
         },
         {
-            'update_path': '/sonic-db:APPL_DB/DASH_VNET/vnet_3721',
-            'get_path': '/sonic-db:APPL_DB/_DASH_VNET/vnet_3721',
+            'update_path': '/sonic-db:APPL_DB/DASH_VNET/Vnet3721',
+            'get_path': '/sonic-db:APPL_DB/_DASH_VNET/Vnet3721',
             'value': {
                 'address_spaces': ["10.250.0.0", "192.168.3.0", "139.66.72.9"]
             }
