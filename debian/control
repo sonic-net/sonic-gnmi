@@ -1,16 +1,16 @@
-Source: sonic-telemetry
+Source: sonic-gnmi
 Section: devel
 Priority: optional
 Maintainer: Jipan Yang <jipan.yang@alibaba-inc.com>
 Build-Depends: debhelper (>= 8.0.0),
 Standards-Version: 3.9.3
-Homepage: https://github.com/Azure/sonic-telemetry
-XS-Go-Import-Path: github.com/Azure/sonic-telemetry
+Homepage: https://github.com/sonic-net/sonic-gnmi
+XS-Go-Import-Path: github.com/sonic-net/sonic-gnmi
 
-Package: sonic-telemetry
+Package: sonic-gnmi
 Architecture: any
 Built-Using: ${misc:Built-Using}
 Depends: ${misc:Depends},
          ${shlibs:Depends}
-Description: SONiC telemetry
- sonic-telemetry
+Description: SONiC gNMI
+ sonic-gnmi

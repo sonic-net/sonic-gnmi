@@ -2,8 +2,8 @@
 package client
 
 import (
-	spb "github.com/Azure/sonic-telemetry/proto"
-	transutil "github.com/Azure/sonic-telemetry/transl_utils"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
 	log "github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"reflect"
 	"github.com/Azure/sonic-mgmt-common/translib"
-	"github.com/Azure/sonic-telemetry/common_utils"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"bytes"
 	"encoding/json"
 	"context"

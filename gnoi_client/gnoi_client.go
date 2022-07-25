@@ -3,8 +3,8 @@ package main
 import (
 	"google.golang.org/grpc"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
-	spb "github.com/Azure/sonic-telemetry/proto/gnoi"
-	spb_jwt "github.com/Azure/sonic-telemetry/proto/gnoi/jwt"
+	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
+	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	"context"
 	"os"
 	"os/signal"

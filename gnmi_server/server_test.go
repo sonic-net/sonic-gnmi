@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	testcert "github.com/Azure/sonic-telemetry/testdata/tls"
+	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"github.com/go-redis/redis"
 	"github.com/golang/protobuf/proto"
 
@@ -34,11 +34,11 @@ import (
 	"google.golang.org/grpc/status"
 
 	// Register supported client types.
-	spb "github.com/Azure/sonic-telemetry/proto"
-	sgpb "github.com/Azure/sonic-telemetry/proto/gnoi"
-	sdc "github.com/Azure/sonic-telemetry/sonic_data_client"
-	sdcfg "github.com/Azure/sonic-telemetry/sonic_db_config"
-	"github.com/Azure/sonic-telemetry/test_utils"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	"github.com/sonic-net/sonic-gnmi/test_utils"
 	gclient "github.com/jipanyang/gnmi/client/gnmi"
 	"github.com/jipanyang/gnxi/utils/xpath"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
