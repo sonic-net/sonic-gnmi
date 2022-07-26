@@ -15,22 +15,22 @@ Install __go__ in your system https://golang.org/doc/install. Requires golang1.8
 
 To install dial-in mode system telemetry server, run
 
-    go get -u github.com/Azure/sonic-telemetry/telemetry
+    go get -u github.com/sonic-net/sonic-gnmi/telemetry
 
 To install dial-out mode system telemetry client, run
 
-    go get -u github.com/Azure/sonic-telemetry/dialout/dialout_client_cli
+    go get -u github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
 
 There is also a test program dialout_server_cli for collecting data from dial-out mode system telemetry client. _Note_: it is for testing purpose only.
 
-    go get -u github.com/Azure/sonic-telemetry/dialout/dialout_server_cli
+    go get -u github.com/sonic-net/sonic-gnmi/dialout/dialout_server_cli
 
 The binaries will be installed under $GOPATH/bin/, they may be copied to any SONiC switch and run there.
 
 You can also build a debian package and install it:
 
-    git clone https://github.com/Azure/sonic-telemetry.git
-    pushd sonic-telemetry
+    git clone https://github.com/sonic-net/sonic-gnmi.git
+    pushd sonic-gnmi
     dpkg-buildpackage -rfakeroot -b -us -uc
     popd
 

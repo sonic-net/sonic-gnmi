@@ -14,8 +14,8 @@ import (
 
 	log "github.com/golang/glog"
 
-	spb "github.com/Azure/sonic-telemetry/proto"
-	sdcfg "github.com/Azure/sonic-telemetry/sonic_db_config"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	"github.com/Workiva/go-datastructures/queue"
 	"github.com/go-redis/redis"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -156,7 +156,7 @@ func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync
 
 	if subscribe.GetSubscription() == nil {
 		log.V(2).Infof("No incoming subscription, it is considered a dialout connection.")
-		// NOTE: per https://github.com/Azure/sonic-telemetry/blob/master/doc/dialout.md#dialout_client_cli-and-dialout_server_cli
+		// NOTE: per https://github.com/sonic-net/sonic-gnmi/blob/master/doc/dialout.md#dialout_client_cli-and-dialout_server_cli
 		// TELEMETRY_CLIENT subscription doesn't specificy type of the stream.
 		// Handling it as a ON_CHANGE stream for backward compatibility.
 		for gnmiPath := range c.pathG2S {

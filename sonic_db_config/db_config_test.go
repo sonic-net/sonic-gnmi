@@ -1,7 +1,7 @@
 package dbconfig
 
 import (
-	"github.com/Azure/sonic-telemetry/test_utils"
+	"github.com/sonic-net/sonic-gnmi/test_utils"
 	"testing"
 )
 
