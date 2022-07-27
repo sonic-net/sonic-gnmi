@@ -17,8 +17,8 @@ resources:
   repositories:
   - repository: sonic-mgmt-common
     type: github
-    name: Azure/sonic-mgmt-common
-    endpoint: build
+    name: sonic-net/sonic-mgmt-common
+    endpoint: sonic-net
 
 stages:
 - stage: Build
