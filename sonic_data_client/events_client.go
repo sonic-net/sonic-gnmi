@@ -21,6 +21,12 @@ import (
     gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
+const SUBSCRIBER_TIMEOUT = (2 * 1000)  // 2 seconds
+const HEARTBEAT_TIMEOUT = 2
+const EVENT_BUFFSZ = 4096
+
+const PQ_MAX_SIZE 10240     // Max cnt of pending events in PQ
+
 type EventClient struct {
 
     prefix      *gnmipb.Path
@@ -34,12 +40,12 @@ type EventClient struct {
     subs_handle unsafe.Pointer
 
     stopped     int
-}
 
-const SUBSCRIBER_TIMEOUT = (2 * 1000)  // 2 seconds
-const HEARTBEAT_TIMEOUT = 2
-const EVENT_BUFFSZ = 4096
-const MISSED_BUFFSZ = 16
+    // Stats counter
+    missed_cnt  uint32      // Failed to read -- internal error
+    dropped_cnt uint32      // dropped due to queue hit the ceil
+
+}
 
 func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Client, error) {
     var evtc EventClient
@@ -50,16 +56,8 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
     }
     C.swssSetLogPriority(C.int(logLevel))
 
-    /* Init subscriber with 2 seconds time out */
-    subs_data := make(map[string]interface{})
-    subs_data["recv_timeout"] = SUBSCRIBER_TIMEOUT
-    j, err := json.Marshal(subs_data)
-    if err != nil {
-        log.V(3).Infof("events_init_subscriber: Failed to marshal")
-        return nil, err
-    }
-    js := string(j)
-    evtc.subs_handle = C.events_init_subscriber_wrap(C.CString(js))
+    /* Init subscriber with cache use and defined time out */
+    evtc.subs_handle = C.events_init_subscriber_wrap(true, C.int(SUBSCRIBER_TIMEOUT))
     evtc.stopped = 0
 
     log.V(7).Infof("NewEventClient constructed. logLevel=%d", logLevel)
@@ -73,23 +71,37 @@ func (evtc *EventClient) String() string {
 }
 
 
-func get_events(evtc *EventClient, updateChannel chan string) {
-    
-    evt_ptr := C.malloc(C.sizeof_char * EVENT_BUFFSZ)
-    missed_ptr := C.malloc(C.sizeof_char * MISSED_BUFFSZ)
+func get_events(evtc *EventClient) {
+    str_ptr := C.malloc(C.sizeof_char * C.size_t(EVENT_BUFFSZ)) 
+    defer C.free(unsafe.Pointer(str_ptr))
 
+    evt_ptr := &C.event_receive_op_C_t{}
+    evt_ptr = (*C.event_receive_op_C_t)(C.malloc(C.size_t(unsafe.Sizeof(C.event_receive_op_C_t{}))))
     defer C.free(unsafe.Pointer(evt_ptr))
-    defer C.free(unsafe.Pointer(missed_ptr))
 
-    c_eptr := (*C.char)(unsafe.Pointer(evt_ptr))
-    c_mptr := (*C.char)(unsafe.Pointer(missed_ptr))
+    evt_ptr.event_str = (*C.char)(str_ptr)
+    evt_ptr.event_sz = C.uin32_t(EVENT_BUFFSZ)
 
     for {
-        rc := C.event_receive_wrap(evtc.subs_handle, c_eptr, EVENT_BUFFSZ, c_mptr, MISSED_BUFFSZ)
+
+        rc := C.event_receive_wrap(evtc.subs_handle, evt_ptr)
         log.V(7).Infof("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(evt_ptr))
 
-        if rc != 0 {
-            updateChannel <- C.GoString((*C.char)(evt_ptr))
+        if rc == 0 {
+            evtc.missed_cnt += evt_ptr.missed_cnt;
+            if evtc.q.len() < PQ_MAX_SIZE {
+                evtTv := &gnmipb.TypedValue {
+                    Value: &gnmipb.TypedValue_StringVal {
+                        StringVal: C.GoString((*C.char)(evt_ptr.event_str)),
+                    }}
+                if err := send_event(evtc, evtTv,
+                        C.int64_t(evt_ptr.publish_epoch_ms)); err != nil {
+                    return
+                }
+            }
+            else {
+                evtc.dropped_cnt += 1
+            }
         }
         if evtc.stopped == 1 {
             log.V(1).Infof("%v stop channel closed, exiting get_events routine", evtc)
@@ -103,11 +115,12 @@ func get_events(evtc *EventClient, updateChannel chan string) {
 }
 
 
-func send_event(evtc *EventClient, tv *gnmipb.TypedValue) error {
+func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
+        timestamp int64) error {
     spbv := &spb.Value{
         Prefix:    evtc.prefix,
         Path:    evtc.path,
-        Timestamp: time.Now().UnixNano(),
+        Timestamp: timestamp,
         Val:  tv,
     }
 
@@ -137,24 +150,13 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     evtc.q = q
     evtc.channel = stop
 
-    updateChannel := make(chan string)
-    go get_events(evtc, updateChannel)
+    go get_events(evtc)
 
     for {
         select {
-        case nextEvent := <-updateChannel:
-            log.V(7).Infof("update received: %v", nextEvent)
-            evtTv := &gnmipb.TypedValue {
-                Value: &gnmipb.TypedValue_StringVal {
-                    StringVal: nextEvent,
-                }}
-            if err := send_event(evtc, evtTv); err != nil {
-                return
-            }
-
         case <-IntervalTicker(time.Second * HEARTBEAT_TIMEOUT):
             log.V(7).Infof("Ticker received")
-            if err := send_event(evtc, hbTv); err != nil {
+            if err := send_event(evtc, hbTv, time.Now().UnixNano()); err != nil {
                 return
             }
         case <-evtc.channel:
