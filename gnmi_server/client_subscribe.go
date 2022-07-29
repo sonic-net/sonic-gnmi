@@ -30,7 +30,13 @@ type Client struct {
 	// Wait for all sub go routine to finish
 	w     sync.WaitGroup
 	fatal bool
+	logLevel   int
 }
+
+// Syslog level for error
+const logLevelError int = 3
+const logLevelDebug int = 7
+const logLevelMax int = logLevelDebug
 
 // NewClient returns a new initialized client.
 func NewClient(addr net.Addr) *Client {
@@ -38,6 +44,17 @@ func NewClient(addr net.Addr) *Client {
 	return &Client{
 		addr: addr,
 		q:    pq,
+		logLevel: logLevelError,
+	}
+}
+
+func (c *Client) setLogLevel(lvl int) {
+	if (lvl >= 0) {
+		if lvl < logLevelMax {
+			c.logLevel = lvl
+		} else {
+			c.logLevel = logLevelMax
+		}
 	}
 }
 
@@ -121,8 +138,12 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	}
 	var dc sdc.Client
 
+	mode := c.subscribe.GetMode()
+
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
+	} else if ((target == "EVENTS") && (mode == gnmipb.SubscriptionList_STREAM)) {
+		dc, err = sdc.NewEventClient(paths, prefix, c.logLevel)
 	} else if _, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
 	} else {
@@ -134,7 +155,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		return grpc.Errorf(codes.NotFound, "%v", err)
 	}
 
-	switch mode := c.subscribe.GetMode(); mode {
+	switch mode {
 	case gnmipb.SubscriptionList_STREAM:
 		c.stop = make(chan struct{}, 1)
 		c.w.Add(1)
