@@ -163,7 +163,6 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
             return
         }
     }
-    log.V(3).Infof("Event exiting streamrun")
 }
 
 
