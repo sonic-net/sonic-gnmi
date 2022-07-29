@@ -47,6 +47,7 @@ type Config struct {
 	// Port for the Server to listen on. If 0 or unset the Server will pick a port
 	// for this Server.
 	Port     int64
+	LogLevel int
 	UserAuth AuthTypes
 }
 
@@ -232,6 +233,8 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	*/
 
 	c := NewClient(pr.Addr)
+
+	c.setLogLevel(s.config.LogLevel)
 
 	s.cMu.Lock()
 	if oc, ok := s.clients[c.String()]; ok {
