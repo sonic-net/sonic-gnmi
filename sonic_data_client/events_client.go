@@ -17,7 +17,7 @@ import (
 
     "github.com/go-redis/redis"
 
-    spb "github.com/Azure/sonic-telemetry/proto"
+    spb "github.com/sonic-net/sonic-gnmi/proto"
     "github.com/Workiva/go-datastructures/queue"
     log "github.com/golang/glog"
     gnmipb "github.com/openconfig/gnmi/proto/gnmi"
