@@ -15,6 +15,8 @@ import (
     "time"
     "unsafe"
 
+    "github.com/go-redis/redis"
+
     spb "github.com/Azure/sonic-telemetry/proto"
     "github.com/Workiva/go-datastructures/queue"
     log "github.com/golang/glog"
@@ -25,7 +27,19 @@ const SUBSCRIBER_TIMEOUT = (2 * 1000)  // 2 seconds
 const HEARTBEAT_TIMEOUT = 2
 const EVENT_BUFFSZ = 4096
 
-const PQ_MAX_SIZE 10240     // Max cnt of pending events in PQ
+const LATENCY_LIST_SIZE = 10  // Size of list of latencies.
+const PQ_MAX_SIZE = 10240     // Max cnt of pending events in PQ
+
+// STATS counters
+const MISSED = "EVENTS_COUNTERS:missed_internal"
+const DROPPED = "EVENTS_COUNTERS:missed_by_slow_receiver"
+const LATENCY = "EVENTS_COUNTERS:latency_in_ms"
+
+var STATS_CUMULATIVE_KEYS = [...]string {MISSED, DROPPED}
+var STATS_ABSOLUTE_KEYS = [...]string {LATENCY}
+
+const STATS_FIELD_NAME = "value"
+
 
 type EventClient struct {
 
@@ -42,9 +56,13 @@ type EventClient struct {
     stopped     int
 
     // Stats counter
-    missed_cnt  uint32      // Failed to read -- internal error
-    dropped_cnt uint32      // dropped due to queue hit the ceil
+    counters    map[string]uint64
 
+    last_latencies  [LATENCT_LIST_SIZE]int64;
+    last_latency_index  int
+    last_latency_full   bool
+
+    last_errors int64
 }
 
 func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Client, error) {
@@ -60,10 +78,88 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
     evtc.subs_handle = C.events_init_subscriber_wrap(true, C.int(SUBSCRIBER_TIMEOUT))
     evtc.stopped = 0
 
+    /* Init list & counters */
+    for _, key := range STATS_CUMULATIVE_KEYS {
+        evtc.counters[key] = 0
+    }
+
+    for _, key := range STATS_ABSOLUTE_KEYS {
+        evtc.counters[key] = 0
+    }
+
+    for i := 0, i < LATENCT_LIST_SIZE; i++ {
+        evtc.last_latencies[i] = 0
+    }
+    evtc.last_latency_index = 0
+    evtc.last_errors = 0
+    evtc.last_latency_full = false;
+
     log.V(7).Infof("NewEventClient constructed. logLevel=%d", logLevel)
 
     return &evtc, nil
 }
+
+
+func update_stats(evtc *EventClient) {
+    ns := sdcfg.GetDbDefaultNamespace()
+    rclient := redis.NewClient(&redis.Options{
+        Network:    "tcp",
+        Addr:       sdcfg.GetDbTcpAddr("COUNTERS_DB", ns),
+        Password:   "", // no password set
+        DB:         sdcfg.GetDbId("COUNTERS_DB", ns)
+        DialTimeout:0,
+    })
+
+    var db_counters map[string]uint64
+    var wr_counters *map[string]uint64 = NULL;
+
+    /* Init current values for cumulative keys and clear for absolute */
+    for _, key := range STATS_CUMULATIVE_KEYS {
+        fv, err := rclient.HGetAll(key).Result()
+        db_counters[key] = fv[STATS_FIELD_NAME]
+    }
+    for _, key := range STATS_ABSOLUTE_KEYS {
+        db_counters[key] = 0;
+    }
+
+    for evtc.stopped == 0 {
+        var tmp_counters map[string]uint64
+
+        // compute latency
+        if evtc.last_latency_full {
+            var total uint64 = 0
+            var cnt int = 0
+
+            for _ v := range evtc.last_latencies {
+                if v > 0 {
+                    total += v
+                    cnt++
+                }
+            }
+            evtc.counters[LATENCY] = (int64) (total/cnt/1000/1000)
+        }
+
+        for key, val := range evtc.counters {
+            tmp_counters[key] = val + db_counters[key]
+        }
+        tmp_counters[DROPPED] += evtc.last_errors
+
+        if (wr_counters != nil) && !reflect.DeepEqual(tmp_counters, *wr_counters) {
+            for key, val := range tmp_counters {
+                sval := strconv.FormatUint(val, 10)
+                fv := map[string]string { STATS_FIELD_NAME : sval }
+                err := rclient.HMSet(key, fv)
+                if err != nil {
+                    log.V(3).Infof("EventClient failed to update COUNTERS key:%s val:%v err:%v",
+                    key, fv, err)
+                }
+            }
+            wr_counters = &tmp_counters
+        }
+        time.Sleep(time.Second)
+    }
+}
+
 
 // String returns the target the client is querying.
 func (evtc *EventClient) String() string {
@@ -88,7 +184,7 @@ func get_events(evtc *EventClient) {
         log.V(7).Infof("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(evt_ptr))
 
         if rc == 0 {
-            evtc.missed_cnt += evt_ptr.missed_cnt;
+            evtc.counters[MISSED] += evt_ptr.missed_cnt;
             if evtc.q.len() < PQ_MAX_SIZE {
                 evtTv := &gnmipb.TypedValue {
                     Value: &gnmipb.TypedValue_StringVal {
@@ -100,7 +196,7 @@ func get_events(evtc *EventClient) {
                 }
             }
             else {
-                evtc.dropped_cnt += 1
+                evtc.counters[DROPPED] += 1
             }
         }
         if evtc.stopped == 1 {
@@ -192,6 +288,19 @@ func  (evtc *EventClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, u
 func (evtc *EventClient) Capabilities() []gnmipb.ModelData {
     return nil
 }
+
+func (c *EventClient) sent(val *spb.Value) {
+    c.last_latencies[c.last_latency_index] = time.Now().UnixNano() - val.Timestamp
+    if ++c.last_latency_index > LATENCT_LIST_SIZE {
+        c.last_latency_index = 0
+        c.last_latency_full = true;
+    }
+}
+
+func (c *EventClient) failed_send(cnt int64) {
+    c.last_errors = cnt
+}
+
 
 // cgo LDFLAGS: -L/sonic/target/files/bullseye -lxswsscommon -lpthread -lboost_thread -lboost_system -lzmq -lboost_serialization -luuid -lxxeventxx -Wl,-rpath,/sonic/target/files/bullseye
 

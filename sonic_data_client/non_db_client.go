@@ -587,3 +587,9 @@ func  (c *NonDbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, upda
 func (c *NonDbClient) Capabilities() []gnmipb.ModelData {
 	return nil
 }
+func (c *NonDbClient) sent(val *spb.Value) {
+}
+
+func (c *NonDbClient) failed_send(cnt int64) {
+}
+

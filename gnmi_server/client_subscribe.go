@@ -176,7 +176,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 
 	log.V(1).Infof("Client %s running", c)
 	go c.recv(stream)
-	err = c.send(stream)
+	err = c.send(stream, dc)
 	c.Close()
 	// Wait until all child go routines exited
 	c.w.Wait()
@@ -248,7 +248,7 @@ func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 }
 
 // send runs until process Queue returns an error.
-func (c *Client) send(stream gnmipb.GNMI_SubscribeServer) error {
+func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 	for {
 		items, err := c.q.Get(1)
 
@@ -263,7 +263,8 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer) error {
 		}
 
 		var resp *gnmipb.SubscribeResponse
-		switch v := items[0].(type) {
+		v := items[0]
+		switch v.(type) {
 		case sdc.Value:
 			if resp, err = sdc.ValToResp(v); err != nil {
 				c.errors++
@@ -279,8 +280,11 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer) error {
 		if err != nil {
 			log.V(1).Infof("Client %s sending error:%v", c, err)
 			c.errors++
+			dc.failed_send(&v);
 			return err
 		}
+
+		dc.sent(&v);
 		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
 	}
 }
