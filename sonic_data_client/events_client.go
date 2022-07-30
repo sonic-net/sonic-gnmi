@@ -87,7 +87,7 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
         evtc.counters[key] = 0
     }
 
-    for i := 0, i < LATENCT_LIST_SIZE; i++ {
+    for i := 0; i < len(evtc.last_latencies); i++ {
         evtc.last_latencies[i] = 0
     }
     evtc.last_latency_index = 0
