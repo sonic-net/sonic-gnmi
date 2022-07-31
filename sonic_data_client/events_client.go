@@ -67,7 +67,7 @@ type EventClient struct {
     last_latency_index  int
     last_latency_full   bool
 
-    last_errors int64
+    last_errors uint64
 }
 
 func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Client, error) {
@@ -144,7 +144,7 @@ func update_stats(evtc *EventClient) {
                     cnt++
                 }
             }
-            evtc.counters[LATENCY] = (int64) (total/cnt/1000/1000)
+            evtc.counters[LATENCY] = (uint64) (total/cnt/1000/1000)
         }
 
         for key, val := range evtc.counters {
@@ -155,8 +155,7 @@ func update_stats(evtc *EventClient) {
         if (wr_counters != nil) && !reflect.DeepEqual(tmp_counters, *wr_counters) {
             for key, val := range tmp_counters {
                 sval := strconv.FormatUint(val, 10)
-                fv := map[string]string { STATS_FIELD_NAME : sval }
-                err := rclient.HMSet(key, fv)
+                err := rclient.HSet(key, STATS_FIELD_NAME, sval)
                 if err != nil {
                     log.V(3).Infof("EventClient failed to update COUNTERS key:%s val:%v err:%v",
                     key, fv, err)
@@ -189,10 +188,10 @@ func get_events(evtc *EventClient) {
     for {
 
         rc := C.event_receive_wrap(evtc.subs_handle, evt_ptr)
-        log.V(7).Infof("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(evt_ptr))
+        log.V(7).Infof("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(str_ptr))
 
         if rc == 0 {
-            evtc.counters[MISSED] += evt_ptr.missed_cnt
+            evtc.counters[MISSED] += (uint64)evt_ptr.missed_cnt
             if evtc.q.len() < PQ_MAX_SIZE {
                 evtTv := &gnmipb.TypedValue {
                     Value: &gnmipb.TypedValue_StringVal {
@@ -304,8 +303,8 @@ func (c *EventClient) sent(val *spb.Value) {
     }
 }
 
-func (c *EventClient) failed_send(cnt int64) {
-    c.last_errors = cnt
+func (c *EventClient) failed_send() {
+    c.last_errors += 1
 }
 
 
