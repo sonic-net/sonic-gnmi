@@ -52,9 +52,10 @@ type Client interface {
 	// Close provides implemenation for explicit cleanup of Client
 	Close() error
 
-    // callbacks on send
+    // callbacks on send failed
     failed_send()
 
+    // callback on sent 
     sent(*spb.Value)
 }
 
