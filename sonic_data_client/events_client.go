@@ -130,7 +130,7 @@ func update_stats(evtc *EventClient) {
             var total uint64 = 0
             var cnt int = 0
 
-            for _. v := range evtc.last_latencies {
+            for _, v := range evtc.last_latencies {
                 if v > 0 {
                     total += v
                     cnt++
