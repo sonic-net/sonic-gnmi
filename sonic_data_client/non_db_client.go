@@ -590,6 +590,6 @@ func (c *NonDbClient) Capabilities() []gnmipb.ModelData {
 func (c *NonDbClient) sent(val *spb.Value) {
 }
 
-func (c *NonDbClient) failed_send(cnt int64) {
+func (c *NonDbClient) failed_send() {
 }
 

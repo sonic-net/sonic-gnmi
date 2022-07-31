@@ -51,6 +51,11 @@ type Client interface {
 
 	// Close provides implemenation for explicit cleanup of Client
 	Close() error
+
+    // callbacks on send
+    failed_send()
+
+    sent(spb.Value)
 }
 
 type Stream interface {
@@ -1233,7 +1238,7 @@ func (c *DbClient) Capabilities() []gnmipb.ModelData {
 func (c *DbClient) sent(val *spb.Value) {
 }
 
-func (c *DbClient) failed_send(cnt int64) {
+func (c *DbClient) failed_send() {
 }
 
 // validateSampleInterval validates the sampling interval of the given subscription.

@@ -523,7 +523,7 @@ func (c *TranslClient) Close() error {
 func (c *TranslClient) sent(val *spb.Value) {
 }
 
-func (c *TranslClient) failed_send(cnt int64) {
+func (c *TranslClient) failed_send() {
 }
 
 
