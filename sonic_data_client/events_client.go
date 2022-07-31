@@ -298,9 +298,10 @@ func (evtc *EventClient) Capabilities() []gnmipb.ModelData {
 }
 
 func (c *EventClient) sent(val *spb.Value) {
-    var ts uint64
-    ts = (uint64)(val.Timestamp)
-    c.last_latencies[c.last_latency_index] = time.Now().UnixNano() - ts
+    diff := time.Now().UnixNano() - val.Timestamp
+    var udiff uint64
+    udiff = (uint64)(diff)
+    c.last_latencies[c.last_latency_index] = udiff
     c.last_latency_index += 1
     if c.last_latency_index >= len(c.last_latencies) {
         c.last_latency_index = 0
