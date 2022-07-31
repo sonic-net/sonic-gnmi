@@ -194,8 +194,7 @@ func get_events(evtc *EventClient) {
                         C.int64_t(evt_ptr.publish_epoch_ms)); err != nil {
                     return
                 }
-            }
-            else {
+            } else {
                 evtc.counters[DROPPED] += 1
             }
         }
