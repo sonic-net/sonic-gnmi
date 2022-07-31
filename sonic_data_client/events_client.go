@@ -191,7 +191,7 @@ func get_events(evtc *EventClient) {
         log.V(7).Infof("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(str_ptr))
 
         if rc == 0 {
-            evtc.counters[MISSED] += (uint64)evt_ptr.missed_cnt
+            evtc.counters[MISSED] += C.uint64_t(evt_ptr.missed_cnt)
             if evtc.q.len() < PQ_MAX_SIZE {
                 evtTv := &gnmipb.TypedValue {
                     Value: &gnmipb.TypedValue_StringVal {
