@@ -55,7 +55,7 @@ type Client interface {
     // callbacks on send
     failed_send()
 
-    sent(spb.Value)
+    sent(*spb.Value)
 }
 
 type Stream interface {
