@@ -250,6 +250,7 @@ func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 // send runs until process Queue returns an error.
 func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 	for {
+        var val *client.Value
 		items, err := c.q.Get(1)
 
 		if items == nil {
@@ -263,13 +264,14 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 		}
 
 		var resp *gnmipb.SubscribeResponse
-		v := items[0]
-		switch v.(type) {
+
+        switch v := items[0].(type) {
 		case sdc.Value:
-			if resp, err = sdc.ValToResp(v); err != nil {
+            if resp, err = sdc.ValToResp(v); err != nil {
 				c.errors++
 				return err
 			}
+            val = v;
 		default:
 			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], c)
 			c.errors++
@@ -284,7 +286,7 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 			return err
 		}
 
-		dc.SentOne(v)
+		dc.SentOne(val)
 		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
 	}
 }
