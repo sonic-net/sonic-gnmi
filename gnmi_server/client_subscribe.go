@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 
+	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
