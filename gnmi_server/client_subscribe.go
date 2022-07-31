@@ -262,8 +262,7 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 		}
 
 		var resp *gnmipb.SubscribeResponse
-		v := items[0]
-		switch v.(type) {
+		switch v := items[0].(type) {
 		case sdc.Value:
 			if resp, err = sdc.ValToResp(v); err != nil {
 				c.errors++
