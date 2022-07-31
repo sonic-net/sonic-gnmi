@@ -136,12 +136,12 @@ func update_stats(evtc *EventClient) {
         // compute latency
         if evtc.last_latency_full {
             var total uint64 = 0
-            var cnt int = 0
+            var cnt uint64 = 0
 
             for _, v := range evtc.last_latencies {
                 if v > 0 {
                     total += v
-                    cnt++
+                    cnt += 1
                 }
             }
             evtc.counters[LATENCY] = (uint64) (total/cnt/1000/1000)
@@ -158,7 +158,7 @@ func update_stats(evtc *EventClient) {
                 err := rclient.HSet(key, STATS_FIELD_NAME, sval)
                 if err != nil {
                     log.V(3).Infof("EventClient failed to update COUNTERS key:%s val:%v err:%v",
-                    key, fv, err)
+                    key, sval, err)
                 }
             }
             wr_counters = &tmp_counters
@@ -191,14 +191,17 @@ func get_events(evtc *EventClient) {
         log.V(7).Infof("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(str_ptr))
 
         if rc == 0 {
-            evtc.counters[MISSED] += C.uint64_t(evt_ptr.missed_cnt)
-            if evtc.q.len() < PQ_MAX_SIZE {
+            var cnt uint64
+            cnt = (uint64)(evt_ptr.missed_cnt)
+            evtc.counters[MISSED] += cnt
+            if evtc.q.Len() < PQ_MAX_SIZE {
                 evtTv := &gnmipb.TypedValue {
                     Value: &gnmipb.TypedValue_StringVal {
                         StringVal: C.GoString((*C.char)(evt_ptr.event_str)),
                     }}
-                if err := send_event(evtc, evtTv,
-                        C.int64_t(evt_ptr.publish_epoch_ms)); err != nil {
+                var ts int64
+                ts = (int64)(evt_ptr.publish_epoch_ms)
+                if err := send_event(evtc, evtTv, ts); err != nil {
                     return
                 }
             } else {
@@ -295,7 +298,9 @@ func (evtc *EventClient) Capabilities() []gnmipb.ModelData {
 }
 
 func (c *EventClient) sent(val *spb.Value) {
-    c.last_latencies[c.last_latency_index] = time.Now().UnixNano() - val.Timestamp
+    var ts uint64
+    ts = (uint64)(val.Timestamp)
+    c.last_latencies[c.last_latency_index] = time.Now().UnixNano() - ts
     c.last_latency_index += 1
     if c.last_latency_index >= len(c.last_latencies) {
         c.last_latency_index = 0
