@@ -289,7 +289,8 @@ func (evtc *EventClient) Capabilities() []gnmipb.ModelData {
 
 func (c *EventClient) sent(val *spb.Value) {
     c.last_latencies[c.last_latency_index] = time.Now().UnixNano() - val.Timestamp
-    if ++c.last_latency_index > LATENCT_LIST_SIZE {
+    c.last_latency_index += 1
+    if c.last_latency_index >= len(c.last_latencies) {
         c.last_latency_index = 0
         c.last_latency_full = true
     }
