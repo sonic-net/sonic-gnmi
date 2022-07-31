@@ -121,9 +121,11 @@ func update_stats(evtc *EventClient) {
     /* Init current values for cumulative keys and clear for absolute */
     for _, key := range STATS_CUMULATIVE_KEYS {
         fv, err := rclient.HGetAll(key).Result()
-        number, errC := strconv.ParseUint(fv[STATS_FIELD_NAME], 10, 64)
-        if errC == nil {
-            db_counters[key] = number
+        if err != nil {
+            number, errC := strconv.ParseUint(fv[STATS_FIELD_NAME], 10, 64)
+            if errC == nil {
+                db_counters[key] = number
+            }
         }
     }
     for _, key := range STATS_ABSOLUTE_KEYS {
