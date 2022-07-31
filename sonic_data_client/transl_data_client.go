@@ -520,7 +520,7 @@ func (c *TranslClient) Capabilities() []gnmipb.ModelData {
 func (c *TranslClient) Close() error {
 	return nil
 }
-func (c *TranslClient) SentOne(val *spb.Value) {
+func (c *TranslClient) SentOne(val *Value) {
 }
 
 func (c *TranslClient) FailedSend() {

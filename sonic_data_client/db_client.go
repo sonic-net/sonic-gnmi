@@ -56,7 +56,7 @@ type Client interface {
 	FailedSend()
 
 	// callback on sent 
-	SentOne(*spb.Value)
+	SentOne(*Value)
 }
 
 type Stream interface {
@@ -1236,7 +1236,7 @@ func (c *DbClient) Capabilities() []gnmipb.ModelData {
 	return nil
 }
 
-func (c *DbClient) SentOne(val *spb.Value) {
+func (c *DbClient) SentOne(val *Value) {
 }
 
 func (c *DbClient) FailedSend() {

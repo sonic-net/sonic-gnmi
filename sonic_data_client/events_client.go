@@ -299,8 +299,8 @@ func (evtc *EventClient) Capabilities() []gnmipb.ModelData {
     return nil
 }
 
-func (c *EventClient) SentOne(val *spb.Value) {
-    diff := time.Now().UnixNano() - val.Timestamp
+func (c *EventClient) SentOne(val *Value) {
+    diff := time.Now().UnixNano() - val.GetTimestamp()
     var udiff uint64
     udiff = (uint64)(diff)
     c.last_latencies[c.last_latency_index] = udiff
