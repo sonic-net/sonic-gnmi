@@ -11,8 +11,10 @@ package client
 import "C"
 
 import (
+    "strconv"
     "encoding/json"
     "fmt"
+    "reflect"
     "sync"
     "time"
     "unsafe"
@@ -20,6 +22,7 @@ import (
     "github.com/go-redis/redis"
 
     spb "github.com/sonic-net/sonic-gnmi/proto"
+    sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
     "github.com/Workiva/go-datastructures/queue"
     log "github.com/golang/glog"
     gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -60,7 +63,7 @@ type EventClient struct {
     // Stats counter
     counters    map[string]uint64
 
-    last_latencies  [LATENCT_LIST_SIZE]int64
+    last_latencies  [LATENCY_LIST_SIZE]uint64
     last_latency_index  int
     last_latency_full   bool
 
@@ -113,12 +116,15 @@ func update_stats(evtc *EventClient) {
     })
 
     var db_counters map[string]uint64
-    var wr_counters *map[string]uint64 = NULL
+    var wr_counters *map[string]uint64 = nil
 
     /* Init current values for cumulative keys and clear for absolute */
     for _, key := range STATS_CUMULATIVE_KEYS {
         fv, err := rclient.HGetAll(key).Result()
-        db_counters[key] = fv[STATS_FIELD_NAME]
+        number, errC := strconv.ParseUint(fv[STATS_FIELD_NAME], 10, 64)
+        if errC == nil {
+            db_counters[key] = number
+        }
     }
     for _, key := range STATS_ABSOLUTE_KEYS {
         db_counters[key] = 0
