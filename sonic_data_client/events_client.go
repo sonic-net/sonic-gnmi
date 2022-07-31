@@ -4,6 +4,7 @@ package client
 #cgo CFLAGS: -g -Wall -I/sonic/src/sonic-swss-common/common -Wformat -Werror=format-security -fPIE 
 #cgo LDFLAGS: -lpthread -lboost_thread -lboost_system -lzmq -lboost_serialization -luuid -lswsscommon
 #include <stdlib.h>
+#include <stdint.h>
 #include "events_wrap.h"
 */
 import "C"
