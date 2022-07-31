@@ -278,11 +278,11 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 		if err != nil {
 			log.V(1).Infof("Client %s sending error:%v", c, err)
 			c.errors++
-			dc.failed_send();
+			dc.failed_send()
 			return err
 		}
 
-		dc.sent(items[0]);
+		dc.sent(items[0])
 		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
 	}
 }
