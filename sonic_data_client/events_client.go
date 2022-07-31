@@ -178,7 +178,7 @@ func get_events(evtc *EventClient) {
     defer C.free(unsafe.Pointer(evt_ptr))
 
     evt_ptr.event_str = (*C.char)(str_ptr)
-    evt_ptr.event_sz = C.uin32_t(EVENT_BUFFSZ)
+    evt_ptr.event_sz = C.uin32(EVENT_BUFFSZ)
 
     for {
 
