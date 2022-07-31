@@ -58,7 +58,7 @@ type EventClient struct {
     // Stats counter
     counters    map[string]uint64
 
-    last_latencies  [LATENCT_LIST_SIZE]int64;
+    last_latencies  [LATENCT_LIST_SIZE]int64
     last_latency_index  int
     last_latency_full   bool
 
@@ -92,7 +92,7 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
     }
     evtc.last_latency_index = 0
     evtc.last_errors = 0
-    evtc.last_latency_full = false;
+    evtc.last_latency_full = false
 
     log.V(7).Infof("NewEventClient constructed. logLevel=%d", logLevel)
 
@@ -105,13 +105,13 @@ func update_stats(evtc *EventClient) {
     rclient := redis.NewClient(&redis.Options{
         Network:    "tcp",
         Addr:       sdcfg.GetDbTcpAddr("COUNTERS_DB", ns),
-        Password:   "", // no password set
-        DB:         sdcfg.GetDbId("COUNTERS_DB", ns)
+        Password:   "", // no password set,
+        DB:         sdcfg.GetDbId("COUNTERS_DB", ns),
         DialTimeout:0,
     })
 
     var db_counters map[string]uint64
-    var wr_counters *map[string]uint64 = NULL;
+    var wr_counters *map[string]uint64 = NULL
 
     /* Init current values for cumulative keys and clear for absolute */
     for _, key := range STATS_CUMULATIVE_KEYS {
@@ -119,7 +119,7 @@ func update_stats(evtc *EventClient) {
         db_counters[key] = fv[STATS_FIELD_NAME]
     }
     for _, key := range STATS_ABSOLUTE_KEYS {
-        db_counters[key] = 0;
+        db_counters[key] = 0
     }
 
     for evtc.stopped == 0 {
@@ -184,7 +184,7 @@ func get_events(evtc *EventClient) {
         log.V(7).Infof("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(evt_ptr))
 
         if rc == 0 {
-            evtc.counters[MISSED] += evt_ptr.missed_cnt;
+            evtc.counters[MISSED] += evt_ptr.missed_cnt
             if evtc.q.len() < PQ_MAX_SIZE {
                 evtTv := &gnmipb.TypedValue {
                     Value: &gnmipb.TypedValue_StringVal {
@@ -292,7 +292,7 @@ func (c *EventClient) sent(val *spb.Value) {
     c.last_latencies[c.last_latency_index] = time.Now().UnixNano() - val.Timestamp
     if ++c.last_latency_index > LATENCT_LIST_SIZE {
         c.last_latency_index = 0
-        c.last_latency_full = true;
+        c.last_latency_full = true
     }
 }
 
