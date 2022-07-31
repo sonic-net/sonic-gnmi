@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 
-	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
@@ -250,7 +249,7 @@ func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 // send runs until process Queue returns an error.
 func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 	for {
-        var val *client.Value
+        var val *Value
 		items, err := c.q.Get(1)
 
 		if items == nil {
