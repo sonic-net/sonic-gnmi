@@ -52,11 +52,11 @@ type Client interface {
 	// Close provides implemenation for explicit cleanup of Client
 	Close() error
 
-    // callbacks on send failed
-    FailedSend()
+	// callbacks on send failed
+	FailedSend()
 
-    // callback on sent 
-    SentOne(*spb.Value)
+	// callback on sent 
+	SentOne(*spb.Value)
 }
 
 type Stream interface {
