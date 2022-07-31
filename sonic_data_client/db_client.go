@@ -53,10 +53,10 @@ type Client interface {
 	Close() error
 
     // callbacks on send failed
-    failed_send()
+    FailedSend()
 
     // callback on sent 
-    sent(*spb.Value)
+    SentOne(*spb.Value)
 }
 
 type Stream interface {
@@ -1236,10 +1236,10 @@ func (c *DbClient) Capabilities() []gnmipb.ModelData {
 	return nil
 }
 
-func (c *DbClient) sent(val *spb.Value) {
+func (c *DbClient) SentOne(val *spb.Value) {
 }
 
-func (c *DbClient) failed_send() {
+func (c *DbClient) FailedSend() {
 }
 
 // validateSampleInterval validates the sampling interval of the given subscription.

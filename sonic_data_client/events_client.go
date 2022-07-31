@@ -299,7 +299,7 @@ func (evtc *EventClient) Capabilities() []gnmipb.ModelData {
     return nil
 }
 
-func (c *EventClient) sent(val *spb.Value) {
+func (c *EventClient) SentOne(val *spb.Value) {
     diff := time.Now().UnixNano() - val.Timestamp
     var udiff uint64
     udiff = (uint64)(diff)
@@ -311,7 +311,7 @@ func (c *EventClient) sent(val *spb.Value) {
     }
 }
 
-func (c *EventClient) failed_send() {
+func (c *EventClient) FailedSend() {
     c.last_errors += 1
 }
 
