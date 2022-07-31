@@ -5,6 +5,7 @@ package client
 #cgo LDFLAGS: -lpthread -lboost_thread -lboost_system -lzmq -lboost_serialization -luuid -lswsscommon
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbol.h>
 #include "events_wrap.h"
 */
 import "C"
