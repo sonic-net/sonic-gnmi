@@ -19,7 +19,7 @@ import (
     "time"
     "unsafe"
 
-    "github.com/go-redis/redis"
+    // "github.com/go-redis/redis"
 
     spb "github.com/sonic-net/sonic-gnmi/proto"
     sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
@@ -109,7 +109,7 @@ func update_stats(evtc *EventClient) {
     /* Wait for any update */
     var db_counters map[string]uint64
     var wr_counters *map[string]uint64 = nil
-    var rclient *redis.Client
+    // var rclient *redis.Client
 
     for evtc.stopped == 0 {
         for _, val := range evtc.counters {
@@ -120,6 +120,7 @@ func update_stats(evtc *EventClient) {
         time.Sleep(time.Second)
     }
 
+    /*
     if evtc.stopped == 0 {
         ns := sdcfg.GetDbDefaultNamespace()
 
@@ -132,7 +133,7 @@ func update_stats(evtc *EventClient) {
         })
 
 
-        /* Init current values for cumulative keys and clear for absolute */
+        // Init current values for cumulative keys and clear for absolute 
         for _, key := range STATS_CUMULATIVE_KEYS {
             fv, err := rclient.HGetAll(key).Result()
             if err != nil {
@@ -146,6 +147,7 @@ func update_stats(evtc *EventClient) {
             db_counters[key] = 0
         }
     }
+    */
 
     for evtc.stopped == 0 {
         var tmp_counters map[string]uint64
@@ -172,11 +174,14 @@ func update_stats(evtc *EventClient) {
         if (wr_counters != nil) && !reflect.DeepEqual(tmp_counters, *wr_counters) {
             for key, val := range tmp_counters {
                 sval := strconv.FormatUint(val, 10)
+                /*
                 err := rclient.HSet(key, STATS_FIELD_NAME, sval)
                 if err != nil {
                     log.V(3).Infof("EventClient failed to update COUNTERS key:%s val:%v err:%v",
                     key, sval, err)
                 }
+                */
+                log.V(7).Infof("DROP: key:%s val:%v", key, sval)
             }
             wr_counters = &tmp_counters
         }
