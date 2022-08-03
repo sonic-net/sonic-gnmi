@@ -106,34 +106,49 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
 
 
 func update_stats(evtc *EventClient) {
-    ns := sdcfg.GetDbDefaultNamespace()
-    rclient := redis.NewClient(&redis.Options{
-        Network:    "tcp",
-        Addr:       sdcfg.GetDbTcpAddr("COUNTERS_DB", ns),
-        Password:   "", // no password set,
-        DB:         sdcfg.GetDbId("COUNTERS_DB", ns),
-        DialTimeout:0,
-    })
-
-    var db_counters map[string]uint64
-    var wr_counters *map[string]uint64 = nil
-
-    /* Init current values for cumulative keys and clear for absolute */
-    for _, key := range STATS_CUMULATIVE_KEYS {
-        fv, err := rclient.HGetAll(key).Result()
-        if err != nil {
-            number, errC := strconv.ParseUint(fv[STATS_FIELD_NAME], 10, 64)
-            if errC == nil {
-                db_counters[key] = number
+    /* Wait for any update */
+    for evtc.stopped == 0 {
+        for _, val := range evtc.counters {
+            if val != 0 {
+                break
             }
         }
+        time.Sleep(time.Second)
     }
-    for _, key := range STATS_ABSOLUTE_KEYS {
-        db_counters[key] = 0
+
+    if evtc.stopped == 0 {
+        rclient := redis.NewClient(&redis.Options{
+            Network:    "tcp",
+            Addr:       sdcfg.GetDbTcpAddr("COUNTERS_DB", ns),
+            Password:   "", // no password set,
+            DB:         sdcfg.GetDbId("COUNTERS_DB", ns),
+            DialTimeout:0,
+        })
+
+        var db_counters map[string]uint64
+        var wr_counters *map[string]uint64 = nil
+
+        /* Init current values for cumulative keys and clear for absolute */
+        for _, key := range STATS_CUMULATIVE_KEYS {
+            fv, err := rclient.HGetAll(key).Result()
+            if err != nil {
+                number, errC := strconv.ParseUint(fv[STATS_FIELD_NAME], 10, 64)
+                if errC == nil {
+                    db_counters[key] = number
+                }
+            }
+        }
+        for _, key := range STATS_ABSOLUTE_KEYS {
+            db_counters[key] = 0
+        }
     }
 
     for evtc.stopped == 0 {
         var tmp_counters map[string]uint64
+
+        for key, val := range evtc.counters {
+            tmp_counters[key] = val + db_counters[key]
+        }
 
         // compute latency
         if evtc.last_latency_full {
@@ -147,10 +162,6 @@ func update_stats(evtc *EventClient) {
                 }
             }
             evtc.counters[LATENCY] = (uint64) (total/cnt/1000/1000)
-        }
-
-        for key, val := range evtc.counters {
-            tmp_counters[key] = val + db_counters[key]
         }
         tmp_counters[DROPPED] += evtc.last_errors
 
