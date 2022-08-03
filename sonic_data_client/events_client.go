@@ -107,6 +107,10 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
 
 func update_stats(evtc *EventClient) {
     /* Wait for any update */
+    var db_counters map[string]uint64
+    var wr_counters *map[string]uint64 = nil
+    var rclient *redis.Client
+
     for evtc.stopped == 0 {
         for _, val := range evtc.counters {
             if val != 0 {
@@ -117,7 +121,9 @@ func update_stats(evtc *EventClient) {
     }
 
     if evtc.stopped == 0 {
-        rclient := redis.NewClient(&redis.Options{
+        ns := sdcfg.GetDbDefaultNamespace()
+
+        rclient = redis.NewClient(&redis.Options{
             Network:    "tcp",
             Addr:       sdcfg.GetDbTcpAddr("COUNTERS_DB", ns),
             Password:   "", // no password set,
@@ -125,8 +131,6 @@ func update_stats(evtc *EventClient) {
             DialTimeout:0,
         })
 
-        var db_counters map[string]uint64
-        var wr_counters *map[string]uint64 = nil
 
         /* Init current values for cumulative keys and clear for absolute */
         for _, key := range STATS_CUMULATIVE_KEYS {
