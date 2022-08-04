@@ -19,7 +19,7 @@ import (
     "time"
     "unsafe"
 
-    // "github.com/go-redis/redis"
+    "github.com/go-redis/redis"
 
     spb "github.com/sonic-net/sonic-gnmi/proto"
     sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
@@ -109,7 +109,7 @@ func update_stats(evtc *EventClient) {
     /* Wait for any update */
     var db_counters map[string]uint64
     var wr_counters *map[string]uint64 = nil
-    // var rclient *redis.Client
+    var rclient *redis.Client
 
     for evtc.stopped == 0 {
         for _, val := range evtc.counters {
