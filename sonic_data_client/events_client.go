@@ -22,7 +22,7 @@ import (
     // "github.com/go-redis/redis"
 
     spb "github.com/sonic-net/sonic-gnmi/proto"
-    sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+    //sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
     "github.com/Workiva/go-datastructures/queue"
     log "github.com/golang/glog"
     gnmipb "github.com/openconfig/gnmi/proto/gnmi"
