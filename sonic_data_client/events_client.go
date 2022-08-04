@@ -22,7 +22,7 @@ import (
     // "github.com/go-redis/redis"
 
     spb "github.com/sonic-net/sonic-gnmi/proto"
-    //sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+    sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
     "github.com/Workiva/go-datastructures/queue"
     log "github.com/golang/glog"
     gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -119,8 +119,7 @@ func update_stats(evtc *EventClient) {
         }
         time.Sleep(time.Second)
     }
-
-    /*
+    
     if evtc.stopped == 0 {
         ns := sdcfg.GetDbDefaultNamespace()
 
@@ -147,7 +146,6 @@ func update_stats(evtc *EventClient) {
             db_counters[key] = 0
         }
     }
-    */
 
     for evtc.stopped == 0 {
         var tmp_counters map[string]uint64
