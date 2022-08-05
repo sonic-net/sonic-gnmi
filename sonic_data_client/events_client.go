@@ -113,7 +113,6 @@ func update_stats(evtc *EventClient) {
     var wr_counters *map[string]uint64 = nil
     var rclient *redis.Client
 
-    log.V(7).Infof("DROP: update_stats started");
     for evtc.stopped == 0 {
         var val uint64
         for _, val = range evtc.counters {
@@ -128,7 +127,6 @@ func update_stats(evtc *EventClient) {
     }
     
     if evtc.stopped == 0 {
-        log.V(7).Infof("DROP: update_stats to create DB");
         ns := sdcfg.GetDbDefaultNamespace()
 
         rclient = redis.NewClient(&redis.Options{
@@ -153,7 +151,6 @@ func update_stats(evtc *EventClient) {
         for _, key := range STATS_ABSOLUTE_KEYS {
             db_counters[key] = 0
         }
-        log.V(7).Infof("DROP: update_stats DB created");
     }
 
     for evtc.stopped == 0 {
@@ -186,11 +183,9 @@ func update_stats(evtc *EventClient) {
                     log.V(3).Infof("EventClient failed to update COUNTERS key:%s val:%v err:%v",
                         key, sval, err)
                 }
-                log.V(7).Infof("DROP: key:%s val:%v err:%T err:val:%v ret=%v", key, sval, err, err, ret)
             }
             wr_counters = &tmp_counters
         }
-        log.V(7).Infof("DROP: update_stats latency index:%d full=%d", evtc.last_latency_index, evtc.last_latency_full);
         time.Sleep(time.Second)
     }
 }
@@ -222,10 +217,6 @@ func get_events(evtc *EventClient) {
             var cnt uint64
             cnt = (uint64)(evt_ptr.missed_cnt)
             evtc.counters[MISSED] += cnt
-
-            // DROP these 2 added for testing
-            evtc.counters[MISSED] += cnt + 1
-            evtc.counters[DROPPED] += 2
 
             if evtc.q.Len() < PQ_MAX_SIZE {
                 evtTv := &gnmipb.TypedValue {
@@ -341,7 +332,8 @@ func (c *EventClient) SentOne(val *Value) {
         c.last_latency_index = 0
         c.last_latency_full = true
     }
-    log.V(7).Infof("SentOne: %d", c.last_latency_index)
+    log.V(7).Infof("DROP: SentOne: %d now:%v ts:%v diff:%v",
+        time.Now().UnixNano(), val.GetTimestamp(), diff, c.last_latency_index)
 }
 
 func (c *EventClient) FailedSend() {
