@@ -184,7 +184,7 @@ func update_stats(evtc *EventClient) {
                 err := rclient.HSet(key, STATS_FIELD_NAME, sval)
                 if err != nil {
                     log.V(3).Infof("EventClient failed to update COUNTERS key:%s val:%v err(type)=%v err:%v",
-                    key, sval, err(type), err)
+                    key, sval, err.(type), err)
                 }
                 log.V(7).Infof("DROP: key:%s val:%v", key, sval)
             }
