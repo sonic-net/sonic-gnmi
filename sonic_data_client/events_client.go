@@ -84,7 +84,7 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
     evtc.stopped = 0
 
     /* Init list & counters */
-    evtc.counters = make(map[string]uint64
+    evtc.counters = make(map[string]uint64)
 
     for _, key := range STATS_CUMULATIVE_KEYS {
         evtc.counters[key] = 0
