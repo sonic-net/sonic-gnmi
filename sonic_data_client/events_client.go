@@ -113,7 +113,7 @@ func update_stats(evtc *EventClient) {
     var wr_counters *map[string]uint64 = nil
     var rclient *redis.Client
 
-    log.V(7).Infof(DROP: update_stats started");
+    log.V(7).Infof("DROP: update_stats started");
     for evtc.stopped == 0 {
         for _, val := range evtc.counters {
             if val != 0 {
@@ -124,7 +124,7 @@ func update_stats(evtc *EventClient) {
     }
     
     if evtc.stopped == 0 {
-        log.V(7).Infof(DROP: update_stats to create DB");
+        log.V(7).Infof("DROP: update_stats to create DB");
         ns := sdcfg.GetDbDefaultNamespace()
 
         rclient = redis.NewClient(&redis.Options{
@@ -149,7 +149,7 @@ func update_stats(evtc *EventClient) {
         for _, key := range STATS_ABSOLUTE_KEYS {
             db_counters[key] = 0
         }
-        log.V(7).Infof(DROP: update_stats DB created");
+        log.V(7).Infof("DROP: update_stats DB created");
     }
 
     for evtc.stopped == 0 {
@@ -186,7 +186,7 @@ func update_stats(evtc *EventClient) {
             }
             wr_counters = &tmp_counters
         }
-        log.V(7).Infof(DROP: update_stats latency index:%d full=%d", evtc.last_latency_index, evtc.last_latency_full);
+        log.V(7).Infof("DROP: update_stats latency index:%d full=%d", evtc.last_latency_index, evtc.last_latency_full);
         time.Sleep(time.Second)
     }
 }
