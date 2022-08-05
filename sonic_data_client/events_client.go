@@ -109,7 +109,7 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
 
 func update_stats(evtc *EventClient) {
     /* Wait for any update */
-    var db_counters map[string]uint64
+    db_counters := make(map[string]uint64)
     var wr_counters *map[string]uint64 = nil
     var rclient *redis.Client
 
@@ -157,7 +157,7 @@ func update_stats(evtc *EventClient) {
     }
 
     for evtc.stopped == 0 {
-        var tmp_counters map[string]uint64
+        tmp_counters := make(map[string]uint64)
 
         for key, val := range evtc.counters {
             tmp_counters[key] = val + db_counters[key]
@@ -222,6 +222,11 @@ func get_events(evtc *EventClient) {
             var cnt uint64
             cnt = (uint64)(evt_ptr.missed_cnt)
             evtc.counters[MISSED] += cnt
+
+            // DROP these 2 added for testing
+            evtc.counters[MISSED] += cnt + 1
+            evtc.counters[DROPPED] += 2
+
             if evtc.q.Len() < PQ_MAX_SIZE {
                 evtTv := &gnmipb.TypedValue {
                     Value: &gnmipb.TypedValue_StringVal {
