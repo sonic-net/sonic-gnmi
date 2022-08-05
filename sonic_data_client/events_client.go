@@ -113,6 +113,7 @@ func update_stats(evtc *EventClient) {
     var wr_counters *map[string]uint64 = nil
     var rclient *redis.Client
 
+    log.V(7).Infof(DROP: update_stats started");
     for evtc.stopped == 0 {
         for _, val := range evtc.counters {
             if val != 0 {
@@ -123,6 +124,7 @@ func update_stats(evtc *EventClient) {
     }
     
     if evtc.stopped == 0 {
+        log.V(7).Infof(DROP: update_stats to create DB");
         ns := sdcfg.GetDbDefaultNamespace()
 
         rclient = redis.NewClient(&redis.Options{
@@ -147,6 +149,7 @@ func update_stats(evtc *EventClient) {
         for _, key := range STATS_ABSOLUTE_KEYS {
             db_counters[key] = 0
         }
+        log.V(7).Infof(DROP: update_stats DB created");
     }
 
     for evtc.stopped == 0 {
@@ -183,6 +186,7 @@ func update_stats(evtc *EventClient) {
             }
             wr_counters = &tmp_counters
         }
+        log.V(7).Infof(DROP: update_stats latency index:%d full=%d", evtc.last_latency_index, evtc.last_latency_full);
         time.Sleep(time.Second)
     }
 }
@@ -276,6 +280,7 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     evtc.channel = stop
 
     go get_events(evtc)
+    go update_stats(evtc)
 
     for {
         select {
@@ -327,6 +332,7 @@ func (c *EventClient) SentOne(val *Value) {
         c.last_latency_index = 0
         c.last_latency_full = true
     }
+    log.V(7).Infof("SentOne: %d", c.last_latency_index)
 }
 
 func (c *EventClient) FailedSend() {
