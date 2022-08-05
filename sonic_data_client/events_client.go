@@ -36,9 +36,9 @@ const LATENCY_LIST_SIZE = 10  // Size of list of latencies.
 const PQ_MAX_SIZE = 10240     // Max cnt of pending events in PQ
 
 // STATS counters
-const MISSED = "EVENTS_COUNTERS:missed_internal"
-const DROPPED = "EVENTS_COUNTERS:missed_by_slow_receiver"
-const LATENCY = "EVENTS_COUNTERS:latency_in_ms"
+const MISSED = "COUNTERS_EVENTS:missed_internal"
+const DROPPED = "COUNTERS_EVENTS:missed_by_slow_receiver"
+const LATENCY = "COUNTERS_EVENTS:latency_in_ms"
 
 var STATS_CUMULATIVE_KEYS = [...]string {MISSED, DROPPED}
 var STATS_ABSOLUTE_KEYS = [...]string {LATENCY}
@@ -183,8 +183,8 @@ func update_stats(evtc *EventClient) {
                 sval := strconv.FormatUint(val, 10)
                 err := rclient.HSet(key, STATS_FIELD_NAME, sval)
                 if err != nil {
-                    log.V(3).Infof("EventClient failed to update COUNTERS key:%s val:%v err:%v",
-                    key, sval, err)
+                    log.V(3).Infof("EventClient failed to update COUNTERS key:%s val:%v err(type)=%v err:%v",
+                    key, sval, err(type), err)
                 }
                 log.V(7).Infof("DROP: key:%s val:%v", key, sval)
             }
