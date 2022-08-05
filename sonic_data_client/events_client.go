@@ -156,10 +156,6 @@ func update_stats(evtc *EventClient) {
     for evtc.stopped == 0 {
         tmp_counters := make(map[string]uint64)
 
-        for key, val := range evtc.counters {
-            tmp_counters[key] = val + db_counters[key]
-        }
-
         // compute latency
         if evtc.last_latency_full {
             var total uint64 = 0
@@ -173,6 +169,10 @@ func update_stats(evtc *EventClient) {
             }
             evtc.counters[LATENCY] = (uint64) (total/cnt/1000/1000)
         }
+
+        for key, val := range evtc.counters {
+            tmp_counters[key] = val + db_counters[key]
+        }
         tmp_counters[DROPPED] += evtc.last_errors
 
         if (wr_counters == nil) || !reflect.DeepEqual(tmp_counters, *wr_counters) {
@@ -184,6 +184,8 @@ func update_stats(evtc *EventClient) {
                         key, sval, err)
                 }
             }
+            log.V(7).Infof("DROP: Stats update COUNTERS key:%s val:%v err:%v",
+                        key, sval, err)
             wr_counters = &tmp_counters
         }
         time.Sleep(time.Second)
@@ -325,12 +327,16 @@ func (evtc *EventClient) Capabilities() []gnmipb.ModelData {
 func (c *EventClient) SentOne(val *Value) {
     var udiff uint64
 
-    time.Sleep(time.Second)
+    time.Sleep(100 * time.Millisecond)
     diff := time.Now().UnixNano() - val.GetTimestamp()
     log.V(7).Infof("DROP: SentOne: now:%v ts:%v diff:%v index:%d",
         time.Now().UnixNano(), val.GetTimestamp(), diff, c.last_latency_index)
     udiff = (uint64)(diff)
     c.last_latencies[c.last_latency_index] = udiff
+
+    log.V(7).Infof("DROP: SentOne: latencies[%d]:%v udiff:%v",
+        c.last_latency_index, c.last_latencies[c.last_latency_index], udiff)
+
     c.last_latency_index += 1
     if c.last_latency_index >= len(c.last_latencies) {
         c.last_latency_index = 0
