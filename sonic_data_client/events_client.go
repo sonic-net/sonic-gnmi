@@ -181,12 +181,12 @@ func update_stats(evtc *EventClient) {
         if (wr_counters == nil) || !reflect.DeepEqual(tmp_counters, *wr_counters) {
             for key, val := range tmp_counters {
                 sval := strconv.FormatUint(val, 10)
-                _, err := rclient.HSet(key, STATS_FIELD_NAME, sval)
-                if err != nil {
+                ret, err := rclient.HSet(key, STATS_FIELD_NAME, sval).Result()
+                if !ret {
                     log.V(3).Infof("EventClient failed to update COUNTERS key:%s val:%v err:%v",
                         key, sval, err)
                 }
-                log.V(7).Infof("DROP: key:%s val:%v err:%T err:val:%v", key, sval, err, err)
+                log.V(7).Infof("DROP: key:%s val:%v err:%T err:val:%v ret=%v", key, sval, err, err, ret)
             }
             wr_counters = &tmp_counters
         }
