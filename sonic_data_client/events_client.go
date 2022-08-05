@@ -325,8 +325,9 @@ func (evtc *EventClient) Capabilities() []gnmipb.ModelData {
 func (c *EventClient) SentOne(val *Value) {
     var udiff uint64
 
+    time.Sleep(time.Second)
     diff := time.Now().UnixNano() - val.GetTimestamp()
-    log.V(7).Infof("DROP: SentOne: %d now:%v ts:%v diff:%v",
+    log.V(7).Infof("DROP: SentOne: now:%v ts:%v diff:%v index:%d",
         time.Now().UnixNano(), val.GetTimestamp(), diff, c.last_latency_index)
     udiff = (uint64)(diff)
     c.last_latencies[c.last_latency_index] = udiff
