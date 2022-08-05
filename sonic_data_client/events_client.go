@@ -323,8 +323,11 @@ func (evtc *EventClient) Capabilities() []gnmipb.ModelData {
 }
 
 func (c *EventClient) SentOne(val *Value) {
-    diff := time.Now().UnixNano() - val.GetTimestamp()
     var udiff uint64
+
+    diff := time.Now().UnixNano() - val.GetTimestamp()
+    log.V(7).Infof("DROP: SentOne: %d now:%v ts:%v diff:%v",
+        time.Now().UnixNano(), val.GetTimestamp(), diff, c.last_latency_index)
     udiff = (uint64)(diff)
     c.last_latencies[c.last_latency_index] = udiff
     c.last_latency_index += 1
@@ -332,8 +335,6 @@ func (c *EventClient) SentOne(val *Value) {
         c.last_latency_index = 0
         c.last_latency_full = true
     }
-    log.V(7).Infof("DROP: SentOne: %d now:%v ts:%v diff:%v",
-        time.Now().UnixNano(), val.GetTimestamp(), diff, c.last_latency_index)
 }
 
 func (c *EventClient) FailedSend() {
