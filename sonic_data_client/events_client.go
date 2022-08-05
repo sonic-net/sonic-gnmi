@@ -178,7 +178,7 @@ func update_stats(evtc *EventClient) {
         }
         tmp_counters[DROPPED] += evtc.last_errors
 
-        if (wr_counters != nil) && !reflect.DeepEqual(tmp_counters, *wr_counters) {
+        if (wr_counters == nil) || !reflect.DeepEqual(tmp_counters, *wr_counters) {
             for key, val := range tmp_counters {
                 sval := strconv.FormatUint(val, 10)
                 err := rclient.HSet(key, STATS_FIELD_NAME, sval)
