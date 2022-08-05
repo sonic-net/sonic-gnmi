@@ -107,6 +107,21 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
 }
 
 
+func compute_latency(evtc *EventClient) {
+    if evtc.last_latency_full {
+        var total uint64 = 0
+        var cnt uint64 = 0
+
+        for _, v := range evtc.last_latencies {
+            if v > 0 {
+                total += v
+                cnt += 1
+            }
+        }
+        evtc.counters[LATENCY] = (uint64) (total/cnt/1000/1000)
+    }
+}
+
 func update_stats(evtc *EventClient) {
     /* Wait for any update */
     db_counters := make(map[string]uint64)
@@ -115,6 +130,8 @@ func update_stats(evtc *EventClient) {
 
     for evtc.stopped == 0 {
         var val uint64
+
+        compute_latency(evtc)
         for _, val = range evtc.counters {
             if val != 0 {
                 break
