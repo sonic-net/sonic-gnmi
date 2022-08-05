@@ -201,7 +201,6 @@ func update_stats(evtc *EventClient) {
                         key, sval, err)
                 }
             }
-            log.V(7).Infof("DROP: Stats update COUNTERS")
             wr_counters = &tmp_counters
         }
         time.Sleep(time.Second)
@@ -271,12 +270,10 @@ func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
         Val:  tv,
     }
 
-    log.V(7).Infof("Sending spbv")
     if err := evtc.q.Put(Value{spbv}); err != nil {
         log.V(3).Infof("Queue error:  %v", err)
         return err
     }
-    log.V(7).Infof("send_event done")
     return nil
 }
 
@@ -303,7 +300,6 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     for {
         select {
         case <-IntervalTicker(time.Second * HEARTBEAT_TIMEOUT):
-            log.V(7).Infof("Ticker received")
             if err := send_event(evtc, hbTv, time.Now().UnixNano()); err != nil {
                 return
             }
@@ -343,16 +339,10 @@ func (evtc *EventClient) Capabilities() []gnmipb.ModelData {
 func (c *EventClient) SentOne(val *Value) {
     var udiff uint64
 
-    time.Sleep(100 * time.Millisecond)
     diff := time.Now().UnixNano() - val.GetTimestamp()
-    log.V(7).Infof("DROP: SentOne: now:%v ts:%v diff:%v index:%d",
-        time.Now().UnixNano(), val.GetTimestamp(), diff, c.last_latency_index)
     udiff = (uint64)(diff)
+
     c.last_latencies[c.last_latency_index] = udiff
-
-    log.V(7).Infof("DROP: SentOne: latencies[%d]:%v udiff:%v",
-        c.last_latency_index, c.last_latencies[c.last_latency_index], udiff)
-
     c.last_latency_index += 1
     if c.last_latency_index >= len(c.last_latencies) {
         c.last_latency_index = 0
