@@ -115,10 +115,14 @@ func update_stats(evtc *EventClient) {
 
     log.V(7).Infof("DROP: update_stats started");
     for evtc.stopped == 0 {
-        for _, val := range evtc.counters {
+        var val uint64
+        for _, val = range evtc.counters {
             if val != 0 {
                 break
             }
+        }
+        if val != 0 {
+            break
         }
         time.Sleep(time.Second)
     }
