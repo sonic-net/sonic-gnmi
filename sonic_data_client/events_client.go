@@ -184,8 +184,7 @@ func update_stats(evtc *EventClient) {
                         key, sval, err)
                 }
             }
-            log.V(7).Infof("DROP: Stats update COUNTERS key:%s val:%v err:%v",
-                        key, sval, err)
+            log.V(7).Infof("DROP: Stats update COUNTERS")
             wr_counters = &tmp_counters
         }
         time.Sleep(time.Second)
