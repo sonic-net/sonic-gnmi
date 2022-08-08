@@ -29,7 +29,6 @@ import (
 )
 
 const SUBSCRIBER_TIMEOUT = (2 * 1000)  // 2 seconds
-const HEARTBEAT_TIMEOUT = 2
 const EVENT_BUFFSZ = 4096
 
 const LATENCY_LIST_SIZE = 10  // Size of list of latencies.
@@ -278,15 +277,6 @@ func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
 }
 
 func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
-    hbData := make(map[string]interface{})
-    hbData["heart"] = "beat"
-    hbVal, _ := json.Marshal(hbData)
-
-    hbTv := &gnmipb.TypedValue {
-        Value: &gnmipb.TypedValue_JsonIetfVal{
-            JsonIetfVal: hbVal,
-        }}
-
 
     evtc.wg = wg
     defer evtc.wg.Done()
@@ -299,10 +289,6 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
 
     for {
         select {
-        case <-IntervalTicker(time.Second * HEARTBEAT_TIMEOUT):
-            if err := send_event(evtc, hbTv, time.Now().UnixNano()); err != nil {
-                return
-            }
         case <-evtc.channel:
             evtc.stopped = 1
             log.V(3).Infof("Channel closed by client")
