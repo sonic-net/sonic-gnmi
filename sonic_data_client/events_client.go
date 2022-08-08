@@ -33,7 +33,7 @@ const HEARTBEAT_TIMEOUT = 2
 const EVENT_BUFFSZ = 4096
 
 const LATENCY_LIST_SIZE = 10  // Size of list of latencies.
-const PQ_MAX_SIZE = 10240     // Max cnt of pending events in PQ
+const PQ_MAX_SIZE = 10240     // Max cnt of pending events in PQ.
 
 // STATS counters
 const MISSED = "COUNTERS_EVENTS:missed_internal"
