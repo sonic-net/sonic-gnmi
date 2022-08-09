@@ -12,7 +12,6 @@ import "C"
 
 import (
     "strconv"
-    "encoding/json"
     "fmt"
     "reflect"
     "strings"
@@ -86,10 +85,10 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
         evtc.path = path
     }
 
-    log.V(7).InfoOf("DROP: path=%v", path)
+    log.V(7).InfoOf("DROP: path=%v", evtc.path)
 
     evtc.skip_heartbeat = false
-    for _, e := range path.GetElem() {
+    for _, e := range evtc.path.GetElem() {
         keys := e.GetKey()
         log.V(7).InfoOf("DROP: path: e=%v keys=%v", e, keys)
         for k, v := range keys {
