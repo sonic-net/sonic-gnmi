@@ -85,20 +85,16 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
         evtc.path = path
     }
 
-    log.V(7).Infof("DROP: path=%v", evtc.path)
-
     evtc.skip_heartbeat = false
     for _, e := range evtc.path.GetElem() {
         keys := e.GetKey()
-        log.V(7).Infof("DROP: path: e=%v keys=%v", e, keys)
         for k, v := range keys {
-            log.V(7).Infof("DROP: path: keys: k=%v v=%v", k, v)
             if (k == PARAM_HEARBEAT) && (v == PARAM_NO) {
                 evtc.skip_heartbeat = true
+                log.V(4).Infof("evtc.skip_heartbeat is set to true")
             }
         }
     }
-    log.V(7).Infof("DROP: evtc.skip_heartbeat=%v", evtc.skip_heartbeat)
 
     C.swssSetLogPriority(C.int(logLevel))
 
@@ -269,12 +265,11 @@ func get_events(evtc *EventClient) {
                     estr, skip, evtc.skip_heartbeat, qlen)
             }
             
-            // oValue: &gnmipb.TypedValue_StringVal {
             if (!skip) {
                 if (qlen < PQ_MAX_SIZE) {
                     evtTv := &gnmipb.TypedValue {
-                        Value: &gnmipb.TypedValue_JsonIetfVal {
-                            JsonIetfVal: []byte(estr),
+                        Value: &gnmipb.TypedValue_StringVal {
+                            StringVal: estr,
                         }}
                     var ts int64
                     ts = (int64)(evt_ptr.publish_epoch_ms)
@@ -307,9 +302,6 @@ func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
         Val:  tv,
     }
 
-    log.V(3).Infof("DROP: events_client Prefix:%v Path:%v",
-        evtc.prefix, evtc.path)
-    log.V(3).Infof("DROP: events_client val:%v", tv);
     if err := evtc.q.Put(Value{spbv}); err != nil {
         log.V(3).Infof("Queue error:  %v", err)
         return err
