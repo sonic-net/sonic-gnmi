@@ -277,6 +277,7 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 				SyncResponse: false,
 				Val:          val,
 			}
+			log.V(4).Infof("DROP: from here -- PollRun")
 
 			c.q.Put(Value{spbv})
 			log.V(6).Infof("Added spbv #%v", spbv)
@@ -861,6 +862,8 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 			Val:       val,
 		}
 
+		log.V(4).Infof("DROP: from here -- dbFieldMultiSubscribe prefix=%v path=%v",
+				c.prefix, gnmiPath)
 		if err = c.q.Put(Value{spbv}); err != nil {
 			log.V(1).Infof("Queue error:  %v", err)
 			return err
@@ -938,6 +941,8 @@ func dbFieldSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interva
 			},
 		}
 
+		log.V(4).Infof("DROP: from here -- dbFieldSubscribe prefix=%v path=%v",
+			c.prefix, gnmiPath)
 		if err := c.q.Put(Value{spbv}); err != nil {
 			log.V(1).Infof("Queue error:  %v", err)
 			return err
@@ -1108,6 +1113,8 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 			Timestamp: time.Now().UnixNano(),
 			Val:       val,
 		}
+		log.V(4).Infof("DROP: from here -- dbTableKeySubscribe prefix=%v path=%v",
+			c.prefix, gnmiPath)
 		if err = c.q.Put(Value{spbv}); err != nil {
 			return fmt.Errorf("Queue error:  %v", err)
 		}
