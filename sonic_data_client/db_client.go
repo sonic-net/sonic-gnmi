@@ -277,7 +277,7 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 				SyncResponse: false,
 				Val:          val,
 			}
-			log.V(4).Infof("DROP: from here -- PollRun Prefix:%v Path:%v"
+			log.V(4).Infof("DROP: from here -- PollRun Prefix:%v Path:%v",
 				c.prefix, gnmiPath)
 
 			c.q.Put(Value{spbv})
