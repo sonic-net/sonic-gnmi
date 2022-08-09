@@ -15,6 +15,7 @@ import (
     "encoding/json"
     "fmt"
     "reflect"
+    "strings"
     "sync"
     "time"
     "unsafe"
@@ -43,6 +44,8 @@ var STATS_CUMULATIVE_KEYS = [...]string {MISSED, DROPPED}
 var STATS_ABSOLUTE_KEYS = [...]string {LATENCY}
 
 const STATS_FIELD_NAME = "value"
+
+const EVENTD_PUBLISHER_SOURCE = "{sonic-events-eventd"
 
 
 type EventClient struct {
@@ -233,17 +236,26 @@ func get_events(evtc *EventClient) {
             var cnt uint64
             cnt = (uint64)(evt_ptr.missed_cnt)
             evtc.counters[MISSED] += cnt
+            qlen := evtc.q.Len()
 
-            if evtc.q.Len() < PQ_MAX_SIZE {
-                evtTv := &gnmipb.TypedValue {
-                    Value: &gnmipb.TypedValue_StringVal {
-                        StringVal: C.GoString((*C.char)(evt_ptr.event_str)),
-                    }}
-                var ts int64
-                ts = (int64)(evt_ptr.publish_epoch_ms)
-                if err := send_event(evtc, evtTv, ts); err != nil {
-                    return
+            if qlen < PQ_MAX_SIZE {
+                estr := C.GoString((*C.char)(evt_ptr.event_str)
+
+                // Skip heartbeat if queue is not empty
+                if strings.HasPrefix(estr, EVENTD_PUBLISHER_SOURCE) {
+                    log.V(7).Infof("Found heartbeat. %v", estr)
                 }
+
+                if qlen == 0 || !strings.HasPrefix(estr, EVENTD_PUBLISHER_SOURCE):
+                    evtTv := &gnmipb.TypedValue {
+                        Value: &gnmipb.TypedValue_StringVal {
+                            StringVal: estr,
+                        }}
+                    var ts int64
+                    ts = (int64)(evt_ptr.publish_epoch_ms)
+                    if err := send_event(evtc, evtTv, ts); err != nil {
+                        return
+                    }
             } else {
                 evtc.counters[DROPPED] += 1
             }
@@ -267,6 +279,7 @@ func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
         Path:    evtc.path,
         Timestamp: timestamp,
         Val:  tv,
+        SyncResponse: true,
     }
 
     if err := evtc.q.Put(Value{spbv}); err != nil {
