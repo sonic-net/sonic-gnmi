@@ -304,7 +304,6 @@ func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
         Path:    evtc.path,
         Timestamp: timestamp,
         Val:  tv,
-        SyncResponse: true,
     }
 
     if err := evtc.q.Put(Value{spbv}); err != nil {
