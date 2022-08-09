@@ -44,7 +44,7 @@ var STATS_ABSOLUTE_KEYS = [...]string {LATENCY}
 
 const STATS_FIELD_NAME = "value"
 
-const EVENTD_PUBLISHER_SOURCE = "{sonic-events-eventd"
+const EVENTD_PUBLISHER_SOURCE = "{\"sonic-events-eventd"
 
 // Path parameter
 const PARAM_HEARBEAT = "heartbeat"
