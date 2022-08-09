@@ -85,20 +85,20 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
         evtc.path = path
     }
 
-    log.V(7).InfoOf("DROP: path=%v", evtc.path)
+    log.V(7).Infof("DROP: path=%v", evtc.path)
 
     evtc.skip_heartbeat = false
     for _, e := range evtc.path.GetElem() {
         keys := e.GetKey()
-        log.V(7).InfoOf("DROP: path: e=%v keys=%v", e, keys)
+        log.V(7).Infof("DROP: path: e=%v keys=%v", e, keys)
         for k, v := range keys {
-            log.V(7).InfoOf("DROP: path: keys: k=%v v=%v", k, v)
+            log.V(7).Infof("DROP: path: keys: k=%v v=%v", k, v)
             if (k == PARAM_HEARBEAT) && (v == PARAM_NO) {
                 evtc.skip_heartbeat = true
             }
         }
     }
-    log.V(7).InfoOf("DROP: evtc.skip_heartbeat=%v", evtc.skip_heartbeat)
+    log.V(7).Infof("DROP: evtc.skip_heartbeat=%v", evtc.skip_heartbeat)
 
     C.swssSetLogPriority(C.int(logLevel))
 
