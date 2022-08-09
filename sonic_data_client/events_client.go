@@ -274,7 +274,7 @@ func get_events(evtc *EventClient) {
                 if (qlen < PQ_MAX_SIZE) {
                     evtTv := &gnmipb.TypedValue {
                         Value: &gnmipb.TypedValue_JsonIetfVal {
-                            JsonIetfVal: estr,
+                            JsonIetfVal: []byte(estr),
                         }}
                     var ts int64
                     ts = (int64)(evt_ptr.publish_epoch_ms)
