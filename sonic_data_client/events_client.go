@@ -306,6 +306,8 @@ func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
         Val:  tv,
     }
 
+    log.V(3).Infof("DROP: events_client Prefix:%v Path:%v",
+        evtc.prefix, evtc.path)
     if err := evtc.q.Put(Value{spbv}); err != nil {
         log.V(3).Infof("Queue error:  %v", err)
         return err
