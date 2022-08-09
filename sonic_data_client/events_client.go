@@ -269,11 +269,12 @@ func get_events(evtc *EventClient) {
                     estr, skip, evtc.skip_heartbeat, qlen)
             }
             
+            // oValue: &gnmipb.TypedValue_StringVal {
             if (!skip) {
                 if (qlen < PQ_MAX_SIZE) {
                     evtTv := &gnmipb.TypedValue {
-                        Value: &gnmipb.TypedValue_StringVal {
-                            StringVal: estr,
+                        Value: &gnmipb.TypedValue_JsonIetfVal {
+                            JsonIetfVal: estr,
                         }}
                     var ts int64
                     ts = (int64)(evt_ptr.publish_epoch_ms)
