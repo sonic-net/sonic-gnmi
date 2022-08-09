@@ -47,6 +47,10 @@ const STATS_FIELD_NAME = "value"
 
 const EVENTD_PUBLISHER_SOURCE = "{sonic-events-eventd"
 
+// Path parameter
+const PARAM_HEARBEAT = "heartbeat"
+const PARAM_NO = "no"
+
 
 type EventClient struct {
 
@@ -59,6 +63,8 @@ type EventClient struct {
     wg          *sync.WaitGroup // wait for all sub go routines to finish
 
     subs_handle unsafe.Pointer
+
+    skip_heartbeat bool
 
     stopped     int
 
@@ -79,6 +85,22 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
         // Only one path is expected. Take the last if many
         evtc.path = path
     }
+
+    log.V(7).InfoOf("DROP: path=%v", path)
+
+    evtc.skip_heartbeat = false
+    for _, e := range path.GetElem() {
+        keys := e.GetKey()
+        log.V(7).InfoOf("DROP: path: e=%v keys=%v", e, keys)
+        for k, v := range keys {
+            log.V(7).InfoOf("DROP: path: keys: k=%v v=%v", k, v)
+            if (k == PARAM_HEARBEAT) && (v == PARAM_NO) {
+                evtc.skip_heartbeat = true
+            }
+        }
+    }
+    log.V(7).InfoOf("DROP: evtc.skip_heartbeat=%v", evtc.skip_heartbeat)
+
     C.swssSetLogPriority(C.int(logLevel))
 
     /* Init subscriber with cache use and defined time out */
@@ -237,16 +259,19 @@ func get_events(evtc *EventClient) {
             cnt = (uint64)(evt_ptr.missed_cnt)
             evtc.counters[MISSED] += cnt
             qlen := evtc.q.Len()
+            estr := C.GoString((*C.char)(evt_ptr.event_str))
+            is_heartbeat := strings.HasPrefix(estr, EVENTD_PUBLISHER_SOURCE)
 
-            if qlen < PQ_MAX_SIZE {
-                estr := C.GoString((*C.char)(evt_ptr.event_str)
+            // Skip if requested by client or queue non empty
+            skip := is_heartbeat && (evtc.skip_heartbeat || (qlen > 0))
 
-                // Skip heartbeat if queue is not empty
-                if strings.HasPrefix(estr, EVENTD_PUBLISHER_SOURCE) {
-                    log.V(7).Infof("Found heartbeat. %v", estr)
-                }
-
-                if qlen == 0 || !strings.HasPrefix(estr, EVENTD_PUBLISHER_SOURCE):
+            if is_heartbeat {
+                log.V(7).Infof("Found heartbeat. %v skip=%v evtc.skip_heartbeat=%v qlen=%v",
+                    estr, skip, evtc.skip_heartbeat, qlen)
+            }
+            
+            if (!skip) {
+                if (qlen < PQ_MAX_SIZE) {
                     evtTv := &gnmipb.TypedValue {
                         Value: &gnmipb.TypedValue_StringVal {
                             StringVal: estr,
@@ -256,8 +281,9 @@ func get_events(evtc *EventClient) {
                     if err := send_event(evtc, evtTv, ts); err != nil {
                         return
                     }
-            } else {
-                evtc.counters[DROPPED] += 1
+                } else {
+                    evtc.counters[DROPPED] += 1
+                }
             }
         }
         if evtc.stopped == 1 {
