@@ -265,6 +265,16 @@ func newClient(ctx context.Context, dest Destination) (*Client, error) {
 	if clientCfg.TLS != nil {
 		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(clientCfg.TLS)))
 	}
+
+	// support dialout with specific source ip
+	if clientCfg.SrcIp != "" {
+		opts = append(opts, grpc.WithContextDialer(func(ctx context.Context,  addr string) (net.Conn, error) {
+					netAddr := &net.TCPAddr{IP: net.ParseIP(clientCfg.SrcIp)}
+					d := net.Dialer{LocalAddr: netAddr}
+					return d.Dial("tcp", addr)
+				}))
+	}
+
 	conn, err := grpc.DialContext(ctx, dest.Addrs, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("Dial to (%s, timeout %v): %v", dest, timeout, err)
