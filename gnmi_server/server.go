@@ -48,6 +48,9 @@ type Config struct {
 	// for this Server.
 	Port     int64
 	UserAuth AuthTypes
+	MgmtEnable      bool
+	TelemetryEnable bool
+	MixedEnable     bool
 }
 
 var AuthLock sync.Mutex
@@ -140,11 +143,11 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 	gnmipb.RegisterGNMIServer(srv.s, srv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
-	if READ_WRITE_MODE {
+	if srv.config.MgmtEnable {
 		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
 	}
-	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !READ_WRITE_MODE)
+	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.MgmtEnable)
 	return srv, nil
 }
 
@@ -230,6 +233,9 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 		return nil, status.Error(codes.PermissionDenied, msg)
 	}
 	*/
+	if !s.config.TelemetryEnable {
+		return grpc.Errorf(codes.Unimplemented, "Telemetry is disabled")
+	}
 
 	c := NewClient(pr.Addr)
 
@@ -334,9 +340,6 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 }
 
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
-	if !READ_WRITE_MODE {
-		return nil, grpc.Errorf(codes.Unimplemented, "Telemetry is in read-only mode")
-	}
 	ctx, err := authenticate(s.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
@@ -386,7 +389,12 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		/* Add to Set response results. */
 		results = append(results, &res)
 	}
-	err = dc.Set(req.GetDelete(), req.GetReplace(), req.GetUpdate())
+	if s.config.MgmtEnable {
+		err = dc.Set(req.GetDelete(), req.GetReplace(), req.GetUpdate())
+	} else {
+		return nil, grpc.Errorf(codes.Unimplemented, "Telemetry is in read-only mode")
+	}
+
 
 	return &gnmipb.SetResponse{
 		Prefix:   req.GetPrefix(),
