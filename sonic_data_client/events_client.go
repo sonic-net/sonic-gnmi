@@ -47,9 +47,7 @@ const STATS_FIELD_NAME = "value"
 const EVENTD_PUBLISHER_SOURCE = "{\"sonic-events-eventd"
 
 // Path parameter
-const PARAM_HEARBEAT = "heartbeat"
-const PARAM_NO = "no"
-
+const PARAM_HEARTBEAT = "heartbeat"
 
 type EventClient struct {
 
@@ -63,8 +61,6 @@ type EventClient struct {
 
     subs_handle unsafe.Pointer
 
-    skip_heartbeat bool
-
     stopped     int
 
     // Stats counter
@@ -77,6 +73,15 @@ type EventClient struct {
     last_errors uint64
 }
 
+func set_heartbeat(val int)
+{
+    s := fmt.Sprintf("{\"HEARTBEAT_INTERVAL\":%d}", val)
+    rc := C.event_set_global_options(C.CString(s));
+    if rc != 0  {
+        log.V(4).Infof("Failed to set heartbeat val=%d rc=%d", val, rc)
+    }
+}
+
 func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Client, error) {
     var evtc EventClient
     evtc.prefix = prefix
@@ -85,13 +90,14 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
         evtc.path = path
     }
 
-    evtc.skip_heartbeat = false
     for _, e := range evtc.path.GetElem() {
         keys := e.GetKey()
         for k, v := range keys {
-            if (k == PARAM_HEARBEAT) && (v == PARAM_NO) {
-                evtc.skip_heartbeat = true
-                log.V(4).Infof("evtc.skip_heartbeat is set to true")
+            if (k == PARAM_HEARTBEAT) {
+                if val, err := strconv.Atoi(v); err == nil {
+                    log.V(7).Infof("evtc.heartbeat_interval is set to %d", val)
+                    set_heartbeat(val)
+                }
             }
         }
     }
@@ -255,30 +261,19 @@ func get_events(evtc *EventClient) {
             evtc.counters[MISSED] += cnt
             qlen := evtc.q.Len()
             estr := C.GoString((*C.char)(evt_ptr.event_str))
-            is_heartbeat := strings.HasPrefix(estr, EVENTD_PUBLISHER_SOURCE)
 
-            // Skip if requested by client or queue non empty
-            skip := is_heartbeat && (evtc.skip_heartbeat || (qlen > 0))
-
-            if is_heartbeat {
-                log.V(7).Infof("Found heartbeat. %v skip=%v evtc.skip_heartbeat=%v qlen=%v",
-                    estr, skip, evtc.skip_heartbeat, qlen)
-            }
-            
-            if (!skip) {
-                if (qlen < PQ_MAX_SIZE) {
-                    evtTv := &gnmipb.TypedValue {
-                        Value: &gnmipb.TypedValue_StringVal {
-                            StringVal: estr,
-                        }}
-                    var ts int64
-                    ts = (int64)(evt_ptr.publish_epoch_ms)
-                    if err := send_event(evtc, evtTv, ts); err != nil {
-                        return
-                    }
-                } else {
-                    evtc.counters[DROPPED] += 1
+            if (qlen < PQ_MAX_SIZE) {
+                evtTv := &gnmipb.TypedValue {
+                    Value: &gnmipb.TypedValue_StringVal {
+                        StringVal: estr,
+                    }}
+                var ts int64
+                ts = (int64)(evt_ptr.publish_epoch_ms)
+                if err := send_event(evtc, evtTv, ts); err != nil {
+                    return
                 }
+            } else {
+                evtc.counters[DROPPED] += 1
             }
         }
         if evtc.stopped == 1 {
