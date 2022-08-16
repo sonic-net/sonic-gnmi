@@ -73,8 +73,7 @@ type EventClient struct {
     last_errors uint64
 }
 
-func set_heartbeat(val int)
-{
+func set_heartbeat(val int) {
     s := fmt.Sprintf("{\"HEARTBEAT_INTERVAL\":%d}", val)
     rc := C.event_set_global_options(C.CString(s));
     if rc != 0  {
