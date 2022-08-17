@@ -48,9 +48,8 @@ type Config struct {
 	// for this Server.
 	Port     int64
 	UserAuth AuthTypes
-	MgmtEnable      bool
+	TranslibEnable  bool
 	TelemetryEnable bool
-	MixedEnable     bool
 }
 
 var AuthLock sync.Mutex
@@ -143,11 +142,11 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 	gnmipb.RegisterGNMIServer(srv.s, srv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
-	if srv.config.MgmtEnable {
+	if srv.config.TranslibEnable {
 		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
 	}
-	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.MgmtEnable)
+	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.TranslibEnable)
 	return srv, nil
 }
 
@@ -389,7 +388,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		/* Add to Set response results. */
 		results = append(results, &res)
 	}
-	if s.config.MgmtEnable {
+	if s.config.TranslibEnable {
 		err = dc.Set(req.GetDelete(), req.GetReplace(), req.GetUpdate())
 	} else {
 		return nil, grpc.Errorf(codes.Unimplemented, "Telemetry is in read-only mode")

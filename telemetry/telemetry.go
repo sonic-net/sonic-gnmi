@@ -27,9 +27,8 @@ var (
 	allowNoClientCert = flag.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate.")
 	jwtRefInt         = flag.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed.")
 	jwtValInt         = flag.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for.")
-	mgmtEnable        = flag.Bool("mgmtEnable", gnmi.READ_WRITE_MODE, "Enable gNMI write mode for management framework")
+	gnmi_translib     = flag.Bool("gnmi_translib", gnmi.READ_WRITE_MODE, "Enable gNMI translib for management framework")
 	telemetryEnable   = flag.Bool("telemetryEnable", true, "Enable gNMI telemetry interface")
-	mixedEnable       = flag.Bool("mixedEnable", true, "Enable gNMI mixed config interface")
 )
 
 func main() {
@@ -37,7 +36,7 @@ func main() {
 	flag.Parse()
 
 	var defUserAuth gnmi.AuthTypes
-	if *mgmtEnable {
+	if *gnmi_translib {
 		//In read/write mode we want to enable auth by default.
 		defUserAuth = gnmi.AuthTypes{"password": true, "cert": false, "jwt": true}
 	}else {
@@ -61,9 +60,8 @@ func main() {
 
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*port)
-	cfg.MgmtEnable = bool(*mgmtEnable)
+	cfg.TranslibEnable = bool(*gnmi_translib)
 	cfg.TelemetryEnable = bool(*telemetryEnable)
-	cfg.MixedEnable = bool(*mixedEnable)
 	var opts []grpc.ServerOption
 
 	if !*noTLS {
@@ -133,9 +131,8 @@ func main() {
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*port)
 	cfg.UserAuth = userAuth
-	cfg.MgmtEnable = bool(*mgmtEnable)
+	cfg.TranslibEnable = bool(*gnmi_translib)
 	cfg.TelemetryEnable = bool(*telemetryEnable)
-	cfg.MixedEnable = bool(*mixedEnable)
 
 	gnmi.GenerateJwtSecretKey()
 }
