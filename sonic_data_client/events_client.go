@@ -141,7 +141,9 @@ func compute_latency(evtc *EventClient) {
                 cnt += 1
             }
         }
-        evtc.counters[LATENCY] = (uint64) (total/cnt/1000/1000)
+        if (cnt > 0) {
+            evtc.counters[LATENCY] = (uint64) (total/cnt/1000/1000)
+        }
     }
 }
 
@@ -151,6 +153,11 @@ func update_stats(evtc *EventClient) {
     var wr_counters *map[string]uint64 = nil
     var rclient *redis.Client
 
+    /*
+     * This loop pauses until at least one non zero counter.
+     * This helps add some initial pause before accessing DB
+     * for existing values.
+     */
     for evtc.stopped == 0 {
         var val uint64
 
@@ -166,6 +173,7 @@ func update_stats(evtc *EventClient) {
         time.Sleep(time.Second)
     }
     
+    /* Populate counters from DB for cumulative counters. */
     if evtc.stopped == 0 {
         ns := sdcfg.GetDbDefaultNamespace()
 
@@ -193,22 +201,12 @@ func update_stats(evtc *EventClient) {
         }
     }
 
+    /* Main running loop that updates DB */
     for evtc.stopped == 0 {
         tmp_counters := make(map[string]uint64)
 
         // compute latency
-        if evtc.last_latency_full {
-            var total uint64 = 0
-            var cnt uint64 = 0
-
-            for _, v := range evtc.last_latencies {
-                if v > 0 {
-                    total += v
-                    cnt += 1
-                }
-            }
-            evtc.counters[LATENCY] = (uint64) (total/cnt/1000/1000)
-        }
+        compute_latency(evtc)
 
         for key, val := range evtc.counters {
             tmp_counters[key] = val + db_counters[key]
