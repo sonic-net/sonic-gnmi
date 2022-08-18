@@ -597,7 +597,7 @@ func mergeStrMaps(sourceOrigin interface{}, updateOrigin interface{}) interface{
 }
 
 func TestGnmiSet(t *testing.T) {
-	if !TRANSLIB_ENABLE {
+	if !TRANSLIB_ENABLED {
 		t.Skip("skipping test in read-only mode.")
 	}
 	s := createServer(t, 8081)
