@@ -104,25 +104,6 @@ func createServer(t *testing.T, port int64) *Server {
 	return s
 }
 
-func createDisabledServer(t *testing.T, port int64) *Server {
-	certificate, err := testcert.NewCert()
-	if err != nil {
-		t.Errorf("could not load server key pair: %s", err)
-	}
-	tlsCfg := &tls.Config{
-		ClientAuth:   tls.RequestClientCert,
-		Certificates: []tls.Certificate{certificate},
-	}
-
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, TranslibEnable: false}
-	s, err := NewServer(cfg, opts)
-	if err != nil {
-		t.Errorf("Failed to create gNMI server: %v", err)
-	}
-	return s
-}
-
 // runTestGet requests a path from the server by Get grpc call, and compares if
 // the return code and response value are expected.
 func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTarget string,
@@ -2268,59 +2249,6 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	}
 }
 
-func runTestDisabledSubscribe(t *testing.T, namespace string) {
-	tests := []struct {
-		desc       string
-		q          client.Query
-		prepares   []tablePathValue
-		updates    []tablePathValue
-		wantErr    bool
-		wantNoti   []client.Notification
-		wantSubErr error
-
-		poll        int
-		wantPollErr string
-
-		generateIntervals bool
-	}{
-		{
-			desc:       "Disable telemetry and test subscribe",
-			q:          createCountersDbQuerySampleMode(t, 1000*time.Millisecond, false, "COUNTERS", "Ethernet1"),
-			updates:    []tablePathValue{},
-			wantSubErr: fmt.Errorf("rpc error: code = Unimplemented desc = Telemetry is disabled"),
-			wantNoti:   []client.Notification{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.desc, func(t *testing.T) {
-			q := tt.q
-			q.Addrs = []string{"127.0.0.1:8081"}
-			c := client.New()
-			defer c.Close()
-			var gotNoti []client.Notification
-			q.NotificationHandler = func(n client.Notification) error {
-				if nn, ok := n.(client.Update); ok {
-					nn.TS = time.Unix(0, 200)
-					gotNoti = append(gotNoti, nn)
-				} else {
-					gotNoti = append(gotNoti, n)
-				}
-
-				return nil
-			}
-			go func() {
-				err := c.Subscribe(context.Background(), q)
-				if tt.wantSubErr != nil && tt.wantSubErr.Error() != err.Error() {
-					t.Errorf("c.Subscribe expected %v, got %v", tt.wantSubErr, err)
-				}
-			}()
-			// wait for half second for subscribeRequest to sync
-			time.Sleep(time.Millisecond * 500)
-		})
-	}
-}
-
 func TestGnmiSubscribe(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
@@ -2584,15 +2512,6 @@ func TestBulkSet(t *testing.T) {
 
 	})
 
-}
-
-func TestGnmiDisabledTelemetry(t *testing.T) {
-	s := createDisabledServer(t, 8081)
-	go runServer(t, s)
-
-	runTestDisabledSubscribe(t, sdcfg.GetDbDefaultNamespace())
-
-	s.s.Stop()
 }
 
 func init() {
