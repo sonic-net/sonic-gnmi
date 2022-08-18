@@ -96,7 +96,7 @@ func createServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, TranslibEnable: true, TelemetryEnable: true}
+	cfg := &Config{Port: port, TranslibEnable: true}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
@@ -115,7 +115,7 @@ func createDisabledServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, TranslibEnable: false, TelemetryEnable: false}
+	cfg := &Config{Port: port, TranslibEnable: false}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)

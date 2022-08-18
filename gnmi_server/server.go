@@ -49,7 +49,6 @@ type Config struct {
 	Port     int64
 	UserAuth AuthTypes
 	TranslibEnable  bool
-	TelemetryEnable bool
 }
 
 var AuthLock sync.Mutex
@@ -232,9 +231,6 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 		return nil, status.Error(codes.PermissionDenied, msg)
 	}
 	*/
-	if !s.config.TelemetryEnable {
-		return grpc.Errorf(codes.Unimplemented, "Telemetry is disabled")
-	}
 
 	c := NewClient(pr.Addr)
 

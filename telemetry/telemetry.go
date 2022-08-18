@@ -28,7 +28,6 @@ var (
 	jwtRefInt         = flag.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed.")
 	jwtValInt         = flag.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for.")
 	gnmi_translib     = flag.Bool("gnmi_translib", gnmi.READ_WRITE_MODE, "Enable gNMI translib for management framework")
-	telemetryEnable   = flag.Bool("telemetryEnable", true, "Enable gNMI telemetry interface")
 )
 
 func main() {
@@ -61,7 +60,6 @@ func main() {
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*port)
 	cfg.TranslibEnable = bool(*gnmi_translib)
-	cfg.TelemetryEnable = bool(*telemetryEnable)
 	var opts []grpc.ServerOption
 
 	if !*noTLS {
@@ -132,7 +130,6 @@ func main() {
 	cfg.Port = int64(*port)
 	cfg.UserAuth = userAuth
 	cfg.TranslibEnable = bool(*gnmi_translib)
-	cfg.TelemetryEnable = bool(*telemetryEnable)
 
 	gnmi.GenerateJwtSecretKey()
 }
