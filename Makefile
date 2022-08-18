@@ -17,8 +17,8 @@ SRC_FILES=$(shell find . -name '*.go' | grep -v '_test.go' | grep -v '/tests/')
 TEST_FILES=$(wildcard *_test.go)
 TELEMETRY_TEST_DIR = build/tests/gnmi_server
 TELEMETRY_TEST_BIN = $(TELEMETRY_TEST_DIR)/server.test
-ifeq ($(TELEMETRY_WRITABLE),y)
-BLD_FLAGS := -tags readwrite
+ifeq ($(TRANSLIB_ENABLE),y)
+BLD_FLAGS := -tags translib
 endif
 
 GO_DEPS := vendor/.done
