@@ -202,6 +202,7 @@ func authenticate(UserAuth AuthTypes, ctx context.Context) (context.Context, err
 	if !success {
 		return ctx, status.Error(codes.Unauthenticated, "Unauthenticated")
 	}
+	log.V(5).Infof("authenticate user %v, roles %v", rc.Auth.User, rc.Auth.Roles)
 
 	return ctx, nil
 }
