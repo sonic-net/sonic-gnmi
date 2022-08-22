@@ -2530,9 +2530,7 @@ func TestBulkSet(t *testing.T) {
 		if !ok {
 			t.Fatal("got a non-grpc error from grpc call")
 		}
-
 	})
-
 }
 
 type loginCreds struct {
@@ -2556,11 +2554,9 @@ func TestAuthCapabilities(t *testing.T) {
 	})
 	defer mock1.Reset()
 
-	//t.Log("Start server")
 	s := createAuthServer(t, 8089)
 	go runServer(t, s)
 
-	//t.Log("Start gNMI client")
 	currentUser, _ := user.Current()
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	cred := &loginCreds{Username: currentUser.Username, Password: "dummy"}
