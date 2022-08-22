@@ -16,6 +16,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"os/user"
 	"reflect"
 	"testing"
 	"time"
@@ -42,6 +43,7 @@ import (
 	gclient "github.com/jipanyang/gnmi/client/gnmi"
 	"github.com/jipanyang/gnxi/utils/xpath"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
+	"github.com/agiledragon/gomonkey"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -97,6 +99,25 @@ func createServer(t *testing.T, port int64) *Server {
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{Port: port}
+	s, err := NewServer(cfg, opts)
+	if err != nil {
+		t.Errorf("Failed to create gNMI server: %v", err)
+	}
+	return s
+}
+
+func createAuthServer(t *testing.T, port int64) *Server {
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Errorf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &Config{Port: port, UserAuth: AuthTypes{"password": true, "cert": true, "jwt": true}}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
@@ -2511,6 +2532,59 @@ func TestBulkSet(t *testing.T) {
 		}
 
 	})
+
+}
+
+type loginCreds struct {
+    Username, Password string
+}
+
+func (c *loginCreds) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
+    return map[string]string{
+        "username": c.Username,
+        "password": c.Password,
+    }, nil
+}
+
+func (c *loginCreds) RequireTransportSecurity() bool {
+    return true
+}
+
+func TestAuthCapabilities(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(UserPwAuth, func(username string, passwd string) (bool, error) {
+		return true, nil
+	})
+	defer mock1.Reset()
+
+	//t.Log("Start server")
+	s := createAuthServer(t, 8089)
+	go runServer(t, s)
+
+	//t.Log("Start gNMI client")
+	currentUser, _ := user.Current()
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	cred := &loginCreds{Username: currentUser.Username, Password: "dummy"}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)), grpc.WithPerRPCCredentials(cred)}
+
+	targetAddr := "127.0.0.1:8089"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var req pb.CapabilityRequest
+	resp, err := gClient.Capabilities(ctx, &req)
+	if err != nil {
+		t.Fatalf("Failed to get Capabilities: %v", err)
+	}
+	if len(resp.SupportedModels) == 0 {
+		t.Fatalf("No Supported Models found!")
+	}
 
 }
 
