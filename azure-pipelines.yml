@@ -70,10 +70,6 @@ stages:
       displayName: "Download sonic-mgmt-common"
 
     - script: |
-        sudo pwd
-        sudo ls -all
-        sudo ls /sonic/src/sonic-swss-common/common/
-        sudo ls /usr/lib/
         # REDIS
         sudo apt-get install -y redis-server
         sudo sed -ri 's/^# unixsocket/unixsocket/' /etc/redis/redis.conf
@@ -95,6 +91,18 @@ stages:
       displayName: "Install .NET CORE"
 
     - script: |
+        echo "PWD:"
+        pwd
+        echo "LS ALL:"
+        ls -all
+        echo "COMMON:"
+        ls /sonic/
+        ls /sonic/src/
+        ls /sonic/src/sonic-swss-common/common/
+        echo "usr/lib:"
+        ls /usr/lib/
+        ls /usr/lib/x86_64-linux-gnu/
+
         set -ex
         ls -l
 
