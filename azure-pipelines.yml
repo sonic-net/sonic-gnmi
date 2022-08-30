@@ -103,6 +103,7 @@ stages:
         ls /usr/lib/
         ls /usr/lib/x86_64-linux-gnu/
         echo "new:"
+        find / -type d -name "sonic-buildimage" -print
         ls -all -r /
         ls -all /home/
         ls -all /home/vsts_azpcontainer/
