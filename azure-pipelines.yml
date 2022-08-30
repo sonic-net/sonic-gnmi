@@ -102,6 +102,15 @@ stages:
         echo "usr/lib:"
         ls /usr/lib/
         ls /usr/lib/x86_64-linux-gnu/
+        echo "new:"
+        ls -all /
+        ls -all /home/
+        ls -all /home/vsts/
+        ls -all /home/vsts/work/
+        ls -all /home/vsts/work/1/
+        ls -all /home/vsts/work/1/sonic-buildimage
+        ls -all /home/vsts/work/1/sonic-buildimage/src/
+        ls -all /home/vsts/work/1/sonic-buildimage/src/sonic-swss-common/common/
 
         set -ex
         ls -l
