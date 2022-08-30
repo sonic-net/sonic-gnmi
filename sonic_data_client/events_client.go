@@ -1,8 +1,8 @@
 package client
 
 /*
-#cgo CFLAGS: -g -Wall -I/usr/lib -I$(PWD)/sonic-swss-common/common -Wformat -Werror=format-security -fPIE 
-#cgo LDFLAGS: -lpthread -lboost_thread -lboost_system -lzmq -lboost_serialization -luuid -lswsscommon
+#cgo CFLAGS: -g -Wall -I./sonic-swss-common/common -Wformat -Werror=format-security -fPIE 
+#cgo LDFLAGS: -L/usr/lib -lpthread -lboost_thread -lboost_system -lzmq -lboost_serialization -luuid -lswsscommon
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
