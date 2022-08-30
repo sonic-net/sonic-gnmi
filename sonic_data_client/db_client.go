@@ -51,6 +51,12 @@ type Client interface {
 
 	// Close provides implemenation for explicit cleanup of Client
 	Close() error
+
+	// callbacks on send failed
+	FailedSend()
+
+	// callback on sent 
+	SentOne(*Value)
 }
 
 type Stream interface {
@@ -271,7 +277,6 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 				SyncResponse: false,
 				Val:          val,
 			}
-
 			c.q.Put(Value{spbv})
 			log.V(6).Infof("Added spbv #%v", spbv)
 		}
@@ -488,7 +493,7 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	}
 
 	if targetDbName == "COUNTERS_DB" {
-        err := initCountersPortNameMap()
+		err := initCountersPortNameMap()
 		if err != nil {
 			return err
 		}
@@ -1228,6 +1233,12 @@ func (c *DbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update [
 
 func (c *DbClient) Capabilities() []gnmipb.ModelData {
 	return nil
+}
+
+func (c *DbClient) SentOne(val *Value) {
+}
+
+func (c *DbClient) FailedSend() {
 }
 
 // validateSampleInterval validates the sampling interval of the given subscription.
