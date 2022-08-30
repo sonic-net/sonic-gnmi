@@ -98,9 +98,6 @@ stages:
         sudo dpkg -i ../target/debs/buster/libnl-route-3-200_*.deb
         sudo dpkg -i ../target/debs/buster/libnl-nf-3-200_*.deb
         sudo dpkg -i ../target/debs/buster/libhiredis0.14_*.deb
-        # sudo dpkg -i ../target/debs/buster/libyang_1.0.73_amd64.deb
-        # sudo dpkg -i ../target/debs/buster/libyang-cpp_1.0.73_amd64.deb
-        # sudo dpkg -i ../target/debs/buster/python3-yang_1.0.73_amd64.deb
       displayName: "Install libswsscommon dependencies"
 
     - script: |
@@ -134,9 +131,6 @@ stages:
     - script: |
         set -ex
         ls -l
-        ls -all sonic-swss-common
-        ls -all sonic-swss-common/common/
-        find /usr/ -name "libswsscommon*"
 
         pushd sonic-mgmt-common
 
