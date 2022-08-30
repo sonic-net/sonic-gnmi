@@ -117,6 +117,7 @@ stages:
         set -ex
         # LIBSWSSCOMMON
         sudo dpkg -i libswsscommon_1.0.0_amd64.deb
+        sudo dpkg -i libswsscommon-dev_1.0.0_amd64.deb
         sudo dpkg -i python3-swsscommon_1.0.0_amd64.deb
       workingDirectory: $(Pipeline.Workspace)/
       displayName: 'Install libswsscommon package'
