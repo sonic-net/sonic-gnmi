@@ -76,9 +76,20 @@ stages:
         sudo sed -ri 's/^unixsocketperm .../unixsocketperm 777/' /etc/redis/redis.conf
         sudo sed -ri 's/redis-server.sock/redis.sock/' /etc/redis/redis.conf
         sudo service redis-server start
+      displayName: "Set up redis-server"
 
-        # LIBYANG
-        sudo dpkg -i ../target/debs/buster/libyang*1.0.73*.deb
+    - script: |
+        # LIBSWSSCOMMON
+        sudo apt-get -y purge libhiredis-dev libnl-3-dev libnl-route-3-dev
+        sudo dpkg -i libnl-3-200_*.deb
+        sudo dpkg -i libnl-genl-3-200_*.deb
+        sudo dpkg -i libnl-route-3-200_*.deb
+        sudo dpkg -i libnl-nf-3-200_*.deb
+        sudo dpkg -i libhiredis0.14_*.deb
+        sudo dkpg -i libyang_1.0.73_amd64.deb
+        sudo dpkg -i libyang-cpp_1.0.73_amd64.deb
+        sudo dpkg -i python3-yang_1.0.73_amd64.deb
+      workingDirectory: $(Pipeline.Workspace)/target/debs/buster/
       displayName: "Install dependency"
 
     - script: |
