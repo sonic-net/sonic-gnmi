@@ -51,7 +51,12 @@ stages:
     - checkout: sonic-mgmt-common
       clean: true
       submodules: recursive
-      displayName: 'Checkout code'
+      displayName: 'Checkout sonic-mgmt-common'
+
+    - checkout: sonic-swss-common
+      clean: true
+      submodules: recursive
+      displayName: 'Checkout sonic-swss-common'
 
     - task: DownloadPipelineArtifact@2
       inputs:
