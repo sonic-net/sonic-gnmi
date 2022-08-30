@@ -107,7 +107,7 @@ stages:
       inputs:
         source: specific
         project: build
-        pipeline: Azure/sonic-swss-common
+        pipeline: Azure.sonic-swss-common
         artifact: sonic-swss-common
         runVersion: 'latestFromBranch'
         runBranch: 'refs/heads/master'
