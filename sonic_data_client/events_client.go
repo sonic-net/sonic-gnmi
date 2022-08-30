@@ -239,8 +239,7 @@ func get_events(evtc *EventClient) {
     str_ptr := C.malloc(C.sizeof_char * C.size_t(EVENT_BUFFSZ)) 
     defer C.free(unsafe.Pointer(str_ptr))
 
-    evt_ptr := &C.event_receive_op_C_t{}
-    evt_ptr = (*C.event_receive_op_C_t)(C.malloc(C.size_t(unsafe.Sizeof(C.event_receive_op_C_t{}))))
+    evt_ptr := (*C.event_receive_op_C_t)(C.malloc(C.size_t(unsafe.Sizeof(C.event_receive_op_C_t{}))))
     defer C.free(unsafe.Pointer(evt_ptr))
 
     evt_ptr.event_str = (*C.char)(str_ptr)
