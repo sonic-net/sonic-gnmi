@@ -103,14 +103,14 @@ stages:
         ls /usr/lib/
         ls /usr/lib/x86_64-linux-gnu/
         echo "new:"
-        ls -all /
+        ls -all -r /
         ls -all /home/
-        ls -all /home/vsts/
-        ls -all /home/vsts/work/
-        ls -all /home/vsts/work/1/
-        ls -all /home/vsts/work/1/sonic-buildimage
-        ls -all /home/vsts/work/1/sonic-buildimage/src/
-        ls -all /home/vsts/work/1/sonic-buildimage/src/sonic-swss-common/common/
+        ls -all /home/vsts_azpcontainer/
+        ls -all /home/vsts_azpcontainer/work/
+        ls -all /home/vsts_azpcontainer/work/1/
+        ls -all /home/vsts_azpcontainer/work/1/sonic-buildimage
+        ls -all /home/vsts_azpcontainer/work/1/sonic-buildimage/src/
+        ls -all /home/vsts/work_azpcontainer/1/sonic-buildimage/src/sonic-swss-common/common/
 
         set -ex
         ls -l
