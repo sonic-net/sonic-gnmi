@@ -93,25 +93,12 @@ stages:
     - script: |
         echo "PWD:"
         pwd
-        echo "LS ALL:"
-        ls -all
-        echo "COMMON:"
-        ls /sonic/
-        ls /sonic/src/
-        ls /sonic/src/sonic-swss-common/common/
-        echo "usr/lib:"
-        ls /usr/lib/
-        ls /usr/lib/x86_64-linux-gnu/
         echo "new:"
-        find / -type d -name "sonic-buildimage" -print
         ls -all -r /
-        ls -all /home/
-        ls -all /home/vsts_azpcontainer/
-        ls -all /home/vsts_azpcontainer/work/
-        ls -all /home/vsts_azpcontainer/work/1/
-        ls -all /home/vsts_azpcontainer/work/1/sonic-buildimage
-        ls -all /home/vsts_azpcontainer/work/1/sonic-buildimage/src/
-        ls -all /home/vsts/work_azpcontainer/1/sonic-buildimage/src/sonic-swss-common/common/
+        ls -all /__w/
+        ls -all /__w/1/
+        ls -all /__w/1/s
+        sudo find / -name *.cpp
 
         set -ex
         ls -l
