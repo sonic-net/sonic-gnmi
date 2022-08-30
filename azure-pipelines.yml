@@ -81,15 +81,14 @@ stages:
     - script: |
         # LIBSWSSCOMMON
         sudo apt-get -y purge libhiredis-dev libnl-3-dev libnl-route-3-dev
-        sudo dpkg -i libnl-3-200_*.deb
-        sudo dpkg -i libnl-genl-3-200_*.deb
-        sudo dpkg -i libnl-route-3-200_*.deb
-        sudo dpkg -i libnl-nf-3-200_*.deb
-        sudo dpkg -i libhiredis0.14_*.deb
-        sudo dpkg -i libyang_1.0.73_amd64.deb
-        sudo dpkg -i libyang-cpp_1.0.73_amd64.deb
-        sudo dpkg -i python3-yang_1.0.73_amd64.deb
-      workingDirectory: $(Pipeline.Workspace)/target/debs/buster/
+        sudo dpkg -i ../target/debs/buster/libnl-3-200_*.deb
+        sudo dpkg -i ../target/debs/buster/libnl-genl-3-200_*.deb
+        sudo dpkg -i ../target/debs/buster/libnl-route-3-200_*.deb
+        sudo dpkg -i ../target/debs/buster/libnl-nf-3-200_*.deb
+        sudo dpkg -i ../target/debs/buster/libhiredis0.14_*.deb
+        sudo dpkg -i ../target/debs/buster/libyang_1.0.73_amd64.deb
+        sudo dpkg -i ../target/debs/buster/libyang-cpp_1.0.73_amd64.deb
+        sudo dpkg -i ../target/debs/buster/python3-yang_1.0.73_amd64.deb
       displayName: "Install dependency"
 
     - script: |
