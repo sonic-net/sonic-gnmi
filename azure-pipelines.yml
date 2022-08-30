@@ -134,7 +134,8 @@ stages:
     - script: |
         set -ex
         ls -l
-        ls /usr/lib/x86_64-linux-gnu/
+        ls -all sonic-swss-common
+        ls -all sonic-swss-common/common/
         find /usr/ -name "libswsscommon*"
 
         pushd sonic-mgmt-common
