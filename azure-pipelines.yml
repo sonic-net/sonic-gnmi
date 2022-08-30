@@ -76,7 +76,10 @@ stages:
         sudo sed -ri 's/^unixsocketperm .../unixsocketperm 777/' /etc/redis/redis.conf
         sudo sed -ri 's/redis-server.sock/redis.sock/' /etc/redis/redis.conf
         sudo service redis-server start
-      displayName: "Set up redis-server"
+
+        # LIBYANG
+        sudo dpkg -i ../target/debs/buster/libyang*1.0.73*.deb
+      displayName: "Install dependency"
 
     - script: |
         # LIBSWSSCOMMON
@@ -86,10 +89,10 @@ stages:
         sudo dpkg -i ../target/debs/buster/libnl-route-3-200_*.deb
         sudo dpkg -i ../target/debs/buster/libnl-nf-3-200_*.deb
         sudo dpkg -i ../target/debs/buster/libhiredis0.14_*.deb
-        sudo dpkg -i ../target/debs/buster/libyang_1.0.73_amd64.deb
-        sudo dpkg -i ../target/debs/buster/libyang-cpp_1.0.73_amd64.deb
-        sudo dpkg -i ../target/debs/buster/python3-yang_1.0.73_amd64.deb
-      displayName: "Install dependency"
+        # sudo dpkg -i ../target/debs/buster/libyang_1.0.73_amd64.deb
+        # sudo dpkg -i ../target/debs/buster/libyang-cpp_1.0.73_amd64.deb
+        # sudo dpkg -i ../target/debs/buster/python3-yang_1.0.73_amd64.deb
+      displayName: "Install libswsscommon dependencies"
 
     - script: |
         set -ex
