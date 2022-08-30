@@ -90,18 +90,29 @@ stages:
         sudo apt-get install -y dotnet-sdk-5.0
       displayName: "Install .NET CORE"
 
-    - script: |
-        echo "PWD:"
-        pwd
-        echo "new:"
-        ls -all -r /
-        ls -all /__w/
-        ls -all /__w/1/
-        ls -all /__w/1/s
-        sudo find / -name *.cpp
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        source: specific
+        project: build
+        pipeline: 9
+        artifact: sonic-swss-common
+        runVersion: 'latestFromBranch'
+        runBranch: 'refs/heads/master'
+      displayName: "Download sonic-swss-common"
 
+    - script: |
+        set -ex
+        # LIBSWSSCOMMON
+        sudo dpkg -i libswsscommon_1.0.0_amd64.deb
+        sudo dpkg -i python3-swsscommon_1.0.0_amd64.deb
+      workingDirectory: $(Pipeline.Workspace)/
+      displayName: 'Install libswsscommon package'
+
+    - script: |
         set -ex
         ls -l
+        ls /usr/lib/x86_64-linux-gnu/
+        find /usr/ -name "libswsscommon*"
 
         pushd sonic-mgmt-common
 
