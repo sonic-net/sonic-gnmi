@@ -2212,6 +2212,7 @@ func TestCapabilities(t *testing.T) {
 }
 
 func TestGNOI(t *testing.T) {
+<<<<<<< HEAD
     s := createServer(t, 8086)
     go runServer(t, s)
     defer s.s.Stop()
@@ -2290,6 +2291,24 @@ func TestGNOI(t *testing.T) {
 	}
 	t.Logf("source: %s dest: %s overwrite: %t", v.source, v.destination, v.overwrite)
 	resp, err := sc.CopyConfig(ctx, req)
+=======
+	if !READ_WRITE_MODE {
+		t.Skip("skipping test in read-only mode.")
+	}
+	s := createServer(t, 8086)
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	// prepareDb(t)
+
+	//t.Log("Start gNMI client")
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	//targetAddr := "30.57.185.38:8080"
+	targetAddr := "127.0.0.1:8086"
+	conn, err := grpc.Dial(targetAddr, opts...)
+>>>>>>> 89d46ff... Enable unit test
 	if err != nil {
 		t.Fatal(err.Error())
 	}
