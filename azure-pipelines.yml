@@ -105,6 +105,10 @@ stages:
         dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build"
 
+    - script: |
+        make ut
+      displayName: "Test"
+
     - publish: $(Build.ArtifactStagingDirectory)/
       artifact: sonic-gnmi
       displayName: "Archive artifacts"

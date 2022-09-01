@@ -24,7 +24,6 @@ endif
 GO_DEPS := vendor/.done
 PATCHES := $(wildcard patches/*.patch)
 PATCHES += $(shell find $(MGMT_COMMON_DIR)/patches -type f)
-REDIS_SOCK := $(shell if sudo [ -e /var/run/redis/redis.sock ]; then echo "exist"; else echo "noexist"; fi)
 
 all: sonic-gnmi $(TELEMETRY_TEST_BIN)
 
@@ -66,8 +65,7 @@ else
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
 endif
 
-check:
-ifeq ("$(REDIS_SOCK)", "exist")
+ut:
 	sudo mkdir -p ${DBDIR}
 	sudo cp ./testdata/database_config.json ${DBDIR}
 	sudo mkdir -p /usr/models/yang || true
@@ -79,9 +77,6 @@ ifeq ("$(REDIS_SOCK)", "exist")
 	$(GO) get github.com/AlekSi/gocov-xml
 	gocov convert coverage-*.txt | gocov-xml -source $(shell pwd) > coverage.xml
 	rm -rf coverage-*.txt 
-else
-	$(info Please start redis server to run unit test)
-endif
 
 clean:
 	$(RM) -r build
