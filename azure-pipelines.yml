@@ -106,6 +106,7 @@ stages:
       displayName: "Build"
 
     - script: |
+        pushd sonic-gnmi
         make ut
       displayName: "Test"
 
