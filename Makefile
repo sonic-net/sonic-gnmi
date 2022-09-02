@@ -65,7 +65,7 @@ else
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
 endif
 
-ut:
+check_gotest:
 	sudo mkdir -p ${DBDIR}
 	sudo cp ./testdata/database_config.json ${DBDIR}
 	sudo mkdir -p /usr/models/yang || true
