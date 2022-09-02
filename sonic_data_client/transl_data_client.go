@@ -520,6 +520,12 @@ func (c *TranslClient) Capabilities() []gnmipb.ModelData {
 func (c *TranslClient) Close() error {
 	return nil
 }
+func (c *TranslClient) SentOne(val *Value) {
+}
+
+func (c *TranslClient) FailedSend() {
+}
+
 
 func getBundleVersion(extensions []*gnmi_extpb.Extension) *string {
 	for _,e := range extensions {

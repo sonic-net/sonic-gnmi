@@ -30,7 +30,13 @@ type Client struct {
 	// Wait for all sub go routine to finish
 	w     sync.WaitGroup
 	fatal bool
+	logLevel   int
 }
+
+// Syslog level for error
+const logLevelError int = 3
+const logLevelDebug int = 7
+const logLevelMax int = logLevelDebug
 
 // NewClient returns a new initialized client.
 func NewClient(addr net.Addr) *Client {
@@ -38,7 +44,12 @@ func NewClient(addr net.Addr) *Client {
 	return &Client{
 		addr: addr,
 		q:    pq,
+		logLevel: logLevelError,
 	}
+}
+
+func (c *Client) setLogLevel(lvl int) {
+	c.logLevel = lvl
 }
 
 // String returns the target the client is querying.
@@ -121,8 +132,12 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	}
 	var dc sdc.Client
 
+	mode := c.subscribe.GetMode()
+
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
+	} else if ((target == "EVENTS") && (mode == gnmipb.SubscriptionList_STREAM)) {
+		dc, err = sdc.NewEventClient(paths, prefix, c.logLevel)
 	} else if _, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
 	} else {
@@ -134,7 +149,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		return grpc.Errorf(codes.NotFound, "%v", err)
 	}
 
-	switch mode := c.subscribe.GetMode(); mode {
+	switch mode {
 	case gnmipb.SubscriptionList_STREAM:
 		c.stop = make(chan struct{}, 1)
 		c.w.Add(1)
@@ -155,7 +170,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 
 	log.V(1).Infof("Client %s running", c)
 	go c.recv(stream)
-	err = c.send(stream)
+	err = c.send(stream, dc)
 	c.Close()
 	// Wait until all child go routines exited
 	c.w.Wait()
@@ -226,8 +241,9 @@ func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 }
 
 // send runs until process Queue returns an error.
-func (c *Client) send(stream gnmipb.GNMI_SubscribeServer) error {
+func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 	for {
+		var val *sdc.Value
 		items, err := c.q.Get(1)
 
 		if items == nil {
@@ -241,12 +257,14 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer) error {
 		}
 
 		var resp *gnmipb.SubscribeResponse
+
 		switch v := items[0].(type) {
 		case sdc.Value:
 			if resp, err = sdc.ValToResp(v); err != nil {
 				c.errors++
 				return err
 			}
+			val = &v;
 		default:
 			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], c)
 			c.errors++
@@ -257,8 +275,11 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer) error {
 		if err != nil {
 			log.V(1).Infof("Client %s sending error:%v", c, err)
 			c.errors++
+			dc.FailedSend()
 			return err
 		}
+
+		dc.SentOne(val)
 		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
 	}
 }
