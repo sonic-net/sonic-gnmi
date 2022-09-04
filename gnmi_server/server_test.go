@@ -44,7 +44,7 @@ import (
 	gclient "github.com/jipanyang/gnmi/client/gnmi"
 	"github.com/jipanyang/gnxi/utils/xpath"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
-	"github.com/agiledragon/gomonkey"
+	"github.com/agiledragon/gomonkey/v2"
 )
 
 var clientTypes = []string{gclient.Type}

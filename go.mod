@@ -5,7 +5,7 @@ go 1.12
 require (
 	github.com/Azure/sonic-mgmt-common v0.0.0-00010101000000-000000000000
 	github.com/Workiva/go-datastructures v1.0.50
-	github.com/agiledragon/gomonkey v2.0.2+incompatible
+	github.com/agiledragon/gomonkey/v2 v2.8.0
 	github.com/c9s/goprocinfo v0.0.0-20191125144613-4acdd056c72d
 	github.com/dgrijalva/jwt-go v3.2.1-0.20210802184156-9742bd7fca1c+incompatible
 	github.com/go-redis/redis v6.15.6+incompatible
