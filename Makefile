@@ -85,7 +85,7 @@ clean:
 $(TELEMETRY_TEST_BIN): $(TEST_FILES) $(SRC_FILES)
 	mkdir -p $(@D)
 	cp -r testdata $(@D)/
-ifeq ($(GOARCH),arm)
+ifeq ($(CONFIGURED_ARCH),armhf)
 	touch $@
 else
 	$(GO) test -mod=vendor $(BLD_FLAGS) -c -cover github.com/sonic-net/sonic-gnmi/gnmi_server -o $@
