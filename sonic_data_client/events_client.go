@@ -149,6 +149,8 @@ func compute_latency(evtc *EventClient) {
 }
 
 func update_stats(evtc *EventClient) {
+    defer evtc.wg.Done()
+
     /* Wait for any update */
     db_counters := make(map[string]uint64)
     var wr_counters *map[string]uint64 = nil
@@ -259,6 +261,8 @@ func C_deinit_subs(h unsafe.Pointer) {
 }
 
 func get_events(evtc *EventClient) {
+    defer evtc.wg.Done()
+
     str_ptr := C.malloc(C.sizeof_char * C.size_t(EVENT_BUFFSZ)) 
     defer C.free(unsafe.Pointer(str_ptr))
 
@@ -326,7 +330,9 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     evtc.channel = stop
 
     go get_events(evtc)
+    evtc.wg.Add(1)
     go update_stats(evtc)
+    evtc.wg.Add(1)
 
     for {
         select {
