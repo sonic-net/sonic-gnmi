@@ -330,9 +330,9 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     evtc.channel = stop
 
     go get_events(evtc)
-    c.w.Add(1)
+    evtc.wg.Add(1)
     go update_stats(evtc)
-    c.w.Add(1)
+    evtc.wg.Add(1)
 
     for {
         select {
