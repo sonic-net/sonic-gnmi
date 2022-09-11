@@ -47,6 +47,7 @@ type Config struct {
 	// Port for the Server to listen on. If 0 or unset the Server will pick a port
 	// for this Server.
 	Port     int64
+	LogLevel int
 	UserAuth AuthTypes
 	TranslibEnable  bool
 }
@@ -203,6 +204,7 @@ func authenticate(UserAuth AuthTypes, ctx context.Context) (context.Context, err
 	if !success {
 		return ctx, status.Error(codes.Unauthenticated, "Unauthenticated")
 	}
+	log.V(5).Infof("authenticate user %v, roles %v", rc.Auth.User, rc.Auth.Roles)
 
 	return ctx, nil
 }
@@ -233,6 +235,8 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	*/
 
 	c := NewClient(pr.Addr)
+
+	c.setLogLevel(s.config.LogLevel)
 
 	s.cMu.Lock()
 	if oc, ok := s.clients[c.String()]; ok {

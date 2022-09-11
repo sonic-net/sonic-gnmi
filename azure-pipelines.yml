@@ -19,6 +19,10 @@ resources:
     type: github
     name: sonic-net/sonic-mgmt-common
     endpoint: sonic-net
+  - repository: sonic-swss-common
+    type: github
+    name: sonic-net/sonic-swss-common
+    endpoint: sonic-net
 
 stages:
 - stage: Build
@@ -47,7 +51,12 @@ stages:
     - checkout: sonic-mgmt-common
       clean: true
       submodules: recursive
-      displayName: 'Checkout code'
+      displayName: 'Checkout sonic-mgmt-common'
+
+    - checkout: sonic-swss-common
+      clean: true
+      submodules: recursive
+      displayName: 'Checkout sonic-swss-common'
 
     - task: DownloadPipelineArtifact@2
       inputs:
@@ -82,6 +91,16 @@ stages:
       displayName: "Install dependency"
 
     - script: |
+        # LIBSWSSCOMMON
+        sudo apt-get -y purge libhiredis-dev libnl-3-dev libnl-route-3-dev
+        sudo dpkg -i ../target/debs/buster/libnl-3-200_*.deb
+        sudo dpkg -i ../target/debs/buster/libnl-genl-3-200_*.deb
+        sudo dpkg -i ../target/debs/buster/libnl-route-3-200_*.deb
+        sudo dpkg -i ../target/debs/buster/libnl-nf-3-200_*.deb
+        sudo dpkg -i ../target/debs/buster/libhiredis0.14_*.deb
+      displayName: "Install libswsscommon dependencies"
+
+    - script: |
         set -ex
         # Install .NET CORE
         curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
@@ -89,6 +108,25 @@ stages:
         sudo apt-get update
         sudo apt-get install -y dotnet-sdk-5.0
       displayName: "Install .NET CORE"
+
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        source: specific
+        project: build
+        pipeline: Azure.sonic-swss-common
+        artifact: sonic-swss-common
+        runVersion: 'latestFromBranch'
+        runBranch: 'refs/heads/master'
+      displayName: "Download sonic-swss-common"
+
+    - script: |
+        set -ex
+        # LIBSWSSCOMMON
+        sudo dpkg -i libswsscommon_1.0.0_amd64.deb
+        sudo dpkg -i libswsscommon-dev_1.0.0_amd64.deb
+        sudo dpkg -i python3-swsscommon_1.0.0_amd64.deb
+      workingDirectory: $(Pipeline.Workspace)/
+      displayName: 'Install libswsscommon package'
 
     - script: |
         set -ex
@@ -104,6 +142,11 @@ stages:
 
         dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build"
+
+    - script: |
+        pushd sonic-gnmi
+        make check_gotest
+      displayName: "Test"
 
     - publish: $(Build.ArtifactStagingDirectory)/
       artifact: sonic-gnmi
