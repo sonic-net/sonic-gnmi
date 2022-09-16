@@ -99,7 +99,7 @@ func createServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port}
+	cfg := &Config{Port: port, EnableTranslibWrite: true}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
@@ -633,7 +633,7 @@ func mergeStrMaps(sourceOrigin interface{}, updateOrigin interface{}) interface{
 }
 
 func TestGnmiSet(t *testing.T) {
-	if !READ_WRITE_MODE {
+	if !ENABLE_TRANSLIB_WRITE {
 		t.Skip("skipping test in read-only mode.")
 	}
 	s := createServer(t, 8081)
@@ -2351,7 +2351,7 @@ func TestCapabilities(t *testing.T) {
 }
 
 func TestGNOI(t *testing.T) {
-	if !READ_WRITE_MODE {
+	if !ENABLE_TRANSLIB_WRITE {
 		t.Skip("skipping test in read-only mode.")
 	}
 	s := createServer(t, 8086)
