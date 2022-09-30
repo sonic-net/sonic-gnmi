@@ -2603,9 +2603,13 @@ func TestAuthCapabilities(t *testing.T) {
 }
 
 func TestClient(t *testing.T) {
+    // sonic-host:device-test-event is a test event. 
+    // Events client will drop it on floor.
+    //
     events := [] sdc.Evt_rcvd {
         { "test0", 7, 777 },
         { "test1", 6, 677 },
+        { "{\"sonic-host:device-test-event\"", 5, 577 },
         { "test2", 5, 577 },
         { "test3", 4, 477 },
     }
@@ -2653,7 +2657,6 @@ func TestClient(t *testing.T) {
 
     qstr := fmt.Sprintf("all[heartbeat=%d]", HEARTBEAT_SET)
     q := createEventsQuery(t, qstr)
-    // q := createEventsQuery(t, "all")
     q.Addrs = []string{"127.0.0.1:8081"}
 
     tests := []struct {
@@ -2694,16 +2697,20 @@ func TestClient(t *testing.T) {
             }()
 
             // wait for half second for subscribeRequest to sync
+            // and to receive events via notification handler.
+            //
             time.Sleep(time.Millisecond * 2000)
 
-            if len(events) != len(gotNoti) {
-                t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events))
+            // -1 to discount test event, which receiver would drop.
+            //
+            if (len(events) - 1) != len(gotNoti) {
+                t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
             }
 
             if (heartbeat != HEARTBEAT_SET) {
                 t.Errorf("Heartbeat is not set %d != expected:%d", heartbeat, HEARTBEAT_SET)
             }
-            fmt.Printf("DONE: events:%d gotNoti=%d\n", len(events), len(gotNoti))
+            fmt.Printf("DONE: Expect events:%d - 1 gotNoti=%d\n", len(events), len(gotNoti))
         })
         time.Sleep(time.Millisecond * 1000)
 

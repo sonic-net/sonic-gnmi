@@ -14,6 +14,7 @@ import (
     "strconv"
     "fmt"
     "reflect"
+    "strings"
     "sync"
     "time"
     "unsafe"
@@ -44,6 +45,8 @@ var STATS_ABSOLUTE_KEYS = [...]string {LATENCY}
 const STATS_FIELD_NAME = "value"
 
 const EVENTD_PUBLISHER_SOURCE = "{\"sonic-events-eventd"
+
+const TEST_EVENT = "{\"sonic-host:device-test-event"
 
 // Path parameter
 const PARAM_HEARTBEAT = "heartbeat"
@@ -279,18 +282,21 @@ func get_events(evtc *EventClient) {
 
         if rc == 0 {
             evtc.counters[MISSED] += (uint64)(evt.Missed_cnt)
-            qlen := evtc.q.Len()
 
-            if (qlen < PQ_MAX_SIZE) {
-                evtTv := &gnmipb.TypedValue {
-                    Value: &gnmipb.TypedValue_StringVal {
-                        StringVal: evt.Event_str,
-                    }}
-                if err := send_event(evtc, evtTv, evt.Publish_epoch_ms); err != nil {
-                    return
+            if ! strings.HasPrefix(evt.Event_str, TEST_EVENT) {
+                qlen := evtc.q.Len()
+
+                if (qlen < PQ_MAX_SIZE) {
+                    evtTv := &gnmipb.TypedValue {
+                        Value: &gnmipb.TypedValue_StringVal {
+                            StringVal: evt.Event_str,
+                        }}
+                    if err := send_event(evtc, evtTv, evt.Publish_epoch_ms); err != nil {
+                        return
+                    }
+                } else {
+                    evtc.counters[DROPPED] += 1
                 }
-            } else {
-                evtc.counters[DROPPED] += 1
             }
         }
         if evtc.stopped == 1 {
