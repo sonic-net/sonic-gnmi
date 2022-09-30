@@ -1,5 +1,5 @@
-// +build !readwrite
+// +build !gnmi_translib_write
 
 package gnmi
 
-const READ_WRITE_MODE = false
+const ENABLE_TRANSLIB_WRITE = false
