@@ -57,6 +57,7 @@ type EventClient struct {
     path        *gnmipb.Path
 
     q           *queue.PriorityQueue
+    pq_max      int
     channel     chan struct{}
 
     wg          *sync.WaitGroup // wait for all sub go routines to finish
@@ -87,9 +88,17 @@ func C_init_subs() unsafe.Pointer {
     return C.events_init_subscriber_wrap(true, C.int(SUBSCRIBER_TIMEOUT))
 }
 
-func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Client, error) {
+func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int, pq_max int) (Client, error) {
     var evtc EventClient
     evtc.prefix = prefix
+    if pq_max != 0 {
+        evtc.pq_max = pq_max
+        log.V(1).Infof("Events priority Q max set to %v", evtc.pq_max)
+    } else {
+        evtc.pq_max = PQ_MAX_SIZE
+        log.V(4).Infof("Events priority Q max set default = %v", evtc.pq_max)
+    }
+
     for _, path := range paths {
         // Only one path is expected. Take the last if many
         evtc.path = path
@@ -286,13 +295,22 @@ func get_events(evtc *EventClient) {
             if ! strings.HasPrefix(evt.Event_str, TEST_EVENT) {
                 qlen := evtc.q.Len()
 
-                if (qlen < PQ_MAX_SIZE) {
-                    evtTv := &gnmipb.TypedValue {
-                        Value: &gnmipb.TypedValue_StringVal {
-                            StringVal: evt.Event_str,
-                        }}
-                    if err := send_event(evtc, evtTv, evt.Publish_epoch_ms); err != nil {
-                        return
+                if (qlen < evtc.pq_max) {
+                    var fvp map[string]interface{}
+                    json.Unmarshal([]byte(evt.Event_str ), &fvp)
+
+                    jv, err := json.Marshal(fvp)
+
+                    if err == nil {
+                        evtTv := &gnmipb.TypedValue {
+                            Value: &gnmipb.TypedValue_JsonIetfVal {
+                                JsonIetfVal: jv,
+                            }}
+                        if err := send_event(evtc, evtTv, evt.Publish_epoch_ms); err != nil {
+                            return
+                        }
+                    } else {
+                        log.V(1).Infof("Invalid event string: %v", evt.Event_str)
                     }
                 } else {
                     evtc.counters[DROPPED] += 1
