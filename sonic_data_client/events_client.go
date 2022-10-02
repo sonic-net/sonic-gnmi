@@ -12,6 +12,7 @@ import "C"
 
 import (
     "strconv"
+    "encoding/json"
     "fmt"
     "reflect"
     "strings"

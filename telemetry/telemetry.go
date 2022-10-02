@@ -62,7 +62,7 @@ func main() {
 	cfg.Port = int64(*port)
 	cfg.EnableTranslibWrite = bool(*gnmi_translib_write)
 	cfg.LogLevel = 3
-    cfg.PqMax = 0
+	cfg.PqMax = 0
 	var opts []grpc.ServerOption
 
 	if val, err := strconv.Atoi(getflag("v")); err == nil {
@@ -73,7 +73,7 @@ func main() {
 	if val, err := strconv.Atoi(getflag("q")); err == nil {
 		cfg.PqMax = val
 		log.Errorf("flag: PQ max %v", val)
-    }
+	}
 
 	if !*noTLS {
 		var certificate tls.Certificate
