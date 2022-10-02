@@ -54,7 +54,7 @@ func (c *Client) setLogLevel(lvl int) {
 }
 
 func (c *Client) setPqMax(lvl int) {
-	c.PqMax = lvl
+	c.pqMax = lvl
 }
 
 // String returns the target the client is querying.
