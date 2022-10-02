@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"strings"
+	"unsafe"
 
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"github.com/go-redis/redis"
@@ -43,7 +44,7 @@ import (
 	gclient "github.com/jipanyang/gnmi/client/gnmi"
 	"github.com/jipanyang/gnxi/utils/xpath"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
-	"github.com/agiledragon/gomonkey"
+	"github.com/agiledragon/gomonkey/v2"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -98,7 +99,7 @@ func createServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port}
+	cfg := &Config{Port: port, EnableTranslibWrite: true}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
@@ -516,6 +517,20 @@ func createQueryOrFail(t *testing.T, subListMode pb.SubscriptionList_Mode, targe
 	return *q
 }
 
+// create query for subscribing to events.
+func createEventsQuery(t *testing.T, paths ...string) client.Query {
+	return createQueryOrFail(t,
+		pb.SubscriptionList_STREAM,
+		"EVENTS",
+		[]subscriptionQuery{
+			{
+				Query:   paths,
+				SubMode: pb.SubscriptionMode_ON_CHANGE,
+			},
+		},
+		false)
+}
+
 // createCountersDbQueryOnChangeMode creates a query with ON_CHANGE mode.
 func createCountersDbQueryOnChangeMode(t *testing.T, paths ...string) client.Query {
 	return createQueryOrFail(t,
@@ -618,7 +633,7 @@ func mergeStrMaps(sourceOrigin interface{}, updateOrigin interface{}) interface{
 }
 
 func TestGnmiSet(t *testing.T) {
-	if !READ_WRITE_MODE {
+	if !ENABLE_TRANSLIB_WRITE {
 		t.Skip("skipping test in read-only mode.")
 	}
 	s := createServer(t, 8081)
@@ -2336,6 +2351,9 @@ func TestCapabilities(t *testing.T) {
 }
 
 func TestGNOI(t *testing.T) {
+	if !ENABLE_TRANSLIB_WRITE {
+		t.Skip("skipping test in read-only mode.")
+	}
 	s := createServer(t, 8086)
 	go runServer(t, s)
 	defer s.s.Stop()
@@ -2582,6 +2600,120 @@ func TestAuthCapabilities(t *testing.T) {
 		t.Fatalf("No Supported Models found!")
 	}
 
+}
+
+func TestClient(t *testing.T) {
+    events := [] sdc.Evt_rcvd {
+        { "test0", 7, 777 },
+        { "test1", 6, 677 },
+        { "test2", 5, 577 },
+        { "test3", 4, 477 },
+    }
+
+    HEARTBEAT_SET := 5
+    heartbeat := 0
+    event_index := 0
+    rcv_timeout := sdc.SUBSCRIBER_TIMEOUT
+    deinit_done := false
+
+    mock1 := gomonkey.ApplyFunc(sdc.C_init_subs, func() unsafe.Pointer {
+        return nil
+	})
+	defer mock1.Reset()
+
+    mock2 := gomonkey.ApplyFunc(sdc.C_recv_evt, func(h unsafe.Pointer) (int, sdc.Evt_rcvd) {
+        rc := (int)(0)
+        var evt sdc.Evt_rcvd
+
+        if event_index < len(events) {
+            evt = events[event_index]
+            event_index++
+        } else {
+            time.Sleep(time.Millisecond * time.Duration(rcv_timeout))
+            rc = -1
+        }
+        return rc, evt
+	})
+	defer mock2.Reset()
+
+    mock3 := gomonkey.ApplyFunc(sdc.Set_heartbeat, func(val int) {
+        heartbeat = val
+    })
+
+	defer mock3.Reset()
+
+    mock4 := gomonkey.ApplyFunc(sdc.C_deinit_subs, func(h unsafe.Pointer) {
+        deinit_done = true
+    })
+
+	defer mock4.Reset()
+
+    s := createServer(t, 8081)
+    go runServer(t, s)
+
+    qstr := fmt.Sprintf("all[heartbeat=%d]", HEARTBEAT_SET)
+    q := createEventsQuery(t, qstr)
+    // q := createEventsQuery(t, "all")
+    q.Addrs = []string{"127.0.0.1:8081"}
+
+    tests := []struct {
+        desc       string
+        pub_data   []string
+        wantErr    bool
+        wantNoti   []client.Notification
+        pause      int
+        poll       int
+    } {
+        {
+            desc: "base client create",
+            poll: 3,
+        },
+    }
+
+    sdc.C_init_subs()
+
+    for _, tt := range tests {
+        heartbeat = 0
+        deinit_done = false
+        t.Run(tt.desc, func(t *testing.T) {
+            c := client.New()
+            defer c.Close()
+
+            var gotNoti []string
+            q.NotificationHandler = func(n client.Notification) error {
+                if nn, ok := n.(client.Update); ok {
+                    nn.TS = time.Unix(0, 200)
+                    str := fmt.Sprintf("%v", nn.Val)
+                    gotNoti = append(gotNoti, str)
+                }
+                return nil
+            }
+
+            go func() {
+                c.Subscribe(context.Background(), q)
+            }()
+
+            // wait for half second for subscribeRequest to sync
+            time.Sleep(time.Millisecond * 2000)
+
+            if len(events) != len(gotNoti) {
+                t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events))
+            }
+
+            if (heartbeat != HEARTBEAT_SET) {
+                t.Errorf("Heartbeat is not set %d != expected:%d", heartbeat, HEARTBEAT_SET)
+            }
+            fmt.Printf("DONE: events:%d gotNoti=%d\n", len(events), len(gotNoti))
+        })
+        time.Sleep(time.Millisecond * 1000)
+
+        if (deinit_done == false) {
+            t.Errorf("Events client deinit *NOT* called.")
+        }
+        // t.Log("END of a TEST")
+    }
+
+    s.s.Stop()
 }
 
 func init() {

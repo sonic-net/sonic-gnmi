@@ -72,12 +72,16 @@ type EventClient struct {
     last_errors uint64
 }
 
-func set_heartbeat(val int) {
+func Set_heartbeat(val int) {
     s := fmt.Sprintf("{\"HEARTBEAT_INTERVAL\":%d}", val)
     rc := C.event_set_global_options(C.CString(s));
     if rc != 0  {
         log.V(4).Infof("Failed to set heartbeat val=%d rc=%d", val, rc)
     }
+}
+
+func C_init_subs() unsafe.Pointer {
+    return C.events_init_subscriber_wrap(true, C.int(SUBSCRIBER_TIMEOUT))
 }
 
 func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Client, error) {
@@ -94,8 +98,9 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
             if (k == PARAM_HEARTBEAT) {
                 if val, err := strconv.Atoi(v); err == nil {
                     log.V(7).Infof("evtc.heartbeat_interval is set to %d", val)
-                    set_heartbeat(val)
+                    Set_heartbeat(val)
                 }
+                break
             }
         }
     }
@@ -103,7 +108,7 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
     C.swssSetLogPriority(C.int(logLevel))
 
     /* Init subscriber with cache use and defined time out */
-    evtc.subs_handle = C.events_init_subscriber_wrap(true, C.int(SUBSCRIBER_TIMEOUT))
+    evtc.subs_handle = C_init_subs()
     evtc.stopped = 0
 
     /* Init list & counters */
@@ -133,21 +138,19 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
 func compute_latency(evtc *EventClient) {
     if evtc.last_latency_full {
         var total uint64 = 0
-        var cnt uint64 = 0
 
         for _, v := range evtc.last_latencies {
             if v > 0 {
                 total += v
-                cnt += 1
             }
         }
-        if (cnt > 0) {
-            evtc.counters[LATENCY] = (uint64) (total/cnt/1000/1000)
-        }
+        evtc.counters[LATENCY] = (uint64) (total/LATENCY_LIST_SIZE/1000/1000)
     }
 }
 
 func update_stats(evtc *EventClient) {
+    defer evtc.wg.Done()
+
     /* Wait for any update */
     db_counters := make(map[string]uint64)
     var wr_counters *map[string]uint64 = nil
@@ -234,12 +237,36 @@ func (evtc *EventClient) String() string {
     return fmt.Sprintf("EventClient Prefix %v", evtc.prefix.GetTarget())
 }
 
+var evt_ptr *C.event_receive_op_C_t
+
+type Evt_rcvd struct {
+    Event_str           string
+    Missed_cnt          uint32
+    Publish_epoch_ms    int64
+}
+
+func C_recv_evt(h unsafe.Pointer) (int, Evt_rcvd) {
+    var evt Evt_rcvd
+
+    rc := (int)(C.event_receive_wrap(h, evt_ptr))
+    evt.Event_str = C.GoString((*C.char)(evt_ptr.event_str))
+    evt.Missed_cnt = (uint32)(evt_ptr.missed_cnt)
+    evt.Publish_epoch_ms = (int64)(evt_ptr.publish_epoch_ms)
+
+    return rc, evt
+}
+
+func C_deinit_subs(h unsafe.Pointer) {
+    C.events_deinit_subscriber_wrap(h)
+}
 
 func get_events(evtc *EventClient) {
+    defer evtc.wg.Done()
+
     str_ptr := C.malloc(C.sizeof_char * C.size_t(EVENT_BUFFSZ)) 
     defer C.free(unsafe.Pointer(str_ptr))
 
-    evt_ptr := (*C.event_receive_op_C_t)(C.malloc(C.size_t(unsafe.Sizeof(C.event_receive_op_C_t{}))))
+    evt_ptr = (*C.event_receive_op_C_t)(C.malloc(C.size_t(unsafe.Sizeof(C.event_receive_op_C_t{}))))
     defer C.free(unsafe.Pointer(evt_ptr))
 
     evt_ptr.event_str = (*C.char)(str_ptr)
@@ -247,24 +274,19 @@ func get_events(evtc *EventClient) {
 
     for {
 
-        rc := C.event_receive_wrap(evtc.subs_handle, evt_ptr)
+        rc, evt := C_recv_evt(evtc.subs_handle)
         log.V(7).Infof("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(str_ptr))
 
         if rc == 0 {
-            var cnt uint64
-            cnt = (uint64)(evt_ptr.missed_cnt)
-            evtc.counters[MISSED] += cnt
+            evtc.counters[MISSED] += (uint64)(evt.Missed_cnt)
             qlen := evtc.q.Len()
-            estr := C.GoString((*C.char)(evt_ptr.event_str))
 
             if (qlen < PQ_MAX_SIZE) {
                 evtTv := &gnmipb.TypedValue {
                     Value: &gnmipb.TypedValue_StringVal {
-                        StringVal: estr,
+                        StringVal: evt.Event_str,
                     }}
-                var ts int64
-                ts = (int64)(evt_ptr.publish_epoch_ms)
-                if err := send_event(evtc, evtTv, ts); err != nil {
+                if err := send_event(evtc, evtTv, evt.Publish_epoch_ms); err != nil {
                     return
                 }
             } else {
@@ -273,7 +295,7 @@ func get_events(evtc *EventClient) {
         }
         if evtc.stopped == 1 {
             log.V(1).Infof("%v stop channel closed, exiting get_events routine", evtc)
-            C.events_deinit_subscriber_wrap(evtc.subs_handle)
+            C_deinit_subs(evtc.subs_handle)
             evtc.subs_handle = nil
             return
         }
@@ -308,7 +330,9 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     evtc.channel = stop
 
     go get_events(evtc)
+    evtc.wg.Add(1)
     go update_stats(evtc)
+    evtc.wg.Add(1)
 
     for {
         select {

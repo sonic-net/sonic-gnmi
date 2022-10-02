@@ -17,8 +17,8 @@ SRC_FILES=$(shell find . -name '*.go' | grep -v '_test.go' | grep -v '/tests/')
 TEST_FILES=$(wildcard *_test.go)
 TELEMETRY_TEST_DIR = build/tests/gnmi_server
 TELEMETRY_TEST_BIN = $(TELEMETRY_TEST_DIR)/server.test
-ifeq ($(TELEMETRY_WRITABLE),y)
-BLD_FLAGS := -tags readwrite
+ifeq ($(ENABLE_TRANSLIB_WRITE),y)
+BLD_FLAGS := -tags gnmi_translib_write
 endif
 
 GO_DEPS := vendor/.done
@@ -65,14 +65,14 @@ else
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
 endif
 
-check:
+check_gotest:
 	sudo mkdir -p ${DBDIR}
 	sudo cp ./testdata/database_config.json ${DBDIR}
 	sudo mkdir -p /usr/models/yang || true
 	sudo find $(MGMT_COMMON_DIR)/models -name '*.yang' -exec cp {} /usr/models/yang/ \;
-	-sudo $(GO) test -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
-	-sudo $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server
-	-sudo $(GO) test -coverprofile=coverage-dialcout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
+	sudo $(GO) test -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
+	sudo $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server
+	sudo $(GO) test -coverprofile=coverage-dialcout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
 	$(GO) get github.com/axw/gocov/...
 	$(GO) get github.com/AlekSi/gocov-xml
 	gocov convert coverage-*.txt | gocov-xml -source $(shell pwd) > coverage.xml
@@ -85,7 +85,11 @@ clean:
 $(TELEMETRY_TEST_BIN): $(TEST_FILES) $(SRC_FILES)
 	mkdir -p $(@D)
 	cp -r testdata $(@D)/
+ifeq ($(CONFIGURED_ARCH),armhf)
+	touch $@
+else
 	$(GO) test -mod=vendor $(BLD_FLAGS) -c -cover github.com/sonic-net/sonic-gnmi/gnmi_server -o $@
+endif
 
 install:
 	$(INSTALL) -D $(BUILD_DIR)/telemetry $(DESTDIR)/usr/sbin/telemetry
