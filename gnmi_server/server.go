@@ -48,7 +48,6 @@ type Config struct {
 	// for this Server.
 	Port     int64
 	LogLevel int
-	PqMax int
 	UserAuth AuthTypes
 	EnableTranslibWrite bool
 }
@@ -238,7 +237,6 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	c := NewClient(pr.Addr)
 
 	c.setLogLevel(s.config.LogLevel)
-	c.setPqMax(s.config.PqMax)
 
 	s.cMu.Lock()
 	if oc, ok := s.clients[c.String()]; ok {

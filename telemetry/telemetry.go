@@ -24,7 +24,6 @@ var (
 	serverCert        = flag.String("server_crt", "", "TLS server certificate")
 	serverKey         = flag.String("server_key", "", "TLS server private key")
 	insecure          = flag.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!")
-	qsize             = flag.Int("qsize", 0, "Change default Q Max size")
 	noTLS             = flag.Bool("noTLS", false, "disable TLS, for testing only!")
 	allowNoClientCert = flag.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate.")
 	jwtRefInt         = flag.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed.")
@@ -63,7 +62,6 @@ func main() {
 	cfg.Port = int64(*port)
 	cfg.EnableTranslibWrite = bool(*gnmi_translib_write)
 	cfg.LogLevel = 3
-	cfg.PqMax = *qsize
 	var opts []grpc.ServerOption
 
 	if val, err := strconv.Atoi(getflag("v")); err == nil {

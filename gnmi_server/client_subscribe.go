@@ -31,7 +31,6 @@ type Client struct {
 	w     sync.WaitGroup
 	fatal bool
 	logLevel   int
-	pqMax   int
 }
 
 // Syslog level for error
@@ -51,10 +50,6 @@ func NewClient(addr net.Addr) *Client {
 
 func (c *Client) setLogLevel(lvl int) {
 	c.logLevel = lvl
-}
-
-func (c *Client) setPqMax(lvl int) {
-	c.pqMax = lvl
 }
 
 // String returns the target the client is querying.
@@ -142,7 +137,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
 	} else if ((target == "EVENTS") && (mode == gnmipb.SubscriptionList_STREAM)) {
-		dc, err = sdc.NewEventClient(paths, prefix, c.logLevel, c.pqMax)
+		dc, err = sdc.NewEventClient(paths, prefix, c.logLevel)
 	} else if _, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
 	} else {

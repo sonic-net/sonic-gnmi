@@ -51,6 +51,7 @@ const TEST_EVENT = "{\"sonic-host:device-test-event"
 
 // Path parameter
 const PARAM_HEARTBEAT = "heartbeat"
+const PARAM_QSIZE = "qsize"
 
 type EventClient struct {
 
@@ -89,16 +90,11 @@ func C_init_subs() unsafe.Pointer {
     return C.events_init_subscriber_wrap(true, C.int(SUBSCRIBER_TIMEOUT))
 }
 
-func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int, pq_max int) (Client, error) {
+func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Client, error) {
     var evtc EventClient
     evtc.prefix = prefix
-    if pq_max != 0 {
-        evtc.pq_max = pq_max
-        log.V(1).Infof("Events priority Q max set to %v", evtc.pq_max)
-    } else {
-        evtc.pq_max = PQ_MAX_SIZE
-        log.V(4).Infof("Events priority Q max set default = %v", evtc.pq_max)
-    }
+    evtc.pq_max = PQ_MAX_SIZE
+    log.V(4).Infof("Events priority Q max set default = %v", evtc.pq_max)
 
     for _, path := range paths {
         // Only one path is expected. Take the last if many
@@ -113,7 +109,11 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int, pq_
                     log.V(7).Infof("evtc.heartbeat_interval is set to %d", val)
                     Set_heartbeat(val)
                 }
-                break
+            } else if (k == PARAM_QSIZE) {
+                if val, err := strconv.Atoi(v); err == nil {
+                    evtc.pq_max = val
+                    log.V(7).Infof("Events priority Q max set by qsize param = %v", evtc.pq_max)
+                }
             }
         }
     }
