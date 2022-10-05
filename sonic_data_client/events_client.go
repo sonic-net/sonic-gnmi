@@ -33,7 +33,11 @@ const SUBSCRIBER_TIMEOUT = (2 * 1000)  // 2 seconds
 const EVENT_BUFFSZ = 4096
 
 const LATENCY_LIST_SIZE = 10  // Size of list of latencies.
-const PQ_MAX_SIZE = 10240     // Max cnt of pending events in PQ.
+const PQ_DEF_SIZE = 10240     // Def size for pending events in PQ.
+const PQ_MIN_SIZE = 1024      // Min size for pending events in PQ.
+const PQ_MAX_SIZE = 102400    // Max size for pending events in PQ.
+
+const HEARTBEAT_MAX = 600     // 10 mins
 
 // STATS counters
 const MISSED = "COUNTERS_EVENTS:missed_internal"
@@ -93,7 +97,7 @@ func C_init_subs() unsafe.Pointer {
 func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Client, error) {
     var evtc EventClient
     evtc.prefix = prefix
-    evtc.pq_max = PQ_MAX_SIZE
+    evtc.pq_max = PQ_DEF_SIZE
     log.V(4).Infof("Events priority Q max set default = %v", evtc.pq_max)
 
     for _, path := range paths {
@@ -106,11 +110,25 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
         for k, v := range keys {
             if (k == PARAM_HEARTBEAT) {
                 if val, err := strconv.Atoi(v); err == nil {
+                    if (val > HEARTBEAT_MAX) {
+                        log.V(4).Infof("heartbeat req %v > max %v; default to max", val, HEARTBEAT_MAX)
+                        val = HEARTBEAT_MAX
+                    }
                     log.V(7).Infof("evtc.heartbeat_interval is set to %d", val)
                     Set_heartbeat(val)
                 }
             } else if (k == PARAM_QSIZE) {
                 if val, err := strconv.Atoi(v); err == nil {
+                    qval := val
+                    if (val < PQ_MIN_SIZE) {
+                        val = PQ_MIN_SIZE
+                    } else if val > PQ_MAX_SIZE) {
+                        val = PQ_MAX_SIZE
+                    }
+                    if val != qval {
+                        log.V(4).Infof("Events priority Q request %v updated to nearest limit %v",
+                            qval, val)
+                    }
                     evtc.pq_max = val
                     log.V(7).Infof("Events priority Q max set by qsize param = %v", evtc.pq_max)
                 }
@@ -293,12 +311,12 @@ func get_events(evtc *EventClient) {
         if rc == 0 {
             evtc.counters[MISSED] += (uint64)(evt.Missed_cnt)
 
-            if ! strings.HasPrefix(evt.Event_str, TEST_EVENT) {
+            if !strings.HasPrefix(evt.Event_str, TEST_EVENT) {
                 qlen := evtc.q.Len()
 
                 if (qlen < evtc.pq_max) {
                     var fvp map[string]interface{}
-                    json.Unmarshal([]byte(evt.Event_str ), &fvp)
+                    json.Unmarshal([]byte(evt.Event_str), &fvp)
 
                     jv, err := json.Marshal(fvp)
 
