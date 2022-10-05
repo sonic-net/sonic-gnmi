@@ -122,7 +122,7 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
                     qval := val
                     if (val < PQ_MIN_SIZE) {
                         val = PQ_MIN_SIZE
-                    } else if val > PQ_MAX_SIZE) {
+                    } else if (val > PQ_MAX_SIZE) {
                         val = PQ_MAX_SIZE
                     }
                     if val != qval {
