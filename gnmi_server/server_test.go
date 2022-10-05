@@ -2605,7 +2605,6 @@ func TestAuthCapabilities(t *testing.T) {
 func TestClient(t *testing.T) {
     // sonic-host:device-test-event is a test event. 
     // Events client will drop it on floor.
-    //
     events := [] sdc.Evt_rcvd {
         { "test0", 7, 777 },
         { "test1", 6, 677 },
@@ -2698,11 +2697,9 @@ func TestClient(t *testing.T) {
 
             // wait for half second for subscribeRequest to sync
             // and to receive events via notification handler.
-            //
             time.Sleep(time.Millisecond * 2000)
 
             // -1 to discount test event, which receiver would drop.
-            //
             if (len(events) - 1) != len(gotNoti) {
                 t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
             }
