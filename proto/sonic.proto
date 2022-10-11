@@ -11,7 +11,6 @@ enum Target {
   APPL_DB         = 0;
   ASIC_DB         = 1;
   COUNTERS_DB     = 2;
-  LOGLEVEL_DB     = 3;
   CONFIG_DB       = 4;
   // PFC_WD_DB shares the the same db number with FLEX_COUNTER_DB
   PFC_WD_DB       = 5;
