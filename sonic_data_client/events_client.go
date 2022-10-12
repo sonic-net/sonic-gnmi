@@ -313,7 +313,6 @@ func get_events(evtc *EventClient) {
     for {
 
         rc, evt := C_recv_evt(evtc.subs_handle)
-        log.V(7).Infof("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(str_ptr))
 
         if rc == 0 {
             evtc.counters[MISSED] += (uint64)(evt.Missed_cnt)
