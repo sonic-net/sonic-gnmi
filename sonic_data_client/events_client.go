@@ -56,6 +56,7 @@ const TEST_EVENT = "{\"sonic-host:device-test-event"
 // Path parameter
 const PARAM_HEARTBEAT = "heartbeat"
 const PARAM_QSIZE = "qsize"
+const PARAM_USE_CACHE = "usecache"
 
 type EventClient struct {
 
@@ -90,12 +91,13 @@ func Set_heartbeat(val int) {
     }
 }
 
-func C_init_subs() unsafe.Pointer {
-    return C.events_init_subscriber_wrap(true, C.int(SUBSCRIBER_TIMEOUT))
+func C_init_subs(use_cache bool) unsafe.Pointer {
+    return C.events_init_subscriber_wrap(C.bool(use_cache), C.int(SUBSCRIBER_TIMEOUT))
 }
 
 func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Client, error) {
     var evtc EventClient
+    use_cache := true
     evtc.prefix = prefix
     evtc.pq_max = PQ_DEF_SIZE
     log.V(4).Infof("Events priority Q max set default = %v", evtc.pq_max)
@@ -132,6 +134,11 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
                     evtc.pq_max = val
                     log.V(7).Infof("Events priority Q max set by qsize param = %v", evtc.pq_max)
                 }
+            } else if (k == PARAM_USE_CACHE) {
+                if strings.ToLower(v) == "false" {
+                    use_cache = false
+                    log.V(7).Infof("Cache use is turned off")
+                }
             }
         }
     }
@@ -139,7 +146,7 @@ func NewEventClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Cl
     C.swssSetLogPriority(C.int(logLevel))
 
     /* Init subscriber with cache use and defined time out */
-    evtc.subs_handle = C_init_subs()
+    evtc.subs_handle = C_init_subs(use_cache)
     evtc.stopped = 0
 
     /* Init list & counters */
@@ -306,6 +313,7 @@ func get_events(evtc *EventClient) {
     for {
 
         rc, evt := C_recv_evt(evtc.subs_handle)
+        log.V(7).Infof("C.event_receive_wrap rc=%d evt:%s", rc, (*C.char)(str_ptr))
 
         if rc == 0 {
             evtc.counters[MISSED] += (uint64)(evt.Missed_cnt)
