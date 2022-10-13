@@ -39,6 +39,31 @@ You can also build a debian package and install it:
 * See [SONiC telemetry in dial-out mode](./doc/dialout.md) for how to run dial-out mode system telemetry client
 * See [gNMI Usage Examples](./doc/gNMI_usage_examples.md) for gNMI client usage examples.
 
+### Streaming events
+SONiC publishes events of interest via gNMI.
+Sample events could be bgp-state change, link-state change.
+A sample query URL is as below.
+    `gnmi_cli -client_types=gnmi -a 127.0.0.1:50051 -t EVENTS -logtostderr -insecure -v 7 -streaming_type ON_CHANGE -q all -qt s`
+
+The events URL can take the following optional parameters.<br/>
+heartbeat:<br/>
+    `[heartbeat=<N>]`
+<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;The SONiC switch publishes periodic hearbeats when there are no events to publish.<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;The frequency of the heartbeat can be controlled by this parameter as beat in every N seconds.<br/>
+
+usecache:<br/>
+    `[usecache=true/false]`
+<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;The SONiC switch does offline cache when gNMI client is down.<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;The cached events are delivered upon nest gNMI connection<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;Only one client should use the cache service<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;The cached events are delivered upon nest gNMI connection<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;If you are running test clients, use this param to turn off cache use.<br/>
+
+Sample URL: <br/>
+`gnmi_cli -client_types=gnmi -a 127.0.0.1:50051 -t EVENTS -logtostderr -insecure -v 7 -streaming_type ON_CHANGE -q all[heartbeat=5][usecache=false] -qt s`
+
 ## Need Help?
 
 For general questions, setup help, or troubleshooting:

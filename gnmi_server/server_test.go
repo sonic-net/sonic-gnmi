@@ -2619,7 +2619,7 @@ func TestClient(t *testing.T) {
     rcv_timeout := sdc.SUBSCRIBER_TIMEOUT
     deinit_done := false
 
-    mock1 := gomonkey.ApplyFunc(sdc.C_init_subs, func() unsafe.Pointer {
+    mock1 := gomonkey.ApplyFunc(sdc.C_init_subs, func(use_cache bool) unsafe.Pointer {
         return nil
 	})
 	defer mock1.Reset()
@@ -2672,7 +2672,7 @@ func TestClient(t *testing.T) {
         },
     }
 
-    sdc.C_init_subs()
+    sdc.C_init_subs(true)
 
     for _, tt := range tests {
         heartbeat = 0
