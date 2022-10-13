@@ -34,12 +34,12 @@ You can also build a debian package and install it:
     dpkg-buildpackage -rfakeroot -b -us -uc
     popd
 
-### Running
+## Running
 * See [SONiC gRPC telemetry](./doc/grpc_telemetry.md) for how to run dial-in mode system telemetry server
 * See [SONiC telemetry in dial-out mode](./doc/dialout.md) for how to run dial-out mode system telemetry client
 * See [gNMI Usage Examples](./doc/gNMI_usage_examples.md) for gNMI client usage examples.
 
-### Streaming events
+## Streaming events
 SONiC publishes events of interest via gNMI.
 Sample events could be bgp-state change, link-state change.
 A sample query URL is as below.
@@ -63,6 +63,25 @@ usecache:<br/>
 
 Sample URL: <br/>
 `gnmi_cli -client_types=gnmi -a 127.0.0.1:50051 -t EVENTS -logtostderr -insecure -v 7 -streaming_type ON_CHANGE -q all[heartbeat=5][usecache=false] -qt s`
+
+## gnmi_cli is updated with following args
+### To receive events to a file:
+Add `-output_file=<file>`
+
+### To filter out for specific event:
+Add `-expected_event=<event module:event tag>`
+
+e.g. `-expected_event=sonic-events-bgp:bgp-state`
+
+### To read N events and exit
+Add `-expected_count <N>`
+
+### To run with a max timeout:
+Add `-streaming_timeout 10`
+
+The following cmd will run the tool until it receives 5 test events or timeout upon 10s, whichever is earlier and receives events are written into file "/tmp/ee".
+
+`gnmi_cli -client_types=gnmi -a 127.0.0.1:50051 -t EVENTS -logtostderr -insecure -v 7 -qt s -q all[heartbeat=5] -streaming_type ON_CHANGE -output_file=/tmp/ee -expected_event=":test-tag" -expected_count 5 -streaming_timeout 10`
 
 ## Need Help?
 
