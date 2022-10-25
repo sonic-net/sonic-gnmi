@@ -12,7 +12,8 @@ import (
 	"context"
 	"log/syslog"
 	"github.com/Azure/sonic-mgmt-common/translib/tlerr"
-
+	"strconv"
+	"sort"
 )
 
 var (
@@ -80,6 +81,9 @@ func ConvertToURI(prefix *gnmipb.Path, path *gnmipb.Path, req *string) error {
 	elems := fullPath.GetElem()
 	*req = "/"
 
+	num_key_map := make(map[int]string)
+	key_val_map := make(map[string]string)
+
 	if elems != nil {
 		/* Iterate through elements. */
 		for i, elem := range elems {
@@ -94,8 +98,32 @@ func ConvertToURI(prefix *gnmipb.Path, path *gnmipb.Path, req *string) error {
 			/* If keys are present , process the keys. */
 			if key != nil {
 				for k, v := range key {
-					log.V(6).Infof("elem : %#v %#v", k, v)
-					*req += "[" + k + "=" + v + "]"
+					//log.V(6).Infof("elem : %#v %#v", k, v)
+					//*req += "[" + k + "=" + v + "]"
+					num_str := k[strings.Index(k, "[") + 1 : strings.Index(k, "]")]
+					log.V(6).Infof("num : %#v", num_str)
+					key_del_num := k[strings.Index(k, "]") + 1 : len(k)]
+					log.V(6).Infof("elem : %#v %#v", key_del_num, v)
+					num, err := strconv.Atoi(num_str)
+					if err != nil {
+					    return err
+					}
+					num_key_map[num] = key_del_num
+					key_val_map[key_del_num] = v
+				}
+
+				log.V(6).Infof("num_key_map : %#v", num_key_map)
+				log.V(6).Infof("key_val_map : %#v", key_val_map)
+
+				if num_key_map != nil {
+					var num_list []int
+					for num_key_map_k := range num_key_map {
+					    num_list = append(num_list, num_key_map_k)
+					}
+					sort.Ints(num_list)
+					for _, num_list_v := range num_list {
+					    *req += "[" + num_key_map[num_list_v] + "=" + key_val_map[num_key_map[num_list_v]] + "]"
+					}
 				}
 
 				/* Append "/" after all keys are processed. */

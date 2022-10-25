@@ -1,0 +1,34 @@
+--- ./github.com/jipanyang/gnxi/utils/xpath/xpath.go	2022-10-25 16:16:00.239783329 +0800
++++ ./github.com/jipanyang/gnxi/utils/xpath/xpath.go	2022-10-25 15:56:18.336168598 +0800
+@@ -20,6 +20,7 @@
+ 	"fmt"
+ 	"regexp"
+ 	"strings"
++	"strconv"
+ )
+ 
+ var (
+@@ -135,9 +136,10 @@
+ // For example, given
+ //	"[k1=v1][k2=v2]",
+ // this API returns
+-//	map[string]string{"k1": "v1", "k2": "v2"}.
++//	map[string]string{"[0]k1": "v1", "[1]k2": "v2"}.
+ func parseKeyValueString(str string) (map[string]string, error) {
+ 	keyValuePairs := make(map[string]string)
++	var num int = 0
+ 	// begin marks the beginning of a key-value pair.
+ 	begin := 0
+ 	// end marks the end of a key-value pair.
+@@ -170,7 +172,10 @@
+ 				// Recover escaped '[' and ']'.
+ 				val = strings.Replace(val, `\]`, `]`, -1)
+ 				val = strings.Replace(val, `\[`, `[`, -1)
+-				keyValuePairs[key] = val
++//				keyValuePairs[key] = val
++				key_with_num := "[" + strconv.Itoa(num) + "]" + key
++				keyValuePairs[key_with_num] = val
++				num++
+ 				begin = end + 1
+ 			}
+ 			end++

@@ -41,6 +41,7 @@ $(GO_DEPS): go.mod $(PATCHES)
 	patch -d vendor -p0 < patches/gnmi_cli.all.patch
 	patch -d vendor -p0 < patches/gnmi_set.patch
 	patch -d vendor -p0 < patches/gnmi_get.patch
+	patch -d vendor -p0 < patches/xpath.patch
 	git apply patches/0001-Updated-to-filter-and-write-to-file.patch
 	touch $@
 
