@@ -650,6 +650,10 @@ func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 			var key string
 			// Split dbkey string into two parts and second part is key in table
 			keys := strings.SplitN(dbkey, tblPath.delimitor, 2)
+			if len(keys) < 2 {
+				log.V(2).Infof("dbkey string is invalid %s, does not contain key in table", dbkey)
+				return fmt.Errorf("Invalid dbkey %s, does not contain key in table", dbkey)
+			}
 			key = keys[1]
 			err = makeJSON_redis(msi, &key, op, fv)
 		}
