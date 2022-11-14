@@ -36,6 +36,16 @@ const requestContextKey contextkey = 0
 // Request Id generator
 var requestCounter uint64
 
+var CountersName = [...]string {
+	"GNMI get",
+	"GNMI get fail",
+	"GNMI set",
+	"GNMI set fail",
+}
+
+var globalCounters [len(CountersName)]uint64
+
+
 // GetContext function returns the RequestContext object for a
 // gRPC request. RequestContext is maintained as a context value of
 // the request. Creates a new RequestContext object is not already
@@ -55,8 +65,25 @@ func GetContext(ctx context.Context) (*RequestContext, context.Context) {
 
 func GetUsername(ctx context.Context, username *string) {
 	rc, _ := GetContext(ctx)
-        if rc != nil {
-            *username = rc.Auth.User
-        }
+	if rc != nil {
+		*username = rc.Auth.User
+	}
+}
+
+func InitCounters() {
+	for i := 0; i < len(CountersName); i++ {
+		globalCounters[i] = 0
+	}
+	SetMemCounters(&globalCounters)
+}
+
+func IncCounter(name string) {
+	for i := 0; i < len(CountersName); i++ {
+		if CountersName[i] == name {
+			atomic.AddUint64(&globalCounters[i], 1)
+			break
+		}
+	}
+	SetMemCounters(&globalCounters)
 }
 
