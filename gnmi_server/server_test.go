@@ -808,7 +808,7 @@ func TestGnmiSetAuthFail(t *testing.T) {
 	if !ok {
 		t.Fatal("got a non-grpc error from grpc call")
 	}
-	wantRetCode := codes.Unimplemented
+	wantRetCode := codes.Unauthenticated
 	if gotRetStatus.Code() != wantRetCode {
 		t.Log("err: ", err)
 		t.Fatalf("got return code %v, want %v", gotRetStatus.Code(), wantRetCode)
@@ -818,6 +818,7 @@ func TestGnmiSetAuthFail(t *testing.T) {
 func TestGnmiGetAuthFail(t *testing.T) {
 	s := createAuthServer(t, 8081)
 	go runServer(t, s)
+	defer s.s.Stop()
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
