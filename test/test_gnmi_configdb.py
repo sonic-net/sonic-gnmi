@@ -115,7 +115,13 @@ patch_file = '/tmp/gcu.patch'
 config_file = '/tmp/config_db.json.tmp'
 checkpoint_file = '/etc/sonic/config.cp.json'
 
+def create_dir(path):
+    isExists = os.path.exists(path)
+    if not isExists:
+        os.makedirs(path)
+
 def create_checkpoint(file_name, text):
+    create_dir(os.path.dirname(file_name))
     file_object = open(file_name, 'w')
     file_object.write(text)
     file_object.close()
