@@ -18,7 +18,14 @@ TEST_FILES=$(wildcard *_test.go)
 TELEMETRY_TEST_DIR = build/tests/gnmi_server
 TELEMETRY_TEST_BIN = $(TELEMETRY_TEST_DIR)/server.test
 ifeq ($(ENABLE_TRANSLIB_WRITE),y)
-BLD_FLAGS := -tags gnmi_translib_write
+BLD_TAGS := gnmi_translib_write
+endif
+ifeq ($(ENABLE_NATIVE_WRITE),y)
+BLD_TAGS := $(BLD_TAGS) gnmi_native_write
+endif
+
+ifneq ($(BLD_TAGS),)
+BLD_FLAGS := -tags "$(strip $(BLD_TAGS))"
 endif
 
 GO_DEPS := vendor/.done
@@ -41,6 +48,8 @@ $(GO_DEPS): go.mod $(PATCHES)
 	patch -d vendor -p0 < patches/gnmi_cli.all.patch
 	patch -d vendor -p0 < patches/gnmi_set.patch
 	patch -d vendor -p0 < patches/gnmi_get.patch
+	patch -d vendor -p0 < patches/gnmi_path.patch
+	patch -d vendor -p0 < patches/gnmi_xpath.patch
 	git apply patches/0001-Updated-to-filter-and-write-to-file.patch
 	touch $@
 
@@ -49,7 +58,7 @@ go-deps: $(GO_DEPS)
 go-deps-clean:
 	$(RM) -r vendor
 
-sonic-gnmi: $(GO_DEPS)
+sonic-gnmi: $(GO_DEPS) libswss
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
 	$(GO) build -o ${GOBIN}/dialout_client_cli -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
@@ -57,6 +66,7 @@ ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/gnmi_set -mod=vendor github.com/jipanyang/gnxi/gnmi_set
 	$(GO) build -o ${GOBIN}/gnmi_cli -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 	$(GO) build -o ${GOBIN}/gnoi_client -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
+	$(GO) build -o ${GOBIN}/gnmi_dump -mod=vendor github.com/sonic-net/sonic-gnmi/gnmi_dump
 else
 	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
 	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
@@ -64,7 +74,13 @@ else
 	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_set
 	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
+	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnmi_dump
 endif
+
+# TODO: Create a new repo for this lib, sonic-restapi and sonic-gnmi can share this lib
+libswss:
+	make -C libcswsscommon
+	sudo make -C libcswsscommon install
 
 check_gotest:
 	sudo mkdir -p ${DBDIR}
@@ -72,8 +88,10 @@ check_gotest:
 	sudo mkdir -p /usr/models/yang || true
 	sudo find $(MGMT_COMMON_DIR)/models -name '*.yang' -exec cp {} /usr/models/yang/ \;
 	sudo $(GO) test -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
-	sudo $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server
+	sudo $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
 	sudo $(GO) test -coverprofile=coverage-dialcout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
+	sudo $(GO) test -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_data_client
+	sudo $(GO) test -coverprofile=coverage-dbus.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_service_client
 	$(GO) get github.com/axw/gocov/...
 	$(GO) get github.com/AlekSi/gocov-xml
 	gocov convert coverage-*.txt | gocov-xml -source $(shell pwd) > coverage.xml
@@ -99,6 +117,7 @@ install:
 	$(INSTALL) -D $(BUILD_DIR)/gnmi_set $(DESTDIR)/usr/sbin/gnmi_set
 	$(INSTALL) -D $(BUILD_DIR)/gnmi_cli $(DESTDIR)/usr/sbin/gnmi_cli
 	$(INSTALL) -D $(BUILD_DIR)/gnoi_client $(DESTDIR)/usr/sbin/gnoi_client
+	$(INSTALL) -D $(BUILD_DIR)/gnmi_dump $(DESTDIR)/usr/sbin/gnmi_dump
 
 
 deinstall:
@@ -107,5 +126,6 @@ deinstall:
 	rm $(DESTDIR)/usr/sbin/gnmi_get
 	rm $(DESTDIR)/usr/sbin/gnmi_set
 	rm $(DESTDIR)/usr/sbin/gnoi_client
+	rm $(DESTDIR)/usr/sbin/gnmi_dump
 
 

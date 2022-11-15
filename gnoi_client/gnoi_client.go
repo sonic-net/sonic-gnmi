@@ -51,6 +51,12 @@ func main() {
 		switch *rpc {
 		case "Time":
 			systemTime(sc, ctx)
+		case "Reboot":
+			systemReboot(sc, ctx)
+		case "CancelReboot":
+			systemCancelReboot(sc, ctx)
+		case "RebootStatus":
+			systemRebootStatus(sc, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
@@ -93,6 +99,48 @@ func systemTime(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println("System Time")
 	ctx = setUserCreds(ctx)
 	resp,err := sc.Time(ctx, new(gnoi_system_pb.TimeRequest))
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
+}
+
+func systemReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System Reboot")
+	ctx = setUserCreds(ctx)
+	req := &gnoi_system_pb.RebootRequest {}
+	json.Unmarshal([]byte(*args), req)
+	_,err := sc.Reboot(ctx, req)
+	if err != nil {
+		panic(err.Error())
+	}
+}
+
+func systemCancelReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System CancelReboot")
+	ctx = setUserCreds(ctx)
+	req := &gnoi_system_pb.CancelRebootRequest {}
+	json.Unmarshal([]byte(*args), req)
+	resp,err := sc.CancelReboot(ctx, req)
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
+}
+
+func systemRebootStatus(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System RebootStatus")
+	ctx = setUserCreds(ctx)
+	req := &gnoi_system_pb.RebootStatusRequest {}
+	resp,err := sc.RebootStatus(ctx, req)
 	if err != nil {
 		panic(err.Error())
 	}

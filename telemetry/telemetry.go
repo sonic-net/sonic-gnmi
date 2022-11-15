@@ -29,6 +29,7 @@ var (
 	jwtRefInt         = flag.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed.")
 	jwtValInt         = flag.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for.")
 	gnmi_translib_write = flag.Bool("gnmi_translib_write", gnmi.ENABLE_TRANSLIB_WRITE, "Enable gNMI translib write for management framework")
+	gnmi_native_write   = flag.Bool("gnmi_native_write", gnmi.ENABLE_NATIVE_WRITE, "Enable gNMI native write")
 )
 
 func main() {
@@ -61,6 +62,7 @@ func main() {
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*port)
 	cfg.EnableTranslibWrite = bool(*gnmi_translib_write)
+	cfg.EnableNativeWrite = bool(*gnmi_native_write)
 	cfg.LogLevel = 3
 	var opts []grpc.ServerOption
 
@@ -137,6 +139,7 @@ func main() {
 	cfg.Port = int64(*port)
 	cfg.UserAuth = userAuth
 	cfg.EnableTranslibWrite = bool(*gnmi_translib_write)
+	cfg.EnableNativeWrite = bool(*gnmi_native_write)
 
 	gnmi.GenerateJwtSecretKey()
 }

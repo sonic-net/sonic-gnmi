@@ -2,12 +2,17 @@ package gnmi
 
 import (
 	"context"
+	"errors"
+	"os"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	log "github.com/golang/glog"
 	"time"
 	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
+	io "io/ioutil"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/codes"
 	"os/user"
@@ -15,14 +20,42 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
+func RebootSystem(fileName string) error {
+	log.V(2).Infof("Rebooting with %s...", fileName)
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		return err
+	}
+	err = sc.ConfigReload(fileName)
+	return err
+}
+
 func (srv *Server) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
+	fileName := common_utils.GNMI_WORK_PATH + "/config_db.json.tmp"
+
 	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
 		return nil, err
 	}
 	log.V(1).Info("gNOI: Reboot")
-	return nil, status.Errorf(codes.Unimplemented, "")
+	log.V(1).Info("Request:", req)
+	log.V(1).Info("Reboot system now, delay is ignored...")
+	// TODO: Support GNOI reboot delay
+	// Delay in nanoseconds before issuing reboot.
+	// https://github.com/openconfig/gnoi/blob/master/system/system.proto#L102-L115
+	config_db_json, err := io.ReadFile(fileName)
+	if errors.Is(err, os.ErrNotExist) {
+		fileName = ""
+	}
+	err = RebootSystem(string(config_db_json))
+	if err != nil {
+		return nil, err
+	}
+	var resp gnoi_system_pb.RebootResponse
+	return &resp, nil
 }
+
+// TODO: Support GNOI RebootStatus
 func (srv *Server) RebootStatus(ctx context.Context, req *gnoi_system_pb.RebootStatusRequest) (*gnoi_system_pb.RebootStatusResponse, error) {
 	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {
@@ -31,6 +64,8 @@ func (srv *Server) RebootStatus(ctx context.Context, req *gnoi_system_pb.RebootS
 	log.V(1).Info("gNOI: RebootStatus")
 	return nil, status.Errorf(codes.Unimplemented, "")
 }
+
+// TODO: Support GNOI CancelReboot
 func (srv *Server) CancelReboot(ctx context.Context, req *gnoi_system_pb.CancelRebootRequest) (*gnoi_system_pb.CancelRebootResponse, error) {
 	_, err := authenticate(srv.config.UserAuth, ctx)
 	if err != nil {

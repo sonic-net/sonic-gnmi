@@ -5,6 +5,7 @@ package gnmi
 import (
 	"crypto/tls"
 	"encoding/json"
+	"path/filepath"
 	"flag"
 	"fmt"
 	"strings"
@@ -40,11 +41,13 @@ import (
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	gclient "github.com/jipanyang/gnmi/client/gnmi"
 	"github.com/jipanyang/gnxi/utils/xpath"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/godbus/dbus/v5"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -99,7 +102,26 @@ func createServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true}
+	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true}
+	s, err := NewServer(cfg, opts)
+	if err != nil {
+		t.Errorf("Failed to create gNMI server: %v", err)
+	}
+	return s
+}
+
+func createReadServer(t *testing.T, port int64) *Server {
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Errorf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &Config{Port: port, EnableTranslibWrite: false}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
@@ -118,10 +140,28 @@ func createAuthServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, UserAuth: AuthTypes{"password": true, "cert": true, "jwt": true}}
+	cfg := &Config{Port: port, EnableTranslibWrite: true, UserAuth: AuthTypes{"password": true, "cert": true, "jwt": true}}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
+	}
+	return s
+}
+
+func createInvalidServer(t *testing.T, port int64) *Server {
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Errorf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	s, err := NewServer(nil, opts)
+	if err != nil {
+		return nil
 	}
 	return s
 }
@@ -218,12 +258,13 @@ func runTestSet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 	req := &pb.SetRequest{}
 	switch op {
 	case Replace:
-		//prefix := pb.Path{Target: pathTarget}
+		prefix := pb.Path{Target: pathTarget}
 		var v *pb.TypedValue
 		v = &pb.TypedValue{
 			Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: extractJSON(attributeData)}}
 
 		req = &pb.SetRequest{
+			Prefix: &prefix,
 			Replace: []*pb.Update{&pb.Update{Path: &pbPath, Val: v}},
 		}
 	case Delete:
@@ -730,6 +771,102 @@ func TestGnmiSet(t *testing.T) {
 		}
 	}
 	s.s.Stop()
+}
+
+func TestGnmiSetReadOnly(t *testing.T) {
+	s := createReadServer(t, 8081)
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req := &pb.SetRequest{}
+	_, err = gClient.Set(ctx, req)
+	gotRetStatus, ok := status.FromError(err)
+	if !ok {
+		t.Fatal("got a non-grpc error from grpc call")
+	}
+	wantRetCode := codes.Unimplemented
+	if gotRetStatus.Code() != wantRetCode {
+		t.Log("err: ", err)
+		t.Fatalf("got return code %v, want %v", gotRetStatus.Code(), wantRetCode)
+	}
+}
+
+func TestGnmiSetAuthFail(t *testing.T) {
+	s := createAuthServer(t, 8081)
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req := &pb.SetRequest{}
+	_, err = gClient.Set(ctx, req)
+	gotRetStatus, ok := status.FromError(err)
+	if !ok {
+		t.Fatal("got a non-grpc error from grpc call")
+	}
+	wantRetCode := codes.Unauthenticated
+	if gotRetStatus.Code() != wantRetCode {
+		t.Log("err: ", err)
+		t.Fatalf("got return code %v, want %v", gotRetStatus.Code(), wantRetCode)
+	}
+}
+
+func TestGnmiGetAuthFail(t *testing.T) {
+	s := createAuthServer(t, 8081)
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req := &pb.GetRequest{}
+	_, err = gClient.Get(ctx, req)
+	gotRetStatus, ok := status.FromError(err)
+	if !ok {
+		t.Fatal("got a non-grpc error from grpc call")
+	}
+	wantRetCode := codes.Unauthenticated
+	if gotRetStatus.Code() != wantRetCode {
+		t.Log("err: ", err)
+		t.Fatalf("got return code %v, want %v", gotRetStatus.Code(), wantRetCode)
+	}
 }
 
 func runGnmiTestGet(t *testing.T, namespace string) {
@@ -2574,6 +2711,7 @@ func TestAuthCapabilities(t *testing.T) {
 
 	s := createAuthServer(t, 8089)
 	go runServer(t, s)
+	defer s.s.Stop()
 
 	currentUser, _ := user.Current()
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
@@ -2599,7 +2737,6 @@ func TestAuthCapabilities(t *testing.T) {
 	if len(resp.SupportedModels) == 0 {
 		t.Fatalf("No Supported Models found!")
 	}
-
 }
 
 func TestClient(t *testing.T) {
@@ -2718,6 +2855,148 @@ func TestClient(t *testing.T) {
     }
 
     s.s.Stop()
+}
+
+func TestGnmiSetBatch(t *testing.T) {
+	mockCode := 
+`
+print('No Yang validation for test mode...')
+print('%s')
+`
+	mock1 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
+	defer mock1.Reset()
+
+	s := createServer(t, 8090)
+	go runServer(t, s)
+
+	prepareDbTranslib(t)
+
+	//t.Log("Start gNMI client")
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := "127.0.0.1:8090"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var emptyRespVal interface{}
+
+	tds := []struct {
+		desc          string
+		pathTarget    string
+		textPbPath    string
+		wantRetCode   codes.Code
+		wantRespVal   interface{}
+		attributeData string
+		operation     op_t
+		valTest       bool
+	}{
+		{
+			desc:       "Set APPL_DB in batch",
+			pathTarget: "MIXED",
+			textPbPath: `
+						origin: "sonic-db",
+                        elem: <name: "APPL_DB" > elem:<name:"DASH_QOS" >
+                `,
+			attributeData: "../testdata/batch.txt",
+			wantRetCode:   codes.OK,
+			wantRespVal:   emptyRespVal,
+			operation:     Replace,
+			valTest:       false,
+		},
+	}
+
+	for _, td := range tds {
+		if td.valTest == true {
+			// wait for 2 seconds for change to sync
+			time.Sleep(2 * time.Second)
+			t.Run(td.desc, func(t *testing.T) {
+				runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+			})
+		} else {
+			t.Run(td.desc, func(t *testing.T) {
+				runTestSet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.attributeData, td.operation)
+			})
+		}
+	}
+	s.s.Stop()
+}
+
+func TestGNMINative(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+	mockCode := 
+`
+print('No Yang validation for test mode...')
+print('%s')
+`
+	mock3 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
+	defer mock3.Reset()
+
+	s := createServer(t, 8080)
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	path, _ := os.Getwd()
+	path = filepath.Dir(path)
+
+	var cmd *exec.Cmd
+	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest")
+	if result, err := cmd.Output(); err != nil {
+		fmt.Println(string(result))
+		t.Errorf("Fail to execute pytest: %v", err)
+	} else {
+		fmt.Println(string(result))
+	}
+
+	var counters [len(common_utils.CountersName)]uint64
+	err := common_utils.GetMemCounters(&counters)
+	if err != nil {
+		t.Errorf("Error: Fail to read counters, %v", err)
+	}
+	for i := 0; i < len(common_utils.CountersName); i++ {
+		if common_utils.CountersName[i] == "GNMI set" && counters[i] == 0 {
+			t.Errorf("GNMI set counter should not be 0")
+		}
+		if common_utils.CountersName[i] == "GNMI get" && counters[i] == 0 {
+			t.Errorf("GNMI get counter should not be 0")
+		}
+	}
+	s.s.Stop()
+}
+
+func TestServerPort(t *testing.T) {
+	s := createServer(t, -8080)
+	port := s.Port()
+	if port != 0 {
+		t.Errorf("Invalid port: %d", port)
+	}
+	s.s.Stop()
+}
+
+func TestInvalidServer(t *testing.T) {
+	s := createInvalidServer(t, 9000)
+	if s != nil {
+		t.Errorf("Should not create invalid server")
+	}
 }
 
 func init() {

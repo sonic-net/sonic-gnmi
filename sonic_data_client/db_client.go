@@ -87,6 +87,9 @@ type tablePath struct {
 	tableKey    string
 	delimitor   string
 	field       string
+	value       string
+	index       int
+	operation   int
 	// path name to be used in json data which may be different
 	// from the real data path. Ex. in Counters table, real tableKey
 	// is oid:0x####, while key name like Ethernet## may be put
