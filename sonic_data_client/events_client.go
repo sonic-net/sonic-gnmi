@@ -332,7 +332,7 @@ func get_events(evtc *EventClient) {
                                 JsonIetfVal: jv,
                             }}
                         if err := send_event(evtc, evtTv, evt.Publish_epoch_ms); err != nil {
-                            return
+                            break
                         }
                     } else {
                         log.V(1).Infof("Invalid event string: %v", evt.Event_str)
