@@ -89,9 +89,10 @@ func loadDBNotStrict(t *testing.T, rclient *redis.Client, mpi map[string]interfa
 }
 
 func createServer(t *testing.T, port int64) *Server {
+	t.Helper()
 	certificate, err := testcert.NewCert()
 	if err != nil {
-		t.Errorf("could not load server key pair: %s", err)
+		t.Fatalf("could not load server key pair: %s", err)
 	}
 	tlsCfg := &tls.Config{
 		ClientAuth:   tls.RequestClientCert,
@@ -108,9 +109,10 @@ func createServer(t *testing.T, port int64) *Server {
 }
 
 func createReadServer(t *testing.T, port int64) *Server {
+	t.Helper()
 	certificate, err := testcert.NewCert()
 	if err != nil {
-		t.Errorf("could not load server key pair: %s", err)
+		t.Fatalf("could not load server key pair: %s", err)
 	}
 	tlsCfg := &tls.Config{
 		ClientAuth:   tls.RequestClientCert,
@@ -127,9 +129,10 @@ func createReadServer(t *testing.T, port int64) *Server {
 }
 
 func createAuthServer(t *testing.T, port int64) *Server {
+	t.Helper()
 	certificate, err := testcert.NewCert()
 	if err != nil {
-		t.Errorf("could not load server key pair: %s", err)
+		t.Fatalf("could not load server key pair: %s", err)
 	}
 	tlsCfg := &tls.Config{
 		ClientAuth:   tls.RequestClientCert,
