@@ -204,7 +204,7 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 				return
 			}
 		default:
-			log.V(1).Infof("Bad Subscription Mode for client %s ", c)
+			log.V(1).Infof("Bad Subscription Mode for client %v ", c)
 			enqueFatalMsgTranslib(c, fmt.Sprintf("Invalid Subscription Mode %d", sub.Mode))
 			return
 		}
@@ -401,7 +401,7 @@ func TranslSubscribe(gnmiPaths []*gnmipb.Path, stringPaths []string, pathMap map
 				sync_done = true
 			}
 		default:
-			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], c)
+			log.V(1).Infof("Unknown data type %v for %v in queue", items[0], v)
 		}
 	}
 }
