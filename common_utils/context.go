@@ -36,14 +36,31 @@ const requestContextKey contextkey = 0
 // Request Id generator
 var requestCounter uint64
 
-var CountersName = [...]string {
-	"GNMI get",
-	"GNMI get fail",
-	"GNMI set",
-	"GNMI set fail",
+type CounterType int
+const (
+	GNMI_GET CounterType = iota
+	GNMI_GET_FAIL
+	GNMI_SET
+	GNMI_SET_FAIL
+	COUNTER_SIZE
+)
+
+func (c CounterType) String() string {
+	switch c {
+	case GNMI_GET:
+		return "GNMI get"
+	case GNMI_GET_FAIL:
+		return "GNMI get fail"
+	case GNMI_SET:
+		return "GNMI set"
+	case GNMI_SET_FAIL:
+		return "GNMI set fail"
+	default:
+		return ""
+	}
 }
 
-var globalCounters [len(CountersName)]uint64
+var globalCounters [COUNTER_SIZE]uint64
 
 
 // GetContext function returns the RequestContext object for a
@@ -71,19 +88,14 @@ func GetUsername(ctx context.Context, username *string) {
 }
 
 func InitCounters() {
-	for i := 0; i < len(CountersName); i++ {
+	for i := 0; i < int(COUNTER_SIZE); i++ {
 		globalCounters[i] = 0
 	}
 	SetMemCounters(&globalCounters)
 }
 
-func IncCounter(name string) {
-	for i := 0; i < len(CountersName); i++ {
-		if CountersName[i] == name {
-			atomic.AddUint64(&globalCounters[i], 1)
-			break
-		}
-	}
+func IncCounter(cnt CounterType) {
+	atomic.AddUint64(&globalCounters[cnt], 1)
 	SetMemCounters(&globalCounters)
 }
 

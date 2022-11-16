@@ -18,7 +18,7 @@ var (
 	memMode = 0x380
 )
 
-func SetMemCounters(counters *[len(CountersName)]uint64) error {
+func SetMemCounters(counters *[int(COUNTER_SIZE)]uint64) error {
 	shmid, _, err := syscall.Syscall(syscall.SYS_SHMGET, uintptr(memKey), uintptr(memSize), uintptr(memMode))
 	if int(shmid) == -1 {
 		return fmt.Errorf("syscall error, err: %v\n", err)
@@ -40,7 +40,7 @@ func SetMemCounters(counters *[len(CountersName)]uint64) error {
 	return nil
 }
 
-func GetMemCounters(counters *[len(CountersName)]uint64) error {
+func GetMemCounters(counters *[int(COUNTER_SIZE)]uint64) error {
 	shmid, _, err := syscall.Syscall(syscall.SYS_SHMGET, uintptr(memKey), uintptr(memSize), uintptr(memMode))
 	if int(shmid) == -1 {
 		return fmt.Errorf("syscall error, err: %v\n", err)
