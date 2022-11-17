@@ -103,7 +103,7 @@ func createServer(t *testing.T, port int64) *Server {
 	cfg := &Config{Port: port, EnableTranslibWrite: true}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
-		t.Errorf("Failed to create gNMI server: %v", err)
+		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
@@ -123,7 +123,7 @@ func createReadServer(t *testing.T, port int64) *Server {
 	cfg := &Config{Port: port, EnableTranslibWrite: false}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
-		t.Errorf("Failed to create gNMI server: %v", err)
+		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
@@ -143,7 +143,7 @@ func createAuthServer(t *testing.T, port int64) *Server {
 	cfg := &Config{Port: port, EnableTranslibWrite: true, UserAuth: AuthTypes{"password": true, "cert": true, "jwt": true}}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
-		t.Errorf("Failed to create gNMI server: %v", err)
+		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
