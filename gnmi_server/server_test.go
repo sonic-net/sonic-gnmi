@@ -89,9 +89,10 @@ func loadDBNotStrict(t *testing.T, rclient *redis.Client, mpi map[string]interfa
 }
 
 func createServer(t *testing.T, port int64) *Server {
+	t.Helper()
 	certificate, err := testcert.NewCert()
 	if err != nil {
-		t.Errorf("could not load server key pair: %s", err)
+		t.Fatalf("could not load server key pair: %s", err)
 	}
 	tlsCfg := &tls.Config{
 		ClientAuth:   tls.RequestClientCert,
@@ -102,15 +103,16 @@ func createServer(t *testing.T, port int64) *Server {
 	cfg := &Config{Port: port, EnableTranslibWrite: true}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
-		t.Errorf("Failed to create gNMI server: %v", err)
+		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
 
-func createAuthServer(t *testing.T, port int64) *Server {
+func createReadServer(t *testing.T, port int64) *Server {
+	t.Helper()
 	certificate, err := testcert.NewCert()
 	if err != nil {
-		t.Errorf("could not load server key pair: %s", err)
+		t.Fatalf("could not load server key pair: %s", err)
 	}
 	tlsCfg := &tls.Config{
 		ClientAuth:   tls.RequestClientCert,
@@ -118,10 +120,30 @@ func createAuthServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, UserAuth: AuthTypes{"password": true, "cert": true, "jwt": true}}
+	cfg := &Config{Port: port, EnableTranslibWrite: false}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
-		t.Errorf("Failed to create gNMI server: %v", err)
+		t.Fatalf("Failed to create gNMI server: %v", err)
+	}
+	return s
+}
+
+func createAuthServer(t *testing.T, port int64) *Server {
+	t.Helper()
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &Config{Port: port, EnableTranslibWrite: true, UserAuth: AuthTypes{"password": true, "cert": true, "jwt": true}}
+	s, err := NewServer(cfg, opts)
+	if err != nil {
+		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
@@ -730,6 +752,102 @@ func TestGnmiSet(t *testing.T) {
 		}
 	}
 	s.s.Stop()
+}
+
+func TestGnmiSetReadOnly(t *testing.T) {
+	s := createReadServer(t, 8081)
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req := &pb.SetRequest{}
+	_, err = gClient.Set(ctx, req)
+	gotRetStatus, ok := status.FromError(err)
+	if !ok {
+		t.Fatal("got a non-grpc error from grpc call")
+	}
+	wantRetCode := codes.Unimplemented
+	if gotRetStatus.Code() != wantRetCode {
+		t.Log("err: ", err)
+		t.Fatalf("got return code %v, want %v", gotRetStatus.Code(), wantRetCode)
+	}
+}
+
+func TestGnmiSetAuthFail(t *testing.T) {
+	s := createAuthServer(t, 8081)
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req := &pb.SetRequest{}
+	_, err = gClient.Set(ctx, req)
+	gotRetStatus, ok := status.FromError(err)
+	if !ok {
+		t.Fatal("got a non-grpc error from grpc call")
+	}
+	wantRetCode := codes.Unauthenticated
+	if gotRetStatus.Code() != wantRetCode {
+		t.Log("err: ", err)
+		t.Fatalf("got return code %v, want %v", gotRetStatus.Code(), wantRetCode)
+	}
+}
+
+func TestGnmiGetAuthFail(t *testing.T) {
+	s := createAuthServer(t, 8081)
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req := &pb.GetRequest{}
+	_, err = gClient.Get(ctx, req)
+	gotRetStatus, ok := status.FromError(err)
+	if !ok {
+		t.Fatal("got a non-grpc error from grpc call")
+	}
+	wantRetCode := codes.Unauthenticated
+	if gotRetStatus.Code() != wantRetCode {
+		t.Log("err: ", err)
+		t.Fatalf("got return code %v, want %v", gotRetStatus.Code(), wantRetCode)
+	}
 }
 
 func runGnmiTestGet(t *testing.T, namespace string) {
