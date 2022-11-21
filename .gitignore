@@ -5,6 +5,5 @@ debian/sonic-telemetry.debhelper.log
 debian/sonic-telemetry.substvars
 debian/sonic-telemetry/
 vendor
-src
 cvl
 translib
