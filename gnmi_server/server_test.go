@@ -92,9 +92,10 @@ func loadDBNotStrict(t *testing.T, rclient *redis.Client, mpi map[string]interfa
 }
 
 func createServer(t *testing.T, port int64) *Server {
+	t.Helper()
 	certificate, err := testcert.NewCert()
 	if err != nil {
-		t.Errorf("could not load server key pair: %s", err)
+		t.Fatalf("could not load server key pair: %s", err)
 	}
 	tlsCfg := &tls.Config{
 		ClientAuth:   tls.RequestClientCert,
@@ -124,15 +125,16 @@ func createReadServer(t *testing.T, port int64) *Server {
 	cfg := &Config{Port: port, EnableTranslibWrite: false}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
-		t.Errorf("Failed to create gNMI server: %v", err)
+		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
 
 func createAuthServer(t *testing.T, port int64) *Server {
+	t.Helper()
 	certificate, err := testcert.NewCert()
 	if err != nil {
-		t.Errorf("could not load server key pair: %s", err)
+		t.Fatalf("could not load server key pair: %s", err)
 	}
 	tlsCfg := &tls.Config{
 		ClientAuth:   tls.RequestClientCert,
@@ -143,7 +145,7 @@ func createAuthServer(t *testing.T, port int64) *Server {
 	cfg := &Config{Port: port, EnableTranslibWrite: true, UserAuth: AuthTypes{"password": true, "cert": true, "jwt": true}}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
-		t.Errorf("Failed to create gNMI server: %v", err)
+		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
@@ -2967,16 +2969,18 @@ print('%s')
 		fmt.Println(string(result))
 	}
 
-	var counters [len(common_utils.CountersName)]uint64
+	var counters [int(common_utils.COUNTER_SIZE)]uint64
 	err := common_utils.GetMemCounters(&counters)
 	if err != nil {
 		t.Errorf("Error: Fail to read counters, %v", err)
 	}
-	for i := 0; i < len(common_utils.CountersName); i++ {
-		if common_utils.CountersName[i] == "GNMI set" && counters[i] == 0 {
+	for i := 0; i < int(common_utils.COUNTER_SIZE); i++ {
+		cnt := common_utils.CounterType(i)
+		counterName := cnt.String()
+		if counterName == "GNMI set" && counters[i] == 0 {
 			t.Errorf("GNMI set counter should not be 0")
 		}
-		if common_utils.CountersName[i] == "GNMI get" && counters[i] == 0 {
+		if counterName == "GNMI get" && counters[i] == 0 {
 			t.Errorf("GNMI get counter should not be 0")
 		}
 	}

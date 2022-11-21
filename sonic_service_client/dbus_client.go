@@ -38,11 +38,11 @@ func NewDbusClient() (Service, error) {
 }
 
 func DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) error {
-	common_utils.IncCounter("DBUS")
+	common_utils.IncCounter(common_utils.DBUS)
 	conn, err := dbus.SystemBus()
 	if err != nil {
 		log.V(2).Infof("Failed to connect to system bus: %v", err)
-		common_utils.IncCounter("DBUS fail")
+		common_utils.IncCounter(common_utils.DBUS_FAIL)
 		return err
 	}
 
@@ -52,12 +52,12 @@ func DbusApi(busName string, busPath string, intName string, timeout int, args .
 	select {
 	case call := <-ch:
 		if call.Err != nil {
-			common_utils.IncCounter("DBUS fail")
+			common_utils.IncCounter(common_utils.DBUS_FAIL)
 			return call.Err
 		}
 		result := call.Body
 		if len(result) == 0 {
-			common_utils.IncCounter("DBUS fail")
+			common_utils.IncCounter(common_utils.DBUS_FAIL)
 			return fmt.Errorf("Dbus result is empty %v", result)
 		}
 		if ret, ok := result[0].(int32); ok {
@@ -65,31 +65,31 @@ func DbusApi(busName string, busPath string, intName string, timeout int, args .
 				return nil
 			} else {
 				if len(result) != 2 {
-					common_utils.IncCounter("DBUS fail")
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
 					return fmt.Errorf("Dbus result is invalid %v", result)
 				}
 				if msg, check := result[1].(string); check {
-					common_utils.IncCounter("DBUS fail")
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
 					return fmt.Errorf(msg)
 				} else {
-					common_utils.IncCounter("DBUS fail")
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
 					return fmt.Errorf("Invalid result message type %v %v", result[1], reflect.TypeOf(result[1]))
 				}
 			}
 		} else {
-			common_utils.IncCounter("DBUS fail")
+			common_utils.IncCounter(common_utils.DBUS_FAIL)
 			return fmt.Errorf("Invalid result type %v %v", result[0], reflect.TypeOf(result[0]))
 		}
 	case <-time.After(time.Duration(timeout) * time.Second):
 		log.V(2).Infof("DbusApi: timeout")
-		common_utils.IncCounter("DBUS fail")
+		common_utils.IncCounter(common_utils.DBUS_FAIL)
 		return fmt.Errorf("Timeout %v", timeout)
 	}
 	return nil
 }
 
 func (c *DbusClient) ConfigReload(config string) error {
-	common_utils.IncCounter("DBUS config reload")
+	common_utils.IncCounter(common_utils.DBUS_CONFIG_RELOAD)
 	modName := "config"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
@@ -99,7 +99,7 @@ func (c *DbusClient) ConfigReload(config string) error {
 }
 
 func (c *DbusClient) ConfigSave(fileName string) error {
-	common_utils.IncCounter("DBUS config save")
+	common_utils.IncCounter(common_utils.DBUS_CONFIG_SAVE)
 	modName := "config"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
@@ -109,27 +109,27 @@ func (c *DbusClient) ConfigSave(fileName string) error {
 }
 
 func (c *DbusClient) ApplyPatchYang(patch string) error {
-	common_utils.IncCounter("DBUS apply patch yang")
+	common_utils.IncCounter(common_utils.DBUS_APPLY_PATCH_YANG)
 	modName := "gcu"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".apply_patch_yang"
-	err := DbusApi(busName, busPath, intName, 10, patch)
+	err := DbusApi(busName, busPath, intName, 60, patch)
 	return err
 }
 
 func (c *DbusClient) ApplyPatchDb(patch string) error {
-	common_utils.IncCounter("DBUS apply patch db")
+	common_utils.IncCounter(common_utils.DBUS_APPLY_PATCH_DB)
 	modName := "gcu"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".apply_patch_db"
-	err := DbusApi(busName, busPath, intName, 10, patch)
+	err := DbusApi(busName, busPath, intName, 60, patch)
 	return err
 }
 
 func (c *DbusClient) CreateCheckPoint(fileName string) error {
-	common_utils.IncCounter("DBUS create checkpoint")
+	common_utils.IncCounter(common_utils.DBUS_CREATE_CHECKPOINT)
 	modName := "gcu"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
@@ -139,7 +139,7 @@ func (c *DbusClient) CreateCheckPoint(fileName string) error {
 }
 
 func (c *DbusClient) DeleteCheckPoint(fileName string) error {
-	common_utils.IncCounter("DBUS delete checkpoint")
+	common_utils.IncCounter(common_utils.DBUS_DELETE_CHECKPOINT)
 	modName := "gcu"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName

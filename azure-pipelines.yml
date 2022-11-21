@@ -102,9 +102,6 @@ stages:
         sudo dpkg -i ../target/debs/bullseye/libnl-nf-3-200_*.deb
         sudo dpkg -i ../target/debs/bullseye/libhiredis0.14_*.deb
         sudo dpkg -i ../target/debs/bullseye/libhiredis-dev_*.deb
-        sudo dpkg -i ../target/debs/bullseye/libswsscommon_1.0.0_amd64.deb
-        sudo dpkg -i ../target/debs/bullseye/libswsscommon-dev_1.0.0_amd64.deb
-        sudo dpkg -i ../target/debs/bullseye/python3-swsscommon_1.0.0_amd64.deb
       displayName: "Install libswsscommon dependencies"
 
     - script: |
@@ -115,6 +112,25 @@ stages:
         sudo apt-get update
         sudo apt-get install -y dotnet-sdk-5.0
       displayName: "Install .NET CORE"
+
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        source: specific
+        project: build
+        pipeline: Azure.sonic-swss-common
+        artifact: sonic-swss-common.bullseye.amd64
+        runVersion: 'latestFromBranch'
+        runBranch: 'refs/heads/master'
+      displayName: "Download sonic-swss-common"
+
+    - script: |
+        set -ex
+        # LIBSWSSCOMMON
+        sudo dpkg -i libswsscommon_1.0.0_amd64.deb
+        sudo dpkg -i libswsscommon-dev_1.0.0_amd64.deb
+        sudo dpkg -i python3-swsscommon_1.0.0_amd64.deb
+      workingDirectory: $(Pipeline.Workspace)/
+      displayName: 'Install libswsscommon package'
 
     - script: |
         set -ex

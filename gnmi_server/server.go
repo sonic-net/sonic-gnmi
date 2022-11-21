@@ -279,32 +279,32 @@ func (s *Server) checkEncodingAndModel(encoding gnmipb.Encoding, models []*gnmip
 
 // Get implements the Get RPC in gNMI spec.
 func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
-	common_utils.IncCounter("GNMI get")
+	common_utils.IncCounter(common_utils.GNMI_GET)
 	ctx, err := authenticate(s.config.UserAuth, ctx)
 	if err != nil {
-		common_utils.IncCounter("GNMI get fail")
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, err
 	}
 
 	if req.GetType() != gnmipb.GetRequest_ALL {
-		common_utils.IncCounter("GNMI get fail")
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Errorf(codes.Unimplemented, "unsupported request type: %s", gnmipb.GetRequest_DataType_name[int32(req.GetType())])
 	}
 
 	if err = s.checkEncodingAndModel(req.GetEncoding(), req.GetUseModels()); err != nil {
-		common_utils.IncCounter("GNMI get fail")
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Error(codes.Unimplemented, err.Error())
 	}
 
 	var target string
 	prefix := req.GetPrefix()
 	if prefix == nil {
-		common_utils.IncCounter("GNMI get fail")
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Error(codes.Unimplemented, "No target specified in prefix")
 	} else {
 		target = prefix.GetTarget()
 		if target == "" {
-			common_utils.IncCounter("GNMI get fail")
+			common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 			return nil, status.Error(codes.Unimplemented, "Empty target data not supported yet")
 		}
 	}
@@ -328,13 +328,13 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	}
 
 	if err != nil {
-		common_utils.IncCounter("GNMI get fail")
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 	notifications := make([]*gnmipb.Notification, len(paths))
 	spbValues, err := dc.Get(nil)
 	if err != nil {
-		common_utils.IncCounter("GNMI get fail")
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 
@@ -354,14 +354,14 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 }
 
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
-	common_utils.IncCounter("GNMI set")
-	if s.config.EnableTranslibWrite == false && s.config.EnableNativeWrite == false {
-		common_utils.IncCounter("GNMI set fail")
+	common_utils.IncCounter(common_utils.GNMI_SET)
+	if s.config.EnableTranslibWrite == false {
+		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
 	}
 	ctx, err := authenticate(s.config.UserAuth, ctx)
 	if err != nil {
-		common_utils.IncCounter("GNMI set fail")
+		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, err
 	}
 	var results []*gnmipb.UpdateResult
@@ -370,7 +370,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	prefix := req.GetPrefix()
 	var target string
 	if prefix == nil {
-		common_utils.IncCounter("GNMI set fail")
+		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, status.Error(codes.Unimplemented, "No target specified in prefix")
 	} else {
 		target = prefix.GetTarget()
@@ -380,7 +380,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	var dc sdc.Client
 	if target == "MIXED" {
 		if s.config.EnableNativeWrite == false {
-			common_utils.IncCounter("GNMI set fail")
+			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 			return nil, grpc.Errorf(codes.Unimplemented, "Mixed schema is disabled")
 		}
 		paths := req.GetDelete()
@@ -393,7 +393,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		dc, err = sdc.NewMixedDbClient(paths, prefix)
 	} else {
 		if s.config.EnableTranslibWrite == false {
-			common_utils.IncCounter("GNMI set fail")
+			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 			return nil, grpc.Errorf(codes.Unimplemented, "Telemetry is in read-only mode")
 		}
 		/* Create Transl client. */
@@ -401,7 +401,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	}
 
 	if err != nil {
-		common_utils.IncCounter("GNMI set fail")
+		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 
@@ -444,7 +444,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	}
 	err = dc.Set(req.GetDelete(), req.GetReplace(), req.GetUpdate())
 	if err != nil {
-		common_utils.IncCounter("GNMI set fail")
+		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 	}
 
 	return &gnmipb.SetResponse{

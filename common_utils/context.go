@@ -36,23 +36,58 @@ const requestContextKey contextkey = 0
 // Request Id generator
 var requestCounter uint64
 
-var CountersName = [...]string {
-	"GNMI get",
-	"GNMI get fail",
-	"GNMI set",
-	"GNMI set fail",
-	"GNOI reboot",
-	"DBUS",
-	"DBUS fail",
-	"DBUS apply patch db",
-	"DBUS apply patch yang",
-	"DBUS create checkpoint",
-	"DBUS delete checkpoint",
-	"DBUS config save",
-	"DBUS config reload",
+type CounterType int
+const (
+	GNMI_GET CounterType = iota
+	GNMI_GET_FAIL
+	GNMI_SET
+	GNMI_SET_FAIL
+	GNOI_REBOOT
+	DBUS
+	DBUS_FAIL
+	DBUS_APPLY_PATCH_DB
+	DBUS_APPLY_PATCH_YANG
+	DBUS_CREATE_CHECKPOINT
+	DBUS_DELETE_CHECKPOINT
+	DBUS_CONFIG_SAVE
+	DBUS_CONFIG_RELOAD
+	COUNTER_SIZE
+)
+
+func (c CounterType) String() string {
+	switch c {
+	case GNMI_GET:
+		return "GNMI get"
+	case GNMI_GET_FAIL:
+		return "GNMI get fail"
+	case GNMI_SET:
+		return "GNMI set"
+	case GNMI_SET_FAIL:
+		return "GNMI set fail"
+	case GNOI_REBOOT:
+		return "GNOI reboot"
+	case DBUS:
+		return "DBUS"
+	case DBUS_FAIL:
+		return "DBUS fail"
+	case DBUS_APPLY_PATCH_DB:
+		return "DBUS apply patch db"
+	case DBUS_APPLY_PATCH_YANG:
+		return "DBUS apply patch yang"
+	case DBUS_CREATE_CHECKPOINT:
+		return "DBUS create checkpoint"
+	case DBUS_DELETE_CHECKPOINT:
+		return "DBUS delete checkpoint"
+	case DBUS_CONFIG_SAVE:
+		return "DBUS config save"
+	case DBUS_CONFIG_RELOAD:
+		return "DBUS config reload"
+	default:
+		return ""
+	}
 }
 
-var globalCounters [len(CountersName)]uint64
+var globalCounters [COUNTER_SIZE]uint64
 
 
 // GetContext function returns the RequestContext object for a
@@ -80,19 +115,14 @@ func GetUsername(ctx context.Context, username *string) {
 }
 
 func InitCounters() {
-	for i := 0; i < len(CountersName); i++ {
+	for i := 0; i < int(COUNTER_SIZE); i++ {
 		globalCounters[i] = 0
 	}
 	SetMemCounters(&globalCounters)
 }
 
-func IncCounter(name string) {
-	for i := 0; i < len(CountersName); i++ {
-		if CountersName[i] == name {
-			atomic.AddUint64(&globalCounters[i], 1)
-			break
-		}
-	}
+func IncCounter(cnt CounterType) {
+	atomic.AddUint64(&globalCounters[cnt], 1)
 	SetMemCounters(&globalCounters)
 }
 
