@@ -749,6 +749,12 @@ func TestGnmiGet(t *testing.T) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
+	stateDBPath := "STATE_DB"
+
+	if namespace != sdcfg.GetDbDefaultNamespace() {
+		stateDBPath = "STATE_DB" + "/" + namespace
+	}
+
 	type testCase struct {
 		desc        string
 		pathTarget  string
@@ -905,6 +911,22 @@ func TestGnmiGet(t *testing.T) {
 				`,
 		wantRetCode: codes.OK,
 		wantRespVal: countersEthernetWildcardPfcwdByte,
+	}, {
+		desc:       "get State DB Data for SWITCH_CAPABILITY switch",
+		pathTarget: stateDBPath,
+		textPbPath: `
+					elem: <name: "SWITCH_CAPABILITY" >
+					elem: <name: "switch" >
+			`,
+		valTest:     true,
+		wantRetCode: codes.OK,
+		wantRespVal: []byte(`{"test_field": "test_value"}`),
+	}, {
+		desc:       "Invalid DBKey of length 1",
+		pathTarget: stateDBPath,
+		textPbPath: ``,
+		valTest:     true,
+		wantRetCode: codes.NotFound,
 	},
 		// Happy path
 		createBuildVersionTestCase(
