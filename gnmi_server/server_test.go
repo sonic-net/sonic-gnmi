@@ -796,12 +796,6 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 		stateDBPath = "STATE_DB" + "/" + namespace
 	}
 
-	applDBPath := "APPL_DB"
-
-	if namespace != sdcfg.GetDbDefaultNamespace() {
-		applDBPath = "APPL_DB" + "/" + namespace
-	}
-
 	type testCase struct {
 		desc        string
 		pathTarget  string
@@ -988,15 +982,12 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(`{"test_field": "test_value"}`),
 		}, {
-			desc:       "get APPL DB Data for PORT TABLE",
-			pathTarget: applDBPath,
-			textPbPath: `
-					elem: <name: "PORT_TABLE*" >
-				`,
+			desc:       "Invalid DBKey of length 1",
+			pathTarget: stateDBPath,
+			textPbPath: ``,
 			valTest:     true,
 			wantRetCode: codes.OK,
 		},
-
 
 		// Happy path
 		createBuildVersionTestCase(
