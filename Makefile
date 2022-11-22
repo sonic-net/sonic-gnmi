@@ -39,7 +39,7 @@ all: sonic-gnmi $(TELEMETRY_TEST_BIN)
 go.mod:
 	$(GO) mod init github.com/sonic-net/sonic-gnmi
 
-$(GO_DEPS): go.mod $(PATCHES)
+$(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap
 	$(GO) mod vendor
 	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
 	$(GO) mod download github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0
@@ -60,7 +60,7 @@ go-deps: $(GO_DEPS)
 go-deps-clean:
 	$(RM) -r vendor
 
-sonic-gnmi: $(GO_DEPS) swsscommon_wrap
+sonic-gnmi: $(GO_DEPS)
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
 	$(GO) build -o ${GOBIN}/dialout_client_cli -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
