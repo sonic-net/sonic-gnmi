@@ -547,7 +547,9 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	}
 	tblPath.dbNamespace = dbNamespace
 	tblPath.dbName = targetDbName
-	tblPath.tableName = stringSlice[1]
+	if len(stringSlice) > 1 {
+		tblPath.tableName = stringSlice[1]
+	}
 	tblPath.delimitor = separator
 
 	var mappedKey string
