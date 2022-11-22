@@ -719,9 +719,9 @@ func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 			var key string
 			// Split dbkey string into two parts and second part is key in table
 			keys := strings.SplitN(dbkey, tblPath.delimitor, 2)
-			//if len(keys) < 2 {
-			//	return fmt.Errorf("dbkey: %s, failed split from delimitor %v", dbkey, tblPath.delimitor)
-			//}
+			if len(keys) < 2 {
+				return fmt.Errorf("dbkey: %s, failed split from delimitor %v", dbkey, tblPath.delimitor)
+			}
 			key = keys[1]
 			err = makeJSON_redis(msi, &key, op, fv)
 		}
