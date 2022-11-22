@@ -1104,7 +1104,7 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 			pathTarget: stateDBPath,
 			textPbPath: ``,
 			valTest:     true,
-			wantRetCode: codes.OK,
+			wantRetCode: codes.NotFound,
 		},
 
 		// Happy path
