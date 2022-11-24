@@ -1114,6 +1114,12 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 			valTest:     true,
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(`{"test_field": "test_value"}`),
+		}, {
+			desc:       "Invalid DBKey of length 1",
+			pathTarget: stateDBPath,
+			textPbPath: ``,
+			valTest:     true,
+			wantRetCode: codes.NotFound,
 		},
 
 		// Happy path
