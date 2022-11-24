@@ -332,7 +332,7 @@ func get_events(evtc *EventClient) {
                                 JsonIetfVal: jv,
                             }}
                         if err := send_event(evtc, evtTv, evt.Publish_epoch_ms); err != nil {
-                            check_evtc_stopped()
+                            check_evtc_stopped(evtc)
                             return
                         }
                     } else {
@@ -343,7 +343,7 @@ func get_events(evtc *EventClient) {
                 }
             }
         }
-        if evtc_stopped := check_evtc_stopped(); evtc_stopped == true {
+        if evtc_stopped := check_evtc_stopped(evtc); evtc_stopped == true {
             return
         }
         // TODO: Record missed count in stats table.
@@ -351,7 +351,7 @@ func get_events(evtc *EventClient) {
     }
 }
 
-func check_evtc_stopped() bool {
+func check_evtc_stopped(evtc *EventClient) bool {
     if evtc.stopped == 1 {
         log.V(1).Infof("%v stop channel closed, exiting get_events routine", evtc)
         C_deinit_subs(evtc.subs_handle)
