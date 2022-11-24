@@ -212,35 +212,6 @@ class TestGNMIApplDb:
         assert 'Unsupported path' in msg
 
     def test_gnmi_invalid_origin_01(self):
-        path = '/sonic-invalid:APPL_DB/DASH_QOS'
-        value = {
-            'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
-            'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
-        }
-        update_list = []
-        text = json.dumps(value)
-        file_name = 'update.txt'
-        file_object = open(file_name, 'w')
-        file_object.write(text)
-        file_object.close()
-        update_list = [path + ':@./' + file_name]
-
-        ret, msg = gnmi_set([], update_list, [])
-        assert ret != 0, 'Origin is invalid'
-        assert 'Invalid origin' in msg
-
-        get_list = [path]
-        ret, msg_list = gnmi_get(get_list)
-        assert ret != 0, 'Origin is invalid'
-        hit = False
-        exp = 'Invalid origin'
-        for msg in msg_list:
-            if exp in msg:
-                hit = True
-                break
-        assert hit == True, 'No expected error: %s'%exp
-
-    def test_gnmi_invalid_origin_02(self):
         path = '/sonic-yang:APPL_DB/DASH_QOS'
         value = {
             'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
@@ -269,7 +240,7 @@ class TestGNMIApplDb:
                 break
         assert hit == True, 'No expected error: %s'%exp
 
-    def test_gnmi_invalid_origin_03(self):
+    def test_gnmi_invalid_origin_02(self):
         path1 = '/sonic-db:APPL_DB/DASH_QOS'
         path2 = '/sonic-yang:APPL_DB/DASH_QOS'
         value = {
@@ -293,35 +264,6 @@ class TestGNMIApplDb:
         assert ret != 0, 'Origin is invalid'
         hit = False
         exp = 'Origin conflict'
-        for msg in msg_list:
-            if exp in msg:
-                hit = True
-                break
-        assert hit == True, 'No expected error: %s'%exp
-
-    def test_gnmi_invalid_origin_04(self):
-        path = '/APPL_DB/DASH_QOS'
-        value = {
-            'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
-            'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
-        }
-        update_list = []
-        text = json.dumps(value)
-        file_name = 'update.txt'
-        file_object = open(file_name, 'w')
-        file_object.write(text)
-        file_object.close()
-        update_list = [path + ':@./' + file_name]
-
-        ret, msg = gnmi_set([], update_list, [])
-        assert ret != 0, 'Origin is invalid'
-        assert 'No origin' in msg
-
-        get_list = [path]
-        ret, msg_list = gnmi_get(get_list)
-        assert ret != 0, 'Origin is invalid'
-        hit = False
-        exp = 'No origin'
         for msg in msg_list:
             if exp in msg:
                 hit = True

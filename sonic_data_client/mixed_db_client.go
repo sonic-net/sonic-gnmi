@@ -103,41 +103,18 @@ func ParseTarget(target string, paths []*gnmipb.Path) (string, error) {
 	return target, nil
 }
 
-func ParseOrigin(origin string, paths []*gnmipb.Path) (string, error) {
-	if len(paths) == 0 {
-		return origin, nil
-	}
-	for i, path := range paths {
-		if origin == "" {
-			if i == 0 {
-				origin = path.Origin
-			}
-		} else if origin != path.Origin {
-			return "", status.Error(codes.Unimplemented, "Origin conflict in path")
-		}
-	}
-	if origin == "" {
-		return origin, status.Error(codes.Unimplemented, "No origin specified in path")
-	}
-	return origin, nil
-}
-
-func IsSupportedOrigin(origin string) bool {
-	for _, model := range supportedModels {
-		if model.Name == origin {
-			return true
-		}
-	}
-	return false
-}
-
 func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]string) error {
 	pt, ok := c.tableMap[table]
 	if !ok {
 		pt = swsscommon.NewProducerStateTable(c.applDB, table)
 		c.tableMap[table] = pt
 	}
-	pt.Set(key, values, "SET", "")
+	vec := swsscommon.NewFieldValuePairs()
+	for k, v := range values {
+		pair := swsscommon.NewFieldValuePair(k, v)
+		vec.Add(pair)
+	}
+	pt.Set(key, vec, "SET", "")
 	return nil
 }
 
@@ -151,7 +128,7 @@ func (c *MixedDbClient) DbDelTable(table string, key string) error {
 	return nil
 }
 
-func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
+func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string) (Client, error) {
 	var client MixedDbClient
 	var err error
 
@@ -162,13 +139,12 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error)
 
 	client.prefix = prefix
 	client.target = ""
-	client.origin = ""
+	client.origin = origin
 	if prefix != nil {
 		elems := prefix.GetElem()
 		if elems != nil {
 			client.target = elems[0].GetName()
 		}
-		client.origin = prefix.Origin
 	}
 	if paths == nil {
 		return &client, nil
@@ -180,15 +156,6 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error)
 			return nil, err
 		}
 	}
-	if client.origin == "" {
-		client.origin, err = ParseOrigin(client.origin, paths)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if check := IsSupportedOrigin(client.origin); !check {
-		return nil, status.Errorf(codes.Unimplemented, "Invalid origin: %s", client.origin)
-	}
 	if client.origin == "sonic-yang" {
 		return nil, status.Errorf(codes.Unimplemented, "SONiC Yang Schema is not implemented yet")
 	}
@@ -198,7 +165,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error)
 	}
 	client.paths = paths
 	client.workPath = common_utils.GNMI_WORK_PATH
-	client.applDB = swsscommon.NewDBConnector2(APPL_DB, REDIS_SOCK, SWSS_TIMEOUT)
+	client.applDB = swsscommon.NewDBConnector(APPL_DB, REDIS_SOCK, SWSS_TIMEOUT)
 	client.tableMap = map[string]swsscommon.ProducerStateTable{}
 
 	return &client, nil
@@ -1099,7 +1066,7 @@ func (c *MixedDbClient) Capabilities() []gnmipb.ModelData {
 
 func (c *MixedDbClient) Close() error {
 	for _, pt := range c.tableMap {
-		pt.Delete()
+		pt.Del()
 	}
 	return nil
 }

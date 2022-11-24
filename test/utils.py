@@ -17,7 +17,6 @@ def gnmi_set(delete_list, update_list, replace_list):
     cmd += '-insecure -username admin -password sonicadmin '
     cmd += '-target_addr 127.0.0.1:8080 '
     cmd += '-alsologtostderr '
-    cmd += '-xpath_target MIXED '
     for delete in delete_list:
         cmd += " -delete " + delete
     for update in update_list:
@@ -35,7 +34,6 @@ def gnmi_set_with_password(delete_list, update_list, replace_list, user, passwor
     cmd += '-insecure -username %s -password %s '%(user, password)
     cmd += '-target_addr 127.0.0.1:8080 '
     cmd += '-alsologtostderr '
-    cmd += '-xpath_target MIXED '
     for delete in delete_list:
         cmd += " -delete " + delete
     for update in update_list:
@@ -53,7 +51,6 @@ def gnmi_set_with_jwt(delete_list, update_list, replace_list, token):
     cmd += '-insecure -jwt_token ' + token + ' '
     cmd += '-target_addr 127.0.0.1:8080 '
     cmd += '-alsologtostderr '
-    cmd += '-xpath_target MIXED '
     for delete in delete_list:
         cmd += " -delete " + delete
     for update in update_list:
@@ -71,7 +68,6 @@ def gnmi_get(path_list):
     cmd += '-insecure -username admin -password sonicadmin '
     cmd += '-target_addr 127.0.0.1:8080 '
     cmd += '-alsologtostderr '
-    cmd += '-xpath_target MIXED '
     for path in path_list:
         cmd += " -xpath " + path
     ret, msg = run_cmd(cmd)
@@ -90,7 +86,6 @@ def gnmi_get_with_encoding(path_list, encoding):
     cmd += '-insecure -username admin -password sonicadmin '
     cmd += '-target_addr 127.0.0.1:8080 '
     cmd += '-alsologtostderr '
-    cmd += '-xpath_target MIXED '
     cmd += '-encoding %s '%(encoding)
     for path in path_list:
         cmd += " -xpath " + path
@@ -110,7 +105,6 @@ def gnmi_get_with_password(path_list, user, password):
     cmd += '-insecure -username %s -password %s '%(user, password)
     cmd += '-target_addr 127.0.0.1:8080 '
     cmd += '-alsologtostderr '
-    cmd += '-xpath_target MIXED '
     for path in path_list:
         cmd += " -xpath " + path
     ret, msg = run_cmd(cmd)
@@ -129,7 +123,6 @@ def gnmi_get_with_jwt(path_list, token):
     cmd += '-insecure -jwt_token ' + token + ' '
     cmd += '-target_addr 127.0.0.1:8080 '
     cmd += '-alsologtostderr '
-    cmd += '-xpath_target MIXED '
     for path in path_list:
         cmd += " -xpath " + path
     ret, msg = run_cmd(cmd)

@@ -39,6 +39,7 @@ import (
 	// Register supported client types.
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
@@ -982,13 +983,6 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 			elem: <name: "MyCounters" >
 		`,
 		wantRetCode: codes.NotFound,
-	}, {
-		desc:       "Test empty path target",
-		pathTarget: "",
-		textPbPath: `
-			elem: <name: "MyCounters" >
-		`,
-		wantRetCode: codes.Unimplemented,
 	}, {
 		desc:       "Test passing asic in path for V2R Dataset Target",
 		pathTarget: "COUNTER_DB" + "/" + namespace,
@@ -2902,7 +2896,7 @@ print('%s')
 	}{
 		{
 			desc:       "Set APPL_DB in batch",
-			pathTarget: "MIXED",
+			pathTarget: "",
 			textPbPath: `
 						origin: "sonic-db",
                         elem: <name: "APPL_DB" > elem:<name:"DASH_QOS" >
@@ -3000,6 +2994,31 @@ func TestInvalidServer(t *testing.T) {
 	s := createInvalidServer(t, 9000)
 	if s != nil {
 		t.Errorf("Should not create invalid server")
+	}
+}
+
+func TestParseOrigin(t *testing.T) {
+	var test_paths []*gnmipb.Path
+	var err error
+
+	_, err = ParseOrigin("test", test_paths)
+	if err != nil {
+		t.Errorf("ParseOrigin failed for empty path: %v", err)
+	}
+
+	test_origin := "sonic-test"
+	path, err := xpath.ToGNMIPath(test_origin + ":CONFIG_DB/VLAN")
+	test_paths = append(test_paths, path)
+	origin, err := ParseOrigin("", test_paths)
+	if err != nil {
+		t.Errorf("ParseOrigin failed to get origin: %v", err)
+	}
+	if origin != test_origin {
+		t.Errorf("ParseOrigin return wrong origin: %v", origin)
+	}
+	origin, err = ParseOrigin("sonic-invalid", test_paths)
+	if err == nil {
+		t.Errorf("ParseOrigin should fail for conflict")
 	}
 }
 

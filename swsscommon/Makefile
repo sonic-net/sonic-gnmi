@@ -1,6 +1,7 @@
+SWIG ?= /usr/bin/swig
 RM=rm -f
 
-SWIG_FLAG = -c++ -go -intgosize 64
+SWIG_FLAG = -go -cgo -c++ -intgosize 64
 ifeq ($(CONFIGURED_ARCH),arm64)
 SWIG_FLAG += -DSWIGWORDSIZE64
 endif

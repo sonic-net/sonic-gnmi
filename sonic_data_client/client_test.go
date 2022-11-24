@@ -298,31 +298,6 @@ func TestJsonRemoveNegative(t *testing.T) {
 	}
 }
 
-func TestParseOrigin(t *testing.T) {
-	var test_paths []*gnmipb.Path
-	var err error
-
-	_, err = ParseOrigin("test", test_paths)
-	if err != nil {
-		t.Errorf("ParseOrigin failed for empty path: %v", err)
-	}
-
-	test_origin := "sonic-test"
-	path, err := xpath.ToGNMIPath(test_origin + ":CONFIG_DB/VLAN")
-	test_paths = append(test_paths, path)
-	origin, err := ParseOrigin("", test_paths)
-	if err != nil {
-		t.Errorf("ParseOrigin failed to get origin: %v", err)
-	}
-	if origin != test_origin {
-		t.Errorf("ParseOrigin return wrong origin: %v", origin)
-	}
-	origin, err = ParseOrigin("sonic-invalid", test_paths)
-	if err == nil {
-		t.Errorf("ParseOrigin should fail for conflict")
-	}
-}
-
 func TestParseTarget(t *testing.T) {
 	var test_paths []*gnmipb.Path
 	var err error
