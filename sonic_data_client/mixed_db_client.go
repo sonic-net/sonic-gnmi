@@ -110,6 +110,7 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 		c.tableMap[table] = pt
 	}
 	vec := swsscommon.NewFieldValuePairs()
+	defer swsscommon.DeleteFieldValuePairs(vec)
 	for k, v := range values {
 		pair := swsscommon.NewFieldValuePair(k, v)
 		vec.Add(pair)
@@ -1066,7 +1067,7 @@ func (c *MixedDbClient) Capabilities() []gnmipb.ModelData {
 
 func (c *MixedDbClient) Close() error {
 	for _, pt := range c.tableMap {
-		pt.Del()
+		swsscommon.DeleteProducerStateTable(pt)
 	}
 	return nil
 }

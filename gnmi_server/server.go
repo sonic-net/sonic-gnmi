@@ -349,6 +349,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
+	defer dc.Close()
 	notifications := make([]*gnmipb.Notification, len(paths))
 	spbValues, err := dc.Get(nil)
 	if err != nil {
@@ -420,6 +421,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
+	defer dc.Close()
 
 	/* DELETE */
 	for _, path := range req.GetDelete() {
