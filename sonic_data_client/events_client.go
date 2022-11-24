@@ -332,7 +332,8 @@ func get_events(evtc *EventClient) {
                                 JsonIetfVal: jv,
                             }}
                         if err := send_event(evtc, evtTv, evt.Publish_epoch_ms); err != nil {
-                            break
+                            check_evtc_stopped()
+                            return
                         }
                     } else {
                         log.V(1).Infof("Invalid event string: %v", evt.Event_str)
@@ -342,10 +343,7 @@ func get_events(evtc *EventClient) {
                 }
             }
         }
-        if evtc.stopped == 1 {
-            log.V(1).Infof("%v stop channel closed, exiting get_events routine", evtc)
-            C_deinit_subs(evtc.subs_handle)
-            evtc.subs_handle = nil
+        if evtc_stopped := check_evtc_stopped(), evtc_stopped == true {
             return
         }
         // TODO: Record missed count in stats table.
@@ -353,6 +351,15 @@ func get_events(evtc *EventClient) {
     }
 }
 
+func check_evtc_stopped() bool {
+    if evtc.stopped == 1 {
+        log.V(1).Infof("%v stop channel closed, exiting get_events routine", evtc)
+        C_deinit_subs(evtc.subs_handle)
+        evtc.subs_handle = nil
+        return true
+    }
+    return false
+}
 
 func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
         timestamp int64) error {
