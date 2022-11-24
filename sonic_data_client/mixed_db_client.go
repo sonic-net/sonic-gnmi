@@ -1069,6 +1069,7 @@ func (c *MixedDbClient) Close() error {
 	for _, pt := range c.tableMap {
 		swsscommon.DeleteProducerStateTable(pt)
 	}
+	swsscommon.DeleteDBConnector(c.applDB)
 	return nil
 }
 
