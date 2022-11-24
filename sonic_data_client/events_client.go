@@ -343,7 +343,7 @@ func get_events(evtc *EventClient) {
                 }
             }
         }
-        if evtc_stopped := check_evtc_stopped(), evtc_stopped == true {
+        if evtc_stopped := check_evtc_stopped(); evtc_stopped == true {
             return
         }
         // TODO: Record missed count in stats table.
