@@ -114,6 +114,7 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 	for k, v := range values {
 		pair := swsscommon.NewFieldValuePair(k, v)
 		vec.Add(pair)
+		swsscommon.DeleteFieldValuePair(pair)
 	}
 	pt.Set(key, vec, "SET", "")
 	return nil
