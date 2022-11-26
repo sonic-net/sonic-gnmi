@@ -277,24 +277,25 @@ func (s *Server) checkEncodingAndModel(encoding gnmipb.Encoding, models []*gnmip
 	return nil
 }
 
-func ParseOrigin(origin string, paths []*gnmipb.Path) (string, error) {
+func ParseOrigin(paths []*gnmipb.Path) (string, error) {
+	origin := ""
 	if len(paths) == 0 {
 		return origin, nil
 	}
 	for i, path := range paths {
-		if origin == "" {
-			if i == 0 {
-				origin = path.Origin
+		if i == 0 {
+			origin = path.Origin
+		} else {
+			if origin != path.Origin {
+				return "", status.Error(codes.Unimplemented, "Origin conflict in path")
 			}
-		} else if origin != path.Origin {
-			return "", status.Error(codes.Unimplemented, "Origin conflict in path")
 		}
 	}
 	return origin, nil
 }
 
 func IsNativeOrigin(origin string) bool {
-	return origin == "sonic-db" || origin == "sonic-yang"
+	return origin == "sonic-db"
 }
 
 // Get implements the Get RPC in gNMI spec.
@@ -334,7 +335,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		dc, err = sdc.NewDbClient(paths, prefix)
 	} else {
 		origin := ""
-		origin, err = ParseOrigin(origin, paths)
+		origin, err = ParseOrigin(paths)
 		if err != nil {
 			return nil, err
 		}
@@ -390,7 +391,6 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	extensions := req.GetExtension()
 
 	var dc sdc.Client
-	origin := ""
 	paths := req.GetDelete()
 	for _, path := range req.GetReplace() {
 		paths = append(paths, path.GetPath())
@@ -398,7 +398,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	for _, path := range req.GetUpdate() {
 		paths = append(paths, path.GetPath())
 	}
-	origin, err = ParseOrigin(origin, paths)
+	origin, err := ParseOrigin(paths)
 	if err != nil {
 		return nil, err
 	}

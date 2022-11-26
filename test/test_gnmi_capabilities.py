@@ -7,5 +7,4 @@ class TestGNMICapabilities:
         ret, msg = gnmi_capabilities()
         assert ret == 0, msg
         assert "sonic-db" in msg, "No sonic-db in msg: " + msg
-        assert "sonic-yang" in msg, "No sonic-yang in msg: " + msg
 

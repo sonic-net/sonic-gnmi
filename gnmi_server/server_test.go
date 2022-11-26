@@ -3007,7 +3007,7 @@ func TestParseOrigin(t *testing.T) {
 	var test_paths []*gnmipb.Path
 	var err error
 
-	_, err = ParseOrigin("test", test_paths)
+	_, err = ParseOrigin(test_paths)
 	if err != nil {
 		t.Errorf("ParseOrigin failed for empty path: %v", err)
 	}
@@ -3015,14 +3015,17 @@ func TestParseOrigin(t *testing.T) {
 	test_origin := "sonic-test"
 	path, err := xpath.ToGNMIPath(test_origin + ":CONFIG_DB/VLAN")
 	test_paths = append(test_paths, path)
-	origin, err := ParseOrigin("", test_paths)
+	origin, err := ParseOrigin(test_paths)
 	if err != nil {
 		t.Errorf("ParseOrigin failed to get origin: %v", err)
 	}
 	if origin != test_origin {
 		t.Errorf("ParseOrigin return wrong origin: %v", origin)
 	}
-	origin, err = ParseOrigin("sonic-invalid", test_paths)
+	test_origin = "sonic-invalid"
+	path, err = xpath.ToGNMIPath(test_origin + ":CONFIG_DB/PORT")
+	test_paths = append(test_paths, path)
+	origin, err = ParseOrigin(test_paths)
 	if err == nil {
 		t.Errorf("ParseOrigin should fail for conflict")
 	}

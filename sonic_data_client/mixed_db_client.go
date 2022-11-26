@@ -41,11 +41,6 @@ const (
 var (
 	supportedModels = []gnmipb.ModelData{
 		{
-			Name:         "sonic-yang",
-			Organization: "SONiC",
-			Version:      "0.1.0",
-		},
-		{
 			Name:         "sonic-db",
 			Organization: "SONiC",
 			Version:      "0.1.0",
@@ -157,9 +152,6 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string) 
 		if err != nil {
 			return nil, err
 		}
-	}
-	if client.origin == "sonic-yang" {
-		return nil, status.Errorf(codes.Unimplemented, "SONiC Yang Schema is not implemented yet")
 	}
 	_, ok, _, _ := IsTargetDb(client.target); 
 	if !ok {
