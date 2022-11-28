@@ -79,6 +79,9 @@ stages:
       displayName: "Download sonic-mgmt-common"
 
     - script: |
+        # PYTEST
+        sudo pip3 install -U pytest
+
         # REDIS
         sudo apt-get install -y redis-server
         sudo sed -ri 's/^# unixsocket/unixsocket/' /etc/redis/redis.conf

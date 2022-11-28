@@ -5,6 +5,7 @@ package gnmi
 import (
 	"crypto/tls"
 	"encoding/json"
+	"path/filepath"
 	"flag"
 	"fmt"
 	"strings"
@@ -38,13 +39,16 @@ import (
 	// Register supported client types.
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	gclient "github.com/jipanyang/gnmi/client/gnmi"
 	"github.com/jipanyang/gnxi/utils/xpath"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/godbus/dbus/v5"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -100,19 +104,18 @@ func createServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true}
+	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
-		t.Fatalf("Failed to create gNMI server: %v", err)
+		t.Errorf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
 
 func createReadServer(t *testing.T, port int64) *Server {
-	t.Helper()
 	certificate, err := testcert.NewCert()
 	if err != nil {
-		t.Fatalf("could not load server key pair: %s", err)
+		t.Errorf("could not load server key pair: %s", err)
 	}
 	tlsCfg := &tls.Config{
 		ClientAuth:   tls.RequestClientCert,
@@ -144,6 +147,24 @@ func createAuthServer(t *testing.T, port int64) *Server {
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
+	}
+	return s
+}
+
+func createInvalidServer(t *testing.T, port int64) *Server {
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Errorf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	s, err := NewServer(nil, opts)
+	if err != nil {
+		return nil
 	}
 	return s
 }
@@ -240,12 +261,13 @@ func runTestSet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 	req := &pb.SetRequest{}
 	switch op {
 	case Replace:
-		//prefix := pb.Path{Target: pathTarget}
+		prefix := pb.Path{Target: pathTarget}
 		var v *pb.TypedValue
 		v = &pb.TypedValue{
 			Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: extractJSON(attributeData)}}
 
 		req = &pb.SetRequest{
+			Prefix: &prefix,
 			Replace: []*pb.Update{&pb.Update{Path: &pbPath, Val: v}},
 		}
 	case Delete:
@@ -961,13 +983,6 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 			elem: <name: "MyCounters" >
 		`,
 		wantRetCode: codes.NotFound,
-	}, {
-		desc:       "Test empty path target",
-		pathTarget: "",
-		textPbPath: `
-			elem: <name: "MyCounters" >
-		`,
-		wantRetCode: codes.Unimplemented,
 	}, {
 		desc:       "Test passing asic in path for V2R Dataset Target",
 		pathTarget: "COUNTER_DB" + "/" + namespace,
@@ -2698,6 +2713,7 @@ func TestAuthCapabilities(t *testing.T) {
 
 	s := createAuthServer(t, 8089)
 	go runServer(t, s)
+	defer s.s.Stop()
 
 	currentUser, _ := user.Current()
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
@@ -2723,7 +2739,6 @@ func TestAuthCapabilities(t *testing.T) {
 	if len(resp.SupportedModels) == 0 {
 		t.Fatalf("No Supported Models found!")
 	}
-
 }
 
 func TestClient(t *testing.T) {
@@ -2842,6 +2857,178 @@ func TestClient(t *testing.T) {
     }
 
     s.s.Stop()
+}
+
+func TestGnmiSetBatch(t *testing.T) {
+	mockCode := 
+`
+print('No Yang validation for test mode...')
+print('%s')
+`
+	mock1 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
+	defer mock1.Reset()
+
+	s := createServer(t, 8090)
+	go runServer(t, s)
+
+	prepareDbTranslib(t)
+
+	//t.Log("Start gNMI client")
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := "127.0.0.1:8090"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var emptyRespVal interface{}
+
+	tds := []struct {
+		desc          string
+		pathTarget    string
+		textPbPath    string
+		wantRetCode   codes.Code
+		wantRespVal   interface{}
+		attributeData string
+		operation     op_t
+		valTest       bool
+	}{
+		{
+			desc:       "Set APPL_DB in batch",
+			pathTarget: "",
+			textPbPath: `
+						origin: "sonic-db",
+                        elem: <name: "APPL_DB" > elem:<name:"DASH_QOS" >
+                `,
+			attributeData: "../testdata/batch.txt",
+			wantRetCode:   codes.OK,
+			wantRespVal:   emptyRespVal,
+			operation:     Replace,
+			valTest:       false,
+		},
+	}
+
+	for _, td := range tds {
+		if td.valTest == true {
+			// wait for 2 seconds for change to sync
+			time.Sleep(2 * time.Second)
+			t.Run(td.desc, func(t *testing.T) {
+				runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+			})
+		} else {
+			t.Run(td.desc, func(t *testing.T) {
+				runTestSet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.attributeData, td.operation)
+			})
+		}
+	}
+	s.s.Stop()
+}
+
+func TestGNMINative(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+	mockCode := 
+`
+print('No Yang validation for test mode...')
+print('%s')
+`
+	mock3 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
+	defer mock3.Reset()
+
+	s := createServer(t, 8080)
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	path, _ := os.Getwd()
+	path = filepath.Dir(path)
+
+	var cmd *exec.Cmd
+	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest")
+	if result, err := cmd.Output(); err != nil {
+		fmt.Println(string(result))
+		t.Errorf("Fail to execute pytest: %v", err)
+	} else {
+		fmt.Println(string(result))
+	}
+
+	var counters [int(common_utils.COUNTER_SIZE)]uint64
+	err := common_utils.GetMemCounters(&counters)
+	if err != nil {
+		t.Errorf("Error: Fail to read counters, %v", err)
+	}
+	for i := 0; i < int(common_utils.COUNTER_SIZE); i++ {
+		cnt := common_utils.CounterType(i)
+		counterName := cnt.String()
+		if counterName == "GNMI set" && counters[i] == 0 {
+			t.Errorf("GNMI set counter should not be 0")
+		}
+		if counterName == "GNMI get" && counters[i] == 0 {
+			t.Errorf("GNMI get counter should not be 0")
+		}
+	}
+	s.s.Stop()
+}
+
+func TestServerPort(t *testing.T) {
+	s := createServer(t, -8080)
+	port := s.Port()
+	if port != 0 {
+		t.Errorf("Invalid port: %d", port)
+	}
+	s.s.Stop()
+}
+
+func TestInvalidServer(t *testing.T) {
+	s := createInvalidServer(t, 9000)
+	if s != nil {
+		t.Errorf("Should not create invalid server")
+	}
+}
+
+func TestParseOrigin(t *testing.T) {
+	var test_paths []*gnmipb.Path
+	var err error
+
+	_, err = ParseOrigin(test_paths)
+	if err != nil {
+		t.Errorf("ParseOrigin failed for empty path: %v", err)
+	}
+
+	test_origin := "sonic-test"
+	path, err := xpath.ToGNMIPath(test_origin + ":CONFIG_DB/VLAN")
+	test_paths = append(test_paths, path)
+	origin, err := ParseOrigin(test_paths)
+	if err != nil {
+		t.Errorf("ParseOrigin failed to get origin: %v", err)
+	}
+	if origin != test_origin {
+		t.Errorf("ParseOrigin return wrong origin: %v", origin)
+	}
+	test_origin = "sonic-invalid"
+	path, err = xpath.ToGNMIPath(test_origin + ":CONFIG_DB/PORT")
+	test_paths = append(test_paths, path)
+	origin, err = ParseOrigin(test_paths)
+	if err == nil {
+		t.Errorf("ParseOrigin should fail for conflict")
+	}
 }
 
 func init() {

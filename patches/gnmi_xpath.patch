@@ -1,0 +1,21 @@
+Use escaped '/' to support ip prefix in path element
+--- ./github.com/jipanyang/gnxi/utils/xpath/xpath.go
++++ ./github.com/jipanyang/gnxi/utils/xpath/xpath.go
+@@ -88,11 +88,15 @@
+ 	for end < len(str) {
+ 		switch str[end] {
+ 		case '/':
+-			if !insideBrackets {
++			if end != 0 && str[end-1] == '\\' {
++				// Ignore escaped '/'
++				end++
++			} else if !insideBrackets {
+ 				// Current '/' is a valid path element
+ 				// separator.
+ 				if end > begin {
+-					path = append(path, str[begin:end])
++					val := strings.Replace(str[begin:end], `\/`, `/`, -1)
++					path = append(path, val)
+ 				}
+ 				end++
+ 				begin = end
