@@ -121,7 +121,7 @@ func (c *MixedDbClient) DbDelTable(table string, key string) error {
 		pt = swsscommon.NewProducerStateTable(c.applDB, table)
 		c.tableMap[table] = pt
 	}
-	pt.Del(key, "DEL", "")
+	pt.Delete(key, "DEL", "")
 	return nil
 }
 

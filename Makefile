@@ -12,7 +12,7 @@ BUILD_DIR := build/bin
 export CVL_SCHEMA_PATH := $(MGMT_COMMON_DIR)/build/cvl/schema
 export GOBIN := $(abspath $(BUILD_DIR))
 export PATH := $(PATH):$(GOBIN):$(shell dirname $(GO))
-export CGO_LDFLAGS := -lswsscommon
+export CGO_LDFLAGS := -lswsscommon -lhiredis
 export CGO_CXXFLAGS := -I/usr/include/swss -w -Wall -fpermissive
 
 SRC_FILES=$(shell find . -name '*.go' | grep -v '_test.go' | grep -v '/tests/')

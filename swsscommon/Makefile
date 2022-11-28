@@ -1,5 +1,6 @@
 SWIG ?= /usr/bin/swig
 RM=rm -f
+CP=cp -f
 
 SWIG_FLAG = -go -cgo -c++ -intgosize 64
 ifeq ($(CONFIGURED_ARCH),arm64)
@@ -9,7 +10,8 @@ endif
 .PHONY: all clean
 
 all:
-	swig $(SWIG_FLAG) -I/usr/include/swss/ swsscommon.i
+	$(CP) /usr/share/swss/swsscommon.i .
+	$(SWIG) $(SWIG_FLAG) -I/usr/include/swss/ swsscommon.i
 
 clean:
-	$(RM) *.go *.cxx
+	$(RM) *.go *.cxx *.i
