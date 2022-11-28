@@ -20,7 +20,6 @@ const (
 	Target_APPL_DB     Target = 0
 	Target_ASIC_DB     Target = 1
 	Target_COUNTERS_DB Target = 2
-	Target_LOGLEVEL_DB Target = 3
 	Target_CONFIG_DB   Target = 4
 	// PFC_WD_DB shares the the same db number with FLEX_COUNTER_DB
 	Target_PFC_WD_DB       Target = 5
@@ -34,7 +33,6 @@ var Target_name = map[int32]string{
 	0: "APPL_DB",
 	1: "ASIC_DB",
 	2: "COUNTERS_DB",
-	3: "LOGLEVEL_DB",
 	4: "CONFIG_DB",
 	5: "PFC_WD_DB",
 	// Duplicate value: 5: "FLEX_COUNTER_DB",
@@ -45,7 +43,6 @@ var Target_value = map[string]int32{
 	"APPL_DB":         0,
 	"ASIC_DB":         1,
 	"COUNTERS_DB":     2,
-	"LOGLEVEL_DB":     3,
 	"CONFIG_DB":       4,
 	"PFC_WD_DB":       5,
 	"FLEX_COUNTER_DB": 5,

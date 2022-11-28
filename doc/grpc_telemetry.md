@@ -30,7 +30,6 @@ In SONiC, most of the critical network and system data is stored in redisDB. Bas
 |APPL_DB    |  0 |   Application running data |
 |ASIC_DB    |  1 |   ASIC configuration and state data
 |COUNTERS_DB | 2 |   Counter data for port, lag, queue
-|LOGLEVEL_DB | 3 |   Log level control for SONiC modules
 |CONFIG_DB   | 4 |   Source of truth for SONiC configuration
 |FLEX_COUNTER_DB| 5 | For PFC watch dog counters control and other plugin extensions
 |STATE_DB       | 6 | Configuration state for object in CONFIG_DB
