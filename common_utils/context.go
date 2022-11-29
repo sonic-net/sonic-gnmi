@@ -42,6 +42,15 @@ const (
 	GNMI_GET_FAIL
 	GNMI_SET
 	GNMI_SET_FAIL
+	GNOI_REBOOT
+	DBUS
+	DBUS_FAIL
+	DBUS_APPLY_PATCH_DB
+	DBUS_APPLY_PATCH_YANG
+	DBUS_CREATE_CHECKPOINT
+	DBUS_DELETE_CHECKPOINT
+	DBUS_CONFIG_SAVE
+	DBUS_CONFIG_RELOAD
 	COUNTER_SIZE
 )
 
@@ -55,6 +64,24 @@ func (c CounterType) String() string {
 		return "GNMI set"
 	case GNMI_SET_FAIL:
 		return "GNMI set fail"
+	case GNOI_REBOOT:
+		return "GNOI reboot"
+	case DBUS:
+		return "DBUS"
+	case DBUS_FAIL:
+		return "DBUS fail"
+	case DBUS_APPLY_PATCH_DB:
+		return "DBUS apply patch db"
+	case DBUS_APPLY_PATCH_YANG:
+		return "DBUS apply patch yang"
+	case DBUS_CREATE_CHECKPOINT:
+		return "DBUS create checkpoint"
+	case DBUS_DELETE_CHECKPOINT:
+		return "DBUS delete checkpoint"
+	case DBUS_CONFIG_SAVE:
+		return "DBUS config save"
+	case DBUS_CONFIG_RELOAD:
+		return "DBUS config reload"
 	default:
 		return ""
 	}
