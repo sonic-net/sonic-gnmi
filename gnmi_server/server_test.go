@@ -2807,8 +2807,14 @@ func TestClient(t *testing.T) {
     } {
         {
             desc: "base client create",
+            wantErr: false,
             poll: 3,
         },
+        {
+            desc: "queue error",
+            wantErr: true,
+            poll: 3
+        }
     }
 
     sdc.C_init_subs(true)
@@ -2836,6 +2842,10 @@ func TestClient(t *testing.T) {
 
             // wait for half second for subscribeRequest to sync
             // and to receive events via notification handler.
+            if tt.wantErr {
+                c.q.Dispose()
+            }
+
             time.Sleep(time.Millisecond * 2000)
 
             // -1 to discount test event, which receiver would drop.
