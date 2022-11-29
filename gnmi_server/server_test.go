@@ -2813,8 +2813,8 @@ func TestClient(t *testing.T) {
         {
             desc: "queue error",
             wantErr: true,
-            poll: 3
-        }
+            poll: 3,
+        },
     }
 
     sdc.C_init_subs(true)
