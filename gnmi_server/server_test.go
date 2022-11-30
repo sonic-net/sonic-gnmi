@@ -2792,7 +2792,7 @@ func TestClient(t *testing.T) {
 	defer mock4.Reset()
 
     mock5 := gomonkey.ApplyMethod(reflect.TypeOf(&queue.PriorityQueue{}), "Put", func(pq *queue.PriorityQueue, item ...queue.Item) error {
-        return fmt.Error("Queue error")
+        return fmt.Errorf("Queue error")
     })
         defer mock5.Reset()
 
