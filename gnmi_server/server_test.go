@@ -42,6 +42,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+        "github.com/Workiva/go-datastructures/queue"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	gclient "github.com/jipanyang/gnmi/client/gnmi"
@@ -2789,6 +2790,11 @@ func TestClient(t *testing.T) {
     })
 
 	defer mock4.Reset()
+
+    mock5 := gomonkey.ApplyMethod(reflect.TypeOf(&queue.PriorityQueue{}), "Put", func(pq *queue.PriorityQueue, item ...queue.Item) error {
+        return fmt.Error("Queue error")
+    })
+        defer mock5.Reset()
 
     s := createServer(t, 8081)
     go runServer(t, s)
