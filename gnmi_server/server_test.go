@@ -2832,6 +2832,9 @@ func TestClient(t *testing.T) {
                     nn.TS = time.Unix(0, 200)
                     str := fmt.Sprintf("%v", nn.Val)
                     gotNoti = append(gotNoti, str)
+                    if tt.wantErr { // Close after first reception to induce send error
+                        c.Close()
+                    }
                 }
                 return nil
             }
@@ -2842,21 +2845,20 @@ func TestClient(t *testing.T) {
 
             // wait for half second for subscribeRequest to sync
             // and to receive events via notification handler.
-            if tt.wantErr {
-                c.Close()
-            }
 
             time.Sleep(time.Millisecond * 2000)
 
-            // -1 to discount test event, which receiver would drop.
-            if (len(events) - 1) != len(gotNoti) {
-                t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
-            }
+	    if !tt.wantErr {
+                // -1 to discount test event, which receiver would drop.
+                if (len(events) - 1) != len(gotNoti) {
+                    t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
+                }
 
-            if (heartbeat != HEARTBEAT_SET) {
-                t.Errorf("Heartbeat is not set %d != expected:%d", heartbeat, HEARTBEAT_SET)
+                if (heartbeat != HEARTBEAT_SET) {
+                    t.Errorf("Heartbeat is not set %d != expected:%d", heartbeat, HEARTBEAT_SET)
+                }
+                fmt.Printf("DONE: Expect events:%d - 1 gotNoti=%d\n", len(events), len(gotNoti))
             }
-            fmt.Printf("DONE: Expect events:%d - 1 gotNoti=%d\n", len(events), len(gotNoti))
         })
         time.Sleep(time.Millisecond * 1000)
 
