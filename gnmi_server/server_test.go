@@ -2843,7 +2843,7 @@ func TestClient(t *testing.T) {
             // wait for half second for subscribeRequest to sync
             // and to receive events via notification handler.
             if tt.wantErr {
-                t.Close()
+                c.Close()
             }
 
             time.Sleep(time.Millisecond * 2000)
