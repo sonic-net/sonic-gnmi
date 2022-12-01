@@ -332,8 +332,8 @@ func get_events(evtc *EventClient) {
                                 JsonIetfVal: jv,
                             }}
                         if err := send_event(evtc, evtTv, evt.Publish_epoch_ms); err != nil {
-                            evtc.stopped = 1
-                            check_evtc_stopped(evtc)
+                            //evtc.stopped = 1
+                            //check_evtc_stopped(evtc)
                             return
                         }
                     } else {
