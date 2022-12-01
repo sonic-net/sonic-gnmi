@@ -2815,6 +2815,10 @@ func TestClient(t *testing.T) {
             desc: "queue error",
             poll: 3,
         },
+        {
+            desc: "base client create",
+            poll: 3,
+        },
     }
 
     sdc.C_init_subs(true)
@@ -2857,12 +2861,14 @@ func TestClient(t *testing.T) {
                 fmt.Printf("DONE: Expect events:%d - 1 gotNoti=%d\n", len(events), len(gotNoti))
             }
         })
+        if testNum == 0 {
+            mock5.Reset()
+        }
         time.Sleep(time.Millisecond * 1000)
 
         if deinit_done == false {
             t.Errorf("Events client deinit *NOT* called.")
         }
-
         // t.Log("END of a TEST")
     }
 
