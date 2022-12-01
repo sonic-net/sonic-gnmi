@@ -2791,10 +2791,10 @@ func TestClient(t *testing.T) {
 
 	defer mock4.Reset()
 
-    mock5 := gomonkey.ApplyMethod(reflect.TypeOf(&queue.PriorityQueue{}), "Put", func(pq *queue.PriorityQueue, item ...queue.Item) error {
+    /*mock5 := gomonkey.ApplyMethod(reflect.TypeOf(&queue.PriorityQueue{}), "Put", func(pq *queue.PriorityQueue, item ...queue.Item) error {
         return fmt.Errorf("Queue error")
     })
-        defer mock5.Reset()
+        defer mock5.Reset()*/
 
     s := createServer(t, 8081)
     go runServer(t, s)
@@ -2861,10 +2861,10 @@ func TestClient(t *testing.T) {
                 fmt.Printf("DONE: Expect events:%d - 1 gotNoti=%d\n", len(events), len(gotNoti))
             }
         })
-        if testNum == 0 {
-            mock5.Reset()
-        }
-        time.Sleep(time.Millisecond * 10000)
+        //if testNum == 0 {
+        //    mock5.Reset()
+        //}
+        time.Sleep(time.Millisecond * 1000)
 
         if deinit_done == false {
             t.Errorf("Events client deinit *NOT* called.")
