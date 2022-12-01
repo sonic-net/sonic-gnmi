@@ -2854,18 +2854,20 @@ func TestClient(t *testing.T) {
             time.Sleep(time.Millisecond * 2000)
 
             // -1 to discount test event, which receiver would drop.
-            if (len(events) - 1) != len(gotNoti) {
-                t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
-            }
+            if testNum != 0 {
+                if (len(events) - 1) != len(gotNoti) {
+                    t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
+                }
 
-            if (heartbeat != HEARTBEAT_SET) {
-                t.Errorf("Heartbeat is not set %d != expected:%d", heartbeat, HEARTBEAT_SET)
+                if (heartbeat != HEARTBEAT_SET) {
+                    t.Errorf("Heartbeat is not set %d != expected:%d", heartbeat, HEARTBEAT_SET)
+                }
+                fmt.Printf("DONE: Expect events:%d - 1 gotNoti=%d\n", len(events), len(gotNoti))
             }
-            fmt.Printf("DONE: Expect events:%d - 1 gotNoti=%d\n", len(events), len(gotNoti))
         })
         time.Sleep(time.Millisecond * 1000)
 
-        if (deinit_done == false) {
+        if deinit_done == false {
             t.Errorf("Events client deinit *NOT* called.")
         }
         // t.Log("END of a TEST")

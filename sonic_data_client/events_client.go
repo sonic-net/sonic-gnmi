@@ -332,6 +332,7 @@ func get_events(evtc *EventClient) {
                                 JsonIetfVal: jv,
                             }}
                         if err := send_event(evtc, evtTv, evt.Publish_epoch_ms); err != nil {
+                            evtc.stopped = 1
                             check_evtc_stopped(evtc)
                             return
                         }
@@ -390,7 +391,7 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     go update_stats(evtc)
     evtc.wg.Add(1)
 
-    for {
+    for evtc.stopped == 0 {
         select {
         case <-evtc.channel:
             evtc.stopped = 1
