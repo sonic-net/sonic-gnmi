@@ -2864,7 +2864,7 @@ func TestClient(t *testing.T) {
         if testNum == 0 {
             mock5.Reset()
         }
-        time.Sleep(time.Millisecond * 1000)
+        time.Sleep(time.Millisecond * 10000)
 
         if deinit_done == false {
             t.Errorf("Events client deinit *NOT* called.")
