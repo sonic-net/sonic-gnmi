@@ -135,11 +135,7 @@ func main() {
 	}
 
 	opts = []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &gnmi.Config{}
-	cfg.Port = int64(*port)
 	cfg.UserAuth = userAuth
-	cfg.EnableTranslibWrite = bool(*gnmi_translib_write)
-	cfg.EnableNativeWrite = bool(*gnmi_native_write)
 
 	gnmi.GenerateJwtSecretKey()
 }
