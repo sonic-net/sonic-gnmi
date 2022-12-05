@@ -332,9 +332,7 @@ func get_events(evtc *EventClient) {
                                 JsonIetfVal: jv,
                             }}
                         if err := send_event(evtc, evtTv, evt.Publish_epoch_ms); err != nil {
-                            evtc.stopped = 1
-                            check_evtc_stopped(evtc)
-                            return
+                            break
                         }
                     } else {
                         log.V(1).Infof("Invalid event string: %v", evt.Event_str)
@@ -344,22 +342,17 @@ func get_events(evtc *EventClient) {
                 }
             }
         }
-        if evtc_stopped := check_evtc_stopped(evtc); evtc_stopped == true {
-            return
+        if evtc.stopped == 1 {
+            break
         }
         // TODO: Record missed count in stats table.
         // intVar, err := strconv.Atoi(C.GoString((*C.char)(c_mptr)))
     }
-}
-
-func check_evtc_stopped(evtc *EventClient) bool {
-    if evtc.stopped == 1 {
-        log.V(1).Infof("%v stop channel closed, exiting get_events routine", evtc)
-        C_deinit_subs(evtc.subs_handle)
-        evtc.subs_handle = nil
-        return true
-    }
-    return false
+    log.V(1).Infof("%v stop channel closed or send_event err, exiting get_events routine", evtc)
+    C_deinit_subs(evtc.subs_handle)
+    evtc.subs_handle = nil
+    // close channel for case where send_event error and channel was not stopped
+    close(evtc.channel)
 }
 
 func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
@@ -391,7 +384,7 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     go update_stats(evtc)
     evtc.wg.Add(1)
 
-    for evtc.stopped == 0 {
+    for {
         select {
         case <-evtc.channel:
             evtc.stopped = 1
