@@ -351,8 +351,8 @@ func get_events(evtc *EventClient) {
     log.V(1).Infof("%v stop channel closed or send_event err, exiting get_events routine", evtc)
     C_deinit_subs(evtc.subs_handle)
     evtc.subs_handle = nil
-    // close channel for case where send_event error and channel was not stopped
-    close(evtc.channel)
+    // set evtc.stopped for case where send_event error and channel was not stopped
+    evtc.stopped = 1
 }
 
 func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
@@ -384,7 +384,7 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     go update_stats(evtc)
     evtc.wg.Add(1)
 
-    for {
+    for evtc.stopped == 0 {
         select {
         case <-evtc.channel:
             evtc.stopped = 1
