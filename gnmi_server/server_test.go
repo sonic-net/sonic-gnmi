@@ -42,6 +42,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+        "github.com/Workiva/go-datastructures/queue"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	gclient "github.com/jipanyang/gnmi/client/gnmi"
@@ -2790,6 +2791,11 @@ func TestClient(t *testing.T) {
 
 	defer mock4.Reset()
 
+    mock5 := gomonkey.ApplyMethod(reflect.TypeOf(&queue.PriorityQueue{}), "Put", func(pq *queue.PriorityQueue, item ...queue.Item) error {
+        return fmt.Errorf("Queue error")
+    })
+        defer mock5.Reset()
+
     s := createServer(t, 8081)
     go runServer(t, s)
 
@@ -2806,6 +2812,10 @@ func TestClient(t *testing.T) {
         poll       int
     } {
         {
+            desc: "queue error",
+            poll: 3,
+        },
+        {
             desc: "base client create",
             poll: 3,
         },
@@ -2813,8 +2823,9 @@ func TestClient(t *testing.T) {
 
     sdc.C_init_subs(true)
 
-    for _, tt := range tests {
+    for testNum, tt := range tests {
         heartbeat = 0
+        event_index = 0
         deinit_done = false
         t.Run(tt.desc, func(t *testing.T) {
             c := client.New()
@@ -2836,21 +2847,27 @@ func TestClient(t *testing.T) {
 
             // wait for half second for subscribeRequest to sync
             // and to receive events via notification handler.
+
             time.Sleep(time.Millisecond * 2000)
 
             // -1 to discount test event, which receiver would drop.
-            if (len(events) - 1) != len(gotNoti) {
-                t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
-            }
+            if testNum != 0 {
+                if (len(events) - 1) != len(gotNoti) {
+                    t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
+                }
 
-            if (heartbeat != HEARTBEAT_SET) {
-                t.Errorf("Heartbeat is not set %d != expected:%d", heartbeat, HEARTBEAT_SET)
+                if (heartbeat != HEARTBEAT_SET) {
+                    t.Errorf("Heartbeat is not set %d != expected:%d", heartbeat, HEARTBEAT_SET)
+                }
+                fmt.Printf("DONE: Expect events:%d - 1 gotNoti=%d\n", len(events), len(gotNoti))
             }
-            fmt.Printf("DONE: Expect events:%d - 1 gotNoti=%d\n", len(events), len(gotNoti))
         })
+        if testNum == 0 {
+            mock5.Reset()
+        }
         time.Sleep(time.Millisecond * 1000)
 
-        if (deinit_done == false) {
+        if deinit_done == false {
             t.Errorf("Events client deinit *NOT* called.")
         }
         // t.Log("END of a TEST")
