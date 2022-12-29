@@ -99,11 +99,6 @@ index e851a4b..6d04a74 100644
 +
 +			if *expected_cnt > 0 {
 +				rcvd_cnt += 1
-+				if *expected_cnt <= rcvd_cnt {
-+					s := fmt.Sprintf("Received all. expected:%d rcvd:%d", *expected_cnt, rcvd_cnt)
-+					log.V(7).Infof("Writing to terminate: %v", s)
-+					term <- s
-+				}
 +			}
 +			displayHandle.Write(prefix)
 +			displayHandle.Write(b)
@@ -151,7 +146,17 @@ index e851a4b..6d04a74 100644
  
 +	go func() {
 +		if *streaming_timeout > 0 {
-+			time.Sleep(time.Duration(*streaming_timeout) * time.Second)
++			var sleep_cnt uint = 0
++			for sleep_cnt < *streaming_timeout {
++				time.Sleep(time.Second)
++				sleep_cnt += 1
++				if *expected_cnt <= rcvd_cnt {
++					s := fmt.Sprintf("Received all. expected:%d rcvd:%d", *expected_cnt, rcvd_cnt)
++					log.V(7).Infof("Writing to terminate: %v", s)
++					term <- s
++					return
++				}
++			}
 +			s := fmt.Sprintf("Timeout %d Secs", *streaming_timeout)
 +			log.V(7).Infof("Writing to terminate: %v", s)
 +			term <- s
