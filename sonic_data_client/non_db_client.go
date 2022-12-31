@@ -14,6 +14,7 @@ import (
 	linuxproc "github.com/c9s/goprocinfo/linux"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 )
 
 // Non db client is to Handle
@@ -101,6 +102,10 @@ var (
 			path:    []string{"OTHERS", "osversion", "build"},
 			getFunc: dataGetFunc(getBuildVersion),
 		},
+                { // Get disk utilization
+                        path:    []string{"OTHERS", "disk", "usage"},
+                        getFunc: dataGetFunc(getDiskUsage),
+                },
 	}
 )
 
@@ -329,6 +334,29 @@ func getBuildVersion() ([]byte, error) {
 		return b, err
 	}
 	log.V(4).Infof("getBuildVersion, output %v", string(b))
+	return b, nil
+}
+
+func getDiskUsage() ([]byte, error) {
+        var err error
+
+	var sc ssc.Service
+	sc, err = ssc.NewDbusClient()
+	if err != nil {
+		log.Errorf("Failed to create new dbus client")
+		return nil, err 
+	}
+	err, disk_util := sc.GetDiskUtilization()
+	if err != nil {
+		log.Errorf("Failed to get disk utilization %v", err)
+		return nil, err
+        }
+	b, err := json.Marshal(disk_util)
+	if err != nil {
+		log.V(2).Infof("%v", err)
+		return b, err
+	}
+	log.V(4).Infof("getDiskUsage, output %v", string(b))
 	return b, nil
 }
 

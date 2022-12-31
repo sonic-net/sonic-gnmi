@@ -51,6 +51,7 @@ const (
 	DBUS_DELETE_CHECKPOINT
 	DBUS_CONFIG_SAVE
 	DBUS_CONFIG_RELOAD
+	DBUS_DISK_UTILIZATION
 	COUNTER_SIZE
 )
 
@@ -82,6 +83,8 @@ func (c CounterType) String() string {
 		return "DBUS config save"
 	case DBUS_CONFIG_RELOAD:
 		return "DBUS config reload"
+	case DBUS_DISK_UTILIZATION:
+		return "DBUS disk utilization"
 	default:
 		return ""
 	}

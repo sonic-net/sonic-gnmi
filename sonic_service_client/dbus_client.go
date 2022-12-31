@@ -16,6 +16,7 @@ type Service interface {
 	ApplyPatchDb(fileName string) error
 	CreateCheckPoint(cpName string)  error
 	DeleteCheckPoint(cpName string) error
+	GetDiskUtilization() (error, []map[string]string)
 }
 
 type DbusClient struct {
@@ -88,6 +89,62 @@ func DbusApi(busName string, busPath string, intName string, timeout int, args .
 	return nil
 }
 
+func DbusApiReturnValue(busName string, busPath string, intName string, timeout int, args ...interface{}) (error, []map[string]string) {
+	common_utils.IncCounter(common_utils.DBUS)
+	conn, err := dbus.SystemBus()
+        if err != nil {
+		log.V(2).Infof("Failed to connect to system bus: %v", err)
+		common_utils.IncCounter(common_utils.DBUS_FAIL)
+		return err, nil
+	}
+
+	ch := make(chan *dbus.Call, 1)
+	obj := conn.Object(busName, dbus.ObjectPath(busPath))
+	obj.Go(intName, 0, ch, args...)
+	select {
+	case call := <-ch:
+		if call.Err != nil {
+			common_utils.IncCounter(common_utils.DBUS_FAIL)
+			return call.Err, nil
+		}
+		result := call.Body
+		if len(result) == 0 {
+			common_utils.IncCounter(common_utils.DBUS_FAIL)
+			return fmt.Errorf("Dbus result is empty %v", result), nil
+		}
+		if ret, ok := result[0].(int32); ok {
+			if ret ==  0 {
+				rows, ok := result[1].([]map[string]string)
+				if !ok {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return fmt.Errorf("Invalid result type %v %v", result[1], reflect.TypeOf(result[1])), nil
+				}
+				return nil, rows
+			} else {
+				if len(result) != 2 {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return fmt.Errorf("Dbus result is invalid %v", result), nil
+				}
+				if msg, check := result[1].(string); check {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return fmt.Errorf(msg), nil
+				} else {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return fmt.Errorf("Invalid result message type %v %v", result[1], reflect.TypeOf(result[1])), nil
+				}
+			}
+		} else {
+			common_utils.IncCounter(common_utils.DBUS_FAIL)
+			return fmt.Errorf("Invalid result type %v %v", result[0], reflect.TypeOf(result[0])), nil
+		}
+	case <-time.After(time.Duration(timeout) * time.Second):
+		log.V(2).Infof("DbusApi: timeout")
+		common_utils.IncCounter(common_utils.DBUS_FAIL)
+		return fmt.Errorf("Timeout %v", timeout), nil
+	}
+	return nil, nil
+}
+
 func (c *DbusClient) ConfigReload(config string) error {
 	common_utils.IncCounter(common_utils.DBUS_CONFIG_RELOAD)
 	modName := "config"
@@ -146,4 +203,20 @@ func (c *DbusClient) DeleteCheckPoint(fileName string) error {
 	intName := c.intNamePrefix + modName + ".delete_checkpoint"
 	err := DbusApi(busName, busPath, intName, 10, fileName)
 	return err
+}
+
+func (c *DbusClient) GetDiskUtilization() (error, []map[string]string) {
+        common_utils.IncCounter(common_utils.DBUS_DISK_UTILIZATION)
+        modName := "diskutil"
+        busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".get_disk_util"
+	err, disk_util := DbusApiReturnValue(busName, busPath, intName, 30)
+	if err != nil {
+		return err, nil
+	}
+	if len (disk_util) == 0 {
+                return fmt.Errorf("Dbus result is empty"), nil
+	}
+	return nil, disk_util
 }
