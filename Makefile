@@ -53,6 +53,7 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap
 	patch -d vendor -p0 < patches/gnmi_path.patch
 	patch -d vendor -p0 < patches/gnmi_xpath.patch
 	git apply patches/0001-Updated-to-filter-and-write-to-file.patch
+	git apply patches/0001-Fix-gnmi_cli-hang.patch
 	touch $@
 
 go-deps: $(GO_DEPS)

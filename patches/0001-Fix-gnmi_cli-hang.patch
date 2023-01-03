@@ -1,0 +1,49 @@
+From 4d060c7dfac022e541b201407181a87440d6390d Mon Sep 17 00:00:00 2001
+From: zbud-msft <zainbudhwani@microsoft.com>
+Date: Tue, 3 Jan 2023 23:29:28 +0000
+Subject: [PATCH] Fix gnmi_cli hang
+
+---
+ .../openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go  | 19 ++++++++++++-------
+ 1 file changed, 12 insertions(+), 7 deletions(-)
+
+diff --git a/vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go b/vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go
+index 6d04a74..73ade1e 100644
+--- a/vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go
++++ b/vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go
+@@ -72,12 +72,7 @@ var (
+ 
+ 			if *expected_cnt > 0 {
+ 				rcvd_cnt += 1
+-				if *expected_cnt <= rcvd_cnt {
+-					s := fmt.Sprintf("Received all. expected:%d rcvd:%d", *expected_cnt, rcvd_cnt)
+-					log.V(7).Infof("Writing to terminate: %v", s)
+-					term <- s
+-				}
+-			}
++			}			}
+ 			displayHandle.Write(prefix)
+ 			displayHandle.Write(b)
+ 			prefix = []byte(",\n")
+@@ -179,7 +174,17 @@ func main() {
+ 
+ 	go func() {
+ 		if *streaming_timeout > 0 {
+-			time.Sleep(time.Duration(*streaming_timeout) * time.Second)
++			var sleep_cnt uint = 0
++			for sleep_cnt < *streaming_timeout {
++				time.Sleep(time.Second)
++				sleep_cnt += 1
++                                if *expected_cnt <= rcvd_cnt {
++					s := fmt.Sprintf("Received all. expected:%d rcvd:%d", *expected_cnt, rcvd_cnt)
++					log.V(7).Infof("Writing to terminate: %v", s)
++					term <- s
++					return
++				}
++			}
+ 			s := fmt.Sprintf("Timeout %d Secs", *streaming_timeout)
+ 			log.V(7).Infof("Writing to terminate: %v", s)
+ 			term <- s
+-- 
+2.25.1
+
