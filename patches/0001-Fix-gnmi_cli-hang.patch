@@ -1,17 +1,17 @@
-From 4d060c7dfac022e541b201407181a87440d6390d Mon Sep 17 00:00:00 2001
+From be4d7a0f0c902fc5fc7cc4dbc2f8342679b4daf9 Mon Sep 17 00:00:00 2001
 From: zbud-msft <zainbudhwani@microsoft.com>
-Date: Tue, 3 Jan 2023 23:29:28 +0000
+Date: Wed, 4 Jan 2023 00:07:04 +0000
 Subject: [PATCH] Fix gnmi_cli hang
 
 ---
- .../openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go  | 19 ++++++++++++-------
- 1 file changed, 12 insertions(+), 7 deletions(-)
+ .../openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go    | 17 +++++++++++------
+ 1 file changed, 11 insertions(+), 6 deletions(-)
 
 diff --git a/vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go b/vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go
-index 6d04a74..73ade1e 100644
+index 6d04a74..6e79264 100644
 --- a/vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go
 +++ b/vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go
-@@ -72,12 +72,7 @@ var (
+@@ -72,11 +72,6 @@ var (
  
  			if *expected_cnt > 0 {
  				rcvd_cnt += 1
@@ -20,11 +20,9 @@ index 6d04a74..73ade1e 100644
 -					log.V(7).Infof("Writing to terminate: %v", s)
 -					term <- s
 -				}
--			}
-+			}			}
+ 			}
  			displayHandle.Write(prefix)
  			displayHandle.Write(b)
- 			prefix = []byte(",\n")
 @@ -179,7 +174,17 @@ func main() {
  
  	go func() {
@@ -34,7 +32,7 @@ index 6d04a74..73ade1e 100644
 +			for sleep_cnt < *streaming_timeout {
 +				time.Sleep(time.Second)
 +				sleep_cnt += 1
-+                                if *expected_cnt <= rcvd_cnt {
++				if *expected_cnt <= rcvd_cnt {
 +					s := fmt.Sprintf("Received all. expected:%d rcvd:%d", *expected_cnt, rcvd_cnt)
 +					log.V(7).Infof("Writing to terminate: %v", s)
 +					term <- s
