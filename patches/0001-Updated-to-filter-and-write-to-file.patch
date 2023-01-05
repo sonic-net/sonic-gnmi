@@ -1,12 +1,12 @@
-From 738d4783c75839ec12e373848e9abfe88f0dae47 Mon Sep 17 00:00:00 2001
-From: Renuka Manavalan <remanava@microsoft.com>
-Date: Sun, 9 Oct 2022 17:05:46 +0000
+From c4660f5f1a5c38902c374f002174848aff2f1739 Mon Sep 17 00:00:00 2001
+From: zbud-msft <zainbudhwani@microsoft.com>
+Date: Thu, 5 Jan 2023 04:43:13 +0000
 Subject: [PATCH] Updated to filter and write to file
 
 ---
  vendor/github.com/openconfig/gnmi/cli/cli.go  | 13 +++-
- .../openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go  | 67 +++++++++++++++++--
- 2 files changed, 74 insertions(+), 6 deletions(-)
+ .../openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go  | 72 +++++++++++++++++--
+ 2 files changed, 79 insertions(+), 6 deletions(-)
 
 diff --git a/vendor/github.com/openconfig/gnmi/cli/cli.go b/vendor/github.com/openconfig/gnmi/cli/cli.go
 index 81a8704..ca0a383 100644
@@ -48,7 +48,7 @@ index 81a8704..ca0a383 100644
  		result, err := json.MarshalIndent(b, cfg.DisplayPrefix, cfg.DisplayIndent)
  		if err != nil {
 diff --git a/vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go b/vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go
-index e851a4b..6d04a74 100644
+index e851a4b..6e79264 100644
 --- a/vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go
 +++ b/vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go
 @@ -27,6 +27,7 @@ import (
@@ -59,7 +59,7 @@ index e851a4b..6d04a74 100644
  	"errors"
  	"fmt"
  	"io/ioutil"
-@@ -39,24 +40,48 @@ import (
+@@ -39,24 +40,43 @@ import (
  
  	"flag"
  	
@@ -99,11 +99,6 @@ index e851a4b..6d04a74 100644
 +
 +			if *expected_cnt > 0 {
 +				rcvd_cnt += 1
-+				if *expected_cnt <= rcvd_cnt {
-+					s := fmt.Sprintf("Received all. expected:%d rcvd:%d", *expected_cnt, rcvd_cnt)
-+					log.V(7).Infof("Writing to terminate: %v", s)
-+					term <- s
-+				}
 +			}
 +			displayHandle.Write(prefix)
 +			displayHandle.Write(b)
@@ -112,7 +107,7 @@ index e851a4b..6d04a74 100644
  	}}
  
  	clientTypes = flags.NewStringList(&cfg.ClientTypes, []string{gclient.Type})
-@@ -81,6 +106,10 @@ var (
+@@ -81,6 +101,10 @@ var (
  	streaming_sample_int = flag.Uint("streaming_sample_interval", 0, "Streaming sample inteval seconds, 0 means lowest supported.")
  	heartbeat_int = flag.Uint("heartbeat_interval", 0, "Heartbeat inteval seconds.")
  	suppress_redundant = flag.Bool("suppress_redundant", false, "Suppress Redundant Subscription Updates")
@@ -123,7 +118,7 @@ index e851a4b..6d04a74 100644
  )
  
  func init() {
-@@ -125,7 +154,21 @@ func init() {
+@@ -125,7 +149,21 @@ func init() {
  func main() {
  	flag.Parse()
  
@@ -145,13 +140,23 @@ index e851a4b..6d04a74 100644
  	// Terminate immediately on Ctrl+C, skipping lame-duck mode.
  	go func() {
  		c := make(chan os.Signal, 1)
-@@ -134,6 +177,22 @@ func main() {
+@@ -134,6 +172,32 @@ func main() {
  		cancel()
  	}()
  
 +	go func() {
 +		if *streaming_timeout > 0 {
-+			time.Sleep(time.Duration(*streaming_timeout) * time.Second)
++			var sleep_cnt uint = 0
++			for sleep_cnt < *streaming_timeout {
++				time.Sleep(time.Second)
++				sleep_cnt += 1
++				if *expected_cnt <= rcvd_cnt {
++					s := fmt.Sprintf("Received all. expected:%d rcvd:%d", *expected_cnt, rcvd_cnt)
++					log.V(7).Infof("Writing to terminate: %v", s)
++					term <- s
++					return
++				}
++			}
 +			s := fmt.Sprintf("Timeout %d Secs", *streaming_timeout)
 +			log.V(7).Infof("Writing to terminate: %v", s)
 +			term <- s
@@ -169,5 +174,5 @@ index e851a4b..6d04a74 100644
  		log.Exit("--address must be set")
  	}
 -- 
-2.17.1
+2.25.1
 
