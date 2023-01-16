@@ -132,10 +132,14 @@ type cpuUtil struct {
 }
 
 func getCpuUtilPercents(cur, last *linuxproc.CPUStat) uint64 {
-	curTotal := (cur.User + cur.Nice + cur.System + cur.Idle + cur.IOWait + cur.IRQ + cur.SoftIRQ + cur.Steal + cur.Guest + cur.GuestNice)
-	lastTotal := (last.User + last.Nice + last.System + last.Idle + last.IOWait + last.IRQ + last.SoftIRQ + last.Steal + last.Guest + last.GuestNice)
+	curTotal := (cur.User + cur.Nice + cur.System + cur.Idle + cur.IOWait + cur.IRQ + cur.SoftIRQ + cur.Steal)
+	lastTotal := (last.User + last.Nice + last.System + last.Idle + last.IOWait + last.IRQ + last.SoftIRQ + last.Steal)
 	idleTicks := cur.Idle - last.Idle
 	totalTicks := curTotal - lastTotal
+	if totalTicks == 0 {
+		log.V(1).Infof("No change in cpu utilization, current total: %v and last total: %v", curTotal, lastTotal)
+		return 0
+	}
 	return 100 * (totalTicks - idleTicks) / totalTicks
 }
 
