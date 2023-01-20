@@ -2777,7 +2777,7 @@ func TestCPUUtilization(t *testing.T) {
         "OTHERS",
         []subscriptionQuery{
             {
-                Query:    []string{"platform", "cpu"},
+                Query:    []string{"platform/cpu"},
                 SubMode:  pb.SubscriptionMode_SAMPLE,
                 SampleInterval: uint64(10*time.Second),
             },
