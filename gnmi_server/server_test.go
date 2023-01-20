@@ -2799,9 +2799,11 @@ func TestCPUUtilization(t *testing.T) {
             defer c.Close()
             var gotNoti []string
             q.NotificationHandler = func(n client.Notification) error {
+                t.Log("Inside of notification handler")
                 if nn, ok := n.(client.Update); ok {
                     nn.TS = time.Unix(0, 200)
                     str := fmt.Sprintf("%v", nn.Val)
+		    t.Log(str)
                     gotNoti = append(gotNoti, str)
                 }
                 return nil
@@ -2812,7 +2814,7 @@ func TestCPUUtilization(t *testing.T) {
             }()
 
             t.Log(len(gotNoti))
-	    t.Log(gotNoti[0])
+	    // t.Log(gotNoti[0])
         })
     }
     s.s.Stop()
