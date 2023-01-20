@@ -2759,7 +2759,10 @@ func TestCPUUtilization(t *testing.T) {
     // will mock linuxproc.ReadStat
     var increment uint64 = 0
     mock := gomonkey.ApplyFunc(linuxproc.ReadStat, func(path string) (*linuxproc.Stat, error) {
+        t.Log("mock linuxproc.ReadStat is called")
+	t.Log(increment)
         stat := createCPUStat(increment)
+	t.Log(stat)
         increment += 1
         return stat, nil
     })
