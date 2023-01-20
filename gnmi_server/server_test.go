@@ -2809,7 +2809,7 @@ func TestCPUUtilization(t *testing.T) {
             }()
 
             t.Log(len(gotNoti))
-	    t.Log("got Noti first element: %v", gotNoti[0])
+	    t.Log(gotNoti[0])
         })
     }
     s.s.Stop()
