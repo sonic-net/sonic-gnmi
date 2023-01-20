@@ -43,6 +43,7 @@ import (
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
         "github.com/Workiva/go-datastructures/queue"
+        linuxproc "github.com/c9s/goprocinfo/linux"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	gclient "github.com/jipanyang/gnmi/client/gnmi"
@@ -2740,6 +2741,78 @@ func TestAuthCapabilities(t *testing.T) {
 	if len(resp.SupportedModels) == 0 {
 		t.Fatalf("No Supported Models found!")
 	}
+}
+
+func createCPUStat(increment uint64) (*linuxproc.Stat) {
+    var stat linuxproc.Stat = linuxproc.Stat{}
+    cpuStat := linuxproc.CPUStat{}
+    cpuStat.User = increment
+    cpuStat.Nice = increment
+    cpuStat.System = increment
+    cpuStat.IRQ = increment
+    cpuStat.SoftIRQ = increment
+    stat.CPUStatAll = cpuStat
+    return &stat
+}
+
+func TestCPUUtilization(t *testing.T) {
+    // will mock linuxproc.ReadStat
+    var increment uint64 = 0
+    mock := gomonkey.ApplyFunc(linuxproc.ReadStat, func(path string) (*linuxproc.Stat, error) {
+        stat := createCPUStat(increment)
+        increment += 1
+        return stat, nil
+    })
+
+    defer mock.Reset()
+    s := createAuthServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    q := createQueryOrFail(t,
+        pb.SubscriptionList_POLL,
+        "OTHERS",
+        []subscriptionQuery{
+            {
+                Query:    []string{"platform", "cpu"},
+                SubMode:  pb.SubscriptionMode_SAMPLE,
+                SampleInterval: uint64(10*time.Second),
+            },
+        },
+        false)
+
+    q.Addrs = []string{"127.0.0.1:8081"}
+    tests := []struct {
+        desc  string
+    }{
+        {
+            desc: "CPU Utilization",
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.desc, func(t *testing.T) {
+            c := client.New()
+            defer c.Close()
+            var gotNoti []string
+            q.NotificationHandler = func(n client.Notification) error {
+                if nn, ok := n.(client.Update); ok {
+                    nn.TS = time.Unix(0, 200)
+                    str := fmt.Sprintf("%v", nn.Val)
+                    gotNoti = append(gotNoti, str)
+                }
+                return nil
+            }
+
+            go func() {
+                c.Subscribe(context.Background(), q)
+            }()
+
+            t.Log(len(gotNoti))
+	    t.Log("got Noti first element: %v", gotNoti[0])
+        })
+    }
+    s.s.Stop()
 }
 
 func TestClient(t *testing.T) {
