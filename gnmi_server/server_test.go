@@ -2798,11 +2798,12 @@ func TestCPUUtilization(t *testing.T) {
 	    q: client.Query{
                 Target: "OTHERS",
 		Type:    client.Poll,
-		Queries: []client.Path{{"platform/cpu"}},
+		Queries: []client.Path{{"platform", "cpu"}},
 		TLS:     &tls.Config{InsecureSkipVerify: true},
 	    },
 	    wantNoti: []client.Notification{
                 client.Connected{},
+		client.Update{Path: []string{"platform", "cpu"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}},
 		client.Sync{},
 	    },
         },
@@ -2814,15 +2815,18 @@ func TestCPUUtilization(t *testing.T) {
 	    q.Addrs = []string{"127.0.0.1:8081"}
             c := client.New()
             defer c.Close()
-            var gotNoti []string
+            var gotNoti []client.Notification
             q.NotificationHandler = func(n client.Notification) error {
                 t.Log("Inside of notification handler")
                 if nn, ok := n.(client.Update); ok {
                     nn.TS = time.Unix(0, 200)
-                    str := fmt.Sprintf("%v", nn.Val)
-		    t.Log(str)
-                    gotNoti = append(gotNoti, str)
-                }
+		    gotNoti = append(gotNoti, nn)
+		    //str := fmt.Sprintf("%v", nn.Val)
+		    //t.Log(str)
+                    //gotNoti = append(gotNoti, str)
+                } else {
+                    gotNoti = append(gotNoti, n)
+	        }
                 return nil
             }
 
@@ -2830,8 +2834,13 @@ func TestCPUUtilization(t *testing.T) {
                 c.Subscribe(context.Background(), q)
             }()
 
-            t.Log(len(gotNoti))
-	    // t.Log(gotNoti[0])
+            for i := 0; i < tt.poll; i++ {
+                err := c.Poll()
+		if err != nil {
+                    t.Errorf("c.Poll(): got error %v, expected nil", err)
+                }
+	    }
+            t.Log(gotNoti)
         })
     }
     s.s.Stop()
