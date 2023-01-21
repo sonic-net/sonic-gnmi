@@ -2798,7 +2798,7 @@ func TestCPUUtilization(t *testing.T) {
 	    q: client.Query{
                 Target: "OTHERS",
 		Type:    client.Poll,
-		Queries: []client.Path{{"platform", "cpu"}},
+		Queries: []client.Path{{"platform/cpu"}},
 		TLS:     &tls.Config{InsecureSkipVerify: true},
 	    },
 	    wantNoti: []client.Notification{
