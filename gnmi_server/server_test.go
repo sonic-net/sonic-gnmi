@@ -2772,12 +2772,12 @@ func TestCPUUtilization(t *testing.T) {
     go runServer(t, s)
     defer s.s.Stop()
 
-    q := createQueryOrFail(t,
+    /*q := createQueryOrFail(t,
         pb.SubscriptionList_POLL,
         "OTHERS",
         []subscriptionQuery{
             {
-                Query:    []string{"platform/cpu"},
+                Query:    []string{"platform", "cpu"},
                 SubMode:  pb.SubscriptionMode_SAMPLE,
                 SampleInterval: uint64(10*time.Second),
             },
@@ -2785,16 +2785,33 @@ func TestCPUUtilization(t *testing.T) {
         false)
 
     q.Addrs = []string{"127.0.0.1:8081"}
+    */
     tests := []struct {
-        desc  string
+        desc        string
+	q           client.Query
+	wantNoti    []client.Notification
+	poll        int
     }{
         {
-            desc: "CPU Utilization",
+            desc: "poll query for CPU Utilization",
+	    poll: 10,
+	    q: client.Query{
+                Target: "OTHERS",
+		Type:    client.Poll,
+		Queries: []client.Path{{"platform", "cpu"}},
+		TLS:     &tls.Config{InsecureSkipVerify: true},
+	    },
+	    wantNoti: []client.Notification{
+                client.Connected{},
+		client.Sync{},
+	    },
         },
     }
 
     for _, tt := range tests {
         t.Run(tt.desc, func(t *testing.T) {
+            q := tt.q
+	    q.Addrs = []string{"127.0.0.1:8081"}
             c := client.New()
             defer c.Close()
             var gotNoti []string
