@@ -2820,9 +2820,6 @@ func TestCPUUtilization(t *testing.T) {
                 if nn, ok := n.(client.Update); ok {
                     nn.TS = time.Unix(0, 200)
 		    gotNoti = append(gotNoti, nn)
-		    //str := fmt.Sprintf("%v", nn.Val)
-		    //t.Log(str)
-                    //gotNoti = append(gotNoti, str)
                 } else {
                     gotNoti = append(gotNoti, n)
 	        }
@@ -2830,13 +2827,14 @@ func TestCPUUtilization(t *testing.T) {
             }
 
             go func() {
+                time.Sleep(time.Second * 300)
                 if err := c.Subscribe(context.Background(), q); err != nil {
                     t.Errorf("c.Subscribe(): got error %v, expected nil", err)
                 }
             }()
 
-            // wait for 5 second for linuxproc.ReadStat buffer to fill
-            time.Sleep(time.Second * 300)
+            // wait for half a second for subscribeRequest to sync
+            time.Sleep(time.Second * 305)
 
             for i := 0; i < tt.poll; i++ {
                 if err := c.Poll(); err != nil {
