@@ -2835,8 +2835,8 @@ func TestCPUUtilization(t *testing.T) {
                 }
             }()
 
-            // wait for half second for subscribeRequest to sync
-            time.Sleep(time.Millisecond * 500)
+            // wait for 5 second for linuxproc.ReadStat buffer to fill
+            time.Sleep(time.Second * 5)
 
             for i := 0; i < tt.poll; i++ {
                 if err := c.Poll(); err != nil {
