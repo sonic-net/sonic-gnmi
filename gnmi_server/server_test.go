@@ -2767,7 +2767,7 @@ func TestCPUUtilization(t *testing.T) {
     })
 
     defer mock.Reset()
-    s := createAuthServer(t, 8081)
+    s := createServer(t, 8081)
     go runServer(t, s)
     defer s.s.Stop()
 
