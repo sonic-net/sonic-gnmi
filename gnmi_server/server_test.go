@@ -2836,7 +2836,7 @@ func TestCPUUtilization(t *testing.T) {
             }()
 
             // wait for 5 second for linuxproc.ReadStat buffer to fill
-            time.Sleep(time.Second * 5)
+            time.Sleep(time.Second * 300)
 
             for i := 0; i < tt.poll; i++ {
                 if err := c.Poll(); err != nil {
