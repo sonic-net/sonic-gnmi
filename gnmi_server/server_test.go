@@ -2830,7 +2830,9 @@ func TestCPUUtilization(t *testing.T) {
             }
 
             go func() {
-                c.Subscribe(context.Background(), q)
+                if err := c.Subscribe(context.Background(), q); err != nil {
+                    t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+                }
             }()
 
             // wait for half second for subscribeRequest to sync
