@@ -2827,14 +2827,14 @@ func TestCPUUtilization(t *testing.T) {
             }
 
             go func() {
-                time.Sleep(time.Second * 30)
+                time.Sleep(time.Second * 300)
                 if err := c.Subscribe(context.Background(), q); err != nil {
                     t.Errorf("c.Subscribe(): got error %v, expected nil", err)
                 }
             }()
 
             // wait for half a second for subscribeRequest to sync
-            time.Sleep(time.Second * 35)
+            time.Sleep(time.Second * 305)
 
             for i := 0; i < tt.poll; i++ {
                 if err := c.Poll(); err != nil {
