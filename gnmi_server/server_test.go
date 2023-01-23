@@ -2744,19 +2744,18 @@ func TestAuthCapabilities(t *testing.T) {
 }
 
 func createCPUStat(increment uint64) (*linuxproc.Stat) {
-    var stat linuxproc.Stat = linuxproc.Stat{}
-    cpuStat := linuxproc.CPUStat{}
-    cpuStat.User = increment
-    cpuStat.Nice = increment
-    cpuStat.System = increment
-    cpuStat.IRQ = increment
-    cpuStat.SoftIRQ = increment
-    stat.CPUStatAll = cpuStat
-    return &stat
+    return &linuxproc.Stat{
+        CPUStatAll: linuxproc.CPUStat{
+            User:       increment,
+            Nice:       increment,
+            System:     increment,
+            IRQ:        increment,
+            SoftIRQ:    increment,
+        },
+    }
 }
 
 func TestCPUUtilization(t *testing.T) {
-    // will mock linuxproc.ReadStat
     var increment uint64 = 0
     mock := gomonkey.ApplyFunc(linuxproc.ReadStat, func(path string) (*linuxproc.Stat, error) {
         t.Log("mock linuxproc.ReadStat is called")
@@ -2834,16 +2833,17 @@ func TestCPUUtilization(t *testing.T) {
                 c.Subscribe(context.Background(), q)
             }()
 
+            // wait for half second for subscribeRequest to sync
+            time.Sleep(time.Millisecond * 500)
+
             for i := 0; i < tt.poll; i++ {
-                err := c.Poll()
-		if err != nil {
+                if err := c.Poll(); err != nil {
                     t.Errorf("c.Poll(): got error %v, expected nil", err)
                 }
 	    }
             t.Log(gotNoti)
         })
     }
-    s.s.Stop()
 }
 
 func TestClient(t *testing.T) {
