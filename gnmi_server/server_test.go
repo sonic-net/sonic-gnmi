@@ -2743,27 +2743,9 @@ func TestAuthCapabilities(t *testing.T) {
 	}
 }
 
-func createCPUStat(increment uint64) (*linuxproc.Stat) {
-    return &linuxproc.Stat{
-        CPUStatAll: linuxproc.CPUStat{
-            User:       increment,
-            Nice:       increment,
-            System:     increment,
-            IRQ:        increment,
-            SoftIRQ:    increment,
-        },
-    }
-}
-
 func TestCPUUtilization(t *testing.T) {
-    var increment uint64 = 0
     mock := gomonkey.ApplyFunc(linuxproc.ReadStat, func(path string) (*linuxproc.Stat, error) {
-        t.Log("mock linuxproc.ReadStat is called")
-	t.Log(increment)
-        stat := createCPUStat(increment)
-	t.Log(stat)
-        // increment += 1
-        return stat, nil
+        return &linuxproc.Stat{}, nil
     })
 
     defer mock.Reset()
@@ -2771,20 +2753,6 @@ func TestCPUUtilization(t *testing.T) {
     go runServer(t, s)
     defer s.s.Stop()
 
-    /*q := createQueryOrFail(t,
-        pb.SubscriptionList_POLL,
-        "OTHERS",
-        []subscriptionQuery{
-            {
-                Query:    []string{"platform", "cpu"},
-                SubMode:  pb.SubscriptionMode_SAMPLE,
-                SampleInterval: uint64(10*time.Second),
-            },
-        },
-        false)
-
-    q.Addrs = []string{"127.0.0.1:8081"}
-    */
     tests := []struct {
         desc        string
 	q           client.Query
@@ -2802,7 +2770,6 @@ func TestCPUUtilization(t *testing.T) {
 	    },
 	    wantNoti: []client.Notification{
                 client.Connected{},
-		// client.Update{Path: []string{"platform", "cpu"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}},
 		client.Sync{},
 	    },
         },
@@ -2816,7 +2783,6 @@ func TestCPUUtilization(t *testing.T) {
             defer c.Close()
             var gotNoti []client.Notification
             q.NotificationHandler = func(n client.Notification) error {
-                t.Log("Inside of notification handler")
                 if nn, ok := n.(client.Update); ok {
                     nn.TS = time.Unix(0, 200)
 		    gotNoti = append(gotNoti, nn)
@@ -2827,21 +2793,25 @@ func TestCPUUtilization(t *testing.T) {
             }
 
             go func() {
+                // wait for stats buffer to contain 3000 obj
                 time.Sleep(time.Second * 300)
                 if err := c.Subscribe(context.Background(), q); err != nil {
                     t.Errorf("c.Subscribe(): got error %v, expected nil", err)
                 }
             }()
 
-            // wait for half a second for subscribeRequest to sync
-            time.Sleep(time.Second * 305)
+            // wait for a second after subscribeRequest to sync
+            time.Sleep(time.Second * 301)
 
             for i := 0; i < tt.poll; i++ {
                 if err := c.Poll(); err != nil {
                     t.Errorf("c.Poll(): got error %v, expected nil", err)
                 }
 	    }
-            t.Log(gotNoti)
+
+            if len(gotNoti) == 0 {
+                t.Errorf("expected non zero notifications")
+            }
         })
     }
 }
