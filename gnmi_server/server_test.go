@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"flag"
 	"fmt"
+        "sync"
 	"strings"
 	"unsafe"
 
