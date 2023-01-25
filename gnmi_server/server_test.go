@@ -2754,10 +2754,10 @@ func TestCPUUtilization(t *testing.T) {
     defer s.s.Stop()
 
     tests := []struct {
-        desc        string
-	q           client.Query
-	wantNoti    []client.Notification
-	poll        int
+        desc    string
+	q       client.Query
+	want    []client.Notification
+	poll    int
     }{
         {
             desc: "poll query for CPU Utilization",
@@ -2768,7 +2768,7 @@ func TestCPUUtilization(t *testing.T) {
 		Queries: []client.Path{{"platform", "cpu"}},
 		TLS:     &tls.Config{InsecureSkipVerify: true},
 	    },
-	    wantNoti: []client.Notification{
+	    want: []client.Notification{
                 client.Connected{},
 		client.Sync{},
 	    },
@@ -2780,7 +2780,6 @@ func TestCPUUtilization(t *testing.T) {
             q := tt.q
 	    q.Addrs = []string{"127.0.0.1:8081"}
             c := client.New()
-            defer c.Close()
             var gotNoti []client.Notification
             q.NotificationHandler = func(n client.Notification) error {
                 if nn, ok := n.(client.Update); ok {
@@ -2792,7 +2791,11 @@ func TestCPUUtilization(t *testing.T) {
                 return nil
             }
 
+            wg := new(sync.WaitGroup)
+            wg.Add(1)
+
             go func() {
+                defer wg.Done()
                 // wait for stats buffer to contain 3000 obj
                 time.Sleep(time.Second * 300)
                 if err := c.Subscribe(context.Background(), q); err != nil {
@@ -2800,8 +2803,7 @@ func TestCPUUtilization(t *testing.T) {
                 }
             }()
 
-            // wait for a second after subscribeRequest to sync
-            time.Sleep(time.Second * 301)
+            wg.Wait()
 
             for i := 0; i < tt.poll; i++ {
                 if err := c.Poll(); err != nil {
@@ -2812,6 +2814,8 @@ func TestCPUUtilization(t *testing.T) {
             if len(gotNoti) == 0 {
                 t.Errorf("expected non zero notifications")
             }
+
+            c.Close()
         })
     }
 }
