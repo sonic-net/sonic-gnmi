@@ -2745,8 +2745,11 @@ func TestAuthCapabilities(t *testing.T) {
 }
 
 func TestCPUUtilization(t *testing.T) {
-    mock := gomonkey.ApplyFunc(linuxproc.ReadStat, func(path string) (*linuxproc.Stat, error) {
-        return &linuxproc.Stat{}, nil
+    mock := gomonkey.ApplyFunc(sdc.PollStats, func() {
+	var i uint64
+	for i = 0; i < 3000; i++ {
+		sdc.WriteStatsToBuffer(&linuxproc.Stat{}, i)
+	}
     })
 
     defer mock.Reset()
@@ -2797,8 +2800,6 @@ func TestCPUUtilization(t *testing.T) {
 
             go func() {
                 defer wg.Done()
-                // wait for stats buffer to contain 3000 obj
-                time.Sleep(time.Second * 300)
                 if err := c.Subscribe(context.Background(), q); err != nil {
                     t.Errorf("c.Subscribe(): got error %v, expected nil", err)
                 }

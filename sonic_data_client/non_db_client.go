@@ -335,7 +335,13 @@ func getBuildVersion() ([]byte, error) {
 	return b, nil
 }
 
-func pollStats() {
+func WriteStatsToBuffer(stat *linuxproc.Stat, index uint64) {
+	statsR.mu.Lock()
+	statsR.buff[index] = stat
+	statsR.mu.Unlock()
+}
+
+func PollStats() {
 	for {
 		stat, err := linuxproc.ReadStat("/proc/stat")
 		if err != nil {
@@ -343,12 +349,9 @@ func pollStats() {
 			continue
 		}
 
-		statsR.mu.Lock()
-
-		statsR.buff[statsR.writeIdx] = stat
+		WriteStatsToBuffer(stat, statsR.writeIdx)
 		statsR.writeIdx++
 		statsR.writeIdx %= statsRingCap
-		statsR.mu.Unlock()
 		time.Sleep(time.Millisecond * 100)
 	}
 
@@ -358,7 +361,7 @@ func init() {
 	clientTrie = NewTrie()
 	clientTrie.clientTriePopulate()
 	statsR.buff = make([]*linuxproc.Stat, statsRingCap)
-	go pollStats()
+	go PollStats()
 }
 
 type NonDbClient struct {
