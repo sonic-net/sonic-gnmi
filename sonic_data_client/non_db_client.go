@@ -335,9 +335,11 @@ func getBuildVersion() ([]byte, error) {
 	return b, nil
 }
 
-func WriteStatsToBuffer(stat *linuxproc.Stat, index uint64) {
+func WriteStatsToBuffer(stat *linuxproc.Stat) {
 	statsR.mu.Lock()
-	statsR.buff[index] = stat
+	statsR.buff[statsR.writeIdx] = stat
+	statsR.writeIdx++
+	statsR.writeIdx %= statsRingCap
 	statsR.mu.Unlock()
 }
 
@@ -349,9 +351,7 @@ func PollStats() {
 			continue
 		}
 
-		WriteStatsToBuffer(stat, statsR.writeIdx)
-		statsR.writeIdx++
-		statsR.writeIdx %= statsRingCap
+		WriteStatsToBuffer(stat)
 		time.Sleep(time.Millisecond * 100)
 	}
 
