@@ -136,7 +136,7 @@ func getCpuUtilPercents(cur, last *linuxproc.CPUStat) uint64 {
 	lastTotal := (last.User + last.Nice + last.System + last.Idle + last.IOWait + last.IRQ + last.SoftIRQ + last.Steal)
 	idleTicks := cur.Idle - last.Idle
 	totalTicks := curTotal - lastTotal
-	if totalTicks == 0 { // no change in cpu utilization
+	if totalTicks == 0 { // No change in CPU Utilization
             return 0
 	}
 	return 100 * (totalTicks - idleTicks) / totalTicks

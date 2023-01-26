@@ -2748,7 +2748,15 @@ func TestCPUUtilization(t *testing.T) {
     mock := gomonkey.ApplyFunc(sdc.PollStats, func() {
 	var i uint64
 	for i = 0; i < 3000; i++ {
-		sdc.WriteStatsToBuffer(&linuxproc.Stat{}, i)
+		sdc.WriteStatsToBuffer(&linuxproc.Stat{
+			CPUStatAll: linuxproc.CPUStat{
+				User:		i,
+				Nice:		i,
+				System:		i,
+				IRQ:		i,
+				SoftIRQ:	i,
+			},
+		}, i)
 	}
     })
 
