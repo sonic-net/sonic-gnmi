@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"flag"
 	"fmt"
+        "sync"
 	"strings"
 	"unsafe"
 
@@ -43,6 +44,7 @@ import (
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
         "github.com/Workiva/go-datastructures/queue"
+        linuxproc "github.com/c9s/goprocinfo/linux"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	gclient "github.com/jipanyang/gnmi/client/gnmi"
@@ -2740,6 +2742,84 @@ func TestAuthCapabilities(t *testing.T) {
 	if len(resp.SupportedModels) == 0 {
 		t.Fatalf("No Supported Models found!")
 	}
+}
+
+func TestCPUUtilization(t *testing.T) {
+    mock := gomonkey.ApplyFunc(sdc.PollStats, func() {
+	var i uint64
+	for i = 0; i < 3000; i++ {
+		sdc.WriteStatsToBuffer(&linuxproc.Stat{})
+	}
+    })
+
+    defer mock.Reset()
+    s := createServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    tests := []struct {
+        desc    string
+	q       client.Query
+	want    []client.Notification
+	poll    int
+    }{
+        {
+            desc: "poll query for CPU Utilization",
+	    poll: 10,
+	    q: client.Query{
+                Target: "OTHERS",
+		Type:    client.Poll,
+		Queries: []client.Path{{"platform", "cpu"}},
+		TLS:     &tls.Config{InsecureSkipVerify: true},
+	    },
+	    want: []client.Notification{
+                client.Connected{},
+		client.Sync{},
+	    },
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.desc, func(t *testing.T) {
+            q := tt.q
+	    q.Addrs = []string{"127.0.0.1:8081"}
+            c := client.New()
+            var gotNoti []client.Notification
+            q.NotificationHandler = func(n client.Notification) error {
+                if nn, ok := n.(client.Update); ok {
+                    nn.TS = time.Unix(0, 200)
+		    gotNoti = append(gotNoti, nn)
+                } else {
+                    gotNoti = append(gotNoti, n)
+	        }
+                return nil
+            }
+
+            wg := new(sync.WaitGroup)
+            wg.Add(1)
+
+            go func() {
+                defer wg.Done()
+                if err := c.Subscribe(context.Background(), q); err != nil {
+                    t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+                }
+            }()
+
+            wg.Wait()
+
+            for i := 0; i < tt.poll; i++ {
+                if err := c.Poll(); err != nil {
+                    t.Errorf("c.Poll(): got error %v, expected nil", err)
+                }
+	    }
+
+            if len(gotNoti) == 0 {
+                t.Errorf("expected non zero notifications")
+            }
+
+            c.Close()
+        })
+    }
 }
 
 func TestClient(t *testing.T) {
