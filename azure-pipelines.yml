@@ -7,11 +7,13 @@ trigger:
   branches:
     include:
     - master
+    - 202012
 
 pr:
   branches:
     include:
     - master
+    - 202012
 
 resources:
   repositories:
