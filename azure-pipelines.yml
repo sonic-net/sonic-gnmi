@@ -97,3 +97,8 @@ stages:
       artifact: sonic-telemetry
       displayName: "Archive artifacts"
 
+    - task: PublishCodeCoverageResults@1
+      inputs:
+              codeCoverageTool: Cobertura
+              summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
+      displayName: 'Publish coverage'
