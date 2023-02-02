@@ -95,7 +95,7 @@ stages:
 
     - script: |
         pushd sonic-gnmi
-        make check_gotest
+        make check
       displayName: "Test"
 
 
