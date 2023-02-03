@@ -60,8 +60,9 @@ check:
 	sudo cp ./testdata/database_config.json ${DBDIR}
 	sudo mkdir -p /usr/models/yang || true
 	sudo find $(MGMT_COMMON_DIR)/models -name '*.yang' -exec cp {} /usr/models/yang/ \;
-	-$(GO) test -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/gnmi_server
-	-$(GO) test -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/dialout/dialout_client
+	sudo $(GO) test -coverprofile=coverage-config.txt -covermode=atomic -v github.com/Azure/sonic-telemetry/sonic_db_config
+	sudo $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/gnmi_server
+	sudo $(GO) test -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/dialout/dialout_client
 
 clean:
 	$(RM) -r build
