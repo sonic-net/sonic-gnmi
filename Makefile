@@ -11,7 +11,7 @@ MGMT_COMMON_DIR := $(TOP_DIR)/sonic-mgmt-common
 BUILD_DIR := build/bin
 export CVL_SCHEMA_PATH := $(MGMT_COMMON_DIR)/build/cvl/schema
 export GOBIN := $(abspath $(BUILD_DIR))
-export PATH := $(PATH):$(GOBIN):$(shell dirname $(G0))
+export PATH := $(PATH):$(GOBIN):$(shell dirname $(GO))
 
 SRC_FILES=$(shell find . -name '*.go' | grep -v '_test.go' | grep -v '/tests/')
 TEST_FILES=$(wildcard *_test.go)
@@ -74,6 +74,10 @@ check_gotest:
 	sudo $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
 	sudo $(GO) test -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
 	sudo $(GO) test -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_data_client
+	$(GO) get github.com/axw/gocov/...
+	$(GO) get github.com/AlekSi/gocov-xml
+	gocov convert coverage-*.txt | gocov-xml -source $(shell pwd) > coverage.xml
+	rm -rf coverage-*.txt
 
 clean:
 	$(RM) -r build
@@ -103,5 +107,4 @@ deinstall:
 	rm $(DESTDIR)/usr/sbin/gnmi_get
 	rm $(DESTDIR)/usr/sbin/gnmi_set
 	rm $(DESTDIR)/usr/sbin/gnoi_client
-
 
