@@ -25,10 +25,10 @@ GO_DEPS := vendor/.done
 PATCHES := $(wildcard patches/*.patch)
 PATCHES += $(shell find $(MGMT_COMMON_DIR)/patches -type f)
 
-all: sonic-gnmi $(TELEMETRY_TEST_BIN)
+all: sonic-telemetry $(TELEMETRY_TEST_BIN)
 
 go.mod:
-	$(GO) mod init github.com/sonic-net/sonic-gnmi
+	$(GO) mod init github.com/Azure/sonic-telemetry
 
 $(GO_DEPS): go.mod $(PATCHES)
 	$(GO) mod vendor
@@ -50,19 +50,19 @@ go-deps-clean:
 
 sonic-gnmi: $(GO_DEPS)
 ifeq ($(CROSS_BUILD_ENVIRON),y)
-	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
-	$(GO) build -o ${GOBIN}/dialout_client_cli -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
+	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/Azure/sonic-telemetry/telemetry
+	$(GO) build -o ${GOBIN}/dialout_client_cli -mod=vendor $(BLD_FLAGS) github.com/Azure/sonic-telemetry/dialout/dialout_client_cli
 	$(GO) build -o ${GOBIN}/gnmi_get -mod=vendor github.com/jipanyang/gnxi/gnmi_get
 	$(GO) build -o ${GOBIN}/gnmi_set -mod=vendor github.com/jipanyang/gnxi/gnmi_set
 	$(GO) build -o ${GOBIN}/gnmi_cli -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
-	$(GO) build -o ${GOBIN}/gnoi_client -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
+	$(GO) build -o ${GOBIN}/gnoi_client -mod=vendor github.com/Azure/sonic-telemetry/gnoi_client
 else
-	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
-	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
+	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/Azure/sonic-telemetry/telemetry
+	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/Azure/sonic-telemetry/dialout/dialout_client_cli
 	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_get
 	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_set
 	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
-	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
+	$(GO) install -mod=vendor github.com/Azure/sonic-telemetry/gnoi_client
 endif
 
 check_gotest:
@@ -70,10 +70,10 @@ check_gotest:
 	sudo cp ./testdata/database_config.json ${DBDIR}
 	sudo mkdir -p /usr/models/yang || true
 	sudo find $(MGMT_COMMON_DIR)/models -name '*.yang' -exec cp {} /usr/models/yang/ \;
-	sudo $(GO) test -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
-	sudo $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
-	sudo $(GO) test -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
-	sudo $(GO) test -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_data_client
+	sudo $(GO) test -coverprofile=coverage-config.txt -covermode=atomic -v github.com/Azure/sonic-telemetry/sonic_db_config
+	sudo $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/gnmi_server -coverpkg ../...
+	sudo $(GO) test -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/dialout/dialout_client
+	sudo $(GO) test -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor -v github.com/Azure/sonic-telemetry/sonic_data_client
 	$(GO) get github.com/axw/gocov/...
 	$(GO) get github.com/AlekSi/gocov-xml
 	gocov convert coverage-*.txt | gocov-xml -source $(shell pwd) > coverage.xml
@@ -89,7 +89,7 @@ $(TELEMETRY_TEST_BIN): $(TEST_FILES) $(SRC_FILES)
 ifeq ($(CONFIGURED_ARCH),armhf)
 	touch $@
 else
-	$(GO) test -mod=vendor $(BLD_FLAGS) -c -cover github.com/sonic-net/sonic-gnmi/gnmi_server -o $@
+	$(GO) test -mod=vendor $(BLD_FLAGS) -c -cover github.com/Azure/sonic-telemetry/gnmi_server -o $@
 endif
 
 install:
