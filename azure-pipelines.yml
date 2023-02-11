@@ -104,7 +104,7 @@ stages:
 
         popd
 
-        pushd sonic-telemetry
+        pushd sonic-gnmi
 
         dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build"
