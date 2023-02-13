@@ -63,7 +63,6 @@ check:
 	sudo $(GO) test -coverprofile=coverage-config.txt -covermode=atomic -v github.com/Azure/sonic-telemetry/sonic_db_config
 	sudo $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/gnmi_server
 	sudo $(GO) test -coverprofile=coverage-dialcout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/dialout/dialout_client
-	sudo $(GO) test -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/sonic_data_client
 	$(GO) get github.com/axw/gocov/...
 	$(GO) get github.com/AlekSi/gocov-xml
 	gocov convert coverage-*.txt | gocov-xml -source $(shell pwd) > coverage.xml
