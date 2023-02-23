@@ -11,6 +11,7 @@ MGMT_COMMON_DIR := $(TOP_DIR)/sonic-mgmt-common
 BUILD_DIR := build/bin
 export CVL_SCHEMA_PATH := $(MGMT_COMMON_DIR)/build/cvl/schema
 export GOBIN := $(abspath $(BUILD_DIR))
+export PATH := $(PATH):$(GOBIN):$(shell dirname $(GO))
 
 SRC_FILES=$(shell find . -name '*.go' | grep -v '_test.go' | grep -v '/tests/')
 TEST_FILES=$(wildcard *_test.go)
@@ -60,8 +61,13 @@ check:
 	sudo cp ./testdata/database_config.json ${DBDIR}
 	sudo mkdir -p /usr/models/yang || true
 	sudo find $(MGMT_COMMON_DIR)/models -name '*.yang' -exec cp {} /usr/models/yang/ \;
-	-$(GO) test -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/gnmi_server
-	-$(GO) test -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/dialout/dialout_client
+	sudo $(GO) test -coverprofile=coverage-config.txt -covermode=atomic -v github.com/Azure/sonic-telemetry/sonic_db_config
+	sudo $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/gnmi_server
+	sudo $(GO) test -coverprofile=coverage-dialcout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/Azure/sonic-telemetry/dialout/dialout_client
+	$(GO) get github.com/axw/gocov/...
+	$(GO) get github.com/AlekSi/gocov-xml
+	gocov convert coverage-*.txt | gocov-xml -source $(shell pwd) > coverage.xml
+	rm -rf coverage-*.txt 
 
 clean:
 	$(RM) -r build
