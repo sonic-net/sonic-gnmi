@@ -109,12 +109,17 @@ stages:
         dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build"
 
+    - script: |
+        pushd sonic-gnmi
+        make check
+      displayName: "Test"
+
     - publish: $(Build.ArtifactStagingDirectory)/
       artifact: sonic-telemetry
       displayName: "Archive artifacts"
 
     - task: PublishCodeCoverageResults@1
       inputs:
-        codeCoverageTool: Cobertura
-        summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-telemetry/coverage.xml'
+              codeCoverageTool: Cobertura
+              summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
       displayName: 'Publish coverage'
