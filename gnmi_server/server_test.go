@@ -2215,6 +2215,9 @@ func TestCapabilities(t *testing.T) {
 }
 
 func TestGNOI(t *testing.T) {
+    if !READ_WRITE_MODE {
+        t.Skip("skipping test in read-only mode.")
+    }
     s := createServer(t, 8086)
     go runServer(t, s)
     defer s.s.Stop()

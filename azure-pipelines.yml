@@ -7,11 +7,13 @@ trigger:
   branches:
     include:
     - master
+    - 202012
 
 pr:
   branches:
     include:
     - master
+    - 202012
 
 resources:
   repositories:
@@ -78,6 +80,15 @@ stages:
 
     - script: |
         set -ex
+        # Install .NET CORE
+        curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+        sudo apt-add-repository https://packages.microsoft.com/debian/10/prod
+        sudo apt-get update
+        sudo apt-get install -y dotnet-sdk-5.0
+      displayName: "Install .NET CORE"
+
+    - script: |
+        set -ex
         ls -l
 
         pushd sonic-mgmt-common
@@ -86,12 +97,22 @@ stages:
 
         popd
 
-        pushd sonic-telemetry
+        pushd sonic-gnmi
 
         dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build"
+
+    - script: |
+        pushd sonic-gnmi
+        make check
+      displayName: "Test"
 
     - publish: $(Build.ArtifactStagingDirectory)/
       artifact: sonic-telemetry
       displayName: "Archive artifacts"
 
+    - task: PublishCodeCoverageResults@1
+      inputs:
+              codeCoverageTool: Cobertura
+              summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
+      displayName: 'Publish coverage'
