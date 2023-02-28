@@ -75,6 +75,7 @@ stages:
 
     - script: |
         # REDIS
+        sudo apt-get update
         sudo apt-get install -y redis-server
         sudo sed -ri 's/^# unixsocket/unixsocket/' /etc/redis/redis.conf
         sudo sed -ri 's/^unixsocketperm .../unixsocketperm 777/' /etc/redis/redis.conf
