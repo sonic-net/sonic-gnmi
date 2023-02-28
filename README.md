@@ -5,8 +5,6 @@ This repository contains implementation for the sonic system telemetry services:
 - dial-in mode system telemetry server: `telemetry`
 - dial-out mode system telemetry client `dialout_client_cli`
 
-TEST
-
 ## Getting Started
 
 ### Prerequisites
