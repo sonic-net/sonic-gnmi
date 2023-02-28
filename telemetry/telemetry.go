@@ -92,8 +92,8 @@ func main() {
 			certificate, err = tls.LoadX509KeyPair(*serverCert, *serverKey)
 			if err != nil {
 				currentTime := time.Now()
-				log.Infof("Server Cert md5 checksum: %x at time %s", md5.Sum([]byte(serverCert), currentTime.String())
-				log.Infof("Server Key md5 checksum: %x at time %s", md5.Sum([]byte(serverKey), currentTime.String())
+				log.Infof("Server Cert md5 checksum: %x at time %s", md5.Sum([]byte(serverCert), currentTime.String()))
+				log.Infof("Server Key md5 checksum: %x at time %s", md5.Sum([]byte(serverKey), currentTime.String()))
 				log.Exitf("could not load server key pair: %s", err)
 			}
 		}
