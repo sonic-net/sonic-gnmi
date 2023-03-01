@@ -132,10 +132,13 @@ type cpuUtil struct {
 }
 
 func getCpuUtilPercents(cur, last *linuxproc.CPUStat) uint64 {
-	curTotal := (cur.User + cur.Nice + cur.System + cur.Idle + cur.IOWait + cur.IRQ + cur.SoftIRQ + cur.Steal + cur.Guest + cur.GuestNice)
-	lastTotal := (last.User + last.Nice + last.System + last.Idle + last.IOWait + last.IRQ + last.SoftIRQ + last.Steal + last.Guest + last.GuestNice)
+	curTotal := (cur.User + cur.Nice + cur.System + cur.Idle + cur.IOWait + cur.IRQ + cur.SoftIRQ + cur.Steal)
+	lastTotal := (last.User + last.Nice + last.System + last.Idle + last.IOWait + last.IRQ + last.SoftIRQ + last.Steal)
 	idleTicks := cur.Idle - last.Idle
 	totalTicks := curTotal - lastTotal
+	if totalTicks == 0 { // No change in CPU Utilization
+            return 0
+	}
 	return 100 * (totalTicks - idleTicks) / totalTicks
 }
 
@@ -332,7 +335,15 @@ func getBuildVersion() ([]byte, error) {
 	return b, nil
 }
 
-func pollStats() {
+func WriteStatsToBuffer(stat *linuxproc.Stat) {
+	statsR.mu.Lock()
+	statsR.buff[statsR.writeIdx] = stat
+	statsR.writeIdx++
+	statsR.writeIdx %= statsRingCap
+	statsR.mu.Unlock()
+}
+
+func PollStats() {
 	for {
 		stat, err := linuxproc.ReadStat("/proc/stat")
 		if err != nil {
@@ -340,12 +351,7 @@ func pollStats() {
 			continue
 		}
 
-		statsR.mu.Lock()
-
-		statsR.buff[statsR.writeIdx] = stat
-		statsR.writeIdx++
-		statsR.writeIdx %= statsRingCap
-		statsR.mu.Unlock()
+		WriteStatsToBuffer(stat)
 		time.Sleep(time.Millisecond * 100)
 	}
 
@@ -355,7 +361,7 @@ func init() {
 	clientTrie = NewTrie()
 	clientTrie.clientTriePopulate()
 	statsR.buff = make([]*linuxproc.Stat, statsRingCap)
-	go pollStats()
+	go PollStats()
 }
 
 type NonDbClient struct {
