@@ -1,4 +1,4 @@
-module github.com/Azure/sonic-telemetry
+module github.com/sonic-net/sonic-gnmi
 
 go 1.12
 
