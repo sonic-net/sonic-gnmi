@@ -14,8 +14,8 @@ import (
 
 	log "github.com/golang/glog"
 
-	spb "github.com/Azure/sonic-telemetry/proto"
-	sdcfg "github.com/Azure/sonic-telemetry/sonic_db_config"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	"github.com/Workiva/go-datastructures/queue"
 	"github.com/go-redis/redis"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"

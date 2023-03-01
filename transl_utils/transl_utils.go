@@ -8,7 +8,7 @@ import (
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/Azure/sonic-mgmt-common/translib"
-	"github.com/Azure/sonic-telemetry/common_utils"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"context"
 	"log/syslog"
 	"github.com/Azure/sonic-mgmt-common/translib/tlerr"

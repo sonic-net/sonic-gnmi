@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v2"
 
-	spb "github.com/Azure/sonic-telemetry/proto"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
 	"github.com/Workiva/go-datastructures/queue"
 	linuxproc "github.com/c9s/goprocinfo/linux"
 	log "github.com/golang/glog"
