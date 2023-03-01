@@ -49,12 +49,21 @@ go-deps-clean:
 	$(RM) -r vendor
 
 sonic-gnmi: $(GO_DEPS)
+ifeq ($(CROSS_BUILD_ENVIRON),y)
+	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
+	$(GO) build -o ${GOBIN}/dialout_client_cli -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
+	$(GO) build -o ${GOBIN}/gnmi_get -mod=vendor github.com/jipanyang/gnxi/gnmi_get
+	$(GO) build -o ${GOBIN}/gnmi_set -mod=vendor github.com/jipanyang/gnxi/gnmi_get
+	$(GO) build -o ${GOBIN}/gnmi_cli -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
+	$(GO) build -o ${GOBIN}/gnoi_client -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/gnoi_client
+else
 	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
 	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
 	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_get
 	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_set
 	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
+endif
 
 check:
 	sudo mkdir -p ${DBDIR}
