@@ -56,7 +56,7 @@ sonic-telemetry: $(GO_DEPS)
 	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 	$(GO) install -mod=vendor github.com/Azure/sonic-telemetry/gnoi_client
 
-check:
+check_gotest:
 	sudo mkdir -p ${DBDIR}
 	sudo cp ./testdata/database_config.json ${DBDIR}
 	sudo mkdir -p /usr/models/yang || true
