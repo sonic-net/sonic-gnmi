@@ -112,7 +112,7 @@ stages:
 
     - script: |
         pushd sonic-gnmi
-        make check
+        make check_gotest
       displayName: "Test"
 
     - publish: $(Build.ArtifactStagingDirectory)/
