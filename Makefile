@@ -82,7 +82,6 @@ else
 	$(GO) test -mod=vendor $(BLD_FLAGS) -c -cover github.com/Azure/sonic-telemetry/gnmi_server -o $@
 endif
 
-
 install:
 	$(INSTALL) -D $(BUILD_DIR)/telemetry $(DESTDIR)/usr/sbin/telemetry
 	$(INSTALL) -D $(BUILD_DIR)/dialout_client_cli $(DESTDIR)/usr/sbin/dialout_client_cli
