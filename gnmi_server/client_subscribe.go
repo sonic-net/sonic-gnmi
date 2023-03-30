@@ -5,6 +5,8 @@ import (
 	"io"
 	"net"
 	"sync"
+	"regexp"
+	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
@@ -38,9 +40,19 @@ const logLevelError int = 3
 const logLevelDebug int = 7
 const logLevelMax int = logLevelDebug
 
+var telemetryConnectionsKey = "TELEMETRY_CONNECTIONS"
+var ConnectionManager *ConnectionManager
+
+func CreateCMInstance() {
+	sync.Once.Do(func() {
+		ConnectionManager = &ConnectionManager{}
+	})
+}
+
 // NewClient returns a new initialized client.
 func NewClient(addr net.Addr) *Client {
 	pq := queue.NewPriorityQueue(1, false)
+	Create
 	return &Client{
 		addr: addr,
 		q:    pq,
@@ -130,6 +142,26 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	if err != nil {
 		return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
 	}
+
+	if connectionKey, valid := validateConnectionRequest(c.addr, query); !valid {
+		return grpc.Errorf(codes.ResourceExhausted, "Server connections are at capacity.")
+	}
+
+	ns := sdcfg.GetDbDefaultNamespace()
+	rclient = redis.NewClient(&redis.Options{
+		Network:     "tcp",
+		Addr:        sdcfg.GetDbTcpAddr("STATE_DB", ns),
+		Password:    "",
+		DB:          sdcfg.GetDBId("STATE_DB", ns),
+		DialTimeout: 0
+	})
+
+	ret, err := rclient.HSet(telemetryConnectionsKey, connectionKey, "active")
+
+	if !ret {
+		log.V(1).Infof("Subscribe client failed to update telemetry connection key:%s err:%v",
+                        key, err)
+	}
 	var dc sdc.Client
 
 	mode := c.subscribe.GetMode()
@@ -174,6 +206,14 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	c.Close()
 	// Wait until all child go routines exited
 	c.w.Wait()
+
+	// delete connectionkey under ip/connections
+	ret, err := rclient.HDel(telemetryConnectionsKey, connectionKey)
+	if !ret {
+		log.V(1).Infof("Subscribe client failed to delete telemetry connection key:%s err:%v",
+                        key, err)
+	}
+
 	return grpc.Errorf(codes.InvalidArgument, "%s", err)
 }
 
@@ -282,4 +322,24 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 		dc.SentOne(val)
 		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
 	}
+}
+
+func validateConnectionRequest(addr net.Addr, query string) (string, bool) {
+	CreateCMInstance()
+	connectionKey := createConnectionKey()
+	return connectionKey, ConnectionManager.Add(connectionKey)
+}
+
+func createConnectionKey(addr net.Addr, query string) string {
+	regexStr := "target:([a-zA-Z-_\"]*)\\s*>\\s*subscription:<path:<(?:element:([a-zA-Z-_\"]*)\\s*)+.*mode:([a-zA-Z\"]*)\\s*"
+	regex := regexp.MustCompile(regexStr)
+	match := regex.FindStringSubmatch(query)
+	// connectionKeyString will look like "10.0.0.1|OTHERS|proc|uptime|2017-07-04 00:47:20
+	connectionKey := addr.String() + "|"
+	for i := 0; i < len(match); i++ {
+		connectionKey += match[i]
+		connectionKey += "|"
+	}
+	connectionKey += time.Now().UTC().Format(time.RFC3339)
+	return connectionKey
 }
