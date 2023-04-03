@@ -5,14 +5,14 @@ import (
 	"io"
 	"net"
 	"sync"
-	"regexp"
-	"time"
+
+	"github.com/go-redis/redis"
 
 	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
@@ -39,20 +39,14 @@ type Client struct {
 const logLevelError int = 3
 const logLevelDebug int = 7
 const logLevelMax int = logLevelDebug
+var doOnce sync.Once
 
 var telemetryConnectionsKey = "TELEMETRY_CONNECTIONS"
-var ConnectionManager *ConnectionManager
-
-func CreateCMInstance() {
-	sync.Once.Do(func() {
-		ConnectionManager = &ConnectionManager{}
-	})
-}
+var connectionManager *ConnectionManager
 
 // NewClient returns a new initialized client.
 func NewClient(addr net.Addr) *Client {
 	pq := queue.NewPriorityQueue(1, false)
-	Create
 	return &Client{
 		addr: addr,
 		q:    pq,
@@ -97,6 +91,8 @@ func (c *Client) populateDbPathSubscrition(sublist *gnmipb.SubscriptionList) ([]
 func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	defer log.V(1).Infof("Client %s shutdown", c)
 	ctx := stream.Context()
+	var connectionKey string
+	var valid bool
 
 	if stream == nil {
 		return grpc.Errorf(codes.FailedPrecondition, "cannot start client: stream is nil")
@@ -143,24 +139,24 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
 	}
 
-	if connectionKey, valid := validateConnectionRequest(c.addr, query); !valid {
+	if connectionKey, valid = validateConnectionRequest(c.addr, query.String()); !valid {
 		return grpc.Errorf(codes.ResourceExhausted, "Server connections are at capacity.")
 	}
 
 	ns := sdcfg.GetDbDefaultNamespace()
-	rclient = redis.NewClient(&redis.Options{
+	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
 		Addr:        sdcfg.GetDbTcpAddr("STATE_DB", ns),
 		Password:    "",
-		DB:          sdcfg.GetDBId("STATE_DB", ns),
-		DialTimeout: 0
+		DB:          sdcfg.GetDbId("STATE_DB", ns),
+		DialTimeout: 0,
 	})
-
-	ret, err := rclient.HSet(telemetryConnectionsKey, connectionKey, "active")
+	key := telemetryConnectionsKey + ":" + connectionKey
+	ret, err := rclient.HSet(key, "isActive", "active").Result()
+	log.V(1).Infof("Setting key")
 
 	if !ret {
-		log.V(1).Infof("Subscribe client failed to update telemetry connection key:%s err:%v",
-                        key, err)
+		log.V(1).Infof("Subscribe client failed to update telemetry connection key:%s err:%v", connectionKey, err)
 	}
 	var dc sdc.Client
 
@@ -208,10 +204,10 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	c.w.Wait()
 
 	// delete connectionkey under ip/connections
-	ret, err := rclient.HDel(telemetryConnectionsKey, connectionKey)
-	if !ret {
-		log.V(1).Infof("Subscribe client failed to delete telemetry connection key:%s err:%v",
-                        key, err)
+	retVal, err := rclient.HDel(key, "isActive").Result()
+	log.V(1).Infof("Deleting key")
+	if retVal == 0 {
+		log.V(1).Infof("Subscribe client failed to delete telemetry connection key:%s err:%v", connectionKey, err)
 	}
 
 	return grpc.Errorf(codes.InvalidArgument, "%s", err)
@@ -325,21 +321,11 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 }
 
 func validateConnectionRequest(addr net.Addr, query string) (string, bool) {
-	CreateCMInstance()
-	connectionKey := createConnectionKey()
-	return connectionKey, ConnectionManager.Add(connectionKey)
-}
-
-func createConnectionKey(addr net.Addr, query string) string {
-	regexStr := "target:([a-zA-Z-_\"]*)\\s*>\\s*subscription:<path:<(?:element:([a-zA-Z-_\"]*)\\s*)+.*mode:([a-zA-Z\"]*)\\s*"
-	regex := regexp.MustCompile(regexStr)
-	match := regex.FindStringSubmatch(query)
-	// connectionKeyString will look like "10.0.0.1|OTHERS|proc|uptime|2017-07-04 00:47:20
-	connectionKey := addr.String() + "|"
-	for i := 0; i < len(match); i++ {
-		connectionKey += match[i]
-		connectionKey += "|"
-	}
-	connectionKey += time.Now().UTC().Format(time.RFC3339)
-	return connectionKey
+	doOnce.Do(func() {
+		connectionManager = &ConnectionManager {
+			connections: make(map[string]struct{}),
+			threshold:   100,
+		}
+	})
+	return connectionManager.Add(addr, query)
 }
