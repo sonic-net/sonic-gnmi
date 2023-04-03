@@ -94,6 +94,7 @@ check_gotest:
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -coverprofile=coverage-dbus.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_service_client
 	$(GO) get github.com/axw/gocov/...
 	$(GO) get github.com/AlekSi/gocov-xml
+	$(GO) mod vendor
 	gocov convert coverage-*.txt | gocov-xml -source $(shell pwd) > coverage.xml
 	rm -rf coverage-*.txt 
 
