@@ -6,13 +6,10 @@ import (
 	"net"
 	"sync"
 
-	"github.com/go-redis/redis"
-
 	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
@@ -39,9 +36,8 @@ type Client struct {
 const logLevelError int = 3
 const logLevelDebug int = 7
 const logLevelMax int = logLevelDebug
-var doOnce sync.Once
 
-var telemetryConnectionsKey = "TELEMETRY_CONNECTIONS"
+var doOnce sync.Once
 var connectionManager *ConnectionManager
 
 // NewClient returns a new initialized client.
@@ -143,21 +139,6 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		return grpc.Errorf(codes.ResourceExhausted, "Server connections are at capacity.")
 	}
 
-	ns := sdcfg.GetDbDefaultNamespace()
-	rclient := redis.NewClient(&redis.Options{
-		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("STATE_DB", ns),
-		Password:    "",
-		DB:          sdcfg.GetDbId("STATE_DB", ns),
-		DialTimeout: 0,
-	})
-	key := telemetryConnectionsKey + ":" + connectionKey
-	ret, err := rclient.HSet(key, "isActive", "active").Result()
-	log.V(1).Infof("Setting key")
-
-	if !ret {
-		log.V(1).Infof("Subscribe client failed to update telemetry connection key:%s err:%v", connectionKey, err)
-	}
 	var dc sdc.Client
 
 	mode := c.subscribe.GetMode()
@@ -202,14 +183,8 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	c.Close()
 	// Wait until all child go routines exited
 	c.w.Wait()
-
 	// delete connectionkey under ip/connections
-	retVal, err := rclient.HDel(key, "isActive").Result()
-	log.V(1).Infof("Deleting key")
-	if retVal == 0 {
-		log.V(1).Infof("Subscribe client failed to delete telemetry connection key:%s err:%v", connectionKey, err)
-	}
-
+	connectionManager.Remove(connectionKey)
 	return grpc.Errorf(codes.InvalidArgument, "%s", err)
 }
 

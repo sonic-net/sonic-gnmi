@@ -6,7 +6,14 @@ import (
 	"net"
 	"regexp"
 	log "github.com/golang/glog"
+
+	"github.com/go-redis/redis"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
+
+const table = "TELEMETRY_CONNECTIONS"
+
+var rclient *redis.Client
 
 type ConnectionManager struct {
 	connections  map[string]struct{}
@@ -31,6 +38,7 @@ func (cm *ConnectionManager) Add(addr net.Addr, query string) (string, bool) {
 	log.V(1).Infof("Adding client connection: %s", key)
 	cm.connections[key] = struct{}{}
 	log.V(1).Infof("Current number of existing connections: %d", len(cm.connections))
+	storeKeyRedis(key)
 	return key, true
 }
 
@@ -42,6 +50,7 @@ func (cm *ConnectionManager) Remove(key string) (bool) {
 		log.V(1).Infof("Closing connection: %s", key)
 		delete(cm.connections, key)
 	}
+	deleteKeyRedis(key)
 	return exists
 }
 
@@ -60,4 +69,27 @@ func createKey(addr net.Addr, query string) string {
 	}
 	connectionKey += time.Now().UTC().Format(time.RFC3339)
 	return connectionKey
+}
+
+func storeKeyRedis(key string) {
+	ns := sdcfg.GetDbDefaultNamespace()
+	rclient = redis.NewClient(&redis.Options{
+		Network:     "tcp",
+		Addr:        sdcfg.GetDbTcpAddr("STATE_DB", ns),
+		Password:    "",
+		DB:          sdcfg.GetDbId("STATE_DB", ns),
+		DialTimeout: 0,
+	})
+	ret, err := rclient.HSet(table, key, "active").Result()
+
+	if !ret {
+		log.V(1).Infof("Subscribe client failed to update telemetry connection key:%s err:%v", key, err)
+	}
+}
+
+func deleteKeyRedis(key string) {
+	ret, err := rclient.HDel(table, key).Result()
+	if ret == 0 {
+		log.V(1).Infof("Subscribe client failed to delete telemetry connection key:%s err:%v", key, err)
+	}
 }
