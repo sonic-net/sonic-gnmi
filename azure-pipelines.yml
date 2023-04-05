@@ -121,7 +121,7 @@ stages:
         source: specific
         project: build
         pipeline: Azure.sonic-swss-common
-        artifact: sonic-swss-common.bullseye.amd64
+        artifact: sonic-swss-common
         runVersion: 'latestFromBranch'
         runBranch: 'refs/heads/master'
       displayName: "Download sonic-swss-common"
