@@ -134,6 +134,25 @@ func createReadServer(t *testing.T, port int64) *Server {
 	return s
 }
 
+func createRejectServer(t *testing.T, port in64) *Server {
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Errorf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &Config{Port: port, EnableTranslibWrite: true,  Threshold: 0}
+	s, err := NewServer(cfg, opts)
+	if err != nil {
+		t.Fatalf("Failed to create gNMI server: %v", err)
+	}
+	return s
+}
+
 func createAuthServer(t *testing.T, port int64) *Server {
 	t.Helper()
 	certificate, err := testcert.NewCert()
@@ -2820,6 +2839,123 @@ func TestCPUUtilization(t *testing.T) {
             c.Close()
         })
     }
+}
+
+func TestClientConnections(t *testing.T) {
+    s := createRejectServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    tests := []struct {
+        desc    string
+	q       client.Query
+	want    []client.Notification
+	poll    int
+    }{
+        {
+            desc: "poll query for DOCKER_STATS",
+	    poll: 10,
+	    q: client.Query{
+                Target: "STATE_DB",
+		Type:    client.Poll,
+		Queries: []client.Path{{"DOCKER_STATS"}},
+		TLS:     &tls.Config{InsecureSkipVerify: true},
+	    },
+	    want: []client.Notification{
+                client.Connected{},
+		client.Sync{},
+	    },
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.desc, func(t *testing.T) {
+            q := tt.q
+	    q.Addrs = []string{"127.0.0.1:8081"}
+            c := client.New()
+
+            wg := new(sync.WaitGroup)
+            wg.Add(1)
+
+            go func() {
+                defer wg.Done()
+                if err := c.Subscribe(context.Background(), q); err == nil {
+                    t.Errorf("c.Subscribe(): did not receive server capacity error")
+                }
+            }()
+
+            wg.Wait()
+
+	    c.Close()
+        })
+    }
+}
+
+func TestConnectionDataSet(t *testing.T) {
+    s := createServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    tests := []struct {
+        desc    string
+	q       client.Query
+	want    []client.Notification
+	poll    int
+    }{
+        {
+            desc: "poll query for DOCKER_STATS",
+	    poll: 10,
+	    q: client.Query{
+                Target: "STATE_DB",
+		Type:    client.Poll,
+		Queries: []client.Path{{"DOCKER_STATS"}},
+		TLS:     &tls.Config{InsecureSkipVerify: true},
+	    },
+	    want: []client.Notification{
+                client.Connected{},
+		client.Sync{},
+	    },
+        },
+    }
+    namespace := sdcfg.GetDbDefaultNamespace()
+    rclient := getRedisClientN(t, 6, namespace)
+    defer rclient.Close()
+
+    for _, tt := range tests {
+        prepareStateDb(t, namspace)
+        t.Run(tt.desc, func(t *testing.T) {
+            q := tt.q
+	    q.Addrs = []string{"127.0.0.1:8081"}
+            c := client.New()
+
+            wg := new(sync.WaitGroup)
+            wg.Add(1)
+
+            go func() {
+                defer wg.Done()
+                if err := c.Subscribe(context.Background(), q); err != nil {
+                    t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+                }
+            }()
+
+            wg.Wait()
+
+            resultMap := rclient.HGetAll("TELEMETRY_CONNECTIONS")
+
+	    if len(resultMap) != 1 {
+                t.Errorf("result for TELEMETRY_CONNECTIONS should be 1")
+            }
+
+	    for key, _ := range resultMap {
+                if !strings.Contains(key, "127.0.0.1|STATE_DB|DOCKER_STATS") {
+                    t.Errorf("key is expected to contain correct ip addr and query, received: %s", key)
+		}
+            }
+
+	    c.Close()
+        })
+    }
+
 }
 
 func TestClient(t *testing.T) {
