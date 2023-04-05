@@ -134,7 +134,7 @@ func createReadServer(t *testing.T, port int64) *Server {
 	return s
 }
 
-func createRejectServer(t *testing.T, port in64) *Server {
+func createRejectServer(t *testing.T, port int64) *Server {
 	certificate, err := testcert.NewCert()
 	if err != nil {
 		t.Errorf("could not load server key pair: %s", err)
@@ -2922,7 +2922,7 @@ func TestConnectionDataSet(t *testing.T) {
     defer rclient.Close()
 
     for _, tt := range tests {
-        prepareStateDb(t, namspace)
+        prepareStateDb(t, namespace)
         t.Run(tt.desc, func(t *testing.T) {
             q := tt.q
 	    q.Addrs = []string{"127.0.0.1:8081"}
@@ -2940,7 +2940,7 @@ func TestConnectionDataSet(t *testing.T) {
 
             wg.Wait()
 
-            resultMap := rclient.HGetAll("TELEMETRY_CONNECTIONS")
+            resultMap := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
 
 	    if len(resultMap) != 1 {
                 t.Errorf("result for TELEMETRY_CONNECTIONS should be 1")
