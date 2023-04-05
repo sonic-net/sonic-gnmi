@@ -2940,8 +2940,11 @@ func TestConnectionDataSet(t *testing.T) {
 
             wg.Wait()
 
-            resultMap := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
+            resultMap, err := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
 
+            if resultMap == nil {
+		    t.Errorf("result Map is nil, expected non nil, err: %v", err)
+	    }
 	    if len(resultMap) != 1 {
                 t.Errorf("result for TELEMETRY_CONNECTIONS should be 1")
             }
