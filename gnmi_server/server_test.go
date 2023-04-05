@@ -2853,12 +2853,12 @@ func TestClientConnections(t *testing.T) {
 	poll    int
     }{
         {
-            desc: "poll query for DOCKER_STATS",
+            desc: "poll query for COUNTERS/Ethernet*",
 	    poll: 10,
 	    q: client.Query{
-                Target: "STATE_DB",
+                Target: "COUNTERS_DB",
 		Type:    client.Poll,
-		Queries: []client.Path{{"DOCKER_STATS"}},
+		Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
 		TLS:     &tls.Config{InsecureSkipVerify: true},
 	    },
 	    want: []client.Notification{
@@ -2903,12 +2903,12 @@ func TestConnectionDataSet(t *testing.T) {
 	poll    int
     }{
         {
-            desc: "poll query for DOCKER_STATS",
+            desc: "poll query for COUNTERS/Ethernet*",
 	    poll: 10,
 	    q: client.Query{
-                Target: "STATE_DB",
+                Target: "COUNTERS_DB",
 		Type:    client.Poll,
-		Queries: []client.Path{{"DOCKER_STATS"}},
+		Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
 		TLS:     &tls.Config{InsecureSkipVerify: true},
 	    },
 	    want: []client.Notification{
@@ -2950,8 +2950,8 @@ func TestConnectionDataSet(t *testing.T) {
             }
 
 	    for key, _ := range resultMap {
-                if !strings.Contains(key, "127.0.0.1|STATE_DB|DOCKER_STATS") {
-                    t.Errorf("key is expected to contain correct ip addr and query, received: %s", key)
+                if !strings.Contains(key, "COUNTERS_DB|COUNTERS|Ethernet*") {
+                    t.Errorf("key is expected to contain correct query, received: %s", key)
 		}
             }
 
