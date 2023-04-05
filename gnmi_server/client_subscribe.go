@@ -30,6 +30,7 @@ type Client struct {
 	w     sync.WaitGroup
 	fatal bool
 	logLevel   int
+	threshold  int
 }
 
 // Syslog level for error
@@ -52,6 +53,10 @@ func NewClient(addr net.Addr) *Client {
 
 func (c *Client) setLogLevel(lvl int) {
 	c.logLevel = lvl
+}
+
+func (c *Client) setThreshold(threshold int) {
+	c.threshold = threshold
 }
 
 // String returns the target the client is querying.
@@ -135,7 +140,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
 	}
 
-	if connectionKey, valid = validateConnectionRequest(c.addr, query.String()); !valid {
+	if connectionKey, valid = validateConnectionRequest(c.addr, c.threshold, query.String()); !valid {
 		return grpc.Errorf(codes.ResourceExhausted, "Server connections are at capacity.")
 	}
 
@@ -295,11 +300,11 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 	}
 }
 
-func validateConnectionRequest(addr net.Addr, query string) (string, bool) {
+func validateConnectionRequest(addr net.Addr, threshold int, query string) (string, bool) {
 	doOnce.Do(func() {
 		connectionManager = &ConnectionManager {
 			connections: make(map[string]struct{}),
-			threshold:   100,
+			threshold:   threshold,
 		}
 	})
 	return connectionManager.Add(addr, query)

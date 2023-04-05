@@ -31,6 +31,7 @@ var (
 	jwtValInt         = flag.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for.")
 	gnmi_translib_write = flag.Bool("gnmi_translib_write", gnmi.ENABLE_TRANSLIB_WRITE, "Enable gNMI translib write for management framework")
 	gnmi_native_write   = flag.Bool("gnmi_native_write", gnmi.ENABLE_NATIVE_WRITE, "Enable gNMI native write")
+	threshold         = flag.Int("threshold", 100, "max number of client connections")
 )
 
 func main() {
@@ -57,6 +58,12 @@ func main() {
 		log.Errorf("port must be > 0.")
 		return
 	}
+
+	switch {
+	case *threshold <= 0:
+		log.Errorf("threshold must be > 0.")
+		return
+	}
 	gnmi.JwtRefreshInt = time.Duration(*jwtRefInt*uint64(time.Second))
 	gnmi.JwtValidInt = time.Duration(*jwtValInt*uint64(time.Second))
 
@@ -65,6 +72,7 @@ func main() {
 	cfg.EnableTranslibWrite = bool(*gnmi_translib_write)
 	cfg.EnableNativeWrite = bool(*gnmi_native_write)
 	cfg.LogLevel = 3
+	cfg.Threshold = int(*threshold)
 	var opts []grpc.ServerOption
 
 	if val, err := strconv.Atoi(getflag("v")); err == nil {
