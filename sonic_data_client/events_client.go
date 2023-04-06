@@ -81,6 +81,7 @@ type EventClient struct {
     last_latency_full   bool
 
     last_errors uint64
+    mu   sync.Mutex
 }
 
 func Set_heartbeat(val int) {
@@ -199,9 +200,12 @@ func update_stats(evtc *EventClient) {
      * This helps add some initial pause before accessing DB
      * for existing values.
      */
+    evtc.mu.Lock()
+    defer evtc.mu.Unlock()
     for evtc.stopped == 0 {
         var val uint64
 
+        //evtc.mu.Lock()
         compute_latency(evtc)
         for _, val = range evtc.counters {
             if val != 0 {
@@ -211,6 +215,7 @@ func update_stats(evtc *EventClient) {
         if val != 0 {
             break
         }
+        //evtc.mu.Unlock()
         time.Sleep(time.Second)
     }
     
@@ -243,6 +248,8 @@ func update_stats(evtc *EventClient) {
     }
 
     /* Main running loop that updates DB */
+    evtc.mu.Lock()
+    defer evtc.mu.Unlock()
     for evtc.stopped == 0 {
         tmp_counters := make(map[string]uint64)
 
@@ -315,8 +322,9 @@ func get_events(evtc *EventClient) {
         rc, evt := C_recv_evt(evtc.subs_handle)
 
         if rc == 0 {
+            evtc.mu.Lock()
             evtc.counters[MISSED] += (uint64)(evt.Missed_cnt)
-
+            evtc.mu.Unlock()
             if !strings.HasPrefix(evt.Event_str, TEST_EVENT) {
                 qlen := evtc.q.Len()
 
@@ -342,9 +350,13 @@ func get_events(evtc *EventClient) {
                 }
             }
         }
-        if evtc.stopped == 1 {
-            break
+        select {
+        case <-evtc.channel:
+            if evtc.stopped == 1 {
+                break
+            }
         }
+
         // TODO: Record missed count in stats table.
         // intVar, err := strconv.Atoi(C.GoString((*C.char)(c_mptr)))
     }
@@ -352,7 +364,12 @@ func get_events(evtc *EventClient) {
     C_deinit_subs(evtc.subs_handle)
     evtc.subs_handle = nil
     // set evtc.stopped for case where send_event error and channel was not stopped
-    evtc.stopped = 1
+    select {
+    case <-evtc.channel:
+        evtc.mu.Lock()
+        defer evtc.mu.Unlock()
+        evtc.stopped = 1
+    }
 }
 
 func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
@@ -384,6 +401,8 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     go update_stats(evtc)
     evtc.wg.Add(1)
 
+    evtc.mu.Lock()
+    defer evtc.mu.Unlock()
     for evtc.stopped == 0 {
         select {
         case <-evtc.channel:
