@@ -2890,18 +2890,12 @@ func TestClientConnections(t *testing.T) {
 
             go func() {
                 defer wg.Done()
-                if err := c.Subscribe(context.Background(), q); err != nil {
-			t.Errorf("c.Subscribe(): received error: %v", err)
+                if err := c.Subscribe(context.Background(), q); err == nil {
+			t.Errorf("c.Subscribe(): should have received server capacity error")
                 }
             }()
 
             wg.Wait()
-
-            for i := 0; i < tt.poll; i++ {
-                if err := c.Poll(); err != nil {
-                    t.Errorf("c.Poll(): got error %v, expected nil", err)
-                }
-	    }
 
 	    c.Close()
         })
