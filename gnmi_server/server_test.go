@@ -2831,7 +2831,7 @@ func TestClientConnections(t *testing.T) {
     tests := []struct {
         desc      string
 	q         client.Query
-	updates   []tablePathValue 
+	updates   []tablePathValue
 	wantNoti  []client.Notification
     }{
          {
@@ -2860,7 +2860,7 @@ func TestClientConnections(t *testing.T) {
                  client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson}, client.Sync{},
                  client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEtherneWildcardJsonUpdate},
              },
-        }
+        },
     }
 
     for _, tt := range tests {
