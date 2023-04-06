@@ -60,7 +60,7 @@ func main() {
 	}
 
 	switch {
-	case *threshold <= 0:
+	case *threshold < 0:
 		log.Errorf("threshold must be > 0.")
 		return
 	}

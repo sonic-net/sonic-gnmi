@@ -52,6 +52,7 @@ import (
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"
+	cacheclient "github.com/openconfig/gnmi/client"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -127,25 +128,6 @@ func createReadServer(t *testing.T, port int64) *Server {
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{Port: port, EnableTranslibWrite: false}
-	s, err := NewServer(cfg, opts)
-	if err != nil {
-		t.Fatalf("Failed to create gNMI server: %v", err)
-	}
-	return s
-}
-
-func createRejectServer(t *testing.T, port int64) *Server {
-	certificate, err := testcert.NewCert()
-	if err != nil {
-		t.Errorf("could not load server key pair: %s", err)
-	}
-	tlsCfg := &tls.Config{
-		ClientAuth:   tls.RequestClientCert,
-		Certificates: []tls.Certificate{certificate},
-	}
-
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true,  Threshold: 0}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
@@ -2842,7 +2824,7 @@ func TestCPUUtilization(t *testing.T) {
 }
 
 func TestClientConnections(t *testing.T) {
-    s := createRejectServer(t, 8081)
+    s := createServer(t, 8081)
     go runServer(t, s)
     defer s.s.Stop()
 
@@ -2872,21 +2854,24 @@ func TestClientConnections(t *testing.T) {
         t.Run(tt.desc, func(t *testing.T) {
             q := tt.q
 	    q.Addrs = []string{"127.0.0.1:8081"}
-            c := client.New()
+	    var clients []*cacheclient.CacheClient
+	    for i := 0; i < 101; i++ {
+                c := client.New()
+		clients = append(clients, c)
+                wg := new(sync.WaitGroup)
+                wg.Add(1)
+                go func() {
+                    defer wg.Done()
+                    if err := c.Subscribe(context.Background(), q); i == 100 && err == nil { // 101th request was allowed
+                        t.Errorf("c.Subscribe(): did not receive server capacity error")
+                    }
+                }()
 
-            wg := new(sync.WaitGroup)
-            wg.Add(1)
-
-            go func() {
-                defer wg.Done()
-                if err := c.Subscribe(context.Background(), q); err == nil {
-                    t.Errorf("c.Subscribe(): did not receive server capacity error")
-                }
-            }()
-
-            wg.Wait()
-
-	    c.Close()
+                wg.Wait()
+	    }
+            for _, client := range clients {
+                client.Close()
+            }
         })
     }
 }

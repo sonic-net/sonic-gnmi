@@ -21,16 +21,31 @@ type ConnectionManager struct {
 	threshold    int
 }
 
-func (cm *ConnectionManager) Count() int {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-	return len(cm.connections)
+func (cm *ConnectionManager) PrepareRedis() {
+        ns := sdcfg.GetDbDefaultNamespace()
+	rclient = redis.NewClient(&redis.Options{
+		Network:     "tcp",
+		Addr:        sdcfg.GetDbTcpAddr("STATE_DB", ns),
+		Password:    "",
+		DB:          sdcfg.GetDbId("STATE_DB", ns),
+		DialTimeout: 0,
+	})
+
+	res, _ := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
+
+	if res == nil {
+		return
+	}
+
+	for key, _ := range res {
+		rclient.HDel(table, key)
+	}
 }
 
 func (cm *ConnectionManager) Add(addr net.Addr, query string) (string, bool) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	if len(cm.connections) >= cm.threshold {
+	if len(cm.connections) >= cm.threshold && cm.threshold != 0 { // 0 is defined as no threshold
 		log.V(1).Infof("Cannot add another client connection as threshold is already at limit")
 		return "", false
 	}
@@ -55,7 +70,7 @@ func (cm *ConnectionManager) Remove(key string) (bool) {
 }
 
 func createKey(addr net.Addr, query string) string {
-	regexStr := "(?:target|element):\"([a-zA-Z0-9-_]*)\""
+	regexStr := "(?:target|element):\"([a-zA-Z0-9-_*]*)\""
 	regex := regexp.MustCompile(regexStr)
 	matches := regex.FindAllStringSubmatch(query, -1)
 	// connectionKeyString will look like "10.0.0.1|OTHERS|proc|uptime|2017-07-04 00:47:20
@@ -72,16 +87,7 @@ func createKey(addr net.Addr, query string) string {
 }
 
 func storeKeyRedis(key string) {
-	ns := sdcfg.GetDbDefaultNamespace()
-	rclient = redis.NewClient(&redis.Options{
-		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("STATE_DB", ns),
-		Password:    "",
-		DB:          sdcfg.GetDbId("STATE_DB", ns),
-		DialTimeout: 0,
-	})
 	ret, err := rclient.HSet(table, key, "active").Result()
-
 	if !ret {
 		log.V(1).Infof("Subscribe client failed to update telemetry connection key:%s err:%v", key, err)
 	}

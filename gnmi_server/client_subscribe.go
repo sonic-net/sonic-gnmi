@@ -30,7 +30,6 @@ type Client struct {
 	w     sync.WaitGroup
 	fatal bool
 	logLevel   int
-	threshold  int
 }
 
 // Syslog level for error
@@ -55,8 +54,12 @@ func (c *Client) setLogLevel(lvl int) {
 	c.logLevel = lvl
 }
 
-func (c *Client) setThreshold(threshold int) {
-	c.threshold = threshold
+func (c *Client) setConnectionManager(threshold int) {
+	connectionManager = &ConnectionManager {
+		connections: make(map[string]struct{}),
+		threshold:   threshold,
+	}
+	connectionManager.PrepareRedis()
 }
 
 // String returns the target the client is querying.
@@ -140,8 +143,8 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
 	}
 
-	if connectionKey, valid = validateConnectionRequest(c.addr, c.threshold, query.String()); !valid {
-		return grpc.Errorf(codes.ResourceExhausted, "Server connections are at capacity.")
+	if connectionKey, valid = connectionManager.Add(c.addr, query.String()); !valid {
+		return grpc.Errorf(codes.Unavailable, "Server connections are at capacity.")
 	}
 
 	var dc sdc.Client
@@ -160,6 +163,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	}
 
 	if err != nil {
+		connectionManager.Remove(connectionKey)
 		return grpc.Errorf(codes.NotFound, "%v", err)
 	}
 
@@ -179,6 +183,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		c.w.Add(1)
 		go dc.OnceRun(c.q, c.once, &c.w, c.subscribe)
 	default:
+		connectionManager.Remove(connectionKey)
 		return grpc.Errorf(codes.InvalidArgument, "Unkown subscription mode: %q", query)
 	}
 
@@ -298,14 +303,4 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 		dc.SentOne(val)
 		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
 	}
-}
-
-func validateConnectionRequest(addr net.Addr, threshold int, query string) (string, bool) {
-	doOnce.Do(func() {
-		connectionManager = &ConnectionManager {
-			connections: make(map[string]struct{}),
-			threshold:   threshold,
-		}
-	})
-	return connectionManager.Add(addr, query)
 }

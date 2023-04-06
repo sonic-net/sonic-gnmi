@@ -243,7 +243,7 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	c := NewClient(pr.Addr)
 
 	c.setLogLevel(s.config.LogLevel)
-	c.setThreshold(s.config.Threshold)
+	c.setConnectionManager(s.config.Threshold)
 
 	s.cMu.Lock()
 	if oc, ok := s.clients[c.String()]; ok {
