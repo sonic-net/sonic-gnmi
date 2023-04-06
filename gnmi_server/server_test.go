@@ -2853,12 +2853,12 @@ func TestClientConnections(t *testing.T) {
 	poll    int
     }{
         {
-            desc: "poll query for DOCKER_STATS",
+            desc: "poll query for COUNTERS/Ethernet*",
 	    poll: 10,
 	    q: client.Query{
-                Target: "STATE_DB",
+                Target: "COUNTERS_DB",
 		Type:    client.Poll,
-		Queries: []client.Path{{"DOCKER_STATS"}},
+		Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
 		TLS:     &tls.Config{InsecureSkipVerify: true},
 	    },
 	    want: []client.Notification{
