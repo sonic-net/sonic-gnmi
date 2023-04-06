@@ -2829,25 +2829,36 @@ func TestClientConnections(t *testing.T) {
     defer s.s.Stop()
 
     tests := []struct {
-        desc    string
-	q       client.Query
-	want    []client.Notification
-	poll    int
+        desc      string
+	q         client.Query
+	updates   []tablePathValue 
+	wantNoti  []client.Notification
     }{
-        {
-            desc: "poll query for COUNTERS/Ethernet*",
-	    poll: 10,
-	    q: client.Query{
-                Target: "COUNTERS_DB",
-		Type:    client.Poll,
-		Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
-		TLS:     &tls.Config{InsecureSkipVerify: true},
-	    },
-	    want: []client.Notification{
-                client.Connected{},
-		client.Sync{},
-	    },
-        },
+         desc: "stream query for table key Ethernet* with new test_field field on Ethernet68",
+         q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "Ethernet*"),
+         updates: []tablePathValue{
+             {
+                 dbName:    "COUNTERS_DB",
+                 tableName: "COUNTERS",
+                 tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+                 delimitor: ":",
+                 field:     "test_field",
+                 value:     "test_value",
+             },
+             { //Same value set should not trigger multiple updates
+                 dbName:    "COUNTERS_DB",
+                 tableName: "COUNTERS",
+                 tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+                 delimitor: ":",
+                 field:     "test_field",
+                 value:     "test_value",
+             },
+         },
+         wantNoti: []client.Notification{
+             client.Connected{},
+             client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson}, client.Sync{},
+             client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEtherneWildcardJsonUpdate},
+         },
     }
 
     for _, tt := range tests {
@@ -2866,7 +2877,6 @@ func TestClientConnections(t *testing.T) {
                         t.Errorf("c.Subscribe(): did not receive server capacity error")
                     }
                 }()
-
                 wg.Wait()
 	    }
             for _, client := range clients {
