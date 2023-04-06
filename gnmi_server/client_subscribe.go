@@ -37,7 +37,6 @@ const logLevelError int = 3
 const logLevelDebug int = 7
 const logLevelMax int = logLevelDebug
 
-var doOnce sync.Once
 var connectionManager *ConnectionManager
 
 // NewClient returns a new initialized client.
