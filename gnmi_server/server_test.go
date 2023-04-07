@@ -2890,6 +2890,12 @@ func TestClientConnections(t *testing.T) {
 	client.New(),
     }
 
+    namespace := sdcfg.GetDbDefaultNamespace()
+    rclient := getRedisClientN(t, 6, namespace)
+    defer rclient.Close()
+
+    prepareStateDb(t, namespace)
+
     t.Run(tests[0].desc, func(t *testing.T) {
         for i, q := range tests[0].q {
 	    q.Addrs = []string{"127.0.0.1:8081"}
@@ -2920,6 +2926,17 @@ func TestClientConnections(t *testing.T) {
             }()
 
             wg.Wait()
+
+            resultMap, err := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
+
+            if resultMap == nil {
+		    t.Errorf("result Map is nil, expected non nil, err: %v", err)
+	    }
+            t.Logf("After iteration")
+	    for key, _ := range resultMap {
+                t.Logf("key: %s", key)
+            }
+
         }
     })
 
