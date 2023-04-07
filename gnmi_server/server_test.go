@@ -2898,7 +2898,7 @@ func TestClientConnections(t *testing.T) {
 
     t.Run(tests[0].desc, func(t *testing.T) {
         wg := new(sync.WaitGroup)
-        wg.Add(1)
+        wg.Add(len(tests[0].q))
 
         for i, q := range tests[0].q {
 	    q.Addrs = []string{"127.0.0.1:8081"}
