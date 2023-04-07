@@ -2850,53 +2850,38 @@ func TestClientConnections(t *testing.T) {
 
     tests := []struct {
         desc    string
-	q       client.Query
+	q       []client.Query
 	want    []client.Notification
 	poll    int
     }{
         {
-            desc: "poll query for OTHERS/proc/uptime",
+            desc: "Accept first two requests, reject third",
 	    poll: 10,
-	    q: client.Query{
-                Target: "OTHERS",
-		Type:    client.Poll,
-		Queries: []client.Path{{"proc", "uptime"}},
-		TLS:     &tls.Config{InsecureSkipVerify: true},
-	    },
+	    q: []client.Query{
+                client.Query{
+                    Target: "OTHERS",
+		    Type:    client.Poll,
+		    Queries: []client.Path{{"proc", "uptime"}},
+		    TLS:     &tls.Config{InsecureSkipVerify: true},
+	        },
+                client.Query{
+                    Target: "COUNTERS_DB",
+                    Type:    client.Poll,
+                    Queries: []client.Path{{"COUNTERS", "Ethernet68"}},
+                    TLS:     &tls.Config{InsecureSkipVerify: true},
+                },
+                client.Query{
+                    Target: "COUNTERS_DB",
+		    Type:    client.Poll,
+		    Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+		    TLS:     &tls.Config{InsecureSkipVerify: true},
+	        },
+            },
 	    want: []client.Notification{
                 client.Connected{},
 		client.Sync{},
 	    },
         },
-        {
-            desc: "poll query for COUNTERS/Ethernet68",
-	    poll: 10,
-	    q: client.Query{
-                Target: "COUNTERS_DB",
-		Type:    client.Poll,
-		Queries: []client.Path{{"COUNTERS", "Ethernet68"}},
-		TLS:     &tls.Config{InsecureSkipVerify: true},
-	    },
-	    want: []client.Notification{
-                client.Connected{},
-		client.Sync{},
-	    },
-        },
-        {
-            desc: "poll query for COUNTERS/Ethernet*",
-	    poll: 10,
-	    q: client.Query{
-                Target: "COUNTERS_DB",
-		Type:    client.Poll,
-		Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
-		TLS:     &tls.Config{InsecureSkipVerify: true},
-	    },
-	    want: []client.Notification{
-                client.Connected{},
-		client.Sync{},
-	    },
-        },
-
     }
 
     clients := []*cacheclient.CacheClient {
@@ -2905,9 +2890,8 @@ func TestClientConnections(t *testing.T) {
 	client.New(),
     }
 
-    for i, tt := range tests {
-        t.Run(tt.desc, func(t *testing.T) {
-            q := tt.q
+    t.Run(tests[0].desc, func(t *testing.T) {
+        for i, q := range tests[0].q {
 	    q.Addrs = []string{"127.0.0.1:8081"}
             var gotNoti []client.Notification
             q.NotificationHandler = func(n client.Notification) error {
@@ -2936,8 +2920,8 @@ func TestClientConnections(t *testing.T) {
             }()
 
             wg.Wait()
-        })
-    }
+        }
+    })
 
     for _, client := range clients {
             client.Close()
