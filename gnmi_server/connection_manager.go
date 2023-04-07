@@ -22,7 +22,7 @@ type ConnectionManager struct {
 }
 
 func (cm *ConnectionManager) PrepareRedis() {
-        ns := sdcfg.GetDbDefaultNamespace()
+	ns := sdcfg.GetDbDefaultNamespace()
 	rclient = redis.NewClient(&redis.Options{
 		Network:     "tcp",
 		Addr:        sdcfg.GetDbTcpAddr("STATE_DB", ns),

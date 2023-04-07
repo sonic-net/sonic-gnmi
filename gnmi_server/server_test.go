@@ -52,6 +52,8 @@ import (
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"
+	cacheclient "github.com/openconfig/gnmi/client"
+
 )
 
 var clientTypes = []string{gclient.Type}
@@ -134,7 +136,7 @@ func createReadServer(t *testing.T, port int64) *Server {
 	return s
 }
 
-func createRejectServer(t *testing.T, port int64) *Server {
+func createLowThresholdServer(t *testing.T, port int64) *Server {
 	certificate, err := testcert.NewCert()
 	if err != nil {
 		t.Errorf("could not load server key pair: %s", err)
@@ -145,7 +147,7 @@ func createRejectServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true,  Threshold: -1}
+	cfg := &Config{Port: port, EnableTranslibWrite: true,  Threshold: 2}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
@@ -2842,7 +2844,7 @@ func TestCPUUtilization(t *testing.T) {
 }
 
 func TestClientConnections(t *testing.T) {
-    s := createRejectServer(t, 8081)
+    s := createLowThresholdServer(t, 8081)
     go runServer(t, s)
     defer s.s.Stop()
 
@@ -2852,6 +2854,34 @@ func TestClientConnections(t *testing.T) {
 	want    []client.Notification
 	poll    int
     }{
+        {
+            desc: "poll query for OTHERS/proc/uptime",
+	    poll: 10,
+	    q: client.Query{
+                Target: "OTHERS",
+		Type:    client.Poll,
+		Queries: []client.Path{{"proc", "uptime"}},
+		TLS:     &tls.Config{InsecureSkipVerify: true},
+	    },
+	    want: []client.Notification{
+                client.Connected{},
+		client.Sync{},
+	    },
+        },
+        {
+            desc: "poll query for COUNTERS/Ethernet68",
+	    poll: 10,
+	    q: client.Query{
+                Target: "COUNTERS_DB",
+		Type:    client.Poll,
+		Queries: []client.Path{{"COUNTERS", "Ethernet68"}},
+		TLS:     &tls.Config{InsecureSkipVerify: true},
+	    },
+	    want: []client.Notification{
+                client.Connected{},
+		client.Sync{},
+	    },
+        },
         {
             desc: "poll query for COUNTERS/Ethernet*",
 	    poll: 10,
@@ -2866,13 +2896,19 @@ func TestClientConnections(t *testing.T) {
 		client.Sync{},
 	    },
         },
+
     }
 
-    for _, tt := range tests {
+    clients := []*cacheclient.CacheClient {
+        client.New(),
+	client.New(),
+	client.New(),
+    }
+
+    for i, tt := range tests {
         t.Run(tt.desc, func(t *testing.T) {
             q := tt.q
 	    q.Addrs = []string{"127.0.0.1:8081"}
-            c := client.New()
             var gotNoti []client.Notification
             q.NotificationHandler = func(n client.Notification) error {
                 if nn, ok := n.(client.Update); ok {
@@ -2890,15 +2926,21 @@ func TestClientConnections(t *testing.T) {
 
             go func() {
                 defer wg.Done()
-                if err := c.Subscribe(context.Background(), q); err == nil {
+                err := clients[i].Subscribe(context.Background(), q)
+                if err == nil && i == len(tests) - 1 { // error expected on third
 			t.Errorf("c.Subscribe(): should have received server capacity error")
+                } else if err != nil && i < len(tests) - 1 { // received error on the first two
+                    t.Errorf("c.Subscribe(): should not have received error: %v", err)
+
                 }
             }()
 
             wg.Wait()
-
-	    c.Close()
         })
+    }
+
+    for _, client := range clients {
+            client.Close()
     }
 }
 

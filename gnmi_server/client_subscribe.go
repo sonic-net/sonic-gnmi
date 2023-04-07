@@ -146,6 +146,8 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		return grpc.Errorf(codes.Unavailable, "Server connections are at capacity.")
 	}
 
+	defer connectionManager.Remove(connectionKey) // remove key from connection list
+
 	var dc sdc.Client
 
 	mode := c.subscribe.GetMode()
@@ -162,7 +164,6 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	}
 
 	if err != nil {
-		connectionManager.Remove(connectionKey)
 		return grpc.Errorf(codes.NotFound, "%v", err)
 	}
 
@@ -182,7 +183,6 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		c.w.Add(1)
 		go dc.OnceRun(c.q, c.once, &c.w, c.subscribe)
 	default:
-		connectionManager.Remove(connectionKey)
 		return grpc.Errorf(codes.InvalidArgument, "Unkown subscription mode: %q", query)
 	}
 
@@ -192,8 +192,6 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	c.Close()
 	// Wait until all child go routines exited
 	c.w.Wait()
-	// delete connectionkey under ip/connections
-	connectionManager.Remove(connectionKey)
 	return grpc.Errorf(codes.InvalidArgument, "%s", err)
 }
 
