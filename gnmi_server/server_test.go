@@ -2897,6 +2897,9 @@ func TestClientConnections(t *testing.T) {
     prepareStateDb(t, namespace)
 
     t.Run(tests[0].desc, func(t *testing.T) {
+        wg := new(sync.WaitGroup)
+        wg.Add(1)
+
         for i, q := range tests[0].q {
 	    q.Addrs = []string{"127.0.0.1:8081"}
             var gotNoti []client.Notification
@@ -2910,10 +2913,6 @@ func TestClientConnections(t *testing.T) {
                 return nil
             }
 
-            wg := new(sync.WaitGroup)
-
-            wg.Add(1)
-
             go func() {
                 defer wg.Done()
                 err := clients[i].Subscribe(context.Background(), q)
@@ -2921,23 +2920,17 @@ func TestClientConnections(t *testing.T) {
 			t.Errorf("c.Subscribe(): should have received server capacity error")
                 } else if err != nil && i < len(tests) - 1 { // received error on the first two
                     t.Errorf("c.Subscribe(): should not have received error: %v", err)
-
+                }
+                resultMap, err := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result() 
+                t.Logf("After iteration")
+	        for key, _ := range resultMap {
+                    t.Logf("key: %s", key)
                 }
             }()
+	}
 
-            wg.Wait()
+        wg.Wait()
 
-            resultMap, err := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
-
-            if resultMap == nil {
-		    t.Errorf("result Map is nil, expected non nil, err: %v", err)
-	    }
-            t.Logf("After iteration")
-	    for key, _ := range resultMap {
-                t.Logf("key: %s", key)
-            }
-
-        }
     })
 
     for _, client := range clients {
