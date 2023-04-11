@@ -2915,8 +2915,8 @@ func TestClientConnections(t *testing.T) {
             if accepted != 1 && rejected != 1 {
                 t.Errorf("Accepted and rejected counts should be 1")
             }
-        })
-    }
+        }
+    })
 }
 
 func TestConnectionDataSet(t *testing.T) {
