@@ -2850,7 +2850,7 @@ func TestClientConnections(t *testing.T) {
 
     tests := []struct {
         desc    string
-        q       []client.Query
+        q       client.Query
         want    []client.Notification
         poll    int
     }{
@@ -2900,7 +2900,7 @@ func TestClientConnections(t *testing.T) {
                     atomic.AddInt32(&accepted, 1)
                 } else {
                     t.Logf("Error received: %v", err)
-                    atomic.addInt32(&rejected, 1)
+                    atomic.AddInt32(&rejected, 1)
                 }
                 wg.Done()
                 runtime.UnlockOSThread()
