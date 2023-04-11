@@ -55,7 +55,6 @@ func (cm *ConnectionManager) Add(addr net.Addr, query string) (string, bool) {
 	cm.mu.Lock() // writing
 	cm.connections[key] = struct{}{}
 	cm.mu.Unlock()
-	log.V(1).Infof("Current number of existing connections: %d", len(cm.connections))
 	storeKeyRedis(key)
 	return key, true
 }

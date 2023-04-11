@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
         "sync"
-	"sync/atomic"
 	"strings"
 	"unsafe"
 
@@ -22,7 +21,6 @@ import (
 	"os/exec"
 	"os/user"
 	"reflect"
-	"runtime"
 	"testing"
 	"time"
 
@@ -136,7 +134,7 @@ func createReadServer(t *testing.T, port int64) *Server {
 	return s
 }
 
-func createLowThresholdServer(t *testing.T, port int64) *Server {
+func createRejectServer(t *testing.T, port int64) *Server {
 	certificate, err := testcert.NewCert()
 	if err != nil {
 		t.Errorf("could not load server key pair: %s", err)
@@ -147,7 +145,7 @@ func createLowThresholdServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true,  Threshold: 1}
+	cfg := &Config{Port: port, EnableTranslibWrite: true,  Threshold: -1}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
@@ -2844,7 +2842,7 @@ func TestCPUUtilization(t *testing.T) {
 }
 
 func TestClientConnections(t *testing.T) {
-    s := createLowThresholdServer(t, 8081)
+    s := createRejectServer(t, 8081)
     go runServer(t, s)
     defer s.s.Stop()
 
@@ -2855,7 +2853,7 @@ func TestClientConnections(t *testing.T) {
         poll    int
     }{
         {
-            desc: "Accept first request, reject next",
+            desc: "Reject OTHERS/proc/uptime",
             poll: 10,
             q: client.Query{
                 Target: "OTHERS",
@@ -2868,54 +2866,65 @@ func TestClientConnections(t *testing.T) {
                 client.Sync{},
             },
         },
+        {
+            desc: "Reject COUNTERS/Ethernet*",
+            poll: 10,
+            q: client.Query{
+                Target: "COUNTERS_DB",
+                Type:    client.Poll,
+                Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+                TLS:     &tls.Config{InsecureSkipVerify: true},
+            },
+            want: []client.Notification{
+                client.Connected{},
+                client.Sync{},
+            },
+        },
+        {
+            desc: "Reject COUNTERS/Ethernet68",
+            poll: 10,
+            q: client.Query{
+                Target: "COUNTERS_DB",
+                Type:    client.Poll,
+                Queries: []client.Path{{"COUNTERS", "Ethernet68"}},
+                TLS:     &tls.Config{InsecureSkipVerify: true},
+            },
+            want: []client.Notification{
+                client.Connected{},
+                client.Sync{},
+            },
+        },
     }
 
-    t.Run(tests[0].desc, func(t *testing.T) {
-        q := tests[0].q
-        q.Addrs = []string{"127.0.0.1:8081"}
-        var gotNoti []client.Notification
-        q.NotificationHandler = func(n client.Notification) error {
-            if nn, ok := n.(client.Update); ok {
-                nn.TS = time.Unix(0, 200)
-                gotNoti = append(gotNoti, nn)
-            } else {
-                gotNoti = append(gotNoti, n)
-            }
-            return nil
-        }
-
-        wg := new(sync.WaitGroup)
-        start := make(chan struct{})
-        var accepted int32
-        var rejected int32
-
-        wg.Add(2)
-        for i := 0; i < 2; i++ {
-            go func() {
-                runtime.LockOSThread()
-                <-start
-                c := client.New()
-                err := c.Subscribe(context.Background(), q)
-                if err == nil {
-                    atomic.AddInt32(&accepted, 1)
+    for _, tt := range tests {
+        t.Run(tt.desc, func(t *testing.T) {
+            q := tt.q
+            q.Addrs = []string{"127.0.0.1:8081"}
+            var gotNoti []client.Notification
+            q.NotificationHandler = func(n client.Notification) error {
+                if nn, ok := n.(client.Update); ok {
+                    nn.TS = time.Unix(0, 200)
+                    gotNoti = append(gotNoti, nn)
                 } else {
-                    t.Logf("Error received: %v", err)
-                    atomic.AddInt32(&rejected, 1)
+                    gotNoti = append(gotNoti, n)
                 }
-                wg.Done()
-                runtime.UnlockOSThread()
-            }()
-        }
-        time.Sleep(time.Millisecond * 10)
-        close(start)
-        wg.Wait()
+                return nil
+            }
 
-	t.Logf("Accepted connections: %d", accepted)
-        t.Logf("Rejected connections: %d", rejected)
-        if accepted != 1 && rejected != 1 {
-            t.Errorf("Accepted and rejected counts should be 1")
-        }
-    })
+            wg := new(sync.WaitGroup)
+            wg.Add(1)
+
+            go func() {
+                defer wg.Done()
+                c := client.New()
+                if err := c.Subscribe(context.Background(), q); err == nil {
+                    t.Errorf("Expecting rejection message as no connections are allowed")
+                }
+            }()
+
+            wg.Wait()
+        })
+    }
 }
 
 func TestConnectionDataSet(t *testing.T) {
