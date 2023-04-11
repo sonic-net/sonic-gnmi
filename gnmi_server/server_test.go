@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
         "sync"
+	"sync/atomic"
 	"strings"
 	"unsafe"
 
@@ -21,6 +22,7 @@ import (
 	"os/exec"
 	"os/user"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
@@ -52,8 +54,6 @@ import (
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"
-	cacheclient "github.com/openconfig/gnmi/client"
-
 )
 
 var clientTypes = []string{gclient.Type}
@@ -2850,91 +2850,72 @@ func TestClientConnections(t *testing.T) {
 
     tests := []struct {
         desc    string
-	q       []client.Query
-	want    []client.Notification
-	poll    int
+        q       []client.Query
+        want    []client.Notification
+        poll    int
     }{
         {
             desc: "Accept first two requests, reject third",
-	    poll: 10,
-	    q: []client.Query{
-                client.Query{
-                    Target: "OTHERS",
-		    Type:    client.Poll,
-		    Queries: []client.Path{{"proc", "uptime"}},
-		    TLS:     &tls.Config{InsecureSkipVerify: true},
-	        },
-                client.Query{
-                    Target: "COUNTERS_DB",
-                    Type:    client.Poll,
-                    Queries: []client.Path{{"COUNTERS", "Ethernet68"}},
-                    TLS:     &tls.Config{InsecureSkipVerify: true},
-                },
-                client.Query{
-                    Target: "COUNTERS_DB",
-		    Type:    client.Poll,
-		    Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
-		    TLS:     &tls.Config{InsecureSkipVerify: true},
-	        },
-            },
+            poll: 10,
+            q: client.Query{
+                Target: "OTHERS",
+                Type:    client.Poll,
+                Queries: []client.Path{{"proc", "uptime"}},
+                TLS:     &tls.Config{InsecureSkipVerify: true},
+	    },
 	    want: []client.Notification{
                 client.Connected{},
-		client.Sync{},
-	    },
+                client.Sync{},
+            },
         },
     }
 
-    clients := []*cacheclient.CacheClient {
-        client.New(),
-	client.New(),
-	client.New(),
-    }
-
-    namespace := sdcfg.GetDbDefaultNamespace()
-    rclient := getRedisClientN(t, 6, namespace)
-    defer rclient.Close()
-
-    prepareStateDb(t, namespace)
-
     t.Run(tests[0].desc, func(t *testing.T) {
-        wg := new(sync.WaitGroup)
-        wg.Add(len(tests[0].q))
-
-        for i, q := range tests[0].q {
-	    q.Addrs = []string{"127.0.0.1:8081"}
-            var gotNoti []client.Notification
-            q.NotificationHandler = func(n client.Notification) error {
-                if nn, ok := n.(client.Update); ok {
-                    nn.TS = time.Unix(0, 200)
-		    gotNoti = append(gotNoti, nn)
-                } else {
-                    gotNoti = append(gotNoti, n)
-	    }
-                return nil
+        q := tests[0].q
+        q.Addrs = []string{"127.0.0.1:8081"}
+        var gotNoti []client.Notification
+        q.NotificationHandler = func(n client.Notification) error {
+            if nn, ok := n.(client.Update); ok {
+                nn.TS = time.Unix(0, 200)
+                gotNoti = append(gotNoti, nn)
+            } else {
+                gotNoti = append(gotNoti, n)
             }
+            return nil
+        }
 
+        wg := new(sync.WaitGroup)
+        start := make(chan struct{})
+        var accepted int32
+        var rejected int32
+
+        wg.Add(2)
+        for i := 0; i < 2; i++ {
             go func() {
-                defer wg.Done()
-                err := clients[i].Subscribe(context.Background(), q)
-                if err == nil && i == len(tests) - 1 { // error expected on third
-			t.Errorf("c.Subscribe(): should have received server capacity error")
-                } else if err != nil && i < len(tests) - 1 { // received error on the first two
-                    t.Errorf("c.Subscribe(): should not have received error: %v", err)
+                runtime.LockOSThread()
+                <-start
+                c := client.New()
+                err := c.Subscribe(context.Background(), q)
+                if err == nil {
+                    atomic.AddInt32(&accepted, 1)
+                } else {
+                    t.Logf("Error received: %v", err)
+                    atomic.addInt32(&rejected, 1)
                 }
-                resultMap, err := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result() 
-                t.Logf("After iteration")
-	        for key, _ := range resultMap {
-                    t.Logf("key: %s", key)
-                }
+                wg.Done()
+                runtime.UnlockOSThread()
             }()
-	}
 
-        wg.Wait()
+            time.Sleep(time.Millisecond * 10)
+            close(start)
+            wg.Wait()
 
-    })
-
-    for _, client := range clients {
-            client.Close()
+	    t.Logf("Accepted connections: %d", accepted)
+            t.Logf("Rejected connections: %d", rejected)
+            if accepted != && rejected != 1 {
+                t.Errorf("Accepted and rejected counts should be 1")
+            }
+        })
     }
 }
 
@@ -2945,23 +2926,23 @@ func TestConnectionDataSet(t *testing.T) {
 
     tests := []struct {
         desc    string
-	q       client.Query
-	want    []client.Notification
-	poll    int
+        q       client.Query
+        want    []client.Notification
+        poll    int
     }{
         {
             desc: "poll query for COUNTERS/Ethernet*",
-	    poll: 10,
-	    q: client.Query{
+            poll: 10,
+            q: client.Query{
                 Target: "COUNTERS_DB",
-		Type:    client.Poll,
-		Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
-		TLS:     &tls.Config{InsecureSkipVerify: true},
-	    },
-	    want: []client.Notification{
+                Type:    client.Poll,
+                Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+                TLS:     &tls.Config{InsecureSkipVerify: true},
+            },
+            want: []client.Notification{
                 client.Connected{},
-		client.Sync{},
-	    },
+                client.Sync{},
+            },
         },
     }
     namespace := sdcfg.GetDbDefaultNamespace()
@@ -2972,7 +2953,7 @@ func TestConnectionDataSet(t *testing.T) {
         prepareStateDb(t, namespace)
         t.Run(tt.desc, func(t *testing.T) {
             q := tt.q
-	    q.Addrs = []string{"127.0.0.1:8081"}
+            q.Addrs = []string{"127.0.0.1:8081"}
             c := client.New()
 
             wg := new(sync.WaitGroup)
@@ -2990,22 +2971,21 @@ func TestConnectionDataSet(t *testing.T) {
             resultMap, err := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
 
             if resultMap == nil {
-		    t.Errorf("result Map is nil, expected non nil, err: %v", err)
+                t.Errorf("result Map is nil, expected non nil, err: %v", err)
 	    }
-	    if len(resultMap) != 1 {
+            if len(resultMap) != 1 {
                 t.Errorf("result for TELEMETRY_CONNECTIONS should be 1")
             }
 
-	    for key, _ := range resultMap {
+            for key, _ := range resultMap {
                 if !strings.Contains(key, "COUNTERS_DB|COUNTERS|Ethernet*") {
                     t.Errorf("key is expected to contain correct query, received: %s", key)
-		}
+                }
             }
 
-	    c.Close()
+            c.Close()
         })
     }
-
 }
 
 func TestClient(t *testing.T) {

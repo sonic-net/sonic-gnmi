@@ -17,7 +17,7 @@ var rclient *redis.Client
 
 type ConnectionManager struct {
 	connections  map[string]struct{}
-	mu           sync.Mutex
+	mu           sync.RWMutex
 	threshold    int
 }
 
@@ -43,27 +43,32 @@ func (cm *ConnectionManager) PrepareRedis() {
 }
 
 func (cm *ConnectionManager) Add(addr net.Addr, query string) (string, bool) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.mu.RLock() // reading
 	if len(cm.connections) >= cm.threshold && cm.threshold != 0 { // 0 is defined as no threshold
 		log.V(1).Infof("Cannot add another client connection as threshold is already at limit")
+		cm.mu.RUnlock()
 		return "", false
 	}
+	cm.mu.RUnlock()
 	key := createKey(addr, query)
 	log.V(1).Infof("Adding client connection: %s", key)
+	cm.mu.Lock() // writing
 	cm.connections[key] = struct{}{}
+	cm.mu.Unlock()
 	log.V(1).Infof("Current number of existing connections: %d", len(cm.connections))
 	storeKeyRedis(key)
 	return key, true
 }
 
 func (cm *ConnectionManager) Remove(key string) (bool) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.mu.RLock() // reading
 	_, exists := cm.connections[key]
+	cm.mu.RUnlock()
 	if exists {
 		log.V(1).Infof("Closing connection: %s", key)
+		cm.mu.Lock() // writing
 		delete(cm.connections, key)
+		cm.mu.Unlock()
 	}
 	deleteKeyRedis(key)
 	return exists
@@ -87,6 +92,10 @@ func createKey(addr net.Addr, query string) string {
 }
 
 func storeKeyRedis(key string) {
+	if rclient == nil {
+		log.V(1).Infof("Redis client is nil, cannot store connection key")
+		return
+	}
 	ret, err := rclient.HSet(table, key, "active").Result()
 	if !ret {
 		log.V(1).Infof("Subscribe client failed to update telemetry connection key:%s err:%v", key, err)
@@ -94,6 +103,11 @@ func storeKeyRedis(key string) {
 }
 
 func deleteKeyRedis(key string) {
+	if rclient == nil {
+		log.V(1).Infof("Redis client is nil, cannot delete connection key")
+		return
+	}
+
 	ret, err := rclient.HDel(table, key).Result()
 	if ret == 0 {
 		log.V(1).Infof("Subscribe client failed to delete telemetry connection key:%s err:%v", key, err)
