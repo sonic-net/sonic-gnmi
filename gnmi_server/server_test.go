@@ -2912,7 +2912,7 @@ func TestClientConnections(t *testing.T) {
 
 	    t.Logf("Accepted connections: %d", accepted)
             t.Logf("Rejected connections: %d", rejected)
-            if accepted != && rejected != 1 {
+            if accepted != 1 && rejected != 1 {
                 t.Errorf("Accepted and rejected counts should be 1")
             }
         })
