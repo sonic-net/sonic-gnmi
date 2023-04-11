@@ -2905,16 +2905,15 @@ func TestClientConnections(t *testing.T) {
                 wg.Done()
                 runtime.UnlockOSThread()
             }()
+        }
+        time.Sleep(time.Millisecond * 10)
+        close(start)
+        wg.Wait()
 
-            time.Sleep(time.Millisecond * 10)
-            close(start)
-            wg.Wait()
-
-	    t.Logf("Accepted connections: %d", accepted)
-            t.Logf("Rejected connections: %d", rejected)
-            if accepted != 1 && rejected != 1 {
-                t.Errorf("Accepted and rejected counts should be 1")
-            }
+	t.Logf("Accepted connections: %d", accepted)
+        t.Logf("Rejected connections: %d", rejected)
+        if accepted != 1 && rejected != 1 {
+            t.Errorf("Accepted and rejected counts should be 1")
         }
     })
 }
