@@ -2855,7 +2855,7 @@ func TestClientConnections(t *testing.T) {
         poll    int
     }{
         {
-            desc: "Accept first two requests, reject third",
+            desc: "Accept first request, reject next",
             poll: 10,
             q: client.Query{
                 Target: "OTHERS",
