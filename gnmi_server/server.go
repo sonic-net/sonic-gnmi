@@ -48,6 +48,7 @@ type Config struct {
 	// for this Server.
 	Port     int64
 	LogLevel int
+	Threshold int
 	UserAuth AuthTypes
 	EnableTranslibWrite bool
 	EnableNativeWrite bool
@@ -242,6 +243,7 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	c := NewClient(pr.Addr)
 
 	c.setLogLevel(s.config.LogLevel)
+	c.setConnectionManager(s.config.Threshold)
 
 	s.cMu.Lock()
 	if oc, ok := s.clients[c.String()]; ok {
