@@ -291,10 +291,16 @@ func runTestSet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 		req = &pb.SetRequest{
 			Prefix: &prefix,
 			Replace: []*pb.Update{&pb.Update{Path: &pbPath, Val: v}},
+			Extension: []*ext_pb.Extension{
+				{Ext: &ext_pb.Extension_MasterArbitration{}},
+			},
 		}
 	case Delete:
 		req = &pb.SetRequest{
 			Delete: []*pb.Path{&pbPath},
+			Extension: []*ext_pb.Extension{
+				{Ext: &ext_pb.Extension_MasterArbitration{}},
+			},
 		}
 	}
 	_, err := gClient.Set(ctx, req)
@@ -2702,6 +2708,7 @@ func TestBulkSet(t *testing.T) {
 
 		req := &pb.SetRequest{
 			Update: []*pb.Update{update1, update2},
+			Extension: []*ext_pb.Extension{},
 		}
 
 		_, err = gClient.Set(ctx, req)
@@ -3300,6 +3307,147 @@ func TestParseOrigin(t *testing.T) {
 	if err == nil {
 		t.Errorf("ParseOrigin should fail for conflict")
 	}
+}
+
+func TestMasterArbitration(t *testing.T) {
+	s := createServer(t, 8088)
+	// Turn on Master Arbitration
+	s.ReqFromMaster = ReqFromMasterEnabledMA
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	//targetAddr := "30.57.185.38:8080"
+	targetAddr := "127.0.0.1:8088"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pbPath, _ := xpath.ToGNMIPath("openconfig-interfaces:interfaces/interface[name=Ethernet1/1/5]/config/mtu")
+	v := &pb.TypedValue{
+		Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte("{\"mtu\": 9104}")}}
+	update := &pb.Update{Path: pbPath, Val: v}
+	maExt0 := &ext_pb.Extension{
+		Ext: &ext_pb.Extension_MasterArbitration{
+			MasterArbitration: &ext_pb.MasterArbitration{
+				ElectionId: &ext_pb.Uint128{High: 0, Low: 0},
+			},
+		},
+	}
+	maExt1 := &ext_pb.Extension{
+		Ext: &ext_pb.Extension_MasterArbitration{
+			MasterArbitration: &ext_pb.MasterArbitration{
+				ElectionId: &ext_pb.Uint128{High: 0, Low: 1},
+			},
+		},
+	}
+	maExt1H0L := &ext_pb.Extension{
+		Ext: &ext_pb.Extension_MasterArbitration{
+			MasterArbitration: &ext_pb.MasterArbitration{
+				ElectionId: &ext_pb.Uint128{High: 1, Low: 0},
+			},
+		},
+	}
+	regExt := &ext_pb.Extension{
+		Ext: &ext_pb.Extension_RegisteredExt{
+			RegisteredExt: &ext_pb.RegisteredExtension{},
+		},
+	}
+
+	// By default ElectionID starts from 0 so this test does not change it.
+	t.Run("MasterArbitrationOnElectionIdZero", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Update:    []*pb.Update{update},
+			Extension: []*ext_pb.Extension{maExt0},
+		}
+		_, err = gClient.Set(ctx, req)
+		if _, ok := status.FromError(err); !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+	})
+	// After this test ElectionID is one.
+	t.Run("MasterArbitrationOnElectionIdZeroThenOne", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Update:    []*pb.Update{update},
+			Extension: []*ext_pb.Extension{maExt0},
+		}
+		_, err = gClient.Set(ctx, req)
+		if _, ok := status.FromError(err); !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+		req = &pb.SetRequest{
+			Update:    []*pb.Update{update},
+			Extension: []*ext_pb.Extension{maExt1},
+		}
+		_, err = gClient.Set(ctx, req)
+		if _, ok := status.FromError(err); !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+	})
+	// Multiple ElectionIDs with the last being one.
+	t.Run("MasterArbitrationOnElectionIdMultipleIdsZeroThenOne", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Update:    []*pb.Update{update},
+			Extension: []*ext_pb.Extension{maExt0, maExt1, regExt},
+		}
+		_, err = gClient.Set(ctx, req)
+		if _, ok := status.FromError(err); !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+	})
+	// ElectionIDs with the high word set to 1 and low word to 0.
+	t.Run("MasterArbitrationOnElectionIdHighOne", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Update:    []*pb.Update{update},
+			Extension: []*ext_pb.Extension{maExt1H0L},
+		}
+		_, err = gClient.Set(ctx, req)
+		if _, ok := status.FromError(err); !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+	})
+	// As the ElectionID is one, a request with ElectionID==0 will fail.
+	// Also a request without Election ID will fail.
+	t.Run("MasterArbitrationOnElectionIdZeroThenNone", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Update:    []*pb.Update{update},
+			Extension: []*ext_pb.Extension{maExt0},
+		}
+		_, err = gClient.Set(ctx, req)
+		if err == nil {
+			t.Fatal("Expected a PermissionDenied error")
+		}
+		ret, ok := status.FromError(err)
+		if !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+		if ret.Code() != codes.PermissionDenied {
+			t.Fatalf("Expected PermissionDenied. Got %v", ret.Code())
+		}
+		req = &pb.SetRequest{
+			Update:    []*pb.Update{update},
+			Extension: []*ext_pb.Extension{},
+		}
+		_, err = gClient.Set(ctx, req)
+		if err == nil {
+			t.Fatal("Expected a PermissionDenied error")
+		}
+		ret, ok = status.FromError(err)
+		if !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+		if ret.Code() != codes.PermissionDenied {
+			t.Fatalf("Expected PermissionDenied. Got %v", ret.Code())
+		}
+	})
 }
 
 func init() {

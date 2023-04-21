@@ -39,6 +39,10 @@ type Server struct {
 	config  *Config
 	cMu     sync.Mutex
 	clients map[string]*Client
+	// ReqFromMaster point to a function that is called to verify if the request
+	// comes from a master controller.
+	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) bool
+	masterEID     uint128
 }
 type AuthTypes map[string]bool
 
@@ -135,6 +139,10 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		s:       s,
 		config:  config,
 		clients: map[string]*Client{},
+		// ReqFromMaster point to a function that is called to verify if
+		// the request comes from a master controller.
+		ReqFromMaster: ReqFromMasterDisabledMA,
+		masterEID:     uint128{High: 0, Low: 0},
 	}
 	var err error
 	if srv.config.Port < 0 {
@@ -376,6 +384,10 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 }
 
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
+	if !s.ReqFromMaster(req, &s.masterEID) {
+		return nil, status.Error(codes.PermissionDenied, "Not a master")
+	}
+
 	common_utils.IncCounter(common_utils.GNMI_SET)
 	if s.config.EnableTranslibWrite == false && s.config.EnableNativeWrite == false {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
@@ -513,4 +525,64 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 		SupportedEncodings: supportedEncodings,
 		GNMIVersion:        "0.7.0",
 		Extension:          exts}, nil
+}
+
+type uint128 struct {
+	High uint64
+	Low  uint64
+}
+
+func (lh *uint128) Compare(rh *uint128) int {
+	if rh == nil {
+		// For MA disabled case, EID supposed to be 0.
+		rh = &uint128{High: 0, Low: 0}
+	}
+	if lh.High > rh.High {
+		return 1
+	}
+	if lh.High < rh.High {
+		return -1
+	}
+	if lh.Low > rh.Low {
+		return 1
+	}
+	if lh.Low < rh.Low {
+		return -1
+	}
+	return 0
+}
+
+// ReqFromMasterEnabledMA returns true if the request is sent by the master
+// controller.
+func ReqFromMasterEnabledMA(req *gnmipb.SetRequest, masterEID *uint128) bool {
+	// Read the election_id.
+	reqEID := uint128{High: 0, Low: 0}
+	// It can be one of many extensions, so iterate through them to find it.
+	for _, e := range req.GetExtension() {
+		ma := e.GetMasterArbitration()
+		if ma == nil {
+			continue
+		}
+		// The Master Arbitration descriptor has been found.
+		// If MA is enabled, the reqEID needs to be set to 0
+		if ma.ElectionId != nil {
+			reqEID = uint128{High: ma.ElectionId.High, Low: ma.ElectionId.Low}
+		}
+		// Use the election ID that is in the last extension, so, no 'break' here.
+	}
+	switch masterEID.Compare(&reqEID) {
+	case 1: // This Election ID is smaller than the known Master Election ID.
+		log.V(1).Infoln("Election ID is smaller than the current master. Rejected.")
+		return false
+	case -1: // New Master Election ID received!
+		log.V(0).Infof("New master has been elected with %v\n", reqEID)
+		*masterEID = reqEID
+	}
+	return true
+}
+
+// ReqFromMasterDisabledMA always returns true. It is used when Master Arbitration
+// is disabled.
+func ReqFromMasterDisabledMA(req *gnmipb.SetRequest, masterEID *uint128) bool {
+	return true
 }

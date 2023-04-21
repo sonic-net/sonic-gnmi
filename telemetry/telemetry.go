@@ -32,6 +32,8 @@ var (
 	gnmi_translib_write = flag.Bool("gnmi_translib_write", gnmi.ENABLE_TRANSLIB_WRITE, "Enable gNMI translib write for management framework")
 	gnmi_native_write   = flag.Bool("gnmi_native_write", gnmi.ENABLE_NATIVE_WRITE, "Enable gNMI native write")
 	threshold         = flag.Int("threshold", 100, "max number of client connections")
+	withMasterArbitration = flag.Bool("with-master-arbitration", false, "Enables master arbitration policy.")
+	idle_conn_duration = flag.Int("idle_conn_duration", 5, "Seconds before server closes idle connections")
 )
 
 func main() {
@@ -158,6 +160,10 @@ func main() {
 		return
 	}
 
+	if *withMasterArbitration {
+		s.ReqFromMaster = gnmi.ReqFromMasterEnabledMA
+	}
+	
 	log.V(1).Infof("Auth Modes: ", userAuth)
 	log.V(1).Infof("Starting RPC server on address: %s", s.Address())
 	s.Serve() // blocks until close
