@@ -52,6 +52,7 @@ import (
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"
+	"github.com/fortytw2/leaktest"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -1377,6 +1378,7 @@ type tablePathValue struct {
 // runTestSubscribe subscribe DB path in stream mode or poll mode.
 // The return code and response value are compared with expected code and value.
 func runTestSubscribe(t *testing.T, namespace string) {
+	defer leaktest.Check(t)()
 	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -2764,6 +2766,7 @@ func TestAuthCapabilities(t *testing.T) {
 }
 
 func TestCPUUtilization(t *testing.T) {
+    defer leaktest.Check(t)()
     mock := gomonkey.ApplyFunc(sdc.PollStats, func() {
 	var i uint64
 	for i = 0; i < 3000; i++ {
@@ -2928,6 +2931,7 @@ func TestClientConnections(t *testing.T) {
 }
 
 func TestConnectionDataSet(t *testing.T) {
+    defer leaktest.Check(t)()
     s := createServer(t, 8081)
     go runServer(t, s)
     defer s.s.Stop()
