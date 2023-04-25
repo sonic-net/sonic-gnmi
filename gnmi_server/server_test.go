@@ -199,6 +199,8 @@ func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 	//var retCodeOk bool
 	// Send request
 
+	defer leaktest.Check(t)()
+
 	var pbPath pb.Path
 	if err := proto.UnmarshalText(textPbPath, &pbPath); err != nil {
 		t.Fatalf("error in unmarshaling path: %v %v", textPbPath, err)
