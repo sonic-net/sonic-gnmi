@@ -23,6 +23,7 @@ import (
 	"reflect"
 	"testing"
 	"time"
+	"runtime"
 
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/openconfig/gnmi/client"
