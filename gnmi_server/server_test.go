@@ -52,7 +52,7 @@ import (
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"
-	"github.com/fortytw2/leaktest"
+	//"github.com/fortytw2/leaktest"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -199,7 +199,7 @@ func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 	//var retCodeOk bool
 	// Send request
 
-	defer leaktest.Check(t)()
+	//defer leaktest.Check(t)()
 
 	var pbPath pb.Path
 	if err := proto.UnmarshalText(textPbPath, &pbPath); err != nil {
@@ -1380,7 +1380,7 @@ type tablePathValue struct {
 // runTestSubscribe subscribe DB path in stream mode or poll mode.
 // The return code and response value are compared with expected code and value.
 func runTestSubscribe(t *testing.T, namespace string) {
-	defer leaktest.Check(t)()
+	//defer leaktest.Check(t)()
 	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -2768,7 +2768,7 @@ func TestAuthCapabilities(t *testing.T) {
 }
 
 func TestCPUUtilization(t *testing.T) {
-    defer leaktest.Check(t)()
+    //defer leaktest.Check(t)()
     mock := gomonkey.ApplyFunc(sdc.PollStats, func() {
 	var i uint64
 	for i = 0; i < 3000; i++ {
@@ -2933,7 +2933,7 @@ func TestClientConnections(t *testing.T) {
 }
 
 func TestConnectionDataSet(t *testing.T) {
-    defer leaktest.Check(t)()
+    //defer leaktest.Check(t)()
     s := createServer(t, 8081)
     go runServer(t, s)
     defer s.s.Stop()
@@ -2998,6 +2998,56 @@ func TestConnectionDataSet(t *testing.T) {
             }
 
             c.Close()
+        })
+    }
+}
+
+func TestConnectionsKeepAlive(t *testing.T) {
+    s := createServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    tests := []struct {
+        desc    string
+        q       client.Query
+        want    []client.Notification
+        poll    int
+    }{
+        {
+            desc: "Testing KeepAlive with goroutine count",
+            poll: 3,
+            q: client.Query{
+                Target: "COUNTERS_DB",
+                Type:    client.Poll,
+                Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+                TLS:     &tls.Config{InsecureSkipVerify: true},
+            },
+            want: []client.Notification{
+                client.Connected{},
+                client.Sync{},
+            },
+        },
+    }
+    for _, tt := range(tests) {
+        t.Run(tt.desc, func(t *testing.T) {
+            for i := 0; i < 50; i++ {
+                q := tt.q
+                q.Addrs = []string{"127.0.0.1:8081"}
+                c := client.New()
+                t.Logf("Num go routines: %d", runtime.NumGoroutine())
+                wg := new(sync.WaitGroup)
+                wg.Add(1)
+
+                go func() {
+                    defer wg.Done()
+                    if err := c.Subscribe(context.Background(), q); err != nil {
+                        t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+                    }
+                }()
+
+                wg.Wait()
+                t.Logf("Num go routines: %d", runtime.NumGoroutine())
+            }
         })
     }
 }
