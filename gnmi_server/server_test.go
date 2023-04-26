@@ -23,6 +23,7 @@ import (
 	"reflect"
 	"testing"
 	"time"
+	"runtime"
 
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/openconfig/gnmi/client"
@@ -2992,6 +2993,56 @@ func TestConnectionDataSet(t *testing.T) {
             }
 
             c.Close()
+        })
+    }
+}
+
+func TestConnectionsKeepAlive(t *testing.T) {
+    s := createServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    tests := []struct {
+        desc    string
+        q       client.Query
+        want    []client.Notification
+        poll    int
+    }{
+        {
+            desc: "Testing KeepAlive with goroutine count",
+            poll: 3,
+            q: client.Query{
+                Target: "COUNTERS_DB",
+                Type:    client.Poll,
+                Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+                TLS:     &tls.Config{InsecureSkipVerify: true},
+            },
+            want: []client.Notification{
+                client.Connected{},
+                client.Sync{},
+            },
+        },
+    }
+    for _, tt := range(tests) {
+        t.Run(tt.desc, func(t *testing.T) {
+            for i := 0; i < 50; i++ {
+                q := tt.q
+                q.Addrs = []string{"127.0.0.1:8081"}
+                c := client.New()
+                t.Logf("Num go routines: %d", runtime.NumGoroutine())
+                wg := new(sync.WaitGroup)
+                wg.Add(1)
+
+                go func() {
+                    defer wg.Done()
+                    if err := c.Subscribe(context.Background(), q); err != nil {
+                        t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+                    }
+                }()
+
+                wg.Wait()
+                t.Logf("Num go routines: %d", runtime.NumGoroutine())
+            }
         })
     }
 }
