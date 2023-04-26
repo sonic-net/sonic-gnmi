@@ -3076,9 +3076,14 @@ func TestConnectionsKeepAlive(t *testing.T) {
                 }()
 
                 wg.Wait()
-                t.Logf("Num go routines after client subscribe: %d", runtime.NumGoroutine())
+                after_subscribe := runtime.NumGoroutine()
+                t.Logf("Num go routines after client subscribe: %d", after_subscribe)
                 time.Sleep(10 * time.Second)
-                t.Logf("Num go routines after sleep, should be less, as keepalive should  close connections: %d", runtime.NumGoroutine())
+                after_sleep := runtime.NumGoroutine()
+                t.Logf("Num go routines after sleep, should be less, as keepalive should close idle connections: %d", after_sleep)
+                if after_sleep > after_subscribe {
+                    t.Errorf("Expecting goroutine after sleep to be less than or equal to after subscribe, after_subscribe: %d, after_sleep: %d", after_subscribe, after_sleep)
+                }
             })
         }
     }
