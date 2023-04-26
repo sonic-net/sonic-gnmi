@@ -37,6 +37,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/keepalive"
 
 	// Register supported client types.
 	spb "github.com/sonic-net/sonic-gnmi/proto"
@@ -188,6 +189,41 @@ func createInvalidServer(t *testing.T, port int64) *Server {
 	s, err := NewServer(nil, opts)
 	if err != nil {
 		return nil
+	}
+	return s
+}
+
+func createKeepAliveServer(t *testing.T, port int64) *Server {
+	t.Helper()
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	keep_alive_enforcement := keepalive.EnforcementPolicy{
+		MinTime:            5 * time.Second,
+		PermitWithoutStream: true,
+	}
+
+	keep_alive_params := keepalive.ServerParameters{
+		MaxConnectionIdle: 3 * time.Second,
+		MaxConnectionAge:  5 * time.Second,
+		MaxConnectionAgeGrace: 1 * time.Second,
+	}
+	server_opts := []grpc.ServerOption{
+		grpc.KeepaliveEnforcementPolicy(keep_alive_enforcement),
+		grpc.KeepaliveParams(keep_alive_params),
+	}
+	server_opts = append(server_opts, opts[0])
+	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100}
+	s, err := NewServer(cfg, server_opts)
+	if err != nil {
+		t.Errorf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
@@ -2998,7 +3034,7 @@ func TestConnectionDataSet(t *testing.T) {
 }
 
 func TestConnectionsKeepAlive(t *testing.T) {
-    s := createServer(t, 8081)
+    s := createKeepAliveServer(t, 8081)
     go runServer(t, s)
     defer s.s.Stop()
 
