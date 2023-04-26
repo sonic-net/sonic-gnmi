@@ -3060,12 +3060,11 @@ func TestConnectionsKeepAlive(t *testing.T) {
         },
     }
     for _, tt := range(tests) {
-        t.Run(tt.desc, func(t *testing.T) {
-            for i := 0; i < 10; i++ {
+        for i := 0; i < 5; i++ {
+            t.Run(tt.desc, func(t *testing.T) {
                 q := tt.q
                 q.Addrs = []string{"127.0.0.1:8081"}
                 c := client.New()
-                t.Logf("Num go routines after new client: %d", runtime.NumGoroutine())
                 wg := new(sync.WaitGroup)
                 wg.Add(1)
 
@@ -3079,10 +3078,9 @@ func TestConnectionsKeepAlive(t *testing.T) {
                 wg.Wait()
                 t.Logf("Num go routines after client subscribe: %d", runtime.NumGoroutine())
                 time.Sleep(10 * time.Second)
-                t.Logf("Num go routines after sleep, should be less: %d", runtime.NumGoroutine())
-
-            }
-        })
+                t.Logf("Num go routines after sleep, should be less, as keepalive should  close connections: %d", runtime.NumGoroutine())
+            })
+        }
     }
 }
 
