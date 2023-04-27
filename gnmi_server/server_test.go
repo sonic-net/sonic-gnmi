@@ -1531,7 +1531,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	json.Unmarshal(countersEthernet68QueuesAliasByte, &countersEthernet68QueuesAliasJsonUpdate)
 	countersEthernet68QueuesAliasJsonUpdate["Ethernet68/1:1"] = eth68_1
 
-	tests := []struct {
+	type TestExec struct {
 		desc       string
 		q          client.Query
 		prepares   []tablePathValue
@@ -1544,7 +1544,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		wantPollErr string
 
 		generateIntervals bool
-	}{
+	}
+	tests := []TestExec {
 		{
 			desc: "stream query for table COUNTERS_PORT_NAME_MAP with new test_field field",
 			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS_PORT_NAME_MAP"),
@@ -2343,9 +2344,17 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		},
 	}
 
+	intervalTickerChanInit := make(chan time.Time)
+	tickerInit := func(interval time.Duration) <-chan time.Time {
+		return intervalTickerChanInit
+	}
+	sdc.SetIntervalTickerFunc(tickerInit)
+
 	rclient := getRedisClient(t, namespace)
 	defer rclient.Close()
+	var wg sync.WaitGroup
 	for _, tt := range tests {
+		wg.Add(1)
 		prepareDb(t, namespace)
 		// Extra db preparation for this test case
 		for _, prepare := range tt.prepares {
@@ -2357,12 +2366,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			}
 		}
 
-		sdcIntervalTicker := sdc.IntervalTicker
+		sdcIntervalTicker := sdc.GetIntervalTickerFunc()
 		intervalTickerChan := make(chan time.Time)
 		if tt.generateIntervals {
-			sdc.IntervalTicker = func(interval time.Duration) <-chan time.Time {
+			ticker := func(interval time.Duration) <-chan time.Time {
 				return intervalTickerChan
 			}
+			sdc.SetIntervalTickerFunc(ticker)
 		}
 
 		time.Sleep(time.Millisecond * 1000)
@@ -2372,20 +2382,23 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			c := client.New()
 			defer c.Close()
 			var gotNoti []client.Notification
+			var mu_gotNoti sync.Mutex
 			q.NotificationHandler = func(n client.Notification) error {
+				mu_gotNoti.Lock()
 				if nn, ok := n.(client.Update); ok {
 					nn.TS = time.Unix(0, 200)
 					gotNoti = append(gotNoti, nn)
 				} else {
 					gotNoti = append(gotNoti, n)
 				}
-
+				mu_gotNoti.Unlock()
 				return nil
 			}
-			go func() {
+			go func(t2 TestExec) {	
+				defer wg.Done()
 				err := c.Subscribe(context.Background(), q)
-				if tt.wantSubErr != nil && tt.wantSubErr.Error() != err.Error() {
-					t.Errorf("c.Subscribe expected %v, got %v", tt.wantSubErr, err)
+				if t2.wantSubErr != nil && t2.wantSubErr.Error() != err.Error() {
+					t.Errorf("c.Subscribe expected %v, got %v", t2.wantSubErr, err)
 				}
 				/*
 					err := c.Subscribe(context.Background(), q)
@@ -2399,7 +2412,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 						t.Fatalf("c.Subscribe(): got error %v, expected nil", err)
 					}
 				*/
-			}()
+			}(tt)
 			// wait for half second for subscribeRequest to sync
 			time.Sleep(time.Millisecond * 500)
 			for _, update := range tt.updates {
@@ -2434,6 +2447,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			}
 			// t.Log("\n Want: \n", tt.wantNoti)
 			// t.Log("\n Got : \n", gotNoti)
+			mu_gotNoti.Lock()
+			defer mu_gotNoti.Unlock()
 			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
 				t.Log("\n Want: \n", tt.wantNoti)
 				t.Log("\n Got : \n", gotNoti)
@@ -2441,9 +2456,10 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			}
 		})
 		if tt.generateIntervals {
-			sdc.IntervalTicker = sdcIntervalTicker
+			sdc.SetIntervalTickerFunc(sdcIntervalTicker)
 		}
 	}
+	wg.Wait()
 }
 
 func TestGnmiSubscribe(t *testing.T) {
@@ -2997,6 +3013,8 @@ func TestConnectionDataSet(t *testing.T) {
 }
 
 func TestClient(t *testing.T) {
+    var mu_deinit_done sync.Mutex
+    var mu_hb_done sync.Mutex
     // sonic-host:device-test-event is a test event. 
     // Events client will drop it on floor.
     events := [] sdc.Evt_rcvd {
@@ -3034,12 +3052,16 @@ func TestClient(t *testing.T) {
 	defer mock2.Reset()
 
     mock3 := gomonkey.ApplyFunc(sdc.Set_heartbeat, func(val int) {
+        mu_hb_done.Lock()
+        defer mu_hb_done.Unlock()
         heartbeat = val
     })
 
 	defer mock3.Reset()
 
     mock4 := gomonkey.ApplyFunc(sdc.C_deinit_subs, func(h unsafe.Pointer) {
+        mu_deinit_done.Lock()
+        defer mu_deinit_done.Unlock()
         deinit_done = true
     })
 
@@ -3076,9 +3098,11 @@ func TestClient(t *testing.T) {
     }
 
     sdc.C_init_subs(true)
-
+    var gotNotiMu sync.Mutex
     for testNum, tt := range tests {
+        mu_hb_done.Lock()
         heartbeat = 0
+        mu_hb_done.Unlock()
         event_index = 0
         deinit_done = false
         t.Run(tt.desc, func(t *testing.T) {
@@ -3087,6 +3111,8 @@ func TestClient(t *testing.T) {
 
             var gotNoti []string
             q.NotificationHandler = func(n client.Notification) error {
+                gotNotiMu.Lock()
+                defer gotNotiMu.Unlock()
                 if nn, ok := n.(client.Update); ok {
                     nn.TS = time.Unix(0, 200)
                     str := fmt.Sprintf("%v", nn.Val)
@@ -3104,26 +3130,31 @@ func TestClient(t *testing.T) {
 
             time.Sleep(time.Millisecond * 2000)
 
+            gotNotiMu.Lock()
             // -1 to discount test event, which receiver would drop.
             if testNum != 0 {
                 if (len(events) - 1) != len(gotNoti) {
                     t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
                 }
-
+                mu_hb_done.Lock()
                 if (heartbeat != HEARTBEAT_SET) {
                     t.Errorf("Heartbeat is not set %d != expected:%d", heartbeat, HEARTBEAT_SET)
                 }
+				mu_hb_done.Unlock()
                 fmt.Printf("DONE: Expect events:%d - 1 gotNoti=%d\n", len(events), len(gotNoti))
             }
+            gotNotiMu.Unlock()
         })
         if testNum == 0 {
             mock5.Reset()
         }
         time.Sleep(time.Millisecond * 1000)
 
+        mu_deinit_done.Lock()
         if deinit_done == false {
             t.Errorf("Events client deinit *NOT* called.")
         }
+        mu_deinit_done.Unlock()
         // t.Log("END of a TEST")
     }
 

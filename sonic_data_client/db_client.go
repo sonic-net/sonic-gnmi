@@ -76,8 +76,26 @@ var MinSampleInterval = time.Second
 
 // IntervalTicker is a factory method to implement interval ticking.
 // Exposed for UT purposes.
-var IntervalTicker = func(interval time.Duration) <-chan time.Time {
-	return time.After(interval)
+var (
+    intervalTickerMutex sync.Mutex
+    intervalTickerFunc func(intervalParam time.Duration) <-chan time.Time
+)
+
+func SetIntervalTickerFunc(tickerFunc func(intervalParam time.Duration) <-chan time.Time) {
+    intervalTickerMutex.Lock()
+    defer intervalTickerMutex.Unlock()
+    intervalTickerFunc = tickerFunc
+}
+
+func GetIntervalTickerFunc() func(intervalParam time.Duration) <-chan time.Time {
+    intervalTickerMutex.Lock()
+    defer intervalTickerMutex.Unlock()
+    return intervalTickerFunc
+}
+
+func GetIntervalTicker(intervalParam time.Duration) <-chan time.Time {
+    tickerFunc := GetIntervalTickerFunc()
+    return tickerFunc(intervalParam)
 }
 
 type tablePath struct {
@@ -882,13 +900,13 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 		return
 	}
 	c.synced.Done()
-
+	intervalTicker := GetIntervalTicker(time.Second)
 	for {
 		select {
 		case <-c.channel:
 			log.V(1).Infof("Stopping dbFieldMultiSubscribe routine for Client %s ", c)
 			return
-		case <-IntervalTicker(interval):
+		case <-intervalTicker:
 			msi := readVal()
 
 			if onChange == false || len(msi) != 0 {
@@ -962,13 +980,13 @@ func dbFieldSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interva
 		return
 	}
 	c.synced.Done()
-
+	intervalTicker := GetIntervalTicker(time.Second)
 	for {
 		select {
 		case <-c.channel:
 			log.V(1).Infof("Stopping dbFieldSubscribe routine for Client %s ", c)
 			return
-		case <-IntervalTicker(interval):
+		case <-intervalTicker:
 			newVal := readVal()
 
 			if onChange == false || newVal != val {
@@ -1196,7 +1214,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 		// The interval ticker ticks only when the interval is non-zero.
 		// Otherwise (e.g. on-change mode) it would never tick.
 		if interval > 0 {
-			intervalTicker = IntervalTicker(interval)
+			intervalTicker = GetIntervalTicker(time.Second)
 		}
 
 		select {
