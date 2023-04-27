@@ -10,7 +10,6 @@ import (
 	log "github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
@@ -38,6 +37,8 @@ const logLevelError int = 3
 const logLevelDebug int = 7
 const logLevelMax int = logLevelDebug
 
+var connectionManager *ConnectionManager
+
 // NewClient returns a new initialized client.
 func NewClient(addr net.Addr) *Client {
 	pq := queue.NewPriorityQueue(1, false)
@@ -50,6 +51,14 @@ func NewClient(addr net.Addr) *Client {
 
 func (c *Client) setLogLevel(lvl int) {
 	c.logLevel = lvl
+}
+
+func (c *Client) setConnectionManager(threshold int) {
+	connectionManager = &ConnectionManager {
+		connections: make(map[string]struct{}),
+		threshold:   threshold,
+	}
+	connectionManager.PrepareRedis()
 }
 
 // String returns the target the client is querying.
@@ -85,6 +94,8 @@ func (c *Client) populateDbPathSubscrition(sublist *gnmipb.SubscriptionList) ([]
 func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	defer log.V(1).Infof("Client %s shutdown", c)
 	ctx := stream.Context()
+	var connectionKey string
+	var valid bool
 
 	if stream == nil {
 		return grpc.Errorf(codes.FailedPrecondition, "cannot start client: stream is nil")
@@ -130,6 +141,13 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	if err != nil {
 		return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
 	}
+
+	if connectionKey, valid = connectionManager.Add(c.addr, query.String()); !valid {
+		return grpc.Errorf(codes.Unavailable, "Server connections are at capacity.")
+	}
+
+	defer connectionManager.Remove(connectionKey) // remove key from connection list
+
 	var dc sdc.Client
 
 	mode := c.subscribe.GetMode()
