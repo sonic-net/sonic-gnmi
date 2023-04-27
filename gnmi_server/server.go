@@ -21,32 +21,14 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
-	"google.golang.org/grpc/keepalive"
 	"net"
 	"strings"
 	"sync"
-	"time"
 )
 
 var (
 	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF}
 )
-
-var (
-	keep_alive_enforcement = keepalive.EnforcementPolicy{
-		MinTime:            5 * time.Second,
-		PermitWithoutStream: true,
-	}
-)
-
-var (
-	keep_alive_params = keepalive.ServerParameters{
-		MaxConnectionIdle: 5 * time.Second,
-		MaxConnectionAge:  120 * time.Second,
-		MaxConnectionAgeGrace: 30 * time.Second,
-	}
-)
-
 
 // Server manages a single gNMI Server implementation. Each client that connects
 // via Subscribe or Get will receive a stream of updates based on the requested
@@ -70,6 +52,7 @@ type Config struct {
 	UserAuth AuthTypes
 	EnableTranslibWrite bool
 	EnableNativeWrite bool
+	IdleConnDuration int
 }
 
 var AuthLock sync.Mutex
@@ -146,17 +129,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 
 	common_utils.InitCounters()
 
-	server_opts := []grpc.ServerOption {
-		grpc.KeepaliveEnforcementPolicy(keep_alive_enforcement),
-		grpc.KeepaliveParams(keep_alive_params),
-
-	}
-
-	for _, opt := range opts {
-		server_opts = append(server_opts, opt)
-	}
-
-	s := grpc.NewServer(server_opts...)
+	s := grpc.NewServer(opts...)
 	reflection.Register(s)
 
 	srv := &Server{

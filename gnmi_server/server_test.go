@@ -205,18 +205,10 @@ func createKeepAliveServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	keep_alive_enforcement := keepalive.EnforcementPolicy{
-		MinTime:            5 * time.Second,
-		PermitWithoutStream: true,
-	}
-
 	keep_alive_params := keepalive.ServerParameters{
 		MaxConnectionIdle: 1 * time.Second,
-		MaxConnectionAge:  1 * time.Second,
-		MaxConnectionAgeGrace: 1 * time.Second,
 	}
 	server_opts := []grpc.ServerOption{
-		grpc.KeepaliveEnforcementPolicy(keep_alive_enforcement),
 		grpc.KeepaliveParams(keep_alive_params),
 	}
 	server_opts = append(server_opts, opts[0])
