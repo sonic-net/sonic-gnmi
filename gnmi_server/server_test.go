@@ -2929,7 +2929,7 @@ func TestClientConnections(t *testing.T) {
 
     var clients []*cacheclient.CacheClient
 
-    for _, tt := range tests {
+    for i, tt := range tests {
         t.Run(tt.desc, func(t *testing.T) {
             q := tt.q
             q.Addrs = []string{"127.0.0.1:8081"}
