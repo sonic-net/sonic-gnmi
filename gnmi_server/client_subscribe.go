@@ -54,7 +54,7 @@ func (c *Client) setLogLevel(lvl int) {
 }
 
 func (c *Client) setConnectionManager(threshold int) {
-	if connectionManager != nil {
+	if connectionManager != nil && threshold == connectionManager.GetThreshold() { // test scenario where threshold is changed dynamically
 		return
 	}
 	connectionManager = &ConnectionManager {
