@@ -54,6 +54,9 @@ func (c *Client) setLogLevel(lvl int) {
 }
 
 func (c *Client) setConnectionManager(threshold int) {
+	if connectionManager != nil {
+		return
+	}
 	connectionManager = &ConnectionManager {
 		connections: make(map[string]struct{}),
 		threshold:   threshold,
