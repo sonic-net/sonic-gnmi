@@ -2955,7 +2955,7 @@ func TestClientConnections(t *testing.T) {
                 if err == nil && i == len(tests) - 1 { // reject third
                     t.Errorf("Expecting rejection message as no connections are allowed")
                 }
-                if err != nil && i < len(tests) = 1 { // accept first two
+                if err != nil && i < len(tests) - 1 { // accept first two
                     t.Errorf("Expecting accepts for first two connections")
                 }
             }()
