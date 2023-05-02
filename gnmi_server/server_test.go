@@ -23,6 +23,7 @@ import (
 	"reflect"
 	"testing"
 	"time"
+	"runtime"
 
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/openconfig/gnmi/client"
@@ -36,6 +37,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/keepalive"
 
 	// Register supported client types.
 	spb "github.com/sonic-net/sonic-gnmi/proto"
@@ -187,6 +189,33 @@ func createInvalidServer(t *testing.T, port int64) *Server {
 	s, err := NewServer(nil, opts)
 	if err != nil {
 		return nil
+	}
+	return s
+}
+
+func createKeepAliveServer(t *testing.T, port int64) *Server {
+	t.Helper()
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	keep_alive_params := keepalive.ServerParameters{
+		MaxConnectionIdle: 1 * time.Second,
+	}
+	server_opts := []grpc.ServerOption{
+		grpc.KeepaliveParams(keep_alive_params),
+	}
+	server_opts = append(server_opts, opts[0])
+	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100}
+	s, err := NewServer(cfg, server_opts)
+	if err != nil {
+		t.Errorf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
@@ -3000,6 +3029,62 @@ func TestConnectionDataSet(t *testing.T) {
 
             c.Close()
         })
+    }
+}
+
+func TestConnectionsKeepAlive(t *testing.T) {
+    s := createKeepAliveServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    tests := []struct {
+        desc    string
+        q       client.Query
+        want    []client.Notification
+        poll    int
+    }{
+        {
+            desc: "Testing KeepAlive with goroutine count",
+            poll: 3,
+            q: client.Query{
+                Target: "COUNTERS_DB",
+                Type:    client.Poll,
+                Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+                TLS:     &tls.Config{InsecureSkipVerify: true},
+            },
+            want: []client.Notification{
+                client.Connected{},
+                client.Sync{},
+            },
+        },
+    }
+    for _, tt := range(tests) {
+        for i := 0; i < 5; i++ {
+            t.Run(tt.desc, func(t *testing.T) {
+                q := tt.q
+                q.Addrs = []string{"127.0.0.1:8081"}
+                c := client.New()
+                wg := new(sync.WaitGroup)
+                wg.Add(1)
+
+                go func() {
+                    defer wg.Done()
+                    if err := c.Subscribe(context.Background(), q); err != nil {
+                        t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+                    }
+                }()
+
+                wg.Wait()
+                after_subscribe := runtime.NumGoroutine()
+                t.Logf("Num go routines after client subscribe: %d", after_subscribe)
+                time.Sleep(10 * time.Second)
+                after_sleep := runtime.NumGoroutine()
+                t.Logf("Num go routines after sleep, should be less, as keepalive should close idle connections: %d", after_sleep)
+                if after_sleep > after_subscribe {
+                    t.Errorf("Expecting goroutine after sleep to be less than or equal to after subscribe, after_subscribe: %d, after_sleep: %d", after_subscribe, after_sleep)
+                }
+            })
+        }
     }
 }
 

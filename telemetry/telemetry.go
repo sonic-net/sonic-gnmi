@@ -12,6 +12,7 @@ import (
 	log "github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
@@ -63,9 +64,16 @@ func main() {
 
 	switch {
 	case *threshold < 0:
-		log.Errorf("threshold must be > 0.")
+		log.Errorf("threshold must be >= 0.")
 		return
 	}
+
+	switch {
+	case *idle_conn_duration < 0:
+		log.Errorf("idle_conn_duration must be >= 0, 0 meaning inf")
+		return
+	}
+
 	gnmi.JwtRefreshInt = time.Duration(*jwtRefInt*uint64(time.Second))
 	gnmi.JwtValidInt = time.Duration(*jwtValInt*uint64(time.Second))
 
@@ -75,6 +83,7 @@ func main() {
 	cfg.EnableNativeWrite = bool(*gnmi_native_write)
 	cfg.LogLevel = 3
 	cfg.Threshold = int(*threshold)
+	cfg.IdleConnDuration = int(*idle_conn_duration)
 	var opts []grpc.ServerOption
 
 	if val, err := strconv.Atoi(getflag("v")); err == nil {
@@ -148,7 +157,16 @@ func main() {
 		}
 	}
 
+	keep_alive_params := keepalive.ServerParameters{
+		MaxConnectionIdle: time.Duration(cfg.IdleConnDuration) * time.Second, // duration in which idle connection will be closed, default is inf
+	}
+
 	opts = []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+
+	if cfg.IdleConnDuration > 0 { // non inf case
+		opts = append(opts, grpc.KeepaliveParams(keep_alive_params))
+	}
+
 	cfg.UserAuth = userAuth
 
 	gnmi.GenerateJwtSecretKey()
