@@ -296,7 +296,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	paths := req.GetPath()
 	extensions := req.GetExtension()
 	target = prefix.GetTarget()
-	log.V(5).Infof("GetRequest paths: %v", paths)
+	log.V(2).Infof("GetRequest paths: %v", paths)
 
 	var dc sdc.Client
 
