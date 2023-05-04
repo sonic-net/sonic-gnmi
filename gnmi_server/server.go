@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Azure/sonic-mgmt-common/translib"
-	"github.com/Azure/sonic-mgmt-common/translib/transformer"
 	log "github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -141,7 +140,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		s:                 s,
 		config:            config,
 		clients:           map[string]*Client{},
-		SaveStartupConfig: SaveOnSetDisabled,
+		SaveStartupConfig: saveOnSetDisabled,
 	}
 	var err error
 	if srv.config.Port < 0 {
@@ -382,17 +381,17 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	return &gnmipb.GetResponse{Notification: notifications}, nil
 }
 
-// SaveOnSetEnabled saves configuration to a file
-func SaveOnSetEnabled() {
-	if err := transformer.SaveStartupConfig(); err != nil {
+// saveOnSetEnabled saves configuration to a file
+func saveOnSetEnabled() {
+	if err := translib.SaveStartupConfig(); err != nil {
 		log.Errorf("Saving startup config failed: %v", err)
 	} else {
-		log.Errorf("Success! Startup config has been saved!")
+		log.Info("Success! Startup config has been saved!")
 	}
 }
 
 // SaveOnSetDisabeld does nothing.
-func SaveOnSetDisabled() {}
+func saveOnSetDisabled() {}
 
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
 	common_utils.IncCounter(common_utils.GNMI_SET)
