@@ -5,16 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Azure/sonic-mgmt-common/translib"
-	"github.com/sonic-net/sonic-gnmi/common_utils"
-	spb "github.com/sonic-net/sonic-gnmi/proto"
-	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
-	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
-	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	"github.com/Azure/sonic-mgmt-common/translib/transformer"
 	log "github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
+	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -39,6 +40,10 @@ type Server struct {
 	config  *Config
 	cMu     sync.Mutex
 	clients map[string]*Client
+	// SaveStartupConfig points to a function that is called to save changes of
+	// configuration to a file. By default it points to an empty function -
+	// the configuration is not saved to a file.
+	SaveStartupConfig func()
 }
 type AuthTypes map[string]bool
 
@@ -133,9 +138,10 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	reflection.Register(s)
 
 	srv := &Server{
-		s:       s,
-		config:  config,
-		clients: map[string]*Client{},
+		s:                 s,
+		config:            config,
+		clients:           map[string]*Client{},
+		SaveStartupConfig: SaveOnSetDisabled,
 	}
 	var err error
 	if srv.config.Port < 0 {
@@ -150,7 +156,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
 		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
 	}
-	if srv.config.EnableTranslibWrite {		
+	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
 	}
 	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
@@ -376,6 +382,18 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	return &gnmipb.GetResponse{Notification: notifications}, nil
 }
 
+// SaveOnSetEnabled saves configuration to a file
+func SaveOnSetEnabled() {
+	if err := transformer.SaveStartupConfig(); err != nil {
+		log.Errorf("Saving startup config failed: %v", err)
+	} else {
+		log.Errorf("Success! Startup config has been saved!")
+	}
+}
+
+// SaveOnSetDisabeld does nothing.
+func SaveOnSetDisabled() {}
+
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
 	common_utils.IncCounter(common_utils.GNMI_SET)
 	if s.config.EnableTranslibWrite == false && s.config.EnableNativeWrite == false {
@@ -467,6 +485,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 	}
 
+	s.SaveStartupConfig()
 	return &gnmipb.SetResponse{
 		Prefix:   req.GetPrefix(),
 		Response: results,

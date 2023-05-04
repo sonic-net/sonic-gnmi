@@ -20,20 +20,21 @@ import (
 
 var (
 	userAuth = gnmi.AuthTypes{"password": false, "cert": false, "jwt": false}
-	port = flag.Int("port", -1, "port to listen on")
+	port     = flag.Int("port", -1, "port to listen on")
 	// Certificate files.
-	caCert            = flag.String("ca_crt", "", "CA certificate for client certificate validation. Optional.")
-	serverCert        = flag.String("server_crt", "", "TLS server certificate")
-	serverKey         = flag.String("server_key", "", "TLS server private key")
-	insecure          = flag.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!")
-	noTLS             = flag.Bool("noTLS", false, "disable TLS, for testing only!")
-	allowNoClientCert = flag.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate.")
-	jwtRefInt         = flag.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed.")
-	jwtValInt         = flag.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for.")
+	caCert              = flag.String("ca_crt", "", "CA certificate for client certificate validation. Optional.")
+	serverCert          = flag.String("server_crt", "", "TLS server certificate")
+	serverKey           = flag.String("server_key", "", "TLS server private key")
+	insecure            = flag.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!")
+	noTLS               = flag.Bool("noTLS", false, "disable TLS, for testing only!")
+	allowNoClientCert   = flag.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate.")
+	jwtRefInt           = flag.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed.")
+	jwtValInt           = flag.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for.")
 	gnmi_translib_write = flag.Bool("gnmi_translib_write", gnmi.ENABLE_TRANSLIB_WRITE, "Enable gNMI translib write for management framework")
 	gnmi_native_write   = flag.Bool("gnmi_native_write", gnmi.ENABLE_NATIVE_WRITE, "Enable gNMI native write")
-	threshold         = flag.Int("threshold", 100, "max number of client connections")
-	idle_conn_duration = flag.Int("idle_conn_duration", 5, "Seconds before server closes idle connections")
+	threshold           = flag.Int("threshold", 100, "max number of client connections")
+	idle_conn_duration  = flag.Int("idle_conn_duration", 5, "Seconds before server closes idle connections")
+	withSaveOnSet       = flag.Bool("with-save-on-set", false, "Enables save-on-set.")
 )
 
 func main() {
@@ -175,6 +176,9 @@ func main() {
 	if err != nil {
 		log.Errorf("Failed to create gNMI server: %v", err)
 		return
+	}
+	if *withSaveOnSet {
+		s.SaveStartupConfig = gnmi.SaveOnSetEnabled
 	}
 
 	log.V(1).Infof("Auth Modes: ", userAuth)

@@ -116,6 +116,7 @@ func createServer(t *testing.T, port int64) *Server {
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
 	}
+	s.SaveStartupConfig = SaveOnSetEnabled
 	return s
 }
 
@@ -3095,7 +3096,7 @@ func TestConnectionsKeepAlive(t *testing.T) {
 }
 
 func TestClient(t *testing.T) {
-    // sonic-host:device-test-event is a test event. 
+    // sonic-host:device-test-event is a test event.
     // Events client will drop it on floor.
     events := [] sdc.Evt_rcvd {
         { "test0", 7, 777 },
@@ -3229,7 +3230,7 @@ func TestClient(t *testing.T) {
 }
 
 func TestGnmiSetBatch(t *testing.T) {
-	mockCode := 
+	mockCode :=
 `
 print('No Yang validation for test mode...')
 print('%s')
@@ -3314,7 +3315,7 @@ func TestGNMINative(t *testing.T) {
 		return &dbus.Call{}
 	})
 	defer mock2.Reset()
-	mockCode := 
+	mockCode :=
 `
 print('No Yang validation for test mode...')
 print('%s')
