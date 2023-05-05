@@ -52,6 +52,7 @@ type Config struct {
 	UserAuth AuthTypes
 	EnableTranslibWrite bool
 	EnableNativeWrite bool
+	IdleConnDuration int
 }
 
 var AuthLock sync.Mutex
