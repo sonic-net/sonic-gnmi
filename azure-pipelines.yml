@@ -7,11 +7,15 @@ trigger:
   branches:
     include:
     - master
+    - 202???
+    - 201???
 
 pr:
   branches:
     include:
     - master
+    - 202???
+    - 201???
 
 resources:
   repositories:
