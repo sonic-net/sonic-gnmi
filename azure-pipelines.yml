@@ -7,13 +7,15 @@ trigger:
   branches:
     include:
     - master
-    - 202012
+    - 202???
+    - 201???
 
 pr:
   branches:
     include:
     - master
-    - 202012
+    - 202???
+    - 201???
 
 resources:
   repositories:
@@ -121,7 +123,7 @@ stages:
         source: specific
         project: build
         pipeline: Azure.sonic-swss-common
-        artifact: sonic-swss-common.bullseye.amd64
+        artifact: sonic-swss-common
         runVersion: 'latestFromBranch'
         runBranch: 'refs/heads/master'
       displayName: "Download sonic-swss-common"
