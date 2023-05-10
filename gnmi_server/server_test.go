@@ -23,6 +23,7 @@ import (
 	"reflect"
 	"testing"
 	"time"
+	"runtime"
 
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/openconfig/gnmi/client"
@@ -36,6 +37,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/keepalive"
 
 	// Register supported client types.
 	spb "github.com/sonic-net/sonic-gnmi/proto"
@@ -52,6 +54,8 @@ import (
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"
+	cacheclient "github.com/openconfig/gnmi/client"
+
 )
 
 var clientTypes = []string{gclient.Type}
@@ -107,7 +111,7 @@ func createServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true}
+	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
@@ -127,6 +131,25 @@ func createReadServer(t *testing.T, port int64) *Server {
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{Port: port, EnableTranslibWrite: false}
+	s, err := NewServer(cfg, opts)
+	if err != nil {
+		t.Fatalf("Failed to create gNMI server: %v", err)
+	}
+	return s
+}
+
+func createRejectServer(t *testing.T, port int64) *Server {
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Errorf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &Config{Port: port, EnableTranslibWrite: true,  Threshold: 2}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
@@ -168,6 +191,33 @@ func createInvalidServer(t *testing.T, port int64) *Server {
 	s, err := NewServer(nil, opts)
 	if err != nil {
 		return nil
+	}
+	return s
+}
+
+func createKeepAliveServer(t *testing.T, port int64) *Server {
+	t.Helper()
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	keep_alive_params := keepalive.ServerParameters{
+		MaxConnectionIdle: 1 * time.Second,
+	}
+	server_opts := []grpc.ServerOption{
+		grpc.KeepaliveParams(keep_alive_params),
+	}
+	server_opts = append(server_opts, opts[0])
+	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100}
+	s, err := NewServer(cfg, server_opts)
+	if err != nil {
+		t.Errorf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
@@ -2791,7 +2841,7 @@ func TestCPUUtilization(t *testing.T) {
 		    gotNoti = append(gotNoti, nn)
                 } else {
                     gotNoti = append(gotNoti, n)
-	        }
+	    }
                 return nil
             }
 
@@ -2819,6 +2869,228 @@ func TestCPUUtilization(t *testing.T) {
 
             c.Close()
         })
+    }
+}
+
+func TestClientConnections(t *testing.T) {
+    s := createRejectServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    tests := []struct {
+        desc    string
+        q       client.Query
+        want    []client.Notification
+        poll    int
+    }{
+        {
+            desc: "Reject OTHERS/proc/uptime",
+            poll: 10,
+            q: client.Query{
+                Target: "OTHERS",
+                Type:    client.Poll,
+                Queries: []client.Path{{"proc", "uptime"}},
+                TLS:     &tls.Config{InsecureSkipVerify: true},
+	    },
+	    want: []client.Notification{
+                client.Connected{},
+                client.Sync{},
+            },
+        },
+        {
+            desc: "Reject COUNTERS/Ethernet*",
+            poll: 10,
+            q: client.Query{
+                Target: "COUNTERS_DB",
+                Type:    client.Poll,
+                Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+                TLS:     &tls.Config{InsecureSkipVerify: true},
+            },
+            want: []client.Notification{
+                client.Connected{},
+                client.Sync{},
+            },
+        },
+        {
+            desc: "Reject COUNTERS/Ethernet68",
+            poll: 10,
+            q: client.Query{
+                Target: "COUNTERS_DB",
+                Type:    client.Poll,
+                Queries: []client.Path{{"COUNTERS", "Ethernet68"}},
+                TLS:     &tls.Config{InsecureSkipVerify: true},
+            },
+            want: []client.Notification{
+                client.Connected{},
+                client.Sync{},
+            },
+        },
+    }
+
+    var clients []*cacheclient.CacheClient
+
+    for i, tt := range tests {
+        t.Run(tt.desc, func(t *testing.T) {
+            q := tt.q
+            q.Addrs = []string{"127.0.0.1:8081"}
+            var gotNoti []client.Notification
+            q.NotificationHandler = func(n client.Notification) error {
+                if nn, ok := n.(client.Update); ok {
+                    nn.TS = time.Unix(0, 200)
+                    gotNoti = append(gotNoti, nn)
+                } else {
+                    gotNoti = append(gotNoti, n)
+                }
+                return nil
+            }
+
+            wg := new(sync.WaitGroup)
+            wg.Add(1)
+
+            go func() {
+                defer wg.Done()
+                c := client.New()
+                clients = append(clients, c)
+                err := c.Subscribe(context.Background(), q)
+                if err == nil && i == len(tests) - 1 { // reject third
+                    t.Errorf("Expecting rejection message as no connections are allowed")
+                }
+                if err != nil && i < len(tests) - 1 { // accept first two
+                    t.Errorf("Expecting accepts for first two connections")
+                }
+            }()
+
+            wg.Wait()
+        })
+    }
+
+    for _, cacheClient := range(clients) {
+        cacheClient.Close()
+    }
+}
+
+func TestConnectionDataSet(t *testing.T) {
+    s := createServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    tests := []struct {
+        desc    string
+        q       client.Query
+        want    []client.Notification
+        poll    int
+    }{
+        {
+            desc: "poll query for COUNTERS/Ethernet*",
+            poll: 10,
+            q: client.Query{
+                Target: "COUNTERS_DB",
+                Type:    client.Poll,
+                Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+                TLS:     &tls.Config{InsecureSkipVerify: true},
+            },
+            want: []client.Notification{
+                client.Connected{},
+                client.Sync{},
+            },
+        },
+    }
+    namespace := sdcfg.GetDbDefaultNamespace()
+    rclient := getRedisClientN(t, 6, namespace)
+    defer rclient.Close()
+
+    for _, tt := range tests {
+        prepareStateDb(t, namespace)
+        t.Run(tt.desc, func(t *testing.T) {
+            q := tt.q
+            q.Addrs = []string{"127.0.0.1:8081"}
+            c := client.New()
+
+            wg := new(sync.WaitGroup)
+            wg.Add(1)
+
+            go func() {
+                defer wg.Done()
+                if err := c.Subscribe(context.Background(), q); err != nil {
+                    t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+                }
+            }()
+
+            wg.Wait()
+
+            resultMap, err := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
+
+            if resultMap == nil {
+                t.Errorf("result Map is nil, expected non nil, err: %v", err)
+	    }
+            if len(resultMap) != 1 {
+                t.Errorf("result for TELEMETRY_CONNECTIONS should be 1")
+            }
+
+            for key, _ := range resultMap {
+                if !strings.Contains(key, "COUNTERS_DB|COUNTERS|Ethernet*") {
+                    t.Errorf("key is expected to contain correct query, received: %s", key)
+                }
+            }
+
+            c.Close()
+        })
+    }
+}
+
+func TestConnectionsKeepAlive(t *testing.T) {
+    s := createKeepAliveServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    tests := []struct {
+        desc    string
+        q       client.Query
+        want    []client.Notification
+        poll    int
+    }{
+        {
+            desc: "Testing KeepAlive with goroutine count",
+            poll: 3,
+            q: client.Query{
+                Target: "COUNTERS_DB",
+                Type:    client.Poll,
+                Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+                TLS:     &tls.Config{InsecureSkipVerify: true},
+            },
+            want: []client.Notification{
+                client.Connected{},
+                client.Sync{},
+            },
+        },
+    }
+    for _, tt := range(tests) {
+        for i := 0; i < 5; i++ {
+            t.Run(tt.desc, func(t *testing.T) {
+                q := tt.q
+                q.Addrs = []string{"127.0.0.1:8081"}
+                c := client.New()
+                wg := new(sync.WaitGroup)
+                wg.Add(1)
+
+                go func() {
+                    defer wg.Done()
+                    if err := c.Subscribe(context.Background(), q); err != nil {
+                        t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+                    }
+                }()
+
+                wg.Wait()
+                after_subscribe := runtime.NumGoroutine()
+                t.Logf("Num go routines after client subscribe: %d", after_subscribe)
+                time.Sleep(10 * time.Second)
+                after_sleep := runtime.NumGoroutine()
+                t.Logf("Num go routines after sleep, should be less, as keepalive should close idle connections: %d", after_sleep)
+                if after_sleep > after_subscribe {
+                    t.Errorf("Expecting goroutine after sleep to be less than or equal to after subscribe, after_subscribe: %d, after_sleep: %d", after_subscribe, after_sleep)
+                }
+            })
+        }
     }
 }
 
