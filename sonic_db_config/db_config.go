@@ -203,6 +203,10 @@ func DbGetNamespaceAndConfigFile(ns_to_cfgfile_map map[string]string) {
 	} else if errors.Is(err, os.ErrNotExist) {
 		// Ref: https://stackoverflow.com/questions/23452157/how-do-i-check-for-specific-types-of-error-among-those-returned-by-ioutil-readfi
 		ns_to_cfgfile_map[SONIC_DEFAULT_NAMESPACE] = SONIC_DB_CONFIG_FILE
+		// Tests can override the file path via an env variable
+		if f, ok := os.LookupEnv("DB_CONFIG_PATH"); ok {
+			ns_to_cfgfile_map[SONIC_DEFAULT_NAMESPACE] = f
+		}
 		sonic_db_multi_namespace = false
 	} else {
 		panic(err)
