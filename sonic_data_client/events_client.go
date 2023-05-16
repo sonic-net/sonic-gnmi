@@ -72,16 +72,17 @@ type EventClient struct {
     subs_handle unsafe.Pointer
 
     stopped     int
+    stopMutex   sync.Mutex
 
     // Stats counter
     counters    map[string]uint64
+    countersMutex sync.Mutex
 
     last_latencies  [LATENCY_LIST_SIZE]uint64
     last_latency_index  int
     last_latency_full   bool
 
     last_errors uint64
-    mu sync.Mutex
 }
 
 func Set_heartbeat(val int) {
@@ -200,12 +201,15 @@ func update_stats(evtc *EventClient) {
      * This helps add some initial pause before accessing DB
      * for existing values.
      */
-    evtc.mu.Lock()
-    defer evtc.mu.Unlock()
+    evtc.stopMutex.Lock()
+    defer evtc.stopMutex.Unlock()
+
     for evtc.stopped == 0 {
         var val uint64
 
         compute_latency(evtc)
+        //evtc.countersMutex.Lock()
+        //defer evtc.countersMutex.Unlock()
         for _, val = range evtc.counters {
             if val != 0 {
                 break
@@ -216,7 +220,8 @@ func update_stats(evtc *EventClient) {
         }
         time.Sleep(time.Second)
     }
-    
+
+
     /* Populate counters from DB for cumulative counters. */
     if evtc.stopped == 0 {
         ns := sdcfg.GetDbDefaultNamespace()
@@ -246,8 +251,6 @@ func update_stats(evtc *EventClient) {
     }
 
     /* Main running loop that updates DB */
-    evtc.mu.Lock()
-    defer evtc.mu.Unlock()
     for evtc.stopped == 0 {
         tmp_counters := make(map[string]uint64)
 
@@ -308,10 +311,9 @@ func get_events(evtc *EventClient) {
 
     str_ptr := C.malloc(C.sizeof_char * C.size_t(EVENT_BUFFSZ)) 
     defer C.free(unsafe.Pointer(str_ptr))
-    evtc.mu.Lock()
+
     evt_ptr = (*C.event_receive_op_C_t)(C.malloc(C.size_t(unsafe.Sizeof(C.event_receive_op_C_t{}))))
     defer C.free(unsafe.Pointer(evt_ptr))
-    evtc.mu.Unlock()
 
     evt_ptr.event_str = (*C.char)(str_ptr)
     evt_ptr.event_sz = C.uint32_t(EVENT_BUFFSZ)
@@ -321,9 +323,9 @@ func get_events(evtc *EventClient) {
         rc, evt := C_recv_evt(evtc.subs_handle)
 
         if rc == 0 {
-            evtc.mu.Lock()
+            evtc.countersMutex.Lock()
             evtc.counters[MISSED] += (uint64)(evt.Missed_cnt)
-            evtc.mu.Unlock()
+            evtc.countersMutex.Unlock()
 
             if !strings.HasPrefix(evt.Event_str, TEST_EVENT) {
                 qlen := evtc.q.Len()
@@ -350,13 +352,10 @@ func get_events(evtc *EventClient) {
                 }
             }
         }
-        select {
-        case <-evtc.channel:
-            evtc.mu.Lock()
-            defer evtc.mu.Unlock()
-            if evtc.stopped == 1 {
-                break
-            }
+        evtc.stopMutex.Lock()
+        defer evtc.stopMutex.Unlock()
+        if evtc.stopped == 1 {
+            break
         }
         // TODO: Record missed count in stats table.
         // intVar, err := strconv.Atoi(C.GoString((*C.char)(c_mptr)))
@@ -365,12 +364,9 @@ func get_events(evtc *EventClient) {
     C_deinit_subs(evtc.subs_handle)
     evtc.subs_handle = nil
     // set evtc.stopped for case where send_event error and channel was not stopped
-    select {
-    case <-evtc.channel:
-        evtc.mu.Lock()
-        defer evtc.mu.Unlock()
-        evtc.stopped = 1
-    }
+    evtc.stopMutex.Lock()
+    evtc.stopped = 1
+    evtc.stopMutex.Unlock()
 }
 
 func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
@@ -402,8 +398,8 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     go update_stats(evtc)
     evtc.wg.Add(1)
 
-    evtc.mu.Lock()
-    defer evtc.mu.Unlock()
+    evtc.stopMutex.Lock()
+    defer evtc.stopMutex.Unlock()
     for evtc.stopped == 0 {
         select {
         case <-evtc.channel:

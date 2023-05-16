@@ -76,26 +76,20 @@ var MinSampleInterval = time.Second
 
 // IntervalTicker is a factory method to implement interval ticking.
 // Exposed for UT purposes.
-var (
-    intervalTickerMutex sync.Mutex
-    intervalTickerFunc func(intervalParam time.Duration) <-chan time.Time
-)
-
-func SetIntervalTickerFunc(tickerFunc func(intervalParam time.Duration) <-chan time.Time) {
-    intervalTickerMutex.Lock()
-    defer intervalTickerMutex.Unlock()
-    intervalTickerFunc = tickerFunc
+var IntervalTicker = func(interval time.Duration) <-chan time.Time {
+	return time.After(interval)
 }
 
-func GetIntervalTickerFunc() func(intervalParam time.Duration) <-chan time.Time {
-    intervalTickerMutex.Lock()
-    defer intervalTickerMutex.Unlock()
-    return intervalTickerFunc
+// Define a new function to set the IntervalTicker variable
+func SetIntervalTicker(f func(interval time.Duration) <-chan time.Time) {
+	log.V(6).Infof("Product SetIntervalTicker.")
+	IntervalTicker = f
 }
 
-func GetIntervalTicker(intervalParam time.Duration) <-chan time.Time {
-    tickerFunc := GetIntervalTickerFunc()
-    return tickerFunc(intervalParam)
+// Define a new function to get the IntervalTicker variable
+func GetIntervalTicker() func(interval time.Duration) <-chan time.Time {
+	log.V(6).Infof("Product GetIntervalTicker.")
+	return IntervalTicker
 }
 
 type tablePath struct {
@@ -900,7 +894,8 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 		return
 	}
 	c.synced.Done()
-	intervalTicker := GetIntervalTicker(time.Second)
+
+	intervalTicker := GetIntervalTicker()(interval)
 	for {
 		select {
 		case <-c.channel:
@@ -916,6 +911,7 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 				}
 			}
 		}
+		intervalTicker = GetIntervalTicker()(interval)
 	}
 }
 
@@ -980,7 +976,8 @@ func dbFieldSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interva
 		return
 	}
 	c.synced.Done()
-	intervalTicker := GetIntervalTicker(time.Second)
+
+	intervalTicker := GetIntervalTicker()(interval)
 	for {
 		select {
 		case <-c.channel:
@@ -997,6 +994,7 @@ func dbFieldSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interva
 				val = newVal
 			}
 		}
+		intervalTicker = GetIntervalTicker()(interval)
 	}
 }
 
@@ -1214,7 +1212,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 		// The interval ticker ticks only when the interval is non-zero.
 		// Otherwise (e.g. on-change mode) it would never tick.
 		if interval > 0 {
-			intervalTicker = GetIntervalTicker(time.Second)
+			intervalTicker = GetIntervalTicker()(interval)
 		}
 
 		select {

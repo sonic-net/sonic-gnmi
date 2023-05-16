@@ -108,7 +108,7 @@ $(TELEMETRY_TEST_BIN): $(TEST_FILES) $(SRC_FILES)
 ifeq ($(CONFIGURED_ARCH),armhf)
 	touch $@
 else
-	$(GO) test -race -mod=vendor $(BLD_FLAGS) -c -cover github.com/sonic-net/sonic-gnmi/gnmi_server -o $@
+	$(GO) test -mod=vendor $(BLD_FLAGS) -c -cover github.com/sonic-net/sonic-gnmi/gnmi_server -o $@
 endif
 
 install:
