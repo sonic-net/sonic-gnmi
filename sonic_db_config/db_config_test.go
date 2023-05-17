@@ -1,8 +1,10 @@
 package dbconfig
 
 import (
-	"github.com/sonic-net/sonic-gnmi/test_utils"
+	"os"
 	"testing"
+
+	"github.com/sonic-net/sonic-gnmi/test_utils"
 )
 
 func TestGetDb(t *testing.T) {
@@ -75,4 +77,25 @@ func TestGetDbMultiNs(t *testing.T) {
 			t.Fatalf(`TcpAddr("") = %q, want 127.0.0.1:6379, error`, tcp_addr)
 		}
 	})
+}
+
+func TestOverrideDbConfigFile(t *testing.T) {
+	Init()
+	// Override database_config.json path to a garbage value by setting
+	// env DB_CONFIG_PATH and verify that GetDbId() panics
+	if err := os.Setenv("DB_CONFIG_PATH", "/tmp/.unknown_database_config_file.json"); err != nil {
+		t.Fatalf("os.Setenv failed: %v", err)
+	}
+	t.Cleanup(func() {
+		os.Unsetenv("DB_CONFIG_PATH")
+		Init()
+	})
+	defer func() {
+		r := recover()
+		if err, _ := r.(error); !os.IsNotExist(err) {
+			t.Fatalf("Unexpected panic: %v", r)
+		}
+	}()
+	_ = GetDbId("CONFIG_DB", GetDbDefaultNamespace())
+	t.Fatal("GetDbId() should have paniced")
 }

@@ -54,6 +54,8 @@ import (
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"
+	cacheclient "github.com/openconfig/gnmi/client"
+
 )
 
 var clientTypes = []string{gclient.Type}
@@ -147,7 +149,7 @@ func createRejectServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true,  Threshold: -1}
+	cfg := &Config{Port: port, EnableTranslibWrite: true,  Threshold: 2}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
@@ -2925,7 +2927,9 @@ func TestClientConnections(t *testing.T) {
         },
     }
 
-    for _, tt := range tests {
+    var clients []*cacheclient.CacheClient
+
+    for i, tt := range tests {
         t.Run(tt.desc, func(t *testing.T) {
             q := tt.q
             q.Addrs = []string{"127.0.0.1:8081"}
@@ -2946,13 +2950,22 @@ func TestClientConnections(t *testing.T) {
             go func() {
                 defer wg.Done()
                 c := client.New()
-                if err := c.Subscribe(context.Background(), q); err == nil {
+                clients = append(clients, c)
+                err := c.Subscribe(context.Background(), q)
+                if err == nil && i == len(tests) - 1 { // reject third
                     t.Errorf("Expecting rejection message as no connections are allowed")
+                }
+                if err != nil && i < len(tests) - 1 { // accept first two
+                    t.Errorf("Expecting accepts for first two connections")
                 }
             }()
 
             wg.Wait()
         })
+    }
+
+    for _, cacheClient := range(clients) {
+        cacheClient.Close()
     }
 }
 

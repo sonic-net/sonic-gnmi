@@ -21,6 +21,10 @@ type ConnectionManager struct {
 	threshold    int
 }
 
+func (cm *ConnectionManager) GetThreshold() int {
+	return cm.threshold
+}
+
 func (cm *ConnectionManager) PrepareRedis() {
 	ns := sdcfg.GetDbDefaultNamespace()
 	rclient = redis.NewClient(&redis.Options{
