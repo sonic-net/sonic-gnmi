@@ -1188,7 +1188,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 
 		select {
 		case updatedTable := <-updateChannel:
-			log.V(1).Infof("update received: %v", updatedTable)
+			log.V(6).Infof("update received: %v", updatedTable)
 			if interval == 0 {
 				// on-change mode, send the updated data.
 				if err := sendMsiData(updatedTable); err != nil {
@@ -1202,7 +1202,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 				}
 			}
 		case <-intervalTicker:
-			log.V(1).Infof("ticker received: %v", len(msiAll))
+			log.V(6).Infof("ticker received: %v", len(msiAll))
 
 			if err := sendMsiData(msiAll); err != nil {
 				handleFatalMsg(err.Error())
@@ -1212,7 +1212,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 			// Clear the payload so that next time it will send only updates
 			if updateOnly {
 				msiAll = make(map[string]interface{})
-				log.V(1).Infof("msiAll cleared: %v", len(msiAll))
+				log.V(6).Infof("msiAll cleared: %v", len(msiAll))
 			}
 
 		case <-c.channel:
