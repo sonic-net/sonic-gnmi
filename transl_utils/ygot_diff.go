@@ -314,9 +314,6 @@ func getElemName(f *reflect.StructField) string {
 // newPathElem creates a new gnmi.PathElem object for the given
 // node name and an optional key object.
 func newPathElem(name string, keyObj *reflect.Value) *gnmi.PathElem {
-	if len(name) == 0 {
-		return nil
-	}
 	pElem := &gnmi.PathElem{Name: name}
 	if keyObj != nil {
 		var err error
