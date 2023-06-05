@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
 	log "github.com/golang/glog"
 
 	spb "github.com/sonic-net/sonic-gnmi/proto"
@@ -80,16 +79,29 @@ var IntervalTicker = func(interval time.Duration) <-chan time.Time {
 	return time.After(interval)
 }
 
+var NeedMock bool = false
+var intervalTickerMutex sync.Mutex
+
 // Define a new function to set the IntervalTicker variable
 func SetIntervalTicker(f func(interval time.Duration) <-chan time.Time) {
-	log.V(6).Infof("Product SetIntervalTicker.")
-	IntervalTicker = f
+	if NeedMock == true {
+		intervalTickerMutex.Lock()
+		defer intervalTickerMutex.Unlock()
+		IntervalTicker = f
+	} else {
+		IntervalTicker = f
+	}
 }
 
 // Define a new function to get the IntervalTicker variable
 func GetIntervalTicker() func(interval time.Duration) <-chan time.Time {
-	log.V(6).Infof("Product GetIntervalTicker.")
-	return IntervalTicker
+	if NeedMock == true {
+		intervalTickerMutex.Lock()
+		defer intervalTickerMutex.Unlock()
+		return IntervalTicker
+	} else {
+		return IntervalTicker
+	}
 }
 
 type tablePath struct {
@@ -1217,7 +1229,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 
 		select {
 		case updatedTable := <-updateChannel:
-			log.V(1).Infof("update received: %v", updatedTable)
+			log.V(6).Infof("update received: %v", updatedTable)
 			if interval == 0 {
 				// on-change mode, send the updated data.
 				if err := sendMsiData(updatedTable); err != nil {
@@ -1231,7 +1243,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 				}
 			}
 		case <-intervalTicker:
-			log.V(1).Infof("ticker received: %v", len(msiAll))
+			log.V(6).Infof("ticker received: %v", len(msiAll))
 
 			if err := sendMsiData(msiAll); err != nil {
 				handleFatalMsg(err.Error())
@@ -1241,7 +1253,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 			// Clear the payload so that next time it will send only updates
 			if updateOnly {
 				msiAll = make(map[string]interface{})
-				log.V(1).Infof("msiAll cleared: %v", len(msiAll))
+				log.V(6).Infof("msiAll cleared: %v", len(msiAll))
 			}
 
 		case <-c.channel:

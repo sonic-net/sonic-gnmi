@@ -208,8 +208,6 @@ func update_stats(evtc *EventClient) {
         var val uint64
 
         compute_latency(evtc)
-        //evtc.countersMutex.Lock()
-        //defer evtc.countersMutex.Unlock()
         for _, val = range evtc.counters {
             if val != 0 {
                 break

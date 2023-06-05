@@ -1408,20 +1408,6 @@ type tablePathValue struct {
 // runTestSubscribe subscribe DB path in stream mode or poll mode.
 // The return code and response value are compared with expected code and value.
 func runTestSubscribe(t *testing.T, namespace string) {
-	var intervalTickerMutex sync.Mutex
-	mockSet := gomonkey.ApplyFunc(sdc.SetIntervalTicker, func(f func(interval time.Duration) <-chan time.Time) {
-		intervalTickerMutex.Lock()
-		defer intervalTickerMutex.Unlock()
-		sdc.IntervalTicker = f
-	})
-	defer mockSet.Reset()
-	mockGet := gomonkey.ApplyFunc(sdc.GetIntervalTicker, func() func(interval time.Duration) <-chan time.Time {
-		intervalTickerMutex.Lock()
-		defer intervalTickerMutex.Unlock()
-		return sdc.IntervalTicker
-	})
-	defer mockGet.Reset()
-
 	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -2389,6 +2375,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		},
 	}
 
+	sdc.NeedMock = true
 	rclient := getRedisClient(t, namespace)
 	defer rclient.Close()
 	var wg sync.WaitGroup
@@ -2497,6 +2484,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			sdc.SetIntervalTicker(sdcIntervalTicker)
 		}
 	}
+	sdc.NeedMock = false
 	wg.Wait()
 }
 
@@ -3243,9 +3231,9 @@ func TestClient(t *testing.T) {
             gotNotiMu.Lock()
             // -1 to discount test event, which receiver would drop.
             if testNum != 0 {
-                //if (len(events) - 1) != len(gotNoti) {
-                //    t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
-                //}
+                if (len(events) - 1) != len(gotNoti) {
+                    fmt.Printf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
+                }
                 mutexHBDone.Lock()
                 if (heartbeat != HEARTBEAT_SET) {
                     t.Errorf("Heartbeat is not set %d != expected:%d", heartbeat, HEARTBEAT_SET)
