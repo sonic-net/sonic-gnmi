@@ -566,7 +566,7 @@ func (c *NonDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 		v, err := getter()
 		if err != nil {
 			log.V(3).Infof("PollRun getter error %v for %v", err, v)
-			return err
+			return nil, err
 		}
 		values = append(values, &spb.Value{
 			Prefix:    c.prefix,
