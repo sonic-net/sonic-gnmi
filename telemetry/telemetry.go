@@ -12,6 +12,7 @@ import (
 	log "github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
@@ -31,6 +32,8 @@ var (
 	jwtValInt         = flag.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for.")
 	gnmi_translib_write = flag.Bool("gnmi_translib_write", gnmi.ENABLE_TRANSLIB_WRITE, "Enable gNMI translib write for management framework")
 	gnmi_native_write   = flag.Bool("gnmi_native_write", gnmi.ENABLE_NATIVE_WRITE, "Enable gNMI native write")
+	threshold         = flag.Int("threshold", 100, "max number of client connections")
+	idle_conn_duration = flag.Int("idle_conn_duration", 5, "Seconds before server closes idle connections")
 )
 
 func main() {
@@ -57,6 +60,19 @@ func main() {
 		log.Errorf("port must be > 0.")
 		return
 	}
+
+	switch {
+	case *threshold < 0:
+		log.Errorf("threshold must be >= 0.")
+		return
+	}
+
+	switch {
+	case *idle_conn_duration < 0:
+		log.Errorf("idle_conn_duration must be >= 0, 0 meaning inf")
+		return
+	}
+
 	gnmi.JwtRefreshInt = time.Duration(*jwtRefInt*uint64(time.Second))
 	gnmi.JwtValidInt = time.Duration(*jwtValInt*uint64(time.Second))
 
@@ -65,6 +81,8 @@ func main() {
 	cfg.EnableTranslibWrite = bool(*gnmi_translib_write)
 	cfg.EnableNativeWrite = bool(*gnmi_native_write)
 	cfg.LogLevel = 3
+	cfg.Threshold = int(*threshold)
+	cfg.IdleConnDuration = int(*idle_conn_duration)
 	var opts []grpc.ServerOption
 
 	if val, err := strconv.Atoi(getflag("v")); err == nil {
@@ -138,7 +156,16 @@ func main() {
 		}
 	}
 
+	keep_alive_params := keepalive.ServerParameters{
+		MaxConnectionIdle: time.Duration(cfg.IdleConnDuration) * time.Second, // duration in which idle connection will be closed, default is inf
+	}
+
 	opts = []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+
+	if cfg.IdleConnDuration > 0 { // non inf case
+		opts = append(opts, grpc.KeepaliveParams(keep_alive_params))
+	}
+
 	cfg.UserAuth = userAuth
 
 	gnmi.GenerateJwtSecretKey()
