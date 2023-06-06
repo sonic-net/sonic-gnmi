@@ -72,9 +72,11 @@ type EventClient struct {
     subs_handle unsafe.Pointer
 
     stopped     int
+    stopMutex   sync.Mutex
 
     // Stats counter
     counters    map[string]uint64
+    countersMutex sync.Mutex
 
     last_latencies  [LATENCY_LIST_SIZE]uint64
     last_latency_index  int
@@ -199,6 +201,9 @@ func update_stats(evtc *EventClient) {
      * This helps add some initial pause before accessing DB
      * for existing values.
      */
+    evtc.stopMutex.Lock()
+    defer evtc.stopMutex.Unlock()
+
     for evtc.stopped == 0 {
         var val uint64
 
@@ -213,7 +218,8 @@ func update_stats(evtc *EventClient) {
         }
         time.Sleep(time.Second)
     }
-    
+
+
     /* Populate counters from DB for cumulative counters. */
     if evtc.stopped == 0 {
         ns := sdcfg.GetDbDefaultNamespace()
@@ -315,7 +321,9 @@ func get_events(evtc *EventClient) {
         rc, evt := C_recv_evt(evtc.subs_handle)
 
         if rc == 0 {
+            evtc.countersMutex.Lock()
             evtc.counters[MISSED] += (uint64)(evt.Missed_cnt)
+            evtc.countersMutex.Unlock()
 
             if !strings.HasPrefix(evt.Event_str, TEST_EVENT) {
                 qlen := evtc.q.Len()
@@ -342,6 +350,8 @@ func get_events(evtc *EventClient) {
                 }
             }
         }
+        evtc.stopMutex.Lock()
+        defer evtc.stopMutex.Unlock()
         if evtc.stopped == 1 {
             break
         }
@@ -352,7 +362,9 @@ func get_events(evtc *EventClient) {
     C_deinit_subs(evtc.subs_handle)
     evtc.subs_handle = nil
     // set evtc.stopped for case where send_event error and channel was not stopped
+    evtc.stopMutex.Lock()
     evtc.stopped = 1
+    evtc.stopMutex.Unlock()
 }
 
 func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
@@ -384,6 +396,8 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     go update_stats(evtc)
     evtc.wg.Add(1)
 
+    evtc.stopMutex.Lock()
+    defer evtc.stopMutex.Unlock()
     for evtc.stopped == 0 {
         select {
         case <-evtc.channel:
