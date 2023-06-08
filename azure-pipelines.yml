@@ -21,8 +21,8 @@ resources:
   repositories:
   - repository: sonic-mgmt-common
     type: github
-    name: Azure/sonic-mgmt-common
-    endpoint: build
+    name: sonic-net/sonic-mgmt-common
+    endpoint: sonic-net
 
 stages:
 - stage: Build
@@ -40,7 +40,7 @@ stages:
       DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)/sonic-gnmi
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-buster:latest
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bullseye:latest
 
     steps:
     - checkout: self
