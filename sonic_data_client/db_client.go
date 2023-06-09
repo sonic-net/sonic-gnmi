@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
 	log "github.com/golang/glog"
 
 	spb "github.com/sonic-net/sonic-gnmi/proto"
@@ -78,6 +77,31 @@ var MinSampleInterval = time.Second
 // Exposed for UT purposes.
 var IntervalTicker = func(interval time.Duration) <-chan time.Time {
 	return time.After(interval)
+}
+
+var NeedMock bool = false
+var intervalTickerMutex sync.Mutex
+
+// Define a new function to set the IntervalTicker variable
+func SetIntervalTicker(f func(interval time.Duration) <-chan time.Time) {
+	if NeedMock == true {
+		intervalTickerMutex.Lock()
+		defer intervalTickerMutex.Unlock()
+		IntervalTicker = f
+	} else {
+		IntervalTicker = f
+	}
+}
+
+// Define a new function to get the IntervalTicker variable
+func GetIntervalTicker() func(interval time.Duration) <-chan time.Time {
+	if NeedMock == true {
+		intervalTickerMutex.Lock()
+		defer intervalTickerMutex.Unlock()
+		return IntervalTicker
+	} else {
+		return IntervalTicker
+	}
 }
 
 type tablePath struct {
@@ -883,12 +907,13 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 	}
 	c.synced.Done()
 
+	intervalTicker := GetIntervalTicker()(interval)
 	for {
 		select {
 		case <-c.channel:
 			log.V(1).Infof("Stopping dbFieldMultiSubscribe routine for Client %s ", c)
 			return
-		case <-IntervalTicker(interval):
+		case <-intervalTicker:
 			msi := readVal()
 
 			if onChange == false || len(msi) != 0 {
@@ -898,6 +923,7 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 				}
 			}
 		}
+		intervalTicker = GetIntervalTicker()(interval)
 	}
 }
 
@@ -963,12 +989,13 @@ func dbFieldSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interva
 	}
 	c.synced.Done()
 
+	intervalTicker := GetIntervalTicker()(interval)
 	for {
 		select {
 		case <-c.channel:
 			log.V(1).Infof("Stopping dbFieldSubscribe routine for Client %s ", c)
 			return
-		case <-IntervalTicker(interval):
+		case <-intervalTicker:
 			newVal := readVal()
 
 			if onChange == false || newVal != val {
@@ -979,6 +1006,7 @@ func dbFieldSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interva
 				val = newVal
 			}
 		}
+		intervalTicker = GetIntervalTicker()(interval)
 	}
 }
 
@@ -1196,7 +1224,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 		// The interval ticker ticks only when the interval is non-zero.
 		// Otherwise (e.g. on-change mode) it would never tick.
 		if interval > 0 {
-			intervalTicker = IntervalTicker(interval)
+			intervalTicker = GetIntervalTicker()(interval)
 		}
 
 		select {
