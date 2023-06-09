@@ -21,8 +21,8 @@ resources:
   repositories:
   - repository: sonic-mgmt-common
     type: github
-    name: Azure/sonic-mgmt-common
-    endpoint: build
+    name: sonic-net/sonic-mgmt-common
+    endpoint: sonic-net
 
 stages:
 - stage: Build
@@ -40,7 +40,7 @@ stages:
       DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)/sonic-gnmi
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-buster:latest
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bullseye:latest
 
     steps:
     - checkout: self
@@ -90,7 +90,7 @@ stages:
         set -ex
         # Install .NET CORE
         curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-        sudo apt-add-repository https://packages.microsoft.com/debian/10/prod
+        sudo apt-add-repository https://packages.microsoft.com/debian/11/prod
         sudo apt-get update
         sudo apt-get install -y dotnet-sdk-5.0
       displayName: "Install .NET CORE"
