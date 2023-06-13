@@ -3106,9 +3106,9 @@ func TestConnectionsKeepAlive(t *testing.T) {
 }
 
 func TestClient(t *testing.T) {
-    var mutexDeInitDone sync.Mutex
-    var mutexHBDone sync.Mutex
-    var mutexIdxDone sync.Mutex
+    //var mutexDeInitDone sync.Mutex
+    //var mutexHBDone sync.Mutex
+    //var mutexIdxDone sync.Mutex
 
     // sonic-host:device-test-event is a test event. 
     // Events client will drop it on floor.
@@ -3134,8 +3134,8 @@ func TestClient(t *testing.T) {
     mock2 := gomonkey.ApplyFunc(sdc.C_recv_evt, func(h unsafe.Pointer) (int, sdc.Evt_rcvd) {
         rc := (int)(0)
         var evt sdc.Evt_rcvd
-        mutexIdxDone.Lock()
-        defer mutexIdxDone.Unlock()
+        //mutexIdxDone.Lock()
+        //defer mutexIdxDone.Unlock()
         if event_index < len(events) {
             evt = events[event_index]
             event_index++
@@ -3148,16 +3148,16 @@ func TestClient(t *testing.T) {
 	defer mock2.Reset()
 
     mock3 := gomonkey.ApplyFunc(sdc.Set_heartbeat, func(val int) {
-        mutexHBDone.Lock()
-        defer mutexHBDone.Unlock()
+        //mutexHBDone.Lock()
+        //defer mutexHBDone.Unlock()
         heartbeat = val
     })
 
 	defer mock3.Reset()
 
     mock4 := gomonkey.ApplyFunc(sdc.C_deinit_subs, func(h unsafe.Pointer) {
-        mutexDeInitDone.Lock()
-        defer mutexDeInitDone.Unlock()
+        //mutexDeInitDone.Lock()
+        //defer mutexDeInitDone.Unlock()
         deinit_done = true
     })
 
@@ -3194,14 +3194,14 @@ func TestClient(t *testing.T) {
     }
 
     sdc.C_init_subs(true)
-    var gotNotiMu sync.Mutex
+    //var gotNotiMu sync.Mutex
     for testNum, tt := range tests {
-        mutexHBDone.Lock()
+        //mutexHBDone.Lock()
         heartbeat = 0
-        mutexHBDone.Unlock()
-        mutexIdxDone.Lock()
+        //mutexHBDone.Unlock()
+        //mutexIdxDone.Lock()
         event_index = 0
-        mutexIdxDone.Unlock()
+        //mutexIdxDone.Unlock()
         deinit_done = false
         t.Run(tt.desc, func(t *testing.T) {
             c := client.New()
@@ -3209,8 +3209,8 @@ func TestClient(t *testing.T) {
 
             var gotNoti []string
             q.NotificationHandler = func(n client.Notification) error {
-                gotNotiMu.Lock()
-                defer gotNotiMu.Unlock()
+                //gotNotiMu.Lock()
+                // defer gotNotiMu.Unlock()
                 if nn, ok := n.(client.Update); ok {
                     nn.TS = time.Unix(0, 200)
                     str := fmt.Sprintf("%v", nn.Val)
@@ -3228,31 +3228,31 @@ func TestClient(t *testing.T) {
 
             time.Sleep(time.Millisecond * 2000)
 
-            gotNotiMu.Lock()
+            //gotNotiMu.Lock()
             // -1 to discount test event, which receiver would drop.
             if testNum != 0 {
                 if (len(events) - 1) != len(gotNoti) {
-                    fmt.Printf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
+                    t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
                 }
-                mutexHBDone.Lock()
+                // mutexHBDone.Lock()
                 if (heartbeat != HEARTBEAT_SET) {
                     t.Errorf("Heartbeat is not set %d != expected:%d", heartbeat, HEARTBEAT_SET)
                 }
-                mutexHBDone.Unlock()
+                // mutexHBDone.Unlock()
                 fmt.Printf("DONE: Expect events:%d - 1 gotNoti=%d\n", len(events), len(gotNoti))
             }
-            gotNotiMu.Unlock()
+            // gotNotiMu.Unlock()
         })
         if testNum == 0 {
             mock5.Reset()
         }
         time.Sleep(time.Millisecond * 1000)
 
-        mutexDeInitDone.Lock()
+        // mutexDeInitDone.Lock()
         if deinit_done == false {
             t.Errorf("Events client deinit *NOT* called.")
         }
-        mutexDeInitDone.Unlock()
+        // mutexDeInitDone.Unlock()
         // t.Log("END of a TEST")
     }
 

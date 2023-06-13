@@ -201,10 +201,8 @@ func update_stats(evtc *EventClient) {
      * This helps add some initial pause before accessing DB
      * for existing values.
      */
-    evtc.stopMutex.Lock()
-    defer evtc.stopMutex.Unlock()
 
-    for evtc.stopped == 0 {
+    for !evtc.isStopped() {
         var val uint64
 
         compute_latency(evtc)
@@ -221,7 +219,7 @@ func update_stats(evtc *EventClient) {
 
 
     /* Populate counters from DB for cumulative counters. */
-    if evtc.stopped == 0 {
+    if !evtc.isStopped() {
         ns := sdcfg.GetDbDefaultNamespace()
 
         rclient = redis.NewClient(&redis.Options{
@@ -249,7 +247,7 @@ func update_stats(evtc *EventClient) {
     }
 
     /* Main running loop that updates DB */
-    for evtc.stopped == 0 {
+    for !evtc.isStopped() {
         tmp_counters := make(map[string]uint64)
 
         // compute latency
@@ -350,21 +348,20 @@ func get_events(evtc *EventClient) {
                 }
             }
         }
-        evtc.stopMutex.Lock()
-        defer evtc.stopMutex.Unlock()
-        if evtc.stopped == 1 {
+
+        if evtc.isStopped() {
             break
         }
+
         // TODO: Record missed count in stats table.
         // intVar, err := strconv.Atoi(C.GoString((*C.char)(c_mptr)))
     }
+
     log.V(1).Infof("%v stop channel closed or send_event err, exiting get_events routine", evtc)
     C_deinit_subs(evtc.subs_handle)
     evtc.subs_handle = nil
     // set evtc.stopped for case where send_event error and channel was not stopped
-    evtc.stopMutex.Lock()
     evtc.stopped = 1
-    evtc.stopMutex.Unlock()
 }
 
 func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
@@ -396,9 +393,7 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     go update_stats(evtc)
     evtc.wg.Add(1)
 
-    evtc.stopMutex.Lock()
-    defer evtc.stopMutex.Unlock()
-    for evtc.stopped == 0 {
+    for !evtc.isStopped() {
         select {
         case <-evtc.channel:
             evtc.stopped = 1
@@ -406,6 +401,13 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
             return
         }
     }
+}
+
+func (evtc *EventClient) isStopped() bool {
+    evtc.stopMutex.Lock()
+    val := evtc.stopped
+    evtc.stopMutex.Unlock()
+    return val == 1
 }
 
 
