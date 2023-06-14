@@ -3169,6 +3169,11 @@ func TestClient(t *testing.T) {
     })
     defer mock5.Reset()
 
+    mock6 := gomonkey.ApplyMethod(reflect.TypeOf(&queue.PriorityQueue{}), "Len", func(pq *queue.PriorityQueue) int {
+        return 0
+    })
+    defer mock6.Reset()
+
     s := createServer(t, 8081)
     go runServer(t, s)
 
@@ -3184,6 +3189,10 @@ func TestClient(t *testing.T) {
         pause      int
         poll       int
     } {
+        {
+            desc: "dropped event",
+            poll: 3,
+        },
         {
             desc: "queue error",
             poll: 3,
@@ -3241,9 +3250,9 @@ func TestClient(t *testing.T) {
 
             time.Sleep(time.Millisecond * 2000)
 
-            // -1 to discount test event, which receiver would drop.
-            if testNum != 0 {
+            if testNum > 1 {
                 mutexNoti.Lock()
+                // -1 to discount test event, which receiver would drop.
                 if (len(events) - 1) != len(gotNoti) {
                     t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
                 }
@@ -3258,7 +3267,12 @@ func TestClient(t *testing.T) {
                 mutexNoti.Unlock()
             }
         })
+
         if testNum == 0 {
+            mock6.Reset()
+        }
+
+        if testNum == 1 {
             mock5.Reset()
         }
         time.Sleep(time.Millisecond * 1000)
