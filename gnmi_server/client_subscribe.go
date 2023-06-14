@@ -159,7 +159,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	log.V(3).Infof("mode=%v, origin=%q, target=%q", mode, origin, target)
 
 	if origin == "openconfig" {
-		dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions)
+		dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions, sdc.TranslWildcardOption{})
 	} else if len(origin) != 0 {
 		return grpc.Errorf(codes.Unimplemented, "Unsupported origin: %s", origin)
 	} else if target == "" {
