@@ -3205,7 +3205,7 @@ func TestClient(t *testing.T) {
 
         mutexIdx.RLock()
         event_index = 0
-        mutexIdxDone.RUnlock()
+        mutexIdx.RUnlock()
 
         mutexDeInit.RLock()
         deinit_done = false
