@@ -3170,7 +3170,7 @@ func TestClient(t *testing.T) {
     defer mock5.Reset()
 
     mock6 := gomonkey.ApplyMethod(reflect.TypeOf(&queue.PriorityQueue{}), "Len", func(pq *queue.PriorityQueue) int {
-        return 0
+        return 150000 // Max size for pending events in PQ is 102400
     })
     defer mock6.Reset()
 
