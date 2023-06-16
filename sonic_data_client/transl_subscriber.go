@@ -169,7 +169,7 @@ func (ts *translSubscriber) processResponses(q *queue.PriorityQueue) {
 				return
 			}
 		default:
-			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], c)
+			log.V(1).Infof("Unknown data type %T in queue", v)
 		}
 	}
 }
