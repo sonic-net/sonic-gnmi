@@ -139,6 +139,13 @@ func (val Value) Compare(other queue.Item) int {
 	return -1
 }
 
+func (val Value) GetTimestamp() int64 {
+	if n := val.GetNotification(); n != nil {
+		return n.GetTimestamp()
+	}
+	return val.Value.GetTimestamp()
+}
+
 type DbClient struct {
 	prefix  *gnmipb.Path
 	pathG2S map[*gnmipb.Path][]tablePath
@@ -363,6 +370,12 @@ func ValToResp(val Value) (*gnmipb.SubscribeResponse, error) {
 		// In case the subscribe/poll routines encountered fatal error
 		if fatal := val.GetFatal(); fatal != "" {
 			return nil, fmt.Errorf("%s", fatal)
+		}
+
+		// In case the client returned a full gnmipb.Notification object
+		if n := val.GetNotification(); n != nil {
+			return &gnmipb.SubscribeResponse{
+				Response: &gnmipb.SubscribeResponse_Update{Update: n}}, nil
 		}
 
 		return &gnmipb.SubscribeResponse{
