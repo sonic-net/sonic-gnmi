@@ -154,7 +154,7 @@ stages:
 
     - script: |
         pushd sonic-gnmi
-        make check_gotest ENABLE_TRANSLIB_WRITE=y
+        make check_gotest
       displayName: "Test"
 
     - publish: $(Build.ArtifactStagingDirectory)/

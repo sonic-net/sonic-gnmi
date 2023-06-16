@@ -228,7 +228,7 @@ func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 	textPbPath string, wantRetCode codes.Code, wantRespVal interface{}, valTest bool) {
 	//var retCodeOk bool
 	// Send request
-	t.Helper()
+
 	var pbPath pb.Path
 	if err := proto.UnmarshalText(textPbPath, &pbPath); err != nil {
 		t.Fatalf("error in unmarshaling path: %v %v", textPbPath, err)
@@ -276,9 +276,6 @@ func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 					t.Fatalf("error in unmarshaling IETF JSON data to json container: %v", err)
 				}
 				var wantJSONStruct interface{}
-				if v, ok := wantRespVal.(string); ok {
-					wantRespVal = []byte(v)
-				}
 				if err := json.Unmarshal(wantRespVal.([]byte), &wantJSONStruct); err != nil {
 					t.Fatalf("error in unmarshaling IETF JSON data to json container: %v", err)
 				}
@@ -305,12 +302,10 @@ type op_t int
 const (
 	Delete  op_t = 1
 	Replace op_t = 2
-	Update  op_t = 3
 )
 
 func runTestSet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTarget string,
 	textPbPath string, wantRetCode codes.Code, wantRespVal interface{}, attributeData string, op op_t) {
-	t.Helper()
 	// Send request
 	var pbPath pb.Path
 	if err := proto.UnmarshalText(textPbPath, &pbPath); err != nil {
@@ -318,34 +313,21 @@ func runTestSet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 	}
 	req := &pb.SetRequest{}
 	switch op {
-	case Replace, Update:
+	case Replace:
 		prefix := pb.Path{Target: pathTarget}
 		var v *pb.TypedValue
 		v = &pb.TypedValue{
 			Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: extractJSON(attributeData)}}
-		data := []*pb.Update{{Path: &pbPath, Val: v}}
 
 		req = &pb.SetRequest{
 			Prefix: &prefix,
-		}
-		if op == Replace {
-			req.Replace = data
-		} else {
-			req.Update = data
+			Replace: []*pb.Update{&pb.Update{Path: &pbPath, Val: v}},
 		}
 	case Delete:
 		req = &pb.SetRequest{
 			Delete: []*pb.Path{&pbPath},
 		}
 	}
-
-	runTestSetRaw(t, ctx, gClient, req, wantRetCode)
-}
-
-func runTestSetRaw(t *testing.T, ctx context.Context, gClient pb.GNMIClient, req *pb.SetRequest, 
-	wantRetCode codes.Code) {
-	t.Helper()
-
 	_, err := gClient.Set(ctx, req)
 	gotRetStatus, ok := status.FromError(err)
 	if !ok {
@@ -356,26 +338,6 @@ func runTestSetRaw(t *testing.T, ctx context.Context, gClient pb.GNMIClient, req
 		t.Fatalf("got return code %v, want %v", gotRetStatus.Code(), wantRetCode)
 	} else {
 	}
-}
-
-// pathToPb converts string representation of gnmi path to protobuf format
-func pathToPb(s string) string {
-	p, _ := ygot.StringToStructuredPath(s)
-	return proto.MarshalTextString(p)
-}
-
-func removeModulePrefixFromPathPb(t *testing.T, s string) string {
-	t.Helper()
-	var p pb.Path
-	if err := proto.UnmarshalText(s, &p); err != nil {
-		t.Fatalf("error unmarshaling path: %v %v", s, err)
-	}
-	for _, ele := range p.Elem {
-		if k := strings.IndexByte(ele.Name, ':'); k != -1 {
-			ele.Name = ele.Name[k+1:]
-		}
-	}
-	return proto.MarshalTextString(&p)
 }
 
 func runServer(t *testing.T, s *Server) {
@@ -791,6 +753,8 @@ func TestGnmiSet(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	var emptyRespVal interface{}
+
 	tds := []struct {
 		desc          string
 		pathTarget    string
@@ -802,27 +766,28 @@ func TestGnmiSet(t *testing.T) {
 		valTest       bool
 	}{
 		{
-			desc:        "Invalid path",
-			pathTarget:  "OC_YANG",
-			textPbPath:  pathToPb("/openconfig-interfaces:interfaces/interface[name=Ethernet4]/unknown"),
-			wantRetCode: codes.Unknown,
-			operation:   Delete,
-		},
-		{
 			desc:       "Set OC Interface MTU",
 			pathTarget: "OC_YANG",
-			textPbPath:    pathToPb("openconfig-interfaces:interfaces/interface[name=Ethernet4]/config"),
+			textPbPath: `
+                        elem: <name: "openconfig-interfaces:interfaces" > elem:<name:"interface" key:<key:"name" value:"Ethernet4" > >
+                `,
 			attributeData: "../testdata/set_interface_mtu.json",
 			wantRetCode:   codes.OK,
-			operation:     Update,
+			wantRespVal:   emptyRespVal,
+			operation:     Replace,
+			valTest:       false,
 		},
 		{
 			desc:       "Set OC Interface IP",
 			pathTarget: "OC_YANG",
-			textPbPath:   pathToPb("/openconfig-interfaces:interfaces/interface[name=Ethernet4]/subinterfaces/subinterface[index=0]/openconfig-if-ip:ipv4"),
+			textPbPath: `
+                    elem:<name:"openconfig-interfaces:interfaces" > elem:<name:"interface" key:<key:"name" value:"Ethernet4" > > elem:<name:"subinterfaces" > elem:<name:"subinterface" key:<key:"index" value:"0" > >
+                `,
 			attributeData: "../testdata/set_interface_ipv4.json",
 			wantRetCode:   codes.OK,
-			operation:     Update,
+			wantRespVal:   emptyRespVal,
+			operation:     Replace,
+			valTest:       false,
 		},
 		// {
 		//         desc:       "Check OC Interface values set",
@@ -842,81 +807,18 @@ func TestGnmiSet(t *testing.T) {
                 `,
 			attributeData: "",
 			wantRetCode:   codes.OK,
+			wantRespVal:   emptyRespVal,
 			operation:     Delete,
 			valTest:       false,
-		},
-		{
-			desc:       "Set OC Interface IPv6 (unprefixed path)",
-			pathTarget: "OC_YANG",
-			textPbPath:   pathToPb("/interfaces/interface[name=Ethernet0]/subinterfaces/subinterface[index=0]/ipv6/addresses/address"),
-			attributeData: `{"address": [{"ip": "150::1","config": {"ip": "150::1","prefix-length": 80}}]}`,
-			wantRetCode:   codes.OK,
-			operation:     Update,
-		},
-		{
-			desc:        "Delete OC Interface IPv6 (unprefixed path)",
-			pathTarget:  "OC_YANG",
-			textPbPath:  pathToPb("/interfaces/interface[name=Ethernet0]/subinterfaces/subinterface[index=0]/ipv6/addresses/address[ip=150::1]"),
-			wantRetCode: codes.OK,
-			operation:   Delete,
-		},
-		{
-			desc:          "Create ACL (unprefixed path)",
-			pathTarget:    "OC_YANG",
-			textPbPath:    pathToPb("/acl/acl-sets/acl-set"),
-			attributeData: `{"acl-set": [{"name": "A001", "type": "ACL_IPV4",
-							"config": {"name": "A001", "type": "ACL_IPV4", "description": "hello, world!"}}]}`,
-			wantRetCode:   codes.OK,
-			operation:     Update,
-		},
-		{
-			desc:        "Verify Create ACL",
-			pathTarget:  "OC_YANG",
-			textPbPath:  pathToPb("/openconfig-acl:acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]/config/description"),
-			wantRespVal: `{"openconfig-acl:description": "hello, world!"}`,
-			wantRetCode: codes.OK,
-			valTest:     true,
-		},
-		{
-			desc:          "Replace ACL Description (unprefixed path)",
-			pathTarget:    "OC_YANG",
-			textPbPath:    pathToPb("/acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]/config/description"),
-			attributeData: `{"description": "dummy"}`,
-			wantRetCode:   codes.OK,
-			operation:     Replace,
-		},
-		{
-			desc:        "Verify Replace ACL Description",
-			pathTarget:  "OC_YANG",
-			textPbPath:  pathToPb("/openconfig-acl:acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]/config/description"),
-			wantRespVal: `{"openconfig-acl:description": "dummy"}`,
-			wantRetCode: codes.OK,
-			valTest:     true,
-		},
-		{
-			desc:        "Delete ACL",
-			pathTarget:  "OC_YANG",
-			textPbPath:  pathToPb("/openconfig-acl:acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]"),
-			wantRetCode: codes.OK,
-			operation:   Delete,
-		},
-		{
-			desc:        "Verify Delete ACL",
-			pathTarget:  "OC_YANG",
-			textPbPath:  pathToPb("/openconfig-acl:acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]"),
-			wantRetCode: codes.NotFound,
-			valTest:     true,
 		},
 	}
 
 	for _, td := range tds {
 		if td.valTest == true {
+			// wait for 2 seconds for change to sync
+			time.Sleep(2 * time.Second)
 			t.Run(td.desc, func(t *testing.T) {
 				runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
-			})
-			t.Run(td.desc + " (unprefixed path)", func(t *testing.T) {
-				p := removeModulePrefixFromPathPb(t, td.textPbPath)
-				runTestGet(t, ctx, gClient, td.pathTarget, p, td.wantRetCode, td.wantRespVal, td.valTest)
 			})
 		} else {
 			t.Run(td.desc, func(t *testing.T) {
@@ -2687,9 +2589,7 @@ func TestGNOI(t *testing.T) {
 			t.Fatalf("Invalid System Time %d", resp.Time)
 		}
 	})
-
 	t.Run("SonicShowTechsupport", func(t *testing.T) {
-		t.Skip("Not supported yet")
 		sc := sgpb.NewSonicServiceClient(conn)
 		rtime := time.Now().AddDate(0, -1, 0)
 		req := &sgpb.TechsupportRequest{
@@ -2724,7 +2624,6 @@ func TestGNOI(t *testing.T) {
 	for _, v := range cfg_data {
 
 		t.Run("SonicCopyConfig", func(t *testing.T) {
-			t.Skip("Not supported yet")
 			sc := sgpb.NewSonicServiceClient(conn)
 			req := &sgpb.CopyConfigRequest{
 				Input: &sgpb.CopyConfigRequest_Input{
@@ -2810,7 +2709,7 @@ func TestBulkSet(t *testing.T) {
 	go runServer(t, s)
 	defer s.s.Stop()
 
-	prepareDbTranslib(t)
+	// prepareDb(t)
 
 	//t.Log("Start gNMI client")
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
@@ -2827,81 +2726,32 @@ func TestBulkSet(t *testing.T) {
 	gClient := pb.NewGNMIClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
 	t.Run("Set Multiple mtu", func(t *testing.T) {
-		req := &pb.SetRequest{
-			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
-			Update: []*pb.Update{
-				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
-				newPbUpdate("interface[name=Ethernet4]/config/mtu", `{"mtu": 9105}`),
-			}}
-		runTestSetRaw(t, ctx, gClient, req, codes.OK)
-	})
-
-	t.Run("Update and Replace", func(t *testing.T) {
-		aclKeys := `"name": "A002", "type": "ACL_IPV4"`
-		req := &pb.SetRequest{
-			Replace: []*pb.Update{
-				newPbUpdate(
-					"openconfig-acl:acl/acl-sets/acl-set",
-					`{"acl-set": [{`+aclKeys+`, "config":{`+aclKeys+`}}]}`),
-			},
-			Update: []*pb.Update{
-				newPbUpdate(
-					"interfaces/interface[name=Ethernet0]/config/description",
-					`{"description": "Bulk update 1"}`),
-				newPbUpdate(
-					"openconfig-interfaces:interfaces/interface[name=Ethernet4]/config/description",
-					`{"description": "Bulk update 2"}`),
-			}}
-		runTestSetRaw(t, ctx, gClient, req, codes.OK)
-	})
-
-	aclPath1, _ := ygot.StringToStructuredPath("/acl/acl-sets")
-	aclPath2, _ := ygot.StringToStructuredPath("/openconfig-acl:acl/acl-sets")
-
-	t.Run("Multiple deletes", func(t *testing.T) {
-		req := &pb.SetRequest{
-			Delete: []*pb.Path{aclPath1, aclPath2},
+		pbPath1, _ := xpath.ToGNMIPath("openconfig-interfaces:interfaces/interface[name=Ethernet0]/config/mtu")
+		v := &pb.TypedValue{
+			Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte("{\"mtu\": 9104}")}}
+		update1 := &pb.Update{
+			Path: pbPath1,
+			Val:  v,
 		}
-		runTestSetRaw(t, ctx, gClient, req, codes.OK)
-	})
-
-	t.Run("Invalid Update Path", func(t *testing.T) {
-		req := &pb.SetRequest{
-			Delete: []*pb.Path{aclPath1, aclPath2},
-			Update: []*pb.Update{
-				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
-			}}
-		runTestSetRaw(t, ctx, gClient, req, codes.Unknown)
-	})
-
-	t.Run("Invalid Replace Path", func(t *testing.T) {
-		req := &pb.SetRequest{
-			Delete:  []*pb.Path{aclPath1, aclPath2},
-			Replace: []*pb.Update{
-				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
-			}}
-		runTestSetRaw(t, ctx, gClient, req, codes.Unknown)
-	})
-
-	t.Run("Invalid Delete Path", func(t *testing.T) {
-		req := &pb.SetRequest{
-			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
-			Delete: []*pb.Path{aclPath1, aclPath2},
+		pbPath2, _ := xpath.ToGNMIPath("openconfig-interfaces:interfaces/interface[name=Ethernet4]/config/mtu")
+		v2 := &pb.TypedValue{
+			Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte("{\"mtu\": 9105}")}}
+		update2 := &pb.Update{
+			Path: pbPath2,
+			Val:  v2,
 		}
-		runTestSetRaw(t, ctx, gClient, req, codes.Unknown)
+
+		req := &pb.SetRequest{
+			Update: []*pb.Update{update1, update2},
+		}
+
+		_, err = gClient.Set(ctx, req)
+		_, ok := status.FromError(err)
+		if !ok {
+			t.Fatal("got a non-grpc error from grpc call")
+		}
 	})
-
-}
-
-func newPbUpdate(path, value string) *pb.Update {
-	p, _ := ygot.StringToStructuredPath(path)
-	v := &pb.TypedValue_JsonIetfVal{JsonIetfVal: extractJSON(value)}
-	return &pb.Update{
-		Path: p,
-		Val: &pb.TypedValue{Value: v},
-	}
 }
 
 type loginCreds struct {

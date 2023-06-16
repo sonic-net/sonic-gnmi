@@ -40,24 +40,16 @@ type TranslClient struct {
 	extensions []*gnmi_extpb.Extension
 }
 
-func NewTranslClient(prefix *gnmipb.Path, getpaths []*gnmipb.Path, ctx context.Context, extensions []*gnmi_extpb.Extension, opts ...TranslClientOption) (Client, error) {
+func NewTranslClient(prefix *gnmipb.Path, getpaths []*gnmipb.Path, ctx context.Context, extensions []*gnmi_extpb.Extension) (Client, error) {
 	var client TranslClient
 	var err error
 	client.ctx = ctx
 	client.prefix = prefix
 	client.extensions = extensions
-
 	if getpaths != nil {
-		var addWildcardKeys bool
-		for _, o := range opts {
-			if _, ok := o.(TranslWildcardOption); ok {
-				addWildcardKeys = true
-			}
-		}
-
 		client.path2URI = make(map[*gnmipb.Path]string)
 		/* Populate GNMI path to REST URL map. */
-		err = transutil.PopulateClientPaths(prefix, getpaths, &client.path2URI, addWildcardKeys)
+		err = transutil.PopulateClientPaths(prefix, getpaths, &client.path2URI)
 	}
 
 	if err != nil {
@@ -107,6 +99,7 @@ func (c *TranslClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 func (c *TranslClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	rc, ctx := common_utils.GetContext(c.ctx)
 	c.ctx = ctx
+	var uri string
 	version := getBundleVersion(c.extensions)
 	if version != nil {
 		rc.BundleVersion = version
@@ -116,13 +109,19 @@ func (c *TranslClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, upda
 		return transutil.TranslProcessBulk(delete, replace, update, c.prefix, c.ctx)
 	} else {
 		if len(delete) == 1 {
-			return transutil.TranslProcessDelete(c.prefix, delete[0], c.ctx)
+			/* Convert the GNMI Path to URI. */
+			transutil.ConvertToURI(c.prefix, delete[0], &uri)
+			return transutil.TranslProcessDelete(uri, c.ctx)
 		}
 		if len(replace) == 1 {
-			return transutil.TranslProcessReplace(c.prefix, replace[0], c.ctx)
+			/* Convert the GNMI Path to URI. */
+			transutil.ConvertToURI(c.prefix, replace[0].GetPath(), &uri)
+			return transutil.TranslProcessReplace(uri, replace[0].GetVal(), c.ctx)
 		}
 		if len(update) == 1 {
-			return transutil.TranslProcessUpdate(c.prefix, update[0], c.ctx)
+			/* Convert the GNMI Path to URI. */
+			transutil.ConvertToURI(c.prefix, update[0].GetPath(), &uri)
+			return transutil.TranslProcessUpdate(uri, update[0].GetVal(), c.ctx)
 		}
 	}
 	return nil
@@ -542,11 +541,3 @@ func getBundleVersion(extensions []*gnmi_extpb.Extension) *string {
 	}
 	return nil
 }
-
-type TranslClientOption interface {
-	IsTranslClientOption()
-}
-
-type TranslWildcardOption struct{}
-
-func (t TranslWildcardOption) IsTranslClientOption() {}
