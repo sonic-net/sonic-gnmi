@@ -38,6 +38,7 @@ stages:
       DIFF_COVER_CHECK_THRESHOLD: 80
       DIFF_COVER_ENABLE: 'true'
       DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)/sonic-gnmi
+      SONIC_MGMT_COMMON_VER: origin/202012
 
     container:
       image: sonicdev-microsoft.azurecr.io:443/sonic-slave-buster:latest
@@ -100,6 +101,8 @@ stages:
         ls -l
 
         pushd sonic-mgmt-common
+
+        git checkout --detach $(SONIC_MGMT_COMMON_VER)
 
         NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
 
