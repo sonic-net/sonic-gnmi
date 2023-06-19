@@ -80,6 +80,7 @@ var IntervalTicker = func(interval time.Duration) <-chan time.Time {
 }
 
 var NeedMock bool = false
+var MockFail int = 0
 var intervalTickerMutex sync.Mutex
 
 // Define a new function to set the IntervalTicker variable
@@ -742,6 +743,12 @@ func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 		makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
 		log.V(6).Infof("Added json key %v fv %v ", tblPath.jsonTableKey, fv)
 		return nil
+	}
+
+	if MockFail == 1 {
+		MockFail++
+		fmt.Println("Mock sleep for redis timeout")
+		time.Sleep(30 * time.Second)
 	}
 
 	for idx, dbkey := range dbkeys {
