@@ -27,6 +27,7 @@ resources:
     type: github
     name: sonic-net/sonic-swss-common
     endpoint: sonic-net
+    ref: refs/heads/202305
 
 stages:
 - stage: Build
