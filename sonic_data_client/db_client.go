@@ -735,7 +735,8 @@ func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 		fv, err = redisDb.HGetAll(dbkey).Result()
 		if err != nil {
 			log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
-			return err
+			continue
+			//return err
 		}
 
 		if tblPath.jsonTableKey != "" { // If jsonTableKey was prepared, use it
