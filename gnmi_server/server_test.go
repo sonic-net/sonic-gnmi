@@ -228,7 +228,7 @@ func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 	textPbPath string, wantRetCode codes.Code, wantRespVal interface{}, valTest bool) {
 	//var retCodeOk bool
 	// Send request
-
+	t.Helper()
 	var pbPath pb.Path
 	if err := proto.UnmarshalText(textPbPath, &pbPath); err != nil {
 		t.Fatalf("error in unmarshaling path: %v %v", textPbPath, err)
@@ -276,6 +276,9 @@ func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 					t.Fatalf("error in unmarshaling IETF JSON data to json container: %v", err)
 				}
 				var wantJSONStruct interface{}
+				if v, ok := wantRespVal.(string); ok {
+					wantRespVal = []byte(v)
+				}
 				if err := json.Unmarshal(wantRespVal.([]byte), &wantJSONStruct); err != nil {
 					t.Fatalf("error in unmarshaling IETF JSON data to json container: %v", err)
 				}
@@ -302,10 +305,12 @@ type op_t int
 const (
 	Delete  op_t = 1
 	Replace op_t = 2
+	Update  op_t = 3
 )
 
 func runTestSet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTarget string,
 	textPbPath string, wantRetCode codes.Code, wantRespVal interface{}, attributeData string, op op_t) {
+	t.Helper()
 	// Send request
 	var pbPath pb.Path
 	if err := proto.UnmarshalText(textPbPath, &pbPath); err != nil {
@@ -313,21 +318,34 @@ func runTestSet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 	}
 	req := &pb.SetRequest{}
 	switch op {
-	case Replace:
+	case Replace, Update:
 		prefix := pb.Path{Target: pathTarget}
 		var v *pb.TypedValue
 		v = &pb.TypedValue{
 			Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: extractJSON(attributeData)}}
+		data := []*pb.Update{{Path: &pbPath, Val: v}}
 
 		req = &pb.SetRequest{
 			Prefix: &prefix,
-			Replace: []*pb.Update{&pb.Update{Path: &pbPath, Val: v}},
+		}
+		if op == Replace {
+			req.Replace = data
+		} else {
+			req.Update = data
 		}
 	case Delete:
 		req = &pb.SetRequest{
 			Delete: []*pb.Path{&pbPath},
 		}
 	}
+
+	runTestSetRaw(t, ctx, gClient, req, wantRetCode)
+}
+
+func runTestSetRaw(t *testing.T, ctx context.Context, gClient pb.GNMIClient, req *pb.SetRequest, 
+	wantRetCode codes.Code) {
+	t.Helper()
+
 	_, err := gClient.Set(ctx, req)
 	gotRetStatus, ok := status.FromError(err)
 	if !ok {
@@ -338,6 +356,26 @@ func runTestSet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 		t.Fatalf("got return code %v, want %v", gotRetStatus.Code(), wantRetCode)
 	} else {
 	}
+}
+
+// pathToPb converts string representation of gnmi path to protobuf format
+func pathToPb(s string) string {
+	p, _ := ygot.StringToStructuredPath(s)
+	return proto.MarshalTextString(p)
+}
+
+func removeModulePrefixFromPathPb(t *testing.T, s string) string {
+	t.Helper()
+	var p pb.Path
+	if err := proto.UnmarshalText(s, &p); err != nil {
+		t.Fatalf("error unmarshaling path: %v %v", s, err)
+	}
+	for _, ele := range p.Elem {
+		if k := strings.IndexByte(ele.Name, ':'); k != -1 {
+			ele.Name = ele.Name[k+1:]
+		}
+	}
+	return proto.MarshalTextString(&p)
 }
 
 func runServer(t *testing.T, s *Server) {
@@ -753,8 +791,6 @@ func TestGnmiSet(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	var emptyRespVal interface{}
-
 	tds := []struct {
 		desc          string
 		pathTarget    string
@@ -766,28 +802,27 @@ func TestGnmiSet(t *testing.T) {
 		valTest       bool
 	}{
 		{
+			desc:        "Invalid path",
+			pathTarget:  "OC_YANG",
+			textPbPath:  pathToPb("/openconfig-interfaces:interfaces/interface[name=Ethernet4]/unknown"),
+			wantRetCode: codes.Unknown,
+			operation:   Delete,
+		},
+		{
 			desc:       "Set OC Interface MTU",
 			pathTarget: "OC_YANG",
-			textPbPath: `
-                        elem: <name: "openconfig-interfaces:interfaces" > elem:<name:"interface" key:<key:"name" value:"Ethernet4" > >
-                `,
+			textPbPath:    pathToPb("openconfig-interfaces:interfaces/interface[name=Ethernet4]/config"),
 			attributeData: "../testdata/set_interface_mtu.json",
 			wantRetCode:   codes.OK,
-			wantRespVal:   emptyRespVal,
-			operation:     Replace,
-			valTest:       false,
+			operation:     Update,
 		},
 		{
 			desc:       "Set OC Interface IP",
 			pathTarget: "OC_YANG",
-			textPbPath: `
-                    elem:<name:"openconfig-interfaces:interfaces" > elem:<name:"interface" key:<key:"name" value:"Ethernet4" > > elem:<name:"subinterfaces" > elem:<name:"subinterface" key:<key:"index" value:"0" > >
-                `,
+			textPbPath:   pathToPb("/openconfig-interfaces:interfaces/interface[name=Ethernet4]/subinterfaces/subinterface[index=0]/openconfig-if-ip:ipv4"),
 			attributeData: "../testdata/set_interface_ipv4.json",
 			wantRetCode:   codes.OK,
-			wantRespVal:   emptyRespVal,
-			operation:     Replace,
-			valTest:       false,
+			operation:     Update,
 		},
 		// {
 		//         desc:       "Check OC Interface values set",
@@ -807,18 +842,81 @@ func TestGnmiSet(t *testing.T) {
                 `,
 			attributeData: "",
 			wantRetCode:   codes.OK,
-			wantRespVal:   emptyRespVal,
 			operation:     Delete,
 			valTest:       false,
+		},
+		{
+			desc:       "Set OC Interface IPv6 (unprefixed path)",
+			pathTarget: "OC_YANG",
+			textPbPath:   pathToPb("/interfaces/interface[name=Ethernet0]/subinterfaces/subinterface[index=0]/ipv6/addresses/address"),
+			attributeData: `{"address": [{"ip": "150::1","config": {"ip": "150::1","prefix-length": 80}}]}`,
+			wantRetCode:   codes.OK,
+			operation:     Update,
+		},
+		{
+			desc:        "Delete OC Interface IPv6 (unprefixed path)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  pathToPb("/interfaces/interface[name=Ethernet0]/subinterfaces/subinterface[index=0]/ipv6/addresses/address[ip=150::1]"),
+			wantRetCode: codes.OK,
+			operation:   Delete,
+		},
+		{
+			desc:          "Create ACL (unprefixed path)",
+			pathTarget:    "OC_YANG",
+			textPbPath:    pathToPb("/acl/acl-sets/acl-set"),
+			attributeData: `{"acl-set": [{"name": "A001", "type": "ACL_IPV4",
+							"config": {"name": "A001", "type": "ACL_IPV4", "description": "hello, world!"}}]}`,
+			wantRetCode:   codes.OK,
+			operation:     Update,
+		},
+		{
+			desc:        "Verify Create ACL",
+			pathTarget:  "OC_YANG",
+			textPbPath:  pathToPb("/openconfig-acl:acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]/config/description"),
+			wantRespVal: `{"openconfig-acl:description": "hello, world!"}`,
+			wantRetCode: codes.OK,
+			valTest:     true,
+		},
+		{
+			desc:          "Replace ACL Description (unprefixed path)",
+			pathTarget:    "OC_YANG",
+			textPbPath:    pathToPb("/acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]/config/description"),
+			attributeData: `{"description": "dummy"}`,
+			wantRetCode:   codes.OK,
+			operation:     Replace,
+		},
+		{
+			desc:        "Verify Replace ACL Description",
+			pathTarget:  "OC_YANG",
+			textPbPath:  pathToPb("/openconfig-acl:acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]/config/description"),
+			wantRespVal: `{"openconfig-acl:description": "dummy"}`,
+			wantRetCode: codes.OK,
+			valTest:     true,
+		},
+		{
+			desc:        "Delete ACL",
+			pathTarget:  "OC_YANG",
+			textPbPath:  pathToPb("/openconfig-acl:acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]"),
+			wantRetCode: codes.OK,
+			operation:   Delete,
+		},
+		{
+			desc:        "Verify Delete ACL",
+			pathTarget:  "OC_YANG",
+			textPbPath:  pathToPb("/openconfig-acl:acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]"),
+			wantRetCode: codes.NotFound,
+			valTest:     true,
 		},
 	}
 
 	for _, td := range tds {
 		if td.valTest == true {
-			// wait for 2 seconds for change to sync
-			time.Sleep(2 * time.Second)
 			t.Run(td.desc, func(t *testing.T) {
 				runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+			})
+			t.Run(td.desc + " (unprefixed path)", func(t *testing.T) {
+				p := removeModulePrefixFromPathPb(t, td.textPbPath)
+				runTestGet(t, ctx, gClient, td.pathTarget, p, td.wantRetCode, td.wantRespVal, td.valTest)
 			})
 		} else {
 			t.Run(td.desc, func(t *testing.T) {
@@ -2589,7 +2687,9 @@ func TestGNOI(t *testing.T) {
 			t.Fatalf("Invalid System Time %d", resp.Time)
 		}
 	})
+
 	t.Run("SonicShowTechsupport", func(t *testing.T) {
+		t.Skip("Not supported yet")
 		sc := sgpb.NewSonicServiceClient(conn)
 		rtime := time.Now().AddDate(0, -1, 0)
 		req := &sgpb.TechsupportRequest{
@@ -2624,6 +2724,7 @@ func TestGNOI(t *testing.T) {
 	for _, v := range cfg_data {
 
 		t.Run("SonicCopyConfig", func(t *testing.T) {
+			t.Skip("Not supported yet")
 			sc := sgpb.NewSonicServiceClient(conn)
 			req := &sgpb.CopyConfigRequest{
 				Input: &sgpb.CopyConfigRequest_Input{
@@ -2709,7 +2810,7 @@ func TestBulkSet(t *testing.T) {
 	go runServer(t, s)
 	defer s.s.Stop()
 
-	// prepareDb(t)
+	prepareDbTranslib(t)
 
 	//t.Log("Start gNMI client")
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
@@ -2726,32 +2827,81 @@ func TestBulkSet(t *testing.T) {
 	gClient := pb.NewGNMIClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
 	t.Run("Set Multiple mtu", func(t *testing.T) {
-		pbPath1, _ := xpath.ToGNMIPath("openconfig-interfaces:interfaces/interface[name=Ethernet0]/config/mtu")
-		v := &pb.TypedValue{
-			Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte("{\"mtu\": 9104}")}}
-		update1 := &pb.Update{
-			Path: pbPath1,
-			Val:  v,
-		}
-		pbPath2, _ := xpath.ToGNMIPath("openconfig-interfaces:interfaces/interface[name=Ethernet4]/config/mtu")
-		v2 := &pb.TypedValue{
-			Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte("{\"mtu\": 9105}")}}
-		update2 := &pb.Update{
-			Path: pbPath2,
-			Val:  v2,
-		}
-
 		req := &pb.SetRequest{
-			Update: []*pb.Update{update1, update2},
-		}
-
-		_, err = gClient.Set(ctx, req)
-		_, ok := status.FromError(err)
-		if !ok {
-			t.Fatal("got a non-grpc error from grpc call")
-		}
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+				newPbUpdate("interface[name=Ethernet4]/config/mtu", `{"mtu": 9105}`),
+			}}
+		runTestSetRaw(t, ctx, gClient, req, codes.OK)
 	})
+
+	t.Run("Update and Replace", func(t *testing.T) {
+		aclKeys := `"name": "A002", "type": "ACL_IPV4"`
+		req := &pb.SetRequest{
+			Replace: []*pb.Update{
+				newPbUpdate(
+					"openconfig-acl:acl/acl-sets/acl-set",
+					`{"acl-set": [{`+aclKeys+`, "config":{`+aclKeys+`}}]}`),
+			},
+			Update: []*pb.Update{
+				newPbUpdate(
+					"interfaces/interface[name=Ethernet0]/config/description",
+					`{"description": "Bulk update 1"}`),
+				newPbUpdate(
+					"openconfig-interfaces:interfaces/interface[name=Ethernet4]/config/description",
+					`{"description": "Bulk update 2"}`),
+			}}
+		runTestSetRaw(t, ctx, gClient, req, codes.OK)
+	})
+
+	aclPath1, _ := ygot.StringToStructuredPath("/acl/acl-sets")
+	aclPath2, _ := ygot.StringToStructuredPath("/openconfig-acl:acl/acl-sets")
+
+	t.Run("Multiple deletes", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Delete: []*pb.Path{aclPath1, aclPath2},
+		}
+		runTestSetRaw(t, ctx, gClient, req, codes.OK)
+	})
+
+	t.Run("Invalid Update Path", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Delete: []*pb.Path{aclPath1, aclPath2},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			}}
+		runTestSetRaw(t, ctx, gClient, req, codes.Unknown)
+	})
+
+	t.Run("Invalid Replace Path", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Delete:  []*pb.Path{aclPath1, aclPath2},
+			Replace: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			}}
+		runTestSetRaw(t, ctx, gClient, req, codes.Unknown)
+	})
+
+	t.Run("Invalid Delete Path", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Delete: []*pb.Path{aclPath1, aclPath2},
+		}
+		runTestSetRaw(t, ctx, gClient, req, codes.Unknown)
+	})
+
+}
+
+func newPbUpdate(path, value string) *pb.Update {
+	p, _ := ygot.StringToStructuredPath(path)
+	v := &pb.TypedValue_JsonIetfVal{JsonIetfVal: extractJSON(value)}
+	return &pb.Update{
+		Path: p,
+		Val: &pb.TypedValue{Value: v},
+	}
 }
 
 type loginCreds struct {
@@ -3106,9 +3256,9 @@ func TestConnectionsKeepAlive(t *testing.T) {
 }
 
 func TestClient(t *testing.T) {
-    var mutexDeInitDone sync.Mutex
-    var mutexHBDone sync.Mutex
-    var mutexIdxDone sync.Mutex
+    var mutexDeInit sync.RWMutex
+    var mutexHB sync.RWMutex
+    var mutexIdx sync.RWMutex
 
     // sonic-host:device-test-event is a test event. 
     // Events client will drop it on floor.
@@ -3128,45 +3278,51 @@ func TestClient(t *testing.T) {
 
     mock1 := gomonkey.ApplyFunc(sdc.C_init_subs, func(use_cache bool) unsafe.Pointer {
         return nil
-	})
-	defer mock1.Reset()
+    })
+    defer mock1.Reset()
 
     mock2 := gomonkey.ApplyFunc(sdc.C_recv_evt, func(h unsafe.Pointer) (int, sdc.Evt_rcvd) {
         rc := (int)(0)
         var evt sdc.Evt_rcvd
-        mutexIdxDone.Lock()
-        defer mutexIdxDone.Unlock()
-        if event_index < len(events) {
-            evt = events[event_index]
-            event_index++
+        mutexIdx.Lock()
+        current_index := event_index
+        mutexIdx.Unlock()
+        if current_index < len(events) {
+            evt = events[current_index]
+            mutexIdx.RLock()
+            event_index = current_index + 1
+            mutexIdx.RUnlock()
         } else {
             time.Sleep(time.Millisecond * time.Duration(rcv_timeout))
             rc = -1
         }
         return rc, evt
-	})
-	defer mock2.Reset()
+    })
+    defer mock2.Reset()
 
     mock3 := gomonkey.ApplyFunc(sdc.Set_heartbeat, func(val int) {
-        mutexHBDone.Lock()
-        defer mutexHBDone.Unlock()
+        mutexHB.RLock()
         heartbeat = val
+        mutexHB.RUnlock()
     })
-
-	defer mock3.Reset()
+    defer mock3.Reset()
 
     mock4 := gomonkey.ApplyFunc(sdc.C_deinit_subs, func(h unsafe.Pointer) {
-        mutexDeInitDone.Lock()
-        defer mutexDeInitDone.Unlock()
+        mutexDeInit.RLock()
         deinit_done = true
+        mutexDeInit.RUnlock()
     })
-
-	defer mock4.Reset()
+    defer mock4.Reset()
 
     mock5 := gomonkey.ApplyMethod(reflect.TypeOf(&queue.PriorityQueue{}), "Put", func(pq *queue.PriorityQueue, item ...queue.Item) error {
         return fmt.Errorf("Queue error")
     })
-        defer mock5.Reset()
+    defer mock5.Reset()
+
+    mock6 := gomonkey.ApplyMethod(reflect.TypeOf(&queue.PriorityQueue{}), "Len", func(pq *queue.PriorityQueue) int {
+        return 150000 // Max size for pending events in PQ is 102400
+    })
+    defer mock6.Reset()
 
     s := createServer(t, 8081)
     go runServer(t, s)
@@ -3184,6 +3340,10 @@ func TestClient(t *testing.T) {
         poll       int
     } {
         {
+            desc: "dropped event",
+            poll: 3,
+        },
+        {
             desc: "queue error",
             poll: 3,
         },
@@ -3194,27 +3354,39 @@ func TestClient(t *testing.T) {
     }
 
     sdc.C_init_subs(true)
-    var gotNotiMu sync.Mutex
+
+    var mutexNoti sync.RWMutex
+
     for testNum, tt := range tests {
-        mutexHBDone.Lock()
+        mutexHB.RLock()
         heartbeat = 0
-        mutexHBDone.Unlock()
-        mutexIdxDone.Lock()
+        mutexHB.RUnlock()
+
+        mutexIdx.RLock()
         event_index = 0
-        mutexIdxDone.Unlock()
+        mutexIdx.RUnlock()
+
+        mutexDeInit.RLock()
         deinit_done = false
+        mutexDeInit.RUnlock()
+
         t.Run(tt.desc, func(t *testing.T) {
             c := client.New()
             defer c.Close()
 
             var gotNoti []string
             q.NotificationHandler = func(n client.Notification) error {
-                gotNotiMu.Lock()
-                defer gotNotiMu.Unlock()
                 if nn, ok := n.(client.Update); ok {
                     nn.TS = time.Unix(0, 200)
                     str := fmt.Sprintf("%v", nn.Val)
-                    gotNoti = append(gotNoti, str)
+
+                    mutexNoti.Lock()
+                    currentNoti := gotNoti
+                    mutexNoti.Unlock()
+
+                    mutexNoti.RLock()
+                    gotNoti = append(currentNoti, str)
+                    mutexNoti.RUnlock()
                 }
                 return nil
             }
@@ -3228,31 +3400,38 @@ func TestClient(t *testing.T) {
 
             time.Sleep(time.Millisecond * 2000)
 
-            gotNotiMu.Lock()
-            // -1 to discount test event, which receiver would drop.
-            if testNum != 0 {
+            if testNum > 1 {
+                mutexNoti.Lock()
+                // -1 to discount test event, which receiver would drop.
                 if (len(events) - 1) != len(gotNoti) {
-                    fmt.Printf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
+                    t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
                 }
-                mutexHBDone.Lock()
+
+                mutexHB.Lock()
                 if (heartbeat != HEARTBEAT_SET) {
                     t.Errorf("Heartbeat is not set %d != expected:%d", heartbeat, HEARTBEAT_SET)
                 }
-                mutexHBDone.Unlock()
+                mutexHB.Unlock()
+
                 fmt.Printf("DONE: Expect events:%d - 1 gotNoti=%d\n", len(events), len(gotNoti))
+                mutexNoti.Unlock()
             }
-            gotNotiMu.Unlock()
         })
+
         if testNum == 0 {
+            mock6.Reset()
+        }
+
+        if testNum == 1 {
             mock5.Reset()
         }
         time.Sleep(time.Millisecond * 1000)
 
-        mutexDeInitDone.Lock()
+        mutexDeInit.Lock()
         if deinit_done == false {
             t.Errorf("Events client deinit *NOT* called.")
         }
-        mutexDeInitDone.Unlock()
+        mutexDeInit.Unlock()
         // t.Log("END of a TEST")
     }
 

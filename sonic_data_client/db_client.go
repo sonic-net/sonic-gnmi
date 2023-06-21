@@ -78,7 +78,8 @@ var MinSampleInterval = time.Second
 var IntervalTicker = func(interval time.Duration) <-chan time.Time {
 	return time.After(interval)
 }
-
+const maxRetries = 3
+const retryDelay = 50 * time.Millisecond
 var NeedMock bool = false
 var intervalTickerMutex sync.Mutex
 
@@ -137,6 +138,13 @@ func (val Value) Compare(other queue.Item) int {
 		return 0
 	}
 	return -1
+}
+
+func (val Value) GetTimestamp() int64 {
+	if n := val.GetNotification(); n != nil {
+		return n.GetTimestamp()
+	}
+	return val.Value.GetTimestamp()
 }
 
 type DbClient struct {
@@ -363,6 +371,12 @@ func ValToResp(val Value) (*gnmipb.SubscribeResponse, error) {
 		// In case the subscribe/poll routines encountered fatal error
 		if fatal := val.GetFatal(); fatal != "" {
 			return nil, fmt.Errorf("%s", fatal)
+		}
+
+		// In case the client returned a full gnmipb.Notification object
+		if n := val.GetNotification(); n != nil {
+			return &gnmipb.SubscribeResponse{
+				Response: &gnmipb.SubscribeResponse_Update{Update: n}}, nil
 		}
 
 		return &gnmipb.SubscribeResponse{
@@ -732,11 +746,21 @@ func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 	}
 
 	for idx, dbkey := range dbkeys {
-		fv, err = redisDb.HGetAll(dbkey).Result()
-		if err != nil {
-			log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
-			continue
-			//return err
+		for i := 0; i < maxRetries; i++ {
+			fv, err = redisDb.HGetAll(dbkey).Result()
+			if err != nil {
+				if i == maxRetries - 1 {
+					log.V(2).Infof("redis HGetAll failed with 3 times retry for %v, dbkey %s, err %v", tblPath, dbkey, err)
+					fmt.Printf("redis HGetAll failed with 3 times retry for %v, dbkey %s, err %v", tblPath, dbkey, err)
+					return err
+				}
+				time.Sleep(retryDelay)
+				log.V(2).Infof("redis HGetAll failed and retry for %v, dbkey %s, err %v", tblPath, dbkey, err)
+				fmt.Printf("redis HGetAll failed and retry for %v, dbkey %s, err %v", tblPath, dbkey, err)
+				continue
+			} else {
+				break
+			}
 		}
 
 		if tblPath.jsonTableKey != "" { // If jsonTableKey was prepared, use it
