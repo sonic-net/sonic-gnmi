@@ -91,6 +91,24 @@ endif
 swsscommon_wrap:
 	make -C swsscommon
 
+.SECONDEXPANSION:
+
+PROTOC_PATH := $(PATH):$(GOBIN)
+PROTOC_OPTS := -I$(CURDIR)/vendor -I/usr/local/include -I/usr/include
+
+# Generate following go & grpc bindings using teh legacy protoc-gen-go
+PROTO_GO_BINDINGS += proto/sonic_internal.pb.go
+PROTO_GO_BINDINGS += proto/gnoi/sonic_debug.pb.go
+
+$(PROTO_GO_BINDINGS): $$(patsubst %.pb.go,%.proto,$$@) | $(GOBIN)/protoc-gen-go
+	PATH=$(PROTOC_PATH) protoc -I$(@D) $(PROTOC_OPTS) --go_out=plugins=grpc:$(@D) $<
+
+$(GOBIN)/protoc-gen-go:
+	cd $$(mktemp -d) && \
+	$(GO) mod init protoc && \
+	$(GO) install github.com/golang/protobuf/protoc-gen-go
+
+
 DBCONFG = $(DBDIR)/database_config.json
 ENVFILE = build/test/env.txt
 TESTENV = $(shell cat $(ENVFILE))

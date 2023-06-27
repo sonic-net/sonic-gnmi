@@ -99,6 +99,20 @@ func loadDBNotStrict(t *testing.T, rclient *redis.Client, mpi map[string]interfa
 	}
 }
 
+func createClient(t *testing.T, port int) *grpc.ClientConn {
+	t.Helper()
+	cred := credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})
+	conn, err := grpc.Dial(
+		fmt.Sprintf("127.0.0.1:%d", port),
+		grpc.WithTransportCredentials(cred),
+	)
+	if err != nil {
+		t.Fatalf("Dialing to :%d failed: %v", port, err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	return conn
+}
+
 func createServer(t *testing.T, port int64) *Server {
 	t.Helper()
 	certificate, err := testcert.NewCert()
