@@ -3255,12 +3255,12 @@ func TestConnectionsKeepAlive(t *testing.T) {
     }
 }
 
-func TestConnectionFailure(t *testing.T) {
+func TestConnectionRedisFailure(t *testing.T) {
     s := createServer(t, 8081)
     go runServer(t, s)
     defer s.s.Stop()
 
-    tt := struct {
+    test := struct {
         desc    string
         q       client.Query
         want    []client.Notification
@@ -3284,15 +3284,15 @@ func TestConnectionFailure(t *testing.T) {
     defer rclient.Close()
 
     prepareStateDb(t, namespace)
-    t.Run(tt.desc, func(t *testing.T) {
-        q := tt.q
+    t.Run(test.desc, func(t *testing.T) {
+        q := test.q
         q.Addrs = []string{"127.0.0.1:8081"}
         c := client.New()
 
-        sdc.MockFail = 1
         wg := new(sync.WaitGroup)
         wg.Add(1)
 
+        sdc.MockFail = 1
         go func() {
             defer wg.Done()
             if err := c.Subscribe(context.Background(), q); err != nil {
@@ -3301,7 +3301,7 @@ func TestConnectionFailure(t *testing.T) {
         }()
 
         wg.Wait()
-
+        sdc.MockFail = 0
         resultMap, err := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
 
         if resultMap == nil {
@@ -3316,7 +3316,7 @@ func TestConnectionFailure(t *testing.T) {
                 t.Errorf("key is expected to contain correct query, received: %s", key)
             }
         }
-        sdc.MockFail = 0
+
         c.Close()
     })
 }

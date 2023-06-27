@@ -747,7 +747,7 @@ func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 
 	if MockFail == 1 {
 		MockFail++
-		fmt.Println("Mock sleep for redis timeout")
+		fmt.Printf("mock sleep for redis timeout\n")
 		time.Sleep(30 * time.Second)
 	}
 
