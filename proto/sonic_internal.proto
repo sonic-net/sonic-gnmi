@@ -31,4 +31,7 @@ message Value {
 
   // fatal error happened.
   string fatal = 6;
+
+  // Notification to be used in place of 1-4 if present
+  gnmi.Notification notification = 7;
 }
