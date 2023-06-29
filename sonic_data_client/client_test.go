@@ -1,6 +1,7 @@
 package client
 
 import (
+    "io"
     "sync"
     "errors"
 	"testing"
@@ -329,7 +330,7 @@ func mockGetFunc() ([]byte, error) {
 	return nil, errors.New("mock error")
 }
 
-func TestNonDbClientGetError2(t *testing.T) {
+func TestNonDbClientGetError(t *testing.T) {
 	var gnmipbPath *gnmipb.Path = &gnmipb.Path{
 		Element: []string{"mockPath"},
 	}
@@ -345,7 +346,7 @@ func TestNonDbClientGetError2(t *testing.T) {
 
 	var w *sync.WaitGroup
 	_, err := client.Get(w)
-	if err == nil {
+	if errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Errorf("Expected error from NonDbClient.Get, got nil")
 	}
 }
