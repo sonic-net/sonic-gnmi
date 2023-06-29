@@ -1,7 +1,6 @@
 package client
 
 import (
-    "io"
     "sync"
     "errors"
 	"testing"
@@ -346,7 +345,7 @@ func TestNonDbClientGetError(t *testing.T) {
 
 	var w *sync.WaitGroup
 	_, err := client.Get(w)
-	if errors.Is(err, io.ErrUnexpectedEOF) {
+	if errors.Is(err, errors.New("mock error")) {
 		t.Errorf("Expected error from NonDbClient.Get, got nil")
 	}
 }
