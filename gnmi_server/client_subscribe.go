@@ -10,6 +10,7 @@ import (
 	log "github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
@@ -128,21 +129,21 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		return grpc.Errorf(codes.InvalidArgument, "first message must be SubscriptionList: %q", query)
 	}
 
-	var target string
 	prefix := c.subscribe.GetPrefix()
-	if prefix == nil {
-		return grpc.Errorf(codes.Unimplemented, "No target specified in prefix")
-	} else {
-		target = prefix.GetTarget()
-		// TODO: add data client support for fetching non-db data
-		if target == "" {
-			return grpc.Errorf(codes.Unimplemented, "Empty target data not supported yet")
-		}
-	}
+	origin := prefix.GetOrigin()
+	target := prefix.GetTarget()
 
 	paths, err := c.populateDbPathSubscrition(c.subscribe)
 	if err != nil {
 		return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
+	}
+
+	if o, err := ParseOrigin(paths); err != nil {
+		return err // origin conflict within paths
+	} else if len(origin) == 0 {
+		origin = o // Use origin from paths if not given in prefix
+	} else if len(o) != 0 && o != origin {
+		return status.Error(codes.InvalidArgument, "Origin conflict between prefix and paths")
 	}
 
 	if connectionKey, valid = connectionManager.Add(c.addr, query.String()); !valid {
@@ -155,7 +156,18 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 
 	mode := c.subscribe.GetMode()
 
-	if target == "OTHERS" {
+	log.V(3).Infof("mode=%v, origin=%q, target=%q", mode, origin, target)
+
+	if origin == "openconfig" {
+		dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions, sdc.TranslWildcardOption{})
+	} else if len(origin) != 0 {
+		return grpc.Errorf(codes.Unimplemented, "Unsupported origin: %s", origin)
+	} else if target == "" {
+		// This and subsequent conditions handle target based path identification
+		// when origin == "". As per the spec it should have been treated as "openconfig".
+		// But we take a deviation and stick to legacy logic for backward compatibility
+		return grpc.Errorf(codes.Unimplemented, "Empty target data not supported")
+	} else if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
 	} else if ((target == "EVENTS") && (mode == gnmipb.SubscriptionList_STREAM)) {
 		dc, err = sdc.NewEventClient(paths, prefix, c.logLevel)
@@ -163,7 +175,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		dc, err = sdc.NewDbClient(paths, prefix)
 	} else {
 		/* For any other target or no target create new Transl Client. */
-		dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions)
+		dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions, sdc.TranslWildcardOption{})
 	}
 
 	if err != nil {

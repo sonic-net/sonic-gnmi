@@ -1,6 +1,8 @@
 package client
 
 import (
+    "sync"
+    "errors"
 	"testing"
 	"os"
 	"reflect"
@@ -320,5 +322,30 @@ func TestParseTarget(t *testing.T) {
 	target, err = ParseTarget("INVALID_DB", test_paths)
 	if err == nil {
 		t.Errorf("ParseTarget should fail for conflict")
+	}
+}
+
+func mockGetFunc() ([]byte, error) {
+	return nil, errors.New("mock error")
+}
+
+func TestNonDbClientGetError(t *testing.T) {
+	var gnmipbPath *gnmipb.Path = &gnmipb.Path{
+		Element: []string{"mockPath"},
+	}
+
+	path2Getter := map[*gnmipb.Path]dataGetFunc{
+		gnmipbPath: mockGetFunc,
+	}
+
+	// Create a NonDbClient with the mocked dataGetFunc
+	client := &NonDbClient{
+		path2Getter: path2Getter,
+	}
+
+	var w *sync.WaitGroup
+	_, err := client.Get(w)
+	if errors.Is(err, errors.New("mock error")) {
+		t.Errorf("Expected error from NonDbClient.Get, got nil")
 	}
 }
