@@ -26,15 +26,13 @@ ifeq ($(ENABLE_NATIVE_WRITE),y)
 BLD_TAGS := $(BLD_TAGS) gnmi_native_write
 endif
 
-# Define a variable that holds the value of the `--enable-dialout` option
-ENABLE_DIALOUT := $(filter --enable-dialout=%,$(MAKEFLAGS))
-ENABLE_DIALOUT_VALUE := $(subst --enable-dialout=,,$(ENABLE_DIALOUT))
-ifeq ($(strip $(ENABLE_DIALOUT_VALUE)),)
-ENABLE_DIALOUT_VALUE = 1
-endif
-
 ifneq ($(BLD_TAGS),)
 BLD_FLAGS := -tags "$(strip $(BLD_TAGS))"
+endif
+
+ENABLE_DIALOUT_VALUE := 1
+ifeq ($(ENABLE_DIALOUT),n)
+ENABLE_DIALOUT_VALUE = 0
 endif
 
 GO_DEPS := vendor/.done
