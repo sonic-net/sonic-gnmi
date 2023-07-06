@@ -17,16 +17,25 @@ pr:
     - 202???
     - 201???
 
+variables:
+  - name: BUILD_BRANCH
+    ${{ if eq(variables['Build.Reason'], 'PullRequest') }}:
+      value: $(System.PullRequest.TargetBranch)
+    ${{ else }}:
+      value: $(Build.SourceBranchName)
+
 resources:
   repositories:
   - repository: sonic-mgmt-common
     type: github
     name: sonic-net/sonic-mgmt-common
     endpoint: sonic-net
+    ref: refs/heads/$(BUILD_BRANCH)
   - repository: sonic-swss-common
     type: github
     name: sonic-net/sonic-swss-common
     endpoint: sonic-net
+    ref: refs/heads/$(BUILD_BRANCH)
 
 stages:
 - stage: Build
@@ -71,16 +80,6 @@ stages:
         runVersion: 'latestFromBranch'
         runBranch: 'refs/heads/master'
       displayName: "Download sonic buildimage"
-
-    - task: DownloadPipelineArtifact@2
-      inputs:
-        source: specific
-        project: build
-        pipeline: 127
-        artifact: sonic-mgmt-common
-        runVersion: 'latestFromBranch'
-        runBranch: 'refs/heads/master'
-      displayName: "Download sonic-mgmt-common"
 
     - script: |
         # PYTEST
