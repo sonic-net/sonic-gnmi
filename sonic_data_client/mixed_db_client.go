@@ -30,7 +30,11 @@ import (
 
 const REDIS_SOCK string = "/var/run/redis/redis.sock"
 const APPL_DB int = 0
+const APPL_DB_NAME string = "APPL_DB"
+const DASH_TABLE_PREFIX string = "DASH_"
 const SWSS_TIMEOUT uint = 0
+const MAX_RETRY_COUNT uint = 5
+const RETYRY_DELAY_MILLISECOND uint = 100
 const CHECK_POINT_PATH string = "/etc/sonic"
 
 const (
@@ -59,11 +63,35 @@ type MixedDbClient struct {
 	workPath string
 	jClient *JsonClient
 	applDB swsscommon.DBConnector
+	zmqClient swsscommon.ZmqClient
 	tableMap map[string]swsscommon.ProducerStateTable
 
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
 	w      *sync.WaitGroup // wait for all sub go routines to finish
 	mu     sync.RWMutex    // Mutex for data protection among routines for DbClient
+}
+
+var mixedDbClientMap = map[string]MixedDbClient{}
+
+func getMixedDbClient(zmqAddress string) (MixedDbClient) {
+	client, ok := mixedDbClientMap[zmqAddress]
+	if !ok {
+		client = MixedDbClient {
+			applDB : swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
+			tableMap : map[string]swsscommon.ProducerStateTable{},
+		}
+
+		// enable ZMQ by zmqAddress parameter
+		if zmqAddress != "" {
+			client.zmqClient = swsscommon.NewZmqClient(zmqAddress)
+		} else {
+			client.zmqClient = nil
+		}
+		
+		mixedDbClientMap[zmqAddress] = client
+	}
+
+	return client
 }
 
 func parseJson(str []byte) (interface{}, error) {
@@ -98,12 +126,70 @@ func ParseTarget(target string, paths []*gnmipb.Path) (string, error) {
 	return target, nil
 }
 
-func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]string) error {
+func (c *MixedDbClient) GetTable(table string) (swsscommon.ProducerStateTable) {
 	pt, ok := c.tableMap[table]
 	if !ok {
-		pt = swsscommon.NewProducerStateTable(c.applDB, table)
+		if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
+			log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
+			pt = swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)
+		} else {
+			log.V(2).Infof("Create ProducerStateTable:  %s", table)
+			pt = swsscommon.NewProducerStateTable(c.applDB, table)
+		}
+
 		c.tableMap[table] = pt
 	}
+
+	return pt
+}
+
+func CatchException(err *error) {
+    if r := recover(); r != nil {
+        *err = fmt.Errorf("%v", r)
+    }
+}
+
+func ProducerStateTableSetWrapper(pt swsscommon.ProducerStateTable, key string, value swsscommon.FieldValuePairs) (err error) {
+	// convert panic to error
+	defer CatchException(&err)
+	pt.Set(key, value, "SET", "")
+	return
+}
+
+func ProducerStateTableDeleteWrapper(pt swsscommon.ProducerStateTable, key string) (err error) {
+	// convert panic to error
+	defer CatchException(&err)
+	pt.Delete(key, "DEL", "")
+	return
+}
+
+type ActionNeedRetry func() error
+
+func RetryHelper(zmqClient swsscommon.ZmqClient, action ActionNeedRetry) {
+	var retry uint = 0
+	var retry_delay = time.Duration(RETYRY_DELAY_MILLISECOND) * time.Millisecond
+	ConnectionResetErr := "connection_reset"
+	for {
+		err := action()
+		if err != nil {
+			if (err.Error() == ConnectionResetErr && retry <= MAX_RETRY_COUNT) {
+				log.V(6).Infof("RetryHelper: connection reset, reconnect and retry later")
+				time.Sleep(retry_delay)
+
+				zmqClient.Connect()
+				retry_delay *= time.Duration(2)
+				retry++
+				continue
+			}
+
+			panic(err)
+		}
+
+		return
+	}
+}
+
+func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]string) error {
 	vec := swsscommon.NewFieldValuePairs()
 	defer swsscommon.DeleteFieldValuePairs(vec)
 	for k, v := range values {
@@ -111,22 +197,28 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 		vec.Add(pair)
 		swsscommon.DeleteFieldValuePair(pair)
 	}
-	pt.Set(key, vec, "SET", "")
+
+	pt := c.GetTable(table)
+	RetryHelper(
+		c.zmqClient,
+		func () error {
+		return ProducerStateTableSetWrapper(pt, key, vec)
+	})
 	return nil
 }
 
 func (c *MixedDbClient) DbDelTable(table string, key string) error {
-	pt, ok := c.tableMap[table]
-	if !ok {
-		pt = swsscommon.NewProducerStateTable(c.applDB, table)
-		c.tableMap[table] = pt
-	}
-	pt.Delete(key, "DEL", "")
+	pt := c.GetTable(table)
+	RetryHelper(
+		c.zmqClient,
+		func () error {
+		return ProducerStateTableDeleteWrapper(pt, key)
+	})
+
 	return nil
 }
 
-func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string) (Client, error) {
-	var client MixedDbClient
+func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, zmqAddress string) (Client, error) {
 	var err error
 
 	// Testing program may ask to use redis local tcp connection
@@ -134,6 +226,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string) 
 		useRedisTcpClient()
 	}
 
+	var client = getMixedDbClient(zmqAddress)
 	client.prefix = prefix
 	client.target = ""
 	client.origin = origin
@@ -159,8 +252,6 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string) 
 	}
 	client.paths = paths
 	client.workPath = common_utils.GNMI_WORK_PATH
-	client.applDB = swsscommon.NewDBConnector(APPL_DB, REDIS_SOCK, SWSS_TIMEOUT)
-	client.tableMap = map[string]swsscommon.ProducerStateTable{}
 
 	return &client, nil
 }
@@ -1059,10 +1150,7 @@ func (c *MixedDbClient) Capabilities() []gnmipb.ModelData {
 }
 
 func (c *MixedDbClient) Close() error {
-	for _, pt := range c.tableMap {
-		swsscommon.DeleteProducerStateTable(pt)
-	}
-	swsscommon.DeleteDBConnector(c.applDB)
+	// Do nothing here, because MixedDbClient will be cache in mixedDbClientMap and reuse
 	return nil
 }
 
@@ -1071,4 +1159,3 @@ func (c *MixedDbClient) SentOne(val *Value) {
 
 func (c *MixedDbClient) FailedSend() {
 }
-
