@@ -407,23 +407,30 @@ func TestZmqReconnect(t *testing.T) {
 
 func TestRetryHelper(t *testing.T) {
 	// create ZMQ server
-	zmqServer := swsscommon.NewZmqServer("tcp://*:2234")
+	zmqServer := swsscommon.NewZmqServer("tcp://*:1234")
 
 	// create ZMQ client side
-	zmqAddress := "tcp://127.0.0.1:2234"
+	zmqAddress := "tcp://127.0.0.1:1234"
 	zmqClient := swsscommon.NewZmqClient(zmqAddress)
-
+	returnError := true
+	exeCount := 0
     RetryHelper(
 		zmqClient,
 		func () (err error) {
-			if !zmqClient.IsConnected() {
+			exeCount++
+			if returnError {
+				returnError = false
 				return fmt.Errorf("connection_reset")
 			}
 			return nil
 	})
 
-	if !zmqClient.IsConnected() {
+	if exeCount == 1 {
 		t.Errorf("RetryHelper does not retry")
+	}
+
+	if exeCount > 2 {
+		t.Errorf("RetryHelper retry too much")
 	}
 
 	swsscommon.DeleteZmqServer(zmqServer)
