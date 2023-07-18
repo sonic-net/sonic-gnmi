@@ -407,10 +407,10 @@ func TestZmqReconnect(t *testing.T) {
 
 func TestRetryHelper(t *testing.T) {
 	// create ZMQ server
-	zmqServer := swsscommon.NewZmqServer("tcp://*:1234")
+	zmqServer := swsscommon.NewZmqServer("tcp://*:2234")
 
 	// create ZMQ client side
-	zmqAddress := "tcp://127.0.0.1:1234"
+	zmqAddress := "tcp://127.0.0.1:2234"
 	zmqClient := swsscommon.NewZmqClient(zmqAddress)
 	returnError := true
 	exeCount := 0
