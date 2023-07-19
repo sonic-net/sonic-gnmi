@@ -2960,14 +2960,15 @@ func TestOnChangeNoMissingKey(t *testing.T) {
     go runServer(t, s)
     defer s.s.Stop()
 
-    q := createQueryOrFail(t, pb.SubscriptionList_STREAM, "STATE_DB",
+    q := createQueryOrFail(t,
+         pb.SubscriptionList_STREAM,
+	 "STATE_DB",
          []subscriptionQuery{
              {
-                 {
-                     Query: "NEIGH_STATE_TABLE",
-		     SubMode: pb.SubcriptionMode_ON_CHANGE,
-	         },
-             },
+                 Query: []string{"NEIGH_STATE_TABLE"},
+		 SubMode: pb.SubscriptionMode_ON_CHANGE,
+	     },
+         },
          false)
 
     q.Addrs = []string{"127.0.0.1:8081"}
@@ -3007,7 +3008,9 @@ func TestOnChangeNoMissingKey(t *testing.T) {
                 }
             }()
             time.Sleep(time.Millisecond * 2000)
-	    t.Errorf(gotNoti)
+	    for _, noti := range gotNoti {
+                t.Errorf(noti)
+            }
         })
     }
 }
