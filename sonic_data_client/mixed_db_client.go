@@ -35,6 +35,7 @@ const DASH_TABLE_PREFIX string = "DASH_"
 const SWSS_TIMEOUT uint = 0
 const MAX_RETRY_COUNT uint = 5
 const RETYRY_DELAY_MILLISECOND uint = 100
+const RETYRY_DELAY_FACTOR uint = 2
 const CHECK_POINT_PATH string = "/etc/sonic"
 
 const (
@@ -177,7 +178,7 @@ func RetryHelper(zmqClient swsscommon.ZmqClient, action ActionNeedRetry) {
 				time.Sleep(retry_delay)
 
 				zmqClient.Connect()
-				retry_delay *= time.Duration(2)
+				retry_delay *= time.Duration(RETYRY_DELAY_FACTOR)
 				retry++
 				continue
 			}
@@ -200,20 +201,20 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 
 	pt := c.GetTable(table)
 	RetryHelper(
-		c.zmqClient,
-		func () error {
-		return ProducerStateTableSetWrapper(pt, key, vec)
-	})
+				c.zmqClient,
+				func () error {
+					return ProducerStateTableSetWrapper(pt, key, vec)
+				})
 	return nil
 }
 
 func (c *MixedDbClient) DbDelTable(table string, key string) error {
 	pt := c.GetTable(table)
 	RetryHelper(
-		c.zmqClient,
-		func () error {
-		return ProducerStateTableDeleteWrapper(pt, key)
-	})
+				c.zmqClient,
+				func () error {
+					return ProducerStateTableDeleteWrapper(pt, key) 
+				})
 
 	return nil
 }
