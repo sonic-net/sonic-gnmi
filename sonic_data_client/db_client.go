@@ -1089,7 +1089,7 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 						continue
 					}
 					tblPath.tableKey = subscr.Channel[prefixLen:]
-					err = tableData2Msi(&tblPath, false, nil, &newMsi)
+					err = tableData2Msi(&tblPath, true, nil, &newMsi)
 					if err != nil {
 						enqueueFatalMsg(c, err.Error())
 						return

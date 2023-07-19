@@ -2955,6 +2955,63 @@ func TestAuthCapabilities(t *testing.T) {
 	}
 }
 
+func TestOnChangeNoMissingKey(t *testing.T) {
+    s := createServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    q := createQueryOrFail(t, pb.SubscriptionList_STREAM, "STATE_DB",
+         []subscriptionQuery{
+             {
+                 {
+                     Query: "NEIGH_STATE_TABLE",
+		     SubMode: pb.SubcriptionMode_ON_CHANGE,
+	         },
+             },
+         false)
+
+    q.Addrs = []string{"127.0.0.1:8081"}
+
+    tests := []struct {
+        desc    string
+        want    []client.Notification
+    }{
+        {
+            desc: "On change test for NEIGH_STATE_TABLE",
+            want: []client.Notification{
+                client.Connected{},
+                client.Sync{},
+            },
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.desc, func(t *testing.T) {
+            c := client.New()
+	    defer c.Close()
+
+	    var gotNoti []string
+	    q.NotificationHandler = func(n client.Notification) error {
+                if nn, ok := n.(client.Update); ok {
+                    nn.TS = time.Unix(0, 200)
+                    str := fmt.Sprintf("%v", nn.Val)
+                    currentNoti := gotNoti
+                    gotNoti = append(currentNoti, str)
+		}
+		return nil
+	    }
+
+            go func() {
+                if err := c.Subscribe(context.Background(), q); err != nil {
+                    t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+                }
+            }()
+            time.Sleep(time.Millisecond * 2000)
+	    t.Errorf(gotNoti)
+        })
+    }
+}
+
 func TestCPUUtilization(t *testing.T) {
     mock := gomonkey.ApplyFunc(sdc.PollStats, func() {
 	var i uint64
