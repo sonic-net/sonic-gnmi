@@ -353,10 +353,18 @@ func TestNonDbClientGetError(t *testing.T) {
 	}
 }
 
+/*
+	Helper method for receive data from ZmqConsumerStateTable
+		consumer: Receive data from consumer
+		return:
+			true: data received
+			false: not receive any data after retry
+*/
 func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) (bool) {
 	receivedData := swsscommon.NewKeyOpFieldsValuesQueue()
 	retry := 0;
 	for {
+		// sender's ZMQ may disconnect, wait and retry for reconnect 
 		time.Sleep(time.Duration(1000) * time.Millisecond)
 		consumer.Pops(receivedData)
 		if receivedData.Size() == 0 {
