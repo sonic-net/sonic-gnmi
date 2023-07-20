@@ -70,7 +70,11 @@ stages:
         artifact: sonic-buildimage.vs
         runVersion: 'latestFromBranch'
         runBranch: 'refs/heads/master'
-      displayName: "Download sonic buildimage"
+        patterns: |
+            target/debs/bullseye/libyang-*.deb
+            target/debs/bullseye/libnl-*.deb
+            target/debs/bullseye/libhiredis-*.deb
+      displayName: "Download bullseye debs"
 
     - task: DownloadPipelineArtifact@2
       inputs:
