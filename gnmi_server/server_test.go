@@ -2959,32 +2959,45 @@ func TestOnChangeNoMissingKey(t *testing.T) {
     s := createServer(t, 8081)
     go runServer(t, s)
     defer s.s.Stop()
-
-    q := createQueryOrFail(t,
-         pb.SubscriptionList_STREAM,
-	 "STATE_DB",
-         []subscriptionQuery{
-             {
-                 Query: []string{"NEIGH_STATE_TABLE"},
-		 SubMode: pb.SubscriptionMode_ON_CHANGE,
-	     },
-         },
-         false)
-
+    q := createCountersDbQueryOnChangeMode(t, "COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS")
     q.Addrs = []string{"127.0.0.1:8081"}
 
     tests := []struct {
-        desc    string
-        want    []client.Notification
+        desc      string
+	updates   []tablePathValue
+        wantNoti  []client.Notification
     }{
         {
-            desc: "On change test for NEIGH_STATE_TABLE",
-            want: []client.Notification{
+            desc: "Check reponse for update notification for COUNTERS/Ethernet68/SAI_PORT_STAT_PFC_7_RX_PKTS",
+            updates: []tablePathValue{
+                {
+                    dbName:    "COUNTERS_DB",
+                    tableName: "COUNTERS",
+                    tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+                    delimitor: ":",
+                    field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+                    value:     "3", // be changed to 3 from 2
+                },
+                { //Same value set should not trigger multiple updates
+                    dbName:    "COUNTERS_DB",
+                    tableName: "COUNTERS",
+                    tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+                    delimitor: ":",
+                    field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+                    value:     "3", // be changed to 3 from 2
+                },
+            },
+            wantNoti: []client.Notification{
                 client.Connected{},
+                client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
                 client.Sync{},
+                client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
             },
         },
     }
+    rclient := getRedisClient(t, namespace)
+    defer rclient.Close()
+    prepareDb(t, namespace)
 
     for _, tt := range tests {
         t.Run(tt.desc, func(t *testing.T) {
@@ -2992,13 +3005,16 @@ func TestOnChangeNoMissingKey(t *testing.T) {
 	    defer c.Close()
 
 	    var gotNoti []string
+	    var mutexGotNoti sync.Mutex
 	    q.NotificationHandler = func(n client.Notification) error {
+                mutexGotNoti.Lock()
                 if nn, ok := n.(client.Update); ok {
                     nn.TS = time.Unix(0, 200)
                     str := fmt.Sprintf("%v", nn.Val)
                     currentNoti := gotNoti
                     gotNoti = append(currentNoti, str)
 		}
+                mutexGotNoti.Unlock()
 		return nil
 	    }
 
@@ -3007,7 +3023,17 @@ func TestOnChangeNoMissingKey(t *testing.T) {
                     t.Errorf("c.Subscribe(): got error %v, expected nil", err)
                 }
             }()
-            time.Sleep(time.Millisecond * 2000)
+
+            time.Sleep(time.Millisecond * 500)
+
+	    for _, update := range tt.updates {
+                rclient.HSet(update.tableName+update.delimitor+update.tableKey, update.field, update.value)
+            }
+
+	    time.Sleep(time.Millisecond * 500)
+
+            mutexGotNoti.Lock()
+            defer mutexGotNoti.Unlock()
 	    for _, noti := range gotNoti {
                 t.Errorf(noti)
             }
