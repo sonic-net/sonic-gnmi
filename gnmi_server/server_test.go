@@ -2995,6 +2995,7 @@ func TestOnChangeNoMissingKey(t *testing.T) {
             },
         },
     }
+    namespace := sdcfg.GetDbDefaultNamespace()
     rclient := getRedisClient(t, namespace)
     defer rclient.Close()
     prepareDb(t, namespace)
