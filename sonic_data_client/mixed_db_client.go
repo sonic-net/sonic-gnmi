@@ -34,8 +34,8 @@ const APPL_DB_NAME string = "APPL_DB"
 const DASH_TABLE_PREFIX string = "DASH_"
 const SWSS_TIMEOUT uint = 0
 const MAX_RETRY_COUNT uint = 5
-const RETYRY_DELAY_MILLISECOND uint = 100
-const RETYRY_DELAY_FACTOR uint = 2
+const RETRY_DELAY_MILLISECOND uint = 100
+const RETRY_DELAY_FACTOR uint = 2
 const CHECK_POINT_PATH string = "/etc/sonic"
 
 const (
@@ -168,7 +168,7 @@ type ActionNeedRetry func() error
 
 func RetryHelper(zmqClient swsscommon.ZmqClient, action ActionNeedRetry) {
 	var retry uint = 0
-	var retry_delay = time.Duration(RETYRY_DELAY_MILLISECOND) * time.Millisecond
+	var retry_delay = time.Duration(RETRY_DELAY_MILLISECOND) * time.Millisecond
 	ConnectionResetErr := "connection_reset"
 	for {
 		err := action()
@@ -178,7 +178,7 @@ func RetryHelper(zmqClient swsscommon.ZmqClient, action ActionNeedRetry) {
 				time.Sleep(retry_delay)
 
 				zmqClient.Connect()
-				retry_delay *= time.Duration(RETYRY_DELAY_FACTOR)
+				retry_delay *= time.Duration(RETRY_DELAY_FACTOR)
 				retry++
 				continue
 			}
