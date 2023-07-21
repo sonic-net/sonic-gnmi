@@ -474,6 +474,14 @@ func prepareStateDb(t *testing.T, namespace string) {
 	defer rclient.Close()
 	rclient.FlushDB()
 	rclient.HSet("SWITCH_CAPABILITY|switch", "test_field", "test_value")
+	fileName := "../testdata/NEIGH_STATE_TABLE.txt"
+	neighStateTableByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_neigh := loadConfig(t, "", neighStateTableByte)
+	loadDB(t, rclient, mpi_neigh)
+
 }
 
 func prepareDb(t *testing.T, namespace string) {
@@ -666,6 +674,19 @@ func createEventsQuery(t *testing.T, paths ...string) client.Query {
 		false)
 }
 
+func createStateDbQueryOnChangeMode(t *testing.T, paths ...string) client.Query {
+	return createQueryOrFail(t,
+	        pb.SubscriptionList_STREAM,
+		"STATE_DB",
+		[]subscriptionQuery{
+			{
+				Query:   paths,
+				SubMode: pb.SubscriptionMode_ON_CHANGE,
+			},
+		},
+		false)
+}
+
 // createCountersDbQueryOnChangeMode creates a query with ON_CHANGE mode.
 func createCountersDbQueryOnChangeMode(t *testing.T, paths ...string) client.Query {
 	return createQueryOrFail(t,
@@ -708,13 +729,15 @@ func createCountersTableSetUpdate(tableKey string, fieldName string, fieldValue 
 }
 
 // createCountersTableDeleteUpdate creates a DEL request on the COUNTERS table.
-func createCountersTableDeleteUpdate(tableKey string) tablePathValue {
+func createCountersTableDeleteUpdate(tableKey string, fieldName string) tablePathValue {
 	return tablePathValue{
 		dbName:    "COUNTERS_DB",
 		tableName: "COUNTERS",
 		tableKey:  tableKey,
 		delimitor: ":",
-		op:        "del",
+		field:     fieldName,
+		value:     "",
+		op:        "hdel",
 	}
 }
 
@@ -1926,20 +1949,6 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
-			desc: "stream query for table key Ethernet* with Ethernet68 table key deleted",
-			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "Ethernet*"),
-			updates: []tablePathValue{
-				createCountersTableSetUpdate("oid:0x1000000000039", "test_field", "test_value"),
-				createCountersTableDeleteUpdate("oid:0x1000000000039")
-			},
-			wantNoti: []client.Notification{
-				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
-				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson}, //go back to original after deletion of Ethernet68 key
-			},
-		},
-		{
 			desc: "poll query for table COUNTERS_PORT_NAME_MAP with new field test_field",
 			poll: 3,
 			q: client.Query{
@@ -2554,8 +2563,6 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				switch update.op {
 				case "hdel":
 					rclient.HDel(update.tableName+update.delimitor+update.tableKey, update.field)
-				case "del":
-					rclient.Del(update.tableName+update.delimitor+update.tableKey)
 				case "intervaltick":
 					// This is not a DB update but a request to trigger sample interval
 				default:
@@ -3209,6 +3216,87 @@ func TestConnectionDataSet(t *testing.T) {
             }
 
             c.Close()
+        })
+    }
+}
+
+func TestTableKeyOnDeletion(t *testing.T) {
+    s := createKeepAliveServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    fileName := "../testdata/NEIGH_STATE_TABLE_MAP.txt"
+    neighStateTableByte, err := ioutil.ReadFile(fileName)
+    if err != nil {
+        t.Fatalf("read file %v err: %v", fileName, err)
+    }
+    var neighStateTableJson interface{}
+    json.Unmarshal(neighStateTableByte, &neighStateTableJson)
+
+    fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion.txt"
+    neighStateTableDeletedByte, err := ioutil.ReadFile(fileName)
+    if err != nil {
+        t.Fatalf("read file %v err: %v", fileName, err)
+    }
+    var neighStateTableDeletedJson interface{}
+    json.Unmarshal(neighStateTableDeletedByte, &neighStateTableDeletedJson)
+
+    namespace := sdcfg.GetDbDefaultNamespace()
+    rclient := getRedisClientN(t, 6, namespace)
+    defer rclient.Close()
+    prepareStateDb(t, namespace)
+
+    tests := []struct {
+        desc      string
+        q         client.Query
+        wantNoti  []client.Notification
+    }{
+        {
+            desc: "Testing deletion of NEIGH_STATE_TABLE:10.0.0.57",
+	    q: createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
+            wantNoti: []client.Notification {
+                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
+                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson},
+            },
+        },
+    }
+
+    var mutexNoti sync.Mutex
+
+    for _, tt := range tests {
+        t.Run(tt.desc, func(t *testing.T) {
+            q := tt.q
+	    q.Addrs = []string{"127.0.0.1:8081"}
+	    c := client.New()
+	    defer c.Close()
+	    var gotNoti []client.Notification
+	    q.NotificationHandler = func(n client.Notification) error {
+                mutexNoti.Lock()
+                if nn, ok := n.(client.Update); ok {
+                    nn.TS = time.Unix(0, 200)
+		    gotNoti = append(gotNoti, nn)
+                }
+                mutexNoti.Unlock()
+                return nil
+	    }
+
+            go func() {
+                c.Subscribe(context.Background(), q)
+            }()
+
+            time.Sleep(time.Millisecond * 500) // half a second for subscribe request to sync
+            rclient.Del("NEIGH_STATE_TABLE|10.0.0.57")
+
+            time.Sleep(time.Millisecond * 1500)
+
+
+            mutexNoti.Lock()
+            defer mutexNoti.Unlock()
+            if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+                t.Log("\n Want: \n", tt.wantNoti)
+                t.Log("\n Got : \n", gotNoti)
+                t.Errorf("unexpected updates:\n%s", diff)
+            }
         })
     }
 }
