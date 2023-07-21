@@ -708,15 +708,13 @@ func createCountersTableSetUpdate(tableKey string, fieldName string, fieldValue 
 }
 
 // createCountersTableDeleteUpdate creates a DEL request on the COUNTERS table.
-func createCountersTableDeleteUpdate(tableKey string, fieldName string) tablePathValue {
+func createCountersTableDeleteUpdate(tableKey string) tablePathValue {
 	return tablePathValue{
 		dbName:    "COUNTERS_DB",
 		tableName: "COUNTERS",
 		tableKey:  tableKey,
 		delimitor: ":",
-		field:     fieldName,
-		value:     "",
-		op:        "hdel",
+		op:        "del",
 	}
 }
 
@@ -1928,6 +1926,20 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
+			desc: "stream query for table key Ethernet* with Ethernet68 table key deleted",
+			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "Ethernet*"),
+			updates: []tablePathValue{
+				createCountersTableSetUpdate("oid:0x1000000000039", "test_field", "test_value"),
+				createCountersTableDeleteUpdate("oid:0x1000000000039")
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson}, //go back to original after deletion of Ethernet68 key
+			},
+		},
+		{
 			desc: "poll query for table COUNTERS_PORT_NAME_MAP with new field test_field",
 			poll: 3,
 			q: client.Query{
@@ -2542,6 +2554,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				switch update.op {
 				case "hdel":
 					rclient.HDel(update.tableName+update.delimitor+update.tableKey, update.field)
+				case "del":
+					rclient.Del(update.tableName+update.delimitor+update.tableKey)
 				case "intervaltick":
 					// This is not a DB update but a request to trigger sample interval
 				default:
