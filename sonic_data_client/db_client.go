@@ -359,7 +359,6 @@ func (c *DbClient) Close() error {
 // Convert from SONiC Value to its corresponding gNMI proto stream
 // response type.
 func ValToResp(val Value) (*gnmipb.SubscribeResponse, error) {
-	log.V(2).Infof("Inside ValToResp")
 	switch val.GetSyncResponse() {
 	case true:
 		return &gnmipb.SubscribeResponse{
