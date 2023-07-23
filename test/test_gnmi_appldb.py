@@ -370,6 +370,29 @@ class TestGNMIApplDb:
             result_bytes = open(file_name, 'rb').read()
             assert proto_bytes == result_bytes, 'get proto not equal to update proto'
 
+    def test_gnmi_update_proto_02(self):
+        update_path = '/sonic-db:APPL_DB/DASH_QOS'
+        get_path = '/sonic-db:APPL_DB/_DASH_QOS[key=qos1]'
+        value = {
+            'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+            'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
+        }
+        update_list = []
+        text = json.dumps(value)
+        file_name = 'update.txt'
+        file_object = open(file_name, 'w')
+        file_object.write(text)
+        file_object.close()
+        update_list = [update_path + ':@./' + file_name]
+
+        ret, msg = gnmi_set([], update_list, [])
+        assert ret == 0, msg
+
+        get_list = [get_path]
+        file_list = ['get_proto.txt']
+        ret, msg_list = gnmi_get_proto(get_list, file_list)
+        assert ret != 0, 'Can not get result with proto encoding'
+
     def test_gnmi_delete_proto_01(self):
         test_data = [
             {
