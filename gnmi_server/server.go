@@ -56,6 +56,7 @@ type Config struct {
 	UserAuth AuthTypes
 	EnableTranslibWrite bool
 	EnableNativeWrite bool
+	ZmqAddress string
 	IdleConnDuration int
 }
 
@@ -352,7 +353,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 			return nil, err
 		}
 		if check := IsNativeOrigin(origin); check {
-			dc, err = sdc.NewMixedDbClient(paths, prefix, origin)
+			dc, err = sdc.NewMixedDbClient(paths, prefix, origin, s.config.ZmqAddress)
 		} else {
 			dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions)
 		}
@@ -424,7 +425,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 			return nil, grpc.Errorf(codes.Unimplemented, "GNMI native write is disabled")
 		}
-		dc, err = sdc.NewMixedDbClient(paths, prefix, origin)
+		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, s.config.ZmqAddress)
 	} else {
 		if s.config.EnableTranslibWrite == false {
 			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
@@ -499,7 +500,7 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 	var supportedModels []gnmipb.ModelData
 	dc, _ := sdc.NewTranslClient(nil, nil, ctx, extensions)
 	supportedModels = append(supportedModels, dc.Capabilities()...)
-	dc, _ = sdc.NewMixedDbClient(nil, nil, "")
+	dc, _ = sdc.NewMixedDbClient(nil, nil, "", s.config.ZmqAddress)
 	supportedModels = append(supportedModels, dc.Capabilities()...)
 
 	suppModels := make([]*gnmipb.ModelData, len(supportedModels))
