@@ -3335,7 +3335,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
             defer mutexPaths.Unlock()
             for _, path := range tt.paths {
                 rclient.HSet(path, "state", "Established")
-                rclient.Hset(path, "peerType", "e-BGP")
+                rclient.HSet(path, "peerType", "e-BGP")
             }
         })
     }
