@@ -3284,8 +3284,8 @@ func TestTableKeyOnDeletion(t *testing.T) {
 	    q: createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
             wantNoti: []client.Notification {
                 client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
-                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson_59},
-                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson_61},
+                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson59},
+                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson61},
             },
             paths: []string {
                 "NEIGH_STATE_TABLE|10.0.0.59",
