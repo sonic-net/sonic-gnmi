@@ -3324,19 +3324,19 @@ func TestTableKeyOnDeletion(t *testing.T) {
             time.Sleep(time.Millisecond * 1500)
 
             mutexNoti.Lock()
-            defer mutexNoti.Unlock()
             if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
                 t.Log("\n Want: \n", tt.wantNoti)
                 t.Log("\n Got : \n", gotNoti)
                 t.Errorf("unexpected updates:\n%s", diff)
             }
+            mutexNoti.Unlock()
 
             mutexPaths.Lock()
-            defer mutexPaths.Unlock()
             for _, path := range tt.paths {
                 rclient.HSet(path, "state", "Established")
                 rclient.HSet(path, "peerType", "e-BGP")
             }
+            mutexPaths.Unlock()
         })
     }
 }
