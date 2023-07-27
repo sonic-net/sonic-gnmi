@@ -3233,13 +3233,29 @@ func TestTableKeyOnDeletion(t *testing.T) {
     var neighStateTableJson interface{}
     json.Unmarshal(neighStateTableByte, &neighStateTableJson)
 
-    fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion.txt"
-    neighStateTableDeletedByte, err := ioutil.ReadFile(fileName)
+    fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion_57.txt"
+    neighStateTableDeletedByte57, err := ioutil.ReadFile(fileName)
     if err != nil {
         t.Fatalf("read file %v err: %v", fileName, err)
     }
-    var neighStateTableDeletedJson interface{}
-    json.Unmarshal(neighStateTableDeletedByte, &neighStateTableDeletedJson)
+    var neighStateTableDeletedJson57 interface{}
+    json.Unmarshal(neighStateTableDeletedByte57, &neighStateTableDeletedJson57)
+
+    fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion_59.txt"
+    neighStateTableDeletedByte59, err := ioutil.ReadFile(fileName)
+    if err != nil {
+        t.Fatalf("read file %v err: %v", fileName, err)
+    }
+    var neighStateTableDeletedJson59 interface{}
+    json.Unmarshal(neighStateTableDeletedByte59, &neighStateTableDeletedJson59)
+
+    fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion_61.txt"
+    neighStateTableDeletedByte61, err := ioutil.ReadFile(fileName)
+    if err != nil {
+        t.Fatalf("read file %v err: %v", fileName, err)
+    }
+    var neighStateTableDeletedJson61 interface{}
+    json.Unmarshal(neighStateTableDeletedByte61, &neighStateTableDeletedJson61)
 
     namespace := sdcfg.GetDbDefaultNamespace()
     rclient := getRedisClientN(t, 6, namespace)
@@ -3250,13 +3266,30 @@ func TestTableKeyOnDeletion(t *testing.T) {
         desc      string
         q         client.Query
         wantNoti  []client.Notification
+	paths     []string
     }{
         {
             desc: "Testing deletion of NEIGH_STATE_TABLE:10.0.0.57",
 	    q: createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
             wantNoti: []client.Notification {
                 client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
-                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson},
+                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson57},
+            },
+            paths: []string {
+                "NEIGH_STATE_TABLE|10.0.0.57",
+            },
+        },
+        {
+            desc: "Testing deletion of NEIGH_STATE_TABLE:10.0.0.59 and NEIGH_STATE_TABLE 10.0.0.61",
+	    q: createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
+            wantNoti: []client.Notification {
+                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
+                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson_59},
+                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson_61},
+            },
+            paths: []string {
+                "NEIGH_STATE_TABLE|10.0.0.59",
+                "NEIGH_STATE_TABLE|10.0.0.61",
             },
         },
     }
@@ -3285,7 +3318,8 @@ func TestTableKeyOnDeletion(t *testing.T) {
             }()
 
             time.Sleep(time.Millisecond * 500) // half a second for subscribe request to sync
-            rclient.Del("NEIGH_STATE_TABLE|10.0.0.57")
+            path := strings.Join(tt.paths, " ")
+            rclient.Del(path)
 
             time.Sleep(time.Millisecond * 1500)
 
