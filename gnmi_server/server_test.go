@@ -3295,7 +3295,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
     }
 
     var mutexNoti sync.Mutex
-
+    var mutexPaths sync.Mutex
     for _, tt := range tests {
         t.Run(tt.desc, func(t *testing.T) {
             q := tt.q
@@ -3323,7 +3323,6 @@ func TestTableKeyOnDeletion(t *testing.T) {
 
             time.Sleep(time.Millisecond * 1500)
 
-
             mutexNoti.Lock()
             defer mutexNoti.Unlock()
             if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
@@ -3331,8 +3330,12 @@ func TestTableKeyOnDeletion(t *testing.T) {
                 t.Log("\n Got : \n", gotNoti)
                 t.Errorf("unexpected updates:\n%s", diff)
             }
+
+            mutexPaths.Lock()
+            defer mutexPaths.Unlock()
             for _, path := range tt.paths {
                 rclient.HSet(path, "state", "Established")
+                rclient.Hset(path, "peerType", "e-BGP")
             }
         })
     }
