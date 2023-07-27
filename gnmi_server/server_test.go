@@ -3318,8 +3318,8 @@ func TestTableKeyOnDeletion(t *testing.T) {
             }()
 
             time.Sleep(time.Millisecond * 500) // half a second for subscribe request to sync
-            // path := strings.Join(tt.paths, " ")
-            rclient.Del(tt.paths)
+
+            rclient.Del(tt.paths...)
 
             time.Sleep(time.Millisecond * 1500)
 
@@ -3331,7 +3331,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
                 t.Log("\n Got : \n", gotNoti)
                 t.Errorf("unexpected updates:\n%s", diff)
             }
-            for _, path := range tt.Paths {
+            for _, path := range tt.paths {
                 rclient.HSet(path, "state", "Established")
             }
         })
