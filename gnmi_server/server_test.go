@@ -3319,7 +3319,9 @@ func TestTableKeyOnDeletion(t *testing.T) {
 
             time.Sleep(time.Millisecond * 500) // half a second for subscribe request to sync
 
+            mutexPaths.Lock()
             rclient.Del(tt.paths...)
+            mutexPaths.Unlock()
 
             time.Sleep(time.Millisecond * 1500)
 
