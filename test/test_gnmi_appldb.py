@@ -114,6 +114,24 @@ class TestGNMIApplDb:
         assert ret != 0, "Invalid json ietf value"
 
     @pytest.mark.parametrize('test_data', test_data_update_normal)
+    def test_gnmi_update_normal_03(self, test_data):
+        clear_appl_db('DASH_QOS')
+        clear_appl_db('DASH_VNET')
+        update_list = []
+        get_list = []
+        for i, data in enumerate(test_data):
+            path = data['update_path']
+            value = "x"
+            file_name = 'update' + str(i)
+            file_object = open(file_name, 'w')
+            file_object.write(value)
+            file_object.close()
+            update_list.append(path + ':@./' + file_name)
+
+        ret, msg = gnmi_set([], update_list, [])
+        assert ret != 0, "Invalid json ietf value"
+
+    @pytest.mark.parametrize('test_data', test_data_update_normal)
     def test_gnmi_delete_normal_01(self, test_data):
         delete_list = []
         update_list = []
