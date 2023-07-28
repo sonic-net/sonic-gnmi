@@ -111,7 +111,8 @@ type tablePath struct {
 	tableKey    string
 	delimitor   string
 	field       string
-	value       string
+	jsonValue   string
+	protoValue  string
 	index       int
 	operation   int
 	// path name to be used in json data which may be different
