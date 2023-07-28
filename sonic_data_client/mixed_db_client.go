@@ -504,10 +504,22 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 		}
 
 		if tblPath.jsonTableKey != "" { // If jsonTableKey was prepared, use it
-			err = c.makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
+			if c.encoding == gnmipb.Encoding_JSON_IETF {
+				err = c.makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
+				if err != nil {
+					log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
+					return err
+				}
+			} else if c.encoding == gnmipb.Encoding_PROTO {
+				return fmt.Errorf("Does not support proto encoding for table key %v", tblPath.jsonTableKey)
+			}
 		} else if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
 			if c.encoding == gnmipb.Encoding_JSON_IETF {
 				err = c.makeJSON_redis(msi, nil, op, fv)
+				if err != nil {
+					log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
+					return err
+				}
 			} else if c.encoding == gnmipb.Encoding_PROTO {
 				value, ok := fv["pb"]
 				if ok {
@@ -522,10 +534,10 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 			keys := strings.SplitN(dbkey, tblPath.delimitor, 2)
 			key = keys[1]
 			err = c.makeJSON_redis(msi, &key, op, fv)
-		}
-		if err != nil {
-			log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
-			return err
+			if err != nil {
+				log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
+				return err
+			}
 		}
 		log.V(6).Infof("Added idex %v fv %v ", idx, fv)
 	}
@@ -553,8 +565,9 @@ func (c *MixedDbClient) msi2TypedValue(msi map[string]interface{}) (*gnmipb.Type
 		} else {
 			return nil, fmt.Errorf("No proto bytes found in msi %v", msi)
 		}
+	} else {
+		return nil, fmt.Errorf("Unknown encoding %v", c.encoding)
 	}
-	return nil, fmt.Errorf("Unknown encoding %v", c.encoding)
 }
 
 func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error) {
