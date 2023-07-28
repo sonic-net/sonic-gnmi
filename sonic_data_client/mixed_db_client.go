@@ -503,17 +503,7 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 			return err
 		}
 
-		if tblPath.jsonTableKey != "" { // If jsonTableKey was prepared, use it
-			if c.encoding == gnmipb.Encoding_JSON_IETF {
-				err = c.makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
-				if err != nil {
-					log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
-					return err
-				}
-			} else if c.encoding == gnmipb.Encoding_PROTO {
-				return fmt.Errorf("Does not support proto encoding for table key %v", tblPath.jsonTableKey)
-			}
-		} else if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
+		if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
 			if c.encoding == gnmipb.Encoding_JSON_IETF {
 				err = c.makeJSON_redis(msi, nil, op, fv)
 				if err != nil {
