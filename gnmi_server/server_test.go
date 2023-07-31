@@ -3066,7 +3066,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
                     currentNoti := gotNoti
                     mutexNoti.Unlock()
 
-                    mutexNot.RLock()
+                    mutexNoti.RLock()
 		    gotNoti = append(currentNoti, nn)
                     mutexNoti.RUnlock()
                 }
