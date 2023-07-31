@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF}
+	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
 )
 
 // Server manages a single gNMI Server implementation. Each client that connects
@@ -329,6 +329,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 	paths := req.GetPath()
 	extensions := req.GetExtension()
+	encoding := req.GetEncoding()
 	log.V(2).Infof("GetRequest paths: %v", paths)
 
 	var dc sdc.Client
@@ -344,7 +345,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 			return nil, err
 		}
 		if check := IsNativeOrigin(origin); check {
-			dc, err = sdc.NewMixedDbClient(paths, prefix, origin, s.config.ZmqAddress)
+			dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqAddress)
 		} else {
 			dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions)
 		}
@@ -393,6 +394,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	/* Fetch the prefix. */
 	prefix := req.GetPrefix()
 	extensions := req.GetExtension()
+	encoding := gnmipb.Encoding_JSON_IETF
 
 	var dc sdc.Client
 	paths := req.GetDelete()
@@ -411,7 +413,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 			return nil, grpc.Errorf(codes.Unimplemented, "GNMI native write is disabled")
 		}
-		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, s.config.ZmqAddress)
+		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqAddress)
 	} else {
 		if s.config.EnableTranslibWrite == false {
 			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
@@ -486,7 +488,7 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 	var supportedModels []gnmipb.ModelData
 	dc, _ := sdc.NewTranslClient(nil, nil, ctx, extensions)
 	supportedModels = append(supportedModels, dc.Capabilities()...)
-	dc, _ = sdc.NewMixedDbClient(nil, nil, "", s.config.ZmqAddress)
+	dc, _ = sdc.NewMixedDbClient(nil, nil, "", gnmipb.Encoding_JSON_IETF, s.config.ZmqAddress)
 	supportedModels = append(supportedModels, dc.Capabilities()...)
 
 	suppModels := make([]*gnmipb.ModelData, len(supportedModels))
