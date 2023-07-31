@@ -3050,7 +3050,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
         },
     }
 
-    var mutexNoti sync.Mutex
+    var mutexNoti sync.RWMutex
     var mutexPaths sync.Mutex
     for _, tt := range tests {
         t.Run(tt.desc, func(t *testing.T) {
@@ -3060,12 +3060,16 @@ func TestTableKeyOnDeletion(t *testing.T) {
 	    defer c.Close()
 	    var gotNoti []client.Notification
 	    q.NotificationHandler = func(n client.Notification) error {
-                mutexNoti.Lock()
                 if nn, ok := n.(client.Update); ok {
                     nn.TS = time.Unix(0, 200)
-		    gotNoti = append(gotNoti, nn)
+		    mutexNoti.Lock()
+                    currentNoti := gotNoti
+                    mutexNoti.Unlock()
+
+                    mutexNot.RLock()
+		    gotNoti = append(currentNoti, nn)
+                    mutexNoti.RUnlock()
                 }
-                mutexNoti.Unlock()
                 return nil
 	    }
 
@@ -3076,8 +3080,10 @@ func TestTableKeyOnDeletion(t *testing.T) {
             time.Sleep(time.Millisecond * 500) // half a second for subscribe request to sync
 
             mutexPaths.Lock()
-            rclient.Del(tt.paths...)
+            paths := tt.paths
             mutexPaths.Unlock()
+
+            rclient.Del(paths...)
 
             time.Sleep(time.Millisecond * 1500)
 
@@ -3089,12 +3095,10 @@ func TestTableKeyOnDeletion(t *testing.T) {
             }
             mutexNoti.Unlock()
 
-            mutexPaths.Lock()
-            for _, path := range tt.paths {
+            for _, path := range paths {
                 rclient.HSet(path, "state", "Established")
                 rclient.HSet(path, "peerType", "e-BGP")
             }
-            mutexPaths.Unlock()
         })
     }
 }
