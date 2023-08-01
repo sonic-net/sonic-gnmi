@@ -3022,11 +3022,11 @@ func TestTableKeyOnDeletion(t *testing.T) {
         desc      string
         q         client.Query
         wantNoti  []client.Notification
-	paths     []string
+        paths     []string
     }{
         {
             desc: "Testing deletion of NEIGH_STATE_TABLE:10.0.0.57",
-	    q: createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
+            q: createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
             wantNoti: []client.Notification {
                 client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
                 client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson57},
@@ -3037,7 +3037,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
         },
         {
             desc: "Testing deletion of NEIGH_STATE_TABLE:10.0.0.59 and NEIGH_STATE_TABLE 10.0.0.61",
-	    q: createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
+            q: createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
             wantNoti: []client.Notification {
                 client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
                 client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson59},
@@ -3055,23 +3055,23 @@ func TestTableKeyOnDeletion(t *testing.T) {
     for _, tt := range tests {
         t.Run(tt.desc, func(t *testing.T) {
             q := tt.q
-	    q.Addrs = []string{"127.0.0.1:8081"}
-	    c := client.New()
-	    defer c.Close()
-	    var gotNoti []client.Notification
-	    q.NotificationHandler = func(n client.Notification) error {
+            q.Addrs = []string{"127.0.0.1:8081"}
+            c := client.New()
+            defer c.Close()
+            var gotNoti []client.Notification
+            q.NotificationHandler = func(n client.Notification) error {
                 if nn, ok := n.(client.Update); ok {
                     nn.TS = time.Unix(0, 200)
-		    mutexNoti.Lock()
+                    mutexNoti.Lock()
                     currentNoti := gotNoti
                     mutexNoti.Unlock()
 
                     mutexNoti.RLock()
-		    gotNoti = append(currentNoti, nn)
+                    gotNoti = append(currentNoti, nn)
                     mutexNoti.RUnlock()
                 }
                 return nil
-	    }
+            }
 
             go func() {
                 c.Subscribe(context.Background(), q)
