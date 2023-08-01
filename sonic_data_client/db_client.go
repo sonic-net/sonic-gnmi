@@ -1165,19 +1165,10 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 	// Helper to send hash data over the stream
 	sendMsiData := func(msiData map[string]interface{}) error {
 		sendDeleteField := false
-		var msiMutex sync.RWMutex
-		msiMutex.Lock()
 		if _, isDelete := msiData["delete"]; isDelete {
 			sendDeleteField = true
 		}
-		msiMutex.Unlock()
-
-		msiMutex.RLock()
 		delete(msiData, "delete")
-		msiMutex.RUnlock()
-
-		msiMutex.Lock()
-		defer msiMutex.Unlock()
 		val, err := msi2TypedValue(msiData)
 		if err != nil {
 			return err

@@ -2997,6 +2997,14 @@ func TestTableKeyOnDeletion(t *testing.T) {
     var neighStateTableDeletedJson57 interface{}
     json.Unmarshal(neighStateTableDeletedByte57, &neighStateTableDeletedJson57)
 
+    fileName = "../testdata/NEIGH_STATE_TABLE_MAP_2.txt"
+    neighStateTableByteTwo, err := ioutil.ReadFile(fileName)
+    if err != nil {
+        t.Fatalf("read file %v err: %v", fileName, err)
+    }
+    var neighStateTableJsonTwo interface{}
+    json.Unmarshal(neighStateTableByteTwo, &neighStateTableJsonTwo)
+
     fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion_59.txt"
     neighStateTableDeletedByte59, err := ioutil.ReadFile(fileName)
     if err != nil {
@@ -3039,7 +3047,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
             desc: "Testing deletion of NEIGH_STATE_TABLE:10.0.0.59 and NEIGH_STATE_TABLE 10.0.0.61",
             q: createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
             wantNoti: []client.Notification {
-                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
+                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJsonTwo},
                 client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson59},
                 client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson61},
             },
@@ -3094,11 +3102,6 @@ func TestTableKeyOnDeletion(t *testing.T) {
                 t.Errorf("unexpected updates:\n%s", diff)
             }
             mutexNoti.Unlock()
-
-            for _, path := range paths {
-                rclient.HSet(path, "state", "Established")
-                rclient.HSet(path, "peerType", "e-BGP")
-            }
         })
     }
 }
