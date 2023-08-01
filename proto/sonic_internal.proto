@@ -34,4 +34,7 @@ message Value {
 
   // Notification to be used in place of 1-4 if present
   gnmi.Notification notification = 7;
+
+  // Delete to be used to indicate that node was deleted
+  []gnmi.Path delete = 8;
 }
