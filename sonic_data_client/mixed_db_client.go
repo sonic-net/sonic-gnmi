@@ -722,7 +722,9 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 					} else {
 						return fmt.Errorf("Key %v: Unsupported value %v type %v", tblPath.tableKey, res, reflect.TypeOf(res))
 					}
-				} else if len(tblPath.protoValue) != 0 {
+				} else {
+					// protobytes can be empty
+					// If jsonValue is empty, use protoValue
 					vtable := make(map[string]interface{})
 					vtable["pb"] = tblPath.protoValue
 					outputData := ConvertDbEntry(vtable)
@@ -731,8 +733,6 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 						log.V(2).Infof("swsscommon update failed for  %v, value %v", tblPath, outputData)
 						return err
 					}
-				} else {
-					return fmt.Errorf("No valid value: %v", tblPath)
 				}
 			} else {
 				if len(tblPath.jsonValue) == 0 {
