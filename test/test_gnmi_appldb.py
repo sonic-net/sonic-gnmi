@@ -103,24 +103,6 @@ class TestGNMIApplDb:
         get_list = []
         for i, data in enumerate(test_data):
             path = data['update_path']
-            value = ""
-            file_name = 'update' + str(i)
-            file_object = open(file_name, 'w')
-            file_object.write(value)
-            file_object.close()
-            update_list.append(path + ':@./' + file_name)
-
-        ret, msg = gnmi_set([], update_list, [])
-        assert ret != 0, "Invalid json ietf value"
-
-    @pytest.mark.parametrize('test_data', test_data_update_normal)
-    def test_gnmi_update_normal_03(self, test_data):
-        clear_appl_db('DASH_QOS')
-        clear_appl_db('DASH_VNET')
-        update_list = []
-        get_list = []
-        for i, data in enumerate(test_data):
-            path = data['update_path']
             value = "x"
             file_name = 'update' + str(i)
             file_object = open(file_name, 'w')
@@ -428,6 +410,45 @@ class TestGNMIApplDb:
         file_list = ['get_proto.txt']
         ret, msg_list = gnmi_get_proto(get_list, file_list)
         assert ret != 0, 'Can not get result with proto encoding'
+
+    def test_gnmi_update_proto_03(self):
+        proto_bytes = b""
+        test_data = [
+            {
+                'update_path': '/sonic-db:APPL_DB/DASH_ROUTE_TABLE[key=F4939FEFC47E:20.2.2.0/24]',
+                'get_path': '/sonic-db:APPL_DB/_DASH_ROUTE_TABLE[key=F4939FEFC47E:20.2.2.0/24]',
+                'value': proto_bytes
+            },
+            {
+                'update_path': '/sonic-db:APPL_DB/DASH_ROUTE_TABLE[key=F4939FEFC47E:30.3.3.0/24]',
+                'get_path': '/sonic-db:APPL_DB/_DASH_ROUTE_TABLE[key=F4939FEFC47E:30.3.3.0/24]',
+                'value': proto_bytes
+            },
+            {
+                'update_path': '/sonic-db:APPL_DB/DASH_VNET_MAPPING_TABLE[key=Vnet2:20.2.2.2]',
+                'get_path': '/sonic-db:APPL_DB/_DASH_VNET_MAPPING_TABLE[key=Vnet2:20.2.2.2]',
+                'value': proto_bytes
+            }
+        ]
+        update_list = []
+        for i, data in enumerate(test_data):
+            path = data['update_path']
+            value = data['value']
+            file_name = 'update{}.txt'.format(i)
+            file_object = open(file_name, 'wb')
+            file_object.write(value)
+            file_object.close()
+            update_list.append(path + ':$./' + file_name)
+
+        ret, msg = gnmi_set([], update_list, [])
+        assert ret == 0, msg
+        for i, data in enumerate(test_data):
+            path = data['get_path']
+            file_name = 'get{}.txt'.format(i)
+            ret, msg = gnmi_get_proto([path], [file_name])
+            assert ret == 0, msg
+            result_bytes = open(file_name, 'rb').read()
+            assert proto_bytes == result_bytes, 'get proto not equal to update proto'
 
     def test_gnmi_delete_proto_01(self):
         test_data = [
