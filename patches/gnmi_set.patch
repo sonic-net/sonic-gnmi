@@ -61,7 +61,25 @@
  			jsonFile := pathValuePair[1][1:]
  			jsonConfig, err := ioutil.ReadFile(jsonFile)
  			if err != nil {
-@@ -144,8 +168,10 @@
+@@ -81,6 +105,17 @@
+					JsonIetfVal: jsonConfig,
+				},
+			}
++		} else if pathValuePair[1][0] == '$' {
++			protoFile := pathValuePair[1][1:]
++			protoConfig, err := ioutil.ReadFile(protoFile)
++			if err != nil {
++				log.Exitf("cannot read data from file %v", protoFile)
++			}
++			pbVal = &pb.TypedValue{
++				Value: &pb.TypedValue_ProtoBytes{
++					ProtoBytes: protoConfig,
++				},
++			}
+		} else {
+			if strVal, err := strconv.Unquote(pathValuePair[1]); err == nil {
+				pbVal = &pb.TypedValue{
+@@ -144,8 +179,10 @@
  	}
  	replaceList := buildPbUpdateList(replaceOpt)
  	updateList := buildPbUpdateList(updateOpt)
@@ -73,7 +91,7 @@
  		Delete:  deleteList,
  		Replace: replaceList,
  		Update:  updateList,
-@@ -155,11 +181,17 @@
+@@ -155,11 +192,17 @@
  	utils.PrintProto(setRequest)
  
  	cli := pb.NewGNMIClient(conn)

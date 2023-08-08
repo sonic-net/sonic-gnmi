@@ -99,6 +99,20 @@ def gnmi_get_with_encoding(path_list, encoding):
             return -1, [msg]
     return ret, [msg]
 
+def gnmi_get_proto(path_list, file_list):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnmi_get '
+    cmd += '-insecure -username admin -password sonicadmin '
+    cmd += '-target_addr 127.0.0.1:8080 '
+    cmd += '-alsologtostderr '
+    cmd += '-encoding PROTO '
+    for path in path_list:
+        cmd += " -xpath " + path
+    for file in file_list:
+        cmd += " -proto_file " + file
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
 def gnmi_get_with_password(path_list, user, password):
     path = os.getcwd()
     cmd = path + '/build/bin/gnmi_get '
