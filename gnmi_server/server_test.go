@@ -474,6 +474,14 @@ func prepareStateDb(t *testing.T, namespace string) {
 	defer rclient.Close()
 	rclient.FlushDB()
 	rclient.HSet("SWITCH_CAPABILITY|switch", "test_field", "test_value")
+	fileName := "../testdata/NEIGH_STATE_TABLE.txt"
+	neighStateTableByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_neigh := loadConfig(t, "", neighStateTableByte)
+	loadDB(t, rclient, mpi_neigh)
+
 }
 
 func prepareDb(t *testing.T, namespace string) {
@@ -657,6 +665,19 @@ func createEventsQuery(t *testing.T, paths ...string) client.Query {
 	return createQueryOrFail(t,
 		pb.SubscriptionList_STREAM,
 		"EVENTS",
+		[]subscriptionQuery{
+			{
+				Query:   paths,
+				SubMode: pb.SubscriptionMode_ON_CHANGE,
+			},
+		},
+		false)
+}
+
+func createStateDbQueryOnChangeMode(t *testing.T, paths ...string) client.Query {
+	return createQueryOrFail(t,
+	        pb.SubscriptionList_STREAM,
+		"STATE_DB",
 		[]subscriptionQuery{
 			{
 				Query:   paths,
@@ -2953,6 +2974,136 @@ func TestAuthCapabilities(t *testing.T) {
 	if len(resp.SupportedModels) == 0 {
 		t.Fatalf("No Supported Models found!")
 	}
+}
+
+func TestTableKeyOnDeletion(t *testing.T) {
+    s := createKeepAliveServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    fileName := "../testdata/NEIGH_STATE_TABLE_MAP.txt"
+    neighStateTableByte, err := ioutil.ReadFile(fileName)
+    if err != nil {
+        t.Fatalf("read file %v err: %v", fileName, err)
+    }
+    var neighStateTableJson interface{}
+    json.Unmarshal(neighStateTableByte, &neighStateTableJson)
+
+    fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion_57.txt"
+    neighStateTableDeletedByte57, err := ioutil.ReadFile(fileName)
+    if err != nil {
+        t.Fatalf("read file %v err: %v", fileName, err)
+    }
+    var neighStateTableDeletedJson57 interface{}
+    json.Unmarshal(neighStateTableDeletedByte57, &neighStateTableDeletedJson57)
+
+    fileName = "../testdata/NEIGH_STATE_TABLE_MAP_2.txt"
+    neighStateTableByteTwo, err := ioutil.ReadFile(fileName)
+    if err != nil {
+        t.Fatalf("read file %v err: %v", fileName, err)
+    }
+    var neighStateTableJsonTwo interface{}
+    json.Unmarshal(neighStateTableByteTwo, &neighStateTableJsonTwo)
+
+    fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion_59.txt"
+    neighStateTableDeletedByte59, err := ioutil.ReadFile(fileName)
+    if err != nil {
+        t.Fatalf("read file %v err: %v", fileName, err)
+    }
+    var neighStateTableDeletedJson59 interface{}
+    json.Unmarshal(neighStateTableDeletedByte59, &neighStateTableDeletedJson59)
+
+    fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion_61.txt"
+    neighStateTableDeletedByte61, err := ioutil.ReadFile(fileName)
+    if err != nil {
+        t.Fatalf("read file %v err: %v", fileName, err)
+    }
+    var neighStateTableDeletedJson61 interface{}
+    json.Unmarshal(neighStateTableDeletedByte61, &neighStateTableDeletedJson61)
+
+    namespace := sdcfg.GetDbDefaultNamespace()
+    rclient := getRedisClientN(t, 6, namespace)
+    defer rclient.Close()
+    prepareStateDb(t, namespace)
+
+    tests := []struct {
+        desc      string
+        q         client.Query
+        wantNoti  []client.Notification
+        paths     []string
+    }{
+        {
+            desc: "Testing deletion of NEIGH_STATE_TABLE:10.0.0.57",
+            q: createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
+            wantNoti: []client.Notification {
+                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
+                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson57},
+            },
+            paths: []string {
+                "NEIGH_STATE_TABLE|10.0.0.57",
+            },
+        },
+        {
+            desc: "Testing deletion of NEIGH_STATE_TABLE:10.0.0.59 and NEIGH_STATE_TABLE 10.0.0.61",
+            q: createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
+            wantNoti: []client.Notification {
+                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJsonTwo},
+                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson59},
+                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson61},
+            },
+            paths: []string {
+                "NEIGH_STATE_TABLE|10.0.0.59",
+                "NEIGH_STATE_TABLE|10.0.0.61",
+            },
+        },
+    }
+
+    var mutexNoti sync.RWMutex
+    var mutexPaths sync.Mutex
+    for _, tt := range tests {
+        t.Run(tt.desc, func(t *testing.T) {
+            q := tt.q
+            q.Addrs = []string{"127.0.0.1:8081"}
+            c := client.New()
+            defer c.Close()
+            var gotNoti []client.Notification
+            q.NotificationHandler = func(n client.Notification) error {
+                if nn, ok := n.(client.Update); ok {
+                    nn.TS = time.Unix(0, 200)
+                    mutexNoti.Lock()
+                    currentNoti := gotNoti
+                    mutexNoti.Unlock()
+
+                    mutexNoti.RLock()
+                    gotNoti = append(currentNoti, nn)
+                    mutexNoti.RUnlock()
+                }
+                return nil
+            }
+
+            go func() {
+                c.Subscribe(context.Background(), q)
+            }()
+
+            time.Sleep(time.Millisecond * 500) // half a second for subscribe request to sync
+
+            mutexPaths.Lock()
+            paths := tt.paths
+            mutexPaths.Unlock()
+
+            rclient.Del(paths...)
+
+            time.Sleep(time.Millisecond * 1500)
+
+            mutexNoti.Lock()
+            if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+                t.Log("\n Want: \n", tt.wantNoti)
+                t.Log("\n Got : \n", gotNoti)
+                t.Errorf("unexpected updates:\n%s", diff)
+            }
+            mutexNoti.Unlock()
+        })
+    }
 }
 
 func TestCPUUtilization(t *testing.T) {

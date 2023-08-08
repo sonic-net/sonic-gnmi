@@ -57,6 +57,7 @@ type MixedDbClient struct {
 	prefix  *gnmipb.Path
 	paths   []*gnmipb.Path
 	pathG2S map[*gnmipb.Path][]tablePath
+	encoding gnmipb.Encoding
 	q       *queue.PriorityQueue
 	channel chan struct{}
 	target  string
@@ -219,7 +220,7 @@ func (c *MixedDbClient) DbDelTable(table string, key string) error {
 	return nil
 }
 
-func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, zmqAddress string) (Client, error) {
+func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqAddress string) (Client, error) {
 	var err error
 
 	// Testing program may ask to use redis local tcp connection
@@ -231,6 +232,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	client.prefix = prefix
 	client.target = ""
 	client.origin = origin
+	client.encoding = encoding
 	if prefix != nil {
 		elems := prefix.GetElem()
 		if elems != nil {
@@ -318,19 +320,19 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 	elems := fullPath.GetElem()
 	if elems != nil {
 		for i, elem := range elems {
-			// TODO: Usage of key field
 			log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
 			if i != 0 {
 				buffer.WriteString(separator)
 			}
 			buffer.WriteString(elem.GetName())
 			stringSlice = append(stringSlice, elem.GetName())
+			value, ok := elem.GetKey()["key"]
+			if ok {
+				buffer.WriteString(value)
+				stringSlice = append(stringSlice, value)
+			}
 		}
 		dbPath = buffer.String()
-	}
-	value_str := ""
-	if value != nil {
-		value_str = string(value.GetJsonIetfVal())
 	}
 
 	tblPath.dbNamespace = dbNamespace
@@ -339,9 +341,21 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 	tblPath.delimitor = separator
 	tblPath.operation = opRemove
 	tblPath.index = -1
+	tblPath.jsonValue = ""
+	tblPath.protoValue = ""
 	if value != nil {
 		tblPath.operation = opAdd
-		tblPath.value = value_str
+		jv := value.GetJsonIetfVal()
+		if jv != nil {
+			tblPath.jsonValue = string(jv)
+		}
+		pv := value.GetProtoBytes()
+		if pv != nil {
+			tblPath.protoValue = string(pv)
+		}
+		if jv == nil && pv == nil {
+			return fmt.Errorf("Unsupported TypedValue: %v", value)
+		}
 	}
 
 	var mappedKey string
@@ -489,24 +503,61 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 			return err
 		}
 
-		if tblPath.jsonTableKey != "" { // If jsonTableKey was prepared, use it
-			err = c.makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
-		} else if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
-			err = c.makeJSON_redis(msi, nil, op, fv)
+		if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
+			if c.encoding == gnmipb.Encoding_JSON_IETF {
+				err = c.makeJSON_redis(msi, nil, op, fv)
+				if err != nil {
+					log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
+					return err
+				}
+			} else if c.encoding == gnmipb.Encoding_PROTO {
+				value, ok := fv["pb"]
+				if ok {
+					(*msi)["pb"] = []byte(value)
+				} else {
+					return fmt.Errorf("No proto bytes found in redis %v", fv)
+				}
+			}
 		} else {
 			var key string
 			// Split dbkey string into two parts and second part is key in table
 			keys := strings.SplitN(dbkey, tblPath.delimitor, 2)
 			key = keys[1]
 			err = c.makeJSON_redis(msi, &key, op, fv)
-		}
-		if err != nil {
-			log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
-			return err
+			if err != nil {
+				log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
+				return err
+			}
 		}
 		log.V(6).Infof("Added idex %v fv %v ", idx, fv)
 	}
 	return nil
+}
+
+func (c *MixedDbClient) msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
+	if c.encoding == gnmipb.Encoding_JSON_IETF {
+		jv, err := emitJSON(&msi)
+		if err != nil {
+			log.V(2).Infof("emitJSON err %s for  %v", err, msi)
+			return nil, fmt.Errorf("emitJSON err %s for  %v", err, msi)
+		}
+		return &gnmipb.TypedValue{
+			Value: &gnmipb.TypedValue_JsonIetfVal{
+				JsonIetfVal: jv,
+			}}, nil
+	} else if c.encoding == gnmipb.Encoding_PROTO {
+		value, ok := msi["pb"]
+		if ok {
+			return &gnmipb.TypedValue{
+				Value: &gnmipb.TypedValue_ProtoBytes{
+					ProtoBytes: value.([]byte),
+				}}, nil
+		} else {
+			return nil, fmt.Errorf("No proto bytes found in msi %v", msi)
+		}
+	} else {
+		return nil, fmt.Errorf("Unknown encoding %v", c.encoding)
+	}
 }
 
 func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error) {
@@ -578,7 +629,7 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 			return nil, err
 		}
 	}
-	return msi2TypedValue(msi)
+	return c.msi2TypedValue(msi)
 }
 
 func ConvertDbEntry(inputData map[string]interface{}) map[string]string {
@@ -656,55 +707,45 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 		} else if tblPath.operation == opAdd {
 			if tblPath.tableKey != "" {
 				// both table name and key provided
-				res, err = parseJson([]byte(tblPath.value))
-				if err != nil {
-					return err
-				}
-				if vtable, ok := res.(map[string]interface{}); ok {
-					configMap := make(map[string]interface{})
-					tableMap := make(map[string]interface{})
-					tableMap[tblPath.tableKey] = vtable
-					configMap[tblPath.tableName] = tableMap
-					ietf_json_val, err := emitJSON(&configMap)
+				if len(tblPath.jsonValue) != 0 {
+					res, err = parseJson([]byte(tblPath.jsonValue))
 					if err != nil {
-						return fmt.Errorf("Translate to json failed!")
+						return err
 					}
-					PyCodeInGo := fmt.Sprintf(PyCodeForYang, ietf_json_val)
-					err = RunPyCode(PyCodeInGo)
-					if err != nil {
-						return fmt.Errorf("Yang validation failed!")
+					if vtable, ok := res.(map[string]interface{}); ok {
+						outputData := ConvertDbEntry(vtable)
+						err = c.DbSetTable(tblPath.tableName, tblPath.tableKey, outputData)
+						if err != nil {
+							log.V(2).Infof("swsscommon update failed for  %v, value %v", tblPath, outputData)
+							return err
+						}
+					} else {
+						return fmt.Errorf("Key %v: Unsupported value %v type %v", tblPath.tableKey, res, reflect.TypeOf(res))
 					}
+				} else {
+					// protobytes can be empty
+					// If jsonValue is empty, use protoValue
+					vtable := make(map[string]interface{})
+					vtable["pb"] = tblPath.protoValue
 					outputData := ConvertDbEntry(vtable)
-					c.DbDelTable(tblPath.tableName, tblPath.tableKey)
 					err = c.DbSetTable(tblPath.tableName, tblPath.tableKey, outputData)
 					if err != nil {
 						log.V(2).Infof("swsscommon update failed for  %v, value %v", tblPath, outputData)
 						return err
 					}
-				} else {
-					return fmt.Errorf("Key %v: Unsupported value %v type %v", tblPath.tableKey, res, reflect.TypeOf(res))
 				}
 			} else {
-				res, err = parseJson([]byte(tblPath.value))
+				if len(tblPath.jsonValue) == 0 {
+					return fmt.Errorf("No valid value: %v", tblPath)
+				}
+				res, err = parseJson([]byte(tblPath.jsonValue))
 				if err != nil {
 					return err
 				}
 				if vtable, ok := res.(map[string]interface{}); ok {
-					configMap := make(map[string]interface{})
-					configMap[tblPath.tableName] = vtable
-					ietf_json_val, err := emitJSON(&configMap)
-					if err != nil {
-						return fmt.Errorf("Translate to json failed!")
-					}
-					PyCodeInGo := fmt.Sprintf(PyCodeForYang, ietf_json_val)
-					err = RunPyCode(PyCodeInGo)
-					if err != nil {
-						return fmt.Errorf("Yang validation failed!")
-					}
 					for tableKey, tres := range vtable {
 						if vt, ret := tres.(map[string]interface{}); ret {
 							outputData := ConvertDbEntry(vt)
-							c.DbDelTable(tblPath.tableName, tableKey)
 							err = c.DbSetTable(tblPath.tableName, tableKey, outputData)
 							if err != nil {
 								log.V(2).Infof("swsscommon update failed for  %v, value %v", tblPath, outputData)
@@ -1160,3 +1201,4 @@ func (c *MixedDbClient) SentOne(val *Value) {
 
 func (c *MixedDbClient) FailedSend() {
 }
+

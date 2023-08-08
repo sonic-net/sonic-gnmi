@@ -1,0 +1,34 @@
+{
+    "10.0.0.57": {
+        "peerType": "e-BGP",
+        "state": "Established"
+    },
+    "10.0.0.59": {
+        "peerType": "e-BGP",
+        "state": "Established"
+    },
+    "10.0.0.61": {
+        "peerType": "e-BGP",
+        "state": "Established"
+    },
+    "10.0.0.63": {
+        "peerType": "e-BGP",
+        "state": "Established"
+    },
+    "fc00::72": {
+        "peerType": "e-BGP",
+        "state": "Established"
+    },
+    "fc00::76": {
+        "peerType": "e-BGP",
+        "state": "Established"
+    },
+    "fc00::7a": {
+        "peerType": "e-BGP",
+        "state": "Established"
+    },
+    "fc00::7e": {
+        "peerType": "e-BGP",
+        "state": "Established"
+    }
+}
