@@ -3605,7 +3605,7 @@ func TestTableData2MsiUseKey(t *testing.T) {
     t.Logf(string(expectedMsiData))
 
     if !reflect.DeepEqual(newMsi, expectedMsi) {
-        t.Logf("Msi data does not match for use key = true")
+        t.Errorf("Msi data does not match for use key = true")
     }
 }
 
