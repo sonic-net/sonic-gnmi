@@ -3589,6 +3589,18 @@ func TestClient(t *testing.T) {
     s.s.Stop()
 }
 
+func TestTableData2MsiUseKey(t *testing.T) {
+    tblPath := sdc.CreateTablePath("STATE_DB", "NEIGH_STATE_TABLE", "|", "10.0.0.57")
+    newMsi := make(map[string]interface{})
+    sdc.ExportTableData2Msi(&tblPath, true, nil, &newMsi)
+    newMsiData, _ := json.MarshalIndent(newMsi, "", "  ")
+    t.Logf(string(newMsiData))
+    //expectedMsiData := make(map[string]interface{})
+    //if !reflect.DeepEqual(testMsiData, expectedMsiData) {
+    //    t.Errorf("Msi data does not match for use key = true")
+    // }
+}
+
 func TestGnmiSetBatch(t *testing.T) {
 	mockCode := 
 `

@@ -79,8 +79,19 @@ var IntervalTicker = func(interval time.Duration) <-chan time.Time {
 	return time.After(interval)
 }
 
+var ExportTableData2Msi = tableData2Msi
+
 var NeedMock bool = false
 var intervalTickerMutex sync.Mutex
+
+func CreateTablePath(dbName string, tableName string, delimitor string, tableKey string) tablePath {
+	var tblPath tablePath
+	tblPath.dbName = dbName
+	tblPath.tableName = tableName
+	tblPath.delimitor = delimitor
+	tblPath.tableKey = tableKey
+	return tblPath
+}
 
 // Define a new function to set the IntervalTicker variable
 func SetIntervalTicker(f func(interval time.Duration) <-chan time.Time) {
