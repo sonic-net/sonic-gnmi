@@ -3595,10 +3595,18 @@ func TestTableData2MsiUseKey(t *testing.T) {
     sdc.ExportTableData2Msi(&tblPath, true, nil, &newMsi)
     newMsiData, _ := json.MarshalIndent(newMsi, "", "  ")
     t.Logf(string(newMsiData))
-    //expectedMsiData := make(map[string]interface{})
-    //if !reflect.DeepEqual(testMsiData, expectedMsiData) {
-    //    t.Errorf("Msi data does not match for use key = true")
-    // }
+    expectedMsi := map[string]interface{} {
+        "10.0.0.57": map[string]interface{} {
+            "peerType": "e-BGP",
+	    "state": "Established",
+        },
+    }
+    expectedMsiData, _ := json.MarshalIndent(expectedMsi, "", "  ")
+    t.Logf(string(expectedMsiData))
+
+    if !reflect.DeepEqual(newMsi, expectedMsi) {
+        t.Logf("Msi data does not match for use key = true")
+    }
 }
 
 func TestGnmiSetBatch(t *testing.T) {
