@@ -3686,6 +3686,7 @@ print('%s')
 	s := createServer(t, 8080)
 	go runServer(t, s)
 	defer s.s.Stop()
+	prepareConfigDb(t, sdcfg.GetDbDefaultNamespace())
 
 	path, _ := os.Getwd()
 	path = filepath.Dir(path)
