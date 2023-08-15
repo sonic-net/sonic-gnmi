@@ -82,6 +82,15 @@ var IntervalTicker = func(interval time.Duration) <-chan time.Time {
 var NeedMock bool = false
 var intervalTickerMutex sync.Mutex
 
+func CreateTablePath(dbName string, tableName string, delimitor string, tableKey string) tablePath {
+	var tblPath tablePath
+	tblPath.dbName = dbName
+	tblPath.tableName = tableName
+	tblPath.delimitor = delimitor
+	tblPath.tableKey = tableKey
+	return tblPath
+}
+
 // Define a new function to set the IntervalTicker variable
 func SetIntervalTicker(f func(interval time.Duration) <-chan time.Time) {
 	if NeedMock == true {
@@ -720,11 +729,11 @@ func emitJSON(v *map[string]interface{}) ([]byte, error) {
 	return j, nil
 }
 
-// tableData2Msi renders the redis DB data to map[string]interface{}
+// TableData2Msi renders the redis DB data to map[string]interface{}
 // which may be marshaled to JSON format
 // If only table name provided in the tablePath, find all keys in the table, otherwise
 // Use tableName + tableKey as key to get all field value paires
-func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]interface{}) error {
+func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]interface{}) error {
 	redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
 
 	var pattern string
@@ -838,7 +847,7 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 			}
 		}
 
-		err := tableData2Msi(&tblPath, useKey, nil, &msi)
+		err := TableData2Msi(&tblPath, useKey, nil, &msi)
 		if err != nil {
 			return nil, err
 		}
@@ -1097,7 +1106,7 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 			} else if subscr.Payload == "hset" {
 				//op := "SET"
 				if tblPath.tableKey != "" {
-					err = tableData2Msi(&tblPath, false, nil, &newMsi)
+					err = TableData2Msi(&tblPath, false, nil, &newMsi)
 					if err != nil {
 						enqueueFatalMsg(c, err.Error())
 						return
@@ -1109,7 +1118,7 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 						continue
 					}
 					tblPath.tableKey = subscr.Channel[prefixLen:]
-					err = tableData2Msi(&tblPath, false, nil, &newMsi)
+					err = TableData2Msi(&tblPath, true, nil, &newMsi)
 					if err != nil {
 						enqueueFatalMsg(c, err.Error())
 						return
@@ -1226,7 +1235,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 		}
 		log.V(2).Infof("Psubscribe succeeded for %v: %v", tblPath, subscr)
 
-		err = tableData2Msi(&tblPath, false, nil, &msiAll)
+		err = TableData2Msi(&tblPath, false, nil, &msiAll)
 		if err != nil {
 			handleFatalMsg(err.Error())
 			return
