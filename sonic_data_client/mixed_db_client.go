@@ -487,7 +487,12 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 	var fv map[string]string
 
 	if tblPath.tableName == "" {
-		pattern = "*|*"
+		// Did no provide table name
+		// Get all tables in the DB
+		if tblPath.dbName == "COUNTERS_DB" {
+			return fmt.Errorf("Can not read all tables in COUNTERS_DB")
+		}
+		pattern = "*" + tblPath.delimitor + "*"
 		dbkeys, err = redisDb.Keys(pattern).Result()
 		if err != nil {
 			log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
@@ -519,7 +524,8 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 		}
 
 		if (tblPath.tableName == "") {
-			// Split dbkey string into two parts and second part is key in table
+			// Split dbkey string into two parts
+			// First part is table name and second part is key in table
 			keys := strings.SplitN(dbkey, tblPath.delimitor, 2)
 			tableName := keys[0]
 			key := keys[1]
