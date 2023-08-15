@@ -378,6 +378,7 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 	// <5> DB Table Key Field Index
 	switch len(stringSlice) {
 	case 1: // only db name provided
+		tblPath.tableName = ""
 	case 2: // only table name provided
 		if tblPath.operation == opRemove {
 			res, err := redisDb.Keys(tblPath.tableName + "*").Result()
