@@ -448,6 +448,20 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 	}
 }
 
+func initFullConfigDb(t *testing.T, namespace string) {
+	rclient := getConfigDbClient(t, namespace)
+	defer rclient.Close()
+	rclient.FlushDB()
+
+	fileName := "../testdata/CONFIG_DHCP_SERVER.txt"
+	config, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	config_map := loadConfig(t, "", config)
+	loadConfigDB(t, rclient, config_map)
+}
+
 func prepareConfigDb(t *testing.T, namespace string) {
 	rclient := getConfigDbClient(t, namespace)
 	defer rclient.Close()
@@ -3686,7 +3700,7 @@ print('%s')
 	s := createServer(t, 8080)
 	go runServer(t, s)
 	defer s.s.Stop()
-	prepareConfigDb(t, sdcfg.GetDbDefaultNamespace())
+	initFullConfigDb(t, sdcfg.GetDbDefaultNamespace())
 
 	path, _ := os.Getwd()
 	path = filepath.Dir(path)
