@@ -3592,7 +3592,7 @@ func TestClient(t *testing.T) {
 func TestTableData2MsiUseKey(t *testing.T) {
     tblPath := sdc.CreateTablePath("STATE_DB", "NEIGH_STATE_TABLE", "|", "10.0.0.57")
     newMsi := make(map[string]interface{})
-    sdc.ExportTableData2Msi(&tblPath, true, nil, &newMsi)
+    sdc.TableData2Msi(&tblPath, true, nil, &newMsi)
     newMsiData, _ := json.MarshalIndent(newMsi, "", "  ")
     t.Logf(string(newMsiData))
     expectedMsi := map[string]interface{} {
