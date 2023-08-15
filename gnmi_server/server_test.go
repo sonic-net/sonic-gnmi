@@ -2499,6 +2499,26 @@ func TestBulkSet(t *testing.T) {
 
 }
 
+func TestTableData2MsiUseKey(t *testing.T) {
+    tblPath := sdc.CreateTablePath("STATE_DB", "NEIGH_STATE_TABLE", "|", "10.0.0.57")
+    newMsi := make(map[string]interface{})
+    sdc.TableData2Msi(&tblPath, true, nil, &newMsi)
+    newMsiData, _ := json.MarshalIndent(newMsi, "", "  ")
+    t.Logf(string(newMsiData))
+    expectedMsi := map[string]interface{} {
+        "10.0.0.57": map[string]interface{} {
+            "peerType": "e-BGP",
+	    "state": "Established",
+        },
+    }
+    expectedMsiData, _ := json.MarshalIndent(expectedMsi, "", "  ")
+    t.Logf(string(expectedMsiData))
+
+    if !reflect.DeepEqual(newMsi, expectedMsi) {
+        t.Errorf("Msi data does not match for use key = true")
+    }
+}
+
 func init() {
 	// Enable logs at UT setup
 	flag.Lookup("v").Value.Set("10")
