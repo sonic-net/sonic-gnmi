@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"flag"
 	"fmt"
-        "sync"
+"sync"
 	"strings"
 	"unsafe"
 
@@ -3779,6 +3779,197 @@ func TestParseOrigin(t *testing.T) {
 	if err == nil {
 		t.Errorf("ParseOrigin should fail for conflict")
 	}
+}
+
+func TestMasterArbitration(t *testing.T) {
+	s := createServer(t, 8088)
+	// Turn on Master Arbitration
+	s.ReqFromMaster = ReqFromMasterEnabledMA
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	//targetAddr := "30.57.185.38:8080"
+	targetAddr := "127.0.0.1:8088"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	maExt0 := &ext_pb.Extension{
+		Ext: &ext_pb.Extension_MasterArbitration{
+			MasterArbitration: &ext_pb.MasterArbitration{
+				ElectionId: &ext_pb.Uint128{High: 0, Low: 0},
+			},
+		},
+	}
+	maExt1 := &ext_pb.Extension{
+		Ext: &ext_pb.Extension_MasterArbitration{
+			MasterArbitration: &ext_pb.MasterArbitration{
+				ElectionId: &ext_pb.Uint128{High: 0, Low: 1},
+			},
+		},
+	}
+	maExt1H0L := &ext_pb.Extension{
+		Ext: &ext_pb.Extension_MasterArbitration{
+			MasterArbitration: &ext_pb.MasterArbitration{
+				ElectionId: &ext_pb.Uint128{High: 1, Low: 0},
+			},
+		},
+	}
+	regExt := &ext_pb.Extension{
+		Ext: &ext_pb.Extension_RegisteredExt{
+			RegisteredExt: &ext_pb.RegisteredExtension{},
+		},
+	}
+
+	// By default ElectionID starts from 0 so this test does not change it.
+	t.Run("MasterArbitrationOnElectionIdZero", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			},
+			Extension: []*ext_pb.Extension{maExt0},
+		}
+		_, err = gClient.Set(ctx, req)
+		if err != nil {
+			t.Fatal("Did not expected an error: " + err.Error())
+		}
+		if _, ok := status.FromError(err); !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+		reqEid0 := maExt0.GetMasterArbitration().GetElectionId()
+		expectedEID0 := uint128{High: reqEid0.GetHigh(), Low: reqEid0.GetLow()}
+		if s.masterEID.Compare(&expectedEID0) != 0 {
+			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID0, s.masterEID)
+		}
+	})
+	// After this test ElectionID is one.
+	t.Run("MasterArbitrationOnElectionIdZeroThenOne", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			},
+			Extension: []*ext_pb.Extension{maExt0},
+		}
+		if _, err = gClient.Set(ctx, req); err != nil {
+			t.Fatal("Did not expected an error: " + err.Error())
+		}
+		reqEid0 := maExt0.GetMasterArbitration().GetElectionId()
+		expectedEID0 := uint128{High: reqEid0.GetHigh(), Low: reqEid0.GetLow()}
+		if s.masterEID.Compare(&expectedEID0) != 0 {
+			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID0, s.masterEID)
+		}
+		req = &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			},
+			Extension: []*ext_pb.Extension{maExt1},
+		}
+		if _, err = gClient.Set(ctx, req); err != nil {
+			t.Fatal("Set gRPC failed")
+		}
+		reqEid1 := maExt1.GetMasterArbitration().GetElectionId()
+		expectedEID1 := uint128{High: reqEid1.GetHigh(), Low: reqEid1.GetLow()}
+		if s.masterEID.Compare(&expectedEID1) != 0 {
+			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID1, s.masterEID)
+		}
+	})
+	// Multiple ElectionIDs with the last being one.
+	t.Run("MasterArbitrationOnElectionIdMultipleIdsZeroThenOne", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			},
+			Extension: []*ext_pb.Extension{maExt0, maExt1, regExt},
+		}
+		_, err = gClient.Set(ctx, req)
+		if err != nil {
+			t.Fatal("Did not expected an error: " + err.Error())
+		}
+		if _, ok := status.FromError(err); !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+		reqEid1 := maExt1.GetMasterArbitration().GetElectionId()
+		expectedEID1 := uint128{High: reqEid1.GetHigh(), Low: reqEid1.GetLow()}
+		if s.masterEID.Compare(&expectedEID1) != 0 {
+			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID1, s.masterEID)
+		}
+	})
+	// ElectionIDs with the high word set to 1 and low word to 0.
+	t.Run("MasterArbitrationOnElectionIdHighOne", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			},
+			Extension: []*ext_pb.Extension{maExt1H0L},
+		}
+		_, err = gClient.Set(ctx, req)
+		if err != nil {
+			t.Fatal("Did not expected an error: " + err.Error())
+		}
+		if _, ok := status.FromError(err); !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+		reqEid10 := maExt1H0L.GetMasterArbitration().GetElectionId()
+		expectedEID10 := uint128{High: reqEid10.GetHigh(), Low: reqEid10.GetLow()}
+		if s.masterEID.Compare(&expectedEID10) != 0 {
+			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID10, s.masterEID)
+		}
+	})
+	// As the ElectionID is one, a request with ElectionID==0 will fail.
+	// Also a request without Election ID will fail.
+	t.Run("MasterArbitrationOnElectionIdZeroThenNone", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			},
+			Extension: []*ext_pb.Extension{maExt0},
+		}
+		_, err = gClient.Set(ctx, req)
+		if err == nil {
+			t.Fatal("Expected a PermissionDenied error")
+		}
+		ret, ok := status.FromError(err)
+		if !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+		if ret.Code() != codes.PermissionDenied {
+			t.Fatalf("Expected PermissionDenied. Got %v", ret.Code())
+		}
+		reqEid10 := maExt1H0L.GetMasterArbitration().GetElectionId()
+		expectedEID10 := uint128{High: reqEid10.GetHigh(), Low: reqEid10.GetLow()}
+		if s.masterEID.Compare(&expectedEID10) != 0 {
+			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID10, s.masterEID)
+		}
+		req = &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			},
+			Extension: []*ext_pb.Extension{},
+		}
+		_, err = gClient.Set(ctx, req)
+		if err != nil {
+			t.Fatal("Expected a successful set call.")
+		}
+		if s.masterEID.Compare(&expectedEID10) != 0 {
+			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID10, s.masterEID)
+		}
+	})
 }
 
 func init() {
