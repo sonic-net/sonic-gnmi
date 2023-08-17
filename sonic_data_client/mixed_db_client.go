@@ -337,6 +337,7 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 
 	tblPath.dbNamespace = dbNamespace
 	tblPath.dbName = targetDbName
+	tblPath.tableName = ""
 	if len(stringSlice) > 1 {
 		tblPath.tableName = stringSlice[1]
 	}
@@ -378,7 +379,6 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 	// <5> DB Table Key Field Index
 	switch len(stringSlice) {
 	case 1: // only db name provided
-		tblPath.tableName = ""
 	case 2: // only table name provided
 		if tblPath.operation == opRemove {
 			res, err := redisDb.Keys(tblPath.tableName + "*").Result()
@@ -434,6 +434,10 @@ func (c *MixedDbClient) makeJSON_redis(msi *map[string]interface{}, key *string,
 	// TODO: Use Yang model to identify leaf-list
 	if key == nil && op == nil {
 		for f, v := range mfv {
+			// There is NULL field in CONFIG DB, we need to remove NULL field from configuration
+			// user@sonic:~$ redis-cli -n 4 hgetall "DHCP_SERVER|192.0.0.29"
+			// 1) "NULL"
+			// 2) "NULL"
 			if f == "NULL" {
 				continue
 			} else if strings.HasSuffix(f, "@") {
@@ -489,6 +493,7 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 	if tblPath.tableName == "" {
 		// Did no provide table name
 		// Get all tables in the DB
+		// TODO: read all tables in COUNTERS_DB
 		if tblPath.dbName == "COUNTERS_DB" {
 			return fmt.Errorf("Can not read all tables in COUNTERS_DB")
 		}
