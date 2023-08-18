@@ -3880,7 +3880,7 @@ func TestMasterArbitration(t *testing.T) {
 	go runServer(t, s)
 	defer s.s.Stop()
 
-	prepareDb(t, sdcfg.GetDbDefaultNamespace())
+	prepareDbTranslib(t)
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
