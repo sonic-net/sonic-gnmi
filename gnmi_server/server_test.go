@@ -448,6 +448,96 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 	}
 }
 
+func initFullConfigDb(t *testing.T, namespace string) {
+	rclient := getConfigDbClient(t, namespace)
+	defer rclient.Close()
+	rclient.FlushDB()
+
+	fileName := "../testdata/CONFIG_DHCP_SERVER.txt"
+	config, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	config_map := loadConfig(t, "", config)
+	loadConfigDB(t, rclient, config_map)
+}
+
+func initFullCountersDb(t *testing.T, namespace string) {
+	rclient := getRedisClient(t, namespace)
+	defer rclient.Close()
+	rclient.FlushDB()
+
+	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
+	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_name_map := loadConfig(t, "COUNTERS_PORT_NAME_MAP", countersPortNameMapByte)
+	loadDB(t, rclient, mpi_name_map)
+
+	fileName = "../testdata/COUNTERS_QUEUE_NAME_MAP.txt"
+	countersQueueNameMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_qname_map := loadConfig(t, "COUNTERS_QUEUE_NAME_MAP", countersQueueNameMapByte)
+	loadDB(t, rclient, mpi_qname_map)
+
+	fileName = "../testdata/COUNTERS:Ethernet68.txt"
+	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	// "Ethernet68": "oid:0x1000000000039",
+	mpi_counter := loadConfig(t, "COUNTERS:oid:0x1000000000039", countersEthernet68Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	fileName = "../testdata/COUNTERS:Ethernet1.txt"
+	countersEthernet1Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	// "Ethernet1": "oid:0x1000000000003",
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000003", countersEthernet1Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet64:0": "oid:0x1500000000092a"  : queue counter, to work as data noise
+	fileName = "../testdata/COUNTERS:oid:0x1500000000092a.txt"
+	counters92aByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000092a", counters92aByte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet68:1": "oid:0x1500000000091c"  : queue counter, for COUNTERS/Ethernet68/Queue vpath test
+	fileName = "../testdata/COUNTERS:oid:0x1500000000091c.txt"
+	countersEeth68_1Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091c", countersEeth68_1Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet68:3": "oid:0x1500000000091e"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
+	fileName = "../testdata/COUNTERS:oid:0x1500000000091e.txt"
+	countersEeth68_3Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091e", countersEeth68_3Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet68:4": "oid:0x1500000000091f"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
+	fileName = "../testdata/COUNTERS:oid:0x1500000000091f.txt"
+	countersEeth68_4Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091f", countersEeth68_4Byte)
+	loadDB(t, rclient, mpi_counter)
+}
+
 func prepareConfigDb(t *testing.T, namespace string) {
 	rclient := getConfigDbClient(t, namespace)
 	defer rclient.Close()
@@ -3706,6 +3796,8 @@ print('%s')
 	s := createServer(t, 8080)
 	go runServer(t, s)
 	defer s.s.Stop()
+	initFullConfigDb(t, sdcfg.GetDbDefaultNamespace())
+	initFullCountersDb(t, sdcfg.GetDbDefaultNamespace())
 
 	path, _ := os.Getwd()
 	path = filepath.Dir(path)
@@ -3787,6 +3879,8 @@ func TestMasterArbitration(t *testing.T) {
 	s.ReqFromMaster = ReqFromMasterEnabledMA
 	go runServer(t, s)
 	defer s.s.Stop()
+
+	prepareDbTranslib(t)
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}

@@ -337,7 +337,10 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 
 	tblPath.dbNamespace = dbNamespace
 	tblPath.dbName = targetDbName
-	tblPath.tableName = stringSlice[1]
+	tblPath.tableName = ""
+	if len(stringSlice) > 1 {
+		tblPath.tableName = stringSlice[1]
+	}
 	tblPath.delimitor = separator
 	tblPath.operation = opRemove
 	tblPath.index = -1
@@ -375,6 +378,7 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 	// <4> DB Table Key Field
 	// <5> DB Table Key Field Index
 	switch len(stringSlice) {
+	case 1: // only db name provided
 	case 2: // only table name provided
 		if tblPath.operation == opRemove {
 			res, err := redisDb.Keys(tblPath.tableName + "*").Result()
@@ -430,7 +434,13 @@ func (c *MixedDbClient) makeJSON_redis(msi *map[string]interface{}, key *string,
 	// TODO: Use Yang model to identify leaf-list
 	if key == nil && op == nil {
 		for f, v := range mfv {
-			if strings.HasSuffix(f, "@") {
+			// There is NULL field in CONFIG DB, we need to remove NULL field from configuration
+			// user@sonic:~$ redis-cli -n 4 hgetall "DHCP_SERVER|192.0.0.29"
+			// 1) "NULL"
+			// 2) "NULL"
+			if f == "NULL" {
+				continue
+			} else if strings.HasSuffix(f, "@") {
 				k := strings.TrimSuffix(f, "@")
 				slice := strings.Split(v, ",")
 				(*msi)[k] = slice
@@ -443,7 +453,9 @@ func (c *MixedDbClient) makeJSON_redis(msi *map[string]interface{}, key *string,
 
 	fp := map[string]interface{}{}
 	for f, v := range mfv {
-		if strings.HasSuffix(f, "@") {
+		if f == "NULL" {
+			continue
+		} else if strings.HasSuffix(f, "@") {
 			k := strings.TrimSuffix(f, "@")
 			slice := strings.Split(v, ",")
 			fp[k] = slice
@@ -478,8 +490,21 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 	var err error
 	var fv map[string]string
 
-	//Only table name provided
-	if tblPath.tableKey == "" {
+	if tblPath.tableName == "" {
+		// Did no provide table name
+		// Get all tables in the DB
+		// TODO: read all tables in COUNTERS_DB
+		if tblPath.dbName == "COUNTERS_DB" {
+			return fmt.Errorf("Can not read all tables in COUNTERS_DB")
+		}
+		pattern = "*" + tblPath.delimitor + "*"
+		dbkeys, err = redisDb.Keys(pattern).Result()
+		if err != nil {
+			log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
+			return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
+		}
+	} else if tblPath.tableKey == "" {
+		// Only table name provided
 		// tables in COUNTERS_DB other than COUNTERS table doesn't have keys
 		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
 			pattern = tblPath.tableName
@@ -503,7 +528,24 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 			return err
 		}
 
-		if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
+		if (tblPath.tableName == "") {
+			// Split dbkey string into two parts
+			// First part is table name and second part is key in table
+			keys := strings.SplitN(dbkey, tblPath.delimitor, 2)
+			tableName := keys[0]
+			key := keys[1]
+			table_msi, ok := (*msi)[tableName].(*map[string]interface{})
+			if !ok {
+				tm := make(map[string]interface{})
+				table_msi = &tm
+				(*msi)[tableName] = table_msi
+			}
+			err = c.makeJSON_redis(table_msi, &key, op, fv)
+			if err != nil {
+				log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
+				return err
+			}
+		} else if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
 			if c.encoding == gnmipb.Encoding_JSON_IETF {
 				err = c.makeJSON_redis(msi, nil, op, fv)
 				if err != nil {
