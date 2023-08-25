@@ -310,10 +310,7 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 		return fmt.Errorf("Invalid target dbNameSpace %v", targetDbNameSpace)
 	}
 
-	fullPath := path
-	if c.prefix != nil {
-		fullPath = c.gnmiFullPath(c.prefix, path)
-	}
+	fullPath := c.gnmiFullPath(c.prefix, path)
 
 	stringSlice := []string{targetDbName}
 	separator, _ := GetTableKeySeparator(targetDbName, dbNamespace)
@@ -816,10 +813,7 @@ func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Pat
 			return fmt.Errorf("Value encoding is not IETF JSON")
 		}
 	}
-	fullPath := path
-	if prefix != nil {
-		fullPath = c.gnmiFullPath(prefix, path)
-	}
+	fullPath := c.gnmiFullPath(prefix, path)
 
 	elems := fullPath.GetElem()
 	if t == nil {
@@ -914,10 +908,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 	text := `[`
 	/* DELETE */
 	for _, path := range delete {
-		fullPath := path
-		if c.prefix != nil {
-			fullPath = c.gnmiFullPath(c.prefix, path)
-		}
+		fullPath := c.gnmiFullPath(c.prefix, path)
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
@@ -944,10 +935,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 
 	/* REPLACE */
 	for _, path := range replace {
-		fullPath := path.GetPath()
-		if c.prefix != nil {
-			fullPath = c.gnmiFullPath(c.prefix, path.GetPath())
-		}
+		fullPath := c.gnmiFullPath(c.prefix, path.GetPath())
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
@@ -983,10 +971,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 
 	/* UPDATE */
 	for _, path := range update {
-		fullPath := path.GetPath()
-		if c.prefix != nil {
-			fullPath = c.gnmiFullPath(c.prefix, path.GetPath())
-		}
+		fullPath := c.gnmiFullPath(c.prefix, path.GetPath())
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
@@ -1146,10 +1131,7 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 	}
 	log.V(2).Infof("Getting #%v", c.jClient.jsonData)
 	for _, path := range c.paths {
-		fullPath := path
-		if c.prefix != nil {
-			fullPath = c.gnmiFullPath(c.prefix, path)
-		}
+		fullPath := c.gnmiFullPath(c.prefix, path)
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
