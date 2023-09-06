@@ -350,7 +350,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	} else if _, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
 	} else {
-		if prefix == nil {
+		if origin == "" {
 			origin, err = ParseOrigin(paths)
 			if err != nil {
 				return nil, err
@@ -425,7 +425,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	for _, path := range req.GetUpdate() {
 		paths = append(paths, path.GetPath())
 	}
-	if prefix == nil {
+	if origin == "" {
 		origin, err = ParseOrigin(paths)
 		if err != nil {
 			return nil, err
