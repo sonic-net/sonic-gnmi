@@ -261,8 +261,14 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 
 // gnmiFullPath builds the full path from the prefix and path.
 func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) *gnmipb.Path {
-
-	fullPath := &gnmipb.Path{Origin: path.Origin}
+	origin := ""
+	if prefix != nil {
+		origin = prefix.Origin
+	}
+	if origin == "" {
+		origin = path.Origin
+	}
+	fullPath := &gnmipb.Path{Origin: origin}
 	if path.GetElement() != nil {
 		elements := path.GetElement()
 		if prefix != nil {
