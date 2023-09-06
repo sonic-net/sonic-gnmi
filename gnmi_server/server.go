@@ -331,9 +331,11 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	}
 
 	target := ""
+	origin := ""
 	prefix := req.GetPrefix()
 	if prefix != nil {
 		target = prefix.GetTarget()
+		origin = prefix.Origin
 	}
 
 	paths := req.GetPath()
@@ -348,10 +350,11 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	} else if _, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
 	} else {
-		origin := ""
-		origin, err = ParseOrigin(paths)
-		if err != nil {
-			return nil, err
+		if prefix == nil {
+			origin, err = ParseOrigin(paths)
+			if err != nil {
+				return nil, err
+			}
 		}
 		if check := IsNativeOrigin(origin); check {
 			dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqAddress)
@@ -407,6 +410,10 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 
 	/* Fetch the prefix. */
 	prefix := req.GetPrefix()
+	origin := ""
+	if prefix != nil {
+		origin = prefix.Origin
+	}
 	extensions := req.GetExtension()
 	encoding := gnmipb.Encoding_JSON_IETF
 
@@ -418,9 +425,11 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	for _, path := range req.GetUpdate() {
 		paths = append(paths, path.GetPath())
 	}
-	origin, err := ParseOrigin(paths)
-	if err != nil {
-		return nil, err
+	if prefix == nil {
+		origin, err = ParseOrigin(paths)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if check := IsNativeOrigin(origin); check {
 		if s.config.EnableNativeWrite == false {
