@@ -23,6 +23,9 @@ var (
 	jwtToken = flag.String("jwt_token", "", "JWT Token if required")
 	targetName = flag.String("target_name", "hostname.com", "The target name use to verify the hostname returned by TLS handshake")
 )
+var username string = ""
+var password string = ""
+
 func setUserCreds(ctx context.Context) context.Context {
 	if len(*jwtToken) > 0 {
 		ctx = metadata.AppendToOutgoingContext(ctx, "access_token", *jwtToken)
@@ -31,6 +34,8 @@ func setUserCreds(ctx context.Context) context.Context {
 }
 func main() {
 	flag.Parse()
+	username = flag.Lookup("username").Value.String()
+	password = flag.Lookup("password").Value.String()
 	opts := credentials.ClientCredentials(*targetName)
 
     ctx, cancel := context.WithCancel(context.Background())
@@ -254,7 +259,7 @@ func imageDefault(sc spb.SonicServiceClient, ctx context.Context) {
 func authenticate(sc spb_jwt.SonicJwtServiceClient, ctx context.Context) {
 	fmt.Println("Sonic Authenticate")
 	ctx = setUserCreds(ctx)
-	req := &spb_jwt.AuthenticateRequest {}
+	req := &spb_jwt.AuthenticateRequest {Username: username, Password: password}
 	
 	json.Unmarshal([]byte(*args), req)
 	
