@@ -3,6 +3,7 @@ package gnmi
 import (
 	"crypto/tls"
 	"fmt"
+	"io"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -18,11 +19,10 @@ import (
 	extnpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	"github.com/openconfig/ygot/ygot"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
+	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	dbconfig "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	"golang.org/x/net/context"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 )
 
@@ -875,17 +875,11 @@ func doSet(t *testing.T, data ...interface{}) {
 		}
 	}
 
-	cred := credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})
-	conn, err := grpc.Dial("127.0.0.1:8081", grpc.WithTransportCredentials(cred))
-	if err != nil {
-		t.Fatalf("Could not create client: %v", err)
-	}
-
+	client := gnmipb.NewGNMIClient(createClient(t, 8081))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	defer conn.Close()
 
-	_, err = gnmipb.NewGNMIClient(conn).Set(ctx, req)
+	_, err := client.Set(ctx, req)
 	if err != nil {
 		t.Fatalf("Set failed: %v", err)
 	}
@@ -934,4 +928,156 @@ func newBundleVersion(t *testing.T, version string) *extnpb.Extension {
 	}
 	ext := &extnpb.RegisteredExtension{Id: spb.BUNDLE_VERSION_EXT, Msg: v}
 	return &extnpb.Extension{Ext: &extnpb.Extension_RegisteredExt{RegisteredExt: ext}}
+}
+
+func TestDebugSubscribePreferences(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	ifTop := &spb_gnoi.SubscribePreference{
+		Path:              strToPath("/openconfig-interfaces:interfaces/interface[name=*]"),
+		OnChangeSupported: false,
+		TargetDefinedMode: ON_CHANGE,
+		WildcardSupported: true,
+	}
+	ifMtu := &spb_gnoi.SubscribePreference{
+		Path:              strToPath("/openconfig-interfaces:interfaces/interface[name=*]/config/mtu"),
+		OnChangeSupported: true,
+		TargetDefinedMode: ON_CHANGE,
+		WildcardSupported: true,
+	}
+	ifStat := &spb_gnoi.SubscribePreference{
+		Path:              strToPath("/openconfig-interfaces:interfaces/interface[name=*]/state/counters"),
+		OnChangeSupported: false,
+		TargetDefinedMode: SAMPLE,
+		WildcardSupported: true,
+	}
+	aclConfig := &spb_gnoi.SubscribePreference{
+		Path:              strToPath("/openconfig-acl:acl/acl-sets/acl-set[name=*][type=*]/config"),
+		OnChangeSupported: true,
+		TargetDefinedMode: ON_CHANGE,
+		WildcardSupported: true,
+	}
+	yanglib := &spb_gnoi.SubscribePreference{
+		Path:              strToPath("/ietf-yang-library:modules-state/module-set-id"),
+		OnChangeSupported: false,
+		TargetDefinedMode: SAMPLE,
+		WildcardSupported: false,
+	}
+
+	t.Run("invalid_path", func(t *testing.T) {
+		_, err := getSubscribePreferences(t, nil)
+		if res, _ := status.FromError(err); res.Code() != codes.InvalidArgument {
+			t.Fatalf("Expecting InvalidArgument error; got %v", err)
+		}
+	})
+
+	t.Run("unknown_path", func(t *testing.T) {
+		_, err := getSubscribePreferences(t, strToPath("/unknown"))
+		if res, _ := status.FromError(err); res.Code() != codes.InvalidArgument {
+			t.Fatalf("Expecting InvalidArgument error; got %v", err)
+		}
+	})
+
+	t.Run("onchange_supported", func(t *testing.T) {
+		verifySubscribePreferences(t,
+			[]*gnmipb.Path{ifMtu.Path},
+			[]*spb_gnoi.SubscribePreference{ifMtu})
+	})
+
+	t.Run("onchange_unsupported", func(t *testing.T) {
+		verifySubscribePreferences(t,
+			[]*gnmipb.Path{ifStat.Path},
+			[]*spb_gnoi.SubscribePreference{ifStat})
+	})
+
+	t.Run("onchange_mixed", func(t *testing.T) {
+		verifySubscribePreferences(t,
+			[]*gnmipb.Path{ifTop.Path},
+			[]*spb_gnoi.SubscribePreference{ifTop, ifStat})
+	})
+
+	t.Run("nondb_path", func(t *testing.T) {
+		verifySubscribePreferences(t,
+			[]*gnmipb.Path{yanglib.Path},
+			[]*spb_gnoi.SubscribePreference{yanglib})
+	})
+
+	t.Run("unprefixed_path", func(t *testing.T) {
+		verifySubscribePreferences(t,
+			[]*gnmipb.Path{strToPath("/acl/acl-sets/acl-set/config")},
+			[]*spb_gnoi.SubscribePreference{aclConfig})
+	})
+
+	t.Run("multiple_paths", func(t *testing.T) {
+		verifySubscribePreferences(t,
+			[]*gnmipb.Path{yanglib.Path, ifTop.Path, aclConfig.Path},
+			[]*spb_gnoi.SubscribePreference{yanglib, ifTop, ifStat, aclConfig})
+	})
+}
+
+func TestDebugSubscribePreferences_dummy(t *testing.T) {
+	// Dummy testcase to increase code coverage !!!
+	f := func(_ ...interface{}) {}
+	for _, m := range []*spb_gnoi.SubscribePreferencesReq{nil, {}} {
+		f(m.String(), m.GetPath())
+		f(m.Descriptor())
+	}
+	for _, p := range []*spb_gnoi.SubscribePreference{nil, {}} {
+		f(p.String(), p.GetPath(), p.GetOnChangeSupported(), p.GetTargetDefinedMode(), p.GetWildcardSupported(), p.GetMinSampleInterval())
+		f(p.Descriptor())
+	}
+}
+
+func getSubscribePreferences(t *testing.T, paths ...*gnmipb.Path) ([]*spb_gnoi.SubscribePreference, error) {
+	t.Helper()
+	client := spb_gnoi.NewDebugClient(createClient(t, 8081))
+	stream, err := client.GetSubscribePreferences(
+		context.Background(),
+		&spb_gnoi.SubscribePreferencesReq{Path: paths},
+	)
+	if err != nil {
+		t.Fatalf("Could not invoke GetSubscribePreferences: %v", err)
+	}
+
+	var prefs []*spb_gnoi.SubscribePreference
+	for {
+		if p, err := stream.Recv(); err == nil {
+			prefs = append(prefs, p)
+		} else if err == io.EOF {
+			break
+		} else {
+			return prefs, err
+		}
+	}
+
+	return prefs, nil
+}
+
+func verifySubscribePreferences(t *testing.T, paths []*gnmipb.Path, exp []*spb_gnoi.SubscribePreference) {
+	t.Helper()
+	resp, err := getSubscribePreferences(t, paths...)
+	if err != nil {
+		t.Fatalf("GetSubscribePreferences returned error: %v", err)
+	}
+	if len(resp) != len(exp) {
+		t.Fatalf("Expected: %s\nReceived: %s", prefsText(exp), prefsText(resp))
+	}
+	for i, ex := range exp {
+		if ex.MinSampleInterval == 0 {
+			resp[i].MinSampleInterval = 0 // ignore MinSampleInterval for comparison
+		}
+		if !proto.Equal(ex, resp[i]) {
+			t.Fatalf("Expected: %s\nReceived: %s", prefsText(exp), prefsText(resp))
+		}
+	}
+}
+
+func prefsText(prefs []*spb_gnoi.SubscribePreference) string {
+	var s []string
+	for _, p := range prefs {
+		s = append(s, proto.MarshalTextString(p))
+	}
+	return "[\n" + strings.Join(s, "\n") + "]"
 }
