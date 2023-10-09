@@ -15,10 +15,6 @@ export PATH := $(PATH):$(GOBIN):$(shell dirname $(GO))
 export CGO_LDFLAGS := -lswsscommon -lhiredis
 export CGO_CXXFLAGS := -I/usr/include/swss -w -Wall -fpermissive
 
-SRC_FILES=$(shell find . -name '*.go' | grep -v '_test.go' | grep -v '/tests/')
-TEST_FILES=$(wildcard *_test.go)
-TELEMETRY_TEST_DIR = build/tests/gnmi_server
-TELEMETRY_TEST_BIN = $(TELEMETRY_TEST_DIR)/server.test
 ifeq ($(ENABLE_TRANSLIB_WRITE),y)
 BLD_TAGS := gnmi_translib_write
 endif
@@ -39,7 +35,7 @@ GO_DEPS := vendor/.done
 PATCHES := $(wildcard patches/*.patch)
 PATCHES += $(shell find $(MGMT_COMMON_DIR)/patches -type f)
 
-all: sonic-gnmi $(TELEMETRY_TEST_BIN)
+all: sonic-gnmi
 
 go.mod:
 	$(GO) mod init github.com/sonic-net/sonic-gnmi
@@ -139,15 +135,6 @@ endif
 clean:
 	$(RM) -r build
 	$(RM) -r vendor
-
-$(TELEMETRY_TEST_BIN): $(TEST_FILES) $(SRC_FILES)
-	mkdir -p $(@D)
-	cp -r testdata $(@D)/
-ifeq ($(CONFIGURED_ARCH),armhf)
-	touch $@
-else
-	$(GO) test -mod=vendor $(BLD_FLAGS) -c -cover github.com/sonic-net/sonic-gnmi/gnmi_server -o $@
-endif
 
 install:
 	$(INSTALL) -D $(BUILD_DIR)/telemetry $(DESTDIR)/usr/sbin/telemetry
