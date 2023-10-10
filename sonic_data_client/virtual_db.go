@@ -330,9 +330,13 @@ func v2rEthPortStats(paths []string) ([]tablePath, error) {
 
 // Supported cases:
 // <1> port name having suffix of "*" with specific field;
-//     Ex. [COUNTER_DB COUNTERS Ethernet* SAI_PORT_STAT_PFC_0_RX_PKTS]
+//
+//	Ex. [COUNTER_DB COUNTERS Ethernet* SAI_PORT_STAT_PFC_0_RX_PKTS]
+//
 // <2> exact port name with specific field.
-//     Ex. [COUNTER_DB COUNTERS Ethernet68 SAI_PORT_STAT_PFC_0_RX_PKTS]
+//
+//	Ex. [COUNTER_DB COUNTERS Ethernet68 SAI_PORT_STAT_PFC_0_RX_PKTS]
+//
 // case of "*" field could be covered in v2rEthPortStats()
 func v2rEthPortFieldStats(paths []string) ([]tablePath, error) {
 	var tblPaths []tablePath

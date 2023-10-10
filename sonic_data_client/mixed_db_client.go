@@ -8,6 +8,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/Workiva/go-datastructures/queue"
+	log "github.com/golang/glog"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"io/ioutil"
 	"os"
 	"reflect"
@@ -16,16 +26,6 @@ import (
 	"sync"
 	"time"
 	"unsafe"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	log "github.com/golang/glog"
-	"github.com/Workiva/go-datastructures/queue"
-	"github.com/sonic-net/sonic-gnmi/common_utils"
-	"github.com/sonic-net/sonic-gnmi/swsscommon"
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
-	spb "github.com/sonic-net/sonic-gnmi/proto"
-	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
 const REDIS_SOCK string = "/var/run/redis/redis.sock"
@@ -39,8 +39,8 @@ const RETRY_DELAY_FACTOR uint = 2
 const CHECK_POINT_PATH string = "/etc/sonic"
 
 const (
-    opAdd = iota
-    opRemove
+	opAdd = iota
+	opRemove
 )
 
 var (
@@ -54,19 +54,19 @@ var (
 )
 
 type MixedDbClient struct {
-	prefix  *gnmipb.Path
-	paths   []*gnmipb.Path
-	pathG2S map[*gnmipb.Path][]tablePath
-	encoding gnmipb.Encoding
-	q       *queue.PriorityQueue
-	channel chan struct{}
-	target  string
-	origin  string
-	workPath string
-	jClient *JsonClient
-	applDB swsscommon.DBConnector
+	prefix    *gnmipb.Path
+	paths     []*gnmipb.Path
+	pathG2S   map[*gnmipb.Path][]tablePath
+	encoding  gnmipb.Encoding
+	q         *queue.PriorityQueue
+	channel   chan struct{}
+	target    string
+	origin    string
+	workPath  string
+	jClient   *JsonClient
+	applDB    swsscommon.DBConnector
 	zmqClient swsscommon.ZmqClient
-	tableMap map[string]swsscommon.ProducerStateTable
+	tableMap  map[string]swsscommon.ProducerStateTable
 
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
 	w      *sync.WaitGroup // wait for all sub go routines to finish
@@ -75,12 +75,12 @@ type MixedDbClient struct {
 
 var mixedDbClientMap = map[string]MixedDbClient{}
 
-func getMixedDbClient(zmqAddress string) (MixedDbClient) {
+func getMixedDbClient(zmqAddress string) MixedDbClient {
 	client, ok := mixedDbClientMap[zmqAddress]
 	if !ok {
-		client = MixedDbClient {
-			applDB : swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
-			tableMap : map[string]swsscommon.ProducerStateTable{},
+		client = MixedDbClient{
+			applDB:   swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
+			tableMap: map[string]swsscommon.ProducerStateTable{},
 		}
 
 		// enable ZMQ by zmqAddress parameter
@@ -89,7 +89,7 @@ func getMixedDbClient(zmqAddress string) (MixedDbClient) {
 		} else {
 			client.zmqClient = nil
 		}
-		
+
 		mixedDbClientMap[zmqAddress] = client
 	}
 
@@ -128,7 +128,7 @@ func ParseTarget(target string, paths []*gnmipb.Path) (string, error) {
 	return target, nil
 }
 
-func (c *MixedDbClient) GetTable(table string) (swsscommon.ProducerStateTable) {
+func (c *MixedDbClient) GetTable(table string) swsscommon.ProducerStateTable {
 	pt, ok := c.tableMap[table]
 	if !ok {
 		if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
@@ -146,9 +146,9 @@ func (c *MixedDbClient) GetTable(table string) (swsscommon.ProducerStateTable) {
 }
 
 func CatchException(err *error) {
-    if r := recover(); r != nil {
-        *err = fmt.Errorf("%v", r)
-    }
+	if r := recover(); r != nil {
+		*err = fmt.Errorf("%v", r)
+	}
 }
 
 func ProducerStateTableSetWrapper(pt swsscommon.ProducerStateTable, key string, value swsscommon.FieldValuePairs) (err error) {
@@ -174,7 +174,7 @@ func RetryHelper(zmqClient swsscommon.ZmqClient, action ActionNeedRetry) {
 	for {
 		err := action()
 		if err != nil {
-			if (err.Error() == ConnectionResetErr && retry <= MAX_RETRY_COUNT) {
+			if err.Error() == ConnectionResetErr && retry <= MAX_RETRY_COUNT {
 				log.V(6).Infof("RetryHelper: connection reset, reconnect and retry later")
 				time.Sleep(retry_delay)
 
@@ -202,20 +202,20 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 
 	pt := c.GetTable(table)
 	RetryHelper(
-				c.zmqClient,
-				func () error {
-					return ProducerStateTableSetWrapper(pt, key, vec)
-				})
+		c.zmqClient,
+		func() error {
+			return ProducerStateTableSetWrapper(pt, key, vec)
+		})
 	return nil
 }
 
 func (c *MixedDbClient) DbDelTable(table string, key string) error {
 	pt := c.GetTable(table)
 	RetryHelper(
-				c.zmqClient,
-				func () error {
-					return ProducerStateTableDeleteWrapper(pt, key) 
-				})
+		c.zmqClient,
+		func() error {
+			return ProducerStateTableDeleteWrapper(pt, key)
+		})
 
 	return nil
 }
@@ -249,7 +249,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 			return nil, err
 		}
 	}
-	_, ok, _, _ := IsTargetDb(client.target); 
+	_, ok, _, _ := IsTargetDb(client.target)
 	if !ok {
 		return nil, status.Errorf(codes.Unimplemented, "Invalid target: %s", client.target)
 	}
@@ -464,7 +464,7 @@ func (c *MixedDbClient) makeJSON_redis(msi *map[string]interface{}, key *string,
 			fp[k] = slice
 		} else {
 			fp[f] = v
-		}		
+		}
 	}
 
 	if key == nil {
@@ -531,7 +531,7 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 			return err
 		}
 
-		if (tblPath.tableName == "") {
+		if tblPath.tableName == "" {
 			// Split dbkey string into two parts
 			// First part is table name and second part is key in table
 			keys := strings.SplitN(dbkey, tblPath.delimitor, 2)
@@ -678,16 +678,16 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 }
 
 func ConvertDbEntry(inputData map[string]interface{}) map[string]string {
-    outputData := map[string]string{}
-    for key, value := range inputData {
-        switch value.(type) {
+	outputData := map[string]string{}
+	for key, value := range inputData {
+		switch value.(type) {
 		case string:
 			outputData[key] = value.(string)
 		case []interface{}:
 			list := value.([]interface{})
 			key_redis := key + "@"
 			slice := []string{}
-			for _, item := range(list) {
+			for _, item := range list {
 				if str, check := item.(string); check {
 					slice = append(slice, str)
 				} else {
@@ -696,9 +696,9 @@ func ConvertDbEntry(inputData map[string]interface{}) map[string]string {
 			}
 			str_val := strings.Join(slice, ",")
 			outputData[key_redis] = str_val
-        }
-    }
-    return outputData
+		}
+	}
+	return outputData
 }
 
 func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
@@ -742,7 +742,7 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 			}
 
 			for _, dbkey := range dbkeys {
-				tableKey := strings.TrimPrefix(dbkey, tblPath.tableName + tblPath.delimitor)
+				tableKey := strings.TrimPrefix(dbkey, tblPath.tableName+tblPath.delimitor)
 				err = c.DbDelTable(tblPath.tableName, tableKey)
 				if err != nil {
 					log.V(2).Infof("swsscommon delete failed for  %v, dbkey %s", tblPath, dbkey)
@@ -874,8 +874,7 @@ func RunPyCode(text string) error {
 	return nil
 }
 
-var PyCodeForYang string =
-`
+var PyCodeForYang string = `
 import sonic_yang
 import json
 
@@ -1058,7 +1057,7 @@ func (c *MixedDbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, u
 	if err != nil {
 		return err
 	}
-	
+
 	for _, tblPaths := range deleteMap {
 		err = c.handleTableData(tblPaths)
 		if err != nil {
@@ -1106,7 +1105,7 @@ func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Upd
 	deleteLen := len(delete)
 	replaceLen := len(replace)
 	updateLen := len(update)
-	if (deleteLen == 1 && replaceLen == 0 && updateLen == 1) {
+	if deleteLen == 1 && replaceLen == 0 && updateLen == 1 {
 		deletePath := c.gnmiFullPath(c.prefix, delete[0])
 		updatePath := c.gnmiFullPath(c.prefix, update[0].GetPath())
 		if (len(deletePath.GetElem()) == 0) && (len(updatePath.GetElem()) == 0) {
@@ -1154,8 +1153,8 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 			}
 
 			val := gnmipb.TypedValue{
-					Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: jv},
-				}
+				Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: jv},
+			}
 			values = append(values, &spb.Value{
 				Prefix:    c.prefix,
 				Path:      path,
@@ -1231,4 +1230,3 @@ func (c *MixedDbClient) SentOne(val *Value) {
 
 func (c *MixedDbClient) FailedSend() {
 }
-

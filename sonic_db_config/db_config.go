@@ -1,5 +1,5 @@
-//Package dbconfig provides a generic functions for parsing sonic database config file in system
-//package main
+// Package dbconfig provides a generic functions for parsing sonic database config file in system
+// package main
 package dbconfig
 
 import (

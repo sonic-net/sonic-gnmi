@@ -5,16 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Azure/sonic-mgmt-common/translib"
-	"github.com/sonic-net/sonic-gnmi/common_utils"
-	spb "github.com/sonic-net/sonic-gnmi/proto"
-	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
-	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
-	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	log "github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
+	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -50,14 +50,14 @@ type AuthTypes map[string]bool
 type Config struct {
 	// Port for the Server to listen on. If 0 or unset the Server will pick a port
 	// for this Server.
-	Port     int64
-	LogLevel int
-	Threshold int
-	UserAuth AuthTypes
+	Port                int64
+	LogLevel            int
+	Threshold           int
+	UserAuth            AuthTypes
 	EnableTranslibWrite bool
-	EnableNativeWrite bool
-	ZmqAddress string
-	IdleConnDuration int
+	EnableNativeWrite   bool
+	ZmqAddress          string
+	IdleConnDuration    int
 }
 
 var AuthLock sync.Mutex
@@ -160,7 +160,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
 		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
 	}
-	if srv.config.EnableTranslibWrite {		
+	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
 	}
 	spb_gnoi.RegisterDebugServer(srv.s, srv)
@@ -591,7 +591,7 @@ func ReqFromMasterEnabledMA(req *gnmipb.SetRequest, masterEID *uint128) error {
 			// Role will be implemented later.
 			return status.Errorf(codes.Unimplemented, "MA: Role is not implemented")
 		}
-		
+
 		reqEID = uint128{High: ma.ElectionId.High, Low: ma.ElectionId.Low}
 		// Use the election ID that is in the last extension, so, no 'break' here.
 	}

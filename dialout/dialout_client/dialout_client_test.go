@@ -28,10 +28,10 @@ import (
 	"testing"
 	"time"
 
+	gclient "github.com/openconfig/gnmi/client/gnmi"
 	sds "github.com/sonic-net/sonic-gnmi/dialout/dialout_server"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
-	gclient "github.com/openconfig/gnmi/client/gnmi"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -308,7 +308,6 @@ func serverOp(t *testing.T, sop ServerOp) {
 	}
 }
 
-//
 func TestGNMIDialOutPublish(t *testing.T) {
 
 	fileName := "../../testdata/COUNTERS_PORT_NAME_MAP.txt"

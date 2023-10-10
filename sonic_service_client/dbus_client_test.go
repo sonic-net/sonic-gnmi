@@ -1,8 +1,8 @@
 package host_service
 
 import (
-	"testing"
 	"reflect"
+	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"

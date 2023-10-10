@@ -1,12 +1,12 @@
 package host_service
 
 import (
-	"time"
 	"fmt"
-	"reflect"
-	log "github.com/golang/glog"
 	"github.com/godbus/dbus/v5"
+	log "github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"reflect"
+	"time"
 )
 
 type Service interface {
@@ -14,7 +14,7 @@ type Service interface {
 	ConfigSave(fileName string) error
 	ApplyPatchYang(fileName string) error
 	ApplyPatchDb(fileName string) error
-	CreateCheckPoint(cpName string)  error
+	CreateCheckPoint(cpName string) error
 	DeleteCheckPoint(cpName string) error
 }
 
@@ -22,7 +22,7 @@ type DbusClient struct {
 	busNamePrefix string
 	busPathPrefix string
 	intNamePrefix string
-	channel chan struct{}
+	channel       chan struct{}
 }
 
 func NewDbusClient() (Service, error) {

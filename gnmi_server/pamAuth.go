@@ -1,10 +1,10 @@
 package gnmi
 
 import (
-	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"errors"
 	"github.com/golang/glog"
 	"github.com/msteinert/pam"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"golang.org/x/crypto/ssh"
 	"os/user"
 )
@@ -14,7 +14,7 @@ type UserCredential struct {
 	Password string
 }
 
-//PAM conversation handler.
+// PAM conversation handler.
 func (u UserCredential) PAMConvHandler(s pam.Style, msg string) (string, error) {
 
 	switch s {
