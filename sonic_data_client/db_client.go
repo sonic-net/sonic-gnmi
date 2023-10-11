@@ -311,6 +311,7 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 		for gnmiPath, tblPaths := range c.pathG2S {
 			val, err := tableData2TypedValue(tblPaths, nil)
 			if err != nil {
+				log.V(2).Infof("Unable to create gnmi TypedValue due to err: %v", err)
 				return
 			}
 
@@ -820,6 +821,9 @@ func msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
 		log.V(2).Infof("emitJSON err %s for  %v", err, msi)
 		return nil, fmt.Errorf("emitJSON err %s for  %v", err, msi)
 	}
+	if jv == nil { // json is nil because of potential panic happen
+		return nil, fmt.Errorf("emitJSON failed due to panic")
+	}
 	return &gnmipb.TypedValue{
 		Value: &gnmipb.TypedValue_JsonIetfVal{
 			JsonIetfVal: jv,
@@ -858,7 +862,6 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 					}}, nil
 			}
 		}
-
 		err := TableData2Msi(&tblPath, useKey, nil, &msi)
 		if err != nil {
 			return nil, err
