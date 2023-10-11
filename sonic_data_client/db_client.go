@@ -727,7 +727,7 @@ func emitJSON(v *map[string]interface{}) ([]byte, error) {
 			log.V(2).Infof("Recovered from panic", r)
 			log.V(2).Infof("Current state of map to be serialized is: ", *v)
 		}
-	}
+	}()
 	j, err := json.Marshal(*v)
 	if err != nil {
 		return nil, fmt.Errorf("JSON marshalling error: %v", err)
