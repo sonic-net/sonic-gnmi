@@ -15,10 +15,6 @@ export PATH := $(PATH):$(GOBIN):$(shell dirname $(GO))
 export CGO_LDFLAGS := -lswsscommon -lhiredis
 export CGO_CXXFLAGS := -I/usr/include/swss -w -Wall -fpermissive
 
-SRC_FILES=$(shell find . -name '*.go' | grep -v '_test.go' | grep -v '/tests/')
-TEST_FILES=$(wildcard *_test.go)
-TELEMETRY_TEST_DIR = build/tests/gnmi_server
-TELEMETRY_TEST_BIN = $(TELEMETRY_TEST_DIR)/server.test
 ifeq ($(ENABLE_TRANSLIB_WRITE),y)
 BLD_TAGS := gnmi_translib_write
 endif
@@ -39,7 +35,7 @@ GO_DEPS := vendor/.done
 PATCHES := $(wildcard patches/*.patch)
 PATCHES += $(shell find $(MGMT_COMMON_DIR)/patches -type f)
 
-all: sonic-gnmi $(TELEMETRY_TEST_BIN)
+all: sonic-gnmi
 
 go.mod:
 	$(GO) mod init github.com/sonic-net/sonic-gnmi
@@ -91,6 +87,24 @@ endif
 swsscommon_wrap:
 	make -C swsscommon
 
+.SECONDEXPANSION:
+
+PROTOC_PATH := $(PATH):$(GOBIN)
+PROTOC_OPTS := -I$(CURDIR)/vendor -I/usr/local/include -I/usr/include
+
+# Generate following go & grpc bindings using teh legacy protoc-gen-go
+PROTO_GO_BINDINGS += proto/sonic_internal.pb.go
+PROTO_GO_BINDINGS += proto/gnoi/sonic_debug.pb.go
+
+$(PROTO_GO_BINDINGS): $$(patsubst %.pb.go,%.proto,$$@) | $(GOBIN)/protoc-gen-go
+	PATH=$(PROTOC_PATH) protoc -I$(@D) $(PROTOC_OPTS) --go_out=plugins=grpc:$(@D) $<
+
+$(GOBIN)/protoc-gen-go:
+	cd $$(mktemp -d) && \
+	$(GO) mod init protoc && \
+	$(GO) install github.com/golang/protobuf/protoc-gen-go
+
+
 DBCONFG = $(DBDIR)/database_config.json
 ENVFILE = build/test/env.txt
 TESTENV = $(shell cat $(ENVFILE))
@@ -121,15 +135,6 @@ endif
 clean:
 	$(RM) -r build
 	$(RM) -r vendor
-
-$(TELEMETRY_TEST_BIN): $(TEST_FILES) $(SRC_FILES)
-	mkdir -p $(@D)
-	cp -r testdata $(@D)/
-ifeq ($(CONFIGURED_ARCH),armhf)
-	touch $@
-else
-	$(GO) test -mod=vendor $(BLD_FLAGS) -c -cover github.com/sonic-net/sonic-gnmi/gnmi_server -o $@
-endif
 
 install:
 	$(INSTALL) -D $(BUILD_DIR)/telemetry $(DESTDIR)/usr/sbin/telemetry

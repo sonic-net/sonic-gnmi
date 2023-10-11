@@ -5,6 +5,8 @@ import "github.com/openconfig/gnmi/proto/gnmi/gnmi.proto";
 
 package gnmi.sonic;
 
+option go_package = "./;gnmi_sonic";
+
 
 enum State {
   STOPPED = 0;
@@ -36,5 +38,5 @@ message Value {
   gnmi.Notification notification = 7;
 
   // Delete to be used to indicate that node was deleted
-  []gnmi.Path delete = 8;
+  repeated gnmi.Path delete = 8;
 }
