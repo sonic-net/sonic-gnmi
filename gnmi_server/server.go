@@ -163,6 +163,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if srv.config.EnableTranslibWrite {		
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
 	}
+	spb_gnoi.RegisterDebugServer(srv.s, srv)
 	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
 	return srv, nil
 }

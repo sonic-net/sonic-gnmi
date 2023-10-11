@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+import "github.com/openconfig/gnmi/proto/gnmi/gnmi.proto";
+
+package gnoi.sonic;
+
+option go_package = "./;gnoi_sonic";
+
+
+// Debug service defines RPCs to get debug information from telemetry server
+service Debug {
+
+  // GetSubscribePreferences returns the subscription capability info for specific
+  // paths and their subpaths.
+  rpc GetSubscribePreferences(SubscribePreferencesReq) returns (stream SubscribePreference);
+
+}
+
+// Request message for GetSubscribePreferences RPC
+message SubscribePreferencesReq {
+  // Retrieve subscribe preferences for these paths.
+  repeated gnmi.Path path = 1;
+}
+
+// SubscribePreference holds subscription capability information for a path.
+message SubscribePreference {
+  // Resource path, whose subscribe preferences are indicated here.
+  gnmi.Path path = 1;
+  // Indicates if ON_CHANGE subscription will be accepted for this path.
+  bool on_change_supported = 2;
+  // Indicates how TARGET_DEFINED subscription will be handled for this path.
+  // It is possible to have target_defined_mode=ON_CHANGE but on_change_supported=false
+  // when this container/list has both on_change supported and unsupported subpaths.
+  gnmi.SubscriptionMode target_defined_mode = 3;
+  // Indicates if wildcard keys are supported for this path.
+  bool wildcard_supported = 4;
+  // Minimum SAMPLE interval supported for this path, in nanoseconds.
+  uint64 min_sample_interval = 5;
+}
