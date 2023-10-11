@@ -3713,6 +3713,83 @@ func TestTableData2MsiUseKey(t *testing.T) {
     }
 }
 
+func TestRecoverFromJSONSerializationPanic(t *testing.T) {
+    panicMarshal := func(v interface{}) ([]byte, error) {
+        panic("json.Marshal panics and is unable to serialize JSON")
+    }
+    mock := gomonkey.ApplyFunc(json.Marshal, panicMarshal)
+    defer mock.Reset()
+
+    s := createServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    tests := []struct {
+        desc    string
+	q       client.Query
+	want    []client.Notification
+	poll    int
+    }{
+        {
+            desc: "poll query COUNTERS/Ethernet*",
+	    poll: 10,
+	    q: client.Query{
+                Target: "COUNTERS_DB",
+		Type:    client.Poll,
+		Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+		TLS:     &tls.Config{InsecureSkipVerify: true},
+	    },
+	    want: []client.Notification{
+                client.Connected{},
+		client.Sync{},
+	    },
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.desc, func(t *testing.T) {
+            q := tt.q
+	    q.Addrs = []string{"127.0.0.1:8081"}
+            c := client.New()
+            var gotNoti []client.Notification
+            q.NotificationHandler = func(n client.Notification) error {
+                if nn, ok := n.(client.Update); ok {
+                    nn.TS = time.Unix(0, 200)
+		    gotNoti = append(gotNoti, nn)
+                } else {
+                    gotNoti = append(gotNoti, n)
+	    }
+                return nil
+            }
+
+            wg := new(sync.WaitGroup)
+            wg.Add(1)
+
+            go func() {
+                defer wg.Done()
+                if err := c.Subscribe(context.Background(), q); err != nil {
+                    t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+                }
+            }()
+
+            wg.Wait()
+
+            for i := 0; i < tt.poll; i++ {
+                if err := c.Poll(); err != nil {
+                    t.Errorf("c.Poll(): got error %v, expected nil", err)
+                }
+	    }
+
+            if len(gotNoti) == 0 {
+                t.Errorf("expected non zero notifications")
+            }
+
+            c.Close()
+        })
+    }
+
+}
+
 func TestGnmiSetBatch(t *testing.T) {
 	mockCode := 
 `
