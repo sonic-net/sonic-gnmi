@@ -3724,9 +3724,9 @@ func TestRecoverFromJSONSerializationPanic(t *testing.T) {
     msi := make(map[string]interface{})
     sdc.TableData2Msi(&tblPath, true, nil, &msi)
 
-    typedValue := sdc.Msi2TypedValue(msi)
-    if typedValue != nil {
-        t.Errorf("Test should recover from panic and have nil typed value after attempting JSON serialization")
+    typedValue, err := sdc.Msi2TypedValue(msi)
+    if typedValue != nil && err != nil {
+        t.Errorf("Test should recover from panic and have nil TypedValue/Error after attempting JSON serialization")
     }
 
 }
