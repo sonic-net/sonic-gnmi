@@ -3717,8 +3717,6 @@ func TestRecoverFromJSONSerializationPanic(t *testing.T) {
     panicMarshal := func(v interface{}) ([]byte, error) {
         panic("json.Marshal panics and is unable to serialize JSON")
     }
-    mock := gomonkey.ApplyFunc(json.Marshal, panicMarshal)
-    defer mock.Reset()
 
     s := createServer(t, 8081)
     go runServer(t, s)
@@ -3773,6 +3771,9 @@ func TestRecoverFromJSONSerializationPanic(t *testing.T) {
             }()
 
             wg.Wait()
+
+	    mock := gomonkey.ApplyFunc(json.Marshal, panicMarshal)
+	    defer mock.Reset()
 
             for i := 0; i < tt.poll; i++ {
                 if err := c.Poll(); err != nil {
