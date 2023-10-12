@@ -724,8 +724,8 @@ func emitJSON(v *map[string]interface{}) ([]byte, error) {
 	//j, err := json.MarshalIndent(*v, "", indentString)
 	defer func() {
 		if r := recover(); r != nil {
-			log.V(2).Infof("Recovered from panic", r)
-			log.V(2).Infof("Current state of map to be serialized is: ", *v)
+			log.V(2).Infof("Recovered from panic: %v", r)
+			log.V(2).Infof("Current state of map to be serialized is: %v", *v)
 		}
 	}()
 	j, err := json.Marshal(*v)
