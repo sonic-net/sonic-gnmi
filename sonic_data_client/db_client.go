@@ -725,7 +725,7 @@ func emitJSON(v *map[string]interface{}) ([]byte, error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.V(2).Infof("Recovered from panic", r)
-			//log.V(2).Infof("Current state of map to be serialized is: ", *v)
+			log.V(2).Infof("Current state of map to be serialized is: ", *v)
 		}
 	}()
 	j, err := json.Marshal(*v)
@@ -766,13 +766,13 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 		dbkeys = []string{tblPath.tableName + tblPath.delimitor + tblPath.tableKey}
 	}
 
-	//log.V(4).Infof("dbkeys to be pulled from redis %v", dbkeys)
+	log.V(4).Infof("dbkeys to be pulled from redis %v", dbkeys)
 	//log.V(4).Infof("State of map before adding redis data %v", msi)
 
 	// Asked to use jsonField and jsonTableKey in the final json value
 	if tblPath.jsonField != "" && tblPath.jsonTableKey != "" {
 		val, err := redisDb.HGet(dbkeys[0], tblPath.field).Result()
-		//log.V(4).Infof("Data pulled for key %s and field %s: %s", dbkeys[0], tblPath.field, val)
+		log.V(4).Infof("Data pulled for key %s and field %s: %s", dbkeys[0], tblPath.field, val)
 		if err != nil {
 			log.V(3).Infof("redis HGet failed for %v %v", tblPath, err)
 			// ignore non-existing field which was derived from virtual path
@@ -790,7 +790,7 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 			log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
 			return err
 		}
-		//log.V(4).Infof("Data pulled for dbkey %s: %v", dbkey, fv)
+		log.V(4).Infof("Data pulled for dbkey %s: %v", dbkey, fv)
 		if tblPath.jsonTableKey != "" { // If jsonTableKey was prepared, use it
 			err = makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
 		} else if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
@@ -815,7 +815,7 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 	return nil
 }
 
-func msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
+func Msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
 	jv, err := emitJSON(&msi)
 	if err != nil {
 		log.V(2).Infof("emitJSON err %s for  %v", err, msi)
@@ -854,7 +854,7 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 					log.V(2).Infof("redis HGet failed for %v", tblPath)
 					return nil, err
 				}
-				//log.V(4).Infof("Data pulled for key %s and field %s: %s", key, tblPath.field, val)
+				log.V(4).Infof("Data pulled for key %s and field %s: %s", key, tblPath.field, val)
 				// TODO: support multiple table paths
 				return &gnmipb.TypedValue{
 					Value: &gnmipb.TypedValue_StringVal{
@@ -867,7 +867,7 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 			return nil, err
 		}
 	}
-	return msi2TypedValue(msi)
+	return Msi2TypedValue(msi)
 }
 
 func enqueueFatalMsg(c *DbClient, msg string) {
@@ -936,7 +936,7 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 	}
 
 	sendVal := func(msi map[string]interface{}) error {
-		val, err := msi2TypedValue(msi)
+		val, err := Msi2TypedValue(msi)
 		if err != nil {
 			enqueueFatalMsg(c, err.Error())
 			return err
@@ -1193,7 +1193,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 			sendDeleteField = true
 		}
 		delete(msiData, "delete")
-		val, err := msi2TypedValue(msiData)
+		val, err := Msi2TypedValue(msiData)
 		if err != nil {
 			return err
 		}
