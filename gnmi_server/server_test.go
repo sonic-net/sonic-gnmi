@@ -469,6 +469,7 @@ func prepareConfigDb(t *testing.T, namespace string) {
 	mpi_pfcwd_map := loadConfig(t, "", configPfcwdByte)
 	loadConfigDB(t, rclient, mpi_pfcwd_map)
 }
+
 func prepareStateDb(t *testing.T, namespace string) {
 	rclient := getRedisClientN(t, 6, namespace)
 	defer rclient.Close()
@@ -665,19 +666,6 @@ func createEventsQuery(t *testing.T, paths ...string) client.Query {
 	return createQueryOrFail(t,
 		pb.SubscriptionList_STREAM,
 		"EVENTS",
-		[]subscriptionQuery{
-			{
-				Query:   paths,
-				SubMode: pb.SubscriptionMode_ON_CHANGE,
-			},
-		},
-		false)
-}
-
-func createStateDbQueryOnChangeMode(t *testing.T, paths ...string) client.Query {
-	return createQueryOrFail(t,
-	        pb.SubscriptionList_STREAM,
-		"STATE_DB",
 		[]subscriptionQuery{
 			{
 				Query:   paths,
