@@ -767,7 +767,6 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 	}
 
 	log.V(4).Infof("dbkeys to be pulled from redis %v", dbkeys)
-	//log.V(4).Infof("State of map before adding redis data %v", msi)
 
 	// Asked to use jsonField and jsonTableKey in the final json value
 	if tblPath.jsonField != "" && tblPath.jsonTableKey != "" {
@@ -811,11 +810,11 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 		}
 		log.V(6).Infof("Added idex %v fv %v ", idx, fv)
 	}
-	//log.V(4).Infof("State of map after adding redis data %v", *msi)
 	return nil
 }
 
 func Msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
+	log.V(4).Infof("State of map after adding redis data %v", msi)
 	jv, err := emitJSON(&msi)
 	if err != nil {
 		log.V(2).Infof("emitJSON err %s for  %v", err, msi)
