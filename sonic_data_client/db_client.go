@@ -820,8 +820,8 @@ func Msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
 		log.V(2).Infof("emitJSON err %s for  %v", err, msi)
 		return nil, fmt.Errorf("emitJSON err %s for  %v", err, msi)
 	}
-	if jv == nil { // json is nil because of potential panic happen
-		return nil, fmt.Errorf("emitJSON failed due to panic")
+	if jv == nil { // json and err is nil because panic potentially happened
+		return nil, fmt.Errorf("emitJSON failed to grab json value of map due to potential panic")
 	}
 	return &gnmipb.TypedValue{
 		Value: &gnmipb.TypedValue_JsonIetfVal{
