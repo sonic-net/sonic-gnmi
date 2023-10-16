@@ -3458,6 +3458,24 @@ func TestTableData2MsiUseKey(t *testing.T) {
     }
 }
 
+func TestRecoverFromJSONSerializationPanic(t *testing.T) {
+    panicMarshal := func(v interface{}) ([]byte, error) {
+        panic("json.Marshal panics and is unable to serialize JSON")
+    }
+    mock := gomonkey.ApplyFunc(json.Marshal, panicMarshal)
+    defer mock.Reset()
+
+    tblPath := sdc.CreateTablePath("STATE_DB", "NEIGH_STATE_TABLE", "|", "10.0.0.57")
+    msi := make(map[string]interface{})
+    sdc.TableData2Msi(&tblPath, true, nil, &msi)
+
+    typedValue, err := sdc.Msi2TypedValue(msi)
+    if typedValue != nil && err != nil {
+        t.Errorf("Test should recover from panic and have nil TypedValue/Error after attempting JSON serialization")
+    }
+
+}
+
 func TestGnmiSetBatch(t *testing.T) {
 	mockCode := 
 `
