@@ -314,7 +314,7 @@ func prepareConfigDb(t *testing.T) {
 	loadConfigDB(t, rclient, mpi_pfcwd_map)
 }
 
-func prepareStateDB(t *testing.T) {
+func prepareStateDb(t *testing.T) {
 	rclient := getRedisClientN(t, 6)
 	defer rclient.Close()
 	rclient.FlushDB()
