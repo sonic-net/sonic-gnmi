@@ -314,6 +314,20 @@ func prepareConfigDb(t *testing.T) {
 	loadConfigDB(t, rclient, mpi_pfcwd_map)
 }
 
+func prepareStateDB(t *testing.T) {
+	rclient := getRedisClientN(t, 6)
+	defer rclient.Close()
+	rclient.FlushDB()
+
+	fileName := "../testdata/NEIGH_STATE_TABLE.txt"
+	neighStateTableByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_neigh := loadConfig(t, "", neighStateTableByte)
+	loadDB(t, rclient, mpi_neigh)
+}
+
 func prepareDb(t *testing.T) {
 	rclient := getRedisClient(t)
 	defer rclient.Close()
@@ -398,6 +412,9 @@ func prepareDb(t *testing.T) {
 
 	// Load CONFIG_DB for alias translation
 	prepareConfigDb(t)
+
+	// Load STATE_DB to test NEIGH_STATE_TABLE dataset
+	prepareStateDb(t)
 }
 
 func prepareDbTranslib(t *testing.T) {
