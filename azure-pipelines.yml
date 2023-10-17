@@ -82,7 +82,6 @@ stages:
         patterns: |
             target/debs/bullseye/libyang*.deb
             target/debs/bullseye/libnl*.deb
-            target/debs/bullseye/libhiredis*.deb
       displayName: "Download bullseye debs"
 
     - script: |
@@ -103,13 +102,11 @@ stages:
 
     - script: |
         # LIBSWSSCOMMON
-        sudo apt-get -y purge libhiredis-dev libnl-3-dev libnl-route-3-dev
+        sudo apt-get -y purge libnl-3-dev libnl-route-3-dev
         sudo dpkg -i ../target/debs/bullseye/libnl-3-200_*.deb
         sudo dpkg -i ../target/debs/bullseye/libnl-genl-3-200_*.deb
         sudo dpkg -i ../target/debs/bullseye/libnl-route-3-200_*.deb
         sudo dpkg -i ../target/debs/bullseye/libnl-nf-3-200_*.deb
-        sudo dpkg -i ../target/debs/bullseye/libhiredis0.14_*.deb
-        sudo dpkg -i ../target/debs/bullseye/libhiredis-dev_*.deb
       displayName: "Install libswsscommon dependencies"
 
     - script: |
