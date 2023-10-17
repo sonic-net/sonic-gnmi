@@ -314,6 +314,20 @@ func prepareConfigDb(t *testing.T) {
 	loadConfigDB(t, rclient, mpi_pfcwd_map)
 }
 
+func prepareStateDb(t *testing.T) {
+	rclient := getRedisClientN(t, 6)
+	defer rclient.Close()
+	rclient.FlushDB()
+
+	fileName := "../testdata/NEIGH_STATE_TABLE.txt"
+	neighStateTableByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_neigh := loadConfig(t, "", neighStateTableByte)
+	loadDB(t, rclient, mpi_neigh)
+}
+
 func prepareDb(t *testing.T) {
 	rclient := getRedisClient(t)
 	defer rclient.Close()
@@ -398,6 +412,9 @@ func prepareDb(t *testing.T) {
 
 	// Load CONFIG_DB for alias translation
 	prepareConfigDb(t)
+
+	// Load STATE_DB to test NEIGH_STATE_TABLE dataset
+	prepareStateDb(t)
 }
 
 func prepareDbTranslib(t *testing.T) {
@@ -2497,6 +2514,26 @@ func TestBulkSet(t *testing.T) {
 
     })
 
+}
+
+func TestTableData2MsiUseKey(t *testing.T) {
+    tblPath := sdc.CreateTablePath("STATE_DB", "NEIGH_STATE_TABLE", "|", "10.0.0.57")
+    newMsi := make(map[string]interface{})
+    sdc.TableData2Msi(&tblPath, true, nil, &newMsi)
+    newMsiData, _ := json.MarshalIndent(newMsi, "", "  ")
+    t.Logf(string(newMsiData))
+    expectedMsi := map[string]interface{} {
+        "10.0.0.57": map[string]interface{} {
+            "peerType": "e-BGP",
+	    "state": "Established",
+        },
+    }
+    expectedMsiData, _ := json.MarshalIndent(expectedMsi, "", "  ")
+    t.Logf(string(expectedMsiData))
+
+    if !reflect.DeepEqual(newMsi, expectedMsi) {
+        t.Errorf("Msi data does not match for use key = true")
+    }
 }
 
 func init() {
