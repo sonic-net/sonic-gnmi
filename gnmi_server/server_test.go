@@ -469,11 +469,20 @@ func prepareConfigDb(t *testing.T, namespace string) {
 	mpi_pfcwd_map := loadConfig(t, "", configPfcwdByte)
 	loadConfigDB(t, rclient, mpi_pfcwd_map)
 }
+
 func prepareStateDb(t *testing.T, namespace string) {
 	rclient := getRedisClientN(t, 6, namespace)
 	defer rclient.Close()
 	rclient.FlushDB()
 	rclient.HSet("SWITCH_CAPABILITY|switch", "test_field", "test_value")
+	fileName := "../testdata/NEIGH_STATE_TABLE.txt"
+	neighStateTableByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_neigh := loadConfig(t, "", neighStateTableByte)
+	loadDB(t, rclient, mpi_neigh)
+
 }
 
 func prepareDb(t *testing.T, namespace string) {
