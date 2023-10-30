@@ -20,7 +20,6 @@ import (
 	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
-	"github.com/sonic-net/sonic-mgmt-common/translib"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -403,7 +402,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 // saveOnSetEnabled saves configuration to a file
 func SaveOnSetEnabled(ctx context.Context) {
-	const reqstr = "{\"source\":\"running-configuration\",\"destination\":\"startup-configuration\",\"copy-config-option\":\"SAVE\"}"
+	const reqstr = "{\"source\":\"running-configuration\",\"destination\":\"startup-configuration\",\"copy-config-option\":\"OVERWRITE\"}"
 
 	if _, err := transutil.TranslProcessAction("/oc-file-mgmt-private:copy", []byte(reqstr), ctx); err != nil {
 		log.Errorf("Saving startup config failed: %v", err)
