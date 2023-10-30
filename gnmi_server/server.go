@@ -402,9 +402,9 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 // saveOnSetEnabled saves configuration to a file
 func SaveOnSetEnabled(ctx context.Context) {
-	const reqstr = "{\"source\":\"running-configuration\",\"destination\":\"startup-configuration\",\"copy-config-option\":\"OVERWRITE\"}"
+	const reqstr = "{\"openconfig-file-mgmt-private:input\":{\"source\":\"running-configuration\",\"destination\":\"startup-configuration\",\"copy-config-option\":\"OVERWRITE\"}}"
 
-	if _, err := transutil.TranslProcessAction("/oc-file-mgmt-private:copy", []byte(reqstr), ctx); err != nil {
+	if _, err := transutil.TranslProcessAction("/openconfig-file-mgmt-private:copy", []byte(reqstr), ctx); err != nil {
 		log.Errorf("Saving startup config failed: %v", err)
 	} else {
 		log.Info("Success! Startup config has been saved!")
