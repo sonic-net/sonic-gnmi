@@ -19,6 +19,7 @@ import (
 	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
+	"github.com/sonic-net/sonic-mgmt-common/translib"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
