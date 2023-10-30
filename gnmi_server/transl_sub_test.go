@@ -1034,6 +1034,23 @@ func TestDebugSubscribePreferences_dummy(t *testing.T) {
 	}
 }
 
+func TestDummyClearNeighbor(t *testing.T) {
+	// Start server
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	// Run Client
+	client := createClient(t, 8081)
+	sc := spb_gnoi.NewSonicServiceClient(client)
+	req := &spb_gnoi.ClearNeighborsRequest{
+		Input: &spb_gnoi.ClearNeighborsRequest_Input{},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	sc.ClearNeighbors(ctx, req)
+}
+
 func getSubscribePreferences(t *testing.T, paths ...*gnmipb.Path) ([]*spb_gnoi.SubscribePreference, error) {
 	t.Helper()
 	client := spb_gnoi.NewDebugClient(createClient(t, 8081))

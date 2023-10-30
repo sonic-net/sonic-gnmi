@@ -2,9 +2,9 @@ package dbconfig
 
 import (
 	"fmt"
-	"testing"
-	"github.com/sonic-net/sonic-gnmi/test_utils"
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/sonic-net/sonic-gnmi/test_utils"
+	"testing"
 )
 
 func TestGetDb(t *testing.T) {
@@ -184,4 +184,3 @@ func TestGetDbMultiNs(t *testing.T) {
 		}
 	})
 }
-

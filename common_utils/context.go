@@ -6,11 +6,10 @@ import (
 	"sync/atomic"
 )
 
-
 // AuthInfo holds data about the authenticated user
 type AuthInfo struct {
 	// Username
-	User string
+	User        string
 	AuthEnabled bool
 	// Roles
 	Roles []string
@@ -37,6 +36,7 @@ const requestContextKey contextkey = 0
 var requestCounter uint64
 
 type CounterType int
+
 const (
 	GNMI_GET CounterType = iota
 	GNMI_GET_FAIL
@@ -89,7 +89,6 @@ func (c CounterType) String() string {
 
 var globalCounters [COUNTER_SIZE]uint64
 
-
 // GetContext function returns the RequestContext object for a
 // gRPC request. RequestContext is maintained as a context value of
 // the request. Creates a new RequestContext object is not already
@@ -125,4 +124,3 @@ func IncCounter(cnt CounterType) {
 	atomic.AddUint64(&globalCounters[cnt], 1)
 	SetMemCounters(&globalCounters)
 }
-

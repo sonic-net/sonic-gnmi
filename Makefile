@@ -6,9 +6,14 @@ export PATH := $(PATH):$(GOPATH)/bin
 INSTALL := /usr/bin/install
 DBDIR := /var/run/redis/sonic-db/
 GO ?= /usr/local/go/bin/go
+GOROOT ?= $(shell $(GO) env GOROOT)
 TOP_DIR := $(abspath ..)
 MGMT_COMMON_DIR := $(TOP_DIR)/sonic-mgmt-common
 BUILD_DIR := build/bin
+FORMAT_CHECK = $(BUILD_DIR)/.formatcheck
+FORMAT_LOG = $(BUILD_DIR)/go_format.log
+# Find all .go files excluding vendor, build, and patches files
+GO_FILES := $(shell find . -type f -name '*.go' ! -path './vendor/*' ! -path './build/*' ! -path './patches/*' ! -path './proto/*' ! -path './swsscommon/*')
 export CVL_SCHEMA_PATH := $(MGMT_COMMON_DIR)/build/cvl/schema
 export GOBIN := $(abspath $(BUILD_DIR))
 export PATH := $(PATH):$(GOBIN):$(shell dirname $(GO))
@@ -61,7 +66,7 @@ go-deps: $(GO_DEPS)
 go-deps-clean:
 	$(RM) -r vendor
 
-sonic-gnmi: $(GO_DEPS)
+sonic-gnmi: $(GO_DEPS) $(FORMAT_CHECK)
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
@@ -135,6 +140,22 @@ endif
 clean:
 	$(RM) -r build
 	$(RM) -r vendor
+
+# File target that generates a diff file if formatting is incorrect
+$(FORMAT_CHECK): $(GO_FILES)
+	@echo "Checking Go file formatting..."
+	@echo $(GO_FILES)
+	mkdir -p $(@D)
+	@$(GOROOT)/bin/gofmt -l -d $(GO_FILES) > $(FORMAT_LOG)
+	@if [ -s $(FORMAT_LOG) ]; then \
+		cat $(FORMAT_LOG); \
+		echo "Formatting issues found. Please run 'gofmt -w .' on the above files and commit the changes."; \
+		exit 1; \
+	else \
+		echo "All files are properly formatted."; \
+		rm -f $(FORMAT_LOG); \
+	fi
+	touch $@
 
 install:
 	$(INSTALL) -D $(BUILD_DIR)/telemetry $(DESTDIR)/usr/sbin/telemetry

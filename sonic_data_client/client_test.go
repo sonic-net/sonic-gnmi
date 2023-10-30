@@ -1,19 +1,19 @@
 package client
 
 import (
-    "sync"
-    "errors"
-	"testing"
-	"os"
-	"time"
-	"reflect"
-	"io/ioutil"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"reflect"
+	"sync"
+	"testing"
+	"time"
 
 	"github.com/jipanyang/gnxi/utils/xpath"
-	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
 
 var testFile string = "/etc/sonic/ut.cp.json"
@@ -58,32 +58,32 @@ func TestJsonAdd(t *testing.T) {
 	if err != nil {
 		t.Errorf("Create client fail: %v", err)
 	}
-	path_list := [][]string {
-		[]string {
+	path_list := [][]string{
+		[]string{
 			"DASH_QOS",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_02",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_03",
 			"bw",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet001",
 			"address_spaces",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet002",
 			"address_spaces",
 			"0",
 		},
 	}
-	value_list := []string {
+	value_list := []string{
 		`{"qos_01": {"bw": "54321", "cps": "1000", "flows": "300"}}`,
 		`{"bw": "10001", "cps": "1001", "flows": "101"}`,
 		`"20001"`,
@@ -128,44 +128,44 @@ func TestJsonAddNegative(t *testing.T) {
 	if err != nil {
 		t.Errorf("Create client fail: %v", err)
 	}
-	path_list := [][]string {
-		[]string {
+	path_list := [][]string{
+		[]string{
 			"DASH_QOS",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_02",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_03",
 			"bw",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet001",
 			"address_spaces",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet002",
 			"address_spaces",
 			"0",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet002",
 			"address_spaces",
 			"abc",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet002",
 			"address_spaces",
 			"100",
 		},
 	}
-	value_list := []string {
+	value_list := []string{
 		`{"qos_01": {"bw": "54321", "cps": "1000", "flows": "300"}`,
 		`{"bw": "10001", "cps": "1001", "flows": "101"`,
 		`20001`,
@@ -194,32 +194,32 @@ func TestJsonRemove(t *testing.T) {
 	if err != nil {
 		t.Errorf("Create client fail: %v", err)
 	}
-	path_list := [][]string {
-		[]string {
+	path_list := [][]string{
+		[]string{
 			"DASH_QOS",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_02",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_03",
 			"bw",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet001",
 			"address_spaces",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet002",
 			"address_spaces",
 			"0",
 		},
 	}
-	value_list := []string {
+	value_list := []string{
 		`{"qos_01": {"bw": "54321", "cps": "1000", "flows": "300"}}`,
 		`{"bw": "10001", "cps": "1001", "flows": "101"}`,
 		`"20001"`,
@@ -254,17 +254,17 @@ func TestJsonRemoveNegative(t *testing.T) {
 	if err != nil {
 		t.Errorf("Create client fail: %v", err)
 	}
-	path_list := [][]string {
-		[]string {
+	path_list := [][]string{
+		[]string{
 			"DASH_QOS",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet001",
 			"address_spaces",
 		},
 	}
-	value_list := []string {
+	value_list := []string{
 		`{"qos_01": {"bw": "54321", "cps": "1000", "flows": "300"}}`,
 		`["10.250.0.0", "192.168.3.0", "139.66.72.9"]`,
 	}
@@ -277,23 +277,23 @@ func TestJsonRemoveNegative(t *testing.T) {
 		}
 	}
 
-	remove_list := [][]string {
-		[]string {
+	remove_list := [][]string{
+		[]string{
 			"DASH_QOS",
 			"qos_02",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_03",
 			"bw",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet001",
 			"address_spaces",
 			"abc",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet001",
 			"address_spaces",
@@ -360,17 +360,18 @@ func TestNonDbClientGetError(t *testing.T) {
 }
 
 /*
-	Helper method for receive data from ZmqConsumerStateTable
-		consumer: Receive data from consumer
-		return:
-			true: data received
-			false: not receive any data after retry
+Helper method for receive data from ZmqConsumerStateTable
+
+	consumer: Receive data from consumer
+	return:
+		true: data received
+		false: not receive any data after retry
 */
-func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) (bool) {
+func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) bool {
 	receivedData := swsscommon.NewKeyOpFieldsValuesQueue()
-	retry := 0;
+	retry := 0
 	for {
-		// sender's ZMQ may disconnect, wait and retry for reconnect 
+		// sender's ZMQ may disconnect, wait and retry for reconnect
 		time.Sleep(time.Duration(1000) * time.Millisecond)
 		consumer.Pops(receivedData)
 		if receivedData.Size() == 0 {
@@ -389,17 +390,17 @@ func TestZmqReconnect(t *testing.T) {
 	db := swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false)
 	zmqServer := swsscommon.NewZmqServer("tcp://*:1234")
 	var TEST_TABLE string = "DASH_ROUTE"
-    consumer := swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
+	consumer := swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
 
 	// create ZMQ client side
 	zmqAddress := "tcp://127.0.0.1:1234"
-	client := MixedDbClient {
-		applDB : swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
-		tableMap : map[string]swsscommon.ProducerStateTable{},
-		zmqClient : swsscommon.NewZmqClient(zmqAddress),
+	client := MixedDbClient{
+		applDB:    swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
+		tableMap:  map[string]swsscommon.ProducerStateTable{},
+		zmqClient: swsscommon.NewZmqClient(zmqAddress),
 	}
 
-    data := map[string]string{}
+	data := map[string]string{}
 	var TEST_KEY string = "TestKey"
 	client.DbSetTable(TEST_TABLE, TEST_KEY, data)
 	if !ReceiveFromZmq(consumer) {
@@ -407,10 +408,10 @@ func TestZmqReconnect(t *testing.T) {
 	}
 
 	// recreate ZMQ server to trigger re-connect
-    swsscommon.DeleteZmqConsumerStateTable(consumer)
+	swsscommon.DeleteZmqConsumerStateTable(consumer)
 	swsscommon.DeleteZmqServer(zmqServer)
 	zmqServer = swsscommon.NewZmqServer("tcp://*:1234")
-    consumer = swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
+	consumer = swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
 
 	// send data again, client will reconnect
 	client.DbSetTable(TEST_TABLE, TEST_KEY, data)
@@ -428,16 +429,16 @@ func TestRetryHelper(t *testing.T) {
 	zmqClient := swsscommon.NewZmqClient(zmqAddress)
 	returnError := true
 	exeCount := 0
-    RetryHelper(
+	RetryHelper(
 		zmqClient,
-		func () (err error) {
+		func() (err error) {
 			exeCount++
 			if returnError {
 				returnError = false
 				return fmt.Errorf("connection_reset")
 			}
 			return nil
-	})
+		})
 
 	if exeCount == 1 {
 		t.Errorf("RetryHelper does not retry")
