@@ -1,0 +1,12 @@
+{
+    "DEVICE_METADATA|localhost": {
+        "bgp_asn": "65100",
+        "cloudtype":"Public"
+    },
+    "DHCP_SERVER|192.0.0.1": {
+        "NULL": "NULL"
+    },
+    "DHCP_SERVER|192.0.0.2": {
+        "NULL": "NULL"
+    }
+}

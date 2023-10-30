@@ -72,9 +72,11 @@ type EventClient struct {
     subs_handle unsafe.Pointer
 
     stopped     int
+    stopMutex   sync.RWMutex
 
     // Stats counter
     counters    map[string]uint64
+    countersMutex sync.RWMutex
 
     last_latencies  [LATENCY_LIST_SIZE]uint64
     last_latency_index  int
@@ -182,7 +184,9 @@ func compute_latency(evtc *EventClient) {
                 total += v
             }
         }
+        evtc.countersMutex.RLock()
         evtc.counters[LATENCY] = (uint64) (total/LATENCY_LIST_SIZE/1000/1000)
+        evtc.countersMutex.RUnlock()
     }
 }
 
@@ -199,23 +203,29 @@ func update_stats(evtc *EventClient) {
      * This helps add some initial pause before accessing DB
      * for existing values.
      */
-    for evtc.stopped == 0 {
+
+    for !evtc.isStopped() {
         var val uint64
 
         compute_latency(evtc)
+
+        evtc.countersMutex.Lock()
         for _, val = range evtc.counters {
             if val != 0 {
                 break
             }
         }
+        evtc.countersMutex.Unlock()
+
         if val != 0 {
             break
         }
         time.Sleep(time.Second)
     }
-    
+
+
     /* Populate counters from DB for cumulative counters. */
-    if evtc.stopped == 0 {
+    if !evtc.isStopped() {
         ns := sdcfg.GetDbDefaultNamespace()
 
         rclient = redis.NewClient(&redis.Options{
@@ -243,15 +253,20 @@ func update_stats(evtc *EventClient) {
     }
 
     /* Main running loop that updates DB */
-    for evtc.stopped == 0 {
+    for !evtc.isStopped() {
         tmp_counters := make(map[string]uint64)
 
         // compute latency
         compute_latency(evtc)
 
-        for key, val := range evtc.counters {
+        evtc.countersMutex.Lock()
+        current_counters := evtc.counters
+        evtc.countersMutex.Unlock()
+
+        for key, val := range current_counters {
             tmp_counters[key] = val + db_counters[key]
         }
+
         tmp_counters[DROPPED] += evtc.last_errors
 
         if (wr_counters == nil) || !reflect.DeepEqual(tmp_counters, *wr_counters) {
@@ -301,7 +316,7 @@ func C_deinit_subs(h unsafe.Pointer) {
 func get_events(evtc *EventClient) {
     defer evtc.wg.Done()
 
-    str_ptr := C.malloc(C.sizeof_char * C.size_t(EVENT_BUFFSZ)) 
+    str_ptr := C.malloc(C.sizeof_char * C.size_t(EVENT_BUFFSZ))
     defer C.free(unsafe.Pointer(str_ptr))
 
     evt_ptr = (*C.event_receive_op_C_t)(C.malloc(C.size_t(unsafe.Sizeof(C.event_receive_op_C_t{}))))
@@ -315,7 +330,13 @@ func get_events(evtc *EventClient) {
         rc, evt := C_recv_evt(evtc.subs_handle)
 
         if rc == 0 {
-            evtc.counters[MISSED] += (uint64)(evt.Missed_cnt)
+            evtc.countersMutex.Lock()
+            current_missed_cnt := evtc.counters[MISSED]
+            evtc.countersMutex.Unlock()
+
+            evtc.countersMutex.RLock()
+            evtc.counters[MISSED] = current_missed_cnt + (uint64)(evt.Missed_cnt)
+            evtc.countersMutex.RUnlock()
 
             if !strings.HasPrefix(evt.Event_str, TEST_EVENT) {
                 qlen := evtc.q.Len()
@@ -338,11 +359,17 @@ func get_events(evtc *EventClient) {
                         log.V(1).Infof("Invalid event string: %v", evt.Event_str)
                     }
                 } else {
-                    evtc.counters[DROPPED] += 1
+                    evtc.countersMutex.Lock()
+                    dropped_cnt := evtc.counters[DROPPED]
+                    evtc.countersMutex.Unlock()
+
+                    evtc.countersMutex.RLock()
+                    evtc.counters[DROPPED] = dropped_cnt + 1
+                    evtc.countersMutex.RUnlock()
                 }
             }
         }
-        if evtc.stopped == 1 {
+        if evtc.isStopped() {
             break
         }
         // TODO: Record missed count in stats table.
@@ -352,7 +379,9 @@ func get_events(evtc *EventClient) {
     C_deinit_subs(evtc.subs_handle)
     evtc.subs_handle = nil
     // set evtc.stopped for case where send_event error and channel was not stopped
+    evtc.stopMutex.RLock()
     evtc.stopped = 1
+    evtc.stopMutex.RUnlock()
 }
 
 func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
@@ -384,14 +413,23 @@ func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
     go update_stats(evtc)
     evtc.wg.Add(1)
 
-    for evtc.stopped == 0 {
+    for !evtc.isStopped() {
         select {
         case <-evtc.channel:
+            evtc.stopMutex.RLock()
             evtc.stopped = 1
+            evtc.stopMutex.RUnlock()
             log.V(3).Infof("Channel closed by client")
             return
         }
     }
+}
+
+func (evtc *EventClient) isStopped() bool {
+    evtc.stopMutex.Lock()
+    val := evtc.stopped
+    evtc.stopMutex.Unlock()
+    return val == 1
 }
 
 

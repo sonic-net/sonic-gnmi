@@ -7,13 +7,15 @@ trigger:
   branches:
     include:
     - master
-    - 202012
+    - 202???
+    - 201???
 
 pr:
   branches:
     include:
     - master
-    - 202012
+    - 202???
+    - 201???
 
 resources:
   repositories:
@@ -68,7 +70,10 @@ stages:
         artifact: sonic-buildimage.vs
         runVersion: 'latestFromBranch'
         runBranch: 'refs/heads/master'
-      displayName: "Download sonic buildimage"
+        patterns: |
+            target/debs/bullseye/libyang*.deb
+            target/debs/bullseye/libnl*.deb
+      displayName: "Download bullseye debs"
 
     - task: DownloadPipelineArtifact@2
       inputs:
@@ -98,13 +103,11 @@ stages:
 
     - script: |
         # LIBSWSSCOMMON
-        sudo apt-get -y purge libhiredis-dev libnl-3-dev libnl-route-3-dev
+        sudo apt-get -y purge libnl-3-dev libnl-route-3-dev
         sudo dpkg -i ../target/debs/bullseye/libnl-3-200_*.deb
         sudo dpkg -i ../target/debs/bullseye/libnl-genl-3-200_*.deb
         sudo dpkg -i ../target/debs/bullseye/libnl-route-3-200_*.deb
         sudo dpkg -i ../target/debs/bullseye/libnl-nf-3-200_*.deb
-        sudo dpkg -i ../target/debs/bullseye/libhiredis0.14_*.deb
-        sudo dpkg -i ../target/debs/bullseye/libhiredis-dev_*.deb
       displayName: "Install libswsscommon dependencies"
 
     - script: |
@@ -152,7 +155,7 @@ stages:
 
     - script: |
         pushd sonic-gnmi
-        make check_gotest
+        make check_gotest ENABLE_TRANSLIB_WRITE=y
       displayName: "Test"
 
     - publish: $(Build.ArtifactStagingDirectory)/

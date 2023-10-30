@@ -5,6 +5,8 @@ import "github.com/openconfig/gnmi/proto/gnmi/gnmi.proto";
 
 package gnmi.sonic;
 
+option go_package = "./;gnmi_sonic";
+
 
 enum State {
   STOPPED = 0;
@@ -31,4 +33,10 @@ message Value {
 
   // fatal error happened.
   string fatal = 6;
+
+  // Notification to be used in place of 1-4 if present
+  gnmi.Notification notification = 7;
+
+  // Delete to be used to indicate that node was deleted
+  repeated gnmi.Path delete = 8;
 }

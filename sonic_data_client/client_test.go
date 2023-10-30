@@ -1,13 +1,18 @@
 package client
 
 import (
+    "sync"
+    "errors"
 	"testing"
 	"os"
+	"time"
 	"reflect"
 	"io/ioutil"
 	"encoding/json"
+	"fmt"
 
 	"github.com/jipanyang/gnxi/utils/xpath"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
@@ -105,6 +110,12 @@ func TestJsonAdd(t *testing.T) {
 			t.Errorf("%v and %v do not match", value, string(res))
 		}
 	}
+	path := []string{}
+	res, err := client.Get(path)
+	if err != nil {
+		t.Errorf("Get %v fail: %v", path, err)
+	}
+	t.Logf("Result %s", string(res))
 }
 
 func TestJsonAddNegative(t *testing.T) {
@@ -321,4 +332,120 @@ func TestParseTarget(t *testing.T) {
 	if err == nil {
 		t.Errorf("ParseTarget should fail for conflict")
 	}
+}
+
+func mockGetFunc() ([]byte, error) {
+	return nil, errors.New("mock error")
+}
+
+func TestNonDbClientGetError(t *testing.T) {
+	var gnmipbPath *gnmipb.Path = &gnmipb.Path{
+		Element: []string{"mockPath"},
+	}
+
+	path2Getter := map[*gnmipb.Path]dataGetFunc{
+		gnmipbPath: mockGetFunc,
+	}
+
+	// Create a NonDbClient with the mocked dataGetFunc
+	client := &NonDbClient{
+		path2Getter: path2Getter,
+	}
+
+	var w *sync.WaitGroup
+	_, err := client.Get(w)
+	if errors.Is(err, errors.New("mock error")) {
+		t.Errorf("Expected error from NonDbClient.Get, got nil")
+	}
+}
+
+/*
+	Helper method for receive data from ZmqConsumerStateTable
+		consumer: Receive data from consumer
+		return:
+			true: data received
+			false: not receive any data after retry
+*/
+func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) (bool) {
+	receivedData := swsscommon.NewKeyOpFieldsValuesQueue()
+	retry := 0;
+	for {
+		// sender's ZMQ may disconnect, wait and retry for reconnect 
+		time.Sleep(time.Duration(1000) * time.Millisecond)
+		consumer.Pops(receivedData)
+		if receivedData.Size() == 0 {
+			retry++
+			if retry >= 10 {
+				return false
+			}
+		} else {
+			return true
+		}
+	}
+}
+
+func TestZmqReconnect(t *testing.T) {
+	// create ZMQ server
+	db := swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false)
+	zmqServer := swsscommon.NewZmqServer("tcp://*:1234")
+	var TEST_TABLE string = "DASH_ROUTE"
+    consumer := swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
+
+	// create ZMQ client side
+	zmqAddress := "tcp://127.0.0.1:1234"
+	client := MixedDbClient {
+		applDB : swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
+		tableMap : map[string]swsscommon.ProducerStateTable{},
+		zmqClient : swsscommon.NewZmqClient(zmqAddress),
+	}
+
+    data := map[string]string{}
+	var TEST_KEY string = "TestKey"
+	client.DbSetTable(TEST_TABLE, TEST_KEY, data)
+	if !ReceiveFromZmq(consumer) {
+		t.Errorf("Receive data from ZMQ failed")
+	}
+
+	// recreate ZMQ server to trigger re-connect
+    swsscommon.DeleteZmqConsumerStateTable(consumer)
+	swsscommon.DeleteZmqServer(zmqServer)
+	zmqServer = swsscommon.NewZmqServer("tcp://*:1234")
+    consumer = swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
+
+	// send data again, client will reconnect
+	client.DbSetTable(TEST_TABLE, TEST_KEY, data)
+	if !ReceiveFromZmq(consumer) {
+		t.Errorf("Receive data from ZMQ failed")
+	}
+}
+
+func TestRetryHelper(t *testing.T) {
+	// create ZMQ server
+	zmqServer := swsscommon.NewZmqServer("tcp://*:2234")
+
+	// create ZMQ client side
+	zmqAddress := "tcp://127.0.0.1:2234"
+	zmqClient := swsscommon.NewZmqClient(zmqAddress)
+	returnError := true
+	exeCount := 0
+    RetryHelper(
+		zmqClient,
+		func () (err error) {
+			exeCount++
+			if returnError {
+				returnError = false
+				return fmt.Errorf("connection_reset")
+			}
+			return nil
+	})
+
+	if exeCount == 1 {
+		t.Errorf("RetryHelper does not retry")
+	}
+
+	if exeCount > 2 {
+		t.Errorf("RetryHelper retry too much")
+	}
+
+	swsscommon.DeleteZmqServer(zmqServer)
 }

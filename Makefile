@@ -15,10 +15,6 @@ export PATH := $(PATH):$(GOBIN):$(shell dirname $(GO))
 export CGO_LDFLAGS := -lswsscommon -lhiredis
 export CGO_CXXFLAGS := -I/usr/include/swss -w -Wall -fpermissive
 
-SRC_FILES=$(shell find . -name '*.go' | grep -v '_test.go' | grep -v '/tests/')
-TEST_FILES=$(wildcard *_test.go)
-TELEMETRY_TEST_DIR = build/tests/gnmi_server
-TELEMETRY_TEST_BIN = $(TELEMETRY_TEST_DIR)/server.test
 ifeq ($(ENABLE_TRANSLIB_WRITE),y)
 BLD_TAGS := gnmi_translib_write
 endif
@@ -30,11 +26,16 @@ ifneq ($(BLD_TAGS),)
 BLD_FLAGS := -tags "$(strip $(BLD_TAGS))"
 endif
 
+ENABLE_DIALOUT_VALUE := 1
+ifeq ($(ENABLE_DIALOUT),n)
+ENABLE_DIALOUT_VALUE = 0
+endif
+
 GO_DEPS := vendor/.done
 PATCHES := $(wildcard patches/*.patch)
 PATCHES += $(shell find $(MGMT_COMMON_DIR)/patches -type f)
 
-all: sonic-gnmi $(TELEMETRY_TEST_BIN)
+all: sonic-gnmi
 
 go.mod:
 	$(GO) mod init github.com/sonic-net/sonic-gnmi
@@ -63,7 +64,9 @@ go-deps-clean:
 sonic-gnmi: $(GO_DEPS)
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
+ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	$(GO) build -o ${GOBIN}/dialout_client_cli -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
+endif
 	$(GO) build -o ${GOBIN}/gnmi_get -mod=vendor github.com/jipanyang/gnxi/gnmi_get
 	$(GO) build -o ${GOBIN}/gnmi_set -mod=vendor github.com/jipanyang/gnxi/gnmi_set
 	$(GO) build -o ${GOBIN}/gnmi_cli -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
@@ -71,7 +74,9 @@ ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/gnmi_dump -mod=vendor github.com/sonic-net/sonic-gnmi/gnmi_dump
 else
 	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
+ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
+endif
 	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_get
 	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_set
 	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
@@ -82,16 +87,45 @@ endif
 swsscommon_wrap:
 	make -C swsscommon
 
-check_gotest:
+.SECONDEXPANSION:
+
+PROTOC_PATH := $(PATH):$(GOBIN)
+PROTOC_OPTS := -I$(CURDIR)/vendor -I/usr/local/include -I/usr/include
+
+# Generate following go & grpc bindings using teh legacy protoc-gen-go
+PROTO_GO_BINDINGS += proto/sonic_internal.pb.go
+PROTO_GO_BINDINGS += proto/gnoi/sonic_debug.pb.go
+
+$(PROTO_GO_BINDINGS): $$(patsubst %.pb.go,%.proto,$$@) | $(GOBIN)/protoc-gen-go
+	PATH=$(PROTOC_PATH) protoc -I$(@D) $(PROTOC_OPTS) --go_out=plugins=grpc:$(@D) $<
+
+$(GOBIN)/protoc-gen-go:
+	cd $$(mktemp -d) && \
+	$(GO) mod init protoc && \
+	$(GO) install github.com/golang/protobuf/protoc-gen-go
+
+
+DBCONFG = $(DBDIR)/database_config.json
+ENVFILE = build/test/env.txt
+TESTENV = $(shell cat $(ENVFILE))
+
+$(DBCONFG): testdata/database_config.json
 	sudo mkdir -p ${DBDIR}
 	sudo cp ./testdata/database_config.json ${DBDIR}
-	sudo mkdir -p /usr/models/yang || true
-	sudo find $(MGMT_COMMON_DIR)/models -name '*.yang' -exec cp {} /usr/models/yang/ \;
+
+$(ENVFILE):
+	mkdir -p $(@D)
+	tools/test/env.sh | grep -v DB_CONFIG_PATH | tee $@
+
+check_gotest: $(DBCONFG) $(ENVFILE)
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -coverprofile=coverage-dialcout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 20m -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
+ifneq ($(ENABLE_DIALOUT_VALUE),0)
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -coverprofile=coverage-dialcout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
+endif
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_data_client
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-dbus.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_service_client
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -coverprofile=coverage-translutils.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/transl_utils
 	$(GO) get github.com/axw/gocov/...
 	$(GO) get github.com/AlekSi/gocov-xml
 	$(GO) mod vendor
@@ -102,18 +136,11 @@ clean:
 	$(RM) -r build
 	$(RM) -r vendor
 
-$(TELEMETRY_TEST_BIN): $(TEST_FILES) $(SRC_FILES)
-	mkdir -p $(@D)
-	cp -r testdata $(@D)/
-ifeq ($(CONFIGURED_ARCH),armhf)
-	touch $@
-else
-	$(GO) test -mod=vendor $(BLD_FLAGS) -c -cover github.com/sonic-net/sonic-gnmi/gnmi_server -o $@
-endif
-
 install:
 	$(INSTALL) -D $(BUILD_DIR)/telemetry $(DESTDIR)/usr/sbin/telemetry
+ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	$(INSTALL) -D $(BUILD_DIR)/dialout_client_cli $(DESTDIR)/usr/sbin/dialout_client_cli
+endif
 	$(INSTALL) -D $(BUILD_DIR)/gnmi_get $(DESTDIR)/usr/sbin/gnmi_get
 	$(INSTALL) -D $(BUILD_DIR)/gnmi_set $(DESTDIR)/usr/sbin/gnmi_set
 	$(INSTALL) -D $(BUILD_DIR)/gnmi_cli $(DESTDIR)/usr/sbin/gnmi_cli
@@ -123,7 +150,9 @@ install:
 
 deinstall:
 	rm $(DESTDIR)/usr/sbin/telemetry
+ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	rm $(DESTDIR)/usr/sbin/dialout_client_cli
+endif
 	rm $(DESTDIR)/usr/sbin/gnmi_get
 	rm $(DESTDIR)/usr/sbin/gnmi_set
 	rm $(DESTDIR)/usr/sbin/gnoi_client

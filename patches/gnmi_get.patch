@@ -1,6 +1,14 @@
 --- ./github.com/jipanyang/gnxi/gnmi_get/gnmi_get.go	2019-11-26 15:44:07.303598063 -0800
 +++ ./github.com/jipanyang/gnxi/gnmi_get/gnmi_get.go	2019-12-19 19:56:11.364223008 -0800
-@@ -30,7 +30,7 @@
+@@ -21,6 +21,7 @@
+ 	"fmt"
+ 	"strings"
+ 	"time"
++	"io/ioutil"
+ 
+ 	log "github.com/golang/glog"
+ 	"github.com/golang/protobuf/proto"
+@@ -30,7 +31,7 @@
  	"github.com/google/gnxi/utils"
  	"github.com/google/gnxi/utils/credentials"
  	"github.com/jipanyang/gnxi/utils/xpath"
@@ -9,11 +17,12 @@
  	pb "github.com/openconfig/gnmi/proto/gnmi"
  )
  
-@@ -63,11 +63,12 @@
+@@ -63,17 +64,20 @@
  	xPathFlags       arrayFlags
  	pbPathFlags      arrayFlags
  	pbModelDataFlags arrayFlags
 -	pathTarget       = flag.String("xpath_target", "CONFIG_DB", "name of the target for which the path is a member")
++	protoFileFlags   arrayFlags
 +	pathTarget       = flag.String("xpath_target", "", "name of the target for which the path is a member")
  	targetAddr       = flag.String("target_addr", "localhost:10161", "The target address in the format of host:port")
  	targetName       = flag.String("target_name", "hostname.com", "The target name use to verify the hostname returned by TLS handshake")
@@ -23,7 +32,14 @@
  )
  
  func main() {
-@@ -88,6 +89,10 @@
+ 	flag.Var(&xPathFlags, "xpath", "xpath of the config node to be fetched")
+ 	flag.Var(&pbPathFlags, "pbpath", "protobuf format path of the config node to be fetched")
+ 	flag.Var(&pbModelDataFlags, "model_data", "Data models to be used by the target in the format of 'name,organization,version'")
++	flag.Var(&protoFileFlags, "proto_file", "Files for proto bytes in get response")
+ 	flag.Parse()
+ 
+ 	opts := credentials.ClientCredentials(*targetName)
+@@ -88,6 +92,10 @@
  	ctx, cancel := context.WithTimeout(context.Background(), *timeOut)
  	defer cancel()
  
@@ -34,3 +50,24 @@
  	encoding, ok := pb.Encoding_value[*encodingName]
  	if !ok {
  		var gnmiEncodingList []string
+@@ -139,4 +147,20 @@
+ 
+ 	fmt.Println("== getResponse:")
+ 	utils.PrintProto(getResponse)
++
++	if *encodingName == "PROTO" {
++		cnt := 0
++		for _, notification := range getResponse.GetNotification() {
++			for _, update := range notification.GetUpdate() {
++				val := update.GetVal()
++				protoBytes := val.GetProtoBytes()
++				fileName := protoFileFlags[cnt]
++				err := ioutil.WriteFile(fileName, protoBytes, 0666)
++				if err != nil {
++					log.Exitf("Write %v failed", "PROTO" + string(cnt))
++				}
++				cnt = cnt + 1
++			}
++		}
++	}
+ }

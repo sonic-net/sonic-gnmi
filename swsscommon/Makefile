@@ -6,6 +6,10 @@ SWIG_FLAG = -go -cgo -c++ -intgosize 64
 ifeq ($(CONFIGURED_ARCH),arm64)
 SWIG_FLAG += -DSWIGWORDSIZE64
 endif
+ifeq ($(CONFIGURED_ARCH),armhf)
+SWIG_FLAG = -go -cgo -c++ -intgosize 32 -DSWIGWORDSIZE32
+endif
+
 
 .PHONY: all clean
 
