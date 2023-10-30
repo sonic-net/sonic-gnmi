@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/Azure/sonic-mgmt-common/translib"
 	log "github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -15,6 +14,7 @@ import (
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	transutil "github.com/Azure/sonic-gnmi/transl_utils"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -43,7 +43,7 @@ type Server struct {
 	// SaveStartupConfig points to a function that is called to save changes of
 	// configuration to a file. By default it points to an empty function -
 	// the configuration is not saved to a file.
-	SaveStartupConfig func()
+	SaveStartupConfig func(ctx context.Context)
 
 	// ReqFromMaster point to a function that is called to verify if the request
 	// comes from a master controller.
@@ -399,8 +399,10 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 }
 
 // saveOnSetEnabled saves configuration to a file
-func saveOnSetEnabled() {
-	if err := translib.SaveStartupConfig(); err != nil {
+func SaveOnSetEnabled(ctx context.Context) {
+	const reqstr = "{\"source\":\"running-configuration\",\"destination\":\"startup-configuration\",\"copy-config-option\":\"SAVE\"}"
+
+	if _, err := transutil.TranslProcessAction("/oc-file-mgmt-private:copy", []byte(reqstr), ctx); err != nil {
 		log.Errorf("Saving startup config failed: %v", err)
 	} else {
 		log.Info("Success! Startup config has been saved!")
@@ -408,7 +410,7 @@ func saveOnSetEnabled() {
 }
 
 // SaveOnSetDisabeld does nothing.
-func saveOnSetDisabled() {}
+func saveOnSetDisabled(ctx context.Context) {}
 
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
 	e := s.ReqFromMaster(req, &s.masterEID)
@@ -513,7 +515,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 	}
 
-	s.SaveStartupConfig()
+	s.SaveStartupConfig(ctx)
 	return &gnmipb.SetResponse{
 		Prefix:   req.GetPrefix(),
 		Response: results,
