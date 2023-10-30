@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Azure/sonic-mgmt-common/translib"
 	log "github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
