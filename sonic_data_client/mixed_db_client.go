@@ -486,7 +486,7 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 			return nil, err
 		}
 	}
-	return msi2TypedValue(msi)
+	return Msi2TypedValue(msi)
 }
 
 func ConvertDbEntry(inputData map[string]interface{}) map[string]string {
