@@ -1,0 +1,24 @@
+package {{ module_name }}
+
+import (
+	"bytes"
+	"context"
+
+	spb "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/proto/{{ module_name_plain }}"
+	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
+
+	"github.com/gogo/protobuf/jsonpb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+// ServerHandle - interface for gnmi_server
+type ServerHandle interface {
+	Auth(context.Context) (context.Context, error)
+}
+
+//Server - proxy
+type Server struct {
+	Handle ServerHandle
+}
+

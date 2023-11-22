@@ -8,3 +8,4 @@ vendor
 src
 cvl
 translib
+__pycache__

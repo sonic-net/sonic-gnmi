@@ -143,6 +143,11 @@ stages:
         sudo dpkg -i python3-swsscommon_1.0.0_amd64.deb
       workingDirectory: $(Pipeline.Workspace)/
       displayName: 'Install libswsscommon package'
+    
+    - script: |
+        sudo apt-get install -y protobuf-compiler
+        protoc --version
+      displayName: 'Install protoc'
 
     - script: |
         set -ex

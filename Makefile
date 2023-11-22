@@ -6,10 +6,23 @@ export PATH := $(PATH):$(GOPATH)/bin
 INSTALL := /usr/bin/install
 DBDIR := /var/run/redis/sonic-db/
 GO ?= /usr/local/go/bin/go
-TOP_DIR := $(abspath ..)
-MGMT_COMMON_DIR := $(TOP_DIR)/sonic-mgmt-common
+TOPDIR := $(abspath .)
+MGMT_COMMON_DIR := $(TOPDIR)/../sonic-mgmt-common
+BUILD_BASE := build
 BUILD_DIR := build/bin
+BUILD_GNOI_YANG_DIR := $(BUILD_BASE)/gnoi_yang
+BUILD_GNOI_YANG_PROTO_DIR := $(BUILD_GNOI_YANG_DIR)/proto
+BUILD_GNOI_YANG_SERVER_DIR := $(BUILD_GNOI_YANG_DIR)/server
+BUILD_GNOI_YANG_CLIENT_DIR := $(BUILD_GNOI_YANG_DIR)/client
+GNOI_YANG := $(BUILD_GNOI_YANG_PROTO_DIR)/.gnoi_yang_done
+TOOLS_DIR        := $(TOPDIR)/tools
+PYANG_PLUGIN_DIR := $(TOOLS_DIR)/pyang_plugins
+PYANG  ?= pyang
 export CVL_SCHEMA_PATH := $(MGMT_COMMON_DIR)/build/cvl/schema
+
+API_YANGS=$(shell find $(MGMT_COMMON_DIR)/build/yang -name '*.yang' -not -path '*/sonic/*' -not -path '*/annotations/*')
+SONIC_YANGS=$(shell find $(MGMT_COMMON_DIR)/models/yang/sonic -name '*.yang')
+
 export GOBIN := $(abspath $(BUILD_DIR))
 export PATH := $(PATH):$(GOBIN):$(shell dirname $(GO))
 export CGO_LDFLAGS := -lswsscommon -lhiredis
@@ -40,7 +53,7 @@ all: sonic-gnmi
 go.mod:
 	$(GO) mod init github.com/sonic-net/sonic-gnmi
 
-$(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap
+$(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 	$(GO) mod vendor
 	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
 	$(GO) mod download github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0
@@ -82,6 +95,9 @@ endif
 	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnmi_dump
+	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/gnoi_openconfig_client
+	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/gnoi_sonic_client
+	
 endif
 
 swsscommon_wrap:
@@ -91,10 +107,45 @@ swsscommon_wrap:
 
 PROTOC_PATH := $(PATH):$(GOBIN)
 PROTOC_OPTS := -I$(CURDIR)/vendor -I/usr/local/include -I/usr/include
+PROTOC_OPTS_WITHOUT_VENDOR := -I/usr/local/include -I/usr/include
 
 # Generate following go & grpc bindings using teh legacy protoc-gen-go
 PROTO_GO_BINDINGS += proto/sonic_internal.pb.go
 PROTO_GO_BINDINGS += proto/gnoi/sonic_debug.pb.go
+
+$(BUILD_GNOI_YANG_PROTO_DIR)/.proto_api_done: $(API_YANGS)
+	@echo "+++++ Generating PROTOBUF files for API Yang modules; +++++"
+	$(PYANG) \
+		-f proto \
+		--proto-outdir $(BUILD_GNOI_YANG_PROTO_DIR) \
+		--plugindir $(PYANG_PLUGIN_DIR) \
+		--server-rpc-outdir $(BUILD_GNOI_YANG_SERVER_DIR) \
+		--client-rpc-outdir $(BUILD_GNOI_YANG_CLIENT_DIR) \
+		-p $(MGMT_COMMON_DIR)/build/yang/common:$(MGMT_COMMON_DIR)/build/yang/extensions \
+		$(MGMT_COMMON_DIR)/build/yang/*.yang $(MGMT_COMMON_DIR)/build/yang/extensions/*.yang
+	@echo "+++++ Generation of protobuf files for API Yang modules completed +++++"
+	touch $@
+
+$(BUILD_GNOI_YANG_PROTO_DIR)/.proto_sonic_done: $(SONIC_YANGS)
+	@echo "+++++ Generating PROTOBUF files for SONiC Yang modules; +++++"
+	$(PYANG) \
+		-f proto \
+		--proto-outdir $(BUILD_GNOI_YANG_PROTO_DIR) \
+		--plugindir $(PYANG_PLUGIN_DIR) \
+		--server-rpc-outdir $(BUILD_GNOI_YANG_SERVER_DIR) \
+		--client-rpc-outdir $(BUILD_GNOI_YANG_CLIENT_DIR) \
+		-p $(MGMT_COMMON_DIR)/build/yang/common:$(MGMT_COMMON_DIR)/build/yang/sonic/common \
+		$(MGMT_COMMON_DIR)/build/yang/sonic/*.yang
+	@echo "+++++ Generation of protobuf files for SONiC Yang modules completed +++++"
+	touch $@
+
+$(GNOI_YANG): $(BUILD_GNOI_YANG_PROTO_DIR)/.proto_api_done $(BUILD_GNOI_YANG_PROTO_DIR)/.proto_sonic_done
+	@echo "+++++ Compiling PROTOBUF files; +++++"
+	$(GO) install github.com/gogo/protobuf/protoc-gen-gofast
+	@mkdir -p $(@D)
+	$(foreach file, $(wildcard $(BUILD_GNOI_YANG_PROTO_DIR)/*/*.proto), PATH=$(PROTOC_PATH) protoc -I$(@D) $(PROTOC_OPTS_WITHOUT_VENDOR) --gofast_out=plugins=grpc,Mgoogle/protobuf/struct.proto=github.com/gogo/protobuf/types:$(BUILD_GNOI_YANG_PROTO_DIR) $(file);)
+	@echo "+++++ PROTOBUF completion completed; +++++"
+	touch $@
 
 $(PROTO_GO_BINDINGS): $$(patsubst %.pb.go,%.proto,$$@) | $(GOBIN)/protoc-gen-go
 	PATH=$(PROTOC_PATH) protoc -I$(@D) $(PROTOC_OPTS) --go_out=plugins=grpc:$(@D) $<
@@ -146,6 +197,8 @@ endif
 	$(INSTALL) -D $(BUILD_DIR)/gnmi_set $(DESTDIR)/usr/sbin/gnmi_set
 	$(INSTALL) -D $(BUILD_DIR)/gnmi_cli $(DESTDIR)/usr/sbin/gnmi_cli
 	$(INSTALL) -D $(BUILD_DIR)/gnoi_client $(DESTDIR)/usr/sbin/gnoi_client
+	$(INSTALL) -D $(BUILD_DIR)/gnoi_openconfig_client $(DESTDIR)/usr/sbin/gnoi_openconfig_client
+	$(INSTALL) -D $(BUILD_DIR)/gnoi_sonic_client $(DESTDIR)/usr/sbin/gnoi_sonic_client
 	$(INSTALL) -D $(BUILD_DIR)/gnmi_dump $(DESTDIR)/usr/sbin/gnmi_dump
 
 
@@ -157,6 +210,8 @@ endif
 	rm $(DESTDIR)/usr/sbin/gnmi_get
 	rm $(DESTDIR)/usr/sbin/gnmi_set
 	rm $(DESTDIR)/usr/sbin/gnoi_client
+	rm $(DESTDIR)/usr/sbin/gnoi_openconfig_client
+	rm $(DESTDIR)/usr/sbin/gnoi_sonic_client
 	rm $(DESTDIR)/usr/sbin/gnmi_dump
 
 
