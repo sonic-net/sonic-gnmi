@@ -200,6 +200,7 @@ func DbParseConfigFile(name_to_cfgfile_map map[string]string) {
 			panic(err)
 		}
 		for _, entry := range sonic_db_global_config["INCLUDES"].([]interface{}) {
+			// Support namespace and batabase_name in global config file
 			name := SONIC_DEFAULT_INSTANCE
 			ns, ok1 := entry.(map[string]interface{})["namespace"]
 			dbName, ok2 := entry.(map[string]interface{})["database_name"]

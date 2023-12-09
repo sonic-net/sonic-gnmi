@@ -3861,6 +3861,7 @@ print('%s')
 	s.s.Stop()
 }
 
+// Test DPU configuration with multiple databases
 func TestGNMINativeDPU(t *testing.T) {
 	sdcfg.Init()
 	err := test_utils.SetupMultiDPU()
@@ -3893,7 +3894,6 @@ func TestGNMINativeDPU(t *testing.T) {
 	} else {
 		fmt.Println(string(result))
 	}
-
 }
 
 func TestServerPort(t *testing.T) {

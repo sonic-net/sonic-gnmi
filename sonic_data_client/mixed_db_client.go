@@ -29,7 +29,9 @@ import (
 )
 
 const REDIS_SOCK string = "/var/run/redis/redis.sock"
+// New database for DPU configuration, but swsscommon does not support it yet
 const APPL_DB_NAME string = "DPU_APPL_DB"
+// Use APPL_DB as workaround
 const PREV_APPL_DB_NAME string = "APPL_DB"
 const DASH_TABLE_PREFIX string = "DASH_"
 const SWSS_TIMEOUT uint = 0
@@ -273,7 +275,9 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	}
 	dbId := sdcfg.GetDbId(client.target, client.instance)
 	dbSock := sdcfg.GetDbSock(client.target, client.instance)
-	// TODO: Current swsscommon implement does not support dpu database, need new ctor
+	// swsscommon does not support database configuration defined by database_name
+	// And then we can't use new database name from /var/run/redisdpu0/sonic-db/database_config.json
+	// TODO: Update swsscommon to support new database structure and new constructor for database_name
 	client.applDB = swsscommon.NewDBConnector(dbId, dbSock, SWSS_TIMEOUT)
 	client.paths = paths
 	client.workPath = common_utils.GNMI_WORK_PATH
