@@ -426,7 +426,7 @@ func ValToResp(val Value) (*gnmipb.SubscribeResponse, error) {
 }
 
 func GetTableKeySeparator(target string, ns string) (string, error) {
-	_, ok := spb.Target_value[target]
+	ok := IsTargetDbInst(target, ns)
 	if !ok {
 		log.V(1).Infof(" %v not a valid path target", target)
 		return "", fmt.Errorf("%v not a valid path target", target)
@@ -438,13 +438,13 @@ func GetTableKeySeparator(target string, ns string) (string, error) {
 
 func GetRedisClientsForDb(target string) map[string]*redis.Client {
 	redis_client_map := make(map[string]*redis.Client)
-	if sdcfg.CheckDbMultiNamespace() {
-		ns_list := sdcfg.GetDbNonDefaultNamespaces()
+	if sdcfg.CheckDbMultiInstance() {
+		ns_list := sdcfg.GetDbAllInstances()
 		for _, ns := range ns_list {
 			redis_client_map[ns] = Target2RedisDb[ns][target]
 		}
 	} else {
-		ns := sdcfg.GetDbDefaultNamespace()
+		ns := sdcfg.GetDbDefaultInstance()
 		redis_client_map[ns] = Target2RedisDb[ns][target]
 	}
 	return redis_client_map
@@ -457,7 +457,7 @@ func IsTargetDb(target string) (string, bool, string, bool) {
 	targetname := strings.Split(target, "/")
 	dbName := targetname[0]
 	dbNameSpaceExist := false
-	dbNamespace := sdcfg.GetDbDefaultNamespace()
+	dbNamespace := sdcfg.GetDbDefaultInstance()
 
 	if len(targetname) > 2 {
 		log.V(1).Infof("target format is not correct")
@@ -468,7 +468,10 @@ func IsTargetDb(target string) (string, bool, string, bool) {
 		dbNamespace = targetname[1]
 		dbNameSpaceExist = true
 	}
-	for name, _ := range spb.Target_value {
+	// Get target list for database configuration
+	// If target is in database configuration, it's valid
+	dbList := sdcfg.GetDbList(dbNamespace)
+	for name, _ := range dbList {
 		if name == dbName {
 			return dbName, true, dbNamespace, dbNameSpaceExist
 		}
@@ -477,15 +480,38 @@ func IsTargetDb(target string) (string, bool, string, bool) {
 	return dbName, false, dbNamespace, dbNameSpaceExist
 }
 
+// This function get target present in GNMI Request and
+// returns: Is Db valid (bool)
+func IsTargetDbInst(dbName string, dbNamespace string) bool {
+	// In multiple namespaces mode, check namespace
+	// In multiple devices mode, check device
+	_, ok := sdcfg.GetDbInstanceFromTarget(dbNamespace)
+	if !ok {
+		return false
+	}
+	// Get target list for database configuration
+	// If target is in database configuration, it's valid
+	dbList := sdcfg.GetDbList(dbNamespace)
+	for name, _ := range dbList {
+		if name == dbName {
+			return true
+		}
+	}
+	return false
+}
+
 // For testing only
 func useRedisTcpClient() {
 	if !UseRedisLocalTcpPort {
 		return
 	}
-	for _, dbNamespace := range sdcfg.GetDbAllNamespaces() {
+	// Generate Target2RedisDb from database configuration
+	for _, dbNamespace := range sdcfg.GetDbAllInstances() {
 		Target2RedisDb[dbNamespace] = make(map[string]*redis.Client)
-		for dbName, dbn := range spb.Target_value {
+		dbList := sdcfg.GetDbList(dbNamespace)
+		for dbName, _ := range dbList {
 			if dbName != "OTHERS" {
+				dbn := sdcfg.GetDbId(dbName, dbNamespace)
 				// DB connector for direct redis operation
 				redisDb := redis.NewClient(&redis.Options{
 					Network:     "tcp",
@@ -502,10 +528,13 @@ func useRedisTcpClient() {
 
 // Client package prepare redis clients to all DBs automatically
 func init() {
-	for _, dbNamespace := range sdcfg.GetDbAllNamespaces() {
+	// Generate Target2RedisDb from database configuration
+	for _, dbNamespace := range sdcfg.GetDbAllInstances() {
 		Target2RedisDb[dbNamespace] = make(map[string]*redis.Client)
-		for dbName, dbn := range spb.Target_value {
+		dbList := sdcfg.GetDbList(dbNamespace)
+		for dbName, _ := range dbList {
 			if dbName != "OTHERS" {
+				dbn := sdcfg.GetDbId(dbName, dbNamespace)
 				// DB connector for direct redis operation
 				redisDb := redis.NewClient(&redis.Options{
 					Network:     "unix",
@@ -556,11 +585,14 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 		return fmt.Errorf("Invalid target dbName %v", targetDbName)
 	}
 
-	// Verify Namespace is valid
-	dbNamespace, ok := sdcfg.GetDbNamespaceFromTarget(targetDbNameSpace)
-	if !ok {
-		return fmt.Errorf("Invalid target dbNameSpace %v", targetDbNameSpace)
+	if targetDbNameSpaceExist {
+		// Verify Namespace is valid
+		_, ok := sdcfg.GetDbInstanceFromTarget(targetDbNameSpace)
+		if !ok {
+			return fmt.Errorf("Invalid target dbNameSpace %v", targetDbNameSpace)
+		}
 	}
+
 
 	if targetDbName == "COUNTERS_DB" {
 		err := initCountersPortNameMap()
@@ -588,7 +620,7 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	}
 
 	stringSlice := []string{targetDbName}
-	separator, _ := GetTableKeySeparator(targetDbName, dbNamespace)
+	separator, _ := GetTableKeySeparator(targetDbName, targetDbNameSpace)
 	elems := fullPath.GetElem()
 	if elems != nil {
 		for i, elem := range elems {
@@ -606,16 +638,13 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	// First lookup the Virtual path to Real path mapping tree
 	// The path from gNMI might not be real db path
 	if tblPaths, err := lookupV2R(stringSlice); err == nil {
-		if targetDbNameSpaceExist {
-			return fmt.Errorf("Target having %v namespace is not supported for V2R Dataset", dbNamespace)
-		}
 		(*pathG2S)[path] = tblPaths
 		log.V(5).Infof("v2r from %v to %+v ", stringSlice, tblPaths)
 		return nil
 	} else {
 		log.V(5).Infof("v2r lookup failed for %v %v", stringSlice, err)
 	}
-	tblPath.dbNamespace = dbNamespace
+	tblPath.dbNamespace = targetDbNameSpace
 	tblPath.dbName = targetDbName
 	if len(stringSlice) > 1 {
 		tblPath.tableName = stringSlice[1]
@@ -629,7 +658,7 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 
 	redisDb, ok := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
 	if !ok {
-		return fmt.Errorf("Redis Client not present for dbName %v dbNamespace %v", targetDbName, dbNamespace)
+		return fmt.Errorf("Redis Client not present for dbName %v dbNamespace %v", targetDbName, targetDbNameSpace)
 	}
 
 	// The expect real db path could be in one of the formats:
@@ -642,8 +671,8 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	case 2: // only table name provided
 		res, err := redisDb.Keys(tblPath.tableName + "*").Result()
 		if err != nil || len(res) < 1 {
-			log.V(2).Infof("Invalid db table Path %v %v", target, dbPath)
-			return fmt.Errorf("Failed to find %v %v %v %v", target, dbPath, err, res)
+			log.V(2).Infof("Invalid db table Path %v %v", targetDbName, dbPath)
+			return fmt.Errorf("Failed to find %v %v %v %v", targetDbName, dbPath, err, res)
 		}
 		tblPath.tableKey = ""
 	case 3: // Third element could be table key; or field name in which case table name itself is the key too
@@ -1217,7 +1246,8 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 	// Go through the paths and identify the tables to register.
 	for _, tblPath := range tblPaths {
 		// Subscribe to keyspace notification
-		pattern := "__keyspace@" + strconv.Itoa(int(spb.Target_value[tblPath.dbName])) + "__:"
+		dbId := sdcfg.GetDbId(tblPath.dbName, tblPath.dbNamespace)
+		pattern := "__keyspace@" + strconv.Itoa(dbId) + "__:"
 		pattern += tblPath.tableName
 		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
 			// tables in COUNTERS_DB other than COUNTERS don't have keys, skip delimitor

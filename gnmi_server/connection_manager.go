@@ -26,7 +26,7 @@ func (cm *ConnectionManager) GetThreshold() int {
 }
 
 func (cm *ConnectionManager) PrepareRedis() {
-	ns := sdcfg.GetDbDefaultNamespace()
+	ns := sdcfg.GetDbDefaultInstance()
 	rclient = redis.NewClient(&redis.Options{
 		Network:     "tcp",
 		Addr:        sdcfg.GetDbTcpAddr("STATE_DB", ns),

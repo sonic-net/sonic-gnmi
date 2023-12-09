@@ -309,28 +309,20 @@ func TestJsonRemoveNegative(t *testing.T) {
 	}
 }
 
-func TestParseTarget(t *testing.T) {
+func TestParseDatabase(t *testing.T) {
 	var test_paths []*gnmipb.Path
 	var err error
 
-	_, err = ParseTarget("test", test_paths)
-	if err != nil {
-		t.Errorf("ParseTarget failed for empty path: %v", err)
-	}
-
-	test_target := "TEST_DB"
-	path, err := xpath.ToGNMIPath("sonic-db:" + test_target + "/VLAN")
+	test_target := "APPL_DB"
+	test_inst := "dpu0"
+	path, err := xpath.ToGNMIPath("sonic-db:" + test_target + "/" + test_inst + "/VLAN")
 	test_paths = append(test_paths, path)
-	target, err := ParseTarget("", test_paths)
+	target, inst, err := ParseDatabase(nil, test_paths)
 	if err != nil {
-		t.Errorf("ParseTarget failed to get target: %v", err)
+		t.Errorf("ParseDatabase failed to get target: %v", err)
 	}
-	if target != test_target {
-		t.Errorf("ParseTarget return wrong target: %v", target)
-	}
-	target, err = ParseTarget("INVALID_DB", test_paths)
-	if err == nil {
-		t.Errorf("ParseTarget should fail for conflict")
+	if target != test_target || inst != test_inst {
+		t.Errorf("ParseDatabase return wrong target: %v", target)
 	}
 }
 
@@ -386,7 +378,7 @@ func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) (bool) {
 
 func TestZmqReconnect(t *testing.T) {
 	// create ZMQ server
-	db := swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false)
+	db := swsscommon.NewDBConnector(PREV_APPL_DB_NAME, SWSS_TIMEOUT, false)
 	zmqServer := swsscommon.NewZmqServer("tcp://*:1234")
 	var TEST_TABLE string = "DASH_ROUTE"
     consumer := swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
@@ -394,7 +386,7 @@ func TestZmqReconnect(t *testing.T) {
 	// create ZMQ client side
 	zmqAddress := "tcp://127.0.0.1:1234"
 	client := MixedDbClient {
-		applDB : swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
+		applDB : swsscommon.NewDBConnector(PREV_APPL_DB_NAME, SWSS_TIMEOUT, false),
 		tableMap : map[string]swsscommon.ProducerStateTable{},
 		zmqClient : swsscommon.NewZmqClient(zmqAddress),
 	}

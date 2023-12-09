@@ -226,7 +226,7 @@ func update_stats(evtc *EventClient) {
 
     /* Populate counters from DB for cumulative counters. */
     if !evtc.isStopped() {
-        ns := sdcfg.GetDbDefaultNamespace()
+        ns := sdcfg.GetDbDefaultInstance()
 
         rclient = redis.NewClient(&redis.Options{
             Network:    "tcp",

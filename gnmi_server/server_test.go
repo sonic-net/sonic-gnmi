@@ -678,7 +678,7 @@ func prepareDb(t *testing.T, namespace string) {
 }
 
 func prepareDbTranslib(t *testing.T) {
-	rclient := getRedisClient(t, sdcfg.GetDbDefaultNamespace())
+	rclient := getRedisClient(t, sdcfg.GetDbDefaultInstance())
 	rclient.FlushDB()
 	rclient.Close()
 
@@ -698,7 +698,7 @@ func prepareDbTranslib(t *testing.T) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	for n, v := range rj {
-		rclient := getRedisClientN(t, n, sdcfg.GetDbDefaultNamespace())
+		rclient := getRedisClientN(t, n, sdcfg.GetDbDefaultInstance())
 		loadDBNotStrict(t, rclient, v)
 		rclient.Close()
 	}
@@ -1208,7 +1208,7 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 
 	stateDBPath := "STATE_DB"
 
-	if namespace != sdcfg.GetDbDefaultNamespace() {
+	if namespace != sdcfg.GetDbDefaultInstance() {
 		stateDBPath = "STATE_DB" + "/" + namespace
 	}
 
@@ -1444,9 +1444,9 @@ func TestGnmiGet(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
 
-	prepareDb(t, sdcfg.GetDbDefaultNamespace())
+	prepareDb(t, sdcfg.GetDbDefaultInstance())
 
-	runGnmiTestGet(t, sdcfg.GetDbDefaultNamespace())
+	runGnmiTestGet(t, sdcfg.GetDbDefaultInstance())
 
 	s.s.Stop()
 }
@@ -2715,7 +2715,7 @@ func TestGnmiSubscribe(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
 
-	runTestSubscribe(t, sdcfg.GetDbDefaultNamespace())
+	runTestSubscribe(t, sdcfg.GetDbDefaultInstance())
 
 	s.s.Stop()
 }
@@ -3125,7 +3125,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
     var neighStateTableDeletedJson61 interface{}
     json.Unmarshal(neighStateTableDeletedByte61, &neighStateTableDeletedJson61)
 
-    namespace := sdcfg.GetDbDefaultNamespace()
+    namespace := sdcfg.GetDbDefaultInstance()
     rclient := getRedisClientN(t, 6, namespace)
     defer rclient.Close()
     prepareStateDb(t, namespace)
@@ -3411,7 +3411,7 @@ func TestConnectionDataSet(t *testing.T) {
             },
         },
     }
-    namespace := sdcfg.GetDbDefaultNamespace()
+    namespace := sdcfg.GetDbDefaultInstance()
     rclient := getRedisClientN(t, 6, namespace)
     defer rclient.Close()
 
@@ -3777,7 +3777,7 @@ print('%s')
 			pathTarget: "",
 			textPbPath: `
 						origin: "sonic-db",
-                        elem: <name: "APPL_DB" > elem:<name:"DASH_QOS" >
+                        elem: <name: "APPL_DB" > elem: <name: "localhost" > elem:<name:"DASH_QOS" >
                 `,
 			attributeData: "../testdata/batch.txt",
 			wantRetCode:   codes.OK,
@@ -3828,14 +3828,14 @@ print('%s')
 	s := createServer(t, 8080)
 	go runServer(t, s)
 	defer s.s.Stop()
-	initFullConfigDb(t, sdcfg.GetDbDefaultNamespace())
-	initFullCountersDb(t, sdcfg.GetDbDefaultNamespace())
+	initFullConfigDb(t, sdcfg.GetDbDefaultInstance())
+	initFullCountersDb(t, sdcfg.GetDbDefaultInstance())
 
 	path, _ := os.Getwd()
 	path = filepath.Dir(path)
 
 	var cmd *exec.Cmd
-	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest")
+	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'not dpu'")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)
@@ -3859,6 +3859,41 @@ print('%s')
 		}
 	}
 	s.s.Stop()
+}
+
+func TestGNMINativeDPU(t *testing.T) {
+	sdcfg.Init()
+	err := test_utils.SetupMultiDPU()
+	if err != nil {
+		t.Fatalf("error Setting up MultiDPU files with err %T", err)
+	}
+
+	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
+	t.Cleanup(func() {
+		if err := test_utils.CleanUpMultiDPU(); err != nil {
+			t.Fatalf("error Cleaning up MultiDPU files with err %T", err)
+
+		}
+	})
+
+	s := createServer(t, 8080)
+	go runServer(t, s)
+	defer s.s.Stop()
+	initFullConfigDb(t, sdcfg.GetDbDefaultInstance())
+	initFullCountersDb(t, sdcfg.GetDbDefaultInstance())
+
+	path, _ := os.Getwd()
+	path = filepath.Dir(path)
+
+	var cmd *exec.Cmd
+	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'dpu'")
+	if result, err := cmd.Output(); err != nil {
+		fmt.Println(string(result))
+		t.Errorf("Fail to execute pytest: %v", err)
+	} else {
+		fmt.Println(string(result))
+	}
+
 }
 
 func TestServerPort(t *testing.T) {

@@ -29,8 +29,8 @@ import (
 )
 
 const REDIS_SOCK string = "/var/run/redis/redis.sock"
-const APPL_DB int = 0
-const APPL_DB_NAME string = "APPL_DB"
+const APPL_DB_NAME string = "DPU_APPL_DB"
+const PREV_APPL_DB_NAME string = "APPL_DB"
 const DASH_TABLE_PREFIX string = "DASH_"
 const SWSS_TIMEOUT uint = 0
 const MAX_RETRY_COUNT uint = 5
@@ -54,23 +54,24 @@ var (
 )
 
 type MixedDbClient struct {
-	prefix  *gnmipb.Path
-	paths   []*gnmipb.Path
-	pathG2S map[*gnmipb.Path][]tablePath
-	encoding gnmipb.Encoding
-	q       *queue.PriorityQueue
-	channel chan struct{}
-	target  string
-	origin  string
-	workPath string
-	jClient *JsonClient
-	applDB swsscommon.DBConnector
+	prefix    *gnmipb.Path
+	paths     []*gnmipb.Path
+	pathG2S   map[*gnmipb.Path][]tablePath
+	encoding  gnmipb.Encoding
+	q         *queue.PriorityQueue
+	channel   chan struct{}
+	target    string
+	instance  string
+	origin    string
+	workPath  string
+	jClient   *JsonClient
+	applDB    swsscommon.DBConnector
 	zmqClient swsscommon.ZmqClient
-	tableMap map[string]swsscommon.ProducerStateTable
+	tableMap  map[string]swsscommon.ProducerStateTable
 
-	synced sync.WaitGroup  // Control when to send gNMI sync_response
-	w      *sync.WaitGroup // wait for all sub go routines to finish
-	mu     sync.RWMutex    // Mutex for data protection among routines for DbClient
+	synced    sync.WaitGroup  // Control when to send gNMI sync_response
+	w         *sync.WaitGroup // wait for all sub go routines to finish
+	mu        sync.RWMutex    // Mutex for data protection among routines for DbClient
 }
 
 var mixedDbClientMap = map[string]MixedDbClient{}
@@ -79,7 +80,6 @@ func getMixedDbClient(zmqAddress string) (MixedDbClient) {
 	client, ok := mixedDbClientMap[zmqAddress]
 	if !ok {
 		client = MixedDbClient {
-			applDB : swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
 			tableMap : map[string]swsscommon.ProducerStateTable{},
 		}
 
@@ -105,27 +105,51 @@ func parseJson(str []byte) (interface{}, error) {
 	return res, nil
 }
 
-func ParseTarget(target string, paths []*gnmipb.Path) (string, error) {
+// For example, the GNMI path below points to DASH_QOS table in the DPU_APPL_DB database for dpu0:
+// /DPU_APPL_DB/dpu0/DASH_QOS
+// The first element of the GNMI path is the target database name, which is DPU_APPL_DB in this case.
+// The second element is the database instance, which is dpu0.
+// The third element is the node name, which is DASH_QOS.
+// ParseDatabase is used get database target and database instance from GNMI prefix and path
+func ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path) (string, string, error) {
 	if len(paths) == 0 {
-		return "", nil
+		return "", "", status.Error(codes.Unimplemented, "No valid path")
 	}
+	target := ""
+	instance := ""
 	for i, path := range paths {
-		elems := path.GetElem()
-		if elems == nil {
-			return "", status.Error(codes.Unimplemented, "No target specified in path")
-		}
-		if target == "" {
-			if i == 0 {
-				target = elems[0].GetName()
+		if path.GetElem() != nil {
+			elems := path.GetElem()
+			if prefix != nil {
+				elems = append(prefix.GetElem(), elems...)
 			}
-		} else if target != elems[0].GetName() {
-			return "", status.Error(codes.Unimplemented, "Target conflict in path")
+			if elems == nil {
+				return "", "", status.Error(codes.Unimplemented, "No valid elem")
+			}
+			if len(elems) < 2 {
+				return "", "", status.Error(codes.Unimplemented, "Invalid elem length")
+			}
+			if i == 0 {
+				for j, elem := range elems {
+					if j == 0 {
+						target = elem.GetName()
+					} else if j == 1 {
+						instance = elem.GetName()
+					}
+				}
+			} else if target != elems[0].GetName() || instance != elems[1].GetName() {
+				return "", "", status.Error(codes.Unimplemented, "Target/Instance conflict in path")
+			}
 		}
 	}
-	if target == "" {
-		return "", status.Error(codes.Unimplemented, "No target specified in path")
+	if target == "" || instance == "" {
+		return "", "", status.Error(codes.Unimplemented, "No target/instance specified in path")
 	}
-	return target, nil
+	// Translate localhost to default instance
+	if instance == "localhost" {
+		instance = sdcfg.GetDbDefaultInstance()
+	}
+	return target, instance, nil
 }
 
 func (c *MixedDbClient) GetTable(table string) (swsscommon.ProducerStateTable) {
@@ -231,28 +255,26 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	var client = getMixedDbClient(zmqAddress)
 	client.prefix = prefix
 	client.target = ""
+	client.instance = ""
 	client.origin = origin
 	client.encoding = encoding
-	if prefix != nil {
-		elems := prefix.GetElem()
-		if elems != nil {
-			client.target = elems[0].GetName()
-		}
-	}
+	// Capabilities API does not have paths
 	if paths == nil {
 		return &client, nil
 	}
+	client.target, client.instance, err = ParseDatabase(prefix, paths)
+	if err != nil {
+		return nil, err
+	}
 
-	if client.target == "" {
-		client.target, err = ParseTarget(client.target, paths)
-		if err != nil {
-			return nil, err
-		}
-	}
-	_, ok, _, _ := IsTargetDb(client.target); 
+	ok := IsTargetDbInst(client.target, client.instance); 
 	if !ok {
-		return nil, status.Errorf(codes.Unimplemented, "Invalid target: %s", client.target)
+		return nil, status.Errorf(codes.Unimplemented, "Invalid target: %s %s", client.target, client.instance)
 	}
+	dbId := sdcfg.GetDbId(client.target, client.instance)
+	dbSock := sdcfg.GetDbSock(client.target, client.instance)
+	// TODO: Current swsscommon implement does not support dpu database, need new ctor
+	client.applDB = swsscommon.NewDBConnector(dbId, dbSock, SWSS_TIMEOUT)
 	client.paths = paths
 	client.workPath = common_utils.GNMI_WORK_PATH
 
@@ -274,16 +296,16 @@ func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) *gnmipb.Path {
 		if prefix != nil {
 			elements = append(prefix.GetElement(), elements...)
 		}
-		// Skip first elem
-		fullPath.Element = elements[1:]
+		// Skip first 2 elem
+		fullPath.Element = elements[2:]
 	}
 	if path.GetElem() != nil {
 		elems := path.GetElem()
 		if prefix != nil {
 			elems = append(prefix.GetElem(), elems...)
 		}
-		// Skip first elem
-		fullPath.Elem = elems[1:]
+		// Skip first 2 elem
+		fullPath.Elem = elems[2:]
 	}
 	return fullPath
 }
@@ -304,27 +326,24 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 	var dbPath string
 	var tblPath tablePath
 
-	targetDbName, targetDbNameValid, targetDbNameSpace, _ := IsTargetDb(c.target)
+	targetDbNameSpace := c.instance
+	targetDbName := c.target
+	valid := IsTargetDbInst(targetDbName, targetDbNameSpace)
 	// Verify it is a valid db name
-	if !targetDbNameValid {
+	if !valid {
 		return fmt.Errorf("Invalid target dbName %v", targetDbName)
-	}
-
-	// Verify Namespace is valid
-	dbNamespace, ok := sdcfg.GetDbNamespaceFromTarget(targetDbNameSpace)
-	if !ok {
-		return fmt.Errorf("Invalid target dbNameSpace %v", targetDbNameSpace)
 	}
 
 	fullPath := c.gnmiFullPath(c.prefix, path)
 
 	stringSlice := []string{targetDbName}
-	separator, _ := GetTableKeySeparator(targetDbName, dbNamespace)
+	separator, _ := GetTableKeySeparator(targetDbName, targetDbNameSpace)
 	elems := fullPath.GetElem()
 	if elems != nil {
 		for i, elem := range elems {
 			log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
-			if i != 0 {
+			// Skip the first two elem: target and instance
+			if i > 1 {
 				buffer.WriteString(separator)
 			}
 			buffer.WriteString(elem.GetName())
@@ -338,7 +357,7 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 		dbPath = buffer.String()
 	}
 
-	tblPath.dbNamespace = dbNamespace
+	tblPath.dbNamespace = targetDbNameSpace
 	tblPath.dbName = targetDbName
 	tblPath.tableName = ""
 	if len(stringSlice) > 1 {
@@ -371,7 +390,7 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 
 	redisDb, ok := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
 	if !ok {
-		return fmt.Errorf("Redis Client not present for dbName %v dbNamespace %v", targetDbName, dbNamespace)
+		return fmt.Errorf("Redis Client not present for dbName %v dbNamespace %v", targetDbName, targetDbNameSpace)
 	}
 
 	// The expect real db path could be in one of the formats:
@@ -813,14 +832,12 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 }
 
 /* Populate the JsonPatch corresponding each GNMI operation. */
-func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Path, t *gnmipb.TypedValue, output *string) error {
+func (c *MixedDbClient) ConvertToJsonPatch(fullPath *gnmipb.Path, t *gnmipb.TypedValue, output *string) error {
 	if t != nil {
 		if len(t.GetJsonIetfVal()) == 0 {
 			return fmt.Errorf("Value encoding is not IETF JSON")
 		}
 	}
-	fullPath := c.gnmiFullPath(prefix, path)
-
 	elems := fullPath.GetElem()
 	if t == nil {
 		*output = `{"op": "remove", "path": "/`
@@ -932,7 +949,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 			}
 		}
 		curr = ``
-		err = c.ConvertToJsonPatch(c.prefix, path, nil, &curr)
+		err = c.ConvertToJsonPatch(fullPath, nil, &curr)
 		if err != nil {
 			return err
 		}
@@ -968,7 +985,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 			}
 		}
 		curr = ``
-		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), &curr)
+		err = c.ConvertToJsonPatch(fullPath, path.GetVal(), &curr)
 		if err != nil {
 			return err
 		}
@@ -1000,7 +1017,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 			}
 		}
 		curr = ``
-		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), &curr)
+		err = c.ConvertToJsonPatch(fullPath, path.GetVal(), &curr)
 		if err != nil {
 			return err
 		}
@@ -1119,7 +1136,10 @@ func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Upd
 func (c *MixedDbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	if c.target == "CONFIG_DB" {
 		return c.SetConfigDB(delete, replace, update)
-	} else if c.target == "APPL_DB" {
+	} else if c.target == APPL_DB_NAME {
+		return c.SetDB(delete, replace, update)
+	} else if c.target == PREV_APPL_DB_NAME {
+		// Backward compatible
 		return c.SetDB(delete, replace, update)
 	}
 	return fmt.Errorf("Set RPC does not support %v", c.target)

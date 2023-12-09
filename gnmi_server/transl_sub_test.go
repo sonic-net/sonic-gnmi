@@ -891,8 +891,8 @@ type DbDataMap map[string]map[string]map[string]interface{}
 func updateDb(t *testing.T, data DbDataMap) {
 	t.Helper()
 	for dbName, tableData := range data {
-		n := dbconfig.GetDbId(dbName, dbconfig.GetDbDefaultNamespace())
-		redis := getRedisClientN(t, n, dbconfig.GetDbDefaultNamespace())
+		n := dbconfig.GetDbId(dbName, dbconfig.GetDbDefaultInstance())
+		redis := getRedisClientN(t, n, dbconfig.GetDbDefaultInstance())
 		defer redis.Close()
 		for key, fields := range tableData {
 			if fields == nil {
