@@ -8,6 +8,8 @@ import (
 	"io/ioutil"
 	"strconv"
 	"time"
+	"os"
+	"os/signal"
 
 	log "github.com/golang/glog"
 	"google.golang.org/grpc"
@@ -86,108 +88,24 @@ func main() {
 	cfg.ZmqAddress = *zmqAddress
 	cfg.Threshold = int(*threshold)
 	cfg.IdleConnDuration = int(*idle_conn_duration)
-	var opts []grpc.ServerOption
 
 	if val, err := strconv.Atoi(getflag("v")); err == nil {
 		cfg.LogLevel = val
 		log.Errorf("flag: log level %v", cfg.LogLevel)
 	}
 
-	if !*noTLS {
-		var certificate tls.Certificate
-		var err error
-		if *insecure {
-			certificate, err = testcert.NewCert()
-			if err != nil {
-				log.Exitf("could not load server key pair: %s", err)
-			}
-		} else {
-			switch {
-			case *serverCert == "":
-				log.Errorf("serverCert must be set.")
-				return
-			case *serverKey == "":
-				log.Errorf("serverKey must be set.")
-				return
-			}
-			certificate, err = tls.LoadX509KeyPair(*serverCert, *serverKey)
-			if err != nil {
-				currentTime := time.Now().UTC()
-				log.Infof("Server Cert md5 checksum: %x at time %s", md5.Sum([]byte(*serverCert)), currentTime.String())
-				log.Infof("Server Key md5 checksum: %x at time %s", md5.Sum([]byte(*serverKey)), currentTime.String())
-				log.Exitf("could not load server key pair: %s", err)
-			}
-		}
+	wg.Add(1)
+	go startGNMIServer(cfg, reload, &wg)
 
-		tlsCfg := &tls.Config{
-		ClientAuth:   tls.RequireAndVerifyClientCert,
-		Certificates: []tls.Certificate{certificate},
-		MinVersion:               tls.VersionTLS12,
-		CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
-		PreferServerCipherSuites: true,
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-		},
+	if (*acmsEnabled) {
+		wg.Add(1)
+		go monitorCerts(reload, &wg)
 	}
 
-	if *allowNoClientCert {
-		// RequestClientCert will ask client for a certificate but won't
-		// require it to proceed. If certificate is provided, it will be
-		// verified.
-		tlsCfg.ClientAuth = tls.RequestClientCert
-	}
+	wg.Add(1)
+	go signalHandler(reload, &wg)
 
-	if *caCert != "" {
-		ca, err := ioutil.ReadFile(*caCert)
-		if err != nil {
-			log.Exitf("could not read CA certificate: %s", err)
-		}
-		certPool := x509.NewCertPool()
-		if ok := certPool.AppendCertsFromPEM(ca); !ok {
-			log.Exit("failed to append CA certificate")
-		}
-		tlsCfg.ClientCAs = certPool
-	} else {
-		if userAuth.Enabled("cert") {
-			userAuth.Unset("cert")
-			log.Warning("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
-		}
-	}
-
-	keep_alive_params := keepalive.ServerParameters{
-		MaxConnectionIdle: time.Duration(cfg.IdleConnDuration) * time.Second, // duration in which idle connection will be closed, default is inf
-	}
-
-	opts = []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-
-	if cfg.IdleConnDuration > 0 { // non inf case
-		opts = append(opts, grpc.KeepaliveParams(keep_alive_params))
-	}
-
-	cfg.UserAuth = userAuth
-
-	gnmi.GenerateJwtSecretKey()
-}
-
-	s, err := gnmi.NewServer(cfg, opts)
-	if err != nil {
-		log.Errorf("Failed to create gNMI server: %v", err)
-		return
-	}
-
-	if *withMasterArbitration {
-		s.ReqFromMaster = gnmi.ReqFromMasterEnabledMA
-	}
-	
-	log.V(1).Infof("Auth Modes: ", userAuth)
-	log.V(1).Infof("Starting RPC server on address: %s", s.Address())
-	s.Serve() // blocks until close
-	log.Flush()
+	wg.Wait()
 }
 
 func isFlagPassed(name string) bool {
@@ -208,4 +126,173 @@ func getflag(name string) string {
 		}
 	})
 	return val
+}
+
+func signalHandler(reload chan<- int, wg *sync.WaitGroup) {
+	defer wg.Done()
+	sigchannel := make(chan os.Signal, 1)
+	signal.Notify(sigchannel,
+		syscall.SIGTERM,
+		syscall.SIGQUIT)
+	<-sigchannel
+	reload <- 0
+	return
+}
+
+func monitorCerts(reload chan<- int, wg *sync.WaitGroup) {
+	defer wg.Done()
+	prevServerCertInfo, _ := os.Lstat(*serverCert)
+	serverCertLastModTime := prevServerCertInfo.ModTime()
+	log.V(1).Infof("Last modified time of %s is %d", prevServerCertInfo.Name(), serverCertLastModTime.Unix())
+
+	prevServerKeyInfo, _ := os.Lstat(*serverKey)
+	serverKeyLastModTime := prevServerKeyInfo.ModTime()
+	log.V(1).Infof("Last modified time of %s is %d", prevServerKeyInfo.Name(), serverCertLastModTime.Unix())
+
+	time.Sleep(*certMonitorPollingInterval)
+
+	for {
+		needsRotate := false
+		currentServerCertInfo, _ := os.Lstat(*serverCert)
+		serverCertCurrModTime := currentServerCertInfo.ModTime()
+		log.V(1).Infof("Current modified time of %s is %d", currentServerCertInfo.Name(), serverCertCurrModTime.Unix())
+		if serverCertLastModTime != serverCertCurrModTime {
+			log.V(1).Infof("Modified time of %s has changed from %d to %d. %s needs to be rotated")
+			needsRotate = true
+		}
+
+		serverCertLastModTime = serverCertCurrentModTime
+
+		currentServerKeyInfo, _ := os.Lstat(*serverKey)
+		serverKeyCurrModTime := currentServerKeyInfo.ModTime()
+		log.V(1).Infof("Current modified time of %s is %d", currentServerKeyInfo.Name(), serverKeyCurrModTime.Unix())
+		if serverKeyLastModTime != serverKeyCurrModTime {
+			log.V(1).Infof("Modified time of %s has changed from %d to %d. %s needs to be rotated")
+			needsRotate = true
+		}
+
+		serverKeyLastModTime = serverKeyCurrentModTime
+
+		if needsRotate {
+			log.V(1).Infof("Server Cert or Key needs to be rotated")
+			reload <- 1
+		}
+
+		time.Sleep(*certMonitorPollingInterval)
+	}
+}
+
+func startGNMIServer(config *Config, reload <-chan int, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for {
+		var opts []grpc.ServerOption
+		if !*noTLS {
+			var certificate tls.Certificate
+			var err error
+			if *insecure {
+				certificate, err = testcert.NewCert()
+				if err != nil {
+					log.Exitf("could not load server key pair: %s", err)
+				}
+			} else {
+				switch {
+				case *serverCert == "":
+					log.Errorf("serverCert must be set.")
+					return
+				case *serverKey == "":
+					log.Errorf("serverKey must be set.")
+					return
+				}
+				certificate, err = tls.LoadX509KeyPair(*serverCert, *serverKey)
+				if err != nil {
+					currentTime := time.Now().UTC()
+					log.Infof("Server Cert md5 checksum: %x at time %s", md5.Sum([]byte(*serverCert)), currentTime.String())
+					log.Infof("Server Key md5 checksum: %x at time %s", md5.Sum([]byte(*serverKey)), currentTime.String())
+					log.Exitf("could not load server key pair: %s", err)
+				}
+			}
+
+			tlsCfg := &tls.Config {
+				ClientAuth:		  tls.RequireAndVerifyClientCert,
+				Certificates:		  []tls.Certificate{certificate},
+				MinVersion:		  tls.VersionTLS12,
+				CurvePreferences:	  []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
+				PreferServerCipherSuites: true,
+				CipherSuites: []uint16 {
+					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+					tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				},
+			}
+
+			if *allowNoClientCert {
+				// RequestClientCert will ask client for a certificate but won't
+				// require it to proceed. If certificate is provided, it will be
+				// verified.
+				tlsCfg.ClientAuth = tls.RequestClientCert
+			}
+
+			if *caCert != "" {
+				ca, err := ioutil.ReadFile(*caCert)
+				if err != nil {
+					log.Exitf("could not read CA certificate: %s", err)
+				}
+				certPool := x509.NewCertPool()
+				if ok := certPool.AppendCertsFromPEM(ca); !ok {
+					log.Exit("failed to append CA certificate")
+				}
+				tlsCfg.ClientCAs = certPool
+			} else {
+				if userAuth.Enabled("cert") {
+					userAuth.Unset("cert")
+					log.Warning("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
+				}
+			}
+
+			keep_alive_params := keepalive.ServerParameters{
+				MaxConnectionIdle: time.Duration(cfg.IdleConnDuration) * time.Second, // duration in which idle connection will be closed, default is inf
+			}
+
+			opts = []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+
+			if cfg.IdleConnDuration > 0 { // non inf case
+				opts = append(opts, grpc.KeepaliveParams(keep_alive_params))
+			}
+
+			cfg.UserAuth = userAuth
+
+			gnmi.GenerateJwtSecretKey()
+
+		}
+
+		s, err := gnmi.NewServer(cfg, opts)
+		if err != nil {
+			log.Errorf("Failed to create gNMI server: %v", err)
+			return
+		}
+
+		if *withMasterArbitration {
+			s.ReqFromMaster = gnmi.ReqFromMasterEnabledMA
+		}
+
+		log.V(1).Infof("Auth Modes: ", userAuth)
+		log.V(1).Infof("Starting RPC server on address: %s", s.Address())
+
+		go func() {
+			if err := s.Serve(); err != nil {
+				log.V(1).Errorf(err)
+			}
+		}()
+
+		value := <-reload
+		log.V(1).Infof("Received notification for gnmi server to shutdown and rotate certs")
+		s.Stop()
+		if value == 0 {
+			os.Exit(0)
+		}
+		log.Flush()
+	}
 }
