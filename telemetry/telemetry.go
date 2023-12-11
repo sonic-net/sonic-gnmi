@@ -31,6 +31,7 @@ var (
 	insecure          = flag.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!")
 	noTLS             = flag.Bool("noTLS", false, "disable TLS, for testing only!")
 	allowNoClientCert = flag.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate.")
+	acmsEnabled       = flag.Bool("acms_enabled", false, "When set, telemetry process will monitor acms certs and reload when needed.")
 	jwtRefInt         = flag.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed.")
 	jwtValInt         = flag.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for.")
 	gnmi_translib_write = flag.Bool("gnmi_translib_write", gnmi.ENABLE_TRANSLIB_WRITE, "Enable gNMI translib write for management framework")
@@ -93,6 +94,9 @@ func main() {
 		cfg.LogLevel = val
 		log.Errorf("flag: log level %v", cfg.LogLevel)
 	}
+
+	var reload = make(chan int, 1)
+	var wg sync.WaitGroup
 
 	wg.Add(1)
 	go startGNMIServer(cfg, reload, &wg)
