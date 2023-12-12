@@ -155,7 +155,7 @@ func monitorCerts(reload chan<- int, wg *sync.WaitGroup) {
 	serverKeyLastModTime := prevServerKeyInfo.ModTime()
 	log.V(1).Infof("Last modified time of %s is %d", prevServerKeyInfo.Name(), serverCertLastModTime.Unix())
 
-	duration := time.Duration(*certPollingInt) * time.Second)
+	duration := time.Duration(*certPollingInt) * time.Second
 
 	time.Sleep(duration)
 
