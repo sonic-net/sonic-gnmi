@@ -155,7 +155,9 @@ func monitorCerts(reload chan<- int, wg *sync.WaitGroup) {
 	serverKeyLastModTime := prevServerKeyInfo.ModTime()
 	log.V(1).Infof("Last modified time of %s is %d", prevServerKeyInfo.Name(), serverCertLastModTime.Unix())
 
-	time.Sleep(*certPollingInt * time.Second)
+	duration := time.Duration(*certPollingInt) * time.Second)
+
+	time.Sleep(duration)
 
 	for {
 		needsRotate := false
@@ -184,11 +186,11 @@ func monitorCerts(reload chan<- int, wg *sync.WaitGroup) {
 			reload <- 1
 		}
 
-		time.Sleep(*certMonitorPollingInterval)
+		time.Sleep(duration)
 	}
 }
 
-func startGNMIServer(config *gnmi.Config, reload <-chan int, wg *sync.WaitGroup) {
+func startGNMIServer(cfg *gnmi.Config, reload <-chan int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
 		var opts []grpc.ServerOption
@@ -289,7 +291,7 @@ func startGNMIServer(config *gnmi.Config, reload <-chan int, wg *sync.WaitGroup)
 
 		go func() {
 			if err := s.Serve(); err != nil {
-				log.V(1).Errorf(err)
+				log.Errorf(err)
 			}
 		}()
 

@@ -177,6 +177,14 @@ func (srv *Server) Serve() error {
 	return srv.s.Serve(srv.lis)
 }
 
+func (srv *Server) Stop() error {
+	s := srv.s
+	if s == nil {
+		return fmt.Errorf("Stop() failed: not initialized")
+	}
+	return srv.s.Stop()
+}
+
 // Address returns the port the Server is listening to.
 func (srv *Server) Address() string {
 	addr := srv.lis.Addr().String()
