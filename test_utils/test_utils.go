@@ -56,7 +56,7 @@ func GetMultiNsNamespace() string {
 	return "asic0"
 }
 
-func SetupMultiDPU() error {
+func SetupMultiDatabase() error {
 	err := os.MkdirAll("/var/run/redisdpu0/sonic-db/", 0755)
 	if err != nil {
 		return err
@@ -92,7 +92,7 @@ func SetupMultiDPU() error {
 	return nil
 }
 
-func CleanUpMultiDPU() error {
+func CleanUpMultiDatabase() error {
 	err := os.Remove("/var/run/redis/sonic-db/database_global.json")
 	if err != nil {
 		return err

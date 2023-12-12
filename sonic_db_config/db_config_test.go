@@ -80,17 +80,17 @@ func TestGetDbMultiNs(t *testing.T) {
 	})
 }
 
-func TestGetDbMultiDPU(t *testing.T) {
+func TestGetDbMultiDatabase(t *testing.T) {
 	Init()
-	err := test_utils.SetupMultiDPU()
+	err := test_utils.SetupMultiDatabase()
 	if err != nil {
-		t.Fatalf("error Setting up MultiDPU files with err %T", err)
+		t.Fatalf("error Setting up MultiDatabase files with err %T", err)
 	}
 
 	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
 	t.Cleanup(func() {
-		if err := test_utils.CleanUpMultiDPU(); err != nil {
-			t.Fatalf("error Cleaning up MultiDPU files with err %T", err)
+		if err := test_utils.CleanUpMultiDatabase(); err != nil {
+			t.Fatalf("error Cleaning up MultiDatabase files with err %T", err)
 
 		}
 	})
@@ -113,13 +113,13 @@ func TestGetDbMultiDPU(t *testing.T) {
 			t.Fatalf(`Sock("") = %q, want %s, error`, sock_path, exp_path)
 		}
 	})
-	t.Run("AllDPU", func(t *testing.T) {
+	t.Run("All database", func(t *testing.T) {
 		ns_list := GetDbAllInstances()
 		if len(ns_list) != 2 {
-			t.Fatalf(`AllDPU("") = %q, want "2", error %v`, len(ns_list), ns_list)
+			t.Fatalf(`All database("") = %q, want "2", error %v`, len(ns_list), ns_list)
 		}
 		if !((ns_list[0] == GetDbDefaultInstance() && ns_list[1] == "dpu0") || (ns_list[0] == "dpu0" && ns_list[1] == GetDbDefaultInstance())) {
-			t.Fatalf(`AllDPU("") = %q %q, want default and dpu0, error`, ns_list[0], ns_list[1])
+			t.Fatalf(`All database("") = %q %q, want default and dpu0, error`, ns_list[0], ns_list[1])
 		}
 	})
 	t.Run("TcpAddr", func(t *testing.T) {

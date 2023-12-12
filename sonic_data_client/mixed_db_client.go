@@ -29,7 +29,7 @@ import (
 )
 
 const REDIS_SOCK string = "/var/run/redis/redis.sock"
-// New database for DPU configuration, but swsscommon does not support it yet
+// New database configuration, but swsscommon does not support it yet
 const APPL_DB_NAME string = "DPU_APPL_DB"
 // Use APPL_DB as workaround
 const PREV_APPL_DB_NAME string = "APPL_DB"

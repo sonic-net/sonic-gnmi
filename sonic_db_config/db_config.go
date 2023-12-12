@@ -23,7 +23,7 @@ var sonic_db_config = make(map[string]map[string]interface{}) // nosemgrep: iter
 var sonic_db_init bool
 var sonic_db_multi_instance bool
 
-// Use multiple instances to support multiple asic and multiple dpu
+// Use multiple instances to support multiple asic and multiple database
 // Instance can be localhost, asic0, asic1, ..., dpu0, dpu1, ...
 func GetDbDefaultInstance() string {
 	return SONIC_DEFAULT_INSTANCE

@@ -3835,7 +3835,9 @@ print('%s')
 	path = filepath.Dir(path)
 
 	var cmd *exec.Cmd
-	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'not dpu'")
+	// This test is used for single database configuration
+	// Run tests not marked with multidb
+	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'not multidb'")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)
@@ -3861,18 +3863,18 @@ print('%s')
 	s.s.Stop()
 }
 
-// Test DPU configuration with multiple databases
-func TestGNMINativeDPU(t *testing.T) {
+// Test configuration with multiple databases
+func TestGNMINativeMultiDB(t *testing.T) {
 	sdcfg.Init()
-	err := test_utils.SetupMultiDPU()
+	err := test_utils.SetupMultiDatabase()
 	if err != nil {
-		t.Fatalf("error Setting up MultiDPU files with err %T", err)
+		t.Fatalf("error Setting up MultiDatabase files with err %T", err)
 	}
 
 	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
 	t.Cleanup(func() {
-		if err := test_utils.CleanUpMultiDPU(); err != nil {
-			t.Fatalf("error Cleaning up MultiDPU files with err %T", err)
+		if err := test_utils.CleanUpMultiDatabase(); err != nil {
+			t.Fatalf("error Cleaning up MultiDatabase files with err %T", err)
 
 		}
 	})
@@ -3887,7 +3889,9 @@ func TestGNMINativeDPU(t *testing.T) {
 	path = filepath.Dir(path)
 
 	var cmd *exec.Cmd
-	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'dpu'")
+	// This test is used for multiple database configuration
+	// Run tests marked with multidb
+	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'multidb'")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)
