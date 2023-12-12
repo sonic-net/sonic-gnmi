@@ -179,7 +179,7 @@ func monitorCerts(reload chan<- int, wg *sync.WaitGroup) {
 			needsRotate = true
 		}
 
-		serverKeyLastModTime = serverKeyCurrentModTime
+		serverKeyLastModTime = serverKeyCurrModTime
 
 		if needsRotate {
 			log.V(1).Infof("Server Cert or Key needs to be rotated")
@@ -291,7 +291,7 @@ func startGNMIServer(cfg *gnmi.Config, reload <-chan int, wg *sync.WaitGroup) {
 
 		go func() {
 			if err := s.Serve(); err != nil {
-				log.Errorf(err)
+				log.Errorf("Serve returns with err: %v", err)
 			}
 		}()
 
