@@ -10,7 +10,8 @@ import (
 	"time"
 	"os"
 	"os/signal"
-
+	"syscall"
+	"sync"
 	log "github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -154,7 +155,7 @@ func monitorCerts(reload chan<- int, wg *sync.WaitGroup) {
 	serverKeyLastModTime := prevServerKeyInfo.ModTime()
 	log.V(1).Infof("Last modified time of %s is %d", prevServerKeyInfo.Name(), serverCertLastModTime.Unix())
 
-	time.Sleep(*certPollingInt)
+	time.Sleep(*certPollingInt * time.Second)
 
 	for {
 		needsRotate := false
@@ -166,7 +167,7 @@ func monitorCerts(reload chan<- int, wg *sync.WaitGroup) {
 			needsRotate = true
 		}
 
-		serverCertLastModTime = serverCertCurrentModTime
+		serverCertLastModTime = serverCertCurrModTime
 
 		currentServerKeyInfo, _ := os.Lstat(*serverKey)
 		serverKeyCurrModTime := currentServerKeyInfo.ModTime()
@@ -187,7 +188,7 @@ func monitorCerts(reload chan<- int, wg *sync.WaitGroup) {
 	}
 }
 
-func startGNMIServer(config *Config, reload <-chan int, wg *sync.WaitGroup) {
+func startGNMIServer(config *gnmi.Config, reload <-chan int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
 		var opts []grpc.ServerOption
