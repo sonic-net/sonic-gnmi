@@ -26,6 +26,7 @@ func CheckDbMultiNamespace() bool {
 	}
 	ns_vec := swsscommon.SonicDBConfigGetNamespaces()
 	length := int(ns_vec.Size())
+	// If there are more than one namespaces, this means that SONiC is using multinamespace
 	return length > 1
 }
 func GetDbNonDefaultNamespaces() []string {
@@ -33,6 +34,7 @@ func GetDbNonDefaultNamespaces() []string {
 		DbInit()
 	}
 	ns_vec := swsscommon.SonicDBConfigGetNamespaces()
+	// Translate from vector to array
 	length := int(ns_vec.Size())
 	var ns_list []string
 	for i := 0; i < length; i += 1 {
@@ -50,6 +52,7 @@ func GetDbAllNamespaces() []string {
 		DbInit()
 	}
 	ns_vec := swsscommon.SonicDBConfigGetNamespaces()
+	// Translate from vector to array
 	length := int(ns_vec.Size())
 	var ns_list []string
 	for i := 0; i < length; i += 1 {
@@ -77,6 +80,7 @@ func GetDbList(ns string) []string {
 		DbInit()
 	}
 	db_vec := swsscommon.SonicDBConfigGetDbList()
+	// Translate from vector to array
 	length := int(db_vec.Size())
 	var db_list []string
 	for i := 0; i < length; i += 1 {
@@ -140,10 +144,12 @@ func DbInit() {
 		return
 	}
 	if _, err := os.Stat(SONIC_DB_GLOBAL_CONFIG_FILE); err == nil || os.IsExist(err) {
+		// If there's global config file, invoke SonicDBConfigInitializeGlobalConfig
 		if !swsscommon.SonicDBConfigIsGlobalInit() {
 			swsscommon.SonicDBConfigInitializeGlobalConfig()
 		}
 	} else {
+		// If there's no global config file, invoke SonicDBConfigInitialize
 		if !swsscommon.SonicDBConfigIsInit() {
 			swsscommon.SonicDBConfigInitialize()
 		}
@@ -153,5 +159,7 @@ func DbInit() {
 
 func Init() {
 	sonic_db_init = false
+	// Clear database configuration
 	swsscommon.SonicDBConfigUninitialize()
 }
+
