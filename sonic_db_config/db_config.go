@@ -3,7 +3,6 @@
 package dbconfig
 
 import (
-	"fmt"
 	"os"
 	"strconv"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
@@ -39,7 +38,7 @@ func GetDbNonDefaultNamespaces() []string {
 	var ns_list []string
 	for i := 0; i < length; i += 1 {
 		ns := ns_vec.Get(i)
-		if ns == SONIC_DEFAULT_INSTANCE {
+		if ns == SONIC_DEFAULT_NAMESPACE {
 			continue
 		}
 		ns_list = append(ns_list, ns)
