@@ -226,11 +226,7 @@ func update_stats(evtc *EventClient) {
 
     /* Populate counters from DB for cumulative counters. */
     if !evtc.isStopped() {
-        ns, err := sdcfg.GetDbDefaultNamespace()
-        if err != nil {
-            log.Errorf("Namespace error:  %v", err)
-            return
-        }
+        ns, _ := sdcfg.GetDbDefaultNamespace()
         addr, err := sdcfg.GetDbTcpAddr("COUNTERS_DB", ns)
         if err != nil {
             log.Errorf("Address error:  %v", err)

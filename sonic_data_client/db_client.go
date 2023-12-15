@@ -451,10 +451,7 @@ func GetRedisClientsForDb(target string) (redis_client_map map[string]*redis.Cli
 			redis_client_map[ns] = Target2RedisDb[ns][target]
 		}
 	} else {
-		ns, err := sdcfg.GetDbDefaultNamespace()
-		if err != nil {
-			return redis_client_map, err
-		}
+		ns, _ := sdcfg.GetDbDefaultNamespace()
 		redis_client_map[ns] = Target2RedisDb[ns][target]
 	}
 	return redis_client_map, nil

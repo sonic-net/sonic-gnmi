@@ -26,11 +26,7 @@ func (cm *ConnectionManager) GetThreshold() int {
 }
 
 func (cm *ConnectionManager) PrepareRedis() {
-	ns, err := sdcfg.GetDbDefaultNamespace()
-	if err != nil {
-		log.Errorf("Namespace err: %v", err)
-		return
-	}
+	ns, _ := sdcfg.GetDbDefaultNamespace()
 	addr, err := sdcfg.GetDbTcpAddr("STATE_DB", ns)
 	if err != nil {
 		log.Errorf("Addr err: %v", err)

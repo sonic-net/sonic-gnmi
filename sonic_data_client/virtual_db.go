@@ -135,7 +135,7 @@ func getPfcwdMap() (map[string]map[string]string, error) {
 			return nil, err
 		}
 
-		keyName := fmt.Sprintf("PFC_WD_TABLE%v*", separator)
+		keyName := fmt.Sprintf("PFC_WD%v*", separator)
 		resp, err := redisDb.Keys(keyName).Result()
 		if err != nil {
 			log.V(1).Infof("redis get keys failed for %v in namsepace %v, key = %v, err: %v", dbName, namespace, keyName, err)
@@ -149,7 +149,7 @@ func getPfcwdMap() (map[string]map[string]string, error) {
 		}
 
 		for _, key := range resp {
-			name := key[13:]
+			name := key[7:]
 			pfcwdName_map[name] = make(map[string]string)
 		}
 

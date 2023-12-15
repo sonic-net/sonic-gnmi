@@ -17,6 +17,7 @@ const (
 
 var sonic_db_init bool
 
+// Convert exception to error
 func CatchException(err *error) {
 	if r := recover(); r != nil {
 		*err = fmt.Errorf("%v", r)
@@ -81,10 +82,7 @@ func GetDbAllNamespaces() (ns_list []string, err error) {
 }
 
 func GetDbNamespaceFromTarget(target string) (ns string, ret bool, err error) {
-	ns, err = GetDbDefaultNamespace()
-	if err != nil {
-		return "", false, err
-	}
+	ns, _ = GetDbDefaultNamespace()
 	if target == ns {
 		return target, true, nil
 	}
