@@ -4,6 +4,7 @@ package dbconfig
 
 import (
 	"os"
+	"fmt"
 	"strconv"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
@@ -16,26 +17,41 @@ const (
 
 var sonic_db_init bool
 
-func GetDbDefaultNamespace() string {
-	return SONIC_DEFAULT_NAMESPACE
-}
-func CheckDbMultiNamespace() bool {
-	if !sonic_db_init {
-		DbInit()
+func CatchException(err *error) {
+	if r := recover(); r != nil {
+		*err = fmt.Errorf("%v", r)
 	}
+}
+
+func GetDbDefaultNamespace() (ns string, err error) {
+	return SONIC_DEFAULT_NAMESPACE, nil
+}
+
+func CheckDbMultiNamespace() (ret bool, err error) {
+	if !sonic_db_init {
+		err = DbInit()
+		if err != nil {
+			return false, err
+		}
+	}
+	defer CatchException(&err)
 	ns_vec := swsscommon.SonicDBConfigGetNamespaces()
 	length := int(ns_vec.Size())
 	// If there are more than one namespaces, this means that SONiC is using multinamespace
-	return length > 1
+	return length > 1, err
 }
-func GetDbNonDefaultNamespaces() []string {
+
+func GetDbNonDefaultNamespaces() (ns_list []string, err error) {
 	if !sonic_db_init {
-		DbInit()
+		err = DbInit()
+		if err != nil {
+			return ns_list, err
+		}
 	}
+	defer CatchException(&err)
 	ns_vec := swsscommon.SonicDBConfigGetNamespaces()
 	// Translate from vector to array
 	length := int(ns_vec.Size())
-	var ns_list []string
 	for i := 0; i < length; i += 1 {
 		ns := ns_vec.Get(i)
 		if ns == SONIC_DEFAULT_NAMESPACE {
@@ -43,106 +59,150 @@ func GetDbNonDefaultNamespaces() []string {
 		}
 		ns_list = append(ns_list, ns)
 	}
-	return ns_list
+	return ns_list, err
 }
 
-func GetDbAllNamespaces() []string {
+func GetDbAllNamespaces() (ns_list []string, err error) {
 	if !sonic_db_init {
-		DbInit()
+		err = DbInit()
+		if err != nil {
+			return ns_list, err
+		}
 	}
+	defer CatchException(&err)
 	ns_vec := swsscommon.SonicDBConfigGetNamespaces()
 	// Translate from vector to array
 	length := int(ns_vec.Size())
-	var ns_list []string
 	for i := 0; i < length; i += 1 {
 		ns := ns_vec.Get(i)
 		ns_list = append(ns_list, ns)
 	}
-	return ns_list
+	return ns_list, err
 }
 
-func GetDbNamespaceFromTarget(target string) (string, bool) {
-	if target == GetDbDefaultNamespace() {
-		return target, true
+func GetDbNamespaceFromTarget(target string) (ns string, ret bool, err error) {
+	ns, err = GetDbDefaultNamespace()
+	if err != nil {
+		return "", false, err
 	}
-	ns_list := GetDbNonDefaultNamespaces()
+	if target == ns {
+		return target, true, nil
+	}
+	ns_list, err := GetDbNonDefaultNamespaces()
+	if err != nil {
+		return "", false, err
+	}
 	for _, ns := range ns_list {
 		if target == ns {
-			return target, true
+			return target, true, nil
 		}
 	}
-	return "", false
+	return "", false, nil
 }
 
-func GetDbList(ns string) []string {
+func GetDbList(ns string) (db_list []string, err error) {
 	if !sonic_db_init {
-		DbInit()
+		err = DbInit()
+		if err != nil {
+			return db_list, err
+		}
 	}
+	defer CatchException(&err)
 	db_vec := swsscommon.SonicDBConfigGetDbList()
 	// Translate from vector to array
 	length := int(db_vec.Size())
-	var db_list []string
 	for i := 0; i < length; i += 1 {
 		ns := db_vec.Get(i)
 		db_list = append(db_list, ns)
 	}
-	return db_list
+	return db_list, err
 }
 
-func GetDbSeparator(db_name string, ns string) string {
+func GetDbSeparator(db_name string, ns string) (separator string, err error) {
 	if !sonic_db_init {
-		DbInit()
+		err = DbInit()
+		if err != nil {
+			return "", err
+		}
 	}
-	separator := swsscommon.SonicDBConfigGetSeparator(db_name, ns)
-	return separator
+	defer CatchException(&err)
+	separator = swsscommon.SonicDBConfigGetSeparator(db_name, ns)
+	return separator, err
 }
 
-func GetDbId(db_name string, ns string) int {
+func GetDbId(db_name string, ns string) (id int, err error) {
 	if !sonic_db_init {
-		DbInit()
+		err = DbInit()
+		if err != nil {
+			return -1, err
+		}
 	}
-	id := swsscommon.SonicDBConfigGetDbId(db_name, ns)
-	return id
+	defer CatchException(&err)
+	id = swsscommon.SonicDBConfigGetDbId(db_name, ns)
+	return id, err
 }
 
-func GetDbSock(db_name string, ns string) string {
+func GetDbSock(db_name string, ns string) (unix_socket_path string, err error) {
 	if !sonic_db_init {
-		DbInit()
+		err = DbInit()
+		if err != nil {
+			return "", err
+		}
 	}
-	unix_socket_path := swsscommon.SonicDBConfigGetDbSock(db_name, ns)
-	return unix_socket_path
+	defer CatchException(&err)
+	unix_socket_path = swsscommon.SonicDBConfigGetDbSock(db_name, ns)
+	return unix_socket_path, err
 }
 
-func GetDbHostName(db_name string, ns string) string {
+func GetDbHostName(db_name string, ns string) (hostname string, err error) {
 	if !sonic_db_init {
-		DbInit()
+		err = DbInit()
+		if err != nil {
+			return "", err
+		}
 	}
-	hostname := swsscommon.SonicDBConfigGetDbHostname(db_name, ns)
-	return hostname
+	defer CatchException(&err)
+	hostname = swsscommon.SonicDBConfigGetDbHostname(db_name, ns)
+	return hostname, err
 }
 
-func GetDbPort(db_name string, ns string) int {
+func GetDbPort(db_name string, ns string) (port int, err error) {
 	if !sonic_db_init {
-		DbInit()
+		err = DbInit()
+		if err != nil {
+			return -1, err
+		}
 	}
-	port := swsscommon.SonicDBConfigGetDbPort(db_name, ns)
-	return port
+	defer CatchException(&err)
+	port = swsscommon.SonicDBConfigGetDbPort(db_name, ns)
+	return port, err
 }
 
-func GetDbTcpAddr(db_name string, ns string) string {
+func GetDbTcpAddr(db_name string, ns string) (addr string, err error) {
 	if !sonic_db_init {
-		DbInit()
+		err = DbInit()
+		if err != nil {
+			return "", err
+		}
 	}
-	hostname := GetDbHostName(db_name, ns)
-	port := GetDbPort(db_name, ns)
-	return hostname + ":" + strconv.Itoa(port)
+	defer CatchException(&err)
+	hostname, err := GetDbHostName(db_name, ns)
+	if err != nil {
+		return "", err
+	}
+	port, err := GetDbPort(db_name, ns)
+	if err != nil {
+		return "", err
+	}
+	return hostname + ":" + strconv.Itoa(port), err
 }
 
-func DbInit() {
+func DbInit() (err error) {
 	if sonic_db_init {
-		return
+		return nil
 	}
-	if _, err := os.Stat(SONIC_DB_GLOBAL_CONFIG_FILE); err == nil || os.IsExist(err) {
+	defer CatchException(&err)
+	if _, ierr := os.Stat(SONIC_DB_GLOBAL_CONFIG_FILE); ierr == nil || os.IsExist(ierr) {
 		// If there's global config file, invoke SonicDBConfigInitializeGlobalConfig
 		if !swsscommon.SonicDBConfigIsGlobalInit() {
 			swsscommon.SonicDBConfigInitializeGlobalConfig()
@@ -154,11 +214,13 @@ func DbInit() {
 		}
 	}
 	sonic_db_init = true
+	return err
 }
 
-func Init() {
+func Init() (err error) {
 	sonic_db_init = false
+	defer CatchException(&err)
 	// Clear database configuration
-	swsscommon.SonicDBConfigUninitialize()
+	swsscommon.SonicDBConfigReset()
+	return err
 }
-

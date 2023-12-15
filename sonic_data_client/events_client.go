@@ -226,13 +226,27 @@ func update_stats(evtc *EventClient) {
 
     /* Populate counters from DB for cumulative counters. */
     if !evtc.isStopped() {
-        ns := sdcfg.GetDbDefaultNamespace()
+        ns, err := sdcfg.GetDbDefaultNamespace()
+        if err != nil {
+            log.Errorf("Namespace error:  %v", err)
+            return
+        }
+        addr, err := sdcfg.GetDbTcpAddr("COUNTERS_DB", ns)
+        if err != nil {
+            log.Errorf("Address error:  %v", err)
+            return 
+        }
+        dbId, err := sdcfg.GetDbId("COUNTERS_DB", ns)
+        if err != nil {
+            log.Errorf("DB error:  %v", err)
+            return 
+        }
 
         rclient = redis.NewClient(&redis.Options{
             Network:    "tcp",
-            Addr:       sdcfg.GetDbTcpAddr("COUNTERS_DB", ns),
+            Addr:       addr,
             Password:   "", // no password set,
-            DB:         sdcfg.GetDbId("COUNTERS_DB", ns),
+            DB:         dbId,
             DialTimeout:0,
         })
 

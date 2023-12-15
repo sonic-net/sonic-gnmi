@@ -123,7 +123,11 @@ func getPfcwdMap() (map[string]map[string]string, error) {
 	var pfcwdName_map = make(map[string]map[string]string)
 
 	dbName := "CONFIG_DB"
-	for namespace, redisDb := range GetRedisClientsForDb(dbName) {
+	redis_client_map, err := GetRedisClientsForDb(dbName)
+	if err != nil {
+		return nil, err
+	}
+	for namespace, redisDb := range redis_client_map {
 		separator, _ := GetTableKeySeparator(dbName, namespace)
 		_, err := redisDb.Ping().Result()
 		if err != nil {
@@ -131,7 +135,7 @@ func getPfcwdMap() (map[string]map[string]string, error) {
 			return nil, err
 		}
 
-		keyName := fmt.Sprintf("PFC_WD%v*", separator)
+		keyName := fmt.Sprintf("PFC_WD_TABLE%v*", separator)
 		resp, err := redisDb.Keys(keyName).Result()
 		if err != nil {
 			log.V(1).Infof("redis get keys failed for %v in namsepace %v, key = %v, err: %v", dbName, namespace, keyName, err)
@@ -145,7 +149,7 @@ func getPfcwdMap() (map[string]map[string]string, error) {
 		}
 
 		for _, key := range resp {
-			name := key[7:]
+			name := key[13:]
 			pfcwdName_map[name] = make(map[string]string)
 		}
 
@@ -216,7 +220,11 @@ func getAliasMap() (map[string]string, map[string]string, map[string]string, err
 	var port2namespace_map = make(map[string]string)
 
 	dbName := "CONFIG_DB"
-	for namespace, redisDb := range GetRedisClientsForDb(dbName) {
+	redis_client_map, err := GetRedisClientsForDb(dbName)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	for namespace, redisDb := range redis_client_map {
 		separator, _ := GetTableKeySeparator(dbName, namespace)
 		_, err := redisDb.Ping().Result()
 		if err != nil {
@@ -260,7 +268,11 @@ func addmap(a map[string]string, b map[string]string) {
 func getCountersMap(tableName string) (map[string]string, error) {
 	counter_map := make(map[string]string)
 	dbName := "COUNTERS_DB"
-	for namespace, redisDb := range GetRedisClientsForDb(dbName) {
+	redis_client_map, err := GetRedisClientsForDb(dbName)
+	if err != nil {
+		return nil, err
+	}
+	for namespace, redisDb := range redis_client_map {
 		fv, err := redisDb.HGetAll(tableName).Result()
 		if err != nil {
 			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, tableName: %s", namespace, tableName)

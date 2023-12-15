@@ -249,8 +249,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 			return nil, err
 		}
 	}
-	_, ok, _, _ := IsTargetDb(client.target); 
-	if !ok {
+	if _, ok, _, _ := IsTargetDb(client.target); !ok {
 		return nil, status.Errorf(codes.Unimplemented, "Invalid target: %s", client.target)
 	}
 	client.paths = paths
@@ -311,7 +310,10 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 	}
 
 	// Verify Namespace is valid
-	dbNamespace, ok := sdcfg.GetDbNamespaceFromTarget(targetDbNameSpace)
+	dbNamespace, ok, err := sdcfg.GetDbNamespaceFromTarget(targetDbNameSpace)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		return fmt.Errorf("Invalid target dbNameSpace %v", targetDbNameSpace)
 	}

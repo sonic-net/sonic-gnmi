@@ -460,7 +460,11 @@ func setupDestGroupClients(ctx context.Context, destGroupName string) {
 // start/stop/update telemetry publist client as requested
 // TODO: more validation on db data
 func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, key string, op string) error {
-	separator, _ := sdc.GetTableKeySeparator("CONFIG_DB", sdcfg.GetDbDefaultNamespace())
+	ns, err := sdcfg.GetDbDefaultNamespace()
+	if err != nil {
+		return err
+	}
+	separator, _ := sdc.GetTableKeySeparator("CONFIG_DB", ns)
 	tableKey := "TELEMETRY_CLIENT" + separator + key
 	fv, err := redisDb.HGetAll(tableKey).Result()
 	if err != nil {
@@ -640,28 +644,43 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 // read configDB data for telemetry client and start publishing service for client subscription
 func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 	clientCfg = ccfg
-	dbn := sdcfg.GetDbId("CONFIG_DB", sdcfg.GetDbDefaultNamespace())
+	ns, err := sdcfg.GetDbDefaultNamespace()
+	if err != nil {
+		return err
+	}
+	dbn, err := sdcfg.GetDbId("CONFIG_DB", ns)
+	if err != nil {
+		return err
+	}
 
 	var redisDb *redis.Client
 	if sdc.UseRedisLocalTcpPort == false {
+		addr, err := sdcfg.GetDbSock("CONFIG_DB", ns)
+		if err != nil {
+			return err
+		}
 		redisDb = redis.NewClient(&redis.Options{
 			Network:     "unix",
-			Addr:        sdcfg.GetDbSock("CONFIG_DB", sdcfg.GetDbDefaultNamespace()),
+			Addr:        addr,
 			Password:    "", // no password set
 			DB:          dbn,
 			DialTimeout: 0,
 		})
 	} else {
+		addr, err := sdcfg.GetDbTcpAddr("CONFIG_DB", ns)
+		if err != nil {
+			return err
+		}
 		redisDb = redis.NewClient(&redis.Options{
 			Network:     "tcp",
-			Addr:        sdcfg.GetDbTcpAddr("CONFIG_DB", sdcfg.GetDbDefaultNamespace()),
+			Addr:        addr,
 			Password:    "", // no password set
 			DB:          dbn,
 			DialTimeout: 0,
 		})
 	}
 
-	separator, _ := sdc.GetTableKeySeparator("CONFIG_DB", sdcfg.GetDbDefaultNamespace())
+	separator, _ := sdc.GetTableKeySeparator("CONFIG_DB", ns)
 	pattern := "__keyspace@" + strconv.Itoa(int(dbn)) + "__:TELEMETRY_CLIENT" + separator
 	prefixLen := len(pattern)
 	pattern += "*"
