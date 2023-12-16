@@ -78,5 +78,51 @@ func TestGetDbMultiNs(t *testing.T) {
 			t.Fatalf(`TcpAddr("") = %q, want 127.0.0.1:6379, error`, tcp_addr)
 		}
 	})
+	t.Run("AllAPI", func(t *testing.T) {
+		Init()
+		_, err = CheckDbMultiNamespace()
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbNonDefaultNamespaces()
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbList("asic0")
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbSeparator("CONFIG_DB", "asic0")
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbSock("CONFIG_DB", "asic0")
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbHostName("CONFIG_DB", "asic0")
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbPort("CONFIG_DB", "asic0")
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbTcpAddr("CONFIG_DB", "asic0")
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		err = DbInit()
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+	})
 }
 
