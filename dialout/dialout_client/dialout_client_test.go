@@ -111,7 +111,7 @@ func getRedisClient(t *testing.T) *redis.Client {
 		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err := rclient.Ping().Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatal("failed to connect to redis server ", err)
 	}
@@ -149,7 +149,7 @@ func getConfigDbClient(t *testing.T) *redis.Client {
 		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err := rclient.Ping().Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
