@@ -461,7 +461,10 @@ func setupDestGroupClients(ctx context.Context, destGroupName string) {
 // TODO: more validation on db data
 func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, key string, op string) error {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
-	separator, _ := sdc.GetTableKeySeparator("CONFIG_DB", ns)
+	separator, err := sdc.GetTableKeySeparator("CONFIG_DB", ns)
+	if err != nil {
+		return err
+	}
 	tableKey := "TELEMETRY_CLIENT" + separator + key
 	fv, err := redisDb.HGetAll(tableKey).Result()
 	if err != nil {
@@ -674,7 +677,10 @@ func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 		})
 	}
 
-	separator, _ := sdc.GetTableKeySeparator("CONFIG_DB", ns)
+	separator, err := sdc.GetTableKeySeparator("CONFIG_DB", ns)
+	if err != nil {
+		return err
+	}
 	pattern := "__keyspace@" + strconv.Itoa(int(dbn)) + "__:TELEMETRY_CLIENT" + separator
 	prefixLen := len(pattern)
 	pattern += "*"

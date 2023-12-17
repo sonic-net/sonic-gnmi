@@ -249,7 +249,8 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 			return nil, err
 		}
 	}
-	if _, ok, _, _ := IsTargetDb(client.target); !ok {
+	_, ok, _, _ := IsTargetDb(client.target)
+	if !ok {
 		return nil, status.Errorf(codes.Unimplemented, "Invalid target: %s", client.target)
 	}
 	client.paths = paths
