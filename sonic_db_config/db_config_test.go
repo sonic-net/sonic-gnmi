@@ -1,8 +1,10 @@
 package dbconfig
 
 import (
+	"fmt"
 	"testing"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
+	"github.com/agiledragon/gomonkey/v2"
 )
 
 func TestGetDb(t *testing.T) {
@@ -122,6 +124,63 @@ func TestGetDbMultiNs(t *testing.T) {
 		err = DbInit()
 		if err != nil {
 			t.Fatalf(`err %v`, err)
+		}
+	})
+	t.Run("AllAPIError", func(t *testing.T) {
+		mock1 := gomonkey.ApplyFunc(DbInit, func() (err error) {
+			return fmt.Errorf("Test api error")
+		})
+		defer mock1.Reset()
+		var err error
+		Init()
+		_, err = CheckDbMultiNamespace()
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbNonDefaultNamespaces()
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbAllNamespaces()
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbList("asic0")
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbSeparator("CONFIG_DB", "asic0")
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbId("CONFIG_DB", "asic0")
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbSock("CONFIG_DB", "asic0")
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbHostName("CONFIG_DB", "asic0")
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbPort("CONFIG_DB", "asic0")
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbTcpAddr("CONFIG_DB", "asic0")
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
 		}
 	})
 }
