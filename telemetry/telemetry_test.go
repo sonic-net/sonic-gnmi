@@ -96,7 +96,51 @@ func TestFlags(t *testing.T) {
 	}
 }
 
-func TestMonitorCerts(t *testing.T) {}
+func TestMonitorCerts(t *testing.T) {
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	testServerCert = "../testdata/testserver.cert"
+	testServerKey = "../testdata/testserver.key"
+	pollingInterval = 1
+	timeoutInterval = 5
+
+	patches := gomonkey.ApplyGlobalVar(*serverCert, testServerCert)
+	patches.ApplyGlobalVar(*serverKey, testServerKey)
+	patches.ApplyGlobalVar(*certPollingInt, pollingInterval)
+	defer patches.Reset()
+
+	reload := make(chan int, 1)
+	wg := &sync.WaitGroup()
+	wg.Add(1)
+
+	go monitorCerts(reload, wg)
+
+	go func() {
+		time.Sleep(pollingInterval * time.Second)
+		modifyStr := []byte("\n MODIFIED")
+		if f, err := os.OpenFile(testServerCert, os.O_APPEND, 0644); err != nil {
+			t.Errorf("Unable to open test cert file: %s", err)
+		}
+		defer f.Close()
+		if _, writeErr := f.Write(modifyStr); writeErr != nil {
+			t.Errorf("Unable to write to cert file: %s", writeErr)
+		}
+	}()
+
+	select {
+	case val := <-reload:
+		if val != 1 {
+			t.Errorf("Reload value should be 1 to indicate cert rotation needed, got val %d", val)
+		}
+	case <-time.After(timeoutInterval * time.Second):
+		t.Errorf("Timeout exceeded for monitor certs to detect modified cert")
+	}
+
+	wg.Wait()
+}
 
 func TestStartGNMIServer(t *testing.T) {
 	originalArgs := os.Args
@@ -161,7 +205,4 @@ func TestStartGNMIServer(t *testing.T) {
 	if !exitCalled {
 		t.Errorf("os.exit should be called if gnmi server is called to shutdown")
 	}
-}
-
-func modifyCerts(t *testing.T) {
 }
