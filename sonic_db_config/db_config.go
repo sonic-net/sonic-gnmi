@@ -183,7 +183,6 @@ func GetDbTcpAddr(db_name string, ns string) (addr string, err error) {
 			return "", err
 		}
 	}
-	defer CatchException(&err)
 	hostname, err := GetDbHostName(db_name, ns)
 	if err != nil {
 		return "", err
