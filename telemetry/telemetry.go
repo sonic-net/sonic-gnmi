@@ -32,7 +32,7 @@ var (
 	insecure          = flag.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!")
 	noTLS             = flag.Bool("noTLS", false, "disable TLS, for testing only!")
 	allowNoClientCert = flag.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate.")
-	acmsEnabled       = flag.Bool("acms_enabled", false, "When set, telemetry process will monitor acms certs and reload when needed.")
+	certMonitorEnabled  = flag.Bool("cert_monitor_enabled", false, "When set, telemetry process will monitor certs at path and reload when needed.")
 	certPollingInt    = flag.Int("cert_polling_int", 3600, "Rate in seconds in which cert files will be monitored")
 	jwtRefInt         = flag.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed.")
 	jwtValInt         = flag.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for.")
@@ -103,7 +103,7 @@ func main() {
 	wg.Add(1)
 	go startGNMIServer(cfg, reload, &wg)
 
-	if (*acmsEnabled) {
+	if (*certMonitorEnabled) {
 		wg.Add(1)
 		go monitorCerts(reload, &wg)
 	}
