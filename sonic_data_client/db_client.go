@@ -432,22 +432,29 @@ func GetTableKeySeparator(target string, ns string) (string, error) {
 		return "", fmt.Errorf("%v not a valid path target", target)
 	}
 
-	var separator string = sdcfg.GetDbSeparator(target, ns)
-	return separator, nil
+	separator, err := sdcfg.GetDbSeparator(target, ns)
+	return separator, err
 }
 
-func GetRedisClientsForDb(target string) map[string]*redis.Client {
-	redis_client_map := make(map[string]*redis.Client)
-	if sdcfg.CheckDbMultiNamespace() {
-		ns_list := sdcfg.GetDbNonDefaultNamespaces()
+func GetRedisClientsForDb(target string) (redis_client_map map[string]*redis.Client, err error) {
+	redis_client_map = make(map[string]*redis.Client)
+	ok, err := sdcfg.CheckDbMultiNamespace()
+	if err != nil {
+		return redis_client_map, err
+	}
+	if ok {
+		ns_list, err := sdcfg.GetDbNonDefaultNamespaces()
+		if err != nil {
+			return redis_client_map, err
+		}
 		for _, ns := range ns_list {
 			redis_client_map[ns] = Target2RedisDb[ns][target]
 		}
 	} else {
-		ns := sdcfg.GetDbDefaultNamespace()
+		ns, _ := sdcfg.GetDbDefaultNamespace()
 		redis_client_map[ns] = Target2RedisDb[ns][target]
 	}
-	return redis_client_map
+	return redis_client_map, nil
 }
 
 // This function get target present in GNMI Request and
@@ -457,7 +464,7 @@ func IsTargetDb(target string) (string, bool, string, bool) {
 	targetname := strings.Split(target, "/")
 	dbName := targetname[0]
 	dbNameSpaceExist := false
-	dbNamespace := sdcfg.GetDbDefaultNamespace()
+	dbNamespace, _ := sdcfg.GetDbDefaultNamespace()
 
 	if len(targetname) > 2 {
 		log.V(1).Infof("target format is not correct")
@@ -478,18 +485,26 @@ func IsTargetDb(target string) (string, bool, string, bool) {
 }
 
 // For testing only
-func useRedisTcpClient() {
+func useRedisTcpClient() error {
 	if !UseRedisLocalTcpPort {
-		return
+		return nil
 	}
-	for _, dbNamespace := range sdcfg.GetDbAllNamespaces() {
+	AllNamespaces, err := sdcfg.GetDbAllNamespaces()
+	if err != nil {
+		return err
+	}
+	for _, dbNamespace := range AllNamespaces {
 		Target2RedisDb[dbNamespace] = make(map[string]*redis.Client)
 		for dbName, dbn := range spb.Target_value {
 			if dbName != "OTHERS" {
+				addr, err := sdcfg.GetDbTcpAddr(dbName, dbNamespace)
+				if err != nil {
+					return err
+				}
 				// DB connector for direct redis operation
 				redisDb := redis.NewClient(&redis.Options{
 					Network:     "tcp",
-					Addr:        sdcfg.GetDbTcpAddr(dbName, dbNamespace),
+					Addr:        addr,
 					Password:    "", // no password set
 					DB:          int(dbn),
 					DialTimeout: 0,
@@ -498,18 +513,29 @@ func useRedisTcpClient() {
 			}
 		}
 	}
+	return nil
 }
 
 // Client package prepare redis clients to all DBs automatically
 func init() {
-	for _, dbNamespace := range sdcfg.GetDbAllNamespaces() {
+	AllNamespaces, err := sdcfg.GetDbAllNamespaces()
+	if err != nil {
+		log.Errorf("init error:  %v", err)
+		return
+	}
+	for _, dbNamespace := range AllNamespaces {
 		Target2RedisDb[dbNamespace] = make(map[string]*redis.Client)
 		for dbName, dbn := range spb.Target_value {
 			if dbName != "OTHERS" {
+				addr, err := sdcfg.GetDbSock(dbName, dbNamespace)
+				if err != nil {
+					log.Errorf("init error:  %v", err)
+					return
+				}
 				// DB connector for direct redis operation
 				redisDb := redis.NewClient(&redis.Options{
 					Network:     "unix",
-					Addr:        sdcfg.GetDbSock(dbName, dbNamespace),
+					Addr:        addr,
 					Password:    "", // no password set
 					DB:          int(dbn),
 					DialTimeout: 0,
@@ -557,7 +583,10 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	}
 
 	// Verify Namespace is valid
-	dbNamespace, ok := sdcfg.GetDbNamespaceFromTarget(targetDbNameSpace)
+	dbNamespace, ok, err := sdcfg.GetDbNamespaceFromTarget(targetDbNameSpace)
+	if err != nil {
+		return fmt.Errorf("Failed to get namespace %v", err)
+	}
 	if !ok {
 		return fmt.Errorf("Invalid target dbNameSpace %v", targetDbNameSpace)
 	}

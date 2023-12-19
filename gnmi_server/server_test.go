@@ -402,14 +402,18 @@ func runServer(t *testing.T, s *Server) {
 }
 
 func getRedisClientN(t *testing.T, n int, namespace string) *redis.Client {
+	addr, err := sdcfg.GetDbTcpAddr("COUNTERS_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get addr %v", err)
+	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("COUNTERS_DB", namespace),
+		Addr:        addr,
 		Password:    "", // no password set
 		DB:          n,
 		DialTimeout: 0,
 	})
-	_, err := rclient.Ping().Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -417,15 +421,22 @@ func getRedisClientN(t *testing.T, n int, namespace string) *redis.Client {
 }
 
 func getRedisClient(t *testing.T, namespace string) *redis.Client {
-
+	addr, err := sdcfg.GetDbTcpAddr("COUNTERS_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get addr %v", err)
+	}
+	db, err := sdcfg.GetDbId("COUNTERS_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get db %v", err)
+	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("COUNTERS_DB", namespace),
+		Addr:        addr,
 		Password:    "", // no password set
-		DB:          sdcfg.GetDbId("COUNTERS_DB", namespace),
+		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err := rclient.Ping().Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -433,15 +444,22 @@ func getRedisClient(t *testing.T, namespace string) *redis.Client {
 }
 
 func getConfigDbClient(t *testing.T, namespace string) *redis.Client {
-
+	addr, err := sdcfg.GetDbTcpAddr("CONFIG_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get addr %v", err)
+	}
+	db, err := sdcfg.GetDbId("CONFIG_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get db %v", err)
+	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("CONFIG_DB", namespace),
+		Addr:        addr,
 		Password:    "", // no password set
-		DB:          sdcfg.GetDbId("CONFIG_DB", namespace),
+		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err := rclient.Ping().Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -678,7 +696,8 @@ func prepareDb(t *testing.T, namespace string) {
 }
 
 func prepareDbTranslib(t *testing.T) {
-	rclient := getRedisClient(t, sdcfg.GetDbDefaultNamespace())
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	rclient := getRedisClient(t, ns)
 	rclient.FlushDB()
 	rclient.Close()
 
@@ -698,7 +717,7 @@ func prepareDbTranslib(t *testing.T) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	for n, v := range rj {
-		rclient := getRedisClientN(t, n, sdcfg.GetDbDefaultNamespace())
+		rclient := getRedisClientN(t, n, ns)
 		loadDBNotStrict(t, rclient, v)
 		rclient.Close()
 	}
@@ -1208,7 +1227,8 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 
 	stateDBPath := "STATE_DB"
 
-	if namespace != sdcfg.GetDbDefaultNamespace() {
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	if namespace != ns {
 		stateDBPath = "STATE_DB" + "/" + namespace
 	}
 
@@ -1444,9 +1464,10 @@ func TestGnmiGet(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
 
-	prepareDb(t, sdcfg.GetDbDefaultNamespace())
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	prepareDb(t, ns)
 
-	runGnmiTestGet(t, sdcfg.GetDbDefaultNamespace())
+	runGnmiTestGet(t, ns)
 
 	s.s.Stop()
 }
@@ -2715,7 +2736,8 @@ func TestGnmiSubscribe(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
 
-	runTestSubscribe(t, sdcfg.GetDbDefaultNamespace())
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	runTestSubscribe(t, ns)
 
 	s.s.Stop()
 }
@@ -3125,7 +3147,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
     var neighStateTableDeletedJson61 interface{}
     json.Unmarshal(neighStateTableDeletedByte61, &neighStateTableDeletedJson61)
 
-    namespace := sdcfg.GetDbDefaultNamespace()
+    namespace, _ := sdcfg.GetDbDefaultNamespace()
     rclient := getRedisClientN(t, 6, namespace)
     defer rclient.Close()
     prepareStateDb(t, namespace)
@@ -3411,7 +3433,7 @@ func TestConnectionDataSet(t *testing.T) {
             },
         },
     }
-    namespace := sdcfg.GetDbDefaultNamespace()
+    namespace, _ := sdcfg.GetDbDefaultNamespace()
     rclient := getRedisClientN(t, 6, namespace)
     defer rclient.Close()
 
@@ -3828,8 +3850,9 @@ print('%s')
 	s := createServer(t, 8080)
 	go runServer(t, s)
 	defer s.s.Stop()
-	initFullConfigDb(t, sdcfg.GetDbDefaultNamespace())
-	initFullCountersDb(t, sdcfg.GetDbDefaultNamespace())
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	initFullConfigDb(t, ns)
+	initFullCountersDb(t, ns)
 
 	path, _ := os.Getwd()
 	path = filepath.Dir(path)
