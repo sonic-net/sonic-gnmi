@@ -1,29 +1,35 @@
 package main
 
 import (
-	"fmt"
+	"crypto/tls"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"reflect"
 	"sync"
 	"testing"
+	"flag"
+	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/agiledragon/gomonkey/v2"
 	"os"
-	"os/signal"
 	"syscall"
 	"time"
+	"strconv"
 )
 
 func TestSignalHandler(t *testing.T) {
 	reload := make(chan int, 1)
+	testSigChan := make(chan os.Signal, 1)
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
-	go signalHandler(reload, wg)
+	go signalHandler(reload, wg, testSigChan)
 
-	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+	testSigChan <- syscall.SIGTERM
 
 	select {
 	case val := <-reload:
 		if val != 0 {
-			t.Errorf("Expected 0 from reload channeel, got %d", val)
+			t.Errorf("Expected 0 from reload channel, got %d", val)
 		}
 	case <-time.After(1 * time.Second):
 		t.Errorf("Expected a value in reload channel, but none received")
@@ -38,25 +44,6 @@ func TestFlags(t *testing.T) {
 		os.Args = originalArgs
 	}()
 
-	patches := gomonkey.ApplyGlobalVar(&port, 8080)
-	patches.ApplyGlobalVar(&threshold, 100)
-	patches.ApplyGlobalVar(&idle_conn_duration, 5)
-	defer patches.Reset()
-
-	// Mock StartGNMIServer, MonitorCerts, SignalHandler
-
-	patches.ApplyFunc(startGNMIServer, func(cfg *gnmi.Config, reload <-chan int, wg *sync.WaitGroup) {
-		wg.Done()
-	})
-
-	patches.ApplyFunc(signalHandler, func(reload <-chan int, wg *sync.WaitGroup) {
-		wg.Done()
-	})
-
-	patches.ApplyFunc(monitorCerts, func(reload chan<- int, wg *sync.WaitGroup) {
-		wg.Done()
-	})
-
 	tests := []struct {
 		args              []string
 		expectedPort      int
@@ -67,31 +54,37 @@ func TestFlags(t *testing.T) {
 			[]string{"cmd", "-port", "9090", "-threshold", "200", "-idle_conn_duration", "10"},
 			9090,
 			200,
-			10
+			10,
 		},
 		{
 			[]string{"cmd", "-port", "2020", "-threshold", "500", "-idle_conn_duration", "4"},
 			2020,
 			500,
-			4
+			4,
 		},
 	}
 
 	for _, test := range tests {
+		fs := flag.NewFlagSet("testFlags", flag.ContinueOnError)
 		os.Args = test.args
-		main() // will parse cmd line args
+
+		config, _, err := setupFlags(fs)
+
+		if err != nil {
+			t.Errorf("Expected err to be nil, got err %v", err)
+		}
 
 		//Verify global var is expected value
-		if *port != test.expectedPort {
-			t.Errorf("Expected port to be %d, got %d", test.expectedPort, *port)
+		if *config.Port != test.expectedPort {
+			t.Errorf("Expected port to be %d, got %d", test.expectedPort, *config.Port)
 		}
 
-		if *threshold != test.expectedThreshold {
-			t.Errorf("Expected port to be %d, got %d", test.expectedThreshold, *threshold)
+		if *config.Threshold != test.expectedThreshold {
+			t.Errorf("Expected threshold to be %d, got %d", test.expectedThreshold, *config.Threshold)
 		}
 
-		if *idle_conn_duration != test.expectedIdleDur {
-			t.Errorf("Expected port to be %d, got %d", test.expectedIdleDur, *idle_conn_duration)
+		if *config.IdleConnDuration != test.expectedIdleDur {
+			t.Errorf("Expected idle_conn_duration to be %d, got %d", test.expectedIdleDur, *config.IdleConnDuration)
 		}
 	}
 }
@@ -102,40 +95,41 @@ func TestMonitorCerts(t *testing.T) {
 		os.Args = originalArgs
 	}()
 
-	testServerCert = "../testdata/testserver.cert"
-	testServerKey = "../testdata/testserver.key"
-	pollingInterval = 1
-	timeoutInterval = 5
+	testServerCert := "../testdata/testserver.cer"
+	testServerKey := "../testdata/testserver.key"
+	pollingInterval := 1
+	timeoutInterval := 5
 
-	patches := gomonkey.ApplyGlobalVar(*serverCert, testServerCert)
-	patches.ApplyGlobalVar(*serverKey, testServerKey)
-	patches.ApplyGlobalVar(*certPollingInt, pollingInterval)
-	defer patches.Reset()
+	fs := flag.NewFlagSet("testMonitorCerts", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey, "-cert_polling_int", strconv.Itoa(pollingInterval)}
+	config, _, err := setupFlags(fs)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
 
 	reload := make(chan int, 1)
-	wg := &sync.WaitGroup()
+	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
-	go monitorCerts(reload, wg)
+	go monitorCerts(config, reload, wg)
 
-	go func() {
-		time.Sleep(pollingInterval * time.Second)
-		modifyStr := []byte("\n MODIFIED")
-		if f, err := os.OpenFile(testServerCert, os.O_APPEND, 0644); err != nil {
-			t.Errorf("Unable to open test cert file: %s", err)
-		}
-		defer f.Close()
-		if _, writeErr := f.Write(modifyStr); writeErr != nil {
-			t.Errorf("Unable to write to cert file: %s", writeErr)
-		}
-	}()
+	time.Sleep(time.Duration(pollingInterval) * time.Second)
+	modifyStr := []byte("\n MODIFIED")
+	f, err := os.OpenFile(testServerCert, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+	if err != nil {
+		t.Errorf("Unable to open test cert file: %s", err)
+	}
+	defer f.Close()
+	if _, writeErr := f.Write(modifyStr); writeErr != nil {
+		t.Errorf("Unable to write to cert file: %s", writeErr)
+	}
 
 	select {
 	case val := <-reload:
 		if val != 1 {
 			t.Errorf("Reload value should be 1 to indicate cert rotation needed, got val %d", val)
 		}
-	case <-time.After(timeoutInterval * time.Second):
+	case <-time.After(time.Duration(timeoutInterval) * time.Second):
 		t.Errorf("Timeout exceeded for monitor certs to detect modified cert")
 	}
 
@@ -148,26 +142,19 @@ func TestStartGNMIServer(t *testing.T) {
 		os.Args = originalArgs
 	}()
 
-	patches := gomonkey.ApplyGlobalVar(&port, 8080)
-	defer patches.Reset()
-
-	cfg := &gnmi.Config{
-		Port:                int64(*port)
-		EnableTranslibWrite: true,
-		EnableNativeWrite:   true,
-		LogLevel:            3,
-		ZmqAddress:          "",
-		Threshold:           int(*threshold)
-		IdleConnDuration:    int(*idle_conn_duration),
-		UserAuth:            gnmi.AuthTypes{"password":true, "cert": true, "jwt": true}
+	fs := flag.NewFlagSet("testStartGNMIServer", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080"}
+	telemetryCfg, cfg, err := setupFlags(fs)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
-	patches.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
+	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
 		return tls.Certificate{}, nil
 	})
 
 	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
-		return *gnmi.Server{}, nil
+		return &gnmi.Server{}, nil
 	})
 
 	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
@@ -175,7 +162,7 @@ func TestStartGNMIServer(t *testing.T) {
 	})
 
 	exitCalled := false
-	patches.ApplyFunc(os.Exit, func(code int)) {
+	patches.ApplyFunc(os.Exit, func(code int) {
 		exitCalled = true
 	})
 
@@ -192,7 +179,7 @@ func TestStartGNMIServer(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
-	go startGNMIServer(cfg, reload, wg)
+	go startGNMIServer(telemetryCfg, cfg, reload, wg)
 
 	select {
 	case reload<-0: // Simulate shutdown
