@@ -3,8 +3,10 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/md5"
+	"crypto/sha256"
 	"flag"
+	"encoding/hex"
+	"io"
 	"io/ioutil"
 	"strconv"
 	"time"
@@ -261,11 +263,10 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, reload <-c
 				}
 				certificate, err = tls.LoadX509KeyPair(*telemetryCfg.ServerCert, *telemetryCfg.ServerKey)
 				if err != nil {
-					currentTime := time.Now().UTC()
-					log.Infof("Server Cert md5 checksum: %x at time %s", md5.Sum([]byte(*telemetryCfg.ServerCert)), currentTime.String())
-					log.Infof("Server Key md5 checksum: %x at time %s", md5.Sum([]byte(*telemetryCfg.ServerKey)), currentTime.String())
 					log.Exitf("could not load server key pair: %s", err)
 				}
+				validateSHA256(*telemetryCfg.ServerCert)
+				validateSHA256(*telemetryCfg.ServerKey)
 			}
 
 			tlsCfg := &tls.Config {
@@ -351,4 +352,20 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, reload <-c
 		}
 		log.Flush()
 	}
+}
+
+func validateSHA256(file string) {
+	currentTime := time.Now().UTC()
+	f, err := os.Open(file)
+	if err != nil {
+		log.Errorf("Unable to open %s, got err %s", file, err)
+	}
+	defer f.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, f); err != nil {
+		log.Errorf("Unable to create hash for %s, got err %s", file, err)
+	}
+	hash := hasher.Sum(nil)
+	log.V(1).Infof("SHA256 hash of %s: %s at time %s", file, hex.EncodeToString(hash), currentTime.String())
 }
