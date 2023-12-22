@@ -198,8 +198,6 @@ func monitorCerts(telemetryCfg *TelemetryConfig, reload chan<- int, wg *sync.Wai
 
 	duration := time.Duration(*telemetryCfg.CertPollingInt) * time.Second
 
-	time.Sleep(duration)
-
 	for {
 		needsRotate := false
 		var currentServerCertInfo, currentServerKeyInfo os.FileInfo
@@ -233,6 +231,7 @@ func monitorCerts(telemetryCfg *TelemetryConfig, reload chan<- int, wg *sync.Wai
 		if needsRotate {
 			log.V(1).Infof("Server Cert or Key needs to be rotated")
 			reload <- 1
+			return
 		}
 
 		time.Sleep(duration)
