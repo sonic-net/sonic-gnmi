@@ -3,8 +3,10 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/md5"
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
+	"io"
 	"io/ioutil"
 	"strconv"
 	"time"
@@ -112,11 +114,10 @@ func main() {
 			}
 			certificate, err = tls.LoadX509KeyPair(*serverCert, *serverKey)
 			if err != nil {
-				currentTime := time.Now().UTC()
-				log.Infof("Server Cert md5 checksum: %x at time %s", md5.Sum([]byte(*serverCert)), currentTime.String())
-				log.Infof("Server Key md5 checksum: %x at time %s", md5.Sum([]byte(*serverKey)), currentTime.String())
 				log.Exitf("could not load server key pair: %s", err)
 			}
+			validateSHA256(*serverCert)
+			validateSHA256(*serverKey)
 		}
 
 		tlsCfg := &tls.Config{
@@ -183,7 +184,7 @@ func main() {
 	if *withMasterArbitration {
 		s.ReqFromMaster = gnmi.ReqFromMasterEnabledMA
 	}
-	
+
 	log.V(1).Infof("Auth Modes: ", userAuth)
 	log.V(1).Infof("Starting RPC server on address: %s", s.Address())
 	s.Serve() // blocks until close
@@ -208,4 +209,20 @@ func getflag(name string) string {
 		}
 	})
 	return val
+}
+
+func validateSHA256(file string) {
+	currentTime := time.Now().UTC()
+	f, err := os.Open(file)
+	if err != nil {
+		log.Errorf("Unable to open %s, got err %s", file, err)
+	}
+	defer f.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, f); err != nil {
+		log.Errorf("Unable to create hash for %s, got err %s", file, err)
+	}
+	hash := hasher.Sum(nil)
+	log.V(1).Infof("SHA256 hash of %s: %s at time %s", file, hex.EncodeToString(hash), currentTime.String())
 }
