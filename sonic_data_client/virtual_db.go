@@ -198,7 +198,7 @@ func getPfcwdMap() (map[string]map[string]string, error) {
 		var queue_key string
 		queue_separator, _ := GetTableKeySeparator("COUNTERS_DB", namespace)
 		for port, _ := range pfcwdName_map {
-			if !strings.HasPrefix(port, "Ethernet") { // account for GLOBAL key in PFC_WD
+			if !strings.Contains(port, "Ethernet") { // account for GLOBAL key in PFC_WD
 				continue
 			}
 			for _, indice := range indices {
