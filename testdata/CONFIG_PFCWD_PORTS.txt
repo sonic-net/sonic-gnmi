@@ -3,6 +3,9 @@
         "3": "3",
         "4": "4"
     },
+    "PFC_WD|GLOBAL": {
+        "action": "drop"
+    },
     "PFC_WD|Ethernet0": {
         "action": "drop"
     },
