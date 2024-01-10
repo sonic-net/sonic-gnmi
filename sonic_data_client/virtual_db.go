@@ -149,7 +149,7 @@ func getPfcwdMap() (map[string]map[string]string, error) {
 		}
 
 		for _, key := range resp {
-			if len(key > 7) && strings.Contains(key, "Ethernet") {
+			if strings.Contains(key, "Ethernet") { // Account for non interface ports in PFC_WD such as GLOBAL
 				name := key[7:]
 				pfcwdName_map[name] = make(map[string]string)
 			}
