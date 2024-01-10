@@ -8,7 +8,10 @@ import (
 	"io/ioutil"
 	"strconv"
 	"time"
-
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 	log "github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -183,11 +186,34 @@ func main() {
 	if *withMasterArbitration {
 		s.ReqFromMaster = gnmi.ReqFromMasterEnabledMA
 	}
-	
-	log.V(1).Infof("Auth Modes: ", userAuth)
+
+	var reload = make(chan int, 1)
+	var wg sync.WaitGroup
+
+	log.V(1).Infof("Auth Modes: %v", userAuth)
 	log.V(1).Infof("Starting RPC server on address: %s", s.Address())
-	s.Serve() // blocks until close
+
+	wg.Add(1)
+
+	go func () {
+		defer wg.Done()
+		if err := s.Serve(); err != nil {
+			log.Errorf("Serve returns with err: %v", err)
+		}
+	}()
+
+	wg.Add(1)
+
+	go signalHandler(reload, &wg, nil)
+
+	value := <-reload
+	log.V(1).Infof("Received Notification for gnmi server to shutdown")
+	s.Stop()
+	if value == 0 {
+		os.Exit(0)
+	}
 	log.Flush()
+	wg.Wait()
 }
 
 func isFlagPassed(name string) bool {
@@ -208,4 +234,18 @@ func getflag(name string) string {
 		}
 	})
 	return val
+}
+
+func signalHandler(reload chan<- int, wg *sync.WaitGroup, testSigChan <-chan os.Signal) {
+	defer wg.Done()
+	sigchannel := make(chan os.Signal, 1)
+	signal.Notify(sigchannel,
+		syscall.SIGTERM,
+		syscall.SIGQUIT)
+	select {
+	case <-sigchannel:
+		reload <- 0
+	case <-testSigChan:
+		reload <- 0
+	}
 }
