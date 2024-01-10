@@ -149,8 +149,10 @@ func getPfcwdMap() (map[string]map[string]string, error) {
 		}
 
 		for _, key := range resp {
-			name := key[7:]
-			pfcwdName_map[name] = make(map[string]string)
+			if len(key > 7) && strings.Contains(key, "Ethernet") {
+				name := key[7:]
+				pfcwdName_map[name] = make(map[string]string)
+			}
 		}
 
 		// Get Queue indexes that are enabled with PFC-WD
@@ -198,9 +200,6 @@ func getPfcwdMap() (map[string]map[string]string, error) {
 		var queue_key string
 		queue_separator, _ := GetTableKeySeparator("COUNTERS_DB", namespace)
 		for port, _ := range pfcwdName_map {
-			if !strings.Contains(port, "Ethernet") { // account for GLOBAL key in PFC_WD
-				continue
-			}
 			for _, indice := range indices {
 				queue_key = port + queue_separator + indice
 				oid, ok := countersQueueNameMap[queue_key]
