@@ -354,3 +354,11 @@ class TestGNMIConfigDb:
         ret, _ = gnmi_get(get_list)
         assert ret != 0, 'Invalid path'
 
+    def test_gnmi_get_full_01(self):
+        get_list = ['/sonic-db:CONFIG_DB/']
+
+        ret, msg_list = gnmi_get(get_list)
+        assert ret == 0, 'Fail to get full config'
+        assert "NULL" not in msg_list[0], 'Invalid config'
+        # Config must be valid json
+        config = json.loads(msg_list[0])

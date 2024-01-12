@@ -110,6 +110,12 @@ func TestJsonAdd(t *testing.T) {
 			t.Errorf("%v and %v do not match", value, string(res))
 		}
 	}
+	path := []string{}
+	res, err := client.Get(path)
+	if err != nil {
+		t.Errorf("Get %v fail: %v", path, err)
+	}
+	t.Logf("Result %s", string(res))
 }
 
 func TestJsonAddNegative(t *testing.T) {

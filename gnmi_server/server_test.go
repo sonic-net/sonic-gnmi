@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"flag"
 	"fmt"
-        "sync"
+"sync"
 	"strings"
 	"unsafe"
 
@@ -97,6 +97,20 @@ func loadDBNotStrict(t *testing.T, rclient *redis.Client, mpi map[string]interfa
 
 		}
 	}
+}
+
+func createClient(t *testing.T, port int) *grpc.ClientConn {
+	t.Helper()
+	cred := credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})
+	conn, err := grpc.Dial(
+		fmt.Sprintf("127.0.0.1:%d", port),
+		grpc.WithTransportCredentials(cred),
+	)
+	if err != nil {
+		t.Fatalf("Dialing to :%d failed: %v", port, err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	return conn
 }
 
 func createServer(t *testing.T, port int64) *Server {
@@ -388,14 +402,18 @@ func runServer(t *testing.T, s *Server) {
 }
 
 func getRedisClientN(t *testing.T, n int, namespace string) *redis.Client {
+	addr, err := sdcfg.GetDbTcpAddr("COUNTERS_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get addr %v", err)
+	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("COUNTERS_DB", namespace),
+		Addr:        addr,
 		Password:    "", // no password set
 		DB:          n,
 		DialTimeout: 0,
 	})
-	_, err := rclient.Ping().Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -403,15 +421,22 @@ func getRedisClientN(t *testing.T, n int, namespace string) *redis.Client {
 }
 
 func getRedisClient(t *testing.T, namespace string) *redis.Client {
-
+	addr, err := sdcfg.GetDbTcpAddr("COUNTERS_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get addr %v", err)
+	}
+	db, err := sdcfg.GetDbId("COUNTERS_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get db %v", err)
+	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("COUNTERS_DB", namespace),
+		Addr:        addr,
 		Password:    "", // no password set
-		DB:          sdcfg.GetDbId("COUNTERS_DB", namespace),
+		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err := rclient.Ping().Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -419,15 +444,22 @@ func getRedisClient(t *testing.T, namespace string) *redis.Client {
 }
 
 func getConfigDbClient(t *testing.T, namespace string) *redis.Client {
-
+	addr, err := sdcfg.GetDbTcpAddr("CONFIG_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get addr %v", err)
+	}
+	db, err := sdcfg.GetDbId("CONFIG_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get db %v", err)
+	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("CONFIG_DB", namespace),
+		Addr:        addr,
 		Password:    "", // no password set
-		DB:          sdcfg.GetDbId("CONFIG_DB", namespace),
+		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err := rclient.Ping().Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -446,6 +478,96 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 			t.Errorf("Invalid data for db: %v : %v", key, fv)
 		}
 	}
+}
+
+func initFullConfigDb(t *testing.T, namespace string) {
+	rclient := getConfigDbClient(t, namespace)
+	defer rclient.Close()
+	rclient.FlushDB()
+
+	fileName := "../testdata/CONFIG_DHCP_SERVER.txt"
+	config, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	config_map := loadConfig(t, "", config)
+	loadConfigDB(t, rclient, config_map)
+}
+
+func initFullCountersDb(t *testing.T, namespace string) {
+	rclient := getRedisClient(t, namespace)
+	defer rclient.Close()
+	rclient.FlushDB()
+
+	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
+	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_name_map := loadConfig(t, "COUNTERS_PORT_NAME_MAP", countersPortNameMapByte)
+	loadDB(t, rclient, mpi_name_map)
+
+	fileName = "../testdata/COUNTERS_QUEUE_NAME_MAP.txt"
+	countersQueueNameMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_qname_map := loadConfig(t, "COUNTERS_QUEUE_NAME_MAP", countersQueueNameMapByte)
+	loadDB(t, rclient, mpi_qname_map)
+
+	fileName = "../testdata/COUNTERS:Ethernet68.txt"
+	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	// "Ethernet68": "oid:0x1000000000039",
+	mpi_counter := loadConfig(t, "COUNTERS:oid:0x1000000000039", countersEthernet68Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	fileName = "../testdata/COUNTERS:Ethernet1.txt"
+	countersEthernet1Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	// "Ethernet1": "oid:0x1000000000003",
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000003", countersEthernet1Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet64:0": "oid:0x1500000000092a"  : queue counter, to work as data noise
+	fileName = "../testdata/COUNTERS:oid:0x1500000000092a.txt"
+	counters92aByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000092a", counters92aByte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet68:1": "oid:0x1500000000091c"  : queue counter, for COUNTERS/Ethernet68/Queue vpath test
+	fileName = "../testdata/COUNTERS:oid:0x1500000000091c.txt"
+	countersEeth68_1Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091c", countersEeth68_1Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet68:3": "oid:0x1500000000091e"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
+	fileName = "../testdata/COUNTERS:oid:0x1500000000091e.txt"
+	countersEeth68_3Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091e", countersEeth68_3Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet68:4": "oid:0x1500000000091f"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
+	fileName = "../testdata/COUNTERS:oid:0x1500000000091f.txt"
+	countersEeth68_4Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091f", countersEeth68_4Byte)
+	loadDB(t, rclient, mpi_counter)
 }
 
 func prepareConfigDb(t *testing.T, namespace string) {
@@ -574,7 +696,8 @@ func prepareDb(t *testing.T, namespace string) {
 }
 
 func prepareDbTranslib(t *testing.T) {
-	rclient := getRedisClient(t, sdcfg.GetDbDefaultNamespace())
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	rclient := getRedisClient(t, ns)
 	rclient.FlushDB()
 	rclient.Close()
 
@@ -594,7 +717,7 @@ func prepareDbTranslib(t *testing.T) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	for n, v := range rj {
-		rclient := getRedisClientN(t, n, sdcfg.GetDbDefaultNamespace())
+		rclient := getRedisClientN(t, n, ns)
 		loadDBNotStrict(t, rclient, v)
 		rclient.Close()
 	}
@@ -1104,7 +1227,8 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 
 	stateDBPath := "STATE_DB"
 
-	if namespace != sdcfg.GetDbDefaultNamespace() {
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	if namespace != ns {
 		stateDBPath = "STATE_DB" + "/" + namespace
 	}
 
@@ -1340,9 +1464,10 @@ func TestGnmiGet(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
 
-	prepareDb(t, sdcfg.GetDbDefaultNamespace())
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	prepareDb(t, ns)
 
-	runGnmiTestGet(t, sdcfg.GetDbDefaultNamespace())
+	runGnmiTestGet(t, ns)
 
 	s.s.Stop()
 }
@@ -2611,7 +2736,8 @@ func TestGnmiSubscribe(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
 
-	runTestSubscribe(t, sdcfg.GetDbDefaultNamespace())
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	runTestSubscribe(t, ns)
 
 	s.s.Stop()
 }
@@ -3021,7 +3147,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
     var neighStateTableDeletedJson61 interface{}
     json.Unmarshal(neighStateTableDeletedByte61, &neighStateTableDeletedJson61)
 
-    namespace := sdcfg.GetDbDefaultNamespace()
+    namespace, _ := sdcfg.GetDbDefaultNamespace()
     rclient := getRedisClientN(t, 6, namespace)
     defer rclient.Close()
     prepareStateDb(t, namespace)
@@ -3307,7 +3433,7 @@ func TestConnectionDataSet(t *testing.T) {
             },
         },
     }
-    namespace := sdcfg.GetDbDefaultNamespace()
+    namespace, _ := sdcfg.GetDbDefaultNamespace()
     rclient := getRedisClientN(t, 6, namespace)
     defer rclient.Close()
 
@@ -3589,6 +3715,44 @@ func TestClient(t *testing.T) {
     s.s.Stop()
 }
 
+func TestTableData2MsiUseKey(t *testing.T) {
+    tblPath := sdc.CreateTablePath("STATE_DB", "NEIGH_STATE_TABLE", "|", "10.0.0.57")
+    newMsi := make(map[string]interface{})
+    sdc.TableData2Msi(&tblPath, true, nil, &newMsi)
+    newMsiData, _ := json.MarshalIndent(newMsi, "", "  ")
+    t.Logf(string(newMsiData))
+    expectedMsi := map[string]interface{} {
+        "10.0.0.57": map[string]interface{} {
+            "peerType": "e-BGP",
+	    "state": "Established",
+        },
+    }
+    expectedMsiData, _ := json.MarshalIndent(expectedMsi, "", "  ")
+    t.Logf(string(expectedMsiData))
+
+    if !reflect.DeepEqual(newMsi, expectedMsi) {
+        t.Errorf("Msi data does not match for use key = true")
+    }
+}
+
+func TestRecoverFromJSONSerializationPanic(t *testing.T) {
+    panicMarshal := func(v interface{}) ([]byte, error) {
+        panic("json.Marshal panics and is unable to serialize JSON")
+    }
+    mock := gomonkey.ApplyFunc(json.Marshal, panicMarshal)
+    defer mock.Reset()
+
+    tblPath := sdc.CreateTablePath("STATE_DB", "NEIGH_STATE_TABLE", "|", "10.0.0.57")
+    msi := make(map[string]interface{})
+    sdc.TableData2Msi(&tblPath, true, nil, &msi)
+
+    typedValue, err := sdc.Msi2TypedValue(msi)
+    if typedValue != nil && err != nil {
+        t.Errorf("Test should recover from panic and have nil TypedValue/Error after attempting JSON serialization")
+    }
+
+}
+
 func TestGnmiSetBatch(t *testing.T) {
 	mockCode := 
 `
@@ -3686,6 +3850,9 @@ print('%s')
 	s := createServer(t, 8080)
 	go runServer(t, s)
 	defer s.s.Stop()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	initFullConfigDb(t, ns)
+	initFullCountersDb(t, ns)
 
 	path, _ := os.Getwd()
 	path = filepath.Dir(path)
@@ -3759,6 +3926,199 @@ func TestParseOrigin(t *testing.T) {
 	if err == nil {
 		t.Errorf("ParseOrigin should fail for conflict")
 	}
+}
+
+func TestMasterArbitration(t *testing.T) {
+	s := createServer(t, 8088)
+	// Turn on Master Arbitration
+	s.ReqFromMaster = ReqFromMasterEnabledMA
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	prepareDbTranslib(t)
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	//targetAddr := "30.57.185.38:8080"
+	targetAddr := "127.0.0.1:8088"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	maExt0 := &ext_pb.Extension{
+		Ext: &ext_pb.Extension_MasterArbitration{
+			MasterArbitration: &ext_pb.MasterArbitration{
+				ElectionId: &ext_pb.Uint128{High: 0, Low: 0},
+			},
+		},
+	}
+	maExt1 := &ext_pb.Extension{
+		Ext: &ext_pb.Extension_MasterArbitration{
+			MasterArbitration: &ext_pb.MasterArbitration{
+				ElectionId: &ext_pb.Uint128{High: 0, Low: 1},
+			},
+		},
+	}
+	maExt1H0L := &ext_pb.Extension{
+		Ext: &ext_pb.Extension_MasterArbitration{
+			MasterArbitration: &ext_pb.MasterArbitration{
+				ElectionId: &ext_pb.Uint128{High: 1, Low: 0},
+			},
+		},
+	}
+	regExt := &ext_pb.Extension{
+		Ext: &ext_pb.Extension_RegisteredExt{
+			RegisteredExt: &ext_pb.RegisteredExtension{},
+		},
+	}
+
+	// By default ElectionID starts from 0 so this test does not change it.
+	t.Run("MasterArbitrationOnElectionIdZero", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			},
+			Extension: []*ext_pb.Extension{maExt0},
+		}
+		_, err = gClient.Set(ctx, req)
+		if err != nil {
+			t.Fatal("Did not expected an error: " + err.Error())
+		}
+		if _, ok := status.FromError(err); !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+		reqEid0 := maExt0.GetMasterArbitration().GetElectionId()
+		expectedEID0 := uint128{High: reqEid0.GetHigh(), Low: reqEid0.GetLow()}
+		if s.masterEID.Compare(&expectedEID0) != 0 {
+			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID0, s.masterEID)
+		}
+	})
+	// After this test ElectionID is one.
+	t.Run("MasterArbitrationOnElectionIdZeroThenOne", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			},
+			Extension: []*ext_pb.Extension{maExt0},
+		}
+		if _, err = gClient.Set(ctx, req); err != nil {
+			t.Fatal("Did not expected an error: " + err.Error())
+		}
+		reqEid0 := maExt0.GetMasterArbitration().GetElectionId()
+		expectedEID0 := uint128{High: reqEid0.GetHigh(), Low: reqEid0.GetLow()}
+		if s.masterEID.Compare(&expectedEID0) != 0 {
+			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID0, s.masterEID)
+		}
+		req = &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			},
+			Extension: []*ext_pb.Extension{maExt1},
+		}
+		if _, err = gClient.Set(ctx, req); err != nil {
+			t.Fatal("Set gRPC failed")
+		}
+		reqEid1 := maExt1.GetMasterArbitration().GetElectionId()
+		expectedEID1 := uint128{High: reqEid1.GetHigh(), Low: reqEid1.GetLow()}
+		if s.masterEID.Compare(&expectedEID1) != 0 {
+			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID1, s.masterEID)
+		}
+	})
+	// Multiple ElectionIDs with the last being one.
+	t.Run("MasterArbitrationOnElectionIdMultipleIdsZeroThenOne", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			},
+			Extension: []*ext_pb.Extension{maExt0, maExt1, regExt},
+		}
+		_, err = gClient.Set(ctx, req)
+		if err != nil {
+			t.Fatal("Did not expected an error: " + err.Error())
+		}
+		if _, ok := status.FromError(err); !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+		reqEid1 := maExt1.GetMasterArbitration().GetElectionId()
+		expectedEID1 := uint128{High: reqEid1.GetHigh(), Low: reqEid1.GetLow()}
+		if s.masterEID.Compare(&expectedEID1) != 0 {
+			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID1, s.masterEID)
+		}
+	})
+	// ElectionIDs with the high word set to 1 and low word to 0.
+	t.Run("MasterArbitrationOnElectionIdHighOne", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			},
+			Extension: []*ext_pb.Extension{maExt1H0L},
+		}
+		_, err = gClient.Set(ctx, req)
+		if err != nil {
+			t.Fatal("Did not expected an error: " + err.Error())
+		}
+		if _, ok := status.FromError(err); !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+		reqEid10 := maExt1H0L.GetMasterArbitration().GetElectionId()
+		expectedEID10 := uint128{High: reqEid10.GetHigh(), Low: reqEid10.GetLow()}
+		if s.masterEID.Compare(&expectedEID10) != 0 {
+			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID10, s.masterEID)
+		}
+	})
+	// As the ElectionID is one, a request with ElectionID==0 will fail.
+	// Also a request without Election ID will fail.
+	t.Run("MasterArbitrationOnElectionIdZeroThenNone", func(t *testing.T) {
+		req := &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			},
+			Extension: []*ext_pb.Extension{maExt0},
+		}
+		_, err = gClient.Set(ctx, req)
+		if err == nil {
+			t.Fatal("Expected a PermissionDenied error")
+		}
+		ret, ok := status.FromError(err)
+		if !ok {
+			t.Fatal("Got a non-grpc error from grpc call")
+		}
+		if ret.Code() != codes.PermissionDenied {
+			t.Fatalf("Expected PermissionDenied. Got %v", ret.Code())
+		}
+		reqEid10 := maExt1H0L.GetMasterArbitration().GetElectionId()
+		expectedEID10 := uint128{High: reqEid10.GetHigh(), Low: reqEid10.GetLow()}
+		if s.masterEID.Compare(&expectedEID10) != 0 {
+			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID10, s.masterEID)
+		}
+		req = &pb.SetRequest{
+			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
+			Update: []*pb.Update{
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+			},
+			Extension: []*ext_pb.Extension{},
+		}
+		_, err = gClient.Set(ctx, req)
+		if err != nil {
+			t.Fatal("Expected a successful set call.")
+		}
+		if s.masterEID.Compare(&expectedEID10) != 0 {
+			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID10, s.masterEID)
+		}
+	})
 }
 
 func init() {

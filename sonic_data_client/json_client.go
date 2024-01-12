@@ -112,6 +112,12 @@ func (c *JsonClient) Get(path []string) ([]byte, error) {
 	// <4> DB Table Key Field Index
 	jv := []byte{}
 	switch len(path) {
+	case 0: // Empty path
+		var err error
+		jv, err = emitJSON(&c.jsonData)
+		if err != nil {
+			return nil, err
+		}
 	case 1: // only table name provided
 		vtable, err := DecodeJsonTable(c.jsonData, path[0])
 		if err != nil {

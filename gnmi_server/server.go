@@ -39,6 +39,10 @@ type Server struct {
 	config  *Config
 	cMu     sync.Mutex
 	clients map[string]*Client
+	// ReqFromMaster point to a function that is called to verify if the request
+	// comes from a master controller.
+	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
+	masterEID     uint128
 }
 type AuthTypes map[string]bool
 
@@ -57,6 +61,7 @@ type Config struct {
 }
 
 var AuthLock sync.Mutex
+var maMu sync.Mutex
 
 func (i AuthTypes) String() string {
 	if i["none"] {
@@ -137,6 +142,10 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		s:       s,
 		config:  config,
 		clients: map[string]*Client{},
+		// ReqFromMaster point to a function that is called to verify if
+		// the request comes from a master controller.
+		ReqFromMaster: ReqFromMasterDisabledMA,
+		masterEID:     uint128{High: 0, Low: 0},
 	}
 	var err error
 	if srv.config.Port < 0 {
@@ -154,6 +163,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if srv.config.EnableTranslibWrite {		
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
 	}
+	spb_gnoi.RegisterDebugServer(srv.s, srv)
 	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
 	return srv, nil
 }
@@ -322,9 +332,11 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	}
 
 	target := ""
+	origin := ""
 	prefix := req.GetPrefix()
 	if prefix != nil {
 		target = prefix.GetTarget()
+		origin = prefix.Origin
 	}
 
 	paths := req.GetPath()
@@ -339,10 +351,11 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	} else if _, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
 	} else {
-		origin := ""
-		origin, err = ParseOrigin(paths)
-		if err != nil {
-			return nil, err
+		if origin == "" {
+			origin, err = ParseOrigin(paths)
+			if err != nil {
+				return nil, err
+			}
 		}
 		if check := IsNativeOrigin(origin); check {
 			dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqAddress)
@@ -379,6 +392,11 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 }
 
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
+	e := s.ReqFromMaster(req, &s.masterEID)
+	if e != nil {
+		return nil, e
+	}
+
 	common_utils.IncCounter(common_utils.GNMI_SET)
 	if s.config.EnableTranslibWrite == false && s.config.EnableNativeWrite == false {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
@@ -393,6 +411,10 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 
 	/* Fetch the prefix. */
 	prefix := req.GetPrefix()
+	origin := ""
+	if prefix != nil {
+		origin = prefix.Origin
+	}
 	extensions := req.GetExtension()
 	encoding := gnmipb.Encoding_JSON_IETF
 
@@ -404,9 +426,11 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	for _, path := range req.GetUpdate() {
 		paths = append(paths, path.GetPath())
 	}
-	origin, err := ParseOrigin(paths)
-	if err != nil {
-		return nil, err
+	if origin == "" {
+		origin, err = ParseOrigin(paths)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if check := IsNativeOrigin(origin); check {
 		if s.config.EnableNativeWrite == false {
@@ -517,4 +541,80 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 		SupportedEncodings: supportedEncodings,
 		GNMIVersion:        "0.7.0",
 		Extension:          exts}, nil
+}
+
+type uint128 struct {
+	High uint64
+	Low  uint64
+}
+
+func (lh *uint128) Compare(rh *uint128) int {
+	if rh == nil {
+		// For MA disabled case, EID supposed to be 0.
+		rh = &uint128{High: 0, Low: 0}
+	}
+	if lh.High > rh.High {
+		return 1
+	}
+	if lh.High < rh.High {
+		return -1
+	}
+	if lh.Low > rh.Low {
+		return 1
+	}
+	if lh.Low < rh.Low {
+		return -1
+	}
+	return 0
+}
+
+// ReqFromMasterEnabledMA returns true if the request is sent by the master
+// controller.
+func ReqFromMasterEnabledMA(req *gnmipb.SetRequest, masterEID *uint128) error {
+	// Read the election_id.
+	reqEID := uint128{High: 0, Low: 0}
+	hasMaExt := false
+	// It can be one of many extensions, so iterate through them to find it.
+	for _, e := range req.GetExtension() {
+		ma := e.GetMasterArbitration()
+		if ma == nil {
+			continue
+		}
+
+		hasMaExt = true
+		// The Master Arbitration descriptor has been found.
+		if ma.ElectionId == nil {
+			return status.Errorf(codes.InvalidArgument, "MA: ElectionId missing")
+		}
+
+		if ma.Role != nil {
+			// Role will be implemented later.
+			return status.Errorf(codes.Unimplemented, "MA: Role is not implemented")
+		}
+		
+		reqEID = uint128{High: ma.ElectionId.High, Low: ma.ElectionId.Low}
+		// Use the election ID that is in the last extension, so, no 'break' here.
+	}
+
+	if !hasMaExt {
+		log.V(0).Infof("MA: No Master Arbitration in setRequest extension, masterEID %v is not updated", masterEID)
+		return nil
+	}
+
+	maMu.Lock()
+	defer maMu.Unlock()
+	switch masterEID.Compare(&reqEID) {
+	case 1: // This Election ID is smaller than the known Master Election ID.
+		return status.Errorf(codes.PermissionDenied, "Election ID is smaller than the current master. Rejected. Master EID: %v. Current EID: %v.", masterEID, reqEID)
+	case -1: // New Master Election ID received!
+		log.V(0).Infof("New master has been elected with %v\n", reqEID)
+		*masterEID = reqEID
+	}
+	return nil
+}
+
+// ReqFromMasterDisabledMA always returns true. It is used when Master Arbitration
+// is disabled.
+func ReqFromMasterDisabledMA(req *gnmipb.SetRequest, masterEID *uint128) error {
+	return nil
 }

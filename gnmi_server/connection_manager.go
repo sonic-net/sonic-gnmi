@@ -26,12 +26,22 @@ func (cm *ConnectionManager) GetThreshold() int {
 }
 
 func (cm *ConnectionManager) PrepareRedis() {
-	ns := sdcfg.GetDbDefaultNamespace()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	addr, err := sdcfg.GetDbTcpAddr("STATE_DB", ns)
+	if err != nil {
+		log.Errorf("Addr err: %v", err)
+		return
+	}
+	db, err := sdcfg.GetDbId("STATE_DB", ns)
+	if err != nil {
+		log.Errorf("DB err: %v", err)
+		return
+	}
 	rclient = redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("STATE_DB", ns),
+		Addr:        addr,
 		Password:    "",
-		DB:          sdcfg.GetDbId("STATE_DB", ns),
+		DB:          db,
 		DialTimeout: 0,
 	})
 

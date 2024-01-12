@@ -82,6 +82,15 @@ var IntervalTicker = func(interval time.Duration) <-chan time.Time {
 var NeedMock bool = false
 var intervalTickerMutex sync.Mutex
 
+func CreateTablePath(dbName string, tableName string, delimitor string, tableKey string) tablePath {
+	var tblPath tablePath
+	tblPath.dbName = dbName
+	tblPath.tableName = tableName
+	tblPath.delimitor = delimitor
+	tblPath.tableKey = tableKey
+	return tblPath
+}
+
 // Define a new function to set the IntervalTicker variable
 func SetIntervalTicker(f func(interval time.Duration) <-chan time.Time) {
 	if NeedMock == true {
@@ -302,6 +311,7 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 		for gnmiPath, tblPaths := range c.pathG2S {
 			val, err := tableData2TypedValue(tblPaths, nil)
 			if err != nil {
+				log.V(2).Infof("Unable to create gnmi TypedValue due to err: %v", err)
 				return
 			}
 
@@ -422,22 +432,29 @@ func GetTableKeySeparator(target string, ns string) (string, error) {
 		return "", fmt.Errorf("%v not a valid path target", target)
 	}
 
-	var separator string = sdcfg.GetDbSeparator(target, ns)
-	return separator, nil
+	separator, err := sdcfg.GetDbSeparator(target, ns)
+	return separator, err
 }
 
-func GetRedisClientsForDb(target string) map[string]*redis.Client {
-	redis_client_map := make(map[string]*redis.Client)
-	if sdcfg.CheckDbMultiNamespace() {
-		ns_list := sdcfg.GetDbNonDefaultNamespaces()
+func GetRedisClientsForDb(target string) (redis_client_map map[string]*redis.Client, err error) {
+	redis_client_map = make(map[string]*redis.Client)
+	ok, err := sdcfg.CheckDbMultiNamespace()
+	if err != nil {
+		return redis_client_map, err
+	}
+	if ok {
+		ns_list, err := sdcfg.GetDbNonDefaultNamespaces()
+		if err != nil {
+			return redis_client_map, err
+		}
 		for _, ns := range ns_list {
 			redis_client_map[ns] = Target2RedisDb[ns][target]
 		}
 	} else {
-		ns := sdcfg.GetDbDefaultNamespace()
+		ns, _ := sdcfg.GetDbDefaultNamespace()
 		redis_client_map[ns] = Target2RedisDb[ns][target]
 	}
-	return redis_client_map
+	return redis_client_map, nil
 }
 
 // This function get target present in GNMI Request and
@@ -447,7 +464,7 @@ func IsTargetDb(target string) (string, bool, string, bool) {
 	targetname := strings.Split(target, "/")
 	dbName := targetname[0]
 	dbNameSpaceExist := false
-	dbNamespace := sdcfg.GetDbDefaultNamespace()
+	dbNamespace, _ := sdcfg.GetDbDefaultNamespace()
 
 	if len(targetname) > 2 {
 		log.V(1).Infof("target format is not correct")
@@ -468,18 +485,26 @@ func IsTargetDb(target string) (string, bool, string, bool) {
 }
 
 // For testing only
-func useRedisTcpClient() {
+func useRedisTcpClient() error {
 	if !UseRedisLocalTcpPort {
-		return
+		return nil
 	}
-	for _, dbNamespace := range sdcfg.GetDbAllNamespaces() {
+	AllNamespaces, err := sdcfg.GetDbAllNamespaces()
+	if err != nil {
+		return err
+	}
+	for _, dbNamespace := range AllNamespaces {
 		Target2RedisDb[dbNamespace] = make(map[string]*redis.Client)
 		for dbName, dbn := range spb.Target_value {
 			if dbName != "OTHERS" {
+				addr, err := sdcfg.GetDbTcpAddr(dbName, dbNamespace)
+				if err != nil {
+					return err
+				}
 				// DB connector for direct redis operation
 				redisDb := redis.NewClient(&redis.Options{
 					Network:     "tcp",
-					Addr:        sdcfg.GetDbTcpAddr(dbName, dbNamespace),
+					Addr:        addr,
 					Password:    "", // no password set
 					DB:          int(dbn),
 					DialTimeout: 0,
@@ -488,18 +513,29 @@ func useRedisTcpClient() {
 			}
 		}
 	}
+	return nil
 }
 
 // Client package prepare redis clients to all DBs automatically
 func init() {
-	for _, dbNamespace := range sdcfg.GetDbAllNamespaces() {
+	AllNamespaces, err := sdcfg.GetDbAllNamespaces()
+	if err != nil {
+		log.Errorf("init error:  %v", err)
+		return
+	}
+	for _, dbNamespace := range AllNamespaces {
 		Target2RedisDb[dbNamespace] = make(map[string]*redis.Client)
 		for dbName, dbn := range spb.Target_value {
 			if dbName != "OTHERS" {
+				addr, err := sdcfg.GetDbSock(dbName, dbNamespace)
+				if err != nil {
+					log.Errorf("init error:  %v", err)
+					return
+				}
 				// DB connector for direct redis operation
 				redisDb := redis.NewClient(&redis.Options{
 					Network:     "unix",
-					Addr:        sdcfg.GetDbSock(dbName, dbNamespace),
+					Addr:        addr,
 					Password:    "", // no password set
 					DB:          int(dbn),
 					DialTimeout: 0,
@@ -547,7 +583,10 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	}
 
 	// Verify Namespace is valid
-	dbNamespace, ok := sdcfg.GetDbNamespaceFromTarget(targetDbNameSpace)
+	dbNamespace, ok, err := sdcfg.GetDbNamespaceFromTarget(targetDbNameSpace)
+	if err != nil {
+		return fmt.Errorf("Failed to get namespace %v", err)
+	}
 	if !ok {
 		return fmt.Errorf("Invalid target dbNameSpace %v", targetDbNameSpace)
 	}
@@ -712,6 +751,12 @@ func makeJSON_redis(msi *map[string]interface{}, key *string, op *string, mfv ma
 // emitJSON marshalls map[string]interface{} to JSON byte stream.
 func emitJSON(v *map[string]interface{}) ([]byte, error) {
 	//j, err := json.MarshalIndent(*v, "", indentString)
+	defer func() {
+		if r := recover(); r != nil {
+			log.V(2).Infof("Recovered from panic: %v", r)
+			log.V(2).Infof("Current state of map to be serialized is: %v", *v)
+		}
+	}()
 	j, err := json.Marshal(*v)
 	if err != nil {
 		return nil, fmt.Errorf("JSON marshalling error: %v", err)
@@ -720,11 +765,11 @@ func emitJSON(v *map[string]interface{}) ([]byte, error) {
 	return j, nil
 }
 
-// tableData2Msi renders the redis DB data to map[string]interface{}
+// TableData2Msi renders the redis DB data to map[string]interface{}
 // which may be marshaled to JSON format
 // If only table name provided in the tablePath, find all keys in the table, otherwise
 // Use tableName + tableKey as key to get all field value paires
-func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]interface{}) error {
+func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]interface{}) error {
 	redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
 
 	var pattern string
@@ -750,9 +795,12 @@ func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 		dbkeys = []string{tblPath.tableName + tblPath.delimitor + tblPath.tableKey}
 	}
 
+	log.V(4).Infof("dbkeys to be pulled from redis %v", dbkeys)
+
 	// Asked to use jsonField and jsonTableKey in the final json value
 	if tblPath.jsonField != "" && tblPath.jsonTableKey != "" {
 		val, err := redisDb.HGet(dbkeys[0], tblPath.field).Result()
+		log.V(4).Infof("Data pulled for key %s and field %s: %s", dbkeys[0], tblPath.field, val)
 		if err != nil {
 			log.V(3).Infof("redis HGet failed for %v %v", tblPath, err)
 			// ignore non-existing field which was derived from virtual path
@@ -770,7 +818,7 @@ func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 			log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
 			return err
 		}
-
+		log.V(4).Infof("Data pulled for dbkey %s: %v", dbkey, fv)
 		if tblPath.jsonTableKey != "" { // If jsonTableKey was prepared, use it
 			err = makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
 		} else if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
@@ -794,11 +842,15 @@ func tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 	return nil
 }
 
-func msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
+func Msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
+	log.V(4).Infof("State of map after adding redis data %v", msi)
 	jv, err := emitJSON(&msi)
 	if err != nil {
 		log.V(2).Infof("emitJSON err %s for  %v", err, msi)
 		return nil, fmt.Errorf("emitJSON err %s for  %v", err, msi)
+	}
+	if jv == nil { // json and err is nil because panic potentially happened
+		return nil, fmt.Errorf("emitJSON failed to grab json value of map due to potential panic")
 	}
 	return &gnmipb.TypedValue{
 		Value: &gnmipb.TypedValue_JsonIetfVal{
@@ -830,6 +882,7 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 					log.V(2).Infof("redis HGet failed for %v", tblPath)
 					return nil, err
 				}
+				log.V(4).Infof("Data pulled for key %s and field %s: %s", key, tblPath.field, val)
 				// TODO: support multiple table paths
 				return &gnmipb.TypedValue{
 					Value: &gnmipb.TypedValue_StringVal{
@@ -837,13 +890,12 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 					}}, nil
 			}
 		}
-
-		err := tableData2Msi(&tblPath, useKey, nil, &msi)
+		err := TableData2Msi(&tblPath, useKey, nil, &msi)
 		if err != nil {
 			return nil, err
 		}
 	}
-	return msi2TypedValue(msi)
+	return Msi2TypedValue(msi)
 }
 
 func enqueueFatalMsg(c *DbClient, msg string) {
@@ -912,7 +964,7 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 	}
 
 	sendVal := func(msi map[string]interface{}) error {
-		val, err := msi2TypedValue(msi)
+		val, err := Msi2TypedValue(msi)
 		if err != nil {
 			enqueueFatalMsg(c, err.Error())
 			return err
@@ -1097,7 +1149,7 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 			} else if subscr.Payload == "hset" {
 				//op := "SET"
 				if tblPath.tableKey != "" {
-					err = tableData2Msi(&tblPath, false, nil, &newMsi)
+					err = TableData2Msi(&tblPath, false, nil, &newMsi)
 					if err != nil {
 						enqueueFatalMsg(c, err.Error())
 						return
@@ -1109,7 +1161,7 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 						continue
 					}
 					tblPath.tableKey = subscr.Channel[prefixLen:]
-					err = tableData2Msi(&tblPath, false, nil, &newMsi)
+					err = TableData2Msi(&tblPath, true, nil, &newMsi)
 					if err != nil {
 						enqueueFatalMsg(c, err.Error())
 						return
@@ -1169,7 +1221,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 			sendDeleteField = true
 		}
 		delete(msiData, "delete")
-		val, err := msi2TypedValue(msiData)
+		val, err := Msi2TypedValue(msiData)
 		if err != nil {
 			return err
 		}
@@ -1226,7 +1278,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 		}
 		log.V(2).Infof("Psubscribe succeeded for %v: %v", tblPath, subscr)
 
-		err = tableData2Msi(&tblPath, false, nil, &msiAll)
+		err = TableData2Msi(&tblPath, false, nil, &msiAll)
 		if err != nil {
 			handleFatalMsg(err.Error())
 			return

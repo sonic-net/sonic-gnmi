@@ -95,14 +95,23 @@ func runServer(t *testing.T, s *sds.Server) {
 }
 
 func getRedisClient(t *testing.T) *redis.Client {
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	addr, err := sdcfg.GetDbTcpAddr("COUNTERS_DB", ns)
+	if err != nil {
+		t.Fatal("failed to get addr ", err)
+	}
+	db, err := sdcfg.GetDbId("COUNTERS_DB", ns)
+	if err != nil {
+		t.Fatal("failed to get db ", err)
+	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("COUNTERS_DB", sdcfg.GetDbDefaultNamespace()),
+		Addr:        addr,
 		Password:    "", // no password set
-		DB:          sdcfg.GetDbId("COUNTERS_DB", sdcfg.GetDbDefaultNamespace()),
+		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err := rclient.Ping().Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatal("failed to connect to redis server ", err)
 	}
@@ -124,14 +133,23 @@ func exe_cmd(t *testing.T, cmd string) {
 }
 
 func getConfigDbClient(t *testing.T) *redis.Client {
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	addr, err := sdcfg.GetDbTcpAddr("CONFIG_DB", ns)
+	if err != nil {
+		t.Fatal("failed to get addr ", err)
+	}
+	db, err := sdcfg.GetDbId("CONFIG_DB", ns)
+	if err != nil {
+		t.Fatal("failed to get db ", err)
+	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("CONFIG_DB", sdcfg.GetDbDefaultNamespace()),
+		Addr:        addr,
 		Password:    "", // no password set
-		DB:          sdcfg.GetDbId("CONFIG_DB", sdcfg.GetDbDefaultNamespace()),
+		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err := rclient.Ping().Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
