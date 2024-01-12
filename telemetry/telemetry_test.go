@@ -9,6 +9,9 @@ import (
 	"syscall"
 )
 
+func TestMain(t *testing.T) {
+}
+
 func TestSignalHandler(t *testing.T) {
 	timeoutInterval := 1
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)

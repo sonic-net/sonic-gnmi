@@ -187,6 +187,7 @@ func main() {
 		s.ReqFromMaster = gnmi.ReqFromMasterEnabledMA
 	}
 
+	// This channel is used by goroutine signalhandler to notify when sigterm/sigkill is received so we can stop gnmi server
 	var reload = make(chan int, 1)
 	var wg sync.WaitGroup
 
@@ -204,14 +205,16 @@ func main() {
 
 	wg.Add(1)
 
-	go signalHandler(reload, &wg, nil)
+	sigchannel := make(chan os.Signal, 1)
+	signal.Notify(sigchannel,
+		syscall.SIGTERM,
+		syscall.SIGQUIT)
 
-	value := <-reload
+	go signalHandler(reload, &wg, sigchannel)
+
+	<-reload
 	log.V(1).Infof("Received Notification for gnmi server to shutdown")
 	s.Stop()
-	if value == 0 {
-		os.Exit(0)
-	}
 	log.Flush()
 	wg.Wait()
 }
@@ -236,16 +239,10 @@ func getflag(name string) string {
 	return val
 }
 
-func signalHandler(reload chan<- int, wg *sync.WaitGroup, testSigChan <-chan os.Signal) {
+func signalHandler(reload chan<- int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
 	defer wg.Done()
-	sigchannel := make(chan os.Signal, 1)
-	signal.Notify(sigchannel,
-		syscall.SIGTERM,
-		syscall.SIGQUIT)
 	select {
 	case <-sigchannel:
-		reload <- 0
-	case <-testSigChan:
 		reload <- 0
 	}
 }
