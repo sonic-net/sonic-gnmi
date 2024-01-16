@@ -6,23 +6,24 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
-	"github.com/golang/glog"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
-	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/security/advancedtls"
+	"google.golang.org/grpc/status"
 )
 
-const DEFAULT_CRL_EXPIRE_DURATION time.Duration = 24 * 60* 60 * time.Second
+const DEFAULT_CRL_EXPIRE_DURATION time.Duration = 24 * 60 * 60 * time.Second
 
 type Crl struct {
-	thisUpdate   time.Time
-	nextUpdate   time.Time
-	crl         []byte
+	thisUpdate time.Time
+	nextUpdate time.Time
+	crl        []byte
 }
 
 // CRL content cache
@@ -38,7 +39,7 @@ func InitCrlCache() {
 }
 
 func ReleaseCrlCache() {
-	for mapkey, _ := range(CrlCache) {
+	for mapkey, _ := range CrlCache {
 		delete(CrlCache, mapkey)
 	}
 }
@@ -79,7 +80,7 @@ func CrlNeedUpdate(crl *Crl) bool {
 }
 
 func RemoveExpiredCrl() {
-	for mapkey, crl := range(CrlCache) {
+	for mapkey, crl := range CrlCache {
 		if CrlExpired(crl) {
 			glog.Infof("RemoveExpiredCrl key: %s", mapkey)
 			delete(CrlCache, mapkey)
@@ -167,7 +168,7 @@ func TryDownload(url string) bool {
 		return false
 	}
 
-	crlContent, err := io.ReadAll(resp.Body) 
+	crlContent, err := io.ReadAll(resp.Body)
 	if err != nil {
 		glog.Infof("Download CRL: %s failed: %v", url, err)
 		return false
@@ -186,7 +187,7 @@ func GetCrlUrls(cert x509.Certificate) []string {
 
 func DownloadNotCachedCrl(crlUrlArray []string) bool {
 	crlAvaliable := false
-    for _, crlUrl := range crlUrlArray{
+	for _, crlUrl := range crlUrlArray {
 		exist, _ := SearchCrlCache(crlUrl)
 		if exist {
 			crlAvaliable = true
@@ -196,14 +197,14 @@ func DownloadNotCachedCrl(crlUrlArray []string) bool {
 				crlAvaliable = true
 			}
 		}
-    }
+	}
 
 	return crlAvaliable
 }
 
 func CreateStaticCRLProvider() *advancedtls.StaticCRLProvider {
 	crlArray := make([][]byte, 1)
-	for mapkey, item := range(CrlCache) {
+	for mapkey, item := range CrlCache {
 		if CrlExpired(item) {
 			glog.Infof("CreateStaticCRLProvider remove expired crl: %s", mapkey)
 			delete(CrlCache, mapkey)
@@ -212,7 +213,7 @@ func CreateStaticCRLProvider() *advancedtls.StaticCRLProvider {
 			crlArray = append(crlArray, item.crl)
 		}
 	}
-	
+
 	return advancedtls.NewStaticCRLProvider(crlArray)
 }
 
@@ -236,8 +237,8 @@ func VerifyCertCrl(tlsConnState tls.ConnectionState) error {
 	// Build CRL provider from cache and verify cert
 	crlProvider := CreateStaticCRLProvider()
 	err := advancedtls.CheckChainRevocation(tlsConnState.VerifiedChains, advancedtls.RevocationOptions{
-		DenyUndetermined:  false,
-		CRLProvider:       crlProvider,
+		DenyUndetermined: false,
+		CRLProvider:      crlProvider,
 	})
 
 	if err != nil {

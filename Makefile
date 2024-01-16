@@ -18,6 +18,11 @@ GNOI_YANG := $(BUILD_GNOI_YANG_PROTO_DIR)/.gnoi_yang_done
 TOOLS_DIR        := $(TOPDIR)/tools
 PYANG_PLUGIN_DIR := $(TOOLS_DIR)/pyang_plugins
 PYANG  ?= pyang
+GOROOT ?= $(shell $(GO) env GOROOT)
+FORMAT_CHECK = $(BUILD_DIR)/.formatcheck
+FORMAT_LOG = $(BUILD_DIR)/go_format.log
+# Find all .go files excluding vendor, build, and patches files
+GO_FILES := $(shell find . -type f -name '*.go' ! -path './vendor/*' ! -path './build/*' ! -path './patches/*' ! -path './proto/*' ! -path './swsscommon/*')
 export CVL_SCHEMA_PATH := $(MGMT_COMMON_DIR)/build/cvl/schema
 
 API_YANGS=$(shell find $(MGMT_COMMON_DIR)/build/yang -name '*.yang' -not -path '*/sonic/*' -not -path '*/annotations/*')
@@ -65,7 +70,7 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 	$(GO) mod download github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2
 	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* vendor/github.com/google/gnxi/
 
-# Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
+# Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed 
 	sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
 	sed -i 's/#patch -d $${DEST_DIR}\/github.com\/golang\/glog/patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
@@ -81,7 +86,7 @@ go-deps: $(GO_DEPS)
 go-deps-clean:
 	$(RM) -r vendor
 
-sonic-gnmi: $(GO_DEPS)
+sonic-gnmi: $(GO_DEPS) $(FORMAT_CHECK)
 # advancetls 1.0.0 release need following patch to build by go-1.19
 	patch -d vendor -p0 < patches/0002-Fix-advance-tls-build-with-go-119.patch
 # build service first which depends on advancetls
@@ -227,6 +232,22 @@ check_memleak: $(DBCONFG) $(ENVFILE)
 clean:
 	$(RM) -r build
 	$(RM) -r vendor
+
+# File target that generates a diff file if formatting is incorrect
+$(FORMAT_CHECK): $(GO_FILES)
+	@echo "Checking Go file formatting..."
+	@echo $(GO_FILES)
+	mkdir -p $(@D)
+	@$(GOROOT)/bin/gofmt -l $(GO_FILES) > $(FORMAT_LOG)
+	@if [ -s $(FORMAT_LOG) ]; then \
+		cat $(FORMAT_LOG); \
+		echo "Formatting issues found. Please run 'gofmt -w <file>' on the above files and commit the changes."; \
+		exit 1; \
+	else \
+		echo "All files are properly formatted."; \
+		rm -f $(FORMAT_LOG); \
+	fi
+	touch $@
 
 install:
 	$(INSTALL) -D $(BUILD_DIR)/telemetry $(DESTDIR)/usr/sbin/telemetry
