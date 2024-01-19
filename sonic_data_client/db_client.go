@@ -398,8 +398,8 @@ func IsTargetDb(target string) (string, bool, string, bool) {
 		log.V(1).Infof("target format is not correct")
 		return dbName, false, dbNamespace, dbNameSpaceExist
 	}
-
-	if len(targetname) > 1 {
+        // ASIC Suffix is only used in case if device is multi-asic/namespace
+	if len(targetname) > 1 && sdcfg.CheckDbMultiNamespace() {
 		dbNamespace = targetname[1]
 		dbNameSpaceExist = true
 	}
