@@ -465,15 +465,14 @@ func IsTargetDb(target string) (string, bool, string, bool) {
 	dbName := targetname[0]
 	dbNameSpaceExist := false
 	dbNamespace, _ := sdcfg.GetDbDefaultNamespace()
-	isMultiNamespace := false
+	isMultiNamespace, _ := sdcfg.CheckDbMultiNamespace()
 
 	if len(targetname) > 2 {
 		log.V(1).Infof("target format is not correct")
 		return dbName, false, dbNamespace, dbNameSpaceExist
 	}
 	// ASIC Suffix is only used in case if device is multi-asic/namespace
-	isMultiNamespace, _ := sdcfg.CheckDbMultiNamespace()
-	if isMultiNamespace && len(targetname) > 1{
+	if isMultiNamespace && len(targetname) > 1 {
 		dbNamespace = targetname[1]
 		dbNameSpaceExist = true
 	}
