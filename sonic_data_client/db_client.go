@@ -465,7 +465,7 @@ func IsTargetDb(target string) (string, bool, string, bool) {
 	dbName := targetname[0]
 	dbNameSpaceExist := false
 	dbNamespace, _ := sdcfg.GetDbDefaultNamespace()
-	isMultiNamespace:= false
+	isMultiNamespace := false
 
 	if len(targetname) > 2 {
 		log.V(1).Infof("target format is not correct")
