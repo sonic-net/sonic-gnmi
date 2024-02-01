@@ -3,7 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"flag"
 	"io"
@@ -114,10 +114,10 @@ func main() {
 			}
 			certificate, err = tls.LoadX509KeyPair(*serverCert, *serverKey)
 			if err != nil {
+				validateSHA512(*serverCert)
+				validateSHA512(*serverKey)
 				log.Exitf("could not load server key pair: %s", err)
 			}
-			validateSHA256(*serverCert)
-			validateSHA256(*serverKey)
 		}
 
 		tlsCfg := &tls.Config{
@@ -211,7 +211,7 @@ func getflag(name string) string {
 	return val
 }
 
-func validateSHA256(file string) {
+func validateSHA512(file string) {
 	currentTime := time.Now().UTC()
 	f, err := os.Open(file)
 	if err != nil {
@@ -219,10 +219,10 @@ func validateSHA256(file string) {
 	}
 	defer f.Close()
 
-	hasher := sha256.New()
+	hasher := sha512.New()
 	if _, err := io.Copy(hasher, f); err != nil {
 		log.Errorf("Unable to create hash for %s, got err %s", file, err)
 	}
 	hash := hasher.Sum(nil)
-	log.V(1).Infof("SHA256 hash of %s: %s at time %s", file, hex.EncodeToString(hash), currentTime.String())
+	log.V(1).Infof("SHA512 hash of %s: %s at time %s", file, hex.EncodeToString(hash), currentTime.String())
 }
