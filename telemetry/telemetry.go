@@ -8,8 +8,6 @@ import (
 	"io/ioutil"
 	"time"
 	"os"
-	"os/signal"
-	"syscall"
 	"sync"
 	log "github.com/golang/glog"
 	"google.golang.org/grpc"
@@ -53,21 +51,11 @@ func runTelemetry(args []string) error {
 	if err != nil {
 		return err
 	}
-	// Reload channel is used as a way for goroutines such as gnmi server Serve to stop when necessary
-	var reload = make(chan int, 1)
-	sigchannel := make(chan os.Signal, 1)
-	signal.Notify(sigchannel,
-		syscall.SIGTERM,
-		syscall.SIGQUIT)
 
 	var wg sync.WaitGroup
 
 	wg.Add(1)
-	go startGNMIServer(telemetryCfg, cfg, reload, &wg)
-
-	wg.Add(1)
-	go signalHandler(reload, &wg, sigchannel)
-
+	go startGNMIServer(telemetryCfg, cfg, &wg)
 	wg.Wait()
 	return nil
 }
@@ -159,15 +147,7 @@ func isFlagPassed(fs *flag.FlagSet, name string) bool {
 	return found
 }
 
-func signalHandler(reload chan<- int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
-	defer wg.Done()
-	select {
-	case <-sigchannel:
-		reload <- 0
-	}
-}
-
-func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, reload <-chan int, wg *sync.WaitGroup) {
+func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var opts []grpc.ServerOption
 	if !*telemetryCfg.NoTLS {
@@ -264,15 +244,7 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, reload <-c
 
 	log.V(1).Infof("Auth Modes: %v", telemetryCfg.UserAuth)
 	log.V(1).Infof("Starting RPC server on address: %s", s.Address())
-
-	go func() {
-		if err := s.Serve(); err != nil {
-			log.Errorf("Serve returns with err: %v", err)
-		}
-	}()
-
-	<-reload
-	log.V(1).Infof("Received notification for gnmi server to shutdown and rotate certs")
+	s.Serve() // blocks until closed
 	s.Stop()
 	log.Flush()
 }

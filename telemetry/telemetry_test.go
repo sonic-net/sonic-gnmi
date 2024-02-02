@@ -11,37 +11,7 @@ import (
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/agiledragon/gomonkey/v2"
 	"os"
-	"syscall"
-	"time"
-	"context"
 )
-
-func TestSignalHandler(t *testing.T) {
-	timeoutInterval := 1
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
-	defer cancel()
-
-	reload := make(chan int, 1)
-	testSigChan := make(chan os.Signal, 1)
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-
-	go signalHandler(reload, wg, testSigChan)
-
-	testSigChan <- syscall.SIGTERM
-
-	select {
-	case val := <-reload:
-		if val != 0 {
-			t.Errorf("Expected 0 from reload channel, got %d", val)
-		}
-	case <-ctx.Done():
-		t.Errorf("Expected a value in reload channel, but none received")
-		return
-	}
-
-	wg.Wait()
-}
 
 func TestFlags(t *testing.T) {
 	originalArgs := os.Args
@@ -118,12 +88,6 @@ func TestFlags(t *testing.T) {
 func TestStartGNMIServer(t *testing.T) {
 	testServerCert := "../testdata/testserver.cer"
 	testServerKey := "../testdata/testserver.key"
-	timeoutInterval := 3
-	tick := time.NewTicker(100 * time.Millisecond)
-	defer tick.Stop()
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
-	defer cancel()
 
 	originalArgs := os.Args
 	defer func() {
@@ -153,7 +117,6 @@ func TestStartGNMIServer(t *testing.T) {
 		return ""
 	})
 
-	reload := make(chan int, 1)
 	wg := &sync.WaitGroup{}
 
 	exitCalled := false
@@ -165,23 +128,12 @@ func TestStartGNMIServer(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, reload, wg)
-
-	select {
-	case <-tick.C: // Simulate shutdown
-		sendShutdownSignal(reload)
-	case <-ctx.Done():
-		t.Errorf("Failed to send shutdown signal")
-		return
-	}
+	go startGNMIServer(telemetryCfg, cfg, wg)
 
 	wg.Wait()
 
 	if !exitCalled {
-		t.Errorf("os.exit should be called if gnmi server is called to shutdown")
+		t.Errorf("s.Stop should be called if gnmi server is called to shutdown")
 	}
 }
 
-func sendShutdownSignal(reload chan<- int) {
-	reload <- 0
-}
