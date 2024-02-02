@@ -1068,13 +1068,13 @@ func TestGnmiSet(t *testing.T) {
 			})
 		}
 	}
-	s.s.Stop()
+	s.Stop()
 }
 
 func TestGnmiSetReadOnly(t *testing.T) {
 	s := createReadServer(t, 8081)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
@@ -1106,7 +1106,7 @@ func TestGnmiSetReadOnly(t *testing.T) {
 func TestGnmiSetAuthFail(t *testing.T) {
 	s := createAuthServer(t, 8081)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
@@ -1138,7 +1138,7 @@ func TestGnmiSetAuthFail(t *testing.T) {
 func TestGnmiGetAuthFail(t *testing.T) {
 	s := createAuthServer(t, 8081)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
@@ -1469,7 +1469,7 @@ func TestGnmiGet(t *testing.T) {
 
 	runGnmiTestGet(t, ns)
 
-	s.s.Stop()
+	s.Stop()
 }
 func TestGnmiGetMultiNs(t *testing.T) {
 	sdcfg.Init()
@@ -1494,7 +1494,7 @@ func TestGnmiGetMultiNs(t *testing.T) {
 
 	runGnmiTestGet(t, test_utils.GetMultiNsNamespace())
 
-	s.s.Stop()
+	s.Stop()
 }
 func TestGnmiGetTranslib(t *testing.T) {
 	//t.Log("Start server")
@@ -1636,7 +1636,7 @@ func TestGnmiGetTranslib(t *testing.T) {
 			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
 		})
 	}
-	s.s.Stop()
+	s.Stop()
 }
 
 type tablePathValue struct {
@@ -2739,7 +2739,7 @@ func TestGnmiSubscribe(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	runTestSubscribe(t, ns)
 
-	s.s.Stop()
+	s.Stop()
 }
 func TestGnmiSubscribeMultiNs(t *testing.T) {
 	sdcfg.Init()
@@ -2761,7 +2761,7 @@ func TestGnmiSubscribeMultiNs(t *testing.T) {
 
 	runTestSubscribe(t, test_utils.GetMultiNsNamespace())
 
-	s.s.Stop()
+	s.Stop()
 }
 
 func TestCapabilities(t *testing.T) {
@@ -2804,7 +2804,7 @@ func TestGNOI(t *testing.T) {
 	}
 	s := createServer(t, 8086)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	// prepareDb(t)
 
@@ -2895,7 +2895,7 @@ func TestGNOI(t *testing.T) {
 func TestBundleVersion(t *testing.T) {
 	s := createServer(t, 8087)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	// prepareDb(t)
 
@@ -2955,7 +2955,7 @@ func TestBundleVersion(t *testing.T) {
 func TestBulkSet(t *testing.T) {
 	s := createServer(t, 8088)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	prepareDbTranslib(t)
 
@@ -3074,7 +3074,7 @@ func TestAuthCapabilities(t *testing.T) {
 
 	s := createAuthServer(t, 8089)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	currentUser, _ := user.Current()
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
@@ -3105,7 +3105,7 @@ func TestAuthCapabilities(t *testing.T) {
 func TestTableKeyOnDeletion(t *testing.T) {
     s := createKeepAliveServer(t, 8081)
     go runServer(t, s)
-    defer s.s.Stop()
+    defer s.Stop()
 
     fileName := "../testdata/NEIGH_STATE_TABLE_MAP.txt"
     neighStateTableByte, err := ioutil.ReadFile(fileName)
@@ -3243,7 +3243,7 @@ func TestCPUUtilization(t *testing.T) {
     defer mock.Reset()
     s := createServer(t, 8081)
     go runServer(t, s)
-    defer s.s.Stop()
+    defer s.Stop()
 
     tests := []struct {
         desc    string
@@ -3313,7 +3313,7 @@ func TestCPUUtilization(t *testing.T) {
 func TestClientConnections(t *testing.T) {
     s := createRejectServer(t, 8081)
     go runServer(t, s)
-    defer s.s.Stop()
+    defer s.Stop()
 
     tests := []struct {
         desc    string
@@ -3410,7 +3410,7 @@ func TestClientConnections(t *testing.T) {
 func TestConnectionDataSet(t *testing.T) {
     s := createServer(t, 8081)
     go runServer(t, s)
-    defer s.s.Stop()
+    defer s.Stop()
 
     tests := []struct {
         desc    string
@@ -3479,7 +3479,7 @@ func TestConnectionDataSet(t *testing.T) {
 func TestConnectionsKeepAlive(t *testing.T) {
     s := createKeepAliveServer(t, 8081)
     go runServer(t, s)
-    defer s.s.Stop()
+    defer s.Stop()
 
     tests := []struct {
         desc    string
@@ -3712,7 +3712,7 @@ func TestClient(t *testing.T) {
         // t.Log("END of a TEST")
     }
 
-    s.s.Stop()
+    s.Stop()
 }
 
 func TestTableData2MsiUseKey(t *testing.T) {
@@ -3822,7 +3822,7 @@ print('%s')
 			})
 		}
 	}
-	s.s.Stop()
+	s.Stop()
 }
 
 func TestGNMINative(t *testing.T) {
@@ -3849,7 +3849,7 @@ print('%s')
 
 	s := createServer(t, 8080)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	initFullConfigDb(t, ns)
 	initFullCountersDb(t, ns)
@@ -3881,7 +3881,7 @@ print('%s')
 			t.Errorf("GNMI get counter should not be 0")
 		}
 	}
-	s.s.Stop()
+	s.Stop()
 }
 
 func TestServerPort(t *testing.T) {
@@ -3890,7 +3890,14 @@ func TestServerPort(t *testing.T) {
 	if port != 0 {
 		t.Errorf("Invalid port: %d", port)
 	}
-	s.s.Stop()
+	s.Stop()
+}
+
+func TestNilServerStop(t *testing.T) {
+	// Create a server with nil grpc server, such that s.Stop is called with nil value 
+	t.Log("Expecting s.Stop to log error as server is nil")
+	s := &Server{}
+	s.Stop()
 }
 
 func TestInvalidServer(t *testing.T) {
@@ -3933,7 +3940,7 @@ func TestMasterArbitration(t *testing.T) {
 	// Turn on Master Arbitration
 	s.ReqFromMaster = ReqFromMasterEnabledMA
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	prepareDbTranslib(t)
 
