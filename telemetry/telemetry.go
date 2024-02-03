@@ -250,16 +250,6 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, wg *sync.W
 	log.Flush()
 }
 
-func isFlagPassed(name string) bool {
-	found := false
-	flag.Visit(func(f *flag.Flag) {
-		if f.Name == name {
-			found = true
-		}
-	})
-	return found
-}
-
 func computeSHA512Checksum(file string) {
 	currentTime := time.Now().UTC()
 	f, err := os.Open(file)

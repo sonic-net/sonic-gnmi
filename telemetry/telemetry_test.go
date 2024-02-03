@@ -11,6 +11,9 @@ import (
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/agiledragon/gomonkey/v2"
 	"os"
+	"fmt"
+	log "github.com/golang/glog"
+	testdata "github.com/sonic-net/sonic-gnmi/testdata/tls"
 )
 
 func TestFlags(t *testing.T) {
@@ -137,3 +140,57 @@ func TestStartGNMIServer(t *testing.T) {
 	}
 }
 
+func TestSHA512Checksum(t *testing.T) {
+	testServerCert := "../testdata/testserver.cer"
+	testServerKey := "../testdata/testserver.key"
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testStartGNMIServer", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, cfg, err := setupFlags(fs)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	err = testdata.SaveCertKeyPair(testServerCert, testServerKey)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
+		return tls.Certificate{}, fmt.Errorf("Mock LoadX509KeyPair error")
+	})
+	patches.ApplyFunc(log.Exitf, func(format string, args ...interface{}) {
+		t.Log("Mock of log.Exitf, so we do not exit")
+	})
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+		return &gnmi.Server{}, nil
+	})
+	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
+		return grpc.EmptyServerOption{}
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Serve", func(_ *gnmi.Server) error {
+		return nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
+		return ""
+	})
+
+	wg := &sync.WaitGroup{}
+
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
+	})
+
+	defer patches.Reset()
+
+	wg.Add(1)
+
+	go startGNMIServer(telemetryCfg, cfg, wg)
+
+	wg.Wait()
+
+}
