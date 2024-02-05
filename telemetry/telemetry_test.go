@@ -16,6 +16,25 @@ import (
 	testdata "github.com/sonic-net/sonic-gnmi/testdata/tls"
 )
 
+func TestRunTelemetry(t *testing.T) {
+	telemetryCfg := &TelemetryConfig{}
+	cfg := &gnmi.Config{}
+
+	patches := gomonkey.ApplyFunc(setupFlags, func(*flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
+		return telemetryCfg, cfg, nil
+	})
+	patches.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, wg *sync.WaitGroup) {
+		defer wg.Done()
+	})
+	defer patches.Reset()
+
+	args := []string{"test"}
+	err := runTelemetry(args)
+	if err != nil {
+		t.Errorf("Expected err to be nil, but got %v", err)
+	}
+}
+
 func TestFlags(t *testing.T) {
 	originalArgs := os.Args
 	defer func() {
