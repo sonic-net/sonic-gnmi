@@ -17,12 +17,65 @@ limitations under the License.
 package tls
 
 import (
+	"os"
 	"crypto/tls"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"testing"
 )
+
+func TestSaveCertKeyPairAndUse(t *testing.T) {
+	certPath, err := ioutil.TempFile("", "cert.pem")
+	if err != nil {
+		t.Fatalf("Unable to create temp file for certificate: %v", err)
+	}
+	defer os.Remove(certPath.Name())
+
+	keyPath, err := ioutil.TempFile("", "key.pem")
+	if err != nil {
+		t.Fatalf("Unable to create temp file for key: %v", err)
+	}
+	defer os.Remove(keyPath.Name())
+
+	if err := SaveCertKeyPair(certPath.Name(), keyPath.Name()); err != nil {
+		t.Fatalf("SaveCertKeyPair failed: %v", err)
+	}
+
+	cert, err := tls.LoadX509KeyPair(certPath.Name(), keyPath.Name())
+	if err != nil {
+		t.Fatalf("Unable to load cert and key pair: %v", err)
+	}
+
+	// Check that cert is valid by making a dummy connection.
+	l, err := tls.Listen("tcp", fmt.Sprint(":0"), &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	go func() {
+		// Just accept the connection to unblock Dial below.
+		con, err := l.Accept()
+		if err != nil {
+			t.Error(err)
+		}
+		io.Copy(ioutil.Discard, con)
+	}()
+
+	con, err := tls.Dial("tcp", l.Addr().String(), &tls.Config{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+
+	if err := con.Handshake(); err != nil {
+		t.Error(err)
+	}
+}
 
 func TestGenCert(t *testing.T) {
 	// Check that generation works at all.
