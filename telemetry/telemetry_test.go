@@ -2,6 +2,8 @@ package main
 
 import (
 	"crypto/tls"
+	"crypto/rsa"
+	"crypto/x509"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"reflect"
@@ -11,6 +13,7 @@ import (
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/agiledragon/gomonkey/v2"
 	"os"
+	"encoding/pem"
 	"fmt"
 	log "github.com/golang/glog"
 	testdata "github.com/sonic-net/sonic-gnmi/testdata/tls"
@@ -159,6 +162,41 @@ func TestStartGNMIServer(t *testing.T) {
 	}
 }
 
+// Generate a new TLS cert using NewCert and save key pair to specified file path
+func saveCertKeyPair(certPath, keyPath string) error {
+	cert, err := testdata.NewCert()
+	if err != nil {
+		return err
+	}
+
+	certBytes := cert.Certificate[0]
+	keyBytes := x509.MarshalPKCS1PrivateKey(cert.PrivateKey.(*rsa.PrivateKey))
+
+	// Save the certificate
+	certFile, err := os.Create(certPath)
+	if err != nil {
+		return err
+	}
+	defer certFile.Close()
+
+	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certBytes}); err != nil {
+		return err
+	}
+
+	// Save key
+	keyFile, err := os.Create(keyPath)
+	if err != nil {
+		return err
+	}
+	defer keyFile.Close()
+
+	if err := pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyBytes}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func TestSHA512Checksum(t *testing.T) {
 	testServerCert := "../testdata/testserver.cer"
 	testServerKey := "../testdata/testserver.key"
@@ -175,7 +213,7 @@ func TestSHA512Checksum(t *testing.T) {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
-	err = testdata.SaveCertKeyPair(testServerCert, testServerKey)
+	err = saveCertKeyPair(testServerCert, testServerKey)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}

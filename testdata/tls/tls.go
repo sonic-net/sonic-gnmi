@@ -19,7 +19,6 @@ limitations under the License.
 package tls
 
 import (
-	"os"
 	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
@@ -30,41 +29,6 @@ import (
 	"math/big"
 	"time"
 )
-
-// Generate a new TLS cert using NewCert and save key pair to specified file path
-func SaveCertKeyPair(certPath, keyPath string) error {
-	cert, err := NewCert()
-	if err != nil {
-		return err
-	}
-
-	certBytes := cert.Certificate[0]
-	keyBytes := x509.MarshalPKCS1PrivateKey(cert.PrivateKey.(*rsa.PrivateKey))
-
-	// Save the certificate
-	certFile, err := os.Create(certPath)
-	if err != nil {
-		return err
-	}
-	defer certFile.Close()
-
-	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certBytes}); err != nil {
-		return err
-	}
-
-	// Save key
-	keyFile, err := os.Create(keyPath)
-	if err != nil {
-		return err
-	}
-	defer keyFile.Close()
-
-	if err := pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyBytes}); err != nil {
-		return err
-	}
-
-	return nil
-}
 
 // NewCert will create a new tls.Certificate for use in testing.
 // This cert is self signed and must not be used in production code.
