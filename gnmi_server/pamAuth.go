@@ -1,12 +1,13 @@
 package gnmi
 
 import (
-	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/Azure/sonic-telemetry/common_utils"
 	"errors"
+	"strings"
 	"github.com/golang/glog"
 	"github.com/msteinert/pam"
 	"golang.org/x/crypto/ssh"
-	"os/user"
+	"github.com/Azure/sonic-mgmt-common/translib/transformer"
 )
 
 type UserCredential struct {
@@ -46,32 +47,30 @@ func PAMAuthUser(u string, p string) error {
 	err := cred.PAMAuthenticate()
 	return err
 }
-func GetUserRoles(usr *user.User) ([]string, error) {
-	// Lookup Roles
-	gids, err := usr.GroupIds()
-	if err != nil {
-		return nil, err
-	}
-	roles := make([]string, len(gids))
-	for idx, gid := range gids {
-		group, err := user.LookupGroupId(gid)
-		if err != nil {
-			return nil, err
+func GetUserRoles(username string) ([]string, error) {
+	// Lookup Roles using Dbus
+	var cmd string
+	cmd = "user_auth_mgmt.retrieve_user_roles"
+	host_output := transformer.HostQuery(cmd, username)
+	if host_output.Err != nil {
+		glog.Errorf("System user roles host query failed")
+		return nil,errors.New("Failed to retrieve user roles")
+	} else {
+		if val, _ := host_output.Body[0].(int32); val == 0 {
+			glog.Infof("Roles retrieved from host")
+			roles := strings.Split(host_output.Body[1].(string), ",")
+			return roles,nil
+		} else {
+			glog.Errorf("Invalid User. no roles")
+			return nil,errors.New(host_output.Body[1].(string))
 		}
-		roles[idx] = group.Name
 	}
-	return roles, nil
 }
 func PopulateAuthStruct(username string, auth *common_utils.AuthInfo, r []string) error {
 	if len(r) == 0 {
 		AuthLock.Lock()
 		defer AuthLock.Unlock()
-		usr, err := user.Lookup(username)
-		if err != nil {
-			return err
-		}
-
-		roles, err := GetUserRoles(usr)
+		roles,err := GetUserRoles(username)
 		if err != nil {
 			return err
 		}

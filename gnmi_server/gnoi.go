@@ -15,7 +15,6 @@ import (
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/codes"
-	"os/user"
 	"encoding/json"
 	jwt "github.com/dgrijalva/jwt-go"
 )
@@ -129,19 +128,18 @@ func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRe
 	log.V(1).Info("gNOI: Sonic Authenticate")
 
 
-	if !srv.config.UserAuth.Enabled("jwt") {
+	if srv.config.UserAuth.Enabled("jwt") {
+		log.V(1).Info("gNOI: Sonic Authenticate - JWT enabled")
+	} else {
+		log.V(1).Info("gNOI: Sonic Authenticate - JWT not enabled"
 		return nil, status.Errorf(codes.Unimplemented, "")
 	}
 	auth_success, _ := UserPwAuth(req.Username, req.Password)
 	if  auth_success {
-		usr, err := user.Lookup(req.Username)
+		roles, err := GetUserRoles(req.Username)
 		if err == nil {
-			roles, err := GetUserRoles(usr)
-			if err == nil {
-				return &spb_jwt.AuthenticateResponse{Token: tokenResp(req.Username, roles)}, nil
-			}
+			return &spb_jwt.AuthenticateResponse{Token: tokenResp(req.Username, roles)}, nil
 		}
-		
 	}
 	return nil, status.Errorf(codes.PermissionDenied, "Invalid Username or Password")
 
@@ -159,6 +157,7 @@ func (srv *Server) Refresh(ctx context.Context, req *spb_jwt.RefreshRequest) (*s
 
 	token, _, err := JwtAuthenAndAuthor(ctx)
 	if err != nil {
+		log.Errorf("gNOI: Sonic Refresh - JWTAuthenandAuthor returned error")
 		return nil, err
 	}
 

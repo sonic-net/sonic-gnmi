@@ -11,6 +11,15 @@
  }
 --- ./github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go	2019-11-22 14:03:29.839103602 -0800
 +++ ./github.com/openconfig/gnmi/cmd/gnmi_cli/gnmi_cli.go	2019-11-21 09:30:52.453893674 -0800
+@@ -61,7 +61,7 @@
+
+	clientTypes = flags.NewStringList(&cfg.ClientTypes, []string{gclient.Type})
+	queryFlag   = &flags.StringList{}
+-	queryType   = flag.String("query_type", client.Once.String(), "Type of result, one of: (o, once, p, polling, s, streaming).")
++	queryType   = flag.String("query_type", "", "Type of result, one of: (p, polling, s, streaming).")
+	queryAddr   = flags.NewStringList(&q.Addrs, nil)
+
+	reqProto = flag.String("proto", "", "Text proto for gNMI request.")
 @@ -76,6 +76,11 @@
  	caCert     = flag.String("ca_crt", "", "CA certificate file. Used to verify server TLS certificate.")
  	clientCert = flag.String("client_crt", "", "Client certificate file. Used for client certificate-based authentication.")
@@ -23,7 +32,23 @@
  )
  
  func init() {
-@@ -278,6 +283,22 @@
+@@ -83,7 +88,7 @@ func init() {
+ 	flag.Var(queryFlag, "query", "Comma separated list of queries.  Each query is a delimited list of OpenConfig path nodes which may also be specified as a glob (*).  The delimeter can be specified with the --delimiter flag.")
+ 	// Query command-line flags.
+ 	flag.Var(queryAddr, "address", "Address of the GNMI target to query.")
+-	flag.BoolVar(&q.UpdatesOnly, "updates_only", false, "Only stream updates, not the initial sync. Setting this flag for once or polling queries will cause nothing to be returned.")
++	flag.BoolVar(&q.UpdatesOnly, "updates_only", false, "Only stream updates, not the initial sync. Setting this flag for polling queries will cause nothing to be returned.")
+ 	// Config command-line flags.
+ 	flag.DurationVar(&cfg.PollingInterval, "polling_interval", 30*time.Second, "Interval at which to poll in seconds if polling is specified for query_type.")
+ 	flag.UintVar(&cfg.Count, "count", 0, "Number of polling/streaming events (0 is infinite).")
+@@ -272,12 +277,28 @@ func executeSubscribe(ctx context.Context) error {
+ 	}
+	
+ 	if q.Type = cli.QueryType(*queryType); q.Type == client.Unknown {
+-		return errors.New("--query_type must be one of: (o, once, p, polling, s, streaming)")
++		return errors.New("--query_type must be one of: (p, polling, s, streaming)")
+ 	}
+ 	// Parse queryFlag into appropriate format.
  	if len(*queryFlag) == 0 {
  		return errors.New("--query must be set")
  	}
