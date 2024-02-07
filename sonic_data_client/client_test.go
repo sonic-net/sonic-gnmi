@@ -309,28 +309,29 @@ func TestJsonRemoveNegative(t *testing.T) {
 	}
 }
 
-func TestParseTarget(t *testing.T) {
+func TestParseDatabase(t *testing.T) {
 	var test_paths []*gnmipb.Path
+	var prefix *gnmipb.Path
 	var err error
 
-	_, err = ParseTarget("test", test_paths)
-	if err != nil {
-		t.Errorf("ParseTarget failed for empty path: %v", err)
+	client := MixedDbClient {
+		namespace_cnt : 1,
+		container_cnt : 1,
+	}
+	_, _, err = client.ParseDatabase(prefix, test_paths)
+	if err == nil {
+		t.Errorf("ParseDatabase should fail for empty path: %v", err)
 	}
 
 	test_target := "TEST_DB"
 	path, err := xpath.ToGNMIPath("sonic-db:" + test_target + "/VLAN")
 	test_paths = append(test_paths, path)
-	target, err := ParseTarget("", test_paths)
+	target, _, err := client.ParseDatabase(prefix, test_paths)
 	if err != nil {
-		t.Errorf("ParseTarget failed to get target: %v", err)
+		t.Errorf("ParseDatabase failed to get target: %v", err)
 	}
 	if target != test_target {
-		t.Errorf("ParseTarget return wrong target: %v", target)
-	}
-	target, err = ParseTarget("INVALID_DB", test_paths)
-	if err == nil {
-		t.Errorf("ParseTarget should fail for conflict")
+		t.Errorf("ParseDatabase return wrong target: %v", target)
 	}
 }
 
@@ -386,20 +387,20 @@ func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) (bool) {
 
 func TestZmqReconnect(t *testing.T) {
 	// create ZMQ server
-	db := swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false)
+	db := swsscommon.NewDBConnector("APPL_DB", SWSS_TIMEOUT, false)
 	zmqServer := swsscommon.NewZmqServer("tcp://*:1234")
 	var TEST_TABLE string = "DASH_ROUTE"
-    consumer := swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
+	consumer := swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
 
 	// create ZMQ client side
 	zmqAddress := "tcp://127.0.0.1:1234"
 	client := MixedDbClient {
-		applDB : swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
+		applDB : swsscommon.NewDBConnector("APPL_DB", SWSS_TIMEOUT, false),
 		tableMap : map[string]swsscommon.ProducerStateTable{},
 		zmqClient : swsscommon.NewZmqClient(zmqAddress),
 	}
 
-    data := map[string]string{}
+	data := map[string]string{}
 	var TEST_KEY string = "TestKey"
 	client.DbSetTable(TEST_TABLE, TEST_KEY, data)
 	if !ReceiveFromZmq(consumer) {
@@ -407,10 +408,10 @@ func TestZmqReconnect(t *testing.T) {
 	}
 
 	// recreate ZMQ server to trigger re-connect
-    swsscommon.DeleteZmqConsumerStateTable(consumer)
+	swsscommon.DeleteZmqConsumerStateTable(consumer)
 	swsscommon.DeleteZmqServer(zmqServer)
 	zmqServer = swsscommon.NewZmqServer("tcp://*:1234")
-    consumer = swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
+	consumer = swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
 
 	// send data again, client will reconnect
 	client.DbSetTable(TEST_TABLE, TEST_KEY, data)

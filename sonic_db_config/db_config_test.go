@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/agiledragon/gomonkey/v2"
 )
 
@@ -185,3 +186,161 @@ func TestGetDbMultiNs(t *testing.T) {
 	})
 }
 
+func TestGetDbMultiInstance(t *testing.T) {
+	Init()
+	err := test_utils.SetupMultiInstance()
+	if err != nil {
+		t.Fatalf("error Setting up MultiInstance files with err %T", err)
+	}
+
+	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
+	t.Cleanup(func() {
+		if err := test_utils.CleanUpMultiInstance(); err != nil {
+			t.Fatalf("error Cleaning up MultiInstance files with err %T", err)
+		}
+	})
+	dbkey := swsscommon.NewSonicDBKey()
+	dbkey.SetContainerName("dpu0")
+	t.Run("Id", func(t *testing.T) {
+		db_id, _ := GetDbIdByDBKey("DPU_APPL_DB", dbkey)
+		if db_id != 15 {
+			t.Fatalf(`Id("") = %d, want 4, error`, db_id)
+		}
+	})
+	t.Run("Sock", func(t *testing.T) {
+		sock_path, _ := GetDbSockByDBKey("CONFIG_DB", dbkey)
+		if sock_path != "/var/run/redis0/redis.sock" {
+			t.Fatalf(`Sock("") = %q, want "/var/run/redis0/redis.sock", error`, sock_path)
+		}
+	})
+	default_dbkey, _ := GetDbDefaultInstance()
+	t.Run("AllInstances", func(t *testing.T) {
+		dbkey_list, _ := GetDbAllInstances()
+		if len(dbkey_list) != 2 {
+			t.Fatalf(`AllInstances("") = %q, want "2", error`, len(dbkey_list))
+		}
+		default_container := default_dbkey.GetContainerName()
+		container0 := dbkey_list[0].GetContainerName()
+		container1 := dbkey_list[1].GetContainerName()
+		if container0 == default_container {
+			if container1 != "dpu0" {
+				t.Fatalf(`AllInstances("") = %q %q, want default and dpu0, error`, container0, container1)
+			}
+		} else if container0 == "dpu0" {
+			if container1 != default_container {
+				t.Fatalf(`AllInstances("") = %q %q, want default and dpu0, error`, container0, container1)
+			}
+		} else {
+			t.Fatalf(`AllInstances("") = %q %q, want default and dpu0, error`, container0, container1)
+		}
+	})
+	t.Run("TcpAddr", func(t *testing.T) {
+		tcp_addr, _ := GetDbTcpAddrByDBKey("CONFIG_DB", dbkey)
+		if tcp_addr != "127.0.0.1:6379" {
+			t.Fatalf(`TcpAddr("") = %q, want 127.0.0.1:6379, error`, tcp_addr)
+		}
+	})
+	t.Run("AllAPI", func(t *testing.T) {
+		Init()
+		_, err = CheckDbMultiInstance()
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbNonDefaultInstances()
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbListByDBKey(dbkey)
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbSeparatorByDBKey("CONFIG_DB", dbkey)
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbSockByDBKey("CONFIG_DB", dbkey)
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbHostNameByDBKey("CONFIG_DB", dbkey)
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbPortByDBKey("CONFIG_DB", dbkey)
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbTcpAddrByDBKey("CONFIG_DB", dbkey)
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		err = DbInit()
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+	})
+	t.Run("AllAPIError", func(t *testing.T) {
+		mock1 := gomonkey.ApplyFunc(DbInit, func() (err error) {
+			return fmt.Errorf("Test api error")
+		})
+		defer mock1.Reset()
+		var err error
+		Init()
+		_, err = CheckDbMultiInstance()
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbNonDefaultInstances()
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbAllInstances()
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbListByDBKey(dbkey)
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbSeparatorByDBKey("CONFIG_DB", dbkey)
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbIdByDBKey("CONFIG_DB", dbkey)
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbSockByDBKey("CONFIG_DB", dbkey)
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbHostNameByDBKey("CONFIG_DB", dbkey)
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbPortByDBKey("CONFIG_DB", dbkey)
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbTcpAddrByDBKey("CONFIG_DB", dbkey)
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+	})
+}
