@@ -249,5 +249,4 @@ func TestSHA512Checksum(t *testing.T) {
 	go startGNMIServer(telemetryCfg, cfg, wg)
 
 	wg.Wait()
-
 }
