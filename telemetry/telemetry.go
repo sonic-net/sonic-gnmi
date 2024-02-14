@@ -10,6 +10,8 @@ import (
 	"io/ioutil"
 	"time"
 	"os"
+	"os/signal"
+	"syscall"
 	"sync"
 	log "github.com/golang/glog"
 	"google.golang.org/grpc"
@@ -55,9 +57,17 @@ func runTelemetry(args []string) error {
 	}
 
 	var wg sync.WaitGroup
+	// serverControlSignal channel is a channel that will be used to notify gnmi server of sigcall which should stop server
+	var serverControlSignal = make(chan int, 1)
+	var sigchannel := make(chan os.Signal, 1)
+	signal.Notify(sigchannel, syscall.SIGTERM, syscall.SIGQUIT)
 
 	wg.Add(1)
-	go startGNMIServer(telemetryCfg, cfg, &wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, &wg)
+
+	wg.Add(1)
+	go signalHandler(serverControlSignal, &wg, sigchannel)
+
 	wg.Wait()
 	return nil
 }
@@ -147,6 +157,14 @@ func isFlagPassed(fs *flag.FlagSet, name string) bool {
 		}
 	})
 	return found
+}
+
+func signalHandler(signalControlSignal chan<- int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
+	defer wg.Done()
+	select {
+	case <-sigchannel:
+		signalControlSignal <- 0
+	}
 }
 
 func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, wg *sync.WaitGroup) {
@@ -245,7 +263,13 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, wg *sync.W
 
 	log.V(1).Infof("Auth Modes: %v", telemetryCfg.UserAuth)
 	log.V(1).Infof("Starting RPC server on address: %s", s.Address())
-	s.Serve() // blocks until closed
+	go func() {
+		if err := s.Serve(); err != nil {
+			log.Errorf("Serve returned with err: %v", err)
+		}
+	}()
+	<-serverControlSignal
+	log.V(1).Infof("Received signal for gnmi server to close")
 	s.Stop()
 	log.Flush()
 }
