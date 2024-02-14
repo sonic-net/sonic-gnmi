@@ -159,15 +159,15 @@ func isFlagPassed(fs *flag.FlagSet, name string) bool {
 	return found
 }
 
-func signalHandler(signalControlSignal chan<- int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
+func signalHandler(serverControlSignal chan<- int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
 	defer wg.Done()
 	select {
 	case <-sigchannel:
-		signalControlSignal <- 0
+		serverControlSignal <- 0
 	}
 }
 
-func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, wg *sync.WaitGroup) {
+func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal chan<- int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var opts []grpc.ServerOption
 	if !*telemetryCfg.NoTLS {
