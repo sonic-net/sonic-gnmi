@@ -59,7 +59,7 @@ func runTelemetry(args []string) error {
 	var wg sync.WaitGroup
 	// serverControlSignal channel is a channel that will be used to notify gnmi server of sigcall which should stop server
 	var serverControlSignal = make(chan int, 1)
-	var sigchannel := make(chan os.Signal, 1)
+	sigchannel := make(chan os.Signal, 1)
 	signal.Notify(sigchannel, syscall.SIGTERM, syscall.SIGQUIT)
 
 	wg.Add(1)
