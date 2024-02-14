@@ -167,7 +167,7 @@ func signalHandler(serverControlSignal chan<- int, wg *sync.WaitGroup, sigchanne
 	}
 }
 
-func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal chan<- int, wg *sync.WaitGroup) {
+func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal <-chan int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var opts []grpc.ServerOption
 	if !*telemetryCfg.NoTLS {
