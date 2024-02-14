@@ -29,7 +29,10 @@ func TestRunTelemetry(t *testing.T) {
 	patches := gomonkey.ApplyFunc(setupFlags, func(*flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		return telemetryCfg, cfg, nil
 	})
-	patches.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, wg *sync.WaitGroup) {
+	patches.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, serverControlSignal <-chan int, wg *sync.WaitGroup) {
+		defer wg.Done()
+	})
+	patches.ApplyFunc(signalHandler, func(serverControlSignal chan<- int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
 		defer wg.Done()
 	})
 	defer patches.Reset()
@@ -163,7 +166,7 @@ func TestStartGNMIServer(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, wg)
 
 	select {
 	case <-tick.C: // Simulate shutdown
@@ -255,6 +258,7 @@ func TestSHA512Checksum(t *testing.T) {
 		return ""
 	})
 
+	serverControlSignal := make(chan int, 1)
 	wg := &sync.WaitGroup{}
 
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
@@ -264,7 +268,7 @@ func TestSHA512Checksum(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, wg)
 
 	wg.Wait()
 }
