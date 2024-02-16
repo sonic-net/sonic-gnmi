@@ -1401,7 +1401,7 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 		// Happy path
 		createBuildVersionTestCase(
 			"get osversion/build",                                  // query path
-			`{"build_version": "sonic.12345678.90", "error":""}`,   // expected response
+			`{"build_version": "SONiC.12345678.90", "error":""}`,   // expected response
 			"build_version: '12345678.90'\ndebian_version: '9.13'", // YAML file content
 			nil), // mock file reading error
 
@@ -1422,7 +1422,7 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 		// Happy path with different value
 		createBuildVersionTestCase(
 			"get osversion/build different value",
-			`{"build_version": "sonic.23456789.01", "error":""}`,
+			`{"build_version": "SONiC.23456789.01", "error":""}`,
 			"build_version: '23456789.01'\ndebian_version: '9.15'",
 			nil),
 	}
