@@ -263,11 +263,13 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 
 	log.V(1).Infof("Auth Modes: %v", telemetryCfg.UserAuth)
 	log.V(1).Infof("Starting RPC server on address: %s", s.Address())
+
 	go func() {
 		if err := s.Serve(); err != nil {
 			log.Errorf("Serve returned with err: %v", err)
 		}
 	}()
+
 	<-serverControlSignal
 	log.V(1).Infof("Received signal for gnmi server to close")
 	s.Stop()
