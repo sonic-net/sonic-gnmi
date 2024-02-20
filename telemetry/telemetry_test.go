@@ -134,6 +134,7 @@ func TestStartGNMIServer(t *testing.T) {
 	fs := flag.NewFlagSet("testStartGNMIServer", flag.ContinueOnError)
 	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
 	telemetryCfg, cfg, err := setupFlags(fs)
+
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
