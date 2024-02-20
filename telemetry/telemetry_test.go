@@ -236,6 +236,7 @@ func TestSHA512Checksum(t *testing.T) {
 	}
 
 	err = saveCertKeyPair(testServerCert, testServerKey)
+
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
