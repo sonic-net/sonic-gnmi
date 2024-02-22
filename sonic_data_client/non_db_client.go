@@ -322,7 +322,7 @@ func getBuildVersion() ([]byte, error) {
 
 		// Prepend 'sonic.' to the build version string.
 		if versionFileStash.versionInfo.BuildVersion != "sonic.NA" {
-			versionFileStash.versionInfo.BuildVersion = "sonic." + versionFileStash.versionInfo.BuildVersion
+			versionFileStash.versionInfo.BuildVersion = "SONiC." + versionFileStash.versionInfo.BuildVersion
 		}
 	})
 
