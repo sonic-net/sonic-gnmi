@@ -278,6 +278,11 @@ func TestSHA512Checksum(t *testing.T) {
 }
 
 func TestSignalHandler(t *testing.T) {
+	testHandlerSyscall(t, syscall.SIGTERM)
+	testHandlerSyscall(t, syscall.SIGQUIT)
+}
+
+func testHandlerSyscall(t *testing.T, signal os.Signal) {
 	timeoutInterval := 1
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
 	defer cancel()
@@ -290,7 +295,7 @@ func TestSignalHandler(t *testing.T) {
 
 	go signalHandler(serverControlSignal, wg, testSigChan)
 
-	testSigChan <- syscall.SIGTERM
+	testSigChan <- signal
 
 	select {
 	case val := <-serverControlSignal:
