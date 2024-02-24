@@ -13,6 +13,9 @@ import (
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/agiledragon/gomonkey/v2"
 	"os"
+	"syscall"
+	"time"
+	"context"
 	"encoding/pem"
 	"fmt"
 	log "github.com/golang/glog"
@@ -26,7 +29,10 @@ func TestRunTelemetry(t *testing.T) {
 	patches := gomonkey.ApplyFunc(setupFlags, func(*flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		return telemetryCfg, cfg, nil
 	})
-	patches.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, wg *sync.WaitGroup) {
+	patches.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, serverControlSignal <-chan int, wg *sync.WaitGroup) {
+		defer wg.Done()
+	})
+	patches.ApplyFunc(signalHandler, func(serverControlSignal chan<- int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
 		defer wg.Done()
 	})
 	defer patches.Reset()
@@ -113,6 +119,12 @@ func TestFlags(t *testing.T) {
 func TestStartGNMIServer(t *testing.T) {
 	testServerCert := "../testdata/testserver.cer"
 	testServerKey := "../testdata/testserver.key"
+	timeoutInterval := 3
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
+	defer cancel()
 
 	originalArgs := os.Args
 	defer func() {
@@ -122,6 +134,7 @@ func TestStartGNMIServer(t *testing.T) {
 	fs := flag.NewFlagSet("testStartGNMIServer", flag.ContinueOnError)
 	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
 	telemetryCfg, cfg, err := setupFlags(fs)
+
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
@@ -142,6 +155,7 @@ func TestStartGNMIServer(t *testing.T) {
 		return ""
 	})
 
+	serverControlSignal := make(chan int, 1)
 	wg := &sync.WaitGroup{}
 
 	exitCalled := false
@@ -153,7 +167,15 @@ func TestStartGNMIServer(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, wg)
+
+	select {
+	case <-tick.C: // Simulate shutdown
+		sendShutdownSignal(serverControlSignal)
+	case <-ctx.Done():
+		t.Errorf("Failed to send shutdown signal")
+		return
+	}
 
 	wg.Wait()
 
@@ -214,6 +236,7 @@ func TestSHA512Checksum(t *testing.T) {
 	}
 
 	err = saveCertKeyPair(testServerCert, testServerKey)
+
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
@@ -237,6 +260,7 @@ func TestSHA512Checksum(t *testing.T) {
 		return ""
 	})
 
+	serverControlSignal := make(chan int, 1)
 	wg := &sync.WaitGroup{}
 
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
@@ -246,7 +270,46 @@ func TestSHA512Checksum(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, wg)
+
+	sendShutdownSignal(serverControlSignal)
 
 	wg.Wait()
+}
+
+func TestSignalHandler(t *testing.T) {
+	testHandlerSyscall(t, syscall.SIGTERM)
+	testHandlerSyscall(t, syscall.SIGQUIT)
+}
+
+func testHandlerSyscall(t *testing.T, signal os.Signal) {
+	timeoutInterval := 1
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
+	defer cancel()
+
+	serverControlSignal := make(chan int, 1)
+	testSigChan := make(chan os.Signal, 1)
+	wg := &sync.WaitGroup{}
+
+	wg.Add(1)
+
+	go signalHandler(serverControlSignal, wg, testSigChan)
+
+	testSigChan <- signal
+
+	select {
+	case val := <-serverControlSignal:
+		if val != 0 {
+			t.Errorf("Expected 0 from serverControlSignal, got %d", val)
+		}
+	case <-ctx.Done():
+		t.Errorf("Expected a value from serverControlSignal, but got none")
+		return
+	}
+
+	wg.Wait()
+}
+
+func sendShutdownSignal(serverControlSignal chan<- int) {
+	serverControlSignal <- 0
 }
