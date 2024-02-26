@@ -75,6 +75,42 @@ type MixedDbClient struct {
 
 var mixedDbClientMap = map[string]MixedDbClient{}
 
+func getDpuAddress(dpuId string) (string, error) {
+    var configDb = swsscommon.NewDBConnector("CONFIG_DB", SWSS_TIMEOUT, false)
+
+	// Find DPU address by DPU ID from CONFIG_DB
+	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
+
+    // get brdige plane
+    var bridgeTable = swsscommon.NewTable(configDb, "MID_PLANE_BRIDGE")
+	var bridgePlanePtr = new(string)
+    if !bridgeTable.Hget("GLOBAL", "bridge", bridgePlanePtr) {
+        return "", fmt.Errorf("Can't read bridge from MID_PLANE_BRIDGE table")
+    }
+
+    // get DPU interface by DPU ID
+    var dpuTable = swsscommon.NewTable(configDb, "DPUS")
+	var dpuInterfacePtr = new(string)
+    if !dpuTable.Hget(dpuId, "midplane_interface", dpuInterfacePtr) {
+        return "", fmt.Errorf("Can't find interface of dpu:'%s' from DPUS table")
+    }
+
+    // get DPR address by DPU ID and brdige plane
+    var dhcpPortTable = swsscommon.NewTable(configDb, "DHCP_SERVER_IPV4_PORT")
+    var dhcpPortKey = *bridgePlanePtr + "|" + *dpuInterfacePtr
+	var dpuAddressesPtr = new(string)
+    if !dhcpPortTable.Hget(dhcpPortKey, "ips", dpuAddressesPtr) {
+        return "", fmt.Errorf("Can't find address of dpu:'%s' from DHCP_SERVER_IPV4_PORT table")
+    }
+
+	var dpuAddresses = strings.Split(*dpuAddressesPtr, ",")
+    if len(dpuAddresses) == 0 {
+        return "", fmt.Errorf("Can't find address of dpu:'%s' from DHCP_SERVER_IPV4_PORT table")
+    }
+
+    return dpuAddresses[0], nil
+}
+
 func getMixedDbClient(zmqAddress string) (MixedDbClient) {
 	client, ok := mixedDbClientMap[zmqAddress]
 	if !ok {
