@@ -186,6 +186,7 @@ func TestGetDbMultiNs(t *testing.T) {
 	})
 }
 
+// Test db_config API with multiple database
 func TestGetDbMultiInstance(t *testing.T) {
 	Init()
 	err := test_utils.SetupMultiInstance()

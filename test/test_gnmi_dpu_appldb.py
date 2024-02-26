@@ -4,6 +4,7 @@ from utils import gnmi_set, gnmi_get, gnmi_get_with_encoding, gnmi_get_proto
 import pytest
 
 
+# GNMI path for multiple database
 test_data_update_normal = [
     [
         {
@@ -61,6 +62,7 @@ def clear_appl_db(table_name):
             ret, msg = gnmi_set(delete_list, [], [])
             assert ret == 0, msg
 
+# All tests are marked with multidb
 class TestGNMIApplDb:
 
     @pytest.mark.multidb

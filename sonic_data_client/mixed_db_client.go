@@ -31,6 +31,7 @@ import (
 
 const REDIS_SOCK string = "/var/run/redis/redis.sock"
 const APPL_DB int = 0
+// New database for DASH
 const APPL_DB_NAME string = "DPU_APPL_DB"
 const DASH_TABLE_PREFIX string = "DASH_"
 const SWSS_TIMEOUT uint = 0
@@ -68,7 +69,9 @@ type MixedDbClient struct {
 	applDB swsscommon.DBConnector
 	zmqClient swsscommon.ZmqClient
 	tableMap map[string]swsscommon.ProducerStateTable
+	// swsscommon introduced dbkey to support multiple database
 	dbkey swsscommon.SonicDBKey
+	// Convert dbkey to string, namespace:container
 	mapkey string
 	namespace_cnt int
 	container_cnt int
@@ -307,7 +310,7 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 	return target, dbkey, nil
 }
 
-// For testing only
+// Initialize RedisDbMap
 func useRedisTcpClientWithDBKey() error {
 	dbkeys, err := sdcfg.GetDbAllInstances()
 	if err != nil {
@@ -388,6 +391,8 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	if !ok {
 		return nil, status.Errorf(codes.Unimplemented, "Invalid target: %s", client.target)
 	}
+	// If target is DPU_APPL_DB, this is multiple database, create DB connector for DPU
+	// If target is original APPL_DB, create DB connector for backward compatibility
 	if target == APPL_DB_NAME || target == "APPL_DB" {
 		client.applDB = swsscommon.NewDBConnector(target, SWSS_TIMEOUT, false)
 	}
