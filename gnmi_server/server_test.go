@@ -3762,6 +3762,7 @@ print('%s')
 	mock1 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
 	defer mock1.Reset()
 
+	sdcfg.Init()
 	s := createServer(t, 8090)
 	go runServer(t, s)
 
@@ -3847,6 +3848,7 @@ print('%s')
 	mock3 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
 	defer mock3.Reset()
 
+	sdcfg.Init()
 	s := createServer(t, 8080)
 	go runServer(t, s)
 	defer s.Stop()
