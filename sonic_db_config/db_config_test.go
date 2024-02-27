@@ -214,13 +214,12 @@ func TestGetDbMultiInstance(t *testing.T) {
 			t.Fatalf(`Sock("") = %q, want "/var/run/redis0/redis.sock", error`, sock_path)
 		}
 	})
-	default_dbkey, _ := GetDbDefaultInstance()
 	t.Run("AllInstances", func(t *testing.T) {
 		dbkey_list, _ := GetDbAllInstances()
 		if len(dbkey_list) != 2 {
 			t.Fatalf(`AllInstances("") = %q, want "2", error`, len(dbkey_list))
 		}
-		default_container := default_dbkey.GetContainerName()
+		default_container := SONIC_DEFAULT_CONTAINER
 		container0 := dbkey_list[0].GetContainerName()
 		container1 := dbkey_list[1].GetContainerName()
 		if container0 == default_container {

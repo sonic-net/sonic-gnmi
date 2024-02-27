@@ -387,7 +387,7 @@ func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) (bool) {
 
 func TestZmqReconnect(t *testing.T) {
 	// create ZMQ server
-	db := swsscommon.NewDBConnector("APPL_DB", SWSS_TIMEOUT, false)
+	db := swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false)
 	zmqServer := swsscommon.NewZmqServer("tcp://*:1234")
 	var TEST_TABLE string = "DASH_ROUTE"
 	consumer := swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
@@ -395,7 +395,7 @@ func TestZmqReconnect(t *testing.T) {
 	// create ZMQ client side
 	zmqAddress := "tcp://127.0.0.1:1234"
 	client := MixedDbClient {
-		applDB : swsscommon.NewDBConnector("APPL_DB", SWSS_TIMEOUT, false),
+		applDB : swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
 		tableMap : map[string]swsscommon.ProducerStateTable{},
 		zmqClient : swsscommon.NewZmqClient(zmqAddress),
 	}

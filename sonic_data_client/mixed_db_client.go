@@ -32,13 +32,16 @@ import (
 const REDIS_SOCK string = "/var/run/redis/redis.sock"
 const APPL_DB int = 0
 // New database for DASH
-const APPL_DB_NAME string = "DPU_APPL_DB"
+const DPU_APPL_DB_NAME string = "DPU_APPL_DB"
+const APPL_DB_NAME string = "APPL_DB"
 const DASH_TABLE_PREFIX string = "DASH_"
 const SWSS_TIMEOUT uint = 0
 const MAX_RETRY_COUNT uint = 5
 const RETRY_DELAY_MILLISECOND uint = 100
 const RETRY_DELAY_FACTOR uint = 2
 const CHECK_POINT_PATH string = "/etc/sonic"
+const ELEM_INDEX_DATABASE = 0
+const ELEM_INDEX_INSTANCE = 1
 
 const (
     opAdd = iota
@@ -109,8 +112,8 @@ func getMixedDbClient(zmqAddress string) (MixedDbClient) {
 // This function get target present in GNMI Request and
 // returns: Is Db valid (bool)
 func IsTargetDbByDBKey(dbName string, dbkey swsscommon.SonicDBKey) bool {
-	// In multiple namespaces mode, check namespace
-	// In multiple devices mode, check device
+	// For multi-asic device, check namespace
+	// For smartswitch, check container
 	ns := dbkey.GetNetns()
 	container := dbkey.GetContainerName()
 	dbkey, ok := sdcfg.GetDbInstanceFromTarget(ns, container)
@@ -272,22 +275,25 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 			}
 			// Get target from the first element
 			if target == "" {
-				target = elems[0].GetName()
-			} else if target != elems[0].GetName() {
+				target = elems[ELEM_INDEX_DATABASE].GetName()
+			} else if target != elems[ELEM_INDEX_DATABASE].GetName() {
 				return "", nil, status.Error(codes.Unimplemented, "Target conflict in path")
+			}
+			if c.namespace_cnt > 1 && c.container_cnt > 1 {
+				return "", nil, status.Error(codes.Unimplemented, "Multiple namespaces and containers are not supported")
 			}
 			if c.namespace_cnt > 1 {
 				// Get namespace from the second element
 				if namespace == sdcfg.SONIC_DEFAULT_NAMESPACE {
-					namespace = elems[1].GetName()
-				} else if namespace != elems[1].GetName() {
+					namespace = elems[ELEM_INDEX_INSTANCE].GetName()
+				} else if namespace != elems[ELEM_INDEX_INSTANCE].GetName() {
 					return "", nil, status.Error(codes.Unimplemented, "Namespace conflict in path")
 				}
 			} else if c.container_cnt > 1 {
 				// Get container from the second element
 				if container == sdcfg.SONIC_DEFAULT_CONTAINER {
-					container = elems[1].GetName()
-				} else if container != elems[1].GetName() {
+					container = elems[ELEM_INDEX_INSTANCE].GetName()
+				} else if container != elems[ELEM_INDEX_INSTANCE].GetName() {
 					return "", nil, status.Error(codes.Unimplemented, "Container conflict in path")
 				}
 			}
@@ -389,11 +395,12 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	}
 	ok := IsTargetDbByDBKey(target, dbkey)
 	if !ok {
-		return nil, status.Errorf(codes.Unimplemented, "Invalid target: %s", client.target)
+		return nil, status.Errorf(codes.Unimplemented, "Invalid target: ns %s, container %s",
+								dbkey.GetNetns(), dbkey.GetContainerName())
 	}
 	// If target is DPU_APPL_DB, this is multiple database, create DB connector for DPU
 	// If target is original APPL_DB, create DB connector for backward compatibility
-	if target == APPL_DB_NAME || target == "APPL_DB" {
+	if target == DPU_APPL_DB_NAME || target == APPL_DB_NAME {
 		client.applDB = swsscommon.NewDBConnector(target, SWSS_TIMEOUT, false)
 	}
 	client.target = target
@@ -422,20 +429,9 @@ func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) *gnmipb.Path {
 		if prefix != nil {
 			elems = append(prefix.GetElem(), elems...)
 		}
-		if c.namespace_cnt > 1 || c.container_cnt > 1 {
-			// Skip first two elem for multi-namespace and multi-container
-			fullPath.Elem = elems[2:]
-		} else {
-			// Support old GNMI path schema and new GNMI path schema
-			// For device only have 1 namespace and 1 container
-			// Old GNMI path schema, /CONFIG_DB/localhost/PORT
-			// New GNMI path schema, /CONFIG_DB/PORT
-			if len(elems) >= 2 && elems[1].GetName() == "localhost" {
-				fullPath.Elem = elems[2:]
-			} else {
-				fullPath.Elem = elems[1:]
-			}
-		}
+		// Skip first two elem
+		// New GNMI path schema, /CONFIG_DB/localhost/PORT
+		fullPath.Elem = elems[2:]
 	}
 	return fullPath
 }
@@ -1260,7 +1256,7 @@ func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Upd
 func (c *MixedDbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	if c.target == "CONFIG_DB" {
 		return c.SetConfigDB(delete, replace, update)
-	} else if c.target == APPL_DB_NAME || c.target == "APPL_DB" {
+	} else if c.target == DPU_APPL_DB_NAME || c.target == APPL_DB_NAME {
 		// Use DPU_APPL_DB database for DASH
 		// Keep APPL_DB for backward compatibility
 		return c.SetDB(delete, replace, update)

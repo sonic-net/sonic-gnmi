@@ -195,13 +195,6 @@ func GetDbTcpAddr(db_name string, ns string) (addr string, err error) {
 	return hostname + ":" + strconv.Itoa(port), err
 }
 
-func GetDbDefaultInstance() (dbkey swsscommon.SonicDBKey, err error) {
-	dbkey = swsscommon.NewSonicDBKey()
-	dbkey.SetNetns(SONIC_DEFAULT_NAMESPACE)
-	dbkey.SetContainerName(SONIC_DEFAULT_CONTAINER)
-	return dbkey, nil
-}
-
 func CheckDbMultiInstance() (ret bool, err error) {
 	if !sonic_db_init {
 		err = DbInit()
@@ -256,16 +249,14 @@ func GetDbAllInstances() (dbkey_list []swsscommon.SonicDBKey, err error) {
 }
 
 func GetDbInstanceFromTarget(ns string, container string) (dbkey swsscommon.SonicDBKey, ret bool) {
-	dbkey_list, err := GetDbAllInstances()
+	dbkey = swsscommon.NewSonicDBKey()
+	dbkey.SetNetns(ns)
+	dbkey.SetContainerName(container)
+	_, err := GetDbListByDBKey(dbkey)
 	if err != nil {
 		return nil, false
 	}
-	for _, dbkey := range dbkey_list {
-		if dbkey.GetNetns() == ns && dbkey.GetContainerName() == container {
-			return dbkey, true
-		}
-	}
-	return nil, false
+	return dbkey, true
 }
 
 func GetDbListByDBKey(dbkey swsscommon.SonicDBKey) (db_list []string, err error) {
