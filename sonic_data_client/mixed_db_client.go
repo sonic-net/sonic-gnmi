@@ -75,6 +75,22 @@ type MixedDbClient struct {
 
 var mixedDbClientMap = map[string]MixedDbClient{}
 
+func hget(table swsscommon.Table, key string, field string) (string, error) {
+	var fieldValuePairs = swsscommon.NewFieldValuePairs()
+	var result = table.Get(key, fieldValuePairs)
+    if result {
+		var fieldCount = int(fieldValuePairs.Size())
+		for idx := 0; idx <= fieldCount; idx++ {
+			var pair = fieldValuePairs.Get(idx)
+			if pair.GetFirst() == field {
+				return pair.GetSecond(), nil
+			}
+		}
+    }
+
+	return "", fmt.Errorf("Can't read {%s}:{%s} from {%s} table", key, field, table.GetTableName())
+}
+
 func getDpuAddress(dpuId string) (string, error) {
     var configDb = swsscommon.NewDBConnector("CONFIG_DB", SWSS_TIMEOUT, false)
 
@@ -83,32 +99,32 @@ func getDpuAddress(dpuId string) (string, error) {
 
     // get brdige plane
     var bridgeTable = swsscommon.NewTable(configDb, "MID_PLANE_BRIDGE")
-	var bridgePlanePtr = new(string)
-    if !bridgeTable.Hget("GLOBAL", "bridge", bridgePlanePtr) {
-        return "", fmt.Errorf("Can't read bridge from MID_PLANE_BRIDGE table")
+	bridgePlane, err := hget(bridgeTable, "GLOBAL", "bridge");
+    if err != nil {
+        return "", err
     }
 
     // get DPU interface by DPU ID
     var dpuTable = swsscommon.NewTable(configDb, "DPUS")
-	var dpuInterfacePtr = new(string)
-    if !dpuTable.Hget(dpuId, "midplane_interface", dpuInterfacePtr) {
-        return "", fmt.Errorf("Can't find interface of dpu:'%s' from DPUS table")
+	dpuInterface, err := hget(dpuTable, dpuId, "midplane_interface");
+    if err != nil {
+        return "", err
     }
 
     // get DPR address by DPU ID and brdige plane
     var dhcpPortTable = swsscommon.NewTable(configDb, "DHCP_SERVER_IPV4_PORT")
-    var dhcpPortKey = *bridgePlanePtr + "|" + *dpuInterfacePtr
-	var dpuAddressesPtr = new(string)
-    if !dhcpPortTable.Hget(dhcpPortKey, "ips", dpuAddressesPtr) {
-        return "", fmt.Errorf("Can't find address of dpu:'%s' from DHCP_SERVER_IPV4_PORT table")
+    var dhcpPortKey = bridgePlane + "|" + dpuInterface
+	dpuAddresses, err := hget(dhcpPortTable, dhcpPortKey, "ips");
+    if err != nil {
+        return "", err
     }
 
-	var dpuAddresses = strings.Split(*dpuAddressesPtr, ",")
-    if len(dpuAddresses) == 0 {
-        return "", fmt.Errorf("Can't find address of dpu:'%s' from DHCP_SERVER_IPV4_PORT table")
+	var dpuAddressArray = strings.Split(dpuAddresses, ",")
+    if len(dpuAddressArray) == 0 {
+        return "", fmt.Errorf("Can't find address of dpu:'%s' from DHCP_SERVER_IPV4_PORT table", dpuId)
     }
 
-    return dpuAddresses[0], nil
+    return dpuAddressArray[0], nil
 }
 
 func getMixedDbClient(zmqAddress string) (MixedDbClient) {
