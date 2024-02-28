@@ -461,7 +461,7 @@ func TestGetDpuAddress(t *testing.T) {
 	var configDb = swsscommon.NewDBConnector("CONFIG_DB", SWSS_TIMEOUT, false)
 	configDb.Hset("MID_PLANE_BRIDGE|GLOBAL", "bridge", "bridge_midplane")
 	configDb.Hset("DPUS|dpu0", "midplane_interface", "dpu0")
-	configDb.Hset("DHCP_SERVER_IPV4_PORT|bridge_midplane|dpu0", "ips", "127.0.0.1,127.0.0.1")
+	configDb.Hset("DHCP_SERVER_IPV4_PORT|bridge_midplane|dpu0", "ips@", "127.0.0.1,127.0.0.1")
 
 	// test get valid DPU address
 	address, err := getDpuAddress("dpu0")

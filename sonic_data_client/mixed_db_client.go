@@ -80,7 +80,7 @@ func hget(table swsscommon.Table, key string, field string) (string, error) {
 	var result = table.Get(key, fieldValuePairs)
     if result {
 		var fieldCount = int(fieldValuePairs.Size())
-		for idx := 0; idx <= fieldCount; idx++ {
+		for idx := 0; idx < fieldCount; idx++ {
 			var pair = fieldValuePairs.Get(idx)
 			if pair.GetFirst() == field {
 				return pair.GetSecond(), nil
@@ -88,7 +88,7 @@ func hget(table swsscommon.Table, key string, field string) (string, error) {
 		}
     }
 
-	return "", fmt.Errorf("Can't read {%s}:{%s} from {%s} table", key, field, table.GetTableName())
+	return "", fmt.Errorf("Can't read %s:%s from %s table", key, field, table.GetTableName())
 }
 
 func getDpuAddress(dpuId string) (string, error) {
