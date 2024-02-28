@@ -48,40 +48,6 @@ func TestJsonClientNegative(t *testing.T) {
 	}
 }
 
-func TestGetDpuAddress(t *testing.T) {
-	// prepare data according to design doc
-	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
-
-	if !swsscommon.SonicDBConfigIsInit() {
-		swsscommon.SonicDBConfigInitialize()
-	}
-
-    var configDb = swsscommon.NewDBConnector("CONFIG_DB", SWSS_TIMEOUT, false)
-	configDb.Hset("MID_PLANE_BRIDGE|GLOBAL", "bridge", "bridge_midplane")
-	configDb.Hset("DPUS|dpu0", "midplane_interface", "dpu0")
-	configDb.Hset("DHCP_SERVER_IPV4_PORT|bridge_midplane|dpu0", "ips", "127.0.0.1,127.0.0.1")
-
-	// test get valid DPU address
-	address, err := getDpuAddress("dpu0")
-	if err != nil {
-		t.Errorf("get DPU address failed: %v", err)
-	}
-
-	if address != "127.0.0.1" {
-		t.Errorf("get DPU address failed: %v", address)
-	}
-
-	// test get invalid DPU address
-	address, err = getDpuAddress("dpu_x")
-	if err == nil {
-		t.Errorf("get invalid DPU address failed")
-	}
-
-	if address != "" {
-		t.Errorf("get invalid DPU address failed: %v", address)
-	}
-}
-
 func TestJsonAdd(t *testing.T) {
 	text := "{}"
 	err := ioutil.WriteFile(testFile, []byte(text), 0644)
@@ -484,3 +450,36 @@ func TestRetryHelper(t *testing.T) {
 	swsscommon.DeleteZmqServer(zmqServer)
 }
 
+func TestGetDpuAddress(t *testing.T) {
+	// prepare data according to design doc
+	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
+
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+    var configDb = swsscommon.NewDBConnector("CONFIG_DB", SWSS_TIMEOUT, false)
+	configDb.Hset("MID_PLANE_BRIDGE|GLOBAL", "bridge", "bridge_midplane")
+	configDb.Hset("DPUS|dpu0", "midplane_interface", "dpu0")
+	configDb.Hset("DHCP_SERVER_IPV4_PORT|bridge_midplane|dpu0", "ips", "127.0.0.1,127.0.0.1")
+
+	// test get valid DPU address
+	address, err := getDpuAddress("dpu0")
+	if err != nil {
+		t.Errorf("get DPU address failed: %v", err)
+	}
+
+	if address != "127.0.0.1" {
+		t.Errorf("get DPU address failed: %v", address)
+	}
+
+	// test get invalid DPU address
+	address, err = getDpuAddress("dpu_x")
+	if err == nil {
+		t.Errorf("get invalid DPU address failed")
+	}
+
+	if address != "" {
+		t.Errorf("get invalid DPU address failed: %v", address)
+	}
+}
