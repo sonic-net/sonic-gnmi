@@ -138,7 +138,7 @@ func getZmqAddress(container string, zmqPort string) (string) {
 	return "tcp://" + dpuAddress + ":" + zmqPort
 }
 
-var zmqClientMap = map[string]ZmqClient{}
+var zmqClientMap = map[string]swsscommon.ZmqClient{}
 
 func getZmqClient(container string, zmqPort string) (swsscommon.ZmqClient) {
 	// when zmqPort empty, ZMQ feature disabled
