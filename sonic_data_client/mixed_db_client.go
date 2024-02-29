@@ -84,30 +84,88 @@ type MixedDbClient struct {
 	mu     sync.RWMutex    // Mutex for data protection among routines for DbClient
 }
 
-var mixedDbClientMap = map[string]MixedDbClient{}
+func hget(table swsscommon.Table, key string, field string) (string, error) {
+	var fieldValuePairs = swsscommon.NewFieldValuePairs()
+	var result = table.Get(key, fieldValuePairs)
+    if result {
+		var fieldCount = int(fieldValuePairs.Size())
+		for idx := 0; idx < fieldCount; idx++ {
+			var pair = fieldValuePairs.Get(idx)
+			if pair.GetFirst() == field {
+				return pair.GetSecond(), nil
+			}
+		}
+    }
 
-// redis client connected to each DB
-var RedisDbMap = make(map[string]map[string]*redis.Client)
+	return "", fmt.Errorf("Can't read %s:%s from %s table", key, field, table.GetTableName())
+}
 
-func getMixedDbClient(zmqAddress string) (MixedDbClient) {
-	client, ok := mixedDbClientMap[zmqAddress]
+func getDpuAddress(dpuId string) (string, error) {
+    var configDb = swsscommon.NewDBConnector("CONFIG_DB", SWSS_TIMEOUT, false)
+
+	// Find DPU address by DPU ID from CONFIG_DB
+	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
+
+    // get bridge plane
+    var bridgeTable = swsscommon.NewTable(configDb, "MID_PLANE_BRIDGE")
+	bridgePlane, err := hget(bridgeTable, "GLOBAL", "bridge");
+    if err != nil {
+        return "", err
+    }
+
+    // get DPU interface by DPU ID
+    var dpuTable = swsscommon.NewTable(configDb, "DPUS")
+	dpuInterface, err := hget(dpuTable, dpuId, "midplane_interface");
+    if err != nil {
+        return "", err
+    }
+
+    // get DPR address by DPU ID and brdige plane
+    var dhcpPortTable = swsscommon.NewTable(configDb, "DHCP_SERVER_IPV4_PORT")
+    var dhcpPortKey = bridgePlane + "|" + dpuInterface
+	dpuAddresses, err := hget(dhcpPortTable, dhcpPortKey, "ips");
+    if err != nil {
+        return "", err
+    }
+
+	var dpuAddressArray = strings.Split(dpuAddresses, ",")
+    if len(dpuAddressArray) == 0 {
+        return "", fmt.Errorf("Can't find address of dpu:'%s' from DHCP_SERVER_IPV4_PORT table", dpuId)
+    }
+
+    return dpuAddressArray[0], nil
+}
+
+func getZmqAddress(dpuId string, zmqPort string) (string) {
+	var dpuAddress, err = getDpuAddress(dpuId)
+	if err != nil {
+		dpuAddress = "127.0.0.1"
+	}
+
+	// ZMQ address example: "tcp://127.0.0.1:1234"
+	return "tcp://" + dpuAddress + ":" + zmqPort
+}
+
+var zmqClientMap = map[string]ZmqClient{}
+
+func getZmqClient(dpuId string, zmqPort string) (ZmqClient) {
+	// when zmqPort empty, ZMQ feature disabled
+	if zmqPort == "" {
+		return nil
+	}
+
+	var zmqAddress = getZmqAddress(dpuId, zmqPort);
+	client, ok := zmqClientMap[zmqAddress]
 	if !ok {
-		client = MixedDbClient {
-			tableMap : map[string]swsscommon.ProducerStateTable{},
-		}
-
-		// enable ZMQ by zmqAddress parameter
-		if zmqAddress != "" {
-			client.zmqClient = swsscommon.NewZmqClient(zmqAddress)
-		} else {
-			client.zmqClient = nil
-		}
-
-		mixedDbClientMap[zmqAddress] = client
+		client = swsscommon.NewZmqClient(zmqAddress)
+		zmqClientMap[zmqAddress] = client
 	}
 
 	return client
 }
+
+// redis client connected to each DB
+var RedisDbMap = make(map[string]map[string]*redis.Client)
 
 // This function get target present in GNMI Request and
 // returns: Is Db valid (bool)
@@ -354,13 +412,18 @@ func useRedisTcpClientWithDBKey() error {
 	return nil
 }
 
-func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqAddress string) (Client, error) {
+func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string) (Client, error) {
 	var err error
 
 	// Testing program may ask to use redis local tcp connection
 	useRedisTcpClientWithDBKey()
 
-	var client = getMixedDbClient(zmqAddress)
+	// build ZMQ address based on target DPU ID
+	var zmqAddress = getZmqAddress()
+
+	var client = MixedDbClient {
+		tableMap : map[string]swsscommon.ProducerStateTable{},
+	}
 	// Get namespace count and container count from db config
 	client.namespace_cnt = 1
 	client.container_cnt = 1
@@ -410,6 +473,9 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	client.mapkey = ns + ":" + container
 	client.paths = paths
 	client.workPath = common_utils.GNMI_WORK_PATH
+
+	// For multiple DPU device, container name is DPU ID
+	client.zmqClient = getZmqClient(container)
 
 	return &client, nil
 }
@@ -1361,7 +1427,16 @@ func (c *MixedDbClient) Capabilities() []gnmipb.ModelData {
 }
 
 func (c *MixedDbClient) Close() error {
-	// Do nothing here, because MixedDbClient will be cache in mixedDbClientMap and reuse
+	for _, pt := range c.tableMap {
+		if reflect.TypeOf(pt).Implements(ZmqProducerStateTable) {
+			log.V(2).Infof("Delete ZmqProducerStateTable:  %s", pt.GetTableName())
+			swsscommon.DeleteZmqProducerStateTable(pt)
+		} else {
+			log.V(2).Infof("Delete ProducerStateTable:  %s", pt.GetTableName())
+			swsscommon.DeleteProducerStateTable(pt)
+		}
+	}
+	swsscommon.DeleteDBConnector(c.applDB)
 	return nil
 }
 
