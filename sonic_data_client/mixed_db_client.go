@@ -136,9 +136,10 @@ func getDpuAddress(dpuId string) (string, error) {
     return dpuAddressArray[0], nil
 }
 
-func getZmqAddress(dpuId string, zmqPort string) (string) {
-	var dpuAddress, err = getDpuAddress(dpuId)
+func getZmqAddress(container string, zmqPort string) (string) {
+	var dpuAddress, err = getDpuAddress(container)
 	if err != nil {
+		// When can't find address by container, 'container' is not a DPU ID
 		dpuAddress = "127.0.0.1"
 	}
 
@@ -146,15 +147,15 @@ func getZmqAddress(dpuId string, zmqPort string) (string) {
 	return "tcp://" + dpuAddress + ":" + zmqPort
 }
 
-var zmqClientMap = map[string]ZmqClient{}
+var zmqClientMap = map[string]swsscommon.ZmqClient{}
 
-func getZmqClient(dpuId string, zmqPort string) (ZmqClient) {
+func getZmqClient(container string, zmqPort string) (swsscommon.ZmqClient) {
 	// when zmqPort empty, ZMQ feature disabled
 	if zmqPort == "" {
 		return nil
 	}
 
-	var zmqAddress = getZmqAddress(dpuId, zmqPort);
+	var zmqAddress = getZmqAddress(container, zmqPort);
 	client, ok := zmqClientMap[zmqAddress]
 	if !ok {
 		client = swsscommon.NewZmqClient(zmqAddress)
@@ -418,9 +419,6 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	// Testing program may ask to use redis local tcp connection
 	useRedisTcpClientWithDBKey()
 
-	// build ZMQ address based on target DPU ID
-	var zmqAddress = getZmqAddress()
-
 	var client = MixedDbClient {
 		tableMap : map[string]swsscommon.ProducerStateTable{},
 	}
@@ -475,7 +473,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	client.workPath = common_utils.GNMI_WORK_PATH
 
 	// For multiple DPU device, container name is DPU ID
-	client.zmqClient = getZmqClient(container)
+	client.zmqClient = getZmqClient(container, zmqPort)
 
 	return &client, nil
 }
@@ -1428,13 +1426,7 @@ func (c *MixedDbClient) Capabilities() []gnmipb.ModelData {
 
 func (c *MixedDbClient) Close() error {
 	for _, pt := range c.tableMap {
-		if reflect.TypeOf(pt).Implements(ZmqProducerStateTable) {
-			log.V(2).Infof("Delete ZmqProducerStateTable:  %s", pt.GetTableName())
-			swsscommon.DeleteZmqProducerStateTable(pt)
-		} else {
-			log.V(2).Infof("Delete ProducerStateTable:  %s", pt.GetTableName())
-			swsscommon.DeleteProducerStateTable(pt)
-		}
+		swsscommon.DeleteProducerStateTable(pt)
 	}
 	swsscommon.DeleteDBConnector(c.applDB)
 	return nil
