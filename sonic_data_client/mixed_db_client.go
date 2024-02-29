@@ -140,7 +140,7 @@ func getZmqAddress(container string, zmqPort string) (string) {
 
 var zmqClientMap = map[string]ZmqClient{}
 
-func getZmqClient(container string, zmqPort string) (ZmqClient) {
+func getZmqClient(container string, zmqPort string) (swsscommon.ZmqClient) {
 	// when zmqPort empty, ZMQ feature disabled
 	if zmqPort == "" {
 		return nil
