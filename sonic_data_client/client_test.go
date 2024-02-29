@@ -461,7 +461,7 @@ func TestGetDpuAddress(t *testing.T) {
 	var configDb = swsscommon.NewDBConnector("CONFIG_DB", SWSS_TIMEOUT, false)
 	configDb.Hset("MID_PLANE_BRIDGE|GLOBAL", "bridge", "bridge_midplane")
 	configDb.Hset("DPUS|dpu0", "midplane_interface", "dpu0")
-	configDb.Hset("DHCP_SERVER_IPV4_PORT|bridge_midplane|dpu0", "ips@", "127.0.0.1,127.0.0.1")
+	configDb.Hset("DHCP_SERVER_IPV4_PORT|bridge_midplane|dpu0", "ips@", "127.0.0.2,127.0.0.1")
 
 	// test get valid DPU address
 	address, err := getDpuAddress("dpu0")
@@ -469,7 +469,7 @@ func TestGetDpuAddress(t *testing.T) {
 		t.Errorf("get DPU address failed: %v", err)
 	}
 
-	if address != "127.0.0.1" {
+	if address != "127.0.0.2" {
 		t.Errorf("get DPU address failed: %v", address)
 	}
 
@@ -481,5 +481,17 @@ func TestGetDpuAddress(t *testing.T) {
 
 	if address != "" {
 		t.Errorf("get invalid DPU address failed: %v", address)
+	}
+
+	// test get ZMQ address
+	address = getZmqAddress("dpu0", "1234")
+	if address != "tcp://127.0.0.2:1234" {
+		t.Errorf("get invalid DPU address failed")
+	}
+
+	// test get local ZMQ address
+	address = getZmqAddress("", "1234")
+	if address != "tcp://127.0.0.1:1234" {
+		t.Errorf("get invalid DPU address failed")
 	}
 }

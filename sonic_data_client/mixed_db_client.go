@@ -127,6 +127,35 @@ func getDpuAddress(dpuId string) (string, error) {
     return dpuAddressArray[0], nil
 }
 
+func getZmqAddress(container string, zmqPort string) (string) {
+	var dpuAddress, err = getDpuAddress(container)
+	if err != nil {
+		// When can't find address by container, 'container' is not a DPU ID
+		dpuAddress = "127.0.0.1"
+	}
+
+	// ZMQ address example: "tcp://127.0.0.1:1234"
+	return "tcp://" + dpuAddress + ":" + zmqPort
+}
+
+var zmqClientMap = map[string]ZmqClient{}
+
+func getZmqClient(container string, zmqPort string) (ZmqClient) {
+	// when zmqPort empty, ZMQ feature disabled
+	if zmqPort == "" {
+		return nil
+	}
+
+	var zmqAddress = getZmqAddress(container, zmqPort);
+	client, ok := zmqClientMap[zmqAddress]
+	if !ok {
+		client = swsscommon.NewZmqClient(zmqAddress)
+		zmqClientMap[zmqAddress] = client
+	}
+
+	return client
+}
+
 func getMixedDbClient(zmqAddress string) (MixedDbClient) {
 	client, ok := mixedDbClientMap[zmqAddress]
 	if !ok {
