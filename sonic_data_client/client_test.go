@@ -324,7 +324,7 @@ func TestParseDatabase(t *testing.T) {
 	}
 
 	test_target := "TEST_DB"
-	path, err := xpath.ToGNMIPath("sonic-db:" + test_target + "/VLAN")
+	path, err := xpath.ToGNMIPath("sonic-db:" + test_target + "/localhost" + "/VLAN")
 	test_paths = append(test_paths, path)
 	target, _, err := client.ParseDatabase(prefix, test_paths)
 	if err != nil {
@@ -332,6 +332,31 @@ func TestParseDatabase(t *testing.T) {
 	}
 	if target != test_target {
 		t.Errorf("ParseDatabase return wrong target: %v", target)
+	}
+
+	// Smartswitch with multiple asic NPU
+	client = MixedDbClient {
+		namespace_cnt : 2,
+		container_cnt : 2,
+	}
+
+	test_target = "TEST_DB"
+	path, err = xpath.ToGNMIPath("sonic-db:" + test_target + "/localhost" + "/VLAN")
+	test_paths = append(test_paths, path)
+	target, _, err = client.ParseDatabase(prefix, test_paths)
+	if err != nil {
+		t.Errorf("ParseDatabase failed to get target: %v", err)
+	}
+	if target != test_target {
+		t.Errorf("ParseDatabase return wrong target: %v", target)
+	}
+
+	test_target = "TEST_DB"
+	path, err = xpath.ToGNMIPath("sonic-db:" + test_target + "/xyz" + "/VLAN")
+	test_paths = append(test_paths, path)
+	target, _, err = client.ParseDatabase(prefix, test_paths)
+	if err == nil {
+		t.Errorf("ParseDatabase should fail for namespace/container")
 	}
 }
 

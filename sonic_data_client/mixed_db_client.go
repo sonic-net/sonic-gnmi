@@ -268,10 +268,8 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 			if elems == nil {
 				return "", nil, status.Error(codes.Unimplemented, "No valid elem")
 			}
-			if c.namespace_cnt > 1 || c.container_cnt > 1 {
-				if len(elems) < 2 {
-					return "", nil, status.Error(codes.Unimplemented, "Invalid elem length")
-				}
+			if len(elems) < 2 {
+				return "", nil, status.Error(codes.Unimplemented, "Invalid elem length")
 			}
 			// Get target from the first element
 			if target == "" {
@@ -280,9 +278,25 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 				return "", nil, status.Error(codes.Unimplemented, "Target conflict in path")
 			}
 			if c.namespace_cnt > 1 && c.container_cnt > 1 {
-				return "", nil, status.Error(codes.Unimplemented, "Multiple namespaces and containers are not supported")
-			}
-			if c.namespace_cnt > 1 {
+				// Support smartswitch with multiple asic NPU
+				// The elelement can be "localhost", "asic0", "asic1", ..., "dpu0", "dpu1", ...
+				elem_name := elems[ELEM_INDEX_INSTANCE].GetName()
+				if elem_name != "localhost" {
+					// Try namespace
+					_, ok := sdcfg.GetDbInstanceFromTarget(elem_name, sdcfg.SONIC_DEFAULT_CONTAINER)
+					if ok {
+						namespace = elem_name
+					} else {
+						// Try container
+						_, ok := sdcfg.GetDbInstanceFromTarget(sdcfg.SONIC_DEFAULT_NAMESPACE, elem_name)
+						if ok {
+							container = elem_name
+						} else {
+							return "", nil, fmt.Errorf("Unsupported namespace/container %s", elem_name)
+						}
+					}
+				}
+			} else if c.namespace_cnt > 1 {
 				// Get namespace from the second element
 				if namespace == sdcfg.SONIC_DEFAULT_NAMESPACE {
 					namespace = elems[ELEM_INDEX_INSTANCE].GetName()
