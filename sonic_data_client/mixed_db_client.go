@@ -258,6 +258,7 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 	target := ""
 	namespace := sdcfg.SONIC_DEFAULT_NAMESPACE
 	container := sdcfg.SONIC_DEFAULT_CONTAINER
+	prev_instance := ""
 	for _, path := range paths {
 		if path.GetElem() != nil {
 			elems := path.GetElem()
@@ -276,28 +277,25 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 			} else if target != elems[ELEM_INDEX_DATABASE].GetName() {
 				return "", nil, status.Error(codes.Unimplemented, "Target conflict in path")
 			}
+			elem_name := elems[ELEM_INDEX_INSTANCE].GetName()
+			if prev_instance == "" {
+				prev_instance = elem_name
+			} else if prev_instance != elem_name {
+				return "", nil, status.Error(codes.Unimplemented, "Namespace/container conflict in path")
+			}
 			if c.namespace_cnt > 1 && c.container_cnt > 1 {
 				// Support smartswitch with multiple asic NPU
 				// The elelement can be "localhost", "asic0", "asic1", ..., "dpu0", "dpu1", ...
-				elem_name := elems[ELEM_INDEX_INSTANCE].GetName()
 				if elem_name != "localhost" {
 					// Try namespace
 					_, ok := sdcfg.GetDbInstanceFromTarget(elem_name, sdcfg.SONIC_DEFAULT_CONTAINER)
 					if ok {
-						if namespace == sdcfg.SONIC_DEFAULT_NAMESPACE {
-							namespace = elem_name
-						} else if namespace != elem_name {
-							return "", nil, status.Error(codes.Unimplemented, "Namespace conflict in path")
-						}
+						namespace = elem_name
 					} else {
 						// Try container
 						_, ok := sdcfg.GetDbInstanceFromTarget(sdcfg.SONIC_DEFAULT_NAMESPACE, elem_name)
 						if ok {
-							if container == sdcfg.SONIC_DEFAULT_CONTAINER {
-								container = elem_name
-							} else if container != elem_name {
-								return "", nil, status.Error(codes.Unimplemented, "Container conflict in path")
-							}
+							container = elem_name
 						} else {
 							return "", nil, fmt.Errorf("Unsupported namespace/container %s", elem_name)
 						}
@@ -305,18 +303,10 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 				}
 			} else if c.namespace_cnt > 1 {
 				// Get namespace from the second element
-				if namespace == sdcfg.SONIC_DEFAULT_NAMESPACE {
-					namespace = elems[ELEM_INDEX_INSTANCE].GetName()
-				} else if namespace != elems[ELEM_INDEX_INSTANCE].GetName() {
-					return "", nil, status.Error(codes.Unimplemented, "Namespace conflict in path")
-				}
+				namespace = elem_name
 			} else if c.container_cnt > 1 {
 				// Get container from the second element
-				if container == sdcfg.SONIC_DEFAULT_CONTAINER {
-					container = elems[ELEM_INDEX_INSTANCE].GetName()
-				} else if container != elems[ELEM_INDEX_INSTANCE].GetName() {
-					return "", nil, status.Error(codes.Unimplemented, "Container conflict in path")
-				}
+				container = elem_name
 			}
 		}
 	}
