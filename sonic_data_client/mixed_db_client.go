@@ -112,8 +112,7 @@ func getMixedDbClient(zmqAddress string) (MixedDbClient) {
 // This function get target present in GNMI Request and
 // returns: Is Db valid (bool)
 func IsTargetDbByDBKey(dbName string, dbkey swsscommon.SonicDBKey) bool {
-	// For multi-asic device, check namespace
-	// For smartswitch, check container
+	// Check namespace and container
 	ns := dbkey.GetNetns()
 	container := dbkey.GetContainerName()
 	dbkey, ok := sdcfg.GetDbInstanceFromTarget(ns, container)
