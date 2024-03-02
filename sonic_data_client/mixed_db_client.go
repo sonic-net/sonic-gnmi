@@ -285,12 +285,20 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 					// Try namespace
 					_, ok := sdcfg.GetDbInstanceFromTarget(elem_name, sdcfg.SONIC_DEFAULT_CONTAINER)
 					if ok {
-						namespace = elem_name
+						if namespace == sdcfg.SONIC_DEFAULT_NAMESPACE {
+							namespace = elem_name
+						} else if namespace != elem_name {
+							return "", nil, status.Error(codes.Unimplemented, "Namespace conflict in path")
+						}
 					} else {
 						// Try container
 						_, ok := sdcfg.GetDbInstanceFromTarget(sdcfg.SONIC_DEFAULT_NAMESPACE, elem_name)
 						if ok {
-							container = elem_name
+							if container == sdcfg.SONIC_DEFAULT_CONTAINER {
+								container = elem_name
+							} else if container != elem_name {
+								return "", nil, status.Error(codes.Unimplemented, "Container conflict in path")
+							}
 						} else {
 							return "", nil, fmt.Errorf("Unsupported namespace/container %s", elem_name)
 						}
