@@ -457,14 +457,35 @@ func TestGetDpuAddress(t *testing.T) {
 	if !swsscommon.SonicDBConfigIsInit() {
 		swsscommon.SonicDBConfigInitialize()
 	}
+	
+	// test get DPU address when database not ready
+	address, err := getDpuAddress("dpu0")
+	if err != nil {
+		t.Errorf("get DPU address failed: %v", err)
+	}
 
 	var configDb = swsscommon.NewDBConnector("CONFIG_DB", SWSS_TIMEOUT, false)
 	configDb.Hset("MID_PLANE_BRIDGE|GLOBAL", "bridge", "bridge_midplane")
 	configDb.Hset("DPUS|dpu0", "midplane_interface", "dpu0")
+
+	// test get DPU address when DHCP_SERVER_IPV4_PORT table not ready
+	address, err = getDpuAddress("dpu0")
+	if err != nil {
+		t.Errorf("get DPU address failed: %v", err)
+	}
+	
+	configDb.Hset("DHCP_SERVER_IPV4_PORT|bridge_midplane|dpu0", "invalidfield", "")
+
+	// test get DPU address when DHCP_SERVER_IPV4_PORT table broken
+	address, err = getDpuAddress("dpu0")
+	if err != nil {
+		t.Errorf("get DPU address failed: %v", err)
+	}
+
 	configDb.Hset("DHCP_SERVER_IPV4_PORT|bridge_midplane|dpu0", "ips@", "127.0.0.2,127.0.0.1")
 
 	// test get valid DPU address
-	address, err := getDpuAddress("dpu0")
+	address, err = getDpuAddress("dpu0")
 	if err != nil {
 		t.Errorf("get DPU address failed: %v", err)
 	}
@@ -493,5 +514,26 @@ func TestGetDpuAddress(t *testing.T) {
 	address = getZmqAddress("", "1234")
 	if address != "tcp://127.0.0.1:1234" {
 		t.Errorf("get invalid DPU address failed")
+	}
+}
+
+func TestGetZmqClient(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	var configDb = swsscommon.NewDBConnector("CONFIG_DB", SWSS_TIMEOUT, false)
+	configDb.Hset("MID_PLANE_BRIDGE|GLOBAL", "bridge", "bridge_midplane")
+	configDb.Hset("DPUS|dpu0", "midplane_interface", "dpu0")
+	configDb.Hset("DHCP_SERVER_IPV4_PORT|bridge_midplane|dpu0", "ips@", "127.0.0.2,127.0.0.1")
+
+	client := getZmqClient("dpu0", "")
+	if client != nil {
+		t.Errorf("empty ZMQ port should not get ZMQ client")
+	}
+
+	client := getZmqClient("dpu0", "1234")
+	if client == nil {
+		t.Errorf("get ZMQ client failed")
 	}
 }

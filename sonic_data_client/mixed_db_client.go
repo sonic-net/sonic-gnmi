@@ -78,7 +78,7 @@ var mixedDbClientMap = map[string]MixedDbClient{}
 func hget(table swsscommon.Table, key string, field string) (string, error) {
 	var fieldValuePairs = swsscommon.NewFieldValuePairs()
 	var result = table.Get(key, fieldValuePairs)
-    if result {
+	if result {
 		var fieldCount = int(fieldValuePairs.Size())
 		for idx := 0; idx < fieldCount; idx++ {
 			var pair = fieldValuePairs.Get(idx)
@@ -86,45 +86,45 @@ func hget(table swsscommon.Table, key string, field string) (string, error) {
 				return pair.GetSecond(), nil
 			}
 		}
-    }
+	}
 
 	return "", fmt.Errorf("Can't read %s:%s from %s table", key, field, table.GetTableName())
 }
 
 func getDpuAddress(dpuId string) (string, error) {
-    var configDb = swsscommon.NewDBConnector("CONFIG_DB", SWSS_TIMEOUT, false)
+	var configDb = swsscommon.NewDBConnector("CONFIG_DB", SWSS_TIMEOUT, false)
 
 	// Find DPU address by DPU ID from CONFIG_DB
 	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
 
-    // get bridge plane
-    var bridgeTable = swsscommon.NewTable(configDb, "MID_PLANE_BRIDGE")
+	// get bridge plane
+	var bridgeTable = swsscommon.NewTable(configDb, "MID_PLANE_BRIDGE")
 	bridgePlane, err := hget(bridgeTable, "GLOBAL", "bridge");
-    if err != nil {
-        return "", err
-    }
+	if err != nil {
+		return "", err
+	}
 
-    // get DPU interface by DPU ID
-    var dpuTable = swsscommon.NewTable(configDb, "DPUS")
+	// get DPU interface by DPU ID
+	var dpuTable = swsscommon.NewTable(configDb, "DPUS")
 	dpuInterface, err := hget(dpuTable, dpuId, "midplane_interface");
-    if err != nil {
-        return "", err
-    }
+	if err != nil {
+		return "", err
+	}
 
-    // get DPR address by DPU ID and brdige plane
-    var dhcpPortTable = swsscommon.NewTable(configDb, "DHCP_SERVER_IPV4_PORT")
-    var dhcpPortKey = bridgePlane + "|" + dpuInterface
+	// get DPR address by DPU ID and brdige plane
+	var dhcpPortTable = swsscommon.NewTable(configDb, "DHCP_SERVER_IPV4_PORT")
+	var dhcpPortKey = bridgePlane + "|" + dpuInterface
 	dpuAddresses, err := hget(dhcpPortTable, dhcpPortKey, "ips");
-    if err != nil {
-        return "", err
-    }
+	if err != nil {
+		return "", err
+	}
 
 	var dpuAddressArray = strings.Split(dpuAddresses, ",")
-    if len(dpuAddressArray) == 0 {
-        return "", fmt.Errorf("Can't find address of dpu:'%s' from DHCP_SERVER_IPV4_PORT table", dpuId)
-    }
+	if len(dpuAddressArray) == 0 {
+		return "", fmt.Errorf("Can't find address of dpu:'%s' from DHCP_SERVER_IPV4_PORT table", dpuId)
+	}
 
-    return dpuAddressArray[0], nil
+	return dpuAddressArray[0], nil
 }
 
 func getZmqAddress(container string, zmqPort string) (string) {
