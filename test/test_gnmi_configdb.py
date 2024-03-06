@@ -10,7 +10,7 @@ import pytest
 test_data_update_normal = [
     [
         {
-            'path': '/sonic-db:CONFIG_DB/PORT',
+            'path': '/sonic-db:CONFIG_DB/localhost/PORT',
             'value': {
                 'Ethernet4': {'admin_status': 'down'},
                 'Ethernet8': {'admin_status': 'down'}
@@ -19,21 +19,21 @@ test_data_update_normal = [
     ],
     [
         {
-            'path': '/sonic-db:CONFIG_DB/PORT/Ethernet4/admin_status',
+            'path': '/sonic-db:CONFIG_DB/localhost/PORT/Ethernet4/admin_status',
             'value': 'up'
         },
         {
-            'path': '/sonic-db:CONFIG_DB/PORT/Ethernet8/admin_status',
+            'path': '/sonic-db:CONFIG_DB/localhost/PORT/Ethernet8/admin_status',
             'value': 'up'
         }
     ],
     [
         {
-            'path': '/sonic-db:CONFIG_DB/PORT/Ethernet4',
+            'path': '/sonic-db:CONFIG_DB/localhost/PORT/Ethernet4',
             'value': {'admin_status': 'down'}
         },
         {
-            'path': '/sonic-db:CONFIG_DB/PORT/Ethernet8',
+            'path': '/sonic-db:CONFIG_DB/localhost/PORT/Ethernet8',
             'value': {'admin_status': 'down'}
         }
     ]
@@ -54,14 +54,14 @@ test_json_checkpoint = {
 test_data_checkpoint = [
     [
         {
-            'path': '/sonic-db:CONFIG_DB/DASH_QOS',
+            'path': '/sonic-db:CONFIG_DB/localhost/DASH_QOS',
             'value': {
                 'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
                 'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
             }
         },
         {
-            'path': '/sonic-db:CONFIG_DB/DASH_VNET',
+            'path': '/sonic-db:CONFIG_DB/localhost/DASH_VNET',
             'value': {
                 'vnet_3721': {
                     'address_spaces': ["10.250.0.0", "192.168.3.0", "139.66.72.9"]
@@ -71,15 +71,15 @@ test_data_checkpoint = [
     ],
     [
         {
-            'path': '/sonic-db:CONFIG_DB/DASH_QOS/qos_01',
+            'path': '/sonic-db:CONFIG_DB/localhost/DASH_QOS/qos_01',
             'value': {'bw': '54321', 'cps': '1000', 'flows': '300'},
         },
         {
-            'path': '/sonic-db:CONFIG_DB/DASH_QOS/qos_02',
+            'path': '/sonic-db:CONFIG_DB/localhost/DASH_QOS/qos_02',
             'value': {'bw': '6000', 'cps': '200', 'flows': '101'}
         },
         {
-            'path': '/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721',
+            'path': '/sonic-db:CONFIG_DB/localhost/DASH_VNET/vnet_3721',
             'value': {
                 'address_spaces': ["10.250.0.0", "192.168.3.0", "139.66.72.9"]
             }
@@ -87,25 +87,25 @@ test_data_checkpoint = [
     ],
     [
         {
-            'path': '/sonic-db:CONFIG_DB/DASH_QOS/qos_01/flows',
+            'path': '/sonic-db:CONFIG_DB/localhost/DASH_QOS/qos_01/flows',
             'value': '300'
         },
         {
-            'path': '/sonic-db:CONFIG_DB/DASH_QOS/qos_02/bw',
+            'path': '/sonic-db:CONFIG_DB/localhost/DASH_QOS/qos_02/bw',
             'value': '6000'
         },
         {
-            'path': '/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces',
+            'path': '/sonic-db:CONFIG_DB/localhost/DASH_VNET/vnet_3721/address_spaces',
             'value': ["10.250.0.0", "192.168.3.0", "139.66.72.9"]
         }
     ],
     [
         {
-            'path': '/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces/0',
+            'path': '/sonic-db:CONFIG_DB/localhost/DASH_VNET/vnet_3721/address_spaces/0',
             'value': "10.250.0.0"
         },
         {
-            'path': '/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces/1',
+            'path': '/sonic-db:CONFIG_DB/localhost/DASH_VNET/vnet_3721/address_spaces/1',
             'value': "192.168.3.0"
         }
     ]
@@ -161,7 +161,7 @@ class TestGNMIConfigDb:
             test_value = item['value']
             for patch_data in patch_json:
                 assert patch_data['op'] == 'add', "Invalid operation"
-                if test_path == '/sonic-db:CONFIG_DB' + patch_data['path'] and test_value == patch_data['value']:
+                if test_path == '/sonic-db:CONFIG_DB/localhost' + patch_data['path'] and test_value == patch_data['value']:
                     break
             else:
                 pytest.fail('No item in patch: %s'%str(item))
@@ -199,7 +199,7 @@ class TestGNMIConfigDb:
             test_path = item['path']
             for patch_data in patch_json:
                 assert patch_data['op'] == 'remove', "Invalid operation"
-                if test_path == '/sonic-db:CONFIG_DB' + patch_data['path']:
+                if test_path == '/sonic-db:CONFIG_DB/localhost' + patch_data['path']:
                     break
             else:
                 pytest.fail('No item in patch: %s'%str(item))
@@ -253,7 +253,7 @@ class TestGNMIConfigDb:
             test_value = item['value']
             for patch_data in patch_json:
                 assert patch_data['op'] == 'add', "Invalid operation"
-                if test_path == '/sonic-db:CONFIG_DB' + patch_data['path'] and test_value == patch_data['value']:
+                if test_path == '/sonic-db:CONFIG_DB/localhost' + patch_data['path'] and test_value == patch_data['value']:
                     break
             else:
                 pytest.fail('No item in patch: %s'%str(item))
@@ -273,8 +273,8 @@ class TestGNMIConfigDb:
         value = json.dumps(test_data)
         file_object.write(value)
         file_object.close()
-        delete_list = ['/sonic-db:CONFIG_DB/']
-        update_list = ['/sonic-db:CONFIG_DB/' + ':@./' + file_name]
+        delete_list = ['/sonic-db:CONFIG_DB/localhost/']
+        update_list = ['/sonic-db:CONFIG_DB/localhost/' + ':@./' + file_name]
 
         ret, msg = gnmi_set(delete_list, update_list, [])
         assert ret == 0, msg
@@ -284,8 +284,8 @@ class TestGNMIConfigDb:
         assert test_data == config_json, "Wrong config file"
 
     def test_gnmi_full_negative(self):
-        delete_list = ['/sonic-db:CONFIG_DB/']
-        update_list = ['/sonic-db:CONFIG_DB/' + ':abc']
+        delete_list = ['/sonic-db:CONFIG_DB/localhost/']
+        update_list = ['/sonic-db:CONFIG_DB/localhost/' + ':abc']
 
         ret, msg = gnmi_set(delete_list, update_list, [])
         assert ret != 0, 'Invalid ietf_json_val'
@@ -331,7 +331,7 @@ class TestGNMIConfigDb:
         text = json.dumps(test_json_checkpoint)
         create_checkpoint(checkpoint_file, text)
 
-        get_list = ['/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces/0/abc']
+        get_list = ['/sonic-db:CONFIG_DB/localhost/DASH_VNET/vnet_3721/address_spaces/0/abc']
  
         ret, _ = gnmi_get(get_list)
         assert ret != 0, 'Invalid path'
@@ -340,7 +340,7 @@ class TestGNMIConfigDb:
         text = json.dumps(test_json_checkpoint)
         create_checkpoint(checkpoint_file, text)
 
-        get_list = ['/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces/abc']
+        get_list = ['/sonic-db:CONFIG_DB/localhost/DASH_VNET/vnet_3721/address_spaces/abc']
  
         ret, _ = gnmi_get(get_list)
         assert ret != 0, 'Invalid path'
@@ -349,13 +349,13 @@ class TestGNMIConfigDb:
         text = json.dumps(test_json_checkpoint)
         create_checkpoint(checkpoint_file, text)
 
-        get_list = ['/sonic-db:CONFIG_DB/DASH_VNET/vnet_3721/address_spaces/1000']
+        get_list = ['/sonic-db:CONFIG_DB/localhost/DASH_VNET/vnet_3721/address_spaces/1000']
  
         ret, _ = gnmi_get(get_list)
         assert ret != 0, 'Invalid path'
 
     def test_gnmi_get_full_01(self):
-        get_list = ['/sonic-db:CONFIG_DB/']
+        get_list = ['/sonic-db:CONFIG_DB/localhost/']
 
         ret, msg_list = gnmi_get(get_list)
         assert ret == 0, 'Fail to get full config'
