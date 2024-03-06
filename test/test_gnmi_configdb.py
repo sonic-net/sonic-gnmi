@@ -362,3 +362,47 @@ class TestGNMIConfigDb:
         assert "NULL" not in msg_list[0], 'Invalid config'
         # Config must be valid json
         config = json.loads(msg_list[0])
+
+    def test_gnmi_update_invalid_01(self):
+        path = '/sonic-db:CONFIG_DB/'
+        value = {
+            'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+            'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
+        }
+        update_list = []
+        text = json.dumps(value)
+        file_name = 'update.txt'
+        file_object = open(file_name, 'w')
+        file_object.write(text)
+        file_object.close()
+        update_list = [path + ':@./' + file_name]
+
+        ret, msg = gnmi_set([], update_list, [])
+        assert ret != 0, "Failed to detect invalid update path"
+        assert "Invalid gnmi path" in msg, msg
+
+    def test_gnmi_delete_invalid_01(self):
+        path = '/sonic-db:CONFIG_DB/'
+        delete_list = [path]
+
+        ret, msg = gnmi_set(delete_list, [], [])
+        assert ret != 0, "Failed to detect invalid delete path"
+        assert "Invalid gnmi path" in msg, msg
+
+    def test_gnmi_replace_invalid_01(self):
+        path = '/sonic-db:CONFIG_DB/'
+        value = {
+            'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+            'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
+        }
+        update_list = []
+        text = json.dumps(value)
+        file_name = 'update.txt'
+        file_object = open(file_name, 'w')
+        file_object.write(text)
+        file_object.close()
+        update_list = [path + ':@./' + file_name]
+
+        ret, msg = gnmi_set([], [], update_list)
+        assert ret != 0, "Failed to detect invalid replace path"
+        assert "Invalid gnmi path" in msg, msg
