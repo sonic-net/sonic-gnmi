@@ -113,6 +113,24 @@ class TestGNMIApplDb:
         ret, msg = gnmi_set([], update_list, [])
         assert ret != 0, "Invalid json ietf value"
 
+    def test_gnmi_update_invalid_01(self):
+        path = '/sonic-db:APPL_DB/'
+        value = {
+            'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+            'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
+        }
+        update_list = []
+        text = json.dumps(value)
+        file_name = 'update.txt'
+        file_object = open(file_name, 'w')
+        file_object.write(text)
+        file_object.close()
+        update_list = [path + ':@./' + file_name]
+
+        ret, msg = gnmi_set([], update_list, [])
+        assert ret != 0, "Failed to detect invalid update path"
+        assert "Invalid gnmi path" in msg, msg
+
     @pytest.mark.parametrize('test_data', test_data_update_normal)
     def test_gnmi_delete_normal_01(self, test_data):
         delete_list = []
@@ -147,6 +165,14 @@ class TestGNMIApplDb:
                 continue
             for msg in msg_list:
                 assert msg == '{}', 'Delete failed'
+
+    def test_gnmi_delete_invalid_01(self):
+        path = '/sonic-db:APPL_DB/'
+        delete_list = [path]
+
+        ret, msg = gnmi_set(delete_list, [], [])
+        assert ret != 0, "Failed to detect invalid delete path"
+        assert "Invalid gnmi path" in msg, msg
 
     @pytest.mark.parametrize('test_data', test_data_update_normal)
     def test_gnmi_replace_normal_01(self, test_data):
@@ -213,6 +239,24 @@ class TestGNMIApplDb:
                 continue
             for msg in msg_list:
                 assert msg == '{}', 'Delete failed'
+
+    def test_gnmi_replace_invalid_01(self):
+        path = '/sonic-db:APPL_DB/'
+        value = {
+            'qos_01': {'bw': '54321', 'cps': '1000', 'flows': '300'},
+            'qos_02': {'bw': '6000', 'cps': '200', 'flows': '101'}
+        }
+        update_list = []
+        text = json.dumps(value)
+        file_name = 'update.txt'
+        file_object = open(file_name, 'w')
+        file_object.write(text)
+        file_object.close()
+        update_list = [path + ':@./' + file_name]
+
+        ret, msg = gnmi_set([], [], update_list)
+        assert ret != 0, "Failed to detect invalid replace path"
+        assert "Invalid gnmi path" in msg, msg
 
     def test_gnmi_invalid_path_01(self):
         path = '/sonic-db:APPL_DB/localhost/DASH_QOS/qos_01/bw'

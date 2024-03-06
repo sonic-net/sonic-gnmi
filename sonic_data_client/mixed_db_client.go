@@ -277,7 +277,7 @@ func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) (*gnmipb.Path, e
 		// Skip first two elem
 		// New GNMI path schema, /CONFIG_DB/localhost/PORT
 		if len(elements) < 2 {
-			return nil, fmt.Errorf("Invalid gnmi path %d", len(elements))
+			return nil, fmt.Errorf("Invalid gnmi path: length %d", len(elements))
 		}
 		fullPath.Element = elements[2:]
 	}
@@ -289,7 +289,7 @@ func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) (*gnmipb.Path, e
 		// Skip first two elem
 		// New GNMI path schema, /CONFIG_DB/localhost/PORT
 		if len(elems) < 2 {
-			return nil, fmt.Errorf("Invalid gnmi path %d", len(elems))
+			return nil, fmt.Errorf("Invalid gnmi path: length %d", len(elems))
 		}
 		fullPath.Elem = elems[2:]
 	}
