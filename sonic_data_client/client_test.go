@@ -460,8 +460,8 @@ func TestGetDpuAddress(t *testing.T) {
 	
 	// test get DPU address when database not ready
 	address, err := getDpuAddress("dpu0")
-	if err != nil {
-		t.Errorf("get DPU address failed: %v", err)
+	if err == nil {
+		t.Errorf("get DPU address should failed: %v", err)
 	}
 
 	var configDb = swsscommon.NewDBConnector("CONFIG_DB", SWSS_TIMEOUT, false)
@@ -470,16 +470,16 @@ func TestGetDpuAddress(t *testing.T) {
 
 	// test get DPU address when DHCP_SERVER_IPV4_PORT table not ready
 	address, err = getDpuAddress("dpu0")
-	if err != nil {
-		t.Errorf("get DPU address failed: %v", err)
+	if err == nil {
+		t.Errorf("get DPU address should failed: %v", err)
 	}
 	
 	configDb.Hset("DHCP_SERVER_IPV4_PORT|bridge_midplane|dpu0", "invalidfield", "")
 
 	// test get DPU address when DHCP_SERVER_IPV4_PORT table broken
 	address, err = getDpuAddress("dpu0")
-	if err != nil {
-		t.Errorf("get DPU address failed: %v", err)
+	if err == nil {
+		t.Errorf("get DPU address should failed: %v", err)
 	}
 
 	configDb.Hset("DHCP_SERVER_IPV4_PORT|bridge_midplane|dpu0", "ips@", "127.0.0.2,127.0.0.1")
