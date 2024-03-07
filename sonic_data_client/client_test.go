@@ -532,7 +532,7 @@ func TestGetZmqClient(t *testing.T) {
 		t.Errorf("empty ZMQ port should not get ZMQ client")
 	}
 
-	client := getZmqClient("dpu0", "1234")
+	client = getZmqClient("dpu0", "1234")
 	if client == nil {
 		t.Errorf("get ZMQ client failed")
 	}
