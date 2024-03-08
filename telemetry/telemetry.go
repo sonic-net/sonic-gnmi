@@ -85,7 +85,7 @@ func runTelemetry(args []string) error {
 	return nil
 }
 
-func getGlogFlagsMap() []string {
+func getGlogFlagsMap() map[string] bool {
 	// glog flags: https://pkg.go.dev/github.com/golang/glog
 	return map[string]bool {
 		"-alsologtostderr":  true,
@@ -103,7 +103,7 @@ func getGlogFlagsMap() []string {
 func parseOSArgs() ([]string, []string) {
 	glogFlags := []string{os.Args[0]}
 	telemetryFlags := []string{os.Args[0]}
-	glogFlagsMap = getGlogFlagsMap()
+	glogFlagsMap := getGlogFlagsMap()
 
 	for _, arg := range os.Args[1:] {
 		if strings.HasPrefix(arg, "-v") { // only flag in both glog and telemetry
