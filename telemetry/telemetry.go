@@ -85,7 +85,7 @@ func runTelemetry(args []string) error {
 	return nil
 }
 
-func getGlogsFlagMap() []string {
+func getGlogFlagsMap() []string {
 	// glog flags: https://pkg.go.dev/github.com/golang/glog
 	return map[string]bool {
 		"-alsologtostderr":  true,
