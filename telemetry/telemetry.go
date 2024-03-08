@@ -85,24 +85,25 @@ func runTelemetry(args []string) error {
 	return nil
 }
 
-func getGlogPrefixes() []string {
+func getGlogsFlagMap() []string {
 	// glog flags: https://pkg.go.dev/github.com/golang/glog
-	return []string {
-		"-alsologtostderr",
-		"-log_backtrace_at",
-		"-log_dir",
-		"-log_link",
-		"-logbuflevel",
-		"-logtostderr",
-		"-stderrthreshold",
-		"-v",
-		"-vmodule",
+	return map[string]bool {
+		"-alsologtostderr":  true,
+		"-log_backtrace_at": true,
+		"-log_dir":          true,
+		"-log_link":         true,
+		"-logbuflevel":      true,
+		"-logtostderr":      true,
+		"-stderrthreshold":  true,
+		"-v":                true,
+		"-vmodule":          true,
 	}
 }
 
 func parseOSArgs() ([]string, []string) {
 	glogFlags := []string{os.Args[0]}
 	telemetryFlags := []string{os.Args[0]}
+	glogFlagsMap = getGlogFlagsMap()
 
 	for _, arg := range os.Args[1:] {
 		if strings.HasPrefix(arg, "-v") { // only flag in both glog and telemetry
@@ -111,12 +112,10 @@ func parseOSArgs() ([]string, []string) {
 			continue
 		}
 		isGlogFlag := false
-		for _, prefix := range getGlogPrefixes() {
-			if strings.HasPrefix(arg, prefix) {
-				glogFlags = append(glogFlags, arg)
-				isGlogFlag = true
-				break
-			}
+		if glogFlagsMap[arg] {
+			glogFlags = append(glogFlags, arg)
+			isGlogFlag = true
+			break
 		}
 		if !isGlogFlag {
 			telemetryFlags = append(telemetryFlags, arg)
