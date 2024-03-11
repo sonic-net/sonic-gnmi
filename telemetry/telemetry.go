@@ -115,7 +115,7 @@ func parseOSArgs() ([]string, []string) {
 		if glogFlagsMap[arg] {
 			glogFlags = append(glogFlags, arg)
 			isGlogFlag = true
-			break
+			continue
 		}
 		if !isGlogFlag {
 			telemetryFlags = append(telemetryFlags, arg)
