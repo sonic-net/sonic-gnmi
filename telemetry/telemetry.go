@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"sync"
 	log "github.com/golang/glog"
+	"github.com/fsnotify/fsnotify"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
@@ -67,6 +68,9 @@ func runTelemetry(args []string) error {
 
 	wg.Add(1)
 	go signalHandler(serverControlSignal, &wg, sigchannel)
+
+	wg.Add(1)
+	go iNotifyCertMonitoring(telemetryCfg, serverControlSignal, &wg)
 
 	wg.Wait()
 	return nil
@@ -157,6 +161,44 @@ func isFlagPassed(fs *flag.FlagSet, name string) bool {
 		}
 	})
 	return found
+}
+
+func iNotifyCertMonitoring(telemetryCfg *TelemetryConfig, serverControlSignal chan<- int, wg *sync.WaitGroup) {
+	defer wg.Done()
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Errorf("Received error when creating fsnotify watcher %v", err)
+	}
+	defer watcher.Close()
+
+	log.V(1).Infof("Begin cert monitoring on %s", *telemetryCfg.ServerCert)
+
+	err = watcher.Add(*telemetryCfg.ServerCert) // Adding watcher to main cert file, avoid reload multiple times
+	if err != nil {
+		log.Errorf("Received error when adding watcher to cert file: %v", err)
+		return
+	}
+
+	go func() {
+		for {
+			select {
+			case event := <-watcher.Events:
+				log.V(1).Infof("Inotify watcher has received event: ", event)
+				if event.Op & fsnotify.Write == fsnotify.Write {
+					log.V(1).Infof("Cert File has been modified:", event.Name)
+					serverControlSignal <- 1 // tells gnmi server to stop and restart with new certs
+				}
+				if event.Op & fsnotify.Remove == fsnotify.Remove {
+					log.Errorf("Cert file has been deleted:", event.Name)
+					serverControlSignal <- 0 // tells gnmi server to stop
+					return // If cert file is deleted, we will end telemetry process
+				}
+			case err := <-watcher.Errors:
+				log.Errorf("Received error event when watching cert:", err)
+				return // If watcher is unable to access cert file stop monitoring
+			}
+		}
+	}()
 }
 
 func signalHandler(serverControlSignal chan<- int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {

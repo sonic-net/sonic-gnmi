@@ -35,6 +35,9 @@ func TestRunTelemetry(t *testing.T) {
 	patches.ApplyFunc(signalHandler, func(serverControlSignal chan<- int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
 		defer wg.Done()
 	})
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *TelemetryConfig, serverControlSignal chan<- int, wg *sync.WaitGroup) {
+		defer wg.Done()
+	})
 	defer patches.Reset()
 
 	args := []string{"test"}
@@ -275,6 +278,57 @@ func TestSHA512Checksum(t *testing.T) {
 	sendShutdownSignal(serverControlSignal)
 
 	wg.Wait()
+}
+
+func TestiNotifyCertMonitoringRotation(t *testing.T) {
+	testServerCert := "../testdata/testserver.cer"
+	testServerKey := "../testdata/testserver.key"
+	timeoutInterval := 3
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
+	defer cancel()
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testiNotifyCertMonitoring", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-v=2", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, cfg, err := setupFlags(fs)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	serverControlSignal := make(chan int, 1)
+	wg := &sync.WaitGroup{}
+
+	wg.Add(1)
+
+	go iNotifyCertMonitoring(telemetryCfg, serverControlSignal, wg)
+
+	// Bring in new certs
+
+	err = saveCertKeyPair(testServerCert, testServerKey)
+
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	select {
+	case val := <-serverControlSignal:
+		if val != 1 {
+			t.Errorf("Expected 1 from serverControlSignal, got %d", val)
+		}
+	case <-ctx.Done():
+		t.Errorf("Failed to send shutdown signal")
+		return
+	}
+
+	wg.Wait()
+
 }
 
 func TestSignalHandler(t *testing.T) {
