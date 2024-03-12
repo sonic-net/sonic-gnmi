@@ -75,46 +75,28 @@ type MixedDbClient struct {
 
 var mixedDbClientMap = map[string]MixedDbClient{}
 
-func hget(table swsscommon.Table, key string, field string) (string, error) {
-	var fieldValuePairs = swsscommon.NewFieldValuePairs()
-	var result = table.Get(key, fieldValuePairs)
-	if result {
-		var fieldCount = int(fieldValuePairs.Size())
-		for idx := 0; idx < fieldCount; idx++ {
-			var pair = fieldValuePairs.Get(idx)
-			if pair.GetFirst() == field {
-				return pair.GetSecond(), nil
-			}
-		}
-	}
-
-	return "", fmt.Errorf("Can't read %s:%s from %s table", key, field, table.GetTableName())
-}
-
 func getDpuAddress(dpuId string) (string, error) {
-	var configDb = swsscommon.NewDBConnector("CONFIG_DB", SWSS_TIMEOUT, false)
-
 	// Find DPU address by DPU ID from CONFIG_DB
 	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
 
+	var configDbConnector = swsscommon.NewConfigDBConnector()
+	configDbConnector.Connect(false)
+
 	// get bridge plane
-	var bridgeTable = swsscommon.NewTable(configDb, "MID_PLANE_BRIDGE")
-	bridgePlane, err := hget(bridgeTable, "GLOBAL", "bridge");
+	bridgePlane, err := configDbConnector.Hget("MID_PLANE_BRIDGE", "GLOBAL", "bridge");
 	if err != nil {
 		return "", err
 	}
 
 	// get DPU interface by DPU ID
-	var dpuTable = swsscommon.NewTable(configDb, "DPUS")
-	dpuInterface, err := hget(dpuTable, dpuId, "midplane_interface");
+	dpuInterface, err := configDbConnector.Hget("DPUS", dpuId, "midplane_interface");
 	if err != nil {
 		return "", err
 	}
 
 	// get DPR address by DPU ID and brdige plane
-	var dhcpPortTable = swsscommon.NewTable(configDb, "DHCP_SERVER_IPV4_PORT")
 	var dhcpPortKey = bridgePlane + "|" + dpuInterface
-	dpuAddresses, err := hget(dhcpPortTable, dhcpPortKey, "ips");
+	dpuAddresses, err := configDbConnector.Hget("DHCP_SERVER_IPV4_PORT", dhcpPortKey, "ips@");
 	if err != nil {
 		return "", err
 	}
@@ -1315,4 +1297,3 @@ func (c *MixedDbClient) SentOne(val *Value) {
 
 func (c *MixedDbClient) FailedSend() {
 }
-
