@@ -260,7 +260,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 }
 
 // gnmiFullPath builds the full path from the prefix and path.
-func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) *gnmipb.Path {
+func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) (*gnmipb.Path, error) {
 	origin := ""
 	if prefix != nil {
 		origin = prefix.Origin
@@ -269,23 +269,19 @@ func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) *gnmipb.Path {
 		origin = path.Origin
 	}
 	fullPath := &gnmipb.Path{Origin: origin}
-	if path.GetElement() != nil {
-		elements := path.GetElement()
-		if prefix != nil {
-			elements = append(prefix.GetElement(), elements...)
-		}
-		// Skip first elem
-		fullPath.Element = elements[1:]
-	}
 	if path.GetElem() != nil {
 		elems := path.GetElem()
 		if prefix != nil {
 			elems = append(prefix.GetElem(), elems...)
 		}
-		// Skip first elem
-		fullPath.Elem = elems[1:]
+		// Skip first two elem
+		// GNMI path schema is /CONFIG_DB/localhost/PORT
+		if len(elems) < 2 {
+			return nil, fmt.Errorf("Invalid gnmi path: length %d", len(elems))
+		}
+		fullPath.Elem = elems[2:]
 	}
-	return fullPath
+	return fullPath, nil
 }
 
 func (c *MixedDbClient) populateAllDbtablePath(paths []*gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
@@ -319,7 +315,10 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 		return fmt.Errorf("Invalid target dbNameSpace %v", targetDbNameSpace)
 	}
 
-	fullPath := c.gnmiFullPath(c.prefix, path)
+	fullPath, err := c.gnmiFullPath(c.prefix, path)
+	if err != nil {
+		return err
+	}
 
 	stringSlice := []string{targetDbName}
 	separator, _ := GetTableKeySeparator(targetDbName, dbNamespace)
@@ -822,7 +821,10 @@ func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Pat
 			return fmt.Errorf("Value encoding is not IETF JSON")
 		}
 	}
-	fullPath := c.gnmiFullPath(prefix, path)
+	fullPath, err := c.gnmiFullPath(prefix, path)
+	if err != nil {
+		return err
+	}
 
 	elems := fullPath.GetElem()
 	if t == nil {
@@ -917,7 +919,10 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 	text := `[`
 	/* DELETE */
 	for _, path := range delete {
-		fullPath := c.gnmiFullPath(c.prefix, path)
+		fullPath, err := c.gnmiFullPath(c.prefix, path)
+		if err != nil {
+			return err
+		}
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
@@ -944,7 +949,10 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 
 	/* REPLACE */
 	for _, path := range replace {
-		fullPath := c.gnmiFullPath(c.prefix, path.GetPath())
+		fullPath, err := c.gnmiFullPath(c.prefix, path.GetPath())
+		if err != nil {
+			return err
+		}
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
@@ -980,7 +988,10 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 
 	/* UPDATE */
 	for _, path := range update {
-		fullPath := c.gnmiFullPath(c.prefix, path.GetPath())
+		fullPath, err := c.gnmiFullPath(c.prefix, path.GetPath())
+		if err != nil {
+			return err
+		}
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
@@ -1110,8 +1121,14 @@ func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Upd
 	replaceLen := len(replace)
 	updateLen := len(update)
 	if (deleteLen == 1 && replaceLen == 0 && updateLen == 1) {
-		deletePath := c.gnmiFullPath(c.prefix, delete[0])
-		updatePath := c.gnmiFullPath(c.prefix, update[0].GetPath())
+		deletePath, err := c.gnmiFullPath(c.prefix, delete[0])
+		if err != nil {
+			return err
+		}
+		updatePath, err := c.gnmiFullPath(c.prefix, update[0].GetPath())
+		if err != nil {
+			return err
+		}
 		if (len(deletePath.GetElem()) == 0) && (len(updatePath.GetElem()) == 0) {
 			return c.SetFullConfig(delete, replace, update)
 		}
@@ -1140,7 +1157,10 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 	}
 	log.V(2).Infof("Getting #%v", c.jClient.jsonData)
 	for _, path := range c.paths {
-		fullPath := c.gnmiFullPath(c.prefix, path)
+		fullPath, err := c.gnmiFullPath(c.prefix, path)
+		if err != nil {
+			return nil, err
+		}
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
