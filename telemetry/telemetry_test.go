@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -23,13 +24,10 @@ import (
 )
 
 func TestRunTelemetry(t *testing.T) {
-	patches := gomonkey.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, serverControlSignal <-chan int, wg *sync.WaitGroup) {
+	patches := gomonkey.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, serverControlSignal chan int, wg *sync.WaitGroup) {
 		defer wg.Done()
 	})
 	patches.ApplyFunc(signalHandler, func(serverControlSignal chan<- int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
-		defer wg.Done()
-	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *TelemetryConfig, serverControlSignal chan<- int, wg *sync.WaitGroup) {
 		defer wg.Done()
 	})
 	defer patches.Reset()
@@ -123,8 +121,8 @@ func TestFlags(t *testing.T) {
 }
 
 func TestStartGNMIServer(t *testing.T) {
-	testServerCert := "../testdata/testserver.cer"
-	testServerKey := "../testdata/testserver.key"
+	testServerCert := "../testdata/certs/testserver.cer"
+	testServerKey := "../testdata/certs/testserver.key"
 	timeoutInterval := 3
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
@@ -159,6 +157,8 @@ func TestStartGNMIServer(t *testing.T) {
 	})
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
+	})
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *TelemetryConfig, serverControlSignal chan<- int, testReadySignal chan<- int) {
 	})
 
 	serverControlSignal := make(chan int, 1)
@@ -200,6 +200,14 @@ func saveCertKeyPair(certPath, keyPath string) error {
 	certBytes := cert.Certificate[0]
 	keyBytes := x509.MarshalPKCS1PrivateKey(cert.PrivateKey.(*rsa.PrivateKey))
 
+	// Create the parent certs directory
+
+	dirPath := filepath.Dir(certPath)
+
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		return err
+	}
+
 	// Save the certificate
 	certFile, err := os.Create(certPath)
 	if err != nil {
@@ -226,8 +234,8 @@ func saveCertKeyPair(certPath, keyPath string) error {
 }
 
 func TestSHA512Checksum(t *testing.T) {
-	testServerCert := "../testdata/testserver.cer"
-	testServerKey := "../testdata/testserver.key"
+	testServerCert := "../testdata/certs/testserver.cer"
+	testServerKey := "../testdata/certs/testserver.key"
 
 	originalArgs := os.Args
 	defer func() {
@@ -265,6 +273,8 @@ func TestSHA512Checksum(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *TelemetryConfig, serverControlSignal chan<- int, testReadySignal chan<- int) {
+	})
 
 	serverControlSignal := make(chan int, 1)
 	wg := &sync.WaitGroup{}
@@ -283,10 +293,10 @@ func TestSHA512Checksum(t *testing.T) {
 	wg.Wait()
 }
 
-func TestiNotifyCertMonitoringRotation(t *testing.T) {
-	testServerCert := "../testdata/testserver.cer"
-	testServerKey := "../testdata/testserver.key"
-	timeoutInterval := 3
+func TestINotifyCertMonitoringRotation(t *testing.T) {
+	testServerCert := "../testdata/certs/testserver.cer"
+	testServerKey := "../testdata/certs/testserver.key"
+	timeoutInterval := 10
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 
@@ -300,17 +310,17 @@ func TestiNotifyCertMonitoringRotation(t *testing.T) {
 
 	fs := flag.NewFlagSet("testiNotifyCertMonitoring", flag.ContinueOnError)
 	os.Args = []string{"cmd", "-v=2", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
-	telemetryCfg, cfg, err := setupFlags(fs)
+	telemetryCfg, _, err := setupFlags(fs)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
 	serverControlSignal := make(chan int, 1)
-	wg := &sync.WaitGroup{}
+	testReadySignal := make(chan int, 1)
 
-	wg.Add(1)
+	go iNotifyCertMonitoring(telemetryCfg, serverControlSignal, testReadySignal)
 
-	go iNotifyCertMonitoring(telemetryCfg, serverControlSignal, wg)
+	<-testReadySignal
 
 	// Bring in new certs
 
@@ -325,13 +335,60 @@ func TestiNotifyCertMonitoringRotation(t *testing.T) {
 		if val != 1 {
 			t.Errorf("Expected 1 from serverControlSignal, got %d", val)
 		}
+		t.Log("Received correct value from serverControlSignal")
 	case <-ctx.Done():
-		t.Errorf("Failed to send shutdown signal")
+		t.Errorf("Expected a value from serverControlSignal, but got none")
 		return
 	}
+}
 
-	wg.Wait()
+func TestINotifyCertMonitoringDeletion(t *testing.T) {
+	testServerCert := "../testdata/certs/testserver.cer"
+	testServerKey := "../testdata/certs/testserver.key"
+	timeoutInterval := 10
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
 
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
+	defer cancel()
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testiNotifyCertMonitoring", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-v=2", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, _, err := setupFlags(fs)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	serverControlSignal := make(chan int, 1)
+	testReadySignal := make(chan int, 1)
+
+	go iNotifyCertMonitoring(telemetryCfg, serverControlSignal, testReadySignal)
+
+	<-testReadySignal
+
+	// Delete certs
+
+	err = os.Remove(testServerCert)
+
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	select {
+	case val := <-serverControlSignal:
+		if val != 0 {
+			t.Errorf("Expected 0 from serverControlSignal, got %d", val)
+		}
+		t.Log("Received correct value from serverControlSignal")
+	case <-ctx.Done():
+		t.Errorf("Expected a value from serverControlSignal, but got none")
+		return
+	}
 }
 
 func TestSignalHandler(t *testing.T) {

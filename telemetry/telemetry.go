@@ -8,6 +8,7 @@ import (
 	"flag"
 	"io"
 	"io/ioutil"
+	"path/filepath"
 	"time"
 	"os"
 	"os/signal"
@@ -81,9 +82,6 @@ func runTelemetry(args []string) error {
 
 	wg.Add(1)
 	go signalHandler(serverControlSignal, &wg, sigchannel)
-
-	wg.Add(1)
-	go iNotifyCertMonitoring(telemetryCfg, serverControlSignal, &wg)
 
 	wg.Wait()
 	return nil
@@ -215,42 +213,57 @@ func isFlagPassed(fs *flag.FlagSet, name string) bool {
 	return found
 }
 
-func iNotifyCertMonitoring(telemetryCfg *TelemetryConfig, serverControlSignal chan<- int, wg *sync.WaitGroup) {
-	defer wg.Done()
+func iNotifyCertMonitoring(telemetryCfg *TelemetryConfig, serverControlSignal chan<- int, testReadySignal chan<- int) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("Received error when creating fsnotify watcher %v", err)
 	}
 	defer watcher.Close()
 
-	log.V(1).Infof("Begin cert monitoring on %s", *telemetryCfg.ServerCert)
-
-	err = watcher.Add(*telemetryCfg.ServerCert) // Adding watcher to main cert file, avoid reload multiple times
-	if err != nil {
-		log.Errorf("Received error when adding watcher to cert file: %v", err)
-		return
-	}
-
+	done := make(chan bool)
 	go func() {
+		if testReadySignal != nil { // for testing only
+			testReadySignal <- 0
+		}
 		for {
 			select {
 			case event := <-watcher.Events:
-				log.V(1).Infof("Inotify watcher has received event: ", event)
-				if event.Op & fsnotify.Write == fsnotify.Write {
-					log.V(1).Infof("Cert File has been modified:", event.Name)
-					serverControlSignal <- 1 // tells gnmi server to stop and restart with new certs
-				}
-				if event.Op & fsnotify.Remove == fsnotify.Remove {
-					log.Errorf("Cert file has been deleted:", event.Name)
-					serverControlSignal <- 0 // tells gnmi server to stop
-					return // If cert file is deleted, we will end telemetry process
+				if event.Name != "" {
+					log.V(1).Infof("Inotify watcher has received event: %v", event)
+					if event.Op & fsnotify.Write == fsnotify.Write {
+						log.V(1).Infof("Cert File has been modified: %s", event.Name)
+						serverControlSignal <- 1 // tells gnmi server to stop and restart with new certs
+						done <- true
+						return
+					}
+					if event.Op & fsnotify.Remove == fsnotify.Remove {
+						log.Errorf("Cert file has been deleted: %s", event.Name)
+						serverControlSignal <- 0 // tells gnmi server to stop
+						done <- true
+						return // If cert file is deleted, we will end telemetry process
+					}
 				}
 			case err := <-watcher.Errors:
-				log.Errorf("Received error event when watching cert:", err)
-				return // If watcher is unable to access cert file stop monitoring
+				if err != nil {
+					log.Errorf("Received error event when watching cert: %v", err)
+					done <- true
+					return // If watcher is unable to access cert file stop monitoring
+				}
 			}
 		}
 	}()
+
+	telemetryCertDirectory := filepath.Dir(*telemetryCfg.ServerCert)
+
+	log.V(1).Infof("Begin cert monitoring on %s", telemetryCertDirectory)
+
+	err = watcher.Add(telemetryCertDirectory) // Adding watcher to cert directory
+	if err != nil {
+		log.Errorf("Received error when adding watcher to cert directory: %v", err)
+		done <- true
+	}
+
+	<-done
 }
 
 func signalHandler(serverControlSignal chan<- int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
@@ -261,113 +274,120 @@ func signalHandler(serverControlSignal chan<- int, wg *sync.WaitGroup, sigchanne
 	}
 }
 
-func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal <-chan int, wg *sync.WaitGroup) {
+func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal chan int, wg *sync.WaitGroup) {
 	defer wg.Done()
-	var opts []grpc.ServerOption
-	if !*telemetryCfg.NoTLS {
-		var certificate tls.Certificate
-		var err error
-		if *telemetryCfg.Insecure {
-			certificate, err = testcert.NewCert()
-			if err != nil {
-				log.Exitf("could not load server key pair: %s", err)
+	for {
+		var opts []grpc.ServerOption
+		if !*telemetryCfg.NoTLS {
+			var certificate tls.Certificate
+			var err error
+			if *telemetryCfg.Insecure {
+				certificate, err = testcert.NewCert()
+				if err != nil {
+					log.Exitf("could not load server key pair: %s", err)
+				}
+			} else {
+				switch {
+				case *telemetryCfg.ServerCert == "":
+					log.Errorf("serverCert must be set.")
+					return
+				case *telemetryCfg.ServerKey == "":
+					log.Errorf("serverKey must be set.")
+					return
+				}
+				certificate, err = tls.LoadX509KeyPair(*telemetryCfg.ServerCert, *telemetryCfg.ServerKey)
+				if err != nil {
+					computeSHA512Checksum(*telemetryCfg.ServerCert)
+					computeSHA512Checksum(*telemetryCfg.ServerKey)
+					log.Exitf("could not load server key pair: %s", err)
+				}
 			}
-		} else {
-			switch {
-			case *telemetryCfg.ServerCert == "":
-				log.Errorf("serverCert must be set.")
-				return
-			case *telemetryCfg.ServerKey == "":
-				log.Errorf("serverKey must be set.")
-				return
+
+			tlsCfg := &tls.Config {
+				ClientAuth:		  tls.RequireAndVerifyClientCert,
+				Certificates:		  []tls.Certificate{certificate},
+				MinVersion:		  tls.VersionTLS12,
+				CurvePreferences:	  []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
+				PreferServerCipherSuites: true,
+				CipherSuites: []uint16 {
+					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+					tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				},
 			}
-			certificate, err = tls.LoadX509KeyPair(*telemetryCfg.ServerCert, *telemetryCfg.ServerKey)
-			if err != nil {
-				computeSHA512Checksum(*telemetryCfg.ServerCert)
-				computeSHA512Checksum(*telemetryCfg.ServerKey)
-				log.Exitf("could not load server key pair: %s", err)
+
+			if *telemetryCfg.AllowNoClientCert {
+				// RequestClientCert will ask client for a certificate but won't
+				// require it to proceed. If certificate is provided, it will be
+				// verified.
+				tlsCfg.ClientAuth = tls.RequestClientCert
 			}
+
+			if *telemetryCfg.CaCert != "" {
+				ca, err := ioutil.ReadFile(*telemetryCfg.CaCert)
+				if err != nil {
+					log.Exitf("could not read CA certificate: %s", err)
+				}
+				certPool := x509.NewCertPool()
+				if ok := certPool.AppendCertsFromPEM(ca); !ok {
+					log.Exit("failed to append CA certificate")
+				}
+				tlsCfg.ClientCAs = certPool
+			} else {
+				if telemetryCfg.UserAuth.Enabled("cert") {
+					telemetryCfg.UserAuth.Unset("cert")
+					log.Warning("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
+				}
+			}
+
+			keep_alive_params := keepalive.ServerParameters{
+				MaxConnectionIdle: time.Duration(*telemetryCfg.IdleConnDuration) * time.Second, // duration in which idle connection will be closed, default is inf
+			}
+
+			opts = []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+
+			if *telemetryCfg.IdleConnDuration > 0 { // non inf case
+				opts = append(opts, grpc.KeepaliveParams(keep_alive_params))
+			}
+
+			cfg.UserAuth = telemetryCfg.UserAuth
+
+			gnmi.GenerateJwtSecretKey()
+
 		}
 
-		tlsCfg := &tls.Config {
-			ClientAuth:		  tls.RequireAndVerifyClientCert,
-			Certificates:		  []tls.Certificate{certificate},
-			MinVersion:		  tls.VersionTLS12,
-			CurvePreferences:	  []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
-			PreferServerCipherSuites: true,
-			CipherSuites: []uint16 {
-				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-				tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-			},
+		s, err := gnmi.NewServer(cfg, opts)
+		if err != nil {
+			log.Errorf("Failed to create gNMI server: %v", err)
+			return
 		}
 
-		if *telemetryCfg.AllowNoClientCert {
-			// RequestClientCert will ask client for a certificate but won't
-			// require it to proceed. If certificate is provided, it will be
-			// verified.
-			tlsCfg.ClientAuth = tls.RequestClientCert
+		if *telemetryCfg.WithMasterArbitration {
+			s.ReqFromMaster = gnmi.ReqFromMasterEnabledMA
 		}
 
-		if *telemetryCfg.CaCert != "" {
-			ca, err := ioutil.ReadFile(*telemetryCfg.CaCert)
-			if err != nil {
-				log.Exitf("could not read CA certificate: %s", err)
+		log.V(1).Infof("Auth Modes: %v", telemetryCfg.UserAuth)
+		log.V(1).Infof("Starting RPC server on address: %s", s.Address())
+
+		go func() {
+			if err := s.Serve(); err != nil {
+				log.Errorf("Serve returned with err: %v", err)
 			}
-			certPool := x509.NewCertPool()
-			if ok := certPool.AppendCertsFromPEM(ca); !ok {
-				log.Exit("failed to append CA certificate")
-			}
-			tlsCfg.ClientCAs = certPool
-		} else {
-			if telemetryCfg.UserAuth.Enabled("cert") {
-				telemetryCfg.UserAuth.Unset("cert")
-				log.Warning("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
-			}
+		}()
+
+		go iNotifyCertMonitoring(telemetryCfg, serverControlSignal, nil)
+
+		controlValue := <-serverControlSignal
+		log.V(1).Infof("Received signal for gnmi server to close")
+		s.Stop()
+		if controlValue == 0 { // stop telemetry process, other values will restart gnmi server
+			log.Flush()
+			return
 		}
-
-		keep_alive_params := keepalive.ServerParameters{
-			MaxConnectionIdle: time.Duration(*telemetryCfg.IdleConnDuration) * time.Second, // duration in which idle connection will be closed, default is inf
-		}
-
-		opts = []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-
-		if *telemetryCfg.IdleConnDuration > 0 { // non inf case
-			opts = append(opts, grpc.KeepaliveParams(keep_alive_params))
-		}
-
-		cfg.UserAuth = telemetryCfg.UserAuth
-
-		gnmi.GenerateJwtSecretKey()
-
 	}
-
-	s, err := gnmi.NewServer(cfg, opts)
-	if err != nil {
-		log.Errorf("Failed to create gNMI server: %v", err)
-		return
-	}
-
-	if *telemetryCfg.WithMasterArbitration {
-		s.ReqFromMaster = gnmi.ReqFromMasterEnabledMA
-	}
-
-	log.V(1).Infof("Auth Modes: %v", telemetryCfg.UserAuth)
-	log.V(1).Infof("Starting RPC server on address: %s", s.Address())
-
-	go func() {
-		if err := s.Serve(); err != nil {
-			log.Errorf("Serve returned with err: %v", err)
-		}
-	}()
-
-	<-serverControlSignal
-	log.V(1).Infof("Received signal for gnmi server to close")
-	s.Stop()
-	log.Flush()
 }
 
 func computeSHA512Checksum(file string) {
