@@ -11,6 +11,7 @@ import (
 	"time"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"sync"
 	log "github.com/golang/glog"
@@ -50,8 +51,20 @@ func main() {
 }
 
 func runTelemetry(args []string) error {
+	/* Glog flags like -logtostderr have to be part of the global flagset.
+	   Because we use a custom flagset to avoid the use of global var and improve
+	   testability, we have to parse cmd line args two different times such that
+	   in the first parse, cmd line args will contain global flags and flag.Parse() will be called.
+	   The second parse, cmd line args will contain flags only relevant to telemetry, and our custom flagset will
+	   call Parse().
+	*/
+	glogFlags, telemetryFlags := parseOSArgs()
+	os.Args = glogFlags
+	flag.Parse() // glog flags will be populated after global flag parse
+
+	os.Args = telemetryFlags
 	fs := flag.NewFlagSet(args[0], flag.ExitOnError)
-	telemetryCfg, cfg, err := setupFlags(fs)
+	telemetryCfg, cfg, err := setupFlags(fs) // telemetry flags will be populated after second parse
 	if err != nil {
 		return err
 	}
@@ -70,6 +83,45 @@ func runTelemetry(args []string) error {
 
 	wg.Wait()
 	return nil
+}
+
+func getGlogFlagsMap() map[string] bool {
+	// glog flags: https://pkg.go.dev/github.com/golang/glog
+	return map[string]bool {
+		"-alsologtostderr":  true,
+		"-log_backtrace_at": true,
+		"-log_dir":          true,
+		"-log_link":         true,
+		"-logbuflevel":      true,
+		"-logtostderr":      true,
+		"-stderrthreshold":  true,
+		"-v":                true,
+		"-vmodule":          true,
+	}
+}
+
+func parseOSArgs() ([]string, []string) {
+	glogFlags := []string{os.Args[0]}
+	telemetryFlags := []string{os.Args[0]}
+	glogFlagsMap := getGlogFlagsMap()
+
+	for _, arg := range os.Args[1:] {
+		if strings.HasPrefix(arg, "-v") { // only flag in both glog and telemetry
+			glogFlags = append(glogFlags, arg)
+			telemetryFlags = append(telemetryFlags, arg)
+			continue
+		}
+		isGlogFlag := false
+		if glogFlagsMap[arg] {
+			glogFlags = append(glogFlags, arg)
+			isGlogFlag = true
+			continue
+		}
+		if !isGlogFlag {
+			telemetryFlags = append(telemetryFlags, arg)
+		}
+	}
+	return glogFlags, telemetryFlags
 }
 
 func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
