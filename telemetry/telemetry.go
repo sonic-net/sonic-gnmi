@@ -213,11 +213,7 @@ func isFlagPassed(fs *flag.FlagSet, name string) bool {
 	return found
 }
 
-func iNotifyCertMonitoring(telemetryCfg *TelemetryConfig, serverControlSignal chan<- int, testReadySignal chan<- int) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Errorf("Received error when creating fsnotify watcher %v", err)
-	}
+func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryConfig, serverControlSignal chan<- int, testReadySignal chan<- int) {
 	defer watcher.Close()
 
 	done := make(chan bool)
@@ -246,6 +242,7 @@ func iNotifyCertMonitoring(telemetryCfg *TelemetryConfig, serverControlSignal ch
 			case err := <-watcher.Errors:
 				if err != nil {
 					log.Errorf("Received error event when watching cert: %v", err)
+					serverControlSignal <- 0 // tells gnmi server to stop
 					done <- true
 					return // If watcher is unable to access cert file stop monitoring
 				}
@@ -257,9 +254,10 @@ func iNotifyCertMonitoring(telemetryCfg *TelemetryConfig, serverControlSignal ch
 
 	log.V(1).Infof("Begin cert monitoring on %s", telemetryCertDirectory)
 
-	err = watcher.Add(telemetryCertDirectory) // Adding watcher to cert directory
+	err := watcher.Add(telemetryCertDirectory) // Adding watcher to cert directory
 	if err != nil {
 		log.Errorf("Received error when adding watcher to cert directory: %v", err)
+		serverControlSignal <- 0
 		done <- true
 	}
 
@@ -365,6 +363,11 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			return
 		}
 
+		watcher, err := fsnotify.NewWatcher()
+		if err != nil {
+			log.Errorf("Received error when creating fsnotify watcher %v", err)
+		}
+
 		if *telemetryCfg.WithMasterArbitration {
 			s.ReqFromMaster = gnmi.ReqFromMasterEnabledMA
 		}
@@ -378,7 +381,9 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			}
 		}()
 
-		go iNotifyCertMonitoring(telemetryCfg, serverControlSignal, nil)
+		if watcher != nil {
+			go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, nil)
+		}
 
 		controlValue := <-serverControlSignal
 		log.V(1).Infof("Received signal for gnmi server to close")
