@@ -3799,9 +3799,9 @@ print('%s')
 			desc:       "Set APPL_DB in batch",
 			pathTarget: "",
 			textPbPath: `
-				origin: "sonic-db",
-				elem: <name: "APPL_DB" > elem: <name: "localhost" > elem:<name:"DASH_QOS" >
-			`,
+						origin: "sonic-db",
+                        elem: <name: "APPL_DB" > elem: <name: "localhost" > elem:<name:"DASH_QOS" >
+                `,
 			attributeData: "../testdata/batch.txt",
 			wantRetCode:   codes.OK,
 			wantRespVal:   emptyRespVal,

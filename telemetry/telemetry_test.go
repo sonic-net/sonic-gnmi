@@ -23,13 +23,7 @@ import (
 )
 
 func TestRunTelemetry(t *testing.T) {
-	telemetryCfg := &TelemetryConfig{}
-	cfg := &gnmi.Config{}
-
-	patches := gomonkey.ApplyFunc(setupFlags, func(*flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
-		return telemetryCfg, cfg, nil
-	})
-	patches.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, serverControlSignal <-chan int, wg *sync.WaitGroup) {
+	patches := gomonkey.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, serverControlSignal <-chan int, wg *sync.WaitGroup) {
 		defer wg.Done()
 	})
 	patches.ApplyFunc(signalHandler, func(serverControlSignal chan<- int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
@@ -37,10 +31,19 @@ func TestRunTelemetry(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	args := []string{"test"}
-	err := runTelemetry(args)
+	args := []string{"telemetry", "-logtostderr",  "-port", "50051", "-v=2"}
+	os.Args = args
+	err := runTelemetry(os.Args)
 	if err != nil {
 		t.Errorf("Expected err to be nil, but got %v", err)
+	}
+	vflag := flag.Lookup("v")
+	if vflag.Value.String() != "2" {
+		t.Errorf("Expected v to be 2")
+	}
+	logtostderrflag := flag.Lookup("logtostderr")
+	if logtostderrflag.Value.String() != "true" {
+		t.Errorf("Expected logtostderr to be true")
 	}
 }
 
