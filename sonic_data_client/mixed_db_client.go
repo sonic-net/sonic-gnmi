@@ -466,7 +466,10 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 	var dbPath string
 	var tblPath tablePath
 
-	fullPath := c.gnmiFullPath(c.prefix, path)
+	fullPath, err := c.gnmiFullPath(c.prefix, path)
+	if err != nil {
+		return err
+	}
 
 	stringSlice := []string{c.target}
 	separator, _ := GetTableKeySeparatorByDBKey(c.target, c.dbkey)
