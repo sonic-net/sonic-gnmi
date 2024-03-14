@@ -379,7 +379,7 @@ class TestGNMIConfigDb:
 
         ret, msg = gnmi_set([], update_list, [])
         assert ret != 0, "Failed to detect invalid update path"
-        assert "Invalid gnmi path" in msg, msg
+        assert "Invalid elem length" in msg, msg
 
     def test_gnmi_delete_invalid_01(self):
         path = '/sonic-db:CONFIG_DB/'
@@ -387,7 +387,7 @@ class TestGNMIConfigDb:
 
         ret, msg = gnmi_set(delete_list, [], [])
         assert ret != 0, "Failed to detect invalid delete path"
-        assert "Invalid gnmi path" in msg, msg
+        assert "Invalid elem length" in msg, msg
 
     def test_gnmi_replace_invalid_01(self):
         path = '/sonic-db:CONFIG_DB/'
@@ -405,4 +405,4 @@ class TestGNMIConfigDb:
 
         ret, msg = gnmi_set([], [], update_list)
         assert ret != 0, "Failed to detect invalid replace path"
-        assert "Invalid gnmi path" in msg, msg
+        assert "Invalid elem length" in msg, msg

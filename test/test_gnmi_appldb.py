@@ -129,7 +129,7 @@ class TestGNMIApplDb:
 
         ret, msg = gnmi_set([], update_list, [])
         assert ret != 0, "Failed to detect invalid update path"
-        assert "Invalid gnmi path" in msg, msg
+        assert "Invalid elem length" in msg, msg
 
     @pytest.mark.parametrize('test_data', test_data_update_normal)
     def test_gnmi_delete_normal_01(self, test_data):
@@ -172,7 +172,7 @@ class TestGNMIApplDb:
 
         ret, msg = gnmi_set(delete_list, [], [])
         assert ret != 0, "Failed to detect invalid delete path"
-        assert "Invalid gnmi path" in msg, msg
+        assert "Invalid elem length" in msg, msg
 
     @pytest.mark.parametrize('test_data', test_data_update_normal)
     def test_gnmi_replace_normal_01(self, test_data):
@@ -256,7 +256,7 @@ class TestGNMIApplDb:
 
         ret, msg = gnmi_set([], [], update_list)
         assert ret != 0, "Failed to detect invalid replace path"
-        assert "Invalid gnmi path" in msg, msg
+        assert "Invalid elem length" in msg, msg
 
     def test_gnmi_invalid_path_01(self):
         path = '/sonic-db:APPL_DB/localhost/DASH_QOS/qos_01/bw'
