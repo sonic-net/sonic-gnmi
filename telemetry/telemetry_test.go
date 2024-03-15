@@ -281,8 +281,6 @@ func createCACert(certPath string) error {
 	return nil
 }
 
-
-
 func TestSHA512Checksum(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cer"
 	testServerKey := "../testdata/certs/testserver.key"
@@ -400,8 +398,6 @@ func TestStartGNMIServerCACert(t *testing.T) {
 
 	wg.Wait()
 }
-
-
 
 func TestGNMIServerCreateWatcherError(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cer"
