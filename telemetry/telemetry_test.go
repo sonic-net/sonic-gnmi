@@ -195,6 +195,49 @@ func TestStartGNMIServer(t *testing.T) {
 	}
 }
 
+// Generate a new TLS cert using NewCert and save key pair to specified file path
+func saveCertKeyPair(certPath, keyPath string) error {
+	cert, err := testdata.NewCert()
+	if err != nil {
+		return err
+	}
+
+	certBytes := cert.Certificate[0]
+	keyBytes := x509.MarshalPKCS1PrivateKey(cert.PrivateKey.(*rsa.PrivateKey))
+
+	// Create the parent certs directory
+
+	dirPath := filepath.Dir(certPath)
+
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		return err
+	}
+
+	// Save the certificate
+	certFile, err := os.Create(certPath)
+	if err != nil {
+		return err
+	}
+	defer certFile.Close()
+
+	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certBytes}); err != nil {
+		return err
+	}
+
+	// Save key
+	keyFile, err := os.Create(keyPath)
+	if err != nil {
+		return err
+	}
+	defer keyFile.Close()
+
+	if err := pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyBytes}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func createCACert(certPath string) error {
 	rsaPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -238,106 +281,7 @@ func createCACert(certPath string) error {
 	return nil
 }
 
-func TestStartGNMIServerCACert(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cer"
-	testServerKey := "../testdata/certs/testserver.key"
-	testServerCACert := "../testdata/certs/testserver.pem"
 
-	originalArgs := os.Args
-	defer func() {
-		os.Args = originalArgs
-	}()
-
-	fs := flag.NewFlagSet("testStartGNMIServerCACert", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey, "-ca_crt", testServerCACert}
-	telemetryCfg, cfg, err := setupFlags(fs)
-
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	err = createCACert(testServerCACert)
-
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
-		return tls.Certificate{}, nil
-	})
-	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
-		return &gnmi.Server{}, nil
-	})
-	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
-		return grpc.EmptyServerOption{}
-	})
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Serve", func(_ *gnmi.Server) error {
-		return nil
-	})
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
-		return ""
-	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- int, testReadySignal chan<- int) {
-	})
-
-	serverControlSignal := make(chan int, 1)
-	wg := &sync.WaitGroup{}
-
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
-	})
-	defer patches.Reset()
-
-	wg.Add(1)
-
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, wg)
-
-	sendShutdownSignal(serverControlSignal)
-
-	wg.Wait()
-}
-
-// Generate a new TLS cert using NewCert and save key pair to specified file path
-func saveCertKeyPair(certPath, keyPath string) error {
-	cert, err := testdata.NewCert()
-	if err != nil {
-		return err
-	}
-
-	certBytes := cert.Certificate[0]
-	keyBytes := x509.MarshalPKCS1PrivateKey(cert.PrivateKey.(*rsa.PrivateKey))
-
-	// Create the parent certs directory
-
-	dirPath := filepath.Dir(certPath)
-
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return err
-	}
-
-	// Save the certificate
-	certFile, err := os.Create(certPath)
-	if err != nil {
-		return err
-	}
-	defer certFile.Close()
-
-	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certBytes}); err != nil {
-		return err
-	}
-
-	// Save key
-	keyFile, err := os.Create(keyPath)
-	if err != nil {
-		return err
-	}
-	defer keyFile.Close()
-
-	if err := pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyBytes}); err != nil {
-		return err
-	}
-
-	return nil
-}
 
 func TestSHA512Checksum(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cer"
@@ -398,6 +342,66 @@ func TestSHA512Checksum(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestStartGNMIServerCACert(t *testing.T) {
+	testServerCert := "../testdata/certs/testserver.cer"
+	testServerKey := "../testdata/certs/testserver.key"
+	testServerCACert := "../testdata/certs/testserver.pem"
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testStartGNMIServerCACert", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey, "-ca_crt", testServerCACert}
+	telemetryCfg, cfg, err := setupFlags(fs)
+
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	err = createCACert(testServerCACert)
+
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
+		return tls.Certificate{}, nil
+	})
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+		return &gnmi.Server{}, nil
+	})
+	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
+		return grpc.EmptyServerOption{}
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Serve", func(_ *gnmi.Server) error {
+		return nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
+		return ""
+	})
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- int, testReadySignal chan<- int) {
+	})
+
+	serverControlSignal := make(chan int, 1)
+	wg := &sync.WaitGroup{}
+
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
+	})
+	defer patches.Reset()
+
+	wg.Add(1)
+
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, wg)
+
+	sendShutdownSignal(serverControlSignal)
+
+	wg.Wait()
+}
+
+
 
 func TestGNMIServerCreateWatcherError(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cer"
