@@ -500,6 +500,66 @@ func TestINotifyCertMonitoringRotation(t *testing.T) {
 	}
 }
 
+func TestINotifyCertMonitoringDeletionIntoRotation(t *testing.T) {
+	testServerCert := "../testdata/certs/testserver.cer"
+	testServerKey := "../testdata/certs/testserver.key"
+	timeoutInterval := 10
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
+	defer cancel()
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testiNotifyCertMonitoring", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-v=2", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, _, err := setupFlags(fs)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	serverControlSignal := make(chan int, 1)
+	testReadySignal := make(chan int, 1)
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal)
+
+	<-testReadySignal
+
+	// Delete certs and immediately put new certs, expect final state to be Write
+
+	err = os.Remove(testServerCert)
+
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+	
+	err = saveCertKeyPair(testServerCert, testServerKey)
+
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	select {
+	case val := <-serverControlSignal:
+		if val != ServerRestart {
+			t.Errorf("Expected 1 from serverControlSignal, got %d", val)
+		}
+		t.Log("Received correct value from serverControlSignal")
+	case <-ctx.Done():
+		t.Errorf("Expected a value from serverControlSignal, but got none")
+		return
+	}
+}
+
 func TestINotifyCertMonitoringDeletion(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cer"
 	testServerKey := "../testdata/certs/testserver.key"

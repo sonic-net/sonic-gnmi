@@ -224,6 +224,14 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 	defer watcher.Close()
 
 	done := make(chan bool)
+	/* Creating a timer for remove event edge case where cert file is deleted and new version of cert file is created immediately after.
+	   In this case a remove event will be sent and shortly after a write event will be sent. Adding a timer will let us check for the write event
+	   after a remove event. If there is no such write event after, we will proceed with handling the remove event by sending a StopServer value to channel
+           and returning. If we do see a write event, we will treat as final state of write.
+	*/
+	removeEventTimer := time.NewTimer(time.Second)
+	removeEventTimer.Stop()
+
 	go func() {
 		if testReadySignal != nil { // for testing only
 			testReadySignal <- 0
@@ -235,17 +243,22 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 					log.V(6).Infof("Inotify watcher has received event: %v", event)
 					if event.Op & fsnotify.Write == fsnotify.Write {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
+						removeEventTimer.Stop()
 						serverControlSignal <- ServerRestart
 						done <- true
 						return
 					}
 					if event.Op & fsnotify.Remove == fsnotify.Remove {
 						log.Errorf("Cert file has been deleted: %s", event.Name)
-						serverControlSignal <- ServerStop
-						done <- true
-						return
+						// Start timer
+						removeEventTimer.Reset(time.Second)
 					}
 				}
+			case <-removeEventTimer.C:
+				// No write event after a remove event, we will treat as remove final state
+				serverControlSignal <- ServerStop
+				done <- true
+				return
 			case err := <-watcher.Errors:
 				if err != nil {
 					log.Errorf("Received error event when watching cert: %v", err)
