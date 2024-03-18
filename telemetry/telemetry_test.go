@@ -205,14 +205,6 @@ func saveCertKeyPair(certPath, keyPath string) error {
 	certBytes := cert.Certificate[0]
 	keyBytes := x509.MarshalPKCS1PrivateKey(cert.PrivateKey.(*rsa.PrivateKey))
 
-	// Create the parent certs directory
-
-	dirPath := filepath.Dir(certPath)
-
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return err
-	}
-
 	// Save the certificate
 	certFile, err := os.Create(certPath)
 	if err != nil {
