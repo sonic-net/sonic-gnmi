@@ -80,7 +80,7 @@ func runTelemetry(args []string) error {
 
 	var wg sync.WaitGroup
 	// serverControlSignal channel is a channel that will be used to notify gnmi server of sigcall which should stop server
-	var serverControlSignal = make(chan int, 1)
+	var serverControlSignal = make(chan ServerControlValue, 1)
 	sigchannel := make(chan os.Signal, 1)
 	signal.Notify(sigchannel, syscall.SIGTERM, syscall.SIGQUIT)
 
@@ -220,7 +220,7 @@ func isFlagPassed(fs *flag.FlagSet, name string) bool {
 	return found
 }
 
-func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryConfig, serverControlSignal chan<- int, testReadySignal chan<- int) {
+func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int) {
 	defer watcher.Close()
 
 	done := make(chan bool)
@@ -240,15 +240,15 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 			select {
 			case event := <-watcher.Events:
 				if event.Name != "" {
-					log.V(6).Infof("Inotify watcher has received event: %v", event)
-					if event.Op & fsnotify.Write == fsnotify.Write {
+					log.V(1).Infof("Inotify watcher has received event: %v", event)
+					if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
 						removeEventTimer.Stop()
 						serverControlSignal <- ServerRestart
 						done <- true
 						return
 					}
-					if event.Op & fsnotify.Remove == fsnotify.Remove {
+					if event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename {
 						log.Errorf("Cert file has been deleted: %s", event.Name)
 						// Start timer
 						removeEventTimer.Reset(time.Second)
@@ -256,6 +256,7 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 				}
 			case <-removeEventTimer.C:
 				// No write event after a remove event, we will treat as remove final state
+				log.V(1).Infof("Cert file has been deleted, stopping gnmi server")
 				serverControlSignal <- ServerStop
 				done <- true
 				return
@@ -284,7 +285,7 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 	<-done
 }
 
-func signalHandler(serverControlSignal chan int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
+func signalHandler(serverControlSignal chan ServerControlValue, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
 	defer wg.Done()
 	select {
 	case <-sigchannel:
@@ -297,7 +298,7 @@ func signalHandler(serverControlSignal chan int, wg *sync.WaitGroup, sigchannel 
 	}
 }
 
-func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal chan int, wg *sync.WaitGroup) {
+func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal chan ServerControlValue, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
 		var opts []grpc.ServerOption
@@ -413,7 +414,7 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 		controlValue := <-serverControlSignal
 		log.V(1).Infof("Received signal for gnmi server to close")
 		s.Stop()
-		if controlValue == 0 { // stop telemetry process, other values will restart gnmi server
+		if controlValue == ServerStop {
 			log.Flush()
 			return
 		}

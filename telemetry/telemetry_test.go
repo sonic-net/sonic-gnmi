@@ -9,7 +9,6 @@ import (
 	"math/big"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"path/filepath"
 	"errors"
 	"github.com/fsnotify/fsnotify"
 	"reflect"
@@ -21,6 +20,7 @@ import (
 	"os"
 	"syscall"
 	"time"
+	"io/ioutil"
 	"context"
 	"encoding/pem"
 	"fmt"
@@ -29,10 +29,10 @@ import (
 )
 
 func TestRunTelemetry(t *testing.T) {
-	patches := gomonkey.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, serverControlSignal chan int, wg *sync.WaitGroup) {
+	patches := gomonkey.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, serverControlSignal chan ServerControlValue, wg *sync.WaitGroup) {
 		defer wg.Done()
 	})
-	patches.ApplyFunc(signalHandler, func(serverControlSignal chan int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
+	patches.ApplyFunc(signalHandler, func(serverControlSignal chan ServerControlValue, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
 		defer wg.Done()
 	})
 	defer patches.Reset()
@@ -163,10 +163,10 @@ func TestStartGNMIServer(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- int, testReadySignal chan<- int) {
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int) {
 	})
 
-	serverControlSignal := make(chan int, 1)
+	serverControlSignal := make(chan ServerControlValue, 1)
 	wg := &sync.WaitGroup{}
 
 	exitCalled := false
@@ -313,10 +313,10 @@ func TestSHA512Checksum(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- int, testReadySignal chan<- int) {
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int) {
 	})
 
-	serverControlSignal := make(chan int, 1)
+	serverControlSignal := make(chan ServerControlValue, 1)
 	wg := &sync.WaitGroup{}
 
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
@@ -372,10 +372,10 @@ func TestStartGNMIServerCACert(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- int, testReadySignal chan<- int) {
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int) {
 	})
 
-	serverControlSignal := make(chan int, 1)
+	serverControlSignal := make(chan ServerControlValue, 1)
 	wg := &sync.WaitGroup{}
 
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
@@ -429,7 +429,7 @@ func TestGNMIServerCreateWatcherError(t *testing.T) {
 		return ""
 	})
 
-	serverControlSignal := make(chan int, 1)
+	serverControlSignal := make(chan ServerControlValue, 1)
 	wg := &sync.WaitGroup{}
 
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
@@ -468,7 +468,7 @@ func TestINotifyCertMonitoringRotation(t *testing.T) {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
-	serverControlSignal := make(chan int, 1)
+	serverControlSignal := make(chan ServerControlValue, 1)
 	testReadySignal := make(chan int, 1)
 
 	watcher, err := fsnotify.NewWatcher()
@@ -500,7 +500,7 @@ func TestINotifyCertMonitoringRotation(t *testing.T) {
 	}
 }
 
-func TestINotifyCertMonitoringDeletionIntoRotation(t *testing.T) {
+func TestINotifyCertMonitoringDeleteIntoRotation(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cer"
 	testServerKey := "../testdata/certs/testserver.key"
 	timeoutInterval := 10
@@ -522,7 +522,74 @@ func TestINotifyCertMonitoringDeletionIntoRotation(t *testing.T) {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
-	serverControlSignal := make(chan int, 1)
+	serverControlSignal := make(chan ServerControlValue, 1)
+	testReadySignal := make(chan int, 1)
+
+	content, err := ioutil.ReadFile(testServerCert)
+
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal)
+
+	<-testReadySignal
+
+	// Delete certs and immediately put new, expect final state to be Write
+
+	err = os.Remove(testServerCert)
+
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+	
+	err = ioutil.WriteFile(testServerCert, content, 0755)
+
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	select {
+	case val := <-serverControlSignal:
+		if val != ServerRestart {
+			t.Errorf("Expected 1 from serverControlSignal, got %d", val)
+		}
+		t.Log("Received correct value from serverControlSignal")
+	case <-ctx.Done():
+		t.Errorf("Expected a value from serverControlSignal, but got none")
+		return
+	}
+}
+
+func TestINotifyCertMonitoringRenameIntoCreation(t *testing.T) {
+	testServerCert := "../testdata/certs/testserver.cer"
+	testServerKey := "../testdata/certs/testserver.key"
+	tempServerCert := "../testdata/testserver.cer"
+	timeoutInterval := 10
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
+	defer cancel()
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testiNotifyCertMonitoring", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-v=2", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, _, err := setupFlags(fs)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	serverControlSignal := make(chan ServerControlValue, 1)
 	testReadySignal := make(chan int, 1)
 
 	watcher, err := fsnotify.NewWatcher()
@@ -534,15 +601,15 @@ func TestINotifyCertMonitoringDeletionIntoRotation(t *testing.T) {
 
 	<-testReadySignal
 
-	// Delete certs and immediately put new certs, expect final state to be Write
+	// Move certs and immediately put back, expect final state to be Write
 
-	err = os.Remove(testServerCert)
+	err = os.Rename(testServerCert, tempServerCert)
 
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 	
-	err = saveCertKeyPair(testServerCert, testServerKey)
+	err = os.Rename(tempServerCert, testServerCert)
 
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
@@ -582,7 +649,7 @@ func TestINotifyCertMonitoringDeletion(t *testing.T) {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
-	serverControlSignal := make(chan int, 1)
+	serverControlSignal := make(chan ServerControlValue, 1)
 	testReadySignal := make(chan int, 1)
 
 	watcher, err := fsnotify.NewWatcher()
@@ -636,7 +703,7 @@ func TestINotifyCertMonitoringErrors(t *testing.T) {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
-	serverControlSignal := make(chan int, 1)
+	serverControlSignal := make(chan ServerControlValue, 1)
 	testReadySignal := make(chan int, 1)
 
 	watcher, err := fsnotify.NewWatcher()
@@ -687,7 +754,7 @@ func TestINotifyCertMonitoringAddWatcherError(t *testing.T) {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
-	serverControlSignal := make(chan int, 1)
+	serverControlSignal := make(chan ServerControlValue, 1)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -724,7 +791,7 @@ func testHandlerSyscall(t *testing.T, signal os.Signal) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
 	defer cancel()
 
-	serverControlSignal := make(chan int, 1)
+	serverControlSignal := make(chan ServerControlValue, 1)
 	testSigChan := make(chan os.Signal, 1)
 	wg := &sync.WaitGroup{}
 
@@ -753,6 +820,6 @@ func testHandlerSyscall(t *testing.T, signal os.Signal) {
 	wg.Wait()
 }
 
-func sendShutdownSignal(serverControlSignal chan<- int) {
+func sendShutdownSignal(serverControlSignal chan<- ServerControlValue) {
 	serverControlSignal <- ServerStop
 }
