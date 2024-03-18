@@ -32,7 +32,7 @@ func TestRunTelemetry(t *testing.T) {
 	patches := gomonkey.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, serverControlSignal chan int, wg *sync.WaitGroup) {
 		defer wg.Done()
 	})
-	patches.ApplyFunc(signalHandler, func(serverControlSignal chan<- int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
+	patches.ApplyFunc(signalHandler, func(serverControlSignal chan int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
 		defer wg.Done()
 	})
 	defer patches.Reset()
@@ -656,6 +656,7 @@ func TestINotifyCertMonitoringAddWatcherError(t *testing.T) {
 func TestSignalHandler(t *testing.T) {
 	testHandlerSyscall(t, syscall.SIGTERM)
 	testHandlerSyscall(t, syscall.SIGQUIT)
+	testHandlerSyscall(t, nil) // Test that ServerStop should make signalHandler exit
 }
 
 func testHandlerSyscall(t *testing.T, signal os.Signal) {
@@ -670,6 +671,12 @@ func testHandlerSyscall(t *testing.T, signal os.Signal) {
 	wg.Add(1)
 
 	go signalHandler(serverControlSignal, wg, testSigChan)
+
+	if signal == nil {
+		serverControlSignal <- ServerStop
+		wg.Wait()
+		return
+	}
 
 	testSigChan <- signal
 

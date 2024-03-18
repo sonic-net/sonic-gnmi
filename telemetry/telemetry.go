@@ -232,7 +232,7 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 			select {
 			case event := <-watcher.Events:
 				if event.Name != "" {
-					log.V(1).Infof("Inotify watcher has received event: %v", event)
+					log.V(6).Infof("Inotify watcher has received event: %v", event)
 					if event.Op & fsnotify.Write == fsnotify.Write {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
 						serverControlSignal <- ServerRestart
@@ -271,11 +271,16 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 	<-done
 }
 
-func signalHandler(serverControlSignal chan<- int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
+func signalHandler(serverControlSignal chan int, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
 	defer wg.Done()
 	select {
 	case <-sigchannel:
 		serverControlSignal <- ServerStop
+		return
+	case serverControlValue := <-serverControlSignal:
+		if serverControlValue == ServerStop { // Server has been stopped already, no longer need to watch for syscalls
+			return
+		}
 	}
 }
 
