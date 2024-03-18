@@ -25,6 +25,13 @@ import (
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 )
 
+type ServerControlValue int
+
+const (
+	ServerStop       ServerControlValue = iota // 0
+	ServerRestart    ServerControlValue = iota // 1
+)
+
 type TelemetryConfig struct {
 	UserAuth              gnmi.AuthTypes
 	Port                  *int
@@ -228,21 +235,21 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 					log.V(1).Infof("Inotify watcher has received event: %v", event)
 					if event.Op & fsnotify.Write == fsnotify.Write {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
-						serverControlSignal <- 1 // tells gnmi server to stop and restart with new certs
+						serverControlSignal <- ServerRestart
 						done <- true
 						return
 					}
 					if event.Op & fsnotify.Remove == fsnotify.Remove {
 						log.Errorf("Cert file has been deleted: %s", event.Name)
-						serverControlSignal <- 0 // tells gnmi server to stop
+						serverControlSignal <- ServerStop
 						done <- true
-						return // If cert file is deleted, we will end telemetry process
+						return
 					}
 				}
 			case err := <-watcher.Errors:
 				if err != nil {
 					log.Errorf("Received error event when watching cert: %v", err)
-					serverControlSignal <- 0 // tells gnmi server to stop
+					serverControlSignal <- ServerStop
 					done <- true
 					return // If watcher is unable to access cert file stop monitoring
 				}
@@ -257,7 +264,7 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 	err := watcher.Add(telemetryCertDirectory) // Adding watcher to cert directory
 	if err != nil {
 		log.Errorf("Received error when adding watcher to cert directory: %v", err)
-		serverControlSignal <- 0
+		serverControlSignal <- ServerStop
 		done <- true
 	}
 
@@ -268,7 +275,7 @@ func signalHandler(serverControlSignal chan<- int, wg *sync.WaitGroup, sigchanne
 	defer wg.Done()
 	select {
 	case <-sigchannel:
-		serverControlSignal <- 0
+		serverControlSignal <- ServerStop
 	}
 }
 

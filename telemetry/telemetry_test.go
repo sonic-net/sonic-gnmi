@@ -490,7 +490,7 @@ func TestINotifyCertMonitoringRotation(t *testing.T) {
 
 	select {
 	case val := <-serverControlSignal:
-		if val != 1 {
+		if val != ServerRestart {
 			t.Errorf("Expected 1 from serverControlSignal, got %d", val)
 		}
 		t.Log("Received correct value from serverControlSignal")
@@ -544,7 +544,7 @@ func TestINotifyCertMonitoringDeletion(t *testing.T) {
 
 	select {
 	case val := <-serverControlSignal:
-		if val != 0 {
+		if val != ServerStop {
 			t.Errorf("Expected 0 from serverControlSignal, got %d", val)
 		}
 		t.Log("Received correct value from serverControlSignal")
@@ -595,7 +595,7 @@ func TestINotifyCertMonitoringErrors(t *testing.T) {
 
 	select {
 	case val := <-serverControlSignal:
-		if val != 0 {
+		if val != ServerStop {
 			t.Errorf("Expected 0 from serverControlSignal, got %d", val)
 		}
 		t.Log("Received correct value from serverControlSignal")
@@ -643,7 +643,7 @@ func TestINotifyCertMonitoringAddWatcherError(t *testing.T) {
 
 	select {
 	case val := <-serverControlSignal:
-		if val != 0 {
+		if val != ServerStop {
 			t.Errorf("Expected 0 from serverControlSignal, got %d", val)
 		}
 		t.Log("Received correct value from serverControlSignal")
@@ -675,7 +675,7 @@ func testHandlerSyscall(t *testing.T, signal os.Signal) {
 
 	select {
 	case val := <-serverControlSignal:
-		if val != 0 {
+		if val != ServerStop {
 			t.Errorf("Expected 0 from serverControlSignal, got %d", val)
 		}
 	case <-ctx.Done():
@@ -687,5 +687,5 @@ func testHandlerSyscall(t *testing.T, signal os.Signal) {
 }
 
 func sendShutdownSignal(serverControlSignal chan<- int) {
-	serverControlSignal <- 0
+	serverControlSignal <- ServerStop
 }
