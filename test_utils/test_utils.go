@@ -55,3 +55,52 @@ func CleanUpMultiNamespace() error {
 func GetMultiNsNamespace() string {
 	return "asic0"
 }
+
+func SetupMultiInstance() error {
+	err := os.MkdirAll("/var/run/redisdpu0/sonic-db/", 0755)
+	if err != nil {
+		return err
+	}
+	srcFileName := [2]string{"../testdata/database_global_dpu.json", "../testdata/database_config_dpu.json"}
+	dstFileName := [2]string{"/var/run/redis/sonic-db/database_global.json", "/var/run/redisdpu0/sonic-db/database_config.json"}
+	for i := 0; i < len(srcFileName); i++ {
+		sourceFileStat, err := os.Stat(srcFileName[i])
+		if err != nil {
+			return err
+		}
+
+		if !sourceFileStat.Mode().IsRegular() {
+			return err
+		}
+
+		source, err := os.Open(srcFileName[i])
+		if err != nil {
+			return err
+		}
+		defer source.Close()
+
+		destination, err := os.Create(dstFileName[i])
+		if err != nil {
+			return err
+		}
+		defer destination.Close()
+		_, err = io.Copy(destination, source)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func CleanUpMultiInstance() error {
+	err := os.Remove("/var/run/redis/sonic-db/database_global.json")
+	if err != nil {
+		return err
+	}
+	err = os.RemoveAll("/var/run/redisdpu0")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
