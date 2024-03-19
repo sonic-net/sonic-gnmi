@@ -79,24 +79,23 @@ func getDpuAddress(dpuId string) (string, error) {
 	// Find DPU address by DPU ID from CONFIG_DB
 	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
 
-	var configDbConnector = swsscommon.NewConfigDBConnector()
-	configDbConnector.Connect(false)
+	dbSubscriber := common_utils.GetDbSubscriber()
 
 	// get bridge plane
-	bridgePlane, err := configDbConnector.Hget("MID_PLANE_BRIDGE", "GLOBAL", "bridge");
+	bridgePlane, err := dbSubscriber.GetData("MID_PLANE_BRIDGE", "GLOBAL", "bridge")
 	if err != nil {
 		return "", err
 	}
 
 	// get DPU interface by DPU ID
-	dpuInterface, err := configDbConnector.Hget("DPUS", dpuId, "midplane_interface");
+	dpuInterface, err := dbSubscriber.GetData("DPUS", dpuId, "midplane_interface");
 	if err != nil {
 		return "", err
 	}
 
 	// get DPR address by DPU ID and brdige plane
 	var dhcpPortKey = bridgePlane + "|" + dpuInterface
-	dpuAddresses, err := configDbConnector.Hget("DHCP_SERVER_IPV4_PORT", dhcpPortKey, "ips@");
+	dpuAddresses, err := dbSubscriber.GetData("DHCP_SERVER_IPV4_PORT", dhcpPortKey, "ips");
 	if err != nil {
 		return "", err
 	}
@@ -109,33 +108,36 @@ func getDpuAddress(dpuId string) (string, error) {
 	return dpuAddressArray[0], nil
 }
 
-func getZmqAddress(container string, zmqPort string) (string) {
+func getZmqAddress(container string, zmqPort string) (string, error) {
+	// when zmqPort empty, ZMQ feature disabled
+	if zmqPort == "" {
+		return "", fmt.Errorf("ZMQ port is empty.")
+	}
+
 	var dpuAddress, err = getDpuAddress(container)
 	if err != nil {
-		// When can't find address by container, 'container' is not a DPU ID
-		dpuAddress = "127.0.0.1"
+		return "", fmt.Errorf("Get DPU address failed: %v", err)
 	}
 
 	// ZMQ address example: "tcp://127.0.0.1:1234"
-	return "tcp://" + dpuAddress + ":" + zmqPort
+	return "tcp://" + dpuAddress + ":" + zmqPort, nil
 }
 
 var zmqClientMap = map[string]swsscommon.ZmqClient{}
 
-func getZmqClient(container string, zmqPort string) (swsscommon.ZmqClient) {
-	// when zmqPort empty, ZMQ feature disabled
-	if zmqPort == "" {
-		return nil
+func getZmqClient(container string, zmqPort string) (swsscommon.ZmqClient, error) {
+	zmqAddress, err := getZmqAddress(container, zmqPort);
+	if err != nil {
+		return nil, fmt.Errorf("Get ZMQ address failed: %v", err)
 	}
 
-	var zmqAddress = getZmqAddress(container, zmqPort);
 	client, ok := zmqClientMap[zmqAddress]
 	if !ok {
 		client = swsscommon.NewZmqClient(zmqAddress)
 		zmqClientMap[zmqAddress] = client
 	}
 
-	return client
+	return client, nil
 }
 
 func getMixedDbClient(zmqAddress string) (MixedDbClient) {
