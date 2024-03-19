@@ -3762,6 +3762,7 @@ print('%s')
 	mock1 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
 	defer mock1.Reset()
 
+	sdcfg.Init()
 	s := createServer(t, 8090)
 	go runServer(t, s)
 
@@ -3799,7 +3800,7 @@ print('%s')
 			pathTarget: "",
 			textPbPath: `
 						origin: "sonic-db",
-                        elem: <name: "APPL_DB" > elem:<name:"DASH_QOS" >
+                        elem: <name: "APPL_DB" > elem: <name: "localhost" > elem:<name:"DASH_QOS" >
                 `,
 			attributeData: "../testdata/batch.txt",
 			wantRetCode:   codes.OK,
@@ -3847,6 +3848,7 @@ print('%s')
 	mock3 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
 	defer mock3.Reset()
 
+	sdcfg.Init()
 	s := createServer(t, 8080)
 	go runServer(t, s)
 	defer s.Stop()
@@ -3857,8 +3859,9 @@ print('%s')
 	path, _ := os.Getwd()
 	path = filepath.Dir(path)
 
-	var cmd *exec.Cmd
-	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest")
+	// This test is used for single database configuration
+	// Run tests not marked with multidb
+	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'not multidb'")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)
@@ -3882,6 +3885,40 @@ print('%s')
 		}
 	}
 	s.Stop()
+}
+
+// Test configuration with multiple databases
+func TestGNMINativeMultiDB(t *testing.T) {
+	sdcfg.Init()
+	err := test_utils.SetupMultiInstance()
+	if err != nil {
+		t.Fatalf("error Setting up MultiInstance files with err %T", err)
+	}
+
+	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
+	t.Cleanup(func() {
+		if err := test_utils.CleanUpMultiInstance(); err != nil {
+			t.Fatalf("error Cleaning up MultiInstance files with err %T", err)
+
+		}
+	})
+
+	s := createServer(t, 8080)
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	path, _ := os.Getwd()
+	path = filepath.Dir(path)
+
+	// This test is used for multiple database configuration
+	// Run tests marked with multidb
+	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'multidb'")
+	if result, err := cmd.Output(); err != nil {
+		fmt.Println(string(result))
+		t.Errorf("Fail to execute pytest: %v", err)
+	} else {
+		fmt.Println(string(result))
+	}
 }
 
 func TestServerPort(t *testing.T) {
