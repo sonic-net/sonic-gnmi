@@ -11,7 +11,7 @@ type DbSubscriber struct {
 	dbSelect swsscommon.Select
 	subscribeTableMap map[string]swsscommon.SubscriberStateTable
 	tableData map[string]map[string]map[string]string
-    stopChannel chan bool
+	stopChannel chan bool
 	tableDataMutex sync.Mutex
 }
 
@@ -114,7 +114,7 @@ func (d *DbSubscriber) subscribeTable(table string) {
 func (d *DbSubscriber) updateRoutine() {
 	selectHelper := swsscommon.NewSelectHelper()
 	for {
-        select {
+		select {
 			case <- d.stopChannel:
 				return
 			default:
@@ -123,7 +123,7 @@ func (d *DbSubscriber) updateRoutine() {
 					subscribeTable := swsscommon.CastSelectableToSubscriberTableObj(selectHelper.GetSelectable())
 					d.pops(subscribeTable)
 				}
-        }
+		}
 	}
 }
 
