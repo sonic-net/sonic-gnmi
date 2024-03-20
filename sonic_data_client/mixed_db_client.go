@@ -29,6 +29,7 @@ import (
 	"github.com/go-redis/redis"
 )
 
+const LOCAL_ADDRESS string = "127.0.0.1"
 const REDIS_SOCK string = "/var/run/redis/redis.sock"
 const APPL_DB int = 0
 // New database for DASH
@@ -139,12 +140,7 @@ func getZmqAddress(container string, zmqPort string) (string, error) {
 
 var zmqClientMap = map[string]swsscommon.ZmqClient{}
 
-func getZmqClient(container string, zmqPort string) (swsscommon.ZmqClient, error) {
-	zmqAddress, err := getZmqAddress(container, zmqPort);
-	if err != nil {
-		return nil, fmt.Errorf("Get ZMQ address failed: %v", err)
-	}
-
+func getZmqClientByAddress(zmqAddress string) (swsscommon.ZmqClient, error) {
 	client, ok := zmqClientMap[zmqAddress]
 	if !ok {
 		client = swsscommon.NewZmqClient(zmqAddress)
@@ -152,6 +148,25 @@ func getZmqClient(container string, zmqPort string) (swsscommon.ZmqClient, error
 	}
 
 	return client, nil
+}
+
+func getZmqClient(dpuId string, zmqPort string) (swsscommon.ZmqClient, error) {
+	if zmqPort == "" {
+		// ZMQ feature disabled when zmqPort flag not set
+		return nil, nil
+	}
+
+	if dpuId == sdcfg.SONIC_DEFAULT_CONTAINER {
+		// When DPI ID is default, create ZMQ with local address
+		return getZmqClientByAddress("tcp://" + LOCAL_ADDRESS + ":" + zmqPort)
+	}
+
+	zmqAddress, err := getZmqAddress(dpuId, zmqPort)
+	if err != nil {
+		return nil, fmt.Errorf("Get ZMQ address failed: %v", err)
+	}
+
+	return getZmqClientByAddress(zmqAddress)
 }
 
 func getMixedDbClient(zmqAddress string) (MixedDbClient) {
