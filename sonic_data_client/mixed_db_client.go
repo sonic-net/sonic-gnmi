@@ -29,6 +29,7 @@ import (
 	"github.com/go-redis/redis"
 )
 
+const LOCAL_ADDRESS string = "127.0.0.1"
 const REDIS_SOCK string = "/var/run/redis/redis.sock"
 const APPL_DB int = 0
 // New database for DASH
@@ -84,8 +85,6 @@ type MixedDbClient struct {
 	mu     sync.RWMutex    // Mutex for data protection among routines for DbClient
 }
 
-var mixedDbClientMap = map[string]MixedDbClient{}
-
 // redis client connected to each DB
 var RedisDbMap = make(map[string]map[string]*redis.Client)
 
@@ -139,12 +138,7 @@ func getZmqAddress(container string, zmqPort string) (string, error) {
 
 var zmqClientMap = map[string]swsscommon.ZmqClient{}
 
-func getZmqClient(container string, zmqPort string) (swsscommon.ZmqClient, error) {
-	zmqAddress, err := getZmqAddress(container, zmqPort);
-	if err != nil {
-		return nil, fmt.Errorf("Get ZMQ address failed: %v", err)
-	}
-
+func getZmqClientByAddress(zmqAddress string) (swsscommon.ZmqClient, error) {
 	client, ok := zmqClientMap[zmqAddress]
 	if !ok {
 		client = swsscommon.NewZmqClient(zmqAddress)
@@ -154,24 +148,23 @@ func getZmqClient(container string, zmqPort string) (swsscommon.ZmqClient, error
 	return client, nil
 }
 
-func getMixedDbClient(zmqAddress string) (MixedDbClient) {
-	client, ok := mixedDbClientMap[zmqAddress]
-	if !ok {
-		client = MixedDbClient {
-			tableMap : map[string]swsscommon.ProducerStateTable{},
-		}
-
-		// enable ZMQ by zmqAddress parameter
-		if zmqAddress != "" {
-			client.zmqClient = swsscommon.NewZmqClient(zmqAddress)
-		} else {
-			client.zmqClient = nil
-		}
-
-		mixedDbClientMap[zmqAddress] = client
+func getZmqClient(dpuId string, zmqPort string) (swsscommon.ZmqClient, error) {
+	if zmqPort == "" {
+		// ZMQ feature disabled when zmqPort flag not set
+		return nil, nil
 	}
 
-	return client
+	if dpuId == sdcfg.SONIC_DEFAULT_CONTAINER {
+		// When DPI ID is default, create ZMQ with local address
+		return getZmqClientByAddress("tcp://" + LOCAL_ADDRESS + ":" + zmqPort)
+	}
+
+	zmqAddress, err := getZmqAddress(dpuId, zmqPort)
+	if err != nil {
+		return nil, fmt.Errorf("Get ZMQ address failed: %v", err)
+	}
+
+	return getZmqClientByAddress(zmqAddress)
 }
 
 // This function get target present in GNMI Request and
@@ -430,13 +423,16 @@ func useRedisTcpClientWithDBKey() error {
 	return nil
 }
 
-func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqAddress string) (Client, error) {
+func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string) (Client, error) {
 	var err error
 
 	// Testing program may ask to use redis local tcp connection
 	useRedisTcpClientWithDBKey()
 
-	var client = getMixedDbClient(zmqAddress)
+	var client = MixedDbClient {
+		tableMap : map[string]swsscommon.ProducerStateTable{},
+	}
+
 	// Get namespace count and container count from db config
 	client.namespace_cnt = 1
 	client.container_cnt = 1
@@ -486,6 +482,12 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	client.mapkey = ns + ":" + container
 	client.paths = paths
 	client.workPath = common_utils.GNMI_WORK_PATH
+
+	// continer is DPU ID
+	client.zmqClient, err = getZmqClient(container, zmqPort)
+	if err != nil {
+		return nil, fmt.Errorf("Get ZMQ client failed: %v", err)
+	}
 
 	return &client, nil
 }
@@ -1464,7 +1466,12 @@ func (c *MixedDbClient) Capabilities() []gnmipb.ModelData {
 }
 
 func (c *MixedDbClient) Close() error {
-	// Do nothing here, because MixedDbClient will be cache in mixedDbClientMap and reuse
+	for _, pt := range c.tableMap {
+		swsscommon.DeleteProducerStateTable(pt)
+	}
+	if c.applDB != nil{
+		swsscommon.DeleteDBConnector(c.applDB)
+	}
 	return nil
 }
 

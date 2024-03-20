@@ -599,4 +599,9 @@ func TestGetZmqClient(t *testing.T) {
 	if client == nil {
 		t.Errorf("get ZMQ client failed")
 	}
+
+	client, err = getZmqClient("", "1234")
+	if client == nil {
+		t.Errorf("get ZMQ client failed")
+	}
 }
