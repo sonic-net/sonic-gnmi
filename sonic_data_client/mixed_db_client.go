@@ -90,27 +90,37 @@ var mixedDbClientMap = map[string]MixedDbClient{}
 // redis client connected to each DB
 var RedisDbMap = make(map[string]map[string]*redis.Client)
 
+func Hget(configDbConnector *swsscommon.ConfigDBConnector, table string, key string, field string) (string, error) {
+    var fieldValuePairs = configDbConnector.Get_entry(table, key)
+    if fieldValuePairs.Has_key(field) {
+        return fieldValuePairs.Get(field), nil
+    }
+
+    return "", fmt.Errorf("Can't read %s:%s from %s table", key, field, table)
+}
+
 func getDpuAddress(dpuId string) (string, error) {
 	// Find DPU address by DPU ID from CONFIG_DB
 	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
 
-	dbSubscriber := common_utils.GetDbSubscriber()
+	var configDbConnector = swsscommon.NewConfigDBConnector()
+	configDbConnector.Connect(false)
 
 	// get bridge plane
-	bridgePlane, err := dbSubscriber.GetData("MID_PLANE_BRIDGE", "GLOBAL", "bridge")
+	bridgePlane, err := Hget(configDbConnector, "MID_PLANE_BRIDGE", "GLOBAL", "bridge");
 	if err != nil {
 		return "", err
 	}
 
 	// get DPU interface by DPU ID
-	dpuInterface, err := dbSubscriber.GetData("DPUS", dpuId, "midplane_interface");
+	dpuInterface, err := Hget(configDbConnector, "DPUS", dpuId, "midplane_interface");
 	if err != nil {
 		return "", err
 	}
 
 	// get DPR address by DPU ID and brdige plane
 	var dhcpPortKey = bridgePlane + "|" + dpuInterface
-	dpuAddresses, err := dbSubscriber.GetData("DHCP_SERVER_IPV4_PORT", dhcpPortKey, "ips");
+	dpuAddresses, err := Hget(configDbConnector, "DHCP_SERVER_IPV4_PORT", dhcpPortKey, "ips");
 	if err != nil {
 		return "", err
 	}

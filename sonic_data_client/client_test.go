@@ -13,7 +13,6 @@ import (
 
 	"github.com/jipanyang/gnxi/utils/xpath"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
-	"github.com/sonic-net/sonic-gnmi/common_utils"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
@@ -492,10 +491,6 @@ func TestGetDpuAddress(t *testing.T) {
 	var dpusTable = swsscommon.NewTable(configDb, "DPUS")
 	var dhcpPortTable = swsscommon.NewTable(configDb, "DHCP_SERVER_IPV4_PORT")
 
-	common_utils.ResetDbSubscriber()
-	dbSubscriber := common_utils.GetDbSubscriber()
-	dbSubscriber.InitializeDbSubscriber()
-	
 	// test get DPU address when database not ready
 	address, err := getDpuAddress("dpu0")
 	if err == nil {
@@ -505,9 +500,6 @@ func TestGetDpuAddress(t *testing.T) {
 	midPlaneTable.Hset("GLOBAL", "bridge", "bridge_midplane")
 	dpusTable.Hset("dpu0", "midplane_interface", "dpu0")
 
-	// wait dbSubscriber update
-	time.Sleep(1 * time.Second)
-
 	// test get DPU address when DHCP_SERVER_IPV4_PORT table not ready
 	address, err = getDpuAddress("dpu0")
 	if err == nil {
@@ -516,9 +508,6 @@ func TestGetDpuAddress(t *testing.T) {
 
 	dhcpPortTable.Hset("bridge_midplane|dpu0", "invalidfield", "")
 
-	// wait dbSubscriber update
-	time.Sleep(1 * time.Second)
-
 	// test get DPU address when DHCP_SERVER_IPV4_PORT table broken
 	address, err = getDpuAddress("dpu0")
 	if err == nil {
@@ -526,9 +515,6 @@ func TestGetDpuAddress(t *testing.T) {
 	}
 
 	dhcpPortTable.Hset("bridge_midplane|dpu0", "ips", "127.0.0.2,127.0.0.1")
-
-	// wait dbSubscriber update
-	time.Sleep(1 * time.Second)
 
 	// test get valid DPU address
 	address, err = getDpuAddress("dpu0")
@@ -579,16 +565,9 @@ func TestGetZmqClient(t *testing.T) {
 	var dpusTable = swsscommon.NewTable(configDb, "DPUS")
 	var dhcpPortTable = swsscommon.NewTable(configDb, "DHCP_SERVER_IPV4_PORT")
 
-	common_utils.ResetDbSubscriber()
-	dbSubscriber := common_utils.GetDbSubscriber()
-	dbSubscriber.InitializeDbSubscriber()
-
 	midPlaneTable.Hset("GLOBAL", "bridge", "bridge_midplane")
 	dpusTable.Hset("dpu0", "midplane_interface", "dpu0")
 	dhcpPortTable.Hset("bridge_midplane|dpu0", "ips", "127.0.0.2,127.0.0.1")
-
-	// wait dbSubscriber update
-	time.Sleep(1 * time.Second)
 
 	client, err := getZmqClient("dpu0", "")
 	if client != nil || err != nil {
