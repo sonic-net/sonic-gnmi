@@ -167,7 +167,7 @@ func getZmqClient(dpuId string, zmqPort string) (swsscommon.ZmqClient, error) {
 	}
 
 	if dpuId == sdcfg.SONIC_DEFAULT_CONTAINER {
-		// When DPI ID is default, create ZMQ with local address
+		// When DPU ID is default, create ZMQ with local address
 		return getZmqClientByAddress("tcp://" + LOCAL_ADDRESS + ":" + zmqPort)
 	}
 
