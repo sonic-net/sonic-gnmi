@@ -177,13 +177,13 @@ func (srv *Server) Serve() error {
 	return srv.s.Serve(srv.lis)
 }
 
-func (srv *Server) Stop() {
+func (srv *Server) GracefulStop() {
 	s := srv.s
 	if s == nil {
 		log.Errorf("Stop() failed: not initialized")
 		return
 	}
-	s.Stop()
+	s.GracefulStop()
 }
 
 // Address returns the port the Server is listening to.

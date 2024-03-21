@@ -29,7 +29,8 @@ type ServerControlValue int
 
 const (
 	ServerStop       ServerControlValue = iota // 0
-	ServerRestart    ServerControlValue = iota // 1
+	ServerStart      ServerControlValue = iota // 1
+	ServerRestart    ServerControlValue = iota // 2
 )
 
 type TelemetryConfig struct {
@@ -79,16 +80,16 @@ func runTelemetry(args []string) error {
 	}
 
 	var wg sync.WaitGroup
-	// serverControlSignal channel is a channel that will be used to notify gnmi server of sigcall which should stop server
+	// serverControlSignal channel is a channel that will be used to notify gnmi server to start, stop, restart, depending of syscall or cert updates
 	var serverControlSignal = make(chan ServerControlValue, 1)
 	sigchannel := make(chan os.Signal, 1)
 	signal.Notify(sigchannel, syscall.SIGTERM, syscall.SIGQUIT)
 
-	wg.Add(1)
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, &wg)
+	go signalHandler(serverControlSignal, sigchannel)
 
 	wg.Add(1)
-	go signalHandler(serverControlSignal, &wg, sigchannel)
+
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, &wg)
 
 	wg.Wait()
 	return nil
@@ -193,6 +194,14 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		log.Infof("Log level must be greater than 0, setting to default value of 2")
 	}
 
+	if !*telemetryCfg.NoTLS && !*telemetryCfg.Insecure {
+		switch {
+		case *telemetryCfg.ServerCert == "":
+			return nil, nil, fmt.Errorf("serverCert must be set.")
+		case *telemetryCfg.ServerKey == "":
+			return nil, nil, fmt.Errorf("serverKey must be set.")
+		}
+	}
 
 	// Move to new function
 	gnmi.JwtRefreshInt = time.Duration(*telemetryCfg.JwtRefInt * uint64(time.Second))
@@ -224,13 +233,6 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 	defer watcher.Close()
 
 	done := make(chan bool)
-	/* Creating a timer for remove event edge case where cert file is deleted and new version of cert file is created immediately after.
-	   In this case a remove event will be sent and shortly after a write event will be sent. Adding a timer will let us check for the write event
-	   after a remove event. If there is no such write event after, we will proceed with handling the remove event by sending a StopServer value to channel
-           and returning. If we do see a write event, we will treat as final state of write.
-	*/
-	removeEventTimer := time.NewTimer(time.Second)
-	removeEventTimer.Stop()
 
 	go func() {
 		if testReadySignal != nil { // for testing only
@@ -239,27 +241,22 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 		for {
 			select {
 			case event := <-watcher.Events:
-				if event.Name != "" {
+				if event.Name != "" && (filepath.Ext(event.Name) == ".cert" || filepath.Ext(event.Name) == ".crt" ||
+                                   filepath.Ext(event.Name) == ".pem" || filepath.Ext(event.Name) == ".key") {
 					log.V(1).Infof("Inotify watcher has received event: %v", event)
 					if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
-						removeEventTimer.Stop()
-						serverControlSignal <- ServerRestart
+						serverControlSignal <- ServerStart // let server know that a write/create event occurred
 						done <- true
 						return
 					}
 					if event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename {
-						log.Errorf("Cert file has been deleted: %s", event.Name)
-						// Start timer
-						removeEventTimer.Reset(time.Second)
+						log.V(1).Infof("Cert file has been deleted: %s", event.Name)
+						serverControlSignal <- ServerRestart // let server know that a remove/rename event occurred
+						done <- true
+						return
 					}
 				}
-			case <-removeEventTimer.C:
-				// No write event after a remove event, we will treat as remove final state
-				log.V(1).Infof("Cert file has been deleted, stopping gnmi server")
-				serverControlSignal <- ServerStop
-				done <- true
-				return
 			case err := <-watcher.Errors:
 				if err != nil {
 					log.Errorf("Received error event when watching cert: %v", err)
@@ -285,21 +282,20 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 	<-done
 }
 
-func signalHandler(serverControlSignal chan ServerControlValue, wg *sync.WaitGroup, sigchannel <-chan os.Signal) {
-	defer wg.Done()
+func signalHandler(serverControlSignal chan<- ServerControlValue, sigchannel <-chan os.Signal) {
 	select {
 	case <-sigchannel:
 		serverControlSignal <- ServerStop
-		return
-	case serverControlValue := <-serverControlSignal:
-		if serverControlValue == ServerStop { // Server has been stopped already, no longer need to watch for syscalls
-			return
-		}
 	}
 }
 
 func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal chan ServerControlValue, wg *sync.WaitGroup) {
 	defer wg.Done()
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Errorf("Received error when creating fsnotify watcher %v", err)
+	}
+
 	for {
 		var opts []grpc.ServerOption
 		if !*telemetryCfg.NoTLS {
@@ -308,22 +304,30 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			if *telemetryCfg.Insecure {
 				certificate, err = testcert.NewCert()
 				if err != nil {
-					log.Exitf("could not load server key pair: %s", err)
+					log.Errorf("could not load server key pair: %s", err)
+					return
 				}
 			} else {
-				switch {
-				case *telemetryCfg.ServerCert == "":
-					log.Errorf("serverCert must be set.")
-					return
-				case *telemetryCfg.ServerKey == "":
-					log.Errorf("serverKey must be set.")
-					return
+				if watcher != nil {
+					go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, nil)
 				}
 				certificate, err = tls.LoadX509KeyPair(*telemetryCfg.ServerCert, *telemetryCfg.ServerKey)
 				if err != nil {
 					computeSHA512Checksum(*telemetryCfg.ServerCert)
 					computeSHA512Checksum(*telemetryCfg.ServerKey)
-					log.Exitf("could not load server key pair: %s", err)
+					log.Errorf("could not load server key pair: %s", err)
+					for {
+						serverControlValue := <-serverControlSignal
+						if serverControlValue == ServerStop {
+							return // server called to shutdown
+						}
+						if serverControlValue == ServerStart {
+							break // retry loading certs after cert has been written or created
+						}
+						// We don't care if file is deleted here as we will only want to check
+						// if certs have been created or written to, else we will wait again
+					}
+					continue
 				}
 			}
 
@@ -351,13 +355,28 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			}
 
 			if *telemetryCfg.CaCert != "" {
+				caCertLoaded := true
 				ca, err := ioutil.ReadFile(*telemetryCfg.CaCert)
 				if err != nil {
-					log.Exitf("could not read CA certificate: %s", err)
+					log.Errorf("could not read CA certificate: %s", err)
+					caCertLoaded = false
 				}
 				certPool := x509.NewCertPool()
 				if ok := certPool.AppendCertsFromPEM(ca); !ok {
-					log.Exit("failed to append CA certificate")
+					log.Errorf("failed to append CA certificate")
+					caCertLoaded = false
+				}
+				if !caCertLoaded {
+					for {
+						serverControlValue := <-serverControlSignal
+						if serverControlValue == ServerStop {
+							return // server called to shutdown
+						}
+						if serverControlValue == ServerStart {
+							break // retry loading certs after cert has been written or created
+						}
+					}
+					continue
 				}
 				tlsCfg.ClientCAs = certPool
 			} else {
@@ -380,18 +399,12 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			cfg.UserAuth = telemetryCfg.UserAuth
 
 			gnmi.GenerateJwtSecretKey()
-
 		}
 
 		s, err := gnmi.NewServer(cfg, opts)
 		if err != nil {
 			log.Errorf("Failed to create gNMI server: %v", err)
 			return
-		}
-
-		watcher, err := fsnotify.NewWatcher()
-		if err != nil {
-			log.Errorf("Received error when creating fsnotify watcher %v", err)
 		}
 
 		if *telemetryCfg.WithMasterArbitration {
@@ -407,17 +420,15 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			}
 		}()
 
-		if watcher != nil {
-			go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, nil)
-		}
-
-		controlValue := <-serverControlSignal
+		serverControlValue := <-serverControlSignal
 		log.V(1).Infof("Received signal for gnmi server to close")
-		s.Stop()
-		if controlValue == ServerStop {
+		s.GracefulStop()
+		if serverControlValue == ServerStop {
 			log.Flush()
 			return
 		}
+		// Both ServerStart and ServerRestart will loop and restart server
+		// We use different value to distinguish between write/create and remove/rename
 	}
 }
 
