@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 	"sync"
+	"sync/atomic"
 	log "github.com/golang/glog"
 	"github.com/fsnotify/fsnotify"
 	"google.golang.org/grpc"
@@ -85,7 +86,9 @@ func runTelemetry(args []string) error {
 	sigchannel := make(chan os.Signal, 1)
 	signal.Notify(sigchannel, syscall.SIGTERM, syscall.SIGQUIT)
 
-	go signalHandler(serverControlSignal, sigchannel)
+	wg.Add(1)
+
+	go signalHandler(serverControlSignal, sigchannel, &wg)
 
 	wg.Add(1)
 
@@ -229,7 +232,7 @@ func isFlagPassed(fs *flag.FlagSet, name string) bool {
 	return found
 }
 
-func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int) {
+func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
 	defer watcher.Close()
 
 	done := make(chan bool)
@@ -242,7 +245,7 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 			select {
 			case event := <-watcher.Events:
 				if event.Name != "" && (filepath.Ext(event.Name) == ".cert" || filepath.Ext(event.Name) == ".crt" ||
-                                   filepath.Ext(event.Name) == ".pem" || filepath.Ext(event.Name) == ".key") {
+				filepath.Ext(event.Name) == ".pem" || filepath.Ext(event.Name) == ".key") {
 					log.V(1).Infof("Inotify watcher has received event: %v", event)
 					if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
@@ -253,8 +256,10 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 					if event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename {
 						log.V(1).Infof("Cert file has been deleted: %s", event.Name)
 						serverControlSignal <- ServerRestart // let server know that a remove/rename event occurred
-						done <- true
-						return
+						if atomic.LoadInt32(certLoaded) == 1 { // Should continue monitoring if certs are not present
+							done <- true
+							return
+						}
 					}
 				}
 			case err := <-watcher.Errors:
@@ -282,10 +287,16 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 	<-done
 }
 
-func signalHandler(serverControlSignal chan<- ServerControlValue, sigchannel <-chan os.Signal) {
+func signalHandler(serverControlSignal chan ServerControlValue, sigchannel <-chan os.Signal, wg *sync.WaitGroup) {
+	defer wg.Done()
 	select {
 	case <-sigchannel:
 		serverControlSignal <- ServerStop
+		return
+	case signal := <-serverControlSignal:
+		if signal == ServerStop { // stop goroutine if server has already stopped
+			return
+		}
 	}
 }
 
@@ -298,6 +309,9 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 
 	for {
 		var opts []grpc.ServerOption
+		var certLoaded int32
+		atomic.StoreInt32(&certLoaded, 0) // Not loaded
+
 		if !*telemetryCfg.NoTLS {
 			var certificate tls.Certificate
 			var err error
@@ -309,7 +323,7 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 				}
 			} else {
 				if watcher != nil {
-					go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, nil)
+					go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, nil, &certLoaded)
 				}
 				certificate, err = tls.LoadX509KeyPair(*telemetryCfg.ServerCert, *telemetryCfg.ServerKey)
 				if err != nil {
@@ -386,6 +400,8 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 				}
 			}
 
+			atomic.StoreInt32(&certLoaded, 1) // Certs have loaded
+
 			keep_alive_params := keepalive.ServerParameters{
 				MaxConnectionIdle: time.Duration(*telemetryCfg.IdleConnDuration) * time.Second, // duration in which idle connection will be closed, default is inf
 			}
@@ -422,7 +438,7 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 
 		serverControlValue := <-serverControlSignal
 		log.V(1).Infof("Received signal for gnmi server to close")
-		s.GracefulStop()
+		s.Stop()
 		if serverControlValue == ServerStop {
 			log.Flush()
 			return

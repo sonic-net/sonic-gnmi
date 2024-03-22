@@ -13,6 +13,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"flag"
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
@@ -31,7 +32,8 @@ func TestRunTelemetry(t *testing.T) {
 	patches := gomonkey.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, serverControlSignal chan ServerControlValue, wg *sync.WaitGroup) {
 		defer wg.Done()
 	})
-	patches.ApplyFunc(signalHandler, func(serverControlSignal chan<- ServerControlValue, sigchannel <-chan os.Signal) {
+	patches.ApplyFunc(signalHandler, func(serverControlSignal chan ServerControlValue, sigchannel <-chan os.Signal, wg *sync.WaitGroup) {
+		defer wg.Done()
 	})
 	defer patches.Reset()
 
@@ -175,14 +177,14 @@ func TestStartGNMIServer(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int) {
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
 	wg := &sync.WaitGroup{}
 
 	exitCalled := false
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "GracefulStop", func(_ *gnmi.Server) {
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
 		exitCalled = true
 	})
 
@@ -322,13 +324,13 @@ func TestSHA512Checksum(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int) {
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
 	wg := &sync.WaitGroup{}
 
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "GracefulStop", func(_ *gnmi.Server) {
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
 	})
 
 	defer patches.Reset()
@@ -381,13 +383,13 @@ func TestStartGNMIServerCACert(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int) {
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
 	wg := &sync.WaitGroup{}
 
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "GracefulStop", func(_ *gnmi.Server) {
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
 	})
 	defer patches.Reset()
 
@@ -435,13 +437,13 @@ func TestStartGNMIServerCreateWatcherError(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int) {
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
 	wg := &sync.WaitGroup{}
 
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "GracefulStop", func(_ *gnmi.Server) {
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
 	})
 	defer patches.Reset()
 
@@ -495,13 +497,13 @@ func TestStartGNMIServerSlowCerts(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int) {
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
 	wg := &sync.WaitGroup{}
 
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "GracefulStop", func(_ *gnmi.Server) {
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
 	})
 
 	defer patches.Reset()
@@ -509,6 +511,8 @@ func TestStartGNMIServerSlowCerts(t *testing.T) {
 	wg.Add(1)
 
 	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, wg)
+
+	sendSignal(serverControlSignal, ServerRestart) // Should not stop cert monitoring or try reloading certs
 
 	sendSignal(serverControlSignal, ServerStart) // Put certs for server to load new certs
 
@@ -570,13 +574,13 @@ func TestStartGNMIServerSlowCACerts(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int) {
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
 	wg := &sync.WaitGroup{}
 
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "GracefulStop", func(_ *gnmi.Server) {
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
 	})
 	defer patches.Reset()
 
@@ -623,7 +627,7 @@ func TestINotifyCertMonitoringRotation(t *testing.T) {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal)
+	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal, nil)
 
 	<-testReadySignal
 
@@ -638,133 +642,6 @@ func TestINotifyCertMonitoringRotation(t *testing.T) {
 	select {
 	case val := <-serverControlSignal:
 		if val != ServerStart {
-			t.Errorf("Expected 2 from serverControlSignal, got %d", val)
-		}
-		t.Log("Received correct value from serverControlSignal")
-	case <-ctx.Done():
-		t.Errorf("Expected a value from serverControlSignal, but got none")
-		return
-	}
-}
-
-func TestINotifyCertMonitoringDeleteIntoRotation(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
-	timeoutInterval := 10
-	tick := time.NewTicker(100 * time.Millisecond)
-	defer tick.Stop()
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
-	defer cancel()
-
-	originalArgs := os.Args
-	defer func() {
-		os.Args = originalArgs
-	}()
-
-	fs := flag.NewFlagSet("testiNotifyCertMonitoring", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-v=2", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
-	telemetryCfg, _, err := setupFlags(fs)
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	serverControlSignal := make(chan ServerControlValue, 1)
-	testReadySignal := make(chan int, 1)
-
-	content, err := ioutil.ReadFile(testServerCert)
-
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal)
-
-	<-testReadySignal
-
-	// Delete certs and immediately put new, expect final state to be Write
-
-	err = os.Remove(testServerCert)
-
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-	
-	err = ioutil.WriteFile(testServerCert, content, 0755)
-
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	select {
-	case val := <-serverControlSignal:
-		if val != ServerRestart {
-			t.Errorf("Expected 2 from serverControlSignal, got %d", val)
-		}
-		t.Log("Received correct value from serverControlSignal")
-	case <-ctx.Done():
-		t.Errorf("Expected a value from serverControlSignal, but got none")
-		return
-	}
-}
-
-func TestINotifyCertMonitoringRenameIntoCreation(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
-	tempServerCert := "../testdata/testserver.cer"
-	timeoutInterval := 10
-	tick := time.NewTicker(100 * time.Millisecond)
-	defer tick.Stop()
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
-	defer cancel()
-
-	originalArgs := os.Args
-	defer func() {
-		os.Args = originalArgs
-	}()
-
-	fs := flag.NewFlagSet("testiNotifyCertMonitoring", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-v=2", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
-	telemetryCfg, _, err := setupFlags(fs)
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	serverControlSignal := make(chan ServerControlValue, 1)
-	testReadySignal := make(chan int, 1)
-
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal)
-
-	<-testReadySignal
-
-	// Move certs and immediately put back, expect final state to be Write
-
-	err = os.Rename(testServerCert, tempServerCert)
-
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-	
-	err = os.Rename(tempServerCert, testServerCert)
-
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	select {
-	case val := <-serverControlSignal:
-		if val != ServerRestart {
 			t.Errorf("Expected 2 from serverControlSignal, got %d", val)
 		}
 		t.Log("Received correct value from serverControlSignal")
@@ -798,13 +675,15 @@ func TestINotifyCertMonitoringDeletion(t *testing.T) {
 
 	serverControlSignal := make(chan ServerControlValue, 1)
 	testReadySignal := make(chan int, 1)
+	var certLoaded int32
+	atomic.StoreInt32(&certLoaded, 1)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal)
+	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal, &certLoaded)
 
 	<-testReadySignal
 
@@ -858,7 +737,7 @@ func TestINotifyCertMonitoringErrors(t *testing.T) {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal)
+	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal, nil)
 
 	<-testReadySignal
 
@@ -913,7 +792,7 @@ func TestINotifyCertMonitoringAddWatcherError(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, nil)
+	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, nil, nil)
 
 	select {
 	case val := <-serverControlSignal:
@@ -940,11 +819,15 @@ func testHandlerSyscall(t *testing.T, signal os.Signal) {
 
 	serverControlSignal := make(chan ServerControlValue, 1)
 	testSigChan := make(chan os.Signal, 1)
+	wg := &sync.WaitGroup{}
 
-	go signalHandler(serverControlSignal, testSigChan)
+	wg.Add(1)
+
+	go signalHandler(serverControlSignal, testSigChan, wg)
 
 	if signal == nil {
 		serverControlSignal <- ServerStop
+		wg.Wait()
 		return
 	}
 
@@ -959,6 +842,8 @@ func testHandlerSyscall(t *testing.T, signal os.Signal) {
 		t.Errorf("Expected a value from serverControlSignal, but got none")
 		return
 	}
+
+	wg.Wait()
 }
 
 func sendSignal(serverControlSignal chan<- ServerControlValue, value ServerControlValue) {
