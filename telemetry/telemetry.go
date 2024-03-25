@@ -245,8 +245,10 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 		for {
 			select {
 			case event := <-watcher.Events:
-				if event.Name != "" && (filepath.Ext(event.Name) == ".cert" || filepath.Ext(event.Name) == ".crt" ||
-				filepath.Ext(event.Name) == ".cer" || filepath.Ext(event.Name) == ".pem" || filepath.Ext(event.Name) == ".key") {
+				if event.Name != "" && (
+					filepath.Ext(event.Name) == ".cert" || filepath.Ext(event.Name) == ".crt" ||
+					filepath.Ext(event.Name) == ".cer"  || filepath.Ext(event.Name) == ".pem" ||
+					filepath.Ext(event.Name) == ".key") {
 					log.V(1).Infof("Inotify watcher has received event: %v", event)
 					if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
