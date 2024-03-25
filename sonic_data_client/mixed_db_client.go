@@ -71,6 +71,7 @@ type MixedDbClient struct {
 	workPath string
 	jClient *JsonClient
 	applDB swsscommon.DBConnector
+	zmqAddress string
 	zmqClient swsscommon.ZmqClient
 	tableMap map[string]swsscommon.ProducerStateTable
 	// swsscommon introduced dbkey to support multiple database
@@ -156,6 +157,17 @@ func getZmqClientByAddress(zmqAddress string) (swsscommon.ZmqClient, error) {
 	}
 
 	return client, nil
+}
+
+func removeZmqClient(zmqClient swsscommon.ZmqClient) (error) {
+	for address, client := range zmqClientMap {
+		if client == zmqClient { 
+			delete(zmqClientMap, address)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("Can't find ZMQ client in zmqClientMap: %v", zmqClient)
 }
 
 func getZmqClient(dpuId string, zmqPort string) (swsscommon.ZmqClient, error) {
@@ -276,6 +288,9 @@ func RetryHelper(zmqClient swsscommon.ZmqClient, action ActionNeedRetry) {
 				retry++
 				continue
 			}
+
+			// Force re-create ZMQ client
+			removeZmqClient(zmqClient)
 
 			panic(err)
 		}
