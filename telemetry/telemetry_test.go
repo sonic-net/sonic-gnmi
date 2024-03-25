@@ -29,10 +29,10 @@ import (
 )
 
 func TestRunTelemetry(t *testing.T) {
-	patches := gomonkey.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, serverControlSignal chan ServerControlValue, wg *sync.WaitGroup) {
+	patches := gomonkey.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, serverControlSignal chan ServerControlValue, stopSignalHandler chan<- bool, wg *sync.WaitGroup) {
 		defer wg.Done()
 	})
-	patches.ApplyFunc(signalHandler, func(serverControlSignal chan ServerControlValue, sigchannel <-chan os.Signal, wg *sync.WaitGroup) {
+	patches.ApplyFunc(signalHandler, func(serverControlSignal chan<- ServerControlValue, sigchannel <-chan os.Signal, stopSignalHandler <-chan bool, wg *sync.WaitGroup) {
 		defer wg.Done()
 	})
 	defer patches.Reset()
@@ -181,6 +181,7 @@ func TestStartGNMIServer(t *testing.T) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
 	wg := &sync.WaitGroup{}
 
 	exitCalled := false
@@ -192,7 +193,7 @@ func TestStartGNMIServer(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
 
 	select {
 	case <-tick.C: // Simulate shutdown
@@ -328,6 +329,7 @@ func TestSHA512Checksum(t *testing.T) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
 	wg := &sync.WaitGroup{}
 
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
@@ -337,7 +339,7 @@ func TestSHA512Checksum(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
 
 	sendSignal(serverControlSignal, ServerStop)
 
@@ -387,6 +389,7 @@ func TestStartGNMIServerCACert(t *testing.T) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
 	wg := &sync.WaitGroup{}
 
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
@@ -395,7 +398,7 @@ func TestStartGNMIServerCACert(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
 
 	sendSignal(serverControlSignal, ServerStop)
 
@@ -441,6 +444,7 @@ func TestStartGNMIServerCreateWatcherError(t *testing.T) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
 	wg := &sync.WaitGroup{}
 
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
@@ -449,7 +453,7 @@ func TestStartGNMIServerCreateWatcherError(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
 
 	sendSignal(serverControlSignal, ServerStop)
 
@@ -501,6 +505,7 @@ func TestStartGNMIServerSlowCerts(t *testing.T) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
 	wg := &sync.WaitGroup{}
 
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
@@ -510,7 +515,7 @@ func TestStartGNMIServerSlowCerts(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
 
 	sendSignal(serverControlSignal, ServerRestart) // Should not stop cert monitoring or try reloading certs
 
@@ -578,6 +583,7 @@ func TestStartGNMIServerSlowCACerts(t *testing.T) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
 	wg := &sync.WaitGroup{}
 
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
@@ -586,7 +592,7 @@ func TestStartGNMIServerSlowCACerts(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
 
 	sendSignal(serverControlSignal, ServerStart) // Put certs for server to load new certs
 
@@ -818,15 +824,16 @@ func testHandlerSyscall(t *testing.T, signal os.Signal) {
 	defer cancel()
 
 	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
 	testSigChan := make(chan os.Signal, 1)
 	wg := &sync.WaitGroup{}
 
 	wg.Add(1)
 
-	go signalHandler(serverControlSignal, testSigChan, wg)
+	go signalHandler(serverControlSignal, testSigChan, stopSignalHandler, wg)
 
 	if signal == nil {
-		serverControlSignal <- ServerStop
+		stopSignalHandler <- true
 		wg.Wait()
 		return
 	}

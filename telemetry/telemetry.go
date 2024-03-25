@@ -83,16 +83,17 @@ func runTelemetry(args []string) error {
 	var wg sync.WaitGroup
 	// serverControlSignal channel is a channel that will be used to notify gnmi server to start, stop, restart, depending of syscall or cert updates
 	var serverControlSignal = make(chan ServerControlValue, 1)
+	var stopSignalHandler = make(chan bool, 1)
 	sigchannel := make(chan os.Signal, 1)
 	signal.Notify(sigchannel, syscall.SIGTERM, syscall.SIGQUIT)
 
 	wg.Add(1)
 
-	go signalHandler(serverControlSignal, sigchannel, &wg)
+	go signalHandler(serverControlSignal, sigchannel, stopSignalHandler, &wg)
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, &wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, &wg)
 
 	wg.Wait()
 	return nil
@@ -245,7 +246,7 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 			select {
 			case event := <-watcher.Events:
 				if event.Name != "" && (filepath.Ext(event.Name) == ".cert" || filepath.Ext(event.Name) == ".crt" ||
-				filepath.Ext(event.Name) == ".pem" || filepath.Ext(event.Name) == ".key") {
+				filepath.Ext(event.Name) == ".cer" || filepath.Ext(event.Name) == ".pem" || filepath.Ext(event.Name) == ".key") {
 					log.V(1).Infof("Inotify watcher has received event: %v", event)
 					if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
@@ -285,27 +286,23 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 	}
 
 	<-done
+	log.V(6).Infof("Closing cert rotation monitoring")
 }
 
-func signalHandler(serverControlSignal chan ServerControlValue, sigchannel <-chan os.Signal, wg *sync.WaitGroup) {
+func signalHandler(serverControlSignal chan<- ServerControlValue, sigchannel <-chan os.Signal, stopSignalHandler <-chan bool, wg *sync.WaitGroup) {
 	defer wg.Done()
 	select {
 	case <-sigchannel:
+		log.V(6).Infof("Sending signal stop to server because of syscall received")
 		serverControlSignal <- ServerStop
 		return
-	case signal := <-serverControlSignal:
-		if signal == ServerStop { // stop goroutine if server has already stopped
-			return
-		}
+	case <-stopSignalHandler:
+		return
 	}
 }
 
-func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal chan ServerControlValue, wg *sync.WaitGroup) {
+func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal chan ServerControlValue, stopSignalHandler chan<- bool, wg *sync.WaitGroup) {
 	defer wg.Done()
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Errorf("Received error when creating fsnotify watcher %v", err)
-	}
 
 	for {
 		var opts []grpc.ServerOption
@@ -322,6 +319,10 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 					return
 				}
 			} else {
+				watcher, err := fsnotify.NewWatcher()
+				if err != nil {
+					log.Errorf("Received error when creating fsnotify watcher %v", err)
+				}
 				if watcher != nil {
 					go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, nil, &certLoaded)
 				}
@@ -431,6 +432,7 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 		log.V(1).Infof("Starting RPC server on address: %s", s.Address())
 
 		go func() {
+			log.V(1).Infof("GNMI Server started serving")
 			if err := s.Serve(); err != nil {
 				log.Errorf("Serve returned with err: %v", err)
 			}
@@ -440,6 +442,7 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 		log.V(1).Infof("Received signal for gnmi server to close")
 		s.Stop()
 		if serverControlValue == ServerStop {
+			stopSignalHandler <- true
 			log.Flush()
 			return
 		}
