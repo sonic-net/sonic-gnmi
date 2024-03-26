@@ -290,7 +290,10 @@ func RetryHelper(zmqClient swsscommon.ZmqClient, action ActionNeedRetry) {
 			}
 
 			// Force re-create ZMQ client
-			removeZmqClient(zmqClient)
+			removeZmqErr = removeZmqClient(zmqClient)
+			if removeZmqErr != nil {
+				log.V(6).Infof("RetryHelper: remove ZMQ client error: %v", removeZmqErr)
+			}
 
 			panic(err)
 		}
