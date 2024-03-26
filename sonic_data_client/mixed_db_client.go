@@ -29,6 +29,7 @@ import (
 	"github.com/go-redis/redis"
 )
 
+const LOCAL_ADDRESS string = "127.0.0.1"
 const REDIS_SOCK string = "/var/run/redis/redis.sock"
 const APPL_DB int = 0
 // New database for DASH
@@ -88,6 +89,95 @@ var mixedDbClientMap = map[string]MixedDbClient{}
 
 // redis client connected to each DB
 var RedisDbMap = make(map[string]map[string]*redis.Client)
+
+func Hget(configDbConnector *swsscommon.ConfigDBConnector, table string, key string, field string) (string, error) {
+    var fieldValuePairs = configDbConnector.Get_entry(table, key)
+    if fieldValuePairs.Has_key(field) {
+        return fieldValuePairs.Get(field), nil
+    }
+
+    return "", fmt.Errorf("Can't read %s:%s from %s table", key, field, table)
+}
+
+func getDpuAddress(dpuId string) (string, error) {
+	// Find DPU address by DPU ID from CONFIG_DB
+	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
+
+	var configDbConnector = swsscommon.NewConfigDBConnector()
+	configDbConnector.Connect(false)
+
+	// get bridge plane
+	bridgePlane, err := Hget(configDbConnector, "MID_PLANE_BRIDGE", "GLOBAL", "bridge");
+	if err != nil {
+		return "", err
+	}
+
+	// get DPU interface by DPU ID
+	dpuInterface, err := Hget(configDbConnector, "DPUS", dpuId, "midplane_interface");
+	if err != nil {
+		return "", err
+	}
+
+	// get DPR address by DPU ID and brdige plane
+	var dhcpPortKey = bridgePlane + "|" + dpuInterface
+	dpuAddresses, err := Hget(configDbConnector, "DHCP_SERVER_IPV4_PORT", dhcpPortKey, "ips");
+	if err != nil {
+		return "", err
+	}
+
+	var dpuAddressArray = strings.Split(dpuAddresses, ",")
+	if len(dpuAddressArray) == 0 {
+		return "", fmt.Errorf("Can't find address of dpu:'%s' from DHCP_SERVER_IPV4_PORT table", dpuId)
+	}
+
+	return dpuAddressArray[0], nil
+}
+
+func getZmqAddress(container string, zmqPort string) (string, error) {
+	// when zmqPort empty, ZMQ feature disabled
+	if zmqPort == "" {
+		return "", fmt.Errorf("ZMQ port is empty.")
+	}
+
+	var dpuAddress, err = getDpuAddress(container)
+	if err != nil {
+		return "", fmt.Errorf("Get DPU address failed: %v", err)
+	}
+
+	// ZMQ address example: "tcp://127.0.0.1:1234"
+	return "tcp://" + dpuAddress + ":" + zmqPort, nil
+}
+
+var zmqClientMap = map[string]swsscommon.ZmqClient{}
+
+func getZmqClientByAddress(zmqAddress string) (swsscommon.ZmqClient, error) {
+	client, ok := zmqClientMap[zmqAddress]
+	if !ok {
+		client = swsscommon.NewZmqClient(zmqAddress)
+		zmqClientMap[zmqAddress] = client
+	}
+
+	return client, nil
+}
+
+func getZmqClient(dpuId string, zmqPort string) (swsscommon.ZmqClient, error) {
+	if zmqPort == "" {
+		// ZMQ feature disabled when zmqPort flag not set
+		return nil, nil
+	}
+
+	if dpuId == sdcfg.SONIC_DEFAULT_CONTAINER {
+		// When DPU ID is default, create ZMQ with local address
+		return getZmqClientByAddress("tcp://" + LOCAL_ADDRESS + ":" + zmqPort)
+	}
+
+	zmqAddress, err := getZmqAddress(dpuId, zmqPort)
+	if err != nil {
+		return nil, fmt.Errorf("Get ZMQ address failed: %v", err)
+	}
+
+	return getZmqClientByAddress(zmqAddress)
+}
 
 func getMixedDbClient(zmqAddress string) (MixedDbClient) {
 	client, ok := mixedDbClientMap[zmqAddress]
@@ -1408,4 +1498,3 @@ func (c *MixedDbClient) SentOne(val *Value) {
 
 func (c *MixedDbClient) FailedSend() {
 }
-
