@@ -476,12 +476,13 @@ func TestStartGNMIServerSlowCerts(t *testing.T) {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
-	shouldFail := true
+	var shouldFail int32
+	atomic.StoreInt32(&shouldFail, 1)
 	serveStarted := make(chan bool, 1)
 
 	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
-		if shouldFail {
-			shouldFail = false
+		if atomic.LoadInt32(&shouldFail) == 1 {
+			atomic.StoreInt32(&shouldFail, 0)
 			return tls.Certificate{}, fmt.Errorf("Mock LoadX509KeyPair error")
 		}
 		return tls.Certificate{}, nil
@@ -545,7 +546,8 @@ func TestStartGNMIServerSlowCACerts(t *testing.T) {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
-	shouldFail := true
+	var shouldFail int32
+	atomic.StoreInt32(&shouldFail, 1)
 	serveStarted := make(chan bool, 1)
 
 	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
@@ -554,14 +556,14 @@ func TestStartGNMIServerSlowCACerts(t *testing.T) {
 	patches.ApplyFunc(computeSHA512Checksum, func(file string) {
 	})
 	patches.ApplyFunc(ioutil.ReadFile, func(_ string) ([]byte, error) {
-		if shouldFail {
+		if atomic.LoadInt32(&shouldFail) == 1 {
 			return []byte("mock data"), fmt.Errorf("Mock ioutil ReadFile error")
 		}
 		return []byte("mock data"), nil
 	})
 	patches.ApplyMethod(reflect.TypeOf(&x509.CertPool{}), "AppendCertsFromPEM", func(_ *x509.CertPool, _ []byte) bool {
-		if shouldFail {
-			shouldFail = false
+		if atomic.LoadInt32(&shouldFail) == 1 {
+			atomic.StoreInt32(&shouldFail, 0)
 			return false
 		}
 		return true
