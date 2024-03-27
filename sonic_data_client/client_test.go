@@ -309,28 +309,54 @@ func TestJsonRemoveNegative(t *testing.T) {
 	}
 }
 
-func TestParseTarget(t *testing.T) {
+func TestParseDatabase(t *testing.T) {
 	var test_paths []*gnmipb.Path
+	var prefix *gnmipb.Path
 	var err error
 
-	_, err = ParseTarget("test", test_paths)
-	if err != nil {
-		t.Errorf("ParseTarget failed for empty path: %v", err)
+	client := MixedDbClient {
+		namespace_cnt : 1,
+		container_cnt : 1,
+	}
+	_, _, err = client.ParseDatabase(prefix, test_paths)
+	if err == nil {
+		t.Errorf("ParseDatabase should fail for empty path: %v", err)
 	}
 
 	test_target := "TEST_DB"
-	path, err := xpath.ToGNMIPath("sonic-db:" + test_target + "/VLAN")
+	path, err := xpath.ToGNMIPath("sonic-db:" + test_target + "/localhost" + "/VLAN")
 	test_paths = append(test_paths, path)
-	target, err := ParseTarget("", test_paths)
+	target, _, err := client.ParseDatabase(prefix, test_paths)
 	if err != nil {
-		t.Errorf("ParseTarget failed to get target: %v", err)
+		t.Errorf("ParseDatabase failed to get target: %v", err)
 	}
 	if target != test_target {
-		t.Errorf("ParseTarget return wrong target: %v", target)
+		t.Errorf("ParseDatabase return wrong target: %v", target)
 	}
-	target, err = ParseTarget("INVALID_DB", test_paths)
+
+	// Smartswitch with multiple asic NPU
+	client = MixedDbClient {
+		namespace_cnt : 2,
+		container_cnt : 2,
+	}
+
+	test_target = "TEST_DB"
+	path, err = xpath.ToGNMIPath("sonic-db:" + test_target + "/localhost" + "/VLAN")
+	test_paths = append(test_paths, path)
+	target, _, err = client.ParseDatabase(prefix, test_paths)
+	if err != nil {
+		t.Errorf("ParseDatabase failed to get target: %v", err)
+	}
+	if target != test_target {
+		t.Errorf("ParseDatabase return wrong target: %v", target)
+	}
+
+	test_target = "TEST_DB"
+	path, err = xpath.ToGNMIPath("sonic-db:" + test_target + "/xyz" + "/VLAN")
+	test_paths = append(test_paths, path)
+	target, _, err = client.ParseDatabase(prefix, test_paths)
 	if err == nil {
-		t.Errorf("ParseTarget should fail for conflict")
+		t.Errorf("ParseDatabase should fail for namespace/container")
 	}
 }
 
@@ -389,7 +415,7 @@ func TestZmqReconnect(t *testing.T) {
 	db := swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false)
 	zmqServer := swsscommon.NewZmqServer("tcp://*:1234")
 	var TEST_TABLE string = "DASH_ROUTE"
-    consumer := swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
+	consumer := swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
 
 	// create ZMQ client side
 	zmqAddress := "tcp://127.0.0.1:1234"
@@ -399,7 +425,7 @@ func TestZmqReconnect(t *testing.T) {
 		zmqClient : swsscommon.NewZmqClient(zmqAddress),
 	}
 
-    data := map[string]string{}
+	data := map[string]string{}
 	var TEST_KEY string = "TestKey"
 	client.DbSetTable(TEST_TABLE, TEST_KEY, data)
 	if !ReceiveFromZmq(consumer) {
@@ -407,10 +433,10 @@ func TestZmqReconnect(t *testing.T) {
 	}
 
 	// recreate ZMQ server to trigger re-connect
-    swsscommon.DeleteZmqConsumerStateTable(consumer)
+	swsscommon.DeleteZmqConsumerStateTable(consumer)
 	swsscommon.DeleteZmqServer(zmqServer)
 	zmqServer = swsscommon.NewZmqServer("tcp://*:1234")
-    consumer = swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
+	consumer = swsscommon.NewZmqConsumerStateTable(db, TEST_TABLE, zmqServer)
 
 	// send data again, client will reconnect
 	client.DbSetTable(TEST_TABLE, TEST_KEY, data)
@@ -448,4 +474,113 @@ func TestRetryHelper(t *testing.T) {
 	}
 
 	swsscommon.DeleteZmqServer(zmqServer)
+}
+
+func TestGetDpuAddress(t *testing.T) {
+	// prepare data according to design doc
+	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
+
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	var configDb = swsscommon.NewDBConnector("CONFIG_DB", uint(0), true)
+	configDb.Flushdb()
+	
+	var midPlaneTable = swsscommon.NewTable(configDb, "MID_PLANE_BRIDGE")
+	var dpusTable = swsscommon.NewTable(configDb, "DPUS")
+	var dhcpPortTable = swsscommon.NewTable(configDb, "DHCP_SERVER_IPV4_PORT")
+
+	// test get DPU address when database not ready
+	address, err := getDpuAddress("dpu0")
+	if err == nil {
+		t.Errorf("get DPU address should failed: %v, but get %s", err, address)
+	}
+
+	midPlaneTable.Hset("GLOBAL", "bridge", "bridge_midplane")
+	dpusTable.Hset("dpu0", "midplane_interface", "dpu0")
+
+	// test get DPU address when DHCP_SERVER_IPV4_PORT table not ready
+	address, err = getDpuAddress("dpu0")
+	if err == nil {
+		t.Errorf("get DPU address should failed: %v, but get %s", err, address)
+	}
+
+	dhcpPortTable.Hset("bridge_midplane|dpu0", "invalidfield", "")
+
+	// test get DPU address when DHCP_SERVER_IPV4_PORT table broken
+	address, err = getDpuAddress("dpu0")
+	if err == nil {
+		t.Errorf("get DPU address should failed: %v, but get %s", err, address)
+	}
+
+	dhcpPortTable.Hset("bridge_midplane|dpu0", "ips", "127.0.0.2,127.0.0.1")
+
+	// test get valid DPU address
+	address, err = getDpuAddress("dpu0")
+	if err != nil {
+		t.Errorf("get DPU address failed: %v", err)
+	}
+
+	if address != "127.0.0.2" {
+		t.Errorf("get DPU address failed: %v", address)
+	}
+
+	// test get invalid DPU address
+	address, err = getDpuAddress("dpu_x")
+	if err == nil {
+		t.Errorf("get invalid DPU address failed")
+	}
+
+	if address != "" {
+		t.Errorf("get invalid DPU address failed: %v", address)
+	}
+
+	// test get ZMQ address
+	address, err = getZmqAddress("dpu0", "1234")
+	if address != "tcp://127.0.0.2:1234" {
+		t.Errorf("get invalid DPU address failed")
+	}
+
+	address, err = getZmqAddress("dpu0", "")
+	if err == nil {
+		t.Errorf("get invalid ZMQ address failed")
+	}
+
+	address, err = getZmqAddress("", "1234")
+	if err == nil {
+		t.Errorf("get invalid ZMQ address failed")
+	}
+}
+
+func TestGetZmqClient(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	var configDb = swsscommon.NewDBConnector("CONFIG_DB", uint(0), true)
+	configDb.Flushdb()
+
+	var midPlaneTable = swsscommon.NewTable(configDb, "MID_PLANE_BRIDGE")
+	var dpusTable = swsscommon.NewTable(configDb, "DPUS")
+	var dhcpPortTable = swsscommon.NewTable(configDb, "DHCP_SERVER_IPV4_PORT")
+
+	midPlaneTable.Hset("GLOBAL", "bridge", "bridge_midplane")
+	dpusTable.Hset("dpu0", "midplane_interface", "dpu0")
+	dhcpPortTable.Hset("bridge_midplane|dpu0", "ips", "127.0.0.2,127.0.0.1")
+
+	client, err := getZmqClient("dpu0", "")
+	if client != nil || err != nil {
+		t.Errorf("empty ZMQ port should not get ZMQ client")
+	}
+
+	client, err = getZmqClient("dpu0", "1234")
+	if client == nil {
+		t.Errorf("get ZMQ client failed")
+	}
+
+	client, err = getZmqClient("", "1234")
+	if client == nil {
+		t.Errorf("get ZMQ client failed")
+	}
 }

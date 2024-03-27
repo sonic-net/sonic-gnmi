@@ -403,14 +403,18 @@ func runServer(t *testing.T, s *Server) {
 }
 
 func getRedisClientN(t *testing.T, n int, namespace string) *redis.Client {
+	addr, err := sdcfg.GetDbTcpAddr("COUNTERS_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get addr %v", err)
+	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("COUNTERS_DB", namespace),
+		Addr:        addr,
 		Password:    "", // no password set
 		DB:          n,
 		DialTimeout: 0,
 	})
-	_, err := rclient.Ping().Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -418,15 +422,22 @@ func getRedisClientN(t *testing.T, n int, namespace string) *redis.Client {
 }
 
 func getRedisClient(t *testing.T, namespace string) *redis.Client {
-
+	addr, err := sdcfg.GetDbTcpAddr("COUNTERS_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get addr %v", err)
+	}
+	db, err := sdcfg.GetDbId("COUNTERS_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get db %v", err)
+	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("COUNTERS_DB", namespace),
+		Addr:        addr,
 		Password:    "", // no password set
-		DB:          sdcfg.GetDbId("COUNTERS_DB", namespace),
+		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err := rclient.Ping().Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -434,15 +445,22 @@ func getRedisClient(t *testing.T, namespace string) *redis.Client {
 }
 
 func getConfigDbClient(t *testing.T, namespace string) *redis.Client {
-
+	addr, err := sdcfg.GetDbTcpAddr("CONFIG_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get addr %v", err)
+	}
+	db, err := sdcfg.GetDbId("CONFIG_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get db %v", err)
+	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:        sdcfg.GetDbTcpAddr("CONFIG_DB", namespace),
+		Addr:        addr,
 		Password:    "", // no password set
-		DB:          sdcfg.GetDbId("CONFIG_DB", namespace),
+		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err := rclient.Ping().Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -679,7 +697,8 @@ func prepareDb(t *testing.T, namespace string) {
 }
 
 func prepareDbTranslib(t *testing.T) {
-	rclient := getRedisClient(t, sdcfg.GetDbDefaultNamespace())
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	rclient := getRedisClient(t, ns)
 	rclient.FlushDB()
 	rclient.Close()
 
@@ -699,7 +718,7 @@ func prepareDbTranslib(t *testing.T) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	for n, v := range rj {
-		rclient := getRedisClientN(t, n, sdcfg.GetDbDefaultNamespace())
+		rclient := getRedisClientN(t, n, ns)
 		loadDBNotStrict(t, rclient, v)
 		rclient.Close()
 	}
@@ -1050,13 +1069,13 @@ func TestGnmiSet(t *testing.T) {
 			})
 		}
 	}
-	s.s.Stop()
+	s.Stop()
 }
 
 func TestGnmiSetReadOnly(t *testing.T) {
 	s := createReadServer(t, 8081)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
@@ -1088,7 +1107,7 @@ func TestGnmiSetReadOnly(t *testing.T) {
 func TestGnmiSetAuthFail(t *testing.T) {
 	s := createAuthServer(t, 8081)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
@@ -1120,7 +1139,7 @@ func TestGnmiSetAuthFail(t *testing.T) {
 func TestGnmiGetAuthFail(t *testing.T) {
 	s := createAuthServer(t, 8081)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
@@ -1209,7 +1228,8 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 
 	stateDBPath := "STATE_DB"
 
-	if namespace != sdcfg.GetDbDefaultNamespace() {
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	if namespace != ns {
 		stateDBPath = "STATE_DB" + "/" + namespace
 	}
 
@@ -1402,7 +1422,7 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 		// Happy path
 		createBuildVersionTestCase(
 			"get osversion/build",                                  // query path
-			`{"build_version": "sonic.12345678.90", "error":""}`,   // expected response
+			`{"build_version": "SONiC.12345678.90", "error":""}`,   // expected response
 			"build_version: '12345678.90'\ndebian_version: '9.13'", // YAML file content
 			nil), // mock file reading error
 
@@ -1423,7 +1443,7 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 		// Happy path with different value
 		createBuildVersionTestCase(
 			"get osversion/build different value",
-			`{"build_version": "sonic.23456789.01", "error":""}`,
+			`{"build_version": "SONiC.23456789.01", "error":""}`,
 			"build_version: '23456789.01'\ndebian_version: '9.15'",
 			nil),
 	}
@@ -1445,11 +1465,12 @@ func TestGnmiGet(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
 
-	prepareDb(t, sdcfg.GetDbDefaultNamespace())
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	prepareDb(t, ns)
 
-	runGnmiTestGet(t, sdcfg.GetDbDefaultNamespace())
+	runGnmiTestGet(t, ns)
 
-	s.s.Stop()
+	s.Stop()
 }
 func TestGnmiGetMultiNs(t *testing.T) {
 	sdcfg.Init()
@@ -1474,7 +1495,7 @@ func TestGnmiGetMultiNs(t *testing.T) {
 
 	runGnmiTestGet(t, test_utils.GetMultiNsNamespace())
 
-	s.s.Stop()
+	s.Stop()
 }
 func TestGnmiGetTranslib(t *testing.T) {
 	//t.Log("Start server")
@@ -1616,7 +1637,7 @@ func TestGnmiGetTranslib(t *testing.T) {
 			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
 		})
 	}
-	s.s.Stop()
+	s.Stop()
 }
 
 type tablePathValue struct {
@@ -2716,9 +2737,10 @@ func TestGnmiSubscribe(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
 
-	runTestSubscribe(t, sdcfg.GetDbDefaultNamespace())
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	runTestSubscribe(t, ns)
 
-	s.s.Stop()
+	s.Stop()
 }
 func TestGnmiSubscribeMultiNs(t *testing.T) {
 	sdcfg.Init()
@@ -2740,7 +2762,7 @@ func TestGnmiSubscribeMultiNs(t *testing.T) {
 
 	runTestSubscribe(t, test_utils.GetMultiNsNamespace())
 
-	s.s.Stop()
+	s.Stop()
 }
 
 func TestCapabilities(t *testing.T) {
@@ -2783,7 +2805,7 @@ func TestGNOI(t *testing.T) {
 	}
 	s := createServer(t, 8086)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	// prepareDb(t)
 
@@ -2874,7 +2896,7 @@ func TestGNOI(t *testing.T) {
 func TestBundleVersion(t *testing.T) {
 	s := createServer(t, 8087)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	// prepareDb(t)
 
@@ -2934,7 +2956,7 @@ func TestBundleVersion(t *testing.T) {
 func TestBulkSet(t *testing.T) {
 	s := createServer(t, 8088)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	prepareDbTranslib(t)
 
@@ -3053,7 +3075,7 @@ func TestAuthCapabilities(t *testing.T) {
 
 	s := createAuthServer(t, 8089)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	currentUser, _ := user.Current()
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
@@ -3084,7 +3106,7 @@ func TestAuthCapabilities(t *testing.T) {
 func TestTableKeyOnDeletion(t *testing.T) {
     s := createKeepAliveServer(t, 8081)
     go runServer(t, s)
-    defer s.s.Stop()
+    defer s.Stop()
 
     fileName := "../testdata/NEIGH_STATE_TABLE_MAP.txt"
     neighStateTableByte, err := ioutil.ReadFile(fileName)
@@ -3126,7 +3148,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
     var neighStateTableDeletedJson61 interface{}
     json.Unmarshal(neighStateTableDeletedByte61, &neighStateTableDeletedJson61)
 
-    namespace := sdcfg.GetDbDefaultNamespace()
+    namespace, _ := sdcfg.GetDbDefaultNamespace()
     rclient := getRedisClientN(t, 6, namespace)
     defer rclient.Close()
     prepareStateDb(t, namespace)
@@ -3222,7 +3244,7 @@ func TestCPUUtilization(t *testing.T) {
     defer mock.Reset()
     s := createServer(t, 8081)
     go runServer(t, s)
-    defer s.s.Stop()
+    defer s.Stop()
 
     tests := []struct {
         desc    string
@@ -3292,7 +3314,7 @@ func TestCPUUtilization(t *testing.T) {
 func TestClientConnections(t *testing.T) {
     s := createRejectServer(t, 8081)
     go runServer(t, s)
-    defer s.s.Stop()
+    defer s.Stop()
 
     tests := []struct {
         desc    string
@@ -3389,7 +3411,7 @@ func TestClientConnections(t *testing.T) {
 func TestConnectionDataSet(t *testing.T) {
     s := createServer(t, 8081)
     go runServer(t, s)
-    defer s.s.Stop()
+    defer s.Stop()
 
     tests := []struct {
         desc    string
@@ -3412,7 +3434,7 @@ func TestConnectionDataSet(t *testing.T) {
             },
         },
     }
-    namespace := sdcfg.GetDbDefaultNamespace()
+    namespace, _ := sdcfg.GetDbDefaultNamespace()
     rclient := getRedisClientN(t, 6, namespace)
     defer rclient.Close()
 
@@ -3458,7 +3480,7 @@ func TestConnectionDataSet(t *testing.T) {
 func TestConnectionsKeepAlive(t *testing.T) {
     s := createKeepAliveServer(t, 8081)
     go runServer(t, s)
-    defer s.s.Stop()
+    defer s.Stop()
 
     tests := []struct {
         desc    string
@@ -3691,7 +3713,7 @@ func TestClient(t *testing.T) {
         // t.Log("END of a TEST")
     }
 
-    s.s.Stop()
+    s.Stop()
 }
 
 func TestTableData2MsiUseKey(t *testing.T) {
@@ -3741,6 +3763,7 @@ print('%s')
 	mock1 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
 	defer mock1.Reset()
 
+	sdcfg.Init()
 	s := createServer(t, 8090)
 	go runServer(t, s)
 
@@ -3778,7 +3801,7 @@ print('%s')
 			pathTarget: "",
 			textPbPath: `
 						origin: "sonic-db",
-                        elem: <name: "APPL_DB" > elem:<name:"DASH_QOS" >
+                        elem: <name: "APPL_DB" > elem: <name: "localhost" > elem:<name:"DASH_QOS" >
                 `,
 			attributeData: "../testdata/batch.txt",
 			wantRetCode:   codes.OK,
@@ -3801,7 +3824,7 @@ print('%s')
 			})
 		}
 	}
-	s.s.Stop()
+	s.Stop()
 }
 
 func TestGNMINative(t *testing.T) {
@@ -3826,17 +3849,20 @@ print('%s')
 	mock3 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
 	defer mock3.Reset()
 
+	sdcfg.Init()
 	s := createServer(t, 8080)
 	go runServer(t, s)
-	defer s.s.Stop()
-	initFullConfigDb(t, sdcfg.GetDbDefaultNamespace())
-	initFullCountersDb(t, sdcfg.GetDbDefaultNamespace())
+	defer s.Stop()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	initFullConfigDb(t, ns)
+	initFullCountersDb(t, ns)
 
 	path, _ := os.Getwd()
 	path = filepath.Dir(path)
 
-	var cmd *exec.Cmd
-	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest")
+	// This test is used for single database configuration
+	// Run tests not marked with multidb
+	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'not multidb'")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)
@@ -3859,7 +3885,41 @@ print('%s')
 			t.Errorf("GNMI get counter should not be 0")
 		}
 	}
-	s.s.Stop()
+	s.Stop()
+}
+
+// Test configuration with multiple databases
+func TestGNMINativeMultiDB(t *testing.T) {
+	sdcfg.Init()
+	err := test_utils.SetupMultiInstance()
+	if err != nil {
+		t.Fatalf("error Setting up MultiInstance files with err %T", err)
+	}
+
+	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
+	t.Cleanup(func() {
+		if err := test_utils.CleanUpMultiInstance(); err != nil {
+			t.Fatalf("error Cleaning up MultiInstance files with err %T", err)
+
+		}
+	})
+
+	s := createServer(t, 8080)
+	go runServer(t, s)
+	defer s.s.Stop()
+
+	path, _ := os.Getwd()
+	path = filepath.Dir(path)
+
+	// This test is used for multiple database configuration
+	// Run tests marked with multidb
+	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'multidb'")
+	if result, err := cmd.Output(); err != nil {
+		fmt.Println(string(result))
+		t.Errorf("Fail to execute pytest: %v", err)
+	} else {
+		fmt.Println(string(result))
+	}
 }
 
 func TestServerPort(t *testing.T) {
@@ -3868,7 +3928,14 @@ func TestServerPort(t *testing.T) {
 	if port != 0 {
 		t.Errorf("Invalid port: %d", port)
 	}
-	s.s.Stop()
+	s.Stop()
+}
+
+func TestNilServerStop(t *testing.T) {
+	// Create a server with nil grpc server, such that s.Stop is called with nil value 
+	t.Log("Expecting s.Stop to log error as server is nil")
+	s := &Server{}
+	s.Stop()
 }
 
 func TestInvalidServer(t *testing.T) {
@@ -3911,7 +3978,7 @@ func TestMasterArbitration(t *testing.T) {
 	// Turn on Master Arbitration
 	s.ReqFromMaster = ReqFromMasterEnabledMA
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	prepareDbTranslib(t)
 

@@ -26,10 +26,14 @@ import (
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/go-redis/redis"
 )
 
+const LOCAL_ADDRESS string = "127.0.0.1"
 const REDIS_SOCK string = "/var/run/redis/redis.sock"
 const APPL_DB int = 0
+// New database for DASH
+const DPU_APPL_DB_NAME string = "DPU_APPL_DB"
 const APPL_DB_NAME string = "APPL_DB"
 const DASH_TABLE_PREFIX string = "DASH_"
 const SWSS_TIMEOUT uint = 0
@@ -37,6 +41,8 @@ const MAX_RETRY_COUNT uint = 5
 const RETRY_DELAY_MILLISECOND uint = 100
 const RETRY_DELAY_FACTOR uint = 2
 const CHECK_POINT_PATH string = "/etc/sonic"
+const ELEM_INDEX_DATABASE = 0
+const ELEM_INDEX_INSTANCE = 1
 
 const (
     opAdd = iota
@@ -67,6 +73,12 @@ type MixedDbClient struct {
 	applDB swsscommon.DBConnector
 	zmqClient swsscommon.ZmqClient
 	tableMap map[string]swsscommon.ProducerStateTable
+	// swsscommon introduced dbkey to support multiple database
+	dbkey swsscommon.SonicDBKey
+	// Convert dbkey to string, namespace:container
+	mapkey string
+	namespace_cnt int
+	container_cnt int
 
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
 	w      *sync.WaitGroup // wait for all sub go routines to finish
@@ -75,11 +87,102 @@ type MixedDbClient struct {
 
 var mixedDbClientMap = map[string]MixedDbClient{}
 
+// redis client connected to each DB
+var RedisDbMap = make(map[string]map[string]*redis.Client)
+
+func Hget(configDbConnector *swsscommon.ConfigDBConnector, table string, key string, field string) (string, error) {
+    var fieldValuePairs = configDbConnector.Get_entry(table, key)
+    if fieldValuePairs.Has_key(field) {
+        return fieldValuePairs.Get(field), nil
+    }
+
+    return "", fmt.Errorf("Can't read %s:%s from %s table", key, field, table)
+}
+
+func getDpuAddress(dpuId string) (string, error) {
+	// Find DPU address by DPU ID from CONFIG_DB
+	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
+
+	var configDbConnector = swsscommon.NewConfigDBConnector()
+	configDbConnector.Connect(false)
+
+	// get bridge plane
+	bridgePlane, err := Hget(configDbConnector, "MID_PLANE_BRIDGE", "GLOBAL", "bridge");
+	if err != nil {
+		return "", err
+	}
+
+	// get DPU interface by DPU ID
+	dpuInterface, err := Hget(configDbConnector, "DPUS", dpuId, "midplane_interface");
+	if err != nil {
+		return "", err
+	}
+
+	// get DPR address by DPU ID and brdige plane
+	var dhcpPortKey = bridgePlane + "|" + dpuInterface
+	dpuAddresses, err := Hget(configDbConnector, "DHCP_SERVER_IPV4_PORT", dhcpPortKey, "ips");
+	if err != nil {
+		return "", err
+	}
+
+	var dpuAddressArray = strings.Split(dpuAddresses, ",")
+	if len(dpuAddressArray) == 0 {
+		return "", fmt.Errorf("Can't find address of dpu:'%s' from DHCP_SERVER_IPV4_PORT table", dpuId)
+	}
+
+	return dpuAddressArray[0], nil
+}
+
+func getZmqAddress(container string, zmqPort string) (string, error) {
+	// when zmqPort empty, ZMQ feature disabled
+	if zmqPort == "" {
+		return "", fmt.Errorf("ZMQ port is empty.")
+	}
+
+	var dpuAddress, err = getDpuAddress(container)
+	if err != nil {
+		return "", fmt.Errorf("Get DPU address failed: %v", err)
+	}
+
+	// ZMQ address example: "tcp://127.0.0.1:1234"
+	return "tcp://" + dpuAddress + ":" + zmqPort, nil
+}
+
+var zmqClientMap = map[string]swsscommon.ZmqClient{}
+
+func getZmqClientByAddress(zmqAddress string) (swsscommon.ZmqClient, error) {
+	client, ok := zmqClientMap[zmqAddress]
+	if !ok {
+		client = swsscommon.NewZmqClient(zmqAddress)
+		zmqClientMap[zmqAddress] = client
+	}
+
+	return client, nil
+}
+
+func getZmqClient(dpuId string, zmqPort string) (swsscommon.ZmqClient, error) {
+	if zmqPort == "" {
+		// ZMQ feature disabled when zmqPort flag not set
+		return nil, nil
+	}
+
+	if dpuId == sdcfg.SONIC_DEFAULT_CONTAINER {
+		// When DPU ID is default, create ZMQ with local address
+		return getZmqClientByAddress("tcp://" + LOCAL_ADDRESS + ":" + zmqPort)
+	}
+
+	zmqAddress, err := getZmqAddress(dpuId, zmqPort)
+	if err != nil {
+		return nil, fmt.Errorf("Get ZMQ address failed: %v", err)
+	}
+
+	return getZmqClientByAddress(zmqAddress)
+}
+
 func getMixedDbClient(zmqAddress string) (MixedDbClient) {
 	client, ok := mixedDbClientMap[zmqAddress]
 	if !ok {
 		client = MixedDbClient {
-			applDB : swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
 			tableMap : map[string]swsscommon.ProducerStateTable{},
 		}
 
@@ -89,11 +192,46 @@ func getMixedDbClient(zmqAddress string) (MixedDbClient) {
 		} else {
 			client.zmqClient = nil
 		}
-		
+
 		mixedDbClientMap[zmqAddress] = client
 	}
 
 	return client
+}
+
+// This function get target present in GNMI Request and
+// returns: Is Db valid (bool)
+func IsTargetDbByDBKey(dbName string, dbkey swsscommon.SonicDBKey) bool {
+	// Check namespace and container
+	ns := dbkey.GetNetns()
+	container := dbkey.GetContainerName()
+	dbkey, ok := sdcfg.GetDbInstanceFromTarget(ns, container)
+	if !ok {
+		return false
+	}
+	// Get target list for database configuration
+	// If target is in database configuration, it's valid
+	dbList, err := sdcfg.GetDbListByDBKey(dbkey)
+	if err != nil {
+		return false
+	}
+	for _, name := range dbList {
+		if name == dbName {
+			return true
+		}
+	}
+	return false
+}
+
+func GetTableKeySeparatorByDBKey(target string, dbkey swsscommon.SonicDBKey) (string, error) {
+	ok := IsTargetDbByDBKey(target, dbkey)
+	if !ok {
+		log.V(1).Infof("%v is not a valid target for %s:%s", target, dbkey.GetNetns(), dbkey.GetContainerName())
+		return "", fmt.Errorf("%v is not a valid target for %s:%s", target, dbkey.GetNetns(), dbkey.GetContainerName())
+	}
+
+	separator, err := sdcfg.GetDbSeparatorByDBKey(target, dbkey)
+	return separator, err
 }
 
 func parseJson(str []byte) (interface{}, error) {
@@ -103,29 +241,6 @@ func parseJson(str []byte) (interface{}, error) {
 		return res, fmt.Errorf("JSON unmarshalling error: %v", err)
 	}
 	return res, nil
-}
-
-func ParseTarget(target string, paths []*gnmipb.Path) (string, error) {
-	if len(paths) == 0 {
-		return "", nil
-	}
-	for i, path := range paths {
-		elems := path.GetElem()
-		if elems == nil {
-			return "", status.Error(codes.Unimplemented, "No target specified in path")
-		}
-		if target == "" {
-			if i == 0 {
-				target = elems[0].GetName()
-			}
-		} else if target != elems[0].GetName() {
-			return "", status.Error(codes.Unimplemented, "Target conflict in path")
-		}
-	}
-	if target == "" {
-		return "", status.Error(codes.Unimplemented, "No target specified in path")
-	}
-	return target, nil
 }
 
 func (c *MixedDbClient) GetTable(table string) (swsscommon.ProducerStateTable) {
@@ -220,15 +335,147 @@ func (c *MixedDbClient) DbDelTable(table string, key string) error {
 	return nil
 }
 
+// For example, the GNMI path below points to DASH_QOS table in the DPU_APPL_DB database for dpu0:
+// /DPU_APPL_DB/dpu0/DASH_QOS
+// The first element of the GNMI path is the target database name, which is DPU_APPL_DB in this case.
+// The second element is the container name, which is dpu0.
+// The third element is the node name, which is DASH_QOS.
+// ParseDatabase is used get database target and SonicDBKey from GNMI prefix and path
+func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path) (string, swsscommon.SonicDBKey, error) {
+	if len(paths) == 0 {
+		return "", nil, status.Error(codes.Unimplemented, "No valid path")
+	}
+	target := ""
+	namespace := sdcfg.SONIC_DEFAULT_NAMESPACE
+	container := sdcfg.SONIC_DEFAULT_CONTAINER
+	prev_instance := ""
+	for _, path := range paths {
+		if path.GetElem() != nil {
+			elems := path.GetElem()
+			if prefix != nil {
+				elems = append(prefix.GetElem(), elems...)
+			}
+			if elems == nil {
+				return "", nil, status.Error(codes.Unimplemented, "No valid elem")
+			}
+			if len(elems) < 2 {
+				return "", nil, status.Error(codes.Unimplemented, "Invalid elem length")
+			}
+			// Get target from the first element
+			if target == "" {
+				target = elems[ELEM_INDEX_DATABASE].GetName()
+			} else if target != elems[ELEM_INDEX_DATABASE].GetName() {
+				return "", nil, status.Error(codes.Unimplemented, "Target conflict in path")
+			}
+			elem_name := elems[ELEM_INDEX_INSTANCE].GetName()
+			if prev_instance == "" {
+				prev_instance = elem_name
+			} else if prev_instance != elem_name {
+				return "", nil, status.Error(codes.Unimplemented, "Namespace/container conflict in path")
+			}
+			if c.namespace_cnt > 1 && c.container_cnt > 1 {
+				// Support smartswitch with multiple asic NPU
+				// The elelement can be "localhost", "asic0", "asic1", ..., "dpu0", "dpu1", ...
+				if elem_name != "localhost" {
+					// Try namespace
+					_, ok := sdcfg.GetDbInstanceFromTarget(elem_name, sdcfg.SONIC_DEFAULT_CONTAINER)
+					if ok {
+						namespace = elem_name
+					} else {
+						// Try container
+						_, ok := sdcfg.GetDbInstanceFromTarget(sdcfg.SONIC_DEFAULT_NAMESPACE, elem_name)
+						if ok {
+							container = elem_name
+						} else {
+							return "", nil, fmt.Errorf("Unsupported namespace/container %s", elem_name)
+						}
+					}
+				}
+			} else if c.namespace_cnt > 1 {
+				// Get namespace from the second element
+				namespace = elem_name
+			} else if c.container_cnt > 1 {
+				// Get container from the second element
+				container = elem_name
+			}
+		}
+	}
+	if target == "" {
+		return "", nil, status.Error(codes.Unimplemented, "No target specified in path")
+	}
+	// GNMI path uses localhost as default namespace
+	if namespace == "localhost" {
+		namespace = sdcfg.SONIC_DEFAULT_NAMESPACE
+	}
+	// GNMI path uses localhost as default container
+	if container == "localhost" {
+		container = sdcfg.SONIC_DEFAULT_NAMESPACE
+	}
+	dbkey := swsscommon.NewSonicDBKey()
+	dbkey.SetNetns(namespace)
+	dbkey.SetContainerName(container)
+	return target, dbkey, nil
+}
+
+// Initialize RedisDbMap
+func useRedisTcpClientWithDBKey() error {
+	dbkeys, err := sdcfg.GetDbAllInstances()
+	if err != nil {
+		return err
+	}
+	for _, dbkey := range dbkeys {
+		ns := dbkey.GetNetns()
+		container := dbkey.GetContainerName()
+		mapkey := ns+":"+container
+		RedisDbMap[mapkey] = make(map[string]*redis.Client)
+		dbList, err := sdcfg.GetDbListByDBKey(dbkey)
+		if err != nil {
+			return err
+		}
+		for _, dbName := range dbList {
+			addr, err := sdcfg.GetDbTcpAddrByDBKey(dbName, dbkey)
+			if err != nil {
+				return err
+			}
+			dbn, err := sdcfg.GetDbIdByDBKey(dbName, dbkey)
+			if err != nil {
+				return err
+			}
+			// DB connector for direct redis operation
+			redisDb := redis.NewClient(&redis.Options{
+				Network:     "tcp",
+				Addr:        addr,
+				Password:    "", // no password set
+				DB:          int(dbn),
+				DialTimeout: 0,
+			})
+			RedisDbMap[mapkey][dbName] = redisDb
+		}
+	}
+	return nil
+}
+
 func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqAddress string) (Client, error) {
 	var err error
 
 	// Testing program may ask to use redis local tcp connection
-	if UseRedisLocalTcpPort {
-		useRedisTcpClient()
-	}
+	useRedisTcpClientWithDBKey()
 
 	var client = getMixedDbClient(zmqAddress)
+	// Get namespace count and container count from db config
+	client.namespace_cnt = 1
+	client.container_cnt = 1
+	dbkey_list, _ := sdcfg.GetDbAllInstances()
+	for _, dbkey := range dbkey_list {
+		namespace := dbkey.GetNetns()
+		container := dbkey.GetContainerName()
+		if namespace != sdcfg.SONIC_DEFAULT_NAMESPACE {
+			client.namespace_cnt += 1
+		}
+		if container != sdcfg.SONIC_DEFAULT_CONTAINER {
+			client.container_cnt += 1
+		}
+	}
 	client.prefix = prefix
 	client.target = ""
 	client.origin = origin
@@ -243,16 +490,25 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 		return &client, nil
 	}
 
-	if client.target == "" {
-		client.target, err = ParseTarget(client.target, paths)
-		if err != nil {
-			return nil, err
-		}
+	target, dbkey, err := client.ParseDatabase(prefix, paths)
+	if err != nil {
+		return nil, err
 	}
-	_, ok, _, _ := IsTargetDb(client.target); 
+	ok := IsTargetDbByDBKey(target, dbkey)
 	if !ok {
-		return nil, status.Errorf(codes.Unimplemented, "Invalid target: %s", client.target)
+		return nil, status.Errorf(codes.Unimplemented, "Invalid target: ns %s, container %s",
+								dbkey.GetNetns(), dbkey.GetContainerName())
 	}
+	// If target is DPU_APPL_DB, this is multiple database, create DB connector for DPU
+	// If target is original APPL_DB, create DB connector for backward compatibility
+	if target == DPU_APPL_DB_NAME || target == APPL_DB_NAME {
+		client.applDB = swsscommon.NewDBConnector(target, SWSS_TIMEOUT, false)
+	}
+	client.target = target
+	client.dbkey = dbkey
+	ns := dbkey.GetNetns()
+	container := dbkey.GetContainerName()
+	client.mapkey = ns + ":" + container
 	client.paths = paths
 	client.workPath = common_utils.GNMI_WORK_PATH
 
@@ -260,7 +516,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 }
 
 // gnmiFullPath builds the full path from the prefix and path.
-func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) *gnmipb.Path {
+func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) (*gnmipb.Path, error) {
 	origin := ""
 	if prefix != nil {
 		origin = prefix.Origin
@@ -269,23 +525,19 @@ func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) *gnmipb.Path {
 		origin = path.Origin
 	}
 	fullPath := &gnmipb.Path{Origin: origin}
-	if path.GetElement() != nil {
-		elements := path.GetElement()
-		if prefix != nil {
-			elements = append(prefix.GetElement(), elements...)
-		}
-		// Skip first elem
-		fullPath.Element = elements[1:]
-	}
 	if path.GetElem() != nil {
 		elems := path.GetElem()
 		if prefix != nil {
 			elems = append(prefix.GetElem(), elems...)
 		}
-		// Skip first elem
-		fullPath.Elem = elems[1:]
+		// Skip first two elem
+		// GNMI path schema is /CONFIG_DB/localhost/PORT
+		if len(elems) < 2 {
+			return nil, fmt.Errorf("Invalid gnmi path: length %d", len(elems))
+		}
+		fullPath.Elem = elems[2:]
 	}
-	return fullPath
+	return fullPath, nil
 }
 
 func (c *MixedDbClient) populateAllDbtablePath(paths []*gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
@@ -304,22 +556,13 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 	var dbPath string
 	var tblPath tablePath
 
-	targetDbName, targetDbNameValid, targetDbNameSpace, _ := IsTargetDb(c.target)
-	// Verify it is a valid db name
-	if !targetDbNameValid {
-		return fmt.Errorf("Invalid target dbName %v", targetDbName)
+	fullPath, err := c.gnmiFullPath(c.prefix, path)
+	if err != nil {
+		return err
 	}
 
-	// Verify Namespace is valid
-	dbNamespace, ok := sdcfg.GetDbNamespaceFromTarget(targetDbNameSpace)
-	if !ok {
-		return fmt.Errorf("Invalid target dbNameSpace %v", targetDbNameSpace)
-	}
-
-	fullPath := c.gnmiFullPath(c.prefix, path)
-
-	stringSlice := []string{targetDbName}
-	separator, _ := GetTableKeySeparator(targetDbName, dbNamespace)
+	stringSlice := []string{c.target}
+	separator, _ := GetTableKeySeparatorByDBKey(c.target, c.dbkey)
 	elems := fullPath.GetElem()
 	if elems != nil {
 		for i, elem := range elems {
@@ -338,8 +581,8 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 		dbPath = buffer.String()
 	}
 
-	tblPath.dbNamespace = dbNamespace
-	tblPath.dbName = targetDbName
+	tblPath.dbNamespace = c.dbkey.GetNetns()
+	tblPath.dbName = c.target
 	tblPath.tableName = ""
 	if len(stringSlice) > 1 {
 		tblPath.tableName = stringSlice[1]
@@ -369,9 +612,10 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 		mappedKey = stringSlice[2]
 	}
 
-	redisDb, ok := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
+	redisDb, ok := RedisDbMap[c.mapkey][tblPath.dbName]
 	if !ok {
-		return fmt.Errorf("Redis Client not present for dbName %v dbNamespace %v", targetDbName, dbNamespace)
+		return fmt.Errorf("Redis Client not present for dbName %v ns %v container %v",
+			c.target, c.dbkey.GetNetns(), c.dbkey.GetContainerName())
 	}
 
 	// The expect real db path could be in one of the formats:
@@ -486,7 +730,7 @@ func (c *MixedDbClient) makeJSON_redis(msi *map[string]interface{}, key *string,
 // If only table name provided in the tablePath, find all keys in the table, otherwise
 // Use tableName + tableKey as key to get all field value paires
 func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]interface{}) error {
-	redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
+	redisDb := RedisDbMap[c.mapkey][tblPath.dbName]
 
 	var pattern string
 	var dbkeys []string
@@ -609,7 +853,7 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 	var useKey bool
 	msi := make(map[string]interface{})
 	for _, tblPath := range tblPaths {
-		redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
+		redisDb := RedisDbMap[c.mapkey][tblPath.dbName]
 
 		if tblPath.jsonField == "" { // Not asked to include field in json value, which means not wildcard query
 			// table path includes table, key and field
@@ -709,7 +953,7 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 
 	for _, tblPath := range tblPaths {
 		log.V(5).Infof("handleTableData: tblPath %v", tblPath)
-		redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
+		redisDb := RedisDbMap[c.mapkey][tblPath.dbName]
 
 		if tblPath.jsonField == "" { // Not asked to include field in json value, which means not wildcard query
 			// table path includes table, key and field
@@ -819,7 +1063,10 @@ func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Pat
 			return fmt.Errorf("Value encoding is not IETF JSON")
 		}
 	}
-	fullPath := c.gnmiFullPath(prefix, path)
+	fullPath, err := c.gnmiFullPath(prefix, path)
+	if err != nil {
+		return err
+	}
 
 	elems := fullPath.GetElem()
 	if t == nil {
@@ -914,7 +1161,10 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 	text := `[`
 	/* DELETE */
 	for _, path := range delete {
-		fullPath := c.gnmiFullPath(c.prefix, path)
+		fullPath, err := c.gnmiFullPath(c.prefix, path)
+		if err != nil {
+			return err
+		}
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
@@ -941,7 +1191,10 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 
 	/* REPLACE */
 	for _, path := range replace {
-		fullPath := c.gnmiFullPath(c.prefix, path.GetPath())
+		fullPath, err := c.gnmiFullPath(c.prefix, path.GetPath())
+		if err != nil {
+			return err
+		}
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
@@ -977,7 +1230,10 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 
 	/* UPDATE */
 	for _, path := range update {
-		fullPath := c.gnmiFullPath(c.prefix, path.GetPath())
+		fullPath, err := c.gnmiFullPath(c.prefix, path.GetPath())
+		if err != nil {
+			return err
+		}
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
@@ -1107,8 +1363,14 @@ func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Upd
 	replaceLen := len(replace)
 	updateLen := len(update)
 	if (deleteLen == 1 && replaceLen == 0 && updateLen == 1) {
-		deletePath := c.gnmiFullPath(c.prefix, delete[0])
-		updatePath := c.gnmiFullPath(c.prefix, update[0].GetPath())
+		deletePath, err := c.gnmiFullPath(c.prefix, delete[0])
+		if err != nil {
+			return err
+		}
+		updatePath, err := c.gnmiFullPath(c.prefix, update[0].GetPath())
+		if err != nil {
+			return err
+		}
 		if (len(deletePath.GetElem()) == 0) && (len(updatePath.GetElem()) == 0) {
 			return c.SetFullConfig(delete, replace, update)
 		}
@@ -1119,7 +1381,9 @@ func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Upd
 func (c *MixedDbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	if c.target == "CONFIG_DB" {
 		return c.SetConfigDB(delete, replace, update)
-	} else if c.target == "APPL_DB" {
+	} else if c.target == DPU_APPL_DB_NAME || c.target == APPL_DB_NAME {
+		// Use DPU_APPL_DB database for DASH
+		// Keep APPL_DB for backward compatibility
 		return c.SetDB(delete, replace, update)
 	}
 	return fmt.Errorf("Set RPC does not support %v", c.target)
@@ -1137,7 +1401,10 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 	}
 	log.V(2).Infof("Getting #%v", c.jClient.jsonData)
 	for _, path := range c.paths {
-		fullPath := c.gnmiFullPath(c.prefix, path)
+		fullPath, err := c.gnmiFullPath(c.prefix, path)
+		if err != nil {
+			return nil, err
+		}
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
@@ -1231,4 +1498,3 @@ func (c *MixedDbClient) SentOne(val *Value) {
 
 func (c *MixedDbClient) FailedSend() {
 }
-
