@@ -9,17 +9,18 @@ import (
 	"sync"
 
 	"github.com/Azure/sonic-mgmt-common/translib"
-	log "github.com/golang/glog"
-	"github.com/golang/protobuf/proto"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
-	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
-	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
+
+	log "github.com/golang/glog"
+	"github.com/golang/protobuf/proto"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
+	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -45,7 +46,7 @@ type Server struct {
 	// SaveStartupConfig points to a function that is called to save changes of
 	// configuration to a file. By default it points to an empty function -
 	// the configuration is not saved to a file.
-	SaveStartupConfig func(ctx context.Context)
+	SaveStartupConfig func()
 
 	// ReqFromMaster point to a function that is called to verify if the request
 	// comes from a master controller.
@@ -401,10 +402,12 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 }
 
 // saveOnSetEnabled saves configuration to a file
-func SaveOnSetEnabled(ctx context.Context) {
-	const reqstr = "{\"openconfig-file-mgmt-private:input\":{\"source\":\"running-configuration\",\"destination\":\"startup-configuration\",\"copy-config-option\":\"OVERWRITE\"}}"
-
-	if _, err := transutil.TranslProcessAction("/openconfig-file-mgmt-private:copy", []byte(reqstr), ctx); err != nil {
+func SaveOnSetEnabled() {
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		log.V(lvl.ERROR).Infof("Saving startup config failed to create dbus client: %v", err)
+	}
+	if err := sc.ConfigSave("/etc/sonic/config_db.json"); err != nil {
 		log.Errorf("Saving startup config failed: %v", err)
 	} else {
 		log.Info("Success! Startup config has been saved!")
@@ -412,7 +415,7 @@ func SaveOnSetEnabled(ctx context.Context) {
 }
 
 // SaveOnSetDisabeld does nothing.
-func saveOnSetDisabled(ctx context.Context) {}
+func saveOnSetDisabled() {}
 
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
 	e := s.ReqFromMaster(req, &s.masterEID)
@@ -517,7 +520,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 	}
 
-	s.SaveStartupConfig(ctx)
+	s.SaveStartupConfig()
 	return &gnmipb.SetResponse{
 		Prefix:   req.GetPrefix(),
 		Response: results,
