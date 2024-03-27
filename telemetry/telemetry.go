@@ -40,7 +40,7 @@ type TelemetryConfig struct {
 	GnmiNativeWrite       *bool
 	Threshold             *int
 	WithMasterArbitration *bool
-  WithSaveOnSet         *bool
+    WithSaveOnSet         *bool
 	IdleConnDuration      *int
 }
 
@@ -310,7 +310,7 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 		log.Errorf("Failed to create gNMI server: %v", err)
 		return
 	}
-	if *telemetryCrg.WithSaveOnSet {
+	if *telemetryCfg.WithSaveOnSet {
 		s.SaveStartupConfig = gnmi.SaveOnSetEnabled
 	}
 

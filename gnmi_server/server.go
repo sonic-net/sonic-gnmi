@@ -414,7 +414,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 func SaveOnSetEnabled() {
 	sc, err := ssc.NewDbusClient()
 	if err != nil {
-		log.V(lvl.ERROR).Infof("Saving startup config failed to create dbus client: %v", err)
+		log.V(0).Infof("Saving startup config failed to create dbus client: %v", err)
 	}
 	if err := sc.ConfigSave("/etc/sonic/config_db.json"); err != nil {
 		log.Errorf("Saving startup config failed: %v", err)
