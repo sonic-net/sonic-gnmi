@@ -40,7 +40,7 @@ type TelemetryConfig struct {
 	GnmiNativeWrite       *bool
 	Threshold             *int
 	WithMasterArbitration *bool
-    WithSaveOnSet         *bool
+        WithSaveOnSet         *bool
 	IdleConnDuration      *int
 }
 
@@ -143,7 +143,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		GnmiNativeWrite:       fs.Bool("gnmi_native_write", gnmi.ENABLE_NATIVE_WRITE, "Enable gNMI native write"),
 		Threshold:             fs.Int("threshold", 100, "max number of client connections"),
 		WithMasterArbitration: fs.Bool("with-master-arbitration", false, "Enables master arbitration policy."),
-    WithSaveOnSet          fs.Bool("with-save-on-set", false, "Enables save-on-set.")
+                WithSaveOnSet          fs.Bool("with-save-on-set", false, "Enables save-on-set.")
 		IdleConnDuration:      fs.Int("idle_conn_duration", 5, "Seconds before server closes idle connections"),
 	}
 
