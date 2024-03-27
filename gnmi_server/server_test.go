@@ -130,6 +130,7 @@ func createServer(t *testing.T, port int64) *Server {
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
 	}
+	s.SaveStartupConfig = SaveOnSetEnabled
 	return s
 }
 
@@ -3754,7 +3755,7 @@ func TestRecoverFromJSONSerializationPanic(t *testing.T) {
 }
 
 func TestGnmiSetBatch(t *testing.T) {
-	mockCode := 
+	mockCode :=
 `
 print('No Yang validation for test mode...')
 print('%s')
@@ -3840,7 +3841,7 @@ func TestGNMINative(t *testing.T) {
 		return &dbus.Call{}
 	})
 	defer mock2.Reset()
-	mockCode := 
+	mockCode :=
 `
 print('No Yang validation for test mode...')
 print('%s')

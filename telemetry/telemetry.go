@@ -40,6 +40,7 @@ type TelemetryConfig struct {
 	GnmiNativeWrite       *bool
 	Threshold             *int
 	WithMasterArbitration *bool
+        WithSaveOnSet         *bool
 	IdleConnDuration      *int
 }
 
@@ -142,6 +143,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		GnmiNativeWrite:       fs.Bool("gnmi_native_write", gnmi.ENABLE_NATIVE_WRITE, "Enable gNMI native write"),
 		Threshold:             fs.Int("threshold", 100, "max number of client connections"),
 		WithMasterArbitration: fs.Bool("with-master-arbitration", false, "Enables master arbitration policy."),
+                WithSaveOnSet          fs.Bool("with-save-on-set", false, "Enables save-on-set.")
 		IdleConnDuration:      fs.Int("idle_conn_duration", 5, "Seconds before server closes idle connections"),
 	}
 
@@ -307,6 +309,9 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 	if err != nil {
 		log.Errorf("Failed to create gNMI server: %v", err)
 		return
+	}
+	if *telemetryCfg.WithSaveOnSet {
+		s.SaveStartupConfig = gnmi.SaveOnSetEnabled
 	}
 
 	if *telemetryCfg.WithMasterArbitration {
