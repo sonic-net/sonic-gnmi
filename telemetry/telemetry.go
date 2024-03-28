@@ -42,6 +42,7 @@ type TelemetryConfig struct {
 	ServerCert            *string
 	ServerKey             *string
 	ZmqAddress            *string
+	ZmqPort               *string
 	Insecure              *bool
 	NoTLS                 *bool
 	AllowNoClientCert     *bool
@@ -146,7 +147,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		CaCert:                fs.String("ca_crt", "", "CA certificate for client certificate validation. Optional."),
 		ServerCert:            fs.String("server_crt", "", "TLS server certificate"),
 		ServerKey:             fs.String("server_key", "", "TLS server private key"),
-		ZmqAddress:            fs.String("zmq_address", "", "Orchagent ZMQ address, when not set or empty string telemetry server will switch to Redis based communication channel."),
+		ZmqAddress:            fs.String("zmq_address", "", "Orchagent ZMQ address, deprecated, please use zmq_port."),
+		ZmqPort:               fs.String("zmq_port", "", "Orchagent ZMQ port, when not set or empty string telemetry server will switch to Redis based communication channel."),
 		Insecure:              fs.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!"),
 		NoTLS:                 fs.Bool("noTLS", false, "disable TLS, for testing only!"),
 		AllowNoClientCert:     fs.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate."),
@@ -216,9 +218,20 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.EnableTranslibWrite = bool(*telemetryCfg.GnmiTranslibWrite)
 	cfg.EnableNativeWrite = bool(*telemetryCfg.GnmiNativeWrite)
 	cfg.LogLevel = int(*telemetryCfg.LogLevel)
-	cfg.ZmqAddress = *telemetryCfg.ZmqAddress
 	cfg.Threshold = int(*telemetryCfg.Threshold)
 	cfg.IdleConnDuration = int(*telemetryCfg.IdleConnDuration)
+
+	// TODO: After other dependent projects are migrated to ZmqPort, remove ZmqAddress
+	zmqAddress := *telemetryCfg.ZmqAddress
+	zmqPort := *telemetryCfg.ZmqPort
+	if zmqPort == "" {
+		if zmqAddress != "" {
+			// ZMQ address format: "tcp://127.0.0.1:1234"
+			zmqPort = strings.Split(zmqAddress, ":")[2]
+		}
+	}
+
+	cfg.ZmqPort = zmqPort
 
 	return telemetryCfg, cfg, nil
 }
