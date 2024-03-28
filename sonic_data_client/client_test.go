@@ -583,4 +583,15 @@ func TestGetZmqClient(t *testing.T) {
 	if client == nil {
 		t.Errorf("get ZMQ client failed")
 	}
+
+	err = removeZmqClient(client)
+	if err != nil {
+		t.Errorf("Remove ZMQ client failed")
+	}
+
+	// Remove a removed client should failed
+	err = removeZmqClient(client)
+	if err == nil {
+		t.Errorf("Remove ZMQ client should failed")
+	}
 }
