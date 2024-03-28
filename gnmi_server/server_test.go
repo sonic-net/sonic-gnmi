@@ -3905,7 +3905,7 @@ func TestGNMINativeMultiDB(t *testing.T) {
 
 	s := createServer(t, 8080)
 	go runServer(t, s)
-	defer s.s.Stop()
+	defer s.Stop()
 
 	path, _ := os.Getwd()
 	path = filepath.Dir(path)
