@@ -175,11 +175,6 @@ func getPfcwdMap() (map[string]map[string]string, error) {
 			}
 		}
 
-		if qos_key == "" {
-			log.V(1).Infof("No valid port_qos_map key found")
-			return nil, nil
-		}
-
 		fieldName := "pfc_enable"
 		priorities, err := redisDb.HGet(qos_key, fieldName).Result()
 		if err != nil {
