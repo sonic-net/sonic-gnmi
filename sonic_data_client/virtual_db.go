@@ -166,7 +166,19 @@ func getPfcwdMap() (map[string]map[string]string, error) {
 			log.V(1).Infof("PFC WD not enabled on device")
 			return nil, nil
 		}
-		qos_key := resp[0]
+
+		var qos_key string
+		for _, key := range resp {
+			if strings.Contains(key, "Ethernet") { // Account for PORT_QOS_MAP|global
+				qos_key = key
+				break
+			}
+		}
+
+		if qos_key == "" {
+			log.V(1).Infof("No valid port_qos_map key found")
+			return nil, nil
+		}
 
 		fieldName := "pfc_enable"
 		priorities, err := redisDb.HGet(qos_key, fieldName).Result()
