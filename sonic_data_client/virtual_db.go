@@ -169,7 +169,7 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 
 		var qos_key string
 		for _, key := range resp {
-			if !strings.Contains(key, "global") || !strings.Contains(key, "GLOBAL") { // Account for PORT_QOS_MAP|global
+			if !strings.Contains(key, "global") && !strings.Contains(key, "GLOBAL") { // Account for PORT_QOS_MAP|global
 				qos_key = key
 				break
 			}
