@@ -592,43 +592,6 @@ func prepareConfigDb(t *testing.T, namespace string) {
 	loadConfigDB(t, rclient, mpi_pfcwd_map)
 }
 
-func prepareConfigDbPfcwdError(t *testing.T, namespace string) {
-	rclient := getConfigDbClient(t, namespace)
-	defer rclient.Close()
-	rclient.FlushDB()
-
-	fileName := "../testdata/COUNTERS_PORT_ALIAS_MAP.txt"
-	countersPortAliasMapByte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	mpi_alias_map := loadConfig(t, "", countersPortAliasMapByte)
-	loadConfigDB(t, rclient, mpi_alias_map)
-
-	fileName = "../testdata/CONFIG_PFCWD_PORTS.txt"
-	configPfcwdByte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	var pfcwdPortData map[string]interface{}
-	err = json.Unmarshal(configPfcwdByte, &pfcwdPortData)
-	if err != nil {
-		t.Fatalf("unmarshal err: %v", err)
-	}
-	for key := range pfcwdPortData {
-		if strings.HasPrefix(key, "PORT_QOS_MAP|Ethernet") {
-			delete(pfcwdPortData, key)
-		}
-	}
-	newConfigPfcwdByte, err := json.Marshal(pfcwdPortData)
-	if err != nil {
-		t.Fatalf("marshal err: %v", err)
-	}
-	mpi_pfcwd_map := loadConfig(t, "", newConfigPfcwdByte)
-	loadConfigDB(t, rclient, mpi_pfcwd_map)
-}
-
-
 func prepareStateDb(t *testing.T, namespace string) {
 	rclient := getRedisClientN(t, 6, namespace)
 	defer rclient.Close()
@@ -732,96 +695,6 @@ func prepareDb(t *testing.T, namespace string) {
 	//Load STATE_DB to test non V2R dataset
 	prepareStateDb(t, namespace)
 }
-
-func prepareDbPfcwdError(t *testing.T, namespace string) {
-	rclient := getRedisClient(t, namespace)
-	defer rclient.Close()
-	rclient.FlushDB()
-	//Enable keysapce notification
-	os.Setenv("PATH", "/usr/bin:/sbin:/bin:/usr/local/bin")
-	cmd := exec.Command("redis-cli", "config", "set", "notify-keyspace-events", "KEA")
-	_, err := cmd.Output()
-	if err != nil {
-		t.Fatal("failed to enable redis keyspace notification ", err)
-	}
-
-	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
-	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	mpi_name_map := loadConfig(t, "COUNTERS_PORT_NAME_MAP", countersPortNameMapByte)
-	loadDB(t, rclient, mpi_name_map)
-
-	fileName = "../testdata/COUNTERS_QUEUE_NAME_MAP.txt"
-	countersQueueNameMapByte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	mpi_qname_map := loadConfig(t, "COUNTERS_QUEUE_NAME_MAP", countersQueueNameMapByte)
-	loadDB(t, rclient, mpi_qname_map)
-
-	fileName = "../testdata/COUNTERS:Ethernet68.txt"
-	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	// "Ethernet68": "oid:0x1000000000039",
-	mpi_counter := loadConfig(t, "COUNTERS:oid:0x1000000000039", countersEthernet68Byte)
-	loadDB(t, rclient, mpi_counter)
-
-	fileName = "../testdata/COUNTERS:Ethernet1.txt"
-	countersEthernet1Byte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	// "Ethernet1": "oid:0x1000000000003",
-	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000003", countersEthernet1Byte)
-	loadDB(t, rclient, mpi_counter)
-
-	// "Ethernet64:0": "oid:0x1500000000092a"  : queue counter, to work as data noise
-	fileName = "../testdata/COUNTERS:oid:0x1500000000092a.txt"
-	counters92aByte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000092a", counters92aByte)
-	loadDB(t, rclient, mpi_counter)
-
-	// "Ethernet68:1": "oid:0x1500000000091c"  : queue counter, for COUNTERS/Ethernet68/Queue vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1500000000091c.txt"
-	countersEeth68_1Byte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091c", countersEeth68_1Byte)
-	loadDB(t, rclient, mpi_counter)
-
-	// "Ethernet68:3": "oid:0x1500000000091e"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1500000000091e.txt"
-	countersEeth68_3Byte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091e", countersEeth68_3Byte)
-	loadDB(t, rclient, mpi_counter)
-
-	// "Ethernet68:4": "oid:0x1500000000091f"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1500000000091f.txt"
-	countersEeth68_4Byte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091f", countersEeth68_4Byte)
-	loadDB(t, rclient, mpi_counter)
-
-	// Load CONFIG_DB for alias translation
-	prepareConfigDbPfcwdError(t, namespace)
-
-	//Load STATE_DB to test non V2R dataset
-	prepareStateDb(t, namespace)
-}
-
 
 func prepareDbTranslib(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
@@ -1296,11 +1169,13 @@ func TestGnmiGetAuthFail(t *testing.T) {
 }
 
 func TestPFCWDErrors(t *testing.T) {
-	namespace, _ := sdcfg.GetDbDefaultNamespace()
 	s := createServer(t, 8081)
 	go runServer(t, s)
 
-	prepareDbPfcwdError(t, namespace)
+	mock := gomonkey.ApplyFunc(sdc.GetPfcwdMap, func() (map[string]map[string]string, error)  {
+		return nil, fmt.Errorf("Mock error")
+	})
+	defer mock.Reset()
 
 	tests := []struct {
 		desc    string

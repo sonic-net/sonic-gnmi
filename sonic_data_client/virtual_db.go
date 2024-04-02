@@ -110,7 +110,7 @@ func initAliasMap() error {
 func initCountersPfcwdNameMap() error {
 	var err error
 	if len(countersPfcwdNameMap) == 0 {
-		countersPfcwdNameMap, err = getPfcwdMap()
+		countersPfcwdNameMap, err = GetPfcwdMap()
 		if err != nil {
 			return err
 		}
@@ -119,7 +119,7 @@ func initCountersPfcwdNameMap() error {
 }
 
 // Get the mapping between sonic interface name and oids of their PFC-WD enabled queues in COUNTERS_DB
-func getPfcwdMap() (map[string]map[string]string, error) {
+func GetPfcwdMap() (map[string]map[string]string, error) {
 	var pfcwdName_map = make(map[string]map[string]string)
 
 	dbName := "CONFIG_DB"
