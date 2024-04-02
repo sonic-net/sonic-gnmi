@@ -1296,7 +1296,7 @@ func TestGnmiGetAuthFail(t *testing.T) {
 }
 
 func TestPFCWDErrors(t *testing.T) {
-	namespace := sdcfg.GetDbDefaultNamespace()
+	namespace, _ := sdcfg.GetDbDefaultNamespace()
 	s := createServer(t, 8081)
 	go runServer(t, s)
 
