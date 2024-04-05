@@ -82,6 +82,8 @@ stages:
         patterns: |
             target/debs/bookworm/libyang*.deb
             target/debs/bookworm/libnl*.deb
+            target/debs/bookworm/python3-swsscommon*.deb
+            target/debs/bookworm/libswsscommon*.deb
             target/python-wheels/bookworm/sonic_yang_models*.whl
       displayName: "Download bookworm debs"
 
