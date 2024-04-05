@@ -131,7 +131,7 @@ func getPfcwdMap() (map[string]map[string]string, error) {
 			return nil, err
 		}
 
-		keyName := fmt.Sprintf("PFC_WD%v*", separator)
+		keyName := fmt.Sprintf("PFC_WD_TABLE%v*", separator)
 		resp, err := redisDb.Keys(keyName).Result()
 		if err != nil {
 			log.V(1).Infof("redis get keys failed for %v in namsepace %v, key = %v, err: %v", dbName, namespace, keyName, err)
@@ -145,10 +145,8 @@ func getPfcwdMap() (map[string]map[string]string, error) {
 		}
 
 		for _, key := range resp {
-			if strings.Contains(key, "Ethernet") { // Account for non interface ports in PFC_WD such as GLOBAL
-				name := key[7:]
-				pfcwdName_map[name] = make(map[string]string)
-			}
+			name := key[13:]
+			pfcwdName_map[name] = make(map[string]string)
 		}
 
 		// Get Queue indexes that are enabled with PFC-WD
