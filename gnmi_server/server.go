@@ -43,7 +43,9 @@ type Server struct {
 	// comes from a master controller.
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
+	gnoi_system_pb.UnimplementedSystemServer
 }
+
 type AuthTypes map[string]bool
 
 // Config is a collection of values for Server

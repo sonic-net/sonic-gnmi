@@ -16,6 +16,8 @@ type Service interface {
 	ApplyPatchDb(fileName string) error
 	CreateCheckPoint(cpName string)  error
 	DeleteCheckPoint(cpName string) error
+	StopService(service string) error
+	RestartService(service string) error
 }
 
 type DbusClient struct {
@@ -145,5 +147,25 @@ func (c *DbusClient) DeleteCheckPoint(fileName string) error {
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".delete_checkpoint"
 	err := DbusApi(busName, busPath, intName, 10, fileName)
+	return err
+}
+
+func (c *DbusClient) StopService(service string) error {
+	common_utils.IncCounter(common_utils.DBUS_STOP_SERVICE)
+	modName := "systemd"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".stop_service"
+	err := DbusApi(busName, busPath, intName, 10, service)
+	return err
+}
+
+func (c *DbusClient) RestartService(service string) error {
+	common_utils.IncCounter(common_utils.DBUS_RESTART_SERVICE)
+	modName := "systemd"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".restart_service"
+	err := DbusApi(busName, busPath, intName, 10, service)
 	return err
 }

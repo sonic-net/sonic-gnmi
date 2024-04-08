@@ -20,6 +20,34 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
+func KillOrRestartProcess(restart bool, serviceName string) error {
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		return err
+	}
+	if restart {
+		log.V(2).Infof("Restarting service %s...", serviceName)
+		err = sc.RestartService(serviceName)
+	} else {
+		log.V(2).Infof("Stopping service %s...", serviceName)
+		err = sc.StopService(serviceName)
+	}
+	return err
+}
+
+func (srv *Server) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProcessRequest) (*gnoi_system_pb.KillProcessResponse, error) {
+	serviceName := req.GetName()
+	restart := req.GetRestart()
+	log.V(1).Info("gNOI: KillProcess with optional restart")
+	log.V(1).Info("Request:", req)
+	err := KillOrRestartProcess(restart, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	var resp gnoi_system_pb.KillProcessResponse
+	return &resp, nil
+}
+
 func RebootSystem(fileName string) error {
 	log.V(2).Infof("Rebooting with %s...", fileName)
 	sc, err := ssc.NewDbusClient()
