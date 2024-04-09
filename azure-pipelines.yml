@@ -130,7 +130,7 @@ stages:
     - script: |
         # LIBSWSSCOMMON
         sudo dpkg -i ../target/debs/bookworm/libswsscommon_1.0.0_amd64.deb
-        sudo dpkg -i ../target/devs/bookworm/libswsscommon-dev_1.0.0_amd64.deb
+        sudo dpkg -i ../target/debs/bookworm/libswsscommon-dev_1.0.0_amd64.deb
         sudo dpkg -i ../target/debs/bookworm/python3-swsscommon_1.0.0_amd64.deb
       displayName: 'Install libswsscommon package'
 
