@@ -130,8 +130,8 @@ stages:
                  libswsscommon_1.0.0_amd64.deb \
                  libswsscommon-dev_1.0.0_amd64.deb \
                  python3-swsscommon_1.0.0_amd64.deb
-       workingDirectory: $(Build.ArtifactStagingDirectory)/target/debs/bookworm/
-       displayName: 'Install Debian dependencies'
+      workingDirectory: $(Build.ArtifactStagingDirectory)/target/debs/bookworm/
+      displayName: 'Install Debian dependencies'
 
     - script: |
         set -ex
