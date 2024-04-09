@@ -82,8 +82,8 @@ stages:
         patterns: |
             target/debs/bookworm/libyang*.deb
             target/debs/bookworm/libnl*.deb
-            target/debs/bookworm/python3-swsscommon*.deb
             target/debs/bookworm/libswsscommon*.deb
+            target/debs/bookworm/python3-swsscommon*.deb
             target/python-wheels/bookworm/sonic_yang_models*.whl
       displayName: "Download bookworm debs"
 
@@ -110,28 +110,29 @@ stages:
       displayName: "Install sonic yangs"
 
     - script: |
+        # LIBSWSSCOMMON
+        sudo apt-get -y purge libnl-3-dev libnl-route-3-dev
+        sudo dpkg -i ../target/debs/bookworm/libnl-3-200_*.deb
+        sudo dpkg -i ../target/debs/bookworm/libnl-genl-3-200_*.deb
+        sudo dpkg -i ../target/debs/bookworm/libnl-route-3-200_*.deb
+        sudo dpkg -i ../target/debs/bookworm/libnl-nf-3-200_*.deb
+      displayName: "Install libswsscommon dependencies"
+
+    - script: |
         set -ex
         # Install .NET CORE
         curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-        sudo apt-add-repository https://packages.microsoft.com/debian/12/prod
+        sudo apt-add-repository https://packages.microsoft.com/debian/11/prod
         sudo apt-get update
-        sudo apt-get install -y dotnet-sdk-7.0
+        sudo apt-get install -y dotnet-sdk-5.0
       displayName: "Install .NET CORE"
 
     - script: |
-        # Install debian dependencies
-        set -xe
-        sudo apt-get -y purge libnl-3-dev libnl-route-3-dev || true
-        sudo dpkg -i libyang_1.0.73_amd64.deb \
-                 libnl-3-200_*.deb \
-                 libnl-genl-3-200_*.deb \
-                 libnl-route-3-200_*.deb \
-                 libnl-nf-3-200_*.deb \
-                 libswsscommon_1.0.0_amd64.deb \
-                 libswsscommon-dev_1.0.0_amd64.deb \
-                 python3-swsscommon_1.0.0_amd64.deb
-      workingDirectory: $(Build.ArtifactStagingDirectory)/target/debs/bookworm/
-      displayName: 'Install Debian dependencies'
+        # LIBSWSSCOMMON
+        sudo dpkg -i ../target/debs/bookworm/libswsscommon_1.0.0_amd64.deb
+        sudo dpkg -i ../target/devs/bookworm/libswsscommon-dev_1.0.0_amd64.deb
+        sudo dpkg -i ../target/debs/bookworm/python3-swsscommon_1.0.0_amd64.deb
+      displayName: 'Install libswsscommon package'
 
     - script: |
         set -ex
