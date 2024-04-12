@@ -210,8 +210,8 @@ func TestGetDbMultiInstance(t *testing.T) {
 	})
 	t.Run("Sock", func(t *testing.T) {
 		sock_path, _ := GetDbSockByDBKey("CONFIG_DB", dbkey)
-		if sock_path != "/var/run/redis0/redis.sock" {
-			t.Fatalf(`Sock("") = %q, want "/var/run/redis0/redis.sock", error`, sock_path)
+		if sock_path != "/var/run/redis/redis.sock" {
+			t.Fatalf(`Sock("") = %q, want "/var/run/redis/redis.sock", error`, sock_path)
 		}
 	})
 	t.Run("AllInstances", func(t *testing.T) {
