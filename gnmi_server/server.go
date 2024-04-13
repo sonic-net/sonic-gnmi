@@ -134,7 +134,6 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if config == nil {
 		return nil, errors.New("config not provided")
 	}
-
 	common_utils.InitCounters()
 
 	s := grpc.NewServer(opts...)

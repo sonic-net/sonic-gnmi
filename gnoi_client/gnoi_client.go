@@ -115,8 +115,11 @@ func killProcess(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println("Kill Process with optional restart")
 	ctx = setUserCreds(ctx)
 	req := &gnoi_system_pb.KillProcessRequest {}
-	json.Unmarshal([]byte(*args), req)
-	_,err := sc.KillProcess(ctx, req)
+	err := json.Unmarshal([]byte(*args), req)
+	if err != nil {
+		panic(err.Error())
+	}
+	_,err = sc.KillProcess(ctx, req)
 	if err != nil {
 		panic(err.Error())
 	}

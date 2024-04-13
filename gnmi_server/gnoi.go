@@ -28,9 +28,15 @@ func KillOrRestartProcess(restart bool, serviceName string) error {
 	if restart {
 		log.V(2).Infof("Restarting service %s...", serviceName)
 		err = sc.RestartService(serviceName)
+		if err != nil {
+			log.V(2).Infof("Failed to restart service %s: %v", serviceName, err)
+		}
 	} else {
 		log.V(2).Infof("Stopping service %s...", serviceName)
 		err = sc.StopService(serviceName)
+		if err != nil {
+			log.V(2).Infof("Failed to stop service %s: %v", serviceName, err)
+		}
 	}
 	return err
 }

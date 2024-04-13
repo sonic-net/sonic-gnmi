@@ -156,7 +156,7 @@ func (c *DbusClient) StopService(service string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".stop_service"
-	err := DbusApi(busName, busPath, intName, 10, service)
+	err := DbusApi(busName, busPath, intName, 90, service)
 	return err
 }
 
@@ -166,6 +166,6 @@ func (c *DbusClient) RestartService(service string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".restart_service"
-	err := DbusApi(busName, busPath, intName, 10, service)
+	err := DbusApi(busName, busPath, intName, 90, service)
 	return err
 }
