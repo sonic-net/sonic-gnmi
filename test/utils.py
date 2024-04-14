@@ -190,10 +190,11 @@ def gnoi_reboot(method, delay, message):
 
 def gnoi_kill_process():
     path = os.getcwd()
+    json_data = '{"name": "snmp"}' 
     cmd = path + '/build/bin/gnoi_client '
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc KillProcess '
-    cmd += '-jsonin "{\\\"name\\\":%s\\\"}"'%("snmp")
+    cmd += f'-jsonin \'{json_data}\''
     ret, msg = run_cmd(cmd)
     return ret, msg
 
