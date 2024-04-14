@@ -193,7 +193,7 @@ def gnoi_kill_process():
     cmd = path + '/build/bin/gnoi_client '
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc KillProcess '
-    cmd += '-jsonin "{\\\"name\\\":%d\\\"}"'%("snmp")
+    cmd += '-jsonin "{\\\"name\\\":%s\\\"}"'%("snmp")
     ret, msg = run_cmd(cmd)
     return ret, msg
 
