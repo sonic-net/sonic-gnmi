@@ -1,6 +1,6 @@
 import pytest
 from utils import gnoi_time, gnoi_setpackage, gnoi_switchcontrolprocessor
-from utils import gnoi_reboot, gnoi_rebootstatus, gnoi_cancelreboot
+from utils import gnoi_reboot, gnoi_rebootstatus, gnoi_cancelreboot, gnoi_kill_process
 from utils import gnoi_ping, gnoi_traceroute, gnmi_dump
 
 class TestGNOI:
@@ -31,3 +31,13 @@ class TestGNOI:
         assert ret != 0, 'CancelReboot should fail' + msg
         assert 'Unimplemented' in msg
 
+    def test_gnoi_killprocess(self):
+        ret, old_cnt = gnmi_dump('DBUS stop service')
+        assert ret == 0, 'Fail to read counter'
+
+        ret, msg = gnoi_kill_process()
+        assert ret == 0, msg
+
+        ret, new_cnt = gnmi_dump('DBUS stop service')
+        assert ret == 0, 'Fail to read counter'
+        assert new_cnt == old_cnt+1, 'DBUS API is not invoked'

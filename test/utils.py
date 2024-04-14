@@ -188,6 +188,15 @@ def gnoi_reboot(method, delay, message):
     ret, msg = run_cmd(cmd)
     return ret, msg
 
+def gnoi_kill_process():
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnoi_client '
+    cmd += '-insecure -target 127.0.0.1:8080 '
+    cmd += '-rpc KillProcess '
+    cmd += '-jsonin "{\\\"name\\\":%d\\\"}"'%("snmp")
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
 def gnoi_rebootstatus():
     path = os.getcwd()
     cmd = path + '/build/bin/gnoi_client '
