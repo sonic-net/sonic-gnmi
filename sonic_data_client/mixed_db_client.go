@@ -881,14 +881,16 @@ import json
 
 yang_parser = sonic_yang.SonicYang("/usr/local/yang-models")
 yang_parser.loadYangModel()
-text = '''%s'''
+filename = "%s"
+with open(filename, 'r') as fp:
+	text = fp.read()
 
-try:
-    yang_parser.loadData(configdbJson=json.loads(text))
-    yang_parser.validate_data_tree()
-except sonic_yang.SonicYangException as e:
-    print("Yang validation error: {}".format(str(e)))
-    raise
+	try:
+		yang_parser.loadData(configdbJson=json.loads(text))
+		yang_parser.validate_data_tree()
+	except sonic_yang.SonicYangException as e:
+		print("Yang validation error: {}".format(str(e)))
+		raise
 `
 
 func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
