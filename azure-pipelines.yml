@@ -156,6 +156,8 @@ stages:
 
         apt list --installed | grep golang
 
+        apt-cache policy golang
+
         pushd sonic-gnmi
 
         dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
