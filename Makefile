@@ -44,6 +44,12 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap
 	$(GO) mod vendor
 	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
 	$(GO) mod download github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0
+
+	$(GO) mod download github.com/agiledragon/gomonkey/v2
+	$(GO) mod download github.com/godbus/dbus/v5
+	$(GO) mod download github.com/maruel/natural
+	$(GO) mod tidy
+
 	cp -r $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413/* vendor/golang.org/x/crypto/
 	cp -r $(GOPATH)/pkg/mod/github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0/* vendor/github.com/jipanyang/gnxi/
 	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
