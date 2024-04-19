@@ -1,6 +1,7 @@
 package gnmi
 
 import (
+	"os"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
@@ -22,6 +23,23 @@ func ClientCertAuthenAndAuthor(ctx context.Context) (context.Context, error) {
 	}
 	if len(tlsAuth.State.VerifiedChains) == 0 || len(tlsAuth.State.VerifiedChains[0]) == 0 {
 		return ctx, status.Error(codes.Unauthenticated, "could not verify peer certificate")
+	}
+
+	// [Hua] POC to verify CRL can work
+	rawCRLs := make([][]byte, 6)
+	rawCRL, err := os.ReadFile("/etc/sonic/crl/test.crl")
+	if err == nil {
+		rawCRLs = append(rawCRLs, rawCRL)
+		cRLProvider := NewStaticCRLProvider(rawCRLs)
+		err := checkRevocation(tlsAuth.State, RevocationConfig{
+			AllowUndetermined: true,
+			CRLProvider:       cRLProvider,
+		})
+		if err != nil {
+			return ctx, status.Error(codes.Unauthenticated, "Peer certificate revoked")
+		}
+	} else {
+		glog.Infof("[%s] [CRL] load /etc/sonic/crl/test.crl failed ; %v", rc.ID, err)
 	}
 
 	var username string
