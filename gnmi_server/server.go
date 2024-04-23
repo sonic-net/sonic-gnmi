@@ -183,7 +183,7 @@ func (srv *Server) Stop() {
 		log.Errorf("Stop() failed: not initialized")
 		return
 	}
-	s.Stop()
+	s.GracefulStop()
 }
 
 // Address returns the port the Server is listening to.

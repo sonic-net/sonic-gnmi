@@ -3503,11 +3503,13 @@ func TestConnectionsKeepAlive(t *testing.T) {
         },
     }
     for _, tt := range(tests) {
+        var clients []*cacheclient.CacheClient
         for i := 0; i < 5; i++ {
             t.Run(tt.desc, func(t *testing.T) {
                 q := tt.q
                 q.Addrs = []string{"127.0.0.1:8081"}
                 c := client.New()
+                clients = append(clients, c)
                 wg := new(sync.WaitGroup)
                 wg.Add(1)
 
@@ -3528,6 +3530,9 @@ func TestConnectionsKeepAlive(t *testing.T) {
                     t.Errorf("Expecting goroutine after sleep to be less than or equal to after subscribe, after_subscribe: %d, after_sleep: %d", after_subscribe, after_sleep)
                 }
             })
+        }
+	for _, cacheClient := range(clients) {
+            cacheClient.Close()
         }
     }
 }
