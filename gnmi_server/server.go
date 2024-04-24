@@ -46,7 +46,7 @@ type Server struct {
 	// SaveStartupConfig points to a function that is called to save changes of
 	// configuration to a file. By default it points to an empty function -
 	// the configuration is not saved to a file.
-	SaveStartupConfig func()
+	SaveStartupConfig func() error
 
 	// ReqFromMaster point to a function that is called to verify if the request
 	// comes from a master controller.
@@ -411,20 +411,23 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 }
 
 // saveOnSetEnabled saves configuration to a file
-func SaveOnSetEnabled() {
+func SaveOnSetEnabled() error {
 	sc, err := ssc.NewDbusClient()
 	if err != nil {
 		log.V(0).Infof("Saving startup config failed to create dbus client: %v", err)
+		return err
 	}
 	if err := sc.ConfigSave("/etc/sonic/config_db.json"); err != nil {
-		log.Errorf("Saving startup config failed: %v", err)
+		log.V(0).Infof("Saving startup config failed: %v", err)
+		return err
 	} else {
-		log.Info("Success! Startup config has been saved!")
+		log.V(1).Infof("Success! Startup config has been saved!")
 	}
+	return nil
 }
 
 // SaveOnSetDisabeld does nothing.
-func saveOnSetDisabled() {}
+func saveOnSetDisabled() error { return nil }
 
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
 	e := s.ReqFromMaster(req, &s.masterEID)
