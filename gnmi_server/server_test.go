@@ -4165,26 +4165,26 @@ func TestMasterArbitration(t *testing.T) {
 }
 
 func TestSaveOnSet(t *testing.T) {
+	// Fail client creation
 	fakeDBC := gomonkey.ApplyFuncReturn(ssc.NewDbusClient, nil, fmt.Errorf("Fail Create"))
 	if err := SaveOnSetEnabled(); err == nil {
 		t.Error("Expected Client Failure")
 	}
 	fakeDBC.Reset()
-	var client *ssc.Service
-	goodDbus := gomonkey.ApplyMethod(client, "ConfigSave", func(_ *ssc.Service, _ string) error {
-		return nil
-	})
+
+	// Successful Dbus call
+	goodDbus := gomonkey.ApplyFuncReturn(ssc.DbusApi, "success", nil)
 	if err := SaveOnSetEnabled(); err != nil {
 		t.Error("Unexpected DBUS failure")
 	}
 	goodDbus.Reset()
-	badDbus := gomonkey.ApplyMethod(client, "ConfigSave", func(_ *ssc.Service, _ string) error {
-		return fmt.Errorf("Fail Send")
-	})
+
+	// Fail Dbus call
+	badDbus := gomonkey.ApplyFuncReturn(ssc.DbusApi, "", fmt.Errorf("Fail Send"))
+	defer badDbus.Reset()
 	if err := SaveOnSetEnabled(); err == nil {
 		t.Error("Expected DBUS failure")
 	}
-	badDbus.Reset()
 }
 
 func init() {
