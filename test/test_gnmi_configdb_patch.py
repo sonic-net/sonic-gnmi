@@ -23,7 +23,7 @@ def create_checkpoint(file_name, text):
 
 test_data_aaa_patch = [
     {
-        # aaa_tc1_add_config
+        "test_name": "aaa_tc1_add_config",
         "operations": [
             {
                 "op": "add",
@@ -55,7 +55,7 @@ test_data_aaa_patch = [
         }
     },
     {
-        # aaa_tc1_add_duplicate
+        "test_name": "aaa_tc1_add_duplicate",
         "operations": [
             {
                 "op": "add",
@@ -85,7 +85,7 @@ test_data_aaa_patch = [
         }
     },
     {
-        # aaa_tc1_remove
+        "test_name": "aaa_tc1_remove",
         "operations": [
             {
                 "op": "del",
@@ -100,7 +100,7 @@ test_data_aaa_patch = [
         "target_json": {}
     },
     {
-        # tacacs_global_tc2_add_config
+        "test_name": "tacacs_global_tc2_add_config",
         "operations": [
             {
                 "op": "add",
@@ -126,7 +126,7 @@ test_data_aaa_patch = [
         }
     },
     {
-        # tacacs_global_tc2_duplicate_input
+        "test_name": "tacacs_global_tc2_duplicate_input",
         "operations": [
             {
                 "op": "add",
@@ -160,7 +160,7 @@ test_data_aaa_patch = [
         }
     },
     {
-        # tacacs_global_tc2_remove
+        "test_name": "tacacs_global_tc2_remove",
         "operations": [
             {
                 "op": "del",
@@ -179,7 +179,7 @@ test_data_aaa_patch = [
         "target_json": {}
     },
     {
-        # tacacs_server_tc3_add_init
+        "test_name": "tacacs_server_tc3_add_init",
         "operations": [
             {
                 "op": "add",
@@ -223,7 +223,7 @@ test_data_aaa_patch = [
         }
     },
     {
-        # tacacs_server_tc3_add_duplicate
+        "test_name": "tacacs_server_tc3_add_duplicate",
         "operations": [
             {
                 "op": "add",
@@ -275,7 +275,7 @@ test_data_aaa_patch = [
         }
     },
     {
-        # tacacs_server_tc3_remove
+        "test_name": "tacacs_server_tc3_remove",
         "operations": [
             {
                 "op": "del",
@@ -338,4 +338,4 @@ class TestGNMIConfigDbPatch:
         result = jsonpatch.apply_patch(test_data["origin_json"], patch_json)
         # Compare json result
         diff = jsonpatch.make_patch(result, test_data["target_json"])
-        assert len(diff.patch) == 0, "Generated json: " + str(result)
+        assert len(diff.patch) == 0, "%s failed, generated json: %s" % (test_data["test_name"], str(result))
