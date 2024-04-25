@@ -24,7 +24,7 @@ import (
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
-	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
+	// ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
