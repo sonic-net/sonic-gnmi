@@ -6,6 +6,7 @@ import (
 	"os"
 	"fmt"
 	"strconv"
+	"unsafe"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
 
@@ -17,6 +18,15 @@ const (
 )
 
 var sonic_db_init bool
+
+func DeepCopy(s string) string {
+	if len(s) == 0 {
+		return ""
+	}
+	b := make([]byte, len(s))
+	copy(b, s)
+	return *(*string)(unsafe.Pointer(&b))
+}
 
 // Convert exception to error
 func CatchException(err *error) {
@@ -38,6 +48,10 @@ func CheckDbMultiNamespace() (ret bool, err error) {
 	}
 	defer CatchException(&err)
 	ns_vec := swsscommon.SonicDBConfigGetNamespaces()
+	defer func() {
+		ns_vec.Clear()
+		swsscommon.DeleteVectorString(ns_vec)
+	}()
 	length := int(ns_vec.Size())
 	// If there are more than one namespaces, this means that SONiC is using multinamespace
 	return length > 1, err
@@ -52,10 +66,14 @@ func GetDbNonDefaultNamespaces() (ns_list []string, err error) {
 	}
 	defer CatchException(&err)
 	ns_vec := swsscommon.SonicDBConfigGetNamespaces()
+	defer func() {
+		ns_vec.Clear()
+		swsscommon.DeleteVectorString(ns_vec)
+	}()
 	// Translate from vector to array
 	length := int(ns_vec.Size())
 	for i := 0; i < length; i += 1 {
-		ns := ns_vec.Get(i)
+		ns := DeepCopy(ns_vec.Get(i))
 		if ns == SONIC_DEFAULT_NAMESPACE {
 			continue
 		}
@@ -73,10 +91,14 @@ func GetDbAllNamespaces() (ns_list []string, err error) {
 	}
 	defer CatchException(&err)
 	ns_vec := swsscommon.SonicDBConfigGetNamespaces()
+	defer func() {
+		ns_vec.Clear()
+		swsscommon.DeleteVectorString(ns_vec)
+	}()
 	// Translate from vector to array
 	length := int(ns_vec.Size())
 	for i := 0; i < length; i += 1 {
-		ns := ns_vec.Get(i)
+		ns := DeepCopy(ns_vec.Get(i))
 		ns_list = append(ns_list, ns)
 	}
 	return ns_list, err
@@ -108,10 +130,14 @@ func GetDbList(ns string) (db_list []string, err error) {
 	}
 	defer CatchException(&err)
 	db_vec := swsscommon.SonicDBConfigGetDbList()
+	defer func() {
+		db_vec.Clear()
+		swsscommon.DeleteVectorString(db_vec)
+	}()
 	// Translate from vector to array
 	length := int(db_vec.Size())
 	for i := 0; i < length; i += 1 {
-		ns := db_vec.Get(i)
+		ns := DeepCopy(db_vec.Get(i))
 		db_list = append(db_list, ns)
 	}
 	return db_list, err
@@ -204,6 +230,10 @@ func CheckDbMultiInstance() (ret bool, err error) {
 	}
 	defer CatchException(&err)
 	dbkey_vec := swsscommon.SonicDBConfigGetDbKeys()
+	defer func() {
+		dbkey_vec.Clear()
+		swsscommon.DeleteVectorSonicDbKey(dbkey_vec)
+	}()
 	length := int(dbkey_vec.Size())
 	// If there are more than one instances, this means that SONiC is using multi-namespace or multi-container
 	return length > 1, err
@@ -218,6 +248,10 @@ func GetDbNonDefaultInstances() (dbkey_list []swsscommon.SonicDBKey, err error) 
 	}
 	defer CatchException(&err)
 	dbkey_vec := swsscommon.SonicDBConfigGetDbKeys()
+	defer func() {
+		dbkey_vec.Clear()
+		swsscommon.DeleteVectorSonicDbKey(dbkey_vec)
+	}()
 	// Translate from vector to array
 	length := int(dbkey_vec.Size())
 	for i := 0; i < length; i += 1 {
@@ -225,7 +259,10 @@ func GetDbNonDefaultInstances() (dbkey_list []swsscommon.SonicDBKey, err error) 
 		if dbkey.GetNetns() == SONIC_DEFAULT_NAMESPACE && dbkey.GetContainerName() == SONIC_DEFAULT_CONTAINER {
 			continue
 		}
-		dbkey_list = append(dbkey_list, dbkey)
+		newkey := swsscommon.NewSonicDBKey()
+		newkey.SetContainerName(dbkey.GetContainerName())
+		newkey.SetNetns(dbkey.GetNetns())
+		dbkey_list = append(dbkey_list, newkey)
 	}
 	return dbkey_list, err
 }
@@ -239,11 +276,18 @@ func GetDbAllInstances() (dbkey_list []swsscommon.SonicDBKey, err error) {
 	}
 	defer CatchException(&err)
 	dbkey_vec := swsscommon.SonicDBConfigGetDbKeys()
+	defer func() {
+		dbkey_vec.Clear()
+		swsscommon.DeleteVectorSonicDbKey(dbkey_vec)
+	}()
 	// Translate from vector to array
 	length := int(dbkey_vec.Size())
 	for i := 0; i < length; i += 1 {
 		dbkey := dbkey_vec.Get(i)
-		dbkey_list = append(dbkey_list, dbkey)
+		newkey := swsscommon.NewSonicDBKey()
+		newkey.SetContainerName(dbkey.GetContainerName())
+		newkey.SetNetns(dbkey.GetNetns())
+		dbkey_list = append(dbkey_list, newkey)
 	}
 	return dbkey_list, err
 }
@@ -268,10 +312,14 @@ func GetDbListByDBKey(dbkey swsscommon.SonicDBKey) (db_list []string, err error)
 	}
 	defer CatchException(&err)
 	db_vec := swsscommon.SonicDBConfigGetDbList(dbkey)
+	defer func() {
+		db_vec.Clear()
+		swsscommon.DeleteVectorString(db_vec)
+	}()
 	// Translate from vector to array
 	length := int(db_vec.Size())
 	for i := 0; i < length; i += 1 {
-		dbname := db_vec.Get(i)
+		dbname := DeepCopy(db_vec.Get(i))
 		db_list = append(db_list, dbname)
 	}
 	return db_list, err
