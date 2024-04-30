@@ -26,7 +26,7 @@ test_data_aaa_patch = [
         "test_name": "aaa_tc1_add_config",
         "operations": [
             {
-                "op": "add",
+                "op": "update",
                 "path": "/sonic-db:CONFIG_DB/localhost/AAA",
                 "value": {
                     "accounting": {
@@ -92,17 +92,17 @@ test_data_aaa_patch = [
         "test_name": "aaa_tc1_add_duplicate",
         "operations": [
             {
-                "op": "add",
+                "op": "update",
                 "path": "/sonic-db:CONFIG_DB/localhost/AAA/authorization/login",
                 "value": "tacacs+"
             },
             {
-                "op": "add",
+                "op": "update",
                 "path": "/sonic-db:CONFIG_DB/localhost/AAA/authorization/login",
                 "value": "tacacs+"
             },
             {
-                "op": "add",
+                "op": "update",
                 "path": "/sonic-db:CONFIG_DB/localhost/AAA/authorization/login",
                 "value": "tacacs+"
             }
@@ -137,7 +137,7 @@ test_data_aaa_patch = [
         "test_name": "tacacs_global_tc2_add_config",
         "operations": [
             {
-                "op": "add",
+                "op": "update",
                 "path": "/sonic-db:CONFIG_DB/localhost/TACPLUS",
                 "value": {
                     "global": {
@@ -163,7 +163,7 @@ test_data_aaa_patch = [
         "test_name": "tacacs_global_tc2_duplicate_input",
         "operations": [
             {
-                "op": "add",
+                "op": "update",
                 "path": "/sonic-db:CONFIG_DB/localhost/TACPLUS",
                 "value": {
                     "global": {
@@ -216,7 +216,7 @@ test_data_aaa_patch = [
         "test_name": "tacacs_server_tc3_add_init",
         "operations": [
             {
-                "op": "add",
+                "op": "update",
                 "path": "/sonic-db:CONFIG_DB/localhost/TACPLUS_SERVER",
                 "value": {
                     "100.127.20.21": {
@@ -260,7 +260,7 @@ test_data_aaa_patch = [
         "test_name": "tacacs_server_tc3_add_duplicate",
         "operations": [
             {
-                "op": "add",
+                "op": "update",
                 "path": "/sonic-db:CONFIG_DB/localhost/TACPLUS_SERVER/100.127.20.21",
                 "value": {
                     "auth_type": "login",
@@ -352,7 +352,7 @@ class TestGNMIConfigDbPatch:
         delete_list = []
         for i, data in enumerate(test_data["operations"]):
             path = data["path"]
-            if data['op'] == "add":
+            if data['op'] == "update":
                 value = json.dumps(data["value"])
                 file_name = "update" + str(i)
                 file_object = open(file_name, "w")
@@ -368,6 +368,8 @@ class TestGNMIConfigDbPatch:
                 replace_list.append(path + ":@./" + file_name)
             elif data['op'] == "del":
                 delete_list.append(path)
+            else:
+                pytest.fail("Invalid operation: %s" % data['op'])
 
         # Send GNMI request
         ret, msg = gnmi_set(delete_list, update_list, replace_list)
