@@ -55,6 +55,40 @@ test_data_aaa_patch = [
         }
     },
     {
+        "test_name": "aaa_tc1_replace",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/AAA/authorization/login",
+                "value": "tacacs+"
+            },
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/AAA/authentication/login",
+                "value": "tacacs+"
+            },
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/AAA/accounting/login",
+                "value": "tacacs+"
+            },
+        ],
+        "origin_json": {
+            "AAA": {
+                "accounting": {"login": "tacacs+,local"},
+                "authentication": {"debug": "True", "failthrough": "True", "fallback": "True", "login": "tacacs+", "trace": "True"},
+                "authorization": {"login": "tacacs+,local"}
+            }
+        },
+        "target_json": {
+            "AAA": {
+                "accounting": {"login": "tacacs+"},
+                "authentication": {"debug": "True", "failthrough": "True", "fallback": "True", "login": "tacacs+", "trace": "True"},
+                "authorization": {"login": "tacacs+"}
+            }
+        }
+    },
+    {
         "test_name": "aaa_tc1_add_duplicate",
         "operations": [
             {
@@ -306,15 +340,15 @@ test_data_aaa_patch = [
 
 class TestGNMIConfigDbPatch:
 
-    @pytest.mark.parametrize("test_data", test_data_aaa_patch)
-    def test_gnmi_aaa_patch(self, test_data):
+    def common_test_handler(self, test_data):
         '''
-        Generate GNMI request for AAA and verify jsonpatch
+        Common code for all patch test
         '''
         if os.path.exists(patch_file):
             os.system("rm " + patch_file)
         create_checkpoint(checkpoint_file, json.dumps(test_data['origin_json']))
         update_list = []
+        replace_list = []
         delete_list = []
         for i, data in enumerate(test_data["operations"]):
             path = data["path"]
@@ -325,11 +359,18 @@ class TestGNMIConfigDbPatch:
                 file_object.write(value)
                 file_object.close()
                 update_list.append(path + ":@./" + file_name)
+            elif data['op'] == "replace":
+                value = json.dumps(data["value"])
+                file_name = "replace" + str(i)
+                file_object = open(file_name, "w")
+                file_object.write(value)
+                file_object.close()
+                replace_list.append(path + ":@./" + file_name)
             elif data['op'] == "del":
                 delete_list.append(path)
 
         # Send GNMI request
-        ret, msg = gnmi_set(delete_list, update_list, [])
+        ret, msg = gnmi_set(delete_list, update_list, replace_list)
         assert ret == 0, msg
         assert os.path.exists(patch_file), "No patch file"
         with open(patch_file,"r") as pf:
@@ -339,3 +380,11 @@ class TestGNMIConfigDbPatch:
         # Compare json result
         diff = jsonpatch.make_patch(result, test_data["target_json"])
         assert len(diff.patch) == 0, "%s failed, generated json: %s" % (test_data["test_name"], str(result))
+
+    @pytest.mark.parametrize("test_data", test_data_aaa_patch)
+    def test_gnmi_aaa_patch(self, test_data):
+        '''
+        Generate GNMI request for AAA and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+

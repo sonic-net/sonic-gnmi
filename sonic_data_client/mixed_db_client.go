@@ -43,6 +43,9 @@ const RETRY_DELAY_FACTOR uint = 2
 const CHECK_POINT_PATH string = "/etc/sonic"
 const ELEM_INDEX_DATABASE = 0
 const ELEM_INDEX_INSTANCE = 1
+const UPDATE_OPERATION = "add"
+const DELETE_OPERATION = "remove"
+const REPLACE_OPERATION = "replace"
 
 const (
     opAdd = iota
@@ -1090,7 +1093,7 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 }
 
 /* Populate the JsonPatch corresponding each GNMI operation. */
-func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Path, t *gnmipb.TypedValue, output *string) error {
+func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Path, t *gnmipb.TypedValue, operation string, output *string) error {
 	if t != nil {
 		if len(t.GetJsonIetfVal()) == 0 {
 			return fmt.Errorf("Value encoding is not IETF JSON")
@@ -1102,11 +1105,7 @@ func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Pat
 	}
 
 	elems := fullPath.GetElem()
-	if t == nil {
-		*output = `{"op": "remove", "path": "/`
-	} else {
-		*output = `{"op": "add", "path": "/`
-	}
+	*output = `{"op": "` + operation + `", "path": "/`
 
 	if elems != nil {
 		/* Iterate through elements. */
@@ -1217,7 +1216,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 			}
 		}
 		curr = ``
-		err = c.ConvertToJsonPatch(c.prefix, path, nil, &curr)
+		err = c.ConvertToJsonPatch(c.prefix, path, nil, DELETE_OPERATION, &curr)
 		if err != nil {
 			return err
 		}
@@ -1256,7 +1255,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 			}
 		}
 		curr = ``
-		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), &curr)
+		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), REPLACE_OPERATION, &curr)
 		if err != nil {
 			return err
 		}
@@ -1291,7 +1290,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 			}
 		}
 		curr = ``
-		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), &curr)
+		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), UPDATE_OPERATION, &curr)
 		if err != nil {
 			return err
 		}

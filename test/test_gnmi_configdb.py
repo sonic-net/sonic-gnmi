@@ -252,7 +252,7 @@ class TestGNMIConfigDb:
             test_path = item['path']
             test_value = item['value']
             for patch_data in patch_json:
-                assert patch_data['op'] == 'add', "Invalid operation"
+                assert patch_data['op'] == 'replace', "Invalid operation"
                 if test_path == '/sonic-db:CONFIG_DB/localhost' + patch_data['path'] and test_value == patch_data['value']:
                     break
             else:
