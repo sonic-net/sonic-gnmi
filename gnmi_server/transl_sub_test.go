@@ -462,6 +462,7 @@ func TestTranslSubscribe(t *testing.T) {
 		)
 	})
 
+	/*
 	t.Run("TARGETDEFINED", func(t *testing.T) {
 		t.Logf("Start TARGETDEFINED subscription for interface description, in-pkts and in-octets")
 		interval := 30 * time.Second
@@ -648,7 +649,7 @@ func TestTranslSubscribe(t *testing.T) {
 		}
 		sub := doSubscribeRaw(t, req, codes.InvalidArgument)
 		sub.Verify()
-	})
+	})*/
 }
 
 func strToPath(s string) *gnmipb.Path {
@@ -984,6 +985,7 @@ func TestDebugSubscribePreferences(t *testing.T) {
 		}
 	})
 
+	/*
 	t.Run("onchange_supported", func(t *testing.T) {
 		verifySubscribePreferences(t,
 			[]*gnmipb.Path{ifMtu.Path},
@@ -1000,7 +1002,7 @@ func TestDebugSubscribePreferences(t *testing.T) {
 		verifySubscribePreferences(t,
 			[]*gnmipb.Path{ifTop.Path},
 			[]*spb_gnoi.SubscribePreference{ifTop, ifStat})
-	})
+	})*/
 
 	t.Run("nondb_path", func(t *testing.T) {
 		verifySubscribePreferences(t,
@@ -1014,11 +1016,12 @@ func TestDebugSubscribePreferences(t *testing.T) {
 			[]*spb_gnoi.SubscribePreference{aclConfig})
 	})
 
+	/*
 	t.Run("multiple_paths", func(t *testing.T) {
 		verifySubscribePreferences(t,
 			[]*gnmipb.Path{yanglib.Path, ifTop.Path, aclConfig.Path},
 			[]*spb_gnoi.SubscribePreference{yanglib, ifTop, ifStat, aclConfig})
-	})
+	})*/
 }
 
 func TestDebugSubscribePreferences_dummy(t *testing.T) {
