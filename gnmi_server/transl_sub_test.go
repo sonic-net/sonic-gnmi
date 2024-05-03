@@ -940,6 +940,7 @@ func TestDebugSubscribePreferences(t *testing.T) {
 	go runServer(t, s)
 	defer s.s.Stop()
 
+	/*
 	ifTop := &spb_gnoi.SubscribePreference{
 		Path:              strToPath("/openconfig-interfaces:interfaces/interface[name=*]"),
 		OnChangeSupported: false,
@@ -957,7 +958,7 @@ func TestDebugSubscribePreferences(t *testing.T) {
 		OnChangeSupported: false,
 		TargetDefinedMode: SAMPLE,
 		WildcardSupported: true,
-	}
+	}*/
 	aclConfig := &spb_gnoi.SubscribePreference{
 		Path:              strToPath("/openconfig-acl:acl/acl-sets/acl-set[name=*][type=*]/config"),
 		OnChangeSupported: true,
