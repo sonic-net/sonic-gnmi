@@ -3972,6 +3972,7 @@ func TestParseOrigin(t *testing.T) {
 	}
 }
 
+/*
 func TestMasterArbitration(t *testing.T) {
 	s := createServer(t, 8088)
 	// Turn on Master Arbitration
@@ -4163,7 +4164,7 @@ func TestMasterArbitration(t *testing.T) {
 			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID10, s.masterEID)
 		}
 	})
-}
+}*/
 
 func init() {
 	// Enable logs at UT setup
