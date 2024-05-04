@@ -36,6 +36,11 @@ resources:
     name: sonic-net/sonic-swss-common
     endpoint: sonic-net
     ref: refs/heads/$(BUILD_BRANCH)
+  - repository: bcc
+    type: github
+    name: iovisor/bcc
+    endpoint: sonic-net
+    ref: refs/heads/master
 
 stages:
 - stage: Build
@@ -71,6 +76,11 @@ stages:
       submodules: recursive
       displayName: 'Checkout sonic-swss-common'
 
+    - checkout: bcc
+      clean: true
+      submodules: recursive
+      displayName: 'Checkout bcc'
+
     - task: DownloadPipelineArtifact@2
       inputs:
         source: specific
@@ -101,6 +111,9 @@ stages:
 
         # LIBYANG
         sudo dpkg -i ../target/debs/bookworm/libyang*1.0.73*.deb
+
+        # BCC
+        sudo apt install -y bison build-essential cmake flex git libedit-dev libllvm7 llvm-7-dev libclang-7-dev python zlib1g-dev libelf-dev libfl-dev
       displayName: "Install dependency"
 
     - script: |
@@ -133,6 +146,23 @@ stages:
         sudo dpkg -i ../target/debs/bookworm/libswsscommon-dev_1.0.0_amd64.deb
         sudo dpkg -i ../target/debs/bookworm/python3-swsscommon_1.0.0_amd64.deb
       displayName: 'Install libswsscommon package'
+
+    - script: |
+        set -ex
+        ls -l
+
+        mkdir bcc/build
+        pushd bcc/build
+        cmake ..
+        make
+        sudo make install
+        cmake -DPYTHON_CMD=python3 .. # build python3 binding
+        pushd src/python/
+        make
+        sudo make install
+        popd
+        popd
+      displayName: "Build bcc"
 
     - script: |
         set -ex
