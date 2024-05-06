@@ -402,9 +402,11 @@ func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) (bool) {
 		if receivedData.Size() == 0 {
 			retry++
 			if retry >= 10 {
+				swsscommon.DeleteKeyOpFieldsValuesQueue(receivedData)
 				return false
 			}
 		} else {
+			swsscommon.DeleteKeyOpFieldsValuesQueue(receivedData)
 			return true
 		}
 	}
@@ -443,6 +445,10 @@ func TestZmqReconnect(t *testing.T) {
 	if !ReceiveFromZmq(consumer) {
 		t.Errorf("Receive data from ZMQ failed")
 	}
+
+	swsscommon.DeleteZmqConsumerStateTable(consumer)
+	swsscommon.DeleteZmqServer(zmqServer)
+	swsscommon.DeleteDBConnector(db)
 }
 
 func TestRetryHelper(t *testing.T) {
@@ -473,6 +479,7 @@ func TestRetryHelper(t *testing.T) {
 		t.Errorf("RetryHelper retry too much")
 	}
 
+	swsscommon.DeleteZmqClient(zmqClient)
 	swsscommon.DeleteZmqServer(zmqServer)
 }
 
@@ -551,6 +558,11 @@ func TestGetDpuAddress(t *testing.T) {
 	if err == nil {
 		t.Errorf("get invalid ZMQ address failed")
 	}
+	
+	swsscommon.DeleteTable(midPlaneTable)
+	swsscommon.DeleteTable(dpusTable)
+	swsscommon.DeleteTable(dhcpPortTable)
+	swsscommon.DeleteDBConnector(configDb)
 }
 
 func TestGetZmqClient(t *testing.T) {
@@ -594,4 +606,9 @@ func TestGetZmqClient(t *testing.T) {
 	if err == nil {
 		t.Errorf("Remove ZMQ client should failed")
 	}
+	
+	swsscommon.DeleteTable(midPlaneTable)
+	swsscommon.DeleteTable(dpusTable)
+	swsscommon.DeleteTable(dhcpPortTable)
+	swsscommon.DeleteDBConnector(configDb)
 }

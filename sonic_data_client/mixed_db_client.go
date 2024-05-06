@@ -93,11 +93,16 @@ var DbInstNum = 0
 
 func Hget(configDbConnector *swsscommon.ConfigDBConnector, table string, key string, field string) (string, error) {
     var fieldValuePairs = configDbConnector.Get_entry(table, key)
+	var value = ""
+	var err error = nil
     if fieldValuePairs.Has_key(field) {
-        return fieldValuePairs.Get(field), nil
-    }
+		value = fieldValuePairs.Get(field)
+    } else {
+		err = fmt.Errorf("Can't read %s:%s from %s table", key, field, table)
+	}
 
-    return "", fmt.Errorf("Can't read %s:%s from %s table", key, field, table)
+	swsscommon.DeleteFieldValueMap(fieldValuePairs)
+	return value, err
 }
 
 func getDpuAddress(dpuId string) (string, error) {
@@ -110,12 +115,14 @@ func getDpuAddress(dpuId string) (string, error) {
 	// get bridge plane
 	bridgePlane, err := Hget(configDbConnector, "MID_PLANE_BRIDGE", "GLOBAL", "bridge");
 	if err != nil {
+		swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 		return "", err
 	}
 
 	// get DPU interface by DPU ID
 	dpuInterface, err := Hget(configDbConnector, "DPUS", dpuId, "midplane_interface");
 	if err != nil {
+		swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 		return "", err
 	}
 
@@ -123,14 +130,17 @@ func getDpuAddress(dpuId string) (string, error) {
 	var dhcpPortKey = bridgePlane + "|" + dpuInterface
 	dpuAddresses, err := Hget(configDbConnector, "DHCP_SERVER_IPV4_PORT", dhcpPortKey, "ips");
 	if err != nil {
+		swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 		return "", err
 	}
 
 	var dpuAddressArray = strings.Split(dpuAddresses, ",")
 	if len(dpuAddressArray) == 0 {
+		swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 		return "", fmt.Errorf("Can't find address of dpu:'%s' from DHCP_SERVER_IPV4_PORT table", dpuId)
 	}
 
+	swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 	return dpuAddressArray[0], nil
 }
 
@@ -165,6 +175,7 @@ func removeZmqClient(zmqClient swsscommon.ZmqClient) (error) {
 	for address, client := range zmqClientMap {
 		if client == zmqClient { 
 			delete(zmqClientMap, address)
+			swsscommon.DeleteZmqClient(client)
 			return nil
 		}
 	}
@@ -314,6 +325,8 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 				func () error {
 					return ProducerStateTableSetWrapper(pt, key, vec)
 				})
+
+	swsscommon.DeleteFieldValuePairs(vec)
 	return nil
 }
 
