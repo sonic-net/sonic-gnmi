@@ -326,10 +326,11 @@ func TestParseDatabase(t *testing.T) {
 	test_target := "TEST_DB"
 	path, err := xpath.ToGNMIPath("sonic-db:" + test_target + "/localhost" + "/VLAN")
 	test_paths = append(test_paths, path)
-	target, _, err := client.ParseDatabase(prefix, test_paths)
+	target, dbkey1, err := client.ParseDatabase(prefix, test_paths)
 	if err != nil {
 		t.Errorf("ParseDatabase failed to get target: %v", err)
 	}
+	defer swsscommon.DeleteSonicDBKey(dbkey1)
 	if target != test_target {
 		t.Errorf("ParseDatabase return wrong target: %v", target)
 	}
@@ -343,10 +344,11 @@ func TestParseDatabase(t *testing.T) {
 	test_target = "TEST_DB"
 	path, err = xpath.ToGNMIPath("sonic-db:" + test_target + "/localhost" + "/VLAN")
 	test_paths = append(test_paths, path)
-	target, _, err = client.ParseDatabase(prefix, test_paths)
+	target, dbkey2, err := client.ParseDatabase(prefix, test_paths)
 	if err != nil {
 		t.Errorf("ParseDatabase failed to get target: %v", err)
 	}
+	defer swsscommon.DeleteSonicDBKey(dbkey2)
 	if target != test_target {
 		t.Errorf("ParseDatabase return wrong target: %v", target)
 	}

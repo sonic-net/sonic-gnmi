@@ -424,6 +424,9 @@ func initRedisDbMap() {
 		log.Errorf("init error:  %v", err)
 		return
 	}
+	for _, dbkey := range dbkeys {
+		defer swsscommon.DeleteSonicDBKey(dbkey)
+	}
 	if len(dbkeys) == DbInstNum {
 		// DB configuration is the same
 		// No need to update
@@ -438,7 +441,6 @@ func initRedisDbMap() {
 		delete(RedisDbMap, mapkey)
 	}
 	for _, dbkey := range dbkeys {
-		defer swsscommon.DeleteSonicDBKey(dbkey)
 		ns := dbkey.GetNetns()
 		container := dbkey.GetContainerName()
 		dbList, err := sdcfg.GetDbListByDBKey(dbkey)
@@ -519,6 +521,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	if err != nil {
 		return nil, err
 	}
+	defer swsscommon.DeleteSonicDBKey(dbkey)
 	ok := IsTargetDbByDBKey(target, dbkey)
 	if !ok {
 		return nil, status.Errorf(codes.Unimplemented, "Invalid target: ns %s, container %s",
@@ -530,7 +533,6 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 		client.applDB = swsscommon.NewDBConnector(target, SWSS_TIMEOUT, false, dbkey)
 	}
 	client.target = target
-	client.dbkey = dbkey
 	ns := dbkey.GetNetns()
 	container := dbkey.GetContainerName()
 	client.mapkey = ns + ":" + container
@@ -542,7 +544,10 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	if err != nil {
 		return nil, fmt.Errorf("Get ZMQ client failed: %v", err)
 	}
-
+	newkey := swsscommon.NewSonicDBKey()
+	newkey.SetContainerName(dbkey.GetContainerName())
+	newkey.SetNetns(dbkey.GetNetns())
+	client.dbkey = newkey
 	return &client, nil
 }
 

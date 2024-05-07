@@ -201,6 +201,7 @@ func TestGetDbMultiInstance(t *testing.T) {
 		}
 	})
 	dbkey := swsscommon.NewSonicDBKey()
+	defer swsscommon.DeleteSonicDBKey(dbkey)
 	dbkey.SetContainerName("dpu0")
 	t.Run("Id", func(t *testing.T) {
 		db_id, _ := GetDbIdByDBKey("DPU_APPL_DB", dbkey)
@@ -216,6 +217,9 @@ func TestGetDbMultiInstance(t *testing.T) {
 	})
 	t.Run("AllInstances", func(t *testing.T) {
 		dbkey_list, _ := GetDbAllInstances()
+		for _, dbkey := range(dbkey_list) {
+			defer swsscommon.DeleteSonicDBKey(dbkey)
+		}
 		if len(dbkey_list) != 2 {
 			t.Fatalf(`AllInstances("") = %q, want "2", error`, len(dbkey_list))
 		}
@@ -247,9 +251,12 @@ func TestGetDbMultiInstance(t *testing.T) {
 			t.Fatalf(`err %v`, err)
 		}
 		Init()
-		_, err = GetDbNonDefaultInstances()
+		dbkey_list, err := GetDbNonDefaultInstances()
 		if err != nil {
 			t.Fatalf(`err %v`, err)
+		}
+		for _, dbkey := range(dbkey_list) {
+			defer swsscommon.DeleteSonicDBKey(dbkey)
 		}
 		Init()
 		_, err = GetDbListByDBKey(dbkey)
