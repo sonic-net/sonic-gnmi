@@ -93,6 +93,8 @@ var DbInstNum = 0
 
 func Hget(configDbConnector *swsscommon.ConfigDBConnector, table string, key string, field string) (string, error) {
     var fieldValuePairs = configDbConnector.Get_entry(table, key)
+    defer swsscommon.DeleteFieldValueMap(fieldValuePairs)
+
     if fieldValuePairs.Has_key(field) {
         return fieldValuePairs.Get(field), nil
     }
@@ -105,6 +107,7 @@ func getDpuAddress(dpuId string) (string, error) {
 	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
 
 	var configDbConnector = swsscommon.NewConfigDBConnector()
+	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 	configDbConnector.Connect(false)
 
 	// get bridge plane
@@ -165,6 +168,7 @@ func removeZmqClient(zmqClient swsscommon.ZmqClient) (error) {
 	for address, client := range zmqClientMap {
 		if client == zmqClient { 
 			delete(zmqClientMap, address)
+			swsscommon.DeleteZmqClient(client)
 			return nil
 		}
 	}
@@ -314,6 +318,7 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 				func () error {
 					return ProducerStateTableSetWrapper(pt, key, vec)
 				})
+
 	return nil
 }
 
