@@ -425,7 +425,7 @@ func TestZmqReconnect(t *testing.T) {
 	client := MixedDbClient {
 		applDB : swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
 		tableMap : map[string]swsscommon.ProducerStateTable{},
-		zmqTableMap : map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap : map[string]swsscommon.ZmqProducerStateTable{},
 		zmqClient : swsscommon.NewZmqClient(zmqAddress),
 	}
 
