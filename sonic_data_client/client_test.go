@@ -4,11 +4,7 @@ import (
     "sync"
     "errors"
 	"testing"
-	"os"
 	"time"
-	"reflect"
-	"io/ioutil"
-	"encoding/json"
 	"fmt"
 
 	"github.com/jipanyang/gnxi/utils/xpath"
