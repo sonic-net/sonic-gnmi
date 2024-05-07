@@ -449,6 +449,7 @@ func TestZmqReconnect(t *testing.T) {
 		t.Errorf("Receive data from ZMQ failed")
 	}
 
+	client.Close()
 	swsscommon.DeleteZmqConsumerStateTable(consumer)
 	swsscommon.DeleteZmqServer(zmqServer)
 	swsscommon.DeleteDBConnector(db)
