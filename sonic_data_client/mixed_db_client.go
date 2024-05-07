@@ -74,6 +74,7 @@ type MixedDbClient struct {
 	zmqAddress string
 	zmqClient swsscommon.ZmqClient
 	tableMap map[string]swsscommon.ProducerStateTable
+	zmqTableMap map[string]swsscommon.ZmqProducerStateTable
 	// swsscommon introduced dbkey to support multiple database
 	dbkey swsscommon.SonicDBKey
 	// Convert dbkey to string, namespace:container
@@ -236,15 +237,23 @@ func parseJson(str []byte) (interface{}, error) {
 
 func (c *MixedDbClient) GetTable(table string) (swsscommon.ProducerStateTable) {
 	pt, ok := c.tableMap[table]
-	if !ok {
-		if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
-			log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
-			pt = swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)
-		} else {
-			log.V(2).Infof("Create ProducerStateTable:  %s", table)
-			pt = swsscommon.NewProducerStateTable(c.applDB, table)
-		}
+	if ok {
+		return pt
+	}
 
+	pt, ok = c.zmqTableMap[table]
+	if ok {
+		return pt
+	}
+
+	if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
+		log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
+		zmqTable := swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)
+		c.zmqTableMap[table] = zmqTable
+		pt = zmqTable
+	} else {
+		log.V(2).Infof("Create ProducerStateTable:  %s", table)
+		pt = swsscommon.NewProducerStateTable(c.applDB, table)
 		c.tableMap[table] = pt
 	}
 
@@ -486,6 +495,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 
 	var client = MixedDbClient {
 		tableMap : map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap : map[string]swsscommon.ZmqProducerStateTable{},
 	}
 
 	// Get namespace count and container count from db config
@@ -1528,12 +1538,20 @@ func (c *MixedDbClient) Close() error {
 	for _, pt := range c.tableMap {
 		swsscommon.DeleteProducerStateTable(pt)
 	}
+	for _, pt := range c.zmqTableMap {
+		swsscommon.DeleteZmqProducerStateTable(pt)
+	}
 	if c.applDB != nil{
 		swsscommon.DeleteDBConnector(c.applDB)
 	}
 	if c.dbkey != nil{
 		swsscommon.DeleteSonicDBKey(c.dbkey)
 	}
+
+	for _, client := range zmqClientMap {
+		swsscommon.DeleteZmqClient(client)
+	}
+
 	return nil
 }
 
