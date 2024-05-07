@@ -14,6 +14,8 @@ export GOBIN := $(abspath $(BUILD_DIR))
 export PATH := $(PATH):$(GOBIN):$(shell dirname $(GO))
 export CGO_LDFLAGS := -lswsscommon -lhiredis
 export CGO_CXXFLAGS := -I/usr/include/swss -w -Wall -fpermissive
+export MEMCHECK_CGO_LDFLAGS := $(CGO_LDFLAGS) -fsanitize=address
+export MEMCHECK_CGO_CXXFLAGS := $(CGO_CXXFLAGS) -fsanitize=leak
 
 ifeq ($(ENABLE_TRANSLIB_WRITE),y)
 BLD_TAGS := gnmi_translib_write
@@ -24,6 +26,11 @@ endif
 
 ifneq ($(BLD_TAGS),)
 BLD_FLAGS := -tags "$(strip $(BLD_TAGS))"
+endif
+
+MEMCHECK_TAGS := $(BLD_TAGS) gnmi_memcheck
+ifneq ($(MEMCHECK_TAGS),)
+MEMCHECK_FLAGS := -tags "$(strip $(MEMCHECK_TAGS))"
 endif
 
 ENABLE_DIALOUT_VALUE := 1
@@ -132,6 +139,10 @@ endif
 	$(GO) mod vendor
 	gocov convert coverage-*.txt | gocov-xml -source $(shell pwd) > coverage.xml
 	rm -rf coverage-*.txt 
+
+check_memleak: $(DBCONFG) $(ENVFILE)
+	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test $(MEMCHECK_FLAGS) -v github.com/sonic-net/sonic-gnmi/sonic_db_config
+	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -mod=vendor $(MEMCHECK_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server
 
 clean:
 	$(RM) -r build
