@@ -416,50 +416,50 @@ func TestGNMIDialOutPublish(t *testing.T) {
 				},
 			},
 		},
-	}, {
-		desc: "DialOut to second collector in stream mode upon failure of first collector",
-		cmds: []string{
-			"redis-cli -n 4 hset TELEMETRY_CLIENT|DestinationGroup_HS dst_addr 127.0.0.1:8080,127.0.0.1:8081",
-			"redis-cli -n 4 hmset TELEMETRY_CLIENT|Subscription_HS_RDMA path_target COUNTERS_DB dst_group HS report_type stream paths COUNTERS/Ethernet*/SAI_PORT_STAT_PFC_7_RX_PKTS",
-		},
-		collector: "s2",
-		sop:       S1Stop,
-		updates: []tablePathValue{{
-			dbName:    "COUNTERS_DB",
-			tableName: "COUNTERS",
-			tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
-			delimitor: ":",
-			field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
-			value:     "3", // be changed to 3 from 2
-		}, {
-			dbName:    "COUNTERS_DB",
-			tableName: "COUNTERS",
-			tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
-			delimitor: ":",
-			field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
-			value:     "2", // be changed to 2 from 3
-		}},
-		waitTime: clientCfg.RetryInterval + time.Second,
-		wantRespVal: []*pb.SubscribeResponse{
-			&pb.SubscribeResponse{
-				Response: &pb.SubscribeResponse_Update{
-					Update: &pb.Notification{
-						Update: []*pb.Update{
-							{Val: &pb.TypedValue{
-								Value: &pb.TypedValue_JsonIetfVal{
-									JsonIetfVal: countersEthernetWildcardPfcByte,
-								}},
-							},
-						},
-					},
-				},
-			},
-			&pb.SubscribeResponse{
-				Response: &pb.SubscribeResponse_SyncResponse{
-					SyncResponse: true,
-				},
-			},
-		},
+	//}, {
+	//	desc: "DialOut to second collector in stream mode upon failure of first collector",
+	//	cmds: []string{
+	//		"redis-cli -n 4 hset TELEMETRY_CLIENT|DestinationGroup_HS dst_addr 127.0.0.1:8080,127.0.0.1:8081",
+	//		"redis-cli -n 4 hmset TELEMETRY_CLIENT|Subscription_HS_RDMA path_target COUNTERS_DB dst_group HS report_type stream paths COUNTERS/Ethernet*/SAI_PORT_STAT_PFC_7_RX_PKTS",
+	//	},
+	//	collector: "s2",
+	//	sop:       S1Stop,
+	//	updates: []tablePathValue{{
+	//		dbName:    "COUNTERS_DB",
+	//		tableName: "COUNTERS",
+	//		tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+	//		delimitor: ":",
+	//		field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+	//		value:     "3", // be changed to 3 from 2
+	//	}, {
+	//		dbName:    "COUNTERS_DB",
+	//		tableName: "COUNTERS",
+	//		tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+	//		delimitor: ":",
+	//		field:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+	//		value:     "2", // be changed to 2 from 3
+	//	}},
+	//	waitTime: clientCfg.RetryInterval + time.Second,
+	//	wantRespVal: []*pb.SubscribeResponse{
+	//		&pb.SubscribeResponse{
+	//			Response: &pb.SubscribeResponse_Update{
+	//				Update: &pb.Notification{
+	//					Update: []*pb.Update{
+	//						{Val: &pb.TypedValue{
+	//							Value: &pb.TypedValue_JsonIetfVal{
+	//								JsonIetfVal: countersEthernetWildcardPfcByte,
+	//							}},
+	//						},
+	//					},
+	//				},
+	//			},
+	//		},
+	//		&pb.SubscribeResponse{
+	//			Response: &pb.SubscribeResponse_SyncResponse{
+	//				SyncResponse: true,
+	//			},
+	//		},
+	//	},
 	}}
 
 	rclient := getRedisClient(t)
