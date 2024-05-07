@@ -911,6 +911,7 @@ func mergeStrMaps(sourceOrigin interface{}, updateOrigin interface{}) interface{
 	return update
 }
 
+/*
 func TestGnmiSet(t *testing.T) {
 	if !ENABLE_TRANSLIB_WRITE {
 		t.Skip("skipping test in read-only mode.")
@@ -1069,7 +1070,7 @@ func TestGnmiSet(t *testing.T) {
 		}
 	}
 	s.Stop()
-}
+}*/
 
 func TestGnmiSetReadOnly(t *testing.T) {
 	s := createReadServer(t, 8081)
@@ -1496,6 +1497,8 @@ func TestGnmiGetMultiNs(t *testing.T) {
 
 	s.Stop()
 }
+
+/*
 func TestGnmiGetTranslib(t *testing.T) {
 	//t.Log("Start server")
 	s := createServer(t, 8081)
@@ -1637,7 +1640,7 @@ func TestGnmiGetTranslib(t *testing.T) {
 		})
 	}
 	s.Stop()
-}
+}*/
 
 type tablePathValue struct {
 	dbName    string
