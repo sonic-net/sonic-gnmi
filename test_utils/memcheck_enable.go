@@ -9,7 +9,7 @@ import "fmt"
 func MemLeakCheck() {
 	ret := int(C.__lsan_do_recoverable_leak_check())
 	if ret != 0 {
-		panic(fmt.Errorf("Detected memory leak"))
+		panic(fmt.Errorf("Detect memory leak!"))
 	}
 }
 
