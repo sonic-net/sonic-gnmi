@@ -151,8 +151,8 @@ stages:
 
     - script: |
         pushd sonic-gnmi
-        make check_gotest ENABLE_TRANSLIB_WRITE=y
-        make check_memleak ENABLE_TRANSLIB_WRITE=y
+        make all && make check_gotest ENABLE_TRANSLIB_WRITE=y
+        make all && make check_memleak ENABLE_TRANSLIB_WRITE=y
       displayName: "Test"
 
     - publish: $(Build.ArtifactStagingDirectory)/
