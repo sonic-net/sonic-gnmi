@@ -394,6 +394,7 @@ func TestNonDbClientGetError(t *testing.T) {
 */
 func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) (bool) {
 	receivedData := swsscommon.NewKeyOpFieldsValuesQueue()
+	defer swsscommon.DeleteKeyOpFieldsValuesQueue(receivedData)
 	retry := 0;
 	for {
 		// sender's ZMQ may disconnect, wait and retry for reconnect 
@@ -402,11 +403,9 @@ func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) (bool) {
 		if receivedData.Size() == 0 {
 			retry++
 			if retry >= 10 {
-				swsscommon.DeleteKeyOpFieldsValuesQueue(receivedData)
 				return false
 			}
 		} else {
-			swsscommon.DeleteKeyOpFieldsValuesQueue(receivedData)
 			return true
 		}
 	}
