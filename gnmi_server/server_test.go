@@ -3844,12 +3844,7 @@ func TestGNMINative(t *testing.T) {
 		return &dbus.Call{}
 	})
 	defer mock2.Reset()
-	mockCode := 
-`
-print('No Yang validation for test mode...')
-print('%s')
-`
-	mock3 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
+	mock3 := gomonkey.ApplyFunc(sdc.RunPyCode, func(text string) error {return nil})
 	defer mock3.Reset()
 
 	sdcfg.Init()
