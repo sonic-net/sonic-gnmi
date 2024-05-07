@@ -152,6 +152,10 @@ stages:
     - script: |
         pushd sonic-gnmi
         make all && make check_memleak ENABLE_TRANSLIB_WRITE=y
+      displayName: "Check memory leak"
+
+    - script: |
+        pushd sonic-gnmi
         make all && make check_gotest ENABLE_TRANSLIB_WRITE=y
       displayName: "Test"
 
