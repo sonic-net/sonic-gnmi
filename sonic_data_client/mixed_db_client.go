@@ -93,7 +93,7 @@ var DbInstNum = 0
 
 func Hget(configDbConnector *swsscommon.ConfigDBConnector, table string, key string, field string) (string, error) {
     var fieldValuePairs = configDbConnector.Get_entry(table, key)
-	defer swsscommon.DeleteFieldValueMap(fieldValuePairs)
+    defer swsscommon.DeleteFieldValueMap(fieldValuePairs)
 
     if fieldValuePairs.Has_key(field) {
         return fieldValuePairs.Get(field), nil
