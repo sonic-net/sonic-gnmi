@@ -326,10 +326,11 @@ func TestParseDatabase(t *testing.T) {
 	test_target := "TEST_DB"
 	path, err := xpath.ToGNMIPath("sonic-db:" + test_target + "/localhost" + "/VLAN")
 	test_paths = append(test_paths, path)
-	target, _, err := client.ParseDatabase(prefix, test_paths)
+	target, dbkey1, err := client.ParseDatabase(prefix, test_paths)
 	if err != nil {
 		t.Errorf("ParseDatabase failed to get target: %v", err)
 	}
+	defer swsscommon.DeleteSonicDBKey(dbkey1)
 	if target != test_target {
 		t.Errorf("ParseDatabase return wrong target: %v", target)
 	}
@@ -343,10 +344,11 @@ func TestParseDatabase(t *testing.T) {
 	test_target = "TEST_DB"
 	path, err = xpath.ToGNMIPath("sonic-db:" + test_target + "/localhost" + "/VLAN")
 	test_paths = append(test_paths, path)
-	target, _, err = client.ParseDatabase(prefix, test_paths)
+	target, dbkey2, err := client.ParseDatabase(prefix, test_paths)
 	if err != nil {
 		t.Errorf("ParseDatabase failed to get target: %v", err)
 	}
+	defer swsscommon.DeleteSonicDBKey(dbkey2)
 	if target != test_target {
 		t.Errorf("ParseDatabase return wrong target: %v", target)
 	}
@@ -394,6 +396,7 @@ func TestNonDbClientGetError(t *testing.T) {
 */
 func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) (bool) {
 	receivedData := swsscommon.NewKeyOpFieldsValuesQueue()
+	defer swsscommon.DeleteKeyOpFieldsValuesQueue(receivedData)
 	retry := 0;
 	for {
 		// sender's ZMQ may disconnect, wait and retry for reconnect 
@@ -422,6 +425,7 @@ func TestZmqReconnect(t *testing.T) {
 	client := MixedDbClient {
 		applDB : swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
 		tableMap : map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap : map[string]swsscommon.ZmqProducerStateTable{},
 		zmqClient : swsscommon.NewZmqClient(zmqAddress),
 	}
 
@@ -443,6 +447,10 @@ func TestZmqReconnect(t *testing.T) {
 	if !ReceiveFromZmq(consumer) {
 		t.Errorf("Receive data from ZMQ failed")
 	}
+
+	swsscommon.DeleteZmqConsumerStateTable(consumer)
+	swsscommon.DeleteZmqServer(zmqServer)
+	swsscommon.DeleteDBConnector(db)
 }
 
 func TestRetryHelper(t *testing.T) {
@@ -473,6 +481,7 @@ func TestRetryHelper(t *testing.T) {
 		t.Errorf("RetryHelper retry too much")
 	}
 
+	swsscommon.DeleteZmqClient(zmqClient)
 	swsscommon.DeleteZmqServer(zmqServer)
 }
 
@@ -551,6 +560,11 @@ func TestGetDpuAddress(t *testing.T) {
 	if err == nil {
 		t.Errorf("get invalid ZMQ address failed")
 	}
+	
+	swsscommon.DeleteTable(midPlaneTable)
+	swsscommon.DeleteTable(dpusTable)
+	swsscommon.DeleteTable(dhcpPortTable)
+	swsscommon.DeleteDBConnector(configDb)
 }
 
 func TestGetZmqClient(t *testing.T) {
@@ -594,4 +608,9 @@ func TestGetZmqClient(t *testing.T) {
 	if err == nil {
 		t.Errorf("Remove ZMQ client should failed")
 	}
+	
+	swsscommon.DeleteTable(midPlaneTable)
+	swsscommon.DeleteTable(dpusTable)
+	swsscommon.DeleteTable(dhcpPortTable)
+	swsscommon.DeleteDBConnector(configDb)
 }
