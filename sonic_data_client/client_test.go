@@ -454,6 +454,10 @@ func TestZmqReconnect(t *testing.T) {
 	swsscommon.DeleteZmqClient(client.zmqClient)
 	swsscommon.DeleteZmqServer(zmqServer)
 	swsscommon.DeleteDBConnector(db)
+
+	for _, client := range zmqClientMap {
+		swsscommon.DeleteZmqClient(client)
+	}
 }
 
 func TestRetryHelper(t *testing.T) {
