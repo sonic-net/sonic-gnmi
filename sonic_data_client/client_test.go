@@ -451,6 +451,7 @@ func TestZmqReconnect(t *testing.T) {
 
 	client.Close()
 	swsscommon.DeleteZmqConsumerStateTable(consumer)
+	swsscommon.DeleteZmqClient(client.zmqClient)
 	swsscommon.DeleteZmqServer(zmqServer)
 	swsscommon.DeleteDBConnector(db)
 }
