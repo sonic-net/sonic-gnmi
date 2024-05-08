@@ -5,7 +5,6 @@ import (
     "errors"
 	"testing"
 	"os"
-	"time"
 	"reflect"
 	"io/ioutil"
 	"encoding/json"
