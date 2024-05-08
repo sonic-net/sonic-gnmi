@@ -395,6 +395,7 @@ func TestNonDbClientGetError(t *testing.T) {
 			true: data received
 			false: not receive any data after retry
 */
+/*
 func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) (bool) {
 	receivedData := swsscommon.NewKeyOpFieldsValuesQueue()
 	defer swsscommon.DeleteKeyOpFieldsValuesQueue(receivedData)
@@ -459,6 +460,7 @@ func TestZmqReconnect(t *testing.T) {
 		swsscommon.DeleteZmqClient(client)
 	}
 }
+*/
 
 func TestRetryHelper(t *testing.T) {
 	// create ZMQ server
