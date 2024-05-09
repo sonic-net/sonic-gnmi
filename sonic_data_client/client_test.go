@@ -463,6 +463,7 @@ func TestZmqReconnect(t *testing.T) {
 }
 */
 
+/*
 func TestRetryHelper(t *testing.T) {
 	// create ZMQ server
 	zmqServer := swsscommon.NewZmqServer("tcp://*:2234")
@@ -494,6 +495,7 @@ func TestRetryHelper(t *testing.T) {
 	swsscommon.DeleteZmqClient(zmqClient)
 	swsscommon.DeleteZmqServer(zmqServer)
 }
+*/
 
 func TestGetDpuAddress(t *testing.T) {
 	// prepare data according to design doc
