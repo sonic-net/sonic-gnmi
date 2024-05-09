@@ -1,8 +1,8 @@
 package client
 
 import (
-    "sync"
-    "errors"
+    //"sync"
+    //"errors"
 	"testing"
 	"os"
 	"reflect"
@@ -10,10 +10,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/jipanyang/gnxi/utils/xpath"
+	//"github.com/jipanyang/gnxi/utils/xpath"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	//gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
 var testFile string = "/etc/sonic/ut.cp.json"
