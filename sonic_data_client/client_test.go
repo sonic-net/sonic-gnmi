@@ -1,19 +1,20 @@
 package client
 
 import (
-    //"sync"
-    //"errors"
+    "sync"
+    "errors"
 	"testing"
 	"os"
+	"time"
 	"reflect"
 	"io/ioutil"
 	"encoding/json"
-	//"fmt"
+	"fmt"
 
-	//"github.com/jipanyang/gnxi/utils/xpath"
+	"github.com/jipanyang/gnxi/utils/xpath"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
-	//gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
 var testFile string = "/etc/sonic/ut.cp.json"
@@ -184,7 +185,6 @@ func TestJsonAddNegative(t *testing.T) {
 	}
 }
 
-/*
 func TestJsonRemove(t *testing.T) {
 	text := "{}"
 	err := ioutil.WriteFile(testFile, []byte(text), 0644)
@@ -387,7 +387,6 @@ func TestNonDbClientGetError(t *testing.T) {
 		t.Errorf("Expected error from NonDbClient.Get, got nil")
 	}
 }
-*/
 
 /*
 	Helper method for receive data from ZmqConsumerStateTable
@@ -396,7 +395,6 @@ func TestNonDbClientGetError(t *testing.T) {
 			true: data received
 			false: not receive any data after retry
 */
-/*
 func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) (bool) {
 	receivedData := swsscommon.NewKeyOpFieldsValuesQueue()
 	defer swsscommon.DeleteKeyOpFieldsValuesQueue(receivedData)
@@ -461,9 +459,7 @@ func TestZmqReconnect(t *testing.T) {
 		swsscommon.DeleteZmqClient(client)
 	}
 }
-*/
 
-/*
 func TestRetryHelper(t *testing.T) {
 	// create ZMQ server
 	zmqServer := swsscommon.NewZmqServer("tcp://*:2234")
@@ -495,7 +491,6 @@ func TestRetryHelper(t *testing.T) {
 	swsscommon.DeleteZmqClient(zmqClient)
 	swsscommon.DeleteZmqServer(zmqServer)
 }
-*/
 
 func TestGetDpuAddress(t *testing.T) {
 	// prepare data according to design doc
