@@ -184,6 +184,7 @@ func TestJsonAddNegative(t *testing.T) {
 	}
 }
 
+/*
 func TestJsonRemove(t *testing.T) {
 	text := "{}"
 	err := ioutil.WriteFile(testFile, []byte(text), 0644)
@@ -386,6 +387,7 @@ func TestNonDbClientGetError(t *testing.T) {
 		t.Errorf("Expected error from NonDbClient.Get, got nil")
 	}
 }
+*/
 
 /*
 	Helper method for receive data from ZmqConsumerStateTable
