@@ -625,6 +625,10 @@ func TestGetZmqClient(t *testing.T) {
 	swsscommon.DeleteTable(dpusTable)
 	swsscommon.DeleteTable(dhcpPortTable)
 	swsscommon.DeleteDBConnector(configDb)
+
+	for _, client := range zmqClientMap {
+		swsscommon.DeleteZmqClient(client)
+	}
 }
 
 func TestMain(m *testing.M) {
