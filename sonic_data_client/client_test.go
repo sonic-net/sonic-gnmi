@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"io/ioutil"
 	"encoding/json"
-	"fmt"
+	//"fmt"
 
 	//"github.com/jipanyang/gnxi/utils/xpath"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
