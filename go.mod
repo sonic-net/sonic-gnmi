@@ -30,9 +30,25 @@ require (
 )
 
 require (
+	github.com/antchfx/jsonquery v1.1.4 // indirect
+	github.com/antchfx/xmlquery v1.3.1 // indirect
+	github.com/antchfx/xpath v1.1.10 // indirect
 	github.com/bgentry/speakeasy v0.1.0 // indirect
+	github.com/cenkalti/backoff/v4 v4.0.0 // indirect
+	github.com/go-redis/redis/v7 v7.0.0-beta.3.0.20190824101152-d19aba07b476 // indirect
+	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
+	github.com/google/go-cmp v0.5.0 // indirect
+	github.com/maruel/natural v1.1.1 // indirect
 	github.com/onsi/ginkgo v1.10.3 // indirect
 	github.com/onsi/gomega v1.7.1 // indirect
+	github.com/openconfig/goyang v0.0.0-20200309174518-a00bece872fc // indirect
+	github.com/philopon/go-toposort v0.0.0-20170620085441-9be86dbd762f // indirect
+	go4.org/intern v0.0.0-20211027215823-ae77deb06f29 // indirect
+	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
+	golang.org/x/sys v0.0.0-20211007075335-d3039528d8ac // indirect
+	golang.org/x/text v0.3.3 // indirect
+	google.golang.org/genproto v0.0.0-20200526211855-cb27e3aa2013 // indirect
+	inet.af/netaddr v0.0.0-20230525184311-b8eac61e914a // indirect
 )
 
 replace github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common
