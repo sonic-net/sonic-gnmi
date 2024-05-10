@@ -42,11 +42,22 @@ class TestGNOI:
         assert ret == 0, 'Fail to read counter'
         assert new_cnt == old_cnt+1, 'DBUS API is not invoked'
 
+    def test_gnoi_restartprocess_unimplemented(self):
+        ret, old_cnt = gnmi_dump('DBUS restart service')
+        assert ret == 0, 'Fail to read counter'
+
+        ret, msg = gnoi_restart_process('{"name": "snmp", "restart": true, "pid": 3}')
+        assert ret != 0, msg
+        
+        ret, new_cnt = gnmi_dump('DBUS restart service')
+        assert ret == 0, 'Fail to read counter'
+        assert new_cnt == old_cnt, 'DBUS API invoked unexpectedly'
+
     def test_gnoi_restartprocess_valid(self):
         ret, old_cnt = gnmi_dump('DBUS restart service')
         assert ret == 0, 'Fail to read counter'
 
-        ret, msg = gnoi_restart_process(valid=True)
+        ret, msg = gnoi_restart_process('{"name": "snmp", "restart": true}')
         assert ret == 0, msg
 
         ret, new_cnt = gnmi_dump('DBUS restart service')
@@ -57,7 +68,7 @@ class TestGNOI:
         ret, old_cnt = gnmi_dump('DBUS restart service')
         assert ret == 0, 'Fail to read counter'
 
-        ret, msg = gnoi_restart_process(valid=False)
+        ret, msg = gnoi_restart_process('{"name": "snmp", "restart": invalid}')
         assert ret != 0, msg
 
         ret, new_cnt = gnmi_dump('DBUS restart service')

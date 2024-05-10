@@ -198,11 +198,7 @@ def gnoi_kill_process():
     ret, msg = run_cmd(cmd)
     return ret, msg
 
-def gnoi_restart_process(valid):
-    if not valid:
-        json_data = '{"name": "snmp", "restart": invalid}'
-    else:
-        json_data = '{"name": "snmp", "restart": true}'
+def gnoi_restart_process(json_data):
     path = os.getcwd()
     cmd = path + '/build/bin/gnoi_client '
     cmd += '-insecure -target 127.0.0.1:8080 '

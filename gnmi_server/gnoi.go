@@ -44,6 +44,12 @@ func KillOrRestartProcess(restart bool, serviceName string) error {
 func (srv *Server) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProcessRequest) (*gnoi_system_pb.KillProcessResponse, error) {
 	serviceName := req.GetName()
 	restart := req.GetRestart()
+        if req.GetPid() != 0 {
+            return nil, status.Errorf(codes.Unimplemented, "Pid option is not implemented")
+        }
+        if req.GetSignal() != gnoi_system_pb.KillProcessRequest_SIGNAL_UNSPECIFIED {
+            return nil, status.Errorf(codes.Unimplemented, "Signal option is not implemented")
+        }
 	log.V(1).Info("gNOI: KillProcess with optional restart")
 	log.V(1).Info("Request:", req)
 	err := KillOrRestartProcess(restart, serviceName)
