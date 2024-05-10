@@ -1,6 +1,6 @@
 module github.com/sonic-net/sonic-gnmi
 
-go 1.15
+go 1.19
 
 require (
 	github.com/Azure/sonic-mgmt-common v0.0.0-00010101000000-000000000000
@@ -20,8 +20,6 @@ require (
 	github.com/jipanyang/gnxi v0.0.0-20181221084354-f0a90cca6fd0
 	github.com/kylelemons/godebug v1.1.0
 	github.com/msteinert/pam v0.0.0-20201130170657-e61372126161
-	github.com/onsi/ginkgo v1.10.3 // indirect
-	github.com/onsi/gomega v1.7.1 // indirect
 	github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
 	github.com/openconfig/gnoi v0.0.0-20211029052138-349b3dcd04ec
 	github.com/openconfig/ygot v0.7.1
@@ -30,6 +28,11 @@ require (
 	google.golang.org/grpc v1.33.2
 	google.golang.org/protobuf v1.26.0
 	gopkg.in/yaml.v2 v2.2.8
+)
+
+require (
+	github.com/onsi/ginkgo v1.10.3 // indirect
+	github.com/onsi/gomega v1.7.1 // indirect
 )
 
 replace github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common
