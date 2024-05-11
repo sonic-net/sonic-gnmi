@@ -58,8 +58,8 @@ import (
 	"github.com/jipanyang/gnxi/utils/xpath"
 	cacheclient "github.com/openconfig/gnmi/client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
@@ -917,7 +917,6 @@ func mergeStrMaps(sourceOrigin interface{}, updateOrigin interface{}) interface{
 	return update
 }
 
-/*
 func TestGnmiSet(t *testing.T) {
 	if !ENABLE_TRANSLIB_WRITE {
 		t.Skip("skipping test in read-only mode.")
@@ -959,14 +958,14 @@ func TestGnmiSet(t *testing.T) {
 			wantRetCode: codes.Unknown,
 			operation:   Delete,
 		},
-		//{
-		//	desc:       "Set OC Interface MTU",
-		//	pathTarget: "OC_YANG",
-		//	textPbPath:    pathToPb("openconfig-interfaces:interfaces/interface[name=Ethernet4]/config"),
-		//	attributeData: "../testdata/set_interface_mtu.json",
-		//	wantRetCode:   codes.OK,
-		//	operation:     Update,
-		//},
+		{
+			desc:       "Set OC Interface MTU",
+			pathTarget: "OC_YANG",
+			textPbPath:    pathToPb("openconfig-interfaces:interfaces/interface[name=Ethernet4]/config"),
+			attributeData: "../testdata/set_interface_mtu.json",
+			wantRetCode:   codes.OK,
+			operation:     Update,
+		},
 		{
 			desc:          "Set OC Interface IP",
 			pathTarget:    "OC_YANG",
@@ -1076,7 +1075,7 @@ func TestGnmiSet(t *testing.T) {
 		}
 	}
 	s.Stop()
-}*/
+}
 
 func TestGnmiSetReadOnly(t *testing.T) {
 	s := createReadServer(t, 8081)
@@ -1503,8 +1502,6 @@ func TestGnmiGetMultiNs(t *testing.T) {
 
 	s.Stop()
 }
-
-/*
 func TestGnmiGetTranslib(t *testing.T) {
 	//t.Log("Start server")
 	s := createServer(t, 8081)
@@ -1524,14 +1521,13 @@ func TestGnmiGetTranslib(t *testing.T) {
 	defer conn.Close()
 
 	gClient := pb.NewGNMIClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	var emptyRespVal interface{}
 	tds := []struct {
 		desc        string
 		pathTarget  string
 		textPbPath  string
+		timeout     time.Duration
 		wantRetCode codes.Code
 		wantRespVal interface{}
 		valTest     bool
@@ -1594,6 +1590,7 @@ func TestGnmiGetTranslib(t *testing.T) {
 			textPbPath: `
                         elem: <name: "openconfig-interfaces:interfaces" >
                 `,
+			timeout:     1 * time.Minute,
 			wantRetCode: codes.OK,
 			wantRespVal: emptyRespVal,
 			valTest:     false,
@@ -1642,11 +1639,17 @@ func TestGnmiGetTranslib(t *testing.T) {
 
 	for _, td := range tds {
 		t.Run(td.desc, func(t *testing.T) {
+			if td.timeout == 0 {
+				td.timeout = 10 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), td.timeout)
+			defer cancel()
+
 			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
 		})
 	}
 	s.Stop()
-}*/
+}
 
 type tablePathValue struct {
 	dbName    string
@@ -3031,7 +3034,6 @@ func TestBundleVersion(t *testing.T) {
 	})
 }
 
-/*
 func TestBulkSet(t *testing.T) {
 	s := createServer(t, 8088)
 	go runServer(t, s)
@@ -3120,7 +3122,7 @@ func TestBulkSet(t *testing.T) {
 		runTestSetRaw(t, ctx, gClient, req, codes.Unknown)
 	})
 
-}*/
+}
 
 func newPbUpdate(path, value string) *pb.Update {
 	p, _ := ygot.StringToStructuredPath(path)
@@ -4244,7 +4246,6 @@ func TestParseOrigin(t *testing.T) {
 	}
 }
 
-/*
 func TestMasterArbitration(t *testing.T) {
 	s := createServer(t, 8088)
 	// Turn on Master Arbitration
@@ -4436,7 +4437,7 @@ func TestMasterArbitration(t *testing.T) {
 			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID10, s.masterEID)
 		}
 	})
-}*/
+}
 
 func TestSaveOnSet(t *testing.T) {
 	// Fail client creation
