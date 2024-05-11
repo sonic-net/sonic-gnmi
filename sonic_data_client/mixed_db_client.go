@@ -77,6 +77,7 @@ type MixedDbClient struct {
 	zmqAddress string
 	zmqClient swsscommon.ZmqClient
 	tableMap map[string]swsscommon.ProducerStateTable
+	zmqTableMap map[string]swsscommon.ZmqProducerStateTable
 	// swsscommon introduced dbkey to support multiple database
 	dbkey swsscommon.SonicDBKey
 	// Convert dbkey to string, namespace:container
@@ -96,6 +97,8 @@ var DbInstNum = 0
 
 func Hget(configDbConnector *swsscommon.ConfigDBConnector, table string, key string, field string) (string, error) {
     var fieldValuePairs = configDbConnector.Get_entry(table, key)
+    defer swsscommon.DeleteFieldValueMap(fieldValuePairs)
+
     if fieldValuePairs.Has_key(field) {
         return fieldValuePairs.Get(field), nil
     }
@@ -108,6 +111,7 @@ func getDpuAddress(dpuId string) (string, error) {
 	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
 
 	var configDbConnector = swsscommon.NewConfigDBConnector()
+	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 	configDbConnector.Connect(false)
 
 	// get bridge plane
@@ -168,6 +172,7 @@ func removeZmqClient(zmqClient swsscommon.ZmqClient) (error) {
 	for address, client := range zmqClientMap {
 		if client == zmqClient { 
 			delete(zmqClientMap, address)
+			swsscommon.DeleteZmqClient(client)
 			return nil
 		}
 	}
@@ -235,15 +240,23 @@ func parseJson(str []byte) (interface{}, error) {
 
 func (c *MixedDbClient) GetTable(table string) (swsscommon.ProducerStateTable) {
 	pt, ok := c.tableMap[table]
-	if !ok {
-		if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
-			log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
-			pt = swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)
-		} else {
-			log.V(2).Infof("Create ProducerStateTable:  %s", table)
-			pt = swsscommon.NewProducerStateTable(c.applDB, table)
-		}
+	if ok {
+		return pt
+	}
 
+	pt, ok = c.zmqTableMap[table]
+	if ok {
+		return pt
+	}
+
+	if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
+		log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
+		zmqTable := swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)
+		c.zmqTableMap[table] = zmqTable
+		pt = zmqTable
+	} else {
+		log.V(2).Infof("Create ProducerStateTable:  %s", table)
+		pt = swsscommon.NewProducerStateTable(c.applDB, table)
 		c.tableMap[table] = pt
 	}
 
@@ -317,6 +330,7 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 				func () error {
 					return ProducerStateTableSetWrapper(pt, key, vec)
 				})
+
 	return nil
 }
 
@@ -422,6 +436,9 @@ func initRedisDbMap() {
 		log.Errorf("init error:  %v", err)
 		return
 	}
+	for _, dbkey := range dbkeys {
+		defer swsscommon.DeleteSonicDBKey(dbkey)
+	}
 	if len(dbkeys) == DbInstNum {
 		// DB configuration is the same
 		// No need to update
@@ -436,7 +453,6 @@ func initRedisDbMap() {
 		delete(RedisDbMap, mapkey)
 	}
 	for _, dbkey := range dbkeys {
-		defer swsscommon.DeleteSonicDBKey(dbkey)
 		ns := dbkey.GetNetns()
 		container := dbkey.GetContainerName()
 		dbList, err := sdcfg.GetDbListByDBKey(dbkey)
@@ -482,6 +498,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 
 	var client = MixedDbClient {
 		tableMap : map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap : map[string]swsscommon.ZmqProducerStateTable{},
 	}
 
 	// Get namespace count and container count from db config
@@ -517,6 +534,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	if err != nil {
 		return nil, err
 	}
+	defer swsscommon.DeleteSonicDBKey(dbkey)
 	ok := IsTargetDbByDBKey(target, dbkey)
 	if !ok {
 		return nil, status.Errorf(codes.Unimplemented, "Invalid target: ns %s, container %s",
@@ -528,7 +546,6 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 		client.applDB = swsscommon.NewDBConnector(target, SWSS_TIMEOUT, false, dbkey)
 	}
 	client.target = target
-	client.dbkey = dbkey
 	ns := dbkey.GetNetns()
 	container := dbkey.GetContainerName()
 	client.mapkey = ns + ":" + container
@@ -540,7 +557,10 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	if err != nil {
 		return nil, fmt.Errorf("Get ZMQ client failed: %v", err)
 	}
-
+	newkey := swsscommon.NewSonicDBKey()
+	newkey.SetContainerName(dbkey.GetContainerName())
+	newkey.SetNetns(dbkey.GetNetns())
+	client.dbkey = newkey
 	return &client, nil
 }
 
@@ -1517,12 +1537,16 @@ func (c *MixedDbClient) Close() error {
 	for _, pt := range c.tableMap {
 		swsscommon.DeleteProducerStateTable(pt)
 	}
+	for _, pt := range c.zmqTableMap {
+		swsscommon.DeleteZmqProducerStateTable(pt)
+	}
 	if c.applDB != nil{
 		swsscommon.DeleteDBConnector(c.applDB)
 	}
 	if c.dbkey != nil{
 		swsscommon.DeleteSonicDBKey(c.dbkey)
 	}
+
 	return nil
 }
 
