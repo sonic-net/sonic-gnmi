@@ -448,9 +448,15 @@ func TestZmqReconnect(t *testing.T) {
 		t.Errorf("Receive data from ZMQ failed")
 	}
 
+	client.Close()
 	swsscommon.DeleteZmqConsumerStateTable(consumer)
+	swsscommon.DeleteZmqClient(client.zmqClient)
 	swsscommon.DeleteZmqServer(zmqServer)
 	swsscommon.DeleteDBConnector(db)
+
+	for _, client := range zmqClientMap {
+		swsscommon.DeleteZmqClient(client)
+	}
 }
 
 func TestRetryHelper(t *testing.T) {
@@ -613,4 +619,8 @@ func TestGetZmqClient(t *testing.T) {
 	swsscommon.DeleteTable(dpusTable)
 	swsscommon.DeleteTable(dhcpPortTable)
 	swsscommon.DeleteDBConnector(configDb)
+
+	for _, client := range zmqClientMap {
+		swsscommon.DeleteZmqClient(client)
+	}
 }

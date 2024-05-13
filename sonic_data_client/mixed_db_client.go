@@ -1548,10 +1548,6 @@ func (c *MixedDbClient) Close() error {
 		swsscommon.DeleteSonicDBKey(c.dbkey)
 	}
 
-	for _, client := range zmqClientMap {
-		swsscommon.DeleteZmqClient(client)
-	}
-
 	return nil
 }
 
