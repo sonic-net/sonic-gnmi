@@ -300,106 +300,11 @@ func (c *JsonClient) Add(path []string, value string) error {
 }
 
 func (c *JsonClient) Replace(path []string, value string) error {
-	// The expect real db path could be in one of the formats:
-	// <1> DB Table
-	// <2> DB Table Key
-	// <3> DB Table Key Field
-	// <4> DB Table Key Field Index
-	switch len(path) {
-	case 1: // only table name provided
-		vtable, err := parseJson([]byte(value))
-		if err != nil {
-			return fmt.Errorf("Fail to parse %v", value)
-		}
-		v, ok := vtable.(map[string]interface{})
-		if !ok {
-			log.V(2).Infof("Invalid table %v", vtable)
-			return fmt.Errorf("Invalid table %v", vtable)
-		}
-		c.jsonData[path[0]] = v
-	case 2: // Second element must be table key
-		vtable, err := DecodeJsonTable(c.jsonData, path[0])
-		if err != nil {
-			vtable = make(map[string]interface{})
-			c.jsonData[path[0]] = vtable
-		}
-		ventry, err := parseJson([]byte(value))
-		if err != nil {
-			return fmt.Errorf("Fail to parse %v", value)
-		}
-		v, ok := ventry.(map[string]interface{})
-		if !ok {
-			log.V(2).Infof("Invalid entry %v", ventry)
-			return fmt.Errorf("Invalid entry %v", ventry)
-		}
-		vtable[path[1]] = v
-	case 3: // Third element must be field name
-		vtable, err := DecodeJsonTable(c.jsonData, path[0])
-		if err != nil {
-			vtable = make(map[string]interface{})
-			c.jsonData[path[0]] = vtable
-		}
-		ventry, err := DecodeJsonEntry(vtable, path[1])
-		if err != nil {
-			ventry = make(map[string]interface{})
-			vtable[path[1]] = ventry
-		}
-		vfield, err := parseJson([]byte(value))
-		if err != nil {
-			return fmt.Errorf("Fail to parse %v", value)
-		}
-		vstr, ok := vfield.(string)
-		if ok {
-			ventry[path[2]] = vstr
-			return nil
-		}
-		vlist, ok := vfield.([]interface{})
-		if ok {
-			ventry[path[2]] = vlist
-			return nil
-		}
-		log.V(2).Infof("Invalid field %v", vfield)
-		return fmt.Errorf("Invalid field %v", vfield)
-	case 4: // Fourth element must be list index
-		id, err := strconv.Atoi(path[3])
-		if err != nil {
-			log.V(2).Infof("Invalid index %v", path[3])
-			return fmt.Errorf("Invalid index %v", path[3])
-		}
-		vtable, err := DecodeJsonTable(c.jsonData, path[0])
-		if err != nil {
-			vtable = make(map[string]interface{})
-			c.jsonData[path[0]] = vtable
-		}
-		ventry, err := DecodeJsonEntry(vtable, path[1])
-		if err != nil {
-			ventry = make(map[string]interface{})
-			vtable[path[1]] = ventry
-		}
-		vstr, vlist, err := DecodeJsonField(ventry, path[2])
-		if err != nil {
-			vlist = make([]interface{}, 0)
-			ventry[path[2]] = vlist
-		}
-		if vstr != nil {
-			log.V(2).Infof("Invalid target field %v", ventry)
-			return fmt.Errorf("Invalid target field %v", ventry)
-		}
-		if id < 0 || id >= len(vlist) {
-			log.V(2).Infof("Invalid index %v", id)
-			return fmt.Errorf("Invalid index %v", id)
-		}
-		v, err := parseJson([]byte(value))
-		if err != nil {
-			return fmt.Errorf("Fail to parse %v", value)
-		}
-		vlist[id] = v
-	default:
-		log.V(2).Infof("Invalid db table Path %v", path)
-		return fmt.Errorf("Invalid db table Path %v", path)
+	err := c.Remove(path)
+	if err != nil {
+		return err
 	}
-		
-	return nil
+	return c.Add(path, value)
 }
 
 func (c *JsonClient) Remove(path []string) error {

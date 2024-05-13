@@ -226,10 +226,22 @@ func TestJsonReplace(t *testing.T) {
 		`["10.250.0.0", "192.168.3.0", "139.66.72.9"]`,
 		`"6.6.6.6"`,
 	}
+	replace_value_list := []string {
+		`{"qos_01": {"bw": "12345", "cps": "2000", "flows": "500"}}`,
+		`{"bw": "20001", "cps": "2002", "flows": "300"}`,
+		`"6666"`,
+		`["10.250.0.1", "192.168.3.1", "139.66.72.10"]`,
+		`"8.8.8.8"`,
+	}
 	for i := 0; i < len(path_list); i++ {
 		path := path_list[i]
 		value := value_list[i]
-		err = client.Replace(path, value)
+		replace_value := replace_value_list[i]
+		err = client.Add(path, value)
+		if err != nil {
+			t.Errorf("Add %v fail: %v", path, err)
+		}
+		err = client.Replace(path, replace_value)
 		if err != nil {
 			t.Errorf("Replace %v fail: %v", path, err)
 		}
@@ -237,13 +249,13 @@ func TestJsonReplace(t *testing.T) {
 		if err != nil {
 			t.Errorf("Get %v fail: %v", path, err)
 		}
-		ok, err := JsonEqual([]byte(value), res)
+		ok, err := JsonEqual([]byte(replace_value), res)
 		if err != nil {
 			t.Errorf("Compare json fail: %v", err)
 			return
 		}
 		if ok != true {
-			t.Errorf("%v and %v do not match", value, string(res))
+			t.Errorf("%v and %v do not match", replace_value, string(res))
 		}
 	}
 	path := []string{}

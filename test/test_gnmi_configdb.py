@@ -229,7 +229,13 @@ class TestGNMIConfigDb:
 
     @pytest.mark.parametrize("test_data", test_data_update_normal)
     def test_gnmi_incremental_replace(self, test_data):
-        create_checkpoint(checkpoint_file, '{}')
+        test_config = {
+            "PORT": {
+                'Ethernet4': {'admin_status': 'down'},
+                'Ethernet8': {'admin_status': 'down'}
+            }
+        }
+        create_checkpoint(checkpoint_file, json.dumps(test_config))
 
         replace_list = []
         for i, data in enumerate(test_data):
