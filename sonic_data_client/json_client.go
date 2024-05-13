@@ -385,13 +385,9 @@ func (c *JsonClient) Replace(path []string, value string) error {
 			log.V(2).Infof("Invalid target field %v", ventry)
 			return fmt.Errorf("Invalid target field %v", ventry)
 		}
-		if id < 0 || id > len(vlist) {
+		if id < 0 || id >= len(vlist) {
 			log.V(2).Infof("Invalid index %v", id)
 			return fmt.Errorf("Invalid index %v", id)
-		}
-		if id == len(vlist) {
-			vlist = append(vlist, "")
-			ventry[path[2]] = vlist
 		}
 		v, err := parseJson([]byte(value))
 		if err != nil {
