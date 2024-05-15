@@ -1292,6 +1292,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		return err
 	}
 
+	// If target is not changed, not need to update
 	if bytes.Equal(original, target) {
 		return nil
 	}
@@ -1302,6 +1303,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		return err
 	}
 
+	// Invoke GCU replace to update
 	if c.origin == "sonic-db" {
 		err = sc.ReplaceDb(string(target))
 	}
