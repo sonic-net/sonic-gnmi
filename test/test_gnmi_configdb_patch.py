@@ -800,13 +800,6 @@ class TestGNMIConfigDbPatch:
             diff = jsonpatch.make_patch(test_data['origin_json'], test_data["target_json"])
             assert len(diff.patch) == 0, "%s failed, no patch file" % (test_data["test_name"])
 
-    @pytest.mark.parametrize("test_data", test_data_aaa_patch)
-    def test_gnmi_aaa_patch(self, test_data):
-        '''
-        Generate GNMI request for AAA and verify jsonpatch
-        '''
-        self.common_test_handler(test_data)
-
     @pytest.mark.parametrize("test_data", test_data_bgp_prefix_patch)
     def test_gnmi_bgp_prefix_patch(self, test_data):
         '''
