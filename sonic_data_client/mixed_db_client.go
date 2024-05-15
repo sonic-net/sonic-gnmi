@@ -77,6 +77,7 @@ type MixedDbClient struct {
 	zmqAddress string
 	zmqClient swsscommon.ZmqClient
 	tableMap map[string]swsscommon.ProducerStateTable
+	zmqTableMap map[string]swsscommon.ZmqProducerStateTable
 	// swsscommon introduced dbkey to support multiple database
 	dbkey swsscommon.SonicDBKey
 	// Convert dbkey to string, namespace:container
@@ -96,6 +97,8 @@ var DbInstNum = 0
 
 func Hget(configDbConnector *swsscommon.ConfigDBConnector, table string, key string, field string) (string, error) {
     var fieldValuePairs = configDbConnector.Get_entry(table, key)
+    defer swsscommon.DeleteFieldValueMap(fieldValuePairs)
+
     if fieldValuePairs.Has_key(field) {
         return fieldValuePairs.Get(field), nil
     }
@@ -108,6 +111,7 @@ func getDpuAddress(dpuId string) (string, error) {
 	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
 
 	var configDbConnector = swsscommon.NewConfigDBConnector()
+	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 	configDbConnector.Connect(false)
 
 	// get bridge plane
@@ -168,6 +172,7 @@ func removeZmqClient(zmqClient swsscommon.ZmqClient) (error) {
 	for address, client := range zmqClientMap {
 		if client == zmqClient { 
 			delete(zmqClientMap, address)
+			swsscommon.DeleteZmqClient(client)
 			return nil
 		}
 	}
@@ -235,15 +240,23 @@ func parseJson(str []byte) (interface{}, error) {
 
 func (c *MixedDbClient) GetTable(table string) (swsscommon.ProducerStateTable) {
 	pt, ok := c.tableMap[table]
-	if !ok {
-		if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
-			log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
-			pt = swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)
-		} else {
-			log.V(2).Infof("Create ProducerStateTable:  %s", table)
-			pt = swsscommon.NewProducerStateTable(c.applDB, table)
-		}
+	if ok {
+		return pt
+	}
 
+	pt, ok = c.zmqTableMap[table]
+	if ok {
+		return pt
+	}
+
+	if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
+		log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
+		zmqTable := swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)
+		c.zmqTableMap[table] = zmqTable
+		pt = zmqTable
+	} else {
+		log.V(2).Infof("Create ProducerStateTable:  %s", table)
+		pt = swsscommon.NewProducerStateTable(c.applDB, table)
 		c.tableMap[table] = pt
 	}
 
@@ -317,6 +330,7 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 				func () error {
 					return ProducerStateTableSetWrapper(pt, key, vec)
 				})
+
 	return nil
 }
 
@@ -484,6 +498,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 
 	var client = MixedDbClient {
 		tableMap : map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap : map[string]swsscommon.ZmqProducerStateTable{},
 	}
 
 	// Get namespace count and container count from db config
@@ -1097,54 +1112,6 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 	return nil
 }
 
-/* Populate the JsonPatch corresponding each GNMI operation. */
-func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Path, t *gnmipb.TypedValue, operation string, output *string) error {
-	if t != nil {
-		if len(t.GetJsonIetfVal()) == 0 {
-			return fmt.Errorf("Value encoding is not IETF JSON")
-		}
-	}
-	fullPath, err := c.gnmiFullPath(prefix, path)
-	if err != nil {
-		return err
-	}
-
-	elems := fullPath.GetElem()
-	*output = `{"op": "` + operation + `", "path": "/`
-
-	if elems != nil {
-		/* Iterate through elements. */
-		for _, elem := range elems {
-			*output += elem.GetName()
-			key := elem.GetKey()
-			/* If no keys are present end the element with "/" */
-			if key == nil {
-				*output += `/`
-			}
-
-			/* If keys are present , process the keys. */
-			if key != nil {
-				for k, v := range key {
-					*output += `[` + k + `=` + v + `]`
-				}
-
-				/* Append "/" after all keys are processed. */
-				*output += `/`
-			}
-		}
-	}
-
-	/* Trim the "/" at the end which is not required. */
-	*output = strings.TrimSuffix(*output, `/`)
-	if t == nil {
-		*output += `"}`
-	} else {
-		str := string(t.GetJsonIetfVal())
-		val := strings.Replace(str, "\n", "", -1)
-		*output += `", "value": ` + val + `}`
-	}
-	return nil
-}
 
 func RunPyCode(text string) error {
 	defer C.Py_Finalize()
@@ -1512,12 +1479,16 @@ func (c *MixedDbClient) Close() error {
 	for _, pt := range c.tableMap {
 		swsscommon.DeleteProducerStateTable(pt)
 	}
+	for _, pt := range c.zmqTableMap {
+		swsscommon.DeleteZmqProducerStateTable(pt)
+	}
 	if c.applDB != nil{
 		swsscommon.DeleteDBConnector(c.applDB)
 	}
 	if c.dbkey != nil{
 		swsscommon.DeleteSonicDBKey(c.dbkey)
 	}
+
 	return nil
 }
 
