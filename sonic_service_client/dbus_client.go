@@ -14,6 +14,8 @@ type Service interface {
 	ConfigSave(fileName string) error
 	ApplyPatchYang(fileName string) error
 	ApplyPatchDb(fileName string) error
+	ReplaceYang(fileName string) error
+	ReplaceDb(fileName string) error
 	CreateCheckPoint(cpName string)  error
 	DeleteCheckPoint(cpName string) error
 }
@@ -124,6 +126,26 @@ func (c *DbusClient) ApplyPatchDb(patch string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".apply_patch_db"
+	err := DbusApi(busName, busPath, intName, 60, patch)
+	return err
+}
+
+func (c *DbusClient) ReplaceYang(patch string) error {
+	common_utils.IncCounter(common_utils.DBUS_APPLY_PATCH_YANG)
+	modName := "gcu"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".replace_yang"
+	err := DbusApi(busName, busPath, intName, 60, patch)
+	return err
+}
+
+func (c *DbusClient) ReplaceDb(patch string) error {
+	common_utils.IncCounter(common_utils.DBUS_APPLY_PATCH_DB)
+	modName := "gcu"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".replace_db"
 	err := DbusApi(busName, busPath, intName, 60, patch)
 	return err
 }

@@ -5,7 +5,7 @@ from utils import gnmi_set, gnmi_get, gnmi_dump
 
 import pytest
 
-patch_file = "/tmp/gcu.patch"
+patch_file = "/tmp/gcu.target"
 config_file = "/tmp/config_db.json.tmp"
 checkpoint_file = "/etc/sonic/config.cp.json"
 
@@ -789,14 +789,23 @@ class TestGNMIConfigDbPatch:
         # Send GNMI request
         ret, msg = gnmi_set(delete_list, update_list, replace_list)
         assert ret == 0, msg
-        assert os.path.exists(patch_file), "No patch file"
-        with open(patch_file,"r") as pf:
-            patch_json = json.load(pf)
-        # Apply patch to get json result
-        result = jsonpatch.apply_patch(test_data["origin_json"], patch_json)
-        # Compare json result
-        diff = jsonpatch.make_patch(result, test_data["target_json"])
-        assert len(diff.patch) == 0, "%s failed, generated json: %s" % (test_data["test_name"], str(result))
+        if os.path.exists(patch_file):
+            with open(patch_file,"r") as pf:
+                result = json.load(pf)
+            # Compare json result
+            diff = jsonpatch.make_patch(result, test_data["target_json"])
+            assert len(diff.patch) == 0, "%s failed, generated json: %s" % (test_data["test_name"], str(result))
+        else:
+            # Compare json result
+            diff = jsonpatch.make_patch(test_data['origin_json'], test_data["target_json"])
+            assert len(diff.patch) == 0, "%s failed, no patch file" % (test_data["test_name"])
+
+    @pytest.mark.parametrize("test_data", test_data_aaa_patch)
+    def test_gnmi_aaa_patch(self, test_data):
+        '''
+        Generate GNMI request for AAA and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
 
     @pytest.mark.parametrize("test_data", test_data_bgp_prefix_patch)
     def test_gnmi_bgp_prefix_patch(self, test_data):

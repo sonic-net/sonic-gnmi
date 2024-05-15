@@ -77,7 +77,6 @@ type MixedDbClient struct {
 	zmqAddress string
 	zmqClient swsscommon.ZmqClient
 	tableMap map[string]swsscommon.ProducerStateTable
-	zmqTableMap map[string]swsscommon.ZmqProducerStateTable
 	// swsscommon introduced dbkey to support multiple database
 	dbkey swsscommon.SonicDBKey
 	// Convert dbkey to string, namespace:container
@@ -97,8 +96,6 @@ var DbInstNum = 0
 
 func Hget(configDbConnector *swsscommon.ConfigDBConnector, table string, key string, field string) (string, error) {
     var fieldValuePairs = configDbConnector.Get_entry(table, key)
-    defer swsscommon.DeleteFieldValueMap(fieldValuePairs)
-
     if fieldValuePairs.Has_key(field) {
         return fieldValuePairs.Get(field), nil
     }
@@ -111,7 +108,6 @@ func getDpuAddress(dpuId string) (string, error) {
 	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
 
 	var configDbConnector = swsscommon.NewConfigDBConnector()
-	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 	configDbConnector.Connect(false)
 
 	// get bridge plane
@@ -172,7 +168,6 @@ func removeZmqClient(zmqClient swsscommon.ZmqClient) (error) {
 	for address, client := range zmqClientMap {
 		if client == zmqClient { 
 			delete(zmqClientMap, address)
-			swsscommon.DeleteZmqClient(client)
 			return nil
 		}
 	}
@@ -240,23 +235,15 @@ func parseJson(str []byte) (interface{}, error) {
 
 func (c *MixedDbClient) GetTable(table string) (swsscommon.ProducerStateTable) {
 	pt, ok := c.tableMap[table]
-	if ok {
-		return pt
-	}
+	if !ok {
+		if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
+			log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
+			pt = swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)
+		} else {
+			log.V(2).Infof("Create ProducerStateTable:  %s", table)
+			pt = swsscommon.NewProducerStateTable(c.applDB, table)
+		}
 
-	pt, ok = c.zmqTableMap[table]
-	if ok {
-		return pt
-	}
-
-	if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
-		log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
-		zmqTable := swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)
-		c.zmqTableMap[table] = zmqTable
-		pt = zmqTable
-	} else {
-		log.V(2).Infof("Create ProducerStateTable:  %s", table)
-		pt = swsscommon.NewProducerStateTable(c.applDB, table)
 		c.tableMap[table] = pt
 	}
 
@@ -330,7 +317,6 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 				func () error {
 					return ProducerStateTableSetWrapper(pt, key, vec)
 				})
-
 	return nil
 }
 
@@ -498,7 +484,6 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 
 	var client = MixedDbClient {
 		tableMap : map[string]swsscommon.ProducerStateTable{},
-		zmqTableMap : map[string]swsscommon.ZmqProducerStateTable{},
 	}
 
 	// Get namespace count and container count from db config
@@ -1194,7 +1179,6 @@ with open(filename, 'r') as fp:
 
 func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	var err error
-	var curr string
 
 	var sc ssc.Service
 	sc, err = ssc.NewDbusClient()
@@ -1212,7 +1196,11 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		return err
 	}
 
-	text := `[`
+	original, err := json.Marshal(c.jClient.jsonData)
+	if err != nil {
+		return err
+	}
+
 	/* DELETE */
 	for _, path := range delete {
 		fullPath, err := c.gnmiFullPath(c.prefix, path)
@@ -1235,12 +1223,6 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 				continue
 			}
 		}
-		curr = ``
-		err = c.ConvertToJsonPatch(c.prefix, path, nil, DELETE_OPERATION, &curr)
-		if err != nil {
-			return err
-		}
-		text += curr + `,`
 	}
 
 	/* REPLACE */
@@ -1274,12 +1256,6 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 				}
 			}
 		}
-		curr = ``
-		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), REPLACE_OPERATION, &curr)
-		if err != nil {
-			return err
-		}
-		text += curr + `,`
 	}
 
 	/* UPDATE */
@@ -1309,28 +1285,25 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 				}
 			}
 		}
-		curr = ``
-		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), UPDATE_OPERATION, &curr)
-		if err != nil {
-			return err
-		}
-		text += curr + `,`
 	}
-	text = strings.TrimSuffix(text, `,`)
-	text += `]`
-	log.V(2).Infof("JsonPatch: %s", text)
-	if text == `[]` {
-		// No need to apply patch
+
+	target, err := json.Marshal(c.jClient.jsonData)
+	if err != nil {
+		return err
+	}
+
+	if bytes.Equal(original, target) {
 		return nil
 	}
-	patchFile := c.workPath + "/gcu.patch"
-	err = ioutil.WriteFile(patchFile, []byte(text), 0644)
+
+	patchFile := c.workPath + "/gcu.target"
+	err = ioutil.WriteFile(patchFile, target, 0644)
 	if err != nil {
 		return err
 	}
 
 	if c.origin == "sonic-db" {
-		err = sc.ApplyPatchDb(text)
+		err = sc.ReplaceDb(string(target))
 	}
 
 	if err == nil {
@@ -1537,16 +1510,12 @@ func (c *MixedDbClient) Close() error {
 	for _, pt := range c.tableMap {
 		swsscommon.DeleteProducerStateTable(pt)
 	}
-	for _, pt := range c.zmqTableMap {
-		swsscommon.DeleteZmqProducerStateTable(pt)
-	}
 	if c.applDB != nil{
 		swsscommon.DeleteDBConnector(c.applDB)
 	}
 	if c.dbkey != nil{
 		swsscommon.DeleteSonicDBKey(c.dbkey)
 	}
-
 	return nil
 }
 
