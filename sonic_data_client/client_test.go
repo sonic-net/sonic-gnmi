@@ -13,6 +13,7 @@ import (
 
 	"github.com/jipanyang/gnxi/utils/xpath"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
+	"github.com/sonic-net/sonic-gnmi/test_utils"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
@@ -623,4 +624,9 @@ func TestGetZmqClient(t *testing.T) {
 	for _, client := range zmqClientMap {
 		swsscommon.DeleteZmqClient(client)
 	}
+}
+
+func TestMain(m *testing.M) {
+	defer test_utils.MemLeakCheck()
+	m.Run()
 }
