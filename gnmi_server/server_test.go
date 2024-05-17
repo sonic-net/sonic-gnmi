@@ -4173,3 +4173,8 @@ func init() {
 	// Inform gNMI server to use redis tcp localhost connection
 	sdc.UseRedisLocalTcpPort = true
 }
+
+func TestMain(m *testing.M) {
+	defer test_utils.MemLeakCheck()
+	m.Run()
+}
