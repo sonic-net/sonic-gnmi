@@ -188,9 +188,8 @@ def gnoi_reboot(method, delay, message):
     ret, msg = run_cmd(cmd)
     return ret, msg
 
-def gnoi_kill_process():
+def gnoi_kill_process(json_data):
     path = os.getcwd()
-    json_data = '{"name": "snmp"}' 
     cmd = path + '/build/bin/gnoi_client '
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc KillProcess '

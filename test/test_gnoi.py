@@ -35,7 +35,8 @@ class TestGNOI:
         ret, old_cnt = gnmi_dump('DBUS stop service')
         assert ret == 0, 'Fail to read counter'
 
-        ret, msg = gnoi_kill_process()
+        json_data = '{"name": "snmp"}'
+        ret, msg = gnoi_kill_process(json_data)
         assert ret == 0, msg
 
         ret, new_cnt = gnmi_dump('DBUS stop service')

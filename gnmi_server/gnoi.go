@@ -51,7 +51,7 @@ func (srv *Server) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProc
             return nil, status.Errorf(codes.Unimplemented, "Signal option is not implemented")
         }
 	log.V(1).Info("gNOI: KillProcess with optional restart")
-	log.V(1).Info("Request:", req)
+	log.V(1).Info("Request: ", req)
 	err := KillOrRestartProcess(restart, serviceName)
 	if err != nil {
 		return nil, err
