@@ -351,3 +351,8 @@ func TestGetDbMultiInstance(t *testing.T) {
 		}
 	})
 }
+
+func TestMain(m *testing.M) {
+	defer test_utils.MemLeakCheck()
+	m.Run()
+}
