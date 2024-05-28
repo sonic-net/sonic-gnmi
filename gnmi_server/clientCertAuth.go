@@ -49,11 +49,7 @@ func ClientCertAuthenAndAuthor(ctx context.Context) (context.Context, error) {
 }
 
 func CommonNameMatch(certCommonName string) error {
-	var trustedCertCommonNames, err = getTrustedCertCommonNames()
-	if err != nil {
-		return err
-	}
-
+	var trustedCertCommonNames = getTrustedCertCommonNames()
 	if len(trustedCertCommonNames) == 0 {
 		// ignore further check because not config trusted cert common names
 		return nil
@@ -68,7 +64,7 @@ func CommonNameMatch(certCommonName string) error {
 	return status.Errorf(codes.Unauthenticated, "Invalid cert cname:'%s', not a trusted cert common name.", certCommonName)
 }
 
-func getTrustedCertCommonNames() ([]string, error) {
+func getTrustedCertCommonNames() []string {
 	var configDbConnector = swsscommon.NewConfigDBConnector()
 	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 	configDbConnector.Connect(false)
@@ -76,9 +72,9 @@ func getTrustedCertCommonNames() ([]string, error) {
 	clientCrtCommonNames, err := client.Hget(configDbConnector, "GNMI", "certs", "client_crt_cname");
 	if err != nil {
 		// config item does not exist, return empty array
-		return []string{}, nil
+		return []string{}
 	}
 
 	var clientCrtCommonNameArray = strings.Split(clientCrtCommonNames, ",")
-	return clientCrtCommonNameArray, nil
+	return clientCrtCommonNameArray
 }

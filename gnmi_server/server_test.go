@@ -4280,6 +4280,12 @@ func TestCommonNameMatch(t *testing.T) {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
 	}
 
+	// check a invalid cert cname
+	err = CommonNameMatch("certname3")
+	if err == nil {
+		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
+	}
+
 	swsscommon.DeleteTable(gnmiTable)
 	swsscommon.DeleteDBConnector(configDb)
 }
