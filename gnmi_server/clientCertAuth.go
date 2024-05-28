@@ -75,7 +75,8 @@ func getTrustedCertCommonNames() ([]string, error) {
 
 	clientCrtCommonNames, err := client.Hget(configDbConnector, "GNMI", "certs", "client_crt_cname");
 	if err != nil {
-		return nil, err
+		// config item does not exist, return empty array
+		return []string{}, nil
 	}
 
 	var clientCrtCommonNameArray = strings.Split(clientCrtCommonNames, ",")

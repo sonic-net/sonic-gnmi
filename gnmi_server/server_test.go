@@ -4198,8 +4198,12 @@ func TestGetTrustedCertCommonNames(t *testing.T) {
 	
 	// check get nil cert name
 	trustedCertCommonNames, err := getTrustedCertCommonNames()
-	if err == nil {
-		t.Errorf("get trusted cert common names should failed: %v, but get %s", err, trustedCertCommonNames)
+	if err != nil {
+		t.Errorf("get DPU address should success: %v", err)
+	}
+
+	if len(trustedCertCommonNames) != 0 {
+		t.Errorf("get DPU address should get 0 result, but get %s", trustedCertCommonNames)
 	}
 
 	// check get 1 cert name
