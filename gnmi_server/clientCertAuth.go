@@ -47,7 +47,10 @@ func ClientCertAuthenAndAuthor(ctx context.Context, clientCrtCname string) (cont
 }
 
 func CommonNameMatch(certCommonName string, clientCrtCname string) error {
-	var trustedCertCommonNames = strings.Split(clientCrtCname, ",")
+	splitAndRemoveEmpty := func(c rune) bool {
+        return c == ','
+	}
+	trustedCertCommonNames := strings.FieldsFunc(clientCrtCname, splitAndRemoveEmpty)
 	if len(trustedCertCommonNames) == 0 {
 		// ignore further check because not config trusted cert common names
 		return nil
