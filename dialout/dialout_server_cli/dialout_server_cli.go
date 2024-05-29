@@ -22,6 +22,7 @@ var (
 	serverKey         = flag.String("server_key", "", "TLS server private key")
 	insecure          = flag.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!")
 	allowNoClientCert = flag.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate.")
+	clientCrtCname    = flag.String("client_crt_cname", "", "Client cert common name")
 )
 
 func main() {

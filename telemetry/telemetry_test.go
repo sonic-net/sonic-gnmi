@@ -358,11 +358,15 @@ func TestStartGNMIServerCACert(t *testing.T) {
 	}()
 
 	fs := flag.NewFlagSet("testStartGNMIServerCACert", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey, "-ca_crt", testServerCACert}
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey, "-ca_crt", testServerCACert, "-client_crt_cname", "testcname1"}
 	telemetryCfg, cfg, err := setupFlags(fs)
 
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	if cfg.ClientCrtCname != "testcname1" {
+		t.Errorf("Expected err to be testcname1, got %s", cfg.ClientCrtCname)
 	}
 
 	err = createCACert(testServerCACert)

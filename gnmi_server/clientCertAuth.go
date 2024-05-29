@@ -2,8 +2,6 @@ package gnmi
 
 import (
 	"github.com/sonic-net/sonic-gnmi/common_utils"
-	"github.com/sonic-net/sonic-gnmi/sonic_data_client"
-	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
@@ -13,7 +11,7 @@ import (
 	"strings"
 )
 
-func ClientCertAuthenAndAuthor(ctx context.Context) (context.Context, error) {
+func ClientCertAuthenAndAuthor(ctx context.Context, clientCrtCname string) (context.Context, error) {
 	rc, ctx := common_utils.GetContext(ctx)
 	p, ok := peer.FromContext(ctx)
 	if !ok {
@@ -35,7 +33,7 @@ func ClientCertAuthenAndAuthor(ctx context.Context) (context.Context, error) {
 		return ctx, status.Error(codes.Unauthenticated, "invalid username in certificate common name.")
 	}
 
-	err := CommonNameMatch(username)
+	err := CommonNameMatch(username, clientCrtCname)
 	if err != nil {
 		return ctx, err
 	}
@@ -48,8 +46,8 @@ func ClientCertAuthenAndAuthor(ctx context.Context) (context.Context, error) {
 	return ctx, nil
 }
 
-func CommonNameMatch(certCommonName string) error {
-	var trustedCertCommonNames = getTrustedCertCommonNames()
+func CommonNameMatch(certCommonName string, clientCrtCname string) error {
+	var trustedCertCommonNames = strings.Split(clientCrtCname, ",")
 	if len(trustedCertCommonNames) == 0 {
 		// ignore further check because not config trusted cert common names
 		return nil
@@ -62,19 +60,4 @@ func CommonNameMatch(certCommonName string) error {
 	}
 
 	return status.Errorf(codes.Unauthenticated, "Invalid cert cname:'%s', not a trusted cert common name.", certCommonName)
-}
-
-func getTrustedCertCommonNames() []string {
-	var configDbConnector = swsscommon.NewConfigDBConnector()
-	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
-	configDbConnector.Connect(false)
-
-	clientCrtCommonNames, err := client.Hget(configDbConnector, "GNMI", "certs", "client_crt_cname");
-	if err != nil {
-		// config item does not exist, return empty array
-		return []string{}
-	}
-
-	var clientCrtCommonNameArray = strings.Split(clientCrtCommonNames, ",")
-	return clientCrtCommonNameArray
 }

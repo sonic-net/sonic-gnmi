@@ -12,6 +12,7 @@ for V in "$@"; do
     -server_crt|--server_crt|-server_crt=*|--server_crt=*) HAS_CERT=1 ;;
     -server_key|--server_key|-server_key=*|--server_key=*) HAS_CERT=1 ;;
     -client_auth|--client_auth|-client_auth=*|--client_auth=*) HAS_AUTH=1 ;;
+    -client_crt_cname|--client_crt_cname|-client_crt_cname=*|--client_crt_cname=*) HAS_CNAME=1 ;;
     esac
     ARGV+=( $V )
 done

@@ -55,7 +55,6 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
-	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -4188,94 +4187,35 @@ func TestSaveOnSet(t *testing.T) {
 	}
 }
 
-func TestGetTrustedCertCommonNames(t *testing.T) {
-	if !swsscommon.SonicDBConfigIsInit() {
-		swsscommon.SonicDBConfigInitialize()
-	}
-
-	var configDb = swsscommon.NewDBConnector("CONFIG_DB", uint(0), true)
-	configDb.Flushdb()
-	
-	// check get nil cert name
-	trustedCertCommonNames := getTrustedCertCommonNames()
-	if len(trustedCertCommonNames) != 0 {
-		t.Errorf("GetTrustedCertCommonNames should get 0 result, but get %s", trustedCertCommonNames)
-	}
-
-	// check get 1 cert name
-	var gnmiTable = swsscommon.NewTable(configDb, "GNMI")
-	gnmiTable.Hset("certs", "client_crt_cname", "certname1")
-	trustedCertCommonNames = getTrustedCertCommonNames()
-	if len(trustedCertCommonNames) != 1 {
-		t.Errorf("GetTrustedCertCommonNames should get 1 result, but get %s", trustedCertCommonNames)
-	}
-
-	if trustedCertCommonNames[0] != "certname1" {
-		t.Errorf("GetTrustedCertCommonNames should get 'certname1', but get %s", trustedCertCommonNames[0])
-	}
-
-	// check get multiple cert names
-	gnmiTable.Hset("certs", "client_crt_cname", "certname1,certname2")
-	trustedCertCommonNames = getTrustedCertCommonNames()
-	if len(trustedCertCommonNames) != 2 {
-		t.Errorf("GetTrustedCertCommonNames should get 2 result, but get %s", trustedCertCommonNames)
-	}
-
-	if trustedCertCommonNames[0] != "certname1" {
-		t.Errorf("GetTrustedCertCommonNames should get 'certname1', but get %s", trustedCertCommonNames[0])
-	}
-
-	if trustedCertCommonNames[1] != "certname2" {
-		t.Errorf("GetTrustedCertCommonNames should get 'certname2', but get %s", trustedCertCommonNames[1])
-	}
-
-	swsscommon.DeleteTable(gnmiTable)
-	swsscommon.DeleteDBConnector(configDb)
-}
-
 func TestCommonNameMatch(t *testing.T) {
-	if !swsscommon.SonicDBConfigIsInit() {
-		swsscommon.SonicDBConfigInitialize()
-	}
-
-	var configDb = swsscommon.NewDBConnector("CONFIG_DB", uint(0), true)
-	configDb.Flushdb()
-	
 	// check auth with nil cert name
-	err := CommonNameMatch("certname1")
+	err := CommonNameMatch("certname1", "")
 	if err != nil {
 		t.Errorf("CommonNameMatch with empty config should success: %v", err)
 	}
 
 	// check get 1 cert name
-	var gnmiTable = swsscommon.NewTable(configDb, "GNMI")
-	gnmiTable.Hset("certs", "client_crt_cname", "certname1")
-	err = CommonNameMatch("certname1")
+	err = CommonNameMatch("certname1", "certname1")
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
 	}
 
 	// check get multiple cert names
-	gnmiTable.Hset("certs", "client_crt_cname", "certname1,certname2")
-	err = CommonNameMatch("certname1")
+	err = CommonNameMatch("certname1", "certname1,certname2")
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
 	}
 
-	gnmiTable.Hset("certs", "client_crt_cname", "certname1,certname2")
-	err = CommonNameMatch("certname2")
+	err = CommonNameMatch("certname2", "certname1,certname2")
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
 	}
 
 	// check a invalid cert cname
-	err = CommonNameMatch("certname3")
+	err = CommonNameMatch("certname3", "certname1,certname2")
 	if err == nil {
 		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
 	}
-
-	swsscommon.DeleteTable(gnmiTable)
-	swsscommon.DeleteDBConnector(configDb)
 }
 
 func init() {
