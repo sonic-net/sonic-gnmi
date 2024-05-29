@@ -23,6 +23,8 @@ variables:
       value: $(System.PullRequest.TargetBranch)
     ${{ else }}:
       value: $(Build.SourceBranchName)
+  - name: UNIT_TEST_FLAG
+    value: 'ENABLE_TRANSLIB_WRITE=y'
 
 resources:
   repositories:
@@ -82,8 +84,6 @@ stages:
         patterns: |
             target/debs/bookworm/libyang*.deb
             target/debs/bookworm/libnl*.deb
-            target/debs/bookworm/libswsscommon*.deb
-            target/debs/bookworm/python3-swsscommon*.deb
             target/python-wheels/bookworm/sonic_yang_models*.whl
       displayName: "Download bookworm debs"
 
@@ -124,14 +124,26 @@ stages:
         curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
         sudo apt-add-repository https://packages.microsoft.com/debian/12/prod
         sudo apt-get update
-        sudo apt-get install -y dotnet-sdk-7.0
+        sudo apt-get install -y dotnet-sdk-8.0
       displayName: "Install .NET CORE"
 
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        source: specific
+        project: build
+        pipeline: Azure.sonic-swss-common
+        artifact: sonic-swss-common-bookworm
+        runVersion: 'latestFromBranch'
+        runBranch: 'refs/heads/$(BUILD_BRANCH)'
+      displayName: "Download sonic-swss-common"
+
     - script: |
+        set -ex
         # LIBSWSSCOMMON
-        sudo dpkg -i ../target/debs/bookworm/libswsscommon_1.0.0_amd64.deb
-        sudo dpkg -i ../target/debs/bookworm/libswsscommon-dev_1.0.0_amd64.deb
-        sudo dpkg -i ../target/debs/bookworm/python3-swsscommon_1.0.0_amd64.deb
+        sudo dpkg -i libswsscommon_1.0.0_amd64.deb
+        sudo dpkg -i libswsscommon-dev_1.0.0_amd64.deb
+        sudo dpkg -i python3-swsscommon_1.0.0_amd64.deb
+      workingDirectory: $(Pipeline.Workspace)/
       displayName: 'Install libswsscommon package'
 
     - script: |
@@ -151,8 +163,13 @@ stages:
 
     - script: |
         pushd sonic-gnmi
-        make check_gotest ENABLE_TRANSLIB_WRITE=y
-      displayName: "Test"
+        make all && make check_memleak $(UNIT_TEST_FLAG)
+      displayName: "Check memory leak"
+
+    - script: |
+        pushd sonic-gnmi
+        make all && make check_gotest $(UNIT_TEST_FLAG)
+      displayName: "Run unit test"
 
     - publish: $(Build.ArtifactStagingDirectory)/
       artifact: sonic-gnmi
