@@ -20,6 +20,9 @@ import (
 	"time"
 	"unsafe"
 
+	"crypto/x509"
+	"crypto/x509/pkix"
+
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
@@ -42,6 +45,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	// Register supported client types.
@@ -4216,6 +4220,57 @@ func TestCommonNameMatch(t *testing.T) {
 	if err == nil {
 		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
 	}
+}
+
+func TestClientCertAuthenAndAuthor(t *testing.T) {
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    //src, _ := net.ResolveIPAddr("ip", "1.1.1.1")
+    cert := x509.Certificate{
+        Subject: pkix.Name{
+            CommonName: "certname1",
+        },
+    }
+    verifiedCerts := make([][]*x509.Certificate, 1)
+    verifiedCerts[0] = make([]*x509.Certificate, 1)
+    verifiedCerts[0][0] = &cert
+    p := peer.Peer{
+        AuthInfo: credentials.TLSInfo{
+            State: tls.ConnectionState{
+                VerifiedChains: verifiedCerts,
+            },
+        },
+    }
+    ctx = peer.NewContext(ctx, &p)
+    defer cancel()
+    mockpopulate := gomonkey.ApplyFunc(PopulateAuthStruct, func(username string, auth *common_utils.AuthInfo, r []string) error {
+        return nil
+    })
+    defer mockpopulate.Reset()
+    // check auth with nil cert name
+    err := status.Error(codes.Unauthenticated, "")
+    ctx, err = ClientCertAuthenAndAuthor(ctx, "")
+    if err != nil {
+        t.Errorf("CommonNameMatch with empty config should success: %v", err)
+    }
+    // check get 1 cert name
+    ctx, err = ClientCertAuthenAndAuthor(ctx, "certname1")
+    if err != nil {
+        t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
+    }
+    // check get multiple cert names
+    ctx, err = ClientCertAuthenAndAuthor(ctx, "certname1,certname2")
+    if err != nil {
+        t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
+    }
+    ctx, err = ClientCertAuthenAndAuthor(ctx, "certname1,certname2")
+    if err != nil {
+        t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
+    }
+    // check a invalid cert cname
+    ctx, err = ClientCertAuthenAndAuthor(ctx, "certname2,certname3")
+    if err == nil {
+        t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
+    }
 }
 
 func init() {
