@@ -17,6 +17,7 @@ import (
 	"testing"
 	"flag"
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
+	"github.com/sonic-net/sonic-gnmi/test_utils"
 	"github.com/agiledragon/gomonkey/v2"
 	"os"
 	"syscall"
@@ -857,4 +858,9 @@ func testHandlerSyscall(t *testing.T, signal os.Signal) {
 
 func sendSignal(serverControlSignal chan<- ServerControlValue, value ServerControlValue) {
 	serverControlSignal <- value
+}
+
+func TestMain(m *testing.M) {
+	defer test_utils.MemLeakCheck()
+	m.Run()
 }
