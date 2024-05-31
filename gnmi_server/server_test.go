@@ -25,6 +25,7 @@ import (
 
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
+	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
@@ -4347,12 +4348,12 @@ func TestGnoiAuthorization(t *testing.T) {
 		t.Errorf("Refresh should failed, because not implement.")
 	}
 
-	s.ClearNeighbors(ctx, new(spb_gnoi.ClearNeighborsRequest))
+	s.ClearNeighbors(ctx, new(sgpb.ClearNeighborsRequest))
 	if err == nil {
 		t.Errorf("ClearNeighbors should failed, because not implement.")
 	}
 
-	s.CopyConfig(ctx, new(spb_gnoi.CopyConfigRequest))
+	s.CopyConfig(ctx, new(sgpb.CopyConfigRequest))
 	if err == nil {
 		t.Errorf("CopyConfig should failed, because not implement.")
 	}
