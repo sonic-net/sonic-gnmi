@@ -35,7 +35,7 @@ class TestGNOI:
         ret, old_cnt = gnmi_dump('DBUS stop service')
         assert ret == 0, 'Fail to read counter'
 
-        json_data = '{"name": "snmp"}'
+        json_data = '{"name": "snmp", "signal": 1}'
         ret, msg = gnoi_kill_process(json_data)
         assert ret == 0, msg
 
@@ -58,7 +58,7 @@ class TestGNOI:
         ret, old_cnt = gnmi_dump('DBUS restart service')
         assert ret == 0, 'Fail to read counter'
 
-        ret, msg = gnoi_restart_process('{"name": "snmp", "restart": true}')
+        ret, msg = gnoi_restart_process('{"name": "snmp", "restart": true, "signal": 1}')
         assert ret == 0, msg
 
         ret, new_cnt = gnmi_dump('DBUS restart service')
