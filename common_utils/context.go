@@ -51,6 +51,8 @@ const (
 	DBUS_DELETE_CHECKPOINT
 	DBUS_CONFIG_SAVE
 	DBUS_CONFIG_RELOAD
+	DBUS_STOP_SERVICE
+	DBUS_RESTART_SERVICE
 	COUNTER_SIZE
 )
 
@@ -82,6 +84,10 @@ func (c CounterType) String() string {
 		return "DBUS config save"
 	case DBUS_CONFIG_RELOAD:
 		return "DBUS config reload"
+	case DBUS_STOP_SERVICE:
+		return "DBUS stop service"
+	case DBUS_RESTART_SERVICE:
+		return "DBUS restart service"
 	default:
 		return ""
 	}

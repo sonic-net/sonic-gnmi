@@ -50,7 +50,10 @@ type Server struct {
 	// comes from a master controller.
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
+	// UnimplementedSystemServer is embedded to satisfy SystemServer interface requirements
+	gnoi_system_pb.UnimplementedSystemServer
 }
+
 type AuthTypes map[string]bool
 
 // Config is a collection of values for Server
@@ -139,7 +142,6 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if config == nil {
 		return nil, errors.New("config not provided")
 	}
-
 	common_utils.InitCounters()
 
 	s := grpc.NewServer(opts...)
