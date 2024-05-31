@@ -4273,6 +4273,93 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
     }
 }
 
+type MockServerStream struct {
+	grpc.ServerStream
+}
+
+func (x *MockServerStream) Context() context.Context {
+	return context.Background()
+}
+
+type MockPingServer struct {
+	MockServerStream
+}
+
+func (x *MockPingServer) Send(m *gnoi_system_pb.PingResponse) error {
+	return nil
+}
+
+type MockTracerouteServer struct {
+	MockServerStream
+}
+
+func (x *MockTracerouteServer) Send(m *gnoi_system_pb.TracerouteResponse) error {
+	return nil
+}
+
+type MockSetPackageServer struct {
+	MockServerStream
+}
+
+func (x *MockSetPackageServer) Send(m *gnoi_system_pb.SetPackageResponse) error {
+	return nil
+}
+
+func (x *MockSetPackageServer) SendAndClose(m *gnoi_system_pb.SetPackageResponse) error {
+	return nil
+}
+
+func (x *MockSetPackageServer) Recv() (*gnoi_system_pb.SetPackageRequest, error) {
+	return nil, nil
+}
+
+func TestGnoiAuthorization(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+    mockAuthenticate := gomonkey.ApplyFunc(s.Authenticate, func(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
+		return nil, nil
+	})
+    defer mockAuthenticate.Reset()
+
+	err := s.Ping(new(gnoi_system_pb.PingRequest), new(MockPingServer))
+	if err == nil {
+		t.Errorf("Ping should failed, because not implement.")
+	}
+
+	s.Traceroute(new(gnoi_system_pb.TracerouteRequest), new(MockTracerouteServer))
+	if err == nil {
+		t.Errorf("Traceroute should failed, because not implement.")
+	}
+
+	s.SetPackage(new(MockSetPackageServer))
+	if err == nil {
+		t.Errorf("SetPackage should failed, because not implement.")
+	}
+
+	ctx := context.Background()
+	s.SwitchControlProcessor(ctx, new(gnoi_system_pb.SwitchControlProcessorRequest))
+	if err == nil {
+		t.Errorf("SwitchControlProcessor should failed, because not implement.")
+	}
+
+	s.Refresh(ctx, new(spb_jwt.RefreshRequest))
+	if err == nil {
+		t.Errorf("Refresh should failed, because not implement.")
+	}
+
+	s.ClearNeighbors(ctx, new(spb_gnoi.ClearNeighborsRequest))
+	if err == nil {
+		t.Errorf("ClearNeighbors should failed, because not implement.")
+	}
+
+	s.CopyConfig(ctx, new(spb_gnoi.CopyConfigRequest))
+	if err == nil {
+		t.Errorf("CopyConfig should failed, because not implement.")
+	}
+
+	s.Stop()
+}
+
 func init() {
 	// Enable logs at UT setup
 	flag.Lookup("v").Value.Set("10")
