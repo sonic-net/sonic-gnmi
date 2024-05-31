@@ -52,8 +52,8 @@ func (srv *Server) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProc
         if req.GetPid() != 0 {
             return nil, status.Errorf(codes.Unimplemented, "Pid option is not implemented")
         }
-        if req.GetSignal() != gnoi_system_pb.KillProcessRequest_SIGNAL_UNSPECIFIED {
-            return nil, status.Errorf(codes.Unimplemented, "Signal option is not implemented")
+        if req.GetSignal() != gnoi_system_pb.KillProcessRequest_SIGNAL_TERM {
+            return nil, status.Errorf(codes.Unimplemented, "KillProcess only supports SIGNAL_TERM (option 1) for graceful process termination. Please specify SIGNAL_TERM")
         }
 	log.V(1).Info("gNOI: KillProcess with optional restart")
 	log.V(1).Info("Request: ", req)
