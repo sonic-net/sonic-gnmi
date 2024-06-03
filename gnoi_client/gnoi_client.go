@@ -57,6 +57,8 @@ func main() {
 			systemCancelReboot(sc, ctx)
 		case "RebootStatus":
 			systemRebootStatus(sc, ctx)
+		case "KillProcess":
+			killProcess(sc, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
@@ -107,6 +109,20 @@ func systemTime(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 		panic(err.Error())
 	}
 	fmt.Println(string(respstr))
+}
+
+func killProcess(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("Kill Process with optional restart")
+	ctx = setUserCreds(ctx)
+	req := &gnoi_system_pb.KillProcessRequest {}
+	err := json.Unmarshal([]byte(*args), req)
+	if err != nil {
+		panic(err.Error())
+	}
+	_,err = sc.KillProcess(ctx, req)
+	if err != nil {
+		panic(err.Error())
+	}
 }
 
 func systemReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
