@@ -65,7 +65,7 @@ type Config struct {
 	EnableNativeWrite   bool
 	ZmqPort             string
 	IdleConnDuration    int
-	ClientCrtCname      string
+	ConfigTableName     string
 }
 
 var AuthLock sync.Mutex
@@ -215,6 +215,7 @@ func authenticate(config *Config, ctx context.Context) (context.Context, error) 
 		rc.Auth.AuthEnabled = false
 		return ctx, nil
 	}
+
 	rc.Auth.AuthEnabled = true
 	if config.UserAuth.Enabled("password") {
 		ctx, err = BasicAuthenAndAuthor(ctx)
@@ -229,7 +230,7 @@ func authenticate(config *Config, ctx context.Context) (context.Context, error) 
 		}
 	}
 	if !success && config.UserAuth.Enabled("cert") {
-		ctx, err = ClientCertAuthenAndAuthor(ctx, config.ClientCrtCname)
+		ctx, err = ClientCertAuthenAndAuthor(ctx, config.ConfigTableName)
 		if err == nil {
 			success = true
 		}

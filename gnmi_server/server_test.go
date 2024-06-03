@@ -60,6 +60,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -4192,38 +4193,22 @@ func TestSaveOnSet(t *testing.T) {
 	}
 }
 
-func TestCommonNameMatch(t *testing.T) {
+func TestPopulateAuthStructByCommonName(t *testing.T) {
 	// check auth with nil cert name
-	err := CommonNameMatch("certname1", "")
-	if err != nil {
-		t.Errorf("CommonNameMatch with empty config should success: %v", err)
-	}
-
-	// check get 1 cert name
-	err = CommonNameMatch("certname1", "certname1")
-	if err != nil {
-		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
-	}
-
-	// check get multiple cert names
-	err = CommonNameMatch("certname1", "certname1,certname2")
-	if err != nil {
-		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
-	}
-
-	err = CommonNameMatch("certname2", "certname1,certname2")
-	if err != nil {
-		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
-	}
-
-	// check a invalid cert cname
-	err = CommonNameMatch("certname3", "certname1,certname2")
+	err := PopulateAuthStructByCommonName("certname1", "")
 	if err == nil {
-		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
+		t.Errorf("PopulateAuthStructByCommonName with empty config table should failed: %v", err)
 	}
 }
 
 func TestClientCertAuthenAndAuthor(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	var configDb = swsscommon.NewDBConnector("CONFIG_DB", uint(0), true)
+	configDb.Flushdb()
+
     ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
     //src, _ := net.ResolveIPAddr("ip", "1.1.1.1")
     cert := x509.Certificate{
@@ -4253,25 +4238,33 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
     if err != nil {
         t.Errorf("CommonNameMatch with empty config should success: %v", err)
     }
+
     // check get 1 cert name
-    ctx, err = ClientCertAuthenAndAuthor(ctx, "certname1")
+	var gnmiTable = swsscommon.NewTable(configDb, "GNMI")
+	gnmiTable.Hset("client_crt_cname", "certname1", "role1")
+    ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI")
     if err != nil {
         t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
     }
+
     // check get multiple cert names
-    ctx, err = ClientCertAuthenAndAuthor(ctx, "certname1,certname2")
+	gnmiTable.Hset("client_crt_cname", "certname1", "role1")
+	gnmiTable.Hset("client_crt_cname", "certname2", "role2")
+    ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI")
     if err != nil {
         t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
     }
-    ctx, err = ClientCertAuthenAndAuthor(ctx, "certname1,certname2")
-    if err != nil {
-        t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
-    }
+
     // check a invalid cert cname
-    ctx, err = ClientCertAuthenAndAuthor(ctx, "certname2,certname3")
+	configDb.Flushdb()
+	gnmiTable.Hset("client_crt_cname", "certname2", "role2")
+    ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI")
     if err == nil {
         t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
     }
+
+	swsscommon.DeleteTable(gnmiTable)
+	swsscommon.DeleteDBConnector(configDb)
 }
 
 type MockServerStream struct {

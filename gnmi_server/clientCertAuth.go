@@ -2,16 +2,16 @@ package gnmi
 
 import (
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
-	"strings"
 )
 
-func ClientCertAuthenAndAuthor(ctx context.Context, clientCrtCname string) (context.Context, error) {
+func ClientCertAuthenAndAuthor(ctx context.Context, serviceConfigTableName string) (context.Context, error) {
 	rc, ctx := common_utils.GetContext(ctx)
 	p, ok := peer.FromContext(ctx)
 	if !ok {
@@ -33,34 +33,40 @@ func ClientCertAuthenAndAuthor(ctx context.Context, clientCrtCname string) (cont
 		return ctx, status.Error(codes.Unauthenticated, "invalid username in certificate common name.")
 	}
 
-	err := CommonNameMatch(username, clientCrtCname)
-	if err != nil {
-		return ctx, err
-	}
-
-	if err = PopulateAuthStruct(username, &rc.Auth, nil); err != nil {
-		glog.Infof("[%s] Failed to retrieve authentication information; %v", rc.ID, err)
-		return ctx, status.Errorf(codes.Unauthenticated, "")
+	if serviceConfigTableName != "" {
+		if err := PopulateAuthStructByCommonName(username, &rc.Auth, serviceConfigTableName); err != nil {
+			return ctx, err
+		}
+	} else {
+		if err := PopulateAuthStruct(username, &rc.Auth, nil); err != nil {
+			glog.Infof("[%s] Failed to retrieve authentication information; %v", rc.ID, err)
+			return ctx, status.Errorf(codes.Unauthenticated, "")
+		}
 	}
 
 	return ctx, nil
 }
 
-func CommonNameMatch(certCommonName string, clientCrtCname string) error {
-	splitAndRemoveEmpty := func(c rune) bool {
-        return c == ','
+func PopulateAuthStructByCommonName(certCommonName string, auth *common_utils.AuthInfo, serviceConfigTableName string) error {
+	if serviceConfigTableName == "" {
+		return status.Errorf(codes.Unauthenticated, "Service config table name should not be empty")
 	}
-	trustedCertCommonNames := strings.FieldsFunc(clientCrtCname, splitAndRemoveEmpty)
-	if len(trustedCertCommonNames) == 0 {
-		// ignore further check because not config trusted cert common names
+
+	var configDbConnector = swsscommon.NewConfigDBConnector()
+	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
+	configDbConnector.Connect(false)
+
+	var fieldValuePairs = configDbConnector.Get_entry(serviceConfigTableName, "client_crt_cname")
+    if fieldValuePairs.Has_key(certCommonName) {
+        var role = fieldValuePairs.Get(certCommonName)
+		auth.Roles = []string{role}
+    }
+
+	swsscommon.DeleteFieldValueMap(fieldValuePairs)
+
+	if len(auth.Roles) == 0 {
+		return status.Errorf(codes.Unauthenticated, "Invalid cert cname:'%s', not a trusted cert common name.", certCommonName)
+	} else {
 		return nil
 	}
-
-	for _, trustedCertCommonName := range trustedCertCommonNames {
-		if certCommonName == trustedCertCommonName {
-			return nil;
-		}
-	}
-
-	return status.Errorf(codes.Unauthenticated, "Invalid cert cname:'%s', not a trusted cert common name.", certCommonName)
 }
