@@ -4195,7 +4195,7 @@ func TestSaveOnSet(t *testing.T) {
 
 func TestPopulateAuthStructByCommonName(t *testing.T) {
 	// check auth with nil cert name
-	err := PopulateAuthStructByCommonName("certname1", "")
+	err := PopulateAuthStructByCommonName("certname1", nil, "")
 	if err == nil {
 		t.Errorf("PopulateAuthStructByCommonName with empty config table should failed: %v", err)
 	}
