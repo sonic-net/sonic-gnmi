@@ -42,7 +42,7 @@ func KillOrRestartProcess(restart bool, serviceName string) error {
 }
 
 func (srv *Server) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProcessRequest) (*gnoi_system_pb.KillProcessResponse, error) {
-	_, err := authenticate(srv.config.UserAuth, ctx)
+	_, err := authenticate(srv.config, ctx)
 	if err != nil {
             return nil, err
 	}
