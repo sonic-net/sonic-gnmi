@@ -4240,16 +4240,16 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
     }
 
     // check get 1 cert name
-	var gnmiTable = swsscommon.NewTable(configDb, "GNMI")
-	gnmiTable.Hset("client_crt_cname", "certname1", "role1")
+	var gnmiTable = swsscommon.NewTable(configDb, "TELEMETRY_CLIENT_CERT")
+	gnmiTable.Hset("certname1", "role", "role1")
     ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI")
     if err != nil {
         t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
     }
 
     // check get multiple cert names
-	gnmiTable.Hset("client_crt_cname", "certname1", "role1")
-	gnmiTable.Hset("client_crt_cname", "certname2", "role2")
+	gnmiTable.Hset("certname1", "role", "role1")
+	gnmiTable.Hset("certname2", "role", "role2")
     ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI")
     if err != nil {
         t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
@@ -4257,7 +4257,7 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 
     // check a invalid cert cname
 	configDb.Flushdb()
-	gnmiTable.Hset("client_crt_cname", "certname2", "role2")
+	gnmiTable.Hset("certname2", "role", "role2")
     ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI")
     if err == nil {
         t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)

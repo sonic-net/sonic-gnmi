@@ -56,11 +56,15 @@ func PopulateAuthStructByCommonName(certCommonName string, auth *common_utils.Au
 	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 	configDbConnector.Connect(false)
 
-	var fieldValuePairs = configDbConnector.Get_entry(serviceConfigTableName, "client_crt_cname")
-    if fieldValuePairs.Has_key(certCommonName) {
-        var role = fieldValuePairs.Get(certCommonName)
-		auth.Roles = []string{role}
-    }
+	var fieldValuePairs = configDbConnector.Get_entry(serviceConfigTableName, certCommonName)
+	if fieldValuePairs.Size() > 0 {
+		if fieldValuePairs.Has_key("role") {
+			var role = fieldValuePairs.Get("role")
+			auth.Roles = []string{role}
+		}
+	} else {
+		glog.Warningf("Failed to retrieve cert common name mapping; %s", certCommonName)
+	}
 
 	swsscommon.DeleteFieldValueMap(fieldValuePairs)
 
