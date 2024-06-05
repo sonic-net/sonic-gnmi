@@ -4202,27 +4202,27 @@ func TestPopulateAuthStructByCommonName(t *testing.T) {
 }
 
 func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    cert := x509.Certificate{
-        Subject: pkix.Name{
-            CommonName: "certname1",
-        },
-    }
-    verifiedCerts := make([][]*x509.Certificate, 1)
-    verifiedCerts[0] = make([]*x509.Certificate, 1)
-    verifiedCerts[0][0] = &cert
-    p := peer.Peer{
-        AuthInfo: credentials.TLSInfo{
-            State: tls.ConnectionState{
-                VerifiedChains: verifiedCerts,
-            },
-        },
-    }
-    ctx = peer.NewContext(ctx, &p)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	cert := x509.Certificate{
+		Subject: pkix.Name{
+			CommonName: "certname1",
+		},
+	}
+	verifiedCerts := make([][]*x509.Certificate, 1)
+	verifiedCerts[0] = make([]*x509.Certificate, 1)
+	verifiedCerts[0][0] = &cert
+	p := peer.Peer{
+		AuthInfo: credentials.TLSInfo{
+			State: tls.ConnectionState{
+				VerifiedChains: verifiedCerts,
+			},
+		},
+	}
+	ctx = peer.NewContext(ctx, &p)
 	return ctx, cancel
 }
 
-func TestClientCertAuthenAndAuthor(t *testing.T) {
+	func TestClientCertAuthenAndAuthor(t *testing.T) {
 	if !swsscommon.SonicDBConfigIsInit() {
 		swsscommon.SonicDBConfigInitialize()
 	}
@@ -4232,54 +4232,54 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	configDb.Flushdb()
 
 	// initialize err variable
-    err := status.Error(codes.Unauthenticated, "")
+	err := status.Error(codes.Unauthenticated, "")
 
 	// when config table is empty, will authorize with PopulateAuthStruct
-    mockpopulate := gomonkey.ApplyFunc(PopulateAuthStruct, func(username string, auth *common_utils.AuthInfo, r []string) error {
-        return nil
-    })
-    defer mockpopulate.Reset()
+	mockpopulate := gomonkey.ApplyFunc(PopulateAuthStruct, func(username string, auth *common_utils.AuthInfo, r []string) error {
+		return nil
+	})
+	defer mockpopulate.Reset()
 
-    // check auth with nil cert name
-    ctx, cancel := CreateAuthorizationCtx()
-    ctx, err = ClientCertAuthenAndAuthor(ctx, "")
-    if err != nil {
-        t.Errorf("CommonNameMatch with empty config table should success: %v", err)
-    }
+	// check auth with nil cert name
+	ctx, cancel := CreateAuthorizationCtx()
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "")
+	if err != nil {
+		t.Errorf("CommonNameMatch with empty config table should success: %v", err)
+	}
 
 	cancel()
 
-    // check get 1 cert name
-    ctx, cancel = CreateAuthorizationCtx()
+	// check get 1 cert name
+	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
 	gnmiTable.Hset("certname1", "role", "role1")
-    ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
-    if err != nil {
-        t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
-    }
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
+	if err != nil {
+		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
+	}
 
 	cancel()
 
-    // check get multiple cert names
-    ctx, cancel = CreateAuthorizationCtx()
+	// check get multiple cert names
+	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
 	gnmiTable.Hset("certname1", "role", "role1")
 	gnmiTable.Hset("certname2", "role", "role2")
-    ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
-    if err != nil {
-        t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
-    }
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
+	if err != nil {
+		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
+	}
 
 	cancel()
 
-    // check a invalid cert cname
-    ctx, cancel = CreateAuthorizationCtx()
+	// check a invalid cert cname
+	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
 	gnmiTable.Hset("certname2", "role", "role2")
-    ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
-    if err == nil {
-        t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
-    }
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
+	if err == nil {
+		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
+	}
 
 	cancel()
 
@@ -4330,10 +4330,10 @@ func (x *MockSetPackageServer) Recv() (*gnoi_system_pb.SetPackageRequest, error)
 func TestGnoiAuthorization(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
-    mockAuthenticate := gomonkey.ApplyFunc(s.Authenticate, func(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
+	mockAuthenticate := gomonkey.ApplyFunc(s.Authenticate, func(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
 		return nil, nil
 	})
-    defer mockAuthenticate.Reset()
+	defer mockAuthenticate.Reset()
 
 	err := s.Ping(new(gnoi_system_pb.PingRequest), new(MockPingServer))
 	if err == nil {
