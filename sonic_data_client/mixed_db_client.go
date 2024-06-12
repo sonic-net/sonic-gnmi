@@ -1352,7 +1352,7 @@ func (c *MixedDbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.U
 		return err
 	}
 
-	PyCodeInGo := fmt.Sprintf(PyCodeForYang, ietf_json_val)
+	PyCodeInGo := fmt.Sprintf(PyCodeForYang, fileName)
 	err = RunPyCode(PyCodeInGo)
 	if err != nil {
 		return fmt.Errorf("Yang validation failed!")

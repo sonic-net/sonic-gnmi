@@ -23,6 +23,8 @@ variables:
       value: $(System.PullRequest.TargetBranch)
     ${{ else }}:
       value: $(Build.SourceBranchName)
+  - name: UNIT_TEST_FLAG
+    value: 'ENABLE_TRANSLIB_WRITE=y'
 
 resources:
   repositories:
@@ -162,8 +164,13 @@ stages:
 
     - script: |
         pushd sonic-gnmi
-        make check_gotest ENABLE_TRANSLIB_WRITE=y
-      displayName: "Test"
+        make all && make check_memleak $(UNIT_TEST_FLAG)
+      displayName: "Check memory leak"
+
+    - script: |
+        pushd sonic-gnmi
+        make all && make check_gotest $(UNIT_TEST_FLAG)
+      displayName: "Run unit test"
 
     - publish: $(Build.ArtifactStagingDirectory)/
       artifact: sonic-gnmi

@@ -20,6 +20,51 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
+func KillOrRestartProcess(restart bool, serviceName string) error {
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		return err
+	}
+	if restart {
+		log.V(2).Infof("Restarting service %s...", serviceName)
+		err = sc.RestartService(serviceName)
+		if err != nil {
+			log.V(2).Infof("Failed to restart service %s: %v", serviceName, err)
+		}
+	} else {
+		log.V(2).Infof("Stopping service %s...", serviceName)
+		err = sc.StopService(serviceName)
+		if err != nil {
+			log.V(2).Infof("Failed to stop service %s: %v", serviceName, err)
+		}
+	}
+	return err
+}
+
+func (srv *Server) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProcessRequest) (*gnoi_system_pb.KillProcessResponse, error) {
+	_, err := authenticate(srv.config.UserAuth, ctx)
+	if err != nil {
+            return nil, err
+	}
+
+	serviceName := req.GetName()
+	restart := req.GetRestart()
+        if req.GetPid() != 0 {
+            return nil, status.Errorf(codes.Unimplemented, "Pid option is not implemented")
+        }
+        if req.GetSignal() != gnoi_system_pb.KillProcessRequest_SIGNAL_TERM {
+            return nil, status.Errorf(codes.Unimplemented, "KillProcess only supports SIGNAL_TERM (option 1) for graceful process termination. Please specify SIGNAL_TERM")
+        }
+	log.V(1).Info("gNOI: KillProcess with optional restart")
+	log.V(1).Info("Request: ", req)
+	err = KillOrRestartProcess(restart, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	var resp gnoi_system_pb.KillProcessResponse
+	return &resp, nil
+}
+
 func RebootSystem(fileName string) error {
 	log.V(2).Infof("Rebooting with %s...", fileName)
 	sc, err := ssc.NewDbusClient()
