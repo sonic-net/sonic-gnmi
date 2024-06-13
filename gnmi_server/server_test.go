@@ -20,8 +20,12 @@ import (
 	"time"
 	"unsafe"
 
+	"crypto/x509"
+	"crypto/x509/pkix"
+
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
+	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
@@ -42,6 +46,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	// Register supported client types.
@@ -55,6 +60,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -4185,6 +4191,187 @@ func TestSaveOnSet(t *testing.T) {
 	if err := SaveOnSetEnabled(); err == nil {
 		t.Error("Expected DBUS failure")
 	}
+}
+
+func TestPopulateAuthStructByCommonName(t *testing.T) {
+	// check auth with nil cert name
+	err := PopulateAuthStructByCommonName("certname1", nil, "")
+	if err == nil {
+		t.Errorf("PopulateAuthStructByCommonName with empty config table should failed: %v", err)
+	}
+}
+
+func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	cert := x509.Certificate{
+		Subject: pkix.Name{
+			CommonName: "certname1",
+		},
+	}
+	verifiedCerts := make([][]*x509.Certificate, 1)
+	verifiedCerts[0] = make([]*x509.Certificate, 1)
+	verifiedCerts[0][0] = &cert
+	p := peer.Peer{
+		AuthInfo: credentials.TLSInfo{
+			State: tls.ConnectionState{
+				VerifiedChains: verifiedCerts,
+			},
+		},
+	}
+	ctx = peer.NewContext(ctx, &p)
+	return ctx, cancel
+}
+
+	func TestClientCertAuthenAndAuthor(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	var configDb = swsscommon.NewDBConnector("CONFIG_DB", uint(0), true)
+	var gnmiTable = swsscommon.NewTable(configDb, "GNMI_CLIENT_CERT")
+	configDb.Flushdb()
+
+	// initialize err variable
+	err := status.Error(codes.Unauthenticated, "")
+
+	// when config table is empty, will authorize with PopulateAuthStruct
+	mockpopulate := gomonkey.ApplyFunc(PopulateAuthStruct, func(username string, auth *common_utils.AuthInfo, r []string) error {
+		return nil
+	})
+	defer mockpopulate.Reset()
+
+	// check auth with nil cert name
+	ctx, cancel := CreateAuthorizationCtx()
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "")
+	if err != nil {
+		t.Errorf("CommonNameMatch with empty config table should success: %v", err)
+	}
+
+	cancel()
+
+	// check get 1 cert name
+	ctx, cancel = CreateAuthorizationCtx()
+	configDb.Flushdb()
+	gnmiTable.Hset("certname1", "role", "role1")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
+	if err != nil {
+		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
+	}
+
+	cancel()
+
+	// check get multiple cert names
+	ctx, cancel = CreateAuthorizationCtx()
+	configDb.Flushdb()
+	gnmiTable.Hset("certname1", "role", "role1")
+	gnmiTable.Hset("certname2", "role", "role2")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
+	if err != nil {
+		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
+	}
+
+	cancel()
+
+	// check a invalid cert cname
+	ctx, cancel = CreateAuthorizationCtx()
+	configDb.Flushdb()
+	gnmiTable.Hset("certname2", "role", "role2")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
+	if err == nil {
+		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
+	}
+
+	cancel()
+
+	swsscommon.DeleteTable(gnmiTable)
+	swsscommon.DeleteDBConnector(configDb)
+}
+
+type MockServerStream struct {
+	grpc.ServerStream
+}
+
+func (x *MockServerStream) Context() context.Context {
+	return context.Background()
+}
+
+type MockPingServer struct {
+	MockServerStream
+}
+
+func (x *MockPingServer) Send(m *gnoi_system_pb.PingResponse) error {
+	return nil
+}
+
+type MockTracerouteServer struct {
+	MockServerStream
+}
+
+func (x *MockTracerouteServer) Send(m *gnoi_system_pb.TracerouteResponse) error {
+	return nil
+}
+
+type MockSetPackageServer struct {
+	MockServerStream
+}
+
+func (x *MockSetPackageServer) Send(m *gnoi_system_pb.SetPackageResponse) error {
+	return nil
+}
+
+func (x *MockSetPackageServer) SendAndClose(m *gnoi_system_pb.SetPackageResponse) error {
+	return nil
+}
+
+func (x *MockSetPackageServer) Recv() (*gnoi_system_pb.SetPackageRequest, error) {
+	return nil, nil
+}
+
+func TestGnoiAuthorization(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	mockAuthenticate := gomonkey.ApplyFunc(s.Authenticate, func(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
+		return nil, nil
+	})
+	defer mockAuthenticate.Reset()
+
+	err := s.Ping(new(gnoi_system_pb.PingRequest), new(MockPingServer))
+	if err == nil {
+		t.Errorf("Ping should failed, because not implement.")
+	}
+
+	s.Traceroute(new(gnoi_system_pb.TracerouteRequest), new(MockTracerouteServer))
+	if err == nil {
+		t.Errorf("Traceroute should failed, because not implement.")
+	}
+
+	s.SetPackage(new(MockSetPackageServer))
+	if err == nil {
+		t.Errorf("SetPackage should failed, because not implement.")
+	}
+
+	ctx := context.Background()
+	s.SwitchControlProcessor(ctx, new(gnoi_system_pb.SwitchControlProcessorRequest))
+	if err == nil {
+		t.Errorf("SwitchControlProcessor should failed, because not implement.")
+	}
+
+	s.Refresh(ctx, new(spb_jwt.RefreshRequest))
+	if err == nil {
+		t.Errorf("Refresh should failed, because not implement.")
+	}
+
+	s.ClearNeighbors(ctx, new(sgpb.ClearNeighborsRequest))
+	if err == nil {
+		t.Errorf("ClearNeighbors should failed, because not implement.")
+	}
+
+	s.CopyConfig(ctx, new(sgpb.CopyConfigRequest))
+	if err == nil {
+		t.Errorf("CopyConfig should failed, because not implement.")
+	}
+
+	s.Stop()
 }
 
 func init() {

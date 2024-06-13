@@ -43,6 +43,7 @@ type TelemetryConfig struct {
 	CaCert                *string
 	ServerCert            *string
 	ServerKey             *string
+	ConfigTableName       *string
 	ZmqAddress            *string
 	ZmqPort               *string
 	Insecure              *bool
@@ -150,6 +151,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		CaCert:                fs.String("ca_crt", "", "CA certificate for client certificate validation. Optional."),
 		ServerCert:            fs.String("server_crt", "", "TLS server certificate"),
 		ServerKey:             fs.String("server_key", "", "TLS server private key"),
+		ConfigTableName:       fs.String("config_table_name", "", "Config table name"),
 		ZmqAddress:            fs.String("zmq_address", "", "Orchagent ZMQ address, deprecated, please use zmq_port."),
 		ZmqPort:               fs.String("zmq_port", "", "Orchagent ZMQ port, when not set or empty string telemetry server will switch to Redis based communication channel."),
 		Insecure:              fs.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!"),
@@ -224,6 +226,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.LogLevel = int(*telemetryCfg.LogLevel)
 	cfg.Threshold = int(*telemetryCfg.Threshold)
 	cfg.IdleConnDuration = int(*telemetryCfg.IdleConnDuration)
+	cfg.ConfigTableName = *telemetryCfg.ConfigTableName
 
 	// TODO: After other dependent projects are migrated to ZmqPort, remove ZmqAddress
 	zmqAddress := *telemetryCfg.ZmqAddress
