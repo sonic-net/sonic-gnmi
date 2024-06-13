@@ -90,6 +90,7 @@ stages:
     - script: |
         # PYTEST
         sudo pip3 install -U pytest
+        sudo pip3 install -U jsonpatch
 
         # REDIS
         sudo apt-get update
