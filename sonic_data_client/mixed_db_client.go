@@ -1113,7 +1113,7 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 }
 
 /* Populate the JsonPatch corresponding each GNMI operation. */
-func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Path, t *gnmipb.TypedValue, operation string, output *string) error {
+func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Path, t *gnmipb.TypedValue, operation string, output *map[string]interface{}) error {
 	if t != nil {
 		if len(t.GetJsonIetfVal()) == 0 {
 			return fmt.Errorf("Value encoding is not IETF JSON")
@@ -1125,38 +1125,40 @@ func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Pat
 	}
 
 	elems := fullPath.GetElem()
-	*output = `{"op": "` + operation + `", "path": "/`
+	(*output)["op"] = operation
+	jsonPath := "/"
 
 	if elems != nil {
 		/* Iterate through elements. */
 		for _, elem := range elems {
-			*output += elem.GetName()
+			jsonPath += elem.GetName()
 			key := elem.GetKey()
 			/* If no keys are present end the element with "/" */
 			if key == nil {
-				*output += `/`
+				jsonPath += `/`
 			}
 
 			/* If keys are present , process the keys. */
 			if key != nil {
 				for k, v := range key {
-					*output += `[` + k + `=` + v + `]`
+					jsonPath += `[` + k + `=` + v + `]`
 				}
 
 				/* Append "/" after all keys are processed. */
-				*output += `/`
+				jsonPath += `/`
 			}
 		}
 	}
 
 	/* Trim the "/" at the end which is not required. */
-	*output = strings.TrimSuffix(*output, `/`)
-	if t == nil {
-		*output += `"}`
-	} else {
-		str := string(t.GetJsonIetfVal())
-		val := strings.Replace(str, "\n", "", -1)
-		*output += `", "value": ` + val + `}`
+	jsonPath = strings.TrimSuffix(jsonPath, `/`)
+	(*output)["path"] = jsonPath
+	if t != nil {
+		val, err := parseJson(t.GetJsonIetfVal())
+		if err != nil {
+			return err
+		}
+		(*output)["value"] = val
 	}
 	return nil
 }
@@ -1194,7 +1196,6 @@ with open(filename, 'r') as fp:
 
 func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	var err error
-	var curr string
 
 	var sc ssc.Service
 	sc, err = ssc.NewDbusClient()
@@ -1212,7 +1213,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		return err
 	}
 
-	text := `[`
+	var patchList [](map[string]interface{})
 	/* DELETE */
 	for _, path := range delete {
 		fullPath, err := c.gnmiFullPath(c.prefix, path)
@@ -1235,12 +1236,12 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 				continue
 			}
 		}
-		curr = ``
+		curr := map[string]interface{}{}
 		err = c.ConvertToJsonPatch(c.prefix, path, nil, DELETE_OPERATION, &curr)
 		if err != nil {
 			return err
 		}
-		text += curr + `,`
+		patchList = append(patchList, curr)
 	}
 
 	/* REPLACE */
@@ -1267,19 +1268,19 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 					continue
 				}
 			} else {
-				err := c.jClient.Add(stringSlice, string(t.GetJsonIetfVal()))
+				err := c.jClient.Replace(stringSlice, string(t.GetJsonIetfVal()))
 				if err != nil {
 					// Add failed
 					return err
 				}
 			}
 		}
-		curr = ``
+		curr := map[string]interface{}{}
 		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), REPLACE_OPERATION, &curr)
 		if err != nil {
 			return err
 		}
-		text += curr + `,`
+		patchList = append(patchList, curr)
 	}
 
 	/* UPDATE */
@@ -1309,20 +1310,22 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 				}
 			}
 		}
-		curr = ``
+		curr := map[string]interface{}{}
 		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), UPDATE_OPERATION, &curr)
 		if err != nil {
 			return err
 		}
-		text += curr + `,`
+		patchList = append(patchList, curr)
 	}
-	text = strings.TrimSuffix(text, `,`)
-	text += `]`
-	log.V(2).Infof("JsonPatch: %s", text)
-	if text == `[]` {
+	if len(patchList) == 0 {
 		// No need to apply patch
 		return nil
 	}
+	text, err := json.Marshal(patchList)
+	if err != nil {
+		return err
+	}
+	log.V(2).Infof("JsonPatch: %s", text)
 	patchFile := c.workPath + "/gcu.patch"
 	err = ioutil.WriteFile(patchFile, []byte(text), 0644)
 	if err != nil {
@@ -1330,7 +1333,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 	}
 
 	if c.origin == "sonic-db" {
-		err = sc.ApplyPatchDb(text)
+		err = sc.ApplyPatchDb(string(text))
 	}
 
 	if err == nil {
@@ -1352,7 +1355,7 @@ func (c *MixedDbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.U
 		return err
 	}
 
-	PyCodeInGo := fmt.Sprintf(PyCodeForYang, fileName)
+	PyCodeInGo := fmt.Sprintf(PyCodeForYang, ietf_json_val)
 	err = RunPyCode(PyCodeInGo)
 	if err != nil {
 		return fmt.Errorf("Yang validation failed!")
