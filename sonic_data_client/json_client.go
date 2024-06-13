@@ -282,8 +282,10 @@ func (c *JsonClient) Add(path []string, value string) error {
 		}
 		if id == len(vlist) {
 			vlist = append(vlist, "")
-			ventry[path[2]] = vlist
+		} else {
+			vlist = append(vlist[:id+1], vlist[id:]...)
 		}
+		ventry[path[2]] = vlist
 		v, err := parseJson([]byte(value))
 		if err != nil {
 			return fmt.Errorf("Fail to parse %v", value)
@@ -295,6 +297,14 @@ func (c *JsonClient) Add(path []string, value string) error {
 	}
 		
 	return nil
+}
+
+func (c *JsonClient) Replace(path []string, value string) error {
+	err := c.Remove(path)
+	if err != nil {
+		return err
+	}
+	return c.Add(path, value)
 }
 
 func (c *JsonClient) Remove(path []string) error {
