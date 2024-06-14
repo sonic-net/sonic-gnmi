@@ -1070,6 +1070,158 @@ test_data_bgp_mon_patch = [
     }
 ]
 
+test_data_cacl_patch = [
+    {
+        "test_name": "cacl_tc1_add_new_table",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/ACL_TABLE/TEST_1",
+                "value": {
+                    "policy_desc": "Test_Table_1",
+                    "services": [
+                        "SNMP"
+                    ],
+                    "stage": "ingress",
+                    "type": "CTRLPLANE"
+                }
+            }
+        ],
+        "origin_json": {
+            "ACL_TABLE": {}
+        },
+        "target_json": {
+            "ACL_TABLE": {
+                "TEST_1": {
+                    "policy_desc": "Test_Table_1",
+                    "services": [
+                        "SNMP"
+                    ],
+                    "stage": "ingress",
+                    "type": "CTRLPLANE"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "cacl_tc1_add_duplicate_table",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/ACL_TABLE/SNMP_ACL",
+                "value": {
+                    "policy_desc": "SNMP_ACL",
+                    "services": [
+                        "SNMP"
+                    ],
+                    "stage": "ingress",
+                    "type": "CTRLPLANE"
+                }
+            }
+        ],
+        "origin_json": {
+            "ACL_TABLE": {
+                "SNMP_ACL": {
+                    "policy_desc": "SNMP_ACL",
+                    "services": [
+                        "SNMP"
+                    ],
+                    "stage": "ingress",
+                    "type": "CTRLPLANE"
+                }
+            }
+        },
+        "target_json": {
+            "ACL_TABLE": {
+                "SNMP_ACL": {
+                    "policy_desc": "SNMP_ACL",
+                    "services": [
+                        "SNMP"
+                    ],
+                    "stage": "ingress",
+                    "type": "CTRLPLANE"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "cacl_tc1_replace_table_variable",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/ACL_TABLE/SNMP_ACL/stage",
+                "value": "egress"
+            },
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/ACL_TABLE/SNMP_ACL/services/0",
+                "value": "SSH"
+            },
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/ACL_TABLE/SNMP_ACL/policy_desc",
+                "value": "SNMP_TO_SSH"
+            }
+        ],
+        "origin_json": {
+            "ACL_TABLE": {
+                "SNMP_ACL": {
+                    "policy_desc": "SNMP_ACL",
+                    "services": [
+                        "SNMP"
+                    ],
+                    "stage": "ingress",
+                    "type": "CTRLPLANE"
+                }
+            }
+        },
+        "target_json": {
+            "ACL_TABLE": {
+                "SNMP_ACL": {
+                    "policy_desc": "SNMP_TO_SSH",
+                    "services": [
+                        "SSH"
+                    ],
+                    "stage": "egress",
+                    "type": "CTRLPLANE"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "cacl_tc1_remove_table",
+        "operations": [
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/ACL_TABLE/SSH_ONLY"
+            }
+        ],
+        "origin_json": {
+            "ACL_TABLE": {
+                "SNMP_ACL": {
+                    "policy_desc": "SNMP_ACL"
+                },
+                "SSH_ONLY": {
+                    "policy_desc": "SSH_ONLY"
+                },
+                "NTP_ACL": {
+                    "policy_desc": "NTP_ACL"
+                }
+            }
+        },
+        "target_json": {
+            "ACL_TABLE": {
+                "SNMP_ACL": {
+                    "policy_desc": "SNMP_ACL"
+                },
+                "NTP_ACL": {
+                    "policy_desc": "NTP_ACL"
+                }
+            }
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -1115,6 +1267,13 @@ class TestGNMIConfigDbPatch:
         diff = jsonpatch.make_patch(result, test_data["target_json"])
         assert len(diff.patch) == 0, "%s failed, generated json: %s" % (test_data["test_name"], str(result))
 
+    @pytest.mark.parametrize("test_data", test_data_aaa_patch)
+    def test_gnmi_aaa_patch(self, test_data):
+        '''
+        Generate GNMI request for AAA and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
     @pytest.mark.parametrize("test_data", test_data_bgp_prefix_patch)
     def test_gnmi_bgp_prefix_patch(self, test_data):
         '''
@@ -1140,5 +1299,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_bgp_mon_patch(self, test_data):
         '''
         Generate GNMI request for BGP monitor and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_cacl_patch)
+    def test_gnmi_cacl_patch(self, test_data):
+        '''
+        Generate GNMI request for CACL and verify jsonpatch
         '''
         self.common_test_handler(test_data)
