@@ -1222,6 +1222,85 @@ test_data_cacl_patch = [
     }
 ]
 
+test_data_dhcp_relay_patch = [
+    {
+        "test_name": "test_dhcp_relay_tc2_add_exist",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/VLAN/Vlan100/dhcp_servers/0",
+                "value": "192.0.100.1"
+            }
+        ],
+        "origin_json": {
+            "VLAN": {
+                "Vlan100": {
+                    "dhcp_servers": ["192.1.0.1"]
+                }
+            }
+        },
+        "target_json": {
+            "VLAN": {
+                "Vlan100": {
+                    "dhcp_servers": ["192.0.100.1", "192.1.0.1"]
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_dhcp_relay_tc3_add_and_rm",
+        "operations": [
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/VLAN/Vlan100/dhcp_servers/3"
+            },
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/VLAN/Vlan100/dhcp_servers/4",
+                "value": "192.0.200.5"
+            }
+        ],
+        "origin_json": {
+            "VLAN": {
+                "Vlan100": {
+                    "dhcp_servers": ["192.0.100.1", "192.0.100.2", "192.0.100.3", "192.0.100.4", "192.0.100.5"]
+                }
+            }
+        },
+        "target_json": {
+            "VLAN": {
+                "Vlan100": {
+                    "dhcp_servers": ["192.0.100.1", "192.0.100.2", "192.0.100.3", "192.0.100.5", "192.0.200.5"]
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_dhcp_relay_tc4_replace",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/VLAN/Vlan100/dhcp_servers/0",
+                "value": "192.0.100.8"
+            }
+        ],
+        "origin_json": {
+            "VLAN": {
+                "Vlan100": {
+                    "dhcp_servers": ["192.0.100.1", "192.0.100.2", "192.0.100.3", "192.0.100.4", "192.0.100.5"]
+                }
+            }
+        },
+        "target_json": {
+            "VLAN": {
+                "Vlan100": {
+                    "dhcp_servers": ["192.0.100.8", "192.0.100.2", "192.0.100.3", "192.0.100.4", "192.0.100.5"]
+                }
+            }
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -1306,5 +1385,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_cacl_patch(self, test_data):
         '''
         Generate GNMI request for CACL and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_dhcp_relay_patch)
+    def test_gnmi_dhcp_relay_patch(self, test_data):
+        '''
+        Generate GNMI request for dhcp relay and verify jsonpatch
         '''
         self.common_test_handler(test_data)
