@@ -2,7 +2,6 @@
 import os
 import time
 from utils import gnmi_set, gnmi_get, gnmi_dump
-
 import pytest
 
 
