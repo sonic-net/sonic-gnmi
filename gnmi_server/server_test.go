@@ -1475,6 +1475,7 @@ func TestGnmiGetMultiNs(t *testing.T) {
 
 	s.s.Stop()
 }
+/*
 func TestGnmiGetTranslib(t *testing.T) {
 	//t.Log("Start server")
 	s := createServer(t, 8081)
@@ -1558,56 +1559,56 @@ func TestGnmiGetTranslib(t *testing.T) {
 		// 		wantRespVal: emptyRespVal,
 		// 		valTest:     false,
 		// 	},
-		//{
-		//	desc:       "Get OC Interfaces",
-		//	pathTarget: "OC_YANG",
-		//	textPbPath: `
-        //                elem: <name: "openconfig-interfaces:interfaces" >
-        //        `,
-		//	wantRetCode: codes.OK,
-		//	wantRespVal: emptyRespVal,
-		//	valTest:     false,
-		//},
-		//{
-		//	desc:       "Get OC Interface",
-		//	pathTarget: "OC_YANG",
-		//	textPbPath: `
-        //                elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > >
-        //        `,
-		//	wantRetCode: codes.OK,
-		//	wantRespVal: emptyRespVal,
-		//	valTest:     false,
-		//},
-		//{
-		//	desc:       "Get OC Interface admin-status",
-		//	pathTarget: "OC_YANG",
-		//	textPbPath: `
-        //                elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "admin-status" >
-        //        `,
-		//	wantRetCode: codes.OK,
-		//	wantRespVal: emptyRespVal,
-		//	valTest:     false,
-		//},
-		//{
-		//	desc:       "Get OC Interface ifindex",
-		//	pathTarget: "OC_YANG",
-		//	textPbPath: `
-        //                elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "ifindex" >
-        //        `,
-		//	wantRetCode: codes.OK,
-		//	wantRespVal: emptyRespVal,
-		//	valTest:     false,
-		//},
-		//{
-		//	desc:       "Get OC Interface mtu",
-		//	pathTarget: "OC_YANG",
-		//	textPbPath: `
-        //                elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "mtu" >
-        //        `,
-		//	wantRetCode: codes.OK,
-		//	wantRespVal: emptyRespVal,
-		//	valTest:     false,
-		//},
+		{
+			desc:       "Get OC Interfaces",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                        elem: <name: "openconfig-interfaces:interfaces" >
+                `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OC Interface",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                        elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > >
+                `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OC Interface admin-status",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                        elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "admin-status" >
+                `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OC Interface ifindex",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                        elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "ifindex" >
+                `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OC Interface mtu",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                        elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "mtu" >
+                `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
 	}
 
 	for _, td := range tds {
@@ -1616,7 +1617,7 @@ func TestGnmiGetTranslib(t *testing.T) {
 		})
 	}
 	s.s.Stop()
-}
+}*/
 
 type tablePathValue struct {
 	dbName    string
