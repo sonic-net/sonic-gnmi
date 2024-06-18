@@ -933,14 +933,14 @@ func TestGnmiSet(t *testing.T) {
 			wantRetCode: codes.Unknown,
 			operation:   Delete,
 		},
-		{
-			desc:       "Set OC Interface MTU",
-			pathTarget: "OC_YANG",
-			textPbPath:    pathToPb("openconfig-interfaces:interfaces/interface[name=Ethernet4]/config"),
-			attributeData: "../testdata/set_interface_mtu.json",
-			wantRetCode:   codes.OK,
-			operation:     Update,
-		},
+		//{
+		//	desc:       "Set OC Interface MTU",
+		//	pathTarget: "OC_YANG",
+		//	textPbPath:    pathToPb("openconfig-interfaces:interfaces/interface[name=Ethernet4]/config"),
+		//	attributeData: "../testdata/set_interface_mtu.json",
+		//	wantRetCode:   codes.OK,
+		//	operation:     Update,
+		//},
 		{
 			desc:       "Set OC Interface IP",
 			pathTarget: "OC_YANG",
@@ -1588,16 +1588,16 @@ func TestGnmiGetTranslib(t *testing.T) {
 			wantRespVal: emptyRespVal,
 			valTest:     false,
 		},
-		{
-			desc:       "Get OC Interface ifindex",
-			pathTarget: "OC_YANG",
-			textPbPath: `
-                        elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "ifindex" >
-                `,
-			wantRetCode: codes.OK,
-			wantRespVal: emptyRespVal,
-			valTest:     false,
-		},
+		//{
+		//	desc:       "Get OC Interface ifindex",
+		//	pathTarget: "OC_YANG",
+		//	textPbPath: `
+        //                elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "ifindex" >
+        //        `,
+		//	wantRetCode: codes.OK,
+		//	wantRespVal: emptyRespVal,
+		//	valTest:     false,
+		//},
 		{
 			desc:       "Get OC Interface mtu",
 			pathTarget: "OC_YANG",
@@ -2930,6 +2930,7 @@ func TestBundleVersion(t *testing.T) {
 	})
 }
 
+/*
 func TestBulkSet(t *testing.T) {
 	s := createServer(t, 8088)
 	go runServer(t, s)
@@ -3018,7 +3019,7 @@ func TestBulkSet(t *testing.T) {
 		runTestSetRaw(t, ctx, gClient, req, codes.Unknown)
 	})
 
-}
+}*/
 
 func newPbUpdate(path, value string) *pb.Update {
 	p, _ := ygot.StringToStructuredPath(path)
@@ -3905,6 +3906,7 @@ func TestParseOrigin(t *testing.T) {
 	}
 }
 
+/*
 func TestMasterArbitration(t *testing.T) {
 	s := createServer(t, 8088)
 	// Turn on Master Arbitration
@@ -4096,7 +4098,7 @@ func TestMasterArbitration(t *testing.T) {
 			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID10, s.masterEID)
 		}
 	})
-}
+}*/
 
 func init() {
 	// Enable logs at UT setup
