@@ -1745,6 +1745,212 @@ test_data_ecn_config_patch = [
     }
 ]
 
+test_data_eth_interface_patch = [
+    {
+        "test_name": "test_replace_lanes",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/PORT/Ethernet0/lanes",
+                "value": "1,2,3,5"
+            }
+        ],
+        "origin_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "lanes": "1,2,3,4"
+                }
+            }
+        },
+        "target_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "lanes": "1,2,3,5"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_replace_mtu",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/PORT/Ethernet0/mtu",
+                "value": "1514"
+            }
+        ],
+        "origin_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "mtu": "1500"
+                }
+            }
+        },
+        "target_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "mtu": "1514"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_toggle_pfc_asym",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/PORT/Ethernet0/pfc_asym",
+                "value": "off"
+            }
+        ],
+        "origin_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "pfc_asym": "on"
+                }
+            }
+        },
+        "target_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "pfc_asym": "off"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_replace_fec",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/PORT/Ethernet0/fec",
+                "value": "rs"
+            }
+        ],
+        "origin_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "fec": "fc"
+                }
+            }
+        },
+        "target_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "fec": "rs"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_update_valid_index",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/PORT/Ethernet0/index",
+                "value": "2"
+            },
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/PORT/Ethernet4/index",
+                "value": "1"
+            }
+        ],
+        "origin_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "index": "1"
+                },
+                "Ethernet4": {
+                    "index": "2"
+                }
+            }
+        },
+        "target_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "index": "2"
+                },
+                "Ethernet4": {
+                    "index": "1"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_update_speed",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/PORT/Ethernet0/speed",
+                "value": "2000"
+            }
+        ],
+        "origin_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "speed": "1000"
+                }
+            }
+        },
+        "target_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "speed": "2000"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_update_description",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/PORT/Ethernet0/description",
+                "value": "Updated description"
+            }
+        ],
+        "origin_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "description": ""
+                }
+            }
+        },
+        "target_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "description": "Updated description"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_eth_interface_admin_change",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/PORT/Ethernet0/admin_status",
+                "value": "down"
+            }
+        ],
+        "origin_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "admin_status": "up"
+                }
+            }
+        },
+        "target_json": {
+            "PORT": {
+                "Ethernet0": {
+                    "admin_status": "down"
+                }
+            }
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -1850,5 +2056,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_ecn_config_patch(self, test_data):
         '''
         Generate GNMI request for ecn config and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_eth_interface_patch)
+    def test_gnmi_eth_interface_patch(self, test_data):
+        '''
+        Generate GNMI request for eth interface and verify jsonpatch
         '''
         self.common_test_handler(test_data)
