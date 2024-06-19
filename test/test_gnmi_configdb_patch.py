@@ -1301,6 +1301,409 @@ test_data_dhcp_relay_patch = [
     }
 ]
 
+test_data_dynamic_acl_patch = [
+    {
+        "test_name": "test_gcu_acl_arp_rule_creation",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/ACL_RULE",
+                "value": {
+                    "DYNAMIC_ACL_TABLE|ARP_RULE": {
+                        "ETHER_TYPE": "0x0806",
+                        "PRIORITY": "9997",
+                        "PACKET_ACTION": "FORWARD"
+                    },
+                    "DYNAMIC_ACL_TABLE|RULE_3": {
+                        "IN_PORTS": "Ethernet4",
+                        "PRIORITY": "9995",
+                        "PACKET_ACTION": "DROP"
+                    }
+                }
+            }
+        ],
+        "origin_json": {},
+        "target_json": {
+            "ACL_RULE": {
+                "DYNAMIC_ACL_TABLE|ARP_RULE": {
+                    "ETHER_TYPE": "0x0806",
+                    "PRIORITY": "9997",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|RULE_3": {
+                    "IN_PORTS": "Ethernet4",
+                    "PRIORITY": "9995",
+                    "PACKET_ACTION": "DROP"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_gcu_acl_dhcp_rule_creation",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/ACL_RULE",
+                "value": {
+                    "DYNAMIC_ACL_TABLE|DHCP_RULE": {
+                        "IP_PROTOCOL": "17",
+                        "L4_DST_PORT": "67",
+                        "ETHER_TYPE": "0x0800",
+                        "PRIORITY": "9999",
+                        "PACKET_ACTION": "FORWARD"
+                    },
+                    "DYNAMIC_ACL_TABLE|DHCPV6_RULE": {
+                        "IP_PROTOCOL": "17",
+                        "L4_DST_PORT_RANGE": "547-548",
+                        "ETHER_TYPE": "0x86DD",
+                        "PRIORITY": "9998",
+                        "PACKET_ACTION": "FORWARD"
+                    },
+                    "DYNAMIC_ACL_TABLE|RULE_3": {
+                        "IN_PORTS": "Ethernet4",
+                        "PRIORITY": "9995",
+                        "PACKET_ACTION": "DROP"
+                    }
+                }
+            }
+        ],
+        "origin_json": {},
+        "target_json": {
+            "ACL_RULE": {
+                "DYNAMIC_ACL_TABLE|DHCP_RULE": {
+                    "IP_PROTOCOL": "17",
+                    "L4_DST_PORT": "67",
+                    "ETHER_TYPE": "0x0800",
+                    "PRIORITY": "9999",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|DHCPV6_RULE": {
+                    "IP_PROTOCOL": "17",
+                    "L4_DST_PORT_RANGE": "547-548",
+                    "ETHER_TYPE": "0x86DD",
+                    "PRIORITY": "9998",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|RULE_3": {
+                    "IN_PORTS": "Ethernet4",
+                    "PRIORITY": "9995",
+                    "PACKET_ACTION": "DROP"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_gcu_acl_drop_rule_creation",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/ACL_RULE",
+                "value": {
+                    "DYNAMIC_ACL_TABLE|RULE_3": {
+                        "IN_PORTS": "Ethernet4",
+                        "PRIORITY": "9995",
+                        "PACKET_ACTION": "DROP"
+                    }
+                }
+            }
+        ],
+        "origin_json": {},
+        "target_json": {
+            "ACL_RULE": {
+                "DYNAMIC_ACL_TABLE|RULE_3": {
+                    "IN_PORTS": "Ethernet4",
+                    "PRIORITY": "9995",
+                    "PACKET_ACTION": "DROP"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_gcu_acl_drop_rule_removal",
+        "operations": [
+            {
+                "op": "del",
+                "path": r"/sonic-db:CONFIG_DB/localhost/ACL_RULE/DYNAMIC_ACL_TABLE\|RULE_5"
+            }
+        ],
+        "origin_json": {
+            "ACL_RULE": {
+                "DYNAMIC_ACL_TABLE|RULE_3": {
+                    "PRIORITY": "9997",
+                    "PACKET_ACTION": "DROP",
+                    "IN_PORTS": "Ethernet4",
+                },
+                "DYNAMIC_ACL_TABLE|RULE_4": {
+                    "PRIORITY": "9996",
+                    "PACKET_ACTION": "DROP",
+                    "IN_PORTS": "Ethernet8",
+                },
+                "DYNAMIC_ACL_TABLE|RULE_5": {
+                    "PRIORITY": "9995",
+                    "PACKET_ACTION": "DROP",
+                    "IN_PORTS": "Ethernet12",
+                }
+            }
+        },
+        "target_json": {
+            "ACL_RULE": {
+                "DYNAMIC_ACL_TABLE|RULE_3": {
+                    "PRIORITY": "9997",
+                    "PACKET_ACTION": "DROP",
+                    "IN_PORTS": "Ethernet4",
+                },
+                "DYNAMIC_ACL_TABLE|RULE_4": {
+                    "PRIORITY": "9996",
+                    "PACKET_ACTION": "DROP",
+                    "IN_PORTS": "Ethernet8",
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_gcu_acl_forward_rule_priority_respected",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/ACL_RULE",
+                "value": {
+                    "DYNAMIC_ACL_TABLE|RULE_1": {
+                        "DST_IP": "103.23.2.1/32",
+                        "PRIORITY": "9999",
+                        "PACKET_ACTION": "FORWARD"
+                    },
+                    "DYNAMIC_ACL_TABLE|RULE_2": {
+                        "DST_IPV6": "103:23:2:1::1/128",
+                        "PRIORITY": "9998",
+                        "PACKET_ACTION": "FORWARD"
+                    },
+                    "DYNAMIC_ACL_TABLE|RULE_3": {
+                        "IN_PORTS": "Ethernet4",
+                        "PRIORITY": "9995",
+                        "PACKET_ACTION": "DROP"
+                    }
+                }
+            }
+        ],
+        "origin_json": {},
+        "target_json": {
+            "ACL_RULE": {
+                "DYNAMIC_ACL_TABLE|RULE_1": {
+                    "DST_IP": "103.23.2.1/32",
+                    "PRIORITY": "9999",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|RULE_2": {
+                    "DST_IPV6": "103:23:2:1::1/128",
+                    "PRIORITY": "9998",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|RULE_3": {
+                    "IN_PORTS": "Ethernet4",
+                    "PRIORITY": "9995",
+                    "PACKET_ACTION": "DROP"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_gcu_acl_forward_rule_replacement",
+        "operations": [
+            {
+                "op": "del",
+                "path": r"/sonic-db:CONFIG_DB/localhost/ACL_RULE/DYNAMIC_ACL_TABLE\|RULE_1"
+            },
+            {
+                "op": "del",
+                "path": r"/sonic-db:CONFIG_DB/localhost/ACL_RULE/DYNAMIC_ACL_TABLE\|RULE_2"
+            },
+            {
+                "op": "update",
+                "path": r"/sonic-db:CONFIG_DB/localhost/ACL_RULE/DYNAMIC_ACL_TABLE\|RULE_1",
+                "value": {
+                    "DST_IP": "103.23.2.2/32",
+                    "PRIORITY": "9999",
+                    "PACKET_ACTION": "FORWARD"
+                }
+            },
+            {
+                "op": "update",
+                "path": r"/sonic-db:CONFIG_DB/localhost/ACL_RULE/DYNAMIC_ACL_TABLE\|RULE_2",
+                "value": {
+                    "DST_IPV6": "103:23:2:2::1/128",
+                    "PRIORITY": "9998",
+                    "PACKET_ACTION": "FORWARD"
+                }
+            }
+        ],
+        "origin_json": {
+            "ACL_RULE": {
+                "DYNAMIC_ACL_TABLE|RULE_1": {
+                    "DST_IP": "103.23.2.1/32",
+                    "PRIORITY": "9999",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|RULE_2": {
+                    "DST_IPV6": "103:23:2:1::1/128",
+                    "PRIORITY": "9998",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|RULE_3": {
+                    "IN_PORTS": "Ethernet4",
+                    "PRIORITY": "9995",
+                    "PACKET_ACTION": "DROP"
+                }
+            }
+        },
+        "target_json": {
+            "ACL_RULE": {
+                "DYNAMIC_ACL_TABLE|RULE_1": {
+                    "DST_IP": "103.23.2.2/32",
+                    "PRIORITY": "9999",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|RULE_2": {
+                    "DST_IPV6": "103:23:2:2::1/128",
+                    "PRIORITY": "9998",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|RULE_3": {
+                    "IN_PORTS": "Ethernet4",
+                    "PRIORITY": "9995",
+                    "PACKET_ACTION": "DROP"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_gcu_acl_forward_rule_removal",
+        "operations": [
+            {
+                "op": "del",
+                "path": r"/sonic-db:CONFIG_DB/localhost/ACL_RULE/DYNAMIC_ACL_TABLE\|RULE_1"
+            },
+            {
+                "op": "del",
+                "path": r"/sonic-db:CONFIG_DB/localhost/ACL_RULE/DYNAMIC_ACL_TABLE\|RULE_2"
+            }
+        ],
+        "origin_json": {
+            "ACL_RULE": {
+                "DYNAMIC_ACL_TABLE|RULE_1": {
+                    "DST_IP": "103.23.2.1/32",
+                    "PRIORITY": "9999",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|RULE_2": {
+                    "DST_IPV6": "103:23:2:1::1/128",
+                    "PRIORITY": "9998",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|RULE_3": {
+                    "IN_PORTS": "Ethernet4",
+                    "PRIORITY": "9995",
+                    "PACKET_ACTION": "DROP"
+                }
+            }
+        },
+        "target_json": {
+            "ACL_RULE": {
+                "DYNAMIC_ACL_TABLE|RULE_3": {
+                    "IN_PORTS": "Ethernet4",
+                    "PRIORITY": "9995",
+                    "PACKET_ACTION": "DROP"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_gcu_acl_scale_rules",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/ACL_RULE",
+                "value": {
+                    "DYNAMIC_ACL_TABLE|FORWARD_RULE_1": {
+                        "DST_IP": "103.23.4.1/32",
+                        "PRIORITY": "9900",
+                        "PACKET_ACTION": "FORWARD"
+                    },
+                    "DYNAMIC_ACL_TABLE|FORWARD_RULE_2": {
+                        "DST_IPV6": "103.23.4.2/32",
+                        "PRIORITY": "9900",
+                        "PACKET_ACTION": "FORWARD"
+                    },
+                    "DYNAMIC_ACL_TABLE|FORWARD_RULE_3": {
+                        "DST_IPV6": "103.23.4.3/32",
+                        "PRIORITY": "9900",
+                        "PACKET_ACTION": "FORWARD"
+                    },
+                    "DYNAMIC_ACL_TABLE|V6_FORWARD_RULE_1": {
+                        "DST_IP": "103:23:4:1::1/128",
+                        "PRIORITY": "9900",
+                        "PACKET_ACTION": "FORWARD"
+                    },
+                    "DYNAMIC_ACL_TABLE|V6_FORWARD_RULE_2": {
+                        "DST_IP": "103:23:4:2::1/128",
+                        "PRIORITY": "9900",
+                        "PACKET_ACTION": "FORWARD"
+                    },
+                    "DYNAMIC_ACL_TABLE|V6_FORWARD_RULE_3": {
+                        "DST_IP": "103:23:4:3::1/128",
+                        "PRIORITY": "9900",
+                        "PACKET_ACTION": "FORWARD"
+                    },
+                    "DYNAMIC_ACL_TABLE|DROP_RULE": {
+                        "IN_PORTS": "Ethernet4",
+                        "PRIORITY": "9000",
+                        "PACKET_ACTION": "DROP"
+                    }
+                }
+            }
+        ],
+        "origin_json": {},
+        "target_json": {
+            "ACL_RULE": {
+                "DYNAMIC_ACL_TABLE|FORWARD_RULE_1": {
+                    "DST_IP": "103.23.4.1/32",
+                    "PRIORITY": "9900",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|FORWARD_RULE_2": {
+                    "DST_IPV6": "103.23.4.2/32",
+                    "PRIORITY": "9900",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|FORWARD_RULE_3": {
+                    "DST_IPV6": "103.23.4.3/32",
+                    "PRIORITY": "9900",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|V6_FORWARD_RULE_1": {
+                    "DST_IP": "103:23:4:1::1/128",
+                    "PRIORITY": "9900",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|V6_FORWARD_RULE_2": {
+                    "DST_IP": "103:23:4:2::1/128",
+                    "PRIORITY": "9900",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|V6_FORWARD_RULE_3": {
+                    "DST_IP": "103:23:4:3::1/128",
+                    "PRIORITY": "9900",
+                    "PACKET_ACTION": "FORWARD"
+                },
+                "DYNAMIC_ACL_TABLE|DROP_RULE": {
+                    "IN_PORTS": "Ethernet4",
+                    "PRIORITY": "9000",
+                    "PACKET_ACTION": "DROP"
+                }
+            }
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -1334,6 +1737,8 @@ class TestGNMIConfigDbPatch:
             else:
                 pytest.fail("Invalid operation: %s" % data['op'])
 
+        if os.path.exists(patch_file):
+            os.remove(patch_file)
         # Send GNMI request
         ret, msg = gnmi_set(delete_list, update_list, replace_list)
         assert ret == 0, msg
@@ -1392,5 +1797,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_dhcp_relay_patch(self, test_data):
         '''
         Generate GNMI request for dhcp relay and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_dynamic_acl_patch)
+    def test_gnmi_dynamic_acl_patch(self, test_data):
+        '''
+        Generate GNMI request for dynamic acl and verify jsonpatch
         '''
         self.common_test_handler(test_data)
