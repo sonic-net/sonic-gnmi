@@ -1737,8 +1737,6 @@ class TestGNMIConfigDbPatch:
             else:
                 pytest.fail("Invalid operation: %s" % data['op'])
 
-        if os.path.exists(patch_file):
-            os.remove(patch_file)
         # Send GNMI request
         ret, msg = gnmi_set(delete_list, update_list, replace_list)
         assert ret == 0, msg
