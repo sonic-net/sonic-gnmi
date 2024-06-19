@@ -2067,6 +2067,109 @@ test_data_incremental_qos_patch = [
     }
 ]
 
+test_data_ipv6_patch = [
+    {
+        "test_name": "add_deleted_ipv6_neighbor",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/BGP_NEIGHBOR/fc00::7a",
+                "value": {
+                    "admin_status": "up",
+                    "asn": "64600",
+                    "holdtime": "10",
+                    "keepalive": "3",
+                    "local_addr": "fc00::79",
+                    "name": "ARISTA03T1",
+                    "nhopself": "0",
+                    "rrclient": "0"
+                }
+            }
+        ],
+        "origin_json": {
+            "BGP_NEIGHBOR": {}
+        },
+        "target_json": {
+            "BGP_NEIGHBOR": {
+                "fc00::7a": {
+                    "admin_status": "up",
+                    "asn": "64600",
+                    "holdtime": "10",
+                    "keepalive": "3",
+                    "local_addr": "fc00::79",
+                    "name": "ARISTA03T1",
+                    "nhopself": "0",
+                    "rrclient": "0"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "ipv6_neighbor_admin_change",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/BGP_NEIGHBOR/fc00::7a/admin_status",
+                "value": "down"
+            }
+        ],
+        "origin_json": {
+            "BGP_NEIGHBOR": {
+                "fc00::7a": {
+                    "admin_status": "up",
+                    "asn": "64600",
+                    "holdtime": "10",
+                    "keepalive": "3",
+                    "local_addr": "fc00::79",
+                    "name": "ARISTA03T1",
+                    "nhopself": "0",
+                    "rrclient": "0"
+                }
+            }
+        },
+        "target_json": {
+            "BGP_NEIGHBOR": {
+                "fc00::7a": {
+                    "admin_status": "down",
+                    "asn": "64600",
+                    "holdtime": "10",
+                    "keepalive": "3",
+                    "local_addr": "fc00::79",
+                    "name": "ARISTA03T1",
+                    "nhopself": "0",
+                    "rrclient": "0"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "delete_ipv6_neighbor",
+        "operations": [
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/BGP_NEIGHBOR/fc00::7a"
+            }
+        ],
+        "origin_json": {
+            "BGP_NEIGHBOR": {
+                "fc00::7a": {
+                    "admin_status": "up",
+                    "asn": "64600",
+                    "holdtime": "10",
+                    "keepalive": "3",
+                    "local_addr": "fc00::79",
+                    "name": "ARISTA03T1",
+                    "nhopself": "0",
+                    "rrclient": "0"
+                }
+            }
+        },
+        "target_json": {
+            "BGP_NEIGHBOR": {}
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -2186,5 +2289,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_incremental_qos_patch(self, test_data):
         '''
         Generate GNMI request for incremental qos and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_ipv6_patch)
+    def test_gnmi_ipv6_patch(self, test_data):
+        '''
+        Generate GNMI request for ipv6 and verify jsonpatch
         '''
         self.common_test_handler(test_data)
