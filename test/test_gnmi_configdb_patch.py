@@ -1704,6 +1704,47 @@ test_data_dynamic_acl_patch = [
     }
 ]
 
+test_data_ecn_config_patch = [
+    {
+        "test_name": "test_ecn_config_updates",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/WRED_PROFILE/AZURE_LOSSLESS/green_min_threshold",
+                "value": "2000001"
+            },
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/WRED_PROFILE/AZURE_LOSSLESS/green_max_threshold",
+                "value": "10000001"
+            },
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/WRED_PROFILE/AZURE_LOSSLESS/green_drop_probability",
+                "value": "6"
+            },
+        ],
+        "origin_json": {
+            "WRED_PROFILE": {
+                "AZURE_LOSSLESS": {
+                    "green_min_threshold": "2000000",
+                    "green_max_threshold": "10000000",
+                    "green_drop_probability": "5"
+                }
+            }
+        },
+        "target_json": {
+            "WRED_PROFILE": {
+                "AZURE_LOSSLESS": {
+                    "green_min_threshold": "2000001",
+                    "green_max_threshold": "10000001",
+                    "green_drop_probability": "6"
+                }
+            }
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -1802,5 +1843,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_dynamic_acl_patch(self, test_data):
         '''
         Generate GNMI request for dynamic acl and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_ecn_config_patch)
+    def test_gnmi_ecn_config_patch(self, test_data):
+        '''
+        Generate GNMI request for ecn config and verify jsonpatch
         '''
         self.common_test_handler(test_data)
