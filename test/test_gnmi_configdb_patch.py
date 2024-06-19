@@ -2170,6 +2170,144 @@ test_data_ipv6_patch = [
     }
 ]
 
+test_data_k8s_config_patch = [
+    {
+        "test_name": "K8SEMPTYTOHALFPATCH",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/KUBERNETES_MASTER",
+                "value": {"SERVER": {}}
+            }
+        ],
+        "origin_json": {
+            "KUBERNETES_MASTER": {}
+        },
+        "target_json": {
+            "KUBERNETES_MASTER": {
+                "SERVER": {}
+            }
+        }
+    },
+    {
+        "test_name": "K8SHALFTOFULLPATCH",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/KUBERNETES_MASTER/SERVER/disable",
+                "value": "false"
+            },
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/KUBERNETES_MASTER/SERVER/ip",
+                "value": "k8svip.ap.gbl"
+            }
+        ],
+        "origin_json": {
+            "KUBERNETES_MASTER": {
+                "SERVER": {
+                    "disable": "true",
+                    "ip": ""
+                }
+            }
+        },
+        "target_json": {
+            "KUBERNETES_MASTER": {
+                "SERVER": {
+                    "disable": "false",
+                    "ip": "k8svip.ap.gbl"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "K8SFULLTOHALFPATCH",
+        "operations": [
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/KUBERNETES_MASTER/SERVER/disable"
+            },
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/KUBERNETES_MASTER/SERVER/ip"
+            }
+        ],
+        "origin_json": {
+            "KUBERNETES_MASTER": {
+                "SERVER": {
+                    "disable": "true",
+                    "ip": ""
+                }
+            }
+        },
+        "target_json": {
+            "KUBERNETES_MASTER": {
+                "SERVER": {}
+            }
+        }
+    },
+    {
+        "test_name": "K8SHALFTOEMPTYPATCH",
+        "operations": [
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/KUBERNETES_MASTER"
+            }
+        ],
+        "origin_json": {
+            "KUBERNETES_MASTER": {
+                "SERVER": {
+                    "disable": "true",
+                    "ip": ""
+                }
+            }
+        },
+        "target_json": {}
+    },
+    {
+        "test_name": "K8SHALFTOEMPTYPATCH",
+        "operations": [
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/KUBERNETES_MASTER"
+            }
+        ],
+        "origin_json": {
+            "KUBERNETES_MASTER": {
+                "SERVER": {
+                    "disable": "true",
+                    "ip": ""
+                }
+            }
+        },
+        "target_json": {}
+    },
+    {
+        "test_name": "K8SEMPTYTOFULLPATCH",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/KUBERNETES_MASTER",
+                "value": {
+                    "SERVER": {
+                        "disable": "false",
+                        "ip": "k8svip.ap.gbl"
+                    }
+                }
+            }
+        ],
+        "origin_json": {},
+        "target_json": {
+            "KUBERNETES_MASTER": {
+                "SERVER": {
+                    "disable": "false",
+                    "ip": "k8svip.ap.gbl"
+                }
+            }
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -2296,5 +2434,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_ipv6_patch(self, test_data):
         '''
         Generate GNMI request for ipv6 and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_k8s_config_patch)
+    def test_gnmi_k8s_config_patch(self, test_data):
+        '''
+        Generate GNMI request for k8s config and verify jsonpatch
         '''
         self.common_test_handler(test_data)
