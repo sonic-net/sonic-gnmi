@@ -1951,6 +1951,122 @@ test_data_eth_interface_patch = [
     }
 ]
 
+test_data_incremental_qos_patch = [
+    {
+        "test_name": "test_incremental_qos_config_updates_add",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/BUFFER_POOL/ingress_lossless_pool/xoff",
+                "value": "2000"
+            },
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/BUFFER_POOL/ingress_lossless_pool/size",
+                "value": "5000"
+            },
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/BUFFER_POOL/egress_lossy_pool/size",
+                "value": "6000"
+            }
+        ],
+        "origin_json": {
+            "BUFFER_POOL": {
+                "ingress_lossless_pool": {},
+                "egress_lossy_pool": {}
+            }
+        },
+        "target_json": {
+            "BUFFER_POOL": {
+                "ingress_lossless_pool": {
+                    "xoff": "2000",
+                    "size": "5000"
+                },
+                "egress_lossy_pool": {
+                    "size": "6000"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_incremental_qos_config_updates_replace",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/BUFFER_POOL/ingress_lossless_pool/xoff",
+                "value": "2001"
+            },
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/BUFFER_POOL/ingress_lossless_pool/size",
+                "value": "5001"
+            },
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/BUFFER_POOL/egress_lossy_pool/size",
+                "value": "6001"
+            }
+        ],
+        "origin_json": {
+            "BUFFER_POOL": {
+                "ingress_lossless_pool": {
+                    "xoff": "2000",
+                    "size": "5000"
+                },
+                "egress_lossy_pool": {
+                    "size": "6000"
+                }
+            }
+        },
+        "target_json": {
+            "BUFFER_POOL": {
+                "ingress_lossless_pool": {
+                    "xoff": "2001",
+                    "size": "5001"
+                },
+                "egress_lossy_pool": {
+                    "size": "6001"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_incremental_qos_config_updates_remove",
+        "operations": [
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/BUFFER_POOL/ingress_lossless_pool/xoff"
+            },
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/BUFFER_POOL/ingress_lossless_pool/size"
+            },
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/BUFFER_POOL/egress_lossy_pool/size"
+            }
+        ],
+        "origin_json": {
+            "BUFFER_POOL": {
+                "ingress_lossless_pool": {
+                    "xoff": "2000",
+                    "size": "5000"
+                },
+                "egress_lossy_pool": {
+                    "size": "6000"
+                }
+            }
+        },
+        "target_json": {
+            "BUFFER_POOL": {
+                "ingress_lossless_pool": {},
+                "egress_lossy_pool": {}
+            }
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -2063,5 +2179,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_eth_interface_patch(self, test_data):
         '''
         Generate GNMI request for eth interface and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_incremental_qos_patch)
+    def test_gnmi_incremental_qos_patch(self, test_data):
+        '''
+        Generate GNMI request for incremental qos and verify jsonpatch
         '''
         self.common_test_handler(test_data)
