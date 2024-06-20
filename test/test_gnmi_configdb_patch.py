@@ -2316,18 +2316,18 @@ test_data_lo_interface_patch = [
                 "op": "update",
                 "path": "/sonic-db:CONFIG_DB/localhost/LOOPBACK_INTERFACE",
                 "value": {
-                    r"Loopback0": {},
-                    r"Loopback0|10.1.0.32/32": {},
-                    r"Loopback0|FC00:1::32/128": {},
+                    "Loopback0": {},
+                    "Loopback0|10.1.0.32/32": {},
+                    "Loopback0|FC00:1::32/128": {},
                 }
             }
         ],
         "origin_json": {},
         "target_json": {
             "LOOPBACK_INTERFACE": {
-                r"Loopback0": {},
-                r"Loopback0|10.1.0.32/32": {},
-                r"Loopback0|FC00:1::32/128": {},
+                "Loopback0": {},
+                "Loopback0|10.1.0.32/32": {},
+                "Loopback0|FC00:1::32/128": {},
             }
         }
     },
@@ -2355,16 +2355,16 @@ test_data_lo_interface_patch = [
         ],
         "origin_json": {
             "LOOPBACK_INTERFACE": {
-                r"Loopback0": {},
-                r"Loopback0|10.1.0.32/32": {},
-                r"Loopback0|FC00:1::32/128": {},
+                "Loopback0": {},
+                "Loopback0|10.1.0.32/32": {},
+                "Loopback0|FC00:1::32/128": {},
             }
         },
         "target_json": {
             "LOOPBACK_INTERFACE": {
-                r"Loopback0": {},
-                r"Loopback0|10.1.0.210/32": {},
-                r"Loopback0|FC00:1::210/128": {},
+                "Loopback0": {},
+                "Loopback0|10.1.0.210/32": {},
+                "Loopback0|FC00:1::210/128": {},
             }
         }
     },
@@ -2378,9 +2378,9 @@ test_data_lo_interface_patch = [
         ],
         "origin_json": {
             "LOOPBACK_INTERFACE": {
-                r"Loopback0": {},
-                r"Loopback0|10.1.0.32/32": {},
-                r"Loopback0|FC00:1::32/128": {},
+                "Loopback0": {},
+                "Loopback0|10.1.0.32/32": {},
+                "Loopback0|FC00:1::32/128": {},
             }
         },
         "target_json": {}
@@ -2405,6 +2405,35 @@ test_data_lo_interface_patch = [
             "LOOPBACK_INTERFACE": {
                 "Loopback0": {
                     "vrf_name": "Vrf_02"
+                },
+            }
+        }
+    }
+]
+
+test_data_mmu_dynamic_threshold_patch = [
+    {
+        "test_name": "test_dynamic_th_config_updates",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/BUFFER_PROFILE/pg_lossless_100000_300m_profile/dynamic_th",
+                "value": "2"
+            }
+        ],
+        "origin_json": {
+            "BUFFER_PROFILE": {
+                "pg_lossless_100000_300m_profile": {
+                    "dynamic_th": "0",
+                    "pool": "ingress_lossless_pool"
+                },
+            }
+        },
+        "target_json": {
+            "BUFFER_PROFILE": {
+                "pg_lossless_100000_300m_profile": {
+                    "dynamic_th": "2",
+                    "pool": "ingress_lossless_pool"
                 },
             }
         }
@@ -2551,5 +2580,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_lo_interface_patch(self, test_data):
         '''
         Generate GNMI request for lo interface and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_mmu_dynamic_threshold_patch)
+    def test_gnmi_mmu_dynamic_threshold_patch(self, test_data):
+        '''
+        Generate GNMI request for mmu dynamic threshold and verify jsonpatch
         '''
         self.common_test_handler(test_data)
