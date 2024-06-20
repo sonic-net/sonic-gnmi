@@ -2535,6 +2535,90 @@ test_data_monitor_config_patch = [
     }
 ]
 
+test_data_ntp_patch = [
+    {
+        "test_name": "ntp_server_tc1_add_config",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/NTP_SERVER",
+                "value": {
+                    "10.0.0.1": {
+                        "resolve_as": "10.0.0.1",
+                        "association_type": "server",
+                        "iburst": "on"
+                    }
+                }
+            }
+        ],
+        "origin_json": {},
+        "target_json": {
+            "NTP_SERVER": {
+                "10.0.0.1": {
+                    "resolve_as": "10.0.0.1",
+                    "association_type": "server",
+                    "iburst": "on"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "ntp_server_tc1_replace",
+        "operations": [
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/NTP_SERVER/10.0.0.1"
+            },
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/NTP_SERVER/10.0.0.2",
+                "value": {
+                    "resolve_as": "10.0.0.2",
+                    "association_type": "server",
+                    "iburst": "on"
+                }
+            }
+        ],
+        "origin_json": {
+            "NTP_SERVER": {
+                "10.0.0.1": {
+                    "resolve_as": "10.0.0.1",
+                    "association_type": "server",
+                    "iburst": "on"
+                }
+            }
+        },
+        "target_json": {
+            "NTP_SERVER": {
+                "10.0.0.1": {
+                    "resolve_as": "10.0.0.2",
+                    "association_type": "server",
+                    "iburst": "on"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "ntp_server_tc1_remove",
+        "operations": [
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/NTP_SERVER"
+            }
+        ],
+        "origin_json": {
+            "NTP_SERVER": {
+                "10.0.0.1": {
+                    "resolve_as": "10.0.0.1",
+                    "association_type": "server",
+                    "iburst": "on"
+                }
+            }
+        },
+        "target_json": {}
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
