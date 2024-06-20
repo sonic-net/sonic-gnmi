@@ -108,7 +108,7 @@ func NewJsonClient(fileName string) (*JsonClient, error) {
 func FixPath(path []string) (ret []string){
 	// Jsonpatch uses "~1" to support "/" in path
 	// Replace "~1" to compare json data 
-	if len(path) >=2 {
+	if len(path) >= 2 {
 		path[1] = strings.ReplaceAll(path[1], "~1", "/")
 	}
 	return path
