@@ -2308,6 +2308,109 @@ test_data_k8s_config_patch = [
     }
 ]
 
+test_data_lo_interface_patch = [
+    {
+        "test_name": "lo_interface_tc1_add_init",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/LOOPBACK_INTERFACE",
+                "value": {
+                    r"Loopback0": {},
+                    r"Loopback0|10.1.0.32/32": {},
+                    r"Loopback0|FC00:1::32/128": {},
+                }
+            }
+        ],
+        "origin_json": {},
+        "target_json": {
+            "LOOPBACK_INTERFACE": {
+                r"Loopback0": {},
+                r"Loopback0|10.1.0.32/32": {},
+                r"Loopback0|FC00:1::32/128": {},
+            }
+        }
+    },
+    {
+        "test_name": "lo_interface_tc1_replace",
+        "operations": [
+            {
+                "op": "del",
+                "path": r"/sonic-db:CONFIG_DB/localhost/LOOPBACK_INTERFACE/Loopback0\|10.1.0.32~132"
+            },
+            {
+                "op": "del",
+                "path": r"/sonic-db:CONFIG_DB/localhost/LOOPBACK_INTERFACE/Loopback0\|FC00:1::32~1128"
+            },
+            {
+                "op": "update",
+                "path": r"/sonic-db:CONFIG_DB/localhost/LOOPBACK_INTERFACE/Loopback0\|10.1.0.210~132",
+                "value": {}
+            },
+            {
+                "op": "update",
+                "path": r"/sonic-db:CONFIG_DB/localhost/LOOPBACK_INTERFACE/Loopback0\|FC00:1::210~1128",
+                "value": {}
+            }
+        ],
+        "origin_json": {
+            "LOOPBACK_INTERFACE": {
+                r"Loopback0": {},
+                r"Loopback0|10.1.0.32/32": {},
+                r"Loopback0|FC00:1::32/128": {},
+            }
+        },
+        "target_json": {
+            "LOOPBACK_INTERFACE": {
+                r"Loopback0": {},
+                r"Loopback0|10.1.0.210/32": {},
+                r"Loopback0|FC00:1::210/128": {},
+            }
+        }
+    },
+    {
+        "test_name": "lo_interface_tc1_remove",
+        "operations": [
+            {
+                "op": "del",
+                "path": r"/sonic-db:CONFIG_DB/localhost/LOOPBACK_INTERFACE"
+            }
+        ],
+        "origin_json": {
+            "LOOPBACK_INTERFACE": {
+                r"Loopback0": {},
+                r"Loopback0|10.1.0.32/32": {},
+                r"Loopback0|FC00:1::32/128": {},
+            }
+        },
+        "target_json": {}
+    },
+    {
+        "test_name": "test_lo_interface_tc2_vrf_change",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/LOOPBACK_INTERFACE/Loopback0/vrf_name",
+                "value": "Vrf_02"
+            }
+        ],
+        "origin_json": {
+            "LOOPBACK_INTERFACE": {
+                "Loopback0": {
+                    "vrf_name": "Vrf_01"
+                },
+            }
+        },
+        "target_json": {
+            "LOOPBACK_INTERFACE": {
+                "Loopback0": {
+                    "vrf_name": "Vrf_02"
+                },
+            }
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -2441,5 +2544,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_k8s_config_patch(self, test_data):
         '''
         Generate GNMI request for k8s config and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_lo_interface_patch)
+    def test_gnmi_lo_interface_patch(self, test_data):
+        '''
+        Generate GNMI request for lo interface and verify jsonpatch
         '''
         self.common_test_handler(test_data)
