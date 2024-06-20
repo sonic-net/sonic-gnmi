@@ -2440,6 +2440,101 @@ test_data_mmu_dynamic_threshold_patch = [
     }
 ]
 
+test_data_monitor_config_patch = [
+    {
+        "test_name": "test_monitor_config_tc1_suite",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/ACL_TABLE/EVERFLOW_DSCP",
+                "value": {
+                    "policy_desc": "EVERFLOW_DSCP",
+                    "ports": ["Ethernet0"],
+                    "stage": "ingress",
+                    "type": "MIRROR_DSCP"
+                }
+            },
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/ACL_RULE",
+                "value": {
+                    "EVERFLOW_DSCP|RULE_1": {
+                        "DSCP": "5",
+                        "MIRROR_INGRESS_ACTION": "mirror_session_dscp",
+                        "PRIORITY": "9999"
+                    }
+                }
+            },
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/MIRROR_SESSION",
+                "value": {
+                    "mirror_session_dscp": {
+                        "dscp": "5",
+                        "dst_ip": "2.2.2.2",
+                        "policer": "policer_dscp",
+                        "src_ip": "1.1.1.1",
+                        "ttl": "32",
+                        "type": "ERSPAN"
+                    }
+                }
+            },
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/POLICER",
+                "value": {
+                    "policer_dscp": {
+                        "meter_type": "bytes",
+                        "mode": "sr_tcm",
+                        "cir": "12500000",
+                        "cbs": "12500000",
+                        "red_packet_action": "drop"
+                    }
+                }
+            }
+        ],
+        "origin_json": {
+            "ACL_TABLE": {}
+        },
+        "target_json": {
+            "ACL_TABLE": {
+                "EVERFLOW_DSCP": {
+                    "policy_desc": "EVERFLOW_DSCP",
+                    "ports": ["Ethernet0"],
+                    "stage": "ingress",
+                    "type": "MIRROR_DSCP"
+                }
+            },
+            "ACL_RULE": {
+                "EVERFLOW_DSCP|RULE_1": {
+                    "DSCP": "5",
+                    "MIRROR_INGRESS_ACTION": "mirror_session_dscp",
+                    "PRIORITY": "9999"
+                }
+            },
+            "MIRROR_SESSION": {
+                "mirror_session_dscp": {
+                    "dscp": "5",
+                    "dst_ip": "2.2.2.2",
+                    "policer": "policer_dscp",
+                    "src_ip": "1.1.1.1",
+                    "ttl": "32",
+                    "type": "ERSPAN"
+                }
+            },
+            "POLICER": {
+                "policer_dscp": {
+                    "meter_type": "bytes",
+                    "mode": "sr_tcm",
+                    "cir": "12500000",
+                    "cbs": "12500000",
+                    "red_packet_action": "drop"
+                }
+            }
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -2587,5 +2682,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_mmu_dynamic_threshold_patch(self, test_data):
         '''
         Generate GNMI request for mmu dynamic threshold and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_monitor_config_patch)
+    def test_gnmi_monitor_config_patch(self, test_data):
+        '''
+        Generate GNMI request for monitor config and verify jsonpatch
         '''
         self.common_test_handler(test_data)
