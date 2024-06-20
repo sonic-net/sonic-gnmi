@@ -2308,14 +2308,6 @@ test_data_k8s_config_patch = [
     }
 ]
 
-'''
-DEFAULT_LOOPBACK = "Loopback0"
-REPLACE_IP = "10.1.0.210/32"
-REPLACE_IPV6 = "FC00:1::210/128"
-        "Loopback0": {},
-        "Loopback0|10.1.0.32/32": {},
-        "Loopback0|FC00:1::32/128": {}
-'''
 test_data_lo_interface_patch = [
     {
         "test_name": "lo_interface_tc1_add_init",
