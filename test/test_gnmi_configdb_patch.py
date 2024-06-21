@@ -2744,6 +2744,111 @@ test_data_pg_headroom_patch = [
     }
 ]
 
+test_data_portchannel_interface_patch = [
+    {
+        "test_name": "portchannel_interface_tc1_add_and_rm",
+        "operations": [
+            {
+                "op": "del",
+                "path": r"/sonic-db:CONFIG_DB/localhost/PORTCHANNEL_INTERFACE/PortChannel101\|10.0.0.150~131"
+            },
+            {
+                "op": "del",
+                "path": r"/sonic-db:CONFIG_DB/localhost/PORTCHANNEL_INTERFACE/PortChannel101\|fc00::170~1126"
+            },
+            {
+                "op": "update",
+                "path": r"/sonic-db:CONFIG_DB/localhost/PORTCHANNEL_INTERFACE/PortChannel101\|10.0.0.151~131",
+                "value": {}
+            },
+            {
+                "op": "update",
+                "path": r"/sonic-db:CONFIG_DB/localhost/PORTCHANNEL_INTERFACE/PortChannel101\|fc00::171~1126",
+                "value": {}
+            }
+        ],
+        "origin_json": {
+            "PORTCHANNEL_INTERFACE": {
+                "PortChannel101|10.0.0.150/31": {},
+                "PortChannel101|fc00::170/126": {},
+            }
+        },
+        "target_json": {
+            "PORTCHANNEL_INTERFACE": {
+                "PortChannel101|10.0.0.151/31": {},
+                "PortChannel101|fc00::171/126": {},
+            }
+        }
+    },
+    {
+        "test_name": "portchannel_interface_tc2_replace",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/PORTCHANNEL_INTERFACE/PortChannel101/mtu",
+                "value": "3324"
+            },
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/PORTCHANNEL_INTERFACE/PortChannel101/min_links",
+                "value": "2"
+            },
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/PORTCHANNEL_INTERFACE/PortChannel101/admin_status",
+                "value": "down"
+            }
+        ],
+        "origin_json": {
+            "PORTCHANNEL_INTERFACE": {
+                "PortChannel101": {
+                    "mtu": "1500",
+                    "min_links": "1",
+                    "admin_status": "up"
+                }
+            }
+        },
+        "target_json": {
+            "PORTCHANNEL_INTERFACE": {
+                "PortChannel101": {
+                    "mtu": "3324",
+                    "min_links": "2",
+                    "admin_status": "down"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "portchannel_interface_tc2_incremental",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/PORTCHANNEL_INTERFACE/PortChannel101/description",
+                "value": "Description for PortChannel101"
+            }
+        ],
+        "origin_json": {
+            "PORTCHANNEL_INTERFACE": {
+                "PortChannel101": {
+                    "mtu": "1500",
+                    "min_links": "1",
+                    "admin_status": "up"
+                }
+            }
+        },
+        "target_json": {
+            "PORTCHANNEL_INTERFACE": {
+                "PortChannel101": {
+                    "mtu": "1500",
+                    "min_links": "1",
+                    "admin_status": "up",
+                    "description": "Description for PortChannel101"
+                }
+            }
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -2919,5 +3024,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_pg_headroom_patch(self, test_data):
         '''
         Generate GNMI request for pg headroom and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_portchannel_interface_patch)
+    def test_gnmi_portchannel_interface_patch(self, test_data):
+        '''
+        Generate GNMI request for portchannel interface and verify jsonpatch
         '''
         self.common_test_handler(test_data)
