@@ -2849,6 +2849,88 @@ test_data_portchannel_interface_patch = [
     }
 ]
 
+test_data_syslog_patch = [
+    {
+        "test_name": "syslog_server_tc1_add_init",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/SYSLOG_SERVER",
+                "value": {
+                    "10.0.0.5": {},
+                    "cc98:2008::1": {}
+                }
+            }
+        ],
+        "origin_json": {
+            "SYSLOG_SERVER": {}
+        },
+        "target_json": {
+            "SYSLOG_SERVER": {
+                "10.0.0.5": {},
+                "cc98:2008::1": {}
+            }
+        }
+    },
+    {
+        "test_name": "syslog_server_tc1_replace",
+        "operations": [
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/SYSLOG_SERVER/10.0.0.5"
+            },
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/SYSLOG_SERVER/cc98:2008::1"
+            },
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/SYSLOG_SERVER/10.0.0.6",
+                "value": {}
+            },
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/SYSLOG_SERVER/cc98:2008::2",
+                "value": {}
+            }
+        ],
+        "origin_json": {
+            "SYSLOG_SERVER": {
+                "10.0.0.5": {},
+                "cc98:2008::1": {}
+            }
+        },
+        "target_json": {
+            "SYSLOG_SERVER": {
+                "10.0.0.6": {},
+                "cc98:2008::2": {}
+            }
+        }
+    },
+    {
+        "test_name": "syslog_server_tc1_remove",
+        "operations": [
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/SYSLOG_SERVER/10.0.0.5"
+            },
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/SYSLOG_SERVER/cc98:2008::1"
+            }
+        ],
+        "origin_json": {
+            "SYSLOG_SERVER": {
+                "10.0.0.5": {},
+                "cc98:2008::1": {}
+            }
+        },
+        "target_json": {
+            "SYSLOG_SERVER": {}
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -3031,5 +3113,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_portchannel_interface_patch(self, test_data):
         '''
         Generate GNMI request for portchannel interface and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_syslog_patch)
+    def test_gnmi_syslog_patch(self, test_data):
+        '''
+        Generate GNMI request for syslog and verify jsonpatch
         '''
         self.common_test_handler(test_data)
