@@ -2931,6 +2931,152 @@ test_data_syslog_patch = [
     }
 ]
 
+test_data_vlan_interface_patch = [
+    {
+        "test_name": "vlan_interface_tc1_add_new",
+        "operations": [
+            {
+                "op": "update",
+                "path": r"/sonic-db:CONFIG_DB/localhost/VLAN_INTERFACE/Vlan1001",
+                "value": {}
+            },
+            {
+                "op": "update",
+                "path": r"/sonic-db:CONFIG_DB/localhost/VLAN_INTERFACE/Vlan1001\|192.168.8.1~121",
+                "value": {}
+            },
+            {
+                "op": "update",
+                "path": r"/sonic-db:CONFIG_DB/localhost/VLAN_INTERFACE/Vlan1001\|fc02:2000::1~164",
+                "value": {}
+            },
+            {
+                "op": "update",
+                "path": r"/sonic-db:CONFIG_DB/localhost/VLAN/Vlan1001",
+                "value": {
+                    "vlanid": "1001"
+                }
+            }
+        ],
+        "origin_json": {
+            "VLAN_INTERFACE": {},
+            "VLAN": {}
+        },
+        "target_json": {
+            "VLAN_INTERFACE": {
+                "Vlan1001": {},
+                "Vlan1001|192.168.8.1/21": {},
+                "Vlan1001|fc02:2000::1/64": {}
+            },
+            "VLAN": {
+                "Vlan1001": {
+                    "vlanid": "1001"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "vlan_interface_tc1_add_replace",
+        "operations": [
+            {
+                "op": "del",
+                "path": r"/sonic-db:CONFIG_DB/localhost/VLAN_INTERFACE/Vlan1001\|192.168.8.1~121"
+            },
+            {
+                "op": "del",
+                "path": r"/sonic-db:CONFIG_DB/localhost/VLAN_INTERFACE/Vlan1001\|fc02:2000::1~164"
+            },
+            {
+                "op": "update",
+                "path": r"/sonic-db:CONFIG_DB/localhost/VLAN_INTERFACE/Vlan1001\|192.168.8.2~121",
+                "value": {}
+            },
+            {
+                "op": "update",
+                "path": r"/sonic-db:CONFIG_DB/localhost/VLAN_INTERFACE/Vlan1001\|fc02:2000::2~164",
+                "value": {}
+            }
+        ],
+        "origin_json": {
+            "VLAN_INTERFACE": {
+                "Vlan1001": {},
+                "Vlan1001|192.168.8.1/21": {},
+                "Vlan1001|fc02:2000::1/64": {}
+            },
+            "VLAN": {
+                "Vlan1001": {
+                    "vlanid": "1001"
+                }
+            }
+        },
+        "target_json": {
+            "VLAN_INTERFACE": {
+                "Vlan1001": {},
+                "Vlan1001|192.168.8.2/21": {},
+                "Vlan1001|fc02:2000::2/64": {}
+            },
+            "VLAN": {
+                "Vlan1001": {
+                    "vlanid": "1001"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "vlan_interface_tc1_remove",
+        "operations": [
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/VLAN_INTERFACE"
+            }
+        ],
+        "origin_json": {
+            "VLAN_INTERFACE": {
+                "Vlan1001": {},
+                "Vlan1001|192.168.8.1/21": {},
+                "Vlan1001|fc02:2000::1/64": {}
+            },
+            "VLAN": {
+                "Vlan1001": {
+                    "vlanid": "1001"
+                }
+            }
+        },
+        "target_json": {
+            "VLAN": {
+                "Vlan1001": {
+                    "vlanid": "1001"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_vlan_interface_tc2_incremental_change",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/VLAN/Vlan1001/description",
+                "value": "incremental test for Vlan1001"
+            }
+        ],
+        "origin_json": {
+            "VLAN": {
+                "Vlan1001": {
+                    "vlanid": "1001"
+                }
+            }
+        },
+        "target_json": {
+            "VLAN": {
+                "Vlan1001": {
+                    "vlanid": "1001",
+                    "description": "incremental test for Vlan1001"
+                }
+            }
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -3120,5 +3266,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_syslog_patch(self, test_data):
         '''
         Generate GNMI request for syslog and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_vlan_interface_patch)
+    def test_gnmi_vlan_interface_patch(self, test_data):
+        '''
+        Generate GNMI request for vlan interface and verify jsonpatch
         '''
         self.common_test_handler(test_data)
