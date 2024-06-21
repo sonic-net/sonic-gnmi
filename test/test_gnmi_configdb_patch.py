@@ -2619,6 +2619,31 @@ test_data_ntp_patch = [
     }
 ]
 
+test_data_pfcwd_interval_patch = [
+    {
+        "test_name": "test_pfcwd_interval_config_updates",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/PFC_WD/GLOBAL/POLL_INTERVAL",
+                "value": "800"
+            }
+        ],
+        "origin_json": {
+            "PFC_WD": {
+                "GLOBAL": {}
+            }
+        },
+        "target_json": {
+            "PFC_WD": {
+                "GLOBAL": {
+                    "POLL_INTERVAL": "800"
+                }
+            }
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -2773,5 +2798,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_monitor_config_patch(self, test_data):
         '''
         Generate GNMI request for monitor config and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_pfcwd_interval_patch)
+    def test_gnmi_pfcwd_interval_patch(self, test_data):
+        '''
+        Generate GNMI request for pfcwd interval and verify jsonpatch
         '''
         self.common_test_handler(test_data)
