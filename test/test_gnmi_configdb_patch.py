@@ -2717,6 +2717,33 @@ test_data_pfcwd_status_patch = [
     }
 ]
 
+test_data_pg_headroom_patch = [
+    {
+        "test_name": "test_pg_headroom_update",
+        "operations": [
+            {
+                "op": "replace",
+                "path": "/sonic-db:CONFIG_DB/localhost/BUFFER_PROFILE/pg_lossless_100000_300m_profile/xoff",
+                "value": "160001"
+            }
+        ],
+        "origin_json": {
+            "BUFFER_PROFILE": {
+                "pg_lossless_100000_300m_profile": {
+                    "xoff": "160000"
+                },
+            }
+        },
+        "target_json": {
+            "BUFFER_PROFILE": {
+                "pg_lossless_100000_300m_profile": {
+                    "xoff": "160001"
+                },
+            }
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -2885,5 +2912,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_pfcwd_status_patch(self, test_data):
         '''
         Generate GNMI request for pfcwd status and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_pg_headroom_patch)
+    def test_gnmi_pg_headroom_patch(self, test_data):
+        '''
+        Generate GNMI request for pg headroom and verify jsonpatch
         '''
         self.common_test_handler(test_data)
