@@ -2644,6 +2644,79 @@ test_data_pfcwd_interval_patch = [
     }
 ]
 
+test_data_pfcwd_status_patch = [
+    {
+        "test_name": "test_start_pfcwd",
+        "operations": [
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/PFC_WD/Ethernet0",
+                "value": {
+                    "action": "drop",
+                    "detection_time": "400",
+                    "restoration_time": "400"
+                }
+            },
+            {
+                "op": "update",
+                "path": "/sonic-db:CONFIG_DB/localhost/PFC_WD/Ethernet4",
+                "value": {
+                    "action": "drop",
+                    "detection_time": "400",
+                    "restoration_time": "400"
+                }
+            }
+        ],
+        "origin_json": {
+            "PFC_WD": {}
+        },
+        "target_json": {
+            "PFC_WD": {
+                "Ethernet0": {
+                    "action": "drop",
+                    "detection_time": "400",
+                    "restoration_time": "400"
+                },
+                "Ethernet4": {
+                    "action": "drop",
+                    "detection_time": "400",
+                    "restoration_time": "400"
+                }
+            }
+        }
+    },
+    {
+        "test_name": "test_stop_pfcwd",
+        "operations": [
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/PFC_WD/Ethernet0"
+            },
+            {
+                "op": "del",
+                "path": "/sonic-db:CONFIG_DB/localhost/PFC_WD/Ethernet4"
+            }
+        ],
+        "origin_json": {
+            "PFC_WD": {
+                "Ethernet0": {
+                    "action": "drop",
+                    "detection_time": "400",
+                    "restoration_time": "400"
+                },
+                "Ethernet4": {
+                    "action": "drop",
+                    "detection_time": "400",
+                    "restoration_time": "400"
+                }
+            }
+        },
+        "target_json": {
+            "PFC_WD": {}
+        }
+    }
+]
+
 class TestGNMIConfigDbPatch:
 
     def common_test_handler(self, test_data):
@@ -2805,5 +2878,12 @@ class TestGNMIConfigDbPatch:
     def test_gnmi_pfcwd_interval_patch(self, test_data):
         '''
         Generate GNMI request for pfcwd interval and verify jsonpatch
+        '''
+        self.common_test_handler(test_data)
+
+    @pytest.mark.parametrize("test_data", test_data_pfcwd_status_patch)
+    def test_gnmi_pfcwd_status_patch(self, test_data):
+        '''
+        Generate GNMI request for pfcwd status and verify jsonpatch
         '''
         self.common_test_handler(test_data)
