@@ -139,6 +139,20 @@ func (srv *SystemServer) KillProcess(ctx context.Context, req *gnoi_system_pb.Ki
 	return &resp, nil
 }
 
+func HaltSystem() error {
+	sc,err := ssc.NewDbusClient()
+	if err != nil {
+		return err
+	}
+
+	log.V(2).Infof("Halting the system..")
+	err = sc.HaltSystem()
+	if err != nil {
+		log.V(2).Infof("Failed to Halt the system %v", err);
+	}
+	return err
+}
+
 func RebootSystem(fileName string) error {
 	log.V(2).Infof("Rebooting with %s...", fileName)
 	sc, err := ssc.NewDbusClient()
@@ -158,18 +172,30 @@ func (srv *SystemServer) Reboot(ctx context.Context, req *gnoi_system_pb.RebootR
 	}
 	log.V(1).Info("gNOI: Reboot")
 	log.V(1).Info("Request:", req)
-	log.V(1).Info("Reboot system now, delay is ignored...")
-	// TODO: Support GNOI reboot delay
-	// Delay in nanoseconds before issuing reboot.
-	// https://github.com/openconfig/gnoi/blob/master/system/system.proto#L102-L115
-	config_db_json, err := io.ReadFile(fileName)
-	if errors.Is(err, os.ErrNotExist) {
-		fileName = ""
+
+	// Check the reboot type
+	switch req.GetMethod() {
+	case gnoi_system_pb.RebootMethod_HALT:
+		log.V(1).Info("Reboot method is HALT. Halting the system...")
+		err = HaltSystem()
+		if err != nil {
+			return nil, err
+		}
+	default:
+		log.V(1).Info("Reboot system now, delay is ignored...")
+		// TODO: Support GNOI reboot delay
+		// Delay in nanoseconds before issuing reboot.
+		// https://github.com/openconfig/gnoi/blob/master/system/system.proto#L102-L115
+		config_db_json, err := io.ReadFile(fileName)
+		if errors.Is(err, os.ErrNotExist) {
+			fileName = ""
+		}
+		err = RebootSystem(string(config_db_json))
+		if err != nil {
+			return nil, err
+		}
 	}
-	err = RebootSystem(string(config_db_json))
-	if err != nil {
-		return nil, err
-	}
+
 	var resp gnoi_system_pb.RebootResponse
 	return &resp, nil
 }
