@@ -4,6 +4,7 @@ import (
 	"os"
 	"fmt"
 	"strconv"
+	"strings"
 	"io/ioutil"
 	"encoding/json"
 
@@ -104,6 +105,15 @@ func NewJsonClient(fileName string) (*JsonClient, error) {
 	return &client, nil
 }
 
+func FixPath(path []string) (ret []string){
+	// Jsonpatch uses "~1" to support "/" in path
+	// Replace "~1" to compare json data 
+	if len(path) >= 2 {
+		path[1] = strings.ReplaceAll(path[1], "~1", "/")
+	}
+	return path
+}
+
 func (c *JsonClient) Get(path []string) ([]byte, error) {
 	// The expect real db path could be in one of the formats:
 	// <1> DB Table
@@ -111,6 +121,7 @@ func (c *JsonClient) Get(path []string) ([]byte, error) {
 	// <3> DB Table Key Field
 	// <4> DB Table Key Field Index
 	jv := []byte{}
+	path = FixPath(path)
 	switch len(path) {
 	case 0: // Empty path
 		var err error
@@ -196,6 +207,7 @@ func (c *JsonClient) Add(path []string, value string) error {
 	// <2> DB Table Key
 	// <3> DB Table Key Field
 	// <4> DB Table Key Field Index
+	path = FixPath(path)
 	switch len(path) {
 	case 1: // only table name provided
 		vtable, err := parseJson([]byte(value))
@@ -313,6 +325,7 @@ func (c *JsonClient) Remove(path []string) error {
 	// <2> DB Table Key
 	// <3> DB Table Key Field
 	// <4> DB Table Key Field Index
+	path = FixPath(path)
 	switch len(path) {
 	case 1: // only table name provided
 		_, err := DecodeJsonTable(c.jsonData, path[0])
