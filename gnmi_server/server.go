@@ -177,6 +177,15 @@ func (srv *Server) Serve() error {
 	return srv.s.Serve(srv.lis)
 }
 
+func (srv *Server) ForceStop() {
+	s := srv.s
+	if s == nil {
+		log.Errorf("ForceStop() failed: not initialized")
+		return
+	}
+	s.Stop()
+}
+
 func (srv *Server) Stop() {
 	s := srv.s
 	if s == nil {

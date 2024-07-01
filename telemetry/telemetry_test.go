@@ -817,6 +817,8 @@ func TestINotifyCertMonitoringAddWatcherError(t *testing.T) {
 func TestSignalHandler(t *testing.T) {
 	testHandlerSyscall(t, syscall.SIGTERM)
 	testHandlerSyscall(t, syscall.SIGQUIT)
+	testHandlerSyscall(t, syscall.SIGINT)
+	testHandlerSyscall(t, syscall.SIGHUP)
 	testHandlerSyscall(t, nil) // Test that ServerStop should make signalHandler exit
 }
 
