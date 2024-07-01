@@ -43,6 +43,9 @@ const RETRY_DELAY_FACTOR uint = 2
 const CHECK_POINT_PATH string = "/etc/sonic"
 const ELEM_INDEX_DATABASE = 0
 const ELEM_INDEX_INSTANCE = 1
+const UPDATE_OPERATION = "add"
+const DELETE_OPERATION = "remove"
+const REPLACE_OPERATION = "replace"
 
 const (
     opAdd = iota
@@ -74,6 +77,7 @@ type MixedDbClient struct {
 	zmqAddress string
 	zmqClient swsscommon.ZmqClient
 	tableMap map[string]swsscommon.ProducerStateTable
+	zmqTableMap map[string]swsscommon.ZmqProducerStateTable
 	// swsscommon introduced dbkey to support multiple database
 	dbkey swsscommon.SonicDBKey
 	// Convert dbkey to string, namespace:container
@@ -87,10 +91,14 @@ type MixedDbClient struct {
 }
 
 // redis client connected to each DB
-var RedisDbMap = make(map[string]map[string]*redis.Client)
+var RedisDbMap map[string]*redis.Client = nil
+// Db num from database configuration
+var DbInstNum = 0
 
 func Hget(configDbConnector *swsscommon.ConfigDBConnector, table string, key string, field string) (string, error) {
     var fieldValuePairs = configDbConnector.Get_entry(table, key)
+    defer swsscommon.DeleteFieldValueMap(fieldValuePairs)
+
     if fieldValuePairs.Has_key(field) {
         return fieldValuePairs.Get(field), nil
     }
@@ -103,6 +111,7 @@ func getDpuAddress(dpuId string) (string, error) {
 	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
 
 	var configDbConnector = swsscommon.NewConfigDBConnector()
+	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 	configDbConnector.Connect(false)
 
 	// get bridge plane
@@ -163,6 +172,7 @@ func removeZmqClient(zmqClient swsscommon.ZmqClient) (error) {
 	for address, client := range zmqClientMap {
 		if client == zmqClient { 
 			delete(zmqClientMap, address)
+			swsscommon.DeleteZmqClient(client)
 			return nil
 		}
 	}
@@ -195,10 +205,11 @@ func IsTargetDbByDBKey(dbName string, dbkey swsscommon.SonicDBKey) bool {
 	// Check namespace and container
 	ns := dbkey.GetNetns()
 	container := dbkey.GetContainerName()
-	dbkey, ok := sdcfg.GetDbInstanceFromTarget(ns, container)
+	localkey, ok := sdcfg.GetDbInstanceFromTarget(ns, container)
 	if !ok {
 		return false
 	}
+	swsscommon.DeleteSonicDBKey(localkey)
 	// Get target list for database configuration
 	// If target is in database configuration, it's valid
 	dbList, err := sdcfg.GetDbListByDBKey(dbkey)
@@ -214,12 +225,6 @@ func IsTargetDbByDBKey(dbName string, dbkey swsscommon.SonicDBKey) bool {
 }
 
 func GetTableKeySeparatorByDBKey(target string, dbkey swsscommon.SonicDBKey) (string, error) {
-	ok := IsTargetDbByDBKey(target, dbkey)
-	if !ok {
-		log.V(1).Infof("%v is not a valid target for %s:%s", target, dbkey.GetNetns(), dbkey.GetContainerName())
-		return "", fmt.Errorf("%v is not a valid target for %s:%s", target, dbkey.GetNetns(), dbkey.GetContainerName())
-	}
-
 	separator, err := sdcfg.GetDbSeparatorByDBKey(target, dbkey)
 	return separator, err
 }
@@ -235,15 +240,23 @@ func parseJson(str []byte) (interface{}, error) {
 
 func (c *MixedDbClient) GetTable(table string) (swsscommon.ProducerStateTable) {
 	pt, ok := c.tableMap[table]
-	if !ok {
-		if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
-			log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
-			pt = swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)
-		} else {
-			log.V(2).Infof("Create ProducerStateTable:  %s", table)
-			pt = swsscommon.NewProducerStateTable(c.applDB, table)
-		}
+	if ok {
+		return pt
+	}
 
+	pt, ok = c.zmqTableMap[table]
+	if ok {
+		return pt
+	}
+
+	if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
+		log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
+		zmqTable := swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)
+		c.zmqTableMap[table] = zmqTable
+		pt = zmqTable
+	} else {
+		log.V(2).Infof("Create ProducerStateTable:  %s", table)
+		pt = swsscommon.NewProducerStateTable(c.applDB, table)
 		c.tableMap[table] = pt
 	}
 
@@ -317,6 +330,7 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 				func () error {
 					return ProducerStateTableSetWrapper(pt, key, vec)
 				})
+
 	return nil
 }
 
@@ -374,14 +388,16 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 				// The elelement can be "localhost", "asic0", "asic1", ..., "dpu0", "dpu1", ...
 				if elem_name != "localhost" {
 					// Try namespace
-					_, ok := sdcfg.GetDbInstanceFromTarget(elem_name, sdcfg.SONIC_DEFAULT_CONTAINER)
+					dbkey1, ok := sdcfg.GetDbInstanceFromTarget(elem_name, sdcfg.SONIC_DEFAULT_CONTAINER)
 					if ok {
 						namespace = elem_name
+						swsscommon.DeleteSonicDBKey(dbkey1)
 					} else {
 						// Try container
-						_, ok := sdcfg.GetDbInstanceFromTarget(sdcfg.SONIC_DEFAULT_NAMESPACE, elem_name)
+						dbkey2, ok := sdcfg.GetDbInstanceFromTarget(sdcfg.SONIC_DEFAULT_NAMESPACE, elem_name)
 						if ok {
 							container = elem_name
+							swsscommon.DeleteSonicDBKey(dbkey2)
 						} else {
 							return "", nil, fmt.Errorf("Unsupported namespace/container %s", elem_name)
 						}
@@ -414,51 +430,75 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 }
 
 // Initialize RedisDbMap
-func useRedisTcpClientWithDBKey() error {
+func initRedisDbMap() {
 	dbkeys, err := sdcfg.GetDbAllInstances()
 	if err != nil {
-		return err
+		log.Errorf("init error:  %v", err)
+		return
+	}
+	for _, dbkey := range dbkeys {
+		defer swsscommon.DeleteSonicDBKey(dbkey)
+	}
+	if len(dbkeys) == DbInstNum {
+		// DB configuration is the same
+		// No need to update
+		return
+	}
+	DbInstNum = len(dbkeys)
+	if RedisDbMap == nil {
+		RedisDbMap = make(map[string]*redis.Client)
+	}
+	// Clear outdated configuration
+	for mapkey, _ := range(RedisDbMap) {
+		delete(RedisDbMap, mapkey)
 	}
 	for _, dbkey := range dbkeys {
 		ns := dbkey.GetNetns()
 		container := dbkey.GetContainerName()
-		mapkey := ns+":"+container
-		RedisDbMap[mapkey] = make(map[string]*redis.Client)
 		dbList, err := sdcfg.GetDbListByDBKey(dbkey)
 		if err != nil {
-			return err
+			log.Errorf("init error:  %v", err)
+			return
 		}
 		for _, dbName := range dbList {
-			addr, err := sdcfg.GetDbTcpAddrByDBKey(dbName, dbkey)
+			addr, err := sdcfg.GetDbSockByDBKey(dbName, dbkey)
 			if err != nil {
-				return err
+				log.Errorf("init error:  %v", err)
+				return
 			}
 			dbn, err := sdcfg.GetDbIdByDBKey(dbName, dbkey)
 			if err != nil {
-				return err
+				log.Errorf("init error:  %v", err)
+				return
 			}
 			// DB connector for direct redis operation
 			redisDb := redis.NewClient(&redis.Options{
-				Network:     "tcp",
+				Network:     "unix",
 				Addr:        addr,
 				Password:    "", // no password set
 				DB:          int(dbn),
 				DialTimeout: 0,
 			})
-			RedisDbMap[mapkey][dbName] = redisDb
+			RedisDbMap[ns+":"+container+":"+dbName] = redisDb
 		}
 	}
-	return nil
+	return
+}
+
+// Initialize RedisDbMap
+func init() {
+	initRedisDbMap()
 }
 
 func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string) (Client, error) {
 	var err error
 
-	// Testing program may ask to use redis local tcp connection
-	useRedisTcpClientWithDBKey()
+	// Initialize RedisDbMap for test
+	initRedisDbMap()
 
 	var client = MixedDbClient {
 		tableMap : map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap : map[string]swsscommon.ZmqProducerStateTable{},
 	}
 
 	// Get namespace count and container count from db config
@@ -474,6 +514,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 		if container != sdcfg.SONIC_DEFAULT_CONTAINER {
 			client.container_cnt += 1
 		}
+		swsscommon.DeleteSonicDBKey(dbkey)
 	}
 	client.prefix = prefix
 	client.target = ""
@@ -493,6 +534,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	if err != nil {
 		return nil, err
 	}
+	defer swsscommon.DeleteSonicDBKey(dbkey)
 	ok := IsTargetDbByDBKey(target, dbkey)
 	if !ok {
 		return nil, status.Errorf(codes.Unimplemented, "Invalid target: ns %s, container %s",
@@ -504,7 +546,6 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 		client.applDB = swsscommon.NewDBConnector(target, SWSS_TIMEOUT, false, dbkey)
 	}
 	client.target = target
-	client.dbkey = dbkey
 	ns := dbkey.GetNetns()
 	container := dbkey.GetContainerName()
 	client.mapkey = ns + ":" + container
@@ -516,7 +557,10 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	if err != nil {
 		return nil, fmt.Errorf("Get ZMQ client failed: %v", err)
 	}
-
+	newkey := swsscommon.NewSonicDBKey()
+	newkey.SetContainerName(dbkey.GetContainerName())
+	newkey.SetNetns(dbkey.GetNetns())
+	client.dbkey = newkey
 	return &client, nil
 }
 
@@ -545,25 +589,25 @@ func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) (*gnmipb.Path, e
 	return fullPath, nil
 }
 
-func (c *MixedDbClient) populateAllDbtablePath(paths []*gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
+func (c *MixedDbClient) getAllDbtablePath(paths []*gnmipb.Path) (pathList [][]tablePath, err error) {
 	for _, path := range paths {
-		err := c.populateDbtablePath(path, nil, pathG2S)
+		tblPaths, err := c.getDbtablePath(path, nil)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		pathList = append(pathList, tblPaths)
 	}
-	return nil
+	return pathList, nil
 }
 
-// Populate table path in DB from gnmi path
-func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.TypedValue, pathG2S *map[*gnmipb.Path][]tablePath) error {
+func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedValue) ([]tablePath, error) {
 	var buffer bytes.Buffer
 	var dbPath string
 	var tblPath tablePath
 
 	fullPath, err := c.gnmiFullPath(c.prefix, path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	stringSlice := []string{c.target}
@@ -608,7 +652,7 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 			tblPath.protoValue = string(pv)
 		}
 		if jv == nil && pv == nil {
-			return fmt.Errorf("Unsupported TypedValue: %v", value)
+			return nil, fmt.Errorf("Unsupported TypedValue: %v", value)
 		}
 	}
 
@@ -617,10 +661,9 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 		mappedKey = stringSlice[2]
 	}
 
-	redisDb, ok := RedisDbMap[c.mapkey][tblPath.dbName]
+	redisDb, ok := RedisDbMap[c.mapkey+":"+tblPath.dbName]
 	if !ok {
-		return fmt.Errorf("Redis Client not present for dbName %v ns %v container %v",
-			c.target, c.dbkey.GetNetns(), c.dbkey.GetContainerName())
+		return nil, fmt.Errorf("Redis Client not present for dbName %v mapkey %v map %+v", tblPath.dbName, c.mapkey, RedisDbMap)
 	}
 
 	// The expect real db path could be in one of the formats:
@@ -636,7 +679,7 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 			res, err := redisDb.Keys(tblPath.tableName + "*").Result()
 			if err != nil || len(res) < 1 {
 				log.V(2).Infof("Invalid db table Path %v %v", c.target, dbPath)
-				return fmt.Errorf("Failed to find %v %v %v %v", c.target, dbPath, err, res)
+				return nil, fmt.Errorf("Failed to find %v %v %v %v", c.target, dbPath, err, res)
 			}
 		}
 		tblPath.tableKey = ""
@@ -644,7 +687,7 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 		if tblPath.operation == opRemove {
 			_, err := redisDb.Exists(tblPath.tableName + tblPath.delimitor + mappedKey).Result()
 			if err != nil {
-				return fmt.Errorf("redis Exists op failed for %v", dbPath)
+				return nil, fmt.Errorf("redis Exists op failed for %v", dbPath)
 			}
 		}
 		tblPath.tableKey = mappedKey
@@ -652,7 +695,7 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 		if tblPath.operation == opRemove {
 			_, err := redisDb.Exists(tblPath.tableName + tblPath.delimitor + mappedKey).Result()
 			if err != nil {
-				return fmt.Errorf("redis Exists op failed for %v", dbPath)
+				return nil, fmt.Errorf("redis Exists op failed for %v", dbPath)
 			}
 		}
 		tblPath.tableKey = mappedKey
@@ -661,24 +704,23 @@ func (c *MixedDbClient) populateDbtablePath(path *gnmipb.Path, value *gnmipb.Typ
 		if tblPath.operation == opRemove {
 			_, err := redisDb.Exists(tblPath.tableName + tblPath.delimitor + mappedKey).Result()
 			if err != nil {
-				return fmt.Errorf("redis Exists op failed for %v", dbPath)
+				return nil, fmt.Errorf("redis Exists op failed for %v", dbPath)
 			}
 		}
 		tblPath.tableKey = mappedKey
 		tblPath.field = stringSlice[3]
 		index, err := strconv.Atoi(stringSlice[4])
 		if err != nil {
-			return fmt.Errorf("Invalid index %v", stringSlice[4])
+			return nil, fmt.Errorf("Invalid index %v", stringSlice[4])
 		}
 		tblPath.index = index
 	default:
 		log.V(2).Infof("Invalid db table Path %v", dbPath)
-		return fmt.Errorf("Invalid db table Path %v", dbPath)
+		return nil, fmt.Errorf("Invalid db table Path %v", dbPath)
 	}
 
-	(*pathG2S)[path] = []tablePath{tblPath}
-	log.V(5).Infof("tablePath %+v", tblPath)
-	return nil
+	tblPaths := []tablePath{tblPath}
+	return tblPaths, nil
 }
 
 // makeJSON renders the database Key op value_pairs to map[string]interface{} for JSON marshall.
@@ -735,7 +777,10 @@ func (c *MixedDbClient) makeJSON_redis(msi *map[string]interface{}, key *string,
 // If only table name provided in the tablePath, find all keys in the table, otherwise
 // Use tableName + tableKey as key to get all field value paires
 func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]interface{}) error {
-	redisDb := RedisDbMap[c.mapkey][tblPath.dbName]
+	redisDb, ok := RedisDbMap[c.mapkey+":"+tblPath.dbName]
+	if !ok {
+		return fmt.Errorf("Redis Client not present for dbName %v mapkey %v", tblPath.dbName, c.mapkey)
+	}
 
 	var pattern string
 	var dbkeys []string
@@ -858,7 +903,10 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 	var useKey bool
 	msi := make(map[string]interface{})
 	for _, tblPath := range tblPaths {
-		redisDb := RedisDbMap[c.mapkey][tblPath.dbName]
+		redisDb, ok := RedisDbMap[c.mapkey+":"+tblPath.dbName]
+		if !ok {
+			return nil, fmt.Errorf("Redis Client not present for dbName %v mapkey %v", tblPath.dbName, c.mapkey)
+		}
 
 		if tblPath.jsonField == "" { // Not asked to include field in json value, which means not wildcard query
 			// table path includes table, key and field
@@ -927,9 +975,9 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 }
 
 func ConvertDbEntry(inputData map[string]interface{}) map[string]string {
-    outputData := map[string]string{}
-    for key, value := range inputData {
-        switch value.(type) {
+	outputData := make(map[string]string)
+	for key, value := range inputData {
+		switch value.(type) {
 		case string:
 			outputData[key] = value.(string)
 		case []interface{}:
@@ -945,9 +993,9 @@ func ConvertDbEntry(inputData map[string]interface{}) map[string]string {
 			}
 			str_val := strings.Join(slice, ",")
 			outputData[key_redis] = str_val
-        }
-    }
-    return outputData
+		}
+	}
+	return outputData
 }
 
 func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
@@ -958,7 +1006,10 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 
 	for _, tblPath := range tblPaths {
 		log.V(5).Infof("handleTableData: tblPath %v", tblPath)
-		redisDb := RedisDbMap[c.mapkey][tblPath.dbName]
+		redisDb, ok := RedisDbMap[c.mapkey+":"+tblPath.dbName]
+		if !ok {
+			return fmt.Errorf("Redis Client not present for dbName %v mapkey %v", tblPath.dbName, c.mapkey)
+		}
 
 		if tblPath.jsonField == "" { // Not asked to include field in json value, which means not wildcard query
 			// table path includes table, key and field
@@ -1062,7 +1113,7 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 }
 
 /* Populate the JsonPatch corresponding each GNMI operation. */
-func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Path, t *gnmipb.TypedValue, output *string) error {
+func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Path, t *gnmipb.TypedValue, operation string, output *map[string]interface{}) error {
 	if t != nil {
 		if len(t.GetJsonIetfVal()) == 0 {
 			return fmt.Errorf("Value encoding is not IETF JSON")
@@ -1074,42 +1125,40 @@ func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Pat
 	}
 
 	elems := fullPath.GetElem()
-	if t == nil {
-		*output = `{"op": "remove", "path": "/`
-	} else {
-		*output = `{"op": "add", "path": "/`
-	}
+	(*output)["op"] = operation
+	jsonPath := "/"
 
 	if elems != nil {
 		/* Iterate through elements. */
 		for _, elem := range elems {
-			*output += elem.GetName()
+			jsonPath += elem.GetName()
 			key := elem.GetKey()
 			/* If no keys are present end the element with "/" */
 			if key == nil {
-				*output += `/`
+				jsonPath += `/`
 			}
 
 			/* If keys are present , process the keys. */
 			if key != nil {
 				for k, v := range key {
-					*output += `[` + k + `=` + v + `]`
+					jsonPath += `[` + k + `=` + v + `]`
 				}
 
 				/* Append "/" after all keys are processed. */
-				*output += `/`
+				jsonPath += `/`
 			}
 		}
 	}
 
 	/* Trim the "/" at the end which is not required. */
-	*output = strings.TrimSuffix(*output, `/`)
-	if t == nil {
-		*output += `"}`
-	} else {
-		str := string(t.GetJsonIetfVal())
-		val := strings.Replace(str, "\n", "", -1)
-		*output += `", "value": ` + val + `}`
+	jsonPath = strings.TrimSuffix(jsonPath, `/`)
+	(*output)["path"] = jsonPath
+	if t != nil {
+		val, err := parseJson(t.GetJsonIetfVal())
+		if err != nil {
+			return err
+		}
+		(*output)["value"] = val
 	}
 	return nil
 }
@@ -1147,7 +1196,6 @@ with open(filename, 'r') as fp:
 
 func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	var err error
-	var curr string
 
 	var sc ssc.Service
 	sc, err = ssc.NewDbusClient()
@@ -1165,7 +1213,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		return err
 	}
 
-	text := `[`
+	var patchList [](map[string]interface{})
 	/* DELETE */
 	for _, path := range delete {
 		fullPath, err := c.gnmiFullPath(c.prefix, path)
@@ -1188,12 +1236,12 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 				continue
 			}
 		}
-		curr = ``
-		err = c.ConvertToJsonPatch(c.prefix, path, nil, &curr)
+		curr := map[string]interface{}{}
+		err = c.ConvertToJsonPatch(c.prefix, path, nil, DELETE_OPERATION, &curr)
 		if err != nil {
 			return err
 		}
-		text += curr + `,`
+		patchList = append(patchList, curr)
 	}
 
 	/* REPLACE */
@@ -1220,19 +1268,19 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 					continue
 				}
 			} else {
-				err := c.jClient.Add(stringSlice, string(t.GetJsonIetfVal()))
+				err := c.jClient.Replace(stringSlice, string(t.GetJsonIetfVal()))
 				if err != nil {
 					// Add failed
 					return err
 				}
 			}
 		}
-		curr = ``
-		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), &curr)
+		curr := map[string]interface{}{}
+		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), REPLACE_OPERATION, &curr)
 		if err != nil {
 			return err
 		}
-		text += curr + `,`
+		patchList = append(patchList, curr)
 	}
 
 	/* UPDATE */
@@ -1262,20 +1310,22 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 				}
 			}
 		}
-		curr = ``
-		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), &curr)
+		curr := map[string]interface{}{}
+		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), UPDATE_OPERATION, &curr)
 		if err != nil {
 			return err
 		}
-		text += curr + `,`
+		patchList = append(patchList, curr)
 	}
-	text = strings.TrimSuffix(text, `,`)
-	text += `]`
-	log.V(2).Infof("JsonPatch: %s", text)
-	if text == `[]` {
+	if len(patchList) == 0 {
 		// No need to apply patch
 		return nil
 	}
+	text, err := json.Marshal(patchList)
+	if err != nil {
+		return err
+	}
+	log.V(2).Infof("JsonPatch: %s", text)
 	patchFile := c.workPath + "/gcu.patch"
 	err = ioutil.WriteFile(patchFile, []byte(text), 0644)
 	if err != nil {
@@ -1283,7 +1333,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 	}
 
 	if c.origin == "sonic-db" {
-		err = sc.ApplyPatchDb(text)
+		err = sc.ApplyPatchDb(string(text))
 	}
 
 	if err == nil {
@@ -1305,7 +1355,7 @@ func (c *MixedDbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.U
 		return err
 	}
 
-	PyCodeInGo := fmt.Sprintf(PyCodeForYang, ietf_json_val)
+	PyCodeInGo := fmt.Sprintf(PyCodeForYang, fileName)
 	err = RunPyCode(PyCodeInGo)
 	if err != nil {
 		return fmt.Errorf("Yang validation failed!")
@@ -1316,13 +1366,12 @@ func (c *MixedDbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.U
 
 func (c *MixedDbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	/* DELETE */
-	deleteMap := make(map[*gnmipb.Path][]tablePath)
-	err := c.populateAllDbtablePath(delete, &deleteMap)
+	deletePathList, err := c.getAllDbtablePath(delete)
 	if err != nil {
 		return err
 	}
 	
-	for _, tblPaths := range deleteMap {
+	for _, tblPaths := range deletePathList {
 		err = c.handleTableData(tblPaths)
 		if err != nil {
 			return err
@@ -1330,14 +1379,11 @@ func (c *MixedDbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, u
 	}
 
 	/* REPLACE */
-	replaceMap := make(map[*gnmipb.Path][]tablePath)
 	for _, item := range replace {
-		err = c.populateDbtablePath(item.GetPath(), item.GetVal(), &replaceMap)
+		tblPaths, err := c.getDbtablePath(item.GetPath(), item.GetVal())
 		if err != nil {
 			return err
 		}
-	}
-	for _, tblPaths := range replaceMap {
 		err = c.handleTableData(tblPaths)
 		if err != nil {
 			return err
@@ -1345,14 +1391,11 @@ func (c *MixedDbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, u
 	}
 
 	/* UPDATE */
-	updateMap := make(map[*gnmipb.Path][]tablePath)
 	for _, item := range update {
-		err = c.populateDbtablePath(item.GetPath(), item.GetVal(), &updateMap)
+		tblPaths, err := c.getDbtablePath(item.GetPath(), item.GetVal())
 		if err != nil {
 			return err
 		}
-	}
-	for _, tblPaths := range updateMap {
 		err = c.handleTableData(tblPaths)
 		if err != nil {
 			return err
@@ -1451,29 +1494,27 @@ func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 		log.V(6).Infof("Error #%v", err)
 	}
 
-	if c.paths != nil {
-		c.pathG2S = make(map[*gnmipb.Path][]tablePath)
-		err := c.populateAllDbtablePath(c.paths, &c.pathG2S)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	var values []*spb.Value
 	ts := time.Now()
-	for gnmiPath, tblPaths := range c.pathG2S {
-		val, err := c.tableData2TypedValue(tblPaths, nil)
-		if err != nil {
-			return nil, err
+	if c.paths != nil {
+		for _, gnmiPath := range c.paths {
+			tblPaths, err := c.getDbtablePath(gnmiPath, nil)
+			if err != nil {
+				return nil, err
+			}
+			val, err := c.tableData2TypedValue(tblPaths, nil)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, &spb.Value{
+				Prefix:    c.prefix,
+				Path:      gnmiPath,
+				Timestamp: ts.UnixNano(),
+				Val:       val,
+			})
 		}
-
-		values = append(values, &spb.Value{
-			Prefix:    c.prefix,
-			Path:      gnmiPath,
-			Timestamp: ts.UnixNano(),
-			Val:       val,
-		})
 	}
+
 	log.V(6).Infof("Getting #%v", values)
 	log.V(4).Infof("Get done, total time taken: %v ms", int64(time.Since(ts)/time.Millisecond))
 	return values, nil
@@ -1499,9 +1540,16 @@ func (c *MixedDbClient) Close() error {
 	for _, pt := range c.tableMap {
 		swsscommon.DeleteProducerStateTable(pt)
 	}
+	for _, pt := range c.zmqTableMap {
+		swsscommon.DeleteZmqProducerStateTable(pt)
+	}
 	if c.applDB != nil{
 		swsscommon.DeleteDBConnector(c.applDB)
 	}
+	if c.dbkey != nil{
+		swsscommon.DeleteSonicDBKey(c.dbkey)
+	}
+
 	return nil
 }
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/jipanyang/gnxi/utils/xpath"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
+	"github.com/sonic-net/sonic-gnmi/test_utils"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
@@ -184,6 +185,88 @@ func TestJsonAddNegative(t *testing.T) {
 	}
 }
 
+func TestJsonReplace(t *testing.T) {
+	text := "{}"
+	err := ioutil.WriteFile(testFile, []byte(text), 0644)
+	if err != nil {
+		t.Errorf("Fail to create test file")
+	}
+	client, err := NewJsonClient(testFile)
+	if err != nil {
+		t.Errorf("Create client fail: %v", err)
+	}
+	path_list := [][]string {
+		[]string {
+			"DASH_QOS",
+		},
+		[]string {
+			"DASH_QOS",
+			"qos_02",
+		},
+		[]string {
+			"DASH_QOS",
+			"qos_03",
+			"bw",
+		},
+		[]string {
+			"DASH_VNET",
+			"vnet001",
+			"address_spaces",
+		},
+		[]string {
+			"DASH_VNET",
+			"vnet002",
+			"address_spaces",
+			"0",
+		},
+	}
+	value_list := []string {
+		`{"qos_01": {"bw": "54321", "cps": "1000", "flows": "300"}}`,
+		`{"bw": "10001", "cps": "1001", "flows": "101"}`,
+		`"20001"`,
+		`["10.250.0.0", "192.168.3.0", "139.66.72.9"]`,
+		`"6.6.6.6"`,
+	}
+	replace_value_list := []string {
+		`{"qos_01": {"bw": "12345", "cps": "2000", "flows": "500"}}`,
+		`{"bw": "20001", "cps": "2002", "flows": "300"}`,
+		`"6666"`,
+		`["10.250.0.1", "192.168.3.1", "139.66.72.10"]`,
+		`"8.8.8.8"`,
+	}
+	for i := 0; i < len(path_list); i++ {
+		path := path_list[i]
+		value := value_list[i]
+		replace_value := replace_value_list[i]
+		err = client.Add(path, value)
+		if err != nil {
+			t.Errorf("Add %v fail: %v", path, err)
+		}
+		err = client.Replace(path, replace_value)
+		if err != nil {
+			t.Errorf("Replace %v fail: %v", path, err)
+		}
+		res, err := client.Get(path)
+		if err != nil {
+			t.Errorf("Get %v fail: %v", path, err)
+		}
+		ok, err := JsonEqual([]byte(replace_value), res)
+		if err != nil {
+			t.Errorf("Compare json fail: %v", err)
+			return
+		}
+		if ok != true {
+			t.Errorf("%v and %v do not match", replace_value, string(res))
+		}
+	}
+	path := []string{}
+	res, err := client.Get(path)
+	if err != nil {
+		t.Errorf("Get %v fail: %v", path, err)
+	}
+	t.Logf("Result %s", string(res))
+}
+
 func TestJsonRemove(t *testing.T) {
 	text := "{}"
 	err := ioutil.WriteFile(testFile, []byte(text), 0644)
@@ -326,10 +409,11 @@ func TestParseDatabase(t *testing.T) {
 	test_target := "TEST_DB"
 	path, err := xpath.ToGNMIPath("sonic-db:" + test_target + "/localhost" + "/VLAN")
 	test_paths = append(test_paths, path)
-	target, _, err := client.ParseDatabase(prefix, test_paths)
+	target, dbkey1, err := client.ParseDatabase(prefix, test_paths)
 	if err != nil {
 		t.Errorf("ParseDatabase failed to get target: %v", err)
 	}
+	defer swsscommon.DeleteSonicDBKey(dbkey1)
 	if target != test_target {
 		t.Errorf("ParseDatabase return wrong target: %v", target)
 	}
@@ -343,10 +427,11 @@ func TestParseDatabase(t *testing.T) {
 	test_target = "TEST_DB"
 	path, err = xpath.ToGNMIPath("sonic-db:" + test_target + "/localhost" + "/VLAN")
 	test_paths = append(test_paths, path)
-	target, _, err = client.ParseDatabase(prefix, test_paths)
+	target, dbkey2, err := client.ParseDatabase(prefix, test_paths)
 	if err != nil {
 		t.Errorf("ParseDatabase failed to get target: %v", err)
 	}
+	defer swsscommon.DeleteSonicDBKey(dbkey2)
 	if target != test_target {
 		t.Errorf("ParseDatabase return wrong target: %v", target)
 	}
@@ -394,6 +479,7 @@ func TestNonDbClientGetError(t *testing.T) {
 */
 func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) (bool) {
 	receivedData := swsscommon.NewKeyOpFieldsValuesQueue()
+	defer swsscommon.DeleteKeyOpFieldsValuesQueue(receivedData)
 	retry := 0;
 	for {
 		// sender's ZMQ may disconnect, wait and retry for reconnect 
@@ -422,6 +508,7 @@ func TestZmqReconnect(t *testing.T) {
 	client := MixedDbClient {
 		applDB : swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
 		tableMap : map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap : map[string]swsscommon.ZmqProducerStateTable{},
 		zmqClient : swsscommon.NewZmqClient(zmqAddress),
 	}
 
@@ -442,6 +529,16 @@ func TestZmqReconnect(t *testing.T) {
 	client.DbSetTable(TEST_TABLE, TEST_KEY, data)
 	if !ReceiveFromZmq(consumer) {
 		t.Errorf("Receive data from ZMQ failed")
+	}
+
+	client.Close()
+	swsscommon.DeleteZmqConsumerStateTable(consumer)
+	swsscommon.DeleteZmqClient(client.zmqClient)
+	swsscommon.DeleteZmqServer(zmqServer)
+	swsscommon.DeleteDBConnector(db)
+
+	for _, client := range zmqClientMap {
+		swsscommon.DeleteZmqClient(client)
 	}
 }
 
@@ -473,6 +570,7 @@ func TestRetryHelper(t *testing.T) {
 		t.Errorf("RetryHelper retry too much")
 	}
 
+	swsscommon.DeleteZmqClient(zmqClient)
 	swsscommon.DeleteZmqServer(zmqServer)
 }
 
@@ -551,6 +649,11 @@ func TestGetDpuAddress(t *testing.T) {
 	if err == nil {
 		t.Errorf("get invalid ZMQ address failed")
 	}
+	
+	swsscommon.DeleteTable(midPlaneTable)
+	swsscommon.DeleteTable(dpusTable)
+	swsscommon.DeleteTable(dhcpPortTable)
+	swsscommon.DeleteDBConnector(configDb)
 }
 
 func TestGetZmqClient(t *testing.T) {
@@ -594,4 +697,18 @@ func TestGetZmqClient(t *testing.T) {
 	if err == nil {
 		t.Errorf("Remove ZMQ client should failed")
 	}
+	
+	swsscommon.DeleteTable(midPlaneTable)
+	swsscommon.DeleteTable(dpusTable)
+	swsscommon.DeleteTable(dhcpPortTable)
+	swsscommon.DeleteDBConnector(configDb)
+
+	for _, client := range zmqClientMap {
+		swsscommon.DeleteZmqClient(client)
+	}
+}
+
+func TestMain(m *testing.M) {
+	defer test_utils.MemLeakCheck()
+	m.Run()
 }

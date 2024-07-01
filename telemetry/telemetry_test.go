@@ -17,6 +17,7 @@ import (
 	"testing"
 	"flag"
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
+	"github.com/sonic-net/sonic-gnmi/test_utils"
 	"github.com/agiledragon/gomonkey/v2"
 	"os"
 	"syscall"
@@ -357,11 +358,15 @@ func TestStartGNMIServerCACert(t *testing.T) {
 	}()
 
 	fs := flag.NewFlagSet("testStartGNMIServerCACert", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey, "-ca_crt", testServerCACert}
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey, "-ca_crt", testServerCACert, "-config_table_name", "GNMI_CLIENT_CERT"}
 	telemetryCfg, cfg, err := setupFlags(fs)
 
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	if cfg.ConfigTableName != "GNMI_CLIENT_CERT" {
+		t.Errorf("Expected err to be GNMI_CLIENT_CERT, got %s", cfg.ConfigTableName)
 	}
 
 	err = createCACert(testServerCACert)
@@ -859,4 +864,9 @@ func testHandlerSyscall(t *testing.T, signal os.Signal) {
 
 func sendSignal(serverControlSignal chan<- ServerControlValue, value ServerControlValue) {
 	serverControlSignal <- value
+}
+
+func TestMain(m *testing.M) {
+	defer test_utils.MemLeakCheck()
+	m.Run()
 }

@@ -4,12 +4,18 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net"
+	"strings"
+	"sync"
+
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
+
 	log "github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -21,9 +27,6 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
-	"net"
-	"strings"
-	"sync"
 )
 
 var (
@@ -39,25 +42,33 @@ type Server struct {
 	config  *Config
 	cMu     sync.Mutex
 	clients map[string]*Client
+	// SaveStartupConfig points to a function that is called to save changes of
+	// configuration to a file. By default it points to an empty function -
+	// the configuration is not saved to a file.
+	SaveStartupConfig func() error
 	// ReqFromMaster point to a function that is called to verify if the request
 	// comes from a master controller.
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
+	// UnimplementedSystemServer is embedded to satisfy SystemServer interface requirements
+	gnoi_system_pb.UnimplementedSystemServer
 }
+
 type AuthTypes map[string]bool
 
 // Config is a collection of values for Server
 type Config struct {
 	// Port for the Server to listen on. If 0 or unset the Server will pick a port
 	// for this Server.
-	Port     int64
-	LogLevel int
-	Threshold int
-	UserAuth AuthTypes
+	Port                int64
+	LogLevel            int
+	Threshold           int
+	UserAuth            AuthTypes
 	EnableTranslibWrite bool
-	EnableNativeWrite bool
-	ZmqPort string
-	IdleConnDuration int
+	EnableNativeWrite   bool
+	ZmqPort             string
+	IdleConnDuration    int
+	ConfigTableName     string
 }
 
 var AuthLock sync.Mutex
@@ -132,16 +143,16 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if config == nil {
 		return nil, errors.New("config not provided")
 	}
-
 	common_utils.InitCounters()
 
 	s := grpc.NewServer(opts...)
 	reflection.Register(s)
 
 	srv := &Server{
-		s:       s,
-		config:  config,
-		clients: map[string]*Client{},
+		s:                 s,
+		config:            config,
+		clients:           map[string]*Client{},
+		SaveStartupConfig: saveOnSetDisabled,
 		// ReqFromMaster point to a function that is called to verify if
 		// the request comes from a master controller.
 		ReqFromMaster: ReqFromMasterDisabledMA,
@@ -160,7 +171,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
 		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
 	}
-	if srv.config.EnableTranslibWrite {		
+	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
 	}
 	spb_gnoi.RegisterDebugServer(srv.s, srv)
@@ -206,30 +217,31 @@ func (srv *Server) Port() int64 {
 	return srv.config.Port
 }
 
-func authenticate(UserAuth AuthTypes, ctx context.Context) (context.Context, error) {
+func authenticate(config *Config, ctx context.Context) (context.Context, error) {
 	var err error
 	success := false
 	rc, ctx := common_utils.GetContext(ctx)
-	if !UserAuth.Any() {
+	if !config.UserAuth.Any() {
 		//No Auth enabled
 		rc.Auth.AuthEnabled = false
 		return ctx, nil
 	}
+
 	rc.Auth.AuthEnabled = true
-	if UserAuth.Enabled("password") {
+	if config.UserAuth.Enabled("password") {
 		ctx, err = BasicAuthenAndAuthor(ctx)
 		if err == nil {
 			success = true
 		}
 	}
-	if !success && UserAuth.Enabled("jwt") {
+	if !success && config.UserAuth.Enabled("jwt") {
 		_, ctx, err = JwtAuthenAndAuthor(ctx)
 		if err == nil {
 			success = true
 		}
 	}
-	if !success && UserAuth.Enabled("cert") {
-		ctx, err = ClientCertAuthenAndAuthor(ctx)
+	if !success && config.UserAuth.Enabled("cert") {
+		ctx, err = ClientCertAuthenAndAuthor(ctx, config.ConfigTableName)
 		if err == nil {
 			success = true
 		}
@@ -248,7 +260,7 @@ func authenticate(UserAuth AuthTypes, ctx context.Context) (context.Context, err
 // Subscribe implements the gNMI Subscribe RPC.
 func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	ctx := stream.Context()
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	ctx, err := authenticate(s.config, ctx)
 	if err != nil {
 		return err
 	}
@@ -333,7 +345,7 @@ func IsNativeOrigin(origin string) bool {
 // Get implements the Get RPC in gNMI spec.
 func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
 	common_utils.IncCounter(common_utils.GNMI_GET)
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	ctx, err := authenticate(s.config, ctx)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, err
@@ -409,6 +421,25 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	return &gnmipb.GetResponse{Notification: notifications}, nil
 }
 
+// saveOnSetEnabled saves configuration to a file
+func SaveOnSetEnabled() error {
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		log.V(0).Infof("Saving startup config failed to create dbus client: %v", err)
+		return err
+	}
+	if err := sc.ConfigSave("/etc/sonic/config_db.json"); err != nil {
+		log.V(0).Infof("Saving startup config failed: %v", err)
+		return err
+	} else {
+		log.V(1).Infof("Success! Startup config has been saved!")
+	}
+	return nil
+}
+
+// SaveOnSetDisabeld does nothing.
+func saveOnSetDisabled() error { return nil }
+
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
 	e := s.ReqFromMaster(req, &s.masterEID)
 	if e != nil {
@@ -420,7 +451,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
 	}
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	ctx, err := authenticate(s.config, ctx)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, err
@@ -512,6 +543,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 	}
 
+	s.SaveStartupConfig()
 	return &gnmipb.SetResponse{
 		Prefix:   req.GetPrefix(),
 		Response: results,
@@ -520,7 +552,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 }
 
 func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest) (*gnmipb.CapabilityResponse, error) {
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	ctx, err := authenticate(s.config, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -609,7 +641,7 @@ func ReqFromMasterEnabledMA(req *gnmipb.SetRequest, masterEID *uint128) error {
 			// Role will be implemented later.
 			return status.Errorf(codes.Unimplemented, "MA: Role is not implemented")
 		}
-		
+
 		reqEID = uint128{High: ma.ElectionId.High, Low: ma.ElectionId.Low}
 		// Use the election ID that is in the last extension, so, no 'break' here.
 	}

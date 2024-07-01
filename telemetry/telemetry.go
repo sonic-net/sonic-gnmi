@@ -1,37 +1,39 @@
 package main
 
 import (
+	"crypto/sha512"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/sha512"
 	"encoding/hex"
 	"flag"
+	"fmt"
 	"io"
 	"io/ioutil"
-	"path/filepath"
-	"time"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
-	"syscall"
 	"sync"
 	"sync/atomic"
-	log "github.com/golang/glog"
+	"syscall"
+	"time"
+
+	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
+	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
+
 	"github.com/fsnotify/fsnotify"
+	log "github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
-	"fmt"
-	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
-	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 )
 
 type ServerControlValue int
 
 const (
-	ServerStop       ServerControlValue = iota // 0
-	ServerStart      ServerControlValue = iota // 1
-	ServerRestart    ServerControlValue = iota // 2
+	ServerStop    ServerControlValue = iota // 0
+	ServerStart   ServerControlValue = iota // 1
+	ServerRestart ServerControlValue = iota // 2
 )
 
 type TelemetryConfig struct {
@@ -41,6 +43,7 @@ type TelemetryConfig struct {
 	CaCert                *string
 	ServerCert            *string
 	ServerKey             *string
+	ConfigTableName       *string
 	ZmqAddress            *string
 	ZmqPort               *string
 	Insecure              *bool
@@ -52,6 +55,7 @@ type TelemetryConfig struct {
 	GnmiNativeWrite       *bool
 	Threshold             *int
 	WithMasterArbitration *bool
+	WithSaveOnSet         *bool
 	IdleConnDuration      *int
 }
 
@@ -100,9 +104,9 @@ func runTelemetry(args []string) error {
 	return nil
 }
 
-func getGlogFlagsMap() map[string] bool {
+func getGlogFlagsMap() map[string]bool {
 	// glog flags: https://pkg.go.dev/github.com/golang/glog
-	return map[string]bool {
+	return map[string]bool{
 		"-alsologtostderr":  true,
 		"-log_backtrace_at": true,
 		"-log_dir":          true,
@@ -140,13 +144,14 @@ func parseOSArgs() ([]string, []string) {
 }
 
 func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
-	telemetryCfg := &TelemetryConfig {
+	telemetryCfg := &TelemetryConfig{
 		UserAuth:              gnmi.AuthTypes{"password": false, "cert": false, "jwt": false},
 		Port:                  fs.Int("port", -1, "port to listen on"),
 		LogLevel:              fs.Int("v", 2, "log level of process"),
 		CaCert:                fs.String("ca_crt", "", "CA certificate for client certificate validation. Optional."),
 		ServerCert:            fs.String("server_crt", "", "TLS server certificate"),
 		ServerKey:             fs.String("server_key", "", "TLS server private key"),
+		ConfigTableName:       fs.String("config_table_name", "", "Config table name"),
 		ZmqAddress:            fs.String("zmq_address", "", "Orchagent ZMQ address, deprecated, please use zmq_port."),
 		ZmqPort:               fs.String("zmq_port", "", "Orchagent ZMQ port, when not set or empty string telemetry server will switch to Redis based communication channel."),
 		Insecure:              fs.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!"),
@@ -158,6 +163,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		GnmiNativeWrite:       fs.Bool("gnmi_native_write", gnmi.ENABLE_NATIVE_WRITE, "Enable gNMI native write"),
 		Threshold:             fs.Int("threshold", 100, "max number of client connections"),
 		WithMasterArbitration: fs.Bool("with-master-arbitration", false, "Enables master arbitration policy."),
+		WithSaveOnSet:         fs.Bool("with-save-on-set", false, "Enables save-on-set."),
 		IdleConnDuration:      fs.Int("idle_conn_duration", 5, "Seconds before server closes idle connections"),
 	}
 
@@ -220,6 +226,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.LogLevel = int(*telemetryCfg.LogLevel)
 	cfg.Threshold = int(*telemetryCfg.Threshold)
 	cfg.IdleConnDuration = int(*telemetryCfg.IdleConnDuration)
+	cfg.ConfigTableName = *telemetryCfg.ConfigTableName
 
 	// TODO: After other dependent projects are migrated to ZmqPort, remove ZmqAddress
 	zmqAddress := *telemetryCfg.ZmqAddress
@@ -258,9 +265,8 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 		for {
 			select {
 			case event := <-watcher.Events:
-				if event.Name != "" && (
-					filepath.Ext(event.Name) == ".cert" || filepath.Ext(event.Name) == ".crt" ||
-					filepath.Ext(event.Name) == ".cer"  || filepath.Ext(event.Name) == ".pem" ||
+				if event.Name != "" && (filepath.Ext(event.Name) == ".cert" || filepath.Ext(event.Name) == ".crt" ||
+					filepath.Ext(event.Name) == ".cer" || filepath.Ext(event.Name) == ".pem" ||
 					filepath.Ext(event.Name) == ".key") {
 					log.V(1).Infof("Inotify watcher has received event: %v", event)
 					if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
@@ -271,7 +277,7 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 					}
 					if event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename {
 						log.V(1).Infof("Cert file has been deleted: %s", event.Name)
-						serverControlSignal <- ServerRestart // let server know that a remove/rename event occurred
+						serverControlSignal <- ServerRestart   // let server know that a remove/rename event occurred
 						if atomic.LoadInt32(certLoaded) == 1 { // Should continue monitoring if certs are not present
 							done <- true
 							return
@@ -361,13 +367,13 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 				}
 			}
 
-			tlsCfg := &tls.Config {
-				ClientAuth:		  tls.RequireAndVerifyClientCert,
-				Certificates:		  []tls.Certificate{certificate},
-				MinVersion:		  tls.VersionTLS12,
-				CurvePreferences:	  []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
+			tlsCfg := &tls.Config{
+				ClientAuth:               tls.RequireAndVerifyClientCert,
+				Certificates:             []tls.Certificate{certificate},
+				MinVersion:               tls.VersionTLS12,
+				CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
 				PreferServerCipherSuites: true,
-				CipherSuites: []uint16 {
+				CipherSuites: []uint16{
 					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 					tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
@@ -437,6 +443,9 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 		if err != nil {
 			log.Errorf("Failed to create gNMI server: %v", err)
 			return
+		}
+		if *telemetryCfg.WithSaveOnSet {
+			s.SaveStartupConfig = gnmi.SaveOnSetEnabled
 		}
 
 		if *telemetryCfg.WithMasterArbitration {

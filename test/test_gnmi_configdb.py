@@ -229,7 +229,13 @@ class TestGNMIConfigDb:
 
     @pytest.mark.parametrize("test_data", test_data_update_normal)
     def test_gnmi_incremental_replace(self, test_data):
-        create_checkpoint(checkpoint_file, '{}')
+        test_config = {
+            "PORT": {
+                'Ethernet4': {'admin_status': 'down'},
+                'Ethernet8': {'admin_status': 'down'}
+            }
+        }
+        create_checkpoint(checkpoint_file, json.dumps(test_config))
 
         replace_list = []
         for i, data in enumerate(test_data):
@@ -252,7 +258,7 @@ class TestGNMIConfigDb:
             test_path = item['path']
             test_value = item['value']
             for patch_data in patch_json:
-                assert patch_data['op'] == 'add', "Invalid operation"
+                assert patch_data['op'] == 'replace', "Invalid operation"
                 if test_path == '/sonic-db:CONFIG_DB/localhost' + patch_data['path'] and test_value == patch_data['value']:
                     break
             else:
