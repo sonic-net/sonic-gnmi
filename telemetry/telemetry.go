@@ -89,7 +89,7 @@ func runTelemetry(args []string) error {
 	var serverControlSignal = make(chan ServerControlValue, 1)
 	var stopSignalHandler = make(chan bool, 1)
 	sigchannel := make(chan os.Signal, 1)
-	signal.Notify(sigchannel, syscall.SIGTERM, syscall.SIGQUIT)
+	signal.Notify(sigchannel, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT, syscall.SIGHUP)
 
 	wg.Add(1)
 
@@ -461,12 +461,13 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 
 		serverControlValue := <-serverControlSignal
 		log.V(1).Infof("Received signal for gnmi server to close")
-		s.Stop()
 		if serverControlValue == ServerStop {
+			s.ForceStop() // No graceful stop
 			stopSignalHandler <- true
 			log.Flush()
 			return
 		}
+		s.Stop() // Graceful stop
 		// Both ServerStart and ServerRestart will loop and restart server
 		// We use different value to distinguish between write/create and remove/rename
 	}
