@@ -186,7 +186,7 @@ func TestStartGNMIServer(t *testing.T) {
 	wg := &sync.WaitGroup{}
 
 	exitCalled := false
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "ForceStop", func(_ *gnmi.Server) {
 		exitCalled = true
 	})
 
