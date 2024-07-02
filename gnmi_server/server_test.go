@@ -3491,16 +3491,16 @@ func TestConnectionsKeepAlive(t *testing.T) {
 	defer s.Stop()
 
 	tests := []struct {
-		desc string
-		q    client.Query
-		want []client.Notification
-		poll int
+		desc    string
+		q       client.Query
+		want    []client.Notification
+		poll    int
 	}{
 		{
 			desc: "Testing KeepAlive with goroutine count",
 			poll: 3,
 			q: client.Query{
-				Target:  "COUNTERS_DB",
+				Target: "COUNTERS_DB",
 				Type:    client.Poll,
 				Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
 				TLS:     &tls.Config{InsecureSkipVerify: true},
@@ -3511,12 +3511,14 @@ func TestConnectionsKeepAlive(t *testing.T) {
 			},
 		},
 	}
-	for _, tt := range tests {
+	for _, tt := range(tests) {
+		var clients []*cacheclient.CacheClient
 		for i := 0; i < 5; i++ {
 			t.Run(tt.desc, func(t *testing.T) {
 				q := tt.q
 				q.Addrs = []string{"127.0.0.1:8081"}
 				c := client.New()
+				clients = append(clients, c)
 				wg := new(sync.WaitGroup)
 				wg.Add(1)
 
@@ -3537,6 +3539,9 @@ func TestConnectionsKeepAlive(t *testing.T) {
 					t.Errorf("Expecting goroutine after sleep to be less than or equal to after subscribe, after_subscribe: %d, after_sleep: %d", after_subscribe, after_sleep)
 				}
 			})
+		}
+		for _, cacheClient := range(clients) {
+			cacheClient.Close()
 		}
 	}
 }

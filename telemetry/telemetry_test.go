@@ -186,7 +186,7 @@ func TestStartGNMIServer(t *testing.T) {
 	wg := &sync.WaitGroup{}
 
 	exitCalled := false
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "ForceStop", func(_ *gnmi.Server) {
 		exitCalled = true
 	})
 
@@ -822,6 +822,8 @@ func TestINotifyCertMonitoringAddWatcherError(t *testing.T) {
 func TestSignalHandler(t *testing.T) {
 	testHandlerSyscall(t, syscall.SIGTERM)
 	testHandlerSyscall(t, syscall.SIGQUIT)
+	testHandlerSyscall(t, syscall.SIGINT)
+	testHandlerSyscall(t, syscall.SIGHUP)
 	testHandlerSyscall(t, nil) // Test that ServerStop should make signalHandler exit
 }
 
