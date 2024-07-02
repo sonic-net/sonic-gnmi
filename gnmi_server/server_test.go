@@ -3419,7 +3419,7 @@ func TestClientConnections(t *testing.T) {
 func TestConnectionDataSet(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
-	defer s.Stop()
+	defer s.ForceStop()
 
 	tests := []struct {
 		desc string
