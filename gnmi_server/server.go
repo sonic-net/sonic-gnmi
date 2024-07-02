@@ -541,9 +541,10 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	err = dc.Set(req.GetDelete(), req.GetReplace(), req.GetUpdate())
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+	} else {
+		s.SaveStartupConfig()
 	}
 
-	s.SaveStartupConfig()
 	return &gnmipb.SetResponse{
 		Prefix:   req.GetPrefix(),
 		Response: results,
