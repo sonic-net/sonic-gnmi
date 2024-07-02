@@ -3946,6 +3946,13 @@ func TestNilServerStop(t *testing.T) {
 	s.Stop()
 }
 
+func TestNilServerForceStop(t *testing.T) {
+	// Create a server with nil grpc server, such that s.ForceStop is called with nil value
+	t.Log("Expecting s.ForceStop to log error as server is nil")
+	s := &Server{}
+	s.ForceStop()
+}
+
 func TestInvalidServer(t *testing.T) {
 	s := createInvalidServer(t, 9000)
 	if s != nil {
