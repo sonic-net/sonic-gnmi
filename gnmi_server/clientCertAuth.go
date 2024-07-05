@@ -1,6 +1,14 @@
 package gnmi
 
 import (
+	"crypto/md5"
+	"crypto/tls"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/golang/glog"
@@ -44,7 +52,104 @@ func ClientCertAuthenAndAuthor(ctx context.Context, serviceConfigTableName strin
 		}
 	}
 
+	if err := VerifyCertCrl(tlsAuth.State); err != nil {
+		glog.Infof("[%s] Failed to verify cert with CRL; %v", rc.ID, err)
+		return ctx, status.Errorf(codes.Unauthenticated, "")
+	}
+
 	return ctx, nil
+}
+
+func GetLocalCrlPath(crlUrl string) string {
+	crlHash := md5.Sum([]byte(crlUrl))
+	localFileName := hex.EncodeToString(crlHash[:])
+	return fmt.Sprintf("/etc/sonic/crl/%s.crl", localFileName)
+}
+
+func CheckCrlDownloaded(crlUrlArray []string) (bool, string) {
+    for _,crlUrl := range crlUrlArray{
+		localFilePath := GetLocalCrlPath(crlUrl)
+
+		// check if CRL already downloaded
+		_, err := os.Stat(localFilePath)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+
+		// TODO: check file expired
+		return true, localFilePath
+    }
+
+	return false, ""
+}
+
+func TryDownload(url string) bool {
+	destPath := GetLocalCrlPath(url)
+	out, err := os.Create(destPath)
+	defer out.Close()
+	if err != nil {
+		glog.Infof("Create local CRL: %s failed: %v", destPath, err)
+		return false
+	}
+
+	resp, err := http.Get(url)
+	defer resp.Body.Close()
+	if err != nil {
+		glog.Infof("Download CRL: %s failed: %v", url, err)
+		return false
+	}
+
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		glog.Infof("Download CRL: %s to local: %s failed: %v", url, destPath, err)
+		return false
+	}
+
+	return true
+}
+
+func TryDownloadCrl(crlUrlArray []string) bool {
+	// download file to local, and update appl_db
+    for _,crlUrl := range crlUrlArray{
+		downloaded := TryDownload(crlUrl)
+		if downloaded {
+			glog.Infof("Downloaded CRL: %s", crlUrl)
+			return true
+		}
+    }
+
+	return false
+}
+
+func VerifyCertCrl(tlsConnState tls.ConnectionState) error {
+	// Check if any CRL already exist in local
+	crlUriArray := tlsConnState.VerifiedChains[0][0].CRLDistributionPoints
+	downloaded, localPath := CheckCrlDownloaded(crlUriArray)
+	if !downloaded {
+		downloaded = TryDownloadCrl(crlUriArray)
+		if !downloaded {
+			return status.Errorf(codes.Unauthenticated, "Can't download CRL and verify cert")
+		}
+	}
+
+	// Verify cert with CRL
+	rawCRLs := make([][]byte, 6)
+	rawCRL, err := os.ReadFile(localPath)
+	if err != nil {
+		return status.Errorf(codes.Unauthenticated, "Can't load CRL and verify cert")
+	}
+	
+	rawCRLs = append(rawCRLs, rawCRL)
+	cRLProvider := NewStaticCRLProvider(rawCRLs)
+	err = checkRevocation(tlsConnState, RevocationConfig{
+		AllowUndetermined: true,
+		CRLProvider:       cRLProvider,
+	})
+	if err != nil {
+		return status.Error(codes.Unauthenticated, "Peer certificate revoked")
+	}
+
+	return nil
 }
 
 func PopulateAuthStructByCommonName(certCommonName string, auth *common_utils.AuthInfo, serviceConfigTableName string) error {
