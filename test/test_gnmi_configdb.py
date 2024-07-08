@@ -2,7 +2,7 @@
 import os
 import json
 import time
-from utils import gnmi_set, gnmi_get, gnmi_dump
+from utils import gnmi_set, gnmi_get, gnmi_dump, gnmi_subscribe_poll
 
 import pytest
 
@@ -412,3 +412,19 @@ class TestGNMIConfigDb:
         ret, msg = gnmi_set([], [], update_list)
         assert ret != 0, "Failed to detect invalid replace path"
         assert "Invalid elem length" in msg, msg
+
+    def test_gnmi_poll_01(self):
+        path = "/CONFIG_DB/localhost/DEVICE_METADATA"
+        cnt = 3
+        interval = 1
+        ret, msg = gnmi_subscribe_poll(path, interval, cnt, timeout=0)
+        assert ret == 0, 'Fail to subscribe: ' + msg
+        assert msg.count("DEVICE_METADATA") == cnt, 'Invalid result: ' + msg
+
+    def test_gnmi_poll_invalid_01(self):
+        path = "/CONFIG_DB/localhost/INVALID_TABLE"
+        cnt = 3
+        interval = 1
+        ret, msg = gnmi_subscribe_poll(path, interval, cnt, timeout=10)
+        assert ret == 0, 'Fail to subscribe: ' + msg
+        assert "rpc error" in msg, 'Invalid result: ' + msg

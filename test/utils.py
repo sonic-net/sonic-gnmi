@@ -5,10 +5,7 @@ import subprocess
 def run_cmd(cmd):
     res = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     res.wait()
-    if res.returncode:
-        msg = str(res.stderr.read(), encoding='utf-8')
-    else:
-        msg = str(res.stdout.read(), encoding='utf-8')
+    msg = str(res.stderr.read(), encoding='utf-8') + str(res.stdout.read(), encoding='utf-8')
     return res.returncode, msg
 
 def gnmi_set(delete_list, update_list, replace_list):
@@ -154,6 +151,20 @@ def gnmi_capabilities():
     cmd = path + '/build/bin/gnmi_cli '
     cmd += '-client_types=gnmi -a 127.0.0.1:8080 -logtostderr -insecure '
     cmd += '-capabilities '
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+def gnmi_subscribe_poll(gnmi_path, interval, count, timeout):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnmi_cli '
+    cmd += '-client_types=gnmi -a 127.0.0.1:8080 -logtostderr -insecure '
+    # Use sonic-db as default origin
+    cmd += '-origin=sonic-db '
+    if timeout:
+        cmd += '-streaming_timeout=10 '
+    cmd += '-query_type=polling '
+    cmd += '-polling_interval %us -count %u ' % (interval, count)
+    cmd += '-q %s' % (gnmi_path)
     ret, msg = run_cmd(cmd)
     return ret, msg
 
