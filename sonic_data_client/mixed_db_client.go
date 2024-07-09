@@ -635,6 +635,13 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 	tblPath.tableName = ""
 	if len(stringSlice) > 1 {
 		tblPath.tableName = stringSlice[1]
+		// tables in COUNTERS_DB other than COUNTERS table doesn't have keys
+		// Insert a dummy table key
+		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
+			index := 2
+			stringSlice = append(stringSlice[:index+1], stringSlice[index:]...)
+			stringSlice[index] = ""
+		}
 	}
 	tblPath.delimitor = separator
 	tblPath.operation = opRemove
