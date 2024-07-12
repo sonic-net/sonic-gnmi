@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/jipanyang/gnxi/utils/xpath"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
@@ -589,14 +590,12 @@ func TestRetryHelperReconnect(t *testing.T) {
 	// create ZMQ client side
 	zmqAddress := "tcp://127.0.0.1:2234"
 	zmqClient := swsscommon.NewZmqClient(zmqAddress)
-	returnError := true
 	exeCount := 0
 	RetryHelper(
 		zmqClient,
 		func () (err error) {
 			exeCount++
 			if exeCount <= 6 {
-				returnError = false
 				return fmt.Errorf("connection_reset")
 			}
 			return nil
