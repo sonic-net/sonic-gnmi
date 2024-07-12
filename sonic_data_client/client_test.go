@@ -558,7 +558,7 @@ func TestRetryHelper(t *testing.T) {
 			exeCount++
 			if returnError {
 				returnError = false
-				return fmt.Errorf("connection_reset")
+				return fmt.Errorf("zmq connection break, endpoint: tcp://127.0.0.1:2234")
 			}
 			return nil
 	})
@@ -596,7 +596,7 @@ func TestRetryHelperReconnect(t *testing.T) {
 		func () (err error) {
 			exeCount++
 			if exeCount <= 6 {
-				return fmt.Errorf("connection_reset")
+				return fmt.Errorf("zmq connection break, endpoint: tcp://127.0.0.1:2234")
 			}
 			return nil
 	})
