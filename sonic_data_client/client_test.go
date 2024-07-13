@@ -480,6 +480,42 @@ func TestSubscribeInternal(t *testing.T) {
 		client.synced.Add(1)
 		client.streamSampleSubscription(&sub, false)
 	}
+
+	// Test streamSampleSubscription
+	{
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		client := MixedDbClient {}
+		path, _ := xpath.ToGNMIPath("/abc/dummy")
+		sub := gnmipb.Subscription{
+			SampleInterval: 1000000000,
+			Path: path,
+		}
+		RedisDbMap = nil
+		client.q = pq
+		client.w = &w
+		client.w.Add(1)
+		client.synced.Add(1)
+		client.dbkey = swsscommon.NewSonicDBKey()
+		defer swsscommon.DeleteSonicDBKey(client.dbkey)
+		client.streamSampleSubscription(&sub, false)
+	}
+
+	// Test dbFieldSubscribe
+	{
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		client := MixedDbClient {}
+		path, _ := xpath.ToGNMIPath("/abc/dummy")
+		RedisDbMap = nil
+		client.q = pq
+		client.w = &w
+		client.w.Add(1)
+		client.synced.Add(1)
+		client.dbkey = swsscommon.NewSonicDBKey()
+		defer swsscommon.DeleteSonicDBKey(client.dbkey)
+		client.dbFieldSubscribe(path, true, time.Second)
+	}
 }
 
 func mockGetFunc() ([]byte, error) {
