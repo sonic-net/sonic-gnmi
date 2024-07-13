@@ -1649,6 +1649,7 @@ func (c *MixedDbClient) streamOnChangeSubscription(gnmiPath *gnmipb.Path) {
 	tblPaths, err := c.getDbtablePath(gnmiPath, nil)
 	if err != nil {
 		log.Errorf("streamOnChangeSubscription error:  %v", err)
+		c.synced.Done()
 		return
 	}
 	log.V(2).Infof("streamOnChangeSubscription gnmiPath: %v", gnmiPath)
