@@ -1648,8 +1648,10 @@ func (c *MixedDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w 
 func (c *MixedDbClient) streamOnChangeSubscription(gnmiPath *gnmipb.Path) {
 	tblPaths, err := c.getDbtablePath(gnmiPath, nil)
 	if err != nil {
-		log.Errorf("streamOnChangeSubscription error:  %v", err)
+		msg := fmt.Sprintf("streamOnChangeSubscription error:  %v", err)
+		putFatalMsg(c.q, msg)
 		c.synced.Done()
+		c.w.Done()
 		return
 	}
 	log.V(2).Infof("streamOnChangeSubscription gnmiPath: %v", gnmiPath)
@@ -1675,7 +1677,9 @@ func (c *MixedDbClient) streamSampleSubscription(sub *gnmipb.Subscription, updat
 	gnmiPath := sub.GetPath()
 	tblPaths, err := c.getDbtablePath(gnmiPath, nil)
 	if err != nil {
-		log.Errorf("streamSampleSubscription error:  %v", err)
+		putFatalMsg(c.q, err.Error())
+		c.synced.Done()
+		c.w.Done()
 		return
 	}
 	log.V(2).Infof("streamSampleSubscription gnmiPath: %v", gnmiPath)
@@ -1695,14 +1699,17 @@ func (c *MixedDbClient) dbFieldSubscribe(gnmiPath *gnmipb.Path, onChange bool, i
 
 	tblPaths, err := c.getDbtablePath(gnmiPath, nil)
 	if err != nil {
-		log.V(1).Infof("Path error:  %v", err)
+		putFatalMsg(c.q, err.Error())
+		c.synced.Done()
 		return
 	}
 	tblPath := tblPaths[0]
 	// run redis get directly for field value
 	redisDb, ok := RedisDbMap[c.mapkey+":"+tblPath.dbName]
 	if !ok {
-		log.V(1).Infof("RedisDbMap not exist:  %v", c.mapkey+":"+tblPath.dbName)
+		msg := fmt.Sprintf("RedisDbMap not exist:  %v", c.mapkey+":"+tblPath.dbName)
+		putFatalMsg(c.q, msg)
+		c.synced.Done()
 		return
 	}
 
@@ -1870,11 +1877,6 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time.Duration, updateOnly bool) {
 	defer c.w.Done()
 
-	tblPaths, err := c.getDbtablePath(gnmiPath, nil)
-	if err != nil {
-		log.V(1).Infof("Path error:  %v", err)
-		return
-	}
 	msiAll := make(map[string]interface{})
 	rsdList := []redisSubData{}
 	synced := false
@@ -1892,6 +1894,12 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 		log.V(1).Infof(msg)
 		putFatalMsg(c.q, msg)
 		signalSync()
+	}
+
+	tblPaths, err := c.getDbtablePath(gnmiPath, nil)
+	if err != nil {
+		handleFatalMsg(fmt.Sprintf("Path error:  %v", err))
+		return
 	}
 
 	// Helper to send hash data over the stream
@@ -1944,7 +1952,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 		}
 		redisDb, ok := RedisDbMap[c.mapkey+":"+tblPath.dbName]
 		if !ok {
-			log.V(1).Infof("RedisDbMap not exist:  %v", c.mapkey+":"+tblPath.dbName)
+			handleFatalMsg(fmt.Sprintf("RedisDbMap not exist:  %v", c.mapkey+":"+tblPath.dbName))
 			return
 		}
 		pubsub := redisDb.PSubscribe(pattern)

@@ -462,6 +462,7 @@ func TestSubscribeInternal(t *testing.T) {
 		defer swsscommon.DeleteSonicDBKey(client.dbkey)
 		RedisDbMap = nil
 		stop <- struct{}{}
+		w.Add(1)
 		client.StreamRun(pq, stop, &w, &req)
 	}
 
