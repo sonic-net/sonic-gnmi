@@ -192,7 +192,7 @@ def gnmi_subscribe_stream_onchange(gnmi_path, count, timeout):
     if timeout:
         cmd += '-streaming_timeout=%u ' % timeout
     cmd += '-query_type=streaming '
-    cmd += '-streaming_type=ON_CHANGE '
+    cmd += '-streaming_type=ON_CHANGE -updates_only '
     cmd += '-expected_count %u ' % count
     cmd += '-q %s' % (gnmi_path)
     ret, msg = run_cmd(cmd)

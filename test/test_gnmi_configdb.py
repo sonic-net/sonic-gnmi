@@ -508,6 +508,37 @@ class TestGNMIConfigDb:
         cnt = 3
 
         def worker():
+            # Subscribe table key
+            path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost"
+            ret, msg = gnmi_subscribe_stream_onchange(path, cnt+3, timeout=10)
+            result_queue.put((ret, msg))
+
+        t = threading.Thread(target=worker)
+        t.start()
+
+        # Modify bgp_asn
+        time.sleep(0.5)
+        cmd = r'redis-cli -n 4 hdel "DEVICE_METADATA|localhost" bgp_asn '
+        run_cmd(cmd)
+        for i in range(cnt):
+            time.sleep(0.5)
+            cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn ' + str(i+1000)
+            run_cmd(cmd)
+
+        t.join()
+        ret, msg = result_queue.get()
+        assert ret == 0, 'Fail to subscribe: ' + msg
+        assert msg.count("bgp_asn") >= cnt+1, 'Invalid result: ' + msg
+
+    def test_gnmi_stream_onchange_03(self):
+        # Init bgp_asn
+        cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn 65100'
+        run_cmd(cmd)
+
+        result_queue = queue.Queue()
+        cnt = 3
+
+        def worker():
             # Subscribe table field
             path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost/bgp_asn"
             ret, msg = gnmi_subscribe_stream_onchange(path, cnt+1, timeout=10)
