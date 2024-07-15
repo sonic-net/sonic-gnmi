@@ -292,33 +292,33 @@ func ProducerStateTableDeleteWrapper(pt swsscommon.ProducerStateTable, key strin
 
 type ActionNeedRetry func() error
 
-func RetryHelper(zmqClient swsscommon.ZmqClient, action ActionNeedRetry) {
+func RetryHelper(zmqClient swsscommon.ZmqClient, action ActionNeedRetry) error {
 	var retry uint = 0
 	var retry_delay = time.Duration(RETRY_DELAY_MILLISECOND) * time.Millisecond
-	ConnectionResetErr := "connection_reset"
+	ConnectionResetErr := "zmq connection break"
 	for {
 		err := action()
 		if err != nil {
-			if (err.Error() == ConnectionResetErr && retry <= MAX_RETRY_COUNT) {
-				log.V(6).Infof("RetryHelper: connection reset, reconnect and retry later")
-				time.Sleep(retry_delay)
+			if strings.Contains(err.Error(), ConnectionResetErr) {
+				if (retry <= MAX_RETRY_COUNT) {
+					log.V(6).Infof("RetryHelper: connection reset, reconnect and retry later")
+					time.Sleep(retry_delay)
+	
+					zmqClient.Connect()
+					retry_delay *= time.Duration(RETRY_DELAY_FACTOR)
+					retry++
+					continue
+				}
 
-				zmqClient.Connect()
-				retry_delay *= time.Duration(RETRY_DELAY_FACTOR)
-				retry++
-				continue
+				// Force re-create ZMQ client when connection reset
+				removeZmqErr := removeZmqClient(zmqClient)
+				if removeZmqErr != nil {
+					log.V(6).Infof("RetryHelper: remove ZMQ client error: %v", removeZmqErr)
+				}
 			}
-
-			// Force re-create ZMQ client
-			removeZmqErr := removeZmqClient(zmqClient)
-			if removeZmqErr != nil {
-				log.V(6).Infof("RetryHelper: remove ZMQ client error: %v", removeZmqErr)
-			}
-
-			panic(err)
 		}
 
-		return
+		return err
 	}
 }
 
@@ -332,24 +332,20 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 	}
 
 	pt := c.GetTable(table)
-	RetryHelper(
+	return RetryHelper(
 				c.zmqClient,
 				func () error {
 					return ProducerStateTableSetWrapper(pt, key, vec)
 				})
-
-	return nil
 }
 
 func (c *MixedDbClient) DbDelTable(table string, key string) error {
 	pt := c.GetTable(table)
-	RetryHelper(
+	return RetryHelper(
 				c.zmqClient,
 				func () error {
 					return ProducerStateTableDeleteWrapper(pt, key) 
 				})
-
-	return nil
 }
 
 // For example, the GNMI path below points to DASH_QOS table in the DPU_APPL_DB database for dpu0:

@@ -12,6 +12,7 @@ import (
 	"fmt"
 
 	"github.com/Workiva/go-datastructures/queue"
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/jipanyang/gnxi/utils/xpath"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
@@ -646,7 +647,7 @@ func TestRetryHelper(t *testing.T) {
 			exeCount++
 			if returnError {
 				returnError = false
-				return fmt.Errorf("connection_reset")
+				return fmt.Errorf("zmq connection break, endpoint: tcp://127.0.0.1:2234")
 			}
 			return nil
 	})
@@ -657,6 +658,37 @@ func TestRetryHelper(t *testing.T) {
 
 	if exeCount > 2 {
 		t.Errorf("RetryHelper retry too much")
+	}
+
+	swsscommon.DeleteZmqClient(zmqClient)
+	swsscommon.DeleteZmqServer(zmqServer)
+}
+
+func TestRetryHelperReconnect(t *testing.T) {
+	// create ZMQ server
+	zmqServer := swsscommon.NewZmqServer("tcp://*:2234")
+
+	// when config table is empty, will authorize with PopulateAuthStruct
+	zmqClientRemoved := false
+	mockremoveZmqClient := gomonkey.ApplyFunc(removeZmqClient, func(zmqClient swsscommon.ZmqClient) (error) {
+		zmqClientRemoved = true
+		return nil
+	})
+	defer mockremoveZmqClient.Reset()
+
+	// create ZMQ client side
+	zmqAddress := "tcp://127.0.0.1:2234"
+	zmqClient := swsscommon.NewZmqClient(zmqAddress)
+	exeCount := 0
+	RetryHelper(
+		zmqClient,
+		func () (err error) {
+			exeCount++
+			return fmt.Errorf("zmq connection break, endpoint: tcp://127.0.0.1:2234")
+	})
+
+	if !zmqClientRemoved {
+		t.Errorf("RetryHelper does not remove ZMQ client for reconnect")
 	}
 
 	swsscommon.DeleteZmqClient(zmqClient)
