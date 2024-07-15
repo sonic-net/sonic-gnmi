@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/Workiva/go-datastructures/queue"
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/jipanyang/gnxi/utils/xpath"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
@@ -443,6 +444,94 @@ func TestParseDatabase(t *testing.T) {
 	target, _, err = client.ParseDatabase(prefix, test_paths)
 	if err == nil {
 		t.Errorf("ParseDatabase should fail for namespace/container")
+	}
+}
+
+func TestSubscribeInternal(t *testing.T) {
+	// Test StreamRun
+	{
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		stop := make(chan struct{}, 1)
+		client := MixedDbClient {}
+		req := gnmipb.SubscriptionList{
+			Subscription: nil,
+		}
+		path, _ := xpath.ToGNMIPath("/abc/dummy")
+		client.paths = append(client.paths, path)
+		client.dbkey = swsscommon.NewSonicDBKey()
+		defer swsscommon.DeleteSonicDBKey(client.dbkey)
+		RedisDbMap = nil
+		stop <- struct{}{}
+		w.Add(1)
+		client.StreamRun(pq, stop, &w, &req)
+	}
+
+	// Test streamSampleSubscription
+	{
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		client := MixedDbClient {}
+		sub := gnmipb.Subscription{
+			SampleInterval: 1000,
+		}
+		client.q = pq
+		client.w = &w
+		client.w.Add(1)
+		client.synced.Add(1)
+		client.streamSampleSubscription(&sub, false)
+	}
+
+	// Test streamSampleSubscription
+	{
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		client := MixedDbClient {}
+		path, _ := xpath.ToGNMIPath("/abc/dummy")
+		sub := gnmipb.Subscription{
+			SampleInterval: 1000000000,
+			Path: path,
+		}
+		RedisDbMap = nil
+		client.q = pq
+		client.w = &w
+		client.w.Add(1)
+		client.synced.Add(1)
+		client.dbkey = swsscommon.NewSonicDBKey()
+		defer swsscommon.DeleteSonicDBKey(client.dbkey)
+		client.streamSampleSubscription(&sub, false)
+	}
+
+	// Test dbFieldSubscribe
+	{
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		client := MixedDbClient {}
+		path, _ := xpath.ToGNMIPath("/abc/dummy")
+		RedisDbMap = nil
+		client.q = pq
+		client.w = &w
+		client.w.Add(1)
+		client.synced.Add(1)
+		client.dbkey = swsscommon.NewSonicDBKey()
+		defer swsscommon.DeleteSonicDBKey(client.dbkey)
+		client.dbFieldSubscribe(path, true, time.Second)
+	}
+
+	// Test dbTableKeySubscribe
+	{
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		client := MixedDbClient {}
+		path, _ := xpath.ToGNMIPath("/abc/dummy")
+		RedisDbMap = nil
+		client.q = pq
+		client.w = &w
+		client.w.Add(1)
+		client.synced.Add(1)
+		client.dbkey = swsscommon.NewSonicDBKey()
+		defer swsscommon.DeleteSonicDBKey(client.dbkey)
+		client.dbTableKeySubscribe(path, time.Second, true)
 	}
 }
 
