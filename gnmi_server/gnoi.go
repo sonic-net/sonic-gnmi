@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
+	"strings"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
+	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	log "github.com/golang/glog"
 	"time"
 	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
@@ -19,6 +22,76 @@ import (
 	"encoding/json"
 	jwt "github.com/dgrijalva/jwt-go"
 )
+
+func ReadFileStat(path string) (*gnoi_file_pb.StatInfo, error) {
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		return nil, err
+	}
+
+	log.V(2).Infof("Reading file stat at path %s...", path)
+	data, err := sc.GetFileStat(path)
+	if err != nil {
+		log.V(2).Infof("Failed to read file stat at path %s", path)
+	}
+    // Parse the data and populate StatInfo
+    lastModified, err := strconv.ParseUint(data["last_modified"], 10, 64)
+    if err != nil {
+        return nil, err
+    }
+
+    permissions, err := strconv.ParseUint(data["permissions"], 8, 32)
+    if err != nil {
+        return nil, err
+    }
+
+    size, err := strconv.ParseUint(data["size"], 10, 64)
+    if err != nil {
+        return nil, err
+    }
+
+	umaskStr := data["umask"]
+	if strings.HasPrefix(umaskStr, "o") {
+		umaskStr = umaskStr[1:] // Remove leading "o"
+	}
+	umask, err := strconv.ParseUint(umaskStr, 8, 32)
+	if err != nil {
+		return nil, err
+	}
+
+	statInfo := &gnoi_file_pb.StatInfo{
+		Path:         data["path"],
+		LastModified: lastModified,
+		Permissions:  uint32(permissions),
+		Size:         size,
+		Umask:        uint32(umask),
+	}
+    return statInfo, nil
+}
+
+func (srv *GNOIServer) Stat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_pb.StatResponse, error) {
+	_, err := authenticate(srv.config, ctx)
+	if err != nil {
+		return nil, err
+	}
+	path := req.GetPath()
+	log.V(1).Info("gNOI: Read File Stat")
+	log.V(1).Info("Request: ", req)
+	statInfo, err := ReadFileStat(path)
+	if err != nil {
+		return nil, err
+	}
+	resp := &gnoi_file_pb.StatResponse{
+		Stats: []*gnoi_file_pb.StatInfo{statInfo},
+	}
+	return resp, nil
+}
+
+// TODO: Support GNOI File Get
+func (srv *GNOIServer)  Get(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.File_GetServer) error {
+	log.V(1).Info("gNOI: File Get")
+	return status.Errorf(codes.Unimplemented, "")
+}
 
 func KillOrRestartProcess(restart bool, serviceName string) error {
 	sc, err := ssc.NewDbusClient()
@@ -41,7 +114,7 @@ func KillOrRestartProcess(restart bool, serviceName string) error {
 	return err
 }
 
-func (srv *Server) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProcessRequest) (*gnoi_system_pb.KillProcessResponse, error) {
+func (srv *GNOIServer) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProcessRequest) (*gnoi_system_pb.KillProcessResponse, error) {
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
             return nil, err
@@ -75,7 +148,7 @@ func RebootSystem(fileName string) error {
 	return err
 }
 
-func (srv *Server) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
+func (srv *GNOIServer) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
 	fileName := common_utils.GNMI_WORK_PATH + "/config_db.json.tmp"
 
 	_, err := authenticate(srv.config, ctx)
@@ -101,7 +174,7 @@ func (srv *Server) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest
 }
 
 // TODO: Support GNOI RebootStatus
-func (srv *Server) RebootStatus(ctx context.Context, req *gnoi_system_pb.RebootStatusRequest) (*gnoi_system_pb.RebootStatusResponse, error) {
+func (srv *GNOIServer) RebootStatus(ctx context.Context, req *gnoi_system_pb.RebootStatusRequest) (*gnoi_system_pb.RebootStatusResponse, error) {
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
 		return nil, err
@@ -111,7 +184,7 @@ func (srv *Server) RebootStatus(ctx context.Context, req *gnoi_system_pb.RebootS
 }
 
 // TODO: Support GNOI CancelReboot
-func (srv *Server) CancelReboot(ctx context.Context, req *gnoi_system_pb.CancelRebootRequest) (*gnoi_system_pb.CancelRebootResponse, error) {
+func (srv *GNOIServer) CancelReboot(ctx context.Context, req *gnoi_system_pb.CancelRebootRequest) (*gnoi_system_pb.CancelRebootResponse, error) {
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
 		return nil, err
@@ -119,7 +192,7 @@ func (srv *Server) CancelReboot(ctx context.Context, req *gnoi_system_pb.CancelR
 	log.V(1).Info("gNOI: CancelReboot")
 	return nil, status.Errorf(codes.Unimplemented, "")
 }
-func (srv *Server) Ping(req *gnoi_system_pb.PingRequest, rs gnoi_system_pb.System_PingServer) error {
+func (srv *GNOIServer) Ping(req *gnoi_system_pb.PingRequest, rs gnoi_system_pb.System_PingServer) error {
 	ctx := rs.Context()
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
@@ -128,7 +201,7 @@ func (srv *Server) Ping(req *gnoi_system_pb.PingRequest, rs gnoi_system_pb.Syste
 	log.V(1).Info("gNOI: Ping")
 	return status.Errorf(codes.Unimplemented, "")
 }
-func (srv *Server) Traceroute(req *gnoi_system_pb.TracerouteRequest, rs gnoi_system_pb.System_TracerouteServer) error {
+func (srv *GNOIServer) Traceroute(req *gnoi_system_pb.TracerouteRequest, rs gnoi_system_pb.System_TracerouteServer) error {
 	ctx := rs.Context()
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
@@ -137,7 +210,7 @@ func (srv *Server) Traceroute(req *gnoi_system_pb.TracerouteRequest, rs gnoi_sys
 	log.V(1).Info("gNOI: Traceroute")
 	return status.Errorf(codes.Unimplemented, "")
 }
-func (srv *Server) SetPackage(rs gnoi_system_pb.System_SetPackageServer) error {
+func (srv *GNOIServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) error {
 	ctx := rs.Context()
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
@@ -146,7 +219,7 @@ func (srv *Server) SetPackage(rs gnoi_system_pb.System_SetPackageServer) error {
 	log.V(1).Info("gNOI: SetPackage")
 	return status.Errorf(codes.Unimplemented, "")
 }
-func (srv *Server) SwitchControlProcessor(ctx context.Context, req *gnoi_system_pb.SwitchControlProcessorRequest) (*gnoi_system_pb.SwitchControlProcessorResponse, error) {
+func (srv *GNOIServer) SwitchControlProcessor(ctx context.Context, req *gnoi_system_pb.SwitchControlProcessorRequest) (*gnoi_system_pb.SwitchControlProcessorResponse, error) {
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
 		return nil, err
@@ -154,7 +227,7 @@ func (srv *Server) SwitchControlProcessor(ctx context.Context, req *gnoi_system_
 	log.V(1).Info("gNOI: SwitchControlProcessor")
 	return nil, status.Errorf(codes.Unimplemented, "")
 }
-func (srv *Server) Time(ctx context.Context, req *gnoi_system_pb.TimeRequest) (*gnoi_system_pb.TimeResponse, error) {
+func (srv *GNOIServer) Time(ctx context.Context, req *gnoi_system_pb.TimeRequest) (*gnoi_system_pb.TimeResponse, error) {
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
 		return nil, err
@@ -165,7 +238,7 @@ func (srv *Server) Time(ctx context.Context, req *gnoi_system_pb.TimeRequest) (*
 	return &tm, nil
 }
 
-func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
+func (srv *GNOIServer) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
 	// Can't enforce normal authentication here.. maybe only enforce client cert auth if enabled?
 	// ctx,err := authenticate(srv.config, ctx)
 	// if err != nil {
@@ -191,7 +264,7 @@ func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRe
 	return nil, status.Errorf(codes.PermissionDenied, "Invalid Username or Password")
 
 }
-func (srv *Server) Refresh(ctx context.Context, req *spb_jwt.RefreshRequest) (*spb_jwt.RefreshResponse, error) {
+func (srv *GNOIServer) Refresh(ctx context.Context, req *spb_jwt.RefreshRequest) (*spb_jwt.RefreshResponse, error) {
 	ctx, err := authenticate(srv.config, ctx)
 	if err != nil {
 		return nil, err
@@ -219,7 +292,7 @@ func (srv *Server) Refresh(ctx context.Context, req *spb_jwt.RefreshRequest) (*s
 
 }
 
-func (srv *Server) ClearNeighbors(ctx context.Context, req *spb.ClearNeighborsRequest) (*spb.ClearNeighborsResponse, error) {
+func (srv *GNOIServer) ClearNeighbors(ctx context.Context, req *spb.ClearNeighborsRequest) (*spb.ClearNeighborsResponse, error) {
     ctx, err := authenticate(srv.config, ctx)
     if err != nil {
         return nil, err
@@ -251,7 +324,7 @@ func (srv *Server) ClearNeighbors(ctx context.Context, req *spb.ClearNeighborsRe
     return resp, nil
 }
 
-func (srv *Server) CopyConfig(ctx context.Context, req *spb.CopyConfigRequest) (*spb.CopyConfigResponse, error) {
+func (srv *GNOIServer) CopyConfig(ctx context.Context, req *spb.CopyConfigRequest) (*spb.CopyConfigResponse, error) {
 	ctx, err := authenticate(srv.config, ctx)
 	if err != nil {
 		return nil, err
@@ -282,7 +355,7 @@ func (srv *Server) CopyConfig(ctx context.Context, req *spb.CopyConfigRequest) (
 	return resp, nil
 }
 
-func (srv *Server) ShowTechsupport(ctx context.Context, req *spb.TechsupportRequest) (*spb.TechsupportResponse, error) {
+func (srv *GNOIServer) ShowTechsupport(ctx context.Context, req *spb.TechsupportRequest) (*spb.TechsupportResponse, error) {
 	ctx, err := authenticate(srv.config, ctx)
 	if err != nil {
 		return nil, err
@@ -314,7 +387,7 @@ func (srv *Server) ShowTechsupport(ctx context.Context, req *spb.TechsupportRequ
 	return resp, nil
 }
 
-func (srv *Server) ImageInstall(ctx context.Context, req *spb.ImageInstallRequest) (*spb.ImageInstallResponse, error) {
+func (srv *GNOIServer) ImageInstall(ctx context.Context, req *spb.ImageInstallRequest) (*spb.ImageInstallResponse, error) {
 	ctx, err := authenticate(srv.config, ctx)
 	if err != nil {
 		return nil, err
@@ -346,7 +419,7 @@ func (srv *Server) ImageInstall(ctx context.Context, req *spb.ImageInstallReques
 	return resp, nil
 }
 
-func (srv *Server) ImageRemove(ctx context.Context, req *spb.ImageRemoveRequest) (*spb.ImageRemoveResponse, error) {
+func (srv *GNOIServer) ImageRemove(ctx context.Context, req *spb.ImageRemoveRequest) (*spb.ImageRemoveResponse, error) {
 	ctx, err := authenticate(srv.config, ctx)
 	if err != nil {
 		return nil, err
@@ -373,12 +446,10 @@ func (srv *Server) ImageRemove(ctx context.Context, req *spb.ImageRemoveRequest)
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
-
-	
 	return resp, nil
 }
 
-func (srv *Server) ImageDefault(ctx context.Context, req *spb.ImageDefaultRequest) (*spb.ImageDefaultResponse, error) {
+func (srv *GNOIServer) ImageDefault(ctx context.Context, req *spb.ImageDefaultRequest) (*spb.ImageDefaultResponse, error) {
 	ctx, err := authenticate(srv.config, ctx)
 	if err != nil {
 		return nil, err
