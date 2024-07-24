@@ -51,6 +51,8 @@ type Server struct {
 	// comes from a master controller.
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
+    gnmiServer        *GNMIServer
+    gnoiServer        *GNOIServer
 }
 
 // GNMIServer struct for gNMI specific implementation
@@ -171,8 +173,8 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
     // Create instances of GNMIServer and GNOIServer
-    gnmiserver := &GNMIServer{Server: srv}
-    gnoiserver := &GNOIServer{Server: srv}
+    srv.gnmiServer = &GNMIServer{Server: srv}
+    srv.gnoiServer = &GNOIServer{Server: srv}
 
 	var err error
 	if srv.config.Port < 0 {
@@ -182,16 +184,16 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open listener port %d: %v", srv.config.Port, err)
 	}
-	gnmipb.RegisterGNMIServer(srv.s, gnmiserver)
-	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, gnoiserver)
+	gnmipb.RegisterGNMIServer(srv.s, srv.gnmiServer)
+	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv.gnoiServer)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
-		gnoi_system_pb.RegisterSystemServer(srv.s, gnoiserver)
-		gnoi_file_pb.RegisterFileServer(srv.s, gnoiserver)
+		gnoi_system_pb.RegisterSystemServer(srv.s, srv.gnoiServer)
+		gnoi_file_pb.RegisterFileServer(srv.s, srv.gnoiServer)
 	}
 	if srv.config.EnableTranslibWrite {
-		spb_gnoi.RegisterSonicServiceServer(srv.s, gnoiserver)
+		spb_gnoi.RegisterSonicServiceServer(srv.s, srv.gnoiServer)
 	}
-	spb_gnoi.RegisterDebugServer(srv.s, gnoiserver)
+	spb_gnoi.RegisterDebugServer(srv.s, srv.gnoiServer)
 	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
 	return srv, nil
 }
