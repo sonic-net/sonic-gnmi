@@ -4328,8 +4328,8 @@ func (x *MockSetPackageServer) Recv() (*gnoi_system_pb.SetPackageRequest, error)
 }
 
 func TestGnoiAuthorization(t *testing.T) {
-	s := createServer(t, 8081).gnoiServer.Server
-	go runServer(t, s)
+	s := createServer(t, 8081).gnoiServer
+	go runServer(t, s.Server)
 	mockAuthenticate := gomonkey.ApplyFunc(s.Authenticate, func(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
 		return nil, nil
 	})
