@@ -4179,14 +4179,14 @@ func TestSaveOnSet(t *testing.T) {
 	fakeDBC.Reset()
 
 	// Successful Dbus call
-	goodDbus := gomonkey.ApplyFuncReturn(ssc.DbusApi, nil)
+	goodDbus := gomonkey.ApplyFuncReturn(ssc.DbusApi, nil, nil)
 	if err := SaveOnSetEnabled(); err != nil {
 		t.Error("Unexpected DBUS failure")
 	}
 	goodDbus.Reset()
 
 	// Fail Dbus call
-	badDbus := gomonkey.ApplyFuncReturn(ssc.DbusApi, fmt.Errorf("Fail Send"))
+	badDbus := gomonkey.ApplyFuncReturn(ssc.DbusApi, nil, fmt.Errorf("Fail Send"))
 	defer badDbus.Reset()
 	if err := SaveOnSetEnabled(); err == nil {
 		t.Error("Expected DBUS failure")
