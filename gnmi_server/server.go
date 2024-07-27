@@ -51,20 +51,23 @@ type Server struct {
 	// comes from a master controller.
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
-    gnmiServer        *GNMIServer
-    gnoiServer        *GNOIServer
 }
 
-// GNMIServer struct for gNMI specific implementation
-type GNMIServer struct {
-    *Server
+
+// FileServer is the server API for File service.
+// All implementations must embed UnimplementedFileServer
+// for forward compatibility
+type FileServer struct {
+	*Server
+	gnoi_file_pb.UnimplementedFileServer
 }
 
-// GNOIServer struct for gNOI specific implementation
-type GNOIServer struct {
-    *Server
-    gnoi_system_pb.UnimplementedSystemServer
-    gnoi_file_pb.UnimplementedFileServer
+// SystemServer is the server API for System service.
+// All implementations must embed UnimplementedSystemServer
+// for forward compatibility
+type SystemServer struct {
+	*Server
+	gnoi_system_pb.UnimplementedSystemServer
 }
 
 type AuthTypes map[string]bool
@@ -172,9 +175,8 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		masterEID:     uint128{High: 0, Low: 0},
 	}
 
-    // Create instances of GNMIServer and GNOIServer
-    srv.gnmiServer = &GNMIServer{Server: srv}
-    srv.gnoiServer = &GNOIServer{Server: srv}
+	fileSrv := &FileServer{Server: srv}
+    systemSrv := &SystemServer{Server: srv}
 
 	var err error
 	if srv.config.Port < 0 {
@@ -184,16 +186,16 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open listener port %d: %v", srv.config.Port, err)
 	}
-	gnmipb.RegisterGNMIServer(srv.s, srv.gnmiServer)
-	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv.gnoiServer)
+	gnmipb.RegisterGNMIServer(srv.s, srv)
+	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
-		gnoi_system_pb.RegisterSystemServer(srv.s, srv.gnoiServer)
-		gnoi_file_pb.RegisterFileServer(srv.s, srv.gnoiServer)
+		gnoi_system_pb.RegisterSystemServer(srv.s, systemSrv)
+		gnoi_file_pb.RegisterFileServer(srv.s, fileSrv)
 	}
 	if srv.config.EnableTranslibWrite {
-		spb_gnoi.RegisterSonicServiceServer(srv.s, srv.gnoiServer)
+		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
 	}
-	spb_gnoi.RegisterDebugServer(srv.s, srv.gnoiServer)
+	spb_gnoi.RegisterDebugServer(srv.s, srv)
 	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
 	return srv, nil
 }
@@ -353,7 +355,7 @@ func IsNativeOrigin(origin string) bool {
 }
 
 // Get implements the Get RPC in gNMI spec.
-func (s *GNMIServer) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
+func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
 	common_utils.IncCounter(common_utils.GNMI_GET)
 	ctx, err := authenticate(s.config, ctx)
 	if err != nil {
