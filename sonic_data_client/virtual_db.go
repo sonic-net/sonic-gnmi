@@ -143,6 +143,7 @@ func getPfcwdMap() (map[string]map[string]string, error) {
 		}
 
 		if len(resp) == 0 {
+			// TODO: Fix PFC_WD query
 			// PFC WD service not enabled on device
 			log.V(1).Infof("PFC WD not enabled on device")
 			return nil, nil
