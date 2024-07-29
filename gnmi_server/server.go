@@ -50,7 +50,10 @@ type Server struct {
 	// comes from a master controller.
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
+	// UnimplementedSystemServer is embedded to satisfy SystemServer interface requirements
+	gnoi_system_pb.UnimplementedSystemServer
 }
+
 type AuthTypes map[string]bool
 
 // Config is a collection of values for Server
@@ -65,6 +68,7 @@ type Config struct {
 	EnableNativeWrite   bool
 	ZmqPort             string
 	IdleConnDuration    int
+	ConfigTableName     string
 }
 
 var AuthLock sync.Mutex
@@ -139,7 +143,6 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if config == nil {
 		return nil, errors.New("config not provided")
 	}
-
 	common_utils.InitCounters()
 
 	s := grpc.NewServer(opts...)
@@ -185,13 +188,22 @@ func (srv *Server) Serve() error {
 	return srv.s.Serve(srv.lis)
 }
 
+func (srv *Server) ForceStop() {
+	s := srv.s
+	if s == nil {
+		log.Errorf("ForceStop() failed: not initialized")
+		return
+	}
+	s.Stop()
+}
+
 func (srv *Server) Stop() {
 	s := srv.s
 	if s == nil {
 		log.Errorf("Stop() failed: not initialized")
 		return
 	}
-	s.Stop()
+	s.GracefulStop()
 }
 
 // Address returns the port the Server is listening to.
@@ -205,30 +217,31 @@ func (srv *Server) Port() int64 {
 	return srv.config.Port
 }
 
-func authenticate(UserAuth AuthTypes, ctx context.Context) (context.Context, error) {
+func authenticate(config *Config, ctx context.Context) (context.Context, error) {
 	var err error
 	success := false
 	rc, ctx := common_utils.GetContext(ctx)
-	if !UserAuth.Any() {
+	if !config.UserAuth.Any() {
 		//No Auth enabled
 		rc.Auth.AuthEnabled = false
 		return ctx, nil
 	}
+
 	rc.Auth.AuthEnabled = true
-	if UserAuth.Enabled("password") {
+	if config.UserAuth.Enabled("password") {
 		ctx, err = BasicAuthenAndAuthor(ctx)
 		if err == nil {
 			success = true
 		}
 	}
-	if !success && UserAuth.Enabled("jwt") {
+	if !success && config.UserAuth.Enabled("jwt") {
 		_, ctx, err = JwtAuthenAndAuthor(ctx)
 		if err == nil {
 			success = true
 		}
 	}
-	if !success && UserAuth.Enabled("cert") {
-		ctx, err = ClientCertAuthenAndAuthor(ctx)
+	if !success && config.UserAuth.Enabled("cert") {
+		ctx, err = ClientCertAuthenAndAuthor(ctx, config.ConfigTableName)
 		if err == nil {
 			success = true
 		}
@@ -247,7 +260,7 @@ func authenticate(UserAuth AuthTypes, ctx context.Context) (context.Context, err
 // Subscribe implements the gNMI Subscribe RPC.
 func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	ctx := stream.Context()
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	ctx, err := authenticate(s.config, ctx)
 	if err != nil {
 		return err
 	}
@@ -332,7 +345,7 @@ func IsNativeOrigin(origin string) bool {
 // Get implements the Get RPC in gNMI spec.
 func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
 	common_utils.IncCounter(common_utils.GNMI_GET)
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	ctx, err := authenticate(s.config, ctx)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, err
@@ -438,7 +451,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
 	}
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	ctx, err := authenticate(s.config, ctx)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, err
@@ -528,9 +541,10 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	err = dc.Set(req.GetDelete(), req.GetReplace(), req.GetUpdate())
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+	} else {
+		s.SaveStartupConfig()
 	}
 
-	s.SaveStartupConfig()
 	return &gnmipb.SetResponse{
 		Prefix:   req.GetPrefix(),
 		Response: results,
@@ -539,7 +553,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 }
 
 func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest) (*gnmipb.CapabilityResponse, error) {
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	ctx, err := authenticate(s.config, ctx)
 	if err != nil {
 		return nil, err
 	}

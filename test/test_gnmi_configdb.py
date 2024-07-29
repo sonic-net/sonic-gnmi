@@ -2,7 +2,9 @@
 import os
 import json
 import time
-from utils import gnmi_set, gnmi_get, gnmi_dump
+import threading, queue
+from utils import gnmi_set, gnmi_get, gnmi_dump, run_cmd
+from utils import gnmi_subscribe_poll, gnmi_subscribe_stream_sample, gnmi_subscribe_stream_onchange
 
 import pytest
 
@@ -229,7 +231,13 @@ class TestGNMIConfigDb:
 
     @pytest.mark.parametrize("test_data", test_data_update_normal)
     def test_gnmi_incremental_replace(self, test_data):
-        create_checkpoint(checkpoint_file, '{}')
+        test_config = {
+            "PORT": {
+                'Ethernet4': {'admin_status': 'down'},
+                'Ethernet8': {'admin_status': 'down'}
+            }
+        }
+        create_checkpoint(checkpoint_file, json.dumps(test_config))
 
         replace_list = []
         for i, data in enumerate(test_data):
@@ -252,7 +260,7 @@ class TestGNMIConfigDb:
             test_path = item['path']
             test_value = item['value']
             for patch_data in patch_json:
-                assert patch_data['op'] == 'add', "Invalid operation"
+                assert patch_data['op'] == 'replace', "Invalid operation"
                 if test_path == '/sonic-db:CONFIG_DB/localhost' + patch_data['path'] and test_value == patch_data['value']:
                     break
             else:
@@ -406,3 +414,146 @@ class TestGNMIConfigDb:
         ret, msg = gnmi_set([], [], update_list)
         assert ret != 0, "Failed to detect invalid replace path"
         assert "Invalid elem length" in msg, msg
+
+    def test_gnmi_poll_01(self):
+        path = "/CONFIG_DB/localhost/DEVICE_METADATA"
+        cnt = 3
+        interval = 1
+        ret, msg = gnmi_subscribe_poll(path, interval, cnt, timeout=0)
+        assert ret == 0, 'Fail to subscribe: ' + msg
+        assert msg.count("bgp_asn") == cnt, 'Invalid result: ' + msg
+
+    def test_gnmi_poll_invalid_01(self):
+        path = "/CONFIG_DB/localhost/INVALID_TABLE"
+        cnt = 3
+        interval = 1
+        ret, msg = gnmi_subscribe_poll(path, interval, cnt, timeout=10)
+        assert ret == 0, 'Fail to subscribe: ' + msg
+        assert msg.count("bgp_asn") == 0, 'Invalid result: ' + msg
+        assert "rpc error" in msg, 'Invalid result: ' + msg
+
+    def test_gnmi_stream_sample_01(self):
+        # Subscribe table
+        path = "/CONFIG_DB/localhost/DEVICE_METADATA"
+        cnt = 3
+        interval = 1
+        ret, msg = gnmi_subscribe_stream_sample(path, interval, cnt, timeout=10)
+        assert ret == 0, 'Fail to subscribe: ' + msg
+        assert msg.count("bgp_asn") >= cnt, 'Invalid result: ' + msg
+
+    def test_gnmi_stream_sample_02(self):
+        # Subscribe table key
+        path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost"
+        cnt = 3
+        interval = 1
+        ret, msg = gnmi_subscribe_stream_sample(path, interval, cnt, timeout=10)
+        assert ret == 0, 'Fail to subscribe: ' + msg
+        assert msg.count("bgp_asn") >= cnt, 'Invalid result: ' + msg
+
+    def test_gnmi_stream_sample_03(self):
+        # Subscribe table field
+        path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost/bgp_asn"
+        cnt = 3
+        interval = 1
+        ret, msg = gnmi_subscribe_stream_sample(path, interval, cnt, timeout=10)
+        assert ret == 0, 'Fail to subscribe: ' + msg
+        assert msg.count("bgp_asn") >= cnt, 'Invalid result: ' + msg
+
+    def test_gnmi_stream_sample_invalid_01(self):
+        path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost/invalid_field"
+        cnt = 3
+        interval = 1
+        ret, msg = gnmi_subscribe_stream_sample(path, interval, cnt, timeout=10)
+        assert ret == 0, 'Fail to subscribe: ' + msg
+        assert msg.count("bgp_asn") == 0, 'Invalid result: ' + msg
+        assert "rpc error" in msg, 'Invalid result: ' + msg
+
+    def test_gnmi_stream_onchange_01(self):
+        # Init bgp_asn
+        cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn 65100'
+        run_cmd(cmd)
+
+        result_queue = queue.Queue()
+        cnt = 3
+
+        def worker():
+            # Subscribe table
+            path = "/CONFIG_DB/localhost/DEVICE_METADATA"
+            ret, msg = gnmi_subscribe_stream_onchange(path, cnt+3, timeout=10)
+            result_queue.put((ret, msg))
+
+        t = threading.Thread(target=worker)
+        t.start()
+
+        # Modify bgp_asn
+        time.sleep(0.5)
+        cmd = r'redis-cli -n 4 hdel "DEVICE_METADATA|localhost" bgp_asn '
+        run_cmd(cmd)
+        for i in range(cnt):
+            time.sleep(0.5)
+            cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn ' + str(i+1000)
+            run_cmd(cmd)
+
+        t.join()
+        ret, msg = result_queue.get()
+        assert ret == 0, 'Fail to subscribe: ' + msg
+        assert msg.count("bgp_asn") >= cnt+1, 'Invalid result: ' + msg
+
+    def test_gnmi_stream_onchange_02(self):
+        # Init bgp_asn
+        cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn 65100'
+        run_cmd(cmd)
+
+        result_queue = queue.Queue()
+        cnt = 3
+
+        def worker():
+            # Subscribe table key
+            path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost"
+            ret, msg = gnmi_subscribe_stream_onchange(path, cnt+3, timeout=10)
+            result_queue.put((ret, msg))
+
+        t = threading.Thread(target=worker)
+        t.start()
+
+        # Modify bgp_asn
+        time.sleep(0.5)
+        cmd = r'redis-cli -n 4 hdel "DEVICE_METADATA|localhost" bgp_asn '
+        run_cmd(cmd)
+        for i in range(cnt):
+            time.sleep(0.5)
+            cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn ' + str(i+1000)
+            run_cmd(cmd)
+
+        t.join()
+        ret, msg = result_queue.get()
+        assert ret == 0, 'Fail to subscribe: ' + msg
+        assert msg.count("bgp_asn") >= cnt+1, 'Invalid result: ' + msg
+
+    def test_gnmi_stream_onchange_03(self):
+        # Init bgp_asn
+        cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn 65100'
+        run_cmd(cmd)
+
+        result_queue = queue.Queue()
+        cnt = 3
+
+        def worker():
+            # Subscribe table field
+            path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost/bgp_asn"
+            ret, msg = gnmi_subscribe_stream_onchange(path, cnt+1, timeout=10)
+            result_queue.put((ret, msg))
+
+        t = threading.Thread(target=worker)
+        t.start()
+
+        # Modify bgp_asn
+        for i in range(cnt):
+            time.sleep(0.5)
+            cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn ' + str(i+1000)
+            run_cmd(cmd)
+
+        t.join()
+        ret, msg = result_queue.get()
+        assert ret == 0, 'Fail to subscribe: ' + msg
+        assert "bgp_asn" in msg, 'Invalid result: ' + msg

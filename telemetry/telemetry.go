@@ -43,6 +43,7 @@ type TelemetryConfig struct {
 	CaCert                *string
 	ServerCert            *string
 	ServerKey             *string
+	ConfigTableName       *string
 	ZmqAddress            *string
 	ZmqPort               *string
 	Insecure              *bool
@@ -89,7 +90,7 @@ func runTelemetry(args []string) error {
 	var serverControlSignal = make(chan ServerControlValue, 1)
 	var stopSignalHandler = make(chan bool, 1)
 	sigchannel := make(chan os.Signal, 1)
-	signal.Notify(sigchannel, syscall.SIGTERM, syscall.SIGQUIT)
+	signal.Notify(sigchannel, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT, syscall.SIGHUP)
 
 	wg.Add(1)
 
@@ -150,6 +151,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		CaCert:                fs.String("ca_crt", "", "CA certificate for client certificate validation. Optional."),
 		ServerCert:            fs.String("server_crt", "", "TLS server certificate"),
 		ServerKey:             fs.String("server_key", "", "TLS server private key"),
+		ConfigTableName:       fs.String("config_table_name", "", "Config table name"),
 		ZmqAddress:            fs.String("zmq_address", "", "Orchagent ZMQ address, deprecated, please use zmq_port."),
 		ZmqPort:               fs.String("zmq_port", "", "Orchagent ZMQ port, when not set or empty string telemetry server will switch to Redis based communication channel."),
 		Insecure:              fs.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!"),
@@ -224,6 +226,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.LogLevel = int(*telemetryCfg.LogLevel)
 	cfg.Threshold = int(*telemetryCfg.Threshold)
 	cfg.IdleConnDuration = int(*telemetryCfg.IdleConnDuration)
+	cfg.ConfigTableName = *telemetryCfg.ConfigTableName
 
 	// TODO: After other dependent projects are migrated to ZmqPort, remove ZmqAddress
 	zmqAddress := *telemetryCfg.ZmqAddress
@@ -461,12 +464,13 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 
 		serverControlValue := <-serverControlSignal
 		log.V(1).Infof("Received signal for gnmi server to close")
-		s.Stop()
 		if serverControlValue == ServerStop {
+			s.ForceStop() // No graceful stop
 			stopSignalHandler <- true
 			log.Flush()
 			return
 		}
+		s.Stop() // Graceful stop
 		// Both ServerStart and ServerRestart will loop and restart server
 		// We use different value to distinguish between write/create and remove/rename
 	}
