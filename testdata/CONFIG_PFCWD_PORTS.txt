@@ -3,166 +3,166 @@
         "3": "3",
         "4": "4"
     },
-    "PFC_WD|Ethernet0": {
+    "PFC_WD_TABLE|Ethernet0": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet1": {
+    "PFC_WD_TABLE|Ethernet1": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet10": {
+    "PFC_WD_TABLE|Ethernet10": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet11": {
+    "PFC_WD_TABLE|Ethernet11": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet12": {
+    "PFC_WD_TABLE|Ethernet12": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet13": {
+    "PFC_WD_TABLE|Ethernet13": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet14": {
+    "PFC_WD_TABLE|Ethernet14": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet15": {
+    "PFC_WD_TABLE|Ethernet15": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet16": {
+    "PFC_WD_TABLE|Ethernet16": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet17": {
+    "PFC_WD_TABLE|Ethernet17": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet18": {
+    "PFC_WD_TABLE|Ethernet18": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet19": {
+    "PFC_WD_TABLE|Ethernet19": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet2": {
+    "PFC_WD_TABLE|Ethernet2": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet20": {
+    "PFC_WD_TABLE|Ethernet20": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet21": {
+    "PFC_WD_TABLE|Ethernet21": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet22": {
+    "PFC_WD_TABLE|Ethernet22": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet23": {
+    "PFC_WD_TABLE|Ethernet23": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet24": {
+    "PFC_WD_TABLE|Ethernet24": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet25": {
+    "PFC_WD_TABLE|Ethernet25": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet26": {
+    "PFC_WD_TABLE|Ethernet26": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet27": {
+    "PFC_WD_TABLE|Ethernet27": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet28": {
+    "PFC_WD_TABLE|Ethernet28": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet29": {
+    "PFC_WD_TABLE|Ethernet29": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet3": {
+    "PFC_WD_TABLE|Ethernet3": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet30": {
+    "PFC_WD_TABLE|Ethernet30": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet31": {
+    "PFC_WD_TABLE|Ethernet31": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet32": {
+    "PFC_WD_TABLE|Ethernet32": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet33": {
+    "PFC_WD_TABLE|Ethernet33": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet34": {
+    "PFC_WD_TABLE|Ethernet34": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet35": {
+    "PFC_WD_TABLE|Ethernet35": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet36": {
+    "PFC_WD_TABLE|Ethernet36": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet37": {
+    "PFC_WD_TABLE|Ethernet37": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet38": {
+    "PFC_WD_TABLE|Ethernet38": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet39": {
+    "PFC_WD_TABLE|Ethernet39": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet4": {
+    "PFC_WD_TABLE|Ethernet4": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet40": {
+    "PFC_WD_TABLE|Ethernet40": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet41": {
+    "PFC_WD_TABLE|Ethernet41": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet42": {
+    "PFC_WD_TABLE|Ethernet42": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet43": {
+    "PFC_WD_TABLE|Ethernet43": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet44": {
+    "PFC_WD_TABLE|Ethernet44": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet45": {
+    "PFC_WD_TABLE|Ethernet45": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet46": {
+    "PFC_WD_TABLE|Ethernet46": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet47": {
+    "PFC_WD_TABLE|Ethernet47": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet48": {
+    "PFC_WD_TABLE|Ethernet48": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet5": {
+    "PFC_WD_TABLE|Ethernet5": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet52": {
+    "PFC_WD_TABLE|Ethernet52": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet56": {
+    "PFC_WD_TABLE|Ethernet56": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet6": {
+    "PFC_WD_TABLE|Ethernet6": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet60": {
+    "PFC_WD_TABLE|Ethernet60": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet64": {
+    "PFC_WD_TABLE|Ethernet64": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet68": {
+    "PFC_WD_TABLE|Ethernet68": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet7": {
+    "PFC_WD_TABLE|Ethernet7": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet8": {
+    "PFC_WD_TABLE|Ethernet8": {
         "action": "drop"
     },
-    "PFC_WD|Ethernet9": {
+    "PFC_WD_TABLE|Ethernet9": {
         "action": "drop"
     },
     "PORT_QOS_MAP|Ethernet0,Ethernet1,Ethernet2,Ethernet3,Ethernet4,Ethernet5,Ethernet6,Ethernet7,Ethernet8,Ethernet9,Ethernet10,Ethernet11,Ethernet12,Ethernet13,Ethernet14,Ethernet15,Ethernet16,Ethernet17,Ethernet18,Ethernet19,Ethernet20,Ethernet21,Ethernet22,Ethernet23,Ethernet24,Ethernet25,Ethernet26,Ethernet27,Ethernet28,Ethernet29,Ethernet30,Ethernet31,Ethernet32,Ethernet33,Ethernet34,Ethernet35,Ethernet36,Ethernet37,Ethernet38,Ethernet39,Ethernet40,Ethernet41,Ethernet42,Ethernet43,Ethernet44,Ethernet45,Ethernet46,Ethernet47,Ethernet48,Ethernet52,Ethernet56,Ethernet60,Ethernet64,Ethernet68": {
