@@ -32,23 +32,24 @@ func ReadFileStat(path string) (*gnoi_file_pb.StatInfo, error) {
 	log.V(2).Infof("Reading file stat at path %s...", path)
 	data, err := sc.GetFileStat(path)
 	if err != nil {
-		log.V(2).Infof("Failed to read file stat at path %s", path)
+		log.V(2).Infof("Failed to read file stat at path %s: %v. Error ", path, err)
+		return nil, err
 	}
-    // Parse the data and populate StatInfo
-    lastModified, err := strconv.ParseUint(data["last_modified"], 10, 64)
-    if err != nil {
-        return nil, err
-    }
+	// Parse the data and populate StatInfo
+	lastModified, err := strconv.ParseUint(data["last_modified"], 10, 64)
+	if err != nil {
+	return nil, err
+	}
 
-    permissions, err := strconv.ParseUint(data["permissions"], 8, 32)
-    if err != nil {
-        return nil, err
-    }
+	permissions, err := strconv.ParseUint(data["permissions"], 8, 32)
+	if err != nil {
+	return nil, err
+	}
 
-    size, err := strconv.ParseUint(data["size"], 10, 64)
-    if err != nil {
-        return nil, err
-    }
+	size, err := strconv.ParseUint(data["size"], 10, 64)
+	if err != nil {
+    	return nil, err
+	}
 
 	umaskStr := data["umask"]
 	if strings.HasPrefix(umaskStr, "o") {
@@ -66,7 +67,7 @@ func ReadFileStat(path string) (*gnoi_file_pb.StatInfo, error) {
 		Size:         size,
 		Umask:        uint32(umask),
 	}
-    return statInfo, nil
+	return statInfo, nil
 }
 
 func (srv *FileServer) Stat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_pb.StatResponse, error) {

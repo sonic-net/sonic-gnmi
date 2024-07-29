@@ -276,3 +276,11 @@ def gnoi_refresh_with_jwt(token):
     ret, msg = run_cmd(cmd)
     return ret, msg
 
+def gnoi_file_stat(json_data):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnoi_client '
+    cmd += '-insecure -target 127.0.0.1:8080 '
+    cmd += '-module File -rpc Stat '
+    cmd += f'-jsonin \'{json_data}\''
+    ret, msg = run_cmd(cmd)
+    return ret, msg

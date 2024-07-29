@@ -176,7 +176,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	fileSrv := &FileServer{Server: srv}
-    systemSrv := &SystemServer{Server: srv}
+	systemSrv := &SystemServer{Server: srv}
 
 	var err error
 	if srv.config.Port < 0 {

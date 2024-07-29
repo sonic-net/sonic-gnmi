@@ -43,56 +43,59 @@ func NewDbusClient() (Service, error) {
 func DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error) {
 	common_utils.IncCounter(common_utils.DBUS)
     conn, err := dbus.SystemBus()
-    if err != nil {
-        log.V(2).Infof("Failed to connect to system bus: %v", err)
-        common_utils.IncCounter(common_utils.DBUS_FAIL)
-        return nil, err
-    }
+	if err != nil {
+		log.V(2).Infof("Failed to connect to system bus: %v", err)
+		common_utils.IncCounter(common_utils.DBUS_FAIL)
+		return nil, err
+	}
 
-    ch := make(chan *dbus.Call, 1)
-    obj := conn.Object(busName, dbus.ObjectPath(busPath))
-    obj.Go(intName, 0, ch, args...)
+	ch := make(chan *dbus.Call, 1)
+	obj := conn.Object(busName, dbus.ObjectPath(busPath))
+	obj.Go(intName, 0, ch, args...)
 
-    select {
-    case call := <-ch:
-        if call.Err != nil {
-            common_utils.IncCounter(common_utils.DBUS_FAIL)
-            return nil, call.Err
-        }
-        result := call.Body
-        if len(result) == 0 {
-            common_utils.IncCounter(common_utils.DBUS_FAIL)
-            return nil, fmt.Errorf("Dbus result is empty %v", result)
-        }
-        if ret, ok := result[0].(int32); ok {
-            if ret == 0 {
-                if len(result) != 2 {
-                    common_utils.IncCounter(common_utils.DBUS_FAIL)
-                    return nil, fmt.Errorf("Dbus result is invalid %v", result)
-                }
-                return result[1], nil
-            } else {
-                if len(result) != 2 {
-                    common_utils.IncCounter(common_utils.DBUS_FAIL)
-                    return nil, fmt.Errorf("Dbus result is invalid %v", result)
-                }
-                if msg, check := result[1].(string); check {
-                    common_utils.IncCounter(common_utils.DBUS_FAIL)
-                    return nil, fmt.Errorf(msg)
-                } else {
-                    common_utils.IncCounter(common_utils.DBUS_FAIL)
-                    return nil, fmt.Errorf("Invalid result message type %v %v", result[1], reflect.TypeOf(result[1]))
-                }
-            }
-        } else {
-            common_utils.IncCounter(common_utils.DBUS_FAIL)
-            return nil, fmt.Errorf("Invalid result type %v %v", result[0], reflect.TypeOf(result[0]))
-        }
-    case <-time.After(time.Duration(timeout) * time.Second):
-        log.V(2).Infof("DbusApi: timeout")
-        common_utils.IncCounter(common_utils.DBUS_FAIL)
-        return nil, fmt.Errorf("Timeout %v", timeout)
-    }
+	select {
+	case call := <-ch:
+		if call.Err != nil {
+			common_utils.IncCounter(common_utils.DBUS_FAIL)
+			return nil, call.Err
+		}
+		result := call.Body
+		if len(result) == 0 {
+			common_utils.IncCounter(common_utils.DBUS_FAIL)
+			return nil, fmt.Errorf("Dbus result is empty %v", result)
+		}
+		if ret, ok := result[0].(int32); ok {
+			if ret == 0 {
+				if len(result) != 2 {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return nil, fmt.Errorf("Dbus result is invalid %v", result)
+				}
+				return result[1], nil
+			} else {
+				if len(result) != 2 {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return nil, fmt.Errorf("Dbus result is invalid %v", result)
+				}
+				if msg, check := result[1].(string); check {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return nil, fmt.Errorf(msg)
+				} else if msg, check := result[1].(map[string]string); check {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return nil, fmt.Errorf(msg["error"])
+				} else {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return nil, fmt.Errorf("Invalid result message type %v %v", result[1], reflect.TypeOf(result[1]))
+				}
+			}
+		} else {
+			common_utils.IncCounter(common_utils.DBUS_FAIL)
+			return nil, fmt.Errorf("Invalid result type %v %v", result[0], reflect.TypeOf(result[0]))
+		}
+	case <-time.After(time.Duration(timeout) * time.Second):
+		log.V(2).Infof("DbusApi: timeout")
+		common_utils.IncCounter(common_utils.DBUS_FAIL)
+		return nil, fmt.Errorf("Timeout %v", timeout)
+	}
 }
 
 func (c *DbusClient) ConfigReload(config string) error {
@@ -181,13 +184,10 @@ func (c *DbusClient) GetFileStat(path string) (map[string]string, error) {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".get_file_stat"
-    result, err := DbusApi(busName, busPath, intName, 10, path)
-    if err != nil {
-        return nil, err
-    }
-    data, ok := result.(map[string]string)
-    if !ok {
-        return nil, fmt.Errorf("expected map[string]string but got %T", result)
-    }
-    return data, nil
+	result, err := DbusApi(busName, busPath, intName, 10, path)
+	if err != nil {
+		return nil, err
+	}
+	data, _ := result.(map[string]string)
+	return data, nil
 }

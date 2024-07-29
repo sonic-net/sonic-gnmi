@@ -1,6 +1,6 @@
 import pytest
 from utils import gnoi_time, gnoi_setpackage, gnoi_switchcontrolprocessor
-from utils import gnoi_reboot, gnoi_rebootstatus, gnoi_cancelreboot, gnoi_kill_process, gnoi_restart_process
+from utils import gnoi_reboot, gnoi_rebootstatus, gnoi_cancelreboot, gnoi_kill_process, gnoi_restart_process, gnoi_file_stat
 from utils import gnoi_ping, gnoi_traceroute, gnmi_dump
 
 class TestGNOI:
@@ -75,3 +75,36 @@ class TestGNOI:
         ret, new_cnt = gnmi_dump('DBUS restart service')
         assert ret == 0, 'Fail to read counter'
         assert new_cnt == old_cnt, 'DBUS API invoked unexpectedly'
+    
+    def test_gnoi_file_stat_empty_path(self):
+        ret, old_cnt = gnmi_dump('DBUS file stat')
+        assert ret == 0, 'Fail to read counter'
+
+        ret, msg = gnoi_file_stat('{"path": ""}')
+        assert ret != 0, msg
+
+        ret, new_cnt = gnmi_dump('DBUS file stat')
+        assert ret == 0, 'Fail to read counter'
+        assert new_cnt == old_cnt, 'DBUS API is not invoked'
+    
+    def test_gnoi_file_stat_invalid_options(self):
+        ret, old_cnt = gnmi_dump('DBUS file stat')
+        assert ret == 0, 'Fail to read counter'
+
+        ret, msg = gnoi_file_stat('{"x": ""}')
+        assert ret != 0, msg
+
+        ret, new_cnt = gnmi_dump('DBUS file stat')
+        assert ret == 0, 'Fail to read counter'
+        assert new_cnt == old_cnt, 'DBUS API is not invoked'
+
+    def test_gnoi_file_stat_valid(self):
+        ret, old_cnt = gnmi_dump('DBUS file stat')
+        assert ret == 0, 'Fail to read counter'
+
+        ret, msg = gnoi_file_stat('{"path": "/etc/sonic"}')
+        assert ret == 0, msg
+
+        ret, new_cnt = gnmi_dump('DBUS file stat')
+        assert ret == 0, 'Fail to read counter'
+        assert new_cnt == old_cnt+1, 'DBUS API is not invoked'
