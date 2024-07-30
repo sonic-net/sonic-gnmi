@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/Workiva/go-datastructures/queue"
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/jipanyang/gnxi/utils/xpath"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
@@ -445,6 +447,94 @@ func TestParseDatabase(t *testing.T) {
 	}
 }
 
+func TestSubscribeInternal(t *testing.T) {
+	// Test StreamRun
+	{
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		stop := make(chan struct{}, 1)
+		client := MixedDbClient {}
+		req := gnmipb.SubscriptionList{
+			Subscription: nil,
+		}
+		path, _ := xpath.ToGNMIPath("/abc/dummy")
+		client.paths = append(client.paths, path)
+		client.dbkey = swsscommon.NewSonicDBKey()
+		defer swsscommon.DeleteSonicDBKey(client.dbkey)
+		RedisDbMap = nil
+		stop <- struct{}{}
+		w.Add(1)
+		client.StreamRun(pq, stop, &w, &req)
+	}
+
+	// Test streamSampleSubscription
+	{
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		client := MixedDbClient {}
+		sub := gnmipb.Subscription{
+			SampleInterval: 1000,
+		}
+		client.q = pq
+		client.w = &w
+		client.w.Add(1)
+		client.synced.Add(1)
+		client.streamSampleSubscription(&sub, false)
+	}
+
+	// Test streamSampleSubscription
+	{
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		client := MixedDbClient {}
+		path, _ := xpath.ToGNMIPath("/abc/dummy")
+		sub := gnmipb.Subscription{
+			SampleInterval: 1000000000,
+			Path: path,
+		}
+		RedisDbMap = nil
+		client.q = pq
+		client.w = &w
+		client.w.Add(1)
+		client.synced.Add(1)
+		client.dbkey = swsscommon.NewSonicDBKey()
+		defer swsscommon.DeleteSonicDBKey(client.dbkey)
+		client.streamSampleSubscription(&sub, false)
+	}
+
+	// Test dbFieldSubscribe
+	{
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		client := MixedDbClient {}
+		path, _ := xpath.ToGNMIPath("/abc/dummy")
+		RedisDbMap = nil
+		client.q = pq
+		client.w = &w
+		client.w.Add(1)
+		client.synced.Add(1)
+		client.dbkey = swsscommon.NewSonicDBKey()
+		defer swsscommon.DeleteSonicDBKey(client.dbkey)
+		client.dbFieldSubscribe(path, true, time.Second)
+	}
+
+	// Test dbTableKeySubscribe
+	{
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		client := MixedDbClient {}
+		path, _ := xpath.ToGNMIPath("/abc/dummy")
+		RedisDbMap = nil
+		client.q = pq
+		client.w = &w
+		client.w.Add(1)
+		client.synced.Add(1)
+		client.dbkey = swsscommon.NewSonicDBKey()
+		defer swsscommon.DeleteSonicDBKey(client.dbkey)
+		client.dbTableKeySubscribe(path, time.Second, true)
+	}
+}
+
 func mockGetFunc() ([]byte, error) {
 	return nil, errors.New("mock error")
 }
@@ -557,7 +647,7 @@ func TestRetryHelper(t *testing.T) {
 			exeCount++
 			if returnError {
 				returnError = false
-				return fmt.Errorf("connection_reset")
+				return fmt.Errorf("zmq connection break, endpoint: tcp://127.0.0.1:2234")
 			}
 			return nil
 	})
@@ -568,6 +658,37 @@ func TestRetryHelper(t *testing.T) {
 
 	if exeCount > 2 {
 		t.Errorf("RetryHelper retry too much")
+	}
+
+	swsscommon.DeleteZmqClient(zmqClient)
+	swsscommon.DeleteZmqServer(zmqServer)
+}
+
+func TestRetryHelperReconnect(t *testing.T) {
+	// create ZMQ server
+	zmqServer := swsscommon.NewZmqServer("tcp://*:2234")
+
+	// when config table is empty, will authorize with PopulateAuthStruct
+	zmqClientRemoved := false
+	mockremoveZmqClient := gomonkey.ApplyFunc(removeZmqClient, func(zmqClient swsscommon.ZmqClient) (error) {
+		zmqClientRemoved = true
+		return nil
+	})
+	defer mockremoveZmqClient.Reset()
+
+	// create ZMQ client side
+	zmqAddress := "tcp://127.0.0.1:2234"
+	zmqClient := swsscommon.NewZmqClient(zmqAddress)
+	exeCount := 0
+	RetryHelper(
+		zmqClient,
+		func () (err error) {
+			exeCount++
+			return fmt.Errorf("zmq connection break, endpoint: tcp://127.0.0.1:2234")
+	})
+
+	if !zmqClientRemoved {
+		t.Errorf("RetryHelper does not remove ZMQ client for reconnect")
 	}
 
 	swsscommon.DeleteZmqClient(zmqClient)

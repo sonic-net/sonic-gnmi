@@ -186,7 +186,7 @@ func TestStartGNMIServer(t *testing.T) {
 	wg := &sync.WaitGroup{}
 
 	exitCalled := false
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "ForceStop", func(_ *gnmi.Server) {
 		exitCalled = true
 	})
 
@@ -202,6 +202,91 @@ func TestStartGNMIServer(t *testing.T) {
 	case <-ctx.Done():
 		t.Errorf("Failed to send shutdown signal")
 		return
+	}
+
+	wg.Wait()
+
+	if !exitCalled {
+		t.Errorf("s.ForceStop should be called if gnmi server is called to shutdown")
+	}
+}
+
+func TestStartGNMIServerGracefulStop(t *testing.T) {
+	testServerCert := "../testdata/certs/testserver.cert"
+	testServerKey := "../testdata/certs/testserver.key"
+	timeoutInterval := 15
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
+	defer cancel()
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testStartGNMIServer", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, cfg, err := setupFlags(fs)
+
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
+		return tls.Certificate{}, nil
+	})
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+		return &gnmi.Server{}, nil
+	})
+	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
+		return grpc.EmptyServerOption{}
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Serve", func(_ *gnmi.Server) error {
+		return nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
+		return ""
+	})
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
+	})
+
+	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
+	wg := &sync.WaitGroup{}
+
+	counter := 0      
+	exitCalled := false
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
+		exitCalled = true
+	})
+        patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "ForceStop", func(_ *gnmi.Server) {
+	})
+
+
+	defer patches.Reset()
+
+	wg.Add(1)
+
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+
+	for {
+		select {
+		case <-tick.C:
+			if counter == 0 { // simulate cert rotation first
+				sendSignal(serverControlSignal, ServerRestart)
+			} else { // simulate sigterm second
+				sendSignal(serverControlSignal, ServerStop)
+			}
+			counter += 1
+		case <-ctx.Done():
+			t.Errorf("Failed to send shutdown signal")
+			return
+		}
+		if counter > 1 { // both signals have been sent
+			break
+		}
 	}
 
 	wg.Wait()
@@ -822,6 +907,8 @@ func TestINotifyCertMonitoringAddWatcherError(t *testing.T) {
 func TestSignalHandler(t *testing.T) {
 	testHandlerSyscall(t, syscall.SIGTERM)
 	testHandlerSyscall(t, syscall.SIGQUIT)
+	testHandlerSyscall(t, syscall.SIGINT)
+	testHandlerSyscall(t, syscall.SIGHUP)
 	testHandlerSyscall(t, nil) // Test that ServerStop should make signalHandler exit
 }
 

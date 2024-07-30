@@ -23,7 +23,15 @@
  )
  
  func init() {
-@@ -278,6 +283,22 @@
+@@ -93,6 +98,7 @@
+ 	flag.StringVar(&cfg.DisplayIndent, "display_indent", "  ", "Output line, per nesting-level indent.")
+ 	flag.StringVar(&cfg.DisplayType, "display_type", "group", "Display output type (g, group, s, single, p, proto).")
+ 	flag.StringVar(&q.Target, "target", "", "Name of the gNMI target.")
++	flag.StringVar(&q.Origin, "origin", "", "Name of the gNMI origin.")
+ 	flag.DurationVar(&q.Timeout, "timeout", 30*time.Second, "Terminate query if no RPC is established within the timeout duration.")
+ 	flag.StringVar(&cfg.Timestamp, "timestamp", "", "Specify timestamp formatting in output.  One of (<empty string>, on, raw, <FORMAT>) where <empty string> is disabled, on is human readable, raw is int64 nanos since epoch, and <FORMAT> is according to golang time.Format(<FORMAT>)")
+ 	flag.BoolVar(&cfg.DisplaySize, "display_size", false, "Display the total size of query response.")
+@@ -278,6 +284,22 @@
  	if len(*queryFlag) == 0 {
  		return errors.New("--query must be set")
  	}
@@ -48,7 +56,16 @@
  		if err != nil {
 --- ./github.com/openconfig/gnmi/client/query.go	2019-11-22 14:03:29.839103602 -0800
 +++ ./github.com/openconfig/gnmi/client/query.go	2019-10-11 13:48:49.226145599 -0700
-@@ -172,6 +172,10 @@
+@@ -131,6 +131,8 @@
+ 	// clients will only handle the first element.
+ 	Addrs         []string
+ 	AddressChains [][]string
++	// Origin is the target of the query.
++	Origin string
+ 	// Target is the target of the query.  Maybe empty if the query is performed
+ 	// against an end target vs. a collector.
+ 	Target string
+@@ -172,6 +174,10 @@
  	// SubReq is an optional field. If not nil, gnmi client implementation uses
  	// it rather than generating from client.Query while sending gnmi Subscribe RPC.
  	SubReq *gpb.SubscribeRequest
@@ -70,3 +87,15 @@
  	default:
  		return nil, fmt.Errorf("non-scalar type %+v", tv.Value)
  	}
+
+--- ./github.com/openconfig/gnmi/client/gnmi/client.go 2019-11-22 14:03:29.847103498 -0800
++++ ./github.com/openconfig/gnmi/client/gnmi/client.go 2019-10-11 13:48:49.234145530 -0700
+@@ -246,7 +246,7 @@
+ 	s := &gpb.SubscribeRequest_Subscribe{
+ 		Subscribe: &gpb.SubscriptionList{
+ 			Mode:   getType(q.Type),
+-			Prefix: &gpb.Path{Target: q.Target},
++			Prefix: &gpb.Path{Target: q.Target, Origin: q.Origin},
+ 		},
+ 	}
+ 	if q.UpdatesOnly {
