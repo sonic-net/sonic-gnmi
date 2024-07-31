@@ -59,6 +59,7 @@ import (
 	cacheclient "github.com/openconfig/gnmi/client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
+	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
@@ -2861,6 +2862,49 @@ func TestGNOI(t *testing.T) {
 			t.Fatalf("Invalid Output Filename: %s", resp.Output.OutputFilename)
 		}
 	})
+
+	t.Run("FileStat", func(t *testing.T)) {
+		mockClient := &ssc.DbusClient{}
+		expectedResult := map[string]string{
+			"last_modified": "1609459200000000000",
+			"permissions":   "644",
+			"size":          "1024",
+			"umask":         "o022",
+		}
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "GetFileStat", func(_ *ssc.DbusClient, path string) (map[string]string, error) {
+			return expectedResult, nil
+		})
+		defer mock.Reset()
+
+	    // Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_file_pb.StatRequest{Path: "/etc/sonic/config_db.json"}
+		fc := gnoi_file_pb.NewFileClient(conn)
+
+		resp, err := fc.Stat(ctx, req)
+		if err != nil {
+			t.Fatalf("FileStat failed: %v", err)
+		}
+	    // Validate the response
+		if len(resp.Stats) == 0 {
+			t.Fatalf("Expected at least one StatInfo in response")
+		}
+	
+		statInfo := resp.Stats[0]
+
+		if statInfo.LastModified != 1609459200000000000 {
+			t.Errorf("Expected last_modified %d but got %d", 1609459200000000000, statInfo.LastModified)
+		}
+		if statInfo.Permissions != 644 {
+			t.Errorf("Expected permissions 644 but got %d", statInfo.Permissions)
+		}
+		if statInfo.Size != 1024 {
+			t.Errorf("Expected size 1024 but got %d", statInfo.Size)
+		}
+		if statInfo.Umask != 22 {
+			t.Errorf("Expected umask 022 but got %d", statInfo.Umask)
+		}
+	}
 
 	type configData struct {
 		source      string
