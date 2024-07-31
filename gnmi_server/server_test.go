@@ -2863,7 +2863,7 @@ func TestGNOI(t *testing.T) {
 		}
 	})
 
-	t.Run("FileStat", func(t *testing.T)) {
+	t.Run("FileStat", func(t *testing.T) {
 		mockClient := &ssc.DbusClient{}
 		expectedResult := map[string]string{
 			"last_modified": "1609459200000000000",
@@ -2904,7 +2904,7 @@ func TestGNOI(t *testing.T) {
 		if statInfo.Umask != 22 {
 			t.Errorf("Expected umask 022 but got %d", statInfo.Umask)
 		}
-	}
+	})
 
 	type configData struct {
 		source      string
