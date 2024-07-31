@@ -2808,9 +2808,9 @@ func TestCapabilities(t *testing.T) {
 }
 
 func TestGNOI(t *testing.T) {
-	if !ENABLE_TRANSLIB_WRITE {
-		t.Skip("skipping test in read-only mode.")
-	}
+	// if !ENABLE_TRANSLIB_WRITE {
+	// 	t.Skip("skipping test in read-only mode.")
+	// }
 	s := createServer(t, 8086)
 	go runServer(t, s)
 	defer s.Stop()
@@ -2887,6 +2887,7 @@ func TestGNOI(t *testing.T) {
 		}
 	    // Validate the response
 		if len(resp.Stats) == 0 {
+			t.Errorf("x2")
 			t.Fatalf("Expected at least one StatInfo in response")
 		}
 	
@@ -2895,14 +2896,14 @@ func TestGNOI(t *testing.T) {
 		if statInfo.LastModified != 1609459200000000000 {
 			t.Errorf("Expected last_modified %d but got %d", 1609459200000000000, statInfo.LastModified)
 		}
-		if statInfo.Permissions != 644 {
-			t.Errorf("Expected permissions 644 but got %d", statInfo.Permissions)
+		if statInfo.Permissions != 420 {
+			t.Errorf("Expected permissions 420 but got %d", statInfo.Permissions)
 		}
 		if statInfo.Size != 1024 {
 			t.Errorf("Expected size 1024 but got %d", statInfo.Size)
 		}
-		if statInfo.Umask != 22 {
-			t.Errorf("Expected umask 022 but got %d", statInfo.Umask)
+		if statInfo.Umask != 18 {
+			t.Errorf("Expected umask 18 but got %d", statInfo.Umask)
 		}
 	})
 
