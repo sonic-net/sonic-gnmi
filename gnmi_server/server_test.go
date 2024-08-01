@@ -2863,7 +2863,7 @@ func TestGNOI(t *testing.T) {
 		}
 	})
 
-	t.Run("FileStat", func(t *testing.T) {
+	t.Run("FileStatSuccess", func(t *testing.T) {
 		mockClient := &ssc.DbusClient{}
 		expectedResult := map[string]string{
 			"last_modified": "1609459200000000000",
@@ -2905,6 +2905,33 @@ func TestGNOI(t *testing.T) {
 		if statInfo.Umask != 18 {
 			t.Errorf("Expected umask 18 but got %d", statInfo.Umask)
 		}
+	})
+
+	t.Run("FileStatFailure", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		expectedError := fmt.Errorf("failed to get file stats")
+		
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "GetFileStat", func(_ *ssc.DbusClient, path string) (map[string]string, error) {
+			return nil, expectedError
+		})
+		defer mock.Reset()
+
+	    // Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_file_pb.StatRequest{Path: "/etc/sonic/config_db.json"}
+		fc := gnoi_file_pb.NewFileClient(conn)
+
+		resp, err := fc.Stat(ctx, req)
+		if err == nil {
+			t.Fatalf("Expected error but got none")
+		}
+		if resp != nil {
+			t.Fatalf("Expected nil response but got: %v", resp)
+		}
+	
+		if !strings.Contains(err.Error(), expectedError.Error()) {
+			t.Errorf("Expected error to contain '%v' but got '%v'", expectedError, err)
+		}	
 	})
 
 	type configData struct {
