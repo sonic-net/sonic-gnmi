@@ -716,7 +716,7 @@ func TestGetDpuAddress(t *testing.T) {
 		t.Errorf("get DPU address should failed: %v, but get %s", err, address)
 	}
 
-	midPlaneTable.Hset("GLOBAL", "bridge", "bridge_midplane")
+	midPlaneTable.Hset("GLOBAL", "bridge", "bridge-midplane")
 	dpusTable.Hset("dpu0", "midplane_interface", "dpu0")
 
 	// test get DPU address when DHCP_SERVER_IPV4_PORT table not ready
@@ -725,7 +725,7 @@ func TestGetDpuAddress(t *testing.T) {
 		t.Errorf("get DPU address should failed: %v, but get %s", err, address)
 	}
 
-	dhcpPortTable.Hset("bridge_midplane|dpu0", "invalidfield", "")
+	dhcpPortTable.Hset("bridge-midplane|dpu0", "invalidfield", "")
 
 	// test get DPU address when DHCP_SERVER_IPV4_PORT table broken
 	address, err = getDpuAddress("dpu0")
@@ -733,7 +733,7 @@ func TestGetDpuAddress(t *testing.T) {
 		t.Errorf("get DPU address should failed: %v, but get %s", err, address)
 	}
 
-	dhcpPortTable.Hset("bridge_midplane|dpu0", "ips", "127.0.0.2,127.0.0.1")
+	dhcpPortTable.Hset("bridge-midplane|dpu0", "ips", "127.0.0.2,127.0.0.1")
 
 	// test get valid DPU address
 	address, err = getDpuAddress("dpu0")
@@ -789,9 +789,9 @@ func TestGetZmqClient(t *testing.T) {
 	var dpusTable = swsscommon.NewTable(configDb, "DPUS")
 	var dhcpPortTable = swsscommon.NewTable(configDb, "DHCP_SERVER_IPV4_PORT")
 
-	midPlaneTable.Hset("GLOBAL", "bridge", "bridge_midplane")
+	midPlaneTable.Hset("GLOBAL", "bridge", "bridge-midplane")
 	dpusTable.Hset("dpu0", "midplane_interface", "dpu0")
-	dhcpPortTable.Hset("bridge_midplane|dpu0", "ips", "127.0.0.2,127.0.0.1")
+	dhcpPortTable.Hset("bridge-midplane|dpu0", "ips", "127.0.0.2,127.0.0.1")
 
 	client, err := getZmqClient("dpu0", "")
 	if client != nil || err != nil {
