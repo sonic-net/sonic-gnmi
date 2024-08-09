@@ -59,6 +59,7 @@ import (
 	cacheclient "github.com/openconfig/gnmi/client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
+	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
@@ -2862,6 +2863,76 @@ func TestGNOI(t *testing.T) {
 		}
 	})
 
+	t.Run("FileStatSuccess", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		expectedResult := map[string]string{
+			"last_modified": "1609459200000000000",
+			"permissions":   "644",
+			"size":          "1024",
+			"umask":         "o022",
+		}
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "GetFileStat", func(_ *ssc.DbusClient, path string) (map[string]string, error) {
+			return expectedResult, nil
+		})
+		defer mock.Reset()
+
+		// Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_file_pb.StatRequest{Path: "/etc/sonic/config_db.json"}
+		fc := gnoi_file_pb.NewFileClient(conn)
+
+		resp, err := fc.Stat(ctx, req)
+		if err != nil {
+			t.Fatalf("FileStat failed: %v", err)
+		}
+		// Validate the response
+		if len(resp.Stats) == 0 {
+			t.Fatalf("Expected at least one StatInfo in response")
+		}
+	
+		statInfo := resp.Stats[0]
+
+		if statInfo.LastModified != 1609459200000000000 {
+			t.Errorf("Expected last_modified %d but got %d", 1609459200000000000, statInfo.LastModified)
+		}
+		if statInfo.Permissions != 420 {
+			t.Errorf("Expected permissions 420 but got %d", statInfo.Permissions)
+		}
+		if statInfo.Size != 1024 {
+			t.Errorf("Expected size 1024 but got %d", statInfo.Size)
+		}
+		if statInfo.Umask != 18 {
+			t.Errorf("Expected umask 18 but got %d", statInfo.Umask)
+		}
+	})
+
+	t.Run("FileStatFailure", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		expectedError := fmt.Errorf("failed to get file stats")
+		
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "GetFileStat", func(_ *ssc.DbusClient, path string) (map[string]string, error) {
+			return nil, expectedError
+		})
+		defer mock.Reset()
+
+		// Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_file_pb.StatRequest{Path: "/etc/sonic/config_db.json"}
+		fc := gnoi_file_pb.NewFileClient(conn)
+
+		resp, err := fc.Stat(ctx, req)
+		if err == nil {
+			t.Fatalf("Expected error but got none")
+		}
+		if resp != nil {
+			t.Fatalf("Expected nil response but got: %v", resp)
+		}
+	
+		if !strings.Contains(err.Error(), expectedError.Error()) {
+			t.Errorf("Expected error to contain '%v' but got '%v'", expectedError, err)
+		}	
+	})
+
 	type configData struct {
 		source      string
 		destination string
@@ -4191,14 +4262,14 @@ func TestSaveOnSet(t *testing.T) {
 	fakeDBC.Reset()
 
 	// Successful Dbus call
-	goodDbus := gomonkey.ApplyFuncReturn(ssc.DbusApi, nil)
+	goodDbus := gomonkey.ApplyFuncReturn(ssc.DbusApi, nil, nil)
 	if err := SaveOnSetEnabled(); err != nil {
 		t.Error("Unexpected DBUS failure")
 	}
 	goodDbus.Reset()
 
 	// Fail Dbus call
-	badDbus := gomonkey.ApplyFuncReturn(ssc.DbusApi, fmt.Errorf("Fail Send"))
+	badDbus := gomonkey.ApplyFuncReturn(ssc.DbusApi, nil, fmt.Errorf("Fail Send"))
 	defer badDbus.Reset()
 	if err := SaveOnSetEnabled(); err == nil {
 		t.Error("Expected DBUS failure")
@@ -4342,28 +4413,29 @@ func (x *MockSetPackageServer) Recv() (*gnoi_system_pb.SetPackageRequest, error)
 func TestGnoiAuthorization(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
+	systemSrv := &SystemServer{Server: s}
 	mockAuthenticate := gomonkey.ApplyFunc(s.Authenticate, func(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
 		return nil, nil
 	})
 	defer mockAuthenticate.Reset()
 
-	err := s.Ping(new(gnoi_system_pb.PingRequest), new(MockPingServer))
+	err := systemSrv.Ping(new(gnoi_system_pb.PingRequest), new(MockPingServer))
 	if err == nil {
 		t.Errorf("Ping should failed, because not implement.")
 	}
 
-	s.Traceroute(new(gnoi_system_pb.TracerouteRequest), new(MockTracerouteServer))
+	systemSrv.Traceroute(new(gnoi_system_pb.TracerouteRequest), new(MockTracerouteServer))
 	if err == nil {
 		t.Errorf("Traceroute should failed, because not implement.")
 	}
 
-	s.SetPackage(new(MockSetPackageServer))
+	systemSrv.SetPackage(new(MockSetPackageServer))
 	if err == nil {
 		t.Errorf("SetPackage should failed, because not implement.")
 	}
 
 	ctx := context.Background()
-	s.SwitchControlProcessor(ctx, new(gnoi_system_pb.SwitchControlProcessorRequest))
+	systemSrv.SwitchControlProcessor(ctx, new(gnoi_system_pb.SwitchControlProcessorRequest))
 	if err == nil {
 		t.Errorf("SwitchControlProcessor should failed, because not implement.")
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"google.golang.org/grpc"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
+	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	"context"
@@ -59,6 +60,14 @@ func main() {
 			systemRebootStatus(sc, ctx)
 		case "KillProcess":
 			killProcess(sc, ctx)
+		default:
+			panic("Invalid RPC Name")
+		}
+	case "File":
+		fc := gnoi_file_pb.NewFileClient(conn)
+		switch *rpc {
+		case "Stat":
+			fileStat(fc, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
@@ -123,6 +132,25 @@ func killProcess(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	if err != nil {
 		panic(err.Error())
 	}
+}
+
+func fileStat(fc gnoi_file_pb.FileClient, ctx context.Context) {
+	fmt.Println("File Stat")
+	ctx = setUserCreds(ctx)
+	req := &gnoi_file_pb.StatRequest {}
+	err := json.Unmarshal([]byte(*args), req)
+	if err != nil {
+		panic(err.Error())
+	}
+	resp,err := fc.Stat(ctx, req)
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
 }
 
 func systemReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {

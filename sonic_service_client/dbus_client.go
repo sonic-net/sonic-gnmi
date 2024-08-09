@@ -18,6 +18,7 @@ type Service interface {
 	DeleteCheckPoint(cpName string) error
 	StopService(service string) error
 	RestartService(service string) error
+	GetFileStat(path string) (map[string]string, error)
 }
 
 type DbusClient struct {
@@ -39,55 +40,62 @@ func NewDbusClient() (Service, error) {
 	return &client, err
 }
 
-func DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) error {
+func DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error) {
 	common_utils.IncCounter(common_utils.DBUS)
 	conn, err := dbus.SystemBus()
 	if err != nil {
 		log.V(2).Infof("Failed to connect to system bus: %v", err)
 		common_utils.IncCounter(common_utils.DBUS_FAIL)
-		return err
+		return nil, err
 	}
 
 	ch := make(chan *dbus.Call, 1)
 	obj := conn.Object(busName, dbus.ObjectPath(busPath))
 	obj.Go(intName, 0, ch, args...)
+
 	select {
 	case call := <-ch:
 		if call.Err != nil {
 			common_utils.IncCounter(common_utils.DBUS_FAIL)
-			return call.Err
+			return nil, call.Err
 		}
 		result := call.Body
 		if len(result) == 0 {
 			common_utils.IncCounter(common_utils.DBUS_FAIL)
-			return fmt.Errorf("Dbus result is empty %v", result)
+			return nil, fmt.Errorf("Dbus result is empty %v", result)
 		}
 		if ret, ok := result[0].(int32); ok {
 			if ret == 0 {
-				return nil
+				if len(result) != 2 {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return nil, fmt.Errorf("Dbus result is invalid %v", result)
+				}
+				return result[1], nil
 			} else {
 				if len(result) != 2 {
 					common_utils.IncCounter(common_utils.DBUS_FAIL)
-					return fmt.Errorf("Dbus result is invalid %v", result)
+					return nil, fmt.Errorf("Dbus result is invalid %v", result)
 				}
 				if msg, check := result[1].(string); check {
 					common_utils.IncCounter(common_utils.DBUS_FAIL)
-					return fmt.Errorf(msg)
+					return nil, fmt.Errorf(msg)
+				} else if msg, check := result[1].(map[string]string); check {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return nil, fmt.Errorf(msg["error"])
 				} else {
 					common_utils.IncCounter(common_utils.DBUS_FAIL)
-					return fmt.Errorf("Invalid result message type %v %v", result[1], reflect.TypeOf(result[1]))
+					return nil, fmt.Errorf("Invalid result message type %v %v", result[1], reflect.TypeOf(result[1]))
 				}
 			}
 		} else {
 			common_utils.IncCounter(common_utils.DBUS_FAIL)
-			return fmt.Errorf("Invalid result type %v %v", result[0], reflect.TypeOf(result[0]))
+			return nil, fmt.Errorf("Invalid result type %v %v", result[0], reflect.TypeOf(result[0]))
 		}
 	case <-time.After(time.Duration(timeout) * time.Second):
 		log.V(2).Infof("DbusApi: timeout")
 		common_utils.IncCounter(common_utils.DBUS_FAIL)
-		return fmt.Errorf("Timeout %v", timeout)
+		return nil, fmt.Errorf("Timeout %v", timeout)
 	}
-	return nil
 }
 
 func (c *DbusClient) ConfigReload(config string) error {
@@ -96,7 +104,7 @@ func (c *DbusClient) ConfigReload(config string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".reload"
-	err := DbusApi(busName, busPath, intName, 10, config)
+	_, err := DbusApi(busName, busPath, intName, 10, config)
 	return err
 }
 
@@ -106,7 +114,7 @@ func (c *DbusClient) ConfigSave(fileName string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".save"
-	err := DbusApi(busName, busPath, intName, 10, fileName)
+	_, err := DbusApi(busName, busPath, intName, 10, fileName)
 	return err
 }
 
@@ -116,7 +124,7 @@ func (c *DbusClient) ApplyPatchYang(patch string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".apply_patch_yang"
-	err := DbusApi(busName, busPath, intName, 180, patch)
+	_, err := DbusApi(busName, busPath, intName, 180, patch)
 	return err
 }
 
@@ -126,7 +134,7 @@ func (c *DbusClient) ApplyPatchDb(patch string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".apply_patch_db"
-	err := DbusApi(busName, busPath, intName, 180, patch)
+	_, err := DbusApi(busName, busPath, intName, 180, patch)
 	return err
 }
 
@@ -136,7 +144,7 @@ func (c *DbusClient) CreateCheckPoint(fileName string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".create_checkpoint"
-	err := DbusApi(busName, busPath, intName, 10, fileName)
+	_, err := DbusApi(busName, busPath, intName, 10, fileName)
 	return err
 }
 
@@ -146,7 +154,7 @@ func (c *DbusClient) DeleteCheckPoint(fileName string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".delete_checkpoint"
-	err := DbusApi(busName, busPath, intName, 10, fileName)
+	_, err := DbusApi(busName, busPath, intName, 10, fileName)
 	return err
 }
 
@@ -156,7 +164,7 @@ func (c *DbusClient) StopService(service string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".stop_service"
-	err := DbusApi(busName, busPath, intName, 90, service)
+	_, err := DbusApi(busName, busPath, intName, 90, service)
 	return err
 }
 
@@ -166,6 +174,20 @@ func (c *DbusClient) RestartService(service string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".restart_service"
-	err := DbusApi(busName, busPath, intName, 90, service)
+	_, err := DbusApi(busName, busPath, intName, 90, service)
 	return err
+}
+
+func (c *DbusClient) GetFileStat(path string) (map[string]string, error) {
+	common_utils.IncCounter(common_utils.DBUS_FILE_STAT)
+	modName := "file"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".get_file_stat"
+	result, err := DbusApi(busName, busPath, intName, 10, path)
+	if err != nil {
+		return nil, err
+	}
+	data, _ := result.(map[string]string)
+	return data, nil
 }

@@ -21,6 +21,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
+	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -50,7 +51,22 @@ type Server struct {
 	// comes from a master controller.
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
-	// UnimplementedSystemServer is embedded to satisfy SystemServer interface requirements
+}
+
+
+// FileServer is the server API for File service.
+// All implementations must embed UnimplementedFileServer
+// for forward compatibility
+type FileServer struct {
+	*Server
+	gnoi_file_pb.UnimplementedFileServer
+}
+
+// SystemServer is the server API for System service.
+// All implementations must embed UnimplementedSystemServer
+// for forward compatibility
+type SystemServer struct {
+	*Server
 	gnoi_system_pb.UnimplementedSystemServer
 }
 
@@ -158,6 +174,10 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		ReqFromMaster: ReqFromMasterDisabledMA,
 		masterEID:     uint128{High: 0, Low: 0},
 	}
+
+	fileSrv := &FileServer{Server: srv}
+	systemSrv := &SystemServer{Server: srv}
+
 	var err error
 	if srv.config.Port < 0 {
 		srv.config.Port = 0
@@ -169,7 +189,8 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	gnmipb.RegisterGNMIServer(srv.s, srv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
-		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
+		gnoi_system_pb.RegisterSystemServer(srv.s, systemSrv)
+		gnoi_file_pb.RegisterFileServer(srv.s, fileSrv)
 	}
 	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
