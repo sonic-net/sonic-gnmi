@@ -33,18 +33,18 @@ func TestGetFileStat(t *testing.T) {
 		return &dbus.Conn{}, nil
 	})
 	defer mock1.Reset()
-    mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
-        if method != "org.SONiC.HostService.file.get_file_stat" {
-            t.Errorf("Wrong method: %v", method)
-        }
-        ret := &dbus.Call{}
-        ret.Err = nil
-        ret.Body = make([]interface{}, 2)
-        ret.Body[0] = int32(0) // Indicating success
-        ret.Body[1] = expectedResult
-        ch <- ret
-        return &dbus.Call{}
-    })
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.file.get_file_stat" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0) // Indicating success
+		ret.Body[1] = expectedResult
+		ch <- ret
+		return &dbus.Call{}
+	})
 	defer mock2.Reset()
 
 	client, err := NewDbusClient()
@@ -56,47 +56,47 @@ func TestGetFileStat(t *testing.T) {
 		t.Errorf("GetFileStat should pass: %v", err)
 	}
 	for key, value := range expectedResult {
-        if result[key] != value {
-            t.Errorf("Expected %s for key %s but got %s", value, key, result[key])
-        }
-    }
+		if result[key] != value {
+			t.Errorf("Expected %s for key %s but got %s", value, key, result[key])
+		}
+	}
 }
 
 func TestGetFileStatNegative(t *testing.T) {
 	errMsg := "This is the mock error message"
 
     // Mocking the DBus API to return an error
-    mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
-        return &dbus.Conn{}, nil
-    })
-    defer mock1.Reset()
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
 
-    mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
-        if method != "org.SONiC.HostService.file.get_file_stat" {
-            t.Errorf("Wrong method: %v", method)
-        }
-        ret := &dbus.Call{}
-        ret.Err = nil
-        ret.Body = make([]interface{}, 2)
-        ret.Body[0] = int32(1) // Indicating failure
-        ret.Body[1] = map[string]string{"error": errMsg}
-        ch <- ret
-        return &dbus.Call{}
-    })
-    defer mock2.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.file.get_file_stat" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(1) // Indicating failure
+		ret.Body[1] = map[string]string{"error": errMsg}
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
 
-    client, err := NewDbusClient()
-    if err != nil {
-        t.Errorf("NewDbusClient failed: %v", err)
-    }
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
 
-    _, err = client.GetFileStat("/invalid/path")
-    if err == nil {
-        t.Errorf("GetFileStat should fail")
-    }
-    if err.Error() != errMsg {
-        t.Errorf("Expected error message '%s' but got '%v'", errMsg, err)
-    }
+	_, err = client.GetFileStat("/invalid/path")
+	if err == nil {
+		t.Errorf("GetFileStat should fail")
+	}
+	if err.Error() != errMsg {
+		t.Errorf("Expected error message '%s' but got '%v'", errMsg, err)
+	}
 }
 
 func TestConfigReload(t *testing.T) {
