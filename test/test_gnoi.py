@@ -1,6 +1,6 @@
 import pytest
 from utils import gnoi_time, gnoi_setpackage, gnoi_switchcontrolprocessor
-from utils import gnoi_reboot, gnoi_rebootstatus, gnoi_cancelreboot, gnoi_kill_process, gnoi_restart_process, gnoi_file_stat
+from utils import gnoi_reboot, gnoi_rebootstatus, gnoi_cancelreboot, gnoi_kill_process, gnoi_restart_process
 from utils import gnoi_ping, gnoi_traceroute, gnmi_dump
 
 class TestGNOI:

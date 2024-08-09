@@ -42,7 +42,7 @@ func NewDbusClient() (Service, error) {
 
 func DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error) {
 	common_utils.IncCounter(common_utils.DBUS)
-    conn, err := dbus.SystemBus()
+	conn, err := dbus.SystemBus()
 	if err != nil {
 		log.V(2).Infof("Failed to connect to system bus: %v", err)
 		common_utils.IncCounter(common_utils.DBUS_FAIL)

@@ -2876,7 +2876,7 @@ func TestGNOI(t *testing.T) {
 		})
 		defer mock.Reset()
 
-	    // Prepare context and request
+		// Prepare context and request
 		ctx := context.Background()
 		req := &gnoi_file_pb.StatRequest{Path: "/etc/sonic/config_db.json"}
 		fc := gnoi_file_pb.NewFileClient(conn)
@@ -2885,9 +2885,8 @@ func TestGNOI(t *testing.T) {
 		if err != nil {
 			t.Fatalf("FileStat failed: %v", err)
 		}
-	    // Validate the response
+		// Validate the response
 		if len(resp.Stats) == 0 {
-			t.Errorf("x2")
 			t.Fatalf("Expected at least one StatInfo in response")
 		}
 	
@@ -2916,7 +2915,7 @@ func TestGNOI(t *testing.T) {
 		})
 		defer mock.Reset()
 
-	    // Prepare context and request
+		// Prepare context and request
 		ctx := context.Background()
 		req := &gnoi_file_pb.StatRequest{Path: "/etc/sonic/config_db.json"}
 		fc := gnoi_file_pb.NewFileClient(conn)

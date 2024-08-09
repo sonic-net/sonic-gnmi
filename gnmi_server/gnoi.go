@@ -38,12 +38,12 @@ func ReadFileStat(path string) (*gnoi_file_pb.StatInfo, error) {
 	// Parse the data and populate StatInfo
 	lastModified, err := strconv.ParseUint(data["last_modified"], 10, 64)
 	if err != nil {
-	return nil, err
+		return nil, err
 	}
 
 	permissions, err := strconv.ParseUint(data["permissions"], 8, 32)
 	if err != nil {
-	return nil, err
+		return nil, err
 	}
 
 	size, err := strconv.ParseUint(data["size"], 10, 64)
