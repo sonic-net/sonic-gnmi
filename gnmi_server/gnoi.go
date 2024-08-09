@@ -48,7 +48,7 @@ func ReadFileStat(path string) (*gnoi_file_pb.StatInfo, error) {
 
 	size, err := strconv.ParseUint(data["size"], 10, 64)
 	if err != nil {
-    	return nil, err
+		return nil, err
 	}
 
 	umaskStr := data["umask"]
