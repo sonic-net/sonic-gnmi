@@ -756,17 +756,17 @@ func TestGetDpuAddress(t *testing.T) {
 	}
 
 	// test get ZMQ address
-	address, err = getZmqAddress("dpu0", "1234")
+	address, err = getZmqAddress("dpu0", "1234", "")
 	if address != "tcp://127.0.0.2:1234" {
 		t.Errorf("get invalid DPU address failed")
 	}
 
-	address, err = getZmqAddress("dpu0", "")
+	address, err = getZmqAddress("dpu0", "", "")
 	if err == nil {
 		t.Errorf("get invalid ZMQ address failed")
 	}
 
-	address, err = getZmqAddress("", "1234")
+	address, err = getZmqAddress("", "1234", "")
 	if err == nil {
 		t.Errorf("get invalid ZMQ address failed")
 	}
@@ -775,6 +775,37 @@ func TestGetDpuAddress(t *testing.T) {
 	swsscommon.DeleteTable(dpusTable)
 	swsscommon.DeleteTable(dhcpPortTable)
 	swsscommon.DeleteDBConnector(configDb)
+}
+
+func TestGetDpuProxyAddress(t *testing.T) {
+	address, err := getDpuProxyAddress("dpu1", "127.0.10.10")
+	if err != nil {
+		t.Errorf("get DPU address failed")
+	}
+
+	if address != "127.0.10.11" {
+		t.Errorf("invalid DPU address")
+	}
+
+	address, err = getDpuProxyAddress("dpu_no_index", "127.0.10.10")
+	if err == nil {
+		t.Errorf("get with invalid DPU failed")
+	}
+
+	address, err = getDpuProxyAddress("dpu1", "invalid IP")
+	if err == nil {
+		t.Errorf("get with invalid base address failed")
+	}
+
+	address, err = getDpuProxyAddress("dpu1", "::1")
+	if err == nil {
+		t.Errorf("get with IPv6 base address failed")
+	}
+
+	address, err = getDpuProxyAddress("dpu300", "127.0.10.10")
+	if err == nil {
+		t.Errorf("get with dpu index out of range failed")
+	}
 }
 
 func TestGetZmqClient(t *testing.T) {
@@ -793,17 +824,17 @@ func TestGetZmqClient(t *testing.T) {
 	dpusTable.Hset("dpu0", "midplane_interface", "dpu0")
 	dhcpPortTable.Hset("bridge-midplane|dpu0", "ips@", "127.0.0.2,127.0.0.1")
 
-	client, err := getZmqClient("dpu0", "", "")
+	client, err := getZmqClient("dpu0", "", "", "")
 	if client != nil || err != nil {
 		t.Errorf("empty ZMQ port should not get ZMQ client")
 	}
 
-	client, err = getZmqClient("dpu0", "1234", "")
+	client, err = getZmqClient("dpu0", "1234", "", "")
 	if client == nil {
 		t.Errorf("get ZMQ client failed")
 	}
 
-	client, err = getZmqClient("", "1234", "")
+	client, err = getZmqClient("", "1234", "", "")
 	if client == nil {
 		t.Errorf("get ZMQ client failed")
 	}

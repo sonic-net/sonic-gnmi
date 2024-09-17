@@ -142,13 +142,47 @@ func getDpuAddress(dpuId string) (string, error) {
 	return dpuAddressArray[0], nil
 }
 
-func getZmqAddress(container string, zmqPort string) (string, error) {
+func getDpuProxyAddress(dpuId string, dpuProxyBaseAddr string) (string, error) {
+	dpuIndexStr := strings.TrimPrefix(dpuId, "dpu")
+	dpuIndex, err := strconv.Atoi(dpuIndexStr)
+	if err != nil {
+	    return "", fmt.Errorf("Failed to parse DPU index from %s: %v", dpuId, err)
+	}
+
+	baseIp := net.ParseIP(dpuProxyBaseAddr)
+	if baseIp == nil {
+	    return "", fmt.Errorf("Invalid DPU proxy base address: %s", dpuProxyBaseAddr)
+	}
+
+	baseIp = baseIp.To4()
+	if baseIp == nil {
+	    return "", fmt.Errorf("Expecting an IPv4 address for DPU proxy: %s", dpuProxyBaseAddr)
+	}
+
+	lastOctet := int(baseIp[3]) + dpuIndex
+	if lastOctet > 255 {
+	    return "", fmt.Errorf("DPU index is out of range")
+	}
+
+	baseIp[3] = byte(lastOctet)
+	return baseIp.String(), nil
+}
+
+func getZmqAddress(container string, zmqPort string, dpuProxyBaseAddr string) (string, error) {
 	// when zmqPort empty, ZMQ feature disabled
 	if zmqPort == "" {
 		return "", fmt.Errorf("ZMQ port is empty.")
 	}
 
-	var dpuAddress, err = getDpuAddress(container)
+	var dpuAddress string
+	var err error
+
+	if dpuProxyBaseAddr != "" {
+		dpuAddress, err = getDpuProxyAddress(container, dpuProxyBaseAddr)
+	} else {
+		dpuAddress, err = getDpuAddress(container)
+	}
+
 	if err != nil {
 		return "", fmt.Errorf("Get DPU address failed: %v", err)
 	}
@@ -181,7 +215,7 @@ func removeZmqClient(zmqClient swsscommon.ZmqClient) (error) {
 	return fmt.Errorf("Can't find ZMQ client in zmqClientMap: %v", zmqClient)
 }
 
-func getZmqClient(dpuId string, zmqPort string, vrf string) (swsscommon.ZmqClient, error) {
+func getZmqClient(dpuId string, zmqPort string, vrf string, dpuProxyBaseAddr string) (swsscommon.ZmqClient, error) {
 	if zmqPort == "" {
 		// ZMQ feature disabled when zmqPort flag not set
 		return nil, nil
@@ -192,7 +226,7 @@ func getZmqClient(dpuId string, zmqPort string, vrf string) (swsscommon.ZmqClien
 		return getZmqClientByAddress("tcp://" + LOCAL_ADDRESS + ":" + zmqPort, vrf)
 	}
 
-	zmqAddress, err := getZmqAddress(dpuId, zmqPort)
+	zmqAddress, err := getZmqAddress(dpuId, zmqPort, dpuProxyBaseAddr)
 	if err != nil {
 		return nil, fmt.Errorf("Get ZMQ address failed: %v", err)
 	}
@@ -493,7 +527,7 @@ func init() {
 	initRedisDbMap()
 }
 
-func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string, vrf string) (Client, error) {
+func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string, vrf string, dpuProxyBaseAddr string) (Client, error) {
 	var err error
 
 	// Initialize RedisDbMap for test
@@ -556,7 +590,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	client.workPath = common_utils.GNMI_WORK_PATH
 
 	// continer is DPU ID
-	client.zmqClient, err = getZmqClient(container, zmqPort, vrf)
+	client.zmqClient, err = getZmqClient(container, zmqPort, vrf, dpuProxyBaseAddr)
 	if err != nil {
 		return nil, fmt.Errorf("Get ZMQ client failed: %v", err)
 	}

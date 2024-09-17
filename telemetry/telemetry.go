@@ -46,6 +46,7 @@ type TelemetryConfig struct {
 	ConfigTableName       *string
 	ZmqAddress            *string
 	ZmqPort               *string
+	DashProxyAddr         *string
 	Insecure              *bool
 	NoTLS                 *bool
 	AllowNoClientCert     *bool
@@ -155,6 +156,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		ConfigTableName:       fs.String("config_table_name", "", "Config table name"),
 		ZmqAddress:            fs.String("zmq_address", "", "Orchagent ZMQ address, deprecated, please use zmq_port."),
 		ZmqPort:               fs.String("zmq_port", "", "Orchagent ZMQ port, when not set or empty string telemetry server will switch to Redis based communication channel."),
+		DashProxyAddr:         fs.String("zmq_dpu_proxy_address_base", "", "Dash offload manager ZMQ base address, when set, the DPU configuration will be send to the proxy address instead of directly to the DPU."),
 		Insecure:              fs.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!"),
 		NoTLS:                 fs.Bool("noTLS", false, "disable TLS, for testing only!"),
 		AllowNoClientCert:     fs.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate."),
@@ -242,6 +244,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	}
 
 	cfg.ZmqPort = zmqPort
+	cfg.DpuProxyBaseAddr = *telemetryCfg.DashProxyAddr
 
 	return telemetryCfg, cfg, nil
 }
