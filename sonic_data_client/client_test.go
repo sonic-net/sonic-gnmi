@@ -733,7 +733,7 @@ func TestGetDpuAddress(t *testing.T) {
 		t.Errorf("get DPU address should failed: %v, but get %s", err, address)
 	}
 
-	dhcpPortTable.Hset("bridge-midplane|dpu0", "ips", "127.0.0.2,127.0.0.1")
+	dhcpPortTable.Hset("bridge-midplane|dpu0", "ips@", "127.0.0.2,127.0.0.1")
 
 	// test get valid DPU address
 	address, err = getDpuAddress("dpu0")
@@ -791,7 +791,7 @@ func TestGetZmqClient(t *testing.T) {
 
 	midPlaneTable.Hset("GLOBAL", "bridge", "bridge-midplane")
 	dpusTable.Hset("dpu0", "midplane_interface", "dpu0")
-	dhcpPortTable.Hset("bridge-midplane|dpu0", "ips", "127.0.0.2,127.0.0.1")
+	dhcpPortTable.Hset("bridge-midplane|dpu0", "ips@", "127.0.0.2,127.0.0.1")
 
 	client, err := getZmqClient("dpu0", "")
 	if client != nil || err != nil {
