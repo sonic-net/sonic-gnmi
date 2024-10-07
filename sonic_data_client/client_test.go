@@ -733,7 +733,7 @@ func TestGetDpuAddress(t *testing.T) {
 		t.Errorf("get DPU address should failed: %v, but get %s", err, address)
 	}
 
-	dhcpPortTable.Hset("bridge_midplane|dpu0", "ips", "127.0.0.2,127.0.0.1")
+	dhcpPortTable.Hset("bridge_midplane|dpu0", "ips@", "127.0.0.2,127.0.0.1")
 
 	// test get valid DPU address
 	address, err = getDpuAddress("dpu0")
