@@ -244,7 +244,7 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 	// Initialize State DB.
-	rclient, err := getRedisDBClient(stateDB)
+	rclient, err := getRedisDBClient()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
@@ -276,7 +276,7 @@ func (srv *Server) RebootStatus(ctx context.Context, req *syspb.RebootStatusRequ
 	log.V(1).Info("gNOI: RebootStatus")
 	resp := &syspb.RebootStatusResponse{}
 	// Initialize State DB.
-	rclient, err := getRedisDBClient(stateDB)
+	rclient, err := getRedisDBClient()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
@@ -311,7 +311,7 @@ func (srv *Server) CancelReboot(ctx context.Context, req *syspb.CancelRebootRequ
 		return nil, status.Errorf(codes.Internal, "Invalid CancelReboot request: message is empty.")
 	}
 	// Initialize State DB.
-	rclient, err := getRedisDBClient(stateDB)
+	rclient, err := getRedisDBClient()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
