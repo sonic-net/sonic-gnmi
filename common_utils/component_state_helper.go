@@ -27,9 +27,7 @@ func getRedisDBClient() (*redis.Client, error) {
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
 		Addr:        addr,
-		Addr:        addr,
 		Password:    "", // no password set
-		DB:          db,
 		DB:          db,
 		DialTimeout: 0,
 	})
