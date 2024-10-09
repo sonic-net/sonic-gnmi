@@ -156,20 +156,29 @@ func fileStat(fc gnoi_file_pb.FileClient, ctx context.Context) {
 func systemReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println("System Reboot")
 	ctx = setUserCreds(ctx)
-	req := &gnoi_system_pb.RebootRequest {}
-	json.Unmarshal([]byte(*args), req)
-	_,err := sc.Reboot(ctx, req)
+	req := &gnoi_system_pb.RebootRequest{}
+	if err := json.Unmarshal([]byte(*args), req); err != nil {
+		panic(err.Error())
+	}
+	resp, err := sc.Reboot(ctx, req)
 	if err != nil {
 		panic(err.Error())
 	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
 }
 
 func systemCancelReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println("System CancelReboot")
 	ctx = setUserCreds(ctx)
-	req := &gnoi_system_pb.CancelRebootRequest {}
-	json.Unmarshal([]byte(*args), req)
-	resp,err := sc.CancelReboot(ctx, req)
+	req := &gnoi_system_pb.CancelRebootRequest{}
+	if err := json.Unmarshal([]byte(*args), req); err != nil {
+		panic(err.Error())
+	}
+	resp, err := sc.CancelReboot(ctx, req)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -183,7 +192,10 @@ func systemCancelReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 func systemRebootStatus(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println("System RebootStatus")
 	ctx = setUserCreds(ctx)
-	req := &gnoi_system_pb.RebootStatusRequest {}
+	req := &gnoi_system_pb.RebootStatusRequest{}
+	if err := json.Unmarshal([]byte(*args), req); err != nil {
+		panic(err.Error())
+	}
 	resp,err := sc.RebootStatus(ctx, req)
 	if err != nil {
 		panic(err.Error())
