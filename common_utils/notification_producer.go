@@ -22,7 +22,7 @@ func NewNotificationProducer(ch string) (*NotificationProducer, error) {
 
 	// Create redis client.
 	var err error
-	n.rc, err = getRedisDBClient()
+	n.rc, err = GetRedisDBClient()
 	if err != nil {
 		return nil, err
 	}
