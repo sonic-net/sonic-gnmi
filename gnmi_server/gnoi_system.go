@@ -3,7 +3,6 @@ package gnmi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -14,7 +13,6 @@ import (
 	log "github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	syspb "github.com/openconfig/gnoi/system"
-	"github.com/openconfig/gnoi/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	pjson "google.golang.org/protobuf/encoding/protojson"
@@ -244,7 +242,7 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 	// Initialize State DB.
-	rclient, err := getRedisDBClient()
+	rclient, err := common_utils.getRedisDBClient()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
@@ -276,7 +274,7 @@ func (srv *Server) RebootStatus(ctx context.Context, req *syspb.RebootStatusRequ
 	log.V(1).Info("gNOI: RebootStatus")
 	resp := &syspb.RebootStatusResponse{}
 	// Initialize State DB.
-	rclient, err := getRedisDBClient()
+	rclient, err := common_utils.getRedisDBClient()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
@@ -311,7 +309,7 @@ func (srv *Server) CancelReboot(ctx context.Context, req *syspb.CancelRebootRequ
 		return nil, status.Errorf(codes.Internal, "Invalid CancelReboot request: message is empty.")
 	}
 	// Initialize State DB.
-	rclient, err := getRedisDBClient()
+	rclient, err := common_utils.getRedisDBClient()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
