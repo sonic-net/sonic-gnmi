@@ -12,7 +12,7 @@ const (
 	dbName              = "STATE_DB"
 )
 
-func getRedisDBClient() (*redis.Client, error) {
+func GetRedisDBClient() (*redis.Client, error) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	addr, err := sdcfg.GetDbTcpAddr(dbName, ns)
 	if err != nil {

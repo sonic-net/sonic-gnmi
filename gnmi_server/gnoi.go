@@ -18,6 +18,10 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
+const (
+	stateDB  string = "STATE_DB"
+)
+
 func ReadFileStat(path string) (*gnoi_file_pb.StatInfo, error) {
 	sc, err := ssc.NewDbusClient()
 	if err != nil {

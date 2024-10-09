@@ -117,7 +117,7 @@ func TestSystem(t *testing.T) {
 	defer cancel()
 
 	sc := syspb.NewSystemClient(conn)
-	rclient, err := common_utils.getRedisDBClient()
+	rclient, err := common_utils.GetRedisDBClient()
 	if err != nil {
 		t.Fatalf("Cannot connect to the redis server: %v.", err.Error())
 	}
