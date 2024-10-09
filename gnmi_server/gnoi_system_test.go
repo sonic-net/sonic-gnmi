@@ -10,16 +10,12 @@ import (
 
 	"github.com/go-redis/redis"
 	syspb "github.com/openconfig/gnoi/system"
-	"github.com/openconfig/gnoi/types"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 )
-
-// Mock interface implementation that returns success!
-type mocksysXfmrSuccess struct{}
 
 func testErr(err error, code codes.Code, pattern string, t *testing.T) {
 	t.Helper()
@@ -100,9 +96,9 @@ func warmbootManagerResponse(t *testing.T, sc *redis.Client, expectedResponse co
 }
 
 func TestSystem(t *testing.T) {
-	s := createServer(t)
+	s := createServer(t, 8081)
 	go runServer(t, s)
-	defer s.Stop(t)
+	defer s.Stop()
 
 	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
@@ -176,7 +172,6 @@ func TestSystem(t *testing.T) {
 			Delay:   0,
 			Message: "Starting NSF reboot ...",
 		}
-		sysXfmr = mocksysXfmrSuccess{}
 		for _, method := range []syspb.RebootMethod{syspb.RebootMethod_COLD, syspb.RebootMethod_POWERDOWN, syspb.RebootMethod_WARM, syspb.RebootMethod_NSF} {
 			req.Method = method
 			_, err := sc.Reboot(ctx, req)
@@ -195,7 +190,6 @@ func TestSystem(t *testing.T) {
 		go warmbootManagerResponse(t, rclient, codes.OK, done, rebootStatusKey)
 		defer func() { done <- true }()
 
-		sysXfmr = mocksysXfmrSuccess{}
 		_, err := sc.RebootStatus(ctx, &syspb.RebootStatusRequest{})
 		if err != nil {
 			t.Fatal("Expected success, got error: ", err.Error())
@@ -221,7 +215,6 @@ func TestSystem(t *testing.T) {
 		req := &syspb.CancelRebootRequest{
 			Message: "Cancelling Warm Reboot due to hardware constraints",
 		}
-		sysXfmr = mocksysXfmrSuccess{}
 		_, err := sc.CancelReboot(ctx, req)
 		if err != nil {
 			t.Fatal("Expected success, got error: ", err.Error())
@@ -254,7 +247,7 @@ func TestSystem(t *testing.T) {
 			t.Fatal(err.Error())
 		}
 	})
-	t.Run("TimeSucceeds", func(t *testing.T) {
+	t.Run("SystemTime", func(t *testing.T) {
 		resp, err := sc.Time(ctx, &syspb.TimeRequest{})
 		if err != nil {
 			t.Fatal(err.Error())
