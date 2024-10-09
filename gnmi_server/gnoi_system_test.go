@@ -21,17 +21,6 @@ import (
 // Mock interface implementation that returns success!
 type mocksysXfmrSuccess struct{}
 
-func (t mocksysXfmrSuccess) resetOptics(req string) (string, error) {
-	return "{}", nil
-}
-
-// Mock interface implementation that returns error!
-type mocksysXfmrFailure struct{}
-
-func (t mocksysXfmrFailure) resetOptics(req string) (string, error) {
-	return "", status.Errorf(codes.Internal, fmt.Sprintf("BackEnd returns an error!"))
-}
-
 func testErr(err error, code codes.Code, pattern string, t *testing.T) {
 	t.Helper()
 	if err == nil {
@@ -175,89 +164,6 @@ func TestSystem(t *testing.T) {
 			req.Method = method
 			_, err := sc.Reboot(ctx, req)
 			testErr(err, codes.Internal, "Response Notification timeout from NSF Manager!", t)
-		}
-	})
-	t.Run("RebootFailsForInvalidOptics", func(t *testing.T) {
-		req := &syspb.RebootRequest{
-			Method:  syspb.RebootMethod_COLD,
-			Delay:   0,
-			Message: "Reset optics due to ...",
-			Subcomponents: []*types.Path{
-				&types.Path{
-					Origin: "openconfig",
-					Elem: []*types.PathElem{
-						{
-							Name: "components",
-						},
-						{
-							Name: "component",
-							Key: map[string]string{
-								"name":      "Ethernet1234",
-								"someField": "someValue",
-							},
-						},
-					},
-				},
-			},
-		}
-
-		_, err := sc.Reboot(ctx, req)
-		testErr(err, codes.InvalidArgument, "Transceiver is malformed", t)
-	})
-	t.Run("RebootFailsIfResetOpticsBackEndFails", func(t *testing.T) {
-		req := &syspb.RebootRequest{
-			Method:  syspb.RebootMethod_COLD,
-			Delay:   0,
-			Message: "Reset optics due to ...",
-			Subcomponents: []*types.Path{
-				&types.Path{
-					Origin: "openconfig",
-					Elem: []*types.PathElem{
-						{
-							Name: "components",
-						},
-						{
-							Name: "component",
-							Key: map[string]string{
-								"name": "Ethernet1234",
-							},
-						},
-					},
-				},
-			},
-		}
-
-		sysXfmr = mocksysXfmrFailure{}
-		_, err := sc.Reboot(ctx, req)
-		testErr(err, codes.Internal, "BackEnd returns an error!", t)
-	})
-	t.Run("RebootSucceedsIfResetOpticsBackEndSucceeds", func(t *testing.T) {
-		req := &syspb.RebootRequest{
-			Method:  syspb.RebootMethod_COLD,
-			Delay:   0,
-			Message: "Reset optics due to ...",
-			Subcomponents: []*types.Path{
-				&types.Path{
-					Origin: "openconfig",
-					Elem: []*types.PathElem{
-						{
-							Name: "components",
-						},
-						{
-							Name: "component",
-							Key: map[string]string{
-								"name": "Ethernet1234",
-							},
-						},
-					},
-				},
-			},
-		}
-
-		sysXfmr = mocksysXfmrSuccess{}
-		_, err := sc.Reboot(ctx, req)
-		if err != nil {
-			t.Fatal("Expected success, got error: ", err.Error())
 		}
 	})
 	t.Run("RebootSucceeds", func(t *testing.T) {

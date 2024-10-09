@@ -31,22 +31,6 @@ const (
 	notificationTimeout = 10 * time.Second
 )
 
-type sysXfmrInterface interface {
-	resetOptics(string) (string, error)
-}
-
-type sysXfmrImpl struct{}
-
-func (t sysXfmrImpl) resetOptics(req string) (string, error) {
-	return transformer.ResetOptics(req)
-}
-
-var sysXfmr sysXfmrInterface
-
-func init() {
-	sysXfmr = sysXfmrImpl{}
-}
-
 // Vaild reboot method map.
 var validRebootMap = map[syspb.RebootMethod]bool{
 	syspb.RebootMethod_COLD:      true,
@@ -74,41 +58,7 @@ func validRebootReq(req *syspb.RebootRequest) error {
 	if len(req.GetSubcomponents()) == 0 {
 		return nil
 	}
-	if err := validateModules(req.GetSubcomponents()); err != nil {
-		log.Error(err.Error())
-		return err
-	}
 
-	return nil
-}
-
-// Validates if all subcomponents are valid transceivers.
-func validateModules(comps []*types.Path) error {
-	for _, comp := range comps {
-		if _, err := validateAndGetXcvr(comp); err != nil {
-			log.V(ERROR).Info(err.Error())
-			return err
-		}
-	}
-	return nil
-}
-
-func processModuleReset(comps []*types.Path) error {
-	for _, comp := range comps {
-		xcvr, err := validateAndGetXcvr(comp)
-		if err != nil {
-			log.V(ERROR).Info(err.Error())
-			return err
-		}
-
-		port := strings.TrimPrefix(xcvr, "Ethernet")
-		cmd := "reset_modules port=" + port
-		log.V(INFO).Info("Reset command: ", cmd)
-		if _, err := sysXfmr.resetOptics(cmd); err != nil {
-			log.V(ERROR).Info(err.Error())
-			return err
-		}
-	}
 	return nil
 }
 
@@ -303,9 +253,6 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 
 	// Module reset.
 	if len(req.GetSubcomponents()) > 0 {
-		if err := processModuleReset(req.GetSubcomponents()); err != nil {
-			return nil, status.Errorf(codes.Internal, err.Error())
-		}
 		return &syspb.RebootResponse{}, nil
 	}
 
