@@ -5,6 +5,7 @@ import (
 
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	"github.com/go-redis/redis"
+	log "github.com/golang/glog"
 )
 
 const (
