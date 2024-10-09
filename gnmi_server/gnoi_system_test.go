@@ -67,8 +67,8 @@ func errorCodeToSwss(errCode codes.Code) string {
 }
 
 func warmbootManagerResponse(t *testing.T, sc *redis.Client, expectedResponse codes.Code, done chan bool, key string) {
-	sub := sc.Subscribe(context.Background(), "Reboot_Request_Channel")
-	if _, err := sub.Receive(context.Background()); err != nil {
+	sub := sc.Subscribe("Reboot_Request_Channel")
+	if _, err := sub.Receive(); err != nil {
 		t.Errorf("nsfManagerResponse failed to subscribe to request channel: %v", err)
 		return
 	}

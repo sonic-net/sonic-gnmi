@@ -82,7 +82,7 @@ func KillOrRestartProcess(restart bool, serviceName string) error {
 	return err
 }
 
-func (srv *Server) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProcessRequest) (*gnoi_system_pb.KillProcessResponse, error) {
+func (srv *Server) KillProcess(ctx context.Context, req *syspb.KillProcessRequest) (*syspb.KillProcessResponse, error) {
 	ctx, err := authenticate(srv.config, ctx)
 	if err != nil {
 		return nil, err
@@ -93,7 +93,7 @@ func (srv *Server) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProc
         if req.GetPid() != 0 {
             return nil, status.Errorf(codes.Unimplemented, "Pid option is not implemented")
         }
-        if req.GetSignal() != gnoi_system_pb.KillProcessRequest_SIGNAL_TERM {
+        if req.GetSignal() != syspb.KillProcessRequest_SIGNAL_TERM {
             return nil, status.Errorf(codes.Unimplemented, "KillProcess only supports SIGNAL_TERM (option 1) for graceful process termination. Please specify SIGNAL_TERM")
         }
 	log.V(1).Info("gNOI: KillProcess with optional restart")
@@ -102,7 +102,7 @@ func (srv *Server) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProc
 	if err != nil {
 		return nil, err
 	}
-	var resp gnoi_system_pb.KillProcessResponse
+	var resp syspb.KillProcessResponse
 	return &resp, nil
 }
 
@@ -161,15 +161,15 @@ func swssToErrorCode(statusStr string) codes.Code {
 func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Client, rebootNotifKey string) (resp proto.Message, err error, msgDataStr string) {
 	np, err := common_utils.NewNotificationProducer(rebootReqCh)
 	if err != nil {
-		log.V(INFO).Infof("[Reboot_Log] Error in setting up NewNotificationProducer: %v", err)
+		log.V(1).Infof("[Reboot_Log] Error in setting up NewNotificationProducer: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error()), msgDataStr
 	}
 	defer np.Close()
 
 	// Subscribe to the response channel.
-	sub := sc.Subscribe(context.Background(), rebootRespCh)
-	if _, err = sub.Receive(context.Background()); err != nil {
-		log.V(INFO).Infof("[Reboot_Log] Error in setting up subscription to response channel: %v", err)
+	sub := sc.Subscribe(rebootRespCh)
+	if _, err = sub.Receive(); err != nil {
+		log.V(1).Infof("[Reboot_Log] Error in setting up subscription to response channel: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error()), msgDataStr
 	}
 	defer sub.Close()
@@ -189,12 +189,12 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 
 	reqStr, err := json.Marshal(req)
 	if err != nil {
-		log.V(INFO).Infof("[Reboot_Log] Error in marshalling JSON: %v", err)
+		log.V(1).Infof("[Reboot_Log] Error in marshalling JSON: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error()), msgDataStr
 	}
 	// Publish to notification channel.
 	if err := np.Send(rebootNotifKey, "", map[string]string{dataMsgFld: string(reqStr)}); err != nil {
-		log.V(INFO).Infof("[Reboot_Log] Error in publishing to notification channel: %v", err)
+		log.V(1).Infof("[Reboot_Log] Error in publishing to notification channel: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error()), msgDataStr
 	}
 
@@ -205,13 +205,13 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 		case msg := <-channel:
 			op, data, fvs, err := processMsgPayload(msg.Payload)
 			if err != nil {
-				log.V(INFO).Infof("[Reboot_Log] Error while receiving Response Notification = [%v] for message [%v]", err.Error(), msg)
+				log.V(1).Infof("[Reboot_Log] Error while receiving Response Notification = [%v] for message [%v]", err.Error(), msg)
 				return nil, status.Errorf(codes.Internal, fmt.Sprintf("Error while receiving Response Notification: [%s] for message [%s]", err.Error(), msg)), msgDataStr
 			}
-			log.V(INFO).Infof("[Reboot_Log] Received on the Reboot notification channel: op = [%v], data = [%v], fvs = [%v]", op, data, fvs)
+			log.V(1).Infof("[Reboot_Log] Received on the Reboot notification channel: op = [%v], data = [%v], fvs = [%v]", op, data, fvs)
 
 			if op != rebootNotifKey {
-				log.V(INFO).Infof("[Reboot_Log] Op: [%v] doesn't match for `%v`!", op, rebootNotifKey)
+				log.V(1).Infof("[Reboot_Log] Op: [%v] doesn't match for `%v`!", op, rebootNotifKey)
 				continue
 			}
 			if fvs != nil {
@@ -220,14 +220,14 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 				}
 			}
 			if swssCode := swssToErrorCode(data); swssCode != codes.OK {
-				log.V(INFO).Infof("[Reboot_Log] Response Notification returned SWSS Error code: %v, error = %v", swssCode, msgDataStr)
+				log.V(1).Infof("[Reboot_Log] Response Notification returned SWSS Error code: %v, error = %v", swssCode, msgDataStr)
 				return nil, status.Errorf(swssCode, "Response Notification returned SWSS Error code: "+msgDataStr), msgDataStr
 			}
 			return resp, nil, msgDataStr
 
 		case <-tc:
 			// Crossed the reboot response notification timeout.
-			log.V(INFO).Infof("[Reboot_Log] Response Notification timeout from Warmboot Manager!")
+			log.V(1).Infof("[Reboot_Log] Response Notification timeout from Warmboot Manager!")
 			return nil, status.Errorf(codes.Internal, "Response Notification timeout from Warmboot Manager!"), msgDataStr
 		}
 	}
@@ -284,18 +284,18 @@ func (srv *Server) RebootStatus(ctx context.Context, req *syspb.RebootStatusRequ
 
 	respStr, err, msgData := sendRebootReqOnNotifCh(ctx, req, rclient, rebootStatusKey)
 	if err != nil {
-		log.V(INFO).Infof("gNOI: Received error for RebootStatusResponse: %v", err)
+		log.V(1).Infof("gNOI: Received error for RebootStatusResponse: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 	if msgData == "" || respStr == nil {
-		log.V(INFO).Info("gNOI: Received empty RebootStatusResponse")
+		log.V(1).Info("gNOI: Received empty RebootStatusResponse")
 		return nil, status.Errorf(codes.Internal, "Received empty RebootStatusResponse")
 	}
 	if err := pjson.Unmarshal([]byte(msgData), resp); err != nil {
-		log.V(INFO).Infof("gNOI: Cannot unmarshal the response: [%v]; err: [%v]", msgData, err)
+		log.V(1).Infof("gNOI: Cannot unmarshal the response: [%v]; err: [%v]", msgData, err)
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Cannot unmarshal the response: [%s]; err: [%s]", msgData, err.Error()))
 	}
-	log.V(INFO).Infof("gNOI: Returning RebootStatusResponse: resp = [%v]\n, msgData = [%v]", resp, msgData)
+	log.V(1).Infof("gNOI: Returning RebootStatusResponse: resp = [%v]\n, msgData = [%v]", resp, msgData)
 	return resp, nil
 }
 
@@ -307,7 +307,7 @@ func (srv *Server) CancelReboot(ctx context.Context, req *syspb.CancelRebootRequ
 	}
 	log.V(1).Info("gNOI: CancelReboot")
 	if req.GetMessage() == "" {
-		log.V(ERROR).Info("Invalid CancelReboot request: message is empty.")
+		log.V(1).Info("Invalid CancelReboot request: message is empty.")
 		return nil, status.Errorf(codes.Internal, "Invalid CancelReboot request: message is empty.")
 	}
 	// Initialize State DB.
