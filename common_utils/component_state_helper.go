@@ -16,17 +16,19 @@ func getRedisDBClient() (*redis.Client, error) {
 	addr, err := sdcfg.GetDbTcpAddr(dbName, ns)
 	if err != nil {
 		log.Errorf("Addr err: %v", err)
-		return
+		return nil, err 
 	}
 	db, err := sdcfg.GetDbId("STATE_DB", ns)
 	if err != nil {
 		log.Errorf("DB err: %v", err)
-		return
+		return nil, err
 	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
 		Addr:        addr,
+		Addr:        addr,
 		Password:    "", // no password set
+		DB:          db,
 		DB:          db,
 		DialTimeout: 0,
 	})
