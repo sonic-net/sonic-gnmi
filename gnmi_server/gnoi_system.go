@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sonic-net/sonic-mgmt-common/translib/transformer"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"github.com/go-redis/redis"
