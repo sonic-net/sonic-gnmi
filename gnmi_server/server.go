@@ -85,6 +85,7 @@ type Config struct {
 	ZmqPort             string
 	IdleConnDuration    int
 	ConfigTableName     string
+	EnableCrl           bool
 }
 
 var AuthLock sync.Mutex
@@ -262,7 +263,7 @@ func authenticate(config *Config, ctx context.Context) (context.Context, error) 
 		}
 	}
 	if !success && config.UserAuth.Enabled("cert") {
-		ctx, err = ClientCertAuthenAndAuthor(ctx, config.ConfigTableName)
+		ctx, err = ClientCertAuthenAndAuthor(ctx, config.ConfigTableName, config.EnableCrl)
 		if err == nil {
 			success = true
 		}

@@ -47,7 +47,24 @@ all: sonic-gnmi
 go.mod:
 	$(GO) mod init github.com/sonic-net/sonic-gnmi
 
-$(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap
+advancetls:
+	# Get latest crl_provider.go and crl.go from https://github.com/grpc/grpc-go/tree/v1.65.x/security/advancedtls
+	# Because depency conflict, this project can't install advancedtls mod
+	rm -rf grpc-go
+	git clone --depth 1 https://github.com/grpc/grpc-go.git -b v1.64.x
+	# copy CRL related code, and change packet name
+	cp ./grpc-go/security/advancedtls/crl_provider.go gnmi_server/crl_provider.go
+	sed -i -e 's/package advancedtls/package gnmi/g' gnmi_server/crl_provider.go
+	cp ./grpc-go/security/advancedtls/crl.go gnmi_server/crl.go
+	sed -i -e 's/package advancedtls/package gnmi/g' gnmi_server/crl.go
+	# copy CRL test data to tmp folder, because go test will run in /tmp folder
+	mkdir -p /tmp/testdata/crl
+	cp ./grpc-go/security/advancedtls/testdata/crl/3.crl /tmp/testdata/crl/test.crl
+	cp ./grpc-go/security/advancedtls/testdata/crl/revokedInt.pem /tmp/testdata/crl/revokedInt.pem
+	cp ./grpc-go/security/advancedtls/testdata/crl/unrevoked.pem /tmp/testdata/crl/unrevoked.pem
+	rm -rf grpc-go
+
+$(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap advancetls
 	$(GO) mod vendor
 	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
 	$(GO) mod download github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0
@@ -62,6 +79,7 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap
 	patch -d vendor -p0 < patches/gnmi_xpath.patch
 	git apply patches/0001-Updated-to-filter-and-write-to-file.patch
 	touch $@
+
 
 go-deps: $(GO_DEPS)
 

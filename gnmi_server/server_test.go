@@ -4305,7 +4305,7 @@ func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
 	return ctx, cancel
 }
 
-	func TestClientCertAuthenAndAuthor(t *testing.T) {
+func TestClientCertAuthenAndAuthor(t *testing.T) {
 	if !swsscommon.SonicDBConfigIsInit() {
 		swsscommon.SonicDBConfigInitialize()
 	}
@@ -4325,7 +4325,7 @@ func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
 
 	// check auth with nil cert name
 	ctx, cancel := CreateAuthorizationCtx()
-	ctx, err = ClientCertAuthenAndAuthor(ctx, "")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with empty config table should success: %v", err)
 	}
@@ -4336,7 +4336,7 @@ func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
 	gnmiTable.Hset("certname1", "role", "role1")
-	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
 	}
@@ -4348,7 +4348,7 @@ func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
 	configDb.Flushdb()
 	gnmiTable.Hset("certname1", "role", "role1")
 	gnmiTable.Hset("certname2", "role", "role2")
-	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
 	}
@@ -4359,7 +4359,7 @@ func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
 	gnmiTable.Hset("certname2", "role", "role2")
-	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err == nil {
 		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
 	}
