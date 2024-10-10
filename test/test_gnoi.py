@@ -13,17 +13,17 @@ class TestGNOI:
     def test_gnoi_reboot(self):
         ret, msg = gnoi_reboot(1, 0, 'Test reboot')
         assert ret == 2, msg
-        assert 'Response Notification timeout from Warmboot Manager' in msg
+        assert 'Response Notification timeout from Reboot Backend' in msg
 
     def test_gnoi_rebootstatus(self):
         ret, msg = gnoi_rebootstatus()
         assert ret == 2, msg
-        assert 'Response Notification timeout from Warmboot Manager' in msg
+        assert 'Response Notification timeout from Reboot Backend' in msg
 
     def test_gnoi_cancelreboot(self):
         ret, msg = gnoi_cancelreboot('Test Cancel reboot')
         assert ret == 2, msg
-        assert 'Response Notification timeout from Warmboot Manager' in msg
+        assert 'Response Notification timeout from Reboot Backend' in msg
 
     def test_gnoi_killprocess(self):
         ret, old_cnt = gnmi_dump('DBUS stop service')
