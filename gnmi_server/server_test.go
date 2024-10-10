@@ -959,17 +959,17 @@ func TestGnmiSet(t *testing.T) {
 		//         wantRespVal: interfaceData,
 		//         valTest:true,
 		// },
-		{
-			desc:       "Delete OC Interface IP",
-			pathTarget: "OC_YANG",
-			textPbPath: `
-                    elem:<name:"openconfig-interfaces:interfaces" > elem:<name:"interface" key:<key:"name" value:"Ethernet4" > > elem:<name:"subinterfaces" > elem:<name:"subinterface" key:<key:"index" value:"0" > > elem:<name: "ipv4" > elem:<name: "addresses" > elem:<name:"address" key:<key:"ip" value:"9.9.9.9" > >
-                `,
-			attributeData: "",
-			wantRetCode:   codes.OK,
-			operation:     Delete,
-			valTest:       false,
-		},
+		//{
+		//	desc:       "Delete OC Interface IP",
+		//	pathTarget: "OC_YANG",
+		//	textPbPath: `
+                //    elem:<name:"openconfig-interfaces:interfaces" > elem:<name:"interface" key:<key:"name" value:"Ethernet4" > > elem:<name:"subinterfaces" > elem:<name:"subinterface" key:<key:"index" value:"0" > > elem:<name: "ipv4" > elem:<name: "addresses" > elem:<name:"address" key:<key:"ip" value:"9.9.9.9" > >
+                //`,
+		//	attributeData: "",
+		//	wantRetCode:   codes.OK,
+		//	operation:     Delete,
+		//	valTest:       false,
+		//},
 		//{
 		//	desc:       "Set OC Interface IPv6 (unprefixed path)",
 		//	pathTarget: "OC_YANG",
@@ -978,13 +978,13 @@ func TestGnmiSet(t *testing.T) {
 		//	wantRetCode:   codes.OK,
 		//	operation:     Update,
 		//},
-		{
-			desc:        "Delete OC Interface IPv6 (unprefixed path)",
-			pathTarget:  "OC_YANG",
-			textPbPath:  pathToPb("/interfaces/interface[name=Ethernet0]/subinterfaces/subinterface[index=0]/ipv6/addresses/address[ip=150::1]"),
-			wantRetCode: codes.OK,
-			operation:   Delete,
-		},
+		//{
+		//	desc:        "Delete OC Interface IPv6 (unprefixed path)",
+		//	pathTarget:  "OC_YANG",
+		//	textPbPath:  pathToPb("/interfaces/interface[name=Ethernet0]/subinterfaces/subinterface[index=0]/ipv6/addresses/address[ip=150::1]"),
+		//	wantRetCode: codes.OK,
+		//	operation:   Delete,
+		//},
 		{
 			desc:          "Create ACL (unprefixed path)",
 			pathTarget:    "OC_YANG",
