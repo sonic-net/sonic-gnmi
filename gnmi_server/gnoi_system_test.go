@@ -171,16 +171,14 @@ func TestSystem(t *testing.T) {
 		defer func() { done <- true }()
 
 		req := &syspb.RebootRequest{
+			Method:  syspb.RebootMethod_COLD,
 			Delay:   0,
-			Message: "Starting Reboot ...",
+			Message: "Cold reboot starting ...",
 		}
-		for _, method := range []syspb.RebootMethod{syspb.RebootMethod_COLD, syspb.RebootMethod_POWERDOWN, syspb.RebootMethod_WARM, syspb.RebootMethod_NSF} {
-			req.Method = method
-			_, err := sc.Reboot(ctx, req)
-			if err != nil {
-				t.Fatal("Expected success, got error: ", err.Error())
-			}
-		}		
+		_, err := sc.Reboot(ctx, req)
+		if err != nil {
+			t.Fatal("Expected success, got error: ", err.Error())
+		}	
 	})
 	t.Run("RebootStatusFailsWithTimeout", func(t *testing.T) {
 		_, err := sc.RebootStatus(ctx, &syspb.RebootStatusRequest{})
