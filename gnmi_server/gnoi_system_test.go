@@ -65,7 +65,7 @@ func errorCodeToSwss(errCode codes.Code) string {
 func rebootBackendResponse(t *testing.T, sc *redis.Client, expectedResponse codes.Code, fvs map[string]string, done chan bool, key string) {
 	sub := sc.Subscribe("Reboot_Request_Channel")
 	if _, err := sub.Receive(); err != nil {
-		t.Errorf("nsfManagerResponse failed to subscribe to request channel: %v", err)
+		t.Errorf("rebootBackendResponse failed to subscribe to request channel: %v", err)
 		return
 	}
 	defer sub.Close()
@@ -205,7 +205,7 @@ func TestSystem(t *testing.T) {
 	})
 	t.Run("CancelRebootFailsWithTimeout", func(t *testing.T) {
 		req := &syspb.CancelRebootRequest{
-			Message: "Cancelling NSF Reboot due to hardware constraints",
+			Message: "Cancelling Reboot due to hardware constraints",
 		}
 		_, err := sc.CancelReboot(ctx, req)
 		testErr(err, codes.Internal, "Response Notification timeout from Reboot Backend!", t)
