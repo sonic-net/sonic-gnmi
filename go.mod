@@ -53,3 +53,6 @@ require (
 )
 
 replace github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common
+
+// Glog patch needs to be updated to remove this.
+replace github.com/golang/glog => github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
