@@ -23,6 +23,7 @@ resources:
     type: github
     name: sonic-net/sonic-mgmt-common
     endpoint: sonic-net
+    ref: faa2a51b8f1defd36026f637b1abe56d972ac116
   - repository: sonic-swss-common
     type: github
     name: sonic-net/sonic-swss-common
