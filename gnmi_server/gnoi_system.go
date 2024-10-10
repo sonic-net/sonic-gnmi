@@ -225,8 +225,8 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 
 		case <-tc:
 			// Crossed the reboot response notification timeout.
-			log.V(1).Infof("[Reboot_Log] Response Notification timeout from Warmboot Manager!")
-			return nil, status.Errorf(codes.Internal, "Response Notification timeout from Warmboot Manager!"), msgDataStr
+			log.V(1).Infof("[Reboot_Log] Response Notification timeout from Reboot Backend!")
+			return nil, status.Errorf(codes.Internal, "Response Notification timeout from Reboot Backend!"), msgDataStr
 		}
 	}
 }
@@ -259,7 +259,7 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 		return nil, err
 	}
 	if resp == nil {
-		log.V(2).Info("Reboot request received empty response from Warmboot Manager.")
+		log.V(2).Info("Reboot request received empty response from Reboot Backend.")
 		return &syspb.RebootResponse{}, nil
 	}
 	return resp.(*syspb.RebootResponse), nil

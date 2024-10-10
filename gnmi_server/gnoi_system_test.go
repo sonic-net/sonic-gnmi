@@ -62,7 +62,7 @@ func errorCodeToSwss(errCode codes.Code) string {
 	return ""
 }
 
-func warmbootManagerResponse(t *testing.T, sc *redis.Client, expectedResponse codes.Code, done chan bool, key string) {
+func rebootBackendResponse(t *testing.T, sc *redis.Client, expectedResponse codes.Code, fvs map[string]string, done chan bool, key string) {
 	sub := sc.Subscribe("Reboot_Request_Channel")
 	if _, err := sub.Receive(); err != nil {
 		t.Errorf("nsfManagerResponse failed to subscribe to request channel: %v", err)
@@ -73,7 +73,7 @@ func warmbootManagerResponse(t *testing.T, sc *redis.Client, expectedResponse co
 
 	np, err := common_utils.NewNotificationProducer("Reboot_Response_Channel")
 	if err != nil {
-		t.Errorf("warmbootManagerResponse failed to create notification producer: %v", err)
+		t.Errorf("rebootBackendResponse failed to create notification producer: %v", err)
 		return
 	}
 	defer np.Close()
@@ -81,16 +81,16 @@ func warmbootManagerResponse(t *testing.T, sc *redis.Client, expectedResponse co
 	tc := time.After(5 * time.Second)
 	select {
 	case msg := <-channel:
-		t.Logf("warmbootManagerResponse received request: %v", msg)
+		t.Logf("rebootBackendResponse received request: %v", msg)
 		// Respond to the request
-		if err := np.Send(key, errorCodeToSwss(expectedResponse), map[string]string{}); err != nil {
-			t.Errorf("warmbootManagerResponse failed to send response: %v", err)
+		if err := np.Send(key, errorCodeToSwss(expectedResponse), fvs); err != nil {
+			t.Errorf("rebootBackendResponse failed to send response: %v", err)
 			return
 		}
 	case <-done:
 		return
 	case <-tc:
-		t.Error("warmbootManagerResponse timed out waiting for request")
+		t.Error("rebootBackendResponse timed out waiting for request")
 		return
 	}
 }
@@ -159,18 +159,20 @@ func TestSystem(t *testing.T) {
 		for _, method := range []syspb.RebootMethod{syspb.RebootMethod_COLD, syspb.RebootMethod_POWERDOWN, syspb.RebootMethod_WARM, syspb.RebootMethod_NSF} {
 			req.Method = method
 			_, err := sc.Reboot(ctx, req)
-			testErr(err, codes.Internal, "Response Notification timeout from NSF Manager!", t)
+			testErr(err, codes.Internal, "Response Notification timeout from Reboot Backend!", t)
 		}
 	})
 	t.Run("RebootSucceeds", func(t *testing.T) {
-		// Start goroutine for mock Warmboot Manager to respond to Reboot requests
+		// Start goroutine for mock Reboot Backend to respond to Reboot requests
 		done := make(chan bool, 1)
-		go warmbootManagerResponse(t, rclient, codes.OK, done, rebootKey)
+		fvs := make(map[string]string)
+		fvs["MESSAGE"] = "{}"
+		go rebootBackendResponse(t, rclient, codes.OK, fvs, done, rebootKey)
 		defer func() { done <- true }()
 
 		req := &syspb.RebootRequest{
 			Delay:   0,
-			Message: "Starting NSF reboot ...",
+			Message: "Starting Reboot ...",
 		}
 		for _, method := range []syspb.RebootMethod{syspb.RebootMethod_COLD, syspb.RebootMethod_POWERDOWN, syspb.RebootMethod_WARM, syspb.RebootMethod_NSF} {
 			req.Method = method
@@ -182,12 +184,14 @@ func TestSystem(t *testing.T) {
 	})
 	t.Run("RebootStatusFailsWithTimeout", func(t *testing.T) {
 		_, err := sc.RebootStatus(ctx, &syspb.RebootStatusRequest{})
-		testErr(err, codes.Internal, "Response Notification timeout from NSF Manager!", t)
+		testErr(err, codes.Internal, "Response Notification timeout from Reboot Backend!", t)
 	})
 	t.Run("RebootStatusRequestSucceeds", func(t *testing.T) {
-		// Start goroutine for mock Warmboot Manager to respond to RebootStatus requests
+		// Start goroutine for mock Reboot Backend to respond to RebootStatus requests
 		done := make(chan bool, 1)
-		go warmbootManagerResponse(t, rclient, codes.OK, done, rebootStatusKey)
+		fvs := make(map[string]string)
+		fvs["MESSAGE"] = "{\"active\": true, \"method\":\"NSF\",\"status\":{\"status\":\"STATUS_SUCCESS\"}}"
+		go rebootBackendResponse(t, rclient, codes.OK, fvs, done, rebootStatusKey)
 		defer func() { done <- true }()
 
 		_, err := sc.RebootStatus(ctx, &syspb.RebootStatusRequest{})
@@ -204,12 +208,14 @@ func TestSystem(t *testing.T) {
 			Message: "Cancelling NSF Reboot due to hardware constraints",
 		}
 		_, err := sc.CancelReboot(ctx, req)
-		testErr(err, codes.Internal, "Response Notification timeout from NSF Manager!", t)
+		testErr(err, codes.Internal, "Response Notification timeout from Reboot Backend!", t)
 	})
 	t.Run("CancelRebootRequestSucceeds", func(t *testing.T) {
-		// Start goroutine for mock Warmboot Manager to respond to CancelReboot requests
+		// Start goroutine for mock Reboot Backend to respond to CancelReboot requests
 		done := make(chan bool, 1)
-		go warmbootManagerResponse(t, rclient, codes.OK, done, rebootCancelKey)
+		fvs := make(map[string]string)
+		fvs["MESSAGE"] = "{}"
+		go rebootBackendResponse(t, rclient, codes.OK, fvs, done, rebootCancelKey)
 		defer func() { done <- true }()
 
 		req := &syspb.CancelRebootRequest{
