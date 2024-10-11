@@ -1297,11 +1297,11 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 	},
 		{
 			desc:       "Get valid but non-existing node",
-			pathTarget: "COUNTERS_DB",
+			pathTarget: stateDBPath,
 			textPbPath: `
-			elem: <name: "MyCounters" >
-		`,
-			wantRetCode: codes.NotFound,
+				elem: <name: "TRANSCEIVER_DOM_SENSOR" >
+			`,
+			wantRetCode: codes.OK,
 		}, {
 			desc:       "Get COUNTERS_PORT_NAME_MAP",
 			pathTarget: "COUNTERS_DB",
