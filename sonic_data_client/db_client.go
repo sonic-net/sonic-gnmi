@@ -672,7 +672,7 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	case 2: // only table name provided
 		res, err := redisDb.Keys(tblPath.tableName + "*").Result()
 		if err != nil {
-			return fmt.Errorf("redis Keys op failed for %v %v, got err %v", target, dbPath, err)
+			return fmt.Errorf("redis Keys op failed for %v %v, got err %v %v", target, dbPath, err, res)
 		}
 		tblPath.tableKey = ""
 	case 3: // Third element could be table key; or field name in which case table name itself is the key too
