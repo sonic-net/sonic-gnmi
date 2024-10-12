@@ -161,7 +161,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	if origin == "openconfig" {
 		dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions, sdc.TranslWildcardOption{})
 	} else if IsNativeOrigin(origin) {
-		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, gnmipb.Encoding_JSON_IETF, "")
+		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, gnmipb.Encoding_JSON_IETF, "", "")
 	} else if len(origin) != 0 {
 		return grpc.Errorf(codes.Unimplemented, "Unsupported origin: %s", origin)
 	} else if target == "" {
