@@ -5,6 +5,7 @@ package gnmi
 import (
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -3484,6 +3485,137 @@ func TestClientConnections(t *testing.T) {
 
 	for _, cacheClient := range clients {
 		cacheClient.Close()
+	}
+}
+
+func TestWildcardRedisGetFailed(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.ForceStop()
+
+	tests := []struct {
+		desc string
+		q    client.Query
+		want []client.Notification
+		poll int
+	}{
+		{
+			desc: "poll query for TRANSCEIVER_DOM_SENSOR"
+			poll: 10,
+			q: client.Query{
+				Target:  "STATE_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"TRANSCEIVER_DOM_SENSOR"}}
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			want: []client.Notification{
+				client.Connected{},
+				client.Sync{},
+			},
+		},
+	}
+	namespace, _ := sdcfg.GetDbDefaultNamespace()
+
+	mock := gomonkey.ApplyMethod(reflect.TypeOf(&redis.Client{}), "Keys", func(rc *redis.Client, pattern string) *redis.StringSliceCmd {
+		cmd := redis.NewStringSliceCmd("keys", "pattern")
+		cmd.SetErr(errors.New("mocked err"))
+		return cmd
+	})
+	defer mock.Reset()
+
+	for _, tt := range tests {
+		prepareStateDb(t, namespace)
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
+
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				if err := c.Subscribe(context.Background(), q); err == nil {
+					t.Errorf("c.Subscribe(): got no error, expected error")
+				}
+				if !strings.Contains(err.Error(), "redis Keys op failed") {
+					t.Errorf("Err %v is not expected err")
+				}
+			}()
+
+			wg.Wait()
+		})
+	}
+}
+
+func TestNonExistentTableNoError(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.ForceStop()
+
+	tests := []struct {
+		desc string
+		q    client.Query
+		want []client.Notification
+		poll int
+	}{
+		{
+			desc: "poll query for TRANSCEIVER_DOM_SENSOR"
+			poll: 10,
+			q: client.Query{
+				Target:  "STATE_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"TRANSCEIVER_DOM_SENSOR"}}
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			want: []client.Notification{
+				client.Connected{},
+				client.Sync{},
+			},
+		},
+	}
+	namespace, _ := sdcfg.GetDbDefaultNamespace()
+	for _, tt := range tests {
+		prepareStateDb(t, namespace)
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
+			var gotNoti []client.Notification
+			q.NotificationHandler = func(n client.Notification) error {
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				} else {
+					gotNoti = append(gotNoti, n)
+				}
+				return nil
+			}
+
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				if err := c.Subscribe(context.Background(), q); err != nil {
+					t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+				}
+			}()
+
+			wg.Wait()
+
+			for i := 0; i < tt.poll; i++ {
+				if err := c.Poll(); err != nil {
+					t.Errorf("c.Poll(): got error %v, expected nil", err)
+				}
+			}
+
+			if len(gotNoti) == 0 {
+				t.Errorf("expected non zero notifications")
+			}
+
+			c.Close()
+		})
 	}
 }
 
