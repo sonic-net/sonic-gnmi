@@ -129,7 +129,7 @@ func getDpuAddress(dpuId string) (string, error) {
 
 	// get DPR address by DPU ID and brdige plane
 	var dhcpPortKey = bridgePlane + "|" + dpuInterface
-	dpuAddresses, err := Hget(configDbConnector, "DHCP_SERVER_IPV4_PORT", dhcpPortKey, "ips");
+	dpuAddresses, err := Hget(configDbConnector, "DHCP_SERVER_IPV4_PORT", dhcpPortKey, "ips@");
 	if err != nil {
 		return "", err
 	}
@@ -159,10 +159,10 @@ func getZmqAddress(container string, zmqPort string) (string, error) {
 
 var zmqClientMap = map[string]swsscommon.ZmqClient{}
 
-func getZmqClientByAddress(zmqAddress string) (swsscommon.ZmqClient, error) {
+func getZmqClientByAddress(zmqAddress string, vrf string) (swsscommon.ZmqClient, error) {
 	client, ok := zmqClientMap[zmqAddress]
 	if !ok {
-		client = swsscommon.NewZmqClient(zmqAddress)
+		client = swsscommon.NewZmqClient(zmqAddress, vrf)
 		zmqClientMap[zmqAddress] = client
 	}
 
@@ -181,7 +181,7 @@ func removeZmqClient(zmqClient swsscommon.ZmqClient) (error) {
 	return fmt.Errorf("Can't find ZMQ client in zmqClientMap: %v", zmqClient)
 }
 
-func getZmqClient(dpuId string, zmqPort string) (swsscommon.ZmqClient, error) {
+func getZmqClient(dpuId string, zmqPort string, vrf string) (swsscommon.ZmqClient, error) {
 	if zmqPort == "" {
 		// ZMQ feature disabled when zmqPort flag not set
 		return nil, nil
@@ -189,7 +189,7 @@ func getZmqClient(dpuId string, zmqPort string) (swsscommon.ZmqClient, error) {
 
 	if dpuId == sdcfg.SONIC_DEFAULT_CONTAINER {
 		// When DPU ID is default, create ZMQ with local address
-		return getZmqClientByAddress("tcp://" + LOCAL_ADDRESS + ":" + zmqPort)
+		return getZmqClientByAddress("tcp://" + LOCAL_ADDRESS + ":" + zmqPort, vrf)
 	}
 
 	zmqAddress, err := getZmqAddress(dpuId, zmqPort)
@@ -197,7 +197,7 @@ func getZmqClient(dpuId string, zmqPort string) (swsscommon.ZmqClient, error) {
 		return nil, fmt.Errorf("Get ZMQ address failed: %v", err)
 	}
 
-	return getZmqClientByAddress(zmqAddress)
+	return getZmqClientByAddress(zmqAddress, vrf)
 }
 
 // This function get target present in GNMI Request and
@@ -493,7 +493,7 @@ func init() {
 	initRedisDbMap()
 }
 
-func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string) (Client, error) {
+func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string, vrf string) (Client, error) {
 	var err error
 
 	// Initialize RedisDbMap for test
@@ -556,7 +556,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	client.workPath = common_utils.GNMI_WORK_PATH
 
 	// continer is DPU ID
-	client.zmqClient, err = getZmqClient(container, zmqPort)
+	client.zmqClient, err = getZmqClient(container, zmqPort, vrf)
 	if err != nil {
 		return nil, fmt.Errorf("Get ZMQ client failed: %v", err)
 	}
