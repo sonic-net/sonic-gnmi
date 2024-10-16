@@ -3537,7 +3537,7 @@ func TestWildcardRedisGetFailed(t *testing.T) {
 					t.Errorf("c.Subscribe(): got no error, expected error")
 				} else {
 					if !strings.Contains(err.Error(), "redis Keys op failed") {
-						t.Errorf("Err %v is not expected err")
+						t.Errorf("Err %v is not expected err", err)
 					}
 				}
 			}()
