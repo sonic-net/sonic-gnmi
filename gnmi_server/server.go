@@ -51,6 +51,7 @@ type Server struct {
 	// comes from a master controller.
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
+	gnoi_system_pb.UnimplementedSystemServer
 }
 
 
@@ -60,14 +61,6 @@ type Server struct {
 type FileServer struct {
 	*Server
 	gnoi_file_pb.UnimplementedFileServer
-}
-
-// SystemServer is the server API for System service.
-// All implementations must embed UnimplementedSystemServer
-// for forward compatibility
-type SystemServer struct {
-	*Server
-	gnoi_system_pb.UnimplementedSystemServer
 }
 
 type AuthTypes map[string]bool
@@ -177,7 +170,6 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	fileSrv := &FileServer{Server: srv}
-	systemSrv := &SystemServer{Server: srv}
 
 	var err error
 	if srv.config.Port < 0 {
@@ -190,7 +182,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	gnmipb.RegisterGNMIServer(srv.s, srv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
-		gnoi_system_pb.RegisterSystemServer(srv.s, systemSrv)
+		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
 		gnoi_file_pb.RegisterFileServer(srv.s, fileSrv)
 	}
 	if srv.config.EnableTranslibWrite {
