@@ -81,9 +81,9 @@ func KillOrRestartProcess(restart bool, serviceName string) error {
 }
 
 func (srv *Server) KillProcess(ctx context.Context, req *syspb.KillProcessRequest) (*syspb.KillProcessResponse, error) {
-	ctx, err := authenticate(srv.config, ctx)
+	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		return nil, err
+		log.V(1).Info("Error while authenticating: ", err.Error())
 	}
 
 	serviceName := req.GetName()
@@ -183,9 +183,6 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 	case rebootCancelKey:
 		req = req.(*syspb.CancelRebootRequest)
 		resp = &syspb.CancelRebootResponse{}
-	default:
-		log.V(1).Infof("[Reboot_Log] Unsupported notification key for Reboot APIs: %v", rebootNotifKey)
-		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Unsupported notification key for Reboot APIs: [%s] ", rebootNotifKey)), msgDataStr
 	}
 
 	reqStr, err := json.Marshal(req)
@@ -201,6 +198,7 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 
 	// Wait for response on Reboot_Response_Channel.
 	tc := time.After(notificationTimeout)
+	var tErr error
 	for {
 		select {
 		case msg := <-channel:
@@ -212,7 +210,8 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 			log.V(1).Infof("[Reboot_Log] Received on the Reboot notification channel: op = [%v], data = [%v], fvs = [%v]", op, data, fvs)
 
 			if op != rebootNotifKey {
-				log.V(1).Infof("[Reboot_Log] Op: [%v] doesn't match for `%v`!", op, rebootNotifKey)
+				log.V(1).Infof("[Reboot_Log] Op: %v doesn't match for %v!", op, rebootNotifKey)
+				tErr = status.Errorf(codes.Internal, fmt.Sprintf("Op: %v doesn't match for %v!", op, rebootNotifKey))
 				continue
 			}
 			if fvs != nil {
@@ -221,24 +220,28 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 				}
 			}
 			if swssCode := swssToErrorCode(data); swssCode != codes.OK {
-				log.V(1).Infof("[Reboot_Log] Response Notification returned SWSS Error code: %v, error = %v", swssCode, msgDataStr)
-				return nil, status.Errorf(swssCode, "Response Notification returned SWSS Error code: "+msgDataStr), msgDataStr
+				errStr := fmt.Sprintf("Response Notification returned SWSS Error code: %v, error = %v", swssCode, msgDataStr)
+				log.V(1).Infof(errStr)
+				return nil, status.Errorf(swssCode, errStr), msgDataStr
 			}
 			return resp, nil, msgDataStr
 
 		case <-tc:
 			// Crossed the reboot response notification timeout.
 			log.V(1).Infof("[Reboot_Log] Response Notification timeout from Reboot Backend!")
-			return nil, status.Errorf(codes.Internal, "Response Notification timeout from Reboot Backend!"), msgDataStr
+			if tErr == nil {
+				tErr = status.Errorf(codes.Internal, "Response Notification timeout from Reboot Backend!")
+			}
+			return nil, tErr, msgDataStr
 		}
 	}
 }
 
 // Reboot implements the corresponding RPC.
 func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb.RebootResponse, error) {
-	ctx, err := authenticate(srv.config, ctx)
+	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		return nil, err
+		log.V(1).Info("Error while authenticating: ", err.Error())
 	}
 	log.V(2).Info("gNOI: Reboot")
 	if err := validRebootReq(req); err != nil {
@@ -263,16 +266,16 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 	}
 	if resp == nil {
 		log.V(2).Info("Reboot request received empty response from Reboot Backend.")
-		return &syspb.RebootResponse{}, nil
+		resp = &syspb.RebootResponse{}
 	}
 	return resp.(*syspb.RebootResponse), nil
 }
 
 // RebootStatus implements the corresponding RPC.
 func (srv *Server) RebootStatus(ctx context.Context, req *syspb.RebootStatusRequest) (*syspb.RebootStatusResponse, error) {
-	ctx, err := authenticate(srv.config, ctx)
+	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		return nil, err
+		log.V(1).Info("Error while authenticating: ", err.Error())
 	}
 	log.V(1).Info("gNOI: RebootStatus")
 	resp := &syspb.RebootStatusResponse{}
@@ -302,9 +305,9 @@ func (srv *Server) RebootStatus(ctx context.Context, req *syspb.RebootStatusRequ
 
 // CancelReboot RPC implements the corresponding RPC.
 func (srv *Server) CancelReboot(ctx context.Context, req *syspb.CancelRebootRequest) (*syspb.CancelRebootResponse, error) {
-	ctx, err := authenticate(srv.config, ctx)
+	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		return nil, err
+		log.V(1).Info("Error while authenticating: ", err.Error())
 	}
 	log.V(1).Info("gNOI: CancelReboot")
 	if req.GetMessage() == "" {
@@ -323,17 +326,18 @@ func (srv *Server) CancelReboot(ctx context.Context, req *syspb.CancelRebootRequ
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 	if resp == nil {
-		return &syspb.CancelRebootResponse{}, nil
+		log.V(2).Info("CancelReboot request received empty response from Reboot Backend.")
+		resp = &syspb.CancelRebootResponse{}
 	}
-	return resp.(*syspb.CancelRebootResponse), err
+	return resp.(*syspb.CancelRebootResponse), nil
 }
 
 // Ping is unimplemented.
 func (srv *Server) Ping(req *syspb.PingRequest, stream syspb.System_PingServer) error {
 	ctx := stream.Context()
-	ctx, err := authenticate(srv.config, ctx)
+	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		return err
+		log.V(1).Info("Error while authenticating: ", err.Error())
 	}
 	log.V(1).Info("gNOI: Ping")
 	return status.Errorf(codes.Unimplemented, "Method system.Ping is unimplemented.")
@@ -342,9 +346,9 @@ func (srv *Server) Ping(req *syspb.PingRequest, stream syspb.System_PingServer) 
 // Traceroute is unimplemented.
 func (srv *Server) Traceroute(req *syspb.TracerouteRequest, stream syspb.System_TracerouteServer) error {
 	ctx := stream.Context()
-	ctx, err := authenticate(srv.config, ctx)
+	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		return err
+		log.V(1).Info("Error while authenticating: ", err.Error())
 	}
 	log.V(1).Info("gNOI: Traceroute")
 	return status.Errorf(codes.Unimplemented, "Method system.Traceroute is unimplemented.")
@@ -353,9 +357,9 @@ func (srv *Server) Traceroute(req *syspb.TracerouteRequest, stream syspb.System_
 // SetPackage is unimplemented.
 func (srv *Server) SetPackage(stream syspb.System_SetPackageServer) error {
 	ctx := stream.Context()
-	ctx, err := authenticate(srv.config, ctx)
+	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		return err
+		log.V(1).Info("Error while authenticating: ", err.Error())
 	}
 	log.V(1).Info("gNOI: SetPackage")
 	return status.Errorf(codes.Unimplemented, "Method system.SetPackage is unimplemented.")
@@ -363,9 +367,9 @@ func (srv *Server) SetPackage(stream syspb.System_SetPackageServer) error {
 
 // SwitchControlProcessor implements the corresponding RPC.
 func (srv *Server) SwitchControlProcessor(ctx context.Context, req *syspb.SwitchControlProcessorRequest) (*syspb.SwitchControlProcessorResponse, error) {
-	ctx, err := authenticate(srv.config, ctx)
+	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		return nil, err
+		log.V(1).Info("Error while authenticating: ", err.Error())
 	}
 	log.V(1).Info("gNOI: SwitchControlProcessor")
 	return &syspb.SwitchControlProcessorResponse{}, nil
@@ -373,9 +377,9 @@ func (srv *Server) SwitchControlProcessor(ctx context.Context, req *syspb.Switch
 
 // Time implements the corresponding RPC.
 func (srv *Server) Time(ctx context.Context, req *syspb.TimeRequest) (*syspb.TimeResponse, error) {
-	ctx, err := authenticate(srv.config, ctx)
+	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		return nil, err
+		log.V(1).Info("Error while authenticating: ", err.Error())
 	}
 	log.V(1).Info("gNOI: Time")
 	var tm syspb.TimeResponse

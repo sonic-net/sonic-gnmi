@@ -203,24 +203,39 @@ func TestSystem(t *testing.T) {
 		go rebootBackendResponse(t, rclient, codes.OK, fvs, done, "testKey")
 		defer func() { done <- true }()
 		_, err := sc.Reboot(ctx, req)
-		testErr(err, codes.Internal, "Unsupported notification key for Reboot APIs", t)
+		testErr(err, codes.Internal, "Op: testKey doesn't match for Reboot!", t)
 	})
-	t.Run("RebootFailsWithBackendErrorCode", func(t *testing.T) {
-		// Start goroutine for mock Reboot Backend to respond to Reboot requests
-		done := make(chan bool, 1)
+	t.Run("RebootFailsWithExpectedBackendErrorCodes", func(t *testing.T) {
+		for _, code := range []codes.Code{codes.Unavailable, codes.InvalidArgument, codes.DeadlineExceeded, codes.NotFound, codes.AlreadyExists, codes.PermissionDenied, codes.ResourceExhausted, codes.Unimplemented, codes.Internal, codes.FailedPrecondition, codes.Unavailable, codes.Aborted} {
+			fvs := make(map[string]string)
+			fvs["MESSAGE"] = "{}"
+			// Start goroutine for mock Reboot Backend to respond to Reboot requests
+			done := make(chan bool, 1)
+			go rebootBackendResponse(t, rclient, code, fvs, done, rebootKey)
+			defer func() { done <- true }()
+			req := &syspb.RebootRequest{
+				Method:  syspb.RebootMethod_COLD,
+				Delay:   0,
+				Message: "Cold reboot starting ...",
+			}
+			_, err := sc.Reboot(ctx, req)
+			testErr(err, code, "Response Notification returned SWSS Error code", t)
+		}
+	})
+	t.Run("RebootFailsWithUnexpectedBackendErrorCode", func(t *testing.T) {
 		fvs := make(map[string]string)
 		fvs["MESSAGE"] = "{}"
+		// Start goroutine for mock Reboot Backend to respond to Reboot requests
+		done := make(chan bool, 1)
+		go rebootBackendResponse(t, rclient, codes.Unauthenticated, fvs, done, rebootKey)
+		defer func() { done <- true }()
 		req := &syspb.RebootRequest{
 			Method:  syspb.RebootMethod_COLD,
 			Delay:   0,
 			Message: "Cold reboot starting ...",
 		}
-		for _, code := range []codes.Code{codes.Unknown, codes.InvalidArgument, codes.DeadlineExceeded, codes.NotFound, codes.AlreadyExists, codes.PermissionDenied, codes.ResourceExhausted, codes.Unimplemented, codes.Internal, codes.FailedPrecondition, codes.Unavailable} {
-			go rebootBackendResponse(t, rclient, code, fvs, done, rebootKey)
-			defer func() { done <- true }()
-			_, err := sc.Reboot(ctx, req)
-			testErr(err, code, "Response Notification returned SWSS Error code", t)
-		}
+		_, err := sc.Reboot(ctx, req)
+		testErr(err, codes.Internal, "Response Notification returned SWSS Error code: Internal", t)
 	})
 	t.Run("RebootSucceeds", func(t *testing.T) {
 		// Start goroutine for mock Reboot Backend to respond to Reboot requests
