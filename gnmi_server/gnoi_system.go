@@ -183,6 +183,9 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 	case rebootCancelKey:
 		req = req.(*syspb.CancelRebootRequest)
 		resp = &syspb.CancelRebootResponse{}
+	default:
+		log.V(1).Infof("[Reboot_Log] Unsupported notification key for Reboot APIs: %v", rebootNotifKey)
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Unsupported notification key for Reboot APIs: [%s] ", rebootNotifKey)), msgDataStr
 	}
 
 	reqStr, err := json.Marshal(req)

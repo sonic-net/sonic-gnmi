@@ -150,6 +150,33 @@ func TestSystem(t *testing.T) {
 		_, err := sc.Reboot(ctx, req)
 		testErr(err, codes.InvalidArgument, "message is empty.", t)
 	})
+	t.Run("RebootWithSubcomponents", func(t *testing.T) {
+		req := &syspb.RebootRequest{
+			Method:  syspb.RebootMethod_COLD,
+			Delay:   0,
+			Message: "Cold reboot starting ...",
+			Subcomponents: []*types.Path{
+				&types.Path{
+					Origin: "openconfig",
+					Elem: []*types.PathElem{
+						{
+							Name: "components",
+						},
+						{
+							Name: "component",
+							Key: map[string]string{
+								"name": "Ethernet1234",
+							},
+						},
+					},
+				},
+			},
+		}
+		_, err := sc.Reboot(ctx, req)
+		if err != nil {
+			t.Fatal("Expected success, got error: ", err.Error())
+		}
+	})
 	t.Run("RebootFailsWithTimeout", func(t *testing.T) {
 		req := &syspb.RebootRequest{
 			Delay:   0,
@@ -162,7 +189,7 @@ func TestSystem(t *testing.T) {
 			testErr(err, codes.Internal, "Response Notification timeout from Reboot Backend!", t)
 		}
 	})
-	t.Run("RebootFailsFromBackend", func(t *testing.T) {
+	t.Run("RebootFailsWithWrongKey", func(t *testing.T) {
 		// Start goroutine for mock Reboot Backend to respond to Reboot requests
 		done := make(chan bool, 1)
 		fvs := make(map[string]string)
@@ -172,11 +199,26 @@ func TestSystem(t *testing.T) {
 			Delay:   0,
 			Message: "Cold reboot starting ...",
 		}
-		for _, code := range []string{codes.Unknown, codes.InvalidArgument, codes.DeadlineExceeded, codes.NotFound, codes.AlreadyExists, codes.PermissionDenied, codes.ResourceExhausted, codes.Unimplemented, codes.Internal, codes.FailedPrecondition, codes.Unavailable} {
+		go rebootBackendResponse(t, rclient, codes.OK, fvs, done, "testKey")
+		defer func() { done <- true }()
+		_, err := sc.Reboot(ctx, req)
+		testErr(err, codes.Internal, "Unsupported notification key for Reboot APIs", t)
+	})
+	t.Run("RebootFailsWithBackendErrorCode", func(t *testing.T) {
+		// Start goroutine for mock Reboot Backend to respond to Reboot requests
+		done := make(chan bool, 1)
+		fvs := make(map[string]string)
+		fvs["MESSAGE"] = "{}"
+		req := &syspb.RebootRequest{
+			Method:  syspb.RebootMethod_COLD,
+			Delay:   0,
+			Message: "Cold reboot starting ...",
+		}
+		for _, code := range []codes.Code{codes.Unknown, codes.InvalidArgument, codes.DeadlineExceeded, codes.NotFound, codes.AlreadyExists, codes.PermissionDenied, codes.ResourceExhausted, codes.Unimplemented, codes.Internal, codes.FailedPrecondition, codes.Unavailable} {
 			go rebootBackendResponse(t, rclient, code, fvs, done, rebootKey)
 			defer func() { done <- true }()
 			_, err := sc.Reboot(ctx, req)
-			testErr(err, code, "Response Notification failure from Reboot Backend!", t)
+			testErr(err, code, "Response Notification returned SWSS Error code", t)
 		}
 	})
 	t.Run("RebootSucceeds", func(t *testing.T) {
