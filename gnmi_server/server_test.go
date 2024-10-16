@@ -3516,10 +3516,8 @@ func TestWildcardRedisGetFailed(t *testing.T) {
 	}
 	namespace, _ := sdcfg.GetDbDefaultNamespace()
 
-	mock := gomonkey.ApplyMethod(reflect.TypeOf(&redis.Client{}), "Keys", func(rc *redis.Client, pattern string) *redis.StringSliceCmd {
-		cmd := redis.NewStringSliceCmd("keys", "pattern")
-		cmd.SetErr(errors.New("mocked err"))
-		return cmd
+	mock := gomonkey.ApplyMethod(reflect.TypeOf(&redis.StringSliceCmd{}), "Result", func(cmd *redis.StringSliceCmd) ([]string, error) {
+		return nil, errors.New("mocked error")
 	})
 	defer mock.Reset()
 
