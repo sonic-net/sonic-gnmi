@@ -793,17 +793,17 @@ func TestGetZmqClient(t *testing.T) {
 	dpusTable.Hset("dpu0", "midplane_interface", "dpu0")
 	dhcpPortTable.Hset("bridge-midplane|dpu0", "ips@", "127.0.0.2,127.0.0.1")
 
-	client, err := getZmqClient("dpu0", "")
+	client, err := getZmqClient("dpu0", "", "")
 	if client != nil || err != nil {
 		t.Errorf("empty ZMQ port should not get ZMQ client")
 	}
 
-	client, err = getZmqClient("dpu0", "1234")
+	client, err = getZmqClient("dpu0", "1234", "")
 	if client == nil {
 		t.Errorf("get ZMQ client failed")
 	}
 
-	client, err = getZmqClient("", "1234")
+	client, err = getZmqClient("", "1234", "")
 	if client == nil {
 		t.Errorf("get ZMQ client failed")
 	}

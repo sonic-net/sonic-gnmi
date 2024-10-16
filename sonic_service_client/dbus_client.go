@@ -104,7 +104,7 @@ func (c *DbusClient) ConfigReload(config string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".reload"
-	_, err := DbusApi(busName, busPath, intName, 10, config)
+	_, err := DbusApi(busName, busPath, intName, 60, config)
 	return err
 }
 
@@ -114,7 +114,7 @@ func (c *DbusClient) ConfigSave(fileName string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".save"
-	_, err := DbusApi(busName, busPath, intName, 10, fileName)
+	_, err := DbusApi(busName, busPath, intName, 60, fileName)
 	return err
 }
 
@@ -124,7 +124,7 @@ func (c *DbusClient) ApplyPatchYang(patch string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".apply_patch_yang"
-	_, err := DbusApi(busName, busPath, intName, 180, patch)
+	_, err := DbusApi(busName, busPath, intName, 240, patch)
 	return err
 }
 
@@ -134,7 +134,7 @@ func (c *DbusClient) ApplyPatchDb(patch string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".apply_patch_db"
-	_, err := DbusApi(busName, busPath, intName, 180, patch)
+	_, err := DbusApi(busName, busPath, intName, 240, patch)
 	return err
 }
 
@@ -144,7 +144,7 @@ func (c *DbusClient) CreateCheckPoint(fileName string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".create_checkpoint"
-	_, err := DbusApi(busName, busPath, intName, 10, fileName)
+	_, err := DbusApi(busName, busPath, intName, 60, fileName)
 	return err
 }
 
@@ -154,7 +154,7 @@ func (c *DbusClient) DeleteCheckPoint(fileName string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".delete_checkpoint"
-	_, err := DbusApi(busName, busPath, intName, 10, fileName)
+	_, err := DbusApi(busName, busPath, intName, 60, fileName)
 	return err
 }
 
@@ -164,7 +164,7 @@ func (c *DbusClient) StopService(service string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".stop_service"
-	_, err := DbusApi(busName, busPath, intName, 90, service)
+	_, err := DbusApi(busName, busPath, intName, 240, service)
 	return err
 }
 
@@ -174,7 +174,7 @@ func (c *DbusClient) RestartService(service string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".restart_service"
-	_, err := DbusApi(busName, busPath, intName, 90, service)
+	_, err := DbusApi(busName, busPath, intName, 240, service)
 	return err
 }
 
@@ -184,7 +184,7 @@ func (c *DbusClient) GetFileStat(path string) (map[string]string, error) {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".get_file_stat"
-	result, err := DbusApi(busName, busPath, intName, 10, path)
+	result, err := DbusApi(busName, busPath, intName, 60, path)
 	if err != nil {
 		return nil, err
 	}
