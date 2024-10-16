@@ -3500,7 +3500,7 @@ func TestWildcardRedisGetFailed(t *testing.T) {
 		poll int
 	}{
 		{
-			desc: "poll query for TRANSCEIVER_DOM_SENSOR"
+			desc: "poll query for TRANSCEIVER_DOM_SENSOR",
 			poll: 10,
 			q: client.Query{
 				Target:  "STATE_DB",
@@ -3560,7 +3560,7 @@ func TestNonExistentTableNoError(t *testing.T) {
 		poll int
 	}{
 		{
-			desc: "poll query for TRANSCEIVER_DOM_SENSOR"
+			desc: "poll query for TRANSCEIVER_DOM_SENSOR",
 			poll: 10,
 			q: client.Query{
 				Target:  "STATE_DB",
