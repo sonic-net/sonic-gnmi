@@ -94,7 +94,7 @@ func (c *DbusClient) ConfigReload(config string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".reload"
-	err := DbusApi(busName, busPath, intName, 30, config)
+	err := DbusApi(busName, busPath, intName, 60, config)
 	return err
 }
 
@@ -104,7 +104,7 @@ func (c *DbusClient) ConfigSave(fileName string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".save"
-	err := DbusApi(busName, busPath, intName, 30, fileName)
+	err := DbusApi(busName, busPath, intName, 60, fileName)
 	return err
 }
 
@@ -134,7 +134,7 @@ func (c *DbusClient) CreateCheckPoint(fileName string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".create_checkpoint"
-	err := DbusApi(busName, busPath, intName, 30, fileName)
+	err := DbusApi(busName, busPath, intName, 60, fileName)
 	return err
 }
 
@@ -144,6 +144,6 @@ func (c *DbusClient) DeleteCheckPoint(fileName string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".delete_checkpoint"
-	err := DbusApi(busName, busPath, intName, 30, fileName)
+	err := DbusApi(busName, busPath, intName, 60, fileName)
 	return err
 }
