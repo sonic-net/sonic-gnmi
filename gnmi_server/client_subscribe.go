@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"strings"
 
 	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
@@ -210,6 +211,10 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	c.Close()
 	// Wait until all child go routines exited
 	c.w.Wait()
+	if strings.Contains(err.Error(), "i/o timeout") {
+		return grpc.Errorf(codes.Internal, "%s", err)
+	}
+
 	return grpc.Errorf(codes.InvalidArgument, "%s", err)
 }
 
