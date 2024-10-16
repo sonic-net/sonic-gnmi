@@ -3505,7 +3505,7 @@ func TestWildcardRedisGetFailed(t *testing.T) {
 			q: client.Query{
 				Target:  "STATE_DB",
 				Type:    client.Poll,
-				Queries: []client.Path{{"TRANSCEIVER_DOM_SENSOR"}}
+				Queries: []client.Path{{"TRANSCEIVER_DOM_SENSOR"}},
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
 			want: []client.Notification{
@@ -3565,7 +3565,7 @@ func TestNonExistentTableNoError(t *testing.T) {
 			q: client.Query{
 				Target:  "STATE_DB",
 				Type:    client.Poll,
-				Queries: []client.Path{{"TRANSCEIVER_DOM_SENSOR"}}
+				Queries: []client.Path{{"TRANSCEIVER_DOM_SENSOR"}},
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
 			want: []client.Notification{
