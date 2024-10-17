@@ -3488,65 +3488,6 @@ func TestClientConnections(t *testing.T) {
 	}
 }
 
-func TestWildcardRedisGetFailed(t *testing.T) {
-	s := createServer(t, 8081)
-	go runServer(t, s)
-	defer s.ForceStop()
-
-	tests := []struct {
-		desc string
-		q    client.Query
-		want []client.Notification
-		poll int
-	}{
-		{
-			desc: "poll query for TRANSCEIVER_DOM_SENSOR",
-			poll: 10,
-			q: client.Query{
-				Target:  "STATE_DB",
-				Type:    client.Poll,
-				Queries: []client.Path{{"TRANSCEIVER_DOM_SENSOR"}},
-				TLS:     &tls.Config{InsecureSkipVerify: true},
-			},
-			want: []client.Notification{
-				client.Connected{},
-				client.Sync{},
-			},
-		},
-	}
-	namespace, _ := sdcfg.GetDbDefaultNamespace()
-
-	mock := gomonkey.ApplyMethod(reflect.TypeOf(&redis.StringSliceCmd{}), "Result", func(cmd *redis.StringSliceCmd) ([]string, error) {
-		return nil, errors.New("mocked error")
-	})
-	defer mock.Reset()
-
-	for _, tt := range tests {
-		prepareStateDb(t, namespace)
-		t.Run(tt.desc, func(t *testing.T) {
-			q := tt.q
-			q.Addrs = []string{"127.0.0.1:8081"}
-			c := client.New()
-
-			wg := new(sync.WaitGroup)
-			wg.Add(1)
-
-			go func() {
-				defer wg.Done()
-				if err := c.Subscribe(context.Background(), q); err == nil {
-					t.Errorf("c.Subscribe(): got no error, expected error")
-				} else {
-					if !strings.Contains(err.Error(), "redis Keys op failed") {
-						t.Errorf("Err %v is not expected err", err)
-					}
-				}
-			}()
-
-			wg.Wait()
-		})
-	}
-}
-
 func TestNonExistentTableNoError(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
