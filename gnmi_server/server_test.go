@@ -3487,6 +3487,98 @@ func TestClientConnections(t *testing.T) {
 	}
 }
 
+func TestWildcardTableNoError(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.ForceStop()
+
+	fileName := "../testdata/NEIGH_STATE_TABLE_MAP.txt"
+	neighStateTableByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+
+	var neighStateTableJson interface{}
+	json.Unmarshal(neighStateTableByte, &neighStateTableJson)
+
+	tests := []struct {
+		desc     string
+		q        client.Query
+		wantNoti []client.Notification
+		poll     int
+	}{
+		{
+			desc: "poll query for NEIGH_STATE_TABLE",
+			poll: 1,
+			q: client.Query{
+				Target:  "STATE_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"NEIGH_STATE_TABLE"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			wantNoti: []client.Notification{
+				client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
+				client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
+			},
+		},
+	}
+	namespace, _ := sdcfg.GetDbDefaultNamespace()
+	prepareStateDb(t, namespace)
+	var mutexNoti sync.Mutex
+	for _, tt := range tests {
+
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
+			var gotNoti []client.Notification
+			q.NotificationHandler = func(n client.Notification) error {
+				mutexNoti.Lock()
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				}
+				mutexNoti.Unlock()
+				return nil
+			}
+
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				if err := c.Subscribe(context.Background(), q); err != nil {
+					t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+				}
+			}()
+
+			wg.Wait()
+
+			for i := 0; i < tt.poll; i++ {
+				if err := c.Poll(); err != nil {
+					t.Errorf("c.Poll(): got error %v, expected nil", err)
+				}
+			}
+
+			mutexNoti.Lock()
+
+			if len(gotNoti) == 0 {
+				t.Errorf("expected non zero notifications")
+			}
+
+			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+				t.Log("\n Want: \n", tt.wantNoti)
+				t.Log("\n Got: \n", gotNoti)
+				t.Errorf("unexpected updates: \n%s", diff)
+			}
+
+			mutexNoti.Unlock()
+
+			c.Close()
+		})
+	}
+}
+
 func TestNonExistentTableNoError(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
