@@ -179,11 +179,12 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		/* For any other target or no target create new Transl Client. */
 		dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions, sdc.TranslWildcardOption{})
 	}
-	defer dc.Close()
 
 	if err != nil {
 		return grpc.Errorf(codes.NotFound, "%v", err)
 	}
+
+	defer dc.Close()
 
 	switch mode {
 	case gnmipb.SubscriptionList_STREAM:
