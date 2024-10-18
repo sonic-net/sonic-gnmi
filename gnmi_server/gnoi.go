@@ -211,6 +211,7 @@ func (srv *SystemServer) Traceroute(req *gnoi_system_pb.TracerouteRequest, rs gn
 	log.V(1).Info("gNOI: Traceroute")
 	return status.Errorf(codes.Unimplemented, "")
 }
+
 func (srv *SystemServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) error {
 	ctx := rs.Context()
 	_, err := authenticate(srv.config, ctx)
@@ -220,6 +221,7 @@ func (srv *SystemServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) e
 	log.V(1).Info("gNOI: SetPackage")
 	return status.Errorf(codes.Unimplemented, "")
 }
+
 func (srv *SystemServer) SwitchControlProcessor(ctx context.Context, req *gnoi_system_pb.SwitchControlProcessorRequest) (*gnoi_system_pb.SwitchControlProcessorResponse, error) {
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
