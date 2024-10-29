@@ -23,9 +23,7 @@ type ContainerHealthInfo struct {
 // GetHealthInfo gathers health information for the gNMI container
 func GetHealthInfo() ([]ContainerHealthInfo, error) {
 	// Here we interact with Docker to get container stats
-	cmd := "docker stats --no-stream --format \"{{.Container}},{{.CPUPerc}},{{.MemPerc}},{{.Name}}\" | grep gnmi"
-	args := strings.Fields(cmd)
-	output, err := exec.Command(args[0], args[1:]...).Output()
+	output, err := exec.Command("docker", "stats", "--no-stream", "--format", "\"{{.Container}},{{.CPUPerc}},{{.MemPerc}},{{.Name}}\"", "| grep gnmi").Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve container stats: %v", err)
 	}
@@ -60,9 +58,7 @@ func GetHealthInfo() ([]ContainerHealthInfo, error) {
 // getDiskOccupation retrieves the disk usage for the container
 func getDiskOccupation(containerID string) float64 {
 	// Run the command to get disk usage inside the container
-	cmd := fmt.Sprintf("docker exec %s df / | tail -1 | awk '{print $5}'", containerID)
-	args := strings.Fields(cmd)
-	output, err := exec.Command(args[0], args[1:]...).Output()
+	output, err := exec.Command("docker", "exec", containerID, "df", "/").Output()
 	if err != nil {
 		fmt.Printf("failed to retrieve disk occupation for container %s: %v\n", containerID, err)
 		return 0.0
@@ -73,9 +69,7 @@ func getDiskOccupation(containerID string) float64 {
 // getCertExpiration retrieves the certificate expiration for the container
 func getCertExpiration(containerID string) int64 {
 	// Run the command to get the certificate from the container
-	cmd := fmt.Sprintf("docker exec %s cat /path/to/cert.pem", containerID)
-	args := strings.Fields(cmd)
-	output, err := exec.Command(args[0], args[1:]...).Output()
+	output, err := fmt.Sprintf("docker", "exec", containerID, "cat", "/path/to/cert.pem")
 	if err != nil {
 		fmt.Printf("failed to retrieve certificate for container %s: %v\n", containerID, err)
 		return 0
