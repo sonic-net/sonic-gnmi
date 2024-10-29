@@ -42,7 +42,7 @@ type statsRing struct {
 
 type healthInfoStash struct {
 	once       sync.Once
-	healthInfo []ContainerHealthInfo
+	healthInfo []health.ContainerHealthInfo
 	err        error
 	isHealthy  bool
 }
@@ -349,30 +349,31 @@ func getBuildVersion() ([]byte, error) {
 
 func getContainerHealthStatus() ([]byte, error) {
 	// Load and parse the container health status
-	healthInfoStash.once.Do(func() {
-		healthInfoStash.healthInfo, healthInfoStash.err = GetHealthInfo()
-		if healthInfoStash.err != nil {
-			log.Errorf("Failed to gather health metrics: %v", healthInfoStash.err)
+	var stash healthInfoStash
+	stash.once.Do(func() {
+		stash.healthInfo, stash.err = health.GetHealthInfo() // Assuming GetHealthInfo() returns ([]ContainerHealthInfo, error)
+		if stash.err != nil {
+			log.V(2).Infof("Failed to gather health metrics: %v", stash.err)
 			return
 		}
 
 		// Evaluate health info
-		healthInfoStash.isHealthy = true
-		for _, container := range healthInfoStash.healthInfo {
-			LogHealthProofs(container)
+		stash.isHealthy = true
+		for _, container := range stash.healthInfo {
+			health.LogHealthProofs(container)
 			if container.CPUUtilization > 80.0 || container.MemoryUsage > 80.0 || container.DiskOccupation > 90.0 || container.CertExpiration <= 30 {
-				healthInfoStash.isHealthy = false
+				stash.isHealthy = false
 				break
 			}
 		}
 	})
 
-	b, err := json.Marshal(healthInfoStash.healthInfo)
+	b, err := json.Marshal(stash.healthInfo)
 	if err != nil {
 		log.V(2).Infof("%v", err)
 		return b, err
 	}
-	log.V(4).Infof("ReportHealthToKubeSonic, output %v", string(b))
+	log.V(4).Infof("getContainerHealthStatus, output %v", string(b))
 	return b, nil
 }
 
