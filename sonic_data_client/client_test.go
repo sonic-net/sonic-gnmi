@@ -1,22 +1,22 @@
 package client
 
 import (
-    "sync"
-    "errors"
-	"testing"
-	"os"
-	"time"
-	"reflect"
-	"io/ioutil"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"reflect"
+	"sync"
+	"testing"
+	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/jipanyang/gnxi/utils/xpath"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
 var testFile string = "/etc/sonic/ut.cp.json"
@@ -61,32 +61,32 @@ func TestJsonAdd(t *testing.T) {
 	if err != nil {
 		t.Errorf("Create client fail: %v", err)
 	}
-	path_list := [][]string {
-		[]string {
+	path_list := [][]string{
+		[]string{
 			"DASH_QOS",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_02",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_03",
 			"bw",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet001",
 			"address_spaces",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet002",
 			"address_spaces",
 			"0",
 		},
 	}
-	value_list := []string {
+	value_list := []string{
 		`{"qos_01": {"bw": "54321", "cps": "1000", "flows": "300"}}`,
 		`{"bw": "10001", "cps": "1001", "flows": "101"}`,
 		`"20001"`,
@@ -131,44 +131,44 @@ func TestJsonAddNegative(t *testing.T) {
 	if err != nil {
 		t.Errorf("Create client fail: %v", err)
 	}
-	path_list := [][]string {
-		[]string {
+	path_list := [][]string{
+		[]string{
 			"DASH_QOS",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_02",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_03",
 			"bw",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet001",
 			"address_spaces",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet002",
 			"address_spaces",
 			"0",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet002",
 			"address_spaces",
 			"abc",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet002",
 			"address_spaces",
 			"100",
 		},
 	}
-	value_list := []string {
+	value_list := []string{
 		`{"qos_01": {"bw": "54321", "cps": "1000", "flows": "300"}`,
 		`{"bw": "10001", "cps": "1001", "flows": "101"`,
 		`20001`,
@@ -197,39 +197,39 @@ func TestJsonReplace(t *testing.T) {
 	if err != nil {
 		t.Errorf("Create client fail: %v", err)
 	}
-	path_list := [][]string {
-		[]string {
+	path_list := [][]string{
+		[]string{
 			"DASH_QOS",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_02",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_03",
 			"bw",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet001",
 			"address_spaces",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet002",
 			"address_spaces",
 			"0",
 		},
 	}
-	value_list := []string {
+	value_list := []string{
 		`{"qos_01": {"bw": "54321", "cps": "1000", "flows": "300"}}`,
 		`{"bw": "10001", "cps": "1001", "flows": "101"}`,
 		`"20001"`,
 		`["10.250.0.0", "192.168.3.0", "139.66.72.9"]`,
 		`"6.6.6.6"`,
 	}
-	replace_value_list := []string {
+	replace_value_list := []string{
 		`{"qos_01": {"bw": "12345", "cps": "2000", "flows": "500"}}`,
 		`{"bw": "20001", "cps": "2002", "flows": "300"}`,
 		`"6666"`,
@@ -279,32 +279,32 @@ func TestJsonRemove(t *testing.T) {
 	if err != nil {
 		t.Errorf("Create client fail: %v", err)
 	}
-	path_list := [][]string {
-		[]string {
+	path_list := [][]string{
+		[]string{
 			"DASH_QOS",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_02",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_03",
 			"bw",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet001",
 			"address_spaces",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet002",
 			"address_spaces",
 			"0",
 		},
 	}
-	value_list := []string {
+	value_list := []string{
 		`{"qos_01": {"bw": "54321", "cps": "1000", "flows": "300"}}`,
 		`{"bw": "10001", "cps": "1001", "flows": "101"}`,
 		`"20001"`,
@@ -339,17 +339,17 @@ func TestJsonRemoveNegative(t *testing.T) {
 	if err != nil {
 		t.Errorf("Create client fail: %v", err)
 	}
-	path_list := [][]string {
-		[]string {
+	path_list := [][]string{
+		[]string{
 			"DASH_QOS",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet001",
 			"address_spaces",
 		},
 	}
-	value_list := []string {
+	value_list := []string{
 		`{"qos_01": {"bw": "54321", "cps": "1000", "flows": "300"}}`,
 		`["10.250.0.0", "192.168.3.0", "139.66.72.9"]`,
 	}
@@ -362,23 +362,23 @@ func TestJsonRemoveNegative(t *testing.T) {
 		}
 	}
 
-	remove_list := [][]string {
-		[]string {
+	remove_list := [][]string{
+		[]string{
 			"DASH_QOS",
 			"qos_02",
 		},
-		[]string {
+		[]string{
 			"DASH_QOS",
 			"qos_03",
 			"bw",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet001",
 			"address_spaces",
 			"abc",
 		},
-		[]string {
+		[]string{
 			"DASH_VNET",
 			"vnet001",
 			"address_spaces",
@@ -399,9 +399,9 @@ func TestParseDatabase(t *testing.T) {
 	var prefix *gnmipb.Path
 	var err error
 
-	client := MixedDbClient {
-		namespace_cnt : 1,
-		container_cnt : 1,
+	client := MixedDbClient{
+		namespace_cnt: 1,
+		container_cnt: 1,
 	}
 	_, _, err = client.ParseDatabase(prefix, test_paths)
 	if err == nil {
@@ -421,9 +421,9 @@ func TestParseDatabase(t *testing.T) {
 	}
 
 	// Smartswitch with multiple asic NPU
-	client = MixedDbClient {
-		namespace_cnt : 2,
-		container_cnt : 2,
+	client = MixedDbClient{
+		namespace_cnt: 2,
+		container_cnt: 2,
 	}
 
 	test_target = "TEST_DB"
@@ -453,7 +453,7 @@ func TestSubscribeInternal(t *testing.T) {
 		pq := queue.NewPriorityQueue(1, false)
 		w := sync.WaitGroup{}
 		stop := make(chan struct{}, 1)
-		client := MixedDbClient {}
+		client := MixedDbClient{}
 		req := gnmipb.SubscriptionList{
 			Subscription: nil,
 		}
@@ -471,7 +471,7 @@ func TestSubscribeInternal(t *testing.T) {
 	{
 		pq := queue.NewPriorityQueue(1, false)
 		w := sync.WaitGroup{}
-		client := MixedDbClient {}
+		client := MixedDbClient{}
 		sub := gnmipb.Subscription{
 			SampleInterval: 1000,
 		}
@@ -486,11 +486,11 @@ func TestSubscribeInternal(t *testing.T) {
 	{
 		pq := queue.NewPriorityQueue(1, false)
 		w := sync.WaitGroup{}
-		client := MixedDbClient {}
+		client := MixedDbClient{}
 		path, _ := xpath.ToGNMIPath("/abc/dummy")
 		sub := gnmipb.Subscription{
 			SampleInterval: 1000000000,
-			Path: path,
+			Path:           path,
 		}
 		RedisDbMap = nil
 		client.q = pq
@@ -506,7 +506,7 @@ func TestSubscribeInternal(t *testing.T) {
 	{
 		pq := queue.NewPriorityQueue(1, false)
 		w := sync.WaitGroup{}
-		client := MixedDbClient {}
+		client := MixedDbClient{}
 		path, _ := xpath.ToGNMIPath("/abc/dummy")
 		RedisDbMap = nil
 		client.q = pq
@@ -522,7 +522,7 @@ func TestSubscribeInternal(t *testing.T) {
 	{
 		pq := queue.NewPriorityQueue(1, false)
 		w := sync.WaitGroup{}
-		client := MixedDbClient {}
+		client := MixedDbClient{}
 		path, _ := xpath.ToGNMIPath("/abc/dummy")
 		RedisDbMap = nil
 		client.q = pq
@@ -561,18 +561,19 @@ func TestNonDbClientGetError(t *testing.T) {
 }
 
 /*
-	Helper method for receive data from ZmqConsumerStateTable
-		consumer: Receive data from consumer
-		return:
-			true: data received
-			false: not receive any data after retry
+Helper method for receive data from ZmqConsumerStateTable
+
+	consumer: Receive data from consumer
+	return:
+		true: data received
+		false: not receive any data after retry
 */
-func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) (bool) {
+func ReceiveFromZmq(consumer swsscommon.ZmqConsumerStateTable) bool {
 	receivedData := swsscommon.NewKeyOpFieldsValuesQueue()
 	defer swsscommon.DeleteKeyOpFieldsValuesQueue(receivedData)
-	retry := 0;
+	retry := 0
 	for {
-		// sender's ZMQ may disconnect, wait and retry for reconnect 
+		// sender's ZMQ may disconnect, wait and retry for reconnect
 		time.Sleep(time.Duration(1000) * time.Millisecond)
 		consumer.Pops(receivedData)
 		if receivedData.Size() == 0 {
@@ -595,11 +596,11 @@ func TestZmqReconnect(t *testing.T) {
 
 	// create ZMQ client side
 	zmqAddress := "tcp://127.0.0.1:1234"
-	client := MixedDbClient {
-		applDB : swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
-		tableMap : map[string]swsscommon.ProducerStateTable{},
-		zmqTableMap : map[string]swsscommon.ZmqProducerStateTable{},
-		zmqClient : swsscommon.NewZmqClient(zmqAddress),
+	client := MixedDbClient{
+		applDB:      swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
+		tableMap:    map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap: map[string]swsscommon.ZmqProducerStateTable{},
+		zmqClient:   swsscommon.NewZmqClient(zmqAddress),
 	}
 
 	data := map[string]string{}
@@ -641,16 +642,16 @@ func TestRetryHelper(t *testing.T) {
 	zmqClient := swsscommon.NewZmqClient(zmqAddress)
 	returnError := true
 	exeCount := 0
-    RetryHelper(
+	RetryHelper(
 		zmqClient,
-		func () (err error) {
+		func() (err error) {
 			exeCount++
 			if returnError {
 				returnError = false
 				return fmt.Errorf("zmq connection break, endpoint: tcp://127.0.0.1:2234")
 			}
 			return nil
-	})
+		})
 
 	if exeCount == 1 {
 		t.Errorf("RetryHelper does not retry")
@@ -670,7 +671,7 @@ func TestRetryHelperReconnect(t *testing.T) {
 
 	// when config table is empty, will authorize with PopulateAuthStruct
 	zmqClientRemoved := false
-	mockremoveZmqClient := gomonkey.ApplyFunc(removeZmqClient, func(zmqClient swsscommon.ZmqClient) (error) {
+	mockremoveZmqClient := gomonkey.ApplyFunc(removeZmqClient, func(zmqClient swsscommon.ZmqClient) error {
 		zmqClientRemoved = true
 		return nil
 	})
@@ -682,10 +683,10 @@ func TestRetryHelperReconnect(t *testing.T) {
 	exeCount := 0
 	RetryHelper(
 		zmqClient,
-		func () (err error) {
+		func() (err error) {
 			exeCount++
 			return fmt.Errorf("zmq connection break, endpoint: tcp://127.0.0.1:2234")
-	})
+		})
 
 	if !zmqClientRemoved {
 		t.Errorf("RetryHelper does not remove ZMQ client for reconnect")
@@ -705,7 +706,7 @@ func TestGetDpuAddress(t *testing.T) {
 
 	var configDb = swsscommon.NewDBConnector("CONFIG_DB", uint(0), true)
 	configDb.Flushdb()
-	
+
 	var midPlaneTable = swsscommon.NewTable(configDb, "MID_PLANE_BRIDGE")
 	var dpusTable = swsscommon.NewTable(configDb, "DPUS")
 	var dhcpPortTable = swsscommon.NewTable(configDb, "DHCP_SERVER_IPV4_PORT")
@@ -770,7 +771,7 @@ func TestGetDpuAddress(t *testing.T) {
 	if err == nil {
 		t.Errorf("get invalid ZMQ address failed")
 	}
-	
+
 	swsscommon.DeleteTable(midPlaneTable)
 	swsscommon.DeleteTable(dpusTable)
 	swsscommon.DeleteTable(dhcpPortTable)
@@ -818,7 +819,7 @@ func TestGetZmqClient(t *testing.T) {
 	if err == nil {
 		t.Errorf("Remove ZMQ client should failed")
 	}
-	
+
 	swsscommon.DeleteTable(midPlaneTable)
 	swsscommon.DeleteTable(dpusTable)
 	swsscommon.DeleteTable(dhcpPortTable)
