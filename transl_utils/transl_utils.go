@@ -157,7 +157,11 @@ func TranslProcessDelete(prefix, delPath *gnmipb.Path, ctx context.Context) erro
 	}
 	resp, err := translib.Delete(req)
 	if err != nil {
-		log.V(2).Infof("DELETE operation failed with error =%v, %v", resp.ErrSrc, err.Error())
+		if resp != (translib.SetResponse{}) {
+			log.V(2).Infof("DELETE operation failed with error =%v, %v", resp.ErrSrc, err.Error())
+		} else {
+			log.V(2).Infof("DELETE operation failed with error =%v", err.Error())
+		}
 		return err
 	}
 
@@ -188,7 +192,11 @@ func TranslProcessReplace(prefix *gnmipb.Path, entry *gnmipb.Update, ctx context
 	resp, err1 := translib.Replace(req)
 
 	if err1 != nil {
-		log.V(2).Infof("REPLACE operation failed with error =%v, %v", resp.ErrSrc, err1.Error())
+		if resp != (translib.SetResponse{}) {
+			log.V(2).Infof("REPLACE operation failed with error =%v, %v", resp.ErrSrc, err1.Error())
+		} else {
+			log.V(2).Infof("REPLACE operation failed with error =%v", err1.Error())
+		}
 		return err1
 	}
 
