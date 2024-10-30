@@ -286,10 +286,6 @@ class TestGNMIConfigDb:
 
         ret, msg = gnmi_set(delete_list, update_list, [])
         assert ret == 0, msg
-        assert os.path.exists(config_file), "No config file"
-        with open(config_file,'r') as cf:
-            config_json = json.load(cf)
-        assert test_data == config_json, "Wrong config file"
 
     def test_gnmi_full_negative(self):
         delete_list = ['/sonic-db:CONFIG_DB/localhost/']

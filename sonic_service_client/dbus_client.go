@@ -10,7 +10,8 @@ import (
 )
 
 type Service interface {
-	ConfigReload(fileName string) error
+	ConfigReload(config string, caller string) error
+	ConfigReloadForce(config string, caller string) error
 	ConfigSave(fileName string) error
 	ApplyPatchYang(fileName string) error
 	ApplyPatchDb(fileName string) error
@@ -19,6 +20,7 @@ type Service interface {
 	StopService(service string) error
 	RestartService(service string) error
 	GetFileStat(path string) (map[string]string, error)
+	ValidateYang(config string) error
 }
 
 type DbusClient struct {
@@ -98,13 +100,23 @@ func DbusApi(busName string, busPath string, intName string, timeout int, args .
 	}
 }
 
-func (c *DbusClient) ConfigReload(config string) error {
+func (c *DbusClient) ConfigReload(config string, caller string) error {
 	common_utils.IncCounter(common_utils.DBUS_CONFIG_RELOAD)
 	modName := "config"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".reload"
-	_, err := DbusApi(busName, busPath, intName, 60, config)
+	_, err := DbusApi(busName, busPath, intName, 240, config, caller)
+	return err
+}
+
+func (c *DbusClient) ConfigReloadForce(config string, caller string) error {
+	common_utils.IncCounter(common_utils.DBUS_CONFIG_RELOAD)
+	modName := "config"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".reload"
+	_, err := DbusApi(busName, busPath, intName, 240, config, caller)
 	return err
 }
 
@@ -190,4 +202,14 @@ func (c *DbusClient) GetFileStat(path string) (map[string]string, error) {
 	}
 	data, _ := result.(map[string]string)
 	return data, nil
+}
+
+func (c *DbusClient) ValidateYang(config string) error {
+	common_utils.IncCounter(common_utils.DBUS_VALIDATE_YANG)
+	modName := "yang"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".validate"
+	_, err := DbusApi(busName, busPath, intName, 60, config)
+	return err
 }

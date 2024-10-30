@@ -1,9 +1,5 @@
 package client
 
-// #cgo pkg-config: python3-embed
-// #include <Python.h>
-import "C"
-
 import (
 	"bytes"
 	"encoding/json"
@@ -16,7 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unsafe"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	log "github.com/golang/glog"
@@ -1177,37 +1172,6 @@ func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Pat
 	return nil
 }
 
-func RunPyCode(text string) error {
-	defer C.Py_Finalize()
-	C.Py_Initialize()
-	PyCodeInC := C.CString(text)
-	defer C.free(unsafe.Pointer(PyCodeInC))
-	CRet := C.PyRun_SimpleString(PyCodeInC)
-	if int(CRet) != 0 {
-		return fmt.Errorf("Python failure")
-	}
-	return nil
-}
-
-var PyCodeForYang string =
-`
-import sonic_yang
-import json
-
-yang_parser = sonic_yang.SonicYang("/usr/local/yang-models")
-yang_parser.loadYangModel()
-filename = "%s"
-with open(filename, 'r') as fp:
-	text = fp.read()
-
-	try:
-		yang_parser.loadData(configdbJson=json.loads(text))
-		yang_parser.validate_data_tree()
-	except sonic_yang.SonicYangException as e:
-		print("Yang validation error: {}".format(str(e)))
-		raise
-`
-
 func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	var err error
 
@@ -1362,17 +1326,28 @@ func (c *MixedDbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.U
 	if len(ietf_json_val) == 0 {
 		return fmt.Errorf("Value encoding is not IETF JSON")
 	}
-	content := []byte(ietf_json_val)
-	fileName := c.workPath + "/config_db.json.tmp"
-	err := ioutil.WriteFile(fileName, content, 0644)
+
+	var sc ssc.Service
+	sc, err := ssc.NewDbusClient()
 	if err != nil {
 		return err
 	}
-
-	PyCodeInGo := fmt.Sprintf(PyCodeForYang, fileName)
-	err = RunPyCode(PyCodeInGo)
+	log.V(2).Infof("Run yang validation")
+	err = sc.ValidateYang(string(ietf_json_val))
 	if err != nil {
-		return fmt.Errorf("Yang validation failed!")
+		return err
+	}
+	log.V(2).Infof("Run config reload")
+	err = sc.ConfigReload(string(ietf_json_val), "gnmi")
+	if err != nil {
+		log.V(2).Infof("Recover default config")
+		sc.ConfigReloadForce("", "gnmi")
+		return err
+	}
+	log.V(2).Infof("Run config save")
+	err = sc.ConfigSave("")
+	if err != nil {
+		return err
 	}
 
 	return nil
