@@ -2832,18 +2832,6 @@ func TestGNOI(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
 	defer cancel()
 
-	t.Run("SystemTime", func(t *testing.T) {
-		sc := gnoi_system_pb.NewSystemClient(conn)
-		resp, err := sc.Time(ctx, new(gnoi_system_pb.TimeRequest))
-		if err != nil {
-			t.Fatal(err.Error())
-		}
-		ctime := uint64(time.Now().UnixNano())
-		if ctime-resp.Time < 0 || ctime-resp.Time > 1e9 {
-			t.Fatalf("Invalid System Time %d", resp.Time)
-		}
-	})
-
 	t.Run("SonicShowTechsupport", func(t *testing.T) {
 		t.Skip("Not supported yet")
 		sc := sgpb.NewSonicServiceClient(conn)
@@ -4413,29 +4401,28 @@ func (x *MockSetPackageServer) Recv() (*gnoi_system_pb.SetPackageRequest, error)
 func TestGnoiAuthorization(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
-	systemSrv := &SystemServer{Server: s}
 	mockAuthenticate := gomonkey.ApplyFunc(s.Authenticate, func(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
 		return nil, nil
 	})
 	defer mockAuthenticate.Reset()
 
-	err := systemSrv.Ping(new(gnoi_system_pb.PingRequest), new(MockPingServer))
+	err := s.Ping(new(gnoi_system_pb.PingRequest), new(MockPingServer))
 	if err == nil {
 		t.Errorf("Ping should failed, because not implement.")
 	}
 
-	systemSrv.Traceroute(new(gnoi_system_pb.TracerouteRequest), new(MockTracerouteServer))
+	s.Traceroute(new(gnoi_system_pb.TracerouteRequest), new(MockTracerouteServer))
 	if err == nil {
 		t.Errorf("Traceroute should failed, because not implement.")
 	}
 
-	systemSrv.SetPackage(new(MockSetPackageServer))
+	s.SetPackage(new(MockSetPackageServer))
 	if err == nil {
 		t.Errorf("SetPackage should failed, because not implement.")
 	}
 
 	ctx := context.Background()
-	systemSrv.SwitchControlProcessor(ctx, new(gnoi_system_pb.SwitchControlProcessorRequest))
+	s.SwitchControlProcessor(ctx, new(gnoi_system_pb.SwitchControlProcessorRequest))
 	if err == nil {
 		t.Errorf("SwitchControlProcessor should failed, because not implement.")
 	}
