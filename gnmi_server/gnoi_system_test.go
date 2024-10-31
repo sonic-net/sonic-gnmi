@@ -229,17 +229,11 @@ func TestSystem(t *testing.T) {
 		done := make(chan bool, 1)
 		go rebootBackendResponse(t, rclient, codes.Unauthenticated, fvs, done, rebootKey)
 		defer func() { done <- true }()
-		// Start goroutine for mock Reboot Backend to respond to Reboot requests
-		done := make(chan bool, 1)
-		go rebootBackendResponse(t, rclient, codes.Unauthenticated, fvs, done, rebootKey)
-		defer func() { done <- true }()
 		req := &syspb.RebootRequest{
 			Method:  syspb.RebootMethod_COLD,
 			Delay:   0,
 			Message: "Cold reboot starting ...",
 		}
-		_, err := sc.Reboot(ctx, req)
-		testErr(err, codes.Internal, "Response Notification returned SWSS Error code: Internal", t)
 		_, err := sc.Reboot(ctx, req)
 		testErr(err, codes.Internal, "Response Notification returned SWSS Error code: Internal", t)
 	})
