@@ -160,29 +160,6 @@ func TestConfigReloadNegative(t *testing.T) {
 	}
 }
 
-func TestConfigReloadTimeout(t *testing.T) {
-	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
-		return &dbus.Conn{}, nil
-	})
-	defer mock1.Reset()
-	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
-		if method != "org.SONiC.HostService.config.reload" {
-			t.Errorf("Wrong method: %v", method)
-		}
-		return &dbus.Call{}
-	})
-	defer mock2.Reset()
-
-	client, err := NewDbusClient()
-	if err != nil {
-		t.Errorf("NewDbusClient failed: %v", err)
-	}
-	err = client.ConfigReload("abc", "")
-	if err == nil {
-		t.Errorf("ConfigReload should timeout: %v", err)
-	}
-}
-
 func TestConfigReloadForce(t *testing.T) {
 	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
 		return &dbus.Conn{}, nil
@@ -244,29 +221,6 @@ func TestConfigReloadForceNegative(t *testing.T) {
 	}
 }
 
-func TestConfigReloadForceTimeout(t *testing.T) {
-	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
-		return &dbus.Conn{}, nil
-	})
-	defer mock1.Reset()
-	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
-		if method != "org.SONiC.HostService.config.reload_force" {
-			t.Errorf("Wrong method: %v", method)
-		}
-		return &dbus.Call{}
-	})
-	defer mock2.Reset()
-
-	client, err := NewDbusClient()
-	if err != nil {
-		t.Errorf("NewDbusClient failed: %v", err)
-	}
-	err = client.ConfigReloadForce("abc", "")
-	if err == nil {
-		t.Errorf("ConfigReload should timeout: %v", err)
-	}
-}
-
 func TestConfigSave(t *testing.T) {
 	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
 		return &dbus.Conn{}, nil
@@ -325,6 +279,29 @@ func TestConfigSaveNegative(t *testing.T) {
 	}
 	if err.Error() != err_msg {
 		t.Errorf("Wrong error: %v", err)
+	}
+}
+
+func TestConfigSaveTimeout(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.config.save" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	err = client.ConfigSave("")
+	if err == nil {
+		t.Errorf("ConfigSave should timeout: %v", err)
 	}
 }
 

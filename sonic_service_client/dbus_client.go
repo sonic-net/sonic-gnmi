@@ -115,7 +115,7 @@ func (c *DbusClient) ConfigReloadForce(config string, caller string) error {
 	modName := "config"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".reload"
+	intName := c.intNamePrefix + modName + ".reload_force"
 	_, err := DbusApi(busName, busPath, intName, 240, config, caller)
 	return err
 }
