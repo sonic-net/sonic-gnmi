@@ -13,7 +13,7 @@ func TestSystemBusNegative(t *testing.T) {
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
-	err = client.ConfigReload("abc")
+	err = client.ConfigReload("abc", "")
 	if err == nil {
 		t.Errorf("SystemBus should fail")
 	}
