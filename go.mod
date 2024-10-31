@@ -49,7 +49,7 @@ require (
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
 	golang.org/x/sys v0.26.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
-	google.golang.org/genproto v0.0.0-20200526211855-cb27e3aa2013 // indirect
+	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
 	inet.af/netaddr v0.0.0-20230525184311-b8eac61e914a // indirect
 )
 
@@ -57,3 +57,6 @@ replace (
 	github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common
 	golang.org/x/crypto => golang.org/x/crypto v0.24.0
 )
+
+// Glog patch needs to be updated to remove this.
+replace github.com/golang/glog => github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
