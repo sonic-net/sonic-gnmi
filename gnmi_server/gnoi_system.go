@@ -28,8 +28,8 @@ const (
 	notificationTimeout = 10 * time.Second
 )
 
-// Vaild reboot method map.
-var validRebootMap = map[syspb.RebootMethod]bool{
+// Supported reboot method map.
+var supportedRebootMap = map[syspb.RebootMethod]bool{
 	syspb.RebootMethod_COLD:      true,
 	syspb.RebootMethod_WARM:      true,
 	syspb.RebootMethod_POWERDOWN: true,
@@ -37,8 +37,8 @@ var validRebootMap = map[syspb.RebootMethod]bool{
 }
 
 // Validates reboot request.
-func validRebootReq(req *syspb.RebootRequest) error {
-	if _, ok := validRebootMap[req.GetMethod()]; !ok {
+func ValidRebootReq(req *syspb.RebootRequest) error {
+	if _, ok := supportedRebootMap[req.GetMethod()]; !ok {
 		log.Error("Invalid request: reboot method is not supported.")
 		return fmt.Errorf("Invalid request: reboot method is not supported.")
 	}
@@ -125,37 +125,6 @@ func processMsgPayload(pload string) (string, string, map[string]string, error) 
 	return op, data, fvs, nil
 }
 
-// Converts a SWSS error code string into a gRPC code.
-func swssToErrorCode(statusStr string) codes.Code {
-	switch statusStr {
-	case "SWSS_RC_SUCCESS":
-		return codes.OK
-	case "SWSS_RC_UNKNOWN":
-		return codes.Unknown
-	case "SWSS_RC_IN_USE", "SWSS_RC_INVALID_PARAM":
-		return codes.InvalidArgument
-	case "SWSS_RC_DEADLINE_EXCEEDED":
-		return codes.DeadlineExceeded
-	case "SWSS_RC_NOT_FOUND":
-		return codes.NotFound
-	case "SWSS_RC_EXISTS":
-		return codes.AlreadyExists
-	case "SWSS_RC_PERMISSION_DENIED":
-		return codes.PermissionDenied
-	case "SWSS_RC_FULL", "SWSS_RC_NO_MEMORY":
-		return codes.ResourceExhausted
-	case "SWSS_RC_UNIMPLEMENTED":
-		return codes.Unimplemented
-	case "SWSS_RC_INTERNAL":
-		return codes.Internal
-	case "SWSS_RC_NOT_EXECUTED", "SWSS_RC_FAILED_PRECONDITION":
-		return codes.FailedPrecondition
-	case "SWSS_RC_UNAVAIL":
-		return codes.Unavailable
-	}
-	return codes.Internal
-}
-
 func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Client, rebootNotifKey string) (resp proto.Message, err error, msgDataStr string) {
 	np, err := common_utils.NewNotificationProducer(rebootReqCh)
 	if err != nil {
@@ -219,7 +188,7 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 					msgDataStr = fvs[dataMsgFld]
 				}
 			}
-			if swssCode := swssToErrorCode(data); swssCode != codes.OK {
+			if swssCode := SwssToErrorCode(data); swssCode != codes.OK {
 				errStr := fmt.Sprintf("Response Notification returned SWSS Error code: %v, error = %v", swssCode, msgDataStr)
 				log.V(1).Infof(errStr)
 				return nil, status.Errorf(swssCode, errStr), msgDataStr
@@ -244,7 +213,7 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 		log.V(1).Info("Error while authenticating: ", err.Error())
 	}
 	log.V(2).Info("gNOI: Reboot")
-	if err := validRebootReq(req); err != nil {
+	if err := ValidRebootReq(req); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 	// Initialize State DB.

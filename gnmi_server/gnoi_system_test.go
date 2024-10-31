@@ -63,10 +63,10 @@ func errorCodeToSwss(errCode codes.Code) string {
 	return ""
 }
 
-func rebootBackendResponse(t *testing.T, sc *redis.Client, expectedResponse codes.Code, fvs map[string]string, done chan bool, key string) {
+func RebootBackendResponse(t *testing.T, sc *redis.Client, expectedResponse codes.Code, fvs map[string]string, done chan bool, key string) {
 	sub := sc.Subscribe("Reboot_Request_Channel")
 	if _, err := sub.Receive(); err != nil {
-		t.Errorf("rebootBackendResponse failed to subscribe to request channel: %v", err)
+		t.Errorf("RebootBackendResponse failed to subscribe to request channel: %v", err)
 		return
 	}
 	defer sub.Close()
@@ -74,7 +74,7 @@ func rebootBackendResponse(t *testing.T, sc *redis.Client, expectedResponse code
 
 	np, err := common_utils.NewNotificationProducer("Reboot_Response_Channel")
 	if err != nil {
-		t.Errorf("rebootBackendResponse failed to create notification producer: %v", err)
+		t.Errorf("RebootBackendResponse failed to create notification producer: %v", err)
 		return
 	}
 	defer np.Close()
@@ -82,16 +82,16 @@ func rebootBackendResponse(t *testing.T, sc *redis.Client, expectedResponse code
 	tc := time.After(5 * time.Second)
 	select {
 	case msg := <-channel:
-		t.Logf("rebootBackendResponse received request: %v", msg)
+		t.Logf("RebootBackendResponse received request: %v", msg)
 		// Respond to the request
 		if err := np.Send(key, errorCodeToSwss(expectedResponse), fvs); err != nil {
-			t.Errorf("rebootBackendResponse failed to send response: %v", err)
+			t.Errorf("RebootBackendResponse failed to send response: %v", err)
 			return
 		}
 	case <-done:
 		return
 	case <-tc:
-		t.Error("rebootBackendResponse timed out waiting for request")
+		t.Error("RebootBackendResponse timed out waiting for request")
 		return
 	}
 }
@@ -200,7 +200,7 @@ func TestSystem(t *testing.T) {
 			Delay:   0,
 			Message: "Cold reboot starting ...",
 		}
-		go rebootBackendResponse(t, rclient, codes.OK, fvs, done, "testKey")
+		go RebootBackendResponse(t, rclient, codes.OK, fvs, done, "testKey")
 		defer func() { done <- true }()
 		_, err := sc.Reboot(ctx, req)
 		testErr(err, codes.Internal, "Op: testKey doesn't match for Reboot!", t)
@@ -211,7 +211,7 @@ func TestSystem(t *testing.T) {
 			fvs["MESSAGE"] = "{}"
 			// Start goroutine for mock Reboot Backend to respond to Reboot requests
 			done := make(chan bool, 1)
-			go rebootBackendResponse(t, rclient, code, fvs, done, rebootKey)
+			go RebootBackendResponse(t, rclient, code, fvs, done, rebootKey)
 			defer func() { done <- true }()
 			req := &syspb.RebootRequest{
 				Method:  syspb.RebootMethod_COLD,
@@ -227,7 +227,7 @@ func TestSystem(t *testing.T) {
 		fvs["MESSAGE"] = "{}"
 		// Start goroutine for mock Reboot Backend to respond to Reboot requests
 		done := make(chan bool, 1)
-		go rebootBackendResponse(t, rclient, codes.Unauthenticated, fvs, done, rebootKey)
+		go RebootBackendResponse(t, rclient, codes.Unauthenticated, fvs, done, rebootKey)
 		defer func() { done <- true }()
 		req := &syspb.RebootRequest{
 			Method:  syspb.RebootMethod_COLD,
@@ -242,7 +242,7 @@ func TestSystem(t *testing.T) {
 		done := make(chan bool, 1)
 		fvs := make(map[string]string)
 		fvs["MESSAGE"] = "{}"
-		go rebootBackendResponse(t, rclient, codes.OK, fvs, done, rebootKey)
+		go RebootBackendResponse(t, rclient, codes.OK, fvs, done, rebootKey)
 		defer func() { done <- true }()
 
 		req := &syspb.RebootRequest{
@@ -264,7 +264,7 @@ func TestSystem(t *testing.T) {
 		done := make(chan bool, 1)
 		fvs := make(map[string]string)
 		fvs["MESSAGE"] = "{\"active\": true, \"method\":\"NSF\",\"status\":{\"status\":\"STATUS_SUCCESS\"}}"
-		go rebootBackendResponse(t, rclient, codes.OK, fvs, done, rebootStatusKey)
+		go RebootBackendResponse(t, rclient, codes.OK, fvs, done, rebootStatusKey)
 		defer func() { done <- true }()
 
 		_, err := sc.RebootStatus(ctx, &syspb.RebootStatusRequest{})
@@ -288,7 +288,7 @@ func TestSystem(t *testing.T) {
 		done := make(chan bool, 1)
 		fvs := make(map[string]string)
 		fvs["MESSAGE"] = "{}"
-		go rebootBackendResponse(t, rclient, codes.OK, fvs, done, rebootCancelKey)
+		go RebootBackendResponse(t, rclient, codes.OK, fvs, done, rebootCancelKey)
 		defer func() { done <- true }()
 
 		req := &syspb.CancelRebootRequest{
