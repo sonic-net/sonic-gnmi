@@ -1,11 +1,11 @@
 package gnmi
 
 import (
-	"sync"
-	"time"
+	log "github.com/golang/glog"
 	"net"
 	"regexp"
-	log "github.com/golang/glog"
+	"sync"
+	"time"
 
 	"github.com/go-redis/redis"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
@@ -16,9 +16,9 @@ const table = "TELEMETRY_CONNECTIONS"
 var rclient *redis.Client
 
 type ConnectionManager struct {
-	connections  map[string]struct{}
-	mu           sync.RWMutex
-	threshold    int
+	connections map[string]struct{}
+	mu          sync.RWMutex
+	threshold   int
 }
 
 func (cm *ConnectionManager) GetThreshold() int {
@@ -57,7 +57,7 @@ func (cm *ConnectionManager) PrepareRedis() {
 }
 
 func (cm *ConnectionManager) Add(addr net.Addr, query string) (string, bool) {
-	cm.mu.RLock() // reading
+	cm.mu.RLock()                                                 // reading
 	if len(cm.connections) >= cm.threshold && cm.threshold != 0 { // 0 is defined as no threshold
 		log.V(1).Infof("Cannot add another client connection as threshold is already at limit")
 		cm.mu.RUnlock()
@@ -73,7 +73,7 @@ func (cm *ConnectionManager) Add(addr net.Addr, query string) (string, bool) {
 	return key, true
 }
 
-func (cm *ConnectionManager) Remove(key string) (bool) {
+func (cm *ConnectionManager) Remove(key string) bool {
 	cm.mu.RLock() // reading
 	_, exists := cm.connections[key]
 	cm.mu.RUnlock()

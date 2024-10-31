@@ -3,10 +3,10 @@ package dialout_server
 import (
 	"errors"
 	"fmt"
-	spb "github.com/sonic-net/sonic-gnmi/proto"
 	log "github.com/golang/glog"
 	"github.com/google/gnxi/utils"
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"

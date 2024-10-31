@@ -1,8 +1,8 @@
 package host_service
 
 import (
-	"testing"
 	"reflect"
+	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"
@@ -27,7 +27,7 @@ func TestGetFileStat(t *testing.T) {
 		"size":          "1024",
 		"umask":         "022",
 	}
-	
+
 	// Mocking the DBus API to return the expected result
 	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
 		return &dbus.Conn{}, nil
@@ -65,7 +65,7 @@ func TestGetFileStat(t *testing.T) {
 func TestGetFileStatNegative(t *testing.T) {
 	errMsg := "This is the mock error message"
 
-    // Mocking the DBus API to return an error
+	// Mocking the DBus API to return an error
 	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
 		return &dbus.Conn{}, nil
 	})

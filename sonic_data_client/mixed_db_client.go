@@ -8,6 +8,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/Workiva/go-datastructures/queue"
+	"github.com/go-redis/redis"
+	log "github.com/golang/glog"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"io/ioutil"
 	"net"
 	"os"
@@ -17,22 +28,12 @@ import (
 	"sync"
 	"time"
 	"unsafe"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	log "github.com/golang/glog"
-	"github.com/Workiva/go-datastructures/queue"
-	"github.com/sonic-net/sonic-gnmi/common_utils"
-	"github.com/sonic-net/sonic-gnmi/swsscommon"
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
-	spb "github.com/sonic-net/sonic-gnmi/proto"
-	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	"github.com/go-redis/redis"
 )
 
 const LOCAL_ADDRESS string = "127.0.0.1"
 const REDIS_SOCK string = "/var/run/redis/redis.sock"
 const APPL_DB int = 0
+
 // New database for DASH
 const DPU_APPL_DB_NAME string = "DPU_APPL_DB"
 const APPL_DB_NAME string = "APPL_DB"
@@ -49,8 +50,8 @@ const DELETE_OPERATION = "remove"
 const REPLACE_OPERATION = "replace"
 
 const (
-    opAdd = iota
-    opRemove
+	opAdd = iota
+	opRemove
 )
 
 var (
@@ -64,25 +65,25 @@ var (
 )
 
 type MixedDbClient struct {
-	prefix  *gnmipb.Path
-	paths   []*gnmipb.Path
-	pathG2S map[*gnmipb.Path][]tablePath
-	encoding gnmipb.Encoding
-	q       *queue.PriorityQueue
-	channel chan struct{}
-	target  string
-	origin  string
-	workPath string
-	jClient *JsonClient
-	applDB swsscommon.DBConnector
-	zmqAddress string
-	zmqClient swsscommon.ZmqClient
-	tableMap map[string]swsscommon.ProducerStateTable
+	prefix      *gnmipb.Path
+	paths       []*gnmipb.Path
+	pathG2S     map[*gnmipb.Path][]tablePath
+	encoding    gnmipb.Encoding
+	q           *queue.PriorityQueue
+	channel     chan struct{}
+	target      string
+	origin      string
+	workPath    string
+	jClient     *JsonClient
+	applDB      swsscommon.DBConnector
+	zmqAddress  string
+	zmqClient   swsscommon.ZmqClient
+	tableMap    map[string]swsscommon.ProducerStateTable
 	zmqTableMap map[string]swsscommon.ZmqProducerStateTable
 	// swsscommon introduced dbkey to support multiple database
 	dbkey swsscommon.SonicDBKey
 	// Convert dbkey to string, namespace:container
-	mapkey string
+	mapkey        string
 	namespace_cnt int
 	container_cnt int
 
@@ -93,18 +94,19 @@ type MixedDbClient struct {
 
 // redis client connected to each DB
 var RedisDbMap map[string]*redis.Client = nil
+
 // Db num from database configuration
 var DbInstNum = 0
 
 func Hget(configDbConnector *swsscommon.ConfigDBConnector, table string, key string, field string) (string, error) {
-    var fieldValuePairs = configDbConnector.Get_entry(table, key)
-    defer swsscommon.DeleteFieldValueMap(fieldValuePairs)
+	var fieldValuePairs = configDbConnector.Get_entry(table, key)
+	defer swsscommon.DeleteFieldValueMap(fieldValuePairs)
 
-    if fieldValuePairs.Has_key(field) {
-        return fieldValuePairs.Get(field), nil
-    }
+	if fieldValuePairs.Has_key(field) {
+		return fieldValuePairs.Get(field), nil
+	}
 
-    return "", fmt.Errorf("Can't read %s:%s from %s table", key, field, table)
+	return "", fmt.Errorf("Can't read %s:%s from %s table", key, field, table)
 }
 
 func getDpuAddress(dpuId string) (string, error) {
@@ -116,20 +118,20 @@ func getDpuAddress(dpuId string) (string, error) {
 	configDbConnector.Connect(false)
 
 	// get bridge plane
-	bridgePlane, err := Hget(configDbConnector, "MID_PLANE_BRIDGE", "GLOBAL", "bridge");
+	bridgePlane, err := Hget(configDbConnector, "MID_PLANE_BRIDGE", "GLOBAL", "bridge")
 	if err != nil {
 		return "", err
 	}
 
 	// get DPU interface by DPU ID
-	dpuInterface, err := Hget(configDbConnector, "DPUS", dpuId, "midplane_interface");
+	dpuInterface, err := Hget(configDbConnector, "DPUS", dpuId, "midplane_interface")
 	if err != nil {
 		return "", err
 	}
 
 	// get DPR address by DPU ID and brdige plane
 	var dhcpPortKey = bridgePlane + "|" + dpuInterface
-	dpuAddresses, err := Hget(configDbConnector, "DHCP_SERVER_IPV4_PORT", dhcpPortKey, "ips@");
+	dpuAddresses, err := Hget(configDbConnector, "DHCP_SERVER_IPV4_PORT", dhcpPortKey, "ips@")
 	if err != nil {
 		return "", err
 	}
@@ -169,9 +171,9 @@ func getZmqClientByAddress(zmqAddress string, vrf string) (swsscommon.ZmqClient,
 	return client, nil
 }
 
-func removeZmqClient(zmqClient swsscommon.ZmqClient) (error) {
+func removeZmqClient(zmqClient swsscommon.ZmqClient) error {
 	for address, client := range zmqClientMap {
-		if client == zmqClient { 
+		if client == zmqClient {
 			delete(zmqClientMap, address)
 			swsscommon.DeleteZmqClient(client)
 			return nil
@@ -189,7 +191,7 @@ func getZmqClient(dpuId string, zmqPort string, vrf string) (swsscommon.ZmqClien
 
 	if dpuId == sdcfg.SONIC_DEFAULT_CONTAINER {
 		// When DPU ID is default, create ZMQ with local address
-		return getZmqClientByAddress("tcp://" + LOCAL_ADDRESS + ":" + zmqPort, vrf)
+		return getZmqClientByAddress("tcp://"+LOCAL_ADDRESS+":"+zmqPort, vrf)
 	}
 
 	zmqAddress, err := getZmqAddress(dpuId, zmqPort)
@@ -245,7 +247,7 @@ func (c *MixedDbClient) String() string {
 	return fmt.Sprintf("MixedDbClient Prefix %v", c.prefix.GetTarget())
 }
 
-func (c *MixedDbClient) GetTable(table string) (swsscommon.ProducerStateTable) {
+func (c *MixedDbClient) GetTable(table string) swsscommon.ProducerStateTable {
 	pt, ok := c.tableMap[table]
 	if ok {
 		return pt
@@ -271,9 +273,9 @@ func (c *MixedDbClient) GetTable(table string) (swsscommon.ProducerStateTable) {
 }
 
 func CatchException(err *error) {
-    if r := recover(); r != nil {
-        *err = fmt.Errorf("%v", r)
-    }
+	if r := recover(); r != nil {
+		*err = fmt.Errorf("%v", r)
+	}
 }
 
 func ProducerStateTableSetWrapper(pt swsscommon.ProducerStateTable, key string, value swsscommon.FieldValuePairs) (err error) {
@@ -300,10 +302,10 @@ func RetryHelper(zmqClient swsscommon.ZmqClient, action ActionNeedRetry) error {
 		err := action()
 		if err != nil {
 			if strings.Contains(err.Error(), ConnectionResetErr) {
-				if (retry <= MAX_RETRY_COUNT) {
+				if retry <= MAX_RETRY_COUNT {
 					log.V(6).Infof("RetryHelper: connection reset, reconnect and retry later")
 					time.Sleep(retry_delay)
-	
+
 					zmqClient.Connect()
 					retry_delay *= time.Duration(RETRY_DELAY_FACTOR)
 					retry++
@@ -333,19 +335,19 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 
 	pt := c.GetTable(table)
 	return RetryHelper(
-				c.zmqClient,
-				func () error {
-					return ProducerStateTableSetWrapper(pt, key, vec)
-				})
+		c.zmqClient,
+		func() error {
+			return ProducerStateTableSetWrapper(pt, key, vec)
+		})
 }
 
 func (c *MixedDbClient) DbDelTable(table string, key string) error {
 	pt := c.GetTable(table)
 	return RetryHelper(
-				c.zmqClient,
-				func () error {
-					return ProducerStateTableDeleteWrapper(pt, key) 
-				})
+		c.zmqClient,
+		func() error {
+			return ProducerStateTableDeleteWrapper(pt, key)
+		})
 }
 
 // For example, the GNMI path below points to DASH_QOS table in the DPU_APPL_DB database for dpu0:
@@ -452,7 +454,7 @@ func initRedisDbMap() {
 		RedisDbMap = make(map[string]*redis.Client)
 	}
 	// Clear outdated configuration
-	for mapkey, _ := range(RedisDbMap) {
+	for mapkey, _ := range RedisDbMap {
 		delete(RedisDbMap, mapkey)
 	}
 	for _, dbkey := range dbkeys {
@@ -499,9 +501,9 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	// Initialize RedisDbMap for test
 	initRedisDbMap()
 
-	var client = MixedDbClient {
-		tableMap : map[string]swsscommon.ProducerStateTable{},
-		zmqTableMap : map[string]swsscommon.ZmqProducerStateTable{},
+	var client = MixedDbClient{
+		tableMap:    map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap: map[string]swsscommon.ZmqProducerStateTable{},
 	}
 
 	// Get namespace count and container count from db config
@@ -541,7 +543,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	ok := IsTargetDbByDBKey(target, dbkey)
 	if !ok {
 		return nil, status.Errorf(codes.Unimplemented, "Invalid target: ns %s, container %s",
-								dbkey.GetNetns(), dbkey.GetContainerName())
+			dbkey.GetNetns(), dbkey.GetContainerName())
 	}
 	// If target is DPU_APPL_DB, this is multiple database, create DB connector for DPU
 	// If target is original APPL_DB, create DB connector for backward compatibility
@@ -769,7 +771,7 @@ func (c *MixedDbClient) makeJSON_redis(msi *map[string]interface{}, key *string,
 			fp[k] = slice
 		} else {
 			fp[f] = v
-		}		
+		}
 	}
 
 	if key == nil {
@@ -839,7 +841,7 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 			return err
 		}
 
-		if (tblPath.tableName == "") {
+		if tblPath.tableName == "" {
 			// Split dbkey string into two parts
 			// First part is table name and second part is key in table
 			keys := strings.SplitN(dbkey, tblPath.delimitor, 2)
@@ -998,7 +1000,7 @@ func ConvertDbEntry(inputData map[string]interface{}) map[string]string {
 			list := value.([]interface{})
 			key_redis := key + "@"
 			slice := []string{}
-			for _, item := range(list) {
+			for _, item := range list {
 				if str, check := item.(string); check {
 					slice = append(slice, str)
 				} else {
@@ -1056,7 +1058,7 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 			}
 
 			for _, dbkey := range dbkeys {
-				tableKey := strings.TrimPrefix(dbkey, tblPath.tableName + tblPath.delimitor)
+				tableKey := strings.TrimPrefix(dbkey, tblPath.tableName+tblPath.delimitor)
 				err = c.DbDelTable(tblPath.tableName, tableKey)
 				if err != nil {
 					log.V(2).Infof("swsscommon delete failed for  %v, dbkey %s", tblPath, dbkey)
@@ -1189,8 +1191,7 @@ func RunPyCode(text string) error {
 	return nil
 }
 
-var PyCodeForYang string =
-`
+var PyCodeForYang string = `
 import sonic_yang
 import json
 
@@ -1384,7 +1385,7 @@ func (c *MixedDbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, u
 	if err != nil {
 		return err
 	}
-	
+
 	for _, tblPaths := range deletePathList {
 		err = c.handleTableData(tblPaths)
 		if err != nil {
@@ -1426,7 +1427,7 @@ func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Upd
 	deleteLen := len(delete)
 	replaceLen := len(replace)
 	updateLen := len(update)
-	if (deleteLen == 1 && replaceLen == 0 && updateLen == 1) {
+	if deleteLen == 1 && replaceLen == 0 && updateLen == 1 {
 		deletePath, err := c.gnmiFullPath(c.prefix, delete[0])
 		if err != nil {
 			return err
@@ -1485,8 +1486,8 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 			}
 
 			val := gnmipb.TypedValue{
-					Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: jv},
-				}
+				Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: jv},
+			}
 			values = append(values, &spb.Value{
 				Prefix:    c.prefix,
 				Path:      path,
@@ -2055,10 +2056,10 @@ func (c *MixedDbClient) Close() error {
 	for _, pt := range c.zmqTableMap {
 		swsscommon.DeleteZmqProducerStateTable(pt)
 	}
-	if c.applDB != nil{
+	if c.applDB != nil {
 		swsscommon.DeleteDBConnector(c.applDB)
 	}
-	if c.dbkey != nil{
+	if c.dbkey != nil {
 		swsscommon.DeleteSonicDBKey(c.dbkey)
 	}
 
