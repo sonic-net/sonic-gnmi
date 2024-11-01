@@ -58,8 +58,8 @@ import (
 	"github.com/jipanyang/gnxi/utils/xpath"
 	cacheclient "github.com/openconfig/gnmi/client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
@@ -2844,6 +2844,18 @@ func TestGNOI(t *testing.T) {
 		}
 	})
 
+	t.Run("KillProcessSuccess", func(t *testing.T) {
+		sc := gnoi_system_pb.NewSystemClient(conn)
+		req := &gnoi_system_pb.KillProcessRequest{
+			Pid:    1234,
+			Signal: gnoi_system_pb.KillProcessRequest_SIGNAL_TERM,
+		}
+		_, err := sc.KillProcess(ctx, req)
+		if err != nil {
+			t.Fatalf(err.Error())
+		}
+	})
+
 	t.Run("SonicShowTechsupport", func(t *testing.T) {
 		t.Skip("Not supported yet")
 		sc := sgpb.NewSonicServiceClient(conn)
@@ -2889,7 +2901,7 @@ func TestGNOI(t *testing.T) {
 		if len(resp.Stats) == 0 {
 			t.Fatalf("Expected at least one StatInfo in response")
 		}
-	
+
 		statInfo := resp.Stats[0]
 
 		if statInfo.LastModified != 1609459200000000000 {
@@ -2909,7 +2921,7 @@ func TestGNOI(t *testing.T) {
 	t.Run("FileStatFailure", func(t *testing.T) {
 		mockClient := &ssc.DbusClient{}
 		expectedError := fmt.Errorf("failed to get file stats")
-		
+
 		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "GetFileStat", func(_ *ssc.DbusClient, path string) (map[string]string, error) {
 			return nil, expectedError
 		})
@@ -2927,10 +2939,10 @@ func TestGNOI(t *testing.T) {
 		if resp != nil {
 			t.Fatalf("Expected nil response but got: %v", resp)
 		}
-	
+
 		if !strings.Contains(err.Error(), expectedError.Error()) {
 			t.Errorf("Expected error to contain '%v' but got '%v'", expectedError, err)
-		}	
+		}
 	})
 
 	type configData struct {
@@ -3562,16 +3574,16 @@ func TestConnectionsKeepAlive(t *testing.T) {
 	defer s.Stop()
 
 	tests := []struct {
-		desc    string
-		q       client.Query
-		want    []client.Notification
-		poll    int
+		desc string
+		q    client.Query
+		want []client.Notification
+		poll int
 	}{
 		{
 			desc: "Testing KeepAlive with goroutine count",
 			poll: 3,
 			q: client.Query{
-				Target: "COUNTERS_DB",
+				Target:  "COUNTERS_DB",
 				Type:    client.Poll,
 				Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
 				TLS:     &tls.Config{InsecureSkipVerify: true},
@@ -3582,7 +3594,7 @@ func TestConnectionsKeepAlive(t *testing.T) {
 			},
 		},
 	}
-	for _, tt := range(tests) {
+	for _, tt := range tests {
 		var clients []*cacheclient.CacheClient
 		for i := 0; i < 5; i++ {
 			t.Run(tt.desc, func(t *testing.T) {
@@ -3611,7 +3623,7 @@ func TestConnectionsKeepAlive(t *testing.T) {
 				}
 			})
 		}
-		for _, cacheClient := range(clients) {
+		for _, cacheClient := range clients {
 			cacheClient.Close()
 		}
 	}
@@ -3925,7 +3937,7 @@ func TestGNMINative(t *testing.T) {
 		return &dbus.Call{}
 	})
 	defer mock2.Reset()
-	mock3 := gomonkey.ApplyFunc(sdc.RunPyCode, func(text string) error {return nil})
+	mock3 := gomonkey.ApplyFunc(sdc.RunPyCode, func(text string) error { return nil })
 	defer mock3.Reset()
 
 	sdcfg.Init()
@@ -4305,7 +4317,7 @@ func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
 	return ctx, cancel
 }
 
-	func TestClientCertAuthenAndAuthor(t *testing.T) {
+func TestClientCertAuthenAndAuthor(t *testing.T) {
 	if !swsscommon.SonicDBConfigIsInit() {
 		swsscommon.SonicDBConfigInitialize()
 	}
