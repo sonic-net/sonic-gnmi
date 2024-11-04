@@ -49,7 +49,12 @@ go.mod:
 
 $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap
 	$(GO) mod vendor
+
+# Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
+	sed -i 's/patch -d ${DEST_DIR}\/github.com\/golang\/glog/#patch -d ${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
+	sed -i 's/#patch -d ${DEST_DIR}\/github.com\/golang\/glog/patch -d ${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
+
 	touch $@
 
 go-deps: $(GO_DEPS)
