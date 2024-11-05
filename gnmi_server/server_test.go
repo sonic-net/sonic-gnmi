@@ -3584,28 +3584,40 @@ func TestNonExistentTableNoError(t *testing.T) {
 	go runServer(t, s)
 	defer s.ForceStop()
 
+	fileName := "../testdata/EMPTY_JSON.txt"
+	transceiverDomSensorTableByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+
+	var transceiverDomSensorTableJson interface{}
+	json.Unmarshal(transceiverDomSensorTableByte, &transceiverDomSensorTableJson)
+
 	tests := []struct {
-		desc string
-		q    client.Query
-		want []client.Notification
-		poll int
+		desc     string
+		q        client.Query
+		wantNoti []client.Notification
+		poll     int
 	}{
 		{
 			desc: "poll query for TRANSCEIVER_DOM_SENSOR",
-			poll: 10,
+			poll: 1,
 			q: client.Query{
 				Target:  "STATE_DB",
 				Type:    client.Poll,
 				Queries: []client.Path{{"TRANSCEIVER_DOM_SENSOR"}},
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
-			want: []client.Notification{
-				client.Connected{},
-				client.Sync{},
+			wantNoti: []client.Notification{
+				client.Update{Path: []string{"TRANSCEIVER_DOM_SENSOR"}, TS: time.Unix(0, 200), Val: transceiverDomSensorTableJson},
+				client.Update{Path: []string{"TRANSCEIVER_DOM_SENSOR"}, TS: time.Unix(0, 200), Val: transceiverDomSensorTableJson},
 			},
 		},
 	}
 	namespace, _ := sdcfg.GetDbDefaultNamespace()
+	prepareStateDb(t, namespace)
+	var mutexNoti sync.Mutex
+
 	for _, tt := range tests {
 		prepareStateDb(t, namespace)
 		t.Run(tt.desc, func(t *testing.T) {
@@ -3614,12 +3626,12 @@ func TestNonExistentTableNoError(t *testing.T) {
 			c := client.New()
 			var gotNoti []client.Notification
 			q.NotificationHandler = func(n client.Notification) error {
+				mutexNoti.Lock()
 				if nn, ok := n.(client.Update); ok {
 					nn.TS = time.Unix(0, 200)
 					gotNoti = append(gotNoti, nn)
-				} else {
-					gotNoti = append(gotNoti, n)
 				}
+				mutexNoti.Unlock()
 				return nil
 			}
 
@@ -3641,9 +3653,19 @@ func TestNonExistentTableNoError(t *testing.T) {
 				}
 			}
 
+			mutexNoti.Lock()
+
 			if len(gotNoti) == 0 {
 				t.Errorf("expected non zero notifications")
 			}
+
+			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+				t.Log("\n Want: \n", tt.wantNoti)
+				t.Log("\n Got: \n", gotNoti)
+				t.Errorf("unexpected updates: \n%s", diff)
+			}
+
+			mutexNoti.Unlock()
 
 			c.Close()
 		})
