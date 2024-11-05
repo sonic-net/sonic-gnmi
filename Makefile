@@ -51,9 +51,9 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap
 	$(GO) mod vendor
 
 # Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
-	sed -i 's/patch -d ${DEST_DIR}\/github.com\/golang\/glog/#patch -d ${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
+	sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
-	sed -i 's/#patch -d ${DEST_DIR}\/github.com\/golang\/glog/patch -d ${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
+	sed -i 's/#patch -d $${DEST_DIR}\/github.com\/golang\/glog/patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 
 	touch $@
 
@@ -63,6 +63,8 @@ go-deps-clean:
 	$(RM) -r vendor
 
 sonic-gnmi: $(GO_DEPS)
+# advancetls 1.0.0 release need following patch to build by go-1.19
+	patch -d vendor -p0 < patches/0002-Fix-advance-tls-build-with-go-119.patch
 # build service first which depends on advancetls
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
