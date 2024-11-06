@@ -165,6 +165,8 @@ func (srv *SystemServer) Reboot(ctx context.Context, req *gnoi_system_pb.RebootR
 		if err != nil {
 			return nil, err
 		}
+	default:
+		return nil, status.Errorf(codes.Unimplemented, "")
 	}
 
 	var resp gnoi_system_pb.RebootResponse
