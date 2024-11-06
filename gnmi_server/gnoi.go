@@ -135,6 +135,20 @@ func (srv *SystemServer) KillProcess(ctx context.Context, req *gnoi_system_pb.Ki
 	return &resp, nil
 }
 
+func HaltSystem() error {
+	sc,err := ssc.NewDbusClient()
+	if err != nil {
+		return err
+	}
+
+	log.V(2).Infof("Halting the system..")
+	err = sc.HaltSystem()
+	if err != nil {
+		log.V(2).Infof("Failed to Halt the system %v", err);
+	}
+	return err
+}
+
 // TODO: Support GNOI Reboot
 func (srv *SystemServer) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
 	_, err := authenticate(srv.config, ctx)
