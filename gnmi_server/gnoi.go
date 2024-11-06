@@ -149,14 +149,26 @@ func HaltSystem() error {
 	return err
 }
 
-// TODO: Support GNOI Reboot
 func (srv *SystemServer) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
 		return nil, err
 	}
 	log.V(1).Info("gNOI: Reboot")
-	return nil, status.Errorf(codes.Unimplemented, "")
+	log.V(1).Info("Request:", req)
+
+	// Check the reboot type
+	switch req.GetMethod() {
+	case gnoi_system_pb.RebootMethod_HALT:
+		log.V(1).Info("Reboot method is HALT. Halting the system...")
+		err = HaltSystem()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var resp gnoi_system_pb.RebootResponse
+	return &resp, nil
 }
 
 // TODO: Support GNOI RebootStatus
