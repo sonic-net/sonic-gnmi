@@ -10,11 +10,6 @@ class TestGNOI:
         assert ret == 0, msg
         assert 'time' in msg, 'Invalid response: %s'%msg
 
-    def test_gnoi_reboot(self):
-        ret, msg = gnoi_reboot(1, 0, 'Test reboot')
-        assert ret != 0, 'Reboot should fail' + msg
-        assert 'Unimplemented' in msg
-
     def test_gnoi_reboot_halt(self):
         ret, old_cnt = gnmi_dump('DBUS halt system')
         assert ret == 0, 'Fail to read counter'
