@@ -212,7 +212,7 @@ func authenticate(config *Config, ctx context.Context) (context.Context, error) 
 		}
 	}
 	if !success && config.UserAuth.Enabled("cert") {
-		ctx, err = ClientCertAuthenAndAuthor(ctx)
+		ctx, err = ClientCertAuthenAndAuthor(ctx, config.ConfigTableName)
 		if err == nil {
 			success = true
 		}
