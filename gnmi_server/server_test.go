@@ -4285,6 +4285,8 @@ func TestGnoiAuthorization(t *testing.T) {
 	if err == nil {
 		t.Errorf("CopyConfig should failed, because not implement.")
 	}
+
+	s.s.Stop()
 }
 
 func init() {
