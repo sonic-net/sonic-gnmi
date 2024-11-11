@@ -111,7 +111,7 @@ endif
 	rm -rf vendor/golang.org/x/crypto/
 	rm -rf vendor/github.com/jipanyang/gnxi/
 	mv backup_crypto/ vendor/golang.org/x/crypto/
-	mkdir backup_gnxi/ vendor/github.com/jipanyang/gnxi/
+	mv backup_gnxi/ vendor/github.com/jipanyang/gnxi/
 
 swsscommon_wrap:
 	make -C swsscommon
