@@ -53,7 +53,7 @@ func PopulateAuthStructByCommonName(certCommonName string, auth *common_utils.Au
 	}
 
 	var configDbConnector = swsscommon.NewConfigDBConnector_Native()
-	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
+	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector)
 	configDbConnector.Connect(false)
 
 	var fieldValuePairs = configDbConnector.Get_entry(serviceConfigTableName, certCommonName)
