@@ -51,7 +51,7 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap
 	$(GO) mod vendor
 
 # Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
-	sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
+	sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
 	sed -i 's/#patch -d $${DEST_DIR}\/github.com\/golang\/glog/patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 
@@ -63,6 +63,8 @@ go-deps-clean:
 	$(RM) -r vendor
 
 sonic-gnmi: $(GO_DEPS)
+# advancetls 1.0.0 release need following patch to build by go-1.19
+	patch -d vendor -p0 < patches/0002-Fix-advance-tls-build-with-go-119.patch
 # build service first which depends on advancetls
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
@@ -81,12 +83,15 @@ endif
 endif
 
 # download and apply patch for gnmi client, which will break advancetls
-	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
-	$(GO) mod download github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0
+# backup crypto and gnxi
 	mkdir backup_crypto
 	mkdir backup_gnxi
 	cp -r vendor/golang.org/x/crypto/* backup_crypto/
 	cp -r vendor/github.com/jipanyang/gnxi/* backup_gnxi/
+
+# download and patch crypto and gnxi
+	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
+	$(GO) mod download github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0
 	cp -r $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413/* vendor/golang.org/x/crypto/
 	cp -r $(GOPATH)/pkg/mod/github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0/* vendor/github.com/jipanyang/gnxi/
 	chmod -R u+w vendor
@@ -194,5 +199,3 @@ endif
 	rm $(DESTDIR)/usr/sbin/gnmi_set
 	rm $(DESTDIR)/usr/sbin/gnoi_client
 	rm $(DESTDIR)/usr/sbin/gnmi_dump
-
-
