@@ -35,8 +35,16 @@ func TestCrlCache(t *testing.T) {
 	InitCrlCache()
 	defer ReleaseCrlCache()
 
-	rawCRL, _ := os.ReadFile("/tmp/testdata/crl/test.crl")
+	rawCRL, _ := os.ReadFile("../testdata/crl/test.crl")
+	if rawCRL == nil {
+		t.Errorf("TestCrlCache test failed, crl file missing.")
+	}
 	AppendCrlToCache("http://test.crl.com/test.crl", rawCRL)
+
+	// mock to make test CRL valied
+	mockCrlExpired := gomonkey.ApplyFunc(CrlExpired, func(crl *Crl) bool {
+		return true
+	})
 
 	// test CRL expired
 	exist, cacheItem := SearchCrlCache("http://test.crl.com/test.crl")
@@ -67,10 +75,11 @@ func TestCrlCache(t *testing.T) {
 	}
 
 	// mock to make test CRL valied
-	mockCrlExpired := gomonkey.ApplyFunc(CrlExpired, func(crl *Crl) bool {
+	mockCrlExpired.Reset()
+	mockCrlNeedUpdate := gomonkey.ApplyFunc(CrlNeedUpdate, func(crl *Crl) bool {
 		return false
 	})
-	defer mockCrlExpired.Reset()
+	defer mockCrlNeedUpdate.Reset()
 
 	AppendCrlToCache("http://test.crl.com/test.crl", rawCRL)
 	exist, cacheItem = SearchCrlCache("http://test.crl.com/test.crl")
@@ -148,21 +157,21 @@ func TestVerifyCertCrl(t *testing.T) {
 	defer mockCrlExpired.Reset()
 
 	mockTryDownload := gomonkey.ApplyFunc(TryDownload, func(url string) bool {
-		rawCRL, _ := os.ReadFile("/tmp/testdata/crl/test.crl")
+		rawCRL, _ := os.ReadFile("../testdata/crl/test.crl")
 		AppendCrlToCache("http://test.crl.com/test.crl", rawCRL)
 		return true
 	})
 	defer mockTryDownload.Reset()
 
 	// test revoked cert
-	tlsConnState := CreateConnectionState("/tmp/testdata/crl/revokedInt.pem")
+	tlsConnState := CreateConnectionState("../testdata/crl/revokedInt.pem")
 	err := VerifyCertCrl(tlsConnState)
 	if err == nil {
 		t.Errorf("TestVerifyCertCrl verify revoked cert failed.")
 	}
 
 	// test valid cert
-	tlsConnState = CreateConnectionState("/tmp/testdata/crl/unrevoked.pem")
+	tlsConnState = CreateConnectionState("../testdata/crl/unrevoked.pem")
 	err = VerifyCertCrl(tlsConnState)
 	if err != nil {
 		t.Errorf("TestVerifyCertCrl verify unrevoked cert failed.")
@@ -185,7 +194,7 @@ func TestVerifyCertCrlWithDownloadFailed(t *testing.T) {
 	defer mockTryDownload.Reset()
 
 	// test valid cert,should failed because download CRL failed
-	tlsConnState := CreateConnectionState("/tmp/testdata/crl/unrevoked.pem")
+	tlsConnState := CreateConnectionState("../testdata/crl/unrevoked.pem")
 	err := VerifyCertCrl(tlsConnState)
 	if err == nil {
 		t.Errorf("TestVerifyCertCrl verify unrevoked cert should failed when CRL can't download.")
