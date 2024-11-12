@@ -114,7 +114,7 @@ func (c *DbusClient) ApplyPatchYang(patch string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".apply_patch_yang"
-	err := DbusApi(busName, busPath, intName, 240, patch)
+	err := DbusApi(busName, busPath, intName, 600, patch)
 	return err
 }
 
@@ -124,7 +124,7 @@ func (c *DbusClient) ApplyPatchDb(patch string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".apply_patch_db"
-	err := DbusApi(busName, busPath, intName, 240, patch)
+	err := DbusApi(busName, busPath, intName, 600, patch)
 	return err
 }
 
