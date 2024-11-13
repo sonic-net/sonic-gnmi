@@ -64,7 +64,7 @@ go-deps-clean:
 
 sonic-gnmi: $(GO_DEPS)
 # advancetls 1.0.0 release need following patch to build by go-1.19
-	patch -d vendor -p0 < patches/0002-Fix-advance-tls-build-with-go-119.patch
+#	patch -d vendor -p0 < patches/0002-Fix-advance-tls-build-with-go-119.patch
 # build service first which depends on advancetls
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
