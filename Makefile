@@ -49,11 +49,17 @@ go.mod:
 
 $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap
 	$(GO) mod vendor
+	$(GO) mod download github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0
+	cp -r $(GOPATH)/pkg/mod/github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0/* vendor/github.com/jipanyang/gnxi/
 
 # Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
 	sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
 	sed -i 's/#patch -d $${DEST_DIR}\/github.com\/golang\/glog/patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
+
+	chmod -R u+w vendor
+	patch -d vendor -p0 < patches/gnmi_path.patch
+	patch -d vendor -p0 < patches/gnmi_xpath.patch
 
 	touch $@
 
@@ -85,21 +91,15 @@ endif
 # download and apply patch for gnmi client, which will break advancetls
 # backup crypto and gnxi
 	mkdir backup_crypto
-	mkdir backup_gnxi
 	cp -r vendor/golang.org/x/crypto/* backup_crypto/
-	cp -r vendor/github.com/jipanyang/gnxi/* backup_gnxi/
 
 # download and patch crypto and gnxi
 	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
-	$(GO) mod download github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0
 	cp -r $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413/* vendor/golang.org/x/crypto/
-	cp -r $(GOPATH)/pkg/mod/github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0/* vendor/github.com/jipanyang/gnxi/
 	chmod -R u+w vendor
 	patch -d vendor -p0 < patches/gnmi_cli.all.patch
 	patch -d vendor -p0 < patches/gnmi_set.patch
 	patch -d vendor -p0 < patches/gnmi_get.patch
-	patch -d vendor -p0 < patches/gnmi_path.patch
-	patch -d vendor -p0 < patches/gnmi_xpath.patch
 	git apply patches/0001-Updated-to-filter-and-write-to-file.patch
 
 ifeq ($(CROSS_BUILD_ENVIRON),y)
@@ -114,9 +114,7 @@ endif
 
 # restore old version
 	rm -rf vendor/golang.org/x/crypto/
-	rm -rf vendor/github.com/jipanyang/gnxi/
 	mv backup_crypto/ vendor/golang.org/x/crypto/
-	mv backup_gnxi/ vendor/github.com/jipanyang/gnxi/
 
 swsscommon_wrap:
 	make -C swsscommon
