@@ -91,7 +91,6 @@ endif
 # download and apply patch for gnmi client, which will break advancetls
 # backup crypto and gnxi
 	mkdir backup_crypto
-	mkdir backup_gnxi
 	cp -r vendor/golang.org/x/crypto/* backup_crypto/
 
 # download and patch crypto and gnxi
