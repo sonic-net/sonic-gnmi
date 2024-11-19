@@ -1,0 +1,33 @@
+--- ./google.golang.org/grpc/security/advancedtls/advancedtls.go
++++ ./google.golang.org/grpc/security/advancedtls/advancedtls.go
+@@ -576,7 +576,7 @@ func buildVerifyFunc(c *advancedTLSCreds,
+ 			if verifiedChains == nil {
+ 				verifiedChains = CertificateChains{rawCertList}
+ 			}
+-			if err := checkChainRevocation(verifiedChains, *c.revocationOptions); err != nil {
++			if err := CheckChainRevocation(verifiedChains, *c.revocationOptions); err != nil {
+ 				return err
+ 			}
+ 		}
+		
+--- ./google.golang.org/grpc/security/advancedtls/crl.go
++++ ./google.golang.org/grpc/security/advancedtls/crl.go
+@@ -119,7 +119,7 @@ var (
+ 
+ // checkChainRevocation checks the verified certificate chain
+ // for revoked certificates based on RFC5280.
+-func checkChainRevocation(verifiedChains [][]*x509.Certificate, cfg RevocationOptions) error {
++func CheckChainRevocation(verifiedChains [][]*x509.Certificate, cfg RevocationOptions) error {
+ 	// Iterate the verified chains looking for one that is RevocationUnrevoked.
+ 	// A single RevocationUnrevoked chain is enough to allow the connection, and a single RevocationRevoked
+ 	// chain does not mean the connection should fail.
+@@ -224,7 +224,7 @@ func checkCertRevocation(c *x509.Certificate, crl *CRL) (revocationStatus, error
+ 	rawEntryIssuer := crl.rawIssuer
+ 
+ 	// Loop through all the revoked certificates.
+-	for _, revCert := range crl.certList.RevokedCertificateEntries {
++	for _, revCert := range crl.certList.RevokedCertificates {
+ 		// 5.3 Loop through CRL entry extensions for needed information.
+ 		for _, ext := range revCert.Extensions {
+ 			if oidCertificateIssuer.Equal(ext.Id) {
+-- 
