@@ -245,7 +245,7 @@ func TestClientCertAuthenAndAuthorWithCrl(t *testing.T) {
 func TestTryDownload(t *testing.T) {
 	// Use this test case for improve coverage
 	downloaded := TryDownload("http://127.0.0.1:1234/")
-	if downloaded != true {
+	if downloaded != false {
 		t.Errorf("Download should failed: %v", downloaded)
 	}
 }
