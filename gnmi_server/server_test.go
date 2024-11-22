@@ -4024,14 +4024,6 @@ func TestRecoverFromJSONSerializationPanic(t *testing.T) {
 }
 
 func TestGnmiSetBatch(t *testing.T) {
-	mockCode :=
-		`
-print('No Yang validation for test mode...')
-print('%s')
-`
-	mock1 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
-	defer mock1.Reset()
-
 	sdcfg.Init()
 	s := createServer(t, 8090)
 	go runServer(t, s)
@@ -4110,8 +4102,6 @@ func TestGNMINative(t *testing.T) {
 		return &dbus.Call{}
 	})
 	defer mock2.Reset()
-	mock3 := gomonkey.ApplyFunc(sdc.RunPyCode, func(text string) error {return nil})
-	defer mock3.Reset()
 
 	sdcfg.Init()
 	s := createServer(t, 8080)

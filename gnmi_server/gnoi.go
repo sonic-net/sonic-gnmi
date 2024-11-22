@@ -2,8 +2,6 @@ package gnmi
 
 import (
 	"context"
-	"errors"
-	"os"
 	"strconv"
 	"strings"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
@@ -12,10 +10,8 @@ import (
 	"time"
 	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
-	io "io/ioutil"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
-	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/codes"
 	"os/user"
@@ -153,19 +149,7 @@ func HaltSystem() error {
 	return err
 }
 
-func RebootSystem(fileName string) error {
-	log.V(2).Infof("Rebooting with %s...", fileName)
-	sc, err := ssc.NewDbusClient()
-	if err != nil {
-		return err
-	}
-	err = sc.ConfigReload(fileName)
-	return err
-}
-
 func (srv *SystemServer) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
-	fileName := common_utils.GNMI_WORK_PATH + "/config_db.json.tmp"
-
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
 		return nil, err
@@ -182,18 +166,7 @@ func (srv *SystemServer) Reboot(ctx context.Context, req *gnoi_system_pb.RebootR
 			return nil, err
 		}
 	default:
-		log.V(1).Info("Reboot system now, delay is ignored...")
-		// TODO: Support GNOI reboot delay
-		// Delay in nanoseconds before issuing reboot.
-		// https://github.com/openconfig/gnoi/blob/master/system/system.proto#L102-L115
-		config_db_json, err := io.ReadFile(fileName)
-		if errors.Is(err, os.ErrNotExist) {
-			fileName = ""
-		}
-		err = RebootSystem(string(config_db_json))
-		if err != nil {
-			return nil, err
-		}
+		return nil, status.Errorf(codes.Unimplemented, "")
 	}
 
 	var resp gnoi_system_pb.RebootResponse

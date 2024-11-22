@@ -13,7 +13,7 @@ func TestSystemBusNegative(t *testing.T) {
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
-	err = client.ConfigReload("abc")
+	err = client.ConfigReload("abc", "")
 	if err == nil {
 		t.Errorf("SystemBus should fail")
 	}
@@ -121,7 +121,7 @@ func TestConfigReload(t *testing.T) {
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
-	err = client.ConfigReload("abc")
+	err = client.ConfigReload("abc", "")
 	if err != nil {
 		t.Errorf("ConfigReload should pass: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestConfigReloadNegative(t *testing.T) {
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
-	err = client.ConfigReload("abc")
+	err = client.ConfigReload("abc", "")
 	if err == nil {
 		t.Errorf("ConfigReload should fail")
 	}
@@ -160,15 +160,20 @@ func TestConfigReloadNegative(t *testing.T) {
 	}
 }
 
-func TestConfigReloadTimeout(t *testing.T) {
+func TestConfigReloadForce(t *testing.T) {
 	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
 		return &dbus.Conn{}, nil
 	})
 	defer mock1.Reset()
 	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
-		if method != "org.SONiC.HostService.config.reload" {
+		if method != "org.SONiC.HostService.config.reload_force" {
 			t.Errorf("Wrong method: %v", method)
 		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ch <- ret
 		return &dbus.Call{}
 	})
 	defer mock2.Reset()
@@ -177,9 +182,42 @@ func TestConfigReloadTimeout(t *testing.T) {
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
-	err = client.ConfigReload("abc")
+	err = client.ConfigReloadForce("abc", "")
+	if err != nil {
+		t.Errorf("ConfigReload should pass: %v", err)
+	}
+}
+
+func TestConfigReloadForceNegative(t *testing.T) {
+	err_msg := "This is the mock error message"
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.config.reload_force" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(1)
+		ret.Body[1] = err_msg
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	err = client.ConfigReloadForce("abc", "")
 	if err == nil {
-		t.Errorf("ConfigReload should timeout: %v", err)
+		t.Errorf("ConfigReload should fail")
+	}
+	if err.Error() != err_msg {
+		t.Errorf("Wrong error: %v", err)
 	}
 }
 
@@ -241,6 +279,29 @@ func TestConfigSaveNegative(t *testing.T) {
 	}
 	if err.Error() != err_msg {
 		t.Errorf("Wrong error: %v", err)
+	}
+}
+
+func TestConfigSaveTimeout(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.config.save" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	err = client.ConfigSave("")
+	if err == nil {
+		t.Errorf("ConfigSave should timeout: %v", err)
 	}
 }
 
@@ -482,6 +543,67 @@ func TestDeleteCheckPointNegative(t *testing.T) {
 	err = client.DeleteCheckPoint("abc")
 	if err == nil {
 		t.Errorf("DeleteCheckPoint should fail")
+	}
+	if err.Error() != err_msg {
+		t.Errorf("Wrong error: %v", err)
+	}
+}
+
+func TestValidateYang(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.yang.validate" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	err = client.ValidateYang("abc")
+	if err != nil {
+		t.Errorf("ValidateYang should pass: %v", err)
+	}
+}
+
+func TestValidateYangNegative(t *testing.T) {
+	err_msg := "This is the mock error message"
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.yang.validate" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(1)
+		ret.Body[1] = err_msg
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	err = client.ValidateYang("abc")
+	if err == nil {
+		t.Errorf("ValidateYang should fail")
 	}
 	if err.Error() != err_msg {
 		t.Errorf("Wrong error: %v", err)
