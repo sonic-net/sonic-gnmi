@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
 
 type ServerControlValue int
@@ -58,6 +59,8 @@ type TelemetryConfig struct {
 	WithSaveOnSet         *bool
 	IdleConnDuration      *int
 	Vrf                   *string
+	EnableCrl             *bool
+	CrlExpireDuration     *int
 }
 
 func main() {
@@ -85,6 +88,9 @@ func runTelemetry(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// enable swss-common debug level
+	swsscommon.LoggerLinkToDbNative("telemetry")
 
 	var wg sync.WaitGroup
 	// serverControlSignal channel is a channel that will be used to notify gnmi server to start, stop, restart, depending of syscall or cert updates
@@ -167,6 +173,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		WithSaveOnSet:         fs.Bool("with-save-on-set", false, "Enables save-on-set."),
 		IdleConnDuration:      fs.Int("idle_conn_duration", 5, "Seconds before server closes idle connections"),
 		Vrf:                   fs.String("vrf", "", "VRF name, when zmq_address belong on a VRF, need VRF name to bind ZMQ."),
+		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
+		CrlExpireDuration:     fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -230,6 +238,9 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.IdleConnDuration = int(*telemetryCfg.IdleConnDuration)
 	cfg.ConfigTableName = *telemetryCfg.ConfigTableName
 	cfg.Vrf = *telemetryCfg.Vrf
+	cfg.EnableCrl = *telemetryCfg.EnableCrl
+
+	gnmi.SetCrlExpireDuration(time.Duration(*telemetryCfg.CrlExpireDuration) * time.Second)
 
 	// TODO: After other dependent projects are migrated to ZmqPort, remove ZmqAddress
 	zmqAddress := *telemetryCfg.ZmqAddress
