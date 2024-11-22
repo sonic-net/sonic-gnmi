@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
 
 type ServerControlValue int
@@ -87,6 +88,9 @@ func runTelemetry(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// enable swss-common debug level
+	swsscommon.LoggerLinkToDbNative("telemetry")
 
 	var wg sync.WaitGroup
 	// serverControlSignal channel is a channel that will be used to notify gnmi server to start, stop, restart, depending of syscall or cert updates
