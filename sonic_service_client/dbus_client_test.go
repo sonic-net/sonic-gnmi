@@ -1,8 +1,8 @@
 package host_service
 
 import (
-	"testing"
 	"reflect"
+	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"
@@ -27,7 +27,7 @@ func TestGetFileStat(t *testing.T) {
 		"size":          "1024",
 		"umask":         "022",
 	}
-	
+
 	// Mocking the DBus API to return the expected result
 	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
 		return &dbus.Conn{}, nil
@@ -65,7 +65,7 @@ func TestGetFileStat(t *testing.T) {
 func TestGetFileStatNegative(t *testing.T) {
 	errMsg := "This is the mock error message"
 
-    // Mocking the DBus API to return an error
+	// Mocking the DBus API to return an error
 	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
 		return &dbus.Conn{}, nil
 	})
@@ -485,5 +485,163 @@ func TestDeleteCheckPointNegative(t *testing.T) {
 	}
 	if err.Error() != err_msg {
 		t.Errorf("Wrong error: %v", err)
+	}
+}
+
+func TestDownloadImageSuccess(t *testing.T) {
+	url := "http://example/sonic-img"
+	save_as := "/tmp/sonic-img"
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.image_service.download" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		if len(args) != 2 {
+			t.Errorf("Wrong number of arguments: %v", len(args))
+		}
+		if args[0] != url {
+			t.Errorf("Wrong URL: %v", args[0])
+		}
+		if args[1] != save_as {
+			t.Errorf("Wrong save_as: %v", args[1])
+		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	err = client.DownloadImage(url, save_as)
+	if err != nil {
+		t.Errorf("Download should pass: %v", err)
+	}
+}
+
+func TestDownloadImageFail(t *testing.T) {
+	url := "http://example/sonic-img"
+	save_as := "/tmp/sonic-img"
+	err_msg := "This is the mock error message"
+
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.image_service.download" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		if len(args) != 2 {
+			t.Errorf("Wrong number of arguments: %v", len(args))
+		}
+		if args[0] != url {
+			t.Errorf("Wrong URL: %v", args[0])
+		}
+		if args[1] != save_as {
+			t.Errorf("Wrong save_as: %v", args[1])
+		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(1)
+		ret.Body[1] = err_msg
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	err = client.DownloadImage(url, save_as)
+	if err == nil {
+		t.Errorf("Download should fail")
+	}
+	if err.Error() != err_msg {
+		t.Errorf("Expected error message '%s' but got '%v'", err_msg, err)
+	}
+}
+func TestInstallImageSuccess(t *testing.T) {
+	where := "/tmp/sonic-img"
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.image_service.install" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		if len(args) != 1 {
+			t.Errorf("Wrong number of arguments: %v", len(args))
+		}
+		if args[0] != where {
+			t.Errorf("Wrong where: %v", args[0])
+		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	err = client.InstallImage(where)
+	if err != nil {
+		t.Errorf("InstallImage should pass: %v", err)
+	}
+}
+func TestInstallImageFail(t *testing.T) {
+	where := "/tmp/sonic-img"
+	err_msg := "This is the mock error message"
+
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.image_service.install" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		if len(args) != 1 {
+			t.Errorf("Wrong number of arguments: %v", len(args))
+		}
+		if args[0] != where {
+			t.Errorf("Wrong where: %v", args[0])
+		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(1)
+		ret.Body[1] = err_msg
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	err = client.InstallImage(where)
+	if err == nil {
+		t.Errorf("InstallImage should fail")
+	}
+	if err.Error() != err_msg {
+		t.Errorf("Expected error message '%s' but got '%v'", err_msg, err)
 	}
 }

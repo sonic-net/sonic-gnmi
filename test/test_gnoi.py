@@ -15,6 +15,17 @@ class TestGNOI:
         assert ret == 2, msg
         assert 'Response Notification timeout from Reboot Backend' in msg
 
+    def test_gnoi_reboot_halt(self):
+        ret, old_cnt = gnmi_dump('DBUS halt system')
+        assert ret == 0, 'Fail to read counter'
+
+        ret, msg = gnoi_reboot(3, 0, 'Test halt system')
+        assert ret == 0, msg
+
+        ret, new_cnt = gnmi_dump('DBUS halt system')
+        assert ret == 0, 'Fail to read counter'
+        assert new_cnt == old_cnt+1, 'DBUS API is not invoked'
+
     def test_gnoi_rebootstatus(self):
         ret, msg = gnoi_rebootstatus()
         assert ret == 2, msg

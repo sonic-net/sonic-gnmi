@@ -1,10 +1,26 @@
+# Build directory
 build/
+
+# Debian packaging files
 debian/.debhelper/
 debian/files
 debian/sonic-telemetry.debhelper.log
 debian/sonic-telemetry.substvars
 debian/sonic-telemetry/
-vendor
-src
-cvl
-translib
+debian/sonic-gnmi.debhelper.log
+debian/sonic-gnmi.substvars
+debian/sonic-gnmi/
+
+# Vendor directory
+vendor/
+
+# Source directories
+src/
+cvl/
+translib/
+
+# SWSS common generated files
+swsscommon/swsscommon.go
+swsscommon/swsscommon.i
+swsscommon/swsscommon_wrap.cxx
+swsscommon/swsscommon_wrap.h

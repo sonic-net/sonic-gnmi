@@ -1297,11 +1297,11 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 	},
 		{
 			desc:       "Get valid but non-existing node",
-			pathTarget: "COUNTERS_DB",
+			pathTarget: stateDBPath,
 			textPbPath: `
-			elem: <name: "MyCounters" >
-		`,
-			wantRetCode: codes.NotFound,
+				elem: <name: "TRANSCEIVER_DOM_SENSOR" >
+			`,
+			wantRetCode: codes.OK,
 		}, {
 			desc:       "Get COUNTERS_PORT_NAME_MAP",
 			pathTarget: "COUNTERS_DB",
@@ -3475,6 +3475,191 @@ func TestClientConnections(t *testing.T) {
 	}
 }
 
+func TestWildcardTableNoError(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.ForceStop()
+
+	fileName := "../testdata/NEIGH_STATE_TABLE_MAP.txt"
+	neighStateTableByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+
+	var neighStateTableJson interface{}
+	json.Unmarshal(neighStateTableByte, &neighStateTableJson)
+
+	tests := []struct {
+		desc     string
+		q        client.Query
+		wantNoti []client.Notification
+		poll     int
+	}{
+		{
+			desc: "poll query for NEIGH_STATE_TABLE",
+			poll: 1,
+			q: client.Query{
+				Target:  "STATE_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"NEIGH_STATE_TABLE"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			wantNoti: []client.Notification{
+				client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
+				client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
+			},
+		},
+	}
+	namespace, _ := sdcfg.GetDbDefaultNamespace()
+	prepareStateDb(t, namespace)
+	var mutexNoti sync.Mutex
+	for _, tt := range tests {
+
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
+			var gotNoti []client.Notification
+			q.NotificationHandler = func(n client.Notification) error {
+				mutexNoti.Lock()
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				}
+				mutexNoti.Unlock()
+				return nil
+			}
+
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				if err := c.Subscribe(context.Background(), q); err != nil {
+					t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+				}
+			}()
+
+			wg.Wait()
+
+			for i := 0; i < tt.poll; i++ {
+				if err := c.Poll(); err != nil {
+					t.Errorf("c.Poll(): got error %v, expected nil", err)
+				}
+			}
+
+			mutexNoti.Lock()
+
+			if len(gotNoti) == 0 {
+				t.Errorf("expected non zero notifications")
+			}
+
+			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+				t.Log("\n Want: \n", tt.wantNoti)
+				t.Log("\n Got: \n", gotNoti)
+				t.Errorf("unexpected updates: \n%s", diff)
+			}
+
+			mutexNoti.Unlock()
+
+			c.Close()
+		})
+	}
+}
+
+func TestNonExistentTableNoError(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.ForceStop()
+
+	fileName := "../testdata/EMPTY_JSON.txt"
+	transceiverDomSensorTableByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+
+	var transceiverDomSensorTableJson interface{}
+	json.Unmarshal(transceiverDomSensorTableByte, &transceiverDomSensorTableJson)
+
+	tests := []struct {
+		desc     string
+		q        client.Query
+		wantNoti []client.Notification
+		poll     int
+	}{
+		{
+			desc: "poll query for TRANSCEIVER_DOM_SENSOR",
+			poll: 1,
+			q: client.Query{
+				Target:  "STATE_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"TRANSCEIVER_DOM_SENSOR"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			wantNoti: []client.Notification{
+				client.Update{Path: []string{"TRANSCEIVER_DOM_SENSOR"}, TS: time.Unix(0, 200), Val: transceiverDomSensorTableJson},
+				client.Update{Path: []string{"TRANSCEIVER_DOM_SENSOR"}, TS: time.Unix(0, 200), Val: transceiverDomSensorTableJson},
+			},
+		},
+	}
+	namespace, _ := sdcfg.GetDbDefaultNamespace()
+	prepareStateDb(t, namespace)
+	var mutexNoti sync.Mutex
+
+	for _, tt := range tests {
+		prepareStateDb(t, namespace)
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
+			var gotNoti []client.Notification
+			q.NotificationHandler = func(n client.Notification) error {
+				mutexNoti.Lock()
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				}
+				mutexNoti.Unlock()
+				return nil
+			}
+
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				if err := c.Subscribe(context.Background(), q); err != nil {
+					t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+				}
+			}()
+
+			wg.Wait()
+
+			for i := 0; i < tt.poll; i++ {
+				if err := c.Poll(); err != nil {
+					t.Errorf("c.Poll(): got error %v, expected nil", err)
+				}
+			}
+
+			mutexNoti.Lock()
+
+			if len(gotNoti) == 0 {
+				t.Errorf("expected non zero notifications")
+			}
+
+			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+				t.Log("\n Want: \n", tt.wantNoti)
+				t.Log("\n Got: \n", gotNoti)
+				t.Errorf("unexpected updates: \n%s", diff)
+			}
+
+			mutexNoti.Unlock()
+
+			c.Close()
+		})
+	}
+}
+
 func TestConnectionDataSet(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
@@ -4293,7 +4478,7 @@ func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
 	return ctx, cancel
 }
 
-	func TestClientCertAuthenAndAuthor(t *testing.T) {
+func TestClientCertAuthenAndAuthor(t *testing.T) {
 	if !swsscommon.SonicDBConfigIsInit() {
 		swsscommon.SonicDBConfigInitialize()
 	}
@@ -4313,7 +4498,7 @@ func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
 
 	// check auth with nil cert name
 	ctx, cancel := CreateAuthorizationCtx()
-	ctx, err = ClientCertAuthenAndAuthor(ctx, "")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with empty config table should success: %v", err)
 	}
@@ -4324,7 +4509,7 @@ func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
 	gnmiTable.Hset("certname1", "role", "role1")
-	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
 	}
@@ -4336,7 +4521,7 @@ func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
 	configDb.Flushdb()
 	gnmiTable.Hset("certname1", "role", "role1")
 	gnmiTable.Hset("certname2", "role", "role2")
-	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
 	}
@@ -4347,7 +4532,7 @@ func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
 	gnmiTable.Hset("certname2", "role", "role2")
-	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err == nil {
 		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
 	}
