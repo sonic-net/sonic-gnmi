@@ -31,6 +31,12 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
+    - name: Checkout sonic-mgmt-common repository
+      uses: actions/checkout@v3
+      with:
+        repository: owner/sonic-mgmt-common
+        path: ../sonic-mgmt-common
+
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v2.1.29
