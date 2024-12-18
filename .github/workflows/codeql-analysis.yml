@@ -39,7 +39,7 @@ jobs:
         path: sonic-mgmt-common
         # Checkout the branch that is being merged into
         # This workflow has been audited, and no secrets or untrusted code are exposed to the pull_request_target trigger.
-        ref: ${{ github.event.pull_request.base.ref }} # nosem: yaml.github-actions.security.pull-request-target-code-checkout.pull-request-target-code-checkout
+        ref: ${{ github.event.pull_request.base.ref }} # nosemgrep: yaml.github-actions.security.pull-request-target-code-checkout.pull-request-target-code-checkout
 
     # Update go.mod to use local sonic-mgmt-common.
     # This is the same hack used in the CI pipeline. See lgtm.yml.
