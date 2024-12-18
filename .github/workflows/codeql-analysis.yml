@@ -31,10 +31,12 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
+    # Checkout sonic-mgmt-common repository which sonic-gnmi depends on.
     - name: Checkout sonic-mgmt-common repository
       uses: actions/checkout@v3
       with:
         repository: sonic-net/sonic-mgmt-common
+        # build requires sonic-mgmt-common to be in the same directory as sonic-gnmi.
         path: ../sonic-mgmt-common
         ref: ${{ github.event.pull_request.base.ref }}
 
