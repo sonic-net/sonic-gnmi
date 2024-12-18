@@ -13,6 +13,10 @@ on:
       - '202[0-9][0-9][0-9]'
   workflow_dispatch:
 
+env:
+  BUILD_BRANCH: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.ref || github.ref_name }}
+
+
 jobs:
   analyze:
     name: Analyze
@@ -37,10 +41,7 @@ jobs:
       with:
         repository: sonic-net/sonic-mgmt-common
         path: sonic-mgmt-common
-        # Checkout the branch that is being merged into
-        # This workflow has been audited, and no secrets or untrusted code are exposed to the pull_request_target trigger.
-        # nosemgrep: yaml.github-actions.security.pull-request-target-code-checkout.pull-request-target-code-checkout
-        ref: ${{ github.event.pull_request.base.ref }} 
+        ref: refs/heads/${{ env.BUILD_BRANCH }}
 
     # Update go.mod to use local sonic-mgmt-common.
     # This is the same hack used in the CI pipeline. See lgtm.yml.
