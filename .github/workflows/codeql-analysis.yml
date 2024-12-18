@@ -35,7 +35,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         repository: sonic-net/sonic-mgmt-common
-        path: sonic-mgmt-common
+        path: ../sonic-mgmt-common
         ref: ${{ github.event.pull_request.base.ref }}
 
     # Initializes the CodeQL tools for scanning.
