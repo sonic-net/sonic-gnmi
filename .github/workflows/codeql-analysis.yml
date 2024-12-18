@@ -13,6 +13,10 @@ on:
       - '202[0-9][0-9][0-9]'
   workflow_dispatch:
 
+env:
+  BUILD_BRANCH: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.ref || github.ref_name }}
+
+
 jobs:
   analyze:
     name: Analyze
@@ -30,6 +34,20 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
+
+    # Checkout sonic-mgmt-common repository which is used by sonic-gnmi
+    - name: Checkout sonic-mgmt-common repository
+      uses: actions/checkout@v3
+      with:
+        repository: sonic-net/sonic-mgmt-common
+        path: sonic-mgmt-common
+        ref: refs/heads/${{ env.BUILD_BRANCH }}
+
+    # Update go.mod to use local sonic-mgmt-common.
+    # This is the same hack used in the CI pipeline. See lgtm.yml.
+    # We should find a better way to do this.
+    - name: Update go.mod for sonic-mgmt-common
+      run: sed -i 's@replace github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common@replace github.com/Azure/sonic-mgmt-common => ./sonic-mgmt-common@g' go.mod
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
