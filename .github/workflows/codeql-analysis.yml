@@ -47,7 +47,7 @@ jobs:
     # This is the same hack used in the CI pipeline. See lgtm.yml.
     # We should find a better way to do this.
     - name: Update go.mod for sonic-mgmt-common
-      run: sed --debug -i 's@replace github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common@replace github.com/Azure/sonic-mgmt-common => ./sonic-mgmt-common@g' go.mod
+      run: sed -i 's@replace github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common@replace github.com/Azure/sonic-mgmt-common => ./sonic-mgmt-common@g' go.mod
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
