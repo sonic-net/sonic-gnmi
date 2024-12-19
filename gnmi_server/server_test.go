@@ -245,6 +245,7 @@ func createKeepAliveServer(t *testing.T, port int64) *Server {
 func TestPFCWDErrors(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
+	defer s.ForceStop()
 
 	mock := gomonkey.ApplyFunc(sdc.GetPfcwdMap, func() (map[string]map[string]string, error)  {
 		return nil, fmt.Errorf("Mock error")
@@ -334,7 +335,6 @@ func TestPFCWDErrors(t *testing.T) {
 			c.Close()
 		})
 	}
-	s.s.Stop()
 }
 
 
