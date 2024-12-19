@@ -282,13 +282,17 @@ func TestPFCWDErrors(t *testing.T) {
 		},
 	}
 
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	prepareDb(t, ns)
+	var mutexGotNoti sync.Mutex
+
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {
 			q := tt.q
 			q.Addrs = []string{"127.0.0.1:8081"}
 			c := client.New()
 			var gotNoti []client.Notification
-			var mutexGotNoti sync.Mutex
+
 			q.NotificationHandler = func(n client.Notification) error {
 				mutexGotNoti.Lock()
 				if nn, ok := n.(client.Update); ok {
