@@ -317,17 +317,20 @@ func TestPFCWDErrors(t *testing.T) {
 				}
 			}
 
+			mutexGotNoti.Lock()
+
 			if len(gotNoti) == 0 {
 				t.Errorf("Expected non zero length of notifications")
 			}
 
-			mutexGotNoti.Lock()
 			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
 				t.Log("\n Want: \n", tt.wantNoti)
 				t.Log("\n Got : \n", gotNoti)
 				t.Errorf("unexpected updates:\n%s", diff)
 			}
+
 			mutexGotNoti.Unlock()
+
 			c.Close()
 		})
 	}
