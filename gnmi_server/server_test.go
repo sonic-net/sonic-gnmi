@@ -242,6 +242,99 @@ func createKeepAliveServer(t *testing.T, port int64) *Server {
 	return s
 }
 
+func TestPFCWDErrors(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+
+	mock := gomonkey.ApplyFunc(sdc.GetPfcwdMap, func() (map[string]map[string]string, error)  {
+		return nil, fmt.Errorf("Mock error")
+	})
+	defer mock.Reset()
+
+	fileName := "../testdata/COUNTERS:Ethernet_wildcard_alias.txt"
+	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var countersEthernetWildcardJson interface{}
+	json.Unmarshal(countersEthernetWildcardByte, &countersEthernetWildcardJson)
+
+	tests := []struct {
+		desc    string
+		q       client.Query
+		wantNoti    []client.Notification
+		poll    int
+	}{
+		{
+			desc: "query COUNTERS/Ethernet*",
+			poll: 1,
+			q: client.Query{
+				Target: "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			wantNoti: []client.Notification{
+				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
+				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
+			var gotNoti []client.Notification
+			var mutexGotNoti sync.Mutex
+			q.NotificationHandler = func(n client.Notification) error {
+				mutexGotNoti.Lock()
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				}
+				mutexGotNoti.Unlock()
+				return nil
+			}
+
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				if err := c.Subscribe(context.Background(), q); err != nil {
+					t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+				}
+			}()
+
+			wg.Wait()
+
+			for i := 0; i < tt.poll; i++ {
+				err := c.Poll()
+				if err != nil {
+					t.Errorf("c.Poll(): got error %v, expected nil", err)
+				}
+			}
+
+			if len(gotNoti) == 0 {
+				t.Errorf("Expected non zero length of notifications")
+			}
+
+			mutexGotNoti.Lock()
+			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+				t.Log("\n Want: \n", tt.wantNoti)
+				t.Log("\n Got : \n", gotNoti)
+				t.Errorf("unexpected updates:\n%s", diff)
+			}
+			mutexGotNoti.Unlock()
+			c.Close()
+		})
+	}
+	s.s.Stop()
+}
+
+
 // runTestGet requests a path from the server by Get grpc call, and compares if
 // the return code and response value are expected.
 func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTarget string,
