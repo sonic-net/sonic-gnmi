@@ -3802,6 +3802,72 @@ func TestConnectionsKeepAlive(t *testing.T) {
 	}
 }
 
+func TestConnectionRedisFailure(t *testing.T) {
+    s := createServer(t, 8081)
+    go runServer(t, s)
+    defer s.s.Stop()
+
+    test := struct {
+        desc    string
+        q       client.Query
+        want    []client.Notification
+        poll    int
+    }{
+        desc: "poll query for COUNTERS/Ethernet*",
+        poll: 10,
+        q: client.Query{
+            Target: "COUNTERS_DB",
+            Type:    client.Poll,
+            Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+            TLS:     &tls.Config{InsecureSkipVerify: true},
+        },
+        want: []client.Notification{
+            client.Connected{},
+            client.Sync{},
+        },
+    }
+    namespace := sdcfg.GetDbDefaultNamespace()
+    rclient := getRedisClientN(t, 6, namespace)
+    defer rclient.Close()
+
+    prepareStateDb(t, namespace)
+    t.Run(test.desc, func(t *testing.T) {
+        q := test.q
+        q.Addrs = []string{"127.0.0.1:8081"}
+        c := client.New()
+
+        wg := new(sync.WaitGroup)
+        wg.Add(1)
+
+        sdc.MockFail = 1
+        go func() {
+            defer wg.Done()
+            if err := c.Subscribe(context.Background(), q); err != nil {
+                t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+            }
+        }()
+
+        wg.Wait()
+        sdc.MockFail = 0
+        resultMap, err := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
+
+        if resultMap == nil {
+            t.Errorf("result Map is nil, expected non nil, err: %v", err)
+	    }
+        if len(resultMap) != 1 {
+            t.Errorf("result for TELEMETRY_CONNECTIONS should be 1")
+        }
+
+        for key, _ := range resultMap {
+            if !strings.Contains(key, "COUNTERS_DB|COUNTERS|Ethernet*") {
+                t.Errorf("key is expected to contain correct query, received: %s", key)
+            }
+        }
+
+        c.Close()
+    })
+}
+
 func TestClient(t *testing.T) {
 	var mutexDeInit sync.RWMutex
 	var mutexHB sync.RWMutex
