@@ -607,7 +607,7 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 		}
 		err = initCountersPfcwdNameMap()
 		if err != nil {
-			return err
+			log.Errorf("Could not create CountersPfcwdNameMap: %v", err)
 		}
 	}
 
