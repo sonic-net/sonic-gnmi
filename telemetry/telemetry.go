@@ -276,6 +276,7 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 		if testReadySignal != nil { // for testing only
 			testReadySignal <- 0
 		}
+
 		for {
 			select {
 			case event := <-watcher.Events:
@@ -285,9 +286,20 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 					log.V(1).Infof("Inotify watcher has received event: %v", event)
 					if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
-						serverControlSignal <- ServerStart // let server know that a write/create event occurred
-						done <- true
-						return
+						// Continue reading events as a batch of events for the next 3 seconds
+						timer := time.NewTimer(3 * time.Second)
+						for {
+							select {
+							case event := <-watcher.Events:
+								if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create || event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename {
+									log.V(1).Infof("Additional events detected: %v", event)
+								}
+							case <-timer.C:
+								serverControlSignal <- ServerStart // let server know that a write/create event occurred
+								done <- true
+								return
+							}
+						}
 					}
 					if event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename {
 						log.V(1).Infof("Cert file has been deleted: %s", event.Name)
