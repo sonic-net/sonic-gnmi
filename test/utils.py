@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import json
 
 def run_cmd(cmd):
     res = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -283,14 +284,6 @@ def gnoi_traceroute(dst):
     ret, msg = run_cmd(cmd)
     return ret, msg
 
-def gnoi_setpackage():
-    path = os.getcwd()
-    cmd = path + '/build/bin/gnoi_client '
-    cmd += '-insecure -target 127.0.0.1:8080 '
-    cmd += '-rpc SetPackage '
-    ret, msg = run_cmd(cmd)
-    return ret, msg
-
 def gnoi_switchcontrolprocessor():
     path = os.getcwd()
     cmd = path + '/build/bin/gnoi_client '
@@ -314,5 +307,45 @@ def gnoi_refresh_with_jwt(token):
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-jwt_token ' + token + ' '
     cmd += '-module Sonic -rpc refresh '
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+def create_gnoi_client_command(module, rpc, **kwargs):
+    """
+    Constructs a command string to execute the gNOI client with specified parameters.
+
+    Args:
+        module (str): The gNOI module (System, Sonic, Containerz) to be used.
+        rpc (str): The RPC method to be invoked.
+        **kwargs: Additional keyword arguments to be passed as JSON input to the gNOI client.
+
+    Returns:
+        str: The constructed command string to execute the gNOI client.
+    """
+    path = os.getcwd()
+    cmd = [
+        path + '/build/bin/gnoi_client',
+        '-insecure',
+        '-target 127.0.0.1:8080',
+        '-module %s' % module,
+        '-rpc %s' % rpc
+    ]
+    if kwargs:
+        jsonin = json.dumps(kwargs)
+        cmd.append('-jsonin \'%s\'' % jsonin)
+    return ' '.join(cmd)
+
+def gnoi_setpackage():
+    """
+    Invoke gNOI System.SetPackage RPC to download and install a package from a remote URL.
+    """
+    cmd = create_gnoi_client_command(
+        'System',
+        'SetPackage',
+        filename='/tmp/sonic-vs.bin',
+        version='1.0',
+        activate='false',
+        url='https://sonic-build.azurewebsites.net/api/sonic/artifacts?branchName=master&platform=vs&target=target/sonic-vs.bin'
+    )
     ret, msg = run_cmd(cmd)
     return ret, msg
