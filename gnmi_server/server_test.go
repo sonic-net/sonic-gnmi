@@ -4520,7 +4520,7 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check get 1 cert name
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role", "role1")
+	gnmiTable.Hset("certname1", "role", "readwrite")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
@@ -4531,8 +4531,8 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check get multiple cert names
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role", "role1")
-	gnmiTable.Hset("certname2", "role", "role2")
+	gnmiTable.Hset("certname1", "role", "readwrite")
+	gnmiTable.Hset("certname2", "role", "readonly")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
@@ -4543,7 +4543,7 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check a invalid cert cname
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname2", "role", "role2")
+	gnmiTable.Hset("certname2", "role", "readonly")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err == nil {
 		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
