@@ -10,18 +10,12 @@ import (
 	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/config"
+	"github.com/sonic-net/sonic-gnmi/gnoi_client/utils"
+	"github.com/sonic-net/sonic-gnmi/gnoi_client/system"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 	"os"
 	"os/signal"
 )
-
-func setUserCreds(ctx context.Context) context.Context {
-	if len(*config.JwtToken) > 0 {
-		ctx = metadata.AppendToOutgoingContext(ctx, "access_token", *config.JwtToken)
-	}
-	return ctx
-}
 
 func main() {
 	config.ParseFlag()
@@ -44,7 +38,7 @@ func main() {
 		sc := gnoi_system_pb.NewSystemClient(conn)
 		switch *config.Rpc {
 		case "Time":
-			systemTime(sc, ctx)
+			system.Time(conn, ctx)
 		case "Reboot":
 			systemReboot(sc, ctx)
 		case "CancelReboot":
@@ -102,7 +96,7 @@ func main() {
 // RPC for System Services
 func systemTime(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println("System Time")
-	ctx = setUserCreds(ctx)
+	ctx = utils.SetUserCreds(ctx)
 	resp, err := sc.Time(ctx, new(gnoi_system_pb.TimeRequest))
 	if err != nil {
 		panic(err.Error())
@@ -116,7 +110,7 @@ func systemTime(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 
 func systemKillProcess(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println("Kill Process with optional restart")
-	ctx = setUserCreds(ctx)
+	ctx = utils.SetUserCreds(ctx)
 	req := &gnoi_system_pb.KillProcessRequest{}
 	err := json.Unmarshal([]byte(*config.Args), req)
 	if err != nil {
@@ -130,7 +124,7 @@ func systemKillProcess(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 
 func systemReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println("System Reboot")
-	ctx = setUserCreds(ctx)
+	ctx = utils.SetUserCreds(ctx)
 	req := &gnoi_system_pb.RebootRequest{}
 	json.Unmarshal([]byte(*config.Args), req)
 	_, err := sc.Reboot(ctx, req)
@@ -141,7 +135,7 @@ func systemReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 
 func systemCancelReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println("System CancelReboot")
-	ctx = setUserCreds(ctx)
+	ctx = utils.SetUserCreds(ctx)
 	req := &gnoi_system_pb.CancelRebootRequest{}
 	json.Unmarshal([]byte(*config.Args), req)
 	resp, err := sc.CancelReboot(ctx, req)
@@ -157,7 +151,7 @@ func systemCancelReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 
 func systemRebootStatus(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println("System RebootStatus")
-	ctx = setUserCreds(ctx)
+	ctx = utils.SetUserCreds(ctx)
 	req := &gnoi_system_pb.RebootStatusRequest{}
 	resp, err := sc.RebootStatus(ctx, req)
 	if err != nil {
@@ -173,7 +167,7 @@ func systemRebootStatus(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 // RPC for File Services
 func fileStat(fc gnoi_file_pb.FileClient, ctx context.Context) {
 	fmt.Println("File Stat")
-	ctx = setUserCreds(ctx)
+	ctx = utils.SetUserCreds(ctx)
 	req := &gnoi_file_pb.StatRequest{}
 	err := json.Unmarshal([]byte(*config.Args), req)
 	if err != nil {
@@ -193,7 +187,7 @@ func fileStat(fc gnoi_file_pb.FileClient, ctx context.Context) {
 // RPC for Sonic Services
 func sonicShowTechSupport(sc spb.SonicServiceClient, ctx context.Context) {
 	fmt.Println("Sonic ShowTechsupport")
-	ctx = setUserCreds(ctx)
+	ctx = utils.SetUserCreds(ctx)
 	req := &spb.TechsupportRequest{
 		Input: &spb.TechsupportRequest_Input{},
 	}
@@ -213,7 +207,7 @@ func sonicShowTechSupport(sc spb.SonicServiceClient, ctx context.Context) {
 
 func sonicCopyConfig(sc spb.SonicServiceClient, ctx context.Context) {
 	fmt.Println("Sonic CopyConfig")
-	ctx = setUserCreds(ctx)
+	ctx = utils.SetUserCreds(ctx)
 	req := &spb.CopyConfigRequest{
 		Input: &spb.CopyConfigRequest_Input{},
 	}
@@ -233,7 +227,7 @@ func sonicCopyConfig(sc spb.SonicServiceClient, ctx context.Context) {
 
 func sonicImageInstall(sc spb.SonicServiceClient, ctx context.Context) {
 	fmt.Println("Sonic ImageInstall")
-	ctx = setUserCreds(ctx)
+	ctx = utils.SetUserCreds(ctx)
 	req := &spb.ImageInstallRequest{
 		Input: &spb.ImageInstallRequest_Input{},
 	}
@@ -253,7 +247,7 @@ func sonicImageInstall(sc spb.SonicServiceClient, ctx context.Context) {
 
 func sonicImageRemove(sc spb.SonicServiceClient, ctx context.Context) {
 	fmt.Println("Sonic ImageRemove")
-	ctx = setUserCreds(ctx)
+	ctx = utils.SetUserCreds(ctx)
 	req := &spb.ImageRemoveRequest{
 		Input: &spb.ImageRemoveRequest_Input{},
 	}
@@ -273,7 +267,7 @@ func sonicImageRemove(sc spb.SonicServiceClient, ctx context.Context) {
 
 func sonicImageDefault(sc spb.SonicServiceClient, ctx context.Context) {
 	fmt.Println("Sonic ImageDefault")
-	ctx = setUserCreds(ctx)
+	ctx = utils.SetUserCreds(ctx)
 	req := &spb.ImageDefaultRequest{
 		Input: &spb.ImageDefaultRequest_Input{},
 	}
@@ -293,7 +287,7 @@ func sonicImageDefault(sc spb.SonicServiceClient, ctx context.Context) {
 
 func sonicAuthenticate(sc spb_jwt.SonicJwtServiceClient, ctx context.Context) {
 	fmt.Println("Sonic Authenticate")
-	ctx = setUserCreds(ctx)
+	ctx = utils.SetUserCreds(ctx)
 	req := &spb_jwt.AuthenticateRequest{}
 
 	json.Unmarshal([]byte(*config.Args), req)
@@ -311,7 +305,7 @@ func sonicAuthenticate(sc spb_jwt.SonicJwtServiceClient, ctx context.Context) {
 
 func sonicRefresh(sc spb_jwt.SonicJwtServiceClient, ctx context.Context) {
 	fmt.Println("Sonic Refresh")
-	ctx = setUserCreds(ctx)
+	ctx = utils.SetUserCreds(ctx)
 	req := &spb_jwt.RefreshRequest{}
 
 	json.Unmarshal([]byte(*config.Args), req)
@@ -329,7 +323,7 @@ func sonicRefresh(sc spb_jwt.SonicJwtServiceClient, ctx context.Context) {
 
 func sonicClearNeighbors(sc spb.SonicServiceClient, ctx context.Context) {
 	fmt.Println("Sonic ClearNeighbors")
-	ctx = setUserCreds(ctx)
+	ctx = utils.SetUserCreds(ctx)
 	req := &spb.ClearNeighborsRequest{
 		Input: &spb.ClearNeighborsRequest_Input{},
 	}
