@@ -179,6 +179,49 @@ func systemRebootStatus(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println(string(respstr))
 }
 
+func systemSetPackage(sc gnoi_system_pb.SystemClient, ctx context.Context) {
+	fmt.Println("System SetPackage")
+	ctx = setUserCreds(ctx)
+	stream, err := sc.SetPackage(ctx)
+	if err != nil {
+		panic(err.Error())
+	}
+	// SetPackage uses a streaming API. The input parameter jsonin is used to specify
+	// the first message, which is the package metadata, as well as the last message,
+	// which contains the hash. The package itself is not streamed.
+	init_req := &gnoi_system_pb.SetPackageRequest{
+		Request: &gnoi_system_pb.SetPackageRequest_Package{},
+	}
+	err = json.Unmarshal([]byte(*args), init_req)
+	if err != nil {
+		panic(err.Error())
+	}
+	err = stream.Send(init_req)
+	if err != nil {
+		panic(err.Error())
+	}
+	// For this version of the client and server, the server will download the package.
+	// Skip directly to hash.
+	// TODO: Add support for streaming the package.
+	final_req := &gnoi_system_pb.SetPackageRequest{
+		Request: &gnoi_system_pb.SetPackageRequest_Hash{},
+	}
+	err = json.Unmarshal([]byte(*args), final_req)
+	if err != nil {
+		panic(err.Error())
+	}
+	err = stream.Send(final_req)
+	if err != nil {
+		panic(err.Error())
+	}
+	resp, err := stream.CloseAndRecv()
+	if err != nil {
+		panic(err.Error())
+	}
+	// SetPackageResponse is always empty.
+	fmt.Println(resp)
+}
+
 // RPC for File Services
 func fileStat(fc gnoi_file_pb.FileClient, ctx context.Context) {
 	fmt.Println("File Stat")
