@@ -2,15 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"github.com/google/gnxi/utils/credentials"
-	gnoi_file_pb "github.com/openconfig/gnoi/file"
-	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
-	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/config"
-	"github.com/sonic-net/sonic-gnmi/gnoi_client/utils"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/system"
+	"github.com/sonic-net/sonic-gnmi/gnoi_client/file"
+	"github.com/sonic-net/sonic-gnmi/gnoi_client/sonic"
 	"google.golang.org/grpc"
 	"os"
 	"os/signal"
@@ -49,39 +45,30 @@ func main() {
 			panic("Invalid RPC Name")
 		}
 	case "File":
-		fc := gnoi_file_pb.NewFileClient(conn)
 		switch *config.Rpc {
 		case "Stat":
-			fileStat(fc, ctx)
+			file.Stat(conn, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
 	case "Sonic":
 		switch *config.Rpc {
 		case "showtechsupport":
-			sc := spb.NewSonicServiceClient(conn)
-			sonicShowTechSupport(sc, ctx)
+			sonic.ShowTechSupport(conn, ctx)
 		case "copyConfig":
-			sc := spb.NewSonicServiceClient(conn)
-			sonicCopyConfig(sc, ctx)
+			sonic.CopyConfig(conn, ctx)
 		case "authenticate":
-			sc := spb_jwt.NewSonicJwtServiceClient(conn)
-			sonicAuthenticate(sc, ctx)
+			sonic.Authenticate(conn, ctx)
 		case "imageInstall":
-			sc := spb.NewSonicServiceClient(conn)
-			sonicImageInstall(sc, ctx)
+			sonic.ImageInstall(conn, ctx)
 		case "imageDefault":
-			sc := spb.NewSonicServiceClient(conn)
-			sonicImageDefault(sc, ctx)
+			sonic.ImageDefault(conn, ctx)
 		case "imageRemove":
-			sc := spb.NewSonicServiceClient(conn)
-			sonicImageRemove(sc, ctx)
+			sonic.ImageRemove(conn, ctx)
 		case "refresh":
-			sc := spb_jwt.NewSonicJwtServiceClient(conn)
-			sonicRefresh(sc, ctx)
+			sonic.Refresh(conn, ctx)
 		case "clearNeighbors":
-			sc := spb.NewSonicServiceClient(conn)
-			sonicClearNeighbors(sc, ctx)
+			sonic.ClearNeighbors(conn, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
@@ -89,181 +76,4 @@ func main() {
 		panic("Invalid Module Name")
 	}
 
-}
-
-// RPC for File Services
-func fileStat(fc gnoi_file_pb.FileClient, ctx context.Context) {
-	fmt.Println("File Stat")
-	ctx = utils.SetUserCreds(ctx)
-	req := &gnoi_file_pb.StatRequest{}
-	err := json.Unmarshal([]byte(*config.Args), req)
-	if err != nil {
-		panic(err.Error())
-	}
-	resp, err := fc.Stat(ctx, req)
-	if err != nil {
-		panic(err.Error())
-	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
-}
-
-// RPC for Sonic Services
-func sonicShowTechSupport(sc spb.SonicServiceClient, ctx context.Context) {
-	fmt.Println("Sonic ShowTechsupport")
-	ctx = utils.SetUserCreds(ctx)
-	req := &spb.TechsupportRequest{
-		Input: &spb.TechsupportRequest_Input{},
-	}
-
-	json.Unmarshal([]byte(*config.Args), req)
-
-	resp, err := sc.ShowTechsupport(ctx, req)
-	if err != nil {
-		panic(err.Error())
-	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
-}
-
-func sonicCopyConfig(sc spb.SonicServiceClient, ctx context.Context) {
-	fmt.Println("Sonic CopyConfig")
-	ctx = utils.SetUserCreds(ctx)
-	req := &spb.CopyConfigRequest{
-		Input: &spb.CopyConfigRequest_Input{},
-	}
-	json.Unmarshal([]byte(*config.Args), req)
-
-	resp, err := sc.CopyConfig(ctx, req)
-
-	if err != nil {
-		panic(err.Error())
-	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
-}
-
-func sonicImageInstall(sc spb.SonicServiceClient, ctx context.Context) {
-	fmt.Println("Sonic ImageInstall")
-	ctx = utils.SetUserCreds(ctx)
-	req := &spb.ImageInstallRequest{
-		Input: &spb.ImageInstallRequest_Input{},
-	}
-	json.Unmarshal([]byte(*config.Args), req)
-
-	resp, err := sc.ImageInstall(ctx, req)
-
-	if err != nil {
-		panic(err.Error())
-	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
-}
-
-func sonicImageRemove(sc spb.SonicServiceClient, ctx context.Context) {
-	fmt.Println("Sonic ImageRemove")
-	ctx = utils.SetUserCreds(ctx)
-	req := &spb.ImageRemoveRequest{
-		Input: &spb.ImageRemoveRequest_Input{},
-	}
-	json.Unmarshal([]byte(*config.Args), req)
-
-	resp, err := sc.ImageRemove(ctx, req)
-
-	if err != nil {
-		panic(err.Error())
-	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
-}
-
-func sonicImageDefault(sc spb.SonicServiceClient, ctx context.Context) {
-	fmt.Println("Sonic ImageDefault")
-	ctx = utils.SetUserCreds(ctx)
-	req := &spb.ImageDefaultRequest{
-		Input: &spb.ImageDefaultRequest_Input{},
-	}
-	json.Unmarshal([]byte(*config.Args), req)
-
-	resp, err := sc.ImageDefault(ctx, req)
-
-	if err != nil {
-		panic(err.Error())
-	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
-}
-
-func sonicAuthenticate(sc spb_jwt.SonicJwtServiceClient, ctx context.Context) {
-	fmt.Println("Sonic Authenticate")
-	ctx = utils.SetUserCreds(ctx)
-	req := &spb_jwt.AuthenticateRequest{}
-
-	json.Unmarshal([]byte(*config.Args), req)
-
-	resp, err := sc.Authenticate(ctx, req)
-	if err != nil {
-		panic(err.Error())
-	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
-}
-
-func sonicRefresh(sc spb_jwt.SonicJwtServiceClient, ctx context.Context) {
-	fmt.Println("Sonic Refresh")
-	ctx = utils.SetUserCreds(ctx)
-	req := &spb_jwt.RefreshRequest{}
-
-	json.Unmarshal([]byte(*config.Args), req)
-
-	resp, err := sc.Refresh(ctx, req)
-	if err != nil {
-		panic(err.Error())
-	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
-}
-
-func sonicClearNeighbors(sc spb.SonicServiceClient, ctx context.Context) {
-	fmt.Println("Sonic ClearNeighbors")
-	ctx = utils.SetUserCreds(ctx)
-	req := &spb.ClearNeighborsRequest{
-		Input: &spb.ClearNeighborsRequest_Input{},
-	}
-	json.Unmarshal([]byte(*config.Args), req)
-
-	resp, err := sc.ClearNeighbors(ctx, req)
-
-	if err != nil {
-		panic(err.Error())
-	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
 }
