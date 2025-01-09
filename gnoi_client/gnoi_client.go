@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/google/gnxi/utils/credentials"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
-	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/config"
@@ -35,18 +34,17 @@ func main() {
 
 	switch *config.Module {
 	case "System":
-		sc := gnoi_system_pb.NewSystemClient(conn)
 		switch *config.Rpc {
 		case "Time":
 			system.Time(conn, ctx)
 		case "Reboot":
-			systemReboot(sc, ctx)
+			system.Reboot(conn, ctx)
 		case "CancelReboot":
-			systemCancelReboot(sc, ctx)
+			system.CancelReboot(conn, ctx)
 		case "RebootStatus":
-			systemRebootStatus(sc, ctx)
+			system.RebootStatus(conn, ctx)
 		case "KillProcess":
-			systemKillProcess(sc, ctx)
+			system.KillProcess(conn, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
@@ -91,77 +89,6 @@ func main() {
 		panic("Invalid Module Name")
 	}
 
-}
-
-// RPC for System Services
-func systemTime(sc gnoi_system_pb.SystemClient, ctx context.Context) {
-	fmt.Println("System Time")
-	ctx = utils.SetUserCreds(ctx)
-	resp, err := sc.Time(ctx, new(gnoi_system_pb.TimeRequest))
-	if err != nil {
-		panic(err.Error())
-	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
-}
-
-func systemKillProcess(sc gnoi_system_pb.SystemClient, ctx context.Context) {
-	fmt.Println("Kill Process with optional restart")
-	ctx = utils.SetUserCreds(ctx)
-	req := &gnoi_system_pb.KillProcessRequest{}
-	err := json.Unmarshal([]byte(*config.Args), req)
-	if err != nil {
-		panic(err.Error())
-	}
-	_, err = sc.KillProcess(ctx, req)
-	if err != nil {
-		panic(err.Error())
-	}
-}
-
-func systemReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
-	fmt.Println("System Reboot")
-	ctx = utils.SetUserCreds(ctx)
-	req := &gnoi_system_pb.RebootRequest{}
-	json.Unmarshal([]byte(*config.Args), req)
-	_, err := sc.Reboot(ctx, req)
-	if err != nil {
-		panic(err.Error())
-	}
-}
-
-func systemCancelReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
-	fmt.Println("System CancelReboot")
-	ctx = utils.SetUserCreds(ctx)
-	req := &gnoi_system_pb.CancelRebootRequest{}
-	json.Unmarshal([]byte(*config.Args), req)
-	resp, err := sc.CancelReboot(ctx, req)
-	if err != nil {
-		panic(err.Error())
-	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
-}
-
-func systemRebootStatus(sc gnoi_system_pb.SystemClient, ctx context.Context) {
-	fmt.Println("System RebootStatus")
-	ctx = utils.SetUserCreds(ctx)
-	req := &gnoi_system_pb.RebootStatusRequest{}
-	resp, err := sc.RebootStatus(ctx, req)
-	if err != nil {
-		panic(err.Error())
-	}
-	respstr, err := json.Marshal(resp)
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Println(string(respstr))
 }
 
 // RPC for File Services
