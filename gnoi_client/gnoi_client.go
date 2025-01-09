@@ -3,38 +3,29 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"github.com/google/gnxi/utils/credentials"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
+	"github.com/sonic-net/sonic-gnmi/gnoi_client/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"os"
 	"os/signal"
 )
 
-var (
-	module     = flag.String("module", "System", "gNOI Module")
-	rpc        = flag.String("rpc", "Time", "rpc call in specified module to call")
-	target     = flag.String("target", "localhost:8080", "Address:port of gNOI Server")
-	args       = flag.String("jsonin", "", "RPC Arguments in json format")
-	jwtToken   = flag.String("jwt_token", "", "JWT Token if required")
-	targetName = flag.String("target_name", "hostname.com", "The target name use to verify the hostname returned by TLS handshake")
-)
-
 func setUserCreds(ctx context.Context) context.Context {
-	if len(*jwtToken) > 0 {
-		ctx = metadata.AppendToOutgoingContext(ctx, "access_token", *jwtToken)
+	if len(*config.JwtToken) > 0 {
+		ctx = metadata.AppendToOutgoingContext(ctx, "access_token", *config.JwtToken)
 	}
 	return ctx
 }
 
 func main() {
-	flag.Parse()
-	opts := credentials.ClientCredentials(*targetName)
+	config.ParseFlag()
+	opts := credentials.ClientCredentials(*config.TargetName)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -43,15 +34,15 @@ func main() {
 		<-c
 		cancel()
 	}()
-	conn, err := grpc.Dial(*target, opts...)
+	conn, err := grpc.Dial(*config.Target, opts...)
 	if err != nil {
 		panic(err.Error())
 	}
 
-	switch *module {
+	switch *config.Module {
 	case "System":
 		sc := gnoi_system_pb.NewSystemClient(conn)
-		switch *rpc {
+		switch *config.Rpc {
 		case "Time":
 			systemTime(sc, ctx)
 		case "Reboot":
@@ -67,14 +58,14 @@ func main() {
 		}
 	case "File":
 		fc := gnoi_file_pb.NewFileClient(conn)
-		switch *rpc {
+		switch *config.Rpc {
 		case "Stat":
 			fileStat(fc, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
 	case "Sonic":
-		switch *rpc {
+		switch *config.Rpc {
 		case "showtechsupport":
 			sc := spb.NewSonicServiceClient(conn)
 			sonicShowTechSupport(sc, ctx)
@@ -127,7 +118,7 @@ func systemKillProcess(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println("Kill Process with optional restart")
 	ctx = setUserCreds(ctx)
 	req := &gnoi_system_pb.KillProcessRequest{}
-	err := json.Unmarshal([]byte(*args), req)
+	err := json.Unmarshal([]byte(*config.Args), req)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -141,7 +132,7 @@ func systemReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println("System Reboot")
 	ctx = setUserCreds(ctx)
 	req := &gnoi_system_pb.RebootRequest{}
-	json.Unmarshal([]byte(*args), req)
+	json.Unmarshal([]byte(*config.Args), req)
 	_, err := sc.Reboot(ctx, req)
 	if err != nil {
 		panic(err.Error())
@@ -152,7 +143,7 @@ func systemCancelReboot(sc gnoi_system_pb.SystemClient, ctx context.Context) {
 	fmt.Println("System CancelReboot")
 	ctx = setUserCreds(ctx)
 	req := &gnoi_system_pb.CancelRebootRequest{}
-	json.Unmarshal([]byte(*args), req)
+	json.Unmarshal([]byte(*config.Args), req)
 	resp, err := sc.CancelReboot(ctx, req)
 	if err != nil {
 		panic(err.Error())
@@ -184,7 +175,7 @@ func fileStat(fc gnoi_file_pb.FileClient, ctx context.Context) {
 	fmt.Println("File Stat")
 	ctx = setUserCreds(ctx)
 	req := &gnoi_file_pb.StatRequest{}
-	err := json.Unmarshal([]byte(*args), req)
+	err := json.Unmarshal([]byte(*config.Args), req)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -207,7 +198,7 @@ func sonicShowTechSupport(sc spb.SonicServiceClient, ctx context.Context) {
 		Input: &spb.TechsupportRequest_Input{},
 	}
 
-	json.Unmarshal([]byte(*args), req)
+	json.Unmarshal([]byte(*config.Args), req)
 
 	resp, err := sc.ShowTechsupport(ctx, req)
 	if err != nil {
@@ -226,7 +217,7 @@ func sonicCopyConfig(sc spb.SonicServiceClient, ctx context.Context) {
 	req := &spb.CopyConfigRequest{
 		Input: &spb.CopyConfigRequest_Input{},
 	}
-	json.Unmarshal([]byte(*args), req)
+	json.Unmarshal([]byte(*config.Args), req)
 
 	resp, err := sc.CopyConfig(ctx, req)
 
@@ -246,7 +237,7 @@ func sonicImageInstall(sc spb.SonicServiceClient, ctx context.Context) {
 	req := &spb.ImageInstallRequest{
 		Input: &spb.ImageInstallRequest_Input{},
 	}
-	json.Unmarshal([]byte(*args), req)
+	json.Unmarshal([]byte(*config.Args), req)
 
 	resp, err := sc.ImageInstall(ctx, req)
 
@@ -266,7 +257,7 @@ func sonicImageRemove(sc spb.SonicServiceClient, ctx context.Context) {
 	req := &spb.ImageRemoveRequest{
 		Input: &spb.ImageRemoveRequest_Input{},
 	}
-	json.Unmarshal([]byte(*args), req)
+	json.Unmarshal([]byte(*config.Args), req)
 
 	resp, err := sc.ImageRemove(ctx, req)
 
@@ -286,7 +277,7 @@ func sonicImageDefault(sc spb.SonicServiceClient, ctx context.Context) {
 	req := &spb.ImageDefaultRequest{
 		Input: &spb.ImageDefaultRequest_Input{},
 	}
-	json.Unmarshal([]byte(*args), req)
+	json.Unmarshal([]byte(*config.Args), req)
 
 	resp, err := sc.ImageDefault(ctx, req)
 
@@ -305,7 +296,7 @@ func sonicAuthenticate(sc spb_jwt.SonicJwtServiceClient, ctx context.Context) {
 	ctx = setUserCreds(ctx)
 	req := &spb_jwt.AuthenticateRequest{}
 
-	json.Unmarshal([]byte(*args), req)
+	json.Unmarshal([]byte(*config.Args), req)
 
 	resp, err := sc.Authenticate(ctx, req)
 	if err != nil {
@@ -323,7 +314,7 @@ func sonicRefresh(sc spb_jwt.SonicJwtServiceClient, ctx context.Context) {
 	ctx = setUserCreds(ctx)
 	req := &spb_jwt.RefreshRequest{}
 
-	json.Unmarshal([]byte(*args), req)
+	json.Unmarshal([]byte(*config.Args), req)
 
 	resp, err := sc.Refresh(ctx, req)
 	if err != nil {
@@ -342,7 +333,7 @@ func sonicClearNeighbors(sc spb.SonicServiceClient, ctx context.Context) {
 	req := &spb.ClearNeighborsRequest{
 		Input: &spb.ClearNeighborsRequest_Input{},
 	}
-	json.Unmarshal([]byte(*args), req)
+	json.Unmarshal([]byte(*config.Args), req)
 
 	resp, err := sc.ClearNeighbors(ctx, req)
 
