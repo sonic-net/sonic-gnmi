@@ -237,6 +237,7 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 		if err != nil {
 			return nil, err
 		}
+		return &syspb.RebootResponse{}, nil
 	}
 	// Initialize State DB.
 	rclient, err := common_utils.GetRedisDBClient()
