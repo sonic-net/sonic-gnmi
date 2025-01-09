@@ -228,6 +228,17 @@ func (srv *SystemServer) Ping(req *gnoi_system_pb.PingRequest, rs gnoi_system_pb
 	log.V(1).Info("gNOI: Ping")
 	return status.Errorf(codes.Unimplemented, "")
 }
+
+func (src *SystemServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) error {
+	ctx := rs.Context()
+	_, err := authenticate(srv.config, ctx)
+	if err != nil {
+		return err
+	}
+	log.V(1).Info("gNOI: SetPackage")
+	return status.Errorf(codes.Unimplemented, "")
+}
+
 func (srv *SystemServer) Traceroute(req *gnoi_system_pb.TracerouteRequest, rs gnoi_system_pb.System_TracerouteServer) error {
 	ctx := rs.Context()
 	_, err := authenticate(srv.config, ctx)
@@ -286,7 +297,7 @@ func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRe
 				return &spb_jwt.AuthenticateResponse{Token: tokenResp(req.Username, roles)}, nil
 			}
 		}
-		
+
 	}
 	return nil, status.Errorf(codes.PermissionDenied, "Invalid Username or Password")
 
@@ -314,7 +325,7 @@ func (srv *Server) Refresh(ctx context.Context, req *spb_jwt.RefreshRequest) (*s
 	if time.Unix(claims.ExpiresAt, 0).Sub(time.Now()) > JwtRefreshInt {
 		return nil, status.Errorf(codes.InvalidArgument, "Invalid JWT Token")
 	}
-	
+
 	return &spb_jwt.RefreshResponse{Token: tokenResp(claims.Username, claims.Roles)}, nil
 
 }
@@ -357,13 +368,13 @@ func (srv *Server) CopyConfig(ctx context.Context, req *spb.CopyConfigRequest) (
 		return nil, err
 	}
 	log.V(1).Info("gNOI: Sonic CopyConfig")
-	
+
 	resp := &spb.CopyConfigResponse{
 		Output: &spb.SonicOutput {
 
 		},
 	}
-	
+
 	reqstr, err := json.Marshal(req)
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
@@ -373,12 +384,12 @@ func (srv *Server) CopyConfig(ctx context.Context, req *spb.CopyConfigRequest) (
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
-	
+
 	err = json.Unmarshal(jsresp, resp)
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
-	
+
 	return resp, nil
 }
 
@@ -388,7 +399,7 @@ func (srv *Server) ShowTechsupport(ctx context.Context, req *spb.TechsupportRequ
 		return nil, err
 	}
 	log.V(1).Info("gNOI: Sonic ShowTechsupport")
-	
+
 	resp := &spb.TechsupportResponse{
 		Output: &spb.TechsupportResponse_Output {
 
@@ -404,13 +415,13 @@ func (srv *Server) ShowTechsupport(ctx context.Context, req *spb.TechsupportRequ
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
-	
+
 	err = json.Unmarshal(jsresp, resp)
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
-	
-	
+
+
 	return resp, nil
 }
 
@@ -420,7 +431,7 @@ func (srv *Server) ImageInstall(ctx context.Context, req *spb.ImageInstallReques
 		return nil, err
 	}
 	log.V(1).Info("gNOI: Sonic ImageInstall")
-	
+
 	resp := &spb.ImageInstallResponse{
 		Output: &spb.SonicOutput {
 
@@ -436,13 +447,13 @@ func (srv *Server) ImageInstall(ctx context.Context, req *spb.ImageInstallReques
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
-	
+
 	err = json.Unmarshal(jsresp, resp)
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
 
-	
+
 	return resp, nil
 }
 
@@ -452,7 +463,7 @@ func (srv *Server) ImageRemove(ctx context.Context, req *spb.ImageRemoveRequest)
 		return nil, err
 	}
 	log.V(1).Info("gNOI: Sonic ImageRemove")
-	
+
 	resp := &spb.ImageRemoveResponse{
 		Output: &spb.SonicOutput {
 
@@ -468,7 +479,7 @@ func (srv *Server) ImageRemove(ctx context.Context, req *spb.ImageRemoveRequest)
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
-	
+
 	err = json.Unmarshal(jsresp, resp)
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
@@ -482,7 +493,7 @@ func (srv *Server) ImageDefault(ctx context.Context, req *spb.ImageDefaultReques
 		return nil, err
 	}
 	log.V(1).Info("gNOI: Sonic ImageDefault")
-	
+
 	resp := &spb.ImageDefaultResponse{
 		Output: &spb.SonicOutput {
 
@@ -504,6 +515,6 @@ func (srv *Server) ImageDefault(ctx context.Context, req *spb.ImageDefaultReques
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
 
-	
+
 	return resp, nil
 }
