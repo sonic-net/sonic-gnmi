@@ -270,7 +270,7 @@ func authenticate(config *Config, ctx context.Context, writeAccess bool) (contex
 			success = true
 		}
 		// role must be readwrite to support write access
-		if writeAccess && len(rc.Auth.Roles) != 0 {
+		if writeAccess && config.ConfigTableName != "" {
 			role := rc.Auth.Roles[0]
 			if role != WriteAccessMode {
 				return ctx, fmt.Errorf("%s does not have write access, %s", rc.Auth.User, role)
