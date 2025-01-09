@@ -34,6 +34,7 @@ var supportedRebootMap = map[syspb.RebootMethod]bool{
 	syspb.RebootMethod_WARM:      true,
 	syspb.RebootMethod_POWERDOWN: true,
 	syspb.RebootMethod_NSF:       true,
+	syspb.RebootMethod_HALT:       true,
 }
 
 // Validates reboot request.
@@ -102,6 +103,19 @@ func (srv *Server) KillProcess(ctx context.Context, req *syspb.KillProcessReques
 	}
 	var resp syspb.KillProcessResponse
 	return &resp, nil
+}
+
+func HaltSystem() error {
+	sc,err := ssc.NewDbusClient()
+	if err != nil {
+		return err
+	}
+	log.V(2).Infof("Halting the system..")
+	err = sc.HaltSystem()
+	if err != nil {
+		log.V(2).Infof("Failed to Halt the system %v", err);
+	}
+	return err
 }
 
 // Processes message payload as op, data, field-value pairs.
@@ -215,6 +229,14 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 	log.V(2).Info("gNOI: Reboot")
 	if err := ValidRebootReq(req); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+	// Handle the HALT request.
+	if req.GetMethod() == syspb.RebootMethod_HALT {
+		log.V(1).Info("Reboot method is HALT. Halting the system...")
+		err = HaltSystem()
+		if err != nil {
+			return nil, err
+		}
 	}
 	// Initialize State DB.
 	rclient, err := common_utils.GetRedisDBClient()
