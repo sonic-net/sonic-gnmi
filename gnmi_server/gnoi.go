@@ -70,7 +70,7 @@ func ReadFileStat(path string) (*gnoi_file_pb.StatInfo, error) {
 }
 
 func (srv *FileServer) Stat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_pb.StatResponse, error) {
-	_, err := authenticate(srv.config, ctx)
+	_, err := authenticate(srv.config, ctx, false)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (srv *FileServer)  Get(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.Fi
 
 func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
 	// Can't enforce normal authentication here.. maybe only enforce client cert auth if enabled?
-	// ctx,err := authenticate(srv.config, ctx)
+	// ctx,err := authenticate(srv.config, ctx, false)
 	// if err != nil {
 	// 	return nil, err
 	// }
@@ -120,7 +120,7 @@ func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRe
 
 }
 func (srv *Server) Refresh(ctx context.Context, req *spb_jwt.RefreshRequest) (*spb_jwt.RefreshResponse, error) {
-	ctx, err := authenticate(srv.config, ctx)
+	ctx, err := authenticate(srv.config, ctx, true)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (srv *Server) Refresh(ctx context.Context, req *spb_jwt.RefreshRequest) (*s
 }
 
 func (srv *Server) ClearNeighbors(ctx context.Context, req *spb.ClearNeighborsRequest) (*spb.ClearNeighborsResponse, error) {
-    ctx, err := authenticate(srv.config, ctx)
+    ctx, err := authenticate(srv.config, ctx, true)
     if err != nil {
         return nil, err
     }
@@ -180,7 +180,7 @@ func (srv *Server) ClearNeighbors(ctx context.Context, req *spb.ClearNeighborsRe
 }
 
 func (srv *Server) CopyConfig(ctx context.Context, req *spb.CopyConfigRequest) (*spb.CopyConfigResponse, error) {
-	ctx, err := authenticate(srv.config, ctx)
+	ctx, err := authenticate(srv.config, ctx, true)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +211,7 @@ func (srv *Server) CopyConfig(ctx context.Context, req *spb.CopyConfigRequest) (
 }
 
 func (srv *Server) ShowTechsupport(ctx context.Context, req *spb.TechsupportRequest) (*spb.TechsupportResponse, error) {
-	ctx, err := authenticate(srv.config, ctx)
+	ctx, err := authenticate(srv.config, ctx, false)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +243,7 @@ func (srv *Server) ShowTechsupport(ctx context.Context, req *spb.TechsupportRequ
 }
 
 func (srv *Server) ImageInstall(ctx context.Context, req *spb.ImageInstallRequest) (*spb.ImageInstallResponse, error) {
-	ctx, err := authenticate(srv.config, ctx)
+	ctx, err := authenticate(srv.config, ctx, true)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +275,7 @@ func (srv *Server) ImageInstall(ctx context.Context, req *spb.ImageInstallReques
 }
 
 func (srv *Server) ImageRemove(ctx context.Context, req *spb.ImageRemoveRequest) (*spb.ImageRemoveResponse, error) {
-	ctx, err := authenticate(srv.config, ctx)
+	ctx, err := authenticate(srv.config, ctx, true)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +305,7 @@ func (srv *Server) ImageRemove(ctx context.Context, req *spb.ImageRemoveRequest)
 }
 
 func (srv *Server) ImageDefault(ctx context.Context, req *spb.ImageDefaultRequest) (*spb.ImageDefaultResponse, error) {
-	ctx, err := authenticate(srv.config, ctx)
+	ctx, err := authenticate(srv.config, ctx, true)
 	if err != nil {
 		return nil, err
 	}
