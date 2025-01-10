@@ -126,7 +126,7 @@ func TestSystem(t *testing.T) {
 			Message: "Cold reboot due to ...",
 		}
 
-		for _, method := range []syspb.RebootMethod{syspb.RebootMethod_UNKNOWN, syspb.RebootMethod_HALT, syspb.RebootMethod_POWERUP} {
+		for _, method := range []syspb.RebootMethod{syspb.RebootMethod_UNKNOWN, syspb.RebootMethod_POWERUP} {
 			req.Method = method
 			_, err := sc.Reboot(ctx, req)
 			testErr(err, codes.InvalidArgument, "reboot method is not supported.", t)
