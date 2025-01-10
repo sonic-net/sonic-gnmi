@@ -84,7 +84,7 @@ func KillOrRestartProcess(restart bool, serviceName string) error {
 func (srv *Server) KillProcess(ctx context.Context, req *syspb.KillProcessRequest) (*syspb.KillProcessResponse, error) {
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		log.V(1).Info("Error while authenticating: ", err.Error())
+		return err
 	}
 
 	serviceName := req.GetName()
@@ -122,7 +122,6 @@ func HaltSystem() error {
 func processMsgPayload(pload string) (string, string, map[string]string, error) {
 	var payload []string
 	if err := json.Unmarshal([]byte(pload), &payload); err != nil {
-		log.V(0).Info(err.Error())
 		return "", "", nil, err
 	}
 
@@ -142,7 +141,6 @@ func processMsgPayload(pload string) (string, string, map[string]string, error) 
 func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Client, rebootNotifKey string) (resp proto.Message, err error, msgDataStr string) {
 	np, err := common_utils.NewNotificationProducer(rebootReqCh)
 	if err != nil {
-		log.V(1).Infof("[Reboot_Log] Error in setting up NewNotificationProducer: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error()), msgDataStr
 	}
 	defer np.Close()
@@ -150,7 +148,6 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 	// Subscribe to the response channel.
 	sub := sc.Subscribe(rebootRespCh)
 	if _, err = sub.Receive(); err != nil {
-		log.V(1).Infof("[Reboot_Log] Error in setting up subscription to response channel: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error()), msgDataStr
 	}
 	defer sub.Close()
@@ -170,12 +167,10 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 
 	reqStr, err := json.Marshal(req)
 	if err != nil {
-		log.V(1).Infof("[Reboot_Log] Error in marshalling JSON: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error()), msgDataStr
 	}
 	// Publish to notification channel.
 	if err := np.Send(rebootNotifKey, "", map[string]string{dataMsgFld: string(reqStr)}); err != nil {
-		log.V(1).Infof("[Reboot_Log] Error in publishing to notification channel: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error()), msgDataStr
 	}
 
@@ -187,7 +182,6 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 		case msg := <-channel:
 			op, data, fvs, err := processMsgPayload(msg.Payload)
 			if err != nil {
-				log.V(1).Infof("[Reboot_Log] Error while receiving Response Notification = [%v] for message [%v]", err.Error(), msg)
 				return nil, status.Errorf(codes.Internal, fmt.Sprintf("Error while receiving Response Notification: [%s] for message [%s]", err.Error(), msg)), msgDataStr
 			}
 			log.V(1).Infof("[Reboot_Log] Received on the Reboot notification channel: op = [%v], data = [%v], fvs = [%v]", op, data, fvs)
@@ -224,7 +218,7 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb.RebootResponse, error) {
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		log.V(1).Info("Error while authenticating: ", err.Error())
+		return err
 	}
 	log.V(2).Info("gNOI: Reboot")
 	if err := ValidRebootReq(req); err != nil {
@@ -267,7 +261,7 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 func (srv *Server) RebootStatus(ctx context.Context, req *syspb.RebootStatusRequest) (*syspb.RebootStatusResponse, error) {
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		log.V(1).Info("Error while authenticating: ", err.Error())
+		return err
 	}
 	log.V(1).Info("gNOI: RebootStatus")
 	resp := &syspb.RebootStatusResponse{}
@@ -280,15 +274,12 @@ func (srv *Server) RebootStatus(ctx context.Context, req *syspb.RebootStatusRequ
 
 	respStr, err, msgData := sendRebootReqOnNotifCh(ctx, req, rclient, rebootStatusKey)
 	if err != nil {
-		log.V(1).Infof("gNOI: Received error for RebootStatusResponse: %v", err)
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 	if msgData == "" || respStr == nil {
-		log.V(1).Info("gNOI: Received empty RebootStatusResponse")
 		return nil, status.Errorf(codes.Internal, "Received empty RebootStatusResponse")
 	}
 	if err := pjson.Unmarshal([]byte(msgData), resp); err != nil {
-		log.V(1).Infof("gNOI: Cannot unmarshal the response: [%v]; err: [%v]", msgData, err)
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Cannot unmarshal the response: [%s]; err: [%s]", msgData, err.Error()))
 	}
 	log.V(1).Infof("gNOI: Returning RebootStatusResponse: resp = [%v]\n, msgData = [%v]", resp, msgData)
@@ -299,7 +290,7 @@ func (srv *Server) RebootStatus(ctx context.Context, req *syspb.RebootStatusRequ
 func (srv *Server) CancelReboot(ctx context.Context, req *syspb.CancelRebootRequest) (*syspb.CancelRebootResponse, error) {
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		log.V(1).Info("Error while authenticating: ", err.Error())
+		return err
 	}
 	log.V(1).Info("gNOI: CancelReboot")
 	if req.GetMessage() == "" {
@@ -329,7 +320,7 @@ func (srv *Server) Ping(req *syspb.PingRequest, stream syspb.System_PingServer) 
 	ctx := stream.Context()
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		log.V(1).Info("Error while authenticating: ", err.Error())
+		return err
 	}
 	log.V(1).Info("gNOI: Ping")
 	return status.Errorf(codes.Unimplemented, "Method system.Ping is unimplemented.")
@@ -340,7 +331,7 @@ func (srv *Server) Traceroute(req *syspb.TracerouteRequest, stream syspb.System_
 	ctx := stream.Context()
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		log.V(1).Info("Error while authenticating: ", err.Error())
+		return err
 	}
 	log.V(1).Info("gNOI: Traceroute")
 	return status.Errorf(codes.Unimplemented, "Method system.Traceroute is unimplemented.")
@@ -351,7 +342,7 @@ func (srv *Server) SetPackage(stream syspb.System_SetPackageServer) error {
 	ctx := stream.Context()
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		log.V(1).Info("Error while authenticating: ", err.Error())
+		return err
 	}
 	log.V(1).Info("gNOI: SetPackage")
 	return status.Errorf(codes.Unimplemented, "Method system.SetPackage is unimplemented.")
@@ -361,7 +352,7 @@ func (srv *Server) SetPackage(stream syspb.System_SetPackageServer) error {
 func (srv *Server) SwitchControlProcessor(ctx context.Context, req *syspb.SwitchControlProcessorRequest) (*syspb.SwitchControlProcessorResponse, error) {
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		log.V(1).Info("Error while authenticating: ", err.Error())
+		return err
 	}
 	log.V(1).Info("gNOI: SwitchControlProcessor")
 	return &syspb.SwitchControlProcessorResponse{}, nil
@@ -371,7 +362,7 @@ func (srv *Server) SwitchControlProcessor(ctx context.Context, req *syspb.Switch
 func (srv *Server) Time(ctx context.Context, req *syspb.TimeRequest) (*syspb.TimeResponse, error) {
 	_, err := authenticate(srv.config, ctx)
 	if err != nil {
-		log.V(1).Info("Error while authenticating: ", err.Error())
+		return err
 	}
 	log.V(1).Info("gNOI: Time")
 	var tm syspb.TimeResponse
