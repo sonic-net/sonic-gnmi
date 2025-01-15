@@ -12,7 +12,7 @@ require (
 	github.com/go-redis/redis v6.15.6+incompatible
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gogo/protobuf v1.3.2
-	github.com/golang/glog v1.2.0
+	github.com/golang/glog v1.2.2
 	github.com/golang/protobuf v1.5.4
 	github.com/google/gnxi v0.0.0-20191016182648-6697a080bc2d
 	github.com/jipanyang/gnmi v0.0.0-20180820232453-cb4d464fa018
@@ -20,11 +20,11 @@ require (
 	github.com/kylelemons/godebug v1.1.0
 	github.com/msteinert/pam v0.0.0-20201130170657-e61372126161
 	github.com/openconfig/gnmi v0.10.0
-	github.com/openconfig/gnoi v0.5.0
+	github.com/openconfig/gnoi v0.6.0
 	github.com/openconfig/ygot v0.7.1
-	golang.org/x/crypto v0.24.0
-	golang.org/x/net v0.26.0
-	google.golang.org/grpc v1.64.1
+	golang.org/x/crypto v0.28.0
+	golang.org/x/net v0.30.0
+	google.golang.org/grpc v1.69.2
 	google.golang.org/grpc/security/advancedtls v1.0.0
 	google.golang.org/protobuf v1.36.3
 	gopkg.in/yaml.v2 v2.2.8
@@ -48,7 +48,7 @@ require (
 	go4.org/intern v0.0.0-20211027215823-ae77deb06f29 // indirect
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
 	golang.org/x/sys v0.26.0 // indirect
-	golang.org/x/text v0.16.0 // indirect
+	golang.org/x/text v0.19.0 // indirect
 	google.golang.org/genproto v0.0.0-20200526211855-cb27e3aa2013 // indirect
 	inet.af/netaddr v0.0.0-20230525184311-b8eac61e914a // indirect
 )
