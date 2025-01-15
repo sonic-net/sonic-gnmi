@@ -13,6 +13,7 @@ import (
 // For virtual db path
 const (
 	DbIdx    uint = iota // DB name is the first element (no. 0) in path slice.
+        NamespaceIdx         // Namespace in path slice 
 	TblIdx               // Table name is the second element (no. 1) in path slice.
 	KeyIdx               // Key name is the first element (no. 2) in path slice.
 	FieldIdx             // Field name is the first element (no. 3) in path slice.
@@ -44,6 +45,9 @@ var (
 	// SONiC interface name to their PFC-WD enabled queues, then to oid map
 	countersPfcwdNameMap = make(map[string]map[string]string)
 
+	// SONiC interface name to their Fabric port name map, then to oid map
+	countersFabricPortNameMap = make(map[string]string)
+
 	// path2TFuncTbl is used to populate trie tree which is reponsible
 	// for virtual path to real data path translation
 	pathTransFuncTbl = []pathTransFunc{
@@ -59,7 +63,10 @@ var (
 		}, { // PFC WD stats for one or all Ethernet ports
 			path:      []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"},
 			transFunc: v2rTranslate(v2rEthPortPfcwdStats),
-		},
+		}, { // stats for one or all Fabric ports
+                        path:      []string{"COUNTERS_DB", "Namespace", "COUNTERS", "PORT*"},
+                        transFunc: v2rTranslate(v2rFabricPortStats),
+                },
 	}
 )
 
@@ -116,6 +123,16 @@ func initCountersPfcwdNameMap() error {
 		}
 	}
 	return nil
+}
+func initCountersFabricPortNameMap() error {
+        var err error
+        if len(countersFabricPortNameMap) == 0 {
+                countersFabricPortNameMap, err = getCountersMap("COUNTERS_FABRIC_PORT_NAME_MAP")
+                if err != nil {
+                        return err
+                }
+        }
+        return nil
 }
 
 // Get the mapping between sonic interface name and oids of their PFC-WD enabled queues in COUNTERS_DB
@@ -282,6 +299,46 @@ func getCountersMap(tableName string) (map[string]string, error) {
 		log.V(6).Infof("tableName: %s in namespace %v, map %v", tableName, namespace, fv)
 	}
 	return counter_map, nil
+}
+
+// Populate real data paths from paths like
+// [COUNTER_DB COUNTERS Ethernet*] or [COUNTER_DB COUNTERS Ethernet68]
+func v2rFabricPortStats(paths []string) ([]tablePath, error) {
+        var tblPaths []tablePath
+	log.V(1).Infof("sumeenak in v2rFabricPortStats %v", paths)
+        if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
+                for _, oid := range countersFabricPortNameMap {
+                        var oport string
+
+                        separator, _ := GetTableKeySeparator(paths[DbIdx], paths[NamespaceIdx])
+                        tblPath := tablePath{
+                                dbName:       paths[DbIdx],
+                                dbNamespace:  paths[NamespaceIdx],
+                                tableName:    paths[TblIdx],
+                                tableKey:     oid,
+                                delimitor:    separator,
+                                jsonTableKey: oport,
+                        }
+                        tblPaths = append(tblPaths, tblPath)
+                }
+        } else { //single port
+                var name string
+                name = paths[KeyIdx]
+                oid, ok := countersPortNameMap[name]
+                if !ok {
+                        return nil, fmt.Errorf("%v not a valid sonic interface.", name)
+                }
+                separator, _ := GetTableKeySeparator(paths[DbIdx], paths[NamespaceIdx])
+                tblPaths = []tablePath{{
+                        dbName:      paths[DbIdx],
+                        dbNamespace: paths[NamespaceIdx],
+                        tableName:   paths[TblIdx],
+                        tableKey:    oid,
+                        delimitor:   separator,
+                }}
+        }
+        log.V(1).Infof("v2rFabricPortStats: %v", tblPaths)
+        return tblPaths, nil
 }
 
 // Populate real data paths from paths like
