@@ -56,4 +56,5 @@ require (
 replace (
 	github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common
 	golang.org/x/crypto => golang.org/x/crypto v0.24.0
+	github.com/sonic-net/sonic-gnmi/gnoi_client/containerz => ./gnoi_client/containerz
 )

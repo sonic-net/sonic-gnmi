@@ -7,6 +7,7 @@ import (
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/system"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/file"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/sonic"
+	"github.com/sonic-net/sonic-gnmi/gnoi_client/containerz"
 	"google.golang.org/grpc"
 	"os"
 	"os/signal"
@@ -50,6 +51,13 @@ func main() {
 			file.Stat(conn, ctx)
 		default:
 			panic("Invalid RPC Name")
+		}
+	case "Containerz":
+		switch *config.Rpc {
+			case "list":
+				containerz.List(conn, ctx)
+			default:
+				panic("Invalid RPC Name")
 		}
 	case "Sonic":
 		switch *config.Rpc {
