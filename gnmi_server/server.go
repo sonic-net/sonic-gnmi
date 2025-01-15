@@ -22,6 +22,7 @@ import (
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoi_containerz_pb "github.com/openconfig/gnoi/containerz"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -68,6 +69,14 @@ type FileServer struct {
 type SystemServer struct {
 	*Server
 	gnoi_system_pb.UnimplementedSystemServer
+}
+
+// ContainerzServer is the server API for Containerz service.
+// All implementations must embed UnimplementedContainerzServer
+// for forward compatibility
+type ContainerzServer struct {
+	*Server
+	gnoi_containerz_pb.UnimplementedContainerzServer
 }
 
 type AuthTypes map[string]bool
@@ -180,6 +189,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 
 	fileSrv := &FileServer{Server: srv}
 	systemSrv := &SystemServer{Server: srv}
+	containerzSrv := &ContainerzServer{Server: srv}
 
 	var err error
 	if srv.config.Port < 0 {
@@ -194,6 +204,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
 		gnoi_system_pb.RegisterSystemServer(srv.s, systemSrv)
 		gnoi_file_pb.RegisterFileServer(srv.s, fileSrv)
+		gnoi_containerz_pb.RegisterContainerzServer(srv.s, containerzSrv)
 	}
 	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
