@@ -19,14 +19,14 @@ require (
 	github.com/jipanyang/gnxi v0.0.0-20181221084354-f0a90cca6fd0
 	github.com/kylelemons/godebug v1.1.0
 	github.com/msteinert/pam v0.0.0-20201130170657-e61372126161
-	github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
-	github.com/openconfig/gnoi v0.0.0-20211029052138-349b3dcd04ec
+	github.com/openconfig/gnmi v0.10.0
+	github.com/openconfig/gnoi v0.5.0
 	github.com/openconfig/ygot v0.7.1
 	golang.org/x/crypto v0.24.0
 	golang.org/x/net v0.26.0
 	google.golang.org/grpc v1.64.1
 	google.golang.org/grpc/security/advancedtls v1.0.0
-	google.golang.org/protobuf v1.34.1
+	google.golang.org/protobuf v1.36.3
 	gopkg.in/yaml.v2 v2.2.8
 )
 
@@ -55,6 +55,11 @@ require (
 
 replace (
 	github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common
+	// Pin the gnmi version
+	// Why: When go detects ambiguity about which gnmi version is needed, it will always
+	// pick the latest version. This will break the dependency github.com/jipanyang/gnmi
+	// which needs an older version of gnmi.
+	// We should remove this pin as soon as we remove the dependency on github.com/jipanyang/gnmi.
+	github.com/openconfig/gnmi => github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
 	golang.org/x/crypto => golang.org/x/crypto v0.24.0
-	github.com/sonic-net/sonic-gnmi/gnoi_client/containerz => ./gnoi_client/containerz
 )

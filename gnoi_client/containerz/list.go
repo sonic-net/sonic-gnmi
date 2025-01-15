@@ -14,12 +14,12 @@ func List(conn *grpc.ClientConn, ctx context.Context) {
 	fmt.Println("List Containers")
 	ctx = utils.SetUserCreds(ctx)
 	cc := pb.NewContainerzClient(conn)
-	req := &pb.ListRequest{}
+	req := &pb.ListContainerRequest{}
 	err := json.Unmarshal([]byte(*config.Args), req)
 	if err != nil {
 		panic(err.Error())
 	}
-	resp, err := cc.List(ctx, req)
+	resp, err := cc.ListContainer(ctx, req)
 	if err != nil {
 		panic(err.Error())
 	}
