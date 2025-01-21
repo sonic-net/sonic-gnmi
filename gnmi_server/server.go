@@ -22,6 +22,7 @@ import (
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -68,6 +69,14 @@ type FileServer struct {
 type SystemServer struct {
 	*Server
 	gnoi_system_pb.UnimplementedSystemServer
+}
+
+// OSServer is the server API for System service.
+// All implementations must embed UnimplementedSystemServer
+// for forward compatibility
+type OSServer struct {
+	*Server
+	gnoi_os_pb.UnimplementedOSServer
 }
 
 type AuthTypes map[string]bool
