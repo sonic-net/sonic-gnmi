@@ -13,7 +13,6 @@ import (
 // For virtual db path
 const (
 	DbIdx    uint = iota // DB name is the first element (no. 0) in path slice.
-        NamespaceIdx         // Namespace in path slice 
 	TblIdx               // Table name is the second element (no. 1) in path slice.
 	KeyIdx               // Key name is the first element (no. 2) in path slice.
 	FieldIdx             // Field name is the first element (no. 3) in path slice.
@@ -64,7 +63,7 @@ var (
 			path:      []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"},
 			transFunc: v2rTranslate(v2rEthPortPfcwdStats),
 		}, { // stats for one or all Fabric ports
-                        path:      []string{"COUNTERS_DB", "Namespace", "COUNTERS", "PORT*"},
+                        path:      []string{"COUNTERS_DB", "COUNTERS", "PORT*"},
                         transFunc: v2rTranslate(v2rFabricPortStats),
                 },
 	}
@@ -126,8 +125,9 @@ func initCountersPfcwdNameMap() error {
 }
 func initCountersFabricPortNameMap() error {
         var err error
+		fmt.Errorf("in initCountersFabricPortNameMap")
         if len(countersFabricPortNameMap) == 0 {
-                countersFabricPortNameMap, err = getCountersMap("COUNTERS_FABRIC_PORT_NAME_MAP")
+                countersFabricPortNameMap, err = getFabricCountersMap("COUNTERS_FABRIC_PORT_NAME_MAP")
                 if err != nil {
                         return err
                 }
@@ -301,44 +301,80 @@ func getCountersMap(tableName string) (map[string]string, error) {
 	return counter_map, nil
 }
 
+
+// Get the mapping between objects in counters DB, Ex. port name to oid in "COUNTERS_PORT_NAME_MAP" table.
+// Aussuming static port name to oid map in COUNTERS table
+func getFabricCountersMap(tableName string) (map[string]string, error) {
+	counter_map := make(map[string]string)
+	dbName := "COUNTERS_DB"
+	fmt.Errorf("in getFabricCountersMap")
+	redis_client_map, err := GetRedisClientsForDb(dbName)
+	if err != nil {
+                return nil, err
+	}
+	for namespace, redisDb := range redis_client_map {
+		fv, err := redisDb.HGetAll(tableName).Result()
+		if err != nil {
+			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, tableName: %s", namespace, tableName)
+			return nil, err
+		}
+		namespaceFv := make(map[string]string)
+		for k, v := range fv {
+			namespaceFv[k + string('-') + namespace] = v
+		}
+		addmap(counter_map, namespaceFv)
+		log.V(6).Infof("tableName: %s in namespace %v, map %v", tableName, namespace, namespaceFv)
+	}
+	return counter_map, nil
+}
+
 // Populate real data paths from paths like
 // [COUNTER_DB COUNTERS Ethernet*] or [COUNTER_DB COUNTERS Ethernet68]
 func v2rFabricPortStats(paths []string) ([]tablePath, error) {
-        var tblPaths []tablePath
-	log.V(1).Infof("sumeenak in v2rFabricPortStats %v", paths)
-        if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
-                for _, oid := range countersFabricPortNameMap {
-                        var oport string
-
-                        separator, _ := GetTableKeySeparator(paths[DbIdx], paths[NamespaceIdx])
-                        tblPath := tablePath{
-                                dbName:       paths[DbIdx],
-                                dbNamespace:  paths[NamespaceIdx],
-                                tableName:    paths[TblIdx],
-                                tableKey:     oid,
-                                delimitor:    separator,
-                                jsonTableKey: oport,
-                        }
-                        tblPaths = append(tblPaths, tblPath)
-                }
-        } else { //single port
-                var name string
-                name = paths[KeyIdx]
-                oid, ok := countersPortNameMap[name]
-                if !ok {
-                        return nil, fmt.Errorf("%v not a valid sonic interface.", name)
-                }
-                separator, _ := GetTableKeySeparator(paths[DbIdx], paths[NamespaceIdx])
-                tblPaths = []tablePath{{
-                        dbName:      paths[DbIdx],
-                        dbNamespace: paths[NamespaceIdx],
-                        tableName:   paths[TblIdx],
-                        tableKey:    oid,
-                        delimitor:   separator,
-                }}
-        }
-        log.V(1).Infof("v2rFabricPortStats: %v", tblPaths)
-        return tblPaths, nil
+	var tblPaths []tablePath
+	fmt.Errorf("in v2rFabricPortStats")
+	if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
+		for port, oid := range countersFabricPortNameMap {
+			var namespace string
+			if strings.Contains(port, "-"){
+			    namespace = strings.Split(port, "-")[1]
+			} else {
+				return nil, fmt.Errorf("%v does not have namespace associated", port)
+			}
+			separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+			tblPath := tablePath{
+				dbNamespace:  namespace,
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx],
+				tableKey:     oid,
+				delimitor:    separator,
+				jsonTableKey: port,
+			}
+			tblPaths = append(tblPaths, tblPath)
+		}
+	} else { //single port
+		var port, namespace string
+		port = paths[KeyIdx]
+		oid, ok := countersFabricPortNameMap[port]
+		if !ok {
+			return nil, fmt.Errorf("%v not a valid sonic fabric interface.", port)
+		}
+		if strings.Contains(port, "-"){
+			namespace = strings.Split(port, "-")[1]
+		} else {
+			return nil, fmt.Errorf("%v does not have namespace associated", port)
+		}
+		separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+		tblPaths = []tablePath{{
+			dbNamespace: namespace,
+			dbName:      paths[DbIdx],
+			tableName:   paths[TblIdx],
+			tableKey:    oid,
+			delimitor:   separator,
+		}}
+	}
+	log.V(6).Infof("v2rFabricPortStats: %v", tblPaths)
+	return tblPaths, nil
 }
 
 // Populate real data paths from paths like
