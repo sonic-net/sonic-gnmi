@@ -91,6 +91,7 @@ type Config struct {
 
 var AuthLock sync.Mutex
 var maMu sync.Mutex
+const WriteAccessMode = "readwrite"
 
 func (i AuthTypes) String() string {
 	if i["none"] {
@@ -240,7 +241,7 @@ func (srv *Server) Port() int64 {
 	return srv.config.Port
 }
 
-func authenticate(config *Config, ctx context.Context) (context.Context, error) {
+func authenticate(config *Config, ctx context.Context, writeAccess bool) (context.Context, error) {
 	var err error
 	success := false
 	rc, ctx := common_utils.GetContext(ctx)
@@ -268,6 +269,13 @@ func authenticate(config *Config, ctx context.Context) (context.Context, error) 
 		if err == nil {
 			success = true
 		}
+		// role must be readwrite to support write access
+		if success && writeAccess && config.ConfigTableName != "" {
+			role := rc.Auth.Roles[0]
+			if role != WriteAccessMode {
+				return ctx, fmt.Errorf("%s does not have write access, %s", rc.Auth.User, role)
+			}
+		}
 	}
 
 	//Allow for future authentication mechanisms here...
@@ -283,7 +291,7 @@ func authenticate(config *Config, ctx context.Context) (context.Context, error) 
 // Subscribe implements the gNMI Subscribe RPC.
 func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	ctx := stream.Context()
-	ctx, err := authenticate(s.config, ctx)
+	ctx, err := authenticate(s.config, ctx, false)
 	if err != nil {
 		return err
 	}
@@ -368,7 +376,7 @@ func IsNativeOrigin(origin string) bool {
 // Get implements the Get RPC in gNMI spec.
 func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
 	common_utils.IncCounter(common_utils.GNMI_GET)
-	ctx, err := authenticate(s.config, ctx)
+	ctx, err := authenticate(s.config, ctx, false)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, err
@@ -474,7 +482,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
 	}
-	ctx, err := authenticate(s.config, ctx)
+	ctx, err := authenticate(s.config, ctx, true)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, err
@@ -576,7 +584,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 }
 
 func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest) (*gnmipb.CapabilityResponse, error) {
-	ctx, err := authenticate(s.config, ctx)
+	ctx, err := authenticate(s.config, ctx, false)
 	if err != nil {
 		return nil, err
 	}

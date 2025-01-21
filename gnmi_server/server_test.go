@@ -4520,7 +4520,7 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check get 1 cert name
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role", "role1")
+	gnmiTable.Hset("certname1", "role", "readwrite")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
@@ -4531,8 +4531,8 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check get multiple cert names
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role", "role1")
-	gnmiTable.Hset("certname2", "role", "role2")
+	gnmiTable.Hset("certname1", "role", "readwrite")
+	gnmiTable.Hset("certname2", "role", "readonly")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
@@ -4543,7 +4543,7 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check a invalid cert cname
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname2", "role", "role2")
+	gnmiTable.Hset("certname2", "role", "readonly")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err == nil {
 		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
@@ -4553,6 +4553,35 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 
 	swsscommon.DeleteTable(gnmiTable)
 	swsscommon.DeleteDBConnector(configDb)
+}
+
+func TestAuthenticate(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	var tableName = "GNMI_CLIENT_CERT"
+	var configDb = swsscommon.NewDBConnector("CONFIG_DB", uint(0), true)
+	var gnmiTable = swsscommon.NewTable(configDb, tableName)
+	defer swsscommon.DeleteTable(gnmiTable)
+	defer swsscommon.DeleteDBConnector(configDb)
+	configDb.Flushdb()
+
+	// initialize err variable
+	err := status.Error(codes.Unauthenticated, "")
+
+	// check a invalid role
+	cfg := &Config{ConfigTableName: tableName, UserAuth: AuthTypes{"password": false, "cert": true, "jwt": false}}
+	ctx, cancel := CreateAuthorizationCtx()
+	configDb.Flushdb()
+	gnmiTable.Hset("certname1", "role", "readonly")
+	// Call authenticate to verify the user's role. This should fail if the role is "readonly".
+	_, err = authenticate(cfg, ctx, true)
+	if err == nil {
+		t.Errorf("authenticate with readonly role should fail: %v", err)
+	}
+
+	cancel()
 }
 
 type MockServerStream struct {
