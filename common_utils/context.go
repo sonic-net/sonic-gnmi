@@ -57,6 +57,7 @@ const (
 	DBUS_HALT_SYSTEM
 	DBUS_IMAGE_DOWNLOAD
 	DBUS_IMAGE_INSTALL
+	DBUS_IMAGE_LIST
 	COUNTER_SIZE
 )
 
@@ -100,6 +101,8 @@ func (c CounterType) String() string {
 		return "DBUS image download"
 	case DBUS_IMAGE_INSTALL:
 		return "DBUS image install"
+	case DBUS_IMAGE_LIST:
+		return "DBUS image list"
 	default:
 		return ""
 	}
