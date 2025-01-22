@@ -242,7 +242,7 @@ func (c *DbusClient) ListImages() (map[string]interface{}, error) {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".list_images"
-	result, err := DbusApi(busName, busPath, intName, 60)
+	result, err := DbusApi(busName, busPath, intName, /*timeout=*/60)
 	if err != nil {
 		return nil, err
 	}
