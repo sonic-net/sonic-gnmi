@@ -307,7 +307,6 @@ func getCountersMap(tableName string) (map[string]string, error) {
 func getFabricCountersMap(tableName string) (map[string]string, error) {
 	counter_map := make(map[string]string)
 	dbName := "COUNTERS_DB"
-	fmt.Errorf("in getFabricCountersMap")
 	redis_client_map, err := GetRedisClientsForDb(dbName)
 	if err != nil {
                 return nil, err
@@ -320,7 +319,11 @@ func getFabricCountersMap(tableName string) (map[string]string, error) {
 		}
 		namespaceFv := make(map[string]string)
 		for k, v := range fv {
-			namespaceFv[k + string('-') + namespace] = v
+			var namespace_str = ""
+            if len(namespace) != 0 {
+                namespace_str = string('-') + namespace
+            }
+			namespaceFv[k + namespace_str] = v
 		}
 		addmap(counter_map, namespaceFv)
 		log.V(6).Infof("tableName: %s in namespace %v, map %v", tableName, namespace, namespaceFv)
@@ -339,7 +342,7 @@ func v2rFabricPortStats(paths []string) ([]tablePath, error) {
 			if strings.Contains(port, "-"){
 			    namespace = strings.Split(port, "-")[1]
 			} else {
-				return nil, fmt.Errorf("%v does not have namespace associated", port)
+				namespace = ""
 			}
 			separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
 			tblPath := tablePath{
@@ -362,7 +365,7 @@ func v2rFabricPortStats(paths []string) ([]tablePath, error) {
 		if strings.Contains(port, "-"){
 			namespace = strings.Split(port, "-")[1]
 		} else {
-			return nil, fmt.Errorf("%v does not have namespace associated", port)
+			namespace = ""
 		}
 		separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
 		tblPaths = []tablePath{{
