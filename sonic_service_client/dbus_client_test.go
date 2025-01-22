@@ -3,6 +3,7 @@ package host_service
 import (
 	"reflect"
 	"testing"
+	"strings"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"
@@ -571,6 +572,7 @@ func TestDownloadImageFail(t *testing.T) {
 		t.Errorf("Expected error message '%s' but got '%v'", err_msg, err)
 	}
 }
+
 func TestInstallImageSuccess(t *testing.T) {
 	where := "/tmp/sonic-img"
 	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
@@ -605,6 +607,7 @@ func TestInstallImageSuccess(t *testing.T) {
 		t.Errorf("InstallImage should pass: %v", err)
 	}
 }
+
 func TestInstallImageFail(t *testing.T) {
 	where := "/tmp/sonic-img"
 	err_msg := "This is the mock error message"
@@ -643,5 +646,151 @@ func TestInstallImageFail(t *testing.T) {
 	}
 	if err.Error() != err_msg {
 		t.Errorf("Expected error message '%s' but got '%v'", err_msg, err)
+	}
+}
+
+func TestListImagesSuccess(t *testing.T) {
+	expectedDbusOut := `{
+		"current": "current_image",
+		"next": "next_image",
+		"available": ["image1", "image2"]
+	}`
+	expectedResult := map[string]interface{}{
+		"current":   "current_image",
+		"next":      "next_image",
+		"available": []interface{}{"image1", "image2"},
+	}
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.image_service.list_images" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		if len(args) != 0 {
+			t.Errorf("Wrong number of arguments: %v", len(args))
+		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ret.Body[1] = expectedDbusOut
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	actualResult, err := client.ListImages()
+	if err != nil {
+		t.Errorf("InstallImage should pass: %v", err)
+	}
+	if len(actualResult) != len(expectedResult) {
+		t.Errorf("Expected %v but got %v", expectedResult, actualResult)
+	}
+	for key, value := range expectedResult {
+		if reflect.DeepEqual(actualResult[key], value) == false {
+			t.Errorf("Expected %v for key %v but got %v", value, key, actualResult[key])
+		}
+	}
+}
+
+func TestListImagesFailDBusError(t *testing.T) {
+	err_msg := "This is the mock error message"
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(1)
+		ret.Body[1] = err_msg
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	_, err = client.ListImages()
+	if err == nil {
+		t.Errorf("ListImages should fail")
+	}
+	if err.Error() != err_msg {
+		t.Errorf("Expected error message '%s' but got '%v'", err_msg, err)
+	}
+}
+
+func TestListImagesFailDBusMissingCurrentImage(t *testing.T) {
+	expectedDbusOut := `{
+		"next": "next_image",
+		"available": ["image1", "image2"]
+	}`
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ret.Body[1] = expectedDbusOut
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	_, err = client.ListImages()
+	if err == nil {
+		t.Errorf("ListImages should fail due to missing current image")
+	}
+	if !strings.Contains(err.Error(), "current") {
+		t.Errorf("Expected error message to contain 'current' but got '%v'", err)
+	}
+}
+
+func TestListImagesFailDBusMissingNextImage(t *testing.T) {
+	expectedDbusOut := `{
+		"current": "current_image",
+		"available": ["image1", "image2"]
+	}`
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ret.Body[1] = expectedDbusOut
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	_, err = client.ListImages()
+	if err == nil {
+		t.Errorf("ListImages should fail due to missing next image")
+	}
+	if !strings.Contains(err.Error(), "next") {
+		t.Errorf("Expected error message to contain 'next' but got '%v'", err)
 	}
 }

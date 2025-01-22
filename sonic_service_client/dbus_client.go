@@ -1,6 +1,7 @@
 package host_service
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"time"
@@ -23,6 +24,7 @@ type Service interface {
 	HaltSystem() error
 	DownloadImage(url string, save_as string) error
 	InstallImage(where string) error
+	ListImages() (map[string]interface{}, error)
 }
 
 type DbusClient struct {
@@ -232,4 +234,35 @@ func (c *DbusClient) InstallImage(where string) error {
 	intName := c.intNamePrefix + modName + ".install"
 	_, err := DbusApi(busName, busPath, intName /*timeout=*/, 900, where)
 	return err
+}
+
+func (c *DbusClient) ListImages() (map[string]interface{}, error) {
+	common_utils.IncCounter(common_utils.DBUS_IMAGE_LIST)
+	modName := "image_service"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".list_images"
+	result, err := DbusApi(busName, busPath, intName, 60)
+	if err != nil {
+		return nil, err
+	}
+	var data map[string]interface{}
+	err = json.Unmarshal([]byte(result.(string)), &data)
+	log.V(2).Infof("ListImages: %v", data)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := data["current"].(string); !ok {
+		log.V(2).Infof("Invalid format for DBus output: missing or invalid 'current' field")
+		return nil, fmt.Errorf("Invalid format: missing or invalid 'current' field")
+	}
+	if _, ok := data["next"].(string); !ok {
+		log.V(2).Infof("Invalid format for DBus output: missing or invalid 'next' field")
+		return nil, fmt.Errorf("Invalid format: missing or invalid 'next' field")
+	}
+	if _, ok := data["available"].([]interface{}); !ok {
+		log.V(2).Infof("Invalid format for DBus output: missing or invalid 'available' field")
+		return nil, fmt.Errorf("Invalid format: missing or invalid 'available' field")
+	}
+	return data, nil
 }
