@@ -317,7 +317,7 @@ def gnoi_refresh_with_jwt(token):
     ret, msg = run_cmd(cmd)
     return ret, msg
 
-def gnoi_os_verify(method, delay, message):
+def gnoi_os_verify():
     path = os.getcwd()
     cmd = path + '/build/bin/gnoi_client '
     cmd += '-insecure -target 127.0.0.1:8080 '
