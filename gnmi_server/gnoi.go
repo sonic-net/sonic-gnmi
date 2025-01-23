@@ -116,8 +116,34 @@ func KillOrRestartProcess(restart bool, serviceName string) error {
 	return err
 }
 
-func (src *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) (*gnoi_os_pb.VerifyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "")
+func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) (*gnoi_os_pb.VerifyResponse, error) {
+	_, err := authenticate(srv.config, ctx, false)
+	if err != nil {
+		log.V(2).Infof("Failed to authenticate: %v", err)
+		return nil, err
+	}
+
+	log.V(1).Info("gNOI: Verify")
+	dbus, err := ssc.NewDbusClient()
+	if err != nil {
+		log.V(2).Infof("Failed to create dbus client: %v", err)
+		return nil, err
+	}
+
+	images, err := dbus.ListImages()
+	if err != nil {
+		log.V(2).Infof("Failed to list images: %v", err)
+		return nil, err
+	}
+
+	current_image, ok := images["current"].(string)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "Failed to assert current image as string")
+	}
+	resp := &gnoi_os_pb.VerifyResponse{
+		Version: current_image,
+	}
+	return resp, nil
 }
 
 func (srv *SystemServer) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProcessRequest) (*gnoi_system_pb.KillProcessResponse, error) {

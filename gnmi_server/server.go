@@ -189,6 +189,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 
 	fileSrv := &FileServer{Server: srv}
 	systemSrv := &SystemServer{Server: srv}
+	osSrv := &OSServer{Server: srv}
 
 	var err error
 	if srv.config.Port < 0 {
@@ -203,6 +204,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
 		gnoi_system_pb.RegisterSystemServer(srv.s, systemSrv)
 		gnoi_file_pb.RegisterFileServer(srv.s, fileSrv)
+		gnoi_os_pb.RegisterOSServer(srv.s, osSrv)
 	}
 	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
