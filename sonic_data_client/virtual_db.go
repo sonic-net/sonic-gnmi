@@ -153,7 +153,7 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 			if strings.Contains(key, "GLOBAL") || strings.Contains(key, "global") { // ignore PFC_WD|global / PFC_WD|GLOBAL
 				continue
 			}
-			name := key[len(keyName):]
+			name := key[len(keyName) - 1:]
 			pfcwdName_map[name] = make(map[string]string)
 		}
 
