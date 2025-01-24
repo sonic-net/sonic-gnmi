@@ -123,6 +123,7 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 	var pfcwdName_map = make(map[string]map[string]string)
 
 	dbName := "CONFIG_DB"
+	pfcwdTableName := "PFC_WD"
 	redis_client_map, err := GetRedisClientsForDb(dbName)
 	if err != nil {
 		return nil, err
@@ -134,8 +135,8 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 			log.V(1).Infof("Can not connect to %v in namsespace %v, err: %v", dbName, namespace, err)
 			return nil, err
 		}
-
-		keyName := fmt.Sprintf("PFC_WD%v*", separator)
+		
+		keyName := fmt.Sprintf("%s%v*", pfcwdTableName, separator)
 		resp, err := redisDb.Keys(keyName).Result()
 		if err != nil {
 			log.V(1).Infof("redis get keys failed for %v in namsepace %v, key = %v, err: %v", dbName, namespace, keyName, err)
@@ -152,7 +153,7 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 			if strings.Contains(key, "GLOBAL") || strings.Contains(key, "global") { // ignore PFC_WD|global / PFC_WD|GLOBAL
 				continue
 			}
-			name := key[7:]
+			name := key[len(keyName):]
 			pfcwdName_map[name] = make(map[string]string)
 		}
 
