@@ -1,6 +1,6 @@
 Use escaped '/' to support ip prefix in path element
---- ./github.com/jipanyang/gnxi/utils/xpath/xpath.go
-+++ ./github.com/jipanyang/gnxi/utils/xpath/xpath.go
+--- ./github.com/google/gnxi/utils/xpath/xpath.go
++++ ./github.com/google/gnxi/utils/xpath/xpath.go
 @@ -88,11 +88,15 @@
  	for end < len(str) {
  		switch str[end] {
@@ -19,3 +19,12 @@ Use escaped '/' to support ip prefix in path element
  				}
  				end++
  				begin = end
+@@ -211,7 +215,7 @@
+ 	i := strings.Index(elem, "[")
+ 	if i < 0 {
+ 		if !idRe.MatchString(elem) {
+-			return nil, fmt.Errorf("invalid node name: %q", elem)
++			//return nil, fmt.Errorf("invalid node name: %q", elem)
+ 		}
+ 		return []interface{}{elem}, nil
+ 	}

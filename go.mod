@@ -14,9 +14,7 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/glog v1.2.0
 	github.com/golang/protobuf v1.5.4
-	github.com/google/gnxi v0.0.0-20191016182648-6697a080bc2d
-	github.com/jipanyang/gnmi v0.0.0-20180820232453-cb4d464fa018
-	github.com/jipanyang/gnxi v0.0.0-20181221084354-f0a90cca6fd0
+	github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2
 	github.com/kylelemons/godebug v1.1.0
 	github.com/msteinert/pam v0.0.0-20201130170657-e61372126161
 	github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
