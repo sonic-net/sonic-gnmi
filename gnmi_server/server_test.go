@@ -54,8 +54,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	linuxproc "github.com/c9s/goprocinfo/linux"
 	"github.com/godbus/dbus/v5"
-	gclient "github.com/jipanyang/gnmi/client/gnmi"
-	"github.com/jipanyang/gnxi/utils/xpath"
+	"github.com/google/gnxi/utils/xpath"
 	cacheclient "github.com/openconfig/gnmi/client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
@@ -64,7 +63,6 @@ import (
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
 
-var clientTypes = []string{gclient.Type}
 
 func loadConfig(t *testing.T, key string, in []byte) map[string]interface{} {
 	var fvp map[string]interface{}

@@ -58,8 +58,6 @@ github.com/golang/protobuf v1.4.1/go.mod h1:U8fpvMrcmy5pZrNK1lt4xCsGvpyWQ/VVv6QD
 github.com/golang/protobuf v1.5.0/go.mod h1:FsONVRAS9T7sI+LIUmWTfcYkHO4aIWwzhcaSAoJOfIk=
 github.com/golang/protobuf v1.5.4 h1:i7eJL8qZTpSEXOPTxNKhASYpMn+8e5Q6AdndVa1dWek=
 github.com/golang/protobuf v1.5.4/go.mod h1:lnTiLA8Wa4RWRcIUkrtSVa5nRhsEGBg48fD6rSs7xps=
-github.com/google/gnxi v0.0.0-20191016182648-6697a080bc2d h1:OtErLAncPdsEEhOI4ueR48dr6uThRIPkwWcOAdQ4LyI=
-github.com/google/gnxi v0.0.0-20191016182648-6697a080bc2d/go.mod h1:6kkMbKS62iZMyk1q0zukcqkEJwnIhcbgg/hmoFmRDZk=
 github.com/google/go-cmp v0.2.0/go.mod h1:oXzfMopK8JAjlY9xF4vHSVASa0yLyX7SntLO5aqRK0M=
 github.com/google/go-cmp v0.3.0/go.mod h1:8QqcDgzrUqlUb/G2PQTWiueGozuR1884gddMywk6iLU=
 github.com/google/go-cmp v0.3.1/go.mod h1:8QqcDgzrUqlUb/G2PQTWiueGozuR1884gddMywk6iLU=
@@ -73,10 +71,8 @@ github.com/google/uuid v1.1.2/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+
 github.com/gopherjs/gopherjs v0.0.0-20181017120253-0766667cb4d1/go.mod h1:wJfORRmW1u3UXTncJ5qlYoELFm8eSnnEO6hX4iZ3EWY=
 github.com/hpcloud/tail v1.0.0 h1:nfCOvKYfkgYP8hkirhJocXT2+zOD8yUNjXaWfTlyFKI=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
-github.com/jipanyang/gnmi v0.0.0-20180820232453-cb4d464fa018 h1:M++7b2XCTGqQwqu+AB0B3XzXiV+vVawnXJ4tvxUMrTU=
-github.com/jipanyang/gnmi v0.0.0-20180820232453-cb4d464fa018/go.mod h1:+aiusdWGFuKzi7B8/Y75kTlIA3UDF+sUBfY5+1e2NLs=
-github.com/jipanyang/gnxi v0.0.0-20181221084354-f0a90cca6fd0 h1:Dr/hrfbZxVlT/VvLfv8glHZAf9dLfuTSCJQq7cRGydo=
-github.com/jipanyang/gnxi v0.0.0-20181221084354-f0a90cca6fd0/go.mod h1:vL9tMB3I625wwTPrEWmJ+kWrsHHFN/J79IEQD9knVi0=
+github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2 h1:Cb0tImy52kinqtUXYR59HSNXYz83Y69yD8/zoKScE3s=
+github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2/go.mod h1:6kkMbKS62iZMyk1q0zukcqkEJwnIhcbgg/hmoFmRDZk=
 github.com/jtolds/gls v4.20.0+incompatible/go.mod h1:QJZ7F/aHp+rZTRtaJ1ow/lLfFfVYBRgL+9YlvaHOwJU=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=

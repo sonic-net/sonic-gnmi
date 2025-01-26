@@ -1,5 +1,5 @@
---- ./github.com/jipanyang/gnxi/gnmi_get/gnmi_get.go	2019-11-26 15:44:07.303598063 -0800
-+++ ./github.com/jipanyang/gnxi/gnmi_get/gnmi_get.go	2019-12-19 19:56:11.364223008 -0800
+--- ./github.com/google/gnxi/gnmi_get/gnmi_get.go	2019-11-26 15:44:07.303598063 -0800
++++ ./github.com/google/gnxi/gnmi_get/gnmi_get.go	2019-12-19 19:56:11.364223008 -0800
 @@ -21,6 +21,7 @@
  	"fmt"
  	"strings"
@@ -11,17 +11,16 @@
 @@ -30,7 +31,7 @@
  	"github.com/google/gnxi/utils"
  	"github.com/google/gnxi/utils/credentials"
- 	"github.com/jipanyang/gnxi/utils/xpath"
+ 	"github.com/google/gnxi/utils/xpath"
 -
 +	"google.golang.org/grpc/metadata"
  	pb "github.com/openconfig/gnmi/proto/gnmi"
  )
  
-@@ -63,17 +64,20 @@
+@@ -63,16 +64,20 @@
  	xPathFlags       arrayFlags
  	pbPathFlags      arrayFlags
  	pbModelDataFlags arrayFlags
--	pathTarget       = flag.String("xpath_target", "CONFIG_DB", "name of the target for which the path is a member")
 +	protoFileFlags   arrayFlags
 +	pathTarget       = flag.String("xpath_target", "", "name of the target for which the path is a member")
  	targetAddr       = flag.String("target_addr", "localhost:10161", "The target address in the format of host:port")
@@ -39,7 +38,7 @@
  	flag.Parse()
  
  	opts := credentials.ClientCredentials(*targetName)
-@@ -88,6 +92,10 @@
+@@ -87,6 +92,10 @@
  	ctx, cancel := context.WithTimeout(context.Background(), *timeOut)
  	defer cancel()
  
@@ -50,7 +49,31 @@
  	encoding, ok := pb.Encoding_value[*encodingName]
  	if !ok {
  		var gnmiEncodingList []string
-@@ -139,4 +147,20 @@
+@@ -96,12 +105,14 @@
+ 		log.Exitf("Supported encodings: %s", strings.Join(gnmiEncodingList, ", "))
+ 	}
+ 
++	var prefix pb.Path
++	prefix.Target = *pathTarget
+ 	var pbPathList []*pb.Path
+ 	var pbModelDataList []*pb.ModelData
+ 	for _, xPath := range xPathFlags {
+ 		pbPath, err := xpath.ToGNMIPath(xPath)
+ 		if err != nil {
+-			log.Exitf("error in parsing xpath %q to gnmi path", xPath)
++			log.Exitf("error in parsing xpath %q to gnmi path, %v", xPath, err)
+ 		}
+ 		pbPathList = append(pbPathList, pbPath)
+ 	}
+@@ -120,6 +131,7 @@
+ 	}
+ 
+ 	getRequest := &pb.GetRequest{
++		Prefix:    &prefix,
+ 		Encoding:  pb.Encoding(encoding),
+ 		Path:      pbPathList,
+ 		UseModels: pbModelDataList,
+@@ -135,4 +147,20 @@
  
  	fmt.Println("== getResponse:")
  	utils.PrintProto(getResponse)

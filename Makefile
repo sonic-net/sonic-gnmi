@@ -49,8 +49,8 @@ go.mod:
 
 $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap
 	$(GO) mod vendor
-	$(GO) mod download github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0
-	cp -r $(GOPATH)/pkg/mod/github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0/* vendor/github.com/jipanyang/gnxi/
+	$(GO) mod download github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2
+	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* vendor/github.com/google/gnxi/
 
 # Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
 	sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
@@ -103,12 +103,12 @@ endif
 	git apply patches/0001-Updated-to-filter-and-write-to-file.patch
 
 ifeq ($(CROSS_BUILD_ENVIRON),y)
-	$(GO) build -o ${GOBIN}/gnmi_get -mod=vendor github.com/jipanyang/gnxi/gnmi_get
-	$(GO) build -o ${GOBIN}/gnmi_set -mod=vendor github.com/jipanyang/gnxi/gnmi_set
+	$(GO) build -o ${GOBIN}/gnmi_get -mod=vendor github.com/google/gnxi/gnmi_get
+	$(GO) build -o ${GOBIN}/gnmi_set -mod=vendor github.com/google/gnxi/gnmi_set
 	$(GO) build -o ${GOBIN}/gnmi_cli -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 else
-	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_get
-	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_set
+	$(GO) install -mod=vendor github.com/google/gnxi/gnmi_get
+	$(GO) install -mod=vendor github.com/google/gnxi/gnmi_set
 	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 endif
 
