@@ -3242,8 +3242,8 @@ func TestTableKeyOnDeletion(t *testing.T) {
 			desc: "Testing deletion of NEIGH_STATE_TABLE:10.0.0.57",
 			q:    createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
 			wantNoti: []client.Notification{
-				client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
-				client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson57},
+				client.Update{Path: []string{"STATE_DB", "NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
+				client.Update{Path: []string{"STATE_DB", "NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson57},
 			},
 			paths: []string{
 				"NEIGH_STATE_TABLE|10.0.0.57",
@@ -3253,9 +3253,9 @@ func TestTableKeyOnDeletion(t *testing.T) {
 			desc: "Testing deletion of NEIGH_STATE_TABLE:10.0.0.59 and NEIGH_STATE_TABLE 10.0.0.61",
 			q:    createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
 			wantNoti: []client.Notification{
-				client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJsonTwo},
-				client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson59},
-				client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson61},
+				client.Update{Path: []string{"STATE_DB", "NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJsonTwo},
+				client.Update{Path: []string{"STATE_DB", "NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson59},
+				client.Update{Path: []string{"STATE_DB", "NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson61},
 			},
 			paths: []string{
 				"NEIGH_STATE_TABLE|10.0.0.59",
@@ -3517,8 +3517,8 @@ func TestWildcardTableNoError(t *testing.T) {
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
 			wantNoti: []client.Notification{
-				client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
-				client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
+				client.Update{Path: []string{"STATE_DB", "NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
+				client.Update{Path: []string{"STATE_DB", "NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
 			},
 		},
 	}
@@ -3609,8 +3609,8 @@ func TestNonExistentTableNoError(t *testing.T) {
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
 			wantNoti: []client.Notification{
-				client.Update{Path: []string{"TRANSCEIVER_DOM_SENSOR"}, TS: time.Unix(0, 200), Val: transceiverDomSensorTableJson},
-				client.Update{Path: []string{"TRANSCEIVER_DOM_SENSOR"}, TS: time.Unix(0, 200), Val: transceiverDomSensorTableJson},
+				client.Update{Path: []string{"STATE_DB", "TRANSCEIVER_DOM_SENSOR"}, TS: time.Unix(0, 200), Val: transceiverDomSensorTableJson},
+				client.Update{Path: []string{"STATE_DB", "TRANSCEIVER_DOM_SENSOR"}, TS: time.Unix(0, 200), Val: transceiverDomSensorTableJson},
 			},
 		},
 	}
