@@ -7,7 +7,7 @@ import (
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/system"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/file"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/sonic"
-	gnoi_client_os "github.com/sonic-net/sonic-gnmi/gnoi_client/os"	// So it does not collide with os.
+	gnoi_os "github.com/sonic-net/sonic-gnmi/gnoi_client/os"	// So it does not collide with os.
 	"google.golang.org/grpc"
 	"os"
 	"os/signal"
@@ -55,7 +55,7 @@ func main() {
 	case "OS":
 		switch *config.Rpc {
 		case "Verify":
-			gnoi_client_os.Verify(conn, ctx)
+			gnoi_os.Verify(conn, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
