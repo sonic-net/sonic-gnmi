@@ -125,7 +125,6 @@ func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) 
 
 	log.V(1).Info("gNOI: Verify")
 	dbus, err := ssc.NewDbusClient()
-	defer dbus.Close()
 	if err != nil {
 		log.V(2).Infof("Failed to create dbus client: %v", err)
 		return nil, err
