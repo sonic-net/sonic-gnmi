@@ -125,6 +125,7 @@ func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) 
 
 	log.V(1).Info("gNOI: Verify")
 	dbus, err := ssc.NewDbusClient()
+	defer dbus.Close()
 	if err != nil {
 		log.V(2).Infof("Failed to create dbus client: %v", err)
 		return nil, err
@@ -143,7 +144,11 @@ func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) 
 		return nil, err
 	}
 
-	current_image, ok := images["current"].(string)
+	current, exists := images["current"]
+	if !exists {
+		return nil, status.Errorf(codes.Internal, "Key 'current' not found in images")
+	}
+	current_image, ok := current.(string)
 	if !ok {
 		return nil, status.Errorf(codes.Internal, "Failed to assert current image as string")
 	}
