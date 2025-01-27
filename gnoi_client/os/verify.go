@@ -10,7 +10,7 @@ import (
 )
 
 func Verify(conn *grpc.ClientConn, ctx context.Context) {
-	fmt.Println("System Time")
+	fmt.Println("OS Verify")
 	ctx = utils.SetUserCreds(ctx)
 	osc := pb.NewOSClient(conn)
 	resp, err := osc.Verify(ctx, new(pb.VerifyRequest))
