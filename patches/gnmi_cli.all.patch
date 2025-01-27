@@ -1,6 +1,14 @@
 patch--- ./github.com/openconfig/gnmi/client/gnmi/client.go	2019-11-22 14:03:29.839103602 -0800
 +++ ./github.com/openconfig/gnmi/client/gnmi/client.go	2019-10-11 13:48:49.226145599 -0700
-@@ -246,7 +246,7 @@
+@@ -37,7 +37,6 @@
+ 	"github.com/openconfig/gnmi/client"
+ 	"github.com/openconfig/gnmi/client/grpcutil"
+ 	"github.com/openconfig/gnmi/path"
+-	"github.com/openconfig/gnmi/value"
+ 
+ 	gpb "github.com/openconfig/gnmi/proto/gnmi"
+ )
+@@ -246,7 +245,7 @@
  	s := &gpb.SubscribeRequest_Subscribe{
  		Subscribe: &gpb.SubscriptionList{
  			Mode:   getType(q.Type),
@@ -9,7 +17,7 @@ patch--- ./github.com/openconfig/gnmi/client/gnmi/client.go	2019-11-22 14:03:29.
  		},
  	}
  	if q.UpdatesOnly {
-@@ -257,11 +257,58 @@
+@@ -257,11 +256,58 @@
  		if err != nil {
  			return nil, fmt.Errorf("invalid query path %q: %v", qq, err)
  		}
@@ -69,12 +77,12 @@ patch--- ./github.com/openconfig/gnmi/client/gnmi/client.go	2019-11-22 14:03:29.
  func noti(prefix []string, pp *gpb.Path, ts time.Time, u *gpb.Update) (client.Notification, error) {
  	sp := path.ToStrings(pp, false)
  	// Make a full new copy of prefix + u.Path to avoid any reuse of underlying
-@@ -274,7 +321,7 @@
+@@ -274,7 +320,7 @@
  		return client.Delete{Path: p, TS: ts}, nil
  	}
  	if u.Val != nil {
 -		val, err := value.ToScalar(u.Val)
-+		val, err := ToScalar(u.Val)
++		val, err := toScalar(u.Val)
  		if err != nil {
  			return nil, err
  		}
