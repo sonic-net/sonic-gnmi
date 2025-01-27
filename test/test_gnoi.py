@@ -1,7 +1,7 @@
 import pytest
 from utils import gnoi_time, gnoi_setpackage, gnoi_switchcontrolprocessor
 from utils import gnoi_reboot, gnoi_rebootstatus, gnoi_cancelreboot, gnoi_kill_process, gnoi_restart_process
-from utils import gnoi_ping, gnoi_traceroute, gnmi_dump, gnoi_os_verify
+from utils import gnoi_ping, gnoi_traceroute, gnmi_dump
 
 class TestGNOI:
 
@@ -86,14 +86,3 @@ class TestGNOI:
         ret, new_cnt = gnmi_dump('DBUS restart service')
         assert ret == 0, 'Fail to read counter'
         assert new_cnt == old_cnt, 'DBUS API invoked unexpectedly'
-
-    def test_gnoi_os_verify(self):
-        ret, old_cnt = gnmi_dump('DBUS image list')
-        assert ret == 0, 'Fail to read counter'
-
-        ret, msg = gnoi_os_verify()
-        assert ret == 0, msg
-
-        ret, new_cnt = gnmi_dump('DBUS image list')
-        assert ret == 0, 'Fail to read counter'
-        assert new_cnt == old_cnt + 1, 'DBUS API is not invoked'

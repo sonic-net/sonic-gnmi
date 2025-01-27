@@ -130,9 +130,16 @@ func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) 
 		return nil, err
 	}
 
-	images, err := dbus.ListImages()
+	image_json, err := dbus.ListImages()
 	if err != nil {
 		log.V(2).Infof("Failed to list images: %v", err)
+		return nil, err
+	}
+
+	images := make(map[string]interface{})
+	err = json.Unmarshal([]byte(image_json), &images)
+	if err != nil {
+		log.V(2).Infof("Failed to unmarshal images: %v", err)
 		return nil, err
 	}
 
