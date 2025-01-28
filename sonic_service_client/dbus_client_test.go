@@ -3,7 +3,6 @@ package host_service
 import (
 	"reflect"
 	"testing"
-	"strings"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"
@@ -663,12 +662,11 @@ func TestListImagesSuccess(t *testing.T) {
 		if method != "org.SONiC.HostService.image_service.list_images" {
 			t.Errorf("Wrong method: %v", method)
 		}
-		if len(args) != 0 {
-			t.Errorf("Wrong number of arguments: %v", len(args))
-		}
 		ret := &dbus.Call{}
 		ret.Err = nil
-		ret.Body = expectedDbusOut
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ret.Body[1] = expectedDbusOut
 		ch <- ret
 		return &dbus.Call{}
 	})
@@ -678,12 +676,12 @@ func TestListImagesSuccess(t *testing.T) {
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
-	actualResult, err := client.ListImages()
+	result, err := client.ListImages()
 	if err != nil {
-		t.Errorf("InstallImage should pass: %v", err)
+		t.Errorf("ListImages should pass: %v", err)
 	}
-	if actualResult != expectedDbusOut {
-		t.Errorf("Expected %s but got %s", expectedDbusOut, actualResult)
+	if result != expectedDbusOut {
+		t.Errorf("Expected %s but got %s", expectedDbusOut, result)
 	}
 }
 
