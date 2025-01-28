@@ -250,8 +250,5 @@ func (c *DbusClient) ListImages() (string, error) {
 		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
 	}
 	log.V(2).Infof("ListImages: %v", result)
-	if err != nil {
-		return "", err
-	}
 	return strResult, nil
 }
