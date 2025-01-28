@@ -60,7 +60,7 @@ class TestGNOI:
 
         ret, msg = gnoi_restart_process('{"name": "snmp", "restart": true, "pid": 3}')
         assert ret != 0, msg
-        
+
         ret, new_cnt = gnmi_dump('DBUS restart service')
         assert ret == 0, 'Fail to read counter'
         assert new_cnt == old_cnt, 'DBUS API invoked unexpectedly'
