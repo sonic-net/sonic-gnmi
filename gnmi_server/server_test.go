@@ -60,6 +60,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
@@ -2889,7 +2890,7 @@ func TestGNOI(t *testing.T) {
 		if len(resp.Stats) == 0 {
 			t.Fatalf("Expected at least one StatInfo in response")
 		}
-	
+
 		statInfo := resp.Stats[0]
 
 		if statInfo.LastModified != 1609459200000000000 {
@@ -2909,7 +2910,7 @@ func TestGNOI(t *testing.T) {
 	t.Run("FileStatFailure", func(t *testing.T) {
 		mockClient := &ssc.DbusClient{}
 		expectedError := fmt.Errorf("failed to get file stats")
-		
+
 		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "GetFileStat", func(_ *ssc.DbusClient, path string) (map[string]string, error) {
 			return nil, expectedError
 		})
@@ -2927,10 +2928,37 @@ func TestGNOI(t *testing.T) {
 		if resp != nil {
 			t.Fatalf("Expected nil response but got: %v", resp)
 		}
-	
+
 		if !strings.Contains(err.Error(), expectedError.Error()) {
 			t.Errorf("Expected error to contain '%v' but got '%v'", expectedError, err)
-		}	
+		}
+	})
+
+	t.Run("OSVerifySuccess", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		expectedDbusOut := `{
+			"current": "current_image",
+			"next": "next_image",
+			"available": ["image1", "image2"]
+		}`
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "ListImages", func(_ *ssc.DbusClient) (string, error) {
+			return expectedDbusOut, nil
+		})
+		defer mock.Reset()
+
+		// Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_os_pb.VerifyRequest{}
+		osc := gnoi_os_pb.NewOSClient(conn)
+
+		resp, err := osc.Verify(ctx, req)
+		if err != nil {
+			t.Fatalf("OS Verify failed: %v", err)
+		}
+		// Validate the response
+		if len(resp.Version) == 0 {
+			t.Fatalf("Expected a version string in response")
+		}
 	})
 
 	type configData struct {
