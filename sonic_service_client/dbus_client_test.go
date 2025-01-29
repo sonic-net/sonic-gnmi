@@ -8,6 +8,27 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
+func TestNewDbusClient(t *testing.T) {
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	if client == nil {
+		t.Errorf("NewDbusClient failed: %v", client)
+	}
+}
+
+func TestCloseClient(t *testing.T) {
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	err = client.Close()
+	if err != nil {
+		t.Errorf("Close should pass: %v", err)
+	}
+}
+
 func TestSystemBusNegative(t *testing.T) {
 	client, err := NewDbusClient()
 	if err != nil {

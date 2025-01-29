@@ -29,6 +29,7 @@ func ReadFileStat(path string) (*gnoi_file_pb.StatInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer sc.Close()
 
 	log.V(2).Infof("Reading file stat at path %s...", path)
 	data, err := sc.GetFileStat(path)
@@ -100,6 +101,8 @@ func KillOrRestartProcess(restart bool, serviceName string) error {
 	if err != nil {
 		return err
 	}
+	defer sc.Close()
+
 	if restart {
 		log.V(2).Infof("Restarting service %s...", serviceName)
 		err = sc.RestartService(serviceName)
@@ -129,6 +132,7 @@ func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) 
 		log.V(2).Infof("Failed to create dbus client: %v", err)
 		return nil, err
 	}
+	defer dbus.Close()
 
 	image_json, err := dbus.ListImages()
 	if err != nil {
@@ -186,6 +190,7 @@ func HaltSystem() error {
 	if err != nil {
 		return err
 	}
+	defer sc.Close()
 
 	log.V(2).Infof("Halting the system..")
 	err = sc.HaltSystem()
@@ -201,6 +206,8 @@ func RebootSystem(fileName string) error {
 	if err != nil {
 		return err
 	}
+	defer sc.Close()
+
 	err = sc.ConfigReload(fileName)
 	return err
 }
