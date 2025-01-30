@@ -3,6 +3,7 @@ package test_utils
 import (
 	"io"
 	"os"
+	"github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
 func SetupMultiNamespace() error {
@@ -10,6 +11,7 @@ func SetupMultiNamespace() error {
 	if err != nil {
 		return err
 	}
+	client.ResetFabricCountersMap()
 	srcFileName := [2]string{"../testdata/database_global.json", "../testdata/database_config_asic0.json"}
 	dstFileName := [2]string{"/var/run/redis/sonic-db/database_global.json", "/var/run/redis0/sonic-db/database_config_asic0.json"}
 	for i := 0; i < len(srcFileName); i++ {
@@ -101,6 +103,7 @@ func CleanUpMultiInstance() error {
 	if err != nil {
 		return err
 	}
+	client.ResetFabricCountersMap()
 	return nil
 }
 

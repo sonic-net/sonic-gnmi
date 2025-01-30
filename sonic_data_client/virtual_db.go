@@ -134,6 +134,10 @@ func initCountersFabricPortNameMap() error {
 	return nil
 }
 
+func ResetFabricCountersMap() {
+	countersFabricPortNameMap = make(map[string]string)
+}
+
 // Get the mapping between sonic interface name and oids of their PFC-WD enabled queues in COUNTERS_DB
 func getPfcwdMap() (map[string]map[string]string, error) {
 	var pfcwdName_map = make(map[string]map[string]string)
