@@ -1,4 +1,3 @@
-
 package gnmi
 
 // server_test covers gNMI get, subscribe (stream and poll) test
