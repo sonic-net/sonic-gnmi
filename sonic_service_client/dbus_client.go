@@ -23,6 +23,7 @@ type Service interface {
 	HaltSystem() error
 	DownloadImage(url string, save_as string) error
 	InstallImage(where string) error
+	ListImages() (string, error)
 }
 
 type DbusClient struct {
@@ -232,4 +233,22 @@ func (c *DbusClient) InstallImage(where string) error {
 	intName := c.intNamePrefix + modName + ".install"
 	_, err := DbusApi(busName, busPath, intName /*timeout=*/, 900, where)
 	return err
+}
+
+func (c *DbusClient) ListImages() (string, error) {
+	common_utils.IncCounter(common_utils.DBUS_IMAGE_LIST)
+	modName := "image_service"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".list_images"
+	result, err := DbusApi(busName, busPath, intName, /*timeout=*/60)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	log.V(2).Infof("ListImages: %v", result)
+	return strResult, nil
 }
