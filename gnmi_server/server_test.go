@@ -1573,12 +1573,6 @@ func TestGnmiGet(t *testing.T) {
 	prepareDb(t, ns)
 
 	runGnmiTestGet(t, ns)
-        t.Cleanup(func() {
-                if err := test_utils.CleanUpMultiNamespace(); err != nil {
-                        t.Fatalf("error Cleaning up MultiNamespace files with err %T", err)
-
-                }
-        })
 
 	s.Stop()
 }
