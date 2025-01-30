@@ -125,7 +125,6 @@ func initCountersPfcwdNameMap() error {
 }
 func initCountersFabricPortNameMap() error {
 	var err error
-	fmt.Errorf("in initCountersFabricPortNameMap")
 	if len(countersFabricPortNameMap) == 0 {
 		countersFabricPortNameMap, err = getFabricCountersMap("COUNTERS_FABRIC_PORT_NAME_MAP")
 		if err != nil {
@@ -338,7 +337,6 @@ func getFabricCountersMap(tableName string) (map[string]string, error) {
 // [COUNTER_DB COUNTERS Ethernet*] or [COUNTER_DB COUNTERS Ethernet68]
 func v2rFabricPortStats(paths []string) ([]tablePath, error) {
 	var tblPaths []tablePath
-	fmt.Errorf("in v2rFabricPortStats")
 	if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
 		for port, oid := range countersFabricPortNameMap {
 			var namespace string
