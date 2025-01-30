@@ -414,9 +414,9 @@ func getRedisClientN(t *testing.T, n int, namespace string) *redis.Client {
 	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:addr,
+		Addr:        addr,
 		Password:    "", // no password set
-		DB:  n,
+		DB:          n,
 		DialTimeout: 0,
 	})
 	_, err = rclient.Ping().Result()
@@ -437,9 +437,9 @@ func getRedisClient(t *testing.T, namespace string) *redis.Client {
 	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:addr,
+		Addr:        addr,
 		Password:    "", // no password set
-		DB:  db,
+		DB:          db,
 		DialTimeout: 0,
 	})
 	_, err = rclient.Ping().Result()
@@ -460,9 +460,9 @@ func getConfigDbClient(t *testing.T, namespace string) *redis.Client {
 	}
 	rclient := redis.NewClient(&redis.Options{
 		Network:     "tcp",
-		Addr:addr,
+		Addr:        addr,
 		Password:    "", // no password set
-		DB:  db,
+		DB:          db,
 		DialTimeout: 0,
 	})
 	_, err = rclient.Ping().Result()
@@ -575,31 +575,31 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091f", countersEeth68_4Byte)
 	loadDB(t, rclient, mpi_counter)
 
-fileName = "../testdata/COUNTERS_FABRIC_PORT_NAME_MAP.txt"
-countersFabricPortNameMapByte, err := ioutil.ReadFile(fileName)
-if err != nil {
-        t.Fatalf("read file %v err: %v", fileName, err)
-}
-mpi_fab_name_map := loadConfig(t, "COUNTERS_FABRIC_PORT_NAME_MAP", countersFabricPortNameMapByte)
-loadDB(t, rclient, mpi_fab_name_map)
+        fileName = "../testdata/COUNTERS_FABRIC_PORT_NAME_MAP.txt"
+        countersFabricPortNameMapByte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_fab_name_map := loadConfig(t, "COUNTERS_FABRIC_PORT_NAME_MAP", countersFabricPortNameMapByte)
+        loadDB(t, rclient, mpi_fab_name_map)
 
-// "PORT0": "oid:0x1000000000081"  : Fabric port counter, for COUNTERS/PORT0 vpath test
+        // "PORT0": "oid:0x1000000000081"  : Fabric port counter, for COUNTERS/PORT0 vpath test
 	fileName = "../testdata/COUNTERS:oid:0x1000000000081.txt"
-countersPort0_Byte, err := ioutil.ReadFile(fileName)
-if err != nil {
-        t.Fatalf("read file %v err: %v", fileName, err)
-}
+        countersPort0_Byte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
 	mpi_fab_counter_0 := loadConfig(t, "COUNTERS:oid:0x1000000000081", countersPort0_Byte)
-loadDB(t, rclient, mpi_fab_counter_0)
+        loadDB(t, rclient, mpi_fab_counter_0)
 
-// "PORT1": "oid:0x1000000000082"  : Fabric port counter, for COUNTERS/PORT1 vpath test
-fileName = "../testdata/COUNTERS:oid:0x1000000000082.txt"
-countersPort1_Byte, err := ioutil.ReadFile(fileName)
-if err != nil {
-        t.Fatalf("read file %v err: %v", fileName, err)
-}
-mpi_fab_counter_1 := loadConfig(t, "COUNTERS:oid:0x1000000000082", countersPort1_Byte)
-loadDB(t, rclient, mpi_fab_counter_1)
+        // "PORT1": "oid:0x1000000000082"  : Fabric port counter, for COUNTERS/PORT1 vpath test
+        fileName = "../testdata/COUNTERS:oid:0x1000000000082.txt"
+        countersPort1_Byte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_fab_counter_1 := loadConfig(t, "COUNTERS:oid:0x1000000000082", countersPort1_Byte)
+        loadDB(t, rclient, mpi_fab_counter_1)
 }
 
 func prepareConfigDb(t *testing.T, namespace string) {
@@ -666,13 +666,13 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_qname_map := loadConfig(t, "COUNTERS_QUEUE_NAME_MAP", countersQueueNameMapByte)
 	loadDB(t, rclient, mpi_qname_map)
 
-fileName = "../testdata/COUNTERS_FABRIC_PORT_NAME_MAP.txt"
-countersFabricPortNameMapByte, err := ioutil.ReadFile(fileName)
-if err != nil {
-        t.Fatalf("read file %v err: %v", fileName, err)
-}
-mpi_fab_name_map := loadConfig(t, "COUNTERS_FABRIC_PORT_NAME_MAP", countersFabricPortNameMapByte)
-loadDB(t, rclient, mpi_fab_name_map)
+        fileName = "../testdata/COUNTERS_FABRIC_PORT_NAME_MAP.txt"
+        countersFabricPortNameMapByte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_fab_name_map := loadConfig(t, "COUNTERS_FABRIC_PORT_NAME_MAP", countersFabricPortNameMapByte)
+        loadDB(t, rclient, mpi_fab_name_map)
 
 	fileName = "../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
@@ -730,21 +730,21 @@ loadDB(t, rclient, mpi_fab_name_map)
 
 	// "PORT0": "oid:0x1000000000081"  : Fabric port counters, for COUNTERS/PORT0 vpath test
 	fileName = "../testdata/COUNTERS:oid:0x1000000000081.txt"
-countersPort0, err := ioutil.ReadFile(fileName)
-if err != nil {
-        t.Fatalf("read file %v err: %v", fileName, err)
-}
-mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000081", countersPort0)
-loadDB(t, rclient, mpi_counter)
+        countersPort0, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000081", countersPort0)
+        loadDB(t, rclient, mpi_counter)
 
-// "PORT1": "oid:0x1000000000082"  : Fabric port counter, for COUNTERS/PORT1 vpath test
-fileName = "../testdata/COUNTERS:oid:0x1000000000082.txt"
-countersPort1_Byte, err := ioutil.ReadFile(fileName)
-if err != nil {
-        t.Fatalf("read file %v err: %v", fileName, err)
-}
-mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000082", countersPort1_Byte)
-loadDB(t, rclient, mpi_counter)
+        // "PORT1": "oid:0x1000000000082"  : Fabric port counter, for COUNTERS/PORT1 vpath test
+        fileName = "../testdata/COUNTERS:oid:0x1000000000082.txt"
+        countersPort1_Byte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000082", countersPort1_Byte)
+        loadDB(t, rclient, mpi_counter)
 
 	// Load CONFIG_DB for alias translation
 	prepareConfigDb(t, namespace)
@@ -783,8 +783,8 @@ func prepareDbTranslib(t *testing.T) {
 
 // subscriptionQuery represent the input to create an gnmi.Subscription instance.
 type subscriptionQuery struct {
-	Query  []string
-	SubModepb.SubscriptionMode
+	Query          []string
+	SubMode        pb.SubscriptionMode
 	SampleInterval uint64
 }
 
@@ -819,8 +819,8 @@ func createQuery(subListMode pb.SubscriptionList_Mode, target string, queries []
 		s.Subscribe.Subscription = append(
 			s.Subscribe.Subscription,
 			&pb.Subscription{
-				Path:   pp,
-				Mode:   qq.SubMode,
+				Path:           pp,
+				Mode:           qq.SubMode,
 				SampleInterval: qq.SampleInterval,
 			})
 	}
@@ -889,8 +889,8 @@ func createCountersDbQuerySampleMode(t *testing.T, interval time.Duration, updat
 		"COUNTERS_DB",
 		[]subscriptionQuery{
 			{
-				Query:  paths,
-				SubMode:pb.SubscriptionMode_SAMPLE,
+				Query:          paths,
+				SubMode:        pb.SubscriptionMode_SAMPLE,
 				SampleInterval: uint64(interval.Nanoseconds()),
 			},
 		},
@@ -918,7 +918,7 @@ func createCountersTableDeleteUpdate(tableKey string, fieldName string) tablePat
 		delimitor: ":",
 		field:     fieldName,
 		value:     "",
-		op:"hdel",
+		op:        "hdel",
 	}
 }
 
@@ -995,7 +995,7 @@ func TestGnmiSet(t *testing.T) {
 	defer cancel()
 
 	tds := []struct {
-		desc  string
+		desc          string
 		pathTarget    string
 		textPbPath    string
 		wantRetCode   codes.Code
@@ -1005,7 +1005,7 @@ func TestGnmiSet(t *testing.T) {
 		valTest       bool
 	}{
 		{
-			desc:"Invalid path",
+			desc:        "Invalid path",
 			pathTarget:  "OC_YANG",
 			textPbPath:  pathToPb("/openconfig-interfaces:interfaces/interface[name=Ethernet4]/unknown"),
 			wantRetCode: codes.Unknown,
@@ -1020,7 +1020,7 @@ func TestGnmiSet(t *testing.T) {
 		//	operation:     Update,
 		//},
 		{
-			desc:  "Set OC Interface IP",
+			desc:          "Set OC Interface IP",
 			pathTarget:    "OC_YANG",
 			textPbPath:    pathToPb("/openconfig-interfaces:interfaces/interface[name=Ethernet4]/subinterfaces/subinterface[index=0]/openconfig-if-ip:ipv4"),
 			attributeData: "../testdata/set_interface_ipv4.json",
@@ -1028,28 +1028,28 @@ func TestGnmiSet(t *testing.T) {
 			operation:     Update,
 		},
 		// {
-		// desc:       "Check OC Interface values set",
-		// pathTarget: "OC_YANG",
-		// textPbPath: `
-		//         elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > >
-		// `,
-		// wantRetCode: codes.OK,
-		// wantRespVal: interfaceData,
-		// valTest:true,
+		//         desc:       "Check OC Interface values set",
+		//         pathTarget: "OC_YANG",
+		//         textPbPath: `
+		//                 elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > >
+		//         `,
+		//         wantRetCode: codes.OK,
+		//         wantRespVal: interfaceData,
+		//         valTest:true,
 		// },
 		{
 			desc:       "Delete OC Interface IP",
 			pathTarget: "OC_YANG",
 			textPbPath: `
-            elem:<name:"openconfig-interfaces:interfaces" > elem:<name:"interface" key:<key:"name" value:"Ethernet4" > > elem:<name:"subinterfaces" > elem:<name:"subinterface" key:<key:"index" value:"0" > > elem:<name: "ipv4" > elem:<name: "addresses" > elem:<name:"address" key:<key:"ip" value:"9.9.9.9" > >
-        `,
+                    elem:<name:"openconfig-interfaces:interfaces" > elem:<name:"interface" key:<key:"name" value:"Ethernet4" > > elem:<name:"subinterfaces" > elem:<name:"subinterface" key:<key:"index" value:"0" > > elem:<name: "ipv4" > elem:<name: "addresses" > elem:<name:"address" key:<key:"ip" value:"9.9.9.9" > >
+                `,
 			attributeData: "",
 			wantRetCode:   codes.OK,
 			operation:     Delete,
 			valTest:       false,
 		},
 		{
-			desc:  "Set OC Interface IPv6 (unprefixed path)",
+			desc:          "Set OC Interface IPv6 (unprefixed path)",
 			pathTarget:    "OC_YANG",
 			textPbPath:    pathToPb("/interfaces/interface[name=Ethernet0]/subinterfaces/subinterface[index=0]/ipv6/addresses/address"),
 			attributeData: `{"address": [{"ip": "150::1","config": {"ip": "150::1","prefix-length": 80}}]}`,
@@ -1057,7 +1057,7 @@ func TestGnmiSet(t *testing.T) {
 			operation:     Update,
 		},
 		{
-			desc:"Delete OC Interface IPv6 (unprefixed path)",
+			desc:        "Delete OC Interface IPv6 (unprefixed path)",
 			pathTarget:  "OC_YANG",
 			textPbPath:  pathToPb("/interfaces/interface[name=Ethernet0]/subinterfaces/subinterface[index=0]/ipv6/addresses/address[ip=150::1]"),
 			wantRetCode: codes.OK,
@@ -1073,7 +1073,7 @@ func TestGnmiSet(t *testing.T) {
 			operation:   Update,
 		},
 		{
-			desc:"Verify Create ACL",
+			desc:        "Verify Create ACL",
 			pathTarget:  "OC_YANG",
 			textPbPath:  pathToPb("/openconfig-acl:acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]/config/description"),
 			wantRespVal: `{"openconfig-acl:description": "hello, world!"}`,
@@ -1081,7 +1081,7 @@ func TestGnmiSet(t *testing.T) {
 			valTest:     true,
 		},
 		{
-			desc:  "Replace ACL Description (unprefixed path)",
+			desc:          "Replace ACL Description (unprefixed path)",
 			pathTarget:    "OC_YANG",
 			textPbPath:    pathToPb("/acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]/config/description"),
 			attributeData: `{"description": "dummy"}`,
@@ -1089,7 +1089,7 @@ func TestGnmiSet(t *testing.T) {
 			operation:     Replace,
 		},
 		{
-			desc:"Verify Replace ACL Description",
+			desc:        "Verify Replace ACL Description",
 			pathTarget:  "OC_YANG",
 			textPbPath:  pathToPb("/openconfig-acl:acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]/config/description"),
 			wantRespVal: `{"openconfig-acl:description": "dummy"}`,
@@ -1097,14 +1097,14 @@ func TestGnmiSet(t *testing.T) {
 			valTest:     true,
 		},
 		{
-			desc:"Delete ACL",
+			desc:        "Delete ACL",
 			pathTarget:  "OC_YANG",
 			textPbPath:  pathToPb("/openconfig-acl:acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]"),
 			wantRetCode: codes.OK,
 			operation:   Delete,
 		},
 		{
-			desc:"Verify Delete ACL",
+			desc:        "Verify Delete ACL",
 			pathTarget:  "OC_YANG",
 			textPbPath:  pathToPb("/openconfig-acl:acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]"),
 			wantRetCode: codes.NotFound,
@@ -1284,31 +1284,31 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:PORT0.txt"
-	countersFabricPort0Byte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
+        fileName = "../testdata/COUNTERS:PORT0.txt"
+        countersFabricPort0Byte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
 
-	fileName = "../testdata/COUNTERS:PORT_wildcard" +  namespace + ".txt"
-	countersFabricPortWildcardByte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
+        fileName = "../testdata/COUNTERS:PORT_wildcard" +  namespace + ".txt"
+        countersFabricPortWildcardByte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
 
 	stateDBPath := "STATE_DB"
 
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	validFabricPortName := "PORT0"
-	invalidFabricPortName := "PORT0-" + namespace
+        invalidFabricPortName := "PORT0-" + namespace
 	if namespace != ns {
 		stateDBPath = "STATE_DB" + "/" + namespace
-		validFabricPortName =  "PORT0-" + namespace
-		invalidFabricPortName = "PORT0" 
-	}
+                validFabricPortName =  "PORT0-" + namespace
+                invalidFabricPortName = "PORT0" 
+        }
 
 	type testCase struct {
-		descstring
+		desc        string
 		pathTarget  string
 		textPbPath  string
 		wantRetCode codes.Code
@@ -1485,37 +1485,37 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 			valTest:     true,
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(`{"test_field": "test_value"}`),
-		}, {$
-				desc:       "get COUNTERS:" + validFabricPortName,$
-				pathTarget: "COUNTERS_DB",$
-				textPbPath: `$
-								elem: <name: "COUNTERS" >$
-								elem: <name: "` + validFabricPortName + `">$
-						`,$
-				wantRetCode: codes.OK,$
-				wantRespVal: countersFabricPort0Byte,$
-				valTest:     true,$
-		}, {$
-				desc:       "get COUNTERS:PORT*",$
-				pathTarget: "COUNTERS_DB",$
-				textPbPath: `$
-								elem: <name: "COUNTERS" >$
-								elem: <name: "PORT*" >$
-						`,$
-				wantRetCode: codes.OK,$
-				wantRespVal: countersFabricPortWildcardByte,$
-				valTest:     true,$
-		}, {$
-				desc:       "Invalid fabric port key get" + invalidFabricPortName,$
-				pathTarget: "COUNTERS_DB",$
-				textPbPath: `$
-								elem: <name: "COUNTERS" >$
-								elem: <name: "` + invalidFabricPortName + `">$
-								`,$
-				wantRetCode: codes.NotFound,$
-				valTest:     true,$
-		}, {$
-			desc:"Invalid DBKey of length 1",
+                }, {
+                        desc:       "get COUNTERS:" + validFabricPortName,
+                        pathTarget: "COUNTERS_DB",
+                        textPbPath: `
+                                        elem: <name: "COUNTERS" >
+                                        elem: <name: "` + validFabricPortName + `">
+                                `,
+                        wantRetCode: codes.OK,
+                        wantRespVal: countersFabricPort0Byte,
+                        valTest:     true,
+                }, {
+                        desc:       "get COUNTERS:PORT*",
+                        pathTarget: "COUNTERS_DB",
+                        textPbPath: `
+                                        elem: <name: "COUNTERS" >
+                                        elem: <name: "PORT*" >
+                                `,
+                        wantRetCode: codes.OK,
+                        wantRespVal: countersFabricPortWildcardByte,
+                        valTest:     true,
+                }, {
+                        desc:       "Invalid fabric port key get" + invalidFabricPortName,
+                        pathTarget: "COUNTERS_DB",
+                        textPbPath: `
+                                        elem: <name: "COUNTERS" >
+                                        elem: <name: "` + invalidFabricPortName + `">
+                                `,
+                        wantRetCode: codes.NotFound,
+                        valTest:     true,
+                }, {
+			desc:        "Invalid DBKey of length 1",
 			pathTarget:  stateDBPath,
 			textPbPath:  ``,
 			valTest:     true,
@@ -1524,7 +1524,7 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 
 		// Happy path
 		createBuildVersionTestCase(
-			"get osversion/build",                          // query path
+			"get osversion/build",                                  // query path
 			`{"build_version": "SONiC.12345678.90", "error":""}`,   // expected response
 			"build_version: '12345678.90'\ndebian_version: '9.13'", // YAML file content
 			nil), // mock file reading error
@@ -1572,12 +1572,12 @@ func TestGnmiGet(t *testing.T) {
 	prepareDb(t, ns)
 
 	runGnmiTestGet(t, ns)
-t.Cleanup(func() {
-        if err := test_utils.CleanUpMultiNamespace(); err != nil {
-                t.Fatalf("error Cleaning up MultiNamespace files with err %T", err)
+        t.Cleanup(func() {
+                if err := test_utils.CleanUpMultiNamespace(); err != nil {
+                        t.Fatalf("error Cleaning up MultiNamespace files with err %T", err)
 
-        }
-})
+                }
+        })
 
 	s.Stop()
 }
@@ -1632,7 +1632,7 @@ func TestGnmiGetTranslib(t *testing.T) {
 
 	var emptyRespVal interface{}
 	tds := []struct {
-		descstring
+		desc        string
 		pathTarget  string
 		textPbPath  string
 		wantRetCode codes.Code
@@ -1645,8 +1645,8 @@ func TestGnmiGetTranslib(t *testing.T) {
 		// 	desc:       "Get OC Platform",
 		// 	pathTarget: "OC_YANG",
 		// 	textPbPath: `
-		//                elem: <name: "openconfig-platform:components" >
-		//        `,
+		//                        elem: <name: "openconfig-platform:components" >
+		//                `,
 		// 	wantRetCode: codes.OK,
 		// 	wantRespVal: emptyRespVal,
 		// 	valTest:     false,
@@ -1655,8 +1655,8 @@ func TestGnmiGetTranslib(t *testing.T) {
 		// 		desc:       "Get OC System State",
 		// 		pathTarget: "OC_YANG",
 		// 		textPbPath: `
-		//                elem: <name: "openconfig-system:system" > elem: <name: "state" >
-		//        `,
+		//                        elem: <name: "openconfig-system:system" > elem: <name: "state" >
+		//                `,
 		// 		wantRetCode: codes.OK,
 		// 		wantRespVal: emptyRespVal,
 		// 		valTest:     false,
@@ -1665,8 +1665,8 @@ func TestGnmiGetTranslib(t *testing.T) {
 		// 		desc:       "Get OC System CPU",
 		// 		pathTarget: "OC_YANG",
 		// 		textPbPath: `
-		//                elem: <name: "openconfig-system:system" > elem: <name: "cpus" >
-		//        `,
+		//                        elem: <name: "openconfig-system:system" > elem: <name: "cpus" >
+		//                `,
 		// 		wantRetCode: codes.OK,
 		// 		wantRespVal: emptyRespVal,
 		// 		valTest:     false,
@@ -1675,8 +1675,8 @@ func TestGnmiGetTranslib(t *testing.T) {
 		// 		desc:       "Get OC System memory",
 		// 		pathTarget: "OC_YANG",
 		// 		textPbPath: `
-		//                elem: <name: "openconfig-system:system" > elem: <name: "memory" >
-		//        `,
+		//                        elem: <name: "openconfig-system:system" > elem: <name: "memory" >
+		//                `,
 		// 		wantRetCode: codes.OK,
 		// 		wantRespVal: emptyRespVal,
 		// 		valTest:     false,
@@ -1685,8 +1685,8 @@ func TestGnmiGetTranslib(t *testing.T) {
 		// 		desc:       "Get OC System processes",
 		// 		pathTarget: "OC_YANG",
 		// 		textPbPath: `
-		//                elem: <name: "openconfig-system:system" > elem: <name: "processes" >
-		//        `,
+		//                        elem: <name: "openconfig-system:system" > elem: <name: "processes" >
+		//                `,
 		// 		wantRetCode: codes.OK,
 		// 		wantRespVal: emptyRespVal,
 		// 		valTest:     false,
@@ -1695,8 +1695,8 @@ func TestGnmiGetTranslib(t *testing.T) {
 			desc:       "Get OC Interfaces",
 			pathTarget: "OC_YANG",
 			textPbPath: `
-                elem: <name: "openconfig-interfaces:interfaces" >
-        `,
+                        elem: <name: "openconfig-interfaces:interfaces" >
+                `,
 			wantRetCode: codes.OK,
 			wantRespVal: emptyRespVal,
 			valTest:     false,
@@ -1705,8 +1705,8 @@ func TestGnmiGetTranslib(t *testing.T) {
 			desc:       "Get OC Interface",
 			pathTarget: "OC_YANG",
 			textPbPath: `
-                elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > >
-        `,
+                        elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > >
+                `,
 			wantRetCode: codes.OK,
 			wantRespVal: emptyRespVal,
 			valTest:     false,
@@ -1715,8 +1715,8 @@ func TestGnmiGetTranslib(t *testing.T) {
 			desc:       "Get OC Interface admin-status",
 			pathTarget: "OC_YANG",
 			textPbPath: `
-                elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "admin-status" >
-        `,
+                        elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "admin-status" >
+                `,
 			wantRetCode: codes.OK,
 			wantRespVal: emptyRespVal,
 			valTest:     false,
@@ -1725,8 +1725,8 @@ func TestGnmiGetTranslib(t *testing.T) {
 		//	desc:       "Get OC Interface ifindex",
 		//	pathTarget: "OC_YANG",
 		//	textPbPath: `
-//                elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "ifindex" >
-//        `,
+        //                elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "ifindex" >
+        //        `,
 		//	wantRetCode: codes.OK,
 		//	wantRespVal: emptyRespVal,
 		//	valTest:     false,
@@ -1735,8 +1735,8 @@ func TestGnmiGetTranslib(t *testing.T) {
 			desc:       "Get OC Interface mtu",
 			pathTarget: "OC_YANG",
 			textPbPath: `
-                elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "mtu" >
-        `,
+                        elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "mtu" >
+                `,
 			wantRetCode: codes.OK,
 			wantRespVal: emptyRespVal,
 			valTest:     false,
@@ -1758,7 +1758,7 @@ type tablePathValue struct {
 	delimitor string
 	field     string
 	value     string
-	opstring
+	op        string
 }
 
 // runTestSubscribe subscribe DB path in stream mode or poll mode.
@@ -1898,10 +1898,10 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	countersEthernet68QueuesJsonUpdate := make(map[string]interface{})
 	json.Unmarshal(countersEthernet68QueuesByte, &countersEthernet68QueuesJsonUpdate)
 	eth68_1 := map[string]interface{}{
-		"SAI_QUEUE_STAT_BYTES":   "0",
+		"SAI_QUEUE_STAT_BYTES":           "0",
 		"SAI_QUEUE_STAT_DROPPED_BYTES":   "0",
 		"SAI_QUEUE_STAT_DROPPED_PACKETS": "4",
-		"SAI_QUEUE_STAT_PACKETS": "0",
+		"SAI_QUEUE_STAT_PACKETS":         "0",
 	}
 	countersEthernet68QueuesJsonUpdate["Ethernet68:1"] = eth68_1
 
@@ -1920,14 +1920,14 @@ func runTestSubscribe(t *testing.T, namespace string) {
 
 	type TestExec struct {
 		desc       string
-		q  client.Query
+		q          client.Query
 		prepares   []tablePathValue
 		updates    []tablePathValue
 		wantErr    bool
 		wantNoti   []client.Notification
 		wantSubErr error
 
-		pollint
+		poll        int
 		wantPollErr string
 
 		generateIntervals bool
@@ -2235,7 +2235,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 					dbName:    "COUNTERS_DB",
 					tableName: "COUNTERS_PORT_NAME_MAP",
 					field:     "test_field",
-					op:"hdel",
+					op:        "hdel",
 				},
 			},
 			wantNoti: []client.Notification{
@@ -2549,14 +2549,14 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		},
 		{
 			desc:       "use invalid sample interval",
-			q:  createCountersDbQuerySampleMode(t, 10*time.Millisecond, false, "COUNTERS", "Ethernet1"),
+			q:          createCountersDbQuerySampleMode(t, 10*time.Millisecond, false, "COUNTERS", "Ethernet1"),
 			updates:    []tablePathValue{},
 			wantSubErr: fmt.Errorf("rpc error: code = InvalidArgument desc = invalid interval: 10ms. It cannot be less than %v", sdc.MinSampleInterval),
 			wantNoti:   []client.Notification{},
 		},
 		{
-			desc:      "sample stream query for table key Ethernet68 with new test_field field",
-			q:         createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet68"),
+			desc:              "sample stream query for table key Ethernet68 with new test_field field",
+			q:                 createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet68"),
 			generateIntervals: true,
 			updates: []tablePathValue{
 				createCountersTableSetUpdate("oid:0x1000000000039", "test_field", "test_value"),
@@ -2569,8 +2569,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
-			desc:      "sample stream query for COUNTERS/Ethernet68/SAI_PORT_STAT_PFC_7_RX_PKTS with 2 updates",
-			q:         createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"),
+			desc:              "sample stream query for COUNTERS/Ethernet68/SAI_PORT_STAT_PFC_7_RX_PKTS with 2 updates",
+			q:                 createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"),
 			generateIntervals: true,
 			updates: []tablePathValue{
 				createCountersTableSetUpdate("oid:0x1000000000039", "SAI_PORT_STAT_PFC_7_RX_PKTS", "3"), // be changed to 3 from 2
@@ -2585,8 +2585,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
-			desc:      "(use vendor alias) sample stream query for table key Ethernet68/1 with new test_field field",
-			q:         createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet68/1"),
+			desc:              "(use vendor alias) sample stream query for table key Ethernet68/1 with new test_field field",
+			q:                 createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet68/1"),
 			generateIntervals: true,
 			updates: []tablePathValue{
 				createCountersTableSetUpdate("oid:0x1000000000039", "test_field", "test_value"),
@@ -2601,8 +2601,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
-			desc:      "sample stream query for COUNTERS/Ethernet68/Pfcwd with update of field value",
-			q:         createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet68", "Pfcwd"),
+			desc:              "sample stream query for COUNTERS/Ethernet68/Pfcwd with update of field value",
+			q:                 createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet68", "Pfcwd"),
 			generateIntervals: true,
 			updates: []tablePathValue{
 				createCountersTableSetUpdate("oid:0x1500000000091e", "PFC_WD_QUEUE_STATS_DEADLOCK_DETECTED", "1"),
@@ -2617,8 +2617,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
-			desc:      "(use vendor alias) sample stream query for COUNTERS/[Ethernet68/1]/Pfcwd with update of field value",
-			q:         createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet68/1", "Pfcwd"),
+			desc:              "(use vendor alias) sample stream query for COUNTERS/[Ethernet68/1]/Pfcwd with update of field value",
+			q:                 createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet68/1", "Pfcwd"),
 			generateIntervals: true,
 			updates: []tablePathValue{
 				createCountersTableSetUpdate("oid:0x1500000000091e", "PFC_WD_QUEUE_STATS_DEADLOCK_DETECTED", "1"),
@@ -2633,8 +2633,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
-			desc:      "sample stream query for table key Ethernet* with new test_field field on Ethernet68",
-			q:         createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet*"),
+			desc:              "sample stream query for table key Ethernet* with new test_field field on Ethernet68",
+			q:                 createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet*"),
 			generateIntervals: true,
 			updates: []tablePathValue{
 				createCountersTableSetUpdate("oid:0x1000000000039", "test_field", "test_value"),
@@ -2647,8 +2647,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
-			desc:      "(updates only) sample stream query for table key Ethernet* with new test_field field on Ethernet68",
-			q:         createCountersDbQuerySampleMode(t, 0, true, "COUNTERS", "Ethernet*"),
+			desc:              "(updates only) sample stream query for table key Ethernet* with new test_field field on Ethernet68",
+			q:                 createCountersDbQuerySampleMode(t, 0, true, "COUNTERS", "Ethernet*"),
 			generateIntervals: true,
 			updates: []tablePathValue{
 				createIntervalTickerUpdate(), // no value change but imitate interval ticker
@@ -2667,8 +2667,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		/*
 			// deletion of field from table is not supported. It'd keep sending the last value before the deletion.
 				{
-					desc:      "sample stream query for table key Ethernet* with new test_field field deleted from Ethernet68",
-					q:         createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet*"),
+					desc:              "sample stream query for table key Ethernet* with new test_field field deleted from Ethernet68",
+					q:                 createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet*"),
 					generateIntervals: true,
 					updates: []tablePathValue{
 						createCountersTableSetUpdate("oid:0x1000000000039", "test_field", "test_value"),
@@ -2684,8 +2684,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				},
 		*/
 		{
-			desc:      "sample stream query for table key Ethernet*/SAI_PORT_STAT_PFC_7_RX_PKTS with field value update",
-			q:         createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"),
+			desc:              "sample stream query for table key Ethernet*/SAI_PORT_STAT_PFC_7_RX_PKTS with field value update",
+			q:                 createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"),
 			generateIntervals: true,
 			updates: []tablePathValue{
 				createCountersTableSetUpdate("oid:0x1000000000039", "SAI_PORT_STAT_PFC_7_RX_PKTS", "4"),
@@ -2698,9 +2698,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
-			desc:      "sample stream query for table key Ethernet*/Pfcwd with field value update",
+			desc:              "sample stream query for table key Ethernet*/Pfcwd with field value update",
 			generateIntervals: true,
-			q:         createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet*", "Pfcwd"),
+			q:                 createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet*", "Pfcwd"),
 			updates: []tablePathValue{
 				createCountersTableSetUpdate("oid:0x1500000000091e", "PFC_WD_QUEUE_STATS_DEADLOCK_DETECTED", "1"),
 			},
@@ -2712,9 +2712,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
-			desc:      "(update only) sample stream query for table key Ethernet*/Pfcwd with field value update",
+			desc:              "(update only) sample stream query for table key Ethernet*/Pfcwd with field value update",
 			generateIntervals: true,
-			q:         createCountersDbQuerySampleMode(t, 0, true, "COUNTERS", "Ethernet*", "Pfcwd"),
+			q:                 createCountersDbQuerySampleMode(t, 0, true, "COUNTERS", "Ethernet*", "Pfcwd"),
 			updates: []tablePathValue{
 				createIntervalTickerUpdate(),
 				createCountersTableSetUpdate("oid:0x1500000000091e", "PFC_WD_QUEUE_STATS_DEADLOCK_DETECTED", "1"),
@@ -2971,8 +2971,8 @@ func TestGNOI(t *testing.T) {
 		expectedResult := map[string]string{
 			"last_modified": "1609459200000000000",
 			"permissions":   "644",
-			"size":  "1024",
-			"umask": "o022",
+			"size":          "1024",
+			"umask":         "o022",
 		}
 		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "GetFileStat", func(_ *ssc.DbusClient, path string) (map[string]string, error) {
 			return expectedResult, nil
@@ -3337,7 +3337,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
 
 	tests := []struct {
 		desc     string
-		qclient.Query
+		q        client.Query
 		wantNoti []client.Notification
 		paths    []string
 	}{
@@ -3606,7 +3606,7 @@ func TestWildcardTableNoError(t *testing.T) {
 
 	tests := []struct {
 		desc     string
-		qclient.Query
+		q        client.Query
 		wantNoti []client.Notification
 		poll     int
 	}{
@@ -3698,7 +3698,7 @@ func TestNonExistentTableNoError(t *testing.T) {
 
 	tests := []struct {
 		desc     string
-		qclient.Query
+		q        client.Query
 		wantNoti []client.Notification
 		poll     int
 	}{
@@ -4159,7 +4159,7 @@ print('%s')
 	var emptyRespVal interface{}
 
 	tds := []struct {
-		desc  string
+		desc          string
 		pathTarget    string
 		textPbPath    string
 		wantRetCode   codes.Code
@@ -4173,8 +4173,8 @@ print('%s')
 			pathTarget: "",
 			textPbPath: `
 						origin: "sonic-db",
-                elem: <name: "APPL_DB" > elem: <name: "localhost" > elem:<name:"DASH_QOS" >
-        `,
+                        elem: <name: "APPL_DB" > elem: <name: "localhost" > elem:<name:"DASH_QOS" >
+                `,
 			attributeData: "../testdata/batch.txt",
 			wantRetCode:   codes.OK,
 			wantRespVal:   emptyRespVal,
