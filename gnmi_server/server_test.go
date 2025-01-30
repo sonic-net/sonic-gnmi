@@ -574,6 +574,32 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	}
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091f", countersEeth68_4Byte)
 	loadDB(t, rclient, mpi_counter)
+
+        fileName = "../testdata/COUNTERS_FABRIC_PORT_NAME_MAP.txt"
+        countersFabricPortNameMapByte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_fab_name_map := loadConfig(t, "COUNTERS_FABRIC_PORT_NAME_MAP", countersFabricPortNameMapByte)
+        loadDB(t, rclient, mpi_fab_name_map)
+
+        // "PORT0": "oid:0x1000000000081"  : Fabric port counter, for COUNTERS/PORT0 vpath test
+	fileName = "../testdata/COUNTERS:oid:0x1000000000081.txt"
+        countersPort0_Byte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+	mpi_fab_counter_0 := loadConfig(t, "COUNTERS:oid:0x1000000000081", countersPort0_Byte)
+        loadDB(t, rclient, mpi_fab_counter_0)
+
+        // "PORT1": "oid:0x1000000000082"  : Fabric port counter, for COUNTERS/PORT1 vpath test
+        fileName = "../testdata/COUNTERS:oid:0x1000000000082.txt"
+        countersPort1_Byte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_fab_counter_1 := loadConfig(t, "COUNTERS:oid:0x1000000000082", countersPort1_Byte)
+        loadDB(t, rclient, mpi_fab_counter_1)
 }
 
 func prepareConfigDb(t *testing.T, namespace string) {
@@ -640,6 +666,14 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_qname_map := loadConfig(t, "COUNTERS_QUEUE_NAME_MAP", countersQueueNameMapByte)
 	loadDB(t, rclient, mpi_qname_map)
 
+        fileName = "../testdata/COUNTERS_FABRIC_PORT_NAME_MAP.txt"
+        countersFabricPortNameMapByte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_fab_name_map := loadConfig(t, "COUNTERS_FABRIC_PORT_NAME_MAP", countersFabricPortNameMapByte)
+        loadDB(t, rclient, mpi_fab_name_map)
+
 	fileName = "../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -693,6 +727,24 @@ func prepareDb(t *testing.T, namespace string) {
 	}
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091f", countersEeth68_4Byte)
 	loadDB(t, rclient, mpi_counter)
+
+	// "PORT0": "oid:0x1000000000081"  : Fabric port counters, for COUNTERS/PORT0 vpath test
+	fileName = "../testdata/COUNTERS:oid:0x1000000000081.txt"
+        countersPort0, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000081", countersPort0)
+        loadDB(t, rclient, mpi_counter)
+
+        // "PORT1": "oid:0x1000000000082"  : Fabric port counter, for COUNTERS/PORT1 vpath test
+        fileName = "../testdata/COUNTERS:oid:0x1000000000082.txt"
+        countersPort1_Byte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000082", countersPort1_Byte)
+        loadDB(t, rclient, mpi_counter)
 
 	// Load CONFIG_DB for alias translation
 	prepareConfigDb(t, namespace)
@@ -1232,12 +1284,28 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
+        fileName = "../testdata/COUNTERS:PORT0.txt"
+        countersFabricPort0Byte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+
+        fileName = "../testdata/COUNTERS:PORT_wildcard" +  namespace + ".txt"
+        countersFabricPortWildcardByte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+
 	stateDBPath := "STATE_DB"
 
 	ns, _ := sdcfg.GetDbDefaultNamespace()
+	validFabricPortName := "PORT0"
+        invalidFabricPortName := "PORT0-" + namespace
 	if namespace != ns {
 		stateDBPath = "STATE_DB" + "/" + namespace
-	}
+                validFabricPortName =  "PORT0-" + namespace
+                invalidFabricPortName = "PORT0" 
+        }
 
 	type testCase struct {
 		desc        string
@@ -1417,7 +1485,36 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 			valTest:     true,
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(`{"test_field": "test_value"}`),
-		}, {
+                }, {
+                        desc:       "get COUNTERS:" + validFabricPortName,
+                        pathTarget: "COUNTERS_DB",
+                        textPbPath: `
+                                        elem: <name: "COUNTERS" >
+                                        elem: <name: "` + validFabricPortName + `">
+                                `,
+                        wantRetCode: codes.OK,
+                        wantRespVal: countersFabricPort0Byte,
+                        valTest:     true,
+                }, {
+                        desc:       "get COUNTERS:PORT*",
+                        pathTarget: "COUNTERS_DB",
+                        textPbPath: `
+                                        elem: <name: "COUNTERS" >
+                                        elem: <name: "PORT*" >
+                                `,
+                        wantRetCode: codes.OK,
+                        wantRespVal: countersFabricPortWildcardByte,
+                        valTest:     true,
+                }, {
+                        desc:       "Invalid fabric port key get" + invalidFabricPortName,
+                        pathTarget: "COUNTERS_DB",
+                        textPbPath: `
+                                        elem: <name: "COUNTERS" >
+                                        elem: <name: "` + invalidFabricPortName + `">
+                                `,
+                        wantRetCode: codes.NotFound,
+                        valTest:     true,
+                }, {
 			desc:        "Invalid DBKey of length 1",
 			pathTarget:  stateDBPath,
 			textPbPath:  ``,
@@ -1475,6 +1572,12 @@ func TestGnmiGet(t *testing.T) {
 	prepareDb(t, ns)
 
 	runGnmiTestGet(t, ns)
+        t.Cleanup(func() {
+                if err := test_utils.CleanUpMultiNamespace(); err != nil {
+                        t.Fatalf("error Cleaning up MultiNamespace files with err %T", err)
+
+                }
+        })
 
 	s.Stop()
 }
