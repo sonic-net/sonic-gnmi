@@ -135,6 +135,8 @@ func initCountersFabricPortNameMap() error {
 }
 
 func ResetFabricCountersMap() {
+	// Added this to support modification from
+	// single to multi-ns in unit-test 
 	countersFabricPortNameMap = make(map[string]string)
 }
 
