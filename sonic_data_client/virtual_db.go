@@ -63,9 +63,9 @@ var (
 			path:      []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"},
 			transFunc: v2rTranslate(v2rEthPortPfcwdStats),
 		}, { // stats for one or all Fabric ports
-                        path:      []string{"COUNTERS_DB", "COUNTERS", "PORT*"},
-                        transFunc: v2rTranslate(v2rFabricPortStats),
-                },
+			path:      []string{"COUNTERS_DB", "COUNTERS", "PORT*"},
+			transFunc: v2rTranslate(v2rFabricPortStats),
+		},
 	}
 )
 
@@ -124,15 +124,15 @@ func initCountersPfcwdNameMap() error {
 	return nil
 }
 func initCountersFabricPortNameMap() error {
-        var err error
-		fmt.Errorf("in initCountersFabricPortNameMap")
-        if len(countersFabricPortNameMap) == 0 {
-                countersFabricPortNameMap, err = getFabricCountersMap("COUNTERS_FABRIC_PORT_NAME_MAP")
-                if err != nil {
-                        return err
-                }
-        }
-        return nil
+	var err error
+	fmt.Errorf("in initCountersFabricPortNameMap")
+	if len(countersFabricPortNameMap) == 0 {
+		countersFabricPortNameMap, err = getFabricCountersMap("COUNTERS_FABRIC_PORT_NAME_MAP")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Get the mapping between sonic interface name and oids of their PFC-WD enabled queues in COUNTERS_DB
@@ -302,7 +302,7 @@ func getCountersMap(tableName string) (map[string]string, error) {
 }
 
 
-// Get the mapping between objects in counters DB, Ex. port name to oid in "COUNTERS_PORT_NAME_MAP" table.
+// Get the mapping between objects in counters DB, Ex. port name to oid in "COUNTERS_FABRIC_PORT_NAME_MAP" table.
 // Aussuming static port name to oid map in COUNTERS table
 func getFabricCountersMap(tableName string) (map[string]string, error) {
 	counter_map := make(map[string]string)
@@ -319,10 +319,13 @@ func getFabricCountersMap(tableName string) (map[string]string, error) {
 		}
 		namespaceFv := make(map[string]string)
 		for k, v := range fv {
+			// Fabric port names are not unique across asic namespace
+			// To make them unique, add asic namesapce to the port name
+			// For example, PORT0 in asic0 will be PORT0-asic0
 			var namespace_str = ""
-            if len(namespace) != 0 {
-                namespace_str = string('-') + namespace
-            }
+			if len(namespace) != 0 {
+				namespace_str = string('-') + namespace
+			}
 			namespaceFv[k + namespace_str] = v
 		}
 		addmap(counter_map, namespaceFv)
@@ -339,6 +342,8 @@ func v2rFabricPortStats(paths []string) ([]tablePath, error) {
 	if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
 		for port, oid := range countersFabricPortNameMap {
 			var namespace string
+			// Extract namespace from port name 
+			// multi-asic Linecard ex: PORT0-asic0
 			if strings.Contains(port, "-"){
 			    namespace = strings.Split(port, "-")[1]
 			} else {
