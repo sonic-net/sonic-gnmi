@@ -1486,36 +1486,36 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 			valTest:     true,
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(`{"test_field": "test_value"}`),
-		}, {$
-				desc:       "get COUNTERS:" + validFabricPortName,$
-				pathTarget: "COUNTERS_DB",$
-				textPbPath: `$
-								elem: <name: "COUNTERS" >$
-								elem: <name: "` + validFabricPortName + `">$
-						`,$
-				wantRetCode: codes.OK,$
-				wantRespVal: countersFabricPort0Byte,$
-				valTest:     true,$
-		}, {$
-				desc:       "get COUNTERS:PORT*",$
-				pathTarget: "COUNTERS_DB",$
-				textPbPath: `$
-								elem: <name: "COUNTERS" >$
-								elem: <name: "PORT*" >$
-						`,$
-				wantRetCode: codes.OK,$
-				wantRespVal: countersFabricPortWildcardByte,$
-				valTest:     true,$
-		}, {$
-				desc:       "Invalid fabric port key get" + invalidFabricPortName,$
-				pathTarget: "COUNTERS_DB",$
-				textPbPath: `$
-								elem: <name: "COUNTERS" >$
-								elem: <name: "` + invalidFabricPortName + `">$
-								`,$
-				wantRetCode: codes.NotFound,$
-				valTest:     true,$
-		}, {$
+		}, {
+			desc:       "get COUNTERS:" + validFabricPortName,
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "` + validFabricPortName + `">
+				`,
+			wantRetCode: codes.OK,
+			wantRespVal: countersFabricPort0Byte,
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS:PORT*",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "PORT*" >
+				`,
+			wantRetCode: codes.OK,
+			wantRespVal: countersFabricPortWildcardByte,
+			valTest:     true,
+		}, {
+			desc:       "Invalid fabric port key get" + invalidFabricPortName,
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "` + invalidFabricPortName + `">
+								`,
+			wantRetCode: codes.NotFound,
+			valTest:     true,
+		}, {
 			desc:        "Invalid DBKey of length 1",
 			pathTarget:  stateDBPath,
 			textPbPath:  ``,
