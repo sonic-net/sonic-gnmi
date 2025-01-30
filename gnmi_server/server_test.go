@@ -60,6 +60,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
@@ -241,6 +242,106 @@ func createKeepAliveServer(t *testing.T, port int64) *Server {
 	}
 	return s
 }
+
+func TestPFCWDErrors(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.ForceStop()
+
+	mock := gomonkey.ApplyFunc(sdc.GetPfcwdMap, func() (map[string]map[string]string, error)  {
+		return nil, fmt.Errorf("Mock error")
+	})
+	defer mock.Reset()
+
+	fileName := "../testdata/COUNTERS:Ethernet_wildcard_alias.txt"
+	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var countersEthernetWildcardJson interface{}
+	json.Unmarshal(countersEthernetWildcardByte, &countersEthernetWildcardJson)
+
+	tests := []struct {
+		desc    string
+		q       client.Query
+		wantNoti    []client.Notification
+		poll    int
+	}{
+		{
+			desc: "query COUNTERS/Ethernet*",
+			poll: 1,
+			q: client.Query{
+				Target: "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			wantNoti: []client.Notification{
+				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
+				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
+			},
+		},
+	}
+
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	prepareDb(t, ns)
+	var mutexGotNoti sync.Mutex
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
+			var gotNoti []client.Notification
+
+			q.NotificationHandler = func(n client.Notification) error {
+				mutexGotNoti.Lock()
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				}
+				mutexGotNoti.Unlock()
+				return nil
+			}
+
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				if err := c.Subscribe(context.Background(), q); err != nil {
+					t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+				}
+			}()
+
+			wg.Wait()
+
+			for i := 0; i < tt.poll; i++ {
+				err := c.Poll()
+				if err != nil {
+					t.Errorf("c.Poll(): got error %v, expected nil", err)
+				}
+			}
+
+			mutexGotNoti.Lock()
+
+			if len(gotNoti) == 0 {
+				t.Errorf("Expected non zero length of notifications")
+			}
+
+			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+				t.Log("\n Want: \n", tt.wantNoti)
+				t.Log("\n Got : \n", gotNoti)
+				t.Errorf("unexpected updates:\n%s", diff)
+			}
+
+			mutexGotNoti.Unlock()
+
+			c.Close()
+		})
+	}
+}
+
 
 // runTestGet requests a path from the server by Get grpc call, and compares if
 // the return code and response value are expected.
@@ -2987,7 +3088,7 @@ func TestGNOI(t *testing.T) {
 		if len(resp.Stats) == 0 {
 			t.Fatalf("Expected at least one StatInfo in response")
 		}
-	
+
 		statInfo := resp.Stats[0]
 
 		if statInfo.LastModified != 1609459200000000000 {
@@ -3007,7 +3108,7 @@ func TestGNOI(t *testing.T) {
 	t.Run("FileStatFailure", func(t *testing.T) {
 		mockClient := &ssc.DbusClient{}
 		expectedError := fmt.Errorf("failed to get file stats")
-		
+
 		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "GetFileStat", func(_ *ssc.DbusClient, path string) (map[string]string, error) {
 			return nil, expectedError
 		})
@@ -3025,10 +3126,64 @@ func TestGNOI(t *testing.T) {
 		if resp != nil {
 			t.Fatalf("Expected nil response but got: %v", resp)
 		}
-	
+
 		if !strings.Contains(err.Error(), expectedError.Error()) {
 			t.Errorf("Expected error to contain '%v' but got '%v'", expectedError, err)
-		}	
+		}
+	})
+
+	t.Run("OSVerifySuccess", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		expectedDbusOut := `{
+			"current": "current_image",
+			"next": "next_image",
+			"available": ["image1", "image2"]
+		}`
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "ListImages", func(_ *ssc.DbusClient) (string, error) {
+			return expectedDbusOut, nil
+		})
+		defer mock.Reset()
+
+		// Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_os_pb.VerifyRequest{}
+		osc := gnoi_os_pb.NewOSClient(conn)
+
+		resp, err := osc.Verify(ctx, req)
+		if err != nil {
+			t.Fatalf("OS Verify failed: %v", err)
+		}
+		// Validate the response
+		if len(resp.Version) == 0 {
+			t.Fatalf("Expected a version string in response")
+		}
+	})
+
+	t.Run("OSVerifyFailure", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		expectedError := fmt.Errorf("failed to verify OS")
+
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "ListImages", func(_ *ssc.DbusClient) (string, error) {
+			return "", expectedError
+		})
+		defer mock.Reset()
+
+		// Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_os_pb.VerifyRequest{}
+		osc := gnoi_os_pb.NewOSClient(conn)
+
+		resp, err := osc.Verify(ctx, req)
+		if err == nil {
+			t.Fatalf("Expected error but got none")
+		}
+		if resp != nil {
+			t.Fatalf("Expected nil response but got: %v", resp)
+		}
+
+		if !strings.Contains(err.Error(), expectedError.Error()) {
+			t.Errorf("Expected error to contain '%v' but got '%v'", expectedError, err)
+		}
 	})
 
 	type configData struct {

@@ -8,6 +8,7 @@ import (
 	"strings"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	log "github.com/golang/glog"
 	"time"
 	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
@@ -113,6 +114,47 @@ func KillOrRestartProcess(restart bool, serviceName string) error {
 		}
 	}
 	return err
+}
+
+func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) (*gnoi_os_pb.VerifyResponse, error) {
+	_, err := authenticate(srv.config, ctx, false)
+	if err != nil {
+		log.V(2).Infof("Failed to authenticate: %v", err)
+		return nil, err
+	}
+
+	log.V(1).Info("gNOI: Verify")
+	dbus, err := ssc.NewDbusClient()
+	if err != nil {
+		log.V(2).Infof("Failed to create dbus client: %v", err)
+		return nil, err
+	}
+
+	image_json, err := dbus.ListImages()
+	if err != nil {
+		log.V(2).Infof("Failed to list images: %v", err)
+		return nil, err
+	}
+
+	images := make(map[string]interface{})
+	err = json.Unmarshal([]byte(image_json), &images)
+	if err != nil {
+		log.V(2).Infof("Failed to unmarshal images: %v", err)
+		return nil, err
+	}
+
+	current, exists := images["current"]
+	if !exists {
+		return nil, status.Errorf(codes.Internal, "Key 'current' not found in images")
+	}
+	current_image, ok := current.(string)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "Failed to assert current image as string")
+	}
+	resp := &gnoi_os_pb.VerifyResponse{
+		Version: current_image,
+	}
+	return resp, nil
 }
 
 func (srv *SystemServer) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProcessRequest) (*gnoi_system_pb.KillProcessResponse, error) {
@@ -286,7 +328,7 @@ func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRe
 				return &spb_jwt.AuthenticateResponse{Token: tokenResp(req.Username, roles)}, nil
 			}
 		}
-		
+
 	}
 	return nil, status.Errorf(codes.PermissionDenied, "Invalid Username or Password")
 
@@ -314,7 +356,7 @@ func (srv *Server) Refresh(ctx context.Context, req *spb_jwt.RefreshRequest) (*s
 	if time.Unix(claims.ExpiresAt, 0).Sub(time.Now()) > JwtRefreshInt {
 		return nil, status.Errorf(codes.InvalidArgument, "Invalid JWT Token")
 	}
-	
+
 	return &spb_jwt.RefreshResponse{Token: tokenResp(claims.Username, claims.Roles)}, nil
 
 }
@@ -357,13 +399,13 @@ func (srv *Server) CopyConfig(ctx context.Context, req *spb.CopyConfigRequest) (
 		return nil, err
 	}
 	log.V(1).Info("gNOI: Sonic CopyConfig")
-	
+
 	resp := &spb.CopyConfigResponse{
 		Output: &spb.SonicOutput {
 
 		},
 	}
-	
+
 	reqstr, err := json.Marshal(req)
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
@@ -373,12 +415,12 @@ func (srv *Server) CopyConfig(ctx context.Context, req *spb.CopyConfigRequest) (
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
-	
+
 	err = json.Unmarshal(jsresp, resp)
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
-	
+
 	return resp, nil
 }
 
@@ -388,7 +430,7 @@ func (srv *Server) ShowTechsupport(ctx context.Context, req *spb.TechsupportRequ
 		return nil, err
 	}
 	log.V(1).Info("gNOI: Sonic ShowTechsupport")
-	
+
 	resp := &spb.TechsupportResponse{
 		Output: &spb.TechsupportResponse_Output {
 
@@ -404,13 +446,13 @@ func (srv *Server) ShowTechsupport(ctx context.Context, req *spb.TechsupportRequ
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
-	
+
 	err = json.Unmarshal(jsresp, resp)
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
-	
-	
+
+
 	return resp, nil
 }
 
@@ -420,7 +462,7 @@ func (srv *Server) ImageInstall(ctx context.Context, req *spb.ImageInstallReques
 		return nil, err
 	}
 	log.V(1).Info("gNOI: Sonic ImageInstall")
-	
+
 	resp := &spb.ImageInstallResponse{
 		Output: &spb.SonicOutput {
 
@@ -436,13 +478,13 @@ func (srv *Server) ImageInstall(ctx context.Context, req *spb.ImageInstallReques
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
-	
+
 	err = json.Unmarshal(jsresp, resp)
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
 
-	
+
 	return resp, nil
 }
 
@@ -452,7 +494,7 @@ func (srv *Server) ImageRemove(ctx context.Context, req *spb.ImageRemoveRequest)
 		return nil, err
 	}
 	log.V(1).Info("gNOI: Sonic ImageRemove")
-	
+
 	resp := &spb.ImageRemoveResponse{
 		Output: &spb.SonicOutput {
 
@@ -468,7 +510,7 @@ func (srv *Server) ImageRemove(ctx context.Context, req *spb.ImageRemoveRequest)
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
-	
+
 	err = json.Unmarshal(jsresp, resp)
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
@@ -482,7 +524,7 @@ func (srv *Server) ImageDefault(ctx context.Context, req *spb.ImageDefaultReques
 		return nil, err
 	}
 	log.V(1).Info("gNOI: Sonic ImageDefault")
-	
+
 	resp := &spb.ImageDefaultResponse{
 		Output: &spb.SonicOutput {
 
@@ -504,6 +546,6 @@ func (srv *Server) ImageDefault(ctx context.Context, req *spb.ImageDefaultReques
 		return nil, status.Error(codes.Unknown, err.Error())
 	}
 
-	
+
 	return resp, nil
 }
