@@ -609,10 +609,10 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 		if err != nil {
 			return err
 		}
-        err = initCountersFabricPortNameMap()
-        if err != nil {
-            return err
-        }
+		err = initCountersFabricPortNameMap()
+		if err != nil {
+			return err
+		}
 	}
 
 
