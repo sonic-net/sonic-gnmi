@@ -340,7 +340,7 @@ func getFabricCountersMap(tableName string) (map[string]string, error) {
 }
 
 // Populate real data paths from paths like
-// [COUNTER_DB COUNTERS Ethernet*] or [COUNTER_DB COUNTERS Ethernet68]
+// [COUNTER_DB COUNTERS PORT*] or [COUNTER_DB COUNTERS PORT0]
 func v2rFabricPortStats(paths []string) ([]tablePath, error) {
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
