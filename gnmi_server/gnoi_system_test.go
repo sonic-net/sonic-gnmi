@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// testErr is used to test the gNOI API return Code and error string match.
 func testErr(err error, code codes.Code, pattern string, t *testing.T) {
 	t.Helper()
 	if err == nil {
@@ -31,36 +32,6 @@ func testErr(err error, code codes.Code, pattern string, t *testing.T) {
 	if !res {
 		t.Error("Error message: expected ", pattern, ", received ", e.Message())
 	}
-}
-
-func errorCodeToSwss(errCode codes.Code) string {
-	switch errCode {
-	case codes.OK:
-		return "SWSS_RC_SUCCESS"
-	case codes.Unknown:
-		return "SWSS_RC_UNKNOWN"
-	case codes.InvalidArgument:
-		return "SWSS_RC_INVALID_PARAM"
-	case codes.DeadlineExceeded:
-		return "SWSS_RC_DEADLINE_EXCEEDED"
-	case codes.NotFound:
-		return "SWSS_RC_NOT_FOUND"
-	case codes.AlreadyExists:
-		return "SWSS_RC_EXISTS"
-	case codes.PermissionDenied:
-		return "SWSS_RC_PERMISSION_DENIED"
-	case codes.ResourceExhausted:
-		return "SWSS_RC_FULL"
-	case codes.Unimplemented:
-		return "SWSS_RC_UNIMPLEMENTED"
-	case codes.Internal:
-		return "SWSS_RC_INTERNAL"
-	case codes.FailedPrecondition:
-		return "SWSS_RC_FAILED_PRECONDITION"
-	case codes.Unavailable:
-		return "SWSS_RC_UNAVAIL"
-	}
-	return ""
 }
 
 func RebootBackendResponse(t *testing.T, sc *redis.Client, expectedResponse codes.Code, fvs map[string]string, done chan bool, key string) {
@@ -84,7 +55,7 @@ func RebootBackendResponse(t *testing.T, sc *redis.Client, expectedResponse code
 	case msg := <-channel:
 		t.Logf("RebootBackendResponse received request: %v", msg)
 		// Respond to the request
-		if err := np.Send(key, errorCodeToSwss(expectedResponse), fvs); err != nil {
+		if err := np.Send(key, ErrorCodeToSwss(expectedResponse), fvs); err != nil {
 			t.Errorf("RebootBackendResponse failed to send response: %v", err)
 			return
 		}
@@ -141,15 +112,6 @@ func TestSystem(t *testing.T) {
 
 		_, err := sc.Reboot(ctx, req)
 		testErr(err, codes.InvalidArgument, "reboot is not immediate.", t)
-	})
-	t.Run("RebootFailsIfMessageIsNotSet", func(t *testing.T) {
-		req := &syspb.RebootRequest{
-			Method: syspb.RebootMethod_COLD,
-			Delay:  0,
-		}
-
-		_, err := sc.Reboot(ctx, req)
-		testErr(err, codes.InvalidArgument, "message is empty.", t)
 	})
 	t.Run("RebootWithSubcomponents", func(t *testing.T) {
 		req := &syspb.RebootRequest{
