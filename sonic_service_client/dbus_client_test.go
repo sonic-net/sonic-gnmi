@@ -8,6 +8,46 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
+func TestNewDbusClient(t *testing.T) {
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	if client == nil {
+		t.Errorf("NewDbusClient failed: %v", client)
+	}
+}
+
+func TestCloseClient(t *testing.T) {
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	err = client.Close()
+	if err != nil {
+		t.Errorf("Close should pass: %v", err)
+	}
+}
+
+func TestCloseClientWithChannel(t *testing.T) {
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	client.(*DbusClient).channel = make(chan struct{})
+	err = client.Close()
+	if err != nil {
+		t.Errorf("Close should pass: %v", err)
+	}
+
+	select {
+	case <-client.(*DbusClient).channel:
+		// Channel is closed
+	default:
+		t.Errorf("Channel should be closed")
+	}
+}
+
 func TestSystemBusNegative(t *testing.T) {
 	client, err := NewDbusClient()
 	if err != nil {
