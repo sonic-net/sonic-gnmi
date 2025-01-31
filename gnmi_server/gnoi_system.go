@@ -28,33 +28,22 @@ const (
 	notificationTimeout = 10 * time.Second
 )
 
-// Supported reboot method map.
-var supportedRebootMap = map[syspb.RebootMethod]bool{
-	syspb.RebootMethod_COLD:      true,
-	syspb.RebootMethod_WARM:      true,
-	syspb.RebootMethod_POWERDOWN: true,
-	syspb.RebootMethod_NSF:       true,
-	syspb.RebootMethod_HALT:       true,
-}
-
 // Validates reboot request.
-func ValidRebootReq(req *syspb.RebootRequest) error {
-	if _, ok := supportedRebootMap[req.GetMethod()]; !ok {
+func ValidateRebootRequest(req *syspb.RebootRequest) error {
+	// Supported Reboot methods are: COLD (1), POWERDOWN (2), HALT (3), WARM (4), NSF (5).
+	// Not suppoted are: UNKNOWN (0), POWERUP (7)
+	if req.GetMethod() == syspb.RebootMethod_UNKNOWN || req.GetMethod() == syspb.RebootMethod_POWERUP {
 		log.Error("Invalid request: reboot method is not supported.")
 		return fmt.Errorf("Invalid request: reboot method is not supported.")
 	}
-	// Back end does not support delayed reboot request.
+	// Only the COLD method with a delay of 0 is guaranteed to be accepted for all target types.
+	// From https://github.com/openconfig/gnoi/blob/main/system/system.proto#L105
 	if req.GetDelay() > 0 {
 		log.Error("Invalid request: reboot is not immediate.")
 		return fmt.Errorf("Invalid request: reboot is not immediate.")
 	}
 	if req.GetMessage() == "" {
-		log.Error("Invalid request: message is empty.")
-		return fmt.Errorf("Invalid request: message is empty.")
-	}
-
-	if len(req.GetSubcomponents()) == 0 {
-		return nil
+		log.Info("Reboot request: message is empty.")
 	}
 
 	return nil
@@ -221,7 +210,7 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 		return nil, err
 	}
 	log.V(2).Info("gNOI: Reboot")
-	if err := ValidRebootReq(req); err != nil {
+	if err := ValidateRebootRequest(req); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 	// Handle the HALT request.
