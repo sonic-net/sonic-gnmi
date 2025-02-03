@@ -32,15 +32,15 @@ func Activate(conn *grpc.ClientConn, ctx context.Context) {
 	req := &pb.ActivateRequest{}
 	err := json.Unmarshal([]byte(*config.Args), req)
 	if err != nil {
-		panic(err.Error())
+		panic("Failed to unmarshal JSON: " + err.Error())
 	}
 	resp, err := osc.Activate(ctx, req)
 	if err != nil {
-		panic(err.Error())
+		panic("Failed to activate OS." + err.Error())
 	}
 	respstr, err := json.Marshal(resp)
 	if err != nil {
-		panic(err.Error())
+		panic("Failed to marshal reponse: " + err.Error())
 	}
 	fmt.Println(string(respstr))
 }
