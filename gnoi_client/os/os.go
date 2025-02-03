@@ -34,7 +34,7 @@ func Activate(conn *grpc.ClientConn, ctx context.Context) {
 	if err != nil {
 		panic(err.Error())
 	}
-	resp, err := osc.Activate(ctx, new(pb.ActivateRequest))
+	resp, err := osc.Activate(ctx, req)
 	if err != nil {
 		panic(err.Error())
 	}
