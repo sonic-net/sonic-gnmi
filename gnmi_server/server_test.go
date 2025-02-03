@@ -3140,8 +3140,8 @@ func TestGNOI(t *testing.T) {
 			t.Fatalf("Expected ActivateError in response but got none")
 		}
 
-		if resp.GetActivateError().GetType() != gnoi_os_pb.ActivateError_NON_EXISTENT {
-			t.Errorf("Expected error type '%v' but got '%v'", gnoi_os_pb.ActivateError_NON_EXISTENT, resp.GetActivateError().GetType())
+		if resp.GetActivateError().GetType() != gnoi_os_pb.ActivateError_NON_EXISTENT_VERSION {
+			t.Errorf("Expected error type '%v' but got '%v'", gnoi_os_pb.ActivateError_NON_EXISTENT_VERSION, resp.GetActivateError().GetType())
 		}
 
 		if !strings.Contains(resp.GetActivateError().GetDetail(), expectedError.Error()) {
