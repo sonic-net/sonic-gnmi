@@ -161,6 +161,52 @@ func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) 
 	return resp, nil
 }
 
+func (srv *OSServer) Activate(ctx context.Context, req *gnoi_os_pb.ActivateRequest) (*gnoi_os_pb.ActivateResponse, error) {
+	_, err := authenticate(srv.config, ctx, false)
+	if err != nil {
+		log.Errorf("Failed to authenticate: %v", err)
+		return nil, err
+	}
+
+	log.Infof("gNOI: Activate")
+	image := req.GetVersion()
+	log.Infof("Requested to activate image %s", image)
+
+	dbus, err := ssc.NewDbusClient()
+	if err != nil {
+		log.Errorf("Failed to create dbus client: %v", err)
+		return nil, err
+	}
+
+	var resp gnoi_os_pb.ActivateResponse
+	err = dbus.ActivateImage(image)
+	if err != nil {
+		log.Errorf("Failed to activate image %s: %v", image, err)
+		if strings.Contains(strings.ToLower(err.Error()), "not") && strings.Contains(strings.ToLower(err.Error()), "exist") {
+			// Image does not exist.
+			resp.Response = &gnoi_os_pb.ActivateResponse_ActivateError{
+					ActivateError: &gnoi_os_pb.ActivateError{
+					Type:    gnoi_os_pb.ActivateError_NON_EXISTENT_VERSION,
+					Detail:  err.Error(),
+				},
+			}
+		} else {
+			// Other error.
+			resp.Response = &gnoi_os_pb.ActivateResponse_ActivateError{
+				ActivateError: &gnoi_os_pb.ActivateError{
+					Type:    gnoi_os_pb.ActivateError_UNSPECIFIED,
+					Detail:  err.Error(),
+				},
+			}
+		}
+		return &resp, nil
+	}
+
+	log.Infof("Successfully activated image %s", image)
+	resp.Response = &gnoi_os_pb.ActivateResponse_ActivateOk{}
+	return &resp, nil
+}
+
 func (srv *SystemServer) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProcessRequest) (*gnoi_system_pb.KillProcessResponse, error) {
 	_, err := authenticate(srv.config, ctx, true)
 	if err != nil {
