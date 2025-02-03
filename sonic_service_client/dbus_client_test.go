@@ -780,3 +780,79 @@ func TestListImagesFailWrongType(t *testing.T) {
 		t.Errorf("ListImages should fail due to wrong type")
 	}
 }
+
+func TestActivateImageSuccess(t *testing.T) {
+	image := "next_image"
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.image_service.set_next_boot" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		if len(args) != 1 {
+			t.Errorf("Wrong number of arguments: %v", len(args))
+		}
+		if args[0] != image {
+			t.Errorf("Wrong image: %v", args[0])
+		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	err = client.ActivateImage(image)
+	if err != nil {
+		t.Errorf("ActivateImage should pass: %v", err)
+	}
+}
+
+func TestActivateImageFail(t *testing.T) {
+	image := "next_image"
+	err_msg := "This is the mock error message"
+
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.image_service.set_next_boot" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		if len(args) != 1 {
+			t.Errorf("Wrong number of arguments: %v", len(args))
+		}
+		if args[0] != image {
+			t.Errorf("Wrong image: %v", args[0])
+		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(1)
+		ret.Body[1] = err_msg
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	err = client.ActivateImage(image)
+	if err == nil {
+		t.Errorf("ActivateImage should fail")
+	}
+	if err.Error() != err_msg {
+		t.Errorf("Expected error message '%s' but got '%v'", err_msg, err)
+	}
+}
