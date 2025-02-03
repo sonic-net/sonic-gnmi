@@ -56,6 +56,8 @@ func main() {
 		switch *config.Rpc {
 		case "Verify":
 			gnoi_os.Verify(conn, ctx)
+		case "Activate":
+			gnoi_os.Activate(conn, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
