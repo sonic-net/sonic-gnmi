@@ -177,12 +177,16 @@ func (srv *OSServer) Activate(ctx context.Context, req *gnoi_os_pb.ActivateReque
 		log.Errorf("Failed to create dbus client: %v", err)
 		return nil, err
 	}
+	defer dbus.Close()
 
 	var resp gnoi_os_pb.ActivateResponse
 	err = dbus.ActivateImage(image)
 	if err != nil {
 		log.Errorf("Failed to activate image %s: %v", image, err)
-		if strings.Contains(strings.ToLower(err.Error()), "not") && strings.Contains(strings.ToLower(err.Error()), "exist") {
+		image_not_exists := os.IsNotExist(err) ||
+			(strings.Contains(strings.ToLower(err.Error()), "not") &&
+			strings.Contains(strings.ToLower(err.Error()), "exist"))
+		if image_not_exists {
 			// Image does not exist.
 			resp.Response = &gnoi_os_pb.ActivateResponse_ActivateError{
 					ActivateError: &gnoi_os_pb.ActivateError{
