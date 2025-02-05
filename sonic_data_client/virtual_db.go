@@ -69,6 +69,9 @@ var (
 	}
 )
 
+// Will be set to True due unit testing to reset COUNTERS_DB
+var UnitTest bool = false
+
 func (t *Trie) v2rTriePopulate() {
 	for _, pt := range pathTransFuncTbl {
 		n := t.Add(pt.path, pt.transFunc)
@@ -125,19 +128,15 @@ func initCountersPfcwdNameMap() error {
 }
 func initCountersFabricPortNameMap() error {
 	var err error
-	if len(countersFabricPortNameMap) == 0 {
+	// Reset map for Unit test to ensure that counters db is updated
+	// after changing from single to multi-asic config
+	if len(countersFabricPortNameMap) == 0 || UnitTest == true {
 		countersFabricPortNameMap, err = getFabricCountersMap("COUNTERS_FABRIC_PORT_NAME_MAP")
 		if err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func ResetFabricCountersMap() {
-	// Added this to support modification from
-	// single to multi-ns in unit-test 
-	countersFabricPortNameMap = make(map[string]string)
 }
 
 // Get the mapping between sonic interface name and oids of their PFC-WD enabled queues in COUNTERS_DB
