@@ -13,7 +13,7 @@ import (
 
 	"github.com/Workiva/go-datastructures/queue"
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/jipanyang/gnxi/utils/xpath"
+	"github.com/google/gnxi/utils/xpath"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
