@@ -4,6 +4,7 @@ import (
 	"fmt"
 	log "github.com/golang/glog"
 	"strings"
+	"os"
 )
 
 // virtual db is to Handle
@@ -69,9 +70,6 @@ var (
 	}
 )
 
-// Will be set to True due unit testing to reset COUNTERS_DB
-var UnitTest bool = false
-
 func (t *Trie) v2rTriePopulate() {
 	for _, pt := range pathTransFuncTbl {
 		n := t.Add(pt.path, pt.transFunc)
@@ -116,6 +114,7 @@ func initAliasMap() error {
 	}
 	return nil
 }
+
 func initCountersPfcwdNameMap() error {
 	var err error
 	if len(countersPfcwdNameMap) == 0 {
@@ -126,11 +125,13 @@ func initCountersPfcwdNameMap() error {
 	}
 	return nil
 }
+
 func initCountersFabricPortNameMap() error {
 	var err error
 	// Reset map for Unit test to ensure that counters db is updated
 	// after changing from single to multi-asic config
-	if len(countersFabricPortNameMap) == 0 || UnitTest == true {
+	value := os.Getenv("UNIT_TEST")
+	if len(countersFabricPortNameMap) == 0 || value == "1" {
 		countersFabricPortNameMap, err = getFabricCountersMap("COUNTERS_FABRIC_PORT_NAME_MAP")
 		if err != nil {
 			return err

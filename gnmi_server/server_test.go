@@ -4932,7 +4932,7 @@ func init() {
 
 	// Inform gNMI server to use redis tcp localhost connection
 	sdc.UseRedisLocalTcpPort = true
-	sdc.UnitTest = true
+	os.Setenv("UNIT_TEST", "1")
 }
 
 func TestMain(m *testing.M) {
