@@ -162,7 +162,7 @@ func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) 
 }
 
 func (srv *OSServer) Activate(ctx context.Context, req *gnoi_os_pb.ActivateRequest) (*gnoi_os_pb.ActivateResponse, error) {
-	_, err := authenticate(srv.config, ctx, false)
+	_, err := authenticate(srv.config, ctx, /*writeAccess=*/true)
 	if err != nil {
 		log.Errorf("Failed to authenticate: %v", err)
 		return nil, err
