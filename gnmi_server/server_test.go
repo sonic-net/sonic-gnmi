@@ -277,8 +277,8 @@ func TestPFCWDErrors(t *testing.T) {
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
 			wantNoti: []client.Notification{
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
 			},
 		},
 	}
