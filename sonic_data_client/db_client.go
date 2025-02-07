@@ -611,7 +611,7 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 		}
 		err = initCountersFabricPortNameMap()
 		if err != nil {
-			return err
+			log.Errorf("Could not create CountersFabricPortNameMap: %v", err)
 		}
 	}
 
