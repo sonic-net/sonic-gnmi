@@ -1228,6 +1228,10 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		return err
 	}
 
+	multiNs, err := sdcfg.CheckDbMultiNamespace()
+	if err != nil {
+		return err
+	}
 	namespace := c.dbkey.GetNetns()
 	// Default name space for GCU is localhost
 	if namespace == sdcfg.SONIC_DEFAULT_NAMESPACE {
@@ -1262,7 +1266,9 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		if err != nil {
 			return err
 		}
-		curr["path"] = "/" + namespace + curr["path"].(string)
+		if multiNs {
+			curr["path"] = "/" + namespace + curr["path"].(string)
+		}
 		patchList = append(patchList, curr)
 	}
 
@@ -1302,7 +1308,9 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		if err != nil {
 			return err
 		}
-		curr["path"] = "/" + namespace + curr["path"].(string)
+		if multiNs {
+			curr["path"] = "/" + namespace + curr["path"].(string)
+		}
 		patchList = append(patchList, curr)
 	}
 
@@ -1338,7 +1346,9 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		if err != nil {
 			return err
 		}
-		curr["path"] = "/" + namespace + curr["path"].(string)
+		if multiNs {
+			curr["path"] = "/" + namespace + curr["path"].(string)
+		}
 		patchList = append(patchList, curr)
 	}
 	if len(patchList) == 0 {
