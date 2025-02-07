@@ -11,6 +11,10 @@ import (
 )
 
 type Service interface {
+	// Close the connection to the D-Bus
+	Close() error
+
+	// SONiC Host Service D-Bus API
 	ConfigReload(fileName string) error
 	ConfigSave(fileName string) error
 	ApplyPatchYang(fileName string) error
@@ -34,15 +38,25 @@ type DbusClient struct {
 }
 
 func NewDbusClient() (Service, error) {
+	log.Infof("DbusClient: NewDbusClient")
+
 	var client DbusClient
 	var err error
-
 	client.busNamePrefix = "org.SONiC.HostService."
 	client.busPathPrefix = "/org/SONiC/HostService/"
 	client.intNamePrefix = "org.SONiC.HostService."
 	err = nil
 
 	return &client, err
+}
+
+// Close the connection to the D-Bus.
+func (c *DbusClient) Close() error {
+	log.Infof("DbusClient: Close")
+	if c.channel != nil {
+		close(c.channel)
+	}
+	return nil
 }
 
 func DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error) {

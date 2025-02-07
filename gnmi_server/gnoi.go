@@ -28,6 +28,7 @@ func ReadFileStat(path string) (*gnoi_file_pb.StatInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer sc.Close()
 
 	log.V(2).Infof("Reading file stat at path %s...", path)
 	data, err := sc.GetFileStat(path)
@@ -107,6 +108,7 @@ func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) 
 		log.V(2).Infof("Failed to create dbus client: %v", err)
 		return nil, err
 	}
+	defer dbus.Close()
 
 	image_json, err := dbus.ListImages()
 	if err != nil {
