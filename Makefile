@@ -101,6 +101,7 @@ endif
 	patch -d vendor -p0 < patches/gnmi_set.patch
 	patch -d vendor -p0 < patches/gnmi_get.patch
 	git apply patches/0001-Updated-to-filter-and-write-to-file.patch
+	git apply patches/0003-Fix-client-json-parsing-issue.patch
 
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/gnmi_get -mod=vendor github.com/google/gnxi/gnmi_get
