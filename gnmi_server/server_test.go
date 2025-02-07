@@ -4343,6 +4343,19 @@ func TestGNMINativeMultiDB(t *testing.T) {
 
 // Test configuration with multiple namespaces
 func TestGNMINativeMultiNamespace(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
 	sdcfg.Init()
 	err := test_utils.SetupMultiNamespace()
 	if err != nil {
@@ -4360,6 +4373,8 @@ func TestGNMINativeMultiNamespace(t *testing.T) {
 	s := createServer(t, 8080)
 	go runServer(t, s)
 	defer s.Stop()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	initFullConfigDb(t, ns)
 
 	path, _ := os.Getwd()
 	path = filepath.Dir(path)
