@@ -4281,7 +4281,7 @@ func TestGNMINative(t *testing.T) {
 
 	// This test is used for single database configuration
 	// Run tests not marked with multidb
-	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'not multidb'")
+	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'not multidb and not multins'")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)
@@ -4333,6 +4333,40 @@ func TestGNMINativeMultiDB(t *testing.T) {
 	// This test is used for multiple database configuration
 	// Run tests marked with multidb
 	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'multidb'")
+	if result, err := cmd.Output(); err != nil {
+		fmt.Println(string(result))
+		t.Errorf("Fail to execute pytest: %v", err)
+	} else {
+		fmt.Println(string(result))
+	}
+}
+
+// Test configuration with multiple namespaces
+func TestGNMINativeMultiNamespace(t *testing.T) {
+	sdcfg.Init()
+	err := test_utils.SetupMultiNamespace()
+	if err != nil {
+		t.Fatalf("error Setting up MultiNamespace files with err %T", err)
+	}
+
+	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
+	t.Cleanup(func() {
+		if err := test_utils.CleanUpMultiNamespace(); err != nil {
+			t.Fatalf("error Cleaning up MultiNamespace files with err %T", err)
+
+		}
+	})
+
+	s := createServer(t, 8080)
+	go runServer(t, s)
+	defer s.Stop()
+
+	path, _ := os.Getwd()
+	path = filepath.Dir(path)
+
+	// This test is used for multiple namespaces configuration
+	// Run tests marked with multins
+	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'multins'")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)
