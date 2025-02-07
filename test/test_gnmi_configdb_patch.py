@@ -3116,6 +3116,9 @@ class TestGNMIConfigDbPatch:
         assert os.path.exists(patch_file), "No patch file"
         with open(patch_file,"r") as pf:
             patch_json = json.load(pf)
+        for patch in patch_json:
+            # Remove localhost prefix
+            patch["path"] = patch["path"][len("/localhost"):]
         # Apply patch to get json result
         result = jsonpatch.apply_patch(test_data["origin_json"], patch_json)
         # Compare json result
