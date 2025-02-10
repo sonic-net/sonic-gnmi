@@ -6,11 +6,10 @@ import (
 	"sync/atomic"
 )
 
-
 // AuthInfo holds data about the authenticated user
 type AuthInfo struct {
 	// Username
-	User string
+	User        string
 	AuthEnabled bool
 	// Roles
 	Roles []string
@@ -37,6 +36,7 @@ const requestContextKey contextkey = 0
 var requestCounter uint64
 
 type CounterType int
+
 const (
 	GNMI_GET CounterType = iota
 	GNMI_GET_FAIL
@@ -51,6 +51,13 @@ const (
 	DBUS_DELETE_CHECKPOINT
 	DBUS_CONFIG_SAVE
 	DBUS_CONFIG_RELOAD
+	DBUS_STOP_SERVICE
+	DBUS_RESTART_SERVICE
+	DBUS_FILE_STAT
+	DBUS_HALT_SYSTEM
+	DBUS_IMAGE_DOWNLOAD
+	DBUS_IMAGE_INSTALL
+	DBUS_IMAGE_LIST
 	COUNTER_SIZE
 )
 
@@ -82,13 +89,26 @@ func (c CounterType) String() string {
 		return "DBUS config save"
 	case DBUS_CONFIG_RELOAD:
 		return "DBUS config reload"
+	case DBUS_STOP_SERVICE:
+		return "DBUS stop service"
+	case DBUS_RESTART_SERVICE:
+		return "DBUS restart service"
+	case DBUS_FILE_STAT:
+		return "DBUS file stat"
+	case DBUS_HALT_SYSTEM:
+		return "DBUS halt system"
+	case DBUS_IMAGE_DOWNLOAD:
+		return "DBUS image download"
+	case DBUS_IMAGE_INSTALL:
+		return "DBUS image install"
+	case DBUS_IMAGE_LIST:
+		return "DBUS image list"
 	default:
 		return ""
 	}
 }
 
 var globalCounters [COUNTER_SIZE]uint64
-
 
 // GetContext function returns the RequestContext object for a
 // gRPC request. RequestContext is maintained as a context value of
@@ -125,4 +145,3 @@ func IncCounter(cnt CounterType) {
 	atomic.AddUint64(&globalCounters[cnt], 1)
 	SetMemCounters(&globalCounters)
 }
-

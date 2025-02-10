@@ -9,6 +9,13 @@ import (
 	"sync"
 
 	"github.com/Azure/sonic-mgmt-common/translib"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
+	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
+
 	log "github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -16,11 +23,8 @@ import (
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 
 	//gnoi_yang "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/server"
-	"github.com/sonic-net/sonic-gnmi/common_utils"
-	spb "github.com/sonic-net/sonic-gnmi/proto"
-	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
-	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
-	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -42,11 +46,40 @@ type Server struct {
 	config  *Config
 	cMu     sync.Mutex
 	clients map[string]*Client
+	// SaveStartupConfig points to a function that is called to save changes of
+	// configuration to a file. By default it points to an empty function -
+	// the configuration is not saved to a file.
+	SaveStartupConfig func() error
 	// ReqFromMaster point to a function that is called to verify if the request
 	// comes from a master controller.
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
 }
+
+// FileServer is the server API for File service.
+// All implementations must embed UnimplementedFileServer
+// for forward compatibility
+type FileServer struct {
+	*Server
+	gnoi_file_pb.UnimplementedFileServer
+}
+
+// SystemServer is the server API for System service.
+// All implementations must embed UnimplementedSystemServer
+// for forward compatibility
+type SystemServer struct {
+	*Server
+	gnoi_system_pb.UnimplementedSystemServer
+}
+
+// OSServer is the server API for System service.
+// All implementations must embed UnimplementedSystemServer
+// for forward compatibility
+type OSServer struct {
+	*Server
+	gnoi_os_pb.UnimplementedOSServer
+}
+
 type AuthTypes map[string]bool
 
 // Config is a collection of values for Server
@@ -59,12 +92,17 @@ type Config struct {
 	UserAuth            AuthTypes
 	EnableTranslibWrite bool
 	EnableNativeWrite   bool
-	ZmqAddress          string
+	ZmqPort             string
 	IdleConnDuration    int
+	ConfigTableName     string
+	Vrf                 string
+	EnableCrl           bool
 }
 
 var AuthLock sync.Mutex
 var maMu sync.Mutex
+
+const WriteAccessMode = "readwrite"
 
 func (i AuthTypes) String() string {
 	if i["none"] {
@@ -135,21 +173,26 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if config == nil {
 		return nil, errors.New("config not provided")
 	}
-
 	common_utils.InitCounters()
 
 	s := grpc.NewServer(opts...)
 	reflection.Register(s)
 
 	srv := &Server{
-		s:       s,
-		config:  config,
-		clients: map[string]*Client{},
+		s:                 s,
+		config:            config,
+		clients:           map[string]*Client{},
+		SaveStartupConfig: saveOnSetDisabled,
 		// ReqFromMaster point to a function that is called to verify if
 		// the request comes from a master controller.
 		ReqFromMaster: ReqFromMasterDisabledMA,
 		masterEID:     uint128{High: 0, Low: 0},
 	}
+
+	fileSrv := &FileServer{Server: srv}
+	systemSrv := &SystemServer{Server: srv}
+	osSrv := &OSServer{Server: srv}
+
 	var err error
 	if srv.config.Port < 0 {
 		srv.config.Port = 0
@@ -161,7 +204,11 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	gnmipb.RegisterGNMIServer(srv.s, srv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
-		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
+		gnoi_system_pb.RegisterSystemServer(srv.s, systemSrv)
+		gnoi_file_pb.RegisterFileServer(srv.s, fileSrv)
+		gnoi_os_pb.RegisterOSServer(srv.s, osSrv)
+	}
+	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
 
 	}
@@ -179,13 +226,22 @@ func (srv *Server) Serve() error {
 	return srv.s.Serve(srv.lis)
 }
 
+func (srv *Server) ForceStop() {
+	s := srv.s
+	if s == nil {
+		log.Errorf("ForceStop() failed: not initialized")
+		return
+	}
+	s.Stop()
+}
+
 func (srv *Server) Stop() {
 	s := srv.s
 	if s == nil {
 		log.Errorf("Stop() failed: not initialized")
 		return
 	}
-	s.Stop()
+	s.GracefulStop()
 }
 
 // Address returns the port the Server is listening to.
@@ -201,35 +257,43 @@ func (srv *Server) Port() int64 {
 
 // Auth - Authenticate
 func (srv *Server) Auth(ctx context.Context) (context.Context, error) {
-	return authenticate(srv.config.UserAuth, ctx)
+	return authenticate(srv.config, ctx, true)
 }
 
-func authenticate(UserAuth AuthTypes, ctx context.Context) (context.Context, error) {
+func authenticate(config *Config, ctx context.Context, writeAccess bool) (context.Context, error) {
 	var err error
 	success := false
 	rc, ctx := common_utils.GetContext(ctx)
-	if !UserAuth.Any() {
+	if !config.UserAuth.Any() {
 		//No Auth enabled
 		rc.Auth.AuthEnabled = false
 		return ctx, nil
 	}
+
 	rc.Auth.AuthEnabled = true
-	if UserAuth.Enabled("password") {
+	if config.UserAuth.Enabled("password") {
 		ctx, err = BasicAuthenAndAuthor(ctx)
 		if err == nil {
 			success = true
 		}
 	}
-	if !success && UserAuth.Enabled("jwt") {
+	if !success && config.UserAuth.Enabled("jwt") {
 		_, ctx, err = JwtAuthenAndAuthor(ctx)
 		if err == nil {
 			success = true
 		}
 	}
-	if !success && UserAuth.Enabled("cert") {
-		ctx, err = ClientCertAuthenAndAuthor(ctx)
+	if !success && config.UserAuth.Enabled("cert") {
+		ctx, err = ClientCertAuthenAndAuthor(ctx, config.ConfigTableName, config.EnableCrl)
 		if err == nil {
 			success = true
+		}
+		// role must be readwrite to support write access
+		if success && writeAccess && config.ConfigTableName != "" {
+			role := rc.Auth.Roles[0]
+			if role != WriteAccessMode {
+				return ctx, fmt.Errorf("%s does not have write access, %s", rc.Auth.User, role)
+			}
 		}
 	}
 
@@ -246,7 +310,7 @@ func authenticate(UserAuth AuthTypes, ctx context.Context) (context.Context, err
 // Subscribe implements the gNMI Subscribe RPC.
 func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	ctx := stream.Context()
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	ctx, err := authenticate(s.config, ctx, false)
 	if err != nil {
 		return err
 	}
@@ -331,7 +395,7 @@ func IsNativeOrigin(origin string) bool {
 // Get implements the Get RPC in gNMI spec.
 func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
 	common_utils.IncCounter(common_utils.GNMI_GET)
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	ctx, err := authenticate(s.config, ctx, false)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, err
@@ -374,7 +438,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 			}
 		}
 		if check := IsNativeOrigin(origin); check {
-			dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqAddress)
+			dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf)
 		} else {
 			dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions)
 		}
@@ -407,6 +471,25 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	return &gnmipb.GetResponse{Notification: notifications}, nil
 }
 
+// saveOnSetEnabled saves configuration to a file
+func SaveOnSetEnabled() error {
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		log.V(0).Infof("Saving startup config failed to create dbus client: %v", err)
+		return err
+	}
+	if err := sc.ConfigSave("/etc/sonic/config_db.json"); err != nil {
+		log.V(0).Infof("Saving startup config failed: %v", err)
+		return err
+	} else {
+		log.V(1).Infof("Success! Startup config has been saved!")
+	}
+	return nil
+}
+
+// SaveOnSetDisabeld does nothing.
+func saveOnSetDisabled() error { return nil }
+
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
 	e := s.ReqFromMaster(req, &s.masterEID)
 	if e != nil {
@@ -418,7 +501,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
 	}
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	ctx, err := authenticate(s.config, ctx, true)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, err
@@ -453,7 +536,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 			return nil, grpc.Errorf(codes.Unimplemented, "GNMI native write is disabled")
 		}
-		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqAddress)
+		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf)
 	} else {
 		if s.config.EnableTranslibWrite == false {
 			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
@@ -508,6 +591,8 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	err = dc.Set(req.GetDelete(), req.GetReplace(), req.GetUpdate())
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+	} else {
+		s.SaveStartupConfig()
 	}
 
 	return &gnmipb.SetResponse{
@@ -518,7 +603,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 }
 
 func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest) (*gnmipb.CapabilityResponse, error) {
-	ctx, err := authenticate(s.config.UserAuth, ctx)
+	ctx, err := authenticate(s.config, ctx, false)
 	if err != nil {
 		return nil, err
 	}
@@ -528,7 +613,7 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 	var supportedModels []gnmipb.ModelData
 	dc, _ := sdc.NewTranslClient(nil, nil, ctx, extensions)
 	supportedModels = append(supportedModels, dc.Capabilities()...)
-	dc, _ = sdc.NewMixedDbClient(nil, nil, "", gnmipb.Encoding_JSON_IETF, s.config.ZmqAddress)
+	dc, _ = sdc.NewMixedDbClient(nil, nil, "", gnmipb.Encoding_JSON_IETF, s.config.ZmqPort, s.config.Vrf)
 	supportedModels = append(supportedModels, dc.Capabilities()...)
 
 	suppModels := make([]*gnmipb.ModelData, len(supportedModels))

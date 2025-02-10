@@ -4,11 +4,8 @@ import subprocess
 
 def run_cmd(cmd):
     res = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    res.wait()
-    if res.returncode:
-        msg = str(res.stderr.read(), encoding='utf-8')
-    else:
-        msg = str(res.stdout.read(), encoding='utf-8')
+    output, err = res.communicate()
+    msg = output.decode() + err.decode()
     return res.returncode, msg
 
 def gnmi_set(delete_list, update_list, replace_list):
@@ -157,6 +154,50 @@ def gnmi_capabilities():
     ret, msg = run_cmd(cmd)
     return ret, msg
 
+def gnmi_subscribe_poll(gnmi_path, interval, count, timeout):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnmi_cli '
+    cmd += '-client_types=gnmi -a 127.0.0.1:8080 -logtostderr -insecure '
+    # Use sonic-db as default origin
+    cmd += '-origin=sonic-db '
+    if timeout:
+        cmd += '-streaming_timeout=%u ' % timeout
+    cmd += '-query_type=polling '
+    cmd += '-polling_interval %us -count %u ' % (interval, count)
+    cmd += '-q %s' % (gnmi_path)
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+def gnmi_subscribe_stream_sample(gnmi_path, interval, count, timeout):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnmi_cli '
+    cmd += '-client_types=gnmi -a 127.0.0.1:8080 -logtostderr -insecure '
+    # Use sonic-db as default origin
+    cmd += '-origin=sonic-db '
+    if timeout:
+        cmd += '-streaming_timeout=%u ' % timeout
+    cmd += '-query_type=streaming '
+    cmd += '-streaming_type=SAMPLE '
+    cmd += '-streaming_sample_interval %u -expected_count %u ' % (interval, count)
+    cmd += '-q %s' % (gnmi_path)
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+def gnmi_subscribe_stream_onchange(gnmi_path, count, timeout):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnmi_cli '
+    cmd += '-client_types=gnmi -a 127.0.0.1:8080 -logtostderr -insecure -latency '
+    # Use sonic-db as default origin
+    cmd += '-origin=sonic-db '
+    if timeout:
+        cmd += '-streaming_timeout=%u ' % timeout
+    cmd += '-query_type=streaming '
+    cmd += '-streaming_type=ON_CHANGE -updates_only '
+    cmd += '-expected_count %u ' % count
+    cmd += '-q %s' % (gnmi_path)
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
 def gnmi_dump(name):
     path = os.getcwd()
     cmd = 'sudo ' + path + '/build/bin/gnmi_dump'
@@ -185,6 +226,24 @@ def gnoi_reboot(method, delay, message):
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc Reboot '
     cmd += '-jsonin "{\\\"method\\\":%d, \\\"delay\\\":%d, \\\"message\\\":\\\"%s\\\"}"'%(method, delay, message)
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+def gnoi_kill_process(json_data):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnoi_client '
+    cmd += '-insecure -target 127.0.0.1:8080 '
+    cmd += '-rpc KillProcess '
+    cmd += f'-jsonin \'{json_data}\''
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+def gnoi_restart_process(json_data):
+    path = os.getcwd()
+    cmd = path + '/build/bin/gnoi_client '
+    cmd += '-insecure -target 127.0.0.1:8080 '
+    cmd += '-rpc KillProcess '
+    cmd += f'-jsonin \'{json_data}\''
     ret, msg = run_cmd(cmd)
     return ret, msg
 
@@ -257,4 +316,3 @@ def gnoi_refresh_with_jwt(token):
     cmd += '-module Sonic -rpc refresh '
     ret, msg = run_cmd(cmd)
     return ret, msg
-

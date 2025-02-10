@@ -27,6 +27,8 @@ export GOBIN := $(abspath $(BUILD_DIR))
 export PATH := $(PATH):$(GOBIN):$(shell dirname $(GO))
 export CGO_LDFLAGS := -lswsscommon -lhiredis
 export CGO_CXXFLAGS := -I/usr/include/swss -w -Wall -fpermissive
+export MEMCHECK_CGO_LDFLAGS := $(CGO_LDFLAGS) -fsanitize=address
+export MEMCHECK_CGO_CXXFLAGS := $(CGO_CXXFLAGS) -fsanitize=leak
 
 ifeq ($(ENABLE_TRANSLIB_WRITE),y)
 BLD_TAGS := gnmi_translib_write
@@ -37,6 +39,11 @@ endif
 
 ifneq ($(BLD_TAGS),)
 BLD_FLAGS := -tags "$(strip $(BLD_TAGS))"
+endif
+
+MEMCHECK_TAGS := $(BLD_TAGS) gnmi_memcheck
+ifneq ($(MEMCHECK_TAGS),)
+MEMCHECK_FLAGS := -tags "$(strip $(MEMCHECK_TAGS))"
 endif
 
 ENABLE_DIALOUT_VALUE := 1
@@ -55,18 +62,18 @@ go.mod:
 
 $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 	$(GO) mod vendor
-	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
-	$(GO) mod download github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0
-	cp -r $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413/* vendor/golang.org/x/crypto/
-	cp -r $(GOPATH)/pkg/mod/github.com/jipanyang/gnxi@v0.0.0-20181221084354-f0a90cca6fd0/* vendor/github.com/jipanyang/gnxi/
+	$(GO) mod download github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2
+	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* vendor/github.com/google/gnxi/
+
+# Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
+	sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
+	sed -i 's/#patch -d $${DEST_DIR}\/github.com\/golang\/glog/patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
+
 	chmod -R u+w vendor
-	patch -d vendor -p0 < patches/gnmi_cli.all.patch
-	patch -d vendor -p0 < patches/gnmi_set.patch
-	patch -d vendor -p0 < patches/gnmi_get.patch
 	patch -d vendor -p0 < patches/gnmi_path.patch
 	patch -d vendor -p0 < patches/gnmi_xpath.patch
-	git apply patches/0001-Updated-to-filter-and-write-to-file.patch
+
 	touch $@
 
 go-deps: $(GO_DEPS)
@@ -75,14 +82,14 @@ go-deps-clean:
 	$(RM) -r vendor
 
 sonic-gnmi: $(GO_DEPS)
+# advancetls 1.0.0 release need following patch to build by go-1.19
+	patch -d vendor -p0 < patches/0002-Fix-advance-tls-build-with-go-119.patch
+# build service first which depends on advancetls
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	$(GO) build -o ${GOBIN}/dialout_client_cli -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
 endif
-	$(GO) build -o ${GOBIN}/gnmi_get -mod=vendor github.com/jipanyang/gnxi/gnmi_get
-	$(GO) build -o ${GOBIN}/gnmi_set -mod=vendor github.com/jipanyang/gnxi/gnmi_set
-	$(GO) build -o ${GOBIN}/gnmi_cli -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 	$(GO) build -o ${GOBIN}/gnoi_client -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
 	$(GO) build -o ${GOBIN}/gnmi_dump -mod=vendor github.com/sonic-net/sonic-gnmi/gnmi_dump
 else
@@ -90,15 +97,41 @@ else
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
 endif
-	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_get
-	$(GO) install -mod=vendor github.com/jipanyang/gnxi/gnmi_set
-	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnmi_dump
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/gnoi_openconfig_client
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/gnoi_sonic_client
 	
 endif
+
+# download and apply patch for gnmi client, which will break advancetls
+# backup crypto and gnxi
+	mkdir backup_crypto
+	cp -r vendor/golang.org/x/crypto/* backup_crypto/
+
+# download and patch crypto and gnxi
+	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
+	cp -r $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413/* vendor/golang.org/x/crypto/
+	chmod -R u+w vendor
+	patch -d vendor -p0 < patches/gnmi_cli.all.patch
+	patch -d vendor -p0 < patches/gnmi_set.patch
+	patch -d vendor -p0 < patches/gnmi_get.patch
+	git apply patches/0001-Updated-to-filter-and-write-to-file.patch
+	git apply patches/0003-Fix-client-json-parsing-issue.patch
+
+ifeq ($(CROSS_BUILD_ENVIRON),y)
+	$(GO) build -o ${GOBIN}/gnmi_get -mod=vendor github.com/google/gnxi/gnmi_get
+	$(GO) build -o ${GOBIN}/gnmi_set -mod=vendor github.com/google/gnxi/gnmi_set
+	$(GO) build -o ${GOBIN}/gnmi_cli -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
+else
+	$(GO) install -mod=vendor github.com/google/gnxi/gnmi_get
+	$(GO) install -mod=vendor github.com/google/gnxi/gnmi_set
+	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
+endif
+
+# restore old version
+	rm -rf vendor/golang.org/x/crypto/
+	mv backup_crypto/ vendor/golang.org/x/crypto/
 
 swsscommon_wrap:
 	make -C swsscommon
@@ -178,11 +211,18 @@ endif
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_data_client
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-dbus.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_service_client
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -coverprofile=coverage-translutils.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/transl_utils
-	$(GO) get github.com/axw/gocov/...
-	$(GO) get github.com/AlekSi/gocov-xml
+	$(GO) install github.com/axw/gocov/gocov@v1.1.0
+	$(GO) install github.com/AlekSi/gocov-xml@latest
 	$(GO) mod vendor
 	gocov convert coverage-*.txt | gocov-xml -source $(shell pwd) > coverage.xml
 	rm -rf coverage-*.txt 
+
+check_memleak: $(DBCONFG) $(ENVFILE)
+	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor $(MEMCHECK_FLAGS) -v github.com/sonic-net/sonic-gnmi/telemetry
+	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -coverprofile=coverage-config.txt -covermode=atomic $(MEMCHECK_FLAGS) -v github.com/sonic-net/sonic-gnmi/sonic_db_config
+	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(MEMCHECK_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../... -run TestGNMINative
+	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor $(MEMCHECK_FLAGS) -v github.com/sonic-net/sonic-gnmi/sonic_data_client
+
 
 clean:
 	$(RM) -r build

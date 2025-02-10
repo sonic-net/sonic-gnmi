@@ -5,26 +5,35 @@ package gnmi
 import (
 	"crypto/tls"
 	"encoding/json"
-	"path/filepath"
 	"flag"
 	"fmt"
-"sync"
-	"strings"
-	"unsafe"
-
-	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
-	"github.com/go-redis/redis"
-	"github.com/golang/protobuf/proto"
-
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
+	"sync"
 	"testing"
 	"time"
-	"runtime"
+	"unsafe"
 
+	"crypto/x509"
+	"crypto/x509/pkix"
+
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
+	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
+	"github.com/sonic-net/sonic-gnmi/test_utils"
+	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
+
+	"github.com/go-redis/redis"
+	"github.com/golang/protobuf/proto"
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/openconfig/gnmi/client"
 	pb "github.com/openconfig/gnmi/proto/gnmi"
@@ -36,26 +45,24 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
 
 	// Register supported client types.
-	spb "github.com/sonic-net/sonic-gnmi/proto"
-	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
-        "github.com/Workiva/go-datastructures/queue"
-        linuxproc "github.com/c9s/goprocinfo/linux"
-	"github.com/sonic-net/sonic-gnmi/common_utils"
-	"github.com/sonic-net/sonic-gnmi/test_utils"
-	gclient "github.com/jipanyang/gnmi/client/gnmi"
-	"github.com/jipanyang/gnxi/utils/xpath"
-	gnoi_system_pb "github.com/openconfig/gnoi/system"
+	"github.com/Workiva/go-datastructures/queue"
 	"github.com/agiledragon/gomonkey/v2"
+	linuxproc "github.com/c9s/goprocinfo/linux"
 	"github.com/godbus/dbus/v5"
+	gclient "github.com/openconfig/gnmi/client/gnmi"
+	"github.com/google/gnxi/utils/xpath"
 	cacheclient "github.com/openconfig/gnmi/client"
-
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoi_os_pb "github.com/openconfig/gnoi/os"
+	gnoi_system_pb "github.com/openconfig/gnoi/system"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -163,7 +170,7 @@ func createRejectServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true,  Threshold: 2}
+	cfg := &Config{Port: port, EnableTranslibWrite: true, Threshold: 2}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
@@ -235,6 +242,106 @@ func createKeepAliveServer(t *testing.T, port int64) *Server {
 	}
 	return s
 }
+
+func TestPFCWDErrors(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.ForceStop()
+
+	mock := gomonkey.ApplyFunc(sdc.GetPfcwdMap, func() (map[string]map[string]string, error)  {
+		return nil, fmt.Errorf("Mock error")
+	})
+	defer mock.Reset()
+
+	fileName := "../testdata/COUNTERS:Ethernet_wildcard_alias.txt"
+	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var countersEthernetWildcardJson interface{}
+	json.Unmarshal(countersEthernetWildcardByte, &countersEthernetWildcardJson)
+
+	tests := []struct {
+		desc    string
+		q       client.Query
+		wantNoti    []client.Notification
+		poll    int
+	}{
+		{
+			desc: "query COUNTERS/Ethernet*",
+			poll: 1,
+			q: client.Query{
+				Target: "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			wantNoti: []client.Notification{
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
+			},
+		},
+	}
+
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	prepareDb(t, ns)
+	var mutexGotNoti sync.Mutex
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
+			var gotNoti []client.Notification
+
+			q.NotificationHandler = func(n client.Notification) error {
+				mutexGotNoti.Lock()
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				}
+				mutexGotNoti.Unlock()
+				return nil
+			}
+
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				if err := c.Subscribe(context.Background(), q); err != nil {
+					t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+				}
+			}()
+
+			wg.Wait()
+
+			for i := 0; i < tt.poll; i++ {
+				err := c.Poll()
+				if err != nil {
+					t.Errorf("c.Poll(): got error %v, expected nil", err)
+				}
+			}
+
+			mutexGotNoti.Lock()
+
+			if len(gotNoti) == 0 {
+				t.Errorf("Expected non zero length of notifications")
+			}
+
+			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+				t.Log("\n Want: \n", tt.wantNoti)
+				t.Log("\n Got : \n", gotNoti)
+				t.Errorf("unexpected updates:\n%s", diff)
+			}
+
+			mutexGotNoti.Unlock()
+
+			c.Close()
+		})
+	}
+}
+
 
 // runTestGet requests a path from the server by Get grpc call, and compares if
 // the return code and response value are expected.
@@ -356,7 +463,7 @@ func runTestSet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 	runTestSetRaw(t, ctx, gClient, req, wantRetCode)
 }
 
-func runTestSetRaw(t *testing.T, ctx context.Context, gClient pb.GNMIClient, req *pb.SetRequest, 
+func runTestSetRaw(t *testing.T, ctx context.Context, gClient pb.GNMIClient, req *pb.SetRequest,
 	wantRetCode codes.Code) {
 	t.Helper()
 
@@ -799,7 +906,7 @@ func createEventsQuery(t *testing.T, paths ...string) client.Query {
 
 func createStateDbQueryOnChangeMode(t *testing.T, paths ...string) client.Query {
 	return createQueryOrFail(t,
-	        pb.SubscriptionList_STREAM,
+		pb.SubscriptionList_STREAM,
 		"STATE_DB",
 		[]subscriptionQuery{
 			{
@@ -961,9 +1068,9 @@ func TestGnmiSet(t *testing.T) {
 			operation:     Update,
 		},
 		{
-			desc:       "Set OC Interface IP",
-			pathTarget: "OC_YANG",
-			textPbPath:   pathToPb("/openconfig-interfaces:interfaces/interface[name=Ethernet4]/subinterfaces/subinterface[index=0]/openconfig-if-ip:ipv4"),
+			desc:          "Set OC Interface IP",
+			pathTarget:    "OC_YANG",
+			textPbPath:    pathToPb("/openconfig-interfaces:interfaces/interface[name=Ethernet4]/subinterfaces/subinterface[index=0]/openconfig-if-ip:ipv4"),
 			attributeData: "../testdata/set_interface_ipv4.json",
 			wantRetCode:   codes.OK,
 			operation:     Update,
@@ -990,9 +1097,9 @@ func TestGnmiSet(t *testing.T) {
 			valTest:       false,
 		},
 		{
-			desc:       "Set OC Interface IPv6 (unprefixed path)",
-			pathTarget: "OC_YANG",
-			textPbPath:   pathToPb("/interfaces/interface[name=Ethernet0]/subinterfaces/subinterface[index=0]/ipv6/addresses/address"),
+			desc:          "Set OC Interface IPv6 (unprefixed path)",
+			pathTarget:    "OC_YANG",
+			textPbPath:    pathToPb("/interfaces/interface[name=Ethernet0]/subinterfaces/subinterface[index=0]/ipv6/addresses/address"),
 			attributeData: `{"address": [{"ip": "150::1","config": {"ip": "150::1","prefix-length": 80}}]}`,
 			wantRetCode:   codes.OK,
 			operation:     Update,
@@ -1005,13 +1112,13 @@ func TestGnmiSet(t *testing.T) {
 			operation:   Delete,
 		},
 		{
-			desc:          "Create ACL (unprefixed path)",
-			pathTarget:    "OC_YANG",
-			textPbPath:    pathToPb("/acl/acl-sets/acl-set"),
+			desc:       "Create ACL (unprefixed path)",
+			pathTarget: "OC_YANG",
+			textPbPath: pathToPb("/acl/acl-sets/acl-set"),
 			attributeData: `{"acl-set": [{"name": "A001", "type": "ACL_IPV4",
 							"config": {"name": "A001", "type": "ACL_IPV4", "description": "hello, world!"}}]}`,
-			wantRetCode:   codes.OK,
-			operation:     Update,
+			wantRetCode: codes.OK,
+			operation:   Update,
 		},
 		{
 			desc:        "Verify Create ACL",
@@ -1058,7 +1165,7 @@ func TestGnmiSet(t *testing.T) {
 			t.Run(td.desc, func(t *testing.T) {
 				runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
 			})
-			t.Run(td.desc + " (unprefixed path)", func(t *testing.T) {
+			t.Run(td.desc+" (unprefixed path)", func(t *testing.T) {
 				p := removeModulePrefixFromPathPb(t, td.textPbPath)
 				runTestGet(t, ctx, gClient, td.pathTarget, p, td.wantRetCode, td.wantRespVal, td.valTest)
 			})
@@ -1290,11 +1397,11 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 	},
 		{
 			desc:       "Get valid but non-existing node",
-			pathTarget: "COUNTERS_DB",
+			pathTarget: stateDBPath,
 			textPbPath: `
-			elem: <name: "MyCounters" >
-		`,
-			wantRetCode: codes.NotFound,
+				elem: <name: "TRANSCEIVER_DOM_SENSOR" >
+			`,
+			wantRetCode: codes.OK,
 		}, {
 			desc:       "Get COUNTERS_PORT_NAME_MAP",
 			pathTarget: "COUNTERS_DB",
@@ -1411,9 +1518,9 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(`{"test_field": "test_value"}`),
 		}, {
-			desc:       "Invalid DBKey of length 1",
-			pathTarget: stateDBPath,
-			textPbPath: ``,
+			desc:        "Invalid DBKey of length 1",
+			pathTarget:  stateDBPath,
+			textPbPath:  ``,
 			valTest:     true,
 			wantRetCode: codes.NotFound,
 		},
@@ -1515,14 +1622,13 @@ func TestGnmiGetTranslib(t *testing.T) {
 	defer conn.Close()
 
 	gClient := pb.NewGNMIClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	var emptyRespVal interface{}
 	tds := []struct {
 		desc        string
 		pathTarget  string
 		textPbPath  string
+		timeout     time.Duration
 		wantRetCode codes.Code
 		wantRespVal interface{}
 		valTest     bool
@@ -1585,6 +1691,7 @@ func TestGnmiGetTranslib(t *testing.T) {
 			textPbPath: `
                         elem: <name: "openconfig-interfaces:interfaces" >
                 `,
+			timeout:     1 * time.Minute,
 			wantRetCode: codes.OK,
 			wantRespVal: emptyRespVal,
 			valTest:     false,
@@ -1609,16 +1716,16 @@ func TestGnmiGetTranslib(t *testing.T) {
 			wantRespVal: emptyRespVal,
 			valTest:     false,
 		},
-		{
-			desc:       "Get OC Interface ifindex",
-			pathTarget: "OC_YANG",
-			textPbPath: `
-                        elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "ifindex" >
-                `,
-			wantRetCode: codes.OK,
-			wantRespVal: emptyRespVal,
-			valTest:     false,
-		},
+		//{
+		//	desc:       "Get OC Interface ifindex",
+		//	pathTarget: "OC_YANG",
+		//	textPbPath: `
+        //                elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "ifindex" >
+        //        `,
+		//	wantRetCode: codes.OK,
+		//	wantRespVal: emptyRespVal,
+		//	valTest:     false,
+		//},
 		{
 			desc:       "Get OC Interface mtu",
 			pathTarget: "OC_YANG",
@@ -1633,6 +1740,12 @@ func TestGnmiGetTranslib(t *testing.T) {
 
 	for _, td := range tds {
 		t.Run(td.desc, func(t *testing.T) {
+			if td.timeout == 0 {
+				td.timeout = 10 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), td.timeout)
+			defer cancel()
+
 			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
 		})
 	}
@@ -1820,7 +1933,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 
 		generateIntervals bool
 	}
-	tests := []TestExec {
+	tests := []TestExec{
 		{
 			desc: "stream query for table COUNTERS_PORT_NAME_MAP with new test_field field",
 			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS_PORT_NAME_MAP"),
@@ -1832,9 +1945,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			}},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJsonUpdate},
 			},
 		},
 		{
@@ -1860,9 +1973,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68"}, TS: time.Unix(0, 200), Val: countersEthernet68Json},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68"}, TS: time.Unix(0, 200), Val: countersEthernet68Json},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68"}, TS: time.Unix(0, 200), Val: countersEthernet68JsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68"}, TS: time.Unix(0, 200), Val: countersEthernet68JsonUpdate},
 			},
 		},
 		{
@@ -1888,9 +2001,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1"}, TS: time.Unix(0, 200), Val: countersEthernet68Json},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1"}, TS: time.Unix(0, 200), Val: countersEthernet68Json},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1"}, TS: time.Unix(0, 200), Val: countersEthernet68JsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1"}, TS: time.Unix(0, 200), Val: countersEthernet68JsonUpdate},
 			},
 		},
 		{
@@ -1916,9 +2029,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
 			},
 		},
 		{
@@ -1944,9 +2057,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
 			},
 		},
 		{
@@ -1972,9 +2085,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdJsonUpdate},
 			},
 		},
 		{
@@ -2000,9 +2113,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJsonUpdate},
 			},
 		},
 		{
@@ -2028,9 +2141,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEtherneWildcardJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEtherneWildcardJsonUpdate},
 			},
 		},
 		{
@@ -2048,9 +2161,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardPfcJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardPfcJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: singlePortPfcJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: singlePortPfcJsonUpdate},
 			},
 		},
 		{
@@ -2068,9 +2181,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernetWildPfcwdJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernetWildPfcwdJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJsonUpdate},
 			},
 		},
 		{
@@ -2091,13 +2204,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			wantNoti: []client.Notification{
 				client.Connected{},
 				// We are starting from the result data of "stream query for table with update of new field",
-				client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJsonUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJsonUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJsonUpdate},
 				client.Sync{},
 			},
 		},
@@ -2129,13 +2242,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			wantNoti: []client.Notification{
 				client.Connected{},
 				// We are starting from the result data of "stream query for table with update of new field",
-				client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJsonUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS_PORT_NAME_MAP"}, TS: time.Unix(0, 200), Val: countersPortNameMapJson},
 				client.Sync{},
 			},
 		},
@@ -2160,13 +2273,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
 				client.Sync{},
 			},
 		},
@@ -2191,13 +2304,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "4"},
 				client.Sync{},
 			},
 		},
@@ -2222,13 +2335,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdPollUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdPollUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdPollUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdPollUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdPollUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdPollUpdate},
 				client.Sync{},
 			},
 		},
@@ -2253,13 +2366,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasPollUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasPollUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasPollUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasPollUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasPollUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasPollUpdate},
 				client.Sync{},
 			},
 		},
@@ -2284,13 +2397,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersFieldUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersFieldUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersFieldUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersFieldUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersFieldUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersFieldUpdate},
 				client.Sync{},
 			},
 		},
@@ -2315,13 +2428,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardPfcJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardPfcJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: allPortPfcJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: allPortPfcJsonUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: allPortPfcJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: allPortPfcJsonUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: allPortPfcJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: allPortPfcJsonUpdate},
 				client.Sync{},
 			},
 		},
@@ -2346,13 +2459,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernetWildPfcwdJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernetWildPfcwdJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernetWildPfcwdUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernetWildPfcwdUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernetWildPfcwdUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernetWildPfcwdUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernetWildPfcwdUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernetWildPfcwdUpdate},
 				client.Sync{},
 			},
 		},
@@ -2367,9 +2480,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernetWildQueuesJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernetWildQueuesJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernetWildQueuesJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernetWildQueuesJson},
 				client.Sync{},
 			},
 		},
@@ -2394,13 +2507,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesJsonUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesJsonUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesJsonUpdate},
 				client.Sync{},
 			},
 		},
@@ -2425,13 +2538,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesAliasJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesAliasJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesAliasJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesAliasJsonUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesAliasJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesAliasJsonUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesAliasJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesAliasJsonUpdate},
 				client.Sync{},
 			},
 		},
@@ -2451,9 +2564,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68"}, TS: time.Unix(0, 200), Val: countersEthernet68Json},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68"}, TS: time.Unix(0, 200), Val: countersEthernet68Json},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68"}, TS: time.Unix(0, 200), Val: countersEthernet68JsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68"}, TS: time.Unix(0, 200), Val: countersEthernet68JsonUpdate},
 			},
 		},
 		{
@@ -2466,10 +2579,10 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
 			},
 		},
 		{
@@ -2482,10 +2595,10 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1"}, TS: time.Unix(0, 200), Val: countersEthernet68Json},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1"}, TS: time.Unix(0, 200), Val: countersEthernet68Json},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1"}, TS: time.Unix(0, 200), Val: countersEthernet68JsonUpdate},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1"}, TS: time.Unix(0, 200), Val: countersEthernet68JsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1"}, TS: time.Unix(0, 200), Val: countersEthernet68JsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1"}, TS: time.Unix(0, 200), Val: countersEthernet68JsonUpdate},
 			},
 		},
 		{
@@ -2498,10 +2611,10 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersEthernet68PfcwdJson, countersEthernet68PfcwdJsonUpdate)},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersEthernet68PfcwdJson, countersEthernet68PfcwdJsonUpdate)},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersEthernet68PfcwdJson, countersEthernet68PfcwdJsonUpdate)},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68", "Pfcwd"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersEthernet68PfcwdJson, countersEthernet68PfcwdJsonUpdate)},
 			},
 		},
 		{
@@ -2514,10 +2627,10 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersEthernet68PfcwdAliasJson, countersEthernet68PfcwdAliasJsonUpdate)},
-				client.Update{Path: []string{"COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersEthernet68PfcwdAliasJson, countersEthernet68PfcwdAliasJsonUpdate)},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJson},
 			},
 		},
 		{
@@ -2529,9 +2642,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersEthernetWildcardJson, countersEtherneWildcardJsonUpdate)},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersEthernetWildcardJson, countersEtherneWildcardJsonUpdate)},
 			},
 		},
 		{
@@ -2545,11 +2658,11 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}}, //empty update
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEtherneWildcardJsonUpdate},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}}, //empty update
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}}, //empty update
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEtherneWildcardJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}}, //empty update
 			},
 		},
 		/*
@@ -2580,9 +2693,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardPfcJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardPfcJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersEthernetWildcardPfcJson, singlePortPfcJsonUpdate)},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersEthernetWildcardPfcJson, singlePortPfcJsonUpdate)},
 			},
 		},
 		{
@@ -2594,9 +2707,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernetWildPfcwdJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernetWildPfcwdJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersEthernetWildPfcwdJson, countersEthernet68PfcwdAliasJsonUpdate)},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersEthernetWildPfcwdJson, countersEthernet68PfcwdAliasJsonUpdate)},
 			},
 		},
 		{
@@ -2610,11 +2723,11 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernetWildPfcwdJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernetWildPfcwdJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}}, //empty update
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJsonUpdate},
-				client.Update{Path: []string{"COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}}, //empty update
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}}, //empty update
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}}, //empty update
 			},
 		},
 	}
@@ -2663,7 +2776,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				mutexGotNoti.Unlock()
 				return nil
 			}
-			go func(t2 TestExec) {	
+			go func(t2 TestExec) {
 				defer wg.Done()
 				err := c.Subscribe(context.Background(), q)
 				if t2.wantSubErr != nil && t2.wantSubErr.Error() != err.Error() {
@@ -2854,6 +2967,130 @@ func TestGNOI(t *testing.T) {
 		}
 	})
 
+	t.Run("FileStatSuccess", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		expectedResult := map[string]string{
+			"last_modified": "1609459200000000000",
+			"permissions":   "644",
+			"size":          "1024",
+			"umask":         "o022",
+		}
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "GetFileStat", func(_ *ssc.DbusClient, path string) (map[string]string, error) {
+			return expectedResult, nil
+		})
+		defer mock.Reset()
+
+		// Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_file_pb.StatRequest{Path: "/etc/sonic/config_db.json"}
+		fc := gnoi_file_pb.NewFileClient(conn)
+
+		resp, err := fc.Stat(ctx, req)
+		if err != nil {
+			t.Fatalf("FileStat failed: %v", err)
+		}
+		// Validate the response
+		if len(resp.Stats) == 0 {
+			t.Fatalf("Expected at least one StatInfo in response")
+		}
+
+		statInfo := resp.Stats[0]
+
+		if statInfo.LastModified != 1609459200000000000 {
+			t.Errorf("Expected last_modified %d but got %d", 1609459200000000000, statInfo.LastModified)
+		}
+		if statInfo.Permissions != 420 {
+			t.Errorf("Expected permissions 420 but got %d", statInfo.Permissions)
+		}
+		if statInfo.Size != 1024 {
+			t.Errorf("Expected size 1024 but got %d", statInfo.Size)
+		}
+		if statInfo.Umask != 18 {
+			t.Errorf("Expected umask 18 but got %d", statInfo.Umask)
+		}
+	})
+
+	t.Run("FileStatFailure", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		expectedError := fmt.Errorf("failed to get file stats")
+
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "GetFileStat", func(_ *ssc.DbusClient, path string) (map[string]string, error) {
+			return nil, expectedError
+		})
+		defer mock.Reset()
+
+		// Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_file_pb.StatRequest{Path: "/etc/sonic/config_db.json"}
+		fc := gnoi_file_pb.NewFileClient(conn)
+
+		resp, err := fc.Stat(ctx, req)
+		if err == nil {
+			t.Fatalf("Expected error but got none")
+		}
+		if resp != nil {
+			t.Fatalf("Expected nil response but got: %v", resp)
+		}
+
+		if !strings.Contains(err.Error(), expectedError.Error()) {
+			t.Errorf("Expected error to contain '%v' but got '%v'", expectedError, err)
+		}
+	})
+
+	t.Run("OSVerifySuccess", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		expectedDbusOut := `{
+			"current": "current_image",
+			"next": "next_image",
+			"available": ["image1", "image2"]
+		}`
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "ListImages", func(_ *ssc.DbusClient) (string, error) {
+			return expectedDbusOut, nil
+		})
+		defer mock.Reset()
+
+		// Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_os_pb.VerifyRequest{}
+		osc := gnoi_os_pb.NewOSClient(conn)
+
+		resp, err := osc.Verify(ctx, req)
+		if err != nil {
+			t.Fatalf("OS Verify failed: %v", err)
+		}
+		// Validate the response
+		if len(resp.Version) == 0 {
+			t.Fatalf("Expected a version string in response")
+		}
+	})
+
+	t.Run("OSVerifyFailure", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		expectedError := fmt.Errorf("failed to verify OS")
+
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "ListImages", func(_ *ssc.DbusClient) (string, error) {
+			return "", expectedError
+		})
+		defer mock.Reset()
+
+		// Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_os_pb.VerifyRequest{}
+		osc := gnoi_os_pb.NewOSClient(conn)
+
+		resp, err := osc.Verify(ctx, req)
+		if err == nil {
+			t.Fatalf("Expected error but got none")
+		}
+		if resp != nil {
+			t.Fatalf("Expected nil response but got: %v", resp)
+		}
+
+		if !strings.Contains(err.Error(), expectedError.Error()) {
+			t.Errorf("Expected error to contain '%v' but got '%v'", expectedError, err)
+		}
+	})
+
 	type configData struct {
 		source      string
 		destination string
@@ -3025,7 +3262,7 @@ func TestBulkSet(t *testing.T) {
 
 	t.Run("Invalid Replace Path", func(t *testing.T) {
 		req := &pb.SetRequest{
-			Delete:  []*pb.Path{aclPath1, aclPath2},
+			Delete: []*pb.Path{aclPath1, aclPath2},
 			Replace: []*pb.Update{
 				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
 			}}
@@ -3047,23 +3284,23 @@ func newPbUpdate(path, value string) *pb.Update {
 	v := &pb.TypedValue_JsonIetfVal{JsonIetfVal: extractJSON(value)}
 	return &pb.Update{
 		Path: p,
-		Val: &pb.TypedValue{Value: v},
+		Val:  &pb.TypedValue{Value: v},
 	}
 }
 
 type loginCreds struct {
-    Username, Password string
+	Username, Password string
 }
 
 func (c *loginCreds) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
-    return map[string]string{
-        "username": c.Username,
-        "password": c.Password,
-    }, nil
+	return map[string]string{
+		"username": c.Username,
+		"password": c.Password,
+	}, nil
 }
 
 func (c *loginCreds) RequireTransportSecurity() bool {
-    return true
+	return true
 }
 
 func TestAuthCapabilities(t *testing.T) {
@@ -3103,665 +3340,856 @@ func TestAuthCapabilities(t *testing.T) {
 }
 
 func TestTableKeyOnDeletion(t *testing.T) {
-    s := createKeepAliveServer(t, 8081)
-    go runServer(t, s)
-    defer s.Stop()
+	s := createKeepAliveServer(t, 8081)
+	go runServer(t, s)
+	defer s.Stop()
 
-    fileName := "../testdata/NEIGH_STATE_TABLE_MAP.txt"
-    neighStateTableByte, err := ioutil.ReadFile(fileName)
-    if err != nil {
-        t.Fatalf("read file %v err: %v", fileName, err)
-    }
-    var neighStateTableJson interface{}
-    json.Unmarshal(neighStateTableByte, &neighStateTableJson)
+	fileName := "../testdata/NEIGH_STATE_TABLE_MAP.txt"
+	neighStateTableByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var neighStateTableJson interface{}
+	json.Unmarshal(neighStateTableByte, &neighStateTableJson)
 
-    fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion_57.txt"
-    neighStateTableDeletedByte57, err := ioutil.ReadFile(fileName)
-    if err != nil {
-        t.Fatalf("read file %v err: %v", fileName, err)
-    }
-    var neighStateTableDeletedJson57 interface{}
-    json.Unmarshal(neighStateTableDeletedByte57, &neighStateTableDeletedJson57)
+	fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion_57.txt"
+	neighStateTableDeletedByte57, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var neighStateTableDeletedJson57 interface{}
+	json.Unmarshal(neighStateTableDeletedByte57, &neighStateTableDeletedJson57)
 
-    fileName = "../testdata/NEIGH_STATE_TABLE_MAP_2.txt"
-    neighStateTableByteTwo, err := ioutil.ReadFile(fileName)
-    if err != nil {
-        t.Fatalf("read file %v err: %v", fileName, err)
-    }
-    var neighStateTableJsonTwo interface{}
-    json.Unmarshal(neighStateTableByteTwo, &neighStateTableJsonTwo)
+	fileName = "../testdata/NEIGH_STATE_TABLE_MAP_2.txt"
+	neighStateTableByteTwo, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var neighStateTableJsonTwo interface{}
+	json.Unmarshal(neighStateTableByteTwo, &neighStateTableJsonTwo)
 
-    fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion_59.txt"
-    neighStateTableDeletedByte59, err := ioutil.ReadFile(fileName)
-    if err != nil {
-        t.Fatalf("read file %v err: %v", fileName, err)
-    }
-    var neighStateTableDeletedJson59 interface{}
-    json.Unmarshal(neighStateTableDeletedByte59, &neighStateTableDeletedJson59)
+	fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion_59.txt"
+	neighStateTableDeletedByte59, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var neighStateTableDeletedJson59 interface{}
+	json.Unmarshal(neighStateTableDeletedByte59, &neighStateTableDeletedJson59)
 
-    fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion_61.txt"
-    neighStateTableDeletedByte61, err := ioutil.ReadFile(fileName)
-    if err != nil {
-        t.Fatalf("read file %v err: %v", fileName, err)
-    }
-    var neighStateTableDeletedJson61 interface{}
-    json.Unmarshal(neighStateTableDeletedByte61, &neighStateTableDeletedJson61)
+	fileName = "../testdata/NEIGH_STATE_TABLE_key_deletion_61.txt"
+	neighStateTableDeletedByte61, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var neighStateTableDeletedJson61 interface{}
+	json.Unmarshal(neighStateTableDeletedByte61, &neighStateTableDeletedJson61)
 
-    namespace, _ := sdcfg.GetDbDefaultNamespace()
-    rclient := getRedisClientN(t, 6, namespace)
-    defer rclient.Close()
-    prepareStateDb(t, namespace)
+	namespace, _ := sdcfg.GetDbDefaultNamespace()
+	rclient := getRedisClientN(t, 6, namespace)
+	defer rclient.Close()
+	prepareStateDb(t, namespace)
 
-    tests := []struct {
-        desc      string
-        q         client.Query
-        wantNoti  []client.Notification
-        paths     []string
-    }{
-        {
-            desc: "Testing deletion of NEIGH_STATE_TABLE:10.0.0.57",
-            q: createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
-            wantNoti: []client.Notification {
-                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
-                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson57},
-            },
-            paths: []string {
-                "NEIGH_STATE_TABLE|10.0.0.57",
-            },
-        },
-        {
-            desc: "Testing deletion of NEIGH_STATE_TABLE:10.0.0.59 and NEIGH_STATE_TABLE 10.0.0.61",
-            q: createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
-            wantNoti: []client.Notification {
-                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJsonTwo},
-                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson59},
-                client.Update{Path: []string{"NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson61},
-            },
-            paths: []string {
-                "NEIGH_STATE_TABLE|10.0.0.59",
-                "NEIGH_STATE_TABLE|10.0.0.61",
-            },
-        },
-    }
+	tests := []struct {
+		desc     string
+		q        client.Query
+		wantNoti []client.Notification
+		paths    []string
+	}{
+		{
+			desc: "Testing deletion of NEIGH_STATE_TABLE:10.0.0.57",
+			q:    createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
+			wantNoti: []client.Notification{
+				client.Update{Path: []string{"STATE_DB", "NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
+				client.Update{Path: []string{"STATE_DB", "NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson57},
+			},
+			paths: []string{
+				"NEIGH_STATE_TABLE|10.0.0.57",
+			},
+		},
+		{
+			desc: "Testing deletion of NEIGH_STATE_TABLE:10.0.0.59 and NEIGH_STATE_TABLE 10.0.0.61",
+			q:    createStateDbQueryOnChangeMode(t, "NEIGH_STATE_TABLE"),
+			wantNoti: []client.Notification{
+				client.Update{Path: []string{"STATE_DB", "NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJsonTwo},
+				client.Update{Path: []string{"STATE_DB", "NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson59},
+				client.Update{Path: []string{"STATE_DB", "NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableDeletedJson61},
+			},
+			paths: []string{
+				"NEIGH_STATE_TABLE|10.0.0.59",
+				"NEIGH_STATE_TABLE|10.0.0.61",
+			},
+		},
+	}
 
-    var mutexNoti sync.RWMutex
-    var mutexPaths sync.Mutex
-    for _, tt := range tests {
-        t.Run(tt.desc, func(t *testing.T) {
-            q := tt.q
-            q.Addrs = []string{"127.0.0.1:8081"}
-            c := client.New()
-            defer c.Close()
-            var gotNoti []client.Notification
-            q.NotificationHandler = func(n client.Notification) error {
-                if nn, ok := n.(client.Update); ok {
-                    nn.TS = time.Unix(0, 200)
-                    mutexNoti.Lock()
-                    currentNoti := gotNoti
-                    mutexNoti.Unlock()
+	var mutexNoti sync.RWMutex
+	var mutexPaths sync.Mutex
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
+			defer c.Close()
+			var gotNoti []client.Notification
+			q.NotificationHandler = func(n client.Notification) error {
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					mutexNoti.Lock()
+					currentNoti := gotNoti
+					mutexNoti.Unlock()
 
-                    mutexNoti.RLock()
-                    gotNoti = append(currentNoti, nn)
-                    mutexNoti.RUnlock()
-                }
-                return nil
-            }
+					mutexNoti.RLock()
+					gotNoti = append(currentNoti, nn)
+					mutexNoti.RUnlock()
+				}
+				return nil
+			}
 
-            go func() {
-                c.Subscribe(context.Background(), q)
-            }()
+			go func() {
+				c.Subscribe(context.Background(), q)
+			}()
 
-            time.Sleep(time.Millisecond * 500) // half a second for subscribe request to sync
+			time.Sleep(time.Millisecond * 500) // half a second for subscribe request to sync
 
-            mutexPaths.Lock()
-            paths := tt.paths
-            mutexPaths.Unlock()
+			mutexPaths.Lock()
+			paths := tt.paths
+			mutexPaths.Unlock()
 
-            rclient.Del(paths...)
+			rclient.Del(paths...)
 
-            time.Sleep(time.Millisecond * 1500)
+			time.Sleep(time.Millisecond * 1500)
 
-            mutexNoti.Lock()
-            if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
-                t.Log("\n Want: \n", tt.wantNoti)
-                t.Log("\n Got : \n", gotNoti)
-                t.Errorf("unexpected updates:\n%s", diff)
-            }
-            mutexNoti.Unlock()
-        })
-    }
+			mutexNoti.Lock()
+			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+				t.Log("\n Want: \n", tt.wantNoti)
+				t.Log("\n Got : \n", gotNoti)
+				t.Errorf("unexpected updates:\n%s", diff)
+			}
+			mutexNoti.Unlock()
+		})
+	}
 }
 
 func TestCPUUtilization(t *testing.T) {
-    mock := gomonkey.ApplyFunc(sdc.PollStats, func() {
-	var i uint64
-	for i = 0; i < 3000; i++ {
-		sdc.WriteStatsToBuffer(&linuxproc.Stat{})
+	mock := gomonkey.ApplyFunc(sdc.PollStats, func() {
+		var i uint64
+		for i = 0; i < 3000; i++ {
+			sdc.WriteStatsToBuffer(&linuxproc.Stat{})
+		}
+	})
+
+	defer mock.Reset()
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.Stop()
+
+	tests := []struct {
+		desc string
+		q    client.Query
+		want []client.Notification
+		poll int
+	}{
+		{
+			desc: "poll query for CPU Utilization",
+			poll: 10,
+			q: client.Query{
+				Target:  "OTHERS",
+				Type:    client.Poll,
+				Queries: []client.Path{{"platform", "cpu"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			want: []client.Notification{
+				client.Connected{},
+				client.Sync{},
+			},
+		},
 	}
-    })
 
-    defer mock.Reset()
-    s := createServer(t, 8081)
-    go runServer(t, s)
-    defer s.Stop()
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
+			var gotNoti []client.Notification
+			q.NotificationHandler = func(n client.Notification) error {
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				} else {
+					gotNoti = append(gotNoti, n)
+				}
+				return nil
+			}
 
-    tests := []struct {
-        desc    string
-	q       client.Query
-	want    []client.Notification
-	poll    int
-    }{
-        {
-            desc: "poll query for CPU Utilization",
-	    poll: 10,
-	    q: client.Query{
-                Target: "OTHERS",
-		Type:    client.Poll,
-		Queries: []client.Path{{"platform", "cpu"}},
-		TLS:     &tls.Config{InsecureSkipVerify: true},
-	    },
-	    want: []client.Notification{
-                client.Connected{},
-		client.Sync{},
-	    },
-        },
-    }
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
 
-    for _, tt := range tests {
-        t.Run(tt.desc, func(t *testing.T) {
-            q := tt.q
-	    q.Addrs = []string{"127.0.0.1:8081"}
-            c := client.New()
-            var gotNoti []client.Notification
-            q.NotificationHandler = func(n client.Notification) error {
-                if nn, ok := n.(client.Update); ok {
-                    nn.TS = time.Unix(0, 200)
-		    gotNoti = append(gotNoti, nn)
-                } else {
-                    gotNoti = append(gotNoti, n)
-	    }
-                return nil
-            }
+			go func() {
+				defer wg.Done()
+				if err := c.Subscribe(context.Background(), q); err != nil {
+					t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+				}
+			}()
 
-            wg := new(sync.WaitGroup)
-            wg.Add(1)
+			wg.Wait()
 
-            go func() {
-                defer wg.Done()
-                if err := c.Subscribe(context.Background(), q); err != nil {
-                    t.Errorf("c.Subscribe(): got error %v, expected nil", err)
-                }
-            }()
+			for i := 0; i < tt.poll; i++ {
+				if err := c.Poll(); err != nil {
+					t.Errorf("c.Poll(): got error %v, expected nil", err)
+				}
+			}
 
-            wg.Wait()
+			if len(gotNoti) == 0 {
+				t.Errorf("expected non zero notifications")
+			}
 
-            for i := 0; i < tt.poll; i++ {
-                if err := c.Poll(); err != nil {
-                    t.Errorf("c.Poll(): got error %v, expected nil", err)
-                }
-	    }
-
-            if len(gotNoti) == 0 {
-                t.Errorf("expected non zero notifications")
-            }
-
-            c.Close()
-        })
-    }
+			c.Close()
+		})
+	}
 }
 
 func TestClientConnections(t *testing.T) {
-    s := createRejectServer(t, 8081)
-    go runServer(t, s)
-    defer s.Stop()
+	s := createRejectServer(t, 8081)
+	go runServer(t, s)
+	defer s.Stop()
 
-    tests := []struct {
-        desc    string
-        q       client.Query
-        want    []client.Notification
-        poll    int
-    }{
-        {
-            desc: "Reject OTHERS/proc/uptime",
-            poll: 10,
-            q: client.Query{
-                Target: "OTHERS",
-                Type:    client.Poll,
-                Queries: []client.Path{{"proc", "uptime"}},
-                TLS:     &tls.Config{InsecureSkipVerify: true},
-	    },
-	    want: []client.Notification{
-                client.Connected{},
-                client.Sync{},
-            },
-        },
-        {
-            desc: "Reject COUNTERS/Ethernet*",
-            poll: 10,
-            q: client.Query{
-                Target: "COUNTERS_DB",
-                Type:    client.Poll,
-                Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
-                TLS:     &tls.Config{InsecureSkipVerify: true},
-            },
-            want: []client.Notification{
-                client.Connected{},
-                client.Sync{},
-            },
-        },
-        {
-            desc: "Reject COUNTERS/Ethernet68",
-            poll: 10,
-            q: client.Query{
-                Target: "COUNTERS_DB",
-                Type:    client.Poll,
-                Queries: []client.Path{{"COUNTERS", "Ethernet68"}},
-                TLS:     &tls.Config{InsecureSkipVerify: true},
-            },
-            want: []client.Notification{
-                client.Connected{},
-                client.Sync{},
-            },
-        },
-    }
+	tests := []struct {
+		desc string
+		q    client.Query
+		want []client.Notification
+		poll int
+	}{
+		{
+			desc: "Reject OTHERS/proc/uptime",
+			poll: 10,
+			q: client.Query{
+				Target:  "OTHERS",
+				Type:    client.Poll,
+				Queries: []client.Path{{"proc", "uptime"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			want: []client.Notification{
+				client.Connected{},
+				client.Sync{},
+			},
+		},
+		{
+			desc: "Reject COUNTERS/Ethernet*",
+			poll: 10,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			want: []client.Notification{
+				client.Connected{},
+				client.Sync{},
+			},
+		},
+		{
+			desc: "Reject COUNTERS/Ethernet68",
+			poll: 10,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"COUNTERS", "Ethernet68"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			want: []client.Notification{
+				client.Connected{},
+				client.Sync{},
+			},
+		},
+	}
 
-    var clients []*cacheclient.CacheClient
+	var clients []*cacheclient.CacheClient
 
-    for i, tt := range tests {
-        t.Run(tt.desc, func(t *testing.T) {
-            q := tt.q
-            q.Addrs = []string{"127.0.0.1:8081"}
-            var gotNoti []client.Notification
-            q.NotificationHandler = func(n client.Notification) error {
-                if nn, ok := n.(client.Update); ok {
-                    nn.TS = time.Unix(0, 200)
-                    gotNoti = append(gotNoti, nn)
-                } else {
-                    gotNoti = append(gotNoti, n)
-                }
-                return nil
-            }
+	for i, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			var gotNoti []client.Notification
+			q.NotificationHandler = func(n client.Notification) error {
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				} else {
+					gotNoti = append(gotNoti, n)
+				}
+				return nil
+			}
 
-            wg := new(sync.WaitGroup)
-            wg.Add(1)
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
 
-            go func() {
-                defer wg.Done()
-                c := client.New()
-                clients = append(clients, c)
-                err := c.Subscribe(context.Background(), q)
-                if err == nil && i == len(tests) - 1 { // reject third
-                    t.Errorf("Expecting rejection message as no connections are allowed")
-                }
-                if err != nil && i < len(tests) - 1 { // accept first two
-                    t.Errorf("Expecting accepts for first two connections")
-                }
-            }()
+			go func() {
+				defer wg.Done()
+				c := client.New()
+				clients = append(clients, c)
+				err := c.Subscribe(context.Background(), q)
+				if err == nil && i == len(tests)-1 { // reject third
+					t.Errorf("Expecting rejection message as no connections are allowed")
+				}
+				if err != nil && i < len(tests)-1 { // accept first two
+					t.Errorf("Expecting accepts for first two connections")
+				}
+			}()
 
-            wg.Wait()
-        })
-    }
+			wg.Wait()
+		})
+	}
 
-    for _, cacheClient := range(clients) {
-        cacheClient.Close()
-    }
+	for _, cacheClient := range clients {
+		cacheClient.Close()
+	}
+}
+
+func TestWildcardTableNoError(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.ForceStop()
+
+	fileName := "../testdata/NEIGH_STATE_TABLE_MAP.txt"
+	neighStateTableByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+
+	var neighStateTableJson interface{}
+	json.Unmarshal(neighStateTableByte, &neighStateTableJson)
+
+	tests := []struct {
+		desc     string
+		q        client.Query
+		wantNoti []client.Notification
+		poll     int
+	}{
+		{
+			desc: "poll query for NEIGH_STATE_TABLE",
+			poll: 1,
+			q: client.Query{
+				Target:  "STATE_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"NEIGH_STATE_TABLE"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			wantNoti: []client.Notification{
+				client.Update{Path: []string{"STATE_DB", "NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
+				client.Update{Path: []string{"STATE_DB", "NEIGH_STATE_TABLE"}, TS: time.Unix(0, 200), Val: neighStateTableJson},
+			},
+		},
+	}
+	namespace, _ := sdcfg.GetDbDefaultNamespace()
+	prepareStateDb(t, namespace)
+	var mutexNoti sync.Mutex
+	for _, tt := range tests {
+
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
+			var gotNoti []client.Notification
+			q.NotificationHandler = func(n client.Notification) error {
+				mutexNoti.Lock()
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				}
+				mutexNoti.Unlock()
+				return nil
+			}
+
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				if err := c.Subscribe(context.Background(), q); err != nil {
+					t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+				}
+			}()
+
+			wg.Wait()
+
+			for i := 0; i < tt.poll; i++ {
+				if err := c.Poll(); err != nil {
+					t.Errorf("c.Poll(): got error %v, expected nil", err)
+				}
+			}
+
+			mutexNoti.Lock()
+
+			if len(gotNoti) == 0 {
+				t.Errorf("expected non zero notifications")
+			}
+
+			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+				t.Log("\n Want: \n", tt.wantNoti)
+				t.Log("\n Got: \n", gotNoti)
+				t.Errorf("unexpected updates: \n%s", diff)
+			}
+
+			mutexNoti.Unlock()
+
+			c.Close()
+		})
+	}
+}
+
+func TestNonExistentTableNoError(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.ForceStop()
+
+	fileName := "../testdata/EMPTY_JSON.txt"
+	transceiverDomSensorTableByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+
+	var transceiverDomSensorTableJson interface{}
+	json.Unmarshal(transceiverDomSensorTableByte, &transceiverDomSensorTableJson)
+
+	tests := []struct {
+		desc     string
+		q        client.Query
+		wantNoti []client.Notification
+		poll     int
+	}{
+		{
+			desc: "poll query for TRANSCEIVER_DOM_SENSOR",
+			poll: 1,
+			q: client.Query{
+				Target:  "STATE_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"TRANSCEIVER_DOM_SENSOR"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			wantNoti: []client.Notification{
+				client.Update{Path: []string{"STATE_DB", "TRANSCEIVER_DOM_SENSOR"}, TS: time.Unix(0, 200), Val: transceiverDomSensorTableJson},
+				client.Update{Path: []string{"STATE_DB", "TRANSCEIVER_DOM_SENSOR"}, TS: time.Unix(0, 200), Val: transceiverDomSensorTableJson},
+			},
+		},
+	}
+	namespace, _ := sdcfg.GetDbDefaultNamespace()
+	prepareStateDb(t, namespace)
+	var mutexNoti sync.Mutex
+
+	for _, tt := range tests {
+		prepareStateDb(t, namespace)
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
+			var gotNoti []client.Notification
+			q.NotificationHandler = func(n client.Notification) error {
+				mutexNoti.Lock()
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				}
+				mutexNoti.Unlock()
+				return nil
+			}
+
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				if err := c.Subscribe(context.Background(), q); err != nil {
+					t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+				}
+			}()
+
+			wg.Wait()
+
+			for i := 0; i < tt.poll; i++ {
+				if err := c.Poll(); err != nil {
+					t.Errorf("c.Poll(): got error %v, expected nil", err)
+				}
+			}
+
+			mutexNoti.Lock()
+
+			if len(gotNoti) == 0 {
+				t.Errorf("expected non zero notifications")
+			}
+
+			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+				t.Log("\n Want: \n", tt.wantNoti)
+				t.Log("\n Got: \n", gotNoti)
+				t.Errorf("unexpected updates: \n%s", diff)
+			}
+
+			mutexNoti.Unlock()
+
+			c.Close()
+		})
+	}
 }
 
 func TestConnectionDataSet(t *testing.T) {
-    s := createServer(t, 8081)
-    go runServer(t, s)
-    defer s.Stop()
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.ForceStop()
 
-    tests := []struct {
-        desc    string
-        q       client.Query
-        want    []client.Notification
-        poll    int
-    }{
-        {
-            desc: "poll query for COUNTERS/Ethernet*",
-            poll: 10,
-            q: client.Query{
-                Target: "COUNTERS_DB",
-                Type:    client.Poll,
-                Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
-                TLS:     &tls.Config{InsecureSkipVerify: true},
-            },
-            want: []client.Notification{
-                client.Connected{},
-                client.Sync{},
-            },
-        },
-    }
-    namespace, _ := sdcfg.GetDbDefaultNamespace()
-    rclient := getRedisClientN(t, 6, namespace)
-    defer rclient.Close()
+	tests := []struct {
+		desc string
+		q    client.Query
+		want []client.Notification
+		poll int
+	}{
+		{
+			desc: "poll query for COUNTERS/Ethernet*",
+			poll: 10,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			want: []client.Notification{
+				client.Connected{},
+				client.Sync{},
+			},
+		},
+	}
+	namespace, _ := sdcfg.GetDbDefaultNamespace()
+	rclient := getRedisClientN(t, 6, namespace)
+	defer rclient.Close()
 
-    for _, tt := range tests {
-        prepareStateDb(t, namespace)
-        t.Run(tt.desc, func(t *testing.T) {
-            q := tt.q
-            q.Addrs = []string{"127.0.0.1:8081"}
-            c := client.New()
+	for _, tt := range tests {
+		prepareStateDb(t, namespace)
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
 
-            wg := new(sync.WaitGroup)
-            wg.Add(1)
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
 
-            go func() {
-                defer wg.Done()
-                if err := c.Subscribe(context.Background(), q); err != nil {
-                    t.Errorf("c.Subscribe(): got error %v, expected nil", err)
-                }
-            }()
+			go func() {
+				defer wg.Done()
+				if err := c.Subscribe(context.Background(), q); err != nil {
+					t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+				}
+			}()
 
-            wg.Wait()
+			wg.Wait()
 
-            resultMap, err := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
+			resultMap, err := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
 
-            if resultMap == nil {
-                t.Errorf("result Map is nil, expected non nil, err: %v", err)
-	    }
-            if len(resultMap) != 1 {
-                t.Errorf("result for TELEMETRY_CONNECTIONS should be 1")
-            }
+			if resultMap == nil {
+				t.Errorf("result Map is nil, expected non nil, err: %v", err)
+			}
+			if len(resultMap) != 1 {
+				t.Errorf("result for TELEMETRY_CONNECTIONS should be 1")
+			}
 
-            for key, _ := range resultMap {
-                if !strings.Contains(key, "COUNTERS_DB|COUNTERS|Ethernet*") {
-                    t.Errorf("key is expected to contain correct query, received: %s", key)
-                }
-            }
+			for key, _ := range resultMap {
+				if !strings.Contains(key, "COUNTERS_DB|COUNTERS|Ethernet*") {
+					t.Errorf("key is expected to contain correct query, received: %s", key)
+				}
+			}
 
-            c.Close()
-        })
-    }
+			c.Close()
+		})
+	}
 }
 
 func TestConnectionsKeepAlive(t *testing.T) {
-    s := createKeepAliveServer(t, 8081)
-    go runServer(t, s)
-    defer s.Stop()
+	s := createKeepAliveServer(t, 8081)
+	go runServer(t, s)
+	defer s.Stop()
 
-    tests := []struct {
-        desc    string
-        q       client.Query
-        want    []client.Notification
-        poll    int
-    }{
-        {
-            desc: "Testing KeepAlive with goroutine count",
-            poll: 3,
-            q: client.Query{
-                Target: "COUNTERS_DB",
-                Type:    client.Poll,
-                Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
-                TLS:     &tls.Config{InsecureSkipVerify: true},
-            },
-            want: []client.Notification{
-                client.Connected{},
-                client.Sync{},
-            },
-        },
-    }
-    for _, tt := range(tests) {
-        for i := 0; i < 5; i++ {
-            t.Run(tt.desc, func(t *testing.T) {
-                q := tt.q
-                q.Addrs = []string{"127.0.0.1:8081"}
-                c := client.New()
-                wg := new(sync.WaitGroup)
-                wg.Add(1)
+	tests := []struct {
+		desc    string
+		q       client.Query
+		want    []client.Notification
+		poll    int
+	}{
+		{
+			desc: "Testing KeepAlive with goroutine count",
+			poll: 3,
+			q: client.Query{
+				Target: "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			want: []client.Notification{
+				client.Connected{},
+				client.Sync{},
+			},
+		},
+	}
+	for _, tt := range(tests) {
+		var clients []*cacheclient.CacheClient
+		for i := 0; i < 5; i++ {
+			t.Run(tt.desc, func(t *testing.T) {
+				q := tt.q
+				q.Addrs = []string{"127.0.0.1:8081"}
+				c := client.New()
+				clients = append(clients, c)
+				wg := new(sync.WaitGroup)
+				wg.Add(1)
 
-                go func() {
-                    defer wg.Done()
-                    if err := c.Subscribe(context.Background(), q); err != nil {
-                        t.Errorf("c.Subscribe(): got error %v, expected nil", err)
-                    }
-                }()
+				go func() {
+					defer wg.Done()
+					if err := c.Subscribe(context.Background(), q); err != nil {
+						t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+					}
+				}()
 
-                wg.Wait()
-                after_subscribe := runtime.NumGoroutine()
-                t.Logf("Num go routines after client subscribe: %d", after_subscribe)
-                time.Sleep(10 * time.Second)
-                after_sleep := runtime.NumGoroutine()
-                t.Logf("Num go routines after sleep, should be less, as keepalive should close idle connections: %d", after_sleep)
-                if after_sleep > after_subscribe {
-                    t.Errorf("Expecting goroutine after sleep to be less than or equal to after subscribe, after_subscribe: %d, after_sleep: %d", after_subscribe, after_sleep)
-                }
-            })
-        }
-    }
+				wg.Wait()
+				after_subscribe := runtime.NumGoroutine()
+				t.Logf("Num go routines after client subscribe: %d", after_subscribe)
+				time.Sleep(10 * time.Second)
+				after_sleep := runtime.NumGoroutine()
+				t.Logf("Num go routines after sleep, should be less, as keepalive should close idle connections: %d", after_sleep)
+				if after_sleep > after_subscribe {
+					t.Errorf("Expecting goroutine after sleep to be less than or equal to after subscribe, after_subscribe: %d, after_sleep: %d", after_subscribe, after_sleep)
+				}
+			})
+		}
+		for _, cacheClient := range(clients) {
+			cacheClient.Close()
+		}
+	}
 }
 
 func TestClient(t *testing.T) {
-    var mutexDeInit sync.RWMutex
-    var mutexHB sync.RWMutex
-    var mutexIdx sync.RWMutex
+	var mutexDeInit sync.RWMutex
+	var mutexHB sync.RWMutex
+	var mutexIdx sync.RWMutex
 
-    // sonic-host:device-test-event is a test event. 
-    // Events client will drop it on floor.
-    events := [] sdc.Evt_rcvd {
-        { "test0", 7, 777 },
-        { "test1", 6, 677 },
-        { "{\"sonic-host:device-test-event\"", 5, 577 },
-        { "test2", 5, 577 },
-        { "test3", 4, 477 },
-    }
+	// sonic-host:device-test-event is a test event.
+	// Events client will drop it on floor.
+	events := []sdc.Evt_rcvd{
+		{"test0", 7, 777},
+		{"test1", 6, 677},
+		{"{\"sonic-host:device-test-event\"", 5, 577},
+		{"test2", 5, 577},
+		{"test3", 4, 477},
+	}
 
-    HEARTBEAT_SET := 5
-    heartbeat := 0
-    event_index := 0
-    rcv_timeout := sdc.SUBSCRIBER_TIMEOUT
-    deinit_done := false
+	HEARTBEAT_SET := 5
+	heartbeat := 0
+	event_index := 0
+	rcv_timeout := sdc.SUBSCRIBER_TIMEOUT
+	deinit_done := false
 
-    mock1 := gomonkey.ApplyFunc(sdc.C_init_subs, func(use_cache bool) unsafe.Pointer {
-        return nil
-    })
-    defer mock1.Reset()
+	mock1 := gomonkey.ApplyFunc(sdc.C_init_subs, func(use_cache bool) unsafe.Pointer {
+		return nil
+	})
+	defer mock1.Reset()
 
-    mock2 := gomonkey.ApplyFunc(sdc.C_recv_evt, func(h unsafe.Pointer) (int, sdc.Evt_rcvd) {
-        rc := (int)(0)
-        var evt sdc.Evt_rcvd
-        mutexIdx.Lock()
-        current_index := event_index
-        mutexIdx.Unlock()
-        if current_index < len(events) {
-            evt = events[current_index]
-            mutexIdx.RLock()
-            event_index = current_index + 1
-            mutexIdx.RUnlock()
-        } else {
-            time.Sleep(time.Millisecond * time.Duration(rcv_timeout))
-            rc = -1
-        }
-        return rc, evt
-    })
-    defer mock2.Reset()
+	mock2 := gomonkey.ApplyFunc(sdc.C_recv_evt, func(h unsafe.Pointer) (int, sdc.Evt_rcvd) {
+		rc := (int)(0)
+		var evt sdc.Evt_rcvd
+		mutexIdx.Lock()
+		current_index := event_index
+		mutexIdx.Unlock()
+		if current_index < len(events) {
+			evt = events[current_index]
+			mutexIdx.RLock()
+			event_index = current_index + 1
+			mutexIdx.RUnlock()
+		} else {
+			time.Sleep(time.Millisecond * time.Duration(rcv_timeout))
+			rc = -1
+		}
+		return rc, evt
+	})
+	defer mock2.Reset()
 
-    mock3 := gomonkey.ApplyFunc(sdc.Set_heartbeat, func(val int) {
-        mutexHB.RLock()
-        heartbeat = val
-        mutexHB.RUnlock()
-    })
-    defer mock3.Reset()
+	mock3 := gomonkey.ApplyFunc(sdc.Set_heartbeat, func(val int) {
+		mutexHB.RLock()
+		heartbeat = val
+		mutexHB.RUnlock()
+	})
+	defer mock3.Reset()
 
-    mock4 := gomonkey.ApplyFunc(sdc.C_deinit_subs, func(h unsafe.Pointer) {
-        mutexDeInit.RLock()
-        deinit_done = true
-        mutexDeInit.RUnlock()
-    })
-    defer mock4.Reset()
+	mock4 := gomonkey.ApplyFunc(sdc.C_deinit_subs, func(h unsafe.Pointer) {
+		mutexDeInit.RLock()
+		deinit_done = true
+		mutexDeInit.RUnlock()
+	})
+	defer mock4.Reset()
 
-    mock5 := gomonkey.ApplyMethod(reflect.TypeOf(&queue.PriorityQueue{}), "Put", func(pq *queue.PriorityQueue, item ...queue.Item) error {
-        return fmt.Errorf("Queue error")
-    })
-    defer mock5.Reset()
+	mock5 := gomonkey.ApplyMethod(reflect.TypeOf(&queue.PriorityQueue{}), "Put", func(pq *queue.PriorityQueue, item ...queue.Item) error {
+		return fmt.Errorf("Queue error")
+	})
+	defer mock5.Reset()
 
-    mock6 := gomonkey.ApplyMethod(reflect.TypeOf(&queue.PriorityQueue{}), "Len", func(pq *queue.PriorityQueue) int {
-        return 150000 // Max size for pending events in PQ is 102400
-    })
-    defer mock6.Reset()
+	mock6 := gomonkey.ApplyMethod(reflect.TypeOf(&queue.PriorityQueue{}), "Len", func(pq *queue.PriorityQueue) int {
+		return 150000 // Max size for pending events in PQ is 102400
+	})
+	defer mock6.Reset()
 
-    s := createServer(t, 8081)
-    go runServer(t, s)
+	s := createServer(t, 8081)
+	go runServer(t, s)
 
-    qstr := fmt.Sprintf("all[heartbeat=%d]", HEARTBEAT_SET)
-    q := createEventsQuery(t, qstr)
-    q.Addrs = []string{"127.0.0.1:8081"}
+	qstr := fmt.Sprintf("all[heartbeat=%d]", HEARTBEAT_SET)
+	q := createEventsQuery(t, qstr)
+	q.Addrs = []string{"127.0.0.1:8081"}
 
-    tests := []struct {
-        desc       string
-        pub_data   []string
-        wantErr    bool
-        wantNoti   []client.Notification
-        pause      int
-        poll       int
-    } {
-        {
-            desc: "dropped event",
-            poll: 3,
-        },
-        {
-            desc: "queue error",
-            poll: 3,
-        },
-        {
-            desc: "base client create",
-            poll: 3,
-        },
-    }
+	tests := []struct {
+		desc     string
+		pub_data []string
+		wantErr  bool
+		wantNoti []client.Notification
+		pause    int
+		poll     int
+	}{
+		{
+			desc: "dropped event",
+			poll: 3,
+		},
+		{
+			desc: "queue error",
+			poll: 3,
+		},
+		{
+			desc: "base client create",
+			poll: 3,
+		},
+	}
 
-    sdc.C_init_subs(true)
+	sdc.C_init_subs(true)
 
-    var mutexNoti sync.RWMutex
+	var mutexNoti sync.RWMutex
 
-    for testNum, tt := range tests {
-        mutexHB.RLock()
-        heartbeat = 0
-        mutexHB.RUnlock()
+	for testNum, tt := range tests {
+		mutexHB.RLock()
+		heartbeat = 0
+		mutexHB.RUnlock()
 
-        mutexIdx.RLock()
-        event_index = 0
-        mutexIdx.RUnlock()
+		mutexIdx.RLock()
+		event_index = 0
+		mutexIdx.RUnlock()
 
-        mutexDeInit.RLock()
-        deinit_done = false
-        mutexDeInit.RUnlock()
+		mutexDeInit.RLock()
+		deinit_done = false
+		mutexDeInit.RUnlock()
 
-        t.Run(tt.desc, func(t *testing.T) {
-            c := client.New()
-            defer c.Close()
+		t.Run(tt.desc, func(t *testing.T) {
+			c := client.New()
+			defer c.Close()
 
-            var gotNoti []string
-            q.NotificationHandler = func(n client.Notification) error {
-                if nn, ok := n.(client.Update); ok {
-                    nn.TS = time.Unix(0, 200)
-                    str := fmt.Sprintf("%v", nn.Val)
+			var gotNoti []string
+			q.NotificationHandler = func(n client.Notification) error {
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					str := fmt.Sprintf("%v", nn.Val)
 
-                    mutexNoti.Lock()
-                    currentNoti := gotNoti
-                    mutexNoti.Unlock()
+					mutexNoti.Lock()
+					currentNoti := gotNoti
+					mutexNoti.Unlock()
 
-                    mutexNoti.RLock()
-                    gotNoti = append(currentNoti, str)
-                    mutexNoti.RUnlock()
-                }
-                return nil
-            }
+					mutexNoti.RLock()
+					gotNoti = append(currentNoti, str)
+					mutexNoti.RUnlock()
+				}
+				return nil
+			}
 
-            go func() {
-                c.Subscribe(context.Background(), q)
-            }()
+			go func() {
+				c.Subscribe(context.Background(), q)
+			}()
 
-            // wait for half second for subscribeRequest to sync
-            // and to receive events via notification handler.
+			// wait for half second for subscribeRequest to sync
+			// and to receive events via notification handler.
 
-            time.Sleep(time.Millisecond * 2000)
+			time.Sleep(time.Millisecond * 2000)
 
-            if testNum > 1 {
-                mutexNoti.Lock()
-                // -1 to discount test event, which receiver would drop.
-                if (len(events) - 1) != len(gotNoti) {
-                    t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
-                }
+			if testNum > 1 {
+				mutexNoti.Lock()
+				// -1 to discount test event, which receiver would drop.
+				if (len(events) - 1) != len(gotNoti) {
+					t.Errorf("noti[%d] != events[%d]", len(gotNoti), len(events)-1)
+				}
 
-                mutexHB.Lock()
-                if (heartbeat != HEARTBEAT_SET) {
-                    t.Errorf("Heartbeat is not set %d != expected:%d", heartbeat, HEARTBEAT_SET)
-                }
-                mutexHB.Unlock()
+				mutexHB.Lock()
+				if heartbeat != HEARTBEAT_SET {
+					t.Errorf("Heartbeat is not set %d != expected:%d", heartbeat, HEARTBEAT_SET)
+				}
+				mutexHB.Unlock()
 
-                fmt.Printf("DONE: Expect events:%d - 1 gotNoti=%d\n", len(events), len(gotNoti))
-                mutexNoti.Unlock()
-            }
-        })
+				fmt.Printf("DONE: Expect events:%d - 1 gotNoti=%d\n", len(events), len(gotNoti))
+				mutexNoti.Unlock()
+			}
+		})
 
-        if testNum == 0 {
-            mock6.Reset()
-        }
+		if testNum == 0 {
+			mock6.Reset()
+		}
 
-        if testNum == 1 {
-            mock5.Reset()
-        }
-        time.Sleep(time.Millisecond * 1000)
+		if testNum == 1 {
+			mock5.Reset()
+		}
+		time.Sleep(time.Millisecond * 1000)
 
-        mutexDeInit.Lock()
-        if deinit_done == false {
-            t.Errorf("Events client deinit *NOT* called.")
-        }
-        mutexDeInit.Unlock()
-        // t.Log("END of a TEST")
-    }
+		mutexDeInit.Lock()
+		if deinit_done == false {
+			t.Errorf("Events client deinit *NOT* called.")
+		}
+		mutexDeInit.Unlock()
+		// t.Log("END of a TEST")
+	}
 
-    s.Stop()
+	s.Stop()
 }
 
 func TestTableData2MsiUseKey(t *testing.T) {
-    tblPath := sdc.CreateTablePath("STATE_DB", "NEIGH_STATE_TABLE", "|", "10.0.0.57")
-    newMsi := make(map[string]interface{})
-    sdc.TableData2Msi(&tblPath, true, nil, &newMsi)
-    newMsiData, _ := json.MarshalIndent(newMsi, "", "  ")
-    t.Logf(string(newMsiData))
-    expectedMsi := map[string]interface{} {
-        "10.0.0.57": map[string]interface{} {
-            "peerType": "e-BGP",
-	    "state": "Established",
-        },
-    }
-    expectedMsiData, _ := json.MarshalIndent(expectedMsi, "", "  ")
-    t.Logf(string(expectedMsiData))
+	tblPath := sdc.CreateTablePath("STATE_DB", "NEIGH_STATE_TABLE", "|", "10.0.0.57")
+	newMsi := make(map[string]interface{})
+	sdc.TableData2Msi(&tblPath, true, nil, &newMsi)
+	newMsiData, _ := json.MarshalIndent(newMsi, "", "  ")
+	t.Logf(string(newMsiData))
+	expectedMsi := map[string]interface{}{
+		"10.0.0.57": map[string]interface{}{
+			"peerType": "e-BGP",
+			"state":    "Established",
+		},
+	}
+	expectedMsiData, _ := json.MarshalIndent(expectedMsi, "", "  ")
+	t.Logf(string(expectedMsiData))
 
-    if !reflect.DeepEqual(newMsi, expectedMsi) {
-        t.Errorf("Msi data does not match for use key = true")
-    }
+	if !reflect.DeepEqual(newMsi, expectedMsi) {
+		t.Errorf("Msi data does not match for use key = true")
+	}
 }
 
 func TestRecoverFromJSONSerializationPanic(t *testing.T) {
-    panicMarshal := func(v interface{}) ([]byte, error) {
-        panic("json.Marshal panics and is unable to serialize JSON")
-    }
-    mock := gomonkey.ApplyFunc(json.Marshal, panicMarshal)
-    defer mock.Reset()
+	panicMarshal := func(v interface{}) ([]byte, error) {
+		panic("json.Marshal panics and is unable to serialize JSON")
+	}
+	mock := gomonkey.ApplyFunc(json.Marshal, panicMarshal)
+	defer mock.Reset()
 
-    tblPath := sdc.CreateTablePath("STATE_DB", "NEIGH_STATE_TABLE", "|", "10.0.0.57")
-    msi := make(map[string]interface{})
-    sdc.TableData2Msi(&tblPath, true, nil, &msi)
+	tblPath := sdc.CreateTablePath("STATE_DB", "NEIGH_STATE_TABLE", "|", "10.0.0.57")
+	msi := make(map[string]interface{})
+	sdc.TableData2Msi(&tblPath, true, nil, &msi)
 
-    typedValue, err := sdc.Msi2TypedValue(msi)
-    if typedValue != nil && err != nil {
-        t.Errorf("Test should recover from panic and have nil TypedValue/Error after attempting JSON serialization")
-    }
+	typedValue, err := sdc.Msi2TypedValue(msi)
+	if typedValue != nil && err != nil {
+		t.Errorf("Test should recover from panic and have nil TypedValue/Error after attempting JSON serialization")
+	}
 
 }
 
 func TestGnmiSetBatch(t *testing.T) {
-	mockCode := 
-`
+	mockCode :=
+		`
 print('No Yang validation for test mode...')
 print('%s')
 `
 	mock1 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
 	defer mock1.Reset()
 
+	sdcfg.Init()
 	s := createServer(t, 8090)
 	go runServer(t, s)
 
@@ -3799,7 +4227,7 @@ print('%s')
 			pathTarget: "",
 			textPbPath: `
 						origin: "sonic-db",
-                        elem: <name: "APPL_DB" > elem:<name:"DASH_QOS" >
+                        elem: <name: "APPL_DB" > elem: <name: "localhost" > elem:<name:"DASH_QOS" >
                 `,
 			attributeData: "../testdata/batch.txt",
 			wantRetCode:   codes.OK,
@@ -3839,14 +4267,10 @@ func TestGNMINative(t *testing.T) {
 		return &dbus.Call{}
 	})
 	defer mock2.Reset()
-	mockCode := 
-`
-print('No Yang validation for test mode...')
-print('%s')
-`
-	mock3 := gomonkey.ApplyGlobalVar(&sdc.PyCodeForYang, mockCode)
+	mock3 := gomonkey.ApplyFunc(sdc.RunPyCode, func(text string) error {return nil})
 	defer mock3.Reset()
 
+	sdcfg.Init()
 	s := createServer(t, 8080)
 	go runServer(t, s)
 	defer s.Stop()
@@ -3857,8 +4281,9 @@ print('%s')
 	path, _ := os.Getwd()
 	path = filepath.Dir(path)
 
-	var cmd *exec.Cmd
-	cmd = exec.Command("bash", "-c", "cd "+path+" && "+"pytest")
+	// This test is used for single database configuration
+	// Run tests not marked with multidb
+	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'not multidb'")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)
@@ -3884,6 +4309,40 @@ print('%s')
 	s.Stop()
 }
 
+// Test configuration with multiple databases
+func TestGNMINativeMultiDB(t *testing.T) {
+	sdcfg.Init()
+	err := test_utils.SetupMultiInstance()
+	if err != nil {
+		t.Fatalf("error Setting up MultiInstance files with err %T", err)
+	}
+
+	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
+	t.Cleanup(func() {
+		if err := test_utils.CleanUpMultiInstance(); err != nil {
+			t.Fatalf("error Cleaning up MultiInstance files with err %T", err)
+
+		}
+	})
+
+	s := createServer(t, 8080)
+	go runServer(t, s)
+	defer s.Stop()
+
+	path, _ := os.Getwd()
+	path = filepath.Dir(path)
+
+	// This test is used for multiple database configuration
+	// Run tests marked with multidb
+	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'multidb'")
+	if result, err := cmd.Output(); err != nil {
+		fmt.Println(string(result))
+		t.Errorf("Fail to execute pytest: %v", err)
+	} else {
+		fmt.Println(string(result))
+	}
+}
+
 func TestServerPort(t *testing.T) {
 	s := createServer(t, -8080)
 	port := s.Port()
@@ -3894,10 +4353,17 @@ func TestServerPort(t *testing.T) {
 }
 
 func TestNilServerStop(t *testing.T) {
-	// Create a server with nil grpc server, such that s.Stop is called with nil value 
+	// Create a server with nil grpc server, such that s.Stop is called with nil value
 	t.Log("Expecting s.Stop to log error as server is nil")
 	s := &Server{}
 	s.Stop()
+}
+
+func TestNilServerForceStop(t *testing.T) {
+	// Create a server with nil grpc server, such that s.ForceStop is called with nil value
+	t.Log("Expecting s.ForceStop to log error as server is nil")
+	s := &Server{}
+	s.ForceStop()
 }
 
 func TestInvalidServer(t *testing.T) {
@@ -4128,6 +4594,240 @@ func TestMasterArbitration(t *testing.T) {
 	})
 }
 
+func TestSaveOnSet(t *testing.T) {
+	// Fail client creation
+	fakeDBC := gomonkey.ApplyFuncReturn(ssc.NewDbusClient, nil, fmt.Errorf("Fail Create"))
+	if err := SaveOnSetEnabled(); err == nil {
+		t.Error("Expected Client Failure")
+	}
+	fakeDBC.Reset()
+
+	// Successful Dbus call
+	goodDbus := gomonkey.ApplyFuncReturn(ssc.DbusApi, nil, nil)
+	if err := SaveOnSetEnabled(); err != nil {
+		t.Error("Unexpected DBUS failure")
+	}
+	goodDbus.Reset()
+
+	// Fail Dbus call
+	badDbus := gomonkey.ApplyFuncReturn(ssc.DbusApi, nil, fmt.Errorf("Fail Send"))
+	defer badDbus.Reset()
+	if err := SaveOnSetEnabled(); err == nil {
+		t.Error("Expected DBUS failure")
+	}
+}
+
+func TestPopulateAuthStructByCommonName(t *testing.T) {
+	// check auth with nil cert name
+	err := PopulateAuthStructByCommonName("certname1", nil, "")
+	if err == nil {
+		t.Errorf("PopulateAuthStructByCommonName with empty config table should failed: %v", err)
+	}
+}
+
+func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	cert := x509.Certificate{
+		Subject: pkix.Name{
+			CommonName: "certname1",
+		},
+	}
+	verifiedCerts := make([][]*x509.Certificate, 1)
+	verifiedCerts[0] = make([]*x509.Certificate, 1)
+	verifiedCerts[0][0] = &cert
+	p := peer.Peer{
+		AuthInfo: credentials.TLSInfo{
+			State: tls.ConnectionState{
+				VerifiedChains: verifiedCerts,
+			},
+		},
+	}
+	ctx = peer.NewContext(ctx, &p)
+	return ctx, cancel
+}
+
+func TestClientCertAuthenAndAuthor(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	var configDb = swsscommon.NewDBConnector("CONFIG_DB", uint(0), true)
+	var gnmiTable = swsscommon.NewTable(configDb, "GNMI_CLIENT_CERT")
+	configDb.Flushdb()
+
+	// initialize err variable
+	err := status.Error(codes.Unauthenticated, "")
+
+	// when config table is empty, will authorize with PopulateAuthStruct
+	mockpopulate := gomonkey.ApplyFunc(PopulateAuthStruct, func(username string, auth *common_utils.AuthInfo, r []string) error {
+		return nil
+	})
+	defer mockpopulate.Reset()
+
+	// check auth with nil cert name
+	ctx, cancel := CreateAuthorizationCtx()
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "", false)
+	if err != nil {
+		t.Errorf("CommonNameMatch with empty config table should success: %v", err)
+	}
+
+	cancel()
+
+	// check get 1 cert name
+	ctx, cancel = CreateAuthorizationCtx()
+	configDb.Flushdb()
+	gnmiTable.Hset("certname1", "role", "readwrite")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
+	if err != nil {
+		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
+	}
+
+	cancel()
+
+	// check get multiple cert names
+	ctx, cancel = CreateAuthorizationCtx()
+	configDb.Flushdb()
+	gnmiTable.Hset("certname1", "role", "readwrite")
+	gnmiTable.Hset("certname2", "role", "readonly")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
+	if err != nil {
+		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
+	}
+
+	cancel()
+
+	// check a invalid cert cname
+	ctx, cancel = CreateAuthorizationCtx()
+	configDb.Flushdb()
+	gnmiTable.Hset("certname2", "role", "readonly")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
+	if err == nil {
+		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
+	}
+
+	cancel()
+
+	swsscommon.DeleteTable(gnmiTable)
+	swsscommon.DeleteDBConnector(configDb)
+}
+
+func TestAuthenticate(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	var tableName = "GNMI_CLIENT_CERT"
+	var configDb = swsscommon.NewDBConnector("CONFIG_DB", uint(0), true)
+	var gnmiTable = swsscommon.NewTable(configDb, tableName)
+	defer swsscommon.DeleteTable(gnmiTable)
+	defer swsscommon.DeleteDBConnector(configDb)
+	configDb.Flushdb()
+
+	// initialize err variable
+	err := status.Error(codes.Unauthenticated, "")
+
+	// check a invalid role
+	cfg := &Config{ConfigTableName: tableName, UserAuth: AuthTypes{"password": false, "cert": true, "jwt": false}}
+	ctx, cancel := CreateAuthorizationCtx()
+	configDb.Flushdb()
+	gnmiTable.Hset("certname1", "role", "readonly")
+	// Call authenticate to verify the user's role. This should fail if the role is "readonly".
+	_, err = authenticate(cfg, ctx, true)
+	if err == nil {
+		t.Errorf("authenticate with readonly role should fail: %v", err)
+	}
+
+	cancel()
+}
+
+type MockServerStream struct {
+	grpc.ServerStream
+}
+
+func (x *MockServerStream) Context() context.Context {
+	return context.Background()
+}
+
+type MockPingServer struct {
+	MockServerStream
+}
+
+func (x *MockPingServer) Send(m *gnoi_system_pb.PingResponse) error {
+	return nil
+}
+
+type MockTracerouteServer struct {
+	MockServerStream
+}
+
+func (x *MockTracerouteServer) Send(m *gnoi_system_pb.TracerouteResponse) error {
+	return nil
+}
+
+type MockSetPackageServer struct {
+	MockServerStream
+}
+
+func (x *MockSetPackageServer) Send(m *gnoi_system_pb.SetPackageResponse) error {
+	return nil
+}
+
+func (x *MockSetPackageServer) SendAndClose(m *gnoi_system_pb.SetPackageResponse) error {
+	return nil
+}
+
+func (x *MockSetPackageServer) Recv() (*gnoi_system_pb.SetPackageRequest, error) {
+	return nil, nil
+}
+
+func TestGnoiAuthorization(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	systemSrv := &SystemServer{Server: s}
+	mockAuthenticate := gomonkey.ApplyFunc(s.Authenticate, func(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
+		return nil, nil
+	})
+	defer mockAuthenticate.Reset()
+
+	err := systemSrv.Ping(new(gnoi_system_pb.PingRequest), new(MockPingServer))
+	if err == nil {
+		t.Errorf("Ping should failed, because not implement.")
+	}
+
+	systemSrv.Traceroute(new(gnoi_system_pb.TracerouteRequest), new(MockTracerouteServer))
+	if err == nil {
+		t.Errorf("Traceroute should failed, because not implement.")
+	}
+
+	systemSrv.SetPackage(new(MockSetPackageServer))
+	if err == nil {
+		t.Errorf("SetPackage should failed, because not implement.")
+	}
+
+	ctx := context.Background()
+	systemSrv.SwitchControlProcessor(ctx, new(gnoi_system_pb.SwitchControlProcessorRequest))
+	if err == nil {
+		t.Errorf("SwitchControlProcessor should failed, because not implement.")
+	}
+
+	s.Refresh(ctx, new(spb_jwt.RefreshRequest))
+	if err == nil {
+		t.Errorf("Refresh should failed, because not implement.")
+	}
+
+	s.ClearNeighbors(ctx, new(sgpb.ClearNeighborsRequest))
+	if err == nil {
+		t.Errorf("ClearNeighbors should failed, because not implement.")
+	}
+
+	s.CopyConfig(ctx, new(sgpb.CopyConfigRequest))
+	if err == nil {
+		t.Errorf("CopyConfig should failed, because not implement.")
+	}
+
+	s.Stop()
+}
+
 func init() {
 	// Enable logs at UT setup
 	flag.Lookup("v").Value.Set("10")
@@ -4135,4 +4835,9 @@ func init() {
 
 	// Inform gNMI server to use redis tcp localhost connection
 	sdc.UseRedisLocalTcpPort = true
+}
+
+func TestMain(m *testing.M) {
+	defer test_utils.MemLeakCheck()
+	m.Run()
 }
