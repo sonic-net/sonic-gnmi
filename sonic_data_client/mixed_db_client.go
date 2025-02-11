@@ -612,6 +612,9 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 	var tblPath tablePath
 
 	fullPath, _, err := c.gnmiFullPath(c.prefix, path)
+        //TODO: For multi asic case, analyse the support of namespace returned from gnmiFullPath,
+        // for all the services involved.
+
 	if err != nil {
 		return nil, err
 	}
@@ -1249,7 +1252,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 	var patchList [](map[string]interface{})
 	/* DELETE */
 	for _, path := range delete {
-		fullPath, err := c.gnmiFullPath(c.prefix, path)
+		fullPath, _, err := c.gnmiFullPath(c.prefix, path)
 		if err != nil {
 			return err
 		}
@@ -1282,7 +1285,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 
 	/* REPLACE */
 	for _, path := range replace {
-		fullPath, err := c.gnmiFullPath(c.prefix, path.GetPath())
+		fullPath, _, err := c.gnmiFullPath(c.prefix, path.GetPath())
 		if err != nil {
 			return err
 		}
@@ -1324,7 +1327,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 
 	/* UPDATE */
 	for _, path := range update {
-		fullPath, err := c.gnmiFullPath(c.prefix, path.GetPath())
+		fullPath, _, err := c.gnmiFullPath(c.prefix, path.GetPath())
 		if err != nil {
 			return err
 		}
@@ -1455,11 +1458,11 @@ func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Upd
 	replaceLen := len(replace)
 	updateLen := len(update)
 	if (deleteLen == 1 && replaceLen == 0 && updateLen == 1) {
-		deletePath, err := c.gnmiFullPath(c.prefix, delete[0])
+		deletePath, _, err := c.gnmiFullPath(c.prefix, delete[0])
 		if err != nil {
 			return err
 		}
-		updatePath, err := c.gnmiFullPath(c.prefix, update[0].GetPath())
+		updatePath, _, err := c.gnmiFullPath(c.prefix, update[0].GetPath())
 		if err != nil {
 			return err
 		}
@@ -1493,7 +1496,9 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 	}
 	log.V(2).Infof("Getting #%v", c.jClient.jsonData)
 	for _, path := range c.paths {
-		fullPath, err := c.gnmiFullPath(c.prefix, path)
+		fullPath, _, err := c.gnmiFullPath(c.prefix, path)
+                //TODO: For multi asic, analyse the support of namespace returned from gnmiFullPath,
+                // for all the services involved.
 		if err != nil {
 			return nil, err
 		}
