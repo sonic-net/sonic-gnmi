@@ -47,6 +47,7 @@ const ELEM_INDEX_INSTANCE = 1
 const UPDATE_OPERATION = "add"
 const DELETE_OPERATION = "remove"
 const REPLACE_OPERATION = "replace"
+const HOSTNAME = "localhost"
 
 const (
     opAdd = iota
@@ -389,7 +390,7 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 			if c.namespace_cnt > 1 && c.container_cnt > 1 {
 				// Support smartswitch with multiple asic NPU
 				// The elelement can be "localhost", "asic0", "asic1", ..., "dpu0", "dpu1", ...
-				if elem_name != "localhost" {
+				if elem_name != HOSTNAME {
 					// Try namespace
 					dbkey1, ok := sdcfg.GetDbInstanceFromTarget(elem_name, sdcfg.SONIC_DEFAULT_CONTAINER)
 					if ok {
@@ -419,11 +420,11 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 		return "", nil, status.Error(codes.Unimplemented, "No target specified in path")
 	}
 	// GNMI path uses localhost as default namespace
-	if namespace == "localhost" {
+	if namespace == HOSTNAME {
 		namespace = sdcfg.SONIC_DEFAULT_NAMESPACE
 	}
 	// GNMI path uses localhost as default container
-	if container == "localhost" {
+	if container == HOSTNAME {
 		container = sdcfg.SONIC_DEFAULT_NAMESPACE
 	}
 	dbkey := swsscommon.NewSonicDBKey()
@@ -1227,6 +1228,16 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		return err
 	}
 
+	multiNs, err := sdcfg.CheckDbMultiNamespace()
+	if err != nil {
+		return err
+	}
+	namespace := c.dbkey.GetNetns()
+	// Default name space for GCU is localhost
+	if namespace == sdcfg.SONIC_DEFAULT_NAMESPACE {
+		namespace = HOSTNAME
+	}
+
 	var patchList [](map[string]interface{})
 	/* DELETE */
 	for _, path := range delete {
@@ -1254,6 +1265,9 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		err = c.ConvertToJsonPatch(c.prefix, path, nil, DELETE_OPERATION, &curr)
 		if err != nil {
 			return err
+		}
+		if multiNs {
+			curr["path"] = "/" + namespace + curr["path"].(string)
 		}
 		patchList = append(patchList, curr)
 	}
@@ -1294,6 +1308,9 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		if err != nil {
 			return err
 		}
+		if multiNs {
+			curr["path"] = "/" + namespace + curr["path"].(string)
+		}
 		patchList = append(patchList, curr)
 	}
 
@@ -1328,6 +1345,9 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		err = c.ConvertToJsonPatch(c.prefix, path.GetPath(), path.GetVal(), UPDATE_OPERATION, &curr)
 		if err != nil {
 			return err
+		}
+		if multiNs {
+			curr["path"] = "/" + namespace + curr["path"].(string)
 		}
 		patchList = append(patchList, curr)
 	}
