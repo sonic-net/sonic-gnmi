@@ -611,7 +611,7 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 	var dbPath string
 	var tblPath tablePath
 
-	fullPath, err := c.gnmiFullPath(c.prefix, path)
+	fullPath, _, err := c.gnmiFullPath(c.prefix, path)
 	if err != nil {
 		return nil, err
 	}
@@ -1136,7 +1136,7 @@ func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Pat
 			return fmt.Errorf("Value encoding is not IETF JSON")
 		}
 	}
-	fullPath, err := c.gnmiFullPath(prefix, path)
+	fullPath, namespace, err := c.gnmiFullPath(prefix, path)
 	if err != nil {
 		return err
 	}
@@ -1144,7 +1144,13 @@ func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Pat
 	elems := fullPath.GetElem()
 	(*output)["op"] = operation
 	jsonPath := "/"
-
+	
+	/* Add namespace as prefix only in case of multi asic */
+        if namespace != "" && namespace != "localhost" {
+                jsonPath += namespace
+                jsonPath += `/`
+        }
+	
 	if elems != nil {
 		/* Iterate through elements. */
 		for _, elem := range elems {
