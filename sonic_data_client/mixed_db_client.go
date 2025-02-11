@@ -568,8 +568,9 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	return &client, nil
 }
 
-// gnmiFullPath builds the full path from the prefix and path.
-func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) (*gnmipb.Path, error) {
+// gnmiFullPath builds the full path, namespace from the prefix and path.
+func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) (*gnmipb.Path, string, error) {
+	namespace := ""
 	origin := ""
 	if prefix != nil {
 		origin = prefix.Origin
@@ -586,11 +587,12 @@ func (c *MixedDbClient) gnmiFullPath(prefix, path *gnmipb.Path) (*gnmipb.Path, e
 		// Skip first two elem
 		// GNMI path schema is /CONFIG_DB/localhost/PORT
 		if len(elems) < 2 {
-			return nil, fmt.Errorf("Invalid gnmi path: length %d", len(elems))
+			return nil, namespace, fmt.Errorf("Invalid gnmi path: length %d", len(elems))
 		}
 		fullPath.Elem = elems[2:]
+		namespace = elems[ELEM_INDEX_INSTANCE].GetName()
 	}
-	return fullPath, nil
+	return fullPath, namespace, nil
 }
 
 func (c *MixedDbClient) getAllDbtablePath(paths []*gnmipb.Path) (pathList [][]tablePath, err error) {
