@@ -3189,6 +3189,67 @@ func TestGNOI(t *testing.T) {
 		}
 	})
 
+	t.Run("OSActivateSuccess", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		input_image := "next_image"
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "ActivateImage", func(_ *ssc.DbusClient, image string) (error) {
+			if image != input_image {
+				return fmt.Errorf("invalid image")
+			}
+			return nil
+		})
+		defer mock.Reset()
+
+		// Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_os_pb.ActivateRequest{Version: input_image}
+		osc := gnoi_os_pb.NewOSClient(conn)
+
+		resp, err := osc.Activate(ctx, req)
+		if err != nil {
+			t.Fatalf("OS Activate failed: %v", err)
+		}
+		// Validate the response
+		if resp == nil {
+			t.Fatalf("Expected a non-nil response")
+		}
+	})
+
+	t.Run("OSActivateNonExistentVersion", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		expectedError := fmt.Errorf("Error: Image does not exist")
+
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "ActivateImage", func(_ *ssc.DbusClient, image string) error {
+			return expectedError
+		})
+		defer mock.Reset()
+
+		// Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_os_pb.ActivateRequest{Version: "non_existent_version"}
+		osc := gnoi_os_pb.NewOSClient(conn)
+
+		resp, err := osc.Activate(ctx, req)
+		if err != nil {
+			t.Fatalf("Expected no error but got: %v", err)
+		}
+		if resp == nil {
+			t.Fatalf("Expected non-nil response but got nil")
+		}
+
+		if resp.GetActivateError() == nil {
+			t.Fatalf("Expected ActivateError in response but got none")
+		}
+
+		if resp.GetActivateError().GetType() != gnoi_os_pb.ActivateError_NON_EXISTENT_VERSION {
+			t.Errorf("Expected error type '%v' but got '%v'", gnoi_os_pb.ActivateError_NON_EXISTENT_VERSION, resp.GetActivateError().GetType())
+		}
+
+		if !strings.Contains(resp.GetActivateError().GetDetail(), expectedError.Error()) {
+			t.Errorf("Expected error detail to contain '%v' but got '%v'", expectedError, resp.GetActivateError().GetDetail())
+		}
+	})
+
 	type configData struct {
 		source      string
 		destination string
