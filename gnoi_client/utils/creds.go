@@ -2,8 +2,8 @@ package utils
 
 import (
 	"context"
-	"google.golang.org/grpc/metadata"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/config"
+	"google.golang.org/grpc/metadata"
 )
 
 func SetUserCreds(ctx context.Context) context.Context {

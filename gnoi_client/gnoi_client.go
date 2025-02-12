@@ -2,15 +2,16 @@ package main
 
 import (
 	"context"
-	"github.com/google/gnxi/utils/credentials"
-	"github.com/sonic-net/sonic-gnmi/gnoi_client/config"
-	"github.com/sonic-net/sonic-gnmi/gnoi_client/system"
-	"github.com/sonic-net/sonic-gnmi/gnoi_client/file"
-	"github.com/sonic-net/sonic-gnmi/gnoi_client/sonic"
-	gnoi_os "github.com/sonic-net/sonic-gnmi/gnoi_client/os"	// So it does not collide with os.
-	"google.golang.org/grpc"
 	"os"
 	"os/signal"
+
+	"github.com/google/gnxi/utils/credentials"
+	"github.com/sonic-net/sonic-gnmi/gnoi_client/config"
+	"github.com/sonic-net/sonic-gnmi/gnoi_client/file"
+	gnoi_os "github.com/sonic-net/sonic-gnmi/gnoi_client/os" // So it does not collide with os.
+	"github.com/sonic-net/sonic-gnmi/gnoi_client/sonic"
+	"github.com/sonic-net/sonic-gnmi/gnoi_client/system"
+	"google.golang.org/grpc"
 )
 
 func main() {
