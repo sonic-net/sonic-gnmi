@@ -23,10 +23,10 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	log "github.com/golang/glog"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
-	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
 
 type ServerControlValue int

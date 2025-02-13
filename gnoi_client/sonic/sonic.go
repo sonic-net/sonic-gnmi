@@ -2,11 +2,11 @@ package sonic
 
 import (
 	"context"
-	"fmt"
 	"encoding/json"
-	pb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
-	"github.com/sonic-net/sonic-gnmi/gnoi_client/utils"
+	"fmt"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/config"
+	"github.com/sonic-net/sonic-gnmi/gnoi_client/utils"
+	pb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	"google.golang.org/grpc"
 )
 

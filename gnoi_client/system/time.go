@@ -2,9 +2,9 @@ package system
 
 import (
 	"context"
-	"fmt"
 	"encoding/json"
-	pb 	"github.com/openconfig/gnoi/system"
+	"fmt"
+	pb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/utils"
 	"google.golang.org/grpc"
 )

@@ -54,13 +54,13 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	linuxproc "github.com/c9s/goprocinfo/linux"
 	"github.com/godbus/dbus/v5"
-	gclient "github.com/openconfig/gnmi/client/gnmi"
 	"github.com/google/gnxi/utils/xpath"
 	cacheclient "github.com/openconfig/gnmi/client"
+	gclient "github.com/openconfig/gnmi/client/gnmi"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
+	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
@@ -248,7 +248,7 @@ func TestPFCWDErrors(t *testing.T) {
 	go runServer(t, s)
 	defer s.ForceStop()
 
-	mock := gomonkey.ApplyFunc(sdc.GetPfcwdMap, func() (map[string]map[string]string, error)  {
+	mock := gomonkey.ApplyFunc(sdc.GetPfcwdMap, func() (map[string]map[string]string, error) {
 		return nil, fmt.Errorf("Mock error")
 	})
 	defer mock.Reset()
@@ -262,16 +262,16 @@ func TestPFCWDErrors(t *testing.T) {
 	json.Unmarshal(countersEthernetWildcardByte, &countersEthernetWildcardJson)
 
 	tests := []struct {
-		desc    string
-		q       client.Query
-		wantNoti    []client.Notification
-		poll    int
+		desc     string
+		q        client.Query
+		wantNoti []client.Notification
+		poll     int
 	}{
 		{
 			desc: "query COUNTERS/Ethernet*",
 			poll: 1,
 			q: client.Query{
-				Target: "COUNTERS_DB",
+				Target:  "COUNTERS_DB",
 				Type:    client.Poll,
 				Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
 				TLS:     &tls.Config{InsecureSkipVerify: true},
@@ -341,7 +341,6 @@ func TestPFCWDErrors(t *testing.T) {
 		})
 	}
 }
-
 
 // runTestGet requests a path from the server by Get grpc call, and compares if
 // the return code and response value are expected.
@@ -675,6 +674,32 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	}
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091f", countersEeth68_4Byte)
 	loadDB(t, rclient, mpi_counter)
+
+	fileName = "../testdata/COUNTERS_FABRIC_PORT_NAME_MAP.txt"
+	countersFabricPortNameMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_fab_name_map := loadConfig(t, "COUNTERS_FABRIC_PORT_NAME_MAP", countersFabricPortNameMapByte)
+	loadDB(t, rclient, mpi_fab_name_map)
+
+	// "PORT0": "oid:0x1000000000081"  : Fabric port counter, for COUNTERS/PORT0 vpath test
+	fileName = "../testdata/COUNTERS:oid:0x1000000000081.txt"
+	countersPort0_Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_fab_counter_0 := loadConfig(t, "COUNTERS:oid:0x1000000000081", countersPort0_Byte)
+	loadDB(t, rclient, mpi_fab_counter_0)
+
+	// "PORT1": "oid:0x1000000000082"  : Fabric port counter, for COUNTERS/PORT1 vpath test
+	fileName = "../testdata/COUNTERS:oid:0x1000000000082.txt"
+	countersPort1_Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_fab_counter_1 := loadConfig(t, "COUNTERS:oid:0x1000000000082", countersPort1_Byte)
+	loadDB(t, rclient, mpi_fab_counter_1)
 }
 
 func prepareConfigDb(t *testing.T, namespace string) {
@@ -741,6 +766,14 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_qname_map := loadConfig(t, "COUNTERS_QUEUE_NAME_MAP", countersQueueNameMapByte)
 	loadDB(t, rclient, mpi_qname_map)
 
+	fileName = "../testdata/COUNTERS_FABRIC_PORT_NAME_MAP.txt"
+	countersFabricPortNameMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_fab_name_map := loadConfig(t, "COUNTERS_FABRIC_PORT_NAME_MAP", countersFabricPortNameMapByte)
+	loadDB(t, rclient, mpi_fab_name_map)
+
 	fileName = "../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -793,6 +826,25 @@ func prepareDb(t *testing.T, namespace string) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091f", countersEeth68_4Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "PORT0": "oid:0x1000000000081"  : Fabric port counters, for COUNTERS/PORT0 vpath test
+	fileName = "../testdata/COUNTERS:oid:0x1000000000081.txt"
+	fileName = "../testdata/COUNTERS:oid:0x1000000000081.txt"
+	countersPort0, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000081", countersPort0)
+	loadDB(t, rclient, mpi_counter)
+
+	// "PORT1": "oid:0x1000000000082"  : Fabric port counter, for COUNTERS/PORT1 vpath test
+	fileName = "../testdata/COUNTERS:oid:0x1000000000082.txt"
+	countersPort1_Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000082", countersPort1_Byte)
 	loadDB(t, rclient, mpi_counter)
 
 	// Load CONFIG_DB for alias translation
@@ -1018,7 +1070,6 @@ func mergeStrMaps(sourceOrigin interface{}, updateOrigin interface{}) interface{
 	return update
 }
 
-/*
 func TestGnmiSet(t *testing.T) {
 	if !ENABLE_TRANSLIB_WRITE {
 		t.Skip("skipping test in read-only mode.")
@@ -1060,14 +1111,14 @@ func TestGnmiSet(t *testing.T) {
 			wantRetCode: codes.Unknown,
 			operation:   Delete,
 		},
-		//{
-		//	desc:       "Set OC Interface MTU",
-		//	pathTarget: "OC_YANG",
-		//	textPbPath:    pathToPb("openconfig-interfaces:interfaces/interface[name=Ethernet4]/config"),
-		//	attributeData: "../testdata/set_interface_mtu.json",
-		//	wantRetCode:   codes.OK,
-		//	operation:     Update,
-		//},
+		{
+			desc:          "Set OC Interface MTU",
+			pathTarget:    "OC_YANG",
+			textPbPath:    pathToPb("openconfig-interfaces:interfaces/interface[name=Ethernet4]/config"),
+			attributeData: "../testdata/set_interface_mtu.json",
+			wantRetCode:   codes.OK,
+			operation:     Update,
+		},
 		{
 			desc:          "Set OC Interface IP",
 			pathTarget:    "OC_YANG",
@@ -1177,7 +1228,7 @@ func TestGnmiSet(t *testing.T) {
 		}
 	}
 	s.Stop()
-}*/
+}
 
 func TestGnmiSetReadOnly(t *testing.T) {
 	s := createReadServer(t, 8081)
@@ -1333,11 +1384,27 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
+	fileName = "../testdata/COUNTERS:PORT0.txt"
+	countersFabricPort0Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+
+	fileName = "../testdata/COUNTERS:PORT_wildcard" + namespace + ".txt"
+	countersFabricPortWildcardByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+
 	stateDBPath := "STATE_DB"
 
 	ns, _ := sdcfg.GetDbDefaultNamespace()
+	validFabricPortName := "PORT0"
+	invalidFabricPortName := "PORT0-" + namespace
 	if namespace != ns {
 		stateDBPath = "STATE_DB" + "/" + namespace
+		validFabricPortName = "PORT0-" + namespace
+		invalidFabricPortName = "PORT0"
 	}
 
 	type testCase struct {
@@ -1519,6 +1586,35 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(`{"test_field": "test_value"}`),
 		}, {
+			desc:       "get COUNTERS:" + validFabricPortName,
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "` + validFabricPortName + `">
+				`,
+			wantRetCode: codes.OK,
+			wantRespVal: countersFabricPort0Byte,
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS:PORT*",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "PORT*" >
+				`,
+			wantRetCode: codes.OK,
+			wantRespVal: countersFabricPortWildcardByte,
+			valTest:     true,
+		}, {
+			desc:       "Invalid fabric port key get" + invalidFabricPortName,
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "` + invalidFabricPortName + `">
+								`,
+			wantRetCode: codes.NotFound,
+			valTest:     true,
+		}, {
 			desc:        "Invalid DBKey of length 1",
 			pathTarget:  stateDBPath,
 			textPbPath:  ``,
@@ -1604,8 +1700,6 @@ func TestGnmiGetMultiNs(t *testing.T) {
 
 	s.Stop()
 }
-
-/*
 func TestGnmiGetTranslib(t *testing.T) {
 	//t.Log("Start server")
 	s := createServer(t, 8081)
@@ -1625,14 +1719,13 @@ func TestGnmiGetTranslib(t *testing.T) {
 	defer conn.Close()
 
 	gClient := pb.NewGNMIClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	var emptyRespVal interface{}
 	tds := []struct {
 		desc        string
 		pathTarget  string
 		textPbPath  string
+		timeout     time.Duration
 		wantRetCode codes.Code
 		wantRespVal interface{}
 		valTest     bool
@@ -1695,6 +1788,7 @@ func TestGnmiGetTranslib(t *testing.T) {
 			textPbPath: `
                         elem: <name: "openconfig-interfaces:interfaces" >
                 `,
+			timeout:     1 * time.Minute,
 			wantRetCode: codes.OK,
 			wantRespVal: emptyRespVal,
 			valTest:     false,
@@ -1723,8 +1817,8 @@ func TestGnmiGetTranslib(t *testing.T) {
 		//	desc:       "Get OC Interface ifindex",
 		//	pathTarget: "OC_YANG",
 		//	textPbPath: `
-        //                elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "ifindex" >
-        //        `,
+		//                elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet4" > > elem: <name: "state" > elem: <name: "ifindex" >
+		//        `,
 		//	wantRetCode: codes.OK,
 		//	wantRespVal: emptyRespVal,
 		//	valTest:     false,
@@ -1743,11 +1837,17 @@ func TestGnmiGetTranslib(t *testing.T) {
 
 	for _, td := range tds {
 		t.Run(td.desc, func(t *testing.T) {
+			if td.timeout == 0 {
+				td.timeout = 10 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), td.timeout)
+			defer cancel()
+
 			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
 		})
 	}
 	s.Stop()
-}*/
+}
 
 type tablePathValue struct {
 	dbName    string
@@ -3076,6 +3176,67 @@ func TestGNOI(t *testing.T) {
 		}
 	})
 
+	t.Run("OSActivateSuccess", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		input_image := "next_image"
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "ActivateImage", func(_ *ssc.DbusClient, image string) error {
+			if image != input_image {
+				return fmt.Errorf("invalid image")
+			}
+			return nil
+		})
+		defer mock.Reset()
+
+		// Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_os_pb.ActivateRequest{Version: input_image}
+		osc := gnoi_os_pb.NewOSClient(conn)
+
+		resp, err := osc.Activate(ctx, req)
+		if err != nil {
+			t.Fatalf("OS Activate failed: %v", err)
+		}
+		// Validate the response
+		if resp == nil {
+			t.Fatalf("Expected a non-nil response")
+		}
+	})
+
+	t.Run("OSActivateNonExistentVersion", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		expectedError := fmt.Errorf("Error: Image does not exist")
+
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "ActivateImage", func(_ *ssc.DbusClient, image string) error {
+			return expectedError
+		})
+		defer mock.Reset()
+
+		// Prepare context and request
+		ctx := context.Background()
+		req := &gnoi_os_pb.ActivateRequest{Version: "non_existent_version"}
+		osc := gnoi_os_pb.NewOSClient(conn)
+
+		resp, err := osc.Activate(ctx, req)
+		if err != nil {
+			t.Fatalf("Expected no error but got: %v", err)
+		}
+		if resp == nil {
+			t.Fatalf("Expected non-nil response but got nil")
+		}
+
+		if resp.GetActivateError() == nil {
+			t.Fatalf("Expected ActivateError in response but got none")
+		}
+
+		if resp.GetActivateError().GetType() != gnoi_os_pb.ActivateError_NON_EXISTENT_VERSION {
+			t.Errorf("Expected error type '%v' but got '%v'", gnoi_os_pb.ActivateError_NON_EXISTENT_VERSION, resp.GetActivateError().GetType())
+		}
+
+		if !strings.Contains(resp.GetActivateError().GetDetail(), expectedError.Error()) {
+			t.Errorf("Expected error detail to contain '%v' but got '%v'", expectedError, resp.GetActivateError().GetDetail())
+		}
+	})
+
 	type configData struct {
 		source      string
 		destination string
@@ -3174,7 +3335,6 @@ func TestBundleVersion(t *testing.T) {
 	})
 }
 
-/*
 func TestBulkSet(t *testing.T) {
 	s := createServer(t, 8088)
 	go runServer(t, s)
@@ -3263,7 +3423,7 @@ func TestBulkSet(t *testing.T) {
 		runTestSetRaw(t, ctx, gClient, req, codes.Unknown)
 	})
 
-}*/
+}
 
 func newPbUpdate(path, value string) *pb.Update {
 	p, _ := ygot.StringToStructuredPath(path)
@@ -3890,16 +4050,16 @@ func TestConnectionsKeepAlive(t *testing.T) {
 	defer s.Stop()
 
 	tests := []struct {
-		desc    string
-		q       client.Query
-		want    []client.Notification
-		poll    int
+		desc string
+		q    client.Query
+		want []client.Notification
+		poll int
 	}{
 		{
 			desc: "Testing KeepAlive with goroutine count",
 			poll: 3,
 			q: client.Query{
-				Target: "COUNTERS_DB",
+				Target:  "COUNTERS_DB",
 				Type:    client.Poll,
 				Queries: []client.Path{{"COUNTERS", "Ethernet*"}},
 				TLS:     &tls.Config{InsecureSkipVerify: true},
@@ -3910,7 +4070,7 @@ func TestConnectionsKeepAlive(t *testing.T) {
 			},
 		},
 	}
-	for _, tt := range(tests) {
+	for _, tt := range tests {
 		var clients []*cacheclient.CacheClient
 		for i := 0; i < 5; i++ {
 			t.Run(tt.desc, func(t *testing.T) {
@@ -3939,7 +4099,7 @@ func TestConnectionsKeepAlive(t *testing.T) {
 				}
 			})
 		}
-		for _, cacheClient := range(clients) {
+		for _, cacheClient := range clients {
 			cacheClient.Close()
 		}
 	}
@@ -4253,7 +4413,7 @@ func TestGNMINative(t *testing.T) {
 		return &dbus.Call{}
 	})
 	defer mock2.Reset()
-	mock3 := gomonkey.ApplyFunc(sdc.RunPyCode, func(text string) error {return nil})
+	mock3 := gomonkey.ApplyFunc(sdc.RunPyCode, func(text string) error { return nil })
 	defer mock3.Reset()
 
 	sdcfg.Init()
@@ -4269,7 +4429,7 @@ func TestGNMINative(t *testing.T) {
 
 	// This test is used for single database configuration
 	// Run tests not marked with multidb
-	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'not multidb'")
+	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'not multidb and not multins'")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)
@@ -4321,6 +4481,55 @@ func TestGNMINativeMultiDB(t *testing.T) {
 	// This test is used for multiple database configuration
 	// Run tests marked with multidb
 	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'multidb'")
+	if result, err := cmd.Output(); err != nil {
+		fmt.Println(string(result))
+		t.Errorf("Fail to execute pytest: %v", err)
+	} else {
+		fmt.Println(string(result))
+	}
+}
+
+// Test configuration with multiple namespaces
+func TestGNMINativeMultiNamespace(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+	sdcfg.Init()
+	err := test_utils.SetupMultiNamespace()
+	if err != nil {
+		t.Fatalf("error Setting up MultiNamespace files with err %T", err)
+	}
+
+	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
+	t.Cleanup(func() {
+		if err := test_utils.CleanUpMultiNamespace(); err != nil {
+			t.Fatalf("error Cleaning up MultiNamespace files with err %T", err)
+
+		}
+	})
+
+	s := createServer(t, 8080)
+	go runServer(t, s)
+	defer s.Stop()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	initFullConfigDb(t, ns)
+
+	path, _ := os.Getwd()
+	path = filepath.Dir(path)
+
+	// This test is used for multiple namespaces configuration
+	// Run tests marked with multins
+	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'multins'")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)
@@ -4387,7 +4596,6 @@ func TestParseOrigin(t *testing.T) {
 	}
 }
 
-/*
 func TestMasterArbitration(t *testing.T) {
 	s := createServer(t, 8088)
 	// Turn on Master Arbitration
@@ -4579,7 +4787,7 @@ func TestMasterArbitration(t *testing.T) {
 			t.Fatalf("Master EID update failed. Want %v, got %v", expectedEID10, s.masterEID)
 		}
 	})
-}*/
+}
 
 func TestSaveOnSet(t *testing.T) {
 	// Fail client creation
@@ -4821,6 +5029,7 @@ func init() {
 
 	// Inform gNMI server to use redis tcp localhost connection
 	sdc.UseRedisLocalTcpPort = true
+	os.Setenv("UNIT_TEST", "1")
 }
 
 func TestMain(m *testing.M) {

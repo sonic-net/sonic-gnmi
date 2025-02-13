@@ -1,0 +1,10 @@
+package gnoiyang
+
+import (
+	"context"
+)
+
+// ServerHandle - interface for gnmi_server
+type ServerHandle interface {
+	Auth(context.Context) (context.Context, error)
+}

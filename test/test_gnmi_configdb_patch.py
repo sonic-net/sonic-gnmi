@@ -3122,12 +3122,62 @@ class TestGNMIConfigDbPatch:
         diff = jsonpatch.make_patch(result, test_data["target_json"])
         assert len(diff.patch) == 0, "%s failed, generated json: %s" % (test_data["test_name"], str(result))
 
+    def multins_test_handler(self, test_data):
+        '''
+        Common code for multins test
+        '''
+        if os.path.exists(patch_file):
+            os.system("rm " + patch_file)
+        create_checkpoint(checkpoint_file, json.dumps(test_data['origin_json']))
+        update_list = []
+        replace_list = []
+        delete_list = []
+        for i, data in enumerate(test_data["operations"]):
+            path = data["path"]
+            if data['op'] == "update":
+                value = json.dumps(data["value"])
+                file_name = "update" + str(i)
+                file_object = open(file_name, "w")
+                file_object.write(value)
+                file_object.close()
+                update_list.append(path + ":@./" + file_name)
+            elif data['op'] == "replace":
+                value = json.dumps(data["value"])
+                file_name = "replace" + str(i)
+                file_object = open(file_name, "w")
+                file_object.write(value)
+                file_object.close()
+                replace_list.append(path + ":@./" + file_name)
+            elif data['op'] == "del":
+                delete_list.append(path)
+            else:
+                pytest.fail("Invalid operation: %s" % data['op'])
+
+        # Send GNMI request
+        ret, msg = gnmi_set(delete_list, update_list, replace_list)
+        assert ret == 0, msg
+        assert os.path.exists(patch_file), "No patch file"
+        with open(patch_file,"r") as pf:
+            patch_json = json.load(pf)
+        for patch in patch_json:
+            if "path" in patch:
+                path = patch["path"]
+                assert path.startswith("/localhost"), "Invalid path: %s" % path
+
     @pytest.mark.parametrize("test_data", test_data_aaa_patch)
     def test_gnmi_aaa_patch(self, test_data):
         '''
         Generate GNMI request for AAA and verify jsonpatch
         '''
         self.common_test_handler(test_data)
+
+    @pytest.mark.multins
+    @pytest.mark.parametrize("test_data", test_data_aaa_patch)
+    def test_gnmi_aaa_patch(self, test_data):
+        '''
+        Generate GNMI request for AAA and verify jsonpatch
+        '''
+        self.multins_test_handler(test_data)
 
     @pytest.mark.parametrize("test_data", test_data_bgp_prefix_patch)
     def test_gnmi_bgp_prefix_patch(self, test_data):

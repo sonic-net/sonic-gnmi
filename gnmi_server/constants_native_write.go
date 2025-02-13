@@ -1,3 +1,4 @@
+//go:build gnmi_native_write
 // +build gnmi_native_write
 
 package gnmi

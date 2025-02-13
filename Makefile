@@ -6,10 +6,28 @@ export PATH := $(PATH):$(GOPATH)/bin
 INSTALL := /usr/bin/install
 DBDIR := /var/run/redis/sonic-db/
 GO ?= /usr/local/go/bin/go
-TOP_DIR := $(abspath ..)
-MGMT_COMMON_DIR := $(TOP_DIR)/sonic-mgmt-common
+TOPDIR := $(abspath .)
+MGMT_COMMON_DIR := $(TOPDIR)/../sonic-mgmt-common
+BUILD_BASE := build
 BUILD_DIR := build/bin
+BUILD_GNOI_YANG_DIR := $(BUILD_BASE)/gnoi_yang
+BUILD_GNOI_YANG_PROTO_DIR := $(BUILD_GNOI_YANG_DIR)/proto
+BUILD_GNOI_YANG_SERVER_DIR := $(BUILD_GNOI_YANG_DIR)/server
+BUILD_GNOI_YANG_CLIENT_DIR := $(BUILD_GNOI_YANG_DIR)/client
+GNOI_YANG := $(BUILD_GNOI_YANG_PROTO_DIR)/.gnoi_yang_done
+TOOLS_DIR        := $(TOPDIR)/tools
+PYANG_PLUGIN_DIR := $(TOOLS_DIR)/pyang_plugins
+PYANG  ?= pyang
+GOROOT ?= $(shell $(GO) env GOROOT)
+FORMAT_CHECK = $(BUILD_DIR)/.formatcheck
+FORMAT_LOG = $(BUILD_DIR)/go_format.log
+# Find all .go files excluding vendor, build, and patches files
+GO_FILES := $(shell find . -type f -name '*.go' ! -path './vendor/*' ! -path './build/*' ! -path './patches/*' ! -path './proto/*' ! -path './swsscommon/*')
 export CVL_SCHEMA_PATH := $(MGMT_COMMON_DIR)/build/cvl/schema
+
+API_YANGS=$(shell find $(MGMT_COMMON_DIR)/build/yang -name '*.yang' -not -path '*/sonic/*' -not -path '*/annotations/*')
+SONIC_YANGS=$(shell find $(MGMT_COMMON_DIR)/models/yang/sonic -name '*.yang')
+
 export GOBIN := $(abspath $(BUILD_DIR))
 export PATH := $(PATH):$(GOBIN):$(shell dirname $(GO))
 export CGO_LDFLAGS := -lswsscommon -lhiredis
@@ -47,12 +65,12 @@ all: sonic-gnmi
 go.mod:
 	$(GO) mod init github.com/sonic-net/sonic-gnmi
 
-$(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap
+$(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 	$(GO) mod vendor
 	$(GO) mod download github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2
 	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* vendor/github.com/google/gnxi/
 
-# Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
+# Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed 
 	sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
 	sed -i 's/#patch -d $${DEST_DIR}\/github.com\/golang\/glog/patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
@@ -68,7 +86,7 @@ go-deps: $(GO_DEPS)
 go-deps-clean:
 	$(RM) -r vendor
 
-sonic-gnmi: $(GO_DEPS)
+sonic-gnmi: $(GO_DEPS) $(FORMAT_CHECK)
 # advancetls 1.0.0 release need following patch to build by go-1.19
 	patch -d vendor -p0 < patches/0002-Fix-advance-tls-build-with-go-119.patch
 # build service first which depends on advancetls
@@ -86,6 +104,9 @@ ifneq ($(ENABLE_DIALOUT_VALUE),0)
 endif
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnmi_dump
+	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/gnoi_openconfig_client
+	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/gnoi_sonic_client
+	
 endif
 
 # download and apply patch for gnmi client, which will break advancetls
@@ -101,6 +122,7 @@ endif
 	patch -d vendor -p0 < patches/gnmi_set.patch
 	patch -d vendor -p0 < patches/gnmi_get.patch
 	git apply patches/0001-Updated-to-filter-and-write-to-file.patch
+	git apply patches/0003-Fix-client-json-parsing-issue.patch
 
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/gnmi_get -mod=vendor github.com/google/gnxi/gnmi_get
@@ -123,10 +145,45 @@ swsscommon_wrap:
 
 PROTOC_PATH := $(PATH):$(GOBIN)
 PROTOC_OPTS := -I$(CURDIR)/vendor -I/usr/local/include -I/usr/include
+PROTOC_OPTS_WITHOUT_VENDOR := -I/usr/local/include -I/usr/include
 
 # Generate following go & grpc bindings using teh legacy protoc-gen-go
 PROTO_GO_BINDINGS += proto/sonic_internal.pb.go
 PROTO_GO_BINDINGS += proto/gnoi/sonic_debug.pb.go
+
+$(BUILD_GNOI_YANG_PROTO_DIR)/.proto_api_done: $(API_YANGS)
+	@echo "+++++ Generating PROTOBUF files for API Yang modules; +++++"
+	$(PYANG) \
+		-f proto \
+		--proto-outdir $(BUILD_GNOI_YANG_PROTO_DIR) \
+		--plugindir $(PYANG_PLUGIN_DIR) \
+		--server-rpc-outdir $(BUILD_GNOI_YANG_SERVER_DIR) \
+		--client-rpc-outdir $(BUILD_GNOI_YANG_CLIENT_DIR) \
+		-p $(MGMT_COMMON_DIR)/build/yang/common:$(MGMT_COMMON_DIR)/build/yang/extensions \
+		$(MGMT_COMMON_DIR)/build/yang/*.yang $(MGMT_COMMON_DIR)/build/yang/extensions/*.yang
+	@echo "+++++ Generation of protobuf files for API Yang modules completed +++++"
+	touch $@
+
+$(BUILD_GNOI_YANG_PROTO_DIR)/.proto_sonic_done: $(SONIC_YANGS)
+	@echo "+++++ Generating PROTOBUF files for SONiC Yang modules; +++++"
+	$(PYANG) \
+		-f proto \
+		--proto-outdir $(BUILD_GNOI_YANG_PROTO_DIR) \
+		--plugindir $(PYANG_PLUGIN_DIR) \
+		--server-rpc-outdir $(BUILD_GNOI_YANG_SERVER_DIR) \
+		--client-rpc-outdir $(BUILD_GNOI_YANG_CLIENT_DIR) \
+		-p $(MGMT_COMMON_DIR)/build/yang/common:$(MGMT_COMMON_DIR)/build/yang/sonic/common \
+		$(MGMT_COMMON_DIR)/build/yang/sonic/*.yang
+	@echo "+++++ Generation of protobuf files for SONiC Yang modules completed +++++"
+	touch $@
+
+$(GNOI_YANG): $(BUILD_GNOI_YANG_PROTO_DIR)/.proto_api_done $(BUILD_GNOI_YANG_PROTO_DIR)/.proto_sonic_done
+	@echo "+++++ Compiling PROTOBUF files; +++++"
+	$(GO) install github.com/gogo/protobuf/protoc-gen-gofast
+	@mkdir -p $(@D)
+	$(foreach file, $(wildcard $(BUILD_GNOI_YANG_PROTO_DIR)/*/*.proto), PATH=$(PROTOC_PATH) protoc -I$(@D) $(PROTOC_OPTS_WITHOUT_VENDOR) --gofast_out=plugins=grpc,Mgoogle/protobuf/struct.proto=github.com/gogo/protobuf/types:$(BUILD_GNOI_YANG_PROTO_DIR) $(file);)
+	@echo "+++++ PROTOBUF completion completed; +++++"
+	touch $@
 
 $(PROTO_GO_BINDINGS): $$(patsubst %.pb.go,%.proto,$$@) | $(GOBIN)/protoc-gen-go
 	PATH=$(PROTOC_PATH) protoc -I$(@D) $(PROTOC_OPTS) --go_out=plugins=grpc:$(@D) $<
@@ -176,6 +233,22 @@ clean:
 	$(RM) -r build
 	$(RM) -r vendor
 
+# File target that generates a diff file if formatting is incorrect
+$(FORMAT_CHECK): $(GO_FILES)
+	@echo "Checking Go file formatting..."
+	@echo $(GO_FILES)
+	mkdir -p $(@D)
+	@$(GOROOT)/bin/gofmt -l $(GO_FILES) > $(FORMAT_LOG)
+	@if [ -s $(FORMAT_LOG) ]; then \
+		cat $(FORMAT_LOG); \
+		echo "Formatting issues found. Please run 'gofmt -w <file>' on the above files and commit the changes."; \
+		exit 1; \
+	else \
+		echo "All files are properly formatted."; \
+		rm -f $(FORMAT_LOG); \
+	fi
+	touch $@
+
 install:
 	$(INSTALL) -D $(BUILD_DIR)/telemetry $(DESTDIR)/usr/sbin/telemetry
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
@@ -185,6 +258,8 @@ endif
 	$(INSTALL) -D $(BUILD_DIR)/gnmi_set $(DESTDIR)/usr/sbin/gnmi_set
 	$(INSTALL) -D $(BUILD_DIR)/gnmi_cli $(DESTDIR)/usr/sbin/gnmi_cli
 	$(INSTALL) -D $(BUILD_DIR)/gnoi_client $(DESTDIR)/usr/sbin/gnoi_client
+	$(INSTALL) -D $(BUILD_DIR)/gnoi_openconfig_client $(DESTDIR)/usr/sbin/gnoi_openconfig_client
+	$(INSTALL) -D $(BUILD_DIR)/gnoi_sonic_client $(DESTDIR)/usr/sbin/gnoi_sonic_client
 	$(INSTALL) -D $(BUILD_DIR)/gnmi_dump $(DESTDIR)/usr/sbin/gnmi_dump
 
 
@@ -196,6 +271,8 @@ endif
 	rm $(DESTDIR)/usr/sbin/gnmi_get
 	rm $(DESTDIR)/usr/sbin/gnmi_set
 	rm $(DESTDIR)/usr/sbin/gnoi_client
+	rm $(DESTDIR)/usr/sbin/gnoi_openconfig_client
+	rm $(DESTDIR)/usr/sbin/gnoi_sonic_client
 	rm $(DESTDIR)/usr/sbin/gnmi_dump
 
 

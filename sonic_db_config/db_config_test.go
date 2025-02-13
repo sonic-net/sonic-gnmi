@@ -3,9 +3,10 @@ package dbconfig
 import (
 	"fmt"
 	"testing"
-	"github.com/sonic-net/sonic-gnmi/test_utils"
-	"github.com/sonic-net/sonic-gnmi/swsscommon"
+
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
+	"github.com/sonic-net/sonic-gnmi/test_utils"
 )
 
 func TestGetDb(t *testing.T) {
@@ -217,7 +218,7 @@ func TestGetDbMultiInstance(t *testing.T) {
 	})
 	t.Run("AllInstances", func(t *testing.T) {
 		dbkey_list, _ := GetDbAllInstances()
-		for _, dbkey := range(dbkey_list) {
+		for _, dbkey := range dbkey_list {
 			defer swsscommon.DeleteSonicDBKey(dbkey)
 		}
 		if len(dbkey_list) != 2 {
@@ -255,7 +256,7 @@ func TestGetDbMultiInstance(t *testing.T) {
 		if err != nil {
 			t.Fatalf(`err %v`, err)
 		}
-		for _, dbkey := range(dbkey_list) {
+		for _, dbkey := range dbkey_list {
 			defer swsscommon.DeleteSonicDBKey(dbkey)
 		}
 		Init()
