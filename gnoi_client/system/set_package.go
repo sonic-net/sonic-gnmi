@@ -44,8 +44,31 @@ func SetPackage(conn *grpc.ClientConn, ctx context.Context) {
 		},
 	}
 
-	// Temporary: Print the request
-	log.Printf("%+v\n", req)
+	sc := system.NewSystemClient(conn)
+	stream, err := sc.SetPackage(ctx)
+	if err != nil {
+		log.Println("Error creating stream: ", err)
+		return
+	}
+
+	// Send the package information.
+	err = stream.Send(req)
+	// Device should download the package, so skip the direct transfer and checksum.
+
+	err = stream.CloseSend()
+	if err != nil {
+		log.Println("Error closing stream: ", err)
+		return
+	}
+
+	// Receive the response.
+	resp, err := stream.CloseAndRecv()
+	if err != nil {
+		log.Println("Error receiving response: ", err)
+		return
+	}
+
+	fmt.Println(resp)
 }
 
 func validateFlags() error {
@@ -59,8 +82,7 @@ func validateFlags() error {
 		return fmt.Errorf("missing -package_url. Direct transfer is not supported yet")
 	}
 	if !*activate {
-		// TODO: Support this after separating setting default image from
-		// installing it in sonic-installer.
+		// TODO: Currently, installing image will always set it to default.
 		return fmt.Errorf("-package_activate=false is not yet supported")
 	}
 	return nil
