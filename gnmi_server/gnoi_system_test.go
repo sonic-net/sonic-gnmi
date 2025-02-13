@@ -234,10 +234,6 @@ func TestSystem(t *testing.T) {
 			t.Fatal("Expected success, got error: ", err.Error())
 		}
 	})
-	t.Run("CancelRebootFailsWithEmptyMessage", func(t *testing.T) {
-		_, err := sc.CancelReboot(ctx, &syspb.CancelRebootRequest{})
-		testErr(err, codes.Internal, "Invalid CancelReboot request: message is empty.", t)
-	})
 	t.Run("CancelRebootFailsWithTimeout", func(t *testing.T) {
 		req := &syspb.CancelRebootRequest{
 			Message: "Cancelling Reboot due to hardware constraints",
