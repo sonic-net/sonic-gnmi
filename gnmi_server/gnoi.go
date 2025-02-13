@@ -4,13 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	io "io/ioutil"
-	"os"
-	"os/user"
-	"strconv"
-	"strings"
-	"time"
-
 	jwt "github.com/dgrijalva/jwt-go"
 	log "github.com/golang/glog"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
@@ -23,6 +16,12 @@ import (
 	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	io "io/ioutil"
+	"os"
+	"os/user"
+	"strconv"
+	"strings"
+	"time"
 )
 
 func ReadFileStat(path string) (*gnoi_file_pb.StatInfo, error) {
@@ -162,56 +161,6 @@ func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) 
 	return resp, nil
 }
 
-func (srv *OSServer) Activate(ctx context.Context, req *gnoi_os_pb.ActivateRequest) (*gnoi_os_pb.ActivateResponse, error) {
-	_, err := authenticate(srv.config, ctx /*writeAccess=*/, true)
-	if err != nil {
-		log.Errorf("Failed to authenticate: %v", err)
-		return nil, err
-	}
-
-	log.Infof("gNOI: Activate")
-	image := req.GetVersion()
-	log.Infof("Requested to activate image %s", image)
-
-	dbus, err := ssc.NewDbusClient()
-	if err != nil {
-		log.Errorf("Failed to create dbus client: %v", err)
-		return nil, err
-	}
-	defer dbus.Close()
-
-	var resp gnoi_os_pb.ActivateResponse
-	err = dbus.ActivateImage(image)
-	if err != nil {
-		log.Errorf("Failed to activate image %s: %v", image, err)
-		image_not_exists := os.IsNotExist(err) ||
-			(strings.Contains(strings.ToLower(err.Error()), "not") &&
-				strings.Contains(strings.ToLower(err.Error()), "exist"))
-		if image_not_exists {
-			// Image does not exist.
-			resp.Response = &gnoi_os_pb.ActivateResponse_ActivateError{
-				ActivateError: &gnoi_os_pb.ActivateError{
-					Type:   gnoi_os_pb.ActivateError_NON_EXISTENT_VERSION,
-					Detail: err.Error(),
-				},
-			}
-		} else {
-			// Other error.
-			resp.Response = &gnoi_os_pb.ActivateResponse_ActivateError{
-				ActivateError: &gnoi_os_pb.ActivateError{
-					Type:   gnoi_os_pb.ActivateError_UNSPECIFIED,
-					Detail: err.Error(),
-				},
-			}
-		}
-		return &resp, nil
-	}
-
-	log.Infof("Successfully activated image %s", image)
-	resp.Response = &gnoi_os_pb.ActivateResponse_ActivateOk{}
-	return &resp, nil
-}
-
 func (srv *SystemServer) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProcessRequest) (*gnoi_system_pb.KillProcessResponse, error) {
 	_, err := authenticate(srv.config, ctx, true)
 	if err != nil {
@@ -344,8 +293,53 @@ func (srv *SystemServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) e
 		return err
 	}
 	log.V(1).Info("gNOI: SetPackage")
-	return status.Errorf(codes.Unimplemented, "")
+
+	dbus, err := ssc.NewDbusClient()
+	if err != nil {
+		log.Errorf("Failed to create dbus client: %v", err)
+		return err
+	}
+	defer dbus.Close()
+
+	// Receive the package information.
+	req, err := rs.Recv()
+	if err != nil {
+		log.Errorf("Error receiving request: %v", err)
+		return err
+	}
+
+	// Check if the request is of type Package
+	pkg, ok := req.GetRequest().(*gnoi_system_pb.SetPackageRequest_Package)
+	if !ok {
+		log.Errorf("Invalid request type: %T, expecting type SetPackageRequest_Package", req.GetRequest())
+		return status.Errorf(codes.InvalidArgument, "Invalid request type, expecting type SetPackageRequest_Package for the first package")
+	}
+
+	// Extract the package information
+	log.V(1).Infof("Received package information: %v", pkg.Package)
+
+	// Extract remote download information
+	download := pkg.Package.RemoteDownload
+	if download == nil {
+		log.Errorf("RemoteDownload information is missing")
+		return status.Errorf(codes.InvalidArgument, "RemoteDownload information is missing.")
+	}
+	// Download the package
+	err = dbus.DownloadImage(download.Path, pkg.Package.Filename)
+	if err != nil {
+		log.Errorf("Failed to download image: %v", err)
+		return err
+	}
+	// Install the package
+	err = dbus.InstallImage(pkg.Package.Filename)
+	if err != nil {
+		log.Errorf("Failed to install image: %v", err)
+		return err
+	}
+
+	return nil
 }
+
 func (srv *SystemServer) SwitchControlProcessor(ctx context.Context, req *gnoi_system_pb.SwitchControlProcessorRequest) (*gnoi_system_pb.SwitchControlProcessorResponse, error) {
 	_, err := authenticate(srv.config, ctx, true)
 	if err != nil {
