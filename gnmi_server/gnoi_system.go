@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sonic-net/sonic-gnmi/common_utils"
-	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"github.com/go-redis/redis"
 	log "github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	syspb "github.com/openconfig/gnoi/system"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	pjson "google.golang.org/protobuf/encoding/protojson"
@@ -75,12 +75,12 @@ func (srv *Server) KillProcess(ctx context.Context, req *syspb.KillProcessReques
 
 	serviceName := req.GetName()
 	restart := req.GetRestart()
-        if req.GetPid() != 0 {
-            return nil, status.Errorf(codes.Unimplemented, "Pid option is not implemented")
-        }
-        if req.GetSignal() != syspb.KillProcessRequest_SIGNAL_TERM {
-            return nil, status.Errorf(codes.Unimplemented, "KillProcess only supports SIGNAL_TERM (option 1) for graceful process termination. Please specify SIGNAL_TERM")
-        }
+	if req.GetPid() != 0 {
+		return nil, status.Errorf(codes.Unimplemented, "Pid option is not implemented")
+	}
+	if req.GetSignal() != syspb.KillProcessRequest_SIGNAL_TERM {
+		return nil, status.Errorf(codes.Unimplemented, "KillProcess only supports SIGNAL_TERM (option 1) for graceful process termination. Please specify SIGNAL_TERM")
+	}
 	log.V(1).Info("gNOI: KillProcess with optional restart")
 	log.V(1).Info("Request: ", req)
 	err = KillOrRestartProcess(restart, serviceName)
@@ -92,14 +92,14 @@ func (srv *Server) KillProcess(ctx context.Context, req *syspb.KillProcessReques
 }
 
 func HaltSystem() error {
-	sc,err := ssc.NewDbusClient()
+	sc, err := ssc.NewDbusClient()
 	if err != nil {
 		return err
 	}
 	log.V(2).Infof("Halting the system..")
 	err = sc.HaltSystem()
 	if err != nil {
-		log.V(2).Infof("Failed to Halt the system %v", err);
+		log.V(2).Infof("Failed to Halt the system %v", err)
 	}
 	return err
 }

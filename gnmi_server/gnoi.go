@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	stateDB  string = "STATE_DB"
+	stateDB string = "STATE_DB"
 )
 
 func ReadFileStat(path string) (*gnoi_file_pb.StatInfo, error) {

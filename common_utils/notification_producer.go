@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	"github.com/go-redis/redis"
 	log "github.com/golang/glog"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
 
 const (
-	dbName              = "STATE_DB"
+	dbName = "STATE_DB"
 )
 
 func GetRedisDBClient() (*redis.Client, error) {
@@ -18,7 +18,7 @@ func GetRedisDBClient() (*redis.Client, error) {
 	addr, err := sdcfg.GetDbTcpAddr(dbName, ns)
 	if err != nil {
 		log.Errorf("Addr err: %v", err)
-		return nil, err 
+		return nil, err
 	}
 	db, err := sdcfg.GetDbId("STATE_DB", ns)
 	if err != nil {

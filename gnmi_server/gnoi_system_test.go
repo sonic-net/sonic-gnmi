@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/go-redis/redis"
-	"github.com/openconfig/gnoi/types"
 	syspb "github.com/openconfig/gnoi/system"
+	"github.com/openconfig/gnoi/types"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -215,7 +215,7 @@ func TestSystem(t *testing.T) {
 		_, err := sc.Reboot(ctx, req)
 		if err != nil {
 			t.Fatal("Expected success, got error: ", err.Error())
-		}	
+		}
 	})
 	t.Run("RebootStatusFailsWithTimeout", func(t *testing.T) {
 		_, err := sc.RebootStatus(ctx, &syspb.RebootStatusRequest{})
