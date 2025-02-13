@@ -56,7 +56,7 @@ func validateFlags() error {
 		return fmt.Errorf("missing -package_version")
 	}
 	if *url == "" {
-		return fmt.Errorf("missing -package_url")
+		return fmt.Errorf("missing -package_url. Direct transfer is not supported yet")
 	}
 	if !*activate {
 		// TODO: Support this after separating setting default image from
