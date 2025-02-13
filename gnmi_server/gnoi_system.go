@@ -42,9 +42,6 @@ func ValidateRebootRequest(req *syspb.RebootRequest) error {
 		log.Error("Invalid request: reboot is not immediate.")
 		return fmt.Errorf("Invalid request: reboot is not immediate.")
 	}
-	if req.GetMessage() == "" {
-		log.Info("Reboot request: message is empty.")
-	}
 
 	return nil
 }
@@ -282,10 +279,6 @@ func (srv *Server) CancelReboot(ctx context.Context, req *syspb.CancelRebootRequ
 		return nil, err
 	}
 	log.V(1).Info("gNOI: CancelReboot")
-	if req.GetMessage() == "" {
-		log.V(1).Info("Invalid CancelReboot request: message is empty.")
-		return nil, status.Errorf(codes.Internal, "Invalid CancelReboot request: message is empty.")
-	}
 	// Initialize State DB.
 	rclient, err := common_utils.GetRedisDBClient()
 	if err != nil {
