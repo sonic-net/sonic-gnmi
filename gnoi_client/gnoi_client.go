@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
+	"flag"
 	"os"
 	"os/signal"
 
 	"github.com/google/gnxi/utils/credentials"
-	"github.com/sonic-net/sonic-gnmi/gnoi_client/config"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/file"
 	gnoi_os "github.com/sonic-net/sonic-gnmi/gnoi_client/os" // So it does not collide with os.
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/sonic"
@@ -14,9 +14,16 @@ import (
 	"google.golang.org/grpc"
 )
 
+var (
+	module     = flag.String("module", "System", "gNOI Module")
+	rpc        = flag.String("rpc", "Time", "rpc call in specified module to call")
+	target     = flag.String("target", "localhost:8080", "Address:port of gNOI Server")
+	targetName = flag.String("target_name", "hostname.com", "The target name use to verify the hostname returned by TLS handshake")
+)
+
 func main() {
-	config.ParseFlag()
-	opts := credentials.ClientCredentials(*config.TargetName)
+	flag.Parse()
+	opts := credentials.ClientCredentials(*targetName)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -25,14 +32,14 @@ func main() {
 		<-c
 		cancel()
 	}()
-	conn, err := grpc.Dial(*config.Target, opts...)
+	conn, err := grpc.Dial(*target, opts...)
 	if err != nil {
 		panic(err.Error())
 	}
 
-	switch *config.Module {
+	switch *module {
 	case "System":
-		switch *config.Rpc {
+		switch *rpc {
 		case "Time":
 			system.Time(conn, ctx)
 		case "Reboot":
@@ -49,14 +56,14 @@ func main() {
 			panic("Invalid RPC Name")
 		}
 	case "File":
-		switch *config.Rpc {
+		switch *rpc {
 		case "Stat":
 			file.Stat(conn, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
 	case "OS":
-		switch *config.Rpc {
+		switch *rpc {
 		case "Verify":
 			gnoi_os.Verify(conn, ctx)
 		case "Activate":
@@ -65,7 +72,7 @@ func main() {
 			panic("Invalid RPC Name")
 		}
 	case "Sonic":
-		switch *config.Rpc {
+		switch *rpc {
 		case "showtechsupport":
 			sonic.ShowTechSupport(conn, ctx)
 		case "copyConfig":

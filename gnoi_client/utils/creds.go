@@ -2,13 +2,17 @@ package utils
 
 import (
 	"context"
-	"github.com/sonic-net/sonic-gnmi/gnoi_client/config"
+	"flag"
 	"google.golang.org/grpc/metadata"
 )
 
+var (
+	jwtToken = flag.String("jwt_token", "", "JWT Token if required")
+)
+
 func SetUserCreds(ctx context.Context) context.Context {
-	if len(*config.JwtToken) > 0 {
-		ctx = metadata.AppendToOutgoingContext(ctx, "access_token", *config.JwtToken)
+	if len(*jwtToken) > 0 {
+		ctx = metadata.AppendToOutgoingContext(ctx, "access_token", *jwtToken)
 	}
 	return ctx
 }
