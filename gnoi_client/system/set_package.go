@@ -2,11 +2,10 @@ package system
 
 import (
 	"context"
-	"log"
-	"fmt"
 	"flag"
-	"github.com/openconfig/gnoi/system"
+	"fmt"
 	"github.com/openconfig/gnoi/common"
+	"github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/utils"
 	"google.golang.org/grpc"
 )
@@ -20,22 +19,22 @@ var (
 )
 
 func SetPackage(conn *grpc.ClientConn, ctx context.Context) {
-	log.Println("System SetPackage")
+	fmt.Println("System SetPackage")
 	ctx = utils.SetUserCreds(ctx)
 
 	err := validateFlags()
 	if err != nil {
-		log.Println("Error validating flags: ", err)
+		fmt.Println("Error validating flags: ", err)
 		return
 	}
 
 	download := &common.RemoteDownload{
-		Path : *url,
+		Path: *url,
 	}
 	pkg := &system.Package{
-		Filename: *filename,
-		Version:  *version,
-		Activate: *activate,
+		Filename:       *filename,
+		Version:        *version,
+		Activate:       *activate,
 		RemoteDownload: download,
 	}
 	req := &system.SetPackageRequest{
@@ -47,7 +46,7 @@ func SetPackage(conn *grpc.ClientConn, ctx context.Context) {
 	sc := system.NewSystemClient(conn)
 	stream, err := sc.SetPackage(ctx)
 	if err != nil {
-		log.Println("Error creating stream: ", err)
+		fmt.Println("Error creating stream: ", err)
 		return
 	}
 
@@ -57,14 +56,14 @@ func SetPackage(conn *grpc.ClientConn, ctx context.Context) {
 
 	err = stream.CloseSend()
 	if err != nil {
-		log.Println("Error closing stream: ", err)
+		fmt.Println("Error closing stream: ", err)
 		return
 	}
 
 	// Receive the response.
 	resp, err := stream.CloseAndRecv()
 	if err != nil {
-		log.Println("Error receiving response: ", err)
+		fmt.Println("Error receiving response: ", err)
 		return
 	}
 
