@@ -72,17 +72,17 @@ func SetPackage(conn *grpc.ClientConn, ctx context.Context) {
 
 func validateFlags() error {
 	if *filename == "" {
-		return fmt.Errorf("missing -package_filename")
+		return fmt.Errorf("missing -package_filename: Destination path and filename of the package is required for the SetPackage operation.")
 	}
 	if *version == "" {
-		return fmt.Errorf("missing -package_version")
+		return fmt.Errorf("missing -package_version: Version of the package is required for the SetPackage operation.")
 	}
 	if *url == "" {
-		return fmt.Errorf("missing -package_url. Direct transfer is not supported yet")
+		return fmt.Errorf("missing -package_url: URL to download the package from is required for the SetPackage operation. Direct transfer is not supported yet.")
 	}
 	if !*activate {
 		// TODO: Currently, installing image will always set it to default.
-		return fmt.Errorf("-package_activate=false is not yet supported")
+		return fmt.Errorf("-package_activate=false is not yet supported: The package will always be activated after setting it.")
 	}
 	return nil
 }
