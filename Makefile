@@ -70,7 +70,7 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 	$(GO) mod download github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2
 	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* vendor/github.com/google/gnxi/
 
-# Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed 
+# Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
 	sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
 	sed -i 's/#patch -d $${DEST_DIR}\/github.com\/golang\/glog/patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
@@ -106,7 +106,7 @@ endif
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnmi_dump
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/gnoi_openconfig_client
 	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/gnoi_sonic_client
-	
+
 endif
 
 # download and apply patch for gnmi client, which will break advancetls
@@ -216,11 +216,13 @@ endif
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_data_client
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-dbus.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_service_client
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -coverprofile=coverage-translutils.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/transl_utils
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -coverprofile=coverage-gnoi-client-system.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/gnoi_client/system
 	$(GO) install github.com/axw/gocov/gocov@v1.1.0
 	$(GO) install github.com/AlekSi/gocov-xml@latest
 	$(GO) mod vendor
 	gocov convert coverage-*.txt | gocov-xml -source $(shell pwd) > coverage.xml
-	rm -rf coverage-*.txt 
+	rm -rf coverage-*.txt
+
 
 check_memleak: $(DBCONFG) $(ENVFILE)
 	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor $(MEMCHECK_FLAGS) -v github.com/sonic-net/sonic-gnmi/telemetry
