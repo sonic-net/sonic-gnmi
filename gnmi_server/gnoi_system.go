@@ -91,19 +91,6 @@ func (srv *Server) KillProcess(ctx context.Context, req *syspb.KillProcessReques
 	return &resp, nil
 }
 
-func HaltSystem() error {
-	sc, err := ssc.NewDbusClient()
-	if err != nil {
-		return err
-	}
-	log.V(2).Infof("Halting the system..")
-	err = sc.HaltSystem()
-	if err != nil {
-		log.V(2).Infof("Failed to Halt the system %v", err)
-	}
-	return err
-}
-
 // Processes message payload as op, data, field-value pairs.
 func processMsgPayload(pload string) (string, string, map[string]string, error) {
 	var payload []string
@@ -210,15 +197,7 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 	if err := ValidateRebootRequest(req); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
-	// Handle the HALT request.
-	if req.GetMethod() == syspb.RebootMethod_HALT {
-		log.V(1).Info("Reboot method is HALT. Halting the system...")
-		err = HaltSystem()
-		if err != nil {
-			return nil, err
-		}
-		return &syspb.RebootResponse{}, nil
-	}
+
 	// Initialize State DB.
 	rclient, err := common_utils.GetRedisDBClient()
 	if err != nil {
