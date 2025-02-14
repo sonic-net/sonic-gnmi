@@ -353,6 +353,150 @@ func TestGetDbMultiInstance(t *testing.T) {
 	})
 }
 
+
+// Test db_config API with redis_bmp database
+func TestGetBMPDbInstance(t *testing.T) {
+	Init()
+	err := test_utils.SetupMultiInstance()
+	if err != nil {
+		t.Fatalf("error Setting up MultiInstance files with err %T", err)
+	}
+
+	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
+	t.Cleanup(func() {
+		if err := test_utils.CleanUpMultiInstance(); err != nil {
+			t.Fatalf("error Cleaning up MultiInstance files with err %T", err)
+		}
+	})
+	dbkey := swsscommon.NewSonicDBKey()
+	defer swsscommon.DeleteSonicDBKey(dbkey)
+	dbkey.SetContainerName("redis_bmp")
+	t.Run("Id", func(t *testing.T) {
+		db_id, _ := GetDbIdByDBKey("BMP_STATE_DB", dbkey)
+		if db_id != 20 {
+			t.Fatalf(`Id("") = %d, want 20, error`, db_id)
+		}
+	})
+	t.Run("Sock", func(t *testing.T) {
+		sock_path, _ := GetDbSockByDBKey("BMP_STATE_DB", dbkey)
+		if sock_path != "/var/run/redis/redis_bmp.sock" {
+			t.Fatalf(`Sock("") = %q, want "/var/run/redis/redis_bmp.sock", error`, sock_path)
+		}
+	})
+	t.Run("TcpAddr", func(t *testing.T) {
+		tcp_addr, _ := GetDbTcpAddrByDBKey("BMP_STATE_DB", dbkey)
+		if tcp_addr != "127.0.0.1:6400" {
+			t.Fatalf(`TcpAddr("") = %q, want 127.0.0.1:6400, error`, tcp_addr)
+		}
+	})
+	t.Run("AllAPI", func(t *testing.T) {
+		Init()
+		_, err = CheckDbMultiInstance()
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		dbkey_list, err := GetDbNonDefaultInstances()
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		for _, dbkey := range dbkey_list {
+			defer swsscommon.DeleteSonicDBKey(dbkey)
+		}
+		Init()
+		_, err = GetDbListByDBKey(dbkey)
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbSeparatorByDBKey("BMP_STATE_DB", dbkey)
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbSockByDBKey("BMP_STATE_DB", dbkey)
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbHostNameByDBKey("BMP_STATE_DB", dbkey)
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbPortByDBKey("BMP_STATE_DB", dbkey)
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		Init()
+		_, err = GetDbTcpAddrByDBKey("BMP_STATE_DB", dbkey)
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+		err = DbInit()
+		if err != nil {
+			t.Fatalf(`err %v`, err)
+		}
+	})
+	t.Run("AllAPIError", func(t *testing.T) {
+		mock1 := gomonkey.ApplyFunc(DbInit, func() (err error) {
+			return fmt.Errorf("Test api error")
+		})
+		defer mock1.Reset()
+		var err error
+		Init()
+		_, err = CheckDbMultiInstance()
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbNonDefaultInstances()
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbAllInstances()
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbListByDBKey(dbkey)
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbSeparatorByDBKey("BMP_STATE_DB", dbkey)
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbIdByDBKey("BMP_STATE_DB", dbkey)
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbSockByDBKey("BMP_STATE_DB", dbkey)
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbHostNameByDBKey("BMP_STATE_DB", dbkey)
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbPortByDBKey("BMP_STATE_DB", dbkey)
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+		Init()
+		_, err = GetDbTcpAddrByDBKey("BMP_STATE_DB", dbkey)
+		if err == nil || err.Error() != "Test api error" {
+			t.Fatalf(`No expected error`)
+		}
+	})
+}
+
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
 	m.Run()
