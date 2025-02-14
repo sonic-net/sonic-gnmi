@@ -25,6 +25,7 @@ const (
 	Target_PFC_WD_DB       Target = 5
 	Target_FLEX_COUNTER_DB Target = 5
 	Target_STATE_DB        Target = 6
+	Target_BMP_STATE_DB    Target = 20
 	// For none-DB data
 	Target_OTHERS Target = 100
 )
@@ -37,6 +38,7 @@ var Target_name = map[int32]string{
 	5: "PFC_WD_DB",
 	// Duplicate value: 5: "FLEX_COUNTER_DB",
 	6:   "STATE_DB",
+	20:  "BMP_STATE_DB",
 	100: "OTHERS",
 }
 var Target_value = map[string]int32{
@@ -47,6 +49,7 @@ var Target_value = map[string]int32{
 	"PFC_WD_DB":       5,
 	"FLEX_COUNTER_DB": 5,
 	"STATE_DB":        6,
+	"BMP_STATE_DB":    20,
 	"OTHERS":          100,
 }
 
