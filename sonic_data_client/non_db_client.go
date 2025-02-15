@@ -9,11 +9,11 @@ import (
 
 	"gopkg.in/yaml.v2"
 
-	spb "github.com/sonic-net/sonic-gnmi/proto"
 	"github.com/Workiva/go-datastructures/queue"
 	linuxproc "github.com/c9s/goprocinfo/linux"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
 )
 
 // Non db client is to Handle
@@ -137,7 +137,7 @@ func getCpuUtilPercents(cur, last *linuxproc.CPUStat) uint64 {
 	idleTicks := cur.Idle - last.Idle
 	totalTicks := curTotal - lastTotal
 	if totalTicks == 0 { // No change in CPU Utilization
-            return 0
+		return 0
 	}
 	return 100 * (totalTicks - idleTicks) / totalTicks
 }
@@ -588,7 +588,7 @@ func (c *NonDbClient) Close() error {
 	return nil
 }
 
-func  (c *NonDbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
+func (c *NonDbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	return nil
 }
 func (c *NonDbClient) Capabilities() []gnmipb.ModelData {
@@ -599,4 +599,3 @@ func (c *NonDbClient) SentOne(val *Value) {
 
 func (c *NonDbClient) FailedSend() {
 }
-

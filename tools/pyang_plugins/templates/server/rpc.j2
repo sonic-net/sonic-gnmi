@@ -1,0 +1,29 @@
+//{{ rpc_name }} -- RPC Implementation
+func (srv *Server) {{ rpc_name }}(ctx context.Context, req *spb.{{ rpc_name }}Request) (*spb.{{ rpc_name }}Response, error) {
+	ctx, err := srv.Handle.Auth(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &spb.{{ rpc_name }}Response{
+		{% if not rpc_output_empty %}Output: &spb.{{ rpc_name }}Response_Output{},{% endif %}
+	}
+
+	m := jsonpb.Marshaler{EmitDefaults: true}
+	reqstr, err := m.MarshalToString(req)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	jsresp, err := transutil.TranslProcessAction("{{ rpc_url }}", []byte(reqstr), ctx)
+	if err != nil {
+		return nil, status.Error(codes.Unknown, err.Error())
+	}
+
+	r := jsonpb.Unmarshaler{}
+	err = r.Unmarshal(bytes.NewReader(jsresp), resp)
+	if err != nil {
+		return nil, transutil.ToStatus(err).Err()
+	}
+
+	return resp, nil
+}

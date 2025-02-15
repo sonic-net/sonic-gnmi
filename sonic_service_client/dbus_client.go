@@ -28,6 +28,7 @@ type Service interface {
 	DownloadImage(url string, save_as string) error
 	InstallImage(where string) error
 	ListImages() (string, error)
+	ActivateImage(image string) error
 }
 
 type DbusClient struct {
@@ -255,7 +256,7 @@ func (c *DbusClient) ListImages() (string, error) {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".list_images"
-	result, err := DbusApi(busName, busPath, intName, /*timeout=*/60)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 60)
 	if err != nil {
 		return "", err
 	}
@@ -265,4 +266,14 @@ func (c *DbusClient) ListImages() (string, error) {
 	}
 	log.V(2).Infof("ListImages: %v", result)
 	return strResult, nil
+}
+
+func (c *DbusClient) ActivateImage(image string) error {
+	common_utils.IncCounter(common_utils.DBUS_IMAGE_ACTIVATE)
+	modName := "image_service"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".set_next_boot"
+	_, err := DbusApi(busName, busPath, intName, 60, image)
+	return err
 }

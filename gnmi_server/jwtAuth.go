@@ -1,15 +1,15 @@
 package gnmi
 
 import (
-	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"crypto/rand"
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/golang/glog"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
+	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	"time"
 )
 

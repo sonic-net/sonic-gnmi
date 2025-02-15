@@ -21,6 +21,8 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
+
+	//gnoi_yang "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/server"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	"golang.org/x/net/context"
@@ -53,7 +55,6 @@ type Server struct {
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
 }
-
 
 // FileServer is the server API for File service.
 // All implementations must embed UnimplementedFileServer
@@ -100,6 +101,7 @@ type Config struct {
 
 var AuthLock sync.Mutex
 var maMu sync.Mutex
+
 const WriteAccessMode = "readwrite"
 
 func (i AuthTypes) String() string {
@@ -208,6 +210,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
+
 	}
 	spb_gnoi.RegisterDebugServer(srv.s, srv)
 	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
@@ -250,6 +253,11 @@ func (srv *Server) Address() string {
 // Port returns the port the Server is listening to.
 func (srv *Server) Port() int64 {
 	return srv.config.Port
+}
+
+// Auth - Authenticate
+func (srv *Server) Auth(ctx context.Context) (context.Context, error) {
+	return authenticate(srv.config, ctx, true)
 }
 
 func authenticate(config *Config, ctx context.Context, writeAccess bool) (context.Context, error) {

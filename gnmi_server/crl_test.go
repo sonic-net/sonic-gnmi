@@ -8,13 +8,13 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"os"
-	"testing"
-	"time"
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"os"
+	"testing"
+	"time"
 )
 
 func TestCrlExpireDuration(t *testing.T) {
@@ -55,7 +55,7 @@ func TestCrlCache(t *testing.T) {
 	if cacheItem != nil {
 		t.Errorf("TestCrlCache test failed, crl content incorrect.")
 	}
-	
+
 	// test CRL expired and remove
 	AppendCrlToCache("http://test.crl.com/test.crl", rawCRL)
 	RemoveExpiredCrl()
@@ -135,8 +135,8 @@ func makeChain(name string) []*x509.Certificate {
 
 func CreateConnectionState(certPath string) tls.ConnectionState {
 	certChain := makeChain(certPath)
-	return tls.ConnectionState {
-		VerifiedChains: [][]*x509.Certificate {
+	return tls.ConnectionState{
+		VerifiedChains: [][]*x509.Certificate{
 			certChain,
 		},
 	}
@@ -147,7 +147,7 @@ func TestVerifyCertCrl(t *testing.T) {
 	defer ReleaseCrlCache()
 
 	mockGetCrlUrls := gomonkey.ApplyFunc(GetCrlUrls, func(cert x509.Certificate) []string {
-		return []string{ "http://test.crl.com/test.crl" }
+		return []string{"http://test.crl.com/test.crl"}
 	})
 	defer mockGetCrlUrls.Reset()
 
@@ -178,13 +178,12 @@ func TestVerifyCertCrl(t *testing.T) {
 	}
 }
 
-
 func TestVerifyCertCrlWithDownloadFailed(t *testing.T) {
 	InitCrlCache()
 	defer ReleaseCrlCache()
 
 	mockGetCrlUrls := gomonkey.ApplyFunc(GetCrlUrls, func(cert x509.Certificate) []string {
-		return []string{ "http://test.crl.com/test.crl" }
+		return []string{"http://test.crl.com/test.crl"}
 	})
 	defer mockGetCrlUrls.Reset()
 

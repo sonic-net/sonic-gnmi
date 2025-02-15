@@ -1,0 +1,136 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"strings"
+
+	{% for mod in mods_rpc_map %}
+	{{ mod }} "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/proto/{{ mod_name_map[mod] }}"
+	{% endfor %}
+	{% if mods_rpc_map|length > 0 %}
+	"encoding/json"
+	"github.com/gogo/protobuf/jsonpb"
+	"github.com/gogo/protobuf/proto"
+	{% endif %}
+	"github.com/google/gnxi/utils/credentials"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
+)
+
+var (
+    module     = flag.String("module", "System", "gNOI Module")
+	rpc        = flag.String("rpc", "Time", "rpc call in specified module to call")
+	target     = flag.String("target", "localhost:8080", "Address:port of gNOI Server")
+	args       = flag.String("jsonin", "", "RPC Arguments in json format")
+	jwtToken   = flag.String("jwt_token", "", "JWT Token if required")
+	targetName = flag.String("target_name", "hostname.com", "The target name use to verify the hostname returned by TLS handshake")
+)
+
+// RPC holds name, handler func and argument info (optional) for an rpc.
+type RPC struct {
+	Name string
+	Func func(conn *grpc.ClientConn, ctx context.Context)
+	Args string
+}
+
+func (r *RPC) args() string {
+	if len(r.Args) == 0 {
+		return ""
+	}
+	firstWord := strings.ToLower(strings.Fields(r.Args)[0])
+	if strings.HasSuffix(firstWord, "_json") ||
+		strings.HasSuffix(firstWord, "-json") ||
+		strings.HasPrefix(firstWord, "{") {
+		return "-jsonin " + r.Args
+	}
+	return r.Args
+}
+
+var rpcMap = map[string][]RPC{
+    {% for mod in mods_rpc_map %}
+    "{{ mod }}": {
+    {% for rpc in mods_rpc_map[mod] %}
+	RPC{Name: "{{ rpc.name_without_parent }}", Func: {{ rpc.name }}},
+    {% endfor %}
+    },
+    {% endfor %}
+}
+
+// getRPCInfo returns the registered RPC object matching the given module and
+// rpc names; or nil. Names are not case sensitive.
+func getRPCInfo(mod, rpc string) *RPC {
+	for m, rpcs := range rpcMap {
+		if !strings.EqualFold(m, mod) {
+			continue
+		}
+		for _, r := range rpcs {
+			if strings.EqualFold(r.Name, rpc) {
+				return &r
+			}
+		}
+	}
+	return nil
+}
+
+func main() {
+	flag.Parse()
+	rpcInfo := getRPCInfo(*module, *rpc)
+	if rpcInfo == nil {
+		fmt.Printf("error: unknown module '%s' or rpc '%s'\n", *module, *rpc)
+		return
+	}
+
+	opts := credentials.ClientCredentials(*targetName)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt)
+		<-c
+		cancel()
+	}()
+
+	if len(*jwtToken) > 0 {
+		ctx = metadata.AppendToOutgoingContext(ctx, "access_token", *jwtToken)
+	}
+
+	conn, err := grpc.Dial(*target, opts...)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	rpcInfo.Func(conn, ctx)
+}
+
+func usageError(message string) {
+	fmt.Printf("error: %s\n\n", message)
+	flag.Usage()
+	os.Exit(1)
+}
+
+{% for rpc in rpcs %}
+func {{ rpc.name }}(conn *grpc.ClientConn, ctx context.Context) {
+	fmt.Println("Sonic {{ rpc.name }} Client")
+	sc := {{ rpc.mod_name }}.New{{ rpc.mod_name }}ServiceClient(conn)
+	req := &{{ rpc.mod_name }}.{{ rpc.name_without_parent }}Request{
+		{% if not rpc.input_empty %}Input: &{{ rpc.mod_name }}.{{ rpc.name_without_parent }}Request_Input{},{% endif %}
+	}
+	fmt.Printf("%+v\n", *args)
+	jsonpb.UnmarshalString(*args, req)
+	fmt.Printf("%+v\n", proto.MarshalTextString(req))
+	resp, err := sc.{{ rpc.name_without_parent }}(ctx, req)
+
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
+}
+{% endfor %}

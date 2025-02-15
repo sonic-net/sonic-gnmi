@@ -1,32 +1,32 @@
 package main
 
 import (
-	"crypto/tls"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"math/big"
+	"encoding/pem"
+	"errors"
+	"flag"
+	"fmt"
+	"github.com/agiledragon/gomonkey/v2"
+	"github.com/fsnotify/fsnotify"
+	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
+	"github.com/sonic-net/sonic-gnmi/test_utils"
+	testdata "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"errors"
-	"github.com/fsnotify/fsnotify"
+	"io/ioutil"
+	"math/big"
+	"os"
 	"reflect"
 	"sync"
 	"sync/atomic"
-	"testing"
-	"flag"
-	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
-	"github.com/sonic-net/sonic-gnmi/test_utils"
-	"github.com/agiledragon/gomonkey/v2"
-	"os"
 	"syscall"
+	"testing"
 	"time"
-	"io/ioutil"
-	"context"
-	"encoding/pem"
-	"fmt"
-	testdata "github.com/sonic-net/sonic-gnmi/testdata/tls"
 )
 
 func TestRunTelemetry(t *testing.T) {
@@ -38,7 +38,7 @@ func TestRunTelemetry(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	args := []string{"telemetry", "-logtostderr",  "-port", "50051", "-v=2", "-noTLS"}
+	args := []string{"telemetry", "-logtostderr", "-port", "50051", "-v=2", "-noTLS"}
 	os.Args = args
 	err := runTelemetry(os.Args)
 	if err != nil {
@@ -110,7 +110,7 @@ func TestFlags(t *testing.T) {
 
 		config, _, err := setupFlags(fs)
 
-		if index < len(tests) - 2 {
+		if index < len(tests)-2 {
 			if err != nil {
 				t.Errorf("Expected err to be nil, got err %v", err)
 			}
@@ -147,7 +147,7 @@ func TestStartGNMIServer(t *testing.T) {
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
 
 	originalArgs := os.Args
@@ -218,7 +218,7 @@ func TestStartGNMIServerGracefulStop(t *testing.T) {
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
 
 	originalArgs := os.Args
@@ -256,14 +256,13 @@ func TestStartGNMIServerGracefulStop(t *testing.T) {
 	stopSignalHandler := make(chan bool, 1)
 	wg := &sync.WaitGroup{}
 
-	counter := 0      
+	counter := 0
 	exitCalled := false
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
 		exitCalled = true
 	})
-        patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "ForceStop", func(_ *gnmi.Server) {
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "ForceStop", func(_ *gnmi.Server) {
 	})
-
 
 	defer patches.Reset()
 
@@ -342,17 +341,17 @@ func createCACert(certPath string) error {
 		return err
 	}
 
-	caCert := &x509.Certificate {
+	caCert := &x509.Certificate{
 		SerialNumber: serialNum,
-		Subject: pkix.Name {
+		Subject: pkix.Name{
 			Organization: []string{"Mock CA"},
 		},
-		NotBefore: time.Now(),
-		NotAfter: time.Now().Add(time.Hour),
-		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		IsCA: true,
+		IsCA:                  true,
 	}
 
 	caBytes, err := x509.CreateCertificate(rand.Reader, caCert, caCert, &rsaPrivateKey.PublicKey, rsaPrivateKey)
@@ -612,7 +611,7 @@ func TestStartGNMIServerSlowCerts(t *testing.T) {
 
 	sendSignal(serverControlSignal, ServerStart) // Put certs for server to load new certs
 
-	<-serveStarted 
+	<-serveStarted
 
 	sendSignal(serverControlSignal, ServerStop) // Once server starts serving, stop server
 
@@ -702,7 +701,7 @@ func TestINotifyCertMonitoringRotation(t *testing.T) {
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
 
 	originalArgs := os.Args
@@ -756,7 +755,7 @@ func TestINotifyCertMonitoringDeletion(t *testing.T) {
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
 
 	originalArgs := os.Args
@@ -812,7 +811,7 @@ func TestINotifyCertMonitoringErrors(t *testing.T) {
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
 
 	originalArgs := os.Args
@@ -863,7 +862,7 @@ func TestINotifyCertMonitoringAddWatcherError(t *testing.T) {
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
 
 	originalArgs := os.Args
@@ -914,7 +913,7 @@ func TestSignalHandler(t *testing.T) {
 
 func testHandlerSyscall(t *testing.T, signal os.Signal) {
 	timeoutInterval := 1
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval) * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
 
 	serverControlSignal := make(chan ServerControlValue, 1)

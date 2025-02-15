@@ -1,0 +1,17 @@
+package gnoiyang
+
+import (
+	"google.golang.org/grpc"
+	{% for mod in modules %}
+	{{ mod }}_proto "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/proto/{{ mod_name_map[mod] }}"
+	{{ mod }} "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/server/{{ mod_name_map[mod] }}"
+	{% endfor %}
+)
+
+//RegisterGnoi{{ prefix }}YangServer - Registers GnoiYangServer
+func RegisterGnoi{{ prefix }}YangServer(s *grpc.Server, srv ServerHandle) {
+    {% for mod in modules %}
+	{{ mod }}_yg := {{ mod }}.Server{srv}
+	{{ mod }}_proto.Register{{ mod }}ServiceServer(s, &{{ mod }}_yg)
+    {% endfor %}
+}
