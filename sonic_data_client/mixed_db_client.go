@@ -1459,10 +1459,8 @@ func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Upd
 	deleteLen := len(delete)
 	replaceLen := len(replace)
 	updateLen := len(update)
-
 	if (deleteLen == 1 && replaceLen == 0 && updateLen == 1) {
 		deletePath, _, err := c.gnmiFullPath(c.prefix, delete[0])
-
 		if err != nil {
 			return err
 		}
