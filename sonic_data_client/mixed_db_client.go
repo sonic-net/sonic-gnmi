@@ -615,8 +615,8 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 	var tblPath tablePath
 
 	fullPath, _, err := c.gnmiFullPath(c.prefix, path)
-        //TODO: For multi asic case, analyse the support of namespace returned from gnmiFullPath,
-        // for all the services involved.
+	//TODO: For multi asic case, analyse the support of namespace returned from gnmiFullPath,
+	// for all the services involved.
 
 	if err != nil {
 		return nil, err
@@ -1150,13 +1150,13 @@ func (c *MixedDbClient) ConvertToJsonPatch(prefix *gnmipb.Path, path *gnmipb.Pat
 	elems := fullPath.GetElem()
 	(*output)["op"] = operation
 	jsonPath := "/"
-	
+
 	/* Add namespace as prefix only in case of multi asic */
-        if namespace != "" && namespace != "localhost" {
-                jsonPath += namespace
-                jsonPath += `/`
-        }
-	
+	if namespace != "" && namespace != "localhost" {
+		jsonPath += namespace
+		jsonPath += `/`
+	}
+
 	if elems != nil {
 		/* Iterate through elements. */
 		for _, elem := range elems {
@@ -1459,7 +1459,7 @@ func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Upd
 	deleteLen := len(delete)
 	replaceLen := len(replace)
 	updateLen := len(update)
-	if (deleteLen == 1 && replaceLen == 0 && updateLen == 1) {
+	if deleteLen == 1 && replaceLen == 0 && updateLen == 1 {
 		deletePath, _, err := c.gnmiFullPath(c.prefix, delete[0])
 		if err != nil {
 			return err
@@ -1499,8 +1499,8 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 	log.V(2).Infof("Getting #%v", c.jClient.jsonData)
 	for _, path := range c.paths {
 		fullPath, _, err := c.gnmiFullPath(c.prefix, path)
-                //TODO: For multi asic, analyse the support of namespace returned from gnmiFullPath,
-                // for all the services involved.
+		//TODO: For multi asic, analyse the support of namespace returned from gnmiFullPath,
+		// for all the services involved.
 		if err != nil {
 			return nil, err
 		}
