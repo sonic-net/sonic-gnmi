@@ -337,6 +337,8 @@ func (srv *SystemServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) e
 		return err
 	}
 
+	rs.SendAndClose(&gnoi_system_pb.SetPackageResponse{})
+
 	return nil
 }
 
