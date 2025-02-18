@@ -353,7 +353,6 @@ func TestGetDbMultiInstance(t *testing.T) {
 	})
 }
 
-
 // Test db_config API with redis_bmp database
 func TestGetBMPDbInstance(t *testing.T) {
 	Init()
