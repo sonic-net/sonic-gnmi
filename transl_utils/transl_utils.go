@@ -23,6 +23,18 @@ var (
 	Writer *syslog.Writer
 )
 
+var (
+	transLibOpMap map[int]string
+)
+
+func init() {
+	transLibOpMap = map[int]string{
+		translib.REPLACE: "REPLACE",
+		translib.UPDATE:  "UPDATE",
+		translib.DELETE:  "DELETE",
+	}
+}
+
 func __log_audit_msg(ctx context.Context, reqType string, uriPath string, err error) {
 	var err1 error
 	username := "invalid"
@@ -293,120 +305,103 @@ func TranslProcessUpdate(prefix *gnmipb.Path, entry *gnmipb.Update, ctx context.
 	return nil
 }
 
+// TranslProcessBulk - Process Bulk Set request
 func TranslProcessBulk(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update, prefix *gnmipb.Path, ctx context.Context) error {
-	var br translib.BulkRequest
+
 	var uri string
-
-	var deleteUri []string
-	var replaceUri []string
-	var updateUri []string
-
-	rc, ctx := common_utils.GetContext(ctx)
-	log.V(2).Info("TranslProcessBulk Called")
-	var nver translib.Version
 	var err error
+	var payload []byte
+	var resp translib.BulkResponse
+	var errors []string
+	rc, ctx := common_utils.GetContext(ctx)
+	br := translib.BulkRequest{}
+
+	//set ClientVersion
 	if rc.BundleVersion != nil {
-		nver, err = translib.NewVersion(*rc.BundleVersion)
+		nver, err := translib.NewVersion(*rc.BundleVersion)
 		if err != nil {
-			log.V(2).Infof("Bundle Version Check failed with error =%v", err.Error())
+			log.V(2).Infof("Bulk Set operation failed with error =%v", err.Error())
 			return err
 		}
+		br.ClientVersion = nver
 	}
+	//set User roles
+	br.User = translib.UserRoles{Name: rc.Auth.User, Roles: rc.Auth.Roles}
+
+	//set Auth setting
+	if rc.Auth.AuthEnabled {
+		br.AuthEnabled = true
+	}
+	log.V(2).Info("TranslProcessBulk Called")
 	for _, d := range delete {
-		if uri, err = ConvertToURI(prefix, d); err != nil {
+		fullPath := GnmiTranslFullPath(prefix, d)
+		if uri, err = ConvertToURI(nil, fullPath); err != nil {
 			return err
 		}
-		req := translib.SetRequest{
-			Path: uri,
-			User: translib.UserRoles{Name: rc.Auth.User, Roles: rc.Auth.Roles},
-		}
-		if rc.BundleVersion != nil {
-			req.ClientVersion = nver
-		}
-		if rc.Auth.AuthEnabled {
-			req.AuthEnabled = true
-		}
-		br.DeleteRequest = append(br.DeleteRequest, req)
-		deleteUri = append(deleteUri, uri)
-	}
-	for _, r := range replace {
-		if uri, err = ConvertToURI(prefix, r.GetPath()); err != nil {
-			return err
-		}
-		payload := r.GetVal().GetJsonIetfVal()
-		req := translib.SetRequest{
+
+		bulkReqEntry := translib.BulkRequestEntry{}
+		bulkReqEntry.Entry = translib.SetRequest{
 			Path:    uri,
-			Payload: payload,
-			User:    translib.UserRoles{Name: rc.Auth.User, Roles: rc.Auth.Roles},
+			Payload: nil}
+		bulkReqEntry.Operation = translib.DELETE
+		br.Request = append(br.Request, bulkReqEntry)
+	}
+
+	for _, r := range replace {
+		uri, err = ConvertToURI(prefix, r.GetPath())
+		if err != nil {
+			return err
 		}
-		if rc.BundleVersion != nil {
-			req.ClientVersion = nver
+		switch v := r.GetVal().GetValue().(type) {
+		case *gnmipb.TypedValue_JsonIetfVal:
+			payload = v.JsonIetfVal
+		default:
+			return status.Errorf(codes.InvalidArgument, "unsupported value type %T for path %s", v, uri)
 		}
-		if rc.Auth.AuthEnabled {
-			req.AuthEnabled = true
-		}
-		br.ReplaceRequest = append(br.ReplaceRequest, req)
-		replaceUri = append(replaceUri, uri)
+		log.V(5).Infof("Replace path = '%s', payload = %s", uri, payload)
+		bulkReqEntry := translib.BulkRequestEntry{}
+		bulkReqEntry.Entry = translib.SetRequest{
+			Path:    uri,
+			Payload: payload}
+		bulkReqEntry.Operation = translib.REPLACE
+		br.Request = append(br.Request, bulkReqEntry)
 	}
 	for _, u := range update {
-		if uri, err = ConvertToURI(prefix, u.GetPath()); err != nil {
+		uri, err = ConvertToURI(prefix, u.GetPath())
+		if err != nil {
 			return err
 		}
-		payload := u.GetVal().GetJsonIetfVal()
-		req := translib.SetRequest{
+		switch v := u.GetVal().GetValue().(type) {
+		case *gnmipb.TypedValue_JsonIetfVal:
+			payload = v.JsonIetfVal
+		default:
+			return status.Errorf(codes.InvalidArgument, "unsupported value type %T for path %s", v, uri)
+		}
+		log.V(5).Infof("Update path = '%s', payload = %s", uri, payload)
+		bulkReqEntry := translib.BulkRequestEntry{}
+		bulkReqEntry.Entry = translib.SetRequest{
 			Path:    uri,
-			Payload: payload,
-			User:    translib.UserRoles{Name: rc.Auth.User, Roles: rc.Auth.Roles},
-		}
-		if rc.BundleVersion != nil {
-			req.ClientVersion = nver
-		}
-		if rc.Auth.AuthEnabled {
-			req.AuthEnabled = true
-		}
-		br.UpdateRequest = append(br.UpdateRequest, req)
-		updateUri = append(updateUri, uri)
+			Payload: payload}
+		bulkReqEntry.Operation = translib.UPDATE
+		br.Request = append(br.Request, bulkReqEntry)
 	}
 
-	resp, err := translib.Bulk(br)
+	resp, err = translib.Bulk(br)
 
-	i := 0
-	for _, d := range resp.DeleteResponse {
-		__log_audit_msg(ctx, "DELETE", deleteUri[i], d.Err)
-		i++
-	}
-	i = 0
-	for _, r := range resp.ReplaceResponse {
-		__log_audit_msg(ctx, "REPLACE", replaceUri[i], r.Err)
-		i++
-	}
-	i = 0
-	for _, u := range resp.UpdateResponse {
-		__log_audit_msg(ctx, "UPDATE", updateUri[i], u.Err)
-		i++
+	for k := range resp.Response {
+		__log_audit_msg(ctx, transLibOpMap[resp.Response[k].Operation], br.Request[k].Entry.Path, resp.Response[k].Entry.Err)
+		if resp.Response[k].Entry.Err != nil {
+			log.Warningf("%s=%v", resp.Response[k].Entry.Err.Error(), resp.Response[k].Entry.ErrSrc)
+			errors = append(errors, resp.Response[k].Entry.Err.Error())
+		}
 	}
 
-	var errors []string
-	if err != nil {
-		log.V(2).Info("BULK SET operation failed with error(s):")
-		for _, d := range resp.DeleteResponse {
-			if d.Err != nil {
-				log.V(2).Infof("%s=%v", d.Err.Error(), d.ErrSrc)
-				errors = append(errors, d.Err.Error())
-			}
-		}
-		for _, r := range resp.ReplaceResponse {
-			if r.Err != nil {
-				log.V(2).Infof("%s=%v", r.Err.Error(), r.ErrSrc)
-				errors = append(errors, r.Err.Error())
-			}
-		}
-		for _, u := range resp.UpdateResponse {
-			if u.Err != nil {
-				log.V(2).Infof("%s=%v", u.Err.Error(), u.ErrSrc)
-				errors = append(errors, u.Err.Error())
-			}
-		}
+	if err != nil && len(errors) == 0 { //Global error
+		log.Errorf("Bulk Operation failed with Error: %v", err.Error())
+		errors = append(errors, err.Error())
+	}
+
+	if len(errors) > 0 {
 		return fmt.Errorf("SET failed: %s", strings.Join(errors, "; "))
 	}
 
