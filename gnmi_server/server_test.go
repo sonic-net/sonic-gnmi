@@ -3490,6 +3490,76 @@ func TestSetPackage(t *testing.T) {
 			t.Errorf("Expected error to contain '%v' but got '%v'", expectedError, err)
 		}
 	})
+
+	t.Run("SetPackageRemoteDownloadInfoMissing", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "DownloadImage", func(_ *ssc.DbusClient, path, filename string) error {
+			return nil
+		})
+		defer mock.Reset()
+
+		mock = gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "InstallImage", func(_ *ssc.DbusClient, filename string) error {
+			return nil
+		})
+		defer mock.Reset()
+
+		spc := gnoi_system_pb.NewSystemClient(conn)
+		stream, err := spc.SetPackage(ctx)
+		if err != nil {
+			t.Fatalf("SetPackage failed: %v", err)
+		}
+
+		req := &gnoi_system_pb.SetPackageRequest{
+			Request: &gnoi_system_pb.SetPackageRequest_Package{
+				Package: &gnoi_system_pb.Package{
+					Filename: "package.bin",
+				},
+			},
+		}
+
+		err = stream.Send(req)
+		if err != nil {
+			t.Fatalf("Failed to send request: %v", err)
+		}
+
+		_, err = stream.CloseAndRecv()
+		if err == nil {
+			t.Fatalf("Expected error but got none")
+		}
+		if !strings.Contains(err.Error(), "RemoteDownload information is missing") {
+			t.Errorf("Expected error to contain 'RemoteDownload information is missing' but got '%v'", err)
+		}
+	})
+
+	t.Run("SetPackageFailToReceiveRequest", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "DownloadImage", func(_ *ssc.DbusClient, path, filename string) error {
+			return nil
+		})
+		defer mock.Reset()
+
+		mock = gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "InstallImage", func(_ *ssc.DbusClient, filename string) error {
+			return nil
+		})
+		defer mock.Reset()
+
+		spc := gnoi_system_pb.NewSystemClient(conn)
+		stream, err := spc.SetPackage(ctx)
+		if err != nil {
+			t.Fatalf("SetPackage failed: %v", err)
+		}
+
+		// Simulate failure to receive request
+		stream.CloseSend()
+
+		_, err = stream.CloseAndRecv()
+		if err == nil {
+			t.Fatalf("Expected error but got none")
+		}
+		if !strings.Contains(err.Error(), "Error receiving request") {
+			t.Errorf("Expected error to contain 'Error receiving request' but got '%v'", err)
+		}
+	})
 }
 
 func TestBulkSet(t *testing.T) {
