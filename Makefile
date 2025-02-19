@@ -229,6 +229,7 @@ check_memleak: $(DBCONFG) $(ENVFILE)
 	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor $(MEMCHECK_FLAGS) -v github.com/sonic-net/sonic-gnmi/sonic_data_client
 
 
+
 clean:
 	$(RM) -r build
 	$(RM) -r vendor
