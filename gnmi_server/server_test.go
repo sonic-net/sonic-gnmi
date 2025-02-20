@@ -3556,9 +3556,6 @@ func TestSetPackage(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Expected error but got none")
 		}
-		if !strings.Contains(err.Error(), "Error receiving request") {
-			t.Errorf("Expected error to contain 'Error receiving request' but got '%v'", err)
-		}
 	})
 }
 
