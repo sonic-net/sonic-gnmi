@@ -40,6 +40,37 @@ func TestGetDb(t *testing.T) {
 	})
 }
 
+func TestGetBMPDb(t *testing.T) {
+	ns, _ := GetDbDefaultNamespace()
+	t.Run("Id", func(t *testing.T) {
+		db_id, _ := GetDbId("BMP_STATE_DB", ns)
+		if db_id != 20 {
+			t.Fatalf(`Id("") = %d, want 20, error`, db_id)
+		}
+	})
+	t.Run("Sock", func(t *testing.T) {
+		sock_path, _ := GetDbSock("BMP_STATE_DB", ns)
+		if sock_path != "/var/run/redis/redis_bmp.sock" {
+			t.Fatalf(`Sock("") = %q, want "/var/run/redis/redis_bmp.sock", error`, sock_path)
+		}
+	})
+	t.Run("AllNamespaces", func(t *testing.T) {
+		ns_list, _ := GetDbAllNamespaces()
+		if len(ns_list) != 1 {
+			t.Fatalf(`AllNamespaces("") = %q, want "1", error`, len(ns_list))
+		}
+		if ns_list[0] != ns {
+			t.Fatalf(`AllNamespaces("") = %q, want default, error`, ns_list[0])
+		}
+	})
+	t.Run("TcpAddr", func(t *testing.T) {
+		tcp_addr, _ := GetDbTcpAddr("BMP_STATE_DB", ns)
+		if tcp_addr != "127.0.0.1:6400" {
+			t.Fatalf(`TcpAddr("") = %q, want 127.0.0.1:6400, error`, tcp_addr)
+		}
+	})
+}
+
 func TestGetDbMultiNs(t *testing.T) {
 	Init()
 	err := test_utils.SetupMultiNamespace()
@@ -349,37 +380,6 @@ func TestGetDbMultiInstance(t *testing.T) {
 		_, err = GetDbTcpAddrByDBKey("CONFIG_DB", dbkey)
 		if err == nil || err.Error() != "Test api error" {
 			t.Fatalf(`No expected error`)
-		}
-	})
-}
-
-func TestGetBMPDb(t *testing.T) {
-	ns, _ := GetDbDefaultNamespace()
-	t.Run("Id", func(t *testing.T) {
-		db_id, _ := GetDbId("BMP_STATE_DB", ns)
-		if db_id != 20 {
-			t.Fatalf(`Id("") = %d, want 20, error`, db_id)
-		}
-	})
-	t.Run("Sock", func(t *testing.T) {
-		sock_path, _ := GetDbSock("BMP_STATE_DB", ns)
-		if sock_path != "/var/run/redis/redis_bmp.sock" {
-			t.Fatalf(`Sock("") = %q, want "/var/run/redis/redis_bmp.sock", error`, sock_path)
-		}
-	})
-	t.Run("AllNamespaces", func(t *testing.T) {
-		ns_list, _ := GetDbAllNamespaces()
-		if len(ns_list) != 1 {
-			t.Fatalf(`AllNamespaces("") = %q, want "1", error`, len(ns_list))
-		}
-		if ns_list[0] != ns {
-			t.Fatalf(`AllNamespaces("") = %q, want default, error`, ns_list[0])
-		}
-	})
-	t.Run("TcpAddr", func(t *testing.T) {
-		tcp_addr, _ := GetDbTcpAddr("BMP_STATE_DB", ns)
-		if tcp_addr != "127.0.0.1:6400" {
-			t.Fatalf(`TcpAddr("") = %q, want 127.0.0.1:6400, error`, tcp_addr)
 		}
 	})
 }

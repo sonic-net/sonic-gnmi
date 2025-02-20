@@ -43,6 +43,8 @@ func main() {
 			system.RebootStatus(conn, ctx)
 		case "KillProcess":
 			system.KillProcess(conn, ctx)
+		case "SetPackage":
+			system.SetPackage(conn, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
