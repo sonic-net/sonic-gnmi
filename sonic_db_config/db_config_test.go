@@ -50,8 +50,8 @@ func TestGetBMPDb(t *testing.T) {
 	})
 	t.Run("Sock", func(t *testing.T) {
 		sock_path, _ := GetDbSock("BMP_STATE_DB", ns)
-		if sock_path != "/var/run/redis/redis_bmp.sock" {
-			t.Fatalf(`Sock("") = %q, want "/var/run/redis/redis_bmp.sock", error`, sock_path)
+		if sock_path != "/var/run/redis/redis.sock" {
+			t.Fatalf(`Sock("") = %q, want "/var/run/redis/redis.sock", error`, sock_path)
 		}
 	})
 	t.Run("AllNamespaces", func(t *testing.T) {
@@ -65,8 +65,8 @@ func TestGetBMPDb(t *testing.T) {
 	})
 	t.Run("TcpAddr", func(t *testing.T) {
 		tcp_addr, _ := GetDbTcpAddr("BMP_STATE_DB", ns)
-		if tcp_addr != "127.0.0.1:6400" {
-			t.Fatalf(`TcpAddr("") = %q, want 127.0.0.1:6400, error`, tcp_addr)
+		if tcp_addr != "127.0.0.1:6379" {
+			t.Fatalf(`TcpAddr("") = %q, want 127.0.0.1:6379, error`, tcp_addr)
 		}
 	})
 }
