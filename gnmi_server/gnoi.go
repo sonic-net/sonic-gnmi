@@ -362,8 +362,9 @@ func (srv *SystemServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) e
 	// Check if the request is of type Package
 	pkg, ok := req.GetRequest().(*gnoi_system_pb.SetPackageRequest_Package)
 	if !ok {
-		log.Errorf("Invalid request type: %T, expecting type SetPackageRequest_Package", req.GetRequest())
-		return status.Errorf(codes.InvalidArgument, "Invalid request type, expecting type SetPackageRequest_Package for the first package")
+		errMsg := fmt.Sprintf("Invalid request type: %T, expecting type SetPackageRequest_Package", req.GetRequest())
+		log.Errorf(errMsg)
+		return status.Errorf(codes.InvalidArgument, errMsg)
 	}
 
 	// Extract the package information
