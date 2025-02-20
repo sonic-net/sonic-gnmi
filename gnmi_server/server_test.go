@@ -3367,6 +3367,7 @@ func TestSetPackage(t *testing.T) {
 	defer cancel()
 
 	t.Run("SetPackageSuccess", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
 		mock := gomonkey.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "DownloadImage", func(_ *ssc.DbusClient, path, filename string) error {
 			return nil
 		})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	jwt "github.com/dgrijalva/jwt-go"
 	log "github.com/golang/glog"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
