@@ -1,6 +1,6 @@
 module github.com/sonic-net/sonic-gnmi
 
-go 1.19
+go 1.21
 
 require (
 	github.com/Azure/sonic-mgmt-common v0.0.0-00010101000000-000000000000
@@ -13,13 +13,13 @@ require (
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/glog v1.2.0
-	github.com/golang/mock v1.1.1
+	github.com/golang/mock v1.6.0
 	github.com/golang/protobuf v1.5.4
 	github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2
 	github.com/kylelemons/godebug v1.1.0
 	github.com/msteinert/pam v0.0.0-20201130170657-e61372126161
 	github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
-	github.com/openconfig/gnoi v0.0.0-20211029052138-349b3dcd04ec
+	github.com/openconfig/gnoi v0.3.0
 	github.com/openconfig/ygot v0.7.1
 	golang.org/x/crypto v0.24.0
 	golang.org/x/net v0.26.0
@@ -48,7 +48,7 @@ require (
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
 	golang.org/x/sys v0.26.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
-	google.golang.org/genproto v0.0.0-20200526211855-cb27e3aa2013 // indirect
+	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
 	inet.af/netaddr v0.0.0-20230525184311-b8eac61e914a // indirect
 )
 
@@ -56,3 +56,6 @@ replace (
 	github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common
 	golang.org/x/crypto => golang.org/x/crypto v0.24.0
 )
+
+// Glog patch needs to be updated to remove this.
+replace github.com/golang/glog => github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b

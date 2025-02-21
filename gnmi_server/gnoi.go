@@ -3,26 +3,25 @@ package gnmi
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	jwt "github.com/dgrijalva/jwt-go"
 	log "github.com/golang/glog"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
-	gnoi_system_pb "github.com/openconfig/gnoi/system"
-	"github.com/sonic-net/sonic-gnmi/common_utils"
 	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	io "io/ioutil"
 	"os"
 	"os/user"
 	"strconv"
 	"strings"
 	"time"
+)
+
+const (
+	stateDB string = "STATE_DB"
 )
 
 func ReadFileStat(path string) (*gnoi_file_pb.StatInfo, error) {
@@ -95,29 +94,6 @@ func (srv *FileServer) Stat(ctx context.Context, req *gnoi_file_pb.StatRequest) 
 func (srv *FileServer) Get(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.File_GetServer) error {
 	log.V(1).Info("gNOI: File Get")
 	return status.Errorf(codes.Unimplemented, "")
-}
-
-func KillOrRestartProcess(restart bool, serviceName string) error {
-	sc, err := ssc.NewDbusClient()
-	if err != nil {
-		return err
-	}
-	defer sc.Close()
-
-	if restart {
-		log.V(2).Infof("Restarting service %s...", serviceName)
-		err = sc.RestartService(serviceName)
-		if err != nil {
-			log.V(2).Infof("Failed to restart service %s: %v", serviceName, err)
-		}
-	} else {
-		log.V(2).Infof("Stopping service %s...", serviceName)
-		err = sc.StopService(serviceName)
-		if err != nil {
-			log.V(2).Infof("Failed to stop service %s: %v", serviceName, err)
-		}
-	}
-	return err
 }
 
 func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) (*gnoi_os_pb.VerifyResponse, error) {
@@ -210,240 +186,6 @@ func (srv *OSServer) Activate(ctx context.Context, req *gnoi_os_pb.ActivateReque
 	log.Infof("Successfully activated image %s", image)
 	resp.Response = &gnoi_os_pb.ActivateResponse_ActivateOk{}
 	return &resp, nil
-}
-
-func (srv *SystemServer) KillProcess(ctx context.Context, req *gnoi_system_pb.KillProcessRequest) (*gnoi_system_pb.KillProcessResponse, error) {
-	_, err := authenticate(srv.config, ctx, true)
-	if err != nil {
-		return nil, err
-	}
-
-	serviceName := req.GetName()
-	restart := req.GetRestart()
-	if req.GetPid() != 0 {
-		return nil, status.Errorf(codes.Unimplemented, "Pid option is not implemented")
-	}
-	if req.GetSignal() != gnoi_system_pb.KillProcessRequest_SIGNAL_TERM {
-		return nil, status.Errorf(codes.Unimplemented, "KillProcess only supports SIGNAL_TERM (option 1) for graceful process termination. Please specify SIGNAL_TERM")
-	}
-	log.V(1).Info("gNOI: KillProcess with optional restart")
-	log.V(1).Info("Request: ", req)
-	err = KillOrRestartProcess(restart, serviceName)
-	if err != nil {
-		return nil, err
-	}
-	var resp gnoi_system_pb.KillProcessResponse
-	return &resp, nil
-}
-
-func HaltSystem() error {
-	sc, err := ssc.NewDbusClient()
-	if err != nil {
-		return err
-	}
-	defer sc.Close()
-
-	log.V(2).Infof("Halting the system..")
-	err = sc.HaltSystem()
-	if err != nil {
-		log.V(2).Infof("Failed to Halt the system %v", err)
-	}
-	return err
-}
-
-func RebootSystem(fileName string) error {
-	log.V(2).Infof("Rebooting with %s...", fileName)
-	sc, err := ssc.NewDbusClient()
-	if err != nil {
-		return err
-	}
-	defer sc.Close()
-
-	err = sc.ConfigReload(fileName)
-	return err
-}
-
-func (srv *SystemServer) Reboot(ctx context.Context, req *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
-	fileName := common_utils.GNMI_WORK_PATH + "/config_db.json.tmp"
-
-	_, err := authenticate(srv.config, ctx, true)
-	if err != nil {
-		return nil, err
-	}
-	log.V(1).Info("gNOI: Reboot")
-	log.V(1).Info("Request:", req)
-
-	// Check the reboot type
-	switch req.GetMethod() {
-	case gnoi_system_pb.RebootMethod_HALT:
-		log.V(1).Info("Reboot method is HALT. Halting the system...")
-		err = HaltSystem()
-		if err != nil {
-			return nil, err
-		}
-	default:
-		log.V(1).Info("Reboot system now, delay is ignored...")
-		// TODO: Support GNOI reboot delay
-		// Delay in nanoseconds before issuing reboot.
-		// https://github.com/openconfig/gnoi/blob/master/system/system.proto#L102-L115
-		config_db_json, err := io.ReadFile(fileName)
-		if errors.Is(err, os.ErrNotExist) {
-			fileName = ""
-		}
-		err = RebootSystem(string(config_db_json))
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	var resp gnoi_system_pb.RebootResponse
-	return &resp, nil
-}
-
-// TODO: Support GNOI RebootStatus
-func (srv *SystemServer) RebootStatus(ctx context.Context, req *gnoi_system_pb.RebootStatusRequest) (*gnoi_system_pb.RebootStatusResponse, error) {
-	_, err := authenticate(srv.config, ctx, false)
-	if err != nil {
-		return nil, err
-	}
-	log.V(1).Info("gNOI: RebootStatus")
-	return nil, status.Errorf(codes.Unimplemented, "")
-}
-
-// TODO: Support GNOI CancelReboot
-func (srv *SystemServer) CancelReboot(ctx context.Context, req *gnoi_system_pb.CancelRebootRequest) (*gnoi_system_pb.CancelRebootResponse, error) {
-	_, err := authenticate(srv.config, ctx, true)
-	if err != nil {
-		return nil, err
-	}
-	log.V(1).Info("gNOI: CancelReboot")
-	return nil, status.Errorf(codes.Unimplemented, "")
-}
-func (srv *SystemServer) Ping(req *gnoi_system_pb.PingRequest, rs gnoi_system_pb.System_PingServer) error {
-	ctx := rs.Context()
-	_, err := authenticate(srv.config, ctx, true)
-	if err != nil {
-		return err
-	}
-	log.V(1).Info("gNOI: Ping")
-	return status.Errorf(codes.Unimplemented, "")
-}
-func (srv *SystemServer) Traceroute(req *gnoi_system_pb.TracerouteRequest, rs gnoi_system_pb.System_TracerouteServer) error {
-	ctx := rs.Context()
-	_, err := authenticate(srv.config, ctx, true)
-	if err != nil {
-		return err
-	}
-	log.V(1).Info("gNOI: Traceroute")
-	return status.Errorf(codes.Unimplemented, "")
-}
-
-func (srv *SystemServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) error {
-	ctx := rs.Context()
-
-	_, err := authenticate(srv.config, ctx, true)
-	if err != nil {
-		log.Errorf("Authentication failed: %v", err)
-		return status.Errorf(codes.PermissionDenied, "authentication failed: %v", err)
-	}
-	log.V(1).Info("gNOI: SetPackage request received")
-
-	// Create D-Bus client
-	dbus, err := ssc.NewDbusClient()
-	if err != nil {
-		log.Errorf("Failed to create D-Bus client: %v", err)
-		return status.Errorf(codes.Internal, "failed to create D-Bus client: %v", err)
-	}
-	defer dbus.Close()
-
-	// Receive the package request
-	req, err := rs.Recv()
-	if err != nil {
-		log.Errorf("Failed to receive package request: %v", err)
-		return err
-	}
-
-	// Validate request type
-	pkg, ok := req.GetRequest().(*gnoi_system_pb.SetPackageRequest_Package)
-	if !ok {
-		errMsg := fmt.Sprintf("invalid request type: %T, expected SetPackageRequest_Package", req.GetRequest())
-		log.Errorf(errMsg)
-		return status.Errorf(codes.InvalidArgument, errMsg)
-	}
-
-	// A filename and a version must be provided
-	if pkg.Package.Filename == "" {
-		log.Errorf("Filename is missing in package request")
-		return status.Errorf(codes.InvalidArgument, "filename is missing in package request")
-	}
-	if pkg.Package.Version == "" {
-		log.Errorf("Version is missing in package request")
-		return status.Errorf(codes.InvalidArgument, "version is missing in package request")
-	}
-	// Log the package filename and version
-	log.V(1).Infof("Package filename: %s, version: %s", pkg.Package.Filename, pkg.Package.Version)
-
-	// Download the package if RemoteDownload is provided
-	if pkg.Package.RemoteDownload != nil {
-		// Validate RemoteDownload
-		log.V(1).Infof("RemoteDownload provided")
-		// Check if the path is provided
-		if pkg.Package.RemoteDownload.Path == "" {
-			log.Errorf("RemoteDownload path is missing")
-			return status.Errorf(codes.InvalidArgument, "remote download path is missing")
-		}
-		log.V(1).Infof("RemoteDownload path: %s", pkg.Package.RemoteDownload.Path)
-
-		// Download the package
-		err = dbus.DownloadImage(pkg.Package.RemoteDownload.Path, pkg.Package.Filename)
-		if err != nil {
-			log.Errorf("Failed to download image: %v", err)
-			return status.Errorf(codes.Internal, "failed to download image: %v", err)
-		}
-		log.V(1).Infof("Package %s downloaded successfully to %s", pkg.Package.Version, pkg.Package.Filename)
-	}
-
-	// If activate is requested, install the package and set it to be the next boot image
-	if pkg.Package.Activate {
-		log.V(1).Infof("Activate is requested")
-		// Install the package
-		err = dbus.InstallImage(pkg.Package.Filename)
-		if err != nil {
-			log.Errorf("Failed to install image: %v", err)
-			return status.Errorf(codes.Internal, "failed to install image: %v", err)
-		}
-		log.V(1).Infof("Package %s installed successfully", pkg.Package.Filename)
-		// Currently, Installing the image will automatically set it as the next boot image
-		log.V(1).Infof("Package %s set as next boot image", pkg.Package.Filename)
-	}
-
-	// Send response to client
-	if err := rs.SendAndClose(&gnoi_system_pb.SetPackageResponse{}); err != nil {
-		log.Errorf("Failed to send response: %v", err)
-		return err
-	}
-
-	log.V(1).Infof("SetPackage completed successfully for %s", pkg.Package.Filename)
-	return nil
-}
-
-func (srv *SystemServer) SwitchControlProcessor(ctx context.Context, req *gnoi_system_pb.SwitchControlProcessorRequest) (*gnoi_system_pb.SwitchControlProcessorResponse, error) {
-	_, err := authenticate(srv.config, ctx, true)
-	if err != nil {
-		return nil, err
-	}
-	log.V(1).Info("gNOI: SwitchControlProcessor")
-	return nil, status.Errorf(codes.Unimplemented, "")
-}
-func (srv *SystemServer) Time(ctx context.Context, req *gnoi_system_pb.TimeRequest) (*gnoi_system_pb.TimeResponse, error) {
-	_, err := authenticate(srv.config, ctx, false)
-	if err != nil {
-		return nil, err
-	}
-	log.V(1).Info("gNOI: Time")
-	var tm gnoi_system_pb.TimeResponse
-	tm.Time = uint64(time.Now().UnixNano())
-	return &tm, nil
 }
 
 func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
