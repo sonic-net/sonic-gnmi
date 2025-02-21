@@ -384,6 +384,13 @@ func (srv *SystemServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) e
 		return status.Errorf(codes.InvalidArgument, "RemoteDownload information is missing or invalid")
 	}
 
+	// Does not support not activating the image for now.
+	// TODO: Support not activating the image.
+	if pkg.Package.Activate != nil && !pkg.Package.Activate.Value {
+		log.Errorf("Not activating the image is not supported")
+		return status.Errorf(codes.InvalidArgument, "not activating the image is not supported")
+	}
+
 	// Log received package details
 	log.V(1).Infof("Received package information: Filename=%s, RemoteDownload=%v", pkg.Package.Filename, pkg.Package.RemoteDownload)
 
