@@ -14,7 +14,6 @@ import (
 	syspb "github.com/openconfig/gnoi/system"
 	typespb "github.com/openconfig/gnoi/types"
 
-	"github.com/openconfig/gnoi/types"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
