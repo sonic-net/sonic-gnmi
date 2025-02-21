@@ -126,10 +126,10 @@ func TestSystem(t *testing.T) {
 			Method:  syspb.RebootMethod_COLD,
 			Delay:   0,
 			Message: "Cold reboot starting ...",
-			Subcomponents: []*types.Path{
-				&types.Path{
+			Subcomponents: []*typespb.Path{
+				&typespb.Path{
 					Origin: "openconfig",
-					Elem: []*types.PathElem{
+					Elem: []*typespb.PathElem{
 						{
 							Name: "components",
 						},
