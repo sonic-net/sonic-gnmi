@@ -340,58 +340,67 @@ func (srv *SystemServer) Traceroute(req *gnoi_system_pb.TracerouteRequest, rs gn
 
 func (srv *SystemServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) error {
 	ctx := rs.Context()
+
 	_, err := authenticate(srv.config, ctx, true)
 	if err != nil {
-		return err
+		log.Errorf("Authentication failed: %v", err)
+		return status.Errorf(codes.PermissionDenied, "authentication failed: %v", err)
 	}
-	log.V(1).Info("gNOI: SetPackage")
+	log.V(1).Info("gNOI: SetPackage request received")
 
+	// Create D-Bus client
 	dbus, err := ssc.NewDbusClient()
 	if err != nil {
-		log.Errorf("Failed to create dbus client: %v", err)
-		return err
+		log.Errorf("Failed to create D-Bus client: %v", err)
+		return status.Errorf(codes.Internal, "failed to create D-Bus client: %v", err)
 	}
 	defer dbus.Close()
 
-	// Receive the package information.
+	// Receive the package request
 	req, err := rs.Recv()
 	if err != nil {
-		log.Errorf("Error receiving request: %v", err)
-		return err
+		log.Errorf("Failed to receive package request: %v", err)
+		return status.Errorf(codes.InvalidArgument, "failed to receive package request: %v", err)
 	}
 
-	// Check if the request is of type Package
+	// Validate request type
 	pkg, ok := req.GetRequest().(*gnoi_system_pb.SetPackageRequest_Package)
 	if !ok {
-		errMsg := fmt.Sprintf("Invalid request type: %T, expecting type SetPackageRequest_Package", req.GetRequest())
+		errMsg := fmt.Sprintf("invalid request type: %T, expected SetPackageRequest_Package", req.GetRequest())
 		log.Errorf(errMsg)
 		return status.Errorf(codes.InvalidArgument, errMsg)
 	}
 
-	// Extract the package information
-	log.V(1).Infof("Received package information: %v", pkg.Package)
+	// Log received package details
+	log.V(1).Infof("Received package information: Filename=%s, RemoteDownload=%v", pkg.Package.Filename, pkg.Package.RemoteDownload)
 
-	// Extract remote download information
-	download := pkg.Package.RemoteDownload
-	if download == nil {
-		log.Errorf("RemoteDownload information is missing")
-		return status.Errorf(codes.InvalidArgument, "RemoteDownload information is missing.")
+	// Validate remote download information
+	if pkg.Package.RemoteDownload == nil || pkg.Package.RemoteDownload.Path == "" {
+		log.Errorf("Missing or invalid RemoteDownload information in package request")
+		return status.Errorf(codes.InvalidArgument, "RemoteDownload information is missing or invalid")
 	}
+
 	// Download the package
-	err = dbus.DownloadImage(download.Path, pkg.Package.Filename)
+	err = dbus.DownloadImage(pkg.Package.RemoteDownload.Path, pkg.Package.Filename)
 	if err != nil {
-		log.Errorf("Failed to download image: %v", err)
-		return err
+		log.Errorf("Failed to download image from %s: %v", pkg.Package.RemoteDownload.Path, err)
+		return status.Errorf(codes.Internal, "failed to download image: %v", err)
 	}
+
 	// Install the package
 	err = dbus.InstallImage(pkg.Package.Filename)
 	if err != nil {
 		log.Errorf("Failed to install image: %v", err)
-		return err
+		return status.Errorf(codes.Internal, "failed to install image: %v", err)
 	}
 
-	rs.SendAndClose(&gnoi_system_pb.SetPackageResponse{})
+	// Send response to client
+	if err := rs.SendAndClose(&gnoi_system_pb.SetPackageResponse{}); err != nil {
+		log.Errorf("Failed to send response: %v", err)
+		return status.Errorf(codes.Internal, "failed to send response: %v", err)
+	}
 
+	log.V(1).Infof("SetPackage completed successfully for %s", pkg.Package.Filename)
 	return nil
 }
 
