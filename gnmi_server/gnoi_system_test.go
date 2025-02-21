@@ -2,9 +2,7 @@ package gnmi
 
 import (
 	"context"
-	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -68,7 +66,7 @@ func TestSetPackage(t *testing.T) {
 	})
 
 	t.Run("SetPackageDownloadFailure", func(t *testing.T) {
-		expectedError := fmt.Errorf("failed to download image")
+		expectedError := status.Errorf(codes.Internal, "failed to download image")
 
 		mockServer.EXPECT().Recv().Return(&gnoi_system_pb.SetPackageRequest{
 			Request: &gnoi_system_pb.SetPackageRequest_Package{
@@ -92,13 +90,17 @@ func TestSetPackage(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Expected error but got none")
 		}
-		if !strings.Contains(err.Error(), expectedError.Error()) {
-			t.Errorf("Expected error to contain '%v', but got '%v'", expectedError, err)
+		st, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("Expected gRPC status error, but got %v", err)
+		}
+		if st.Code() != status.Code(expectedError) {
+			t.Errorf("Expected error code '%v', but got '%v'", status.Code(expectedError), st.Code())
 		}
 	})
 
 	t.Run("SetPackageInstallFailure", func(t *testing.T) {
-		expectedError := fmt.Errorf("failed to install image")
+		expectedError := status.Errorf(codes.Internal, "failed to install image")
 
 		mockServer.EXPECT().Recv().Return(&gnoi_system_pb.SetPackageRequest{
 			Request: &gnoi_system_pb.SetPackageRequest_Package{
@@ -125,8 +127,36 @@ func TestSetPackage(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Expected error but got none")
 		}
-		if !strings.Contains(err.Error(), expectedError.Error()) {
-			t.Errorf("Expected error to contain '%v', but got '%v'", expectedError, err)
+		st, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("Expected gRPC status error, but got %v", err)
+		}
+		if st.Code() != status.Code(expectedError) {
+			t.Errorf("Expected error code '%v', but got '%v'", status.Code(expectedError), st.Code())
+		}
+	})
+
+	t.Run("SetPackageMissingFilename", func(t *testing.T) {
+		mockServer.EXPECT().Recv().Return(&gnoi_system_pb.SetPackageRequest{
+			Request: &gnoi_system_pb.SetPackageRequest_Package{
+				Package: &gnoi_system_pb.Package{
+					RemoteDownload: &gnoi_common_pb.RemoteDownload{
+						Path: "http://example.com/package",
+					},
+				},
+			},
+		}, nil).Times(1)
+		err := srv.SetPackage(mockServer)
+		if err == nil {
+			t.Fatalf("Expected error but got none")
+		}
+		expectedErrorCode := codes.InvalidArgument
+		st, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("Expected gRPC status error, but got %v", err)
+		}
+		if st.Code() != expectedErrorCode {
+			t.Errorf("Expected error code '%v', but got '%v'", expectedErrorCode, st.Code())
 		}
 	})
 
@@ -143,9 +173,13 @@ func TestSetPackage(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Expected error but got none")
 		}
-		expectedErrMsg := "RemoteDownload information is missing"
-		if !strings.Contains(err.Error(), expectedErrMsg) {
-			t.Errorf("Expected error to contain '%v', but got '%v'", expectedErrMsg, err)
+		expectedErrorCode := codes.InvalidArgument
+		st, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("Expected gRPC status error, but got %v", err)
+		}
+		if st.Code() != expectedErrorCode {
+			t.Errorf("Expected error code '%v', but got '%v'", expectedErrorCode, st.Code())
 		}
 	})
 
@@ -158,13 +192,17 @@ func TestSetPackage(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Expected error but got none")
 		}
-		if !strings.Contains(err.Error(), expectedError.Error()) {
-			t.Errorf("Expected error to contain '%v', but got '%v'", expectedError, err)
+		st, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("Expected gRPC status error, but got %v", err)
+		}
+		if st.Code() != status.Code(expectedError) {
+			t.Errorf("Expected error code '%v', but got '%v'", status.Code(expectedError), st.Code())
 		}
 	})
 
 	t.Run("SetPackageSendAndCloseFailure", func(t *testing.T) {
-		expectedError := fmt.Errorf("failed to send response")
+		expectedError := status.Errorf(codes.Internal, "failed to send response")
 
 		mockServer.EXPECT().Recv().Return(&gnoi_system_pb.SetPackageRequest{
 			Request: &gnoi_system_pb.SetPackageRequest_Package{
@@ -193,13 +231,17 @@ func TestSetPackage(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Expected error but got none")
 		}
-		if !strings.Contains(err.Error(), expectedError.Error()) {
-			t.Errorf("Expected error to contain '%v', but got '%v'", expectedError, err)
+		st, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("Expected gRPC status error, but got %v", err)
+		}
+		if st.Code() != status.Code(expectedError) {
+			t.Errorf("Expected error code '%v', but got '%v'", status.Code(expectedError), st.Code())
 		}
 	})
 
 	t.Run("RecvFails", func(t *testing.T) {
-		expectedError := fmt.Errorf("Recv() failed")
+		expectedError := status.Errorf(codes.Internal, "Recv() failed")
 
 		mockServer.EXPECT().Recv().Return(nil, expectedError).Times(1)
 
@@ -207,8 +249,12 @@ func TestSetPackage(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Expected error but got none")
 		}
-		if !strings.Contains(err.Error(), expectedError.Error()) {
-			t.Errorf("Expected error to contain '%v', but got '%v'", expectedError, err)
+		st, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("Expected gRPC status error, but got %v", err)
+		}
+		if st.Code() != status.Code(expectedError) {
+			t.Errorf("Expected error code '%v', but got '%v'", status.Code(expectedError), st.Code())
 		}
 	})
 
@@ -223,14 +269,18 @@ func TestSetPackage(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Expected error but got none")
 		}
-		expectedErrMsg := "invalid request type"
-		if !strings.Contains(err.Error(), expectedErrMsg) {
-			t.Errorf("Expected error to contain '%v', but got '%v'", expectedErrMsg, err)
+		expectedErrorCode := codes.InvalidArgument
+		st, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("Expected gRPC status error, but got %v", err)
+		}
+		if st.Code() != expectedErrorCode {
+			t.Errorf("Expected error code '%v', but got '%v'", expectedErrorCode, st.Code())
 		}
 	})
 
 	t.Run("SendAndCloseFails", func(t *testing.T) {
-		expectedError := fmt.Errorf("SendAndClose() failed")
+		expectedError := status.Errorf(codes.Internal, "SendAndClose() failed")
 
 		mockServer.EXPECT().Recv().Return(&gnoi_system_pb.SetPackageRequest{
 			Request: &gnoi_system_pb.SetPackageRequest_Package{
@@ -259,8 +309,12 @@ func TestSetPackage(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Expected error but got none")
 		}
-		if !strings.Contains(err.Error(), expectedError.Error()) {
-			t.Errorf("Expected error to contain '%v', but got '%v'", expectedError, err)
+		st, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("Expected gRPC status error, but got %v", err)
+		}
+		if st.Code() != status.Code(expectedError) {
+			t.Errorf("Expected error code '%v', but got '%v'", status.Code(expectedError), st.Code())
 		}
 	})
 }

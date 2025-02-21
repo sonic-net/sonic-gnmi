@@ -360,7 +360,7 @@ func (srv *SystemServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) e
 	req, err := rs.Recv()
 	if err != nil {
 		log.Errorf("Failed to receive package request: %v", err)
-		return status.Errorf(codes.InvalidArgument, "failed to receive package request: %v", err)
+		return err
 	}
 
 	// Validate request type
@@ -371,14 +371,21 @@ func (srv *SystemServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) e
 		return status.Errorf(codes.InvalidArgument, errMsg)
 	}
 
-	// Log received package details
-	log.V(1).Infof("Received package information: Filename=%s, RemoteDownload=%v", pkg.Package.Filename, pkg.Package.RemoteDownload)
+	// Validate filename
+	if pkg.Package.Filename == "" {
+		log.Errorf("Filename is missing in package request")
+		return status.Errorf(codes.InvalidArgument, "filename is missing in package request")
+	}
+
 
 	// Validate remote download information
 	if pkg.Package.RemoteDownload == nil || pkg.Package.RemoteDownload.Path == "" {
 		log.Errorf("Missing or invalid RemoteDownload information in package request")
 		return status.Errorf(codes.InvalidArgument, "RemoteDownload information is missing or invalid")
 	}
+
+	// Log received package details
+	log.V(1).Infof("Received package information: Filename=%s, RemoteDownload=%v", pkg.Package.Filename, pkg.Package.RemoteDownload)
 
 	// Download the package
 	err = dbus.DownloadImage(pkg.Package.RemoteDownload.Path, pkg.Package.Filename)
@@ -388,6 +395,7 @@ func (srv *SystemServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) e
 	}
 
 	// Install the package
+	// TODO: clarify install, activate or simply putting the package on the host.
 	err = dbus.InstallImage(pkg.Package.Filename)
 	if err != nil {
 		log.Errorf("Failed to install image: %v", err)
@@ -397,7 +405,7 @@ func (srv *SystemServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) e
 	// Send response to client
 	if err := rs.SendAndClose(&gnoi_system_pb.SetPackageResponse{}); err != nil {
 		log.Errorf("Failed to send response: %v", err)
-		return status.Errorf(codes.Internal, "failed to send response: %v", err)
+		return err
 	}
 
 	log.V(1).Infof("SetPackage completed successfully for %s", pkg.Package.Filename)
