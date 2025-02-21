@@ -371,42 +371,50 @@ func (srv *SystemServer) SetPackage(rs gnoi_system_pb.System_SetPackageServer) e
 		return status.Errorf(codes.InvalidArgument, errMsg)
 	}
 
-	// Validate filename
+	// A filename and a version must be provided
 	if pkg.Package.Filename == "" {
 		log.Errorf("Filename is missing in package request")
 		return status.Errorf(codes.InvalidArgument, "filename is missing in package request")
 	}
+	if pkg.Package.Version == "" {
+		log.Errorf("Version is missing in package request")
+		return status.Errorf(codes.InvalidArgument, "version is missing in package request")
+	}
+	// Log the package filename and version
+	log.V(1).Infof("Package filename: %s, version: %s", pkg.Package.Filename, pkg.Package.Version)
 
+	// Download the package if RemoteDownload is provided
+	if pkg.Package.RemoteDownload != nil {
+		// Validate RemoteDownload
+		log.V(1).Infof("RemoteDownload provided")
+		// Check if the path is provided
+		if pkg.Package.RemoteDownload.Path == "" {
+			log.Errorf("RemoteDownload path is missing")
+			return status.Errorf(codes.InvalidArgument, "remote download path is missing")
+		}
+		log.V(1).Infof("RemoteDownload path: %s", pkg.Package.RemoteDownload.Path)
 
-	// Validate remote download information
-	if pkg.Package.RemoteDownload == nil || pkg.Package.RemoteDownload.Path == "" {
-		log.Errorf("Missing or invalid RemoteDownload information in package request")
-		return status.Errorf(codes.InvalidArgument, "RemoteDownload information is missing or invalid")
+		// Download the package
+		err = dbus.DownloadImage(pkg.Package.RemoteDownload.Path, pkg.Package.Filename)
+		if err != nil {
+			log.Errorf("Failed to download image: %v", err)
+			return status.Errorf(codes.Internal, "failed to download image: %v", err)
+		}
+		log.V(1).Infof("Package %s downloaded successfully to %s", pkg.Package.Version, pkg.Package.Filename)
 	}
 
-	// Does not support not activating the image for now.
-	// TODO: Support not activating the image.
-	if pkg.Package.Activate != nil && !pkg.Package.Activate.Value {
-		log.Errorf("Not activating the image is not supported")
-		return status.Errorf(codes.InvalidArgument, "not activating the image is not supported")
-	}
-
-	// Log received package details
-	log.V(1).Infof("Received package information: Filename=%s, RemoteDownload=%v", pkg.Package.Filename, pkg.Package.RemoteDownload)
-
-	// Download the package
-	err = dbus.DownloadImage(pkg.Package.RemoteDownload.Path, pkg.Package.Filename)
-	if err != nil {
-		log.Errorf("Failed to download image from %s: %v", pkg.Package.RemoteDownload.Path, err)
-		return status.Errorf(codes.Internal, "failed to download image: %v", err)
-	}
-
-	// Install the package
-	// TODO: clarify install, activate or simply putting the package on the host.
-	err = dbus.InstallImage(pkg.Package.Filename)
-	if err != nil {
-		log.Errorf("Failed to install image: %v", err)
-		return status.Errorf(codes.Internal, "failed to install image: %v", err)
+	// If activate is requested, install the package and set it to be the next boot image
+	if pkg.Package.Activate {
+		log.V(1).Infof("Activate is requested")
+		// Install the package
+		err = dbus.InstallImage(pkg.Package.Filename)
+		if err != nil {
+			log.Errorf("Failed to install image: %v", err)
+			return status.Errorf(codes.Internal, "failed to install image: %v", err)
+		}
+		log.V(1).Infof("Package %s installed successfully", pkg.Package.Filename)
+		// Currently, Installing the image will automatically set it as the next boot image
+		log.V(1).Infof("Package %s set as next boot image", pkg.Package.Filename)
 	}
 
 	// Send response to client
