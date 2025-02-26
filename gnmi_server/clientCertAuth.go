@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/golang/glog"
