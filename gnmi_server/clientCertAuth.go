@@ -262,8 +262,8 @@ func PopulateAuthStructByCommonName(certCommonName string, auth *common_utils.Au
 
 	var fieldValuePairs = configDbConnector.Get_entry(serviceConfigTableName, certCommonName)
 	if fieldValuePairs.Size() > 0 {
-		if fieldValuePairs.Has_key("role") {
-			var role = fieldValuePairs.Get("role")
+		if fieldValuePairs.Has_key("role@") {
+			var role = fieldValuePairs.Get("role@")
 			auth.Roles = strings.Split(role, ",")
 		}
 	} else {
