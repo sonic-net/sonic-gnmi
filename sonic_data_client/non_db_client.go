@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/Workiva/go-datastructures/queue"
+	"github.com/sonic-net/sonic-gnmi/health"
 	linuxproc "github.com/c9s/goprocinfo/linux"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -37,6 +38,13 @@ type statsRing struct {
 	writeIdx uint64 // slot index to write next
 	buff     []*linuxproc.Stat
 	mu       sync.RWMutex // Mutex for data protection
+}
+
+type healthInfoStash struct {
+	once       sync.Once
+	healthInfo []health.ContainerHealthInfo
+	err        error
+	isHealthy  bool
 }
 
 // SonicVersionInfo is a data model to serialize '/etc/sonic/sonic_version.yml'
@@ -100,6 +108,10 @@ var (
 		{ // OS build version
 			path:    []string{"OTHERS", "osversion", "build"},
 			getFunc: dataGetFunc(getBuildVersion),
+		},
+		{ // Container Health Status
+			path:    []string{"OTHERS", "container-health-status", "gnmi"},
+			getFunc: dataGetFunc(getContainerHealthStatus),
 		},
 	}
 )
@@ -332,6 +344,36 @@ func getBuildVersion() ([]byte, error) {
 		return b, err
 	}
 	log.V(4).Infof("getBuildVersion, output %v", string(b))
+	return b, nil
+}
+
+func getContainerHealthStatus() ([]byte, error) {
+	// Load and parse the container health status
+	var stash healthInfoStash
+	stash.once.Do(func() {
+		stash.healthInfo, stash.err = health.GetHealthInfo() // Assuming GetHealthInfo() returns ([]ContainerHealthInfo, error)
+		if stash.err != nil {
+			log.V(2).Infof("Failed to gather health metrics: %v", stash.err)
+			return
+		}
+
+		// Evaluate health info
+		stash.isHealthy = true
+		for _, container := range stash.healthInfo {
+			health.LogHealthProofs(container)
+			if container.CPUUtilization > 80.0 || container.MemoryUsage > 80.0 || container.DiskOccupation > 90.0 || container.CertExpiration <= 30 {
+				stash.isHealthy = false
+				break
+			}
+		}
+	})
+
+	b, err := json.Marshal(stash.healthInfo)
+	if err != nil {
+		log.V(2).Infof("%v", err)
+		return b, err
+	}
+	log.V(4).Infof("getContainerHealthStatus, output %v", string(b))
 	return b, nil
 }
 
