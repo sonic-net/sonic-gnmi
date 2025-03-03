@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -299,27 +298,6 @@ func (srv *Server) Traceroute(req *syspb.TracerouteRequest, stream syspb.System_
 	return status.Errorf(codes.Unimplemented, "Method system.Traceroute is unimplemented.")
 }
 
-func isInsideFirmwareDir(path string) (bool, error) {
-	// Define the allowed base directory
-	firmwareDir := "/lib/firmware"
-
-	// Get the absolute path of the input
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return false, err
-	}
-
-	// Resolve any symlinks in the path
-	resolvedPath, err := filepath.EvalSymlinks(absPath)
-	if err != nil {
-		// If the path doesn't exist, it might be a new file, so just use absPath
-		resolvedPath = absPath
-	}
-
-	// Check if the resolved path is within /lib/firmware/
-	return filepath.HasPrefix(resolvedPath, firmwareDir), nil
-}
-
 func (srv *Server) SetPackage(rs syspb.System_SetPackageServer) error {
 	ctx := rs.Context()
 
@@ -364,12 +342,6 @@ func (srv *Server) SetPackage(rs syspb.System_SetPackageServer) error {
 	}
 	// Log the package filename and version
 	log.V(1).Infof("Package filename: %s, version: %s", pkg.Package.Filename, pkg.Package.Version)
-
-	// Only allow putting files in /lib/firmware
-	if ok, err := isInsideFirmwareDir(pkg.Package.Filename); !ok || err != nil {
-		log.Errorf("Invalid filename: %s, error: %v", pkg.Package.Filename, err)
-		return status.Errorf(codes.InvalidArgument, "invalid filename: %s, error: %v", pkg.Package.Filename, err)
-	}
 
 	// Download the package if RemoteDownload is provided
 	if pkg.Package.RemoteDownload != nil {

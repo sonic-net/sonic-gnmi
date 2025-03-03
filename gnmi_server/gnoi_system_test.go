@@ -48,7 +48,7 @@ func TestSetPackage(t *testing.T) {
 					RemoteDownload: &commonpb.RemoteDownload{
 						Path: "http://example.com/package",
 					},
-					Filename: "/lib/firmware/package.bin",
+					Filename: "package.bin",
 					Version:  "1.0",
 					Activate: false,
 				},
@@ -88,7 +88,7 @@ func TestSetPackage(t *testing.T) {
 		mockServer.EXPECT().Recv().Return(&syspb.SetPackageRequest{
 			Request: &syspb.SetPackageRequest_Package{
 				Package: &syspb.Package{
-					Filename: "/lib/firmware/package.bin",
+					Filename: "package.bin",
 					Version:  "1.0",
 					Activate: true,
 				},
@@ -131,7 +131,7 @@ func TestSetPackage(t *testing.T) {
 					RemoteDownload: &commonpb.RemoteDownload{
 						Path: "http://example.com/package",
 					},
-					Filename: "/lib/firmware/package.bin",
+					Filename: "package.bin",
 					Version:  "1.0",
 					Activate: true,
 				},
@@ -176,7 +176,7 @@ func TestSetPackage(t *testing.T) {
 					RemoteDownload: &commonpb.RemoteDownload{
 						Path: "http://example.com/package",
 					},
-					Filename: "/lib/firmware/package.bin",
+					Filename: "package.bin",
 					Version:  "1.0",
 					Activate: false,
 				},
@@ -209,7 +209,7 @@ func TestSetPackage(t *testing.T) {
 		mockServer.EXPECT().Recv().Return(&syspb.SetPackageRequest{
 			Request: &syspb.SetPackageRequest_Package{
 				Package: &syspb.Package{
-					Filename: "/lib/firmware/package.bin",
+					Filename: "package.bin",
 					Version:  "1.0",
 					Activate: true,
 				},
@@ -265,33 +265,6 @@ func TestSetPackage(t *testing.T) {
 		}
 	})
 
-	t.Run("SetPackageInvalidPath", func(t *testing.T) {
-		mockServer.EXPECT().Recv().Return(&syspb.SetPackageRequest{
-			Request: &syspb.SetPackageRequest_Package{
-				Package: &syspb.Package{
-					RemoteDownload: &commonpb.RemoteDownload{
-						Path: "http://malicious.com/package",
-					},
-					Filename: "/etc/passwd",
-					Version:  "1.0",
-					Activate: true,
-				},
-			},
-		}, nil).Times(1)
-		err := srv.SetPackage(mockServer)
-		if err == nil {
-			t.Fatalf("Expected error but got none")
-		}
-		expectedErrorCode := codes.InvalidArgument
-		st, ok := status.FromError(err)
-		if !ok {
-			t.Fatalf("Expected gRPC status error, but got %v", err)
-		}
-		if st.Code() != expectedErrorCode {
-			t.Errorf("Expected error code '%v', but got '%v'", expectedErrorCode, st.Code())
-		}
-	})
-
 	t.Run("SetPackageMissingVersion", func(t *testing.T) {
 		mockServer.EXPECT().Recv().Return(&syspb.SetPackageRequest{
 			Request: &syspb.SetPackageRequest_Package{
@@ -299,7 +272,7 @@ func TestSetPackage(t *testing.T) {
 					RemoteDownload: &commonpb.RemoteDownload{
 						Path: "http://example.com/package",
 					},
-					Filename: "/lib/firmware/package.bin",
+					Filename: "package.bin",
 					Activate: true,
 				},
 			},
@@ -323,7 +296,7 @@ func TestSetPackage(t *testing.T) {
 			Request: &syspb.SetPackageRequest_Package{
 				Package: &syspb.Package{
 					RemoteDownload: &commonpb.RemoteDownload{},
-					Filename:       "/lib/firmware/package.bin",
+					Filename:       "package.bin",
 					Version:        "1.0",
 					Activate:       false,
 				},
@@ -371,7 +344,7 @@ func TestSetPackage(t *testing.T) {
 					RemoteDownload: &commonpb.RemoteDownload{
 						Path: "http://example.com/package",
 					},
-					Filename: "/lib/firmware/package.bin",
+					Filename: "package.bin",
 					Version:  "1.0",
 					Activate: false,
 				},
