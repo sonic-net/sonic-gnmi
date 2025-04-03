@@ -1400,6 +1400,28 @@ func (c *MixedDbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.U
 	return nil
 }
 
+func (c *MixedDbClient) ReplaceFullConfig(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
+	val := replace[0].GetVal()
+	ietf_json_val := val.GetJsonIetfVal()
+	if len(ietf_json_val) == 0 {
+		return fmt.Errorf("Value encoding is not IETF JSON")
+	}
+	content := []byte(ietf_json_val)
+
+	var sc ssc.Service
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		return err
+	}
+
+	err = sc.ConfigReplace(string(content))
+
+	if err == nil {
+		err = sc.ConfigSave("/etc/sonic/config_db.json")
+	}
+	return err
+}
+
 func (c *MixedDbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	/* DELETE */
 	deletePathList, err := c.getAllDbtablePath(delete)
@@ -1459,6 +1481,14 @@ func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Upd
 		}
 		if (len(deletePath.GetElem()) == 0) && (len(updatePath.GetElem()) == 0) {
 			return c.SetFullConfig(delete, replace, update)
+		}
+	} else if deleteLen == 0 && replaceLen == 1 && updateLen == 0 {
+		replacePath, err := c.gnmiFullPath(c.prefix, replace[0].GetPath())
+		if err != nil {
+			return err
+		}
+		if len(replacePath.GetElem()) == 0 {
+			return c.ReplaceFullConfig(delete, replace, update)
 		}
 	}
 	return c.SetIncrementalConfig(delete, replace, update)

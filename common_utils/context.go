@@ -58,6 +58,7 @@ const (
 	DBUS_IMAGE_INSTALL
 	DBUS_IMAGE_LIST
 	DBUS_IMAGE_ACTIVATE
+	DBUS_CONFIG_REPLACE
 	COUNTER_SIZE
 )
 
@@ -103,6 +104,8 @@ func (c CounterType) String() string {
 		return "DBUS image list"
 	case DBUS_IMAGE_ACTIVATE:
 		return "DBUS image activate"
+	case DBUS_CONFIG_REPLACE:
+		return "DBUS config replace"
 	default:
 		return ""
 	}
