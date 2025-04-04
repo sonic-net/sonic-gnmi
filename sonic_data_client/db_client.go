@@ -388,25 +388,6 @@ func ValToResp(val Value) (*gnmipb.SubscribeResponse, error) {
 				Response: &gnmipb.SubscribeResponse_Update{Update: n}}, nil
 		}
 
-		// In case of path deletion
-		if deleted := val.GetDelete(); deleted != nil {
-			return &gnmipb.SubscribeResponse{
-				Response: &gnmipb.SubscribeResponse_Update{
-					Update: &gnmipb.Notification{
-						Timestamp: val.GetTimestamp(),
-						Prefix:    val.GetPrefix(),
-						Delete:    deleted,
-						Update: []*gnmipb.Update{
-							{
-								Path: val.GetPath(),
-								Val:  val.GetVal(),
-							},
-						},
-					},
-				},
-			}, nil
-		}
-
 		return &gnmipb.SubscribeResponse{
 			Response: &gnmipb.SubscribeResponse_Update{
 				Update: &gnmipb.Notification{
@@ -1149,7 +1130,6 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 					}
 					key := subscr.Channel[prefixLen:]
 					newMsi[key] = fp
-					newMsi["delete"] = "null_value"
 				}
 			} else if subscr.Payload == "hset" {
 				//op := "SET"
@@ -1221,11 +1201,6 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 
 	// Helper to send hash data over the stream
 	sendMsiData := func(msiData map[string]interface{}) error {
-		sendDeleteField := false
-		if _, isDelete := msiData["delete"]; isDelete {
-			sendDeleteField = true
-		}
-		delete(msiData, "delete")
 		val, err := Msi2TypedValue(msiData)
 		if err != nil {
 			return err
@@ -1237,9 +1212,6 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 			Path:      gnmiPath,
 			Timestamp: time.Now().UnixNano(),
 			Val:       val,
-		}
-		if sendDeleteField {
-			(*spbv).Delete = []*gnmipb.Path{gnmiPath}
 		}
 		if err = c.q.Put(Value{spbv}); err != nil {
 			return fmt.Errorf("Queue error:  %v", err)
