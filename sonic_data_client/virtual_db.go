@@ -675,9 +675,21 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 	return tblPaths, nil
 }
 
+func buildTablePath(namespace, dbName, tableName, tableKey, separator, jsonTableKey string) tablePath {
+	return tablePath{
+		dbNamespace:  namespace,
+		dbName:       dbName,
+		tableName:    tableName,
+		tableKey:     tableKey,
+		delimitor:    separator,
+		jsonTableKey: jsonTableKey,
+	}
+}
+
 // Populate real data paths from paths like
 // [COUNTER_DB COUNTERS Ethernet* PGs] or [COUNTER_DB COUNTERS Ethernet68 PGs]
 func v2rEthPortPGStats(paths []string) ([]tablePath, error) {
+	// paths[DbIdx] = "COUNTERS_DB"
 	separator, _ := GetTableKeySeparator(paths[DbIdx], "")
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // priority groups on all Ethernet ports
@@ -695,14 +707,7 @@ func v2rEthPortPGStats(paths []string) ([]tablePath, error) {
 				return nil, fmt.Errorf("%v does not have namespace associated", names[0])
 			}
 			pg = strings.Join([]string{oname, names[1]}, separator)
-			tblPath := tablePath{
-				dbNamespace:  namespace,
-				dbName:       paths[DbIdx],
-				tableName:    paths[TblIdx],
-				tableKey:     oid,
-				delimitor:    separator,
-				jsonTableKey: pg,
-			}
+			tblPath := buildTablePath(namespace, paths[DbIdx], paths[TblIdx], oid, separator, pg)
 			tblPaths = append(tblPaths, tblPath)
 		}
 	} else { // priority groups on a single port
@@ -722,14 +727,7 @@ func v2rEthPortPGStats(paths []string) ([]tablePath, error) {
 				continue
 			}
 			pg = strings.Join([]string{alias, names[1]}, separator)
-			tblPath := tablePath{
-				dbNamespace:  namespace,
-				dbName:       paths[DbIdx],
-				tableName:    paths[TblIdx],
-				tableKey:     oid,
-				delimitor:    separator,
-				jsonTableKey: pg,
-			}
+			tblPath := buildTablePath(namespace, paths[DbIdx], paths[TblIdx], oid, separator, pg)
 			tblPaths = append(tblPaths, tblPath)
 		}
 	}
