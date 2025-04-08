@@ -265,6 +265,10 @@ func PopulateAuthStructByCommonName(certCommonName string, auth *common_utils.Au
 		if fieldValuePairs.Has_key("role@") {
 			var role = fieldValuePairs.Get("role@")
 			auth.Roles = strings.Split(role, ",")
+		} else if fieldValuePairs.Has_key("role") {
+			// Backward compatibility for single role DB schema
+			var role = fieldValuePairs.Get("role")
+			auth.Roles = []string{role}
 		}
 	} else {
 		glog.Warningf("Failed to retrieve cert common name mapping; %s", certCommonName)
