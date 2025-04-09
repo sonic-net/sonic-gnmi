@@ -105,12 +105,6 @@ stages:
       displayName: "Install dependency"
 
     - script: |
-        # SONIC YANGS
-        set -ex
-        sudo pip3 install ../target/python-wheels/bookworm/sonic_yang_models-1.0-py3-none-any.whl
-      displayName: "Install sonic yangs"
-
-    - script: |
         # LIBSWSSCOMMON
         sudo apt-get -y purge libnl-3-dev libnl-route-3-dev
         sudo dpkg -i ../target/debs/bookworm/libnl-3-200_*.deb
@@ -146,6 +140,11 @@ stages:
         sudo dpkg -i python3-swsscommon_1.0.0_amd64.deb
       workingDirectory: $(Pipeline.Workspace)/
       displayName: 'Install libswsscommon package'
+    
+    - script: |
+        sudo apt-get install -y protobuf-compiler
+        protoc --version
+      displayName: 'Install protoc'
 
     - script: |
         set -ex
