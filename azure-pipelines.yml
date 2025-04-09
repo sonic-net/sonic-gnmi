@@ -142,11 +142,6 @@ stages:
       displayName: 'Install libswsscommon package'
     
     - script: |
-        sudo apt-get install -y protobuf-compiler
-        protoc --version
-      displayName: 'Install protoc'
-
-    - script: |
         set -ex
         ls -l
 
