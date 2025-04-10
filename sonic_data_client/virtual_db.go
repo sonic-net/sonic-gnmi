@@ -73,6 +73,9 @@ var (
 		}, { // stats for one or all Fabric ports
 			path:      []string{"COUNTERS_DB", "COUNTERS", "PORT*"},
 			transFunc: v2rTranslate(v2rFabricPortStats),
+		}, { // Periodic PG watermarks for one or all Ethernet ports
+			path:      []string{"COUNTERS_DB", "WATERMARKS", "Ethernet*", "PriorityGroups", "PERIODIC_WATERMARKS"},
+			transFunc: v2rTranslate(v2rEthPortPGPeriodicWMs),
 		},
 	}
 )
@@ -686,9 +689,7 @@ func buildTablePath(namespace, dbName, tableName, tableKey, separator, jsonTable
 	}
 }
 
-// Populate real data paths from paths like
-// [COUNTER_DB COUNTERS Ethernet* PGs] or [COUNTER_DB COUNTERS Ethernet68 PGs]
-func v2rEthPortPGStats(paths []string) ([]tablePath, error) {
+func v2rEthPortPG(paths []string, tableName string) ([]tablePath, error) {
 	// paths[DbIdx] = "COUNTERS_DB"
 	separator, _ := GetTableKeySeparator(paths[DbIdx], "")
 	var tblPaths []tablePath
@@ -699,7 +700,7 @@ func v2rEthPortPGStats(paths []string) ([]tablePath, error) {
 			if alias, ok := name2aliasMap[names[0]]; ok {
 				oname = alias
 			} else {
-				log.V(2).Infof(" %v dose not have a vendor alias", names[0])
+				log.V(2).Infof(" %v does not have a vendor alias", names[0])
 				oname = names[0]
 			}
 			namespace, ok := port2namespaceMap[names[0]]
@@ -707,7 +708,7 @@ func v2rEthPortPGStats(paths []string) ([]tablePath, error) {
 				return nil, fmt.Errorf("%v does not have namespace associated", names[0])
 			}
 			pg = strings.Join([]string{oname, names[1]}, separator)
-			tblPath := buildTablePath(namespace, paths[DbIdx], paths[TblIdx], oid, separator, pg)
+			tblPath := buildTablePath(namespace, paths[DbIdx], tableName, oid, separator, pg)
 			tblPaths = append(tblPaths, tblPath)
 		}
 	} else { // priority groups on a single port
@@ -727,12 +728,25 @@ func v2rEthPortPGStats(paths []string) ([]tablePath, error) {
 				continue
 			}
 			pg = strings.Join([]string{alias, names[1]}, separator)
-			tblPath := buildTablePath(namespace, paths[DbIdx], paths[TblIdx], oid, separator, pg)
+			tblPath := buildTablePath(namespace, paths[DbIdx], tableName, oid, separator, pg)
 			tblPaths = append(tblPaths, tblPath)
 		}
 	}
-	log.V(6).Infof("v2rEthPortPGStats: %v", tblPaths)
+	log.V(6).Infof("v2rEthPortPG: %v", tblPaths)
 	return tblPaths, nil
+}
+
+// Populate real data paths from paths like
+// [COUNTER_DB COUNTERS Ethernet* PGs] or [COUNTER_DB COUNTERS Ethernet68 PGs]
+func v2rEthPortPGStats(paths []string) ([]tablePath, error) {
+	return v2rEthPortPG(paths, "COUNTERS")
+}
+
+// Populate real data paths from paths like
+// [COUNTER_DB WATERMARKS Ethernet* PriorityGroups PERIODIC_WATERMARKS] or
+// [COUNTER_DB WATERMARKS Ethernet68 PriorityGroups PERIODIC_WATERMARKS]
+func v2rEthPortPGPeriodicWMs(paths []string) ([]tablePath, error) {
+	return v2rEthPortPG(paths, "PERIODIC_WATERMARKS")
 }
 
 func lookupV2R(paths []string) ([]tablePath, error) {
