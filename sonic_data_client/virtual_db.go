@@ -76,6 +76,9 @@ var (
 		}, { // Periodic PG watermarks for one or all Ethernet ports
 			path:      []string{"COUNTERS_DB", "WATERMARKS", "Ethernet*", "PriorityGroups", "PERIODIC_WATERMARKS"},
 			transFunc: v2rTranslate(v2rEthPortPGPeriodicWMs),
+		}, { // Periodic Queue watermarks for one or all Ethernet ports
+			path:      []string{"COUNTERS_DB", "WATERMARKS", "Ethernet*", "Queues", "PERIODIC_WATERMARKS"},
+			transFunc: v2rTranslate(v2rEthPortQueuePeriodicWMs),
 		},
 	}
 )
@@ -615,14 +618,23 @@ func v2rEthPortPfcwdStats(paths []string) ([]tablePath, error) {
 	return tblPaths, nil
 }
 
-// Populate real data paths from paths like
-// [COUNTER_DB COUNTERS Ethernet* Queues] or [COUNTER_DB COUNTERS Ethernet68 Queues]
-func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
+func buildTablePath(namespace, dbName, tableName, tableKey, separator, jsonTableKey string) tablePath {
+	return tablePath{
+		dbNamespace:  namespace,
+		dbName:       dbName,
+		tableName:    tableName,
+		tableKey:     tableKey,
+		delimitor:    separator,
+		jsonTableKey: jsonTableKey,
+	}
+}
+
+func v2rEthPortQueue(paths []string, tableName string) ([]tablePath, error) {
+	// paths[DbIdx] = "COUNTERS_DB"
 	separator, _ := GetTableKeySeparator(paths[DbIdx], "")
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // queues on all Ethernet ports
 		for que, oid := range countersQueueNameMap {
-			// que is in format of "Internal_Ethernet:12"
 			names := strings.Split(que, separator)
 			var oname string
 			if alias, ok := name2aliasMap[names[0]]; ok {
@@ -636,14 +648,8 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 				return nil, fmt.Errorf("%v does not have namespace associated", names[0])
 			}
 			que = strings.Join([]string{oname, names[1]}, separator)
-			tblPath := tablePath{
-				dbNamespace:  namespace,
-				dbName:       paths[DbIdx],
-				tableName:    paths[TblIdx],
-				tableKey:     oid,
-				delimitor:    separator,
-				jsonTableKey: que,
-			}
+			// que is in format of "Internal_Ethernet:12"
+			tblPath := buildTablePath(namespace, paths[DbIdx], tableName, oid, separator, que)
 			tblPaths = append(tblPaths, tblPath)
 		}
 	} else { //queues on single port
@@ -657,36 +663,31 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 			return nil, fmt.Errorf("%v does not have namespace associated", name)
 		}
 		for que, oid := range countersQueueNameMap {
-			//que is in format of "Ethernet64:12"
 			names := strings.Split(que, separator)
 			if name != names[0] {
 				continue
 			}
 			que = strings.Join([]string{alias, names[1]}, separator)
-			tblPath := tablePath{
-				dbNamespace:  namespace,
-				dbName:       paths[DbIdx],
-				tableName:    paths[TblIdx],
-				tableKey:     oid,
-				delimitor:    separator,
-				jsonTableKey: que,
-			}
+			//que is in format of "Ethernet64:12"
+			tblPath := buildTablePath(namespace, paths[DbIdx], tableName, oid, separator, que)
 			tblPaths = append(tblPaths, tblPath)
 		}
 	}
-	log.V(6).Infof("v2rEthPortQueStats: %v", tblPaths)
+	log.V(6).Infof("v2rEthPortQue: %v", tblPaths)
 	return tblPaths, nil
 }
 
-func buildTablePath(namespace, dbName, tableName, tableKey, separator, jsonTableKey string) tablePath {
-	return tablePath{
-		dbNamespace:  namespace,
-		dbName:       dbName,
-		tableName:    tableName,
-		tableKey:     tableKey,
-		delimitor:    separator,
-		jsonTableKey: jsonTableKey,
-	}
+// Populate real data paths from paths like
+// [COUNTER_DB COUNTERS Ethernet* Queues] or [COUNTER_DB COUNTERS Ethernet68 Queues]
+func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
+	return v2rEthPortQueue(paths, "COUNTERS")
+}
+
+// Populate real data paths from paths like
+// [COUNTER_DB WATERMARKS Ethernet* Queues PERIODIC_WATERMARKS] or
+// [COUNTER_DB WATERMARKS Ethernet68 Queues PERIODIC_WATERMARKS]
+func v2rEthPortQueuePeriodicWMs(paths []string) ([]tablePath, error) {
+	return v2rEthPortQueue(paths, "PERIODIC_WATERMARKS")
 }
 
 func v2rEthPortPG(paths []string, tableName string) ([]tablePath, error) {
@@ -708,6 +709,7 @@ func v2rEthPortPG(paths []string, tableName string) ([]tablePath, error) {
 				return nil, fmt.Errorf("%v does not have namespace associated", names[0])
 			}
 			pg = strings.Join([]string{oname, names[1]}, separator)
+			// pg is in format of "Internal_Ethernet:12"
 			tblPath := buildTablePath(namespace, paths[DbIdx], tableName, oid, separator, pg)
 			tblPaths = append(tblPaths, tblPath)
 		}
@@ -722,12 +724,12 @@ func v2rEthPortPG(paths []string, tableName string) ([]tablePath, error) {
 			return nil, fmt.Errorf("%v does not have namespace associated", name)
 		}
 		for pg, oid := range countersPGNameMap {
-			// pg is in format of "Ethernet64:7"
 			names := strings.Split(pg, separator)
 			if name != names[0] {
 				continue
 			}
 			pg = strings.Join([]string{alias, names[1]}, separator)
+			// pg is in format of "Ethernet64:7"
 			tblPath := buildTablePath(namespace, paths[DbIdx], tableName, oid, separator, pg)
 			tblPaths = append(tblPaths, tblPath)
 		}

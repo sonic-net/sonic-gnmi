@@ -1,0 +1,62 @@
+{
+    "Ethernet56:0": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:1": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:10": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:11": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:12": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:13": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:14": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:15": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:16": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:17": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:18": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:19": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:2": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:3": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:4": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:5": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:6": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:7": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:8": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    },
+    "Ethernet56:9": {
+        'SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES': '0'
+    }
+}
