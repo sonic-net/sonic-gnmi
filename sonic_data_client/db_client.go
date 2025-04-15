@@ -315,12 +315,12 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 			val, err, noUpdate := tableData2TypedValue(tblPaths, nil)
 			if noUpdate { // No updates sent for missing data
 				if prevUpdate, exists := prevUpdates[pathKey]; exists && prevUpdate == true {
-					// TODO: Use delete field
+					log.V(6).Infof("Delete received for message for %v", gnmiPath)
 					spbv := &spb.Value{
-						Prefix:       c.prefix,
-						Path:         gnmiPath,
 						Timestamp:    time.Now().UnixNano(),
+						Prefix:       c.prefix,
 						SyncResponse: false,
+						Delete:       []*gnmipb.Path{gnmiPath},
 						Val: &gnmipb.TypedValue{
 							Value: &gnmipb.TypedValue_StringVal{
 								StringVal: "",
@@ -410,7 +410,6 @@ func ValToResp(val Value) (*gnmipb.SubscribeResponse, error) {
 				Response: &gnmipb.SubscribeResponse_Update{Update: n}}, nil
 		}
 
-		// In case of path deletion
 		if deleted := val.GetDelete(); deleted != nil {
 			return &gnmipb.SubscribeResponse{
 				Response: &gnmipb.SubscribeResponse_Update{
@@ -418,12 +417,6 @@ func ValToResp(val Value) (*gnmipb.SubscribeResponse, error) {
 						Timestamp: val.GetTimestamp(),
 						Prefix:    val.GetPrefix(),
 						Delete:    deleted,
-						Update: []*gnmipb.Update{
-							{
-								Path: val.GetPath(),
-								Val:  val.GetVal(),
-							},
-						},
 					},
 				},
 			}, nil
@@ -844,11 +837,9 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 			return err
 		}
 		log.V(4).Infof("Data pulled for dbkey %s: %v", dbkey, fv)
-
 		if len(fv) == 0 { // Skip update for non data path
 			continue
 		}
-
 		if tblPath.jsonTableKey != "" { // If jsonTableKey was prepared, use it
 			err = makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
 		} else if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
@@ -1179,7 +1170,6 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 					}
 					key := subscr.Channel[prefixLen:]
 					newMsi[key] = fp
-					newMsi["delete"] = "null_value"
 				}
 			} else if subscr.Payload == "hset" {
 				//op := "SET"
@@ -1251,11 +1241,6 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 
 	// Helper to send hash data over the stream
 	sendMsiData := func(msiData map[string]interface{}) error {
-		sendDeleteField := false
-		if _, isDelete := msiData["delete"]; isDelete {
-			sendDeleteField = true
-		}
-		delete(msiData, "delete")
 		val, err := Msi2TypedValue(msiData)
 		if err != nil {
 			return err
@@ -1267,9 +1252,6 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 			Path:      gnmiPath,
 			Timestamp: time.Now().UnixNano(),
 			Val:       val,
-		}
-		if sendDeleteField {
-			(*spbv).Delete = []*gnmipb.Path{gnmiPath}
 		}
 		if err = c.q.Put(Value{spbv}); err != nil {
 			return fmt.Errorf("Queue error:  %v", err)
