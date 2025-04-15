@@ -191,7 +191,11 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		c.polled = make(chan struct{}, 1)
 		c.polled <- struct{}{}
 		c.w.Add(1)
-		go dc.PollRun(c.q, c.polled, &c.w, c.subscribe)
+		if target == "APPL_DB" {
+			go dc.AppDBPollRun(c.q, c.polled, &c.w, c.subscribe)
+		} else {
+			go dc.PollRun(c.q, c.polled, &c.w, c.subscribe)
+		}
 	case gnmipb.SubscriptionList_ONCE:
 		c.once = make(chan struct{}, 1)
 		c.once <- struct{}{}
