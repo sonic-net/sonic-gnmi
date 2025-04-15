@@ -879,6 +879,7 @@ func Msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
 		}}, nil
 }
 
+// Returns typed value, error, or bool. Bool specifies that there is no data available for the tablePath that was queried.
 func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error, bool) {
 	var useKey bool
 	msi := make(map[string]interface{})
