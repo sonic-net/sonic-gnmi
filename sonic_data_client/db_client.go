@@ -300,6 +300,8 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 	c.q = q
 	c.channel = poll
 
+	prevUpdates := make(map[string]bool)
+
 	for {
 		_, more := <-c.channel
 		if !more {
@@ -307,30 +309,50 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 			return
 		}
 		t1 := time.Now()
+
 		for gnmiPath, tblPaths := range c.pathG2S {
-			val, err := tableData2TypedValue(tblPaths, nil)
-			if err != nil {
+			pathKey := fmt.Sprintf("%v", gnmiPath)
+			val, err, noUpdate := tableData2TypedValue(tblPaths, nil)
+			if noUpdate { // No updates sent for missing data
+				if prevUpdate, exists := prevUpdates[pathKey]; exists && prevUpdate == true {
+					// TODO: Use delete field
+					spbv := &spb.Value{
+						Prefix:       c.prefix,
+						Path:         gnmiPath,
+						Timestamp:    time.Now().UnixNano(),
+						SyncResponse: false,
+						Val: &gnmipb.TypedValue{
+							Value: &gnmipb.TypedValue_StringVal{
+								StringVal: "",
+							},
+						},
+					}
+					c.q.Put(Value{spbv})
+					log.V(6).Infof("Added spbv #%v", spbv)
+					prevUpdates[pathKey] = false
+				}
+			} else if err != nil {
 				log.V(2).Infof("Unable to create gnmi TypedValue due to err: %v", err)
 				return
+			} else {
+				spbv := &spb.Value{
+					Prefix:       c.prefix,
+					Path:         gnmiPath,
+					Timestamp:    time.Now().UnixNano(),
+					SyncResponse: false,
+					Val:          val,
+				}
+				c.q.Put(Value{spbv})
+				prevUpdates[pathKey] = true
+				log.V(6).Infof("Added spbv #%v", spbv)
 			}
-
-			spbv := &spb.Value{
-				Prefix:       c.prefix,
-				Path:         gnmiPath,
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: false,
-				Val:          val,
-			}
-			c.q.Put(Value{spbv})
-			log.V(6).Infof("Added spbv #%v", spbv)
 		}
-
-		c.q.Put(Value{
-			&spb.Value{
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: true,
-			},
-		})
+		spbv := &spb.Value{
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: true,
+		}
+		c.q.Put(Value{spbv})
+		log.V(6).Infof("Added spbv #%v", spbv)
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
 }
@@ -344,7 +366,7 @@ func (c *DbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	var values []*spb.Value
 	ts := time.Now()
 	for gnmiPath, tblPaths := range c.pathG2S {
-		val, err := tableData2TypedValue(tblPaths, nil)
+		val, err, _ := tableData2TypedValue(tblPaths, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -681,14 +703,22 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 		log.V(6).Infof("Result of keys operation for %v %v, got %v", target, dbPath, res)
 		tblPath.tableKey = ""
 	case 3: // Third element could be table key; or field name in which case table name itself is the key too
-		n, err := redisDb.Exists(tblPath.tableName + tblPath.delimitor + mappedKey).Result()
+		keyExists, err := redisDb.Exists(tblPath.tableName + tblPath.delimitor + mappedKey).Result()
 		if err != nil {
 			return fmt.Errorf("redis Exists op failed for %v", dbPath)
 		}
-		if n == 1 {
+		if keyExists == 1 { // Existing Table:Key
 			tblPath.tableKey = mappedKey
 		} else {
-			tblPath.field = mappedKey
+			fieldExists, err := redisDb.HExists(tblPath.tableName, mappedKey).Result()
+			if err != nil {
+				return fmt.Errorf("redis HExists op failed for %v", dbPath)
+			}
+			if fieldExists { // Existing field in Table
+				tblPath.field = mappedKey
+			} else { // Non existing table key
+				tblPath.tableKey = mappedKey
+			}
 		}
 	case 4: // Fourth element could part of the table key or field name
 		tblPath.tableKey = mappedKey + tblPath.delimitor + stringSlice[3]
@@ -708,16 +738,6 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	default:
 		log.V(2).Infof("Invalid db table Path %v", dbPath)
 		return fmt.Errorf("Invalid db table Path %v", dbPath)
-	}
-
-	var key string
-	if tblPath.tableKey != "" {
-		key = tblPath.tableName + tblPath.delimitor + tblPath.tableKey
-		n, _ := redisDb.Exists(key).Result()
-		if n != 1 {
-			log.V(2).Infof("No valid entry found on %v with key %v", dbPath, key)
-			return fmt.Errorf("No valid entry found on %v with key %v", dbPath, key)
-		}
 	}
 
 	(*pathG2S)[path] = []tablePath{tblPath}
@@ -824,6 +844,11 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 			return err
 		}
 		log.V(4).Infof("Data pulled for dbkey %s: %v", dbkey, fv)
+
+		if len(fv) == 0 { // Skip update for non data path
+			continue
+		}
+
 		if tblPath.jsonTableKey != "" { // If jsonTableKey was prepared, use it
 			err = makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
 		} else if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
@@ -863,7 +888,7 @@ func Msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
 		}}, nil
 }
 
-func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error) {
+func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error, bool) {
 	var useKey bool
 	msi := make(map[string]interface{})
 	for _, tblPath := range tblPaths {
@@ -884,23 +909,28 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 
 				val, err := redisDb.HGet(key, tblPath.field).Result()
 				if err != nil {
-					log.V(2).Infof("redis HGet failed for %v", tblPath)
-					return nil, err
+					log.V(2).Infof("redis HGet failed for %v, data does not exist", tblPath)
+					return nil, err, true
 				}
 				log.V(4).Infof("Data pulled for key %s and field %s: %s", key, tblPath.field, val)
 				// TODO: support multiple table paths
 				return &gnmipb.TypedValue{
 					Value: &gnmipb.TypedValue_StringVal{
 						StringVal: val,
-					}}, nil
+					}}, nil, false
 			}
 		}
 		err := TableData2Msi(&tblPath, useKey, nil, &msi)
+
 		if err != nil {
-			return nil, err
+			return nil, err, false
+		}
+		if len(msi) == 0 {
+			return nil, nil, true
 		}
 	}
-	return Msi2TypedValue(msi)
+	val, err := Msi2TypedValue(msi)
+	return val, err, false
 }
 
 func enqueueFatalMsg(c *DbClient, msg string) {
