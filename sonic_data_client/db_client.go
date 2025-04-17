@@ -39,6 +39,8 @@ type Client interface {
 	// The service will stop upon detection of poll channel closing.
 	// It should run as a go routine
 	PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
+	// Poll to service AppDB only
+	AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
 	OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
 	// Get return data from the data source in format of *spb.Value
 	Get(w *sync.WaitGroup) ([]*spb.Value, error)
@@ -294,7 +296,7 @@ func streamSampleSubscription(c *DbClient, sub *gnmipb.Subscription, updateOnly 
 	}
 }
 
-func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *DbClient) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 	defer c.w.Done()
 	c.q = q
@@ -312,7 +314,7 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 
 		for gnmiPath, tblPaths := range c.pathG2S {
 			pathKey := fmt.Sprintf("%v", gnmiPath)
-			val, err, noUpdate := tableData2TypedValue(tblPaths, nil)
+			val, err, noUpdate := AppDBTableData2TypedValue(tblPaths, nil)
 			if noUpdate { // No updates sent for missing data
 				if prevUpdate, exists := prevUpdates[pathKey]; exists && prevUpdate == true {
 					log.V(6).Infof("Delete received for message for %v", gnmiPath)
@@ -356,6 +358,48 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
 }
+
+func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+	c.w = w
+	defer c.w.Done()
+	c.q = q
+	c.channel = poll
+
+	for {
+		_, more := <-c.channel
+		if !more {
+			log.V(1).Infof("%v poll channel closed, exiting pollDb routine", c)
+			return
+		}
+		t1 := time.Now()
+		for gnmiPath, tblPaths := range c.pathG2S {
+			val, err := tableData2TypedValue(tblPaths, nil)
+			if err != nil {
+				log.V(2).Infof("Unable to create gnmi TypedValue due to err: %v", err)
+				return
+			}
+
+			spbv := &spb.Value{
+				Prefix:       c.prefix,
+				Path:         gnmiPath,
+				Timestamp:    time.Now().UnixNano(),
+				SyncResponse: false,
+				Val:          val,
+			}
+			c.q.Put(Value{spbv})
+			log.V(6).Infof("Added spbv #%v", spbv)
+		}
+
+		c.q.Put(Value{
+			&spb.Value{
+				Timestamp:    time.Now().UnixNano(),
+				SyncResponse: true,
+			},
+		})
+		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
+	}
+}
+
 func (c *DbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	return
 }
@@ -366,7 +410,7 @@ func (c *DbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	var values []*spb.Value
 	ts := time.Now()
 	for gnmiPath, tblPaths := range c.pathG2S {
-		val, err, _ := tableData2TypedValue(tblPaths, nil)
+		val, err := tableData2TypedValue(tblPaths, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -837,6 +881,79 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 			return err
 		}
 		log.V(4).Infof("Data pulled for dbkey %s: %v", dbkey, fv)
+		if tblPath.jsonTableKey != "" { // If jsonTableKey was prepared, use it
+			err = makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
+		} else if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
+			err = makeJSON_redis(msi, nil, op, fv)
+		} else {
+			var key string
+			// Split dbkey string into two parts and second part is key in table
+			keys := strings.SplitN(dbkey, tblPath.delimitor, 2)
+			if len(keys) < 2 {
+				return fmt.Errorf("dbkey: %s, failed split from delimitor %v", dbkey, tblPath.delimitor)
+			}
+			key = keys[1]
+			err = makeJSON_redis(msi, &key, op, fv)
+		}
+		if err != nil {
+			log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
+			return err
+		}
+		log.V(6).Infof("Added idex %v fv %v ", idx, fv)
+	}
+	return nil
+}
+
+func AppDBTableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]interface{}) error {
+	redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
+
+	var pattern string
+	var dbkeys []string
+	var err error
+	var fv map[string]string
+
+	//Only table name provided
+	if tblPath.tableKey == "" {
+		// tables in COUNTERS_DB other than COUNTERS table doesn't have keys
+		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
+			pattern = tblPath.tableName
+		} else {
+			pattern = tblPath.tableName + tblPath.delimitor + "*"
+		}
+		dbkeys, err = redisDb.Keys(pattern).Result()
+		if err != nil {
+			log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
+			return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
+		}
+	} else {
+		// both table name and key provided
+		dbkeys = []string{tblPath.tableName + tblPath.delimitor + tblPath.tableKey}
+	}
+
+	log.V(4).Infof("dbkeys to be pulled from redis %v", dbkeys)
+
+	// Asked to use jsonField and jsonTableKey in the final json value
+	if tblPath.jsonField != "" && tblPath.jsonTableKey != "" {
+		val, err := redisDb.HGet(dbkeys[0], tblPath.field).Result()
+		log.V(4).Infof("Data pulled for key %s and field %s: %s", dbkeys[0], tblPath.field, val)
+		if err != nil {
+			log.V(3).Infof("redis HGet failed for %v %v", tblPath, err)
+			// ignore non-existing field which was derived from virtual path
+			return nil
+		}
+		fv = map[string]string{tblPath.jsonField: val}
+		makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
+		log.V(6).Infof("Added json key %v fv %v ", tblPath.jsonTableKey, fv)
+		return nil
+	}
+
+	for idx, dbkey := range dbkeys {
+		fv, err = redisDb.HGetAll(dbkey).Result()
+		if err != nil {
+			log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
+			return err
+		}
+		log.V(4).Infof("Data pulled for dbkey %s: %v", dbkey, fv)
 		if len(fv) == 0 { // Skip update for non data path
 			continue
 		}
@@ -879,8 +996,7 @@ func Msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
 		}}, nil
 }
 
-// Returns typed value, error, or bool. Bool specifies that there is no data available for the tablePath that was queried.
-func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error, bool) {
+func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error) {
 	var useKey bool
 	msi := make(map[string]interface{})
 	for _, tblPath := range tblPaths {
@@ -901,8 +1017,50 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 
 				val, err := redisDb.HGet(key, tblPath.field).Result()
 				if err != nil {
+					log.V(2).Infof("redis HGet failed for %v", tblPath)
+					return nil, err
+				}
+				log.V(4).Infof("Data pulled for key %s and field %s: %s", key, tblPath.field, val)
+				// TODO: support multiple table paths
+				return &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{
+						StringVal: val,
+					}}, nil
+			}
+		}
+		err := TableData2Msi(&tblPath, useKey, nil, &msi)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return Msi2TypedValue(msi)
+}
+
+// Returns typed value, error, or bool. Bool specifies that there is no data available for the tablePath that was queried.
+func AppDBTableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error, bool) {
+	var useKey bool
+	var updateReceived bool
+	msi := make(map[string]interface{})
+	for _, tblPath := range tblPaths {
+		redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
+
+		if tblPath.jsonField == "" { // Not asked to include field in json value, which means not wildcard query
+			// table path includes table, key and field
+			if tblPath.field != "" {
+				if len(tblPaths) != 1 {
+					log.V(2).Infof("WARNING: more than one path exists for field granularity query: %v", tblPaths)
+				}
+				var key string
+				if tblPath.tableKey != "" {
+					key = tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+				} else {
+					key = tblPath.tableName
+				}
+
+				val, err := redisDb.HGet(key, tblPath.field).Result()
+				if err != nil {
 					log.V(2).Infof("redis HGet failed for %v, data does not exist", tblPath)
-					return nil, err, true
+					continue
 				}
 				log.V(4).Infof("Data pulled for key %s and field %s: %s", key, tblPath.field, val)
 				// TODO: support multiple table paths
@@ -912,14 +1070,20 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 					}}, nil, false
 			}
 		}
-		err := TableData2Msi(&tblPath, useKey, nil, &msi)
+		err := AppDBTableData2Msi(&tblPath, useKey, nil, &msi)
 
 		if err != nil {
 			return nil, err, false
 		}
-		if len(msi) == 0 {
-			return nil, nil, true
+
+		if !updateReceived {
+			if len(msi) > 0 { // Update occurred
+				updateReceived = true
+			}
 		}
+	}
+	if !updateReceived {
+		return nil, nil, true
 	}
 	val, err := Msi2TypedValue(msi)
 	return val, err, false
