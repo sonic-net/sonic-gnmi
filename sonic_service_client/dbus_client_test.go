@@ -856,3 +856,87 @@ func TestActivateImageFail(t *testing.T) {
 		t.Errorf("Expected error message '%s' but got '%v'", err_msg, err)
 	}
 }
+
+func TestLoadDockerImageSuccess(t *testing.T) {
+    imagePath := "/tmp/docker-image.tar"
+
+    // Mocking the DBus API to simulate a successful image load
+    mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+        return &dbus.Conn{}, nil
+    })
+    defer mock1.Reset()
+
+    mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+        if method != "org.SONiC.HostService.docker_service.load" {
+            t.Errorf("Wrong method: %v", method)
+        }
+        if len(args) != 1 {
+            t.Errorf("Wrong number of arguments: %v", len(args))
+        }
+        if args[0] != imagePath {
+            t.Errorf("Wrong image path: %v", args[0])
+        }
+        ret := &dbus.Call{}
+        ret.Err = nil
+        ret.Body = make([]interface{}, 2)
+        ret.Body[0] = int32(0) // Indicating success
+        ch <- ret
+        return &dbus.Call{}
+    })
+    defer mock2.Reset()
+
+    client, err := NewDbusClient()
+    if err != nil {
+        t.Errorf("NewDbusClient failed: %v", err)
+    }
+
+    err = client.LoadDockerImage(imagePath)
+    if err != nil {
+        t.Errorf("LoadDockerImage should pass: %v", err)
+    }
+}
+
+func TestLoadDockerImageFail(t *testing.T) {
+    imagePath := "/tmp/docker-image.tar"
+    errMsg := "This is the mock error message"
+
+    // Mocking the DBus API to simulate a failure
+    mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+        return &dbus.Conn{}, nil
+    })
+    defer mock1.Reset()
+
+    mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+        if method != "org.SONiC.HostService.docker_service.load" {
+            t.Errorf("Wrong method: %v", method)
+        }
+        if len(args) != 1 {
+            t.Errorf("Wrong number of arguments: %v", len(args))
+        }
+        if args[0] != imagePath {
+            t.Errorf("Wrong image path: %v", args[0])
+        }
+        ret := &dbus.Call{}
+        ret.Err = nil
+        ret.Body = make([]interface{}, 2)
+        ret.Body[0] = int32(1) // Indicating failure
+        ret.Body[1] = errMsg
+        ch <- ret
+        return &dbus.Call{}
+    })
+    defer mock2.Reset()
+
+    client, err := NewDbusClient()
+    if err != nil {
+        t.Errorf("NewDbusClient failed: %v", err)
+    }
+
+    err = client.LoadDockerImage(imagePath)
+    if err == nil {
+        t.Errorf("LoadDockerImage should fail")
+    }
+    if err.Error() != errMsg {
+        t.Errorf("Expected error message '%s' but got '%v'", errMsg, err)
+    }
+}
+

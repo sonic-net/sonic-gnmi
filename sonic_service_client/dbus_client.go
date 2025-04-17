@@ -28,6 +28,8 @@ type Service interface {
 	InstallImage(where string) error
 	ListImages() (string, error)
 	ActivateImage(image string) error
+	// Lists of docker related APIs
+	LoadDockerImage(image string) error
 }
 
 type DbusClient struct {
@@ -256,5 +258,15 @@ func (c *DbusClient) ActivateImage(image string) error {
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".set_next_boot"
 	_, err := DbusApi(busName, busPath, intName, 60, image)
+	return err
+}
+
+func (c *DbusClient) LoadDockerImage(image string) error {
+	common_utils.IncCounter(common_utils.DBUS_DOCKER_LOAD)
+	modName := "docker_service"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".load"
+	_, err := DbusApi(busName, busPath, intName, /*timeout=*/180, image)
 	return err
 }
