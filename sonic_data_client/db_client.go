@@ -314,8 +314,8 @@ func (c *DbClient) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *s
 
 		for gnmiPath, tblPaths := range c.pathG2S {
 			pathKey := fmt.Sprintf("%v", gnmiPath)
-			val, err, noUpdate := AppDBTableData2TypedValue(tblPaths, nil)
-			if noUpdate { // No updates sent for missing data
+			val, err, updateReceived := AppDBTableData2TypedValue(tblPaths, nil)
+			if !updateReceived { // No updates sent for missing data
 				if prevUpdate, exists := prevUpdates[pathKey]; exists && prevUpdate == true {
 					log.V(6).Infof("Delete received for message for %v", gnmiPath)
 					spbv := &spb.Value{
@@ -1060,7 +1060,7 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 	return Msi2TypedValue(msi)
 }
 
-// Returns typed value, error, or bool. Bool specifies that there is no data available for the tablePath that was queried.
+// Returns typed value, error, or bool. Bool specifies that there is data available for the tablePath that was queried.
 func AppDBTableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error, bool) {
 	var useKey bool
 	var updateReceived bool
@@ -1091,13 +1091,13 @@ func AppDBTableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedV
 				return &gnmipb.TypedValue{
 					Value: &gnmipb.TypedValue_StringVal{
 						StringVal: val,
-					}}, nil, false
+					}}, nil, true
 			}
 		}
 		err := AppDBTableData2Msi(&tblPath, useKey, nil, &msi)
 
 		if err != nil {
-			return nil, err, false
+			return nil, err, true
 		}
 
 		if !updateReceived {
@@ -1107,10 +1107,10 @@ func AppDBTableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedV
 		}
 	}
 	if !updateReceived {
-		return nil, nil, true
+		return nil, nil, false
 	}
 	val, err := Msi2TypedValue(msi)
-	return val, err, false
+	return val, err, true
 }
 
 func enqueueFatalMsg(c *DbClient, msg string) {
