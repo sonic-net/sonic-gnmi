@@ -740,21 +740,33 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 		log.V(6).Infof("Result of keys operation for %v %v, got %v", target, dbPath, res)
 		tblPath.tableKey = ""
 	case 3: // Third element could be table key; or field name in which case table name itself is the key too
-		keyExists, err := redisDb.Exists(tblPath.tableName + tblPath.delimitor + mappedKey).Result()
-		if err != nil {
-			return fmt.Errorf("redis Exists op failed for %v", dbPath)
-		}
-		if keyExists == 1 { // Existing Table:Key
-			tblPath.tableKey = mappedKey
-		} else {
-			fieldExists, err := redisDb.HExists(tblPath.tableName, mappedKey).Result()
+		if targetDbName == "APPL_DB" {
+			keyExists, err := redisDb.Exists(tblPath.tableName + tblPath.delimitor + mappedKey).Result()
 			if err != nil {
-				return fmt.Errorf("redis HExists op failed for %v", dbPath)
+				return fmt.Errorf("redis Exists op failed for %v", dbPath)
 			}
-			if fieldExists { // Existing field in Table
-				tblPath.field = mappedKey
-			} else { // Non existing table key
+			if keyExists == 1 { // Existing Table:Key
 				tblPath.tableKey = mappedKey
+			} else {
+				fieldExists, err := redisDb.HExists(tblPath.tableName, mappedKey).Result()
+				if err != nil {
+					return fmt.Errorf("redis HExists op failed for %v", dbPath)
+				}
+				if fieldExists { // Existing field in Table
+					tblPath.field = mappedKey
+				} else { // Non existing table key
+					tblPath.tableKey = mappedKey
+				}
+			}
+		} else {
+			n, err := redisDb.Exists(tblPath.tableName + tblPath.delimitor + mappedKey).Result()
+			if err != nil {
+				return fmt.Errorf("redis Exists op failed for %v", dbPath)
+			}
+			if n == 1 {
+				tblPath.tableKey = mappedKey
+			} else {
+				tblPath.field = mappedKey
 			}
 		}
 	case 4: // Fourth element could part of the table key or field name
@@ -775,6 +787,18 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	default:
 		log.V(2).Infof("Invalid db table Path %v", dbPath)
 		return fmt.Errorf("Invalid db table Path %v", dbPath)
+	}
+
+	if targetDbName != "APPL_DB" {
+		var key string
+		if tblPath.tableKey != "" {
+			key = tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+			n, _ := redisDb.Exists(key).Result()
+			if n != 1 {
+				log.V(2).Infof("No valid entry found on %v with key %v", dbPath, key)
+				return fmt.Errorf("No valid entry found on %v with key %v", dbPath, key)
+			}
+		}
 	}
 
 	(*pathG2S)[path] = []tablePath{tblPath}

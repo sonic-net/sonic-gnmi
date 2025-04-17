@@ -5,15 +5,15 @@ package gnmi
 import (
 	"crypto/tls"
 	"encoding/json"
+	"github.com/kylelemons/godebug/pretty"
+	"github.com/openconfig/gnmi/client"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	"golang.org/x/net/context"
 	"io/ioutil"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
-	"github.com/kylelemons/godebug/pretty"
-	"github.com/openconfig/gnmi/client"
-	"golang.org/x/net/context"
 )
 
 func TestPollMissingTableThenTableKey(t *testing.T) {
