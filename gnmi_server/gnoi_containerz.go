@@ -1,3 +1,5 @@
+// Based on gnoi v0.3.0. The latest upstream v0.6.0 has updated many service names. TODO: Upgrade accordingly.
+
 package gnmi
 
 import (
