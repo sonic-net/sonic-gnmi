@@ -267,6 +267,6 @@ func (c *DbusClient) LoadDockerImage(image string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".load"
-	_, err := DbusApi(busName, busPath, intName, /*timeout=*/180, image)
+	_, err := DbusApi(busName, busPath, intName /*timeout=*/, 180, image)
 	return err
 }
