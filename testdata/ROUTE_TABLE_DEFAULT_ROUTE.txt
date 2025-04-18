@@ -1,6 +1,0 @@
-{
-    "ROUTE_TABLE:0.0.0.0/0": {
-        "ifname: "dummy",
-        "nexthop": "dummy"
-    }
-}

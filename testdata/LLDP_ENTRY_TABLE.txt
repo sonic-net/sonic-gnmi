@@ -1,6 +1,0 @@
-{
-    "LLDP_ENTRY_TABLE:eth0": {
-        "lldp_rem_port_id": "dummy",
-        "lldp_rem_sys_name": "dummy"
-    }
-}
