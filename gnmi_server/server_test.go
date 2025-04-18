@@ -4871,7 +4871,7 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check get 1 cert name
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role", "readwrite")
+	gnmiTable.Hset("certname1", "role", "gnmi_readwrite")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
@@ -4882,8 +4882,8 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check get multiple cert names
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role", "readwrite")
-	gnmiTable.Hset("certname2", "role", "readonly")
+	gnmiTable.Hset("certname1", "role", "gnmi_readwrite")
+	gnmiTable.Hset("certname2", "role", "gnmi_readonly")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
@@ -4894,7 +4894,7 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check a invalid cert cname
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname2", "role", "readonly")
+	gnmiTable.Hset("certname2", "role", "gnmi_readonly")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err == nil {
 		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
@@ -4936,7 +4936,7 @@ func TestClientCertAuthenAndAuthorMultiRole(t *testing.T) {
 	// check get 1 cert name
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role@", "readwrite")
+	gnmiTable.Hset("certname1", "role@", "gnmi_readwrite")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
@@ -4947,8 +4947,8 @@ func TestClientCertAuthenAndAuthorMultiRole(t *testing.T) {
 	// check get multiple cert names
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role@", "readwrite")
-	gnmiTable.Hset("certname2", "role@", "readonly")
+	gnmiTable.Hset("certname1", "role@", "gnmi_readwrite")
+	gnmiTable.Hset("certname2", "role@", "gnmi_readonly")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
@@ -4959,7 +4959,7 @@ func TestClientCertAuthenAndAuthorMultiRole(t *testing.T) {
 	// check a invalid cert cname
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname2", "role@", "readonly")
+	gnmiTable.Hset("certname2", "role@", "gnmi_readonly")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err == nil {
 		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
@@ -4990,9 +4990,9 @@ func TestAuthenticate(t *testing.T) {
 	cfg := &Config{ConfigTableName: tableName, UserAuth: AuthTypes{"password": false, "cert": true, "jwt": false}}
 	ctx, cancel := CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role@", "readonly")
-	// Call authenticate to verify the user's role. This should fail if the role is "readonly".
-	_, err = authenticate(cfg, ctx, true)
+	gnmiTable.Hset("certname1", "role@", "gnmi_readonly")
+	// Call authenticate to verify the user's role. This should fail if the role is "gnmi_readonly".
+	_, err = authenticate(cfg, ctx, "gnmi", true)
 	if err == nil {
 		t.Errorf("authenticate with readonly role should fail: %v", err)
 	}

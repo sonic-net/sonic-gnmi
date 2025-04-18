@@ -35,7 +35,7 @@ import (
 
 func (srv *Server) GetSubscribePreferences(req *spb_gnoi.SubscribePreferencesReq, stream spb_gnoi.Debug_GetSubscribePreferencesServer) error {
 	ctx := stream.Context()
-	ctx, err := authenticate(srv.config, ctx, false)
+	ctx, err := authenticate(srv.config, ctx, "gnmi", false)
 	if err != nil {
 		return err
 	}
