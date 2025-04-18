@@ -2,10 +2,6 @@ package gnmi
 
 import (
 	"fmt"
-	"io"
-	"net"
-	"sync"
-	"strings"
 	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -13,6 +9,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"io"
+	"net"
+	"strings"
+	"sync"
 )
 
 // Client contains information about a subscribe client that has connected to the server.
