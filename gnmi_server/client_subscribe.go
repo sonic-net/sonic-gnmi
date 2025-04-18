@@ -2,10 +2,6 @@ package gnmi
 
 import (
 	"fmt"
-	"io"
-	"net"
-	"sync"
-
 	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -13,6 +9,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"io"
+	"net"
+	"strings"
+	"sync"
 )
 
 // Client contains information about a subscribe client that has connected to the server.
@@ -195,7 +195,11 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		c.polled = make(chan struct{}, 1)
 		c.polled <- struct{}{}
 		c.w.Add(1)
-		go dc.PollRun(c.q, c.polled, &c.w, c.subscribe)
+		if target == "APPL_DB" || strings.HasPrefix(target, "APPL_DB/") {
+			go dc.AppDBPollRun(c.q, c.polled, &c.w, c.subscribe)
+		} else {
+			go dc.PollRun(c.q, c.polled, &c.w, c.subscribe)
+		}
 	case gnmipb.SubscriptionList_ONCE:
 		c.once = make(chan struct{}, 1)
 		c.once <- struct{}{}
