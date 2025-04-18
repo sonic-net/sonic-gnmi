@@ -16,6 +16,7 @@ type Service interface {
 
 	// SONiC Host Service D-Bus API
 	ConfigReload(fileName string) error
+	ConfigReplace(fileName string) error
 	ConfigSave(fileName string) error
 	ApplyPatchYang(fileName string) error
 	ApplyPatchDb(fileName string) error
@@ -124,6 +125,16 @@ func (c *DbusClient) ConfigReload(config string) error {
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".reload"
 	_, err := DbusApi(busName, busPath, intName, 60, config)
+	return err
+}
+
+func (c *DbusClient) ConfigReplace(config string) error {
+	common_utils.IncCounter(common_utils.DBUS_CONFIG_REPLACE)
+	modName := "gcu"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".replace_db"
+	_, err := DbusApi(busName, busPath, intName, 600, config)
 	return err
 }
 

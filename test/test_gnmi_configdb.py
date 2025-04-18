@@ -299,6 +299,43 @@ class TestGNMIConfigDb:
         assert ret != 0, 'Invalid ietf_json_val'
         assert 'IETF JSON' in msg
 
+    def test_gnmi_replace_full(self):
+        ret, old_config_replace_cnt = gnmi_dump("DBUS config replace")
+        assert ret == 0, 'Fail to read counter'
+
+        test_data = {
+            'field_01': '20001',
+            'field_02': '20002',
+            'field_03': '20003',
+            'field_04': {'item_01': 'aaaa', 'item_02': 'xxxxx'}
+        }
+        file_name = 'replace_config_db.test'
+        file_object = open(file_name, 'w')
+        value = json.dumps(test_data)
+        file_object.write(value)
+        file_object.close()
+        replace_list = ['/sonic-db:CONFIG_DB/localhost/' + ':@./' + file_name]
+
+        ret, msg = gnmi_set([], [], replace_list)
+
+        ret, new_config_replace_cnt = gnmi_dump("DBUS config replace")
+        assert ret == 0, 'Fail to read counter'
+        assert new_config_replace_cnt == old_config_replace_cnt + 1, 'DBUS API is not invoked'
+
+    def test_gnmi_replace_full_negative(self):
+        ret, old_config_replace_cnt = gnmi_dump("DBUS config replace")
+        assert ret == 0, 'Fail to read counter'
+
+        replace_list = ['/sonic-db:CONFIG_DB/localhost/' + ':abc']
+
+        ret, msg = gnmi_set([], [], replace_list)
+        assert ret != 0, 'Invalid ietf_json_val'
+        assert 'IETF JSON' in msg
+
+        ret, new_config_replace_cnt = gnmi_dump("DBUS config replace")
+        assert ret == 0, 'Fail to read counter'
+        assert new_config_replace_cnt == old_config_replace_cnt, 'DBUS API should not have been invoked'
+
     @pytest.mark.parametrize("test_data", test_data_checkpoint)
     def test_gnmi_get_checkpoint(self, test_data):
         if os.path.isfile(checkpoint_file):
