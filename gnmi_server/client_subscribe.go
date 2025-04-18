@@ -5,7 +5,7 @@ import (
 	"io"
 	"net"
 	"sync"
-
+	"strings"
 	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -195,7 +195,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		c.polled = make(chan struct{}, 1)
 		c.polled <- struct{}{}
 		c.w.Add(1)
-		if target == "APPL_DB" {
+		if strings.Contains(target, "APPL_DB") {
 			go dc.AppDBPollRun(c.q, c.polled, &c.w, c.subscribe)
 		} else {
 			go dc.PollRun(c.q, c.polled, &c.w, c.subscribe)
