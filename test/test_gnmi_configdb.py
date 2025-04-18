@@ -270,6 +270,9 @@ class TestGNMIConfigDb:
         assert new_cnt == old_cnt+1, 'DBUS API is not invoked'
 
     def test_gnmi_full(self):
+        ret, old_cnt = gnmi_dump("DBUS config reload")
+        assert ret == 0, 'Failed to read counter'
+
         test_data = {
             'field_01': '20001',
             'field_02': '20002',
@@ -291,13 +294,24 @@ class TestGNMIConfigDb:
             config_json = json.load(cf)
         assert test_data == config_json, "Wrong config file"
 
+        ret, new_cnt = gnmi_dump("DBUS config reload")
+        assert ret == 0, 'Failed to read counter'
+        assert new_cnt == old_cnt + 1, 'DBUS API is not invoked'
+
     def test_gnmi_full_negative(self):
+        ret, old_cnt = gnmi_dump("DBUS config reload")
+        assert ret == 0, 'Failed to read counter'
+
         delete_list = ['/sonic-db:CONFIG_DB/localhost/']
         update_list = ['/sonic-db:CONFIG_DB/localhost/' + ':abc']
 
         ret, msg = gnmi_set(delete_list, update_list, [])
         assert ret != 0, 'Invalid ietf_json_val'
         assert 'IETF JSON' in msg
+
+        ret, new_cnt = gnmi_dump("DBUS config reload")
+        assert ret == 0, 'Failed to read counter'
+        assert new_cnt == old_cnt, 'DBUS API should not have been invoked'
 
     @pytest.mark.parametrize("test_data", test_data_checkpoint)
     def test_gnmi_get_checkpoint(self, test_data):

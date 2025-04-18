@@ -1397,7 +1397,15 @@ func (c *MixedDbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.U
 		return fmt.Errorf("Yang validation failed!")
 	}
 
-	return nil
+	if err == nil {
+		var sc ssc.Service
+		sc, err = ssc.NewDbusClient()
+		if err != nil {
+			return err
+		}
+		err = sc.ConfigReload(fileName)
+	}
+	return err
 }
 
 func (c *MixedDbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
