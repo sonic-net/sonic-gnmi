@@ -939,11 +939,7 @@ func AppDBTableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[st
 	//Only table name provided
 	if tblPath.tableKey == "" {
 		// tables in COUNTERS_DB other than COUNTERS table doesn't have keys
-		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
-			pattern = tblPath.tableName
-		} else {
-			pattern = tblPath.tableName + tblPath.delimitor + "*"
-		}
+		pattern = tblPath.tableName + tblPath.delimitor + "*"
 		dbkeys, err = redisDb.Keys(pattern).Result()
 		if err != nil {
 			log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
@@ -956,21 +952,6 @@ func AppDBTableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[st
 
 	log.V(4).Infof("dbkeys to be pulled from redis %v", dbkeys)
 
-	// Asked to use jsonField and jsonTableKey in the final json value
-	if tblPath.jsonField != "" && tblPath.jsonTableKey != "" {
-		val, err := redisDb.HGet(dbkeys[0], tblPath.field).Result()
-		log.V(4).Infof("Data pulled for key %s and field %s: %s", dbkeys[0], tblPath.field, val)
-		if err != nil {
-			log.V(3).Infof("redis HGet failed for %v %v", tblPath, err)
-			// ignore non-existing field which was derived from virtual path
-			return nil
-		}
-		fv = map[string]string{tblPath.jsonField: val}
-		makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
-		log.V(6).Infof("Added json key %v fv %v ", tblPath.jsonTableKey, fv)
-		return nil
-	}
-
 	for idx, dbkey := range dbkeys {
 		fv, err = redisDb.HGetAll(dbkey).Result()
 		if err != nil {
@@ -978,12 +959,13 @@ func AppDBTableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[st
 			return err
 		}
 		log.V(4).Infof("Data pulled for dbkey %s: %v", dbkey, fv)
+
 		if len(fv) == 0 { // Skip update for non data path
+			log.V(6).Infof("Missing data for dbkey %s, will check next key")
 			continue
 		}
-		if tblPath.jsonTableKey != "" { // If jsonTableKey was prepared, use it
-			err = makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
-		} else if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
+
+		if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
 			err = makeJSON_redis(msi, nil, op, fv)
 		} else {
 			var key string

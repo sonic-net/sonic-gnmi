@@ -998,6 +998,119 @@ func TestPollTableDeleted(t *testing.T) {
 	}
 }
 
+func TestPollTableFieldDeleted(t *testing.T) {
+	// Test that we received update notifications for existing table field data, then delete table field, we should receive 1 delete notification
+	// After delete notification, we should only see sync responses
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.ForceStop()
+
+	tests := []struct {
+		desc     string
+		q        client.Query
+		wantNoti []client.Notification
+		poll     int
+	}{
+		{
+			desc: "query LLDP_LOC_CHASSIS + lldp_loc_sys_name",
+			poll: 5,
+			q: client.Query{
+				Target:  "APPL_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"LLDP_LOC_CHASSIS", "lldp_loc_sys_name"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"APPL_DB", "LLDP_LOC_CHASSIS", "lldp_loc_sys_name"}, TS: time.Unix(0, 200), Val: "dummy"},
+				client.Sync{},
+				client.Update{Path: []string{"APPL_DB", "LLDP_LOC_CHASSIS", "lldp_loc_sys_name"}, TS: time.Unix(0, 200), Val: "dummy"},
+				client.Sync{},
+				client.Update{Path: []string{"APPL_DB", "LLDP_LOC_CHASSIS", "lldp_loc_sys_name"}, TS: time.Unix(0, 200), Val: "dummy"},
+				client.Sync{},
+				client.Delete{Path: []string{"APPL_DB", "LLDP_LOC_CHASSIS", "lldp_loc_sys_name"}, TS: time.Unix(0, 200)},
+				client.Sync{},
+				client.Sync{},
+				client.Sync{},
+			},
+		},
+	}
+
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	rclient := getRedisClientN(t, 0, ns)
+	defer rclient.Close()
+	rclient.FlushDB()
+	rclient.HSet("LLDP_LOC_CHASSIS", "lldp_loc_sys_name", "dummy")
+
+	var mutexGotNoti sync.Mutex
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
+			var gotNoti []client.Notification
+
+			q.NotificationHandler = func(n client.Notification) error {
+				mutexGotNoti.Lock()
+				switch nn := n.(type) {
+				case client.Connected, client.Sync:
+					gotNoti = append(gotNoti, nn)
+				case client.Delete:
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				case client.Update:
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				default:
+					t.Errorf("Unexpected Client Notification: %v", nn)
+				}
+				mutexGotNoti.Unlock()
+				return nil
+			}
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				if err := c.Subscribe(context.Background(), q); err != nil {
+					t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+				}
+			}()
+
+			wg.Wait()
+
+			for i := 0; i < tt.poll; i++ {
+				if i == 2 { // After first 2 polls, del data
+					rclient.FlushDB()
+					// Sleep just one second to allow redis data to be deleted
+					time.Sleep(time.Millisecond * 1000)
+				}
+				err := c.Poll()
+				if err != nil {
+					t.Errorf("c.Poll(): got error %v, expected nil", err)
+				}
+			}
+
+			mutexGotNoti.Lock()
+
+			if len(gotNoti) == 0 {
+				t.Errorf("Expected non zero length of notifications")
+			}
+
+			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+				t.Log("\n Want: \n", tt.wantNoti)
+				t.Log("\n Got : \n", gotNoti)
+				t.Errorf("unexpected updates:\n%s", diff)
+			}
+
+			mutexGotNoti.Unlock()
+
+			c.Close()
+		})
+	}
+}
+
 func TestPollTableKeyDeleted(t *testing.T) {
 	// Test that we received update notifications for existing table key data, then delete table key, we should receive 1 delete notification
 	// After delete notification, we should only see sync responses
