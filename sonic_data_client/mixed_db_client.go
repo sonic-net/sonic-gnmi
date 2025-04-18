@@ -1922,11 +1922,6 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 
 	// Helper to send hash data over the stream
 	sendMsiData := func(msiData map[string]interface{}) error {
-		sendDeleteField := false
-		if _, isDelete := msiData["delete"]; isDelete {
-			sendDeleteField = true
-		}
-		delete(msiData, "delete")
 		val, err := c.msi2TypedValue(msiData)
 		if err != nil {
 			return err
@@ -1938,9 +1933,6 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 			Path:      gnmiPath,
 			Timestamp: time.Now().UnixNano(),
 			Val:       val,
-		}
-		if sendDeleteField {
-			(*spbv).Delete = []*gnmipb.Path{gnmiPath}
 		}
 		if err = c.q.Put(Value{spbv}); err != nil {
 			return fmt.Errorf("Queue error:  %v", err)
