@@ -961,7 +961,7 @@ func AppDBTableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[st
 		log.V(4).Infof("Data pulled for dbkey %s: %v", dbkey, fv)
 
 		if len(fv) == 0 { // Skip update for non data path
-			log.V(6).Infof("Missing data for dbkey %s, will check next key")
+			log.V(6).Infof("Missing data for dbkey %s, will check next key", dbkey)
 			continue
 		}
 
