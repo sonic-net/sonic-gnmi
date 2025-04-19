@@ -285,20 +285,26 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 		// role must be readwrite to support write access
 		if success && config.ConfigTableName != "" {
 			match := false
+			target = strings.ToLower(target)
 			for _, role := range rc.Auth.Roles {
-				if strings.HasPrefix(role, strings.ToLower(target)) {
+				role = strings.TrimSpace(role)
+				if strings.HasPrefix(role, target) {
 					// Extract the postfix from the role
 					// e.g. role=gnmi_config_db_readwrite
 					// e.g. role=gnoi_readonly
-					postfix := strings.TrimPrefix(role, strings.ToLower(target))
+					postfix := strings.TrimPrefix(role, target)
 					postfix = strings.TrimPrefix(postfix, "_")
 					// Check if the role postfix indicates no access, and deny access if true.
 					if postfix == NoAccessMode {
-						return ctx, fmt.Errorf("%s does not have access, %s", rc.Auth.User, role)
-					} else if postfix == ReadOnlyMode && !writeAccess {
+						return ctx, fmt.Errorf("%s does not have access, target %s, role %s", rc.Auth.User, target, role)
+					} else if postfix == ReadOnlyMode {
 						// ReadOnlyMode is allowed for read access
-						match = true
-						break
+						if writeAccess {
+							return ctx, fmt.Errorf("%s does not have access, target %s, role %s", rc.Auth.User, target, role)
+						} else {
+							match = true
+							break
+						}
 					} else if postfix == WriteAccessMode {
 						// WriteAccessMode is allowed for read/write access
 						match = true
@@ -307,7 +313,7 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 				}
 			}
 			if !match && writeAccess {
-				return ctx, fmt.Errorf("%s does not have write access", rc.Auth.User)
+				return ctx, fmt.Errorf("%s does not have write access, target %s", rc.Auth.User, target)
 			}
 		}
 	}
