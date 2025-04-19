@@ -68,7 +68,7 @@ func KillOrRestartProcess(restart bool, serviceName string) error {
 }
 
 func (srv *Server) KillProcess(ctx context.Context, req *syspb.KillProcessRequest) (*syspb.KillProcessResponse, error) {
-	_, err := authenticate(srv.config, ctx, true)
+	_, err := authenticate(srv.config, ctx, "gnoi", true)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +189,7 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 
 // Reboot implements the corresponding RPC.
 func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb.RebootResponse, error) {
-	_, err := authenticate(srv.config, ctx, true)
+	_, err := authenticate(srv.config, ctx, "gnoi", true)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +224,7 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 
 // RebootStatus implements the corresponding RPC.
 func (srv *Server) RebootStatus(ctx context.Context, req *syspb.RebootStatusRequest) (*syspb.RebootStatusResponse, error) {
-	_, err := authenticate(srv.config, ctx, true)
+	_, err := authenticate(srv.config, ctx, "gnoi", true)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +253,7 @@ func (srv *Server) RebootStatus(ctx context.Context, req *syspb.RebootStatusRequ
 
 // CancelReboot RPC implements the corresponding RPC.
 func (srv *Server) CancelReboot(ctx context.Context, req *syspb.CancelRebootRequest) (*syspb.CancelRebootResponse, error) {
-	_, err := authenticate(srv.config, ctx, true)
+	_, err := authenticate(srv.config, ctx, "gnoi", true)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +279,7 @@ func (srv *Server) CancelReboot(ctx context.Context, req *syspb.CancelRebootRequ
 // Ping is unimplemented.
 func (srv *Server) Ping(req *syspb.PingRequest, stream syspb.System_PingServer) error {
 	ctx := stream.Context()
-	_, err := authenticate(srv.config, ctx, true)
+	_, err := authenticate(srv.config, ctx, "gnoi", true)
 	if err != nil {
 		return err
 	}
@@ -290,7 +290,7 @@ func (srv *Server) Ping(req *syspb.PingRequest, stream syspb.System_PingServer) 
 // Traceroute is unimplemented.
 func (srv *Server) Traceroute(req *syspb.TracerouteRequest, stream syspb.System_TracerouteServer) error {
 	ctx := stream.Context()
-	_, err := authenticate(srv.config, ctx, true)
+	_, err := authenticate(srv.config, ctx, "gnoi", true)
 	if err != nil {
 		return err
 	}
@@ -301,7 +301,7 @@ func (srv *Server) Traceroute(req *syspb.TracerouteRequest, stream syspb.System_
 func (srv *Server) SetPackage(rs syspb.System_SetPackageServer) error {
 	ctx := rs.Context()
 
-	_, err := authenticate(srv.config, ctx, true)
+	_, err := authenticate(srv.config, ctx, "gnoi", true)
 	if err != nil {
 		log.Errorf("Authentication failed: %v", err)
 		return status.Errorf(codes.PermissionDenied, "authentication failed: %v", err)
@@ -389,7 +389,7 @@ func (srv *Server) SetPackage(rs syspb.System_SetPackageServer) error {
 
 // SwitchControlProcessor implements the corresponding RPC.
 func (srv *Server) SwitchControlProcessor(ctx context.Context, req *syspb.SwitchControlProcessorRequest) (*syspb.SwitchControlProcessorResponse, error) {
-	_, err := authenticate(srv.config, ctx, true)
+	_, err := authenticate(srv.config, ctx, "gnoi", true)
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +399,7 @@ func (srv *Server) SwitchControlProcessor(ctx context.Context, req *syspb.Switch
 
 // Time implements the corresponding RPC.
 func (srv *Server) Time(ctx context.Context, req *syspb.TimeRequest) (*syspb.TimeResponse, error) {
-	_, err := authenticate(srv.config, ctx, false)
+	_, err := authenticate(srv.config, ctx, "gnoi", false)
 	if err != nil {
 		return nil, err
 	}
