@@ -95,7 +95,7 @@ func (c *Client) populateDbPathSubscrition(sublist *gnmipb.SubscriptionList) ([]
 // SubscriptionList. Once the client is started, it will run until the stream
 // is closed or the schedule completes. For Poll queries the Run will block
 // internally after sync until a Poll request is made to the server.
-func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
+func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err error) {
 	defer log.V(1).Infof("Client %s shutdown", c)
 	ctx := stream.Context()
 	var connectionKey string
@@ -158,10 +158,13 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 
 	log.V(3).Infof("mode=%v, origin=%q, target=%q", mode, origin, target)
 
+	authTarget := "gnmi"
 	if origin == "openconfig" {
 		dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions, sdc.TranslWildcardOption{})
 	} else if IsNativeOrigin(origin) {
-		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, gnmipb.Encoding_JSON_IETF, "", "")
+		var targetDbName string
+		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, gnmipb.Encoding_JSON_IETF, "", "", &targetDbName)
+		authTarget = "gnmi_" + targetDbName
 	} else if len(origin) != 0 {
 		return grpc.Errorf(codes.Unimplemented, "Unsupported origin: %s", origin)
 	} else if target == "" {
@@ -171,10 +174,13 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 		return grpc.Errorf(codes.Unimplemented, "Empty target data not supported")
 	} else if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
+		authTarget = "gnmi_others"
 	} else if (target == "EVENTS") && (mode == gnmipb.SubscriptionList_STREAM) {
 		dc, err = sdc.NewEventClient(paths, prefix, c.logLevel)
-	} else if _, ok, _, _ := sdc.IsTargetDb(target); ok {
+		authTarget = "gnmi_events"
+	} else if targetDbName, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
+		authTarget = "gnmi_" + targetDbName
 	} else {
 		/* For any other target or no target create new Transl Client. */
 		dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions, sdc.TranslWildcardOption{})
@@ -185,6 +191,11 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer) (err error) {
 	}
 
 	defer dc.Close()
+	ctx = stream.Context()
+	ctx, err = authenticate(config, ctx, authTarget, false)
+	if err != nil {
+		return err
+	}
 
 	switch mode {
 	case gnmipb.SubscriptionList_STREAM:
