@@ -23,12 +23,15 @@ type Service interface {
 	DeleteCheckPoint(cpName string) error
 	StopService(service string) error
 	RestartService(service string) error
+	// File services APIs
 	GetFileStat(path string) (map[string]string, error)
+	DownloadFile(hostname, username, password, remotePath, localPath, protocol string) error
+	// Image services APIs
 	DownloadImage(url string, save_as string) error
 	InstallImage(where string) error
 	ListImages() (string, error)
 	ActivateImage(image string) error
-	// Lists of docker related APIs
+	// Docker services APIs
 	LoadDockerImage(image string) error
 }
 
@@ -211,6 +214,16 @@ func (c *DbusClient) GetFileStat(path string) (map[string]string, error) {
 	}
 	data, _ := result.(map[string]string)
 	return data, nil
+}
+
+func (c *DbusClient) DownloadFile(hostname, username, password, remotePath, localPath, protocol string) error {
+    common_utils.IncCounter(common_utils.DBUS_FILE_DOWNLOAD)
+    modName := "file"
+    busName := c.busNamePrefix + modName
+    busPath := c.busPathPrefix + modName
+    intName := c.intNamePrefix + modName + ".download"
+    _, err := DbusApi(busName, busPath, intName, 900, hostname, username, password, remotePath, localPath, protocol)
+    return err
 }
 
 func (c *DbusClient) DownloadImage(url string, save_as string) error {

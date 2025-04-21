@@ -139,6 +139,90 @@ func TestGetFileStatNegative(t *testing.T) {
 	}
 }
 
+func TestDownloadSuccess(t *testing.T) {
+    hostname := "host"
+    username := "user"
+    password := "pass"
+    remotePath := "/remote/file"
+    localPath := "/local/file"
+    protocol := "SFTP"
+
+    mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+        return &dbus.Conn{}, nil
+    })
+    defer mock1.Reset()
+
+    mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+        if method != "org.SONiC.HostService.file.download" {
+            t.Errorf("Wrong method: %v", method)
+        }
+        if len(args) != 6 {
+            t.Errorf("Wrong number of arguments: %v", len(args))
+        }
+        if args[0] != hostname || args[1] != username || args[2] != password ||
+            args[3] != remotePath || args[4] != localPath || args[5] != protocol {
+            t.Errorf("Wrong arguments: %v", args)
+        }
+        ret := &dbus.Call{}
+        ret.Err = nil
+        ret.Body = make([]interface{}, 2)
+        ret.Body[0] = int32(0)
+        ch <- ret
+        return &dbus.Call{}
+    })
+    defer mock2.Reset()
+
+    client, err := NewDbusClient()
+    if err != nil {
+        t.Errorf("NewDbusClient failed: %v", err)
+    }
+    err = client.DownloadFile(hostname, username, password, remotePath, localPath, protocol)
+    if err != nil {
+        t.Errorf("Download should pass: %v", err)
+    }
+}
+
+func TestDownloadFail(t *testing.T) {
+    hostname := "host"
+    username := "user"
+    password := "pass"
+    remotePath := "/remote/file"
+    localPath := "/local/file"
+    protocol := "SFTP"
+    errMsg := "This is the mock error message"
+
+    mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+        return &dbus.Conn{}, nil
+    })
+    defer mock1.Reset()
+
+    mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+        if method != "org.SONiC.HostService.file.download" {
+            t.Errorf("Wrong method: %v", method)
+        }
+        ret := &dbus.Call{}
+        ret.Err = nil
+        ret.Body = make([]interface{}, 2)
+        ret.Body[0] = int32(1)
+        ret.Body[1] = errMsg
+        ch <- ret
+        return &dbus.Call{}
+    })
+    defer mock2.Reset()
+
+    client, err := NewDbusClient()
+    if err != nil {
+        t.Errorf("NewDbusClient failed: %v", err)
+    }
+    err = client.DownloadFile(hostname, username, password, remotePath, localPath, protocol)
+    if err == nil {
+        t.Errorf("Download should fail")
+    }
+    if err.Error() != errMsg {
+        t.Errorf("Expected error message '%s' but got '%v'", errMsg, err)
+    }
+}
+
 func TestConfigReload(t *testing.T) {
 	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
 		return &dbus.Conn{}, nil

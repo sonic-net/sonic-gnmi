@@ -54,6 +54,7 @@ const (
 	DBUS_STOP_SERVICE
 	DBUS_RESTART_SERVICE
 	DBUS_FILE_STAT
+	DBUS_FILE_DOWNLOAD
 	DBUS_IMAGE_DOWNLOAD
 	DBUS_IMAGE_INSTALL
 	DBUS_IMAGE_LIST
@@ -96,6 +97,8 @@ func (c CounterType) String() string {
 		return "DBUS restart service"
 	case DBUS_FILE_STAT:
 		return "DBUS file stat"
+	case DBUS_FILE_DOWNLOAD:
+		return "DBUS file download"
 	case DBUS_IMAGE_DOWNLOAD:
 		return "DBUS image download"
 	case DBUS_IMAGE_INSTALL:
