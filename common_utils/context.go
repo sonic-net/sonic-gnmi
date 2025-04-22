@@ -60,6 +60,7 @@ const (
 	DBUS_IMAGE_LIST
 	DBUS_IMAGE_ACTIVATE
 	DBUS_DOCKER_LOAD
+	DBUS_CONFIG_REPLACE
 	COUNTER_SIZE
 )
 
@@ -109,6 +110,8 @@ func (c CounterType) String() string {
 		return "DBUS image activate"
 	case DBUS_DOCKER_LOAD:
 		return "DBUS docker load"
+	case DBUS_CONFIG_REPLACE:
+		return "DBUS config replace"
 	default:
 		return ""
 	}

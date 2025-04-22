@@ -497,7 +497,7 @@ func init() {
 	initRedisDbMap()
 }
 
-func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string, vrf string) (Client, error) {
+func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string, vrf string, targetDbName *string) (Client, error) {
 	var err error
 
 	// Initialize RedisDbMap for test
@@ -553,6 +553,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 		client.applDB = swsscommon.NewDBConnector(target, SWSS_TIMEOUT, false, dbkey)
 	}
 	client.target = target
+	*targetDbName = target
 	ns := dbkey.GetNetns()
 	container := dbkey.GetContainerName()
 	client.mapkey = ns + ":" + container
@@ -1400,6 +1401,28 @@ func (c *MixedDbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.U
 	return nil
 }
 
+func (c *MixedDbClient) ReplaceFullConfig(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
+	val := replace[0].GetVal()
+	ietf_json_val := val.GetJsonIetfVal()
+	if len(ietf_json_val) == 0 {
+		return fmt.Errorf("Value encoding is not IETF JSON")
+	}
+	content := []byte(ietf_json_val)
+
+	var sc ssc.Service
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		return err
+	}
+
+	err = sc.ConfigReplace(string(content))
+
+	if err == nil {
+		err = sc.ConfigSave("/etc/sonic/config_db.json")
+	}
+	return err
+}
+
 func (c *MixedDbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	/* DELETE */
 	deletePathList, err := c.getAllDbtablePath(delete)
@@ -1459,6 +1482,14 @@ func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Upd
 		}
 		if (len(deletePath.GetElem()) == 0) && (len(updatePath.GetElem()) == 0) {
 			return c.SetFullConfig(delete, replace, update)
+		}
+	} else if deleteLen == 0 && replaceLen == 1 && updateLen == 0 {
+		replacePath, err := c.gnmiFullPath(c.prefix, replace[0].GetPath())
+		if err != nil {
+			return err
+		}
+		if len(replacePath.GetElem()) == 0 {
+			return c.ReplaceFullConfig(delete, replace, update)
 		}
 	}
 	return c.SetIncrementalConfig(delete, replace, update)
@@ -1604,6 +1635,10 @@ func (c *MixedDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *s
 		})
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
+}
+
+func (c *MixedDbClient) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+	return
 }
 
 func (c *MixedDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
