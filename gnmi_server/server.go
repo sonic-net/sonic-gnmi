@@ -23,6 +23,7 @@ import (
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 
 	//gnoi_yang "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/server"
+	"github.com/openconfig/gnoi/file"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	"golang.org/x/net/context"
@@ -55,6 +56,9 @@ type Server struct {
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
 	gnoi_system_pb.UnimplementedSystemServer
+	fileServer *GNOIFileServer
+	// Mandatory gRPC embeddings
+	file.UnimplementedFileServer
 }
 
 // FileServer is the server API for File service.
@@ -184,7 +188,6 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		masterEID:     uint128{High: 0, Low: 0},
 	}
 
-	fileSrv := &FileServer{Server: srv}
 	osSrv := &OSServer{Server: srv}
 
 	var err error
@@ -199,8 +202,9 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
 		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
-		gnoi_file_pb.RegisterFileServer(srv.s, fileSrv)
 		gnoi_os_pb.RegisterOSServer(srv.s, osSrv)
+		srv.fileServer = NewGNOIFileServer(srv)
+		file.RegisterFileServer(srv.s, srv.fileServer)
 	}
 	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
