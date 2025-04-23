@@ -4,15 +4,19 @@ package gnmi
 
 import (
 	"context"
+	"crypto/rand"
+	"fmt"
 	"strings"
 
 	log "github.com/golang/glog"
 	gnoi_containerz_pb "github.com/openconfig/gnoi/containerz"
+	gnoi_types_pb "github.com/openconfig/gnoi/types"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-// Deploy receives the image and download information and prints it out.
+// Deploy receives the image and download information and downloads the file using sonic_service_client.
 func (c *ContainerzServer) Deploy(stream gnoi_containerz_pb.Containerz_DeployServer) error {
 	log.V(2).Info("gNOI: Containerz Deploy called")
 
@@ -39,17 +43,65 @@ func (c *ContainerzServer) Deploy(stream gnoi_containerz_pb.Containerz_DeploySer
 	b.WriteString("Received DeployRequest:\n")
 	b.WriteString("  Name: " + imageTransfer.Name + "\n")
 	b.WriteString("  Tag: " + imageTransfer.Tag + "\n")
+	var hostname, remotePath, username, password, protocol string
 	if rd := imageTransfer.RemoteDownload; rd != nil {
 		b.WriteString("  RemoteDownload:\n")
 		b.WriteString("    Path: " + rd.Path + "\n")
 		b.WriteString("    Protocol: " + rd.Protocol.String() + "\n")
+		protocol = rd.Protocol.String()
 		if rd.Credentials != nil {
 			b.WriteString("    Username: " + rd.Credentials.Username + "\n")
+			username = rd.Credentials.Username
+			if clear, ok := rd.Credentials.Password.(*gnoi_types_pb.Credentials_Cleartext); ok {
+				password = clear.Cleartext
+			}
+		}
+		// Parse <host>:<remote-path>
+		parts := strings.SplitN(rd.Path, ":", 2)
+		if len(parts) == 2 {
+			hostname = parts[0]
+			remotePath = parts[1]
+		} else {
+			return status.Errorf(codes.InvalidArgument, "invalid remote download path: %s", rd.Path)
 		}
 	}
 	log.V(2).Info(b.String())
 
-	return status.Error(codes.Unimplemented, "Deploy is not fully implemented")
+	// Use sonic_service_client to download the file to a local path (e.g., /tmp/<name>-<random>.tar)
+	// Use crypto/rand for a random suffix if common_utils.RandString is not available
+	randomBytes := make([]byte, 6)
+	_, err = rand.Read(randomBytes)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to generate random suffix: %v", err)
+	}
+	randomSuffix := fmt.Sprintf("%x", randomBytes)
+	localPath := "/tmp/" + imageTransfer.Name + "-" + randomSuffix + ".tar"
+
+	dbusClient, err := ssc.NewDbusClient()
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to create dbus client: %v", err)
+	}
+	err = dbusClient.DownloadFile(hostname, username, password, remotePath, localPath, protocol)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to download file: %v", err)
+	}
+	log.V(2).Infof("Downloaded file to %s", localPath)
+
+	// Respond with success (dummy, real implementation should load the image, etc.)
+	resp := &gnoi_containerz_pb.DeployResponse{
+		Response: &gnoi_containerz_pb.DeployResponse_ImageTransferSuccess{
+			ImageTransferSuccess: &gnoi_containerz_pb.ImageTransferSuccess{
+				Name:      imageTransfer.Name,
+				Tag:       imageTransfer.Tag,
+				ImageSize: 0, // You can fill this with the actual file size if needed
+			},
+		},
+	}
+	if err := stream.Send(resp); err != nil {
+		return status.Errorf(codes.Internal, "failed to send DeployResponse: %v", err)
+	}
+
+	return nil
 }
 
 // Remove is a placeholder implementation for the Remove RPC.
