@@ -2,23 +2,25 @@ package containerz
 
 import (
 	"context"
-	"flag"
+	"encoding/json"
 	"fmt"
 
 	"github.com/openconfig/gnoi/common"
 	"github.com/openconfig/gnoi/containerz"
 	"github.com/openconfig/gnoi/types"
+	"github.com/sonic-net/sonic-gnmi/gnoi_client/config"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/utils"
 	"google.golang.org/grpc"
 )
 
-var (
-	imageName = flag.String("container_image_name", "", "Name of the container image")
-	imageTag  = flag.String("container_image_tag", "", "Tag/version of the container image")
-	imageURL  = flag.String("container_image_url", "", "SFTP path in the form <host>:<remote-path> (e.g., 192.0.0.1:~/hello-world.tar)")
-	username  = flag.String("container_image_username", "", "Username for SFTP authentication")
-	password  = flag.String("container_image_password", "", "Password for SFTP authentication")
-)
+// DeployArgs holds the expected JSON structure for Deploy arguments.
+type DeployArgs struct {
+	Name     string `json:"name"`
+	Tag      string `json:"tag"`
+	Path     string `json:"path"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
 
 // newContainerzClient is a package-level variable for testability.
 var newContainerzClient = func(conn *grpc.ClientConn) containerz.ContainerzClient {
@@ -27,12 +29,18 @@ var newContainerzClient = func(conn *grpc.ClientConn) containerz.ContainerzClien
 
 // Deploy requests the server to download the image using SFTP.
 func Deploy(conn *grpc.ClientConn, ctx context.Context) {
-	fmt.Println("Containerz Deploy (SFTP download)")
+	fmt.Println("Containerz Deploy (SFTP download, JSON args)")
 
 	ctx = utils.SetUserCreds(ctx)
 
-	if err := validateDeployFlags(); err != nil {
-		fmt.Println("Error validating flags:", err)
+	var args DeployArgs
+	if err := json.Unmarshal([]byte(*config.Args), &args); err != nil {
+		fmt.Println("Error parsing JSON args:", err)
+		return
+	}
+
+	if err := validateDeployArgs(&args); err != nil {
+		fmt.Println("Error validating args:", err)
 		return
 	}
 
@@ -43,19 +51,18 @@ func Deploy(conn *grpc.ClientConn, ctx context.Context) {
 		return
 	}
 
-	// Send only the ImageTransfer message with SFTP remote_download and credentials.
 	req := &containerz.DeployRequest{
 		Request: &containerz.DeployRequest_ImageTransfer{
 			ImageTransfer: &containerz.ImageTransfer{
-				Name: *imageName,
-				Tag:  *imageTag,
+				Name: args.Name,
+				Tag:  args.Tag,
 				RemoteDownload: &common.RemoteDownload{
-					Path:     *imageURL, // e.g., 192.0.0.1:~/hello-world.tar
+					Path:     args.Path, // e.g., 192.0.0.1:~/hello-world.tar
 					Protocol: common.RemoteDownload_SFTP,
 					Credentials: &types.Credentials{
-						Username: *username,
+						Username: args.Username,
 						Password: &types.Credentials_Cleartext{
-							Cleartext: *password,
+							Cleartext: args.Password,
 						},
 					},
 				},
@@ -68,10 +75,8 @@ func Deploy(conn *grpc.ClientConn, ctx context.Context) {
 		return
 	}
 
-	// Close the send direction, as we are not sending any content.
 	_ = stream.CloseSend()
 
-	// Print all responses from the server.
 	for {
 		resp, err := stream.Recv()
 		if err != nil {
@@ -81,21 +86,21 @@ func Deploy(conn *grpc.ClientConn, ctx context.Context) {
 	}
 }
 
-func validateDeployFlags() error {
-	if *imageName == "" {
-		return fmt.Errorf("missing -container_image_name: required")
+func validateDeployArgs(args *DeployArgs) error {
+	if args.Name == "" {
+		return fmt.Errorf("missing name")
 	}
-	if *imageTag == "" {
-		return fmt.Errorf("missing -container_image_tag: required")
+	if args.Tag == "" {
+		return fmt.Errorf("missing tag")
 	}
-	if *imageURL == "" {
-		return fmt.Errorf("missing -container_image_url: required (format: <host>:<remote-path>)")
+	if args.Path == "" {
+		return fmt.Errorf("missing path (format: <host>:<remote-path>)")
 	}
-	if *username == "" {
-		return fmt.Errorf("missing -container_image_username: required")
+	if args.Username == "" {
+		return fmt.Errorf("missing username")
 	}
-	if *password == "" {
-		return fmt.Errorf("missing -container_image_password: required")
+	if args.Password == "" {
+		return fmt.Errorf("missing password")
 	}
 	return nil
 }
