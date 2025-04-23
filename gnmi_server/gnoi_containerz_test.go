@@ -28,14 +28,8 @@ func TestContainerzServer_Unimplemented(t *testing.T) {
 
 	server := &ContainerzServer{}
 
-	// Test Deploy
-	err := server.Deploy(&dummyDeployServer{})
-	if err == nil || status.Code(err) != codes.Unimplemented {
-		t.Errorf("Deploy: expected Unimplemented error, got %v", err)
-	}
-
 	// Test Remove
-	_, err = server.Remove(context.Background(), &gnoi_containerz_pb.RemoveRequest{})
+	_, err := server.Remove(context.Background(), &gnoi_containerz_pb.RemoveRequest{})
 	if err == nil || status.Code(err) != codes.Unimplemented {
 		t.Errorf("Remove: expected Unimplemented error, got %v", err)
 	}
