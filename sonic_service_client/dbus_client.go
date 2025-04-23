@@ -228,13 +228,13 @@ func (c *DbusClient) GetFileStat(path string) (map[string]string, error) {
 }
 
 func (c *DbusClient) DownloadFile(hostname, username, password, remotePath, localPath, protocol string) error {
-    common_utils.IncCounter(common_utils.DBUS_FILE_DOWNLOAD)
-    modName := "file"
-    busName := c.busNamePrefix + modName
-    busPath := c.busPathPrefix + modName
-    intName := c.intNamePrefix + modName + ".download"
-    _, err := DbusApi(busName, busPath, intName, 900, hostname, username, password, remotePath, localPath, protocol)
-    return err
+	common_utils.IncCounter(common_utils.DBUS_FILE_DOWNLOAD)
+	modName := "file"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".download"
+	_, err := DbusApi(busName, busPath, intName, 900, hostname, username, password, remotePath, localPath, protocol)
+	return err
 }
 
 func (c *DbusClient) DownloadImage(url string, save_as string) error {
