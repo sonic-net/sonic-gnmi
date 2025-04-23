@@ -289,31 +289,30 @@ func TestDeploy_SendError(t *testing.T) {
 }
 
 func TestDeploy_FirstMessageWrongType(t *testing.T) {
-    patches := gomonkey.NewPatches()
-    defer patches.Reset()
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
 
-    patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
-        return ctx, nil
-    })
+	patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+		return ctx, nil
+	})
 
-    server := newServer()
-    stream := &dummyDeployServer{
-        recvQueue: []*gnoi_containerz_pb.DeployRequest{
-            {
-                Request: &gnoi_containerz_pb.DeployRequest_Content{
-                    Content: []byte("not an image transfer"),
-                },
-            },
-        },
-    }
+	server := newServer()
+	stream := &dummyDeployServer{
+		recvQueue: []*gnoi_containerz_pb.DeployRequest{
+			{
+				Request: &gnoi_containerz_pb.DeployRequest_Content{
+					Content: []byte("not an image transfer"),
+				},
+			},
+		},
+	}
 
-    err := server.Deploy(stream)
-    if err == nil || !strings.Contains(err.Error(), "first DeployRequest must be ImageTransfer") {
-        t.Errorf("expected error for wrong first message type, got %v", err)
-    }
-    st, _ := status.FromError(err)
-    if st.Code() != codes.InvalidArgument {
-        t.Errorf("expected code %v, got %v", codes.InvalidArgument, st.Code())
-    }
+	err := server.Deploy(stream)
+	if err == nil || !strings.Contains(err.Error(), "first DeployRequest must be ImageTransfer") {
+		t.Errorf("expected error for wrong first message type, got %v", err)
+	}
+	st, _ := status.FromError(err)
+	if st.Code() != codes.InvalidArgument {
+		t.Errorf("expected code %v, got %v", codes.InvalidArgument, st.Code())
+	}
 }
-
