@@ -80,9 +80,24 @@ func Deploy(conn *grpc.ClientConn, ctx context.Context) {
 	for {
 		resp, err := stream.Recv()
 		if err != nil {
+			fmt.Println("Error receiving DeployResponse:", err)
 			break
 		}
-		fmt.Printf("Received DeployResponse: %v\n", resp)
+		switch r := resp.Response.(type) {
+		case *containerz.DeployResponse_ImageTransferReady:
+			fmt.Printf("ImageTransferReady: chunk_size=%d\n", r.ImageTransferReady.ChunkSize)
+		case *containerz.DeployResponse_ImageTransferProgress:
+			fmt.Printf("ImageTransferProgress: bytes_received=%d\n", r.ImageTransferProgress.BytesReceived)
+		case *containerz.DeployResponse_ImageTransferSuccess:
+			fmt.Printf("ImageTransferSuccess: name=%s, tag=%s, image_size=%d\n",
+				r.ImageTransferSuccess.Name, r.ImageTransferSuccess.Tag, r.ImageTransferSuccess.ImageSize)
+			return // Quit on success
+		case *containerz.DeployResponse_ImageTransferError:
+			fmt.Printf("ImageTransferError: %v\n", r.ImageTransferError)
+			return
+		default:
+			fmt.Printf("Unknown DeployResponse: %v\n", resp)
+		}
 	}
 }
 
