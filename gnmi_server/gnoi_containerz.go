@@ -4,6 +4,7 @@ package gnmi
 
 import (
 	"context"
+	"strings"
 
 	log "github.com/golang/glog"
 	gnoi_containerz_pb "github.com/openconfig/gnoi/containerz"
@@ -11,10 +12,44 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Deploy is a placeholder implementation for the Deploy RPC.
+// Deploy receives the image and download information and prints it out.
 func (c *ContainerzServer) Deploy(stream gnoi_containerz_pb.Containerz_DeployServer) error {
 	log.V(2).Info("gNOI: Containerz Deploy called")
-	return status.Error(codes.Unimplemented, "Deploy is not implemented")
+
+	ctx := stream.Context()
+
+	// Authenticate the client using the server's config.
+	_, err := authenticate(c.server.config, ctx, "gnoi", true)
+	if err != nil {
+		return err
+	}
+
+	// Read the first request from the stream.
+	req, err := stream.Recv()
+	if err != nil {
+		return status.Errorf(codes.InvalidArgument, "failed to receive DeployRequest: %v", err)
+	}
+
+	imageTransfer := req.GetImageTransfer()
+	if imageTransfer == nil {
+		return status.Errorf(codes.InvalidArgument, "first DeployRequest must be ImageTransfer")
+	}
+
+	var b strings.Builder
+	b.WriteString("Received DeployRequest:\n")
+	b.WriteString("  Name: " + imageTransfer.Name + "\n")
+	b.WriteString("  Tag: " + imageTransfer.Tag + "\n")
+	if rd := imageTransfer.RemoteDownload; rd != nil {
+		b.WriteString("  RemoteDownload:\n")
+		b.WriteString("    Path: " + rd.Path + "\n")
+		b.WriteString("    Protocol: " + rd.Protocol.String() + "\n")
+		if rd.Credentials != nil {
+			b.WriteString("    Username: " + rd.Credentials.Username + "\n")
+		}
+	}
+	log.V(2).Info(b.String())
+
+	return status.Error(codes.Unimplemented, "Deploy is not fully implemented")
 }
 
 // Remove is a placeholder implementation for the Remove RPC.
