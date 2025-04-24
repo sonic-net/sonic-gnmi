@@ -55,6 +55,7 @@ const (
 	DBUS_RESTART_SERVICE
 	DBUS_FILE_STAT
 	DBUS_FILE_DOWNLOAD
+	DBUS_FILE_REMOVE
 	DBUS_IMAGE_DOWNLOAD
 	DBUS_IMAGE_INSTALL
 	DBUS_IMAGE_LIST
@@ -102,6 +103,8 @@ func (c CounterType) String() string {
 		return "DBUS file download"
 	case DBUS_IMAGE_DOWNLOAD:
 		return "DBUS image download"
+	case DBUS_FILE_REMOVE:
+		return "DBUS file remove"
 	case DBUS_IMAGE_INSTALL:
 		return "DBUS image install"
 	case DBUS_IMAGE_LIST:
