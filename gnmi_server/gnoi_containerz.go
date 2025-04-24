@@ -87,6 +87,20 @@ func (c *ContainerzServer) Deploy(stream gnoi_containerz_pb.Containerz_DeploySer
 	}
 	log.V(2).Infof("Downloaded file to %s", localPath)
 
+	// After download, load the docker image using dbusClient.LoadDockerImage
+	err = dbusClient.LoadDockerImage(localPath)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to load docker image: %v", err)
+	}
+	log.V(2).Infof("Loaded docker image from %s", localPath)
+
+	// Clean up the local file after loading the image
+	err = dbusClient.RemoveFile(localPath)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to remove local file: %v", err)
+	}
+	log.V(2).Infof("Removed local file %s", localPath)
+
 	// Respond with success (dummy, real implementation should load the image, etc.)
 	resp := &gnoi_containerz_pb.DeployResponse{
 		Response: &gnoi_containerz_pb.DeployResponse_ImageTransferSuccess{
