@@ -98,221 +98,361 @@ func newServer() *ContainerzServer {
 }
 
 func TestDeploy_Success(t *testing.T) {
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
+    patches := gomonkey.NewPatches()
+    defer patches.Reset()
 
-	patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
-		return ctx, nil
-	})
-	patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "DownloadFile", func(_ *ssc.DbusClient, host, user, pass, remote, local, proto string) error {
-		return nil
-	})
+    patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+        return ctx, nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "DownloadFile", func(_ *ssc.DbusClient, host, user, pass, remote, local, proto string) error {
+        return nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "LoadDockerImage", func(_ *ssc.DbusClient, image string) error {
+        return nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "RemoveFile", func(_ *ssc.DbusClient, path string) error {
+        return nil
+    })
 
-	server := newServer()
-	stream := &dummyDeployServer{
-		recvQueue: []*gnoi_containerz_pb.DeployRequest{
-			{
-				Request: &gnoi_containerz_pb.DeployRequest_ImageTransfer{
-					ImageTransfer: &gnoi_containerz_pb.ImageTransfer{
-						Name: "testimg",
-						Tag:  "latest",
-						RemoteDownload: &gnoi_common_pb.RemoteDownload{
-							Path:     "host:/remote.tar",
-							Protocol: gnoi_common_pb.RemoteDownload_SFTP,
-							Credentials: &gnoi_types_pb.Credentials{
-								Username: "user",
-								Password: &gnoi_types_pb.Credentials_Cleartext{Cleartext: "pass"},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
+    server := newServer()
+    stream := &dummyDeployServer{
+        recvQueue: []*gnoi_containerz_pb.DeployRequest{
+            {
+                Request: &gnoi_containerz_pb.DeployRequest_ImageTransfer{
+                    ImageTransfer: &gnoi_containerz_pb.ImageTransfer{
+                        Name: "testimg",
+                        Tag:  "latest",
+                        RemoteDownload: &gnoi_common_pb.RemoteDownload{
+                            Path:     "host:/remote.tar",
+                            Protocol: gnoi_common_pb.RemoteDownload_SFTP,
+                            Credentials: &gnoi_types_pb.Credentials{
+                                Username: "user",
+                                Password: &gnoi_types_pb.Credentials_Cleartext{Cleartext: "pass"},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
 
-	err := server.Deploy(stream)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(stream.sendResp) != 1 {
-		t.Fatalf("expected 1 response, got %d", len(stream.sendResp))
-	}
-	if _, ok := stream.sendResp[0].Response.(*gnoi_containerz_pb.DeployResponse_ImageTransferSuccess); !ok {
-		t.Errorf("expected ImageTransferSuccess, got %T", stream.sendResp[0].Response)
-	}
+    err := server.Deploy(stream)
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if len(stream.sendResp) != 1 {
+        t.Fatalf("expected 1 response, got %d", len(stream.sendResp))
+    }
+    if _, ok := stream.sendResp[0].Response.(*gnoi_containerz_pb.DeployResponse_ImageTransferSuccess); !ok {
+        t.Errorf("expected ImageTransferSuccess, got %T", stream.sendResp[0].Response)
+    }
 }
 
 func TestDeploy_DownloadFileError(t *testing.T) {
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
+    patches := gomonkey.NewPatches()
+    defer patches.Reset()
 
-	patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
-		return ctx, nil
-	})
-	patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "DownloadFile", func(_ *ssc.DbusClient, host, user, pass, remote, local, proto string) error {
-		return errors.New("dbus error")
-	})
+    patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+        return ctx, nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "DownloadFile", func(_ *ssc.DbusClient, host, user, pass, remote, local, proto string) error {
+        return errors.New("dbus error")
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "LoadDockerImage", func(_ *ssc.DbusClient, image string) error {
+        return nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "RemoveFile", func(_ *ssc.DbusClient, path string) error {
+        return nil
+    })
 
-	server := newServer()
-	stream := &dummyDeployServer{
-		recvQueue: []*gnoi_containerz_pb.DeployRequest{
-			{
-				Request: &gnoi_containerz_pb.DeployRequest_ImageTransfer{
-					ImageTransfer: &gnoi_containerz_pb.ImageTransfer{
-						Name: "testimg",
-						Tag:  "latest",
-						RemoteDownload: &gnoi_common_pb.RemoteDownload{
-							Path:     "host:/remote.tar",
-							Protocol: gnoi_common_pb.RemoteDownload_SFTP,
-							Credentials: &gnoi_types_pb.Credentials{
-								Username: "user",
-								Password: &gnoi_types_pb.Credentials_Cleartext{Cleartext: "pass"},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
+    server := newServer()
+    stream := &dummyDeployServer{
+        recvQueue: []*gnoi_containerz_pb.DeployRequest{
+            {
+                Request: &gnoi_containerz_pb.DeployRequest_ImageTransfer{
+                    ImageTransfer: &gnoi_containerz_pb.ImageTransfer{
+                        Name: "testimg",
+                        Tag:  "latest",
+                        RemoteDownload: &gnoi_common_pb.RemoteDownload{
+                            Path:     "host:/remote.tar",
+                            Protocol: gnoi_common_pb.RemoteDownload_SFTP,
+                            Credentials: &gnoi_types_pb.Credentials{
+                                Username: "user",
+                                Password: &gnoi_types_pb.Credentials_Cleartext{Cleartext: "pass"},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
 
-	err := server.Deploy(stream)
-	if err == nil || !strings.Contains(err.Error(), "dbus error") {
-		t.Errorf("expected dbus error, got %v", err)
-	}
-	st, _ := status.FromError(err)
-	if st.Code() != codes.Internal {
-		t.Errorf("expected code %v, got %v", codes.Internal, st.Code())
-	}
+    err := server.Deploy(stream)
+    if err == nil || !strings.Contains(err.Error(), "dbus error") {
+        t.Errorf("expected dbus error, got %v", err)
+    }
+    st, _ := status.FromError(err)
+    if st.Code() != codes.Internal {
+        t.Errorf("expected code %v, got %v", codes.Internal, st.Code())
+    }
 }
 
 func TestDeploy_InvalidPath(t *testing.T) {
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
+    patches := gomonkey.NewPatches()
+    defer patches.Reset()
 
-	patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
-		return ctx, nil
-	})
+    patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+        return ctx, nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "DownloadFile", func(_ *ssc.DbusClient, host, user, pass, remote, local, proto string) error {
+        return nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "LoadDockerImage", func(_ *ssc.DbusClient, image string) error {
+        return nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "RemoveFile", func(_ *ssc.DbusClient, path string) error {
+        return nil
+    })
 
-	server := newServer()
-	stream := &dummyDeployServer{
-		recvQueue: []*gnoi_containerz_pb.DeployRequest{
-			{
-				Request: &gnoi_containerz_pb.DeployRequest_ImageTransfer{
-					ImageTransfer: &gnoi_containerz_pb.ImageTransfer{
-						Name: "testimg",
-						Tag:  "latest",
-						RemoteDownload: &gnoi_common_pb.RemoteDownload{
-							Path:     "invalidpath",
-							Protocol: gnoi_common_pb.RemoteDownload_SFTP,
-						},
-					},
-				},
-			},
-		},
-	}
+    server := newServer()
+    stream := &dummyDeployServer{
+        recvQueue: []*gnoi_containerz_pb.DeployRequest{
+            {
+                Request: &gnoi_containerz_pb.DeployRequest_ImageTransfer{
+                    ImageTransfer: &gnoi_containerz_pb.ImageTransfer{
+                        Name: "testimg",
+                        Tag:  "latest",
+                        RemoteDownload: &gnoi_common_pb.RemoteDownload{
+                            Path:     "invalidpath",
+                            Protocol: gnoi_common_pb.RemoteDownload_SFTP,
+                        },
+                    },
+                },
+            },
+        },
+    }
 
-	err := server.Deploy(stream)
-	if err == nil || !strings.Contains(err.Error(), "invalid remote download path") {
-		t.Errorf("expected invalid remote download path error, got %v", err)
-	}
-	st, _ := status.FromError(err)
-	if st.Code() != codes.InvalidArgument {
-		t.Errorf("expected code %v, got %v", codes.InvalidArgument, st.Code())
-	}
+    err := server.Deploy(stream)
+    if err == nil || !strings.Contains(err.Error(), "invalid remote download path") {
+        t.Errorf("expected invalid remote download path error, got %v", err)
+    }
+    st, _ := status.FromError(err)
+    if st.Code() != codes.InvalidArgument {
+        t.Errorf("expected code %v, got %v", codes.InvalidArgument, st.Code())
+    }
 }
 
 func TestDeploy_RecvError(t *testing.T) {
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
+    patches := gomonkey.NewPatches()
+    defer patches.Reset()
 
-	patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
-		return ctx, nil
-	})
+    patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+        return ctx, nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "DownloadFile", func(_ *ssc.DbusClient, host, user, pass, remote, local, proto string) error {
+        return nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "LoadDockerImage", func(_ *ssc.DbusClient, image string) error {
+        return nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "RemoveFile", func(_ *ssc.DbusClient, path string) error {
+        return nil
+    })
 
-	server := newServer()
-	stream := &dummyDeployServer{
-		recvErr: errors.New("recv failed"),
-	}
+    server := newServer()
+    stream := &dummyDeployServer{
+        recvErr: errors.New("recv failed"),
+    }
 
-	err := server.Deploy(stream)
-	if err == nil || !strings.Contains(err.Error(), "recv failed") {
-		t.Errorf("expected recv failed error, got %v", err)
-	}
-	st, _ := status.FromError(err)
-	if st.Code() != codes.InvalidArgument {
-		t.Errorf("expected code %v, got %v", codes.InvalidArgument, st.Code())
-	}
+    err := server.Deploy(stream)
+    if err == nil || !strings.Contains(err.Error(), "recv failed") {
+        t.Errorf("expected recv failed error, got %v", err)
+    }
+    st, _ := status.FromError(err)
+    if st.Code() != codes.InvalidArgument {
+        t.Errorf("expected code %v, got %v", codes.InvalidArgument, st.Code())
+    }
 }
 
 func TestDeploy_SendError(t *testing.T) {
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
+    patches := gomonkey.NewPatches()
+    defer patches.Reset()
 
-	patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
-		return ctx, nil
-	})
-	patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "DownloadFile", func(_ *ssc.DbusClient, host, user, pass, remote, local, proto string) error {
-		return nil
-	})
+    patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+        return ctx, nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "DownloadFile", func(_ *ssc.DbusClient, host, user, pass, remote, local, proto string) error {
+        return nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "LoadDockerImage", func(_ *ssc.DbusClient, image string) error {
+        return nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "RemoveFile", func(_ *ssc.DbusClient, path string) error {
+        return nil
+    })
 
-	server := newServer()
-	stream := &dummyDeployServer{
-		recvQueue: []*gnoi_containerz_pb.DeployRequest{
-			{
-				Request: &gnoi_containerz_pb.DeployRequest_ImageTransfer{
-					ImageTransfer: &gnoi_containerz_pb.ImageTransfer{
-						Name: "testimg",
-						Tag:  "latest",
-						RemoteDownload: &gnoi_common_pb.RemoteDownload{
-							Path:     "host:/remote.tar",
-							Protocol: gnoi_common_pb.RemoteDownload_SFTP,
-							Credentials: &gnoi_types_pb.Credentials{
-								Username: "user",
-								Password: &gnoi_types_pb.Credentials_Cleartext{Cleartext: "pass"},
-							},
-						},
-					},
-				},
-			},
-		},
-		sendErr: errors.New("send failed"),
-	}
+    server := newServer()
+    stream := &dummyDeployServer{
+        recvQueue: []*gnoi_containerz_pb.DeployRequest{
+            {
+                Request: &gnoi_containerz_pb.DeployRequest_ImageTransfer{
+                    ImageTransfer: &gnoi_containerz_pb.ImageTransfer{
+                        Name: "testimg",
+                        Tag:  "latest",
+                        RemoteDownload: &gnoi_common_pb.RemoteDownload{
+                            Path:     "host:/remote.tar",
+                            Protocol: gnoi_common_pb.RemoteDownload_SFTP,
+                            Credentials: &gnoi_types_pb.Credentials{
+                                Username: "user",
+                                Password: &gnoi_types_pb.Credentials_Cleartext{Cleartext: "pass"},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        sendErr: errors.New("send failed"),
+    }
 
-	err := server.Deploy(stream)
-	if err == nil || !strings.Contains(err.Error(), "send failed") {
-		t.Errorf("expected send failed error, got %v", err)
-	}
-	st, _ := status.FromError(err)
-	if st.Code() != codes.Internal {
-		t.Errorf("expected code %v, got %v", codes.Internal, st.Code())
-	}
+    err := server.Deploy(stream)
+    if err == nil || !strings.Contains(err.Error(), "send failed") {
+        t.Errorf("expected send failed error, got %v", err)
+    }
+    st, _ := status.FromError(err)
+    if st.Code() != codes.Internal {
+        t.Errorf("expected code %v, got %v", codes.Internal, st.Code())
+    }
 }
 
 func TestDeploy_FirstMessageWrongType(t *testing.T) {
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
+    patches := gomonkey.NewPatches()
+    defer patches.Reset()
 
-	patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
-		return ctx, nil
-	})
+    patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+        return ctx, nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "DownloadFile", func(_ *ssc.DbusClient, host, user, pass, remote, local, proto string) error {
+        return nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "LoadDockerImage", func(_ *ssc.DbusClient, image string) error {
+        return nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "RemoveFile", func(_ *ssc.DbusClient, path string) error {
+        return nil
+    })
 
-	server := newServer()
-	stream := &dummyDeployServer{
-		recvQueue: []*gnoi_containerz_pb.DeployRequest{
-			{
-				Request: &gnoi_containerz_pb.DeployRequest_Content{
-					Content: []byte("not an image transfer"),
-				},
-			},
-		},
-	}
+    server := newServer()
+    stream := &dummyDeployServer{
+        recvQueue: []*gnoi_containerz_pb.DeployRequest{
+            {
+                Request: &gnoi_containerz_pb.DeployRequest_Content{
+                    Content: []byte("not an image transfer"),
+                },
+            },
+        },
+    }
 
-	err := server.Deploy(stream)
-	if err == nil || !strings.Contains(err.Error(), "first DeployRequest must be ImageTransfer") {
-		t.Errorf("expected error for wrong first message type, got %v", err)
-	}
-	st, _ := status.FromError(err)
-	if st.Code() != codes.InvalidArgument {
-		t.Errorf("expected code %v, got %v", codes.InvalidArgument, st.Code())
-	}
+    err := server.Deploy(stream)
+    if err == nil || !strings.Contains(err.Error(), "first DeployRequest must be ImageTransfer") {
+        t.Errorf("expected error for wrong first message type, got %v", err)
+    }
+    st, _ := status.FromError(err)
+    if st.Code() != codes.InvalidArgument {
+        t.Errorf("expected code %v, got %v", codes.InvalidArgument, st.Code())
+    }
+}
+
+func TestDeploy_LoadDockerImageError(t *testing.T) {
+    patches := gomonkey.NewPatches()
+    defer patches.Reset()
+
+    patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+        return ctx, nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "DownloadFile", func(_ *ssc.DbusClient, host, user, pass, remote, local, proto string) error {
+        return nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "LoadDockerImage", func(_ *ssc.DbusClient, image string) error {
+        return errors.New("load docker image error")
+    })
+
+    server := newServer()
+    stream := &dummyDeployServer{
+        recvQueue: []*gnoi_containerz_pb.DeployRequest{
+            {
+                Request: &gnoi_containerz_pb.DeployRequest_ImageTransfer{
+                    ImageTransfer: &gnoi_containerz_pb.ImageTransfer{
+                        Name: "testimg",
+                        Tag:  "latest",
+                        RemoteDownload: &gnoi_common_pb.RemoteDownload{
+                            Path:     "host:/remote.tar",
+                            Protocol: gnoi_common_pb.RemoteDownload_SFTP,
+                            Credentials: &gnoi_types_pb.Credentials{
+                                Username: "user",
+                                Password: &gnoi_types_pb.Credentials_Cleartext{Cleartext: "pass"},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+    err := server.Deploy(stream)
+    if err == nil || !strings.Contains(err.Error(), "load docker image error") {
+        t.Errorf("expected load docker image error, got %v", err)
+    }
+    st, _ := status.FromError(err)
+    if st.Code() != codes.Internal {
+        t.Errorf("expected code %v, got %v", codes.Internal, st.Code())
+    }
+}
+
+func TestDeploy_RemoveFileError(t *testing.T) {
+    patches := gomonkey.NewPatches()
+    defer patches.Reset()
+
+    patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+        return ctx, nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "DownloadFile", func(_ *ssc.DbusClient, host, user, pass, remote, local, proto string) error {
+        return nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "LoadDockerImage", func(_ *ssc.DbusClient, image string) error {
+        return nil
+    })
+    patches.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "RemoveFile", func(_ *ssc.DbusClient, path string) error {
+        return errors.New("remove file error")
+    })
+
+    server := newServer()
+    stream := &dummyDeployServer{
+        recvQueue: []*gnoi_containerz_pb.DeployRequest{
+            {
+                Request: &gnoi_containerz_pb.DeployRequest_ImageTransfer{
+                    ImageTransfer: &gnoi_containerz_pb.ImageTransfer{
+                        Name: "testimg",
+                        Tag:  "latest",
+                        RemoteDownload: &gnoi_common_pb.RemoteDownload{
+                            Path:     "host:/remote.tar",
+                            Protocol: gnoi_common_pb.RemoteDownload_SFTP,
+                            Credentials: &gnoi_types_pb.Credentials{
+                                Username: "user",
+                                Password: &gnoi_types_pb.Credentials_Cleartext{Cleartext: "pass"},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+    err := server.Deploy(stream)
+    if err == nil || !strings.Contains(err.Error(), "remove file error") {
+        t.Errorf("expected remove file error, got %v", err)
+    }
+    st, _ := status.FromError(err)
+    if st.Code() != codes.Internal {
+        t.Errorf("expected code %v, got %v", codes.Internal, st.Code())
+    }
 }
