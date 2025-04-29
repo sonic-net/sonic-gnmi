@@ -38,7 +38,7 @@ const (
 )
 
 func TestTranslSubscribe(t *testing.T) {
-	s := createServer(t, 8081)
+	s := createServer(t)
 	go runServer(t, s)
 	defer s.s.Stop()
 
@@ -936,7 +936,7 @@ func newBundleVersion(t *testing.T, version string) *extnpb.Extension {
 }
 
 func TestDebugSubscribePreferences(t *testing.T) {
-	s := createServer(t, 8081)
+	s := createServer(t)
 	go runServer(t, s)
 	defer s.s.Stop()
 

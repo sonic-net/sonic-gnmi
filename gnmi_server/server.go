@@ -35,7 +35,8 @@ import (
 )
 
 var (
-	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+	supportedEncodings            = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+	dbusCaller         ssc.Caller = &ssc.DbusCaller{}
 )
 
 // Server manages a single gNMI Server implementation. Each client that connects
@@ -82,6 +83,13 @@ type ContainerzServer struct {
 
 type AuthTypes map[string]bool
 
+// OSConfig is a collection of values for OSServer.
+type OSConfig struct {
+	ImgDir          string                       // Path to the directory where image is stored.
+	ProcessTrfReady func(string) (string, error) // Function that handles TransferReady request.
+	ProcessTrfEnd   func(string) (string, error) // Function that handles TransferEnd request.
+}
+
 // Config is a collection of values for Server
 type Config struct {
 	// Port for the Server to listen on. If 0 or unset the Server will pick a port
@@ -97,6 +105,15 @@ type Config struct {
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
+	// mTLS flags
+	CaCertLnk   string // Path to symlink pointing to current CA certificate.
+	SrvCertLnk  string // Path to symlink pointing to current server's certificate.
+	SrvKeyLnk   string // Path to symlink pointing to current server's private key.
+	CaCertFile  string // Path to the first CA certificate.
+	SrvCertFile string // Path to the first server's certificate.
+	SrvKeyFile  string // Path to the first server's private key.
+	// gNOI
+	OSCfg *OSConfig
 }
 
 var AuthLock sync.Mutex
@@ -175,6 +192,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if config == nil {
 		return nil, errors.New("config not provided")
 	}
+
 	common_utils.InitCounters()
 
 	s := grpc.NewServer(opts...)
@@ -504,7 +522,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 // saveOnSetEnabled saves configuration to a file
 func SaveOnSetEnabled() error {
-	sc, err := ssc.NewDbusClient()
+	sc, err := ssc.NewDbusClient(dbusCaller)
 	if err != nil {
 		log.V(0).Infof("Saving startup config failed to create dbus client: %v", err)
 		return err
