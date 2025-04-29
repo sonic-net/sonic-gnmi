@@ -1220,6 +1220,16 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 	if err != nil {
 		return err
 	}
+	err = sc.CreateCheckPoint(CHECK_POINT_PATH + "/config")
+	if err != nil {
+		return err
+	}
+	defer sc.DeleteCheckPoint(CHECK_POINT_PATH + "/config")
+	fileName := CHECK_POINT_PATH + "/config.cp.json"
+	c.jClient, err = NewJsonClient(fileName)
+	if err != nil {
+		return err
+	}
 
 	multiNs, err := sdcfg.CheckDbMultiNamespace()
 	if err != nil {
