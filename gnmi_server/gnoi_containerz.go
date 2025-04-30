@@ -39,19 +39,19 @@ func (c *ContainerzServer) Deploy(stream gnoi_containerz_pb.Containerz_DeploySer
 		return status.Errorf(codes.InvalidArgument, "first DeployRequest must be ImageTransfer")
 	}
 
-	var b strings.Builder
-	b.WriteString("Received DeployRequest:\n")
-	b.WriteString("  Name: " + imageTransfer.Name + "\n")
-	b.WriteString("  Tag: " + imageTransfer.Tag + "\n")
+	var reqDump strings.Builder
+	reqDump.WriteString("Received DeployRequest:\n")
+	reqDump.WriteString("  Name: " + imageTransfer.Name + "\n")
+	reqDump.WriteString("  Tag: " + imageTransfer.Tag + "\n")
 	var hostname, remotePath, username, password, protocol string
 	if rd := imageTransfer.RemoteDownload; rd != nil {
-		b.WriteString("  RemoteDownload:\n")
-		b.WriteString("    Path: " + rd.Path + "\n")
-		b.WriteString("    Protocol: " + rd.Protocol.String() + "\n")
+		reqDump.WriteString("  RemoteDownload:\n")
+		reqDump.WriteString("    Path: " + rd.Path + "\n")
+		reqDump.WriteString("    Protocol: " + rd.Protocol.String() + "\n")
 		protocol = rd.Protocol.String()
 		if rd.Credentials != nil {
-			b.WriteString("    Username: " + rd.Credentials.Username + "\n")
 			username = rd.Credentials.Username
+			reqDump.WriteString("    Username: " + username + "\n")
 			if clear, ok := rd.Credentials.Password.(*gnoi_types_pb.Credentials_Cleartext); ok {
 				password = clear.Cleartext
 			}
@@ -65,7 +65,7 @@ func (c *ContainerzServer) Deploy(stream gnoi_containerz_pb.Containerz_DeploySer
 			return status.Errorf(codes.InvalidArgument, "invalid remote download path: %s", rd.Path)
 		}
 	}
-	log.V(2).Info(b.String())
+	log.V(2).Info(reqDump.String())
 
 	// Use sonic_service_client to download the file to a local path (e.g., /tmp/<name>-<random>.tar)
 	// Use crypto/rand for a random suffix if common_utils.RandString is not available
