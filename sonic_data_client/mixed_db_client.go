@@ -1251,6 +1251,9 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
+		if multiNs {
+			stringSlice = append(stringSlice, namespace)
+		}
 		elems := fullPath.GetElem()
 		if elems != nil {
 			for i, elem := range elems {
@@ -1284,6 +1287,9 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
+		if multiNs {
+			stringSlice = append(stringSlice, namespace)
+		}
 		elems := fullPath.GetElem()
 		if elems != nil {
 			for i, elem := range elems {
@@ -1326,6 +1332,9 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
+		if multiNs {
+			stringSlice = append(stringSlice, namespace)
+		}
 		elems := fullPath.GetElem()
 		if elems != nil {
 			for i, elem := range elems {
@@ -1517,6 +1526,17 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 		return nil, fmt.Errorf("There's no check point")
 	}
 	log.V(2).Infof("Getting #%v", c.jClient.jsonData)
+
+	multiNs, err := sdcfg.CheckDbMultiNamespace()
+	if err != nil {
+		return err
+	}
+	namespace := c.dbkey.GetNetns()
+	// Default name space for GCU is localhost
+	if namespace == sdcfg.SONIC_DEFAULT_NAMESPACE {
+		namespace = HOSTNAME
+	}
+
 	for _, path := range c.paths {
 		fullPath, err := c.gnmiFullPath(c.prefix, path)
 		if err != nil {
@@ -1525,6 +1545,9 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 		log.V(2).Infof("Path #%v", fullPath)
 
 		stringSlice := []string{}
+		if multiNs {
+			stringSlice = append(stringSlice, namespace)
+		}
 		elems := fullPath.GetElem()
 		if elems != nil {
 			for i, elem := range elems {
