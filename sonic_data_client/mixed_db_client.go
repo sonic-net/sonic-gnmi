@@ -1225,14 +1225,13 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 	if err != nil {
 		return err
 	}
+	namespace := ""
 	if multiNs {
-		namespace := c.dbkey.GetNetns()
+		namespace = c.dbkey.GetNetns()
 		// Default name space for GCU is localhost
 		if namespace == sdcfg.SONIC_DEFAULT_NAMESPACE {
 			namespace = HOSTNAME
 		}
-	} else {
-		namespace := ""
 	}
 
 	err = sc.CreateCheckPoint(CHECK_POINT_PATH + "/config")
@@ -1520,14 +1519,13 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 	if err != nil {
 		return nil, err
 	}
+	namespace := ""
 	if multiNs {
 		namespace := c.dbkey.GetNetns()
 		// Default name space for GCU is localhost
 		if namespace == sdcfg.SONIC_DEFAULT_NAMESPACE {
 			namespace = HOSTNAME
 		}
-	} else {
-		namespace := ""
 	}
 
 	fileName := CHECK_POINT_PATH + "/config.cp.json"
@@ -1536,7 +1534,6 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 		return nil, fmt.Errorf("There's no check point")
 	}
 	log.V(2).Infof("Getting #%v", c.jClient.jsonData)
-
 	for _, path := range c.paths {
 		fullPath, err := c.gnmiFullPath(c.prefix, path)
 		if err != nil {

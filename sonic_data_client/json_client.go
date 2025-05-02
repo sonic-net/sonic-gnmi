@@ -96,16 +96,16 @@ func NewJsonClient(fileName string, nameSpace string) (*JsonClient, error) {
 		return nil, err
 	}
 	var ok bool
-	jsonData, ok = res.(map[string]interface{})
+	jsonMap, ok := res.(map[string]interface{})
 	if !ok {
 		log.V(2).Infof("Invalid checkpoint %v", fileName)
 		return nil, fmt.Errorf("Invalid checkpoint %v", fileName)
 	}
 	// Check namespace for multi-asic device
 	if nameSpace == "" {
-		client.jsonData = jsonData
+		client.jsonData = jsonMap
 	} else {
-		res, ok = jsonData[nameSpace]
+		res, ok = jsonMap[nameSpace]
 		if ok {
 			client.jsonData, ok = res.(map[string]interface{})
 			if !ok {
