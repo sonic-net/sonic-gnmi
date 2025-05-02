@@ -59,6 +59,16 @@ func TestJsonClientNamespace(t *testing.T) {
 	}
 	_, err = NewJsonClient(testFile, "localhost")
 	if err == nil {
+		t.Errorf("Should fail with unexpected namespace")
+	}
+
+	text = `{"localhost": "localhost"}`
+	err = ioutil.WriteFile(testFile, []byte(text), 0644)
+	if err != nil {
+		t.Errorf("Fail to create test file")
+	}
+	_, err = NewJsonClient(testFile, "localhost")
+	if err == nil {
 		t.Errorf("Should fail with invalid namespace")
 	}
 }
