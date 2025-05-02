@@ -1529,7 +1529,7 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 
 	multiNs, err := sdcfg.CheckDbMultiNamespace()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	namespace := c.dbkey.GetNetns()
 	// Default name space for GCU is localhost
