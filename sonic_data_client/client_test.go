@@ -57,7 +57,7 @@ func TestJsonClientNamespace(t *testing.T) {
 	if err != nil {
 		t.Errorf("Fail to create test file")
 	}
-	client, err := NewJsonClient(testFile, "localhost")
+	_, err = NewJsonClient(testFile, "localhost")
 	if err == nil {
 		t.Errorf("Should fail with invalid namespace")
 	}
