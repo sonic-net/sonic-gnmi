@@ -20,6 +20,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
+	gnoi_containerz_pb "github.com/openconfig/gnoi/containerz"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 
 	//gnoi_yang "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/server"
@@ -71,6 +72,12 @@ type FileServer struct {
 type OSServer struct {
 	*Server
 	gnoi_os_pb.UnimplementedOSServer
+}
+
+// ContainerzServer is the server API for Containerz service.
+type ContainerzServer struct {
+	server *Server
+	gnoi_containerz_pb.UnimplementedContainerzServer
 }
 
 type AuthTypes map[string]bool
@@ -186,6 +193,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 
 	fileSrv := &FileServer{Server: srv}
 	osSrv := &OSServer{Server: srv}
+	containerzSrv := &ContainerzServer{server: srv}
 
 	var err error
 	if srv.config.Port < 0 {
@@ -201,6 +209,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
 		gnoi_file_pb.RegisterFileServer(srv.s, fileSrv)
 		gnoi_os_pb.RegisterOSServer(srv.s, osSrv)
+		gnoi_containerz_pb.RegisterContainerzServer(srv.s, containerzSrv)
 	}
 	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
