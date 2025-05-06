@@ -48,6 +48,9 @@ var (
 	// SONiC interface name to their Fabric port name map, then to oid map
 	countersFabricPortNameMap = make(map[string]string)
 
+	// SONiC interface name to their Macsec counters name map, then to oid map
+	countersMacsecNameMap = make(map[string]string)
+
 	// path2TFuncTbl is used to populate trie tree which is reponsible
 	// for virtual path to real data path translation
 	pathTransFuncTbl = []pathTransFunc{
@@ -66,7 +69,12 @@ var (
 		}, { // stats for one or all Fabric ports
 			path:      []string{"COUNTERS_DB", "COUNTERS", "PORT*"},
 			transFunc: v2rTranslate(v2rFabricPortStats),
+		}, { // stats for one or all MacSec counters
+			path:      []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Macsec"},
+			transFunc: v2rTranslate(v2rEthPortMacsecStats),
 		},
+
+
 	}
 )
 
@@ -133,6 +141,17 @@ func initCountersFabricPortNameMap() error {
 	value := os.Getenv("UNIT_TEST")
 	if len(countersFabricPortNameMap) == 0 || value == "1" {
 		countersFabricPortNameMap, err = getFabricCountersMap("COUNTERS_FABRIC_PORT_NAME_MAP")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func initCountersMacsecNameMap() error {
+	var err error
+	if len(countersMacsecNameMap) == 0 {
+		countersMacsecNameMap, err = getCountersMap("COUNTERS_MACSEC_NAME_MAP")
 		if err != nil {
 			return err
 		}
@@ -654,6 +673,69 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 		}
 	}
 	log.V(6).Infof("v2rEthPortQueStats: %v", tblPaths)
+	return tblPaths, nil
+}
+
+// Populate real data paths from paths like
+// [COUNTER_DB COUNTERS Ethernet* Queues] or [COUNTER_DB COUNTERS Ethernet68 Queues]
+func v2rEthPortMacsecStats(paths []string) ([]tablePath, error) {
+	separator, _ := GetTableKeySeparator(paths[DbIdx], "")
+	var tblPaths []tablePath
+	if strings.HasSuffix(paths[KeyIdx], "*") { // queues on all Ethernet ports
+		for que, oid := range countersMacsecNameMap {
+			// que is in format of "Internal_Ethernet:12"
+			names := strings.Split(que, separator)
+			var oname string
+			if alias, ok := name2aliasMap[names[0]]; ok {
+				oname = alias
+			} else {
+				log.V(2).Infof(" %v dose not have a vendor alias", names[0])
+				oname = names[0]
+			}
+			namespace, ok := port2namespaceMap[names[0]]
+			if !ok {
+				return nil, fmt.Errorf("%v does not have namespace associated", names[0])
+			}
+			que = strings.Join([]string{oname, names[1], names[2]}, separator)
+			tblPath := tablePath{
+				dbNamespace:  namespace,
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx],
+				tableKey:     oid,
+				delimitor:    separator,
+				jsonTableKey: que,
+			}
+			tblPaths = append(tblPaths, tblPath)
+		}
+	} else { //queues on single port
+		alias := paths[KeyIdx]
+		name := alias
+		if val, ok := alias2nameMap[alias]; ok {
+			name = val
+		}
+		namespace, ok := port2namespaceMap[name]
+		if !ok {
+			return nil, fmt.Errorf("%v does not have namespace associated", name)
+		}
+		for que, oid := range countersMacsecNameMap {
+			//que is in format of "Ethernet64:0000000000000001:1"
+			names := strings.Split(que, separator)
+			if name != names[0] {
+				continue
+			}
+			que = strings.Join([]string{alias, names[1], names[2]}, separator)
+			tblPath := tablePath{
+				dbNamespace:  namespace,
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx],
+				tableKey:     oid,
+				delimitor:    separator,
+				jsonTableKey: que,
+			}
+			tblPaths = append(tblPaths, tblPath)
+		}
+	}
+	log.V(6).Infof("v2rEthPortMacsecStats: %v", tblPaths)
 	return tblPaths, nil
 }
 
