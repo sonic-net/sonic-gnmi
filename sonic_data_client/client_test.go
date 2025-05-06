@@ -35,7 +35,7 @@ func JsonEqual(a, b []byte) (bool, error) {
 
 func TestJsonClientNegative(t *testing.T) {
 	os.Remove(testFile)
-	_, err := NewJsonClient(testFile)
+	_, err := NewJsonClient(testFile, "")
 	if err == nil {
 		t.Errorf("Should fail without checkpoint")
 	}
@@ -45,9 +45,31 @@ func TestJsonClientNegative(t *testing.T) {
 	if err != nil {
 		t.Errorf("Fail to create test file")
 	}
-	_, err = NewJsonClient(testFile)
+	_, err = NewJsonClient(testFile, "")
 	if err == nil {
 		t.Errorf("Should fail with invalid checkpoint")
+	}
+}
+
+func TestJsonClientNamespace(t *testing.T) {
+	text := "{}"
+	err := ioutil.WriteFile(testFile, []byte(text), 0644)
+	if err != nil {
+		t.Errorf("Fail to create test file")
+	}
+	_, err = NewJsonClient(testFile, "localhost")
+	if err == nil {
+		t.Errorf("Should fail with unexpected namespace")
+	}
+
+	text = `{"localhost": "localhost"}`
+	err = ioutil.WriteFile(testFile, []byte(text), 0644)
+	if err != nil {
+		t.Errorf("Fail to create test file")
+	}
+	_, err = NewJsonClient(testFile, "localhost")
+	if err == nil {
+		t.Errorf("Should fail with invalid namespace")
 	}
 }
 
@@ -57,7 +79,7 @@ func TestJsonAdd(t *testing.T) {
 	if err != nil {
 		t.Errorf("Fail to create test file")
 	}
-	client, err := NewJsonClient(testFile)
+	client, err := NewJsonClient(testFile, "")
 	if err != nil {
 		t.Errorf("Create client fail: %v", err)
 	}
@@ -127,7 +149,7 @@ func TestJsonAddNegative(t *testing.T) {
 	if err != nil {
 		t.Errorf("Fail to create test file")
 	}
-	client, err := NewJsonClient(testFile)
+	client, err := NewJsonClient(testFile, "")
 	if err != nil {
 		t.Errorf("Create client fail: %v", err)
 	}
@@ -193,7 +215,7 @@ func TestJsonReplace(t *testing.T) {
 	if err != nil {
 		t.Errorf("Fail to create test file")
 	}
-	client, err := NewJsonClient(testFile)
+	client, err := NewJsonClient(testFile, "")
 	if err != nil {
 		t.Errorf("Create client fail: %v", err)
 	}
@@ -275,7 +297,7 @@ func TestJsonRemove(t *testing.T) {
 	if err != nil {
 		t.Errorf("Fail to create test file")
 	}
-	client, err := NewJsonClient(testFile)
+	client, err := NewJsonClient(testFile, "")
 	if err != nil {
 		t.Errorf("Create client fail: %v", err)
 	}
@@ -335,7 +357,7 @@ func TestJsonRemoveNegative(t *testing.T) {
 	if err != nil {
 		t.Errorf("Fail to create test file")
 	}
-	client, err := NewJsonClient(testFile)
+	client, err := NewJsonClient(testFile, "")
 	if err != nil {
 		t.Errorf("Create client fail: %v", err)
 	}

@@ -1220,25 +1220,29 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 	if err != nil {
 		return err
 	}
+
+	multiNs, err := sdcfg.CheckDbMultiNamespace()
+	if err != nil {
+		return err
+	}
+	namespace := ""
+	if multiNs {
+		namespace = c.dbkey.GetNetns()
+		// Default name space for GCU is localhost
+		if namespace == sdcfg.SONIC_DEFAULT_NAMESPACE {
+			namespace = HOSTNAME
+		}
+	}
+
 	err = sc.CreateCheckPoint(CHECK_POINT_PATH + "/config")
 	if err != nil {
 		return err
 	}
 	defer sc.DeleteCheckPoint(CHECK_POINT_PATH + "/config")
 	fileName := CHECK_POINT_PATH + "/config.cp.json"
-	c.jClient, err = NewJsonClient(fileName)
+	c.jClient, err = NewJsonClient(fileName, namespace)
 	if err != nil {
 		return err
-	}
-
-	multiNs, err := sdcfg.CheckDbMultiNamespace()
-	if err != nil {
-		return err
-	}
-	namespace := c.dbkey.GetNetns()
-	// Default name space for GCU is localhost
-	if namespace == sdcfg.SONIC_DEFAULT_NAMESPACE {
-		namespace = HOSTNAME
 	}
 
 	var patchList [](map[string]interface{})
@@ -1511,8 +1515,21 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 	var err error
 	ts := time.Now()
 
+	multiNs, err := sdcfg.CheckDbMultiNamespace()
+	if err != nil {
+		return nil, err
+	}
+	namespace := ""
+	if multiNs {
+		namespace := c.dbkey.GetNetns()
+		// Default name space for GCU is localhost
+		if namespace == sdcfg.SONIC_DEFAULT_NAMESPACE {
+			namespace = HOSTNAME
+		}
+	}
+
 	fileName := CHECK_POINT_PATH + "/config.cp.json"
-	c.jClient, err = NewJsonClient(fileName)
+	c.jClient, err = NewJsonClient(fileName, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("There's no check point")
 	}

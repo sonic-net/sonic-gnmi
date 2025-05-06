@@ -78,7 +78,7 @@ func DecodeJsonListItem(list []interface{}, index string) (*string, error) {
 	return nil, fmt.Errorf("Invalid item %v", vitem)
 }
 
-func NewJsonClient(fileName string) (*JsonClient, error) {
+func NewJsonClient(fileName string, nameSpace string) (*JsonClient, error) {
 	var client JsonClient
 
 	jsonFile, err := os.Open(fileName)
@@ -96,10 +96,26 @@ func NewJsonClient(fileName string) (*JsonClient, error) {
 		return nil, err
 	}
 	var ok bool
-	client.jsonData, ok = res.(map[string]interface{})
+	jsonMap, ok := res.(map[string]interface{})
 	if !ok {
 		log.V(2).Infof("Invalid checkpoint %v", fileName)
 		return nil, fmt.Errorf("Invalid checkpoint %v", fileName)
+	}
+	// Check namespace for multi-asic device
+	if nameSpace == "" {
+		client.jsonData = jsonMap
+	} else {
+		res, ok = jsonMap[nameSpace]
+		if ok {
+			client.jsonData, ok = res.(map[string]interface{})
+			if !ok {
+				log.V(2).Infof("Invalid namespace %v", nameSpace)
+				return nil, fmt.Errorf("Invalid namespace %v", nameSpace)
+			}
+		} else {
+			log.V(2).Infof("Unexpected namespace %v", nameSpace)
+			return nil, fmt.Errorf("Unexpected namespace %v", nameSpace)
+		}
 	}
 
 	return &client, nil
