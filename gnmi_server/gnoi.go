@@ -72,6 +72,28 @@ func ReadFileStat(path string) (*gnoi_file_pb.StatInfo, error) {
 	return statInfo, nil
 }
 
+func (srv *FileServer) Remove(ctx context.Context, req *gnoi_file_pb.RemoveRequest) (*gnoi_file_pb.RemoveResponse, error) {
+	ctx, err := authenticate(srv.config, ctx, "gnoi", true)
+	if err != nil {
+		return nil, err
+	}
+	log.V(1).Info("gNOI: File Remove")
+	log.V(1).Info("Request: ", req)
+
+	reqstr, err := json.Marshal(req)
+	if err != nil {
+		return nil, status.Error(codes.Unknown, err.Error())
+	}
+
+	_, err = transutil.TranslProcessAction("/sonic-file-mgmt:remove", []byte(reqstr), ctx)
+	if err != nil {
+		return nil, status.Error(codes.Unknown, err.Error())
+	}
+
+	resp := &gnoi_file_pb.RemoveResponse{}
+	return resp, nil
+}
+
 func (srv *FileServer) Stat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_pb.StatResponse, error) {
 	_, err := authenticate(srv.config, ctx, "gnoi", false)
 	if err != nil {

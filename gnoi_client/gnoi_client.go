@@ -50,6 +50,8 @@ func main() {
 		}
 	case "File":
 		switch *config.Rpc {
+		case "Remove":
+			file.Remove(conn, ctx)
 		case "Stat":
 			file.Stat(conn, ctx)
 		default:

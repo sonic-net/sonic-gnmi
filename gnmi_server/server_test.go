@@ -31,6 +31,7 @@ import (
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
+	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
 
 	"github.com/go-redis/redis"
 	"github.com/golang/protobuf/proto"
@@ -3049,6 +3050,59 @@ func TestGNOI(t *testing.T) {
 
 		if len(resp.Output.OutputFilename) == 0 {
 			t.Fatalf("Invalid Output Filename: %s", resp.Output.OutputFilename)
+		}
+	})
+
+	t.Run("FileRemoveSuccess", func(t *testing.T) {
+		actualURI := ""
+		actualPayload := ""
+
+		mock := gomonkey.ApplyFunc(transutil.TranslProcessAction, func(uri string, payload []byte, _ context.Context) ([]byte, error) {
+			actualURI = uri
+			actualPayload = string(payload)
+			return nil, nil
+		})
+		defer mock.Reset()
+
+		ctx := context.Background()
+		req := &gnoi_file_pb.RemoveRequest{RemoteFile: "/test/path"}
+		fc := gnoi_file_pb.NewFileClient(conn)
+
+		_, err := fc.Remove(ctx, req)
+		if err != nil {
+			t.Fatalf("FileRemove failed: %v", err)
+		}
+
+		expectedURI := "/sonic-file-mgmt:remove"
+		if actualURI != expectedURI {
+			t.Errorf("Expected uri %s but got %s", expectedURI, actualURI)
+		}
+
+		expectedPayload := `{"remote_file":"/test/path"}`
+		if actualPayload != expectedPayload {
+			t.Errorf("Expected payload %s but got %s", expectedPayload, actualPayload)
+		}
+	})
+
+	t.Run("FileRemoveFailure", func(t *testing.T) {
+		expectedError := fmt.Errorf("failed to remove a file")
+
+		mock := gomonkey.ApplyFunc(transutil.TranslProcessAction, func(_ string, _ []byte, _ context.Context) ([]byte, error) {
+			return nil, expectedError
+		})
+		defer mock.Reset()
+
+		ctx := context.Background()
+		req := &gnoi_file_pb.RemoveRequest{RemoteFile: "/test/path"}
+		fc := gnoi_file_pb.NewFileClient(conn)
+
+		_, err := fc.Remove(ctx, req)
+		if err == nil {
+			t.Fatalf("Expected error but got none")
+		}
+
+		if !strings.Contains(err.Error(), expectedError.Error()) {
+			t.Errorf("Expected error to contain '%v' but got '%v'", expectedError, err)
 		}
 	})
 
