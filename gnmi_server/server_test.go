@@ -3033,18 +3033,6 @@ func TestGNOI(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
 	defer cancel()
 
-	t.Run("SystemTime", func(t *testing.T) {
-		sc := gnoi_system_pb.NewSystemClient(conn)
-		resp, err := sc.Time(ctx, new(gnoi_system_pb.TimeRequest))
-		if err != nil {
-			t.Fatal(err.Error())
-		}
-		ctime := uint64(time.Now().UnixNano())
-		if ctime-resp.Time < 0 || ctime-resp.Time > 1e9 {
-			t.Fatalf("Invalid System Time %d", resp.Time)
-		}
-	})
-
 	t.Run("SonicShowTechsupport", func(t *testing.T) {
 		t.Skip("Not supported yet")
 		sc := sgpb.NewSonicServiceClient(conn)
@@ -4883,7 +4871,7 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check get 1 cert name
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role", "readwrite")
+	gnmiTable.Hset("certname1", "role", "gnmi_readwrite")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
@@ -4894,8 +4882,8 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check get multiple cert names
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role", "readwrite")
-	gnmiTable.Hset("certname2", "role", "readonly")
+	gnmiTable.Hset("certname1", "role", "gnmi_readwrite")
+	gnmiTable.Hset("certname2", "role", "gnmi_readonly")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
@@ -4906,7 +4894,72 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check a invalid cert cname
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname2", "role", "readonly")
+	gnmiTable.Hset("certname2", "role", "gnmi_readonly")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
+	if err == nil {
+		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
+	}
+
+	cancel()
+
+	swsscommon.DeleteTable(gnmiTable)
+	swsscommon.DeleteDBConnector(configDb)
+}
+
+func TestClientCertAuthenAndAuthorMultiRole(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	var configDb = swsscommon.NewDBConnector("CONFIG_DB", uint(0), true)
+	var gnmiTable = swsscommon.NewTable(configDb, "GNMI_CLIENT_CERT")
+	configDb.Flushdb()
+
+	// initialize err variable
+	err := status.Error(codes.Unauthenticated, "")
+
+	// when config table is empty, will authorize with PopulateAuthStruct
+	mockpopulate := gomonkey.ApplyFunc(PopulateAuthStruct, func(username string, auth *common_utils.AuthInfo, r []string) error {
+		return nil
+	})
+	defer mockpopulate.Reset()
+
+	// check auth with nil cert name
+	ctx, cancel := CreateAuthorizationCtx()
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "", false)
+	if err != nil {
+		t.Errorf("CommonNameMatch with empty config table should success: %v", err)
+	}
+
+	cancel()
+
+	// check get 1 cert name
+	ctx, cancel = CreateAuthorizationCtx()
+	configDb.Flushdb()
+	gnmiTable.Hset("certname1", "role@", "gnmi_readwrite")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
+	if err != nil {
+		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
+	}
+
+	cancel()
+
+	// check get multiple cert names
+	ctx, cancel = CreateAuthorizationCtx()
+	configDb.Flushdb()
+	gnmiTable.Hset("certname1", "role@", "gnmi_readwrite")
+	gnmiTable.Hset("certname2", "role@", "gnmi_readonly")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
+	if err != nil {
+		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
+	}
+
+	cancel()
+
+	// check a invalid cert cname
+	ctx, cancel = CreateAuthorizationCtx()
+	configDb.Flushdb()
+	gnmiTable.Hset("certname2", "role@", "gnmi_readonly")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err == nil {
 		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
@@ -4937,11 +4990,53 @@ func TestAuthenticate(t *testing.T) {
 	cfg := &Config{ConfigTableName: tableName, UserAuth: AuthTypes{"password": false, "cert": true, "jwt": false}}
 	ctx, cancel := CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role", "readonly")
-	// Call authenticate to verify the user's role. This should fail if the role is "readonly".
-	_, err = authenticate(cfg, ctx, true)
+
+	gnmiTable.Hset("certname1", "role@", "sonic_linux,gnmi_noaccess,linux_sonic")
+	// Call authenticate to verify the user's role. This should fail if the role is "gnmi_noaccess".
+	_, err = authenticate(cfg, ctx, "gnmi", true)
+	if err == nil {
+		t.Errorf("authenticate with noaccess role should fail: %v", err)
+	}
+	// Call authenticate to verify the user's role. This should fail if the role is "gnmi_noaccess".
+	_, err = authenticate(cfg, ctx, "gnmi", false)
+	if err == nil {
+		t.Errorf("authenticate with noaccess role should fail: %v", err)
+	}
+
+	gnmiTable.Hset("certname1", "role@", "sonic_linux,gnmi_readonly,linux_sonic")
+	// Call authenticate to verify the user's role. This should fail if the role is "gnmi_readonly".
+	_, err = authenticate(cfg, ctx, "gnmi", true)
 	if err == nil {
 		t.Errorf("authenticate with readonly role should fail: %v", err)
+	}
+	// Call authenticate to verify the user's role. This should pass if the role is "gnmi_readonly".
+	_, err = authenticate(cfg, ctx, "gnmi", false)
+	if err != nil {
+		t.Errorf("authenticate with readonly role should pass: %v", err)
+	}
+
+	gnmiTable.Hset("certname1", "role@", "sonic_linux,gnmi_readwrite,linux_sonic")
+	// Call authenticate to verify the user's role. This should pass if the role is "gnmi_readwrite".
+	_, err = authenticate(cfg, ctx, "gnmi", true)
+	if err != nil {
+		t.Errorf("authenticate with readwrite role should pass: %v", err)
+	}
+	// Call authenticate to verify the user's role. This should pass if the role is "gnmi_readwrite".
+	_, err = authenticate(cfg, ctx, "gnmi", false)
+	if err != nil {
+		t.Errorf("authenticate with readwrite role should pass: %v", err)
+	}
+
+	gnmiTable.Hset("certname1", "role@", "sonic_linux,linux_sonic")
+	// Call authenticate to verify the user's role. This should faile if the role is empty.
+	_, err = authenticate(cfg, ctx, "gnmi", true)
+	if err == nil {
+		t.Errorf("authenticate with empty role should fail: %v", err)
+	}
+	// Call authenticate to verify the user's role. This should faile if the role is empty.
+	_, err = authenticate(cfg, ctx, "gnmi", false)
+	if err != nil {
+		t.Errorf("authenticate with empty role should pass: %v", err)
 	}
 
 	cancel()
@@ -4990,29 +5085,28 @@ func (x *MockSetPackageServer) Recv() (*gnoi_system_pb.SetPackageRequest, error)
 func TestGnoiAuthorization(t *testing.T) {
 	s := createServer(t, 8081)
 	go runServer(t, s)
-	systemSrv := &SystemServer{Server: s}
 	mockAuthenticate := gomonkey.ApplyFunc(s.Authenticate, func(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
 		return nil, nil
 	})
 	defer mockAuthenticate.Reset()
 
-	err := systemSrv.Ping(new(gnoi_system_pb.PingRequest), new(MockPingServer))
+	err := s.Ping(new(gnoi_system_pb.PingRequest), new(MockPingServer))
 	if err == nil {
 		t.Errorf("Ping should failed, because not implement.")
 	}
 
-	systemSrv.Traceroute(new(gnoi_system_pb.TracerouteRequest), new(MockTracerouteServer))
+	s.Traceroute(new(gnoi_system_pb.TracerouteRequest), new(MockTracerouteServer))
 	if err == nil {
 		t.Errorf("Traceroute should failed, because not implement.")
 	}
 
-	systemSrv.SetPackage(new(MockSetPackageServer))
+	s.SetPackage(new(MockSetPackageServer))
 	if err == nil {
 		t.Errorf("SetPackage should failed, because not implement.")
 	}
 
 	ctx := context.Background()
-	systemSrv.SwitchControlProcessor(ctx, new(gnoi_system_pb.SwitchControlProcessorRequest))
+	s.SwitchControlProcessor(ctx, new(gnoi_system_pb.SwitchControlProcessorRequest))
 	if err == nil {
 		t.Errorf("SwitchControlProcessor should failed, because not implement.")
 	}

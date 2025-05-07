@@ -54,6 +54,7 @@ type Server struct {
 	// comes from a master controller.
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
+	gnoi_system_pb.UnimplementedSystemServer
 }
 
 // FileServer is the server API for File service.
@@ -62,14 +63,6 @@ type Server struct {
 type FileServer struct {
 	*Server
 	gnoi_file_pb.UnimplementedFileServer
-}
-
-// SystemServer is the server API for System service.
-// All implementations must embed UnimplementedSystemServer
-// for forward compatibility
-type SystemServer struct {
-	*Server
-	gnoi_system_pb.UnimplementedSystemServer
 }
 
 // OSServer is the server API for System service.
@@ -103,6 +96,8 @@ var AuthLock sync.Mutex
 var maMu sync.Mutex
 
 const WriteAccessMode = "readwrite"
+const ReadOnlyMode = "readonly"
+const NoAccessMode = "noaccess"
 
 func (i AuthTypes) String() string {
 	if i["none"] {
@@ -190,7 +185,6 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	fileSrv := &FileServer{Server: srv}
-	systemSrv := &SystemServer{Server: srv}
 	osSrv := &OSServer{Server: srv}
 
 	var err error
@@ -204,7 +198,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	gnmipb.RegisterGNMIServer(srv.s, srv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
-		gnoi_system_pb.RegisterSystemServer(srv.s, systemSrv)
+		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
 		gnoi_file_pb.RegisterFileServer(srv.s, fileSrv)
 		gnoi_os_pb.RegisterOSServer(srv.s, osSrv)
 	}
@@ -257,10 +251,10 @@ func (srv *Server) Port() int64 {
 
 // Auth - Authenticate
 func (srv *Server) Auth(ctx context.Context) (context.Context, error) {
-	return authenticate(srv.config, ctx, true)
+	return authenticate(srv.config, ctx, "gnmi", false)
 }
 
-func authenticate(config *Config, ctx context.Context, writeAccess bool) (context.Context, error) {
+func authenticate(config *Config, ctx context.Context, target string, writeAccess bool) (context.Context, error) {
 	var err error
 	success := false
 	rc, ctx := common_utils.GetContext(ctx)
@@ -289,10 +283,37 @@ func authenticate(config *Config, ctx context.Context, writeAccess bool) (contex
 			success = true
 		}
 		// role must be readwrite to support write access
-		if success && writeAccess && config.ConfigTableName != "" {
-			role := rc.Auth.Roles[0]
-			if role != WriteAccessMode {
-				return ctx, fmt.Errorf("%s does not have write access, %s", rc.Auth.User, role)
+		if success && config.ConfigTableName != "" {
+			match := false
+			target = strings.ToLower(target)
+			for _, role := range rc.Auth.Roles {
+				role = strings.TrimSpace(role)
+				if strings.HasPrefix(role, target) {
+					// Extract the postfix from the role
+					// e.g. role=gnmi_config_db_readwrite
+					// e.g. role=gnoi_readonly
+					postfix := strings.TrimPrefix(role, target)
+					postfix = strings.TrimPrefix(postfix, "_")
+					// Check if the role postfix indicates no access, and deny access if true.
+					if postfix == NoAccessMode {
+						return ctx, fmt.Errorf("%s does not have access, target %s, role %s", rc.Auth.User, target, role)
+					} else if postfix == ReadOnlyMode {
+						// ReadOnlyMode is allowed for read access
+						if writeAccess {
+							return ctx, fmt.Errorf("%s does not have access, target %s, role %s", rc.Auth.User, target, role)
+						} else {
+							match = true
+							break
+						}
+					} else if postfix == WriteAccessMode {
+						// WriteAccessMode is allowed for read/write access
+						match = true
+						break
+					}
+				}
+			}
+			if !match && writeAccess {
+				return ctx, fmt.Errorf("%s does not have write access, target %s", rc.Auth.User, target)
 			}
 		}
 	}
@@ -310,11 +331,6 @@ func authenticate(config *Config, ctx context.Context, writeAccess bool) (contex
 // Subscribe implements the gNMI Subscribe RPC.
 func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	ctx := stream.Context()
-	ctx, err := authenticate(s.config, ctx, false)
-	if err != nil {
-		return err
-	}
-
 	pr, ok := peer.FromContext(ctx)
 	if !ok {
 		return grpc.Errorf(codes.InvalidArgument, "failed to get peer from ctx")
@@ -346,7 +362,7 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	s.clients[c.String()] = c
 	s.cMu.Unlock()
 
-	err = c.Run(stream)
+	err := c.Run(stream, s.config)
 	s.cMu.Lock()
 	delete(s.clients, c.String())
 	s.cMu.Unlock()
@@ -395,18 +411,13 @@ func IsNativeOrigin(origin string) bool {
 // Get implements the Get RPC in gNMI spec.
 func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
 	common_utils.IncCounter(common_utils.GNMI_GET)
-	ctx, err := authenticate(s.config, ctx, false)
-	if err != nil {
-		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
-		return nil, err
-	}
 
 	if req.GetType() != gnmipb.GetRequest_ALL {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Errorf(codes.Unimplemented, "unsupported request type: %s", gnmipb.GetRequest_DataType_name[int32(req.GetType())])
 	}
 
-	if err = s.checkEncodingAndModel(req.GetEncoding(), req.GetUseModels()); err != nil {
+	if err := s.checkEncodingAndModel(req.GetEncoding(), req.GetUseModels()); err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Error(codes.Unimplemented, err.Error())
 	}
@@ -425,11 +436,14 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	log.V(2).Infof("GetRequest paths: %v", paths)
 
 	var dc sdc.Client
-
+	var err error
+	authTarget := "gnmi"
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
-	} else if _, ok, _, _ := sdc.IsTargetDb(target); ok {
+		authTarget = "gnmi_other"
+	} else if targetDbName, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
+		authTarget = "gnmi_" + targetDbName
 	} else {
 		if origin == "" {
 			origin, err = ParseOrigin(paths)
@@ -438,7 +452,9 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 			}
 		}
 		if check := IsNativeOrigin(origin); check {
-			dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf)
+			var targetDbName string
+			dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
+			authTarget = "gnmi_" + targetDbName
 		} else {
 			dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions)
 		}
@@ -449,6 +465,12 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 	defer dc.Close()
+
+	ctx, err = authenticate(s.config, ctx, authTarget, false)
+	if err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, err
+	}
 	notifications := make([]*gnmipb.Notification, len(paths))
 	spbValues, err := dc.Get(nil)
 	if err != nil {
@@ -501,11 +523,6 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
 	}
-	ctx, err := authenticate(s.config, ctx, true)
-	if err != nil {
-		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-		return nil, err
-	}
 	var results []*gnmipb.UpdateResult
 
 	/* Fetch the prefix. */
@@ -518,6 +535,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	encoding := gnmipb.Encoding_JSON_IETF
 
 	var dc sdc.Client
+	var err error
 	paths := req.GetDelete()
 	for _, path := range req.GetReplace() {
 		paths = append(paths, path.GetPath())
@@ -531,12 +549,15 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 			return nil, err
 		}
 	}
+	authTarget := "gnmi"
 	if check := IsNativeOrigin(origin); check {
 		if s.config.EnableNativeWrite == false {
 			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 			return nil, grpc.Errorf(codes.Unimplemented, "GNMI native write is disabled")
 		}
-		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf)
+		var targetDbName string
+		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
+		authTarget = "gnmi_" + targetDbName
 	} else {
 		if s.config.EnableTranslibWrite == false {
 			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
@@ -552,6 +573,11 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	}
 	defer dc.Close()
 
+	ctx, err = authenticate(s.config, ctx, authTarget, true)
+	if err != nil {
+		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+		return nil, err
+	}
 	/* DELETE */
 	for _, path := range req.GetDelete() {
 		log.V(2).Infof("Delete path: %v", path)
@@ -603,7 +629,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 }
 
 func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest) (*gnmipb.CapabilityResponse, error) {
-	ctx, err := authenticate(s.config, ctx, false)
+	ctx, err := authenticate(s.config, ctx, "gnmi", false)
 	if err != nil {
 		return nil, err
 	}
@@ -613,7 +639,8 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 	var supportedModels []gnmipb.ModelData
 	dc, _ := sdc.NewTranslClient(nil, nil, ctx, extensions)
 	supportedModels = append(supportedModels, dc.Capabilities()...)
-	dc, _ = sdc.NewMixedDbClient(nil, nil, "", gnmipb.Encoding_JSON_IETF, s.config.ZmqPort, s.config.Vrf)
+	var targetDbName string
+	dc, _ = sdc.NewMixedDbClient(nil, nil, "", gnmipb.Encoding_JSON_IETF, s.config.ZmqPort, s.config.Vrf, &targetDbName)
 	supportedModels = append(supportedModels, dc.Capabilities()...)
 
 	suppModels := make([]*gnmipb.ModelData, len(supportedModels))

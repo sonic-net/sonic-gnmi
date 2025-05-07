@@ -16,6 +16,7 @@ type Service interface {
 
 	// SONiC Host Service D-Bus API
 	ConfigReload(fileName string) error
+	ConfigReplace(fileName string) error
 	ConfigSave(fileName string) error
 	ApplyPatchYang(fileName string) error
 	ApplyPatchDb(fileName string) error
@@ -24,7 +25,6 @@ type Service interface {
 	StopService(service string) error
 	RestartService(service string) error
 	GetFileStat(path string) (map[string]string, error)
-	HaltSystem() error
 	DownloadImage(url string, save_as string) error
 	InstallImage(where string) error
 	ListImages() (string, error)
@@ -128,6 +128,16 @@ func (c *DbusClient) ConfigReload(config string) error {
 	return err
 }
 
+func (c *DbusClient) ConfigReplace(config string) error {
+	common_utils.IncCounter(common_utils.DBUS_CONFIG_REPLACE)
+	modName := "gcu"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".replace_db"
+	_, err := DbusApi(busName, busPath, intName, 600, config)
+	return err
+}
+
 func (c *DbusClient) ConfigSave(fileName string) error {
 	common_utils.IncCounter(common_utils.DBUS_CONFIG_SAVE)
 	modName := "config"
@@ -210,24 +220,6 @@ func (c *DbusClient) GetFileStat(path string) (map[string]string, error) {
 	}
 	data, _ := result.(map[string]string)
 	return data, nil
-}
-
-func (c *DbusClient) HaltSystem() error {
-	// Increment the counter for the DBUS_HALT_SYSTEM event
-	common_utils.IncCounter(common_utils.DBUS_HALT_SYSTEM)
-
-	// Set the module name and update the D-Bus properties
-	modName := "systemd"
-	busName := c.busNamePrefix + modName
-	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".execute_reboot"
-
-	//Set the method to HALT(3) the system
-	const RebootMethod_HALT = 3
-
-	// Invoke the D-Bus API to execute the halt command
-	_, err := DbusApi(busName, busPath, intName, 10, RebootMethod_HALT)
-	return err
 }
 
 func (c *DbusClient) DownloadImage(url string, save_as string) error {
