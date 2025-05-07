@@ -1499,7 +1499,7 @@ func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Upd
 			return c.SetFullConfig(delete, replace, update)
 		}
 	} else if deleteLen == 0 && replaceLen == 1 && updateLen == 0 {
-		replacePath, err := c.gnmiFullPath(c.prefix, replace[0].GetPath())
+		replacePath, _, err := c.gnmiFullPath(c.prefix, replace[0].GetPath())
 		if err != nil {
 			return err
 		}
