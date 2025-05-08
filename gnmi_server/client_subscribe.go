@@ -6,7 +6,7 @@ import (
 	"net"
 	"strings"
 	"sync"
-
+	"strings"
 	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	"google.golang.org/grpc"
