@@ -57,7 +57,9 @@ type Caller interface {
 
 type DbusCaller struct{}
 
-type FakeDbusCaller struct{}
+type FakeDbusCaller struct {
+	Msg string
+}
 
 type FailDbusCaller struct{}
 
@@ -87,7 +89,10 @@ func (c *DbusClient) Close() error {
 	return nil
 }
 
-func (_ *FakeDbusCaller) DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error) {
+func (c *FakeDbusCaller) DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (string, error) {
+	if c.Msg != "" {
+		return fmt.Sprintf("%v", c.Msg), nil
+	}
 	return fmt.Sprintf("%v %v", intName, args), nil
 }
 

@@ -13,6 +13,11 @@ import (
 	"testing"
 )
 
+const (
+	factoryResetSuccess string = `{"reset_success": {}}`
+	factoryResetFail    string = `{"reset_error": {"other": true, "detail": "Previous reset is ongoing."}}`
+)
+
 var resetTests = []struct {
 	desc       string
 	dbusCaller ssc.Caller
@@ -20,7 +25,7 @@ var resetTests = []struct {
 }{
 	{
 		desc:       "Successful Reset",
-		dbusCaller: &ssc.FakeDbusCaller{},
+		dbusCaller: &ssc.FakeDbusCaller{Msg: factoryResetSuccess},
 		f: func(t *testing.T, ctx context.Context, c reset_pb.FactoryResetClient, s *Server) {
 			resp, err := c.Start(ctx, &reset_pb.StartRequest{})
 			if err != nil {
@@ -46,7 +51,7 @@ var resetTests = []struct {
 	},
 	{
 		desc:       "Unsuccessful Reset, DBUS Error",
-		dbusCaller: &ssc.FailDbusCaller{},
+		dbusCaller: &ssc.FakeDbusCaller{Msg: factoryResetFail},
 		f: func(t *testing.T, ctx context.Context, c reset_pb.FactoryResetClient, s *Server) {
 			resp, err := c.Start(ctx, &reset_pb.StartRequest{})
 			if err != nil {
