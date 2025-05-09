@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewDbusClient(t *testing.T) {
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -19,7 +19,7 @@ func TestNewDbusClient(t *testing.T) {
 }
 
 func TestCloseClient(t *testing.T) {
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestCloseClient(t *testing.T) {
 }
 
 func TestCloseClientWithChannel(t *testing.T) {
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -48,8 +48,33 @@ func TestCloseClientWithChannel(t *testing.T) {
 	}
 }
 
+func TestFakeDbusClientMethods(t *testing.T) {
+	fake := &FakeDbusClient{Msg: "reset_success"}
+
+	// calling each method once to ensure it's covered
+	_ = fake.Close()
+	_ = fake.ConfigReload("/etc/sonic/config_reload.json")
+	_ = fake.ConfigReplace("/etc/sonic/new_config.json")
+	_ = fake.ConfigSave("/etc/sonic/config_db.json")
+	_ = fake.ApplyPatchYang("/patches/yang_patch.json")
+	_ = fake.ApplyPatchDb("/patches/db_patch.json")
+	_ = fake.CreateCheckPoint("checkpoint_20250609")
+	_ = fake.DeleteCheckPoint("checkpoint_20250609")
+	_ = fake.StopService("bgpd")
+	_ = fake.RestartService("swss")
+	_, _ = fake.GetFileStat("/var/log/syslog")
+	_ = fake.DownloadFile("localhost/file", "/tmp", "username", "password", "cert.pem", "key.pem")
+	_ = fake.RemoveFile("/tmp/file")
+	_ = fake.DownloadImage("localhost/sonic.img", "/tmp")
+	_ = fake.InstallImage("/tmp/sonic.img")
+	_, _ = fake.ListImages()
+	_ = fake.ActivateImage("SONiC-OS-20250609")
+	_ = fake.LoadDockerImage("/tmp/docker_image.tar")
+	_, _ = fake.FactoryReset("REBOOT")
+}
+
 func TestSystemBusNegative(t *testing.T) {
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -87,7 +112,7 @@ func TestGetFileStat(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -125,7 +150,7 @@ func TestGetFileStatNegative(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -172,7 +197,7 @@ func TestDownloadSuccess(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -210,7 +235,7 @@ func TestDownloadFail(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -241,7 +266,7 @@ func TestConfigReload(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -271,7 +296,7 @@ func TestConfigReloadNegative(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -297,7 +322,7 @@ func TestConfigReloadTimeout(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -325,7 +350,7 @@ func TestConfigReplace(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -355,7 +380,7 @@ func TestConfigReplaceNegative(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -386,7 +411,7 @@ func TestConfigSave(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -416,7 +441,7 @@ func TestConfigSaveNegative(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -447,7 +472,7 @@ func TestApplyPatchYang(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -477,7 +502,7 @@ func TestApplyPatchYangNegative(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -508,7 +533,7 @@ func TestApplyPatchDb(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -538,7 +563,7 @@ func TestApplyPatchDbNegative(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -569,7 +594,7 @@ func TestCreateCheckPoint(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -599,7 +624,7 @@ func TestCreateCheckPointNegative(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -630,7 +655,7 @@ func TestDeleteCheckPoint(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -660,7 +685,7 @@ func TestDeleteCheckPointNegative(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -702,7 +727,7 @@ func TestDownloadImageSuccess(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -744,7 +769,7 @@ func TestDownloadImageFail(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -782,7 +807,7 @@ func TestInstallImageSuccess(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -820,7 +845,7 @@ func TestInstallImageFail(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -857,7 +882,7 @@ func TestListImagesSuccess(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -887,7 +912,7 @@ func TestListImagesFailDBusError(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -916,7 +941,7 @@ func TestListImagesFailWrongType(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -951,7 +976,7 @@ func TestActivateImageSuccess(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -989,7 +1014,7 @@ func TestActivateImageFail(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -1030,7 +1055,7 @@ func TestLoadDockerImageSuccess(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -1071,7 +1096,7 @@ func TestLoadDockerImageFail(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -1110,7 +1135,7 @@ func TestRemoveFileSuccess(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -1141,7 +1166,7 @@ func TestRemoveFileFail(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Errorf("NewDbusClient failed: %v", err)
 	}
@@ -1179,7 +1204,7 @@ func TestFactoryReset(t *testing.T) {
 	})
 	defer mock2.Reset()
 
-	client, err := NewDbusClient()
+	client, err := NewDbusClient(&DbusCaller{})
 	if err != nil {
 		t.Fatalf("NewDbusClient failed: %v", err)
 	}

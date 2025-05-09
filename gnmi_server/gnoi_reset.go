@@ -27,7 +27,7 @@ func (srv *Server) Start(ctx context.Context, req *factory_reset.StartRequest) (
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Cannot marshal the StartRequest: [%s], err %v", req.String(), err))
 	}
 
-	sc, err := ssc.NewDbusClient()
+	sc, err := ssc.NewDbusClient(&ssc.DbusCaller{})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Error creating dbus client: [%s]", err.Error()))
 	}
