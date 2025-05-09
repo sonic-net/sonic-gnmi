@@ -43,6 +43,7 @@ const (
 	GNMI_SET
 	GNMI_SET_FAIL
 	GNOI_REBOOT
+	GNOI_FILE_REMOVE
 	DBUS
 	DBUS_FAIL
 	DBUS_APPLY_PATCH_DB
@@ -74,6 +75,8 @@ func (c CounterType) String() string {
 		return "GNMI set fail"
 	case GNOI_REBOOT:
 		return "GNOI reboot"
+	case GNOI_FILE_REMOVE:
+		return "GNOI File Remove"
 	case DBUS:
 		return "DBUS"
 	case DBUS_FAIL:
