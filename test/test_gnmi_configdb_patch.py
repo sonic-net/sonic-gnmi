@@ -3128,8 +3128,9 @@ class TestGNMIConfigDbPatch:
         '''
         if os.path.exists(patch_file):
             os.system("rm " + patch_file)
-        test_json = {"localhost": test_data['origin_json']}
-        create_checkpoint(checkpoint_file, json.dumps(test_json))
+        """test_json = {"localhost": test_data['origin_json']}
+        create_checkpoint(checkpoint_file, json.dumps(test_json))"""
+	create_checkpoint(checkpoint_file, json.dumps(test_data['origin_json']))
         update_list = []
         replace_list = []
         delete_list = []
