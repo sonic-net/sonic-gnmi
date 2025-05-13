@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/Azure/sonic-mgmt-common/translib"
-	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -34,7 +33,7 @@ type TranslClient struct {
 	/* GNMI Path to REST URL Mapping */
 	path2URI map[*gnmipb.Path]string
 	channel  chan struct{}
-	q        *queue.PriorityQueue
+	q        *LimitedQueue
 
 	synced     sync.WaitGroup  // Control when to send gNMI sync_response
 	w          *sync.WaitGroup // wait for all sub go routines to finish
@@ -135,7 +134,10 @@ func (c *TranslClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, upda
 }
 
 func enqueFatalMsgTranslib(c *TranslClient, msg string) {
-	c.q.Put(Value{
+	if len(msg) > 0 {
+		log.ErrorDepth(1, msg)
+	}
+	c.q.ForceEnqueueItem(Value{
 		&spb.Value{
 			Timestamp: time.Now().UnixNano(),
 			Fatal:     msg,
@@ -148,7 +150,7 @@ func enqueueSyncMessage(c *TranslClient) {
 		Timestamp:    time.Now().UnixNano(),
 		SyncResponse: true,
 	}
-	c.q.Put(Value{m})
+	c.q.EnqueueItem(Value{m})
 }
 
 // recoverSubscribe recovers from possible panics during subscribe handling.
@@ -191,7 +193,7 @@ func tickerCleanup(ticker_map map[int][]*ticker_info, c *TranslClient) {
 	}
 }
 
-func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *TranslClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 
 	defer c.w.Done()
@@ -379,7 +381,7 @@ func addTimer(c *TranslClient, ticker_map map[int][]*ticker_info, cases *[]refle
 	}
 }
 
-func (c *TranslClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *TranslClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 	defer c.w.Done()
 	defer recoverSubscribe(c)
@@ -415,11 +417,11 @@ func (c *TranslClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sy
 	}
 }
 
-func (c *TranslClient) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *TranslClient) AppDBPollRun(q *LimitedQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	return
 }
 
-func (c *TranslClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *TranslClient) OnceRun(q *LimitedQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 	defer c.w.Done()
 	defer recoverSubscribe(c)

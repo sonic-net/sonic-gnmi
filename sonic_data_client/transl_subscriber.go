@@ -186,7 +186,7 @@ func (ts *translSubscriber) notify(v *translib.SubscribeResponse) error {
 	}
 
 	spbv := &spb.Value{Notification: msg}
-	ts.client.q.Put(Value{spbv})
+	ts.client.q.EnqueueItem(Value{spbv})
 	log.V(6).Infof("Added spbv %#v", spbv)
 	return nil
 }
