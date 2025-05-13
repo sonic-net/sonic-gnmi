@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/gnxi/utils/credentials"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/config"
+	"github.com/sonic-net/sonic-gnmi/gnoi_client/containerz"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/file"
 	gnoi_os "github.com/sonic-net/sonic-gnmi/gnoi_client/os" // So it does not collide with os.
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/sonic"
@@ -82,6 +83,13 @@ func main() {
 			sonic.Refresh(conn, ctx)
 		case "clearNeighbors":
 			sonic.ClearNeighbors(conn, ctx)
+		default:
+			panic("Invalid RPC Name")
+		}
+	case "Containerz":
+		switch *config.Rpc {
+		case "Deploy":
+			containerz.Deploy(conn, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}

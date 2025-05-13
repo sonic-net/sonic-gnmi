@@ -54,10 +54,13 @@ const (
 	DBUS_STOP_SERVICE
 	DBUS_RESTART_SERVICE
 	DBUS_FILE_STAT
+	DBUS_FILE_DOWNLOAD
+	DBUS_FILE_REMOVE
 	DBUS_IMAGE_DOWNLOAD
 	DBUS_IMAGE_INSTALL
 	DBUS_IMAGE_LIST
 	DBUS_IMAGE_ACTIVATE
+	DBUS_DOCKER_LOAD
 	DBUS_CONFIG_REPLACE
 	COUNTER_SIZE
 )
@@ -96,14 +99,20 @@ func (c CounterType) String() string {
 		return "DBUS restart service"
 	case DBUS_FILE_STAT:
 		return "DBUS file stat"
+	case DBUS_FILE_DOWNLOAD:
+		return "DBUS file download"
 	case DBUS_IMAGE_DOWNLOAD:
 		return "DBUS image download"
+	case DBUS_FILE_REMOVE:
+		return "DBUS file remove"
 	case DBUS_IMAGE_INSTALL:
 		return "DBUS image install"
 	case DBUS_IMAGE_LIST:
 		return "DBUS image list"
 	case DBUS_IMAGE_ACTIVATE:
 		return "DBUS image activate"
+	case DBUS_DOCKER_LOAD:
+		return "DBUS docker load"
 	case DBUS_CONFIG_REPLACE:
 		return "DBUS config replace"
 	default:

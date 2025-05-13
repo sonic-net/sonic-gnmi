@@ -24,11 +24,17 @@ type Service interface {
 	DeleteCheckPoint(cpName string) error
 	StopService(service string) error
 	RestartService(service string) error
+	// File services APIs
 	GetFileStat(path string) (map[string]string, error)
+	DownloadFile(hostname, username, password, remotePath, localPath, protocol string) error
+	RemoveFile(path string) error
+	// Image services APIs
 	DownloadImage(url string, save_as string) error
 	InstallImage(where string) error
 	ListImages() (string, error)
 	ActivateImage(image string) error
+	// Docker services APIs
+	LoadDockerImage(image string) error
 }
 
 type DbusClient struct {
@@ -222,6 +228,26 @@ func (c *DbusClient) GetFileStat(path string) (map[string]string, error) {
 	return data, nil
 }
 
+func (c *DbusClient) DownloadFile(hostname, username, password, remotePath, localPath, protocol string) error {
+	common_utils.IncCounter(common_utils.DBUS_FILE_DOWNLOAD)
+	modName := "file"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".download"
+	_, err := DbusApi(busName, busPath, intName, 900, hostname, username, password, remotePath, localPath, protocol)
+	return err
+}
+
+func (c *DbusClient) RemoveFile(path string) error {
+	common_utils.IncCounter(common_utils.DBUS_FILE_REMOVE)
+	modName := "file"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".remove"
+	_, err := DbusApi(busName, busPath, intName, 60, path)
+	return err
+}
+
 func (c *DbusClient) DownloadImage(url string, save_as string) error {
 	common_utils.IncCounter(common_utils.DBUS_IMAGE_DOWNLOAD)
 	modName := "image_service"
@@ -267,5 +293,15 @@ func (c *DbusClient) ActivateImage(image string) error {
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".set_next_boot"
 	_, err := DbusApi(busName, busPath, intName, 60, image)
+	return err
+}
+
+func (c *DbusClient) LoadDockerImage(image string) error {
+	common_utils.IncCounter(common_utils.DBUS_DOCKER_LOAD)
+	modName := "docker_service"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".load"
+	_, err := DbusApi(busName, busPath, intName /*timeout=*/, 180, image)
 	return err
 }
