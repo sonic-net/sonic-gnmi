@@ -700,6 +700,22 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	}
 	mpi_fab_counter_1 := loadConfig(t, "COUNTERS:oid:0x1000000000082", countersPort1_Byte)
 	loadDB(t, rclient, mpi_fab_counter_1)
+
+        fileName = "../testdata/COUNTERS:Ethernet64:Macsec.txt"
+        countersEth64Macsec_Byte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_eth64_macsec := loadConfig(t, "COUNTERS:oid:0x1000000000082", countersEth64Macsec_Byte)
+        loadDB(t, rclient, mpi_eth64_macsec)
+
+        fileName = "../testdata/COUNTERS:Ethernet_wildcard_Macsec.txt"
+        countersEthWildMacsec_Byte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_ethwild_macsec := loadConfig(t, "COUNTERS:oid:0x1000000000082", countersEthWildMacsec_Byte)
+        loadDB(t, rclient, mpi_eth64_macsec)
 }
 
 func prepareConfigDb(t *testing.T, namespace string) {
@@ -846,6 +862,53 @@ func prepareDb(t *testing.T, namespace string) {
 	}
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000082", countersPort1_Byte)
 	loadDB(t, rclient, mpi_counter)
+
+        fileName = "../testdata/COUNTERS_MACSEC_NAME_MAP.txt"
+        countersMacsecNameMapByte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_macsecname_map := loadConfig(t, "COUNTERS_MACSEC_NAME_MAP", countersMacsecNameMapByte)
+        loadDB(t, rclient, mpi_macsecname_map)
+
+	// "Ethernet64:0000000000000001:1": "oid:0x5c000000000951"  : Macsec counter, for COUNTERS/Ethernet64 vpath test
+        fileName = "../testdata/COUNTERS:oid:0x5c000000000951.txt"
+        countersEth64MacsecIn_Byte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_counter = loadConfig(t, "COUNTERS:oid:0x5c000000000951", countersEth64MacsecIn_Byte)
+        loadDB(t, rclient, mpi_counter)
+
+        // "Ethernet64:407c7dbb260b0001:1": "oid:0x5c000000000952"  : Macsec counter, for COUNTERS/Ethernet64 vpath test
+        fileName = "../testdata/COUNTERS:oid:0x5c000000000952.txt"
+        countersEth64MacsecOut_Byte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_counter = loadConfig(t, "COUNTERS:oid:0x5c000000000952", countersEth64MacsecOut_Byte)
+        loadDB(t, rclient, mpi_counter)
+
+-rw-rw-r--  1 sumeenak sumeenak     514 Mar  5 18:47 COUNTERS:oid:oid:0x5c000000000959.txt
+-rw-rw-r--  1 sumeenak sumeenak     238 Mar  5 18:48 COUNTERS:oid:0x5c000000000958.txt
+
+        // "Ethernet64:0000000000000001:1": "oid:0x5c000000000951"  : Macsec counter, for COUNTERS/Ethernet64 vpath test
+        fileName = "../testdata/COUNTERS:oid:0x5c000000000959.txt"
+        countersEth40MacsecIn_Byte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_counter = loadConfig(t, "COUNTERS:oid:0x5c000000000959", countersEth40MacsecIn_Byte)
+        loadDB(t, rclient, mpi_counter)
+
+        // "Ethernet64:407c7dbb260b0001:1": "oid:0x5c000000000952"  : Macsec counter, for COUNTERS/Ethernet64 vpath test
+        fileName = "../testdata/COUNTERS:oid:0x5c000000000958.txt"
+        countersEth40MacsecOut_Byte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        mpi_counter = loadConfig(t, "COUNTERS:oid:0x5c000000000958", countersEth40MacsecOut_Byte)
+        loadDB(t, rclient, mpi_counter)
 
 	// Load CONFIG_DB for alias translation
 	prepareConfigDb(t, namespace)
@@ -1985,6 +2048,14 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	var countersEthernetWildQueuesJson interface{}
 	json.Unmarshal(countersEthernetWildQueuesByte, &countersEthernetWildQueuesJson)
 
+        fileName = "../testdata/COUNTERS:Ethernet_wildcard_Macsec_alias.txt"
+        countersEthernetWildMacsecByte, err := ioutil.ReadFile(fileName)
+        if err != nil {
+                t.Fatalf("read file %v err: %v", fileName, err)
+        }
+        var countersEthernetWildMacsecJson interface{}
+        json.Unmarshal(countersEthernetWildMacsecByte, &countersEthernetWildMacsecJson)
+
 	fileName = "../testdata/COUNTERS:Ethernet68:Queues.txt"
 	countersEthernet68QueuesByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -2827,6 +2898,23 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}}, //empty update
 			},
 		},
+                {
+                        desc: "poll query for COUNTERS/Ethernet*/Macsec",
+                        poll: 1,
+                        q: client.Query{
+                                Target:  "COUNTERS_DB",
+                                Type:    client.Poll,
+                                Queries: []client.Path{{"COUNTERS", "Ethernet*", "Macec"}},
+                                TLS:     &tls.Config{InsecureSkipVerify: true},
+                        },
+                        wantNoti: []client.Notification{
+                                client.Connected{},
+                                client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Macsec"}, TS: time.Unix(0, 200), Val: countersEthernetWildMacsecJson},
+                                client.Sync{},
+                                client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Macsec"}, TS: time.Unix(0, 200), Val: countersEthernetWildMacsecJson},
+                                client.Sync{},
+                        },
+                },
 	}
 
 	sdc.NeedMock = true
