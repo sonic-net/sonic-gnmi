@@ -21,9 +21,9 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_containerz_pb "github.com/openconfig/gnoi/containerz"
+	"github.com/openconfig/gnoi/factory_reset"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 
-	//gnoi_yang "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/server"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	"golang.org/x/net/context"
@@ -35,8 +35,13 @@ import (
 )
 
 var (
-	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+	supportedEncodings            = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+	dbusCaller         ssc.Caller = &ssc.DbusCaller{}
 )
+
+func resetDbusCaller() {
+	dbusCaller = &ssc.DbusCaller{}
+}
 
 // Server manages a single gNMI Server implementation. Each client that connects
 // via Subscribe or Get will receive a stream of updates based on the requested
@@ -56,6 +61,7 @@ type Server struct {
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
 	gnoi_system_pb.UnimplementedSystemServer
+	factory_reset.UnimplementedFactoryResetServer
 }
 
 // FileServer is the server API for File service.
@@ -204,6 +210,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		return nil, fmt.Errorf("failed to open listener port %d: %v", srv.config.Port, err)
 	}
 	gnmipb.RegisterGNMIServer(srv.s, srv)
+	factory_reset.RegisterFactoryResetServer(srv.s, srv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
 		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
@@ -504,7 +511,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 // saveOnSetEnabled saves configuration to a file
 func SaveOnSetEnabled() error {
-	sc, err := ssc.NewDbusClient()
+	sc, err := ssc.NewDbusClient(&ssc.DbusCaller{})
 	if err != nil {
 		log.V(0).Infof("Saving startup config failed to create dbus client: %v", err)
 		return err
