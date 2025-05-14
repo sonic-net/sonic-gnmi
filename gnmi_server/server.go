@@ -36,6 +36,7 @@ import (
 
 var (
 	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+	//dbusCaller         ssc.Caller = &ssc.DbusCaller{}
 )
 
 // Server manages a single gNMI Server implementation. Each client that connects

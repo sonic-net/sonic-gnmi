@@ -95,7 +95,7 @@ func (c *ContainerzServer) Deploy(stream gnoi_containerz_pb.Containerz_DeploySer
 	log.V(2).Infof("Loaded docker image from %s", localPath)
 
 	// Clean up the local file after loading the image
-	err = dbusClient.RemoveFile(localPath)
+	_, err = dbusClient.RemoveFile(localPath)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to remove local file: %v", err)
 	}

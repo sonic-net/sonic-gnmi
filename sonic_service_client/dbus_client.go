@@ -27,7 +27,7 @@ type Service interface {
 	// File services APIs
 	GetFileStat(path string) (map[string]string, error)
 	DownloadFile(hostname, username, password, remotePath, localPath, protocol string) error
-	RemoveFile(path string) error
+	RemoveFile(path string) (string, error)
 	// Image services APIs
 	DownloadImage(url string, save_as string) error
 	InstallImage(where string) error
@@ -41,8 +41,15 @@ type DbusClient struct {
 	busNamePrefix string
 	busPathPrefix string
 	intNamePrefix string
+	caller        Caller
 	channel       chan struct{}
 }
+
+type Caller interface {
+	DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error)
+}
+
+//type DbusCaller struct{}
 
 func NewDbusClient() (Service, error) {
 	log.Infof("DbusClient: NewDbusClient")
@@ -97,6 +104,13 @@ func DbusApi(busName string, busPath string, intName string, timeout int, args .
 					return nil, fmt.Errorf("Dbus result is invalid %v", result)
 				}
 				return result[1], nil
+				for i, val := range result {
+					log.V(2).Infof("DBus result[%d] type: %T, value: %v", i, val, val)
+				}
+				if statMap, ok := result[1].(map[string]string); ok {
+					return statMap, nil
+				}
+				return nil, fmt.Errorf("Dbus result is invalid: second element is not map[string]string")
 			} else {
 				if len(result) != 2 {
 					common_utils.IncCounter(common_utils.DBUS_FAIL)
@@ -238,14 +252,25 @@ func (c *DbusClient) DownloadFile(hostname, username, password, remotePath, loca
 	return err
 }
 
-func (c *DbusClient) RemoveFile(path string) error {
+func (c *DbusClient) RemoveFile(path string) (string, error) {
 	common_utils.IncCounter(common_utils.DBUS_FILE_REMOVE)
 	modName := "file"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".remove"
-	_, err := DbusApi(busName, busPath, intName, 60, path)
-	return err
+	result, err := DbusApi(busName, busPath, intName, 60, path)
+	return dbusApiStringReturnHelper(result, err)
+}
+
+func dbusApiStringReturnHelper(dbusResult interface{}, dbusError error) (string, error) {
+	if dbusError != nil {
+		return "", dbusError
+	}
+	strResult, ok := dbusResult.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", dbusResult, reflect.TypeOf(dbusResult))
+	}
+	return strResult, dbusError
 }
 
 func (c *DbusClient) DownloadImage(url string, save_as string) error {
