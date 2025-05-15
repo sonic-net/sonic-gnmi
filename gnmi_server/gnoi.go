@@ -25,7 +25,7 @@ const (
 )
 
 func ReadFileStat(path string) (*gnoi_file_pb.StatInfo, error) {
-	sc, err := ssc.NewDbusClient()
+	sc, err := ssc.NewDbusClient(&ssc.DbusCaller{})
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) 
 	}
 
 	log.V(1).Info("gNOI: Verify")
-	dbus, err := ssc.NewDbusClient()
+	dbus, err := ssc.NewDbusClient(&ssc.DbusCaller{})
 	if err != nil {
 		log.V(2).Infof("Failed to create dbus client: %v", err)
 		return nil, err
@@ -149,7 +149,7 @@ func (srv *OSServer) Activate(ctx context.Context, req *gnoi_os_pb.ActivateReque
 	image := req.GetVersion()
 	log.Infof("Requested to activate image %s", image)
 
-	dbus, err := ssc.NewDbusClient()
+	dbus, err := ssc.NewDbusClient(&ssc.DbusCaller{})
 	if err != nil {
 		log.Errorf("Failed to create dbus client: %v", err)
 		return nil, err
