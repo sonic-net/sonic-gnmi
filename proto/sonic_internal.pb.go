@@ -99,7 +99,7 @@ type Value struct {
 	Fatal string `protobuf:"bytes,6,opt,name=fatal,proto3" json:"fatal,omitempty"`
 	// Notification to be used in place of 1-4 if present
 	Notification *gnmi.Notification `protobuf:"bytes,7,opt,name=notification,proto3" json:"notification,omitempty"`
-	Delete []*gnmi.Path `protobuf:"bytes,8,opt,name=delete,proto3" json:"delete,omitempty"`
+	Delete       []*gnmi.Path       `protobuf:"bytes,8,opt,name=delete,proto3" json:"delete,omitempty"`
 }
 
 func (x *Value) Reset() {
