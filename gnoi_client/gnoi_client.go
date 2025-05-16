@@ -53,6 +53,14 @@ func main() {
 		switch *config.Rpc {
 		case "Stat":
 			file.Stat(conn, ctx)
+		case "Get":
+			file.Get(conn, ctx)
+		case "Put":
+			file.Put(conn, ctx)
+		case "Remove":
+			file.Remove(conn, ctx)
+		case "TransferToRemote":
+			file.TransferToRemote(conn, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
