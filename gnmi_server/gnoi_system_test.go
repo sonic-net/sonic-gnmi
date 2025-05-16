@@ -447,11 +447,11 @@ func RebootBackendResponse(t *testing.T, sc *redis.Client, expectedResponse code
 }
 
 func TestSystem(t *testing.T) {
-	s := createServer(t, 8081)
+	s := createServer(t)
 	go runServer(t, s)
 	defer s.Stop()
 
-	targetAddr := "127.0.0.1:8081"
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	conn, err := grpc.Dial(targetAddr, opts...)
 	if err != nil {
