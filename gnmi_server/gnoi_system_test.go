@@ -2,7 +2,6 @@ package gnmi
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -17,7 +16,7 @@ import (
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -452,9 +451,8 @@ func TestSystem(t *testing.T) {
 	go runServer(t, s)
 	defer s.Stop()
 
-	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
-	tlsConfig := &tls.Config{InsecureSkipVerify: true}
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	targetAddr := "127.0.0.1:8081"
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	conn, err := grpc.Dial(targetAddr, opts...)
 	if err != nil {
 		t.Fatalf("Dialing to %s failed: %v", targetAddr, err)
