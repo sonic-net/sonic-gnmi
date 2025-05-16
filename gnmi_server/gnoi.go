@@ -30,7 +30,7 @@ func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) 
 	}
 
 	log.V(1).Info("gNOI: Verify")
-	dbus, err := ssc.NewDbusClient()
+	dbus, err := ssc.NewDbusClient(dbusCaller)
 	if err != nil {
 		log.V(2).Infof("Failed to create dbus client: %v", err)
 		return nil, err
@@ -75,7 +75,7 @@ func (srv *OSServer) Activate(ctx context.Context, req *gnoi_os_pb.ActivateReque
 	image := req.GetVersion()
 	log.Infof("Requested to activate image %s", image)
 
-	dbus, err := ssc.NewDbusClient()
+	dbus, err := ssc.NewDbusClient(dbusCaller)
 	if err != nil {
 		log.Errorf("Failed to create dbus client: %v", err)
 		return nil, err
