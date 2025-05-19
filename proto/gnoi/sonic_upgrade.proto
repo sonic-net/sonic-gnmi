@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package gnoi.sonic;
 
-option go_package = "github.com/sonic-net/sonic-gnmi/proto/gnoi;sonic";
+option go_package = "./;gnoi_sonic";
 
 // SonicUpgradeService provides firmware update functionality.
 service SonicUpgradeService {
