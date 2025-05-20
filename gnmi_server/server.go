@@ -80,6 +80,12 @@ type ContainerzServer struct {
 	gnoi_containerz_pb.UnimplementedContainerzServer
 }
 
+// Sonic Upgrade Server is the server API for SonicUpgrade service.
+type SonicUpgradeServer struct {
+	*Server
+	spb_gnoi.UnimplementedSonicUpgradeServiceServer
+}
+
 type AuthTypes map[string]bool
 
 // Config is a collection of values for Server
@@ -194,6 +200,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	fileSrv := &FileServer{Server: srv}
 	osSrv := &OSServer{Server: srv}
 	containerzSrv := &ContainerzServer{server: srv}
+	upgradeSrv := &SonicUpgradeServer{Server: srv}
 
 	var err error
 	if srv.config.Port < 0 {
@@ -213,8 +220,8 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
-
 	}
+	spb_gnoi.RegisterSonicUpgradeServiceServer(srv.s, upgradeSrv)
 	spb_gnoi.RegisterDebugServer(srv.s, srv)
 	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
 	return srv, nil

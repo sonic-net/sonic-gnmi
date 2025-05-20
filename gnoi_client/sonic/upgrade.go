@@ -13,21 +13,35 @@ import (
 
 // UpdateFirmwareClient calls the UpdateFirmware RPC and prints all responses.
 func UpdateFirmware(conn *grpc.ClientConn, ctx context.Context) {
+	fmt.Println("Sonic UpdateFirmware")
+
 	ctx = utils.SetUserCreds(ctx)
 	sc := pb.NewSonicUpgradeServiceClient(conn)
-	req := &pb.UpdateFirmwareRequest{}
-
-	// Unmarshal the JSON args into the request
-	if err := json.Unmarshal([]byte(*config.Args), req); err != nil {
-		fmt.Println("Unmarshal error:", err)
-		return
-	}
-
-	stream, err := sc.UpdateFirmware(ctx, req)
+	stream, err := sc.UpdateFirmware(ctx)
 	if err != nil {
 		fmt.Println("UpdateFirmware RPC error:", err)
 		return
 	}
+
+	// Prepare the initial request
+	params := &pb.FirmwareUpdateParams{}
+	if err := json.Unmarshal([]byte(*config.Args), params); err != nil {
+		fmt.Println("Unmarshal error:", err)
+		return
+	}
+	request := &pb.UpdateFirmwareRequest{
+		Request: &pb.UpdateFirmwareRequest_FirmwareUpdate{FirmwareUpdate: params},
+	}
+	if err := stream.Send(request); err != nil {
+		fmt.Println("Send error:", err)
+		return
+	}
+	// Close the send direction to indicate no more requests
+	if err := stream.CloseSend(); err != nil {
+		fmt.Println("CloseSend error:", err)
+		return
+	}
+
 	for {
 		status, err := stream.Recv()
 		if err != nil {

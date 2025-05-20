@@ -7,11 +7,20 @@ option go_package = "./;gnoi_sonic";
 // SonicUpgradeService provides firmware update functionality.
 service SonicUpgradeService {
   // Starts a firmware update and streams status/log lines back to the client.
-  rpc UpdateFirmware(UpdateFirmwareRequest) returns (stream UpdateFirmwareStatus) {}
+  rpc UpdateFirmware(stream UpdateFirmwareRequest) returns (stream UpdateFirmwareStatus) {}
 }
 
 // Request message to start a firmware update.
 message UpdateFirmwareRequest {
+  oneof request {
+    // The initial firmware update request (current type)
+    FirmwareUpdateParams firmware_update = 1;
+    // Future request types can be added here
+  }
+}
+
+// Parameters for firmware update (current implementation)
+message FirmwareUpdateParams {
   // Path (inside the server container) or URL to the firmware .bin
   string firmware_source = 1;
 
