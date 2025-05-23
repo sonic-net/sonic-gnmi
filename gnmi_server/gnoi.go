@@ -3,6 +3,12 @@ package gnmi
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"os/user"
+	"strconv"
+	"strings"
+	"time"
+
 	jwt "github.com/dgrijalva/jwt-go"
 	log "github.com/golang/glog"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
@@ -13,11 +19,6 @@ import (
 	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"os"
-	"os/user"
-	"strconv"
-	"strings"
-	"time"
 )
 
 const (

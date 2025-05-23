@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/config"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/utils"
 	pb "github.com/sonic-net/sonic-gnmi/proto/gnoi"

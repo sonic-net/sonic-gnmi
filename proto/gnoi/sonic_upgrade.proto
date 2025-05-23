@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package gnoi.sonic;
+
+option go_package = "./;gnoi_sonic";
+
+// SonicUpgradeService provides firmware update functionality.
+service SonicUpgradeService {
+  // Starts a firmware update and streams status/log lines back to the client.
+  rpc UpdateFirmware(stream UpdateFirmwareRequest) returns (stream UpdateFirmwareStatus) {}
+}
+
+// Request message to start a firmware update.
+message UpdateFirmwareRequest {
+  oneof request {
+    // The initial firmware update request (current type)
+    FirmwareUpdateParams firmware_update = 1;
+    // Future request types can be added here
+  }
+}
+
+// Parameters for firmware update (current implementation)
+message FirmwareUpdateParams {
+  // Path (inside the server container) or URL to the firmware .bin
+  string firmware_source = 1;
+
+  // If true, pass UPDATE_MLNX_CPLD_FW="1" to the script (cold-boot vs. warm-reboot).
+  bool update_mlnx_cpld_fw = 2;
+}
+
+// Status message for firmware update progress.
+message UpdateFirmwareStatus {
+  // A human-readable line of output from the script.
+  string log_line = 1;
+
+  // State of the update process.
+  enum State {
+    STARTED = 0;   // RPC opened
+    RUNNING = 1;   // intermediate logs
+    SUCCEEDED = 2; // exit code 0
+    FAILED = 3;    // exit code ≠ 0
+  }
+  State state = 2;
+
+  // If FAILED, propagate one of the script’s exit codes (126–140).
+  int32 exit_code = 3;
+}
