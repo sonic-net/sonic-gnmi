@@ -178,6 +178,8 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 	} else if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
 		authTarget = "gnmi_others"
+	} else if target == "SHOW" {
+		return grpc.Errorf(codes.Unimplemented, "SHOW does not support subscribe operations")
 	} else if (target == "EVENTS") && (mode == gnmipb.SubscriptionList_STREAM) {
 		dc, err = sdc.NewEventClient(paths, prefix, c.logLevel)
 		authTarget = "gnmi_events"
@@ -229,7 +231,10 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 	c.Close()
 	// Wait until all child go routines exited
 	c.w.Wait()
-	return grpc.Errorf(codes.InvalidArgument, "%s", err)
+	if err != nil {
+		return grpc.Errorf(codes.InvalidArgument, "%s", err)
+	}
+	return err
 }
 
 // Closing of client queue is triggered upon end of stream receive or stream error
@@ -239,7 +244,7 @@ func (c *Client) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	log.V(1).Infof("Client %s Close, sendMsg %v recvMsg %v errors %v", c, c.sendMsg, c.recvMsg, c.errors)
-	if c.q != nil {
+	if c.q.Q != nil {
 		if c.q.Q.Disposed() {
 			return
 		}
@@ -308,6 +313,7 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 		}
 
 		var resp *gnmipb.SubscribeResponse
+
 		if resp, err = sdc.ValToResp(item); err != nil {
 			c.errors++
 			return err

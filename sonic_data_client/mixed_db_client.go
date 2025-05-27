@@ -99,18 +99,6 @@ var RedisDbMap map[string]*redis.Client = nil
 // Db num from database configuration
 var DbInstNum = 0
 
-func enqueFatalMsgMixed(c *MixedDbClient, msg string) {
-	if len(msg) > 0 {
-		log.ErrorDepth(1, msg)
-	}
-	c.q.ForceEnqueueItem(Value{
-		&spb.Value{
-			Timestamp: time.Now().UnixNano(),
-			Fatal:     msg,
-		},
-	})
-}
-
 func Hget(configDbConnector *swsscommon.ConfigDBConnector, table string, key string, field string) (string, error) {
 	var fieldValuePairs = configDbConnector.Get_entry(table, key)
 	defer swsscommon.DeleteFieldValueMap(fieldValuePairs)
@@ -310,13 +298,14 @@ type ActionNeedRetry func() error
 func RetryHelper(zmqClient swsscommon.ZmqClient, action ActionNeedRetry) error {
 	var retry uint = 0
 	var retry_delay = time.Duration(RETRY_DELAY_MILLISECOND) * time.Millisecond
-	ConnectionResetErr := "zmq connection break"
+	ConnectionBreakErr := "zmq connection break"
+	ConnectionUnavailableErr := "Resource temporarily unavailable"
 	for {
 		err := action()
 		if err != nil {
-			if strings.Contains(err.Error(), ConnectionResetErr) {
+			if strings.Contains(err.Error(), ConnectionBreakErr) || strings.Contains(err.Error(), ConnectionUnavailableErr) {
 				if retry <= MAX_RETRY_COUNT {
-					log.V(6).Infof("RetryHelper: connection reset, reconnect and retry later")
+					log.V(6).Infof("RetryHelper: connection error: %v, reconnect and retry later", err)
 					time.Sleep(retry_delay)
 
 					zmqClient.Connect()
@@ -1703,7 +1692,7 @@ func (c *MixedDbClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.W
 				c.synced.Add(1)
 				go c.streamOnChangeSubscription(sub.GetPath())
 			} else {
-				enqueFatalMsgMixed(c, fmt.Sprintf("unsupported subscription mode, %v", subMode))
+				enqueFatalMsg(c.q, fmt.Sprintf("unsupported subscription mode, %v", subMode))
 				return
 			}
 		}
@@ -1730,7 +1719,7 @@ func (c *MixedDbClient) streamOnChangeSubscription(gnmiPath *gnmipb.Path) {
 	tblPaths, err := c.getDbtablePath(gnmiPath, nil)
 	if err != nil {
 		msg := fmt.Sprintf("streamOnChangeSubscription error:  %v", err)
-		enqueFatalMsgMixed(c, msg)
+		enqueFatalMsg(c.q, msg)
 		c.synced.Done()
 		c.w.Done()
 		return
@@ -1749,7 +1738,7 @@ func (c *MixedDbClient) streamOnChangeSubscription(gnmiPath *gnmipb.Path) {
 func (c *MixedDbClient) streamSampleSubscription(sub *gnmipb.Subscription, updateOnly bool) {
 	samplingInterval, err := validateSampleInterval(sub)
 	if err != nil {
-		enqueFatalMsgMixed(c, err.Error())
+		enqueFatalMsg(c.q, err.Error())
 		c.synced.Done()
 		c.w.Done()
 		return
@@ -1758,7 +1747,7 @@ func (c *MixedDbClient) streamSampleSubscription(sub *gnmipb.Subscription, updat
 	gnmiPath := sub.GetPath()
 	tblPaths, err := c.getDbtablePath(gnmiPath, nil)
 	if err != nil {
-		enqueFatalMsgMixed(c, err.Error())
+		enqueFatalMsg(c.q, err.Error())
 		c.synced.Done()
 		c.w.Done()
 		return
@@ -1780,7 +1769,7 @@ func (c *MixedDbClient) dbFieldSubscribe(gnmiPath *gnmipb.Path, onChange bool, i
 
 	tblPaths, err := c.getDbtablePath(gnmiPath, nil)
 	if err != nil {
-		enqueFatalMsgMixed(c, err.Error())
+		enqueFatalMsg(c.q, err.Error())
 		c.synced.Done()
 		return
 	}
@@ -1789,7 +1778,7 @@ func (c *MixedDbClient) dbFieldSubscribe(gnmiPath *gnmipb.Path, onChange bool, i
 	redisDb, ok := RedisDbMap[c.mapkey+":"+tblPath.dbName]
 	if !ok {
 		msg := fmt.Sprintf("RedisDbMap not exist:  %v", c.mapkey+":"+tblPath.dbName)
-		enqueFatalMsgMixed(c, msg)
+		enqueFatalMsg(c.q, msg)
 		c.synced.Done()
 		return
 	}
@@ -1838,7 +1827,7 @@ func (c *MixedDbClient) dbFieldSubscribe(gnmiPath *gnmipb.Path, onChange bool, i
 	val := readVal()
 	err = sendVal(val)
 	if err != nil {
-		enqueFatalMsgMixed(c, err.Error())
+		enqueFatalMsg(c.q, err.Error())
 		c.synced.Done()
 		return
 	}
@@ -1915,7 +1904,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 				if tblPath.tableKey != "" {
 					err = c.tableData2Msi(&tblPath, false, nil, &newMsi)
 					if err != nil {
-						enqueFatalMsgMixed(c, err.Error())
+						enqueFatalMsg(c.q, err.Error())
 						return
 					}
 				} else {
@@ -1927,7 +1916,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 					tblPath.tableKey = subscr.Channel[prefixLen:]
 					err = c.tableData2Msi(&tblPath, true, nil, &newMsi)
 					if err != nil {
-						enqueFatalMsgMixed(c, err.Error())
+						enqueFatalMsg(c.q, err.Error())
 						return
 					}
 				}
@@ -1973,7 +1962,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 	// Helper to handle fatal case.
 	handleFatalMsg := func(msg string) {
 		log.V(1).Infof(msg)
-		enqueFatalMsgMixed(c, msg)
+		enqueFatalMsg(c.q, msg)
 		signalSync()
 	}
 

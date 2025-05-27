@@ -156,7 +156,7 @@ func (cs *clientSubscription) Close() {
 		close(cs.stop) //Inform the clientSubscription publish service routine to stop
 	}
 
-	if cs.q != nil {
+	if cs.q.Q != nil {
 		if !cs.q.Q.Disposed() {
 			cs.q.Q.Dispose()
 		}

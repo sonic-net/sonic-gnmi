@@ -61,6 +61,8 @@ type TelemetryConfig struct {
 	Vrf                   *string
 	EnableCrl             *bool
 	CrlExpireDuration     *int
+	OutputQueSize         *uint64
+	MaxSubscribers        *uint64
 }
 
 func main() {
@@ -175,6 +177,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		Vrf:                   fs.String("vrf", "", "VRF name, when zmq_address belong on a VRF, need VRF name to bind ZMQ."),
 		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
 		CrlExpireDuration:     fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
+		OutputQueSize:         fs.Uint64("output_queue_size", 100, "Output Queue Maximum Size (MB)"),
+		MaxSubscribers:        fs.Uint64("maximum_subscribers", 2, "Maximum amount of subscribers"),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -228,6 +232,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	// Move to new function
 	gnmi.JwtRefreshInt = time.Duration(*telemetryCfg.JwtRefInt * uint64(time.Second))
 	gnmi.JwtValidInt = time.Duration(*telemetryCfg.JwtValInt * uint64(time.Second))
+	gnmi.OutputQueSize = *telemetryCfg.OutputQueSize * uint64(1e6)
 
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*telemetryCfg.Port)
@@ -239,6 +244,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.ConfigTableName = *telemetryCfg.ConfigTableName
 	cfg.Vrf = *telemetryCfg.Vrf
 	cfg.EnableCrl = *telemetryCfg.EnableCrl
+	// cfg.OutputQueSize = *telemetryCfg.OutputQueSize * uint64(1e6)
+	cfg.MaxNumSubscribers = *telemetryCfg.MaxSubscribers
 
 	gnmi.SetCrlExpireDuration(time.Duration(*telemetryCfg.CrlExpireDuration) * time.Second)
 
@@ -272,10 +279,22 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 
 	done := make(chan bool)
 
+	telemetryCertDirectory := filepath.Dir(*telemetryCfg.ServerCert)
+
+	log.V(1).Infof("Begin cert monitoring on %s", telemetryCertDirectory)
+
+	err := watcher.Add(telemetryCertDirectory) // Adding watcher to cert directory
+	if err != nil {
+		log.Errorf("Received error when adding watcher to cert directory: %v", err)
+		serverControlSignal <- ServerStop
+		return
+	}
+
+	if testReadySignal != nil { // for testing only
+		testReadySignal <- 0
+	}
+
 	go func() {
-		if testReadySignal != nil { // for testing only
-			testReadySignal <- 0
-		}
 		for {
 			select {
 			case event := <-watcher.Events:
@@ -283,7 +302,7 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 					filepath.Ext(event.Name) == ".cer" || filepath.Ext(event.Name) == ".pem" ||
 					filepath.Ext(event.Name) == ".key") {
 					log.V(1).Infof("Inotify watcher has received event: %v", event)
-					if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
+					if event.Op&fsnotify.CloseWrite == fsnotify.CloseWrite || event.Op&fsnotify.MovedTo == fsnotify.MovedTo {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
 						serverControlSignal <- ServerStart // let server know that a write/create event occurred
 						done <- true
@@ -308,17 +327,6 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 			}
 		}
 	}()
-
-	telemetryCertDirectory := filepath.Dir(*telemetryCfg.ServerCert)
-
-	log.V(1).Infof("Begin cert monitoring on %s", telemetryCertDirectory)
-
-	err := watcher.Add(telemetryCertDirectory) // Adding watcher to cert directory
-	if err != nil {
-		log.Errorf("Received error when adding watcher to cert directory: %v", err)
-		serverControlSignal <- ServerStop
-		done <- true
-	}
 
 	<-done
 	log.V(6).Infof("Closing cert rotation monitoring")

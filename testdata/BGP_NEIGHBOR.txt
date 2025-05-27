@@ -1,0 +1,38 @@
+{
+  "BGP_NEIGHBOR|aa00::1a": {
+    "asn": "64802",
+    "holdtime": "10",
+    "keepalive": "3",
+    "local_addr": "fc00::19",
+    "name": "ARISTA04T1",
+    "nhopself": "0",
+    "rrclient": "0"
+  },
+  "BGP_NEIGHBOR|aa00::1": {
+    "asn": "64802",
+    "holdtime": "10",
+    "keepalive": "3",
+    "local_addr": "fc00::1",
+    "name": "ARISTA01T1",
+    "nhopself": "0",
+    "rrclient": "0"
+  },
+  "BGP_NEIGHBOR|aa00::12": {
+    "asn": "64802",
+    "holdtime": "10",
+    "keepalive": "3",
+    "local_addr": "fc00::11",
+    "name": "ARISTA03T1",
+    "nhopself": "0",
+    "rrclient": "0"
+  },
+  "BGP_NEIGHBOR|aa00::a": {
+    "asn": "64802",
+    "holdtime": "10",
+    "keepalive": "3",
+    "local_addr": "fc00::9",
+    "name": "ARISTA02T1",
+    "nhopself": "0",
+    "rrclient": "0"
+  }
+}

@@ -13,8 +13,6 @@ import (
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // Non db client is to Handle
@@ -435,13 +433,13 @@ func (c *NonDbClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wai
 	for _, sub := range subscribe.GetSubscription() {
 		subMode := sub.GetMode()
 		if subMode != gnmipb.SubscriptionMode_SAMPLE {
-			enqueFatalMsgNonDbClient(c, fmt.Sprintf("Unsupported subscription mode: %v.", subMode))
+			enqueFatalMsg(c.q, fmt.Sprintf("Unsupported subscription mode: %v.", subMode))
 			return
 		}
 
 		interval, err := validateSampleInterval(sub)
 		if err != nil {
-			enqueFatalMsgNonDbClient(c, err.Error())
+			enqueFatalMsg(c.q, err.Error())
 			return
 		}
 
@@ -528,26 +526,8 @@ func runGetterAndSend(c *NonDbClient, gnmiPath *gnmipb.Path, getter dataGetFunc)
 	return err
 }
 
-func enqueFatalMsgNonDbClient(c *NonDbClient, msg string) {
-	if len(msg) > 0 {
-		log.Error(msg)
-	}
-	c.q.ForceEnqueueItem(Value{
-		&spb.Value{
-			Timestamp: time.Now().UnixNano(),
-			Fatal:     msg,
-		},
-	})
-}
-
 func (c *NonDbClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
-	defer func() {
-		if r := recover(); r != nil {
-			err := status.Errorf(codes.Internal, "%v", r)
-			enqueFatalMsgNonDbClient(c, fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
-		}
-	}()
 	defer c.w.Done()
 	c.q = q
 	c.channel = poll

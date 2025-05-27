@@ -1,0 +1,62 @@
+{
+    "REBOOT_CAUSE|2025_07_07_02_35_26": {
+        "cause": "reboot",
+        "comment": "N/A",
+        "time": "Mon Jul  7 02:34:07 AM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_07_02_43_43": {
+        "cause": "reboot",
+        "comment": "N/A",
+        "time": "Mon Jul  7 02:42:22 AM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_08_05_22_02": {
+        "cause": "reboot",
+        "comment": "N/A",
+        "time": "Tue Jul  8 05:20:54 AM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_08_05_30_28": {
+        "cause": "reboot",
+        "comment": "N/A",
+        "time": "Tue Jul  8 05:29:20 AM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_08_07_00_08": {
+        "cause": "reboot",
+        "comment": "N/A",
+        "time": "Tue Jul  8 06:59:00 AM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_08_09_21_21": {
+        "cause": "reboot",
+        "comment": "N/A",
+        "time": "Tue Jul  8 09:20:13 AM UTC 2025",
+        "user": ""
+    },
+    "REBOOT_CAUSE|2025_07_08_09_29_39": {
+        "cause": "reboot",
+        "comment": "N/A",
+        "time": "Tue Jul  8 09:28:30 AM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_08_10_13_31": {
+        "cause": "reboot",
+        "comment": "N/A",
+        "time": "Tue Jul  8 10:12:23 AM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_08_11_53_50": {
+        "cause": "Hardware - Other (gpi-2, description: gpi 2 detailed fault, time: 2025-07-08 11:53:04)",
+        "comment": "Unknown",
+        "time": "N/A",
+        "user": "N/A"
+    },
+    "REBOOT_CAUSE|2025_07_08_18_29_38": {
+        "cause": "reboot",
+        "comment": "N/A",
+        "time": "Tue Jul  8 06:28:26 PM UTC 2025",
+        "user": "admin"
+    }
+}

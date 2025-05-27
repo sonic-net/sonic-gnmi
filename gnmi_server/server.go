@@ -13,6 +13,7 @@ import (
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
+	_ "github.com/sonic-net/sonic-gnmi/show_client"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 
@@ -21,9 +22,9 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_containerz_pb "github.com/openconfig/gnoi/containerz"
+	"github.com/openconfig/gnoi/factory_reset"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 
-	//gnoi_yang "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/server"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	"golang.org/x/net/context"
@@ -56,6 +57,7 @@ type Server struct {
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
 	gnoi_system_pb.UnimplementedSystemServer
+	factory_reset.UnimplementedFactoryResetServer
 }
 
 // FileServer is the server API for File service.
@@ -97,6 +99,8 @@ type Config struct {
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
+	MaxNumSubscribers   uint64
+	OutputQueSize       uint64
 }
 
 var AuthLock sync.Mutex
@@ -204,6 +208,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		return nil, fmt.Errorf("failed to open listener port %d: %v", srv.config.Port, err)
 	}
 	gnmipb.RegisterGNMIServer(srv.s, srv)
+	factory_reset.RegisterFactoryResetServer(srv.s, srv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
 		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
@@ -358,11 +363,18 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	*/
 
 	c := NewClient(pr.Addr)
+	log.Infof("CLIENTS: %v", s.clients)
 
 	c.setLogLevel(s.config.LogLevel)
 	c.setConnectionManager(s.config.Threshold)
 
 	s.cMu.Lock()
+	if uint64(len(s.clients)) >= s.config.MaxNumSubscribers {
+		log.V(2).Infof("Max clients reached. Rejecting new client %s", c)
+		c.Close()
+		s.cMu.Unlock()
+		return grpc.Errorf(codes.ResourceExhausted, "Maximum number of subscriptions reached")
+	}
 	if oc, ok := s.clients[c.String()]; ok {
 		log.V(2).Infof("Delete duplicate client %s", oc)
 		oc.Close()
@@ -371,10 +383,14 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	s.clients[c.String()] = c
 	s.cMu.Unlock()
 
+	defer func() {
+		s.cMu.Lock()
+		delete(s.clients, c.String())
+		log.Infof("CLIENT CLOSE: %v", s.clients)
+		s.cMu.Unlock()
+	}()
+
 	err := c.Run(stream, s.config)
-	s.cMu.Lock()
-	delete(s.clients, c.String())
-	s.cMu.Unlock()
 
 	log.Flush()
 	return err
@@ -450,6 +466,9 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
 		authTarget = "gnmi_other"
+	} else if target == "SHOW" {
+		dc, err = sdc.NewShowClient(paths, prefix)
+		authTarget = "gnmi_show"
 	} else if targetDbName, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
 		authTarget = "gnmi_" + targetDbName
