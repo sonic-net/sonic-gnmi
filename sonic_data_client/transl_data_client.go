@@ -503,6 +503,11 @@ func (c *TranslClient) parseVersion() error {
 	return fmt.Errorf("Invalid bundle version: %v", *bv)
 }
 
+// Set the desired encoding for Get and Subscribe responses
+// func (c *TranslClient) SetEncoding(enc gnmipb.Encoding) {
+// 	c.encoding = enc
+// }
+
 type TranslClientOption interface {
 	IsTranslClientOption()
 }

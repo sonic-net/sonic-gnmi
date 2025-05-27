@@ -50,6 +50,8 @@ type Client interface {
 	Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error
 	// Capabilities of the switch
 	Capabilities() []gnmipb.ModelData
+	//SetEncoding sets the requested encoding on the Request/Response RPCs
+	//SetEncoding(gnmipb.Encoding)
 
 	// Close provides implemenation for explicit cleanup of Client
 	Close() error
@@ -164,6 +166,7 @@ func (val Value) GetTimestamp() int64 {
 type DbClient struct {
 	prefix  *gnmipb.Path
 	pathG2S map[*gnmipb.Path][]tablePath
+	//encoding gnmipb.Encoding
 	q       *LimitedQueue
 	channel chan struct{}
 
@@ -1650,3 +1653,8 @@ func validateSampleInterval(sub *gnmipb.Subscription) (time.Duration, error) {
 		return requestedInterval, nil
 	}
 }
+
+// SetEncoding sets the requested encoding on the response
+// func (c *DbClient) SetEncoding(enc gnmipb.Encoding) {
+// 	c.encoding = enc
+// }

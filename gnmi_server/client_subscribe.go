@@ -12,6 +12,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	//utils "github.com/Azure/sonic-telemetry/common_utils"
 )
 
 var (
@@ -193,6 +194,9 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 		return grpc.Errorf(codes.NotFound, "%v", err)
 	}
 
+	// var stopOnSync bool
+	// dc.SetEncoding(c.subscribe.GetEncoding())
+
 	defer dc.Close()
 	ctx = stream.Context()
 	ctx, err = authenticate(config, ctx, authTarget, false)
@@ -239,7 +243,7 @@ func (c *Client) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	log.V(1).Infof("Client %s Close, sendMsg %v recvMsg %v errors %v", c, c.sendMsg, c.recvMsg, c.errors)
-	if c.q != nil {
+	if c.q.Q != nil {
 		if c.q.Q.Disposed() {
 			return
 		}
@@ -301,6 +305,10 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 		var val *sdc.Value
 		item, err := c.q.DequeueItem()
 
+		// if item == nil {
+		// 	log.V(1).Infof("%v", err)
+		// 	return err
+		// }
 		if err != nil {
 			c.errors++
 			log.V(1).Infof("%v", err)
@@ -312,6 +320,18 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 			c.errors++
 			return err
 		}
+		val = &item
+		// switch v := item.(type) {
+		// case sdc.Value:
+		// 	if resp, err = sdc.ValToResp(item); err != nil {
+		// 		c.errors++
+		// 		return err
+		// 	}
+		// 	val = &item
+		// default:
+		// 	log.V(1).Infof("Unknown data type %v for %s in queue", item, c)
+		// 	c.errors++
+		// }
 
 		c.sendMsg++
 		err = stream.Send(resp)
@@ -324,5 +344,9 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 
 		dc.SentOne(val)
 		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
+
+		// if stopOnSync && resp.GetSyncResponse() {
+		// 	return nil
+		// }
 	}
 }

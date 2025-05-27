@@ -81,6 +81,7 @@ type EventClient struct {
 	last_latency_full  bool
 
 	last_errors uint64
+	//encoding    gnmipb.Encoding
 }
 
 func Set_heartbeat(val int) {
@@ -476,6 +477,10 @@ func (c *EventClient) SentOne(val *Value) {
 		c.last_latency_full = true
 	}
 }
+
+// func (c *EventClient) SetEncoding(enc gnmipb.Encoding) {
+// 	c.encoding = enc
+// }
 
 func (c *EventClient) FailedSend() {
 	c.last_errors += 1

@@ -368,6 +368,7 @@ func init() {
 type NonDbClient struct {
 	prefix      *gnmipb.Path
 	path2Getter map[*gnmipb.Path]dataGetFunc
+	//encoding    gnmipb.Encoding
 
 	q       *LimitedQueue
 	channel chan struct{}
@@ -623,3 +624,8 @@ func (c *NonDbClient) SentOne(val *Value) {
 
 func (c *NonDbClient) FailedSend() {
 }
+
+// SetEncoding sets the desired encoding for Get and Subscribe responses
+// func (c *NonDbClient) SetEncoding(enc gnmipb.Encoding) {
+// 	c.encoding = enc
+// }

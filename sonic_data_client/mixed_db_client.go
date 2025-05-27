@@ -2150,6 +2150,11 @@ func (c *MixedDbClient) Close() error {
 	return nil
 }
 
+// SetEncoding sets the desired encoding for Get and Subscribe responses
+// func (c *MixedDbClient) SetEncoding(enc gnmipb.Encoding) {
+// 	c.encoding = enc
+// }
+
 func (c *MixedDbClient) SentOne(val *Value) {
 }
 
