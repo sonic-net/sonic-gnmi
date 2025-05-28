@@ -19,6 +19,7 @@ import (
 	"time"
 
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
 	"github.com/fsnotify/fsnotify"
@@ -459,7 +460,9 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			return
 		}
 		if *telemetryCfg.WithSaveOnSet {
-			s.SaveStartupConfig = gnmi.SaveOnSetEnabled
+			s.SaveStartupConfig = func() error {
+				return gnmi.SaveOnSetEnabled(&ssc.DbusCaller{})
+			}
 		}
 
 		if *telemetryCfg.WithMasterArbitration {
