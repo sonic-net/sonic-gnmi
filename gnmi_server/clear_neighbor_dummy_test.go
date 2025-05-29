@@ -12,12 +12,12 @@ import (
 
 func TestDummyClearNeighbor(t *testing.T) {
 	// Start server
-	s := createServer(t, 8081)
+	s := createServer(t)
 	go runServer(t, s)
 	defer s.s.Stop()
 
 	// Run Client
-	client := createClient(t, 8081)
+	client := createClient(t, int(s.config.Port))
 	sc := spb_gnoi.NewSonicServiceClient(client)
 	req := &spb_gnoi.ClearNeighborsRequest{
 		Input: &spb_gnoi.ClearNeighborsRequest_Input{},
@@ -29,12 +29,12 @@ func TestDummyClearNeighbor(t *testing.T) {
 
 func TestDummyCopyConfig(t *testing.T) {
 	// Start server
-	s := createServer(t, 8081)
+	s := createServer(t)
 	go runServer(t, s)
 	defer s.s.Stop()
 
 	// Run Client
-	client := createClient(t, 8081)
+	client := createClient(t, int(s.config.Port))
 	sc := spb_gnoi.NewSonicServiceClient(client)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
