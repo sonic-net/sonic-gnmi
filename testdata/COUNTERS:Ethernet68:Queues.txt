@@ -58,28 +58,10 @@
     "Ethernet68:7": {},
     "Ethernet68:8": {},
     "Ethernet68:9": {},
-    "Ethernet68:0:periodic": {},
     "Ethernet68:1:periodic": {
         "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES": "192"
     },
-    "Ethernet68:10:periodic": {},
-    "Ethernet68:11:periodic": {},
-    "Ethernet68:12:periodic": {},
-    "Ethernet68:13:periodic": {},
-    "Ethernet68:14:periodic": {},
-    "Ethernet68:15:periodic": {},
-    "Ethernet68:16:periodic": {},
-    "Ethernet68:17:periodic": {},
-    "Ethernet68:18:periodic": {},
-    "Ethernet68:19:periodic": {},
-    "Ethernet68:2:periodic": {},
-    "Ethernet68:3:periodic": {},
     "Ethernet68:4:periodic": {
         "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES": "0"
-    },
-    "Ethernet68:5:periodic": {},
-    "Ethernet68:6:periodic": {},
-    "Ethernet68:7:periodic": {},
-    "Ethernet68:8:periodic": {},
-    "Ethernet68:9:periodic": {}
+    }
 }

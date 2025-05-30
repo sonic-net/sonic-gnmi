@@ -666,6 +666,15 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1500000000091c", periodicWMEth68_1Byte)
 	loadDB(t, rclient, mpi_counter)
 
+	// "Ethernet68:4": "oid:0x1500000000091f"  : periodic queue watermark, for COUNTERS/Ethernet68/Queue vpath test
+	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1500000000091f.txt"
+	periodicWMEth68_4Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1500000000091f", periodicWMEth68_4Byte)
+	loadDB(t, rclient, mpi_counter)
+
 	// "Ethernet68:3": "oid:0x1500000000091e"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
 	fileName = "../testdata/COUNTERS:oid:0x1500000000091e.txt"
 	countersEeth68_3Byte, err := ioutil.ReadFile(fileName)
@@ -1038,6 +1047,18 @@ func createCountersTableDeleteUpdate(tableKey string, fieldName string) tablePat
 		field:     fieldName,
 		value:     "",
 		op:        "hdel",
+	}
+}
+
+// createPeriodicWatermarksTableSetUpdate creates a HSET request on the PERIODIC_WATERMARKS table.
+func createPeriodicWatermarksTableSetUpdate(tableKey string, fieldName string, fieldValue string) tablePathValue {
+	return tablePathValue{
+		dbName:    "COUNTERS_DB",
+		tableName: "PERIODIC_WATERMARKS",
+		tableKey:  tableKey,
+		delimitor: ":",
+		field:     fieldName,
+		value:     fieldValue,
 	}
 }
 
@@ -2617,30 +2638,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
 			updates: []tablePathValue{
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "COUNTERS",
-					tableKey:  "oid:0x1500000000091c", // "Ethernet68:1": "oid:0x1500000000091c",
-					delimitor: ":",
-					field:     "SAI_QUEUE_STAT_DROPPED_PACKETS",
-					value:     "4", // being changed from 0 to 4
-				},
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "COUNTERS",
-					tableKey:  "oid:0x1500000000091c", // "Ethernet68:1": "oid:0x1500000000091c",
-					delimitor: ":",
-					field:     "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES",
-					value:     "128", // being changed from 64 to 128
-				},
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "PERIODIC_WATERMARKS",
-					tableKey:  "oid:0x1500000000091c", // "Ethernet68:1": "oid:0x1500000000091c",
-					delimitor: ":",
-					field:     "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES",
-					value:     "32", // being changed from 192 to 32
-				},
+				createCountersTableSetUpdate("oid:0x1500000000091c", "SAI_QUEUE_STAT_DROPPED_PACKETS", "4"),                   // being changed from 0 to 4
+				createCountersTableSetUpdate("oid:0x1500000000091c", "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES", "128"),          // being changed from 64 to 128
+				createPeriodicWatermarksTableSetUpdate("oid:0x1500000000091c", "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES", "32"), // being changed from 192 to 32
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
@@ -2664,30 +2664,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
 			updates: []tablePathValue{
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "COUNTERS",
-					tableKey:  "oid:0x1500000000091c", // "Ethernet68:1": "oid:0x1500000000091c",
-					delimitor: ":",
-					field:     "SAI_QUEUE_STAT_DROPPED_PACKETS",
-					value:     "4", // being changed from 0 to 4
-				},
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "COUNTERS",
-					tableKey:  "oid:0x1500000000091c", // "Ethernet68:1": "oid:0x1500000000091c",
-					delimitor: ":",
-					field:     "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES",
-					value:     "128", // being changed from 64 to 128
-				},
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "PERIODIC_WATERMARKS",
-					tableKey:  "oid:0x1500000000091c", // "Ethernet68:1": "oid:0x1500000000091c",
-					delimitor: ":",
-					field:     "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES",
-					value:     "32", // being changed from 192 to 32
-				},
+				createCountersTableSetUpdate("oid:0x1500000000091c", "SAI_QUEUE_STAT_DROPPED_PACKETS", "4"),                   // being changed from 0 to 4
+				createCountersTableSetUpdate("oid:0x1500000000091c", "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES", "128"),          // being changed from 64 to 128
+				createPeriodicWatermarksTableSetUpdate("oid:0x1500000000091c", "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES", "32"), // being changed from 192 to 32
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
