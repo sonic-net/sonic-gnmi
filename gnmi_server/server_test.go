@@ -4789,26 +4789,50 @@ func TestMasterArbitration(t *testing.T) {
 	})
 }
 
-func TestSaveOnSet(t *testing.T) {
+/*func TestSaveOnSet(t *testing.T) {
 	// Fail client creation
-	fakeDBC := gomonkey.ApplyFuncReturn(ssc.NewDbusClient, nil, fmt.Errorf("Fail Create"))
+	dbusCaller = nil
 	if err := SaveOnSetEnabled(); err == nil {
 		t.Error("Expected Client Failure")
 	}
-	fakeDBC.Reset()
+
+	// Fail Dbus call
+	dbusCaller = &ssc.FailDbusCaller{}
+	if err := SaveOnSetEnabled(); err == nil {
+		t.Error("Expected DBUS failure")
+	}
 
 	// Successful Dbus call
-	goodDbus := gomonkey.ApplyFuncReturn(ssc.DbusApi, nil, nil)
+	dbusCaller = &ssc.FakeDbusCaller{}
 	if err := SaveOnSetEnabled(); err != nil {
 		t.Error("Unexpected DBUS failure")
 	}
-	goodDbus.Reset()
+
+}*/
+
+func TestSaveOnSet(t *testing.T) {
+	// Fail client creation
+	dbusCaller = nil
+	if err := SaveOnSetEnabled(); err == nil {
+		t.Error("Expected Client Failure")
+	}
 
 	// Fail Dbus call
-	badDbus := gomonkey.ApplyFuncReturn(ssc.DbusApi, nil, fmt.Errorf("Fail Send"))
-	defer badDbus.Reset()
+	dbusCaller = &ssc.FailDbusCaller{}
 	if err := SaveOnSetEnabled(); err == nil {
 		t.Error("Expected DBUS failure")
+	}
+
+	// Successful Dbus call using fakeDbusClient
+	originalNewDbusClient := ssc.NewDbusClient
+	defer func() { ssc.NewDbusClient = originalNewDbusClient }()
+
+	ssc.NewDbusClient = func(_ ssc.Caller) (ssc.Service, error) {
+		return &fakeDbusClient{}, nil
+	}
+
+	if err := SaveOnSetEnabled(); err != nil {
+		t.Errorf("Unexpected DBUS failure: %v", err)
 	}
 }
 
