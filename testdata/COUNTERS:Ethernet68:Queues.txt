@@ -49,7 +49,6 @@
         "SAI_QUEUE_STAT_CURR_OCCUPANCY_BYTES": "0",
         "SAI_QUEUE_STAT_DROPPED_BYTES": "0",
         "SAI_QUEUE_STAT_DROPPED_PACKETS": "0",
-        "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES": "0",
         "SAI_QUEUE_STAT_PACKETS": "0",
         "SAI_QUEUE_STAT_PACKETS_last": "0"
     },
@@ -60,8 +59,5 @@
     "Ethernet68:9": {},
     "Ethernet68:1:periodic": {
         "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES": "192"
-    },
-    "Ethernet68:4:periodic": {
-        "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES": "0"
     }
 }

@@ -666,15 +666,6 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1500000000091c", periodicWMEth68_1Byte)
 	loadDB(t, rclient, mpi_counter)
 
-	// "Ethernet68:4": "oid:0x1500000000091f"  : periodic queue watermark, for COUNTERS/Ethernet68/Queue vpath test
-	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1500000000091f.txt"
-	periodicWMEth68_4Byte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1500000000091f", periodicWMEth68_4Byte)
-	loadDB(t, rclient, mpi_counter)
-
 	// "Ethernet68:3": "oid:0x1500000000091e"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
 	fileName = "../testdata/COUNTERS:oid:0x1500000000091e.txt"
 	countersEeth68_3Byte, err := ioutil.ReadFile(fileName)
@@ -835,15 +826,6 @@ func prepareDb(t *testing.T, namespace string) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1500000000091c", periodicWMEth68_1Byte)
-	loadDB(t, rclient, mpi_counter)
-
-	// "Ethernet68:4": "oid:0x1500000000091f"  : periodic queue watermark, for COUNTERS/Ethernet68/Queue vpath test
-	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1500000000091f.txt"
-	periodicWMEth68_4Byte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1500000000091f", periodicWMEth68_4Byte)
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:3": "oid:0x1500000000091e"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
