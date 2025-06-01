@@ -448,7 +448,7 @@ func RebootBackendResponse(t *testing.T, sc *redis.Client, expectedResponse code
 }
 
 func TestSystem(t *testing.T) {
-	s := createServer(t, 8081)
+	s := createServer(t, 8082)
 	go runServer(t, s)
 	defer s.Stop()
 

@@ -12,7 +12,7 @@ import (
 
 func TestDummyClearNeighbor(t *testing.T) {
 	// Start server
-	s := createServer(t, 8081)
+	s := createServer(t, 8111)
 	go runServer(t, s)
 	defer s.s.Stop()
 
@@ -29,7 +29,7 @@ func TestDummyClearNeighbor(t *testing.T) {
 
 func TestDummyCopyConfig(t *testing.T) {
 	// Start server
-	s := createServer(t, 8081)
+	s := createServer(t, 8112)
 	go runServer(t, s)
 	defer s.s.Stop()
 

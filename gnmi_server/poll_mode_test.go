@@ -18,7 +18,7 @@ import (
 
 func TestPollMissingTableThenTableKey(t *testing.T) {
 	// Test that 1) missing table 2)table + key should just send sync responses and rpc connection should be alive
-	s := createServer(t, 8081)
+	s := createServer(t, 8083)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -129,7 +129,7 @@ func TestPollMissingTableThenTableKey(t *testing.T) {
 
 func TestPollMissingTableAndTableKey(t *testing.T) {
 	// Test that missing table and table + key should just send sync responses and rpc connection should be alive
-	s := createServer(t, 8081)
+	s := createServer(t, 8084)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -225,7 +225,7 @@ func TestPollMissingTableAndTableKey(t *testing.T) {
 func TestPollMissingTableThenAdded(t *testing.T) {
 	// Test that missing table should just send sync responses and rpc connection should be alive
 	// When we add data for Table, we should receive update notifications
-	s := createServer(t, 8081)
+	s := createServer(t, 8085)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -340,7 +340,7 @@ func TestPollMissingTableThenAdded(t *testing.T) {
 func TestPollMissingKeyThenAdded(t *testing.T) {
 	// Test that missing table+key should just send sync responses and rpc connection should be alive
 	// When we add data for table+key, we should receive update notifications
-	s := createServer(t, 8081)
+	s := createServer(t, 8086)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -455,7 +455,7 @@ func TestPollMissingKeyThenAdded(t *testing.T) {
 func TestPollMissingTableAndKeyThenAdded(t *testing.T) {
 	// Test that we get not updates from missing table and table key queried but still get sync responses
 	// After adding back, we will get both updates
-	s := createServer(t, 8081)
+	s := createServer(t, 8087)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -595,7 +595,7 @@ func TestPollMissingTableAndKeyThenAdded(t *testing.T) {
 func TestPollPresentTableMissingTableKey(t *testing.T) {
 	// Test that we receive update notification for table query and no data for missing key
 	// After 2 polls, we will add back the missing key data to get both data in our notifications
-	s := createServer(t, 8081)
+	s := createServer(t, 8088)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -737,7 +737,7 @@ func TestPollPresentTableMissingTableKey(t *testing.T) {
 func TestPollPresentTableKeyMissingTable(t *testing.T) {
 	// Test that we receive update notification for table key query and no data for missing table
 	// After 2 polls, we will add back the missing table data to get both data in our notifications
-	s := createServer(t, 8081)
+	s := createServer(t, 8089)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -879,7 +879,7 @@ func TestPollPresentTableKeyMissingTable(t *testing.T) {
 func TestPollTableDeleted(t *testing.T) {
 	// Test that we received update notifications for existing table data, then delete table, we should receive 1 delete notification
 	// After delete notification, we should only see sync responses
-	s := createServer(t, 8081)
+	s := createServer(t, 8090)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -1001,7 +1001,7 @@ func TestPollTableDeleted(t *testing.T) {
 func TestPollTableFieldDeleted(t *testing.T) {
 	// Test that we received update notifications for existing table field data, then delete table field, we should receive 1 delete notification
 	// After delete notification, we should only see sync responses
-	s := createServer(t, 8081)
+	s := createServer(t, 8091)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -1114,7 +1114,7 @@ func TestPollTableFieldDeleted(t *testing.T) {
 func TestPollTableKeyDeleted(t *testing.T) {
 	// Test that we received update notifications for existing table key data, then delete table key, we should receive 1 delete notification
 	// After delete notification, we should only see sync responses
-	s := createServer(t, 8081)
+	s := createServer(t, 8092)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -1237,7 +1237,7 @@ func TestPollTableKeyDeleted(t *testing.T) {
 func TestPollTableAndTableKeyBothDeleted(t *testing.T) {
 	// Test that we received update notifications for existing data, then delete both table and table key, we should receive 2 delete notifications
 	// After delete notifications, we should only see sync responses
-	s := createServer(t, 8081)
+	s := createServer(t, 8093)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -1385,7 +1385,7 @@ func TestPollTableAndTableKeyBothDeleted(t *testing.T) {
 func TestPollTableAndTableKeyTableDeleted(t *testing.T) {
 	// Test that we receive update notifications for existing data, and then when we delete table we should receive delete notification
 	// After delete notification, we should see sync responses and continued update for existing data
-	s := createServer(t, 8081)
+	s := createServer(t, 8094)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -1535,7 +1535,7 @@ func TestPollTableAndTableKeyTableDeleted(t *testing.T) {
 func TestPollTableAndTableKeyTableKeyDeleted(t *testing.T) {
 	// Test that we receive update notifications for existing data, and then when we delete table key we should receive delete notification
 	// After delete notification, we should see sync responses and continued update for existing data
-	s := createServer(t, 8081)
+	s := createServer(t, 8095)
 	go runServer(t, s)
 	defer s.ForceStop()
 
