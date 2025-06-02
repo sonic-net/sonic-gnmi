@@ -21,6 +21,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_containerz_pb "github.com/openconfig/gnoi/containerz"
+	gnoi_file "github.com/openconfig/gnoi/file"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 
 	//gnoi_yang "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/server"
@@ -55,7 +56,9 @@ type Server struct {
 	// comes from a master controller.
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
+	fileServer    *GNOIFileServer
 	gnoi_system_pb.UnimplementedSystemServer
+	gnoi_file.UnimplementedFileServer
 }
 
 // FileServer is the server API for File service.
@@ -203,6 +206,8 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open listener port %d: %v", srv.config.Port, err)
 	}
+	srv.fileServer = NewGNOIFileServer(srv)
+	gnoi_file.RegisterFileServer(srv.s, srv.fileServer)
 	gnmipb.RegisterGNMIServer(srv.s, srv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
