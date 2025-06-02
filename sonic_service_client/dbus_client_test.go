@@ -6,6 +6,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 )
 
 func TestNewDbusClient(t *testing.T) {
