@@ -810,7 +810,7 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000092a", counters92aByte)
 	loadDB(t, rclient, mpi_counter)
 
-	// "Ethernet68:1": "oid:0x1500000000091c"  : queue counter, for COUNTERS/Ethernet68/Queue vpath test
+	// "Ethernet68:1": "oid:0x1500000000091c"  : queue counter, for COUNTERS/Ethernet68/Queues vpath test
 	fileName = "../testdata/COUNTERS:oid:0x1500000000091c.txt"
 	countersEeth68_1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -819,13 +819,22 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091c", countersEeth68_1Byte)
 	loadDB(t, rclient, mpi_counter)
 
-	// "Ethernet68:1": "oid:0x1500000000091c"  : periodic queue watermark, for COUNTERS/Ethernet68/Queue vpath test
+	// "Ethernet68:1": "oid:0x1500000000091c"  : periodic queue watermark, for COUNTERS/Ethernet68/Queues vpath test
 	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1500000000091c.txt"
 	periodicWMEth68_1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1500000000091c", periodicWMEth68_1Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet7:5": "oid:0x150000000001d0"  : queue counter, for COUNTERS/Ethernet7/Queues vpath test
+	fileName = "../testdata/COUNTERS:oid:0x150000000001d0.txt"
+	countersEeth7_5Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x150000000001d0", countersEeth7_5Byte)
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:3": "oid:0x1500000000091e"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
@@ -1889,6 +1898,64 @@ type tablePathValue struct {
 	op        string
 }
 
+func createQueueCountersJsonObjects(ethNum int, queueNum int, updatedCounters map[string]interface{}) (
+	queueCountersJson interface{},
+	queueCountersJsonAfterUpdate map[string]interface{},
+	queueAliasCountersJson interface{},
+	queueAliasCountersJsonAfterUpdate map[string]interface{},
+	err error) {
+
+	ethName := fmt.Sprintf("Ethernet%d", ethNum)
+	queueName := fmt.Sprintf("%s:%d", ethName, queueNum)
+	queueFile := fmt.Sprintf("../testdata/COUNTERS:%s:Queues.txt", ethName)
+	queueCountersByte, err := ioutil.ReadFile(queueFile)
+	if err != nil {
+		err = fmt.Errorf("read file %v err: %v", queueFile, err)
+		return
+	}
+	json.Unmarshal(queueCountersByte, &queueCountersJson)
+
+	queueCountersJsonAfterUpdate = make(map[string]interface{})
+	json.Unmarshal(queueCountersByte, &queueCountersJsonAfterUpdate)
+	queueCountersJsonAfterUpdate[queueName] = updatedCounters
+
+	// Alias translation
+	queueAliasName := fmt.Sprintf("%s/1:%d", ethName, queueNum)
+	queueAliasFile := fmt.Sprintf("../testdata/COUNTERS:%s:Queues_alias.txt", ethName)
+	queueAliasCountersByte, err := ioutil.ReadFile(queueAliasFile)
+	if err != nil {
+		err = fmt.Errorf("read file %v err: %v", queueAliasFile, err)
+		return
+	}
+	json.Unmarshal(queueAliasCountersByte, &queueAliasCountersJson)
+
+	queueAliasCountersJsonAfterUpdate = make(map[string]interface{})
+	json.Unmarshal(queueAliasCountersByte, &queueAliasCountersJsonAfterUpdate)
+	queueAliasCountersJsonAfterUpdate[queueAliasName] = updatedCounters
+	return
+}
+
+func createQueueCountersJsonObjectsWithPeriodicWatermark(
+	ethNum int, queueNum int, updatedCounters map[string]interface{},
+	updatedPeriodicWatermarks map[string]interface{},
+) (
+	queueCountersJson interface{},
+	queueCountersJsonAfterUpdate map[string]interface{},
+	queueAliasCountersJson interface{},
+	queueAliasCountersJsonAfterUpdate map[string]interface{},
+	err error) {
+
+	queueCountersJson, queueCountersJsonAfterUpdate, queueAliasCountersJson, queueAliasCountersJsonAfterUpdate, err =
+		createQueueCountersJsonObjects(ethNum, queueNum, updatedCounters)
+
+	queuePeriodicKeyName := fmt.Sprintf("Ethernet%d:%d:periodic", ethNum, queueNum)
+	queueCountersJsonAfterUpdate[queuePeriodicKeyName] = updatedPeriodicWatermarks
+
+	queueAliasPeriodicKeyName := fmt.Sprintf("Ethernet%d/1:%d:periodic", ethNum, queueNum)
+	queueAliasCountersJsonAfterUpdate[queueAliasPeriodicKeyName] = updatedPeriodicWatermarks
+	return
+}
+
 // runTestSubscribe subscribe DB path in stream mode or poll mode.
 // The return code and response value are compared with expected code and value.
 func runTestSubscribe(t *testing.T, namespace string) {
@@ -2015,16 +2082,6 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	var countersEthernetWildQueuesJson interface{}
 	json.Unmarshal(countersEthernetWildQueuesByte, &countersEthernetWildQueuesJson)
 
-	fileName = "../testdata/COUNTERS:Ethernet68:Queues.txt"
-	countersEthernet68QueuesByte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	var countersEthernet68QueuesJson interface{}
-	json.Unmarshal(countersEthernet68QueuesByte, &countersEthernet68QueuesJson)
-
-	countersEthernet68QueuesJsonUpdate := make(map[string]interface{})
-	json.Unmarshal(countersEthernet68QueuesByte, &countersEthernet68QueuesJsonUpdate)
 	eth68_1 := map[string]interface{}{
 		"SAI_QUEUE_STAT_BYTES":                  "0",
 		"SAI_QUEUE_STAT_DROPPED_BYTES":          "0",
@@ -2035,22 +2092,25 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	eth68_1_periodic := map[string]interface{}{
 		"SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES": "32", // Changed from 192 to 32
 	}
-	countersEthernet68QueuesJsonUpdate["Ethernet68:1"] = eth68_1
-	countersEthernet68QueuesJsonUpdate["Ethernet68:1:periodic"] = eth68_1_periodic
-
-	// Alias translation for query Ethernet68/1:Queues
-	fileName = "../testdata/COUNTERS:Ethernet68:Queues_alias.txt"
-	countersEthernet68QueuesAliasByte, err := ioutil.ReadFile(fileName)
+	countersEthernet68QueuesJson, countersEthernet68QueuesJsonUpdate, countersEthernet68QueuesAliasJson,
+		countersEthernet7QueuesAliasJsonUpdate,
+		err := createQueueCountersJsonObjectsWithPeriodicWatermark(68, 1, eth68_1, eth68_1_periodic)
 	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
+		t.Fatalf("%v", err)
 	}
-	var countersEthernet68QueuesAliasJson interface{}
-	json.Unmarshal(countersEthernet68QueuesAliasByte, &countersEthernet68QueuesAliasJson)
 
-	countersEthernet68QueuesAliasJsonUpdate := make(map[string]interface{})
-	json.Unmarshal(countersEthernet68QueuesAliasByte, &countersEthernet68QueuesAliasJsonUpdate)
-	countersEthernet68QueuesAliasJsonUpdate["Ethernet68/1:1"] = eth68_1
-	countersEthernet68QueuesAliasJsonUpdate["Ethernet68/1:1:periodic"] = eth68_1_periodic
+	eth7_5 := map[string]interface{}{
+		"SAI_QUEUE_STAT_BYTES":                  "0",
+		"SAI_QUEUE_STAT_DROPPED_BYTES":          "0",
+		"SAI_QUEUE_STAT_DROPPED_PACKETS":        "10", // Changed from 0 to 10
+		"SAI_QUEUE_STAT_PACKETS":                "0",
+		"SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES": "198", // Changed from 100 to 198
+	}
+	countersEthernet7QueuesJson, countersEthernet7QueuesJsonUpdate, countersEthernet7QueuesAliasJson,
+		countersEthernet7QueuesAliasJsonUpdate, err := createQueueCountersJsonObjects(7, 5, eth7_5)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
 
 	type TestExec struct {
 		desc       string
@@ -2668,6 +2728,48 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesAliasJsonUpdate},
 				client.Sync{},
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet68QueuesAliasJsonUpdate},
+				client.Sync{},
+			},
+		},
+		{
+			desc: "poll query for COUNTERS/Ethernet7/Queues with field value change (no PERIODIC_WATERMARKS table)",
+			poll: 1,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"COUNTERS", "Ethernet7", "Queues"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			updates: []tablePathValue{
+				createCountersTableSetUpdate("oid:0x150000000001d0", "SAI_QUEUE_STAT_DROPPED_PACKETS", "10"),         // being changed from 0 to 10
+				createCountersTableSetUpdate("oid:0x150000000001d0", "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES", "198"), // being changed from 100 to 198
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet7", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet7", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesJsonUpdate},
+				client.Sync{},
+			},
+		},
+		{
+			desc: "(use vendor alias) poll query for COUNTERS/Ethernet7/Queues with field value change (no PERIODIC_WATERMARKS table)",
+			poll: 1,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"COUNTERS", "Ethernet7/1", "Queues"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			updates: []tablePathValue{
+				createCountersTableSetUpdate("oid:0x150000000001d0", "SAI_QUEUE_STAT_DROPPED_PACKETS", "10"),         // being changed from 0 to 10
+				createCountersTableSetUpdate("oid:0x150000000001d0", "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES", "198"), // being changed from 100 to 198
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet7/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesAliasJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet7/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesAliasJsonUpdate},
 				client.Sync{},
 			},
 		},
