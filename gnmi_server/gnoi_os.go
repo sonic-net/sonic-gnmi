@@ -1,16 +1,18 @@
 package gnmi
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
-	"io"
-	"os"
-	"sync"
-
-	ospb "github.com/openconfig/gnoi/os"
-
 	log "github.com/golang/glog"
+	ospb "github.com/openconfig/gnoi/os"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"io"
+	"os"
+	"strings"
+	"sync"
 )
 
 var (
@@ -209,4 +211,96 @@ func (srv *OSServer) Install(stream ospb.OS_InstallServer) error {
 	}
 
 	return nil
+}
+
+func (srv *OSServer) Verify(ctx context.Context, req *ospb.VerifyRequest) (*ospb.VerifyResponse, error) {
+	_, err := authenticate(srv.config, ctx, "gnoi", false)
+	if err != nil {
+		log.V(2).Infof("Failed to authenticate: %v", err)
+		return nil, err
+	}
+
+	log.V(1).Info("gNOI: Verify")
+	dbus, err := ssc.NewDbusClient()
+	if err != nil {
+		log.V(2).Infof("Failed to create dbus client: %v", err)
+		return nil, err
+	}
+	defer dbus.Close()
+
+	image_json, err := dbus.ListImages()
+	if err != nil {
+		log.V(2).Infof("Failed to list images: %v", err)
+		return nil, err
+	}
+
+	images := make(map[string]interface{})
+	err = json.Unmarshal([]byte(image_json), &images)
+	if err != nil {
+		log.V(2).Infof("Failed to unmarshal images: %v", err)
+		return nil, err
+	}
+
+	current, exists := images["current"]
+	if !exists {
+		return nil, status.Errorf(codes.Internal, "Key 'current' not found in images")
+	}
+	current_image, ok := current.(string)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "Failed to assert current image as string")
+	}
+	resp := &ospb.VerifyResponse{
+		Version: current_image,
+	}
+	return resp, nil
+}
+
+func (srv *OSServer) Activate(ctx context.Context, req *ospb.ActivateRequest) (*ospb.ActivateResponse, error) {
+	_, err := authenticate(srv.config, ctx, "gnoi" /*writeAccess=*/, true)
+	if err != nil {
+		log.Errorf("Failed to authenticate: %v", err)
+		return nil, err
+	}
+
+	log.Infof("gNOI: Activate")
+	image := req.GetVersion()
+	log.Infof("Requested to activate image %s", image)
+
+	dbus, err := ssc.NewDbusClient()
+	if err != nil {
+		log.Errorf("Failed to create dbus client: %v", err)
+		return nil, err
+	}
+	defer dbus.Close()
+
+	var resp ospb.ActivateResponse
+	err = dbus.ActivateImage(image)
+	if err != nil {
+		log.Errorf("Failed to activate image %s: %v", image, err)
+		image_not_exists := os.IsNotExist(err) ||
+			(strings.Contains(strings.ToLower(err.Error()), "not") &&
+				strings.Contains(strings.ToLower(err.Error()), "exist"))
+		if image_not_exists {
+			// Image does not exist.
+			resp.Response = &ospb.ActivateResponse_ActivateError{
+				ActivateError: &ospb.ActivateError{
+					Type:   ospb.ActivateError_NON_EXISTENT_VERSION,
+					Detail: err.Error(),
+				},
+			}
+		} else {
+			// Other error.
+			resp.Response = &ospb.ActivateResponse_ActivateError{
+				ActivateError: &ospb.ActivateError{
+					Type:   ospb.ActivateError_UNSPECIFIED,
+					Detail: err.Error(),
+				},
+			}
+		}
+		return &resp, nil
+	}
+
+	log.Infof("Successfully activated image %s", image)
+	resp.Response = &ospb.ActivateResponse_ActivateOk{}
+	return &resp, nil
 }
