@@ -3,6 +3,7 @@ package gnmi
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"github.com/openconfig/gnoi/file"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -12,10 +13,10 @@ import (
 
 // TestFileServer tests implementation of gnoi.File server.
 func TestFileServer(t *testing.T) {
-	s := createServer(t, 8081)
+	s := createServer(t)
 	go runServer(t, s)
 	defer s.Stop()
-	targetAddr := "127.0.0.1:8081"
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
 	conn, err := grpc.Dial(targetAddr, opts...)
