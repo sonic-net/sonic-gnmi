@@ -35,7 +35,8 @@ import (
 )
 
 var (
-	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+	supportedEncodings            = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+	dbusCaller         ssc.Caller = &ssc.DbusCaller{}
 )
 
 // Server manages a single gNMI Server implementation. Each client that connects
@@ -504,7 +505,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 // saveOnSetEnabled saves configuration to a file
 func SaveOnSetEnabled() error {
-	sc, err := ssc.NewDbusClient()
+	sc, err := ssc.NewDbusClient(dbusCaller)
 	if err != nil {
 		log.V(0).Infof("Saving startup config failed to create dbus client: %v", err)
 		return err
