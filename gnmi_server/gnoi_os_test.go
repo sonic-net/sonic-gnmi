@@ -100,6 +100,7 @@ var testOSCases = []struct {
 			// Create a new client.
 			tlsConfig := &tls.Config{InsecureSkipVerify: true}
 			opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+			targetAddr := "127.0.0.1:8081"
 			conn, err := grpc.Dial(targetAddr, opts...)
 			if err != nil {
 				t.Fatalf("Dialing to %s failed: %v", targetAddr, err)
@@ -241,7 +242,8 @@ var testOSCases = []struct {
 			}()
 
 			// Get some file to transfer. Repurpose cert data.
-			data, err := ioutil.ReadFile(GoldSCertV2)
+			fileName := "../testdata/TEST_DATA.txt"
+			data, err := ioutil.ReadFile(fileName)
 			if err != nil {
 				t.Fatal(err.Error())
 			}
@@ -304,7 +306,8 @@ var testOSCases = []struct {
 			}
 
 			// Get some file to transfer. Repurpose cert data.
-			data, err := ioutil.ReadFile(GoldSCertV2)
+			fileName := "../testdata/TEST_DATA.txt"
+			data, err := ioutil.ReadFile(fileName)
 			if err != nil {
 				t.Fatal(err.Error())
 			}
@@ -365,12 +368,13 @@ var testOSCases = []struct {
 
 // TestOSServer tests implementation of gnoi.OS server.
 func TestOSServer(t *testing.T) {
-	s := createServer(t, port)
+	s := createServer(t, 8081)
 	go runServer(t, s)
-	defer s.Stop(t)
+	defer s.Stop()
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	targetAddr := "127.0.0.1:8081"
 	conn, err := grpc.Dial(targetAddr, opts...)
 	if err != nil {
 		t.Fatalf("Dialing to %s failed: %v", targetAddr, err)
