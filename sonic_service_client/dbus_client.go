@@ -3,11 +3,16 @@ package host_service
 import (
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/godbus/dbus/v5"
 	log "github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+)
+
+var (
+	osMu sync.Mutex
 )
 
 type Service interface {
@@ -33,6 +38,7 @@ type Service interface {
 	InstallImage(where string) error
 	ListImages() (string, error)
 	ActivateImage(image string) error
+	OSInstall(image string) (string, error)
 	// Docker services APIs
 	LoadDockerImage(image string) error
 }
@@ -294,6 +300,23 @@ func (c *DbusClient) ActivateImage(image string) error {
 	intName := c.intNamePrefix + modName + ".set_next_boot"
 	_, err := DbusApi(busName, busPath, intName, 60, image)
 	return err
+}
+
+func (c *DbusClient) OSInstall(req string) (string, error) {
+	common_utils.IncCounter(common_utils.DBUS_OS_INSTALL)
+	modName := "os_service"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".install"
+	result, err := DbusApi(busName, busPath, intName, 10, req)
+	if err != nil {
+		return "", err
+	}
+	if strResult, ok := result.(string); ok {
+		return strResult, nil
+	} else {
+		return "", fmt.Errorf("DbusApi returned unexpected type: %T, expected string", result)
+	}
 }
 
 func (c *DbusClient) LoadDockerImage(image string) error {
