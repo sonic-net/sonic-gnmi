@@ -1153,3 +1153,69 @@ func TestRemoveFileFail(t *testing.T) {
 		t.Errorf("Expected error message '%s' but got '%v'", errMsg, err)
 	}
 }
+
+func TestOSInstallSuccess(t *testing.T) {
+	req := `{"version":"SONiC.master.0"}`
+	expected := "Install started"
+
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (*dbus.Conn, error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go",
+		func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+			if method != "org.SONiC.HostService.gnoi_os_mgmt.install" {
+				t.Errorf("Wrong method: %v", method)
+			}
+			ret := &dbus.Call{
+				Err: nil,
+				Body: []interface{}{
+					int32(0),
+					expected,
+				},
+			}
+			ch <- ret
+			return ret
+		})
+	defer mock2.Reset()
+
+	client, _ := NewDbusClient()
+	result, err := client.OSInstall(req)
+	if err != nil {
+		t.Errorf("OSInstall should succeed: %v", err)
+	}
+	if result != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, result)
+	}
+}
+
+func TestOSInstallFail(t *testing.T) {
+	req := `{"version":"SONiC.master.0"}`
+	errMsg := "installation failed"
+
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (*dbus.Conn, error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go",
+		func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+			ret := &dbus.Call{
+				Err: nil,
+				Body: []interface{}{
+					int32(1),
+					errMsg,
+				},
+			}
+			ch <- ret
+			return ret
+		})
+	defer mock2.Reset()
+
+	client, _ := NewDbusClient()
+	_, err := client.OSInstall(req)
+	if err == nil || err.Error() != errMsg {
+		t.Errorf("Expected error '%s', got '%v'", errMsg, err)
+	}
+}
