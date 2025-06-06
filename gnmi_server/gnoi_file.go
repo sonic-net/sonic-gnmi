@@ -10,6 +10,7 @@ import (
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -104,6 +105,15 @@ func (srv *FileServer) Remove(ctx context.Context, req *gnoi_file_pb.RemoveReque
 	if err != nil {
 		return nil, err
 	}
+	pr, ok := peer.FromContext(ctx)
+	if !ok || pr == nil {
+		return nil, status.Error(codes.Internal, "Failed to get peer from context")
+	}
+	connectionKey, valid := srv.ConnectionManager.Add(pr.Addr, req.String())
+	if !valid {
+		return nil, status.Error(codes.Unavailable, "Server connections are at capacity.")
+	}
+	defer srv.ConnectionManager.Remove(connectionKey)
 	if req.GetRemoteFile() == "" {
 		return nil, status.Error(codes.InvalidArgument, "Invalid request: remote_file field is empty.")
 	}
