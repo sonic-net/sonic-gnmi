@@ -2093,7 +2093,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		"SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES": "32", // Changed from 192 to 32
 	}
 	countersEthernet68QueuesJson, countersEthernet68QueuesJsonUpdate, countersEthernet68QueuesAliasJson,
-		countersEthernet7QueuesAliasJsonUpdate,
+		countersEthernet68QueuesAliasJsonUpdate,
 		err := createQueueCountersJsonObjectsWithPeriodicWatermark(68, 1, eth68_1, eth68_1_periodic)
 	if err != nil {
 		t.Fatalf("%v", err)
