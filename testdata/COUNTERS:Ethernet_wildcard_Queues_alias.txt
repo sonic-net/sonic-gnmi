@@ -1072,7 +1072,13 @@
     "Ethernet7/1:2": {},
     "Ethernet7/1:3": {},
     "Ethernet7/1:4": {},
-    "Ethernet7/1:5": {},
+    "Ethernet7/1:5": {
+        "SAI_QUEUE_STAT_BYTES": "0",
+        "SAI_QUEUE_STAT_DROPPED_BYTES": "0",
+        "SAI_QUEUE_STAT_DROPPED_PACKETS": "0",
+        "SAI_QUEUE_STAT_PACKETS": "0",
+        "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES": "100"
+    },
     "Ethernet7/1:6": {},
     "Ethernet7/1:7": {},
     "Ethernet7/1:8": {},
