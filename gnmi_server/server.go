@@ -35,7 +35,8 @@ import (
 )
 
 var (
-	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+	supportedEncodings            = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+	dbusCaller         ssc.Caller = &ssc.DbusCaller{}
 )
 
 // Server manages a single gNMI Server implementation. Each client that connects
@@ -56,6 +57,7 @@ type Server struct {
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
 	gnoi_system_pb.UnimplementedSystemServer
+	ConnectionManager *ConnectionManager
 }
 
 // FileServer is the server API for File service.
@@ -217,6 +219,8 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 	spb_gnoi.RegisterDebugServer(srv.s, srv)
 	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
+
+	srv.ConnectionManager = CreateConnectionManager(srv.config.Threshold)
 	return srv, nil
 }
 
@@ -504,7 +508,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 // saveOnSetEnabled saves configuration to a file
 func SaveOnSetEnabled() error {
-	sc, err := ssc.NewDbusClient()
+	sc, err := ssc.NewDbusClient(dbusCaller)
 	if err != nil {
 		log.V(0).Infof("Saving startup config failed to create dbus client: %v", err)
 		return err

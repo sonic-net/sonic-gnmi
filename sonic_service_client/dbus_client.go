@@ -37,24 +37,38 @@ type Service interface {
 	LoadDockerImage(image string) error
 }
 
+type CredzCheckpointAction string
+
+const (
+	CredzCPCreate  CredzCheckpointAction = ".create_checkpoint"
+	CredzCPDelete  CredzCheckpointAction = ".delete_checkpoint"
+	CredzCPRestore CredzCheckpointAction = ".restore_checkpoint"
+	NamePrefix                           = "org.SONiC.HostService."
+	PathPrefix                           = "/org/SONiC/HostService/"
+)
+
 type DbusClient struct {
 	busNamePrefix string
 	busPathPrefix string
 	intNamePrefix string
+	caller        Caller
 	channel       chan struct{}
 }
 
-func NewDbusClient() (Service, error) {
-	log.Infof("DbusClient: NewDbusClient")
+type Caller interface {
+	DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error)
+}
 
-	var client DbusClient
-	var err error
-	client.busNamePrefix = "org.SONiC.HostService."
-	client.busPathPrefix = "/org/SONiC/HostService/"
-	client.intNamePrefix = "org.SONiC.HostService."
-	err = nil
+type DbusCaller struct{}
 
-	return &client, err
+type FakeDbusCaller struct {
+	Msg string
+}
+
+type FailDbusCaller struct{}
+
+type SpyDbusCaller struct {
+	Command chan []string
 }
 
 // Close the connection to the D-Bus.
@@ -66,9 +80,43 @@ func (c *DbusClient) Close() error {
 	return nil
 }
 
-func DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error) {
+func NewDbusClient(caller Caller) (Service, error) {
+	var client DbusClient
+	if caller == nil {
+		return nil, fmt.Errorf("You must supply a DbusCaller")
+	}
+	client.busNamePrefix = NamePrefix
+	client.busPathPrefix = PathPrefix
+	client.intNamePrefix = NamePrefix
+	client.caller = caller
+
+	return &client, nil
+}
+
+func (c *FakeDbusCaller) DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error) {
+	if c.Msg != "" {
+		return fmt.Sprintf("%v", c.Msg), nil
+	}
+	return fmt.Sprintf("%v %v", intName, args), nil
+}
+
+func (_ *FailDbusCaller) DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error) {
+	return "", fmt.Errorf("%v %v", intName, args)
+}
+
+func (c *SpyDbusCaller) DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error) {
+	resp := []string{intName}
+	for _, el := range args {
+		resp = append(resp, fmt.Sprintf("%v", el))
+	}
+	c.Command <- resp
+	return "", nil
+}
+
+func (_ *DbusCaller) DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error) {
 	common_utils.IncCounter(common_utils.DBUS)
 	conn, err := dbus.SystemBus()
+	log.V(2).Infof("DBUS Call: %v %v", intName, args)
 	if err != nil {
 		log.V(2).Infof("Failed to connect to system bus: %v", err)
 		common_utils.IncCounter(common_utils.DBUS_FAIL)
@@ -95,6 +143,13 @@ func DbusApi(busName string, busPath string, intName string, timeout int, args .
 				if len(result) != 2 {
 					common_utils.IncCounter(common_utils.DBUS_FAIL)
 					return nil, fmt.Errorf("Dbus result is invalid %v", result)
+				}
+				log.V(2).Infof("DBus result body: %#v", result)
+				for i, val := range result {
+					log.V(2).Infof("DBus result[%d] type: %T, value: %v", i, val, val)
+				}
+				if statMap, ok := result[1].(map[string]string); ok {
+					return statMap, nil
 				}
 				return result[1], nil
 			} else {
@@ -130,7 +185,7 @@ func (c *DbusClient) ConfigReload(config string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".reload"
-	_, err := DbusApi(busName, busPath, intName, 60, config)
+	_, err := c.caller.DbusApi(busName, busPath, intName, 60, config)
 	return err
 }
 
@@ -140,7 +195,7 @@ func (c *DbusClient) ConfigReplace(config string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".replace_db"
-	_, err := DbusApi(busName, busPath, intName, 600, config)
+	_, err := c.caller.DbusApi(busName, busPath, intName, 600, config)
 	return err
 }
 
@@ -150,7 +205,7 @@ func (c *DbusClient) ConfigSave(fileName string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".save"
-	_, err := DbusApi(busName, busPath, intName, 60, fileName)
+	_, err := c.caller.DbusApi(busName, busPath, intName, 60, fileName)
 	return err
 }
 
@@ -160,7 +215,7 @@ func (c *DbusClient) ApplyPatchYang(patch string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".apply_patch_yang"
-	_, err := DbusApi(busName, busPath, intName, 600, patch)
+	_, err := c.caller.DbusApi(busName, busPath, intName, 600, patch)
 	return err
 }
 
@@ -170,7 +225,7 @@ func (c *DbusClient) ApplyPatchDb(patch string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".apply_patch_db"
-	_, err := DbusApi(busName, busPath, intName, 600, patch)
+	_, err := c.caller.DbusApi(busName, busPath, intName, 600, patch)
 	return err
 }
 
@@ -180,7 +235,7 @@ func (c *DbusClient) CreateCheckPoint(fileName string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".create_checkpoint"
-	_, err := DbusApi(busName, busPath, intName, 60, fileName)
+	_, err := c.caller.DbusApi(busName, busPath, intName, 60, fileName)
 	return err
 }
 
@@ -190,7 +245,7 @@ func (c *DbusClient) DeleteCheckPoint(fileName string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".delete_checkpoint"
-	_, err := DbusApi(busName, busPath, intName, 60, fileName)
+	_, err := c.caller.DbusApi(busName, busPath, intName, 60, fileName)
 	return err
 }
 
@@ -200,7 +255,7 @@ func (c *DbusClient) StopService(service string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".stop_service"
-	_, err := DbusApi(busName, busPath, intName, 240, service)
+	_, err := c.caller.DbusApi(busName, busPath, intName, 240, service)
 	return err
 }
 
@@ -210,7 +265,7 @@ func (c *DbusClient) RestartService(service string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".restart_service"
-	_, err := DbusApi(busName, busPath, intName, 240, service)
+	_, err := c.caller.DbusApi(busName, busPath, intName, 240, service)
 	return err
 }
 
@@ -220,11 +275,14 @@ func (c *DbusClient) GetFileStat(path string) (map[string]string, error) {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".get_file_stat"
-	result, err := DbusApi(busName, busPath, intName, 60, path)
+	result, err := c.caller.DbusApi(busName, busPath, intName, 60, path)
 	if err != nil {
 		return nil, err
 	}
-	data, _ := result.(map[string]string)
+	data, ok := result.(map[string]string)
+	if !ok {
+		return nil, fmt.Errorf("Invalid result type: got %T", result)
+	}
 	return data, nil
 }
 
@@ -234,7 +292,7 @@ func (c *DbusClient) DownloadFile(hostname, username, password, remotePath, loca
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".download"
-	_, err := DbusApi(busName, busPath, intName, 900, hostname, username, password, remotePath, localPath, protocol)
+	_, err := c.caller.DbusApi(busName, busPath, intName, 900, hostname, username, password, remotePath, localPath, protocol)
 	return err
 }
 
@@ -244,7 +302,7 @@ func (c *DbusClient) RemoveFile(path string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".remove"
-	_, err := DbusApi(busName, busPath, intName, 60, path)
+	_, err := c.caller.DbusApi(busName, busPath, intName, 60, path)
 	return err
 }
 
@@ -254,7 +312,7 @@ func (c *DbusClient) DownloadImage(url string, save_as string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".download"
-	_, err := DbusApi(busName, busPath, intName /*timeout=*/, 900, url, save_as)
+	_, err := c.caller.DbusApi(busName, busPath, intName /*timeout=*/, 900, url, save_as)
 	return err
 }
 
@@ -264,7 +322,7 @@ func (c *DbusClient) InstallImage(where string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".install"
-	_, err := DbusApi(busName, busPath, intName /*timeout=*/, 900, where)
+	_, err := c.caller.DbusApi(busName, busPath, intName /*timeout=*/, 900, where)
 	return err
 }
 
@@ -274,7 +332,7 @@ func (c *DbusClient) ListImages() (string, error) {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".list_images"
-	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 60)
+	result, err := c.caller.DbusApi(busName, busPath, intName /*timeout=*/, 60)
 	if err != nil {
 		return "", err
 	}
@@ -292,7 +350,7 @@ func (c *DbusClient) ActivateImage(image string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".set_next_boot"
-	_, err := DbusApi(busName, busPath, intName, 60, image)
+	_, err := c.caller.DbusApi(busName, busPath, intName, 60, image)
 	return err
 }
 
@@ -302,6 +360,6 @@ func (c *DbusClient) LoadDockerImage(image string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".load"
-	_, err := DbusApi(busName, busPath, intName /*timeout=*/, 180, image)
+	_, err := c.caller.DbusApi(busName, busPath, intName /*timeout=*/, 180, image)
 	return err
 }
