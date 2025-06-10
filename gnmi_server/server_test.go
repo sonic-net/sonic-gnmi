@@ -665,23 +665,32 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091c", countersEeth68_1Byte)
 	loadDB(t, rclient, mpi_counter)
 
-	// "Ethernet12:1": "oid:0x1a0000000000a9"  : PG counter, for COUNTERS/Ethernet12/PGs vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1a0000000000a9.txt"
-	countersEth12_1Byte, err := ioutil.ReadFile(fileName)
+	// "Ethernet68:1": "oid:0x1500000000091c"  : periodic queue watermark, for COUNTERS/Ethernet68/Queue vpath test
+	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1500000000091c.txt"
+	periodicWMEth68_1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
-	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1a0000000000a9", countersEth12_1Byte)
+	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1500000000091c", periodicWMEth68_1Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet7:5": "oid:0x150000000001d0"  : queue counter, for COUNTERS/Ethernet7/Queues vpath test
+	fileName = "../testdata/COUNTERS:oid:0x150000000001d0.txt"
+	countersEth7_5Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x150000000001d0", countersEth7_5Byte)
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet16:5": "oid:0x1a0000000000d6"
 	// PG periodic watermark, for WATERMARKS/Ethernet16/PriorityGroups/PERIODIC_WATERMARKS vpath test
 	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1a0000000000d6.txt"
-	pgWatermarks_Eth16_5Byte, err := ioutil.ReadFile(fileName)
+	pgWatermarksEth16_5Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
-	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1a0000000000d6", pgWatermarks_Eth16_5Byte)
+	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1a0000000000d6", pgWatermarksEth16_5Byte)
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:3": "oid:0x1500000000091e"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
@@ -836,7 +845,7 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000092a", counters92aByte)
 	loadDB(t, rclient, mpi_counter)
 
-	// "Ethernet68:1": "oid:0x1500000000091c"  : queue counter, for COUNTERS/Ethernet68/Queue vpath test
+	// "Ethernet68:1": "oid:0x1500000000091c"  : queue counter, for COUNTERS/Ethernet68/Queues vpath test
 	fileName = "../testdata/COUNTERS:oid:0x1500000000091c.txt"
 	countersEeth68_1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -845,13 +854,22 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091c", countersEeth68_1Byte)
 	loadDB(t, rclient, mpi_counter)
 
-	// "Ethernet12:1": "oid:0x1a0000000000a9"  : PG counter, for COUNTERS/Ethernet12/PGs vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1a0000000000a9.txt"
-	countersEth12_1Byte, err := ioutil.ReadFile(fileName)
+	// "Ethernet68:1": "oid:0x1500000000091c"  : periodic queue watermark, for COUNTERS/Ethernet68/Queues vpath test
+	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1500000000091c.txt"
+	periodicWMEth68_1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
-	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1a0000000000a9", countersEth12_1Byte)
+	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1500000000091c", periodicWMEth68_1Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet7:5": "oid:0x150000000001d0"  : queue counter, for COUNTERS/Ethernet7/Queues vpath test
+	fileName = "../testdata/COUNTERS:oid:0x150000000001d0.txt"
+	countersEth7_5Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x150000000001d0", countersEth7_5Byte)
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet16:5": "oid:0x1a0000000000d6"
@@ -1074,6 +1092,18 @@ func createCountersTableDeleteUpdate(tableKey string, fieldName string) tablePat
 		field:     fieldName,
 		value:     "",
 		op:        "hdel",
+	}
+}
+
+// createPeriodicWatermarksTableSetUpdate creates a HSET request on the PERIODIC_WATERMARKS table.
+func createPeriodicWatermarksTableSetUpdate(tableKey string, fieldName string, fieldValue string) tablePathValue {
+	return tablePathValue{
+		dbName:    "COUNTERS_DB",
+		tableName: "PERIODIC_WATERMARKS",
+		tableKey:  tableKey,
+		delimitor: ":",
+		field:     fieldName,
+		value:     fieldValue,
 	}
 }
 
@@ -1913,6 +1943,64 @@ type tablePathValue struct {
 	op        string
 }
 
+func createQueueCountersJsonObjects(ethNum int, queueNum int, updatedCounters map[string]interface{}) (
+	queueCountersJson interface{},
+	queueCountersJsonAfterUpdate map[string]interface{},
+	queueAliasCountersJson interface{},
+	queueAliasCountersJsonAfterUpdate map[string]interface{},
+	err error) {
+
+	ethName := fmt.Sprintf("Ethernet%d", ethNum)
+	queueName := fmt.Sprintf("%s:%d", ethName, queueNum)
+	queueFile := fmt.Sprintf("../testdata/COUNTERS:%s:Queues.txt", ethName)
+	queueCountersByte, err := ioutil.ReadFile(queueFile)
+	if err != nil {
+		err = fmt.Errorf("read file %v err: %v", queueFile, err)
+		return
+	}
+	json.Unmarshal(queueCountersByte, &queueCountersJson)
+
+	queueCountersJsonAfterUpdate = make(map[string]interface{})
+	json.Unmarshal(queueCountersByte, &queueCountersJsonAfterUpdate)
+	queueCountersJsonAfterUpdate[queueName] = updatedCounters
+
+	// Alias translation
+	queueAliasName := fmt.Sprintf("%s/1:%d", ethName, queueNum)
+	queueAliasFile := fmt.Sprintf("../testdata/COUNTERS:%s:Queues_alias.txt", ethName)
+	queueAliasCountersByte, err := ioutil.ReadFile(queueAliasFile)
+	if err != nil {
+		err = fmt.Errorf("read file %v err: %v", queueAliasFile, err)
+		return
+	}
+	json.Unmarshal(queueAliasCountersByte, &queueAliasCountersJson)
+
+	queueAliasCountersJsonAfterUpdate = make(map[string]interface{})
+	json.Unmarshal(queueAliasCountersByte, &queueAliasCountersJsonAfterUpdate)
+	queueAliasCountersJsonAfterUpdate[queueAliasName] = updatedCounters
+	return
+}
+
+func createQueueCountersJsonObjectsWithPeriodicWatermark(
+	ethNum int, queueNum int, updatedCounters map[string]interface{},
+	updatedPeriodicWatermarks map[string]interface{},
+) (
+	queueCountersJson interface{},
+	queueCountersJsonAfterUpdate map[string]interface{},
+	queueAliasCountersJson interface{},
+	queueAliasCountersJsonAfterUpdate map[string]interface{},
+	err error) {
+
+	queueCountersJson, queueCountersJsonAfterUpdate, queueAliasCountersJson, queueAliasCountersJsonAfterUpdate, err =
+		createQueueCountersJsonObjects(ethNum, queueNum, updatedCounters)
+
+	queuePeriodicKeyName := fmt.Sprintf("Ethernet%d:%d:periodic", ethNum, queueNum)
+	queueCountersJsonAfterUpdate[queuePeriodicKeyName] = updatedPeriodicWatermarks
+
+	queueAliasPeriodicKeyName := fmt.Sprintf("Ethernet%d/1:%d:periodic", ethNum, queueNum)
+	queueAliasCountersJsonAfterUpdate[queueAliasPeriodicKeyName] = updatedPeriodicWatermarks
+	return
+}
+
 // runTestSubscribe subscribe DB path in stream mode or poll mode.
 // The return code and response value are compared with expected code and value.
 func runTestSubscribe(t *testing.T, namespace string) {
@@ -2031,6 +2119,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	tmp6.(map[string]interface{})["Ethernet68/1:3"].(map[string]interface{})["PFC_WD_QUEUE_STATS_DEADLOCK_DETECTED"] = "1"
 	countersEthernetWildPfcwdUpdate := tmp6
 
+	///////////////////////////////////////////////////////////////////////////////////////////////
+
 	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Queues_alias.txt"
 	countersEthernetWildQueuesByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -2039,78 +2129,35 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	var countersEthernetWildQueuesJson interface{}
 	json.Unmarshal(countersEthernetWildQueuesByte, &countersEthernetWildQueuesJson)
 
-	fileName = "../testdata/COUNTERS:Ethernet68:Queues.txt"
-	countersEthernet68QueuesByte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	var countersEthernet68QueuesJson interface{}
-	json.Unmarshal(countersEthernet68QueuesByte, &countersEthernet68QueuesJson)
-
-	countersEthernet68QueuesJsonUpdate := make(map[string]interface{})
-	json.Unmarshal(countersEthernet68QueuesByte, &countersEthernet68QueuesJsonUpdate)
 	eth68_1 := map[string]interface{}{
-		"SAI_QUEUE_STAT_BYTES":           "0",
-		"SAI_QUEUE_STAT_DROPPED_BYTES":   "0",
-		"SAI_QUEUE_STAT_DROPPED_PACKETS": "4",
-		"SAI_QUEUE_STAT_PACKETS":         "0",
+		"SAI_QUEUE_STAT_BYTES":                  "0",
+		"SAI_QUEUE_STAT_DROPPED_BYTES":          "0",
+		"SAI_QUEUE_STAT_DROPPED_PACKETS":        "4", // Changed from 0 to 4
+		"SAI_QUEUE_STAT_PACKETS":                "0",
+		"SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES": "128", // Changed from 64 to 128
 	}
-	countersEthernet68QueuesJsonUpdate["Ethernet68:1"] = eth68_1
-
-	// Alias translation for query Ethernet68/1:Queues
-	fileName = "../testdata/COUNTERS:Ethernet68:Queues_alias.txt"
-	countersEthernet68QueuesAliasByte, err := ioutil.ReadFile(fileName)
+	eth68_1_periodic := map[string]interface{}{
+		"SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES": "32", // Changed from 192 to 32
+	}
+	countersEthernet68QueuesJson, countersEthernet68QueuesJsonUpdate, countersEthernet68QueuesAliasJson,
+		countersEthernet68QueuesAliasJsonUpdate,
+		err := createQueueCountersJsonObjectsWithPeriodicWatermark(68, 1, eth68_1, eth68_1_periodic)
 	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
+		t.Fatalf("%v", err)
 	}
-	var countersEthernet68QueuesAliasJson interface{}
-	json.Unmarshal(countersEthernet68QueuesAliasByte, &countersEthernet68QueuesAliasJson)
 
-	countersEthernet68QueuesAliasJsonUpdate := make(map[string]interface{})
-	json.Unmarshal(countersEthernet68QueuesAliasByte, &countersEthernet68QueuesAliasJsonUpdate)
-	countersEthernet68QueuesAliasJsonUpdate["Ethernet68/1:1"] = eth68_1
-
-	///////////////////////////////////////////////////////////////////////////////////////////////
-
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_PGs_alias.txt"
-	countersEthernetWildPGsByte, err := ioutil.ReadFile(fileName)
+	eth7_5 := map[string]interface{}{
+		"SAI_QUEUE_STAT_BYTES":                  "0",
+		"SAI_QUEUE_STAT_DROPPED_BYTES":          "0",
+		"SAI_QUEUE_STAT_DROPPED_PACKETS":        "10", // Changed from 0 to 10
+		"SAI_QUEUE_STAT_PACKETS":                "0",
+		"SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES": "198", // Changed from 100 to 198
+	}
+	countersEthernet7QueuesJson, countersEthernet7QueuesJsonUpdate, countersEthernet7QueuesAliasJson,
+		countersEthernet7QueuesAliasJsonUpdate, err := createQueueCountersJsonObjects(7, 5, eth7_5)
 	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
+		t.Fatalf("%v", err)
 	}
-	var countersEthernetWildPGsJson interface{}
-	json.Unmarshal(countersEthernetWildPGsByte, &countersEthernetWildPGsJson)
-
-	fileName = "../testdata/COUNTERS:Ethernet12:PGs.txt"
-	countersEthernet12PGsByte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	var countersEthernet12PGsJson interface{}
-	json.Unmarshal(countersEthernet12PGsByte, &countersEthernet12PGsJson)
-
-	countersEthernet12PGsJsonUpdate := make(map[string]interface{})
-	json.Unmarshal(countersEthernet12PGsByte, &countersEthernet12PGsJsonUpdate)
-	eth12_1 := map[string]interface{}{
-		"SAI_INGRESS_PRIORITY_GROUP_STAT_DROPPED_PACKETS":           "5",
-		"PG_DROP_STAT_COUNTER_time_stamp":                           "10419786710965",
-		"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES":    "120",
-		"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES": "0",
-		"PG_WATERMARK_STAT_COUNTER_time_stamp":                      "10368688380018",
-	}
-	countersEthernet12PGsJsonUpdate["Ethernet12:1"] = eth12_1
-
-	// Alias translation for query Ethernet12/1:PGs
-	fileName = "../testdata/COUNTERS:Ethernet12:PGs_alias.txt"
-	countersEthernet12PGsAliasByte, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	var countersEthernet12PGsAliasJson interface{}
-	json.Unmarshal(countersEthernet12PGsAliasByte, &countersEthernet12PGsAliasJson)
-
-	countersEthernet12PGsAliasJsonUpdate := make(map[string]interface{})
-	json.Unmarshal(countersEthernet12PGsAliasByte, &countersEthernet12PGsAliasJsonUpdate)
-	countersEthernet12PGsAliasJsonUpdate["Ethernet12/1:1"] = eth12_1
 
 	///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -2133,8 +2180,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	pgWatermarksEthernet16JsonUpdate := make(map[string]interface{})
 	json.Unmarshal(pgWatermarksEthernet16Byte, &pgWatermarksEthernet16JsonUpdate)
 	eth16_5 := map[string]interface{}{
-		"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES":    "200",
-		"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES": "10",
+		"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES":    "200", // Changed from 0 to 200
+		"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES": "10",  // Changed from 0 to 10
 	}
 	pgWatermarksEthernet16JsonUpdate["Ethernet16:5"] = eth16_5
 
@@ -2730,14 +2777,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
 			updates: []tablePathValue{
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "COUNTERS",
-					tableKey:  "oid:0x1500000000091c", // "Ethernet68:1": "oid:0x1500000000091c",
-					delimitor: ":",
-					field:     "SAI_QUEUE_STAT_DROPPED_PACKETS",
-					value:     "4", // being changed to 0 from 4
-				},
+				createCountersTableSetUpdate("oid:0x1500000000091c", "SAI_QUEUE_STAT_DROPPED_PACKETS", "4"),                   // being changed from 0 to 4
+				createCountersTableSetUpdate("oid:0x1500000000091c", "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES", "128"),          // being changed from 64 to 128
+				createPeriodicWatermarksTableSetUpdate("oid:0x1500000000091c", "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES", "32"), // being changed from 192 to 32
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
@@ -2761,14 +2803,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
 			updates: []tablePathValue{
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "COUNTERS",
-					tableKey:  "oid:0x1500000000091c", // "Ethernet68:1": "oid:0x1500000000091c",
-					delimitor: ":",
-					field:     "SAI_QUEUE_STAT_DROPPED_PACKETS",
-					value:     "4", // being changed to 0 from 4
-				},
+				createCountersTableSetUpdate("oid:0x1500000000091c", "SAI_QUEUE_STAT_DROPPED_PACKETS", "4"),                   // being changed from 0 to 4
+				createCountersTableSetUpdate("oid:0x1500000000091c", "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES", "128"),          // being changed from 64 to 128
+				createPeriodicWatermarksTableSetUpdate("oid:0x1500000000091c", "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES", "32"), // being changed from 192 to 32
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
@@ -2783,97 +2820,44 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
-			desc: "poll query for COUNTERS/Ethernet*/PGs",
+			desc: "poll query for COUNTERS/Ethernet7/Queues with field value change (no PERIODIC_WATERMARKS table)",
 			poll: 1,
 			q: client.Query{
 				Target:  "COUNTERS_DB",
 				Type:    client.Poll,
-				Queries: []client.Path{{"COUNTERS", "Ethernet*", "PGs"}},
+				Queries: []client.Path{{"COUNTERS", "Ethernet7", "Queues"}},
 				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			updates: []tablePathValue{
+				createCountersTableSetUpdate("oid:0x150000000001d0", "SAI_QUEUE_STAT_DROPPED_PACKETS", "10"),         // being changed from 0 to 10
+				createCountersTableSetUpdate("oid:0x150000000001d0", "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES", "198"), // being changed from 100 to 198
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "PGs"}, TS: time.Unix(0, 200), Val: countersEthernetWildPGsJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet7", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "PGs"}, TS: time.Unix(0, 200), Val: countersEthernetWildPGsJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet7", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesJsonUpdate},
 				client.Sync{},
 			},
 		},
 		{
-			desc: "poll query for COUNTERS/Ethernet12/PGs with field value change",
-			poll: 3,
+			desc: "(use vendor alias) poll query for COUNTERS/Ethernet7/Queues with field value change (no PERIODIC_WATERMARKS table)",
+			poll: 1,
 			q: client.Query{
 				Target:  "COUNTERS_DB",
 				Type:    client.Poll,
-				Queries: []client.Path{{"COUNTERS", "Ethernet12", "PGs"}},
+				Queries: []client.Path{{"COUNTERS", "Ethernet7/1", "Queues"}},
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
 			updates: []tablePathValue{
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "COUNTERS",
-					tableKey:  "oid:0x1a0000000000a9", // "Ethernet12:1": "oid:0x1a0000000000a9",
-					delimitor: ":",
-					field:     "SAI_INGRESS_PRIORITY_GROUP_STAT_DROPPED_PACKETS",
-					value:     "5", // being changed from 0 to 5
-				},
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "COUNTERS",
-					tableKey:  "oid:0x1a0000000000a9", // "Ethernet12:1": "oid:0x1a0000000000a9",
-					delimitor: ":",
-					field:     "SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES",
-					value:     "120", // being changed from 0 to 120
-				},
+				createCountersTableSetUpdate("oid:0x150000000001d0", "SAI_QUEUE_STAT_DROPPED_PACKETS", "10"),         // being changed from 0 to 10
+				createCountersTableSetUpdate("oid:0x150000000001d0", "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES", "198"), // being changed from 100 to 198
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet12", "PGs"}, TS: time.Unix(0, 200), Val: countersEthernet12PGsJson},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet7/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesAliasJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet12", "PGs"}, TS: time.Unix(0, 200), Val: countersEthernet12PGsJsonUpdate},
-				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet12", "PGs"}, TS: time.Unix(0, 200), Val: countersEthernet12PGsJsonUpdate},
-				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet12", "PGs"}, TS: time.Unix(0, 200), Val: countersEthernet12PGsJsonUpdate},
-				client.Sync{},
-			},
-		},
-		{
-			desc: "(use vendor alias) poll query for COUNTERS/Ethernet12/PGs with field value change",
-			poll: 3,
-			q: client.Query{
-				Target:  "COUNTERS_DB",
-				Type:    client.Poll,
-				Queries: []client.Path{{"COUNTERS", "Ethernet12/1", "PGs"}},
-				TLS:     &tls.Config{InsecureSkipVerify: true},
-			},
-			updates: []tablePathValue{
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "COUNTERS",
-					tableKey:  "oid:0x1a0000000000a9", // "Ethernet12:1": "oid:0x1a0000000000a9",
-					delimitor: ":",
-					field:     "SAI_INGRESS_PRIORITY_GROUP_STAT_DROPPED_PACKETS",
-					value:     "5", // being changed from 0 to 5
-				},
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "COUNTERS",
-					tableKey:  "oid:0x1a0000000000a9", // "Ethernet12:1": "oid:0x1a0000000000a9",
-					delimitor: ":",
-					field:     "SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES",
-					value:     "120", // being changed from 0 to 120
-				},
-			},
-			wantNoti: []client.Notification{
-				client.Connected{},
-				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet12/1", "PGs"}, TS: time.Unix(0, 200), Val: countersEthernet12PGsAliasJson},
-				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet12/1", "PGs"}, TS: time.Unix(0, 200), Val: countersEthernet12PGsAliasJsonUpdate},
-				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet12/1", "PGs"}, TS: time.Unix(0, 200), Val: countersEthernet12PGsAliasJsonUpdate},
-				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet12/1", "PGs"}, TS: time.Unix(0, 200), Val: countersEthernet12PGsAliasJsonUpdate},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet7/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesAliasJsonUpdate},
 				client.Sync{},
 			},
 		},
@@ -2904,22 +2888,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
 			updates: []tablePathValue{
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "PERIODIC_WATERMARKS",
-					tableKey:  "oid:0x1a0000000000d6", // "Ethernet16:5": "oid:0x1a0000000000d6",
-					delimitor: ":",
-					field:     "SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES",
-					value:     "200", // being changed from 0 to 200
-				},
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "PERIODIC_WATERMARKS",
-					tableKey:  "oid:0x1a0000000000d6", // "Ethernet16:5": "oid:0x1a0000000000d6",
-					delimitor: ":",
-					field:     "SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES",
-					value:     "10", // being changed from 0 to 10
-				},
+				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000000d6", "SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES", "200"),   // being changed from 0 to 200
+				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000000d6", "SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES", "10"), // being changed from 0 to 10
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
@@ -2943,22 +2913,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
 			updates: []tablePathValue{
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "PERIODIC_WATERMARKS",
-					tableKey:  "oid:0x1a0000000000d6", // "Ethernet16:5": "oid:0x1a0000000000d6",
-					delimitor: ":",
-					field:     "SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES",
-					value:     "200", // being changed from 0 to 200
-				},
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "PERIODIC_WATERMARKS",
-					tableKey:  "oid:0x1a0000000000d6", // "Ethernet16:5": "oid:0x1a0000000000d6",
-					delimitor: ":",
-					field:     "SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES",
-					value:     "10", // being changed from 0 to 10
-				},
+				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000000d6", "SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES", "200"),   // being changed from 0 to 200
+				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000000d6", "SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES", "10"), // being changed from 0 to 10
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
@@ -5198,7 +5154,7 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check get 1 cert name
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role", "readwrite")
+	gnmiTable.Hset("certname1", "role", "gnmi_readwrite")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
@@ -5209,8 +5165,8 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check get multiple cert names
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role", "readwrite")
-	gnmiTable.Hset("certname2", "role", "readonly")
+	gnmiTable.Hset("certname1", "role", "gnmi_readwrite")
+	gnmiTable.Hset("certname2", "role", "gnmi_readonly")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
@@ -5221,7 +5177,72 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	// check a invalid cert cname
 	ctx, cancel = CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname2", "role", "readonly")
+	gnmiTable.Hset("certname2", "role", "gnmi_readonly")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
+	if err == nil {
+		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
+	}
+
+	cancel()
+
+	swsscommon.DeleteTable(gnmiTable)
+	swsscommon.DeleteDBConnector(configDb)
+}
+
+func TestClientCertAuthenAndAuthorMultiRole(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	var configDb = swsscommon.NewDBConnector("CONFIG_DB", uint(0), true)
+	var gnmiTable = swsscommon.NewTable(configDb, "GNMI_CLIENT_CERT")
+	configDb.Flushdb()
+
+	// initialize err variable
+	err := status.Error(codes.Unauthenticated, "")
+
+	// when config table is empty, will authorize with PopulateAuthStruct
+	mockpopulate := gomonkey.ApplyFunc(PopulateAuthStruct, func(username string, auth *common_utils.AuthInfo, r []string) error {
+		return nil
+	})
+	defer mockpopulate.Reset()
+
+	// check auth with nil cert name
+	ctx, cancel := CreateAuthorizationCtx()
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "", false)
+	if err != nil {
+		t.Errorf("CommonNameMatch with empty config table should success: %v", err)
+	}
+
+	cancel()
+
+	// check get 1 cert name
+	ctx, cancel = CreateAuthorizationCtx()
+	configDb.Flushdb()
+	gnmiTable.Hset("certname1", "role@", "gnmi_readwrite")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
+	if err != nil {
+		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
+	}
+
+	cancel()
+
+	// check get multiple cert names
+	ctx, cancel = CreateAuthorizationCtx()
+	configDb.Flushdb()
+	gnmiTable.Hset("certname1", "role@", "gnmi_readwrite")
+	gnmiTable.Hset("certname2", "role@", "gnmi_readonly")
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
+	if err != nil {
+		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
+	}
+
+	cancel()
+
+	// check a invalid cert cname
+	ctx, cancel = CreateAuthorizationCtx()
+	configDb.Flushdb()
+	gnmiTable.Hset("certname2", "role@", "gnmi_readonly")
 	ctx, err = ClientCertAuthenAndAuthor(ctx, "GNMI_CLIENT_CERT", false)
 	if err == nil {
 		t.Errorf("CommonNameMatch with invalid cert name should fail: %v", err)
@@ -5252,11 +5273,53 @@ func TestAuthenticate(t *testing.T) {
 	cfg := &Config{ConfigTableName: tableName, UserAuth: AuthTypes{"password": false, "cert": true, "jwt": false}}
 	ctx, cancel := CreateAuthorizationCtx()
 	configDb.Flushdb()
-	gnmiTable.Hset("certname1", "role", "readonly")
-	// Call authenticate to verify the user's role. This should fail if the role is "readonly".
-	_, err = authenticate(cfg, ctx, true)
+
+	gnmiTable.Hset("certname1", "role@", "sonic_linux,gnmi_noaccess,linux_sonic")
+	// Call authenticate to verify the user's role. This should fail if the role is "gnmi_noaccess".
+	_, err = authenticate(cfg, ctx, "gnmi", true)
+	if err == nil {
+		t.Errorf("authenticate with noaccess role should fail: %v", err)
+	}
+	// Call authenticate to verify the user's role. This should fail if the role is "gnmi_noaccess".
+	_, err = authenticate(cfg, ctx, "gnmi", false)
+	if err == nil {
+		t.Errorf("authenticate with noaccess role should fail: %v", err)
+	}
+
+	gnmiTable.Hset("certname1", "role@", "sonic_linux,gnmi_readonly,linux_sonic")
+	// Call authenticate to verify the user's role. This should fail if the role is "gnmi_readonly".
+	_, err = authenticate(cfg, ctx, "gnmi", true)
 	if err == nil {
 		t.Errorf("authenticate with readonly role should fail: %v", err)
+	}
+	// Call authenticate to verify the user's role. This should pass if the role is "gnmi_readonly".
+	_, err = authenticate(cfg, ctx, "gnmi", false)
+	if err != nil {
+		t.Errorf("authenticate with readonly role should pass: %v", err)
+	}
+
+	gnmiTable.Hset("certname1", "role@", "sonic_linux,gnmi_readwrite,linux_sonic")
+	// Call authenticate to verify the user's role. This should pass if the role is "gnmi_readwrite".
+	_, err = authenticate(cfg, ctx, "gnmi", true)
+	if err != nil {
+		t.Errorf("authenticate with readwrite role should pass: %v", err)
+	}
+	// Call authenticate to verify the user's role. This should pass if the role is "gnmi_readwrite".
+	_, err = authenticate(cfg, ctx, "gnmi", false)
+	if err != nil {
+		t.Errorf("authenticate with readwrite role should pass: %v", err)
+	}
+
+	gnmiTable.Hset("certname1", "role@", "sonic_linux,linux_sonic")
+	// Call authenticate to verify the user's role. This should faile if the role is empty.
+	_, err = authenticate(cfg, ctx, "gnmi", true)
+	if err == nil {
+		t.Errorf("authenticate with empty role should fail: %v", err)
+	}
+	// Call authenticate to verify the user's role. This should faile if the role is empty.
+	_, err = authenticate(cfg, ctx, "gnmi", false)
+	if err != nil {
+		t.Errorf("authenticate with empty role should pass: %v", err)
 	}
 
 	cancel()
