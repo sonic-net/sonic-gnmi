@@ -386,8 +386,8 @@ Some of the SONiC database tables contain aggregated data. Ex. COUNTERS in COUNT
 |COUNTERS_DB | "COUNTERS/Ethernet``<port number``>/``<counter name``>"|  One counter on one Ethernet port
 |COUNTERS_DB | "COUNTERS/Ethernet*/Queues"|  Queues stats on all Ethernet ports
 |COUNTERS_DB | "COUNTERS/Ethernet``<port number``>/Queues"|  Queue stats on one Ethernet ports
-|COUNTERS_DB | "WATERMARKS/Ethernet*/PriorityGroups/PERIODIC_WATERMARKS"|  Periodic watermarks for priority groups on all Ethernet ports
-|COUNTERS_DB | "WATERMARKS/Ethernet<``port number``>/PriorityGroups/PERIODIC_WATERMARKS"|  Periodic watermarks for priority groups on one Ethernet port
+|COUNTERS_DB | "PERIODIC_WATERMARKS/Ethernet*/PriorityGroups"|  Periodic watermarks for priority groups on all Ethernet ports
+|COUNTERS_DB | "PERIODIC_WATERMARKS/Ethernet<``port number``>/PriorityGroups"|  Periodic watermarks for priority groups on one Ethernet port
 
 Virtual path supports Get, Subscribe Poll and stream operations.
 
@@ -565,23 +565,20 @@ notification: <
 ```
 
 ```
-gnmi_get -target_addr 127.0.0.1:50052 -xpath "WATERMARKS/Ethernet16/PriorityGroups/PERIODIC_WATERMARKS" -xpath_target COUNTERS_DB -insecure
+gnmi_get -target_addr 127.0.0.1:50052 -xpath "PERIODIC_WATERMARKS/Ethernet16/PriorityGroups" -xpath_target COUNTERS_DB -insecure
 == getRequest:
 prefix: <
   target: "COUNTERS_DB"
 >
 path: <
   elem: <
-    name: "WATERMARKS"
+    name: "PERIODIC_WATERMARKS"
   >
   elem: <
     name: "Ethernet16"
   >
   elem: <
     name: "PriorityGroups"
-  >
-  elem: <
-    name: "PERIODIC_WATERMARKS"
   >
 >
 encoding: JSON_IETF
@@ -595,16 +592,13 @@ notification: <
   update: <
     path: <
       elem: <
-        name: "WATERMARKS"
+        name: "PERIODIC_WATERMARKS"
       >
       elem: <
         name: "Ethernet16"
       >
       elem: <
         name: "PriorityGroups"
-      >
-      elem: <
-        name: "PERIODIC_WATERMARKS"
       >
     >
     val: <
@@ -615,23 +609,20 @@ notification: <
 ```
 
 ```
-gnmi_get -target_addr 127.0.0.1:50052 -xpath "WATERMARKS/Ethernet*/PriorityGroups/PERIODIC_WATERMARKS" -xpath_target COUNTERS_DB -insecure
+gnmi_get -target_addr 127.0.0.1:50052 -xpath "PERIODIC_WATERMARKS/Ethernet*/PriorityGroups" -xpath_target COUNTERS_DB -insecure
 == getRequest:
 prefix: <
   target: "COUNTERS_DB"
 >
 path: <
   elem: <
-    name: "WATERMARKS"
+    name: "PERIODIC_WATERMARKS"
   >
   elem: <
     name: "Ethernet*"
   >
   elem: <
     name: "PriorityGroups"
-  >
-  elem: <
-    name: "PERIODIC_WATERMARKS"
   >
 >
 encoding: JSON_IETF
@@ -645,16 +636,13 @@ notification: <
   update: <
     path: <
       elem: <
-        name: "WATERMARKS"
+        name: "PERIODIC_WATERMARKS"
       >
       elem: <
         name: "Ethernet*"
       >
       elem: <
         name: "PriorityGroups"
-      >
-      elem: <
-        name: "PERIODIC_WATERMARKS"
       >
     >
     val: <

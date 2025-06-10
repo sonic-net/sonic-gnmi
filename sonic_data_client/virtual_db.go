@@ -71,7 +71,7 @@ var (
 			path:      []string{"COUNTERS_DB", "COUNTERS", "PORT*"},
 			transFunc: v2rTranslate(v2rFabricPortStats),
 		}, { // Periodic PG watermarks for one or all Ethernet ports
-			path:      []string{"COUNTERS_DB", "WATERMARKS", "Ethernet*", "PriorityGroups", "PERIODIC_WATERMARKS"},
+			path:      []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet*", "PriorityGroups"},
 			transFunc: v2rTranslate(v2rEthPortPGPeriodicWMs),
 		},
 	}
@@ -696,12 +696,11 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 }
 
 // Populate real data paths from paths like
-// [COUNTERS_DB WATERMARKS Ethernet* PriorityGroups PERIODIC_WATERMARKS] or
-// [COUNTERS_DB WATERMARKS Ethernet64 PriorityGroups PERIODIC_WATERMARKS]
+// [COUNTERS_DB PERIODIC_WATERMARKS Ethernet* PriorityGroups] or
+// [COUNTERS_DB PERIODIC_WATERMARKS Ethernet64 PriorityGroups]
 func v2rEthPortPGPeriodicWMs(paths []string) ([]tablePath, error) {
 	// paths[DbIdx] = "COUNTERS_DB"
 	separator, _ := GetTableKeySeparator(paths[DbIdx], "")
-	tableName := "PERIODIC_WATERMARKS"
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // priority groups on all Ethernet ports
 		for pg, oid := range countersPGNameMap {
@@ -719,7 +718,7 @@ func v2rEthPortPGPeriodicWMs(paths []string) ([]tablePath, error) {
 			}
 			pg = strings.Join([]string{oname, names[1]}, separator)
 			// pg is in format of "Internal_Ethernet:7"
-			tblPath := buildTablePath(namespace, paths[DbIdx], tableName, oid, separator, "", "", pg, "")
+			tblPath := buildTablePath(namespace, paths[DbIdx], paths[TblIdx], oid, separator, "", "", pg, "")
 			tblPaths = append(tblPaths, tblPath)
 		}
 	} else { // priority groups on a single port
@@ -739,7 +738,7 @@ func v2rEthPortPGPeriodicWMs(paths []string) ([]tablePath, error) {
 			}
 			pg = strings.Join([]string{alias, names[1]}, separator)
 			// pg is in format of "Ethernet64:7"
-			tblPath := buildTablePath(namespace, paths[DbIdx], tableName, oid, separator, "", "", pg, "")
+			tblPath := buildTablePath(namespace, paths[DbIdx], paths[TblIdx], oid, separator, "", "", pg, "")
 			tblPaths = append(tblPaths, tblPath)
 		}
 	}
