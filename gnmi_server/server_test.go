@@ -683,14 +683,14 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x150000000001d0", countersEth7_5Byte)
 	loadDB(t, rclient, mpi_counter)
 
-	// "Ethernet16:5": "oid:0x1a0000000000d6"
+	// "Ethernet16:5": "oid:0x1a0000000002d2"
 	// PG periodic watermark, for PERIODIC_WATERMARKS/Ethernet16/PriorityGroups vpath test
-	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1a0000000000d6.txt"
+	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1a0000000002d2.txt"
 	pgWatermarksEth16_5Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
-	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1a0000000000d6", pgWatermarksEth16_5Byte)
+	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1a0000000002d2", pgWatermarksEth16_5Byte)
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:3": "oid:0x1500000000091e"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
@@ -872,14 +872,14 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x150000000001d0", countersEth7_5Byte)
 	loadDB(t, rclient, mpi_counter)
 
-	// "Ethernet16:5": "oid:0x1a0000000000d6"
+	// "Ethernet16:5": "oid:0x1a0000000002d2"
 	// PG periodic watermark, for PERIODIC_WATERMARKS/Ethernet16/PriorityGroups vpath test
-	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1a0000000000d6.txt"
+	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1a0000000002d2.txt"
 	pgWatermarksEth16_5Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
-	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1a0000000000d6", pgWatermarksEth16_5Byte)
+	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1a0000000002d2", pgWatermarksEth16_5Byte)
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:3": "oid:0x1500000000091e"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
@@ -2888,8 +2888,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
 			updates: []tablePathValue{
-				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000000d6", "SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES", "200"),   // being changed from 0 to 200
-				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000000d6", "SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES", "10"), // being changed from 0 to 10
+				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000002d2", "SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES", "200"),   // being changed from 0 to 200
+				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000002d2", "SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES", "10"), // being changed from 0 to 10
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
@@ -2913,8 +2913,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
 			updates: []tablePathValue{
-				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000000d6", "SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES", "200"),   // being changed from 0 to 200
-				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000000d6", "SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES", "10"), // being changed from 0 to 10
+				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000002d2", "SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES", "200"),   // being changed from 0 to 200
+				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000002d2", "SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES", "10"), // being changed from 0 to 10
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
