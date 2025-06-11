@@ -2872,7 +2872,6 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Sync{},
 				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet*", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernetWildJson},
 				client.Sync{},
 				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet*", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernetWildJson},
@@ -3201,11 +3200,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				err := c.Poll()
 				switch {
 				case err == nil && tt.wantPollErr != "":
-					t.Errorf("c.Poll(): got nil error, expected non-nil %v", tt.wantPollErr)
+					t.Errorf("c.Poll(): i = %d got nil error, expected non-nil %v", i, tt.wantPollErr)
 				case err != nil && tt.wantPollErr == "":
-					t.Errorf("c.Poll(): got error %v, expected nil", err)
+					t.Errorf("c.Poll(): i = %d got error %v, expected nil", i, err)
 				case err != nil && err.Error() != tt.wantPollErr:
-					t.Errorf("c.Poll(): got error %v, expected error %v", err, tt.wantPollErr)
+					t.Errorf("c.Poll(): i = %d got error %v, expected error %v", i, err, tt.wantPollErr)
+				default:
+					t.Logf("c.Poll(): i = %d", i)
 				}
 			}
 			// t.Log("\n Want: \n", tt.wantNoti)
