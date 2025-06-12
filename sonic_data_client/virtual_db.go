@@ -36,6 +36,9 @@ var (
 	// Queue name to oid map in COUNTERS table of COUNTERS_DB
 	countersQueueNameMap = make(map[string]string)
 
+	// Priority group name to oid map in COUNTERS table of COUNTERS_DB
+	countersPGNameMap = make(map[string]string)
+
 	// Alias translation: from vendor port name to sonic interface name
 	alias2nameMap = make(map[string]string)
 	// Alias translation: from sonic interface name to vendor port name
@@ -67,6 +70,9 @@ var (
 		}, { // stats for one or all Fabric ports
 			path:      []string{"COUNTERS_DB", "COUNTERS", "PORT*"},
 			transFunc: v2rTranslate(v2rFabricPortStats),
+		}, { // Periodic PG watermarks for one or all Ethernet ports
+			path:      []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet*", "PriorityGroups"},
+			transFunc: v2rTranslate(v2rEthPortPGPeriodicWMs),
 		},
 	}
 )
@@ -87,6 +93,17 @@ func initCountersQueueNameMap() error {
 	var err error
 	if len(countersQueueNameMap) == 0 {
 		countersQueueNameMap, err = getCountersMap("COUNTERS_QUEUE_NAME_MAP")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func initCountersPGNameMap() error {
+	var err error
+	if len(countersPGNameMap) == 0 {
+		countersPGNameMap, err = getCountersMap("COUNTERS_PG_NAME_MAP")
 		if err != nil {
 			return err
 		}
@@ -675,6 +692,57 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 		}
 	}
 	log.V(6).Infof("v2rEthPortQueStats: %v", tblPaths)
+	return tblPaths, nil
+}
+
+// Populate real data paths from paths like
+// [COUNTERS_DB PERIODIC_WATERMARKS Ethernet* PriorityGroups] or
+// [COUNTERS_DB PERIODIC_WATERMARKS Ethernet64 PriorityGroups]
+func v2rEthPortPGPeriodicWMs(paths []string) ([]tablePath, error) {
+	// paths[DbIdx] = "COUNTERS_DB"
+	separator, _ := GetTableKeySeparator(paths[DbIdx], "")
+	var tblPaths []tablePath
+	if strings.HasSuffix(paths[KeyIdx], "*") { // priority groups on all Ethernet ports
+		for pg, oid := range countersPGNameMap {
+			names := strings.Split(pg, separator)
+			var oname string
+			if alias, ok := name2aliasMap[names[0]]; ok {
+				oname = alias
+			} else {
+				log.V(2).Infof(" %v does not have a vendor alias", names[0])
+				oname = names[0]
+			}
+			namespace, ok := port2namespaceMap[names[0]]
+			if !ok {
+				return nil, fmt.Errorf("%v does not have namespace associated", names[0])
+			}
+			pg = strings.Join([]string{oname, names[1]}, separator)
+			// pg is in format of "Internal_Ethernet:7"
+			tblPath := buildTablePath(namespace, paths[DbIdx], paths[TblIdx], oid, separator, "", "", pg, "")
+			tblPaths = append(tblPaths, tblPath)
+		}
+	} else { // priority groups on a single port
+		alias := paths[KeyIdx]
+		name := alias
+		if val, ok := alias2nameMap[alias]; ok {
+			name = val
+		}
+		namespace, ok := port2namespaceMap[name]
+		if !ok {
+			return nil, fmt.Errorf("%v does not have namespace associated", name)
+		}
+		for pg, oid := range countersPGNameMap {
+			names := strings.Split(pg, separator)
+			if name != names[0] {
+				continue
+			}
+			pg = strings.Join([]string{alias, names[1]}, separator)
+			// pg is in format of "Ethernet64:7"
+			tblPath := buildTablePath(namespace, paths[DbIdx], paths[TblIdx], oid, separator, "", "", pg, "")
+			tblPaths = append(tblPaths, tblPath)
+		}
+	}
+	log.V(6).Infof("v2rEthPortPG: %v", tblPaths)
 	return tblPaths, nil
 }
 
