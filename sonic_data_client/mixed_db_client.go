@@ -1216,7 +1216,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 	var err error
 
 	var sc ssc.Service
-	sc, err = ssc.NewDbusClient()
+	sc, err = ssc.NewDbusClient(&ssc.DbusCaller{})
 	if err != nil {
 		return err
 	}
@@ -1414,7 +1414,7 @@ func (c *MixedDbClient) ReplaceFullConfig(delete []*gnmipb.Path, replace []*gnmi
 	content := []byte(ietf_json_val)
 
 	var sc ssc.Service
-	sc, err := ssc.NewDbusClient()
+	sc, err := ssc.NewDbusClient(&ssc.DbusCaller{})
 	if err != nil {
 		return err
 	}
