@@ -847,6 +847,15 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000082", countersPort1_Byte)
 	loadDB(t, rclient, mpi_counter)
 
+	fileName = "../testdata/RATES:oid:Ethernet89.txt"
+	ratesPort0, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	// "Ethernet89": "oid:0x1000000000056",
+	mpi_counter = loadConfig(t, "RATES:oid:0x1000000000056", ratesPort0)
+	loadDB(t, rclient, mpi_counter)
+
 	// Load CONFIG_DB for alias translation
 	prepareConfigDb(t, namespace)
 
@@ -2157,6 +2166,34 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
 				client.Sync{},
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
+			},
+		},
+		{
+			desc: "stream query for RATES/Ethernet89/FEC_PRE_BER with update of field value",
+			q:    createCountersDbQueryOnChangeMode(t, "RATES", "Ethernet89", "FEC_PRE_BER"),
+			updates: []tablePathValue{
+				{
+					dbName:    "COUNTERS_DB",
+					tableName: "RATES",
+					tableKey:  "oid:0x1000000000056", // "Ethernet89": "oid:0x1000000000056",
+					delimitor: ":",
+					field:     "FEC_PRE_BER",
+					value:     "1",
+				},
+				{
+					dbName:    "COUNTERS_DB",
+					tableName: "RATES",
+					tableKey:  "oid:0x1000000000056", // "Ethernet89": "oid:0x1000000000056",
+					delimitor: ":",
+					field:     "FEC_PRE_BER",
+					value:     "1",
+				},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet89", "FEC_PRE_BER"}, TS: time.Unix(0, 200), Val: "0"},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet89", "FEC_PRE_BER"}, TS: time.Unix(0, 200), Val: "1"},
 			},
 		},
 		{
