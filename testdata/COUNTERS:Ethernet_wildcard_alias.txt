@@ -266,5 +266,6 @@
     },
     "Ethernet7/1": {},
     "Ethernet8/1": {},
-    "Ethernet9/1": {}
+    "Ethernet9/1": {},
+    "Ethernet89/1": {}
 }
