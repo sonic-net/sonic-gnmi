@@ -1584,6 +1584,10 @@ func (c *MixedDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *s
 	}
 }
 
+func (c *MixedDbClient) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+	return
+}
+
 func (c *MixedDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 	defer c.w.Done()
