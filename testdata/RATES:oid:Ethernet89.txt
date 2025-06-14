@@ -1,0 +1,4 @@
+{
+  "FEC_PRE_BER": "0",
+  "FEC_POST_BER": "0"
+}
