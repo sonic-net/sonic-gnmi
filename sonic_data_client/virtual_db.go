@@ -591,14 +591,29 @@ func v2rEthPortPfcwdStats(paths []string) ([]tablePath, error) {
 	return tblPaths, nil
 }
 
+func buildTablePath(namespace, dbName, tableName, tableKey, separator, field, jsonTableName, jsonTableKey, jsonField string) tablePath {
+	return tablePath{
+		dbNamespace:   namespace,
+		dbName:        dbName,
+		tableName:     tableName,
+		tableKey:      tableKey,
+		delimitor:     separator,
+		field:         field,
+		jsonTableName: jsonTableName,
+		jsonTableKey:  jsonTableKey,
+		jsonField:     jsonField,
+	}
+}
+
 // Populate real data paths from paths like
-// [COUNTER_DB COUNTERS Ethernet* Queues] or [COUNTER_DB COUNTERS Ethernet68 Queues]
+// [COUNTERS_DB COUNTERS Ethernet* Queues] or [COUNTERS_DB COUNTERS Ethernet68 Queues]
 func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
+	// paths[DbIdx] = "COUNTERS_DB"
 	separator, _ := GetTableKeySeparator(paths[DbIdx], "")
+	field := "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES"
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // queues on all Ethernet ports
 		for que, oid := range countersQueueNameMap {
-			// que is in format of "Internal_Ethernet:12"
 			names := strings.Split(que, separator)
 			var oname string
 			if alias, ok := name2aliasMap[names[0]]; ok {
@@ -612,14 +627,17 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 				return nil, fmt.Errorf("%v does not have namespace associated", names[0])
 			}
 			que = strings.Join([]string{oname, names[1]}, separator)
-			tblPath := tablePath{
-				dbNamespace:  namespace,
-				dbName:       paths[DbIdx],
-				tableName:    paths[TblIdx],
-				tableKey:     oid,
-				delimitor:    separator,
-				jsonTableKey: que,
-			}
+			// que is in format of "Internal_Ethernet:12"
+			tblPath := buildTablePath(namespace, paths[DbIdx], paths[TblIdx], oid, separator, "", "", que, "")
+			tblPaths = append(tblPaths, tblPath)
+			/*
+			 * Adding the field "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES" from the PERIODIC_WATERMARKS table
+			 * to the virtual path.
+			 */
+			periodic_que := strings.Join([]string{que, "periodic"}, separator)
+			// periodic_que is in format of "Internal_Ethernet:12:periodic"
+			tblPath = buildTablePath(namespace, paths[DbIdx], "PERIODIC_WATERMARKS", oid, separator,
+				field, paths[TblIdx], periodic_que, field)
 			tblPaths = append(tblPaths, tblPath)
 		}
 	} else { //queues on single port
@@ -633,20 +651,22 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 			return nil, fmt.Errorf("%v does not have namespace associated", name)
 		}
 		for que, oid := range countersQueueNameMap {
-			//que is in format of "Ethernet64:12"
 			names := strings.Split(que, separator)
 			if name != names[0] {
 				continue
 			}
 			que = strings.Join([]string{alias, names[1]}, separator)
-			tblPath := tablePath{
-				dbNamespace:  namespace,
-				dbName:       paths[DbIdx],
-				tableName:    paths[TblIdx],
-				tableKey:     oid,
-				delimitor:    separator,
-				jsonTableKey: que,
-			}
+			//que is in format of "Ethernet64:12"
+			tblPath := buildTablePath(namespace, paths[DbIdx], paths[TblIdx], oid, separator, "", "", que, "")
+			tblPaths = append(tblPaths, tblPath)
+			/*
+			 * Adding the field "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES" from the PERIODIC_WATERMARKS table
+			 * to the virtual path.
+			 */
+			periodic_que := strings.Join([]string{que, "periodic"}, separator)
+			//periodic_que is in format of "Ethernet64:12:periodic"
+			tblPath = buildTablePath(namespace, paths[DbIdx], "PERIODIC_WATERMARKS", oid, separator,
+				field, paths[TblIdx], periodic_que, field)
 			tblPaths = append(tblPaths, tblPath)
 		}
 	}
