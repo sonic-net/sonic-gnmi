@@ -439,7 +439,7 @@ func getSwitchStatMap(tableName string) (map[string]string, error) {
 		namespaceFv := make(map[string]string)
 		for k, v := range fv {
 			// SWITCH_ID are not unique across asic namespace
-			// To make them unique, add asic namesapce to the port name
+			// To make them unique, add asic namespace to the port name
 			// For example, PORT0 in asic0 will be PORT0-asic0
 			var namespace_str = ""
 			if len(namespace) != 0 {
