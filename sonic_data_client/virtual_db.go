@@ -443,7 +443,7 @@ func getSwitchStatMap(tableName string) (map[string]string, error) {
 			// For example, PORT0 in asic0 will be PORT0-asic0
 			var namespace_str = ""
 			if len(namespace) != 0 {
-				namespace_str = string('-') + namespace
+				namespace_str = "-" + namespace
 			}
 			namespaceFv[k+namespace_str] = v
 		}
