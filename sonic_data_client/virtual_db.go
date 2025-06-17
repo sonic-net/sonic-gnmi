@@ -2,9 +2,10 @@ package client
 
 import (
 	"fmt"
-	log "github.com/golang/glog"
-	"strings"
 	"os"
+	"strings"
+
+	log "github.com/golang/glog"
 )
 
 // virtual db is to Handle
@@ -157,7 +158,7 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 			log.V(1).Infof("Can not connect to %v in namsespace %v, err: %v", dbName, namespace, err)
 			return nil, err
 		}
-		
+
 		keyName := fmt.Sprintf("%s%v*", pfcwdTableName, separator)
 		resp, err := redisDb.Keys(keyName).Result()
 		if err != nil {
@@ -175,7 +176,7 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 			if strings.Contains(key, "GLOBAL") || strings.Contains(key, "global") { // ignore PFC_WD|global / PFC_WD|GLOBAL
 				continue
 			}
-			name := key[len(keyName) - 1:]
+			name := key[len(keyName)-1:]
 			pfcwdName_map[name] = make(map[string]string)
 		}
 
@@ -318,7 +319,6 @@ func getCountersMap(tableName string) (map[string]string, error) {
 	return counter_map, nil
 }
 
-
 // Get the mapping between objects in counters DB, Ex. port name to oid in "COUNTERS_FABRIC_PORT_NAME_MAP" table.
 // Aussuming static port name to oid map in COUNTERS table
 func getFabricCountersMap(tableName string) (map[string]string, error) {
@@ -326,7 +326,7 @@ func getFabricCountersMap(tableName string) (map[string]string, error) {
 	dbName := "COUNTERS_DB"
 	redis_client_map, err := GetRedisClientsForDb(dbName)
 	if err != nil {
-                return nil, err
+		return nil, err
 	}
 	for namespace, redisDb := range redis_client_map {
 		fv, err := redisDb.HGetAll(tableName).Result()
@@ -343,7 +343,7 @@ func getFabricCountersMap(tableName string) (map[string]string, error) {
 			if len(namespace) != 0 {
 				namespace_str = string('-') + namespace
 			}
-			namespaceFv[k + namespace_str] = v
+			namespaceFv[k+namespace_str] = v
 		}
 		addmap(counter_map, namespaceFv)
 		log.V(6).Infof("tableName: %s in namespace %v, map %v", tableName, namespace, namespaceFv)
@@ -358,10 +358,10 @@ func v2rFabricPortStats(paths []string) ([]tablePath, error) {
 	if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
 		for port, oid := range countersFabricPortNameMap {
 			var namespace string
-			// Extract namespace from port name 
+			// Extract namespace from port name
 			// multi-asic Linecard ex: PORT0-asic0
-			if strings.Contains(port, "-"){
-			    namespace = strings.Split(port, "-")[1]
+			if strings.Contains(port, "-") {
+				namespace = strings.Split(port, "-")[1]
 			} else {
 				namespace = ""
 			}
@@ -383,7 +383,7 @@ func v2rFabricPortStats(paths []string) ([]tablePath, error) {
 		if !ok {
 			return nil, fmt.Errorf("%v not a valid sonic fabric interface.", port)
 		}
-		if strings.Contains(port, "-"){
+		if strings.Contains(port, "-") {
 			namespace = strings.Split(port, "-")[1]
 		} else {
 			namespace = ""
@@ -459,9 +459,13 @@ func v2rEthPortStats(paths []string) ([]tablePath, error) {
 
 // Supported cases:
 // <1> port name having suffix of "*" with specific field;
-//     Ex. [COUNTER_DB COUNTERS Ethernet* SAI_PORT_STAT_PFC_0_RX_PKTS]
+//
+//	Ex. [COUNTER_DB COUNTERS Ethernet* SAI_PORT_STAT_PFC_0_RX_PKTS]
+//
 // <2> exact port name with specific field.
-//     Ex. [COUNTER_DB COUNTERS Ethernet68 SAI_PORT_STAT_PFC_0_RX_PKTS]
+//
+//	Ex. [COUNTER_DB COUNTERS Ethernet68 SAI_PORT_STAT_PFC_0_RX_PKTS]
+//
 // case of "*" field could be covered in v2rEthPortStats()
 func v2rEthPortFieldStats(paths []string) ([]tablePath, error) {
 	var tblPaths []tablePath
