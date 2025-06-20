@@ -21,6 +21,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_containerz_pb "github.com/openconfig/gnoi/containerz"
+	gnoi_os "github.com/openconfig/gnoi/os"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 
 	//gnoi_yang "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/server"
@@ -55,6 +56,7 @@ type Server struct {
 	// comes from a master controller.
 	ReqFromMaster func(req *gnmipb.SetRequest, masterEID *uint128) error
 	masterEID     uint128
+	osServer      *OSServer
 	gnoi_system_pb.UnimplementedSystemServer
 }
 
@@ -72,6 +74,8 @@ type FileServer struct {
 type OSServer struct {
 	*Server
 	gnoi_os_pb.UnimplementedOSServer
+	ProcessTrfReady func(req string) (string, error)
+	ProcessTrfEnd   func(req string) (string, error)
 }
 
 // ContainerzServer is the server API for Containerz service.
@@ -81,6 +85,13 @@ type ContainerzServer struct {
 }
 
 type AuthTypes map[string]bool
+
+// OSConfig is a collection of values for OSServer.
+type OSConfig struct {
+	ImgDir          string                       // Path to the directory where image is stored.
+	ProcessTrfReady func(string) (string, error) // Function that handles TransferReady request.
+	ProcessTrfEnd   func(string) (string, error) // Function that handles TransferEnd request.
+}
 
 // Config is a collection of values for Server
 type Config struct {
@@ -92,11 +103,14 @@ type Config struct {
 	UserAuth            AuthTypes
 	EnableTranslibWrite bool
 	EnableNativeWrite   bool
+	EnableTranslation   bool
 	ZmqPort             string
 	IdleConnDuration    int
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
+	// gnoi
+	OSCfg *OSConfig
 }
 
 var AuthLock sync.Mutex
@@ -192,7 +206,11 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	fileSrv := &FileServer{Server: srv}
-	osSrv := &OSServer{Server: srv}
+	osSrv := &OSServer{
+		Server:          srv,
+		ProcessTrfReady: srv.config.OSCfg.ProcessTrfReady,
+		ProcessTrfEnd:   srv.config.OSCfg.ProcessTrfEnd,
+	}
 	containerzSrv := &ContainerzServer{server: srv}
 
 	var err error
