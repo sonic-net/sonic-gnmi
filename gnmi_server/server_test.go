@@ -121,6 +121,11 @@ func createClient(t *testing.T, port int) *grpc.ClientConn {
 }
 
 func createServer(t *testing.T, port int64) *Server {
+	oscfg := &OSConfig{
+		ImgDir:          "/tmp",
+		ProcessTrfReady: ProcessFakeTrfReady,
+		ProcessTrfEnd:   ProcessFakeTrfEnd,
+	}
 	t.Helper()
 	certificate, err := testcert.NewCert()
 	if err != nil {
@@ -132,7 +137,7 @@ func createServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100}
+	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100, ImgDir: "/tmp", OSCfg: oscfg}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
