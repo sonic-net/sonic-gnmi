@@ -711,6 +711,16 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091f", countersEeth68_4Byte)
 	loadDB(t, rclient, mpi_counter)
 
+	// "oid:0x1000000000056"  : port counter, for RATES/PORT vpath test
+	fileName = "../testdata/RATES:oid:Ethernet89.txt"
+	ratesPort0_Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	// "Ethernet89": "oid:0x1000000000003",
+	mpi_counter = loadConfig(t, "RATES:oid:0x1000000000056", ratesPort0_Byte)
+	loadDB(t, rclient, mpi_counter)
+
 	fileName = "../testdata/COUNTERS_FABRIC_PORT_NAME_MAP.txt"
 	countersFabricPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -900,6 +910,15 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091f", countersEeth68_4Byte)
 	loadDB(t, rclient, mpi_counter)
 
+	fileName = "../testdata/RATES:oid:Ethernet89.txt"
+	ratesPort0, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	// "Ethernet89": "oid:0x1000000000056",
+	mpi_counter = loadConfig(t, "RATES:oid:0x1000000000056", ratesPort0)
+	loadDB(t, rclient, mpi_counter)
+
 	// "PORT0": "oid:0x1000000000081"  : Fabric port counters, for COUNTERS/PORT0 vpath test
 	fileName = "../testdata/COUNTERS:oid:0x1000000000081.txt"
 	fileName = "../testdata/COUNTERS:oid:0x1000000000081.txt"
@@ -1053,6 +1072,18 @@ func createCountersDbQueryOnChangeMode(t *testing.T, paths ...string) client.Que
 			},
 		},
 		false)
+}
+
+// createRatesTableSetUpdate creates a HSET request on the RATES table.
+func createRatesTableSetUpdate(tableKey string, fieldName string, fieldValue string) tablePathValue {
+	return tablePathValue{
+		dbName:    "COUNTERS_DB",
+		tableName: "RATES",
+		tableKey:  tableKey,
+		delimitor: ":",
+		field:     fieldName,
+		value:     fieldValue,
+	}
 }
 
 // createCountersDbQuerySampleMode creates a query with SAMPLE mode.
@@ -2030,6 +2061,22 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	countersEthernet68JsonUpdate := tmp2.(map[string]interface{})
 	countersEthernet68JsonUpdate["test_field"] = "test_value"
 
+	// for table key subscription
+	fileName = "../testdata/RATES:oid:Ethernet89.txt"
+	ratesEthernet89Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+
+	var tmp89 interface{}
+	json.Unmarshal(ratesEthernet89Byte, &tmp89)
+	ratesEthernet89JsonUpdate := tmp89.(map[string]interface{})
+	ratesEthernet89JsonUpdate["FEC_PRE_BER"] = "0"
+	var tmp891 interface{}
+	json.Unmarshal(ratesEthernet89Byte, &tmp891)
+	ratesEthernet89JsonPfcUpdate := tmp891.(map[string]interface{})
+	ratesEthernet89JsonPfcUpdate["FEC_PRE_BER"] = "4"
+
 	var tmp3 interface{}
 	json.Unmarshal(countersEthernet68Byte, &tmp3)
 	countersEthernet68JsonPfcUpdate := tmp3.(map[string]interface{})
@@ -2081,6 +2128,21 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	json.Unmarshal(countersEthernetWildcardByte, &countersEthernetWildcardJson)
 	// Will have "test_field" : "test_value" in Ethernet68,
 	countersEtherneWildcardJsonUpdate := map[string]interface{}{"Ethernet68/1": countersEthernet68JsonUpdate}
+
+	fileName = "../testdata/RATES:Ethernet_wildcard_alias.txt"
+	ratesEthernetWildcardByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var ratesEthernetWildcardJson interface{}
+	json.Unmarshal(ratesEthernetWildcardByte, &ratesEthernetWildcardJson)
+	var ratesFieldUpdate2 map[string]interface{}
+	json.Unmarshal(ratesEthernetWildcardByte, &ratesFieldUpdate2)
+	ratesFieldUpdate2["Ethernet89/1"] = ratesEthernet89JsonUpdate
+
+	var ratesFieldUpdate map[string]interface{}
+	json.Unmarshal(ratesEthernetWildcardByte, &ratesFieldUpdate)
+	ratesFieldUpdate["Ethernet89/1"] = ratesEthernet89JsonPfcUpdate
 
 	// all counters on all ports with change on one field of one port
 	var countersFieldUpdate map[string]interface{}
@@ -2341,6 +2403,153 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "2"},
 				client.Sync{},
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: "3"},
+			},
+		},
+		{
+			desc: "poll query for RATES/Ethernet89/FEC_POST_BER with field value change",
+			poll: 3,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"RATES", "Ethernet89", "FEC_POST_BER"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			updates: []tablePathValue{
+				{
+					dbName:    "COUNTERS_DB",
+					tableName: "RATES",
+					tableKey:  "oid:0x1000000000056",
+					delimitor: ":",
+					field:     "FEC_POST_BER",
+					value:     "4", // being changed to 4 from 0
+				},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet89", "FEC_POST_BER"}, TS: time.Unix(0, 200), Val: "0"},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet89", "FEC_POST_BER"}, TS: time.Unix(0, 200), Val: "4"},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet89", "FEC_POST_BER"}, TS: time.Unix(0, 200), Val: "4"},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet89", "FEC_POST_BER"}, TS: time.Unix(0, 200), Val: "4"},
+				client.Sync{},
+			},
+		},
+		{
+			desc: "stream query for RATES/Ethernet89/FEC_PRE_BER with update of field value",
+			q:    createCountersDbQueryOnChangeMode(t, "RATES", "Ethernet89", "FEC_PRE_BER"),
+			updates: []tablePathValue{
+				{
+					dbName:    "COUNTERS_DB",
+					tableName: "RATES",
+					tableKey:  "oid:0x1000000000056", // "Ethernet89": "oid:0x1000000000056",
+					delimitor: ":",
+					field:     "FEC_PRE_BER",
+					value:     "1",
+				},
+				{
+					dbName:    "COUNTERS_DB",
+					tableName: "RATES",
+					tableKey:  "oid:0x1000000000056", // "Ethernet89": "oid:0x1000000000056",
+					delimitor: ":",
+					field:     "FEC_POST_BER",
+					value:     "1",
+				},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet89", "FEC_PRE_BER"}, TS: time.Unix(0, 200), Val: "0"},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet89", "FEC_PRE_BER"}, TS: time.Unix(0, 200), Val: "1"},
+			},
+		},
+		{
+			desc:              "sample stream query for RATES/Ethernet89/FEC_PRE_BER with 2 updates",
+			q:                 createCountersDbQuerySampleMode(t, 0, false, "RATES", "Ethernet89", "FEC_PRE_BER"),
+			generateIntervals: true,
+			updates: []tablePathValue{
+				createRatesTableSetUpdate("oid:0x1000000000056", "FEC_PRE_BER", "3"), // be changed to 3 from 0
+				createIntervalTickerUpdate(),                                         // no value change but imitate interval ticker
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet89", "FEC_PRE_BER"}, TS: time.Unix(0, 200), Val: "0"},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet89", "FEC_PRE_BER"}, TS: time.Unix(0, 200), Val: "3"},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet89", "FEC_PRE_BER"}, TS: time.Unix(0, 200), Val: "3"},
+			},
+		},
+		{
+			desc: "poll query for table key Ethernet* with Ethernet89/FEC_PRE_BER field value change",
+			poll: 3,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"RATES", "Ethernet*"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			updates: []tablePathValue{
+				{
+					dbName:    "COUNTERS_DB",
+					tableName: "RATES",
+					tableKey:  "oid:0x1000000000056", // "Ethernet89": "oid:0x1000000000056",
+					delimitor: ":",
+					field:     "FEC_PRE_BER",
+					value:     "4", // being changed to 4 from 2
+				},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet*"}, TS: time.Unix(0, 200), Val: ratesEthernetWildcardJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet*"}, TS: time.Unix(0, 200), Val: ratesFieldUpdate},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet*"}, TS: time.Unix(0, 200), Val: ratesFieldUpdate},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet*"}, TS: time.Unix(0, 200), Val: ratesFieldUpdate},
+				client.Sync{},
+			},
+		},
+		{
+			desc: "stream query for key Ethernet* with new test_field field on Ethernet89",
+			q:    createCountersDbQueryOnChangeMode(t, "RATES", "Ethernet*"),
+			updates: []tablePathValue{
+				{
+					dbName:    "COUNTERS_DB",
+					tableName: "RATES",
+					tableKey:  "oid:0x1000000000056", // "Ethernet89": "oid:0x1000000000056",
+					delimitor: ":",
+					field:     "FEC_PRE_BER",
+					value:     "5",
+				},
+				{ //Same value set should not trigger multiple updates
+					dbName:    "COUNTERS_DB",
+					tableName: "RATES",
+					tableKey:  "oid:0x1000000000056", // "Ethernet68": "oid:0x1000000000039",
+					delimitor: ":",
+					field:     "FEC_PRE_BER",
+					value:     "5",
+				},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet*"}, TS: time.Unix(0, 200), Val: ratesEthernetWildcardJson},
+				client.Sync{},
+			},
+		},
+		{
+			desc:              "sample stream query for table key Ethernet* with new test_field field on Ethernet89",
+			q:                 createCountersDbQuerySampleMode(t, 0, false, "RATES", "Ethernet*"),
+			generateIntervals: true,
+			updates: []tablePathValue{
+				createRatesTableSetUpdate("oid:0x1000000000056", "FEC_PRE_BER", "0"),
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet*"}, TS: time.Unix(0, 200), Val: ratesEthernetWildcardJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "RATES", "Ethernet*"}, TS: time.Unix(0, 200), Val: mergeStrMaps(ratesEthernetWildcardJson, ratesFieldUpdate2)},
 			},
 		},
 		{
