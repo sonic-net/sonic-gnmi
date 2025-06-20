@@ -101,9 +101,8 @@ func initCountersQueueNameMap() error {
 }
 
 func initCountersPGNameMap() error {
-	var err error
 	if len(countersPGNameMap) == 0 {
-		pgOidMap, err = getCountersMap("COUNTERS_PG_NAME_MAP")
+		pgOidMap, err := getCountersMap("COUNTERS_PG_NAME_MAP")
 		if err != nil {
 			return err
 		}
