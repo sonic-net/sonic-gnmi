@@ -722,8 +722,8 @@ func getVendorPortName(port string) string {
 
 func getSonicPortName(port string) string {
 	// Get sonic port name from alias2nameMap
-	if port, ok := alias2nameMap[port]; ok {
-		return port
+	if sonic_name, ok := alias2nameMap[port]; ok {
+		return sonic_name
 	}
 	return port
 }
@@ -768,8 +768,8 @@ func v2rEthPortPGPeriodicWMs(paths []string) ([]tablePath, error) {
 			return nil, fmt.Errorf("No priority groups associated with %v", port)
 		}
 		for pg_index, oid := range countersPGNameMap[port] {
-			pg := strings.Join([]string{port, pg_index}, separator)
-			// pg is in format of "Ethernet64:7"
+			pg := strings.Join([]string{paths[KeyIdx], pg_index}, separator)
+			// pg is in format of "Ethernet64:7" or "Ethernet64/1:7"
 			tblPath := buildTablePath(namespace, paths[DbIdx], paths[TblIdx], oid, separator, "", "", pg, "")
 			tblPaths = append(tblPaths, tblPath)
 		}
