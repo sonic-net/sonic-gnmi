@@ -2743,9 +2743,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet7", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesJson},
+				client.Update{Path: []string{"COUNTERS", "Ethernet7", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet7", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesJsonUpdate},
+				client.Update{Path: []string{"COUNTERS", "Ethernet7", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesJsonUpdate},
 				client.Sync{},
 			},
 		},
@@ -2764,9 +2764,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet7/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesAliasJson},
+				client.Update{Path: []string{"COUNTERS", "Ethernet7/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesAliasJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet7/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesAliasJsonUpdate},
+				client.Update{Path: []string{"COUNTERS", "Ethernet7/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesAliasJsonUpdate},
 				client.Sync{},
 			},
 		},
