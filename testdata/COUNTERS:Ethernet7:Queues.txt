@@ -1,0 +1,28 @@
+{
+    "Ethernet7:0": {},
+    "Ethernet7:1": {},
+    "Ethernet7:10": {},
+    "Ethernet7:11": {},
+    "Ethernet7:12": {},
+    "Ethernet7:13": {},
+    "Ethernet7:14": {},
+    "Ethernet7:15": {},
+    "Ethernet7:16": {},
+    "Ethernet7:17": {},
+    "Ethernet7:18": {},
+    "Ethernet7:19": {},
+    "Ethernet7:2": {},
+    "Ethernet7:3": {},
+    "Ethernet7:4": {},
+    "Ethernet7:5": {
+        "SAI_QUEUE_STAT_BYTES": "0",
+        "SAI_QUEUE_STAT_DROPPED_BYTES": "0",
+        "SAI_QUEUE_STAT_DROPPED_PACKETS": "0",
+        "SAI_QUEUE_STAT_PACKETS": "0",
+        "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES": "100"
+    },
+    "Ethernet7:6": {},
+    "Ethernet7:7": {},
+    "Ethernet7:8": {},
+    "Ethernet7:9": {}
+}
