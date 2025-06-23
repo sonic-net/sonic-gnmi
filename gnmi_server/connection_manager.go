@@ -13,12 +13,20 @@ import (
 
 const table = "TELEMETRY_CONNECTIONS"
 
-var rclient *redis.Client
-
 type ConnectionManager struct {
 	connections map[string]struct{}
 	mu          sync.RWMutex
 	threshold   int
+	rclient     *redis.Client
+}
+
+func CreateConnectionManager(threshold int) *ConnectionManager {
+	cm := &ConnectionManager{
+		connections: make(map[string]struct{}),
+		threshold:   threshold,
+	}
+	cm.PrepareRedis()
+	return cm
 }
 
 func (cm *ConnectionManager) GetThreshold() int {
@@ -37,7 +45,7 @@ func (cm *ConnectionManager) PrepareRedis() {
 		log.Errorf("DB err: %v", err)
 		return
 	}
-	rclient = redis.NewClient(&redis.Options{
+	cm.rclient = redis.NewClient(&redis.Options{
 		Network:     "tcp",
 		Addr:        addr,
 		Password:    "",
@@ -45,14 +53,14 @@ func (cm *ConnectionManager) PrepareRedis() {
 		DialTimeout: 0,
 	})
 
-	res, _ := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
+	res, _ := cm.rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
 
 	if res == nil {
 		return
 	}
 
 	for key, _ := range res {
-		rclient.HDel(table, key)
+		cm.rclient.HDel(table, key)
 	}
 }
 
@@ -69,7 +77,7 @@ func (cm *ConnectionManager) Add(addr net.Addr, query string) (string, bool) {
 	cm.mu.Lock() // writing
 	cm.connections[key] = struct{}{}
 	cm.mu.Unlock()
-	storeKeyRedis(key)
+	cm.storeKeyRedis(key)
 	return key, true
 }
 
@@ -83,7 +91,7 @@ func (cm *ConnectionManager) Remove(key string) bool {
 		delete(cm.connections, key)
 		cm.mu.Unlock()
 	}
-	deleteKeyRedis(key)
+	cm.deleteKeyRedis(key)
 	return exists
 }
 
@@ -104,24 +112,24 @@ func createKey(addr net.Addr, query string) string {
 	return connectionKey
 }
 
-func storeKeyRedis(key string) {
-	if rclient == nil {
+func (cm *ConnectionManager) storeKeyRedis(key string) {
+	if cm.rclient == nil {
 		log.V(1).Infof("Redis client is nil, cannot store connection key")
 		return
 	}
-	ret, err := rclient.HSet(table, key, "active").Result()
+	ret, err := cm.rclient.HSet(table, key, "active").Result()
 	if !ret {
 		log.V(1).Infof("Subscribe client failed to update telemetry connection key:%s err:%v", key, err)
 	}
 }
 
-func deleteKeyRedis(key string) {
-	if rclient == nil {
+func (cm *ConnectionManager) deleteKeyRedis(key string) {
+	if cm.rclient == nil {
 		log.V(1).Infof("Redis client is nil, cannot delete connection key")
 		return
 	}
 
-	ret, err := rclient.HDel(table, key).Result()
+	ret, err := cm.rclient.HDel(table, key).Result()
 	if ret == 0 {
 		log.V(1).Infof("Subscribe client failed to delete telemetry connection key:%s err:%v", key, err)
 	}
