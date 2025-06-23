@@ -77,7 +77,7 @@ func (c *ContainerzServer) Deploy(stream gnoi_containerz_pb.Containerz_DeploySer
 	randomSuffix := fmt.Sprintf("%x", randomBytes)
 	localPath := "/tmp/" + imageTransfer.Name + "-" + randomSuffix + ".tar"
 
-	dbusClient, err := ssc.NewDbusClient()
+	dbusClient, err := ssc.NewDbusClient(dbusCaller)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to create dbus client: %v", err)
 	}
