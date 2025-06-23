@@ -38,7 +38,7 @@ const (
 )
 
 func TestTranslSubscribe(t *testing.T) {
-	s := createServer(t, 8081)
+	s := createServer(t)
 	go runServer(t, s)
 	defer s.s.Stop()
 
@@ -49,7 +49,7 @@ func TestTranslSubscribe(t *testing.T) {
 			Mode:         ONCE,
 			Prefix:       strToPath("openconfig:/"),
 			Subscription: []*gnmipb.Subscription{{Path: strToPath("/openconfig-acl:acl/acl-sets")}}}
-		sub := doSubscribe(t, req, codes.OK)
+		sub := doSubscribe(t, s.config.Port, req, codes.OK)
 		sub.Verify(client.Sync{})
 	})
 
@@ -58,7 +58,7 @@ func TestTranslSubscribe(t *testing.T) {
 			Mode:         ONCE,
 			Prefix:       strToPath("invalid:/"),
 			Subscription: []*gnmipb.Subscription{{Path: strToPath("/openconfig-acl:acl/acl-sets")}}}
-		sub := doSubscribe(t, req, codes.Unimplemented)
+		sub := doSubscribe(t, s.config.Port, req, codes.Unimplemented)
 		sub.Verify()
 	})
 
@@ -67,7 +67,7 @@ func TestTranslSubscribe(t *testing.T) {
 			Mode:         ONCE,
 			Prefix:       strToPath("/"),
 			Subscription: []*gnmipb.Subscription{{Path: strToPath("/openconfig-acl:acl/acl-sets")}}}
-		sub := doSubscribe(t, req, codes.Unimplemented)
+		sub := doSubscribe(t, s.config.Port, req, codes.Unimplemented)
 		sub.Verify()
 	})
 
@@ -76,7 +76,7 @@ func TestTranslSubscribe(t *testing.T) {
 			Mode:         ONCE,
 			Prefix:       strToPath("/"),
 			Subscription: []*gnmipb.Subscription{{Path: strToPath("openconfig:/openconfig-acl:acl/acl-sets")}}}
-		sub := doSubscribe(t, req, codes.OK)
+		sub := doSubscribe(t, s.config.Port, req, codes.OK)
 		sub.Verify(client.Sync{})
 	})
 
@@ -85,7 +85,7 @@ func TestTranslSubscribe(t *testing.T) {
 			Mode:         ONCE,
 			Prefix:       strToPath("openconfig:/"),
 			Subscription: []*gnmipb.Subscription{{Path: strToPath("xxx:/openconfig-acl:acl/acl-sets")}}}
-		sub := doSubscribe(t, req, codes.InvalidArgument)
+		sub := doSubscribe(t, s.config.Port, req, codes.InvalidArgument)
 		sub.Verify()
 	})
 
@@ -97,7 +97,7 @@ func TestTranslSubscribe(t *testing.T) {
 				{Path: strToPath("openconfig:/openconfig-acl:acl/acl-sets")},
 				{Path: strToPath("closeconfig:/openconfig-interfaces/interfaces")},
 			}}
-		sub := doSubscribe(t, req, codes.Unimplemented)
+		sub := doSubscribe(t, s.config.Port, req, codes.Unimplemented)
 		sub.Verify()
 	})
 
@@ -116,8 +116,8 @@ func TestTranslSubscribe(t *testing.T) {
 	aclAllDeletePb := strToPath("/openconfig-acl:acl/acl-sets")
 
 	t.Run("ONCE", func(t *testing.T) {
-		defer doSet(t, aclAllDeletePb)
-		doSet(t, acl1CreatePb)
+		defer doSet(t, s.config.Port, aclAllDeletePb)
+		doSet(t, s.config.Port, acl1CreatePb)
 
 		req := &gnmipb.SubscriptionList{
 			Mode:   ONCE,
@@ -126,7 +126,7 @@ func TestTranslSubscribe(t *testing.T) {
 				{Path: strToPath("/openconfig-acl:acl/acl-sets/acl-set")},
 			}}
 
-		sub := doSubscribe(t, req, codes.OK)
+		sub := doSubscribe(t, s.config.Port, req, codes.OK)
 		sub.Verify(
 			Updated("/openconfig"+acl1Path+"/name", "ONE"),
 			Updated("/openconfig"+acl1Path+"/type", "ACL_IPV4"),
@@ -139,7 +139,7 @@ func TestTranslSubscribe(t *testing.T) {
 	})
 
 	t.Run("POLL", func(t *testing.T) {
-		defer doSet(t, aclAllDeletePb)
+		defer doSet(t, s.config.Port, aclAllDeletePb)
 
 		t.Logf("Start POLL subscription for ACL config container")
 		req := &gnmipb.SubscriptionList{
@@ -148,14 +148,14 @@ func TestTranslSubscribe(t *testing.T) {
 			Subscription: []*gnmipb.Subscription{
 				{Path: strToPath("/openconfig-acl:acl/acl-sets/acl-set[name=*][type=*]/config")},
 			}}
-		sub := doSubscribe(t, req, codes.OK)
+		sub := doSubscribe(t, s.config.Port, req, codes.OK)
 
 		t.Logf("Verify empty initial updates")
 		sub.Verify(client.Sync{})
 
 		t.Logf("Create ACl1")
 		time.Sleep(2 * time.Second)
-		doSet(t, acl1CreatePb)
+		doSet(t, s.config.Port, acl1CreatePb)
 
 		t.Logf("Verify poll updates include ACL1 data")
 		sub.Poll()
@@ -167,7 +167,7 @@ func TestTranslSubscribe(t *testing.T) {
 
 		t.Logf("Create ACL2")
 		time.Sleep(2 * time.Second)
-		doSet(t, acl2CreatePb)
+		doSet(t, s.config.Port, acl2CreatePb)
 
 		t.Logf("Verify poll updates include both ACL1 and ACL2 data")
 		sub.Poll()
@@ -182,7 +182,7 @@ func TestTranslSubscribe(t *testing.T) {
 
 		t.Logf("Delete ACL2")
 		time.Sleep(2 * time.Second)
-		doSet(t, acl2DeletePb)
+		doSet(t, s.config.Port, acl2DeletePb)
 
 		t.Logf("Verify poll updates now include ACL1 data only")
 		sub.Poll()
@@ -194,7 +194,7 @@ func TestTranslSubscribe(t *testing.T) {
 	})
 
 	t.Run("ONCHANGE", func(t *testing.T) {
-		defer doSet(t, aclAllDeletePb)
+		defer doSet(t, s.config.Port, aclAllDeletePb)
 
 		t.Logf("Start ON_CHANGE subscription for ACL config container")
 		req := &gnmipb.SubscriptionList{
@@ -203,13 +203,13 @@ func TestTranslSubscribe(t *testing.T) {
 			Subscription: []*gnmipb.Subscription{
 				{Path: strToPath("/acl-set[name=*][type=*]/config"), Mode: ON_CHANGE},
 			}}
-		sub := doSubscribe(t, req, codes.OK)
+		sub := doSubscribe(t, s.config.Port, req, codes.OK)
 
 		t.Logf("Verify no initial updates")
 		sub.Verify(client.Sync{})
 
 		t.Logf("Create ACL2")
-		doSet(t, acl2CreatePb)
+		doSet(t, s.config.Port, acl2CreatePb)
 
 		t.Logf("Verify update notifications for ACL2 data")
 		sub.Verify(
@@ -219,7 +219,7 @@ func TestTranslSubscribe(t *testing.T) {
 		)
 
 		t.Logf("Create ACL1 and delete description of ACL2")
-		doSet(t, acl1CreatePb, acl2DescDeletePb)
+		doSet(t, s.config.Port, acl1CreatePb, acl2DescDeletePb)
 
 		t.Logf("Verify delete notification for ACL2 description and updates for ACL1 data")
 		sub.Verify(
@@ -229,7 +229,7 @@ func TestTranslSubscribe(t *testing.T) {
 		)
 
 		t.Logf("Delete ACL1 and set description for ACL2")
-		doSet(t, acl2DescUpdatePb, acl1DeletePb)
+		doSet(t, s.config.Port, acl2DescUpdatePb, acl1DeletePb)
 
 		t.Logf("Verify delete for ACL1 and update for ACL2 description")
 		sub.Verify(
@@ -246,16 +246,16 @@ func TestTranslSubscribe(t *testing.T) {
 			Subscription: []*gnmipb.Subscription{
 				{Path: strToPath("/openconfig-interfaces:interfaces/interface[name=*]"), Mode: ON_CHANGE},
 			}}
-		sub := doSubscribe(t, req, codes.InvalidArgument)
+		sub := doSubscribe(t, s.config.Port, req, codes.InvalidArgument)
 		sub.Verify()
 	})
 
 	sampleInterval := 25 * time.Second
 
 	t.Run("SAMPLE", func(t *testing.T) {
-		defer doSet(t, aclAllDeletePb)
+		defer doSet(t, s.config.Port, aclAllDeletePb)
 		t.Logf("Create ACL1")
-		doSet(t, acl1CreatePb)
+		doSet(t, s.config.Port, acl1CreatePb)
 
 		t.Logf("Start SAMPLE subscription for ACL state container.. interval=%v", sampleInterval)
 		req := &gnmipb.SubscriptionList{
@@ -268,7 +268,7 @@ func TestTranslSubscribe(t *testing.T) {
 					SampleInterval: uint64(sampleInterval.Nanoseconds()),
 				},
 			}}
-		sub := doSubscribe(t, req, codes.OK)
+		sub := doSubscribe(t, s.config.Port, req, codes.OK)
 
 		t.Logf("Verify initial updates include ACL1 data only")
 		sub.Verify(
@@ -278,7 +278,7 @@ func TestTranslSubscribe(t *testing.T) {
 		)
 
 		t.Logf("Create ACL2")
-		doSet(t, acl2CreatePb)
+		doSet(t, s.config.Port, acl2CreatePb)
 
 		t.Logf("Verify updates include both ACL data, for 3 intervals")
 		for i := 1; i <= 3; i++ {
@@ -294,7 +294,7 @@ func TestTranslSubscribe(t *testing.T) {
 		}
 
 		t.Logf("Delete ACL1 and description of ACL2")
-		doSet(t, acl1DeletePb, acl2DescDeletePb)
+		doSet(t, s.config.Port, acl1DeletePb, acl2DescDeletePb)
 
 		t.Logf("Verify next iteration includes deletes and updates (for remaining ACL2 data)")
 		sub.VerifyT(sampleInterval - 3*time.Second)
@@ -314,9 +314,9 @@ func TestTranslSubscribe(t *testing.T) {
 	})
 
 	t.Run("SAMPLE_suppress_redundant", func(t *testing.T) {
-		defer doSet(t, aclAllDeletePb)
+		defer doSet(t, s.config.Port, aclAllDeletePb)
 		t.Logf("Create ACL1 and ACL2")
-		doSet(t, acl1CreatePb, acl2CreatePb)
+		doSet(t, s.config.Port, acl1CreatePb, acl2CreatePb)
 
 		t.Logf("Start SAMPLE subscription for ACL config container.. interval=%v, suppress_redundant=true", sampleInterval)
 		req := &gnmipb.SubscriptionList{
@@ -330,7 +330,7 @@ func TestTranslSubscribe(t *testing.T) {
 					SuppressRedundant: true,
 				},
 			}}
-		sub := doSubscribe(t, req, codes.OK)
+		sub := doSubscribe(t, s.config.Port, req, codes.OK)
 
 		t.Logf("Verify initial updates")
 		sub.Verify(
@@ -346,7 +346,7 @@ func TestTranslSubscribe(t *testing.T) {
 		sub.VerifyT(sampleInterval + 3*time.Second)
 
 		t.Logf("Delete ACL1 and update ACL2 description")
-		doSet(t, acl1DeletePb, acl2DescUpdatePb)
+		doSet(t, s.config.Port, acl1DeletePb, acl2DescUpdatePb)
 
 		t.Logf("Verify next iteration includes deletes and updates for modified paths only")
 		sub.VerifyT(
@@ -356,7 +356,7 @@ func TestTranslSubscribe(t *testing.T) {
 		)
 
 		t.Logf("Delete ACL2 description")
-		doSet(t, acl2DescDeletePb)
+		doSet(t, s.config.Port, acl2DescDeletePb)
 
 		t.Logf("Verify next iteration includes description delete only")
 		sub.VerifyT(
@@ -369,9 +369,9 @@ func TestTranslSubscribe(t *testing.T) {
 	})
 
 	t.Run("SAMPLE_leaf", func(t *testing.T) {
-		defer doSet(t, aclAllDeletePb)
+		defer doSet(t, s.config.Port, aclAllDeletePb)
 		t.Logf("Create ACL2")
-		doSet(t, acl2CreatePb)
+		doSet(t, s.config.Port, acl2CreatePb)
 
 		t.Logf("Start SAMPLE subscription for ACL description.. interval=%v, updates_only=true", sampleInterval)
 		req := &gnmipb.SubscriptionList{
@@ -385,7 +385,7 @@ func TestTranslSubscribe(t *testing.T) {
 					SampleInterval: uint64(sampleInterval.Nanoseconds()),
 				},
 			}}
-		sub := doSubscribe(t, req, codes.OK)
+		sub := doSubscribe(t, s.config.Port, req, codes.OK)
 
 		t.Logf("Verify empty initial updates, due to updates_only")
 		sub.Verify(client.Sync{})
@@ -397,7 +397,7 @@ func TestTranslSubscribe(t *testing.T) {
 		)
 
 		t.Logf("Update ACL2 description")
-		doSet(t, acl2DescUpdatePb)
+		doSet(t, s.config.Port, acl2DescUpdatePb)
 
 		t.Logf("Verify next iteration has the updated description")
 		sub.VerifyT(sampleInterval - 3*time.Second)
@@ -406,7 +406,7 @@ func TestTranslSubscribe(t *testing.T) {
 		)
 
 		t.Logf("Delete ACL2")
-		doSet(t, acl2DeletePb)
+		doSet(t, s.config.Port, acl2DeletePb)
 
 		t.Logf("Verify next iteration has delete notification")
 		sub.VerifyT(sampleInterval - 3*time.Second)
@@ -430,12 +430,12 @@ func TestTranslSubscribe(t *testing.T) {
 					SampleInterval: uint64(time.Millisecond.Nanoseconds()),
 				},
 			}}
-		sub := doSubscribe(t, req, codes.InvalidArgument)
+		sub := doSubscribe(t, s.config.Port, req, codes.InvalidArgument)
 		sub.Verify()
 	})
 
 	t.Run("SAMPLE_no_interval", func(t *testing.T) {
-		defer doSet(t, aclAllDeletePb)
+		defer doSet(t, s.config.Port, aclAllDeletePb)
 
 		t.Logf("Start SAMPLE subscription for ACL description.. without setting SampleInterval")
 		req := &gnmipb.SubscriptionList{
@@ -447,13 +447,13 @@ func TestTranslSubscribe(t *testing.T) {
 					Path: strToPath("/acl-set/state/description"),
 				},
 			}}
-		sub := doSubscribe(t, req, codes.OK)
+		sub := doSubscribe(t, s.config.Port, req, codes.OK)
 
 		t.Logf("Verify empty initial updates")
 		sub.Verify(client.Sync{})
 
 		t.Logf("Create ACL2")
-		doSet(t, acl2CreatePb)
+		doSet(t, s.config.Port, acl2CreatePb)
 
 		t.Logf("Verify updates are received after default interval")
 		sub.VerifyT(
@@ -482,7 +482,7 @@ func TestTranslSubscribe(t *testing.T) {
 						Mode:           TARGET_DEFINED,
 						SampleInterval: uint64(interval.Nanoseconds()),
 					}}}
-			sub := doSubscribe(t, req, codes.OK)
+			sub := doSubscribe(t, s.config.Port, req, codes.OK)
 
 			t.Logf("Verify initial updates includes all three data")
 			eth0Path := "/openconfig-interfaces:interfaces/interface[name=Ethernet0]"
@@ -530,7 +530,7 @@ func TestTranslSubscribe(t *testing.T) {
 					Mode:           TARGET_DEFINED,
 					SampleInterval: uint64(interval.Nanoseconds()),
 				}}}
-			sub := doSubscribe(t, req, codes.OK)
+			sub := doSubscribe(t, s.config.Port, req, codes.OK)
 
 			t.Logf("Verify initial updates includes nodes from both state and counters containers")
 			sub.GlobCompare = true
@@ -567,7 +567,7 @@ func TestTranslSubscribe(t *testing.T) {
 						Mode:              ON_CHANGE,
 						HeartbeatInterval: uint64(hbInterval.Nanoseconds()),
 					}}}
-			sub := doSubscribe(t, req, codes.OK)
+			sub := doSubscribe(t, s.config.Port, req, codes.OK)
 
 			t.Logf("Verify initial updates contains both data")
 			eth0Path := "/openconfig-interfaces:interfaces/interface[name=Ethernet0]"
@@ -596,7 +596,7 @@ func TestTranslSubscribe(t *testing.T) {
 					SuppressRedundant: true,
 					HeartbeatInterval: uint64(time.Millisecond.Nanoseconds()),
 				}}}
-			sub := doSubscribe(t, req, codes.InvalidArgument)
+			sub := doSubscribe(t, s.config.Port, req, codes.InvalidArgument)
 			sub.Verify()
 		})
 
@@ -610,7 +610,7 @@ func TestTranslSubscribe(t *testing.T) {
 					Mode:              ON_CHANGE,
 					HeartbeatInterval: uint64(time.Millisecond.Nanoseconds()),
 				}}}
-			sub := doSubscribe(t, req, codes.InvalidArgument)
+			sub := doSubscribe(t, s.config.Port, req, codes.InvalidArgument)
 			sub.Verify()
 		})
 
@@ -627,7 +627,7 @@ func TestTranslSubscribe(t *testing.T) {
 						}}},
 				Extension: []*extnpb.Extension{newBundleVersion(t, "0.0.0")},
 			}
-			sub := doSubscribeRaw(t, req, codes.OK)
+			sub := doSubscribeRaw(t, s.config.Port, req, codes.OK)
 			sub.Verify(
 				Updated("/openconfig-interfaces:interfaces/interface[name=Ethernet0]/config/mtu", uint64(9100)),
 				Updated("/openconfig-interfaces:interfaces/interface[name=Ethernet0]/state/mtu", uint64(9100)),
@@ -647,7 +647,7 @@ func TestTranslSubscribe(t *testing.T) {
 						}}},
 				Extension: []*extnpb.Extension{newBundleVersion(t, "100.0.0")},
 			}
-			sub := doSubscribeRaw(t, req, codes.InvalidArgument)
+			sub := doSubscribeRaw(t, s.config.Port, req, codes.InvalidArgument)
 			sub.Verify()
 		})*/
 }
@@ -684,14 +684,14 @@ type testSubscriber struct {
 	GlobCompare bool // treat expected paths as glob patterns in Verify()
 }
 
-func doSubscribe(t *testing.T, subReq *gnmipb.SubscriptionList, exStatus codes.Code) *testSubscriber {
+func doSubscribe(t *testing.T, port int64, subReq *gnmipb.SubscriptionList, exStatus codes.Code) *testSubscriber {
 	t.Helper()
 	req := &gnmipb.SubscribeRequest{
 		Request: &gnmipb.SubscribeRequest_Subscribe{Subscribe: subReq}}
-	return doSubscribeRaw(t, req, exStatus)
+	return doSubscribeRaw(t, port, req, exStatus)
 }
 
-func doSubscribeRaw(t *testing.T, req *gnmipb.SubscribeRequest, exStatus codes.Code) *testSubscriber {
+func doSubscribeRaw(t *testing.T, port int64, req *gnmipb.SubscribeRequest, exStatus codes.Code) *testSubscriber {
 	t.Helper()
 	q, err := client.NewQuery(req)
 	if err != nil {
@@ -706,7 +706,7 @@ func doSubscribeRaw(t *testing.T, req *gnmipb.SubscribeRequest, exStatus codes.C
 
 	t.Cleanup(sub.close)
 
-	q.Addrs = []string{"127.0.0.1:8081"}
+	q.Addrs = []string{fmt.Sprintf("127.0.0.1:%d", port)}
 	q.TLS = &tls.Config{InsecureSkipVerify: true}
 	q.NotificationHandler = func(n client.Notification) error {
 		//fmt.Printf(">>>> %#v\n", n)
@@ -862,7 +862,7 @@ func (sub *testSubscriber) compareNoti(n, exp client.Notification) bool {
 	return expVal == nil || reflect.DeepEqual(val, expVal)
 }
 
-func doSet(t *testing.T, data ...interface{}) {
+func doSet(t *testing.T, port int64, data ...interface{}) {
 	t.Helper()
 	req := &gnmipb.SetRequest{}
 	for _, v := range data {
@@ -876,7 +876,7 @@ func doSet(t *testing.T, data ...interface{}) {
 		}
 	}
 
-	client := gnmipb.NewGNMIClient(createClient(t, 8081))
+	client := gnmipb.NewGNMIClient(createClient(t, int(port)))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -936,7 +936,7 @@ func newBundleVersion(t *testing.T, version string) *extnpb.Extension {
 }
 
 func TestDebugSubscribePreferences(t *testing.T) {
-	s := createServer(t, 8081)
+	s := createServer(t)
 	go runServer(t, s)
 	defer s.s.Stop()
 
@@ -973,14 +973,14 @@ func TestDebugSubscribePreferences(t *testing.T) {
 	}
 
 	t.Run("invalid_path", func(t *testing.T) {
-		_, err := getSubscribePreferences(t, nil)
+		_, err := getSubscribePreferences(t, s.config.Port, nil)
 		if res, _ := status.FromError(err); res.Code() != codes.InvalidArgument {
 			t.Fatalf("Expecting InvalidArgument error; got %v", err)
 		}
 	})
 
 	t.Run("unknown_path", func(t *testing.T) {
-		_, err := getSubscribePreferences(t, strToPath("/unknown"))
+		_, err := getSubscribePreferences(t, s.config.Port, strToPath("/unknown"))
 		if res, _ := status.FromError(err); res.Code() != codes.InvalidArgument {
 			t.Fatalf("Expecting InvalidArgument error; got %v", err)
 		}
@@ -988,38 +988,38 @@ func TestDebugSubscribePreferences(t *testing.T) {
 
 	/*
 		t.Run("onchange_supported", func(t *testing.T) {
-			verifySubscribePreferences(t,
+			verifySubscribePreferences(t, s.config.Port,
 				[]*gnmipb.Path{ifMtu.Path},
 				[]*spb_gnoi.SubscribePreference{ifMtu})
 		})
 
 		t.Run("onchange_unsupported", func(t *testing.T) {
-			verifySubscribePreferences(t,
+			verifySubscribePreferences(t, s.config.Port,
 				[]*gnmipb.Path{ifStat.Path},
 				[]*spb_gnoi.SubscribePreference{ifStat})
 		})
 
 		t.Run("onchange_mixed", func(t *testing.T) {
-			verifySubscribePreferences(t,
+			verifySubscribePreferences(t, s.config.Port,
 				[]*gnmipb.Path{ifTop.Path},
 				[]*spb_gnoi.SubscribePreference{ifTop, ifStat})
 		})*/
 
 	t.Run("nondb_path", func(t *testing.T) {
-		verifySubscribePreferences(t,
+		verifySubscribePreferences(t, s.config.Port,
 			[]*gnmipb.Path{yanglib.Path},
 			[]*spb_gnoi.SubscribePreference{yanglib})
 	})
 
 	t.Run("unprefixed_path", func(t *testing.T) {
-		verifySubscribePreferences(t,
+		verifySubscribePreferences(t, s.config.Port,
 			[]*gnmipb.Path{strToPath("/acl/acl-sets/acl-set/config")},
 			[]*spb_gnoi.SubscribePreference{aclConfig})
 	})
 
 	/*
 		t.Run("multiple_paths", func(t *testing.T) {
-			verifySubscribePreferences(t,
+			verifySubscribePreferences(t, s.config.Port,
 				[]*gnmipb.Path{yanglib.Path, ifTop.Path, aclConfig.Path},
 				[]*spb_gnoi.SubscribePreference{yanglib, ifTop, ifStat, aclConfig})
 		})*/
@@ -1038,9 +1038,9 @@ func TestDebugSubscribePreferences_dummy(t *testing.T) {
 	}
 }
 
-func getSubscribePreferences(t *testing.T, paths ...*gnmipb.Path) ([]*spb_gnoi.SubscribePreference, error) {
+func getSubscribePreferences(t *testing.T, port int64, paths ...*gnmipb.Path) ([]*spb_gnoi.SubscribePreference, error) {
 	t.Helper()
-	client := spb_gnoi.NewDebugClient(createClient(t, 8081))
+	client := spb_gnoi.NewDebugClient(createClient(t, int(port)))
 	stream, err := client.GetSubscribePreferences(
 		context.Background(),
 		&spb_gnoi.SubscribePreferencesReq{Path: paths},
@@ -1063,9 +1063,9 @@ func getSubscribePreferences(t *testing.T, paths ...*gnmipb.Path) ([]*spb_gnoi.S
 	return prefs, nil
 }
 
-func verifySubscribePreferences(t *testing.T, paths []*gnmipb.Path, exp []*spb_gnoi.SubscribePreference) {
+func verifySubscribePreferences(t *testing.T, port int64, paths []*gnmipb.Path, exp []*spb_gnoi.SubscribePreference) {
 	t.Helper()
-	resp, err := getSubscribePreferences(t, paths...)
+	resp, err := getSubscribePreferences(t, port, paths...)
 	if err != nil {
 		t.Fatalf("GetSubscribePreferences returned error: %v", err)
 	}
