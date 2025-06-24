@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package sonic;
+
+option go_package = "dev.azure.com/mssonic/internal/_git/sonic-metadata/api-service/proto";
+
+// SystemInfo service provides information about the system
+service SystemInfo {
+  // GetPlatformType returns the platform type of the system
+  rpc GetPlatformType(GetPlatformTypeRequest) returns (GetPlatformTypeResponse) {}
+}
+
+// GetPlatformTypeRequest is an empty request to get the platform type
+message GetPlatformTypeRequest {
+}
+
+// GetPlatformTypeResponse contains the platform type information
+message GetPlatformTypeResponse {
+  // The primary string representation of the platform type (e.g., "mellanox_sn4600", "arista_7050")
+  string platform_identifier = 1;
+
+  // Vendor of the platform (e.g., "mellanox", "arista", "cisco")
+  string vendor = 2;
+
+  // Model of the platform (e.g., "sn4600", "7050")
+  string model = 3;
+}
