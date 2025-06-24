@@ -2,9 +2,10 @@ package client
 
 import (
 	"fmt"
-	log "github.com/golang/glog"
-	"strings"
 	"os"
+	"strings"
+
+	log "github.com/golang/glog"
 )
 
 // virtual db is to Handle
@@ -157,7 +158,7 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 			log.V(1).Infof("Can not connect to %v in namsespace %v, err: %v", dbName, namespace, err)
 			return nil, err
 		}
-		
+
 		keyName := fmt.Sprintf("%s%v*", pfcwdTableName, separator)
 		resp, err := redisDb.Keys(keyName).Result()
 		if err != nil {
@@ -175,7 +176,7 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 			if strings.Contains(key, "GLOBAL") || strings.Contains(key, "global") { // ignore PFC_WD|global / PFC_WD|GLOBAL
 				continue
 			}
-			name := key[len(keyName) - 1:]
+			name := key[len(keyName)-1:]
 			pfcwdName_map[name] = make(map[string]string)
 		}
 
@@ -318,7 +319,6 @@ func getCountersMap(tableName string) (map[string]string, error) {
 	return counter_map, nil
 }
 
-
 // Get the mapping between objects in counters DB, Ex. port name to oid in "COUNTERS_FABRIC_PORT_NAME_MAP" table.
 // Aussuming static port name to oid map in COUNTERS table
 func getFabricCountersMap(tableName string) (map[string]string, error) {
@@ -326,7 +326,7 @@ func getFabricCountersMap(tableName string) (map[string]string, error) {
 	dbName := "COUNTERS_DB"
 	redis_client_map, err := GetRedisClientsForDb(dbName)
 	if err != nil {
-                return nil, err
+		return nil, err
 	}
 	for namespace, redisDb := range redis_client_map {
 		fv, err := redisDb.HGetAll(tableName).Result()
@@ -343,7 +343,7 @@ func getFabricCountersMap(tableName string) (map[string]string, error) {
 			if len(namespace) != 0 {
 				namespace_str = string('-') + namespace
 			}
-			namespaceFv[k + namespace_str] = v
+			namespaceFv[k+namespace_str] = v
 		}
 		addmap(counter_map, namespaceFv)
 		log.V(6).Infof("tableName: %s in namespace %v, map %v", tableName, namespace, namespaceFv)
@@ -358,10 +358,10 @@ func v2rFabricPortStats(paths []string) ([]tablePath, error) {
 	if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
 		for port, oid := range countersFabricPortNameMap {
 			var namespace string
-			// Extract namespace from port name 
+			// Extract namespace from port name
 			// multi-asic Linecard ex: PORT0-asic0
-			if strings.Contains(port, "-"){
-			    namespace = strings.Split(port, "-")[1]
+			if strings.Contains(port, "-") {
+				namespace = strings.Split(port, "-")[1]
 			} else {
 				namespace = ""
 			}
@@ -383,7 +383,7 @@ func v2rFabricPortStats(paths []string) ([]tablePath, error) {
 		if !ok {
 			return nil, fmt.Errorf("%v not a valid sonic fabric interface.", port)
 		}
-		if strings.Contains(port, "-"){
+		if strings.Contains(port, "-") {
 			namespace = strings.Split(port, "-")[1]
 		} else {
 			namespace = ""
@@ -459,9 +459,13 @@ func v2rEthPortStats(paths []string) ([]tablePath, error) {
 
 // Supported cases:
 // <1> port name having suffix of "*" with specific field;
-//     Ex. [COUNTER_DB COUNTERS Ethernet* SAI_PORT_STAT_PFC_0_RX_PKTS]
+//
+//	Ex. [COUNTER_DB COUNTERS Ethernet* SAI_PORT_STAT_PFC_0_RX_PKTS]
+//
 // <2> exact port name with specific field.
-//     Ex. [COUNTER_DB COUNTERS Ethernet68 SAI_PORT_STAT_PFC_0_RX_PKTS]
+//
+//	Ex. [COUNTER_DB COUNTERS Ethernet68 SAI_PORT_STAT_PFC_0_RX_PKTS]
+//
 // case of "*" field could be covered in v2rEthPortStats()
 func v2rEthPortFieldStats(paths []string) ([]tablePath, error) {
 	var tblPaths []tablePath
@@ -591,14 +595,29 @@ func v2rEthPortPfcwdStats(paths []string) ([]tablePath, error) {
 	return tblPaths, nil
 }
 
+func buildTablePath(namespace, dbName, tableName, tableKey, separator, field, jsonTableName, jsonTableKey, jsonField string) tablePath {
+	return tablePath{
+		dbNamespace:   namespace,
+		dbName:        dbName,
+		tableName:     tableName,
+		tableKey:      tableKey,
+		delimitor:     separator,
+		field:         field,
+		jsonTableName: jsonTableName,
+		jsonTableKey:  jsonTableKey,
+		jsonField:     jsonField,
+	}
+}
+
 // Populate real data paths from paths like
-// [COUNTER_DB COUNTERS Ethernet* Queues] or [COUNTER_DB COUNTERS Ethernet68 Queues]
+// [COUNTERS_DB COUNTERS Ethernet* Queues] or [COUNTERS_DB COUNTERS Ethernet68 Queues]
 func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
+	// paths[DbIdx] = "COUNTERS_DB"
 	separator, _ := GetTableKeySeparator(paths[DbIdx], "")
+	field := "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES"
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // queues on all Ethernet ports
 		for que, oid := range countersQueueNameMap {
-			// que is in format of "Internal_Ethernet:12"
 			names := strings.Split(que, separator)
 			var oname string
 			if alias, ok := name2aliasMap[names[0]]; ok {
@@ -612,14 +631,17 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 				return nil, fmt.Errorf("%v does not have namespace associated", names[0])
 			}
 			que = strings.Join([]string{oname, names[1]}, separator)
-			tblPath := tablePath{
-				dbNamespace:  namespace,
-				dbName:       paths[DbIdx],
-				tableName:    paths[TblIdx],
-				tableKey:     oid,
-				delimitor:    separator,
-				jsonTableKey: que,
-			}
+			// que is in format of "Internal_Ethernet:12"
+			tblPath := buildTablePath(namespace, paths[DbIdx], paths[TblIdx], oid, separator, "", "", que, "")
+			tblPaths = append(tblPaths, tblPath)
+			/*
+			 * Adding the field "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES" from the PERIODIC_WATERMARKS table
+			 * to the virtual path.
+			 */
+			periodic_que := strings.Join([]string{que, "periodic"}, separator)
+			// periodic_que is in format of "Internal_Ethernet:12:periodic"
+			tblPath = buildTablePath(namespace, paths[DbIdx], "PERIODIC_WATERMARKS", oid, separator,
+				field, paths[TblIdx], periodic_que, field)
 			tblPaths = append(tblPaths, tblPath)
 		}
 	} else { //queues on single port
@@ -633,20 +655,22 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 			return nil, fmt.Errorf("%v does not have namespace associated", name)
 		}
 		for que, oid := range countersQueueNameMap {
-			//que is in format of "Ethernet64:12"
 			names := strings.Split(que, separator)
 			if name != names[0] {
 				continue
 			}
 			que = strings.Join([]string{alias, names[1]}, separator)
-			tblPath := tablePath{
-				dbNamespace:  namespace,
-				dbName:       paths[DbIdx],
-				tableName:    paths[TblIdx],
-				tableKey:     oid,
-				delimitor:    separator,
-				jsonTableKey: que,
-			}
+			//que is in format of "Ethernet64:12"
+			tblPath := buildTablePath(namespace, paths[DbIdx], paths[TblIdx], oid, separator, "", "", que, "")
+			tblPaths = append(tblPaths, tblPath)
+			/*
+			 * Adding the field "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES" from the PERIODIC_WATERMARKS table
+			 * to the virtual path.
+			 */
+			periodic_que := strings.Join([]string{que, "periodic"}, separator)
+			//periodic_que is in format of "Ethernet64:12:periodic"
+			tblPath = buildTablePath(namespace, paths[DbIdx], "PERIODIC_WATERMARKS", oid, separator,
+				field, paths[TblIdx], periodic_que, field)
 			tblPaths = append(tblPaths, tblPath)
 		}
 	}
