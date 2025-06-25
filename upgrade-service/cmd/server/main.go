@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/pkg/server"
 )
 
@@ -18,11 +18,14 @@ func main() {
 	shutdownTimeout := flag.Duration("shutdown-timeout", 10*time.Second, "Maximum time to wait for graceful shutdown")
 	flag.Parse()
 
+	// Initialize glog
+	defer glog.Flush()
+
 	// Create a new server instance
-	log.Printf("Sonic Metadata Service starting...")
+	glog.Info("Sonic Metadata Service starting...")
 	srv, err := server.NewServer(*addr)
 	if err != nil {
-		log.Fatalf("Failed to create server: %v", err)
+		glog.Fatalf("Failed to create server: %v", err)
 	}
 
 	// Set up signal handling for graceful shutdown
@@ -39,10 +42,10 @@ func main() {
 	select {
 	case err := <-errChan:
 		if err != nil {
-			log.Fatalf("Server error: %v", err)
+			glog.Fatalf("Server error: %v", err)
 		}
 	case sig := <-signalChan:
-		log.Printf("Received signal: %v", sig)
+		glog.Infof("Received signal: %v", sig)
 
 		// Create a context with timeout for shutdown
 		ctx, cancel := context.WithTimeout(context.Background(), *shutdownTimeout)
@@ -62,9 +65,9 @@ func main() {
 		// Wait for shutdown to complete or timeout
 		select {
 		case <-ctx.Done():
-			log.Println("Shutdown timed out, forcing exit")
+			glog.Warning("Shutdown timed out, forcing exit")
 		case <-done:
-			log.Println("Graceful shutdown completed")
+			glog.Info("Graceful shutdown completed")
 		}
 	}
 }
