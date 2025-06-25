@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/golang/glog"
+	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
 )
 
 // PlatformInfoProvider defines the interface for getting platform information
@@ -27,10 +28,10 @@ func NewPlatformInfoProvider() PlatformInfoProvider {
 	return &DefaultPlatformInfoProvider{}
 }
 
-const (
-	// MachineConfPath is the path to the machine.conf file
-	MachineConfPath = "/host/machine.conf"
-)
+// getMachineConfPath returns the path to the machine.conf file based on current config
+func getMachineConfPath() string {
+	return config.GetHostPath("/host/machine.conf")
+}
 
 // PlatformInfo contains information about the platform
 type PlatformInfo struct {
@@ -47,12 +48,13 @@ type PlatformInfo struct {
 
 // GetPlatformInfo reads the machine.conf file and returns platform information
 func GetPlatformInfo() (*PlatformInfo, error) {
-	glog.V(2).Infof("Reading platform information from %s", MachineConfPath)
+	machineConfPath := getMachineConfPath()
+	glog.V(2).Infof("Reading platform information from %s", machineConfPath)
 
 	// Read the machine.conf file
-	configMap, err := readMachineConf(MachineConfPath)
+	configMap, err := readMachineConf(machineConfPath)
 	if err != nil {
-		glog.Errorf("Failed to read machine.conf from %s: %v", MachineConfPath, err)
+		glog.Errorf("Failed to read machine.conf from %s: %v", machineConfPath, err)
 		return nil, fmt.Errorf("failed to read machine.conf: %w", err)
 	}
 

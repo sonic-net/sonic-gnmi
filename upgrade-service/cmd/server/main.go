@@ -2,28 +2,25 @@ package main
 
 import (
 	"context"
-	"flag"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/golang/glog"
+	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/pkg/server"
 )
 
 func main() {
-	// Define command line flags
-	addr := flag.String("addr", ":50051", "The address to listen on")
-	shutdownTimeout := flag.Duration("shutdown-timeout", 10*time.Second, "Maximum time to wait for graceful shutdown")
-	flag.Parse()
+	// Initialize configuration and parse flags
+	config.Initialize()
 
 	// Initialize glog
 	defer glog.Flush()
 
 	// Create a new server instance
 	glog.Info("Sonic Metadata Service starting...")
-	srv, err := server.NewServer(*addr)
+	srv, err := server.NewServer(config.Global.Addr)
 	if err != nil {
 		glog.Fatalf("Failed to create server: %v", err)
 	}
@@ -48,7 +45,7 @@ func main() {
 		glog.Infof("Received signal: %v", sig)
 
 		// Create a context with timeout for shutdown
-		ctx, cancel := context.WithTimeout(context.Background(), *shutdownTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), config.Global.ShutdownTimeout)
 		defer cancel()
 
 		// Create a channel to signal completion of cleanup tasks
