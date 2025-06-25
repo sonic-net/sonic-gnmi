@@ -1,0 +1,13 @@
+{
+    "Ethernet16:0": {},
+    "Ethernet16:1": {},
+    "Ethernet16:2": {},
+    "Ethernet16:3": {},
+    "Ethernet16:4": {},
+    "Ethernet16:5": {
+        "SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES": "0",
+        "SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES": "0"
+    },
+    "Ethernet16:6": {},
+    "Ethernet16:7": {}
+}
