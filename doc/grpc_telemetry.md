@@ -386,6 +386,8 @@ Some of the SONiC database tables contain aggregated data. Ex. COUNTERS in COUNT
 |COUNTERS_DB | "COUNTERS/Ethernet``<port number``>/``<counter name``>"|  One counter on one Ethernet port
 |COUNTERS_DB | "COUNTERS/Ethernet*/Queues"|  Queues stats on all Ethernet ports
 |COUNTERS_DB | "COUNTERS/Ethernet``<port number``>/Queues"|  Queue stats on one Ethernet ports
+|COUNTERS_DB | "PERIODIC_WATERMARKS/Ethernet*/PriorityGroups"|  Periodic watermarks for priority groups on all Ethernet ports
+|COUNTERS_DB | "PERIODIC_WATERMARKS/Ethernet<``port number``>/PriorityGroups"|  Periodic watermarks for priority groups on one Ethernet port
 
 Virtual path supports Get, Subscribe Poll and stream operations.
 
@@ -562,6 +564,93 @@ notification: <
 >
 ```
 
+```
+gnmi_get -target_addr 127.0.0.1:50051 -xpath "PERIODIC_WATERMARKS/Ethernet16/PriorityGroups" -xpath_target COUNTERS_DB -insecure
+== getRequest:
+prefix: <
+  target: "COUNTERS_DB"
+>
+path: <
+  elem: <
+    name: "PERIODIC_WATERMARKS"
+  >
+  elem: <
+    name: "Ethernet16"
+  >
+  elem: <
+    name: "PriorityGroups"
+  >
+>
+encoding: JSON_IETF
+
+== getResponse:
+notification: <
+  timestamp: 1749598624296471376
+  prefix: <
+    target: "COUNTERS_DB"
+  >
+  update: <
+    path: <
+      elem: <
+        name: "PERIODIC_WATERMARKS"
+      >
+      elem: <
+        name: "Ethernet16"
+      >
+      elem: <
+        name: "PriorityGroups"
+      >
+    >
+    val: <
+      json_ietf_val: "{\"Ethernet16:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"}}"
+    >
+  >
+>
+```
+
+```
+gnmi_get -target_addr 127.0.0.1:50051 -xpath "PERIODIC_WATERMARKS/Ethernet*/PriorityGroups" -xpath_target COUNTERS_DB -insecure
+== getRequest:
+prefix: <
+  target: "COUNTERS_DB"
+>
+path: <
+  elem: <
+    name: "PERIODIC_WATERMARKS"
+  >
+  elem: <
+    name: "Ethernet*"
+  >
+  elem: <
+    name: "PriorityGroups"
+  >
+>
+encoding: JSON_IETF
+
+== getResponse:
+notification: <
+  timestamp: 1749598585172470836
+  prefix: <
+    target: "COUNTERS_DB"
+  >
+  update: <
+    path: <
+      elem: <
+        name: "PERIODIC_WATERMARKS"
+      >
+      elem: <
+        name: "Ethernet*"
+      >
+      elem: <
+        name: "PriorityGroups"
+      >
+    >
+    val: <
+      json_ietf_val: "{\"etp10a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp11a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp12a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp13a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp13b:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"0\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp15a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp16a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp19a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp1a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},...,\"etp61a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp62a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp63a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp64a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp6a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp7a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp8a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"},\"etp9a:0\":{\"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES\":\"192\",\"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES\":\"0\"}}"
+    >
+  >
+>
+```
 
 # Authentication
 To be implemented, may support integration with SONiC TACACS. User will be authenticated on per RPC basis.
