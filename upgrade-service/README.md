@@ -5,7 +5,7 @@ This directory contains the Go-based gRPC server implementation for all SONiC up
 ## Prerequisites
 
 - Go 1.18 or later
-- Protocol Buffers compiler (protoc)
+- Protocol Buffers compiler (protoc) - use `make install-protoc` to install
 - Git
 
 ## Directory Structure
@@ -15,14 +15,16 @@ upgrade-service/
 ├── cmd/                # Command-line applications
 │   └── server/         # gRPC server implementation
 ├── internal/           # Private code not intended for external use
+│   ├── config/         # Global configuration management
 │   ├── hostinfo/       # Platform information providers
 │   └── util/           # Internal utility functions
 ├── pkg/                # Public packages that can be imported by other applications
 │   └── server/         # Server implementation
 ├── proto/              # Protocol buffer definitions and generated code
-│   ├── system_info.proto   # System info service definition
-│   ├── system_info.pb.go   # Generated Go code for messages
-│   └── system_info_grpc.pb.go # Generated Go code for gRPC service
+│   ├── system_info.proto        # System info service definition
+│   ├── firmware_management.proto # Firmware management service definition
+│   ├── *.pb.go                  # Generated Go code for messages
+│   └── *_grpc.pb.go             # Generated Go code for gRPC services
 ├── tests/              # Test files
 │   └── e2e/            # End-to-end tests
 ├── go.mod              # Go module definition
@@ -35,11 +37,23 @@ upgrade-service/
 
 ### Installing Required Tools
 
-You can install the required Go protobuf tools with:
+The project provides fine-grained tool management. You can install individual tools or all at once:
 
 ```bash
+# Install all Go tools (protoc-gen-go, protoc-gen-go-grpc, mockgen)
 make tools
+
+# Install individual tools
+make install-protoc-gen-go      # Install protoc-gen-go plugin
+make install-protoc-gen-go-grpc # Install protoc-gen-go-grpc plugin  
+make install-mockgen            # Install mockgen tool
+make install-protoc             # Install protoc compiler
+
+# Show all available tool management targets
+make help-tools
 ```
+
+**Note:** The `tools` target installs Go tools but excludes `protoc`. Install `protoc` separately with `make install-protoc`.
 
 ### Generating Protobuf Files
 
@@ -77,38 +91,63 @@ Start the server (this will build the project first if needed):
 make run
 ```
 
-By default, the server runs on port 50051. You can specify a different port with:
+The server supports the following command-line options:
 
 ```bash
-./bin/server --addr=:8080
+# Basic usage with default settings (port 50051, rootfs /mnt/host)
+./bin/server
+
+# Specify different port and rootfs (useful for containers vs baremetal)
+./bin/server --addr=:8080 --rootfs=/host
+
+# Enable verbose logging
+./bin/server -v=2
+
+# Show all available options
+./bin/server --help
 ```
+
+**Configuration Options:**
+- `--addr`: Server address (default: `:50051`)
+- `--rootfs`: Root filesystem mount point (default: `/mnt/host`)
+- `--shutdown-timeout`: Graceful shutdown timeout (default: `10s`)
+- `-v`: Verbose logging level for glog
 
 ## Testing and Verification
 
 The project includes several targets for testing and verification:
 
 ```bash
-# Run the entire CI pipeline locally
+# Run the entire CI pipeline locally (validation only, no tool installation)
 make ci
 
 # Format checking
 make fmt
 
-# Validate protobuf files are up-to-date
-make validate-proto
+# Tool validation (checks if tools are available)
+make validate-tools              # Check all tools
+make validate-protobuf-tools     # Check protobuf tools only
+make validate-protoc             # Check protoc only
+make validate-protoc-gen-go      # Check protoc-gen-go only
+make validate-mockgen            # Check mockgen only
 
-# Verify Go modules are tidy
-make tidy
+# Code generation validation
+make validate-proto              # Validate protobuf files are up-to-date
+make validate-mocks              # Validate mock files are up-to-date
 
-# Run static analysis
-make vet
+# Go module management
+make tidy                        # Tidy Go modules
+make verify                      # Verify Go modules
 
-# Run tests
-make test
-
-# Verify Go modules
-make verify
+# Code quality
+make vet                         # Run static analysis
+make test                        # Run all tests
 ```
+
+**CI vs Local Development:**
+- CI pipeline (`make ci`) validates everything without installing tools
+- Local development can use install targets (`make tools`, `make install-*`) to set up tools
+- Clear error messages guide you to the right install command when tools are missing
 
 ## Using grpcurl to Test the Service
 
@@ -118,11 +157,17 @@ You can use [grpcurl](https://github.com/fullstorydev/grpcurl) to test the servi
 # List available services
 grpcurl -plaintext localhost:50051 list
 
-# List methods in the service
+# List methods in SystemInfo service
 grpcurl -plaintext localhost:50051 list sonic.SystemInfo
+
+# List methods in FirmwareManagement service  
+grpcurl -plaintext localhost:50051 list sonic.FirmwareManagement
 
 # Call the GetPlatformType method to get platform information
 grpcurl -plaintext localhost:50051 sonic.SystemInfo/GetPlatformType
+
+# Call the CleanupOldFirmware method (example - requires implementation)
+grpcurl -plaintext localhost:50051 sonic.FirmwareManagement/CleanupOldFirmware
 ```
 
 ## Development
@@ -142,16 +187,23 @@ This project includes a CI pipeline configured in the `.azure-pipelines/api-serv
 
 ### CI Pipeline Steps
 
-1. Check Go version
-2. Check code formatting (`make fmt`)
-3. Validate proto-generated files (`make validate-proto`)
-4. Verify modules are tidy (`make tidy`)
-5. Build verification (`make build-all`)
-6. Static analysis (`make vet`)
-7. Run tests (`make test`)
-8. Verify modules (`make verify`)
+The CI pipeline runs `make ci` which includes these validation steps:
 
-The pipeline ensures consistency between development and CI environments by using the same commands.
+1. **Code formatting** (`make fmt`) - Ensures consistent code style
+2. **Tool validation** (`make validate-tools`) - Checks required tools are available
+3. **Proto validation** (`make validate-proto`) - Ensures protobuf files are up-to-date
+4. **Mock validation** (`make validate-mocks`) - Ensures mock files are up-to-date  
+5. **Module tidiness** (`make tidy`) - Cleans up Go modules
+6. **Build verification** (`make build-all`) - Ensures all packages compile
+7. **Static analysis** (`make vet`) - Runs Go static analysis
+8. **Unit tests** (`make test`) - Runs all unit tests
+9. **E2E tests** (`make test-e2e`) - Runs end-to-end tests
+10. **Module verification** (`make verify`) - Verifies module integrity
+
+**Key Design Principles:**
+- CI validates rather than installs tools (fails fast with clear error messages)
+- Consistent commands between local development and CI
+- Fine-grained targets allow targeted validation and troubleshooting
 
 ## Protobuf Development
 
@@ -163,18 +215,48 @@ When updating `.proto` files, you need to regenerate the Go code. You can do thi
 make proto
 ```
 
-### Using the Update Script
+### Manual Regeneration
 
-For a more comprehensive update that handles installing protoc:
+You can also regenerate protobuf files manually using protoc directly:
 
 ```bash
-./scripts/update_proto.sh
+# Ensure tools are available
+make validate-protobuf-tools
+
+# Generate protobuf files
+PATH="$(go env GOPATH)/bin:$PATH" protoc --go_out=. --go_opt=paths=source_relative \
+    --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+    proto/*.proto
 ```
 
-After regenerating the files, validate them with:
+After regenerating the files, always validate them:
 
 ```bash
 make validate-proto
 ```
 
-This will check if the generated files match what would be produced by the current `.proto` files.
+This ensures the generated files match what would be produced by the current `.proto` files.
+
+## Deployment Configurations
+
+The server is designed to work in different deployment scenarios:
+
+### Container Deployment
+```bash
+# Container with host filesystem mounted at /mnt/host
+./bin/server --rootfs=/mnt/host --addr=:50051
+```
+
+### Baremetal Deployment  
+```bash
+# Direct baremetal installation
+./bin/server --rootfs=/ --addr=:50051
+```
+
+### Development/Testing
+```bash
+# Local testing with custom filesystem
+./bin/server --rootfs=/tmp/test-env --addr=:50052
+```
+
+The `--rootfs` flag allows the server to find system files (like `/host/machine.conf`) regardless of the deployment environment.

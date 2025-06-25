@@ -1,4 +1,6 @@
-.PHONY: proto build run clean tools test test-e2e fmt vet tidy verify ci mocks validate-mocks docker-build docker-push
+.PHONY: proto build run clean tools test test-e2e fmt vet tidy verify ci mocks validate-mocks docker-build docker-push \
+	install-protoc-gen-go install-protoc-gen-go-grpc install-mockgen install-protoc help-tools \
+	validate-protoc validate-protoc-gen-go validate-protoc-gen-go-grpc validate-mockgen validate-protobuf-tools validate-tools
 
 # Default go build tags
 BUILD_TAGS ?=
@@ -6,11 +8,40 @@ PROTOC_VERSION ?= 31.1
 DOCKER_TAG ?= latest
 DOCKER_IMAGE ?= docker-mopd
 
-# Install required tools
-tools:
+# Install protoc-gen-go
+install-protoc-gen-go:
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+	@echo "protoc-gen-go installed to $(shell go env GOPATH)/bin"
+
+# Install protoc-gen-go-grpc
+install-protoc-gen-go-grpc:
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-	@echo "Tools installed to $(shell go env GOPATH)/bin"
+	@echo "protoc-gen-go-grpc installed to $(shell go env GOPATH)/bin"
+
+# Install mockgen
+install-mockgen:
+	go install github.com/golang/mock/mockgen@v1.6.0
+	@echo "mockgen installed to $(shell go env GOPATH)/bin"
+
+# Install all tools
+tools: install-protoc-gen-go install-protoc-gen-go-grpc install-mockgen
+	@echo "All tools installed to $(shell go env GOPATH)/bin"
+
+# Show help for tool management
+help-tools:
+	@echo "Available tool management targets:"
+	@echo "  install-protoc              - Install protoc compiler"
+	@echo "  install-protoc-gen-go       - Install protoc-gen-go plugin"
+	@echo "  install-protoc-gen-go-grpc  - Install protoc-gen-go-grpc plugin"
+	@echo "  install-mockgen             - Install mockgen tool"
+	@echo "  tools                       - Install all Go tools (excludes protoc)"
+	@echo ""
+	@echo "  validate-protoc             - Check if protoc is available"
+	@echo "  validate-protoc-gen-go      - Check if protoc-gen-go is available"
+	@echo "  validate-protoc-gen-go-grpc - Check if protoc-gen-go-grpc is available"
+	@echo "  validate-mockgen            - Check if mockgen is available"
+	@echo "  validate-protobuf-tools     - Check all protobuf tools"
+	@echo "  validate-tools              - Check all tools"
 
 # Check formatting with gofmt
 fmt:
@@ -33,13 +64,39 @@ install-protoc:
 	rm -f $$PROTOC_ZIP
 
 # Generate protobuf files
-proto: tools
+proto: validate-protobuf-tools
 	PATH="$(shell go env GOPATH)/bin:$$PATH" protoc --go_out=. --go_opt=paths=source_relative \
         --go-grpc_out=. --go-grpc_opt=paths=source_relative \
         proto/*.proto
 
+# Validate protoc is available
+validate-protoc:
+	@echo "Validating protoc..."
+	@which protoc > /dev/null || (echo "ERROR: protoc not found. Run 'make install-protoc' to install."; exit 1)
+
+# Validate protoc-gen-go is available
+validate-protoc-gen-go:
+	@echo "Validating protoc-gen-go..."
+	@which protoc-gen-go > /dev/null || (echo "ERROR: protoc-gen-go not found. Run 'make install-protoc-gen-go' to install."; exit 1)
+
+# Validate protoc-gen-go-grpc is available
+validate-protoc-gen-go-grpc:
+	@echo "Validating protoc-gen-go-grpc..."
+	@which protoc-gen-go-grpc > /dev/null || (echo "ERROR: protoc-gen-go-grpc not found. Run 'make install-protoc-gen-go-grpc' to install."; exit 1)
+
+# Validate mockgen is available
+validate-mockgen:
+	@echo "Validating mockgen..."
+	@which mockgen > /dev/null || (echo "ERROR: mockgen not found. Run 'make install-mockgen' to install."; exit 1)
+
+# Validate all protobuf tools are available
+validate-protobuf-tools: validate-protoc validate-protoc-gen-go validate-protoc-gen-go-grpc
+
+# Validate all tools are available
+validate-tools: validate-protobuf-tools validate-mockgen
+
 # Validate proto-generated files are up to date
-validate-proto: tools
+validate-proto: validate-protobuf-tools
 	@echo "Validating proto-generated files..."
 	@TEMP_DIR=$$(mktemp -d); \
 	PATH="$(shell go env GOPATH)/bin:$$PATH" protoc --go_out=$$TEMP_DIR --go_opt=paths=source_relative \
@@ -102,9 +159,7 @@ verify:
 MOCK_CONFIGS := \
 	internal/hostinfo/platform.go:PlatformInfoProvider:internal/hostinfo/mocks
 
-mocks:
-	@echo "Installing mockgen..."
-	go install github.com/golang/mock/mockgen@v1.6.0
+mocks: validate-mockgen
 	@echo "Generating mocks..."
 	@for config in $(MOCK_CONFIGS); do \
 		source=$$(echo $$config | cut -d: -f1); \
@@ -122,10 +177,9 @@ mocks:
 	@echo "Mock generation complete!"
 
 # Validate mock-generated files are up to date
-validate-mocks:
+validate-mocks: validate-mockgen
 	@echo "Validating mock-generated files..."
 	@TEMP_DIR=$$(mktemp -d); \
-	go install github.com/golang/mock/mockgen@v1.6.0; \
 	DIFF_FILES=false; \
 	for config in $(MOCK_CONFIGS); do \
 		source=$$(echo $$config | cut -d: -f1); \
@@ -175,7 +229,7 @@ clean:
 	rm -f bin/server
 	rm -f proto/*.pb.go
 
-# CI pipeline target - runs all verification steps
+# CI pipeline target - runs all verification steps (validation only, no tool installation)
 ci: fmt validate-proto validate-mocks tidy build-all vet test test-e2e verify
 
 # Build Docker image
