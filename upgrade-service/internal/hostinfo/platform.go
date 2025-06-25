@@ -73,6 +73,9 @@ func GetPlatformInfo() (*PlatformInfo, error) {
 	} else if isArista(configMap) {
 		glog.V(2).Info("Detected Arista platform")
 		extractAristaInfo(configMap, info)
+	} else if isKVM(configMap) {
+		glog.V(2).Info("Detected KVM virtual switch platform")
+		extractKVMInfo(configMap, info)
 	} else {
 		glog.V(2).Info("Platform not specifically recognized, using common extraction")
 		// For other platforms, try to extract common information
@@ -143,6 +146,30 @@ func isArista(configMap map[string]string) bool {
 	return exists && configMap["aboot_vendor"] == "arista"
 }
 
+// isKVM checks if the platform is KVM (virtual switch) based on the config
+func isKVM(configMap map[string]string) bool {
+	// Check for KVM indicators in the platform or machine configuration
+	platform, platformExists := configMap["onie_platform"]
+	machine, machineExists := configMap["onie_machine"]
+	asic, asicExists := configMap["onie_switch_asic"]
+	
+	// KVM virtual switch typically has:
+	// - onie_platform containing "kvm"
+	// - onie_machine containing "kvm"
+	// - onie_switch_asic = "qemu"
+	if platformExists && strings.Contains(strings.ToLower(platform), "kvm") {
+		return true
+	}
+	if machineExists && strings.Contains(strings.ToLower(machine), "kvm") {
+		return true
+	}
+	if asicExists && asic == "qemu" {
+		return true
+	}
+	
+	return false
+}
+
 // extractMellanoxInfo extracts Mellanox-specific information
 func extractMellanoxInfo(configMap map[string]string, info *PlatformInfo) {
 	glog.V(3).Info("Extracting Mellanox-specific platform information")
@@ -168,6 +195,19 @@ func extractAristaInfo(configMap map[string]string, info *PlatformInfo) {
 	info.SwitchASIC = inferAristaSwitchASIC(configMap["aboot_platform"])
 	
 	glog.V(3).Infof("Arista info extracted: platform=%s, machine=%s, arch=%s, inferred_asic=%s", 
+		info.Platform, info.MachineID, info.Architecture, info.SwitchASIC)
+}
+
+// extractKVMInfo extracts KVM virtual switch specific information
+func extractKVMInfo(configMap map[string]string, info *PlatformInfo) {
+	glog.V(3).Info("Extracting KVM virtual switch platform information")
+	info.Vendor = "KVM"
+	info.Platform = configMap["onie_platform"]
+	info.MachineID = configMap["onie_machine"]
+	info.Architecture = configMap["onie_arch"]
+	info.SwitchASIC = configMap["onie_switch_asic"]
+	
+	glog.V(3).Infof("KVM info extracted: platform=%s, machine=%s, arch=%s, asic=%s", 
 		info.Platform, info.MachineID, info.Architecture, info.SwitchASIC)
 }
 
@@ -375,6 +415,14 @@ func GetPlatformIdentifierString(info *PlatformInfo) (string, string, string) {
 			model = extractModelFromPlatform(platformLower)
 			platformIdentifier = "celestica_" + model
 		}
+	} else if info.Vendor == "KVM" {
+		glog.V(3).Info("Processing KVM virtual switch platform identification")
+		vendor = "kvm" // Normalize vendor name
+		
+		// KVM virtual switch identification - use platform from machine.conf
+		model = "unknown"
+		platformIdentifier = info.Platform // Use the actual platform identifier from machine.conf
+		glog.V(3).Infof("KVM platform detected: %s", platformIdentifier)
 	} else {
 		// If we couldn't determine the vendor or it's a new one, use what we have
 		if vendor == "" || vendor == "unknown" {
