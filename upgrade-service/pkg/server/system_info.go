@@ -35,7 +35,7 @@ func NewSystemInfoServerWithProvider(provider hostinfo.PlatformInfoProvider) *Sy
 // GetPlatformType implements the GetPlatformType RPC method
 func (s *SystemInfoServer) GetPlatformType(ctx context.Context, req *pb.GetPlatformTypeRequest) (*pb.GetPlatformTypeResponse, error) {
 	glog.V(1).Info("GetPlatformType request received")
-	
+
 	// Get platform information from the host
 	glog.V(2).Info("Retrieving platform information from host")
 	platformInfo, err := s.platformProvider.GetPlatformInfo(ctx)

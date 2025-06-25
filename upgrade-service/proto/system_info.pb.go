@@ -134,7 +134,7 @@ const file_proto_system_info_proto_rawDesc = "" +
 	"\x05model\x18\x03 \x01(\tR\x05model2`\n" +
 	"\n" +
 	"SystemInfo\x12R\n" +
-	"\x0fGetPlatformType\x12\x1d.sonic.GetPlatformTypeRequest\x1a\x1e.sonic.GetPlatformTypeResponse\"\x00BFZDdev.azure.com/mssonic/internal/_git/sonic-metadata/api-service/protob\x06proto3"
+	"\x0fGetPlatformType\x12\x1d.sonic.GetPlatformTypeRequest\x1a\x1e.sonic.GetPlatformTypeResponse\"\x00B7Z5github.com/sonic-net/sonic-gnmi/upgrade-service/protob\x06proto3"
 
 var (
 	file_proto_system_info_proto_rawDescOnce sync.Once
