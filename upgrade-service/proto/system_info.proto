@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package sonic;
 
-option go_package = "dev.azure.com/mssonic/internal/_git/sonic-metadata/api-service/proto";
+option go_package = "github.com/sonic-net/sonic-gnmi/upgrade-service/proto";
 
 // SystemInfo service provides information about the system
 service SystemInfo {
