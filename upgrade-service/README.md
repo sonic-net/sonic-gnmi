@@ -127,8 +127,9 @@ The project includes several targets for testing and verification:
 # Run the entire CI pipeline locally (validation only, no tool installation)
 make ci
 
-# Format checking
-make fmt
+# Code formatting
+make format                      # Fix code formatting automatically
+make validate-format             # Validate code formatting (CI use)
 
 # Tool validation (checks if tools are available)
 make validate-tools              # Check all tools
@@ -196,7 +197,7 @@ This project includes a CI pipeline configured in the `.azure-pipelines/api-serv
 
 The CI pipeline runs `make ci` which includes these validation steps:
 
-1. **Code formatting** (`make fmt`) - Ensures consistent code style
+1. **Code formatting** (`make validate-format`) - Validates consistent code style
 2. **Tool validation** (`make validate-tools`) - Checks required tools are available
 3. **Proto validation** (`make validate-proto`) - Ensures protobuf files are up-to-date
 4. **Mock validation** (`make validate-mocks`) - Ensures mock files are up-to-date  
