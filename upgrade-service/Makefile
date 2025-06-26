@@ -5,23 +5,42 @@
 # Default go build tags
 BUILD_TAGS ?=
 PROTOC_VERSION ?= 31.1
+PROTOC_GEN_GO_VERSION ?= v1.36.6
+PROTOC_GEN_GO_GRPC_VERSION ?= v1.5.1
+MOCKGEN_VERSION ?= v0.5.2
+MOCKGEN_PACKAGE ?= go.uber.org/mock/mockgen
 DOCKER_TAG ?= latest
 DOCKER_IMAGE ?= docker-mopd
 
+# Version check macro
+# Usage: $(call check-tool-version,tool-name,expected-version,install-target)
+define check-tool-version
+	@echo "Validating $(1) $(2)..."
+	@which $(1) > /dev/null || (echo "ERROR: $(1) not found. Run 'make $(3)' to install $(2)."; exit 1)
+	@INSTALLED_VERSION=$$($(1) --version 2>&1 | grep -o -E '(v?[0-9]+\.[0-9]+\.[0-9]+)' | head -1); \
+	EXPECTED_VERSION=$(2); \
+	if [ "$$INSTALLED_VERSION" = "$${EXPECTED_VERSION#v}" ] || [ "v$$INSTALLED_VERSION" = "$$EXPECTED_VERSION" ] || [ "$$INSTALLED_VERSION" = "$$EXPECTED_VERSION" ]; then \
+		echo "✓ $(1) version $$INSTALLED_VERSION matches expected $(2)"; \
+	else \
+		echo "WARNING: $(1) version mismatch. Expected $(2), found $$INSTALLED_VERSION"; \
+		echo "Run 'make $(3)' to install the correct version."; \
+	fi
+endef
+
 # Install protoc-gen-go
 install-protoc-gen-go:
-	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-	@echo "protoc-gen-go installed to $(shell go env GOPATH)/bin"
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+	@echo "protoc-gen-go $(PROTOC_GEN_GO_VERSION) installed to $(shell go env GOPATH)/bin"
 
 # Install protoc-gen-go-grpc
 install-protoc-gen-go-grpc:
-	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-	@echo "protoc-gen-go-grpc installed to $(shell go env GOPATH)/bin"
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
+	@echo "protoc-gen-go-grpc $(PROTOC_GEN_GO_GRPC_VERSION) installed to $(shell go env GOPATH)/bin"
 
 # Install mockgen
 install-mockgen:
-	go install github.com/golang/mock/mockgen@v1.6.0
-	@echo "mockgen installed to $(shell go env GOPATH)/bin"
+	go install $(MOCKGEN_PACKAGE)@$(MOCKGEN_VERSION)
+	@echo "mockgen $(MOCKGEN_VERSION) from $(MOCKGEN_PACKAGE) installed to $(shell go env GOPATH)/bin"
 
 # Install all tools
 tools: install-protoc-gen-go install-protoc-gen-go-grpc install-mockgen
@@ -76,18 +95,15 @@ validate-protoc:
 
 # Validate protoc-gen-go is available
 validate-protoc-gen-go:
-	@echo "Validating protoc-gen-go..."
-	@which protoc-gen-go > /dev/null || (echo "ERROR: protoc-gen-go not found. Run 'make install-protoc-gen-go' to install."; exit 1)
+	$(call check-tool-version,protoc-gen-go,$(PROTOC_GEN_GO_VERSION),install-protoc-gen-go)
 
 # Validate protoc-gen-go-grpc is available
 validate-protoc-gen-go-grpc:
-	@echo "Validating protoc-gen-go-grpc..."
-	@which protoc-gen-go-grpc > /dev/null || (echo "ERROR: protoc-gen-go-grpc not found. Run 'make install-protoc-gen-go-grpc' to install."; exit 1)
+	$(call check-tool-version,protoc-gen-go-grpc,$(PROTOC_GEN_GO_GRPC_VERSION),install-protoc-gen-go-grpc)
 
 # Validate mockgen is available
 validate-mockgen:
-	@echo "Validating mockgen..."
-	@which mockgen > /dev/null || (echo "ERROR: mockgen not found. Run 'make install-mockgen' to install."; exit 1)
+	$(call check-tool-version,mockgen,$(MOCKGEN_VERSION),install-mockgen)
 
 # Validate all protobuf tools are available
 validate-protobuf-tools: validate-protoc validate-protoc-gen-go validate-protoc-gen-go-grpc
@@ -168,7 +184,7 @@ mocks: validate-mockgen
 		output_file="mock_$$(basename $$source .go).go"; \
 		echo "  Generating mock for $$interfaces from $$source"; \
 		mkdir -p $$output_dir; \
-		mockgen \
+		GO111MODULE=on mockgen \
 			-source=$$source \
 			-destination=$$output_dir/$$output_file \
 			-package=$$(basename $$output_dir) \
@@ -188,7 +204,7 @@ validate-mocks: validate-mockgen
 		output_file="mock_$$(basename $$source .go).go"; \
 		temp_output_dir="$$TEMP_DIR/$$output_dir"; \
 		mkdir -p "$$temp_output_dir"; \
-		mockgen \
+		GO111MODULE=on mockgen \
 			-source=$$source \
 			-destination="$$temp_output_dir/$$output_file" \
 			-package=$$(basename $$output_dir) \
@@ -196,10 +212,17 @@ validate-mocks: validate-mockgen
 		if [ ! -f "$$output_dir/$$output_file" ]; then \
 			echo "Generated mock file $$output_dir/$$output_file does not exist"; \
 			DIFF_FILES=true; \
-		elif ! diff -u "$$output_dir/$$output_file" "$$temp_output_dir/$$output_file" > /dev/null; then \
-			echo "Differences found in $$output_dir/$$output_file:"; \
-			diff -u "$$output_dir/$$output_file" "$$temp_output_dir/$$output_file"; \
-			DIFF_FILES=true; \
+		else \
+			TEMP_CURRENT=$$(mktemp); \
+			TEMP_GENERATED=$$(mktemp); \
+			sed 's|-destination=[^[:space:]]*|-destination=NORMALIZED_PATH|g' "$$output_dir/$$output_file" > "$$TEMP_CURRENT"; \
+			sed 's|-destination=[^[:space:]]*|-destination=NORMALIZED_PATH|g' "$$temp_output_dir/$$output_file" > "$$TEMP_GENERATED"; \
+			if ! diff -u "$$TEMP_CURRENT" "$$TEMP_GENERATED" > /dev/null; then \
+				echo "Differences found in $$output_dir/$$output_file:"; \
+				diff -u "$$output_dir/$$output_file" "$$temp_output_dir/$$output_file"; \
+				DIFF_FILES=true; \
+			fi; \
+			rm -f "$$TEMP_CURRENT" "$$TEMP_GENERATED"; \
 		fi; \
 	done; \
 	if [ "$$DIFF_FILES" = true ]; then \

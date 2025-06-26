@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/hostinfo"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/hostinfo/mocks"

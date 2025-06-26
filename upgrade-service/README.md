@@ -55,6 +55,11 @@ make help-tools
 
 **Note:** The `tools` target installs Go tools but excludes `protoc`. Install `protoc` separately with `make install-protoc`.
 
+**Tool Versions:** This project uses pinned tool versions for reproducible builds:
+- `protoc-gen-go v1.36.6` (latest)
+- `protoc-gen-go-grpc v1.5.1` (latest) 
+- `mockgen v0.5.2` from `go.uber.org/mock` (maintained fork)
+
 ### Generating Protobuf Files
 
 Generate the protobuf Go files with:
