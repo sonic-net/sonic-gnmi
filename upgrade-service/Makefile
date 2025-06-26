@@ -1,4 +1,4 @@
-.PHONY: proto build run clean tools test test-e2e format validate-format vet tidy verify ci mocks validate-mocks docker-build docker-push \
+.PHONY: proto build run clean tools test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci mocks validate-mocks docker-build docker-push \
 	install-protoc-gen-go install-protoc-gen-go-grpc install-mockgen install-protoc install-golangci-lint help-tools \
 	validate-protoc validate-protoc-gen-go validate-protoc-gen-go-grpc validate-mockgen validate-golangci-lint validate-protobuf-tools validate-tools \
 	lint
@@ -11,6 +11,7 @@ PROTOC_GEN_GO_GRPC_VERSION ?= v1.5.1
 MOCKGEN_VERSION ?= v0.5.2
 MOCKGEN_PACKAGE ?= go.uber.org/mock/mockgen
 GOLANGCI_LINT_VERSION ?= v2.1.6
+COVERAGE_THRESHOLD ?= 25
 DOCKER_TAG ?= latest
 DOCKER_IMAGE ?= docker-mopd
 
@@ -185,6 +186,35 @@ lint: validate-golangci-lint
 test:
 	go test ./... -timeout 2m
 
+# Run all tests with coverage
+test-coverage:
+	@echo "Running tests with coverage..."
+	@go test ./... -timeout 2m -coverprofile=coverage.out -covermode=atomic
+	@echo "Coverage report generated: coverage.out"
+
+# Generate HTML coverage report
+coverage-html: test-coverage
+	@echo "Generating HTML coverage report..."
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "HTML coverage report generated: coverage.html"
+
+# Show coverage summary
+coverage-summary: test-coverage
+	@echo "Coverage summary:"
+	@go tool cover -func=coverage.out
+
+# Validate coverage meets minimum threshold
+validate-coverage: test-coverage
+	@echo "Validating coverage meets minimum threshold..."
+	@COVERAGE=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//'); \
+	THRESHOLD=$(COVERAGE_THRESHOLD); \
+	if [ "$$(echo "$$COVERAGE < $$THRESHOLD" | bc -l)" -eq 1 ]; then \
+		echo "ERROR: Coverage $$COVERAGE% is below minimum threshold $$THRESHOLD%"; \
+		exit 1; \
+	else \
+		echo "✓ Coverage $$COVERAGE% meets minimum threshold $$THRESHOLD%"; \
+	fi
+
 # Run end-to-end tests
 test-e2e:
 	go test ./tests/e2e/... -timeout 2m
@@ -277,7 +307,7 @@ clean:
 	rm -f proto/*.pb.go
 
 # CI pipeline target - runs all verification steps (validation only, no tool installation)
-ci: validate-format validate-proto validate-mocks tidy build-all vet lint test test-e2e verify
+ci: validate-format validate-proto validate-mocks tidy build-all vet lint test validate-coverage test-e2e verify
 
 # Build Docker image
 docker-build: build
