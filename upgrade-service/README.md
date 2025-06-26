@@ -1,6 +1,6 @@
-# SONiC Upgrade Service
+# SONiC Operations Interface
 
-This directory contains the Go-based gRPC server implementation for all SONiC upgrade-related services.
+This directory contains the Go-based gRPC server implementation for dynamic SONiC operations including upgrades, configuration, and troubleshooting.
 
 ## Prerequisites
 
@@ -11,7 +11,7 @@ This directory contains the Go-based gRPC server implementation for all SONiC up
 ## Directory Structure
 
 ```
-upgrade-service/
+sonic-ops-interface/
 ├── cmd/                # Command-line applications
 │   └── server/         # gRPC server implementation
 ├── internal/           # Private code not intended for external use
@@ -101,16 +101,16 @@ The server supports the following command-line options:
 
 ```bash
 # Basic usage with default settings (port 50051, rootfs /mnt/host)
-./bin/server
+./bin/sonic-ops-server
 
 # Specify different port and rootfs (useful for containers vs baremetal)
-./bin/server --addr=:8080 --rootfs=/host
+./bin/sonic-ops-server --addr=:8080 --rootfs=/host
 
 # Enable verbose logging
-./bin/server -v=2
+./bin/sonic-ops-server -v=2
 
 # Show all available options
-./bin/server --help
+./bin/sonic-ops-server --help
 ```
 
 **Configuration Options:**
@@ -193,7 +193,7 @@ grpcurl -plaintext localhost:50051 sonic.FirmwareManagement/CleanupOldFirmware
 
 ## Development
 
-This service is implemented as a separate Go module within the `sonic-gnmi` repository to provide a comprehensive gRPC server for all SONiC upgrade-related operations.
+This service is implemented as a separate Go module within the `sonic-gnmi` repository to provide a comprehensive gRPC server for dynamic SONiC operations.
 
 When adding new functionality:
 1. Define the service interface in `.proto` files in the `proto/` directory
@@ -267,19 +267,19 @@ The server is designed to work in different deployment scenarios:
 ### Container Deployment
 ```bash
 # Container with host filesystem mounted at /mnt/host
-./bin/server --rootfs=/mnt/host --addr=:50051
+./bin/sonic-ops-server --rootfs=/mnt/host --addr=:50051
 ```
 
 ### Baremetal Deployment  
 ```bash
 # Direct baremetal installation
-./bin/server --rootfs=/ --addr=:50051
+./bin/sonic-ops-server --rootfs=/ --addr=:50051
 ```
 
 ### Development/Testing
 ```bash
 # Local testing with custom filesystem
-./bin/server --rootfs=/tmp/test-env --addr=:50052
+./bin/sonic-ops-server --rootfs=/tmp/test-env --addr=:50052
 ```
 
 The `--rootfs` flag allows the server to find system files (like `/host/machine.conf`) regardless of the deployment environment.

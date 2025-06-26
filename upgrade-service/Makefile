@@ -7,7 +7,7 @@ include tools.mk
 BUILD_TAGS ?=
 COVERAGE_THRESHOLD ?= 25
 DOCKER_TAG ?= latest
-DOCKER_IMAGE ?= docker-mopd
+DOCKER_IMAGE ?= opsd
 
 
 # Fix formatting with gofmt
@@ -194,7 +194,7 @@ validate-mocks: validate-mockgen
 
 # Build the server
 build: validate-proto
-	go build -tags "$(BUILD_TAGS)" -o bin/server cmd/server/main.go
+	go build -tags "$(BUILD_TAGS)" -o bin/sonic-ops-server cmd/server/main.go
 
 # Build all packages
 build-all:
@@ -202,11 +202,11 @@ build-all:
 
 # Run the server
 run: build
-	./bin/server
+	./bin/sonic-ops-server
 
 # Clean build artifacts
 clean:
-	rm -f bin/server
+	rm -f bin/sonic-ops-server
 	rm -f proto/*.pb.go
 
 # CI pipeline target - runs all verification steps (validation only, no tool installation)

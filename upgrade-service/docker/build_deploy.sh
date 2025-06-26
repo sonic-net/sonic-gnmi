@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script to build and deploy the mopd container to a SONiC device
+# Script to build and deploy the opsd container to a SONiC device
 # Supports configurable server address for flexible deployment
 
 set -e
@@ -7,7 +7,7 @@ set -e
 # Parse command line arguments
 TARGET=""
 IMAGE_TAG="latest"
-MOPD_ADDR=":50051"
+OPSD_ADDR=":50051"
 
 usage() {
   echo "Usage: $0 -t <target> [-i <image_tag>] [-a <address>]"
@@ -26,7 +26,7 @@ while getopts "t:i:a:h" opt; do
       IMAGE_TAG=$OPTARG
       ;;
     a)
-      MOPD_ADDR=$OPTARG
+      OPSD_ADDR=$OPTARG
       ;;
     h|*)
       usage
@@ -45,11 +45,11 @@ ROOT_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
 
 # Build the Docker image using make
 cd "$ROOT_DIR"
-echo "Building mopd Docker image..."
+echo "Building opsd Docker image..."
 make docker-build DOCKER_TAG=$IMAGE_TAG
 
 # Check if image was built successfully
-IMAGE_NAME="docker-mopd:$IMAGE_TAG"
+IMAGE_NAME="opsd:$IMAGE_TAG"
 if [[ "$(docker images -q $IMAGE_NAME 2> /dev/null)" == "" ]]; then
   echo "Failed to build $IMAGE_NAME image"
   exit 1
@@ -62,7 +62,7 @@ echo ""
 echo "Deploying to $TARGET..."
 
 # Save the Docker image to a temporary file
-TEMP_IMAGE_FILE="/tmp/docker-mopd-$IMAGE_TAG.tar"
+TEMP_IMAGE_FILE="/tmp/opsd-$IMAGE_TAG.tar"
 echo "Saving Docker image to $TEMP_IMAGE_FILE..."
 docker save $IMAGE_NAME -o $TEMP_IMAGE_FILE
 
@@ -72,14 +72,14 @@ scp $TEMP_IMAGE_FILE $TARGET:/tmp/
 
 # Load and run the container on the SONiC device
 echo "Loading and starting container on $TARGET..."
-ssh $TARGET "docker load -i /tmp/docker-mopd-$IMAGE_TAG.tar && \
-              docker rm -f mopd 2>/dev/null || true && \
-              docker run -d --name mopd --network host -v /host:/host:rw -e MOPD_ADDR='$MOPD_ADDR' $IMAGE_NAME"
+ssh $TARGET "docker load -i /tmp/opsd-$IMAGE_TAG.tar && \
+              docker rm -f opsd 2>/dev/null || true && \
+              docker run -d --name opsd --network host -v /host:/host:rw -e OPSD_ADDR='$OPSD_ADDR' $IMAGE_NAME"
 
 # Clean up the temporary file
 rm $TEMP_IMAGE_FILE
 
 echo ""
 echo "Deployment completed successfully!"
-echo "Container 'mopd' is now running on $TARGET"
-echo "Listening on address: $MOPD_ADDR"
+echo "Container 'opsd' is now running on $TARGET"
+echo "Listening on address: $OPSD_ADDR"
