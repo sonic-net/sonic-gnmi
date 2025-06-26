@@ -21,6 +21,7 @@ require (
 	github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
 	github.com/openconfig/gnoi v0.3.0
 	github.com/openconfig/ygot v0.7.1
+	github.com/stretchr/testify v1.9.0
 	golang.org/x/crypto v0.24.0
 	golang.org/x/net v0.26.0
 	google.golang.org/grpc v1.64.1
@@ -35,6 +36,7 @@ require (
 	github.com/antchfx/xpath v1.1.10 // indirect
 	github.com/bgentry/speakeasy v0.1.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.0.0 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/go-redis/redis/v7 v7.0.0-beta.3.0.20190824101152-d19aba07b476 // indirect
 	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
@@ -43,12 +45,13 @@ require (
 	github.com/onsi/gomega v1.7.1 // indirect
 	github.com/openconfig/goyang v0.0.0-20200309174518-a00bece872fc // indirect
 	github.com/philopon/go-toposort v0.0.0-20170620085441-9be86dbd762f // indirect
-	github.com/stretchr/testify v1.9.0 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	go4.org/intern v0.0.0-20211027215823-ae77deb06f29 // indirect
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
 	golang.org/x/sys v0.26.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
 	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 	inet.af/netaddr v0.0.0-20230525184311-b8eac61e914a // indirect
 )
 
