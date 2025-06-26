@@ -58,8 +58,8 @@ import (
 	"github.com/jipanyang/gnxi/utils/xpath"
 	cacheclient "github.com/openconfig/gnmi/client"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
@@ -2869,9 +2869,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet*", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernetWildJson},
+				client.Update{Path: []string{"PERIODIC_WATERMARKS", "Ethernet*", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernetWildJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet*", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernetWildJson},
+				client.Update{Path: []string{"PERIODIC_WATERMARKS", "Ethernet*", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernetWildJson},
 				client.Sync{},
 			},
 		},
@@ -2890,13 +2890,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16Json},
+				client.Update{Path: []string{"PERIODIC_WATERMARKS", "Ethernet16", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16Json},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16JsonUpdate},
+				client.Update{Path: []string{"PERIODIC_WATERMARKS", "Ethernet16", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16JsonUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16JsonUpdate},
+				client.Update{Path: []string{"PERIODIC_WATERMARKS", "Ethernet16", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16JsonUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16JsonUpdate},
+				client.Update{Path: []string{"PERIODIC_WATERMARKS", "Ethernet16", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16JsonUpdate},
 				client.Sync{},
 			},
 		},
@@ -2915,13 +2915,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
-				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16/1", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16AliasJson},
+				client.Update{Path: []string{"PERIODIC_WATERMARKS", "Ethernet16/1", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16AliasJson},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16/1", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16AliasJsonUpdate},
+				client.Update{Path: []string{"PERIODIC_WATERMARKS", "Ethernet16/1", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16AliasJsonUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16/1", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16AliasJsonUpdate},
+				client.Update{Path: []string{"PERIODIC_WATERMARKS", "Ethernet16/1", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16AliasJsonUpdate},
 				client.Sync{},
-				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16/1", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16AliasJsonUpdate},
+				client.Update{Path: []string{"PERIODIC_WATERMARKS", "Ethernet16/1", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16AliasJsonUpdate},
 				client.Sync{},
 			},
 		},
