@@ -1,4 +1,4 @@
-.PHONY: proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci mocks validate-mocks docker-build docker-push lint
+.PHONY: proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci mocks validate-mocks docker-build docker-push lint deb
 
 # Include tool management makefile
 include tools.mk
@@ -218,3 +218,14 @@ docker-build: build
 # Push Docker image to registry
 docker-push: docker-build
 	docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
+
+# Build debian package
+deb: build
+	@echo "Building debian package..."
+	@mkdir -p build
+	@rm -rf build/*
+	@dpkg-buildpackage -us -uc -d --build-dir=build 2>/dev/null || dpkg-buildpackage -us -uc -d
+	@if [ -f ../sonic-ops-server_*.deb ]; then \
+		mv ../sonic-ops-server_*.* build/ 2>/dev/null || true; \
+	fi
+	@echo "Debian package built in build/ directory"
