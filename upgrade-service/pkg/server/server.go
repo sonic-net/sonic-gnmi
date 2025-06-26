@@ -32,6 +32,9 @@ func NewServer(addr string) (*Server, error) {
 	systemInfoServer := NewSystemInfoServer()
 	pb.RegisterSystemInfoServer(grpcServer, systemInfoServer)
 
+	firmwareManagementServer := NewFirmwareManagementServer()
+	pb.RegisterFirmwareManagementServer(grpcServer, firmwareManagementServer)
+
 	// Register reflection service for grpcurl functionality
 	glog.V(2).Info("Registering reflection service")
 	reflection.Register(grpcServer)
