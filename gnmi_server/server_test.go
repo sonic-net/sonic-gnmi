@@ -621,6 +621,14 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	mpi_qname_map := loadConfig(t, "COUNTERS_QUEUE_NAME_MAP", countersQueueNameMapByte)
 	loadDB(t, rclient, mpi_qname_map)
 
+	fileName = "../testdata/COUNTERS_PG_NAME_MAP.txt"
+	countersPGNameMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_pgname_map := loadConfig(t, "COUNTERS_PG_NAME_MAP", countersPGNameMapByte)
+	loadDB(t, rclient, mpi_pgname_map)
+
 	fileName = "../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -664,6 +672,25 @@ func initFullCountersDb(t *testing.T, namespace string) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1500000000091c", periodicWMEth68_1Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet7:5": "oid:0x150000000001d0"  : queue counter, for COUNTERS/Ethernet7/Queues vpath test
+	fileName = "../testdata/COUNTERS:oid:0x150000000001d0.txt"
+	countersEth7_5Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x150000000001d0", countersEth7_5Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet16:5": "oid:0x1a0000000002d2"
+	// PG periodic watermark, for PERIODIC_WATERMARKS/Ethernet16/PriorityGroups vpath test
+	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1a0000000002d2.txt"
+	pgWatermarksEth16_5Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1a0000000002d2", pgWatermarksEth16_5Byte)
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:3": "oid:0x1500000000091e"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
@@ -775,6 +802,14 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_qname_map := loadConfig(t, "COUNTERS_QUEUE_NAME_MAP", countersQueueNameMapByte)
 	loadDB(t, rclient, mpi_qname_map)
 
+	fileName = "../testdata/COUNTERS_PG_NAME_MAP.txt"
+	countersPGNameMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_pgname_map := loadConfig(t, "COUNTERS_PG_NAME_MAP", countersPGNameMapByte)
+	loadDB(t, rclient, mpi_pgname_map)
+
 	fileName = "../testdata/COUNTERS_FABRIC_PORT_NAME_MAP.txt"
 	countersFabricPortNameMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -830,11 +865,21 @@ func prepareDb(t *testing.T, namespace string) {
 
 	// "Ethernet7:5": "oid:0x150000000001d0"  : queue counter, for COUNTERS/Ethernet7/Queues vpath test
 	fileName = "../testdata/COUNTERS:oid:0x150000000001d0.txt"
-	countersEeth7_5Byte, err := ioutil.ReadFile(fileName)
+	countersEth7_5Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
-	mpi_counter = loadConfig(t, "COUNTERS:oid:0x150000000001d0", countersEeth7_5Byte)
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x150000000001d0", countersEth7_5Byte)
+	loadDB(t, rclient, mpi_counter)
+
+	// "Ethernet16:5": "oid:0x1a0000000002d2"
+	// PG periodic watermark, for PERIODIC_WATERMARKS/Ethernet16/PriorityGroups vpath test
+	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1a0000000002d2.txt"
+	pgWatermarksEth16_5Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "PERIODIC_WATERMARKS:oid:0x1a0000000002d2", pgWatermarksEth16_5Byte)
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:3": "oid:0x1500000000091e"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
@@ -2071,6 +2116,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	tmp6.(map[string]interface{})["Ethernet68/1:3"].(map[string]interface{})["PFC_WD_QUEUE_STATS_DEADLOCK_DETECTED"] = "1"
 	countersEthernetWildPfcwdUpdate := tmp6
 
+	///////////////////////////////////////////////////////////////////////////////////////////////
+
 	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Queues_alias.txt"
 	countersEthernetWildQueuesByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -2108,6 +2155,47 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
+
+	///////////////////////////////////////////////////////////////////////////////////////////////
+
+	fileName = "../testdata/PERIODIC_WATERMARKS:Ethernet_wildcard:PriorityGroups_alias.txt"
+	pgWatermarksEthernetWildByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var pgWatermarksEthernetWildJson interface{}
+	json.Unmarshal(pgWatermarksEthernetWildByte, &pgWatermarksEthernetWildJson)
+
+	fileName = "../testdata/PERIODIC_WATERMARKS:Ethernet16:PriorityGroups.txt"
+	pgWatermarksEthernet16Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var pgWatermarksEthernet16Json interface{}
+	json.Unmarshal(pgWatermarksEthernet16Byte, &pgWatermarksEthernet16Json)
+
+	pgWatermarksEthernet16JsonUpdate := make(map[string]interface{})
+	json.Unmarshal(pgWatermarksEthernet16Byte, &pgWatermarksEthernet16JsonUpdate)
+	eth16_5 := map[string]interface{}{
+		"SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES":    "200", // Changed from 0 to 200
+		"SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES": "10",  // Changed from 0 to 10
+	}
+	pgWatermarksEthernet16JsonUpdate["Ethernet16:5"] = eth16_5
+
+	// Alias translation for query PERIODIC_WATERMARKS:Ethernet16/1:PriorityGroups
+	fileName = "../testdata/PERIODIC_WATERMARKS:Ethernet16:PriorityGroups_alias.txt"
+	pgWatermarksEthernet16AliasByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var pgWatermarksEthernet16AliasJson interface{}
+	json.Unmarshal(pgWatermarksEthernet16AliasByte, &pgWatermarksEthernet16AliasJson)
+
+	pgWatermarksEthernet16AliasJsonUpdate := make(map[string]interface{})
+	json.Unmarshal(pgWatermarksEthernet16AliasByte, &pgWatermarksEthernet16AliasJsonUpdate)
+	pgWatermarksEthernet16AliasJsonUpdate["Ethernet16/1:5"] = eth16_5
+
+	///////////////////////////////////////////////////////////////////////////////////////////////
 
 	type TestExec struct {
 		desc       string
@@ -2767,6 +2855,73 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				client.Update{Path: []string{"COUNTERS", "Ethernet7/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesAliasJson},
 				client.Sync{},
 				client.Update{Path: []string{"COUNTERS", "Ethernet7/1", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernet7QueuesAliasJsonUpdate},
+				client.Sync{},
+			},
+		},
+		{
+			desc: "poll query for PERIODIC_WATERMARKS/Ethernet*/PriorityGroups",
+			poll: 1,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"PERIODIC_WATERMARKS", "Ethernet*", "PriorityGroups"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet*", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernetWildJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet*", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernetWildJson},
+				client.Sync{},
+			},
+		},
+		{
+			desc: "poll query for PERIODIC_WATERMARKS/Ethernet16/PriorityGroups with field value change",
+			poll: 3,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"PERIODIC_WATERMARKS", "Ethernet16", "PriorityGroups"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			updates: []tablePathValue{
+				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000002d2", "SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES", "200"),   // being changed from 0 to 200
+				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000002d2", "SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES", "10"), // being changed from 0 to 10
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16Json},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16JsonUpdate},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16JsonUpdate},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16JsonUpdate},
+				client.Sync{},
+			},
+		},
+		{
+			desc: "(use vendor alias) poll query for PERIODIC_WATERMARKS/Ethernet16/PriorityGroups with field value change",
+			poll: 3,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"PERIODIC_WATERMARKS", "Ethernet16/1", "PriorityGroups"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			updates: []tablePathValue{
+				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000002d2", "SAI_INGRESS_PRIORITY_GROUP_STAT_SHARED_WATERMARK_BYTES", "200"),   // being changed from 0 to 200
+				createPeriodicWatermarksTableSetUpdate("oid:0x1a0000000002d2", "SAI_INGRESS_PRIORITY_GROUP_STAT_XOFF_ROOM_WATERMARK_BYTES", "10"), // being changed from 0 to 10
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16/1", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16AliasJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16/1", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16AliasJsonUpdate},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16/1", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16AliasJsonUpdate},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet16/1", "PriorityGroups"}, TS: time.Unix(0, 200), Val: pgWatermarksEthernet16AliasJsonUpdate},
 				client.Sync{},
 			},
 		},
