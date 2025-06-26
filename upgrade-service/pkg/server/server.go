@@ -10,13 +10,13 @@ import (
 	pb "github.com/sonic-net/sonic-gnmi/upgrade-service/proto"
 )
 
-// Server represents the gRPC server and its resources
+// Server represents the gRPC server and its resources.
 type Server struct {
 	grpcServer *grpc.Server
 	listener   net.Listener
 }
 
-// NewServer creates a new Server instance
+// NewServer creates a new Server instance.
 func NewServer(addr string) (*Server, error) {
 	glog.V(1).Infof("Creating new server listening on %s", addr)
 	lis, err := net.Listen("tcp", addr)
@@ -43,13 +43,13 @@ func NewServer(addr string) (*Server, error) {
 	}, nil
 }
 
-// Start begins serving requests
+// Start begins serving requests.
 func (s *Server) Start() error {
 	glog.Infof("Starting gRPC server on %s", s.listener.Addr().String())
 	return s.grpcServer.Serve(s.listener)
 }
 
-// Stop gracefully stops the server
+// Stop gracefully stops the server.
 func (s *Server) Stop() {
 	glog.Info("Gracefully stopping server...")
 	s.grpcServer.GracefulStop()

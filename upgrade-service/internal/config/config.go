@@ -9,7 +9,7 @@ import (
 	"github.com/golang/glog"
 )
 
-// Config holds global configuration for the upgrade service
+// Config holds global configuration for the upgrade service.
 type Config struct {
 	Addr            string
 	RootFS          string
@@ -18,7 +18,7 @@ type Config struct {
 
 var Global *Config
 
-// Initialize defines flags and sets up the global configuration
+// Initialize defines flags and sets up the global configuration.
 func Initialize() {
 	addr := flag.String("addr", ":50051", "The address to listen on")
 	rootfs := flag.String("rootfs", "/mnt/host", "Root filesystem mount point (e.g., /mnt/host for containers)")
@@ -37,7 +37,7 @@ func Initialize() {
 // GetHostPath returns the path to a file/directory on the host filesystem
 // The path parameter must be absolute (starting with "/")
 // Example: GetHostPath("/tmp") -> "/mnt/host/tmp"
-// Example: GetHostPath("/host/machine.conf") -> "/mnt/host/host/machine.conf"
+// Example: GetHostPath("/host/machine.conf") -> "/mnt/host/host/machine.conf".
 func GetHostPath(path string) string {
 	if !filepath.IsAbs(path) {
 		glog.Errorf("GetHostPath requires absolute path, got: %s", path)

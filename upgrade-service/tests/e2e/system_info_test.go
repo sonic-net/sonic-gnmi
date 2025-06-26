@@ -21,7 +21,7 @@ import (
 const bufSize = 1024 * 1024
 
 // setupGRPCServer creates an in-memory gRPC server using bufconn
-// and registers the SystemInfoServer with the given platform info provider
+// and registers the SystemInfoServer with the given platform info provider.
 func setupGRPCServer(t *testing.T, provider hostinfo.PlatformInfoProvider) (*grpc.Server, *bufconn.Listener) {
 	t.Helper()
 
@@ -45,7 +45,7 @@ func setupGRPCServer(t *testing.T, provider hostinfo.PlatformInfoProvider) (*grp
 	return grpcServer, lis
 }
 
-// createClientConn creates a gRPC client connection to the in-memory server
+// createClientConn creates a gRPC client connection to the in-memory server.
 func createClientConn(ctx context.Context, lis *bufconn.Listener) (*grpc.ClientConn, error) {
 	// Create a custom dialer for the in-memory connection
 	dialer := func(context.Context, string) (net.Conn, error) {
@@ -61,7 +61,7 @@ func createClientConn(ctx context.Context, lis *bufconn.Listener) (*grpc.ClientC
 	)
 }
 
-// TestGetPlatformType_E2E tests the GetPlatformType RPC with a mock platform provider
+// TestGetPlatformType_E2E tests the GetPlatformType RPC with a mock platform provider.
 func TestGetPlatformType_E2E(t *testing.T) {
 	// Create a mock controller
 	ctrl := gomock.NewController(t)
@@ -159,12 +159,9 @@ func TestGetPlatformType_E2E(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, resp)
-				// TODO: Uncomment these after proto files are regenerated
-				// assert.Equal(t, tc.expectedResponse.PlatformIdentifier, resp.PlatformIdentifier)
-				// assert.Equal(t, tc.expectedResponse.Vendor, resp.Vendor)
-				// assert.Equal(t, tc.expectedResponse.Model, resp.Model)
-
-				// For now, just don't check the fields as they're not yet regenerated
+				assert.Equal(t, tc.expectedResponse.PlatformIdentifier, resp.PlatformIdentifier)
+				assert.Equal(t, tc.expectedResponse.Vendor, resp.Vendor)
+				assert.Equal(t, tc.expectedResponse.Model, resp.Model)
 			}
 		})
 	}

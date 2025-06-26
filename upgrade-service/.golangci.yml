@@ -1,0 +1,46 @@
+version: 2
+
+run:
+  timeout: 5m
+
+linters:
+  default: fast
+  disable:
+    - depguard     # Too restrictive for standard imports
+    - wsl          # Too opinionated about whitespace
+    - mnd          # Magic number detection too strict
+    - nlreturn     # Return formatting too strict
+    - funlen       # Function length checks too strict for tests
+    - testpackage  # Don't require _test package suffix
+    - gocognit     # Disable cognitive complexity for now
+    - nestif       # Disable nested if complexity for now
+    - gocyclo      # Disable cyclomatic complexity for now
+    - cyclop       # Disable another cyclomatic complexity checker
+
+linters-settings:
+  gocognit:
+    # Allow higher complexity for existing complex functions
+    min-complexity: 60
+  nestif:
+    # Allow deeper nesting for existing code
+    min-complexity: 35
+
+issues:
+  exclude-rules:
+    # Exclude generated files
+    - path: '\.pb\.go$'
+      linters:
+        - all
+    # Exclude mock files  
+    - path: 'mock_.*\.go$'
+      linters:
+        - all
+    # Allow TODOs in development
+    - linters:
+        - godox
+      text: "TODO"
+
+output:
+  formats:
+    stdout:
+      format: colored-line-number
