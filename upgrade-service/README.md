@@ -150,12 +150,25 @@ make verify                      # Verify Go modules
 make vet                         # Run static analysis
 make lint                        # Run golangci-lint for comprehensive linting
 make test                        # Run all tests
+
+# Code coverage
+make test-coverage               # Run tests with coverage collection
+make coverage-summary            # Show coverage summary in terminal
+make coverage-html               # Generate HTML coverage report (coverage.html)
+make validate-coverage           # Validate coverage meets minimum threshold
+                                 # (configurable via COVERAGE_THRESHOLD)
 ```
 
 **CI vs Local Development:**
 - CI pipeline (`make ci`) validates everything without installing tools
 - Local development can use install targets (`make tools`, `make install-*`) to set up tools
 - Clear error messages guide you to the right install command when tools are missing
+
+**Coverage Configuration:**
+- Coverage threshold is configurable via environment variable
+- Example: `COVERAGE_THRESHOLD=50 make validate-coverage`
+- Coverage reports exclude generated code (proto, mocks) automatically
+- See Makefile for current default threshold value
 
 ## Using grpcurl to Test the Service
 
@@ -206,8 +219,9 @@ The CI pipeline runs `make ci` which includes these validation steps:
 7. **Static analysis** (`make vet`) - Runs Go static analysis
 8. **Code linting** (`make lint`) - Runs golangci-lint for comprehensive code quality checks
 9. **Unit tests** (`make test`) - Runs all unit tests
-10. **E2E tests** (`make test-e2e`) - Runs end-to-end tests
-11. **Module verification** (`make verify`) - Verifies module integrity
+10. **Coverage validation** (`make validate-coverage`) - Ensures code coverage meets minimum threshold
+11. **E2E tests** (`make test-e2e`) - Runs end-to-end tests
+12. **Module verification** (`make verify`) - Verifies module integrity
 
 **Key Design Principles:**
 - CI validates rather than installs tools (fails fast with clear error messages)
