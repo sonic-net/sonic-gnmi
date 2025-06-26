@@ -12,18 +12,20 @@ linters:
     - nlreturn     # Return formatting too strict
     - funlen       # Function length checks too strict for tests
     - testpackage  # Don't require _test package suffix
-    - gocognit     # Disable cognitive complexity for now
-    - nestif       # Disable nested if complexity for now
-    - gocyclo      # Disable cyclomatic complexity for now
-    - cyclop       # Disable another cyclomatic complexity checker
 
 linters-settings:
   gocognit:
-    # Allow higher complexity for existing complex functions
-    min-complexity: 60
+    # Cognitive complexity threshold - functions above this are too complex
+    min-complexity: 15
   nestif:
-    # Allow deeper nesting for existing code
-    min-complexity: 35
+    # Nested if threshold - prevents deep nesting
+    min-complexity: 6
+  gocyclo:
+    # Cyclomatic complexity threshold
+    min-complexity: 15
+  cyclop:
+    # Alternative cyclomatic complexity threshold
+    max-complexity: 15
 
 issues:
   exclude-rules:

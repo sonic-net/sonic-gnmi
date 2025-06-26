@@ -253,6 +253,156 @@ func inferAristaSwitchASIC(platform string) string {
 	return "unknown"
 }
 
+// ModelPattern defines how to match and extract model information from platform strings.
+type ModelPattern struct {
+	Keywords []string // Platform keywords to match
+	Model    string   // Resulting model name
+}
+
+// VendorConfig contains the configuration for identifying a specific vendor's platforms.
+type VendorConfig struct {
+	Name       string                     // Vendor name for output
+	Validators []func(*PlatformInfo) bool // Custom validation rules
+	Models     []ModelPattern             // Model patterns to match
+}
+
+// platformConfigs defines the configuration for all supported platform vendors.
+var platformConfigs = []VendorConfig{
+	{
+		Name: "Mellanox",
+		Validators: []func(*PlatformInfo) bool{
+			func(info *PlatformInfo) bool {
+				return info.Vendor == "Mellanox" && info.SwitchASIC == "mlnx"
+			},
+		},
+		Models: []ModelPattern{
+			{Keywords: []string{"msn2700", "sn2700"}, Model: "sn2700"},
+			{Keywords: []string{"msn3800", "sn3800"}, Model: "sn3800"},
+			{Keywords: []string{"msn4600", "sn4600"}, Model: "sn4600"},
+		},
+	},
+	{
+		Name: "arista",
+		Validators: []func(*PlatformInfo) bool{
+			func(info *PlatformInfo) bool {
+				return strings.ToLower(info.Vendor) == "arista"
+			},
+		},
+		Models: []ModelPattern{
+			{Keywords: []string{"7050"}, Model: "7050"},
+			{Keywords: []string{"7060"}, Model: "7060"},
+			{Keywords: []string{"7260"}, Model: "7260"},
+		},
+	},
+	{
+		Name: "dell",
+		Validators: []func(*PlatformInfo) bool{
+			func(info *PlatformInfo) bool {
+				return strings.ToLower(info.Vendor) == "dell"
+			},
+		},
+		Models: []ModelPattern{
+			{Keywords: []string{"s6000", "s-6000"}, Model: "s6000"},
+			{Keywords: []string{"s6100", "s-6100"}, Model: "s6100"},
+		},
+	},
+	{
+		Name: "cisco",
+		Validators: []func(*PlatformInfo) bool{
+			func(info *PlatformInfo) bool {
+				return strings.ToLower(info.Vendor) == "cisco"
+			},
+		},
+		Models: []ModelPattern{
+			{Keywords: []string{"8101"}, Model: "8101"},
+			{Keywords: []string{"8102"}, Model: "8102"},
+			{Keywords: []string{"8111"}, Model: "8111"},
+		},
+	},
+	{
+		Name: "nokia",
+		Validators: []func(*PlatformInfo) bool{
+			func(info *PlatformInfo) bool {
+				return strings.ToLower(info.Vendor) == "nokia"
+			},
+		},
+		Models: []ModelPattern{
+			{Keywords: []string{"7215"}, Model: "7215"},
+		},
+	},
+	{
+		Name: "celestica",
+		Validators: []func(*PlatformInfo) bool{
+			func(info *PlatformInfo) bool {
+				return strings.ToLower(info.Vendor) == "celestica"
+			},
+		},
+		Models: []ModelPattern{
+			{Keywords: []string{"e1031", "e-1031"}, Model: "e1031"},
+		},
+	},
+	{
+		Name: "kvm",
+		Validators: []func(*PlatformInfo) bool{
+			func(info *PlatformInfo) bool {
+				return strings.ToLower(info.Vendor) == "kvm"
+			},
+		},
+		Models: []ModelPattern{
+			// KVM uses platform identifier directly
+		},
+	},
+}
+
+// matchesVendor checks if the platform info matches all validator functions for a vendor.
+func matchesVendor(info *PlatformInfo, validators []func(*PlatformInfo) bool) bool {
+	for _, validator := range validators {
+		if !validator(info) {
+			return false
+		}
+	}
+	return true
+}
+
+// findModel searches for a matching model pattern in the platform string.
+func findModel(platformLower string, models []ModelPattern) string {
+	for _, pattern := range models {
+		for _, keyword := range pattern.Keywords {
+			if strings.Contains(platformLower, keyword) {
+				glog.V(4).Infof("Found model match: keyword=%s, model=%s", keyword, pattern.Model)
+				return pattern.Model
+			}
+		}
+	}
+	// Fallback to generic extraction
+	return extractModelFromPlatform(platformLower)
+}
+
+// handleUnknownPlatform processes platforms that don't match any known vendor configuration.
+func handleUnknownPlatform(info *PlatformInfo) (string, string, string) {
+	glog.V(3).Info("Processing unknown platform using fallback logic")
+
+	vendor := info.Vendor
+	if vendor == "" || vendor == "unknown" {
+		vendor = "unknown"
+	} else {
+		vendor = strings.ToLower(vendor) // Normalize vendor name
+	}
+
+	// Extract model from platform if possible
+	platformLower := strings.ToLower(info.Platform)
+	model := extractModelFromPlatform(platformLower)
+
+	platformIdentifier := "unknown"
+	if model != "unknown" {
+		platformIdentifier = vendor + "_" + model
+	}
+
+	glog.V(3).Infof("Unknown platform result: identifier=%s, vendor=%s, model=%s",
+		platformIdentifier, vendor, model)
+	return platformIdentifier, vendor, model
+}
+
 // inferVendorFromPlatform tries to infer the vendor from the platform string.
 func inferVendorFromPlatform(platform string) string {
 	if platform == "" {
@@ -307,7 +457,7 @@ func (p *DefaultPlatformInfoProvider) GetPlatformIdentifier(
 }
 
 // GetPlatformIdentifierString determines the platform identifier, vendor and model strings
-// based on the platform information.
+// based on the platform information using a config-driven approach.
 func GetPlatformIdentifierString(info *PlatformInfo) (string, string, string) {
 	glog.V(2).Info("Determining platform identifier from platform info")
 
@@ -317,134 +467,42 @@ func GetPlatformIdentifierString(info *PlatformInfo) (string, string, string) {
 		return "unknown", "unknown", "unknown"
 	}
 
-	// Initialize default values
-	platformIdentifier := "unknown"
-	vendor := info.Vendor
-	var model string
+	glog.V(3).Infof("Starting platform identification: vendor=%s, platform=%s", info.Vendor, info.Platform)
 
-	glog.V(3).Infof("Starting platform identification: vendor=%s, platform=%s", vendor, info.Platform)
+	// Normalize platform string for consistent matching
+	platformLower := strings.ToLower(info.Platform)
+	glog.V(4).Infof("Platform string normalized: '%s' -> '%s'", info.Platform, platformLower)
 
-	// Normalize platform string for more consistent matching
-	platformLower := ""
-	if info.Platform != "" {
-		platformLower = strings.ToLower(info.Platform)
-		glog.V(4).Infof("Platform string normalized: '%s' -> '%s'", info.Platform, platformLower)
-	}
+	// Iterate through configured vendors to find a match
+	for _, config := range platformConfigs {
+		if matchesVendor(info, config.Validators) {
+			glog.V(3).Infof("Processing %s platform identification", config.Name)
 
-	// Process based on vendor
-	if info.Vendor == "Mellanox" && info.SwitchASIC == "mlnx" {
-		glog.V(3).Info("Processing Mellanox platform identification")
-		// Check for specific Mellanox models
-		if strings.Contains(platformLower, "msn2700") || strings.Contains(platformLower, "sn2700") {
-			model = "sn2700"
-			platformIdentifier = "mellanox_sn2700"
-			glog.V(3).Info("Identified as Mellanox SN2700")
-		} else if strings.Contains(platformLower, "msn3800") || strings.Contains(platformLower, "sn3800") {
-			model = "sn3800"
-			platformIdentifier = "mellanox_sn3800"
-			glog.V(3).Info("Identified as Mellanox SN3800")
-		} else if strings.Contains(platformLower, "msn4600") || strings.Contains(platformLower, "sn4600") {
-			model = "sn4600"
-			platformIdentifier = "mellanox_sn4600"
-			glog.V(3).Info("Identified as Mellanox SN4600")
-		} else {
-			// Generic Mellanox identifier with the platform name
-			model = extractModelFromPlatform(platformLower)
-			platformIdentifier = "mellanox_" + model
-			glog.V(3).Infof("Generic Mellanox identification: model=%s, identifier=%s", model, platformIdentifier)
-		}
-	} else if info.Vendor == "arista" || info.Vendor == "Arista" {
-		vendor = "arista" // Normalize vendor name
-		// Check for specific model numbers
-		if strings.Contains(platformLower, "7050") {
-			model = "7050"
-			platformIdentifier = "arista_7050"
-		} else if strings.Contains(platformLower, "7060") {
-			model = "7060"
-			platformIdentifier = "arista_7060"
-		} else if strings.Contains(platformLower, "7260") {
-			model = "7260"
-			platformIdentifier = "arista_7260"
-		} else {
-			// Generic Arista identifier with the model number extracted from platform
-			model = extractModelFromPlatform(platformLower)
-			platformIdentifier = "arista_" + model
-		}
-	} else if info.Vendor == "Dell" {
-		vendor = "dell" // Normalize vendor name
-		if strings.Contains(platformLower, "s6000") || strings.Contains(platformLower, "s-6000") {
-			model = "s6000"
-			platformIdentifier = "dell_s6000"
-		} else if strings.Contains(platformLower, "s6100") || strings.Contains(platformLower, "s-6100") {
-			model = "s6100"
-			platformIdentifier = "dell_s6100"
-		} else {
-			// Generic Dell identifier with the model number extracted from platform
-			model = extractModelFromPlatform(platformLower)
-			platformIdentifier = "dell_" + model
-		}
-	} else if info.Vendor == "Cisco" {
-		vendor = "cisco" // Normalize vendor name
-		if strings.Contains(platformLower, "8101") {
-			model = "8101"
-			platformIdentifier = "cisco_8101"
-		} else if strings.Contains(platformLower, "8102") {
-			model = "8102"
-			platformIdentifier = "cisco_8102"
-		} else if strings.Contains(platformLower, "8111") {
-			model = "8111"
-			platformIdentifier = "cisco_8111"
-		} else {
-			// Generic Cisco identifier with the model number extracted from platform
-			model = extractModelFromPlatform(platformLower)
-			platformIdentifier = "cisco_" + model
-		}
-	} else if info.Vendor == "Nokia" {
-		vendor = "nokia" // Normalize vendor name
-		if strings.Contains(platformLower, "7215") {
-			model = "7215"
-			platformIdentifier = "nokia_7215"
-		} else {
-			// Generic Nokia identifier with the model number extracted from platform
-			model = extractModelFromPlatform(platformLower)
-			platformIdentifier = "nokia_" + model
-		}
-	} else if info.Vendor == "Celestica" {
-		vendor = "celestica" // Normalize vendor name
-		if strings.Contains(platformLower, "e1031") || strings.Contains(platformLower, "e-1031") {
-			model = "e1031"
-			platformIdentifier = "celestica_e1031"
-		} else {
-			// Generic Celestica identifier with the model number extracted from platform
-			model = extractModelFromPlatform(platformLower)
-			platformIdentifier = "celestica_" + model
-		}
-	} else if info.Vendor == "KVM" {
-		glog.V(3).Info("Processing KVM virtual switch platform identification")
-		vendor = "kvm" // Normalize vendor name
+			// Handle special case for KVM
+			if strings.ToLower(config.Name) == "kvm" {
+				glog.V(3).Infof("KVM platform detected: %s", info.Platform)
+				return info.Platform, "kvm", "unknown"
+			}
 
-		// KVM virtual switch identification - use platform from machine.conf
-		model = "unknown"
-		platformIdentifier = info.Platform // Use the actual platform identifier from machine.conf
-		glog.V(3).Infof("KVM platform detected: %s", platformIdentifier)
-	} else {
-		// If we couldn't determine the vendor or it's a new one, use what we have
-		if vendor == "" || vendor == "unknown" {
-			vendor = "unknown"
-		} else {
-			vendor = strings.ToLower(vendor) // Normalize vendor name
-		}
-
-		// Extract model from platform if possible
-		model = extractModelFromPlatform(platformLower)
-		if model != "unknown" {
-			platformIdentifier = vendor + "_" + model
+			// Find model using configuration
+			model := findModel(platformLower, config.Models)
+			if model != "" {
+				vendor := config.Name
+				// Special case: Mellanox keeps original case, others are lowercase
+				if strings.ToLower(config.Name) != "mellanox" {
+					vendor = strings.ToLower(config.Name)
+				}
+				identifier := strings.ToLower(config.Name) + "_" + model
+				glog.V(2).Infof("Platform identification complete: identifier=%s, vendor=%s, model=%s",
+					identifier, vendor, model)
+				return identifier, vendor, model
+			}
 		}
 	}
 
-	glog.V(2).Infof("Platform identification complete: identifier=%s, vendor=%s, model=%s",
-		platformIdentifier, vendor, model)
-	return platformIdentifier, vendor, model
+	// No matching vendor configuration found, use fallback logic
+	glog.V(3).Info("No vendor configuration matched, using fallback logic")
+	return handleUnknownPlatform(info)
 }
 
 // extractModelFromPlatform tries to extract a model identifier from the platform string.
