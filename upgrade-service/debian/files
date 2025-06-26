@@ -1,0 +1,3 @@
+sonic-ops-server-dbgsym_1.0.0-1_amd64.ddeb debug optional automatic=yes
+sonic-ops-server_1.0.0-1_amd64.buildinfo net optional
+sonic-ops-server_1.0.0-1_amd64.deb net optional
