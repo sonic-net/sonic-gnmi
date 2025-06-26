@@ -206,8 +206,7 @@ run: build
 
 # Clean build artifacts
 clean:
-	rm -f bin/sonic-ops-server
-	rm -f proto/*.pb.go
+	rm -rf bin/
 
 # CI pipeline target - runs all verification steps (validation only, no tool installation)
 ci: validate-format validate-proto validate-mocks tidy build-all vet lint test validate-coverage test-e2e verify
