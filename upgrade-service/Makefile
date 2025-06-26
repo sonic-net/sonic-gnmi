@@ -1,6 +1,7 @@
 .PHONY: proto build run clean tools test test-e2e fmt vet tidy verify ci mocks validate-mocks docker-build docker-push \
-	install-protoc-gen-go install-protoc-gen-go-grpc install-mockgen install-protoc help-tools \
-	validate-protoc validate-protoc-gen-go validate-protoc-gen-go-grpc validate-mockgen validate-protobuf-tools validate-tools
+	install-protoc-gen-go install-protoc-gen-go-grpc install-mockgen install-protoc install-golangci-lint help-tools \
+	validate-protoc validate-protoc-gen-go validate-protoc-gen-go-grpc validate-mockgen validate-golangci-lint validate-protobuf-tools validate-tools \
+	lint
 
 # Default go build tags
 BUILD_TAGS ?=
@@ -9,6 +10,7 @@ PROTOC_GEN_GO_VERSION ?= v1.36.6
 PROTOC_GEN_GO_GRPC_VERSION ?= v1.5.1
 MOCKGEN_VERSION ?= v0.5.2
 MOCKGEN_PACKAGE ?= go.uber.org/mock/mockgen
+GOLANGCI_LINT_VERSION ?= v2.1.6
 DOCKER_TAG ?= latest
 DOCKER_IMAGE ?= docker-mopd
 
@@ -42,8 +44,14 @@ install-mockgen:
 	go install $(MOCKGEN_PACKAGE)@$(MOCKGEN_VERSION)
 	@echo "mockgen $(MOCKGEN_VERSION) from $(MOCKGEN_PACKAGE) installed to $(shell go env GOPATH)/bin"
 
+# Install golangci-lint
+install-golangci-lint:
+	@echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."
+	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin $(GOLANGCI_LINT_VERSION)
+	@echo "golangci-lint $(GOLANGCI_LINT_VERSION) installed to $(shell go env GOPATH)/bin"
+
 # Install all tools
-tools: install-protoc-gen-go install-protoc-gen-go-grpc install-mockgen
+tools: install-protoc-gen-go install-protoc-gen-go-grpc install-mockgen install-golangci-lint
 	@echo "All tools installed to $(shell go env GOPATH)/bin"
 
 # Show help for tool management
@@ -53,12 +61,14 @@ help-tools:
 	@echo "  install-protoc-gen-go       - Install protoc-gen-go plugin"
 	@echo "  install-protoc-gen-go-grpc  - Install protoc-gen-go-grpc plugin"
 	@echo "  install-mockgen             - Install mockgen tool"
+	@echo "  install-golangci-lint       - Install golangci-lint linter"
 	@echo "  tools                       - Install all Go tools (excludes protoc)"
 	@echo ""
 	@echo "  validate-protoc             - Check if protoc is available"
 	@echo "  validate-protoc-gen-go      - Check if protoc-gen-go is available"
 	@echo "  validate-protoc-gen-go-grpc - Check if protoc-gen-go-grpc is available"
 	@echo "  validate-mockgen            - Check if mockgen is available"
+	@echo "  validate-golangci-lint      - Check if golangci-lint is available"
 	@echo "  validate-protobuf-tools     - Check all protobuf tools"
 	@echo "  validate-tools              - Check all tools"
 
@@ -105,11 +115,15 @@ validate-protoc-gen-go-grpc:
 validate-mockgen:
 	$(call check-tool-version,mockgen,$(MOCKGEN_VERSION),install-mockgen)
 
+# Validate golangci-lint is available
+validate-golangci-lint:
+	$(call check-tool-version,golangci-lint,$(GOLANGCI_LINT_VERSION),install-golangci-lint)
+
 # Validate all protobuf tools are available
 validate-protobuf-tools: validate-protoc validate-protoc-gen-go validate-protoc-gen-go-grpc
 
 # Validate all tools are available
-validate-tools: validate-protobuf-tools validate-mockgen
+validate-tools: validate-protobuf-tools validate-mockgen validate-golangci-lint
 
 # Validate proto-generated files are up to date
 validate-proto: validate-protobuf-tools
@@ -156,6 +170,10 @@ tidy:
 # Run static analysis
 vet:
 	go vet ./...
+
+# Run golangci-lint
+lint: validate-golangci-lint
+	golangci-lint run
 
 # Run all tests
 test:
@@ -253,7 +271,7 @@ clean:
 	rm -f proto/*.pb.go
 
 # CI pipeline target - runs all verification steps (validation only, no tool installation)
-ci: fmt validate-proto validate-mocks tidy build-all vet test test-e2e verify
+ci: fmt validate-proto validate-mocks tidy build-all vet lint test test-e2e verify
 
 # Build Docker image
 docker-build: build

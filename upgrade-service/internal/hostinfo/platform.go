@@ -11,7 +11,7 @@ import (
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
 )
 
-// PlatformInfoProvider defines the interface for getting platform information
+// PlatformInfoProvider defines the interface for getting platform information.
 type PlatformInfoProvider interface {
 	// GetPlatformInfo returns platform information
 	GetPlatformInfo(ctx context.Context) (*PlatformInfo, error)
@@ -20,20 +20,20 @@ type PlatformInfoProvider interface {
 	GetPlatformIdentifier(ctx context.Context, info *PlatformInfo) (platformIdentifier string, vendor string, model string)
 }
 
-// DefaultPlatformInfoProvider implements the PlatformInfoProvider interface
+// DefaultPlatformInfoProvider implements the PlatformInfoProvider interface.
 type DefaultPlatformInfoProvider struct{}
 
-// NewPlatformInfoProvider creates a new instance of DefaultPlatformInfoProvider
+// NewPlatformInfoProvider creates a new instance of DefaultPlatformInfoProvider.
 func NewPlatformInfoProvider() PlatformInfoProvider {
 	return &DefaultPlatformInfoProvider{}
 }
 
-// getMachineConfPath returns the path to the machine.conf file based on current config
+// getMachineConfPath returns the path to the machine.conf file based on current config.
 func getMachineConfPath() string {
 	return config.GetHostPath("/host/machine.conf")
 }
 
-// PlatformInfo contains information about the platform
+// PlatformInfo contains information about the platform.
 type PlatformInfo struct {
 	// Raw key-value pairs from machine.conf
 	ConfigMap map[string]string
@@ -46,7 +46,7 @@ type PlatformInfo struct {
 	SwitchASIC   string
 }
 
-// GetPlatformInfo reads the machine.conf file and returns platform information
+// GetPlatformInfo reads the machine.conf file and returns platform information.
 func GetPlatformInfo() (*PlatformInfo, error) {
 	machineConfPath := getMachineConfPath()
 	glog.V(2).Infof("Reading platform information from %s", machineConfPath)
@@ -90,7 +90,7 @@ func GetPlatformInfo() (*PlatformInfo, error) {
 	return info, nil
 }
 
-// readMachineConf reads the machine.conf file and returns a map of key-value pairs
+// readMachineConf reads the machine.conf file and returns a map of key-value pairs.
 func readMachineConf(path string) (map[string]string, error) {
 	glog.V(3).Infof("Opening machine.conf file at %s", path)
 	file, err := os.Open(path)
@@ -136,19 +136,19 @@ func readMachineConf(path string) (map[string]string, error) {
 	return configMap, nil
 }
 
-// isMellanox checks if the platform is Mellanox based on the config
+// isMellanox checks if the platform is Mellanox based on the config.
 func isMellanox(configMap map[string]string) bool {
 	asic, exists := configMap["onie_switch_asic"]
 	return exists && asic == "mlnx"
 }
 
-// isArista checks if the platform is Arista based on the config
+// isArista checks if the platform is Arista based on the config.
 func isArista(configMap map[string]string) bool {
 	_, exists := configMap["aboot_vendor"]
 	return exists && configMap["aboot_vendor"] == "arista"
 }
 
-// isKVM checks if the platform is KVM (virtual switch) based on the config
+// isKVM checks if the platform is KVM (virtual switch) based on the config.
 func isKVM(configMap map[string]string) bool {
 	// Check for KVM indicators in the platform or machine configuration
 	platform, platformExists := configMap["onie_platform"]
@@ -172,7 +172,7 @@ func isKVM(configMap map[string]string) bool {
 	return false
 }
 
-// extractMellanoxInfo extracts Mellanox-specific information
+// extractMellanoxInfo extracts Mellanox-specific information.
 func extractMellanoxInfo(configMap map[string]string, info *PlatformInfo) {
 	glog.V(3).Info("Extracting Mellanox-specific platform information")
 	info.Vendor = "Mellanox"
@@ -185,7 +185,7 @@ func extractMellanoxInfo(configMap map[string]string, info *PlatformInfo) {
 		info.Platform, info.MachineID, info.Architecture, info.SwitchASIC)
 }
 
-// extractAristaInfo extracts Arista-specific information
+// extractAristaInfo extracts Arista-specific information.
 func extractAristaInfo(configMap map[string]string, info *PlatformInfo) {
 	glog.V(3).Info("Extracting Arista-specific platform information")
 	info.Vendor = configMap["aboot_vendor"]
@@ -200,7 +200,7 @@ func extractAristaInfo(configMap map[string]string, info *PlatformInfo) {
 		info.Platform, info.MachineID, info.Architecture, info.SwitchASIC)
 }
 
-// extractKVMInfo extracts KVM virtual switch specific information
+// extractKVMInfo extracts KVM virtual switch specific information.
 func extractKVMInfo(configMap map[string]string, info *PlatformInfo) {
 	glog.V(3).Info("Extracting KVM virtual switch platform information")
 	info.Vendor = "KVM"
@@ -213,7 +213,7 @@ func extractKVMInfo(configMap map[string]string, info *PlatformInfo) {
 		info.Platform, info.MachineID, info.Architecture, info.SwitchASIC)
 }
 
-// extractCommonInfo tries to extract common information for other platforms
+// extractCommonInfo tries to extract common information for other platforms.
 func extractCommonInfo(configMap map[string]string, info *PlatformInfo) {
 	glog.V(3).Info("Extracting common platform information using ONIE fields")
 
@@ -244,7 +244,7 @@ func extractCommonInfo(configMap map[string]string, info *PlatformInfo) {
 		info.Vendor, info.Platform, info.MachineID, info.Architecture, info.SwitchASIC)
 }
 
-// inferAristaSwitchASIC infers the switch ASIC for Arista platforms
+// inferAristaSwitchASIC infers the switch ASIC for Arista platforms.
 func inferAristaSwitchASIC(platform string) string {
 	// This is a simplification - in reality, this would need more logic
 	if strings.Contains(platform, "7060") {
@@ -253,7 +253,7 @@ func inferAristaSwitchASIC(platform string) string {
 	return "unknown"
 }
 
-// inferVendorFromPlatform tries to infer the vendor from the platform string
+// inferVendorFromPlatform tries to infer the vendor from the platform string.
 func inferVendorFromPlatform(platform string) string {
 	if platform == "" {
 		return "unknown"
@@ -282,7 +282,7 @@ func inferVendorFromPlatform(platform string) string {
 	return "unknown"
 }
 
-// GetPlatformInfo returns platform information from the host
+// GetPlatformInfo returns platform information from the host.
 func (p *DefaultPlatformInfoProvider) GetPlatformInfo(ctx context.Context) (*PlatformInfo, error) {
 	select {
 	case <-ctx.Done():
@@ -293,8 +293,10 @@ func (p *DefaultPlatformInfoProvider) GetPlatformInfo(ctx context.Context) (*Pla
 	return GetPlatformInfo()
 }
 
-// GetPlatformIdentifier returns the platform identifier, vendor and model as strings
-func (p *DefaultPlatformInfoProvider) GetPlatformIdentifier(ctx context.Context, info *PlatformInfo) (string, string, string) {
+// GetPlatformIdentifier returns the platform identifier, vendor and model as strings.
+func (p *DefaultPlatformInfoProvider) GetPlatformIdentifier(
+	ctx context.Context, info *PlatformInfo,
+) (string, string, string) {
 	select {
 	case <-ctx.Done():
 		return "unknown", "unknown", "unknown"
@@ -318,7 +320,7 @@ func GetPlatformIdentifierString(info *PlatformInfo) (string, string, string) {
 	// Initialize default values
 	platformIdentifier := "unknown"
 	vendor := info.Vendor
-	model := "unknown"
+	var model string
 
 	glog.V(3).Infof("Starting platform identification: vendor=%s, platform=%s", vendor, info.Platform)
 
@@ -445,7 +447,7 @@ func GetPlatformIdentifierString(info *PlatformInfo) (string, string, string) {
 	return platformIdentifier, vendor, model
 }
 
-// extractModelFromPlatform tries to extract a model identifier from the platform string
+// extractModelFromPlatform tries to extract a model identifier from the platform string.
 func extractModelFromPlatform(platformLower string) string {
 	// This is a simplistic implementation that can be enhanced based on actual platform naming patterns
 

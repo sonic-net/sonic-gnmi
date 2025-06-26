@@ -11,13 +11,13 @@ import (
 	pb "github.com/sonic-net/sonic-gnmi/upgrade-service/proto"
 )
 
-// SystemInfoServer implements the SystemInfo gRPC service
+// SystemInfoServer implements the SystemInfo gRPC service.
 type SystemInfoServer struct {
 	pb.UnimplementedSystemInfoServer
 	platformProvider hostinfo.PlatformInfoProvider
 }
 
-// NewSystemInfoServer creates a new instance of SystemInfoServer
+// NewSystemInfoServer creates a new instance of SystemInfoServer.
 func NewSystemInfoServer() *SystemInfoServer {
 	return &SystemInfoServer{
 		platformProvider: hostinfo.NewPlatformInfoProvider(),
@@ -25,15 +25,17 @@ func NewSystemInfoServer() *SystemInfoServer {
 }
 
 // NewSystemInfoServerWithProvider creates a new instance of SystemInfoServer with a custom provider
-// This is useful for testing with mock providers
+// This is useful for testing with mock providers.
 func NewSystemInfoServerWithProvider(provider hostinfo.PlatformInfoProvider) *SystemInfoServer {
 	return &SystemInfoServer{
 		platformProvider: provider,
 	}
 }
 
-// GetPlatformType implements the GetPlatformType RPC method
-func (s *SystemInfoServer) GetPlatformType(ctx context.Context, req *pb.GetPlatformTypeRequest) (*pb.GetPlatformTypeResponse, error) {
+// GetPlatformType implements the GetPlatformType RPC method.
+func (s *SystemInfoServer) GetPlatformType(
+	ctx context.Context, req *pb.GetPlatformTypeRequest,
+) (*pb.GetPlatformTypeResponse, error) {
 	glog.V(1).Info("GetPlatformType request received")
 
 	// Get platform information from the host

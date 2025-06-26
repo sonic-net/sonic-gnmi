@@ -59,6 +59,7 @@ make help-tools
 - `protoc-gen-go v1.36.6` (latest)
 - `protoc-gen-go-grpc v1.5.1` (latest) 
 - `mockgen v0.5.2` from `go.uber.org/mock` (maintained fork)
+- `golangci-lint v2.1.6` (latest) for comprehensive code linting
 
 ### Generating Protobuf Files
 
@@ -146,6 +147,7 @@ make verify                      # Verify Go modules
 
 # Code quality
 make vet                         # Run static analysis
+make lint                        # Run golangci-lint for comprehensive linting
 make test                        # Run all tests
 ```
 
@@ -201,9 +203,10 @@ The CI pipeline runs `make ci` which includes these validation steps:
 5. **Module tidiness** (`make tidy`) - Cleans up Go modules
 6. **Build verification** (`make build-all`) - Ensures all packages compile
 7. **Static analysis** (`make vet`) - Runs Go static analysis
-8. **Unit tests** (`make test`) - Runs all unit tests
-9. **E2E tests** (`make test-e2e`) - Runs end-to-end tests
-10. **Module verification** (`make verify`) - Verifies module integrity
+8. **Code linting** (`make lint`) - Runs golangci-lint for comprehensive code quality checks
+9. **Unit tests** (`make test`) - Runs all unit tests
+10. **E2E tests** (`make test-e2e`) - Runs end-to-end tests
+11. **Module verification** (`make verify`) - Verifies module integrity
 
 **Key Design Principles:**
 - CI validates rather than installs tools (fails fast with clear error messages)
