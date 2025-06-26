@@ -1,4 +1,4 @@
-.PHONY: proto build run clean tools test test-e2e fmt vet tidy verify ci mocks validate-mocks docker-build docker-push \
+.PHONY: proto build run clean tools test test-e2e format validate-format vet tidy verify ci mocks validate-mocks docker-build docker-push \
 	install-protoc-gen-go install-protoc-gen-go-grpc install-mockgen install-protoc install-golangci-lint help-tools \
 	validate-protoc validate-protoc-gen-go validate-protoc-gen-go-grpc validate-mockgen validate-golangci-lint validate-protobuf-tools validate-tools \
 	lint
@@ -72,9 +72,15 @@ help-tools:
 	@echo "  validate-protobuf-tools     - Check all protobuf tools"
 	@echo "  validate-tools              - Check all tools"
 
-# Check formatting with gofmt
-fmt:
-	@echo "Checking formatting (gofmt)..."
+# Fix formatting with gofmt
+format:
+	@echo "Fixing formatting (gofmt)..."
+	@gofmt -w .
+	@echo "Formatting fixed."
+
+# Validate formatting with gofmt (for CI)
+validate-format:
+	@echo "Validating formatting (gofmt)..."
 	@UNFORMATTED=$$(gofmt -l .); \
 	if [ -n "$$UNFORMATTED" ]; then \
 		echo "ERROR: gofmt issues found in the following files:"; \
@@ -271,7 +277,7 @@ clean:
 	rm -f proto/*.pb.go
 
 # CI pipeline target - runs all verification steps (validation only, no tool installation)
-ci: fmt validate-proto validate-mocks tidy build-all vet lint test test-e2e verify
+ci: validate-format validate-proto validate-mocks tidy build-all vet lint test test-e2e verify
 
 # Build Docker image
 docker-build: build
