@@ -1,33 +1,33 @@
 FROM sonicdev-microsoft.azurecr.io/debian:bookworm
 
 # Create non-root user for security
-RUN groupadd -r mopd && useradd -r -g mopd -s /bin/false mopd
+RUN groupadd -r opsd && useradd -r -g opsd -s /bin/false opsd
 
 # Set working directory
 WORKDIR /usr/local/bin
 
 # Copy the built binary
-COPY bin/server /usr/local/bin/mopd
+COPY bin/sonic-ops-server /usr/local/bin/sonic-ops-server
 
 # Create directory for any config files
-RUN mkdir -p /etc/mopd && chown -R mopd:mopd /etc/mopd
+RUN mkdir -p /etc/opsd && chown -R opsd:opsd /etc/opsd
 
 # Set proper permissions
-RUN chmod +x /usr/local/bin/mopd
+RUN chmod +x /usr/local/bin/sonic-ops-server
 
 # Copy and set up the entrypoint script
 COPY docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Copy any configuration files if needed
-# COPY config/mopd.conf /etc/mopd/
+# COPY config/opsd.conf /etc/opsd/
 
 # Switch to non-root user
-USER mopd
+USER opsd
 
 # Environment variables for configuration (can be overridden at runtime)
-ENV MOPD_ADDR=":50051"
-ENV MOPD_SHUTDOWN_TIMEOUT="10s"
+ENV OPSD_ADDR=":50051"
+ENV OPSD_SHUTDOWN_TIMEOUT="10s"
 
 # Note: Port exposure depends on MOPD_ADDR configuration
 # Use -p flag in docker run to publish the actual port being used
