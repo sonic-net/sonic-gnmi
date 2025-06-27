@@ -1,4 +1,4 @@
-.PHONY: proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb test-certs
+.PHONY: proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb test-certs build-inspector
 
 # Include tool management makefile
 include tools.mk
@@ -171,3 +171,9 @@ test-certs:
 	@echo "Generating test certificates..."
 	@./scripts/generate-test-certs.sh
 	@echo "Test certificates generated in current directory"
+
+# Build sonic-image-inspector tool for manual testing
+build-inspector:
+	@echo "Building sonic-image-inspector tool..."
+	@go build -o bin/sonic-image-inspector cmd/sonic-image-inspector/main.go
+	@echo "Built bin/sonic-image-inspector"
