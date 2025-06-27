@@ -1,4 +1,4 @@
-.PHONY: proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci mocks validate-mocks docker-build docker-push lint deb
+.PHONY: proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb
 
 # Include tool management makefile
 include tools.mk
@@ -126,71 +126,7 @@ test-e2e:
 verify:
 	go mod verify
 
-# Generate mocks for interfaces
-# Define mock configurations as:
-# packagePath:interfaceName:outputDir
-MOCK_CONFIGS := \
-	internal/hostinfo/platform.go:PlatformInfoProvider:internal/hostinfo/mocks
-
-mocks: validate-mockgen
-	@echo "Generating mocks..."
-	@for config in $(MOCK_CONFIGS); do \
-		source=$$(echo $$config | cut -d: -f1); \
-		interfaces=$$(echo $$config | cut -d: -f2); \
-		output_dir=$$(echo $$config | cut -d: -f3); \
-		output_file="mock_$$(basename $$source .go).go"; \
-		echo "  Generating mock for $$interfaces from $$source"; \
-		mkdir -p $$output_dir; \
-		GO111MODULE=on mockgen \
-			-source=$$source \
-			-destination=$$output_dir/$$output_file \
-			-package=$$(basename $$output_dir) \
-			$$interfaces; \
-	done
-	@echo "Mock generation complete!"
-
-# Validate mock-generated files are up to date
-validate-mocks: validate-mockgen
-	@echo "Validating mock-generated files..."
-	@TEMP_DIR=$$(mktemp -d); \
-	DIFF_FILES=false; \
-	for config in $(MOCK_CONFIGS); do \
-		source=$$(echo $$config | cut -d: -f1); \
-		interfaces=$$(echo $$config | cut -d: -f2); \
-		output_dir=$$(echo $$config | cut -d: -f3); \
-		output_file="mock_$$(basename $$source .go).go"; \
-		temp_output_dir="$$TEMP_DIR/$$output_dir"; \
-		mkdir -p "$$temp_output_dir"; \
-		GO111MODULE=on mockgen \
-			-source=$$source \
-			-destination="$$temp_output_dir/$$output_file" \
-			-package=$$(basename $$output_dir) \
-			$$interfaces; \
-		if [ ! -f "$$output_dir/$$output_file" ]; then \
-			echo "Generated mock file $$output_dir/$$output_file does not exist"; \
-			DIFF_FILES=true; \
-		else \
-			TEMP_CURRENT=$$(mktemp); \
-			TEMP_GENERATED=$$(mktemp); \
-			sed 's|-destination=[^[:space:]]*|-destination=NORMALIZED_PATH|g' "$$output_dir/$$output_file" > "$$TEMP_CURRENT"; \
-			sed 's|-destination=[^[:space:]]*|-destination=NORMALIZED_PATH|g' "$$temp_output_dir/$$output_file" > "$$TEMP_GENERATED"; \
-			if ! diff -u "$$TEMP_CURRENT" "$$TEMP_GENERATED" > /dev/null; then \
-				echo "Differences found in $$output_dir/$$output_file:"; \
-				diff -u "$$output_dir/$$output_file" "$$temp_output_dir/$$output_file"; \
-				DIFF_FILES=true; \
-			fi; \
-			rm -f "$$TEMP_CURRENT" "$$TEMP_GENERATED"; \
-		fi; \
-	done; \
-	if [ "$$DIFF_FILES" = true ]; then \
-		echo "ERROR: Mock-generated files are not up to date. Please regenerate them locally and commit the changes."; \
-		echo "Run 'make mocks' and commit the changes."; \
-		rm -rf $$TEMP_DIR; \
-		exit 1; \
-	else \
-		echo "Mock-generated files are up to date."; \
-	fi; \
-	rm -rf $$TEMP_DIR
+# Mock generation removed - using tempdir approach for testing instead
 
 # Build the server
 build: validate-proto
@@ -209,7 +145,7 @@ clean:
 	rm -rf bin/
 
 # CI pipeline target - runs all verification steps (validation only, no tool installation)
-ci: validate-format validate-proto validate-mocks tidy build-all vet lint test validate-coverage test-e2e verify
+ci: validate-format validate-proto tidy build-all vet lint test validate-coverage test-e2e verify
 
 # Build Docker image
 docker-build: build

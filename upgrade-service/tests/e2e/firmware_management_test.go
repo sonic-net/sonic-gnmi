@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
@@ -141,7 +143,12 @@ func TestCleanupOldFirmware_E2E(t *testing.T) {
 
 			// Set up client
 			ctx := context.Background()
-			conn, err := createClientConn(ctx, lis)
+			conn, err := grpc.DialContext(ctx, "bufnet",
+				grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+					return lis.Dial()
+				}),
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+			)
 			require.NoError(t, err)
 			defer conn.Close()
 

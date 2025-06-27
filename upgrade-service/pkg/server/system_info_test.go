@@ -2,30 +2,61 @@ package server
 
 import (
 	"context"
-	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
-	"go.uber.org/mock/gomock"
-
-	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/hostinfo"
-	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/hostinfo/mocks"
+	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
 	pb "github.com/sonic-net/sonic-gnmi/upgrade-service/proto"
 )
 
-// testCase defines the structure for test cases.
-type testCase struct {
+func TestNewSystemInfoServer(t *testing.T) {
+	server := NewSystemInfoServer()
+	if server == nil {
+		t.Error("Expected non-nil server")
+	}
+
+	// Verify it implements the interface
+	var _ pb.SystemInfoServer = server
+}
+
+type platformTestCase struct {
 	name                       string
-	setupMock                  func(*mocks.MockPlatformInfoProvider)
+	machineConfContent         string
 	expectedPlatformIdentifier string
 	expectedVendor             string
 	expectedModel              string
 	expectError                bool
 }
 
-// validateTestResult is a helper function to reduce complexity in test assertions.
-func validateTestResult(t *testing.T, test testCase, resp *pb.GetPlatformTypeResponse, err error) {
-	t.Helper()
+func runPlatformTest(t *testing.T, test platformTestCase) {
+	// Set up temporary directory and machine.conf
+	tempDir := t.TempDir()
+	machineConfPath := filepath.Join(tempDir, "host", "machine.conf")
 
+	// Create directory
+	err := os.MkdirAll(filepath.Dir(machineConfPath), 0755)
+	if err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
+
+	// Write machine.conf
+	err = os.WriteFile(machineConfPath, []byte(test.machineConfContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write machine.conf: %v", err)
+	}
+
+	// Mock config
+	originalConfig := config.Global
+	config.Global = &config.Config{RootFS: tempDir}
+	defer func() { config.Global = originalConfig }()
+
+	// Create server and call method
+	server := NewSystemInfoServer()
+	ctx := context.Background()
+	resp, err := server.GetPlatformType(ctx, &pb.GetPlatformTypeRequest{})
+
+	// Validate results
 	if test.expectError {
 		if err == nil {
 			t.Error("Expected an error but got nil")
@@ -57,68 +88,97 @@ func validateTestResult(t *testing.T, test testCase, resp *pb.GetPlatformTypeRes
 	}
 }
 
-func TestSystemInfoServer_GetPlatformType(t *testing.T) {
-	tests := []testCase{
-		{
-			name: "Success - Mellanox SN4600",
-			setupMock: func(mock *mocks.MockPlatformInfoProvider) {
-				platformInfo := &hostinfo.PlatformInfo{
-					Vendor:     "Mellanox",
-					Platform:   "x86_64-mlnx_msn4600c-r0",
-					SwitchASIC: "mlnx",
-				}
-				mock.EXPECT().GetPlatformInfo(gomock.Any()).Return(platformInfo, nil)
-				mock.EXPECT().GetPlatformIdentifier(gomock.Any(), platformInfo).Return("mellanox_sn4600", "Mellanox", "sn4600")
-			},
-			expectedPlatformIdentifier: "mellanox_sn4600",
-			expectedVendor:             "Mellanox",
-			expectedModel:              "sn4600",
-			expectError:                false,
-		},
-		{
-			name: "Success - Arista 7060",
-			setupMock: func(mock *mocks.MockPlatformInfoProvider) {
-				platformInfo := &hostinfo.PlatformInfo{
-					Vendor:   "arista",
-					Platform: "x86_64-arista_7060x6_64pe",
-				}
-				mock.EXPECT().GetPlatformInfo(gomock.Any()).Return(platformInfo, nil)
-				mock.EXPECT().GetPlatformIdentifier(gomock.Any(), platformInfo).Return("arista_7060", "arista", "7060")
-			},
-			expectedPlatformIdentifier: "arista_7060",
-			expectedVendor:             "arista",
-			expectedModel:              "7060",
-			expectError:                false,
-		},
-		{
-			name: "Error getting platform info",
-			setupMock: func(mock *mocks.MockPlatformInfoProvider) {
-				mock.EXPECT().GetPlatformInfo(gomock.Any()).Return(nil, errors.New("failed to read machine.conf"))
-			},
-			expectError: true,
-		},
+func TestSystemInfoServer_GetPlatformType_Mellanox(t *testing.T) {
+	test := platformTestCase{
+		name: "Success - Mellanox SN4600",
+		machineConfContent: `onie_platform=x86_64-mlnx_msn4600c-r0
+onie_machine=mlnx_msn4600c
+onie_arch=x86_64
+onie_switch_asic=mlnx`,
+		expectedPlatformIdentifier: "mellanox_sn4600",
+		expectedVendor:             "Mellanox",
+		expectedModel:              "sn4600",
+		expectError:                false,
 	}
+	runPlatformTest(t, test)
+}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			// Set up the mock controller
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
+func TestSystemInfoServer_GetPlatformType_Arista(t *testing.T) {
+	test := platformTestCase{
+		name: "Success - Arista 7060",
+		machineConfContent: `aboot_vendor=arista
+aboot_platform=x86_64-arista_7060x6_64pe
+aboot_machine=arista_7060x6_64pe
+aboot_arch=x86_64`,
+		expectedPlatformIdentifier: "arista_7060",
+		expectedVendor:             "arista",
+		expectedModel:              "7060",
+		expectError:                false,
+	}
+	runPlatformTest(t, test)
+}
 
-			// Create a mock provider
-			mockProvider := mocks.NewMockPlatformInfoProvider(ctrl)
+func TestSystemInfoServer_GetPlatformType_Dell(t *testing.T) {
+	test := platformTestCase{
+		name: "Success - Dell S6100",
+		machineConfContent: `onie_platform=x86_64-dell_s6100-r0
+onie_machine=dell_s6100
+onie_arch=x86_64
+onie_switch_asic=broadcom`,
+		expectedPlatformIdentifier: "dell_s6100",
+		expectedVendor:             "dell",
+		expectedModel:              "s6100",
+		expectError:                false,
+	}
+	runPlatformTest(t, test)
+}
 
-			// Set up the mock expectations
-			test.setupMock(mockProvider)
+func TestSystemInfoServer_GetPlatformType_KVM(t *testing.T) {
+	test := platformTestCase{
+		name: "Success - KVM Platform",
+		machineConfContent: `onie_platform=x86_64-kvm_x86_64-r0
+onie_machine=kvm_x86_64
+onie_arch=x86_64
+onie_switch_asic=qemu`,
+		expectedPlatformIdentifier: "x86_64-kvm_x86_64-r0",
+		expectedVendor:             "kvm",
+		expectedModel:              "unknown",
+		expectError:                false,
+	}
+	runPlatformTest(t, test)
+}
 
-			// Create server with mock provider
-			server := NewSystemInfoServerWithProvider(mockProvider)
+func TestSystemInfoServer_GetPlatformType_FileNotFound(t *testing.T) {
+	// Mock config with non-existent path
+	originalConfig := config.Global
+	config.Global = &config.Config{RootFS: "/non-existent-path"}
+	defer func() { config.Global = originalConfig }()
 
-			// Call the method
-			resp, err := server.GetPlatformType(context.Background(), &pb.GetPlatformTypeRequest{})
+	server := NewSystemInfoServer()
+	ctx := context.Background()
+	resp, err := server.GetPlatformType(ctx, &pb.GetPlatformTypeRequest{})
 
-			// Validate results using helper function
-			validateTestResult(t, test, resp, err)
-		})
+	if err == nil {
+		t.Error("Expected error for non-existent file, got nil")
+	}
+	if resp != nil {
+		t.Error("Expected nil response for error case")
+	}
+}
+
+func TestSystemInfoServer_GetPlatformType_ContextCancellation(t *testing.T) {
+	server := NewSystemInfoServer()
+
+	// Create cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	resp, err := server.GetPlatformType(ctx, &pb.GetPlatformTypeRequest{})
+
+	if err == nil {
+		t.Error("Expected error for cancelled context, got nil")
+	}
+	if resp != nil {
+		t.Error("Expected nil response for cancelled context")
 	}
 }
