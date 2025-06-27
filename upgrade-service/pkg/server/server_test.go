@@ -7,7 +7,8 @@ import (
 )
 
 func TestNewServer_ValidAddress(t *testing.T) {
-	server, err := NewServer("localhost:0") // Use port 0 to let OS assign available port
+	// Test without TLS for unit tests
+	server, err := NewServerWithTLS("localhost:0", false, "", "") // Use port 0 to let OS assign available port
 
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
@@ -29,7 +30,7 @@ func TestNewServer_ValidAddress(t *testing.T) {
 }
 
 func TestNewServer_InvalidAddress(t *testing.T) {
-	server, err := NewServer("invalid:address:format")
+	server, err := NewServerWithTLS("invalid:address:format", false, "", "")
 
 	if err == nil {
 		t.Error("Expected error but got nil")
@@ -40,8 +41,8 @@ func TestNewServer_InvalidAddress(t *testing.T) {
 }
 
 func TestServer_StartAndStop(t *testing.T) {
-	// Create server on available port
-	server, err := NewServer("localhost:0")
+	// Create server on available port without TLS
+	server, err := NewServerWithTLS("localhost:0", false, "", "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -82,8 +83,8 @@ func TestServer_StartAndStop(t *testing.T) {
 }
 
 func TestServer_Stop_WithoutStart(t *testing.T) {
-	// Create server
-	server, err := NewServer("localhost:0")
+	// Create server without TLS
+	server, err := NewServerWithTLS("localhost:0", false, "", "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}

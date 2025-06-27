@@ -1,4 +1,4 @@
-.PHONY: proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb
+.PHONY: proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb test-certs
 
 # Include tool management makefile
 include tools.mk
@@ -165,3 +165,9 @@ deb: build
 		mv ../sonic-ops-server_*.* build/ 2>/dev/null || true; \
 	fi
 	@echo "Debian package built in build/ directory"
+
+# Generate test certificates for TLS testing
+test-certs:
+	@echo "Generating test certificates..."
+	@./scripts/generate-test-certs.sh
+	@echo "Test certificates generated in current directory"
