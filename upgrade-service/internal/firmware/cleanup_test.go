@@ -284,3 +284,59 @@ func TestDefaultCleanupConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanupOldFirmwareWithConfig_GlobPatternError(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create a file with invalid glob pattern in directory name
+	invalidPattern := "[*"
+
+	// Custom config with invalid glob pattern
+	customConfig := &CleanupConfig{
+		Directories: []string{"/host"},
+		Extensions:  []string{invalidPattern},
+	}
+
+	// Mock config
+	originalConfig := config.Global
+	config.Global = &config.Config{RootFS: tempDir}
+	defer func() { config.Global = originalConfig }()
+
+	result := CleanupOldFirmwareWithConfig(customConfig)
+
+	// Should have captured the glob error
+	if len(result.Errors) == 0 {
+		t.Errorf("Expected glob pattern error, got none")
+	}
+	if result.FilesDeleted != 0 {
+		t.Errorf("Expected 0 files deleted due to glob error, got %d", result.FilesDeleted)
+	}
+}
+
+func TestDeleteFile_StatError(t *testing.T) {
+	// Use a non-existent file to trigger stat error
+	nonExistentFile := filepath.Join(t.TempDir(), "non-existent.bin")
+
+	result := &CleanupResult{
+		DeletedFiles: make([]string, 0),
+		Errors:       make([]string, 0),
+	}
+
+	err := deleteFile(nonExistentFile, result)
+
+	// Should return error
+	if err == nil {
+		t.Errorf("Expected error for non-existent file, got nil")
+	}
+
+	// Should not update result on error
+	if result.FilesDeleted != 0 {
+		t.Errorf("Expected 0 files deleted, got %d", result.FilesDeleted)
+	}
+	if len(result.DeletedFiles) != 0 {
+		t.Errorf("Expected no deleted files, got %v", result.DeletedFiles)
+	}
+	if result.SpaceFreedBytes != 0 {
+		t.Errorf("Expected 0 bytes freed, got %d", result.SpaceFreedBytes)
+	}
+}
