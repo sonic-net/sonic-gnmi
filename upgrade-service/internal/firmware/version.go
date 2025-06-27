@@ -16,6 +16,8 @@ import (
 	"strings"
 
 	"github.com/golang/glog"
+	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
+	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/paths"
 )
 
 const (
@@ -210,4 +212,128 @@ func readZipFileContent(file *zip.File) (string, error) {
 	}
 
 	return strings.TrimSpace(string(content)), nil
+}
+
+// ImageSearchResult contains information about a found image file.
+type ImageSearchResult struct {
+	FilePath    string            `json:"filePath"`    // Full path to the image file
+	VersionInfo *ImageVersionInfo `json:"versionInfo"` // Extracted version information
+	FileSize    int64             `json:"fileSize"`    // File size in bytes
+}
+
+// FindImagesByVersion searches for firmware images with a specific version.
+func FindImagesByVersion(targetVersion string) ([]*ImageSearchResult, error) {
+	glog.V(1).Infof("Searching for images with version: %s", targetVersion)
+
+	var results []*ImageSearchResult
+
+	for _, dir := range DefaultSearchDirectories {
+		dirPath := paths.ToHost(dir, config.Global.RootFS)
+		glog.V(2).Infof("Searching in directory: %s", dirPath)
+
+		// Check if directory exists
+		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+			glog.V(2).Infof("Directory does not exist: %s", dirPath)
+			continue
+		}
+
+		for _, pattern := range SupportedImageExtensions {
+			matches, err := filepath.Glob(filepath.Join(dirPath, pattern))
+			if err != nil {
+				glog.Errorf("Failed to glob pattern %s in %s: %v", pattern, dirPath, err)
+				continue
+			}
+
+			for _, filePath := range matches {
+				result, err := checkImageForVersion(filePath, targetVersion)
+				if err != nil {
+					glog.V(2).Infof("Error checking image %s: %v", filePath, err)
+					continue
+				}
+				if result != nil {
+					results = append(results, result)
+				}
+			}
+		}
+	}
+
+	glog.V(1).Infof("Found %d images matching version %s", len(results), targetVersion)
+	return results, nil
+}
+
+// FindAllImages searches for all firmware images in the configured directories.
+func FindAllImages() ([]*ImageSearchResult, error) {
+	glog.V(1).Info("Searching for all firmware images")
+
+	var results []*ImageSearchResult
+
+	for _, dir := range DefaultSearchDirectories {
+		dirPath := paths.ToHost(dir, config.Global.RootFS)
+		glog.V(2).Infof("Searching in directory: %s", dirPath)
+
+		// Check if directory exists
+		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+			glog.V(2).Infof("Directory does not exist: %s", dirPath)
+			continue
+		}
+
+		for _, pattern := range SupportedImageExtensions {
+			matches, err := filepath.Glob(filepath.Join(dirPath, pattern))
+			if err != nil {
+				glog.Errorf("Failed to glob pattern %s in %s: %v", pattern, dirPath, err)
+				continue
+			}
+
+			for _, filePath := range matches {
+				result, err := createImageSearchResult(filePath)
+				if err != nil {
+					glog.V(2).Infof("Error processing image %s: %v", filePath, err)
+					continue
+				}
+				results = append(results, result)
+			}
+		}
+	}
+
+	glog.V(1).Infof("Found %d total firmware images", len(results))
+	return results, nil
+}
+
+// checkImageForVersion checks if an image file matches the target version.
+func checkImageForVersion(filePath string, targetVersion string) (*ImageSearchResult, error) {
+	versionInfo, err := GetBinaryImageVersion(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if version matches (both raw version and full version)
+	if versionInfo.Version == targetVersion || versionInfo.FullVersion == targetVersion {
+		return createImageSearchResultWithVersion(filePath, versionInfo)
+	}
+
+	return nil, nil // No match
+}
+
+// createImageSearchResult creates an ImageSearchResult for a file.
+func createImageSearchResult(filePath string) (*ImageSearchResult, error) {
+	versionInfo, err := GetBinaryImageVersion(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return createImageSearchResultWithVersion(filePath, versionInfo)
+}
+
+// createImageSearchResultWithVersion creates an ImageSearchResult with existing version info.
+func createImageSearchResultWithVersion(filePath string, versionInfo *ImageVersionInfo) (*ImageSearchResult, error) {
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file info for %s: %w", filePath, err)
+	}
+
+	return &ImageSearchResult{
+		FilePath:    filePath,
+		VersionInfo: versionInfo,
+		FileSize:    fileInfo.Size(),
+	}, nil
 }
