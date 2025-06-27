@@ -1,7 +1,14 @@
-.PHONY: proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb test-certs build-inspector
+.PHONY: help proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb test-certs build-inspector
+
+# Default target shows help
+.DEFAULT_GOAL := help
 
 # Include tool management makefile
 include tools.mk
+
+##############################################################################
+# Configuration Variables
+##############################################################################
 
 # Default go build tags
 BUILD_TAGS ?=
@@ -9,15 +16,29 @@ COVERAGE_THRESHOLD ?= 25
 DOCKER_TAG ?= latest
 DOCKER_IMAGE ?= opsd
 
+##############################################################################
+# Help Target
+##############################################################################
+
+help: ## Show this help message
+	@echo 'Usage: make [target]'
+	@echo ''
+	@echo 'Targets:'
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST) | sort
+
+##############################################################################
+# Code Formatting & Validation
+##############################################################################
+
 
 # Fix formatting with gofmt
-format:
+format: ## Fix code formatting with gofmt
 	@echo "Fixing formatting (gofmt)..."
 	@gofmt -w .
 	@echo "Formatting fixed."
 
 # Validate formatting with gofmt (for CI)
-validate-format:
+validate-format: ## Validate code formatting (for CI)
 	@echo "Validating formatting (gofmt)..."
 	@UNFORMATTED=$$(gofmt -l .); \
 	if [ -n "$$UNFORMATTED" ]; then \
@@ -28,15 +49,18 @@ validate-format:
 	fi
 
 
+##############################################################################
+# Protocol Buffers
+##############################################################################
+
 # Generate protobuf files
-proto: validate-protobuf-tools
+proto: validate-protobuf-tools ## Generate protobuf files
 	PATH="$(shell go env GOPATH)/bin:$$PATH" protoc --go_out=. --go_opt=paths=source_relative \
         --go-grpc_out=. --go-grpc_opt=paths=source_relative \
         proto/*.proto
 
-
 # Validate proto-generated files are up to date
-validate-proto: validate-protobuf-tools
+validate-proto: validate-protobuf-tools ## Validate proto-generated files are up to date
 	@echo "Validating proto-generated files..."
 	@TEMP_DIR=$$(mktemp -d); \
 	PATH="$(shell go env GOPATH)/bin:$$PATH" protoc --go_out=$$TEMP_DIR --go_opt=paths=source_relative \
@@ -73,41 +97,57 @@ validate-proto: validate-protobuf-tools
 	fi; \
 	rm -rf $$TEMP_DIR
 
+##############################################################################
+# Go Module Management
+##############################################################################
+
 # Tidy modules - cleans up unused dependencies in go.mod and go.sum
-tidy:
+tidy: ## Clean up unused dependencies in go.mod and go.sum
 	go mod tidy
 
+# Verify modules
+verify: ## Verify go modules
+	go mod verify
+
+##############################################################################
+# Code Analysis
+##############################################################################
+
 # Run static analysis
-vet:
+vet: ## Run go vet static analysis
 	go vet ./...
 
 # Run golangci-lint
-lint: validate-golangci-lint
+lint: validate-golangci-lint ## Run golangci-lint
 	golangci-lint run
 
+##############################################################################
+# Testing
+##############################################################################
+
 # Run all tests
-test:
+test: ## Run all tests
 	go test ./... -timeout 2m
 
 # Run all tests with coverage
-test-coverage:
+test-coverage: ## Run all tests with coverage report
 	@echo "Running tests with coverage..."
 	@go test ./... -timeout 2m -coverprofile=coverage.out -covermode=atomic
 	@echo "Coverage report generated: coverage.out"
 
 # Generate HTML coverage report
-coverage-html: test-coverage
+coverage-html: test-coverage ## Generate HTML coverage report
 	@echo "Generating HTML coverage report..."
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "HTML coverage report generated: coverage.html"
 
 # Show coverage summary
-coverage-summary: test-coverage
+coverage-summary: test-coverage ## Show coverage summary
 	@echo "Coverage summary:"
 	@go tool cover -func=coverage.out
 
 # Validate coverage meets minimum threshold
-validate-coverage: test-coverage
+validate-coverage: test-coverage ## Validate coverage meets minimum threshold
 	@echo "Validating coverage meets minimum threshold..."
 	@COVERAGE=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//'); \
 	THRESHOLD=$(COVERAGE_THRESHOLD); \
@@ -119,44 +159,62 @@ validate-coverage: test-coverage
 	fi
 
 # Run end-to-end tests
-test-e2e:
+test-e2e: ## Run end-to-end tests
 	go test ./tests/e2e/... -timeout 2m
 
-# Verify modules
-verify:
-	go mod verify
+# Generate test certificates for TLS testing
+test-certs: ## Generate test certificates for TLS testing
+	@echo "Generating test certificates..."
+	@./scripts/generate-test-certs.sh
+	@echo "Test certificates generated in current directory"
 
-# Mock generation removed - using tempdir approach for testing instead
+##############################################################################
+# Build Targets
+##############################################################################
 
 # Build the server
-build: validate-proto
+build: validate-proto ## Build the sonic-ops-server binary
 	go build -tags "$(BUILD_TAGS)" -o bin/sonic-ops-server cmd/server/main.go
 
 # Build all packages
-build-all:
+build-all: ## Build all packages (validate only)
 	go build ./...
 
+# Build sonic-image-inspector tool for manual testing
+build-inspector: ## Build the sonic-image-inspector tool
+	@echo "Building sonic-image-inspector tool..."
+	@go build -o bin/sonic-image-inspector cmd/sonic-image-inspector/main.go
+	@echo "Built bin/sonic-image-inspector"
+
 # Run the server
-run: build
+run: build ## Build and run the server
 	./bin/sonic-ops-server
 
 # Clean build artifacts
-clean:
+clean: ## Clean build artifacts
 	rm -rf bin/
 
+##############################################################################
+# CI/CD Targets
+##############################################################################
+
 # CI pipeline target - runs all verification steps (validation only, no tool installation)
-ci: validate-format validate-proto tidy build-all vet lint test validate-coverage test-e2e verify
+ci: validate-format validate-proto tidy build-all vet lint test validate-coverage test-e2e verify ## Run full CI pipeline
+
+##############################################################################
+# Packaging & Distribution
+##############################################################################
 
 # Build Docker image
-docker-build: build
+docker-build: build ## Build Docker image
 	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) -f docker/Dockerfile .
 
 # Push Docker image to registry
-docker-push: docker-build
+docker-push: docker-build ## Push Docker image to registry
 	docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
 
 # Build debian package
-deb: build
+deb: build ## Build debian package
 	@echo "Building debian package..."
 	@mkdir -p build
 	@rm -rf build/*
@@ -165,15 +223,3 @@ deb: build
 		mv ../sonic-ops-server_*.* build/ 2>/dev/null || true; \
 	fi
 	@echo "Debian package built in build/ directory"
-
-# Generate test certificates for TLS testing
-test-certs:
-	@echo "Generating test certificates..."
-	@./scripts/generate-test-certs.sh
-	@echo "Test certificates generated in current directory"
-
-# Build sonic-image-inspector tool for manual testing
-build-inspector:
-	@echo "Building sonic-image-inspector tool..."
-	@go build -o bin/sonic-image-inspector cmd/sonic-image-inspector/main.go
-	@echo "Built bin/sonic-image-inspector"
