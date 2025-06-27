@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
 )
 
 func TestGetBinaryImageVersion(t *testing.T) {
@@ -349,4 +352,281 @@ func createTestAbootImage(path, version string) error {
 	}
 
 	return nil
+}
+
+// setupTestConfig initializes a test configuration.
+func setupTestConfig(t *testing.T) {
+	if config.Global == nil {
+		config.Global = &config.Config{
+			RootFS:          "/", // Use root for tests
+			Addr:            ":50051",
+			ShutdownTimeout: 10 * time.Second,
+			TLSEnabled:      false,
+		}
+	}
+}
+
+func TestFindImagesByVersion(t *testing.T) {
+	t.Run("ExactVersionMatch", testFindImagesByVersionExactMatch)
+	t.Run("SingleMatch", testFindImagesByVersionSingleMatch)
+	t.Run("FullVersionPrefix", testFindImagesByVersionWithPrefix)
+	t.Run("NoMatches", testFindImagesByVersionNoMatches)
+}
+
+func testFindImagesByVersionExactMatch(t *testing.T) {
+	setupSearchTest(t)
+
+	results, err := FindImagesByVersion("202311.1-test123")
+	if err != nil {
+		t.Fatalf("FindImagesByVersion failed: %v", err)
+	}
+
+	if len(results) != 2 {
+		t.Errorf("Expected 2 matches, got %d", len(results))
+	}
+
+	for _, result := range results {
+		validateSearchResult(t, result, "202311.1-test123")
+	}
+}
+
+func testFindImagesByVersionSingleMatch(t *testing.T) {
+	setupSearchTest(t)
+
+	results, err := FindImagesByVersion("202311.2-test456")
+	if err != nil {
+		t.Fatalf("FindImagesByVersion failed: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("Expected 1 match, got %d", len(results))
+	}
+
+	if len(results) > 0 {
+		validateSearchResult(t, results[0], "202311.2-test456")
+	}
+}
+
+func testFindImagesByVersionWithPrefix(t *testing.T) {
+	setupSearchTest(t)
+
+	results, err := FindImagesByVersion("SONiC-OS-202311.3-test789")
+	if err != nil {
+		t.Fatalf("FindImagesByVersion failed: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("Expected 1 match, got %d", len(results))
+	}
+
+	if len(results) > 0 {
+		validateSearchResult(t, results[0], "SONiC-OS-202311.3-test789")
+	}
+}
+
+func testFindImagesByVersionNoMatches(t *testing.T) {
+	setupSearchTest(t)
+
+	results, err := FindImagesByVersion("202311.99-nonexistent")
+	if err != nil {
+		t.Fatalf("FindImagesByVersion failed: %v", err)
+	}
+
+	if len(results) != 0 {
+		t.Errorf("Expected 0 matches, got %d", len(results))
+	}
+}
+
+func setupSearchTest(t *testing.T) string {
+	setupTestConfig(t)
+
+	originalDirs := DefaultSearchDirectories
+	t.Cleanup(func() { DefaultSearchDirectories = originalDirs })
+
+	tempDir := t.TempDir()
+	DefaultSearchDirectories = []string{tempDir}
+
+	// Create test images
+	createTestOnieImage(filepath.Join(tempDir, "image1.bin"), "202311.1-test123")
+	createTestAbootImage(filepath.Join(tempDir, "image2.swi"), "202311.2-test456")
+	createTestOnieImage(filepath.Join(tempDir, "image3.bin"), "202311.1-test123")
+	createTestAbootImage(filepath.Join(tempDir, "image4.swi"), "202311.3-test789")
+
+	return tempDir
+}
+
+func validateSearchResult(t *testing.T, result *ImageSearchResult, targetVersion string) {
+	if result.VersionInfo == nil {
+		t.Error("Result missing version info")
+		return
+	}
+	if result.FilePath == "" {
+		t.Error("Result missing file path")
+	}
+	if result.FileSize == 0 {
+		t.Error("Result has zero file size")
+	}
+
+	// Check version match
+	if result.VersionInfo.Version != targetVersion &&
+		result.VersionInfo.FullVersion != targetVersion {
+		t.Errorf("Version mismatch: expected %s, got %s or %s",
+			targetVersion, result.VersionInfo.Version, result.VersionInfo.FullVersion)
+	}
+}
+
+func TestFindAllImages(t *testing.T) {
+	t.Run("FindsAllValidImages", testFindAllImagesValid)
+	t.Run("IgnoresNonImageFiles", testFindAllImagesIgnoresNonImages)
+}
+
+func testFindAllImagesValid(t *testing.T) {
+	setupFindAllTest(t)
+
+	results, err := FindAllImages()
+	if err != nil {
+		t.Fatalf("FindAllImages failed: %v", err)
+	}
+
+	if len(results) != 3 {
+		t.Errorf("Expected 3 images, got %d", len(results))
+	}
+
+	// Verify all results have required fields
+	for i, result := range results {
+		validateAllImagesResult(t, result, i)
+	}
+}
+
+func testFindAllImagesIgnoresNonImages(t *testing.T) {
+	tempDir := setupFindAllTest(t)
+
+	// Create some non-image files (should be ignored)
+	nonImageFiles := []string{"readme.txt", "config.json", "somefile.rpm"}
+	for _, filename := range nonImageFiles {
+		path := filepath.Join(tempDir, filename)
+		if err := os.WriteFile(path, []byte("not an image"), 0644); err != nil {
+			t.Fatalf("Failed to create non-image file %s: %v", filename, err)
+		}
+	}
+
+	results, err := FindAllImages()
+	if err != nil {
+		t.Fatalf("FindAllImages failed: %v", err)
+	}
+
+	// Should still only find the 3 image files, not the other files
+	if len(results) != 3 {
+		t.Errorf("Expected 3 images (ignoring non-image files), got %d", len(results))
+	}
+}
+
+func setupFindAllTest(t *testing.T) string {
+	setupTestConfig(t)
+
+	originalDirs := DefaultSearchDirectories
+	t.Cleanup(func() { DefaultSearchDirectories = originalDirs })
+
+	tempDir := t.TempDir()
+	DefaultSearchDirectories = []string{tempDir}
+
+	// Create test images
+	createTestOnieImage(filepath.Join(tempDir, "image1.bin"), "202311.1-test123")
+	createTestAbootImage(filepath.Join(tempDir, "image2.swi"), "202311.2-test456")
+	createTestOnieImage(filepath.Join(tempDir, "image3.bin"), "202311.3-test789")
+
+	return tempDir
+}
+
+func validateAllImagesResult(t *testing.T, result *ImageSearchResult, index int) {
+	if result.VersionInfo == nil {
+		t.Errorf("Result %d missing version info", index)
+		return
+	}
+	if result.FilePath == "" {
+		t.Errorf("Result %d missing file path", index)
+	}
+	if result.FileSize == 0 {
+		t.Errorf("Result %d has zero file size", index)
+	}
+	if result.VersionInfo.Version == "" {
+		t.Errorf("Result %d has empty version", index)
+	}
+	if result.VersionInfo.ImageType == "" {
+		t.Errorf("Result %d has empty image type", index)
+	}
+}
+
+func TestFindImagesInNonexistentDirectory(t *testing.T) {
+	// Initialize config for testing
+	setupTestConfig(t)
+
+	// Save original config
+	originalDirs := DefaultSearchDirectories
+	defer func() { DefaultSearchDirectories = originalDirs }()
+
+	// Use a directory that doesn't exist
+	DefaultSearchDirectories = []string{"/this/directory/does/not/exist"}
+
+	results, err := FindImagesByVersion("any-version")
+	if err != nil {
+		t.Errorf("FindImagesByVersion should not fail for nonexistent directories: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("Expected 0 results for nonexistent directory, got %d", len(results))
+	}
+
+	allResults, err := FindAllImages()
+	if err != nil {
+		t.Errorf("FindAllImages should not fail for nonexistent directories: %v", err)
+	}
+	if len(allResults) != 0 {
+		t.Errorf("Expected 0 results for nonexistent directory, got %d", len(allResults))
+	}
+}
+
+func TestSearchWithMultipleDirectories(t *testing.T) {
+	// Initialize config for testing
+	setupTestConfig(t)
+
+	// Save original config
+	originalDirs := DefaultSearchDirectories
+	defer func() { DefaultSearchDirectories = originalDirs }()
+
+	tempDir1 := t.TempDir()
+	tempDir2 := t.TempDir()
+	DefaultSearchDirectories = []string{tempDir1, tempDir2}
+
+	// Create images in both directories
+	image1Path := filepath.Join(tempDir1, "image1.bin")
+	if err := createTestOnieImage(image1Path, "202311.1-dir1"); err != nil {
+		t.Fatalf("Failed to create image in dir1: %v", err)
+	}
+
+	image2Path := filepath.Join(tempDir2, "image2.swi")
+	if err := createTestAbootImage(image2Path, "202311.2-dir2"); err != nil {
+		t.Fatalf("Failed to create image in dir2: %v", err)
+	}
+
+	results, err := FindAllImages()
+	if err != nil {
+		t.Fatalf("FindAllImages failed: %v", err)
+	}
+
+	if len(results) != 2 {
+		t.Errorf("Expected 2 images from multiple directories, got %d", len(results))
+	}
+
+	// Verify we got images from both directories
+	foundPaths := make(map[string]bool)
+	for _, result := range results {
+		foundPaths[result.FilePath] = true
+	}
+
+	if !foundPaths[image1Path] {
+		t.Error("Image from first directory not found")
+	}
+	if !foundPaths[image2Path] {
+		t.Error("Image from second directory not found")
+	}
 }
