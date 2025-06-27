@@ -7,6 +7,7 @@ import (
 	"github.com/golang/glog"
 
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
+	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/paths"
 )
 
 type CleanupResult struct {
@@ -39,7 +40,7 @@ func CleanupOldFirmwareWithConfig(cfg *CleanupConfig) *CleanupResult {
 	}
 
 	for _, dir := range cfg.Directories {
-		dirPath := config.GetHostPath(dir)
+		dirPath := paths.ToHost(dir, config.Global.RootFS)
 		glog.V(1).Infof("Cleaning up firmware files in %s", dirPath)
 
 		for _, pattern := range cfg.Extensions {

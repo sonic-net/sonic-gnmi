@@ -4,60 +4,38 @@ import (
 	"net"
 	"testing"
 	"time"
-
-	pb "github.com/sonic-net/sonic-gnmi/upgrade-service/proto"
 )
 
-func TestNewServer(t *testing.T) {
-	tests := []struct {
-		name        string
-		addr        string
-		expectError bool
-	}{
-		{
-			name:        "Valid address",
-			addr:        "localhost:0", // Use port 0 to let OS assign available port
-			expectError: false,
-		},
-		{
-			name:        "Invalid address",
-			addr:        "invalid:address:format",
-			expectError: true,
-		},
+func TestNewServer_ValidAddress(t *testing.T) {
+	server, err := NewServer("localhost:0") // Use port 0 to let OS assign available port
+
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if server == nil {
+		t.Error("Expected non-nil server")
+	}
+	if server.grpcServer == nil {
+		t.Error("Expected non-nil grpcServer")
+	}
+	if server.listener == nil {
+		t.Error("Expected non-nil listener")
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			server, err := NewServer(test.addr)
+	// Clean up
+	if server != nil && server.listener != nil {
+		server.listener.Close()
+	}
+}
 
-			if test.expectError {
-				if err == nil {
-					t.Error("Expected error but got nil")
-				}
-				if server != nil {
-					t.Error("Expected nil server on error")
-				}
-				return
-			}
+func TestNewServer_InvalidAddress(t *testing.T) {
+	server, err := NewServer("invalid:address:format")
 
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-			}
-			if server == nil {
-				t.Error("Expected non-nil server")
-			}
-			if server.grpcServer == nil {
-				t.Error("Expected non-nil grpcServer")
-			}
-			if server.listener == nil {
-				t.Error("Expected non-nil listener")
-			}
-
-			// Clean up
-			if server != nil && server.listener != nil {
-				server.listener.Close()
-			}
-		})
+	if err == nil {
+		t.Error("Expected error but got nil")
+	}
+	if server != nil {
+		t.Error("Expected nil server on error")
 	}
 }
 
@@ -113,14 +91,4 @@ func TestServer_Stop_WithoutStart(t *testing.T) {
 
 	// Stop without starting should not panic
 	server.Stop()
-}
-
-func TestNewSystemInfoServer(t *testing.T) {
-	server := NewSystemInfoServer()
-	if server == nil {
-		t.Error("Expected non-nil server")
-	}
-	
-	// Verify it implements the interface
-	var _ pb.SystemInfoServer = server
 }

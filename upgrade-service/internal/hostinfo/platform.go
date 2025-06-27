@@ -2,35 +2,18 @@ package hostinfo
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
+	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/paths"
 )
-
-// PlatformInfoProvider defines the interface for getting platform information.
-type PlatformInfoProvider interface {
-	// GetPlatformInfo returns platform information
-	GetPlatformInfo(ctx context.Context) (*PlatformInfo, error)
-
-	// GetPlatformIdentifier returns the platform identifier string, vendor and model
-	GetPlatformIdentifier(ctx context.Context, info *PlatformInfo) (platformIdentifier string, vendor string, model string)
-}
-
-// DefaultPlatformInfoProvider implements the PlatformInfoProvider interface.
-type DefaultPlatformInfoProvider struct{}
-
-// NewPlatformInfoProvider creates a new instance of DefaultPlatformInfoProvider.
-func NewPlatformInfoProvider() PlatformInfoProvider {
-	return &DefaultPlatformInfoProvider{}
-}
 
 // getMachineConfPath returns the path to the machine.conf file based on current config.
 func getMachineConfPath() string {
-	return config.GetHostPath("/host/machine.conf")
+	return paths.ToHost("/host/machine.conf", config.Global.RootFS)
 }
 
 // PlatformInfo contains information about the platform.
@@ -430,30 +413,6 @@ func inferVendorFromPlatform(platform string) string {
 	}
 
 	return "unknown"
-}
-
-// GetPlatformInfo returns platform information from the host.
-func (p *DefaultPlatformInfoProvider) GetPlatformInfo(ctx context.Context) (*PlatformInfo, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-		// Continue with normal operation
-	}
-	return GetPlatformInfo()
-}
-
-// GetPlatformIdentifier returns the platform identifier, vendor and model as strings.
-func (p *DefaultPlatformInfoProvider) GetPlatformIdentifier(
-	ctx context.Context, info *PlatformInfo,
-) (string, string, string) {
-	select {
-	case <-ctx.Done():
-		return "unknown", "unknown", "unknown"
-	default:
-		// Continue with normal operation
-	}
-	return GetPlatformIdentifierString(info)
 }
 
 // GetPlatformIdentifierString determines the platform identifier, vendor and model strings

@@ -5,7 +5,6 @@ go 1.24.1
 require (
 	github.com/golang/glog v1.2.5
 	github.com/stretchr/testify v1.10.0
-	go.uber.org/mock v0.5.2
 	google.golang.org/grpc v1.72.2
 	google.golang.org/protobuf v1.36.6
 )

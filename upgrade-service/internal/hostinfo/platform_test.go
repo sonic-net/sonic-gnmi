@@ -1,7 +1,6 @@
 package hostinfo
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -270,16 +269,6 @@ func TestGetPlatformIdentifier(t *testing.T) {
 				t.Errorf("GetPlatformIdentifierString model: Expected %v, got %v", test.expectedModel, model)
 			}
 		})
-	}
-}
-
-func TestNewPlatformInfoProvider(t *testing.T) {
-	provider := NewPlatformInfoProvider()
-	if provider == nil {
-		t.Error("Expected non-nil provider")
-	}
-	if _, ok := provider.(*DefaultPlatformInfoProvider); !ok {
-		t.Error("Expected provider to be of type *DefaultPlatformInfoProvider")
 	}
 }
 
@@ -553,74 +542,6 @@ key3=`
 	// The line "=missing_key" creates a key with empty name
 	if _, exists := configMap[""]; !exists {
 		t.Error("Expected empty key from '=missing_key' line")
-	}
-}
-
-func TestDefaultPlatformInfoProvider_GetPlatformInfo(t *testing.T) {
-	provider := &DefaultPlatformInfoProvider{}
-
-	// Create temp directory and machine.conf file
-	tempDir := t.TempDir()
-	machineConfPath := filepath.Join(tempDir, "host", "machine.conf")
-
-	// Create directory
-	err := os.MkdirAll(filepath.Dir(machineConfPath), 0755)
-	if err != nil {
-		t.Fatalf("Failed to create directory: %v", err)
-	}
-
-	// Write test machine.conf for Arista platform
-	content := `aboot_vendor=arista
-aboot_platform=x86_64-arista_7060x6_64pe
-aboot_machine=arista_7060x6_64pe
-aboot_arch=x86_64`
-
-	err = os.WriteFile(machineConfPath, []byte(content), 0644)
-	if err != nil {
-		t.Fatalf("Failed to write machine.conf: %v", err)
-	}
-
-	// Mock config
-	originalConfig := config.Global
-	config.Global = &config.Config{RootFS: tempDir}
-	defer func() { config.Global = originalConfig }()
-
-	// Test GetPlatformInfo method
-	ctx := context.Background()
-	info, err := provider.GetPlatformInfo(ctx)
-	if err != nil {
-		t.Fatalf("GetPlatformInfo failed: %v", err)
-	}
-
-	// Verify results
-	if info.Vendor != "arista" {
-		t.Errorf("Expected Vendor 'arista', got '%s'", info.Vendor)
-	}
-	if info.Platform != "x86_64-arista_7060x6_64pe" {
-		t.Errorf("Expected Platform 'x86_64-arista_7060x6_64pe', got '%s'", info.Platform)
-	}
-}
-
-func TestDefaultPlatformInfoProvider_GetPlatformIdentifier(t *testing.T) {
-	provider := &DefaultPlatformInfoProvider{}
-
-	info := &PlatformInfo{
-		Vendor:     "dell",
-		Platform:   "x86_64-dell_s6100-r0",
-		SwitchASIC: "broadcom",
-	}
-
-	ctx := context.Background()
-	identifier, vendor, model := provider.GetPlatformIdentifier(ctx, info)
-
-	if identifier != "dell_s6100" {
-		t.Errorf("Expected identifier 'dell_s6100', got '%s'", identifier)
-	}
-	if vendor != "dell" {
-		t.Errorf("Expected vendor 'dell', got '%s'", vendor)
-	}
-	if model != "s6100" {
-		t.Errorf("Expected model 's6100', got '%s'", model)
 	}
 }
 

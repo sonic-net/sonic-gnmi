@@ -3,17 +3,17 @@ package e2e
 import (
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
-	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/hostinfo"
-	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/hostinfo/mocks"
+	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/pkg/server"
 	pb "github.com/sonic-net/sonic-gnmi/upgrade-service/proto"
 )
@@ -21,148 +21,119 @@ import (
 const bufSize = 1024 * 1024
 
 // setupGRPCServer creates an in-memory gRPC server using bufconn
-// and registers the SystemInfoServer with the given platform info provider.
-func setupGRPCServer(t *testing.T, provider hostinfo.PlatformInfoProvider) (*grpc.Server, *bufconn.Listener) {
-	t.Helper()
-
-	// Create a buffer connection for in-memory gRPC
-	lis := bufconn.Listen(bufSize)
-
-	// Create a new gRPC server
+// and registers the SystemInfoServer.
+func setupGRPCServer(t *testing.T) (*grpc.Server, *bufconn.Listener) {
+	listener := bufconn.Listen(bufSize)
 	grpcServer := grpc.NewServer()
 
-	// Register our SystemInfoServer with the provided platform info provider
-	sysInfoServer := server.NewSystemInfoServerWithProvider(provider)
-	pb.RegisterSystemInfoServer(grpcServer, sysInfoServer)
+	// Register SystemInfoServer
+	systemInfoServer := server.NewSystemInfoServer()
+	pb.RegisterSystemInfoServer(grpcServer, systemInfoServer)
 
-	// Start the server
+	// Start server in background
 	go func() {
-		if err := grpcServer.Serve(lis); err != nil {
-			t.Errorf("failed to serve: %v", err)
+		if err := grpcServer.Serve(listener); err != nil {
+			t.Logf("Server exited with error: %v", err)
 		}
 	}()
 
-	return grpcServer, lis
+	return grpcServer, listener
 }
 
-// createClientConn creates a gRPC client connection to the in-memory server.
-func createClientConn(ctx context.Context, lis *bufconn.Listener) (*grpc.ClientConn, error) {
-	// Create a custom dialer for the in-memory connection
-	dialer := func(context.Context, string) (net.Conn, error) {
-		return lis.Dial()
-	}
-
-	// Connect to the server
-	return grpc.DialContext(
-		ctx,
-		"bufnet",
-		grpc.WithContextDialer(dialer),
+// createClient creates a gRPC client connected to the bufconn listener.
+func createClient(ctx context.Context, listener *bufconn.Listener) (pb.SystemInfoClient, *grpc.ClientConn, error) {
+	conn, err := grpc.DialContext(ctx, "bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return listener.Dial()
+		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	client := pb.NewSystemInfoClient(conn)
+	return client, conn, nil
 }
 
-// TestGetPlatformType_E2E tests the GetPlatformType RPC with a mock platform provider.
 func TestGetPlatformType_E2E(t *testing.T) {
-	// Create a mock controller
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	// Create a mock platform provider
-	mockProvider := mocks.NewMockPlatformInfoProvider(ctrl)
-
-	// Test cases
-	testCases := []struct {
-		name             string
-		setupMock        func(*mocks.MockPlatformInfoProvider)
-		expectedResponse *pb.GetPlatformTypeResponse
-		expectError      bool
+	tests := []struct {
+		name                       string
+		machineConfContent         string
+		expectedPlatformIdentifier string
+		expectedVendor             string
+		expectedModel              string
 	}{
 		{
 			name: "Success - Mellanox SN4600",
-			setupMock: func(mock *mocks.MockPlatformInfoProvider) {
-				platformInfo := &hostinfo.PlatformInfo{
-					Vendor:     "Mellanox",
-					Platform:   "x86_64-mlnx_msn4600c-r0",
-					SwitchASIC: "mlnx",
-				}
-				mock.EXPECT().GetPlatformInfo(gomock.Any()).Return(platformInfo, nil)
-				mock.EXPECT().GetPlatformIdentifier(gomock.Any(), platformInfo).Return("mellanox_sn4600", "Mellanox", "sn4600")
-			},
-			expectedResponse: &pb.GetPlatformTypeResponse{
-				PlatformIdentifier: "mellanox_sn4600",
-				Vendor:             "Mellanox",
-				Model:              "sn4600",
-			},
-			expectError: false,
+			machineConfContent: `onie_platform=x86_64-mlnx_msn4600c-r0
+onie_machine=mlnx_msn4600c
+onie_arch=x86_64
+onie_switch_asic=mlnx`,
+			expectedPlatformIdentifier: "mellanox_sn4600",
+			expectedVendor:             "Mellanox",
+			expectedModel:              "sn4600",
 		},
 		{
 			name: "Success - Arista 7060",
-			setupMock: func(mock *mocks.MockPlatformInfoProvider) {
-				platformInfo := &hostinfo.PlatformInfo{
-					Vendor:   "arista",
-					Platform: "x86_64-arista_7060x6_64pe",
-				}
-				mock.EXPECT().GetPlatformInfo(gomock.Any()).Return(platformInfo, nil)
-				mock.EXPECT().GetPlatformIdentifier(gomock.Any(), platformInfo).Return("arista_7060", "arista", "7060")
-			},
-			expectedResponse: &pb.GetPlatformTypeResponse{
-				PlatformIdentifier: "arista_7060",
-				Vendor:             "arista",
-				Model:              "7060",
-			},
-			expectError: false,
+			machineConfContent: `aboot_vendor=arista
+aboot_platform=x86_64-arista_7060x6_64pe
+aboot_machine=arista_7060x6_64pe
+aboot_arch=x86_64`,
+			expectedPlatformIdentifier: "arista_7060",
+			expectedVendor:             "arista",
+			expectedModel:              "7060",
 		},
 		{
 			name: "Unknown Platform",
-			setupMock: func(mock *mocks.MockPlatformInfoProvider) {
-				platformInfo := &hostinfo.PlatformInfo{
-					Vendor:   "unknown",
-					Platform: "unknown",
-				}
-				mock.EXPECT().GetPlatformInfo(gomock.Any()).Return(platformInfo, nil)
-				mock.EXPECT().GetPlatformIdentifier(gomock.Any(), platformInfo).Return("unknown", "unknown", "unknown")
-			},
-			expectedResponse: &pb.GetPlatformTypeResponse{
-				PlatformIdentifier: "unknown",
-				Vendor:             "unknown",
-				Model:              "unknown",
-			},
-			expectError: false,
+			machineConfContent: `onie_platform=x86_64-generic_platform-r0
+onie_machine=generic_platform
+onie_arch=x86_64
+onie_switch_asic=unknown`,
+			expectedPlatformIdentifier: "unknown_generic_platform",
+			expectedVendor:             "unknown",
+			expectedModel:              "generic_platform",
 		},
 	}
 
-	// Run test cases
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Set up mock expectations
-			tc.setupMock(mockProvider)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Set up temporary directory and machine.conf
+			tempDir := t.TempDir()
+			machineConfPath := filepath.Join(tempDir, "host", "machine.conf")
 
-			// Set up server
-			srv, lis := setupGRPCServer(t, mockProvider)
-			defer srv.Stop()
+			// Create directory
+			err := os.MkdirAll(filepath.Dir(machineConfPath), 0755)
+			require.NoError(t, err)
 
-			// Set up client
+			// Write machine.conf
+			err = os.WriteFile(machineConfPath, []byte(test.machineConfContent), 0644)
+			require.NoError(t, err)
+
+			// Mock config
+			originalConfig := config.Global
+			config.Global = &config.Config{RootFS: tempDir}
+			defer func() { config.Global = originalConfig }()
+
+			// Setup gRPC server
+			grpcServer, listener := setupGRPCServer(t)
+			defer grpcServer.Stop()
+
+			// Create client
 			ctx := context.Background()
-			conn, err := createClientConn(ctx, lis)
+			client, conn, err := createClient(ctx, listener)
 			require.NoError(t, err)
 			defer conn.Close()
 
-			// Create client
-			client := pb.NewSystemInfoClient(conn)
-
-			// Make the RPC call
+			// Make request
 			resp, err := client.GetPlatformType(ctx, &pb.GetPlatformTypeRequest{})
+			require.NoError(t, err)
+			require.NotNil(t, resp)
 
-			// Check results
-			if tc.expectError {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.NotNil(t, resp)
-				assert.Equal(t, tc.expectedResponse.PlatformIdentifier, resp.PlatformIdentifier)
-				assert.Equal(t, tc.expectedResponse.Vendor, resp.Vendor)
-				assert.Equal(t, tc.expectedResponse.Model, resp.Model)
-			}
+			// Verify response
+			assert.Equal(t, test.expectedPlatformIdentifier, resp.PlatformIdentifier)
+			assert.Equal(t, test.expectedVendor, resp.Vendor)
+			assert.Equal(t, test.expectedModel, resp.Model)
 		})
 	}
 }
