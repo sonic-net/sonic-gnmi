@@ -199,8 +199,7 @@ When adding new functionality:
 1. Define the service interface in `.proto` files in the `proto/` directory
 2. Generate Go code using `make proto`
 3. Implement the service in the `pkg/server/` directory
-4. Add any internal helpers in the `internal/util/` directory
-5. Create entry points in the `cmd/` directory
+4. Create entry points in the `cmd/` directory
 
 ## CI/CD Integration
 
