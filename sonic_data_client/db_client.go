@@ -660,6 +660,10 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 		if err != nil {
 			return err
 		}
+		err = initCountersPGNameMap()
+		if err != nil {
+			return err
+		}
 		err = initAliasMap()
 		if err != nil {
 			return err
