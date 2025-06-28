@@ -8,6 +8,9 @@ option go_package = "github.com/sonic-net/sonic-gnmi/upgrade-service/proto";
 service FirmwareManagement {
   // CleanupOldFirmware removes old firmware files from the system
   rpc CleanupOldFirmware(CleanupOldFirmwareRequest) returns (CleanupOldFirmwareResponse) {}
+  
+  // ListFirmwareImages discovers firmware images in configured directories
+  rpc ListFirmwareImages(ListFirmwareImagesRequest) returns (ListFirmwareImagesResponse) {}
 }
 
 // CleanupOldFirmwareRequest is the request to clean up old firmware files
@@ -27,4 +30,41 @@ message CleanupOldFirmwareResponse {
   
   // Total space freed in bytes
   int64 space_freed_bytes = 4;
+}
+
+// ListFirmwareImagesRequest is the request to list firmware images
+message ListFirmwareImagesRequest {
+  // Optional list of directories to search. If empty, uses default directories (/host, /tmp).
+  repeated string search_directories = 1;
+  
+  // Optional regex pattern to filter firmware versions. Empty string means no filtering.
+  // Examples: "202311.*", ".*-test.*", "^master\\..*", etc.
+  string version_pattern = 2;
+}
+
+// FirmwareImageInfo contains information about a discovered firmware image
+message FirmwareImageInfo {
+  // Full path to the firmware image file
+  string file_path = 1;
+  
+  // Version string extracted from the image
+  string version = 2;
+  
+  // Full version string with prefix (e.g., "SONiC-OS-202311.1-build123")
+  string full_version = 3;
+  
+  // Type of image: "onie" for .bin files, "aboot" for .swi files
+  string image_type = 4;
+  
+  // File size in bytes
+  int64 file_size_bytes = 5;
+}
+
+// ListFirmwareImagesResponse contains the discovered firmware images
+message ListFirmwareImagesResponse {
+  // List of discovered firmware images
+  repeated FirmwareImageInfo images = 1;
+  
+  // Any errors encountered during search (non-fatal, search continues)
+  repeated string errors = 2;
 }

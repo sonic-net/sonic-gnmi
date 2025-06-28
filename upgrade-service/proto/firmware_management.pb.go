@@ -131,6 +131,199 @@ func (x *CleanupOldFirmwareResponse) GetSpaceFreedBytes() int64 {
 	return 0
 }
 
+// ListFirmwareImagesRequest is the request to list firmware images
+type ListFirmwareImagesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Optional list of directories to search. If empty, uses default directories (/host, /tmp).
+	SearchDirectories []string `protobuf:"bytes,1,rep,name=search_directories,json=searchDirectories,proto3" json:"search_directories,omitempty"`
+	// Optional regex pattern to filter firmware versions. Empty string means no filtering.
+	// Examples: "202311.*", ".*-test.*", "^master\\..*", etc.
+	VersionPattern string `protobuf:"bytes,2,opt,name=version_pattern,json=versionPattern,proto3" json:"version_pattern,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ListFirmwareImagesRequest) Reset() {
+	*x = ListFirmwareImagesRequest{}
+	mi := &file_proto_firmware_management_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFirmwareImagesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFirmwareImagesRequest) ProtoMessage() {}
+
+func (x *ListFirmwareImagesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_firmware_management_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFirmwareImagesRequest.ProtoReflect.Descriptor instead.
+func (*ListFirmwareImagesRequest) Descriptor() ([]byte, []int) {
+	return file_proto_firmware_management_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ListFirmwareImagesRequest) GetSearchDirectories() []string {
+	if x != nil {
+		return x.SearchDirectories
+	}
+	return nil
+}
+
+func (x *ListFirmwareImagesRequest) GetVersionPattern() string {
+	if x != nil {
+		return x.VersionPattern
+	}
+	return ""
+}
+
+// FirmwareImageInfo contains information about a discovered firmware image
+type FirmwareImageInfo struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Full path to the firmware image file
+	FilePath string `protobuf:"bytes,1,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
+	// Version string extracted from the image
+	Version string `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	// Full version string with prefix (e.g., "SONiC-OS-202311.1-build123")
+	FullVersion string `protobuf:"bytes,3,opt,name=full_version,json=fullVersion,proto3" json:"full_version,omitempty"`
+	// Type of image: "onie" for .bin files, "aboot" for .swi files
+	ImageType string `protobuf:"bytes,4,opt,name=image_type,json=imageType,proto3" json:"image_type,omitempty"`
+	// File size in bytes
+	FileSizeBytes int64 `protobuf:"varint,5,opt,name=file_size_bytes,json=fileSizeBytes,proto3" json:"file_size_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FirmwareImageInfo) Reset() {
+	*x = FirmwareImageInfo{}
+	mi := &file_proto_firmware_management_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FirmwareImageInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FirmwareImageInfo) ProtoMessage() {}
+
+func (x *FirmwareImageInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_firmware_management_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FirmwareImageInfo.ProtoReflect.Descriptor instead.
+func (*FirmwareImageInfo) Descriptor() ([]byte, []int) {
+	return file_proto_firmware_management_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *FirmwareImageInfo) GetFilePath() string {
+	if x != nil {
+		return x.FilePath
+	}
+	return ""
+}
+
+func (x *FirmwareImageInfo) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *FirmwareImageInfo) GetFullVersion() string {
+	if x != nil {
+		return x.FullVersion
+	}
+	return ""
+}
+
+func (x *FirmwareImageInfo) GetImageType() string {
+	if x != nil {
+		return x.ImageType
+	}
+	return ""
+}
+
+func (x *FirmwareImageInfo) GetFileSizeBytes() int64 {
+	if x != nil {
+		return x.FileSizeBytes
+	}
+	return 0
+}
+
+// ListFirmwareImagesResponse contains the discovered firmware images
+type ListFirmwareImagesResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// List of discovered firmware images
+	Images []*FirmwareImageInfo `protobuf:"bytes,1,rep,name=images,proto3" json:"images,omitempty"`
+	// Any errors encountered during search (non-fatal, search continues)
+	Errors        []string `protobuf:"bytes,2,rep,name=errors,proto3" json:"errors,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFirmwareImagesResponse) Reset() {
+	*x = ListFirmwareImagesResponse{}
+	mi := &file_proto_firmware_management_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFirmwareImagesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFirmwareImagesResponse) ProtoMessage() {}
+
+func (x *ListFirmwareImagesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_firmware_management_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFirmwareImagesResponse.ProtoReflect.Descriptor instead.
+func (*ListFirmwareImagesResponse) Descriptor() ([]byte, []int) {
+	return file_proto_firmware_management_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ListFirmwareImagesResponse) GetImages() []*FirmwareImageInfo {
+	if x != nil {
+		return x.Images
+	}
+	return nil
+}
+
+func (x *ListFirmwareImagesResponse) GetErrors() []string {
+	if x != nil {
+		return x.Errors
+	}
+	return nil
+}
+
 var File_proto_firmware_management_proto protoreflect.FileDescriptor
 
 const file_proto_firmware_management_proto_rawDesc = "" +
@@ -141,9 +334,23 @@ const file_proto_firmware_management_proto_rawDesc = "" +
 	"\rfiles_deleted\x18\x01 \x01(\x05R\ffilesDeleted\x12#\n" +
 	"\rdeleted_files\x18\x02 \x03(\tR\fdeletedFiles\x12\x16\n" +
 	"\x06errors\x18\x03 \x03(\tR\x06errors\x12*\n" +
-	"\x11space_freed_bytes\x18\x04 \x01(\x03R\x0fspaceFreedBytes2q\n" +
+	"\x11space_freed_bytes\x18\x04 \x01(\x03R\x0fspaceFreedBytes\"s\n" +
+	"\x19ListFirmwareImagesRequest\x12-\n" +
+	"\x12search_directories\x18\x01 \x03(\tR\x11searchDirectories\x12'\n" +
+	"\x0fversion_pattern\x18\x02 \x01(\tR\x0eversionPattern\"\xb4\x01\n" +
+	"\x11FirmwareImageInfo\x12\x1b\n" +
+	"\tfile_path\x18\x01 \x01(\tR\bfilePath\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x12!\n" +
+	"\ffull_version\x18\x03 \x01(\tR\vfullVersion\x12\x1d\n" +
+	"\n" +
+	"image_type\x18\x04 \x01(\tR\timageType\x12&\n" +
+	"\x0ffile_size_bytes\x18\x05 \x01(\x03R\rfileSizeBytes\"f\n" +
+	"\x1aListFirmwareImagesResponse\x120\n" +
+	"\x06images\x18\x01 \x03(\v2\x18.sonic.FirmwareImageInfoR\x06images\x12\x16\n" +
+	"\x06errors\x18\x02 \x03(\tR\x06errors2\xce\x01\n" +
 	"\x12FirmwareManagement\x12[\n" +
-	"\x12CleanupOldFirmware\x12 .sonic.CleanupOldFirmwareRequest\x1a!.sonic.CleanupOldFirmwareResponse\"\x00B7Z5github.com/sonic-net/sonic-gnmi/upgrade-service/protob\x06proto3"
+	"\x12CleanupOldFirmware\x12 .sonic.CleanupOldFirmwareRequest\x1a!.sonic.CleanupOldFirmwareResponse\"\x00\x12[\n" +
+	"\x12ListFirmwareImages\x12 .sonic.ListFirmwareImagesRequest\x1a!.sonic.ListFirmwareImagesResponse\"\x00B7Z5github.com/sonic-net/sonic-gnmi/upgrade-service/protob\x06proto3"
 
 var (
 	file_proto_firmware_management_proto_rawDescOnce sync.Once
@@ -157,19 +364,25 @@ func file_proto_firmware_management_proto_rawDescGZIP() []byte {
 	return file_proto_firmware_management_proto_rawDescData
 }
 
-var file_proto_firmware_management_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_proto_firmware_management_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_proto_firmware_management_proto_goTypes = []any{
 	(*CleanupOldFirmwareRequest)(nil),  // 0: sonic.CleanupOldFirmwareRequest
 	(*CleanupOldFirmwareResponse)(nil), // 1: sonic.CleanupOldFirmwareResponse
+	(*ListFirmwareImagesRequest)(nil),  // 2: sonic.ListFirmwareImagesRequest
+	(*FirmwareImageInfo)(nil),          // 3: sonic.FirmwareImageInfo
+	(*ListFirmwareImagesResponse)(nil), // 4: sonic.ListFirmwareImagesResponse
 }
 var file_proto_firmware_management_proto_depIdxs = []int32{
-	0, // 0: sonic.FirmwareManagement.CleanupOldFirmware:input_type -> sonic.CleanupOldFirmwareRequest
-	1, // 1: sonic.FirmwareManagement.CleanupOldFirmware:output_type -> sonic.CleanupOldFirmwareResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	3, // 0: sonic.ListFirmwareImagesResponse.images:type_name -> sonic.FirmwareImageInfo
+	0, // 1: sonic.FirmwareManagement.CleanupOldFirmware:input_type -> sonic.CleanupOldFirmwareRequest
+	2, // 2: sonic.FirmwareManagement.ListFirmwareImages:input_type -> sonic.ListFirmwareImagesRequest
+	1, // 3: sonic.FirmwareManagement.CleanupOldFirmware:output_type -> sonic.CleanupOldFirmwareResponse
+	4, // 4: sonic.FirmwareManagement.ListFirmwareImages:output_type -> sonic.ListFirmwareImagesResponse
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_proto_firmware_management_proto_init() }
@@ -183,7 +396,7 @@ func file_proto_firmware_management_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_firmware_management_proto_rawDesc), len(file_proto_firmware_management_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
