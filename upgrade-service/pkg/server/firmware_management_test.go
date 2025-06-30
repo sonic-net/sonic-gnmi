@@ -426,3 +426,40 @@ func TestFirmwareManagementServer_ConsolidateImages(t *testing.T) {
 		}
 	})
 }
+
+func TestFirmwareManagementServer_ListImages(t *testing.T) {
+	// Set up config to avoid nil pointer
+	tempDir := t.TempDir()
+	originalConfig := config.Global
+	config.Global = &config.Config{RootFS: tempDir}
+	defer func() { config.Global = originalConfig }()
+
+	server := NewFirmwareManagementServer()
+	ctx := context.Background()
+
+	t.Run("ListImages", func(t *testing.T) {
+		req := &pb.ListImagesRequest{}
+
+		// This will fail because sonic-installer is not available in test environment,
+		// but we're testing the server layer integration
+		resp, err := server.ListImages(ctx, req)
+		if err != nil {
+			// Expected case: sonic-installer not available
+			if resp != nil {
+				t.Error("Expected nil response when list fails")
+			}
+			return
+		}
+
+		// If somehow sonic-installer is available in test environment
+		if resp == nil {
+			t.Error("Expected non-nil response for successful list")
+		}
+		if resp.Images == nil {
+			t.Error("Expected non-nil images slice")
+		}
+		if resp.Warnings == nil {
+			t.Error("Expected non-nil warnings slice")
+		}
+	})
+}

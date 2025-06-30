@@ -14,6 +14,9 @@ service FirmwareManagement {
   
   // ConsolidateImages consolidates SONiC images by setting current as default and removing unused images
   rpc ConsolidateImages(ConsolidateImagesRequest) returns (ConsolidateImagesResponse) {}
+  
+  // ListImages lists installed SONiC images using sonic-installer
+  rpc ListImages(ListImagesRequest) returns (ListImagesResponse) {}
 }
 
 // CleanupOldFirmwareRequest is the request to clean up old firmware files
@@ -94,4 +97,23 @@ message ConsolidateImagesResponse {
   
   // Whether the operation was actually performed (false for dry_run)
   bool executed = 5;
+}
+
+// ListImagesRequest is the request to list installed SONiC images
+message ListImagesRequest {
+}
+
+// ListImagesResponse contains the list of installed SONiC images
+message ListImagesResponse {
+  // List of all installed image names
+  repeated string images = 1;
+  
+  // Name of the currently running image
+  string current_image = 2;
+  
+  // Name of the next boot image
+  string next_image = 3;
+  
+  // Any warnings or non-fatal errors encountered
+  repeated string warnings = 4;
 }
