@@ -16,7 +16,7 @@ func main() {
 	}
 
 	fmt.Println("=== Bootloader Detection Test ===")
-	
+
 	// Try to detect bootloader
 	bl, err := bootloader.GetBootloader()
 	if err != nil {
