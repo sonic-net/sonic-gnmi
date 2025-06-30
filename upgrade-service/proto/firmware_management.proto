@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package sonic;
+
+option go_package = "github.com/sonic-net/sonic-gnmi/upgrade-service/proto";
+
+// FirmwareManagement service provides firmware management operations
+service FirmwareManagement {
+  // CleanupOldFirmware removes old firmware files from the system
+  rpc CleanupOldFirmware(CleanupOldFirmwareRequest) returns (CleanupOldFirmwareResponse) {}
+}
+
+// CleanupOldFirmwareRequest is the request to clean up old firmware files
+message CleanupOldFirmwareRequest {
+}
+
+// CleanupOldFirmwareResponse contains the result of the cleanup operation
+message CleanupOldFirmwareResponse {
+  // Number of files that were successfully deleted
+  int32 files_deleted = 1;
+  
+  // List of files that were deleted
+  repeated string deleted_files = 2;
+  
+  // Any errors encountered during cleanup (non-fatal)
+  repeated string errors = 3;
+  
+  // Total space freed in bytes
+  int64 space_freed_bytes = 4;
+}
