@@ -141,3 +141,34 @@ func filterByVersionPattern(
 
 	return filtered, nil
 }
+
+func (s *firmwareManagementServer) ConsolidateImages(
+	ctx context.Context,
+	req *pb.ConsolidateImagesRequest,
+) (*pb.ConsolidateImagesResponse, error) {
+	glog.V(1).Infof("ConsolidateImages request: dry_run=%t", req.DryRun)
+
+	// Create consolidation service with default configuration
+	consolidationService := firmware.NewConsolidationService()
+
+	// Perform consolidation
+	result, err := consolidationService.ConsolidateImages(req.DryRun)
+	if err != nil {
+		glog.Errorf("Failed to consolidate images: %v", err)
+		return nil, err
+	}
+
+	// Convert result to protobuf response
+	response := &pb.ConsolidateImagesResponse{
+		CurrentImage:    result.CurrentImage,
+		RemovedImages:   result.RemovedImages,
+		SpaceFreedBytes: result.SpaceFreedBytes,
+		Warnings:        result.Warnings,
+		Executed:        result.Executed,
+	}
+
+	glog.V(1).Infof("ConsolidateImages response: current=%s, removed=%d, executed=%t, space_freed=%d",
+		response.CurrentImage, len(response.RemovedImages), response.Executed, response.SpaceFreedBytes)
+
+	return response, nil
+}

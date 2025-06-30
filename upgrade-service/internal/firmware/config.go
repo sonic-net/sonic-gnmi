@@ -8,3 +8,47 @@ var (
 	// SupportedImageExtensions defines the file extensions for SONiC images.
 	SupportedImageExtensions = []string{"*.bin", "*.swi"}
 )
+
+// ImageConsolidationMethod defines how image consolidation is performed.
+type ImageConsolidationMethod int
+
+const (
+	// ConsolidationMethodCLI uses sonic-installer CLI commands.
+	ConsolidationMethodCLI ImageConsolidationMethod = iota
+	// ConsolidationMethodBootloader uses direct bootloader package integration.
+	ConsolidationMethodBootloader
+)
+
+// ConsolidationConfig contains configuration for image consolidation operations.
+type ConsolidationConfig struct {
+	// Method specifies which approach to use for image consolidation
+	Method ImageConsolidationMethod
+
+	// SonicInstallerPath is the path to the sonic-installer binary
+	// Only used when Method is ConsolidationMethodCLI
+	SonicInstallerPath string
+
+	// DryRunDefault specifies the default dry-run behavior
+	DryRunDefault bool
+}
+
+// DefaultConsolidationConfig returns the default configuration for image consolidation.
+func DefaultConsolidationConfig() *ConsolidationConfig {
+	return &ConsolidationConfig{
+		Method:             ConsolidationMethodCLI, // Start with CLI, transition to bootloader later
+		SonicInstallerPath: "sonic-installer",
+		DryRunDefault:      false,
+	}
+}
+
+// GetConsolidationMethod returns a human-readable string for the consolidation method.
+func (c *ConsolidationConfig) GetConsolidationMethod() string {
+	switch c.Method {
+	case ConsolidationMethodCLI:
+		return "sonic-installer CLI"
+	case ConsolidationMethodBootloader:
+		return "bootloader package"
+	default:
+		return "unknown"
+	}
+}
