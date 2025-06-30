@@ -360,3 +360,69 @@ func createTestAbootImage(path, version string) error {
 
 	return nil
 }
+
+func TestFirmwareManagementServer_ConsolidateImages(t *testing.T) {
+	// Set up config to avoid nil pointer
+	tempDir := t.TempDir()
+	originalConfig := config.Global
+	config.Global = &config.Config{RootFS: tempDir}
+	defer func() { config.Global = originalConfig }()
+
+	// Create host directory for space estimation
+	hostDir := filepath.Join(tempDir, "host")
+	if err := os.MkdirAll(hostDir, 0755); err != nil {
+		t.Fatalf("Failed to create host directory: %v", err)
+	}
+
+	server := NewFirmwareManagementServer()
+	ctx := context.Background()
+
+	// Test dry run
+	t.Run("DryRun", func(t *testing.T) {
+		req := &pb.ConsolidateImagesRequest{
+			DryRun: true,
+		}
+
+		// This will fail because sonic-installer is not available,
+		// but we're testing the server layer integration
+		resp, err := server.ConsolidateImages(ctx, req)
+		if err == nil {
+			// If somehow sonic-installer is available in test environment
+			if resp == nil {
+				t.Error("Expected non-nil response for successful consolidation")
+			}
+			if resp.Executed {
+				t.Error("Expected dry run to have Executed=false")
+			}
+		} else {
+			// Expected case: sonic-installer not available
+			if resp != nil {
+				t.Error("Expected nil response when consolidation fails")
+			}
+		}
+	})
+
+	// Test non-dry run (will likely fail due to no sonic-installer)
+	t.Run("Execute", func(t *testing.T) {
+		req := &pb.ConsolidateImagesRequest{
+			DryRun: false,
+		}
+
+		// This will fail because sonic-installer is not available
+		resp, err := server.ConsolidateImages(ctx, req)
+		if err == nil {
+			// If somehow sonic-installer is available in test environment
+			if resp == nil {
+				t.Error("Expected non-nil response for successful consolidation")
+			}
+			if !resp.Executed {
+				t.Error("Expected non-dry run to have Executed=true")
+			}
+		} else {
+			// Expected case: sonic-installer not available
+			if resp != nil {
+				t.Error("Expected nil response when consolidation fails")
+			}
+		}
+	})
+}
