@@ -9,6 +9,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/firmware"
+	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/installer"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/paths"
 	pb "github.com/sonic-net/sonic-gnmi/upgrade-service/proto"
 )
@@ -169,6 +170,41 @@ func (s *firmwareManagementServer) ConsolidateImages(
 
 	glog.V(1).Infof("ConsolidateImages response: current=%s, removed=%d, executed=%t, space_freed=%d",
 		response.CurrentImage, len(response.RemovedImages), response.Executed, response.SpaceFreedBytes)
+
+	return response, nil
+}
+
+func (s *firmwareManagementServer) ListImages(
+	ctx context.Context,
+	req *pb.ListImagesRequest,
+) (*pb.ListImagesResponse, error) {
+	glog.V(1).Info("ListImages request")
+
+	// Create sonic-installer wrapper
+	sonicInstaller := installer.NewSonicInstaller()
+
+	// Get installed images using sonic-installer list
+	listResult, err := sonicInstaller.List()
+	if err != nil {
+		glog.Errorf("Failed to list images: %v", err)
+		return nil, err
+	}
+
+	// Extract image names
+	imageNames := make([]string, 0, len(listResult.Images))
+	for _, img := range listResult.Images {
+		imageNames = append(imageNames, img.Name)
+	}
+
+	response := &pb.ListImagesResponse{
+		Images:       imageNames,
+		CurrentImage: listResult.Current,
+		NextImage:    listResult.Next,
+		Warnings:     []string{}, // No warnings for now
+	}
+
+	glog.V(1).Infof("ListImages response: found %d images, current=%s, next=%s",
+		len(imageNames), response.CurrentImage, response.NextImage)
 
 	return response, nil
 }

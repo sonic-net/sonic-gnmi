@@ -22,6 +22,7 @@ const (
 	FirmwareManagement_CleanupOldFirmware_FullMethodName = "/sonic.FirmwareManagement/CleanupOldFirmware"
 	FirmwareManagement_ListFirmwareImages_FullMethodName = "/sonic.FirmwareManagement/ListFirmwareImages"
 	FirmwareManagement_ConsolidateImages_FullMethodName  = "/sonic.FirmwareManagement/ConsolidateImages"
+	FirmwareManagement_ListImages_FullMethodName         = "/sonic.FirmwareManagement/ListImages"
 )
 
 // FirmwareManagementClient is the client API for FirmwareManagement service.
@@ -36,6 +37,8 @@ type FirmwareManagementClient interface {
 	ListFirmwareImages(ctx context.Context, in *ListFirmwareImagesRequest, opts ...grpc.CallOption) (*ListFirmwareImagesResponse, error)
 	// ConsolidateImages consolidates SONiC images by setting current as default and removing unused images
 	ConsolidateImages(ctx context.Context, in *ConsolidateImagesRequest, opts ...grpc.CallOption) (*ConsolidateImagesResponse, error)
+	// ListImages lists installed SONiC images using sonic-installer
+	ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error)
 }
 
 type firmwareManagementClient struct {
@@ -76,6 +79,16 @@ func (c *firmwareManagementClient) ConsolidateImages(ctx context.Context, in *Co
 	return out, nil
 }
 
+func (c *firmwareManagementClient) ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListImagesResponse)
+	err := c.cc.Invoke(ctx, FirmwareManagement_ListImages_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FirmwareManagementServer is the server API for FirmwareManagement service.
 // All implementations must embed UnimplementedFirmwareManagementServer
 // for forward compatibility.
@@ -88,6 +101,8 @@ type FirmwareManagementServer interface {
 	ListFirmwareImages(context.Context, *ListFirmwareImagesRequest) (*ListFirmwareImagesResponse, error)
 	// ConsolidateImages consolidates SONiC images by setting current as default and removing unused images
 	ConsolidateImages(context.Context, *ConsolidateImagesRequest) (*ConsolidateImagesResponse, error)
+	// ListImages lists installed SONiC images using sonic-installer
+	ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error)
 	mustEmbedUnimplementedFirmwareManagementServer()
 }
 
@@ -106,6 +121,9 @@ func (UnimplementedFirmwareManagementServer) ListFirmwareImages(context.Context,
 }
 func (UnimplementedFirmwareManagementServer) ConsolidateImages(context.Context, *ConsolidateImagesRequest) (*ConsolidateImagesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ConsolidateImages not implemented")
+}
+func (UnimplementedFirmwareManagementServer) ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListImages not implemented")
 }
 func (UnimplementedFirmwareManagementServer) mustEmbedUnimplementedFirmwareManagementServer() {}
 func (UnimplementedFirmwareManagementServer) testEmbeddedByValue()                            {}
@@ -182,6 +200,24 @@ func _FirmwareManagement_ConsolidateImages_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FirmwareManagement_ListImages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListImagesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FirmwareManagementServer).ListImages(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FirmwareManagement_ListImages_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FirmwareManagementServer).ListImages(ctx, req.(*ListImagesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FirmwareManagement_ServiceDesc is the grpc.ServiceDesc for FirmwareManagement service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -200,6 +236,10 @@ var FirmwareManagement_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ConsolidateImages",
 			Handler:    _FirmwareManagement_ConsolidateImages_Handler,
+		},
+		{
+			MethodName: "ListImages",
+			Handler:    _FirmwareManagement_ListImages_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
