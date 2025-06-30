@@ -11,6 +11,9 @@ service FirmwareManagement {
   
   // ListFirmwareImages discovers firmware images in configured directories
   rpc ListFirmwareImages(ListFirmwareImagesRequest) returns (ListFirmwareImagesResponse) {}
+  
+  // ConsolidateImages consolidates SONiC images by setting current as default and removing unused images
+  rpc ConsolidateImages(ConsolidateImagesRequest) returns (ConsolidateImagesResponse) {}
 }
 
 // CleanupOldFirmwareRequest is the request to clean up old firmware files
@@ -67,4 +70,28 @@ message ListFirmwareImagesResponse {
   
   // Any errors encountered during search (non-fatal, search continues)
   repeated string errors = 2;
+}
+
+// ConsolidateImagesRequest is the request to consolidate SONiC images
+message ConsolidateImagesRequest {
+  // If true, only return what would be removed without actually removing anything
+  bool dry_run = 1;
+}
+
+// ConsolidateImagesResponse contains the result of the consolidation operation
+message ConsolidateImagesResponse {
+  // The current image that was set as default
+  string current_image = 1;
+  
+  // List of images that were removed (or would be removed in dry_run)
+  repeated string removed_images = 2;
+  
+  // Estimated space freed in bytes (if available)
+  int64 space_freed_bytes = 3;
+  
+  // Any warnings or non-fatal errors encountered
+  repeated string warnings = 4;
+  
+  // Whether the operation was actually performed (false for dry_run)
+  bool executed = 5;
 }
