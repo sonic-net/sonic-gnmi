@@ -19,7 +19,7 @@ func main() {
 	defer glog.Flush()
 
 	// Create a new server instance
-	glog.Info("Sonic Metadata Service starting...")
+	glog.Info("Sonic Upgrade Service starting...")
 	srv, err := server.NewServer(config.Global.Addr)
 	if err != nil {
 		glog.Fatalf("Failed to create server: %v", err)
