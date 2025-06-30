@@ -66,11 +66,20 @@ type FileServer struct {
 	gnoi_file_pb.UnimplementedFileServer
 }
 
+// OSConfig is a collection of values for OSServer.
+type OSConfig struct {
+	ImgDir          string                       // Path to the directory where image is stored.
+	ProcessTrfReady func(string) (string, error) // Function that handles TransferReady request.
+	ProcessTrfEnd   func(string) (string, error) // Function that handles TransferEnd request.
+}
+
 // OSServer is the server API for System service.
 // All implementations must embed UnimplementedSystemServer
 // for forward compatibility
 type OSServer struct {
 	*Server
+	ProcessTrfReady func(req string) (string, error)
+	ProcessTrfEnd   func(req string) (string, error)
 	gnoi_os_pb.UnimplementedOSServer
 }
 
@@ -92,11 +101,15 @@ type Config struct {
 	UserAuth            AuthTypes
 	EnableTranslibWrite bool
 	EnableNativeWrite   bool
+	EnableTranslation   bool
 	ZmqPort             string
 	IdleConnDuration    int
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
+	ImgDir              string // Path to the directory where image is stored.
+	// gnoi
+	OSCfg *OSConfig
 }
 
 var AuthLock sync.Mutex
@@ -192,7 +205,11 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	fileSrv := &FileServer{Server: srv}
-	osSrv := &OSServer{Server: srv}
+	osSrv := &OSServer{
+		Server:          srv,
+		ProcessTrfReady: srv.config.OSCfg.ProcessTrfReady,
+		ProcessTrfEnd:   srv.config.OSCfg.ProcessTrfEnd,
+	}
 	containerzSrv := &ContainerzServer{server: srv}
 
 	var err error
@@ -204,6 +221,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		return nil, fmt.Errorf("failed to open listener port %d: %v", srv.config.Port, err)
 	}
 	gnmipb.RegisterGNMIServer(srv.s, srv)
+
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
 		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
