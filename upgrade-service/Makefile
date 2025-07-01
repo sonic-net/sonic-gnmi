@@ -53,6 +53,11 @@ help-test-tools: ## Show detailed help for test utilities
 	@echo '  Usage:   ./bin/test-image-inspector [options] [image-file]'
 	@echo '  Safety:  Read-only, analyzes image files without modification'
 	@echo ''
+	@echo 'test-redis:'
+	@echo '  Purpose: Test Redis client for CONFIG_DB operations'
+	@echo '  Usage:   ./bin/test-redis [--help]'
+	@echo '  Safety:  Read-only, performs HGET operations on DEVICE_METADATA'
+	@echo ''
 	@echo 'Building:'
 	@echo '  make build-test-tools     # Build all test utilities'
 	@echo '  make clean               # Remove built binaries'
@@ -223,11 +228,13 @@ build-test-tools: ## Build all test utilities
 	@go build -o bin/test-installer cmd/test-installer/main.go
 	@go build -o bin/test-list-images cmd/test-list-images/main.go
 	@go build -o bin/test-image-inspector cmd/test-image-inspector/main.go
+	@go build -o bin/test-redis cmd/test-redis/main.go
 	@echo "Built test utilities:"
 	@echo "  bin/test-bootloader       - Test bootloader detection and image management"
 	@echo "  bin/test-installer        - Test sonic-installer CLI wrapper"
 	@echo "  bin/test-list-images      - Test ListImages RPC functionality"
 	@echo "  bin/test-image-inspector  - Test image analysis and version extraction"
+	@echo "  bin/test-redis            - Test Redis client for CONFIG_DB operations"
 	@echo ""
 	@echo "Note: These are test utilities for validation purposes only."
 	@echo "      Use 'make help-test-tools' for more information."
