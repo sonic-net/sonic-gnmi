@@ -1,4 +1,4 @@
-.PHONY: help help-test-tools proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb test-certs build-test-tools
+.PHONY: help help-test-tools proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb test-certs build-test-tools semgrep
 
 # Default target shows help
 .DEFAULT_GOAL := help
@@ -248,11 +248,25 @@ clean: ## Clean build artifacts
 	rm -rf bin/
 
 ##############################################################################
+# Security Analysis
+##############################################################################
+
+# Run semgrep security analysis
+semgrep: ## Run semgrep security analysis
+	@echo "Running semgrep security analysis..."
+	@if command -v semgrep >/dev/null 2>&1; then \
+		semgrep --config=p/default . --error; \
+	else \
+		echo "WARNING: semgrep not installed. Install with: pip install semgrep"; \
+		echo "Skipping semgrep check..."; \
+	fi
+
+##############################################################################
 # CI/CD Targets
 ##############################################################################
 
 # CI pipeline target - runs all verification steps (validation only, no tool installation)
-ci: validate-format validate-proto tidy build-all vet lint test validate-coverage test-e2e verify ## Run full CI pipeline
+ci: validate-format validate-proto tidy build-all vet lint test validate-coverage test-e2e verify semgrep ## Run full CI pipeline
 
 ##############################################################################
 # Packaging & Distribution
