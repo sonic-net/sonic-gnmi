@@ -229,12 +229,14 @@ build-test-tools: ## Build all test utilities
 	@go build -o bin/list-images cmd/test/list-images/main.go
 	@go build -o bin/image-inspector cmd/test/image-inspector/main.go
 	@go build -o bin/redis cmd/test/redis/main.go
+	@go build -o bin/diskspace cmd/test/diskspace/main.go
 	@echo "Built test utilities:"
 	@echo "  bin/bootloader       - Test bootloader detection and image management"
 	@echo "  bin/installer        - Test sonic-installer CLI wrapper"
 	@echo "  bin/list-images      - Test ListImages RPC functionality"
 	@echo "  bin/image-inspector  - Test image analysis and version extraction"
 	@echo "  bin/redis            - Test Redis client for CONFIG_DB operations"
+	@echo "  bin/diskspace        - Test disk space analysis and monitoring"
 	@echo ""
 	@echo "Note: These are test utilities for validation purposes only."
 	@echo "      Use 'make help-test-tools' for more information."
