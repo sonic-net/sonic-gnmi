@@ -88,7 +88,7 @@ func main() {
 	fmt.Printf("=== Test 6: Connection Health Check ===\n")
 	pingCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	
+
 	if err := client.Ping(pingCtx); err != nil {
 		fmt.Printf("Ping failed: %v\n", err)
 	} else {
@@ -112,7 +112,7 @@ func main() {
 	if hwsku != "" {
 		summary["hwsku"] = hwsku
 	}
-	
+
 	jsonData, _ := json.MarshalIndent(summary, "", "  ")
 	fmt.Printf("%s\n", jsonData)
 }

@@ -43,7 +43,7 @@ func NewConsolidationService() *ConsolidationService {
 	config := DefaultConsolidationConfig()
 	return &ConsolidationService{
 		config:         config,
-		sonicInstaller: installer.NewSonicInstallerWithPath(config.SonicInstallerPath),
+		sonicInstaller: installer.NewSonicInstaller(),
 	}
 }
 
@@ -51,7 +51,7 @@ func NewConsolidationService() *ConsolidationService {
 func NewConsolidationServiceWithConfig(config *ConsolidationConfig) *ConsolidationService {
 	return &ConsolidationService{
 		config:         config,
-		sonicInstaller: installer.NewSonicInstallerWithPath(config.SonicInstallerPath),
+		sonicInstaller: installer.NewSonicInstaller(),
 	}
 }
 

@@ -24,10 +24,6 @@ type ConsolidationConfig struct {
 	// Method specifies which approach to use for image consolidation
 	Method ImageConsolidationMethod
 
-	// SonicInstallerPath is the path to the sonic-installer binary
-	// Only used when Method is ConsolidationMethodCLI
-	SonicInstallerPath string
-
 	// DryRunDefault specifies the default dry-run behavior
 	DryRunDefault bool
 }
@@ -35,9 +31,8 @@ type ConsolidationConfig struct {
 // DefaultConsolidationConfig returns the default configuration for image consolidation.
 func DefaultConsolidationConfig() *ConsolidationConfig {
 	return &ConsolidationConfig{
-		Method:             ConsolidationMethodCLI, // Start with CLI, transition to bootloader later
-		SonicInstallerPath: "sonic-installer",
-		DryRunDefault:      false,
+		Method:        ConsolidationMethodCLI, // Start with CLI, transition to bootloader later
+		DryRunDefault: false,
 	}
 }
 
