@@ -58,6 +58,12 @@ help-test-tools: ## Show detailed help for test utilities
 	@echo '  Usage:   ./bin/redis [--help]'
 	@echo '  Safety:  Read-only, performs HGET operations on DEVICE_METADATA'
 	@echo ''
+	@echo 'download:'
+	@echo '  Purpose: Test firmware download with sophisticated retry strategies'
+	@echo '  Usage:   ./bin/download -url <URL> [options]'
+	@echo '  Safety:  Downloads files to specified location, mimics curl behavior'
+	@echo '  Note:    Supports interface binding, IPv4/IPv6, and fallback mechanisms'
+	@echo ''
 	@echo 'Building:'
 	@echo '  make build-test-tools     # Build all test utilities'
 	@echo '  make clean               # Remove built binaries'
@@ -230,6 +236,7 @@ build-test-tools: ## Build all test utilities
 	@go build -o bin/image-inspector cmd/test/image-inspector/main.go
 	@go build -o bin/redis cmd/test/redis/main.go
 	@go build -o bin/diskspace cmd/test/diskspace/main.go
+	@go build -o bin/download cmd/test/download/main.go
 	@echo "Built test utilities:"
 	@echo "  bin/bootloader       - Test bootloader detection and image management"
 	@echo "  bin/installer        - Test sonic-installer CLI wrapper"
@@ -237,6 +244,7 @@ build-test-tools: ## Build all test utilities
 	@echo "  bin/image-inspector  - Test image analysis and version extraction"
 	@echo "  bin/redis            - Test Redis client for CONFIG_DB operations"
 	@echo "  bin/diskspace        - Test disk space analysis and monitoring"
+	@echo "  bin/download         - Test firmware download with retry strategies"
 	@echo ""
 	@echo "Note: These are test utilities for validation purposes only."
 	@echo "      Use 'make help-test-tools' for more information."
