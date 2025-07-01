@@ -137,3 +137,124 @@ onie_switch_asic=unknown`,
 		})
 	}
 }
+
+func TestGetDiskSpace_E2E(t *testing.T) {
+	tests := []struct {
+		name         string
+		setupDirs    []string
+		requestPaths []string
+		expectError  bool
+	}{
+		{
+			name:         "Success - Default paths",
+			setupDirs:    []string{"host", "tmp"},
+			requestPaths: nil, // Use default paths
+			expectError:  false,
+		},
+		{
+			name:         "Success - Custom paths",
+			setupDirs:    []string{"custom1", "custom2"},
+			requestPaths: []string{"/custom1", "/custom2"},
+			expectError:  false,
+		},
+		{
+			name:         "Mixed - Some paths exist",
+			setupDirs:    []string{"existing"},
+			requestPaths: []string{"/existing", "/nonexistent"},
+			expectError:  false, // Should not error, just populate error_message for nonexistent
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Set up temporary directory structure
+			tempDir := t.TempDir()
+
+			// Create the requested directories
+			for _, dir := range test.setupDirs {
+				fullPath := filepath.Join(tempDir, dir)
+				err := os.MkdirAll(fullPath, 0755)
+				require.NoError(t, err)
+			}
+
+			// Mock config
+			originalConfig := config.Global
+			config.Global = &config.Config{RootFS: tempDir}
+			defer func() { config.Global = originalConfig }()
+
+			// Setup gRPC server
+			grpcServer, listener := setupGRPCServer(t)
+			defer grpcServer.Stop()
+
+			// Create client
+			ctx := context.Background()
+			client, conn, err := createClient(ctx, listener)
+			require.NoError(t, err)
+			defer conn.Close()
+
+			// Make request
+			req := &pb.GetDiskSpaceRequest{
+				Paths: test.requestPaths,
+			}
+			resp, err := client.GetDiskSpace(ctx, req)
+
+			if test.expectError {
+				assert.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+
+			// Verify response structure
+			assert.NotEmpty(t, resp.Filesystems, "Should have at least one filesystem result")
+
+			// Verify each filesystem result
+			for _, fs := range resp.Filesystems {
+				assert.NotEmpty(t, fs.Path, "Path should not be empty")
+
+				if fs.ErrorMessage == "" {
+					// Successful case - should have valid disk space values
+					assert.Greater(t, fs.TotalMb, int64(0), "Total space should be positive for %s", fs.Path)
+					assert.GreaterOrEqual(t, fs.FreeMb, int64(0), "Free space should be non-negative for %s", fs.Path)
+					assert.GreaterOrEqual(t, fs.UsedMb, int64(0), "Used space should be non-negative for %s", fs.Path)
+					assert.Equal(t, fs.TotalMb, fs.FreeMb+fs.UsedMb, "Total should equal Free + Used for %s", fs.Path)
+				} else {
+					// Error case - disk space values should be zero
+					assert.Equal(t, int64(0), fs.TotalMb, "Total should be zero on error for %s", fs.Path)
+					assert.Equal(t, int64(0), fs.FreeMb, "Free should be zero on error for %s", fs.Path)
+					assert.Equal(t, int64(0), fs.UsedMb, "Used should be zero on error for %s", fs.Path)
+				}
+			}
+
+			// For default paths test, verify we get results for expected paths
+			if test.requestPaths == nil {
+				expectedPaths := []string{"/", "/host", "/tmp"}
+				assert.Len(t, resp.Filesystems, len(expectedPaths), "Should have results for all default paths")
+
+				pathsSeen := make(map[string]bool)
+				for _, fs := range resp.Filesystems {
+					pathsSeen[fs.Path] = true
+				}
+
+				for _, expectedPath := range expectedPaths {
+					assert.True(t, pathsSeen[expectedPath], "Should have result for path %s", expectedPath)
+				}
+			}
+
+			// For custom paths test, verify we get results for requested paths
+			if test.requestPaths != nil {
+				assert.Len(t, resp.Filesystems, len(test.requestPaths), "Should have results for all requested paths")
+
+				pathsSeen := make(map[string]bool)
+				for _, fs := range resp.Filesystems {
+					pathsSeen[fs.Path] = true
+				}
+
+				for _, requestedPath := range test.requestPaths {
+					assert.True(t, pathsSeen[requestedPath], "Should have result for requested path %s", requestedPath)
+				}
+			}
+		})
+	}
+}

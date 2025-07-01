@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	SystemInfo_GetPlatformType_FullMethodName = "/sonic.SystemInfo/GetPlatformType"
+	SystemInfo_GetDiskSpace_FullMethodName    = "/sonic.SystemInfo/GetDiskSpace"
 )
 
 // SystemInfoClient is the client API for SystemInfo service.
@@ -30,6 +31,8 @@ const (
 type SystemInfoClient interface {
 	// GetPlatformType returns the platform type of the system
 	GetPlatformType(ctx context.Context, in *GetPlatformTypeRequest, opts ...grpc.CallOption) (*GetPlatformTypeResponse, error)
+	// GetDiskSpace returns disk space information for key filesystems
+	GetDiskSpace(ctx context.Context, in *GetDiskSpaceRequest, opts ...grpc.CallOption) (*GetDiskSpaceResponse, error)
 }
 
 type systemInfoClient struct {
@@ -50,6 +53,16 @@ func (c *systemInfoClient) GetPlatformType(ctx context.Context, in *GetPlatformT
 	return out, nil
 }
 
+func (c *systemInfoClient) GetDiskSpace(ctx context.Context, in *GetDiskSpaceRequest, opts ...grpc.CallOption) (*GetDiskSpaceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDiskSpaceResponse)
+	err := c.cc.Invoke(ctx, SystemInfo_GetDiskSpace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SystemInfoServer is the server API for SystemInfo service.
 // All implementations must embed UnimplementedSystemInfoServer
 // for forward compatibility.
@@ -58,6 +71,8 @@ func (c *systemInfoClient) GetPlatformType(ctx context.Context, in *GetPlatformT
 type SystemInfoServer interface {
 	// GetPlatformType returns the platform type of the system
 	GetPlatformType(context.Context, *GetPlatformTypeRequest) (*GetPlatformTypeResponse, error)
+	// GetDiskSpace returns disk space information for key filesystems
+	GetDiskSpace(context.Context, *GetDiskSpaceRequest) (*GetDiskSpaceResponse, error)
 	mustEmbedUnimplementedSystemInfoServer()
 }
 
@@ -70,6 +85,9 @@ type UnimplementedSystemInfoServer struct{}
 
 func (UnimplementedSystemInfoServer) GetPlatformType(context.Context, *GetPlatformTypeRequest) (*GetPlatformTypeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPlatformType not implemented")
+}
+func (UnimplementedSystemInfoServer) GetDiskSpace(context.Context, *GetDiskSpaceRequest) (*GetDiskSpaceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDiskSpace not implemented")
 }
 func (UnimplementedSystemInfoServer) mustEmbedUnimplementedSystemInfoServer() {}
 func (UnimplementedSystemInfoServer) testEmbeddedByValue()                    {}
@@ -110,6 +128,24 @@ func _SystemInfo_GetPlatformType_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SystemInfo_GetDiskSpace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDiskSpaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemInfoServer).GetDiskSpace(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemInfo_GetDiskSpace_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemInfoServer).GetDiskSpace(ctx, req.(*GetDiskSpaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SystemInfo_ServiceDesc is the grpc.ServiceDesc for SystemInfo service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -120,6 +156,10 @@ var SystemInfo_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetPlatformType",
 			Handler:    _SystemInfo_GetPlatformType_Handler,
+		},
+		{
+			MethodName: "GetDiskSpace",
+			Handler:    _SystemInfo_GetDiskSpace_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

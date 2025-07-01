@@ -8,6 +8,9 @@ option go_package = "github.com/sonic-net/sonic-gnmi/upgrade-service/proto";
 service SystemInfo {
   // GetPlatformType returns the platform type of the system
   rpc GetPlatformType(GetPlatformTypeRequest) returns (GetPlatformTypeResponse) {}
+  
+  // GetDiskSpace returns disk space information for key filesystems
+  rpc GetDiskSpace(GetDiskSpaceRequest) returns (GetDiskSpaceResponse) {}
 }
 
 // GetPlatformTypeRequest is an empty request to get the platform type
@@ -24,4 +27,34 @@ message GetPlatformTypeResponse {
 
   // Model of the platform (e.g., "sn4600", "7050")
   string model = 3;
+}
+
+// GetDiskSpaceRequest is the request for disk space information
+message GetDiskSpaceRequest {
+  // Optional: specific paths to check (if empty, checks default paths)
+  repeated string paths = 1;
+}
+
+// GetDiskSpaceResponse contains disk space information for filesystems
+message GetDiskSpaceResponse {
+  // DiskSpaceInfo contains space information for a single filesystem
+  message DiskSpaceInfo {
+    // Path of the filesystem (e.g., "/", "/host", "/tmp")
+    string path = 1;
+    
+    // Total space in megabytes
+    int64 total_mb = 2;
+    
+    // Free space in megabytes  
+    int64 free_mb = 3;
+    
+    // Used space in megabytes
+    int64 used_mb = 4;
+    
+    // Error message if this filesystem check failed
+    string error_message = 5;
+  }
+  
+  // Disk space information for each filesystem
+  repeated DiskSpaceInfo filesystems = 1;
 }
