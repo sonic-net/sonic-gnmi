@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 
 	"github.com/golang/glog"
-	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/firmware"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/installer"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/paths"
@@ -16,17 +16,25 @@ import (
 
 type firmwareManagementServer struct {
 	pb.UnimplementedFirmwareManagementServer
+	rootFS string
 }
 
-func NewFirmwareManagementServer() pb.FirmwareManagementServer {
-	return &firmwareManagementServer{}
+func NewFirmwareManagementServer(rootFS string) pb.FirmwareManagementServer {
+	return &firmwareManagementServer{rootFS: rootFS}
 }
 
 func (s *firmwareManagementServer) CleanupOldFirmware(
 	ctx context.Context,
 	req *pb.CleanupOldFirmwareRequest,
 ) (*pb.CleanupOldFirmwareResponse, error) {
-	result := firmware.CleanupOldFirmware()
+	// Resolve directory paths
+	dirPaths := []string{
+		paths.ToHost("/host", s.rootFS),
+		paths.ToHost("/tmp", s.rootFS),
+	}
+	extensions := []string{"*.bin", "*.swi", "*.rpm"}
+
+	result := firmware.CleanupOldFirmwareInDirectories(dirPaths, extensions)
 
 	return &pb.CleanupOldFirmwareResponse{
 		FilesDeleted:    result.FilesDeleted,
@@ -50,10 +58,16 @@ func (s *firmwareManagementServer) ListFirmwareImages(
 
 	// Handle custom directories if specified
 	if len(req.SearchDirectories) > 0 {
-		searchResults, searchErrors = searchCustomDirectories(req.SearchDirectories)
+		searchResults, searchErrors = s.searchCustomDirectories(req.SearchDirectories)
 	} else {
-		// Use default search
-		searchResults, err = firmware.FindAllImages()
+		// Use default search with resolved paths
+		dirPaths := []string{
+			paths.ToHost("/host", s.rootFS),
+			paths.ToHost("/tmp", s.rootFS),
+		}
+		extensions := []string{"*.bin", "*.swi"}
+
+		searchResults, err = firmware.FindAllImagesInDirectories(dirPaths, extensions)
 		if err != nil {
 			glog.Errorf("Failed to search for firmware images: %v", err)
 			return nil, err
@@ -88,36 +102,6 @@ func (s *firmwareManagementServer) ListFirmwareImages(
 
 	glog.V(1).Infof("ListFirmwareImages response: found %d images", len(pbImages))
 	return response, nil
-}
-
-// searchCustomDirectories searches for firmware images in custom directories.
-func searchCustomDirectories(directories []string) ([]*firmware.ImageSearchResult, []string) {
-	var errors []string
-
-	// Check directory existence first
-	for _, dir := range directories {
-		dirPath := paths.ToHost(dir, config.Global.RootFS)
-		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-			errors = append(errors, fmt.Sprintf("directory does not exist: %s", dir))
-		}
-	}
-
-	// Save original configuration
-	originalDirs := firmware.DefaultSearchDirectories
-	defer func() { firmware.DefaultSearchDirectories = originalDirs }()
-
-	// Use custom directories
-	firmware.DefaultSearchDirectories = directories
-
-	// Perform search
-	results, err := firmware.FindAllImages()
-	if err != nil {
-		errors = append(errors, err.Error())
-		// Continue with empty results rather than fail
-		results = []*firmware.ImageSearchResult{}
-	}
-
-	return results, errors
 }
 
 // filterByVersionPattern filters search results by regex pattern.
@@ -207,4 +191,40 @@ func (s *firmwareManagementServer) ListImages(
 		len(imageNames), response.CurrentImage, response.NextImage)
 
 	return response, nil
+}
+
+// searchCustomDirectories searches for firmware images in custom directories.
+func (s *firmwareManagementServer) searchCustomDirectories(
+	directories []string,
+) ([]*firmware.ImageSearchResult, []string) {
+	var errors []string
+	resolvedDirPaths := make([]string, 0, len(directories))
+
+	// Resolve directory paths and check existence
+	for _, dir := range directories {
+		var dirPath string
+		if filepath.IsAbs(dir) {
+			// If it's already an absolute path, use it as-is
+			dirPath = dir
+		} else {
+			// If it's a relative/container path, resolve it
+			dirPath = paths.ToHost(dir, s.rootFS)
+		}
+		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+			errors = append(errors, fmt.Sprintf("directory does not exist: %s", dir))
+			continue
+		}
+		resolvedDirPaths = append(resolvedDirPaths, dirPath)
+	}
+
+	// Perform search with resolved paths
+	extensions := []string{"*.bin", "*.swi"}
+	results, err := firmware.FindAllImagesInDirectories(resolvedDirPaths, extensions)
+	if err != nil {
+		errors = append(errors, err.Error())
+		// Continue with empty results rather than fail
+		results = []*firmware.ImageSearchResult{}
+	}
+
+	return results, errors
 }

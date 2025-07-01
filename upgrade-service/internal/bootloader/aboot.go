@@ -28,10 +28,8 @@ func NewAbootBootloader() Bootloader {
 	return &AbootBootloader{}
 }
 
-// Detect checks if Aboot bootloader is present on the system.
-func (a *AbootBootloader) Detect() bool {
-	hostPath := paths.ToHost(AbootHostPath, config.Global.RootFS)
-
+// DetectFromPath checks if Aboot bootloader is present using the specified host path.
+func (a *AbootBootloader) DetectFromPath(hostPath string) bool {
 	// Check for Aboot-specific files or directories
 	abootIndicators := []string{
 		filepath.Join(hostPath, "boot-config"),
@@ -63,9 +61,8 @@ func (a *AbootBootloader) Detect() bool {
 	return false
 }
 
-// GetInstalledImages returns all SONiC images found in Aboot image directories.
-func (a *AbootBootloader) GetInstalledImages() ([]string, error) {
-	hostPath := paths.ToHost(AbootHostPath, config.Global.RootFS)
+// GetInstalledImagesFromPath returns all SONiC images found in the specified Aboot host directory.
+func (a *AbootBootloader) GetInstalledImagesFromPath(hostPath string) ([]string, error) {
 	glog.V(1).Infof("Scanning for Aboot images in: %s", hostPath)
 
 	entries, err := os.ReadDir(hostPath)
@@ -88,14 +85,11 @@ func (a *AbootBootloader) GetInstalledImages() ([]string, error) {
 	return images, nil
 }
 
-// GetCurrentImage returns the currently running SONiC image.
-//
-//nolint:dupl // Both GRUB and Aboot use similar cmdline parsing - this is expected
-func (a *AbootBootloader) GetCurrentImage() (string, error) {
+// GetCurrentImageFromPaths returns the currently running SONiC image using the specified paths.
+func (a *AbootBootloader) GetCurrentImageFromPaths(cmdlinePath string, hostPath string) (string, error) {
 	glog.V(1).Info("Getting current image from /proc/cmdline")
 
 	// Read /proc/cmdline to get the current boot parameters
-	cmdlinePath := paths.ToHost("/proc/cmdline", config.Global.RootFS)
 	content, err := os.ReadFile(cmdlinePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read /proc/cmdline: %w", err)
@@ -118,7 +112,7 @@ func (a *AbootBootloader) GetCurrentImage() (string, error) {
 	}
 
 	// Fallback: try to get from installed images
-	images, err := a.GetInstalledImages()
+	images, err := a.GetInstalledImagesFromPath(hostPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to get installed images: %w", err)
 	}
@@ -132,15 +126,16 @@ func (a *AbootBootloader) GetCurrentImage() (string, error) {
 	return "", fmt.Errorf("could not determine current image")
 }
 
-// GetNextImage returns the image that will be used on next boot.
-func (a *AbootBootloader) GetNextImage() (string, error) {
-	configPath := paths.ToHost(AbootConfigPath, config.Global.RootFS)
+// GetNextImageFromPaths returns the image that will be used on next boot using the specified paths.
+func (a *AbootBootloader) GetNextImageFromPaths(configPath string, cmdlinePath string) (string, error) {
 	glog.V(1).Infof("Reading Aboot config from: %s", configPath)
 
 	// Check if boot-config file exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		glog.V(2).Info("boot-config file not found, using current image as next")
-		return a.GetCurrentImage()
+		// We need the host path for GetCurrentImageFromPaths, derive it from configPath
+		hostPath := filepath.Dir(configPath)
+		return a.GetCurrentImageFromPaths(cmdlinePath, hostPath)
 	}
 
 	content, err := os.ReadFile(configPath)
@@ -166,7 +161,34 @@ func (a *AbootBootloader) GetNextImage() (string, error) {
 	}
 
 	// If no specific next image found, return current image
-	return a.GetCurrentImage()
+	hostPath := filepath.Dir(configPath)
+	return a.GetCurrentImageFromPaths(cmdlinePath, hostPath)
+}
+
+// Detect checks if Aboot bootloader is present on the system.
+func (a *AbootBootloader) Detect() bool {
+	hostPath := paths.ToHost(AbootHostPath, config.Global.RootFS)
+	return a.DetectFromPath(hostPath)
+}
+
+// GetInstalledImages returns all SONiC images found in Aboot image directories.
+func (a *AbootBootloader) GetInstalledImages() ([]string, error) {
+	hostPath := paths.ToHost(AbootHostPath, config.Global.RootFS)
+	return a.GetInstalledImagesFromPath(hostPath)
+}
+
+// GetCurrentImage returns the currently running SONiC image.
+func (a *AbootBootloader) GetCurrentImage() (string, error) {
+	cmdlinePath := paths.ToHost("/proc/cmdline", config.Global.RootFS)
+	hostPath := paths.ToHost(AbootHostPath, config.Global.RootFS)
+	return a.GetCurrentImageFromPaths(cmdlinePath, hostPath)
+}
+
+// GetNextImage returns the image that will be used on next boot.
+func (a *AbootBootloader) GetNextImage() (string, error) {
+	configPath := paths.ToHost(AbootConfigPath, config.Global.RootFS)
+	cmdlinePath := paths.ToHost("/proc/cmdline", config.Global.RootFS)
+	return a.GetNextImageFromPaths(configPath, cmdlinePath)
 }
 
 // extractImageNameFromConfig extracts image name from a boot config line.

@@ -4,9 +4,18 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
 )
 
 func TestNewServer_ValidAddress(t *testing.T) {
+	// Initialize config for test
+	originalConfig := config.Global
+	config.Global = &config.Config{
+		RootFS: t.TempDir(),
+	}
+	defer func() { config.Global = originalConfig }()
+
 	// Test without TLS for unit tests
 	server, err := NewServerWithTLS("localhost:0", false, "", "") // Use port 0 to let OS assign available port
 
@@ -30,6 +39,13 @@ func TestNewServer_ValidAddress(t *testing.T) {
 }
 
 func TestNewServer_InvalidAddress(t *testing.T) {
+	// Initialize config for test
+	originalConfig := config.Global
+	config.Global = &config.Config{
+		RootFS: t.TempDir(),
+	}
+	defer func() { config.Global = originalConfig }()
+
 	server, err := NewServerWithTLS("invalid:address:format", false, "", "")
 
 	if err == nil {
@@ -41,6 +57,13 @@ func TestNewServer_InvalidAddress(t *testing.T) {
 }
 
 func TestServer_StartAndStop(t *testing.T) {
+	// Initialize config for test
+	originalConfig := config.Global
+	config.Global = &config.Config{
+		RootFS: t.TempDir(),
+	}
+	defer func() { config.Global = originalConfig }()
+
 	// Create server on available port without TLS
 	server, err := NewServerWithTLS("localhost:0", false, "", "")
 	if err != nil {
@@ -83,6 +106,13 @@ func TestServer_StartAndStop(t *testing.T) {
 }
 
 func TestServer_Stop_WithoutStart(t *testing.T) {
+	// Initialize config for test
+	originalConfig := config.Global
+	config.Global = &config.Config{
+		RootFS: t.TempDir(),
+	}
+	defer func() { config.Global = originalConfig }()
+
 	// Create server without TLS
 	server, err := NewServerWithTLS("localhost:0", false, "", "")
 	if err != nil {

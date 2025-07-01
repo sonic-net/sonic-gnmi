@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/firmware"
@@ -14,7 +13,8 @@ import (
 )
 
 func TestNewFirmwareManagementServer(t *testing.T) {
-	server := NewFirmwareManagementServer()
+	tempDir := t.TempDir()
+	server := NewFirmwareManagementServer(tempDir)
 	if server == nil {
 		t.Error("Expected non-nil server")
 	}
@@ -36,7 +36,7 @@ func TestFirmwareManagementServer_CleanupOldFirmware(t *testing.T) {
 		t.Fatalf("Failed to create host directory: %v", err)
 	}
 
-	server := NewFirmwareManagementServer()
+	server := NewFirmwareManagementServer(tempDir)
 	ctx := context.Background()
 	req := &pb.CleanupOldFirmwareRequest{}
 
@@ -74,9 +74,9 @@ func TestFirmwareManagementServer_ListFirmwareImages(t *testing.T) {
 }
 
 func testListFirmwareImagesDefault(t *testing.T) {
-	setupListFirmwareTest(t)
+	rootFS := setupListFirmwareTest(t)
 
-	server := NewFirmwareManagementServer()
+	server := NewFirmwareManagementServer(rootFS)
 	ctx := context.Background()
 	req := &pb.ListFirmwareImagesRequest{}
 
@@ -100,17 +100,8 @@ func testListFirmwareImagesDefault(t *testing.T) {
 }
 
 func testListFirmwareImagesCustom(t *testing.T) {
-	// Set up config to avoid nil pointer
-	if config.Global == nil {
-		config.Global = &config.Config{
-			RootFS:          "/",
-			Addr:            ":50051",
-			ShutdownTimeout: 10 * time.Second,
-			TLSEnabled:      false,
-		}
-	}
-
-	// Create custom test directories
+	// Create a rootFS directory and custom test directories
+	rootFS := t.TempDir()
 	tempDir1 := t.TempDir()
 	tempDir2 := t.TempDir()
 
@@ -118,7 +109,7 @@ func testListFirmwareImagesCustom(t *testing.T) {
 	createTestImageInDir(t, tempDir1, "custom1.bin", "202311.10-custom1")
 	createTestImageInDir(t, tempDir2, "custom2.swi", "202311.11-custom2")
 
-	server := NewFirmwareManagementServer()
+	server := NewFirmwareManagementServer(rootFS)
 	ctx := context.Background()
 	req := &pb.ListFirmwareImagesRequest{
 		SearchDirectories: []string{tempDir1, tempDir2},
@@ -148,9 +139,9 @@ func testListFirmwareImagesCustom(t *testing.T) {
 }
 
 func testListFirmwareImagesWithPattern(t *testing.T) {
-	setupListFirmwareTest(t)
+	rootFS := setupListFirmwareTest(t)
 
-	server := NewFirmwareManagementServer()
+	server := NewFirmwareManagementServer(rootFS)
 	ctx := context.Background()
 
 	// Test cases for regex patterns
@@ -185,17 +176,10 @@ func testListFirmwareImagesWithPattern(t *testing.T) {
 }
 
 func testListFirmwareImagesInvalidPattern(t *testing.T) {
-	// Set up minimal config
-	if config.Global == nil {
-		config.Global = &config.Config{
-			RootFS:          "/",
-			Addr:            ":50051",
-			ShutdownTimeout: 10 * time.Second,
-			TLSEnabled:      false,
-		}
-	}
+	// Create a rootFS directory for this test
+	rootFS := t.TempDir()
 
-	server := NewFirmwareManagementServer()
+	server := NewFirmwareManagementServer(rootFS)
 	ctx := context.Background()
 	req := &pb.ListFirmwareImagesRequest{
 		VersionPattern: "[invalid(regex", // Invalid regex
@@ -211,17 +195,10 @@ func testListFirmwareImagesInvalidPattern(t *testing.T) {
 }
 
 func testListFirmwareImagesNonexistent(t *testing.T) {
-	// Set up minimal config
-	if config.Global == nil {
-		config.Global = &config.Config{
-			RootFS:          "/",
-			Addr:            ":50051",
-			ShutdownTimeout: 10 * time.Second,
-			TLSEnabled:      false,
-		}
-	}
+	// Create a rootFS directory for this test
+	rootFS := t.TempDir()
 
-	server := NewFirmwareManagementServer()
+	server := NewFirmwareManagementServer(rootFS)
 	ctx := context.Background()
 	req := &pb.ListFirmwareImagesRequest{
 		SearchDirectories: []string{"/this/does/not/exist"},
@@ -244,27 +221,17 @@ func testListFirmwareImagesNonexistent(t *testing.T) {
 
 // Helper functions for ListFirmwareImages tests
 
-func setupListFirmwareTest(t *testing.T) {
+func setupListFirmwareTest(t *testing.T) string {
 	// Save original values
-	originalConfig := config.Global
 	originalDirs := firmware.DefaultSearchDirectories
 
 	// Set up cleanup
 	t.Cleanup(func() {
-		config.Global = originalConfig
 		firmware.DefaultSearchDirectories = originalDirs
 	})
 
 	// Create a test root directory
 	rootDir := t.TempDir()
-
-	// Set up config with test root
-	config.Global = &config.Config{
-		RootFS:          rootDir,
-		Addr:            ":50051",
-		ShutdownTimeout: 10 * time.Second,
-		TLSEnabled:      false,
-	}
 
 	// Create subdirectory for firmware images
 	firmwareDir := filepath.Join(rootDir, "tmp")
@@ -278,6 +245,9 @@ func setupListFirmwareTest(t *testing.T) {
 	// Create test images in the firmware directory
 	createTestImageInDir(t, firmwareDir, "image1.bin", "202311.3-test123")
 	createTestImageInDir(t, firmwareDir, "image2.swi", "202311.4-test456")
+
+	// Return the root directory for the test to use
+	return rootDir
 }
 
 func createTestImageInDir(t *testing.T, dir, filename, version string) {
@@ -374,7 +344,7 @@ func TestFirmwareManagementServer_ConsolidateImages(t *testing.T) {
 		t.Fatalf("Failed to create host directory: %v", err)
 	}
 
-	server := NewFirmwareManagementServer()
+	server := NewFirmwareManagementServer(tempDir)
 	ctx := context.Background()
 
 	// Test dry run
@@ -434,7 +404,7 @@ func TestFirmwareManagementServer_ListImages(t *testing.T) {
 	config.Global = &config.Config{RootFS: tempDir}
 	defer func() { config.Global = originalConfig }()
 
-	server := NewFirmwareManagementServer()
+	server := NewFirmwareManagementServer(tempDir)
 	ctx := context.Background()
 
 	t.Run("ListImages", func(t *testing.T) {

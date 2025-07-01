@@ -13,13 +13,12 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
-	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/pkg/server"
 	pb "github.com/sonic-net/sonic-gnmi/upgrade-service/proto"
 )
 
 // setupFirmwareGRPCServer creates an in-memory gRPC server with firmware management.
-func setupFirmwareGRPCServer(t *testing.T) (*grpc.Server, *bufconn.Listener) {
+func setupFirmwareGRPCServer(t *testing.T, rootFS string) (*grpc.Server, *bufconn.Listener) {
 	t.Helper()
 
 	// Create a buffer connection for in-memory gRPC
@@ -29,7 +28,7 @@ func setupFirmwareGRPCServer(t *testing.T) (*grpc.Server, *bufconn.Listener) {
 	grpcServer := grpc.NewServer()
 
 	// Register FirmwareManagementServer
-	firmwareServer := server.NewFirmwareManagementServer()
+	firmwareServer := server.NewFirmwareManagementServer(rootFS)
 	pb.RegisterFirmwareManagementServer(grpcServer, firmwareServer)
 
 	// Start the server
@@ -130,15 +129,8 @@ func TestCleanupOldFirmware_E2E(t *testing.T) {
 			// Set up files
 			createdFiles, expectedDeleted := tc.setupFiles(tempDir)
 
-			// Mock config to use temp directory
-			originalConfig := config.Global
-			config.Global = &config.Config{
-				RootFS: tempDir,
-			}
-			defer func() { config.Global = originalConfig }()
-
-			// Set up server
-			srv, lis := setupFirmwareGRPCServer(t)
+			// Set up server with temp directory as rootFS
+			srv, lis := setupFirmwareGRPCServer(t, tempDir)
 			defer srv.Stop()
 
 			// Set up client

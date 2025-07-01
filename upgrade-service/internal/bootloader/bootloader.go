@@ -26,13 +26,50 @@ type Bootloader interface {
 	Detect() bool
 }
 
+// BootloaderWithPaths represents the interface for bootloader implementations that accept resolved paths.
+type BootloaderWithPaths interface {
+	// DetectFromPath checks if this bootloader type is detected using the specified config path.
+	DetectFromPath(configPath string) bool
+
+	// GetInstalledImagesFromPath returns a list of all installed SONiC images using the specified config path.
+	GetInstalledImagesFromPath(configPath string) ([]string, error)
+
+	// GetCurrentImageFromPaths returns the currently running SONiC image using the specified paths.
+	GetCurrentImageFromPaths(cmdlinePath string, configPath string) (string, error)
+
+	// GetNextImageFromPaths returns the image that will be used on next boot using the specified paths.
+	GetNextImageFromPaths(envPath string, configPath string) (string, error)
+}
+
 // bootloaderTypes contains all supported bootloader implementations.
 var bootloaderTypes = []func() Bootloader{
 	NewGrubBootloader,
 	NewAbootBootloader,
 }
 
+// GetBootloaderWithPaths detects and returns the appropriate bootloader implementation using resolved paths.
+func GetBootloaderWithPaths(grubConfigPath, abootHostPath string) (Bootloader, error) {
+	glog.V(1).Info("Detecting bootloader type using resolved paths")
+
+	// Try GRUB first
+	grubBootloader := NewGrubBootloader().(*GrubBootloader)
+	if grubBootloader.DetectFromPath(grubConfigPath) {
+		glog.V(1).Info("Detected bootloader: GRUB")
+		return grubBootloader, nil
+	}
+
+	// Try Aboot
+	abootBootloader := NewAbootBootloader().(*AbootBootloader)
+	if abootBootloader.DetectFromPath(abootHostPath) {
+		glog.V(1).Info("Detected bootloader: Aboot")
+		return abootBootloader, nil
+	}
+
+	return nil, fmt.Errorf("bootloader could not be detected")
+}
+
 // GetBootloader detects and returns the appropriate bootloader implementation.
+// Deprecated: Use GetBootloaderWithPaths instead.
 func GetBootloader() (Bootloader, error) {
 	glog.V(1).Info("Detecting bootloader type")
 

@@ -29,9 +29,8 @@ func NewGrubBootloader() Bootloader {
 	return &GrubBootloader{}
 }
 
-// Detect checks if GRUB bootloader is present on the system.
-func (g *GrubBootloader) Detect() bool {
-	configPath := paths.ToHost(GrubConfigPath, config.Global.RootFS)
+// DetectFromPath checks if GRUB bootloader is present using the specified config path.
+func (g *GrubBootloader) DetectFromPath(configPath string) bool {
 	if _, err := os.Stat(configPath); err == nil {
 		glog.V(2).Infof("GRUB detected: found config at %s", configPath)
 		return true
@@ -40,9 +39,8 @@ func (g *GrubBootloader) Detect() bool {
 	return false
 }
 
-// GetInstalledImages returns all SONiC images found in the GRUB configuration.
-func (g *GrubBootloader) GetInstalledImages() ([]string, error) {
-	configPath := paths.ToHost(GrubConfigPath, config.Global.RootFS)
+// GetInstalledImagesFromPath returns all SONiC images found in the specified GRUB configuration.
+func (g *GrubBootloader) GetInstalledImagesFromPath(configPath string) ([]string, error) {
 	glog.V(1).Infof("Reading GRUB config from: %s", configPath)
 
 	file, err := os.Open(configPath)
@@ -77,14 +75,11 @@ func (g *GrubBootloader) GetInstalledImages() ([]string, error) {
 	return images, nil
 }
 
-// GetCurrentImage returns the currently running SONiC image.
-//
-//nolint:dupl // Both GRUB and Aboot use similar cmdline parsing - this is expected
-func (g *GrubBootloader) GetCurrentImage() (string, error) {
+// GetCurrentImageFromPaths returns the currently running SONiC image using the specified paths.
+func (g *GrubBootloader) GetCurrentImageFromPaths(cmdlinePath string, configPath string) (string, error) {
 	glog.V(1).Info("Getting current image from /proc/cmdline")
 
 	// Read /proc/cmdline to get the current boot parameters
-	cmdlinePath := paths.ToHost("/proc/cmdline", config.Global.RootFS)
 	content, err := os.ReadFile(cmdlinePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read /proc/cmdline: %w", err)
@@ -109,7 +104,7 @@ func (g *GrubBootloader) GetCurrentImage() (string, error) {
 
 	// If we can't find it in cmdline, try to get it from installed images
 	// and match with the current kernel/root filesystem
-	images, err := g.GetInstalledImages()
+	images, err := g.GetInstalledImagesFromPath(configPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to get installed images: %w", err)
 	}
@@ -123,15 +118,14 @@ func (g *GrubBootloader) GetCurrentImage() (string, error) {
 	return "", fmt.Errorf("could not determine current image")
 }
 
-// GetNextImage returns the image that will be used on next boot.
-func (g *GrubBootloader) GetNextImage() (string, error) {
-	envPath := paths.ToHost(GrubEnvPath, config.Global.RootFS)
+// GetNextImageFromPaths returns the image that will be used on next boot using the specified paths.
+func (g *GrubBootloader) GetNextImageFromPaths(envPath string, configPath string) (string, error) {
 	glog.V(1).Infof("Reading GRUB environment from: %s", envPath)
 
 	// Check if grubenv file exists
 	if _, err := os.Stat(envPath); os.IsNotExist(err) {
 		glog.V(2).Info("grubenv file not found, checking for default boot entry")
-		return g.getDefaultBootEntry()
+		return g.getDefaultBootEntryFromPath(configPath)
 	}
 
 	content, err := os.ReadFile(envPath)
@@ -160,12 +154,43 @@ func (g *GrubBootloader) GetNextImage() (string, error) {
 	}
 
 	// If no saved entry found, return the default boot entry
-	return g.getDefaultBootEntry()
+	return g.getDefaultBootEntryFromPath(configPath)
+}
+
+// Detect checks if GRUB bootloader is present on the system.
+func (g *GrubBootloader) Detect() bool {
+	configPath := paths.ToHost(GrubConfigPath, config.Global.RootFS)
+	return g.DetectFromPath(configPath)
+}
+
+// GetInstalledImages returns all SONiC images found in the GRUB configuration.
+func (g *GrubBootloader) GetInstalledImages() ([]string, error) {
+	configPath := paths.ToHost(GrubConfigPath, config.Global.RootFS)
+	return g.GetInstalledImagesFromPath(configPath)
+}
+
+// GetCurrentImage returns the currently running SONiC image.
+func (g *GrubBootloader) GetCurrentImage() (string, error) {
+	cmdlinePath := paths.ToHost("/proc/cmdline", config.Global.RootFS)
+	configPath := paths.ToHost(GrubConfigPath, config.Global.RootFS)
+	return g.GetCurrentImageFromPaths(cmdlinePath, configPath)
+}
+
+// GetNextImage returns the image that will be used on next boot.
+func (g *GrubBootloader) GetNextImage() (string, error) {
+	envPath := paths.ToHost(GrubEnvPath, config.Global.RootFS)
+	configPath := paths.ToHost(GrubConfigPath, config.Global.RootFS)
+	return g.GetNextImageFromPaths(envPath, configPath)
 }
 
 // getDefaultBootEntry returns the default boot entry from GRUB config.
 func (g *GrubBootloader) getDefaultBootEntry() (string, error) {
 	configPath := paths.ToHost(GrubConfigPath, config.Global.RootFS)
+	return g.getDefaultBootEntryFromPath(configPath)
+}
+
+// getDefaultBootEntryFromPath returns the default boot entry from the specified GRUB config.
+func (g *GrubBootloader) getDefaultBootEntryFromPath(configPath string) (string, error) {
 	file, err := os.Open(configPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open GRUB config: %w", err)

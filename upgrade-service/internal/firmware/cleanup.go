@@ -29,6 +29,39 @@ func DefaultCleanupConfig() *CleanupConfig {
 	}
 }
 
+// CleanupOldFirmwareInDirectories cleans up firmware files in the specified directories.
+func CleanupOldFirmwareInDirectories(directoryPaths []string, extensions []string) *CleanupResult {
+	result := &CleanupResult{
+		DeletedFiles: make([]string, 0),
+		Errors:       make([]string, 0),
+	}
+
+	for _, dirPath := range directoryPaths {
+		glog.V(1).Infof("Cleaning up firmware files in %s", dirPath)
+
+		for _, pattern := range extensions {
+			matches, err := filepath.Glob(filepath.Join(dirPath, pattern))
+			if err != nil {
+				glog.Errorf("Failed to glob pattern %s in %s: %v", pattern, dirPath, err)
+				result.Errors = append(result.Errors, err.Error())
+				continue
+			}
+
+			for _, file := range matches {
+				if err := deleteFile(file, result); err != nil {
+					glog.Errorf("Failed to delete %s: %v", file, err)
+					result.Errors = append(result.Errors, err.Error())
+				}
+			}
+		}
+	}
+
+	glog.V(1).Infof("Cleanup completed: %d files deleted, %d errors, %d bytes freed",
+		result.FilesDeleted, len(result.Errors), result.SpaceFreedBytes)
+	return result
+}
+
+// CleanupOldFirmware is deprecated. Use CleanupOldFirmwareInDirectories instead.
 func CleanupOldFirmware() *CleanupResult {
 	return CleanupOldFirmwareWithConfig(DefaultCleanupConfig())
 }
