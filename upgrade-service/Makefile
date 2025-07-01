@@ -1,4 +1,4 @@
-.PHONY: help proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb test-certs build-inspector
+.PHONY: help help-test-tools proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb test-certs build-test-tools
 
 # Default target shows help
 .DEFAULT_GOAL := help
@@ -25,6 +25,41 @@ help: ## Show this help message
 	@echo ''
 	@echo 'Targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST) | sort
+
+help-test-tools: ## Show detailed help for test utilities
+	@echo 'Test Utilities Help'
+	@echo '==================='
+	@echo ''
+	@echo 'The upgrade service provides several test utilities for validation:'
+	@echo ''
+	@echo 'test-bootloader:'
+	@echo '  Purpose: Test bootloader detection and image management functionality'
+	@echo '  Usage:   ./bin/test-bootloader [--help]'
+	@echo '  Safety:  Read-only, does not modify system configuration'
+	@echo ''
+	@echo 'test-installer:'
+	@echo '  Purpose: Test sonic-installer CLI wrapper functionality'
+	@echo '  Usage:   ./bin/test-installer <command> [args...]'
+	@echo '  Safety:  list command is read-only, set-default/cleanup modify system'
+	@echo '  Note:    Use with caution - some commands modify bootloader config'
+	@echo ''
+	@echo 'test-list-images:'
+	@echo '  Purpose: Test ListImages RPC functionality'
+	@echo '  Usage:   ./bin/test-list-images [--help]'
+	@echo '  Safety:  Read-only, calls sonic-installer list only'
+	@echo ''
+	@echo 'test-image-inspector:'
+	@echo '  Purpose: Test image analysis and version extraction'
+	@echo '  Usage:   ./bin/test-image-inspector [options] [image-file]'
+	@echo '  Safety:  Read-only, analyzes image files without modification'
+	@echo ''
+	@echo 'Building:'
+	@echo '  make build-test-tools     # Build all test utilities'
+	@echo '  make clean               # Remove built binaries'
+	@echo ''
+	@echo 'Note: These tools are for testing and validation only.'
+	@echo '      They help verify that the upgrade service components'
+	@echo '      work correctly on your system before deployment.'
 
 ##############################################################################
 # Code Formatting & Validation
@@ -180,11 +215,22 @@ build: validate-proto ## Build the sonic-ops-server binary
 build-all: ## Build all packages (validate only)
 	go build ./...
 
-# Build sonic-image-inspector tool for manual testing
-build-inspector: ## Build the sonic-image-inspector tool
-	@echo "Building sonic-image-inspector tool..."
-	@go build -o bin/sonic-image-inspector cmd/sonic-image-inspector/main.go
-	@echo "Built bin/sonic-image-inspector"
+# Build all test utilities
+build-test-tools: ## Build all test utilities
+	@echo "Building test utilities..."
+	@mkdir -p bin/
+	@go build -o bin/test-bootloader cmd/test-bootloader/main.go
+	@go build -o bin/test-installer cmd/test-installer/main.go
+	@go build -o bin/test-list-images cmd/test-list-images/main.go
+	@go build -o bin/test-image-inspector cmd/test-image-inspector/main.go
+	@echo "Built test utilities:"
+	@echo "  bin/test-bootloader       - Test bootloader detection and image management"
+	@echo "  bin/test-installer        - Test sonic-installer CLI wrapper"
+	@echo "  bin/test-list-images      - Test ListImages RPC functionality"
+	@echo "  bin/test-image-inspector  - Test image analysis and version extraction"
+	@echo ""
+	@echo "Note: These are test utilities for validation purposes only."
+	@echo "      Use 'make help-test-tools' for more information."
 
 # Run the server
 run: build ## Build and run the server
