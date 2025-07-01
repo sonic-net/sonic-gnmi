@@ -222,6 +222,7 @@ type ImageSearchResult struct {
 }
 
 // FindImagesByVersion searches for firmware images with a specific version.
+// Deprecated: Use FindImagesByVersionInDirectories instead.
 func FindImagesByVersion(targetVersion string) ([]*ImageSearchResult, error) {
 	glog.V(1).Infof("Searching for images with version: %s", targetVersion)
 
@@ -261,7 +262,86 @@ func FindImagesByVersion(targetVersion string) ([]*ImageSearchResult, error) {
 	return results, nil
 }
 
+// FindAllImagesInDirectories searches for all firmware images in the specified directories.
+func FindAllImagesInDirectories(directoryPaths []string, extensions []string) ([]*ImageSearchResult, error) {
+	glog.V(1).Info("Searching for all firmware images")
+
+	var results []*ImageSearchResult
+
+	for _, dirPath := range directoryPaths {
+		glog.V(2).Infof("Searching in directory: %s", dirPath)
+
+		// Check if directory exists
+		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+			glog.V(2).Infof("Directory does not exist: %s", dirPath)
+			continue
+		}
+
+		for _, pattern := range extensions {
+			matches, err := filepath.Glob(filepath.Join(dirPath, pattern))
+			if err != nil {
+				glog.Errorf("Failed to glob pattern %s in %s: %v", pattern, dirPath, err)
+				continue
+			}
+
+			for _, filePath := range matches {
+				result, err := createImageSearchResult(filePath)
+				if err != nil {
+					glog.V(2).Infof("Error processing image %s: %v", filePath, err)
+					continue
+				}
+				results = append(results, result)
+			}
+		}
+	}
+
+	glog.V(1).Infof("Found %d total firmware images", len(results))
+	return results, nil
+}
+
+// FindImagesByVersionInDirectories searches for firmware images with a specific version in the specified directories.
+func FindImagesByVersionInDirectories(
+	targetVersion string, directoryPaths []string, extensions []string,
+) ([]*ImageSearchResult, error) {
+	glog.V(1).Infof("Searching for images with version: %s", targetVersion)
+
+	var results []*ImageSearchResult
+
+	for _, dirPath := range directoryPaths {
+		glog.V(2).Infof("Searching in directory: %s", dirPath)
+
+		// Check if directory exists
+		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+			glog.V(2).Infof("Directory does not exist: %s", dirPath)
+			continue
+		}
+
+		for _, pattern := range extensions {
+			matches, err := filepath.Glob(filepath.Join(dirPath, pattern))
+			if err != nil {
+				glog.Errorf("Failed to glob pattern %s in %s: %v", pattern, dirPath, err)
+				continue
+			}
+
+			for _, filePath := range matches {
+				result, err := checkImageForVersion(filePath, targetVersion)
+				if err != nil {
+					glog.V(2).Infof("Error checking image %s: %v", filePath, err)
+					continue
+				}
+				if result != nil {
+					results = append(results, result)
+				}
+			}
+		}
+	}
+
+	glog.V(1).Infof("Found %d images matching version %s", len(results), targetVersion)
+	return results, nil
+}
+
 // FindAllImages searches for all firmware images in the configured directories.
+// Deprecated: Use FindAllImagesInDirectories instead.
 func FindAllImages() ([]*ImageSearchResult, error) {
 	glog.V(1).Info("Searching for all firmware images")
 
