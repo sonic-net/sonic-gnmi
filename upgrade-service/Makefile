@@ -32,30 +32,30 @@ help-test-tools: ## Show detailed help for test utilities
 	@echo ''
 	@echo 'The upgrade service provides several test utilities for validation:'
 	@echo ''
-	@echo 'test-bootloader:'
+	@echo 'bootloader:'
 	@echo '  Purpose: Test bootloader detection and image management functionality'
-	@echo '  Usage:   ./bin/test-bootloader [--help]'
+	@echo '  Usage:   ./bin/bootloader [--help]'
 	@echo '  Safety:  Read-only, does not modify system configuration'
 	@echo ''
-	@echo 'test-installer:'
+	@echo 'installer:'
 	@echo '  Purpose: Test sonic-installer CLI wrapper functionality'
-	@echo '  Usage:   ./bin/test-installer <command> [args...]'
+	@echo '  Usage:   ./bin/installer <command> [args...]'
 	@echo '  Safety:  list command is read-only, set-default/cleanup modify system'
 	@echo '  Note:    Use with caution - some commands modify bootloader config'
 	@echo ''
-	@echo 'test-list-images:'
+	@echo 'list-images:'
 	@echo '  Purpose: Test ListImages RPC functionality'
-	@echo '  Usage:   ./bin/test-list-images [--help]'
+	@echo '  Usage:   ./bin/list-images [--help]'
 	@echo '  Safety:  Read-only, calls sonic-installer list only'
 	@echo ''
-	@echo 'test-image-inspector:'
+	@echo 'image-inspector:'
 	@echo '  Purpose: Test image analysis and version extraction'
-	@echo '  Usage:   ./bin/test-image-inspector [options] [image-file]'
+	@echo '  Usage:   ./bin/image-inspector [options] [image-file]'
 	@echo '  Safety:  Read-only, analyzes image files without modification'
 	@echo ''
-	@echo 'test-redis:'
+	@echo 'redis:'
 	@echo '  Purpose: Test Redis client for CONFIG_DB operations'
-	@echo '  Usage:   ./bin/test-redis [--help]'
+	@echo '  Usage:   ./bin/redis [--help]'
 	@echo '  Safety:  Read-only, performs HGET operations on DEVICE_METADATA'
 	@echo ''
 	@echo 'Building:'
@@ -224,17 +224,17 @@ build-all: ## Build all packages (validate only)
 build-test-tools: ## Build all test utilities
 	@echo "Building test utilities..."
 	@mkdir -p bin/
-	@go build -o bin/test-bootloader cmd/test-bootloader/main.go
-	@go build -o bin/test-installer cmd/test-installer/main.go
-	@go build -o bin/test-list-images cmd/test-list-images/main.go
-	@go build -o bin/test-image-inspector cmd/test-image-inspector/main.go
-	@go build -o bin/test-redis cmd/test-redis/main.go
+	@go build -o bin/bootloader cmd/test/bootloader/main.go
+	@go build -o bin/installer cmd/test/installer/main.go
+	@go build -o bin/list-images cmd/test/list-images/main.go
+	@go build -o bin/image-inspector cmd/test/image-inspector/main.go
+	@go build -o bin/redis cmd/test/redis/main.go
 	@echo "Built test utilities:"
-	@echo "  bin/test-bootloader       - Test bootloader detection and image management"
-	@echo "  bin/test-installer        - Test sonic-installer CLI wrapper"
-	@echo "  bin/test-list-images      - Test ListImages RPC functionality"
-	@echo "  bin/test-image-inspector  - Test image analysis and version extraction"
-	@echo "  bin/test-redis            - Test Redis client for CONFIG_DB operations"
+	@echo "  bin/bootloader       - Test bootloader detection and image management"
+	@echo "  bin/installer        - Test sonic-installer CLI wrapper"
+	@echo "  bin/list-images      - Test ListImages RPC functionality"
+	@echo "  bin/image-inspector  - Test image analysis and version extraction"
+	@echo "  bin/redis            - Test Redis client for CONFIG_DB operations"
 	@echo ""
 	@echo "Note: These are test utilities for validation purposes only."
 	@echo "      Use 'make help-test-tools' for more information."
