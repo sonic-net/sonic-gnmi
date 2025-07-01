@@ -182,3 +182,191 @@ func TestSystemInfoServer_GetPlatformType_ContextCancellation(t *testing.T) {
 		t.Error("Expected nil response for cancelled context")
 	}
 }
+
+func TestSystemInfoServer_GetDiskSpace_DefaultPaths(t *testing.T) {
+	// Mock config with temp directory
+	tempDir := t.TempDir()
+	originalConfig := config.Global
+	config.Global = &config.Config{RootFS: tempDir}
+	defer func() { config.Global = originalConfig }()
+
+	// Create some of the expected directories in tempDir
+	hostDir := filepath.Join(tempDir, "host")
+	tmpDir := filepath.Join(tempDir, "tmp")
+	err := os.MkdirAll(hostDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create host directory: %v", err)
+	}
+	err = os.MkdirAll(tmpDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create tmp directory: %v", err)
+	}
+
+	server := NewSystemInfoServer()
+	ctx := context.Background()
+	resp, err := server.GetDiskSpace(ctx, &pb.GetDiskSpaceRequest{})
+
+	if err != nil {
+		t.Errorf("Did not expect an error but got: %v", err)
+		return
+	}
+
+	if resp == nil {
+		t.Error("Expected a response but got nil")
+		return
+	}
+
+	// Should have results for 3 default paths
+	if len(resp.Filesystems) != 3 {
+		t.Errorf("Expected 3 filesystems, got %d", len(resp.Filesystems))
+	}
+
+	// Check that we have entries for each expected path
+	pathsSeen := make(map[string]bool)
+	for _, fs := range resp.Filesystems {
+		pathsSeen[fs.Path] = true
+
+		// If no error, should have valid disk space values
+		if fs.ErrorMessage == "" {
+			if fs.TotalMb <= 0 {
+				t.Errorf("Expected positive total space for %s, got %d", fs.Path, fs.TotalMb)
+			}
+			if fs.FreeMb < 0 {
+				t.Errorf("Expected non-negative free space for %s, got %d", fs.Path, fs.FreeMb)
+			}
+			if fs.UsedMb < 0 {
+				t.Errorf("Expected non-negative used space for %s, got %d", fs.Path, fs.UsedMb)
+			}
+			// Used + Free should equal Total
+			if fs.UsedMb+fs.FreeMb != fs.TotalMb {
+				t.Errorf("Used + Free != Total for %s: %d + %d != %d",
+					fs.Path, fs.UsedMb, fs.FreeMb, fs.TotalMb)
+			}
+		}
+	}
+
+	expectedPaths := []string{"/", "/host", "/tmp"}
+	for _, expectedPath := range expectedPaths {
+		if !pathsSeen[expectedPath] {
+			t.Errorf("Expected to see path %s in response", expectedPath)
+		}
+	}
+}
+
+func TestSystemInfoServer_GetDiskSpace_CustomPaths(t *testing.T) {
+	// Mock config with temp directory
+	tempDir := t.TempDir()
+	originalConfig := config.Global
+	config.Global = &config.Config{RootFS: tempDir}
+	defer func() { config.Global = originalConfig }()
+
+	// Create a custom test directory
+	customDir := filepath.Join(tempDir, "custom")
+	err := os.MkdirAll(customDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create custom directory: %v", err)
+	}
+
+	server := NewSystemInfoServer()
+	ctx := context.Background()
+
+	// Request specific paths
+	req := &pb.GetDiskSpaceRequest{
+		Paths: []string{"/custom"},
+	}
+	resp, err := server.GetDiskSpace(ctx, req)
+
+	if err != nil {
+		t.Errorf("Did not expect an error but got: %v", err)
+		return
+	}
+
+	if resp == nil {
+		t.Error("Expected a response but got nil")
+		return
+	}
+
+	// Should have result for 1 custom path
+	if len(resp.Filesystems) != 1 {
+		t.Errorf("Expected 1 filesystem, got %d", len(resp.Filesystems))
+	}
+
+	fs := resp.Filesystems[0]
+	if fs.Path != "/custom" {
+		t.Errorf("Expected path /custom, got %s", fs.Path)
+	}
+
+	// Should be successful since we created the directory
+	if fs.ErrorMessage != "" {
+		t.Errorf("Expected no error for existing path, got: %s", fs.ErrorMessage)
+	}
+
+	if fs.TotalMb <= 0 {
+		t.Errorf("Expected positive total space, got %d", fs.TotalMb)
+	}
+}
+
+func TestSystemInfoServer_GetDiskSpace_NonexistentPath(t *testing.T) {
+	// Mock config with temp directory
+	tempDir := t.TempDir()
+	originalConfig := config.Global
+	config.Global = &config.Config{RootFS: tempDir}
+	defer func() { config.Global = originalConfig }()
+
+	server := NewSystemInfoServer()
+	ctx := context.Background()
+
+	// Request a non-existent path
+	req := &pb.GetDiskSpaceRequest{
+		Paths: []string{"/nonexistent"},
+	}
+	resp, err := server.GetDiskSpace(ctx, req)
+
+	if err != nil {
+		t.Errorf("Did not expect an error but got: %v", err)
+		return
+	}
+
+	if resp == nil {
+		t.Error("Expected a response but got nil")
+		return
+	}
+
+	// Should have result for 1 path with error
+	if len(resp.Filesystems) != 1 {
+		t.Errorf("Expected 1 filesystem, got %d", len(resp.Filesystems))
+	}
+
+	fs := resp.Filesystems[0]
+	if fs.Path != "/nonexistent" {
+		t.Errorf("Expected path /nonexistent, got %s", fs.Path)
+	}
+
+	// Should have an error message
+	if fs.ErrorMessage == "" {
+		t.Error("Expected error message for nonexistent path")
+	}
+
+	// Disk space values should be zero when there's an error
+	if fs.TotalMb != 0 || fs.FreeMb != 0 || fs.UsedMb != 0 {
+		t.Errorf("Expected zero disk space values for error case, got total=%d, free=%d, used=%d",
+			fs.TotalMb, fs.FreeMb, fs.UsedMb)
+	}
+}
+
+func TestSystemInfoServer_GetDiskSpace_ContextCancellation(t *testing.T) {
+	server := NewSystemInfoServer()
+
+	// Create cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	resp, err := server.GetDiskSpace(ctx, &pb.GetDiskSpaceRequest{})
+
+	if err == nil {
+		t.Error("Expected error for cancelled context, got nil")
+	}
+	if resp != nil {
+		t.Error("Expected nil response for cancelled context")
+	}
+}
