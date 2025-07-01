@@ -14,9 +14,7 @@ func TestDefaultConsolidationConfig(t *testing.T) {
 		t.Errorf("Expected default method CLI, got %v", config.Method)
 	}
 
-	if config.SonicInstallerPath != "sonic-installer" {
-		t.Errorf("Expected default path 'sonic-installer', got %s", config.SonicInstallerPath)
-	}
+	// SonicInstallerPath field has been removed - using constant instead
 
 	if config.DryRunDefault != false {
 		t.Errorf("Expected default dry run false, got %t", config.DryRunDefault)
@@ -60,9 +58,8 @@ func TestNewConsolidationService(t *testing.T) {
 
 func TestNewConsolidationServiceWithConfig(t *testing.T) {
 	customConfig := &ConsolidationConfig{
-		Method:             ConsolidationMethodBootloader,
-		SonicInstallerPath: "/custom/path/sonic-installer",
-		DryRunDefault:      true,
+		Method:        ConsolidationMethodBootloader,
+		DryRunDefault: true,
 	}
 
 	service := NewConsolidationServiceWithConfig(customConfig)
@@ -78,9 +75,8 @@ func TestNewConsolidationServiceWithConfig(t *testing.T) {
 
 func TestConsolidateImages_UnsupportedMethod(t *testing.T) {
 	config := &ConsolidationConfig{
-		Method:             999, // Invalid method
-		SonicInstallerPath: "sonic-installer",
-		DryRunDefault:      false,
+		Method:        999, // Invalid method
+		DryRunDefault: false,
 	}
 
 	service := NewConsolidationServiceWithConfig(config)
@@ -102,9 +98,8 @@ func TestConsolidateImages_BootloaderMethod(t *testing.T) {
 	defer func() { config.Global = originalConfig }()
 
 	serviceConfig := &ConsolidationConfig{
-		Method:             ConsolidationMethodBootloader,
-		SonicInstallerPath: "sonic-installer",
-		DryRunDefault:      false,
+		Method:        ConsolidationMethodBootloader,
+		DryRunDefault: false,
 	}
 
 	service := NewConsolidationServiceWithConfig(serviceConfig)
