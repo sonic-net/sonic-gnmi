@@ -10,10 +10,65 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang/glog"
 )
+
+// DownloadSession tracks the progress and state of an ongoing download.
+type DownloadSession struct {
+	ID         string
+	URL        string
+	OutputPath string
+
+	// Progress data - updated by download, read by status queries
+	Downloaded       int64
+	Total            int64
+	SpeedBytesPerSec float64
+	Status           string
+	CurrentMethod    string
+	AttemptNumber    int
+	StartTime        time.Time
+	LastUpdate       time.Time
+	Error            error
+
+	mu     sync.RWMutex
+	cancel context.CancelFunc
+}
+
+// UpdateProgress updates the download progress in a thread-safe manner.
+func (s *DownloadSession) UpdateProgress(downloaded, total int64, speed float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Downloaded = downloaded
+	s.Total = total
+	s.SpeedBytesPerSec = speed
+	s.LastUpdate = time.Now()
+}
+
+// GetProgress returns current progress in a thread-safe manner.
+func (s *DownloadSession) GetProgress() (downloaded, total int64, speed float64, status string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Downloaded, s.Total, s.SpeedBytesPerSec, s.Status
+}
+
+// UpdateStatus updates the download status in a thread-safe manner.
+func (s *DownloadSession) UpdateStatus(status string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Status = status
+	s.LastUpdate = time.Now()
+}
+
+// UpdateCurrentMethod updates the current download method in a thread-safe manner.
+func (s *DownloadSession) UpdateCurrentMethod(method string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.CurrentMethod = method
+	s.LastUpdate = time.Now()
+}
 
 // DownloadResult contains information about a successful download.
 type DownloadResult struct {
@@ -55,77 +110,107 @@ func DefaultDownloadConfig() *DownloadConfig {
 
 // DownloadFirmware downloads a firmware image from the specified URL
 // If outputPath is empty, it will be automatically determined from the URL.
-func DownloadFirmware(ctx context.Context, downloadURL, outputPath string) (*DownloadResult, error) {
+// Returns both the session (for progress tracking) and final result.
+func DownloadFirmware(ctx context.Context, downloadURL, outputPath string) (*DownloadSession, *DownloadResult, error) {
 	return DownloadFirmwareWithConfig(ctx, downloadURL, outputPath, DefaultDownloadConfig())
 }
 
 // DownloadFirmwareWithConfig downloads a firmware image with custom configuration.
+// Returns both the session (for progress tracking) and final result.
 func DownloadFirmwareWithConfig(
 	ctx context.Context, downloadURL, outputPath string, config *DownloadConfig,
-) (*DownloadResult, error) {
+) (*DownloadSession, *DownloadResult, error) {
 	startTime := time.Now()
 	var attempts []Attempt
 
 	glog.V(1).Infof("Starting download of %s", downloadURL)
+
+	// Create download session
+	session := &DownloadSession{
+		ID:         fmt.Sprintf("download-%d", time.Now().UnixNano()),
+		URL:        downloadURL,
+		OutputPath: outputPath,
+		Status:     "starting",
+		StartTime:  startTime,
+		LastUpdate: startTime,
+	}
 
 	// Determine output path if not provided
 	if outputPath == "" {
 		var err error
 		outputPath, err = getOutputPathFromURL(downloadURL)
 		if err != nil {
-			return nil, NewOtherError(downloadURL, fmt.Sprintf("failed to determine output path: %v", err), attempts)
+			session.UpdateStatus("failed")
+			return session, nil, NewOtherError(downloadURL, fmt.Sprintf("failed to determine output path: %v", err), attempts)
 		}
+		session.OutputPath = outputPath
 	}
 
 	// Ensure output directory exists
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
-		return nil, NewFileSystemError(downloadURL, fmt.Sprintf("failed to create output directory: %v", err), attempts)
+		session.UpdateStatus("failed")
+		return session, nil, NewFileSystemError(downloadURL,
+			fmt.Sprintf("failed to create output directory: %v", err), attempts)
 	}
 
 	// Strategy 1: Try with interface binding if interface is up
 	if config.Interface != "" && IsInterfaceUp(config.Interface) {
 		glog.V(2).Infof("Interface %s is up, attempting download with interface binding", config.Interface)
+		session.UpdateCurrentMethod("interface")
+		session.UpdateStatus("downloading")
 
-		result, err := attemptDownloadWithInterface(ctx, downloadURL, outputPath, config, &attempts)
+		result, err := attemptDownloadWithInterface(ctx, downloadURL, outputPath, config, &attempts, session)
 		if err == nil {
-			return createSuccessResult(downloadURL, outputPath, startTime, len(attempts), "interface", result.FileSize), nil
+			session.UpdateStatus("completed")
+			return session, createSuccessResult(downloadURL, outputPath, startTime, len(attempts),
+				"interface", result.FileSize), nil
 		}
 
 		// Check if we should continue with fallback strategies
 		if !shouldRetryWithFallback(err) {
-			return nil, err
+			session.UpdateStatus("failed")
+			return session, nil, err
 		}
 	}
 
 	// Strategy 2: Try with specific IP addresses
 	if config.Interface != "" {
 		glog.V(2).Infof("Attempting download with specific IP addresses from %s", config.Interface)
+		session.UpdateCurrentMethod("ip")
+		session.UpdateStatus("downloading")
 
-		result, err := attemptDownloadWithIPs(ctx, downloadURL, outputPath, config, &attempts)
+		result, err := attemptDownloadWithIPs(ctx, downloadURL, outputPath, config, &attempts, session)
 		if err == nil {
-			return createSuccessResult(downloadURL, outputPath, startTime, len(attempts), "ip", result.FileSize), nil
+			session.UpdateStatus("completed")
+			return session, createSuccessResult(downloadURL, outputPath, startTime, len(attempts), "ip", result.FileSize), nil
 		}
 
 		// Check if we should continue with direct connection
 		if !shouldRetryWithFallback(err) {
-			return nil, err
+			session.UpdateStatus("failed")
+			return session, nil, err
 		}
 	}
 
 	// Strategy 3: Try direct connection without interface binding
 	glog.V(2).Info("Attempting download without interface binding")
-	result, err := attemptDirectDownload(ctx, downloadURL, outputPath, config, &attempts)
+	session.UpdateCurrentMethod("direct")
+	session.UpdateStatus("downloading")
+	result, err := attemptDirectDownload(ctx, downloadURL, outputPath, config, &attempts, session)
 	if err == nil {
-		return createSuccessResult(downloadURL, outputPath, startTime, len(attempts), "direct", result.FileSize), nil
+		session.UpdateStatus("completed")
+		return session, createSuccessResult(downloadURL, outputPath, startTime, len(attempts), "direct", result.FileSize), nil
 	}
 
 	// All strategies failed
-	return nil, err
+	session.UpdateStatus("failed")
+	return session, nil, err
 }
 
 // attemptDownloadWithInterface tries to download using interface binding.
 func attemptDownloadWithInterface(
-	ctx context.Context, downloadURL, outputPath string, config *DownloadConfig, attempts *[]Attempt,
+	ctx context.Context, downloadURL, outputPath string, config *DownloadConfig,
+	attempts *[]Attempt, session *DownloadSession,
 ) (*downloadAttemptResult, error) {
 	attempt := Attempt{
 		Method:    "interface",
@@ -171,7 +256,7 @@ func attemptDownloadWithInterface(
 		Timeout: 5 * time.Minute, // Overall timeout for the entire request
 	}
 
-	result, err := performDownload(ctx, client, downloadURL, outputPath, config.UserAgent)
+	result, err := performDownload(ctx, client, downloadURL, outputPath, config.UserAgent, session)
 	attempt.Duration = time.Since(attemptStart)
 
 	if err != nil {
@@ -191,7 +276,8 @@ func attemptDownloadWithInterface(
 
 // attemptDownloadWithIPs tries to download using specific IP addresses.
 func attemptDownloadWithIPs(
-	ctx context.Context, downloadURL, outputPath string, config *DownloadConfig, attempts *[]Attempt,
+	ctx context.Context, downloadURL, outputPath string, config *DownloadConfig,
+	attempts *[]Attempt, session *DownloadSession,
 ) (*downloadAttemptResult, error) {
 	interfaceInfo, err := GetInterfaceInfo(config.Interface)
 	if err != nil {
@@ -227,7 +313,7 @@ func attemptDownloadWithIPs(
 			Timeout: 5 * time.Minute,
 		}
 
-		result, err := performDownload(ctx, client, downloadURL, outputPath, config.UserAgent)
+		result, err := performDownload(ctx, client, downloadURL, outputPath, config.UserAgent, session)
 		attempt.Duration = time.Since(attemptStart)
 
 		if err != nil {
@@ -253,7 +339,8 @@ func attemptDownloadWithIPs(
 
 // attemptDirectDownload tries to download without interface binding.
 func attemptDirectDownload(
-	ctx context.Context, downloadURL, outputPath string, config *DownloadConfig, attempts *[]Attempt,
+	ctx context.Context, downloadURL, outputPath string, config *DownloadConfig,
+	attempts *[]Attempt, session *DownloadSession,
 ) (*downloadAttemptResult, error) {
 	attempt := Attempt{
 		Method: "direct",
@@ -266,7 +353,7 @@ func attemptDirectDownload(
 		Timeout: 5 * time.Minute,
 	}
 
-	result, err := performDownload(ctx, client, downloadURL, outputPath, config.UserAgent)
+	result, err := performDownload(ctx, client, downloadURL, outputPath, config.UserAgent, session)
 	attempt.Duration = time.Since(attemptStart)
 
 	if err != nil {
@@ -290,9 +377,74 @@ type downloadAttemptResult struct {
 	HTTPStatus int
 }
 
+// updateProgress updates progress and prints to console.
+func updateProgress(
+	session *DownloadSession, written, contentLength int64, startTime time.Time, lastReport *time.Time,
+) {
+	elapsed := time.Since(startTime)
+	speed := float64(written) / elapsed.Seconds()
+	session.UpdateProgress(written, contentLength, speed)
+	*lastReport = time.Now()
+
+	// Also print progress to console
+	if contentLength > 0 {
+		progress := float64(written) / float64(contentLength) * 100
+		speedMB := speed / (1024 * 1024)
+		fmt.Printf("\r📥 %.1f%% [%.1f/%.1f MB] @ %.2f MB/s",
+			progress, float64(written)/(1024*1024),
+			float64(contentLength)/(1024*1024), speedMB)
+	} else {
+		fmt.Printf("\r📥 Downloaded: %.1f MB @ %.2f MB/s",
+			float64(written)/(1024*1024), speed/(1024*1024))
+	}
+}
+
+// copyWithProgress copies data from src to dst while updating progress in session.
+func copyWithProgress(dst io.Writer, src io.Reader, session *DownloadSession, contentLength int64) (int64, error) {
+	var written int64
+	buffer := make([]byte, 32*1024) // 32KB chunks
+	lastReport := time.Now()
+	startTime := time.Now()
+
+	for {
+		nr, er := src.Read(buffer)
+		if nr > 0 {
+			nw, ew := dst.Write(buffer[0:nr])
+			if nw > 0 {
+				written += int64(nw)
+			}
+
+			// Update progress every 500ms
+			if time.Since(lastReport) >= 500*time.Millisecond {
+				updateProgress(session, written, contentLength, startTime, &lastReport)
+			}
+
+			if ew != nil {
+				return written, ew
+			}
+		}
+		if er != nil {
+			if er != io.EOF {
+				return written, er
+			}
+			break
+		}
+	}
+
+	// Final progress update
+	elapsed := time.Since(startTime)
+	speed := float64(written) / elapsed.Seconds()
+	session.UpdateProgress(written, contentLength, speed)
+
+	// Clear the progress line by printing newline
+	fmt.Println()
+
+	return written, nil
+}
+
 // performDownload executes the actual HTTP download.
 func performDownload(
-	ctx context.Context, client *http.Client, downloadURL, outputPath, userAgent string,
+	ctx context.Context, client *http.Client, downloadURL, outputPath, userAgent string, session *DownloadSession,
 ) (*downloadAttemptResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
@@ -309,6 +461,12 @@ func performDownload(
 	}
 	defer resp.Body.Close()
 
+	// Get content length for progress tracking
+	contentLength := resp.ContentLength
+	if contentLength > 0 {
+		session.UpdateProgress(0, contentLength, 0)
+	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &downloadAttemptResult{HTTPStatus: resp.StatusCode},
 			fmt.Errorf("HTTP error %d: %s", resp.StatusCode, resp.Status)
@@ -322,8 +480,8 @@ func performDownload(
 	}
 	defer outFile.Close()
 
-	// Copy response body to file
-	written, err := io.Copy(outFile, resp.Body)
+	// Copy response body to file with progress updates
+	written, err := copyWithProgress(outFile, resp.Body, session, contentLength)
 	if err != nil {
 		// Clean up partial file
 		os.Remove(outputPath)

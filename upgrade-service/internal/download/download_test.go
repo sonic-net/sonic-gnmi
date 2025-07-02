@@ -32,10 +32,11 @@ func TestDownloadFirmware_Success(t *testing.T) {
 
 	// Perform download
 	ctx := context.Background()
-	result, err := DownloadFirmware(ctx, server.URL, outputPath)
+	session, result, err := DownloadFirmware(ctx, server.URL, outputPath)
 
 	// Verify success
 	require.NoError(t, err)
+	require.NotNil(t, session)
 	require.NotNil(t, result)
 
 	assert.Equal(t, outputPath, result.FilePath)
@@ -74,10 +75,11 @@ func TestDownloadFirmware_AutoOutputPath(t *testing.T) {
 
 	// Perform download without output path
 	ctx := context.Background()
-	result, err := DownloadFirmware(ctx, downloadURL, "")
+	session, result, err := DownloadFirmware(ctx, downloadURL, "")
 
 	// Verify success
 	require.NoError(t, err)
+	require.NotNil(t, session)
 	require.NotNil(t, result)
 
 	expectedPath := "test-firmware.bin"
@@ -102,9 +104,10 @@ func TestDownloadFirmware_HTTPError(t *testing.T) {
 	outputPath := filepath.Join(tempDir, "firmware.bin")
 
 	ctx := context.Background()
-	result, err := DownloadFirmware(ctx, server.URL, outputPath)
+	session, result, err := DownloadFirmware(ctx, server.URL, outputPath)
 
 	// Verify error
+	assert.NotNil(t, session) // Session should still exist even on error
 	assert.Nil(t, result)
 	require.Error(t, err)
 
@@ -130,9 +133,10 @@ func TestDownloadFirmware_NetworkError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	result, err := DownloadFirmwareWithConfig(ctx, invalidURL, outputPath, config)
+	session, result, err := DownloadFirmwareWithConfig(ctx, invalidURL, outputPath, config)
 
 	// Verify error
+	assert.NotNil(t, session) // Session should still exist even on error
 	assert.Nil(t, result)
 	require.Error(t, err)
 
@@ -157,9 +161,10 @@ func TestDownloadFirmware_FileSystemError(t *testing.T) {
 	invalidPath := "/proc/invalid/firmware.bin" // /proc is read-only
 
 	ctx := context.Background()
-	result, err := DownloadFirmware(ctx, server.URL, invalidPath)
+	session, result, err := DownloadFirmware(ctx, server.URL, invalidPath)
 
 	// Verify error
+	assert.NotNil(t, session) // Session should still exist even on error
 	assert.Nil(t, result)
 	require.Error(t, err)
 
@@ -185,9 +190,10 @@ func TestDownloadFirmware_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	result, err := DownloadFirmware(ctx, server.URL, outputPath)
+	session, result, err := DownloadFirmware(ctx, server.URL, outputPath)
 
 	// Verify cancellation
+	assert.NotNil(t, session) // Session should still exist even on cancellation
 	assert.Nil(t, result)
 	require.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "context") || strings.Contains(err.Error(), "canceled"))
@@ -440,9 +446,11 @@ func TestDownloadFirmware_Integration(t *testing.T) {
 		outputPath := filepath.Join(tempDir, "firmware.bin")
 
 		ctx := context.Background()
-		result, err := DownloadFirmware(ctx, server.URL+"/success", outputPath)
+		session, result, err := DownloadFirmware(ctx, server.URL+"/success", outputPath)
 
 		require.NoError(t, err)
+		require.NotNil(t, session)
+		require.NotNil(t, result)
 		assert.Equal(t, int64(13), result.FileSize)
 
 		content, err := os.ReadFile(outputPath)
@@ -460,8 +468,9 @@ func TestDownloadFirmware_Integration(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
 
-		result, err := DownloadFirmwareWithConfig(ctx, server.URL+"/slow", outputPath, config)
+		session, result, err := DownloadFirmwareWithConfig(ctx, server.URL+"/slow", outputPath, config)
 
+		assert.NotNil(t, session) // Session should exist even on timeout
 		assert.Nil(t, result)
 		assert.Error(t, err)
 	})
