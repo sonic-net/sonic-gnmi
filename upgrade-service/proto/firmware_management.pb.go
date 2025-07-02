@@ -573,10 +573,8 @@ type DownloadFirmwareRequest struct {
 	ConnectTimeoutSeconds int32 `protobuf:"varint,3,opt,name=connect_timeout_seconds,json=connectTimeoutSeconds,proto3" json:"connect_timeout_seconds,omitempty"`
 	// Optional overall timeout in seconds (defaults to 300)
 	TotalTimeoutSeconds int32 `protobuf:"varint,4,opt,name=total_timeout_seconds,json=totalTimeoutSeconds,proto3" json:"total_timeout_seconds,omitempty"`
-	// Optional User-Agent header
-	UserAgent     string `protobuf:"bytes,5,opt,name=user_agent,json=userAgent,proto3" json:"user_agent,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *DownloadFirmwareRequest) Reset() {
@@ -635,13 +633,6 @@ func (x *DownloadFirmwareRequest) GetTotalTimeoutSeconds() int32 {
 		return x.TotalTimeoutSeconds
 	}
 	return 0
-}
-
-func (x *DownloadFirmwareRequest) GetUserAgent() string {
-	if x != nil {
-		return x.UserAgent
-	}
-	return ""
 }
 
 // Response from starting firmware download
@@ -1341,15 +1332,13 @@ const file_proto_firmware_management_proto_rawDesc = "" +
 	"\rcurrent_image\x18\x02 \x01(\tR\fcurrentImage\x12\x1d\n" +
 	"\n" +
 	"next_image\x18\x03 \x01(\tR\tnextImage\x12\x1a\n" +
-	"\bwarnings\x18\x04 \x03(\tR\bwarnings\"\xd7\x01\n" +
+	"\bwarnings\x18\x04 \x03(\tR\bwarnings\"\xb8\x01\n" +
 	"\x17DownloadFirmwareRequest\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x1f\n" +
 	"\voutput_path\x18\x02 \x01(\tR\n" +
 	"outputPath\x126\n" +
 	"\x17connect_timeout_seconds\x18\x03 \x01(\x05R\x15connectTimeoutSeconds\x122\n" +
-	"\x15total_timeout_seconds\x18\x04 \x01(\x05R\x13totalTimeoutSeconds\x12\x1d\n" +
-	"\n" +
-	"user_agent\x18\x05 \x01(\tR\tuserAgent\"r\n" +
+	"\x15total_timeout_seconds\x18\x04 \x01(\x05R\x13totalTimeoutSeconds\"r\n" +
 	"\x18DownloadFirmwareResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +

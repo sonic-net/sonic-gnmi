@@ -137,9 +137,6 @@ message DownloadFirmwareRequest {
   
   // Optional overall timeout in seconds (defaults to 300)
   int32 total_timeout_seconds = 4;
-  
-  // Optional User-Agent header
-  string user_agent = 5;
 }
 
 // Response from starting firmware download

@@ -3,11 +3,19 @@ package server
 import (
 	"archive/zip"
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
+	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/download"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/firmware"
 	pb "github.com/sonic-net/sonic-gnmi/upgrade-service/proto"
 )
@@ -432,4 +440,357 @@ func TestFirmwareManagementServer_ListImages(t *testing.T) {
 			t.Error("Expected non-nil warnings slice")
 		}
 	})
+}
+
+func TestFirmwareManagementServer_DownloadFirmware(t *testing.T) {
+	// Reset global download state before each test
+	t.Cleanup(func() {
+		downloadMutex.Lock()
+		currentDownload = nil
+		downloadMutex.Unlock()
+	})
+
+	t.Run("ValidDownload", func(t *testing.T) {
+		// Create mock HTTP server
+		testContent := "test firmware content"
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(testContent))
+		}))
+		defer server.Close()
+
+		// Setup temp directory
+		tempDir := t.TempDir()
+		fwServer := NewFirmwareManagementServer(tempDir)
+		ctx := context.Background()
+
+		req := &pb.DownloadFirmwareRequest{
+			Url: server.URL + "/firmware.bin",
+		}
+
+		resp, err := fwServer.DownloadFirmware(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		assert.NotEmpty(t, resp.SessionId)
+		assert.True(t, resp.Status == "starting" || resp.Status == "completed")
+		assert.Contains(t, resp.OutputPath, "firmware.bin")
+
+		// Wait for download to complete
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify download completed
+		downloadMutex.RLock()
+		assert.NotNil(t, currentDownload)
+		assert.True(t, currentDownload.Done)
+		assert.Nil(t, currentDownload.Error)
+		assert.NotNil(t, currentDownload.Result)
+		downloadMutex.RUnlock()
+	})
+
+	t.Run("InvalidURL", func(t *testing.T) {
+		tempDir := t.TempDir()
+		fwServer := NewFirmwareManagementServer(tempDir)
+		ctx := context.Background()
+
+		req := &pb.DownloadFirmwareRequest{
+			Url: "", // Empty URL
+		}
+
+		resp, err := fwServer.DownloadFirmware(ctx, req)
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Contains(t, err.Error(), "url is required")
+	})
+
+	t.Run("ConcurrentDownloadBlocked", func(t *testing.T) {
+		// Create slow mock HTTP server
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(200 * time.Millisecond) // Slow download
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("slow content"))
+		}))
+		defer server.Close()
+
+		tempDir := t.TempDir()
+		fwServer := NewFirmwareManagementServer(tempDir)
+		ctx := context.Background()
+
+		// Start first download
+		req1 := &pb.DownloadFirmwareRequest{
+			Url: server.URL + "/slow.bin",
+		}
+
+		resp1, err1 := fwServer.DownloadFirmware(ctx, req1)
+		require.NoError(t, err1)
+		require.NotNil(t, resp1)
+
+		// Try second download immediately - should fail
+		req2 := &pb.DownloadFirmwareRequest{
+			Url: server.URL + "/another.bin",
+		}
+
+		resp2, err2 := fwServer.DownloadFirmware(ctx, req2)
+		assert.Error(t, err2)
+		assert.Nil(t, resp2)
+		assert.Contains(t, err2.Error(), "download already in progress")
+
+		// Wait for first download to complete
+		time.Sleep(300 * time.Millisecond)
+
+		// Now second download should work
+		resp3, err3 := fwServer.DownloadFirmware(ctx, req2)
+		assert.NoError(t, err3)
+		assert.NotNil(t, resp3)
+	})
+
+	t.Run("CustomOutputPath", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("test content"))
+		}))
+		defer server.Close()
+
+		tempDir := t.TempDir()
+		fwServer := NewFirmwareManagementServer(tempDir)
+		ctx := context.Background()
+
+		customPath := "/custom/path/firmware.bin"
+		req := &pb.DownloadFirmwareRequest{
+			Url:        server.URL + "/test.bin",
+			OutputPath: customPath,
+		}
+
+		resp, err := fwServer.DownloadFirmware(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		assert.Contains(t, resp.OutputPath, customPath)
+	})
+
+	t.Run("WithTimeouts", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("test content"))
+		}))
+		defer server.Close()
+
+		tempDir := t.TempDir()
+		fwServer := NewFirmwareManagementServer(tempDir)
+		ctx := context.Background()
+
+		req := &pb.DownloadFirmwareRequest{
+			Url:                   server.URL + "/test.bin",
+			ConnectTimeoutSeconds: 10,
+			TotalTimeoutSeconds:   30,
+		}
+
+		resp, err := fwServer.DownloadFirmware(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.NotEmpty(t, resp.SessionId)
+	})
+}
+
+func TestFirmwareManagementServer_GetDownloadStatus(t *testing.T) {
+	// Reset global download state before each test
+	t.Cleanup(func() {
+		downloadMutex.Lock()
+		currentDownload = nil
+		downloadMutex.Unlock()
+	})
+
+	t.Run("NoDownloadSession", func(t *testing.T) {
+		tempDir := t.TempDir()
+		fwServer := NewFirmwareManagementServer(tempDir)
+		ctx := context.Background()
+
+		req := &pb.GetDownloadStatusRequest{
+			SessionId: "nonexistent",
+		}
+
+		resp, err := fwServer.GetDownloadStatus(ctx, req)
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Contains(t, err.Error(), "no download session found")
+	})
+
+	t.Run("EmptySessionId", func(t *testing.T) {
+		tempDir := t.TempDir()
+		fwServer := NewFirmwareManagementServer(tempDir)
+		ctx := context.Background()
+
+		req := &pb.GetDownloadStatusRequest{
+			SessionId: "",
+		}
+
+		resp, err := fwServer.GetDownloadStatus(ctx, req)
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Contains(t, err.Error(), "session_id is required")
+	})
+
+	t.Run("CompletedDownload", func(t *testing.T) {
+		// Create mock HTTP server
+		testContent := "completed firmware content"
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(testContent))
+		}))
+		defer server.Close()
+
+		tempDir := t.TempDir()
+		fwServer := NewFirmwareManagementServer(tempDir)
+		ctx := context.Background()
+
+		// Start download
+		downloadReq := &pb.DownloadFirmwareRequest{
+			Url: server.URL + "/firmware.bin",
+		}
+
+		downloadResp, err := fwServer.DownloadFirmware(ctx, downloadReq)
+		require.NoError(t, err)
+		require.NotNil(t, downloadResp)
+
+		// Wait for download to complete
+		time.Sleep(200 * time.Millisecond)
+
+		// Get status
+		statusReq := &pb.GetDownloadStatusRequest{
+			SessionId: downloadResp.SessionId,
+		}
+
+		statusResp, err := fwServer.GetDownloadStatus(ctx, statusReq)
+		require.NoError(t, err)
+		require.NotNil(t, statusResp)
+
+		assert.Equal(t, downloadResp.SessionId, statusResp.SessionId)
+
+		// Should have result state
+		result := statusResp.GetResult()
+		require.NotNil(t, result)
+		assert.Contains(t, result.FilePath, "firmware.bin")
+		assert.Equal(t, int64(len(testContent)), result.FileSizeBytes)
+		assert.GreaterOrEqual(t, result.DurationMs, int64(0))
+		assert.Greater(t, result.AttemptCount, int32(0))
+	})
+
+	t.Run("FailedDownload", func(t *testing.T) {
+		// Create mock HTTP server that returns 404
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("Not Found"))
+		}))
+		defer server.Close()
+
+		tempDir := t.TempDir()
+		fwServer := NewFirmwareManagementServer(tempDir)
+		ctx := context.Background()
+
+		// Start download
+		downloadReq := &pb.DownloadFirmwareRequest{
+			Url: server.URL + "/nonexistent.bin",
+		}
+
+		downloadResp, err := fwServer.DownloadFirmware(ctx, downloadReq)
+		require.NoError(t, err)
+		require.NotNil(t, downloadResp)
+
+		// Wait for download to fail
+		time.Sleep(200 * time.Millisecond)
+
+		// Get status
+		statusReq := &pb.GetDownloadStatusRequest{
+			SessionId: downloadResp.SessionId,
+		}
+
+		statusResp, err := fwServer.GetDownloadStatus(ctx, statusReq)
+		require.NoError(t, err)
+		require.NotNil(t, statusResp)
+
+		// Should have error state
+		downloadError := statusResp.GetError()
+		require.NotNil(t, downloadError)
+		assert.Equal(t, "http", downloadError.Category)
+		assert.Equal(t, int32(404), downloadError.HttpCode)
+		assert.Contains(t, downloadError.Message, "HTTP error")
+		assert.NotEmpty(t, downloadError.Attempts)
+	})
+
+	t.Run("SessionIdMismatch", func(t *testing.T) {
+		// Create mock session
+		downloadMutex.Lock()
+		currentDownload = &downloadSessionInfo{
+			Session: &download.DownloadSession{
+				ID: "test-session-123",
+			},
+		}
+		downloadMutex.Unlock()
+
+		tempDir := t.TempDir()
+		fwServer := NewFirmwareManagementServer(tempDir)
+		ctx := context.Background()
+
+		req := &pb.GetDownloadStatusRequest{
+			SessionId: "wrong-session-id",
+		}
+
+		resp, err := fwServer.GetDownloadStatus(ctx, req)
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Contains(t, err.Error(), "session_id mismatch")
+	})
+}
+
+func TestExtractFilenameFromURL(t *testing.T) {
+	testCases := []struct {
+		url      string
+		expected string
+		hasError bool
+	}{
+		{
+			url:      "http://example.com/firmware.bin",
+			expected: "firmware.bin",
+			hasError: false,
+		},
+		{
+			url:      "http://10.201.148.43/pipelines/Networking-acs-buildimage-Official/vs/test/sonic-vs.bin",
+			expected: "sonic-vs.bin",
+			hasError: false,
+		},
+		{
+			url:      "https://example.com/path/to/firmware.swi",
+			expected: "firmware.swi",
+			hasError: false,
+		},
+		{
+			url:      "http://example.com/firmware.bin?version=1.2.3",
+			expected: "firmware.bin",
+			hasError: false,
+		},
+		{
+			url:      "http://example.com/",
+			expected: "",
+			hasError: true,
+		},
+		{
+			url:      "://invalid-url",
+			expected: "",
+			hasError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.url, func(t *testing.T) {
+			result, err := extractFilenameFromURL(tc.url)
+			if tc.hasError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.expected, result)
+			}
+		})
+	}
 }
