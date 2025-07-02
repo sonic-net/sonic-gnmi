@@ -52,6 +52,20 @@ func printAttemptDetails(attempts []download.Attempt) {
 	}
 }
 
+func formatDuration(seconds float64) string {
+	if seconds < 60 {
+		return fmt.Sprintf("%.0fs", seconds)
+	} else if seconds < 3600 {
+		mins := int(seconds / 60)
+		secs := int(seconds) - (mins * 60)
+		return fmt.Sprintf("%dm%ds", mins, secs)
+	} else {
+		hours := int(seconds / 3600)
+		mins := int((seconds - float64(hours*3600)) / 60)
+		return fmt.Sprintf("%dh%dm", hours, mins)
+	}
+}
+
 func main() {
 	var (
 		url            = flag.String("url", "", "URL to download from (required)")
@@ -114,9 +128,12 @@ func main() {
 	fmt.Printf("User-Agent: %s\n", *userAgent)
 	fmt.Println()
 
-	// Perform download
+	// Start download with progress monitoring
 	startTime := time.Now()
-	result, err := download.DownloadFirmwareWithConfig(ctx, *url, *output, config)
+
+	// For now, we'll run download synchronously since the current API
+	// doesn't support getting the session before download starts
+	_, result, err := download.DownloadFirmwareWithConfig(ctx, *url, *output, config)
 	duration := time.Since(startTime)
 
 	if err != nil {
