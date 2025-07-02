@@ -382,6 +382,9 @@ func writeSlowKey(backupKeyPath string, keyPath string) error {
 		if err == io.EOF {
 			break
 		}
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
