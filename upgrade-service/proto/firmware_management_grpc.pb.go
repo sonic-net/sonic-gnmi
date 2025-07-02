@@ -23,6 +23,8 @@ const (
 	FirmwareManagement_ListFirmwareImages_FullMethodName = "/sonic.FirmwareManagement/ListFirmwareImages"
 	FirmwareManagement_ConsolidateImages_FullMethodName  = "/sonic.FirmwareManagement/ConsolidateImages"
 	FirmwareManagement_ListImages_FullMethodName         = "/sonic.FirmwareManagement/ListImages"
+	FirmwareManagement_DownloadFirmware_FullMethodName   = "/sonic.FirmwareManagement/DownloadFirmware"
+	FirmwareManagement_GetDownloadStatus_FullMethodName  = "/sonic.FirmwareManagement/GetDownloadStatus"
 )
 
 // FirmwareManagementClient is the client API for FirmwareManagement service.
@@ -39,6 +41,10 @@ type FirmwareManagementClient interface {
 	ConsolidateImages(ctx context.Context, in *ConsolidateImagesRequest, opts ...grpc.CallOption) (*ConsolidateImagesResponse, error)
 	// ListImages lists installed SONiC images using sonic-installer
 	ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error)
+	// Download firmware from a URL
+	DownloadFirmware(ctx context.Context, in *DownloadFirmwareRequest, opts ...grpc.CallOption) (*DownloadFirmwareResponse, error)
+	// Get download status and progress
+	GetDownloadStatus(ctx context.Context, in *GetDownloadStatusRequest, opts ...grpc.CallOption) (*GetDownloadStatusResponse, error)
 }
 
 type firmwareManagementClient struct {
@@ -89,6 +95,26 @@ func (c *firmwareManagementClient) ListImages(ctx context.Context, in *ListImage
 	return out, nil
 }
 
+func (c *firmwareManagementClient) DownloadFirmware(ctx context.Context, in *DownloadFirmwareRequest, opts ...grpc.CallOption) (*DownloadFirmwareResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DownloadFirmwareResponse)
+	err := c.cc.Invoke(ctx, FirmwareManagement_DownloadFirmware_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *firmwareManagementClient) GetDownloadStatus(ctx context.Context, in *GetDownloadStatusRequest, opts ...grpc.CallOption) (*GetDownloadStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDownloadStatusResponse)
+	err := c.cc.Invoke(ctx, FirmwareManagement_GetDownloadStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FirmwareManagementServer is the server API for FirmwareManagement service.
 // All implementations must embed UnimplementedFirmwareManagementServer
 // for forward compatibility.
@@ -103,6 +129,10 @@ type FirmwareManagementServer interface {
 	ConsolidateImages(context.Context, *ConsolidateImagesRequest) (*ConsolidateImagesResponse, error)
 	// ListImages lists installed SONiC images using sonic-installer
 	ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error)
+	// Download firmware from a URL
+	DownloadFirmware(context.Context, *DownloadFirmwareRequest) (*DownloadFirmwareResponse, error)
+	// Get download status and progress
+	GetDownloadStatus(context.Context, *GetDownloadStatusRequest) (*GetDownloadStatusResponse, error)
 	mustEmbedUnimplementedFirmwareManagementServer()
 }
 
@@ -124,6 +154,12 @@ func (UnimplementedFirmwareManagementServer) ConsolidateImages(context.Context, 
 }
 func (UnimplementedFirmwareManagementServer) ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListImages not implemented")
+}
+func (UnimplementedFirmwareManagementServer) DownloadFirmware(context.Context, *DownloadFirmwareRequest) (*DownloadFirmwareResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DownloadFirmware not implemented")
+}
+func (UnimplementedFirmwareManagementServer) GetDownloadStatus(context.Context, *GetDownloadStatusRequest) (*GetDownloadStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDownloadStatus not implemented")
 }
 func (UnimplementedFirmwareManagementServer) mustEmbedUnimplementedFirmwareManagementServer() {}
 func (UnimplementedFirmwareManagementServer) testEmbeddedByValue()                            {}
@@ -218,6 +254,42 @@ func _FirmwareManagement_ListImages_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FirmwareManagement_DownloadFirmware_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DownloadFirmwareRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FirmwareManagementServer).DownloadFirmware(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FirmwareManagement_DownloadFirmware_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FirmwareManagementServer).DownloadFirmware(ctx, req.(*DownloadFirmwareRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FirmwareManagement_GetDownloadStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDownloadStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FirmwareManagementServer).GetDownloadStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FirmwareManagement_GetDownloadStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FirmwareManagementServer).GetDownloadStatus(ctx, req.(*GetDownloadStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FirmwareManagement_ServiceDesc is the grpc.ServiceDesc for FirmwareManagement service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -240,6 +312,14 @@ var FirmwareManagement_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListImages",
 			Handler:    _FirmwareManagement_ListImages_Handler,
+		},
+		{
+			MethodName: "DownloadFirmware",
+			Handler:    _FirmwareManagement_DownloadFirmware_Handler,
+		},
+		{
+			MethodName: "GetDownloadStatus",
+			Handler:    _FirmwareManagement_GetDownloadStatus_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

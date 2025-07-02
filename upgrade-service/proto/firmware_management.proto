@@ -17,6 +17,12 @@ service FirmwareManagement {
   
   // ListImages lists installed SONiC images using sonic-installer
   rpc ListImages(ListImagesRequest) returns (ListImagesResponse) {}
+  
+  // Download firmware from a URL
+  rpc DownloadFirmware(DownloadFirmwareRequest) returns (DownloadFirmwareResponse) {}
+  
+  // Get download status and progress
+  rpc GetDownloadStatus(GetDownloadStatusRequest) returns (GetDownloadStatusResponse) {}
 }
 
 // CleanupOldFirmwareRequest is the request to clean up old firmware files
@@ -116,4 +122,154 @@ message ListImagesResponse {
   
   // Any warnings or non-fatal errors encountered
   repeated string warnings = 4;
+}
+
+// Request to start firmware download
+message DownloadFirmwareRequest {
+  // URL to download from (e.g., "http://10.201.148.43/pipelines/Networking-acs-buildimage-Official/vs/test/sonic-vs.bin")
+  string url = 1;
+  
+  // Optional output path. If empty, filename is auto-detected from URL and saved to /host
+  string output_path = 2;
+  
+  // Optional connection timeout in seconds (defaults to 30)
+  int32 connect_timeout_seconds = 3;
+  
+  // Optional overall timeout in seconds (defaults to 300)
+  int32 total_timeout_seconds = 4;
+  
+  // Optional User-Agent header
+  string user_agent = 5;
+}
+
+// Response from starting firmware download
+message DownloadFirmwareResponse {
+  // Unique session ID for tracking this download
+  string session_id = 1;
+  
+  // Initial status message
+  string status = 2;
+  
+  // Resolved output path where file will be saved
+  string output_path = 3;
+}
+
+// Request to get download status
+message GetDownloadStatusRequest {
+  // Session ID returned from DownloadFirmware
+  string session_id = 1;
+}
+
+// Response with current download status
+message GetDownloadStatusResponse {
+  // Session ID
+  string session_id = 1;
+  
+  // Current download state - exactly one of these will be set
+  oneof state {
+    // Download is starting up
+    DownloadStarting starting = 2;
+    
+    // Download is in progress
+    DownloadProgress progress = 3;
+    
+    // Download completed successfully
+    DownloadResult result = 4;
+    
+    // Download failed with error
+    DownloadError error = 5;
+  }
+}
+
+// Download is starting up
+message DownloadStarting {
+  // Status message
+  string message = 1;
+  
+  // Time when download started (RFC3339 format)
+  string start_time = 2;
+}
+
+// Download progress information
+message DownloadProgress {
+  // Bytes downloaded so far
+  int64 downloaded_bytes = 1;
+  
+  // Total bytes to download (0 if unknown)
+  int64 total_bytes = 2;
+  
+  // Download speed in bytes per second
+  double speed_bytes_per_sec = 3;
+  
+  // Progress percentage (0-100, calculated from downloaded/total if total > 0)
+  double percentage = 4;
+  
+  // Current download method being used ("interface", "ip", "direct")
+  string current_method = 5;
+  
+  // Number of attempts made so far
+  int32 attempt_count = 6;
+  
+  // Time when download started (RFC3339 format)
+  string start_time = 7;
+  
+  // Time of last progress update (RFC3339 format)
+  string last_update = 8;
+}
+
+// Download error information
+message DownloadError {
+  // Error category: "network", "http", "filesystem", "other"
+  string category = 1;
+  
+  // HTTP status code if applicable
+  int32 http_code = 2;
+  
+  // Human-readable error message
+  string message = 3;
+  
+  // URL that failed to download
+  string url = 4;
+  
+  // Details of all attempts made
+  repeated DownloadAttempt attempts = 5;
+}
+
+// Individual download attempt information
+message DownloadAttempt {
+  // Method used: "interface", "ip", "direct"
+  string method = 1;
+  
+  // Network interface or IP address used (for informational purposes)
+  string interface = 2;
+  
+  // Error message for this attempt (empty if successful)
+  string error = 3;
+  
+  // Duration of this attempt in milliseconds
+  int64 duration_ms = 4;
+  
+  // HTTP status code received (0 if no response)
+  int32 http_status = 5;
+}
+
+// Final download result for completed downloads
+message DownloadResult {
+  // Path where file was saved
+  string file_path = 1;
+  
+  // Size of downloaded file in bytes
+  int64 file_size_bytes = 2;
+  
+  // Total download duration in milliseconds
+  int64 duration_ms = 3;
+  
+  // Number of attempts made
+  int32 attempt_count = 4;
+  
+  // Final successful method used
+  string final_method = 5;
+  
+  // URL that was downloaded
+  string url = 6;
 }

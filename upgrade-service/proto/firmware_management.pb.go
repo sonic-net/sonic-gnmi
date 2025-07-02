@@ -562,6 +562,747 @@ func (x *ListImagesResponse) GetWarnings() []string {
 	return nil
 }
 
+// Request to start firmware download
+type DownloadFirmwareRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// URL to download from (e.g., "http://10.201.148.43/pipelines/Networking-acs-buildimage-Official/vs/test/sonic-vs.bin")
+	Url string `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	// Optional output path. If empty, filename is auto-detected from URL and saved to /host
+	OutputPath string `protobuf:"bytes,2,opt,name=output_path,json=outputPath,proto3" json:"output_path,omitempty"`
+	// Optional connection timeout in seconds (defaults to 30)
+	ConnectTimeoutSeconds int32 `protobuf:"varint,3,opt,name=connect_timeout_seconds,json=connectTimeoutSeconds,proto3" json:"connect_timeout_seconds,omitempty"`
+	// Optional overall timeout in seconds (defaults to 300)
+	TotalTimeoutSeconds int32 `protobuf:"varint,4,opt,name=total_timeout_seconds,json=totalTimeoutSeconds,proto3" json:"total_timeout_seconds,omitempty"`
+	// Optional User-Agent header
+	UserAgent     string `protobuf:"bytes,5,opt,name=user_agent,json=userAgent,proto3" json:"user_agent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DownloadFirmwareRequest) Reset() {
+	*x = DownloadFirmwareRequest{}
+	mi := &file_proto_firmware_management_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DownloadFirmwareRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DownloadFirmwareRequest) ProtoMessage() {}
+
+func (x *DownloadFirmwareRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_firmware_management_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DownloadFirmwareRequest.ProtoReflect.Descriptor instead.
+func (*DownloadFirmwareRequest) Descriptor() ([]byte, []int) {
+	return file_proto_firmware_management_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *DownloadFirmwareRequest) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *DownloadFirmwareRequest) GetOutputPath() string {
+	if x != nil {
+		return x.OutputPath
+	}
+	return ""
+}
+
+func (x *DownloadFirmwareRequest) GetConnectTimeoutSeconds() int32 {
+	if x != nil {
+		return x.ConnectTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *DownloadFirmwareRequest) GetTotalTimeoutSeconds() int32 {
+	if x != nil {
+		return x.TotalTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *DownloadFirmwareRequest) GetUserAgent() string {
+	if x != nil {
+		return x.UserAgent
+	}
+	return ""
+}
+
+// Response from starting firmware download
+type DownloadFirmwareResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Unique session ID for tracking this download
+	SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// Initial status message
+	Status string `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	// Resolved output path where file will be saved
+	OutputPath    string `protobuf:"bytes,3,opt,name=output_path,json=outputPath,proto3" json:"output_path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DownloadFirmwareResponse) Reset() {
+	*x = DownloadFirmwareResponse{}
+	mi := &file_proto_firmware_management_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DownloadFirmwareResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DownloadFirmwareResponse) ProtoMessage() {}
+
+func (x *DownloadFirmwareResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_firmware_management_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DownloadFirmwareResponse.ProtoReflect.Descriptor instead.
+func (*DownloadFirmwareResponse) Descriptor() ([]byte, []int) {
+	return file_proto_firmware_management_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *DownloadFirmwareResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *DownloadFirmwareResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *DownloadFirmwareResponse) GetOutputPath() string {
+	if x != nil {
+		return x.OutputPath
+	}
+	return ""
+}
+
+// Request to get download status
+type GetDownloadStatusRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Session ID returned from DownloadFirmware
+	SessionId     string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDownloadStatusRequest) Reset() {
+	*x = GetDownloadStatusRequest{}
+	mi := &file_proto_firmware_management_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDownloadStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDownloadStatusRequest) ProtoMessage() {}
+
+func (x *GetDownloadStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_firmware_management_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDownloadStatusRequest.ProtoReflect.Descriptor instead.
+func (*GetDownloadStatusRequest) Descriptor() ([]byte, []int) {
+	return file_proto_firmware_management_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *GetDownloadStatusRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+// Response with current download status
+type GetDownloadStatusResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Session ID
+	SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// Current download state - exactly one of these will be set
+	//
+	// Types that are valid to be assigned to State:
+	//
+	//	*GetDownloadStatusResponse_Starting
+	//	*GetDownloadStatusResponse_Progress
+	//	*GetDownloadStatusResponse_Result
+	//	*GetDownloadStatusResponse_Error
+	State         isGetDownloadStatusResponse_State `protobuf_oneof:"state"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDownloadStatusResponse) Reset() {
+	*x = GetDownloadStatusResponse{}
+	mi := &file_proto_firmware_management_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDownloadStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDownloadStatusResponse) ProtoMessage() {}
+
+func (x *GetDownloadStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_firmware_management_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDownloadStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetDownloadStatusResponse) Descriptor() ([]byte, []int) {
+	return file_proto_firmware_management_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *GetDownloadStatusResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *GetDownloadStatusResponse) GetState() isGetDownloadStatusResponse_State {
+	if x != nil {
+		return x.State
+	}
+	return nil
+}
+
+func (x *GetDownloadStatusResponse) GetStarting() *DownloadStarting {
+	if x != nil {
+		if x, ok := x.State.(*GetDownloadStatusResponse_Starting); ok {
+			return x.Starting
+		}
+	}
+	return nil
+}
+
+func (x *GetDownloadStatusResponse) GetProgress() *DownloadProgress {
+	if x != nil {
+		if x, ok := x.State.(*GetDownloadStatusResponse_Progress); ok {
+			return x.Progress
+		}
+	}
+	return nil
+}
+
+func (x *GetDownloadStatusResponse) GetResult() *DownloadResult {
+	if x != nil {
+		if x, ok := x.State.(*GetDownloadStatusResponse_Result); ok {
+			return x.Result
+		}
+	}
+	return nil
+}
+
+func (x *GetDownloadStatusResponse) GetError() *DownloadError {
+	if x != nil {
+		if x, ok := x.State.(*GetDownloadStatusResponse_Error); ok {
+			return x.Error
+		}
+	}
+	return nil
+}
+
+type isGetDownloadStatusResponse_State interface {
+	isGetDownloadStatusResponse_State()
+}
+
+type GetDownloadStatusResponse_Starting struct {
+	// Download is starting up
+	Starting *DownloadStarting `protobuf:"bytes,2,opt,name=starting,proto3,oneof"`
+}
+
+type GetDownloadStatusResponse_Progress struct {
+	// Download is in progress
+	Progress *DownloadProgress `protobuf:"bytes,3,opt,name=progress,proto3,oneof"`
+}
+
+type GetDownloadStatusResponse_Result struct {
+	// Download completed successfully
+	Result *DownloadResult `protobuf:"bytes,4,opt,name=result,proto3,oneof"`
+}
+
+type GetDownloadStatusResponse_Error struct {
+	// Download failed with error
+	Error *DownloadError `protobuf:"bytes,5,opt,name=error,proto3,oneof"`
+}
+
+func (*GetDownloadStatusResponse_Starting) isGetDownloadStatusResponse_State() {}
+
+func (*GetDownloadStatusResponse_Progress) isGetDownloadStatusResponse_State() {}
+
+func (*GetDownloadStatusResponse_Result) isGetDownloadStatusResponse_State() {}
+
+func (*GetDownloadStatusResponse_Error) isGetDownloadStatusResponse_State() {}
+
+// Download is starting up
+type DownloadStarting struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Status message
+	Message string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	// Time when download started (RFC3339 format)
+	StartTime     string `protobuf:"bytes,2,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DownloadStarting) Reset() {
+	*x = DownloadStarting{}
+	mi := &file_proto_firmware_management_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DownloadStarting) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DownloadStarting) ProtoMessage() {}
+
+func (x *DownloadStarting) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_firmware_management_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DownloadStarting.ProtoReflect.Descriptor instead.
+func (*DownloadStarting) Descriptor() ([]byte, []int) {
+	return file_proto_firmware_management_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *DownloadStarting) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *DownloadStarting) GetStartTime() string {
+	if x != nil {
+		return x.StartTime
+	}
+	return ""
+}
+
+// Download progress information
+type DownloadProgress struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Bytes downloaded so far
+	DownloadedBytes int64 `protobuf:"varint,1,opt,name=downloaded_bytes,json=downloadedBytes,proto3" json:"downloaded_bytes,omitempty"`
+	// Total bytes to download (0 if unknown)
+	TotalBytes int64 `protobuf:"varint,2,opt,name=total_bytes,json=totalBytes,proto3" json:"total_bytes,omitempty"`
+	// Download speed in bytes per second
+	SpeedBytesPerSec float64 `protobuf:"fixed64,3,opt,name=speed_bytes_per_sec,json=speedBytesPerSec,proto3" json:"speed_bytes_per_sec,omitempty"`
+	// Progress percentage (0-100, calculated from downloaded/total if total > 0)
+	Percentage float64 `protobuf:"fixed64,4,opt,name=percentage,proto3" json:"percentage,omitempty"`
+	// Current download method being used ("interface", "ip", "direct")
+	CurrentMethod string `protobuf:"bytes,5,opt,name=current_method,json=currentMethod,proto3" json:"current_method,omitempty"`
+	// Number of attempts made so far
+	AttemptCount int32 `protobuf:"varint,6,opt,name=attempt_count,json=attemptCount,proto3" json:"attempt_count,omitempty"`
+	// Time when download started (RFC3339 format)
+	StartTime string `protobuf:"bytes,7,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
+	// Time of last progress update (RFC3339 format)
+	LastUpdate    string `protobuf:"bytes,8,opt,name=last_update,json=lastUpdate,proto3" json:"last_update,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DownloadProgress) Reset() {
+	*x = DownloadProgress{}
+	mi := &file_proto_firmware_management_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DownloadProgress) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DownloadProgress) ProtoMessage() {}
+
+func (x *DownloadProgress) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_firmware_management_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DownloadProgress.ProtoReflect.Descriptor instead.
+func (*DownloadProgress) Descriptor() ([]byte, []int) {
+	return file_proto_firmware_management_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *DownloadProgress) GetDownloadedBytes() int64 {
+	if x != nil {
+		return x.DownloadedBytes
+	}
+	return 0
+}
+
+func (x *DownloadProgress) GetTotalBytes() int64 {
+	if x != nil {
+		return x.TotalBytes
+	}
+	return 0
+}
+
+func (x *DownloadProgress) GetSpeedBytesPerSec() float64 {
+	if x != nil {
+		return x.SpeedBytesPerSec
+	}
+	return 0
+}
+
+func (x *DownloadProgress) GetPercentage() float64 {
+	if x != nil {
+		return x.Percentage
+	}
+	return 0
+}
+
+func (x *DownloadProgress) GetCurrentMethod() string {
+	if x != nil {
+		return x.CurrentMethod
+	}
+	return ""
+}
+
+func (x *DownloadProgress) GetAttemptCount() int32 {
+	if x != nil {
+		return x.AttemptCount
+	}
+	return 0
+}
+
+func (x *DownloadProgress) GetStartTime() string {
+	if x != nil {
+		return x.StartTime
+	}
+	return ""
+}
+
+func (x *DownloadProgress) GetLastUpdate() string {
+	if x != nil {
+		return x.LastUpdate
+	}
+	return ""
+}
+
+// Download error information
+type DownloadError struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Error category: "network", "http", "filesystem", "other"
+	Category string `protobuf:"bytes,1,opt,name=category,proto3" json:"category,omitempty"`
+	// HTTP status code if applicable
+	HttpCode int32 `protobuf:"varint,2,opt,name=http_code,json=httpCode,proto3" json:"http_code,omitempty"`
+	// Human-readable error message
+	Message string `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	// URL that failed to download
+	Url string `protobuf:"bytes,4,opt,name=url,proto3" json:"url,omitempty"`
+	// Details of all attempts made
+	Attempts      []*DownloadAttempt `protobuf:"bytes,5,rep,name=attempts,proto3" json:"attempts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DownloadError) Reset() {
+	*x = DownloadError{}
+	mi := &file_proto_firmware_management_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DownloadError) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DownloadError) ProtoMessage() {}
+
+func (x *DownloadError) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_firmware_management_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DownloadError.ProtoReflect.Descriptor instead.
+func (*DownloadError) Descriptor() ([]byte, []int) {
+	return file_proto_firmware_management_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *DownloadError) GetCategory() string {
+	if x != nil {
+		return x.Category
+	}
+	return ""
+}
+
+func (x *DownloadError) GetHttpCode() int32 {
+	if x != nil {
+		return x.HttpCode
+	}
+	return 0
+}
+
+func (x *DownloadError) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *DownloadError) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *DownloadError) GetAttempts() []*DownloadAttempt {
+	if x != nil {
+		return x.Attempts
+	}
+	return nil
+}
+
+// Individual download attempt information
+type DownloadAttempt struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Method used: "interface", "ip", "direct"
+	Method string `protobuf:"bytes,1,opt,name=method,proto3" json:"method,omitempty"`
+	// Network interface or IP address used (for informational purposes)
+	Interface string `protobuf:"bytes,2,opt,name=interface,proto3" json:"interface,omitempty"`
+	// Error message for this attempt (empty if successful)
+	Error string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	// Duration of this attempt in milliseconds
+	DurationMs int64 `protobuf:"varint,4,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	// HTTP status code received (0 if no response)
+	HttpStatus    int32 `protobuf:"varint,5,opt,name=http_status,json=httpStatus,proto3" json:"http_status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DownloadAttempt) Reset() {
+	*x = DownloadAttempt{}
+	mi := &file_proto_firmware_management_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DownloadAttempt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DownloadAttempt) ProtoMessage() {}
+
+func (x *DownloadAttempt) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_firmware_management_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DownloadAttempt.ProtoReflect.Descriptor instead.
+func (*DownloadAttempt) Descriptor() ([]byte, []int) {
+	return file_proto_firmware_management_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *DownloadAttempt) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
+}
+
+func (x *DownloadAttempt) GetInterface() string {
+	if x != nil {
+		return x.Interface
+	}
+	return ""
+}
+
+func (x *DownloadAttempt) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *DownloadAttempt) GetDurationMs() int64 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *DownloadAttempt) GetHttpStatus() int32 {
+	if x != nil {
+		return x.HttpStatus
+	}
+	return 0
+}
+
+// Final download result for completed downloads
+type DownloadResult struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Path where file was saved
+	FilePath string `protobuf:"bytes,1,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
+	// Size of downloaded file in bytes
+	FileSizeBytes int64 `protobuf:"varint,2,opt,name=file_size_bytes,json=fileSizeBytes,proto3" json:"file_size_bytes,omitempty"`
+	// Total download duration in milliseconds
+	DurationMs int64 `protobuf:"varint,3,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	// Number of attempts made
+	AttemptCount int32 `protobuf:"varint,4,opt,name=attempt_count,json=attemptCount,proto3" json:"attempt_count,omitempty"`
+	// Final successful method used
+	FinalMethod string `protobuf:"bytes,5,opt,name=final_method,json=finalMethod,proto3" json:"final_method,omitempty"`
+	// URL that was downloaded
+	Url           string `protobuf:"bytes,6,opt,name=url,proto3" json:"url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DownloadResult) Reset() {
+	*x = DownloadResult{}
+	mi := &file_proto_firmware_management_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DownloadResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DownloadResult) ProtoMessage() {}
+
+func (x *DownloadResult) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_firmware_management_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DownloadResult.ProtoReflect.Descriptor instead.
+func (*DownloadResult) Descriptor() ([]byte, []int) {
+	return file_proto_firmware_management_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *DownloadResult) GetFilePath() string {
+	if x != nil {
+		return x.FilePath
+	}
+	return ""
+}
+
+func (x *DownloadResult) GetFileSizeBytes() int64 {
+	if x != nil {
+		return x.FileSizeBytes
+	}
+	return 0
+}
+
+func (x *DownloadResult) GetDurationMs() int64 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *DownloadResult) GetAttemptCount() int32 {
+	if x != nil {
+		return x.AttemptCount
+	}
+	return 0
+}
+
+func (x *DownloadResult) GetFinalMethod() string {
+	if x != nil {
+		return x.FinalMethod
+	}
+	return ""
+}
+
+func (x *DownloadResult) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
 var File_proto_firmware_management_proto protoreflect.FileDescriptor
 
 const file_proto_firmware_management_proto_rawDesc = "" +
@@ -600,13 +1341,80 @@ const file_proto_firmware_management_proto_rawDesc = "" +
 	"\rcurrent_image\x18\x02 \x01(\tR\fcurrentImage\x12\x1d\n" +
 	"\n" +
 	"next_image\x18\x03 \x01(\tR\tnextImage\x12\x1a\n" +
-	"\bwarnings\x18\x04 \x03(\tR\bwarnings2\xed\x02\n" +
+	"\bwarnings\x18\x04 \x03(\tR\bwarnings\"\xd7\x01\n" +
+	"\x17DownloadFirmwareRequest\x12\x10\n" +
+	"\x03url\x18\x01 \x01(\tR\x03url\x12\x1f\n" +
+	"\voutput_path\x18\x02 \x01(\tR\n" +
+	"outputPath\x126\n" +
+	"\x17connect_timeout_seconds\x18\x03 \x01(\x05R\x15connectTimeoutSeconds\x122\n" +
+	"\x15total_timeout_seconds\x18\x04 \x01(\x05R\x13totalTimeoutSeconds\x12\x1d\n" +
+	"\n" +
+	"user_agent\x18\x05 \x01(\tR\tuserAgent\"r\n" +
+	"\x18DownloadFirmwareResponse\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x1f\n" +
+	"\voutput_path\x18\x03 \x01(\tR\n" +
+	"outputPath\"9\n" +
+	"\x18GetDownloadStatusRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"\x90\x02\n" +
+	"\x19GetDownloadStatusResponse\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x125\n" +
+	"\bstarting\x18\x02 \x01(\v2\x17.sonic.DownloadStartingH\x00R\bstarting\x125\n" +
+	"\bprogress\x18\x03 \x01(\v2\x17.sonic.DownloadProgressH\x00R\bprogress\x12/\n" +
+	"\x06result\x18\x04 \x01(\v2\x15.sonic.DownloadResultH\x00R\x06result\x12,\n" +
+	"\x05error\x18\x05 \x01(\v2\x14.sonic.DownloadErrorH\x00R\x05errorB\a\n" +
+	"\x05state\"K\n" +
+	"\x10DownloadStarting\x12\x18\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1d\n" +
+	"\n" +
+	"start_time\x18\x02 \x01(\tR\tstartTime\"\xb9\x02\n" +
+	"\x10DownloadProgress\x12)\n" +
+	"\x10downloaded_bytes\x18\x01 \x01(\x03R\x0fdownloadedBytes\x12\x1f\n" +
+	"\vtotal_bytes\x18\x02 \x01(\x03R\n" +
+	"totalBytes\x12-\n" +
+	"\x13speed_bytes_per_sec\x18\x03 \x01(\x01R\x10speedBytesPerSec\x12\x1e\n" +
+	"\n" +
+	"percentage\x18\x04 \x01(\x01R\n" +
+	"percentage\x12%\n" +
+	"\x0ecurrent_method\x18\x05 \x01(\tR\rcurrentMethod\x12#\n" +
+	"\rattempt_count\x18\x06 \x01(\x05R\fattemptCount\x12\x1d\n" +
+	"\n" +
+	"start_time\x18\a \x01(\tR\tstartTime\x12\x1f\n" +
+	"\vlast_update\x18\b \x01(\tR\n" +
+	"lastUpdate\"\xa8\x01\n" +
+	"\rDownloadError\x12\x1a\n" +
+	"\bcategory\x18\x01 \x01(\tR\bcategory\x12\x1b\n" +
+	"\thttp_code\x18\x02 \x01(\x05R\bhttpCode\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x10\n" +
+	"\x03url\x18\x04 \x01(\tR\x03url\x122\n" +
+	"\battempts\x18\x05 \x03(\v2\x16.sonic.DownloadAttemptR\battempts\"\x9f\x01\n" +
+	"\x0fDownloadAttempt\x12\x16\n" +
+	"\x06method\x18\x01 \x01(\tR\x06method\x12\x1c\n" +
+	"\tinterface\x18\x02 \x01(\tR\tinterface\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\x12\x1f\n" +
+	"\vduration_ms\x18\x04 \x01(\x03R\n" +
+	"durationMs\x12\x1f\n" +
+	"\vhttp_status\x18\x05 \x01(\x05R\n" +
+	"httpStatus\"\xd0\x01\n" +
+	"\x0eDownloadResult\x12\x1b\n" +
+	"\tfile_path\x18\x01 \x01(\tR\bfilePath\x12&\n" +
+	"\x0ffile_size_bytes\x18\x02 \x01(\x03R\rfileSizeBytes\x12\x1f\n" +
+	"\vduration_ms\x18\x03 \x01(\x03R\n" +
+	"durationMs\x12#\n" +
+	"\rattempt_count\x18\x04 \x01(\x05R\fattemptCount\x12!\n" +
+	"\ffinal_method\x18\x05 \x01(\tR\vfinalMethod\x12\x10\n" +
+	"\x03url\x18\x06 \x01(\tR\x03url2\x9e\x04\n" +
 	"\x12FirmwareManagement\x12[\n" +
 	"\x12CleanupOldFirmware\x12 .sonic.CleanupOldFirmwareRequest\x1a!.sonic.CleanupOldFirmwareResponse\"\x00\x12[\n" +
 	"\x12ListFirmwareImages\x12 .sonic.ListFirmwareImagesRequest\x1a!.sonic.ListFirmwareImagesResponse\"\x00\x12X\n" +
 	"\x11ConsolidateImages\x12\x1f.sonic.ConsolidateImagesRequest\x1a .sonic.ConsolidateImagesResponse\"\x00\x12C\n" +
 	"\n" +
-	"ListImages\x12\x18.sonic.ListImagesRequest\x1a\x19.sonic.ListImagesResponse\"\x00B7Z5github.com/sonic-net/sonic-gnmi/upgrade-service/protob\x06proto3"
+	"ListImages\x12\x18.sonic.ListImagesRequest\x1a\x19.sonic.ListImagesResponse\"\x00\x12U\n" +
+	"\x10DownloadFirmware\x12\x1e.sonic.DownloadFirmwareRequest\x1a\x1f.sonic.DownloadFirmwareResponse\"\x00\x12X\n" +
+	"\x11GetDownloadStatus\x12\x1f.sonic.GetDownloadStatusRequest\x1a .sonic.GetDownloadStatusResponse\"\x00B7Z5github.com/sonic-net/sonic-gnmi/upgrade-service/protob\x06proto3"
 
 var (
 	file_proto_firmware_management_proto_rawDescOnce sync.Once
@@ -620,7 +1428,7 @@ func file_proto_firmware_management_proto_rawDescGZIP() []byte {
 	return file_proto_firmware_management_proto_rawDescData
 }
 
-var file_proto_firmware_management_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_proto_firmware_management_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_proto_firmware_management_proto_goTypes = []any{
 	(*CleanupOldFirmwareRequest)(nil),  // 0: sonic.CleanupOldFirmwareRequest
 	(*CleanupOldFirmwareResponse)(nil), // 1: sonic.CleanupOldFirmwareResponse
@@ -631,22 +1439,40 @@ var file_proto_firmware_management_proto_goTypes = []any{
 	(*ConsolidateImagesResponse)(nil),  // 6: sonic.ConsolidateImagesResponse
 	(*ListImagesRequest)(nil),          // 7: sonic.ListImagesRequest
 	(*ListImagesResponse)(nil),         // 8: sonic.ListImagesResponse
+	(*DownloadFirmwareRequest)(nil),    // 9: sonic.DownloadFirmwareRequest
+	(*DownloadFirmwareResponse)(nil),   // 10: sonic.DownloadFirmwareResponse
+	(*GetDownloadStatusRequest)(nil),   // 11: sonic.GetDownloadStatusRequest
+	(*GetDownloadStatusResponse)(nil),  // 12: sonic.GetDownloadStatusResponse
+	(*DownloadStarting)(nil),           // 13: sonic.DownloadStarting
+	(*DownloadProgress)(nil),           // 14: sonic.DownloadProgress
+	(*DownloadError)(nil),              // 15: sonic.DownloadError
+	(*DownloadAttempt)(nil),            // 16: sonic.DownloadAttempt
+	(*DownloadResult)(nil),             // 17: sonic.DownloadResult
 }
 var file_proto_firmware_management_proto_depIdxs = []int32{
-	3, // 0: sonic.ListFirmwareImagesResponse.images:type_name -> sonic.FirmwareImageInfo
-	0, // 1: sonic.FirmwareManagement.CleanupOldFirmware:input_type -> sonic.CleanupOldFirmwareRequest
-	2, // 2: sonic.FirmwareManagement.ListFirmwareImages:input_type -> sonic.ListFirmwareImagesRequest
-	5, // 3: sonic.FirmwareManagement.ConsolidateImages:input_type -> sonic.ConsolidateImagesRequest
-	7, // 4: sonic.FirmwareManagement.ListImages:input_type -> sonic.ListImagesRequest
-	1, // 5: sonic.FirmwareManagement.CleanupOldFirmware:output_type -> sonic.CleanupOldFirmwareResponse
-	4, // 6: sonic.FirmwareManagement.ListFirmwareImages:output_type -> sonic.ListFirmwareImagesResponse
-	6, // 7: sonic.FirmwareManagement.ConsolidateImages:output_type -> sonic.ConsolidateImagesResponse
-	8, // 8: sonic.FirmwareManagement.ListImages:output_type -> sonic.ListImagesResponse
-	5, // [5:9] is the sub-list for method output_type
-	1, // [1:5] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	3,  // 0: sonic.ListFirmwareImagesResponse.images:type_name -> sonic.FirmwareImageInfo
+	13, // 1: sonic.GetDownloadStatusResponse.starting:type_name -> sonic.DownloadStarting
+	14, // 2: sonic.GetDownloadStatusResponse.progress:type_name -> sonic.DownloadProgress
+	17, // 3: sonic.GetDownloadStatusResponse.result:type_name -> sonic.DownloadResult
+	15, // 4: sonic.GetDownloadStatusResponse.error:type_name -> sonic.DownloadError
+	16, // 5: sonic.DownloadError.attempts:type_name -> sonic.DownloadAttempt
+	0,  // 6: sonic.FirmwareManagement.CleanupOldFirmware:input_type -> sonic.CleanupOldFirmwareRequest
+	2,  // 7: sonic.FirmwareManagement.ListFirmwareImages:input_type -> sonic.ListFirmwareImagesRequest
+	5,  // 8: sonic.FirmwareManagement.ConsolidateImages:input_type -> sonic.ConsolidateImagesRequest
+	7,  // 9: sonic.FirmwareManagement.ListImages:input_type -> sonic.ListImagesRequest
+	9,  // 10: sonic.FirmwareManagement.DownloadFirmware:input_type -> sonic.DownloadFirmwareRequest
+	11, // 11: sonic.FirmwareManagement.GetDownloadStatus:input_type -> sonic.GetDownloadStatusRequest
+	1,  // 12: sonic.FirmwareManagement.CleanupOldFirmware:output_type -> sonic.CleanupOldFirmwareResponse
+	4,  // 13: sonic.FirmwareManagement.ListFirmwareImages:output_type -> sonic.ListFirmwareImagesResponse
+	6,  // 14: sonic.FirmwareManagement.ConsolidateImages:output_type -> sonic.ConsolidateImagesResponse
+	8,  // 15: sonic.FirmwareManagement.ListImages:output_type -> sonic.ListImagesResponse
+	10, // 16: sonic.FirmwareManagement.DownloadFirmware:output_type -> sonic.DownloadFirmwareResponse
+	12, // 17: sonic.FirmwareManagement.GetDownloadStatus:output_type -> sonic.GetDownloadStatusResponse
+	12, // [12:18] is the sub-list for method output_type
+	6,  // [6:12] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_proto_firmware_management_proto_init() }
@@ -654,13 +1480,19 @@ func file_proto_firmware_management_proto_init() {
 	if File_proto_firmware_management_proto != nil {
 		return
 	}
+	file_proto_firmware_management_proto_msgTypes[12].OneofWrappers = []any{
+		(*GetDownloadStatusResponse_Starting)(nil),
+		(*GetDownloadStatusResponse_Progress)(nil),
+		(*GetDownloadStatusResponse_Result)(nil),
+		(*GetDownloadStatusResponse_Error)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_firmware_management_proto_rawDesc), len(file_proto_firmware_management_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
