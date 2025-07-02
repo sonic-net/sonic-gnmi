@@ -19,8 +19,6 @@ import (
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 )
 
-var testFile string = "/etc/sonic/ut.cp.json"
-
 func JsonEqual(a, b []byte) (bool, error) {
 	var j1, j2 interface{}
 	var err error
@@ -34,8 +32,16 @@ func JsonEqual(a, b []byte) (bool, error) {
 }
 
 func TestJsonClientNegative(t *testing.T) {
-	os.Remove(testFile)
-	_, err := NewJsonClient(testFile, "")
+	tmpFile, err := os.CreateTemp("", "ut_cp_*.json")
+	if err != nil {
+		t.Fatalf("Failed to create temp test file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	testFile := tmpFile.Name()
+
+	_ = os.Remove(testFile)
+	_, err = NewJsonClient(testFile, "")
 	if err == nil {
 		t.Errorf("Should fail without checkpoint")
 	}
@@ -52,8 +58,16 @@ func TestJsonClientNegative(t *testing.T) {
 }
 
 func TestJsonClientNamespace(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "ut_cp_*.json")
+	if err != nil {
+		t.Fatalf("Failed to create temp test file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	testFile := tmpFile.Name()
+
 	text := "{}"
-	err := ioutil.WriteFile(testFile, []byte(text), 0644)
+	err = ioutil.WriteFile(testFile, []byte(text), 0644)
 	if err != nil {
 		t.Errorf("Fail to create test file")
 	}
@@ -74,8 +88,16 @@ func TestJsonClientNamespace(t *testing.T) {
 }
 
 func TestJsonAdd(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "ut_cp_*.json")
+	if err != nil {
+		t.Fatalf("Failed to create temp test file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	testFile := tmpFile.Name()
+
 	text := "{}"
-	err := ioutil.WriteFile(testFile, []byte(text), 0644)
+	err = ioutil.WriteFile(testFile, []byte(text), 0644)
 	if err != nil {
 		t.Errorf("Fail to create test file")
 	}
@@ -144,8 +166,16 @@ func TestJsonAdd(t *testing.T) {
 }
 
 func TestJsonAddNegative(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "ut_cp_*.json")
+	if err != nil {
+		t.Fatalf("Failed to create temp test file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	testFile := tmpFile.Name()
+
 	text := "{}"
-	err := ioutil.WriteFile(testFile, []byte(text), 0644)
+	err = ioutil.WriteFile(testFile, []byte(text), 0644)
 	if err != nil {
 		t.Errorf("Fail to create test file")
 	}
@@ -210,8 +240,16 @@ func TestJsonAddNegative(t *testing.T) {
 }
 
 func TestJsonReplace(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "ut_cp_*.json")
+	if err != nil {
+		t.Fatalf("Failed to create temp test file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	testFile := tmpFile.Name()
+
 	text := "{}"
-	err := ioutil.WriteFile(testFile, []byte(text), 0644)
+	err = ioutil.WriteFile(testFile, []byte(text), 0644)
 	if err != nil {
 		t.Errorf("Fail to create test file")
 	}
@@ -292,8 +330,16 @@ func TestJsonReplace(t *testing.T) {
 }
 
 func TestJsonRemove(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "ut_cp_*.json")
+	if err != nil {
+		t.Fatalf("Failed to create temp test file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	testFile := tmpFile.Name()
+
 	text := "{}"
-	err := ioutil.WriteFile(testFile, []byte(text), 0644)
+	err = ioutil.WriteFile(testFile, []byte(text), 0644)
 	if err != nil {
 		t.Errorf("Fail to create test file")
 	}
@@ -352,8 +398,16 @@ func TestJsonRemove(t *testing.T) {
 }
 
 func TestJsonRemoveNegative(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "ut_cp_*.json")
+	if err != nil {
+		t.Fatalf("Failed to create temp test file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	testFile := tmpFile.Name()
+
 	text := "{}"
-	err := ioutil.WriteFile(testFile, []byte(text), 0644)
+	err = ioutil.WriteFile(testFile, []byte(text), 0644)
 	if err != nil {
 		t.Errorf("Fail to create test file")
 	}
