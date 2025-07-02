@@ -18,6 +18,7 @@ import (
 	testdata "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"io"
 	"io/ioutil"
 	"math/big"
 	"os"
@@ -327,6 +328,58 @@ func saveCertKeyPair(certPath, keyPath string) error {
 		return err
 	}
 
+	return nil
+}
+
+func copyFile(srcPath string, destPath string) error {
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	destFile, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	if _, err = io.Copy(destFile, srcFile); err != nil {
+		return err
+	}
+	err = destFile.Sync()
+	return err
+}
+
+func writeSlowKey(backupKeyPath string, keyPath string) error {
+	// Copy existing key from keyPath to backupKeyPath
+	copyFile(keyPath, backupKeyPath)
+
+	// Write from backupKeyPath to keyPath
+	backupKey, err := os.Open(backupKeyPath)
+	if err != nil {
+		return err
+	}
+	defer backupKey.Close()
+
+	key, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	defer key.Close()
+
+	buffer := make([]byte, 256)
+	for {
+		n, err := backupKey.Read(buffer)
+		if n > 0 {
+			key.Write(buffer[:n])
+			key.Sync()
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err == io.EOF {
+			break
+		}
+	}
 	return nil
 }
 
@@ -798,6 +851,68 @@ func TestINotifyCertMonitoringDeletion(t *testing.T) {
 			t.Errorf("Expected 2 from serverControlSignal, got %d", val)
 		}
 		t.Log("Received correct value from serverControlSignal")
+	case <-ctx.Done():
+		t.Errorf("Expected a value from serverControlSignal, but got none")
+		return
+	}
+}
+
+func TestINotifyCertMonitoringSlowWrites(t *testing.T) {
+	testServerCert := "../testdata/certs/testserver.cert"
+	testServerKey := "../testdata/certs/testserver.key"
+	testServerKeyBackup := "../testdata/testserver.key"
+	timeoutInterval := 30
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
+	defer cancel()
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testiNotifyCertMonitoring", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-v=2", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, _, err := setupFlags(fs)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	serverControlSignal := make(chan ServerControlValue, 1)
+	testReadySignal := make(chan int, 1)
+	var certLoaded int32
+	atomic.StoreInt32(&certLoaded, 1)
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	err = saveCertKeyPair(testServerCert, testServerKey)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal, &certLoaded)
+
+	<-testReadySignal
+
+	// Write slowly to key file such that only get 1 reload after multiple writes
+
+	writeSlowKey(testServerKeyBackup, testServerKey)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	select {
+	case val := <-serverControlSignal:
+		if val != ServerStart {
+			t.Errorf("Expected 1 from serverControlSignal, got %d", val)
+		}
+		t.Log("Received correct value from serverControlSignal")
+		_, err = tls.LoadX509KeyPair(testServerCert, testServerKey) // Cert should work after 1 reload
+		if err != nil {
+			t.Errorf("Expected err to be nil, got err %v", err)
+		}
 	case <-ctx.Done():
 		t.Errorf("Expected a value from serverControlSignal, but got none")
 		return

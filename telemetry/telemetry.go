@@ -283,7 +283,7 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 					filepath.Ext(event.Name) == ".cer" || filepath.Ext(event.Name) == ".pem" ||
 					filepath.Ext(event.Name) == ".key") {
 					log.V(1).Infof("Inotify watcher has received event: %v", event)
-					if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
+					if event.Op&fsnotify.CloseWrite == fsnotify.CloseWrite || event.Op&fsnotify.Create == fsnotify.Create {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
 						serverControlSignal <- ServerStart // let server know that a write/create event occurred
 						done <- true
