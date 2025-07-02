@@ -90,6 +90,8 @@ type DownloadResult struct {
 type DownloadConfig struct {
 	// ConnectTimeout is the timeout for establishing connections
 	ConnectTimeout time.Duration
+	// OverallTimeout is the timeout for the entire HTTP request
+	OverallTimeout time.Duration
 	// Interface is the preferred network interface to use
 	Interface string
 	// MaxRetries is the maximum number of retry attempts
@@ -102,6 +104,7 @@ type DownloadConfig struct {
 func DefaultDownloadConfig() *DownloadConfig {
 	return &DownloadConfig{
 		ConnectTimeout: 30 * time.Second,
+		OverallTimeout: 10 * time.Minute,
 		Interface:      DefaultInterface,
 		MaxRetries:     3,
 		UserAgent:      "sonic-ops-server/1.0",
@@ -253,7 +256,7 @@ func attemptDownloadWithInterface(
 		Transport: &http.Transport{
 			DialContext: dialer.DialContext,
 		},
-		Timeout: 5 * time.Minute, // Overall timeout for the entire request
+		Timeout: config.OverallTimeout,
 	}
 
 	result, err := performDownload(ctx, client, downloadURL, outputPath, config.UserAgent, session)
@@ -310,7 +313,7 @@ func attemptDownloadWithIPs(
 			Transport: &http.Transport{
 				DialContext: dialer.DialContext,
 			},
-			Timeout: 5 * time.Minute,
+			Timeout: config.OverallTimeout,
 		}
 
 		result, err := performDownload(ctx, client, downloadURL, outputPath, config.UserAgent, session)
@@ -350,7 +353,7 @@ func attemptDirectDownload(
 	glog.V(2).Info("Download failed with interface specifier, retrying without it...")
 
 	client := &http.Client{
-		Timeout: 5 * time.Minute,
+		Timeout: config.OverallTimeout,
 	}
 
 	result, err := performDownload(ctx, client, downloadURL, outputPath, config.UserAgent, session)
