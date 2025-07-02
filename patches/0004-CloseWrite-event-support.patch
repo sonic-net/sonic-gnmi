@@ -12,7 +12,7 @@
  	if op&Chmod == Chmod {
  		buffer.WriteString("|CHMOD")
  	}
-+	if op&Chmod == CloseWrite {
++	if op&CloseWrite == CloseWrite {
 +		buffer.WriteString("|CLOSE_WRITE")
 +	}
  	if buffer.Len() == 0 {

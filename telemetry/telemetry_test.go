@@ -353,7 +353,10 @@ func copyFile(srcPath string, destPath string) error {
 
 func writeSlowKey(backupKeyPath string, keyPath string) error {
 	// Copy existing key from keyPath to backupKeyPath
-	copyFile(keyPath, backupKeyPath)
+	err := copyFile(keyPath, backupKeyPath)
+	if err != nil {
+		return err
+	}
 
 	// Write from backupKeyPath to keyPath
 	backupKey, err := os.Open(backupKeyPath)
@@ -898,7 +901,7 @@ func TestINotifyCertMonitoringSlowWrites(t *testing.T) {
 
 	// Write slowly to key file such that only get 1 reload after multiple writes
 
-	writeSlowKey(testServerKeyBackup, testServerKey)
+	err = writeSlowKey(testServerKeyBackup, testServerKey)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
