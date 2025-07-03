@@ -41,17 +41,17 @@ type DownloadSession struct {
 	OutputPath string // Destination file path
 
 	// Progress data - updated by download, read by status queries
-	Downloaded       int64   // Bytes downloaded so far
-	Total            int64   // Total bytes to download (from Content-Length)
-	SpeedBytesPerSec float64 // Current download speed in bytes per second
-	Status           string  // Current status (starting, downloading, completed, failed)
-	CurrentMethod    string  // Active download method (interface name, etc.)
-	AttemptNumber    int     // Current retry attempt number
+	Downloaded       int64     // Bytes downloaded so far
+	Total            int64     // Total bytes to download (from Content-Length)
+	SpeedBytesPerSec float64   // Current download speed in bytes per second
+	Status           string    // Current status (starting, downloading, completed, failed)
+	CurrentMethod    string    // Active download method (interface name, etc.)
+	AttemptNumber    int       // Current retry attempt number
 	StartTime        time.Time // When the download session began
 	LastUpdate       time.Time // Last progress update timestamp
-	Error            error   // Last error encountered (nil if no error)
+	Error            error     // Last error encountered (nil if no error)
 
-	mu     sync.RWMutex      // Protects all fields above for concurrent access
+	mu     sync.RWMutex       // Protects all fields above for concurrent access
 	cancel context.CancelFunc // Allows cancellation of the download operation
 }
 
