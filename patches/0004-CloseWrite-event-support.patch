@@ -1,0 +1,59 @@
+--- ./github.com/fsnotify/fsnotify/fsnotify.go
++++ ./github.com/fsnotify/fsnotify/fsnotify.go
+@@ -29,6 +29,8 @@
+ 	Remove
+ 	Rename
+ 	Chmod
++	CloseWrite
++	MovedTo
+ )
+ 
+ func (op Op) String() string {
+@@ -50,6 +52,12 @@
+ 	if op&Chmod == Chmod {
+ 		buffer.WriteString("|CHMOD")
+ 	}
++	if op&CloseWrite == CloseWrite {
++		buffer.WriteString("|CLOSE_WRITE")
++	}
++	if op&MovedTo == MovedTo {
++		buffer.WriteString("|MOVED_TO")
++	}
+ 	if buffer.Len() == 0 {
+ 		return ""
+ 	}
+--- ./github.com/fsnotify/fsnotify/inotify.go
++++ ./github.com/fsnotify/fsnotify/inotify.go
+@@ -96,7 +96,8 @@
+ 
+ 	const agnosticEvents = unix.IN_MOVED_TO | unix.IN_MOVED_FROM |
+ 		unix.IN_CREATE | unix.IN_ATTRIB | unix.IN_MODIFY |
+-		unix.IN_MOVE_SELF | unix.IN_DELETE | unix.IN_DELETE_SELF
++		unix.IN_MOVE_SELF | unix.IN_DELETE | unix.IN_DELETE_SELF |
++		unix.IN_CLOSE_WRITE
+ 
+ 	var flags uint32 = agnosticEvents
+ 
+@@ -318,9 +319,12 @@
+ // newEvent returns an platform-independent Event based on an inotify mask.
+ func newEvent(name string, mask uint32) Event {
+ 	e := Event{Name: name}
+-	if mask&unix.IN_CREATE == unix.IN_CREATE || mask&unix.IN_MOVED_TO == unix.IN_MOVED_TO {
++	if mask&unix.IN_CREATE == unix.IN_CREATE {
+ 		e.Op |= Create
+ 	}
++	if mask&unix.IN_MOVED_TO == unix.IN_MOVED_TO {
++		e.Op |= MovedTo
++	}
+ 	if mask&unix.IN_DELETE_SELF == unix.IN_DELETE_SELF || mask&unix.IN_DELETE == unix.IN_DELETE {
+ 		e.Op |= Remove
+ 	}
+@@ -333,5 +337,8 @@
+ 	if mask&unix.IN_ATTRIB == unix.IN_ATTRIB {
+ 		e.Op |= Chmod
+ 	}
++	if mask&unix.IN_CLOSE_WRITE == unix.IN_CLOSE_WRITE {
++		e.Op |= CloseWrite
++	}
+ 	return e
+ }
