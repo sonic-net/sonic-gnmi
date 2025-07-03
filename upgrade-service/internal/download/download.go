@@ -1,3 +1,19 @@
+// Package download provides a robust firmware download engine with progress tracking,
+// network interface binding, and comprehensive error handling.
+//
+// Key features:
+//   - Real-time progress tracking with session management
+//   - Network interface-specific binding for multi-interface systems
+//   - Configurable timeouts for connection and total download time
+//   - Automatic retry mechanisms with exponential backoff
+//   - IPv4/IPv6 dual-stack support
+//   - Thread-safe progress updates for concurrent status queries
+//
+// The download engine supports various network configurations including:
+//   - Single and multi-interface systems
+//   - Container deployments with host network access
+//   - Baremetal installations with direct network access
+//   - Custom HTTP client configurations with proxy support
 package download
 
 import (
@@ -17,27 +33,31 @@ import (
 )
 
 // DownloadSession tracks the progress and state of an ongoing download.
+// All progress data is protected by an internal mutex for thread-safe access
+// from both the download goroutine and status query handlers.
 type DownloadSession struct {
-	ID         string
-	URL        string
-	OutputPath string
+	ID         string // Unique session identifier
+	URL        string // Source URL being downloaded
+	OutputPath string // Destination file path
 
 	// Progress data - updated by download, read by status queries
-	Downloaded       int64
-	Total            int64
-	SpeedBytesPerSec float64
-	Status           string
-	CurrentMethod    string
-	AttemptNumber    int
-	StartTime        time.Time
-	LastUpdate       time.Time
-	Error            error
+	Downloaded       int64   // Bytes downloaded so far
+	Total            int64   // Total bytes to download (from Content-Length)
+	SpeedBytesPerSec float64 // Current download speed in bytes per second
+	Status           string  // Current status (starting, downloading, completed, failed)
+	CurrentMethod    string  // Active download method (interface name, etc.)
+	AttemptNumber    int     // Current retry attempt number
+	StartTime        time.Time // When the download session began
+	LastUpdate       time.Time // Last progress update timestamp
+	Error            error   // Last error encountered (nil if no error)
 
-	mu     sync.RWMutex
-	cancel context.CancelFunc
+	mu     sync.RWMutex      // Protects all fields above for concurrent access
+	cancel context.CancelFunc // Allows cancellation of the download operation
 }
 
 // UpdateProgress updates the download progress in a thread-safe manner.
+// This method is called by the download goroutine to report real-time progress
+// and can be safely called concurrently with GetProgress().
 func (s *DownloadSession) UpdateProgress(downloaded, total int64, speed float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -48,6 +68,8 @@ func (s *DownloadSession) UpdateProgress(downloaded, total int64, speed float64)
 }
 
 // GetProgress returns current progress in a thread-safe manner.
+// This method is called by status query handlers to provide real-time download information
+// to clients. Returns downloaded bytes, total bytes, current speed, and status string.
 func (s *DownloadSession) GetProgress() (downloaded, total int64, speed float64, status string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

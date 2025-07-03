@@ -1,3 +1,16 @@
+// Package hostinfo provides utilities for detecting and retrieving SONiC platform information
+// from the host system. It reads platform configuration from standard SONiC files like
+// machine.conf to determine hardware vendor, platform type, and system capabilities.
+//
+// Key features:
+//   - Platform type detection from machine.conf
+//   - Hardware vendor identification
+//   - Machine ID and architecture detection
+//   - Switch ASIC type identification
+//   - Container-aware path resolution for mounted host filesystems
+//
+// The package supports various SONiC platform configurations and provides a unified
+// interface for platform detection across different hardware vendors and deployment types.
 package hostinfo
 
 import (
@@ -16,20 +29,28 @@ func getMachineConfPath() string {
 	return paths.ToHost("/host/machine.conf", config.Global.RootFS)
 }
 
-// PlatformInfo contains information about the platform.
+// PlatformInfo contains comprehensive information about the SONiC platform hardware
+// and configuration. It aggregates data from machine.conf and other system sources
+// to provide a unified view of the platform capabilities.
 type PlatformInfo struct {
-	// Raw key-value pairs from machine.conf
+	// ConfigMap contains raw key-value pairs from machine.conf for access to
+	// platform-specific configuration not covered by the common fields below
 	ConfigMap map[string]string
 
-	// Common fields across different platforms
-	Vendor       string
-	Platform     string
-	MachineID    string
-	Architecture string
-	SwitchASIC   string
+	// Common fields extracted and normalized across different platform types
+	Vendor       string // Hardware vendor (e.g., "Dell", "Mellanox", "Broadcom")
+	Platform     string // Platform identifier (e.g., "x86_64-dell_s6000_s1220-r0")
+	MachineID    string // Unique machine identifier
+	Architecture string // CPU architecture (e.g., "amd64", "arm64")
+	SwitchASIC   string // Switch ASIC type (e.g., "broadcom", "mellanox")
 }
 
-// GetPlatformInfo reads the machine.conf file and returns platform information.
+// GetPlatformInfo reads the machine.conf file and returns comprehensive platform information.
+// This function is the primary entry point for detecting SONiC platform characteristics
+// including hardware vendor, platform type, and system configuration.
+//
+// The function reads from /host/machine.conf (resolved based on container deployment)
+// and extracts both raw configuration data and normalized platform fields for easy consumption.
 func GetPlatformInfo() (*PlatformInfo, error) {
 	machineConfPath := getMachineConfPath()
 	glog.V(2).Infof("Reading platform information from %s", machineConfPath)

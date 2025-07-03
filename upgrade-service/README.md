@@ -1,6 +1,38 @@
-# SONiC Operations Interface
+# SONiC Upgrade Service
 
-This directory contains the Go-based gRPC server implementation for dynamic SONiC operations including upgrades, configuration, and troubleshooting.
+This directory contains the Go-based gRPC server implementation for dynamic SONiC operations including firmware management, system information, and upgrade operations.
+
+## Overview
+
+The SONiC Upgrade Service provides a comprehensive gRPC API for managing SONiC firmware and system operations. It supports:
+
+- **Firmware Management**: Download, list, cleanup, and consolidate firmware images
+- **System Information**: Platform detection, disk space monitoring, and system status
+- **Download Operations**: Robust firmware downloading with progress tracking and retry mechanisms
+- **Image Operations**: List installed images and manage image consolidation
+
+## Key Features
+
+### Firmware Management
+- Download firmware from URLs with configurable timeouts and interface binding
+- Real-time download progress tracking with session management
+- Automatic filename detection from URLs
+- Concurrent download blocking to prevent resource conflicts
+- Comprehensive error handling with retry mechanisms
+- Cleanup of old firmware files with space reclamation reporting
+- Image consolidation using sonic-installer
+
+### System Information
+- Platform type detection (vendor, model, identifier)
+- Disk space analysis for multiple filesystem paths
+- Context-aware path resolution for container deployments
+
+### Network & Download Features
+- Interface-specific download binding (eth0, etc.)
+- IPv4/IPv6 dual-stack support
+- HTTP client with configurable timeouts
+- Progress tracking with speed calculations
+- Automatic retry with exponential backoff
 
 ## Prerequisites
 
@@ -11,26 +43,43 @@ This directory contains the Go-based gRPC server implementation for dynamic SONi
 ## Directory Structure
 
 ```
-sonic-ops-interface/
-├── cmd/                # Command-line applications
-│   └── server/         # gRPC server implementation
-├── internal/           # Private code not intended for external use
-│   ├── config/         # Global configuration management
-│   ├── hostinfo/       # Platform information providers
-│   └── util/           # Internal utility functions
-├── pkg/                # Public packages that can be imported by other applications
-│   └── server/         # Server implementation
-├── proto/              # Protocol buffer definitions and generated code
-│   ├── system_info.proto        # System info service definition
+sonic-gnmi/upgrade-service/
+├── cmd/                          # Command-line applications
+│   ├── server/                   # Main gRPC server implementation
+│   └── test/                     # Test utilities and debugging tools
+│       ├── download/             # Download testing tool
+│       ├── diskspace/            # Disk space analysis tool
+│       ├── image-inspector/      # Firmware image inspection tool
+│       ├── installer/            # sonic-installer wrapper testing
+│       ├── list-images/          # Image listing tool
+│       ├── bootloader/           # Bootloader detection testing
+│       └── redis/                # Redis client testing
+├── internal/                     # Private packages not intended for external use
+│   ├── config/                   # Global configuration management
+│   ├── hostinfo/                 # Platform information detection
+│   ├── firmware/                 # Firmware operations (cleanup, version detection, consolidation)
+│   ├── download/                 # Download engine with progress tracking
+│   ├── installer/                # sonic-installer wrapper
+│   ├── bootloader/               # Bootloader detection (GRUB, Aboot)
+│   ├── diskspace/                # Disk space analysis utilities
+│   ├── paths/                    # Path resolution for container deployments
+│   └── redis/                    # Redis client wrapper
+├── pkg/                          # Public packages for external consumption
+│   └── server/                   # gRPC server implementations
+│       ├── server.go             # Main server with TLS support
+│       ├── system_info.go        # SystemInfo service implementation
+│       └── firmware_management.go # FirmwareManagement service implementation
+├── proto/                        # Protocol buffer definitions and generated code
+│   ├── system_info.proto         # System information service definition
 │   ├── firmware_management.proto # Firmware management service definition
-│   ├── *.pb.go                  # Generated Go code for messages
-│   └── *_grpc.pb.go             # Generated Go code for gRPC services
-├── tests/              # Test files
-│   └── e2e/            # End-to-end tests
-├── go.mod              # Go module definition
-├── go.sum              # Go module checksums
-├── Makefile            # Build instructions
-└── README.md           # This file
+│   ├── *.pb.go                   # Generated Go protobuf messages
+│   └── *_grpc.pb.go              # Generated Go gRPC service code
+├── tests/                        # Test files
+│   └── e2e/                      # End-to-end integration tests
+├── go.mod                        # Go module definition
+├── go.sum                        # Go module checksums
+├── Makefile                      # Comprehensive build and test automation
+└── README.md                     # This documentation
 ```
 
 ## Getting Started
@@ -170,9 +219,148 @@ make validate-coverage           # Validate coverage meets minimum threshold
 - Coverage reports exclude generated code (proto, mocks) automatically
 - See Makefile for current default threshold value
 
+## API Documentation
+
+The service provides two main gRPC services:
+
+### SystemInfo Service
+
+Provides system information and monitoring capabilities.
+
+#### GetPlatformType
+Retrieves platform identification information.
+
+```bash
+# Get platform information
+grpcurl -plaintext localhost:50051 sonic.SystemInfo/GetPlatformType
+```
+
+**Response includes:**
+- `platform_identifier`: Platform identifier string
+- `vendor`: Hardware vendor
+- `model`: Hardware model
+
+#### GetDiskSpace
+Analyzes disk space usage for specified paths.
+
+```bash
+# Get disk space for default paths (/, /host, /tmp)
+grpcurl -plaintext localhost:50051 sonic.SystemInfo/GetDiskSpace
+
+# Get disk space for custom paths
+grpcurl -plaintext -d '{"paths": ["/var/log", "/boot"]}' \
+  localhost:50051 sonic.SystemInfo/GetDiskSpace
+```
+
+**Response includes:**
+- `filesystems`: Array of disk space information per path
+  - `path`: Filesystem path
+  - `total_mb`: Total space in MB
+  - `free_mb`: Available space in MB  
+  - `used_mb`: Used space in MB
+  - `error_message`: Error details if path inaccessible
+
+### FirmwareManagement Service
+
+Handles firmware download, management, and system operations.
+
+#### DownloadFirmware
+Downloads firmware from a URL with progress tracking.
+
+```bash
+# Download with auto-detected filename to /host
+grpcurl -plaintext -d '{"url": "https://httpbin.org/bytes/32768"}' \
+  localhost:50051 sonic.FirmwareManagement/DownloadFirmware
+
+# Download with custom output path and timeouts
+grpcurl -plaintext -d '{
+  "url": "https://example.com/firmware.bin",
+  "output_path": "/tmp/my-firmware.bin",
+  "connect_timeout_seconds": 30,
+  "total_timeout_seconds": 300
+}' localhost:50051 sonic.FirmwareManagement/DownloadFirmware
+```
+
+**Parameters:**
+- `url`: Source URL for firmware download (required)
+- `output_path`: Destination file path (optional, auto-detected if empty)
+- `connect_timeout_seconds`: Connection timeout (optional, default: 30)
+- `total_timeout_seconds`: Total download timeout (optional, default: 3600)
+
+**Response:**
+- `session_id`: Unique session identifier for tracking
+- `status`: Current download status
+- `output_path`: Resolved output file path
+
+#### GetDownloadStatus
+Retrieves real-time download progress and status.
+
+```bash
+# Get download status using session ID
+grpcurl -plaintext -d '{"session_id": "download-1234567890"}' \
+  localhost:50051 sonic.FirmwareManagement/GetDownloadStatus
+```
+
+**Response states:**
+- `starting`: Download initialization
+- `progress`: Active download with progress metrics
+- `result`: Successful completion with file details
+- `error`: Download failure with error information
+
+#### ListFirmwareImages
+Discovers firmware images in the system.
+
+```bash
+# List all firmware images in default locations
+grpcurl -plaintext localhost:50051 sonic.FirmwareManagement/ListFirmwareImages
+
+# List images with version filter
+grpcurl -plaintext -d '{"version_pattern": "202311.*"}' \
+  localhost:50051 sonic.FirmwareManagement/ListFirmwareImages
+
+# List images in custom directories
+grpcurl -plaintext -d '{"search_directories": ["/var/lib/firmware"]}' \
+  localhost:50051 sonic.FirmwareManagement/ListFirmwareImages
+```
+
+#### CleanupOldFirmware
+Removes old firmware files and reports space reclaimed.
+
+```bash
+# Cleanup firmware files from default locations (/host, /tmp)
+grpcurl -plaintext localhost:50051 sonic.FirmwareManagement/CleanupOldFirmware
+```
+
+**Response:**
+- `files_deleted`: Number of files removed
+- `deleted_files`: List of deleted file paths
+- `space_freed_bytes`: Total bytes reclaimed
+- `errors`: Any cleanup errors encountered
+
+#### ConsolidateImages
+Manages installed firmware images using sonic-installer.
+
+```bash
+# Dry run to see what would be consolidated
+grpcurl -plaintext -d '{"dry_run": true}' \
+  localhost:50051 sonic.FirmwareManagement/ConsolidateImages
+
+# Execute consolidation
+grpcurl -plaintext -d '{"dry_run": false}' \
+  localhost:50051 sonic.FirmwareManagement/ConsolidateImages
+```
+
+#### ListImages
+Lists currently installed firmware images via sonic-installer.
+
+```bash
+# List installed images
+grpcurl -plaintext localhost:50051 sonic.FirmwareManagement/ListImages
+```
+
 ## Using grpcurl to Test the Service
 
-You can use [grpcurl](https://github.com/fullstorydev/grpcurl) to test the service:
+You can use [grpcurl](https://github.com/fullstorydev/grpcurl) to explore and test the service:
 
 ```bash
 # List available services
@@ -184,22 +372,55 @@ grpcurl -plaintext localhost:50051 list sonic.SystemInfo
 # List methods in FirmwareManagement service  
 grpcurl -plaintext localhost:50051 list sonic.FirmwareManagement
 
-# Call the GetPlatformType method to get platform information
-grpcurl -plaintext localhost:50051 sonic.SystemInfo/GetPlatformType
-
-# Call the CleanupOldFirmware method (example - requires implementation)
-grpcurl -plaintext localhost:50051 sonic.FirmwareManagement/CleanupOldFirmware
+# Describe a specific method
+grpcurl -plaintext localhost:50051 describe sonic.FirmwareManagement.DownloadFirmware
 ```
+
+## Documentation
+
+### Comprehensive Guides
+
+- **[API Reference](API_REFERENCE.md)**: Complete gRPC API documentation with examples
+- **[Architecture Guide](ARCHITECTURE.md)**: System design, components, and deployment patterns
+- **[README](README.md)**: This file - getting started and basic usage
+
+### Quick Links
+
+- **API Examples**: See [API_REFERENCE.md](API_REFERENCE.md#examples) for detailed gRPC usage
+- **System Design**: See [ARCHITECTURE.md](ARCHITECTURE.md) for component architecture  
+- **Testing Guide**: See [Testing and Verification](#testing-and-verification) section above
+- **Deployment**: See [Deployment Configurations](#deployment-configurations) section above
 
 ## Development
 
 This service is implemented as a separate Go module within the `sonic-gnmi` repository to provide a comprehensive gRPC server for dynamic SONiC operations.
 
+### Development Workflow
+
 When adding new functionality:
-1. Define the service interface in `.proto` files in the `proto/` directory
-2. Generate Go code using `make proto`
-3. Implement the service in the `pkg/server/` directory
-4. Create entry points in the `cmd/` directory
+
+1. **Define API**: Update `.proto` files in the `proto/` directory
+2. **Generate Code**: Run `make proto` to update Go protobuf files
+3. **Implement Service**: Add business logic in the `pkg/server/` directory
+4. **Add Internal Logic**: Implement supporting functionality in `internal/` packages
+5. **Create Tests**: Add unit tests and update e2e tests
+6. **Update Documentation**: Update API_REFERENCE.md and add godoc comments
+7. **Validate**: Run `make ci` to ensure all checks pass
+
+### Code Organization
+
+- **`pkg/server/`**: Public gRPC service implementations
+- **`internal/`**: Private business logic packages
+- **`cmd/`**: Command-line applications and test utilities
+- **`proto/`**: Protocol buffer definitions and generated code
+- **`tests/e2e/`**: End-to-end integration tests
+
+### Documentation Standards
+
+- **Godoc Comments**: All public types and functions must have comprehensive godoc comments
+- **API Documentation**: Update API_REFERENCE.md for any proto changes
+- **Architecture Updates**: Update ARCHITECTURE.md for significant design changes
+- **Examples**: Include working examples in documentation
 
 ## CI/CD Integration
 

@@ -1,3 +1,10 @@
+// Package diskspace provides utilities for analyzing disk space usage on Linux filesystems.
+// It uses syscalls to retrieve filesystem statistics including total space, free space,
+// and available space for user processes.
+//
+// The package provides functions to query disk space in megabytes for easy consumption
+// by gRPC services and CLI tools. All measurements account for filesystem overhead
+// and reserved space typically used by the operating system.
 package diskspace
 
 import (
