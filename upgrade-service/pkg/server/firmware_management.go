@@ -18,10 +18,10 @@ import (
 	pb "github.com/sonic-net/sonic-gnmi/upgrade-service/proto"
 )
 
-// Global download session state - simple single download approach.
+// Global download session state - supports multiple parallel downloads.
 var (
-	currentDownload *downloadSessionInfo
-	downloadMutex   sync.RWMutex
+	downloadSessions = make(map[string]*downloadSessionInfo)
+	downloadMutex    sync.RWMutex
 )
 
 // downloadSessionInfo tracks a single download session.
@@ -240,15 +240,14 @@ func (s *firmwareManagementServer) DownloadFirmware(
 		return nil, fmt.Errorf("url is required")
 	}
 
-	// Check if download already in progress
-	downloadMutex.Lock()
-	if currentDownload != nil && !currentDownload.Done {
-		sessionID := ""
-		if currentDownload.Session != nil {
-			sessionID = currentDownload.Session.ID
-		}
-		downloadMutex.Unlock()
-		return nil, fmt.Errorf("download already in progress, session_id: %s", sessionID)
+	// Create the session immediately for tracking
+	session := &download.DownloadSession{
+		ID:         fmt.Sprintf("download-%d", time.Now().UnixNano()),
+		URL:        req.Url,
+		OutputPath: "", // Will be set after path resolution
+		Status:     "starting",
+		StartTime:  time.Now(),
+		LastUpdate: time.Now(),
 	}
 
 	// Create download configuration
@@ -269,7 +268,6 @@ func (s *firmwareManagementServer) DownloadFirmware(
 		// Auto-detect filename from URL and save to /host
 		filename, err := extractFilenameFromURL(req.Url)
 		if err != nil {
-			downloadMutex.Unlock()
 			return nil, fmt.Errorf("failed to determine filename from URL: %v", err)
 		}
 		outputPath = paths.ToHost(filepath.Join("/host", filename), s.rootFS)
@@ -277,6 +275,9 @@ func (s *firmwareManagementServer) DownloadFirmware(
 		// Resolve user-provided path
 		outputPath = paths.ToHost(outputPath, s.rootFS)
 	}
+
+	// Update session with resolved output path
+	session.OutputPath = outputPath
 
 	// Create a clean background context with timeout - similar to cmd/test/download
 	downloadCtx := context.Background()
@@ -287,44 +288,40 @@ func (s *firmwareManagementServer) DownloadFirmware(
 		_ = cancel // Mark as used to avoid vet warning
 	}
 
-	// Initialize session info
+	// Initialize session info and store in sessions map
 	sessionInfo := &downloadSessionInfo{
+		Session:   session,
 		StartTime: time.Now(),
 		Done:      false,
 	}
-	currentDownload = sessionInfo
-	downloadMutex.Unlock()
 
-	// Create the session immediately for tracking
-	session := &download.DownloadSession{
-		ID:         fmt.Sprintf("download-%d", time.Now().UnixNano()),
-		URL:        req.Url,
-		OutputPath: outputPath,
-		Status:     "starting",
-		StartTime:  time.Now(),
-		LastUpdate: time.Now(),
-	}
-
-	// Set the session immediately so we can return the session ID
+	// Store session in the sessions map
 	downloadMutex.Lock()
-	sessionInfo.Session = session
+	downloadSessions[session.ID] = sessionInfo
 	downloadMutex.Unlock()
 
 	// Start download in goroutine
-	go func() {
+	go func(sessionID string) {
 		downloadSession, result, err := download.DownloadFirmwareWithConfig(downloadCtx, req.Url, outputPath, config)
 
 		// Update session info with results
 		downloadMutex.Lock()
+		sessionInfo, exists := downloadSessions[sessionID]
+		if !exists {
+			downloadMutex.Unlock()
+			glog.Errorf("Session %s not found during download completion", sessionID)
+			return
+		}
+
 		// Copy progress from the actual download session
 		if downloadSession != nil {
-			session.Downloaded = downloadSession.Downloaded
-			session.Total = downloadSession.Total
-			session.SpeedBytesPerSec = downloadSession.SpeedBytesPerSec
-			session.Status = downloadSession.Status
-			session.CurrentMethod = downloadSession.CurrentMethod
-			session.AttemptNumber = downloadSession.AttemptNumber
-			session.LastUpdate = downloadSession.LastUpdate
+			sessionInfo.Session.Downloaded = downloadSession.Downloaded
+			sessionInfo.Session.Total = downloadSession.Total
+			sessionInfo.Session.SpeedBytesPerSec = downloadSession.SpeedBytesPerSec
+			sessionInfo.Session.Status = downloadSession.Status
+			sessionInfo.Session.CurrentMethod = downloadSession.CurrentMethod
+			sessionInfo.Session.AttemptNumber = downloadSession.AttemptNumber
+			sessionInfo.Session.LastUpdate = downloadSession.LastUpdate
 		}
 		sessionInfo.Result = result
 		if err != nil {
@@ -343,7 +340,7 @@ func (s *firmwareManagementServer) DownloadFirmware(
 		} else {
 			glog.V(1).Infof("Download completed successfully for %s: %s", req.Url, result.FilePath)
 		}
-	}()
+	}(session.ID)
 
 	sessionID := session.ID
 	status := "starting"
@@ -369,19 +366,15 @@ func (s *firmwareManagementServer) GetDownloadStatus(
 	downloadMutex.RLock()
 	defer downloadMutex.RUnlock()
 
-	// Check if any download exists
-	if currentDownload == nil {
-		return nil, fmt.Errorf("no download session found")
+	// Find the session by ID
+	sessionInfo, exists := downloadSessions[req.SessionId]
+	if !exists {
+		return nil, fmt.Errorf("download session not found: %s", req.SessionId)
 	}
 
-	// Check if session exists and matches
-	if currentDownload.Session == nil {
-		return nil, fmt.Errorf("download session not initialized")
-	}
-
-	if currentDownload.Session.ID != req.SessionId {
-		return nil, fmt.Errorf("session_id mismatch: expected %s, got %s",
-			currentDownload.Session.ID, req.SessionId)
+	// Check if session is initialized
+	if sessionInfo.Session == nil {
+		return nil, fmt.Errorf("download session not initialized: %s", req.SessionId)
 	}
 
 	response := &pb.GetDownloadStatusResponse{
@@ -389,34 +382,34 @@ func (s *firmwareManagementServer) GetDownloadStatus(
 	}
 
 	// Convert session state to protobuf oneof
-	if !currentDownload.Done {
+	if !sessionInfo.Done {
 		// Download in progress or starting
-		downloaded, total, speed, status := currentDownload.Session.GetProgress()
+		downloaded, total, speed, status := sessionInfo.Session.GetProgress()
 		if status == "starting" {
 			response.State = &pb.GetDownloadStatusResponse_Starting{
 				Starting: &pb.DownloadStarting{
 					Message:   "Download is starting",
-					StartTime: currentDownload.StartTime.Format(time.RFC3339),
+					StartTime: sessionInfo.StartTime.Format(time.RFC3339),
 				},
 			}
 		} else {
 			response.State = &pb.GetDownloadStatusResponse_Progress{
-				Progress: convertProgressToProto(currentDownload.Session, downloaded, total, speed),
+				Progress: convertProgressToProto(sessionInfo.Session, downloaded, total, speed),
 			}
 		}
 		return response, nil
 	}
 
 	// Download completed - handle success/failure
-	if currentDownload.Error != nil {
+	if sessionInfo.Error != nil {
 		// Download failed
 		response.State = &pb.GetDownloadStatusResponse_Error{
-			Error: convertErrorToProto(currentDownload.Error),
+			Error: convertErrorToProto(sessionInfo.Error),
 		}
-	} else if currentDownload.Result != nil {
+	} else if sessionInfo.Result != nil {
 		// Download completed successfully
 		response.State = &pb.GetDownloadStatusResponse_Result{
-			Result: convertResultToProto(currentDownload.Result),
+			Result: convertResultToProto(sessionInfo.Result),
 		}
 	} else {
 		// Shouldn't happen, but handle gracefully
@@ -424,7 +417,7 @@ func (s *firmwareManagementServer) GetDownloadStatus(
 			Error: &pb.DownloadError{
 				Category: "other",
 				Message:  "download completed but no result available",
-				Url:      currentDownload.Session.URL,
+				Url:      sessionInfo.Session.URL,
 			},
 		}
 	}

@@ -446,7 +446,7 @@ func TestFirmwareManagementServer_DownloadFirmware(t *testing.T) {
 	// Reset global download state before each test
 	t.Cleanup(func() {
 		downloadMutex.Lock()
-		currentDownload = nil
+		downloadSessions = make(map[string]*downloadSessionInfo)
 		downloadMutex.Unlock()
 	})
 
@@ -482,10 +482,12 @@ func TestFirmwareManagementServer_DownloadFirmware(t *testing.T) {
 
 		// Verify download completed
 		downloadMutex.RLock()
-		assert.NotNil(t, currentDownload)
-		assert.True(t, currentDownload.Done)
-		assert.Nil(t, currentDownload.Error)
-		assert.NotNil(t, currentDownload.Result)
+		sessionInfo, exists := downloadSessions[resp.SessionId]
+		assert.True(t, exists)
+		assert.NotNil(t, sessionInfo)
+		assert.True(t, sessionInfo.Done)
+		assert.Nil(t, sessionInfo.Error)
+		assert.NotNil(t, sessionInfo.Result)
 		downloadMutex.RUnlock()
 	})
 
@@ -504,12 +506,13 @@ func TestFirmwareManagementServer_DownloadFirmware(t *testing.T) {
 		assert.Contains(t, err.Error(), "url is required")
 	})
 
-	t.Run("ConcurrentDownloadBlocked", func(t *testing.T) {
-		// Create slow mock HTTP server
+	t.Run("ParallelDownloads", func(t *testing.T) {
+		// Create mock HTTP server that responds to different paths
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			time.Sleep(200 * time.Millisecond) // Slow download
+			content := "download content for " + r.URL.Path
+			time.Sleep(100 * time.Millisecond) // Small delay to simulate download
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("slow content"))
+			w.Write([]byte(content))
 		}))
 		defer server.Close()
 
@@ -519,30 +522,33 @@ func TestFirmwareManagementServer_DownloadFirmware(t *testing.T) {
 
 		// Start first download
 		req1 := &pb.DownloadFirmwareRequest{
-			Url: server.URL + "/slow.bin",
+			Url: server.URL + "/download1.bin",
 		}
 
 		resp1, err1 := fwServer.DownloadFirmware(ctx, req1)
 		require.NoError(t, err1)
 		require.NotNil(t, resp1)
 
-		// Try second download immediately - should fail
+		// Start second download immediately - should succeed
 		req2 := &pb.DownloadFirmwareRequest{
-			Url: server.URL + "/another.bin",
+			Url: server.URL + "/download2.bin",
 		}
 
 		resp2, err2 := fwServer.DownloadFirmware(ctx, req2)
-		assert.Error(t, err2)
-		assert.Nil(t, resp2)
-		assert.Contains(t, err2.Error(), "download already in progress")
+		require.NoError(t, err2)
+		require.NotNil(t, resp2)
 
-		// Wait for first download to complete
-		time.Sleep(300 * time.Millisecond)
+		// Both downloads should have different session IDs
+		assert.NotEqual(t, resp1.SessionId, resp2.SessionId)
 
-		// Now second download should work
-		resp3, err3 := fwServer.DownloadFirmware(ctx, req2)
-		assert.NoError(t, err3)
-		assert.NotNil(t, resp3)
+		// Start third download
+		req3 := &pb.DownloadFirmwareRequest{
+			Url: server.URL + "/download3.bin",
+		}
+
+		resp3, err3 := fwServer.DownloadFirmware(ctx, req3)
+		require.NoError(t, err3)
+		require.NotNil(t, resp3)
 
 		// Wait for this download to complete too
 		statusReq := &pb.GetDownloadStatusRequest{SessionId: resp3.SessionId}
@@ -627,7 +633,7 @@ func TestFirmwareManagementServer_GetDownloadStatus(t *testing.T) {
 	// Reset global download state before each test
 	t.Cleanup(func() {
 		downloadMutex.Lock()
-		currentDownload = nil
+		downloadSessions = make(map[string]*downloadSessionInfo)
 		downloadMutex.Unlock()
 	})
 
@@ -643,7 +649,7 @@ func TestFirmwareManagementServer_GetDownloadStatus(t *testing.T) {
 		resp, err := fwServer.GetDownloadStatus(ctx, req)
 		assert.Error(t, err)
 		assert.Nil(t, resp)
-		assert.Contains(t, err.Error(), "no download session found")
+		assert.Contains(t, err.Error(), "download session not found")
 	})
 
 	t.Run("EmptySessionId", func(t *testing.T) {
@@ -752,7 +758,7 @@ func TestFirmwareManagementServer_GetDownloadStatus(t *testing.T) {
 	t.Run("SessionIdMismatch", func(t *testing.T) {
 		// Create mock session
 		downloadMutex.Lock()
-		currentDownload = &downloadSessionInfo{
+		downloadSessions["test-session-123"] = &downloadSessionInfo{
 			Session: &download.DownloadSession{
 				ID: "test-session-123",
 			},
@@ -770,7 +776,7 @@ func TestFirmwareManagementServer_GetDownloadStatus(t *testing.T) {
 		resp, err := fwServer.GetDownloadStatus(ctx, req)
 		assert.Error(t, err)
 		assert.Nil(t, resp)
-		assert.Contains(t, err.Error(), "session_id mismatch")
+		assert.Contains(t, err.Error(), "download session not found")
 	})
 }
 

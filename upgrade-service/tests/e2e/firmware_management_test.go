@@ -690,55 +690,106 @@ func TestDownloadFirmware_ProgressTracking(t *testing.T) {
 	})
 }
 
-// TestDownloadFirmware_ConcurrentBlocking tests concurrent download blocking.
-func TestDownloadFirmware_ConcurrentBlocking(t *testing.T) {
+// TestDownloadFirmware_ParallelDownloads tests that multiple downloads can run concurrently.
+func TestDownloadFirmware_ParallelDownloads(t *testing.T) {
 	client := setupDownloadTestClient(t)
 
-	t.Run("ConcurrentDownloadBlocking", func(t *testing.T) {
-		// Test that concurrent downloads are properly blocked
-		// This ensures our global download state management works
+	t.Run("ParallelDownloads", func(t *testing.T) {
+		// Test that multiple downloads can run simultaneously
+		// This ensures our parallel download support works correctly
 
-		testContent := "concurrent test content"
+		testContent1 := "concurrent test content 1"
+		testContent2 := "concurrent test content 2"
+		testContent3 := "concurrent test content 3"
+
 		httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Add delay to keep first download active
-			time.Sleep(200 * time.Millisecond)
-			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
+			var content string
+			switch r.URL.Path {
+			case "/concurrent1.bin":
+				content = testContent1
+			case "/concurrent2.bin":
+				content = testContent2
+			case "/concurrent3.bin":
+				content = testContent3
+			default:
+				content = "default content"
+			}
+
+			// Add small delay to simulate real download
+			time.Sleep(100 * time.Millisecond)
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(testContent))
+			w.Write([]byte(content))
 		}))
 		defer httpServer.Close()
 
 		ctx := context.Background()
 
-		// Start first download
+		// Start three downloads simultaneously
 		downloadReq1 := &pb.DownloadFirmwareRequest{
 			Url: httpServer.URL + "/concurrent1.bin",
 		}
-
-		downloadResp1, err := client.DownloadFirmware(ctx, downloadReq1)
-		require.NoError(t, err)
-		require.NotNil(t, downloadResp1)
-		assert.NotEmpty(t, downloadResp1.SessionId)
-
-		// Immediately try second download - should be blocked
 		downloadReq2 := &pb.DownloadFirmwareRequest{
 			Url: httpServer.URL + "/concurrent2.bin",
 		}
+		downloadReq3 := &pb.DownloadFirmwareRequest{
+			Url: httpServer.URL + "/concurrent3.bin",
+		}
 
-		_, err = client.DownloadFirmware(ctx, downloadReq2)
-		// Should get error about download in progress
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "download already in progress")
+		// Start all downloads
+		downloadResp1, err1 := client.DownloadFirmware(ctx, downloadReq1)
+		downloadResp2, err2 := client.DownloadFirmware(ctx, downloadReq2)
+		downloadResp3, err3 := client.DownloadFirmware(ctx, downloadReq3)
 
-		// Wait for first download to complete
-		time.Sleep(500 * time.Millisecond)
-
-		// Now second download should work
-		downloadResp3, err := client.DownloadFirmware(ctx, downloadReq2)
-		require.NoError(t, err)
+		// All downloads should start successfully
+		require.NoError(t, err1)
+		require.NoError(t, err2)
+		require.NoError(t, err3)
+		require.NotNil(t, downloadResp1)
+		require.NotNil(t, downloadResp2)
 		require.NotNil(t, downloadResp3)
-		assert.NotEmpty(t, downloadResp3.SessionId)
-		assert.NotEqual(t, downloadResp1.SessionId, downloadResp3.SessionId)
+
+		// All should have unique session IDs
+		sessionIDs := []string{downloadResp1.SessionId, downloadResp2.SessionId, downloadResp3.SessionId}
+		assert.NotEmpty(t, sessionIDs[0])
+		assert.NotEmpty(t, sessionIDs[1])
+		assert.NotEmpty(t, sessionIDs[2])
+		assert.NotEqual(t, sessionIDs[0], sessionIDs[1])
+		assert.NotEqual(t, sessionIDs[1], sessionIDs[2])
+		assert.NotEqual(t, sessionIDs[0], sessionIDs[2])
+
+		// Wait for all downloads to complete and verify results
+		expectedContents := []string{testContent1, testContent2, testContent3}
+		for i, sessionID := range sessionIDs {
+			statusReq := &pb.GetDownloadStatusRequest{SessionId: sessionID}
+
+			var finalResult *pb.DownloadResult
+			timeout := time.Now().Add(10 * time.Second)
+			for time.Now().Before(timeout) {
+				statusResp, err := client.GetDownloadStatus(ctx, statusReq)
+				require.NoError(t, err)
+				require.NotNil(t, statusResp)
+
+				if result := statusResp.GetResult(); result != nil {
+					finalResult = result
+					break
+				}
+
+				if errorResp := statusResp.GetError(); errorResp != nil {
+					t.Fatalf("Download %d failed: %s", i+1, errorResp.Message)
+				}
+
+				time.Sleep(50 * time.Millisecond)
+			}
+
+			require.NotNil(t, finalResult, "Download %d should have completed", i+1)
+
+			// Verify file content
+			downloadedContent, err := os.ReadFile(finalResult.FilePath)
+			require.NoError(t, err)
+			assert.Equal(t, expectedContents[i], string(downloadedContent),
+				"Download %d content should match", i+1)
+		}
 	})
 }
 
@@ -748,12 +799,11 @@ func calculateMD5(content []byte) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// waitForDownloadServiceReady waits for any existing download to complete before starting a new test.
+// waitForDownloadServiceReady is no longer needed since we support parallel downloads.
+// Keeping this function for backward compatibility but it does nothing.
 func waitForDownloadServiceReady(t *testing.T, client pb.FirmwareManagementClient) {
 	t.Helper()
-	// Simple approach: just wait a bit between tests to avoid concurrency issues
-	// since the server only allows one download at a time
-	time.Sleep(500 * time.Millisecond)
+	// No-op: parallel downloads are now supported
 }
 
 // TestDownloadFirmware_MD5ValidationSuccess tests successful MD5 validation.
