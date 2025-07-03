@@ -208,22 +208,41 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
-// TestDownloadFirmware_E2E tests the firmware download RPCs end-to-end.
-func TestDownloadFirmware_E2E(t *testing.T) {
-	// Reset global download state before each test
-	t.Cleanup(func() {
-		// Need to import the server package to access the global state
-		// For now, we'll work around this by ensuring tests don't interfere
-	})
+// waitForDownloadCompletion waits for any active download to complete.
+func waitForDownloadCompletion(
+	t *testing.T,
+	client pb.FirmwareManagementClient,
+	sessionId string,
+	maxWait time.Duration,
+) {
+	if sessionId == "" {
+		return
+	}
 
-	// Setup temp directory for test
+	ctx := context.Background()
+	statusReq := &pb.GetDownloadStatusRequest{SessionId: sessionId}
+
+	deadline := time.Now().Add(maxWait)
+	for time.Now().Before(deadline) {
+		statusResp, err := client.GetDownloadStatus(ctx, statusReq)
+		if err != nil {
+			return // Session not found, download likely completed or failed
+		}
+
+		if statusResp.GetResult() != nil || statusResp.GetError() != nil {
+			return // Download completed
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// setupDownloadTestClient creates a test client for download tests.
+func setupDownloadTestClient(t *testing.T) pb.FirmwareManagementClient {
 	tempDir := t.TempDir()
-
-	// Create gRPC server
 	grpcServer, lis := setupFirmwareGRPCServer(t, tempDir)
-	defer grpcServer.Stop()
+	t.Cleanup(func() { grpcServer.Stop() })
 
-	// Create client connection
 	conn, err := grpc.DialContext(context.Background(), "",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return lis.Dial()
@@ -231,9 +250,14 @@ func TestDownloadFirmware_E2E(t *testing.T) {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	require.NoError(t, err)
-	defer conn.Close()
+	t.Cleanup(func() { conn.Close() })
 
-	client := pb.NewFirmwareManagementClient(conn)
+	return pb.NewFirmwareManagementClient(conn)
+}
+
+// TestDownloadFirmware_E2E tests the firmware download RPCs end-to-end.
+func TestDownloadFirmware_E2E(t *testing.T) {
+	client := setupDownloadTestClient(t)
 
 	t.Run("SuccessfulDownload", func(t *testing.T) {
 		// Create mock HTTP server
@@ -360,6 +384,15 @@ func TestDownloadFirmware_E2E(t *testing.T) {
 				statusResp.GetProgress() != nil ||
 				statusResp.GetResult() != nil ||
 				statusResp.GetError() != nil)
+
+		// Wait for this download to complete
+		for i := 0; i < 50; i++ {
+			statusResp, err := client.GetDownloadStatus(ctx, statusReq)
+			if err != nil || statusResp.GetResult() != nil || statusResp.GetError() != nil {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
 	})
 
 	t.Run("DownloadError", func(t *testing.T) {
@@ -399,5 +432,309 @@ func TestDownloadFirmware_E2E(t *testing.T) {
 		assert.Equal(t, int32(404), downloadError.HttpCode)
 		assert.Contains(t, downloadError.Message, "HTTP error")
 		assert.NotEmpty(t, downloadError.Attempts)
+	})
+}
+
+// TestDownloadFirmware_SessionIdFix tests that sessionId is returned immediately.
+func TestDownloadFirmware_SessionIdFix(t *testing.T) {
+	client := setupDownloadTestClient(t)
+
+	t.Run("SessionIdImmediatelyAvailable", func(t *testing.T) {
+		// Test that sessionId is returned immediately in DownloadFirmware response
+		// This catches the sessionId bug we fixed
+
+		// Create mock HTTP server with delay to ensure download doesn't complete instantly
+		testContent := "session id test content"
+		httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Add small delay to ensure download is in progress
+			time.Sleep(100 * time.Millisecond)
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(testContent))
+		}))
+		defer httpServer.Close()
+
+		ctx := context.Background()
+
+		// Start download
+		downloadReq := &pb.DownloadFirmwareRequest{
+			Url:                 httpServer.URL + "/session-test.bin",
+			TotalTimeoutSeconds: 10,
+		}
+
+		downloadResp, err := client.DownloadFirmware(ctx, downloadReq)
+		require.NoError(t, err)
+		require.NotNil(t, downloadResp)
+
+		// CRITICAL: sessionId must be present immediately in the response
+		assert.NotEmpty(t, downloadResp.SessionId, "sessionId must be returned immediately")
+		assert.NotEqual(t, "", downloadResp.SessionId, "sessionId cannot be empty string")
+
+		// Status should be starting (not completed yet due to delay)
+		assert.Equal(t, "starting", downloadResp.Status)
+
+		// Verify we can immediately query status using the session ID
+		statusReq := &pb.GetDownloadStatusRequest{
+			SessionId: downloadResp.SessionId,
+		}
+
+		statusResp, err := client.GetDownloadStatus(ctx, statusReq)
+		require.NoError(t, err, "Should be able to query status immediately with sessionId")
+		require.NotNil(t, statusResp)
+		assert.Equal(t, downloadResp.SessionId, statusResp.SessionId)
+	})
+}
+
+// TestDownloadFirmware_ContextFix tests large file downloads without context cancellation.
+func TestDownloadFirmware_ContextFix(t *testing.T) {
+	client := setupDownloadTestClient(t)
+
+	t.Run("LargeFileDownloadWithTimeout", func(t *testing.T) {
+		// Test downloading larger files to catch context cancellation issues
+		// This simulates the large file scenario that exposed the context bug
+
+		// Create 1MB of test data
+		largeContent := make([]byte, 1024*1024) // 1MB
+		for i := range largeContent {
+			largeContent[i] = byte(i % 256)
+		}
+
+		httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(largeContent)))
+			w.WriteHeader(http.StatusOK)
+
+			// Write in chunks to simulate realistic download
+			chunkSize := 32 * 1024 // 32KB chunks
+			for i := 0; i < len(largeContent); i += chunkSize {
+				end := i + chunkSize
+				if end > len(largeContent) {
+					end = len(largeContent)
+				}
+				w.Write(largeContent[i:end])
+				w.(http.Flusher).Flush()
+				// Small delay between chunks to make download take some time
+				time.Sleep(10 * time.Millisecond)
+			}
+		}))
+		defer httpServer.Close()
+
+		ctx := context.Background()
+
+		// Start download with reasonable timeout
+		downloadReq := &pb.DownloadFirmwareRequest{
+			Url:                   httpServer.URL + "/large-file.bin",
+			ConnectTimeoutSeconds: 5,
+			TotalTimeoutSeconds:   30, // Give enough time for 1MB download
+		}
+
+		downloadResp, err := client.DownloadFirmware(ctx, downloadReq)
+		require.NoError(t, err)
+		require.NotNil(t, downloadResp)
+
+		// SessionId should be available immediately
+		assert.NotEmpty(t, downloadResp.SessionId)
+
+		// Monitor progress and wait for completion
+		sessionId := downloadResp.SessionId
+		statusReq := &pb.GetDownloadStatusRequest{
+			SessionId: sessionId,
+		}
+
+		var finalStatus *pb.GetDownloadStatusResponse
+		maxWaitTime := 60 * time.Second // Generous timeout
+		pollInterval := 100 * time.Millisecond
+		maxPolls := int(maxWaitTime / pollInterval)
+
+		for i := 0; i < maxPolls; i++ {
+			time.Sleep(pollInterval)
+
+			statusResp, err := client.GetDownloadStatus(ctx, statusReq)
+			require.NoError(t, err)
+			require.NotNil(t, statusResp)
+
+			// Check if download completed successfully
+			if statusResp.GetResult() != nil {
+				finalStatus = statusResp
+				break
+			}
+
+			// Check for errors (this would catch context cancellation)
+			if statusResp.GetError() != nil {
+				t.Fatalf("Download failed with error: %+v", statusResp.GetError())
+			}
+
+			// Log progress if available
+			if progress := statusResp.GetProgress(); progress != nil {
+				t.Logf("Large file progress: %d/%d bytes (%.1f%%) @ %.1f KB/s",
+					progress.DownloadedBytes, progress.TotalBytes,
+					progress.Percentage, progress.SpeedBytesPerSec/1024)
+			}
+		}
+
+		// Verify download completed successfully (not canceled due to context issues)
+		require.NotNil(t, finalStatus, "Large file download should complete without context cancellation")
+		result := finalStatus.GetResult()
+		require.NotNil(t, result, "Expected successful result for large file download")
+
+		// Verify file size matches
+		assert.Equal(t, int64(len(largeContent)), result.FileSizeBytes)
+		assert.Contains(t, result.FilePath, "large-file.bin")
+
+		// Verify actual file content
+		downloadedContent, err := os.ReadFile(result.FilePath)
+		require.NoError(t, err)
+		assert.Equal(t, largeContent, downloadedContent, "Downloaded content should match original")
+	})
+}
+
+// TestDownloadFirmware_ProgressTracking tests real-time progress tracking.
+func TestDownloadFirmware_ProgressTracking(t *testing.T) {
+	client := setupDownloadTestClient(t)
+
+	t.Run("ProgressTrackingDuringDownload", func(t *testing.T) {
+		// Test real-time progress tracking to ensure session synchronization works
+
+		// Create content that takes time to download
+		mediumContent := make([]byte, 512*1024) // 512KB
+		for i := range mediumContent {
+			mediumContent[i] = byte(i % 256)
+		}
+
+		httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(mediumContent)))
+			w.WriteHeader(http.StatusOK)
+
+			// Write slowly in small chunks to allow progress tracking
+			chunkSize := 16 * 1024 // 16KB chunks
+			for i := 0; i < len(mediumContent); i += chunkSize {
+				end := i + chunkSize
+				if end > len(mediumContent) {
+					end = len(mediumContent)
+				}
+				w.Write(mediumContent[i:end])
+				w.(http.Flusher).Flush()
+				time.Sleep(50 * time.Millisecond) // Slow down to capture progress
+			}
+		}))
+		defer httpServer.Close()
+
+		ctx := context.Background()
+
+		// Start download
+		downloadReq := &pb.DownloadFirmwareRequest{
+			Url:                 httpServer.URL + "/progress-test.bin",
+			TotalTimeoutSeconds: 30,
+		}
+
+		downloadResp, err := client.DownloadFirmware(ctx, downloadReq)
+		require.NoError(t, err)
+		require.NotNil(t, downloadResp)
+		assert.NotEmpty(t, downloadResp.SessionId)
+
+		// Track progress updates
+		sessionId := downloadResp.SessionId
+		statusReq := &pb.GetDownloadStatusRequest{
+			SessionId: sessionId,
+		}
+
+		var progressUpdates []*pb.DownloadProgress
+		var finalStatus *pb.GetDownloadStatusResponse
+
+		// Poll frequently to catch progress updates
+		for i := 0; i < 200; i++ { // Poll for up to 20 seconds
+			time.Sleep(100 * time.Millisecond)
+
+			statusResp, err := client.GetDownloadStatus(ctx, statusReq)
+			require.NoError(t, err)
+			require.NotNil(t, statusResp)
+
+			// Collect progress updates
+			if progress := statusResp.GetProgress(); progress != nil {
+				progressUpdates = append(progressUpdates, progress)
+				t.Logf("Progress update %d: %d/%d bytes (%.1f%%)",
+					len(progressUpdates), progress.DownloadedBytes,
+					progress.TotalBytes, progress.Percentage)
+			}
+
+			// Check if completed
+			if statusResp.GetResult() != nil {
+				finalStatus = statusResp
+				break
+			}
+
+			// Check for errors
+			if statusResp.GetError() != nil {
+				t.Fatalf("Download failed: %+v", statusResp.GetError())
+			}
+		}
+
+		// Verify we got progress updates (may be 0 if download was very fast)
+		t.Logf("Captured %d progress updates", len(progressUpdates))
+
+		// Verify progress is increasing
+		if len(progressUpdates) > 1 {
+			firstProgress := progressUpdates[0]
+			lastProgress := progressUpdates[len(progressUpdates)-1]
+			assert.LessOrEqual(t, firstProgress.DownloadedBytes, lastProgress.DownloadedBytes,
+				"Downloaded bytes should increase over time")
+		}
+
+		// Verify final completion
+		require.NotNil(t, finalStatus, "Download should complete")
+		result := finalStatus.GetResult()
+		require.NotNil(t, result, "Should have successful result")
+		assert.Equal(t, int64(len(mediumContent)), result.FileSizeBytes)
+	})
+}
+
+// TestDownloadFirmware_ConcurrentBlocking tests concurrent download blocking.
+func TestDownloadFirmware_ConcurrentBlocking(t *testing.T) {
+	client := setupDownloadTestClient(t)
+
+	t.Run("ConcurrentDownloadBlocking", func(t *testing.T) {
+		// Test that concurrent downloads are properly blocked
+		// This ensures our global download state management works
+
+		testContent := "concurrent test content"
+		httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Add delay to keep first download active
+			time.Sleep(200 * time.Millisecond)
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(testContent))
+		}))
+		defer httpServer.Close()
+
+		ctx := context.Background()
+
+		// Start first download
+		downloadReq1 := &pb.DownloadFirmwareRequest{
+			Url: httpServer.URL + "/concurrent1.bin",
+		}
+
+		downloadResp1, err := client.DownloadFirmware(ctx, downloadReq1)
+		require.NoError(t, err)
+		require.NotNil(t, downloadResp1)
+		assert.NotEmpty(t, downloadResp1.SessionId)
+
+		// Immediately try second download - should be blocked
+		downloadReq2 := &pb.DownloadFirmwareRequest{
+			Url: httpServer.URL + "/concurrent2.bin",
+		}
+
+		_, err = client.DownloadFirmware(ctx, downloadReq2)
+		// Should get error about download in progress
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "download already in progress")
+
+		// Wait for first download to complete
+		time.Sleep(500 * time.Millisecond)
+
+		// Now second download should work
+		downloadResp3, err := client.DownloadFirmware(ctx, downloadReq2)
+		require.NoError(t, err)
+		require.NotNil(t, downloadResp3)
+		assert.NotEmpty(t, downloadResp3.SessionId)
+		assert.NotEqual(t, downloadResp1.SessionId, downloadResp3.SessionId)
 	})
 }
