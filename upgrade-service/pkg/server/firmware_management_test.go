@@ -543,6 +543,16 @@ func TestFirmwareManagementServer_DownloadFirmware(t *testing.T) {
 		resp3, err3 := fwServer.DownloadFirmware(ctx, req2)
 		assert.NoError(t, err3)
 		assert.NotNil(t, resp3)
+
+		// Wait for this download to complete too
+		statusReq := &pb.GetDownloadStatusRequest{SessionId: resp3.SessionId}
+		for i := 0; i < 50; i++ {
+			statusResp, err := fwServer.GetDownloadStatus(ctx, statusReq)
+			if err != nil || statusResp.GetResult() != nil || statusResp.GetError() != nil {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
 	})
 
 	t.Run("CustomOutputPath", func(t *testing.T) {
@@ -567,6 +577,16 @@ func TestFirmwareManagementServer_DownloadFirmware(t *testing.T) {
 		require.NotNil(t, resp)
 
 		assert.Contains(t, resp.OutputPath, customPath)
+
+		// Wait for this download to complete
+		statusReq := &pb.GetDownloadStatusRequest{SessionId: resp.SessionId}
+		for i := 0; i < 50; i++ {
+			statusResp, err := fwServer.GetDownloadStatus(ctx, statusReq)
+			if err != nil || statusResp.GetResult() != nil || statusResp.GetError() != nil {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
 	})
 
 	t.Run("WithTimeouts", func(t *testing.T) {
@@ -590,6 +610,16 @@ func TestFirmwareManagementServer_DownloadFirmware(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.NotEmpty(t, resp.SessionId)
+
+		// Wait for this download to complete
+		statusReq := &pb.GetDownloadStatusRequest{SessionId: resp.SessionId}
+		for i := 0; i < 50; i++ {
+			statusResp, err := fwServer.GetDownloadStatus(ctx, statusReq)
+			if err != nil || statusResp.GetResult() != nil || statusResp.GetError() != nil {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
 	})
 }
 

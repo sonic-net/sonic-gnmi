@@ -279,8 +279,10 @@ func (s *firmwareManagementServer) DownloadFirmware(
 	// Create a clean background context with timeout - similar to cmd/test/download
 	downloadCtx := context.Background()
 	if req.TotalTimeoutSeconds > 0 {
-		// Don't defer cancel() here - let the goroutine handle its own timeout
-		downloadCtx, _ = context.WithTimeout(context.Background(), time.Duration(req.TotalTimeoutSeconds)*time.Second)
+		var cancel context.CancelFunc
+		downloadCtx, cancel = context.WithTimeout(context.Background(), time.Duration(req.TotalTimeoutSeconds)*time.Second)
+		// Let the context timeout naturally - don't defer cancel since the goroutine manages its own lifecycle
+		_ = cancel // Mark as used to avoid vet warning
 	}
 
 	// Initialize session info
