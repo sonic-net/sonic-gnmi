@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/checksum"
 )
 
 // DownloadSession tracks the progress and state of an ongoing download.
@@ -92,6 +93,20 @@ func (s *DownloadSession) UpdateCurrentMethod(method string) {
 	s.LastUpdate = time.Now()
 }
 
+// ChecksumValidationResult contains information about checksum validation.
+type ChecksumValidationResult struct {
+	// ValidationRequested indicates whether checksum validation was requested
+	ValidationRequested bool `json:"validation_requested"`
+	// ValidationPassed indicates whether validation passed (only meaningful if ValidationRequested is true)
+	ValidationPassed bool `json:"validation_passed"`
+	// ExpectedChecksum is the checksum provided by the client
+	ExpectedChecksum string `json:"expected_checksum"`
+	// ActualChecksum is the checksum calculated from the downloaded file
+	ActualChecksum string `json:"actual_checksum"`
+	// Algorithm is the checksum algorithm used (e.g., "md5")
+	Algorithm string `json:"algorithm"`
+}
+
 // DownloadResult contains information about a successful download.
 type DownloadResult struct {
 	// FilePath is the path where the file was saved
@@ -106,6 +121,8 @@ type DownloadResult struct {
 	FinalMethod string `json:"final_method"`
 	// URL is the URL that was downloaded
 	URL string `json:"url"`
+	// ChecksumValidation contains checksum validation information
+	ChecksumValidation ChecksumValidationResult `json:"checksum_validation"`
 }
 
 // DownloadConfig contains configuration options for downloads.
@@ -120,6 +137,8 @@ type DownloadConfig struct {
 	MaxRetries int
 	// UserAgent is the User-Agent header to send
 	UserAgent string
+	// ExpectedMD5 is the expected MD5 checksum for validation (optional)
+	ExpectedMD5 string
 }
 
 // DefaultDownloadConfig returns a default download configuration.
@@ -186,9 +205,15 @@ func DownloadFirmwareWithConfig(
 
 		result, err := attemptDownloadWithInterface(ctx, downloadURL, outputPath, config, &attempts, session)
 		if err == nil {
+			// Perform checksum validation if requested
+			validation, validationErr := validateChecksum(outputPath, config.ExpectedMD5)
+			if validationErr != nil {
+				session.UpdateStatus("failed")
+				return session, nil, NewValidationError(downloadURL, validationErr.Error(), attempts)
+			}
 			session.UpdateStatus("completed")
 			return session, createSuccessResult(downloadURL, outputPath, startTime, len(attempts),
-				"interface", result.FileSize), nil
+				"interface", result.FileSize, validation), nil
 		}
 
 		// Check if we should continue with fallback strategies
@@ -206,8 +231,15 @@ func DownloadFirmwareWithConfig(
 
 		result, err := attemptDownloadWithIPs(ctx, downloadURL, outputPath, config, &attempts, session)
 		if err == nil {
+			// Perform checksum validation if requested
+			validation, validationErr := validateChecksum(outputPath, config.ExpectedMD5)
+			if validationErr != nil {
+				session.UpdateStatus("failed")
+				return session, nil, NewValidationError(downloadURL, validationErr.Error(), attempts)
+			}
 			session.UpdateStatus("completed")
-			return session, createSuccessResult(downloadURL, outputPath, startTime, len(attempts), "ip", result.FileSize), nil
+			return session, createSuccessResult(downloadURL, outputPath, startTime, len(attempts),
+				"ip", result.FileSize, validation), nil
 		}
 
 		// Check if we should continue with direct connection
@@ -223,8 +255,15 @@ func DownloadFirmwareWithConfig(
 	session.UpdateStatus("downloading")
 	result, err := attemptDirectDownload(ctx, downloadURL, outputPath, config, &attempts, session)
 	if err == nil {
+		// Perform checksum validation if requested
+		validation, validationErr := validateChecksum(outputPath, config.ExpectedMD5)
+		if validationErr != nil {
+			session.UpdateStatus("failed")
+			return session, nil, NewValidationError(downloadURL, validationErr.Error(), attempts)
+		}
 		session.UpdateStatus("completed")
-		return session, createSuccessResult(downloadURL, outputPath, startTime, len(attempts), "direct", result.FileSize), nil
+		return session, createSuccessResult(downloadURL, outputPath, startTime, len(attempts),
+			"direct", result.FileSize, validation), nil
 	}
 
 	// All strategies failed
@@ -585,16 +624,49 @@ func getLastAttempt(attempts []Attempt) *Attempt {
 	return &attempts[len(attempts)-1]
 }
 
+// validateChecksum performs MD5 checksum validation if requested.
+func validateChecksum(filePath, expectedMD5 string) (ChecksumValidationResult, error) {
+	validation := ChecksumValidationResult{
+		ValidationRequested: expectedMD5 != "",
+		Algorithm:           "md5",
+		ExpectedChecksum:    expectedMD5,
+	}
+
+	if !validation.ValidationRequested {
+		return validation, nil
+	}
+
+	glog.V(2).Infof("Validating MD5 checksum for downloaded file: %s", filePath)
+
+	validator := checksum.NewMD5Validator()
+	actualChecksum, err := validator.CalculateChecksum(filePath)
+	if err != nil {
+		return validation, fmt.Errorf("failed to calculate checksum: %w", err)
+	}
+
+	validation.ActualChecksum = actualChecksum
+	validation.ValidationPassed = strings.EqualFold(actualChecksum, expectedMD5)
+
+	if !validation.ValidationPassed {
+		return validation, fmt.Errorf("MD5 checksum mismatch: expected %s, got %s", expectedMD5, actualChecksum)
+	}
+
+	glog.V(2).Infof("MD5 checksum validation passed for file: %s", filePath)
+	return validation, nil
+}
+
 // createSuccessResult creates a DownloadResult for successful downloads.
 func createSuccessResult(
 	downloadURL, outputPath string, startTime time.Time, attemptCount int, method string, fileSize int64,
+	validation ChecksumValidationResult,
 ) *DownloadResult {
 	return &DownloadResult{
-		FilePath:     outputPath,
-		FileSize:     fileSize,
-		Duration:     time.Since(startTime),
-		AttemptCount: attemptCount,
-		FinalMethod:  method,
-		URL:          downloadURL,
+		FilePath:           outputPath,
+		FileSize:           fileSize,
+		Duration:           time.Since(startTime),
+		AttemptCount:       attemptCount,
+		FinalMethod:        method,
+		URL:                downloadURL,
+		ChecksumValidation: validation,
 	}
 }

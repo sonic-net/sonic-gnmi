@@ -573,8 +573,10 @@ type DownloadFirmwareRequest struct {
 	ConnectTimeoutSeconds int32 `protobuf:"varint,3,opt,name=connect_timeout_seconds,json=connectTimeoutSeconds,proto3" json:"connect_timeout_seconds,omitempty"`
 	// Optional overall timeout in seconds (defaults to 300)
 	TotalTimeoutSeconds int32 `protobuf:"varint,4,opt,name=total_timeout_seconds,json=totalTimeoutSeconds,proto3" json:"total_timeout_seconds,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Optional MD5 checksum for verification after download
+	ExpectedMd5   string `protobuf:"bytes,5,opt,name=expected_md5,json=expectedMd5,proto3" json:"expected_md5,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DownloadFirmwareRequest) Reset() {
@@ -633,6 +635,13 @@ func (x *DownloadFirmwareRequest) GetTotalTimeoutSeconds() int32 {
 		return x.TotalTimeoutSeconds
 	}
 	return 0
+}
+
+func (x *DownloadFirmwareRequest) GetExpectedMd5() string {
+	if x != nil {
+		return x.ExpectedMd5
+	}
+	return ""
 }
 
 // Response from starting firmware download
@@ -1217,9 +1226,11 @@ type DownloadResult struct {
 	// Final successful method used
 	FinalMethod string `protobuf:"bytes,5,opt,name=final_method,json=finalMethod,proto3" json:"final_method,omitempty"`
 	// URL that was downloaded
-	Url           string `protobuf:"bytes,6,opt,name=url,proto3" json:"url,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Url string `protobuf:"bytes,6,opt,name=url,proto3" json:"url,omitempty"`
+	// Checksum validation information
+	ChecksumValidation *ChecksumValidation `protobuf:"bytes,7,opt,name=checksum_validation,json=checksumValidation,proto3" json:"checksum_validation,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *DownloadResult) Reset() {
@@ -1294,6 +1305,95 @@ func (x *DownloadResult) GetUrl() string {
 	return ""
 }
 
+func (x *DownloadResult) GetChecksumValidation() *ChecksumValidation {
+	if x != nil {
+		return x.ChecksumValidation
+	}
+	return nil
+}
+
+// Checksum validation result information
+type ChecksumValidation struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Whether checksum validation was requested
+	ValidationRequested bool `protobuf:"varint,1,opt,name=validation_requested,json=validationRequested,proto3" json:"validation_requested,omitempty"`
+	// Whether validation passed (only meaningful if validation_requested is true)
+	ValidationPassed bool `protobuf:"varint,2,opt,name=validation_passed,json=validationPassed,proto3" json:"validation_passed,omitempty"`
+	// Expected checksum provided by client
+	ExpectedChecksum string `protobuf:"bytes,3,opt,name=expected_checksum,json=expectedChecksum,proto3" json:"expected_checksum,omitempty"`
+	// Actual checksum calculated from downloaded file
+	ActualChecksum string `protobuf:"bytes,4,opt,name=actual_checksum,json=actualChecksum,proto3" json:"actual_checksum,omitempty"`
+	// Checksum algorithm used (e.g., "md5")
+	Algorithm     string `protobuf:"bytes,5,opt,name=algorithm,proto3" json:"algorithm,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChecksumValidation) Reset() {
+	*x = ChecksumValidation{}
+	mi := &file_proto_firmware_management_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChecksumValidation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChecksumValidation) ProtoMessage() {}
+
+func (x *ChecksumValidation) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_firmware_management_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChecksumValidation.ProtoReflect.Descriptor instead.
+func (*ChecksumValidation) Descriptor() ([]byte, []int) {
+	return file_proto_firmware_management_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ChecksumValidation) GetValidationRequested() bool {
+	if x != nil {
+		return x.ValidationRequested
+	}
+	return false
+}
+
+func (x *ChecksumValidation) GetValidationPassed() bool {
+	if x != nil {
+		return x.ValidationPassed
+	}
+	return false
+}
+
+func (x *ChecksumValidation) GetExpectedChecksum() string {
+	if x != nil {
+		return x.ExpectedChecksum
+	}
+	return ""
+}
+
+func (x *ChecksumValidation) GetActualChecksum() string {
+	if x != nil {
+		return x.ActualChecksum
+	}
+	return ""
+}
+
+func (x *ChecksumValidation) GetAlgorithm() string {
+	if x != nil {
+		return x.Algorithm
+	}
+	return ""
+}
+
 var File_proto_firmware_management_proto protoreflect.FileDescriptor
 
 const file_proto_firmware_management_proto_rawDesc = "" +
@@ -1332,13 +1432,14 @@ const file_proto_firmware_management_proto_rawDesc = "" +
 	"\rcurrent_image\x18\x02 \x01(\tR\fcurrentImage\x12\x1d\n" +
 	"\n" +
 	"next_image\x18\x03 \x01(\tR\tnextImage\x12\x1a\n" +
-	"\bwarnings\x18\x04 \x03(\tR\bwarnings\"\xb8\x01\n" +
+	"\bwarnings\x18\x04 \x03(\tR\bwarnings\"\xdb\x01\n" +
 	"\x17DownloadFirmwareRequest\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x1f\n" +
 	"\voutput_path\x18\x02 \x01(\tR\n" +
 	"outputPath\x126\n" +
 	"\x17connect_timeout_seconds\x18\x03 \x01(\x05R\x15connectTimeoutSeconds\x122\n" +
-	"\x15total_timeout_seconds\x18\x04 \x01(\x05R\x13totalTimeoutSeconds\"r\n" +
+	"\x15total_timeout_seconds\x18\x04 \x01(\x05R\x13totalTimeoutSeconds\x12!\n" +
+	"\fexpected_md5\x18\x05 \x01(\tR\vexpectedMd5\"r\n" +
 	"\x18DownloadFirmwareResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
@@ -1387,7 +1488,7 @@ const file_proto_firmware_management_proto_rawDesc = "" +
 	"\vduration_ms\x18\x04 \x01(\x03R\n" +
 	"durationMs\x12\x1f\n" +
 	"\vhttp_status\x18\x05 \x01(\x05R\n" +
-	"httpStatus\"\xd0\x01\n" +
+	"httpStatus\"\x9c\x02\n" +
 	"\x0eDownloadResult\x12\x1b\n" +
 	"\tfile_path\x18\x01 \x01(\tR\bfilePath\x12&\n" +
 	"\x0ffile_size_bytes\x18\x02 \x01(\x03R\rfileSizeBytes\x12\x1f\n" +
@@ -1395,7 +1496,14 @@ const file_proto_firmware_management_proto_rawDesc = "" +
 	"durationMs\x12#\n" +
 	"\rattempt_count\x18\x04 \x01(\x05R\fattemptCount\x12!\n" +
 	"\ffinal_method\x18\x05 \x01(\tR\vfinalMethod\x12\x10\n" +
-	"\x03url\x18\x06 \x01(\tR\x03url2\x9e\x04\n" +
+	"\x03url\x18\x06 \x01(\tR\x03url\x12J\n" +
+	"\x13checksum_validation\x18\a \x01(\v2\x19.sonic.ChecksumValidationR\x12checksumValidation\"\xe8\x01\n" +
+	"\x12ChecksumValidation\x121\n" +
+	"\x14validation_requested\x18\x01 \x01(\bR\x13validationRequested\x12+\n" +
+	"\x11validation_passed\x18\x02 \x01(\bR\x10validationPassed\x12+\n" +
+	"\x11expected_checksum\x18\x03 \x01(\tR\x10expectedChecksum\x12'\n" +
+	"\x0factual_checksum\x18\x04 \x01(\tR\x0eactualChecksum\x12\x1c\n" +
+	"\talgorithm\x18\x05 \x01(\tR\talgorithm2\x9e\x04\n" +
 	"\x12FirmwareManagement\x12[\n" +
 	"\x12CleanupOldFirmware\x12 .sonic.CleanupOldFirmwareRequest\x1a!.sonic.CleanupOldFirmwareResponse\"\x00\x12[\n" +
 	"\x12ListFirmwareImages\x12 .sonic.ListFirmwareImagesRequest\x1a!.sonic.ListFirmwareImagesResponse\"\x00\x12X\n" +
@@ -1417,7 +1525,7 @@ func file_proto_firmware_management_proto_rawDescGZIP() []byte {
 	return file_proto_firmware_management_proto_rawDescData
 }
 
-var file_proto_firmware_management_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_proto_firmware_management_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_proto_firmware_management_proto_goTypes = []any{
 	(*CleanupOldFirmwareRequest)(nil),  // 0: sonic.CleanupOldFirmwareRequest
 	(*CleanupOldFirmwareResponse)(nil), // 1: sonic.CleanupOldFirmwareResponse
@@ -1437,6 +1545,7 @@ var file_proto_firmware_management_proto_goTypes = []any{
 	(*DownloadError)(nil),              // 15: sonic.DownloadError
 	(*DownloadAttempt)(nil),            // 16: sonic.DownloadAttempt
 	(*DownloadResult)(nil),             // 17: sonic.DownloadResult
+	(*ChecksumValidation)(nil),         // 18: sonic.ChecksumValidation
 }
 var file_proto_firmware_management_proto_depIdxs = []int32{
 	3,  // 0: sonic.ListFirmwareImagesResponse.images:type_name -> sonic.FirmwareImageInfo
@@ -1445,23 +1554,24 @@ var file_proto_firmware_management_proto_depIdxs = []int32{
 	17, // 3: sonic.GetDownloadStatusResponse.result:type_name -> sonic.DownloadResult
 	15, // 4: sonic.GetDownloadStatusResponse.error:type_name -> sonic.DownloadError
 	16, // 5: sonic.DownloadError.attempts:type_name -> sonic.DownloadAttempt
-	0,  // 6: sonic.FirmwareManagement.CleanupOldFirmware:input_type -> sonic.CleanupOldFirmwareRequest
-	2,  // 7: sonic.FirmwareManagement.ListFirmwareImages:input_type -> sonic.ListFirmwareImagesRequest
-	5,  // 8: sonic.FirmwareManagement.ConsolidateImages:input_type -> sonic.ConsolidateImagesRequest
-	7,  // 9: sonic.FirmwareManagement.ListImages:input_type -> sonic.ListImagesRequest
-	9,  // 10: sonic.FirmwareManagement.DownloadFirmware:input_type -> sonic.DownloadFirmwareRequest
-	11, // 11: sonic.FirmwareManagement.GetDownloadStatus:input_type -> sonic.GetDownloadStatusRequest
-	1,  // 12: sonic.FirmwareManagement.CleanupOldFirmware:output_type -> sonic.CleanupOldFirmwareResponse
-	4,  // 13: sonic.FirmwareManagement.ListFirmwareImages:output_type -> sonic.ListFirmwareImagesResponse
-	6,  // 14: sonic.FirmwareManagement.ConsolidateImages:output_type -> sonic.ConsolidateImagesResponse
-	8,  // 15: sonic.FirmwareManagement.ListImages:output_type -> sonic.ListImagesResponse
-	10, // 16: sonic.FirmwareManagement.DownloadFirmware:output_type -> sonic.DownloadFirmwareResponse
-	12, // 17: sonic.FirmwareManagement.GetDownloadStatus:output_type -> sonic.GetDownloadStatusResponse
-	12, // [12:18] is the sub-list for method output_type
-	6,  // [6:12] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	18, // 6: sonic.DownloadResult.checksum_validation:type_name -> sonic.ChecksumValidation
+	0,  // 7: sonic.FirmwareManagement.CleanupOldFirmware:input_type -> sonic.CleanupOldFirmwareRequest
+	2,  // 8: sonic.FirmwareManagement.ListFirmwareImages:input_type -> sonic.ListFirmwareImagesRequest
+	5,  // 9: sonic.FirmwareManagement.ConsolidateImages:input_type -> sonic.ConsolidateImagesRequest
+	7,  // 10: sonic.FirmwareManagement.ListImages:input_type -> sonic.ListImagesRequest
+	9,  // 11: sonic.FirmwareManagement.DownloadFirmware:input_type -> sonic.DownloadFirmwareRequest
+	11, // 12: sonic.FirmwareManagement.GetDownloadStatus:input_type -> sonic.GetDownloadStatusRequest
+	1,  // 13: sonic.FirmwareManagement.CleanupOldFirmware:output_type -> sonic.CleanupOldFirmwareResponse
+	4,  // 14: sonic.FirmwareManagement.ListFirmwareImages:output_type -> sonic.ListFirmwareImagesResponse
+	6,  // 15: sonic.FirmwareManagement.ConsolidateImages:output_type -> sonic.ConsolidateImagesResponse
+	8,  // 16: sonic.FirmwareManagement.ListImages:output_type -> sonic.ListImagesResponse
+	10, // 17: sonic.FirmwareManagement.DownloadFirmware:output_type -> sonic.DownloadFirmwareResponse
+	12, // 18: sonic.FirmwareManagement.GetDownloadStatus:output_type -> sonic.GetDownloadStatusResponse
+	13, // [13:19] is the sub-list for method output_type
+	7,  // [7:13] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_proto_firmware_management_proto_init() }
@@ -1481,7 +1591,7 @@ func file_proto_firmware_management_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_firmware_management_proto_rawDesc), len(file_proto_firmware_management_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

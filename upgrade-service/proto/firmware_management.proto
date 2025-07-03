@@ -137,6 +137,9 @@ message DownloadFirmwareRequest {
   
   // Optional overall timeout in seconds (defaults to 300)
   int32 total_timeout_seconds = 4;
+  
+  // Optional MD5 checksum for verification after download
+  string expected_md5 = 5;
 }
 
 // Response from starting firmware download
@@ -269,4 +272,25 @@ message DownloadResult {
   
   // URL that was downloaded
   string url = 6;
+  
+  // Checksum validation information
+  ChecksumValidation checksum_validation = 7;
+}
+
+// Checksum validation result information
+message ChecksumValidation {
+  // Whether checksum validation was requested
+  bool validation_requested = 1;
+  
+  // Whether validation passed (only meaningful if validation_requested is true)
+  bool validation_passed = 2;
+  
+  // Expected checksum provided by client
+  string expected_checksum = 3;
+  
+  // Actual checksum calculated from downloaded file
+  string actual_checksum = 4;
+  
+  // Checksum algorithm used (e.g., "md5")
+  string algorithm = 5;
 }

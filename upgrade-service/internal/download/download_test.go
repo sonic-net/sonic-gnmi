@@ -379,6 +379,10 @@ func TestClassifyError(t *testing.T) {
 
 func TestCreateSuccessResult(t *testing.T) {
 	startTime := time.Now().Add(-5 * time.Second)
+	validation := ChecksumValidationResult{
+		ValidationRequested: false,
+		Algorithm:           "md5",
+	}
 	result := createSuccessResult(
 		"http://example.com/firmware.bin",
 		"/tmp/firmware.bin",
@@ -386,6 +390,7 @@ func TestCreateSuccessResult(t *testing.T) {
 		3,
 		"direct",
 		1024,
+		validation,
 	)
 
 	assert.Equal(t, "http://example.com/firmware.bin", result.URL)
@@ -395,6 +400,74 @@ func TestCreateSuccessResult(t *testing.T) {
 	assert.Equal(t, "direct", result.FinalMethod)
 	assert.Greater(t, result.Duration, 4*time.Second)
 	assert.Less(t, result.Duration, 6*time.Second)
+	assert.False(t, result.ChecksumValidation.ValidationRequested)
+	assert.Equal(t, "md5", result.ChecksumValidation.Algorithm)
+}
+
+func TestValidateChecksum(t *testing.T) {
+	tempDir := t.TempDir()
+
+	tests := []struct {
+		name          string
+		fileContent   string
+		expectedMD5   string
+		shouldPass    bool
+		shouldRequest bool
+	}{
+		{
+			name:          "no validation requested",
+			fileContent:   "Hello, World!",
+			expectedMD5:   "",
+			shouldPass:    false, // Not meaningful when validation not requested
+			shouldRequest: false,
+		},
+		{
+			name:          "valid MD5 checksum",
+			fileContent:   "Hello, World!",
+			expectedMD5:   "65a8e27d8879283831b664bd8b7f0ad4",
+			shouldPass:    true,
+			shouldRequest: true,
+		},
+		{
+			name:          "invalid MD5 checksum",
+			fileContent:   "Hello, World!",
+			expectedMD5:   "invalid_checksum",
+			shouldPass:    false,
+			shouldRequest: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create test file
+			testFile := filepath.Join(tempDir, tt.name+".txt")
+			err := os.WriteFile(testFile, []byte(tt.fileContent), 0644)
+			require.NoError(t, err)
+
+			// Validate checksum
+			validation, err := validateChecksum(testFile, tt.expectedMD5)
+
+			// Check validation result structure
+			assert.Equal(t, tt.shouldRequest, validation.ValidationRequested)
+			assert.Equal(t, "md5", validation.Algorithm)
+			assert.Equal(t, tt.expectedMD5, validation.ExpectedChecksum)
+
+			if tt.shouldRequest {
+				assert.NotEmpty(t, validation.ActualChecksum)
+				assert.Equal(t, tt.shouldPass, validation.ValidationPassed)
+
+				if tt.shouldPass {
+					assert.NoError(t, err)
+				} else {
+					assert.Error(t, err)
+					assert.Contains(t, err.Error(), "checksum mismatch")
+				}
+			} else {
+				assert.Empty(t, validation.ActualChecksum)
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestShouldRetryWithFallback(t *testing.T) {

@@ -2,12 +2,15 @@ package e2e
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -737,4 +740,281 @@ func TestDownloadFirmware_ConcurrentBlocking(t *testing.T) {
 		assert.NotEmpty(t, downloadResp3.SessionId)
 		assert.NotEqual(t, downloadResp1.SessionId, downloadResp3.SessionId)
 	})
+}
+
+// calculateMD5 calculates the MD5 checksum of the given content.
+func calculateMD5(content []byte) string {
+	hash := md5.Sum(content) // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
+	return hex.EncodeToString(hash[:])
+}
+
+// waitForDownloadServiceReady waits for any existing download to complete before starting a new test.
+func waitForDownloadServiceReady(t *testing.T, client pb.FirmwareManagementClient) {
+	t.Helper()
+	// Simple approach: just wait a bit between tests to avoid concurrency issues
+	// since the server only allows one download at a time
+	time.Sleep(500 * time.Millisecond)
+}
+
+// TestDownloadFirmware_MD5ValidationSuccess tests successful MD5 validation.
+func TestDownloadFirmware_MD5ValidationSuccess(t *testing.T) {
+	client := setupDownloadTestClient(t)
+	waitForDownloadServiceReady(t, client)
+	// Test successful download with correct MD5 checksum
+	testContent := "Hello, World! This is firmware content for MD5 testing."
+	expectedMD5 := calculateMD5([]byte(testContent))
+
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(testContent))
+	}))
+	defer httpServer.Close()
+
+	ctx := context.Background()
+
+	// Start download with MD5 checksum
+	downloadReq := &pb.DownloadFirmwareRequest{
+		Url:                   httpServer.URL + "/firmware-with-md5.bin",
+		ConnectTimeoutSeconds: 10,
+		TotalTimeoutSeconds:   30,
+		ExpectedMd5:           expectedMD5,
+	}
+
+	downloadResp, err := client.DownloadFirmware(ctx, downloadReq)
+	require.NoError(t, err)
+	require.NotNil(t, downloadResp)
+	assert.NotEmpty(t, downloadResp.SessionId)
+
+	// Poll for completion
+	statusReq := &pb.GetDownloadStatusRequest{
+		SessionId: downloadResp.SessionId,
+	}
+
+	var finalResult *pb.DownloadResult
+	timeout := time.Now().Add(10 * time.Second)
+	for time.Now().Before(timeout) {
+		statusResp, err := client.GetDownloadStatus(ctx, statusReq)
+		require.NoError(t, err)
+		require.NotNil(t, statusResp)
+
+		if result := statusResp.GetResult(); result != nil {
+			finalResult = result
+			break
+		}
+
+		if errorResp := statusResp.GetError(); errorResp != nil {
+			t.Fatalf("Download failed: %s", errorResp.Message)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	require.NotNil(t, finalResult, "Download should have completed successfully")
+
+	// Verify checksum validation in result
+	checksumValidation := finalResult.ChecksumValidation
+	require.NotNil(t, checksumValidation)
+	assert.True(t, checksumValidation.ValidationRequested)
+	assert.True(t, checksumValidation.ValidationPassed)
+	assert.Equal(t, expectedMD5, checksumValidation.ExpectedChecksum)
+	assert.Equal(t, expectedMD5, checksumValidation.ActualChecksum)
+	assert.Equal(t, "md5", checksumValidation.Algorithm)
+
+	// Verify file was created and has correct content
+	downloadedContent, err := os.ReadFile(finalResult.FilePath)
+	require.NoError(t, err)
+	assert.Equal(t, testContent, string(downloadedContent))
+}
+
+// TestDownloadFirmware_MD5ValidationFailure tests failed MD5 validation.
+func TestDownloadFirmware_MD5ValidationFailure(t *testing.T) {
+	client := setupDownloadTestClient(t)
+	waitForDownloadServiceReady(t, client)
+	// Test download with incorrect MD5 checksum
+	testContent := "This is firmware content with wrong checksum."
+	wrongMD5 := "deadbeefcafebabe12345678901234567890" // Intentionally wrong
+
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(testContent))
+	}))
+	defer httpServer.Close()
+
+	ctx := context.Background()
+
+	// Start download with wrong MD5 checksum
+	downloadReq := &pb.DownloadFirmwareRequest{
+		Url:                   httpServer.URL + "/firmware-wrong-md5.bin",
+		ConnectTimeoutSeconds: 10,
+		TotalTimeoutSeconds:   30,
+		ExpectedMd5:           wrongMD5,
+	}
+
+	downloadResp, err := client.DownloadFirmware(ctx, downloadReq)
+	require.NoError(t, err)
+	require.NotNil(t, downloadResp)
+	assert.NotEmpty(t, downloadResp.SessionId)
+
+	// Poll for failure
+	statusReq := &pb.GetDownloadStatusRequest{
+		SessionId: downloadResp.SessionId,
+	}
+
+	var finalError *pb.DownloadError
+	timeout := time.Now().Add(10 * time.Second)
+	for time.Now().Before(timeout) {
+		statusResp, err := client.GetDownloadStatus(ctx, statusReq)
+		require.NoError(t, err)
+		require.NotNil(t, statusResp)
+
+		if errorResp := statusResp.GetError(); errorResp != nil {
+			finalError = errorResp
+			break
+		}
+
+		if result := statusResp.GetResult(); result != nil {
+			t.Fatalf("Download should have failed due to checksum mismatch")
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	require.NotNil(t, finalError, "Download should have failed due to checksum mismatch")
+
+	// Verify error details
+	assert.Equal(t, "validation", finalError.Category)
+	assert.Contains(t, finalError.Message, "checksum mismatch")
+	assert.Contains(t, finalError.Message, wrongMD5)
+	assert.NotEmpty(t, finalError.Attempts)
+}
+
+// TestDownloadFirmware_MD5ValidationNone tests download without MD5 validation.
+func TestDownloadFirmware_MD5ValidationNone(t *testing.T) {
+	client := setupDownloadTestClient(t)
+	waitForDownloadServiceReady(t, client)
+	// Test download without MD5 checksum (should not validate)
+	testContent := "This firmware will not be validated."
+
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(testContent))
+	}))
+	defer httpServer.Close()
+
+	ctx := context.Background()
+
+	// Start download without MD5 checksum
+	downloadReq := &pb.DownloadFirmwareRequest{
+		Url:                   httpServer.URL + "/firmware-no-validation.bin",
+		ConnectTimeoutSeconds: 10,
+		TotalTimeoutSeconds:   30,
+		// No ExpectedMd5 field
+	}
+
+	downloadResp, err := client.DownloadFirmware(ctx, downloadReq)
+	require.NoError(t, err)
+	require.NotNil(t, downloadResp)
+	assert.NotEmpty(t, downloadResp.SessionId)
+
+	// Poll for completion
+	statusReq := &pb.GetDownloadStatusRequest{
+		SessionId: downloadResp.SessionId,
+	}
+
+	var finalResult *pb.DownloadResult
+	timeout := time.Now().Add(10 * time.Second)
+	for time.Now().Before(timeout) {
+		statusResp, err := client.GetDownloadStatus(ctx, statusReq)
+		require.NoError(t, err)
+		require.NotNil(t, statusResp)
+
+		if result := statusResp.GetResult(); result != nil {
+			finalResult = result
+			break
+		}
+
+		if errorResp := statusResp.GetError(); errorResp != nil {
+			t.Fatalf("Download failed: %s", errorResp.Message)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	require.NotNil(t, finalResult, "Download should have completed successfully")
+
+	// Verify no checksum validation was performed
+	checksumValidation := finalResult.ChecksumValidation
+	require.NotNil(t, checksumValidation)
+	assert.False(t, checksumValidation.ValidationRequested)
+	assert.False(t, checksumValidation.ValidationPassed) // Not meaningful when not requested
+	assert.Empty(t, checksumValidation.ExpectedChecksum)
+	assert.Empty(t, checksumValidation.ActualChecksum)
+	assert.Equal(t, "md5", checksumValidation.Algorithm) // Algorithm is always set
+}
+
+// TestDownloadFirmware_MD5ValidationCaseInsensitive tests case-insensitive MD5 validation.
+func TestDownloadFirmware_MD5ValidationCaseInsensitive(t *testing.T) {
+	client := setupDownloadTestClient(t)
+	waitForDownloadServiceReady(t, client)
+	// Test that MD5 validation is case-insensitive
+	testContent := "Case insensitive MD5 test content."
+	correctMD5 := calculateMD5([]byte(testContent))
+	uppercaseMD5 := strings.ToUpper(correctMD5)
+
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(testContent))
+	}))
+	defer httpServer.Close()
+
+	ctx := context.Background()
+
+	// Start download with uppercase MD5 checksum
+	downloadReq := &pb.DownloadFirmwareRequest{
+		Url:                   httpServer.URL + "/firmware-uppercase-md5.bin",
+		ConnectTimeoutSeconds: 10,
+		TotalTimeoutSeconds:   30,
+		ExpectedMd5:           uppercaseMD5,
+	}
+
+	downloadResp, err := client.DownloadFirmware(ctx, downloadReq)
+	require.NoError(t, err)
+	require.NotNil(t, downloadResp)
+
+	// Poll for completion
+	statusReq := &pb.GetDownloadStatusRequest{
+		SessionId: downloadResp.SessionId,
+	}
+
+	var finalResult *pb.DownloadResult
+	timeout := time.Now().Add(10 * time.Second)
+	for time.Now().Before(timeout) {
+		statusResp, err := client.GetDownloadStatus(ctx, statusReq)
+		require.NoError(t, err)
+
+		if result := statusResp.GetResult(); result != nil {
+			finalResult = result
+			break
+		}
+
+		if errorResp := statusResp.GetError(); errorResp != nil {
+			t.Fatalf("Download failed: %s", errorResp.Message)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	require.NotNil(t, finalResult, "Download should have completed successfully with case-insensitive MD5")
+
+	// Verify checksum validation passed despite case difference
+	checksumValidation := finalResult.ChecksumValidation
+	require.NotNil(t, checksumValidation)
+	assert.True(t, checksumValidation.ValidationRequested)
+	assert.True(t, checksumValidation.ValidationPassed)
+	assert.Equal(t, uppercaseMD5, checksumValidation.ExpectedChecksum)
+	assert.Equal(t, correctMD5, checksumValidation.ActualChecksum) // Server calculates in lowercase
 }

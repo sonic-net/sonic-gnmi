@@ -260,6 +260,8 @@ func (s *firmwareManagementServer) DownloadFirmware(
 	if req.TotalTimeoutSeconds > 0 {
 		config.OverallTimeout = time.Duration(req.TotalTimeoutSeconds) * time.Second
 	}
+	// Set expected MD5 checksum if provided
+	config.ExpectedMD5 = req.ExpectedMd5
 
 	// Resolve output path
 	outputPath := req.OutputPath
@@ -463,6 +465,13 @@ func convertResultToProto(result *download.DownloadResult) *pb.DownloadResult {
 		AttemptCount:  int32(result.AttemptCount),
 		FinalMethod:   result.FinalMethod,
 		Url:           result.URL,
+		ChecksumValidation: &pb.ChecksumValidation{
+			ValidationRequested: result.ChecksumValidation.ValidationRequested,
+			ValidationPassed:    result.ChecksumValidation.ValidationPassed,
+			ExpectedChecksum:    result.ChecksumValidation.ExpectedChecksum,
+			ActualChecksum:      result.ChecksumValidation.ActualChecksum,
+			Algorithm:           result.ChecksumValidation.Algorithm,
+		},
 	}
 }
 

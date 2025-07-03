@@ -15,6 +15,8 @@ const (
 	ErrorCategoryHTTP ErrorCategory = "http"
 	// ErrorCategoryFileSystem represents local file system errors.
 	ErrorCategoryFileSystem ErrorCategory = "filesystem"
+	// ErrorCategoryValidation represents validation errors (e.g., checksum mismatch).
+	ErrorCategoryValidation ErrorCategory = "validation"
 	// ErrorCategoryOther represents other types of errors.
 	ErrorCategoryOther ErrorCategory = "other"
 )
@@ -78,6 +80,16 @@ func NewFileSystemError(url, message string, attempts []Attempt) *DownloadError 
 	}
 }
 
+// NewValidationError creates a new validation-related download error.
+func NewValidationError(url, message string, attempts []Attempt) *DownloadError {
+	return &DownloadError{
+		Category: ErrorCategoryValidation,
+		Message:  message,
+		URL:      url,
+		Attempts: attempts,
+	}
+}
+
 // NewOtherError creates a new error for cases that don't fit other categories.
 func NewOtherError(url, message string, attempts []Attempt) *DownloadError {
 	return &DownloadError{
@@ -109,6 +121,11 @@ func (e *DownloadError) IsHTTPError() bool {
 // IsFileSystemError returns true if this is a file system error.
 func (e *DownloadError) IsFileSystemError() bool {
 	return e.Category == ErrorCategoryFileSystem
+}
+
+// IsValidationError returns true if this is a validation error.
+func (e *DownloadError) IsValidationError() bool {
+	return e.Category == ErrorCategoryValidation
 }
 
 // LastAttempt returns the last attempt made, or nil if no attempts were made.
