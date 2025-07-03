@@ -1,3 +1,17 @@
+// Package server provides the main gRPC server implementation for the SONiC Upgrade Service.
+// It combines multiple service implementations (SystemInfo and FirmwareManagement) into
+// a single server with configurable TLS support and reflection capabilities.
+//
+// The server supports both secure (TLS) and insecure connections depending on deployment
+// requirements. It automatically registers all available services and enables gRPC reflection
+// for tools like grpcurl.
+//
+// Key features:
+//   - Configurable TLS with certificate validation
+//   - Service auto-registration for SystemInfo and FirmwareManagement
+//   - gRPC reflection support for development and testing
+//   - Graceful shutdown handling
+//   - Comprehensive logging and error handling
 package server
 
 import (
@@ -13,18 +27,34 @@ import (
 	pb "github.com/sonic-net/sonic-gnmi/upgrade-service/proto"
 )
 
-// Server represents the gRPC server and its resources.
+// Server represents the gRPC server and its resources, providing a unified interface
+// for managing the lifecycle of the SONiC Upgrade Service. It encapsulates the
+// underlying gRPC server instance and network listener for clean resource management.
 type Server struct {
-	grpcServer *grpc.Server
-	listener   net.Listener
+	grpcServer *grpc.Server // The underlying gRPC server instance
+	listener   net.Listener // Network listener for incoming connections
 }
 
 // NewServer creates a new Server instance using global configuration.
+// This is the convenience function that reads TLS settings from the global config
+// and delegates to NewServerWithTLS for actual server creation.
 func NewServer(addr string) (*Server, error) {
 	return NewServerWithTLS(addr, config.Global.TLSEnabled, config.Global.TLSCertFile, config.Global.TLSKeyFile)
 }
 
-// NewServerWithTLS creates a new Server instance with configurable TLS.
+// NewServerWithTLS creates a new Server instance with configurable TLS support.
+// This function handles the complete server setup including:
+//   - Network listener creation on the specified address
+//   - TLS certificate validation and loading (if enabled)
+//   - gRPC server instantiation with appropriate security settings
+//   - Service registration for SystemInfo and FirmwareManagement
+//   - gRPC reflection setup for development tools
+//
+// Parameters:
+//   - addr: Network address to bind to (e.g., ":8080", "localhost:50051")
+//   - useTLS: Whether to enable TLS encryption
+//   - certFile: Path to TLS certificate file (required if useTLS is true)
+//   - keyFile: Path to TLS private key file (required if useTLS is true)
 func NewServerWithTLS(addr string, useTLS bool, certFile, keyFile string) (*Server, error) {
 	glog.V(1).Infof("Creating new server listening on %s (TLS: %t)", addr, useTLS)
 	lis, err := net.Listen("tcp", addr)
@@ -79,13 +109,17 @@ func NewServerWithTLS(addr string, useTLS bool, certFile, keyFile string) (*Serv
 	}, nil
 }
 
-// Start begins serving requests.
+// Start begins serving requests on the configured listener.
+// This method blocks until the server is stopped or encounters an error.
+// It should typically be called in a goroutine if non-blocking operation is needed.
 func (s *Server) Start() error {
 	glog.Infof("Starting gRPC server on %s", s.listener.Addr().String())
 	return s.grpcServer.Serve(s.listener)
 }
 
-// Stop gracefully stops the server.
+// Stop gracefully stops the server, allowing active requests to complete.
+// This method waits for all active RPCs to finish before returning, ensuring
+// clean shutdown without dropping client connections.
 func (s *Server) Stop() {
 	glog.Info("Gracefully stopping server...")
 	s.grpcServer.GracefulStop()
