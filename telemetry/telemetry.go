@@ -29,6 +29,11 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
+var (
+	// Image directory.
+	imgDirPath = flag.String("img_dir", "/tmp", "Directory path where image will be transferred.")
+)
+
 type ServerControlValue int
 
 const (
@@ -229,7 +234,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	gnmi.JwtRefreshInt = time.Duration(*telemetryCfg.JwtRefInt * uint64(time.Second))
 	gnmi.JwtValidInt = time.Duration(*telemetryCfg.JwtValInt * uint64(time.Second))
 
-	cfg := &gnmi.Config{}
+	cfg := &gnmi.Config{ImgDir: *imgDirPath}
 	cfg.Port = int64(*telemetryCfg.Port)
 	cfg.EnableTranslibWrite = bool(*telemetryCfg.GnmiTranslibWrite)
 	cfg.EnableNativeWrite = bool(*telemetryCfg.GnmiNativeWrite)
