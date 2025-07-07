@@ -31,14 +31,6 @@ Tests sonic-installer CLI wrapper functionality.
 - **Usage:** `./bin/test-installer <command> [args...]`
 - **⚠️ Warning:** Some commands modify bootloader configuration
 
-### test-list-images/
-Tests ListImages RPC functionality.
-
-- **Purpose:** Validate ListImages RPC implementation
-- **Safety:** Read-only, calls sonic-installer list only
-- **Build:** `make build-test-tools`
-- **Usage:** `./bin/test-list-images [--help]`
-
 ### test-image-inspector/
 Tests image analysis and version extraction functionality.
 

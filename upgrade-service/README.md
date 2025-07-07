@@ -51,7 +51,6 @@ sonic-gnmi/upgrade-service/
 │       ├── diskspace/            # Disk space analysis tool
 │       ├── image-inspector/      # Firmware image inspection tool
 │       ├── installer/            # sonic-installer wrapper testing
-│       ├── list-images/          # Image listing tool
 │       ├── bootloader/           # Bootloader detection testing
 │       └── redis/                # Redis client testing
 ├── internal/                     # Private packages not intended for external use
