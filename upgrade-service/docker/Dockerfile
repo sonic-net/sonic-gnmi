@@ -7,13 +7,13 @@ RUN groupadd -r opsd && useradd -r -g opsd -s /bin/false opsd
 WORKDIR /usr/local/bin
 
 # Copy the built binary
-COPY bin/sonic-ops-server /usr/local/bin/sonic-ops-server
+COPY bin/opsd-server /usr/local/bin/opsd-server
 
 # Create directory for any config files
 RUN mkdir -p /etc/opsd && chown -R opsd:opsd /etc/opsd
 
 # Set proper permissions
-RUN chmod +x /usr/local/bin/sonic-ops-server
+RUN chmod +x /usr/local/bin/opsd-server
 
 # Copy and set up the entrypoint script
 COPY docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

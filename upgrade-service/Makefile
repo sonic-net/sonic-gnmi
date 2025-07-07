@@ -214,8 +214,8 @@ test-certs: ## Generate test certificates for TLS testing
 ##############################################################################
 
 # Build the server
-build: validate-proto ## Build the sonic-ops-server binary
-	go build -tags "$(BUILD_TAGS)" -o bin/sonic-ops-server cmd/server/main.go
+build: validate-proto ## Build the opsd-server binary
+	go build -tags "$(BUILD_TAGS)" -o bin/opsd-server cmd/server/main.go
 
 # Build all packages
 build-all: ## Build all packages (validate only)
@@ -244,7 +244,7 @@ build-test-tools: ## Build all test utilities
 
 # Run the server
 run: build ## Build and run the server
-	./bin/sonic-ops-server
+	./bin/opsd-server
 
 # Clean build artifacts
 clean: ## Clean build artifacts
