@@ -1,11 +1,14 @@
 package host_service
 
 import (
-	"reflect"
-	"testing"
-
+	"errors"
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"reflect"
+	"strings"
+	"testing"
 )
 
 func TestNewDbusClient(t *testing.T) {
@@ -1190,5 +1193,81 @@ func TestFactoryReset(t *testing.T) {
 	}
 	if result != expectedResult {
 		t.Errorf("Expected result: %s, got: %s", expectedResult, result)
+	}
+}
+
+func TestInstallOSSuccess(t *testing.T) {
+	req := "stable"
+
+	patch := gomonkey.ApplyFunc(DbusApi, func(busName, busPath, intName string, timeout int, args ...interface{}) (interface{}, error) {
+		return "stable", nil
+	})
+	defer patch.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	result, err := client.InstallOS(req)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if result != "stable" {
+		t.Errorf("Expected 'stable', got: %v", result)
+	}
+}
+
+func TestInstallOSUnimplemented(t *testing.T) {
+	req := "stable"
+
+	patch := gomonkey.ApplyFunc(DbusApi, func(busName, busPath, intName string, timeout int, args ...interface{}) (interface{}, error) {
+		return "ERROR_UNIMPLEMENTED: OS Install not supported", nil
+	})
+	defer patch.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	_, err = client.InstallOS(req)
+	if err == nil || status.Code(err) != codes.Unimplemented {
+		t.Errorf("Expected Unimplemented error, got: %v", err)
+	}
+}
+
+func TestInstallOSDbusClientError(t *testing.T) {
+	req := "stable"
+
+	patch := gomonkey.ApplyFunc(DbusApi, func(busName, busPath, intName string, timeout int, args ...interface{}) (interface{}, error) {
+		return nil, errors.New("mock D-Bus error")
+	})
+	defer patch.Reset()
+
+	// Call the function under test
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	_, err = client.InstallOS(req)
+	if err == nil || !strings.Contains(err.Error(), "mock D-Bus error") {
+		t.Fatalf("expected dbus error, got: %v (%v)", err, client)
+	}
+}
+
+func TestInstallOSInvalidTypeFromDbusApi(t *testing.T) {
+	req := "stable"
+
+	patch := gomonkey.ApplyFunc(DbusApi, func(busName, busPath, intName string, timeout int, args ...interface{}) (interface{}, error) {
+		return 42, nil // Not a string
+	})
+	defer patch.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	_, err = client.InstallOS(req)
+	if err == nil || !strings.Contains(err.Error(), "Invalid result type") {
+		t.Fatalf("expected type error, got: %v (%v)", err, client)
 	}
 }

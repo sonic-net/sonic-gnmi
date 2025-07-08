@@ -3,11 +3,19 @@ package host_service
 import (
 	"fmt"
 	"reflect"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/godbus/dbus/v5"
 	log "github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+var (
+	osMu sync.Mutex
 )
 
 type Service interface {
@@ -36,6 +44,7 @@ type Service interface {
 	FactoryReset(cmd string) (string, error)
 	// Docker services APIs
 	LoadDockerImage(image string) error
+	InstallOS(req string) (string, error)
 }
 
 type DbusClient struct {
@@ -323,6 +332,31 @@ func (c *DbusClient) FactoryReset(cmd string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("Invalid result type %v: expected string, got %T", reflect.TypeOf(result), result)
 	}
+	return strResult, nil
+}
 
+func (c *DbusClient) InstallOS(req string) (string, error) {
+	common_utils.IncCounter(common_utils.GNOI_OS_INSTALL)
+	modName := "image_service"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".gnoi_install_os"
+
+	osMu.Lock()
+	defer osMu.Unlock()
+	//return DbusApi(busName, busPath, intName, 10, req)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 60, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	log.V(2).Infof("DbusClient: InstallOS: %v", strResult)
+	// If backend returned "ERROR_UNIMPLEMENTED" in the string response
+	if strings.Contains(strResult, "ERROR_UNIMPLEMENTED") {
+		return "", status.Errorf(codes.Unimplemented, "OS Install not supported: %s", strResult)
+	}
 	return strResult, nil
 }
