@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
@@ -260,7 +261,11 @@ func PopulateAuthStructByCommonName(certCommonName string, auth *common_utils.Au
 
 	var fieldValuePairs = configDbConnector.Get_entry(serviceConfigTableName, certCommonName)
 	if fieldValuePairs.Size() > 0 {
-		if fieldValuePairs.Has_key("role") {
+		if fieldValuePairs.Has_key("role@") {
+			var role = fieldValuePairs.Get("role@")
+			auth.Roles = strings.Split(role, ",")
+		} else if fieldValuePairs.Has_key("role") {
+			// Backward compatibility for single role DB schema
 			var role = fieldValuePairs.Get("role")
 			auth.Roles = []string{role}
 		}
