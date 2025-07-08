@@ -5,114 +5,18 @@ import (
 	"encoding/json"
 	jwt "github.com/dgrijalva/jwt-go"
 	log "github.com/golang/glog"
-	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
-	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"os"
 	"os/user"
-	"strings"
 	"time"
 )
 
 const (
 	stateDB string = "STATE_DB"
 )
-
-func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) (*gnoi_os_pb.VerifyResponse, error) {
-	_, err := authenticate(srv.config, ctx, "gnoi", false)
-	if err != nil {
-		log.V(2).Infof("Failed to authenticate: %v", err)
-		return nil, err
-	}
-
-	log.V(1).Info("gNOI: Verify")
-	dbus, err := ssc.NewDbusClient()
-	if err != nil {
-		log.V(2).Infof("Failed to create dbus client: %v", err)
-		return nil, err
-	}
-	defer dbus.Close()
-
-	image_json, err := dbus.ListImages()
-	if err != nil {
-		log.V(2).Infof("Failed to list images: %v", err)
-		return nil, err
-	}
-
-	images := make(map[string]interface{})
-	err = json.Unmarshal([]byte(image_json), &images)
-	if err != nil {
-		log.V(2).Infof("Failed to unmarshal images: %v", err)
-		return nil, err
-	}
-
-	current, exists := images["current"]
-	if !exists {
-		return nil, status.Errorf(codes.Internal, "Key 'current' not found in images")
-	}
-	current_image, ok := current.(string)
-	if !ok {
-		return nil, status.Errorf(codes.Internal, "Failed to assert current image as string")
-	}
-	resp := &gnoi_os_pb.VerifyResponse{
-		Version: current_image,
-	}
-	return resp, nil
-}
-
-func (srv *OSServer) Activate(ctx context.Context, req *gnoi_os_pb.ActivateRequest) (*gnoi_os_pb.ActivateResponse, error) {
-	_, err := authenticate(srv.config, ctx, "gnoi" /*writeAccess=*/, true)
-	if err != nil {
-		log.Errorf("Failed to authenticate: %v", err)
-		return nil, err
-	}
-
-	log.Infof("gNOI: Activate")
-	image := req.GetVersion()
-	log.Infof("Requested to activate image %s", image)
-
-	dbus, err := ssc.NewDbusClient()
-	if err != nil {
-		log.Errorf("Failed to create dbus client: %v", err)
-		return nil, err
-	}
-	defer dbus.Close()
-
-	var resp gnoi_os_pb.ActivateResponse
-	err = dbus.ActivateImage(image)
-	if err != nil {
-		log.Errorf("Failed to activate image %s: %v", image, err)
-		image_not_exists := os.IsNotExist(err) ||
-			(strings.Contains(strings.ToLower(err.Error()), "not") &&
-				strings.Contains(strings.ToLower(err.Error()), "exist"))
-		if image_not_exists {
-			// Image does not exist.
-			resp.Response = &gnoi_os_pb.ActivateResponse_ActivateError{
-				ActivateError: &gnoi_os_pb.ActivateError{
-					Type:   gnoi_os_pb.ActivateError_NON_EXISTENT_VERSION,
-					Detail: err.Error(),
-				},
-			}
-		} else {
-			// Other error.
-			resp.Response = &gnoi_os_pb.ActivateResponse_ActivateError{
-				ActivateError: &gnoi_os_pb.ActivateError{
-					Type:   gnoi_os_pb.ActivateError_UNSPECIFIED,
-					Detail: err.Error(),
-				},
-			}
-		}
-		return &resp, nil
-	}
-
-	log.Infof("Successfully activated image %s", image)
-	resp.Response = &gnoi_os_pb.ActivateResponse_ActivateOk{}
-	return &resp, nil
-}
 
 func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
 	// Can't enforce normal authentication here.. maybe only enforce client cert auth if enabled?
