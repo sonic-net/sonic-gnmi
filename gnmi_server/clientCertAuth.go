@@ -3,7 +3,6 @@ package gnmi
 import (
 	"strings"
 
-	"github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/golang/glog"
