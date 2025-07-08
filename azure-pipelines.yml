@@ -82,10 +82,10 @@ stages:
         runVersion: 'latestFromBranch'
         runBranch: 'refs/heads/$(BUILD_BRANCH)'
         patterns: |
-            target/debs/bookworm/libyang*.deb
-            target/debs/bookworm/libnl*.deb
-            target/python-wheels/bookworm/sonic_yang_models*.whl
-      displayName: "Download bookworm debs"
+            target/debs/bullseye/libyang*.deb
+            target/debs/bullseye/libnl*.deb
+            target/python-wheels/bullseye/sonic_yang_models*.whl
+      displayName: "Download bullseye debs"
 
     - script: |
         # PYTEST
