@@ -95,6 +95,9 @@ func NewServerWithTLS(addr string, useTLS bool, certFile, keyFile string) (*Serv
 	systemInfoServer := NewSystemInfoServer()
 	pb.RegisterSystemInfoServer(grpcServer, systemInfoServer)
 
+	firmwareManagementServer := NewFirmwareManagementServer(config.Global.RootFS)
+	pb.RegisterFirmwareManagementServer(grpcServer, firmwareManagementServer)
+
 	// Register reflection service for grpcurl functionality
 	glog.V(2).Info("Registering reflection service")
 	reflection.Register(grpcServer)
