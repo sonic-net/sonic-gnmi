@@ -5122,7 +5122,7 @@ func TestAuthenticate(t *testing.T) {
 	configDb.Flushdb()
 	gnmiTable.Hset("certname1", "role@", "readonly")
 	// Call authenticate to verify the user's role. This should fail if the role is "readonly".
-	_, err = authenticate(cfg, ctx, true)
+	_, err = authenticate(cfg, ctx)
 	if err == nil {
 		t.Errorf("authenticate with readonly role should fail: %v", err)
 	}
