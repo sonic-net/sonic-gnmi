@@ -39,6 +39,14 @@ func (f *FakeClient) FactoryReset(cmd string) (string, error) {
 	}
 	return cmd, nil
 }
+func (f *FakeClient) InstallOS(req string) (string, error) {
+	if req == "" {
+		return "", errors.New("invalid OS install request")
+	}
+	return req, nil
+}
+
+var _ Service = &FakeClient{}
 
 // FakeClientWithError simulates failure in specific methods.
 type FakeClientWithError struct {
