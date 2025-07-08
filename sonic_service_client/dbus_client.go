@@ -3,11 +3,16 @@ package host_service
 import (
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/godbus/dbus/v5"
 	log "github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+)
+
+var (
+	osMu sync.Mutex
 )
 
 type Service interface {
@@ -35,6 +40,9 @@ type Service interface {
 	ActivateImage(image string) error
 	// Docker services APIs
 	LoadDockerImage(image string) error
+	InstallOS(req string) (string, error)
+	ActivateOS(req string) (string, error)
+	VerifyOS(req string) (string, error)
 }
 
 type DbusClient struct {
@@ -304,4 +312,70 @@ func (c *DbusClient) LoadDockerImage(image string) error {
 	intName := c.intNamePrefix + modName + ".load"
 	_, err := DbusApi(busName, busPath, intName /*timeout=*/, 180, image)
 	return err
+}
+
+func (c *DbusClient) InstallOS(req string) (string, error) {
+	modName := "gnoi_os_mgmt"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".install"
+
+	osMu.Lock()
+	defer osMu.Unlock()
+	common_utils.IncCounter(common_utils.GNOI_OS_INSTALL)
+	//return DbusApi(busName, busPath, intName, 10, req)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 60, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	log.V(2).Infof("InstallOS: %v", result)
+	return strResult, nil
+}
+
+func (c *DbusClient) ActivateOS(req string) (string, error) {
+	modName := "gnoi_os_mgmt"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".activate"
+
+	osMu.Lock()
+	defer osMu.Unlock()
+	common_utils.IncCounter(common_utils.GNOI_OS_ACTIVATE)
+	//return DbusApi(busName, busPath, intName, 10, req)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	log.V(2).Infof("ActivateOS: %v", result)
+	return strResult, nil
+}
+
+func (c *DbusClient) VerifyOS(req string) (string, error) {
+	modName := "gnoi_os_mgmt"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".verify"
+
+	osMu.Lock()
+	defer osMu.Unlock()
+	common_utils.IncCounter(common_utils.GNOI_OS_VERIFY)
+	//return DbusApi(busName, busPath, intName, 10, req)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	log.V(2).Infof("VerifyOS: %v", result)
+	return strResult, nil
 }
