@@ -17,6 +17,15 @@ pr:
     - 202???
     - 201???
 
+variables:
+  - name: BUILD_BRANCH
+    ${{ if eq(variables['Build.Reason'], 'PullRequest') }}:
+      value: $(System.PullRequest.TargetBranch)
+    ${{ else }}:
+      value: $(Build.SourceBranchName)
+  - name: UNIT_TEST_FLAG
+    value: 'ENABLE_TRANSLIB_WRITE=y'
+
 resources:
   repositories:
   - repository: sonic-mgmt-common
@@ -28,6 +37,7 @@ resources:
     type: github
     name: sonic-net/sonic-swss-common
     endpoint: sonic-net
+    ref: refs/heads/$(BUILD_BRANCH)
 
 stages:
 - stage: Build
@@ -67,28 +77,20 @@ stages:
       inputs:
         source: specific
         project: build
-        pipeline: 1
+        pipeline: 142
         artifact: sonic-buildimage.vs
         runVersion: 'latestFromBranch'
-        runBranch: 'refs/heads/master'
+        runBranch: 'refs/heads/$(BUILD_BRANCH)'
         patterns: |
-            target/debs/bullseye/libyang*.deb
-            target/debs/bullseye/libnl*.deb
-      displayName: "Download bullseye debs"
-
-    - task: DownloadPipelineArtifact@2
-      inputs:
-        source: specific
-        project: build
-        pipeline: 127
-        artifact: sonic-mgmt-common
-        runVersion: 'latestFromBranch'
-        runBranch: 'refs/heads/master'
-      displayName: "Download sonic-mgmt-common"
+            target/debs/bookworm/libyang*.deb
+            target/debs/bookworm/libnl*.deb
+            target/python-wheels/bookworm/sonic_yang_models*.whl
+      displayName: "Download bookworm debs"
 
     - script: |
         # PYTEST
         sudo pip3 install -U pytest
+        sudo pip3 install -U jsonpatch
 
         # REDIS
         sudo apt-get update
@@ -101,6 +103,12 @@ stages:
         # LIBYANG
         sudo dpkg -i ../target/debs/bullseye/libyang*1.0.73*.deb
       displayName: "Install dependency"
+
+    - script: |
+        # SONIC YANGS
+        set -ex
+        sudo pip3 install ../target/python-wheels/bullseye/sonic_yang_models-1.0-py3-none-any.whl
+      displayName: "Install sonic yangs"
 
     - script: |
         # LIBSWSSCOMMON
@@ -127,7 +135,7 @@ stages:
         pipeline: Azure.sonic-swss-common
         artifact: sonic-swss-common
         runVersion: 'latestFromBranch'
-        runBranch: 'refs/heads/master'
+        runBranch: 'refs/heads/$(BUILD_BRANCH)'
       displayName: "Download sonic-swss-common"
 
     - script: |
