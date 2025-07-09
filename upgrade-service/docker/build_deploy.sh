@@ -88,7 +88,7 @@ scp $TEMP_IMAGE_FILE $TARGET:/tmp/
 echo "Loading and starting container on $TARGET..."
 ssh $TARGET "docker load -i /tmp/opsd-$IMAGE_TAG.tar && \
               docker rm -f opsd 2>/dev/null || true && \
-              docker run -d --name opsd --network host -v /host:/host:rw -e OPSD_ADDR='$OPSD_ADDR' -e DISABLE_TLS='$DISABLE_TLS' $IMAGE_NAME /usr/local/bin/opsd-server -rootfs=/host"
+              docker run -d --name opsd --network host -v /host:/host:rw -e OPSD_ADDR='$OPSD_ADDR' -e DISABLE_TLS='$DISABLE_TLS' $IMAGE_NAME -rootfs=/host"
 
 # Clean up the temporary file
 rm $TEMP_IMAGE_FILE
