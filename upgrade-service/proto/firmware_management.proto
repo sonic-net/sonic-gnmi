@@ -1,0 +1,296 @@
+syntax = "proto3";
+
+package sonic;
+
+option go_package = "github.com/sonic-net/sonic-gnmi/upgrade-service/proto";
+
+// FirmwareManagement service provides firmware management operations
+service FirmwareManagement {
+  // CleanupOldFirmware removes old firmware files from the system
+  rpc CleanupOldFirmware(CleanupOldFirmwareRequest) returns (CleanupOldFirmwareResponse) {}
+  
+  // ListFirmwareImages discovers firmware images in configured directories
+  rpc ListFirmwareImages(ListFirmwareImagesRequest) returns (ListFirmwareImagesResponse) {}
+  
+  // ConsolidateImages consolidates SONiC images by setting current as default and removing unused images
+  rpc ConsolidateImages(ConsolidateImagesRequest) returns (ConsolidateImagesResponse) {}
+  
+  // ListImages lists installed SONiC images using sonic-installer
+  rpc ListImages(ListImagesRequest) returns (ListImagesResponse) {}
+  
+  // Download firmware from a URL
+  rpc DownloadFirmware(DownloadFirmwareRequest) returns (DownloadFirmwareResponse) {}
+  
+  // Get download status and progress
+  rpc GetDownloadStatus(GetDownloadStatusRequest) returns (GetDownloadStatusResponse) {}
+}
+
+// CleanupOldFirmwareRequest is the request to clean up old firmware files
+message CleanupOldFirmwareRequest {
+}
+
+// CleanupOldFirmwareResponse contains the result of the cleanup operation
+message CleanupOldFirmwareResponse {
+  // Number of files that were successfully deleted
+  int32 files_deleted = 1;
+  
+  // List of files that were deleted
+  repeated string deleted_files = 2;
+  
+  // Any errors encountered during cleanup (non-fatal)
+  repeated string errors = 3;
+  
+  // Total space freed in bytes
+  int64 space_freed_bytes = 4;
+}
+
+// ListFirmwareImagesRequest is the request to list firmware images
+message ListFirmwareImagesRequest {
+  // Optional list of directories to search. If empty, uses default directories (/host, /tmp).
+  repeated string search_directories = 1;
+  
+  // Optional regex pattern to filter firmware versions. Empty string means no filtering.
+  // Examples: "202311.*", ".*-test.*", "^master\\..*", etc.
+  string version_pattern = 2;
+}
+
+// FirmwareImageInfo contains information about a discovered firmware image
+message FirmwareImageInfo {
+  // Full path to the firmware image file
+  string file_path = 1;
+  
+  // Version string extracted from the image
+  string version = 2;
+  
+  // Full version string with prefix (e.g., "SONiC-OS-202311.1-build123")
+  string full_version = 3;
+  
+  // Type of image: "onie" for .bin files, "aboot" for .swi files
+  string image_type = 4;
+  
+  // File size in bytes
+  int64 file_size_bytes = 5;
+}
+
+// ListFirmwareImagesResponse contains the discovered firmware images
+message ListFirmwareImagesResponse {
+  // List of discovered firmware images
+  repeated FirmwareImageInfo images = 1;
+  
+  // Any errors encountered during search (non-fatal, search continues)
+  repeated string errors = 2;
+}
+
+// ConsolidateImagesRequest is the request to consolidate SONiC images
+message ConsolidateImagesRequest {
+  // If true, only return what would be removed without actually removing anything
+  bool dry_run = 1;
+}
+
+// ConsolidateImagesResponse contains the result of the consolidation operation
+message ConsolidateImagesResponse {
+  // The current image that was set as default
+  string current_image = 1;
+  
+  // List of images that were removed (or would be removed in dry_run)
+  repeated string removed_images = 2;
+  
+  // Estimated space freed in bytes (if available)
+  int64 space_freed_bytes = 3;
+  
+  // Any warnings or non-fatal errors encountered
+  repeated string warnings = 4;
+  
+  // Whether the operation was actually performed (false for dry_run)
+  bool executed = 5;
+}
+
+// ListImagesRequest is the request to list installed SONiC images
+message ListImagesRequest {
+}
+
+// ListImagesResponse contains the list of installed SONiC images
+message ListImagesResponse {
+  // List of all installed image names
+  repeated string images = 1;
+  
+  // Name of the currently running image
+  string current_image = 2;
+  
+  // Name of the next boot image
+  string next_image = 3;
+  
+  // Any warnings or non-fatal errors encountered
+  repeated string warnings = 4;
+}
+
+// Request to start firmware download
+message DownloadFirmwareRequest {
+  // URL to download from (e.g., "http://10.201.148.43/pipelines/Networking-acs-buildimage-Official/vs/test/sonic-vs.bin")
+  string url = 1;
+  
+  // Optional output path. If empty, filename is auto-detected from URL and saved to /host
+  string output_path = 2;
+  
+  // Optional connection timeout in seconds (defaults to 30)
+  int32 connect_timeout_seconds = 3;
+  
+  // Optional overall timeout in seconds (defaults to 300)
+  int32 total_timeout_seconds = 4;
+  
+  // Optional MD5 checksum for verification after download
+  string expected_md5 = 5;
+}
+
+// Response from starting firmware download
+message DownloadFirmwareResponse {
+  // Unique session ID for tracking this download
+  string session_id = 1;
+  
+  // Initial status message
+  string status = 2;
+  
+  // Resolved output path where file will be saved
+  string output_path = 3;
+}
+
+// Request to get download status
+message GetDownloadStatusRequest {
+  // Session ID returned from DownloadFirmware
+  string session_id = 1;
+}
+
+// Response with current download status
+message GetDownloadStatusResponse {
+  // Session ID
+  string session_id = 1;
+  
+  // Current download state - exactly one of these will be set
+  oneof state {
+    // Download is starting up
+    DownloadStarting starting = 2;
+    
+    // Download is in progress
+    DownloadProgress progress = 3;
+    
+    // Download completed successfully
+    DownloadResult result = 4;
+    
+    // Download failed with error
+    DownloadError error = 5;
+  }
+}
+
+// Download is starting up
+message DownloadStarting {
+  // Status message
+  string message = 1;
+  
+  // Time when download started (RFC3339 format)
+  string start_time = 2;
+}
+
+// Download progress information
+message DownloadProgress {
+  // Bytes downloaded so far
+  int64 downloaded_bytes = 1;
+  
+  // Total bytes to download (0 if unknown)
+  int64 total_bytes = 2;
+  
+  // Download speed in bytes per second
+  double speed_bytes_per_sec = 3;
+  
+  // Progress percentage (0-100, calculated from downloaded/total if total > 0)
+  double percentage = 4;
+  
+  // Current download method being used ("interface", "ip", "direct")
+  string current_method = 5;
+  
+  // Number of attempts made so far
+  int32 attempt_count = 6;
+  
+  // Time when download started (RFC3339 format)
+  string start_time = 7;
+  
+  // Time of last progress update (RFC3339 format)
+  string last_update = 8;
+}
+
+// Download error information
+message DownloadError {
+  // Error category: "network", "http", "filesystem", "other"
+  string category = 1;
+  
+  // HTTP status code if applicable
+  int32 http_code = 2;
+  
+  // Human-readable error message
+  string message = 3;
+  
+  // URL that failed to download
+  string url = 4;
+  
+  // Details of all attempts made
+  repeated DownloadAttempt attempts = 5;
+}
+
+// Individual download attempt information
+message DownloadAttempt {
+  // Method used: "interface", "ip", "direct"
+  string method = 1;
+  
+  // Network interface or IP address used (for informational purposes)
+  string interface = 2;
+  
+  // Error message for this attempt (empty if successful)
+  string error = 3;
+  
+  // Duration of this attempt in milliseconds
+  int64 duration_ms = 4;
+  
+  // HTTP status code received (0 if no response)
+  int32 http_status = 5;
+}
+
+// Final download result for completed downloads
+message DownloadResult {
+  // Path where file was saved
+  string file_path = 1;
+  
+  // Size of downloaded file in bytes
+  int64 file_size_bytes = 2;
+  
+  // Total download duration in milliseconds
+  int64 duration_ms = 3;
+  
+  // Number of attempts made
+  int32 attempt_count = 4;
+  
+  // Final successful method used
+  string final_method = 5;
+  
+  // URL that was downloaded
+  string url = 6;
+  
+  // Checksum validation information
+  ChecksumValidation checksum_validation = 7;
+}
+
+// Checksum validation result information
+message ChecksumValidation {
+  // Whether checksum validation was requested
+  bool validation_requested = 1;
+  
+  // Whether validation passed (only meaningful if validation_requested is true)
+  bool validation_passed = 2;
+  
+  // Expected checksum provided by client
+  string expected_checksum = 3;
+  
+  // Actual checksum calculated from downloaded file
+  string actual_checksum = 4;
+  
+  // Checksum algorithm used (e.g., "md5")
+  string algorithm = 5;
+}
