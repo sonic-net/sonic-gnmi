@@ -63,12 +63,8 @@ type GetPlatformTypeResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The primary string representation of the platform type (e.g., "mellanox_sn4600", "arista_7050")
 	PlatformIdentifier string `protobuf:"bytes,1,opt,name=platform_identifier,json=platformIdentifier,proto3" json:"platform_identifier,omitempty"`
-	// Vendor of the platform (e.g., "mellanox", "arista", "cisco")
-	Vendor string `protobuf:"bytes,2,opt,name=vendor,proto3" json:"vendor,omitempty"`
-	// Model of the platform (e.g., "sn4600", "7050")
-	Model         string `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *GetPlatformTypeResponse) Reset() {
@@ -104,20 +100,6 @@ func (*GetPlatformTypeResponse) Descriptor() ([]byte, []int) {
 func (x *GetPlatformTypeResponse) GetPlatformIdentifier() string {
 	if x != nil {
 		return x.PlatformIdentifier
-	}
-	return ""
-}
-
-func (x *GetPlatformTypeResponse) GetVendor() string {
-	if x != nil {
-		return x.Vendor
-	}
-	return ""
-}
-
-func (x *GetPlatformTypeResponse) GetModel() string {
-	if x != nil {
-		return x.Model
 	}
 	return ""
 }
@@ -301,11 +283,9 @@ var File_proto_system_info_proto protoreflect.FileDescriptor
 const file_proto_system_info_proto_rawDesc = "" +
 	"\n" +
 	"\x17proto/system_info.proto\x12\x05sonic\"\x18\n" +
-	"\x16GetPlatformTypeRequest\"x\n" +
+	"\x16GetPlatformTypeRequest\"J\n" +
 	"\x17GetPlatformTypeResponse\x12/\n" +
-	"\x13platform_identifier\x18\x01 \x01(\tR\x12platformIdentifier\x12\x16\n" +
-	"\x06vendor\x18\x02 \x01(\tR\x06vendor\x12\x14\n" +
-	"\x05model\x18\x03 \x01(\tR\x05model\"+\n" +
+	"\x13platform_identifier\x18\x01 \x01(\tR\x12platformIdentifier\"+\n" +
 	"\x13GetDiskSpaceRequest\x12\x14\n" +
 	"\x05paths\x18\x01 \x03(\tR\x05paths\"\xfb\x01\n" +
 	"\x14GetDiskSpaceResponse\x12K\n" +
