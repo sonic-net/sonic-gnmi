@@ -63,6 +63,9 @@ const (
 	DBUS_DOCKER_LOAD
 	DBUS_CONFIG_REPLACE
 	COUNTER_SIZE
+	GNOI_HEALTHZ_ACK
+	GNOI_HEALTHZ_CHECK
+	GNOI_HEALTHZ_COLLECT
 )
 
 func (c CounterType) String() string {
@@ -115,6 +118,12 @@ func (c CounterType) String() string {
 		return "DBUS docker load"
 	case DBUS_CONFIG_REPLACE:
 		return "DBUS config replace"
+	case GNOI_HEALTHZ_ACK:
+		return "GNOI Healthz Ack"
+	case GNOI_HEALTHZ_CHECK:
+		return "GNOI Healthz Check"
+	case GNOI_HEALTHZ_COLLECT:
+		return "GNOI Healthz COLLECT"
 	default:
 		return ""
 	}
