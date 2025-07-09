@@ -43,6 +43,9 @@ const (
 	GNMI_SET
 	GNMI_SET_FAIL
 	GNOI_REBOOT
+	GNOI_HEALTHZ_ACK
+	GNOI_HEALTHZ_CHECK
+	GNOI_HEALTHZ_COLLECT
 	DBUS
 	DBUS_FAIL
 	DBUS_APPLY_PATCH_DB
@@ -63,6 +66,9 @@ const (
 	DBUS_DOCKER_LOAD
 	DBUS_CONFIG_REPLACE
 	COUNTER_SIZE
+	//GNOI_HEALTHZ_ACK
+	//GNOI_HEALTHZ_CHECK
+	//GNOI_HEALTHZ_COLLECT
 )
 
 func (c CounterType) String() string {
@@ -77,6 +83,12 @@ func (c CounterType) String() string {
 		return "GNMI set fail"
 	case GNOI_REBOOT:
 		return "GNOI reboot"
+	case GNOI_HEALTHZ_ACK:
+		return "GNOI Healthz Ack"
+	case GNOI_HEALTHZ_CHECK:
+		return "GNOI Healthz Check"
+	case GNOI_HEALTHZ_COLLECT:
+		return "GNOI Healthz Collect"
 	case DBUS:
 		return "DBUS"
 	case DBUS_FAIL:

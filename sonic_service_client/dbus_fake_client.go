@@ -3,7 +3,10 @@ package host_service
 import "errors"
 
 // FakeClient is a mock implementation of the Service interface.
-type FakeClient struct{}
+type FakeClient struct {
+	CollectResponse string
+	CollectErr      error
+}
 
 func (f *FakeClient) Close() error                         { return nil }
 func (f *FakeClient) ConfigReload(fileName string) error   { return nil }
@@ -33,6 +36,15 @@ func (f *FakeClient) InstallImage(where string) error                { return ni
 func (f *FakeClient) ListImages() (string, error)                    { return "image1", nil }
 func (f *FakeClient) ActivateImage(image string) error               { return nil }
 func (f *FakeClient) LoadDockerImage(image string) error             { return nil }
+func (f *FakeClient) HealthzAck(req string) (string, error)          { return "fake-ack-success", nil }
+func (f *FakeClient) HealthzCheck(req string) (string, error)        { return "fake-check-success", nil }
+func (f *FakeClient) HealthzCollect(req string) (string, error) {
+	if f.CollectErr != nil {
+		return "", f.CollectErr
+	}
+	return f.CollectResponse, nil
+	//return "fake-collect-success", nil
+}
 
 // FakeClientWithError simulates failure in specific methods.
 type FakeClientWithError struct {
