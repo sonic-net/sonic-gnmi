@@ -149,16 +149,16 @@ The server supports the following command-line options:
 
 ```bash
 # Basic usage with default settings (port 50051, rootfs /mnt/host)
-./bin/sonic-ops-server
+./bin/opsd-server
 
 # Specify different port and rootfs (useful for containers vs baremetal)
-./bin/sonic-ops-server --addr=:8080 --rootfs=/host
+./bin/opsd-server --addr=:8080 --rootfs=/host
 
 # Enable verbose logging
-./bin/sonic-ops-server -v=2
+./bin/opsd-server -v=2
 
 # Show all available options
-./bin/sonic-ops-server --help
+./bin/opsd-server --help
 ```
 
 **Configuration Options:**
@@ -486,19 +486,19 @@ The server is designed to work in different deployment scenarios:
 ### Container Deployment
 ```bash
 # Container with host filesystem mounted at /mnt/host
-./bin/sonic-ops-server --rootfs=/mnt/host --addr=:50051
+./bin/opsd-server --rootfs=/mnt/host --addr=:50051
 ```
 
 ### Baremetal Deployment  
 ```bash
 # Direct baremetal installation
-./bin/sonic-ops-server --rootfs=/ --addr=:50051
+./bin/opsd-server --rootfs=/ --addr=:50051
 ```
 
 ### Development/Testing
 ```bash
 # Local testing with custom filesystem
-./bin/sonic-ops-server --rootfs=/tmp/test-env --addr=:50052
+./bin/opsd-server --rootfs=/tmp/test-env --addr=:50052
 ```
 
 The `--rootfs` flag allows the server to find system files (like `/host/machine.conf`) regardless of the deployment environment.
