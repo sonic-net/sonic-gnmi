@@ -423,7 +423,7 @@ When adding new functionality:
 
 ## CI/CD Integration
 
-This project includes a CI pipeline configured in the `.azure-pipelines/api-service-ci.yml` file, which runs a series of checks to validate code quality and correctness. The CI pipeline utilizes the same Makefile targets that are available for local development.
+This project includes CI pipeline integration that runs a series of checks to validate code quality and correctness. The CI pipeline utilizes the same Makefile targets that are available for local development.
 
 ### CI Pipeline Steps
 
