@@ -1,7 +1,7 @@
 FROM sonicdev-microsoft.azurecr.io/debian:bookworm
 
 # Create non-root user for security
-RUN groupadd -r opsd && useradd -r -g opsd -s /bin/false opsd
+RUN adduser --system --group opsd
 
 # Set working directory
 WORKDIR /usr/local/bin
