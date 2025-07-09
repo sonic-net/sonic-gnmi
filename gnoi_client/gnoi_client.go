@@ -11,6 +11,7 @@ import (
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/containerz"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/factory_reset"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/file"
+	gnoi_healthz "github.com/sonic-net/sonic-gnmi/gnoi_client/healthz"
 	gnoi_os "github.com/sonic-net/sonic-gnmi/gnoi_client/os" // So it does not collide with os.
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/sonic"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/system"
@@ -80,6 +81,27 @@ func main() {
 		switch *config.Rpc {
 		case "Start":
 			factory_reset.StartFactoryReset(frc, ctx)
+		default:
+			panic("Invalid RPC Name")
+		}
+	case "Healthz":
+		switch *config.Rpc {
+		case "Get":
+			gnoi_healthz.Get(conn, ctx)
+		case "List":
+			gnoi_healthz.List(conn, ctx)
+		case "Check":
+			gnoi_healthz.Check(conn, ctx)
+		//case "Artifact":
+		//	gnoi_healthz.Artifact(conn, ctx)
+		case "Acknowledge":
+			gnoi_healthz.Acknowledge(conn, ctx)
+			//if err := Acknowledge(conn, *jsonIn); err != nil {
+			//	fmt.Fprintf(os.Stderr, "Error in Acknowledge: %v\n", err)
+			//	os.Exit(1)
+			//}
+		case "Artifact":
+			gnoi_healthz.Artifact(conn, ctx, *config.Id)
 		default:
 			panic("Invalid RPC Name")
 		}
