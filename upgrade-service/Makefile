@@ -269,7 +269,7 @@ semgrep: ## Run semgrep security analysis
 ##############################################################################
 
 # CI pipeline target - runs all verification steps (validation only, no tool installation)
-ci: validate-format validate-proto tidy build-all vet lint test validate-coverage test-e2e verify semgrep ## Run full CI pipeline
+ci: validate-format validate-proto tidy build-all vet lint test test-coverage test-e2e verify semgrep ## Run full CI pipeline
 
 ##############################################################################
 # Packaging & Distribution
