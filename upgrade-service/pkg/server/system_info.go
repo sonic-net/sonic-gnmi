@@ -46,15 +46,13 @@ func (s *SystemInfoServer) GetPlatformType(
 		return nil, status.Errorf(codes.Internal, "failed to get platform information: %v", err)
 	}
 
-	// Get the platform identifier, vendor and model as strings
+	// Get the platform identifier as string
 	glog.V(2).Info("Extracting platform identifier from platform info")
-	platformIdentifier, vendor, model := hostinfo.GetPlatformIdentifierString(platformInfo)
+	platformIdentifier := hostinfo.GetPlatformIdentifierString(platformInfo)
 
-	glog.V(1).Infof("GetPlatformType response: platform=%s, vendor=%s, model=%s", platformIdentifier, vendor, model)
+	glog.V(1).Infof("GetPlatformType response: platform=%s", platformIdentifier)
 	return &pb.GetPlatformTypeResponse{
 		PlatformIdentifier: platformIdentifier,
-		Vendor:             vendor,
-		Model:              model,
 	}, nil
 }
 

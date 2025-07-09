@@ -383,7 +383,7 @@ func findModel(platformLower string, models []ModelPattern) string {
 }
 
 // handleUnknownPlatform processes platforms that don't match any known vendor configuration.
-func handleUnknownPlatform(info *PlatformInfo) (string, string, string) {
+func handleUnknownPlatform(info *PlatformInfo) string {
 	glog.V(3).Info("Processing unknown platform using fallback logic")
 
 	vendor := info.Vendor
@@ -402,9 +402,8 @@ func handleUnknownPlatform(info *PlatformInfo) (string, string, string) {
 		platformIdentifier = vendor + "_" + model
 	}
 
-	glog.V(3).Infof("Unknown platform result: identifier=%s, vendor=%s, model=%s",
-		platformIdentifier, vendor, model)
-	return platformIdentifier, vendor, model
+	glog.V(3).Infof("Unknown platform result: identifier=%s", platformIdentifier)
+	return platformIdentifier
 }
 
 // inferVendorFromPlatform tries to infer the vendor from the platform string.
@@ -436,15 +435,15 @@ func inferVendorFromPlatform(platform string) string {
 	return "unknown"
 }
 
-// GetPlatformIdentifierString determines the platform identifier, vendor and model strings
+// GetPlatformIdentifierString determines the platform identifier string
 // based on the platform information using a config-driven approach.
-func GetPlatformIdentifierString(info *PlatformInfo) (string, string, string) {
+func GetPlatformIdentifierString(info *PlatformInfo) string {
 	glog.V(2).Info("Determining platform identifier from platform info")
 
 	// If info is nil, return unknown
 	if info == nil {
-		glog.V(2).Info("Platform info is nil, returning unknown values")
-		return "unknown", "unknown", "unknown"
+		glog.V(2).Info("Platform info is nil, returning unknown")
+		return "unknown"
 	}
 
 	glog.V(3).Infof("Starting platform identification: vendor=%s, platform=%s", info.Vendor, info.Platform)
@@ -461,21 +460,15 @@ func GetPlatformIdentifierString(info *PlatformInfo) (string, string, string) {
 			// Handle special case for KVM
 			if strings.ToLower(config.Name) == "kvm" {
 				glog.V(3).Infof("KVM platform detected: %s", info.Platform)
-				return info.Platform, "kvm", "unknown"
+				return info.Platform
 			}
 
 			// Find model using configuration
 			model := findModel(platformLower, config.Models)
 			if model != "" {
-				vendor := config.Name
-				// Special case: Mellanox keeps original case, others are lowercase
-				if strings.ToLower(config.Name) != "mellanox" {
-					vendor = strings.ToLower(config.Name)
-				}
 				identifier := strings.ToLower(config.Name) + "_" + model
-				glog.V(2).Infof("Platform identification complete: identifier=%s, vendor=%s, model=%s",
-					identifier, vendor, model)
-				return identifier, vendor, model
+				glog.V(2).Infof("Platform identification complete: identifier=%s", identifier)
+				return identifier
 			}
 		}
 	}

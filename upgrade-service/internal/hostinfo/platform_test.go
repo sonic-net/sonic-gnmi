@@ -212,15 +212,11 @@ func TestGetPlatformIdentifier(t *testing.T) {
 		name               string
 		info               *PlatformInfo
 		expectedIdentifier string
-		expectedVendor     string
-		expectedModel      string
 	}{
 		{
 			name:               "Nil info",
 			info:               nil,
 			expectedIdentifier: "unknown",
-			expectedVendor:     "unknown",
-			expectedModel:      "unknown",
 		},
 		{
 			name: "Mellanox SN4600",
@@ -230,8 +226,6 @@ func TestGetPlatformIdentifier(t *testing.T) {
 				SwitchASIC: "mlnx",
 			},
 			expectedIdentifier: "mellanox_sn4600",
-			expectedVendor:     "Mellanox",
-			expectedModel:      "sn4600",
 		},
 		{
 			name: "Arista 7060",
@@ -240,8 +234,6 @@ func TestGetPlatformIdentifier(t *testing.T) {
 				Platform: "x86_64-arista_7060x6_64pe",
 			},
 			expectedIdentifier: "arista_7060",
-			expectedVendor:     "arista",
-			expectedModel:      "7060",
 		},
 		{
 			name: "Unknown platform",
@@ -250,23 +242,15 @@ func TestGetPlatformIdentifier(t *testing.T) {
 				Platform: "unknown",
 			},
 			expectedIdentifier: "unknown",
-			expectedVendor:     "unknown",
-			expectedModel:      "unknown",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Test GetPlatformIdentifierString directly
-			identifier, vendor, model := GetPlatformIdentifierString(test.info)
+			identifier := GetPlatformIdentifierString(test.info)
 			if identifier != test.expectedIdentifier {
 				t.Errorf("GetPlatformIdentifierString identifier: Expected %v, got %v", test.expectedIdentifier, identifier)
-			}
-			if vendor != test.expectedVendor {
-				t.Errorf("GetPlatformIdentifierString vendor: Expected %v, got %v", test.expectedVendor, vendor)
-			}
-			if model != test.expectedModel {
-				t.Errorf("GetPlatformIdentifierString model: Expected %v, got %v", test.expectedModel, model)
 			}
 		})
 	}
@@ -667,8 +651,6 @@ func TestHandleUnknownPlatform(t *testing.T) {
 		name               string
 		info               *PlatformInfo
 		expectedIdentifier string
-		expectedVendor     string
-		expectedModel      string
 	}{
 		{
 			name: "Unknown vendor with valid platform",
@@ -677,8 +659,6 @@ func TestHandleUnknownPlatform(t *testing.T) {
 				Platform: "x86_64-custom_model-r0",
 			},
 			expectedIdentifier: "custom_vendor_custom_model",
-			expectedVendor:     "custom_vendor",
-			expectedModel:      "custom_model",
 		},
 		{
 			name: "Empty vendor",
@@ -687,8 +667,6 @@ func TestHandleUnknownPlatform(t *testing.T) {
 				Platform: "x86_64-some_model-r0",
 			},
 			expectedIdentifier: "unknown_some_model",
-			expectedVendor:     "unknown",
-			expectedModel:      "some_model",
 		},
 		{
 			name: "Unknown vendor string",
@@ -697,22 +675,14 @@ func TestHandleUnknownPlatform(t *testing.T) {
 				Platform: "some_platform",
 			},
 			expectedIdentifier: "unknown_some_platform",
-			expectedVendor:     "unknown",
-			expectedModel:      "some_platform",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			identifier, vendor, model := handleUnknownPlatform(test.info)
+			identifier := handleUnknownPlatform(test.info)
 			if identifier != test.expectedIdentifier {
 				t.Errorf("Expected identifier '%s', got '%s'", test.expectedIdentifier, identifier)
-			}
-			if vendor != test.expectedVendor {
-				t.Errorf("Expected vendor '%s', got '%s'", test.expectedVendor, vendor)
-			}
-			if model != test.expectedModel {
-				t.Errorf("Expected model '%s', got '%s'", test.expectedModel, model)
 			}
 		})
 	}
@@ -723,8 +693,6 @@ func TestGetPlatformIdentifierString_AllVendors(t *testing.T) {
 		name               string
 		info               *PlatformInfo
 		expectedIdentifier string
-		expectedVendor     string
-		expectedModel      string
 	}{
 		{
 			name: "Cisco platform",
@@ -733,8 +701,6 @@ func TestGetPlatformIdentifierString_AllVendors(t *testing.T) {
 				Platform: "x86_64-cisco_8101-r0",
 			},
 			expectedIdentifier: "cisco_8101",
-			expectedVendor:     "cisco",
-			expectedModel:      "8101",
 		},
 		{
 			name: "Nokia platform",
@@ -743,8 +709,6 @@ func TestGetPlatformIdentifierString_AllVendors(t *testing.T) {
 				Platform: "x86_64-nokia_7215-r0",
 			},
 			expectedIdentifier: "nokia_7215",
-			expectedVendor:     "nokia",
-			expectedModel:      "7215",
 		},
 		{
 			name: "Celestica platform",
@@ -753,8 +717,6 @@ func TestGetPlatformIdentifierString_AllVendors(t *testing.T) {
 				Platform: "x86_64-celestica_e1031-r0",
 			},
 			expectedIdentifier: "celestica_e1031",
-			expectedVendor:     "celestica",
-			expectedModel:      "e1031",
 		},
 		{
 			name: "KVM platform",
@@ -763,22 +725,14 @@ func TestGetPlatformIdentifierString_AllVendors(t *testing.T) {
 				Platform: "x86_64-kvm_x86_64-r0",
 			},
 			expectedIdentifier: "x86_64-kvm_x86_64-r0",
-			expectedVendor:     "kvm",
-			expectedModel:      "unknown",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			identifier, vendor, model := GetPlatformIdentifierString(test.info)
+			identifier := GetPlatformIdentifierString(test.info)
 			if identifier != test.expectedIdentifier {
 				t.Errorf("Expected identifier '%s', got '%s'", test.expectedIdentifier, identifier)
-			}
-			if vendor != test.expectedVendor {
-				t.Errorf("Expected vendor '%s', got '%s'", test.expectedVendor, vendor)
-			}
-			if model != test.expectedModel {
-				t.Errorf("Expected model '%s', got '%s'", test.expectedModel, model)
 			}
 		})
 	}
