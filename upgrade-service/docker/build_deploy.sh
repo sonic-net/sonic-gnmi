@@ -8,27 +8,41 @@ set -e
 TARGET=""
 IMAGE_TAG="latest"
 OPSD_ADDR=":50051"
+DISABLE_TLS="true"
 
 usage() {
-  echo "Usage: $0 -t <target> [-i <image_tag>] [-a <address>]"
+  echo "Usage: $0 -t <target> [-i <image_tag>] [-a <address>] [--enable-tls]"
   echo "  -t <target>    Target SONiC device (e.g., admin@vlab-01)"
   echo "  -i <image_tag> Docker image tag (default: latest)"
   echo "  -a <address>   Server address to listen on (default: :50051)"
+  echo "  --enable-tls   Enable TLS for secure connections (default: disabled)"
   exit 1
 }
 
-while getopts "t:i:a:h" opt; do
-  case ${opt} in
-    t)
-      TARGET=$OPTARG
+# Parse arguments (including long options)
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -t)
+      TARGET="$2"
+      shift 2
       ;;
-    i)
-      IMAGE_TAG=$OPTARG
+    -i)
+      IMAGE_TAG="$2"
+      shift 2
       ;;
-    a)
-      OPSD_ADDR=$OPTARG
+    -a)
+      OPSD_ADDR="$2"
+      shift 2
       ;;
-    h|*)
+    --enable-tls)
+      DISABLE_TLS="false"
+      shift
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      echo "Unknown option: $1"
       usage
       ;;
   esac
@@ -74,7 +88,7 @@ scp $TEMP_IMAGE_FILE $TARGET:/tmp/
 echo "Loading and starting container on $TARGET..."
 ssh $TARGET "docker load -i /tmp/opsd-$IMAGE_TAG.tar && \
               docker rm -f opsd 2>/dev/null || true && \
-              docker run -d --name opsd --network host -v /host:/host:rw -e OPSD_ADDR='$OPSD_ADDR' $IMAGE_NAME"
+              docker run -d --name opsd --network host -v /host:/host:rw -e OPSD_ADDR='$OPSD_ADDR' -e DISABLE_TLS='$DISABLE_TLS' $IMAGE_NAME"
 
 # Clean up the temporary file
 rm $TEMP_IMAGE_FILE
@@ -83,3 +97,4 @@ echo ""
 echo "Deployment completed successfully!"
 echo "Container 'opsd' is now running on $TARGET"
 echo "Listening on address: $OPSD_ADDR"
+echo "TLS enabled: $([ "$DISABLE_TLS" = "true" ] && echo "No" || echo "Yes")"
