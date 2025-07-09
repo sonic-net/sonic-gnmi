@@ -63,28 +63,28 @@ func TestGetPlatformType_E2E(t *testing.T) {
 		expectedPlatformIdentifier string
 	}{
 		{
-			name: "Success - Mellanox SN4600",
+			name: "Success - Mellanox Platform",
 			machineConfContent: `onie_platform=x86_64-mlnx_msn4600c-r0
 onie_machine=mlnx_msn4600c
 onie_arch=x86_64
 onie_switch_asic=mlnx`,
-			expectedPlatformIdentifier: "mellanox_sn4600",
+			expectedPlatformIdentifier: "x86_64-mlnx_msn4600c-r0",
 		},
 		{
-			name: "Success - Arista 7060",
+			name: "Success - Arista Platform",
 			machineConfContent: `aboot_vendor=arista
 aboot_platform=x86_64-arista_7060x6_64pe
 aboot_machine=arista_7060x6_64pe
 aboot_arch=x86_64`,
-			expectedPlatformIdentifier: "arista_7060",
+			expectedPlatformIdentifier: "x86_64-arista_7060x6_64pe",
 		},
 		{
-			name: "Unknown Platform",
+			name: "Generic Platform",
 			machineConfContent: `onie_platform=x86_64-generic_platform-r0
 onie_machine=generic_platform
 onie_arch=x86_64
 onie_switch_asic=unknown`,
-			expectedPlatformIdentifier: "unknown_generic_platform",
+			expectedPlatformIdentifier: "x86_64-generic_platform-r0",
 		},
 	}
 

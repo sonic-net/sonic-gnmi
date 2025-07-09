@@ -80,12 +80,12 @@ func runPlatformTest(t *testing.T, test platformTestCase) {
 
 func TestSystemInfoServer_GetPlatformType_Mellanox(t *testing.T) {
 	test := platformTestCase{
-		name: "Success - Mellanox SN4600",
+		name: "Success - Mellanox Platform",
 		machineConfContent: `onie_platform=x86_64-mlnx_msn4600c-r0
 onie_machine=mlnx_msn4600c
 onie_arch=x86_64
 onie_switch_asic=mlnx`,
-		expectedPlatformIdentifier: "mellanox_sn4600",
+		expectedPlatformIdentifier: "x86_64-mlnx_msn4600c-r0",
 		expectError:                false,
 	}
 	runPlatformTest(t, test)
@@ -93,12 +93,12 @@ onie_switch_asic=mlnx`,
 
 func TestSystemInfoServer_GetPlatformType_Arista(t *testing.T) {
 	test := platformTestCase{
-		name: "Success - Arista 7060",
+		name: "Success - Arista Platform",
 		machineConfContent: `aboot_vendor=arista
 aboot_platform=x86_64-arista_7060x6_64pe
 aboot_machine=arista_7060x6_64pe
 aboot_arch=x86_64`,
-		expectedPlatformIdentifier: "arista_7060",
+		expectedPlatformIdentifier: "x86_64-arista_7060x6_64pe",
 		expectError:                false,
 	}
 	runPlatformTest(t, test)
@@ -106,12 +106,12 @@ aboot_arch=x86_64`,
 
 func TestSystemInfoServer_GetPlatformType_Dell(t *testing.T) {
 	test := platformTestCase{
-		name: "Success - Dell S6100",
+		name: "Success - Dell Platform",
 		machineConfContent: `onie_platform=x86_64-dell_s6100-r0
 onie_machine=dell_s6100
 onie_arch=x86_64
 onie_switch_asic=broadcom`,
-		expectedPlatformIdentifier: "dell_s6100",
+		expectedPlatformIdentifier: "x86_64-dell_s6100-r0",
 		expectError:                false,
 	}
 	runPlatformTest(t, test)
