@@ -25,6 +25,7 @@ var (
 	caCert            = flag.String("ca_crt", "", "CA certificate for client certificate validation. Optional.")
 	serverCert        = flag.String("server_crt", "", "TLS server certificate")
 	serverKey         = flag.String("server_key", "", "TLS server private key")
+	configTableName   = flag.String("config_table_name", "", "Config table name")
 	insecure          = flag.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!")
 	noTLS             = flag.Bool("noTLS", false, "disable TLS, for testing only!")
 	allowNoClientCert = flag.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate.")
@@ -83,6 +84,7 @@ func main() {
 	cfg.LogLevel = 3
 	cfg.Threshold = int(*threshold)
 	cfg.IdleConnDuration = int(*idle_conn_duration)
+	cfg.ConfigTableName = *configTableName
 	var opts []grpc.ServerOption
 
 	if val, err := strconv.Atoi(getflag("v")); err == nil {

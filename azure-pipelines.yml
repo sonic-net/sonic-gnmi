@@ -23,6 +23,8 @@ variables:
       value: $(System.PullRequest.TargetBranch)
     ${{ else }}:
       value: $(Build.SourceBranchName)
+  - name: UNIT_TEST_FLAG
+    value: 'ENABLE_TRANSLIB_WRITE=y'
 
 resources:
   repositories:
@@ -30,7 +32,7 @@ resources:
     type: github
     name: sonic-net/sonic-mgmt-common
     endpoint: sonic-net
-    ref: refs/heads/$(BUILD_BRANCH)
+    ref: faa2a51b8f1defd36026f637b1abe56d972ac116
   - repository: sonic-swss-common
     type: github
     name: sonic-net/sonic-swss-common
@@ -45,7 +47,7 @@ stages:
     timeoutInMinutes: 60
 
     pool:
-      vmImage: ubuntu-20.04
+      vmImage: ubuntu-22.04
 
     variables:
       DIFF_COVER_CHECK_THRESHOLD: 80
@@ -75,18 +77,20 @@ stages:
       inputs:
         source: specific
         project: build
-        pipeline: 1
+        pipeline: 142
         artifact: sonic-buildimage.vs
         runVersion: 'latestFromBranch'
-        runBranch: 'refs/heads/master'
+        runBranch: 'refs/heads/$(BUILD_BRANCH)'
         patterns: |
             target/debs/bullseye/libyang*.deb
             target/debs/bullseye/libnl*.deb
+            target/python-wheels/bullseye/sonic_yang_models*.whl
       displayName: "Download bullseye debs"
 
     - script: |
         # PYTEST
         sudo pip3 install -U pytest
+        sudo pip3 install -U jsonpatch
 
         # REDIS
         sudo apt-get update
@@ -99,6 +103,12 @@ stages:
         # LIBYANG
         sudo dpkg -i ../target/debs/bullseye/libyang*1.0.73*.deb
       displayName: "Install dependency"
+
+    - script: |
+        # SONIC YANGS
+        set -ex
+        sudo pip3 install ../target/python-wheels/bullseye/sonic_yang_models-1.0-py3-none-any.whl
+      displayName: "Install sonic yangs"
 
     - script: |
         # LIBSWSSCOMMON
@@ -125,7 +135,7 @@ stages:
         pipeline: Azure.sonic-swss-common
         artifact: sonic-swss-common
         runVersion: 'latestFromBranch'
-        runBranch: 'refs/heads/master'
+        runBranch: 'refs/heads/$(BUILD_BRANCH)'
       displayName: "Download sonic-swss-common"
 
     - script: |
