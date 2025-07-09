@@ -1,13 +1,9 @@
 package client
 
 import (
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"sync"
 	"time"
-
-	"gopkg.in/yaml.v2"
 
 	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
@@ -27,16 +23,16 @@ type path2Data struct {
 }
 
 var (
-	showTrie *Trie
-	path2DataTbl = []path2Data {
+	showTrie     *Trie
+	path2DataTbl = []path2Data{
 		{
-			path: []string{"SHOW_CLI", "reboot-cause"}
-			data: getData(getPreviousRebootCause)
+			path: []string{"SHOW_CLI", "reboot-cause"},
+			data: getData(getPreviousRebootCause),
 		},
 		{
-			path: []string{"SHOW_CLI", "reboot-cause", "history"}
-			data: getData(getRebootCauseHistory)
-		}
+			path: []string{"SHOW_CLI", "reboot-cause", "history"},
+			data: getData(getRebootCauseHistory),
+		},
 	}
 )
 
@@ -44,9 +40,9 @@ func (t *Trie) showTriePopulate() {
 	for _, pt := range path2DataTbl {
 		n := t.Add(pt.path, pt.data)
 		if n.meta.(getData) == nil {
-			log.V(1).Infof("Failed to add trie node for %v with %v", pt.path, pt.getFunc)
+			log.V(1).Infof("Failed to add trie node for %v with %v", pt.path, pt.data)
 		} else {
-			log.V(2).Infof("Add trie node for %v with %v", pt.path, pt.getFunc)
+			log.V(2).Infof("Add trie node for %v with %v", pt.path, pt.data)
 		}
 
 	}
@@ -148,7 +144,11 @@ func getRebootCauseHistory() ([]byte, error) {
 	queries := [][]string{
 		{"STATE_DB", "REBOOT_CAUSE"},
 	}
-	tblPaths := createTablePathsFromQueries(queries)
+	tblPaths, err := createTablePathsFromQueries(queries)
+	if err != nil {
+		log.Errorf("Unable to create table paths from queries %v, %v", queries, err)
+		return nil, err
+	}
 	return getDataFromTablePaths(tblPaths)
 }
 
@@ -173,7 +173,7 @@ func getDataFromTablePaths(tblPaths []tablePath) ([]byte, error) {
 	return Msi2Bytes(msi)
 }
 
-func createTablePathsFromQueries(queries [][]string) (tblPaths []tablePath) {
+func createTablePathsFromQueries(queries [][]string) ([]tablePath, error) {
 	var allPaths []tablePath
 
 	// Create and validate gnmi path then create table path
