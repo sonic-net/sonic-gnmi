@@ -23,6 +23,8 @@ variables:
       value: $(System.PullRequest.TargetBranch)
     ${{ else }}:
       value: $(Build.SourceBranchName)
+  - name: UNIT_TEST_FLAG
+    value: 'ENABLE_TRANSLIB_WRITE=y'
 
 resources:
   repositories:
@@ -30,7 +32,7 @@ resources:
     type: github
     name: sonic-net/sonic-mgmt-common
     endpoint: sonic-net
-    ref: refs/heads/$(BUILD_BRANCH)
+    ref: faa2a51b8f1defd36026f637b1abe56d972ac116
   - repository: sonic-swss-common
     type: github
     name: sonic-net/sonic-swss-common
@@ -75,7 +77,7 @@ stages:
       inputs:
         source: specific
         project: build
-        pipeline: 1
+        pipeline: 142
         artifact: sonic-buildimage.vs
         runVersion: 'latestFromBranch'
         runBranch: 'refs/heads/$(BUILD_BRANCH)'
