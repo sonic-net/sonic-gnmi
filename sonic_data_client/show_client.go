@@ -11,51 +11,22 @@ import (
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 )
 
-const (
-	PreviousRebootCauseFilePath = "/host/reboot-cause/previous-reboot-cause.json"
-)
+type DataGetter func() ([]byte, error)
 
-type getData func() ([]byte, error)
+var showTrie *Trie = NewTrie()
 
-type path2Data struct {
-	path []string
-	data getData
-}
-
-var (
-	showTrie     *Trie
-	path2DataTbl = []path2Data{
-		{
-			path: []string{"SHOW_CLI", "reboot-cause"},
-			data: getData(getPreviousRebootCause),
-		},
-		{
-			path: []string{"SHOW_CLI", "reboot-cause", "history"},
-			data: getData(getRebootCauseHistory),
-		},
+func RegisterCliPath(path []string, getter DataGetter) {
+	n := showTrie.Add(path, getter)
+	if n.meta.(DataGetter) == nil {
+		log.V(1).Infof("Failed to add trie node for %v with %v", path, getter)
+	} else {
+		log.V(2).Infof("Add trie node for %v with %v", path, getter)
 	}
-)
-
-func (t *Trie) showTriePopulate() {
-	for _, pt := range path2DataTbl {
-		n := t.Add(pt.path, pt.data)
-		if n.meta.(getData) == nil {
-			log.V(1).Infof("Failed to add trie node for %v with %v", pt.path, pt.data)
-		} else {
-			log.V(2).Infof("Add trie node for %v with %v", pt.path, pt.data)
-		}
-
-	}
-}
-
-func init() {
-	showTrie = NewTrie()
-	showTrie.showTriePopulate()
 }
 
 type ShowClient struct {
 	prefix      *gnmipb.Path
-	path2Getter map[*gnmipb.Path]getData
+	path2Getter map[*gnmipb.Path]DataGetter
 
 	q       *queue.PriorityQueue
 	channel chan struct{}
@@ -69,7 +40,7 @@ type ShowClient struct {
 	errors  int64
 }
 
-func lookupDataGetter(prefix, path *gnmipb.Path) (getData, error) {
+func lookupDataGetter(prefix, path *gnmipb.Path) (DataGetter, error) {
 	stringSlice := []string{prefix.GetTarget()}
 	fullPath := gnmiFullPath(prefix, path)
 
@@ -82,7 +53,7 @@ func lookupDataGetter(prefix, path *gnmipb.Path) (getData, error) {
 	}
 	n, ok := showTrie.Find(stringSlice)
 	if ok {
-		getter := n.meta.(getData)
+		getter := n.meta.(DataGetter)
 		return getter, nil
 	}
 	return nil, fmt.Errorf("%v not found in clientTrie tree", stringSlice)
@@ -90,7 +61,7 @@ func lookupDataGetter(prefix, path *gnmipb.Path) (getData, error) {
 
 func NewShowClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
 	var showClient ShowClient
-	showClient.path2Getter = make(map[*gnmipb.Path]getData)
+	showClient.path2Getter = make(map[*gnmipb.Path]DataGetter)
 	showClient.prefix = prefix
 	for _, path := range paths {
 		getter, err := lookupDataGetter(prefix, path)
@@ -136,33 +107,17 @@ func (c *ShowClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	return values, nil
 }
 
-func getPreviousRebootCause() ([]byte, error) {
-	return getDataFromFile(PreviousRebootCauseFilePath)
-}
-
-func getRebootCauseHistory() ([]byte, error) {
-	queries := [][]string{
-		{"STATE_DB", "REBOOT_CAUSE"},
-	}
-	tblPaths, err := createTablePathsFromQueries(queries)
-	if err != nil {
-		log.Errorf("Unable to create table paths from queries %v, %v", queries, err)
-		return nil, err
-	}
-	return getDataFromTablePaths(tblPaths)
-}
-
-func getDataFromFile(fileName string) ([]byte, error) {
+func GetDataFromFile(fileName string) ([]byte, error) {
 	fileContent, err := ImplIoutilReadFile(fileName)
 	if err != nil {
-		log.Errorf("Failed to read'%v', %v", PreviousRebootCauseFilePath, err)
+		log.Errorf("Failed to read'%v', %v", fileName, err)
 		return nil, err
 	}
-	log.V(4).Infof("getPreviousRebootCause, output: %v", string(fileContent))
+	log.V(4).Infof("getDataFromFile, output: %v", string(fileContent))
 	return fileContent, nil
 }
 
-func getDataFromTablePaths(tblPaths []tablePath) ([]byte, error) {
+func GetDataFromTablePaths(tblPaths []tablePath) ([]byte, error) {
 	msi := make(map[string]interface{})
 	for _, tblPath := range tblPaths {
 		err := TableData2Msi(&tblPath, false, nil, &msi)
@@ -173,7 +128,7 @@ func getDataFromTablePaths(tblPaths []tablePath) ([]byte, error) {
 	return Msi2Bytes(msi)
 }
 
-func createTablePathsFromQueries(queries [][]string) ([]tablePath, error) {
+func CreateTablePathsFromQueries(queries [][]string) ([]tablePath, error) {
 	var allPaths []tablePath
 
 	// Create and validate gnmi path then create table path
