@@ -81,7 +81,6 @@ func (c *ShowClient) String() string {
 }
 
 func (c *ShowClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
-	// wait sync for Get, not used for now
 	c.w = w
 
 	var values []*spb.Value
