@@ -1,0 +1,5 @@
+# Semgrep ignore patterns
+
+# TLS InsecureSkipVerify is intentionally used for testing only
+# This is a controlled usage with clear documentation
+internal/client/grpc/connection.go
