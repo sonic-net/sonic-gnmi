@@ -9,3 +9,6 @@ coverage.html
 debian/.debhelper/
 debian/debhelper-build-stamp
 debian/sonic-ops-server/
+
+# AI Agent
+CLAUDE.md

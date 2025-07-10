@@ -16,6 +16,7 @@ linters:
     - gocognit     # Cognitive complexity too strict for tests
     - gocyclo      # Cyclomatic complexity too strict for tests
     - dupl         # Code duplication acceptable in tests
+    - gochecknoinits # Allow init functions in CLI code
 
 linters-settings:
   gocognit:
@@ -45,6 +46,14 @@ issues:
     - linters:
         - godox
       text: "TODO"
+    # Allow init functions in CLI client (standard for Cobra)
+    - path: 'cmd/client/'
+      linters:
+        - gochecknoinits
+    # Allow implementation notes in client during development
+    - path: 'cmd/client/'
+      linters:
+        - godox
 
 output:
   format: colored-line-number

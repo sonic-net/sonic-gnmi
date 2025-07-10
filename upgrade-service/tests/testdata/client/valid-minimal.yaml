@@ -1,0 +1,10 @@
+apiVersion: sonic.net/v1
+kind: UpgradeConfig
+metadata:
+  name: test-upgrade
+spec:
+  firmware:
+    desiredVersion: "SONiC-OS-202311.1-test"
+    downloadUrl: "http://test-server.com/sonic-test.bin"
+  server:
+    address: "localhost:50051"
