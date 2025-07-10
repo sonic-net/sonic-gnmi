@@ -15,7 +15,7 @@ import (
 
 // getMachineConfPath returns the path to the machine.conf file based on current config.
 func getMachineConfPath() string {
-	return paths.ToHost("/machine.conf", config.Global.RootFS)
+	return paths.ToHost("/host/machine.conf", config.Global.RootFS)
 }
 
 // PlatformInfo contains basic platform information from machine.conf.
