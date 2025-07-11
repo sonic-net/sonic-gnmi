@@ -193,9 +193,9 @@ func TestWithMockBinary(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Create mock sonic-installer script with the exact name
-	mockBinary := filepath.Join(tmpDir, "sonic-installer")
-	mockScript := `#!/bin/bash
+	// Create mock sonic-installer script
+	mockSonicInstaller := filepath.Join(tmpDir, "sonic-installer")
+	sonicInstallerScript := `#!/bin/bash
 case "$1" in
     "list")
         echo "Available images:"
@@ -218,8 +218,26 @@ case "$1" in
 esac
 `
 
-	if err := os.WriteFile(mockBinary, []byte(mockScript), 0755); err != nil {
-		t.Fatalf("Failed to create mock binary: %v", err)
+	if err := os.WriteFile(mockSonicInstaller, []byte(sonicInstallerScript), 0755); err != nil {
+		t.Fatalf("Failed to create mock sonic-installer: %v", err)
+	}
+
+	// Create mock nsenter script that just executes the sonic-installer command directly
+	mockNsenter := filepath.Join(tmpDir, "nsenter")
+	nsenterScript := `#!/bin/bash
+# Skip all nsenter arguments until we find the sonic-installer command
+while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "sonic-installer" ]]; then
+        shift
+        # Execute sonic-installer with remaining arguments
+        exec sonic-installer "$@"
+    fi
+    shift
+done
+`
+
+	if err := os.WriteFile(mockNsenter, []byte(nsenterScript), 0755); err != nil {
+		t.Fatalf("Failed to create mock nsenter: %v", err)
 	}
 
 	// Save original PATH and prepend our temp directory
