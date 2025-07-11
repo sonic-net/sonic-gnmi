@@ -253,14 +253,19 @@ func runDownload(cmd *cobra.Command, args []string) error {
 func runStatus(cmd *cobra.Command, args []string) error {
 	sessionID, _ := cmd.Flags().GetString("session-id")
 
-	// Validate session ID
+	// ✅ FAST: Validate all inputs first
 	if err := validateSessionID(sessionID); err != nil {
 		return err
+	}
+
+	if err := validateServerAddress(serverAddr); err != nil {
+		return fmt.Errorf("invalid server address: %w", err)
 	}
 
 	// Log the value for debugging
 	glog.V(2).Infof("Status command: sessionID=%s", sessionID)
 
+	// ✅ SLOW: Network operations after validation
 	// Create minimal config for client
 	cfg := &config.Config{
 		Spec: config.Spec{
@@ -274,15 +279,15 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	// Set defaults
 	cfg.SetDefaults()
 
-	// Create gRPC client with retry logic
-	client, err := createClientWithRetry(cfg)
+	// Create gRPC client with fast non-blocking connection for quick operations
+	client, err := createQuickClient(serverAddr)
 	if err != nil {
 		return err
 	}
 	defer client.Close()
 
 	// Get download status with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Reduced from 30 to 10 seconds
 	defer cancel()
 
 	status, err := client.GetDownloadStatus(ctx, sessionID)
@@ -327,6 +332,12 @@ func runStatus(cmd *cobra.Command, args []string) error {
 }
 
 func runListImages(cmd *cobra.Command, args []string) error {
+	// ✅ FAST: Validate all inputs first
+	if err := validateServerAddress(serverAddr); err != nil {
+		return fmt.Errorf("invalid server address: %w", err)
+	}
+
+	// ✅ SLOW: Network operations after validation
 	// Create minimal config for client
 	cfg := &config.Config{
 		Spec: config.Spec{
@@ -340,15 +351,15 @@ func runListImages(cmd *cobra.Command, args []string) error {
 	// Set defaults
 	cfg.SetDefaults()
 
-	// Create gRPC client with retry logic
-	client, err := createClientWithRetry(cfg)
+	// Create gRPC client with fast non-blocking connection for quick operations
+	client, err := createQuickClient(serverAddr)
 	if err != nil {
 		return err
 	}
 	defer client.Close()
 
 	// List images with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Reduced from 30 to 10 seconds
 	defer cancel()
 
 	resp, err := client.ListImages(ctx)
@@ -379,25 +390,10 @@ func runListImages(cmd *cobra.Command, args []string) error {
 }
 
 func runDiskSpace(cmd *cobra.Command, args []string) error {
-	// Create minimal config for client
-	cfg := &config.Config{
-		Spec: config.Spec{
-			Server: config.ServerSpec{
-				Address:    serverAddr,
-				TLSEnabled: boolPtr(!noTLS),
-			},
-		},
+	// ✅ FAST: Validate all inputs first
+	if err := validateServerAddress(serverAddr); err != nil {
+		return fmt.Errorf("invalid server address: %w", err)
 	}
-
-	// Set defaults
-	cfg.SetDefaults()
-
-	// Create gRPC client with retry logic
-	client, err := createClientWithRetry(cfg)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
 
 	// Validate and prepare paths
 	paths := []string{"/", "/host", "/tmp"} // Default paths
@@ -411,8 +407,29 @@ func runDiskSpace(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// ✅ SLOW: Network operations after validation
+	// Create minimal config for client
+	cfg := &config.Config{
+		Spec: config.Spec{
+			Server: config.ServerSpec{
+				Address:    serverAddr,
+				TLSEnabled: boolPtr(!noTLS),
+			},
+		},
+	}
+
+	// Set defaults
+	cfg.SetDefaults()
+
+	// Create gRPC client with fast non-blocking connection for quick operations
+	client, err := createQuickClient(serverAddr)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
 	// Get disk space with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Reduced from 30 to 10 seconds
 	defer cancel()
 
 	resp, err := client.GetDiskSpace(ctx, paths)
@@ -738,7 +755,7 @@ func validatePath(path string) error {
 // createClientWithRetry creates a gRPC client with retry logic and better error handling.
 func createClientWithRetry(cfg *config.Config) (*grpc.Client, error) {
 	const maxRetries = 3
-	const retryDelay = 2 * time.Second
+	const retryDelay = 1 * time.Second // Reduced from 2 to 1 second
 
 	var lastErr error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -760,6 +777,34 @@ func createClientWithRetry(cfg *config.Config) (*grpc.Client, error) {
 
 	return nil, fmt.Errorf("failed to connect to server '%s' after %d attempts: %w",
 		cfg.Spec.Server.Address, maxRetries, lastErr)
+}
+
+// createQuickClient creates a non-blocking gRPC client for quick operations.
+func createQuickClient(serverAddr string) (*grpc.Client, error) {
+	cfg := &config.Config{
+		Spec: config.Spec{
+			Server: config.ServerSpec{
+				Address:    serverAddr,
+				TLSEnabled: boolPtr(!noTLS),
+			},
+			Download: config.DownloadSpec{
+				ConnectTimeout: 3, // Quick timeout for fast operations
+			},
+		},
+	}
+	cfg.SetDefaults()
+
+	// Override connection config to be non-blocking
+	return grpc.NewClientWithConnectionConfig(cfg, grpc.ConnectionConfig{
+		Address:        cfg.Spec.Server.Address,
+		TLSEnabled:     *cfg.Spec.Server.TLSEnabled,
+		TLSCertFile:    cfg.Spec.Server.TLSCertFile,
+		TLSKeyFile:     cfg.Spec.Server.TLSKeyFile,
+		ConnectTimeout: cfg.GetConnectTimeout(),
+		MaxRetries:     0, // No retries at connection level
+		RetryDelay:     0,
+		NonBlocking:    true, // Non-blocking connection
+	})
 }
 
 // createContextWithSignals creates a context that cancels on SIGINT/SIGTERM.

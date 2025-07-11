@@ -198,15 +198,15 @@ func TestConnection_RetryLogic(t *testing.T) {
 	_, err := NewConnection(config)
 	duration := time.Since(start)
 
-	// Should fail after retries
+	// Should fail with single attempt (no retries at connection level)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to connect after 3 attempts")
+	assert.Contains(t, err.Error(), "failed to establish connection")
 
-	// Should have taken at least the retry delays
-	expectedMinDuration := 2 * config.RetryDelay // 2 retries with delays
-	assert.GreaterOrEqual(t, duration, expectedMinDuration,
-		"Connection should have taken at least %v due to retries, but took %v",
-		expectedMinDuration, duration)
+	// Should fail quickly with single attempt (no retries at connection level)
+	maxExpectedDuration := config.ConnectTimeout + 100*time.Millisecond // Allow some overhead
+	assert.LessOrEqual(t, duration, maxExpectedDuration,
+		"Connection should have failed quickly within %v, but took %v",
+		maxExpectedDuration, duration)
 }
 
 func TestConnection_Reconnect(t *testing.T) {
@@ -222,7 +222,7 @@ func TestConnection_Reconnect(t *testing.T) {
 	// Test reconnect with no existing connection
 	err := conn.Reconnect()
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to connect after")
+	assert.Contains(t, err.Error(), "failed to connect")
 
 	// Test reconnect with existing connection
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)

@@ -28,8 +28,14 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		ConnectTimeout: cfg.GetConnectTimeout(),
 		MaxRetries:     3, // Default retries
 		RetryDelay:     1 * time.Second,
+		NonBlocking:    false, // Default to blocking for compatibility
 	}
 
+	return NewClientWithConnectionConfig(cfg, connConfig)
+}
+
+// NewClientWithConnectionConfig creates a new gRPC client with custom connection config.
+func NewClientWithConnectionConfig(cfg *config.Config, connConfig ConnectionConfig) (*Client, error) {
 	// Create connection
 	conn, err := NewConnection(connConfig)
 	if err != nil {

@@ -57,9 +57,9 @@ func (c *Config) SetDefaults() {
 		c.Spec.Firmware.SavePath = "/host"
 	}
 
-	// Default timeouts
+	// Default timeouts - reduced for better UX
 	if c.Spec.Download.ConnectTimeout == 0 {
-		c.Spec.Download.ConnectTimeout = 30
+		c.Spec.Download.ConnectTimeout = 5 // Reduced from 30 to 5 seconds
 	}
 	if c.Spec.Download.TotalTimeout == 0 {
 		c.Spec.Download.TotalTimeout = 300

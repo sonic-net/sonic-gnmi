@@ -36,7 +36,7 @@ func TestConfig_SetDefaults(t *testing.T) {
 						SavePath:       "/host",
 					},
 					Download: DownloadSpec{
-						ConnectTimeout: 30,
+						ConnectTimeout: 5, // Updated to match new default
 						TotalTimeout:   300,
 					},
 					Server: ServerSpec{
@@ -276,9 +276,9 @@ spec:
 				assert.Equal(t, "sonic-upgrade", cfg.Metadata.Name)
 				assert.Equal(t, "SONiC-OS-202311.1", cfg.Spec.Firmware.DesiredVersion)
 				assert.Equal(t, "http://server.com/sonic.bin", cfg.Spec.Firmware.DownloadURL)
-				assert.Equal(t, "/host", cfg.Spec.Firmware.SavePath)  // default
-				assert.Equal(t, 30, cfg.Spec.Download.ConnectTimeout) // default
-				assert.Equal(t, 300, cfg.Spec.Download.TotalTimeout)  // default
+				assert.Equal(t, "/host", cfg.Spec.Firmware.SavePath) // default
+				assert.Equal(t, 5, cfg.Spec.Download.ConnectTimeout) // default updated
+				assert.Equal(t, 300, cfg.Spec.Download.TotalTimeout) // default
 				assert.Equal(t, "localhost:50051", cfg.Spec.Server.Address)
 				assert.True(t, *cfg.Spec.Server.TLSEnabled) // default
 			},

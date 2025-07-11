@@ -23,6 +23,7 @@ type ConnectionConfig struct {
 	MaxRetries      int
 	RetryDelay      time.Duration
 	InsecureSkipTLS bool // For testing only
+	NonBlocking     bool // For quick operations that don't need immediate connection
 }
 
 // Connection wraps a gRPC connection with connection management.
@@ -38,9 +39,9 @@ func NewConnection(config ConnectionConfig) (*Connection, error) {
 		return nil, fmt.Errorf("address is required")
 	}
 
-	// Set defaults
+	// Set defaults - reduced for better UX
 	if config.ConnectTimeout == 0 {
-		config.ConnectTimeout = 10 * time.Second
+		config.ConnectTimeout = 3 * time.Second // Reduced from 10 to 3 seconds
 	}
 	if config.MaxRetries == 0 {
 		config.MaxRetries = 3
@@ -100,29 +101,16 @@ func (c *Connection) Reconnect() error {
 	return c.connect()
 }
 
-// connect establishes the gRPC connection with retry logic.
+// connect establishes the gRPC connection with single attempt (retries handled at client level).
 func (c *Connection) connect() error {
-	var lastErr error
-
-	for attempt := 0; attempt <= c.config.MaxRetries; attempt++ {
-		if attempt > 0 {
-			glog.V(1).Infof("Connection attempt %d/%d to %s", attempt+1, c.config.MaxRetries+1, c.config.Address)
-			time.Sleep(c.config.RetryDelay)
-		}
-
-		conn, err := c.dial()
-		if err != nil {
-			lastErr = err
-			glog.V(2).Infof("Connection attempt %d failed: %v", attempt+1, err)
-			continue
-		}
-
-		c.conn = conn
-		glog.V(1).Infof("Successfully connected to %s", c.config.Address)
-		return nil
+	conn, err := c.dial()
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
 	}
 
-	return fmt.Errorf("failed to connect after %d attempts: %w", c.config.MaxRetries+1, lastErr)
+	c.conn = conn
+	glog.V(1).Infof("Successfully connected to %s", c.config.Address)
+	return nil
 }
 
 // dial creates a single connection attempt.
@@ -139,8 +127,10 @@ func (c *Connection) dial() (*grpc.ClientConn, error) {
 	}
 	opts = append(opts, tlsOpts...)
 
-	// Add other dial options
-	opts = append(opts, grpc.WithBlock()) // Wait for connection to be ready
+	// Add other dial options - make blocking optional
+	if !c.config.NonBlocking {
+		opts = append(opts, grpc.WithBlock()) // Wait for connection to be ready
+	}
 
 	// Dial with context
 	conn, err := grpc.DialContext(ctx, c.config.Address, opts...)

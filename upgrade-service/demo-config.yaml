@@ -1,0 +1,16 @@
+apiVersion: sonic.net/v1
+kind: UpgradeConfig
+metadata:
+  name: demo-upgrade
+spec:
+  firmware:
+    desiredVersion: "SONiC-OS-202405.1-demo"
+    downloadUrl: "https://github.com/sonic-net/sonic-buildimage/releases/download/202405.1/sonic-vs.bin"
+    savePath: "/tmp/sonic-demo.bin"
+    expectedMd5: "a1b2c3d4e5f67890abcdef1234567890"
+  download:
+    connectTimeout: 30
+    totalTimeout: 600
+  server:
+    address: "localhost:50051"
+    tlsEnabled: false
