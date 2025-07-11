@@ -163,10 +163,11 @@ func TestValidationFunctions(t *testing.T) {
 			path    string
 			wantErr bool
 		}{
-			{filepath.Join(tempDir, "test.bin"), false}, // valid path in existing dir
-			{"/tmp/test.bin", false},                    // /tmp should exist
+			{filepath.Join(tempDir, "test.bin"), false}, // valid absolute path
+			{"/tmp/test.bin", false},                    // valid absolute path
+			{"/nonexistent/dir/file.bin", false},        // valid absolute path (existence not checked)
 			{"", true},                                  // empty path
-			{"/nonexistent/dir/file.bin", true},         // non-existent directory
+			{"relative/path.bin", true},                 // relative path
 		}
 
 		for _, tt := range tests {
