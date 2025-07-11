@@ -1,0 +1,4 @@
+# Intentionally running as root in Docker container
+# Root privileges are required for nsenter to access host namespaces
+# and execute sonic-installer commands
+docker/Dockerfile
