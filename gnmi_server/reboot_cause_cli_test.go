@@ -6,7 +6,6 @@ package gnmi
 
 import (
 	"crypto/tls"
-//	"encoding/json"
 	"io/ioutil"
 	"testing"
 	"time"
