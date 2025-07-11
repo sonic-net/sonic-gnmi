@@ -13,6 +13,9 @@ import (
 const (
 	// sonicInstallerBinary is the name of the sonic-installer command.
 	sonicInstallerBinary = "sonic-installer"
+	
+	// nsenterBinary is the nsenter command for running in host namespace
+	nsenterBinary = "nsenter"
 )
 
 // SonicInstaller provides a wrapper around the sonic-installer CLI tool.
@@ -51,11 +54,20 @@ func NewSonicInstaller() *SonicInstaller {
 	return &SonicInstaller{}
 }
 
+// buildCommand creates an exec.Cmd that runs sonic-installer in the host namespace
+func (si *SonicInstaller) buildCommand(args ...string) *exec.Cmd {
+	// Build the full command with nsenter prefix
+	nsenterArgs := []string{"-t", "1", "-m", "-u", "-i", "-n", "-p", "--", sonicInstallerBinary}
+	nsenterArgs = append(nsenterArgs, args...)
+	
+	return exec.Command(nsenterBinary, nsenterArgs...)
+}
+
 // List executes sonic-installer list and returns parsed results.
 func (si *SonicInstaller) List() (*ListResult, error) {
 	glog.V(1).Info("Executing sonic-installer list")
 
-	cmd := exec.Command(sonicInstallerBinary, "list")
+	cmd := si.buildCommand("list")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute sonic-installer list: %w", err)
@@ -75,7 +87,7 @@ func (si *SonicInstaller) List() (*ListResult, error) {
 func (si *SonicInstaller) SetDefault(imageName string) (*SetDefaultResult, error) {
 	glog.V(1).Infof("Setting default image to: %s", imageName)
 
-	cmd := exec.Command(sonicInstallerBinary, "set-default", imageName)
+	cmd := si.buildCommand("set-default", imageName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute sonic-installer set-default: %w, output: %s", err, string(output))
@@ -94,7 +106,7 @@ func (si *SonicInstaller) SetDefault(imageName string) (*SetDefaultResult, error
 func (si *SonicInstaller) Cleanup() (*CleanupResult, error) {
 	glog.V(1).Info("Executing sonic-installer cleanup")
 
-	cmd := exec.Command(sonicInstallerBinary, "cleanup", "-y")
+	cmd := si.buildCommand("cleanup", "-y")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute sonic-installer cleanup: %w, output: %s", err, string(output))

@@ -22,8 +22,10 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Copy any configuration files if needed
 # COPY config/opsd.conf /etc/opsd/
 
-# Switch to non-root user
-USER opsd
+# NOTE: Running as root is required for nsenter to access host namespaces
+# and execute sonic-installer commands. The container is already isolated
+# and runs with specific privileges only when needed.
+# USER opsd
 
 # Environment variables for configuration (can be overridden at runtime)
 ENV OPSD_ADDR=":50051"
