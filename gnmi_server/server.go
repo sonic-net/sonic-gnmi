@@ -25,6 +25,7 @@ import (
 
 	//gnoi_yang "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/server"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoi_healthz_pb "github.com/openconfig/gnoi/healthz"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -78,6 +79,14 @@ type OSServer struct {
 type ContainerzServer struct {
 	server *Server
 	gnoi_containerz_pb.UnimplementedContainerzServer
+}
+
+// HealthzServer is the server API for System Health service.
+// All implementations must embed UnimplementedSystemServer
+// for forward compatibility
+type HealthzServer struct {
+	*Server
+	gnoi_healthz_pb.UnimplementedHealthzServer
 }
 
 type AuthTypes map[string]bool
@@ -193,6 +202,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 
 	fileSrv := &FileServer{Server: srv}
 	osSrv := &OSServer{Server: srv}
+	healthzSrv := &HealthzServer{Server: srv}
 	containerzSrv := &ContainerzServer{server: srv}
 
 	var err error
@@ -209,6 +219,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
 		gnoi_file_pb.RegisterFileServer(srv.s, fileSrv)
 		gnoi_os_pb.RegisterOSServer(srv.s, osSrv)
+		gnoi_healthz_pb.RegisterHealthzServer(srv.s, healthzSrv)
 		gnoi_containerz_pb.RegisterContainerzServer(srv.s, containerzSrv)
 	}
 	if srv.config.EnableTranslibWrite {

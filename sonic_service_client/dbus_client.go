@@ -2,12 +2,16 @@ package host_service
 
 import (
 	"fmt"
-	"reflect"
-	"time"
-
 	"github.com/godbus/dbus/v5"
 	log "github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"reflect"
+	"sync"
+	"time"
+)
+
+var (
+	healthzMu sync.Mutex
 )
 
 type Service interface {
@@ -35,6 +39,10 @@ type Service interface {
 	ActivateImage(image string) error
 	// Docker services APIs
 	LoadDockerImage(image string) error
+	//Healthz Service APIs
+	HealthzAck(req string) (string, error)
+	HealthzCheck(req string) (string, error)
+	HealthzCollect(req string) (string, error)
 }
 
 type DbusClient struct {
@@ -304,4 +312,70 @@ func (c *DbusClient) LoadDockerImage(image string) error {
 	intName := c.intNamePrefix + modName + ".load"
 	_, err := DbusApi(busName, busPath, intName /*timeout=*/, 180, image)
 	return err
+}
+
+func (c *DbusClient) HealthzAck(req string) (string, error) {
+	modName := "debug_info"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".ack"
+
+	healthzMu.Lock()
+	defer healthzMu.Unlock()
+	common_utils.IncCounter(common_utils.GNOI_HEALTHZ_ACK)
+	//return DbusApi(busName, busPath, intName, 10, req)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	log.V(2).Infof("ListImages: %v", result)
+	return strResult, nil
+}
+
+func (c *DbusClient) HealthzCheck(req string) (string, error) {
+	modName := "debug_info"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".check"
+
+	healthzMu.Lock()
+	defer healthzMu.Unlock()
+	common_utils.IncCounter(common_utils.GNOI_HEALTHZ_CHECK)
+	//return DbusApi(busName, busPath, intName, 10, req)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	log.V(2).Infof("ListImages: %v", result)
+	return strResult, nil
+}
+
+func (c *DbusClient) HealthzCollect(req string) (string, error) {
+	modName := "debug_info"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".collect"
+
+	healthzMu.Lock()
+	defer healthzMu.Unlock()
+	common_utils.IncCounter(common_utils.GNOI_HEALTHZ_COLLECT)
+	//return DbusApi(busName, busPath, intName, 10, req)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	log.V(2).Infof("ListImages: %v", result)
+	return strResult, nil
 }
