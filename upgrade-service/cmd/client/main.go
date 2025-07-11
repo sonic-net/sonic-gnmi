@@ -690,20 +690,9 @@ func validateSavePath(path string) error {
 		return fmt.Errorf("save path cannot be empty")
 	}
 
-	// Check if the directory exists
-	dir := filepath.Dir(path)
-	if dir != "" && dir != "." {
-		info, err := os.Stat(dir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return fmt.Errorf("save directory '%s' does not exist", dir)
-			}
-			return fmt.Errorf("cannot access save directory '%s': %w", dir, err)
-		}
-
-		if !info.IsDir() {
-			return fmt.Errorf("save path parent '%s' is not a directory", dir)
-		}
+	// Only validate path format, not existence - server will validate actual paths
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("save path must be absolute")
 	}
 
 	return nil

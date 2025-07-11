@@ -5,9 +5,9 @@ metadata:
 spec:
   firmware:
     desiredVersion: "SONiC-OS-202405.1-demo"
-    downloadUrl: "https://github.com/sonic-net/sonic-buildimage/releases/download/202405.1/sonic-vs.bin"
-    savePath: "/tmp/sonic-demo.bin"
-    expectedMd5: "a1b2c3d4e5f67890abcdef1234567890"
+    downloadUrl: "http://10.250.0.1/sonic-vs.bin"
+    savePath: "/host/sonic-vs.bin"
+    expectedMd5: ""
   download:
     connectTimeout: 30
     totalTimeout: 600

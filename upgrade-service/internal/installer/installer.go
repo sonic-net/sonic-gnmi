@@ -13,7 +13,7 @@ import (
 const (
 	// sonicInstallerBinary is the name of the sonic-installer command.
 	sonicInstallerBinary = "sonic-installer"
-	
+
 	// nsenterBinary is the nsenter command for running in host namespace
 	nsenterBinary = "nsenter"
 )
@@ -59,7 +59,7 @@ func (si *SonicInstaller) buildCommand(args ...string) *exec.Cmd {
 	// Build the full command with nsenter prefix
 	nsenterArgs := []string{"-t", "1", "-m", "-u", "-i", "-n", "-p", "--", sonicInstallerBinary}
 	nsenterArgs = append(nsenterArgs, args...)
-	
+
 	return exec.Command(nsenterBinary, nsenterArgs...)
 }
 
