@@ -214,8 +214,15 @@ test-certs: ## Generate test certificates for TLS testing
 ##############################################################################
 
 # Build the server
-build: validate-proto ## Build the opsd-server binary
+build-server: validate-proto ## Build the opsd-server binary
 	go build -tags "$(BUILD_TAGS)" -o bin/opsd-server cmd/server/main.go
+
+# Build the client
+build-client: validate-proto ## Build the upgrade-agent binary
+	go build -tags "$(BUILD_TAGS)" -o bin/upgrade-agent cmd/client/main.go
+
+# Build both server and client
+build: build-server build-client ## Build both server and client binaries
 
 # Build all packages
 build-all: ## Build all packages (validate only)
