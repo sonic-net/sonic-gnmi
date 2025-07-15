@@ -1,4 +1,4 @@
-package show_cli
+package show_client
 
 import (
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"

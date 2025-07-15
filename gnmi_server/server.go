@@ -13,7 +13,7 @@ import (
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
-	_ "github.com/sonic-net/sonic-gnmi/show_cli"
+	_ "github.com/sonic-net/sonic-gnmi/show_client"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 

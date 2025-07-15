@@ -17,9 +17,16 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 
-	show_cli "github.com/sonic-net/sonic-gnmi/show_cli"
+	show_client "github.com/sonic-net/sonic-gnmi/show_client"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+)
+
+const (
+	ServerPort   = 8081
+	StateDbNum   = 6
+	TargetAddr   = "127.0.0.1:8081"
+	QueryTimeout = 10
 )
 
 func MockReadFile(fileName string, fileContent string, fileReadErr error) {
@@ -34,9 +41,9 @@ func MockReadFile(fileName string, fileContent string, fileReadErr error) {
 	}
 }
 
-func AddDataSet(t *testing.T, target int, fileName string) {
+func AddDataSet(t *testing.T, dbNum int, fileName string) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
-	rclient := getRedisClientN(t, target, ns)
+	rclient := getRedisClientN(t, dbNum, ns)
 	defer rclient.Close()
 	rclient.FlushDB()
 
@@ -50,22 +57,21 @@ func AddDataSet(t *testing.T, target int, fileName string) {
 }
 
 func TestGetShowRebootCause(t *testing.T) {
-	s := createServer(t, 8081)
+	s := createServer(t, ServerPort)
 	go runServer(t, s)
 	defer s.ForceStop()
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
 
-	targetAddr := "127.0.0.1:8081"
-	conn, err := grpc.Dial(targetAddr, opts...)
+	conn, err := grpc.Dial(TargetAddr, opts...)
 	if err != nil {
-		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+		t.Fatalf("Dialing to %q failed: %v", TargetAddr, err)
 	}
 	defer conn.Close()
 
 	gClient := pb.NewGNMIClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), QueryTimeout*time.Second)
 	defer cancel()
 
 	rebootCauseReboot := `{"gen_time": "2025_07_09_17_32_14", "cause": "reboot", "user": "admin", "time": "Wed Jul  9 05:28:24 PM UTC 2025", "comment": "N/A"}`
@@ -99,7 +105,7 @@ func TestGetShowRebootCause(t *testing.T) {
 			wantRespVal: []byte(rebootCauseReboot),
 			valTest:     true,
 			testInit: func() {
-				MockReadFile(show_cli.PreviousRebootCauseFilePath, rebootCauseReboot, nil)
+				MockReadFile(show_client.PreviousRebootCauseFilePath, rebootCauseReboot, nil)
 			},
 		},
 		{
@@ -112,7 +118,7 @@ func TestGetShowRebootCause(t *testing.T) {
 			wantRespVal: []byte(rebootCausePowerLoss),
 			valTest:     true,
 			testInit: func() {
-				MockReadFile(show_cli.PreviousRebootCauseFilePath, rebootCausePowerLoss, nil)
+				MockReadFile(show_client.PreviousRebootCauseFilePath, rebootCausePowerLoss, nil)
 			},
 		},
 		{
@@ -125,7 +131,7 @@ func TestGetShowRebootCause(t *testing.T) {
 			wantRespVal: []byte(rebootCauseHardware),
 			valTest:     true,
 			testInit: func() {
-				MockReadFile(show_cli.PreviousRebootCauseFilePath, rebootCauseHardware, nil)
+				MockReadFile(show_client.PreviousRebootCauseFilePath, rebootCauseHardware, nil)
 			},
 		},
 	}
@@ -141,22 +147,21 @@ func TestGetShowRebootCause(t *testing.T) {
 }
 
 func TestGetShowRebootCauseHistory(t *testing.T) {
-	s := createServer(t, 8081)
+	s := createServer(t, ServerPort)
 	go runServer(t, s)
 	defer s.ForceStop()
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
 
-	targetAddr := "127.0.0.1:8081"
-	conn, err := grpc.Dial(targetAddr, opts...)
+	conn, err := grpc.Dial(TargetAddr, opts...)
 	if err != nil {
-		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+		t.Fatalf("Dialing to %q failed: %v", TargetAddr, err)
 	}
 	defer conn.Close()
 
 	gClient := pb.NewGNMIClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), QueryTimeout*time.Second)
 	defer cancel()
 
 	rebootCauseHistoryWatchdogFileName := "../testdata/REBOOT_CAUSE_WATCHDOG.txt"
@@ -197,7 +202,7 @@ func TestGetShowRebootCauseHistory(t *testing.T) {
 			wantRespVal: []byte(rebootCauseHistoryWatchdog),
 			valTest:     true,
 			testInit: func() {
-				AddDataSet(t, 6, rebootCauseHistoryWatchdogFileName)
+				AddDataSet(t, StateDbNum, rebootCauseHistoryWatchdogFileName)
 			},
 		},
 		{
@@ -211,7 +216,7 @@ func TestGetShowRebootCauseHistory(t *testing.T) {
 			wantRespVal: []byte(rebootCauseHistoryHardware),
 			valTest:     true,
 			testInit: func() {
-				AddDataSet(t, 6, rebootCauseHistoryHardwareFileName)
+				AddDataSet(t, StateDbNum, rebootCauseHistoryHardwareFileName)
 			},
 		},
 		{
@@ -225,7 +230,7 @@ func TestGetShowRebootCauseHistory(t *testing.T) {
 			wantRespVal: []byte(rebootCauseHistoryKernel),
 			valTest:     true,
 			testInit: func() {
-				AddDataSet(t, 6, rebootCauseHistoryKernelFileName)
+				AddDataSet(t, StateDbNum, rebootCauseHistoryKernelFileName)
 			},
 		},
 		{
@@ -239,7 +244,7 @@ func TestGetShowRebootCauseHistory(t *testing.T) {
 			wantRespVal: []byte(rebootCauseHistoryPowerLoss),
 			valTest:     true,
 			testInit: func() {
-				AddDataSet(t, 6, rebootCauseHistoryPowerLossFileName)
+				AddDataSet(t, StateDbNum, rebootCauseHistoryPowerLossFileName)
 			},
 		},
 	}
