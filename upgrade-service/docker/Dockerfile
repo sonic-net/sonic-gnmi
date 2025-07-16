@@ -4,7 +4,7 @@ FROM sonicdev-microsoft.azurecr.io/debian:bookworm
 RUN adduser --system --group opsd
 
 # Set working directory
-WORKDIR /usr/local/bin
+WORKDIR /app
 
 # Copy the built binary
 COPY bin/opsd-server /usr/local/bin/opsd-server
