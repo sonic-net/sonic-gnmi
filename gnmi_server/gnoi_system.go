@@ -47,7 +47,7 @@ func ValidateRebootRequest(req *syspb.RebootRequest) error {
 }
 
 func KillOrRestartProcess(restart bool, serviceName string) error {
-	sc, err := ssc.NewDbusClient()
+	sc, err := ssc.NewDbusClient(dbusCaller)
 	if err != nil {
 		return err
 	}
@@ -309,7 +309,7 @@ func (srv *Server) SetPackage(rs syspb.System_SetPackageServer) error {
 	log.V(1).Info("gNOI: SetPackage request received")
 
 	// Create D-Bus client
-	dbus, err := ssc.NewDbusClient()
+	dbus, err := ssc.NewDbusClient(dbusCaller)
 	if err != nil {
 		log.Errorf("Failed to create D-Bus client: %v", err)
 		return status.Errorf(codes.Internal, "failed to create D-Bus client: %v", err)
