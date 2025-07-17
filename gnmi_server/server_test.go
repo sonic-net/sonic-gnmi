@@ -746,6 +746,23 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	}
 	mpi_fab_counter_1 := loadConfig(t, "COUNTERS:oid:0x1000000000082", countersPort1_Byte)
 	loadDB(t, rclient, mpi_fab_counter_1)
+
+	fileName = "../testdata/COUNTERS_DEBUG_NAME_SWITCH_STAT_MAP.txt"
+	countersDebugNameSwitchStatMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_switch_stat_map := loadConfig(t, "COUNTERS_DEBUG_NAME_SWITCH_STAT_MAP", countersDebugNameSwitchStatMapByte)
+	loadDB(t, rclient, mpi_switch_stat_map)
+
+	// "SWITCH_ID": "oid:0x21000000000000"  : Switch integrity drop counter, for COUNTERS/SWITCH_DB vpath test
+	fileName = "../testdata/COUNTERS:oid:0x21000000000000.txt"
+	countersSwitch_id_Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_switch_counter := loadConfig(t, "COUNTERS:oid:0x21000000000000", countersSwitch_id_Byte)
+	loadDB(t, rclient, mpi_switch_counter)
 }
 
 func prepareConfigDb(t *testing.T, namespace string) {
@@ -827,6 +844,14 @@ func prepareDb(t *testing.T, namespace string) {
 	}
 	mpi_fab_name_map := loadConfig(t, "COUNTERS_FABRIC_PORT_NAME_MAP", countersFabricPortNameMapByte)
 	loadDB(t, rclient, mpi_fab_name_map)
+
+	fileName = "../testdata/COUNTERS_DEBUG_NAME_SWITCH_STAT_MAP.txt"
+	countersDebugNameSwitchStatMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_switch_stat_map := loadConfig(t, "COUNTERS_DEBUG_NAME_SWITCH_STAT_MAP", countersDebugNameSwitchStatMapByte)
+	loadDB(t, rclient, mpi_switch_stat_map)
 
 	fileName = "../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
@@ -937,6 +962,15 @@ func prepareDb(t *testing.T, namespace string) {
 	}
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1000000000082", countersPort1_Byte)
 	loadDB(t, rclient, mpi_counter)
+
+	// "SWITCH_ID": "oid:0x21000000000000"  : Switch integrity drop counter, for COUNTERS/SWITCH_DB vpath test
+	fileName = "../testdata/COUNTERS:oid:0x21000000000000.txt"
+	countersSwitch_id_Byte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_switch_counter := loadConfig(t, "COUNTERS:oid:0x21000000000000", countersSwitch_id_Byte)
+	loadDB(t, rclient, mpi_switch_counter)
 
 	// Load CONFIG_DB for alias translation
 	prepareConfigDb(t, namespace)
@@ -1511,15 +1545,31 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
+	fileName = "../testdata/COUNTERS:SWITCH_ID.txt"
+	countersSwitchIdByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+
+	fileName = "../testdata/COUNTERS:SWITCH_wildcard" + namespace + ".txt"
+	countersSwitchWildcardByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+
 	stateDBPath := "STATE_DB"
 
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	validFabricPortName := "PORT0"
 	invalidFabricPortName := "PORT0-" + namespace
+	validSwitchId := "SWITCH_ID"
+	invalidSwitchId := "SWITCH_ID-" + namespace
 	if namespace != ns {
 		stateDBPath = "STATE_DB" + "/" + namespace
 		validFabricPortName = "PORT0-" + namespace
 		invalidFabricPortName = "PORT0"
+		validSwitchId = "SWITCH_ID-" + namespace
+		invalidSwitchId = "SWITCH_ID"
 	}
 
 	type testCase struct {
@@ -1726,6 +1776,35 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 			textPbPath: `
 					elem: <name: "COUNTERS" >
 					elem: <name: "` + invalidFabricPortName + `">
+								`,
+			wantRetCode: codes.NotFound,
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS:" + validSwitchId,
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "` + validSwitchId + `">
+				`,
+			wantRetCode: codes.OK,
+			wantRespVal: countersSwitchIdByte,
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS:SWITCH_ID*",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "SWITCH*" >
+				`,
+			wantRetCode: codes.OK,
+			wantRespVal: countersSwitchWildcardByte,
+			valTest:     true,
+		}, {
+			desc:       "Invalid fabric port key get" + invalidSwitchId,
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "` + invalidSwitchId + `">
 								`,
 			wantRetCode: codes.NotFound,
 			valTest:     true,
