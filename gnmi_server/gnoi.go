@@ -12,7 +12,6 @@ import (
 	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"os"
 	"os/user"
 	"strings"
 	"time"
@@ -64,9 +63,9 @@ func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) 
 	return resp, nil
 }
 
-func (srv *OSServer) Activate(ctx context.Context, req *gnoi_os_pb.ActivateRequest) (*gnoi_os_pb.ActivateResponse, error) {
-	_, err := authenticate(srv.config, ctx, "gnoi" /*writeAccess=*/, true)
-	if err != nil {
+//func (srv *OSServer) Activate(ctx context.Context, req *gnoi_os_pb.ActivateRequest) (*gnoi_os_pb.ActivateResponse, error) {
+//	_, err := authenticate(srv.config, ctx, "gnoi" /*writeAccess=*/, true)
+/*	if err != nil {
 		log.Errorf("Failed to authenticate: %v", err)
 		return nil, err
 	}
@@ -112,7 +111,7 @@ func (srv *OSServer) Activate(ctx context.Context, req *gnoi_os_pb.ActivateReque
 	log.Infof("Successfully activated image %s", image)
 	resp.Response = &gnoi_os_pb.ActivateResponse_ActivateOk{}
 	return &resp, nil
-}
+}*/
 
 func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
 	// Can't enforce normal authentication here.. maybe only enforce client cert auth if enabled?

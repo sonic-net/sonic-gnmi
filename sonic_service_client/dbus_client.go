@@ -35,6 +35,7 @@ type Service interface {
 	ActivateImage(image string) error
 	// Docker services APIs
 	LoadDockerImage(image string) error
+	ActivateOS(req string) (string, error)
 }
 
 type DbusClient struct {
@@ -304,4 +305,23 @@ func (c *DbusClient) LoadDockerImage(image string) error {
 	intName := c.intNamePrefix + modName + ".load"
 	_, err := DbusApi(busName, busPath, intName /*timeout=*/, 180, image)
 	return err
+}
+func (c *DbusClient) ActivateOS(req string) (string, error) {
+	modName := "gnoi_os_mgmt"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".activate"
+
+	common_utils.IncCounter(common_utils.GNOI_OS_ACTIVATE)
+	//return DbusApi(busName, busPath, intName, 10, req)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	log.V(2).Infof("ActivateOS: %v", result)
+	return strResult, nil
 }
