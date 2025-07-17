@@ -9,3 +9,6 @@ coverage.html
 debian/.debhelper/
 debian/debhelper-build-stamp
 debian/sonic-ops-server/
+debian/files
+debian/*.substvars
+debian/*.debhelper.log
