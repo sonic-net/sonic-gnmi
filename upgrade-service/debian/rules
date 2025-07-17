@@ -8,8 +8,7 @@ override_dh_auto_build:
 
 override_dh_auto_install:
 	mkdir -p debian/sonic-ops-server/usr/bin
-	cp bin/sonic-ops-server debian/sonic-ops-server/usr/bin/
+	cp bin/opsd-server debian/sonic-ops-server/usr/bin/
 
 override_dh_auto_clean:
 	make clean
-	dh_auto_clean
