@@ -75,9 +75,9 @@ func TestGetShowClock(t *testing.T) {
 		patches := gomonkey.ApplyFunc(time.Now, func() time.Time {
 			return testTime
 		})
-		defer patches.Reset()
 		t.Run(test.desc, func(t *testing.T) {
 			runTestGet(t, ctx, gClient, test.pathTarget, test.textPbPath, test.wantRetCode, test.wantRespVal, test.valTest)
 		})
+		patches.Reset()
 	}
 }
