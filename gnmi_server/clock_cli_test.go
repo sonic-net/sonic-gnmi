@@ -53,7 +53,7 @@ func TestGetShowClock(t *testing.T) {
 				elem: <name: "clock" >
 			`,
 			wantRetCode: codes.OK,
-			wantRespVal: []byte(`"Thu Jan  1 00:00:00 UTC 1970"`),
+			wantRespVal: []byte(`{"date": "Thu Jan  1 00:00:00 UTC 1970"}`),
 			valTest:     true,
 			testTime:    time.Unix(0, 0).UTC(),
 		},
@@ -64,7 +64,7 @@ func TestGetShowClock(t *testing.T) {
 				elem: <name: "clock" >
 			`,
 			wantRetCode: codes.OK,
-			wantRespVal: []byte(`"Fri Jul 18 18:00:00 UTC 2025"`),
+			wantRespVal: []byte(`{"date": "Fri Jul 18 18:00:00 UTC 2025"}`),
 			valTest:     true,
 			testTime:    time.Date(2025, 7, 18, 18, 0, 0, 0, time.UTC),
 		},

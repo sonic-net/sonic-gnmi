@@ -7,5 +7,8 @@ import (
 
 func getDate() ([]byte, error) {
 	currentDate := time.Now().UTC().Format(time.UnixDate)
-	return json.Marshal(currentDate)
+	dateResponse := map[string]interface{}{
+		"date": currentDate,
+	}
+	return json.Marshal(dateResponse)
 }
