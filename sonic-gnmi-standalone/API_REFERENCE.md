@@ -62,13 +62,13 @@ The server can be configured through command-line flags and environment variable
 
 ```bash
 # Basic configuration
-./bin/opsd-server --addr=:8080 --rootfs=/host
+./bin/sonic-gnmi-standalone --addr=:8080 --rootfs=/host
 
 # TLS configuration
-./bin/opsd-server --tls-cert=server.crt --tls-key=server.key
+./bin/sonic-gnmi-standalone --tls-cert=server.crt --tls-key=server.key
 
 # Verbose logging
-./bin/opsd-server -v=2
+./bin/sonic-gnmi-standalone -v=2
 ```
 
 ### Environment Variables
@@ -158,7 +158,7 @@ Ensure your build target includes proto validation:
 
 ```makefile
 build: validate-proto
-    go build -o bin/opsd-server cmd/server/main.go
+    go build -o bin/sonic-gnmi-standalone cmd/server/main.go
 ```
 
 ## Error Handling
@@ -181,10 +181,10 @@ The server supports optional TLS encryption:
 
 ```bash
 # Enable TLS with custom certificates
-./bin/opsd-server --tls-cert=server.crt --tls-key=server.key
+./bin/sonic-gnmi-standalone --tls-cert=server.crt --tls-key=server.key
 
 # Disable TLS for development
-DISABLE_TLS=true ./bin/opsd-server
+DISABLE_TLS=true ./bin/sonic-gnmi-standalone
 ```
 
 ### Network Security
@@ -212,10 +212,10 @@ The server uses glog for logging:
 
 ```bash
 # Enable verbose logging
-./bin/opsd-server -v=2 -logtostderr
+./bin/sonic-gnmi-standalone -v=2 -logtostderr
 
 # Log to files
-./bin/opsd-server -log_dir=/var/log/
+./bin/sonic-gnmi-standalone -log_dir=/var/log/
 ```
 
 ## Future Development

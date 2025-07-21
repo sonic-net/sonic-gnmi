@@ -14,7 +14,7 @@ include tools.mk
 BUILD_TAGS ?=
 COVERAGE_THRESHOLD ?= 25
 DOCKER_TAG ?= latest
-DOCKER_IMAGE ?= opsd
+DOCKER_IMAGE ?= gnmi-standalone-test
 
 ##############################################################################
 # Help Target
@@ -211,8 +211,8 @@ test-certs: ## Generate test certificates for TLS testing
 ##############################################################################
 
 # Build the server
-build: ## Build the opsd-server binary
-	go build -tags "$(BUILD_TAGS)" -o bin/opsd-server cmd/server/main.go
+build: ## Build the sonic-gnmi-standalone binary
+	go build -tags "$(BUILD_TAGS)" -o bin/sonic-gnmi-standalone cmd/server/main.go
 
 # Build all packages
 build-all: ## Build all packages (validate only)
@@ -241,7 +241,7 @@ build-test-tools: ## Build all test utilities
 
 # Run the server
 run: build ## Build and run the server
-	./bin/opsd-server
+	./bin/sonic-gnmi-standalone
 
 # Clean build artifacts
 clean: ## Clean build artifacts
@@ -286,7 +286,7 @@ deb: build ## Build debian package
 	@mkdir -p build
 	@rm -rf build/*
 	@dpkg-buildpackage -us -uc -d --build-dir=build 2>/dev/null || dpkg-buildpackage -us -uc -d
-	@if [ -f ../sonic-ops-server_*.deb ]; then \
-		mv ../sonic-ops-server_*.* build/ 2>/dev/null || true; \
+	@if [ -f ../sonic-gnmi-standalone_*.deb ]; then \
+		mv ../sonic-gnmi-standalone_*.* build/ 2>/dev/null || true; \
 	fi
 	@echo "Debian package built in build/ directory"

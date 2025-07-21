@@ -1,33 +1,33 @@
 FROM sonicdev-microsoft.azurecr.io/debian:bookworm
 
 # Create non-root user for security
-RUN adduser --system --group opsd
+RUN adduser --system --group gnmi
 
 # Set working directory
 WORKDIR /app
 
 # Copy the built binary
-COPY bin/opsd-server /usr/local/bin/opsd-server
+COPY bin/sonic-gnmi-standalone /usr/local/bin/sonic-gnmi-standalone
 
 # Create directory for any config files
-RUN mkdir -p /etc/opsd && chown -R opsd:opsd /etc/opsd
+RUN mkdir -p /etc/gnmi && chown -R gnmi:gnmi /etc/gnmi
 
 # Set proper permissions
-RUN chmod +x /usr/local/bin/opsd-server
+RUN chmod +x /usr/local/bin/sonic-gnmi-standalone
 
 # Copy and set up the entrypoint script
 COPY docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Copy any configuration files if needed
-# COPY config/opsd.conf /etc/opsd/
+# COPY config/gnmi.conf /etc/gnmi/
 
 # Switch to non-root user
-USER opsd
+USER gnmi
 
 # Environment variables for configuration (can be overridden at runtime)
-ENV OPSD_ADDR=":50051"
-ENV OPSD_SHUTDOWN_TIMEOUT="10s"
+ENV GNMI_ADDR=":50051"
+ENV GNMI_SHUTDOWN_TIMEOUT="10s"
 
 # Note: Port exposure depends on MOPD_ADDR configuration
 # Use -p flag in docker run to publish the actual port being used

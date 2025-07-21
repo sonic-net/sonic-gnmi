@@ -1,4 +1,4 @@
-Source: sonic-ops-server
+Source: sonic-gnmi-standalone
 Section: net
 Priority: optional
 Maintainer: SONiC Team <sonic@example.com>
@@ -6,9 +6,9 @@ Build-Depends: debhelper (>= 10), golang-go (>= 1.19)
 Standards-Version: 4.5.0
 Homepage: https://github.com/sonic-net/sonic-gnmi
 
-Package: sonic-ops-server
+Package: sonic-gnmi-standalone
 Architecture: any
 Depends: ${misc:Depends}, ${shlibs:Depends}
-Description: SONiC Operations Server
- gRPC server for SONiC firmware management and system operations.
- Provides firmware upgrade capabilities and system information services.
+Description: SONiC gNMI Standalone Server
+ Minimal gRPC server foundation for SONiC operations.
+ Provides a clean baseline for implementing gRPC services.

@@ -13,6 +13,7 @@ CLAUDE.local.md
 debian/.debhelper/
 debian/debhelper-build-stamp
 debian/sonic-ops-server/
+debian/sonic-gnmi-standalone/
 debian/files
 debian/*.substvars
 debian/*.debhelper.log

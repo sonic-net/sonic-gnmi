@@ -60,16 +60,16 @@ The server supports the following command-line options:
 
 ```bash
 # Basic usage with default settings (port 50051, rootfs /mnt/host)
-./bin/opsd-server
+./bin/sonic-gnmi-standalone
 
 # Specify different port and rootfs (useful for containers vs baremetal)
-./bin/opsd-server --addr=:8080 --rootfs=/host
+./bin/sonic-gnmi-standalone --addr=:8080 --rootfs=/host
 
 # Enable verbose logging
-./bin/opsd-server -v=2
+./bin/sonic-gnmi-standalone -v=2
 
 # Show all available options
-./bin/opsd-server --help
+./bin/sonic-gnmi-standalone --help
 ```
 
 **Configuration Options:**
@@ -148,19 +148,19 @@ The server is designed to work in different deployment scenarios:
 ### Container Deployment
 ```bash
 # Container with host filesystem mounted at /mnt/host
-./bin/opsd-server --rootfs=/mnt/host --addr=:50051
+./bin/sonic-gnmi-standalone --rootfs=/mnt/host --addr=:50051
 ```
 
 ### Baremetal Deployment  
 ```bash
 # Direct baremetal installation
-./bin/opsd-server --rootfs=/ --addr=:50051
+./bin/sonic-gnmi-standalone --rootfs=/ --addr=:50051
 ```
 
 ### Development/Testing
 ```bash
 # Local testing with custom filesystem
-./bin/opsd-server --rootfs=/tmp/test-env --addr=:50052
+./bin/sonic-gnmi-standalone --rootfs=/tmp/test-env --addr=:50052
 ```
 
 The `--rootfs` flag allows the server to find system files regardless of the deployment environment.
