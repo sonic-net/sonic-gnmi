@@ -71,9 +71,9 @@ The server can be configured through command-line flags and environment variable
 ./bin/sonic-gnmi-standalone -v=2
 ```
 
-### Environment Variables
+### TLS Configuration
 
-- `DISABLE_TLS=true` - Disable TLS encryption (default: false)
+Use `--no-tls` flag to disable TLS encryption (TLS is enabled by default).
 
 ## Development Guide
 
@@ -184,7 +184,7 @@ The server supports optional TLS encryption:
 ./bin/sonic-gnmi-standalone --tls-cert=server.crt --tls-key=server.key
 
 # Disable TLS for development
-DISABLE_TLS=true ./bin/sonic-gnmi-standalone
+./bin/sonic-gnmi-standalone --no-tls
 ```
 
 ### Network Security

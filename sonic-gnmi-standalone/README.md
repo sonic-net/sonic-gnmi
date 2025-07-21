@@ -76,6 +76,7 @@ The server supports the following command-line options:
 - `--addr`: Server address (default: `:50051`)
 - `--rootfs`: Root filesystem mount point (default: `/mnt/host`)
 - `--shutdown-timeout`: Graceful shutdown timeout (default: `10s`)
+- `--no-tls`: Disable TLS (TLS is enabled by default)
 - `-v`: Verbose logging level for glog
 
 ## Testing and Verification

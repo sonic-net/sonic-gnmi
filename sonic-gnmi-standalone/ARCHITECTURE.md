@@ -35,9 +35,7 @@ sonic-gnmi-standalone/
 - `--rootfs`: Root filesystem path (default: `/mnt/host`)
 - `--shutdown-timeout`: Graceful shutdown timeout (default: `10s`)
 - `--tls-cert`, `--tls-key`: TLS certificate paths
-
-### Environment Variables
-- `DISABLE_TLS=true`: Disable TLS
+- `--no-tls`: Disable TLS (TLS enabled by default)
 
 ## Build and Run
 

@@ -2,7 +2,6 @@ package config
 
 import (
 	"flag"
-	"os"
 	"time"
 
 	"github.com/golang/glog"
@@ -27,11 +26,12 @@ func Initialize() {
 	shutdownTimeout := flag.Duration("shutdown-timeout", 10*time.Second, "Maximum time to wait for graceful shutdown")
 	tlsCert := flag.String("tls-cert", "", "Path to TLS certificate file (optional)")
 	tlsKey := flag.String("tls-key", "", "Path to TLS private key file (optional)")
+	noTLS := flag.Bool("no-tls", false, "Disable TLS (TLS is enabled by default)")
 
 	flag.Parse()
 
-	// TLS is enabled by default unless explicitly disabled via env var
-	tlsEnabled := os.Getenv("DISABLE_TLS") != "true"
+	// TLS is enabled by default unless explicitly disabled via flag
+	tlsEnabled := !*noTLS
 
 	// If TLS is enabled but no cert/key provided, use default paths
 	certFile := *tlsCert

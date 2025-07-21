@@ -8,7 +8,7 @@ This directory contains the entry points for the upgrade service binaries and te
 The main upgrade service server binary. This provides the gRPC API for firmware management operations including image consolidation, cleanup, and listing.
 
 **Build:** `make build`  
-**Usage:** `./bin/sonic-ops-server`
+**Usage:** `./bin/sonic-gnmi-standalone`
 
 ## Test Utilities
 

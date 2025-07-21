@@ -83,7 +83,7 @@ func NewServerWithTLS(addr string, useTLS bool, certFile, keyFile string) (*Serv
 		grpcServer = grpc.NewServer(grpc.Creds(creds))
 		glog.V(1).Infof("TLS enabled with cert: %s, key: %s", certFile, keyFile)
 	} else {
-		// Intentionally insecure for development/testing when DISABLE_TLS=true is explicitly set
+		// Intentionally insecure for development/testing when --no-tls flag is used
 		// nosemgrep: go.grpc.security.grpc-server-insecure-connection.grpc-server-insecure-connection
 		grpcServer = grpc.NewServer()
 		glog.V(1).Info("TLS disabled - using insecure connection")
