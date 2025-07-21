@@ -179,6 +179,8 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 	} else if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
 		authTarget = "gnmi_others"
+	} else if target == "SHOW" {
+		return grpc.Errorf(codes.Unimplemented, "SHOW does not support subscribe operations")
 	} else if (target == "EVENTS") && (mode == gnmipb.SubscriptionList_STREAM) {
 		dc, err = sdc.NewEventClient(paths, prefix, c.logLevel)
 		authTarget = "gnmi_events"

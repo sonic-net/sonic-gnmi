@@ -5,13 +5,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	log "github.com/golang/glog"
 	"net"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	log "github.com/golang/glog"
 
 	"github.com/Workiva/go-datastructures/queue"
 	"github.com/go-redis/redis"
@@ -739,6 +740,10 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 			return err
 		}
 		err = initCountersQueueNameMap()
+		if err != nil {
+			return err
+		}
+		err = initCountersPGNameMap()
 		if err != nil {
 			return err
 		}

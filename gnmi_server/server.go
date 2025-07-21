@@ -13,6 +13,7 @@ import (
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
+	_ "github.com/sonic-net/sonic-gnmi/show_client"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 
@@ -450,6 +451,9 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
 		authTarget = "gnmi_other"
+	} else if target == "SHOW" {
+		dc, err = sdc.NewShowClient(paths, prefix)
+		authTarget = "gnmi_show"
 	} else if targetDbName, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
 		authTarget = "gnmi_" + targetDbName
