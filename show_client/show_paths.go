@@ -18,4 +18,8 @@ func init() {
 		[]string{"SHOW", "clock"},
 		getDate,
 	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "clock", "timezones"},
+		getDateTimezone,
+	)
 }
