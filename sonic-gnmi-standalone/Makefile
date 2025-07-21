@@ -199,9 +199,6 @@ validate-coverage: test-coverage ## Validate coverage meets minimum threshold
 		echo "✓ Coverage $$COVERAGE% meets minimum threshold $$THRESHOLD%"; \
 	fi
 
-# Run end-to-end tests
-test-e2e: ## Run end-to-end tests
-	go test ./tests/e2e/... -timeout 2m
 
 # Generate test certificates for TLS testing
 test-certs: ## Generate test certificates for TLS testing
@@ -214,7 +211,7 @@ test-certs: ## Generate test certificates for TLS testing
 ##############################################################################
 
 # Build the server
-build: validate-proto ## Build the opsd-server binary
+build: ## Build the opsd-server binary
 	go build -tags "$(BUILD_TAGS)" -o bin/opsd-server cmd/server/main.go
 
 # Build all packages
@@ -269,7 +266,7 @@ semgrep: ## Run semgrep security analysis
 ##############################################################################
 
 # CI pipeline target - runs all verification steps (validation only, no tool installation)
-ci: validate-format validate-proto tidy build-all vet lint test test-coverage test-e2e verify semgrep ## Run full CI pipeline
+ci: validate-format tidy build-all vet lint test test-coverage verify semgrep ## Run full CI pipeline
 
 ##############################################################################
 # Packaging & Distribution

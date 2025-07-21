@@ -1,14 +1,12 @@
-// Package server provides the main gRPC server implementation for the SONiC Upgrade Service.
-// It combines multiple service implementations (SystemInfo and FirmwareManagement) into
-// a single server with configurable TLS support and reflection capabilities.
+// Package server provides the main gRPC server implementation for the SONiC services.
+// It provides a minimal server with configurable TLS support and reflection capabilities
+// as a foundation for adding specific services.
 //
 // The server supports both secure (TLS) and insecure connections depending on deployment
-// requirements. It automatically registers all available services and enables gRPC reflection
-// for tools like grpcurl.
+// requirements. It enables gRPC reflection for development tools like grpcurl.
 //
 // Key features:
 //   - Configurable TLS with certificate validation
-//   - Service auto-registration for SystemInfo and FirmwareManagement
 //   - gRPC reflection support for development and testing
 //   - Graceful shutdown handling
 //   - Comprehensive logging and error handling
@@ -24,11 +22,10 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
-	pb "github.com/sonic-net/sonic-gnmi/upgrade-service/proto"
 )
 
 // Server represents the gRPC server and its resources, providing a unified interface
-// for managing the lifecycle of the SONiC Upgrade Service. It encapsulates the
+// for managing the lifecycle of the SONiC gRPC services. It encapsulates the
 // underlying gRPC server instance and network listener for clean resource management.
 type Server struct {
 	grpcServer *grpc.Server // The underlying gRPC server instance
@@ -47,7 +44,6 @@ func NewServer(addr string) (*Server, error) {
 //   - Network listener creation on the specified address
 //   - TLS certificate validation and loading (if enabled)
 //   - gRPC server instantiation with appropriate security settings
-//   - Service registration for SystemInfo and FirmwareManagement
 //   - gRPC reflection setup for development tools
 //
 // Parameters:
@@ -92,8 +88,6 @@ func NewServerWithTLS(addr string, useTLS bool, certFile, keyFile string) (*Serv
 		grpcServer = grpc.NewServer()
 		glog.V(1).Info("TLS disabled - using insecure connection")
 	}
-	systemInfoServer := NewSystemInfoServer()
-	pb.RegisterSystemInfoServer(grpcServer, systemInfoServer)
 
 	// Register reflection service for grpcurl functionality
 	glog.V(2).Info("Registering reflection service")

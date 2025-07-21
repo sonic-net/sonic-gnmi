@@ -5,6 +5,10 @@ build/
 coverage.out
 coverage.html
 
+# Development files (Claude Code guidance)
+CLAUDE.md
+CLAUDE.local.md
+
 # Debian packaging
 debian/.debhelper/
 debian/debhelper-build-stamp

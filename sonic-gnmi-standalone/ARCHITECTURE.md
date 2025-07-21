@@ -1,40 +1,35 @@
-# SONiC Upgrade Service Architecture
+# SONiC gRPC Server Foundation Architecture
 
-This document describes the architecture and design principles of the SONiC Upgrade Service, a comprehensive gRPC-based solution for managing SONiC firmware operations.
+This document describes the architecture and design principles of the minimal SONiC gRPC Server Foundation, a clean baseline for implementing gRPC services.
 
 ## Overview
 
-The SONiC Upgrade Service is designed as a modular, containerized gRPC service that provides APIs for firmware management, system information retrieval, and upgrade operations. It follows clean architecture principles with clear separation between service interfaces, business logic, and system integration.
+The SONiC gRPC Server Foundation is designed as a minimal, containerized gRPC server that provides only the essential infrastructure needed for gRPC service development. It follows clean architecture principles with clear separation between infrastructure and future business logic.
 
 ## High-Level Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        gRPC Clients                        │
-│  (grpcurl, sonic-mgmt, custom tooling, web interfaces)     │
+│  (grpcurl, custom tooling, web interfaces, service mesh)   │
 └─────────────────────┬───────────────────────────────────────┘
                       │ gRPC/HTTP2 + TLS (optional)
 ┌─────────────────────▼───────────────────────────────────────┐
 │                   gRPC Server                              │
-│  ┌─────────────────┐  ┌─────────────────┐                 │
-│  │  SystemInfo     │  │ FirmwareManag-  │                 │
-│  │  Service        │  │ ement Service   │                 │
-│  └─────────────────┘  └─────────────────┘                 │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │           Reflection Service (built-in)               │ │
+│  │  - grpc.reflection.v1.ServerReflection                │ │
+│  │  - grpc.reflection.v1alpha.ServerReflection           │ │
+│  └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│  [Ready for Custom Service Registration]                   │
 └─────────────────────┬───────────────────────────────────────┘
-                      │ Internal API calls
-┌─────────────────────▼───────────────────────────────────────┐
-│                 Business Logic Layer                       │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
-│  │Firmware  │ │Download  │ │Platform  │ │Installer │      │
-│  │Management│ │Engine    │ │Detection │ │Wrapper   │      │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
-└─────────────────────┬───────────────────────────────────────┘
-                      │ System calls & file operations
+                      │ Configuration & System calls
 ┌─────────────────────▼───────────────────────────────────────┐
 │                 System Integration                         │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
-│  │Host FS   │ │Network   │ │Disk      │ │Process   │      │
-│  │Access    │ │Interface │ │Space     │ │Execution │      │
+│  │Network   │ │TLS Cert  │ │Filesystem│ │Process   │      │
+│  │Binding   │ │Management│ │Access    │ │Management│      │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -43,241 +38,278 @@ The SONiC Upgrade Service is designed as a modular, containerized gRPC service t
 
 ### 1. gRPC Server Layer (`pkg/server/`)
 
-The top-level server implementation that handles:
+The minimal server implementation that handles:
 - TLS configuration and certificate management
-- Service registration and lifecycle management
-- Request routing and middleware
+- Reflection service registration (automatic)
 - Graceful shutdown handling
+- Network listener management
 
-**Key Files:**
-- `server.go`: Main server with TLS support
-- `system_info.go`: SystemInfo service implementation
-- `firmware_management.go`: FirmwareManagement service implementation
+**Key File:**
+- `server.go`: Minimal server with TLS support and reflection
 
-### 2. Business Logic Layer (`internal/`)
+**Key Features:**
+- **Configurable TLS**: Optional TLS with certificate validation
+- **Reflection Only**: Only built-in reflection services are registered
+- **Clean Foundation**: No business logic, ready for service addition
+- **Extensible Design**: Easy to add new service registrations
 
-Domain-specific packages that implement core functionality:
+### 2. Configuration Layer (`internal/config/`)
 
-#### Firmware Management (`internal/firmware/`)
-- **Cleanup**: Remove old firmware files with space tracking
-- **Version Detection**: Extract version info from ONIE/Aboot images
-- **Consolidation**: Manage installed images via sonic-installer
-- **Search**: Discover firmware images across directories
+Handles server configuration through command-line flags and environment variables:
 
-#### Download Engine (`internal/download/`)
-- **Session Management**: Track download progress with unique sessions
-- **Network Binding**: Interface-specific downloads for multi-NIC systems
-- **Progress Tracking**: Real-time speed and completion monitoring
-- **Error Handling**: Comprehensive retry mechanisms with backoff
+**Configuration Options:**
+- `--addr`: Server bind address (default: `:50051`)
+- `--rootfs`: Root filesystem mount point (default: `/mnt/host`)
+- `--shutdown-timeout`: Graceful shutdown timeout (default: `10s`)
+- `--tls-cert`, `--tls-key`: TLS certificate paths
+- `DISABLE_TLS`: Environment variable to disable TLS
 
-#### Platform Detection (`internal/hostinfo/`)
-- **Hardware Detection**: Read machine.conf for platform identification
-- **Vendor Mapping**: Normalize platform strings across vendors
-- **Container Awareness**: Path resolution for mounted filesystems
+**Key Features:**
+- **Container-Aware**: Configurable root filesystem for container deployments
+- **Security-First**: TLS enabled by default, explicit disable required
+- **Flexible Deployment**: Works in container, baremetal, and development environments
 
-#### System Integration (`internal/diskspace/`, `internal/paths/`)
-- **Disk Analysis**: Filesystem space calculation and monitoring
-- **Path Resolution**: Container-to-host path mapping
-- **Configuration**: Global settings and deployment-specific config
+### 3. Main Application (`cmd/server/`)
 
-### 3. Protocol Layer (`proto/`)
-
-gRPC service definitions and generated code:
-- `system_info.proto`: Platform info and disk space APIs
-- `firmware_management.proto`: Download, cleanup, and image management APIs
+Simple main application that:
+- Initializes configuration from flags and environment
+- Creates and starts the gRPC server
+- Handles graceful shutdown on system signals
+- Provides comprehensive logging
 
 ## Design Principles
 
-### 1. Container-First Design
+### 1. Minimalism
 
-The service is designed to run in containers with host filesystem mounted:
-- All paths are resolved through `internal/paths` for container compatibility
-- Configuration supports both container (`/mnt/host`) and baremetal (`/`) deployments
-- Network operations handle container networking constraints
+The foundation provides only essential infrastructure:
+- gRPC server with reflection
+- TLS configuration
+- Basic configuration management
+- Graceful shutdown
 
-### 2. Concurrent Safety
+**No Business Logic:** The server contains no domain-specific functionality, making it a clean slate for service development.
 
-Critical components use proper synchronization:
-- Download sessions protected by `sync.RWMutex` for concurrent status queries
-- Global download state prevents resource conflicts
-- Thread-safe progress updates from download goroutines
+### 2. Container-First Design
 
-### 3. Error Resilience
+Designed for modern container deployments:
+- Configurable filesystem root for mounted host filesystems
+- Environment variable configuration
+- Clean shutdown handling for container orchestrators
+- No assumptions about deployment environment
 
-Comprehensive error handling throughout:
-- Network failures handled with configurable timeouts and retries
-- Filesystem operations with proper error propagation
-- Graceful degradation when system tools are unavailable
+### 3. Security by Default
 
-### 4. Observability
+Security-conscious defaults:
+- TLS enabled by default
+- Certificate validation
+- Secure configuration options
+- Explicit security disable for development
 
-Extensive logging and monitoring support:
-- Structured logging with configurable verbosity levels
-- Progress tracking for long-running operations
-- Error categorization for troubleshooting
+### 4. Extensibility
 
-## Service Interfaces
+Clean extension points for adding services:
+- Clear service registration pattern in `server.go`
+- Modular configuration system
+- Standardized error handling
+- Consistent logging approach
 
-### SystemInfo Service
+## Service Registration Pattern
 
-Provides read-only system information:
+The server is designed to make service registration simple and consistent:
 
-```protobuf
-service SystemInfo {
-  rpc GetPlatformType(GetPlatformTypeRequest) returns (GetPlatformTypeResponse);
-  rpc GetDiskSpace(GetDiskSpaceRequest) returns (GetDiskSpaceResponse);
-}
+```go
+// Current minimal registration (reflection only)
+reflection.Register(grpcServer)
+
+// Future service registration pattern:
+myServiceServer := NewMyServiceServer()
+pb.RegisterMyServiceServer(grpcServer, myServiceServer)
 ```
 
-**Use Cases:**
-- Platform identification for firmware compatibility
-- Disk space monitoring before downloads
-- System health checks
+## Configuration Architecture
 
-### FirmwareManagement Service
-
-Handles firmware operations with state management:
-
-```protobuf
-service FirmwareManagement {
-  rpc DownloadFirmware(DownloadFirmwareRequest) returns (DownloadFirmwareResponse);
-  rpc GetDownloadStatus(GetDownloadStatusRequest) returns (GetDownloadStatusResponse);
-  rpc ListFirmwareImages(ListFirmwareImagesRequest) returns (ListFirmwareImagesResponse);
-  rpc CleanupOldFirmware(CleanupOldFirmwareRequest) returns (CleanupOldFirmwareResponse);
-  rpc ConsolidateImages(ConsolidateImagesRequest) returns (ConsolidateImagesResponse);
-  rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
-}
+### Command-Line Configuration
+```bash
+./bin/opsd-server --addr=:8080 --rootfs=/host --shutdown-timeout=30s
 ```
 
-**State Management:**
-- Download sessions with unique IDs for tracking
-- Progress reporting with real-time updates
-- Concurrent download blocking to prevent conflicts
+### Environment-Based Configuration
+```bash
+DISABLE_TLS=true ./bin/opsd-server
+```
+
+### Container-Aware Path Resolution
+- `--rootfs=/mnt/host` for container deployments
+- `--rootfs=/` for baremetal deployments
+- Configurable for any deployment scenario
 
 ## Deployment Scenarios
 
-### 1. Container Deployment
+### 1. Container Deployment (Primary Target)
 
 ```yaml
-# Docker/Kubernetes deployment
-volumes:
-  - /host:/mnt/host:ro  # Host filesystem access
-environment:
-  - ROOTFS=/mnt/host
-  - ADDR=:8080
-  - DISABLE_TLS=true
+# Kubernetes/Docker deployment
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: grpc-server
+    image: sonic-grpc-foundation
+    args: ["--rootfs=/mnt/host", "--addr=:8080"]
+    ports:
+    - containerPort: 8080
+    volumeMounts:
+    - name: host-filesystem
+      mountPath: /mnt/host
+      readOnly: true
+  volumes:
+  - name: host-filesystem
+    hostPath:
+      path: /
 ```
 
 ### 2. Baremetal Deployment
 
 ```bash
 # Direct installation on SONiC device
-./sonic-ops-server --rootfs=/ --addr=:50051 --tls-cert=/etc/ssl/server.crt
+./opsd-server --rootfs=/ --addr=:50051 --tls-cert=/etc/ssl/server.crt
 ```
 
 ### 3. Development Environment
 
 ```bash
-# Local testing with custom paths
-./sonic-ops-server --rootfs=/tmp/sonic-test --addr=:50052
+# Local testing
+./opsd-server --rootfs=/tmp/test-env --addr=:50052
+DISABLE_TLS=true ./opsd-server --addr=:50053
 ```
-
-## Network Architecture
-
-### Download Engine Network Binding
-
-The download engine supports interface-specific binding for multi-interface systems:
-
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Management    │    │   Data Plane    │    │   Out-of-Band   │
-│   Interface     │    │   Interface     │    │   Management    │
-│   (eth0)        │    │   (eth1)        │    │   (eth2)        │
-└─────────┬───────┘    └─────────┬───────┘    └─────────┬───────┘
-          │                      │                      │
-          └──────────────────────┼──────────────────────┘
-                                 │
-                    ┌─────────────▼─────────────┐
-                    │     Download Engine       │
-                    │  (Interface Selection)    │
-                    └───────────────────────────┘
-```
-
-**Features:**
-- Automatic interface detection and status checking
-- Configurable interface preference for downloads
-- Fallback mechanisms for interface failures
-- IPv4/IPv6 dual-stack support per interface
 
 ## Testing Strategy
 
 ### 1. Unit Tests
-- Individual package functionality
-- Mock-based testing for external dependencies
-- Edge case coverage for error conditions
+- Configuration parsing and validation
+- Server lifecycle management
+- TLS certificate handling
+- Error scenarios
 
 ### 2. Integration Tests
-- Service-to-service communication
-- End-to-end download workflows
-- Container deployment validation
+- Server startup and shutdown
+- TLS configuration validation
+- Reflection service availability
+- Network connectivity
 
-### 3. End-to-End Tests
-- Real network download scenarios
-- Platform detection across hardware types
-- Performance testing with large files
+### 3. Development Tools
+- `grpcurl` compatibility testing
+- Reflection service validation
+- Health checking mechanisms
 
 ## Security Considerations
 
 ### 1. TLS Configuration
-- Optional TLS with certificate validation
-- Support for custom CA certificates
-- Secure defaults with option to disable for testing
 
-### 2. Input Validation
-- URL validation for download requests
-- Path sanitization for file operations
-- Size limits for download operations
+**Default Security:**
+- TLS enabled by default
+- Certificate validation required
+- Explicit disable required for development
 
-### 3. Filesystem Access
-- Read-only access to host filesystem where possible
-- Controlled write access to designated directories
-- Permission validation before file operations
+**Certificate Management:**
+- Configurable certificate paths
+- File existence validation
+- Proper error handling for certificate issues
+
+### 2. Network Security
+
+**Bind Configuration:**
+- Configurable bind addresses
+- Default to all interfaces (`:50051`)
+- Firewall rules responsibility of deployment
+
+**Protocol Security:**
+- HTTP/2 with gRPC
+- Optional TLS encryption
+- Standard gRPC security practices
+
+## Future Architecture Patterns
+
+The foundation is designed to support common gRPC service patterns:
+
+### 1. Business Service Addition
+
+```go
+// Add new service implementations
+type BusinessServiceServer struct {
+    pb.UnimplementedBusinessServiceServer
+}
+
+// Register in server.go
+businessServer := NewBusinessServiceServer()
+pb.RegisterBusinessServiceServer(grpcServer, businessServer)
+```
+
+### 2. Middleware Integration
+
+```go
+// Add interceptors for cross-cutting concerns
+grpcServer = grpc.NewServer(
+    grpc.Creds(creds),
+    grpc.UnaryInterceptor(loggingInterceptor),
+    grpc.StreamInterceptor(streamLoggingInterceptor),
+)
+```
+
+### 3. Health Checking
+
+```go
+// Add gRPC health checking
+healthServer := health.NewServer()
+grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
+```
+
+### 4. Metrics Integration
+
+```go
+// Add Prometheus metrics
+grpcServer = grpc.NewServer(
+    grpc.Creds(creds),
+    grpc.UnaryInterceptor(grpc_prometheus.UnaryServerInterceptor),
+)
+```
 
 ## Performance Characteristics
 
-### Download Performance
-- Interface-specific binding for optimal network utilization
-- Configurable timeouts and retry mechanisms
-- Progress tracking with minimal overhead
+### Resource Usage
+- **Minimal Memory**: No business logic or caching
+- **Low CPU**: Only reflection service processing
+- **Network Efficient**: HTTP/2 multiplexing
+- **Fast Startup**: Minimal initialization
 
-### Memory Usage
-- Streaming downloads to avoid memory accumulation
-- Bounded memory usage for large file operations
-- Efficient progress tracking with minimal allocations
+### Scalability
+- **Horizontal**: Multiple instances with load balancers
+- **Vertical**: Efficient resource utilization
+- **Connection Handling**: HTTP/2 connection reuse
+- **Graceful Scaling**: Clean shutdown for orchestrators
 
-### Concurrency
-- Single download enforcement to prevent resource conflicts
-- Non-blocking status queries during downloads
-- Efficient goroutine management for concurrent requests
+## Monitoring and Observability
 
-## Future Enhancements
+### Built-in Capabilities
+- **Reflection**: Service discovery through grpcurl
+- **Logging**: Configurable glog integration
+- **Health**: Reflection service as basic health check
 
-### 1. Download Resume
-- Persistent session state for download resumption
-- Partial file handling with HTTP range requests
-- Recovery from network interruptions
+### Extension Points
+- **Metrics**: Ready for Prometheus integration
+- **Tracing**: Ready for distributed tracing
+- **Health Checks**: gRPC health checking protocol support
 
-### 2. Multi-source Downloads
-- Parallel chunk downloads from multiple sources
-- Load balancing across available mirrors
-- Automatic source failover
+## Development Workflow
 
-### 3. Enhanced Monitoring
-- Prometheus metrics integration
-- Distributed tracing support
-- Performance analytics and reporting
+### Adding New Services
 
-### 4. Advanced Security
-- mTLS client authentication
-- API key-based authorization
-- Audit logging for all operations
+1. **Define Protocol**: Create `.proto` files
+2. **Generate Code**: Update Makefile for protobuf generation
+3. **Implement Service**: Add service implementation in `pkg/server/`
+4. **Register Service**: Update `server.go` registration
+5. **Add Business Logic**: Implement supporting packages in `internal/`
+6. **Test Integration**: Add comprehensive tests
+7. **Update Documentation**: Document APIs and architecture changes
+
+The clean foundation ensures each step is straightforward and follows established patterns.
