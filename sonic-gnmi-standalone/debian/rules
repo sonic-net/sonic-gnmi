@@ -9,6 +9,3 @@ override_dh_auto_build:
 override_dh_auto_install:
 	mkdir -p debian/sonic-gnmi-standalone/usr/bin
 	cp bin/sonic-gnmi-standalone debian/sonic-gnmi-standalone/usr/bin/
-
-override_dh_auto_clean:
-	make clean
