@@ -33,4 +33,13 @@ func TestFakeClientMethods(t *testing.T) {
 	assert.Equal(t, "image1", img)
 	assert.NoError(t, client.ActivateImage("image1"))
 	assert.NoError(t, client.LoadDockerImage("docker-image"))
+
+	output, err := client.FactoryReset("REBOOT")
+	assert.NoError(t, err)
+	assert.Equal(t, "REBOOT", output)
+
+	output, err = client.FactoryReset("")
+	assert.Error(t, err)
+	assert.Equal(t, "", output)
+	assert.Equal(t, "Previous reset is ongoing", err.Error())
 }
