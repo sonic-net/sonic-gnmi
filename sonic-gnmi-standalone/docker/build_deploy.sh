@@ -7,7 +7,7 @@ set -e
 # Parse command line arguments
 TARGET=""
 IMAGE_TAG="latest"
-OPSD_ADDR=":50051"
+SERVER_ADDR=":50051"
 NO_TLS="true"
 
 usage() {
@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -a)
-      OPSD_ADDR="$2"
+      SERVER_ADDR="$2"
       shift 2
       ;;
     --enable-tls)
@@ -86,9 +86,15 @@ scp $TEMP_IMAGE_FILE $TARGET:/tmp/
 
 # Load and run the container on the SONiC device
 echo "Loading and starting container on $TARGET..."
+# Build the container command with appropriate flags
+CONTAINER_CMD="sonic-gnmi-standalone --addr='$SERVER_ADDR' --rootfs=/host"
+if [ "$NO_TLS" = "true" ]; then
+  CONTAINER_CMD="$CONTAINER_CMD --no-tls"
+fi
+
 ssh $TARGET "docker load -i /tmp/gnmi-$IMAGE_TAG.tar && \
               docker rm -f gnmi 2>/dev/null || true && \
-              docker run -d --name gnmi --network host --privileged -v /:/host:rw -e OPSD_ADDR='$OPSD_ADDR' -e NO_TLS='$NO_TLS' $IMAGE_NAME -rootfs=/host"
+              docker run -d --name gnmi --network host --privileged -v /:/host:rw $IMAGE_NAME $CONTAINER_CMD"
 
 # Clean up the temporary file
 rm $TEMP_IMAGE_FILE
@@ -96,5 +102,5 @@ rm $TEMP_IMAGE_FILE
 echo ""
 echo "Deployment completed successfully!"
 echo "Container 'gnmi' is now running on $TARGET"
-echo "Listening on address: $OPSD_ADDR"
+echo "Listening on address: $SERVER_ADDR"
 echo "TLS enabled: $([ "$NO_TLS" = "true" ] && echo "No" || echo "Yes")"
