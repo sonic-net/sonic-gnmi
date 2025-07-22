@@ -56,7 +56,7 @@ func main() {
 	}
 
 	// Create and register gNOI System service
-	systemServer := gnoiSystem.NewServer()
+	systemServer := gnoiSystem.NewServer(config.Global.RootFS)
 	system.RegisterSystemServer(srv.GRPCServer(), systemServer)
 	glog.Info("Registered gNOI System service")
 
