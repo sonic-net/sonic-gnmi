@@ -14,4 +14,8 @@ func init() {
 		[]string{"SHOW", "reboot-cause", "history"},
 		getRebootCauseHistory,
 	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "ipv6", "bgp", "summary"},
+		getIPv6BGPSummary,
+	)
 }
