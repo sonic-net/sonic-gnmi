@@ -1,4 +1,4 @@
-module github.com/sonic-net/sonic-gnmi/upgrade-service
+module github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone
 
 go 1.24.1
 

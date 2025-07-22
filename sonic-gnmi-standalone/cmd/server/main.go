@@ -7,8 +7,8 @@ import (
 	"syscall"
 
 	"github.com/golang/glog"
-	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/config"
-	"github.com/sonic-net/sonic-gnmi/upgrade-service/pkg/server"
+	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/internal/config"
+	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server"
 )
 
 func main() {
