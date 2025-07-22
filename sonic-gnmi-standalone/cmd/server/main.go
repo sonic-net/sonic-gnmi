@@ -18,8 +18,11 @@ func main() {
 	// Initialize glog
 	defer glog.Flush()
 
+	// Log configuration
+	glog.Infof("Starting sonic-gnmi-standalone: addr=%s, rootfs=%s, tls=%t",
+		config.Global.Addr, config.Global.RootFS, config.Global.TLSEnabled)
+
 	// Create a new server instance
-	glog.Info("Sonic Upgrade Service starting...")
 	srv, err := server.NewServer(config.Global.Addr)
 	if err != nil {
 		glog.Fatalf("Failed to create server: %v", err)

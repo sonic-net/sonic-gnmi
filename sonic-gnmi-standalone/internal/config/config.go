@@ -51,6 +51,4 @@ func Initialize() {
 		TLSKeyFile:      keyFile,
 		TLSEnabled:      tlsEnabled,
 	}
-	glog.V(1).Infof("Configuration initialized: addr=%s, rootfs=%s, tls_enabled=%t",
-		Global.Addr, Global.RootFS, Global.TLSEnabled)
 }
