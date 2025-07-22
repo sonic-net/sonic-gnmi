@@ -94,17 +94,17 @@ fi
 
 echo "DEBUG: Container arguments: $CONTAINER_ARGS"
 echo "DEBUG: Full docker run command will be:"
-echo "docker run -d --name gnmi --network host --privileged -v /:/host:rw $IMAGE_NAME $CONTAINER_ARGS"
+echo "docker run -d --name gnmi-standalone-testonly --network host --privileged -v /:/host:rw $IMAGE_NAME $CONTAINER_ARGS"
 
 ssh $TARGET "docker load -i /tmp/gnmi-$IMAGE_TAG.tar && \
-              docker rm -f gnmi 2>/dev/null || true && \
-              docker run -d --name gnmi --network host --privileged -v /:/host:rw $IMAGE_NAME $CONTAINER_ARGS"
+              docker rm -f gnmi-standalone-testonly 2>/dev/null || true && \
+              docker run -d --name gnmi-standalone-testonly --network host --privileged -v /:/host:rw $IMAGE_NAME $CONTAINER_ARGS"
 
 # Clean up the temporary file
 rm $TEMP_IMAGE_FILE
 
 echo ""
 echo "Deployment completed successfully!"
-echo "Container 'gnmi' is now running on $TARGET"
+echo "Container 'gnmi-standalone-testonly' is now running on $TARGET"
 echo "Listening on address: $SERVER_ADDR"
 echo "TLS enabled: $([ "$NO_TLS" = "true" ] && echo "No" || echo "Yes")"

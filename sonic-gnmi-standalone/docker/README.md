@@ -5,7 +5,7 @@ This directory contains files for building and deploying the opsd service as a D
 ## Files
 
 - `Dockerfile`: Defines the container image for opsd server.
-- `build_deploy.sh`: Script to build and deploy the container
+- `build_deploy_testonly.sh`: Script to build and deploy the container (test-only)
 
 ## Building and Deploying
 
@@ -18,19 +18,19 @@ To build the Docker image:
 make docker-build
 ```
 
-### Using build_deploy.sh
+### Using build_deploy_testonly.sh
 
-For a one-step build and deploy process, use the build_deploy.sh script:
+For a one-step build and deploy process, use the build_deploy_testonly.sh script:
 
 ```bash
 # Build and deploy to a specific SONiC device
-./build_deploy.sh -t admin@vlab-01
+./build_deploy_testonly.sh -t admin@vlab-01
 
 # Optionally specify a custom image tag
-./build_deploy.sh -t admin@vlab-01 -i v1.0
+./build_deploy_testonly.sh -t admin@vlab-01 -i v1.0
 
 # Deploy with a custom server address
-./build_deploy.sh -t admin@vlab-01 -a ":8080"
+./build_deploy_testonly.sh -t admin@vlab-01 -a ":8080"
 ```
 
 The script will:
