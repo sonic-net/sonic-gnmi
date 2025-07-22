@@ -86,15 +86,19 @@ scp $TEMP_IMAGE_FILE $TARGET:/tmp/
 
 # Load and run the container on the SONiC device
 echo "Loading and starting container on $TARGET..."
-# Build the container command with appropriate flags
-CONTAINER_CMD="sonic-gnmi-standalone --addr='$SERVER_ADDR' --rootfs=/host"
+# Build the container arguments (without binary name since entrypoint handles that)
+CONTAINER_ARGS="--addr='$SERVER_ADDR' --rootfs=/host"
 if [ "$NO_TLS" = "true" ]; then
-  CONTAINER_CMD="$CONTAINER_CMD --no-tls"
+  CONTAINER_ARGS="$CONTAINER_ARGS --no-tls"
 fi
+
+echo "DEBUG: Container arguments: $CONTAINER_ARGS"
+echo "DEBUG: Full docker run command will be:"
+echo "docker run -d --name gnmi --network host --privileged -v /:/host:rw $IMAGE_NAME $CONTAINER_ARGS"
 
 ssh $TARGET "docker load -i /tmp/gnmi-$IMAGE_TAG.tar && \
               docker rm -f gnmi 2>/dev/null || true && \
-              docker run -d --name gnmi --network host --privileged -v /:/host:rw $IMAGE_NAME $CONTAINER_CMD"
+              docker run -d --name gnmi --network host --privileged -v /:/host:rw $IMAGE_NAME $CONTAINER_ARGS"
 
 # Clean up the temporary file
 rm $TEMP_IMAGE_FILE
