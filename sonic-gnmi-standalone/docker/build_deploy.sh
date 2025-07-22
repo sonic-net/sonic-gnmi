@@ -63,7 +63,7 @@ echo "Building gnmi Docker image..."
 make docker-build DOCKER_TAG=$IMAGE_TAG
 
 # Check if image was built successfully
-IMAGE_NAME="gnmi:$IMAGE_TAG"
+IMAGE_NAME="gnmi-standalone-test:$IMAGE_TAG"
 if [[ "$(docker images -q $IMAGE_NAME 2> /dev/null)" == "" ]]; then
   echo "Failed to build $IMAGE_NAME image"
   exit 1
