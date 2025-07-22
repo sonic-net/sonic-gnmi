@@ -17,6 +17,8 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	"github.com/agiledragon/gomonkey/v2"
+
+	show_client "github.com/sonic-net/sonic-gnmi/show_client"
 )
 
 func TestGetShowClock(t *testing.T) {
@@ -79,5 +81,85 @@ func TestGetShowClock(t *testing.T) {
 			runTestGet(t, ctx, gClient, test.pathTarget, test.textPbPath, test.wantRetCode, test.wantRespVal, test.valTest)
 		})
 		patches.Reset()
+	}
+}
+
+func TestGetShowClockTimezones(t *testing.T) {
+	s := createServer(t, ServerPort)
+	go runServer(t, s)
+	defer s.ForceStop()
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	conn, err := grpc.Dial(TargetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", TargetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), QueryTimeout*time.Second)
+	defer cancel()
+
+	showClockTimezonesResp := `{"timezones": ["America/Anchorage","America/Anguilla","America/Argentina/Buenos_Aires","America/Aruba","Asia/Aden","Asia/Almaty","Atlantic/Bermuda","CET","CST6CDT","Etc/GMT","Etc/GMT+0","Etc/GMT+10","Etc/GMT+2","Etc/GMT+3","Etc/GMT+4","Etc/GMT-1","Etc/GMT-10","Etc/GMT-2","Etc/GMT-3","Etc/GMT-4","UTC","Universal"]}`
+
+	tests := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+		testDir     string
+		refresh     bool
+	}{
+		{
+			desc:       "query SHOW clock timezones error eading",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "clock" >
+				elem: <name: "timezones" >
+			`,
+			wantRetCode: codes.NotFound,
+		},
+		{
+			desc:       "query SHOW clock timezones",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "clock" >
+				elem: <name: "timezones" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: []byte(showClockTimezonesResp),
+			valTest:     true,
+			testDir:     "../testdata/zoneinfo",
+			refresh:     true,
+		},
+		{
+			desc:       "query SHOW clock timezones stashed",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "clock" >
+				elem: <name: "timezones" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: []byte(showClockTimezonesResp),
+			valTest:     true,
+			testDir:     t.TempDir(),
+			refresh:     false,
+		},
+	}
+
+	for _, test := range tests {
+		testDir := test.testDir
+		refresh := test.refresh
+		show_client.SetTimezonesDir(testDir)
+		if refresh {
+			show_client.InvalidateTimezonesDirStash()
+		}
+		t.Run(test.desc, func(t *testing.T) {
+			runTestGet(t, ctx, gClient, test.pathTarget, test.textPbPath, test.wantRetCode, test.wantRespVal, test.valTest)
+		})
 	}
 }

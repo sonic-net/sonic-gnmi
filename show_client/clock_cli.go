@@ -10,15 +10,20 @@ import (
 	"time"
 )
 
-const ZoneInfoDirPath = "/usr/share/zoneinfo"
-
 type zoneInfoDirStash struct {
 	once            sync.Once
 	cachedTimezones []string
 	cachedError     error
 }
 
-var timezonesDirStash zoneInfoDirStash
+var (
+	zoneInfoDirPath = "/usr/share/zoneinfo"
+	timezonesDirStash zoneInfoDirStash
+)
+
+func SetTimezonesDir(dirPath string) {
+	zoneInfoDirPath = dirPath
+}
 
 func InvalidateTimezonesDirStash() {
 	timezonesDirStash = zoneInfoDirStash{}
@@ -34,9 +39,9 @@ func getDate() ([]byte, error) {
 
 func getDateTimezone() ([]byte, error) {
 	timezonesDirStash.once.Do(func() {
-		timezonesDirStash.cachedTimezones, timezonesDirStash.cachedError = zoneInfoRunner(ZoneInfoDirPath)
+		timezonesDirStash.cachedTimezones, timezonesDirStash.cachedError = zoneInfoRunner(zoneInfoDirPath)
 		if timezonesDirStash.cachedError != nil {
-			log.Errorf("Unable to get list of timezones from %v, %v", ZoneInfoDirPath, timezonesDirStash.cachedError)
+			log.Errorf("Unable to get list of timezones from %v, %v", zoneInfoDirPath, timezonesDirStash.cachedError)
 			return
 		}
 	})
