@@ -3,8 +3,6 @@ package config
 import (
 	"flag"
 	"time"
-
-	"github.com/golang/glog"
 )
 
 // Config holds global configuration for the upgrade service.

@@ -152,7 +152,7 @@ The server is designed to work in different deployment scenarios:
 ./bin/sonic-gnmi-standalone --rootfs=/mnt/host --addr=:50051
 ```
 
-### Baremetal Deployment  
+### Baremetal Deployment
 ```bash
 # Direct baremetal installation
 ./bin/sonic-gnmi-standalone --rootfs=/ --addr=:50051
@@ -196,8 +196,7 @@ This project includes CI pipeline integration that validates code quality and co
 This minimal server follows clean architecture principles:
 
 - **Separation of Concerns**: Clear separation between server infrastructure and business logic
-- **Configurability**: All deployment-specific settings are configurable
 - **Extensibility**: Easy to extend with new gRPC services
-- **Container-Aware**: Designed for modern container-based deployments
+- **Container-Aware**: Designed for container-based deployments as well as baremetal
 
 The foundation provides everything needed to build robust gRPC services while maintaining simplicity and clarity.
