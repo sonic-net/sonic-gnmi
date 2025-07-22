@@ -31,6 +31,8 @@ import (
 	"github.com/openconfig/ygot/ygot"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	"github.com/sonic-net/sonic-gnmi/transl_utils"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // translSubscriber is an extension of TranslClient to service Subscribe RPC.
@@ -164,6 +166,11 @@ func (ts *translSubscriber) processResponses(q *queue.PriorityQueue) {
 			}
 
 			if err := ts.notify(v); err != nil {
+				if st, ok := status.FromError(err); ok {
+					if st.Code() == codes.ResourceExhausted {
+						enqueFatalMsgTranslib(c, st.Message())
+					}
+				}
 				log.Warning(err)
 				enqueFatalMsgTranslib(c, "Internal error")
 				return
@@ -188,6 +195,14 @@ func (ts *translSubscriber) notify(v *translib.SubscribeResponse) error {
 	spbv := &spb.Value{Notification: msg}
 	ts.client.q.EnqueueItem(Value{spbv})
 	log.V(6).Infof("Added spbv %#v", spbv)
+	err = ts.client.q.EnqueueItem(Value{spbv})
+	if st, ok := status.FromError(err); ok {
+		if st.Code() == codes.ResourceExhausted {
+			return err
+		}
+	} else {
+		log.V(6).Infof("Added spbv #%v", spbv)
+	}
 	return nil
 }
 

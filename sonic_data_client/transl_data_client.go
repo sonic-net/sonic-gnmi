@@ -134,9 +134,7 @@ func (c *TranslClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, upda
 }
 
 func enqueFatalMsgTranslib(c *TranslClient, msg string) {
-	if len(msg) > 0 {
-		log.ErrorDepth(1, msg)
-	}
+	log.Error(msg)
 	c.q.ForceEnqueueItem(Value{
 		&spb.Value{
 			Timestamp: time.Now().UnixNano(),
@@ -502,11 +500,6 @@ func (c *TranslClient) parseVersion() error {
 	log.V(4).Infof("Failed to parse version \"%s\"; err=%v", *bv, err)
 	return fmt.Errorf("Invalid bundle version: %v", *bv)
 }
-
-// Set the desired encoding for Get and Subscribe responses
-// func (c *TranslClient) SetEncoding(enc gnmipb.Encoding) {
-// 	c.encoding = enc
-// }
 
 type TranslClientOption interface {
 	IsTranslClientOption()

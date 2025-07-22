@@ -100,9 +100,7 @@ var RedisDbMap map[string]*redis.Client = nil
 var DbInstNum = 0
 
 func enqueFatalMsgMixed(c *MixedDbClient, msg string) {
-	if len(msg) > 0 {
-		log.ErrorDepth(1, msg)
-	}
+	log.Error(msg)
 	c.q.ForceEnqueueItem(Value{
 		&spb.Value{
 			Timestamp: time.Now().UnixNano(),
@@ -2149,11 +2147,6 @@ func (c *MixedDbClient) Close() error {
 
 	return nil
 }
-
-// SetEncoding sets the desired encoding for Get and Subscribe responses
-// func (c *MixedDbClient) SetEncoding(enc gnmipb.Encoding) {
-// 	c.encoding = enc
-// }
 
 func (c *MixedDbClient) SentOne(val *Value) {
 }

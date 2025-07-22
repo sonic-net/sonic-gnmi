@@ -13,8 +13,6 @@ import (
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // Non db client is to Handle
@@ -368,7 +366,6 @@ func init() {
 type NonDbClient struct {
 	prefix      *gnmipb.Path
 	path2Getter map[*gnmipb.Path]dataGetFunc
-	//encoding    gnmipb.Encoding
 
 	q       *LimitedQueue
 	channel chan struct{}
@@ -415,6 +412,16 @@ func NewNonDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
 	}
 
 	return &ndc, nil
+}
+
+func enqueFatalMsgNonDbClient(c *NonDbClient, msg string) {
+	log.Error(msg)
+	c.q.ForceEnqueueItem(Value{
+		&spb.Value{
+			Timestamp: time.Now().UnixNano(),
+			Fatal:     msg,
+		},
+	})
 }
 
 // String returns the target the client is querying.
@@ -529,26 +536,8 @@ func runGetterAndSend(c *NonDbClient, gnmiPath *gnmipb.Path, getter dataGetFunc)
 	return err
 }
 
-func enqueFatalMsgNonDbClient(c *NonDbClient, msg string) {
-	if len(msg) > 0 {
-		log.Error(msg)
-	}
-	c.q.ForceEnqueueItem(Value{
-		&spb.Value{
-			Timestamp: time.Now().UnixNano(),
-			Fatal:     msg,
-		},
-	})
-}
-
 func (c *NonDbClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
-	defer func() {
-		if r := recover(); r != nil {
-			err := status.Errorf(codes.Internal, "%v", r)
-			enqueFatalMsgNonDbClient(c, fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
-		}
-	}()
 	defer c.w.Done()
 	c.q = q
 	c.channel = poll
@@ -624,8 +613,3 @@ func (c *NonDbClient) SentOne(val *Value) {
 
 func (c *NonDbClient) FailedSend() {
 }
-
-// SetEncoding sets the desired encoding for Get and Subscribe responses
-// func (c *NonDbClient) SetEncoding(enc gnmipb.Encoding) {
-// 	c.encoding = enc
-// }
