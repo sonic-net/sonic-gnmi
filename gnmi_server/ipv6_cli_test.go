@@ -6,43 +6,17 @@ package gnmi
 
 import (
 	"crypto/tls"
-	"io/ioutil"
 	"testing"
 	"time"
 
 	pb "github.com/openconfig/gnmi/proto/gnmi"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
-
-	show_client "github.com/sonic-net/sonic-gnmi/show_client"
-	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
-
-const (
-	ServerPort   = 8081
-	StateDbNum   = 6
-	ConfigDbNum  = 4
-	TargetAddr   = "127.0.0.1:8081"
-	QueryTimeout = 10
-)
-
-func MockNSEnterBGPSummary(t *testing.T, filename string) *gomonkey.Patches {
-	fileContentBytes, err := ioutil.ReadFile(filename)
-	if err != nil {
-		t.Fatalf("read file %v err: %v", fileName, err)
-	}
-	patches := gomonkey.ApplyFunc(exec.Command, func(name string, args ...string) *exec.Cmd {
-		return &exec.Cmd{}
-	})
-	patches.ApplyMethod(reflect.TypeOf(&exec.Cmd{}), "CombinedOutput", func(_ *exec.Cmd) ([]byte, error) {
-		return fileContentBytes, nil
-	})
-	return patches
-}
 
 func TestGetIPv6BGPSummary(t *testing.T) {
 	s := createServer(t, ServerPort)
@@ -99,7 +73,7 @@ func TestGetIPv6BGPSummary(t *testing.T) {
 			valTest:        true,
 			mockOutputFile: "../testdata/VTYSH_SHOW_IPV6_SUMMARY_JSON.txt",
 			testInit: func() {
-				AddDataSet(t, ConfigDBNum, bgpNeighborFileName)
+				AddDataSet(t, ConfigDbNum, bgpNeighborFileName)
 			},
 		},
 		{
@@ -114,6 +88,9 @@ func TestGetIPv6BGPSummary(t *testing.T) {
 			wantRespVal:    []byte(ipv6BGPSummaryNoNeighborName),
 			valTest:        true,
 			mockOutputFile: "../testdata/VTYSH_SHOW_IPV6_SUMMARY_JSON.txt",
+			testInit: func() {
+				FlushDataSet(t, ConfigDbNum)
+			},
 		},
 	}
 
@@ -121,8 +98,16 @@ func TestGetIPv6BGPSummary(t *testing.T) {
 		if test.testInit != nil {
 			test.testInit()
 		}
+		var patches *gomonkey.Patches
+		if test.mockOutputFile != "" {
+			patches = MockNSEnterBGPSummary(t, test.mockOutputFile)
+		}
+
 		t.Run(test.desc, func(t *testing.T) {
 			runTestGet(t, ctx, gClient, test.pathTarget, test.textPbPath, test.wantRetCode, test.wantRespVal, test.valTest)
 		})
+		if patches != nil {
+			patches.Reset()
+		}
 	}
 }
