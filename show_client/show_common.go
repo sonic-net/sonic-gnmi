@@ -102,15 +102,3 @@ func CreateTablePathsFromQueries(queries [][]string) ([]sdc.TablePath, error) {
 	}
 	return allPaths, nil
 }
-
-func InterfaceMapToStringMap(msi map[string]interface{}) (map[string]string, error) {
-	output := make(map[string]string)
-	for key, value := range msi {
-		stringVal, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("value for %v is not a string %v", key, value)
-		}
-		output[key] = stringVal
-	}
-	return output, nil
-}
