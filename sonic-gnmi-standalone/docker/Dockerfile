@@ -1,8 +1,5 @@
 FROM sonicdev-microsoft.azurecr.io/debian:bookworm
 
-# Create non-root user for security
-RUN adduser --system --group gnmi
-
 # Set working directory
 WORKDIR /app
 
@@ -10,7 +7,7 @@ WORKDIR /app
 COPY bin/sonic-gnmi-standalone /usr/local/bin/sonic-gnmi-standalone
 
 # Create directory for any config files
-RUN mkdir -p /etc/gnmi && chown -R gnmi:gnmi /etc/gnmi
+RUN mkdir -p /etc/gnmi
 
 # Set proper permissions
 RUN chmod +x /usr/local/bin/sonic-gnmi-standalone
@@ -22,8 +19,8 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Copy any configuration files if needed
 # COPY config/gnmi.conf /etc/gnmi/
 
-# Switch to non-root user
-USER gnmi
+# Run as root to allow file system access when using --rootfs
+# USER root (explicit but not needed since root is default)
 
 # Environment variables for configuration (can be overridden at runtime)
 ENV GNMI_ADDR=":50051"
