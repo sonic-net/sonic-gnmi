@@ -17,7 +17,7 @@ type zoneInfoDirStash struct {
 }
 
 var (
-	zoneInfoDirPath = "/usr/share/zoneinfo"
+	zoneInfoDirPath   = "/usr/share/zoneinfo"
 	timezonesDirStash zoneInfoDirStash
 )
 
