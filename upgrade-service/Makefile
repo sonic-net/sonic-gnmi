@@ -238,6 +238,7 @@ build-test-tools: ## Build all test utilities
 	@go build -o bin/redis cmd/test/redis/main.go
 	@go build -o bin/diskspace cmd/test/diskspace/main.go
 	@go build -o bin/download cmd/test/download/main.go
+	@go build -o bin/show cmd/test/show/main.go
 	@echo "Built test utilities:"
 	@echo "  bin/bootloader       - Test bootloader detection and image management"
 	@echo "  bin/installer        - Test sonic-installer CLI wrapper"
@@ -245,6 +246,7 @@ build-test-tools: ## Build all test utilities
 	@echo "  bin/redis            - Test Redis client for CONFIG_DB operations"
 	@echo "  bin/diskspace        - Test disk space analysis and monitoring"
 	@echo "  bin/download         - Test firmware download with retry strategies"
+	@echo "  bin/show             - Test show command CLI wrapper for DPU status"
 	@echo ""
 	@echo "Note: These are test utilities for validation purposes only."
 	@echo "      Use 'make help-test-tools' for more information."

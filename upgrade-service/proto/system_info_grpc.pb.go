@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SystemInfo_GetPlatformType_FullMethodName = "/sonic.SystemInfo/GetPlatformType"
-	SystemInfo_GetDiskSpace_FullMethodName    = "/sonic.SystemInfo/GetDiskSpace"
+	SystemInfo_GetPlatformType_FullMethodName      = "/sonic.SystemInfo/GetPlatformType"
+	SystemInfo_GetDiskSpace_FullMethodName         = "/sonic.SystemInfo/GetDiskSpace"
+	SystemInfo_GetShowCommandOutput_FullMethodName = "/sonic.SystemInfo/GetShowCommandOutput"
 )
 
 // SystemInfoClient is the client API for SystemInfo service.
@@ -33,6 +34,8 @@ type SystemInfoClient interface {
 	GetPlatformType(ctx context.Context, in *GetPlatformTypeRequest, opts ...grpc.CallOption) (*GetPlatformTypeResponse, error)
 	// GetDiskSpace returns disk space information for key filesystems
 	GetDiskSpace(ctx context.Context, in *GetDiskSpaceRequest, opts ...grpc.CallOption) (*GetDiskSpaceResponse, error)
+	// GetShowCommandOutput executes various show commands and returns structured output
+	GetShowCommandOutput(ctx context.Context, in *GetShowCommandRequest, opts ...grpc.CallOption) (*GetShowCommandResponse, error)
 }
 
 type systemInfoClient struct {
@@ -63,6 +66,16 @@ func (c *systemInfoClient) GetDiskSpace(ctx context.Context, in *GetDiskSpaceReq
 	return out, nil
 }
 
+func (c *systemInfoClient) GetShowCommandOutput(ctx context.Context, in *GetShowCommandRequest, opts ...grpc.CallOption) (*GetShowCommandResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetShowCommandResponse)
+	err := c.cc.Invoke(ctx, SystemInfo_GetShowCommandOutput_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SystemInfoServer is the server API for SystemInfo service.
 // All implementations must embed UnimplementedSystemInfoServer
 // for forward compatibility.
@@ -73,6 +86,8 @@ type SystemInfoServer interface {
 	GetPlatformType(context.Context, *GetPlatformTypeRequest) (*GetPlatformTypeResponse, error)
 	// GetDiskSpace returns disk space information for key filesystems
 	GetDiskSpace(context.Context, *GetDiskSpaceRequest) (*GetDiskSpaceResponse, error)
+	// GetShowCommandOutput executes various show commands and returns structured output
+	GetShowCommandOutput(context.Context, *GetShowCommandRequest) (*GetShowCommandResponse, error)
 	mustEmbedUnimplementedSystemInfoServer()
 }
 
@@ -88,6 +103,9 @@ func (UnimplementedSystemInfoServer) GetPlatformType(context.Context, *GetPlatfo
 }
 func (UnimplementedSystemInfoServer) GetDiskSpace(context.Context, *GetDiskSpaceRequest) (*GetDiskSpaceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDiskSpace not implemented")
+}
+func (UnimplementedSystemInfoServer) GetShowCommandOutput(context.Context, *GetShowCommandRequest) (*GetShowCommandResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetShowCommandOutput not implemented")
 }
 func (UnimplementedSystemInfoServer) mustEmbedUnimplementedSystemInfoServer() {}
 func (UnimplementedSystemInfoServer) testEmbeddedByValue()                    {}
@@ -146,6 +164,24 @@ func _SystemInfo_GetDiskSpace_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SystemInfo_GetShowCommandOutput_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetShowCommandRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemInfoServer).GetShowCommandOutput(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemInfo_GetShowCommandOutput_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemInfoServer).GetShowCommandOutput(ctx, req.(*GetShowCommandRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SystemInfo_ServiceDesc is the grpc.ServiceDesc for SystemInfo service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -160,6 +196,10 @@ var SystemInfo_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDiskSpace",
 			Handler:    _SystemInfo_GetDiskSpace_Handler,
+		},
+		{
+			MethodName: "GetShowCommandOutput",
+			Handler:    _SystemInfo_GetShowCommandOutput_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

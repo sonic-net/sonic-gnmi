@@ -108,6 +108,58 @@ var (
 		Long:  "Display disk space information for relevant filesystems",
 		RunE:  runDiskSpace,
 	}
+
+	// Show command with subcommands.
+	showCmd = &cobra.Command{
+		Use:   "show",
+		Short: "Show system information",
+		Long:  "Display various system information via subcommands",
+	}
+
+	// Show chassis subcommand.
+	showChassisCmd = &cobra.Command{
+		Use:   "chassis",
+		Short: "Show chassis information",
+		Long:  "Display chassis-related information",
+	}
+
+	// Show chassis modules subcommand.
+	showChassisModulesCmd = &cobra.Command{
+		Use:   "modules",
+		Short: "Show chassis modules information",
+		Long:  "Display chassis modules information",
+	}
+
+	// Show chassis modules midplane-status subcommand.
+	showChassisModulesMidplaneStatusCmd = &cobra.Command{
+		Use:   "midplane-status",
+		Short: "Show chassis modules midplane status",
+		Long:  "Display chassis modules midplane status information for DPUs",
+		RunE:  runShowChassisModulesMidplaneStatus,
+	}
+
+	// Show chassis modules status subcommand.
+	showChassisModulesStatusCmd = &cobra.Command{
+		Use:   "status",
+		Short: "Show chassis modules status",
+		Long:  "Display chassis modules status information for DPUs",
+		RunE:  runShowChassisModulesStatus,
+	}
+
+	// Show system-health subcommand.
+	showSystemHealthCmd = &cobra.Command{
+		Use:   "system-health",
+		Short: "Show system health information",
+		Long:  "Display system health information",
+	}
+
+	// Show system-health dpu subcommand.
+	showSystemHealthDPUCmd = &cobra.Command{
+		Use:   "dpu",
+		Short: "Show DPU system health",
+		Long:  "Display system health information for DPUs",
+		RunE:  runShowSystemHealthDPU,
+	}
 )
 
 func init() {
@@ -124,7 +176,7 @@ func init() {
 	rootCmd.PersistentFlags().IntVar(&logLevel, "log-level", 0, "Log verbosity level 0-3 (advanced)")
 
 	// Command-specific flags
-	var downloadURL, outputPath, sessionID string
+	var downloadURL, outputPath, sessionID, dpuName string
 	downloadCmd.Flags().StringVar(&downloadURL, "url", "", "URL to download from")
 	downloadCmd.Flags().StringVar(&outputPath, "output", "", "Output file path")
 	downloadCmd.Flags().StringVar(&sessionID, "session-id", "", "Session ID for resuming download")
@@ -132,12 +184,28 @@ func init() {
 	statusCmd.Flags().StringVar(&sessionID, "session-id", "", "Session ID to check status for")
 	statusCmd.MarkFlagRequired("session-id")
 
+	// Show command flags are now on individual subcommands
+	showChassisModulesMidplaneStatusCmd.Flags().StringVar(&dpuName, "dpu", "", "Specific DPU name to check (e.g., DPU0, DPU3). If not specified, shows all DPUs")
+	showChassisModulesStatusCmd.Flags().StringVar(&dpuName, "dpu", "", "Specific DPU name to check (e.g., DPU0, DPU3). If not specified, shows all DPUs")
+	showSystemHealthDPUCmd.Flags().StringVar(&dpuName, "dpu", "", "Specific DPU name to check (e.g., DPU0, DPU3). If not specified, shows all DPUs")
+
+	// Build command hierarchy: show -> chassis -> modules -> midplane-status
+	showChassisModulesCmd.AddCommand(showChassisModulesMidplaneStatusCmd)
+	showChassisModulesCmd.AddCommand(showChassisModulesStatusCmd)
+	showChassisCmd.AddCommand(showChassisModulesCmd)
+	showCmd.AddCommand(showChassisCmd)
+
+	// Build command hierarchy: show -> system-health -> dpu
+	showSystemHealthCmd.AddCommand(showSystemHealthDPUCmd)
+	showCmd.AddCommand(showSystemHealthCmd)
+
 	// Add commands to root
 	rootCmd.AddCommand(applyCmd)
 	rootCmd.AddCommand(downloadCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(listImagesCmd)
 	rootCmd.AddCommand(diskSpaceCmd)
+	rootCmd.AddCommand(showCmd)
 }
 
 func main() {
@@ -253,7 +321,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 func runStatus(cmd *cobra.Command, args []string) error {
 	sessionID, _ := cmd.Flags().GetString("session-id")
 
-	// ✅ FAST: Validate all inputs first
+	// FAST: Validate all inputs first
 	if err := validateSessionID(sessionID); err != nil {
 		return err
 	}
@@ -265,7 +333,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	// Log the value for debugging
 	glog.V(2).Infof("Status command: sessionID=%s", sessionID)
 
-	// ✅ SLOW: Network operations after validation
+	// SLOW: Network operations after validation
 	// Create minimal config for client
 	cfg := &config.Config{
 		Spec: config.Spec{
@@ -332,12 +400,12 @@ func runStatus(cmd *cobra.Command, args []string) error {
 }
 
 func runListImages(cmd *cobra.Command, args []string) error {
-	// ✅ FAST: Validate all inputs first
+	// FAST: Validate all inputs first
 	if err := validateServerAddress(serverAddr); err != nil {
 		return fmt.Errorf("invalid server address: %w", err)
 	}
 
-	// ✅ SLOW: Network operations after validation
+	// SLOW: Network operations after validation
 	// Create minimal config for client
 	cfg := &config.Config{
 		Spec: config.Spec{
@@ -390,7 +458,7 @@ func runListImages(cmd *cobra.Command, args []string) error {
 }
 
 func runDiskSpace(cmd *cobra.Command, args []string) error {
-	// ✅ FAST: Validate all inputs first
+	// FAST: Validate all inputs first
 	if err := validateServerAddress(serverAddr); err != nil {
 		return fmt.Errorf("invalid server address: %w", err)
 	}
@@ -407,7 +475,7 @@ func runDiskSpace(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// ✅ SLOW: Network operations after validation
+	// SLOW: Network operations after validation
 	// Create minimal config for client
 	cfg := &config.Config{
 		Spec: config.Spec{
@@ -462,6 +530,320 @@ func runDiskSpace(cmd *cobra.Command, args []string) error {
 			formatMB(uint64(fs.UsedMb)),
 			formatMB(uint64(fs.FreeMb)),
 			usePercent)
+	}
+
+	return nil
+}
+
+func runShowChassisModulesMidplaneStatus(cmd *cobra.Command, args []string) error {
+	dpuName, _ := cmd.Flags().GetString("dpu")
+
+	// FAST: Validate all inputs first
+	if err := validateServerAddress(serverAddr); err != nil {
+		return fmt.Errorf("invalid server address: %w", err)
+	}
+
+	// SLOW: Network operations after validation
+	// Create minimal config for client
+	cfg := &config.Config{
+		Spec: config.Spec{
+			Server: config.ServerSpec{
+				Address:    serverAddr,
+				TLSEnabled: boolPtr(!noTLS),
+			},
+		},
+	}
+
+	// Set defaults
+	cfg.SetDefaults()
+
+	// Create gRPC client with fast non-blocking connection for quick operations
+	client, err := createQuickClient(serverAddr)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	// Get chassis modules midplane status with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, err := client.GetShowCommandOutput(ctx, pb.ShowCommandType_SHOW_COMMAND_TYPE_CHASSIS_MODULES_MIDPLANE_STATUS, dpuName, nil)
+	if err != nil {
+		return handleGRPCError(err, "get chassis modules midplane status")
+	}
+
+	// Display chassis modules status
+	if dpuName != "" {
+		fmt.Printf("Chassis Modules Midplane Status for %s:\n", dpuName)
+	} else {
+		fmt.Println("Chassis Modules Midplane Status for All DPUs:")
+	}
+	fmt.Println("============================================")
+
+	// Check for errors
+	if resp.HasError {
+		fmt.Printf("Error: %s\n", resp.ErrorMessage)
+		return nil
+	}
+
+	// Get chassis modules output
+	chassisOutput := resp.GetChassisModules()
+	if chassisOutput == nil {
+		fmt.Println("No chassis modules data available.")
+		if resp.ErrorMessage != "" {
+			fmt.Printf("Message: %s\n", resp.ErrorMessage)
+		}
+		return nil
+	}
+
+	// Display DPUs
+	if len(chassisOutput.Dpus) == 0 {
+		fmt.Println("No DPUs found.")
+		if resp.ErrorMessage != "" {
+			fmt.Printf("Message: %s\n", resp.ErrorMessage)
+		}
+		return nil
+	}
+
+	fmt.Printf("Found %d DPU(s):\n\n", len(chassisOutput.Dpus))
+
+	// Table header
+	fmt.Printf("%-8s %-15s %-12s\n", "Name", "IP Address", "Reachability")
+	fmt.Printf("%-8s %-15s %-12s\n", "----", "----------", "------------")
+
+	for _, dpu := range chassisOutput.Dpus {
+		fmt.Printf("%-8s %-15s %-12s\n", dpu.Name, dpu.IpAddress, dpu.Reachability)
+	}
+
+	// Summary
+	reachableCount := 0
+	for _, dpu := range chassisOutput.Dpus {
+		if dpu.Reachable {
+			reachableCount++
+		}
+	}
+
+	fmt.Printf("\nSummary: %d/%d DPUs reachable\n", reachableCount, len(chassisOutput.Dpus))
+
+	// Show verbose output if requested
+	if verbose && resp.RawOutput != "" {
+		fmt.Printf("\nRaw Output:\n%s\n", resp.RawOutput)
+	}
+
+	return nil
+}
+
+func runShowChassisModulesStatus(cmd *cobra.Command, args []string) error {
+	dpuName, _ := cmd.Flags().GetString("dpu")
+
+	// FAST: Validate all inputs first
+	if err := validateServerAddress(serverAddr); err != nil {
+		return fmt.Errorf("invalid server address: %w", err)
+	}
+
+	// SLOW: Network operations after validation
+	// Create minimal config for client
+	cfg := &config.Config{
+		Spec: config.Spec{
+			Server: config.ServerSpec{
+				Address:    serverAddr,
+				TLSEnabled: boolPtr(!noTLS),
+			},
+		},
+	}
+
+	// Set defaults
+	cfg.SetDefaults()
+
+	// Create gRPC client with fast non-blocking connection for quick operations
+	client, err := createQuickClient(serverAddr)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	// Get chassis modules status with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, err := client.GetShowCommandOutput(ctx, pb.ShowCommandType_SHOW_COMMAND_TYPE_CHASSIS_MODULES_STATUS, dpuName, nil)
+	if err != nil {
+		return handleGRPCError(err, "get chassis modules status")
+	}
+
+	// Display chassis modules status
+	if dpuName != "" {
+		fmt.Printf("Chassis Modules Status for %s:\n", dpuName)
+	} else {
+		fmt.Println("Chassis Modules Status for All DPUs:")
+	}
+	fmt.Println("=======================================")
+
+	// Check for errors
+	if resp.HasError {
+		fmt.Printf("Error: %s\n", resp.ErrorMessage)
+		return nil
+	}
+
+	// Get chassis modules status output
+	modulesOutput := resp.GetChassisModulesStatus()
+	if modulesOutput == nil {
+		fmt.Println("No chassis modules status data available.")
+		if resp.ErrorMessage != "" {
+			fmt.Printf("Message: %s\n", resp.ErrorMessage)
+		}
+		return nil
+	}
+
+	// Display modules
+	if len(modulesOutput.Modules) == 0 {
+		fmt.Println("No modules found.")
+		if resp.ErrorMessage != "" {
+			fmt.Printf("Message: %s\n", resp.ErrorMessage)
+		}
+		return nil
+	}
+
+	fmt.Printf("Found %d module(s):\n\n", len(modulesOutput.Modules))
+
+	// Table header
+	fmt.Printf("%-8s %-22s %-15s %-13s %-14s %s\n", "Name", "Description", "Physical-Slot", "Oper-Status", "Admin-Status", "Serial")
+	fmt.Printf("%-8s %-22s %-15s %-13s %-14s %s\n", "----", "----------", "-------------", "-----------", "------------", "------")
+
+	for _, module := range modulesOutput.Modules {
+		fmt.Printf("%-8s %-22s %-15s %-13s %-14s %s\n",
+			module.Name, module.Description, module.PhysicalSlot,
+			module.OperStatus, module.AdminStatus, module.Serial)
+	}
+
+	// Summary
+	onlineCount := 0
+	for _, module := range modulesOutput.Modules {
+		if strings.ToLower(module.OperStatus) == "online" {
+			onlineCount++
+		}
+	}
+
+	fmt.Printf("\nSummary: %d/%d modules online\n", onlineCount, len(modulesOutput.Modules))
+
+	// Show verbose output if requested
+	if verbose && resp.RawOutput != "" {
+		fmt.Printf("\nRaw Output:\n%s\n", resp.RawOutput)
+	}
+
+	return nil
+}
+
+func runShowSystemHealthDPU(cmd *cobra.Command, args []string) error {
+	dpuName, _ := cmd.Flags().GetString("dpu")
+
+	// FAST: Validate all inputs first
+	if err := validateServerAddress(serverAddr); err != nil {
+		return fmt.Errorf("invalid server address: %w", err)
+	}
+
+	// SLOW: Network operations after validation
+	// Create minimal config for client
+	cfg := &config.Config{
+		Spec: config.Spec{
+			Server: config.ServerSpec{
+				Address:    serverAddr,
+				TLSEnabled: boolPtr(!noTLS),
+			},
+		},
+	}
+
+	// Set defaults
+	cfg.SetDefaults()
+
+	// Create gRPC client with fast non-blocking connection for quick operations
+	client, err := createQuickClient(serverAddr)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	// Get system health DPU status with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, err := client.GetShowCommandOutput(ctx, pb.ShowCommandType_SHOW_COMMAND_TYPE_SYSTEM_HEALTH_DPU, dpuName, nil)
+	if err != nil {
+		return handleGRPCError(err, "get system health DPU status")
+	}
+
+	// Display system health DPU status
+	if dpuName != "" {
+		fmt.Printf("System Health DPU Status for %s:\n", dpuName)
+	} else {
+		fmt.Println("System Health DPU Status for All DPUs:")
+	}
+	fmt.Println("======================================")
+
+	// Check for errors
+	if resp.HasError {
+		fmt.Printf("Error: %s\n", resp.ErrorMessage)
+		return nil
+	}
+
+	// Get system health DPU output
+	healthOutput := resp.GetSystemHealthDpu()
+	if healthOutput == nil {
+		fmt.Println("No system health DPU data available.")
+		if resp.ErrorMessage != "" {
+			fmt.Printf("Message: %s\n", resp.ErrorMessage)
+		}
+		return nil
+	}
+
+	// Display DPUs
+	if len(healthOutput.Dpus) == 0 {
+		fmt.Println("No DPUs found.")
+		if resp.ErrorMessage != "" {
+			fmt.Printf("Message: %s\n", resp.ErrorMessage)
+		}
+		return nil
+	}
+
+	fmt.Printf("Found %d DPU(s):\n\n", len(healthOutput.Dpus))
+
+	// Table header for system health
+	fmt.Printf("%-8s %-13s %-23s %-13s %-31s %s\n", "Name", "Oper-Status", "State-Detail", "State-Value", "Time", "Reason")
+	fmt.Printf("%-8s %-13s %-23s %-13s %-31s %s\n", "----", "-----------", "------------", "-----------", "----", "------")
+
+	for _, dpu := range healthOutput.Dpus {
+		// Print first state detail with DPU name and oper status
+		if len(dpu.StateDetails) > 0 {
+			firstDetail := dpu.StateDetails[0]
+			fmt.Printf("%-8s %-13s %-23s %-13s %-31s %s\n",
+				dpu.Name, dpu.OperStatus, firstDetail.StateName, firstDetail.StateValue, firstDetail.Time, firstDetail.Reason)
+
+			// Print remaining state details with empty name and oper status (continuation lines)
+			for _, detail := range dpu.StateDetails[1:] {
+				fmt.Printf("%-8s %-13s %-23s %-13s %-31s %s\n",
+					"", "", detail.StateName, detail.StateValue, detail.Time, detail.Reason)
+			}
+		} else {
+			// No state details
+			fmt.Printf("%-8s %-13s %-23s %-13s %-31s %s\n",
+				dpu.Name, dpu.OperStatus, "", "", "", "")
+		}
+	}
+
+	// Summary
+	onlineCount := 0
+	for _, dpu := range healthOutput.Dpus {
+		if strings.ToLower(dpu.OperStatus) == "online" {
+			onlineCount++
+		}
+	}
+
+	fmt.Printf("\nSummary: %d/%d DPUs online\n", onlineCount, len(healthOutput.Dpus))
+
+	// Show verbose output if requested
+	if verbose && resp.RawOutput != "" {
+		fmt.Printf("\nRaw Output:\n%s\n", resp.RawOutput)
 	}
 
 	return nil

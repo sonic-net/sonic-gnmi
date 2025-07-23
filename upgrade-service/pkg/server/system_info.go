@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/golang/glog"
@@ -12,6 +13,7 @@ import (
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/diskspace"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/hostinfo"
 	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/paths"
+	"github.com/sonic-net/sonic-gnmi/upgrade-service/internal/show"
 	pb "github.com/sonic-net/sonic-gnmi/upgrade-service/proto"
 )
 
@@ -140,5 +142,136 @@ func (s *SystemInfoServer) GetDiskSpace(
 	}
 
 	glog.V(1).Infof("GetDiskSpace response: checked %d filesystems", len(filesystems))
+	return response, nil
+}
+
+// GetShowCommandOutput executes various show commands and returns structured output.
+func (s *SystemInfoServer) GetShowCommandOutput(
+	ctx context.Context,
+	req *pb.GetShowCommandRequest,
+) (*pb.GetShowCommandResponse, error) {
+	glog.V(1).Infof("GetShowCommandOutput request: type=%s, target=%s",
+		req.CommandType.String(), req.Target)
+
+	// Check context cancellation
+	select {
+	case <-ctx.Done():
+		return nil, status.FromContextError(ctx.Err()).Err()
+	default:
+	}
+
+	// Create show command wrapper
+	sonicShow := show.NewSonicShow()
+
+	// Convert protobuf command type to internal command type
+	var commandType show.CommandType
+	switch req.CommandType {
+	case pb.ShowCommandType_SHOW_COMMAND_TYPE_CHASSIS_MODULES_MIDPLANE_STATUS:
+		commandType = show.CommandTypeChassisModulesMidplaneStatus
+	case pb.ShowCommandType_SHOW_COMMAND_TYPE_CHASSIS_MODULES_STATUS:
+		commandType = show.CommandTypeChassisModulesStatus
+	case pb.ShowCommandType_SHOW_COMMAND_TYPE_SYSTEM_HEALTH_DPU:
+		commandType = show.CommandTypeSystemHealthDPU
+	default:
+		return &pb.GetShowCommandResponse{
+			CommandType:  req.CommandType,
+			Target:       req.Target,
+			HasError:     true,
+			ErrorMessage: fmt.Sprintf("unsupported command type: %s", req.CommandType.String()),
+		}, nil
+	}
+
+	// Execute the show command
+	result, err := sonicShow.ExecuteCommand(commandType, req.Target, req.Parameters)
+	if err != nil {
+		glog.Errorf("Failed to execute show command: %v", err)
+		return &pb.GetShowCommandResponse{
+			CommandType:  req.CommandType,
+			Target:       req.Target,
+			HasError:     true,
+			ErrorMessage: err.Error(),
+		}, nil
+	}
+
+	// Convert the result to protobuf format
+	response := &pb.GetShowCommandResponse{
+		CommandType:  req.CommandType,
+		Target:       req.Target,
+		HasError:     result.HasError,
+		ErrorMessage: result.Message,
+		RawOutput:    result.RawOutput,
+	}
+
+	// Set the appropriate output based on command type
+	switch req.CommandType {
+	case pb.ShowCommandType_SHOW_COMMAND_TYPE_CHASSIS_MODULES_MIDPLANE_STATUS:
+		// Convert chassis modules data
+		dpuInfos := make([]*pb.DPUInfo, 0, len(result.ChassisModules))
+		for _, dpu := range result.ChassisModules {
+			dpuInfo := &pb.DPUInfo{
+				Name:         dpu.Name,
+				IpAddress:    dpu.IPAddress,
+				Reachability: dpu.Reachability,
+				Reachable:    dpu.Reachable,
+			}
+			dpuInfos = append(dpuInfos, dpuInfo)
+		}
+		response.Output = &pb.GetShowCommandResponse_ChassisModules{
+			ChassisModules: &pb.ChassisModulesOutput{
+				Dpus: dpuInfos,
+			},
+		}
+
+	case pb.ShowCommandType_SHOW_COMMAND_TYPE_CHASSIS_MODULES_STATUS:
+		// Convert chassis modules status data
+		moduleInfos := make([]*pb.DPUModuleInfo, 0, len(result.ChassisModulesStatus))
+		for _, module := range result.ChassisModulesStatus {
+			moduleInfo := &pb.DPUModuleInfo{
+				Name:         module.Name,
+				Description:  module.Description,
+				PhysicalSlot: module.PhysicalSlot,
+				OperStatus:   module.OperStatus,
+				AdminStatus:  module.AdminStatus,
+				Serial:       module.Serial,
+			}
+			moduleInfos = append(moduleInfos, moduleInfo)
+		}
+		response.Output = &pb.GetShowCommandResponse_ChassisModulesStatus{
+			ChassisModulesStatus: &pb.ChassisModulesStatusOutput{
+				Modules: moduleInfos,
+			},
+		}
+
+	case pb.ShowCommandType_SHOW_COMMAND_TYPE_SYSTEM_HEALTH_DPU:
+		// Convert system health DPU data
+		healthInfos := make([]*pb.SystemHealthDPUInfo, 0, len(result.SystemHealthDPUs))
+		for _, dpu := range result.SystemHealthDPUs {
+			stateDetails := make([]*pb.StateDetail, 0, len(dpu.StateDetails))
+			for _, detail := range dpu.StateDetails {
+				stateDetail := &pb.StateDetail{
+					StateName:  detail.StateName,
+					StateValue: detail.StateValue,
+					Time:       detail.Time,
+					Reason:     detail.Reason,
+				}
+				stateDetails = append(stateDetails, stateDetail)
+			}
+
+			healthInfo := &pb.SystemHealthDPUInfo{
+				Name:         dpu.Name,
+				OperStatus:   dpu.OperStatus,
+				StateDetails: stateDetails,
+			}
+			healthInfos = append(healthInfos, healthInfo)
+		}
+		response.Output = &pb.GetShowCommandResponse_SystemHealthDpu{
+			SystemHealthDpu: &pb.SystemHealthDPUOutput{
+				Dpus: healthInfos,
+			},
+		}
+	}
+
+	glog.V(1).Infof("GetShowCommandOutput response: type=%s, has_error=%t",
+		req.CommandType.String(), result.HasError)
 	return response, nil
 }

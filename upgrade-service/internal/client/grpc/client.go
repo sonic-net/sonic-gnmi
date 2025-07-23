@@ -114,6 +114,29 @@ func (c *Client) GetDiskSpace(ctx context.Context, paths []string) (*pb.GetDiskS
 	return resp, nil
 }
 
+// GetShowCommandOutput executes a show command and returns structured output.
+func (c *Client) GetShowCommandOutput(ctx context.Context, commandType pb.ShowCommandType, target string, parameters map[string]string) (*pb.GetShowCommandResponse, error) {
+	req := &pb.GetShowCommandRequest{
+		CommandType: commandType,
+		Target:      target,
+		Parameters:  parameters,
+	}
+
+	if target != "" {
+		glog.V(2).Infof("Requesting show command %s for target: %s", commandType.String(), target)
+	} else {
+		glog.V(2).Infof("Requesting show command %s for all targets", commandType.String())
+	}
+
+	resp, err := c.systemInfo.GetShowCommandOutput(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("GetShowCommandOutput failed: %w", err)
+	}
+
+	glog.V(2).Infof("Retrieved show command output for %s", commandType.String())
+	return resp, nil
+}
+
 // FirmwareManagement Methods
 
 // DownloadFirmware initiates a firmware download.
