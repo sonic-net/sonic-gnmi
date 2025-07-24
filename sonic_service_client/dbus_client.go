@@ -33,6 +33,7 @@ type Service interface {
 	InstallImage(where string) error
 	ListImages() (string, error)
 	ActivateImage(image string) error
+	FactoryReset(cmd string) (string, error)
 	// Docker services APIs
 	LoadDockerImage(image string) error
 }
@@ -304,4 +305,24 @@ func (c *DbusClient) LoadDockerImage(image string) error {
 	intName := c.intNamePrefix + modName + ".load"
 	_, err := DbusApi(busName, busPath, intName /*timeout=*/, 180, image)
 	return err
+}
+
+func (c *DbusClient) FactoryReset(cmd string) (string, error) {
+	modName := "gnoi_reset"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".issue_reset"
+
+	common_utils.IncCounter(common_utils.GNOI_FACTORY_RESET)
+	result, err := DbusApi(busName, busPath, intName, 10, cmd)
+	if err != nil {
+		return "", err
+	}
+
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v: expected string, got %T", reflect.TypeOf(result), result)
+	}
+
+	return strResult, nil
 }

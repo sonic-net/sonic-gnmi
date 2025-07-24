@@ -33,6 +33,12 @@ func (f *FakeClient) InstallImage(where string) error                { return ni
 func (f *FakeClient) ListImages() (string, error)                    { return "image1", nil }
 func (f *FakeClient) ActivateImage(image string) error               { return nil }
 func (f *FakeClient) LoadDockerImage(image string) error             { return nil }
+func (f *FakeClient) FactoryReset(cmd string) (string, error) {
+	if cmd == "" {
+		return "", errors.New("Previous reset is ongoing")
+	}
+	return cmd, nil
+}
 
 // FakeClientWithError simulates failure in specific methods.
 type FakeClientWithError struct {
