@@ -14,4 +14,12 @@ func init() {
 		[]string{"SHOW", "reboot-cause", "history"},
 		getRebootCauseHistory,
 	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "clock"},
+		getDate,
+	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "clock", "timezones"},
+		getDateTimezone,
+	)
 }
