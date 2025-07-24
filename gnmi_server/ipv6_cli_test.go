@@ -61,6 +61,17 @@ func TestGetIPv6BGPSummary(t *testing.T) {
 			wantRetCode: codes.NotFound,
 		},
 		{
+			desc:       "query SHOW ipv6 bgp summary invalid vtysh output",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "ipv6" >
+				elem: <name: "bgp" >
+				elem: <name: "summary" >
+			`,
+			wantRetCode:    codes.NotFound,
+			mockOutputFile: "../testdata/INVALID_JSON.txt",
+		},
+		{
 			desc:       "query SHOW ipv6 bgp summary",
 			pathTarget: "SHOW",
 			textPbPath: `
