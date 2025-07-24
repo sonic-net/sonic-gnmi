@@ -6,27 +6,15 @@ import (
 	"io/fs"
 	"path/filepath"
 	"sort"
-	"sync"
 	"time"
 )
 
-type zoneInfoDirStash struct {
-	once            sync.Once
-	cachedTimezones []string
-	cachedError     error
-}
-
 var (
-	zoneInfoDirPath   = "/usr/share/zoneinfo"
-	timezonesDirStash zoneInfoDirStash
+	zoneInfoDirPath = "/usr/share/zoneinfo"
 )
 
 func SetTimezonesDir(dirPath string) {
 	zoneInfoDirPath = dirPath
-}
-
-func InvalidateTimezonesDirStash() {
-	timezonesDirStash = zoneInfoDirStash{}
 }
 
 func getDate() ([]byte, error) {
@@ -38,18 +26,13 @@ func getDate() ([]byte, error) {
 }
 
 func getDateTimezone() ([]byte, error) {
-	timezonesDirStash.once.Do(func() {
-		timezonesDirStash.cachedTimezones, timezonesDirStash.cachedError = zoneInfoRunner(zoneInfoDirPath)
-		if timezonesDirStash.cachedError != nil {
-			log.Errorf("Unable to get list of timezones from %v, %v", zoneInfoDirPath, timezonesDirStash.cachedError)
-			return
-		}
-	})
-	if timezonesDirStash.cachedError != nil {
-		return nil, timezonesDirStash.cachedError
+	timezones, err := zoneInfoRunner(zoneInfoDirPath)
+	if err != nil {
+		log.Errorf("Unable to get list of timezones from %v, %v", zoneInfoDirPath, err)
+		return nil, err
 	}
 	timezonesResponse := map[string]interface{}{
-		"timezones": timezonesDirStash.cachedTimezones,
+		"timezones": timezones,
 	}
 	return json.Marshal(timezonesResponse)
 }

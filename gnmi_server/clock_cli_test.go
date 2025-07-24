@@ -112,7 +112,6 @@ func TestGetShowClockTimezones(t *testing.T) {
 		wantRespVal interface{}
 		valTest     bool
 		testDir     string
-		refresh     bool
 	}{
 		{
 			desc:       "query SHOW clock timezones error eading",
@@ -134,30 +133,12 @@ func TestGetShowClockTimezones(t *testing.T) {
 			wantRespVal: []byte(showClockTimezonesResp),
 			valTest:     true,
 			testDir:     "../testdata/zoneinfo",
-			refresh:     true,
-		},
-		{
-			desc:       "query SHOW clock timezones stashed",
-			pathTarget: "SHOW",
-			textPbPath: `
-				elem: <name: "clock" >
-				elem: <name: "timezones" >
-			`,
-			wantRetCode: codes.OK,
-			wantRespVal: []byte(showClockTimezonesResp),
-			valTest:     true,
-			testDir:     t.TempDir(),
-			refresh:     false,
 		},
 	}
 
 	for _, test := range tests {
 		testDir := test.testDir
-		refresh := test.refresh
 		show_client.SetTimezonesDir(testDir)
-		if refresh {
-			show_client.InvalidateTimezonesDirStash()
-		}
 		t.Run(test.desc, func(t *testing.T) {
 			runTestGet(t, ctx, gClient, test.pathTarget, test.textPbPath, test.wantRetCode, test.wantRespVal, test.valTest)
 		})
