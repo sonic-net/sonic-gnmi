@@ -3,11 +3,16 @@ package host_service
 import (
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/godbus/dbus/v5"
 	log "github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+)
+
+var (
+	healthzMu sync.Mutex
 )
 
 type Service interface {
@@ -36,6 +41,10 @@ type Service interface {
 	FactoryReset(cmd string) (string, error)
 	// Docker services APIs
 	LoadDockerImage(image string) error
+	//Healthz Service APIs
+	HealthzAck(req string) (string, error)
+	HealthzCheck(req string) (string, error)
+	HealthzCollect(req string) (string, error)
 }
 
 type DbusClient struct {
@@ -54,7 +63,6 @@ func NewDbusClient() (Service, error) {
 	client.busPathPrefix = "/org/SONiC/HostService/"
 	client.intNamePrefix = "org.SONiC.HostService."
 	err = nil
-
 	return &client, err
 }
 
@@ -131,6 +139,7 @@ func (c *DbusClient) ConfigReload(config string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".reload"
+	//_, err := c.caller.DbusApi(busName, busPath, intName, 60, config)
 	_, err := DbusApi(busName, busPath, intName, 60, config)
 	return err
 }
@@ -142,6 +151,7 @@ func (c *DbusClient) ConfigReplace(config string) error {
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".replace_db"
 	_, err := DbusApi(busName, busPath, intName, 600, config)
+	//_, err := c.caller.DbusApi(busName, busPath, intName, 600, config)
 	return err
 }
 
@@ -152,6 +162,7 @@ func (c *DbusClient) ConfigSave(fileName string) error {
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".save"
 	_, err := DbusApi(busName, busPath, intName, 60, fileName)
+	//_, err := c.caller.DbusApi(busName, busPath, intName, 60, fileName)
 	return err
 }
 
@@ -323,6 +334,59 @@ func (c *DbusClient) FactoryReset(cmd string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("Invalid result type %v: expected string, got %T", reflect.TypeOf(result), result)
 	}
+	return strResult, nil
+}
 
+func (c *DbusClient) HealthzAck(req string) (string, error) {
+	modName := "debug_info"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".ack"
+
+	common_utils.IncCounter(common_utils.GNOI_HEALTHZ_ACK)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	return strResult, nil
+}
+
+func (c *DbusClient) HealthzCheck(req string) (string, error) {
+	modName := "debug_info"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".check"
+
+	common_utils.IncCounter(common_utils.GNOI_HEALTHZ_CHECK)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	return strResult, nil
+}
+
+func (c *DbusClient) HealthzCollect(req string) (string, error) {
+	modName := "debug_info"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".collect"
+
+	common_utils.IncCounter(common_utils.GNOI_HEALTHZ_COLLECT)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
 	return strResult, nil
 }
