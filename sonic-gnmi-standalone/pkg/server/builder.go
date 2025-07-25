@@ -3,8 +3,10 @@ package server
 
 import (
 	"github.com/golang/glog"
+	"github.com/openconfig/gnoi/system"
 
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server/config"
+	gnoiSystem "github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server/gnoi/system"
 )
 
 // ServerBuilder provides a fluent interface for configuring and building a gRPC server
@@ -154,12 +156,18 @@ func (b *ServerBuilder) Build() (*Server, error) {
 
 // registerServices registers all enabled services with the gRPC server.
 // This method handles the service-specific registration logic and logging.
-// Infrastructure-only implementation - service registrations are added by extending this method.
 func (b *ServerBuilder) registerServices(srv *Server, rootFS string) {
 	serviceCount := 0
 
-	// Service registration will be implemented for:
-	// - gNOI System service
+	// Register gNOI System service
+	if b.services["gnoi.system"] {
+		systemServer := gnoiSystem.NewServer(rootFS)
+		system.RegisterSystemServer(srv.grpcServer, systemServer)
+		glog.Info("Registered gNOI System service")
+		serviceCount++
+	}
+
+	// Future services will be implemented:
 	// - gNOI File service
 	// - gNOI Containerz service
 	// - gNMI service

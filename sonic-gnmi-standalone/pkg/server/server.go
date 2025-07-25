@@ -35,12 +35,6 @@ type Server struct {
 	listener   net.Listener // Network listener for incoming connections
 }
 
-// GRPCServer returns the underlying gRPC server instance.
-// This is useful for registering additional services.
-func (s *Server) GRPCServer() *grpc.Server {
-	return s.grpcServer
-}
-
 // NewServer creates a new Server instance using global configuration.
 // This is the convenience function that reads TLS settings from the global config
 // and delegates to NewServerWithTLS for actual server creation.
