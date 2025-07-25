@@ -100,6 +100,12 @@ func NewServerWithTLS(addr string, useTLS bool, certFile, keyFile string) (*Serv
 	}, nil
 }
 
+// GRPCServer returns the underlying gRPC server instance.
+// This is useful for registering additional services.
+func (s *Server) GRPCServer() *grpc.Server {
+	return s.grpcServer
+}
+
 // Start begins serving requests on the configured listener.
 // This method blocks until the server is stopped or encounters an error.
 // It should typically be called in a goroutine if non-blocking operation is needed.

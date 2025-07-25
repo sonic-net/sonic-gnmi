@@ -16,6 +16,7 @@ linters:
     - gocognit     # Cognitive complexity too strict for tests
     - gocyclo      # Cyclomatic complexity too strict for tests
     - dupl         # Code duplication acceptable in tests
+    - gochecknoinits # init() functions are legitimate Go feature
 
 linters-settings:
   gocognit:
