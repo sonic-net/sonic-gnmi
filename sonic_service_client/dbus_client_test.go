@@ -1153,3 +1153,42 @@ func TestRemoveFileFail(t *testing.T) {
 		t.Errorf("Expected error message '%s' but got '%v'", errMsg, err)
 	}
 }
+
+func TestFactoryReset(t *testing.T) {
+	expectedCmd := "REBOOT"
+	expectedResult := "reset_success"
+
+	// Patch dbus.SystemBus to return a fake connection
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+
+	// Patch (*dbus.Object).Go to simulate DBus response
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.gnoi_reset.issue_reset" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0) // success code
+		ret.Body[1] = expectedResult
+		ch <- ret
+		return ret
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Fatalf("NewDbusClient failed: %v", err)
+	}
+
+	result, err := client.FactoryReset(expectedCmd)
+	if err != nil {
+		t.Errorf("FactoryReset failed: %v", err)
+	}
+	if result != expectedResult {
+		t.Errorf("Expected result: %s, got: %s", expectedResult, result)
+	}
+}
