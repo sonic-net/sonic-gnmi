@@ -1,0 +1,19 @@
+bin/
+build/
+
+# Coverage files
+coverage.out
+coverage.html
+
+# Development files (Claude Code guidance)
+CLAUDE.md
+CLAUDE.local.md
+
+# Debian packaging
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/sonic-ops-server/
+debian/sonic-gnmi-standalone/
+debian/files
+debian/*.substvars
+debian/*.debhelper.log
