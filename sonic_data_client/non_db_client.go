@@ -414,16 +414,6 @@ func NewNonDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
 	return &ndc, nil
 }
 
-func enqueFatalMsgNonDbClient(c *NonDbClient, msg string) {
-	log.Error(msg)
-	c.q.ForceEnqueueItem(Value{
-		&spb.Value{
-			Timestamp: time.Now().UnixNano(),
-			Fatal:     msg,
-		},
-	})
-}
-
 // String returns the target the client is querying.
 func (c *NonDbClient) String() string {
 	// TODO: print gnmiPaths of this NonDbClient
@@ -443,13 +433,13 @@ func (c *NonDbClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wai
 	for _, sub := range subscribe.GetSubscription() {
 		subMode := sub.GetMode()
 		if subMode != gnmipb.SubscriptionMode_SAMPLE {
-			enqueFatalMsgNonDbClient(c, fmt.Sprintf("Unsupported subscription mode: %v.", subMode))
+			enqueFatalMsg(c.q, fmt.Sprintf("Unsupported subscription mode: %v.", subMode))
 			return
 		}
 
 		interval, err := validateSampleInterval(sub)
 		if err != nil {
-			enqueFatalMsgNonDbClient(c, err.Error())
+			enqueFatalMsg(c.q, err.Error())
 			return
 		}
 

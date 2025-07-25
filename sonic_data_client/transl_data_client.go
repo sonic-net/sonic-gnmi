@@ -133,16 +133,6 @@ func (c *TranslClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, upda
 	return nil
 }
 
-func enqueFatalMsgTranslib(c *TranslClient, msg string) {
-	log.Error(msg)
-	c.q.ForceEnqueueItem(Value{
-		&spb.Value{
-			Timestamp: time.Now().UnixNano(),
-			Fatal:     msg,
-		},
-	})
-}
-
 func enqueueSyncMessage(c *TranslClient) {
 	m := &spb.Value{
 		Timestamp:    time.Now().UnixNano(),
@@ -161,7 +151,7 @@ func recoverSubscribe(c *TranslClient) {
 		log.Error(string(buff))
 
 		err := status.Errorf(codes.Internal, "%v", r)
-		enqueFatalMsgTranslib(c, fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
+		enqueFatalMsg(c.q, fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
 	}
 }
 
@@ -202,7 +192,7 @@ func (c *TranslClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wa
 	c.encoding = subscribe.Encoding
 
 	if err := c.parseVersion(); err != nil {
-		enqueFatalMsgTranslib(c, err.Error())
+		enqueFatalMsg(c.q, err.Error())
 		return
 	}
 
@@ -236,7 +226,7 @@ func (c *TranslClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wa
 
 	subSupport, err := translib.IsSubscribeSupported(req)
 	if err != nil {
-		enqueFatalMsgTranslib(c, fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
+		enqueFatalMsg(c.q, fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
 		return
 	}
 
@@ -258,13 +248,13 @@ func (c *TranslClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wa
 			if pInfo.IsOnChangeSupported {
 				subscribe_mode = gnmipb.SubscriptionMode_ON_CHANGE
 			} else {
-				enqueFatalMsgTranslib(c, fmt.Sprintf("ON_CHANGE Streaming mode invalid for %v", pathStr))
+				enqueFatalMsg(c.q, fmt.Sprintf("ON_CHANGE Streaming mode invalid for %v", pathStr))
 				return
 			}
 		case gnmipb.SubscriptionMode_SAMPLE:
 			subscribe_mode = gnmipb.SubscriptionMode_SAMPLE
 		default:
-			enqueFatalMsgTranslib(c, fmt.Sprintf("Invalid Subscription Mode %d", sub.Mode))
+			enqueFatalMsg(c.q, fmt.Sprintf("Invalid Subscription Mode %d", sub.Mode))
 			return
 		}
 
@@ -273,7 +263,7 @@ func (c *TranslClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wa
 		}
 
 		if hb := sub.HeartbeatInterval; hb > 0 && hb < uint64(pInfo.MinInterval)*uint64(time.Second) {
-			enqueFatalMsgTranslib(c, fmt.Sprintf("Invalid Heartbeat Interval %ds, minimum interval is %ds",
+			enqueFatalMsg(c.q, fmt.Sprintf("Invalid Heartbeat Interval %ds, minimum interval is %ds",
 				sub.HeartbeatInterval/uint64(time.Second), subSupport[i].MinInterval))
 			return
 		}
@@ -285,7 +275,7 @@ func (c *TranslClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wa
 			if interval == 0 {
 				interval = minInterval
 			} else if interval < minInterval {
-				enqueFatalMsgTranslib(c, fmt.Sprintf("Invalid SampleInterval %ds, minimum interval is %ds", interval/int(time.Second), pInfo.MinInterval))
+				enqueFatalMsg(c.q, fmt.Sprintf("Invalid SampleInterval %ds, minimum interval is %ds", interval/int(time.Second), pInfo.MinInterval))
 				return
 			}
 
@@ -388,7 +378,7 @@ func (c *TranslClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.Wait
 	c.encoding = subscribe.Encoding
 
 	if err := c.parseVersion(); err != nil {
-		enqueFatalMsgTranslib(c, err.Error())
+		enqueFatalMsg(c.q, err.Error())
 		return
 	}
 
@@ -397,7 +387,7 @@ func (c *TranslClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.Wait
 		_, more := <-c.channel
 		if !more {
 			log.V(1).Infof("%v poll channel closed, exiting pollDb routine", c)
-			enqueFatalMsgTranslib(c, "")
+			enqueFatalMsg(c.q, "")
 			return
 		}
 
@@ -429,14 +419,14 @@ func (c *TranslClient) OnceRun(q *LimitedQueue, once chan struct{}, w *sync.Wait
 	c.encoding = subscribe.Encoding
 
 	if err := c.parseVersion(); err != nil {
-		enqueFatalMsgTranslib(c, err.Error())
+		enqueFatalMsg(c.q, err.Error())
 		return
 	}
 
 	_, more := <-c.channel
 	if !more {
 		log.V(1).Infof("%v once channel closed, exiting onceDb routine", c)
-		enqueFatalMsgTranslib(c, "")
+		enqueFatalMsg(c.q, "")
 		return
 	}
 
