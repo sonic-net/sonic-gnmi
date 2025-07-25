@@ -170,10 +170,15 @@ lint: validate-golangci-lint ## Run golangci-lint
 test: ## Run all tests
 	go test ./... -timeout 2m
 
+<<<<<<< HEAD
 # Run loopback integration tests
 test-loopback: ## Run loopback integration tests for TLS/mTLS connections
 	@echo "Running loopback integration tests..."
 	go test -v ./tests/loopback/ -timeout 2m
+=======
+test-loopback: ## Run loopback integration tests
+	go test ./tests/loopback/... -v
+>>>>>>> abbc8d9 (Add comprehensive loopback tests for gNOI System SetPackage)
 
 # Run all tests with coverage
 test-coverage: ## Run all tests with coverage report
