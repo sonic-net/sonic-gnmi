@@ -131,7 +131,7 @@ func (c *SystemClient) SetPackage(ctx context.Context, params *SetPackageParams)
 	return nil
 }
 
-// TODO: Add other System service methods in the future:
+// Future System service methods to be implemented:
 // - Reboot(ctx, *RebootParams) error
 // - RebootStatus(ctx, *RebootStatusParams) (*RebootStatusResult, error)
 // - CancelReboot(ctx, *CancelRebootParams) error

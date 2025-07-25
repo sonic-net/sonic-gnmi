@@ -50,14 +50,14 @@ The server will download the package, verify its MD5 checksum, and install it to
 	RunE: runSetPackage,
 }
 
-// Global flags
+// Global flags.
 var (
 	server  string
 	tls     bool
 	timeout time.Duration
 )
 
-// SetPackage specific flags
+// SetPackage specific flags.
 var (
 	url      string
 	file     string
