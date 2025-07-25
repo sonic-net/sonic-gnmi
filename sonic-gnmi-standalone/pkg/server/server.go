@@ -21,7 +21,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
 
-	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/internal/config"
+	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server/config"
 )
 
 // Server represents the gRPC server and its resources, providing a unified interface
