@@ -46,13 +46,13 @@ func NewServer(rootFS string) *Server {
 // 1. Receive package metadata with remote_download info
 // 2. Skip any content messages (not yet supported)
 // 3. Receive hash for verification
-// 4. Download the package and verify checksum
+// 4. Download the package and verify checksum.
 func (s *Server) SetPackage(stream system.System_SetPackageServer) error {
 	glog.Info("SetPackage RPC called")
 
 	var packageInfo *system.Package
 	var hashInfo *types.HashType
-	
+
 	// Read all messages from the stream
 	for {
 		req, err := stream.Recv()
@@ -70,7 +70,7 @@ func (s *Server) SetPackage(stream system.System_SetPackageServer) error {
 				return status.Error(codes.InvalidArgument, "package info already received")
 			}
 			packageInfo = request.Package
-			glog.Infof("Received package info: filename=%s, version=%s", 
+			glog.Infof("Received package info: filename=%s, version=%s",
 				packageInfo.GetFilename(), packageInfo.GetVersion())
 
 		case *system.SetPackageRequest_Contents:
@@ -103,7 +103,7 @@ func (s *Server) SetPackage(stream system.System_SetPackageServer) error {
 
 	// Validate protocol is HTTP
 	if packageInfo.GetRemoteDownload().GetProtocol() != common.RemoteDownload_HTTP {
-		return status.Errorf(codes.Unimplemented, "only HTTP protocol is currently supported (received %s)", 
+		return status.Errorf(codes.Unimplemented, "only HTTP protocol is currently supported (received %s)",
 			packageInfo.GetRemoteDownload().GetProtocol())
 	}
 
@@ -122,9 +122,9 @@ func (s *Server) SetPackage(stream system.System_SetPackageServer) error {
 	// Create temp file for download
 	tempDir := os.TempDir()
 	tempFile := filepath.Join(tempDir, fmt.Sprintf("setpackage_%s.tmp", filepath.Base(packageInfo.GetFilename())))
-	
+
 	glog.Infof("Downloading package from %s to %s", downloadURL, tempFile)
-	
+
 	// Use download package to fetch the file
 	ctx := context.Background()
 	session, result, err := download.DownloadFile(ctx, downloadURL, tempFile)
@@ -141,7 +141,7 @@ func (s *Server) SetPackage(stream system.System_SetPackageServer) error {
 	// Verify MD5 checksum
 	expectedMD5 := fmt.Sprintf("%x", hashInfo.GetHash())
 	validator := checksum.NewMD5Validator()
-	
+
 	if err := validator.ValidateFile(tempFile, expectedMD5); err != nil {
 		glog.Errorf("MD5 validation failed: %v", err)
 		os.Remove(tempFile)
@@ -182,12 +182,12 @@ func (s *Server) SetPackage(stream system.System_SetPackageServer) error {
 	}
 
 	glog.Infof("Package successfully installed at %s (session: %s)", finalPath, session.ID)
-	
+
 	// Send empty response
 	return stream.SendAndClose(&system.SetPackageResponse{})
 }
 
-// copyFile copies a file from src to dst
+// copyFile copies a file from src to dst.
 func copyFile(src, dst string) error {
 	source, err := os.Open(src)
 	if err != nil {

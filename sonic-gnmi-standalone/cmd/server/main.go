@@ -7,8 +7,6 @@ import (
 	"syscall"
 
 	"github.com/golang/glog"
-	"github.com/openconfig/gnoi/system"
-	gnoiSystem "github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server"
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server/config"
 )
@@ -24,16 +22,15 @@ func main() {
 	glog.Infof("Starting sonic-gnmi-standalone: addr=%s, rootfs=%s, tls=%t",
 		config.Global.Addr, config.Global.RootFS, config.Global.TLSEnabled)
 
-	// Create a new server instance
-	srv, err := server.NewServer(config.Global.Addr)
+	// Create a new server instance using the builder pattern
+	srv, err := server.NewServerBuilder().
+		WithAddress(config.Global.Addr).
+		WithRootFS(config.Global.RootFS).
+		EnableGNOISystem().
+		Build()
 	if err != nil {
 		glog.Fatalf("Failed to create server: %v", err)
 	}
-
-	// Create and register gNOI System service
-	systemServer := gnoiSystem.NewServer(config.Global.RootFS)
-	system.RegisterSystemServer(srv.GRPCServer(), systemServer)
-	glog.Info("Registered gNOI System service")
 
 	// Set up signal handling for graceful shutdown
 	signalChan := make(chan os.Signal, 1)
