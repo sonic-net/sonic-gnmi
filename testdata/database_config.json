@@ -46,6 +46,11 @@
             "id" : 7,
             "separator": "|",
             "instance" : "redis"
+        },
+        "BMP_STATE_DB": {
+            "id": 20,
+            "separator": "|",
+            "instance": "redis"
         }
     },
     "VERSION" : "1.0"
