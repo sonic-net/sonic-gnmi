@@ -6,8 +6,10 @@ import (
 	"os/signal"
 
 	"github.com/google/gnxi/utils/credentials"
+	factory_reset_pb "github.com/openconfig/gnoi/factory_reset"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/config"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/containerz"
+	"github.com/sonic-net/sonic-gnmi/gnoi_client/factory_reset"
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/file"
 	gnoi_os "github.com/sonic-net/sonic-gnmi/gnoi_client/os" // So it does not collide with os.
 	"github.com/sonic-net/sonic-gnmi/gnoi_client/sonic"
@@ -53,6 +55,14 @@ func main() {
 		switch *config.Rpc {
 		case "Stat":
 			file.Stat(conn, ctx)
+		case "Get":
+			file.Get(conn, ctx)
+		case "Put":
+			file.Put(conn, ctx)
+		case "Remove":
+			file.Remove(conn, ctx)
+		case "TransferToRemote":
+			file.TransferToRemote(conn, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
@@ -62,6 +72,14 @@ func main() {
 			gnoi_os.Verify(conn, ctx)
 		case "Activate":
 			gnoi_os.Activate(conn, ctx)
+		default:
+			panic("Invalid RPC Name")
+		}
+	case "FactoryReset":
+		frc := factory_reset_pb.NewFactoryResetClient(conn)
+		switch *config.Rpc {
+		case "Start":
+			factory_reset.StartFactoryReset(frc, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}

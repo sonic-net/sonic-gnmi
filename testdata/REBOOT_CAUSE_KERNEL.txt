@@ -1,0 +1,62 @@
+{
+    "REBOOT_CAUSE|2025_07_10_14_39_01": {
+        "cause": "reboot",
+        "comment": "N/A",
+        "time": "Thu Jul 10 02:34:54 PM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_10_14_55_20": {
+        "cause": "Kernel Panic",
+        "comment": "N/A",
+        "time": "Thu Jul 10 02:51:53 PM UTC 2025",
+        "user": "N/A"
+    },
+    "REBOOT_CAUSE|2025_07_10_15_13_45": {
+        "cause": "reboot",
+        "comment": "N/A",
+        "time": "Thu Jul 10 03:09:38 PM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_10_15_29_52": {
+        "cause": "reboot",
+        "comment": "N/A",
+        "time": "Thu Jul 10 03:25:44 PM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_10_15_45_47": {
+        "cause": "reboot",
+        "comment": "N/A",
+        "time": "Thu Jul 10 03:41:43 PM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_10_18_03_28": {
+        "cause": "reboot",
+        "comment": "N/A",
+        "time": "Thu Jul 10 05:59:18 PM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_10_23_33_47": {
+        "cause": "warm-reboot",
+        "comment": "N/A",
+        "time": "Thu Jul 10 11:29:44 PM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_10_23_48_41": {
+        "cause": "warm-reboot",
+        "comment": "N/A",
+        "time": "Thu Jul 10 11:44:41 PM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_11_00_51_52": {
+        "cause": "warm-reboot",
+        "comment": "N/A",
+        "time": "Fri Jul 11 12:49:13 AM UTC 2025",
+        "user": "admin"
+    },
+    "REBOOT_CAUSE|2025_07_11_01_00_54": {
+        "cause": "Kernel Panic",
+        "comment": "N/A",
+        "time": "Fri Jul 11 12:57:23 AM UTC 2025",
+        "user": "N/A"
+    }
+}

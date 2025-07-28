@@ -272,10 +272,22 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 
 	done := make(chan bool)
 
+	telemetryCertDirectory := filepath.Dir(*telemetryCfg.ServerCert)
+
+	log.V(1).Infof("Begin cert monitoring on %s", telemetryCertDirectory)
+
+	err := watcher.Add(telemetryCertDirectory) // Adding watcher to cert directory
+	if err != nil {
+		log.Errorf("Received error when adding watcher to cert directory: %v", err)
+		serverControlSignal <- ServerStop
+		return
+	}
+
+	if testReadySignal != nil { // for testing only
+		testReadySignal <- 0
+	}
+
 	go func() {
-		if testReadySignal != nil { // for testing only
-			testReadySignal <- 0
-		}
 		for {
 			select {
 			case event := <-watcher.Events:
@@ -283,7 +295,7 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 					filepath.Ext(event.Name) == ".cer" || filepath.Ext(event.Name) == ".pem" ||
 					filepath.Ext(event.Name) == ".key") {
 					log.V(1).Infof("Inotify watcher has received event: %v", event)
-					if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
+					if event.Op&fsnotify.CloseWrite == fsnotify.CloseWrite || event.Op&fsnotify.MovedTo == fsnotify.MovedTo {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
 						serverControlSignal <- ServerStart // let server know that a write/create event occurred
 						done <- true
@@ -308,17 +320,6 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 			}
 		}
 	}()
-
-	telemetryCertDirectory := filepath.Dir(*telemetryCfg.ServerCert)
-
-	log.V(1).Infof("Begin cert monitoring on %s", telemetryCertDirectory)
-
-	err := watcher.Add(telemetryCertDirectory) // Adding watcher to cert directory
-	if err != nil {
-		log.Errorf("Received error when adding watcher to cert directory: %v", err)
-		serverControlSignal <- ServerStop
-		done <- true
-	}
 
 	<-done
 	log.V(6).Infof("Closing cert rotation monitoring")
