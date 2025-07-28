@@ -12,7 +12,7 @@ In Go, the `internal` directory has special meaning. Go will prevent packages ou
 
 ## Current State
 
-This directory is currently empty as part of the infrastructure foundation. The server configuration has been moved to `pkg/server/config/` to be co-located with the server implementation for better API discoverability.
+This directory is currently empty as part of the infrastructure foundation.
 
 ## Future Purpose
 
