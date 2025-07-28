@@ -1,6 +1,6 @@
 # SONiC gRPC Server Foundation
 
-This directory contains a minimal gRPC server foundation for SONiC operations. It provides a clean baseline with only gRPC reflection support, designed as a foundation for implementing specific gRPC services.
+This directory contains a minimal gRPC server foundation for SONiC operations. It provides a clean baseline with gRPC reflection support and a builder pattern for implementing specific gRPC services.
 
 ## Overview
 
@@ -8,7 +8,8 @@ This minimal gRPC server provides:
 
 - **Base gRPC Infrastructure**: Configurable server with TLS support
 - **gRPC Reflection**: Built-in reflection service for development tools like grpcurl
-- **Clean Foundation**: No business logic, ready for service implementations
+- **Service Builder Pattern**: Fluent API for dynamically enabling/disabling services
+- **Clean Foundation**: Infrastructure ready for service implementations
 - **Container-Ready**: Designed for container deployment with configurable filesystem paths
 
 ## Prerequisites
@@ -22,10 +23,12 @@ This minimal gRPC server provides:
 sonic-gnmi-standalone/
 ├── cmd/
 │   └── server/                   # Main gRPC server application
-├── internal/                     # Private packages
-│   └── config/                   # Configuration management
+├── internal/                     # Private packages (reserved for future use)
 ├── pkg/server/                   # Public gRPC server implementation
-│   └── server.go                 # Main server with TLS support
+│   ├── builder.go                # ServerBuilder pattern for service registration
+│   ├── server.go                 # Main server with TLS support
+│   └── config/                   # Server configuration
+│       └── config.go             # Global configuration management
 ├── go.mod                        # Go module definition
 ├── go.sum                        # Go module checksums
 ├── Makefile                      # Build and test automation
@@ -129,11 +132,31 @@ This server provides a minimal foundation for gRPC service development. To add n
 
 1. **Define Proto Files**: Add `.proto` files in the `proto/` directory
 2. **Generate Code**: Update Makefile to generate Go protobuf files
-3. **Implement Services**: Add service implementations in `pkg/server/`
-4. **Register Services**: Update `server.go` to register your services
+3. **Implement Services**: Add service implementations in appropriate packages (e.g., `pkg/server/gnoi/`)
+4. **Register Services**: Use the ServerBuilder pattern to register your services
 5. **Add Business Logic**: Implement supporting functionality in `internal/` packages
 6. **Add Tests**: Create comprehensive unit and integration tests
 7. **Update Documentation**: Document your APIs and services
+
+### Using the ServerBuilder Pattern
+
+The ServerBuilder provides a fluent API for configuring which services are enabled:
+
+```go
+// In main.go
+srv, err := server.NewServerBuilder().
+    WithAddress(":50051").
+    WithRootFS("/mnt/host").
+    EnableGNOISystem().                // Enable specific services
+    EnableServices([]string{"gnmi"}).  // Or enable multiple at once
+    Build()
+```
+
+This pattern allows for:
+- Dynamic service configuration
+- Clean separation of concerns
+- Easy addition of new services
+- Configuration-driven service enablement
 
 ### Development Workflow
 

@@ -1,67 +1,50 @@
-# cmd - Binaries and Test Utilities
+# cmd - Server Binary
 
-This directory contains the entry points for the upgrade service binaries and test utilities.
+This directory contains the entry point for the gRPC server binary.
 
 ## Production Binary
 
 ### server/
-The main upgrade service server binary. This provides the gRPC API for firmware management operations including image consolidation, cleanup, and listing.
+The main gRPC server binary. This provides the foundation for gRPC services with reflection support and a builder pattern for dynamic service registration.
 
 **Build:** `make build`  
 **Usage:** `./bin/sonic-gnmi-standalone`
 
-## Test Utilities
+## Command-line Options
 
-All test utilities are prefixed with `test-` to clearly indicate their purpose for testing and validation.
+The server supports the following command-line options:
 
-### test-bootloader/
-Tests bootloader detection and image management functionality.
+```bash
+# Basic usage with default settings (port 50051, rootfs /mnt/host)
+./bin/sonic-gnmi-standalone
 
-- **Purpose:** Validate bootloader package integration
-- **Safety:** Read-only, does not modify system configuration
-- **Build:** `make build-test-tools`
-- **Usage:** `./bin/test-bootloader [--help]`
+# Specify different port and rootfs (useful for containers vs baremetal)
+./bin/sonic-gnmi-standalone --addr=:8080 --rootfs=/host
 
-### test-installer/
-Tests sonic-installer CLI wrapper functionality.
+# Enable verbose logging
+./bin/sonic-gnmi-standalone -v=2
 
-- **Purpose:** Validate installer package integration with sonic-installer
-- **Safety:** `list` command is read-only; `set-default` and `cleanup` **modify system**
-- **Build:** `make build-test-tools`
-- **Usage:** `./bin/test-installer <command> [args...]`
-- **⚠️ Warning:** Some commands modify bootloader configuration
+# Run without TLS (for development)
+./bin/sonic-gnmi-standalone --no-tls
 
-### test-image-inspector/
-Tests image analysis and version extraction functionality.
-
-- **Purpose:** Validate firmware package image analysis capabilities
-- **Safety:** Read-only, analyzes image files without modification
-- **Build:** `make build-test-tools`
-- **Usage:** `./bin/test-image-inspector [options] [image-file]`
+# Show all available options
+./bin/sonic-gnmi-standalone --help
+```
 
 ## Building
 
 ```bash
-# Build production server
+# Build the server binary
 make build
 
-# Build all test utilities
-make build-test-tools
-
-# Get detailed help about test utilities
-make help-test-tools
-
-# Clean all built binaries
+# Clean built binaries
 make clean
 ```
 
-## Test Utility Safety
-
-- **Read-only utilities:** `test-bootloader`, `test-list-images`, `test-image-inspector`
-- **System-modifying utilities:** `test-installer` (set-default and cleanup commands)
-
-Always test on non-production systems first, especially when using utilities that modify system configuration.
-
 ## Purpose
 
-These test utilities help validate that the upgrade service components work correctly on your system before deploying the service in production. They test individual packages and functionalities in isolation.
+This server provides a minimal gRPC foundation with:
+- gRPC reflection for development tools
+- TLS support with configurable certificates
+- Builder pattern for dynamic service enablement
+- Container-aware filesystem configuration

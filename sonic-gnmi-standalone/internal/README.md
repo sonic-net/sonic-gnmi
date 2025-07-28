@@ -1,6 +1,6 @@
 # Internal Package
 
-This directory contains internal packages that are private to this repository.
+This directory is reserved for internal packages that are private to this repository.
 They should not be imported by external projects.
 
 ## Overview
@@ -9,6 +9,18 @@ In Go, the `internal` directory has special meaning. Go will prevent packages ou
 
 - Code in `internal` can only be imported by code in this module
 - It cannot be imported by any other project even if they depend on this module
+
+## Current State
+
+This directory is currently empty as part of the infrastructure foundation. The server configuration has been moved to `pkg/server/config/` to be co-located with the server implementation for better API discoverability.
+
+## Future Purpose
+
+This directory will contain:
+- Internal business logic implementations
+- Utility packages not meant for external consumption
+- System integration helpers
+- Any code that should remain private to this module
 
 ## Library Design Guidelines
 
