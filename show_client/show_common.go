@@ -58,6 +58,15 @@ func GetMapFromQueries(queries [][]string) (map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	msi := make(map[string]interface{})
+	for _, tblPath := range tblPaths {
+		err := sdc.TableData2Msi(&tblPath, false, nil, &msi)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return msi, nil
+}
 
 func GetDataFromQueries(queries [][]string) ([]byte, error) {
 	msi, err := GetMapFromQueries(queries)
@@ -162,35 +171,29 @@ func GetSumFields(data map[string]interface{}, key string, defaultValue string, 
 			sum = defaultValue
 		}
 	}()
-
-	var total uint64
-
+	var total int64
 	for _, field := range fields {
 		value := GetFieldValueString(data, key, defaultValue, field)
-		if intValue, err := strconv.ParseUint(value, base10, 64); err != nil {
+		if intValue, err := strconv.ParseInt(value, base10, 64); err != nil {
 			return defaultValue
 		} else {
 			total += intValue
 		}
 	}
-	return strconv.FormatUint(total, base10)
+	return strconv.FormatInt(total, base10)
 }
 
 func calculateDiffCounters(oldCounter string, newCounter string, defaultValue string) string {
 	if oldCounter == defaultValue || newCounter == defaultValue {
 		return defaultValue
 	}
-
-	oldCounterValue, err := strconv.ParseUint(oldCounter, base10, 64)
+	oldCounterValue, err := strconv.ParseInt(oldCounter, base10, 64)
 	if err != nil {
 		return defaultValue
 	}
-	newCounterValue, err := strconv.ParseUint(newCounter, base10, 64)
+	newCounterValue, err := strconv.ParseInt(newCounter, base10, 64)
 	if err != nil {
 		return defaultValue
 	}
-
-	diff := int64(newCounterValue) - int64(oldCounterValue)
-
-	return strconv.FormatInt(diff, base10)
+	return strconv.FormatInt(newCounterValue-oldCounterValue, base10)
 }
