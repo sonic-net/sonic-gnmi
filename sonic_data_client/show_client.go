@@ -11,7 +11,7 @@ import (
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 )
 
-type DataGetter func() ([]byte, error)
+type DataGetter func(prefix, path *gnmipb.Path) ([]byte, error)
 type TablePath = tablePath
 
 var showTrie *Trie = NewTrie()
@@ -87,7 +87,7 @@ func (c *ShowClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	var values []*spb.Value
 	ts := time.Now()
 	for gnmiPath, getter := range c.path2Getter {
-		v, err := getter()
+		v, err := getter(c.prefix, gnmiPath)
 		if err != nil {
 			log.V(3).Infof("GetData error %v for %v", err, v)
 			return nil, err

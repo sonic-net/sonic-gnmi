@@ -737,6 +737,14 @@ func getPortNamespace(port string) (string, error) {
 	return namespace, nil
 }
 
+func AliasToPortNameMap() map[string]string {
+	output := make(map[string]string, len(alias2nameMap))
+	for alias, portName := range alias2nameMap {
+		output[alias] = portName
+	}
+	return output
+}
+
 // Populate real data paths from paths like
 // [COUNTERS_DB PERIODIC_WATERMARKS Ethernet* PriorityGroups] or
 // [COUNTERS_DB PERIODIC_WATERMARKS Ethernet64 PriorityGroups]
