@@ -26,7 +26,8 @@ func main() {
 	builder := server.NewServerBuilder().
 		WithAddress(config.Global.Addr).
 		WithRootFS(config.Global.RootFS).
-		EnableGNOISystem()
+		EnableGNOISystem().
+		EnableGNMI()
 
 	// Configure TLS based on command-line flags
 	if !config.Global.TLSEnabled {
