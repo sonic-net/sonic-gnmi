@@ -22,8 +22,11 @@ func main() {
 	glog.Infof("Starting sonic-gnmi-standalone: addr=%s, rootfs=%s, tls=%t",
 		config.Global.Addr, config.Global.RootFS, config.Global.TLSEnabled)
 
-	// Create a new server instance
-	srv, err := server.NewServer(config.Global.Addr)
+	// Create a new server instance using the builder pattern
+	srv, err := server.NewServerBuilder().
+		WithAddress(config.Global.Addr).
+		WithRootFS(config.Global.RootFS).
+		Build()
 	if err != nil {
 		glog.Fatalf("Failed to create server: %v", err)
 	}
