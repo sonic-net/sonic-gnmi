@@ -6,7 +6,6 @@ package gnmi
 
 import (
 	"crypto/tls"
-	"io/ioutil"
 	"testing"
 	"time"
 
@@ -18,43 +17,7 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	show_client "github.com/sonic-net/sonic-gnmi/show_client"
-	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
-
-const (
-	ServerPort   = 8081
-	StateDbNum   = 6
-	TargetAddr   = "127.0.0.1:8081"
-	QueryTimeout = 10
-)
-
-func MockReadFile(fileName string, fileContent string, fileReadErr error) {
-	sdc.ImplIoutilReadFile = func(filePath string) ([]byte, error) {
-		if filePath == fileName {
-			if fileReadErr != nil {
-				return nil, fileReadErr
-			}
-			return []byte(fileContent), nil
-		}
-		return ioutil.ReadFile(filePath)
-	}
-}
-
-func AddDataSet(t *testing.T, dbNum int, fileName string) {
-	ns, _ := sdcfg.GetDbDefaultNamespace()
-	rclient := getRedisClientN(t, dbNum, ns)
-	defer rclient.Close()
-	rclient.FlushDB()
-
-	fileContentBytes, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		t.Fatalf("read file: %v, err: %v", fileName, err)
-	}
-
-	fileContent := loadConfig(t, "", fileContentBytes)
-	loadDB(t, rclient, fileContent)
-}
 
 func TestGetShowRebootCause(t *testing.T) {
 	s := createServer(t, ServerPort)
