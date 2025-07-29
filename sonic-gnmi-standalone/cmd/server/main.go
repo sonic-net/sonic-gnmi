@@ -19,14 +19,36 @@ func main() {
 	defer glog.Flush()
 
 	// Log configuration
-	glog.Infof("Starting sonic-gnmi-standalone: addr=%s, rootfs=%s, tls=%t",
-		config.Global.Addr, config.Global.RootFS, config.Global.TLSEnabled)
+	glog.Infof("Starting sonic-gnmi-standalone: addr=%s, rootfs=%s, tls=%t, mtls=%t",
+		config.Global.Addr, config.Global.RootFS, config.Global.TLSEnabled, config.Global.MTLSEnabled)
 
 	// Create a new server instance using the builder pattern
-	srv, err := server.NewServerBuilder().
+	builder := server.NewServerBuilder().
 		WithAddress(config.Global.Addr).
-		WithRootFS(config.Global.RootFS).
-		Build()
+		WithRootFS(config.Global.RootFS)
+
+	// Configure TLS based on command-line flags
+	if !config.Global.TLSEnabled {
+		glog.V(1).Info("TLS disabled via command-line flag")
+		builder = builder.WithoutTLS()
+	} else if config.Global.MTLSEnabled {
+		glog.V(1).Infof("mTLS enabled with cert=%s, key=%s, ca=%s",
+			config.Global.TLSCertFile, config.Global.TLSKeyFile, config.Global.TLSCACertFile)
+		builder = builder.WithMTLS(
+			config.Global.TLSCertFile,
+			config.Global.TLSKeyFile,
+			config.Global.TLSCACertFile,
+		)
+	} else {
+		glog.V(1).Infof("TLS enabled with cert=%s, key=%s",
+			config.Global.TLSCertFile, config.Global.TLSKeyFile)
+		builder = builder.WithTLS(
+			config.Global.TLSCertFile,
+			config.Global.TLSKeyFile,
+		)
+	}
+
+	srv, err := builder.Build()
 	if err != nil {
 		glog.Fatalf("Failed to create server: %v", err)
 	}

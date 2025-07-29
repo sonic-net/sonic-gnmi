@@ -11,9 +11,19 @@ import (
 // with various SONiC services. It follows the builder pattern to allow selective
 // enabling/disabling of services based on deployment requirements.
 type ServerBuilder struct {
-	addr     string
-	rootFS   string
-	services map[string]bool
+	addr      string
+	rootFS    string
+	services  map[string]bool
+	tlsConfig *tlsConfig
+}
+
+// tlsConfig holds TLS configuration for the server builder.
+type tlsConfig struct {
+	enabled     bool
+	mtlsEnabled bool
+	certFile    string
+	keyFile     string
+	caCertFile  string
 }
 
 // NewServerBuilder creates a new ServerBuilder instance with default configuration.
@@ -35,6 +45,39 @@ func (b *ServerBuilder) WithAddress(addr string) *ServerBuilder {
 // This is typically "/mnt/host" for containers or "/" for bare metal.
 func (b *ServerBuilder) WithRootFS(rootFS string) *ServerBuilder {
 	b.rootFS = rootFS
+	return b
+}
+
+// WithTLS enables TLS with the specified certificate and key files.
+// This overrides global TLS configuration from command-line flags.
+func (b *ServerBuilder) WithTLS(certFile, keyFile string) *ServerBuilder {
+	b.tlsConfig = &tlsConfig{
+		enabled:  true,
+		certFile: certFile,
+		keyFile:  keyFile,
+	}
+	return b
+}
+
+// WithMTLS enables mutual TLS with the specified certificate, key, and CA certificate files.
+// This overrides global TLS configuration from command-line flags.
+func (b *ServerBuilder) WithMTLS(certFile, keyFile, caCertFile string) *ServerBuilder {
+	b.tlsConfig = &tlsConfig{
+		enabled:     true,
+		mtlsEnabled: true,
+		certFile:    certFile,
+		keyFile:     keyFile,
+		caCertFile:  caCertFile,
+	}
+	return b
+}
+
+// WithoutTLS disables TLS for the server.
+// This overrides global TLS configuration from command-line flags.
+func (b *ServerBuilder) WithoutTLS() *ServerBuilder {
+	b.tlsConfig = &tlsConfig{
+		enabled: false,
+	}
 	return b
 }
 
@@ -70,8 +113,35 @@ func (b *ServerBuilder) Build() (*Server, error) {
 		rootFS = config.Global.RootFS
 	}
 
+	// Determine TLS configuration - use builder config if provided, otherwise global config
+	var tlsEnabled, mtlsEnabled bool
+	var certFile, keyFile, caCertFile string
+
+	if b.tlsConfig != nil {
+		// Use builder-specific TLS configuration
+		tlsEnabled = b.tlsConfig.enabled
+		mtlsEnabled = b.tlsConfig.mtlsEnabled
+		certFile = b.tlsConfig.certFile
+		keyFile = b.tlsConfig.keyFile
+		caCertFile = b.tlsConfig.caCertFile
+	} else {
+		// Fall back to global configuration
+		tlsEnabled = config.Global.TLSEnabled
+		mtlsEnabled = config.Global.MTLSEnabled
+		certFile = config.Global.TLSCertFile
+		keyFile = config.Global.TLSKeyFile
+		caCertFile = config.Global.TLSCACertFile
+	}
+
 	// Create the base gRPC server
-	srv, err := NewServerWithTLS(addr, config.Global.TLSEnabled, config.Global.TLSCertFile, config.Global.TLSKeyFile)
+	srv, err := NewServerWithTLS(
+		addr,
+		tlsEnabled,
+		certFile,
+		keyFile,
+		mtlsEnabled,
+		caCertFile,
+	)
 	if err != nil {
 		return nil, err
 	}

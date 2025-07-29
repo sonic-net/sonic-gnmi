@@ -9,6 +9,12 @@ coverage.html
 CLAUDE.md
 CLAUDE.local.md
 
+# Test certificates (should not be committed)
+*.crt
+*.key
+*.pem
+ca.srl
+
 # Debian packaging
 debian/.debhelper/
 debian/debhelper-build-stamp

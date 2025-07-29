@@ -1,162 +1,154 @@
-# TLS Configuration Guide
+# TLS Configuration
 
-This document explains how to configure and test TLS encryption for the sonic-gnmi-standalone server.
+TLS and mTLS configuration for sonic-gnmi-standalone server.
 
-## Overview
-
-The server supports configurable TLS encryption:
-- **Production**: TLS enabled by default with certificates
-- **Development/Testing**: TLS can be disabled via command-line flag
-- **Security**: Secure defaults with explicit disable option
-
-## Configuration Options
-
-### Command Line Flags
+## Command Line Flags
 
 ```bash
--tls-cert string    Path to TLS certificate file (optional, default: server.crt)
--tls-key string     Path to TLS private key file (optional, default: server.key)
--no-tls             Disable TLS (TLS is enabled by default)
+-tls-cert string     Path to TLS certificate file (default: server.crt)
+-tls-key string      Path to TLS private key file (default: server.key)
+-tls-ca-cert string  Path to TLS CA certificate file (default: ca.crt)
+-mtls                Enable mutual TLS
+-no-tls              Disable TLS
 ```
 
-## Usage Examples
+## Usage
 
-### Production (TLS Enabled - Default)
+### TLS (Default)
 
 ```bash
-# Generate certificates (one-time setup)
+# Generate certificates
 make test-certs
 
-# Run server with TLS (default behavior)
-./bin/sonic-gnmi-standalone -addr localhost:9999
+# Run server
+./bin/sonic-gnmi-standalone
 
-# Test with grpcurl
-grpcurl -cacert ca.crt localhost:9999 list
-# or with self-signed certs
-grpcurl -insecure localhost:9999 list
+# Test
+grpcurl -cacert ca.crt localhost:50051 list
+grpcurl -insecure localhost:50051 list
 ```
 
-### Development/Testing (TLS Disabled)
+### mTLS
 
 ```bash
-# Run server without TLS
---no-tls ./bin/sonic-gnmi-standalone -addr localhost:9999
+# Generate certificates
+make test-certs
 
-# Test with grpcurl (plaintext)
-grpcurl -plaintext localhost:9999 list
-grpcurl -plaintext localhost:9999 sonic.SystemInfo/GetPlatformType
+# Run server
+./bin/sonic-gnmi-standalone --mtls
+
+# Test
+grpcurl -cacert ca.crt -cert client.crt -key client.key localhost:50051 list
 ```
 
-### Custom Certificate Paths
+### No TLS
 
 ```bash
-# Run with custom certificate files
+# Run server
+./bin/sonic-gnmi-standalone --no-tls
+
+# Test
+grpcurl -plaintext localhost:50051 list
+```
+
+### Custom Paths
+
+```bash
+# TLS
 ./bin/sonic-gnmi-standalone -tls-cert /path/to/cert.pem -tls-key /path/to/key.pem
+
+# mTLS
+./bin/sonic-gnmi-standalone --mtls -tls-cert /path/to/cert.pem -tls-key /path/to/key.pem -tls-ca-cert /path/to/ca.pem
+```
+
+## Programmatic Configuration
+
+```go
+// TLS
+srv, err := server.NewServerBuilder().
+    WithAddress(":50051").
+    WithTLS("server.crt", "server.key").
+    Build()
+
+// mTLS
+srv, err := server.NewServerBuilder().
+    WithAddress(":50051").
+    WithMTLS("server.crt", "server.key", "ca.crt").
+    Build()
+
+// No TLS
+srv, err := server.NewServerBuilder().
+    WithAddress(":50051").
+    WithoutTLS().
+    Build()
 ```
 
 ## Certificate Generation
 
-### Using Make Target
-
 ```bash
-# Generate test certificates in current directory
+# Generate test certificates
 make test-certs
-```
 
-This creates:
-- `server.crt` - Server certificate
-- `server.key` - Server private key  
-- `ca.crt` - Certificate Authority certificate (for client verification)
-
-### Manual Generation
-
-```bash
-# Run the script directly
+# Or run script directly
 ./scripts/generate-test-certs.sh [output-directory]
 ```
 
+**Files created:**
+- `ca.crt` - Certificate Authority certificate
+- `ca.key` - Certificate Authority private key
+- `server.crt` - Server certificate
+- `server.key` - Server private key  
+- `client.crt` - Client certificate (for mTLS)
+- `client.key` - Client private key (for mTLS)
+
 ## Testing
 
-### Unit Tests
+```bash
+# Build
+make build
 
-Unit tests use `NewServerWithTLS()` with TLS disabled:
+# Test no TLS
+./bin/sonic-gnmi-standalone --no-tls &
+grpcurl -plaintext localhost:50051 list
 
-```go
-server, err := NewServerWithTLS("localhost:0", false, "", "")
+# Test TLS
+make test-certs
+./bin/sonic-gnmi-standalone &
+grpcurl -insecure localhost:50051 list
+
+# Test mTLS
+./bin/sonic-gnmi-standalone --mtls &
+grpcurl -cacert ca.crt -cert client.crt -key client.key localhost:50051 list
 ```
 
-### E2E Tests
+## Notes
 
-E2E tests use `bufconn` for in-memory testing and are unaffected by TLS configuration.
-
-### Manual Testing Workflow
-
-1. **Build the server:**
-   ```bash
-   make build
-   ```
-
-2. **Copy binary anywhere for testing:**
-   ```bash
-   cp bin/sonic-gnmi-standalone /tmp/
-   cd /tmp
-   ```
-
-3. **Test without TLS (simple):**
-   ```bash
-   --no-tls ./sonic-gnmi-standalone -addr localhost:9999 &
-   grpcurl -plaintext localhost:9999 list
-   ```
-
-4. **Test with TLS (when needed):**
-   ```bash
-   # Generate certs once
-   make test-certs
-   
-   # Run with TLS
-   ./sonic-gnmi-standalone -addr localhost:9999 &
-   grpcurl -insecure localhost:9999 list
-   ```
-
-## Security Considerations
-
-- **Production**: Always use TLS with proper certificates from a trusted CA
-- **Development**: Use `--no-tls` only for local development/testing
-- **Test Certificates**: Generated certificates are self-signed and only suitable for testing
-- **File Permissions**: Ensure private key files have restricted permissions (600)
+- Production: Use CA-signed certificates
+- Development: Use `--no-tls` for local testing
+- Test certificates: Self-signed, testing only
+- File permissions: Restrict private key files (600)
+- mTLS: Requires client certificates
 
 ## Troubleshooting
 
-### Certificate Not Found Error
-
+**Certificate not found:**
 ```bash
 Error: TLS certificate file not found: server.crt
 ```
+Solution: `make test-certs` or provide valid paths.
 
-**Solution**: Generate certificates with `make test-certs` or provide valid paths with `-tls-cert` and `-tls-key`.
-
-### Connection Refused with TLS
-
+**Connection refused:**
 ```bash
 Error: rpc error: code = Unavailable desc = connection error
 ```
+Solutions:
+- `grpcurl -insecure` for self-signed certificates
+- `grpcurl -cacert ca.crt` for TLS
+- `grpcurl -cacert ca.crt -cert client.crt -key client.key` for mTLS
+- `--no-tls` for testing
 
-**Solutions**:
-- Use `grpcurl -insecure` for self-signed certificates
-- Use `grpcurl -cacert ca.crt` for CA-signed certificates
-- Use `--no-tls` and `grpcurl -plaintext` for testing
-
-### Tests Failing
-
-If unit tests fail after TLS implementation, ensure they use `NewServerWithTLS()` with TLS disabled:
-
-```go
-server, err := NewServerWithTLS("localhost:0", false, "", "")
+**mTLS authentication failed:**
+```bash
+Error: rpc error: code = Unavailable desc = authentication handshake failed
 ```
-
-## Implementation Details
-
-- **Default Behavior**: TLS enabled unless `--no-tls`
-- **Certificate Validation**: Server checks for certificate file existence at startup
-- **Graceful Fallback**: Clear error messages when certificates are missing
-- **Backward Compatibility**: Existing test infrastructure continues to work
+Solution: Provide client certificate with `-cert` and `-key` flags.

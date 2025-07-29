@@ -21,14 +21,22 @@ The `builder.go` file implements a fluent API for configuring services:
 srv, err := server.NewServerBuilder().
     WithAddress(":50051").              // Configure server address
     WithRootFS("/mnt/host").           // Set root filesystem path
+    WithTLS("server.crt", "server.key"). // Configure TLS
     EnableGNOISystem().                // Enable specific service
-    EnableServices([]string{"gnmi"}).  // Enable multiple services
+    Build()
+
+// mTLS example
+srv, err := server.NewServerBuilder().
+    WithAddress(":50051").
+    WithMTLS("server.crt", "server.key", "ca.crt"). // Configure mTLS
+    EnableServices([]string{"gnmi"}).
     Build()
 ```
 
 The builder pattern provides:
 - Clean separation between infrastructure and services
 - Dynamic service enablement/disablement
+- Programmatic TLS/mTLS configuration
 - Configuration-driven service selection
 - Easy extension for new services
 
