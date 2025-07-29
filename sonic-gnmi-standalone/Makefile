@@ -1,4 +1,4 @@
-.PHONY: help help-test-tools proto build run clean test test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb test-certs build-test-tools semgrep
+.PHONY: help help-test-tools proto build run clean test test-loopback test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb test-certs build-test-tools semgrep
 
 # Default target shows help
 .DEFAULT_GOAL := help
@@ -169,6 +169,11 @@ lint: validate-golangci-lint ## Run golangci-lint
 # Run all tests
 test: ## Run all tests
 	go test ./... -timeout 2m
+
+# Run loopback integration tests
+test-loopback: ## Run loopback integration tests for TLS/mTLS connections
+	@echo "Running loopback integration tests..."
+	go test -v ./tests/loopback/ -timeout 2m
 
 # Run all tests with coverage
 test-coverage: ## Run all tests with coverage report
