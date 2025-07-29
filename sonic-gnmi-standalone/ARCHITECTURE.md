@@ -32,7 +32,7 @@ sonic-gnmi-standalone/
 ## Configuration
 
 ### Command-line Flags
-- `--addr`: Bind address (default: `:50051`)
+- `--addr`: Bind address (default: `:50055`)
 - `--rootfs`: Root filesystem path (default: `/mnt/host`)
 - `--shutdown-timeout`: Graceful shutdown timeout (default: `10s`)
 - `--tls-cert`, `--tls-key`: TLS certificate paths
@@ -82,7 +82,7 @@ The server uses a builder pattern for dynamic service registration:
 ### Container
 ```bash
 docker build -t gnmi-standalone-test -f docker/Dockerfile .
-docker run -p 50051:50051 gnmi-standalone-test
+docker run -p 50055:50055 gnmi-standalone-test
 ```
 
 ### Debian Package
@@ -95,7 +95,7 @@ dpkg -i build/sonic-gnmi-standalone_*.deb
 
 ```bash
 # Verify server is running
-grpcurl -plaintext localhost:50051 list
+grpcurl -plaintext localhost:50055 list
 
 # Output:
 # grpc.reflection.v1.ServerReflection

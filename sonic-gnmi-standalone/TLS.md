@@ -24,8 +24,8 @@ make test-certs
 ./bin/sonic-gnmi-standalone
 
 # Test
-grpcurl -cacert ca.crt localhost:50051 list
-grpcurl -insecure localhost:50051 list
+grpcurl -cacert ca.crt localhost:50055 list
+grpcurl -insecure localhost:50055 list
 ```
 
 ### mTLS
@@ -38,7 +38,7 @@ make test-certs
 ./bin/sonic-gnmi-standalone --mtls
 
 # Test
-grpcurl -cacert ca.crt -cert client.crt -key client.key localhost:50051 list
+grpcurl -cacert ca.crt -cert client.crt -key client.key localhost:50055 list
 ```
 
 ### No TLS
@@ -48,7 +48,7 @@ grpcurl -cacert ca.crt -cert client.crt -key client.key localhost:50051 list
 ./bin/sonic-gnmi-standalone --no-tls
 
 # Test
-grpcurl -plaintext localhost:50051 list
+grpcurl -plaintext localhost:50055 list
 ```
 
 ### Custom Paths
@@ -66,19 +66,19 @@ grpcurl -plaintext localhost:50051 list
 ```go
 // TLS
 srv, err := server.NewServerBuilder().
-    WithAddress(":50051").
+    WithAddress(":50055").
     WithTLS("server.crt", "server.key").
     Build()
 
 // mTLS
 srv, err := server.NewServerBuilder().
-    WithAddress(":50051").
+    WithAddress(":50055").
     WithMTLS("server.crt", "server.key", "ca.crt").
     Build()
 
 // No TLS
 srv, err := server.NewServerBuilder().
-    WithAddress(":50051").
+    WithAddress(":50055").
     WithoutTLS().
     Build()
 ```
@@ -109,16 +109,16 @@ make build
 
 # Test no TLS
 ./bin/sonic-gnmi-standalone --no-tls &
-grpcurl -plaintext localhost:50051 list
+grpcurl -plaintext localhost:50055 list
 
 # Test TLS
 make test-certs
 ./bin/sonic-gnmi-standalone &
-grpcurl -insecure localhost:50051 list
+grpcurl -insecure localhost:50055 list
 
 # Test mTLS
 ./bin/sonic-gnmi-standalone --mtls &
-grpcurl -cacert ca.crt -cert client.crt -key client.key localhost:50051 list
+grpcurl -cacert ca.crt -cert client.crt -key client.key localhost:50055 list
 ```
 
 ## Notes

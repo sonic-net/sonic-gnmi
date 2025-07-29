@@ -19,7 +19,7 @@ The `builder.go` file implements a fluent API for configuring services:
 ```go
 // Example usage
 srv, err := server.NewServerBuilder().
-    WithAddress(":50051").              // Configure server address
+    WithAddress(":50055").              // Configure server address
     WithRootFS("/mnt/host").           // Set root filesystem path
     WithTLS("server.crt", "server.key"). // Configure TLS
     EnableGNOISystem().                // Enable specific service
@@ -27,7 +27,7 @@ srv, err := server.NewServerBuilder().
 
 // mTLS example
 srv, err := server.NewServerBuilder().
-    WithAddress(":50051").
+    WithAddress(":50055").
     WithMTLS("server.crt", "server.key", "ca.crt"). // Configure mTLS
     EnableServices([]string{"gnmi"}).
     Build()

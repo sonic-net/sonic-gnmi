@@ -62,7 +62,7 @@ make run
 The server supports the following command-line options:
 
 ```bash
-# Basic usage with default settings (port 50051, rootfs /mnt/host)
+# Basic usage with default settings (port 50055, rootfs /mnt/host)
 ./bin/sonic-gnmi-standalone
 
 # Specify different port and rootfs (useful for containers vs baremetal)
@@ -76,7 +76,7 @@ The server supports the following command-line options:
 ```
 
 **Configuration Options:**
-- `--addr`: Server address (default: `:50051`)
+- `--addr`: Server address (default: `:50055`)
 - `--rootfs`: Root filesystem mount point (default: `/mnt/host`)
 - `--shutdown-timeout`: Graceful shutdown timeout (default: `10s`)
 - `--no-tls`: Disable TLS (TLS is enabled by default)
@@ -119,7 +119,7 @@ You can use [grpcurl](https://github.com/fullstorydev/grpcurl) to explore and te
 
 ```bash
 # List available services (should show only reflection)
-grpcurl -plaintext localhost:50051 list
+grpcurl -plaintext localhost:50055 list
 
 # Expected output:
 # grpc.reflection.v1.ServerReflection
@@ -145,7 +145,7 @@ The ServerBuilder provides a fluent API for configuring which services are enabl
 ```go
 // In main.go
 srv, err := server.NewServerBuilder().
-    WithAddress(":50051").
+    WithAddress(":50055").
     WithRootFS("/mnt/host").
     EnableGNOISystem().                // Enable specific services
     EnableServices([]string{"gnmi"}).  // Or enable multiple at once
@@ -172,13 +172,13 @@ The server is designed to work in different deployment scenarios:
 ### Container Deployment
 ```bash
 # Container with host filesystem mounted at /mnt/host
-./bin/sonic-gnmi-standalone --rootfs=/mnt/host --addr=:50051
+./bin/sonic-gnmi-standalone --rootfs=/mnt/host --addr=:50055
 ```
 
 ### Baremetal Deployment
 ```bash
 # Direct baremetal installation
-./bin/sonic-gnmi-standalone --rootfs=/ --addr=:50051
+./bin/sonic-gnmi-standalone --rootfs=/ --addr=:50055
 ```
 
 ### Development/Testing

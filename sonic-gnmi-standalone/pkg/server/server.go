@@ -58,7 +58,7 @@ func NewServer(addr string) (*Server, error) {
 //   - gRPC reflection setup for development tools
 //
 // Parameters:
-//   - addr: Network address to bind to (e.g., ":8080", "localhost:50051")
+//   - addr: Network address to bind to (e.g., ":8080", "localhost:50055")
 //   - useTLS: Whether to enable TLS encryption
 //   - certFile: Path to TLS certificate file (required if useTLS is true)
 //   - keyFile: Path to TLS private key file (required if useTLS is true)

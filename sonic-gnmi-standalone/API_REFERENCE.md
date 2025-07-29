@@ -21,7 +21,7 @@ These services allow development tools like grpcurl to discover and interact wit
 
 ## Connection Details
 
-- **Default Port**: 50051
+- **Default Port**: 50055
 - **Protocol**: gRPC over HTTP/2
 - **TLS**: Optional (configurable via environment variables)
 - **Reflection**: Enabled by default
@@ -34,24 +34,24 @@ You can use [grpcurl](https://github.com/fullstorydev/grpcurl) to interact with 
 
 ```bash
 # List available services
-grpcurl -plaintext localhost:50051 list
+grpcurl -plaintext localhost:50055 list
 
 # Expected output:
 # grpc.reflection.v1.ServerReflection
 # grpc.reflection.v1alpha.ServerReflection
 
 # Describe the reflection service
-grpcurl -plaintext localhost:50051 describe grpc.reflection.v1.ServerReflection
+grpcurl -plaintext localhost:50055 describe grpc.reflection.v1.ServerReflection
 
 # Get server information (this will work but return empty results)
-grpcurl -plaintext localhost:50051 grpc.reflection.v1.ServerReflection/ServerReflectionInfo
+grpcurl -plaintext localhost:50055 grpc.reflection.v1.ServerReflection/ServerReflectionInfo
 ```
 
 ### Testing Server Connectivity
 
 ```bash
 # Test if server is responding
-grpcurl -plaintext -d '{}' localhost:50051 grpc.reflection.v1.ServerReflection/ServerReflectionInfo
+grpcurl -plaintext -d '{}' localhost:50055 grpc.reflection.v1.ServerReflection/ServerReflectionInfo
 ```
 
 ## Configuration
@@ -201,7 +201,7 @@ Use grpcurl to verify server health:
 
 ```bash
 # Check if server is responding
-grpcurl -plaintext localhost:50051 list
+grpcurl -plaintext localhost:50055 list
 
 # If this returns the reflection services, the server is healthy
 ```

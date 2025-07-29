@@ -21,7 +21,7 @@ var Global *Config
 
 // Initialize defines flags and sets up the global configuration.
 func Initialize() {
-	addr := flag.String("addr", ":50051", "The address to listen on")
+	addr := flag.String("addr", ":50055", "The address to listen on")
 	rootfs := flag.String("rootfs", "/mnt/host", "Root filesystem mount point (e.g., /mnt/host for containers)")
 	shutdownTimeout := flag.Duration("shutdown-timeout", 10*time.Second, "Maximum time to wait for graceful shutdown")
 	tlsCert := flag.String("tls-cert", "", "Path to TLS certificate file (optional)")

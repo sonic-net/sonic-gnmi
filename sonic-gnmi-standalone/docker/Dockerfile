@@ -26,7 +26,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # deployment (see build_deploy_testonly.sh) and not intended for production use.
 
 # Environment variables for configuration (can be overridden at runtime)
-ENV GNMI_ADDR=":50051"
+ENV GNMI_ADDR=":50055"
 ENV GNMI_SHUTDOWN_TIMEOUT="10s"
 
 # Note: Port exposure depends on MOPD_ADDR configuration

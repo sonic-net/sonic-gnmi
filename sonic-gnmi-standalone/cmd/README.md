@@ -15,7 +15,7 @@ The main gRPC server binary. This provides the foundation for gRPC services with
 The server supports the following command-line options:
 
 ```bash
-# Basic usage with default settings (port 50051, rootfs /mnt/host)
+# Basic usage with default settings (port 50055, rootfs /mnt/host)
 ./bin/sonic-gnmi-standalone
 
 # Specify different port and rootfs (useful for containers vs baremetal)

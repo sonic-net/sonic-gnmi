@@ -7,14 +7,14 @@ set -e
 # Parse command line arguments
 TARGET=""
 IMAGE_TAG="latest"
-SERVER_ADDR=":50051"
+SERVER_ADDR=":50055"
 NO_TLS="true"
 
 usage() {
   echo "Usage: $0 -t <target> [-i <image_tag>] [-a <address>] [--enable-tls]"
   echo "  -t <target>    Target SONiC device (e.g., admin@vlab-01)"
   echo "  -i <image_tag> Docker image tag (default: latest)"
-  echo "  -a <address>   Server address to listen on (default: :50051)"
+  echo "  -a <address>   Server address to listen on (default: :50055)"
   echo "  --enable-tls   Enable TLS for secure connections (default: disabled)"
   exit 1
 }

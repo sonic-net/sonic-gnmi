@@ -56,7 +56,7 @@ If you prefer to deploy manually:
 
 3. Run the container on the SONiC device:
    ```bash
-   # Default configuration (port 50051)
+   # Default configuration (port 50055)
    ssh admin@<sonic-device> 'docker run -d --name opsd --network host opsd:latest'
 
    # With custom address and port mapping
@@ -77,7 +77,7 @@ If you prefer to deploy manually:
 
 2. Run the container on the SONiC device:
    ```bash
-   # Default configuration (port 50051)
+   # Default configuration (port 50055)
    ssh admin@<sonic-device> 'docker run -d --name opsd --network host opsd:latest'
 
    # With custom address and port mapping
@@ -90,7 +90,7 @@ If you prefer to deploy manually:
 ## Configuration
 
 The container supports the following environment variables:
-- `OPSD_ADDR`: The address to listen on (default: ":50051")
+- `OPSD_ADDR`: The address to listen on (default: ":50055")
 - `OPSD_SHUTDOWN_TIMEOUT`: Maximum time to wait for graceful shutdown (default: "10s")
 
 The container mounts the following directories from the SONiC host:
@@ -99,7 +99,7 @@ The container mounts the following directories from the SONiC host:
 
 ## Ports
 
-The gRPC server's listening port is configurable via the `OPSD_ADDR` environment variable (default: ":50051").
+The gRPC server's listening port is configurable via the `OPSD_ADDR` environment variable (default: ":50055").
 
 **Important**: When using custom ports, ensure you either:
 - Use `--network host` for direct host networking (recommended for SONiC), OR
