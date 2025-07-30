@@ -1,13 +1,13 @@
-// Package download provides a robust file download engine with progress tracking,
-// network interface binding, and comprehensive error handling.
+// Package download provides a robust file download engine with
+// network interface binding and comprehensive error handling.
 //
 // Key features:
-//   - Real-time progress tracking with session management
+//   - Session management for future progress tracking
 //   - Network interface-specific binding for multi-interface systems
 //   - Configurable timeouts for connection and total download time
-//   - Automatic retry mechanisms with exponential backoff
+//   - Automatic retry mechanisms with fallback strategies
 //   - IPv4/IPv6 dual-stack support
-//   - Thread-safe progress updates for concurrent status queries
+//   - Thread-safe session updates
 //
 // The download engine supports various network configurations including:
 //   - Single and multi-interface systems
@@ -154,13 +154,13 @@ func DefaultDownloadConfig() *DownloadConfig {
 
 // DownloadFile downloads a file from the specified URL
 // If outputPath is empty, it will be automatically determined from the URL.
-// Returns both the session (for progress tracking) and final result.
+// Returns both the session (for future progress tracking) and final result.
 func DownloadFile(ctx context.Context, downloadURL, outputPath string) (*DownloadSession, *DownloadResult, error) {
 	return DownloadFileWithConfig(ctx, downloadURL, outputPath, DefaultDownloadConfig())
 }
 
 // DownloadFileWithConfig downloads a file with custom configuration.
-// Returns both the session (for progress tracking) and final result.
+// Returns both the session (for future progress tracking) and final result.
 func DownloadFileWithConfig(
 	ctx context.Context, downloadURL, outputPath string, config *DownloadConfig,
 ) (*DownloadSession, *DownloadResult, error) {
@@ -420,7 +420,7 @@ func performDownload(
 	}
 	defer resp.Body.Close()
 
-	// Get content length for progress tracking
+	// Get content length for session tracking
 	contentLength := resp.ContentLength
 	if contentLength > 0 {
 		session.UpdateProgress(0, contentLength, 0)
