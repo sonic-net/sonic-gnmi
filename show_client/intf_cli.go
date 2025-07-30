@@ -53,7 +53,7 @@ func getIntfErrors(intf string) ([]byte, error) {
 		}
 
 		portErrors = append(portErrors, []string{
-			strings.Replace(strings.Replace(portError[0], "_", " ", -1), "count", "", -1),
+			strings.Replace(strings.Replace(portError[0], "_", " ", -1), " count", "", -1),
 			count,
 			timestamp}
 		)
