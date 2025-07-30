@@ -2,301 +2,414 @@ package show_client
 
 import (
 	"bufio"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"os"
-	log "github.com/golang/glog"
-	"time"
-	"sync"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
+
+	log "github.com/golang/glog"
 )
 
 const (
-    ContainerPlatformPath = "/usr/share/sonic/platform"
-    HostDevicePath        = "/usr/share/sonic/device"
-    MachineConfPath = "/host/machine.conf"
-    PlatformEnvConfFile   = "platform_env.conf"
-    SonicVersionYamlPath = "/etc/sonic/sonic_version.yml"
+	AsicConfFilename      = "asic.conf"
+	ContainerPlatformPath = "/usr/share/sonic/platform"
+	HostDevicePath        = "/usr/share/sonic/device"
+	MachineConfPath       = "/host/machine.conf"
+	PlatformEnvConfFile   = "platform_env.conf"
+	SonicVersionYamlPath  = "/etc/sonic/sonic_version.yml"
 )
 
 var hwInfoDict map[string]interface{}
 var hwInfoOnce sync.Once
 
-func ReadYamlToMap(filePath string) (map[string]interface{}, error) {
-	// Read the YAML file content
-	yamlFile, err := ioutil.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read YAML file: %w", err)
-	}
-
-	// Declare a map to hold the unmarshaled YAML data
-	var data map[string]interface{}
-
-	// Unmarshal the YAML content into the map
-	err = yaml.Unmarshal(yamlFile, &data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal YAML: %w", err)
-	}
-
-	return data, nil
+type VersionOutput struct {
+	SonicSoftwareVersion string `json:"sonic_software_version"`
+	SonicOSVersion       string `json:"sonic_os_version"`
+	Distribution         string `json:"distribution"`
+	Kernel               string `json:"kernel"`
+	BuildCommit          string `json:"build_commit"`
+	BuildDate            string `json:"build_date"`
+	BuiltBy              string `json:"built_by"`
+	Platform             string `json:"platform"`
+	HwSKU                string `json:"hwsku"`
+	ASIC                 string `json:"asic"`
+	ASICCount            string `json:"asic_count"`
+	SerialNumber         string `json:"serial_number"`
+	ModelNumber          string `json:"model_number"`
+	HardwareRevision     string `json:"hardware_revision"`
+	Uptime               string `json:"uptime"`
+	Date                 string `json:"date"`
+	DockerInfo           string `json:"docker_info"`
 }
 
-func ReadConfToMap(filePath string) (map[string]interface{}, error){
-    file, err := os.Open(filePath)
-    if err != nil {
-        return nil
-    }
-    defer file.Close()
-
-    machineVars := make(map[string]string)
-    scanner := bufio.NewScanner(file)
-    for scanner.Scan() {
-        line := scanner.Text()
-        tokens := strings.SplitN(line, "=", 2)
-        if len(tokens) < 2 {
-            continue
-        }
-        machineVars[tokens[0]] = strings.TrimSpace(tokens[1])
-    }
-    return machineVars
-}
-
-// GetPlatform retrieves the device's platform identifier.
-// If the "PLATFORM" environment variable is set, it returns that.
-// Otherwise, it tries to read from /host/machine.conf.
-// If that fails, it tries to get the value from ConfigDB.
-func GetPlatform() string {
-    // 1. Check environment variable
-    platformEnv := os.Getenv("PLATFORM")
-    if platformEnv != "" {
-        return platformEnv
-    }
-
-    // 2. Try to read from machine.conf
-    machineInfo := getMachineInfo()
-    if machineInfo != nil {
-        if val, ok := machineInfo["onie_platform"]; ok {
-            return val
-        } else if val, ok := machineInfo["aboot_platform"]; ok {
-            return val
-        }
-    }
-
-    // 3. Try to read from ConfigDB
-    return getLocalhostInfo("platform")
-}
-
-// getMachineInfo reads key=value pairs from /host/machine.conf and returns them as a map.
-func getMachineInfo() map[string]string {
-	data, err := ReadConfToMap(MachineConfPath)	
-}
-
-// getLocalhostInfo fetches a field from the DEVICE_METADATA table in ConfigDB.
-func getLocalhostInfo(field string) string {
-    queries := [][]string{
-        {"CONFIG_DB", "DEVICE_METADATA"},
-    }
-    tblPaths, err := CreateTablePathsFromQueries(queries)
-    if err != nil {
-        log.Errorf("Unable to create table paths from queries %v, %v", queries, err)
-        return nil, err
-    }
-
-    metadata, err := GetMapFromTablePaths(tblPaths)
-
-    if err != nil {
-        return ""
-    }
-    if localhost, ok := metadata["localhost"].(map[string]interface{}); ok {
-        if val, ok := localhost[field].(string); ok {
-            return val
-        }
-    }
-    return ""
-}
-
-func GetHwsku() string {
-    return getLocalhostInfo("hwsku")
-}
-
-func IsMultiAsic() bool {
-    numAsics := GetNumAsics()
-    return numAsics > 1
-}
-
-// GetNumAsics retrieves the number of asics present in the multi-asic platform.
-// You need to implement reading and parsing the asic.conf file as in your Python code.
-func GetNumAsics() int {
-    asicConfFilePath := GetAsicConfFilePath()
-    if asicConfFilePath == "" {
-        return 1
-    }
-
-    file, err := os.Open(asicConfFilePath)
-    if err != nil {
-        return 1
-    }
-    defer file.Close()
-
-    scanner := bufio.NewScanner(file)
-    for scanner.Scan() {
-        line := scanner.Text()
-        tokens := strings.SplitN(line, "=", 2)
-        if len(tokens) < 2 {
-            continue
-        }
-        if strings.ToLower(tokens[0]) == "num_asic" {
-            numAsics, err := strconv.Atoi(strings.TrimSpace(tokens[1]))
-            if err == nil {
-                return numAsics
-            }
-        }
-    }
-    return 1
-}
-
-// GetAsicPresenceList returns a slice of ASIC IDs present on the device.
-func GetAsicPresenceList() []int {
-    var asicsList []int
-
-    if IsMultiAsic() {
-        if !IsSupervisor() {
-            // Not supervisor: all asics should be present
-            numAsics := GetNumAsics()
-            for i := 0; i < numAsics; i++ {
-                asicsList = append(asicsList, i)
-            }
-        } else {
-            // Supervisor: get asic list from CHASSIS_FABRIC_ASIC_TABLE
-            db := NewDBConnector("CHASSIS_STATE_DB")
-            asicTable := db.GetTable("CHASSIS_FABRIC_ASIC_TABLE")
-            asicKeys := asicTable.GetKeys()
-            for _, asic := range asicKeys {
-                // asic is like "asic0", "asic1", etc.
-                   idStr := GetAsicIDFromName(asic)
-                id, err := strconv.Atoi(idStr)
-                if err == nil {
-                    asicsList = append(asicsList, id)
-                }
-            }
-        }
-    } else {
-        // Not multi-asic: all asics should be present
-        numAsics := GetNumAsics()
-        for i := 0; i < numAsics; i++ {
-            asicsList = append(asicsList, i)
-        }
-    }
-    return asicsList
-}
-
-// Helper: GetAsicIDFromName extracts the numeric ID from a string like "asic0"
-func GetAsicIDFromName(asicName string) string {
-    const prefix = "asic"
-    if len(asicName) > len(prefix) && asicName[:len(prefix)] == prefix {
-        return asicName[len(prefix):]
-    }
-    return ""
-}
-
-// IsSupervisor checks if the device is a supervisor card by reading platform_env.conf.
-func IsSupervisor() bool {
-    path := GetPlatformEnvConfFilePath()
-    if path == "" {
-        return false
-    }
-
-    file, err := os.Open(path)
-    if err != nil {
-        return false
-    }
-    defer file.Close()
-
-    scanner := bufio.NewScanner(file)
-    for scanner.Scan() {
-        line := scanner.Text()
-        tokens := strings.SplitN(line, "=", 2)
-        if len(tokens) < 2 {
-            continue
-        }
-        if strings.ToLower(strings.TrimSpace(tokens[0])) == "supervisor" {
-            val := strings.TrimSpace(tokens[1])
-            if val == "1" {
-                return true
-            }
-        }
-    }
-    return false
-}
-
-// GetPlatformEnvConfFilePath should return the path to platform_env.conf or "" if not found.
-func GetPlatformEnvConfFilePath() string {
-    // 1. Check container platform path
-    candidate := filepath.Join(ContainerPlatformPath, PlatformEnvConfFile)
-    if fileExists(candidate) {
-        return candidate
-    }
-
-    // 2. Check host device path with platform
-    platform := GetPlatform(nil)
-    if platform != "" {
-        candidate = filepath.Join(HostDevicePath, platform, PlatformEnvConfFile)
-        if fileExists(candidate) {
-            return candidate
-        }
-    }
-
-    // Not found
-    return ""
-}
+// Utility functions
 
 func fileExists(path string) bool {
-    info, err := os.Stat(path)
-    if err != nil {
-        return false
-    }
-    return !info.IsDir()
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
 }
 
-func getPlatformInfo(versionInfo map[string]string) (map[string]interface{}, error) {
-    hwInfoOnce.Do(func() {
-        hwInfoDict = make(map[string]interface{})
+// Platform and hardware info functions
 
-        hwInfoDict["platform"] = GetPlatform()
-        hwInfoDict["hwsku"] = GetHwsku()
-        if versionInfo != nil {
-            if asicType, ok := versionInfo["asic_type"]; ok {
-                hwInfoDict["asic_type"] = asicType
-            }
-        }
+func getPlatform() string {
+	platformEnv := os.Getenv("PLATFORM")
+	if platformEnv != "" {
+		return platformEnv
+	}
+	machineInfo := getMachineInfo()
+	if machineInfo != nil {
+		if val, ok := machineInfo["onie_platform"]; ok {
+			return val
+		} else if val, ok := machineInfo["aboot_platform"]; ok {
+			return val
+		}
+	}
+	return getLocalhostInfo("platform")
+}
 
-        // get_asic_presence_list is assumed to be implemented elsewhere
-        asicCount, err := GetAsicCount()
-        if err == nil {
-            hwInfoDict["asic_count"] = asicCount
-        } else {
-            hwInfoDict["asic_count"] = "N/A"
-        }
+func getHwsku() string {
+	return getLocalhostInfo("hwsku")
+}
 
-        // Try to get switch_type from configDB
-	switchType = getLocalhostInfo("switch_type")
-        hwInfoDict["switch_type"] = switchType
-    })
+func getPlatformEnvConfFilePath() string {
+	candidate := filepath.Join(ContainerPlatformPath, PlatformEnvConfFile)
+	if fileExists(candidate) {
+		return candidate
+	}
+	platform := getPlatform()
+	if platform != "" {
+		candidate = filepath.Join(HostDevicePath, platform, PlatformEnvConfFile)
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
 
-    return hwInfoDict
+// ASIC and multi-ASIC functions
+
+func isMultiAsic() bool {
+	numAsics := getNumAsics()
+	return numAsics > 1
+}
+
+func getNumAsics() int {
+	asicConfFilePath := getAsicConfFilePath()
+	if asicConfFilePath == "" {
+		return 1
+	}
+	file, err := os.Open(asicConfFilePath)
+	if err != nil {
+		return 1
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		tokens := strings.SplitN(line, "=", 2)
+		if len(tokens) < 2 {
+			continue
+		}
+		if strings.ToLower(tokens[0]) == "num_asic" {
+			numAsics, err := strconv.Atoi(strings.TrimSpace(tokens[1]))
+			if err == nil {
+				return numAsics
+			}
+		}
+	}
+	return 1
+}
+
+// GetAsicConfFilePath retrieves the path to the ASIC configuration file on the device.
+// Returns the path as a string if found, or an empty string if not found.
+func getAsicConfFilePath() string {
+	// 1. Check container platform path
+	candidate := filepath.Join(ContainerPlatformPath, AsicConfFilename)
+	if fileExists(candidate) {
+		return candidate
+	}
+
+	// 2. Check host device path with platform
+	platform := getPlatform()
+	if platform != "" {
+		candidate = filepath.Join(HostDevicePath, platform, AsicConfFilename)
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+
+	// Not found
+	return ""
+}
+
+func getAsicPresenceList() []int {
+	var asicsList []int
+	if isMultiAsic() {
+		if !isSupervisor() {
+			numAsics := getNumAsics()
+			for i := 0; i < numAsics; i++ {
+				asicsList = append(asicsList, i)
+			}
+		} else {
+			queries := [][]string{
+				{"CHASSIS_DB", "CHASSIS_FABRIC_ASIC_TABLE"},
+			}
+			tblPaths, err := CreateTablePathsFromQueries(queries)
+			if err != nil {
+				log.Errorf("Unable to create table paths from queries %v, %v", queries, err)
+				return nil
+			}
+			asicTblData, err := GetMapFromTablePaths(tblPaths)
+			if err != nil {
+				log.Errorf("Failed to get metadata from table paths: %v", err)
+				return nil
+			}
+			if asicTblData == nil {
+				log.Error("No ASIC data found in CHASSIS_FABRIC_ASIC_TABLE")
+				return nil
+			}
+			// Iterate through ASIC names in the table and extract IDs
+			for asicName := range asicTblData {
+				idStr := getAsicIDFromName(asicName)
+				id, err := strconv.Atoi(idStr)
+				if err == nil {
+					asicsList = append(asicsList, id)
+				} else {
+					log.Errorf("Failed to convert ASIC ID from name %s: %v", asicName, err)
+				}
+			}
+			if len(asicsList) == 0 {
+				log.Error("No valid ASIC IDs found in CHASSIS_FABRIC_ASIC_TABLE")
+				return nil
+			}
+		}
+	} else {
+		numAsics := getNumAsics()
+		for i := 0; i < numAsics; i++ {
+			asicsList = append(asicsList, i)
+		}
+	}
+	return asicsList
+}
+
+func getAsicIDFromName(asicName string) string {
+	const prefix = "asic"
+	if len(asicName) > len(prefix) && asicName[:len(prefix)] == prefix {
+		return asicName[len(prefix):]
+	}
+	return ""
+}
+
+func isSupervisor() bool {
+	path := getPlatformEnvConfFilePath()
+	if path == "" {
+		return false
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		tokens := strings.SplitN(line, "=", 2)
+		if len(tokens) < 2 {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(tokens[0])) == "supervisor" {
+			val := strings.TrimSpace(tokens[1])
+			if val == "1" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ConfigDB and info helpers
+
+func getLocalhostInfo(field string) string {
+	queries := [][]string{
+		{"CONFIG_DB", "DEVICE_METADATA"},
+	}
+	tblPaths, err := CreateTablePathsFromQueries(queries)
+	if err != nil {
+		log.Errorf("Unable to create table paths from queries %v, %v", queries, err)
+		return ""
+	}
+	metadata, err := GetMapFromTablePaths(tblPaths)
+	if err != nil {
+		return ""
+	}
+	if localhost, ok := metadata["localhost"].(map[string]interface{}); ok {
+		if val, ok := localhost[field].(string); ok {
+			return val
+		}
+	}
+	return ""
+}
+
+// Vijay to remove
+func CreateTablePathsFromQueries(queries [][]string) ([]string, error) {
+	panic("unimplemented")
+}
+
+func GetMapFromTablePaths(tblPaths []string) (map[string]interface{}, error) {
+	panic("unimplemented")
+}
+
+func GetDataFromHostCommand(uptimeCommand string) (string, error) {
+	panic("unimplemented")
+}
+
+func getMachineInfo() map[string]string {
+	data, err := ReadConfToMap(MachineConfPath)
+	if err != nil {
+		return nil
+	}
+	result := make(map[string]string)
+	for k, v := range data {
+		if strVal, ok := v.(string); ok {
+			result[k] = strVal
+		}
+	}
+	return result
+}
+
+func getAsicCount() (int, error) {
+	val := getAsicPresenceList()
+	if val == nil {
+		log.Error("No ASIC presence list found")
+		return 0, fmt.Errorf("no ASIC presence list found")
+	}
+	if len(val) == 0 {
+		log.Error("ASIC presence list is empty")
+		return 0, fmt.Errorf("ASIC presence list is empty")
+	}
+	return len(val), nil
+}
+
+func getPlatformInfo(versionInfo map[string]interface{}) (map[string]interface{}, error) {
+	hwInfoOnce.Do(func() {
+		hwInfoDict = make(map[string]interface{})
+		hwInfoDict["platform"] = getPlatform()
+		hwInfoDict["hwsku"] = getHwsku()
+		if versionInfo != nil {
+			if asicType, ok := versionInfo["asic_type"]; ok {
+				hwInfoDict["asic_type"] = asicType
+			}
+		}
+		asicCount, err := getAsicCount()
+		if err == nil {
+			hwInfoDict["asic_count"] = asicCount
+		} else {
+			hwInfoDict["asic_count"] = "N/A"
+		}
+		switchType := getLocalhostInfo("switch_type")
+		hwInfoDict["switch_type"] = switchType
+	})
+	return hwInfoDict, nil
+}
+
+func getChassisInfo() (map[string]string, error) {
+	chassisDict := make(map[string]string)
+	queries := [][]string{
+		{"STATE_DB", "CHASSIS_INFO"},
+	}
+
+	tblPaths, err := CreateTablePathsFromQueries(queries)
+	if err != nil {
+		log.Errorf("Unable to create table paths from queries %v, %v", queries, err)
+		return nil, err
+	}
+	metadata, err := GetMapFromTablePaths(tblPaths)
+
+	if err != nil {
+		log.Errorf("Failed to get metadata from table paths: %v", err)
+		return nil, err
+	}
+
+	chassisDict["serial"] = metadata["serial"].(string)
+	chassisDict["model"] = metadata["model"].(string)
+	chassisDict["revision"] = metadata["revision"].(string)
+
+	return chassisDict, nil
+}
+
+func getUptime() string {
+	uptimeCommand := "uptime"
+	uptime, err := GetDataFromHostCommand(uptimeCommand)
+	if err != nil {
+		log.Errorf("Failed to get uptime: %v", err)
+		return "N/A"
+	}
+
+	return strings.TrimSpace(uptime)
+}
+
+func getDockerInfo() string {
+	dockerCmd := "sudo docker images --format \"table {{.Repository}}\\t{{.Tag}}\\t{{.ID}}\\t{{.Size}}\""
+	dockerInfo, err := GetDataFromHostCommand(dockerCmd)
+	if err != nil {
+		log.Errorf("Failed to get Docker info: %v", err)
+		return "N/A"
+	}
+	return strings.TrimSpace(dockerInfo)
 }
 
 func getVersion() ([]byte, error) {
-	versionInfo = ReadYamlToMap(SonicVersionYamlPath)
-	platformInfo = getPlatformInfo(versionInfo)
-	chassisInfo = getChassisInfo()
-
-	uptime = getUptime()
-	sysDate = time.Now()
-	retun "empty string"
-}
-
-func getChassisInfo() map[string]string {
-	chassisDict = make(map[string]string)
-    queries := [][]string{
-		{"STATE_DB", "CHASSIS_INFO"},
+	versionInfo, errorInVersionInfo := ReadYamlToMap(SonicVersionYamlPath)
+	if errorInVersionInfo != nil {
+		log.Errorf("Failed to read version info from %s: %v", SonicVersionYamlPath, errorInVersionInfo)
+		return nil, errorInVersionInfo
 	}
+	platformInfo, errorInPlatformInfo := getPlatformInfo(versionInfo)
+	if errorInPlatformInfo != nil {
+		log.Errorf("Failed to get platform info: %v", errorInPlatformInfo)
+		return nil, errorInPlatformInfo
+	}
+	chassisInfo, errorChassisInfo := getChassisInfo()
+	if errorChassisInfo != nil {
+		log.Errorf("Failed to get chassis info: %v", errorChassisInfo)
+		return nil, errorChassisInfo
+	}
+	uptime := getUptime()
+	sysDate := time.Now()
+	dockerInfo := getDockerInfo()
+
+	out := VersionOutput{
+		SonicSoftwareVersion: fmt.Sprintf("SONiC.%v", versionInfo["build_version"]),
+		SonicOSVersion:       fmt.Sprintf("%v", versionInfo["sonic_os_version"]),
+		Distribution:         fmt.Sprintf("Debian %v", versionInfo["debian_version"]),
+		Kernel:               fmt.Sprintf("%v", versionInfo["kernel_version"]),
+		BuildCommit:          fmt.Sprintf("%v", versionInfo["commit_id"]),
+		BuildDate:            fmt.Sprintf("%v", versionInfo["build_date"]),
+		BuiltBy:              fmt.Sprintf("%v", versionInfo["built_by"]),
+		Platform:             fmt.Sprintf("%v", platformInfo["platform"]),
+		HwSKU:                fmt.Sprintf("%v", platformInfo["hwsku"]),
+		ASIC:                 fmt.Sprintf("%v", platformInfo["asic_type"]),
+		ASICCount:            fmt.Sprintf("%v", platformInfo["asic_count"]),
+		SerialNumber:         fmt.Sprintf("%v", chassisInfo["serial"]),
+		ModelNumber:          fmt.Sprintf("%v", chassisInfo["model"]),
+		HardwareRevision:     fmt.Sprintf("%v", chassisInfo["revision"]),
+		Uptime:               uptime,
+		Date:                 sysDate.Format("Mon 02 Jan 2006 15:04:05"),
+		DockerInfo:           dockerInfo,
+	}
+
+	jsonBytes, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		log.Errorf("Failed to marshal version info to JSON: %v", err)
+		return nil, err
+	}
+	return jsonBytes, nil
 }

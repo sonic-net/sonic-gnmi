@@ -111,3 +111,36 @@ func GetPlatformInfo(configDB *ConfigDBConnector) (map[string]interface{}, error
 
     return hwInfoDict
 }
+
+func ReadYamlToMap(filePath string) (map[string]interface{}, error) {
+	yamlFile, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read YAML file: %w", err)
+	}
+	var data map[string]interface{}
+	err = yaml.Unmarshal(yamlFile, &data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal YAML: %w", err)
+	}
+	return data, nil
+}
+
+func ReadConfToMap(filePath string) (map[string]interface{}, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	machineVars := make(map[string]interface{})
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		tokens := strings.SplitN(line, "=", 2)
+		if len(tokens) < 2 {
+			continue
+		}
+		machineVars[tokens[0]] = strings.TrimSpace(tokens[1])
+	}
+	return machineVars, nil
+}
