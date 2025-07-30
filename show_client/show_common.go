@@ -72,46 +72,6 @@ func CreateTablePathsFromQueries(queries [][]string) ([]sdc.TablePath, error) {
 	return allPaths, nil
 }
 
-func GetPlatformInfo(configDB *ConfigDBConnector) (map[string]interface{}, error) {
-    hwInfoOnce.Do(func() {
-        hwInfoDict = make(map[string]interface{})
-
-        versionInfo := GetSonicVersionInfo()
-
-        hwInfoDict["platform"] = GetPlatform()
-        hwInfoDict["hwsku"] = GetHwsku()
-        if versionInfo != nil {
-            if asicType, ok := versionInfo["asic_type"]; ok {
-                hwInfoDict["asic_type"] = asicType
-            }
-        }
-
-        // get_asic_presence_list is assumed to be implemented elsewhere
-        asicCount, err := GetAsicCount()
-        if err == nil {
-            hwInfoDict["asic_count"] = asicCount
-        } else {
-            hwInfoDict["asic_count"] = "N/A"
-        }
-
-        // Try to get switch_type from configDB
-        if configDB == nil {
-            configDB, _ = NewConfigDBConnector()
-            configDB.Connect()
-        }
-        metadata, err := configDB.GetTable("DEVICE_METADATA")
-        if err == nil {
-            if localhost, ok := metadata["localhost"].(map[string]interface{}); ok {
-                if switchType, ok := localhost["switch_type"]; ok {
-                    hwInfoDict["switch_type"] = switchType
-                }
-            }
-        }
-    })
-
-    return hwInfoDict
-}
-
 func ReadYamlToMap(filePath string) (map[string]interface{}, error) {
 	yamlFile, err := ioutil.ReadFile(filePath)
 	if err != nil {
