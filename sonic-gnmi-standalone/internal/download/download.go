@@ -193,7 +193,7 @@ func DownloadFileWithConfig(
 	// Ensure output directory exists
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
 		session.UpdateStatus("failed")
-		return session, nil, NewFileSystemError(downloadURL,
+		return session, nil, NewOtherError(downloadURL,
 			fmt.Sprintf("failed to create output directory: %v", err), attempts)
 	}
 
@@ -223,52 +223,25 @@ func DownloadFileWithConfig(
 		}
 	}
 
-	// Strategy 2: Try with specific IP addresses
-	if config.Interface != "" {
-		glog.V(2).Infof("Attempting download with specific IP addresses from %s", config.Interface)
-		session.UpdateCurrentMethod("ip")
-		session.UpdateStatus("downloading")
-
-		result, err := attemptDownloadWithIPs(ctx, downloadURL, outputPath, config, &attempts, session)
-		if err == nil {
-			// Perform checksum validation if requested
-			validation, validationErr := validateChecksum(outputPath, config.ExpectedMD5)
-			if validationErr != nil {
-				session.UpdateStatus("failed")
-				return session, nil, NewValidationError(downloadURL, validationErr.Error(), attempts)
-			}
-			session.UpdateStatus("completed")
-			return session, createSuccessResult(downloadURL, outputPath, startTime, len(attempts),
-				"ip", result.FileSize, validation), nil
-		}
-
-		// Check if we should continue with direct connection
-		if !shouldRetryWithFallback(err) {
-			session.UpdateStatus("failed")
-			return session, nil, err
-		}
-	}
-
-	// Strategy 3: Try direct connection without interface binding
+	// Strategy 2: Try direct connection without interface binding
 	glog.V(2).Info("Attempting download without interface binding")
 	session.UpdateCurrentMethod("direct")
 	session.UpdateStatus("downloading")
 	result, err := attemptDirectDownload(ctx, downloadURL, outputPath, config, &attempts, session)
-	if err == nil {
-		// Perform checksum validation if requested
-		validation, validationErr := validateChecksum(outputPath, config.ExpectedMD5)
-		if validationErr != nil {
-			session.UpdateStatus("failed")
-			return session, nil, NewValidationError(downloadURL, validationErr.Error(), attempts)
-		}
-		session.UpdateStatus("completed")
-		return session, createSuccessResult(downloadURL, outputPath, startTime, len(attempts),
-			"direct", result.FileSize, validation), nil
+	if err != nil {
+		session.UpdateStatus("failed")
+		return session, nil, err
 	}
 
-	// All strategies failed
-	session.UpdateStatus("failed")
-	return session, nil, err
+	// Perform checksum validation if requested
+	validation, validationErr := validateChecksum(outputPath, config.ExpectedMD5)
+	if validationErr != nil {
+		session.UpdateStatus("failed")
+		return session, nil, NewValidationError(downloadURL, validationErr.Error(), attempts)
+	}
+	session.UpdateStatus("completed")
+	return session, createSuccessResult(downloadURL, outputPath, startTime, len(attempts),
+		"direct", result.FileSize, validation), nil
 }
 
 // attemptDownloadWithInterface tries to download using interface binding.
@@ -338,69 +311,6 @@ func attemptDownloadWithInterface(
 	return result, nil
 }
 
-// attemptDownloadWithIPs tries to download using specific IP addresses.
-func attemptDownloadWithIPs(
-	ctx context.Context, downloadURL, outputPath string, config *DownloadConfig,
-	attempts *[]Attempt, session *DownloadSession,
-) (*downloadAttemptResult, error) {
-	interfaceInfo, err := GetInterfaceInfo(config.Interface)
-	if err != nil {
-		return nil, NewNetworkError(downloadURL, fmt.Sprintf("failed to get interface info: %v", err), *attempts)
-	}
-
-	// Get relevant IP addresses based on the target URL
-	ipAddresses := GetRelevantIPAddresses(interfaceInfo, downloadURL)
-	if len(ipAddresses) == 0 {
-		return nil, NewNetworkError(downloadURL, "no suitable IP addresses found on interface", *attempts)
-	}
-
-	// Try each IP address
-	for _, ipAddr := range ipAddresses {
-		attempt := Attempt{
-			Method:    "ip",
-			Interface: ipAddr,
-		}
-		attemptStart := time.Now()
-
-		glog.V(2).Infof("Retrying download through %s", ipAddr)
-
-		// Create dialer with specific IP
-		dialer := &net.Dialer{
-			Timeout:   config.ConnectTimeout,
-			LocalAddr: &net.TCPAddr{IP: net.ParseIP(ipAddr)},
-		}
-
-		client := &http.Client{
-			Transport: &http.Transport{
-				DialContext: dialer.DialContext,
-			},
-			Timeout: config.OverallTimeout,
-		}
-
-		result, err := performDownload(ctx, client, downloadURL, outputPath, config.UserAgent, session)
-		attempt.Duration = time.Since(attemptStart)
-
-		if err != nil {
-			attempt.Error = err.Error()
-			// Capture HTTP status even on error if available
-			if result != nil {
-				attempt.HTTPStatus = result.HTTPStatus
-			}
-			*attempts = append(*attempts, attempt)
-			glog.V(2).Infof("Download failed with mgmt ip %s: %v", ipAddr, err)
-			continue
-		}
-
-		// Success
-		attempt.HTTPStatus = result.HTTPStatus
-		*attempts = append(*attempts, attempt)
-		return result, nil
-	}
-
-	// All IP addresses failed
-	return nil, NewNetworkError(downloadURL, "download failed with all IP addresses", *attempts)
-}
-
 // attemptDirectDownload tries to download without interface binding.
 func attemptDirectDownload(
 	ctx context.Context, downloadURL, outputPath string, config *DownloadConfig,
@@ -441,7 +351,7 @@ type downloadAttemptResult struct {
 	HTTPStatus int
 }
 
-// updateProgress updates progress and prints to console.
+// updateProgress updates progress in session only.
 func updateProgress(
 	session *DownloadSession, written, contentLength int64, startTime time.Time, lastReport *time.Time,
 ) {
@@ -449,18 +359,6 @@ func updateProgress(
 	speed := float64(written) / elapsed.Seconds()
 	session.UpdateProgress(written, contentLength, speed)
 	*lastReport = time.Now()
-
-	// Also print progress to console
-	if contentLength > 0 {
-		progress := float64(written) / float64(contentLength) * 100
-		speedMB := speed / (1024 * 1024)
-		fmt.Printf("\r📥 %.1f%% [%.1f/%.1f MB] @ %.2f MB/s",
-			progress, float64(written)/(1024*1024),
-			float64(contentLength)/(1024*1024), speedMB)
-	} else {
-		fmt.Printf("\r📥 Downloaded: %.1f MB @ %.2f MB/s",
-			float64(written)/(1024*1024), speed/(1024*1024))
-	}
 }
 
 // copyWithProgress copies data from src to dst while updating progress in session.
@@ -499,9 +397,6 @@ func copyWithProgress(dst io.Writer, src io.Reader, session *DownloadSession, co
 	elapsed := time.Since(startTime)
 	speed := float64(written) / elapsed.Seconds()
 	session.UpdateProgress(written, contentLength, speed)
-
-	// Clear the progress line by printing newline
-	fmt.Println()
 
 	return written, nil
 }
@@ -589,30 +484,20 @@ func shouldRetryWithFallback(err error) bool {
 func classifyError(downloadURL string, err error, attempts []Attempt) *DownloadError {
 	errMsg := err.Error()
 
-	// Check for HTTP errors
-	if strings.Contains(errMsg, "HTTP error") {
-		// Extract status code if possible
-		var statusCode int
-		if lastAttempt := getLastAttempt(attempts); lastAttempt != nil && lastAttempt.HTTPStatus > 0 {
-			statusCode = lastAttempt.HTTPStatus
-		}
-		return NewHTTPError(downloadURL, errMsg, statusCode, attempts)
+	// Check for validation errors
+	if strings.Contains(errMsg, "checksum") || strings.Contains(errMsg, "validation") {
+		return NewValidationError(downloadURL, errMsg, attempts)
 	}
 
-	// Check for filesystem errors
-	if strings.Contains(errMsg, "failed to create") || strings.Contains(errMsg, "failed to write") ||
-		strings.Contains(errMsg, "permission denied") || strings.Contains(errMsg, "no space left") {
-		return NewFileSystemError(downloadURL, errMsg, attempts)
-	}
-
-	// Check for network errors
-	if strings.Contains(errMsg, "connection") || strings.Contains(errMsg, "timeout") ||
-		strings.Contains(errMsg, "network") || strings.Contains(errMsg, "dial") ||
-		strings.Contains(errMsg, "no such host") || strings.Contains(errMsg, "refused") {
+	// Check for network/HTTP errors
+	if strings.Contains(errMsg, "HTTP error") || strings.Contains(errMsg, "connection") ||
+		strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "network") ||
+		strings.Contains(errMsg, "dial") || strings.Contains(errMsg, "no such host") ||
+		strings.Contains(errMsg, "refused") {
 		return NewNetworkError(downloadURL, errMsg, attempts)
 	}
 
-	// Default to other error
+	// Default to other error (filesystem, etc.)
 	return NewOtherError(downloadURL, errMsg, attempts)
 }
 

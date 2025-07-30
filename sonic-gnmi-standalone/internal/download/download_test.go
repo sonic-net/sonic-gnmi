@@ -113,10 +113,8 @@ func TestDownloadFile_HTTPError(t *testing.T) {
 
 	downloadErr, ok := err.(*DownloadError)
 	require.True(t, ok, "Expected DownloadError")
-	assert.Equal(t, ErrorCategoryHTTP, downloadErr.Category)
-	assert.Equal(t, 404, downloadErr.Code)
-	assert.True(t, downloadErr.IsHTTPError())
-	assert.False(t, downloadErr.IsNetworkError())
+	assert.Equal(t, ErrorCategoryNetwork, downloadErr.Category)
+	assert.True(t, downloadErr.IsNetworkError())
 }
 
 func TestDownloadFile_NetworkError(t *testing.T) {
@@ -170,8 +168,7 @@ func TestDownloadFile_FileSystemError(t *testing.T) {
 
 	downloadErr, ok := err.(*DownloadError)
 	require.True(t, ok, "Expected DownloadError")
-	assert.Equal(t, ErrorCategoryFileSystem, downloadErr.Category)
-	assert.True(t, downloadErr.IsFileSystemError())
+	assert.Equal(t, ErrorCategoryOther, downloadErr.Category)
 }
 
 func TestDownloadFile_ContextCancellation(t *testing.T) {
@@ -208,31 +205,18 @@ func TestDownloadError_Methods(t *testing.T) {
 	// Test network error
 	netErr := NewNetworkError("http://example.com", "connection failed", attempts)
 	assert.True(t, netErr.IsNetworkError())
-	assert.False(t, netErr.IsHTTPError())
-	assert.False(t, netErr.IsFileSystemError())
 	assert.Equal(t, ErrorCategoryNetwork, netErr.Category)
 	assert.Equal(t, &attempts[1], netErr.LastAttempt())
 
-	// Test HTTP error
-	httpErr := NewHTTPError("http://example.com", "HTTP 404", 404, attempts)
-	assert.False(t, httpErr.IsNetworkError())
-	assert.True(t, httpErr.IsHTTPError())
-	assert.False(t, httpErr.IsFileSystemError())
-	assert.Equal(t, ErrorCategoryHTTP, httpErr.Category)
-	assert.Equal(t, 404, httpErr.Code)
-
-	// Test filesystem error
-	fsErr := NewFileSystemError("http://example.com", "permission denied", attempts)
-	assert.False(t, fsErr.IsNetworkError())
-	assert.False(t, fsErr.IsHTTPError())
-	assert.True(t, fsErr.IsFileSystemError())
-	assert.Equal(t, ErrorCategoryFileSystem, fsErr.Category)
+	// Test validation error
+	validationErr := NewValidationError("http://example.com", "checksum mismatch", attempts)
+	assert.True(t, validationErr.IsValidationError())
+	assert.Equal(t, ErrorCategoryValidation, validationErr.Category)
 
 	// Test other error
 	otherErr := NewOtherError("http://example.com", "unknown error", attempts)
 	assert.False(t, otherErr.IsNetworkError())
-	assert.False(t, otherErr.IsHTTPError())
-	assert.False(t, otherErr.IsFileSystemError())
+	assert.False(t, otherErr.IsValidationError())
 	assert.Equal(t, ErrorCategoryOther, otherErr.Category)
 }
 
@@ -334,17 +318,17 @@ func TestClassifyError(t *testing.T) {
 		{
 			name:     "HTTP error",
 			err:      fmt.Errorf("HTTP error 404: Not Found"),
-			expected: ErrorCategoryHTTP,
+			expected: ErrorCategoryNetwork,
 		},
 		{
 			name:     "filesystem error - create",
 			err:      fmt.Errorf("failed to create output file"),
-			expected: ErrorCategoryFileSystem,
+			expected: ErrorCategoryOther,
 		},
 		{
 			name:     "filesystem error - write",
 			err:      fmt.Errorf("failed to write file"),
-			expected: ErrorCategoryFileSystem,
+			expected: ErrorCategoryOther,
 		},
 		{
 			name:     "network error - connection",
@@ -475,13 +459,13 @@ func TestShouldRetryWithFallback(t *testing.T) {
 	netErr := NewNetworkError("http://example.com", "connection failed", nil)
 	assert.True(t, shouldRetryWithFallback(netErr))
 
-	// HTTP error should not retry
-	httpErr := NewHTTPError("http://example.com", "HTTP 404", 404, nil)
-	assert.False(t, shouldRetryWithFallback(httpErr))
+	// Other error should not retry
+	otherErr2 := NewOtherError("http://example.com", "permission denied", nil)
+	assert.False(t, shouldRetryWithFallback(otherErr2))
 
-	// Filesystem error should not retry
-	fsErr := NewFileSystemError("http://example.com", "permission denied", nil)
-	assert.False(t, shouldRetryWithFallback(fsErr))
+	// Validation error should not retry
+	validationErr := NewValidationError("http://example.com", "checksum mismatch", nil)
+	assert.False(t, shouldRetryWithFallback(validationErr))
 
 	// Other error should not retry
 	otherErr := NewOtherError("http://example.com", "unknown error", nil)
