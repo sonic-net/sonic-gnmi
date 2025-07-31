@@ -27,7 +27,7 @@ func init() {
 		getIPv6BGPSummary,
 	)
 	sdc.RegisterCliPath(
-		[]string{"SHOW","version"},
+		[]string{"SHOW", "version"},
 		getVersion,
 	)
 }
