@@ -1,0 +1,17 @@
+apiVersion: sonic.net/v1
+kind: PackageConfig
+metadata:
+  name: stable-test-package
+spec:
+  package:
+    # This downloads a stable file with known content
+    # Using httpbin.org/base64 endpoint which returns a fixed base64 string
+    url: "http://httpbin.org/robots.txt"
+    filename: "/tmp/robots.txt"
+    # Actual MD5 of httpbin.org/robots.txt
+    md5: "46fd03688e49c6b6b0a2b7d3553c1e42"
+    version: "1.0.0"
+    activate: false
+  server:
+    address: "localhost:50055"
+    tls: false

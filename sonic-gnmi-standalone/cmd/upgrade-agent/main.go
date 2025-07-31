@@ -43,6 +43,7 @@ The configuration file specifies the package URL, destination, checksum, and ser
   #     address: "device.example.com:50055"
   #     tls: false`,
 	RunE: runApply,
+	SilenceUsage: true,  // Don't print usage on errors
 }
 
 var downloadCmd = &cobra.Command{
@@ -67,6 +68,7 @@ This bypasses the need for a configuration file.`,
     --file /opt/package.bin \
     --md5 098f6bcd4621d373cade4e832627b4f6`,
 	RunE: runDownload,
+	SilenceUsage: true,  // Don't print usage on errors
 }
 
 // Global flags.
