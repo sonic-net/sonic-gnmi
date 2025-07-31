@@ -23,7 +23,11 @@ func init() {
 		getDateTimezone,
 	)
 	sdc.RegisterCliPath(
-                []string{"SHOW", "version"},
-                getVersion,
-        )
+		[]string{"SHOW", "ipv6", "bgp", "summary"},
+		getIPv6BGPSummary,
+	)
+  sdc.RegisterCliPath(
+    []string{"SHOW", "version"},
+    getVersion,
+  )
 }
