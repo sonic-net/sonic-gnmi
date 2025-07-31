@@ -258,19 +258,6 @@ func getLocalhostInfo(field string) string {
 	return ""
 }
 
-// Vijay to remove
-func CreateTablePathsFromQueries(queries [][]string) ([]string, error) {
-	panic("unimplemented")
-}
-
-func GetMapFromTablePaths(tblPaths []string) (map[string]interface{}, error) {
-	panic("unimplemented")
-}
-
-func GetDataFromHostCommand(uptimeCommand string) (string, error) {
-	panic("unimplemented")
-}
-
 func getMachineInfo() map[string]string {
 	data, err := ReadConfToMap(MachineConfPath)
 	if err != nil {
