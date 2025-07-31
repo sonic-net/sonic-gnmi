@@ -21,12 +21,6 @@ type Config interface {
 
 	// GetActivate returns whether to activate the package after installation.
 	GetActivate() bool
-
-	// GetServerAddress returns the gNOI server address (host:port format).
-	GetServerAddress() string
-
-	// GetTLS returns whether to use TLS for the gRPC connection.
-	GetTLS() bool
 }
 
 // DownloadOptions contains options for direct package download operations.
@@ -46,12 +40,6 @@ type DownloadOptions struct {
 
 	// Activate indicates whether to activate the package after installation
 	Activate bool
-
-	// ServerAddress is the gNOI server address (host:port format)
-	ServerAddress string
-
-	// TLS indicates whether to use TLS for the gRPC connection
-	TLS bool
 }
 
 // GetPackageURL implements Config interface.
@@ -77,14 +65,4 @@ func (opts *DownloadOptions) GetVersion() string {
 // GetActivate implements Config interface.
 func (opts *DownloadOptions) GetActivate() bool {
 	return opts.Activate
-}
-
-// GetServerAddress implements Config interface.
-func (opts *DownloadOptions) GetServerAddress() string {
-	return opts.ServerAddress
-}
-
-// GetTLS implements Config interface.
-func (opts *DownloadOptions) GetTLS() bool {
-	return opts.TLS
 }

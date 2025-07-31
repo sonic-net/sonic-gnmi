@@ -10,6 +10,3 @@ spec:
     # md5 field is omitted - this will cause validation error
     version: "1.0.0"
     activate: false
-  server:
-    address: "localhost:50055"
-    tls: false

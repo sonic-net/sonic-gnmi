@@ -8,22 +8,18 @@ import (
 
 // MockConfig implements the Config interface for testing.
 type MockConfig struct {
-	PackageURL    string
-	Filename      string
-	MD5           string
-	Version       string
-	Activate      bool
-	ServerAddress string
-	TLS           bool
+	PackageURL string
+	Filename   string
+	MD5        string
+	Version    string
+	Activate   bool
 }
 
-func (m *MockConfig) GetPackageURL() string    { return m.PackageURL }
-func (m *MockConfig) GetFilename() string      { return m.Filename }
-func (m *MockConfig) GetMD5() string           { return m.MD5 }
-func (m *MockConfig) GetVersion() string       { return m.Version }
-func (m *MockConfig) GetActivate() bool        { return m.Activate }
-func (m *MockConfig) GetServerAddress() string { return m.ServerAddress }
-func (m *MockConfig) GetTLS() bool             { return m.TLS }
+func (m *MockConfig) GetPackageURL() string { return m.PackageURL }
+func (m *MockConfig) GetFilename() string   { return m.Filename }
+func (m *MockConfig) GetMD5() string        { return m.MD5 }
+func (m *MockConfig) GetVersion() string    { return m.Version }
+func (m *MockConfig) GetActivate() bool     { return m.Activate }
 
 func TestValidateConfig(t *testing.T) {
 	tests := []struct {
@@ -34,103 +30,74 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "valid_config",
 			config: &MockConfig{
-				PackageURL:    "http://example.com/package.bin",
-				Filename:      "/opt/packages/package.bin",
-				MD5:           "d41d8cd98f00b204e9800998ecf8427e",
-				Version:       "1.0.0",
-				Activate:      false,
-				ServerAddress: "localhost:50055",
-				TLS:           false,
+				PackageURL: "http://example.com/package.bin",
+				Filename:   "/opt/packages/package.bin",
+				MD5:        "d41d8cd98f00b204e9800998ecf8427e",
+				Version:    "1.0.0",
+				Activate:   false,
 			},
 			expectedError: "",
 		},
 		{
 			name: "missing_url",
 			config: &MockConfig{
-				PackageURL:    "",
-				Filename:      "/opt/packages/package.bin",
-				MD5:           "d41d8cd98f00b204e9800998ecf8427e",
-				ServerAddress: "localhost:50055",
+				PackageURL: "",
+				Filename:   "/opt/packages/package.bin",
+				MD5:        "d41d8cd98f00b204e9800998ecf8427e",
 			},
 			expectedError: "package URL is required",
 		},
 		{
 			name: "missing_filename",
 			config: &MockConfig{
-				PackageURL:    "http://example.com/package.bin",
-				Filename:      "",
-				MD5:           "d41d8cd98f00b204e9800998ecf8427e",
-				ServerAddress: "localhost:50055",
+				PackageURL: "http://example.com/package.bin",
+				Filename:   "",
+				MD5:        "d41d8cd98f00b204e9800998ecf8427e",
 			},
 			expectedError: "filename is required",
 		},
 		{
 			name: "missing_md5",
 			config: &MockConfig{
-				PackageURL:    "http://example.com/package.bin",
-				Filename:      "/opt/packages/package.bin",
-				MD5:           "",
-				ServerAddress: "localhost:50055",
+				PackageURL: "http://example.com/package.bin",
+				Filename:   "/opt/packages/package.bin",
+				MD5:        "",
 			},
 			expectedError: "MD5 checksum is required",
 		},
 		{
-			name: "missing_server",
-			config: &MockConfig{
-				PackageURL:    "http://example.com/package.bin",
-				Filename:      "/opt/packages/package.bin",
-				MD5:           "d41d8cd98f00b204e9800998ecf8427e",
-				ServerAddress: "",
-			},
-			expectedError: "server address is required",
-		},
-		{
 			name: "invalid_url",
 			config: &MockConfig{
-				PackageURL:    "not-a-url",
-				Filename:      "/opt/packages/package.bin",
-				MD5:           "d41d8cd98f00b204e9800998ecf8427e",
-				ServerAddress: "localhost:50055",
+				PackageURL: "not-a-url",
+				Filename:   "/opt/packages/package.bin",
+				MD5:        "d41d8cd98f00b204e9800998ecf8427e",
 			},
 			expectedError: "invalid package URL",
 		},
 		{
-			name: "invalid_server_address",
-			config: &MockConfig{
-				PackageURL:    "http://example.com/package.bin",
-				Filename:      "/opt/packages/package.bin",
-				MD5:           "d41d8cd98f00b204e9800998ecf8427e",
-				ServerAddress: "invalid-address",
-			},
-			expectedError: "invalid server address",
-		},
-		{
 			name: "invalid_md5_length",
 			config: &MockConfig{
-				PackageURL:    "http://example.com/package.bin",
-				Filename:      "/opt/packages/package.bin",
-				MD5:           "too-short",
-				ServerAddress: "localhost:50055",
+				PackageURL: "http://example.com/package.bin",
+				Filename:   "/opt/packages/package.bin",
+				MD5:        "too-short",
 			},
 			expectedError: "invalid MD5 checksum",
 		},
 		{
 			name: "invalid_md5_characters",
 			config: &MockConfig{
-				PackageURL:    "http://example.com/package.bin",
-				Filename:      "/opt/packages/package.bin",
-				MD5:           "gggggggggggggggggggggggggggggggg", // Invalid hex characters
-				ServerAddress: "localhost:50055",
+				PackageURL: "http://example.com/package.bin",
+				Filename:   "/opt/packages/package.bin",
+				MD5:        "gggggggggggggggggggggggggggggggg", // Invalid hex characters
 			},
 			expectedError: "invalid MD5 checksum",
 		},
 		{
 			name: "relative_filename",
 			config: &MockConfig{
-				PackageURL:    "http://example.com/package.bin",
-				Filename:      "relative/path/package.bin",
-				MD5:           "d41d8cd98f00b204e9800998ecf8427e",
-				ServerAddress: "localhost:50055",
+				PackageURL: "http://example.com/package.bin",
+				Filename:   "relative/path/package.bin",
+				MD5:        "d41d8cd98f00b204e9800998ecf8427e",
 			},
 			expectedError: "filename must be an absolute path",
 		},
@@ -151,13 +118,11 @@ func TestValidateConfig(t *testing.T) {
 
 func TestDownloadOptions_ConfigInterface(t *testing.T) {
 	opts := &DownloadOptions{
-		URL:           "http://example.com/package.bin",
-		Filename:      "/opt/packages/package.bin",
-		MD5:           "d41d8cd98f00b204e9800998ecf8427e",
-		Version:       "1.0.0",
-		Activate:      true,
-		ServerAddress: "localhost:50055",
-		TLS:           true,
+		URL:      "http://example.com/package.bin",
+		Filename: "/opt/packages/package.bin",
+		MD5:      "d41d8cd98f00b204e9800998ecf8427e",
+		Version:  "1.0.0",
+		Activate: true,
 	}
 
 	// Test that DownloadOptions implements Config interface
@@ -168,8 +133,6 @@ func TestDownloadOptions_ConfigInterface(t *testing.T) {
 	assert.Equal(t, "d41d8cd98f00b204e9800998ecf8427e", cfg.GetMD5())
 	assert.Equal(t, "1.0.0", cfg.GetVersion())
 	assert.Equal(t, true, cfg.GetActivate())
-	assert.Equal(t, "localhost:50055", cfg.GetServerAddress())
-	assert.Equal(t, true, cfg.GetTLS())
 }
 
 func TestValidateURL(t *testing.T) {

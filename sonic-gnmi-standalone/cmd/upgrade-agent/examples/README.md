@@ -10,8 +10,11 @@ This directory contains example YAML configuration files for the upgrade-agent t
 # Build the upgrade-agent
 make build
 
-# Apply a package upgrade from YAML config
-./bin/upgrade-agent apply examples/httpbin-example.yaml
+# Apply a package upgrade from YAML config (server specified via flags)
+./bin/upgrade-agent apply examples/stable-file-example.yaml --server localhost:50055
+
+# With TLS enabled
+./bin/upgrade-agent apply examples/stable-file-example.yaml --server localhost:50055 --tls
 ```
 
 ### Using command-line flags
@@ -35,10 +38,11 @@ make build
 
 ## Notes
 
-1. Replace the `server.address` with your actual SONiC device gNOI server address
+1. Server address and TLS settings are specified via command-line flags, not in YAML
 2. For real packages, you'll need to calculate the actual MD5 checksum:
    ```bash
    curl -s http://httpbin.org/bytes/1048576 | md5sum
    ```
 3. The `filename` path must be absolute and writable on the target device
 4. Set `activate: true` if you want to activate the package after installation
+5. YAML files are now reusable across different environments since server details are separate

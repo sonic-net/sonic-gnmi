@@ -12,7 +12,3 @@ spec:
     md5: "d41d8cd98f00b204e9800998ecf8427e"
     version: "1.0.0-test"
     activate: false
-  server:
-    # Replace with your SONiC device address
-    address: "localhost:50055"
-    tls: false

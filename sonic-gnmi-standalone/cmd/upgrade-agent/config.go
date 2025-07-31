@@ -23,10 +23,6 @@ type YAMLConfig struct {
 			Version  string `yaml:"version,omitempty"`
 			Activate bool   `yaml:"activate,omitempty"`
 		} `yaml:"package"`
-		Server struct {
-			Address string `yaml:"address"`
-			TLS     bool   `yaml:"tls,omitempty"`
-		} `yaml:"server"`
 	} `yaml:"spec"`
 }
 
@@ -114,11 +110,6 @@ func validateYAMLStructure(config *YAMLConfig) error {
 		return fmt.Errorf("spec.package.md5 is required")
 	}
 
-	// Validate server spec
-	if config.Spec.Server.Address == "" {
-		return fmt.Errorf("spec.server.address is required")
-	}
-
 	return nil
 }
 
@@ -145,14 +136,4 @@ func (c *YAMLConfig) GetVersion() string {
 // GetActivate implements upgrade.Config interface.
 func (c *YAMLConfig) GetActivate() bool {
 	return c.Spec.Package.Activate
-}
-
-// GetServerAddress implements upgrade.Config interface.
-func (c *YAMLConfig) GetServerAddress() string {
-	return c.Spec.Server.Address
-}
-
-// GetTLS implements upgrade.Config interface.
-func (c *YAMLConfig) GetTLS() bool {
-	return c.Spec.Server.TLS
 }

@@ -11,6 +11,3 @@ spec:
     md5: "c4d7f0b8c8e5f9e1a2d3b4c5e6f7a8b9"
     version: "1.0.0"
     activate: false
-  server:
-    address: "localhost:50055"
-    tls: false

@@ -13,16 +13,21 @@ import (
 
 // ApplyConfig performs a package upgrade using the provided configuration.
 // This is the main entry point for config-driven upgrades (e.g., from YAML files).
-func ApplyConfig(ctx context.Context, cfg Config) error {
+func ApplyConfig(ctx context.Context, cfg Config, serverAddr string, useTLS bool) error {
 	// Validate configuration
 	if err := ValidateConfig(cfg); err != nil {
 		return fmt.Errorf("configuration validation failed: %w", err)
 	}
 
+	// Validate server address
+	if err := validateServerAddress(serverAddr); err != nil {
+		return fmt.Errorf("invalid server address: %w", err)
+	}
+
 	// Create gNOI client
 	clientConfig := &config.Config{
-		Address: cfg.GetServerAddress(),
-		TLS:     cfg.GetTLS(),
+		Address: serverAddr,
+		TLS:     useTLS,
 	}
 
 	client, err := gnoi.NewSystemClient(clientConfig)
@@ -49,14 +54,14 @@ func ApplyConfig(ctx context.Context, cfg Config) error {
 
 // DownloadPackage performs a direct package download with the specified options.
 // This is the entry point for command-line driven upgrades (e.g., with flags).
-func DownloadPackage(ctx context.Context, opts *DownloadOptions) error {
+func DownloadPackage(ctx context.Context, opts *DownloadOptions, serverAddr string, useTLS bool) error {
 	// Validate options
 	if err := ValidateConfig(opts); err != nil {
 		return fmt.Errorf("options validation failed: %w", err)
 	}
 
 	// Use ApplyConfig for the actual operation
-	return ApplyConfig(ctx, opts)
+	return ApplyConfig(ctx, opts, serverAddr, useTLS)
 }
 
 // ValidateConfig validates the configuration or options for common issues.
@@ -71,18 +76,10 @@ func ValidateConfig(cfg Config) error {
 	if cfg.GetMD5() == "" {
 		return fmt.Errorf("MD5 checksum is required")
 	}
-	if cfg.GetServerAddress() == "" {
-		return fmt.Errorf("server address is required")
-	}
 
 	// Validate URL format
 	if err := validateURL(cfg.GetPackageURL()); err != nil {
 		return fmt.Errorf("invalid package URL: %w", err)
-	}
-
-	// Validate server address format
-	if err := validateServerAddress(cfg.GetServerAddress()); err != nil {
-		return fmt.Errorf("invalid server address: %w", err)
 	}
 
 	// Validate MD5 format

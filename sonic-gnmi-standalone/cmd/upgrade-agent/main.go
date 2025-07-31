@@ -22,10 +22,14 @@ var applyCmd = &cobra.Command{
 	Use:   "apply [config.yaml]",
 	Short: "Apply package upgrade from YAML configuration",
 	Long: `Apply a package upgrade using a YAML configuration file.
-The configuration file specifies the package URL, destination, checksum, and server details.`,
+The configuration file specifies the package details, while server connection
+is specified via command-line flags.`,
 	Args: cobra.ExactArgs(1),
 	Example: `  # Apply package upgrade from config file
-  upgrade-agent apply package-config.yaml
+  upgrade-agent apply package-config.yaml --server device.example.com:50055
+  
+  # With TLS enabled
+  upgrade-agent apply package-config.yaml --server device:50055 --tls
   
   # Example config.yaml:
   # apiVersion: sonic.net/v1
@@ -38,12 +42,9 @@ The configuration file specifies the package URL, destination, checksum, and ser
   #     filename: "/opt/packages/package.bin"
   #     md5: "d41d8cd98f00b204e9800998ecf8427e"
   #     version: "1.0.0"
-  #     activate: false
-  #   server:
-  #     address: "device.example.com:50055"
-  #     tls: false`,
-	RunE: runApply,
-	SilenceUsage: true,  // Don't print usage on errors
+  #     activate: false`,
+	RunE:         runApply,
+	SilenceUsage: true, // Don't print usage on errors
 }
 
 var downloadCmd = &cobra.Command{
@@ -67,19 +68,19 @@ This bypasses the need for a configuration file.`,
     --url https://secure.com/package.bin \
     --file /opt/package.bin \
     --md5 098f6bcd4621d373cade4e832627b4f6`,
-	RunE: runDownload,
-	SilenceUsage: true,  // Don't print usage on errors
+	RunE:         runDownload,
+	SilenceUsage: true, // Don't print usage on errors
 }
 
 // Global flags.
 var (
 	timeout time.Duration
+	server  string
+	tls     bool
 )
 
 // Download command flags.
 var (
-	server   string
-	tls      bool
 	url      string
 	file     string
 	md5      string
@@ -88,12 +89,13 @@ var (
 )
 
 func init() {
-	// Global flags
+	// Global flags (shared by all commands)
 	rootCmd.PersistentFlags().DurationVar(&timeout, "timeout", 5*time.Minute, "Request timeout")
+	rootCmd.PersistentFlags().StringVar(&server, "server", "", "Server address (host:port)")
+	rootCmd.PersistentFlags().BoolVar(&tls, "tls", false, "Enable TLS")
+	rootCmd.MarkPersistentFlagRequired("server")
 
 	// Download command flags
-	downloadCmd.Flags().StringVar(&server, "server", "", "Server address (host:port)")
-	downloadCmd.Flags().BoolVar(&tls, "tls", false, "Enable TLS")
 	downloadCmd.Flags().StringVar(&url, "url", "", "HTTP URL to download package from")
 	downloadCmd.Flags().StringVar(&file, "file", "", "Destination file path on device")
 	downloadCmd.Flags().StringVar(&md5, "md5", "", "Expected MD5 checksum (hex string)")
@@ -101,7 +103,6 @@ func init() {
 	downloadCmd.Flags().BoolVar(&activate, "activate", false, "Activate package after installation")
 
 	// Mark required download flags
-	downloadCmd.MarkFlagRequired("server")
 	downloadCmd.MarkFlagRequired("url")
 	downloadCmd.MarkFlagRequired("file")
 	downloadCmd.MarkFlagRequired("md5")
@@ -133,14 +134,14 @@ func runApply(cmd *cobra.Command, args []string) error {
 	// Display what we're doing
 	fmt.Printf("Applying package upgrade from %s\n", configFile)
 	fmt.Printf("  Package: %s -> %s\n", config.GetPackageURL(), config.GetFilename())
-	fmt.Printf("  Server: %s (TLS: %v)\n", config.GetServerAddress(), config.GetTLS())
+	fmt.Printf("  Server: %s (TLS: %v)\n", server, tls)
 	if config.GetVersion() != "" {
 		fmt.Printf("  Version: %s\n", config.GetVersion())
 	}
 	fmt.Printf("  Activate: %v\n", config.GetActivate())
 
 	// Execute the upgrade
-	if err := upgrade.ApplyConfig(ctx, config); err != nil {
+	if err := upgrade.ApplyConfig(ctx, config, server, tls); err != nil {
 		return fmt.Errorf("package upgrade failed: %w", err)
 	}
 
@@ -151,13 +152,11 @@ func runApply(cmd *cobra.Command, args []string) error {
 func runDownload(cmd *cobra.Command, args []string) error {
 	// Create download options from flags
 	opts := &upgrade.DownloadOptions{
-		URL:           url,
-		Filename:      file,
-		MD5:           md5,
-		Version:       version,
-		Activate:      activate,
-		ServerAddress: server,
-		TLS:           tls,
+		URL:      url,
+		Filename: file,
+		MD5:      md5,
+		Version:  version,
+		Activate: activate,
 	}
 
 	// Create context with timeout
@@ -167,14 +166,14 @@ func runDownload(cmd *cobra.Command, args []string) error {
 	// Display what we're doing
 	fmt.Printf("Downloading and installing package\n")
 	fmt.Printf("  Package: %s -> %s\n", opts.URL, opts.Filename)
-	fmt.Printf("  Server: %s (TLS: %v)\n", opts.ServerAddress, opts.TLS)
+	fmt.Printf("  Server: %s (TLS: %v)\n", server, tls)
 	if opts.Version != "" {
 		fmt.Printf("  Version: %s\n", opts.Version)
 	}
 	fmt.Printf("  Activate: %v\n", opts.Activate)
 
 	// Execute the download
-	if err := upgrade.DownloadPackage(ctx, opts); err != nil {
+	if err := upgrade.DownloadPackage(ctx, opts, server, tls); err != nil {
 		return fmt.Errorf("package download failed: %w", err)
 	}
 
