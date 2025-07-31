@@ -9,15 +9,11 @@ import (
 type ErrorCategory string
 
 const (
-	// ErrorCategoryNetwork represents network connectivity issues.
+	// ErrorCategoryNetwork represents network and HTTP errors.
 	ErrorCategoryNetwork ErrorCategory = "network"
-	// ErrorCategoryHTTP represents HTTP protocol errors.
-	ErrorCategoryHTTP ErrorCategory = "http"
-	// ErrorCategoryFileSystem represents local file system errors.
-	ErrorCategoryFileSystem ErrorCategory = "filesystem"
 	// ErrorCategoryValidation represents validation errors (e.g., checksum mismatch).
 	ErrorCategoryValidation ErrorCategory = "validation"
-	// ErrorCategoryOther represents other types of errors.
+	// ErrorCategoryOther represents filesystem and other errors.
 	ErrorCategoryOther ErrorCategory = "other"
 )
 
@@ -49,31 +45,10 @@ type DownloadError struct {
 	Attempts []Attempt `json:"attempts"`
 }
 
-// NewNetworkError creates a new network-related download error.
+// NewNetworkError creates a new network/HTTP-related download error.
 func NewNetworkError(url, message string, attempts []Attempt) *DownloadError {
 	return &DownloadError{
 		Category: ErrorCategoryNetwork,
-		Message:  message,
-		URL:      url,
-		Attempts: attempts,
-	}
-}
-
-// NewHTTPError creates a new HTTP-related download error.
-func NewHTTPError(url, message string, httpCode int, attempts []Attempt) *DownloadError {
-	return &DownloadError{
-		Category: ErrorCategoryHTTP,
-		Code:     httpCode,
-		Message:  message,
-		URL:      url,
-		Attempts: attempts,
-	}
-}
-
-// NewFileSystemError creates a new file system-related download error.
-func NewFileSystemError(url, message string, attempts []Attempt) *DownloadError {
-	return &DownloadError{
-		Category: ErrorCategoryFileSystem,
 		Message:  message,
 		URL:      url,
 		Attempts: attempts,
@@ -108,19 +83,9 @@ func (e *DownloadError) Error() string {
 	return fmt.Sprintf("download failed after %d attempts: %s", len(e.Attempts), e.Message)
 }
 
-// IsNetworkError returns true if this is a network connectivity error.
+// IsNetworkError returns true if this is a network/HTTP error.
 func (e *DownloadError) IsNetworkError() bool {
 	return e.Category == ErrorCategoryNetwork
-}
-
-// IsHTTPError returns true if this is an HTTP protocol error.
-func (e *DownloadError) IsHTTPError() bool {
-	return e.Category == ErrorCategoryHTTP
-}
-
-// IsFileSystemError returns true if this is a file system error.
-func (e *DownloadError) IsFileSystemError() bool {
-	return e.Category == ErrorCategoryFileSystem
 }
 
 // IsValidationError returns true if this is a validation error.

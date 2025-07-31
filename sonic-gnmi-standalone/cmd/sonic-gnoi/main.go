@@ -33,7 +33,7 @@ var setPackageCmd = &cobra.Command{
 The server will download the package, verify its MD5 checksum, and install it to the specified location.`,
 	Example: `  # Install package with MD5 verification
   sonic-gnoi system set-package \
-    --server device.example.com:50051 \
+    --server device.example.com:50055 \
     --url http://updates.example.com/package-1.0.tar.gz \
     --file /opt/packages/package-1.0.tar.gz \
     --md5 d41d8cd98f00b204e9800998ecf8427e \
@@ -42,7 +42,7 @@ The server will download the package, verify its MD5 checksum, and install it to
 
   # Install with TLS
   sonic-gnoi system set-package \
-    --server device:50051 \
+    --server device:50055 \
     --tls \
     --url https://secure.com/package.tar.gz \
     --file /opt/package.tar.gz \
