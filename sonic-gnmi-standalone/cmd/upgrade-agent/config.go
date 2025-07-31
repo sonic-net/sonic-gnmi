@@ -5,53 +5,9 @@ import (
 	"os"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/upgrade"
 )
-
-// YAMLConfig represents the YAML configuration for upgrade-agent.
-// This implements the upgrade.Config interface for YAML-based configurations.
-type YAMLConfig struct {
-	APIVersion string `yaml:"apiVersion"`
-	Kind       string `yaml:"kind"`
-	Metadata   struct {
-		Name string `yaml:"name"`
-	} `yaml:"metadata"`
-	Spec struct {
-		Package struct {
-			URL      string `yaml:"url"`
-			Filename string `yaml:"filename"`
-			MD5      string `yaml:"md5"`
-			Version  string `yaml:"version,omitempty"`
-			Activate bool   `yaml:"activate,omitempty"`
-		} `yaml:"package"`
-	} `yaml:"spec"`
-}
-
-// LoadConfigFromFile loads a YAML configuration file and returns a YAMLConfig.
-func LoadConfigFromFile(path string) (*YAMLConfig, error) {
-	// Validate file exists and is readable
-	if err := validateConfigFile(path); err != nil {
-		return nil, err
-	}
-
-	// Read file content
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	// Parse YAML
-	var config YAMLConfig
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML: %w", err)
-	}
-
-	// Validate YAML structure
-	if err := validateYAMLStructure(&config); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
-	}
-
-	return &config, nil
-}
 
 // validateConfigFile validates that the config file exists and is readable.
 func validateConfigFile(path string) error {
@@ -83,8 +39,54 @@ func validateConfigFile(path string) error {
 	return nil
 }
 
-// validateYAMLStructure validates the YAML structure and required fields.
-func validateYAMLStructure(config *YAMLConfig) error {
+// Step represents a single step in a workflow.
+type Step struct {
+	Name   string                 `yaml:"name"`
+	Type   string                 `yaml:"type"`
+	Params map[string]interface{} `yaml:"params"`
+}
+
+// WorkflowConfig represents the new workflow-based configuration.
+type WorkflowConfig struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Name string `yaml:"name"`
+	} `yaml:"metadata"`
+	Spec struct {
+		Steps []Step `yaml:"steps"`
+	} `yaml:"spec"`
+}
+
+// LoadWorkflowFromFile loads a workflow configuration file.
+func LoadWorkflowFromFile(path string) (*WorkflowConfig, error) {
+	// Validate file exists and is readable
+	if err := validateConfigFile(path); err != nil {
+		return nil, err
+	}
+
+	// Read file content
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	// Parse YAML
+	var config WorkflowConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	// Validate workflow structure
+	if err := validateWorkflowStructure(&config); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	return &config, nil
+}
+
+// validateWorkflowStructure validates the workflow structure.
+func validateWorkflowStructure(config *WorkflowConfig) error {
 	// Check required fields
 	if config.APIVersion == "" {
 		return fmt.Errorf("apiVersion is required")
@@ -92,48 +94,74 @@ func validateYAMLStructure(config *YAMLConfig) error {
 	if config.APIVersion != "sonic.net/v1" {
 		return fmt.Errorf("unsupported apiVersion: %s (expected sonic.net/v1)", config.APIVersion)
 	}
-	if config.Kind != "PackageConfig" {
-		return fmt.Errorf("invalid kind: %s (expected PackageConfig)", config.Kind)
+	if config.Kind != "UpgradeWorkflow" {
+		return fmt.Errorf("invalid kind: %s (expected UpgradeWorkflow)", config.Kind)
 	}
 	if config.Metadata.Name == "" {
 		return fmt.Errorf("metadata.name is required")
 	}
+	if len(config.Spec.Steps) == 0 {
+		return fmt.Errorf("at least one step is required")
+	}
 
-	// Validate package spec
-	if config.Spec.Package.URL == "" {
-		return fmt.Errorf("spec.package.url is required")
-	}
-	if config.Spec.Package.Filename == "" {
-		return fmt.Errorf("spec.package.filename is required")
-	}
-	if config.Spec.Package.MD5 == "" {
-		return fmt.Errorf("spec.package.md5 is required")
+	// Validate each step
+	for i, step := range config.Spec.Steps {
+		if step.Name == "" {
+			return fmt.Errorf("step[%d]: name is required", i)
+		}
+		if step.Type == "" {
+			return fmt.Errorf("step[%d]: type is required", i)
+		}
+		// For now, only support download type
+		if step.Type != "download" {
+			return fmt.Errorf("step[%d]: unsupported type '%s' (only 'download' is currently supported)", i, step.Type)
+		}
 	}
 
 	return nil
 }
 
-// GetPackageURL implements upgrade.Config interface.
-func (c *YAMLConfig) GetPackageURL() string {
-	return c.Spec.Package.URL
+// LoadConfigurationFile loads an UpgradeWorkflow configuration file.
+func LoadConfigurationFile(path string) (*WorkflowConfig, error) {
+	return LoadWorkflowFromFile(path)
 }
 
-// GetFilename implements upgrade.Config interface.
-func (c *YAMLConfig) GetFilename() string {
-	return c.Spec.Package.Filename
-}
+// ConvertStepToConfig converts a download step to a Config interface for reuse.
+func ConvertStepToConfig(step Step) (upgrade.Config, error) {
+	if step.Type != "download" {
+		return nil, fmt.Errorf("can only convert download steps")
+	}
 
-// GetMD5 implements upgrade.Config interface.
-func (c *YAMLConfig) GetMD5() string {
-	return c.Spec.Package.MD5
-}
+	// Create DownloadOptions from step params
+	opts := &upgrade.DownloadOptions{}
 
-// GetVersion implements upgrade.Config interface.
-func (c *YAMLConfig) GetVersion() string {
-	return c.Spec.Package.Version
-}
+	// Extract parameters
+	if url, ok := step.Params["url"].(string); ok {
+		opts.URL = url
+	} else {
+		return nil, fmt.Errorf("step '%s': url parameter is required", step.Name)
+	}
 
-// GetActivate implements upgrade.Config interface.
-func (c *YAMLConfig) GetActivate() bool {
-	return c.Spec.Package.Activate
+	if filename, ok := step.Params["filename"].(string); ok {
+		opts.Filename = filename
+	} else {
+		return nil, fmt.Errorf("step '%s': filename parameter is required", step.Name)
+	}
+
+	if md5, ok := step.Params["md5"].(string); ok {
+		opts.MD5 = md5
+	} else {
+		return nil, fmt.Errorf("step '%s': md5 parameter is required", step.Name)
+	}
+
+	// Optional parameters
+	if version, ok := step.Params["version"].(string); ok {
+		opts.Version = version
+	}
+
+	if activate, ok := step.Params["activate"].(bool); ok {
+		opts.Activate = activate
+	}
+
+	return opts, nil
 }

@@ -22,27 +22,30 @@ var applyCmd = &cobra.Command{
 	Use:   "apply [config.yaml]",
 	Short: "Apply package upgrade from YAML configuration",
 	Long: `Apply a package upgrade using a YAML configuration file.
-The configuration file specifies the package details, while server connection
-is specified via command-line flags.`,
+The configuration file must be an UpgradeWorkflow with one or more steps.
+Server connection is specified via command-line flags.`,
 	Args: cobra.ExactArgs(1),
-	Example: `  # Apply package upgrade from config file
-  upgrade-agent apply package-config.yaml --server device.example.com:50055
+	Example: `  # Apply workflow configuration
+  upgrade-agent apply workflow.yaml --server device.example.com:50055
   
   # With TLS enabled
-  upgrade-agent apply package-config.yaml --server device:50055 --tls
+  upgrade-agent apply workflow.yaml --server device:50055 --tls
   
-  # Example config.yaml:
+  # Example UpgradeWorkflow:
   # apiVersion: sonic.net/v1
-  # kind: PackageConfig
+  # kind: UpgradeWorkflow
   # metadata:
-  #   name: my-package-upgrade
+  #   name: sonic-upgrade
   # spec:
-  #   package:
-  #     url: "http://example.com/package.bin"
-  #     filename: "/opt/packages/package.bin"
-  #     md5: "d41d8cd98f00b204e9800998ecf8427e"
-  #     version: "1.0.0"
-  #     activate: false`,
+  #   steps:
+  #     - name: download-image
+  #       type: download
+  #       params:
+  #         url: "http://example.com/sonic.bin"
+  #         filename: "/tmp/sonic.bin"
+  #         md5: "d41d8cd98f00b204e9800998ecf8427e"
+  #         version: "1.0.0"
+  #         activate: false`,
 	RunE:         runApply,
 	SilenceUsage: true, // Don't print usage on errors
 }
@@ -121,8 +124,8 @@ func main() {
 func runApply(cmd *cobra.Command, args []string) error {
 	configFile := args[0]
 
-	// Load YAML configuration
-	config, err := LoadConfigFromFile(configFile)
+	// Load workflow configuration
+	config, err := LoadConfigurationFile(configFile)
 	if err != nil {
 		return fmt.Errorf("failed to load configuration from '%s': %w", configFile, err)
 	}
@@ -131,21 +134,37 @@ func runApply(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	// Display what we're doing
-	fmt.Printf("Applying package upgrade from %s\n", configFile)
-	fmt.Printf("  Package: %s -> %s\n", config.GetPackageURL(), config.GetFilename())
+	// Execute workflow
+	fmt.Printf("Executing upgrade workflow from %s\n", configFile)
+	fmt.Printf("  Workflow: %s\n", config.Metadata.Name)
+	fmt.Printf("  Steps: %d\n", len(config.Spec.Steps))
 	fmt.Printf("  Server: %s (TLS: %v)\n", server, tls)
-	if config.GetVersion() != "" {
-		fmt.Printf("  Version: %s\n", config.GetVersion())
-	}
-	fmt.Printf("  Activate: %v\n", config.GetActivate())
+	fmt.Println()
 
-	// Execute the upgrade
-	if err := upgrade.ApplyConfig(ctx, config, server, tls); err != nil {
-		return fmt.Errorf("package upgrade failed: %w", err)
+	// Execute each step
+	for i, step := range config.Spec.Steps {
+		fmt.Printf("Step %d/%d: %s\n", i+1, len(config.Spec.Steps), step.Name)
+		fmt.Printf("  Type: %s\n", step.Type)
+
+		// For now, only handle download steps
+		if step.Type == "download" {
+			// Convert step to Config interface
+			stepConfig, err := ConvertStepToConfig(step)
+			if err != nil {
+				return fmt.Errorf("step '%s' failed: %w", step.Name, err)
+			}
+
+			// Execute using existing logic
+			if err := upgrade.ApplyConfig(ctx, stepConfig, server, tls); err != nil {
+				return fmt.Errorf("step '%s' failed: %w", step.Name, err)
+			}
+			fmt.Printf("  ✓ Step completed successfully\n\n")
+		} else {
+			return fmt.Errorf("unsupported step type: %s", step.Type)
+		}
 	}
 
-	fmt.Println("Package upgrade completed successfully!")
+	fmt.Println("Upgrade completed successfully!")
 	return nil
 }
 

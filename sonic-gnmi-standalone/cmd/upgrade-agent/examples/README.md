@@ -10,11 +10,14 @@ This directory contains example YAML configuration files for the upgrade-agent t
 # Build the upgrade-agent
 make build
 
-# Apply a package upgrade from YAML config (server specified via flags)
-./bin/upgrade-agent apply examples/stable-file-example.yaml --server localhost:50055
+# Apply a workflow configuration from YAML file (server specified via flags)
+./bin/upgrade-agent apply examples/workflow-example.yaml --server localhost:50055
+
+# Apply a multi-step workflow
+./bin/upgrade-agent apply examples/multi-step-workflow.yaml --server localhost:50055
 
 # With TLS enabled
-./bin/upgrade-agent apply examples/stable-file-example.yaml --server localhost:50055 --tls
+./bin/upgrade-agent apply examples/workflow-example.yaml --server localhost:50055 --tls
 ```
 
 ### Using command-line flags
@@ -31,10 +34,9 @@ make build
 
 ## Configuration Examples
 
-- **stable-file-example.yaml**: Downloads robots.txt with a known, stable MD5 checksum (recommended for testing)
-- **httpbin-example.yaml**: Downloads random bytes - will ALWAYS fail MD5 check (only for testing download process)
-- **httpbin-json-example.yaml**: Downloads a small JSON response (MD5 may vary)
-- **no-md5-example.yaml**: Example without MD5 field - will fail validation (demonstrates MD5 is required)
+### Workflow Configuration
+- **workflow-example.yaml**: Single-step workflow example
+- **multi-step-workflow.yaml**: Multiple download steps in sequence
 
 ## Notes
 
