@@ -19,13 +19,17 @@ set -e
 SERVER_ADDR=":50055"
 NO_TLS="true"
 ROOTFS=""
+VERBOSITY="2"
 
 usage() {
-  echo "Usage: $0 [-a <address>] [--enable-tls] [--rootfs <path>]"
+  echo "Usage: $0 [-a <address>] [--enable-tls] [--rootfs <path>] [-v <level>]"
   echo "  -a <address>     Server address to listen on (default: :50055)"
   echo "  --enable-tls     Enable TLS for secure connections (default: disabled)"
   echo "  --rootfs <path>  Root filesystem path for file operations (default: /)"
+  echo "  -v <level>       Verbosity level for logging (default: 2)"
   echo "  -h, --help       Show this help message"
+  echo ""
+  echo "Note: Logs are sent to stderr. Use -v=3 for more verbose logging."
   exit 1
 }
 
@@ -42,6 +46,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --rootfs)
       ROOTFS="$2"
+      shift 2
+      ;;
+    -v)
+      VERBOSITY="$2"
       shift 2
       ;;
     -h|--help)
@@ -88,11 +96,12 @@ echo "  TLS enabled: $([ "$NO_TLS" = "true" ] && echo "No" || echo "Yes")"
 if [ -n "$ROOTFS" ]; then
   echo "  Root filesystem: $ROOTFS"
 fi
+echo "  Log verbosity: $VERBOSITY"
 echo ""
-echo "Command: $BINARY_PATH $CMD_ARGS"
+echo "Command: $BINARY_PATH $CMD_ARGS -logtostderr -v=$VERBOSITY"
 echo ""
 echo "Press Ctrl+C to stop the server"
 echo "========================================="
 
-# Run the binary directly
-exec "$BINARY_PATH" $CMD_ARGS
+# Run the binary directly with logging to stderr
+exec "$BINARY_PATH" $CMD_ARGS -logtostderr -v=$VERBOSITY
