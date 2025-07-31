@@ -3,8 +3,10 @@ package show_client
 import (
 	"fmt"
 	log "github.com/golang/glog"
+	"github.com/google/shlex"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	"os/exec"
 )
 
 const (
@@ -13,7 +15,28 @@ const (
 
 	minQueryLength = 2 // We need to support TARGET/TABLE as a minimum query
 	maxQueryLength = 5 // We can support up to 5 elements in query (TARGET/TABLE/(2 KEYS)/FIELD)
+
+	hostNamespace = "1" // PID 1 is the host init process
 )
+
+func GetDataFromHostCommand(command string) (string, error) {
+	baseArgs := []string{
+		"--target", hostNamespace,
+		"--pid", "--mount", "--uts", "--ipc", "--net",
+		"--",
+	}
+	commandParts, err := shlex.Split(command)
+	if err != nil {
+		return "", err
+	}
+	cmdArgs := append(baseArgs, commandParts...)
+	cmd := exec.Command("nsenter", cmdArgs...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
+}
 
 func GetDataFromFile(fileName string) ([]byte, error) {
 	fileContent, err := sdc.ImplIoutilReadFile(fileName)
@@ -25,13 +48,21 @@ func GetDataFromFile(fileName string) ([]byte, error) {
 	return fileContent, nil
 }
 
-func GetDataFromTablePaths(tblPaths []sdc.TablePath) ([]byte, error) {
+func GetMapFromTablePaths(tblPaths []sdc.TablePath) (map[string]interface{}, error) {
 	msi := make(map[string]interface{})
 	for _, tblPath := range tblPaths {
 		err := sdc.TableData2Msi(&tblPath, false, nil, &msi)
 		if err != nil {
 			return nil, err
 		}
+	}
+	return msi, nil
+}
+
+func GetDataFromTablePaths(tblPaths []sdc.TablePath) ([]byte, error) {
+	msi, err := GetMapFromTablePaths(tblPaths)
+	if err != nil {
+		return nil, err
 	}
 	return sdc.Msi2Bytes(msi)
 }
@@ -70,4 +101,37 @@ func CreateTablePathsFromQueries(queries [][]string) ([]sdc.TablePath, error) {
 		}
 	}
 	return allPaths, nil
+}
+
+func ReadYamlToMap(filePath string) (map[string]interface{}, error) {
+	yamlFile, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read YAML file: %w", err)
+	}
+	var data map[string]interface{}
+	err = yaml.Unmarshal(yamlFile, &data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal YAML: %w", err)
+	}
+	return data, nil
+}
+
+func ReadConfToMap(filePath string) (map[string]interface{}, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	machineVars := make(map[string]interface{})
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		tokens := strings.SplitN(line, "=", 2)
+		if len(tokens) < 2 {
+			continue
+		}
+		machineVars[tokens[0]] = strings.TrimSpace(tokens[1])
+	}
+	return machineVars, nil
 }
