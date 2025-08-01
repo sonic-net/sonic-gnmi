@@ -55,7 +55,7 @@ func TestGetShowInterfaceErrors(t *testing.T) {
 			pathTarget: "SHOW",
 			textPbPath: `
 				elem: <name: "interface" >
-				elem: <name: "errors" >
+				elem: <name: "errors" key: { key: "interface" value: "Ethernet0" } >
 			`,
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(intfErrorsEmpty),
@@ -70,7 +70,7 @@ func TestGetShowInterfaceErrors(t *testing.T) {
 			pathTarget: "SHOW",
 			textPbPath: `
 				elem: <name: "interface" >
-				elem: <name: "errors" >
+				elem: <name: "errors" key: { key: "interface" value: "Ethernet0" } >
 			`,
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(intfErrorsWithData),

@@ -3,6 +3,7 @@ package show_client
 import (
 	"encoding/json"
 	"strings"
+	"fmt"
 	log "github.com/golang/glog"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
@@ -24,18 +25,21 @@ const ALL_PORT_ERRORS = [][]string{
 	{"no_rx_reachability_count", "no_rx_reachability_time"},
 }
 
-func getIntfErrors(intf string) ([]byte, error) {
+func getIntfErrors(prefix, path *gnmipb.Path) ([]byte, error) {
+	ifaces := ParseOptionsFromPath(path, "interface")
+	if len(ifaces) == 0 {
+		return nil, fmt.Errorf("No interface name specified in the path: %v", path)
+	}
+	intf := ifaces[0]
+
 	// Query Port Operational Errors Table from STATE_DB
 	queries := [][]string{
 		{"STATE_DB", "PORT_OPERR_TABLE", intf},
 	}
-	tblPaths, err := CreateTablePathsFromQueries(queries)
-	if err != nil {
-		log.Errorf("Unable to create table paths from queries %v, %v", queries, err)
-		return nil, err
-	}
-	portErrorsTbl, _ := GetMapFromTablePaths(tblPaths)
+	portErrorsTbl, _ := GetMapFromQueries(queries)
+	portErrorsTbl = RemapAliasToPortName(portErrorsTbl)
 
+	// Format the port errors data
 	portErrors := make([][]string, 0, len(ALL_PORT_ERRORS) + 1)
 	// Append the table header
 	portErrors = append(portErrors, []string{"Port Errors", "Count", "Last timestamp(UTC)"})
