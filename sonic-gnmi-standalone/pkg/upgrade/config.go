@@ -1,14 +1,4 @@
-// Package upgrade provides client-side operations for SONiC package upgrades via gNOI.
-//
-// This package abstracts the complexity of gNOI System.SetPackage operations and provides
-// validation, error handling, and a clean API for upgrade tools. It is designed to be
-// reusable across different SONiC management utilities.
-//
-// Key features:
-//   - Configuration-agnostic through the Config interface
-//   - Built-in validation for URLs, MD5 checksums, and server addresses
-//   - Support for both secure (TLS) and insecure connections
-//   - Comprehensive error messages for troubleshooting
+// Package upgrade handles SONiC package upgrades via gNOI and gNMI.
 package upgrade
 
 // Config defines the interface for package upgrade configuration.

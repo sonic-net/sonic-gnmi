@@ -146,13 +146,7 @@ func main() {
 	}
 }
 
-// runApply executes a workflow configuration file using the new workflow engine.
-//
-// This function now uses the pluggable workflow system which supports:
-//   - Type-safe step implementations with proper validation
-//   - Extensible step registry for adding new operation types
-//   - Clean separation between CLI concerns and workflow logic
-//   - Better error handling and reporting
+// runApply loads a workflow YAML file and executes all its steps.
 func runApply(cmd *cobra.Command, args []string) error {
 	workflowFile := args[0]
 

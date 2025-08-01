@@ -1,11 +1,4 @@
-// Package server provides a builder pattern for creating gRPC servers with configurable services.
-//
-// The ServerBuilder pattern provides:
-//   - Clean separation between infrastructure and services
-//   - Dynamic service enablement/disablement
-//   - Programmatic TLS/mTLS configuration
-//   - Configuration-driven service selection
-//   - Easy extension for new services
+// Package server creates gRPC servers with configurable services.
 //
 // Example usage:
 //

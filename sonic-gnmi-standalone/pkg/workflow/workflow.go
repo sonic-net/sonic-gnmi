@@ -117,8 +117,7 @@ type RawStep struct {
 	Params map[string]interface{} `yaml:"params"`
 }
 
-// Engine executes workflows by converting raw steps to typed implementations
-// and running them sequentially with proper error handling and logging.
+// Engine executes workflows step by step.
 type Engine struct {
 	registry StepRegistry
 }

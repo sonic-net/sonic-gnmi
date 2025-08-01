@@ -6,11 +6,7 @@ import (
 	"sync"
 )
 
-// DefaultStepRegistry provides a thread-safe implementation of StepRegistry
-// that maintains a map of step type names to their factory functions.
-//
-// The registry supports concurrent access and provides helpful error messages
-// when unknown step types are encountered.
+// DefaultStepRegistry maps step type names to factory functions.
 type DefaultStepRegistry struct {
 	mu        sync.RWMutex
 	factories map[string]StepFactory
