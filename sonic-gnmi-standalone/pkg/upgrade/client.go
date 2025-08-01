@@ -12,10 +12,10 @@ import (
 )
 
 const (
-	// MD5Length is the expected length of an MD5 checksum in hexadecimal
+	// MD5Length is the expected length of an MD5 checksum in hexadecimal.
 	MD5Length = 32
 
-	// MD5Pattern is the regex pattern for valid MD5 checksums
+	// MD5Pattern is the regex pattern for valid MD5 checksums.
 	MD5Pattern = "^[a-fA-F0-9]+$"
 )
 

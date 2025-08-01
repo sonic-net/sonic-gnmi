@@ -38,4 +38,4 @@ make build
 - **workflow-example.yaml**: Single-step workflow example
 - **multi-step-workflow.yaml**: Multiple download steps in sequence
 
-For the YAML configuration structure and field descriptions, see the inline documentation in `cmd/upgrade-agent/config.go`.
+For the YAML configuration structure and field descriptions, see the inline documentation in `pkg/workflow/workflow.go` and `pkg/workflow/steps/download.go`.
