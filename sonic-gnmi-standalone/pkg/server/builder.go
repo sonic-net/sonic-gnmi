@@ -1,4 +1,34 @@
 // Package server provides a builder pattern for creating gRPC servers with configurable services.
+//
+// The ServerBuilder pattern provides:
+//   - Clean separation between infrastructure and services
+//   - Dynamic service enablement/disablement
+//   - Programmatic TLS/mTLS configuration
+//   - Configuration-driven service selection
+//   - Easy extension for new services
+//
+// Example usage:
+//
+//	// Basic server with gNOI System service
+//	srv, err := server.NewServerBuilder().
+//	    WithAddress(":50055").
+//	    WithRootFS("/mnt/host").
+//	    EnableGNOISystem().
+//	    Build()
+//
+//	// Server with TLS
+//	srv, err := server.NewServerBuilder().
+//	    WithAddress(":50055").
+//	    WithTLS("server.crt", "server.key").
+//	    EnableGNOISystem().
+//	    Build()
+//
+//	// Server with mTLS
+//	srv, err := server.NewServerBuilder().
+//	    WithAddress(":50055").
+//	    WithMTLS("server.crt", "server.key", "ca.crt").
+//	    EnableServices([]string{"gnoi.system"}).
+//	    Build()
 package server
 
 import (

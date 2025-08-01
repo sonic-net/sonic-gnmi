@@ -38,13 +38,4 @@ make build
 - **workflow-example.yaml**: Single-step workflow example
 - **multi-step-workflow.yaml**: Multiple download steps in sequence
 
-## Notes
-
-1. Server address and TLS settings are specified via command-line flags, not in YAML
-2. For real packages, you'll need to calculate the actual MD5 checksum:
-   ```bash
-   curl -s http://httpbin.org/bytes/1048576 | md5sum
-   ```
-3. The `filename` path must be absolute and writable on the target device
-4. Set `activate: true` if you want to activate the package after installation
-5. YAML files are now reusable across different environments since server details are separate
+For the YAML configuration structure and field descriptions, see the inline documentation in `cmd/upgrade-agent/config.go`.
