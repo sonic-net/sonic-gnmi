@@ -112,13 +112,13 @@ func CreateTablePathsFromQueries(queries [][]string) ([]sdc.TablePath, error) {
 	return allPaths, nil
 }
 
-func RemapAliasToPortName(countersOutput map[string]interface{}) map[string]interface{} {
+func RemapAliasToPortName(portData map[string]interface{}) map[string]interface{} {
 	aliasMap := sdc.AliasToPortNameMap()
 	remapped := make(map[string]interface{})
 
 	needRemap := false
 
-	for key := range countersOutput {
+	for key := range portData {
 		if _, isAlias := aliasMap[key]; isAlias {
 			needRemap = true
 			break
@@ -126,10 +126,10 @@ func RemapAliasToPortName(countersOutput map[string]interface{}) map[string]inte
 	}
 
 	if !needRemap { // Not an alias keyed map, no-op
-		return countersOutput
+		return portData
 	}
 
-	for alias, val := range countersOutput {
+	for alias, val := range portData {
 		if portName, ok := aliasMap[alias]; ok {
 			remapped[portName] = val
 		}

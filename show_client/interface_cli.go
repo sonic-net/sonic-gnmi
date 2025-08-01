@@ -94,6 +94,9 @@ func getInterfaceCounters(prefix, path *gnmipb.Path) ([]byte, error) {
 			takeDiffSnapshot = true
 			period = periodValue
 		}
+		if periodValue > maxShowCommandPeriod {
+			return nil, fmt.Errorf("period value must be <= %v", maxShowCommandPeriod)
+		}
 	}
 
 	oldSnapshot, err := getInterfaceCountersSnapshot(ifaces)

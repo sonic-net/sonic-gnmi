@@ -25,6 +25,7 @@ func TestGetShowClock(t *testing.T) {
 	s := createServer(t, ServerPort)
 	go runServer(t, s)
 	defer s.ForceStop()
+	defer ResetDataSetsAndMappings(t)
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}

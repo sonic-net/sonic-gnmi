@@ -69,3 +69,12 @@ func AddDataSet(t *testing.T, dbNum int, fileName string) {
 	fileContent := loadConfig(t, "", fileContentBytes)
 	loadDB(t, rclient, fileContent)
 }
+
+func ResetDataSetsAndMappings(t *testing.T) {
+	FlushDataSet(t, ApplDbNum)
+	FlushDataSet(t, AsicDbNum)
+	FlushDataSet(t, CountersDbNum)
+	FlushDataSet(t, ConfigDbNum)
+	FlushDataSet(t, StateDbNum)
+	sdc.ClearMappings()
+}

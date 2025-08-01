@@ -22,6 +22,7 @@ func TestGetInterfaceCounters(t *testing.T) {
 	s := createServer(t, ServerPort)
 	go runServer(t, s)
 	defer s.ForceStop()
+	defer ResetDataSetsAndMappings(t)
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
@@ -47,9 +48,7 @@ func TestGetInterfaceCounters(t *testing.T) {
 	interfaceCountersSelectPorts := `{"Ethernet0":{"State":"U","RxOk":"149903","RxBps":"25.12 B/s","RxUtil":"0.00%","RxErr":"0","RxDrp":"957","RxOvr":"0","TxOk":"144782","TxBps":"773.23 KB/s","TxUtil":"0.01%","TxErr":"0","TxDrp":"2","TxOvr":"0"}}`
 	interfaceCountersDiff := `{"Ethernet0":{"State":"U","RxOk":"11658","RxBps":"21.39 B/s","RxUtil":"0.00%","RxErr":"0","RxDrp":"76","RxOvr":"0","TxOk":"11270","TxBps":"634.00 KB/s","TxUtil":"0.01%","TxErr":"0","TxDrp":"0","TxOvr":"0"}}`
 
-	FlushDataSet(t, CountersDbNum)
-	FlushDataSet(t, ApplDbNum)
-	FlushDataSet(t, ConfigDbNum)
+	ResetDataSetsAndMappings(t)
 
 	tests := []struct {
 		desc        string
