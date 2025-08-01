@@ -1,11 +1,35 @@
-// Package upgrade provides reusable SONiC package upgrade operations.
-// This package can be used by various SONiC management tools to perform
-// package installations via gNOI SetPackage RPC.
+// Package upgrade provides client-side operations for SONiC package upgrades via gNOI.
+//
+// This package abstracts the complexity of gNOI System.SetPackage operations and provides
+// validation, error handling, and a clean API for upgrade tools. It is designed to be
+// reusable across different SONiC management utilities.
+//
+// Key features:
+//   - Configuration-agnostic through the Config interface
+//   - Built-in validation for URLs, MD5 checksums, and server addresses
+//   - Support for both secure (TLS) and insecure connections
+//   - Comprehensive error messages for troubleshooting
 package upgrade
 
 // Config defines the interface for package upgrade configuration.
 // Different tools can implement this interface with their own config formats
 // (YAML, JSON, command-line flags, etc.) while using the same upgrade logic.
+//
+// Example implementation:
+//
+//	type MyConfig struct {
+//	    PackageURL string `json:"package_url"`
+//	    Filename   string `json:"filename"`
+//	    MD5        string `json:"md5"`
+//	    Version    string `json:"version"`
+//	    Activate   bool   `json:"activate"`
+//	}
+//
+//	func (c *MyConfig) GetPackageURL() string { return c.PackageURL }
+//	func (c *MyConfig) GetFilename() string   { return c.Filename }
+//	func (c *MyConfig) GetMD5() string        { return c.MD5 }
+//	func (c *MyConfig) GetVersion() string    { return c.Version }
+//	func (c *MyConfig) GetActivate() bool     { return c.Activate }
 type Config interface {
 	// GetPackageURL returns the HTTP URL to download the package from.
 	GetPackageURL() string

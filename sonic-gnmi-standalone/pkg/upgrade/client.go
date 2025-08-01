@@ -11,8 +11,38 @@ import (
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/client/gnoi"
 )
 
+const (
+	// MD5Length is the expected length of an MD5 checksum in hexadecimal
+	MD5Length = 32
+
+	// MD5Pattern is the regex pattern for valid MD5 checksums
+	MD5Pattern = "^[a-fA-F0-9]+$"
+)
+
 // ApplyConfig performs a package upgrade using the provided configuration.
 // This is the main entry point for config-driven upgrades (e.g., from YAML files).
+//
+// The function will:
+//  1. Validate the configuration for required fields and correct formats
+//  2. Validate the server address format (host:port)
+//  3. Create a gNOI client connection (with or without TLS)
+//  4. Execute the SetPackage RPC with the specified parameters
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout control
+//   - cfg: Configuration implementing the Config interface (validated before use)
+//   - serverAddr: Target device address in "host:port" format
+//   - useTLS: Whether to use TLS for the gRPC connection
+//
+// Returns:
+//   - nil on success
+//   - Error with context about what failed (validation, connection, or RPC)
+//
+// Example:
+//
+//	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+//	defer cancel()
+//	err := ApplyConfig(ctx, config, "device:50055", true)
 func ApplyConfig(ctx context.Context, cfg Config, serverAddr string, useTLS bool) error {
 	// Validate configuration
 	if err := ValidateConfig(cfg); err != nil {
@@ -103,20 +133,20 @@ func validateURL(urlStr string) error {
 
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		return fmt.Errorf("invalid URL format: %w", err)
+		return fmt.Errorf("invalid URL format '%s': %w", urlStr, err)
 	}
 
 	if parsedURL.Scheme == "" {
-		return fmt.Errorf("URL must include scheme (http/https)")
+		return fmt.Errorf("URL must include scheme (http/https), got: '%s'", urlStr)
 	}
 
 	if parsedURL.Host == "" {
-		return fmt.Errorf("URL must include host")
+		return fmt.Errorf("URL must include host, got: '%s'", urlStr)
 	}
 
 	// Check for supported schemes
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return fmt.Errorf("unsupported URL scheme '%s', must be http or https", parsedURL.Scheme)
+		return fmt.Errorf("unsupported URL scheme '%s', must be 'http' or 'https'", parsedURL.Scheme)
 	}
 
 	return nil
@@ -152,12 +182,12 @@ func validateMD5(md5 string) error {
 	}
 
 	// MD5 should be exactly 32 hex characters
-	if len(md5) != 32 {
-		return fmt.Errorf("MD5 checksum must be 32 characters, got %d", len(md5))
+	if len(md5) != MD5Length {
+		return fmt.Errorf("MD5 checksum must be %d characters, got %d", MD5Length, len(md5))
 	}
 
 	// Check if all characters are valid hex
-	matched, err := regexp.MatchString("^[a-fA-F0-9]+$", md5)
+	matched, err := regexp.MatchString(MD5Pattern, md5)
 	if err != nil {
 		return fmt.Errorf("failed to validate MD5 format: %w", err)
 	}

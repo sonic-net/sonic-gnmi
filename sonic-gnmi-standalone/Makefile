@@ -213,7 +213,7 @@ test-certs: ## Generate test certificates for TLS testing
 # Build Targets
 ##############################################################################
 
-# Build the server
+# Build the server, sonic-gnmi CLI, and upgrade-agent
 build: ## Build the sonic-gnmi-standalone, sonic-gnmi, and upgrade-agent binaries
 	go build -tags "$(BUILD_TAGS)" -o bin/sonic-gnmi-standalone cmd/server/main.go
 	go build -tags "$(BUILD_TAGS)" -o bin/sonic-gnmi cmd/sonic-gnmi/main.go
