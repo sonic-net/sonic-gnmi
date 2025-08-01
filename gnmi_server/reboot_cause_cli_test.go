@@ -136,6 +136,8 @@ func TestGetShowRebootCauseHistory(t *testing.T) {
 	rebootCauseHistoryPowerLossFileName := "../testdata/REBOOT_CAUSE_POWER_LOSS.txt"
 	rebootCauseHistoryPowerLoss := `{"2025_07_09_04_44_38":{"cause":"reboot","comment":"N/A","time":"Wed Jul  9 04:41:09 AM UTC 2025","user":"admin"},"2025_07_09_05_11_26":{"cause":"reboot","comment":"N/A","time":"Wed Jul  9 05:07:59 AM UTC 2025","user":"admin"},"2025_07_09_06_52_52":{"cause":"fast-reboot","comment":"N/A","time":"Wed Jul  9 06:50:57 AM UTC 2025","user":"admin"},"2025_07_09_09_23_16":{"cause":"Power Loss","comment":"Unknown","time":"N/A","user":"N/A"},"2025_07_09_09_33_28":{"cause":"Power Loss","comment":"Unknown","time":"N/A","user":"N/A"},"2025_07_09_17_46_25":{"cause":"reboot","comment":"N/A","time":"Wed Jul  9 05:42:44 PM UTC 2025","user":"admin"},"2025_07_10_02_58_57":{"cause":"reboot","comment":"N/A","time":"Thu Jul 10 02:55:28 AM UTC 2025","user":""},"2025_07_10_05_00_09":{"cause":"Power Loss","comment":"Unknown","time":"N/A","user":"N/A"},"2025_07_10_05_27_16":{"cause":"reboot","comment":"N/A","time":"Thu Jul 10 05:23:48 AM UTC 2025","user":"admin"},"2025_07_10_06_31_24":{"cause":"Kernel Panic - Out of memory [Time: Thu Jul 10 06:28:29 AM UTC 2025]","comment":"N/A","time":"N/A","user":"N/A"}}`
 
+	FlushDataSet(t, StateDbNum)
+
 	tests := []struct {
 		desc        string
 		pathTarget  string
@@ -179,6 +181,7 @@ func TestGetShowRebootCauseHistory(t *testing.T) {
 			wantRespVal: []byte(rebootCauseHistoryHardware),
 			valTest:     true,
 			testInit: func() {
+				FlushDataSet(t, StateDbNum)
 				AddDataSet(t, StateDbNum, rebootCauseHistoryHardwareFileName)
 			},
 		},
@@ -193,6 +196,7 @@ func TestGetShowRebootCauseHistory(t *testing.T) {
 			wantRespVal: []byte(rebootCauseHistoryKernel),
 			valTest:     true,
 			testInit: func() {
+				FlushDataSet(t, StateDbNum)
 				AddDataSet(t, StateDbNum, rebootCauseHistoryKernelFileName)
 			},
 		},
@@ -207,6 +211,7 @@ func TestGetShowRebootCauseHistory(t *testing.T) {
 			wantRespVal: []byte(rebootCauseHistoryPowerLoss),
 			valTest:     true,
 			testInit: func() {
+				FlushDataSet(t, StateDbNum)
 				AddDataSet(t, StateDbNum, rebootCauseHistoryPowerLossFileName)
 			},
 		},

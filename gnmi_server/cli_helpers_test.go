@@ -12,9 +12,13 @@ import (
 )
 
 const (
-	ServerPort   = 8081
-	StateDbNum   = 6
-	ConfigDbNum  = 4
+	ServerPort    = 8081
+	ApplDbNum     = 0
+	AsicDbNum     = 1
+	CountersDbNum = 2
+	ConfigDbNum   = 4
+	StateDbNum    = 6
+
 	TargetAddr   = "127.0.0.1:8081"
 	QueryTimeout = 10
 )
@@ -56,7 +60,6 @@ func AddDataSet(t *testing.T, dbNum int, fileName string) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, dbNum, ns)
 	defer rclient.Close()
-	rclient.FlushDB()
 
 	fileContentBytes, err := ioutil.ReadFile(fileName)
 	if err != nil {
