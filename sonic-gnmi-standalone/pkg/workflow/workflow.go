@@ -1,26 +1,11 @@
-// Package workflow provides a flexible framework for executing multi-step operations
-// in SONiC network devices. It supports pluggable step types through a registry pattern,
-// allowing easy extension for new operation types like package downloads, configuration
-// pushes, and system operations.
+// Package workflow executes multi-step operations from YAML files.
 //
-// The workflow system follows these design principles:
-//   - Type safety: Each step type has its own struct with proper field validation
-//   - Extensibility: New step types can be added without modifying existing code
-//   - Testability: Each component can be tested independently
-//   - Separation of concerns: Workflow logic is separate from CLI and transport concerns
+// Usage:
 //
-// Basic usage:
-//
-//	// Load workflow from YAML file
 //	workflow, err := LoadWorkflowFromFile("workflow.yaml")
-//	if err != nil {
-//		return err
-//	}
-//
-//	// Create execution engine with step registry
+//	registry := NewRegistry()
+//	registry.Register("download", steps.NewDownloadStep)
 //	engine := NewEngine(registry)
-//
-//	// Execute workflow
 //	err = engine.Execute(ctx, workflow, client)
 package workflow
 

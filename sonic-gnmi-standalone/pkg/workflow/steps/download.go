@@ -1,13 +1,4 @@
-// Package steps provides implementations of workflow step types for SONiC operations.
-//
-// Each step type is responsible for:
-//   - Parsing its parameters from YAML configuration
-//   - Validating parameters for correctness and completeness
-//   - Executing the operation using appropriate service clients
-//   - Providing clear error messages with context
-//
-// Step implementations should be stateless and thread-safe to support
-// potential future parallel execution of workflow steps.
+// Package steps contains workflow step implementations like download, push-config, etc.
 package steps
 
 import (
