@@ -3,6 +3,7 @@ package show_client
 import (
 	"encoding/json"
 	log "github.com/golang/glog"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"io/fs"
 	"path/filepath"
 	"sort"
@@ -17,7 +18,7 @@ func SetTimezonesDir(dirPath string) {
 	zoneInfoDirPath = dirPath
 }
 
-func getDate() ([]byte, error) {
+func getDate(prefix, path *gnmipb.Path) ([]byte, error) {
 	currentDate := time.Now().UTC().Format(time.UnixDate)
 	dateResponse := map[string]interface{}{
 		"date": currentDate,
@@ -25,7 +26,7 @@ func getDate() ([]byte, error) {
 	return json.Marshal(dateResponse)
 }
 
-func getDateTimezone() ([]byte, error) {
+func getDateTimezone(prefix, path *gnmipb.Path) ([]byte, error) {
 	timezones, err := zoneInfoRunner(zoneInfoDirPath)
 	if err != nil {
 		log.Errorf("Unable to get list of timezones from %v, %v", zoneInfoDirPath, err)
