@@ -34,4 +34,8 @@ func init() {
 		[]string{"SHOW", "interface", "errors"},
 		getIntfErrors,
 	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "watermark", "telemetry", "interval"},
+		getWatermarkTelemetryInterval,
+	)
 }
