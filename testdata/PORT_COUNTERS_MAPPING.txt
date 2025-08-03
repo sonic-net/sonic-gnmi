@@ -1,0 +1,7 @@
+{
+	"COUNTERS_PORT_NAME_MAP": {
+		"Ethernet40": "oid:0x100000000000c",
+		"Ethernet0": "oid:0x1000000000002",
+		"Ethernet80": "oid:0x1000000000016"
+	}
+}

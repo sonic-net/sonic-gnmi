@@ -1,0 +1,38 @@
+{
+  "PORT|Ethernet0": {
+    "admin_status": "up",
+    "alias": "etp0",
+    "description": "ARISTA01T1:Ethernet1",
+    "fec": "rs",
+    "index": "0",
+    "lanes": "2304,2305,2306,2307",
+    "mtu": "9100",
+    "pfc_asym": "off",
+    "speed": "100000",
+    "tpid": "0x8100"
+  },
+  "PORT|Ethernet40": {
+    "admin_status": "up",
+    "alias": "etp10",
+    "description": "Servers4:eth0",
+    "fec": "rs",
+    "index": "10",
+    "lanes": "2048,2049,2050,2051",
+    "mtu": "9100",
+    "pfc_asym": "off",
+    "speed": "100000",
+    "tpid": "0x8100"
+  },
+  "PORT|Ethernet80": {
+    "admin_status": "up",
+    "alias": "etp20",
+    "description": "ARISTA04T1:Ethernet1",
+    "fec": "rs",
+    "index": "20",
+    "lanes": "2568,2569,2570,2571",
+    "mtu": "9100",
+    "pfc_asym": "off",
+    "speed": "100000",
+    "tpid": "0x8100"
+  }
+}
