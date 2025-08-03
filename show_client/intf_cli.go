@@ -59,7 +59,7 @@ func getIntfErrors(prefix, path *gnmipb.Path) ([]byte, error) {
 		portErrors = append(portErrors, []string{
 			strings.Replace(strings.Replace(portError[0], "_", " ", -1), " count", "", -1),
 			count,
-			timestamp}
+			timestamp},
 		)
 	}
 
