@@ -60,10 +60,6 @@ func TestGetShowInterfaceErrors(t *testing.T) {
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(intfErrorsEmpty),
 			valTest:     true,
-			testInit: func() {
-				// Setup empty PORT_OPERR_TABLE data
-				AddDataSet(t, StateDbNum, "../testdata/INTERFACE_ERRORS_EMPTY.txt")
-			},
 		},
 		{
 			desc:       "query SHOW interface errors - with error data",
@@ -76,6 +72,7 @@ func TestGetShowInterfaceErrors(t *testing.T) {
 			wantRespVal: []byte(intfErrorsWithData),
 			valTest:     true,
 			testInit: func() {
+				FlushDataSet(t, StateDbNum)
 				// Setup PORT_OPERR_TABLE data with some errors
 				AddDataSet(t, StateDbNum, "../testdata/INTERFACE_ERRORS_WITH_DATA.txt")
 			},
