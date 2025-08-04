@@ -178,7 +178,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
 		CrlExpireDuration:     fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
 		OutputQueSize:         fs.Uint64("output_queue_size", 100, "Output Queue Maximum Size (MB)"),
-		MaxSubscribers:        fs.Uint64("maximum_subscribers", 2, "Maximum amount of subscribers"),
+		MaxSubscribers:        fs.Uint64("maximum_subscribers", 10, "Maximum amount of subscribers"),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -244,7 +244,6 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.ConfigTableName = *telemetryCfg.ConfigTableName
 	cfg.Vrf = *telemetryCfg.Vrf
 	cfg.EnableCrl = *telemetryCfg.EnableCrl
-	// cfg.OutputQueSize = *telemetryCfg.OutputQueSize * uint64(1e6)
 	cfg.MaxNumSubscribers = *telemetryCfg.MaxSubscribers
 
 	gnmi.SetCrlExpireDuration(time.Duration(*telemetryCfg.CrlExpireDuration) * time.Second)

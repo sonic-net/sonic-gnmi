@@ -1,3 +1,41 @@
+// Package main implements the sonic-gnmi-standalone server.
+//
+// Available command-line flags:
+//
+//	-addr string
+//	    The address to listen on (default ":50055")
+//	-rootfs string
+//	    Root filesystem mount point (default "/mnt/host")
+//	-shutdown-timeout duration
+//	    Maximum time to wait for graceful shutdown (default 10s)
+//	-tls-cert string
+//	    Path to TLS certificate file (default "server.crt" if TLS enabled)
+//	-tls-key string
+//	    Path to TLS private key file (default "server.key" if TLS enabled)
+//	-tls-ca-cert string
+//	    Path to TLS CA certificate file for client verification
+//	-no-tls
+//	    Disable TLS (TLS is enabled by default)
+//	-mtls
+//	    Enable mutual TLS (requires CA certificate)
+//	-v int
+//	    Verbose logging level (0-2)
+//	-logtostderr
+//	    Log to stderr instead of files
+//
+// Examples:
+//
+//	# Basic usage with default settings
+//	./sonic-gnmi-standalone
+//
+//	# With custom address and verbose logging
+//	./sonic-gnmi-standalone -addr=:8080 -v=2 -logtostderr
+//
+//	# With TLS disabled
+//	./sonic-gnmi-standalone -no-tls
+//
+//	# With mTLS enabled
+//	./sonic-gnmi-standalone -mtls -tls-ca-cert=ca.crt
 package main
 
 import (
@@ -25,7 +63,8 @@ func main() {
 	// Create a new server instance using the builder pattern
 	builder := server.NewServerBuilder().
 		WithAddress(config.Global.Addr).
-		WithRootFS(config.Global.RootFS)
+		WithRootFS(config.Global.RootFS).
+		EnableGNOISystem()
 
 	// Configure TLS based on command-line flags
 	if !config.Global.TLSEnabled {

@@ -100,7 +100,6 @@ type Config struct {
 	Vrf                 string
 	EnableCrl           bool
 	MaxNumSubscribers   uint64
-	OutputQueSize       uint64
 }
 
 var AuthLock sync.Mutex

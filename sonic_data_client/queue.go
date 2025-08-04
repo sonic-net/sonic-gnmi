@@ -25,14 +25,18 @@ func (q *LimitedQueue) EnqueueItem(item Value) error {
 	q.queueLengthLock.Lock()
 	defer q.queueLengthLock.Unlock()
 	ilen := (uint64)(proto.Size(item.Val))
+	queue_length := fmt.Sprintf("QUEUE SIZE: %v", q.maxSize)
+	fmt.Println(queue_length)
+	queue_ilen := fmt.Sprintf("ILEN: %v", ilen)
+	fmt.Println(queue_ilen)
+	length_sum := fmt.Sprintf("LENGTH: %v", q.queueLengthSum)
+	fmt.Println(length_sum)
 	if item.Notification != nil {
 		ilen = (uint64)(proto.Size(item.Notification))
 	}
 	if ilen+q.queueLengthSum < q.maxSize {
 		q.queueLengthSum += ilen
 		log.V(2).Infof("Output queue size: %d", q.queueLengthSum)
-		queue_length := fmt.Sprintf("QUEUE SIZE: %v", q.maxSize)
-		fmt.Println(queue_length)
 		return q.Q.Put(item)
 	} else {
 		log.Error("Telemetry output queue full, closing subscription!")

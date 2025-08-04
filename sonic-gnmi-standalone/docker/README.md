@@ -19,7 +19,7 @@ docker run -d --name sonic-gnmi --network host sonic-gnmi-standalone:latest --no
 
 ```bash
 # Option 1: Use deployment script
-./docker/build_deploy_testonly.sh -t admin@sonic-device
+./tests/scripts/build_run_docker_testonly.sh -t admin@sonic-device
 
 # Option 2: Manual
 docker save sonic-gnmi-standalone:latest | ssh admin@sonic-device 'docker load'

@@ -170,10 +170,8 @@ lint: validate-golangci-lint ## Run golangci-lint
 test: ## Run all tests
 	go test ./... -timeout 2m
 
-# Run loopback integration tests
-test-loopback: ## Run loopback integration tests for TLS/mTLS connections
-	@echo "Running loopback integration tests..."
-	go test -v ./tests/loopback/ -timeout 2m
+test-loopback: ## Run loopback integration tests
+	go test ./tests/loopback/... -v
 
 # Run all tests with coverage
 test-coverage: ## Run all tests with coverage report
@@ -215,9 +213,10 @@ test-certs: ## Generate test certificates for TLS testing
 # Build Targets
 ##############################################################################
 
-# Build the server
-build: ## Build the sonic-gnmi-standalone binary
+# Build the server and upgrade-agent
+build: ## Build the sonic-gnmi-standalone and upgrade-agent binaries
 	go build -tags "$(BUILD_TAGS)" -o bin/sonic-gnmi-standalone cmd/server/main.go
+	go build -tags "$(BUILD_TAGS)" -o bin/upgrade-agent ./cmd/upgrade-agent/
 
 # Build all packages
 build-all: ## Build all packages (validate only)
