@@ -26,4 +26,8 @@ func init() {
 		[]string{"SHOW", "ipv6", "bgp", "summary"},
 		getIPv6BGPSummary,
 	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "interface", "counters"},
+		getInterfaceCounters,
+	)
 }

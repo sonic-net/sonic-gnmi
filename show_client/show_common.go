@@ -7,6 +7,8 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	"os/exec"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -16,7 +18,10 @@ const (
 	minQueryLength = 2 // We need to support TARGET/TABLE as a minimum query
 	maxQueryLength = 5 // We can support up to 5 elements in query (TARGET/TABLE/(2 KEYS)/FIELD)
 
-	hostNamespace = "1" // PID 1 is the host init process
+	hostNamespace              = "1" // PID 1 is the host init process
+	defaultMissingCounterValue = "N/A"
+	base10                     = 10
+	maxShowCommandPeriod       = 300 // Max time allotted for SHOW commands period argument
 )
 
 func GetDataFromHostCommand(command string) (string, error) {
@@ -48,7 +53,11 @@ func GetDataFromFile(fileName string) ([]byte, error) {
 	return fileContent, nil
 }
 
-func GetMapFromTablePaths(tblPaths []sdc.TablePath) (map[string]interface{}, error) {
+func GetMapFromQueries(queries [][]string) (map[string]interface{}, error) {
+	tblPaths, err := CreateTablePathsFromQueries(queries)
+	if err != nil {
+		return nil, err
+	}
 	msi := make(map[string]interface{})
 	for _, tblPath := range tblPaths {
 		err := sdc.TableData2Msi(&tblPath, false, nil, &msi)
@@ -59,8 +68,8 @@ func GetMapFromTablePaths(tblPaths []sdc.TablePath) (map[string]interface{}, err
 	return msi, nil
 }
 
-func GetDataFromTablePaths(tblPaths []sdc.TablePath) ([]byte, error) {
-	msi, err := GetMapFromTablePaths(tblPaths)
+func GetDataFromQueries(queries [][]string) ([]byte, error) {
+	msi, err := GetMapFromQueries(queries)
 	if err != nil {
 		return nil, err
 	}
@@ -101,4 +110,90 @@ func CreateTablePathsFromQueries(queries [][]string) ([]sdc.TablePath, error) {
 		}
 	}
 	return allPaths, nil
+}
+
+func RemapAliasToPortName(portData map[string]interface{}) map[string]interface{} {
+	aliasMap := sdc.AliasToPortNameMap()
+	remapped := make(map[string]interface{})
+
+	needRemap := false
+
+	for key := range portData {
+		if _, isAlias := aliasMap[key]; isAlias {
+			needRemap = true
+			break
+		}
+	}
+
+	if !needRemap { // Not an alias keyed map, no-op
+		return portData
+	}
+
+	for alias, val := range portData {
+		if portName, ok := aliasMap[alias]; ok {
+			remapped[portName] = val
+		}
+	}
+	return remapped
+}
+
+func ParseOptionsFromPath(path *gnmipb.Path, optionName string) []string {
+	output := []string{}
+	for _, elem := range path.GetElem() {
+		if option, ok := elem.GetKey()[optionName]; ok {
+			for _, optionValues := range strings.Split(option, ",") {
+				if optionValue := strings.TrimSpace(optionValues); optionValue != "" {
+					output = append(output, optionValue)
+				}
+			}
+			break
+		}
+	}
+	return output
+}
+
+func GetFieldValueString(data map[string]interface{}, key string, defaultValue string, field string) string {
+	entry, ok := data[key].(map[string]interface{})
+	if !ok {
+		return defaultValue
+	}
+
+	value, ok := entry[field]
+	if !ok {
+		return defaultValue
+	}
+	return fmt.Sprint(value)
+}
+
+func GetSumFields(data map[string]interface{}, key string, defaultValue string, fields ...string) (sum string) {
+	defer func() {
+		if r := recover(); r != nil {
+			sum = defaultValue
+		}
+	}()
+	var total int64
+	for _, field := range fields {
+		value := GetFieldValueString(data, key, defaultValue, field)
+		if intValue, err := strconv.ParseInt(value, base10, 64); err != nil {
+			return defaultValue
+		} else {
+			total += intValue
+		}
+	}
+	return strconv.FormatInt(total, base10)
+}
+
+func calculateDiffCounters(oldCounter string, newCounter string, defaultValue string) string {
+	if oldCounter == defaultValue || newCounter == defaultValue {
+		return defaultValue
+	}
+	oldCounterValue, err := strconv.ParseInt(oldCounter, base10, 64)
+	if err != nil {
+		return defaultValue
+	}
+	newCounterValue, err := strconv.ParseInt(newCounter, base10, 64)
+	if err != nil {
+		return defaultValue
+	}
+	return strconv.FormatInt(newCounterValue-oldCounterValue, base10)
 }

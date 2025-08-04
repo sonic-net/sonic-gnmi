@@ -3,6 +3,7 @@ package show_client
 import (
 	"encoding/json"
 	log "github.com/golang/glog"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
 type IPv6BGPSummaryResponse struct {
@@ -41,7 +42,7 @@ var (
 	vtyshBGPIPv6SummaryCommand = "vtysh -c \"show bgp ipv6 summary json\""
 )
 
-func getIPv6BGPSummary() ([]byte, error) {
+func getIPv6BGPSummary(prefix, path *gnmipb.Path) ([]byte, error) {
 	// Get data from vtysh command
 	vtyshOutput, err := GetDataFromHostCommand(vtyshBGPIPv6SummaryCommand)
 	if err != nil {
@@ -59,19 +60,11 @@ func getIPv6BGPSummary() ([]byte, error) {
 		{"CONFIG_DB", "BGP_NEIGHBOR"},
 	}
 
-	tblPaths, err := CreateTablePathsFromQueries(queries)
+	bgpNeighborTableOutput, err := GetMapFromQueries(queries)
 	if err != nil {
-		log.Errorf("Unable to create table paths from queries %v, %v", queries, err)
+		log.Errorf("Unable to pull data for queries %v, got err %v", queries, err)
 		return nil, err
 	}
-
-	bgpNeighborTableOutput, err := GetMapFromTablePaths(tblPaths)
-	if err != nil {
-		log.Errorf("Unable to pull data for tblPaths %v, got err %v", tblPaths, err)
-		return nil, err
-	}
-
-	log.V(1).Infof("%v", bgpNeighborTableOutput)
 
 	// Modify vtysh data to use neighbor name from CONFIG DB
 	for ip, peer := range vtyshResponse.IPv6Unicast.Peers {
