@@ -1,0 +1,15 @@
+apiVersion: sonic.net/v1
+kind: UpgradeConfig
+metadata:
+  name: dev-upgrade
+spec:
+  firmware:
+    desiredVersion: "SONiC-OS-master.123456"
+    downloadUrl: "https://sonic-build.azurewebsites.net/api/sonic/artifacts?branchName=master&platform=vs&target=target/sonic-vs.bin"
+    savePath: "/tmp/sonic-images/"
+  download:
+    connectTimeout: 30
+    totalTimeout: 300
+  server:
+    address: "localhost:50051"
+    tlsEnabled: false
