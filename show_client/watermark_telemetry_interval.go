@@ -25,5 +25,13 @@ func getWatermarkTelemetryInterval(prefix, path *gnmipb.Path) ([]byte, error) {
 		log.Errorf("Unable to get data from queries %v, got err: %v", queries, err)
 		return nil, err
 	}
+
+	log.Infof("Data from GetDataFromQueries: %s", string(data))
+
+	// Check if the response is empty
+	if len(data) == 0 || string(data) == "{}" {
+		log.V(2).Info("TELEMETRY_INTERVAL not found in CONFIG_DB, returning default value 120s")
+		return []byte(`{"interval": "120"}`), nil
+	}
 	return data, nil
 }
