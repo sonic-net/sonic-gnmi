@@ -2,10 +2,10 @@ package show_client
 
 import (
 	"encoding/json"
-	"strings"
 	"fmt"
 	log "github.com/golang/glog"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	"strings"
 )
 
 const ALL_PORT_ERRORS = [][]string{
@@ -40,7 +40,7 @@ func getIntfErrors(prefix, path *gnmipb.Path) ([]byte, error) {
 	portErrorsTbl = RemapAliasToPortName(portErrorsTbl)
 
 	// Format the port errors data
-	portErrors := make([][]string, 0, len(ALL_PORT_ERRORS) + 1)
+	portErrors := make([][]string, 0, len(ALL_PORT_ERRORS)+1)
 	// Append the table header
 	portErrors = append(portErrors, []string{"Port Errors", "Count", "Last timestamp(UTC)"})
 	// Iterate through all port errors types and create the result
