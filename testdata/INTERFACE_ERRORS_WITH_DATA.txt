@@ -7,6 +7,6 @@
         "fec_sync_loss_count": "1",
         "fec_sync_loss_time": "2024-01-15T10:20:15Z",
         "data_unit_crc_error_count": "5",
-        "data_unit_crc_error_time": "2024-01-15T10:35:20Z",
+        "data_unit_crc_error_time": "2024-01-15T10:35:20Z"
     }
 }
