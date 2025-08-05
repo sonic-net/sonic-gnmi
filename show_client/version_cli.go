@@ -12,6 +12,7 @@ import (
 	"time"
 
 	log "github.com/golang/glog"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
 const (
