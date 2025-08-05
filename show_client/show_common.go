@@ -12,9 +12,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	"gopkg.in/yaml.v2"
-	"os/exec"
 	"strconv"
-	"strings"
 )
 
 const (
