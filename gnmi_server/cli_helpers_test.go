@@ -9,6 +9,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+    show_client "github.com/sonic-net/sonic-gnmi/show_client"
 )
 
 const (
