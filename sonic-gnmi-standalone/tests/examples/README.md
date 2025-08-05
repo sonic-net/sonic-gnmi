@@ -1,23 +1,23 @@
 # Upgrade Agent Examples
 
-This directory contains example YAML configuration files for the upgrade-agent tool.
+This directory contains example YAML workflow configuration files for the upgrade-agent tool.
 
 ## Usage
 
 ### Using YAML configuration file
 
 ```bash
-# Build the upgrade-agent
+# Build the upgrade-agent (from project root)
 make build
 
 # Apply a workflow configuration from YAML file (server specified via flags)
-./bin/upgrade-agent apply examples/workflow-example.yaml --server localhost:50055
+./bin/upgrade-agent apply tests/examples/workflow-example.yaml --server localhost:50055
 
 # Apply a multi-step workflow
-./bin/upgrade-agent apply examples/multi-step-workflow.yaml --server localhost:50055
+./bin/upgrade-agent apply tests/examples/multi-step-workflow.yaml --server localhost:50055
 
 # With TLS enabled
-./bin/upgrade-agent apply examples/workflow-example.yaml --server localhost:50055 --tls
+./bin/upgrade-agent apply tests/examples/workflow-example.yaml --server localhost:50055 --tls
 ```
 
 ## Configuration Examples

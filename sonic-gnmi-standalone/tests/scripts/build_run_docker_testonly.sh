@@ -70,7 +70,7 @@ fi
 
 # Directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-ROOT_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
+ROOT_DIR="$( cd "$SCRIPT_DIR/../.." && pwd )"
 
 # Build the Docker image using make
 cd "$ROOT_DIR"
