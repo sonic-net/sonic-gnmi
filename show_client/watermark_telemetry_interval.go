@@ -34,6 +34,6 @@ func getWatermarkTelemetryInterval(prefix, path *gnmipb.Path) ([]byte, error) {
 	} else {
 		log.Info("Interval key not found, using default value 120s")
 	}
-	response := fmt.Sprintf("Telemetry interval %s second(s)", interval)
+	response := fmt.Sprintf("Telemetry interval: %s second(s)", interval)
 	return []byte(response), nil
 }
