@@ -161,12 +161,7 @@ func getAsicPresenceList() []int {
 			queries := [][]string{
 				{"CHASSIS_STATE_DB", "CHASSIS_FABRIC_ASIC_TABLE"},
 			}
-			tblPaths, err := CreateTablePathsFromQueries(queries)
-			if err != nil {
-				log.Errorf("Unable to create table paths from queries %v, %v", queries, err)
-				return nil
-			}
-			asicTblData, err := GetMapFromTablePaths(tblPaths)
+			asicTblData, err := GetMapFromQueries(queries)
 			if err != nil {
 				log.Errorf("Failed to get metadata from table paths: %v", err)
 				return nil
@@ -240,12 +235,7 @@ func getLocalhostInfo(field string) string {
 	queries := [][]string{
 		{"CONFIG_DB", "DEVICE_METADATA"},
 	}
-	tblPaths, err := CreateTablePathsFromQueries(queries)
-	if err != nil {
-		log.Errorf("Unable to create table paths from queries %v, %v", queries, err)
-		return ""
-	}
-	metadata, err := GetMapFromTablePaths(tblPaths)
+	metadata, err := GetMapFromQueries(queries)
 	if err != nil {
 		return ""
 	}
@@ -312,12 +302,7 @@ func getChassisInfo() (map[string]string, error) {
 		{"STATE_DB", "CHASSIS_INFO"},
 	}
 
-	tblPaths, err := CreateTablePathsFromQueries(queries)
-	if err != nil {
-		log.Errorf("Unable to create table paths from queries %v, %v", queries, err)
-		return nil, err
-	}
-	metadata, err := GetMapFromTablePaths(tblPaths)
+	metadata, err := GetMapFromQueries(queries)
 
 	if err != nil {
 		log.Errorf("Failed to get metadata from table paths: %v", err)
