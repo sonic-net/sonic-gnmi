@@ -13,9 +13,13 @@ import (
 )
 
 const (
-	ServerPort   = 8081
-	StateDbNum   = 6
-	ConfigDbNum  = 4
+	ServerPort    = 8081
+	ApplDbNum     = 0
+	AsicDbNum     = 1
+	CountersDbNum = 2
+	ConfigDbNum   = 4
+	StateDbNum    = 6
+
 	TargetAddr   = "127.0.0.1:8081"
 	QueryTimeout = 10
 	chassisStateDbNum = 13
@@ -58,7 +62,6 @@ func AddDataSet(t *testing.T, dbNum int, fileName string) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, dbNum, ns)
 	defer rclient.Close()
-	rclient.FlushDB()
 
 	fileContentBytes, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -78,4 +81,13 @@ func MockGetAsicConfFilePath(filePath string) string {
 
 func MockEnvironmentVariable(t *testing.T, key string, value string) {
 	t.Setenv(key, value)
+}
+
+func ResetDataSetsAndMappings(t *testing.T) {
+	FlushDataSet(t, ApplDbNum)
+	FlushDataSet(t, AsicDbNum)
+	FlushDataSet(t, CountersDbNum)
+	FlushDataSet(t, ConfigDbNum)
+	FlushDataSet(t, StateDbNum)
+	sdc.ClearMappings()
 }

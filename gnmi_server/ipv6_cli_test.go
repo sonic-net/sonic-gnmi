@@ -22,6 +22,7 @@ func TestGetIPv6BGPSummary(t *testing.T) {
 	s := createServer(t, ServerPort)
 	go runServer(t, s)
 	defer s.ForceStop()
+	defer ResetDataSetsAndMappings(t)
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
@@ -39,6 +40,8 @@ func TestGetIPv6BGPSummary(t *testing.T) {
 	bgpNeighborFileName := "../testdata/BGP_NEIGHBOR.txt"
 	ipv6BGPSummaryDefault := `{"ipv6Unicast":{"routerId":"00.00.0.00","as":64601,"vrfId":0,"tableVersion":19203,"ribCount":12807,"ribMemory":1639296,"peerCount":4,"peerMemory":96288,"peerGroupCount":4,"peerGroupMemory":256,"peers":{"aa00::12":{"version":4,"remoteAs":64802,"msgRcvd":9189,"msgSent":9192,"tableVersion":19203,"inq":0,"outq":0,"peerUptime":"4d03h44m","state":"Established","pfxRcd":6400,"NeighborName":"ARISTA03T1"},"aa00::1a":{"version":4,"remoteAs":64802,"msgRcvd":9189,"msgSent":9192,"tableVersion":19203,"inq":0,"outq":0,"peerUptime":"4d03h44m","state":"Established","pfxRcd":6400,"NeighborName":"ARISTA04T1"},"aa00::1":{"version":4,"remoteAs":64802,"msgRcvd":9191,"msgSent":9195,"tableVersion":19203,"inq":0,"outq":0,"peerUptime":"4d03h44m","state":"Established","pfxRcd":6400,"NeighborName":"ARISTA01T1"},"aa00::a":{"version":4,"remoteAs":64802,"msgRcvd":9189,"msgSent":9193,"tableVersion":19203,"inq":0,"outq":0,"peerUptime":"4d03h44m","state":"Established","pfxRcd":6400,"NeighborName":"ARISTA02T1"}}}}`
 	ipv6BGPSummaryNoNeighborName := `{"ipv6Unicast":{"routerId":"00.00.0.00","as":64601,"vrfId":0,"tableVersion":19203,"ribCount":12807,"ribMemory":1639296,"peerCount":4,"peerMemory":96288,"peerGroupCount":4,"peerGroupMemory":256,"peers":{"aa00::12":{"version":4,"remoteAs":64802,"msgRcvd":9189,"msgSent":9192,"tableVersion":19203,"inq":0,"outq":0,"peerUptime":"4d03h44m","state":"Established","pfxRcd":6400,"NeighborName":"NotAvailable"},"aa00::1a":{"version":4,"remoteAs":64802,"msgRcvd":9189,"msgSent":9192,"tableVersion":19203,"inq":0,"outq":0,"peerUptime":"4d03h44m","state":"Established","pfxRcd":6400,"NeighborName":"NotAvailable"},"aa00::1":{"version":4,"remoteAs":64802,"msgRcvd":9191,"msgSent":9195,"tableVersion":19203,"inq":0,"outq":0,"peerUptime":"4d03h44m","state":"Established","pfxRcd":6400,"NeighborName":"NotAvailable"},"aa00::a":{"version":4,"remoteAs":64802,"msgRcvd":9189,"msgSent":9193,"tableVersion":19203,"inq":0,"outq":0,"peerUptime":"4d03h44m","state":"Established","pfxRcd":6400,"NeighborName":"NotAvailable"}}}}`
+
+	ResetDataSetsAndMappings(t)
 
 	tests := []struct {
 		desc           string

@@ -1,21 +1,29 @@
 package show_client
 
-import log "github.com/golang/glog"
+import (
+	log "github.com/golang/glog"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+)
 
 const PreviousRebootCauseFilePath = "/host/reboot-cause/previous-reboot-cause.json"
 
-func getPreviousRebootCause() ([]byte, error) {
-	return GetDataFromFile(PreviousRebootCauseFilePath)
+func getPreviousRebootCause(prefix, path *gnmipb.Path) ([]byte, error) {
+	data, err := GetDataFromFile(PreviousRebootCauseFilePath)
+	if err != nil {
+		log.Errorf("Unable to get data from file %v, got err: %v", PreviousRebootCauseFilePath, err)
+		return nil, err
+	}
+	return data, nil
 }
 
-func getRebootCauseHistory() ([]byte, error) {
+func getRebootCauseHistory(prefix, path *gnmipb.Path) ([]byte, error) {
 	queries := [][]string{
 		{"STATE_DB", "REBOOT_CAUSE"},
 	}
-	tblPaths, err := CreateTablePathsFromQueries(queries)
+	data, err := GetDataFromQueries(queries)
 	if err != nil {
-		log.Errorf("Unable to create table paths from queries %v, %v", queries, err)
+		log.Errorf("Unable to get data from queries %v, got err: %v", queries, err)
 		return nil, err
 	}
-	return GetDataFromTablePaths(tblPaths)
+	return data, nil
 }
