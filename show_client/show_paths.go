@@ -6,19 +6,19 @@ import (
 
 // All SHOW path and getters are defined here
 func init() {
-	sdc.RegisterCliPathAndOpts(
+	sdc.RegisterCliPath(
 		[]string{"SHOW", "reboot-cause"},
 		getPreviousRebootCause,
 		map[string]string {
 			"history": "show/reboot-cause/history: Show history of reboot-cause",
 		},
 	)
-	sdc.RegisterCliPathAndOpts(
+	sdc.RegisterCliPath(
 		[]string{"SHOW", "reboot-cause", "history"},
 		getRebootCauseHistory,
 		nil,
 	)
-	sdc.RegisterCliPathAndOpts(
+	sdc.RegisterCliPath(
 		[]string{"SHOW", "clock"},
 		getDate,
 		map[string]string {
@@ -26,20 +26,20 @@ func init() {
 		},
 		SHOW_CMD_OPT_VERBOSE,
 	)
-	sdc.RegisterCliPathAndOpts(
+	sdc.RegisterCliPath(
 		[]string{"SHOW", "clock", "timezones"},
 		getDateTimezone,
 		nil,
 		SHOW_CMD_OPT_VERBOSE,
 	)
-	sdc.RegisterCliPathAndOpts(
+	sdc.RegisterCliPath(
 		[]string{"SHOW", "ipv6", "bgp", "summary"},
 		getIPv6BGPSummary,
 		nil,
 		SHOW_CMD_OPT_NAMESPACE,
 		SHOW_CMD_ARG_DISPLAY,
 	)
-	sdc.RegisterCliPathAndOpts(
+	sdc.RegisterCliPath(
 		[]string{"SHOW", "interface", "counters"},
 		getInterfaceCounters,
 		nil,
