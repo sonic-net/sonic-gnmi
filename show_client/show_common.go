@@ -1,11 +1,17 @@
 package show_client
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+
 	log "github.com/golang/glog"
 	"github.com/google/shlex"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	"gopkg.in/yaml.v2"
 	"os/exec"
 )
 
@@ -104,7 +110,7 @@ func CreateTablePathsFromQueries(queries [][]string) ([]sdc.TablePath, error) {
 }
 
 func ReadYamlToMap(filePath string) (map[string]interface{}, error) {
-	yamlFile, err := ioutil.ReadFile(filePath)
+	yamlFile, err := sdc.ImplIoutilReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read YAML file: %w", err)
 	}

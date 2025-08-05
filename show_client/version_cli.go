@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -160,7 +159,7 @@ func getAsicPresenceList() []int {
 			}
 		} else {
 			queries := [][]string{
-				{"CHASSIS_DB", "CHASSIS_FABRIC_ASIC_TABLE"},
+				{"CHASSIS_STATE_DB", "CHASSIS_FABRIC_ASIC_TABLE"},
 			}
 			tblPaths, err := CreateTablePathsFromQueries(queries)
 			if err != nil {
