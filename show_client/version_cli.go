@@ -337,7 +337,7 @@ func getDockerInfo() string {
 	return strings.TrimSpace(dockerInfo)
 }
 
-func getVersion() ([]byte, error) {
+func getVersion(prefix, path *gnmipb.Path) ([]byte, error) {
 	versionInfo, errorInVersionInfo := ReadYamlToMap(SonicVersionYamlPath)
 	if errorInVersionInfo != nil {
 		log.Errorf("Failed to read version info from %s: %v", SonicVersionYamlPath, errorInVersionInfo)
