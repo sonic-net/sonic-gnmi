@@ -1,5 +1,5 @@
 {
-    "PORT_OPERR_TABLE:Ethernet0": {
+    "PORT_OPERR_TABLE|Ethernet0": {
         "oper_error_status": "3",
         "oper_error_status_time": "2024-01-15T10:30:45Z",
         "mac_local_fault_count": "2",
