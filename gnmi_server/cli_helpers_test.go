@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
+	show_client "github.com/sonic-net/sonic-gnmi/show_client"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
@@ -19,8 +20,9 @@ const (
 	ConfigDbNum   = 4
 	StateDbNum    = 6
 
-	TargetAddr   = "127.0.0.1:8081"
-	QueryTimeout = 10
+	TargetAddr        = "127.0.0.1:8081"
+	QueryTimeout      = 10
+	chassisStateDbNum = 13
 )
 
 func MockNSEnterBGPSummary(t *testing.T, fileName string) *gomonkey.Patches {
@@ -68,6 +70,17 @@ func AddDataSet(t *testing.T, dbNum int, fileName string) {
 
 	fileContent := loadConfig(t, "", fileContentBytes)
 	loadDB(t, rclient, fileContent)
+}
+
+func MockGetAsicConfFilePath(filePath string) string {
+	show_client.getAsicConfFilePath = func() string {
+		return filePath
+	}
+	return filePath
+}
+
+func MockEnvironmentVariable(t *testing.T, key string, value string) {
+	t.Setenv(key, value)
 }
 
 func ResetDataSetsAndMappings(t *testing.T) {
