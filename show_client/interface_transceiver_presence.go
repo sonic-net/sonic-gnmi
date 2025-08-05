@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	log "github.com/golang/glog"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
 func getAllPortsFromConfigDB() ([]string, error) {
@@ -24,10 +24,10 @@ func getAllPortsFromConfigDB() ([]string, error) {
 	return ports, nil
 }
 
-func getInterfaceTransceiverPresence(prefix, path *gnmipb.Path) ([]byte, error) {
+func getInterfaceTransceiverPresence(options sdc.OptionMap) ([]byte, error) {
 	ports, error := getAllPortsFromConfigDB()
 	if error != nil {
-		log.Errorf("Unable to get all ports from DONFIG_DB, %v", error)
+		log.Errorf("Unable to get all ports from CONFIG_DB, %v", error)
 		return nil, error
 	}
 
