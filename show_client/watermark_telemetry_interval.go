@@ -1,37 +1,39 @@
 package show_client
 
 import (
+	"fmt"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
 /*
-admin@sonic:~$ redis-cli -n 4 HGETALL "WATERMARK_TABLE|TELEMETRY_INTERVAL"
-1) "interval"
-2) "30"
 admin@sonic:~$ show watermark telemetry interval
 
 Telemetry interval: 30 second(s)
 
-admin@sonic:~$
+admin@sonic:~$ redis-cli -n 4 HGETALL "WATERMARK_TABLE|TELEMETRY_INTERVAL"
+1) "interval"
+2) "30"
 */
 
 func getWatermarkTelemetryInterval(prefix, path *gnmipb.Path) ([]byte, error) {
 	queries := [][]string{
 		{"CONFIG_DB", "WATERMARK_TABLE", "TELEMETRY_INTERVAL"},
 	}
-	data, err := GetDataFromQueries(queries)
+	dataMap, err := GetMapFromQueries(queries)
 	if err != nil {
 		log.Errorf("Unable to get data from queries %v, got err: %v", queries, err)
 		return nil, err
 	}
 
-	log.Infof("Data from GetDataFromQueries: %s", string(data))
+	log.Infof("Data from GetMapFromQueries: %v", dataMap)
 
-	// Check if the response is empty
-	if len(data) == 0 || string(data) == "{}" {
-		log.V(2).Info("TELEMETRY_INTERVAL not found in CONFIG_DB, returning default value 120s")
-		return []byte(`{"interval": "120"}`), nil
+	interval := "120" // Default value if not found
+	if val, ok := dataMap["interval"]; ok {
+		interval = fmt.Sprintf("%v", val)
+	} else {
+		log.Info("Interval key not found, using default value 120s")
 	}
-	return data, nil
+	response := fmt.Sprintf("Telemetry interval %s second(s)", interval)
+	return []byte(response), nil
 }
