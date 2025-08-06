@@ -37,7 +37,6 @@ import (
 
 var (
 	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
-	MaxNumSubscribers  uint64
 )
 
 // Server manages a single gNMI Server implementation. Each client that connects
@@ -100,6 +99,7 @@ type Config struct {
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
+	MaxNumSubscribers   uint64
 }
 
 var AuthLock sync.Mutex
@@ -367,8 +367,7 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	c.setConnectionManager(s.config.Threshold)
 
 	s.cMu.Lock()
-
-	if uint64(len(s.clients)) >= MaxNumSubscribers {
+	if uint64(len(s.clients)) >= s.config.MaxNumSubscribers {
 		log.V(2).Infof("Max clients reached. Rejecting new client %s", c)
 		c.Close()
 		s.cMu.Unlock()

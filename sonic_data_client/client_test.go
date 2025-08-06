@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Workiva/go-datastructures/queue"
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/google/gnxi/utils/xpath"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -470,9 +469,10 @@ func TestParseDatabase(t *testing.T) {
 }
 
 func TestSubscribeInternal(t *testing.T) {
+	output_queue_size := 100 * uint64(1e6)
 	// Test StreamRun
 	{
-		pq := queue.NewPriorityQueue(1, false)
+		pq := NewLimitedQueue(1, false, output_queue_size)
 		w := sync.WaitGroup{}
 		stop := make(chan struct{}, 1)
 		client := MixedDbClient{}
@@ -491,7 +491,7 @@ func TestSubscribeInternal(t *testing.T) {
 
 	// Test streamSampleSubscription
 	{
-		pq := queue.NewPriorityQueue(1, false)
+		pq := NewLimitedQueue(1, false, output_queue_size)
 		w := sync.WaitGroup{}
 		client := MixedDbClient{}
 		sub := gnmipb.Subscription{
@@ -506,7 +506,7 @@ func TestSubscribeInternal(t *testing.T) {
 
 	// Test streamSampleSubscription
 	{
-		pq := queue.NewPriorityQueue(1, false)
+		pq := NewLimitedQueue(1, false, output_queue_size)
 		w := sync.WaitGroup{}
 		client := MixedDbClient{}
 		path, _ := xpath.ToGNMIPath("/abc/dummy")
@@ -526,7 +526,7 @@ func TestSubscribeInternal(t *testing.T) {
 
 	// Test dbFieldSubscribe
 	{
-		pq := queue.NewPriorityQueue(1, false)
+		pq := NewLimitedQueue(1, false, output_queue_size)
 		w := sync.WaitGroup{}
 		client := MixedDbClient{}
 		path, _ := xpath.ToGNMIPath("/abc/dummy")
@@ -542,7 +542,7 @@ func TestSubscribeInternal(t *testing.T) {
 
 	// Test dbTableKeySubscribe
 	{
-		pq := queue.NewPriorityQueue(1, false)
+		pq := NewLimitedQueue(1, false, output_queue_size)
 		w := sync.WaitGroup{}
 		client := MixedDbClient{}
 		path, _ := xpath.ToGNMIPath("/abc/dummy")

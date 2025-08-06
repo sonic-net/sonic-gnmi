@@ -14,9 +14,7 @@ import (
 	"sync"
 )
 
-var (
-	OutputQueSize uint64
-)
+var OutputQueSize uint64
 
 // Client contains information about a subscribe client that has connected to the server.
 type Client struct {
@@ -319,6 +317,7 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 			return err
 		}
 
+		val = &item
 		c.sendMsg++
 		err = stream.Send(resp)
 		if err != nil {

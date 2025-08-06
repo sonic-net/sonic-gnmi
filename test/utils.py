@@ -1,12 +1,15 @@
 import os
 import re
+import signal
 import subprocess
+
 
 def run_cmd(cmd):
     res = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     output, err = res.communicate()
     msg = output.decode() + err.decode()
-    return res.returncode, msg
+    return res.returncode, msg, res
+
 
 def gnmi_set(delete_list, update_list, replace_list):
     path = os.getcwd()
@@ -20,7 +23,7 @@ def gnmi_set(delete_list, update_list, replace_list):
         cmd += " -update " + update
     for replace in replace_list:
         cmd += " -replace " + replace
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     if ret == 0:
         return ret, ''
     return ret, msg
@@ -37,7 +40,7 @@ def gnmi_set_with_password(delete_list, update_list, replace_list, user, passwor
         cmd += " -update " + update
     for replace in replace_list:
         cmd += " -replace " + replace
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     if ret == 0:
         return ret, ''
     return ret, msg
@@ -54,7 +57,7 @@ def gnmi_set_with_jwt(delete_list, update_list, replace_list, token):
         cmd += " -update " + update
     for replace in replace_list:
         cmd += " -replace " + replace
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     if ret == 0:
         return ret, ''
     return ret, msg
@@ -67,7 +70,7 @@ def gnmi_get(path_list):
     cmd += '-alsologtostderr '
     for path in path_list:
         cmd += " -xpath " + path
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     if ret == 0:
         msg = msg.replace('\\', '')
         find_list = re.findall( r'json_ietf_val:\s*"(.*?)"\s*>', msg)
@@ -86,7 +89,7 @@ def gnmi_get_with_encoding(path_list, encoding):
     cmd += '-encoding %s '%(encoding)
     for path in path_list:
         cmd += " -xpath " + path
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     if ret == 0:
         msg = msg.replace('\\', '')
         find_list = re.findall( r'json_ietf_val:\s*"(.*?)"\s*>', msg)
@@ -107,7 +110,7 @@ def gnmi_get_proto(path_list, file_list):
         cmd += " -xpath " + path
     for file in file_list:
         cmd += " -proto_file " + file
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     return ret, msg
 
 def gnmi_get_with_password(path_list, user, password):
@@ -118,7 +121,7 @@ def gnmi_get_with_password(path_list, user, password):
     cmd += '-alsologtostderr '
     for path in path_list:
         cmd += " -xpath " + path
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     if ret == 0:
         msg = msg.replace('\\', '')
         find_list = re.findall( r'json_ietf_val:\s*"(.*?)"\s*>', msg)
@@ -136,7 +139,7 @@ def gnmi_get_with_jwt(path_list, token):
     cmd += '-alsologtostderr '
     for path in path_list:
         cmd += " -xpath " + path
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     if ret == 0:
         msg = msg.replace('\\', '')
         find_list = re.findall( r'json_ietf_val:\s*"(.*?)"\s*>', msg)
@@ -151,7 +154,7 @@ def gnmi_capabilities():
     cmd = path + '/build/bin/gnmi_cli '
     cmd += '-client_types=gnmi -a 127.0.0.1:8080 -logtostderr -insecure '
     cmd += '-capabilities '
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     return ret, msg
 
 def gnmi_subscribe_poll(gnmi_path, interval, count, timeout):
@@ -165,8 +168,8 @@ def gnmi_subscribe_poll(gnmi_path, interval, count, timeout):
     cmd += '-query_type=polling '
     cmd += '-polling_interval %us -count %u ' % (interval, count)
     cmd += '-q %s' % (gnmi_path)
-    ret, msg = run_cmd(cmd)
-    return ret, msg
+    ret, msg, process = run_cmd(cmd)
+    return ret, msg, process
 
 def gnmi_subscribe_stream_sample(gnmi_path, interval, count, timeout):
     path = os.getcwd()
@@ -180,8 +183,8 @@ def gnmi_subscribe_stream_sample(gnmi_path, interval, count, timeout):
     cmd += '-streaming_type=SAMPLE '
     cmd += '-streaming_sample_interval %u -expected_count %u ' % (interval, count)
     cmd += '-q %s' % (gnmi_path)
-    ret, msg = run_cmd(cmd)
-    return ret, msg
+    ret, msg, process = run_cmd(cmd)
+    return ret, msg, process
 
 def gnmi_subscribe_stream_onchange(gnmi_path, count, timeout):
     path = os.getcwd()
@@ -195,13 +198,13 @@ def gnmi_subscribe_stream_onchange(gnmi_path, count, timeout):
     cmd += '-streaming_type=ON_CHANGE -updates_only '
     cmd += '-expected_count %u ' % count
     cmd += '-q %s' % (gnmi_path)
-    ret, msg = run_cmd(cmd)
-    return ret, msg
+    ret, msg, process = run_cmd(cmd)
+    return ret, msg, process
 
 def gnmi_dump(name):
     path = os.getcwd()
     cmd = 'sudo ' + path + '/build/bin/gnmi_dump'
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     if ret == 0:
         msg_list = msg.split('\n')
         for line in msg_list:
@@ -212,12 +215,13 @@ def gnmi_dump(name):
         return -1, 0
     return ret, 0
 
+
 def gnoi_time():
     path = os.getcwd()
     cmd = path + '/build/bin/gnoi_client '
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc Time '
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     return ret, msg
 
 def gnoi_reboot(method, delay, message):
@@ -226,7 +230,7 @@ def gnoi_reboot(method, delay, message):
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc Reboot '
     cmd += '-jsonin "{\\\"method\\\":%d, \\\"delay\\\":%d, \\\"message\\\":\\\"%s\\\"}"'%(method, delay, message)
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     return ret, msg
 
 def gnoi_kill_process(json_data):
@@ -235,7 +239,7 @@ def gnoi_kill_process(json_data):
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc KillProcess '
     cmd += f'-jsonin \'{json_data}\''
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     return ret, msg
 
 def gnoi_restart_process(json_data):
@@ -244,7 +248,7 @@ def gnoi_restart_process(json_data):
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc KillProcess '
     cmd += f'-jsonin \'{json_data}\''
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     return ret, msg
 
 def gnoi_rebootstatus():
@@ -252,7 +256,7 @@ def gnoi_rebootstatus():
     cmd = path + '/build/bin/gnoi_client '
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc RebootStatus '
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     return ret, msg
 
 def gnoi_cancelreboot(message):
@@ -261,7 +265,7 @@ def gnoi_cancelreboot(message):
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc CancelReboot '
     cmd += '-jsonin "{\\\"message\\\":\\\"%s\\\"}"'%(message)
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     return ret, msg
 
 def gnoi_ping(dst):
@@ -270,7 +274,7 @@ def gnoi_ping(dst):
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc Ping '
     cmd += '-jsonin "{\\\"destination\\\":\\\"%s\\\"}"'%(dst)
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     return ret, msg
 
 
@@ -280,7 +284,7 @@ def gnoi_traceroute(dst):
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc Traceroute '
     cmd += '-jsonin "{\\\"destination\\\":\\\"%s\\\"}"'%(dst)
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     return ret, msg
 
 def gnoi_setpackage():
@@ -288,7 +292,7 @@ def gnoi_setpackage():
     cmd = path + '/build/bin/gnoi_client '
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc SetPackage '
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     return ret, msg
 
 def gnoi_switchcontrolprocessor():
@@ -296,7 +300,7 @@ def gnoi_switchcontrolprocessor():
     cmd = path + '/build/bin/gnoi_client '
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-rpc SwitchControlProcessor '
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     return ret, msg
 
 def gnoi_authenticate(username, password):
@@ -305,7 +309,7 @@ def gnoi_authenticate(username, password):
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-module Sonic -rpc authenticate '
     cmd += '-jsonin "{\\\"Username\\\":\\\"%s\\\", \\\"Password\\\":\\\"%s\\\"}"'%(username, password)
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     return ret, msg
 
 def gnoi_refresh_with_jwt(token):
@@ -314,5 +318,5 @@ def gnoi_refresh_with_jwt(token):
     cmd += '-insecure -target 127.0.0.1:8080 '
     cmd += '-jwt_token ' + token + ' '
     cmd += '-module Sonic -rpc refresh '
-    ret, msg = run_cmd(cmd)
+    ret, msg, _ = run_cmd(cmd)
     return ret, msg

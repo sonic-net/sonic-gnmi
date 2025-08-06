@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Workiva/go-datastructures/queue"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 )
@@ -24,7 +23,7 @@ func TestDummyEventClient(t *testing.T) {
 
 	// Prepare necessary arguments for each function
 	var wg sync.WaitGroup
-	var q *queue.PriorityQueue // Assuming queue.PriorityQueue is a valid type
+	var q *LimitedQueue // Assuming queue.PriorityQueue is a valid type
 	once := make(chan struct{})
 	poll := make(chan struct{})
 	var subscribe *gnmipb.SubscriptionList             // Assuming gnmipb.SubscriptionList is a valid type

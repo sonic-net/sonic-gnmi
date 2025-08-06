@@ -177,7 +177,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		Vrf:                   fs.String("vrf", "", "VRF name, when zmq_address belong on a VRF, need VRF name to bind ZMQ."),
 		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
 		CrlExpireDuration:     fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
-		OutputQueSize:         fs.Uint64("output_queue_size", 100, "Output Queue Maximum Size (MB)"),
+		OutputQueSize:         fs.Uint64("output_queue_size", 10, "Output Queue Maximum Size per Subscribe Session (MB)"),
 		MaxSubscribers:        fs.Uint64("maximum_subscribers", 10, "Maximum amount of subscribers"),
 	}
 
@@ -233,7 +233,6 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	gnmi.JwtRefreshInt = time.Duration(*telemetryCfg.JwtRefInt * uint64(time.Second))
 	gnmi.JwtValidInt = time.Duration(*telemetryCfg.JwtValInt * uint64(time.Second))
 	gnmi.OutputQueSize = *telemetryCfg.OutputQueSize * uint64(1e6)
-	gnmi.MaxNumSubscribers = *telemetryCfg.MaxSubscribers
 
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*telemetryCfg.Port)
@@ -245,6 +244,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.ConfigTableName = *telemetryCfg.ConfigTableName
 	cfg.Vrf = *telemetryCfg.Vrf
 	cfg.EnableCrl = *telemetryCfg.EnableCrl
+	cfg.MaxNumSubscribers = *telemetryCfg.MaxSubscribers
 
 	gnmi.SetCrlExpireDuration(time.Duration(*telemetryCfg.CrlExpireDuration) * time.Second)
 
