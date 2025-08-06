@@ -1,3 +1,7 @@
 {
-  "interval": "180"
+  "WATERMARK_TABLE":{
+    "TELEMETRY_INTERVAL": {
+      "interval": "180"
+    }
+  }
 }
