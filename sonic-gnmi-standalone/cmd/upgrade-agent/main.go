@@ -109,6 +109,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	// Create step registry and register available step types
 	registry := workflow.NewRegistry()
 	registry.Register(steps.DownloadStepType, steps.NewDownloadStep)
+	registry.Register(steps.CheckDiskSpaceStepType, steps.NewCheckDiskSpaceStep)
 
 	// Create workflow execution engine
 	engine := workflow.NewEngine(registry)

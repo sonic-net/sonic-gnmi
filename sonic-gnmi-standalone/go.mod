@@ -4,6 +4,7 @@ go 1.24.1
 
 require (
 	github.com/golang/glog v1.2.5
+	github.com/openconfig/gnmi v0.14.1
 	github.com/openconfig/gnoi v0.6.2
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
