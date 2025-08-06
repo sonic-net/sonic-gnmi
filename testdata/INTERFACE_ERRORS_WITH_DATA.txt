@@ -1,0 +1,12 @@
+{
+    "PORT_OPERR_TABLE|Ethernet0": {
+        "oper_error_status": "3",
+        "oper_error_status_time": "2024-01-15T10:30:45Z",
+        "mac_local_fault_count": "2",
+        "mac_local_fault_time": "2024-01-15T10:25:30Z",
+        "fec_sync_loss_count": "1",
+        "fec_sync_loss_time": "2024-01-15T10:20:15Z",
+        "data_unit_crc_error_count": "5",
+        "data_unit_crc_error_time": "2024-01-15T10:35:20Z"
+    }
+}
