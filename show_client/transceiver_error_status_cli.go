@@ -6,18 +6,18 @@ import (
 )
 
 func getTransceiverErrorStatus(prefix, path *gnmipb.Path) ([]byte, error) {
-	port := ParseOptionsFromPath(path, "port")
+    port := ParseOptionsFromPath(path, "port")
 
-	var queries [][]string
-	if port == "" {
-		queries = [][]string{
-			{"STATE_DB", "TRANSCEIVER_STATUS_SW"},
+    var queries [][]string
+    if len(port) == 0 {
+        queries = [][]string{
+		    {"STATE_DB", "TRANSCEIVER_STATUS_SW"},
+	    }
+    } else {
+        queries = [][]string{
+			{"STATE_DB", "TRANSCEIVER_STATUS_SW", port[0]},
 		}
-	} else {
-		queries = [][]string{
-			{"STATE_DB", "TRANSCEIVER_STATUS_SW", port},
-		}
-	}
+    }
 
 	data, err := GetDataFromQueries(queries)
 	if err != nil {
@@ -26,3 +26,4 @@ func getTransceiverErrorStatus(prefix, path *gnmipb.Path) ([]byte, error) {
 	}
 	return data, nil
 }
+
