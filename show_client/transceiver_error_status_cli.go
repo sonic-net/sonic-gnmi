@@ -6,9 +6,19 @@ import (
 )
 
 func getTransceiverErrorStatus(prefix, path *gnmipb.Path) ([]byte, error) {
-	queries := [][]string{
-		{"STATE_DB", "TRANSCEIVER_STATUS_SW"},
+	port := ParseOptionsFromPath(path, "port")
+
+	var queries [][]string
+	if port == "" {
+		queries = [][]string{
+			{"STATE_DB", "TRANSCEIVER_STATUS_SW"},
+		}
+	} else {
+		queries = [][]string{
+			{"STATE_DB", "TRANSCEIVER_STATUS_SW", port},
+		}
 	}
+
 	data, err := GetDataFromQueries(queries)
 	if err != nil {
 		log.Errorf("Unable to get data from queries %v, got err: %v", queries, err)
