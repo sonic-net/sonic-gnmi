@@ -15,8 +15,8 @@ spec:
     - name: download-sonic-image
       type: download
       params:
-        url: "http://httpbin.org/bytes/1024"
-        filename: "/tmp/test-package.bin"
-        md5: "b2ea9f7fcea7a7e1b7c2d5b0e8f5c7f7"
+        url: "http://httpbin.org/robots.txt"
+        filename: "/tmp/test-package.txt"
+        md5: "46fd03688e49c6b6b0a2b7d3553c1e42"
         version: "1.0.0"
         activate: false
