@@ -214,7 +214,7 @@ func (b *ServerBuilder) registerServices(srv *Server, rootFS string) {
 		serviceCount++
 	}
 
-	// Future service registrations:
+	// Future services will be implemented:
 	// - gNOI File service
 	// - gNOI Containerz service
 
