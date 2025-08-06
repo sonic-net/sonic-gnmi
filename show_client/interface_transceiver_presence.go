@@ -25,10 +25,10 @@ func getAllPortsFromConfigDB() ([]string, error) {
 }
 
 func getInterfaceTransceiverPresence(prefix, path *gnmipb.Path) ([]byte, error) {
-	ports, error := getAllPortsFromConfigDB()
-	if error != nil {
-		log.Errorf("Unable to get all ports from DONFIG_DB, %v", error)
-		return nil, error
+	ports, err := getAllPortsFromConfigDB()
+	if err != nil {
+		log.Errorf("Unable to get all ports from CONFIG_DB, %v", err)
+		return nil, err
 	}
 
 	status := make(map[string]string)
@@ -45,7 +45,8 @@ func getInterfaceTransceiverPresence(prefix, path *gnmipb.Path) ([]byte, error) 
 	}
 
 	for _, port := range ports {
-		if _, exist := data[port]; exist {
+		key := fmt.Sprintf("TRANSCEIVER_INFO|%s", port)
+		if _, exist := data[key]; exist {
 			status[port] = "Present"
 		} else {
 			status[port] = "Not Present"
