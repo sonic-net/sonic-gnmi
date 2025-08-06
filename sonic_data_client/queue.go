@@ -1,7 +1,6 @@
 package client
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -25,12 +24,6 @@ func (q *LimitedQueue) EnqueueItem(item Value) error {
 	q.queueLengthLock.Lock()
 	defer q.queueLengthLock.Unlock()
 	ilen := (uint64)(proto.Size(item.Val))
-	queue_length := fmt.Sprintf("QUEUE SIZE: %v", q.maxSize)
-	fmt.Println(queue_length)
-	queue_ilen := fmt.Sprintf("ILEN: %v", ilen)
-	fmt.Println(queue_ilen)
-	length_sum := fmt.Sprintf("LENGTH: %v", q.queueLengthSum)
-	fmt.Println(length_sum)
 	if item.Notification != nil {
 		ilen = (uint64)(proto.Size(item.Notification))
 	}

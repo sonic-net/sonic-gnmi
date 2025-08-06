@@ -458,10 +458,9 @@ class TestGNMIConfigDb:
         cnt = 3
         interval = 1
         ret, msg, process = gnmi_subscribe_poll(path, interval, cnt, timeout=0)
-        process.kill()
         assert ret == 0, 'Fail to subscribe: ' + msg
         assert msg.count("bgp_asn") == cnt, 'Invalid result: ' + msg
-        # process.kill()
+        process.kill()
 
     def test_gnmi_poll_invalid_01(self):
         path = "/CONFIG_DB/localhost/INVALID_TABLE"
