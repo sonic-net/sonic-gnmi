@@ -37,9 +37,9 @@ func TestWatermarkTelemetryInterval(t *testing.T) {
 	defer cancel()
 
 	watermarkTelemetryIntervalSetFileName := "../testdata/WATERMARK_TELEMETRY_INTERVAL_SET.txt"
-	watermarkTelemetryIntervalSet := "Telemetry interval: 180 second(s)"
+	watermarkTelemetryIntervalSet := []byte("Telemetry interval: 180 second(s)")
 	watermarkTelemetryIntervalNotSetFileName := "../testdata/WATERMARK_TELEMETRY_INTERVAL_NOT_SET.txt"
-	watermarkTelemetryIntervalNotSet := "Telemetry interval: 120 second(s)"
+	watermarkTelemetryIntervalNotSet := []byte("Telemetry interval: 120 second(s)")
 
 	ResetDataSetsAndMappings(t)
 
