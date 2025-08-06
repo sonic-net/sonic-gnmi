@@ -3,11 +3,12 @@ package show_client
 import (
 	"encoding/json"
 	"fmt"
-	log "github.com/golang/glog"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"strconv"
 	"strings"
 	"time"
+
+	log "github.com/golang/glog"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
 type InterfaceCountersResponse struct {
@@ -236,7 +237,7 @@ func calculateDiffSnapshot(oldSnapshot map[string]InterfaceCountersResponse, new
 	return diffResponse
 }
 
-var ALL_PORT_ERRORS = [][]string{
+var allPortErrors = [][]string{
 	{"oper_error_status", "oper_error_status_time"},
 	{"mac_local_fault_count", "mac_local_fault_time"},
 	{"mac_remote_fault_count", "mac_remote_fault_time"},
@@ -268,19 +269,19 @@ func getIntfErrors(prefix, path *gnmipb.Path) ([]byte, error) {
 	portErrorsTbl = RemapAliasToPortName(portErrorsTbl)
 
 	// Format the port errors data
-	portErrors := make([][]string, 0, len(ALL_PORT_ERRORS)+1)
+	portErrors := make([][]string, 0, len(allPortErrors)+1)
 	// Append the table header
 	portErrors = append(portErrors, []string{"Port Errors", "Count", "Last timestamp(UTC)"})
 	// Iterate through all port errors types and create the result
-	for _, portError := range ALL_PORT_ERRORS {
+	for _, portError := range allPortErrors {
 		count := "0"
 		timestamp := "Never"
 		if portErrorsTbl != nil {
 			if val, ok := portErrorsTbl[portError[0]]; ok {
-				count = val.(string)
+				count = fmt.Sprintf("%v", val)
 			}
 			if val, ok := portErrorsTbl[portError[1]]; ok {
-				timestamp = val.(string)
+				timestamp = fmt.Sprintf("%v", val)
 			}
 		}
 
