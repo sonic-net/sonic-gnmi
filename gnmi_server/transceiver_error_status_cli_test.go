@@ -38,6 +38,7 @@ func TestGetTransceiverErrorStatus(t *testing.T) {
 
 	transceiverErrorStatusFileName := "../testdata/TRANSCEIVER_STATUS_SW.txt"
 	transceiverErrorStatus := `{"Ethernet90":{"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet91": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet92": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet93": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet94": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet95": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet96": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet97": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet98": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet99": {"cmis_state": "READY","error": "N/A","status": "1"}}`
+	transceiverErrorStatusPort := `{"Ethernet90":{"cmis_state": "READY","error": "N/A","status": "1"}}`
 	ResetDataSetsAndMappings(t)
 
 	tests := []struct {
@@ -79,6 +80,23 @@ func TestGetTransceiverErrorStatus(t *testing.T) {
 			`,
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(transceiverErrorStatus),
+			valTest:     true,
+			testInit: func() {
+				FlushDataSet(t, StateDbNum)
+				AddDataSet(t, StateDbNum, transceiverErrorStatusFileName)
+			},
+		},
+		{
+			desc:       "query SHOW interface transceiver error-status port option",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "interface"
+				       key: { key: "port" value: "Ethernet90" }>
+				elem: <name: "transceiver" >
+				elem: <name: "error-status" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: []byte(transceiverErrorStatusPort),
 			valTest:     true,
 			testInit: func() {
 				FlushDataSet(t, StateDbNum)
