@@ -36,10 +36,10 @@ func TestWatermarkTelemetryInterval(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
+	watermarkTelemetryIntervalDefault := "Telemetry interval: 120 second(s)"
 	watermarkTelemetryIntervalSetFileName := "../testdata/WATERMARK_TELEMETRY_INTERVAL_SET.txt"
-	watermarkTelemetryIntervalSet := []byte("Telemetry interval: 180 second(s)")
-	watermarkTelemetryIntervalNotSetFileName := "../testdata/WATERMARK_TELEMETRY_INTERVAL_NOT_SET.txt"
-	watermarkTelemetryIntervalNotSet := []byte("Telemetry interval: 120 second(s)")
+	watermarkTelemetryIntervalSet := "Telemetry interval: 180 second(s)"
+	watermarkTelemetryWrongKeySetFileName := "../testdata/WATERMARK_TELEMETRY_WRONG_KEY_SET.txt"
 
 	ResetDataSetsAndMappings(t)
 
@@ -53,6 +53,44 @@ func TestWatermarkTelemetryInterval(t *testing.T) {
 		testInit    func()
 	}{
 		{
+			desc:       "query SHOW watermark telemetry interval read error",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "" >
+				elem: <name: "telemetry" >
+				elem: <name: "interval" >
+			`,
+			wantRetCode: codes.NotFound,
+		},
+		{
+			desc:       "query SHOW watermark telemetry interval not set in CONFIG_DB",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "watermark" >
+				elem: <name: "telemetry" >
+				elem: <name: "interval" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: []byte(watermarkTelemetryIntervalDefault),
+			valTest:     true,
+		},
+		{
+			desc:       "query SHOW watermark telemetry Wrong Key Set in CONFIG_DB",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "watermark" >
+				elem: <name: "telemetry" >
+				elem: <name: "interval" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: []byte(watermarkTelemetryIntervalDefault),
+			valTest:     true,
+			testInit: func() {
+				FlushDataSet(t, ConfigDbNum)
+				AddDataSet(t, ConfigDbNum, watermarkTelemetryWrongKeySetFileName)
+			},
+		},
+		{
 			desc:       "query SHOW watermark telemetry interval Set in CONFIG_DB",
 			pathTarget: "SHOW",
 			textPbPath: `
@@ -61,26 +99,11 @@ func TestWatermarkTelemetryInterval(t *testing.T) {
 				elem: <name: "interval" >
 			`,
 			wantRetCode: codes.OK,
-			wantRespVal: watermarkTelemetryIntervalSet,
-			valTest:     true,
-			testInit: func() {
-				AddDataSet(t, ConfigDbNum, watermarkTelemetryIntervalSetFileName)
-			},
-		},
-		{
-			desc:       "query SHOW watermark telemetry interval Not Set in CONFIG_DB",
-			pathTarget: "SHOW",
-			textPbPath: `
-				elem: <name: "watermark" >
-				elem: <name: "telemetry" >
-				elem: <name: "interval" >
-			`,
-			wantRetCode: codes.OK,
-			wantRespVal: watermarkTelemetryIntervalNotSet,
+			wantRespVal: []byte(watermarkTelemetryIntervalSet),
 			valTest:     true,
 			testInit: func() {
 				FlushDataSet(t, ConfigDbNum)
-				AddDataSet(t, ConfigDbNum, watermarkTelemetryIntervalNotSetFileName)
+				AddDataSet(t, ConfigDbNum, watermarkTelemetryIntervalSetFileName)
 			},
 		},
 	}
