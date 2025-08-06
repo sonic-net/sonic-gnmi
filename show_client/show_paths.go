@@ -30,4 +30,8 @@ func init() {
 		[]string{"SHOW", "interface", "counters"},
 		getInterfaceCounters,
 	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "interface", "errors"},
+		getIntfErrors,
+	)
 }
