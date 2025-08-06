@@ -135,10 +135,6 @@ func createServer(t *testing.T, port int64) *Server {
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100, MaxNumSubscribers: 10}
 	s, err := NewServer(cfg, opts)
-	server_config := fmt.Sprintf("SERVER CONFIG: %v", s.config)
-	fmt.Println(server_config)
-	server_loglevel := fmt.Sprintf("SERVER LOG LEVEL: %v", s.config.LogLevel)
-	fmt.Println(server_loglevel)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
 	}
@@ -217,6 +213,27 @@ func createInvalidServer(t *testing.T, port int64) *Server {
 	s, err := NewServer(nil, opts)
 	if err != nil {
 		return nil
+	}
+	return s
+}
+
+func createMaxSubscribeServer(t *testing.T, port int64) *Server {
+	t.Helper()
+	OutputQueSize = 100 * uint64(1e6)
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100, MaxNumSubscribers: 0}
+	s, err := NewServer(cfg, opts)
+	if err != nil {
+		t.Errorf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
@@ -4915,15 +4932,11 @@ func TestGNMINative(t *testing.T) {
 
 	sdcfg.Init()
 	s := createServer(t, 8080)
-	s_clients := fmt.Sprintf("SERVER CLIENTS: %v", s.clients)
-	fmt.Println(s_clients)
 	go runServer(t, s)
 	defer s.Stop()
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	initFullConfigDb(t, ns)
 	initFullCountersDb(t, ns)
-	s_clients_post_db := fmt.Sprintf("SERVER CLIENTS POST_DB: %v", s.clients)
-	fmt.Println(s_clients_post_db)
 	path, _ := os.Getwd()
 	path = filepath.Dir(path)
 
@@ -4952,8 +4965,6 @@ func TestGNMINative(t *testing.T) {
 			t.Errorf("GNMI get counter should not be 0")
 		}
 	}
-	s_clients_final := fmt.Sprintf("SERVER CLIENTS FINAL %v", s.clients)
-	fmt.Println(s_clients_final)
 	s.Stop()
 }
 
@@ -5068,6 +5079,43 @@ func TestInvalidServer(t *testing.T) {
 	if s != nil {
 		t.Errorf("Should not create invalid server")
 	}
+}
+
+func TestMaxSubscribeServer(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+	mock3 := gomonkey.ApplyFunc(sdc.RunPyCode, func(text string) error { return nil })
+	defer mock3.Reset()
+
+	sdcfg.Init()
+	s := createMaxSubscribeServer(t, 8080)
+	go runServer(t, s)
+	defer s.Stop()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	initFullConfigDb(t, ns)
+	initFullCountersDb(t, ns)
+	path, _ := os.Getwd()
+	path = filepath.Dir(path)
+
+	// This test is used for single database configuration
+	// Run tests not marked with multidb
+	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'not multidb and not multins'")
+	_, err := cmd.Output()
+	if err == nil {
+		t.Errorf("Supposed to receive: Maximum number of subscriptions reached")
+	}
+	s.Stop()
 }
 
 func TestParseOrigin(t *testing.T) {

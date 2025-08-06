@@ -45,8 +45,6 @@ var connectionManager *ConnectionManager
 // NewClient returns a new initialized client.
 func NewClient(addr net.Addr) *Client {
 	pq := sdc.NewLimitedQueue(1, false, OutputQueSize)
-	queue_size := fmt.Sprintf("CLIENT SUBSCRIBE OUTPUT SIZE: %v", OutputQueSize)
-	fmt.Println(queue_size)
 	return &Client{
 		addr:     addr,
 		q:        pq,
