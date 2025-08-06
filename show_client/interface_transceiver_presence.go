@@ -25,31 +25,45 @@ func getAllPortsFromConfigDB() ([]string, error) {
 }
 
 func getInterfaceTransceiverPresence(options sdc.OptionMap) ([]byte, error) {
-	ports, error := getAllPortsFromConfigDB()
-	if error != nil {
-		log.Errorf("Unable to get all ports from CONFIG_DB, %v", error)
-		return nil, error
-	}
+	intf, _ := options["interface"].String()
 
-	status := make(map[string]string)
-	queries := make([][]string, 0, len(ports))
-	for _, port := range ports {
-		queries = append(queries, []string{"STATE_DB", fmt.Sprintf("TRANSCEIVER_INFO|%s", port)})
+	// Get STATE_DB transceiver info
+	queries := [][]string{
+		{"STATE_DB", "TRANSCEIVER_INFO"},
 	}
-	log.Infof("Prepared transceiver info queries: %v", queries)
-
 	data, err := GetMapFromQueries(queries)
 	if err != nil {
 		log.Errorf("Unable to get transceiver data from STATE_DB queries %v, got err: %v", queries, err)
 		return nil, err
 	}
+	log.V(6).Infof("TRANSCEIVER_INFO Data from STATE_DB: %v", data)
 
-	for _, port := range ports {
-		if _, exist := data[port]; exist {
-			status[port] = "Present"
+	status := make(map[string]string)
+
+	if intf != "" {
+		// If specific interface provided, skip ConfigDB check
+		if _, exist := data[intf]; exist {
+			status[intf] = "Present"
 		} else {
-			status[port] = "Not Present"
+			status[intf] = "Not Present"
+		}
+	} else {
+		// No specific interface provided, get all from ConfigDB
+		ports, err := getAllPortsFromConfigDB()
+		if err != nil {
+			log.Errorf("Unable to get ports from CONFIG_DB, %v", err)
+			return nil, err
+		}
+
+		for _, port := range ports {
+			if _, exist := data[port]; exist {
+				status[port] = "Present"
+			} else {
+				status[port] = "Not Present"
+			}
 		}
 	}
+
+	log.V(6).Infof("Transceiver presence status: %v", status)
 	return json.Marshal(status)
 }
