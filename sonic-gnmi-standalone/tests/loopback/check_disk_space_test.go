@@ -123,7 +123,7 @@ spec:
 // TestCheckDiskSpaceLoopback_InvalidPath tests error handling when querying
 // an invalid filesystem path.
 func TestCheckDiskSpaceLoopback_InvalidPath(t *testing.T) {
-	// Setup test infrastructure  
+	// Setup test infrastructure
 	tempDir := t.TempDir()
 	testServer := SetupInsecureTestServer(t, tempDir, []string{"gnmi"})
 	defer testServer.Stop()
@@ -175,7 +175,7 @@ spec:
 // TestCheckDiskSpaceWorkflowIntegration tests a complete workflow that includes
 // both disk space checks and package downloads.
 func TestCheckDiskSpaceWorkflowIntegration(t *testing.T) {
-	// Create test package content  
+	// Create test package content
 	testContent := []byte("test package for disk space integration")
 	testMD5 := fmt.Sprintf("%x", md5.Sum(testContent))
 

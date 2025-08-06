@@ -26,11 +26,11 @@ type CheckDiskSpaceStep struct {
 	name string
 
 	// Path is the filesystem path to check (e.g., "/", "/tmp", "/var").
-	Path string `yaml:"path" json:"path"`
+	Path string `json:"path" yaml:"path"`
 
 	// MinAvailableMB is the minimum required available space in megabytes.
 	// The step will fail if available space is less than this value.
-	MinAvailableMB int64 `yaml:"min_available_mb" json:"min_available_mb"`
+	MinAvailableMB int64 `json:"min_available_mb" yaml:"min_available_mb"`
 }
 
 // NewCheckDiskSpaceStep creates a new CheckDiskSpaceStep from raw parameters.
@@ -58,7 +58,7 @@ func NewCheckDiskSpaceStep(name string, params map[string]interface{}) (workflow
 	}
 
 	// Validate parameters
-	if err := step.validate(); err != nil {
+	if err := step.Validate(); err != nil {
 		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 
@@ -86,11 +86,6 @@ func (s *CheckDiskSpaceStep) Validate() error {
 	}
 
 	return nil
-}
-
-// validate is an internal validation helper (for backward compatibility).
-func (s *CheckDiskSpaceStep) validate() error {
-	return s.Validate()
 }
 
 // Execute performs the disk space check by querying the target device via gNMI.
@@ -148,7 +143,7 @@ func (s *CheckDiskSpaceStep) createConnection(serverAddr string, useTLS bool) (*
 	if !useTLS {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	} else {
-		// TODO: Add TLS configuration support
+		// TLS configuration support to be added in future implementation
 		return nil, fmt.Errorf("TLS not yet implemented for disk space checks")
 	}
 
@@ -156,7 +151,8 @@ func (s *CheckDiskSpaceStep) createConnection(serverAddr string, useTLS bool) (*
 }
 
 // queryDiskSpace queries the target device for disk space information using gNMI.
-func (s *CheckDiskSpaceStep) queryDiskSpace(ctx context.Context, client gnmi.GNMIClient) (availableMB, totalMB int64, err error) {
+func (s *CheckDiskSpaceStep) queryDiskSpace(ctx context.Context,
+	client gnmi.GNMIClient) (availableMB, totalMB int64, err error) {
 	// Build the gNMI path for disk space query
 	// Path format: /sonic/system/filesystem[path=/some/path]/disk-space
 	path := &gnmi.Path{
