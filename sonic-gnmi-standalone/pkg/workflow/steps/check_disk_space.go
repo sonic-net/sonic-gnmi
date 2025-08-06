@@ -158,15 +158,16 @@ func (s *CheckDiskSpaceStep) createConnection(serverAddr string, useTLS bool) (*
 // queryDiskSpace queries the target device for disk space information using gNMI.
 func (s *CheckDiskSpaceStep) queryDiskSpace(ctx context.Context, client gnmi.GNMIClient) (availableMB, totalMB int64, err error) {
 	// Build the gNMI path for disk space query
-	// Path format: /system/filesystem/disk-space[path=/some/path]/available-mb
+	// Path format: /sonic/system/filesystem[path=/some/path]/disk-space
 	path := &gnmi.Path{
 		Elem: []*gnmi.PathElem{
+			{Name: "sonic"},
 			{Name: "system"},
-			{Name: "filesystem"},
 			{
-				Name: "disk-space",
+				Name: "filesystem",
 				Key:  map[string]string{"path": s.Path},
 			},
+			{Name: "disk-space"},
 		},
 	}
 
