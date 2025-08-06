@@ -1,6 +1,21 @@
 #!/bin/bash
-# Script to build and deploy the gnmi container to a SONiC device
-# Supports configurable server address for flexible deployment
+#
+# Build and deploy sonic-gnmi-standalone as Docker container to remote SONiC device
+#
+# This script is for TESTING ONLY - not for production use.
+# It builds a Docker image locally and deploys it to a remote SONiC device via SSH.
+# The container runs with --privileged and mounts the entire host filesystem.
+#
+# Examples:
+#   ./build_run_docker_testonly.sh -t admin@vlab-01              # Deploy to device
+#   ./build_run_docker_testonly.sh -t admin@vlab-01 -a :8080     # Custom port
+#   ./build_run_docker_testonly.sh -t admin@vlab-01 --enable-tls # Enable TLS
+#   ./build_run_docker_testonly.sh -t admin@vlab-01 -i v1.0.0    # Custom image tag
+#
+# After deployment:
+#   - Container name: gnmi-standalone-testonly
+#   - View logs: ssh <target> docker logs gnmi-standalone-testonly
+#   - Stop: ssh <target> docker rm -f gnmi-standalone-testonly
 
 set -e
 
@@ -55,7 +70,7 @@ fi
 
 # Directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-ROOT_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
+ROOT_DIR="$( cd "$SCRIPT_DIR/../.." && pwd )"
 
 # Build the Docker image using make
 cd "$ROOT_DIR"
