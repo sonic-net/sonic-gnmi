@@ -30,12 +30,12 @@ func init() {
 		[]string{"SHOW", "interface", "counters"},
 		getInterfaceCounters,
 	)
-  sdc.RegisterCliPath(
+	sdc.RegisterCliPath(
 		[]string{"SHOW", "interface", "errors"},
 		getIntfErrors,
 	)
-  sdc.RegisterCliPath(
+	sdc.RegisterCliPath(
 		[]string{"SHOW", "interface", "transceiver", "error-status"},
 		getTransceiverErrorStatus,
-  )
+	)
 }
