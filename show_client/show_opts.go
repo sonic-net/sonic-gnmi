@@ -63,4 +63,18 @@ var (
 		SHOW_CMD_OPT_INTERFACE_DESC,
 		sdc.StringValue,
 	)
+
+	SHOW_CMD_OPT_INTERFACE_OPTIONAL = sdc.NewShowCmdOption(
+		"interface",
+		sdc.Optional,
+		SHOW_CMD_OPT_INTERFACE_DESC,
+		sdc.StringValue,
+	)
+
+	SHOW_CMD_OPT_FETCH_FROM_HW = sdc.NewShowCmdOption(
+		"fetch-from-hardware",
+		sdc.Unimplemented,
+		SHOW_CMD_OPT_UNIMPLEMENTED_DESC,
+		sdc.StringValue,
+	)
 )

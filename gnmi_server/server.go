@@ -490,6 +490,9 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	spbValues, err := dc.Get(nil)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		if st, ok := status.FromError(err); ok {
+			return nil, st.Err()
+		}
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 
