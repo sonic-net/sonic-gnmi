@@ -34,4 +34,10 @@ func init() {
 		[]string{"SHOW", "interface", "errors"},
 		getIntfErrors,
 	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "interface", "fec", "status"},
+		getInterfaceFecStatus,
+		nil,
+		SHOW_CMD_OPT_INTERFACE,
+	)
 }
