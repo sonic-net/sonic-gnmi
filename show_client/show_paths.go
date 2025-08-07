@@ -9,7 +9,7 @@ func init() {
 	sdc.RegisterCliPath(
 		[]string{"SHOW", "reboot-cause"},
 		getPreviousRebootCause,
-		map[string]string {
+		map[string]string{
 			"history": "show/reboot-cause/history: Show history of reboot-cause",
 		},
 	)
@@ -21,7 +21,7 @@ func init() {
 	sdc.RegisterCliPath(
 		[]string{"SHOW", "clock"},
 		getDate,
-		map[string]string {
+		map[string]string{
 			"timezones": "show/clock/timezones: List of available timezones",
 		},
 		SHOW_CMD_OPT_VERBOSE,
@@ -37,7 +37,7 @@ func init() {
 		getIPv6BGPSummary,
 		nil,
 		SHOW_CMD_OPT_NAMESPACE,
-		SHOW_CMD_ARG_DISPLAY,
+		SHOW_CMD_OPT_DISPLAY,
 	)
 	sdc.RegisterCliPath(
 		[]string{"SHOW", "interface", "counters"},
