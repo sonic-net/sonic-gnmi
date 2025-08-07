@@ -1,7 +1,9 @@
 package show_client
 
 import (
+	"encoding/json"
 	"fmt"
+
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
@@ -35,5 +37,5 @@ func getWatermarkTelemetryInterval(prefix, path *gnmipb.Path) ([]byte, error) {
 		log.Info("Interval key not found, using default value 120s")
 	}
 	response := fmt.Sprintf("Telemetry interval: %s second(s)", interval)
-	return []byte(response), nil
+	return json.Marshal(response)
 }
