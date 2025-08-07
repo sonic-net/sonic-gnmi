@@ -56,24 +56,11 @@ grpcurl -plaintext -d '{}' localhost:50055 grpc.reflection.v1.ServerReflection/S
 
 ## Configuration
 
-The server can be configured through command-line flags and environment variables:
-
-### Command-Line Configuration
+The server can be configured through command-line flags. For a complete list of available flags and examples, see the inline documentation in `cmd/server/main.go` or run:
 
 ```bash
-# Basic configuration
-./bin/sonic-gnmi-standalone --addr=:8080 --rootfs=/host
-
-# TLS configuration
-./bin/sonic-gnmi-standalone --tls-cert=server.crt --tls-key=server.key
-
-# Verbose logging
-./bin/sonic-gnmi-standalone -v=2
+./bin/sonic-gnmi-standalone --help
 ```
-
-### TLS Configuration
-
-Use `--no-tls` flag to disable TLS encryption (TLS is enabled by default).
 
 ## Development Guide
 
