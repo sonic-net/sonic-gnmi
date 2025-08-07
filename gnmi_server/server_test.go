@@ -393,14 +393,14 @@ func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 			} else {
 				// Unmarshal json data to gotVal container for comparison
 				if err := json.Unmarshal(val.GetJsonIetfVal(), &gotVal); err != nil {
-					t.Fatalf("error in unmarshaling IETF JSON data to json container: %v", err)
+					t.Fatalf("error in unmarshaling IETF JSON data to gotVal json container: %v", err)
 				}
 				var wantJSONStruct interface{}
 				if v, ok := wantRespVal.(string); ok {
 					wantRespVal = []byte(v)
 				}
 				if err := json.Unmarshal(wantRespVal.([]byte), &wantJSONStruct); err != nil {
-					t.Fatalf("error in unmarshaling IETF JSON data to json container: %v", err)
+					t.Fatalf("error in unmarshaling IETF JSON data to wantJSONStruct json container: %v", err)
 				}
 				wantRespVal = wantJSONStruct
 			}
