@@ -9,6 +9,7 @@ const (
 	SHOW_CMD_OPT_DISPLAY_DESC       = "[display=all] Show internal interfaces [default: all]"
 	SHOW_CMD_OPT_VERBOSE_DESC       = "[verbose=true] Enable verbose output"
 	SHOW_CMD_OPT_INTERFACES_DESC    = "[interfaces=TEXT] Filter by interfaces name"
+	SHOW_CMD_OPT_INTERFACE_DESC     = "[interface=TEXT] Required interface name"
 	SHOW_CMD_OPT_PERIOD_DESC        = "[period=INTEGER] Display statistics over a specified period (in seconds)"
 	SHOW_CMD_OPT_JSON_DESC          = "[json=true] No-op since response is in json format"
 )
@@ -54,5 +55,12 @@ var (
 		sdc.Optional,
 		SHOW_CMD_OPT_JSON_DESC,
 		sdc.BoolValue,
+	)
+
+	SHOW_CMD_OPT_INTERFACE = sdc.NewShowCmdOption(
+		"interface",
+		sdc.Required,
+		SHOW_CMD_OPT_INTERFACE_DESC,
+		sdc.StringValue,
 	)
 )

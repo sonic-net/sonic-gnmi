@@ -50,4 +50,10 @@ func init() {
 		SHOW_CMD_OPT_JSON,
 		SHOW_CMD_OPT_VERBOSE,
 	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "interface", "errors"},
+		getIntfErrors,
+		nil,
+		SHOW_CMD_OPT_INTERFACE,
+	)
 }
