@@ -2,7 +2,6 @@ package show_client
 
 import (
 	"encoding/json"
-	"fmt"
 
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -17,6 +16,7 @@ func getAllPortsFromConfigDB() ([]string, error) {
 		log.Errorf("Unable to get data from CONFIG_DB queries %v, got err: %v", queries, err)
 		return nil, err
 	}
+	log.Infof("Data from CONFIG_DB: %v", data)
 	ports := make([]string, 0, len(data))
 	for iface, _ := range data {
 		ports = append(ports, iface)
@@ -32,25 +32,23 @@ func getInterfaceTransceiverPresence(prefix, path *gnmipb.Path) ([]byte, error) 
 	}
 
 	status := make(map[string]string)
-	queries := make([][]string, 0, len(ports))
-	for _, port := range ports {
-		queries = append(queries, []string{"STATE_DB", fmt.Sprintf("TRANSCEIVER_INFO|%s", port)})
+	queries := [][]string{
+		{"STATE_DB", "TRANSCEIVER_INFO"},
 	}
-	log.Infof("Prepared transceiver info queries: %v", queries)
-
 	data, err := GetMapFromQueries(queries)
 	if err != nil {
 		log.Errorf("Unable to get transceiver data from STATE_DB queries %v, got err: %v", queries, err)
 		return nil, err
 	}
-
+	log.V(6).Infof("TRANSCEIVER_INFO Data from STATE_DB: %v", data)
 	for _, port := range ports {
-		key := fmt.Sprintf("TRANSCEIVER_INFO|%s", port)
-		if _, exist := data[key]; exist {
+		if _, exist := data[port]; exist {
 			status[port] = "Present"
 		} else {
 			status[port] = "Not Present"
 		}
 	}
+	log.V(6).Infof("Transceiver presence status: %v", status)
+
 	return json.Marshal(status)
 }
