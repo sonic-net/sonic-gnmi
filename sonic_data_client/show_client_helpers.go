@@ -109,7 +109,7 @@ func constructDescription(subcommandDesc map[string]string, options map[string]S
 
 func constructOptions(options []ShowCmdOption) map[string]ShowCmdOption {
 	pathOptions := make(map[string]ShowCmdOption)
-	pathOptions[SHOW_CMD_OPT_GLOBAL_HELP.optName] = SHOW_CMD_OPT_GLOBAL_HELP
+	pathOptions[showCmdOptionHelp.optName] = showCmdOptionHelp
 	for _, option := range options {
 		pathOptions[option.optName] = option
 	}

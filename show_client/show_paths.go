@@ -24,36 +24,36 @@ func init() {
 		map[string]string{
 			"timezones": "show/clock/timezones: List of available timezones",
 		},
-		SHOW_CMD_OPT_VERBOSE,
+		showCmdOptionVerbose,
 	)
 	sdc.RegisterCliPath(
 		[]string{"SHOW", "clock", "timezones"},
 		getDateTimezone,
 		nil,
-		SHOW_CMD_OPT_VERBOSE,
+		showCmdOptionVerbose,
 	)
 	sdc.RegisterCliPath(
 		[]string{"SHOW", "ipv6", "bgp", "summary"},
 		getIPv6BGPSummary,
 		nil,
-		SHOW_CMD_OPT_NAMESPACE,
-		SHOW_CMD_OPT_DISPLAY,
+		sdc.UnimplementedOption(showCmdOptionNamespace),
+		showCmdOptionDisplay,
 	)
 	sdc.RegisterCliPath(
 		[]string{"SHOW", "interface", "counters"},
 		getInterfaceCounters,
 		nil,
-		SHOW_CMD_OPT_NAMESPACE,
-		SHOW_CMD_OPT_DISPLAY,
-		SHOW_CMD_OPT_INTERFACES,
-		SHOW_CMD_OPT_PERIOD,
-		SHOW_CMD_OPT_JSON,
-		SHOW_CMD_OPT_VERBOSE,
+		sdc.UnimplementedOption(showCmdOptionNamespace),
+		showCmdOptionDisplay,
+		showCmdOptionInterfaces,
+		showCmdOptionPeriod,
+		showCmdOptionJson,
+		showCmdOptionVerbose,
 	)
 	sdc.RegisterCliPath(
 		[]string{"SHOW", "interface", "errors"},
 		getIntfErrors,
 		nil,
-		SHOW_CMD_OPT_INTERFACE,
+		sdc.RequiredOption(showCmdOptionInterface),
 	)
 }

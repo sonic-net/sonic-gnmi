@@ -27,12 +27,11 @@ type ShowPathConfig struct {
 }
 
 var (
-	SHOW_CMD_OPT_GLOBAL_HELP = ShowCmdOption{ // No need to add this in RegisterCliPathWithOpts call as all paths will support
-		optName:     "help",
-		optType:     Optional,
-		description: SHOW_CMD_OPT_GLOBAL_HELP_DESC,
-		valueType:   BoolValue,
-	}
+	showCmdOptionHelp = NewShowCmdOption(
+		"help",
+		showCmdOptionHelpDesc,
+		BoolValue,
+	)
 )
 
 const (
@@ -45,7 +44,7 @@ const (
 	Optional      OptionType = 1
 	Unimplemented OptionType = -1
 
-	SHOW_CMD_OPT_GLOBAL_HELP_DESC = "[help=true]Show this message"
+	showCmdOptionHelpDesc = "[help=true]Show this message"
 )
 
 func (ov OptionValue) String() (string, bool) {
@@ -68,11 +67,21 @@ func (ov OptionValue) Int() (int, bool) {
 	return i, ok
 }
 
-func NewShowCmdOption(name string, optionType OptionType, desc string, valType ValueType) ShowCmdOption {
+func NewShowCmdOption(name string, desc string, valType ValueType) ShowCmdOption {
 	return ShowCmdOption{
 		optName:     name,
-		optType:     optionType,
+		optType:     Optional,
 		description: desc,
 		valueType:   valType,
 	}
+}
+
+func RequiredOption(option ShowCmdOption) ShowCmdOption {
+	option.optType = Required
+	return option
+}
+
+func UnimplementedOption(option ShowCmdOption) ShowCmdOption {
+	option.optType = Unimplemented
+	return option
 }

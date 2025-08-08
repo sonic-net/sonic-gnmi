@@ -42,7 +42,7 @@ func TestShowClientOptions(t *testing.T) {
 	portRatesFileName := "../testdata/PORT_RATES.txt"
 	portTableFileName := "../testdata/PORT_TABLE.txt"
 
-	showInterfaceCountersHelp := `{"options":{"display":"[display=all] Show internal interfaces [default: all]","help":"[help=true]Show this message","interfaces":"[interfaces=TEXT] Filter by interfaces name","json":"[json=true] No-op since response is in json format","namespace":"UNIMPLEMENTED","period":"[period=INTEGER] Display statistics over a specified period (in seconds)","verbose":"[verbose=true] Enable verbose output"},"subcommands":null}`
+	showInterfaceCountersHelp := `{"options":{"display":"[display=all] No-op since no-multi-asic support","help":"[help=true]Show this message","interfaces":"[interfaces=TEXT] Filter by interfaces name","json":"[json=true] No-op since response is in json format","namespace":"UNIMPLEMENTED","period":"[period=INTEGER] Display statistics over a specified period (in seconds)","verbose":"[verbose=true] Enable verbose output"},"subcommands":null}`
 	interfaceCountersSelectPorts := `{"Ethernet0":{"State":"U","RxOk":"149903","RxBps":"25.12 B/s","RxUtil":"0.00%","RxErr":"0","RxDrp":"957","RxOvr":"0","TxOk":"144782","TxBps":"773.23 KB/s","TxUtil":"0.01%","TxErr":"0","TxDrp":"2","TxOvr":"0"}}`
 
 	ResetDataSetsAndMappings(t)
@@ -108,6 +108,15 @@ func TestShowClientOptions(t *testing.T) {
 				      key: { key: "interfaces" value: "Ethernet0" }
 				      key: { key: "period" value: "5" }
 				      key: { key: "foo" value: "bar" }>
+			`,
+			wantRetCode: codes.InvalidArgument,
+		},
+		{
+			desc:       "query SHOW interface errors missing interface",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "interface" >
+				elem: <name: "errors">
 			`,
 			wantRetCode: codes.InvalidArgument,
 		},
