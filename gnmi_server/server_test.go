@@ -122,6 +122,7 @@ func createClient(t *testing.T, port int) *grpc.ClientConn {
 
 func createServer(t *testing.T, port int64) *Server {
 	t.Helper()
+	OutputQueSize = 10 * uint64(1e6)
 	certificate, err := testcert.NewCert()
 	if err != nil {
 		t.Fatalf("could not load server key pair: %s", err)
@@ -132,7 +133,7 @@ func createServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100}
+	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100, MaxNumSubscribers: 10}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
@@ -151,7 +152,7 @@ func createReadServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: false}
+	cfg := &Config{Port: port, EnableTranslibWrite: false, MaxNumSubscribers: 10}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
@@ -170,7 +171,7 @@ func createRejectServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true, Threshold: 2}
+	cfg := &Config{Port: port, EnableTranslibWrite: true, Threshold: 2, MaxNumSubscribers: 10}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
@@ -190,7 +191,7 @@ func createAuthServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true, UserAuth: AuthTypes{"password": true, "cert": true, "jwt": true}}
+	cfg := &Config{Port: port, EnableTranslibWrite: true, UserAuth: AuthTypes{"password": true, "cert": true, "jwt": true}, MaxNumSubscribers: 10}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
@@ -235,7 +236,7 @@ func createKeepAliveServer(t *testing.T, port int64) *Server {
 		grpc.KeepaliveParams(keep_alive_params),
 	}
 	server_opts = append(server_opts, opts[0])
-	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100}
+	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100, MaxNumSubscribers: 10}
 	s, err := NewServer(cfg, server_opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
@@ -4915,7 +4916,6 @@ func TestGNMINative(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	initFullConfigDb(t, ns)
 	initFullCountersDb(t, ns)
-
 	path, _ := os.Getwd()
 	path = filepath.Dir(path)
 
