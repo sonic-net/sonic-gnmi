@@ -2,7 +2,6 @@ package show_client
 
 import (
 	"encoding/json"
-	"fmt"
 
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
