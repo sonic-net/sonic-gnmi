@@ -8,7 +8,7 @@ import (
 	"time"
 
 	log "github.com/golang/glog"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
 type InterfaceCountersResponse struct {
@@ -84,21 +84,22 @@ func computeState(iface string, portTable map[string]interface{}) string {
 	}
 }
 
-func getInterfaceCounters(prefix, path *gnmipb.Path) ([]byte, error) {
-	ifaces := ParseOptionsFromPath(path, "interfaces")
-	periodArgs := ParseOptionsFromPath(path, "period")
-
-	takeDiffSnapshot := false
+func getInterfaceCounters(options sdc.OptionMap) ([]byte, error) {
+	var ifaces []string
 	period := 0
-	if len(periodArgs) > 0 {
-		periodValue, err := strconv.Atoi(periodArgs[0])
-		if err == nil && periodValue <= maxShowCommandPeriod {
-			takeDiffSnapshot = true
-			period = periodValue
-		}
-		if periodValue > maxShowCommandPeriod {
-			return nil, fmt.Errorf("period value must be <= %v", maxShowCommandPeriod)
-		}
+	takeDiffSnapshot := false
+
+	if interfaces, ok := options["interfaces"].Strings(); ok {
+		ifaces = interfaces
+	}
+
+	if periodValue, ok := options["period"].Int(); ok {
+		takeDiffSnapshot = true
+		period = periodValue
+	}
+
+	if period > maxShowCommandPeriod {
+		return nil, fmt.Errorf("period value must be <= %v", maxShowCommandPeriod)
 	}
 
 	oldSnapshot, err := getInterfaceCountersSnapshot(ifaces)
@@ -254,12 +255,11 @@ var allPortErrors = [][]string{
 	{"no_rx_reachability_count", "no_rx_reachability_time"},
 }
 
-func getIntfErrors(prefix, path *gnmipb.Path) ([]byte, error) {
-	ifaces := ParseOptionsFromPath(path, "interface")
-	if len(ifaces) == 0 {
-		return nil, fmt.Errorf("No interface name specified in the path: %v", path)
+func getIntfErrors(options sdc.OptionMap) ([]byte, error) {
+	intf, ok := options["interface"].String()
+	if !ok {
+		return nil, fmt.Errorf("No interface name passed in as option")
 	}
-	intf := ifaces[0]
 
 	// Query Port Operational Errors Table from STATE_DB
 	queries := [][]string{
