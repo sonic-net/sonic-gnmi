@@ -6,6 +6,7 @@ package gnmi
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -36,9 +37,17 @@ func TestWatermarkTelemetryInterval(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	watermarkTelemetryIntervalDefault := `{"interval": "120"}`
+	watermarkTelemetryIntervalDefaultMap := map[string]string{
+		"interval": "120s",
+	}
+	watermarkTelemetryIntervalSetMap := map[string]string{
+		"interval": "180s",
+	}
+	// Convert to JSON bytes for comparison
+	watermarkTelemetryIntervalDefault, _ := json.Marshal(watermarkTelemetryIntervalDefaultMap)
+	watermarkTelemetryIntervalSet, _ := json.Marshal(watermarkTelemetryIntervalSetMap)
+
 	watermarkTelemetryIntervalSetFileName := "../testdata/WATERMARK_TELEMETRY_INTERVAL_SET.txt"
-	watermarkTelemetryIntervalSet := `{"interval": "180"}`
 
 	ResetDataSetsAndMappings(t)
 
@@ -70,7 +79,7 @@ func TestWatermarkTelemetryInterval(t *testing.T) {
 				elem: <name: "interval" >
 			`,
 			wantRetCode: codes.OK,
-			wantRespVal: []byte(watermarkTelemetryIntervalDefault),
+			wantRespVal: watermarkTelemetryIntervalDefault,
 			valTest:     true,
 		},
 		{
@@ -82,7 +91,7 @@ func TestWatermarkTelemetryInterval(t *testing.T) {
 				elem: <name: "interval" >
 			`,
 			wantRetCode: codes.OK,
-			wantRespVal: []byte(watermarkTelemetryIntervalSet),
+			wantRespVal: watermarkTelemetryIntervalSet,
 			valTest:     true,
 			testInit: func() {
 				FlushDataSet(t, ConfigDbNum)

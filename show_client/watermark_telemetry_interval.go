@@ -27,11 +27,25 @@ func getWatermarkTelemetryInterval(prefix, path *gnmipb.Path) ([]byte, error) {
 		return nil, err
 	}
 
-	log.Infof("Data from GetDataFromQueries: %v", data)
+	// Default value
+	interval := "120"
 
-	if len(data) == 0 || string(data) == "{}" {
-		log.V(2).Info("TELEMETRY_INTERVAL not found in CONFIG_DB, returning default value 120s")
-		return json.Marshal(`{"interval": "120"}`)
+	if len(data) != 0 && string(data) != "{}" {
+		var parsed map[string]string
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			log.Errorf("Failed to unmarshal data: %v", err)
+			return nil, err
+		}
+		if val, ok := parsed["interval"]; ok {
+			interval = val
+		} else {
+			log.Warningf("Key 'interval' not found in data: %v", parsed)
+		}
 	}
-	return data, nil
+
+	// Append "s" for seconds
+	result := map[string]string{
+		"interval": interval + "s",
+	}
+	return json.Marshal(result)
 }
