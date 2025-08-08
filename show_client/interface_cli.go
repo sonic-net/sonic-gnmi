@@ -372,7 +372,7 @@ func getInterfaceFecStatus(options sdc.OptionMap) ([]byte, error) {
 			// If port is down or oper FEC status is not available, set it to "N/A"
 			operFecStatus = "N/A"
 		}
-		portFecStatus = append(portFecStatus, []string{port, adminFecStatus, operFecStatus})
+		portFecStatus = append(portFecStatus, []string{port, operFecStatus, adminFecStatus})
 	}
 
 	return json.Marshal(portFecStatus)
