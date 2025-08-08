@@ -48,6 +48,7 @@ func TestWatermarkTelemetryInterval(t *testing.T) {
 	watermarkTelemetryIntervalSet, _ := json.Marshal(watermarkTelemetryIntervalSetMap)
 
 	watermarkTelemetryIntervalSetFileName := "../testdata/WATERMARK_TELEMETRY_INTERVAL_SET.txt"
+	watermarkTelemetryIntervalWrongKeySetFileName := "../testdata/WATERMARK_TELEMETRY_INTERVAL_WRONG_KEY_SET.txt"
 
 	ResetDataSetsAndMappings(t)
 
@@ -96,6 +97,22 @@ func TestWatermarkTelemetryInterval(t *testing.T) {
 			testInit: func() {
 				FlushDataSet(t, ConfigDbNum)
 				AddDataSet(t, ConfigDbNum, watermarkTelemetryIntervalSetFileName)
+			},
+		},
+		{
+			desc:       "query SHOW watermark telemetry interval Wrong Key Set in CONFIG_DB",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "watermark" >
+				elem: <name: "telemetry" >
+				elem: <name: "interval" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: watermarkTelemetryIntervalDefault,
+			valTest:     true,
+			testInit: func() {
+				FlushDataSet(t, ConfigDbNum)
+				AddDataSet(t, ConfigDbNum, watermarkTelemetryIntervalWrongKeySetFileName)
 			},
 		},
 	}
