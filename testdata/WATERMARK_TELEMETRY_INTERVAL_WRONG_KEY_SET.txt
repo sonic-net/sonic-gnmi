@@ -1,0 +1,5 @@
+{
+  "WATERMARK_TABLE|TELEMETRY_INTERVAL":{
+    "internal": "180"
+  }
+}
