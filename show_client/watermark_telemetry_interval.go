@@ -22,20 +22,17 @@ func getWatermarkTelemetryInterval(prefix, path *gnmipb.Path) ([]byte, error) {
 	queries := [][]string{
 		{"CONFIG_DB", "WATERMARK_TABLE", "TELEMETRY_INTERVAL"},
 	}
-	dataMap, err := GetMapFromQueries(queries)
+	data, err := GetDataFromQueries(queries)
 	if err != nil {
-		log.Errorf("Unable to get data from queries %v, got err: %v", queries, err)
+		log.Errorf("Unable to get watermark interval data from queries %v, got err: %v", queries, err)
 		return nil, err
 	}
 
-	log.Infof("Data from GetMapFromQueries: %v", dataMap)
+	log.Infof("Data from GetDataFromQueries: %v", data)
 
-	interval := "120" // Default value if not found
-	if val, ok := dataMap["interval"]; ok {
-		interval = fmt.Sprintf("%v", val)
-	} else {
-		log.Info("Interval key not found, using default value 120s")
+	if len(data) == 0 || string(data) == "{}" {
+		log.V(2).Info("TELEMETRY_INTERVAL not found in CONFIG_DB, returning default value 120s")
+		return json.Marshal(`{"interval": "120"}`)
 	}
-	response := fmt.Sprintf("Telemetry interval: %s second(s)", interval)
-	return json.Marshal(response)
+	return data, nil
 }
