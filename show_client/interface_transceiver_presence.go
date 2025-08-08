@@ -2,7 +2,6 @@ package show_client
 
 import (
 	"encoding/json"
-	"fmt"
 
 	log "github.com/golang/glog"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
@@ -17,6 +16,7 @@ func getAllPortsFromConfigDB() ([]string, error) {
 		log.Errorf("Unable to get data from CONFIG_DB queries %v, got err: %v", queries, err)
 		return nil, err
 	}
+	log.Infof("Data from CONFIG_DB: %v", data)
 	ports := make([]string, 0, len(data))
 	for iface, _ := range data {
 		ports = append(ports, iface)
