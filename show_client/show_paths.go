@@ -56,4 +56,8 @@ func init() {
 		nil,
 		sdc.RequiredOption(showCmdOptionInterface),
 	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "interface", "transceiver", "error-status"},
+		getTransceiverErrorStatus,
+	)
 }
