@@ -1,0 +1,5 @@
+{
+  "SWITCH_ID": {
+    "SAI_SWITCH_STAT_PACKET_INTEGRITY_DROP": "0"
+  }
+}
