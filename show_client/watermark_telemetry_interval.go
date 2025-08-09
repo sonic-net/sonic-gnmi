@@ -31,8 +31,13 @@ func getWatermarkTelemetryInterval(prefix, path *gnmipb.Path) ([]byte, error) {
 	// Default value
 	interval := "120"
 
-	if val, ok := data["interval"]; ok && val != nil && val != "" {
-		interval = fmt.Sprintf("%v", val)
+	if val, ok := data["interval"]; ok && val != nil {
+		strVal := fmt.Sprintf("%v", val)
+		if strVal != "" {
+			interval = strVal
+		} else {
+			log.Warningf("Key 'interval' found but empty in data")
+		}
 	} else {
 		log.Warningf("Key 'interval' not found or empty in data")
 	}
