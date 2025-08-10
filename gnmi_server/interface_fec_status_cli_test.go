@@ -44,7 +44,7 @@ func TestGetShowInterfaceFecStatus(t *testing.T) {
 
 	portsFileName := "../testdata/PORTS.txt"
 	portTableFileName := "../testdata/PORT_TABLE.txt"
-	stateDBPortTableFileName := "../testdata/STATE_PORT_TABLE.txt"
+	stateDBPortTableFileName := "../testdata/STATE_PORT_TABLE.json"
 
 	tests := []struct {
 		desc        string
