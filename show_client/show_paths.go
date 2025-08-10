@@ -60,6 +60,6 @@ func init() {
 		[]string{"SHOW", "interface", "fec", "status"},
 		getInterfaceFecStatus,
 		nil,
-		SHOW_CMD_OPT_INTERFACE,
+		showCmdOptionInterface,
 	)
 }

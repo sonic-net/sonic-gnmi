@@ -39,7 +39,6 @@ func TestGetShowInterfaceFecStatus(t *testing.T) {
 	// Expected JSON for empty (no DB data) case: empty list
 	emptyResp := `[]`
 
-	noStateDBData := `[["Ethernet0","N/A","rs"],["Ethernet40","N/A","rs"],["Ethernet80","N/A","rs"]]`
 	fullData := `[["Ethernet0","rs","rs"],["Ethernet40","rs","rs"],["Ethernet80","rs","rs"]]`
 	oneIntfData := `[["Ethernet0","rs","rs"]]`
 
