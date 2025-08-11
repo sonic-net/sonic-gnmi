@@ -40,10 +40,12 @@ func TestGetShowInterfaceFecStatus(t *testing.T) {
 	emptyResp := `[]`
 
 	fullData := `[["Ethernet0","rs","rs"],["Ethernet40","rs","rs"],["Ethernet80","rs","rs"]]`
+	fullDataNA := `[["Ethernet0","N/A","rs"],["Ethernet40","N/A","rs"],["Ethernet80","N/A","rs"]]`
 	oneIntfData := `[["Ethernet0","rs","rs"]]`
 
 	portsFileName := "../testdata/PORTS.txt"
 	portTableFileName := "../testdata/PORT_TABLE.txt"
+	operDownPortTableFileName := "../testdata/OPER_DOWN_PORT_TABLE.json"
 	stateDBPortTableFileName := "../testdata/STATE_PORT_TABLE.json"
 
 	tests := []struct {
@@ -125,6 +127,27 @@ func TestGetShowInterfaceFecStatus(t *testing.T) {
 				// No STATE_DB fec entries so operFec becomes N/A
 				AddDataSet(t, ConfigDbNum, portsFileName)
 				AddDataSet(t, ApplDbNum, portTableFileName)
+				AddDataSet(t, StateDbNum, stateDBPortTableFileName)
+			},
+		},
+		{
+			desc:       "query SHOW interface fec status - all ports oper down",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "interface" >
+				elem: <name: "fec" >
+				elem: <name: "status" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: []byte(fullDataNA),
+			valTest:     true,
+			testInit: func() {
+				FlushDataSet(t, ConfigDbNum)
+				FlushDataSet(t, ApplDbNum)
+				FlushDataSet(t, StateDbNum)
+				// No STATE_DB fec entries so operFec becomes N/A
+				AddDataSet(t, ConfigDbNum, portsFileName)
+				AddDataSet(t, ApplDbNum, operDownPortTableFileName)
 				AddDataSet(t, StateDbNum, stateDBPortTableFileName)
 			},
 		},
