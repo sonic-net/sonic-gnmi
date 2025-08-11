@@ -3,11 +3,13 @@ package show_client
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	log "github.com/golang/glog"
+	natural "github.com/maruel/natural"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
@@ -338,6 +340,9 @@ func getInterfaceFecStatus(options sdc.OptionMap) ([]byte, error) {
 		return nil, err
 	}
 
+	// Naturally sort the port list
+	sort.Sort(natural.StringSlice(ports))
+
 	portFecStatus := make([][]string, 0, len(ports)+1)
 	for i := range ports {
 		port := ports[i]
@@ -345,7 +350,7 @@ func getInterfaceFecStatus(options sdc.OptionMap) ([]byte, error) {
 		operStatus := ""
 		operFecStatus := ""
 
-		// Query port status from APPL_DB
+		// Query port admin FEC status and operation status from APPL_DB
 		queries := [][]string{
 			{"APPL_DB", AppDBPortTable, port},
 		}
