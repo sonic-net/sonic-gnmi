@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	log "github.com/golang/glog"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
 /*
@@ -18,7 +18,7 @@ admin@sonic:~$ redis-cli -n 4 HGETALL "WATERMARK_TABLE|TELEMETRY_INTERVAL"
 2) "30"
 */
 
-func getWatermarkTelemetryInterval(prefix, path *gnmipb.Path) ([]byte, error) {
+func getWatermarkTelemetryInterval(options sdc.OptionMap) ([]byte, error) {
 	queries := [][]string{
 		{"CONFIG_DB", "WATERMARK_TABLE", "TELEMETRY_INTERVAL"},
 	}

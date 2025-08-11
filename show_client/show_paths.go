@@ -59,5 +59,6 @@ func init() {
 	sdc.RegisterCliPath(
 		[]string{"SHOW", "watermark", "telemetry", "interval"},
 		getWatermarkTelemetryInterval,
+		nil,
 	)
 }
