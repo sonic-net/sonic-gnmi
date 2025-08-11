@@ -2,7 +2,7 @@ package show_client
 
 import (
 	log "github.com/golang/glog"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
 func getTransceiverErrorStatus(options sdc.OptionMap) ([]byte, error) {
