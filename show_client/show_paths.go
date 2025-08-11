@@ -59,5 +59,9 @@ func init() {
 	sdc.RegisterCliPath(
 		[]string{"SHOW", "interface", "transceiver", "error-status"},
 		getTransceiverErrorStatus,
+		nil,
+		showCmdOptionVerbose,
+		sdc.UnimplementedOption(showCmdOptionNamespace),
+		sdc.UnimplementedOption(showCmdOptionFetchFromHW),
 	)
 }
