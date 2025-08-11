@@ -22,8 +22,7 @@
     "supported_fecs": "none,rs,fc,auto",
     "NPU_SI_SETTINGS_SYNC_STATUS": "NPU_SI_SETTINGS_DEFAULT",
     "rmt_adv_speeds": "N/A",
-    "speed": "200000",
-    "fec": "rs"
+    "speed": "200000"
   },
   "PORT_TABLE|Ethernet80": {
     "state": "ok",

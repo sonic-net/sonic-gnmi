@@ -3,13 +3,11 @@ package show_client
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	log "github.com/golang/glog"
-	natural "github.com/maruel/natural"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
@@ -28,9 +26,6 @@ type InterfaceCountersResponse struct {
 	TxDrp  string
 	TxOvr  string
 }
-
-const AppDBPortTable = "PORT_TABLE"
-const StateDBPortTable = "PORT_TABLE"
 
 func calculateByteRate(rate string) string {
 	if rate == defaultMissingCounterValue {
@@ -260,7 +255,7 @@ var allPortErrors = [][]string{
 	{"no_rx_reachability_count", "no_rx_reachability_time"},
 }
 
-func getIntfErrors(options sdc.OptionMap) ([]byte, error) {
+func getInterfaceErrors(options sdc.OptionMap) ([]byte, error) {
 	intf, ok := options["interface"].String()
 	if !ok {
 		return nil, fmt.Errorf("No interface name passed in as option")
@@ -329,19 +324,14 @@ func getFrontPanelPorts(intf string) ([]string, error) {
 }
 
 func getInterfaceFecStatus(options sdc.OptionMap) ([]byte, error) {
-	intf, ok := options["interface"].String()
-	if !ok {
-		intf = ""
-	}
+	intf, _ := options["interface"].String()
 
 	ports, err := getFrontPanelPorts(intf)
 	if err != nil {
 		log.Errorf("Failed to get front panel ports: %v", err)
 		return nil, err
 	}
-
-	// Naturally sort the port list
-	sort.Sort(natural.StringSlice(ports))
+	ports = natsortInterfaces(ports)
 
 	portFecStatus := make([][]string, 0, len(ports)+1)
 	for i := range ports {
@@ -359,8 +349,16 @@ func getInterfaceFecStatus(options sdc.OptionMap) ([]byte, error) {
 			log.Errorf("Failed to get admin FEC status for port %s: %v", port, err)
 			return nil, err
 		}
-		adminFecStatus = fmt.Sprint(data["fec"])
-		operStatus = fmt.Sprint(data["oper_status"])
+		if _, ok := data["fec"]; !ok {
+			adminFecStatus = "N/A"
+		} else {
+			adminFecStatus = fmt.Sprint(data["fec"])
+		}
+		if _, ok := data["oper_status"]; !ok {
+			operStatus = "N/A"
+		} else {
+			operStatus = fmt.Sprint(data["oper_status"])
+		}
 
 		// Query port's oper FEC status from STATE_DB
 		queries = [][]string{
@@ -371,9 +369,13 @@ func getInterfaceFecStatus(options sdc.OptionMap) ([]byte, error) {
 			log.Errorf("Failed to get oper FEC status for port %s: %v", port, err)
 			return nil, err
 		}
-		operFecStatus = fmt.Sprint(data["fec"])
+		if _, ok := data["fec"]; !ok {
+			operFecStatus = "N/A"
+		} else {
+			operFecStatus = fmt.Sprint(data["fec"])
+		}
 
-		if operStatus != "up" || operFecStatus == "" {
+		if operStatus != "up" {
 			// If port is down or oper FEC status is not available, set it to "N/A"
 			operFecStatus = "N/A"
 		}

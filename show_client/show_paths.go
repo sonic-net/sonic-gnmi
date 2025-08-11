@@ -52,7 +52,7 @@ func init() {
 	)
 	sdc.RegisterCliPath(
 		[]string{"SHOW", "interface", "errors"},
-		getIntfErrors,
+		getInterfaceErrors,
 		nil,
 		sdc.RequiredOption(showCmdOptionInterface),
 	)
@@ -61,8 +61,8 @@ func init() {
 		getInterfaceFecStatus,
 		nil,
 		showCmdOptionInterface,
-  )
-  sdc.RegisterCliPath(
+	)
+	sdc.RegisterCliPath(
 		[]string{"SHOW", "watermark", "telemetry", "interval"},
 		getWatermarkTelemetryInterval,
 		nil,

@@ -39,8 +39,8 @@ func TestGetShowInterfaceFecStatus(t *testing.T) {
 	// Expected JSON for empty (no DB data) case: empty list
 	emptyResp := `[]`
 
-	fullData := `[["Ethernet0","rs","rs"],["Ethernet40","rs","rs"],["Ethernet80","rs","rs"]]`
-	fullDataNA := `[["Ethernet0","N/A","rs"],["Ethernet40","N/A","rs"],["Ethernet80","N/A","rs"]]`
+	fullData := `[["Ethernet0","rs","rs"],["Ethernet40","N/A","rs"],["Ethernet80","rs","rs"]]`
+	mixedData := `[["Ethernet0","N/A","rs"],["Ethernet40","N/A","rs"],["Ethernet80","N/A","N/A"]]`
 	oneIntfData := `[["Ethernet0","rs","rs"]]`
 
 	portsFileName := "../testdata/PORTS.txt"
@@ -84,7 +84,6 @@ func TestGetShowInterfaceFecStatus(t *testing.T) {
 				FlushDataSet(t, ConfigDbNum)
 				FlushDataSet(t, ApplDbNum)
 				FlushDataSet(t, StateDbNum)
-				// No STATE_DB fec entries so operFec becomes N/A
 				AddDataSet(t, ConfigDbNum, portsFileName)
 				AddDataSet(t, ApplDbNum, portTableFileName)
 				AddDataSet(t, StateDbNum, stateDBPortTableFileName)
@@ -105,7 +104,6 @@ func TestGetShowInterfaceFecStatus(t *testing.T) {
 				FlushDataSet(t, ConfigDbNum)
 				FlushDataSet(t, ApplDbNum)
 				FlushDataSet(t, StateDbNum)
-				// No STATE_DB fec entries so operFec becomes N/A
 				AddDataSet(t, ConfigDbNum, portsFileName)
 				AddDataSet(t, ApplDbNum, portTableFileName)
 				AddDataSet(t, StateDbNum, stateDBPortTableFileName)
@@ -124,7 +122,6 @@ func TestGetShowInterfaceFecStatus(t *testing.T) {
 				FlushDataSet(t, ConfigDbNum)
 				FlushDataSet(t, ApplDbNum)
 				FlushDataSet(t, StateDbNum)
-				// No STATE_DB fec entries so operFec becomes N/A
 				AddDataSet(t, ConfigDbNum, portsFileName)
 				AddDataSet(t, ApplDbNum, portTableFileName)
 				AddDataSet(t, StateDbNum, stateDBPortTableFileName)
@@ -139,13 +136,12 @@ func TestGetShowInterfaceFecStatus(t *testing.T) {
 				elem: <name: "status" >
 			`,
 			wantRetCode: codes.OK,
-			wantRespVal: []byte(fullDataNA),
+			wantRespVal: []byte(mixedData),
 			valTest:     true,
 			testInit: func() {
 				FlushDataSet(t, ConfigDbNum)
 				FlushDataSet(t, ApplDbNum)
 				FlushDataSet(t, StateDbNum)
-				// No STATE_DB fec entries so operFec becomes N/A
 				AddDataSet(t, ConfigDbNum, portsFileName)
 				AddDataSet(t, ApplDbNum, operDownPortTableFileName)
 				AddDataSet(t, StateDbNum, stateDBPortTableFileName)
