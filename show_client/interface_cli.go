@@ -3,10 +3,12 @@ package show_client
 import (
 	"encoding/json"
 	"fmt"
-	log "github.com/golang/glog"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"strconv"
+	"strings"
 	"time"
+
+	log "github.com/golang/glog"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
 type InterfaceCountersResponse struct {
@@ -82,21 +84,22 @@ func computeState(iface string, portTable map[string]interface{}) string {
 	}
 }
 
-func getInterfaceCounters(prefix, path *gnmipb.Path) ([]byte, error) {
-	ifaces := ParseOptionsFromPath(path, "interfaces")
-	periodArgs := ParseOptionsFromPath(path, "period")
-
-	takeDiffSnapshot := false
+func getInterfaceCounters(options sdc.OptionMap) ([]byte, error) {
+	var ifaces []string
 	period := 0
-	if len(periodArgs) > 0 {
-		periodValue, err := strconv.Atoi(periodArgs[0])
-		if err == nil && periodValue <= maxShowCommandPeriod {
-			takeDiffSnapshot = true
-			period = periodValue
-		}
-		if periodValue > maxShowCommandPeriod {
-			return nil, fmt.Errorf("period value must be <= %v", maxShowCommandPeriod)
-		}
+	takeDiffSnapshot := false
+
+	if interfaces, ok := options["interfaces"].Strings(); ok {
+		ifaces = interfaces
+	}
+
+	if periodValue, ok := options["period"].Int(); ok {
+		takeDiffSnapshot = true
+		period = periodValue
+	}
+
+	if period > maxShowCommandPeriod {
+		return nil, fmt.Errorf("period value must be <= %v", maxShowCommandPeriod)
 	}
 
 	oldSnapshot, err := getInterfaceCountersSnapshot(ifaces)
@@ -233,4 +236,62 @@ func calculateDiffSnapshot(oldSnapshot map[string]InterfaceCountersResponse, new
 		}
 	}
 	return diffResponse
+}
+
+var allPortErrors = [][]string{
+	{"oper_error_status", "oper_error_status_time"},
+	{"mac_local_fault_count", "mac_local_fault_time"},
+	{"mac_remote_fault_count", "mac_remote_fault_time"},
+	{"fec_sync_loss_count", "fec_sync_loss_time"},
+	{"fec_alignment_loss_count", "fec_alignment_loss_time"},
+	{"high_ser_error_count", "high_ser_error_time"},
+	{"high_ber_error_count", "high_ber_error_time"},
+	{"data_unit_crc_error_count", "data_unit_crc_error_time"},
+	{"data_unit_misalignment_error_count", "data_unit_misalignment_error_time"},
+	{"signal_local_error_count", "signal_local_error_time"},
+	{"crc_rate_count", "crc_rate_time"},
+	{"data_unit_size_count", "data_unit_size_time"},
+	{"code_group_error_count", "code_group_error_time"},
+	{"no_rx_reachability_count", "no_rx_reachability_time"},
+}
+
+func getIntfErrors(options sdc.OptionMap) ([]byte, error) {
+	intf, ok := options["interface"].String()
+	if !ok {
+		return nil, fmt.Errorf("No interface name passed in as option")
+	}
+
+	// Query Port Operational Errors Table from STATE_DB
+	queries := [][]string{
+		{"STATE_DB", "PORT_OPERR_TABLE", intf},
+	}
+	portErrorsTbl, _ := GetMapFromQueries(queries)
+	portErrorsTbl = RemapAliasToPortName(portErrorsTbl)
+
+	// Format the port errors data
+	portErrors := make([][]string, 0, len(allPortErrors)+1)
+	// Append the table header
+	portErrors = append(portErrors, []string{"Port Errors", "Count", "Last timestamp(UTC)"})
+	// Iterate through all port errors types and create the result
+	for _, portError := range allPortErrors {
+		count := "0"
+		timestamp := "Never"
+		if portErrorsTbl != nil {
+			if val, ok := portErrorsTbl[portError[0]]; ok {
+				count = fmt.Sprintf("%v", val)
+			}
+			if val, ok := portErrorsTbl[portError[1]]; ok {
+				timestamp = fmt.Sprintf("%v", val)
+			}
+		}
+
+		portErrors = append(portErrors, []string{
+			strings.Replace(strings.Replace(portError[0], "_", " ", -1), " count", "", -1),
+			count,
+			timestamp},
+		)
+	}
+
+	// Convert [][]string to []byte using JSON serialization
+	return json.Marshal(portErrors)
 }

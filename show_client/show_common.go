@@ -8,7 +8,6 @@ import (
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	"os/exec"
 	"strconv"
-	"strings"
 )
 
 const (
@@ -135,21 +134,6 @@ func RemapAliasToPortName(portData map[string]interface{}) map[string]interface{
 		}
 	}
 	return remapped
-}
-
-func ParseOptionsFromPath(path *gnmipb.Path, optionName string) []string {
-	output := []string{}
-	for _, elem := range path.GetElem() {
-		if option, ok := elem.GetKey()[optionName]; ok {
-			for _, optionValues := range strings.Split(option, ",") {
-				if optionValue := strings.TrimSpace(optionValues); optionValue != "" {
-					output = append(output, optionValue)
-				}
-			}
-			break
-		}
-	}
-	return output
 }
 
 func GetFieldValueString(data map[string]interface{}, key string, defaultValue string, field string) string {
