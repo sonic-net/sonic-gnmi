@@ -109,6 +109,25 @@ func TestGetShowInterfaceFecStatus(t *testing.T) {
 				AddDataSet(t, StateDbNum, stateDBPortTableFileName)
 			},
 		},
+		{
+			desc:       "query SHOW interface fec status - single non-existent interface",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "interface" >
+				elem: <name: "fec" >
+				elem: <name: "status" key: { key: "interface" value: "Ethernet10" } >
+			`,
+			wantRetCode: codes.Unknown,
+			testInit: func() {
+				FlushDataSet(t, ConfigDbNum)
+				FlushDataSet(t, ApplDbNum)
+				FlushDataSet(t, StateDbNum)
+				// No STATE_DB fec entries so operFec becomes N/A
+				AddDataSet(t, ConfigDbNum, portsFileName)
+				AddDataSet(t, ApplDbNum, portTableFileName)
+				AddDataSet(t, StateDbNum, stateDBPortTableFileName)
+			},
+		},
 	}
 
 	for _, test := range tests {
