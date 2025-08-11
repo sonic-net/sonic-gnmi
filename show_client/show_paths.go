@@ -61,5 +61,10 @@ func init() {
 		getInterfaceFecStatus,
 		nil,
 		showCmdOptionInterface,
+  )
+  sdc.RegisterCliPath(
+		[]string{"SHOW", "watermark", "telemetry", "interval"},
+		getWatermarkTelemetryInterval,
+		nil,
 	)
 }
