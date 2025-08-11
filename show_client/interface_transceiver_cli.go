@@ -5,17 +5,20 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
-func getTransceiverErrorStatus(prefix, path *gnmipb.Path) ([]byte, error) {
-	port := ParseOptionsFromPath(path, "port")
+func getTransceiverErrorStatus(options sdc.OptionMap) ([]byte, error) {
+	var ports string
+	if port, ok := options["port"].Strings(); ok {
+		ports = port
+	}
 
 	var queries [][]string
-	if len(port) == 0 {
+	if len(ports) == 0 {
 		queries = [][]string{
 			{"STATE_DB", "TRANSCEIVER_STATUS_SW"},
 		}
 	} else {
 		queries = [][]string{
-			{"STATE_DB", "TRANSCEIVER_STATUS_SW", port[0]},
+			{"STATE_DB", "TRANSCEIVER_STATUS_SW", ports},
 		}
 	}
 
