@@ -3,6 +3,9 @@ package client
 import (
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/Workiva/go-datastructures/queue"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"sync"
 	"testing"
 )
