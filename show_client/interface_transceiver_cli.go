@@ -7,7 +7,7 @@ import (
 
 func getTransceiverErrorStatus(options sdc.OptionMap) ([]byte, error) {
 	var intf string
-	if intf, ok := options["interface"].Strings(); ok {
+	if intf, ok := options["interface"].String(); ok {
 		intf = intf
 	}
 
