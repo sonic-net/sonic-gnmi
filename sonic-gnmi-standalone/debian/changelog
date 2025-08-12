@@ -1,0 +1,7 @@
+sonic-gnmi-standalone (1.0.0-1) unstable; urgency=medium
+
+  * Initial release
+  * Minimal gRPC server foundation for SONiC services
+  * Provides reflection services and TLS support
+
+ -- SONiC Team <sonic@example.com>  Thu, 26 Jun 2025 00:00:00 +0000
