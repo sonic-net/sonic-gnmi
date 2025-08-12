@@ -61,7 +61,7 @@ func init() {
 		getWatermarkTelemetryInterval,
 		nil,
 	)
-  sdc.RegisterCliPath(
+	sdc.RegisterCliPath(
 		[]string{"SHOW", "interface", "transceiver", "error-status"},
 		getTransceiverErrorStatus,
 		nil,
