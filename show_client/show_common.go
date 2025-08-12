@@ -181,3 +181,13 @@ func calculateDiffCounters(oldCounter string, newCounter string, defaultValue st
 	}
 	return strconv.FormatInt(newCounterValue-oldCounterValue, base10)
 }
+
+func MergeMaps(maps ...map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+	for _, m := range maps {
+		for key, value := range m {
+			result[key] = value
+		}
+	}
+	return result
+}
