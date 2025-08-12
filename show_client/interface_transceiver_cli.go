@@ -6,19 +6,19 @@ import (
 )
 
 func getTransceiverErrorStatus(options sdc.OptionMap) ([]byte, error) {
-	var intfs []string
-	if interfaces, ok := options["interfaces"].Strings(); ok {
-		intfs = interfaces
+	var intf string
+	if intf, ok := options["interface"].Strings(); ok {
+		intf = intf
 	}
 
 	var queries [][]string
-	if len(intfs) == 0 {
+	if intf == "" {
 		queries = [][]string{
 			{"STATE_DB", "TRANSCEIVER_STATUS_SW"},
 		}
 	} else {
 		queries = [][]string{
-			{"STATE_DB", "TRANSCEIVER_STATUS_SW", intfs[0]},
+			{"STATE_DB", "TRANSCEIVER_STATUS_SW", intf},
 		}
 	}
 
