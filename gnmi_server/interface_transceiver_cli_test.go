@@ -37,7 +37,7 @@ func TestGetTransceiverErrorStatus(t *testing.T) {
 	defer cancel()
 
 	transceiverErrorStatusFileName := "../testdata/TRANSCEIVER_STATUS_SW.txt"
-	transceiverErrorStatus := `{"Ethernet90":{"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet91": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet92": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet93": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet94": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet95": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet96": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet97": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet98": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet99": {"cmis_state": "READY","error": "N/A","status": "1"}}`
+	transceiverErrorStatus := `{"Ethernet0":{"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet40": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet80": {"cmis_state": "READY","error": "N/A","status": "1"}}`
 	transceiverErrorStatusPort := `{"cmis_state": "READY","error": "N/A","status": "1"}`
 	ResetDataSetsAndMappings(t)
 
@@ -92,7 +92,7 @@ func TestGetTransceiverErrorStatus(t *testing.T) {
 			textPbPath: `
 				elem: <name: "interface" >
 				elem: <name: "transceiver" >
-				elem: <name: "error-status" key: { key: "interface" value: "Ethernet90" }>
+				elem: <name: "error-status" key: { key: "interface" value: "Ethernet80" }>
 			`,
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(transceiverErrorStatusPort),

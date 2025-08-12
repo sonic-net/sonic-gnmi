@@ -8,6 +8,7 @@ require (
 	github.com/agiledragon/gomonkey/v2 v2.8.0
 	github.com/c9s/goprocinfo v0.0.0-20191125144613-4acdd056c72d
 	github.com/dgrijalva/jwt-go v3.2.1-0.20210802184156-9742bd7fca1c+incompatible
+	github.com/facette/natsort v0.0.0-20181210072756-2cd4dd1e2dcb
 	github.com/fsnotify/fsnotify v1.4.7
 	github.com/go-redis/redis v6.15.6+incompatible
 	github.com/godbus/dbus/v5 v5.1.0

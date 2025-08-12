@@ -1,0 +1,15 @@
+{
+  "TRANSCEIVER_FIRMWARE_INFO|Ethernet0": {
+    "active_firmware": "N/A",
+    "inactive_firmware": "N/A"
+  },
+  "TRANSCEIVER_FIRMWARE_INFO|Ethernet40": {
+    "active_firmware": "N/A",
+    "inactive_firmware": "N/A"
+  },
+  "TRANSCEIVER_FIRMWARE_INFO|Ethernet80": {
+    "active_firmware": "N/A",
+    "inactive_firmware": "N/A"
+  }
+}
+
