@@ -68,6 +68,6 @@ func init() {
 		showCmdOptionVerbose,
 		sdc.UnimplementedOption(showCmdOptionNamespace),
 		sdc.UnimplementedOption(showCmdOptionFetchFromHW),
-		showCmdOptionInterfaces,
+		showCmdOptionInterface,
 	)
 }
