@@ -2,12 +2,13 @@ package show_client
 
 import (
 	"encoding/json"
+	"fmt"
 
 	log "github.com/golang/glog"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
-func getAllPortsFromConfigDB() ([]string, error) {
+func getAllPortsFromConfigDB(intf string) ([]string, error) {
 	queries := [][]string{
 		{"CONFIG_DB", "PORT"},
 	}
@@ -17,6 +18,16 @@ func getAllPortsFromConfigDB() ([]string, error) {
 		return nil, err
 	}
 	log.Infof("Data from CONFIG_DB: %v", data)
+
+	if intf != "" {
+		if _, exists := data[intf]; !exists {
+			log.Errorf("Interface %s not found in CONFIG_DB", intf)
+			return nil, fmt.Errorf("interface %s not found", intf)
+		}
+		return []string{intf}, nil
+	}
+
+	// If no specific interface is provided, return all interfaces
 	ports := make([]string, 0, len(data))
 	for iface, _ := range data {
 		ports = append(ports, iface)
