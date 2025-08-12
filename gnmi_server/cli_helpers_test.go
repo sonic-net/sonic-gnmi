@@ -19,8 +19,9 @@ const (
 	ConfigDbNum   = 4
 	StateDbNum    = 6
 
-	TargetAddr   = "127.0.0.1:8081"
-	QueryTimeout = 10
+	TargetAddr        = "127.0.0.1:8081"
+	QueryTimeout      = 10
+	chassisStateDbNum = 13
 )
 
 func MockNSEnterBGPSummary(t *testing.T, fileName string) *gomonkey.Patches {
@@ -77,4 +78,8 @@ func ResetDataSetsAndMappings(t *testing.T) {
 	FlushDataSet(t, ConfigDbNum)
 	FlushDataSet(t, StateDbNum)
 	sdc.ClearMappings()
+}
+
+func MockEnvironmentVariable(t *testing.T, key string, value string) {
+	t.Setenv(key, value)
 }

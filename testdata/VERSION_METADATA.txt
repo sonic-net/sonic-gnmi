@@ -1,0 +1,7 @@
+{
+  "device_metadata": {
+    "asic_count": 1,
+    "asic_type": "test_asic",
+    "platform": "test_platform"
+  }
+}
