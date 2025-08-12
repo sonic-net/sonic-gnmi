@@ -22,7 +22,6 @@ func TestNotifyQueueExhausted(t *testing.T) {
 		q: q,
 	}
 
-	// Dummy message builder that returns a non-empty message
 	dummyBuilder := func(resp *translib.SubscribeResponse, ts *translSubscriber) (*gnmipb.Notification, error) {
 		return &gnmipb.Notification{
 			Update: []*gnmipb.Update{
@@ -39,10 +38,7 @@ func TestNotifyQueueExhausted(t *testing.T) {
 		msgBuilder: dummyBuilder,
 	}
 
-	// Create a dummy SubscribeResponse
 	resp := &translib.SubscribeResponse{}
-
-	// Call notify
 	err := subscriber.notify(resp)
 
 	// Assert error is ResourceExhausted
@@ -71,7 +67,6 @@ func TestProcessResponsesQueueExhausted(t *testing.T) {
 		w:       &wg,
 	}
 
-	// Dummy msgBuilder that returns a non-empty message
 	dummyBuilder := func(resp *translib.SubscribeResponse, ts *translSubscriber) (*gnmipb.Notification, error) {
 		return &gnmipb.Notification{
 			Update: []*gnmipb.Update{
@@ -89,7 +84,6 @@ func TestProcessResponsesQueueExhausted(t *testing.T) {
 		synced:     syncGroup,
 	}
 
-	// Add to synced to match the deferred Done()
 	subscriber.synced.Add(1)
 
 	// Add a SubscribeResponse to the queue
@@ -102,6 +96,4 @@ func TestProcessResponsesQueueExhausted(t *testing.T) {
 	wg.Add(1)
 	go subscriber.processResponses(q.Q)
 	wg.Wait()
-
-	// Success: processResponses exited cleanly
 }

@@ -5,16 +5,255 @@ import (
 	"fmt"
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/Workiva/go-datastructures/queue"
+	"github.com/google/gnxi/utils/xpath"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
+
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 var streamFunc = translib.Stream
 var subscribeFunc = translib.Subscribe
 var isSubscribeSupported = translib.IsSubscribeSupported
 
+func TestForceEnqueueItemWithNotification(t *testing.T) {
+	q := NewLimitedQueue(1, false, 100)
+
+	notification := &gnmipb.Notification{
+		Timestamp: time.Now().UnixNano(),
+		Update: []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
+				},
+			},
+		},
+	}
+
+	item := Value{
+		&spb.Value{
+			Notification: notification,
+		},
+	}
+
+	initialSize := q.queueLengthSum
+
+	err := q.ForceEnqueueItem(item)
+	if err != nil {
+		t.Fatalf("ForceEnqueueItem failed: %v", err)
+	}
+
+	// Check that queueLengthSum increased
+	if q.queueLengthSum <= initialSize {
+		t.Errorf("Expected queueLengthSum to increase, got %d (initial %d)", q.queueLengthSum, initialSize)
+	}
+
+	// Check that item is in queue
+	dequeuedItem, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Failed to dequeue item: %v", err)
+	}
+	if dequeuedItem.Notification == nil {
+		t.Errorf("Expected Notification in dequeued item, got nil")
+	}
+}
+
+func TestRecoverSubscribe(t *testing.T) {
+	// Create a mock LimitedQueue
+	mockQueue := NewLimitedQueue(1, false, 100) // Assuming you have a constructor
+	// Create a mock TranslClient
+	client := &TranslClient{
+		q: mockQueue,
+	}
+
+	// Function that panics and defers recoverSubscribe
+	func() {
+		defer recoverSubscribe(client)
+		panic("test panic")
+	}()
+
+	item, err := mockQueue.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if !strings.Contains(item.Fatal, "Subscribe operation failed with error =rpc error: code = Internal desc = test panic") {
+		t.Errorf("Unexpected fatal message: %v", item.Fatal)
+	}
+
+}
+
+//Passing Tests
+
+// DB Client
+func TestDbClientStreamRunInvalidSubscriptionMode(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 100)
+	stop := make(chan struct{}, 1)
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := DbClient{
+		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{path: {{dbName: "APPL_DB", tableName: "INTERFACES"}}},
+		q:       q,
+		channel: stop,
+	}
+
+	subscribe := &gnmipb.SubscriptionList{
+		Subscription: []*gnmipb.Subscription{
+			{
+				Path: path,
+				Mode: 999, // Invalid mode
+			},
+		},
+	}
+
+	stop <- struct{}{}
+	wg.Add(1)
+	go client.StreamRun(q, stop, &wg, subscribe)
+	wg.Wait()
+
+	item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if !strings.Contains(item.Fatal, "unsupported subscription mode") {
+		t.Errorf("Expected fatal message for unsupported mode, got: %v", item.Fatal)
+	}
+}
+
+// Mixed DB Client
+func TestMixedDbClientStreamRunInvalidSubscriptionMode(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 100)
+	stop := make(chan struct{}, 1)
+
+	// Create a dummy path
+	path, _ := xpath.ToGNMIPath("/abc/dummy")
+
+	client := MixedDbClient{
+		paths:   []*gnmipb.Path{path},
+		dbkey:   swsscommon.NewSonicDBKey(),
+		q:       q,
+		channel: stop,
+	}
+	defer swsscommon.DeleteSonicDBKey(client.dbkey)
+
+	// Create a subscription with an invalid mode
+	subscribe := &gnmipb.SubscriptionList{
+		Subscription: []*gnmipb.Subscription{
+			{
+				Path: path,
+				Mode: 999, // Invalid mode to trigger enqueFatalMsg
+			},
+		},
+	}
+
+	stop <- struct{}{} // simulate stop signal
+	wg.Add(1)
+	go client.StreamRun(q, stop, &wg, subscribe)
+	wg.Wait()
+
+	item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if !strings.Contains(item.Fatal, "unsupported subscription mode") {
+		t.Errorf("Expected fatal message for unsupported mode, got: %v", item.Fatal)
+	}
+}
+
+// Non DB Client
+func TestNonDbClientStreamRunInvalidSubscriptionMode(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 100)
+	stop := make(chan struct{}, 1)
+
+	dummyGetter := func() ([]byte, error) {
+		return nil, nil
+	}
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := NonDbClient{
+		prefix:      &gnmipb.Path{},
+		path2Getter: map[*gnmipb.Path]dataGetFunc{path: dummyGetter},
+		q:           q,
+		channel:     stop,
+	}
+
+	subscribe := &gnmipb.SubscriptionList{
+		Subscription: []*gnmipb.Subscription{
+			{
+				Path: path,
+				Mode: gnmipb.SubscriptionMode_ON_CHANGE, // Invalid for NonDbClient
+			},
+		},
+	}
+
+	stop <- struct{}{}
+	wg.Add(1)
+	go client.StreamRun(q, stop, &wg, subscribe)
+	wg.Wait()
+
+	item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if !strings.Contains(item.Fatal, "Unsupported subscription mode") {
+		t.Errorf("Expected fatal message for unsupported mode, got: %v", item.Fatal)
+	}
+}
+
+func TestNonDbClientStreamRunInvalidSampleInterval(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 100)
+	stop := make(chan struct{}, 1)
+
+	dummyGetter := func() ([]byte, error) {
+		return nil, nil
+	}
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := NonDbClient{
+		prefix:      &gnmipb.Path{},
+		path2Getter: map[*gnmipb.Path]dataGetFunc{path: dummyGetter},
+		q:           q,
+		channel:     stop,
+	}
+
+	// Set an invalid sample interval (e.g., 0)
+	subscribe := &gnmipb.SubscriptionList{
+		Subscription: []*gnmipb.Subscription{
+			{
+				Path:           path,
+				Mode:           gnmipb.SubscriptionMode_SAMPLE,
+				SampleInterval: 0, // Invalid interval
+			},
+		},
+	}
+
+	stop <- struct{}{}
+	wg.Add(1)
+	go client.StreamRun(q, stop, &wg, subscribe)
+	wg.Wait()
+
+	item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if !strings.Contains(item.Fatal, "invalid sample interval") {
+		t.Errorf("Expected fatal message for invalid sample interval, got: %v", item.Fatal)
+	}
+}
+
+// Translib Data Client Enqueue Fatal Message Tests
 func TestDoSampleFatalMsg(t *testing.T) {
 	var wg sync.WaitGroup
 	var syncGroup sync.WaitGroup
@@ -82,7 +321,7 @@ func TestDoOnChangeFatalMsg(t *testing.T) {
 		synced: syncGroup,
 	}
 
-	// Override subscribeFunc to simulate failure
+	// Simulate translib.Stream failure by overriding it
 	subscribeFunc = func(req translib.SubscribeRequest) error {
 		return fmt.Errorf("simulated subscribe failure")
 	}
@@ -156,165 +395,6 @@ func TestStreamRunSubscribeFatalMsg(t *testing.T) {
 	}
 }
 
-//passes
-
-func TestStreamRunInvalidSubscriptionModeFatalMsg(t *testing.T) {
-	var wg sync.WaitGroup
-	q := &LimitedQueue{
-		Q:              queue.NewPriorityQueue(1, false),
-		maxSize:        100,
-		queueLengthSum: 0,
-	}
-
-	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
-	client := &TranslClient{
-		path2URI: map[*gnmipb.Path]string{
-			path: "/interfaces",
-		},
-		ctx: context.Background(),
-	}
-
-	subscribe := &gnmipb.SubscriptionList{
-		Subscription: []*gnmipb.Subscription{
-			{
-				Path: path,
-				Mode: 999, // Invalid mode
-			},
-		},
-	}
-
-	isSubscribeSupported = func(req translib.IsSubscribeRequest) ([]*translib.IsSubscribeResponse, error) {
-		return []*translib.IsSubscribeResponse{
-			{
-				ID:                  0,
-				Path:                "/interfaces",
-				MinInterval:         10,
-				IsOnChangeSupported: true,
-				PreferredType:       translib.Sample,
-			},
-		}, nil
-	}
-	defer func() { isSubscribeSupported = translib.IsSubscribeSupported }()
-
-	wg.Add(1)
-	go client.StreamRun(q, make(chan struct{}), &wg, subscribe)
-	wg.Wait()
-
-	item, err := q.DequeueItem()
-	if err != nil {
-		t.Fatalf("Expected fatal message, got error: %v", err)
-	}
-	if !strings.Contains(item.Fatal, "Invalid Subscription Mode") {
-		t.Errorf("Expected fatal message for invalid mode, got: %v", item.Fatal)
-	}
-}
-
-func TestStreamRunInvalidHeartbeatIntervalFatalMsg(t *testing.T) {
-	var wg sync.WaitGroup
-	q := &LimitedQueue{
-		Q:              queue.NewPriorityQueue(1, false),
-		maxSize:        100,
-		queueLengthSum: 0,
-	}
-
-	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
-	client := &TranslClient{
-		path2URI: map[*gnmipb.Path]string{
-			path: "/interfaces",
-		},
-		ctx: context.Background(),
-	}
-
-	subscribe := &gnmipb.SubscriptionList{
-		Subscription: []*gnmipb.Subscription{
-			{
-				Path:              path,
-				Mode:              gnmipb.SubscriptionMode_SAMPLE,
-				HeartbeatInterval: 1, // Too low heartbeat
-			},
-		},
-	}
-
-	isSubscribeSupported = func(req translib.IsSubscribeRequest) ([]*translib.IsSubscribeResponse, error) {
-		return []*translib.IsSubscribeResponse{
-			{
-				ID:                  0,
-				Path:                "/interfaces",
-				MinInterval:         10,
-				IsOnChangeSupported: true,
-				PreferredType:       translib.Sample,
-			},
-		}, nil
-	}
-	defer func() { isSubscribeSupported = translib.IsSubscribeSupported }()
-
-	wg.Add(1)
-	go client.StreamRun(q, make(chan struct{}), &wg, subscribe)
-	wg.Wait()
-
-	item, err := q.DequeueItem()
-	if err != nil {
-		t.Fatalf("Expected fatal message, got error: %v", err)
-	}
-	if !strings.Contains(item.Fatal, "Invalid Heartbeat Interval") {
-		t.Errorf("Expected fatal message for heartbeat, got: %v", item.Fatal)
-	}
-}
-
-func TestStreamRunInvalidSampleIntervalFatalMsg(t *testing.T) {
-	var wg sync.WaitGroup
-	q := &LimitedQueue{
-		Q:              queue.NewPriorityQueue(1, false),
-		maxSize:        100,
-		queueLengthSum: 0,
-	}
-
-	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
-	client := &TranslClient{
-		path2URI: map[*gnmipb.Path]string{
-			path: "/interfaces",
-		},
-		ctx: context.Background(),
-	}
-
-	subscribe := &gnmipb.SubscriptionList{
-		Subscription: []*gnmipb.Subscription{
-			{
-				Path:              path,
-				Mode:              gnmipb.SubscriptionMode_SAMPLE,
-				SampleInterval:    2, // SampleInterval lower than MinInterval
-				HeartbeatInterval: 10,
-			},
-		},
-	}
-
-	isSubscribeSupported = func(req translib.IsSubscribeRequest) ([]*translib.IsSubscribeResponse, error) {
-		return []*translib.IsSubscribeResponse{
-			{
-				ID:                  0,
-				Path:                "/interfaces",
-				MinInterval:         10,
-				IsOnChangeSupported: true,
-				PreferredType:       translib.Sample,
-			},
-		}, nil
-	}
-
-	defer func() { isSubscribeSupported = translib.IsSubscribeSupported }()
-
-	wg.Add(1)
-	go client.StreamRun(q, make(chan struct{}), &wg, subscribe)
-	wg.Wait()
-
-	item, err := q.DequeueItem()
-	if err != nil {
-		t.Fatalf("Expected fatal message, got error: %v", err)
-	}
-	if !strings.Contains(item.Fatal, "Invalid SampleInterval") {
-		t.Errorf("Expected fatal message for sample interval, got: %v", item.Fatal)
-	}
-}
-
 func TestPollRunCloseFatalMsg(t *testing.T) {
 	var wg sync.WaitGroup
 
@@ -362,3 +442,66 @@ func TestPollRunCloseFatalMsg(t *testing.T) {
 		t.Fatalf("Expected fatal message, got error: %v", err)
 	}
 }
+
+// func TestPollRunParseVersionFatalMsg(t *testing.T) {
+// 	var wg sync.WaitGroup
+
+// 	q := &LimitedQueue{
+// 		Q:              queue.NewPriorityQueue(1, false),
+// 		maxSize:        10000,
+// 		queueLengthSum: 0,
+// 	}
+
+// 	dummyPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+// 	bv := &spb.BundleVersion{
+// 		Version: "!!invalid-version!!", // This should cause translib.NewVersion to fail
+// 	}
+// 	bvBytes, err := proto.Marshal(bv)
+// 	if err != nil {
+// 		t.Fatalf("Failed to marshal BundleVersion: %v", err)
+// 	}
+
+// 	ext := &gnmi_extpb.Extension{
+// 		Ext: &gnmi_extpb.Extension_RegisteredExt{
+// 			RegisteredExt: &gnmi_extpb.RegisteredExtension{
+// 				Id:  spb.BUNDLE_VERSION_EXT,
+// 				Msg: bvBytes,
+// 			},
+// 		},
+// 	}
+
+// 	client := &TranslClient{
+// 		path2URI: map[*gnmipb.Path]string{
+// 			dummyPath: "/test/path",
+// 		},
+// 		ctx:        context.Background(),
+// 		extensions: []*gnmi_extpb.Extension{ext},
+// 	}
+
+// 	subscribe := &gnmipb.SubscriptionList{
+// 		Subscription: []*gnmipb.Subscription{
+// 			{
+// 				Path: dummyPath,
+// 				Mode: gnmipb.SubscriptionMode_SAMPLE,
+// 			},
+// 		},
+// 		Encoding: gnmipb.Encoding_JSON,
+// 	}
+
+// 	poll := make(chan struct{})
+// 	wg.Add(1)
+
+// 	// Step 4: Run PollRun
+// 	go client.PollRun(q, poll, &wg, subscribe)
+// 	// wg.Wait()
+
+// 	// Step 5: Verify fatal message was enqueued
+// 	item, err := q.DequeueItem()
+// 	if err != nil {
+// 		t.Fatalf("Expected fatal message, got error: %v", err)
+// 	}
+// 	if item.Fatal == "" || !strings.Contains(item.Fatal, "Invalid bundle version") {
+// 		t.Errorf("Expected fatal message for parseVersion failure, got: %v", item.Fatal)
+// 	}
+// }

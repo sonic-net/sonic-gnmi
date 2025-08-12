@@ -5108,8 +5108,6 @@ func TestMaxSubscribeServer(t *testing.T) {
 	path, _ := os.Getwd()
 	path = filepath.Dir(path)
 
-	// This test is used for single database configuration
-	// Run tests not marked with multidb
 	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'not multidb and not multins'")
 	_, err := cmd.Output()
 	if err == nil {
