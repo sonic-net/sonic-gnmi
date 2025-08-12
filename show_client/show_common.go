@@ -2,13 +2,19 @@ package show_client
 
 import (
 	"fmt"
+	"os/exec"
+	"sort"
+	"strconv"
+
 	log "github.com/golang/glog"
 	"github.com/google/shlex"
+	natural "github.com/maruel/natural"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
-	"os/exec"
-	"strconv"
 )
+
+const AppDBPortTable = "PORT_TABLE"
+const StateDBPortTable = "PORT_TABLE"
 
 const (
 	dbIndex    = 0 // The first index for a query will be the DB
@@ -180,4 +186,10 @@ func calculateDiffCounters(oldCounter string, newCounter string, defaultValue st
 		return defaultValue
 	}
 	return strconv.FormatInt(newCounterValue-oldCounterValue, base10)
+}
+
+func natsortInterfaces(interfaces []string) []string {
+	// Naturally sort the port list
+	sort.Sort(natural.StringSlice(interfaces))
+	return interfaces
 }
