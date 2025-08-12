@@ -90,9 +90,9 @@ func TestGetTransceiverErrorStatus(t *testing.T) {
 			desc:       "query SHOW interface transceiver error-status port option",
 			pathTarget: "SHOW",
 			textPbPath: `
-				elem: <name: "interface" key: { key: "interface" value: "Ethernet90" }>
+				elem: <name: "interface" >
 				elem: <name: "transceiver" >
-				elem: <name: "error-status" >
+				elem: <name: "error-status" key: { key: "interface" value: "Ethernet90" }>
 			`,
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(transceiverErrorStatusPort),
