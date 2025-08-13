@@ -1,0 +1,46 @@
+apiVersion: sonic.net/v1
+kind: UpgradeWorkflow
+metadata:
+  name: comprehensive-upgrade-workflow
+spec:
+  steps:
+    # Step 1: Check root filesystem has enough space
+    - name: check-root-disk-space
+      type: check-disk-space
+      params:
+        path: "/"
+        min_available_mb: 1000  # Require at least 1GB on root
+
+    # Step 2: Check /tmp has space for temporary files
+    - name: check-tmp-disk-space
+      type: check-disk-space
+      params:
+        path: "/tmp"
+        min_available_mb: 2000  # Require at least 2GB for download
+
+    # Step 3: Download first package
+    - name: download-os-image
+      type: download
+      params:
+        url: "http://example.com/sonic-os-v1.2.3.bin"
+        filename: "/tmp/sonic-os-v1.2.3.bin"
+        md5: "d41d8cd98f00b204e9800998ecf8427e"
+        version: "1.2.3"
+        activate: false
+
+    # Step 4: Check /opt has space for installation
+    - name: check-opt-disk-space
+      type: check-disk-space
+      params:
+        path: "/opt"
+        min_available_mb: 1500  # Require space for extracted files
+
+    # Step 5: Download configuration package
+    - name: download-config-package
+      type: download
+      params:
+        url: "http://example.com/sonic-config-v1.2.3.tar.gz"
+        filename: "/opt/sonic-config-v1.2.3.tar.gz"
+        md5: "098f6bcd4621d373cade4e832627b4f6"
+        version: "1.2.3"
+        activate: true
