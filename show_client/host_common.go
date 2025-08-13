@@ -71,7 +71,7 @@ func GetUptime() string {
 }
 
 func GetDockerInfo() string {
-	dockerCmd := "sudo docker images --format \"table {{.Repository}}\\t{{.Tag}}\\t{{.ID}}\\t{{.Size}}\""
+	dockerCmd := "sudo docker images --format '{Repository:{{.Repository}}, Tag:{{.Tag}}, ID:{{.ID}}, Size:{{.Size}}}'"
 	dockerInfo, err := GetDataFromHostCommand(dockerCmd)
 	if err != nil {
 		log.Errorf("Failed to get Docker info: %v", err)

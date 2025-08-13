@@ -6,6 +6,7 @@ package gnmi
 
 import (
 	"crypto/tls"
+	"errors"
 	"testing"
 	"time"
 
@@ -90,6 +91,58 @@ sonic_utilities: 1.2
 	}{
 		{
 			desc:       "query SHOW version with evnironment variable",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "version" >
+			`,
+			wantRetCode:    codes.OK,
+			wantRespVal:    []byte(expectedOutput),
+			valTest:        true,
+			mockOutputFile: "../testdata/VERSION_DOCKER_IMAGEDATA.txt",
+			testTime:       time.Date(2025, 7, 18, 18, 0, 0, 0, time.UTC),
+			testInit: func() {
+				MockReadFile(show_client.SonicVersionYamlPath, versionInfo, nil)
+				MockEnvironmentVariable(t, "PLATFORM", "dummy_platform")
+				AddDataSet(t, ConfigDbNum, deviceMetadataFilename)
+				AddDataSet(t, chassisStateDbNum, chassisDataFilename)
+			},
+		},
+		{
+			desc:       "query SHOW version without evnironment variable",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "version" >
+			`,
+			wantRetCode:    codes.OK,
+			wantRespVal:    []byte(expectedOutput),
+			valTest:        true,
+			mockOutputFile: "../testdata/VERSION_DOCKER_IMAGEDATA.txt",
+			testTime:       time.Date(2025, 7, 18, 18, 0, 0, 0, time.UTC),
+			testInit: func() {
+				MockReadFile(show_client.SonicVersionYamlPath, versionInfo, nil)
+				AddDataSet(t, ConfigDbNum, deviceMetadataFilename)
+				AddDataSet(t, chassisStateDbNum, chassisDataFilename)
+			},
+		},
+		{
+			desc:       "query SHOW version with file yaml error",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "version" >
+			`,
+			wantRetCode:    codes.NotFound,
+			wantRespVal:    nil,
+			valTest:        true,
+			mockOutputFile: "../testdata/VERSION_DOCKER_IMAGEDATA.txt",
+			testTime:       time.Date(2025, 7, 18, 18, 0, 0, 0, time.UTC),
+			testInit: func() {
+				MockReadFile(show_client.SonicVersionYamlPath, versionInfo, errors.New("test error."))
+				AddDataSet(t, ConfigDbNum, deviceMetadataFilename)
+				AddDataSet(t, chassisStateDbNum, chassisDataFilename)
+			},
+		},
+		{
+			desc:       "query SHOW version with env variable and yaml error",
 			pathTarget: "SHOW",
 			textPbPath: `
 				elem: <name: "version" >
