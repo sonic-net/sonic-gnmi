@@ -4,13 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"fmt"
 	"io/ioutil"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,8 +15,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection/grpc_reflection_v1"
-
-	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server"
 )
 
 func TestServerConnectionModes(t *testing.T) {
@@ -29,41 +24,13 @@ func TestServerConnectionModes(t *testing.T) {
 }
 
 func testInsecureConnection(t *testing.T) {
-	// Create temporary directory for test environment
+	// Setup test server
 	tempDir := t.TempDir()
-
-	// Get available port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-
-	// Create server with insecure connection
-	srv, err := server.NewServerBuilder().
-		WithAddress(addr).
-		WithRootFS(tempDir).
-		WithoutTLS().
-		Build()
-	require.NoError(t, err)
-
-	// Start server in background
-	go func() {
-		err := srv.Start()
-		if err != nil {
-			t.Logf("Server error: %v", err)
-		}
-	}()
-
-	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Ensure cleanup
-	defer srv.Stop()
+	testServer := SetupInsecureTestServer(t, tempDir, []string{})
+	defer testServer.Stop()
 
 	// Create insecure client connection
-	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(testServer.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -89,45 +56,15 @@ func testInsecureConnection(t *testing.T) {
 }
 
 func testTLSConnection(t *testing.T) {
-	// Create temporary directory for test environment
+	// Setup test certificates and server
 	tempDir := t.TempDir()
-
-	// Generate test certificates
 	certDir := filepath.Join(tempDir, "certs")
 	err := os.MkdirAll(certDir, 0o755)
 	require.NoError(t, err)
 
 	serverCertFile, serverKeyFile := generateTestCertificates(t, certDir, false)
-
-	// Get available port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-
-	// Create server with TLS
-	srv, err := server.NewServerBuilder().
-		WithAddress(addr).
-		WithRootFS(tempDir).
-		WithTLS(serverCertFile, serverKeyFile).
-		Build()
-	require.NoError(t, err)
-
-	// Start server in background
-	go func() {
-		err := srv.Start()
-		if err != nil {
-			t.Logf("Server error: %v", err)
-		}
-	}()
-
-	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Ensure cleanup
-	defer srv.Stop()
+	testServer := SetupTLSTestServer(t, tempDir, serverCertFile, serverKeyFile, []string{})
+	defer testServer.Stop()
 
 	// Create TLS client connection with insecure credentials (for self-signed cert)
 	config := &tls.Config{
@@ -135,7 +72,7 @@ func testTLSConnection(t *testing.T) {
 	}
 	creds := credentials.NewTLS(config)
 
-	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.Dial(testServer.Addr, grpc.WithTransportCredentials(creds))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -161,45 +98,15 @@ func testTLSConnection(t *testing.T) {
 }
 
 func testMTLSConnection(t *testing.T) {
-	// Create temporary directory for test environment
+	// Setup test certificates and server
 	tempDir := t.TempDir()
-
-	// Generate test certificates for mTLS
 	certDir := filepath.Join(tempDir, "certs")
 	err := os.MkdirAll(certDir, 0o755)
 	require.NoError(t, err)
 
 	serverCertFile, serverKeyFile, clientCertFile, clientKeyFile, caCertFile := generateMTLSCertificates(t, certDir)
-
-	// Get available port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-
-	// Create server with mTLS
-	srv, err := server.NewServerBuilder().
-		WithAddress(addr).
-		WithRootFS(tempDir).
-		WithMTLS(serverCertFile, serverKeyFile, caCertFile).
-		Build()
-	require.NoError(t, err)
-
-	// Start server in background
-	go func() {
-		err := srv.Start()
-		if err != nil {
-			t.Logf("Server error: %v", err)
-		}
-	}()
-
-	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Ensure cleanup
-	defer srv.Stop()
+	testServer := SetupMTLSTestServer(t, tempDir, serverCertFile, serverKeyFile, caCertFile, []string{})
+	defer testServer.Stop()
 
 	// Load client certificate and key
 	clientCert, err := tls.LoadX509KeyPair(clientCertFile, clientKeyFile)
@@ -220,7 +127,7 @@ func testMTLSConnection(t *testing.T) {
 	}
 	creds := credentials.NewTLS(config)
 
-	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.Dial(testServer.Addr, grpc.WithTransportCredentials(creds))
 	require.NoError(t, err)
 	defer conn.Close()
 

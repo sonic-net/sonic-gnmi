@@ -1,5 +1,8 @@
 FROM sonicdev-microsoft.azurecr.io/debian:bookworm
 
+# Install basic system utilities
+RUN apt-get update && apt-get install -y procps && rm -rf /var/lib/apt/lists/*
+
 # Set working directory
 WORKDIR /app
 
