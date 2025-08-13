@@ -217,6 +217,27 @@ func createInvalidServer(t *testing.T, port int64) *Server {
 	return s
 }
 
+func createMaxSubscribeServer(t *testing.T, port int64) *Server {
+	t.Helper()
+	OutputQueSize = 100 * uint64(1e6)
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100, MaxNumSubscribers: 0}
+	s, err := NewServer(cfg, opts)
+	if err != nil {
+		t.Errorf("Failed to create gNMI server: %v", err)
+	}
+	return s
+}
+
 func createKeepAliveServer(t *testing.T, port int64) *Server {
 	t.Helper()
 	certificate, err := testcert.NewCert()
@@ -5058,6 +5079,41 @@ func TestInvalidServer(t *testing.T) {
 	if s != nil {
 		t.Errorf("Should not create invalid server")
 	}
+}
+
+func TestMaxSubscribeServer(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0)
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+	mock3 := gomonkey.ApplyFunc(sdc.RunPyCode, func(text string) error { return nil })
+	defer mock3.Reset()
+
+	sdcfg.Init()
+	s := createMaxSubscribeServer(t, 8080)
+	go runServer(t, s)
+	defer s.Stop()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	initFullConfigDb(t, ns)
+	initFullCountersDb(t, ns)
+	path, _ := os.Getwd()
+	path = filepath.Dir(path)
+
+	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'not multidb and not multins'")
+	_, err := cmd.Output()
+	if err == nil {
+		t.Errorf("Supposed to receive: Maximum number of subscriptions reached")
+	}
+	s.Stop()
 }
 
 func TestParseOrigin(t *testing.T) {
