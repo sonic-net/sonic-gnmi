@@ -1,0 +1,40 @@
+{
+  "PORT_TABLE|Ethernet0": {
+    "state": "ok",
+    "netdev_oper_status": "up",
+    "admin_status": "up",
+    "mtu": "9100",
+    "host_tx_ready": "true",
+    "supported_speeds": "200000,100000,50000,40000,25000,10000,1000",
+    "supported_fecs": "none,rs,fc,auto",
+    "NPU_SI_SETTINGS_SYNC_STATUS": "NPU_SI_SETTINGS_DEFAULT",
+    "rmt_adv_speeds": "N/A",
+    "speed": "200000",
+    "fec": "rs"
+  },
+  "PORT_TABLE|Ethernet40": {
+    "state": "ok",
+    "netdev_oper_status": "up",
+    "admin_status": "up",
+    "mtu": "9100",
+    "host_tx_ready": "true",
+    "supported_speeds": "200000,100000,50000,40000,25000,10000,1000",
+    "supported_fecs": "none,rs,fc,auto",
+    "NPU_SI_SETTINGS_SYNC_STATUS": "NPU_SI_SETTINGS_DEFAULT",
+    "rmt_adv_speeds": "N/A",
+    "speed": "200000"
+  },
+  "PORT_TABLE|Ethernet80": {
+    "state": "ok",
+    "netdev_oper_status": "up",
+    "admin_status": "up",
+    "mtu": "9100",
+    "host_tx_ready": "true",
+    "supported_speeds": "200000,100000,50000,40000,25000,10000,1000",
+    "supported_fecs": "none,rs,fc,auto",
+    "NPU_SI_SETTINGS_SYNC_STATUS": "NPU_SI_SETTINGS_DEFAULT",
+    "rmt_adv_speeds": "N/A",
+    "speed": "200000",
+    "fec": "rs"
+  }
+}
