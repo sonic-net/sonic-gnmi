@@ -3,7 +3,7 @@ package show_client
 import (
 	"encoding/json"
 	log "github.com/golang/glog"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
 type IPv6BGPSummaryResponse struct {
@@ -42,7 +42,7 @@ var (
 	vtyshBGPIPv6SummaryCommand = "vtysh -c \"show bgp ipv6 summary json\""
 )
 
-func getIPv6BGPSummary(prefix, path *gnmipb.Path) ([]byte, error) {
+func getIPv6BGPSummary(options sdc.OptionMap) ([]byte, error) {
 	// Get data from vtysh command
 	vtyshOutput, err := GetDataFromHostCommand(vtyshBGPIPv6SummaryCommand)
 	if err != nil {
