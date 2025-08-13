@@ -20,6 +20,94 @@ var streamFunc = translib.Stream
 var subscribeFunc = translib.Subscribe
 var isSubscribeSupported = translib.IsSubscribeSupported
 
+// testing
+func TestNonDbClientValidSubscriptionSyncResponse(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 1000)
+	stop := make(chan struct{})
+
+	// Dummy getter function
+	dummyGetter := func() ([]byte, error) {
+		return []byte("dummy data"), nil
+	}
+
+	// Valid path
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := NonDbClient{
+		prefix:      &gnmipb.Path{},
+		path2Getter: map[*gnmipb.Path]dataGetFunc{path: dummyGetter},
+		channel:     stop,
+	}
+
+	// Valid subscription
+	subscribe := &gnmipb.SubscriptionList{
+		Subscription: []*gnmipb.Subscription{
+			{
+				Path:           path,
+				Mode:           gnmipb.SubscriptionMode_SAMPLE,
+				SampleInterval: uint64(1e9), // 1 second
+			},
+		},
+	}
+
+	wg.Add(1)
+	go client.StreamRun(q, stop, &wg, subscribe)
+
+	// Let the StreamRun start and enqueue sync response
+	time.Sleep(100 * time.Millisecond)
+	stop <- struct{}{}
+	wg.Wait()
+
+	_, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected sync response item, got error: %v", err)
+	}
+}
+
+func TestNonDbClientStreamRunInvalidSampleInterval(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 100)
+	stop := make(chan struct{}, 1)
+
+	dummyGetter := func() ([]byte, error) {
+		return nil, nil
+	}
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := NonDbClient{
+		prefix:      &gnmipb.Path{},
+		path2Getter: map[*gnmipb.Path]dataGetFunc{path: dummyGetter},
+		q:           q,
+		channel:     stop,
+	}
+
+	// Use a sample interval less than MinSampleInterval
+	subscribe := &gnmipb.SubscriptionList{
+		Subscription: []*gnmipb.Subscription{
+			{
+				Path:           path,
+				Mode:           gnmipb.SubscriptionMode_SAMPLE,
+				SampleInterval: uint64(MinSampleInterval.Nanoseconds() - 1), // Invalid interval
+			},
+		},
+	}
+
+	stop <- struct{}{}
+	wg.Add(1)
+	go client.StreamRun(q, stop, &wg, subscribe)
+	wg.Wait()
+
+	item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if !strings.Contains(item.Fatal, "invalid interval") {
+		t.Errorf("Expected fatal message for invalid sample interval, got: %v", item.Fatal)
+	}
+}
+
 func TestForceEnqueueItemWithNotification(t *testing.T) {
 	q := NewLimitedQueue(1, false, 100)
 
@@ -86,8 +174,6 @@ func TestRecoverSubscribe(t *testing.T) {
 	}
 
 }
-
-//Passing Tests
 
 // DB Client
 func TestDbClientStreamRunInvalidSubscriptionMode(t *testing.T) {
@@ -207,49 +293,6 @@ func TestNonDbClientStreamRunInvalidSubscriptionMode(t *testing.T) {
 	}
 	if !strings.Contains(item.Fatal, "Unsupported subscription mode") {
 		t.Errorf("Expected fatal message for unsupported mode, got: %v", item.Fatal)
-	}
-}
-
-func TestNonDbClientStreamRunInvalidSampleInterval(t *testing.T) {
-	var wg sync.WaitGroup
-	q := NewLimitedQueue(1, false, 100)
-	stop := make(chan struct{}, 1)
-
-	dummyGetter := func() ([]byte, error) {
-		return nil, nil
-	}
-
-	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
-
-	client := NonDbClient{
-		prefix:      &gnmipb.Path{},
-		path2Getter: map[*gnmipb.Path]dataGetFunc{path: dummyGetter},
-		q:           q,
-		channel:     stop,
-	}
-
-	// Set an invalid sample interval (e.g., 0)
-	subscribe := &gnmipb.SubscriptionList{
-		Subscription: []*gnmipb.Subscription{
-			{
-				Path:           path,
-				Mode:           gnmipb.SubscriptionMode_SAMPLE,
-				SampleInterval: 0, // Invalid interval
-			},
-		},
-	}
-
-	stop <- struct{}{}
-	wg.Add(1)
-	go client.StreamRun(q, stop, &wg, subscribe)
-	wg.Wait()
-
-	item, err := q.DequeueItem()
-	if err != nil {
-		t.Fatalf("Expected fatal message, got error: %v", err)
-	}
-	if !strings.Contains(item.Fatal, "invalid sample interval") {
-		t.Errorf("Expected fatal message for invalid sample interval, got: %v", item.Fatal)
 	}
 }
 
@@ -442,66 +485,3 @@ func TestPollRunCloseFatalMsg(t *testing.T) {
 		t.Fatalf("Expected fatal message, got error: %v", err)
 	}
 }
-
-// func TestPollRunParseVersionFatalMsg(t *testing.T) {
-// 	var wg sync.WaitGroup
-
-// 	q := &LimitedQueue{
-// 		Q:              queue.NewPriorityQueue(1, false),
-// 		maxSize:        10000,
-// 		queueLengthSum: 0,
-// 	}
-
-// 	dummyPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
-
-// 	bv := &spb.BundleVersion{
-// 		Version: "!!invalid-version!!", // This should cause translib.NewVersion to fail
-// 	}
-// 	bvBytes, err := proto.Marshal(bv)
-// 	if err != nil {
-// 		t.Fatalf("Failed to marshal BundleVersion: %v", err)
-// 	}
-
-// 	ext := &gnmi_extpb.Extension{
-// 		Ext: &gnmi_extpb.Extension_RegisteredExt{
-// 			RegisteredExt: &gnmi_extpb.RegisteredExtension{
-// 				Id:  spb.BUNDLE_VERSION_EXT,
-// 				Msg: bvBytes,
-// 			},
-// 		},
-// 	}
-
-// 	client := &TranslClient{
-// 		path2URI: map[*gnmipb.Path]string{
-// 			dummyPath: "/test/path",
-// 		},
-// 		ctx:        context.Background(),
-// 		extensions: []*gnmi_extpb.Extension{ext},
-// 	}
-
-// 	subscribe := &gnmipb.SubscriptionList{
-// 		Subscription: []*gnmipb.Subscription{
-// 			{
-// 				Path: dummyPath,
-// 				Mode: gnmipb.SubscriptionMode_SAMPLE,
-// 			},
-// 		},
-// 		Encoding: gnmipb.Encoding_JSON,
-// 	}
-
-// 	poll := make(chan struct{})
-// 	wg.Add(1)
-
-// 	// Step 4: Run PollRun
-// 	go client.PollRun(q, poll, &wg, subscribe)
-// 	// wg.Wait()
-
-// 	// Step 5: Verify fatal message was enqueued
-// 	item, err := q.DequeueItem()
-// 	if err != nil {
-// 		t.Fatalf("Expected fatal message, got error: %v", err)
-// 	}
-// 	if item.Fatal == "" || !strings.Contains(item.Fatal, "Invalid bundle version") {
-// 		t.Errorf("Expected fatal message for parseVersion failure, got: %v", item.Fatal)
-// 	}
-// }
