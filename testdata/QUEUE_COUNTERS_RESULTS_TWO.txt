@@ -1,0 +1,142 @@
+{
+    "Ethernet0:0": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet0:1": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet0:2": {
+        "Counter/pkts": "100",
+        "Counter/bytes": "25600",
+        "Drop/pkts": "2",
+        "Drop/bytes": "512",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet0:3": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet0:4": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet0:5": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet0:6": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet0:7": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet0:8": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet0:9": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet8:0": {
+        "Counter/pkts": "10",
+        "Counter/bytes": "1000",
+        "Drop/pkts": "2",
+        "Drop/bytes": "200",
+        "Trim/pkts": "1"
+    },
+    "Ethernet8:1": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet8:2": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet8:3": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet8:4": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet8:5": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet8:6": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet8:7": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet8:8": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    },
+    "Ethernet8:9": {
+        "Counter/pkts": "N/A",
+        "Counter/bytes": "N/A",
+        "Drop/pkts": "N/A",
+        "Drop/bytes": "N/A",
+        "Trim/pkts": "N/A"
+    }
+}

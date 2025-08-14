@@ -56,4 +56,10 @@ func init() {
 		nil,
 		sdc.RequiredOption(showCmdOptionInterface),
 	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "queue", "counters"},
+		getQueueCounters,
+		nil,
+		showCmdOptionInterfaces,
+	)
 }
