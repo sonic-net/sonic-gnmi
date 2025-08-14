@@ -78,6 +78,8 @@ sonic_utilities: 1.2
 }
 `
 	ResetDataSetsAndMappings(t)
+	originalValue, wasSet := os.LookupEnv("PLATFORM")
+
 	tests := []struct {
 		desc           string
 		pathTarget     string
@@ -120,6 +122,7 @@ sonic_utilities: 1.2
 			testTime:       time.Date(2025, 7, 18, 18, 0, 0, 0, time.UTC),
 			testInit: func() {
 				MockReadFile(show_client.SonicVersionYamlPath, versionInfo, nil)
+				MockEnvironmentVariable(t, "PLATFORM", "")
 				AddDataSet(t, ConfigDbNum, deviceMetadataFilename)
 				AddDataSet(t, chassisStateDbNum, chassisDataFilename)
 			},
@@ -183,6 +186,10 @@ sonic_utilities: 1.2
 		}
 		if timepatch != nil {
 			timepatch.Reset()
+		}
+
+		if wasSet {
+			os.Setenv("PLATFORM", originalValue) // Restore original value
 		}
 	}
 }

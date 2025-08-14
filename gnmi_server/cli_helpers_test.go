@@ -81,5 +81,9 @@ func ResetDataSetsAndMappings(t *testing.T) {
 }
 
 func MockEnvironmentVariable(t *testing.T, key string, value string) {
-	t.Setenv(key, value)
+	if value == "" {
+		t.Unsetenv(key)
+	} else {
+		t.Setenv(key, value)
+	}
 }
