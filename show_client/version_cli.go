@@ -75,10 +75,6 @@ func getVersion(options sdc.OptionMap) ([]byte, error) {
 
 	jsonBytes, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
-		fmt.Printf("error decoding sakura response: %v", err)
-		if e, ok := err.(*json.SyntaxError); ok {
-			fmt.Printf("syntax error at byte offset %d", e.Offset)
-		}
 		log.Errorf("Failed to marshal version info to JSON: %v", err)
 		return nil, err
 	}

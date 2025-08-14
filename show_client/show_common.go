@@ -130,11 +130,6 @@ func ReadYamlToMap(filePath string) (map[string]interface{}, error) {
 	var data map[string]interface{}
 	err = yaml.Unmarshal(yamlFile, &data)
 	if err != nil {
-		log.Errorf("error decoding sakura response: %v", err)
-		if e, ok := err.(*json.SyntaxError); ok {
-			log.Errorf("syntax error at byte offset %d", e.Offset)
-		}
-		log.Errorf("sakura response: %q", yamlFile)
 		return nil, fmt.Errorf("failed to unmarshal YAML: %w", err)
 	}
 	return data, nil
