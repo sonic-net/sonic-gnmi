@@ -45,6 +45,7 @@ const (
 	GNOI_REBOOT
 	GNOI_FACTORY_RESET
 	GNOI_OS_INSTALL
+	GNOI_HEALTHZ_ACK
 	GNOI_HEALTHZ_CHECK
 	GNOI_HEALTHZ_COLLECT
 	DBUS
@@ -85,6 +86,8 @@ func (c CounterType) String() string {
 		return "GNOI Factory Reset"
 	case GNOI_OS_INSTALL:
 		return "GNOI OS Install"
+	case GNOI_HEALTHZ_ACK:
+		return "GNOI Healthz Ack"
 	case GNOI_HEALTHZ_CHECK:
 		return "GNOI Healthz Check"
 	case GNOI_HEALTHZ_COLLECT:
