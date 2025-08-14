@@ -9,6 +9,7 @@ import (
 )
 
 const dbName = "COUNTERS_DB"
+
 var separator string
 
 func init() {
