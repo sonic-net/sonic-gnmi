@@ -14,11 +14,11 @@ const (
 )
 
 type QueueCountersResponse struct {
-	packets         string `json:"Counter/pkts"`
-	bytes           string `json:"Counter/bytes"`
-	droppedPackets  string `json:"Drop/pkts"`
-	droppedBytes    string `json:"Drop/bytes"`
-	trimmedPackets  string `json:"Trim/pkts"`
+	packets        string `json:"Counter/pkts"`
+	bytes          string `json:"Counter/bytes"`
+	droppedPackets string `json:"Drop/pkts"`
+	droppedBytes   string `json:"Drop/bytes"`
+	trimmedPackets string `json:"Trim/pkts"`
 }
 
 func RemapAliasToPortNameForQueues(queueData map[string]interface{}) map[string]interface{} {
@@ -63,11 +63,11 @@ func getQueueCountersSnapshot(ifaces []string) (map[string]QueueCountersResponse
 	response := make(map[string]QueueCountersResponse)
 	for queue, counters := range queueCounters {
 		response[queue] = QueueCountersResponse{
-			packets:         GetValueOrDefault(counters, "SAI_QUEUE_STAT_PACKETS", defaultMissingCounterValue),
-			bytes:           GetValueOrDefault(counters, "SAI_QUEUE_STAT_BYTES", defaultMissingCounterValue),
-			droppedPackets:  GetValueOrDefault(counters, "SAI_QUEUE_STAT_DROPPED_PACKETS", defaultMissingCounterValue),
-			droppedBytes:    GetValueOrDefault(counters, "SAI_QUEUE_STAT_DROPPED_BYTES", defaultMissingCounterValue),
-			trimmedPackets:  GetValueOrDefault(counters, "SAI_QUEUE_STAT_TRIM_PACKETS", defaultMissingCounterValue),
+			packets:        GetValueOrDefault(counters, "SAI_QUEUE_STAT_PACKETS", defaultMissingCounterValue),
+			bytes:          GetValueOrDefault(counters, "SAI_QUEUE_STAT_BYTES", defaultMissingCounterValue),
+			droppedPackets: GetValueOrDefault(counters, "SAI_QUEUE_STAT_DROPPED_PACKETS", defaultMissingCounterValue),
+			droppedBytes:   GetValueOrDefault(counters, "SAI_QUEUE_STAT_DROPPED_BYTES", defaultMissingCounterValue),
+			trimmedPackets: GetValueOrDefault(counters, "SAI_QUEUE_STAT_TRIM_PACKETS", defaultMissingCounterValue),
 		}
 	}
 	return response, nil
