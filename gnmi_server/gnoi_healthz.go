@@ -20,20 +20,20 @@ import (
 )
 
 const (
-	compKey           string        = "name"
-	ddComponentKey    string        = "component"
-	ddComponentAll    string        = "all"
-	ddLogLvlKey       string        = "level"
-	ddLogLvlAlert     string        = "alert"
-	ddLogLvlCritical  string        = "critical"
-	ddLogLvlAll       string        = "all"
-	ddLogLvlSuf       string        = "-info"
-	ddFileSegSize     int           = 4096
-	artifactSleepTime time.Duration = 5 * time.Second
+	compKey          string = "name"
+	ddComponentKey   string = "component"
+	ddComponentAll   string = "all"
+	ddLogLvlKey      string = "level"
+	ddLogLvlAlert    string = "alert"
+	ddLogLvlCritical string = "critical"
+	ddLogLvlAll      string = "all"
+	ddLogLvlSuf      string = "-info"
+	ddFileSegSize    int    = 4096
 )
 
 var (
 	artifactColTimeout time.Duration = 5 * time.Minute
+	artifactSleepTime  time.Duration = 5 * time.Second
 )
 
 func isDebugData(p *types.Path) bool {
@@ -205,6 +205,94 @@ func (srv *HealthzServer) Get(ctx context.Context, req *healthz.GetRequest) (*he
 	}
 	log.Warning("Healthz.Get received unsupported component path")
 	return nil, status.Errorf(codes.Unimplemented, "Healthz.Get is unimplemented for component: [%s].", path.GetElem())
+}
+
+func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.Healthz_ArtifactServer) error {
+	log.V(1).Infof("Artifact RPC Get request ID: %+v", req.GetId())
+	file := req.GetId()
+	allowedDir := "/tmp/dump"
+	cleanPath := filepath.Clean(file)
+	if !strings.HasPrefix(cleanPath, allowedDir) {
+		return status.Errorf(codes.InvalidArgument, "Invalid artifact path")
+	}
+	file_path := filepath.Join("/mnt/host", cleanPath)
+
+	f, err := os.Open(file_path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return status.Errorf(codes.NotFound, "File not found: %v", err)
+		}
+		return status.Errorf(codes.Internal, "Failed to open file: %v", err)
+	}
+	defer f.Close()
+
+	hasher := sha256.New()
+	size, err := io.Copy(hasher, f) // Streams through hasher, constant memory
+	if err != nil {
+		return status.Errorf(codes.Internal, "Error hashing: [%v]", err)
+	}
+	hashSum := hasher.Sum(nil)
+
+	// Reset file pointer to start for streaming chunks
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return status.Errorf(codes.Internal, "Failed to reset file pointer: %v", err)
+	}
+
+	header := &healthz.ArtifactResponse{
+		Contents: &healthz.ArtifactResponse_Header{
+			Header: &healthz.ArtifactHeader{
+				Id: file,
+				ArtifactType: &healthz.ArtifactHeader_File{
+					File: &healthz.FileArtifactType{
+						Name: file,
+						Size: size,
+						Hash: &types.HashType{
+							Method: types.HashType_SHA256,
+							Hash:   hashSum[:],
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := stream.Send(header); err != nil {
+		log.Errorf("failed to send header: %v", err)
+		return err
+	}
+
+	buf := make([]byte, ddFileSegSize)
+
+	for {
+		n, err := f.Read(buf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Errorf("failed to send trailer: %v", err)
+			return status.Errorf(codes.Internal, "File read error: %v", err)
+		}
+		content := &healthz.ArtifactResponse{
+			Contents: &healthz.ArtifactResponse_Bytes{
+				Bytes: buf[:n],
+			},
+		}
+		if err := stream.Send(content); err != nil {
+			log.Errorf("failed to send Artifact data: %v", err)
+			return err
+		}
+	}
+
+	trailer := &healthz.ArtifactResponse{
+		Contents: &healthz.ArtifactResponse_Trailer{
+			Trailer: &healthz.ArtifactTrailer{},
+		},
+	}
+	if err := stream.Send(trailer); err != nil {
+		log.Errorf("failed to send trailer: %v", err)
+		return err
+	}
+	log.Infof("Successfully streamed artifact: %s (size=%d bytes)", file_path, size)
+	return nil
 }
 
 func (srv *HealthzServer) List(ctx context.Context, req *healthz.ListRequest) (*healthz.ListResponse, error) {
