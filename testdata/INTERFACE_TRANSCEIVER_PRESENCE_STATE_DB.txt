@@ -1,0 +1,18 @@
+{
+    "TRANSCEIVER_INFO|Ethernet0": {
+        "type": "QSFP+",
+        "hardware_rev": "A1",
+        "serial": "SERIAL_NUM",
+        "manufacturer": "VENDOR_NAME",
+        "model": "MODEL_NAME",
+        "is_replaceable": "True"
+    },
+    "TRANSCEIVER_INFO|Ethernet4": {
+        "type": "QSFP-DD",
+        "hardware_rev": "A1",
+        "serial": "SERIAL_NUM",
+        "manufacturer": "VENDOR_NAME",
+        "model": "MODEL_NAME",
+        "is_replaceable": "True"
+    }
+}

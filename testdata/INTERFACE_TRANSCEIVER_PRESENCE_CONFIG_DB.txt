@@ -1,0 +1,31 @@
+{
+    "PORT|Ethernet0": {
+        "lanes": "29,30,31,32",
+        "description": "config_db:switch-01t1:port1",
+        "pfc_asym": "off",
+        "mtu": "9100",
+        "alias": "fortyGigE0/0",
+        "admin_status": "up",
+        "speed": "10000"
+    },
+    "PORT|Ethernet4": {
+        "lanes": "25,26,27,28",
+        "description": "config_db:server1:port1",
+        "pfc_asym": "off",
+        "mtu": "9100",
+        "alias": "fortyGigE0/4",
+        "admin_status": "up",
+        "speed": "25000",
+        "mux_cable": "true"
+    },
+    "PORT|Ethernet8": {
+        "lanes": "37,38,39,40",
+        "description": "config_db:Interface description",
+        "pfc_asym": "off",
+        "mtu": "9100",
+        "alias": "fortyGigE0/8",
+        "admin_status": "up",
+        "speed": "40000",
+        "mux_cable": "true"
+    }
+}
