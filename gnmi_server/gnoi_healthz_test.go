@@ -407,6 +407,28 @@ var testHealthzCases = []struct {
 		},
 	},
 	{
+		desc: "TestReadFile_NotFound",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			fakePath := "/tmp/nonexistent_file_12345.txt"
+
+			data, err := readFile(fakePath)
+			if err == nil {
+				t.Fatalf("expected error for missing file, got nil")
+			}
+			if data != nil {
+				t.Errorf("expected nil data, got %v", data)
+			}
+		},
+	},
+	{
+		desc: "TestgetDebugData_emptyPath",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			if p := isDebugData(nil); p != false {
+				t.Errorf("expected false for nil path, got %v", p)
+			}
+		},
+	},
+	{
 		desc: "HealthzListFailsForInvalidComponent",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
 			_, err := sc.List(ctx, &healthz.ListRequest{})
@@ -418,6 +440,27 @@ var testHealthzCases = []struct {
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
 			_, err := sc.Check(ctx, &healthz.CheckRequest{})
 			testErr(err, codes.Unimplemented, "gNOI Healthz Check not implemented", t)
+		},
+	},
+	{
+		desc: "TestHealthzArtifact_FileNotFound",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			srv := &HealthzServer{}
+			req := &healthz.ArtifactRequest{Id: "/nonexistent/file.txt"}
+
+			// Use a dummy stream where Send does nothing
+			mockStream := &struct {
+				healthz.Healthz_ArtifactServer
+			}{}
+
+			err := srv.Artifact(req, mockStream)
+			if err == nil {
+				t.Fatalf("expected error for nonexistent file, got nil")
+			}
+			st, ok := status.FromError(err)
+			if !ok || st.Code() != codes.NotFound {
+				t.Errorf("expected NotFound, got %v", err)
+			}
 		},
 	},
 }
