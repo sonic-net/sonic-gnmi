@@ -22,11 +22,11 @@ func init() {
 }
 
 type QueueCountersResponse struct {
-	packets        string `json:"Counter/pkts"`
-	bytes          string `json:"Counter/bytes"`
-	droppedPackets string `json:"Drop/pkts"`
-	droppedBytes   string `json:"Drop/bytes"`
-	trimmedPackets string `json:"Trim/pkts"`
+	Packets        string `json:"Counter/pkts"`
+	Bytes          string `json:"Counter/bytes"`
+	DroppedPackets string `json:"Drop/pkts"`
+	DroppedBytes   string `json:"Drop/bytes"`
+	TrimmedPackets string `json:"Trim/pkts"`
 }
 
 func RemapAliasToPortNameForQueues(queueData map[string]interface{}) map[string]interface{} {
@@ -61,7 +61,6 @@ func getQueueCountersSnapshot(ifaces []string) (map[string]QueueCountersResponse
 	}
 
 	queryMap, err := GetMapFromQueries(queries)
-	log.Infof("queryMap = %v", queryMap)
 	if err != nil {
 		log.Errorf("Unable to pull data for queries %v, got err %v", queries, err)
 		return nil, err
@@ -81,14 +80,13 @@ func getQueueCountersSnapshot(ifaces []string) (map[string]QueueCountersResponse
 			continue
 		}
 		response[queue] = QueueCountersResponse{
-			packets:        GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_PACKETS", defaultMissingCounterValue),
-			bytes:          GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_BYTES", defaultMissingCounterValue),
-			droppedPackets: GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_DROPPED_PACKETS", defaultMissingCounterValue),
-			droppedBytes:   GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_DROPPED_BYTES", defaultMissingCounterValue),
-			trimmedPackets: GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_TRIM_PACKETS", defaultMissingCounterValue),
+			Packets:        GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_PACKETS", defaultMissingCounterValue),
+			Bytes:          GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_BYTES", defaultMissingCounterValue),
+			DroppedPackets: GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_DROPPED_PACKETS", defaultMissingCounterValue),
+			DroppedBytes:   GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_DROPPED_BYTES", defaultMissingCounterValue),
+			TrimmedPackets: GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_TRIM_PACKETS", defaultMissingCounterValue),
 		}
 	}
-	log.Infof("response = %v", response)
 	return response, nil
 }
 
