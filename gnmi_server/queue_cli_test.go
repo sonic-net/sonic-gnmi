@@ -34,13 +34,16 @@ func TestGetQueueCounters(t *testing.T) {
 
 	queueOidMappingFileName := "../testdata/QUEUE_OID_MAPPING.txt"
 	queueCountersFileName := "../testdata/QUEUE_COUNTERS.txt"
-	if allQueueCounters, err := os.ReadFile("../testdata/QUEUE_COUNTERS_RESULTS_ALL.txt"); err != nil {
+	allQueueCounters, err := os.ReadFile("../testdata/QUEUE_COUNTERS_RESULTS_ALL.txt")
+	if err != nil {
 		t.Fatalf("Failed to read expected query results for queues of all interfaces: %v", err)
 	}
-	if oneSelectedQueueCounters, err := os.ReadFile("../testdata/QUEUE_COUNTERS_RESULTS_ONE.txt"); err != nil {
+	oneSelectedQueueCounters, err := os.ReadFile("../testdata/QUEUE_COUNTERS_RESULTS_ONE.txt")
+	if err != nil {
 		t.Fatalf("Failed to read expected query results for queues of Ethernet4: %v", err)
 	}
-	if twoSelectedQueueCounters, err := os.ReadFile("../testdata/QUEUE_COUNTERS_RESULTS_TWO.txt"); err != nil {
+	twoSelectedQueueCounters, err := os.ReadFile("../testdata/QUEUE_COUNTERS_RESULTS_TWO.txt")
+	if err != nil {
 		t.Fatalf("Failed to read expected query results for queues of Ethernet0 and Ethernet8: %v", err)
 	}
 

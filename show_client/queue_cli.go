@@ -60,17 +60,18 @@ func getQueueCountersSnapshot(ifaces []string) (map[string]QueueCountersResponse
 		}
 	}
 
-	countersMap, err := GetMapFromQueries(queries)
+	queryMap, err := GetMapFromQueries(queries)
 	if err != nil {
 		log.Errorf("Unable to pull data for queries %v, got err %v", queries, err)
 		return nil, err
 	}
 
-	queueCounters := RemapAliasToPortNameForQueues(countersMap)
+	queueCounters := RemapAliasToPortNameForQueues(queryMap)
 
 	response := make(map[string]QueueCountersResponse)
 	for queue, counters := range queueCounters {
-		if countersMap, ok := counters.(map[string]interface{}); !ok {
+		countersMap, ok := counters.(map[string]interface{})
+		if !ok {
 			log.Warningf("Ignoring invalid counters for the queue '%v': %v", queue, counters)
 			continue
 		}
