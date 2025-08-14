@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/openconfig/gnoi/healthz"
@@ -413,6 +414,36 @@ var testHealthzCases = []struct {
 		},
 	},
 	{
+		desc: "TestgetDebugData_emptyPath",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			if p := isDebugData(nil); p != false {
+				t.Errorf("expected false for nil path, got %v", p)
+			}
+		},
+	},
+	{
+		desc: "HealthzCheck_SuccessPath",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			artifactColTimeout = 40 * time.Millisecond
+			artifactSleepTime = 5 * time.Millisecond
+
+			fakeclient := &ssc.FakeClientWithError{}
+			patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+				return fakeclient, nil
+			})
+			defer patch.Reset()
+
+			result, err := waitForArtifact("/tmp/fakefile")
+			if err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+			if result != "fake-check-success" {
+				t.Errorf("expected 'fake-check-success', got: %s", result)
+			}
+		},
+	},
+
+	{
 		desc: "HealthzListFailsForInvalidComponent",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
 			_, err := sc.List(ctx, &healthz.ListRequest{})
@@ -424,6 +455,188 @@ var testHealthzCases = []struct {
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
 			_, err := sc.Check(ctx, &healthz.CheckRequest{})
 			testErr(err, codes.Unimplemented, "gNOI Healthz Check not implemented", t)
+		},
+	},
+	{
+		desc: "TestHealthzArtifact_FileNotFound",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			srv := &HealthzServer{}
+			req := &healthz.ArtifactRequest{Id: "/tmp/dump/nonexistent_file.txt"}
+
+			// Use a dummy stream where Send does nothing
+			mockStream := &struct {
+				healthz.Healthz_ArtifactServer
+			}{}
+
+			err := srv.Artifact(req, mockStream)
+			if err == nil {
+				t.Fatalf("expected error for nonexistent file, got nil")
+			}
+			st, ok := status.FromError(err)
+			if !ok {
+				t.Fatalf("expected gRPC status error, got: %v", err)
+			}
+			if st.Code() != codes.NotFound && !strings.Contains(st.Message(), "no such file") {
+				t.Errorf("expected NotFound, got %v (message: %s)", st.Code(), st.Message())
+			}
+		},
+	},
+	{
+		desc: "TestHealthzArtifact_InvalidPath",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			srv := &HealthzServer{}
+			req := &healthz.ArtifactRequest{Id: "/invalid/path/file.txt"}
+
+			// Use a dummy stream where Send does nothing
+			mockStream := &struct {
+				healthz.Healthz_ArtifactServer
+			}{}
+
+			err := srv.Artifact(req, mockStream)
+			if err == nil {
+				t.Fatalf("expected error for invalid path, got nil")
+			}
+			st, _ := status.FromError(err)
+			if st.Code() != codes.InvalidArgument {
+				t.Errorf("expected NotFound, got %v", st.Code())
+			}
+		},
+	},
+	{
+		desc: "TestHealthzArtifact_ValidPath",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			srv := &HealthzServer{}
+			// Prepare a temporary valid file under /tmp/dump
+			tmpDir := "/tmp/dump"
+			_ = os.MkdirAll(tmpDir, 0755)
+			filePath := filepath.Join(tmpDir, "valid.txt")
+			content := []byte("this is valid test content")
+			if err := os.WriteFile(filePath, content, 0644); err != nil {
+				t.Fatalf("failed to write temp file: %v", err)
+			}
+			defer os.Remove(filePath)
+
+			req := &healthz.ArtifactRequest{Id: filePath}
+			mockStream := &struct {
+				healthz.Healthz_ArtifactServer
+			}{}
+
+			err := srv.Artifact(req, mockStream)
+			if err == nil {
+				t.Fatalf("expected success, got error: %v", err)
+			}
+		},
+	},
+	{
+		desc: "TestHealthzArtifact_SeekFailure",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			srv := &HealthzServer{}
+			req := &healthz.ArtifactRequest{Id: "/tmp/dump/seek_fail.txt"}
+
+			realPath := "/mnt/host/tmp/dump/seek_fail.txt"
+			_ = os.MkdirAll(filepath.Dir(realPath), 0755)
+			_ = os.WriteFile(realPath, []byte("dummy"), 0644)
+			defer os.Remove(realPath)
+
+			patch := gomonkey.ApplyMethod(reflect.TypeOf(&os.File{}), "Seek",
+				func(_ *os.File, offset int64, whence int) (int64, error) {
+					return 0, fmt.Errorf("seek fail simulated")
+				},
+			)
+			defer patch.Reset()
+			mockStream := &struct{ healthz.Healthz_ArtifactServer }{}
+			err := srv.Artifact(req, mockStream)
+			if err == nil {
+				t.Fatalf("expected seek failure, got nil")
+			}
+			st, _ := status.FromError(err)
+			if st.Code() != codes.Internal {
+				t.Errorf("expected Internal seek failure, got %v", st.Code())
+			}
+		},
+	},
+	{
+		desc: "TestComponent_HealthStatus_Healthy",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+
+			// Create both host and container path versions
+			dummy_hostfile := "/tmp/dump/fake-collect-success"
+			dummy_containerfile := "/mnt/host/tmp/dump/fake-collect-success"
+			dummyData := []byte("dummy log data")
+
+			_ = os.MkdirAll(filepath.Dir(dummy_containerfile), 0755)
+			if err := os.WriteFile(dummy_containerfile, dummyData, 0644); err != nil {
+				t.Fatalf("failed to create test artifact file: %v", err)
+			}
+			defer os.Remove(dummy_containerfile)
+
+			patch1 := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+				return &ssc.FakeClient{CollectResponse: dummy_hostfile}, nil
+			})
+			patch2 := gomonkey.ApplyFunc(waitForArtifact, func(string) (string, error) {
+				return dummy_hostfile, nil
+			})
+			defer patch1.Reset()
+			defer patch2.Reset()
+
+			defaultPath := &types.Path{
+				Elem: []*types.PathElem{
+					{Name: "components"},
+					{Name: "component", Key: map[string]string{"name": "gnmi"}},
+					{Name: "healthz"},
+					{Name: "alert-info"},
+				},
+			}
+			resp, err := getDebugData(defaultPath)
+
+			if err != nil {
+				t.Fatalf("Expected success, got error: %v", err)
+			}
+			if resp.Component.Status == healthz.Status_STATUS_HEALTHY {
+				t.Errorf("expected STATUS_HEALTHY, got %v", resp.Component.Status)
+			}
+		},
+	},
+	{
+		desc: "TestComponent_HealthStatus_UnHealthy",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+
+			// Create both host and container path versions
+			dummy_hostfile := "/tmp/dump/fake-collect-success"
+			dummy_containerfile := "/mnt/host/tmp/dump/fake-collect-success"
+			dummyData := []byte("dummy log data")
+
+			_ = os.MkdirAll(filepath.Dir(dummy_containerfile), 0755)
+			if err := os.WriteFile(dummy_containerfile, dummyData, 0644); err != nil {
+				t.Fatalf("failed to create test artifact file: %v", err)
+			}
+			defer os.Remove(dummy_containerfile)
+
+			patch1 := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+				return &ssc.FakeClient{CollectResponse: dummy_hostfile}, nil
+			})
+			patch2 := gomonkey.ApplyFunc(waitForArtifact, func(string) (string, error) {
+				return dummy_hostfile, nil
+			})
+			defer patch1.Reset()
+			defer patch2.Reset()
+
+			defaultPath := &types.Path{
+				Elem: []*types.PathElem{
+					{Name: "components"},
+					{Name: "component", Key: map[string]string{"name": "gnmi"}},
+					{Name: "healthz"},
+					{Name: "alert-info"},
+				},
+			}
+			resp, err := getDebugData(defaultPath)
+
+			if err != nil {
+				t.Fatalf("Expected success, got error: %v", err)
+			}
+			if resp.Component.Status == healthz.Status_STATUS_UNHEALTHY {
+				t.Errorf("expected STATUS_UNHEALTHY, got %v", resp.Component.Status)
+			}
 		},
 	},
 }
