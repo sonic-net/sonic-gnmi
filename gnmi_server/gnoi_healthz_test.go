@@ -412,6 +412,20 @@ var testHealthzCases = []struct {
 			testErr(err, codes.Unimplemented, "Healthz.Get is unimplemented", t)
 		},
 	},
+	{
+		desc: "HealthzListFailsForInvalidComponent",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			_, err := sc.List(ctx, &healthz.ListRequest{})
+			testErr(err, codes.Unimplemented, "gNOI Healthz List not implemented", t)
+		},
+	},
+	{
+		desc: "HealthzCheckFailsForInvalidComponent",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			_, err := sc.Check(ctx, &healthz.CheckRequest{})
+			testErr(err, codes.Unimplemented, "gNOI Healthz Check not implemented", t)
+		},
+	},
 }
 
 // TestHealthzServer tests implementation of gnoi.Healthz server.
