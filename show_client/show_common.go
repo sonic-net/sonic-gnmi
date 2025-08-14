@@ -2,7 +2,6 @@ package show_client
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
