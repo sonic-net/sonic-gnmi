@@ -8,10 +8,17 @@ import (
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
-const (
-	dbName    = "COUNTERS_DB"
-	separator = sdc.GetTableKeySeparator(dbName, "")
-)
+const dbName = "COUNTERS_DB"
+var separator string
+
+func init() {
+	var err error
+	separator, err = sdc.GetTableKeySeparator(dbName, "")
+	if err != nil {
+		log.Warningf("Failed to get table key separator for %s: %v\nUsing the default separator ':'.", dbName, err)
+		separator = ":"
+	}
+}
 
 type QueueCountersResponse struct {
 	packets        string `json:"Counter/pkts"`
