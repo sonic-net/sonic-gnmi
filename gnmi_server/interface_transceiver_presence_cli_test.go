@@ -21,6 +21,7 @@ func TestShowInterfaceTransceiverPresence(t *testing.T) {
 	s := createServer(t, ServerPort)
 	go runServer(t, s)
 	defer s.ForceStop()
+	defer ResetDataSetsAndMappings(t)
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
@@ -38,9 +39,9 @@ func TestShowInterfaceTransceiverPresence(t *testing.T) {
 	interfaceTransceiverPresenceConfigDBFileName := "../testdata/INTERFACE_TRANSCEIVER_PRESENCE_CONFIG_DB.txt"
 	interfaceTransceiverPresenceStateDBFileName := "../testdata/INTERFACE_TRANSCEIVER_PRESENCE_STATE_DB.txt"
 
-	intfTransPresData := `{{"Ethernet0": "Present"}, {"Ethernet4": "Present"}, {"Ethernet8": "Not Present"}}`
-	intfTransPresDataWithIntf := `{{"Ethernet0": "Present"}}`
-	intfTransPresDataWithNonExistentIntf := `{{"Ethernet1": "Not Present"}}`
+	intfTransPresData := `{"Ethernet0": "Present", "Ethernet4": "Present", "Ethernet8": "Not Present"}`
+	intfTransPresDataWithIntf := `{"Ethernet0": "Present"}`
+	intfTransPresDataWithNonExistentIntf := `{"Ethernet1": "Not Present"}`
 
 	tests := []struct {
 		desc        string
