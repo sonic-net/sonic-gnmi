@@ -62,12 +62,16 @@ func getQueueCountersSnapshot(ifaces []string) (map[string]QueueCountersResponse
 
 	response := make(map[string]QueueCountersResponse)
 	for queue, counters := range queueCounters {
+		if countersMap, ok := counters.(map[string]interface{}); !ok {
+			log.Warningf("Ignoring invalid counters for the queue '%v': %v", queue, counters)
+			continue
+		}
 		response[queue] = QueueCountersResponse{
-			packets:        GetValueOrDefault(counters, "SAI_QUEUE_STAT_PACKETS", defaultMissingCounterValue),
-			bytes:          GetValueOrDefault(counters, "SAI_QUEUE_STAT_BYTES", defaultMissingCounterValue),
-			droppedPackets: GetValueOrDefault(counters, "SAI_QUEUE_STAT_DROPPED_PACKETS", defaultMissingCounterValue),
-			droppedBytes:   GetValueOrDefault(counters, "SAI_QUEUE_STAT_DROPPED_BYTES", defaultMissingCounterValue),
-			trimmedPackets: GetValueOrDefault(counters, "SAI_QUEUE_STAT_TRIM_PACKETS", defaultMissingCounterValue),
+			packets:        GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_PACKETS", defaultMissingCounterValue),
+			bytes:          GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_BYTES", defaultMissingCounterValue),
+			droppedPackets: GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_DROPPED_PACKETS", defaultMissingCounterValue),
+			droppedBytes:   GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_DROPPED_BYTES", defaultMissingCounterValue),
+			trimmedPackets: GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_TRIM_PACKETS", defaultMissingCounterValue),
 		}
 	}
 	return response, nil
