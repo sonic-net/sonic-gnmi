@@ -61,6 +61,7 @@ func getQueueCountersSnapshot(ifaces []string) (map[string]QueueCountersResponse
 	}
 
 	queryMap, err := GetMapFromQueries(queries)
+	log.Infof("queryMap = %v", queryMap)
 	if err != nil {
 		log.Errorf("Unable to pull data for queries %v, got err %v", queries, err)
 		return nil, err
@@ -70,6 +71,10 @@ func getQueueCountersSnapshot(ifaces []string) (map[string]QueueCountersResponse
 
 	response := make(map[string]QueueCountersResponse)
 	for queue, counters := range queueCounters {
+		if strings.HasSuffix(queue, ":periodic") {
+			// Ignoring periodic queue watermarks
+			continue
+		}
 		countersMap, ok := counters.(map[string]interface{})
 		if !ok {
 			log.Warningf("Ignoring invalid counters for the queue '%v': %v", queue, counters)
@@ -83,6 +88,7 @@ func getQueueCountersSnapshot(ifaces []string) (map[string]QueueCountersResponse
 			trimmedPackets: GetValueOrDefault(countersMap, "SAI_QUEUE_STAT_TRIM_PACKETS", defaultMissingCounterValue),
 		}
 	}
+	log.Infof("response = %v", response)
 	return response, nil
 }
 
