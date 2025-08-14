@@ -83,6 +83,8 @@ func (c CounterType) String() string {
 		return "GNOI reboot"
 	case GNOI_FACTORY_RESET:
 		return "GNOI Factory Reset"
+	case GNOI_HEALTHZ_ACK:
+		return "GNOI Healthz Ack"
 	case GNOI_HEALTHZ_CHECK:
 		return "GNOI Healthz Check"
 	case GNOI_HEALTHZ_COLLECT:
