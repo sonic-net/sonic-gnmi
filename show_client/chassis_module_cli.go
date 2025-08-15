@@ -6,6 +6,8 @@ import (
 
 	log "github.com/golang/glog"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -27,40 +29,40 @@ type ChassisModuleStatus struct {
 }
 
 // Database query helper
-type dbQueries struct {
-	state  [][]string
-	config [][]string
+type DbQueries struct {
+	State  [][]string
+	Config [][]string
 }
 
 // Create database queries for chassis module data
-func createChassisModuleQueries(moduleName string) dbQueries {
-	queries := dbQueries{
-		state:  [][]string{{stateDB, chassisModuleTable}},
-		config: [][]string{{configDB, chassisModule}},
+func CreateChassisModuleQueries(moduleName string) DbQueries {
+	queries := DbQueries{
+		State:  [][]string{{stateDB, chassisModuleTable}},
+		Config: [][]string{{configDB, chassisModule}},
 	}
 
 	if moduleName != "" {
-		queries.state[0] = append(queries.state[0], moduleName)
-		queries.config[0] = append(queries.config[0], moduleName)
+		queries.State[0] = append(queries.State[0], moduleName)
+		queries.Config[0] = append(queries.Config[0], moduleName)
 	}
 
 	return queries
 }
 
 // Get and parse data from databases
-func getChassisModuleData(queries dbQueries) (map[string]interface{}, map[string]interface{}, error) {
+func getChassisModuleData(queries DbQueries) (map[string]interface{}, map[string]interface{}, error) {
 	// Get state data
-	stateDataBytes, err := GetDataFromQueries(queries.state)
+	stateDataBytes, err := GetDataFromQueries(queries.State)
 	if err != nil {
-		log.Errorf("Unable to get state data from queries %v, got err: %v", queries.state, err)
+		log.Errorf("Unable to get state data from queries %v, got err: %v", queries.State, err)
 		return nil, nil, fmt.Errorf("failed to get state data: %w", err)
 	}
 	log.V(2).Infof("State data bytes: %s", string(stateDataBytes))
 
 	// Get config data
-	configDataBytes, err := GetDataFromQueries(queries.config)
+	configDataBytes, err := GetDataFromQueries(queries.Config)
 	if err != nil {
-		log.Errorf("Unable to get config data from queries %v, got err: %v", queries.config, err)
+		log.Errorf("Unable to get config data from queries %v, got err: %v", queries.Config, err)
 		return nil, nil, fmt.Errorf("failed to get config data: %w", err)
 	}
 	log.V(2).Infof("Config data bytes: %s", string(configDataBytes))
@@ -83,7 +85,7 @@ func getChassisModuleData(queries dbQueries) (map[string]interface{}, map[string
 }
 
 // Create ChassisModuleStatus from flat data structure
-func createModuleStatusFromFlatData(moduleName string, stateData, configData map[string]interface{}) ChassisModuleStatus {
+func CreateModuleStatusFromFlatData(moduleName string, stateData, configData map[string]interface{}) ChassisModuleStatus {
 	module := ChassisModuleStatus{
 		Name:        moduleName,
 		AdminStatus: defaultAdminStatus,
@@ -129,7 +131,7 @@ func getChassisModuleStatus(options sdc.OptionMap) ([]byte, error) {
 
 	// Get data for all modules
 	log.V(2).Infof("getChassisModuleStatus: getting all modules")
-	queries := createChassisModuleQueries("")
+	queries := CreateChassisModuleQueries("")
 	stateData, configData, err := getChassisModuleData(queries)
 	if err != nil {
 		return nil, err
@@ -165,13 +167,13 @@ func getChassisModuleStatus(options sdc.OptionMap) ([]byte, error) {
 
 func getChassisModuleStatusByModule(moduleName string) ([]byte, error) {
 	if moduleName == "" {
-		return nil, fmt.Errorf("empty module name")
+		return nil, status.Error(codes.InvalidArgument, "empty module name")
 	}
 
 	log.V(2).Infof("getChassisModuleStatusByModule: processing module: %s", moduleName)
 
 	// Get data for specific module
-	queries := createChassisModuleQueries(moduleName)
+	queries := CreateChassisModuleQueries(moduleName)
 	stateData, configData, err := getChassisModuleData(queries)
 	if err != nil {
 		return nil, err
@@ -179,14 +181,14 @@ func getChassisModuleStatusByModule(moduleName string) ([]byte, error) {
 
 	// Check if the module exists in state data
 	if len(stateData) == 0 {
-		return nil, fmt.Errorf("module %s not found", moduleName)
+		return nil, status.Errorf(codes.NotFound, "module %s not found", moduleName)
 	}
 
 	log.V(2).Infof("getChassisModuleStatusByModule: processing state data with keys: %v", getMapKeys(stateData))
 	log.V(2).Infof("getChassisModuleStatusByModule: processing config data with keys: %v", getMapKeys(configData))
 
 	// Create module status from flat data structure
-	module := createModuleStatusFromFlatData(moduleName, stateData, configData)
+	module := CreateModuleStatusFromFlatData(moduleName, stateData, configData)
 	log.V(2).Infof("getChassisModuleStatusByModule: created module %s: %+v", moduleName, module)
 
 	// Create result
