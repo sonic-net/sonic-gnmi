@@ -119,7 +119,7 @@ func TestGetShowChassisModuleStatus(t *testing.T) {
 				elem: <name: "module" >
 				elem: <name: "status" key: <key: "dpu" value: "DPU99" > >
 			`,
-			wantRetCode: codes.OK,
+			wantRetCode: codes.NotFound,
 			testInit: func() {
 				AddDataSet(t, StateDbNum, "../testdata/CHASSIS_MODULE_STATE.txt")
 				AddDataSet(t, ConfigDbNum, "../testdata/CHASSIS_MODULE_CONFIG.txt")

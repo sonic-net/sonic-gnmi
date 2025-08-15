@@ -179,8 +179,13 @@ func getChassisModuleStatusByModule(moduleName string) ([]byte, error) {
 		return nil, err
 	}
 
-	// Check if the module exists in state data
+	// For specific module queries, the database should return flat data directly
+	// If no "desc" field exists, the module doesn't exist
 	if len(stateData) == 0 {
+		return nil, status.Errorf(codes.NotFound, "module %s not found", moduleName)
+	}
+
+	if _, hasDesc := stateData["desc"]; !hasDesc {
 		return nil, status.Errorf(codes.NotFound, "module %s not found", moduleName)
 	}
 
