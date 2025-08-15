@@ -32,6 +32,8 @@ func TestGetQueueCounters(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), QueryTimeout*time.Second)
 	defer cancel()
 
+	portsFileName := "../testdata/PORTS.txt"
+	portTableFileName := "../testdata/PORT_TABLE.txt"
 	queueOidMappingFileName := "../testdata/QUEUE_OID_MAPPING.txt"
 	queueCountersFileName := "../testdata/QUEUE_COUNTERS.txt"
 	allQueueCounters, err := os.ReadFile("../testdata/QUEUE_COUNTERS_RESULTS_ALL.txt")
@@ -40,11 +42,11 @@ func TestGetQueueCounters(t *testing.T) {
 	}
 	oneSelectedQueueCounters, err := os.ReadFile("../testdata/QUEUE_COUNTERS_RESULTS_ONE.txt")
 	if err != nil {
-		t.Fatalf("Failed to read expected query results for queues of Ethernet4: %v", err)
+		t.Fatalf("Failed to read expected query results for queues of Ethernet40: %v", err)
 	}
 	twoSelectedQueueCounters, err := os.ReadFile("../testdata/QUEUE_COUNTERS_RESULTS_TWO.txt")
 	if err != nil {
-		t.Fatalf("Failed to read expected query results for queues of Ethernet0 and Ethernet8: %v", err)
+		t.Fatalf("Failed to read expected query results for queues of Ethernet0 and Ethernet80: %v", err)
 	}
 
 	ResetDataSetsAndMappings(t)
@@ -78,6 +80,8 @@ func TestGetQueueCounters(t *testing.T) {
 			wantRespVal: allQueueCounters,
 			valTest:     true,
 			testInit: func() {
+				AddDataSet(t, ConfigDbNum, portsFileName)
+				AddDataSet(t, ApplDbNum, portTableFileName)
 				AddDataSet(t, CountersDbNum, queueOidMappingFileName)
 				AddDataSet(t, CountersDbNum, queueCountersFileName)
 			},
@@ -87,7 +91,7 @@ func TestGetQueueCounters(t *testing.T) {
 			pathTarget: "SHOW",
 			textPbPath: `
 				elem: <name: "queue" >
-				elem: <name: "counters" key: { key: "interfaces" value: "Ethernet4" }>
+				elem: <name: "counters" key: { key: "interfaces" value: "Ethernet40" }>
 			`,
 			wantRetCode: codes.OK,
 			wantRespVal: oneSelectedQueueCounters,
@@ -98,7 +102,7 @@ func TestGetQueueCounters(t *testing.T) {
 			pathTarget: "SHOW",
 			textPbPath: `
 				elem: <name: "queue" >
-				elem: <name: "counters" key: { key: "interfaces" value: "Ethernet0,Ethernet8" }>
+				elem: <name: "counters" key: { key: "interfaces" value: "Ethernet0,Ethernet80" }>
 			`,
 			wantRetCode: codes.OK,
 			wantRespVal: twoSelectedQueueCounters,
