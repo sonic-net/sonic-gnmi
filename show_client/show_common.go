@@ -142,6 +142,13 @@ func RemapAliasToPortName(portData map[string]interface{}) map[string]interface{
 	return remapped
 }
 
+func GetValueOrDefault(values map[string]interface{}, key string, defaultValue string) string {
+	if value, ok := values[key]; ok {
+		return fmt.Sprint(value)
+	}
+	return defaultValue
+}
+
 func GetFieldValueString(data map[string]interface{}, key string, defaultValue string, field string) string {
 	entry, ok := data[key].(map[string]interface{})
 	if !ok {
