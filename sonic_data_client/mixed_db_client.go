@@ -304,14 +304,14 @@ func RetryHelper(zmqClient swsscommon.ZmqClient, action ActionNeedRetry) error {
 	for {
 		err := action()
 		if (err != nil) &&
-		   (strings.Contains(err.Error(), ConnectionBreakErr) || strings.Contains(err.Error(), ConnectionUnavailableErr)) &&
-		   (retry <= MAX_RETRY_COUNT) {
-			   log.V(6).Infof("RetryHelper: connection error: %v, retry later", err)
-			   zmqClient.Connect()
-			   time.Sleep(retry_delay)
-			   retry_delay *= time.Duration(RETRY_DELAY_FACTOR)
-			   retry++
-			   continue
+			(strings.Contains(err.Error(), ConnectionBreakErr) || strings.Contains(err.Error(), ConnectionUnavailableErr)) &&
+			(retry <= MAX_RETRY_COUNT) {
+			log.V(6).Infof("RetryHelper: connection error: %v, retry later", err)
+			zmqClient.Connect()
+			time.Sleep(retry_delay)
+			retry_delay *= time.Duration(RETRY_DELAY_FACTOR)
+			retry++
+			continue
 		}
 
 		return err
