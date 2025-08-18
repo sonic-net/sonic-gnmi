@@ -52,32 +52,39 @@ func getTransceiverErrorStatus(options sdc.OptionMap) ([]byte, error) {
 
 func getInterfaceTransceiverPresence(options sdc.OptionMap) ([]byte, error) {
 	intf, _ := options["interface"].String()
-
-	// Get STATE_DB transceiver info
-	queries := [][]string{
-		{"STATE_DB", "TRANSCEIVER_INFO"},
-	}
-	data, err := GetMapFromQueries(queries)
-	if err != nil {
-		log.Errorf("Unable to get transceiver data from STATE_DB queries %v, got err: %v", queries, err)
-		return nil, err
-	}
-	log.V(6).Infof("TRANSCEIVER_INFO Data from STATE_DB: %v", data)
-
 	status := make(map[string]string)
 
 	if intf != "" {
-		// If specific interface provided, skip ConfigDB check
+		// Query only this interface
+		query := [][]string{
+			{"STATE_DB", "TRANSCEIVER_INFO", intf},
+		}
+		data, err := GetMapFromQueries(query)
+		if err != nil {
+			log.Errorf("Unable to get transceiver data from STATE_DB for %s, err: %v", intf, err)
+			return nil, err
+		}
+
 		if _, exist := data[intf]; exist {
 			status[intf] = "Present"
 		} else {
 			status[intf] = "Not Present"
 		}
 	} else {
-		// No specific interface provided, get all from ConfigDB
+		// No specific interface provided → get all ports
 		ports, err := getAllPortsFromConfigDB()
 		if err != nil {
 			log.Errorf("Unable to get all ports from CONFIG_DB, %v", err)
+			return nil, err
+		}
+
+		// Query the entire TRANSCEIVER_INFO table once
+		queries := [][]string{
+			{"STATE_DB", "TRANSCEIVER_INFO"},
+		}
+		data, err := GetMapFromQueries(queries)
+		if err != nil {
+			log.Errorf("Unable to get transceiver data from STATE_DB, err: %v", err)
 			return nil, err
 		}
 
