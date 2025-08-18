@@ -23,7 +23,7 @@ func getAllPortsFromConfigDB() ([]string, error) {
 		ports = append(ports, iface)
 	}
 	return ports, nil
-
+}
 
 func getTransceiverErrorStatus(options sdc.OptionMap) ([]byte, error) {
 	var intf string
