@@ -59,13 +59,13 @@ var (
 		sdc.StringValue,
 	)
 
-	showCmdOptionInterface = sdc.NewShowCmdOption(
+	showCmdOptionPort = sdc.NewShowCmdOption(
 		"port",
 		showCmdOptionPortDesc,
 		sdc.StringValue,
 	)
 
-	showCmdOptionInterface = sdc.NewShowCmdOption(
+	showCmdOptionDom = sdc.NewShowCmdOption(
 		"dom",
 		showCmdOptionDomDesc,
 		sdc.BoolValue,
