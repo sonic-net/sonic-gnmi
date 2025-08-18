@@ -302,24 +302,15 @@ func RetryHelper(zmqClient swsscommon.ZmqClient, action ActionNeedRetry) error {
 	ConnectionUnavailableErr := "Resource temporarily unavailable"
 	for {
 		err := action()
-		if err != nil {
-			if strings.Contains(err.Error(), ConnectionBreakErr) || strings.Contains(err.Error(), ConnectionUnavailableErr) {
-				if retry <= MAX_RETRY_COUNT {
-					log.V(6).Infof("RetryHelper: connection error: %v, reconnect and retry later", err)
-					time.Sleep(retry_delay)
-
-					zmqClient.Connect()
-					retry_delay *= time.Duration(RETRY_DELAY_FACTOR)
-					retry++
-					continue
-				}
-
-				// Force re-create ZMQ client when connection reset
-				removeZmqErr := removeZmqClient(zmqClient)
-				if removeZmqErr != nil {
-					log.V(6).Infof("RetryHelper: remove ZMQ client error: %v", removeZmqErr)
-				}
-			}
+		if (err != nil) &&
+			(strings.Contains(err.Error(), ConnectionBreakErr) || strings.Contains(err.Error(), ConnectionUnavailableErr)) &&
+			(retry <= MAX_RETRY_COUNT) {
+			log.V(6).Infof("RetryHelper: connection error: %v, retry later", err)
+			zmqClient.Connect()
+			time.Sleep(retry_delay)
+			retry_delay *= time.Duration(RETRY_DELAY_FACTOR)
+			retry++
+			continue
 		}
 
 		return err
