@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Workiva/go-datastructures/queue"
 	"github.com/google/gnxi/utils/xpath"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
