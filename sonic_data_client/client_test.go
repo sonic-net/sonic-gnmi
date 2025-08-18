@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/google/gnxi/utils/xpath"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
