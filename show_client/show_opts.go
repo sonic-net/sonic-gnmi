@@ -10,6 +10,8 @@ const (
 	showCmdOptionVerboseDesc       = "[verbose=true] Enable verbose output"
 	showCmdOptionInterfacesDesc    = "[interfaces=TEXT] Filter by interfaces name"
 	showCmdOptionInterfaceDesc     = "[interface=TEXT] Filter by single interface name"
+	showCmdOptionPortDesc          = "[port=TEXT] Filter by single port name"
+	showCmdOptionDomDesc           = "[dom=false] Also display Digital Optical Monitoring (DOM) data"
 	showCmdOptionPeriodDesc        = "[period=INTEGER] Display statistics over a specified period (in seconds)"
 	showCmdOptionJsonDesc          = "[json=true] No-op since response is in json format"
 )
@@ -55,6 +57,18 @@ var (
 		"interface",
 		showCmdOptionInterfaceDesc,
 		sdc.StringValue,
+	)
+
+	showCmdOptionPort = sdc.NewShowCmdOption(
+		"port",
+		showCmdOptionPortDesc,
+		sdc.StringValue,
+	)
+
+	showCmdOptionDom = sdc.NewShowCmdOption(
+		"dom",
+		showCmdOptionDomDesc,
+		sdc.BoolValue,
 	)
 
 	showCmdOptionFetchFromHW = sdc.NewShowCmdOption(
