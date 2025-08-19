@@ -39,9 +39,9 @@ func TestGetShowInterfaceFecStatus(t *testing.T) {
 	// Expected JSON for empty (no DB data) case: empty list
 	emptyResp := `[]`
 
-	fullData := `[["Ethernet0","rs","rs"],["Ethernet40","N/A","rs"],["Ethernet80","rs","rs"]]`
-	mixedData := `[["Ethernet0","N/A","rs"],["Ethernet40","N/A","rs"],["Ethernet80","N/A","N/A"]]`
-	oneIntfData := `[["Ethernet0","rs","rs"]]`
+	fullData := `[{"Interface": "Ethernet0", "FEC Oper": "rs", "FEC Admin": "rs"},{"Interface": "Ethernet40", "FEC Oper": "N/A", "FEC Admin": "rs"},{"Interface": "Ethernet80", "FEC Oper": "rs", "FEC Admin": "rs"}]`
+	mixedData := `[{"Interface": "Ethernet0", "FEC Oper": "N/A", "FEC Admin": "rs"},{"Interface": "Ethernet40", "FEC Oper": "N/A", "FEC Admin": "rs"},{"Interface": "Ethernet80", "FEC Oper": "N/A", "FEC Admin": "N/A"}]`
+	oneIntfData := `[{"Interface": "Ethernet0", "FEC Oper": "rs", "FEC Admin": "rs"}]`
 
 	portsFileName := "../testdata/PORTS.txt"
 	portTableFileName := "../testdata/PORT_TABLE.txt"
