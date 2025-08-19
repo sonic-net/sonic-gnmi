@@ -1,0 +1,180 @@
+syntax = "proto3";
+
+package sonic;
+
+option go_package = "github.com/sonic-net/sonic-gnmi/upgrade-service/proto";
+
+// SystemInfo service provides information about the system
+service SystemInfo {
+  // GetPlatformType returns the platform type of the system
+  rpc GetPlatformType(GetPlatformTypeRequest) returns (GetPlatformTypeResponse) {}
+  
+  // GetDiskSpace returns disk space information for key filesystems
+  rpc GetDiskSpace(GetDiskSpaceRequest) returns (GetDiskSpaceResponse) {}
+  
+  // GetShowCommandOutput executes various show commands and returns structured output
+  rpc GetShowCommandOutput(GetShowCommandRequest) returns (GetShowCommandResponse) {}
+}
+
+// GetPlatformTypeRequest is an empty request to get the platform type
+message GetPlatformTypeRequest {
+}
+
+// GetPlatformTypeResponse contains the platform type information
+message GetPlatformTypeResponse {
+  // The primary string representation of the platform type (e.g., "mellanox_sn4600", "arista_7050")
+  string platform_identifier = 1;
+}
+
+// GetDiskSpaceRequest is the request for disk space information
+message GetDiskSpaceRequest {
+  // Optional: specific paths to check (if empty, checks default paths)
+  repeated string paths = 1;
+}
+
+// GetDiskSpaceResponse contains disk space information for filesystems
+message GetDiskSpaceResponse {
+  // DiskSpaceInfo contains space information for a single filesystem
+  message DiskSpaceInfo {
+    // Path of the filesystem (e.g., "/", "/host", "/tmp")
+    string path = 1;
+    
+    // Total space in megabytes
+    int64 total_mb = 2;
+    
+    // Free space in megabytes  
+    int64 free_mb = 3;
+    
+    // Used space in megabytes
+    int64 used_mb = 4;
+    
+    // Error message if this filesystem check failed
+    string error_message = 5;
+  }
+  
+  // Disk space information for each filesystem
+  repeated DiskSpaceInfo filesystems = 1;
+}
+
+// ShowCommandType enumerates the supported show command types
+enum ShowCommandType {
+  SHOW_COMMAND_TYPE_UNSPECIFIED = 0;
+  SHOW_COMMAND_TYPE_CHASSIS_MODULES_MIDPLANE_STATUS = 1;
+  SHOW_COMMAND_TYPE_CHASSIS_MODULES_STATUS = 2;
+  SHOW_COMMAND_TYPE_SYSTEM_HEALTH_DPU = 3;
+}
+
+// GetShowCommandRequest is the request for show command execution
+message GetShowCommandRequest {
+  // Type of show command to execute
+  ShowCommandType command_type = 1;
+  
+  // Optional target (e.g., DPU name for specific DPU)
+  string target = 2;
+  
+  // Optional additional parameters as key-value pairs
+  map<string, string> parameters = 3;
+}
+
+// DPUInfo contains information about a single DPU (for chassis commands)
+message DPUInfo {
+  // Name of the DPU (e.g., "DPU0", "DPU3")
+  string name = 1;
+  
+  // IP address of the DPU
+  string ip_address = 2;
+  
+  // Reachability status as string ("True", "False")
+  string reachability = 3;
+  
+  // Reachability status as boolean
+  bool reachable = 4;
+}
+
+// DPUModuleInfo contains module status information for a DPU
+message DPUModuleInfo {
+  // Name of the DPU (e.g., "DPU0", "DPU3")
+  string name = 1;
+  
+  // Description of the module
+  string description = 2;
+  
+  // Physical slot information
+  string physical_slot = 3;
+  
+  // Operational status
+  string oper_status = 4;
+  
+  // Administrative status
+  string admin_status = 5;
+  
+  // Serial number
+  string serial = 6;
+}
+
+// SystemHealthDPUInfo contains system health information for a DPU
+message SystemHealthDPUInfo {
+  // Name of the DPU
+  string name = 1;
+  
+  // Operational status
+  string oper_status = 2;
+  
+  // List of state details
+  repeated StateDetail state_details = 3;
+}
+
+// StateDetail represents a single state detail entry
+message StateDetail {
+  // State detail name (e.g., "dpu_midplane_link_state")
+  string state_name = 1;
+  
+  // State value (e.g., "up", "down")
+  string state_value = 2;
+  
+  // Timestamp when this state was recorded
+  string time = 3;
+  
+  // Optional reason for the state
+  string reason = 4;
+}
+
+// GetShowCommandResponse contains the response for show command execution
+message GetShowCommandResponse {
+  // Command type that was executed
+  ShowCommandType command_type = 1;
+  
+  // Target that was queried
+  string target = 2;
+  
+  // Whether an error occurred during command execution
+  bool has_error = 3;
+  
+  // Any error message if the command failed
+  string error_message = 4;
+  
+  // Raw command output for debugging (optional)
+  string raw_output = 5;
+  
+  // Structured output based on command type
+  oneof output {
+    ChassisModulesOutput chassis_modules = 10;
+    ChassisModulesStatusOutput chassis_modules_status = 11;
+    SystemHealthDPUOutput system_health_dpu = 12;
+  }
+}
+
+// ChassisModulesOutput contains DPU chassis module information
+message ChassisModulesOutput {
+  repeated DPUInfo dpus = 1;
+}
+
+// ChassisModulesStatusOutput contains DPU module status information
+message ChassisModulesStatusOutput {
+  repeated DPUModuleInfo modules = 1;
+}
+
+// SystemHealthDPUOutput contains system health DPU information
+message SystemHealthDPUOutput {
+  repeated SystemHealthDPUInfo dpus = 1;
+}
