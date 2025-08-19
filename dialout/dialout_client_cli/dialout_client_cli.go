@@ -20,9 +20,9 @@ var (
 		Encoding:       gpb.Encoding_JSON_IETF,
 		Unidirectional: true,
 		TLS:            &tls.Config{},
-		OutputQueueSz:  100e6,
+		OutputQueueSz:  1e6,
 	}
-	outputQueueSz = flag.Uint64("output_queue_size", 100, "Output Queue Maximum Size (MB)")
+	outputQueueSz = flag.Uint64("output_queue_size", 1, "Output Queue Maximum Size (MB)")
 )
 
 func init() {
