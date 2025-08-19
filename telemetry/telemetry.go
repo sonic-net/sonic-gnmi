@@ -232,7 +232,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	// Move to new function
 	gnmi.JwtRefreshInt = time.Duration(*telemetryCfg.JwtRefInt * uint64(time.Second))
 	gnmi.JwtValidInt = time.Duration(*telemetryCfg.JwtValInt * uint64(time.Second))
-	gnmi.OutputQueSize = *telemetryCfg.OutputQueSize * uint64(1e6)
+	gnmi.OutputQueSize = *telemetryCfg.OutputQueSize * uint64(1024*1024)
 
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*telemetryCfg.Port)

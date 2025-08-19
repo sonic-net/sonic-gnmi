@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Workiva/go-datastructures/queue"
 	"github.com/google/gnxi/utils/xpath"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
@@ -469,7 +468,7 @@ func TestParseDatabase(t *testing.T) {
 }
 
 func TestSubscribeInternal(t *testing.T) {
-	output_queue_size := 100 * uint64(1e6)
+	output_queue_size := 100 * uint64(1024*1024)
 	// Test StreamRun
 	{
 		pq := NewLimitedQueue(1, false, output_queue_size)

@@ -16,7 +16,6 @@ import (
 
 var OutputQueSize uint64
 
-// OutputQueSize = 100
 // Client contains information about a subscribe client that has connected to the server.
 type Client struct {
 	addr      net.Addr

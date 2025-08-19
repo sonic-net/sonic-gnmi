@@ -20,9 +20,9 @@ var (
 		Encoding:       gpb.Encoding_JSON_IETF,
 		Unidirectional: true,
 		TLS:            &tls.Config{},
-		OutputQueueSz:  1e6,
+		OutputQueueSz:  10 * (1024 * 1024),
 	}
-	outputQueueSz = flag.Uint64("output_queue_size", 1, "Output Queue Maximum Size (MB)")
+	outputQueueSz = flag.Uint64("output_queue_size", 10, "Output Queue Maximum Size (MB)")
 )
 
 func init() {
@@ -42,7 +42,7 @@ func main() {
 		<-c
 		cancel()
 	}()
-	clientCfg.OutputQueueSz = *outputQueueSz * uint64(1e6)
+	clientCfg.OutputQueueSz = *outputQueueSz * uint64(1024*1024)
 	log.V(1).Infof("Starting telemetry publish client")
 	err := dc.DialOutRun(ctx, &clientCfg)
 	log.V(1).Infof("Exiting telemetry publish client: %v", err)
