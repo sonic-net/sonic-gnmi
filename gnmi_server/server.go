@@ -99,6 +99,7 @@ type Config struct {
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
+	ImgDir              string // Path to the directory where image is stored.
 }
 
 var AuthLock sync.Mutex
