@@ -122,7 +122,7 @@ func createClient(t *testing.T, port int) *grpc.ClientConn {
 
 func createServer(t *testing.T, port int64) *Server {
 	t.Helper()
-	OutputQueSize = 10 * uint64(1e6)
+	OutputQueSize = 10 * uint64(1024*1024)
 	certificate, err := testcert.NewCert()
 	if err != nil {
 		t.Fatalf("could not load server key pair: %s", err)
@@ -219,7 +219,7 @@ func createInvalidServer(t *testing.T, port int64) *Server {
 
 func createMaxSubscribeServer(t *testing.T, port int64) *Server {
 	t.Helper()
-	OutputQueSize = 100 * uint64(1e6)
+	OutputQueSize = 10 * uint64(1024*1024)
 	certificate, err := testcert.NewCert()
 	if err != nil {
 		t.Fatalf("could not load server key pair: %s", err)

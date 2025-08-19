@@ -364,7 +364,7 @@ func TestGNMIDialOutPublish(t *testing.T) {
 		Encoding:       pb.Encoding_JSON_IETF,
 		Unidirectional: true,
 		TLS:            &tls.Config{InsecureSkipVerify: true},
-		OutputQueueSz:  10e6,
+		OutputQueueSz:  10 * (1024 * 1024),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 
