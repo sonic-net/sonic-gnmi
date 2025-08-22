@@ -16,6 +16,7 @@ enum Target {
   PFC_WD_DB       = 5;
   FLEX_COUNTER_DB = 5;
   STATE_DB        = 6;
+  BMP_STATE_DB    = 20;
   // For none-DB data
   OTHERS          = 100;
 }
