@@ -52,6 +52,9 @@ var (
 	// SONiC interface name to their Fabric port name map, then to oid map
 	countersFabricPortNameMap = make(map[string]string)
 
+	// SONiC Switch ID to Switch Stat packet integrity drop counters
+	countersDebugNameSwitchStatMap = make(map[string]string)
+
 	// path2TFuncTbl is used to populate trie tree which is reponsible
 	// for virtual path to real data path translation
 	pathTransFuncTbl = []pathTransFunc{
@@ -79,6 +82,9 @@ var (
 		}, { // COUNTER_DB RATES Ethernet* FEC_PRE_BER
 			path:      []string{"COUNTERS_DB", "RATES", "Ethernet*", "*"},
 			transFunc: v2rTranslate(v2rEthPortFieldStats),
+		}, { // stats for one or all Fabric ports
+			path:      []string{"COUNTERS_DB", "COUNTERS", "SWITCH*"},
+			transFunc: v2rTranslate(v2rSwitchPacketIntegrityDrop),
 		},
 	}
 )
@@ -167,6 +173,20 @@ func initCountersFabricPortNameMap() error {
 	value := os.Getenv("UNIT_TEST")
 	if len(countersFabricPortNameMap) == 0 || value == "1" {
 		countersFabricPortNameMap, err = getFabricCountersMap("COUNTERS_FABRIC_PORT_NAME_MAP")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func initDebugNameSwitchStatMap() error {
+	var err error
+	// Reset map for Unit test to ensure that counters db is updated
+	// after changing from single to multi-asic config
+	value := os.Getenv("UNIT_TEST")
+	if len(countersDebugNameSwitchStatMap) == 0 || value == "1" {
+		countersDebugNameSwitchStatMap, err = getSwitchStatMap("COUNTERS_DEBUG_NAME_SWITCH_STAT_MAP")
 		if err != nil {
 			return err
 		}
@@ -431,6 +451,88 @@ func v2rFabricPortStats(paths []string) ([]tablePath, error) {
 		}}
 	}
 	log.V(6).Infof("v2rFabricPortStats: %v", tblPaths)
+	return tblPaths, nil
+}
+
+// Get the mapping between objects in counters DB, Ex. port name to oid in "COUNTERS_FABRIC_PORT_NAME_MAP" table.
+// Aussuming static port name to oid map in COUNTERS table
+func getSwitchStatMap(tableName string) (map[string]string, error) {
+	counter_map := make(map[string]string)
+	dbName := "COUNTERS_DB"
+	redis_client_map, err := GetRedisClientsForDb(dbName)
+	if err != nil {
+		return nil, err
+	}
+	for namespace, redisDb := range redis_client_map {
+		fv, err := redisDb.HGetAll(tableName).Result()
+		if err != nil {
+			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, tableName: %s", namespace, tableName)
+			return nil, err
+		}
+		namespaceFv := make(map[string]string)
+		for k, v := range fv {
+			// SWITCH_ID are not unique across asic namespace
+			// To make them unique, add asic namesapce to the port name
+			// For example, PORT0 in asic0 will be PORT0-asic0
+			var namespace_str = ""
+			if len(namespace) != 0 {
+				namespace_str = string('-') + namespace
+			}
+			namespaceFv[k+namespace_str] = v
+		}
+		addmap(counter_map, namespaceFv)
+		log.V(6).Infof("tableName: %s in namespace %v, map %v", tableName, namespace, namespaceFv)
+	}
+	return counter_map, nil
+}
+
+// Populate real data paths from paths like
+// [COUNTER_DB COUNTERS PORT*] or [COUNTER_DB COUNTERS PORT0]
+func v2rSwitchPacketIntegrityDrop(paths []string) ([]tablePath, error) {
+	var tblPaths []tablePath
+	if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
+		for port, oid := range countersDebugNameSwitchStatMap {
+			var namespace string
+			// Extract namespace from port name
+			// multi-asic Linecard ex: SWITCH_ID-asic0
+			if strings.Contains(port, "-") {
+				namespace = strings.Split(port, "-")[1]
+			} else {
+				namespace = ""
+			}
+			separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+			tblPath := tablePath{
+				dbNamespace:  namespace,
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx],
+				tableKey:     oid,
+				delimitor:    separator,
+				jsonTableKey: port,
+			}
+			tblPaths = append(tblPaths, tblPath)
+		}
+	} else { //single port
+		var port, namespace string
+		port = paths[KeyIdx]
+		oid, ok := countersDebugNameSwitchStatMap[port]
+		if !ok {
+			return nil, fmt.Errorf("%v not a valid sonic SWITCH ID.", port)
+		}
+		if strings.Contains(port, "-") {
+			namespace = strings.Split(port, "-")[1]
+		} else {
+			namespace = ""
+		}
+		separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+		tblPaths = []tablePath{{
+			dbNamespace: namespace,
+			dbName:      paths[DbIdx],
+			tableName:   paths[TblIdx],
+			tableKey:    oid,
+			delimitor:   separator,
+		}}
+	}
+	log.V(6).Infof("v2rSwitchPacketIntegrityDrop: %v", tblPaths)
 	return tblPaths, nil
 }
 
