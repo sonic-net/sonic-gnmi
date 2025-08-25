@@ -20,6 +20,86 @@ import (
 	show_client "github.com/sonic-net/sonic-gnmi/show_client"
 )
 
+// ModuleFixture represents a test module with all its properties
+type ModuleFixture struct {
+	Name        string
+	AdminStatus string
+	OperStatus  string
+	Serial      string
+	Description string
+	Slot        string
+}
+
+// DefaultModuleFixtures provides standard test data for chassis modules
+var DefaultModuleFixtures = []ModuleFixture{
+	{
+		Name:        "DPU0",
+		AdminStatus: "up",
+		OperStatus:  "Online",
+		Serial:      "FLM29100D70-0",
+		Description: "AMD Pensando DSC",
+		Slot:        "N/A",
+	},
+	{
+		Name:        "DPU1",
+		AdminStatus: "up",
+		OperStatus:  "Online",
+		Serial:      "FLM29100D70-1",
+		Description: "AMD Pensando DSC",
+		Slot:        "N/A",
+	},
+	{
+		Name:        "DPU2",
+		AdminStatus: "up",
+		OperStatus:  "Online",
+		Serial:      "FLM29100D6U-0",
+		Description: "AMD Pensando DSC",
+		Slot:        "N/A",
+	},
+	{
+		Name:        "DPU3",
+		AdminStatus: "down",
+		OperStatus:  "Online",
+		Serial:      "FLM29100D6U-1",
+		Description: "AMD Pensando DSC",
+		Slot:        "N/A",
+	},
+}
+
+// FixturesToMap converts ModuleFixture slice to the format expected by the API
+func FixturesToMap(fixtures []ModuleFixture) map[string]map[string]interface{} {
+	result := make(map[string]map[string]interface{})
+	for _, f := range fixtures {
+		result[f.Name] = map[string]interface{}{
+			"admin_status": f.AdminStatus,
+			"oper_status":  f.OperStatus,
+			"serial":       f.Serial,
+			"desc":         f.Description,
+			"slot":         f.Slot,
+		}
+	}
+	return result
+}
+
+// FixturesToSingleModuleMap converts ModuleFixture slice to single module format
+func FixturesToSingleModuleMap(fixtures []ModuleFixture, moduleName string) map[string]interface{} {
+	for _, f := range fixtures {
+		if f.Name == moduleName {
+			return map[string]interface{}{
+				moduleName: map[string]interface{}{
+					"name":          f.Name,
+					"description":   f.Description,
+					"physical_slot": f.Slot,
+					"oper_status":   f.OperStatus,
+					"admin_status":  f.AdminStatus,
+					"serial":        f.Serial,
+				},
+			}
+		}
+	}
+	return nil
+}
+
 func TestGetShowChassisModuleStatus(t *testing.T) {
 	s := createServer(t, ServerPort)
 	go runServer(t, s)
@@ -38,22 +118,6 @@ func TestGetShowChassisModuleStatus(t *testing.T) {
 	gClient := pb.NewGNMIClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), QueryTimeout*time.Second)
 	defer cancel()
-
-	// Expected JSON response for all modules
-	expectedAllModules := `{"DPU0":{"admin_status":"up","desc":"AMD Pensando DSC","oper_status":"Online","serial":"FLM29100D70-0","slot":"N/A","state_transition_in_progress":"False","transition_start_time":"2025-08-14T03:46:19.891919"},"DPU1":{"admin_status":"up","desc":"AMD Pensando DSC","oper_status":"Online","serial":"FLM29100D70-1","slot":"N/A","state_transition_in_progress":"False"},"DPU2":{"admin_status":"up","desc":"AMD Pensando DSC","oper_status":"Online","serial":"FLM29100D6U-0","slot":"N/A","state_transition_in_progress":"False"},"DPU3":{"admin_status":"down","desc":"AMD Pensando DSC","oper_status":"Online","serial":"FLM29100D6U-1","slot":"N/A","state_transition_in_progress":"False"}}`
-
-	// Expected JSON response for single module DPU1
-	expectedSingleModule := map[string]interface{}{
-		"DPU1": map[string]interface{}{
-			"name":          "DPU1",
-			"description":   "AMD Pensando DSC",
-			"physical_slot": "N/A",
-			"oper_status":   "Online",
-			"admin_status":  "up",
-			"serial":        "FLM29100D70-1",
-		},
-	}
-	expectedSingleModuleBytes, _ := json.MarshalIndent(expectedSingleModule, "", "  ")
 
 	ResetDataSetsAndMappings(t)
 
@@ -86,8 +150,12 @@ func TestGetShowChassisModuleStatus(t *testing.T) {
 				elem: <name: "status" >
 			`,
 			wantRetCode: codes.OK,
-			wantRespVal: []byte(expectedAllModules),
-			valTest:     true,
+			wantRespVal: func() []byte {
+				expected := FixturesToMap(DefaultModuleFixtures)
+				jsonData, _ := json.Marshal(expected)
+				return jsonData
+			}(),
+			valTest: true,
 			testInit: func() {
 				AddDataSet(t, StateDbNum, "../testdata/CHASSIS_MODULE_STATE.txt")
 				AddDataSet(t, ConfigDbNum, "../testdata/CHASSIS_MODULE_CONFIG.txt")
@@ -102,8 +170,12 @@ func TestGetShowChassisModuleStatus(t *testing.T) {
 				elem: <name: "status" key: <key: "dpu" value: "DPU1" > >
 			`,
 			wantRetCode: codes.OK,
-			wantRespVal: expectedSingleModuleBytes,
-			valTest:     true,
+			wantRespVal: func() []byte {
+				expected := FixturesToSingleModuleMap(DefaultModuleFixtures, "DPU1")
+				jsonData, _ := json.MarshalIndent(expected, "", "  ")
+				return jsonData
+			}(),
+			valTest: true,
 			testInit: func() {
 				FlushDataSet(t, StateDbNum)
 				FlushDataSet(t, ConfigDbNum)

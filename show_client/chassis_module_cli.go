@@ -11,8 +11,6 @@ import (
 )
 
 const (
-	stateDB            = "STATE_DB"
-	configDB           = "CONFIG_DB"
 	chassisModuleTable = "CHASSIS_MODULE_TABLE"
 	chassisModule      = "CHASSIS_MODULE"
 	defaultAdminStatus = "up"
@@ -37,8 +35,8 @@ type DbQueries struct {
 // Create database queries for chassis module data
 func CreateChassisModuleQueries(moduleName string) DbQueries {
 	queries := DbQueries{
-		State:  [][]string{{stateDB, chassisModuleTable}},
-		Config: [][]string{{configDB, chassisModule}},
+		State:  [][]string{{StateDB, chassisModuleTable}},
+		Config: [][]string{{ConfigDB, chassisModule}},
 	}
 
 	if moduleName != "" {
@@ -140,18 +138,29 @@ func getChassisModuleStatus(options sdc.OptionMap) ([]byte, error) {
 	// Merge the data
 	result := make(map[string]interface{})
 	for moduleName, stateInfo := range stateData {
-		if stateInfoMap, ok := stateInfo.(map[string]interface{}); ok {
-			result[moduleName] = stateInfoMap
-
-			// Add admin_status from CONFIG_DB if available
-			if configInfo, exists := configData[moduleName]; exists {
-				if configInfoMap, ok := configInfo.(map[string]interface{}); ok {
-					if adminStatus, hasAdmin := configInfoMap["admin_status"]; hasAdmin {
-						result[moduleName].(map[string]interface{})["admin_status"] = adminStatus
-					}
-				}
-			}
+		stateInfoMap, ok := stateInfo.(map[string]interface{})
+		if !ok {
+			continue
 		}
+
+		result[moduleName] = stateInfoMap
+
+		configInfo, exists := configData[moduleName]
+		if !exists {
+			continue
+		}
+
+		configInfoMap, ok := configInfo.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		adminStatus, hasAdmin := configInfoMap["admin_status"]
+		if !hasAdmin {
+			continue
+		}
+
+		stateInfoMap["admin_status"] = adminStatus
 	}
 
 	// Convert to JSON
@@ -181,10 +190,6 @@ func getChassisModuleStatusByModule(moduleName string) ([]byte, error) {
 
 	// For specific module queries, the database should return flat data directly
 	// If no "desc" field exists, the module doesn't exist
-	if len(stateData) == 0 {
-		return nil, status.Errorf(codes.NotFound, "module %s not found", moduleName)
-	}
-
 	if _, hasDesc := stateData["desc"]; !hasDesc {
 		return nil, status.Errorf(codes.NotFound, "module %s not found", moduleName)
 	}
