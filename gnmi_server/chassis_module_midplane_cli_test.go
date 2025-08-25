@@ -31,22 +31,22 @@ type MidplaneFixture struct {
 var DefaultMidplaneFixtures = []MidplaneFixture{
 	{
 		Name:         "DPU0",
-		IPAddress:    "192.168.1.10",
+		IPAddress:    "169.254.200.1",
 		Reachability: "True",
 	},
 	{
 		Name:         "DPU1",
-		IPAddress:    "192.168.1.11",
+		IPAddress:    "169.254.200.2",
 		Reachability: "True",
 	},
 	{
 		Name:         "DPU2",
-		IPAddress:    "192.168.1.12",
+		IPAddress:    "169.254.200.3",
 		Reachability: "False",
 	},
 	{
 		Name:         "DPU3",
-		IPAddress:    "192.168.1.13",
+		IPAddress:    "169.254.200.4",
 		Reachability: "True",
 	},
 }

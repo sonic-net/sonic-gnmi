@@ -31,6 +31,12 @@ func init() {
 		showCmdOptionDpu,
 	)
 	sdc.RegisterCliPath(
+		[]string{"SHOW", "system-health", "dpu"},
+		getSystemHealthDpu,
+		nil,
+		showCmdOptionDpu,
+	)
+	sdc.RegisterCliPath(
 		[]string{"SHOW", "clock"},
 		getDate,
 		map[string]string{
