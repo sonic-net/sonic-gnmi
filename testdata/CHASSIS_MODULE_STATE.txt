@@ -1,0 +1,31 @@
+{
+    "CHASSIS_MODULE_TABLE|DPU0": {
+      "desc": "AMD Pensando DSC",
+      "oper_status": "Online",
+      "serial": "FLM29100D70-0",
+      "slot": "N/A",
+      "state_transition_in_progress": "False",
+      "transition_start_time": "2025-08-14T03:46:19.891919"
+    },
+    "CHASSIS_MODULE_TABLE|DPU1": {
+      "desc": "AMD Pensando DSC",
+      "oper_status": "Online",
+      "serial": "FLM29100D70-1",
+      "slot": "N/A",
+      "state_transition_in_progress": "False"
+    },
+    "CHASSIS_MODULE_TABLE|DPU2": {
+      "desc": "AMD Pensando DSC",
+      "oper_status": "Online",
+      "serial": "FLM29100D6U-0",
+      "slot": "N/A",
+      "state_transition_in_progress": "False"
+    },
+    "CHASSIS_MODULE_TABLE|DPU3": {
+      "desc": "AMD Pensando DSC",
+      "oper_status": "Online",
+      "serial": "FLM29100D6U-1",
+      "slot": "N/A",
+      "state_transition_in_progress": "False"
+    }
+}
