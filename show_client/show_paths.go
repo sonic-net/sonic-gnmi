@@ -19,8 +19,14 @@ func init() {
 		nil,
 	)
 	sdc.RegisterCliPath(
-		[]string{"SHOW", "chassis", "module", "status"},
+		[]string{"SHOW", "chassis", "modules", "status"},
 		getChassisModuleStatus,
+		nil,
+		showCmdOptionDpu,
+	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "chassis", "modules", "midplane-status"},
+		getChassisModuleMidplaneStatus,
 		nil,
 		showCmdOptionDpu,
 	)

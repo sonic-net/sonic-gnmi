@@ -1,0 +1,18 @@
+{
+    "CHASSIS_MIDPLANE_TABLE|DPU0": {
+      "ip_address": "192.168.1.10",
+      "access": "True"
+    },
+    "CHASSIS_MIDPLANE_TABLE|DPU1": {
+      "ip_address": "192.168.1.11",
+      "access": "True"
+    },
+    "CHASSIS_MIDPLANE_TABLE|DPU2": {
+      "ip_address": "192.168.1.12",
+      "access": "False"
+    },
+    "CHASSIS_MIDPLANE_TABLE|DPU3": {
+      "ip_address": "192.168.1.13",
+      "access": "True"
+    }
+} 
