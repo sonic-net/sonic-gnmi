@@ -45,7 +45,6 @@ func TestGetTransceiverEEPROM(t *testing.T) {
 	transceiverErrorStatusFileName := "../testdata/TRANSCEIVER_STATUS_SW.txt"
 
 	transceiverErrorStatus := ``
-	transceiverErrorStatusPort := `{"cmis_state": "READY","error": "N/A","status": "1"}`
 	ResetDataSetsAndMappings(t)
 
 	tests := []struct {
