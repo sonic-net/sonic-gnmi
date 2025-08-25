@@ -11,23 +11,27 @@ import (
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 )
 
-type DataGetter func(prefix, path *gnmipb.Path) ([]byte, error)
-type TablePath = tablePath
-
 var showTrie *Trie = NewTrie()
 
-func RegisterCliPath(path []string, getter DataGetter) {
-	n := showTrie.Add(path, getter)
-	if n.meta.(DataGetter) == nil {
-		log.V(1).Infof("Failed to add trie node for %v with %v", path, getter)
+func RegisterCliPath(path []string, getter DataGetter, subcommandDesc map[string]string, options ...ShowCmdOption) {
+	pathOptions := constructOptions(options)
+	pathDescription := constructDescription(subcommandDesc, pathOptions)
+	config := ShowPathConfig{
+		dataGetter:  getter,
+		options:     pathOptions,
+		description: pathDescription,
+	}
+	n := showTrie.Add(path, config)
+	if _, ok := n.meta.(ShowPathConfig); !ok {
+		log.V(1).Infof("Failed to add trie node for %v with %v", path, config)
 	} else {
-		log.V(2).Infof("Add trie node for %v with %v", path, getter)
+		log.V(2).Infof("Add trie node for %v with %v", path, config)
 	}
 }
 
 type ShowClient struct {
 	prefix      *gnmipb.Path
-	path2Getter map[*gnmipb.Path]DataGetter
+	path2Config map[*gnmipb.Path]ShowPathConfig
 
 	q       *queue.PriorityQueue
 	channel chan struct{}
@@ -41,7 +45,7 @@ type ShowClient struct {
 	errors  int64
 }
 
-func lookupDataGetter(prefix, path *gnmipb.Path) (DataGetter, error) {
+func lookupPathConfig(prefix, path *gnmipb.Path) (ShowPathConfig, error) {
 	stringSlice := []string{prefix.GetTarget()}
 	fullPath := gnmiFullPath(prefix, path)
 
@@ -54,22 +58,22 @@ func lookupDataGetter(prefix, path *gnmipb.Path) (DataGetter, error) {
 	}
 	n, ok := showTrie.Find(stringSlice)
 	if ok {
-		getter := n.meta.(DataGetter)
-		return getter, nil
+		config := n.meta.(ShowPathConfig)
+		return config, nil
 	}
-	return nil, fmt.Errorf("%v not found in clientTrie tree", stringSlice)
+	return ShowPathConfig{}, fmt.Errorf("%v not found in clientTrie tree", stringSlice)
 }
 
 func NewShowClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
 	var showClient ShowClient
-	showClient.path2Getter = make(map[*gnmipb.Path]DataGetter)
+	showClient.path2Config = make(map[*gnmipb.Path]ShowPathConfig)
 	showClient.prefix = prefix
 	for _, path := range paths {
-		getter, err := lookupDataGetter(prefix, path)
+		config, err := lookupPathConfig(prefix, path)
 		if err != nil {
 			return nil, err
 		}
-		showClient.path2Getter[path] = getter
+		showClient.path2Config[path] = config
 	}
 
 	return &showClient, nil
@@ -86,8 +90,19 @@ func (c *ShowClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 
 	var values []*spb.Value
 	ts := time.Now()
-	for gnmiPath, getter := range c.path2Getter {
-		v, err := getter(c.prefix, gnmiPath)
+	for gnmiPath, config := range c.path2Config {
+		getter := config.dataGetter
+		description := config.description
+		// Validate and verify all passed options
+		validatedOptions, err := config.ParseOptions(gnmiPath)
+		if err != nil {
+			return nil, err
+		}
+		// Return description of path if help is passed
+		if needHelp, ok := validatedOptions["help"].Bool(); ok && needHelp {
+			return showHelp(c.prefix, gnmiPath, description)
+		}
+		v, err := getter(validatedOptions)
 		if err != nil {
 			log.V(3).Infof("GetData error %v for %v", err, v)
 			return nil, err

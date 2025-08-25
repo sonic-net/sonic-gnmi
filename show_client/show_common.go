@@ -2,14 +2,19 @@ package show_client
 
 import (
 	"fmt"
+	"os/exec"
+	"sort"
+	"strconv"
+
 	log "github.com/golang/glog"
 	"github.com/google/shlex"
+	natural "github.com/maruel/natural"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
-	"os/exec"
-	"strconv"
-	"strings"
 )
+
+const AppDBPortTable = "PORT_TABLE"
+const StateDBPortTable = "PORT_TABLE"
 
 const (
 	dbIndex    = 0 // The first index for a query will be the DB
@@ -137,21 +142,6 @@ func RemapAliasToPortName(portData map[string]interface{}) map[string]interface{
 	return remapped
 }
 
-func ParseOptionsFromPath(path *gnmipb.Path, optionName string) []string {
-	output := []string{}
-	for _, elem := range path.GetElem() {
-		if option, ok := elem.GetKey()[optionName]; ok {
-			for _, optionValues := range strings.Split(option, ",") {
-				if optionValue := strings.TrimSpace(optionValues); optionValue != "" {
-					output = append(output, optionValue)
-				}
-			}
-			break
-		}
-	}
-	return output
-}
-
 func GetFieldValueString(data map[string]interface{}, key string, defaultValue string, field string) string {
 	entry, ok := data[key].(map[string]interface{})
 	if !ok {
@@ -196,4 +186,10 @@ func calculateDiffCounters(oldCounter string, newCounter string, defaultValue st
 		return defaultValue
 	}
 	return strconv.FormatInt(newCounterValue-oldCounterValue, base10)
+}
+
+func natsortInterfaces(interfaces []string) []string {
+	// Naturally sort the port list
+	sort.Sort(natural.StringSlice(interfaces))
+	return interfaces
 }

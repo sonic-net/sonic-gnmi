@@ -3,10 +3,12 @@ package show_client
 import (
 	"encoding/json"
 	"fmt"
-	log "github.com/golang/glog"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"strconv"
+	"strings"
 	"time"
+
+	log "github.com/golang/glog"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
 type InterfaceCountersResponse struct {
@@ -82,21 +84,22 @@ func computeState(iface string, portTable map[string]interface{}) string {
 	}
 }
 
-func getInterfaceCounters(prefix, path *gnmipb.Path) ([]byte, error) {
-	ifaces := ParseOptionsFromPath(path, "interfaces")
-	periodArgs := ParseOptionsFromPath(path, "period")
-
-	takeDiffSnapshot := false
+func getInterfaceCounters(options sdc.OptionMap) ([]byte, error) {
+	var ifaces []string
 	period := 0
-	if len(periodArgs) > 0 {
-		periodValue, err := strconv.Atoi(periodArgs[0])
-		if err == nil && periodValue <= maxShowCommandPeriod {
-			takeDiffSnapshot = true
-			period = periodValue
-		}
-		if periodValue > maxShowCommandPeriod {
-			return nil, fmt.Errorf("period value must be <= %v", maxShowCommandPeriod)
-		}
+	takeDiffSnapshot := false
+
+	if interfaces, ok := options["interfaces"].Strings(); ok {
+		ifaces = interfaces
+	}
+
+	if periodValue, ok := options["period"].Int(); ok {
+		takeDiffSnapshot = true
+		period = periodValue
+	}
+
+	if period > maxShowCommandPeriod {
+		return nil, fmt.Errorf("period value must be <= %v", maxShowCommandPeriod)
 	}
 
 	oldSnapshot, err := getInterfaceCountersSnapshot(ifaces)
@@ -233,4 +236,149 @@ func calculateDiffSnapshot(oldSnapshot map[string]InterfaceCountersResponse, new
 		}
 	}
 	return diffResponse
+}
+
+var allPortErrors = [][]string{
+	{"oper_error_status", "oper_error_status_time"},
+	{"mac_local_fault_count", "mac_local_fault_time"},
+	{"mac_remote_fault_count", "mac_remote_fault_time"},
+	{"fec_sync_loss_count", "fec_sync_loss_time"},
+	{"fec_alignment_loss_count", "fec_alignment_loss_time"},
+	{"high_ser_error_count", "high_ser_error_time"},
+	{"high_ber_error_count", "high_ber_error_time"},
+	{"data_unit_crc_error_count", "data_unit_crc_error_time"},
+	{"data_unit_misalignment_error_count", "data_unit_misalignment_error_time"},
+	{"signal_local_error_count", "signal_local_error_time"},
+	{"crc_rate_count", "crc_rate_time"},
+	{"data_unit_size_count", "data_unit_size_time"},
+	{"code_group_error_count", "code_group_error_time"},
+	{"no_rx_reachability_count", "no_rx_reachability_time"},
+}
+
+func getInterfaceErrors(options sdc.OptionMap) ([]byte, error) {
+	intf, ok := options["interface"].String()
+	if !ok {
+		return nil, fmt.Errorf("No interface name passed in as option")
+	}
+
+	// Query Port Operational Errors Table from STATE_DB
+	queries := [][]string{
+		{"STATE_DB", "PORT_OPERR_TABLE", intf},
+	}
+	portErrorsTbl, _ := GetMapFromQueries(queries)
+	portErrorsTbl = RemapAliasToPortName(portErrorsTbl)
+
+	// Format the port errors data
+	portErrors := make([]map[string]string, 0, len(allPortErrors)+1)
+	// Iterate through all port errors types and create the result
+	for _, portError := range allPortErrors {
+		count := "0"
+		timestamp := "Never"
+		if portErrorsTbl != nil {
+			if val, ok := portErrorsTbl[portError[0]]; ok {
+				count = fmt.Sprintf("%v", val)
+			}
+			if val, ok := portErrorsTbl[portError[1]]; ok {
+				timestamp = fmt.Sprintf("%v", val)
+			}
+		}
+
+		portErrors = append(portErrors, map[string]string{
+			"Port Errors":         strings.Replace(strings.Replace(portError[0], "_", " ", -1), " count", "", -1),
+			"Count":               count,
+			"Last timestamp(UTC)": timestamp},
+		)
+	}
+
+	// Convert [][]string to []byte using JSON serialization
+	return json.Marshal(portErrors)
+}
+
+func getFrontPanelPorts(intf string) ([]string, error) {
+	// Get the front panel ports from the SONiC CONFIG_DB
+	queries := [][]string{
+		{"CONFIG_DB", "PORT"},
+	}
+	frontPanelPorts, err := GetMapFromQueries(queries)
+	if err != nil {
+		log.Errorf("Failed to get front panel ports: %v", err)
+		return nil, err
+	}
+
+	// If intf is specified, return only that interface
+	if intf != "" {
+		if _, ok := frontPanelPorts[intf]; !ok {
+			return nil, fmt.Errorf("interface %s not found in front panel ports", intf)
+		}
+		return []string{intf}, nil
+	}
+
+	// If no specific interface is requested, return all front panel ports
+	ports := make([]string, 0, len(frontPanelPorts))
+	for key := range frontPanelPorts {
+		ports = append(ports, key)
+	}
+	return ports, nil
+}
+
+func getInterfaceFecStatus(options sdc.OptionMap) ([]byte, error) {
+	intf, _ := options["interface"].String()
+
+	ports, err := getFrontPanelPorts(intf)
+	if err != nil {
+		log.Errorf("Failed to get front panel ports: %v", err)
+		return nil, err
+	}
+	ports = natsortInterfaces(ports)
+
+	portFecStatus := make([]map[string]string, 0, len(ports)+1)
+	for i := range ports {
+		port := ports[i]
+		adminFecStatus := ""
+		operStatus := ""
+		operFecStatus := ""
+
+		// Query port admin FEC status and operation status from APPL_DB
+		queries := [][]string{
+			{"APPL_DB", AppDBPortTable, port},
+		}
+		data, err := GetMapFromQueries(queries)
+		if err != nil {
+			log.Errorf("Failed to get admin FEC status for port %s: %v", port, err)
+			return nil, err
+		}
+		if _, ok := data["fec"]; !ok {
+			adminFecStatus = "N/A"
+		} else {
+			adminFecStatus = fmt.Sprint(data["fec"])
+		}
+		if _, ok := data["oper_status"]; !ok {
+			operStatus = "N/A"
+		} else {
+			operStatus = fmt.Sprint(data["oper_status"])
+		}
+
+		// Query port's oper FEC status from STATE_DB
+		queries = [][]string{
+			{"STATE_DB", StateDBPortTable, port},
+		}
+		data, err = GetMapFromQueries(queries)
+		if err != nil {
+			log.Errorf("Failed to get oper FEC status for port %s: %v", port, err)
+			return nil, err
+		}
+		if _, ok := data["fec"]; !ok {
+			operFecStatus = "N/A"
+		} else {
+			operFecStatus = fmt.Sprint(data["fec"])
+		}
+
+		if operStatus != "up" {
+			// If port is down or oper FEC status is not available, set it to "N/A"
+			operFecStatus = "N/A"
+		}
+		portFecStatus = append(portFecStatus, map[string]string{"Interface": port, "FEC Oper": operFecStatus, "FEC Admin": adminFecStatus})
+	}
+
+	return json.Marshal(portFecStatus)
 }
