@@ -76,4 +76,12 @@ func init() {
 		sdc.UnimplementedOption(showCmdOptionFetchFromHW),
 		showCmdOptionInterface,
 	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "interface", "transceiver", "eeprom"},
+		getTransceiverEEPROM,
+		nil,
+		showCmdOptionPort,
+		showCmdOptionDom,
+		sdc.UnimplementedOption(showCmdOptionNamespace),
+	)
 }

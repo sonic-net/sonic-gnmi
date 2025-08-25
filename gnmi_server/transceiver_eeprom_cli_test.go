@@ -1,6 +1,6 @@
 package gnmi
 
-// interface_transceiver_cli_test.go
+// interface_transceiver_eeprom_cli_test.go
 
 // Tests SHOW interface transceiver commands
 
@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-func TestGetTransceiverErrorStatus(t *testing.T) {
+func TestGetTransceiverEEPROM(t *testing.T) {
 	s := createServer(t, ServerPort)
 	go runServer(t, s)
 	defer s.ForceStop()
@@ -36,9 +36,15 @@ func TestGetTransceiverErrorStatus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), QueryTimeout*time.Second)
 	defer cancel()
 
+	portTableFileName := "../testdata/PORT_TABLE.txt"
+	portsFileName := "../testdata/PORTS.txt"
+	transceiverInfoFileName := "../testdata/TRANSCEIVER_INFO.txt"
+	transceiverFirmwareInfoFileName := "../testdata/TRANSCEIVER_FIRMWARE_INFO.txt"
+	transceiverDomSensorFileName := "../testdata/TRANSCEIVER_DOM_SENSOR.txt"
+	transceiverDomThresholdFileName := "../testdata/TRANSCEIVER_DOM_THRESHOLD.txt"
 	transceiverErrorStatusFileName := "../testdata/TRANSCEIVER_STATUS_SW.txt"
-	transceiverErrorStatus := `{"Ethernet0":{"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet40": {"cmis_state": "READY","error": "N/A","status": "1"},"Ethernet80": {"cmis_state": "READY","error": "N/A","status": "1"}}`
-	transceiverErrorStatusPort := `{"cmis_state": "READY","error": "N/A","status": "1"}`
+
+	transceiverErrorStatus := ``
 	ResetDataSetsAndMappings(t)
 
 	tests := []struct {
@@ -51,57 +57,65 @@ func TestGetTransceiverErrorStatus(t *testing.T) {
 		testInit    func()
 	}{
 		{
-			desc:       "query SHOW interface transceiver error-status read error",
+			desc:       "query SHOW interface transceiver eeprom read error",
 			pathTarget: "SHOW",
 			textPbPath: `
 				elem: <name: "" >
 				elem: <name: "transceiver" >
-				elem: <name: "error-status" >
+				elem: <name: "eeprom" >
 			`,
 			wantRetCode: codes.NotFound,
 		},
 		{
-			desc:       "query SHOW interface transceiver error-status NO interface dataset",
+			desc:       "query SHOW interface transceiver eeprom NO interface dataset",
 			pathTarget: "SHOW",
 			textPbPath: `
 				elem: <name: "interface" >
 				elem: <name: "transceiver" >
-				elem: <name: "error-status" >
+				elem: <name: "eeprom" >
 			`,
 			wantRetCode: codes.OK,
 		},
 		{
-			desc:       "query SHOW interface transceiver error-status",
+			desc:       "query SHOW interface transceiver eeprom",
 			pathTarget: "SHOW",
 			textPbPath: `
 				elem: <name: "interface" >
 				elem: <name: "transceiver" >
-				elem: <name: "error-status" >
+				elem: <name: "eeprom" >
 			`,
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(transceiverErrorStatus),
 			valTest:     true,
 			testInit: func() {
+				FlushDataSet(t, ApplDbNum)
+				FlushDataSet(t, ConfigDbNum)
 				FlushDataSet(t, StateDbNum)
+				AddDataSet(t, ApplDbNum, portTableFileName)
+				AddDataSet(t, ConfigDbNum, portsFileName)
+				AddDataSet(t, StateDbNum, transceiverInfoFileName)
+				AddDataSet(t, StateDbNum, transceiverFirmwareInfoFileName)
+				AddDataSet(t, StateDbNum, transceiverDomSensorFileName)
+				AddDataSet(t, StateDbNum, transceiverDomThresholdFileName)
 				AddDataSet(t, StateDbNum, transceiverErrorStatusFileName)
 			},
 		},
-		{
-			desc:       "query SHOW interface transceiver error-status port option",
-			pathTarget: "SHOW",
-			textPbPath: `
-				elem: <name: "interface" >
-				elem: <name: "transceiver" >
-				elem: <name: "error-status" key: { key: "interface" value: "Ethernet80" }>
-			`,
-			wantRetCode: codes.OK,
-			wantRespVal: []byte(transceiverErrorStatusPort),
-			valTest:     true,
-			testInit: func() {
-				FlushDataSet(t, StateDbNum)
-				AddDataSet(t, StateDbNum, transceiverErrorStatusFileName)
-			},
-		},
+		// 		{
+		// 			desc:       "query SHOW interface transceiver error-status port option",
+		// 			pathTarget: "SHOW",
+		// 			textPbPath: `
+		// 				elem: <name: "interface" >
+		// 				elem: <name: "transceiver" >
+		// 				elem: <name: "error-status" key: { key: "interface" value: "Ethernet90" }>
+		// 			`,
+		// 			wantRetCode: codes.OK,
+		// 			wantRespVal: []byte(transceiverErrorStatusPort),
+		// 			valTest:     true,
+		// 			testInit: func() {
+		// 				FlushDataSet(t, StateDbNum)
+		// 				AddDataSet(t, StateDbNum, transceiverErrorStatusFileName)
+		// 			},
+		// 		},
 	}
 
 	for _, test := range tests {
