@@ -294,3 +294,11 @@ deb: build ## Build debian package
 		mv ../sonic-gnmi-standalone_*.* build/ 2>/dev/null || true; \
 	fi
 	@echo "Debian package built in build/ directory"
+
+# Target for SONiC build system - expects full path as target
+# Example: make /path/to/target/debs/sonic-gnmi-standalone_1.0.0_amd64.deb
+$(DEST)/%: deb
+	@echo "Building debian package for SONiC build system..."
+	@dpkg-buildpackage -us -uc -b
+	@mv ../$(notdir $@) $@ 2>/dev/null || mv ../sonic-gnmi-standalone_*.deb $@
+	@echo "Package built and moved to $@"
