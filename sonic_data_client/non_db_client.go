@@ -13,6 +13,9 @@ import (
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Non db client is to Handle
@@ -433,13 +436,13 @@ func (c *NonDbClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wai
 	for _, sub := range subscribe.GetSubscription() {
 		subMode := sub.GetMode()
 		if subMode != gnmipb.SubscriptionMode_SAMPLE {
-			enqueFatalMsg(c.q, fmt.Sprintf("Unsupported subscription mode: %v.", subMode))
+			c.q.enqueFatalMsg(fmt.Sprintf("Unsupported subscription mode: %v.", subMode))
 			return
 		}
 
 		interval, err := validateSampleInterval(sub)
 		if err != nil {
-			enqueFatalMsg(c.q, err.Error())
+			c.q.enqueFatalMsg(err.Error())
 			return
 		}
 
@@ -517,12 +520,17 @@ func runGetterAndSend(c *NonDbClient, gnmiPath *gnmipb.Path, getter dataGetFunc)
 			}},
 	}
 
-	err = c.q.EnqueueItem(Value{spbv})
-	if err != nil {
-		log.V(3).Infof("Failed to put for %v, %v", gnmiPath, err)
-	} else {
-		log.V(6).Infof("Added spbv #%v", spbv)
+	if err := c.q.EnqueueItem(Value{spbv}); err != nil {
+		if st, ok := status.FromError(err); ok {
+			if st.Code() == codes.ResourceExhausted {
+				c.q.enqueFatalMsg(st.Message())
+				return err
+			}
+		}
+		c.q.enqueFatalMsg("Internal error")
+		return err
 	}
+	log.V(6).Infof("Added spbv #%v", spbv)
 	return err
 }
 

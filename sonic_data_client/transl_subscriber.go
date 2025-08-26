@@ -81,7 +81,7 @@ func (ts *translSubscriber) doSample(path string) {
 	err := translib.Stream(req)
 	if err != nil {
 		req.Q.Dispose()
-		enqueFatalMsg(c.q, fmt.Sprintf("Subscribe operation failed with error = %v", err))
+		c.q.enqueFatalMsg(fmt.Sprintf("Subscribe operation failed with error = %v", err))
 	}
 
 	ts.synced.Wait()
@@ -111,7 +111,7 @@ func (ts *translSubscriber) doOnChange(stringPaths []string) {
 	err := translib.Subscribe(req)
 	if err != nil {
 		q.Dispose()
-		enqueFatalMsg(c.q, "Subscribe operation failed with error: "+err.Error())
+		c.q.enqueFatalMsg("Subscribe operation failed with error: " + err.Error())
 	}
 
 	ts.synced.Wait()
@@ -137,7 +137,7 @@ func (ts *translSubscriber) processResponses(q *queue.PriorityQueue) {
 			return
 		}
 		if err != nil {
-			enqueFatalMsg(c.q, fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
+			c.q.enqueFatalMsg(fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
 			return
 		}
 		switch v := items[0].(type) {
@@ -145,7 +145,7 @@ func (ts *translSubscriber) processResponses(q *queue.PriorityQueue) {
 
 			if v.IsTerminated {
 				//DB Connection or other backend error
-				enqueFatalMsg(c.q, "DB Connection Error")
+				c.q.enqueFatalMsg("DB Connection Error")
 				close(c.channel)
 				return
 			}
@@ -168,12 +168,11 @@ func (ts *translSubscriber) processResponses(q *queue.PriorityQueue) {
 			if err := ts.notify(v); err != nil {
 				if st, ok := status.FromError(err); ok {
 					if st.Code() == codes.ResourceExhausted {
-						enqueFatalMsg(c.q, st.Message())
+						c.q.enqueFatalMsg(st.Message())
 						return
 					}
 				}
-				log.Warning(err)
-				enqueFatalMsg(c.q, "Internal error")
+				c.q.enqueFatalMsg("Internal error")
 				return
 			}
 		default:
@@ -194,13 +193,13 @@ func (ts *translSubscriber) notify(v *translib.SubscribeResponse) error {
 	}
 
 	spbv := &spb.Value{Notification: msg}
-	log.V(6).Infof("Added spbv %#v", spbv)
 	err = ts.client.q.EnqueueItem(Value{spbv})
 	if st, ok := status.FromError(err); ok {
 		if st.Code() == codes.ResourceExhausted {
 			return err
 		}
 	}
+	log.V(6).Infof("Added spbv %#v", spbv)
 	return nil
 }
 

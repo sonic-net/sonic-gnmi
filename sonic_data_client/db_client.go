@@ -19,6 +19,9 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -234,7 +237,7 @@ func (c *DbClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.WaitGr
 				c.synced.Add(1)
 				go streamOnChangeSubscription(c, sub.GetPath())
 			} else {
-				enqueFatalMsg(c.q, fmt.Sprintf("unsupported subscription mode, %v", subMode))
+				c.q.enqueFatalMsg(fmt.Sprintf("unsupported subscription mode, %v", subMode))
 				return
 			}
 		}
@@ -277,7 +280,7 @@ func streamOnChangeSubscription(c *DbClient, gnmiPath *gnmipb.Path) {
 func streamSampleSubscription(c *DbClient, sub *gnmipb.Subscription, updateOnly bool) {
 	samplingInterval, err := validateSampleInterval(sub)
 	if err != nil {
-		enqueFatalMsg(c.q, err.Error())
+		c.q.enqueFatalMsg(err.Error())
 		c.synced.Done()
 		c.w.Done()
 		return
@@ -331,6 +334,12 @@ func (c *DbClient) AppDBPollRun(q *LimitedQueue, poll chan struct{}, w *sync.Wai
 						},
 					}
 					c.q.EnqueueItem(Value{spbv})
+					err_enque := c.q.EnqueueItem(Value{spbv})
+					if st, ok := status.FromError(err_enque); ok {
+						if st.Code() == codes.ResourceExhausted {
+							c.q.enqueFatalMsg(st.Message())
+						}
+					}
 					log.V(6).Infof("Added spbv #%v", spbv)
 					prevUpdates[pathKey] = false
 				}
@@ -1159,7 +1168,7 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 	sendVal := func(msi map[string]interface{}) error {
 		val, err := Msi2TypedValue(msi)
 		if err != nil {
-			enqueFatalMsg(c.q, err.Error())
+			c.q.enqueFatalMsg(err.Error())
 			return err
 		}
 
@@ -1261,7 +1270,7 @@ func dbFieldSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interva
 	val := readVal()
 	err := sendVal(val)
 	if err != nil {
-		enqueFatalMsg(c.q, err.Error())
+		c.q.enqueFatalMsg(err.Error())
 		c.synced.Done()
 		return
 	}
@@ -1343,7 +1352,7 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 				if tblPath.tableKey != "" {
 					err = TableData2Msi(&tblPath, false, nil, &newMsi)
 					if err != nil {
-						enqueFatalMsg(c.q, err.Error())
+						c.q.enqueFatalMsg(err.Error())
 						return
 					}
 				} else {
@@ -1355,7 +1364,7 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 					tblPath.tableKey = subscr.Channel[prefixLen:]
 					err = TableData2Msi(&tblPath, true, nil, &newMsi)
 					if err != nil {
-						enqueFatalMsg(c.q, err.Error())
+						c.q.enqueFatalMsg(err.Error())
 						return
 					}
 				}
@@ -1402,7 +1411,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 	// Helper to handle fatal case.
 	handleFatalMsg := func(msg string) {
 		log.V(1).Infof(msg)
-		enqueFatalMsg(c.q, msg)
+		c.q.enqueFatalMsg(msg)
 		signalSync()
 	}
 

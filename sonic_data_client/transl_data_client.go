@@ -151,7 +151,7 @@ func recoverSubscribe(c *TranslClient) {
 		log.Error(string(buff))
 
 		err := status.Errorf(codes.Internal, "%v", r)
-		enqueFatalMsg(c.q, fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
+		c.q.enqueFatalMsg(fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
 	}
 }
 
@@ -192,7 +192,7 @@ func (c *TranslClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wa
 	c.encoding = subscribe.Encoding
 
 	if err := c.parseVersion(); err != nil {
-		enqueFatalMsg(c.q, err.Error())
+		c.q.enqueFatalMsg(err.Error())
 		return
 	}
 
@@ -226,7 +226,7 @@ func (c *TranslClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wa
 
 	subSupport, err := translib.IsSubscribeSupported(req)
 	if err != nil {
-		enqueFatalMsg(c.q, fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
+		c.q.enqueFatalMsg(fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
 		return
 	}
 
@@ -248,13 +248,13 @@ func (c *TranslClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wa
 			if pInfo.IsOnChangeSupported {
 				subscribe_mode = gnmipb.SubscriptionMode_ON_CHANGE
 			} else {
-				enqueFatalMsg(c.q, fmt.Sprintf("ON_CHANGE Streaming mode invalid for %v", pathStr))
+				c.q.enqueFatalMsg(fmt.Sprintf("ON_CHANGE Streaming mode invalid for %v", pathStr))
 				return
 			}
 		case gnmipb.SubscriptionMode_SAMPLE:
 			subscribe_mode = gnmipb.SubscriptionMode_SAMPLE
 		default:
-			enqueFatalMsg(c.q, fmt.Sprintf("Invalid Subscription Mode %d", sub.Mode))
+			c.q.enqueFatalMsg(fmt.Sprintf("Invalid Subscription Mode %d", sub.Mode))
 			return
 		}
 
@@ -263,7 +263,7 @@ func (c *TranslClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wa
 		}
 
 		if hb := sub.HeartbeatInterval; hb > 0 && hb < uint64(pInfo.MinInterval)*uint64(time.Second) {
-			enqueFatalMsg(c.q, fmt.Sprintf("Invalid Heartbeat Interval %ds, minimum interval is %ds",
+			c.q.enqueFatalMsg(fmt.Sprintf("Invalid Heartbeat Interval %ds, minimum interval is %ds",
 				sub.HeartbeatInterval/uint64(time.Second), subSupport[i].MinInterval))
 			return
 		}
@@ -275,7 +275,7 @@ func (c *TranslClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wa
 			if interval == 0 {
 				interval = minInterval
 			} else if interval < minInterval {
-				enqueFatalMsg(c.q, fmt.Sprintf("Invalid SampleInterval %ds, minimum interval is %ds", interval/int(time.Second), pInfo.MinInterval))
+				c.q.enqueFatalMsg(fmt.Sprintf("Invalid SampleInterval %ds, minimum interval is %ds", interval/int(time.Second), pInfo.MinInterval))
 				return
 			}
 
@@ -378,7 +378,7 @@ func (c *TranslClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.Wait
 	c.encoding = subscribe.Encoding
 
 	if err := c.parseVersion(); err != nil {
-		enqueFatalMsg(c.q, err.Error())
+		c.q.enqueFatalMsg(err.Error())
 		return
 	}
 
@@ -387,7 +387,7 @@ func (c *TranslClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.Wait
 		_, more := <-c.channel
 		if !more {
 			log.V(1).Infof("%v poll channel closed, exiting pollDb routine", c)
-			enqueFatalMsg(c.q, "")
+			c.q.enqueFatalMsg("")
 			return
 		}
 
@@ -419,14 +419,14 @@ func (c *TranslClient) OnceRun(q *LimitedQueue, once chan struct{}, w *sync.Wait
 	c.encoding = subscribe.Encoding
 
 	if err := c.parseVersion(); err != nil {
-		enqueFatalMsg(c.q, err.Error())
+		c.q.enqueFatalMsg(err.Error())
 		return
 	}
 
 	_, more := <-c.channel
 	if !more {
 		log.V(1).Infof("%v once channel closed, exiting onceDb routine", c)
-		enqueFatalMsg(c.q, "")
+		c.q.enqueFatalMsg("")
 		return
 	}
 

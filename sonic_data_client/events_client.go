@@ -26,6 +26,9 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const SUBSCRIBER_TIMEOUT = (2 * 1000) // 2 seconds
@@ -398,9 +401,18 @@ func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
 	}
 
 	if err := evtc.q.EnqueueItem(Value{spbv}); err != nil {
-		log.V(3).Infof("Queue error:  %v", err)
+		if st, ok := status.FromError(err); ok {
+			if st.Code() == codes.ResourceExhausted {
+				evtc.q.enqueFatalMsg(st.Message())
+				return err
+			}
+		}
+		evtc.q.enqueFatalMsg("Internal error")
 		return err
 	}
+	// log.V(3).Infof("Queue error:  %v", err)
+	// return err
+	// }
 	return nil
 }
 

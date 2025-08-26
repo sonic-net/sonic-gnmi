@@ -23,10 +23,11 @@ type LimitedQueue struct {
 func (q *LimitedQueue) EnqueueItem(item Value) error {
 	q.queueLengthLock.Lock()
 	defer q.queueLengthLock.Unlock()
-	ilen := (uint64)(proto.Size(item.Val))
-	if item.Notification != nil {
-		ilen = (uint64)(proto.Size(item.Notification))
-	}
+	// ilen := (uint64)(proto.Size(item.Val))
+	// if item.Notification != nil {
+	// 	ilen = (uint64)(proto.Size(item.Notification))
+	// }
+	ilen := GetValueSize(item)
 	if ilen+q.queueLengthSum < q.maxSize {
 		q.queueLengthSum += ilen
 		log.V(2).Infof("Output queue size: %d", q.queueLengthSum)
@@ -37,14 +38,22 @@ func (q *LimitedQueue) EnqueueItem(item Value) error {
 	}
 }
 
+func GetValueSize(item Value) uint64 {
+	if item.Notification != nil {
+		return (uint64)(proto.Size(item.Notification))
+	}
+	return (uint64)(proto.Size(item.Val))
+}
+
 func (q *LimitedQueue) ForceEnqueueItem(item Value) error {
 	q.queueLengthLock.Lock()
 	defer q.queueLengthLock.Unlock()
-	if item.Notification != nil {
-		q.queueLengthSum += (uint64)(proto.Size(item.Notification))
-	} else {
-		q.queueLengthSum += (uint64)(proto.Size(item.Val))
-	}
+	// if item.Notification != nil {
+	// 	q.queueLengthSum += (uint64)(proto.Size(item.Notification))
+	// } else {
+	// 	q.queueLengthSum += (uint64)(proto.Size(item.Val))
+	// }
+	q.queueLengthSum += GetValueSize(item)
 	log.V(2).Infof("Output queue size: %d", q.queueLengthSum)
 	return q.Q.Put(item)
 }
@@ -72,7 +81,7 @@ func NewLimitedQueue(hint int, allowDuplicates bool, maxSize uint64) *LimitedQue
 	}
 }
 
-func enqueFatalMsg(q *LimitedQueue, msg string) {
+func (q *LimitedQueue) enqueFatalMsg(msg string) {
 	log.ErrorDepth(1, msg)
 	q.ForceEnqueueItem(Value{
 		&spb.Value{
