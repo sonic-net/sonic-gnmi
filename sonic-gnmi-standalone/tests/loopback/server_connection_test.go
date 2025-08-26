@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/reflection/grpc_reflection_v1"
+	"google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 )
 
 func TestServerConnectionModes(t *testing.T) {
@@ -35,13 +35,13 @@ func testInsecureConnection(t *testing.T) {
 	defer conn.Close()
 
 	// Test gRPC reflection service
-	client := grpc_reflection_v1.NewServerReflectionClient(conn)
+	client := grpc_reflection_v1alpha.NewServerReflectionClient(conn)
 	stream, err := client.ServerReflectionInfo(context.Background())
 	require.NoError(t, err)
 
 	// Send a list services request
-	err = stream.Send(&grpc_reflection_v1.ServerReflectionRequest{
-		MessageRequest: &grpc_reflection_v1.ServerReflectionRequest_ListServices{},
+	err = stream.Send(&grpc_reflection_v1alpha.ServerReflectionRequest{
+		MessageRequest: &grpc_reflection_v1alpha.ServerReflectionRequest_ListServices{},
 	})
 	require.NoError(t, err)
 
@@ -77,13 +77,13 @@ func testTLSConnection(t *testing.T) {
 	defer conn.Close()
 
 	// Test gRPC reflection service
-	client := grpc_reflection_v1.NewServerReflectionClient(conn)
+	client := grpc_reflection_v1alpha.NewServerReflectionClient(conn)
 	stream, err := client.ServerReflectionInfo(context.Background())
 	require.NoError(t, err)
 
 	// Send a list services request
-	err = stream.Send(&grpc_reflection_v1.ServerReflectionRequest{
-		MessageRequest: &grpc_reflection_v1.ServerReflectionRequest_ListServices{},
+	err = stream.Send(&grpc_reflection_v1alpha.ServerReflectionRequest{
+		MessageRequest: &grpc_reflection_v1alpha.ServerReflectionRequest_ListServices{},
 	})
 	require.NoError(t, err)
 
@@ -132,13 +132,13 @@ func testMTLSConnection(t *testing.T) {
 	defer conn.Close()
 
 	// Test gRPC reflection service
-	client := grpc_reflection_v1.NewServerReflectionClient(conn)
+	client := grpc_reflection_v1alpha.NewServerReflectionClient(conn)
 	stream, err := client.ServerReflectionInfo(context.Background())
 	require.NoError(t, err)
 
 	// Send a list services request
-	err = stream.Send(&grpc_reflection_v1.ServerReflectionRequest{
-		MessageRequest: &grpc_reflection_v1.ServerReflectionRequest_ListServices{},
+	err = stream.Send(&grpc_reflection_v1alpha.ServerReflectionRequest{
+		MessageRequest: &grpc_reflection_v1alpha.ServerReflectionRequest_ListServices{},
 	})
 	require.NoError(t, err)
 
