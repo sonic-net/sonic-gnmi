@@ -143,8 +143,24 @@ func getChassisModuleStatus(options sdc.OptionMap) ([]byte, error) {
 			continue
 		}
 
-		result[moduleName] = stateInfoMap
+		// Filter state data to only include expected fields
+		filteredState := make(map[string]interface{})
+		if desc, exists := stateInfoMap["desc"]; exists {
+			filteredState["desc"] = desc
+		}
+		if operStatus, exists := stateInfoMap["oper_status"]; exists {
+			filteredState["oper_status"] = operStatus
+		}
+		if serial, exists := stateInfoMap["serial"]; exists {
+			filteredState["serial"] = serial
+		}
+		if slot, exists := stateInfoMap["slot"]; exists {
+			filteredState["slot"] = slot
+		}
 
+		result[moduleName] = filteredState
+
+		// Add admin_status from CONFIG_DB if available
 		configInfo, exists := configData[moduleName]
 		if !exists {
 			continue
@@ -156,11 +172,9 @@ func getChassisModuleStatus(options sdc.OptionMap) ([]byte, error) {
 		}
 
 		adminStatus, hasAdmin := configInfoMap["admin_status"]
-		if !hasAdmin {
-			continue
+		if hasAdmin {
+			filteredState["admin_status"] = adminStatus
 		}
-
-		stateInfoMap["admin_status"] = adminStatus
 	}
 
 	// Convert to JSON
