@@ -27,14 +27,14 @@ type ChassisModuleStatus struct {
 }
 
 // Database query helper
-type DbQueries struct {
+type dbQueries struct {
 	State  [][]string
 	Config [][]string
 }
 
 // Create database queries for chassis module data
-func CreateChassisModuleQueries(moduleName string) DbQueries {
-	queries := DbQueries{
+func createChassisModuleQueries(moduleName string) dbQueries {
+	queries := dbQueries{
 		State:  [][]string{{StateDB, chassisModuleTable}},
 		Config: [][]string{{ConfigDB, chassisModule}},
 	}
@@ -48,7 +48,7 @@ func CreateChassisModuleQueries(moduleName string) DbQueries {
 }
 
 // Get and parse data from databases
-func getChassisModuleData(queries DbQueries) (map[string]interface{}, map[string]interface{}, error) {
+func getChassisModuleData(queries dbQueries) (map[string]interface{}, map[string]interface{}, error) {
 	// Get state data
 	stateDataBytes, err := GetDataFromQueries(queries.State)
 	if err != nil {
@@ -83,7 +83,7 @@ func getChassisModuleData(queries DbQueries) (map[string]interface{}, map[string
 }
 
 // Create ChassisModuleStatus from flat data structure
-func CreateModuleStatusFromFlatData(moduleName string, stateData, configData map[string]interface{}) ChassisModuleStatus {
+func createModuleStatusFromFlatData(moduleName string, stateData, configData map[string]interface{}) ChassisModuleStatus {
 	module := ChassisModuleStatus{
 		Name:        moduleName,
 		AdminStatus: defaultAdminStatus,
@@ -91,17 +91,16 @@ func CreateModuleStatusFromFlatData(moduleName string, stateData, configData map
 	}
 
 	// Process state data
+	stateFieldMap := map[string]*string{
+		"desc":        &module.Description,
+		"slot":        &module.Slot,
+		"oper_status": &module.OperStatus,
+		"serial":      &module.Serial,
+	}
 	for key, value := range stateData {
 		if strValue, ok := value.(string); ok {
-			switch key {
-			case "desc":
-				module.Description = strValue
-			case "slot":
-				module.Slot = strValue
-			case "oper_status":
-				module.OperStatus = strValue
-			case "serial":
-				module.Serial = strValue
+			if fieldPtr, exists := stateFieldMap[key]; exists {
+				*fieldPtr = strValue
 			}
 		}
 	}
@@ -129,7 +128,7 @@ func getChassisModuleStatus(options sdc.OptionMap) ([]byte, error) {
 
 	// Get data for all modules
 	log.V(2).Infof("getChassisModuleStatus: getting all modules")
-	queries := CreateChassisModuleQueries("")
+	queries := createChassisModuleQueries("")
 	stateData, configData, err := getChassisModuleData(queries)
 	if err != nil {
 		return nil, err
@@ -145,17 +144,11 @@ func getChassisModuleStatus(options sdc.OptionMap) ([]byte, error) {
 
 		// Filter state data to only include expected fields
 		filteredState := make(map[string]interface{})
-		if desc, exists := stateInfoMap["desc"]; exists {
-			filteredState["desc"] = desc
-		}
-		if operStatus, exists := stateInfoMap["oper_status"]; exists {
-			filteredState["oper_status"] = operStatus
-		}
-		if serial, exists := stateInfoMap["serial"]; exists {
-			filteredState["serial"] = serial
-		}
-		if slot, exists := stateInfoMap["slot"]; exists {
-			filteredState["slot"] = slot
+		stateFields := []string{"desc", "oper_status", "serial", "slot"}
+		for _, field := range stateFields {
+			if value, exists := stateInfoMap[field]; exists {
+				filteredState[field] = value
+			}
 		}
 
 		result[moduleName] = filteredState
@@ -196,7 +189,7 @@ func getChassisModuleStatusByModule(moduleName string) ([]byte, error) {
 	log.V(2).Infof("getChassisModuleStatusByModule: processing module: %s", moduleName)
 
 	// Get data for specific module
-	queries := CreateChassisModuleQueries(moduleName)
+	queries := createChassisModuleQueries(moduleName)
 	stateData, configData, err := getChassisModuleData(queries)
 	if err != nil {
 		return nil, err
@@ -212,7 +205,7 @@ func getChassisModuleStatusByModule(moduleName string) ([]byte, error) {
 	log.V(2).Infof("getChassisModuleStatusByModule: processing config data with keys: %v", getMapKeys(configData))
 
 	// Create module status from flat data structure
-	module := CreateModuleStatusFromFlatData(moduleName, stateData, configData)
+	module := createModuleStatusFromFlatData(moduleName, stateData, configData)
 	log.V(2).Infof("getChassisModuleStatusByModule: created module %s: %+v", moduleName, module)
 
 	// Create result

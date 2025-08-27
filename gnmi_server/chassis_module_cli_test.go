@@ -16,8 +16,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
-
-	show_client "github.com/sonic-net/sonic-gnmi/show_client"
 )
 
 // ModuleFixture represents a test module with all its properties
@@ -221,81 +219,4 @@ func TestGetShowChassisModuleStatus(t *testing.T) {
 			runTestGet(t, ctx, gClient, test.pathTarget, test.textPbPath, test.wantRetCode, test.wantRespVal, test.valTest)
 		})
 	}
-}
-
-func TestChassisModuleHelperFunctions(t *testing.T) {
-	// Test helper functions directly for better coverage
-
-	// Test CreateChassisModuleQueries
-	t.Run("CreateChassisModuleQueries - all modules", func(t *testing.T) {
-		queries := show_client.CreateChassisModuleQueries("")
-		if len(queries.State) != 1 || len(queries.Config) != 1 {
-			t.Error("Expected one query each for state and config")
-		}
-		if queries.State[0][1] != "CHASSIS_MODULE_TABLE" {
-			t.Error("Expected CHASSIS_MODULE_TABLE in state query")
-		}
-		if queries.Config[0][1] != "CHASSIS_MODULE" {
-			t.Error("Expected CHASSIS_MODULE in config query")
-		}
-	})
-
-	t.Run("CreateChassisModuleQueries - specific module", func(t *testing.T) {
-		queries := show_client.CreateChassisModuleQueries("DPU1")
-		if len(queries.State[0]) != 3 || queries.State[0][2] != "DPU1" {
-			t.Error("Expected module name in state query")
-		}
-		if len(queries.Config[0]) != 3 || queries.Config[0][2] != "DPU1" {
-			t.Error("Expected module name in config query")
-		}
-	})
-
-	// Test CreateModuleStatusFromFlatData
-	t.Run("CreateModuleStatusFromFlatData", func(t *testing.T) {
-		stateData := map[string]interface{}{
-			"desc":        "Test Description",
-			"slot":        "Slot1",
-			"oper_status": "Online",
-			"serial":      "TEST123",
-		}
-
-		configData := map[string]interface{}{
-			"admin_status": "down",
-		}
-
-		module := show_client.CreateModuleStatusFromFlatData("DPU1", stateData, configData)
-
-		if module.Name != "DPU1" {
-			t.Errorf("Expected name DPU1, got %s", module.Name)
-		}
-		if module.Description != "Test Description" {
-			t.Errorf("Expected description 'Test Description', got %s", module.Description)
-		}
-		if module.AdminStatus != "down" {
-			t.Errorf("Expected admin_status 'down', got %s", module.AdminStatus)
-		}
-		if module.OperStatus != "Online" {
-			t.Errorf("Expected oper_status 'Online', got %s", module.OperStatus)
-		}
-		if module.Serial != "TEST123" {
-			t.Errorf("Expected serial 'TEST123', got %s", module.Serial)
-		}
-		if module.Slot != "Slot1" {
-			t.Errorf("Expected slot 'Slot1', got %s", module.Slot)
-		}
-	})
-
-	t.Run("CreateModuleStatusFromFlatData - defaults", func(t *testing.T) {
-		stateData := map[string]interface{}{}
-		configData := map[string]interface{}{}
-
-		module := show_client.CreateModuleStatusFromFlatData("DPU1", stateData, configData)
-
-		if module.AdminStatus != "up" {
-			t.Errorf("Expected default admin_status 'up', got %s", module.AdminStatus)
-		}
-		if module.Slot != "N/A" {
-			t.Errorf("Expected default slot 'N/A', got %s", module.Slot)
-		}
-	})
 }
