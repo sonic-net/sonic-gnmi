@@ -4,9 +4,9 @@ This demo shows the complete upgrade-agent workflow including download, activate
 
 ## Prerequisites
 
-- KVM virtual switch (vlab-01) running SONiC with gNOI server
-- Linux host with Go toolchain and network connectivity to vlab-01
-- Admin access to vlab-01 (password: `password`)
+- KVM virtual switch running SONiC with gNOI server at IP 10.250.0.101
+- Linux host with Go toolchain and network connectivity to 10.250.0.101
+- Admin access to the KVM (password: `password`)
 
 ## Demo Steps
 
@@ -64,16 +64,16 @@ Verify the server:
 curl -I http://localhost:8081/sonic-vs.bin
 ```
 
-### 4. Prepare vlab-01 Environment
+### 4. Prepare KVM Environment
 
 #### Check VM Status
 ```bash
-ping -c 2 vlab-01
-# Should respond from 10.250.0.101
+ping -c 2 10.250.0.101
+# Should respond from KVM
 ```
 
 #### Resize /tmp (if needed)
-On your KVM (vlab-01), check /tmp space:
+On your KVM (10.250.0.101), check /tmp space:
 ```bash
 df -h /tmp
 
@@ -84,7 +84,7 @@ sudo mount -o remount,size=2G /tmp
 #### Verify gNOI Server
 ```bash
 # Check gNOI services are available
-grpcurl -plaintext vlab-01:8080 list
+grpcurl -plaintext 10.250.0.101:8080 list
 
 # Should show services including:
 # - gnoi.system.System
@@ -92,7 +92,7 @@ grpcurl -plaintext vlab-01:8080 list
 ```
 
 #### Check Current OS State
-On your KVM (vlab-01):
+On your KVM (10.250.0.101):
 ```bash
 sudo sonic-installer list
 ```
@@ -127,17 +127,17 @@ sed -i "s/md5: \".*\"/md5: \"$MD5_CHECKSUM\"/" tests/examples/upgrade.yaml
 
 **Download Only (activate: false):**
 ```bash
-./bin/upgrade-agent apply tests/examples/download-to-host.yaml --server vlab-01:8080
+./bin/upgrade-agent apply tests/examples/download-to-host.yaml --server 10.250.0.101:8080
 ```
 
 **Activate Existing Version:**
 ```bash
-./bin/upgrade-agent apply tests/examples/activate-only.yaml --server vlab-01:8080
+./bin/upgrade-agent apply tests/examples/activate-only.yaml --server 10.250.0.101:8080
 ```
 
 **Reboot Only:**
 ```bash
-./bin/upgrade-agent apply tests/examples/reboot-only.yaml --server vlab-01:8080
+./bin/upgrade-agent apply tests/examples/reboot-only.yaml --server 10.250.0.101:8080
 ```
 
 #### Full Upgrade Workflow
@@ -145,13 +145,13 @@ sed -i "s/md5: \".*\"/md5: \"$MD5_CHECKSUM\"/" tests/examples/upgrade.yaml
 **Option 1: Download with activate=true + separate reboot**
 ```bash
 # First: Download and install (activate=true)
-./bin/upgrade-agent apply tests/examples/redownload-sonic-vs.yaml --server vlab-01:8080 --timeout 10m
+./bin/upgrade-agent apply tests/examples/redownload-sonic-vs.yaml --server 10.250.0.101:8080 --timeout 10m
 
 # Check that image appears in sonic-installer list (on KVM):
 # sudo sonic-installer list
 
 # Then: Reboot to new image
-./bin/upgrade-agent apply tests/examples/reboot-immediate.yaml --server vlab-01:8080
+./bin/upgrade-agent apply tests/examples/reboot-immediate.yaml --server 10.250.0.101:8080
 ```
 
 **Option 2: Complete upgrade workflow**
@@ -160,7 +160,7 @@ sed -i "s/md5: \".*\"/md5: \"$MD5_CHECKSUM\"/" tests/examples/upgrade.yaml
 # sudo sonic-installer remove <old-version> -y
 
 # Run complete upgrade: download + activate + reboot
-./bin/upgrade-agent apply tests/examples/upgrade.yaml --server vlab-01:8080 --timeout 10m
+./bin/upgrade-agent apply tests/examples/upgrade.yaml --server 10.250.0.101:8080 --timeout 10m
 ```
 
 ### 8. Verify Results
@@ -196,13 +196,13 @@ sleep 60
 ## Troubleshooting
 
 **gNOI server not responding:**
-On your KVM (vlab-01):
+On your KVM (10.250.0.101):
 ```bash
 docker restart gnmi
 ```
 
 **Insufficient disk space:**
-On your KVM (vlab-01):
+On your KVM (10.250.0.101):
 ```bash
 sudo sonic-installer remove <old-version> -y
 ```
