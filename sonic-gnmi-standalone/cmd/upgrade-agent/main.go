@@ -59,6 +59,11 @@ Server connection is specified via command-line flags.`,
   #         md5: "d41d8cd98f00b204e9800998ecf8427e"
   #         version: "1.0.0"
   #         activate: false
+  #     - name: activate-os
+  #       type: activate
+  #       params:
+  #         version: "SONiC-OS-master.930514-9673e12d4"
+  #         no_reboot: false
   #     - name: reboot-system
   #       type: reboot
   #       params:
@@ -116,6 +121,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	registry := workflow.NewRegistry()
 	registry.Register(steps.DownloadStepType, steps.NewDownloadStep)
 	registry.Register(steps.RebootStepType, steps.NewRebootStep)
+	registry.Register(steps.ActivateStepType, steps.NewActivateStep)
 
 	// Create workflow execution engine
 	engine := workflow.NewEngine(registry)

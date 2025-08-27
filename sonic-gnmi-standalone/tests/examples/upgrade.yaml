@@ -1,0 +1,21 @@
+apiVersion: sonic.net/v1
+kind: UpgradeWorkflow
+metadata:
+  name: sonic-upgrade-workflow
+spec:
+  steps:
+    - name: download-and-install-image
+      type: download
+      params:
+        url: "http://10.250.0.1:8081/sonic-vs.bin"
+        filename: "/tmp/sonic-upgrade.bin"
+        md5: "25a3f41d9976ded044b96cbda100933a"
+        version: "SONiC-OS-upgrade"
+        activate: true
+    - name: reboot-to-new-image
+      type: reboot
+      params:
+        method: "COLD"
+        delay: 5
+        message: "Rebooting to activate new SONiC image"
+        force: false

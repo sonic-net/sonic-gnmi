@@ -1,0 +1,12 @@
+apiVersion: sonic.net/v1
+kind: UpgradeWorkflow
+metadata:
+  name: activate-only-workflow
+spec:
+  steps:
+    - name: activate-os-version
+      type: activate
+      params:
+        version: "SONiC-OS-master.930514-9673e12d4"
+        no_reboot: false
+        standby_supervisor: false
