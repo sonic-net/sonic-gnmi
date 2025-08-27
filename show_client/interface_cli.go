@@ -255,7 +255,7 @@ var allPortErrors = [][]string{
 	{"no_rx_reachability_count", "no_rx_reachability_time"},
 }
 
-func getIntfErrors(options sdc.OptionMap) ([]byte, error) {
+func getInterfaceErrors(options sdc.OptionMap) ([]byte, error) {
 	intf, ok := options["interface"].String()
 	if !ok {
 		return nil, fmt.Errorf("No interface name passed in as option")
@@ -269,9 +269,7 @@ func getIntfErrors(options sdc.OptionMap) ([]byte, error) {
 	portErrorsTbl = RemapAliasToPortName(portErrorsTbl)
 
 	// Format the port errors data
-	portErrors := make([][]string, 0, len(allPortErrors)+1)
-	// Append the table header
-	portErrors = append(portErrors, []string{"Port Errors", "Count", "Last timestamp(UTC)"})
+	portErrors := make([]map[string]string, 0, len(allPortErrors)+1)
 	// Iterate through all port errors types and create the result
 	for _, portError := range allPortErrors {
 		count := "0"
@@ -285,13 +283,102 @@ func getIntfErrors(options sdc.OptionMap) ([]byte, error) {
 			}
 		}
 
-		portErrors = append(portErrors, []string{
-			strings.Replace(strings.Replace(portError[0], "_", " ", -1), " count", "", -1),
-			count,
-			timestamp},
+		portErrors = append(portErrors, map[string]string{
+			"Port Errors":         strings.Replace(strings.Replace(portError[0], "_", " ", -1), " count", "", -1),
+			"Count":               count,
+			"Last timestamp(UTC)": timestamp},
 		)
 	}
 
 	// Convert [][]string to []byte using JSON serialization
 	return json.Marshal(portErrors)
+}
+
+func getFrontPanelPorts(intf string) ([]string, error) {
+	// Get the front panel ports from the SONiC CONFIG_DB
+	queries := [][]string{
+		{"CONFIG_DB", "PORT"},
+	}
+	frontPanelPorts, err := GetMapFromQueries(queries)
+	if err != nil {
+		log.Errorf("Failed to get front panel ports: %v", err)
+		return nil, err
+	}
+
+	// If intf is specified, return only that interface
+	if intf != "" {
+		if _, ok := frontPanelPorts[intf]; !ok {
+			return nil, fmt.Errorf("interface %s not found in front panel ports", intf)
+		}
+		return []string{intf}, nil
+	}
+
+	// If no specific interface is requested, return all front panel ports
+	ports := make([]string, 0, len(frontPanelPorts))
+	for key := range frontPanelPorts {
+		ports = append(ports, key)
+	}
+	return ports, nil
+}
+
+func getInterfaceFecStatus(options sdc.OptionMap) ([]byte, error) {
+	intf, _ := options["interface"].String()
+
+	ports, err := getFrontPanelPorts(intf)
+	if err != nil {
+		log.Errorf("Failed to get front panel ports: %v", err)
+		return nil, err
+	}
+	ports = natsortInterfaces(ports)
+
+	portFecStatus := make([]map[string]string, 0, len(ports)+1)
+	for i := range ports {
+		port := ports[i]
+		adminFecStatus := ""
+		operStatus := ""
+		operFecStatus := ""
+
+		// Query port admin FEC status and operation status from APPL_DB
+		queries := [][]string{
+			{"APPL_DB", AppDBPortTable, port},
+		}
+		data, err := GetMapFromQueries(queries)
+		if err != nil {
+			log.Errorf("Failed to get admin FEC status for port %s: %v", port, err)
+			return nil, err
+		}
+		if _, ok := data["fec"]; !ok {
+			adminFecStatus = "N/A"
+		} else {
+			adminFecStatus = fmt.Sprint(data["fec"])
+		}
+		if _, ok := data["oper_status"]; !ok {
+			operStatus = "N/A"
+		} else {
+			operStatus = fmt.Sprint(data["oper_status"])
+		}
+
+		// Query port's oper FEC status from STATE_DB
+		queries = [][]string{
+			{"STATE_DB", StateDBPortTable, port},
+		}
+		data, err = GetMapFromQueries(queries)
+		if err != nil {
+			log.Errorf("Failed to get oper FEC status for port %s: %v", port, err)
+			return nil, err
+		}
+		if _, ok := data["fec"]; !ok {
+			operFecStatus = "N/A"
+		} else {
+			operFecStatus = fmt.Sprint(data["fec"])
+		}
+
+		if operStatus != "up" {
+			// If port is down or oper FEC status is not available, set it to "N/A"
+			operFecStatus = "N/A"
+		}
+		portFecStatus = append(portFecStatus, map[string]string{"Interface": port, "FEC Oper": operFecStatus, "FEC Admin": adminFecStatus})
+	}
+
+	return json.Marshal(portFecStatus)
 }
