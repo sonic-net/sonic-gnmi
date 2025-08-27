@@ -73,11 +73,12 @@ ping -c 2 vlab-01
 ```
 
 #### Resize /tmp (if needed)
+On your KVM (vlab-01), check /tmp space:
 ```bash
-sshpass -p password ssh admin@vlab-01 "df -h /tmp"
+df -h /tmp
 
 # If /tmp is separate tmpfs with insufficient space:
-sshpass -p password ssh admin@vlab-01 "sudo mount -o remount,size=2G /tmp"
+sudo mount -o remount,size=2G /tmp
 ```
 
 #### Verify gNOI Server
@@ -91,8 +92,9 @@ grpcurl -plaintext vlab-01:8080 list
 ```
 
 #### Check Current OS State
+On your KVM (vlab-01):
 ```bash
-sshpass -p password ssh admin@vlab-01 "sudo sonic-installer list"
+sudo sonic-installer list
 ```
 
 ### 5. Build upgrade-agent
@@ -145,8 +147,8 @@ sed -i "s/md5: \".*\"/md5: \"$MD5_CHECKSUM\"/" tests/examples/upgrade.yaml
 # First: Download and install (activate=true)
 ./bin/upgrade-agent apply tests/examples/redownload-sonic-vs.yaml --server vlab-01:8080 --timeout 10m
 
-# Check that image appears in sonic-installer list
-sshpass -p password ssh admin@vlab-01 "sudo sonic-installer list"
+# Check that image appears in sonic-installer list (on KVM):
+# sudo sonic-installer list
 
 # Then: Reboot to new image
 ./bin/upgrade-agent apply tests/examples/reboot-immediate.yaml --server vlab-01:8080
@@ -154,8 +156,8 @@ sshpass -p password ssh admin@vlab-01 "sudo sonic-installer list"
 
 **Option 2: Complete upgrade workflow**
 ```bash
-# Clean up space first (if needed)
-sshpass -p password ssh admin@vlab-01 "sudo sonic-installer remove <old-version> -y"
+# Clean up space first (if needed) - on KVM run:
+# sudo sonic-installer remove <old-version> -y
 
 # Run complete upgrade: download + activate + reboot
 ./bin/upgrade-agent apply tests/examples/upgrade.yaml --server vlab-01:8080 --timeout 10m
@@ -169,9 +171,8 @@ After reboot, wait for the VM to come back up and verify the upgrade:
 # Wait for VM to boot (may take 1-2 minutes)
 sleep 60
 
-# Verify new version is running
-sshpass -p password ssh admin@vlab-01 "sudo sonic-installer list"
-
+# Verify new version is running (on KVM):
+# sudo sonic-installer list
 # Should show the new version as "Current"
 ```
 
@@ -195,13 +196,15 @@ sshpass -p password ssh admin@vlab-01 "sudo sonic-installer list"
 ## Troubleshooting
 
 **gNOI server not responding:**
+On your KVM (vlab-01):
 ```bash
-sshpass -p password ssh admin@vlab-01 "docker restart gnmi"
+docker restart gnmi
 ```
 
 **Insufficient disk space:**
+On your KVM (vlab-01):
 ```bash
-sshpass -p password ssh admin@vlab-01 "sudo sonic-installer remove <old-version> -y"
+sudo sonic-installer remove <old-version> -y
 ```
 
 **Connection reset during activate=true:**
