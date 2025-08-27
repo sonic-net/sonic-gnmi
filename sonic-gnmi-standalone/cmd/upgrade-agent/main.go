@@ -58,7 +58,13 @@ Server connection is specified via command-line flags.`,
   #         filename: "/tmp/sonic.bin"
   #         md5: "d41d8cd98f00b204e9800998ecf8427e"
   #         version: "1.0.0"
-  #         activate: false`,
+  #         activate: false
+  #     - name: reboot-system
+  #       type: reboot
+  #       params:
+  #         delay: 10
+  #         message: "Rebooting for upgrade"
+  #         force: false`,
 	RunE:         runApply,
 	SilenceUsage: true, // Don't print usage on errors
 }
@@ -109,6 +115,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	// Create step registry and register available step types
 	registry := workflow.NewRegistry()
 	registry.Register(steps.DownloadStepType, steps.NewDownloadStep)
+	registry.Register(steps.RebootStepType, steps.NewRebootStep)
 
 	// Create workflow execution engine
 	engine := workflow.NewEngine(registry)

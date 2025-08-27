@@ -1,0 +1,13 @@
+apiVersion: sonic.net/v1
+kind: UpgradeWorkflow
+metadata:
+  name: reboot-only-workflow
+spec:
+  steps:
+    - name: reboot-system
+      type: reboot
+      params:
+        method: "COLD"
+        delay: 0
+        message: "COLD reboot test"
+        force: false
