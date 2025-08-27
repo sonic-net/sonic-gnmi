@@ -16,6 +16,6 @@ spec:
       type: reboot
       params:
         method: "COLD"
-        delay: 5
+        delay: 0
         message: "Rebooting to activate new SONiC image"
         force: false
