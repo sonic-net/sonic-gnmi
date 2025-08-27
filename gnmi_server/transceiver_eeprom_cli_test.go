@@ -44,156 +44,8 @@ func TestGetTransceiverEEPROM(t *testing.T) {
 	transceiverDomThresholdFileName := "../testdata/TRANSCEIVER_DOM_THRESHOLD.txt"
 	transceiverErrorStatusFileName := "../testdata/TRANSCEIVER_STATUS_SW.txt"
 
-	transceiverEEPROM := `
-Ethernet0: SFP EEPROM detected
-        Vendor SN: APF2447201229A
-        Vendor Rev: A
-        Vendor PN: NJMMER-M201
-        Vendor OUI: 78-a7-14
-        Vendor Name: Amphenol
-        Vendor Date Code(YYYY-MM-DD Lot): 2024-11-25
-        Nominal Bit Rate(100Mbs): N/A
-        Module Hardware Rev: 0.0
-        Media Lane Count: 0
-        Media Interface Technology: Copper cable unequalized
-        Length Cable Assembly(m): 1.0
-        Inactive Firmware: N/A
-        Identifier: OSFP 8X Pluggable Transceiver
-        Host Lane Count: 8
-        Extended RateSelect Compliance: N/A
-        Extended Identifier: Power Class 1 (0.25W Max)
-        Encoding: N/A
-        Connector: No separable connector
-        CMIS Rev: 5.0
-        Active application selected code assigned to host lane 8: N/A
-        Active application selected code assigned to host lane 7: N/A
-        Active application selected code assigned to host lane 6: N/A
-        Active application selected code assigned to host lane 5: N/A
-        Active application selected code assigned to host lane 4: N/A
-        Active application selected code assigned to host lane 3: N/A
-        Active application selected code assigned to host lane 2: N/A
-        Active application selected code assigned to host lane 1: N/A
-        Active Firmware: N/A
-        vdm_supported: False
-        type_abbrv_name: OSFP-8X
-        media_lane_assignment_option: N/A
-        media_interface_code: Copper cable
-        is_replaceable: True
-        host_lane_assignment_option: 1
-        host_electrical_interface: N/A
-
-Ethernet40: SFP EEPROM detected
-        Vendor SN: APF244720121WT
-        Vendor Rev: A
-        Vendor PN: NJMMER-M201
-        Vendor OUI: 78-a7-14
-        Vendor Name: Amphenol
-        Vendor Date Code(YYYY-MM-DD Lot): 2024-11-26
-        Nominal Bit Rate(100Mbs): N/A
-        Module Hardware Rev: 0.0
-        Media Lane Count: 0
-        Media Interface Technology: Copper cable unequalized
-        Length Cable Assembly(m): 1.0
-        Inactive Firmware: N/A
-        Identifier: OSFP 8X Pluggable Transceiver
-        Host Lane Count: 8
-        Extended RateSelect Compliance: N/A
-        Extended Identifier: Power Class 1 (0.25W Max)
-        Encoding: N/A
-        Connector: No separable connector
-        CMIS Rev: 5.0
-        Active application selected code assigned to host lane 8: N/A
-        Active application selected code assigned to host lane 7: N/A
-        Active application selected code assigned to host lane 6: N/A
-        Active application selected code assigned to host lane 5: N/A
-        Active application selected code assigned to host lane 4: N/A
-        Active application selected code assigned to host lane 3: N/A
-        Active application selected code assigned to host lane 2: N/A
-        Active application selected code assigned to host lane 1: N/A
-        Active Firmware: N/A
-        vdm_supported: False
-        type_abbrv_name: OSFP-8X
-        media_lane_assignment_option: N/A
-        media_interface_code: Copper cable
-        is_replaceable: True
-        host_lane_assignment_option: 1
-        host_electrical_interface: N/A
-
-Ethernet80: SFP EEPROM detected
-        Vendor SN: APF24482013Y1U
-        Vendor Rev: A
-        Vendor PN: NJMMER-M201
-        Vendor OUI: 78-a7-14
-        Vendor Name: Amphenol
-        Vendor Date Code(YYYY-MM-DD Lot): 2024-11-26
-        Nominal Bit Rate(100Mbs): N/A
-        Module Hardware Rev: 0.0
-        Media Lane Count: 0
-        Media Interface Technology: Copper cable unequalized
-        Length Cable Assembly(m): 1.0
-        Inactive Firmware: N/A
-        Identifier: OSFP 8X Pluggable Transceiver
-        Host Lane Count: 8
-        Extended RateSelect Compliance: N/A
-        Extended Identifier: Power Class 1 (0.25W Max)
-        Encoding: N/A
-        Connector: No separable connector
-        CMIS Rev: 5.0
-        Active application selected code assigned to host lane 8: N/A
-        Active application selected code assigned to host lane 7: N/A
-        Active application selected code assigned to host lane 6: N/A
-        Active application selected code assigned to host lane 5: N/A
-        Active application selected code assigned to host lane 4: N/A
-        Active application selected code assigned to host lane 3: N/A
-        Active application selected code assigned to host lane 2: N/A
-        Active application selected code assigned to host lane 1: N/A
-        Active Firmware: N/A
-        vdm_supported: False
-        type_abbrv_name: OSFP-8X
-        media_lane_assignment_option: N/A
-        media_interface_code: Copper cable
-        is_replaceable: True
-        host_lane_assignment_option: 1
-        host_electrical_interface: N/A
-`
-	transceiverEEPROMPort := `
-Ethernet0: SFP EEPROM detected
-        Vendor SN: APF2447201229A
-        Vendor Rev: A
-        Vendor PN: NJMMER-M201
-        Vendor OUI: 78-a7-14
-        Vendor Name: Amphenol
-        Vendor Date Code(YYYY-MM-DD Lot): 2024-11-25
-        Nominal Bit Rate(100Mbs): N/A
-        Module Hardware Rev: 0.0
-        Media Lane Count: 0
-        Media Interface Technology: Copper cable unequalized
-        Length Cable Assembly(m): 1.0
-        Inactive Firmware: N/A
-        Identifier: OSFP 8X Pluggable Transceiver
-        Host Lane Count: 8
-        Extended RateSelect Compliance: N/A
-        Extended Identifier: Power Class 1 (0.25W Max)
-        Encoding: N/A
-        Connector: No separable connector
-        CMIS Rev: 5.0
-        Active application selected code assigned to host lane 8: N/A
-        Active application selected code assigned to host lane 7: N/A
-        Active application selected code assigned to host lane 6: N/A
-        Active application selected code assigned to host lane 5: N/A
-        Active application selected code assigned to host lane 4: N/A
-        Active application selected code assigned to host lane 3: N/A
-        Active application selected code assigned to host lane 2: N/A
-        Active application selected code assigned to host lane 1: N/A
-        Active Firmware: N/A
-        vdm_supported: False
-        type_abbrv_name: OSFP-8X
-        media_lane_assignment_option: N/A
-        media_interface_code: Copper cable
-        is_replaceable: True
-        host_lane_assignment_option: 1
-        host_electrical_interface: N/A
-`
+	transceiverEEPROM := ``
+	transceiverEEPROMPort := ``
 	ResetDataSetsAndMappings(t)
 
 	tests := []struct {
@@ -255,23 +107,23 @@ Ethernet0: SFP EEPROM detected
 			textPbPath: `
 				elem: <name: "interface" >
 				elem: <name: "transceiver" >
-				elem: <name: "eeprom" key: { key: "port" value: "Ethernet0" }>
+				elem: <name: "eeprom" key: { key: "port" value: "Ethernet40" }>
 			`,
 			wantRetCode: codes.OK,
 			wantRespVal: []byte(transceiverEEPROMPort),
 			valTest:     false,
-			testInit: func() {
-				FlushDataSet(t, ApplDbNum)
-				FlushDataSet(t, ConfigDbNum)
-				FlushDataSet(t, StateDbNum)
-				AddDataSet(t, ApplDbNum, portTableFileName)
-				AddDataSet(t, ConfigDbNum, portsFileName)
-				AddDataSet(t, StateDbNum, transceiverInfoFileName)
-				AddDataSet(t, StateDbNum, transceiverFirmwareInfoFileName)
-				AddDataSet(t, StateDbNum, transceiverDomSensorFileName)
-				AddDataSet(t, StateDbNum, transceiverDomThresholdFileName)
-				AddDataSet(t, StateDbNum, transceiverErrorStatusFileName)
-			},
+		},
+		{
+			desc:       "query SHOW interface transceiver eeprom dom option",
+			pathTarget: "SHOW",
+			textPbPath: `
+				elem: <name: "interface" >
+				elem: <name: "transceiver" >
+				elem: <name: "eeprom" key: { key: "dom" value: "true" }>
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: []byte(transceiverEEPROMPort),
+			valTest:     false,
 		},
 	}
 

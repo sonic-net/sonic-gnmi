@@ -82,6 +82,7 @@ func init() {
 		nil,
 		showCmdOptionPort,
 		showCmdOptionDom,
+		showCmdOptionInterface,
 		sdc.UnimplementedOption(showCmdOptionNamespace),
 	)
 }

@@ -160,9 +160,11 @@ func covertApplicationAdvertisementToOutputString(indent string, sfpInfoDict map
 	var appAdvDict map[string]interface{}
 	if err := json.Unmarshal([]byte(appAdvStr), &appAdvDict); err != nil {
 		output += fmt.Sprintf("%s\n", appAdvStr)
+		return output
 	}
 	if len(appAdvDict) == 0 {
 		output += "N/A\n"
+		return output
 	}
 
 	lines := []string{}
@@ -507,6 +509,7 @@ func getEEPROM(options sdc.OptionMap) (map[string]string, error) {
 	if v, ok := options["port"].String(); ok {
 		intf = v
 	}
+	log.Infof("parsed intf = %q", intf)
 
 	var dumpDom bool
 	if v, ok := options["dom"].Bool(); ok {
@@ -514,14 +517,8 @@ func getEEPROM(options sdc.OptionMap) (map[string]string, error) {
 	}
 
 	var queries [][]string
-	if intf == "" {
-		queries = [][]string{
-			{"APPL_DB", "PORT_TABLE"},
-		}
-	} else {
-		queries = [][]string{
-			{"APPL_DB", "PORT_TABLE", intf},
-		}
+	queries = [][]string{
+		{"APPL_DB", "PORT_TABLE"},
 	}
 
 	portTable, err := GetMapFromQueries(queries)
@@ -532,6 +529,10 @@ func getEEPROM(options sdc.OptionMap) (map[string]string, error) {
 
 	intfEEPROM := make(map[string]string)
 	for iface := range portTable {
+		if intf != "" && iface != intf {
+			continue
+		}
+
 		ok, err := isValidPhysicalPort(iface)
 		if err != nil {
 			return nil, err
