@@ -10,6 +10,14 @@
   "TRANSCEIVER_FIRMWARE_INFO|Ethernet80": {
     "active_firmware": "N/A",
     "inactive_firmware": "N/A"
+  },
+  "TRANSCEIVER_FIRMWARE_INFO|Ethernet120": {
+    "active_firmware": "N/A",
+    "inactive_firmware": "N/A"
+  },
+  "TRANSCEIVER_FIRMWARE_INFO|Ethernet160": {
+    "active_firmware": "N/A",
+    "inactive_firmware": "N/A"
   }
 }
 

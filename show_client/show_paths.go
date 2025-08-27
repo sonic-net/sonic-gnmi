@@ -84,4 +84,11 @@ func init() {
 		showCmdOptionDom,
 		sdc.UnimplementedOption(showCmdOptionNamespace),
 	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "interface", "transceiver", "info"},
+		getTransceiverInfo,
+		nil,
+		showCmdOptionPort,
+		sdc.UnimplementedOption(showCmdOptionNamespace),
+	)
 }

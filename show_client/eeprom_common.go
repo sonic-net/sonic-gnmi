@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/facette/natsort"
 	log "github.com/golang/glog"
-	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -128,9 +128,6 @@ func mergeMaps(a, b map[string]string) map[string]string {
 	return result
 }
 
-var CmisDataMap = mergeMaps(QsfPDataMap, QsfpCmisDeltaDataMap)
-var CCmisDataMap = mergeMaps(CmisDataMap, CCmisDeltaDataMap)
-
 func getTransceiverDataMap(sfpInfoDict map[string]interface{}) map[string]string {
 	if sfpInfoDict == nil {
 		return QsfPDataMap
@@ -155,14 +152,21 @@ func covertApplicationAdvertisementToOutputString(indent string, sfpInfoDict map
 	appAdvStr, ok := sfpInfoDict[key].(string)
 	if !ok || appAdvStr == "" {
 		output += "N/A\n"
+		return output
 	}
+
+	appAdvStr = strings.ReplaceAll(appAdvStr, "'", "\"")
+	re := regexp.MustCompile(`(\{|,)\s*(\d+)\s*:`)
+	appAdvStr = re.ReplaceAllString(appAdvStr, `$1 "$2":`)
 
 	var appAdvDict map[string]interface{}
 	if err := json.Unmarshal([]byte(appAdvStr), &appAdvDict); err != nil {
 		output += fmt.Sprintf("%s\n", appAdvStr)
+		return output
 	}
 	if len(appAdvDict) == 0 {
 		output += "N/A\n"
+		return output
 	}
 
 	lines := []string{}
@@ -202,11 +206,23 @@ func covertApplicationAdvertisementToOutputString(indent string, sfpInfoDict map
 	return output
 }
 
-func getDataMapSortKey(key string, dataMap map[string]string) (int, string) {
-	if displayName, ok := dataMap[key]; ok {
-		return 0, displayName
-	}
-	return 1, key
+func getDataMapSortKey(keys []string, dataMap map[string]string) []string {
+	sort.Slice(keys, func(i, j int) bool {
+		ki, iKnown := dataMap[keys[i]]
+		kj, jKnown := dataMap[keys[j]]
+
+		if iKnown && !jKnown {
+			return true
+		}
+		if !iKnown && jKnown {
+			return false
+		}
+		if iKnown && jKnown {
+			return ki < kj
+		}
+		return keys[i] < keys[j]
+	})
+	return keys
 }
 
 func convertSfpInfoToOutputString(sfpInfoDict map[string]interface{}, sfpFirmwareInfoDict map[string]interface{}) string {
@@ -230,17 +246,9 @@ func convertSfpInfoToOutputString(sfpInfoDict map[string]interface{}, sfpFirmwar
 		keys = append(keys, k)
 	}
 
-	sort.Slice(keys, func(i, j int) bool {
-		pi, ki := getDataMapSortKey(keys[i], dataMap)
-		pj, kj := getDataMapSortKey(keys[j], dataMap)
-		if pi != pj {
-			return pi < pj
-		}
-		return kj < ki
-	})
+	sortedKeys := getDataMapSortKey(keys, dataMap)
 
-	// sorted_sfp_info_keys = sorted(combined_dict.keys(), key=get_data_map_sort_key(combined_dict, data_map))
-	for _, key := range keys {
+	for _, key := range sortedKeys {
 		switch key {
 		case "cable_type":
 			output += fmt.Sprintf("%s%s: %s\n", indent, sfpInfoDict["cable_type"], sfpInfoDict["cable_length"])
@@ -248,9 +256,9 @@ func convertSfpInfoToOutputString(sfpInfoDict map[string]interface{}, sfpFirmwar
 		case "specification_compliance":
 			if !isSfpCmis {
 				if sfpInfoDict["type"] == "QSFP-DD Double Density 8X Pluggable Transceiver" {
-					output += fmt.Sprintf("%s%s: %v\n", indent, "Specification compliance", sfpInfoDict[key])
+					output += fmt.Sprintf("%s%s: %v\n", indent, QsfPDataMap[key], sfpInfoDict[key])
 				} else {
-					output += fmt.Sprintf("%s%s:\n", indent, "Specification compliance")
+					output += fmt.Sprintf("%s%s:\n", indent, QsfPDataMap[key])
 
 					specComplianceDict := make(map[string]interface{})
 					specStr, ok := sfpInfoDict["specification_compliance"]
@@ -270,6 +278,18 @@ func convertSfpInfoToOutputString(sfpInfoDict map[string]interface{}, sfpFirmwar
 						}
 					}
 				}
+			} else {
+				if v, ok := dataMap[key]; ok && v != "" {
+					value := "N/A"
+					if v, ok := sfpInfoDict[key]; ok {
+						value = fmt.Sprintf("%v", v)
+					} else if len(sfpFirmwareInfoDict) != 0 {
+						if v, ok := sfpFirmwareInfoDict[key]; ok {
+							value = fmt.Sprintf("%v", v)
+						}
+					}
+					output += fmt.Sprintf("%s%s: %v\n", indent, QsfPDataMap[key], value)
+				}
 			}
 		case "application_advertisement":
 			output += covertApplicationAdvertisementToOutputString(indent, sfpInfoDict)
@@ -286,19 +306,20 @@ func convertSfpInfoToOutputString(sfpInfoDict map[string]interface{}, sfpFirmwar
 				}
 			} else {
 				displayName := key
-				if v, ok := dataMap[key]; ok {
-					displayName = v
-				}
 
-				value := "N/A"
-				if v, ok := sfpInfoDict[key]; ok {
-					value = fmt.Sprintf("%v", v)
-				} else if len(sfpFirmwareInfoDict) != 0 {
-					if v, ok := sfpFirmwareInfoDict[key]; ok {
+				if v, ok := dataMap[key]; ok && v != "" {
+					displayName = v
+
+					value := "N/A"
+					if v, ok := sfpInfoDict[key]; ok {
 						value = fmt.Sprintf("%v", v)
+					} else if len(sfpFirmwareInfoDict) != 0 {
+						if v, ok := sfpFirmwareInfoDict[key]; ok {
+							value = fmt.Sprintf("%v", v)
+						}
 					}
+					output += fmt.Sprintf("%s%s: %v\n", indent, displayName, value)
 				}
-				output += fmt.Sprintf("%s%s: %v\n", indent, displayName, value)
 			}
 		}
 	}
@@ -452,7 +473,7 @@ func convertInterfaceSfpInfoToCliOutputString(iface string, dumpDom bool) string
 	sfpInfoDict, _ := GetMapFromQueries(queries)
 
 	queries = [][]string{
-		{"STATE_DB", "TRANSCEIVER_FIRMWARE_INFO", firstPort},
+		{"STATE_DB", "TRANSCEIVER_FIRMWARE_INFO", iface},
 	}
 	sfpFirmwareInfoDict, _ := GetMapFromQueries(queries)
 
@@ -500,64 +521,4 @@ func convertInterfaceSfpInfoToCliOutputString(iface string, dumpDom bool) string
 		}
 	}
 	return output
-}
-
-func getEEPROM(options sdc.OptionMap) (map[string]string, error) {
-	var intf string
-	if v, ok := options["port"].String(); ok {
-		intf = v
-	}
-
-	var dumpDom bool
-	if v, ok := options["dom"].Bool(); ok {
-		dumpDom = v
-	}
-
-	var queries [][]string
-	if intf == "" {
-		queries = [][]string{
-			{"APPL_DB", "PORT_TABLE"},
-		}
-	} else {
-		queries = [][]string{
-			{"APPL_DB", "PORT_TABLE", intf},
-		}
-	}
-
-	portTable, err := GetMapFromQueries(queries)
-	if err != nil {
-		log.Errorf("Unable to pull data for queries %v, got err %v", queries, err)
-		return nil, err
-	}
-
-	intfEEPROM := make(map[string]string)
-	for iface := range portTable {
-		ok, err := isValidPhysicalPort(iface)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			intfEEPROM[iface] = convertInterfaceSfpInfoToCliOutputString(iface, dumpDom)
-		}
-	}
-	return intfEEPROM, nil
-}
-
-func getTransceiverEEPROM(options sdc.OptionMap) ([]byte, error) {
-	intfEEPROM, _ := getEEPROM(options)
-	keys := make([]string, 0, len(intfEEPROM))
-	for key := range intfEEPROM {
-		keys = append(keys, key)
-	}
-	natsort.Sort(keys)
-
-	for _, k := range keys {
-		fmt.Printf("%s: %s\n", k, intfEEPROM[k])
-	}
-
-	data, err := json.Marshal(intfEEPROM)
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
 }

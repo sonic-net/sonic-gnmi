@@ -13,5 +13,15 @@
         "cmis_state": "READY",
         "error": "N/A",
         "status": "1"
+    },
+    "TRANSCEIVER_STATUS_SW|Ethernet120": {
+        "cmis_state": "READY",
+        "error": "N/A",
+        "status": "1"
+    },
+    "TRANSCEIVER_STATUS_SW|Ethernet160": {
+        "cmis_state": "READY",
+        "error": "N/A",
+        "status": "1"
     }
 }
