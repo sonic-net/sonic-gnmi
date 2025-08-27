@@ -34,34 +34,28 @@ md5sum sonic-vs.bin  # Note the MD5 for later use
 
 ### 3. Setup Local HTTP Server
 
-Start an nginx server to serve the SONiC image:
+Use a simple container to serve the SONiC image:
 
 ```bash
-# Install nginx if not present
-sudo apt install nginx -y
+# Run HTTP server container serving the sonic-images directory
+docker run -d --name sonic-firmware-server \
+  -p 8081:80 \
+  -v ~/sonic-images:/usr/share/nginx/html:ro \
+  nginx:alpine
 
-# Create server config
-sudo tee /etc/nginx/sites-available/sonic-firmware > /dev/null << 'EOF'
-server {
-    listen 8081;
-    server_name _;
-    root /home/$USER/sonic-images;
-    autoindex on;
-    location / {
-        try_files $uri $uri/ =404;
-    }
-}
-EOF
-
-# Enable the site
-sudo ln -sf /etc/nginx/sites-available/sonic-firmware /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
+# Verify container is running
+docker ps | grep sonic-firmware-server
 ```
 
 Verify the server:
 ```bash
 curl -I http://localhost:8081/sonic-vs.bin
+```
+
+To stop the server when done:
+```bash
+docker stop sonic-firmware-server
+docker rm sonic-firmware-server
 ```
 
 ### 4. Prepare KVM Environment
