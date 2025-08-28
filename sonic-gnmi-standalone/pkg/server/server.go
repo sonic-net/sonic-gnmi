@@ -117,6 +117,7 @@ func NewInsecureServer(addr string) (*Server, error) {
 	}
 
 	// Create insecure gRPC server
+	// nosemgrep: go.grpc.security.grpc-server-insecure-connection.grpc-server-insecure-connection
 	grpcServer := grpc.NewServer()
 	reflection.Register(grpcServer)
 
