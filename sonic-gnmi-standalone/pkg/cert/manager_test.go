@@ -1,19 +1,24 @@
-package loopback
+package cert
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"net"
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/cert"
-	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server"
 )
 
 // TestCertificateManagementFileBased tests file-based certificate mode.
@@ -25,7 +30,7 @@ func TestCertificateManagementFileBased(t *testing.T) {
 	serverCert, serverKey, clientCert, clientKey, caCert := generateMTLSCertificates(t, tempDir)
 
 	// Test certificate manager directly
-	certConfig := cert.NewDefaultConfig()
+	certConfig := NewDefaultConfig()
 	certConfig.CertFile = serverCert
 	certConfig.KeyFile = serverKey
 	certConfig.CAFile = caCert
@@ -33,7 +38,7 @@ func TestCertificateManagementFileBased(t *testing.T) {
 	certConfig.EnableMonitoring = false // Disable for testing
 
 	// Create certificate manager
-	certMgr := cert.NewCertificateManager(certConfig)
+	certMgr := NewCertificateManager(certConfig)
 
 	// Load certificates
 	err := certMgr.LoadCertificates()
@@ -92,13 +97,13 @@ func TestCertificateManagementSONiCConfigDB(t *testing.T) {
 	require.NoError(t, err, "Failed to populate GNMI|gnmi")
 
 	// Create SONiC ConfigDB certificate configuration
-	certConfig := cert.CreateSONiCCertConfig()
+	certConfig := CreateSONiCCertConfig()
 	certConfig.RedisAddr = mr.Addr()
 	certConfig.RedisDB = 4
 	certConfig.EnableMonitoring = false // Disable for testing
 
 	// Create certificate manager
-	certMgr := cert.NewCertificateManager(certConfig)
+	certMgr := NewCertificateManager(certConfig)
 
 	// Load certificates from ConfigDB
 	err = certMgr.LoadCertificates()
@@ -142,13 +147,13 @@ func TestCertificateManagementSONiCConfigDBFallback(t *testing.T) {
 	require.NoError(t, err, "Failed to populate DEVICE_METADATA|x509")
 
 	// Create SONiC ConfigDB certificate configuration
-	certConfig := cert.CreateSONiCCertConfig()
+	certConfig := CreateSONiCCertConfig()
 	certConfig.RedisAddr = mr.Addr()
 	certConfig.RedisDB = 4
 	certConfig.EnableMonitoring = false // Disable for testing
 
 	// Create certificate manager
-	certMgr := cert.NewCertificateManager(certConfig)
+	certMgr := NewCertificateManager(certConfig)
 
 	// Load certificates from ConfigDB (should fallback to DEVICE_METADATA)
 	err = certMgr.LoadCertificates()
@@ -200,7 +205,7 @@ func TestCertificateClientAuthModes(t *testing.T) {
 			serverCert, serverKey, _, _, caCert := generateMTLSCertificates(t, tempDir)
 
 			// Create certificate configuration
-			certConfig := cert.NewDefaultConfig()
+			certConfig := NewDefaultConfig()
 			certConfig.CertFile = serverCert
 			certConfig.KeyFile = serverKey
 			certConfig.CAFile = caCert
@@ -209,7 +214,7 @@ func TestCertificateClientAuthModes(t *testing.T) {
 			certConfig.EnableMonitoring = false
 
 			// Create certificate manager
-			certMgr := cert.NewCertificateManager(certConfig)
+			certMgr := NewCertificateManager(certConfig)
 
 			// Load certificates
 			err := certMgr.LoadCertificates()
@@ -228,7 +233,7 @@ func TestCertificateClientAuthModes(t *testing.T) {
 
 // testCertManagerWithServer tests a certificate manager integrated with a server using builder pattern.
 func testCertManagerWithServer(
-	t *testing.T, tempDir string, certMgr cert.CertificateManager, clientCert, clientKey, caCert string,
+	t *testing.T, tempDir string, certMgr CertificateManager, clientCert, clientKey, caCert string,
 ) {
 	// For this test, we'll verify certificate manager functionality
 	// A full server integration test using builder pattern would require more setup
@@ -277,68 +282,114 @@ func testCertMgrMTLSConnection(t *testing.T, clientCert, clientKey, caCert strin
 	t.Logf("Certificate manager integration test completed successfully")
 }
 
-// TestServerBuilderWithCertificateFiles tests the server builder with file-based certificates.
-func TestServerBuilderWithCertificateFiles(t *testing.T) {
-	// Create temp directory for certificates
-	tempDir := t.TempDir()
+// generateMTLSCertificates creates CA, server, and client certificates for mTLS testing.
+func generateMTLSCertificates(t *testing.T, certDir string) (
+	serverCert, serverKey, clientCert, clientKey, caCert string,
+) {
+	// Generate CA private key
+	caPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
 
-	// Generate test certificates
-	serverCert, serverKey, _, _, caCert := generateMTLSCertificates(t, tempDir)
+	// Create CA certificate template
+	caTemplate := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization:  []string{"Test CA"},
+			Country:       []string{"US"},
+			Province:      []string{""},
+			Locality:      []string{"San Francisco"},
+			StreetAddress: []string{""},
+			PostalCode:    []string{""},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
 
-	// Test server builder with certificate files
-	srv, err := server.NewServerBuilder().
-		WithAddress("127.0.0.1:0").
-		WithRootFS(tempDir).
-		WithCertificateFiles(serverCert, serverKey, caCert).
-		Build()
-	require.NoError(t, err, "Failed to build server with certificate files")
+	// Create CA certificate
+	caCertBytes, err := x509.CreateCertificate(
+		rand.Reader, &caTemplate, &caTemplate, &caPrivateKey.PublicKey, caPrivateKey,
+	)
+	require.NoError(t, err)
 
-	// Verify server was created successfully
-	assert.NotNil(t, srv, "Server should be created")
-	assert.NotNil(t, srv.GRPCServer(), "gRPC server should be available")
+	// Write CA certificate file
+	caCert = filepath.Join(certDir, "ca.crt")
+	caCertOut, err := os.Create(caCert)
+	require.NoError(t, err)
+	defer caCertOut.Close()
 
-	t.Logf("Server builder with certificate files completed successfully")
+	err = pem.Encode(caCertOut, &pem.Block{Type: "CERTIFICATE", Bytes: caCertBytes})
+	require.NoError(t, err)
+
+	// Parse CA certificate for signing
+	caCertificate, err := x509.ParseCertificate(caCertBytes)
+	require.NoError(t, err)
+
+	// Generate server certificate
+	serverCert, serverKey = generateSignedCertificate(t, certDir, "server", caCertificate, caPrivateKey, true)
+
+	// Generate client certificate
+	clientCert, clientKey = generateSignedCertificate(t, certDir, "client", caCertificate, caPrivateKey, false)
+
+	return serverCert, serverKey, clientCert, clientKey, caCert
 }
 
-// TestServerBuilderWithSONiCCertificates tests the server builder with SONiC ConfigDB.
-func TestServerBuilderWithSONiCCertificates(t *testing.T) {
-	// Start miniredis for testing
-	mr := miniredis.RunT(t)
-	defer mr.Close()
+// generateSignedCertificate generates a certificate signed by the provided CA.
+func generateSignedCertificate(
+	t *testing.T, certDir, name string, caCert *x509.Certificate, caPrivateKey *rsa.PrivateKey, isServer bool,
+) (certFile, keyFile string) {
+	// Generate private key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
 
-	// Create temp directory for certificates
-	tempDir := t.TempDir()
+	// Create certificate template
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject: pkix.Name{
+			Organization:  []string{"Test Corp"},
+			Country:       []string{"US"},
+			Province:      []string{""},
+			Locality:      []string{"San Francisco"},
+			StreetAddress: []string{""},
+			PostalCode:    []string{""},
+		},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(365 * 24 * time.Hour),
+		SubjectKeyId: []byte{1, 2, 3, 4, 6},
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
 
-	// Generate test certificates
-	serverCert, serverKey, _, _, caCert := generateMTLSCertificates(t, tempDir)
+	if isServer {
+		template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
+		template.DNSNames = []string{"localhost"}
+		template.IPAddresses = []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback}
+	}
 
-	// Populate ConfigDB
-	ctx := context.Background()
-	client := redis.NewClient(&redis.Options{
-		Addr: mr.Addr(),
-		DB:   4,
-	})
-	defer client.Close()
+	// Create certificate
+	certBytes, err := x509.CreateCertificate(rand.Reader, &template, caCert, &privateKey.PublicKey, caPrivateKey)
+	require.NoError(t, err)
 
-	err := client.HSet(ctx, "GNMI|certs",
-		"server_crt", serverCert,
-		"server_key", serverKey,
-		"ca_crt", caCert,
-	).Err()
-	require.NoError(t, err, "Failed to populate ConfigDB")
+	// Write certificate file
+	certFile = filepath.Join(certDir, name+".crt")
+	certOut, err := os.Create(certFile)
+	require.NoError(t, err)
+	defer certOut.Close()
 
-	// Test server builder with SONiC certificates
-	srv, err := server.NewServerBuilder().
-		WithAddress("127.0.0.1:0").
-		WithRootFS(tempDir).
-		WithSONiCCertificates(mr.Addr(), 4).
-		WithClientCertPolicy(true, false). // Require client certs
-		Build()
-	require.NoError(t, err, "Failed to build server with SONiC certificates")
+	err = pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: certBytes})
+	require.NoError(t, err)
 
-	// Verify server was created successfully
-	assert.NotNil(t, srv, "Server should be created")
-	assert.NotNil(t, srv.GRPCServer(), "gRPC server should be available")
+	// Write private key file
+	keyFile = filepath.Join(certDir, name+".key")
+	keyOut, err := os.Create(keyFile)
+	require.NoError(t, err)
+	defer keyOut.Close()
 
-	t.Logf("Server builder with SONiC certificates completed successfully")
+	err = pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
+	require.NoError(t, err)
+
+	return certFile, keyFile
 }
