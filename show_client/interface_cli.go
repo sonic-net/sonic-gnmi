@@ -269,9 +269,7 @@ func getInterfaceErrors(options sdc.OptionMap) ([]byte, error) {
 	portErrorsTbl = RemapAliasToPortName(portErrorsTbl)
 
 	// Format the port errors data
-	portErrors := make([][]string, 0, len(allPortErrors)+1)
-	// Append the table header
-	portErrors = append(portErrors, []string{"Port Errors", "Count", "Last timestamp(UTC)"})
+	portErrors := make([]map[string]string, 0, len(allPortErrors)+1)
 	// Iterate through all port errors types and create the result
 	for _, portError := range allPortErrors {
 		count := "0"
@@ -285,10 +283,10 @@ func getInterfaceErrors(options sdc.OptionMap) ([]byte, error) {
 			}
 		}
 
-		portErrors = append(portErrors, []string{
-			strings.Replace(strings.Replace(portError[0], "_", " ", -1), " count", "", -1),
-			count,
-			timestamp},
+		portErrors = append(portErrors, map[string]string{
+			"Port Errors":         strings.Replace(strings.Replace(portError[0], "_", " ", -1), " count", "", -1),
+			"Count":               count,
+			"Last timestamp(UTC)": timestamp},
 		)
 	}
 
@@ -333,7 +331,7 @@ func getInterfaceFecStatus(options sdc.OptionMap) ([]byte, error) {
 	}
 	ports = natsortInterfaces(ports)
 
-	portFecStatus := make([][]string, 0, len(ports)+1)
+	portFecStatus := make([]map[string]string, 0, len(ports)+1)
 	for i := range ports {
 		port := ports[i]
 		adminFecStatus := ""
@@ -379,7 +377,7 @@ func getInterfaceFecStatus(options sdc.OptionMap) ([]byte, error) {
 			// If port is down or oper FEC status is not available, set it to "N/A"
 			operFecStatus = "N/A"
 		}
-		portFecStatus = append(portFecStatus, []string{port, operFecStatus, adminFecStatus})
+		portFecStatus = append(portFecStatus, map[string]string{"Interface": port, "FEC Oper": operFecStatus, "FEC Admin": adminFecStatus})
 	}
 
 	return json.Marshal(portFecStatus)

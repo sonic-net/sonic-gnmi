@@ -19,7 +19,6 @@ const StateDBPortTable = "PORT_TABLE"
 // Database names
 const StateDB = "STATE_DB"
 const ConfigDB = "CONFIG_DB"
-const ChassisStateDB = "CHASSIS_STATE_DB"
 
 const (
 	dbIndex    = 0 // The first index for a query will be the DB
