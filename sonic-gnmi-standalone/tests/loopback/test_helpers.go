@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/client/config"
+	clientGnmi "github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/client/gnmi"
 	clientGnoi "github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/client/gnoi"
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server"
 	serverConfig "github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server/config"
@@ -85,6 +86,8 @@ func SetupTestServer(t *testing.T, tempDir string, cfg *TestServerConfig) *TestS
 		switch service {
 		case "gnoi.system":
 			builder = builder.EnableGNOISystem()
+		case "gnmi":
+			builder = builder.EnableGNMI()
 		}
 	}
 
@@ -173,6 +176,17 @@ func SetupHTTPTestServer(content []byte) *httptest.Server {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Write(content)
 	}))
+}
+
+// SetupGNMIClient creates a gNMI client for testing.
+func SetupGNMIClient(t *testing.T, addr string, timeout time.Duration) *clientGnmi.Client {
+	client, err := clientGnmi.NewClient(&clientGnmi.ClientConfig{
+		Target:  addr,
+		Timeout: timeout,
+	})
+	require.NoError(t, err, "Failed to create gNMI client")
+
+	return client
 }
 
 // WithTestTimeout creates a context with timeout for testing.
