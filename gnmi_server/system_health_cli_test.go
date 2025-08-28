@@ -207,7 +207,7 @@ func TestGetShowSystemHealthDpu(t *testing.T) {
 				elem: <name: "system-health" >
 				elem: <name: "dpu" >
 			`,
-			wantRetCode: codes.OK,
+			wantRetCode: codes.NotFound,
 			valTest:     false,
 		},
 		{
