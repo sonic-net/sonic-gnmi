@@ -45,6 +45,7 @@ import (
 	"syscall"
 
 	"github.com/golang/glog"
+	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/cert"
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server"
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server/config"
 )
@@ -60,37 +61,36 @@ func main() {
 	glog.Infof("Starting sonic-gnmi-standalone: addr=%s, rootfs=%s, tls=%t, mtls=%t",
 		config.Global.Addr, config.Global.RootFS, config.Global.TLSEnabled, config.Global.MTLSEnabled)
 
-	// Create a new server instance using the builder pattern
-	builder := server.NewServerBuilder().
-		WithAddress(config.Global.Addr).
-		WithRootFS(config.Global.RootFS).
-		EnableGNOISystem()
+	// Create appropriate server based on configuration
+	var srv *server.Server
+	var err error
 
-	// Configure TLS based on command-line flags
-	if !config.Global.TLSEnabled {
-		glog.V(1).Info("TLS disabled via command-line flag")
-		builder = builder.WithoutTLS()
-	} else if config.Global.MTLSEnabled {
-		glog.V(1).Infof("mTLS enabled with cert=%s, key=%s, ca=%s",
-			config.Global.TLSCertFile, config.Global.TLSKeyFile, config.Global.TLSCACertFile)
-		builder = builder.WithMTLS(
-			config.Global.TLSCertFile,
-			config.Global.TLSKeyFile,
-			config.Global.TLSCACertFile,
+	// Check for advanced certificate management options
+	if config.Global.ShareWithContainer != "" {
+		// Container sharing mode
+		certConfig := cert.CreateContainerCertConfig(
+			config.Global.ShareWithContainer,
+			config.Global.CertMountPath,
 		)
+		certConfig.EnableMonitoring = config.Global.EnableCertMonitoring
+		certMgr := cert.NewCertificateManager(certConfig)
+		srv, err = server.NewServerWithCertManager(config.Global.Addr, certMgr)
+	} else if config.Global.UseSONiCConfig {
+		// SONiC ConfigDB mode
+		certConfig := cert.CreateSONiCCertConfig()
+		certConfig.EnableMonitoring = config.Global.EnableCertMonitoring
+		certMgr := cert.NewCertificateManager(certConfig)
+		srv, err = server.NewServerWithCertManager(config.Global.Addr, certMgr)
 	} else {
-		glog.V(1).Infof("TLS enabled with cert=%s, key=%s",
-			config.Global.TLSCertFile, config.Global.TLSKeyFile)
-		builder = builder.WithTLS(
-			config.Global.TLSCertFile,
-			config.Global.TLSKeyFile,
-		)
+		// Use existing server creation logic with enhanced certificate management
+		srv, err = server.NewServer(config.Global.Addr)
 	}
 
-	srv, err := builder.Build()
 	if err != nil {
 		glog.Fatalf("Failed to create server: %v", err)
 	}
+
+	// Enable gNOI System service when service registration is implemented
 
 	// Set up signal handling for graceful shutdown
 	signalChan := make(chan os.Signal, 1)

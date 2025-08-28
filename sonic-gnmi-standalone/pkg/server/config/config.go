@@ -15,6 +15,13 @@ type Config struct {
 	TLSCACertFile   string
 	TLSEnabled      bool
 	MTLSEnabled     bool
+
+	// Certificate management options
+	AllowNoClientCert    bool   // Allow connections without client certificates
+	ShareWithContainer   string // Share certificates with named container (e.g., "gnmi")
+	CertMountPath        string // Path for shared certificate volumes
+	UseSONiCConfig       bool   // Load certificate config from SONiC ConfigDB
+	EnableCertMonitoring bool   // Enable certificate file monitoring
 }
 
 var Global *Config
@@ -29,6 +36,13 @@ func Initialize() {
 	tlsCACert := flag.String("tls-ca-cert", "", "Path to TLS CA certificate file for client verification (optional)")
 	noTLS := flag.Bool("no-tls", false, "Disable TLS (TLS is enabled by default)")
 	enableMTLS := flag.Bool("mtls", false, "Enable mutual TLS (requires CA certificate)")
+
+	// Certificate management flags
+	allowNoClientCert := flag.Bool("allow-no-client-auth", false, "Allow connections without client certificates")
+	shareWithContainer := flag.String("share-certs", "", "Share certificates with named container (e.g., 'gnmi')")
+	certMountPath := flag.String("cert-mount-path", "/etc/sonic/certs", "Path for shared certificate volumes")
+	useSONiCConfig := flag.Bool("sonic-config", false, "Load certificate configuration from SONiC ConfigDB")
+	enableCertMonitoring := flag.Bool("cert-monitoring", true, "Enable certificate file monitoring for automatic reload")
 
 	flag.Parse()
 
@@ -62,5 +76,12 @@ func Initialize() {
 		TLSCACertFile:   caCertFile,
 		TLSEnabled:      tlsEnabled,
 		MTLSEnabled:     mtlsEnabled,
+
+		// Certificate management settings
+		AllowNoClientCert:    *allowNoClientCert,
+		ShareWithContainer:   *shareWithContainer,
+		CertMountPath:        *certMountPath,
+		UseSONiCConfig:       *useSONiCConfig,
+		EnableCertMonitoring: *enableCertMonitoring,
 	}
 }
