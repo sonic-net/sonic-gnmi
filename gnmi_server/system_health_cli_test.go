@@ -42,16 +42,16 @@ var DefaultDpuStateFixtures = []DpuStateFixture{
 		Reason:      "",
 	},
 	{
-		Name:        "",
-		OperStatus:  "",
+		Name:        "DPU0",
+		OperStatus:  "Online",
 		StateDetail: "dpu_control_plane_state",
 		StateValue:  "UP",
 		Time:        "Mon Aug 25 08:59:57 AM UTC 2025",
 		Reason:      "",
 	},
 	{
-		Name:        "",
-		OperStatus:  "",
+		Name:        "DPU0",
+		OperStatus:  "Online",
 		StateDetail: "dpu_data_plane_state",
 		StateValue:  "UP",
 		Time:        "Sat Aug 23 02:02:53 AM UTC 2025",
@@ -67,16 +67,66 @@ var DefaultDpuStateFixtures = []DpuStateFixture{
 		Reason:      "",
 	},
 	{
-		Name:        "",
-		OperStatus:  "",
+		Name:        "DPU1",
+		OperStatus:  "Partial Online",
 		StateDetail: "dpu_control_plane_state",
 		StateValue:  "DOWN",
 		Time:        "Mon Aug 25 09:00:03 AM UTC 2025",
 		Reason:      "Container not running : snmp, radv, teamd, syncd, bgp, swss, host-ethlink-status: host_eth_link is down",
 	},
 	{
-		Name:        "",
-		OperStatus:  "",
+		Name:        "DPU1",
+		OperStatus:  "Partial Online",
+		StateDetail: "dpu_data_plane_state",
+		StateValue:  "UP",
+		Time:        "Sat Aug 23 02:02:53 AM UTC 2025",
+		Reason:      "",
+	},
+	// DPU2 - Partial Online (control plane DOWN)
+	{
+		Name:        "DPU2",
+		OperStatus:  "Partial Online",
+		StateDetail: "dpu_midplane_link_state",
+		StateValue:  "UP",
+		Time:        "Sat Aug 23 02:02:47 AM UTC 2025",
+		Reason:      "",
+	},
+	{
+		Name:        "DPU2",
+		OperStatus:  "Partial Online",
+		StateDetail: "dpu_control_plane_state",
+		StateValue:  "DOWN",
+		Time:        "Mon Aug 25 08:59:32 AM UTC 2025",
+		Reason:      "Container not running : snmp, radv, syncd, teamd, bgp, swss, host-ethlink-status: host_eth_link is down",
+	},
+	{
+		Name:        "DPU2",
+		OperStatus:  "Partial Online",
+		StateDetail: "dpu_data_plane_state",
+		StateValue:  "UP",
+		Time:        "Sat Aug 23 02:02:53 AM UTC 2025",
+		Reason:      "",
+	},
+	// DPU3 - Partial Online (control plane DOWN)
+	{
+		Name:        "DPU3",
+		OperStatus:  "Partial Online",
+		StateDetail: "dpu_midplane_link_state",
+		StateValue:  "UP",
+		Time:        "Sat Aug 23 02:02:47 AM UTC 2025",
+		Reason:      "",
+	},
+	{
+		Name:        "DPU3",
+		OperStatus:  "Partial Online",
+		StateDetail: "dpu_control_plane_state",
+		StateValue:  "DOWN",
+		Time:        "Mon Aug 25 09:00:17 AM UTC 2025",
+		Reason:      "Container not running : snmp, radv, syncd, teamd, bgp, swss, host-ethlink-status: host_eth_link is down",
+	},
+	{
+		Name:        "DPU3",
+		OperStatus:  "Partial Online",
 		StateDetail: "dpu_data_plane_state",
 		StateValue:  "UP",
 		Time:        "Sat Aug 23 02:02:53 AM UTC 2025",
@@ -97,6 +147,25 @@ func FixturesToDpuStateRows(fixtures []DpuStateFixture) []show_client.DpuStateRo
 			Reason:      f.Reason,
 		}
 		rows = append(rows, row)
+	}
+	return rows
+}
+
+// FixturesToSingleDpuRows filters fixtures for a specific DPU name and returns DpuStateRow slice
+func FixturesToSingleDpuRows(fixtures []DpuStateFixture, dpuName string) []show_client.DpuStateRow {
+	var rows []show_client.DpuStateRow
+	for _, f := range fixtures {
+		if f.Name == dpuName {
+			row := show_client.DpuStateRow{
+				Name:        f.Name,
+				OperStatus:  f.OperStatus,
+				StateDetail: f.StateDetail,
+				StateValue:  f.StateValue,
+				Time:        f.Time,
+				Reason:      f.Reason,
+			}
+			rows = append(rows, row)
+		}
 	}
 	return rows
 }
@@ -168,25 +237,8 @@ func TestGetShowSystemHealthDpu(t *testing.T) {
 			`,
 			wantRetCode: codes.OK,
 			wantRespVal: func() []byte {
-				// Filter to DPU0 rows only
-				var dpu0Rows []show_client.DpuStateRow
-				for _, f := range DefaultDpuStateFixtures {
-					if f.Name == "DPU0" || (f.Name == "" && len(dpu0Rows) > 0) {
-						row := show_client.DpuStateRow{
-							Name:        f.Name,
-							OperStatus:  f.OperStatus,
-							StateDetail: f.StateDetail,
-							StateValue:  f.StateValue,
-							Time:        f.Time,
-							Reason:      f.Reason,
-						}
-						dpu0Rows = append(dpu0Rows, row)
-						if len(dpu0Rows) >= 3 { // DPU0 has 3 rows
-							break
-						}
-					}
-				}
-				jsonData, _ := json.Marshal(dpu0Rows)
+				expected := FixturesToSingleDpuRows(DefaultDpuStateFixtures, "DPU0")
+				jsonData, _ := json.Marshal(expected)
 				return jsonData
 			}(),
 			valTest: true,
@@ -202,11 +254,8 @@ func TestGetShowSystemHealthDpu(t *testing.T) {
 				elem: <name: "system-health" >
 				elem: <name: "dpu" key: <key: "dpu" value: "DPU99" > >
 			`,
-			wantRetCode: codes.OK, // Returns empty result, not error
-			wantRespVal: func() []byte {
-				return []byte("[]")
-			}(),
-			valTest: true,
+			wantRetCode: codes.NotFound, // Should return NotFound error
+			valTest:     false,          // No value test needed for error case
 			testInit: func() {
 				AddDataSet(t, ChassisStateDbNum, "../testdata/DPU_STATE.txt")
 			},

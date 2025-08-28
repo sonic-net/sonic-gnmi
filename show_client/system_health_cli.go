@@ -3,11 +3,14 @@ package show_client
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	log "github.com/golang/glog"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	swsscommon "github.com/sonic-net/sonic-gnmi/swsscommon"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -141,6 +144,17 @@ func getSystemHealthDpu(options sdc.OptionMap) ([]byte, error) {
 		// Create rows for this module
 		rows := createDpuStateRowsFromData(moduleName, stateInfoMap)
 		allRows = append(allRows, rows...)
+	}
+
+	// Sort results by DPU name for consistent ordering
+	sort.Slice(allRows, func(i, j int) bool {
+		return allRows[i].Name < allRows[j].Name
+	})
+
+	// If no rows found, return not found error
+	if len(allRows) == 0 {
+		log.V(2).Infof("getSystemHealthDpu: module %s not found", moduleName)
+		return nil, status.Errorf(codes.NotFound, "module %s not found", moduleName)
 	}
 
 	// Convert to JSON
