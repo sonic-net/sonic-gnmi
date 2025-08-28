@@ -16,8 +16,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
-
-	show_client "github.com/sonic-net/sonic-gnmi/show_client"
 )
 
 // MidplaneFixture represents a test module midplane with its properties
@@ -195,62 +193,4 @@ func TestGetShowChassisModulesMidplaneStatus(t *testing.T) {
 			runTestGet(t, ctx, gClient, test.pathTarget, test.textPbPath, test.wantRetCode, test.wantRespVal, test.valTest)
 		})
 	}
-}
-
-func TestChassisModuleMidplaneHelperFunctions(t *testing.T) {
-	// Test helper functions directly for better coverage
-
-	// Test CreateChassisModuleMidplaneQueries
-	t.Run("CreateChassisModuleMidplaneQueries - all modules", func(t *testing.T) {
-		queries := show_client.CreateChassisModuleMidplaneQueries("")
-		if len(queries.State) != 1 {
-			t.Error("Expected one query for state")
-		}
-		if queries.State[0][1] != "CHASSIS_MIDPLANE_TABLE" {
-			t.Error("Expected CHASSIS_MIDPLANE_TABLE in state query")
-		}
-	})
-
-	t.Run("CreateChassisModuleMidplaneQueries - specific module", func(t *testing.T) {
-		queries := show_client.CreateChassisModuleMidplaneQueries("DPU1")
-		if len(queries.State[0]) != 3 || queries.State[0][2] != "DPU1" {
-			t.Error("Expected module name in state query")
-		}
-	})
-
-	// Test CreateModuleMidplaneStatusFromFlatData
-	t.Run("CreateModuleMidplaneStatusFromFlatData", func(t *testing.T) {
-		stateData := map[string]interface{}{
-			"ip_address": "192.168.1.10",
-			"access":     "True",
-		}
-
-		module := show_client.CreateModuleMidplaneStatusFromFlatData("DPU1", stateData)
-
-		if module.Name != "DPU1" {
-			t.Errorf("Expected name DPU1, got %s", module.Name)
-		}
-		if module.IPAddress != "192.168.1.10" {
-			t.Errorf("Expected ip_address '192.168.1.10', got %s", module.IPAddress)
-		}
-		if module.Reachability != "True" {
-			t.Errorf("Expected reachability 'True', got %s", module.Reachability)
-		}
-	})
-
-	t.Run("CreateModuleMidplaneStatusFromFlatData - missing fields", func(t *testing.T) {
-		stateData := map[string]interface{}{}
-
-		module := show_client.CreateModuleMidplaneStatusFromFlatData("DPU1", stateData)
-
-		if module.Name != "DPU1" {
-			t.Errorf("Expected name DPU1, got %s", module.Name)
-		}
-		if module.IPAddress != "" {
-			t.Errorf("Expected empty ip_address, got %s", module.IPAddress)
-		}
-		if module.Reachability != "" {
-			t.Errorf("Expected empty reachability, got %s", module.Reachability)
-		}
-	})
 }

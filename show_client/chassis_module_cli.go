@@ -231,9 +231,9 @@ func getChassisModuleStatusByModule(moduleName string) ([]byte, error) {
 	return jsonBytes, nil
 }
 
-// Create database queries for chassis module midplane data
-func CreateChassisModuleMidplaneQueries(moduleName string) DbQueries {
-	queries := DbQueries{
+// create database queries for chassis module midplane data
+func createChassisModuleMidplaneQueries(moduleName string) dbQueries {
+	queries := dbQueries{
 		State: [][]string{{StateDB, chassisMidplaneTable}},
 	}
 
@@ -245,7 +245,7 @@ func CreateChassisModuleMidplaneQueries(moduleName string) DbQueries {
 }
 
 // Get and parse midplane data from database
-func getChassisModuleMidplaneData(queries DbQueries) (map[string]interface{}, error) {
+func getChassisModuleMidplaneData(queries dbQueries) (map[string]interface{}, error) {
 	// Get state data
 	stateDataBytes, err := GetDataFromQueries(queries.State)
 	if err != nil {
@@ -264,8 +264,8 @@ func getChassisModuleMidplaneData(queries DbQueries) (map[string]interface{}, er
 	return stateData, nil
 }
 
-// Create ChassisModuleMidplaneStatus from flat data structure
-func CreateModuleMidplaneStatusFromFlatData(moduleName string, stateData map[string]interface{}) ChassisModuleMidplaneStatus {
+// create ChassisModuleMidplaneStatus from flat data structure
+func createModuleMidplaneStatusFromFlatData(moduleName string, stateData map[string]interface{}) ChassisModuleMidplaneStatus {
 	module := ChassisModuleMidplaneStatus{
 		Name: moduleName,
 	}
@@ -296,7 +296,7 @@ func getChassisModuleMidplaneStatus(options sdc.OptionMap) ([]byte, error) {
 
 	// Get data for all modules
 	log.V(2).Infof("getChassisModuleMidplaneStatus: getting all modules")
-	queries := CreateChassisModuleMidplaneQueries("")
+	queries := createChassisModuleMidplaneQueries("")
 	stateData, err := getChassisModuleMidplaneData(queries)
 	if err != nil {
 		return nil, err
@@ -332,7 +332,7 @@ func getChassisModuleMidplaneStatusByModule(moduleName string) ([]byte, error) {
 	log.V(2).Infof("getChassisModuleMidplaneStatusByModule: processing module: %s", moduleName)
 
 	// Get data for specific module
-	queries := CreateChassisModuleMidplaneQueries(moduleName)
+	queries := createChassisModuleMidplaneQueries(moduleName)
 	stateData, err := getChassisModuleMidplaneData(queries)
 	if err != nil {
 		return nil, err
@@ -347,7 +347,7 @@ func getChassisModuleMidplaneStatusByModule(moduleName string) ([]byte, error) {
 	log.V(2).Infof("getChassisModuleMidplaneStatusByModule: processing state data with keys: %v", getMapKeys(stateData))
 
 	// Create module midplane status from flat data structure
-	module := CreateModuleMidplaneStatusFromFlatData(moduleName, stateData)
+	module := createModuleMidplaneStatusFromFlatData(moduleName, stateData)
 	log.V(2).Infof("getChassisModuleMidplaneStatusByModule: created module %s: %+v", moduleName, module)
 
 	// Create result

@@ -35,40 +35,7 @@ type DpuStateRow struct {
 	Reason      string `json:"reason"`
 }
 
-// Create database queries for DPU state data
-func CreateDpuStateQueries(moduleName string) DbQueries {
-	queries := DbQueries{
-		State: [][]string{{ChassisStateDB, dpuStateTable}},
-	}
-
-	if moduleName != "" && moduleName != "all" {
-		queries.State[0] = append(queries.State[0], moduleName)
-	}
-
-	return queries
-}
-
-// Get and parse DPU state data from database
-func getDpuStateData(queries DbQueries) (map[string]interface{}, error) {
-	// Get state data
-	stateDataBytes, err := GetDataFromQueries(queries.State)
-	if err != nil {
-		log.Errorf("Unable to get DPU state data from queries %v, got err: %v", queries.State, err)
-		return nil, fmt.Errorf("failed to get DPU state data: %w", err)
-	}
-	log.V(2).Infof("DPU state data bytes: %s", string(stateDataBytes))
-
-	// Parse state data
-	var stateData map[string]interface{}
-	if err := json.Unmarshal(stateDataBytes, &stateData); err != nil {
-		log.Errorf("Failed to unmarshal DPU state data: %v", err)
-		return nil, fmt.Errorf("failed to unmarshal DPU state data: %w", err)
-	}
-
-	return stateData, nil
-}
-
-// Determine operational status based on state values
+// determine operational status based on state values
 func determineOperStatus(stateInfo map[string]interface{}) string {
 	midplaneDown := false
 	upCount := 0
@@ -93,8 +60,8 @@ func determineOperStatus(stateInfo map[string]interface{}) string {
 	}
 }
 
-// Create DPU state rows from flat data structure
-func CreateDpuStateRowsFromData(moduleName string, stateInfo map[string]interface{}) []DpuStateRow {
+// create DPU state rows from flat data structure
+func createDpuStateRowsFromData(moduleName string, stateInfo map[string]interface{}) []DpuStateRow {
 	var rows []DpuStateRow
 	operStatus := determineOperStatus(stateInfo)
 
@@ -172,7 +139,7 @@ func getSystemHealthDpu(options sdc.OptionMap) ([]byte, error) {
 		}
 
 		// Create rows for this module
-		rows := CreateDpuStateRowsFromData(moduleName, stateInfoMap)
+		rows := createDpuStateRowsFromData(moduleName, stateInfoMap)
 		allRows = append(allRows, rows...)
 	}
 
