@@ -32,8 +32,9 @@ type CertConfig struct {
 	MonitoringTimeout  time.Duration // Timeout for certificate loading retries
 
 	// SONiC integration
-	UseSONiCConfig bool   // Load configuration from SONiC ConfigDB like telemetry
-	ConfigTable    string // ConfigDB table name (default: "GNMI_CLIENT_CERT")
+	UseSONiCConfig bool   // Load configuration from SONiC ConfigDB via Redis
+	RedisAddr      string // Redis server address (default: "localhost:6379")
+	RedisDB        int    // Redis database number for ConfigDB (default: 4)
 }
 
 // NewDefaultConfig returns a CertConfig with production-ready defaults.
@@ -75,7 +76,8 @@ func NewDefaultConfig() *CertConfig {
 		MonitoringTimeout:  30 * time.Second,
 
 		// SONiC defaults
-		ConfigTable: "GNMI_CLIENT_CERT",
+		RedisAddr: "localhost:6379",
+		RedisDB:   4, // ConfigDB is database 4 in SONiC
 	}
 }
 
@@ -130,8 +132,8 @@ func (c *CertConfig) String() string {
 			c.ShareWithContainer, c.CertMountPath, c.GetClientAuthMode())
 	}
 	if c.UseSONiCConfig {
-		return fmt.Sprintf("CertConfig{SONiC: true, Table: %s, ClientAuth: %v}",
-			c.ConfigTable, c.GetClientAuthMode())
+		return fmt.Sprintf("CertConfig{SONiC: true, Redis: %s, DB: %d, ClientAuth: %v}",
+			c.RedisAddr, c.RedisDB, c.GetClientAuthMode())
 	}
 	return fmt.Sprintf("CertConfig{Cert: %s, Key: %s, CA: %s, ClientAuth: %v}",
 		c.CertFile, c.KeyFile, c.CAFile, c.GetClientAuthMode())

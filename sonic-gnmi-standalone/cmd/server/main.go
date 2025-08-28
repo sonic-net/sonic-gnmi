@@ -78,6 +78,8 @@ func main() {
 	} else if config.Global.UseSONiCConfig {
 		// SONiC ConfigDB mode
 		certConfig := cert.CreateSONiCCertConfig()
+		certConfig.RedisAddr = config.Global.RedisAddr
+		certConfig.RedisDB = config.Global.RedisDB
 		certConfig.EnableMonitoring = config.Global.EnableCertMonitoring
 		certMgr := cert.NewCertificateManager(certConfig)
 		srv, err = server.NewServerWithCertManager(config.Global.Addr, certMgr)

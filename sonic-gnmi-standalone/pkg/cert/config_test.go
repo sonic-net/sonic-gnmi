@@ -171,7 +171,7 @@ func TestConfigString(t *testing.T) {
 		},
 		{
 			name:     "SONiC config",
-			config:   &CertConfig{UseSONiCConfig: true, ConfigTable: "GNMI_CLIENT_CERT"},
+			config:   &CertConfig{UseSONiCConfig: true, RedisAddr: "localhost:6379", RedisDB: 4},
 			contains: "SONiC: true",
 		},
 	}

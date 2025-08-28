@@ -1,60 +1,31 @@
 package cert
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"os/exec"
 	"path/filepath"
-	"strings"
+	"time"
 
 	"github.com/golang/glog"
+	"github.com/redis/go-redis/v9"
 )
 
-// SONiCCertConfig represents certificate configuration from SONiC ConfigDB.
-type SONiCCertConfig struct {
-	X509  *X509Config  `json:"x509,omitempty"`
-	GNMI  *GNMIConfig  `json:"gnmi,omitempty"`
-	Certs *CertsConfig `json:"certs,omitempty"`
-}
-
-// X509Config represents X.509 certificate configuration.
-type X509Config struct {
-	ServerCert string `json:"server_crt"`
-	ServerKey  string `json:"server_key"`
-	CACert     string `json:"ca_crt"`
-}
-
-// GNMIConfig represents gNMI service configuration.
-type GNMIConfig struct {
-	Port              int    `json:"port"`
-	ClientAuth        bool   `json:"client_auth"`
-	LogLevel          int    `json:"log_level"`
-	UserAuth          string `json:"user_auth"`
-	EnableCRL         bool   `json:"enable_crl"`
-	CRLExpireDuration int    `json:"crl_expire_duration"`
-}
-
-// CertsConfig represents certificate configuration (alternative to X509).
-type CertsConfig struct {
-	ServerCert string `json:"server_crt"`
-	ServerKey  string `json:"server_key"`
-	CACert     string `json:"ca_crt"`
-}
-
-// loadFromSONiCConfig loads certificate configuration from SONiC ConfigDB like telemetry container.
+// loadFromSONiCConfig loads certificate configuration from SONiC ConfigDB directly via Redis.
 func (cm *CertManager) loadFromSONiCConfig() error {
-	glog.V(1).Info("Loading certificate configuration from SONiC ConfigDB")
+	glog.V(1).Info("Loading certificate configuration from SONiC ConfigDB via Redis")
 
-	// Execute sonic-cfggen to get telemetry configuration
-	sonicConfig, err := cm.executeSONiCConfigGen()
-	if err != nil {
-		return fmt.Errorf("failed to get SONiC configuration: %w", err)
-	}
+	// Connect to ConfigDB using configured Redis settings
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cm.config.RedisAddr,
+		DB:       cm.config.RedisDB,
+		Password: "",
+	})
+	defer redisClient.Close()
 
-	// Parse the configuration
-	certPaths, err := cm.parseSONiCConfig(sonicConfig)
+	// Get certificate configuration from ConfigDB
+	certPaths, err := cm.readCertConfigFromRedis(redisClient)
 	if err != nil {
-		return fmt.Errorf("failed to parse SONiC configuration: %w", err)
+		return fmt.Errorf("failed to read SONiC certificate configuration: %w", err)
 	}
 
 	// Update certificate paths
@@ -64,71 +35,85 @@ func (cm *CertManager) loadFromSONiCConfig() error {
 	return cm.loadFromFiles()
 }
 
-// executeSONiCConfigGen runs sonic-cfggen to extract telemetry configuration.
-func (cm *CertManager) executeSONiCConfigGen() (*SONiCCertConfig, error) {
-	// Use the same template path as telemetry container
-	templatePath := "/usr/share/sonic/templates/telemetry_vars.j2"
+// readCertConfigFromRedis reads certificate configuration directly from SONiC ConfigDB.
+func (cm *CertManager) readCertConfigFromRedis(client *redis.Client) (*CertPaths, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	glog.V(2).Infof("Executing sonic-cfggen with template: %s", templatePath)
-
-	// Run sonic-cfggen -d -t template.j2
-	cmd := exec.Command("sonic-cfggen", "-d", "-t", templatePath)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("sonic-cfggen execution failed: %w", err)
-	}
-
-	glog.V(2).Infof("sonic-cfggen output: %s", string(output))
-
-	// Clean up the output (remove single quotes like telemetry container does)
-	cleanOutput := strings.ReplaceAll(string(output), "'", "\"")
-
-	// Parse JSON configuration
-	var config SONiCCertConfig
-	if err := json.Unmarshal([]byte(cleanOutput), &config); err != nil {
-		return nil, fmt.Errorf("failed to parse SONiC config JSON: %w", err)
-	}
-
-	return &config, nil
-}
-
-// parseSONiCConfig extracts certificate file paths from SONiC configuration.
-func (cm *CertManager) parseSONiCConfig(config *SONiCCertConfig) (*CertPaths, error) {
 	paths := &CertPaths{}
 
-	// Try CERTS configuration first (newer format)
-	if config.Certs != nil {
-		paths.CertFile = config.Certs.ServerCert
-		paths.KeyFile = config.Certs.ServerKey
-		paths.CAFile = config.Certs.CACert
-		glog.V(2).Info("Using CERTS configuration from SONiC")
-	} else if config.X509 != nil {
-		// Fallback to X509 configuration (older format)
-		paths.CertFile = config.X509.ServerCert
-		paths.KeyFile = config.X509.ServerKey
-		paths.CAFile = config.X509.CACert
-		glog.V(2).Info("Using X509 configuration from SONiC")
+	// Try GNMI|certs table first (newer format)
+	certsConfig, err := client.HGetAll(ctx, "GNMI|certs").Result()
+	if err == nil && len(certsConfig) > 0 {
+		paths.CertFile = certsConfig["server_crt"]
+		paths.KeyFile = certsConfig["server_key"]
+		paths.CAFile = certsConfig["ca_crt"]
+		glog.V(2).Info("Using GNMI|certs configuration from ConfigDB")
 	} else {
-		// No certificate configuration found - use insecure mode
-		glog.Warning("No certificate configuration found in SONiC ConfigDB - using insecure mode")
-		return nil, fmt.Errorf("no certificate configuration found in SONiC ConfigDB")
+		// Fallback to DEVICE_METADATA|x509 table (older format)
+		x509Config, err := client.HGetAll(ctx, "DEVICE_METADATA|x509").Result()
+		if err == nil && len(x509Config) > 0 {
+			paths.CertFile = x509Config["server_crt"]
+			paths.KeyFile = x509Config["server_key"]
+			paths.CAFile = x509Config["ca_crt"]
+			glog.V(2).Info("Using DEVICE_METADATA|x509 configuration from ConfigDB")
+		} else {
+			glog.Warning("No certificate configuration found in ConfigDB")
+			return nil, fmt.Errorf("no certificate configuration found in ConfigDB")
+		}
 	}
 
 	// Validate that we have the required certificate files
 	if paths.CertFile == "" || paths.KeyFile == "" {
 		glog.Warning("Incomplete certificate configuration - missing server cert/key")
-		return nil, fmt.Errorf("incomplete certificate configuration in SONiC ConfigDB")
+		return nil, fmt.Errorf("incomplete certificate configuration in ConfigDB")
 	}
 
-	// Update client authentication settings from GNMI config
-	if config.GNMI != nil {
-		cm.updateClientAuthFromSONiC(config.GNMI)
+	// Read GNMI configuration for client authentication settings
+	if err := cm.updateClientAuthFromConfigDB(client, ctx); err != nil {
+		glog.V(2).Infof("Failed to read GNMI config, using defaults: %v", err)
 	}
 
-	glog.V(1).Infof("Parsed SONiC certificate paths: cert=%s, key=%s, ca=%s",
+	glog.V(1).Infof("Read certificate paths from ConfigDB: cert=%s, key=%s, ca=%s",
 		paths.CertFile, paths.KeyFile, paths.CAFile)
 
 	return paths, nil
+}
+
+// updateClientAuthFromConfigDB updates client authentication settings from ConfigDB GNMI config.
+func (cm *CertManager) updateClientAuthFromConfigDB(client *redis.Client, ctx context.Context) error {
+	// Read GNMI configuration from ConfigDB
+	gnmiConfig, err := client.HGetAll(ctx, "GNMI|gnmi").Result()
+	if err != nil || len(gnmiConfig) == 0 {
+		glog.V(2).Info("No GNMI configuration found, using certificate authentication defaults")
+		return nil
+	}
+
+	// Parse client_auth setting
+	clientAuth := gnmiConfig["client_auth"]
+	if clientAuth == "false" {
+		// client_auth is false - allow no client certificates
+		cm.config.AllowNoClientCert = true
+		cm.config.RequireClientCert = false
+		glog.V(2).Info("Client authentication disabled by ConfigDB")
+		return nil
+	}
+
+	// Parse user_auth setting (matches gnmi-native.sh logic)
+	userAuth := gnmiConfig["user_auth"]
+	if userAuth == "" || userAuth == "null" || userAuth == "cert" {
+		// Default to certificate authentication
+		cm.config.RequireClientCert = true
+		cm.config.AllowNoClientCert = false
+		glog.V(2).Info("Using certificate authentication from ConfigDB")
+	} else {
+		// Other authentication modes - allow no client cert
+		cm.config.RequireClientCert = false
+		cm.config.AllowNoClientCert = true
+		glog.V(2).Infof("Using %s authentication from ConfigDB", userAuth)
+	}
+
+	return nil
 }
 
 // CertPaths holds certificate file paths.
@@ -157,39 +142,6 @@ func (cm *CertManager) updateCertPaths(paths *CertPaths) {
 
 	glog.V(2).Infof("Updated certificate paths: cert=%s, key=%s, ca=%s, requireClient=%t",
 		cm.config.CertFile, cm.config.KeyFile, cm.config.CAFile, cm.config.RequireClientCert)
-}
-
-// updateClientAuthFromSONiC updates client authentication settings from SONiC GNMI config.
-func (cm *CertManager) updateClientAuthFromSONiC(gnmiConfig *GNMIConfig) {
-	if gnmiConfig == nil {
-		return
-	}
-
-	// Update client authentication based on SONiC configuration
-	// This matches the logic from gnmi-native.sh and telemetry.sh
-	if gnmiConfig.UserAuth == "" || gnmiConfig.UserAuth == "null" {
-		// Default to certificate authentication like gnmi-native.sh
-		cm.config.RequireClientCert = true
-		cm.config.AllowNoClientCert = false
-		glog.V(2).Info("Using default certificate authentication from SONiC")
-	} else if gnmiConfig.UserAuth == "cert" {
-		cm.config.RequireClientCert = true
-		cm.config.AllowNoClientCert = false
-		glog.V(2).Info("Using certificate authentication from SONiC")
-	} else {
-		// Other authentication modes - allow no client cert
-		cm.config.RequireClientCert = false
-		cm.config.AllowNoClientCert = true
-		glog.V(2).Infof("Using %s authentication from SONiC", gnmiConfig.UserAuth)
-	}
-
-	// Handle client_auth setting (like telemetry.sh does)
-	if !gnmiConfig.ClientAuth {
-		// client_auth is false - allow no client certificates
-		cm.config.AllowNoClientCert = true
-		cm.config.RequireClientCert = false
-		glog.V(2).Info("Client authentication disabled by SONiC config")
-	}
 }
 
 // GetSharedCertificatesPath returns the path for shared certificates with another container.
