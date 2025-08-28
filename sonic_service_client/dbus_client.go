@@ -36,6 +36,10 @@ type Service interface {
 	FactoryReset(cmd string) (string, error)
 	// Docker services APIs
 	LoadDockerImage(image string) error
+	//Healthz Service APIs
+	HealthzAck(req string) (string, error)
+	HealthzCheck(req string) (string, error)
+	HealthzCollect(req string) (string, error)
 }
 
 type DbusClient struct {
@@ -54,7 +58,6 @@ func NewDbusClient() (Service, error) {
 	client.busPathPrefix = "/org/SONiC/HostService/"
 	client.intNamePrefix = "org.SONiC.HostService."
 	err = nil
-
 	return &client, err
 }
 
@@ -131,6 +134,7 @@ func (c *DbusClient) ConfigReload(config string) error {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".reload"
+	//_, err := c.caller.DbusApi(busName, busPath, intName, 60, config)
 	_, err := DbusApi(busName, busPath, intName, 60, config)
 	return err
 }
@@ -142,6 +146,7 @@ func (c *DbusClient) ConfigReplace(config string) error {
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".replace_db"
 	_, err := DbusApi(busName, busPath, intName, 600, config)
+	//_, err := c.caller.DbusApi(busName, busPath, intName, 600, config)
 	return err
 }
 
@@ -152,6 +157,7 @@ func (c *DbusClient) ConfigSave(fileName string) error {
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".save"
 	_, err := DbusApi(busName, busPath, intName, 60, fileName)
+	//_, err := c.caller.DbusApi(busName, busPath, intName, 60, fileName)
 	return err
 }
 
@@ -323,6 +329,68 @@ func (c *DbusClient) FactoryReset(cmd string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("Invalid result type %v: expected string, got %T", reflect.TypeOf(result), result)
 	}
+	return strResult, nil
+}
 
+func (c *DbusClient) HealthzAck(req string) (string, error) {
+	log.V(1).Info("Calling DBus method: HealthzAck")
+	modName := "debug_info"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".ack"
+	fmt.Printf("Printing DBUS args in HealthzAck:%s\n %s\n %s\n %s\n", busName, busPath, intName, req)
+	common_utils.IncCounter(common_utils.GNOI_HEALTHZ_ACK)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	if err != nil {
+		log.Errorf("HealthzAck Dbus call failed: %v\n", err)
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	log.V(1).Info("DBUS HealthzAck success\n")
+	return strResult, nil
+}
+
+func (c *DbusClient) HealthzCheck(req string) (string, error) {
+	log.V(1).Info("Calling DBus method: HealthzCheck")
+	modName := "debug_info"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".check"
+
+	common_utils.IncCounter(common_utils.GNOI_HEALTHZ_CHECK)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	return strResult, nil
+}
+
+func (c *DbusClient) HealthzCollect(req string) (string, error) {
+	log.V(1).Info("Calling DBus method: HealthzCollect")
+	modName := "debug_info"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".collect"
+
+	fmt.Printf("Printing DBUS args: %s\n %s\n %s\n %s\n", busName, busPath, intName, req)
+	common_utils.IncCounter(common_utils.GNOI_HEALTHZ_COLLECT)
+	fmt.Printf("Printing DBUS args after calling GNOI Healthzcollect: %s\n %s\n %s\n %s\n", busName, busPath, intName, req)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	if err != nil {
+		log.Errorf("DBus HealthzCollect call failed: %v", err)
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	log.V(1).Info("DBus HealthzCollect call succeeded")
 	return strResult, nil
 }
