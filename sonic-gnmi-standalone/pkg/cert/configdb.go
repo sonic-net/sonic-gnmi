@@ -3,7 +3,6 @@ package cert
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/golang/glog"
@@ -142,21 +141,6 @@ func (cm *CertManager) updateCertPaths(paths *CertPaths) {
 
 	glog.V(2).Infof("Updated certificate paths: cert=%s, key=%s, ca=%s, requireClient=%t",
 		cm.config.CertFile, cm.config.KeyFile, cm.config.CAFile, cm.config.RequireClientCert)
-}
-
-// GetSharedCertificatesPath returns the path for shared certificates with another container.
-func GetSharedCertificatesPath(containerName, mountPath string) string {
-	return filepath.Join(mountPath, containerName)
-}
-
-// CreateContainerCertConfig creates a certificate configuration for container sharing.
-func CreateContainerCertConfig(containerName, mountPath string) *CertConfig {
-	config := NewDefaultConfig()
-	config.ShareWithContainer = containerName
-	config.CertMountPath = mountPath
-	config.EnableMonitoring = true // Enable monitoring for shared certificates
-
-	return config
 }
 
 // CreateSONiCCertConfig creates a certificate configuration for SONiC ConfigDB integration.

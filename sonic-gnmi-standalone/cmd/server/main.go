@@ -66,16 +66,7 @@ func main() {
 	var err error
 
 	// Check for advanced certificate management options
-	if config.Global.ShareWithContainer != "" {
-		// Container sharing mode
-		certConfig := cert.CreateContainerCertConfig(
-			config.Global.ShareWithContainer,
-			config.Global.CertMountPath,
-		)
-		certConfig.EnableMonitoring = config.Global.EnableCertMonitoring
-		certMgr := cert.NewCertificateManager(certConfig)
-		srv, err = server.NewServerWithCertManager(config.Global.Addr, certMgr)
-	} else if config.Global.UseSONiCConfig {
+	if config.Global.UseSONiCConfig {
 		// SONiC ConfigDB mode
 		certConfig := cert.CreateSONiCCertConfig()
 		certConfig.RedisAddr = config.Global.RedisAddr

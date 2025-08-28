@@ -59,11 +59,6 @@ func TestConfigValidation(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:        "valid container sharing config",
-			config:      &CertConfig{ShareWithContainer: "gnmi", CertMountPath: "/etc/certs"},
-			expectError: false,
-		},
-		{
 			name:        "valid SONiC config",
 			config:      &CertConfig{UseSONiCConfig: true},
 			expectError: false,
@@ -89,11 +84,6 @@ func TestConfigValidation(t *testing.T) {
 				CertFile: "server.crt", KeyFile: "server.key",
 				RequireClientCert: true, AllowNoClientCert: true,
 			},
-			expectError: true,
-		},
-		{
-			name:        "missing mount path for container sharing",
-			config:      &CertConfig{ShareWithContainer: "gnmi"},
 			expectError: true,
 		},
 	}
@@ -163,11 +153,6 @@ func TestConfigString(t *testing.T) {
 			name:     "file-based config",
 			config:   &CertConfig{CertFile: "server.crt", KeyFile: "server.key", CAFile: "ca.crt"},
 			contains: "server.crt",
-		},
-		{
-			name:     "container sharing config",
-			config:   &CertConfig{ShareWithContainer: "gnmi", CertMountPath: "/etc/certs"},
-			contains: "Container: gnmi",
 		},
 		{
 			name:     "SONiC config",

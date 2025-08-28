@@ -18,8 +18,6 @@ type Config struct {
 
 	// Certificate management options
 	AllowNoClientCert    bool   // Allow connections without client certificates
-	ShareWithContainer   string // Share certificates with named container (e.g., "gnmi")
-	CertMountPath        string // Path for shared certificate volumes
 	UseSONiCConfig       bool   // Load certificate config from SONiC ConfigDB
 	RedisAddr            string // Redis server address for ConfigDB
 	RedisDB              int    // Redis database number for ConfigDB
@@ -41,8 +39,6 @@ func Initialize() {
 
 	// Certificate management flags
 	allowNoClientCert := flag.Bool("allow-no-client-auth", false, "Allow connections without client certificates")
-	shareWithContainer := flag.String("share-certs", "", "Share certificates with named container (e.g., 'gnmi')")
-	certMountPath := flag.String("cert-mount-path", "/etc/sonic/certs", "Path for shared certificate volumes")
 	useSONiCConfig := flag.Bool("sonic-config", false, "Load certificate configuration from SONiC ConfigDB via Redis")
 	redisAddr := flag.String("redis-addr", "localhost:6379", "Redis server address for ConfigDB access")
 	redisDB := flag.Int("redis-db", 4, "Redis database number for ConfigDB (default: 4)")
@@ -83,8 +79,6 @@ func Initialize() {
 
 		// Certificate management settings
 		AllowNoClientCert:    *allowNoClientCert,
-		ShareWithContainer:   *shareWithContainer,
-		CertMountPath:        *certMountPath,
 		UseSONiCConfig:       *useSONiCConfig,
 		RedisAddr:            *redisAddr,
 		RedisDB:              *redisDB,

@@ -77,10 +77,6 @@ func (cm *CertManager) LoadCertificates() error {
 		return fmt.Errorf("invalid certificate configuration: %w", err)
 	}
 
-	if cm.config.ShareWithContainer != "" {
-		return cm.loadFromContainer()
-	}
-
 	if cm.config.UseSONiCConfig {
 		return cm.loadFromSONiCConfig()
 	}
@@ -217,23 +213,6 @@ func (cm *CertManager) loadFromFiles() error {
 
 	glog.V(1).Info("Certificates loaded successfully")
 	return nil
-}
-
-// loadFromContainer loads certificates from shared container volume.
-func (cm *CertManager) loadFromContainer() error {
-	containerPath := filepath.Join(cm.config.CertMountPath, cm.config.ShareWithContainer)
-
-	glog.V(1).Infof("Loading certificates from container: %s at %s",
-		cm.config.ShareWithContainer, containerPath)
-
-	// Update config with container paths
-	cm.config.CertFile = filepath.Join(containerPath, "server.crt")
-	cm.config.KeyFile = filepath.Join(containerPath, "server.key")
-	if cm.config.RequireClientCert {
-		cm.config.CAFile = filepath.Join(containerPath, "ca.crt")
-	}
-
-	return cm.loadFromFiles()
 }
 
 // loadCACertificate loads and validates the CA certificate.

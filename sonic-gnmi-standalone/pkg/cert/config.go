@@ -13,10 +13,6 @@ type CertConfig struct {
 	KeyFile  string
 	CAFile   string
 
-	// Container integration
-	ShareWithContainer string // "gnmi" - reuse gnmi container certs
-	CertMountPath      string // "/etc/sonic/certs" - shared volume path
-
 	// Client certificate requirements
 	RequireClientCert bool // Require client certificates (default: true)
 	AllowNoClientCert bool // Allow connections without client certs (default: false)
@@ -44,9 +40,6 @@ func NewDefaultConfig() *CertConfig {
 		CertFile: "server.crt",
 		KeyFile:  "server.key",
 		CAFile:   "ca.crt",
-
-		// Container integration
-		CertMountPath: "/etc/sonic/certs",
 
 		// Security defaults - match telemetry server
 		RequireClientCert: true,
@@ -83,14 +76,6 @@ func NewDefaultConfig() *CertConfig {
 
 // Validate checks the certificate configuration for consistency and completeness.
 func (c *CertConfig) Validate() error {
-	if c.ShareWithContainer != "" {
-		// Container sharing mode - validate mount path
-		if c.CertMountPath == "" {
-			return fmt.Errorf("CertMountPath must be specified when ShareWithContainer is set")
-		}
-		return nil
-	}
-
 	if c.UseSONiCConfig {
 		// SONiC config mode - no file paths needed
 		return nil
@@ -127,10 +112,6 @@ func (c *CertConfig) GetClientAuthMode() tls.ClientAuthType {
 
 // String returns a string representation of the configuration for logging.
 func (c *CertConfig) String() string {
-	if c.ShareWithContainer != "" {
-		return fmt.Sprintf("CertConfig{Container: %s, MountPath: %s, ClientAuth: %v}",
-			c.ShareWithContainer, c.CertMountPath, c.GetClientAuthMode())
-	}
 	if c.UseSONiCConfig {
 		return fmt.Sprintf("CertConfig{SONiC: true, Redis: %s, DB: %d, ClientAuth: %v}",
 			c.RedisAddr, c.RedisDB, c.GetClientAuthMode())
