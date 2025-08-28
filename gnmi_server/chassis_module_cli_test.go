@@ -2,7 +2,7 @@ package gnmi
 
 // chassis_module_cli_test.go
 
-// Tests SHOW chassis module status and SHOW chassis module status [dpu=DPU_NAME]
+// Tests SHOW chassis modules status and SHOW chassis modules status [dpu=DPU_NAME]
 
 import (
 	"crypto/tls"
@@ -98,7 +98,7 @@ func FixturesToSingleModuleMap(fixtures []ModuleFixture, moduleName string) map[
 	return nil
 }
 
-func TestGetShowChassisModuleStatus(t *testing.T) {
+func TestGetShowChassisModulesStatus(t *testing.T) {
 	s := createServer(t, ServerPort)
 	go runServer(t, s)
 	defer s.ForceStop()
@@ -129,22 +129,22 @@ func TestGetShowChassisModuleStatus(t *testing.T) {
 		testInit    func()
 	}{
 		{
-			desc:       "query SHOW chassis module status - no data",
+			desc:       "query SHOW chassis modules status - no data",
 			pathTarget: "SHOW",
 			textPbPath: `
 				elem: <name: "chassis" >
-				elem: <name: "module" >
+				elem: <name: "modules" >
 				elem: <name: "status" >
 			`,
 			wantRetCode: codes.OK,
 			valTest:     false,
 		},
 		{
-			desc:       "query SHOW chassis module status - all modules",
+			desc:       "query SHOW chassis modules status - all modules",
 			pathTarget: "SHOW",
 			textPbPath: `
 				elem: <name: "chassis" >
-				elem: <name: "module" >
+				elem: <name: "modules" >
 				elem: <name: "status" >
 			`,
 			wantRetCode: codes.OK,
@@ -160,11 +160,11 @@ func TestGetShowChassisModuleStatus(t *testing.T) {
 			},
 		},
 		{
-			desc:       "query SHOW chassis module status [dpu=DPU1] - specific module",
+			desc:       "query SHOW chassis modules status [dpu=DPU1] - specific module",
 			pathTarget: "SHOW",
 			textPbPath: `
 				elem: <name: "chassis" >
-				elem: <name: "module" >
+				elem: <name: "modules" >
 				elem: <name: "status" key: <key: "dpu" value: "DPU1" > >
 			`,
 			wantRetCode: codes.OK,
@@ -182,11 +182,11 @@ func TestGetShowChassisModuleStatus(t *testing.T) {
 			},
 		},
 		{
-			desc:       "query SHOW chassis module status [dpu=DPU99] - module not found",
+			desc:       "query SHOW chassis modules status [dpu=DPU99] - module not found",
 			pathTarget: "SHOW",
 			textPbPath: `
 				elem: <name: "chassis" >
-				elem: <name: "module" >
+				elem: <name: "modules" >
 				elem: <name: "status" key: <key: "dpu" value: "DPU99" > >
 			`,
 			wantRetCode: codes.NotFound,
@@ -196,11 +196,11 @@ func TestGetShowChassisModuleStatus(t *testing.T) {
 			},
 		},
 		{
-			desc:       "query SHOW chassis module status [dpu=] - empty dpu name",
+			desc:       "query SHOW chassis modules status [dpu=] - empty dpu name",
 			pathTarget: "SHOW",
 			textPbPath: `
 				elem: <name: "chassis" >
-				elem: <name: "module" >
+				elem: <name: "modules" >
 				elem: <name: "status" key: <key: "dpu" value: "" > >
 			`,
 			wantRetCode: codes.InvalidArgument,
