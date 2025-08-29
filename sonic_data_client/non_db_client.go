@@ -467,12 +467,17 @@ func (c *NonDbClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wai
 		runGetterAndSend(c, gnmiPath, getter)
 	}
 
-	c.q.EnqueueItem(Value{
-		&spb.Value{
-			Timestamp:    time.Now().UnixNano(),
-			SyncResponse: true,
-		},
-	})
+	spbv := &spb.Value{
+		Timestamp:    time.Now().UnixNano(),
+		SyncResponse: true,
+	}
+	// c.q.EnqueueItem(Value{spbv})
+	if err := c.q.EnqueueItem(Value{spbv}); err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
+			c.q.enqueFatalMsg(st.Message())
+			return
+		}
+	}
 
 	// Start a GO routine for each sub as they might have different intervals
 	for sub, interval := range validatedSubs {
@@ -551,12 +556,18 @@ func (c *NonDbClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.WaitG
 			runGetterAndSend(c, gnmiPath, getter)
 		}
 
-		c.q.EnqueueItem(Value{
-			&spb.Value{
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: true,
-			},
-		})
+		spbv := &spb.Value{
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: true,
+		}
+		// c.q.EnqueueItem(Value{spbv})
+		if err := c.q.EnqueueItem(Value{spbv}); err != nil {
+			if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
+				c.q.enqueFatalMsg(st.Message())
+				return
+			}
+		}
+
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
 }

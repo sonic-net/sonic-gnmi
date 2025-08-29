@@ -101,6 +101,154 @@ func TestDbClientSubscriptionModeFatalMsg(t *testing.T) {
 	}
 }
 
+// START NEW DB TESTS BLOCK
+
+// func NewDummyValue() Value {
+// 	return Value{
+// 		Notification: &spb.Value{
+// 			Timestamp: time.Now().UnixNano(),
+// 			Val: &gnmipb.TypedValue{
+// 				Value: &gnmipb.TypedValue_StringVal{
+// 					StringVal: "dummy",
+// 				},
+// 			},
+// 		},
+// 	}
+// }
+
+func TestAppDBPollRun_EnqueueItemResourceExhausted(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 1) // Small queue to simulate overflow
+	poll := make(chan struct{}, 1)
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := DbClient{
+		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{path: {{dbName: "APPL_DB", tableName: "INTERFACES"}}},
+		q:       q,
+		channel: poll,
+	}
+
+	// Fill the queue to simulate ResourceExhausted
+	spbv := &spb.Value{
+		Prefix:    c.prefix,
+		Path:      gnmiPath,
+		Timestamp: time.Now().UnixNano(),
+		Val: &gnmipb.TypedValue{
+			Value: &gnmipb.TypedValue_StringVal{
+				StringVal: "",
+			},
+		},
+	}
+
+	_ = q.EnqueueItem(spbv)
+
+	poll <- struct{}{}
+	wg.Add(1)
+	go client.AppDBPollRun(q, poll, &wg, nil)
+	wg.Wait()
+
+	item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if !strings.Contains(item.Fatal, "queue full") {
+		t.Errorf("Expected fatal message for ResourceExhausted, got: %v", item.Fatal)
+	}
+}
+
+func TestPollRun_EnqueueItemResourceExhausted(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 1)
+	poll := make(chan struct{}, 1)
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := DbClient{
+		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{path: {{dbName: "APPL_DB", tableName: "INTERFACES"}}},
+		q:       q,
+		channel: poll,
+	}
+
+	spbv := &spb.Value{
+		Prefix:    c.prefix,
+		Path:      gnmiPath,
+		Timestamp: time.Now().UnixNano(),
+		Val: &gnmipb.TypedValue{
+			Value: &gnmipb.TypedValue_StringVal{
+				StringVal: "",
+			},
+		},
+	}
+
+	_ = q.EnqueueItem(spbv)
+
+	poll <- struct{}{}
+	wg.Add(1)
+	go client.PollRun(q, poll, &wg, nil)
+	wg.Wait()
+
+	item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if !strings.Contains(item.Fatal, "queue full") {
+		t.Errorf("Expected fatal message for ResourceExhausted, got: %v", item.Fatal)
+	}
+}
+
+func TestDbFieldSubscribe_EnqueueItemResourceExhausted(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 1)
+	stop := make(chan struct{}, 1)
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := DbClient{
+		prefix: &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{path: {{
+			dbName:       "APPL_DB",
+			tableName:    "INTERFACES",
+			field:        "admin_status",
+			jsonField:    "admin_status",
+			jsonTableKey: "INTERFACES",
+		}}},
+		q:       q,
+		channel: stop,
+		synced:  sync.WaitGroup{},
+	}
+
+	spbv := &spb.Value{
+		Prefix:    c.prefix,
+		Path:      gnmiPath,
+		Timestamp: time.Now().UnixNano(),
+		Val: &gnmipb.TypedValue{
+			Value: &gnmipb.TypedValue_StringVal{
+				StringVal: "",
+			},
+		},
+	}
+
+	_ = q.EnqueueItem(spbv)
+
+	stop <- struct{}{}
+	wg.Add(1)
+	go dbFieldSubscribe(&client, path, false, time.Millisecond*10)
+	wg.Wait()
+
+	item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if !strings.Contains(item.Fatal, "queue full") {
+		t.Errorf("Expected fatal message for ResourceExhausted, got: %v", item.Fatal)
+	}
+}
+
+// END NEW DB TESTS BLOCK
+
 // Mixed DB Client
 func TestMixedDbClientSubscriptionModeFatalMsg(t *testing.T) {
 	var wg sync.WaitGroup
