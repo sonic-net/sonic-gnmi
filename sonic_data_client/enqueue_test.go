@@ -19,6 +19,12 @@ import (
 var streamFunc = translib.Stream
 var subscribeFunc = translib.Subscribe
 var isSubscribeSupported = translib.IsSubscribeSupported
+var getAppDbTypedValueFunc = AppDBTableData2TypedValue
+var getTypedValueFunc = tableData2TypedValue
+var getMsiTypedValueFunc = Msi2TypedValue
+var targetToRedisDb = Target2RedisDb
+var redisDbMap = RedisDbMap
+var getTableData2Msi = tableData2Msi
 
 func TestForceEnqueueItemWithNotification(t *testing.T) {
 	q := NewLimitedQueue(1, false, 100)
@@ -100,6 +106,784 @@ func TestDbClientSubscriptionModeFatalMsg(t *testing.T) {
 		t.Errorf("Expected fatal message for unsupported mode, got: %v", item.Fatal)
 	}
 }
+
+// START NEW DB TESTS BLOCK
+
+//	func NewDummyValue() Value {
+//		return Value{
+//			Notification: &spb.Value{
+//				Timestamp: time.Now().UnixNano(),
+//				Val: &gnmipb.TypedValue{
+//					Value: &gnmipb.TypedValue_StringVal{
+//						StringVal: "dummy",
+//					},
+//				},
+//			},
+//		}
+//	}
+//
+// NEW
+func TestAppDBPollRun_EnqueueItemResourceExhausted(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 1) // Small queue to simulate overflow
+	poll := make(chan struct{})
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := DbClient{
+		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{path: {{dbName: "APPL_DB", tableName: "INTERFACES"}}},
+		q:       q,
+		channel: poll,
+	}
+
+	notification := &gnmipb.Notification{
+		Timestamp: time.Now().UnixNano(),
+		Update: []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
+				},
+			},
+		},
+	}
+
+	item := Value{
+		&spb.Value{
+			Notification: notification,
+		},
+	}
+	_ = q.EnqueueItem(item)
+
+	// Replace AppDBTableData2TypedValue with a mock
+	originalFunc := getAppDbTypedValueFunc
+	getAppDbTypedValueFunc = func(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error, bool) {
+		return &gnmipb.TypedValue{
+			Value: &gnmipb.TypedValue_StringVal{StringVal: "mocked"},
+		}, nil, true
+	}
+	defer func() { getAppDbTypedValueFunc = originalFunc }()
+
+	client.q = q
+	client.channel = poll
+
+	wg.Add(1)
+	go client.AppDBPollRun(q, poll, &wg, nil)
+
+	// Trigger the poll
+	poll <- struct{}{}
+	wg.Wait()
+
+	// Check for fatal message
+	itemOut, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if itemOut.Fatal == "" {
+		t.Errorf("Expected fatal message, got: %v", itemOut)
+	}
+	if !strings.Contains(itemOut.Fatal, "Subscribe output queue exhausted") {
+		t.Errorf("Unexpected fatal message: %v", itemOut.Fatal)
+	}
+}
+
+// SUCCESS
+func TestPollRun_EnqueueItemResourceExhausted(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 1)
+	poll := make(chan struct{}, 1)
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := DbClient{
+		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{path: {{dbName: "APPL_DB", tableName: "INTERFACES"}}},
+		q:       q,
+		channel: poll,
+	}
+
+	notification := &gnmipb.Notification{
+		Timestamp: time.Now().UnixNano(),
+		Update: []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
+				},
+			},
+		},
+	}
+
+	item := Value{
+		&spb.Value{
+			Notification: notification,
+		},
+	}
+
+	_ = q.EnqueueItem(item)
+
+	poll <- struct{}{}
+	wg.Add(1)
+	go client.PollRun(q, poll, &wg, nil)
+	wg.Wait()
+
+	deq_item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if !strings.Contains(deq_item.Fatal, "Subscribe output queue exhausted") {
+		t.Errorf("Expected fatal message for ResourceExhausted, got: %v", deq_item.Fatal)
+	}
+}
+
+// NEW
+func TestPollRun_SyncResponseEnqueueItemResourceExhausted(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 1) // Small queue to simulate overflow
+	poll := make(chan struct{})
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := DbClient{
+		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{path: {{dbName: "APPL_DB", tableName: "INTERFACES"}}},
+	}
+
+	// Fill the queue to simulate ResourceExhausted
+	notification := &gnmipb.Notification{
+		Timestamp: time.Now().UnixNano(),
+		Update: []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
+				},
+			},
+		},
+	}
+	item := Value{
+		Notification: notification,
+	}
+	_ = q.EnqueueItem(item)
+
+	// Mock tableData2TypedValue to return a valid update
+	originalFunc := getTypedValueFunc
+	getTypedValueFunc = func(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error, bool) {
+		return &gnmipb.TypedValue{
+			Value: &gnmipb.TypedValue_StringVal{StringVal: "mocked"},
+		}, nil, true
+	}
+	defer func() { getTypedValueFunc = originalFunc }()
+
+	client.q = q
+	client.channel = poll
+
+	wg.Add(1)
+	go client.PollRun(q, poll, &wg, nil)
+
+	// Trigger the poll
+	poll <- struct{}{}
+	wg.Wait()
+
+	// Check for fatal message
+	itemOut, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if itemOut.Fatal == "" {
+		t.Errorf("Expected fatal message, got: %v", itemOut)
+	}
+	if !strings.Contains(itemOut.Fatal, "Subscribe output queue exhausted") {
+		t.Errorf("Unexpected fatal message: %v", itemOut.Fatal)
+	}
+}
+
+// SUCCESS
+func TestDbFieldSubscribe_EnqueueItemResourceExhausted(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 1)
+	stop := make(chan struct{}, 1)
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := DbClient{
+		prefix: &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{path: {{
+			dbName:       "APPL_DB",
+			tableName:    "INTERFACES",
+			field:        "admin_status",
+			jsonField:    "admin_status",
+			jsonTableKey: "INTERFACES",
+		}}},
+		q:       q,
+		channel: stop,
+		synced:  sync.WaitGroup{},
+		w:       &wg,
+	}
+
+	notification := &gnmipb.Notification{
+		Timestamp: time.Now().UnixNano(),
+		Update: []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
+				},
+			},
+		},
+	}
+
+	item := Value{
+		&spb.Value{
+			Notification: notification,
+		},
+	}
+
+	_ = q.EnqueueItem(item)
+
+	wg.Add(1)
+	client.synced.Add(1)
+	go dbFieldSubscribe(&client, path, false, time.Millisecond*10)
+	time.Sleep(20 * time.Millisecond)
+	stop <- struct{}{}
+	wg.Wait()
+	client.synced.Wait()
+
+	deq_item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if !strings.Contains(deq_item.Fatal, "Subscribe output queue exhausted") {
+		t.Errorf("Expected fatal message for ResourceExhausted, got: %v", deq_item.Fatal)
+	}
+}
+
+// NEW
+func TestDbFieldMultiSubscribe_EnqueFatalMsg(t *testing.T) {
+	var wg sync.WaitGroup
+	var synced sync.WaitGroup
+
+	q := NewLimitedQueue(1, false, 1) // Small queue to simulate overflow
+	poll := make(chan struct{})
+	interval := 10 * time.Millisecond
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := DbClient{
+		prefix: &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{
+			path: {{
+				dbName:       "APPL_DB",
+				tableName:    "INTERFACES",
+				field:        "admin_status",
+				tableKey:     "Ethernet0",
+				jsonField:    "admin_status",
+				jsonTableKey: "Ethernet0",
+				delimitor:    "|",
+				dbNamespace:  "default",
+			}},
+		},
+		q:       q,
+		channel: poll,
+		w:       &wg,
+		synced:  synced,
+	}
+
+	// Fill the queue to simulate ResourceExhausted
+	notification := &gnmipb.Notification{
+		Timestamp: time.Now().UnixNano(),
+		Update: []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
+				},
+			},
+		},
+	}
+
+	item := Value{
+		&spb.Value{
+			Notification: notification,
+		},
+	}
+	_ = q.EnqueueItem(item)
+
+	// Mock Msi2TypedValue to return error first, then success
+	callCount := 0
+	originalMsi2TypedValue := getMsiTypedValueFunc
+	getMsiTypedValueFunc = func(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
+		callCount++
+		if callCount == 1 {
+			return nil, fmt.Errorf("mocked Msi2TypedValue error")
+		}
+		return &gnmipb.TypedValue{
+			Value: &gnmipb.TypedValue_StringVal{StringVal: "mocked"},
+		}, nil
+	}
+	defer func() { getMsiTypedValueFunc = originalMsi2TypedValue }()
+
+	// Mock ticker to fire immediately
+	originalTicker := IntervalTicker
+	IntervalTicker = func(d time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
+	defer func() { IntervalTicker = originalTicker }()
+
+	wg.Add(1)
+	synced.Add(1)
+	go dbFieldMultiSubscribe(&client, path, false, interval, false)
+
+	// Wait for goroutine to finish
+	wg.Wait()
+
+	// Check for both fatal messages
+	foundFatal := 0
+	for i := 0; i < 2; i++ {
+		itemOut, err := q.DequeueItem()
+		if err != nil {
+			t.Fatalf("Expected fatal message, got error: %v", err)
+		}
+		if itemOut.Fatal != "" {
+			foundFatal++
+		}
+	}
+	if foundFatal != 2 {
+		t.Errorf("Expected 2 fatal messages, got %d", foundFatal)
+	}
+}
+
+// NEW
+func TestDbTableKeySubscribe_EnqueFatalMsg(t *testing.T) {
+	var wg sync.WaitGroup
+	var synced sync.WaitGroup
+
+	q := NewLimitedQueue(1, false, 1)
+	poll := make(chan struct{})
+	interval := 10 * time.Millisecond
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := DbClient{
+		prefix: &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{
+			path: {{
+				dbName:       "APPL_DB",
+				tableName:    "INTERFACES",
+				tableKey:     "Ethernet0",
+				jsonField:    "admin_status",
+				jsonTableKey: "Ethernet0",
+				field:        "admin_status",
+				delimitor:    "|",
+				dbNamespace:  "default",
+			}},
+		},
+		q:       q,
+		channel: poll,
+		w:       &wg,
+		synced:  synced,
+	}
+
+	// Mock Redis PSubscribe failure
+	originalTarget2RedisDb := targetToRedisDb
+	mockRedis := &MockRedisClient{
+		PSubscribeFunc: func(pattern string) *MockPubSub {
+			return &MockPubSub{
+				ReceiveTimeoutFunc: func(d time.Duration) (interface{}, error) {
+					return nil, fmt.Errorf("mock psubscribe failure")
+				},
+			}
+		},
+	}
+	targetToRedisDb = map[string]map[string]RedisClient{
+		"default": {
+			"APPL_DB": mockRedis,
+		},
+	}
+	defer func() { targetToRedisDb = originalTarget2RedisDb }()
+
+	wg.Add(1)
+	synced.Add(1)
+	go dbTableKeySubscribe(&client, path, interval, false)
+	wg.Wait()
+
+	itemOut, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if itemOut.Fatal == "" {
+		t.Errorf("Expected fatal message, got: %v", itemOut)
+	}
+	if !strings.Contains(itemOut.Fatal, "psubscribe") {
+		t.Errorf("Unexpected fatal message: %v", itemOut.Fatal)
+	}
+}
+
+// NEW
+func TestSendEvent_EnqueFatalMsg(t *testing.T) {
+	q := NewLimitedQueue(1, false, 1) // Small queue to simulate overflow
+
+	eventClient := &EventClient{
+		prefix: &gnmipb.Path{Target: "EVENT_DB"},
+		path:   &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "event"}}},
+		q:      q,
+	}
+
+	tv := &gnmipb.TypedValue{
+		Value: &gnmipb.TypedValue_StringVal{StringVal: "test_event"},
+	}
+
+	// Fill the queue to simulate ResourceExhausted
+	notification := &gnmipb.Notification{
+		Timestamp: time.Now().UnixNano(),
+		Update: []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "event"}}},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
+				},
+			},
+		},
+	}
+
+	item := Value{
+		&spb.Value{
+			Notification: notification,
+		},
+	}
+	_ = q.EnqueueItem(item)
+
+	// Test ResourceExhausted path
+	err := send_event(eventClient, tv, time.Now().UnixNano())
+	if err == nil {
+		t.Fatalf("Expected ResourceExhausted error, got nil")
+	}
+	deqItem, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if deqItem.Fatal == "" {
+		t.Errorf("Expected fatal message, got: %v", deqItem)
+	}
+
+	// Reset queue and test generic internal error
+	q = NewLimitedQueue(1, false, 1000)
+	eventClient.q = q
+	// Override EnqueueItem to simulate generic error
+	eventClient.q.EnqueueItem = func(item Value) error {
+		return fmt.Errorf("generic internal error")
+	}
+
+	err = send_event(eventClient, tv, time.Now().UnixNano())
+	if err == nil {
+		t.Fatalf("Expected internal error, got nil")
+	}
+	deqItem, err = q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if deqItem.Fatal != "Internal error" {
+		t.Errorf("Expected 'Internal error' fatal message, got: %v", deqItem.Fatal)
+	}
+}
+
+// NEW
+func TestMixedDbClientPollRun_EnqueFatalMsg(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 1) // Small queue to simulate overflow
+	poll := make(chan struct{})
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := &MixedDbClient{
+		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+		paths:   []*gnmipb.Path{path},
+		q:       q,
+		channel: poll,
+		mapkey:  "default",
+	}
+
+	// Fill the queue to simulate ResourceExhausted
+	notification := &gnmipb.Notification{
+		Timestamp: time.Now().UnixNano(),
+		Update: []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
+				},
+			},
+		},
+	}
+	item := Value{
+		&spb.Value{
+			Notification: notification,
+		},
+	}
+	_ = q.EnqueueItem(item)
+
+	// Mock getDbtablePath
+	client.getDbtablePath = func(p *gnmipb.Path, op *string) ([]tablePath, error) {
+		return []tablePath{{
+			dbName:       "APPL_DB",
+			tableName:    "INTERFACES",
+			tableKey:     "Ethernet0",
+			field:        "admin_status",
+			jsonField:    "admin_status",
+			jsonTableKey: "Ethernet0",
+			delimitor:    "|",
+			dbNamespace:  "default",
+		}}, nil
+	}
+
+	// Mock tableData2TypedValue
+	originalFunc := client.getTypedValueFunc
+	originalFunc = func(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error) {
+		return &gnmipb.TypedValue{
+			Value: &gnmipb.TypedValue_StringVal{StringVal: "mocked"},
+		}, nil
+	}
+	defer func() { client.getTypedValueFunc = originalFunc }()
+
+	wg.Add(1)
+	go client.PollRun(q, poll, &wg, nil)
+
+	// Trigger the poll
+	poll <- struct{}{}
+	wg.Wait()
+
+	// Check for fatal messages
+	foundFatal := 0
+	for i := 0; i < 2; i++ {
+		itemOut, err := q.DequeueItem()
+		if err != nil {
+			t.Fatalf("Expected fatal message, got error: %v", err)
+		}
+		if itemOut.Fatal != "" {
+			foundFatal++
+		}
+	}
+	if foundFatal != 2 {
+		t.Errorf("Expected 2 fatal messages, got %d", foundFatal)
+	}
+}
+
+// NEW
+func TestStreamRun_EnqueFatalMsg(t *testing.T) {
+	var wg sync.WaitGroup
+	var synced sync.WaitGroup
+
+	q := NewLimitedQueue(1, false, 1)
+	stop := make(chan struct{})
+
+	client := &MixedDbClient{
+		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+		paths:   []*gnmipb.Path{{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}},
+		q:       q,
+		channel: stop,
+		w:       &wg,
+		synced:  synced,
+	}
+
+	// Fill the queue to simulate ResourceExhausted
+	_ = q.EnqueueItem(Value{Notification: &gnmipb.Notification{}})
+
+	// Create a subscription with unsupported mode
+	sub := &gnmipb.Subscription{
+		Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+		Mode: gnmipb.SubscriptionMode_TARGET_DEFINED, // unsupported
+	}
+	subList := &gnmipb.SubscriptionList{
+		Subscription: []*gnmipb.Subscription{sub},
+	}
+
+	wg.Add(1)
+	synced.Add(1)
+	go client.StreamRun(q, stop, &wg, subList)
+	wg.Wait()
+
+	itemOut, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if itemOut.Val == nil || itemOut.Val.Fatal == "" {
+		t.Errorf("Expected fatal message, got: %v", itemOut)
+	}
+}
+
+// NEW
+func TestDbFieldSubscribe_EnqueFatalMsg(t *testing.T) {
+	var wg sync.WaitGroup
+	var synced sync.WaitGroup
+
+	q := NewLimitedQueue(1, false, 1)
+	stop := make(chan struct{})
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := &MixedDbClient{
+		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+		q:       q,
+		channel: stop,
+		w:       &wg,
+		synced:  synced,
+		mapkey:  "default",
+	}
+
+	notification := &gnmipb.Notification{
+		Timestamp: time.Now().UnixNano(),
+		Update: []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
+				},
+			},
+		},
+	}
+
+	item := Value{
+		&spb.Value{
+			Notification: notification,
+		},
+	}
+
+	_ = q.EnqueueItem(item)
+
+	// Mock RedisDbMap to simulate missing DB
+	originalRedisDbMap := redisDbMap
+	redisDbMap = map[string]RedisClient{}
+	defer func() { redisDbMap = originalRedisDbMap }()
+
+	// Mock getDbtablePath to return valid path
+	client.getDbtablePath = func(p *gnmipb.Path, op *string) ([]tablePath, error) {
+		return []tablePath{{
+			dbName:       "APPL_DB",
+			tableName:    "INTERFACES",
+			tableKey:     "Ethernet0",
+			field:        "admin_status",
+			jsonField:    "admin_status",
+			jsonTableKey: "Ethernet0",
+			delimitor:    "|",
+			dbNamespace:  "default",
+		}}, nil
+	}
+
+	wg.Add(1)
+	synced.Add(1)
+	go client.dbFieldSubscribe(path, false, 10*time.Millisecond)
+	wg.Wait()
+
+	itemOut, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if itemOut.Fatal == "" {
+		t.Errorf("Expected fatal message, got: %v", itemOut)
+	}
+}
+
+// NEW
+func TestDbTableKeySubscribe_EnqueFatalMsg(t *testing.T) {
+	var wg sync.WaitGroup
+	var synced sync.WaitGroup
+
+	q := NewLimitedQueue(1, false, 1)
+	stop := make(chan struct{})
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := &MixedDbClient{
+		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+		q:       q,
+		channel: stop,
+		w:       &wg,
+		synced:  synced,
+		mapkey:  "default",
+	}
+
+	notification := &gnmipb.Notification{
+		Timestamp: time.Now().UnixNano(),
+		Update: []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
+				},
+			},
+		},
+	}
+
+	item := Value{
+		&spb.Value{
+			Notification: notification,
+		},
+	}
+	_ = q.EnqueueItem(item)
+
+	// Mock getDbtablePath to return valid path
+	client.getDbtablePath = func(p *gnmipb.Path, op *string) ([]tablePath, error) {
+		return []tablePath{{
+			dbName:       "APPL_DB",
+			tableName:    "INTERFACES",
+			tableKey:     "Ethernet0",
+			field:        "admin_status",
+			jsonField:    "admin_status",
+			jsonTableKey: "Ethernet0",
+			delimitor:    "|",
+			dbNamespace:  "default",
+		}}, nil
+	}
+
+	// Mock RedisDbMap with failing pubsub
+	originalRedisDbMap := redisDbMap
+	redisDbMap = map[string]RedisClient{
+		"default:APPL_DB": &MockRedisClient{
+			PSubscribeFunc: func(pattern string) *MockPubSub {
+				return &MockPubSub{
+					ReceiveTimeoutFunc: func(d time.Duration) (interface{}, error) {
+						return nil, fmt.Errorf("mock psubscribe failure")
+					},
+					CloseFunc: func() error { return nil },
+				}
+			},
+		},
+	}
+	defer func() { redisDbMap = originalRedisDbMap }()
+
+	// Mock tableData2Msi to return error
+	originalFunc := client.getTableData2Msi
+	originalFunc = func(tp *tablePath, useKey bool, op *string, msi *map[string]interface{}) error {
+		return fmt.Errorf("mock tableData2Msi error")
+	}
+	defer func() { client.getTableData2Msi = originalFunc }()
+
+	// Mock msi2TypedValue to return error
+	originalMsi2TypedValue := client.getMsiTypedValueFunc
+	originalMsi2TypedValue = func(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
+		return nil, fmt.Errorf("mock msi2TypedValue error")
+	}
+	defer func() { client.getMsiTypedValueFunc = originalMsi2TypedValue }()
+
+	wg.Add(1)
+	synced.Add(1)
+	go client.dbTableKeySubscribe(path, 10*time.Millisecond, false)
+	wg.Wait()
+
+	// Check for fatal message
+	itemOut, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if itemOut.Fatal == "" {
+		t.Errorf("Expected fatal message, got: %v", itemOut)
+	}
+}
+
+// END NEW DB TESTS BLOCK
 
 // Mixed DB Client
 func TestMixedDbClientSubscriptionModeFatalMsg(t *testing.T) {

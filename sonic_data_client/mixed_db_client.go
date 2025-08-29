@@ -1631,16 +1631,27 @@ func (c *MixedDbClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.Wai
 				SyncResponse: false,
 				Val:          val,
 			}
-			c.q.EnqueueItem(Value{spbv})
+			// c.q.EnqueueItem(Value{spbv})
+			if errEnq := c.q.EnqueueItem(Value{spbv}); errEnq != nil {
+				if st, ok := status.FromError(errEnq); ok && st.Code() == codes.ResourceExhausted {
+					c.q.enqueFatalMsg(st.Message())
+					return
+				}
+			}
 			log.V(6).Infof("Added spbv #%v", spbv)
 		}
 
-		c.q.EnqueueItem(Value{
-			&spb.Value{
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: true,
-			},
-		})
+		spbv := &spb.Value{
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: true,
+		}
+		// c.q.EnqueueItem(Value{spbv})
+		if err := c.q.EnqueueItem(Value{spbv}); err != nil {
+			if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
+				c.q.enqueFatalMsg(st.Message())
+				return
+			}
+		}
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
 }
@@ -1693,12 +1704,17 @@ func (c *MixedDbClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.W
 	// in the SubscriptionList has been transmitted at least once
 	c.synced.Wait()
 	// Inject sync message
-	c.q.EnqueueItem(Value{
-		&spb.Value{
-			Timestamp:    time.Now().UnixNano(),
-			SyncResponse: true,
-		},
-	})
+	spbv := &spb.Value{
+		Timestamp:    time.Now().UnixNano(),
+		SyncResponse: true,
+	}
+	// c.q.EnqueueItem(Value{spbv})
+	if err := c.q.EnqueueItem(Value{spbv}); err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
+			c.q.enqueFatalMsg(st.Message())
+			return
+		}
+	}
 	log.V(2).Infof("%v Synced", c.pathG2S)
 
 	<-c.channel
@@ -1994,9 +2010,14 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 			(*spbv).Delete = []*gnmipb.Path{gnmiPath}
 		}
 		if err = c.q.EnqueueItem(Value{spbv}); err != nil {
+			if st, ok := status.FromError(err); ok {
+				if st.Code() == codes.ResourceExhausted {
+					c.q.enqueFatalMsg(st.Message())
+					return err
+				}
+			}
 			return fmt.Errorf("Queue error:  %v", err)
 		}
-
 		return nil
 	}
 
