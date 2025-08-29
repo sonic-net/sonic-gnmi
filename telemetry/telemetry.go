@@ -235,6 +235,18 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		ImgDir:               *telemetryCfg.ImgDirPath,
 		ProcessTransferReady: gnmi.ProcessInstallFromBackEnd,
 		ProcessTransferEnd:   gnmi.ProcessInstallFromBackEnd,
+		ProcessTransferState: &gnmi.InstallRequestState{
+			CurrentState: gnmi.TransferReady, // Initial state should be a valid `State`
+			NextState: map[gnmi.State]map[gnmi.Event]gnmi.State{
+				gnmi.TransferReady: {
+					gnmi.TransferRequest: gnmi.TransferProgress,
+				},
+				gnmi.TransferProgress: {
+					gnmi.TransferContent: gnmi.TransferProgress,
+					gnmi.TransferEnd:     gnmi.Validated,
+				},
+			},
+		},
 	}
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*telemetryCfg.Port)

@@ -32,11 +32,23 @@ func ProcessInstallFromBackEnd(req string) (string, error) {
 	return sc.InstallOS(req)
 }
 
+func (srv *OSServer) StateTransition(e Event) {
+
+	if next, ok := srv.ProcessTransferState.NextState[srv.ProcessTransferState.CurrentState][e]; ok {
+		log.Infof("Transitioning from %v to %v on event %v\n", srv.ProcessTransferState.CurrentState, next, e)
+		srv.ProcessTransferState.CurrentState = next
+	} else {
+		log.Infof("Invalid transition from %v on event %v\n", srv.ProcessTransferState.CurrentState, e)
+	}
+}
+
 func (srv *OSServer) processTransferReq(req *ospb.InstallRequest) *ospb.InstallResponse {
 	log.Infof("processTransferReq for %v", req)
 	transferReq := req.GetTransferRequest()
+
+	srv.StateTransition(TransferRequest)
 	if transferReq.GetVersion() == "" {
-		log.V(1).Infoln("TransferRequest must contain a valid OS version.")
+		log.V(1).Infoln("TransferRequest must contain a valid OS version. ")
 		return &ospb.InstallResponse{
 			Response: &ospb.InstallResponse_InstallError{
 				InstallError: &ospb.InstallError{
@@ -57,7 +69,6 @@ func (srv *OSServer) processTransferReq(req *ospb.InstallRequest) *ospb.InstallR
 				},
 			},
 		}
-
 	}
 	respStr, err := srv.config.OSCfg.ProcessTransferReady(string(reqStr))
 	log.Infof("Response string from backend= %s", respStr)
@@ -86,8 +97,8 @@ func (srv *OSServer) processTransferReq(req *ospb.InstallRequest) *ospb.InstallR
 				},
 			},
 		}
-
 	}
+
 	log.Infof("Successfully processed TransferRequest and returning %v", resp)
 	return resp
 }
@@ -96,6 +107,8 @@ func (srv *OSServer) processTransferEnd(req *ospb.InstallRequest) *ospb.InstallR
 	// Back end is expected to return the response in JSON format.
 
 	log.Infof("Received TransferEnd event for InstallRequest: %v", req)
+	srv.StateTransition(TransferEnd)
+
 	reqStr, err := json.Marshal(req)
 	if err != nil {
 		log.Errorf("Failed to marshal TransferEnd JSON: err: %v, req: %v, reqStr: %v", err, req, reqStr)
@@ -118,7 +131,6 @@ func (srv *OSServer) processTransferEnd(req *ospb.InstallRequest) *ospb.InstallR
 				},
 			},
 		}
-
 	}
 	resp := &ospb.InstallResponse{}
 	log.Infof("processTransferEnd: InstallResponse = resp: %v", resp)
@@ -130,14 +142,15 @@ func (srv *OSServer) processTransferEnd(req *ospb.InstallRequest) *ospb.InstallR
 				},
 			},
 		}
-
 	}
+
 	log.Infof("Successfully processed TransferEnd and returning %v", resp)
 	return resp
 }
 
 func (srv *OSServer) processTransferContent(transferContent []byte, imgPath string) *ospb.InstallResponse {
 	log.Infof("processTransferContent to %v", imgPath)
+	srv.StateTransition(TransferContent)
 
 	// Base directory where the images should reside (e.g., /tmp)
 	baseDir := srv.config.OSCfg.ImgDir
@@ -306,11 +319,12 @@ func (srv *OSServer) Install(stream ospb.OS_InstallServer) error {
 		err = status.Errorf(codes.InvalidArgument, "Expected TransferRequest.")
 		return err
 	}
+
 	resp := srv.processTransferReq(req)
 	log.Infof("Processed TransferRequest=%v", resp)
 
 	if resp == nil {
-		log.V(1).Infof("Returning codes.Unimplemented as backend not supported")
+		log.V(1).Infof("Returning codes.Unimplemented as backend not supported\n")
 		return status.Errorf(codes.Unimplemented, "OS Install not supported")
 	}
 
@@ -378,8 +392,10 @@ func (srv *OSServer) Install(stream ospb.OS_InstallServer) error {
 			return err
 		}
 		imgTransferInitiated = true
+
 		resp := srv.processTransferContent(req.GetTransferContent(), imgPath)
 		log.Infof("processTransferContent response=%v", resp)
+
 		if resp != nil {
 			if err := stream.Send(resp); err != nil {
 				log.Errorf("Error while sending processTransferContent response: %v", err)
@@ -403,8 +419,10 @@ func (srv *OSServer) Install(stream ospb.OS_InstallServer) error {
 		err = status.Errorf(codes.InvalidArgument, "Expected TransferEnd")
 		return err
 	}
+
 	resp = srv.processTransferEnd(req)
 	log.Infof("Processed TransferEnd=%v", resp)
+
 	if resp != nil {
 		if err := stream.Send(resp); err != nil {
 			log.Errorf("Error while sending TransferEnd response:%v. Aborting..", err)

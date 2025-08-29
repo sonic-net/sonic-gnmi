@@ -683,11 +683,23 @@ func TestProcessTransferContent_OpenFileError(t *testing.T) {
 				},
 			},
 		},
+		ProcessTransferState: &InstallRequestState{
+			CurrentState: TransferReady, // Initial state should be a valid `State`
+			NextState: map[State]map[Event]State{
+				TransferReady: {
+					TransferRequest: TransferProgress,
+				},
+				TransferProgress: {
+					TransferContent: TransferProgress,
+					TransferEnd:     Validated,
+				},
+			},
+		},
 	}
 
 	// Call the method under test
 	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
-	t.Logf("processTransferContent response=%v", resp)
+	t.Logf("processTransferContent response=%v\n", resp)
 
 	// Check if the response is not nil and has the expected error
 	if resp == nil || resp.GetInstallError() == nil {
@@ -722,19 +734,37 @@ func TestProcessTransferContent_OpenFileError(t *testing.T) {
 		return nil
 	})
 
+<<<<<<< Updated upstream
 	// Initialize the Server struct with a mock Config
 	srv := &OSServer{
 		Server: &Server{
 			config: &Config{
 				OSCfg: &OSConfig{
 					ImgDir: "/tmp", // Mock directory path
+=======
+	srv := &OSServer{
+		ProcessTransferState: &InstallRequestState{
+			CurrentState: TransferRequest,
+			NextState: map[State]map[Event]State{
+				TransferRequest: {
+					StartTransfer: Transfer_content_progress,
+				},
+				Transfer_content_progress: {
+					Content_ProgressUpdate: Transfer_content_progress,
+					CompleteTransfer:       TransferEnd,
+
 				},
 			},
 		},
 	}
+<<<<<<< Updated upstream
 
 	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
 	t.Logf("processTransferContent response=%v", resp)
+=======
+	resp, state := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
+	t.Errorf("Current Transfer State: %v\n", state)
+>>>>>>> Stashed changes
 
 	if resp == nil || resp.GetInstallError() == nil {
 		t.Errorf("Expected error response due to Write failure, got: %+v", resp)
@@ -772,11 +802,23 @@ func TestProcessTransferContent_WriteError(t *testing.T) {
 				},
 			},
 		},
+		ProcessTransferState: &InstallRequestState{
+			CurrentState: TransferReady, // Initial state should be a valid `State`
+			NextState: map[State]map[Event]State{
+				TransferReady: {
+					TransferRequest: TransferProgress,
+				},
+				TransferProgress: {
+					TransferContent: TransferProgress,
+					TransferEnd:     Validated,
+				},
+			},
+		},
 	}
 
 	// Call the method being tested
 	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
-	t.Logf("processTransferContent response=%v", resp)
+	t.Logf("processTransferContent response=%v\n", resp)
 
 	// Validate that the response contains the expected error
 	t.Logf("processTransferContent response=%v", resp.GetInstallError())
@@ -824,10 +866,22 @@ func TestProcessTransferContent_CloseError(t *testing.T) {
 				},
 			},
 		},
+		ProcessTransferState: &InstallRequestState{
+			CurrentState: TransferReady, // Initial state should be a valid `State`
+			NextState: map[State]map[Event]State{
+				TransferReady: {
+					TransferRequest: TransferProgress,
+				},
+				TransferProgress: {
+					TransferContent: TransferProgress,
+					TransferEnd:     Validated,
+				},
+			},
+		},
 	}
 
 	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
-	t.Logf("processTransferContent response=%v", resp)
+	t.Logf("processTransferContent response=%v\n", resp)
 
 	if resp == nil || resp.GetInstallError() == nil {
 		t.Errorf("Expected error response due to Close failure, got: %+v", resp)

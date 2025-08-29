@@ -125,6 +125,18 @@ func createCommonOSCfg() *OSConfig {
 		ImgDir:               "/tmp",
 		ProcessTransferReady: ProcessFakeTrfReady,
 		ProcessTransferEnd:   ProcessFakeTrfEnd,
+		ProcessTransferState: &InstallRequestState{
+			CurrentState: TransferReady, // Initial state should be a valid `State`
+			NextState: map[State]map[Event]State{
+				TransferReady: {
+					TransferRequest: TransferProgress,
+				},
+				TransferProgress: {
+					TransferContent: TransferProgress,
+					TransferEnd:     Validated,
+				},
+			},
+		},
 	}
 }
 
