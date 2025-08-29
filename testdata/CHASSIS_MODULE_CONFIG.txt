@@ -1,0 +1,14 @@
+{
+    "CHASSIS_MODULE|DPU0": {
+      "admin_status": "up"
+    },
+    "CHASSIS_MODULE|DPU1": {
+      "admin_status": "up"
+    },
+    "CHASSIS_MODULE|DPU2": {
+      "admin_status": "up"
+    },
+    "CHASSIS_MODULE|DPU3": {
+      "admin_status": "down"
+    }
+}
