@@ -18,16 +18,12 @@ const (
 	chassisServer = "redis_chassis.server"
 	chassisPort   = 6380
 	chassisDB     = 13
-)
 
-type DpuStateDetail struct {
-	Name        string `json:"name"`
-	OperStatus  string `json:"oper_status"`
-	StateDetail string `json:"state_detail"`
-	StateValue  string `json:"state_value"`
-	Time        string `json:"time"`
-	Reason      string `json:"reason"`
-}
+	// Operational status constants
+	operStatusOnline        = "Online"
+	operStatusOffline       = "Offline"
+	operStatusPartialOnline = "Partial Online"
+)
 
 type DpuStateRow struct {
 	Name        string `json:"name"`
@@ -55,11 +51,11 @@ func determineOperStatus(stateInfo map[string]interface{}) string {
 	}
 
 	if midplaneDown {
-		return "Offline"
+		return operStatusOffline
 	} else if upCount == 3 {
-		return "Online"
+		return operStatusOnline
 	} else {
-		return "Partial Online"
+		return operStatusPartialOnline
 	}
 }
 
@@ -79,21 +75,29 @@ func createDpuStateRowsFromData(moduleName string, stateInfo map[string]interfac
 
 		// Find state, time, and reason fields for this state type
 		for key, value := range stateInfo {
-			if strValue, ok := value.(string); ok {
-				if strings.Contains(key, stateType) {
-					if strings.HasSuffix(key, "_state") {
-						row.StateDetail = key
-						row.StateValue = strValue
-						if strings.ToLower(strValue) == "up" {
-							row.Reason = ""
-						}
-					} else if strings.HasSuffix(key, "_time") {
-						row.Time = strValue
-					} else if strings.HasSuffix(key, "_reason") {
-						if strings.ToLower(row.StateValue) != "up" {
-							row.Reason = strValue
-						}
-					}
+			strValue, ok := value.(string)
+			if !ok {
+				continue
+			}
+
+			if !strings.Contains(key, stateType) {
+				continue
+			}
+
+			switch {
+			case strings.HasSuffix(key, "_state"):
+				row.StateDetail = key
+				row.StateValue = strValue
+				if strings.ToLower(strValue) == "up" {
+					row.Reason = ""
+				}
+
+			case strings.HasSuffix(key, "_time"):
+				row.Time = strValue
+
+			case strings.HasSuffix(key, "_reason"):
+				if strings.ToLower(row.StateValue) != "up" {
+					row.Reason = strValue
 				}
 			}
 		}
@@ -160,7 +164,7 @@ func getSystemHealthDpu(options sdc.OptionMap) ([]byte, error) {
 	// Convert to JSON
 	jsonData, err := json.Marshal(allRows)
 	if err != nil {
-		log.V(2).Infof("getSystemHealthDpu: error marshaling result: %v", err)
+		log.Errorf("getSystemHealthDpu: error marshaling result: %v", err)
 		return nil, fmt.Errorf("failed to marshal result: %w", err)
 	}
 

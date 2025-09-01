@@ -134,7 +134,7 @@ func getChassisModuleStatus(options sdc.OptionMap) ([]byte, error) {
 	}
 
 	// Get data for all modules
-	log.V(2).Infof("getChassisModuleStatus: getting all modules")
+	log.V(3).Infof("getChassisModuleStatus: getting all modules")
 	queries := createChassisModuleQueries("")
 	stateData, configData, err := getChassisModuleData(queries)
 	if err != nil {
@@ -180,7 +180,7 @@ func getChassisModuleStatus(options sdc.OptionMap) ([]byte, error) {
 	// Convert to JSON
 	jsonData, err := json.Marshal(result)
 	if err != nil {
-		log.V(2).Infof("getChassisModuleStatus: error marshaling result: %v", err)
+		log.Errorf("getChassisModuleStatus: error marshaling result: %v", err)
 		return nil, fmt.Errorf("failed to marshal result: %w", err)
 	}
 
@@ -295,7 +295,7 @@ func getChassisModuleMidplaneStatus(options sdc.OptionMap) ([]byte, error) {
 	}
 
 	// Get data for all modules
-	log.V(2).Infof("getChassisModuleMidplaneStatus: getting all modules")
+	log.V(3).Infof("getChassisModuleMidplaneStatus: getting all modules")
 	queries := createChassisModuleMidplaneQueries("")
 	stateData, err := getChassisModuleMidplaneData(queries)
 	if err != nil {
@@ -316,7 +316,7 @@ func getChassisModuleMidplaneStatus(options sdc.OptionMap) ([]byte, error) {
 	// Convert to JSON
 	jsonData, err := json.Marshal(result)
 	if err != nil {
-		log.V(2).Infof("getChassisModuleMidplaneStatus: error marshaling result: %v", err)
+		log.Errorf("getChassisModuleMidplaneStatus: error marshaling result: %v", err)
 		return nil, fmt.Errorf("failed to marshal result: %w", err)
 	}
 
