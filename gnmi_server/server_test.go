@@ -5139,6 +5139,58 @@ func TestInvalidServer(t *testing.T) {
 	}
 }
 
+func TestServerConfigGnmiVrf(t *testing.T) {
+	// Test GNMI server creation with VRF configuration
+	cfg := &Config{
+		Port:                8082,
+		EnableTranslibWrite: true,
+		EnableNativeWrite:   true,
+		Threshold:           100,
+		GnmiVrf:             "test-gnmi-vrf",
+		Vrf:                 "",
+	}
+	s, err := NewServer(cfg, []grpc.ServerOption{})
+	if err != nil {
+		t.Errorf("Unexpected error type: %v", err)
+		return
+	}
+	defer s.Stop()
+	if cfg.GnmiVrf != "test-gnmi-vrf" {
+		t.Errorf("Expected gnmiVrf to be 'test-gnmi-vrf', got '%s'", cfg.GnmiVrf)
+	}
+	if s.lis == nil {
+		t.Errorf("Expected server listener to be created")
+	} else {
+		addr := s.lis.Addr()
+		if addr == nil {
+			t.Errorf("Expected server listener to have an address")
+		} else {
+			t.Logf("Server successfully bound to address: %s with VRF: %s", addr.String(), s.config.GnmiVrf)
+		}
+	}
+}
+
+func TestServerConfigZmqVrf(t *testing.T) {
+	// Test that ZMQ VRF field is properly set in config
+	cfg := &Config{
+		Port:                8083,
+		EnableTranslibWrite: true,
+		EnableNativeWrite:   true,
+		Threshold:           100,
+		GnmiVrf:             "",
+		Vrf:                 "test-zmq-vrf",
+	}
+	s, err := NewServer(cfg, []grpc.ServerOption{})
+	if err != nil {
+		t.Errorf("Failed to create server: %v", err)
+		return
+	}
+	defer s.Stop()
+	if s.config.Vrf != "test-zmq-vrf" {
+		t.Errorf("Expected Vrf to be 'test-zmq-vrf', got '%s'", s.config.Vrf)
+	}
+}
+
 func TestParseOrigin(t *testing.T) {
 	var test_paths []*gnmipb.Path
 	var err error
