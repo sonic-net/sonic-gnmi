@@ -55,15 +55,16 @@ type tlsConfig struct {
 
 // certConfig holds certificate manager configuration for the server builder.
 type certConfig struct {
-	useFiles      bool
-	useSONiC      bool
-	certFile      string
-	keyFile       string
-	caFile        string
-	redisAddr     string
-	redisDB       int
-	requireClient bool
-	allowNoClient bool
+	useFiles        bool
+	useSONiC        bool
+	certFile        string
+	keyFile         string
+	caFile          string
+	redisAddr       string
+	redisDB         int
+	requireClient   bool
+	allowNoClient   bool
+	configTableName string
 }
 
 // NewServerBuilder creates a new ServerBuilder instance with default configuration.
@@ -125,11 +126,14 @@ func (b *ServerBuilder) WithoutTLS() *ServerBuilder {
 // This is suitable for containers with mounted /etc/sonic/ or file-based deployments.
 func (b *ServerBuilder) WithCertificateFiles(certFile, keyFile, caFile string) *ServerBuilder {
 	b.certConfig = &certConfig{
-		useFiles:      true,
-		certFile:      certFile,
-		keyFile:       keyFile,
-		caFile:        caFile,
-		requireClient: true, // Default to secure
+		useFiles:        true,
+		certFile:        certFile,
+		keyFile:         keyFile,
+		caFile:          caFile,
+		requireClient:   true,               // Default to secure
+		configTableName: "GNMI_CLIENT_CERT", // Default table
+		redisAddr:       "localhost:6379",   // Default Redis for client auth
+		redisDB:         4,                  // Default ConfigDB
 	}
 	return b
 }
@@ -138,10 +142,11 @@ func (b *ServerBuilder) WithCertificateFiles(certFile, keyFile, caFile string) *
 // This integrates with SONiC's Redis-based configuration system.
 func (b *ServerBuilder) WithSONiCCertificates(redisAddr string, redisDB int) *ServerBuilder {
 	b.certConfig = &certConfig{
-		useSONiC:      true,
-		redisAddr:     redisAddr,
-		redisDB:       redisDB,
-		requireClient: true, // Default to secure
+		useSONiC:        true,
+		redisAddr:       redisAddr,
+		redisDB:         redisDB,
+		requireClient:   true,               // Default to secure
+		configTableName: "GNMI_CLIENT_CERT", // Default table name
 	}
 	return b
 }
@@ -152,6 +157,15 @@ func (b *ServerBuilder) WithClientCertPolicy(requireClient, allowNoClient bool) 
 	if b.certConfig != nil {
 		b.certConfig.requireClient = requireClient
 		b.certConfig.allowNoClient = allowNoClient
+	}
+	return b
+}
+
+// WithConfigTableName sets the ConfigDB table name for client certificate authorization.
+// This is typically "GNMI_CLIENT_CERT" (default) but can be customized for different services.
+func (b *ServerBuilder) WithConfigTableName(tableName string) *ServerBuilder {
+	if b.certConfig != nil {
+		b.certConfig.configTableName = tableName
 	}
 	return b
 }
@@ -178,20 +192,14 @@ func (b *ServerBuilder) EnableServices(services []string) *ServerBuilder {
 func (b *ServerBuilder) Build() (*Server, error) {
 	// Use provided address or fall back to global config
 	addr := b.addr
-	if addr == "" && config.Global != nil {
-		addr = config.Global.Addr
-	}
 	if addr == "" {
-		addr = ":50055" // Default address
+		addr = config.Global.Addr
 	}
 
 	// Use provided rootFS or fall back to global config
 	rootFS := b.rootFS
-	if rootFS == "" && config.Global != nil {
-		rootFS = config.Global.RootFS
-	}
 	if rootFS == "" {
-		rootFS = "/tmp" // Default rootFS for testing
+		rootFS = config.Global.RootFS
 	}
 
 	// Determine TLS configuration - use builder config if provided, otherwise global config
@@ -205,17 +213,13 @@ func (b *ServerBuilder) Build() (*Server, error) {
 		certFile = b.tlsConfig.certFile
 		keyFile = b.tlsConfig.keyFile
 		caCertFile = b.tlsConfig.caCertFile
-	} else if config.Global != nil {
+	} else {
 		// Fall back to global configuration
 		tlsEnabled = config.Global.TLSEnabled
 		mtlsEnabled = config.Global.MTLSEnabled
 		certFile = config.Global.TLSCertFile
 		keyFile = config.Global.TLSKeyFile
 		caCertFile = config.Global.TLSCACertFile
-	} else {
-		// Default configuration when no global config is available
-		tlsEnabled = false
-		mtlsEnabled = false
 	}
 
 	// Create the base gRPC server - prefer certificate manager over legacy TLS
@@ -262,7 +266,11 @@ func (b *ServerBuilder) createCertificateManager() (cert.CertificateManager, err
 		certConfig.CAFile = b.certConfig.caFile
 		certConfig.RequireClientCert = b.certConfig.requireClient
 		certConfig.AllowNoClientCert = b.certConfig.allowNoClient
-		certConfig.EnableMonitoring = false // Disable monitoring in builder pattern for now
+		certConfig.ConfigTableName = b.certConfig.configTableName
+		certConfig.RedisAddr = b.certConfig.redisAddr // For client auth manager
+		certConfig.RedisDB = b.certConfig.redisDB     // For client auth manager
+		certConfig.EnableMonitoring = false           // Disable monitoring in builder pattern for now
+		certConfig.UseSONiCConfig = false             // Explicitly disable SONiC mode for file-based
 
 		certMgr := cert.NewCertificateManager(certConfig)
 		if err := certMgr.LoadCertificates(); err != nil {
@@ -278,6 +286,7 @@ func (b *ServerBuilder) createCertificateManager() (cert.CertificateManager, err
 		certConfig.RedisDB = b.certConfig.redisDB
 		certConfig.RequireClientCert = b.certConfig.requireClient
 		certConfig.AllowNoClientCert = b.certConfig.allowNoClient
+		certConfig.ConfigTableName = b.certConfig.configTableName
 		certConfig.EnableMonitoring = false // Disable monitoring in builder pattern for now
 
 		certMgr := cert.NewCertificateManager(certConfig)

@@ -8,15 +8,15 @@ import (
 func TestNewDefaultConfig(t *testing.T) {
 	config := NewDefaultConfig()
 
-	// Check basic defaults
-	if config.CertFile != "server.crt" {
-		t.Errorf("Expected CertFile to be 'server.crt', got %s", config.CertFile)
+	// Check basic defaults - now using production paths
+	if config.CertFile != "/etc/sonic/telemetry/gnmiserver.crt" {
+		t.Errorf("Expected CertFile to be '/etc/sonic/telemetry/gnmiserver.crt', got %s", config.CertFile)
 	}
-	if config.KeyFile != "server.key" {
-		t.Errorf("Expected KeyFile to be 'server.key', got %s", config.KeyFile)
+	if config.KeyFile != "/etc/sonic/telemetry/gnmiserver.key" {
+		t.Errorf("Expected KeyFile to be '/etc/sonic/telemetry/gnmiserver.key', got %s", config.KeyFile)
 	}
-	if config.CAFile != "ca.crt" {
-		t.Errorf("Expected CAFile to be 'ca.crt', got %s", config.CAFile)
+	if config.CAFile != "/etc/sonic/telemetry/gnmiCA.pem" {
+		t.Errorf("Expected CAFile to be '/etc/sonic/telemetry/gnmiCA.pem', got %s", config.CAFile)
 	}
 
 	// Check security defaults
@@ -44,6 +44,11 @@ func TestNewDefaultConfig(t *testing.T) {
 	}
 	if len(config.CurvePreferences) == 0 {
 		t.Error("Expected CurvePreferences to be configured")
+	}
+
+	// Check ConfigDB defaults
+	if config.ConfigTableName != "GNMI_CLIENT_CERT" {
+		t.Errorf("Expected ConfigTableName to be 'GNMI_CLIENT_CERT', got %s", config.ConfigTableName)
 	}
 }
 

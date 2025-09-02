@@ -22,6 +22,7 @@ type Config struct {
 	RedisAddr            string // Redis server address for ConfigDB
 	RedisDB              int    // Redis database number for ConfigDB
 	EnableCertMonitoring bool   // Enable certificate file monitoring
+	ConfigTableName      string // ConfigDB table name for client certificates
 }
 
 var Global *Config
@@ -43,6 +44,7 @@ func Initialize() {
 	redisAddr := flag.String("redis-addr", "localhost:6379", "Redis server address for ConfigDB access")
 	redisDB := flag.Int("redis-db", 4, "Redis database number for ConfigDB (default: 4)")
 	enableCertMonitoring := flag.Bool("cert-monitoring", true, "Enable certificate file monitoring for automatic reload")
+	configTableName := flag.String("config-table-name", "GNMI_CLIENT_CERT", "ConfigDB table name for client certificates")
 
 	flag.Parse()
 
@@ -83,5 +85,6 @@ func Initialize() {
 		RedisAddr:            *redisAddr,
 		RedisDB:              *redisDB,
 		EnableCertMonitoring: *enableCertMonitoring,
+		ConfigTableName:      *configTableName,
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server"
+	serverConfig "github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server/config"
 )
 
 func TestServerConnectionModes(t *testing.T) {
@@ -31,6 +32,11 @@ func TestServerConnectionModes(t *testing.T) {
 }
 
 func TestServerBuilderCertificateIntegration(t *testing.T) {
+	// Initialize minimal global config for tests that don't set explicit builder values
+	if serverConfig.Global == nil {
+		serverConfig.Global = &serverConfig.Config{}
+	}
+
 	t.Run("ServerBuilderWithCertificateFiles", testServerBuilderWithCertificateFiles)
 	t.Run("ServerBuilderWithSONiCCertificates", testServerBuilderWithSONiCCertificates)
 	t.Run("ServerBuilderClientAuthPolicies", testServerBuilderClientAuthPolicies)
@@ -183,6 +189,8 @@ func testServerBuilderWithCertificateFiles(t *testing.T) {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 
 	// Create server using builder pattern with certificate files
+	// Note: For testing, we don't set up GNMI_CLIENT_CERT table, so client CN verification will fail
+	// This test focuses on certificate loading, not client auth
 	srv, err := server.NewServerBuilder().
 		WithAddress(addr).
 		WithRootFS(tempDir).
@@ -192,14 +200,23 @@ func testServerBuilderWithCertificateFiles(t *testing.T) {
 	defer srv.Stop()
 
 	// Start server
+	serverStarted := make(chan error, 1)
 	go func() {
-		if err := srv.Start(); err != nil {
-			t.Logf("Server error: %v", err)
-		}
+		serverStarted <- srv.Start()
 	}()
 
 	// Give server time to start
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
+
+	// Check if server had an error starting
+	select {
+	case err := <-serverStarted:
+		if err != nil {
+			t.Fatalf("Server failed to start: %v", err)
+		}
+	default:
+		// Server is still running, which is expected
+	}
 
 	// Test mTLS connection with the builder-created server
 	testMTLSConnectionToAddress(t, addr, clientCertFile, clientKeyFile, caCertFile)
@@ -234,6 +251,12 @@ func testServerBuilderWithSONiCCertificates(t *testing.T) {
 	).Err()
 	require.NoError(t, err, "Failed to populate ConfigDB")
 
+	// Add authorized client CN for mTLS testing (matches cert_helpers.go client cert)
+	err = client.HSet(ctx, "GNMI_CLIENT_CERT|test.client.gnmi.sonic",
+		"role@", "gnmi_readwrite",
+	).Err()
+	require.NoError(t, err, "Failed to add client CN authorization")
+
 	// Find available port
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -242,24 +265,34 @@ func testServerBuilderWithSONiCCertificates(t *testing.T) {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 
 	// Create server using builder pattern with SONiC certificates
+	// Now with proper client CN authorization set up in ConfigDB
 	srv, err := server.NewServerBuilder().
 		WithAddress(addr).
 		WithRootFS(tempDir).
 		WithSONiCCertificates(mr.Addr(), 4).
-		WithClientCertPolicy(true, false). // Require client certs
+		WithClientCertPolicy(true, false). // Require client certs with CN verification
 		Build()
 	require.NoError(t, err, "Failed to build server with SONiC certificates")
 	defer srv.Stop()
 
 	// Start server
+	serverStarted := make(chan error, 1)
 	go func() {
-		if err := srv.Start(); err != nil {
-			t.Logf("Server error: %v", err)
-		}
+		serverStarted <- srv.Start()
 	}()
 
 	// Give server time to start
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
+
+	// Check if server had an error starting
+	select {
+	case err := <-serverStarted:
+		if err != nil {
+			t.Fatalf("Server failed to start: %v", err)
+		}
+	default:
+		// Server is still running, which is expected
+	}
 
 	// Test mTLS connection with the builder-created server
 	testMTLSConnectionToAddress(t, addr, clientCertFile, clientKeyFile, caCertFile)
@@ -321,14 +354,23 @@ func testServerBuilderClientAuthPolicies(t *testing.T) {
 			defer srv.Stop()
 
 			// Start server
+			serverStarted := make(chan error, 1)
 			go func() {
-				if err := srv.Start(); err != nil {
-					t.Logf("Server error: %v", err)
-				}
+				serverStarted <- srv.Start()
 			}()
 
 			// Give server time to start
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
+
+			// Check if server had an error starting
+			select {
+			case err := <-serverStarted:
+				if err != nil {
+					t.Fatalf("Server failed to start: %v", err)
+				}
+			default:
+				// Server is still running, which is expected
+			}
 
 			if tt.expectClientAuth {
 				// Should require client certificates

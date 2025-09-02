@@ -44,10 +44,11 @@ type CertificateManager interface {
 
 // CertManager implements CertificateManager with file system monitoring.
 type CertManager struct {
-	config     *CertConfig
-	serverCert atomic.Value // stores *tls.Certificate
-	caCertPool atomic.Value // stores *x509.CertPool
-	tlsConfig  atomic.Value // stores *tls.Config
+	config        *CertConfig
+	serverCert    atomic.Value // stores *tls.Certificate
+	caCertPool    atomic.Value // stores *x509.CertPool
+	tlsConfig     atomic.Value // stores *tls.Config
+	clientAuthMgr *ClientAuthManager
 
 	// Monitoring
 	watcher      *fsnotify.Watcher
@@ -64,11 +65,23 @@ func NewCertificateManager(config *CertConfig) CertificateManager {
 		config = NewDefaultConfig()
 	}
 
-	return &CertManager{
+	cm := &CertManager{
 		config:     config,
 		stopChan:   make(chan struct{}),
 		reloadChan: make(chan struct{}, 1),
 	}
+
+	// Initialize client auth manager only when using SONiC ConfigDB mode
+	// For file-based certificates, client auth manager is optional
+	if config.UseSONiCConfig {
+		cm.clientAuthMgr = NewClientAuthManager(
+			config.RedisAddr,
+			config.RedisDB,
+			config.ConfigTableName,
+		)
+	}
+
+	return cm
 }
 
 // LoadCertificates loads certificates based on the configuration.
@@ -77,11 +90,26 @@ func (cm *CertManager) LoadCertificates() error {
 		return fmt.Errorf("invalid certificate configuration: %w", err)
 	}
 
+	var certErr error
 	if cm.config.UseSONiCConfig {
-		return cm.loadFromSONiCConfig()
+		certErr = cm.loadFromSONiCConfig()
+	} else {
+		certErr = cm.loadFromFiles()
 	}
 
-	return cm.loadFromFiles()
+	if certErr != nil {
+		return certErr
+	}
+
+	// Load client authorization config if available
+	if cm.clientAuthMgr != nil {
+		if err := cm.clientAuthMgr.LoadClientCertConfig(); err != nil {
+			glog.V(1).Infof("Failed to load client cert config: %v", err)
+			// This is not fatal - continue without client CN authorization
+		}
+	}
+
+	return nil
 }
 
 // GetTLSConfig returns the current TLS configuration.
@@ -250,6 +278,11 @@ func (cm *CertManager) generateTLSConfig() (*tls.Config, error) {
 	// Set CA certificate pool if client certificates are required
 	if caCertPool := cm.GetCACertPool(); caCertPool != nil {
 		config.ClientCAs = caCertPool
+	}
+
+	// Add custom client certificate verification if client auth manager is available
+	if cm.clientAuthMgr != nil && cm.config.RequireClientCert {
+		config.VerifyPeerCertificate = cm.clientAuthMgr.VerifyClientCertificate
 	}
 
 	glog.V(2).Infof("Generated TLS config: MinTLS=%x, ClientAuth=%v, CipherSuites=%d",
