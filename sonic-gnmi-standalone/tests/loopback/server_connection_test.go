@@ -216,7 +216,7 @@ func testRequireClientCerts(t *testing.T) {
 	}
 
 	// Should require client certificates
-	testMTLSConnectionToAddress(t, addr, clientCertFile, clientKeyFile, caCertFile)
+	validateMTLSConnection(t, addr, clientCertFile, clientKeyFile, caCertFile)
 }
 
 // testOptionalClientCerts tests server with optional client certificates.
@@ -266,7 +266,7 @@ func testOptionalClientCerts(t *testing.T) {
 	}
 
 	// Should work with TLS but no client cert
-	testTLSConnectionToAddress(t, addr, caCertFile)
+	validateTLSConnection(t, addr, caCertFile)
 }
 
 // testNoClientCerts tests server that doesn't use client certificates.
@@ -316,11 +316,11 @@ func testNoClientCerts(t *testing.T) {
 	}
 
 	// Should work with TLS but no client cert
-	testTLSConnectionToAddress(t, addr, caCertFile)
+	validateTLSConnection(t, addr, caCertFile)
 }
 
-// testMTLSConnectionToAddress tests mTLS connection to a specific address.
-func testMTLSConnectionToAddress(t *testing.T, addr, clientCertFile, clientKeyFile, caCertFile string) {
+// validateMTLSConnection validates that mTLS connection works to a specific address.
+func validateMTLSConnection(t *testing.T, addr, clientCertFile, clientKeyFile, caCertFile string) {
 	// Load client certificate and key
 	clientCert, err := tls.LoadX509KeyPair(clientCertFile, clientKeyFile)
 	require.NoError(t, err)
@@ -362,8 +362,8 @@ func testMTLSConnectionToAddress(t *testing.T, addr, clientCertFile, clientKeyFi
 	assert.Greater(t, len(services.Service), 0)
 }
 
-// testTLSConnectionToAddress tests TLS connection (no client cert) to a specific address.
-func testTLSConnectionToAddress(t *testing.T, addr, caCertFile string) {
+// validateTLSConnection validates that TLS connection works (no client cert) to a specific address.
+func validateTLSConnection(t *testing.T, addr, caCertFile string) {
 	// Load CA certificate for server verification
 	caCertBytes, err := ioutil.ReadFile(caCertFile)
 	require.NoError(t, err)

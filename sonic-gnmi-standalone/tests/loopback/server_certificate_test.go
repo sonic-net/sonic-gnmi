@@ -84,7 +84,7 @@ func testServerBuilderWithCertificateFiles(t *testing.T) {
 	}
 
 	// Test mTLS connection with the builder-created server
-	testMTLSConnectionToAddress(t, addr, clientCertFile, clientKeyFile, caCertFile)
+	validateMTLSConnection(t, addr, clientCertFile, clientKeyFile, caCertFile)
 }
 
 // testServerBuilderWithSONiCCertificates tests the server builder with SONiC ConfigDB certificates.
@@ -160,7 +160,7 @@ func testServerBuilderWithSONiCCertificates(t *testing.T) {
 	}
 
 	// Test mTLS connection with the builder-created server
-	testMTLSConnectionToAddress(t, addr, clientCertFile, clientKeyFile, caCertFile)
+	validateMTLSConnection(t, addr, clientCertFile, clientKeyFile, caCertFile)
 }
 
 // testServerBuilderClientAuthRejection tests that unauthorized client CNs are rejected.
