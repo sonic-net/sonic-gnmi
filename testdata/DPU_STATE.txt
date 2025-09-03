@@ -1,0 +1,50 @@
+{
+    "DPU_STATE|DPU0": {
+      "id": "0",
+      "dpu_midplane_link_state": "UP",
+      "dpu_midplane_link_time": "Sat Aug 23 02:02:47 AM UTC 2025",
+      "dpu_midplane_link_reason": "OK",
+      "dpu_control_plane_state": "UP",
+      "dpu_control_plane_time": "Mon Aug 25 08:59:57 AM UTC 2025",
+      "dpu_control_plane_reason": "OK",
+      "dpu_data_plane_state": "UP",
+      "dpu_data_plane_time": "Sat Aug 23 02:02:53 AM UTC 2025",
+      "dpu_data_plane_reason": "OK"
+    },
+    "DPU_STATE|DPU1": {
+      "id": "1",
+      "dpu_midplane_link_state": "UP",
+      "dpu_midplane_link_time": "Sat Aug 23 02:02:47 AM UTC 2025",
+      "dpu_midplane_link_reason": "OK",
+      "dpu_control_plane_state": "DOWN",
+      "dpu_control_plane_time": "Mon Aug 25 09:00:03 AM UTC 2025",
+      "dpu_control_plane_reason": "Container not running : snmp, radv, teamd, syncd, bgp, swss, host-ethlink-status: host_eth_link is down",
+      "dpu_data_plane_state": "UP",
+      "dpu_data_plane_time": "Sat Aug 23 02:02:53 AM UTC 2025",
+      "dpu_data_plane_reason": "OK"
+    },
+    "DPU_STATE|DPU2": {
+      "id": "2",
+      "dpu_midplane_link_state": "UP",
+      "dpu_midplane_link_time": "Sat Aug 23 02:02:47 AM UTC 2025",
+      "dpu_midplane_link_reason": "OK",
+      "dpu_control_plane_state": "DOWN",
+      "dpu_control_plane_time": "Mon Aug 25 08:59:32 AM UTC 2025",
+      "dpu_control_plane_reason": "Container not running : snmp, radv, syncd, teamd, bgp, swss, host-ethlink-status: host_eth_link is down",
+      "dpu_data_plane_state": "UP",
+      "dpu_data_plane_time": "Sat Aug 23 02:02:53 AM UTC 2025",
+      "dpu_data_plane_reason": "OK"
+    },
+    "DPU_STATE|DPU3": {
+      "id": "3",
+      "dpu_midplane_link_state": "UP",
+      "dpu_midplane_link_time": "Sat Aug 23 02:02:47 AM UTC 2025",
+      "dpu_midplane_link_reason": "OK",
+      "dpu_control_plane_state": "DOWN",
+      "dpu_control_plane_time": "Mon Aug 25 09:00:17 AM UTC 2025",
+      "dpu_control_plane_reason": "Container not running : snmp, radv, syncd, teamd, bgp, swss, host-ethlink-status: host_eth_link is down",
+      "dpu_data_plane_state": "UP",
+      "dpu_data_plane_time": "Sat Aug 23 02:02:53 AM UTC 2025",
+      "dpu_data_plane_reason": "OK"
+    }
+} 
