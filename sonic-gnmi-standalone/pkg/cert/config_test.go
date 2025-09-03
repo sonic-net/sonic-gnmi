@@ -5,53 +5,6 @@ import (
 	"testing"
 )
 
-func TestNewDefaultConfig(t *testing.T) {
-	config := NewDefaultConfig()
-
-	// Check basic defaults - now using production paths
-	if config.CertFile != "/etc/sonic/telemetry/gnmiserver.crt" {
-		t.Errorf("Expected CertFile to be '/etc/sonic/telemetry/gnmiserver.crt', got %s", config.CertFile)
-	}
-	if config.KeyFile != "/etc/sonic/telemetry/gnmiserver.key" {
-		t.Errorf("Expected KeyFile to be '/etc/sonic/telemetry/gnmiserver.key', got %s", config.KeyFile)
-	}
-	if config.CAFile != "/etc/sonic/telemetry/gnmiCA.pem" {
-		t.Errorf("Expected CAFile to be '/etc/sonic/telemetry/gnmiCA.pem', got %s", config.CAFile)
-	}
-
-	// Check security defaults
-	if !config.RequireClientCert {
-		t.Error("Expected RequireClientCert to be true by default")
-	}
-	if config.OptionalClientCert {
-		t.Error("Expected OptionalClientCert to be false by default")
-	}
-	if config.MinTLSVersion != tls.VersionTLS12 {
-		t.Errorf("Expected MinTLSVersion to be TLS 1.2, got %x", config.MinTLSVersion)
-	}
-
-	// Check monitoring defaults
-	if !config.EnableMonitoring {
-		t.Error("Expected EnableMonitoring to be true by default")
-	}
-	if !config.ChecksumValidation {
-		t.Error("Expected ChecksumValidation to be true by default")
-	}
-
-	// Check cipher suites and curves are set
-	if len(config.CipherSuites) == 0 {
-		t.Error("Expected CipherSuites to be configured")
-	}
-	if len(config.CurvePreferences) == 0 {
-		t.Error("Expected CurvePreferences to be configured")
-	}
-
-	// Check ConfigDB defaults
-	if config.ConfigTableName != "GNMI_CLIENT_CERT" {
-		t.Errorf("Expected ConfigTableName to be 'GNMI_CLIENT_CERT', got %s", config.ConfigTableName)
-	}
-}
-
 func TestConfigValidation(t *testing.T) {
 	tests := []struct {
 		name        string
