@@ -128,40 +128,6 @@ func NewInsecureServer(addr string) (*Server, error) {
 	}, nil
 }
 
-// NewServerWithTLS creates a new Server instance with configurable TLS support (DEPRECATED).
-// Use NewServerWithCertManager for production deployments.
-func NewServerWithTLS(
-	addr string,
-	useTLS bool,
-	certFile, keyFile string,
-	useMTLS bool,
-	caCertFile string,
-) (*Server, error) {
-	glog.Warning("NewServerWithTLS is deprecated, use NewServerWithCertManager for production")
-
-	if !useTLS {
-		return NewInsecureServer(addr)
-	}
-
-	// Create basic certificate configuration for backward compatibility
-	certConfig := &cert.CertConfig{
-		CertFile:           certFile,
-		KeyFile:            keyFile,
-		CAFile:             caCertFile,
-		RequireClientCert:  useMTLS,
-		OptionalClientCert: !useMTLS,
-		MinTLSVersion:      tls.VersionTLS12,
-		EnableMonitoring:   false, // Disabled for backward compatibility
-	}
-
-	// Apply default security settings
-	defaultConfig := cert.NewDefaultConfig()
-	certConfig.CipherSuites = defaultConfig.CipherSuites
-	certConfig.CurvePreferences = defaultConfig.CurvePreferences
-
-	return NewServerWithCertManager(addr, cert.NewCertificateManager(certConfig))
-}
-
 // GRPCServer returns the underlying gRPC server instance.
 // This is useful for registering additional services.
 func (s *Server) GRPCServer() *grpc.Server {

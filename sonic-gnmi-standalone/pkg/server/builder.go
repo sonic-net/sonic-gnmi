@@ -25,6 +25,9 @@
 package server
 
 import (
+	"crypto/tls"
+	"fmt"
+
 	"github.com/golang/glog"
 	"github.com/openconfig/gnoi/system"
 
@@ -202,48 +205,57 @@ func (b *ServerBuilder) Build() (*Server, error) {
 		rootFS = config.Global.RootFS
 	}
 
-	// Determine TLS configuration - use builder config if provided, otherwise global config
-	var tlsEnabled, mtlsEnabled bool
-	var certFile, keyFile, caCertFile string
-
-	if b.tlsConfig != nil {
-		// Use builder-specific TLS configuration
-		tlsEnabled = b.tlsConfig.enabled
-		mtlsEnabled = b.tlsConfig.mtlsEnabled
-		certFile = b.tlsConfig.certFile
-		keyFile = b.tlsConfig.keyFile
-		caCertFile = b.tlsConfig.caCertFile
-	} else {
-		// Fall back to global configuration
-		tlsEnabled = config.Global.TLSEnabled
-		mtlsEnabled = config.Global.MTLSEnabled
-		certFile = config.Global.TLSCertFile
-		keyFile = config.Global.TLSKeyFile
-		caCertFile = config.Global.TLSCACertFile
-	}
-
-	// Create the base gRPC server - prefer certificate manager over legacy TLS
+	// Create the base gRPC server
 	var srv *Server
 	var err error
 
 	if b.certConfig != nil {
-		// Create certificate manager from builder configuration
+		// TLS with certificate manager - use builder certificate configuration
 		var certMgr cert.CertificateManager
 		certMgr, err = b.createCertificateManager()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to create certificate manager: %w", err)
 		}
 		srv, err = NewServerWithCertManager(addr, certMgr)
+	} else if b.tlsConfig != nil && b.tlsConfig.enabled {
+		// TLS with legacy configuration - create certificate manager from legacy parameters
+		var certMgr cert.CertificateManager
+		certConfig := &cert.CertConfig{
+			CertFile:           b.tlsConfig.certFile,
+			KeyFile:            b.tlsConfig.keyFile,
+			CAFile:             b.tlsConfig.caCertFile,
+			RequireClientCert:  b.tlsConfig.mtlsEnabled,
+			OptionalClientCert: false,
+			MinTLSVersion:      tls.VersionTLS12,
+			EnableMonitoring:   false,
+		}
+		// Apply default security settings
+		defaultConfig := cert.NewDefaultConfig()
+		certConfig.CipherSuites = defaultConfig.CipherSuites
+		certConfig.CurvePreferences = defaultConfig.CurvePreferences
+		certMgr = cert.NewCertificateManager(certConfig)
+		srv, err = NewServerWithCertManager(addr, certMgr)
+	} else if config.Global.TLSEnabled {
+		// TLS from global configuration - create certificate manager from global config
+		var certMgr cert.CertificateManager
+		certConfig := &cert.CertConfig{
+			CertFile:           config.Global.TLSCertFile,
+			KeyFile:            config.Global.TLSKeyFile,
+			CAFile:             config.Global.TLSCACertFile,
+			RequireClientCert:  config.Global.MTLSEnabled,
+			OptionalClientCert: false,
+			MinTLSVersion:      tls.VersionTLS12,
+			EnableMonitoring:   false,
+		}
+		// Apply default security settings
+		defaultConfig := cert.NewDefaultConfig()
+		certConfig.CipherSuites = defaultConfig.CipherSuites
+		certConfig.CurvePreferences = defaultConfig.CurvePreferences
+		certMgr = cert.NewCertificateManager(certConfig)
+		srv, err = NewServerWithCertManager(addr, certMgr)
 	} else {
-		// Fall back to legacy TLS configuration
-		srv, err = NewServerWithTLS(
-			addr,
-			tlsEnabled,
-			certFile,
-			keyFile,
-			mtlsEnabled,
-			caCertFile,
-		)
+		// TLS is disabled - create insecure server
+		srv, err = NewInsecureServer(addr)
 	}
 
 	if err != nil {
