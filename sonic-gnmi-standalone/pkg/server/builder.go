@@ -153,10 +153,10 @@ func (b *ServerBuilder) WithSONiCCertificates(redisAddr string, redisDB int) *Se
 
 // WithClientCertPolicy sets the client certificate requirements.
 // Can be chained with WithCertificateFiles() or WithSONiCCertificates().
-func (b *ServerBuilder) WithClientCertPolicy(requireClient, allowNoClient bool) *ServerBuilder {
+func (b *ServerBuilder) WithClientCertPolicy(requireClient, optionalClient bool) *ServerBuilder {
 	if b.certConfig != nil {
 		b.certConfig.requireClient = requireClient
-		b.certConfig.allowNoClient = allowNoClient
+		b.certConfig.allowNoClient = optionalClient
 	}
 	return b
 }
@@ -265,7 +265,7 @@ func (b *ServerBuilder) createCertificateManager() (cert.CertificateManager, err
 		certConfig.KeyFile = b.certConfig.keyFile
 		certConfig.CAFile = b.certConfig.caFile
 		certConfig.RequireClientCert = b.certConfig.requireClient
-		certConfig.AllowNoClientCert = b.certConfig.allowNoClient
+		certConfig.OptionalClientCert = b.certConfig.allowNoClient
 		certConfig.ConfigTableName = b.certConfig.configTableName
 		certConfig.RedisAddr = b.certConfig.redisAddr // For client auth manager
 		certConfig.RedisDB = b.certConfig.redisDB     // For client auth manager
@@ -285,7 +285,7 @@ func (b *ServerBuilder) createCertificateManager() (cert.CertificateManager, err
 		certConfig.RedisAddr = b.certConfig.redisAddr
 		certConfig.RedisDB = b.certConfig.redisDB
 		certConfig.RequireClientCert = b.certConfig.requireClient
-		certConfig.AllowNoClientCert = b.certConfig.allowNoClient
+		certConfig.OptionalClientCert = b.certConfig.allowNoClient
 		certConfig.ConfigTableName = b.certConfig.configTableName
 		certConfig.EnableMonitoring = false // Disable monitoring in builder pattern for now
 

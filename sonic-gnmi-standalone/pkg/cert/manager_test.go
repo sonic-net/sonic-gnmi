@@ -171,28 +171,28 @@ func TestCertificateManagementSONiCConfigDBFallback(t *testing.T) {
 // TestCertificateClientAuthModes tests different client authentication configurations.
 func TestCertificateClientAuthModes(t *testing.T) {
 	tests := []struct {
-		name              string
-		requireClientCert bool
-		allowNoClientCert bool
-		expectedAuthMode  tls.ClientAuthType
+		name               string
+		requireClientCert  bool
+		optionalClientCert bool
+		expectedAuthMode   tls.ClientAuthType
 	}{
 		{
-			name:              "Require client certificates",
-			requireClientCert: true,
-			allowNoClientCert: false,
-			expectedAuthMode:  tls.RequireAndVerifyClientCert,
+			name:               "Require client certificates",
+			requireClientCert:  true,
+			optionalClientCert: false,
+			expectedAuthMode:   tls.RequireAndVerifyClientCert,
 		},
 		{
-			name:              "Optional client certificates",
-			requireClientCert: false,
-			allowNoClientCert: true,
-			expectedAuthMode:  tls.RequestClientCert,
+			name:               "Optional client certificates",
+			requireClientCert:  false,
+			optionalClientCert: true,
+			expectedAuthMode:   tls.RequestClientCert,
 		},
 		{
-			name:              "No client certificates",
-			requireClientCert: false,
-			allowNoClientCert: false,
-			expectedAuthMode:  tls.NoClientCert,
+			name:               "No client certificates",
+			requireClientCert:  false,
+			optionalClientCert: false,
+			expectedAuthMode:   tls.NoClientCert,
 		},
 	}
 
@@ -210,7 +210,7 @@ func TestCertificateClientAuthModes(t *testing.T) {
 			certConfig.KeyFile = serverKey
 			certConfig.CAFile = caCert
 			certConfig.RequireClientCert = tt.requireClientCert
-			certConfig.AllowNoClientCert = tt.allowNoClientCert
+			certConfig.OptionalClientCert = tt.optionalClientCert
 			certConfig.EnableMonitoring = false
 
 			// Create certificate manager

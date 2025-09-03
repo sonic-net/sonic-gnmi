@@ -23,8 +23,8 @@ func TestNewDefaultConfig(t *testing.T) {
 	if !config.RequireClientCert {
 		t.Error("Expected RequireClientCert to be true by default")
 	}
-	if config.AllowNoClientCert {
-		t.Error("Expected AllowNoClientCert to be false by default")
+	if config.OptionalClientCert {
+		t.Error("Expected OptionalClientCert to be false by default")
 	}
 	if config.MinTLSVersion != tls.VersionTLS12 {
 		t.Errorf("Expected MinTLSVersion to be TLS 1.2, got %x", config.MinTLSVersion)
@@ -87,7 +87,7 @@ func TestConfigValidation(t *testing.T) {
 			name: "conflicting client cert settings",
 			config: &CertConfig{
 				CertFile: "server.crt", KeyFile: "server.key",
-				RequireClientCert: true, AllowNoClientCert: true,
+				RequireClientCert: true, OptionalClientCert: true,
 			},
 			expectError: true,
 		},
@@ -108,36 +108,36 @@ func TestConfigValidation(t *testing.T) {
 
 func TestGetClientAuthMode(t *testing.T) {
 	tests := []struct {
-		name              string
-		requireClientCert bool
-		allowNoClientCert bool
-		expectedAuthMode  tls.ClientAuthType
+		name               string
+		requireClientCert  bool
+		optionalClientCert bool
+		expectedAuthMode   tls.ClientAuthType
 	}{
 		{
-			name:              "require client cert",
-			requireClientCert: true,
-			allowNoClientCert: false,
-			expectedAuthMode:  tls.RequireAndVerifyClientCert,
+			name:               "require client cert",
+			requireClientCert:  true,
+			optionalClientCert: false,
+			expectedAuthMode:   tls.RequireAndVerifyClientCert,
 		},
 		{
-			name:              "optional client cert",
-			requireClientCert: false,
-			allowNoClientCert: true,
-			expectedAuthMode:  tls.RequestClientCert,
+			name:               "optional client cert",
+			requireClientCert:  false,
+			optionalClientCert: true,
+			expectedAuthMode:   tls.RequestClientCert,
 		},
 		{
-			name:              "no client cert",
-			requireClientCert: false,
-			allowNoClientCert: false,
-			expectedAuthMode:  tls.NoClientCert,
+			name:               "no client cert",
+			requireClientCert:  false,
+			optionalClientCert: false,
+			expectedAuthMode:   tls.NoClientCert,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := &CertConfig{
-				RequireClientCert: tt.requireClientCert,
-				AllowNoClientCert: tt.allowNoClientCert,
+				RequireClientCert:  tt.requireClientCert,
+				OptionalClientCert: tt.optionalClientCert,
 			}
 
 			authMode := config.GetClientAuthMode()

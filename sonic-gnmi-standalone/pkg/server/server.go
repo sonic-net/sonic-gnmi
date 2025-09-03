@@ -48,13 +48,13 @@ func NewServer(addr string) (*Server, error) {
 
 	// Create certificate configuration from global config
 	certConfig := &cert.CertConfig{
-		CertFile:          config.Global.TLSCertFile,
-		KeyFile:           config.Global.TLSKeyFile,
-		CAFile:            config.Global.TLSCACertFile,
-		RequireClientCert: config.Global.MTLSEnabled,
-		AllowNoClientCert: !config.Global.MTLSEnabled,
-		MinTLSVersion:     tls.VersionTLS12,
-		EnableMonitoring:  true,
+		CertFile:           config.Global.TLSCertFile,
+		KeyFile:            config.Global.TLSKeyFile,
+		CAFile:             config.Global.TLSCACertFile,
+		RequireClientCert:  config.Global.MTLSEnabled,
+		OptionalClientCert: !config.Global.MTLSEnabled,
+		MinTLSVersion:      tls.VersionTLS12,
+		EnableMonitoring:   true,
 	}
 
 	// Use default production TLS settings
@@ -145,13 +145,13 @@ func NewServerWithTLS(
 
 	// Create basic certificate configuration for backward compatibility
 	certConfig := &cert.CertConfig{
-		CertFile:          certFile,
-		KeyFile:           keyFile,
-		CAFile:            caCertFile,
-		RequireClientCert: useMTLS,
-		AllowNoClientCert: !useMTLS,
-		MinTLSVersion:     tls.VersionTLS12,
-		EnableMonitoring:  false, // Disabled for backward compatibility
+		CertFile:           certFile,
+		KeyFile:            keyFile,
+		CAFile:             caCertFile,
+		RequireClientCert:  useMTLS,
+		OptionalClientCert: !useMTLS,
+		MinTLSVersion:      tls.VersionTLS12,
+		EnableMonitoring:   false, // Disabled for backward compatibility
 	}
 
 	// Apply default security settings
