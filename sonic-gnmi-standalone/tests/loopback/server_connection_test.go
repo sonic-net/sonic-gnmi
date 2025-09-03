@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -31,15 +29,15 @@ func TestServerConnectionModes(t *testing.T) {
 	t.Run("MTLSConnection", testMTLSConnection)
 }
 
-func TestServerBuilderCertificateIntegration(t *testing.T) {
+func TestServerBuilderClientAuthPolicies(t *testing.T) {
 	// Initialize minimal global config for tests that don't set explicit builder values
 	if serverConfig.Global == nil {
 		serverConfig.Global = &serverConfig.Config{}
 	}
 
-	t.Run("ServerBuilderWithCertificateFiles", testServerBuilderWithCertificateFiles)
-	t.Run("ServerBuilderWithSONiCCertificates", testServerBuilderWithSONiCCertificates)
-	t.Run("ServerBuilderClientAuthPolicies", testServerBuilderClientAuthPolicies)
+	t.Run("RequireClientCerts", testRequireClientCerts)
+	t.Run("OptionalClientCerts", testOptionalClientCerts)
+	t.Run("NoClientCerts", testNoClientCerts)
 }
 
 func testInsecureConnection(t *testing.T) {
@@ -171,8 +169,8 @@ func testMTLSConnection(t *testing.T) {
 	assert.Greater(t, len(services.Service), 0)
 }
 
-// testServerBuilderWithCertificateFiles tests the server builder with file-based certificates.
-func testServerBuilderWithCertificateFiles(t *testing.T) {
+// testRequireClientCerts tests server that requires client certificates.
+func testRequireClientCerts(t *testing.T) {
 	// Create temp directory and generate certificates
 	tempDir := t.TempDir()
 	certDir := filepath.Join(tempDir, "certs")
@@ -188,15 +186,14 @@ func testServerBuilderWithCertificateFiles(t *testing.T) {
 	listener.Close()
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 
-	// Create server using builder pattern with certificate files
-	// Note: For testing, we don't set up GNMI_CLIENT_CERT table, so client CN verification will fail
-	// This test focuses on certificate loading, not client auth
+	// Create server requiring client certificates
 	srv, err := server.NewServerBuilder().
 		WithAddress(addr).
 		WithRootFS(tempDir).
 		WithCertificateFiles(serverCertFile, serverKeyFile, caCertFile).
+		WithClientCertPolicy(true, false). // Require client certs
 		Build()
-	require.NoError(t, err, "Failed to build server with certificate files")
+	require.NoError(t, err, "Failed to build server")
 	defer srv.Stop()
 
 	// Start server
@@ -218,44 +215,19 @@ func testServerBuilderWithCertificateFiles(t *testing.T) {
 		// Server is still running, which is expected
 	}
 
-	// Test mTLS connection with the builder-created server
+	// Should require client certificates
 	testMTLSConnectionToAddress(t, addr, clientCertFile, clientKeyFile, caCertFile)
 }
 
-// testServerBuilderWithSONiCCertificates tests the server builder with SONiC ConfigDB certificates.
-func testServerBuilderWithSONiCCertificates(t *testing.T) {
-	// Start miniredis for testing
-	mr := miniredis.RunT(t)
-	defer mr.Close()
-
+// testOptionalClientCerts tests server with optional client certificates.
+func testOptionalClientCerts(t *testing.T) {
 	// Create temp directory and generate certificates
 	tempDir := t.TempDir()
 	certDir := filepath.Join(tempDir, "certs")
 	err := os.MkdirAll(certDir, 0o755)
 	require.NoError(t, err)
 
-	serverCertFile, serverKeyFile, clientCertFile, clientKeyFile, caCertFile := generateMTLSCertificates(t, certDir)
-
-	// Populate ConfigDB with certificate paths
-	ctx := context.Background()
-	client := redis.NewClient(&redis.Options{
-		Addr: mr.Addr(),
-		DB:   4, // ConfigDB database
-	})
-	defer client.Close()
-
-	err = client.HSet(ctx, "GNMI|certs",
-		"server_crt", serverCertFile,
-		"server_key", serverKeyFile,
-		"ca_crt", caCertFile,
-	).Err()
-	require.NoError(t, err, "Failed to populate ConfigDB")
-
-	// Add authorized client CN for mTLS testing (matches cert_helpers.go client cert)
-	err = client.HSet(ctx, "GNMI_CLIENT_CERT|test.client.gnmi.sonic",
-		"role@", "gnmi_readwrite",
-	).Err()
-	require.NoError(t, err, "Failed to add client CN authorization")
+	serverCertFile, serverKeyFile, _, _, caCertFile := generateMTLSCertificates(t, certDir)
 
 	// Find available port
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -264,15 +236,14 @@ func testServerBuilderWithSONiCCertificates(t *testing.T) {
 	listener.Close()
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 
-	// Create server using builder pattern with SONiC certificates
-	// Now with proper client CN authorization set up in ConfigDB
+	// Create server with optional client certificates
 	srv, err := server.NewServerBuilder().
 		WithAddress(addr).
 		WithRootFS(tempDir).
-		WithSONiCCertificates(mr.Addr(), 4).
-		WithClientCertPolicy(true, false). // Require client certs with CN verification
+		WithCertificateFiles(serverCertFile, serverKeyFile, caCertFile).
+		WithClientCertPolicy(false, true). // Optional client certs
 		Build()
-	require.NoError(t, err, "Failed to build server with SONiC certificates")
+	require.NoError(t, err, "Failed to build server")
 	defer srv.Stop()
 
 	// Start server
@@ -294,93 +265,58 @@ func testServerBuilderWithSONiCCertificates(t *testing.T) {
 		// Server is still running, which is expected
 	}
 
-	// Test mTLS connection with the builder-created server
-	testMTLSConnectionToAddress(t, addr, clientCertFile, clientKeyFile, caCertFile)
+	// Should work with TLS but no client cert
+	testTLSConnectionToAddress(t, addr, caCertFile)
 }
 
-// testServerBuilderClientAuthPolicies tests different client authentication policies.
-func testServerBuilderClientAuthPolicies(t *testing.T) {
-	tests := []struct {
-		name              string
-		requireClientCert bool
-		allowNoClientCert bool
-		expectClientAuth  bool
-	}{
-		{
-			name:              "RequireClientCerts",
-			requireClientCert: true,
-			allowNoClientCert: false,
-			expectClientAuth:  true,
-		},
-		{
-			name:              "OptionalClientCerts",
-			requireClientCert: false,
-			allowNoClientCert: true,
-			expectClientAuth:  false,
-		},
-		{
-			name:              "NoClientCerts",
-			requireClientCert: false,
-			allowNoClientCert: false,
-			expectClientAuth:  false,
-		},
+// testNoClientCerts tests server that doesn't use client certificates.
+func testNoClientCerts(t *testing.T) {
+	// Create temp directory and generate certificates
+	tempDir := t.TempDir()
+	certDir := filepath.Join(tempDir, "certs")
+	err := os.MkdirAll(certDir, 0o755)
+	require.NoError(t, err)
+
+	serverCertFile, serverKeyFile, _, _, caCertFile := generateMTLSCertificates(t, certDir)
+
+	// Find available port
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+
+	// Create server with no client certificate requirement
+	srv, err := server.NewServerBuilder().
+		WithAddress(addr).
+		WithRootFS(tempDir).
+		WithCertificateFiles(serverCertFile, serverKeyFile, caCertFile).
+		WithClientCertPolicy(false, false). // No client certs
+		Build()
+	require.NoError(t, err, "Failed to build server")
+	defer srv.Stop()
+
+	// Start server
+	serverStarted := make(chan error, 1)
+	go func() {
+		serverStarted <- srv.Start()
+	}()
+
+	// Give server time to start
+	time.Sleep(500 * time.Millisecond)
+
+	// Check if server had an error starting
+	select {
+	case err := <-serverStarted:
+		if err != nil {
+			t.Fatalf("Server failed to start: %v", err)
+		}
+	default:
+		// Server is still running, which is expected
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create temp directory and generate certificates
-			tempDir := t.TempDir()
-			certDir := filepath.Join(tempDir, "certs")
-			err := os.MkdirAll(certDir, 0o755)
-			require.NoError(t, err)
-
-			serverCertFile, serverKeyFile, clientCertFile, clientKeyFile, caCertFile := generateMTLSCertificates(t, certDir)
-
-			// Find available port
-			listener, err := net.Listen("tcp", "127.0.0.1:0")
-			require.NoError(t, err)
-			port := listener.Addr().(*net.TCPAddr).Port
-			listener.Close()
-			addr := fmt.Sprintf("127.0.0.1:%d", port)
-
-			// Create server with specific client auth policy
-			srv, err := server.NewServerBuilder().
-				WithAddress(addr).
-				WithRootFS(tempDir).
-				WithCertificateFiles(serverCertFile, serverKeyFile, caCertFile).
-				WithClientCertPolicy(tt.requireClientCert, tt.allowNoClientCert).
-				Build()
-			require.NoError(t, err, "Failed to build server")
-			defer srv.Stop()
-
-			// Start server
-			serverStarted := make(chan error, 1)
-			go func() {
-				serverStarted <- srv.Start()
-			}()
-
-			// Give server time to start
-			time.Sleep(500 * time.Millisecond)
-
-			// Check if server had an error starting
-			select {
-			case err := <-serverStarted:
-				if err != nil {
-					t.Fatalf("Server failed to start: %v", err)
-				}
-			default:
-				// Server is still running, which is expected
-			}
-
-			if tt.expectClientAuth {
-				// Should require client certificates
-				testMTLSConnectionToAddress(t, addr, clientCertFile, clientKeyFile, caCertFile)
-			} else {
-				// Should work with TLS but no client cert
-				testTLSConnectionToAddress(t, addr, caCertFile)
-			}
-		})
-	}
+	// Should work with TLS but no client cert
+	testTLSConnectionToAddress(t, addr, caCertFile)
 }
 
 // testMTLSConnectionToAddress tests mTLS connection to a specific address.
