@@ -35,9 +35,15 @@ func TestServerBuilderClientAuthPolicies(t *testing.T) {
 		serverConfig.Global = &serverConfig.Config{}
 	}
 
-	t.Run("RequireClientCerts", testRequireClientCerts)
-	t.Run("OptionalClientCerts", testOptionalClientCerts)
-	t.Run("NoClientCerts", testNoClientCerts)
+	// Test the 3x2 certificate authentication matrix:
+	// Server modes: Required, Optional, No requirement
+	// Client scenarios: Has cert, No cert
+	t.Run("RequiredClientCert_ClientHasCert", testRequiredClientCert_ClientHasCert)
+	t.Run("RequiredClientCert_ClientNoCert", testRequiredClientCert_ClientNoCert)
+	t.Run("OptionalClientCert_ClientHasCert", testOptionalClientCert_ClientHasCert)
+	t.Run("OptionalClientCert_ClientNoCert", testOptionalClientCert_ClientNoCert)
+	t.Run("NoClientCertRequirement_ClientHasCert", testNoClientCertRequirement_ClientHasCert)
+	t.Run("NoClientCertRequirement_ClientNoCert", testNoClientCertRequirement_ClientNoCert)
 }
 
 func testInsecureConnection(t *testing.T) {
@@ -169,153 +175,57 @@ func testMTLSConnection(t *testing.T) {
 	assert.Greater(t, len(services.Service), 0)
 }
 
-// testRequireClientCerts tests server that requires client certificates.
-func testRequireClientCerts(t *testing.T) {
-	// Create temp directory and generate certificates
-	tempDir := t.TempDir()
-	certDir := filepath.Join(tempDir, "certs")
-	err := os.MkdirAll(certDir, 0o755)
-	require.NoError(t, err)
-
-	serverCertFile, serverKeyFile, clientCertFile, clientKeyFile, caCertFile := generateMTLSCertificates(t, certDir)
-
-	// Find available port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-
-	// Create server requiring client certificates
-	srv, err := server.NewServerBuilder().
-		WithAddress(addr).
-		WithRootFS(tempDir).
-		WithCertificateFiles(serverCertFile, serverKeyFile, caCertFile).
-		WithClientCertPolicy(true, false). // Require client certs
-		Build()
-	require.NoError(t, err, "Failed to build server")
+// testRequiredClientCert_ClientHasCert tests server requiring client certs with client providing cert.
+func testRequiredClientCert_ClientHasCert(t *testing.T) {
+	addr, clientCertFile, clientKeyFile, caCertFile, srv := createTestServerWithClientAuth(t, true, false)
 	defer srv.Stop()
 
-	// Start server
-	serverStarted := make(chan error, 1)
-	go func() {
-		serverStarted <- srv.Start()
-	}()
-
-	// Give server time to start
-	time.Sleep(500 * time.Millisecond)
-
-	// Check if server had an error starting
-	select {
-	case err := <-serverStarted:
-		if err != nil {
-			t.Fatalf("Server failed to start: %v", err)
-		}
-	default:
-		// Server is still running, which is expected
-	}
-
-	// Should require client certificates
+	// Should succeed with client certificate
 	validateMTLSConnection(t, addr, clientCertFile, clientKeyFile, caCertFile)
 }
 
-// testOptionalClientCerts tests server with optional client certificates.
-func testOptionalClientCerts(t *testing.T) {
-	// Create temp directory and generate certificates
-	tempDir := t.TempDir()
-	certDir := filepath.Join(tempDir, "certs")
-	err := os.MkdirAll(certDir, 0o755)
-	require.NoError(t, err)
-
-	serverCertFile, serverKeyFile, _, _, caCertFile := generateMTLSCertificates(t, certDir)
-
-	// Find available port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-
-	// Create server with optional client certificates
-	srv, err := server.NewServerBuilder().
-		WithAddress(addr).
-		WithRootFS(tempDir).
-		WithCertificateFiles(serverCertFile, serverKeyFile, caCertFile).
-		WithClientCertPolicy(false, true). // Optional client certs
-		Build()
-	require.NoError(t, err, "Failed to build server")
+// testRequiredClientCert_ClientNoCert tests server requiring client certs with client providing no cert.
+func testRequiredClientCert_ClientNoCert(t *testing.T) {
+	addr, _, _, caCertFile, srv := createTestServerWithClientAuth(t, true, false)
 	defer srv.Stop()
 
-	// Start server
-	serverStarted := make(chan error, 1)
-	go func() {
-		serverStarted <- srv.Start()
-	}()
+	// Should fail without client certificate
+	validateTLSConnectionFailure(t, addr, caCertFile)
+}
 
-	// Give server time to start
-	time.Sleep(500 * time.Millisecond)
+// testOptionalClientCert_ClientHasCert tests server with optional client certs where client provides cert.
+func testOptionalClientCert_ClientHasCert(t *testing.T) {
+	addr, clientCertFile, clientKeyFile, caCertFile, srv := createTestServerWithClientAuth(t, false, true)
+	defer srv.Stop()
 
-	// Check if server had an error starting
-	select {
-	case err := <-serverStarted:
-		if err != nil {
-			t.Fatalf("Server failed to start: %v", err)
-		}
-	default:
-		// Server is still running, which is expected
-	}
+	// Should succeed with client certificate
+	validateMTLSConnection(t, addr, clientCertFile, clientKeyFile, caCertFile)
+}
 
-	// Should work with TLS but no client cert
+// testOptionalClientCert_ClientNoCert tests server with optional client certs where client provides no cert.
+func testOptionalClientCert_ClientNoCert(t *testing.T) {
+	addr, _, _, caCertFile, srv := createTestServerWithClientAuth(t, false, true)
+	defer srv.Stop()
+
+	// Should succeed without client certificate
 	validateTLSConnection(t, addr, caCertFile)
 }
 
-// testNoClientCerts tests server that doesn't use client certificates.
-func testNoClientCerts(t *testing.T) {
-	// Create temp directory and generate certificates
-	tempDir := t.TempDir()
-	certDir := filepath.Join(tempDir, "certs")
-	err := os.MkdirAll(certDir, 0o755)
-	require.NoError(t, err)
-
-	serverCertFile, serverKeyFile, _, _, caCertFile := generateMTLSCertificates(t, certDir)
-
-	// Find available port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-
-	// Create server with no client certificate requirement
-	srv, err := server.NewServerBuilder().
-		WithAddress(addr).
-		WithRootFS(tempDir).
-		WithCertificateFiles(serverCertFile, serverKeyFile, caCertFile).
-		WithClientCertPolicy(false, false). // No client certs
-		Build()
-	require.NoError(t, err, "Failed to build server")
+// testNoClientCertRequirement_ClientHasCert tests server with no client cert requirement where client provides cert.
+func testNoClientCertRequirement_ClientHasCert(t *testing.T) {
+	addr, clientCertFile, clientKeyFile, caCertFile, srv := createTestServerWithClientAuth(t, false, false)
 	defer srv.Stop()
 
-	// Start server
-	serverStarted := make(chan error, 1)
-	go func() {
-		serverStarted <- srv.Start()
-	}()
+	// Should succeed with client certificate
+	validateMTLSConnection(t, addr, clientCertFile, clientKeyFile, caCertFile)
+}
 
-	// Give server time to start
-	time.Sleep(500 * time.Millisecond)
+// testNoClientCertRequirement_ClientNoCert tests server with no client cert requirement where client provides no cert.
+func testNoClientCertRequirement_ClientNoCert(t *testing.T) {
+	addr, _, _, caCertFile, srv := createTestServerWithClientAuth(t, false, false)
+	defer srv.Stop()
 
-	// Check if server had an error starting
-	select {
-	case err := <-serverStarted:
-		if err != nil {
-			t.Fatalf("Server failed to start: %v", err)
-		}
-	default:
-		// Server is still running, which is expected
-	}
-
-	// Should work with TLS but no client cert
+	// Should succeed without client certificate
 	validateTLSConnection(t, addr, caCertFile)
 }
 
@@ -398,4 +308,97 @@ func validateTLSConnection(t *testing.T, addr, caCertFile string) {
 	services := resp.GetListServicesResponse()
 	assert.NotNil(t, services)
 	assert.Greater(t, len(services.Service), 0)
+}
+
+// validateTLSConnectionFailure validates that TLS connection fails when client cert is required but not provided.
+func validateTLSConnectionFailure(t *testing.T, addr, caCertFile string) {
+	// Load CA certificate for server verification
+	caCertBytes, err := ioutil.ReadFile(caCertFile)
+	require.NoError(t, err)
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCertBytes)
+
+	// Create TLS client configuration (no client cert)
+	config := &tls.Config{
+		RootCAs:    caCertPool,
+		ServerName: "localhost",
+	}
+	creds := credentials.NewTLS(config)
+
+	// Connection should fail at TLS handshake level
+	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(creds))
+	if err != nil {
+		// Connection failed as expected
+		return
+	}
+	defer conn.Close()
+
+	// If connection succeeded, the RPC should fail
+	client := grpc_reflection_v1alpha.NewServerReflectionClient(conn)
+	stream, err := client.ServerReflectionInfo(context.Background())
+	if err != nil {
+		// RPC failed as expected
+		return
+	}
+
+	err = stream.Send(&grpc_reflection_v1alpha.ServerReflectionRequest{
+		MessageRequest: &grpc_reflection_v1alpha.ServerReflectionRequest_ListServices{},
+	})
+
+	// Either Send or Recv should fail for missing client certificate
+	if err == nil {
+		_, err = stream.Recv()
+	}
+
+	// We expect some kind of authentication error
+	assert.Error(t, err, "Expected connection or RPC to fail when client cert is required but not provided")
+}
+
+// createTestServerWithClientAuth creates a test server with specified client auth policy.
+func createTestServerWithClientAuth(t *testing.T, requireClient, optionalClient bool) (addr, clientCertFile, clientKeyFile, caCertFile string, srv *server.Server) {
+	// Create temp directory and generate certificates
+	tempDir := t.TempDir()
+	certDir := filepath.Join(tempDir, "certs")
+	err := os.MkdirAll(certDir, 0o755)
+	require.NoError(t, err)
+
+	serverCertFile, serverKeyFile, clientCertFile, clientKeyFile, caCertFile := generateMTLSCertificates(t, certDir)
+
+	// Find available port
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	addr = fmt.Sprintf("127.0.0.1:%d", port)
+
+	// Create server with specified client certificate policy
+	srv, err = server.NewServerBuilder().
+		WithAddress(addr).
+		WithRootFS(tempDir).
+		WithCertificateFiles(serverCertFile, serverKeyFile, caCertFile).
+		WithClientCertPolicy(requireClient, optionalClient).
+		Build()
+	require.NoError(t, err, "Failed to build server")
+
+	// Start server
+	serverStarted := make(chan error, 1)
+	go func() {
+		serverStarted <- srv.Start()
+	}()
+
+	// Give server time to start
+	time.Sleep(500 * time.Millisecond)
+
+	// Check if server had an error starting
+	select {
+	case err := <-serverStarted:
+		if err != nil {
+			t.Fatalf("Server failed to start: %v", err)
+		}
+	default:
+		// Server is still running, which is expected
+	}
+
+	return addr, clientCertFile, clientKeyFile, caCertFile, srv
 }
