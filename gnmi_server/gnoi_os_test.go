@@ -683,11 +683,23 @@ func TestProcessTransferContent_OpenFileError(t *testing.T) {
 				},
 			},
 		},
+		ProcessTransferState: &InstallRequestState{
+			CurrentState: TransferReady, // Initial state should be a valid `State`
+			NextState: map[State]map[Event]State{
+				TransferReady: {
+					TransferRequest: TransferProgress,
+				},
+				TransferProgress: {
+					TransferContent: TransferProgress,
+					TransferEnd:     Validated,
+				},
+			},
+		},
 	}
 
 	// Call the method under test
 	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
-	t.Logf("processTransferContent response=%v", resp)
+	t.Logf("processTransferContent response=%v\n", resp)
 
 	// Check if the response is not nil and has the expected error
 	if resp == nil || resp.GetInstallError() == nil {
@@ -700,46 +712,6 @@ func TestProcessTransferContent_OpenFileError(t *testing.T) {
 		t.Errorf("Expected error detail %q, got: %q", expectedDetail, resp.GetInstallError().GetDetail())
 	}
 }
-
-/*func TestProcessTransferContent_WriteError(t *testing.T) {
-	f := &os.File{}
-
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
-
-	// Patch os.OpenFile to return our dummy file
-	patches.ApplyFunc(os.OpenFile, func(name string, flag int, perm os.FileMode) (*os.File, error) {
-		return f, nil
-	})
-
-	// Patch (*os.File).Write to return an error
-	patches.ApplyMethod(reflect.TypeOf(f), "Write", func(_ *os.File, b []byte) (int, error) {
-		return 0, errors.New("simulated Write failure")
-	})
-
-	// Patch (*os.File).Close to simulate clean close
-	patches.ApplyMethod(reflect.TypeOf(f), "Close", func(_ *os.File) error {
-		return nil
-	})
-
-	// Initialize the Server struct with a mock Config
-	srv := &OSServer{
-		Server: &Server{
-			config: &Config{
-				OSCfg: &OSConfig{
-					ImgDir: "/tmp", // Mock directory path
-				},
-			},
-		},
-	}
-
-	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
-	t.Logf("processTransferContent response=%v", resp)
-
-	if resp == nil || resp.GetInstallError() == nil {
-		t.Errorf("Expected error response due to Write failure, got: %+v", resp)
-	}
-}*/
 
 func TestProcessTransferContent_WriteError(t *testing.T) {
 	// Create a dummy *os.File
@@ -772,11 +744,23 @@ func TestProcessTransferContent_WriteError(t *testing.T) {
 				},
 			},
 		},
+		ProcessTransferState: &InstallRequestState{
+			CurrentState: TransferReady, // Initial state should be a valid `State`
+			NextState: map[State]map[Event]State{
+				TransferReady: {
+					TransferRequest: TransferProgress,
+				},
+				TransferProgress: {
+					TransferContent: TransferProgress,
+					TransferEnd:     Validated,
+				},
+			},
+		},
 	}
 
 	// Call the method being tested
 	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
-	t.Logf("processTransferContent response=%v", resp)
+	t.Logf("processTransferContent response=%v\n", resp)
 
 	// Validate that the response contains the expected error
 	t.Logf("processTransferContent response=%v", resp.GetInstallError())
@@ -824,10 +808,22 @@ func TestProcessTransferContent_CloseError(t *testing.T) {
 				},
 			},
 		},
+		ProcessTransferState: &InstallRequestState{
+			CurrentState: TransferReady, // Initial state should be a valid `State`
+			NextState: map[State]map[Event]State{
+				TransferReady: {
+					TransferRequest: TransferProgress,
+				},
+				TransferProgress: {
+					TransferContent: TransferProgress,
+					TransferEnd:     Validated,
+				},
+			},
+		},
 	}
 
 	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
-	t.Logf("processTransferContent response=%v", resp)
+	t.Logf("processTransferContent response=%v\n", resp)
 
 	if resp == nil || resp.GetInstallError() == nil {
 		t.Errorf("Expected error response due to Close failure, got: %+v", resp)
