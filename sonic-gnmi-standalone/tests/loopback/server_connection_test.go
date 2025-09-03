@@ -42,6 +42,7 @@ func TestServerBuilderClientAuthPolicies(t *testing.T) {
 	t.Run("RequiredClientCert_ClientNoCert", testRequiredClientCert_ClientNoCert)
 	t.Run("OptionalClientCert_ClientHasCert", testOptionalClientCert_ClientHasCert)
 	t.Run("OptionalClientCert_ClientNoCert", testOptionalClientCert_ClientNoCert)
+	t.Run("OptionalClientCert_ClientInvalidCert", testOptionalClientCert_ClientInvalidCert)
 	t.Run("NoClientCertRequirement_ClientHasCert", testNoClientCertRequirement_ClientHasCert)
 	t.Run("NoClientCertRequirement_ClientNoCert", testNoClientCertRequirement_ClientNoCert)
 }
@@ -211,6 +212,25 @@ func testOptionalClientCert_ClientNoCert(t *testing.T) {
 	validateTLSConnection(t, addr, caCertFile)
 }
 
+// testOptionalClientCert_ClientInvalidCert tests server with optional client certs where client provides invalid cert.
+func testOptionalClientCert_ClientInvalidCert(t *testing.T) {
+	addr, _, _, caCertFile, srv := createTestServerWithClientAuth(t, false, true)
+	defer srv.Stop()
+
+	// Generate invalid certificate (different CA)
+	tempDir := t.TempDir()
+	invalidCertDir := filepath.Join(tempDir, "invalid_certs")
+	err := os.MkdirAll(invalidCertDir, 0o755)
+	require.NoError(t, err)
+
+	// Create certificate with different/invalid CA
+	invalidClientCert, invalidClientKey, _, _, invalidCA := generateMTLSCertificates(t, invalidCertDir)
+	_ = invalidCA // Unused but needed for function signature
+
+	// Should fail with invalid client certificate
+	validateInvalidClientCertConnection(t, addr, invalidClientCert, invalidClientKey, caCertFile)
+}
+
 // testNoClientCertRequirement_ClientHasCert tests server with no client cert requirement where client provides cert.
 func testNoClientCertRequirement_ClientHasCert(t *testing.T) {
 	addr, clientCertFile, clientKeyFile, caCertFile, srv := createTestServerWithClientAuth(t, false, false)
@@ -355,8 +375,60 @@ func validateTLSConnectionFailure(t *testing.T, addr, caCertFile string) {
 	assert.Error(t, err, "Expected connection or RPC to fail when client cert is required but not provided")
 }
 
+// validateInvalidClientCertConnection validates that connection fails with invalid client certificate.
+func validateInvalidClientCertConnection(t *testing.T, addr, invalidClientCert, invalidClientKey, caCertFile string) {
+	// Load invalid client certificate and key
+	clientCert, err := tls.LoadX509KeyPair(invalidClientCert, invalidClientKey)
+	require.NoError(t, err)
+
+	// Load server CA certificate (for server verification)
+	caCertBytes, err := ioutil.ReadFile(caCertFile)
+	require.NoError(t, err)
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCertBytes)
+
+	// Create TLS client configuration with invalid client cert
+	config := &tls.Config{
+		Certificates: []tls.Certificate{clientCert}, // Invalid cert (different CA)
+		RootCAs:      caCertPool,                    // Valid server CA
+		ServerName:   "localhost",
+	}
+	creds := credentials.NewTLS(config)
+
+	// Connection should fail due to invalid client certificate
+	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(creds))
+	if err != nil {
+		// Connection failed as expected (TLS handshake failure)
+		return
+	}
+	defer conn.Close()
+
+	// If connection succeeded, the RPC should fail due to invalid cert
+	client := grpc_reflection_v1alpha.NewServerReflectionClient(conn)
+	stream, err := client.ServerReflectionInfo(context.Background())
+	if err != nil {
+		// RPC failed as expected
+		return
+	}
+
+	err = stream.Send(&grpc_reflection_v1alpha.ServerReflectionRequest{
+		MessageRequest: &grpc_reflection_v1alpha.ServerReflectionRequest_ListServices{},
+	})
+
+	// Either Send or Recv should fail for invalid client certificate
+	if err == nil {
+		_, err = stream.Recv()
+	}
+
+	// We expect some kind of certificate validation error
+	assert.Error(t, err, "Expected connection or RPC to fail with invalid client certificate")
+}
+
 // createTestServerWithClientAuth creates a test server with specified client auth policy.
-func createTestServerWithClientAuth(t *testing.T, requireClient, optionalClient bool) (addr, clientCertFile, clientKeyFile, caCertFile string, srv *server.Server) {
+func createTestServerWithClientAuth(
+	t *testing.T, requireClient, optionalClient bool,
+) (addr, clientCertFile, clientKeyFile, caCertFile string, srv *server.Server) {
 	// Create temp directory and generate certificates
 	tempDir := t.TempDir()
 	certDir := filepath.Join(tempDir, "certs")

@@ -104,7 +104,7 @@ func (c *CertConfig) Validate() error {
 // GetClientAuthMode returns the appropriate tls.ClientAuthType based on configuration.
 func (c *CertConfig) GetClientAuthMode() tls.ClientAuthType {
 	if !c.RequireClientCert && c.OptionalClientCert {
-		return tls.RequestClientCert // Optional client certificates
+		return tls.VerifyClientCertIfGiven // Optional client certificates with verification
 	}
 	if c.RequireClientCert {
 		return tls.RequireAndVerifyClientCert // Required client certificates

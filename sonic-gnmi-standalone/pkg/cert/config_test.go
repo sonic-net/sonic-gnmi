@@ -123,7 +123,7 @@ func TestGetClientAuthMode(t *testing.T) {
 			name:               "optional client cert",
 			requireClientCert:  false,
 			optionalClientCert: true,
-			expectedAuthMode:   tls.RequestClientCert,
+			expectedAuthMode:   tls.VerifyClientCertIfGiven,
 		},
 		{
 			name:               "no client cert",
