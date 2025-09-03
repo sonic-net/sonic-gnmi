@@ -22,7 +22,6 @@ import (
 
 	"github.com/go-redis/redis"
 
-	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
@@ -62,7 +61,7 @@ type EventClient struct {
 	prefix *gnmipb.Path
 	path   *gnmipb.Path
 
-	q       *queue.PriorityQueue
+	q       *LimitedQueue
 	pq_max  int
 	channel chan struct{}
 
@@ -344,7 +343,7 @@ func get_events(evtc *EventClient) {
 			evtc.countersMutex.RUnlock()
 
 			if !strings.HasPrefix(evt.Event_str, TEST_EVENT) {
-				qlen := evtc.q.Len()
+				qlen := evtc.q.Q.Len()
 
 				if qlen < evtc.pq_max {
 					var fvp map[string]interface{}
@@ -398,14 +397,14 @@ func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
 		Val:       tv,
 	}
 
-	if err := evtc.q.Put(Value{spbv}); err != nil {
+	if err := evtc.q.EnqueueItem(Value{spbv}); err != nil {
 		log.V(3).Infof("Queue error:  %v", err)
 		return err
 	}
 	return nil
 }
 
-func (evtc *EventClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (evtc *EventClient) StreamRun(q *LimitedQueue, stop chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 
 	evtc.wg = wg
 	defer evtc.wg.Done()
@@ -441,15 +440,15 @@ func (evtc *EventClient) Get(wg *sync.WaitGroup) ([]*spb.Value, error) {
 	return nil, nil
 }
 
-func (evtc *EventClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (evtc *EventClient) OnceRun(q *LimitedQueue, once chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	return
 }
 
-func (evtc *EventClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (evtc *EventClient) PollRun(q *LimitedQueue, poll chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	return
 }
 
-func (evtc *EventClient) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (evtc *EventClient) AppDBPollRun(q *LimitedQueue, poll chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	return
 }
 
