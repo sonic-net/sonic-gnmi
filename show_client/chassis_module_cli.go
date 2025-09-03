@@ -11,10 +11,11 @@ import (
 )
 
 const (
-	chassisModuleTable = "CHASSIS_MODULE_TABLE"
-	chassisModule      = "CHASSIS_MODULE"
-	defaultAdminStatus = "up"
-	defaultSlot        = "N/A"
+	chassisModuleTable   = "CHASSIS_MODULE_TABLE"
+	chassisModule        = "CHASSIS_MODULE"
+	chassisMidplaneTable = "CHASSIS_MIDPLANE_TABLE"
+	defaultAdminStatus   = "up"
+	defaultSlot          = "N/A"
 )
 
 type ChassisModuleStatus struct {
@@ -24,6 +25,12 @@ type ChassisModuleStatus struct {
 	OperStatus  string `json:"oper_status"`
 	AdminStatus string `json:"admin_status"`
 	Serial      string `json:"serial"`
+}
+
+type ChassisModuleMidplaneStatus struct {
+	Name         string `json:"name"`
+	IPAddress    string `json:"ip_address"`
+	Reachability string `json:"reachability"`
 }
 
 // Database query helper
@@ -127,7 +134,7 @@ func getChassisModuleStatus(options sdc.OptionMap) ([]byte, error) {
 	}
 
 	// Get data for all modules
-	log.V(2).Infof("getChassisModuleStatus: getting all modules")
+	log.V(3).Infof("getChassisModuleStatus: getting all modules")
 	queries := createChassisModuleQueries("")
 	stateData, configData, err := getChassisModuleData(queries)
 	if err != nil {
@@ -173,7 +180,7 @@ func getChassisModuleStatus(options sdc.OptionMap) ([]byte, error) {
 	// Convert to JSON
 	jsonData, err := json.Marshal(result)
 	if err != nil {
-		log.V(2).Infof("getChassisModuleStatus: error marshaling result: %v", err)
+		log.Errorf("getChassisModuleStatus: error marshaling result: %v", err)
 		return nil, fmt.Errorf("failed to marshal result: %w", err)
 	}
 
@@ -221,6 +228,141 @@ func getChassisModuleStatusByModule(moduleName string) ([]byte, error) {
 	}
 
 	log.V(4).Infof("getChassisModuleStatusByModule, output: %v", string(jsonBytes))
+	return jsonBytes, nil
+}
+
+// create database queries for chassis module midplane data
+func createChassisModuleMidplaneQueries(moduleName string) dbQueries {
+	queries := dbQueries{
+		State: [][]string{{StateDB, chassisMidplaneTable}},
+	}
+
+	if moduleName != "" {
+		queries.State[0] = append(queries.State[0], moduleName)
+	}
+
+	return queries
+}
+
+// Get and parse midplane data from database
+func getChassisModuleMidplaneData(queries dbQueries) (map[string]interface{}, error) {
+	// Get state data
+	stateDataBytes, err := GetDataFromQueries(queries.State)
+	if err != nil {
+		log.Errorf("Unable to get midplane state data from queries %v, got err: %v", queries.State, err)
+		return nil, fmt.Errorf("failed to get midplane state data: %w", err)
+	}
+	log.V(2).Infof("Midplane state data bytes: %s", string(stateDataBytes))
+
+	// Parse state data
+	var stateData map[string]interface{}
+	if err := json.Unmarshal(stateDataBytes, &stateData); err != nil {
+		log.Errorf("Failed to unmarshal midplane state data: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal midplane state data: %w", err)
+	}
+
+	return stateData, nil
+}
+
+// create ChassisModuleMidplaneStatus from flat data structure
+func createModuleMidplaneStatusFromFlatData(moduleName string, stateData map[string]interface{}) ChassisModuleMidplaneStatus {
+	module := ChassisModuleMidplaneStatus{
+		Name: moduleName,
+	}
+
+	// Process state data
+	for key, value := range stateData {
+		if strValue, ok := value.(string); ok {
+			switch key {
+			case "ip_address":
+				module.IPAddress = strValue
+			case "access":
+				module.Reachability = strValue
+			}
+		}
+	}
+
+	return module
+}
+
+func getChassisModuleMidplaneStatus(options sdc.OptionMap) ([]byte, error) {
+	log.V(2).Infof("getChassisModuleMidplaneStatus: called with options: %v", getOptionsKeys(options))
+
+	// Check if a specific module is requested
+	if moduleStr, ok := options["dpu"].String(); ok {
+		log.V(2).Infof("getChassisModuleMidplaneStatus: filtering for module: %s", moduleStr)
+		return getChassisModuleMidplaneStatusByModule(moduleStr)
+	}
+
+	// Get data for all modules
+	log.V(3).Infof("getChassisModuleMidplaneStatus: getting all modules")
+	queries := createChassisModuleMidplaneQueries("")
+	stateData, err := getChassisModuleMidplaneData(queries)
+	if err != nil {
+		return nil, err
+	}
+
+	// Process the data
+	result := make(map[string]interface{})
+	for moduleName, stateInfo := range stateData {
+		stateInfoMap, ok := stateInfo.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		result[moduleName] = stateInfoMap
+	}
+
+	// Convert to JSON
+	jsonData, err := json.Marshal(result)
+	if err != nil {
+		log.Errorf("getChassisModuleMidplaneStatus: error marshaling result: %v", err)
+		return nil, fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	log.V(2).Infof("getChassisModuleMidplaneStatus: returning: %s", string(jsonData))
+	return jsonData, nil
+}
+
+func getChassisModuleMidplaneStatusByModule(moduleName string) ([]byte, error) {
+	if moduleName == "" {
+		return nil, status.Error(codes.InvalidArgument, "empty module name")
+	}
+
+	log.V(2).Infof("getChassisModuleMidplaneStatusByModule: processing module: %s", moduleName)
+
+	// Get data for specific module
+	queries := createChassisModuleMidplaneQueries(moduleName)
+	stateData, err := getChassisModuleMidplaneData(queries)
+	if err != nil {
+		return nil, err
+	}
+
+	// For specific module queries, the database should return flat data directly
+	// If no "ip_address" field exists, the module doesn't exist
+	if _, hasIP := stateData["ip_address"]; !hasIP {
+		return nil, status.Errorf(codes.NotFound, "module %s not found", moduleName)
+	}
+
+	log.V(2).Infof("getChassisModuleMidplaneStatusByModule: processing state data with keys: %v", getMapKeys(stateData))
+
+	// Create module midplane status from flat data structure
+	module := createModuleMidplaneStatusFromFlatData(moduleName, stateData)
+	log.V(2).Infof("getChassisModuleMidplaneStatusByModule: created module %s: %+v", moduleName, module)
+
+	// Create result
+	result := map[string]interface{}{
+		moduleName: module,
+	}
+
+	// Convert to JSON
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		log.Errorf("Failed to marshal chassis module midplane status data: %v", err)
+		return nil, fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	log.V(4).Infof("getChassisModuleMidplaneStatusByModule, output: %v", string(jsonBytes))
 	return jsonBytes, nil
 }
 
