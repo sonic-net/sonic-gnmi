@@ -33,7 +33,7 @@ steps:
       libnl-3-dev \
       libnl-genl-3-dev \
       curl \
-      git \
+      git
     if ! command -v redis-server &> /dev/null; then
       echo "redis-server not found, installing from source..."
       sudo apt-get install -y redis
