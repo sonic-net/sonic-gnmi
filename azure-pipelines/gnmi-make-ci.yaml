@@ -19,13 +19,11 @@ variables:
   GOPROXY: 'https://proxy.golang.org'
 
 steps:
-# 安装 Python 和 pip
 - task: UsePythonVersion@0
   inputs:
     versionSpec: '3.x'
     addToPath: true
 
-# 安装依赖项
 - script: |
     sudo apt-get update
     sudo apt-get install -y \
@@ -40,7 +38,6 @@ steps:
     pip install semgrep
   displayName: 'Install dependencies'
 
-# 验证环境
 - script: |
     go version
     python3 --version
@@ -48,7 +45,6 @@ steps:
     redis-server --version
   displayName: 'Verify environment'
 
-# 执行 make ci 的各个步骤
 - script: |
     make validate-format
     make tidy
