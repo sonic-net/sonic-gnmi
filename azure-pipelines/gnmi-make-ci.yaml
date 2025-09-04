@@ -53,6 +53,7 @@ steps:
   displayName: 'Verify environment'
 
 - script: |
+    cd sonic-gnmi-standalone
     make validate-format
     make tidy
     make build-all
@@ -62,4 +63,3 @@ steps:
     make test-coverage
     make verify
     make semgrep
-  displayName: 'Run make ci pipeline'
