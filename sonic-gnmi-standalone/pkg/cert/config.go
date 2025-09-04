@@ -27,10 +27,11 @@ type CertConfig struct {
 	MonitoringTimeout  time.Duration // Timeout for certificate loading retries
 
 	// SONiC integration
-	UseSONiCConfig  bool   // Load configuration from SONiC ConfigDB via Redis
-	RedisAddr       string // Redis server address (default: "localhost:6379")
-	RedisDB         int    // Redis database number for ConfigDB (default: 4)
-	ConfigTableName string // ConfigDB table name for client certs (default: "GNMI_CLIENT_CERT")
+	UseSONiCConfig     bool          // Load configuration from SONiC ConfigDB via Redis
+	RedisAddr          string        // Redis server address (default: "localhost:6379")
+	RedisDB            int           // Redis database number for ConfigDB (default: 4)
+	ConfigTableName    string        // ConfigDB table name for client certs (default: "GNMI_CLIENT_CERT")
+	SONiCConfigTimeout time.Duration // Timeout for SONiC config loading (default: 30s)
 }
 
 // NewDefaultConfig returns a CertConfig with production-ready defaults.
@@ -68,9 +69,10 @@ func NewDefaultConfig() *CertConfig {
 		MonitoringTimeout:  30 * time.Second,
 
 		// SONiC defaults
-		RedisAddr:       "localhost:6379",
-		RedisDB:         4, // ConfigDB is database 4 in SONiC
-		ConfigTableName: "GNMI_CLIENT_CERT",
+		RedisAddr:          "localhost:6379",
+		RedisDB:            4, // ConfigDB is database 4 in SONiC
+		ConfigTableName:    "GNMI_CLIENT_CERT",
+		SONiCConfigTimeout: 30 * time.Second,
 	}
 }
 

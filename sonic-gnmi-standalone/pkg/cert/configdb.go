@@ -3,14 +3,13 @@ package cert
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/golang/glog"
 	"github.com/redis/go-redis/v9"
 )
 
 // loadFromSONiCConfig loads certificate configuration from SONiC ConfigDB directly via Redis.
-func (cm *CertManager) loadFromSONiCConfig() error {
+func (cm *CertManager) loadFromSONiCConfig(ctx context.Context) error {
 	glog.V(1).Info("Loading certificate configuration from SONiC ConfigDB via Redis")
 
 	// Connect to ConfigDB using configured Redis settings
@@ -22,7 +21,7 @@ func (cm *CertManager) loadFromSONiCConfig() error {
 	defer redisClient.Close()
 
 	// Get certificate configuration from ConfigDB
-	certPaths, err := cm.readCertConfigFromRedis(redisClient)
+	certPaths, err := cm.readCertConfigFromRedis(ctx, redisClient)
 	if err != nil {
 		return fmt.Errorf("failed to read SONiC certificate configuration: %w", err)
 	}
@@ -35,10 +34,7 @@ func (cm *CertManager) loadFromSONiCConfig() error {
 }
 
 // readCertConfigFromRedis reads certificate configuration directly from SONiC ConfigDB.
-func (cm *CertManager) readCertConfigFromRedis(client *redis.Client) (*CertPaths, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
+func (cm *CertManager) readCertConfigFromRedis(ctx context.Context, client *redis.Client) (*CertPaths, error) {
 	paths := &CertPaths{}
 
 	// Read GNMI|certs table from ConfigDB
@@ -60,7 +56,7 @@ func (cm *CertManager) readCertConfigFromRedis(client *redis.Client) (*CertPaths
 	}
 
 	// Read GNMI configuration for client authentication settings
-	if err := cm.updateClientAuthFromConfigDB(client, ctx); err != nil {
+	if err := cm.updateClientAuthFromConfigDB(ctx, client); err != nil {
 		glog.V(2).Infof("Failed to read GNMI config, using defaults: %v", err)
 	}
 
@@ -71,7 +67,7 @@ func (cm *CertManager) readCertConfigFromRedis(client *redis.Client) (*CertPaths
 }
 
 // updateClientAuthFromConfigDB updates client authentication settings from ConfigDB GNMI config.
-func (cm *CertManager) updateClientAuthFromConfigDB(client *redis.Client, ctx context.Context) error {
+func (cm *CertManager) updateClientAuthFromConfigDB(ctx context.Context, client *redis.Client) error {
 	// Read GNMI configuration from ConfigDB
 	gnmiConfig, err := client.HGetAll(ctx, "GNMI|gnmi").Result()
 	if err != nil || len(gnmiConfig) == 0 {

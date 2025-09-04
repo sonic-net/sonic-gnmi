@@ -1,6 +1,7 @@
 package cert
 
 import (
+	"context"
 	"crypto/sha512"
 	"crypto/tls"
 	"crypto/x509"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/golang/glog"
@@ -92,7 +94,14 @@ func (cm *CertManager) LoadCertificates() error {
 
 	var certErr error
 	if cm.config.UseSONiCConfig {
-		certErr = cm.loadFromSONiCConfig()
+		// Create context with configurable timeout for SONiC config loading
+		timeout := cm.config.SONiCConfigTimeout
+		if timeout <= 0 {
+			timeout = 30 * time.Second // fallback default
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		certErr = cm.loadFromSONiCConfig(ctx)
 	} else {
 		certErr = cm.loadFromFiles()
 	}

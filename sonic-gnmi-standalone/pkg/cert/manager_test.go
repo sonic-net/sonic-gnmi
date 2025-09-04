@@ -139,6 +139,32 @@ func TestCertificateManagementSONiCConfigDB(t *testing.T) {
 	testCertManagerWithServer(t, tempDir, certMgr, clientCert, clientKey, caCert)
 }
 
+// TestCertificateManagementSONiCTimeout tests that SONiC config loading respects configurable timeout.
+func TestCertificateManagementSONiCTimeout(t *testing.T) {
+	// Test the configurable timeout mechanism by setting a very short timeout
+	certConfig := CreateSONiCCertConfig()
+	certConfig.RedisAddr = "192.0.2.1:6379" // RFC 5737 test address - guaranteed unreachable
+	certConfig.RedisDB = 4
+	certConfig.EnableMonitoring = false
+	certConfig.SONiCConfigTimeout = 1 * time.Millisecond // Very short timeout for fast test
+
+	// Create certificate manager
+	certMgr := NewCertificateManager(certConfig)
+
+	// Attempt to load certificates should fail quickly due to short timeout
+	start := time.Now()
+	err := certMgr.LoadCertificates()
+	elapsed := time.Since(start)
+
+	// Should fail with timeout-related error
+	require.Error(t, err, "Should fail due to timeout or connection error")
+
+	// Should fail very quickly due to our 1ms timeout
+	assert.Less(t, elapsed, 100*time.Millisecond, "Should fail quickly due to short timeout")
+
+	t.Logf("Configurable timeout test completed in %v with error: %v", elapsed, err)
+}
+
 // TestCertificateClientAuthModes tests different client authentication configurations.
 func TestCertificateClientAuthModes(t *testing.T) {
 	tests := []struct {
