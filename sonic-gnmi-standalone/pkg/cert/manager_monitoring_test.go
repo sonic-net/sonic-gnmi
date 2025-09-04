@@ -22,11 +22,11 @@ func TestStartMonitoring(t *testing.T) {
 
 		// Create cert config with monitoring disabled
 		config := &CertConfig{
-			CertFile:           serverCertFile,
-			KeyFile:            serverKeyFile,
-			CAFile:             caCertFile,
+			CertFile:          serverCertFile,
+			KeyFile:           serverKeyFile,
+			CAFile:            caCertFile,
 			RequireClientCert: true,
-			EnableMonitoring:   false, // Monitoring disabled
+			EnableMonitoring:  false, // Monitoring disabled
 		}
 
 		// Create certificate manager
@@ -56,11 +56,11 @@ func TestStartMonitoring(t *testing.T) {
 
 		// Create cert config with monitoring enabled
 		config := &CertConfig{
-			CertFile:           serverCertFile,
-			KeyFile:            serverKeyFile,
-			CAFile:             caCertFile,
+			CertFile:          serverCertFile,
+			KeyFile:           serverKeyFile,
+			CAFile:            caCertFile,
 			RequireClientCert: true,
-			EnableMonitoring:   true, // Monitoring enabled
+			EnableMonitoring:  true, // Monitoring enabled
 		}
 
 		// Create certificate manager
@@ -105,11 +105,11 @@ func TestStopMonitoring(t *testing.T) {
 		serverCertFile, serverKeyFile, caCertFile := generateTestCertFiles(t, certDir)
 
 		config := &CertConfig{
-			CertFile:           serverCertFile,
-			KeyFile:            serverKeyFile,
-			CAFile:             caCertFile,
+			CertFile:          serverCertFile,
+			KeyFile:           serverKeyFile,
+			CAFile:            caCertFile,
 			RequireClientCert: true,
-			EnableMonitoring:   true,
+			EnableMonitoring:  true,
 		}
 
 		certMgr := NewCertificateManager(config)
@@ -140,9 +140,9 @@ func TestReload(t *testing.T) {
 		serverCertFile, serverKeyFile, caCertFile := generateTestCertFiles(t, certDir)
 
 		config := &CertConfig{
-			CertFile:           serverCertFile,
-			KeyFile:            serverKeyFile,
-			CAFile:             caCertFile,
+			CertFile:          serverCertFile,
+			KeyFile:           serverKeyFile,
+			CAFile:            caCertFile,
 			RequireClientCert: true,
 		}
 
@@ -168,9 +168,9 @@ func TestReload(t *testing.T) {
 	t.Run("reload_with_missing_files", func(t *testing.T) {
 		// Create config with non-existent files
 		config := &CertConfig{
-			CertFile:           "/nonexistent/server.crt",
-			KeyFile:            "/nonexistent/server.key",
-			CAFile:             "/nonexistent/ca.crt",
+			CertFile:          "/nonexistent/server.crt",
+			KeyFile:           "/nonexistent/server.key",
+			CAFile:            "/nonexistent/ca.crt",
 			RequireClientCert: true,
 		}
 

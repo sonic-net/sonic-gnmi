@@ -48,12 +48,12 @@ func NewServer(addr string) (*Server, error) {
 
 	// Create certificate configuration from global config
 	certConfig := &cert.CertConfig{
-		CertFile:           config.Global.TLSCertFile,
-		KeyFile:            config.Global.TLSKeyFile,
-		CAFile:             config.Global.TLSCACertFile,
-		RequireClientCert:  config.Global.MTLSEnabled,
-		MinTLSVersion:      tls.VersionTLS12,
-		EnableMonitoring:   true,
+		CertFile:          config.Global.TLSCertFile,
+		KeyFile:           config.Global.TLSKeyFile,
+		CAFile:            config.Global.TLSCACertFile,
+		RequireClientCert: config.Global.MTLSEnabled,
+		MinTLSVersion:     tls.VersionTLS12,
+		EnableMonitoring:  true,
 	}
 
 	// Use default production TLS settings

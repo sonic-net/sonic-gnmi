@@ -191,7 +191,6 @@ func testRequiredClientCert_ClientNoCert(t *testing.T) {
 	validateTLSConnectionFailure(t, addr, caCertFile)
 }
 
-
 // testNoClientCertRequirement_ClientHasCert tests server with no client cert requirement where client provides cert.
 func testNoClientCertRequirement_ClientHasCert(t *testing.T) {
 	addr, clientCertFile, clientKeyFile, caCertFile, srv := createTestServerWithClientAuth(t, false)

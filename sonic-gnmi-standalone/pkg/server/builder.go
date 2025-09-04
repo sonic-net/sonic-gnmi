@@ -219,12 +219,12 @@ func (b *ServerBuilder) Build() (*Server, error) {
 		// TLS with legacy configuration - create certificate manager from legacy parameters
 		var certMgr cert.CertificateManager
 		certConfig := &cert.CertConfig{
-			CertFile:           b.tlsConfig.certFile,
-			KeyFile:            b.tlsConfig.keyFile,
-			CAFile:             b.tlsConfig.caCertFile,
-			RequireClientCert:  b.tlsConfig.mtlsEnabled,
-			MinTLSVersion:      tls.VersionTLS12,
-			EnableMonitoring:   false,
+			CertFile:          b.tlsConfig.certFile,
+			KeyFile:           b.tlsConfig.keyFile,
+			CAFile:            b.tlsConfig.caCertFile,
+			RequireClientCert: b.tlsConfig.mtlsEnabled,
+			MinTLSVersion:     tls.VersionTLS12,
+			EnableMonitoring:  false,
 		}
 		// Apply default security settings
 		defaultConfig := cert.NewDefaultConfig()
@@ -236,12 +236,12 @@ func (b *ServerBuilder) Build() (*Server, error) {
 		// TLS from global configuration - create certificate manager from global config
 		var certMgr cert.CertificateManager
 		certConfig := &cert.CertConfig{
-			CertFile:           config.Global.TLSCertFile,
-			KeyFile:            config.Global.TLSKeyFile,
-			CAFile:             config.Global.TLSCACertFile,
-			RequireClientCert:  config.Global.MTLSEnabled,
-			MinTLSVersion:      tls.VersionTLS12,
-			EnableMonitoring:   false,
+			CertFile:          config.Global.TLSCertFile,
+			KeyFile:           config.Global.TLSKeyFile,
+			CAFile:            config.Global.TLSCACertFile,
+			RequireClientCert: config.Global.MTLSEnabled,
+			MinTLSVersion:     tls.VersionTLS12,
+			EnableMonitoring:  false,
 		}
 		// Apply default security settings
 		defaultConfig := cert.NewDefaultConfig()
