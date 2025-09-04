@@ -59,6 +59,27 @@ func TestCertificateManagementFileBased(t *testing.T) {
 	testCertManagerWithServer(t, tempDir, certMgr, clientCert, clientKey, caCert)
 }
 
+// TestCertificateManagementSONiCMissingConfig tests that missing GNMI|certs configuration fails properly.
+func TestCertificateManagementSONiCMissingConfig(t *testing.T) {
+	// Start miniredis for testing
+	mr := miniredis.RunT(t)
+	defer mr.Close()
+
+	// Create SONiC ConfigDB certificate configuration
+	certConfig := CreateSONiCCertConfig()
+	certConfig.RedisAddr = mr.Addr()
+	certConfig.RedisDB = 4
+	certConfig.EnableMonitoring = false
+
+	// Create certificate manager
+	certMgr := NewCertificateManager(certConfig)
+
+	// Attempt to load certificates from empty ConfigDB (should fail)
+	err := certMgr.LoadCertificates()
+	require.Error(t, err, "Should fail when GNMI|certs is missing")
+	assert.Contains(t, err.Error(), "no certificate configuration found in ConfigDB")
+}
+
 // TestCertificateManagementSONiCConfigDB tests SONiC ConfigDB mode with Redis.
 func TestCertificateManagementSONiCConfigDB(t *testing.T) {
 	// Start miniredis for testing
@@ -118,55 +139,6 @@ func TestCertificateManagementSONiCConfigDB(t *testing.T) {
 	testCertManagerWithServer(t, tempDir, certMgr, clientCert, clientKey, caCert)
 }
 
-// TestCertificateManagementSONiCConfigDBFallback tests fallback to DEVICE_METADATA|x509.
-func TestCertificateManagementSONiCConfigDBFallback(t *testing.T) {
-	// Start miniredis for testing
-	mr := miniredis.RunT(t)
-	defer mr.Close()
-
-	// Create temp directory for certificates
-	tempDir := t.TempDir()
-
-	// Generate test certificates
-	serverCert, serverKey, clientCert, clientKey, caCert := generateMTLSCertificates(t, tempDir)
-
-	// Connect to miniredis and populate ConfigDB
-	ctx := context.Background()
-	client := redis.NewClient(&redis.Options{
-		Addr: mr.Addr(),
-		DB:   4, // ConfigDB database
-	})
-	defer client.Close()
-
-	// Only populate DEVICE_METADATA|x509 table (older format)
-	err := client.HSet(ctx, "DEVICE_METADATA|x509",
-		"server_crt", serverCert,
-		"server_key", serverKey,
-		"ca_crt", caCert,
-	).Err()
-	require.NoError(t, err, "Failed to populate DEVICE_METADATA|x509")
-
-	// Create SONiC ConfigDB certificate configuration
-	certConfig := CreateSONiCCertConfig()
-	certConfig.RedisAddr = mr.Addr()
-	certConfig.RedisDB = 4
-	certConfig.EnableMonitoring = false // Disable for testing
-
-	// Create certificate manager
-	certMgr := NewCertificateManager(certConfig)
-
-	// Load certificates from ConfigDB (should fallback to DEVICE_METADATA)
-	err = certMgr.LoadCertificates()
-	require.NoError(t, err, "Failed to load certificates from ConfigDB fallback")
-
-	// Verify certificates are loaded
-	assert.True(t, certMgr.IsHealthy(), "Certificate manager should be healthy")
-	assert.NotNil(t, certMgr.GetServerCertificate(), "Server certificate should be loaded")
-	assert.NotNil(t, certMgr.GetCACertPool(), "CA certificate pool should be loaded")
-
-	// Test server integration using existing test infrastructure
-	testCertManagerWithServer(t, tempDir, certMgr, clientCert, clientKey, caCert)
-}
 
 // TestCertificateClientAuthModes tests different client authentication configurations.
 func TestCertificateClientAuthModes(t *testing.T) {

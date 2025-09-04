@@ -41,26 +41,17 @@ func (cm *CertManager) readCertConfigFromRedis(client *redis.Client) (*CertPaths
 
 	paths := &CertPaths{}
 
-	// Try GNMI|certs table first (newer format)
+	// Read GNMI|certs table from ConfigDB
 	certsConfig, err := client.HGetAll(ctx, "GNMI|certs").Result()
-	if err == nil && len(certsConfig) > 0 {
-		paths.CertFile = certsConfig["server_crt"]
-		paths.KeyFile = certsConfig["server_key"]
-		paths.CAFile = certsConfig["ca_crt"]
-		glog.V(2).Info("Using GNMI|certs configuration from ConfigDB")
-	} else {
-		// Fallback to DEVICE_METADATA|x509 table (older format)
-		x509Config, err := client.HGetAll(ctx, "DEVICE_METADATA|x509").Result()
-		if err == nil && len(x509Config) > 0 {
-			paths.CertFile = x509Config["server_crt"]
-			paths.KeyFile = x509Config["server_key"]
-			paths.CAFile = x509Config["ca_crt"]
-			glog.V(2).Info("Using DEVICE_METADATA|x509 configuration from ConfigDB")
-		} else {
-			glog.Warning("No certificate configuration found in ConfigDB")
-			return nil, fmt.Errorf("no certificate configuration found in ConfigDB")
-		}
+	if err != nil || len(certsConfig) == 0 {
+		glog.Warning("No certificate configuration found in ConfigDB")
+		return nil, fmt.Errorf("no certificate configuration found in ConfigDB")
 	}
+
+	paths.CertFile = certsConfig["server_crt"]
+	paths.KeyFile = certsConfig["server_key"]
+	paths.CAFile = certsConfig["ca_crt"]
+	glog.V(2).Info("Using GNMI|certs configuration from ConfigDB")
 
 	// Validate that we have the required certificate files
 	if paths.CertFile == "" || paths.KeyFile == "" {
