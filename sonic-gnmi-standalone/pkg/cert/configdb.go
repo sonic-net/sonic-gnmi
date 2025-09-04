@@ -116,9 +116,12 @@ func (cm *CertManager) updateCertPaths(paths *CertPaths) {
 	cm.config.KeyFile = paths.KeyFile
 	if paths.CAFile != "" {
 		cm.config.CAFile = paths.CAFile
-		cm.config.RequireClientCert = true
-	} else {
-		// No CA certificate - no client certificates required
+		// Don't override RequireClientCert here - it should be set by updateClientAuthFromConfigDB
+		// based on the explicit ConfigDB client_auth setting
+	}
+	// If no CA file is provided, we can't verify client certs even if requested
+	if paths.CAFile == "" && cm.config.RequireClientCert {
+		glog.V(1).Info("No CA certificate available - disabling client certificate requirement")
 		cm.config.RequireClientCert = false
 	}
 
