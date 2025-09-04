@@ -14,8 +14,7 @@ type CertConfig struct {
 	CAFile   string
 
 	// Client certificate requirements
-	RequireClientCert  bool // Require client certificates (default: true)
-	OptionalClientCert bool // Allow connections without client certs (default: false)
+	RequireClientCert bool // Require client certificates (default: true)
 
 	// Security settings
 	MinTLSVersion    uint16        // Minimum TLS version (default: TLS 1.2)
@@ -43,9 +42,8 @@ func NewDefaultConfig() *CertConfig {
 		CAFile:   "/etc/sonic/telemetry/gnmiCA.pem",
 
 		// Security defaults - match telemetry server
-		RequireClientCert:  true,
-		OptionalClientCert: false,
-		MinTLSVersion:      tls.VersionTLS12,
+		RequireClientCert: true,
+		MinTLSVersion:     tls.VersionTLS12,
 
 		// Production cipher suites (from telemetry server)
 		CipherSuites: []uint16{
@@ -94,18 +92,11 @@ func (c *CertConfig) Validate() error {
 		return fmt.Errorf("CAFile must be specified when RequireClientCert is true")
 	}
 
-	if c.RequireClientCert && c.OptionalClientCert {
-		return fmt.Errorf("RequireClientCert and OptionalClientCert cannot both be true")
-	}
-
 	return nil
 }
 
 // GetClientAuthMode returns the appropriate tls.ClientAuthType based on configuration.
 func (c *CertConfig) GetClientAuthMode() tls.ClientAuthType {
-	if !c.RequireClientCert && c.OptionalClientCert {
-		return tls.VerifyClientCertIfGiven // Optional client certificates with verification
-	}
 	if c.RequireClientCert {
 		return tls.RequireAndVerifyClientCert // Required client certificates
 	}

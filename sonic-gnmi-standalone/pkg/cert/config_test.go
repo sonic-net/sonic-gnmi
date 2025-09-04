@@ -36,14 +36,6 @@ func TestConfigValidation(t *testing.T) {
 			config:      &CertConfig{CertFile: "server.crt", KeyFile: "server.key", RequireClientCert: true},
 			expectError: true,
 		},
-		{
-			name: "conflicting client cert settings",
-			config: &CertConfig{
-				CertFile: "server.crt", KeyFile: "server.key",
-				RequireClientCert: true, OptionalClientCert: true,
-			},
-			expectError: true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -61,36 +53,26 @@ func TestConfigValidation(t *testing.T) {
 
 func TestGetClientAuthMode(t *testing.T) {
 	tests := []struct {
-		name               string
-		requireClientCert  bool
-		optionalClientCert bool
-		expectedAuthMode   tls.ClientAuthType
+		name              string
+		requireClientCert bool
+		expectedAuthMode  tls.ClientAuthType
 	}{
 		{
-			name:               "require client cert",
-			requireClientCert:  true,
-			optionalClientCert: false,
-			expectedAuthMode:   tls.RequireAndVerifyClientCert,
+			name:              "require client cert",
+			requireClientCert: true,
+			expectedAuthMode:  tls.RequireAndVerifyClientCert,
 		},
 		{
-			name:               "optional client cert",
-			requireClientCert:  false,
-			optionalClientCert: true,
-			expectedAuthMode:   tls.VerifyClientCertIfGiven,
-		},
-		{
-			name:               "no client cert",
-			requireClientCert:  false,
-			optionalClientCert: false,
-			expectedAuthMode:   tls.NoClientCert,
+			name:              "no client cert",
+			requireClientCert: false,
+			expectedAuthMode:  tls.NoClientCert,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := &CertConfig{
-				RequireClientCert:  tt.requireClientCert,
-				OptionalClientCert: tt.optionalClientCert,
+				RequireClientCert: tt.requireClientCert,
 			}
 
 			authMode := config.GetClientAuthMode()

@@ -223,8 +223,8 @@ func (cm *CertManager) loadFromFiles() error {
 	cm.serverCert.Store(&cert)
 	atomic.StoreInt32(&cm.certLoaded, 1)
 
-	// Load CA certificate if client certificates are supported (required or optional)
-	if (cm.config.RequireClientCert || cm.config.OptionalClientCert) && cm.config.CAFile != "" {
+	// Load CA certificate if client certificates are required
+	if cm.config.RequireClientCert && cm.config.CAFile != "" {
 		caCertPool, err := cm.loadCACertificate()
 		if err != nil {
 			return fmt.Errorf("failed to load CA certificate: %w", err)

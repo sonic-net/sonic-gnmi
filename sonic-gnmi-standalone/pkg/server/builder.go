@@ -66,7 +66,6 @@ type certConfig struct {
 	redisAddr       string
 	redisDB         int
 	requireClient   bool
-	allowNoClient   bool
 	configTableName string
 }
 
@@ -154,12 +153,11 @@ func (b *ServerBuilder) WithSONiCCertificates(redisAddr string, redisDB int) *Se
 	return b
 }
 
-// WithClientCertPolicy sets the client certificate requirements.
+// WithClientCertPolicy sets whether client certificates are required.
 // Can be chained with WithCertificateFiles() or WithSONiCCertificates().
-func (b *ServerBuilder) WithClientCertPolicy(requireClient, optionalClient bool) *ServerBuilder {
+func (b *ServerBuilder) WithClientCertPolicy(requireClient bool) *ServerBuilder {
 	if b.certConfig != nil {
 		b.certConfig.requireClient = requireClient
-		b.certConfig.allowNoClient = optionalClient
 	}
 	return b
 }
@@ -225,7 +223,6 @@ func (b *ServerBuilder) Build() (*Server, error) {
 			KeyFile:            b.tlsConfig.keyFile,
 			CAFile:             b.tlsConfig.caCertFile,
 			RequireClientCert:  b.tlsConfig.mtlsEnabled,
-			OptionalClientCert: false,
 			MinTLSVersion:      tls.VersionTLS12,
 			EnableMonitoring:   false,
 		}
@@ -243,7 +240,6 @@ func (b *ServerBuilder) Build() (*Server, error) {
 			KeyFile:            config.Global.TLSKeyFile,
 			CAFile:             config.Global.TLSCACertFile,
 			RequireClientCert:  config.Global.MTLSEnabled,
-			OptionalClientCert: false,
 			MinTLSVersion:      tls.VersionTLS12,
 			EnableMonitoring:   false,
 		}
@@ -277,7 +273,6 @@ func (b *ServerBuilder) createCertificateManager() (cert.CertificateManager, err
 		certConfig.KeyFile = b.certConfig.keyFile
 		certConfig.CAFile = b.certConfig.caFile
 		certConfig.RequireClientCert = b.certConfig.requireClient
-		certConfig.OptionalClientCert = b.certConfig.allowNoClient
 		certConfig.ConfigTableName = b.certConfig.configTableName
 		certConfig.RedisAddr = b.certConfig.redisAddr // For client auth manager
 		certConfig.RedisDB = b.certConfig.redisDB     // For client auth manager
@@ -297,7 +292,6 @@ func (b *ServerBuilder) createCertificateManager() (cert.CertificateManager, err
 		certConfig.RedisAddr = b.certConfig.redisAddr
 		certConfig.RedisDB = b.certConfig.redisDB
 		certConfig.RequireClientCert = b.certConfig.requireClient
-		certConfig.OptionalClientCert = b.certConfig.allowNoClient
 		certConfig.ConfigTableName = b.certConfig.configTableName
 		certConfig.EnableMonitoring = false // Disable monitoring in builder pattern for now
 

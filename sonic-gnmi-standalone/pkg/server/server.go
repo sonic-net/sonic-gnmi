@@ -52,7 +52,6 @@ func NewServer(addr string) (*Server, error) {
 		KeyFile:            config.Global.TLSKeyFile,
 		CAFile:             config.Global.TLSCACertFile,
 		RequireClientCert:  config.Global.MTLSEnabled,
-		OptionalClientCert: !config.Global.MTLSEnabled,
 		MinTLSVersion:      tls.VersionTLS12,
 		EnableMonitoring:   true,
 	}

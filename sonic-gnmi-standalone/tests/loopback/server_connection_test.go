@@ -35,14 +35,11 @@ func TestServerBuilderClientAuthPolicies(t *testing.T) {
 		serverConfig.Global = &serverConfig.Config{}
 	}
 
-	// Test the 3x2 certificate authentication matrix:
-	// Server modes: Required, Optional, No requirement
+	// Test the 2x2 certificate authentication matrix:
+	// Server modes: Required, No requirement
 	// Client scenarios: Has cert, No cert
 	t.Run("RequiredClientCert_ClientHasCert", testRequiredClientCert_ClientHasCert)
 	t.Run("RequiredClientCert_ClientNoCert", testRequiredClientCert_ClientNoCert)
-	t.Run("OptionalClientCert_ClientHasCert", testOptionalClientCert_ClientHasCert)
-	t.Run("OptionalClientCert_ClientNoCert", testOptionalClientCert_ClientNoCert)
-	t.Run("OptionalClientCert_ClientInvalidCert", testOptionalClientCert_ClientInvalidCert)
 	t.Run("NoClientCertRequirement_ClientHasCert", testNoClientCertRequirement_ClientHasCert)
 	t.Run("NoClientCertRequirement_ClientNoCert", testNoClientCertRequirement_ClientNoCert)
 }
@@ -178,7 +175,7 @@ func testMTLSConnection(t *testing.T) {
 
 // testRequiredClientCert_ClientHasCert tests server requiring client certs with client providing cert.
 func testRequiredClientCert_ClientHasCert(t *testing.T) {
-	addr, clientCertFile, clientKeyFile, caCertFile, srv := createTestServerWithClientAuth(t, true, false)
+	addr, clientCertFile, clientKeyFile, caCertFile, srv := createTestServerWithClientAuth(t, true)
 	defer srv.Stop()
 
 	// Should succeed with client certificate
@@ -187,53 +184,17 @@ func testRequiredClientCert_ClientHasCert(t *testing.T) {
 
 // testRequiredClientCert_ClientNoCert tests server requiring client certs with client providing no cert.
 func testRequiredClientCert_ClientNoCert(t *testing.T) {
-	addr, _, _, caCertFile, srv := createTestServerWithClientAuth(t, true, false)
+	addr, _, _, caCertFile, srv := createTestServerWithClientAuth(t, true)
 	defer srv.Stop()
 
 	// Should fail without client certificate
 	validateTLSConnectionFailure(t, addr, caCertFile)
 }
 
-// testOptionalClientCert_ClientHasCert tests server with optional client certs where client provides cert.
-func testOptionalClientCert_ClientHasCert(t *testing.T) {
-	addr, clientCertFile, clientKeyFile, caCertFile, srv := createTestServerWithClientAuth(t, false, true)
-	defer srv.Stop()
-
-	// Should succeed with client certificate
-	validateMTLSConnection(t, addr, clientCertFile, clientKeyFile, caCertFile)
-}
-
-// testOptionalClientCert_ClientNoCert tests server with optional client certs where client provides no cert.
-func testOptionalClientCert_ClientNoCert(t *testing.T) {
-	addr, _, _, caCertFile, srv := createTestServerWithClientAuth(t, false, true)
-	defer srv.Stop()
-
-	// Should succeed without client certificate
-	validateTLSConnection(t, addr, caCertFile)
-}
-
-// testOptionalClientCert_ClientInvalidCert tests server with optional client certs where client provides invalid cert.
-func testOptionalClientCert_ClientInvalidCert(t *testing.T) {
-	addr, _, _, caCertFile, srv := createTestServerWithClientAuth(t, false, true)
-	defer srv.Stop()
-
-	// Generate invalid certificate (different CA)
-	tempDir := t.TempDir()
-	invalidCertDir := filepath.Join(tempDir, "invalid_certs")
-	err := os.MkdirAll(invalidCertDir, 0o755)
-	require.NoError(t, err)
-
-	// Create certificate with different/invalid CA
-	invalidClientCert, invalidClientKey, _, _, invalidCA := generateMTLSCertificates(t, invalidCertDir)
-	_ = invalidCA // Unused but needed for function signature
-
-	// Should fail with invalid client certificate
-	validateInvalidClientCertConnection(t, addr, invalidClientCert, invalidClientKey, caCertFile)
-}
 
 // testNoClientCertRequirement_ClientHasCert tests server with no client cert requirement where client provides cert.
 func testNoClientCertRequirement_ClientHasCert(t *testing.T) {
-	addr, clientCertFile, clientKeyFile, caCertFile, srv := createTestServerWithClientAuth(t, false, false)
+	addr, clientCertFile, clientKeyFile, caCertFile, srv := createTestServerWithClientAuth(t, false)
 	defer srv.Stop()
 
 	// Should succeed with client certificate
@@ -242,7 +203,7 @@ func testNoClientCertRequirement_ClientHasCert(t *testing.T) {
 
 // testNoClientCertRequirement_ClientNoCert tests server with no client cert requirement where client provides no cert.
 func testNoClientCertRequirement_ClientNoCert(t *testing.T) {
-	addr, _, _, caCertFile, srv := createTestServerWithClientAuth(t, false, false)
+	addr, _, _, caCertFile, srv := createTestServerWithClientAuth(t, false)
 	defer srv.Stop()
 
 	// Should succeed without client certificate
@@ -427,7 +388,7 @@ func validateInvalidClientCertConnection(t *testing.T, addr, invalidClientCert, 
 
 // createTestServerWithClientAuth creates a test server with specified client auth policy.
 func createTestServerWithClientAuth(
-	t *testing.T, requireClient, optionalClient bool,
+	t *testing.T, requireClient bool,
 ) (addr, clientCertFile, clientKeyFile, caCertFile string, srv *server.Server) {
 	// Create temp directory and generate certificates
 	tempDir := t.TempDir()
@@ -449,7 +410,7 @@ func createTestServerWithClientAuth(
 		WithAddress(addr).
 		WithRootFS(tempDir).
 		WithCertificateFiles(serverCertFile, serverKeyFile, caCertFile).
-		WithClientCertPolicy(requireClient, optionalClient).
+		WithClientCertPolicy(requireClient).
 		Build()
 	require.NoError(t, err, "Failed to build server")
 

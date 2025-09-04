@@ -25,8 +25,7 @@ func TestStartMonitoring(t *testing.T) {
 			CertFile:           serverCertFile,
 			KeyFile:            serverKeyFile,
 			CAFile:             caCertFile,
-			RequireClientCert:  true,
-			OptionalClientCert: false,
+			RequireClientCert: true,
 			EnableMonitoring:   false, // Monitoring disabled
 		}
 
@@ -60,8 +59,7 @@ func TestStartMonitoring(t *testing.T) {
 			CertFile:           serverCertFile,
 			KeyFile:            serverKeyFile,
 			CAFile:             caCertFile,
-			RequireClientCert:  true,
-			OptionalClientCert: false,
+			RequireClientCert: true,
 			EnableMonitoring:   true, // Monitoring enabled
 		}
 
@@ -110,8 +108,7 @@ func TestStopMonitoring(t *testing.T) {
 			CertFile:           serverCertFile,
 			KeyFile:            serverKeyFile,
 			CAFile:             caCertFile,
-			RequireClientCert:  true,
-			OptionalClientCert: false,
+			RequireClientCert: true,
 			EnableMonitoring:   true,
 		}
 
@@ -146,8 +143,7 @@ func TestReload(t *testing.T) {
 			CertFile:           serverCertFile,
 			KeyFile:            serverKeyFile,
 			CAFile:             caCertFile,
-			RequireClientCert:  true,
-			OptionalClientCert: false,
+			RequireClientCert: true,
 		}
 
 		certMgr := NewCertificateManager(config)
@@ -175,8 +171,7 @@ func TestReload(t *testing.T) {
 			CertFile:           "/nonexistent/server.crt",
 			KeyFile:            "/nonexistent/server.key",
 			CAFile:             "/nonexistent/ca.crt",
-			RequireClientCert:  true,
-			OptionalClientCert: false,
+			RequireClientCert: true,
 		}
 
 		certMgr := NewCertificateManager(config)

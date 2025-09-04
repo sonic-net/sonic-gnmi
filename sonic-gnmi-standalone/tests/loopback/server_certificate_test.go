@@ -135,7 +135,7 @@ func testServerBuilderWithSONiCCertificates(t *testing.T) {
 		WithAddress(addr).
 		WithRootFS(tempDir).
 		WithSONiCCertificates(mr.Addr(), 4).
-		WithClientCertPolicy(true, false). // Require client certs with CN verification
+		WithClientCertPolicy(true). // Require client certs with CN verification
 		Build()
 	require.NoError(t, err, "Failed to build server with SONiC certificates")
 	defer srv.Stop()
@@ -219,7 +219,7 @@ func testServerBuilderClientAuthRejection(t *testing.T) {
 		WithAddress(addr).
 		WithRootFS(tempDir).
 		WithSONiCCertificates(mr.Addr(), 4).
-		WithClientCertPolicy(true, false). // Require client certs with CN verification
+		WithClientCertPolicy(true). // Require client certs with CN verification
 		Build()
 	require.NoError(t, err, "Failed to build server")
 	defer srv.Stop()
@@ -300,7 +300,7 @@ func testServerBuilderInvalidCertificates(t *testing.T) {
 				WithAddress(addr).
 				WithRootFS(tempDir).
 				WithCertificateFiles(serverCertFile, serverKeyFile, caCertFile).
-				WithClientCertPolicy(true, false). // Require client certs
+				WithClientCertPolicy(true). // Require client certs
 				Build()
 			require.NoError(t, err, "Failed to build server")
 			defer srv.Stop()

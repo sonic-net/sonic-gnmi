@@ -17,7 +17,6 @@ type Config struct {
 	MTLSEnabled     bool
 
 	// Certificate management options
-	OptionalClientCert   bool   // Allow connections without client certificates
 	UseSONiCConfig       bool   // Load certificate config from SONiC ConfigDB
 	RedisAddr            string // Redis server address for ConfigDB
 	RedisDB              int    // Redis database number for ConfigDB
@@ -39,7 +38,6 @@ func Initialize() {
 	enableMTLS := flag.Bool("mtls", false, "Enable mutual TLS (requires CA certificate)")
 
 	// Certificate management flags
-	optionalClientCert := flag.Bool("allow-no-client-auth", false, "Allow connections without client certificates")
 	useSONiCConfig := flag.Bool("sonic-config", false, "Load certificate configuration from SONiC ConfigDB via Redis")
 	redisAddr := flag.String("redis-addr", "localhost:6379", "Redis server address for ConfigDB access")
 	redisDB := flag.Int("redis-db", 4, "Redis database number for ConfigDB (default: 4)")
@@ -80,7 +78,6 @@ func Initialize() {
 		MTLSEnabled:     mtlsEnabled,
 
 		// Certificate management settings
-		OptionalClientCert:   *optionalClientCert,
 		UseSONiCConfig:       *useSONiCConfig,
 		RedisAddr:            *redisAddr,
 		RedisDB:              *redisDB,

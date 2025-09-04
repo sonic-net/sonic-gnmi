@@ -142,28 +142,19 @@ func TestCertificateManagementSONiCConfigDB(t *testing.T) {
 // TestCertificateClientAuthModes tests different client authentication configurations.
 func TestCertificateClientAuthModes(t *testing.T) {
 	tests := []struct {
-		name               string
-		requireClientCert  bool
-		optionalClientCert bool
-		expectedAuthMode   tls.ClientAuthType
+		name              string
+		requireClientCert bool
+		expectedAuthMode  tls.ClientAuthType
 	}{
 		{
-			name:               "Require client certificates",
-			requireClientCert:  true,
-			optionalClientCert: false,
-			expectedAuthMode:   tls.RequireAndVerifyClientCert,
+			name:              "Require client certificates",
+			requireClientCert: true,
+			expectedAuthMode:  tls.RequireAndVerifyClientCert,
 		},
 		{
-			name:               "Optional client certificates",
-			requireClientCert:  false,
-			optionalClientCert: true,
-			expectedAuthMode:   tls.VerifyClientCertIfGiven,
-		},
-		{
-			name:               "No client certificates",
-			requireClientCert:  false,
-			optionalClientCert: false,
-			expectedAuthMode:   tls.NoClientCert,
+			name:              "No client certificates",
+			requireClientCert: false,
+			expectedAuthMode:  tls.NoClientCert,
 		},
 	}
 
@@ -181,7 +172,6 @@ func TestCertificateClientAuthModes(t *testing.T) {
 			certConfig.KeyFile = serverKey
 			certConfig.CAFile = caCert
 			certConfig.RequireClientCert = tt.requireClientCert
-			certConfig.OptionalClientCert = tt.optionalClientCert
 			certConfig.EnableMonitoring = false
 
 			// Create certificate manager

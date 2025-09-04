@@ -82,10 +82,9 @@ func (cm *CertManager) updateClientAuthFromConfigDB(client *redis.Client, ctx co
 	// Parse client_auth setting
 	clientAuth := gnmiConfig["client_auth"]
 	if clientAuth == "false" {
-		// client_auth is false - allow no client certificates
-		cm.config.OptionalClientCert = true
+		// client_auth is false - no client certificates required
 		cm.config.RequireClientCert = false
-		glog.V(2).Info("Client authentication disabled by ConfigDB")
+		glog.V(2).Info("Client certificate authentication disabled by ConfigDB")
 		return nil
 	}
 
@@ -94,13 +93,11 @@ func (cm *CertManager) updateClientAuthFromConfigDB(client *redis.Client, ctx co
 	if userAuth == "" || userAuth == "null" || userAuth == "cert" {
 		// Default to certificate authentication
 		cm.config.RequireClientCert = true
-		cm.config.OptionalClientCert = false
 		glog.V(2).Info("Using certificate authentication from ConfigDB")
 	} else {
-		// Other authentication modes - allow no client cert
+		// Other authentication modes (password/jwt) - no client certificates
 		cm.config.RequireClientCert = false
-		cm.config.OptionalClientCert = true
-		glog.V(2).Infof("Using %s authentication from ConfigDB", userAuth)
+		glog.V(2).Infof("Using %s authentication from ConfigDB, client certificates disabled", userAuth)
 	}
 
 	return nil
@@ -125,9 +122,8 @@ func (cm *CertManager) updateCertPaths(paths *CertPaths) {
 		cm.config.CAFile = paths.CAFile
 		cm.config.RequireClientCert = true
 	} else {
-		// No CA certificate - allow connections without client certs
+		// No CA certificate - no client certificates required
 		cm.config.RequireClientCert = false
-		cm.config.OptionalClientCert = true
 	}
 
 	glog.V(2).Infof("Updated certificate paths: cert=%s, key=%s, ca=%s, requireClient=%t",
@@ -142,7 +138,6 @@ func CreateSONiCCertConfig() *CertConfig {
 
 	// Match telemetry container's default client authentication behavior
 	config.RequireClientCert = true
-	config.OptionalClientCert = false
 
 	return config
 }
