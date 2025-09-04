@@ -1,0 +1,52 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+
+trigger:
+  branches:
+    include:
+      - master
+      - feature/*
+
+pr:
+  branches:
+    include:
+      - master
+      - feature/*
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  GO111MODULE: 'on'
+  GOPROXY: 'https://proxy.golang.org'
+
+steps:
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: '3.x'
+    addToPath: true
+
+- script: |
+    sudo apt-get update
+    sudo apt-get install -y build-essential golang-go libyang-dev libnl-3-dev libnl-genl-3-dev redis-server
+  displayName: 'Install dependencies'
+
+- script: |
+    go version
+    python3 --version
+  displayName: 'Verify environment'
+
+- script: |
+    make validate-format
+    make tidy
+    make build-all
+    make vet
+    make lint
+    make test
+    make test-coverage
+    make verify
+    make semgrep
+  displayName: 'Run make ci pipeline'
