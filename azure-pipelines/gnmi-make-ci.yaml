@@ -32,9 +32,12 @@ steps:
       libyang-dev \
       libnl-3-dev \
       libnl-genl-3-dev \
-      redis-server \
       curl \
-      git
+      git \
+    if ! command -v redis-server &> /dev/null; then
+      echo "redis-server not found, installing from source..."
+      sudo apt-get install -y redis
+    fi
     pip install semgrep
   displayName: 'Install dependencies'
 
@@ -42,7 +45,11 @@ steps:
     go version
     python3 --version
     semgrep --version
-    redis-server --version
+    if command -v redis-server &> /dev/null; then
+      redis-server --version
+    else
+      echo "redis-server still not found after install"
+    fi
   displayName: 'Verify environment'
 
 - script: |
