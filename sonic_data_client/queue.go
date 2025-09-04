@@ -23,10 +23,6 @@ type LimitedQueue struct {
 func (q *LimitedQueue) EnqueueItem(item Value) error {
 	q.queueLengthLock.Lock()
 	defer q.queueLengthLock.Unlock()
-	// ilen := (uint64)(proto.Size(item.Val))
-	// if item.Notification != nil {
-	// 	ilen = (uint64)(proto.Size(item.Notification))
-	// }
 	ilen := GetValueSize(item)
 	if ilen+q.queueLengthSum < q.maxSize {
 		q.queueLengthSum += ilen
@@ -48,11 +44,6 @@ func GetValueSize(item Value) uint64 {
 func (q *LimitedQueue) ForceEnqueueItem(item Value) error {
 	q.queueLengthLock.Lock()
 	defer q.queueLengthLock.Unlock()
-	// if item.Notification != nil {
-	// 	q.queueLengthSum += (uint64)(proto.Size(item.Notification))
-	// } else {
-	// 	q.queueLengthSum += (uint64)(proto.Size(item.Val))
-	// }
 	q.queueLengthSum += GetValueSize(item)
 	log.V(2).Infof("Output queue size: %d", q.queueLengthSum)
 	return q.Q.Put(item)
