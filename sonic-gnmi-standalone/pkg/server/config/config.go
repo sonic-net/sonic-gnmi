@@ -15,6 +15,13 @@ type Config struct {
 	TLSCACertFile   string
 	TLSEnabled      bool
 	MTLSEnabled     bool
+
+	// Certificate management options
+	UseSONiCConfig       bool   // Load certificate config from SONiC ConfigDB
+	RedisAddr            string // Redis server address for ConfigDB
+	RedisDB              int    // Redis database number for ConfigDB
+	EnableCertMonitoring bool   // Enable certificate file monitoring
+	ConfigTableName      string // ConfigDB table name for client certificates
 }
 
 var Global *Config
@@ -29,6 +36,13 @@ func Initialize() {
 	tlsCACert := flag.String("tls-ca-cert", "", "Path to TLS CA certificate file for client verification (optional)")
 	noTLS := flag.Bool("no-tls", false, "Disable TLS (TLS is enabled by default)")
 	enableMTLS := flag.Bool("mtls", false, "Enable mutual TLS (requires CA certificate)")
+
+	// Certificate management flags
+	useSONiCConfig := flag.Bool("sonic-config", false, "Load certificate configuration from SONiC ConfigDB via Redis")
+	redisAddr := flag.String("redis-addr", "localhost:6379", "Redis server address for ConfigDB access")
+	redisDB := flag.Int("redis-db", 4, "Redis database number for ConfigDB (default: 4)")
+	enableCertMonitoring := flag.Bool("cert-monitoring", true, "Enable certificate file monitoring for automatic reload")
+	configTableName := flag.String("config-table-name", "GNMI_CLIENT_CERT", "ConfigDB table name for client certificates")
 
 	flag.Parse()
 
@@ -62,5 +76,12 @@ func Initialize() {
 		TLSCACertFile:   caCertFile,
 		TLSEnabled:      tlsEnabled,
 		MTLSEnabled:     mtlsEnabled,
+
+		// Certificate management settings
+		UseSONiCConfig:       *useSONiCConfig,
+		RedisAddr:            *redisAddr,
+		RedisDB:              *redisDB,
+		EnableCertMonitoring: *enableCertMonitoring,
+		ConfigTableName:      *configTableName,
 	}
 }

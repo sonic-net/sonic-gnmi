@@ -142,6 +142,7 @@ func generateSignedCertificate(
 			Locality:      []string{"San Francisco"},
 			StreetAddress: []string{""},
 			PostalCode:    []string{""},
+			CommonName:    "test." + name + ".gnmi.sonic", // Add CN for client auth
 		},
 		NotBefore:   time.Now(),
 		NotAfter:    time.Now().Add(365 * 24 * time.Hour),

@@ -15,6 +15,7 @@ package server
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"io/ioutil"
 	"net"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
 
+	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/cert"
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server/config"
 )
 
@@ -31,58 +33,64 @@ import (
 // for managing the lifecycle of the SONiC gRPC services. It encapsulates the
 // underlying gRPC server instance and network listener for clean resource management.
 type Server struct {
-	grpcServer *grpc.Server // The underlying gRPC server instance
-	listener   net.Listener // Network listener for incoming connections
+	grpcServer *grpc.Server            // The underlying gRPC server instance
+	listener   net.Listener            // Network listener for incoming connections
+	certMgr    cert.CertificateManager // Certificate manager for TLS and monitoring
 }
 
 // NewServer creates a new Server instance using global configuration.
 // This is the convenience function that reads TLS settings from the global config
-// and delegates to NewServerWithTLS for actual server creation.
+// and creates appropriate certificate manager for actual server creation.
 func NewServer(addr string) (*Server, error) {
-	return NewServerWithTLS(
-		addr,
-		config.Global.TLSEnabled,
-		config.Global.TLSCertFile,
-		config.Global.TLSKeyFile,
-		config.Global.MTLSEnabled,
-		config.Global.TLSCACertFile,
-	)
+	if !config.Global.TLSEnabled {
+		return NewInsecureServer(addr)
+	}
+
+	// Create certificate configuration from global config
+	certConfig := &cert.CertConfig{
+		CertFile:          config.Global.TLSCertFile,
+		KeyFile:           config.Global.TLSKeyFile,
+		CAFile:            config.Global.TLSCACertFile,
+		RequireClientCert: config.Global.MTLSEnabled,
+		MinTLSVersion:     tls.VersionTLS12,
+		EnableMonitoring:  true,
+	}
+
+	// Use default production TLS settings
+	if certConfig.CipherSuites == nil {
+		defaultConfig := cert.NewDefaultConfig()
+		certConfig.CipherSuites = defaultConfig.CipherSuites
+		certConfig.CurvePreferences = defaultConfig.CurvePreferences
+	}
+
+	return NewServerWithCertManager(addr, cert.NewCertificateManager(certConfig))
 }
 
-// NewServerWithTLS creates a new Server instance with configurable TLS support.
-// This function handles the complete server setup including:
-//   - Network listener creation on the specified address
-//   - TLS certificate validation and loading (if enabled)
-//   - Mutual TLS (mTLS) client certificate verification (if enabled)
-//   - gRPC server instantiation with appropriate security settings
-//   - gRPC reflection setup for development tools
-//
-// Parameters:
-//   - addr: Network address to bind to (e.g., ":8080", "localhost:50055")
-//   - useTLS: Whether to enable TLS encryption
-//   - certFile: Path to TLS certificate file (required if useTLS is true)
-//   - keyFile: Path to TLS private key file (required if useTLS is true)
-//   - useMTLS: Whether to enable mutual TLS (client certificate verification)
-//   - caCertFile: Path to CA certificate file (required if useMTLS is true)
-func NewServerWithTLS(
-	addr string,
-	useTLS bool,
-	certFile, keyFile string,
-	useMTLS bool,
-	caCertFile string,
-) (*Server, error) {
-	glog.V(1).Infof("Creating new server listening on %s (TLS: %t, mTLS: %t)", addr, useTLS, useMTLS)
+// NewServerWithCertManager creates a new Server instance with certificate manager.
+// This is the primary server creation function that uses the certificate manager
+// for production-grade TLS configuration and monitoring.
+func NewServerWithCertManager(addr string, certMgr cert.CertificateManager) (*Server, error) {
+	glog.V(1).Infof("Creating new server with certificate manager listening on %s", addr)
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		glog.Errorf("Failed to listen on %s: %v", addr, err)
 		return nil, err
 	}
 
-	glog.V(2).Info("Initializing gRPC server")
-	var grpcServer *grpc.Server
+	// Load certificates
+	if err := certMgr.LoadCertificates(); err != nil {
+		return nil, err
+	}
 
-	grpcServer, err = createGRPCServer(useTLS, useMTLS, certFile, keyFile, caCertFile)
+	// Start certificate monitoring
+	if err := certMgr.StartMonitoring(); err != nil {
+		glog.Warningf("Failed to start certificate monitoring: %v", err)
+	}
+
+	// Create gRPC server with certificate manager
+	grpcServer, err := createGRPCServerWithCertManager(certMgr)
 	if err != nil {
+		certMgr.StopMonitoring()
 		return nil, err
 	}
 
@@ -91,6 +99,28 @@ func NewServerWithTLS(
 	reflection.Register(grpcServer)
 
 	glog.V(1).Infof("Server created successfully, listening on %s", lis.Addr().String())
+	return &Server{
+		grpcServer: grpcServer,
+		listener:   lis,
+		certMgr:    certMgr,
+	}, nil
+}
+
+// NewInsecureServer creates a new Server instance without TLS for development/testing.
+func NewInsecureServer(addr string) (*Server, error) {
+	glog.V(1).Infof("Creating insecure server listening on %s", addr)
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		glog.Errorf("Failed to listen on %s: %v", addr, err)
+		return nil, err
+	}
+
+	// Create insecure gRPC server
+	// nosemgrep: go.grpc.security.grpc-server-insecure-connection.grpc-server-insecure-connection
+	grpcServer := grpc.NewServer()
+	reflection.Register(grpcServer)
+
+	glog.V(1).Infof("Insecure server created successfully, listening on %s", lis.Addr().String())
 	return &Server{
 		grpcServer: grpcServer,
 		listener:   lis,
@@ -117,10 +147,36 @@ func (s *Server) Start() error {
 func (s *Server) Stop() {
 	glog.Info("Gracefully stopping server...")
 	s.grpcServer.GracefulStop()
+
+	// Stop certificate monitoring if enabled
+	if s.certMgr != nil {
+		s.certMgr.StopMonitoring()
+	}
+
 	glog.Info("Server stopped")
 }
 
-// createGRPCServer creates a gRPC server with the appropriate security configuration.
+// createGRPCServerWithCertManager creates a gRPC server using the certificate manager.
+func createGRPCServerWithCertManager(certMgr cert.CertificateManager) (*grpc.Server, error) {
+	glog.V(2).Info("Creating gRPC server with certificate manager")
+
+	// Get TLS configuration from certificate manager
+	tlsConfig, err := certMgr.GetTLSConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get TLS config: %w", err)
+	}
+
+	// Create gRPC credentials from TLS config
+	creds := credentials.NewTLS(tlsConfig)
+	server := grpc.NewServer(grpc.Creds(creds))
+
+	glog.V(1).Infof("gRPC server created with TLS: MinVersion=%x, ClientAuth=%v, CipherSuites=%d",
+		tlsConfig.MinVersion, tlsConfig.ClientAuth, len(tlsConfig.CipherSuites))
+
+	return server, nil
+}
+
+// createGRPCServer creates a gRPC server with the appropriate security configuration (DEPRECATED).
 func createGRPCServer(useTLS, useMTLS bool, certFile, keyFile, caCertFile string) (*grpc.Server, error) {
 	if !useTLS {
 		return createInsecureServer(), nil
