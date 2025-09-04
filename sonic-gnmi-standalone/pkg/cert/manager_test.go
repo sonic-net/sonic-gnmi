@@ -139,7 +139,6 @@ func TestCertificateManagementSONiCConfigDB(t *testing.T) {
 	testCertManagerWithServer(t, tempDir, certMgr, clientCert, clientKey, caCert)
 }
 
-
 // TestCertificateClientAuthModes tests different client authentication configurations.
 func TestCertificateClientAuthModes(t *testing.T) {
 	tests := []struct {
