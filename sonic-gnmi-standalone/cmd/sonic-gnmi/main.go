@@ -16,7 +16,7 @@ import (
 
 const (
 	defaultTimeout = 30 * time.Second
-	defaultTarget  = "localhost:50051"
+	defaultTarget  = "localhost:50055"
 )
 
 // Config holds the CLI configuration.
@@ -102,7 +102,7 @@ Usage: sonic-gnmi [OPTIONS] COMMAND [ARGS...]
 
 Options:
   -target string
-        gNMI server address (default "localhost:50051")
+        gNMI server address (default "localhost:50055")
   -timeout duration
         Request timeout (default 30s)
   -tls
@@ -133,7 +133,7 @@ Examples:
   sonic-gnmi -tls disk-space /host
 
   # Connect to remote server
-  sonic-gnmi -target 192.168.1.100:50051 disk-space /var/log
+  sonic-gnmi -target 192.168.1.100:50055 disk-space /var/log
 `)
 }
 

@@ -23,7 +23,7 @@ type Client struct {
 
 // ClientConfig holds configuration options for the gNMI client.
 type ClientConfig struct {
-	// Target is the gNMI server address (e.g., "localhost:50051")
+	// Target is the gNMI server address (e.g., "localhost:50055")
 	Target string
 
 	// Timeout for connection and RPC operations

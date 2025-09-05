@@ -35,7 +35,7 @@ func TestNewClient_InvalidConfig(t *testing.T) {
 func TestClientConfig_Validation(t *testing.T) {
 	// Test that configuration is properly validated
 	config := &ClientConfig{
-		Target:  "localhost:50051",
+		Target:  "localhost:50055",
 		Timeout: 5 * time.Second,
 	}
 
@@ -53,7 +53,7 @@ func TestClientConfig_Validation(t *testing.T) {
 
 func TestClientConfig_DefaultTimeout(t *testing.T) {
 	config := &ClientConfig{
-		Target: "localhost:50051",
+		Target: "localhost:50055",
 		// No timeout specified - should default to 30s
 	}
 
@@ -90,7 +90,7 @@ func TestIntegration_WithRunningServer(t *testing.T) {
 	}
 
 	config := &ClientConfig{
-		Target:  "localhost:50051",
+		Target:  "localhost:50055",
 		Timeout: 10 * time.Second,
 	}
 
