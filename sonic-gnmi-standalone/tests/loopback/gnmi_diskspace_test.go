@@ -33,10 +33,7 @@ func TestGNMIDiskSpaceLoopback(t *testing.T) {
 		require.NotNil(t, resp)
 
 		assert.Equal(t, "0.7.0", resp.GNMIVersion, "Unexpected gNMI version")
-		assert.NotEmpty(t, resp.SupportedModels, "No supported models")
-		assert.Equal(t, "sonic-system", resp.SupportedModels[0].Name, "Unexpected model name")
-		assert.Equal(t, "SONiC", resp.SupportedModels[0].Organization, "Unexpected organization")
-		assert.Equal(t, "1.0.0", resp.SupportedModels[0].Version, "Unexpected model version")
+		assert.Empty(t, resp.SupportedModels, "No YANG models should be registered without proper schema definitions")
 	})
 
 	t.Run("disk_space_tempdir", func(t *testing.T) {

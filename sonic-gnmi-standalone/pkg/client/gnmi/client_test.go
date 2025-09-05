@@ -114,9 +114,8 @@ func TestIntegration_WithRunningServer(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 
-		// Should have at least one supported model
-		assert.NotEmpty(t, resp.SupportedModels)
-		assert.Equal(t, "sonic-system", resp.SupportedModels[0].Name)
+		// Should have no supported models without proper YANG schema
+		assert.Empty(t, resp.SupportedModels)
 	})
 
 	// Test GetDiskSpace

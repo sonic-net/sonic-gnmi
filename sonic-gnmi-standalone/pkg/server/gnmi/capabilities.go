@@ -13,13 +13,10 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmi.CapabilityRequest) 
 	glog.V(2).Info("Received gNMI Capabilities request")
 
 	return &gnmi.CapabilityResponse{
-		SupportedModels: []*gnmi.ModelData{
-			{
-				Name:         "sonic-system",
-				Organization: "SONiC",
-				Version:      "1.0.0",
-			},
-		},
+		// No YANG models are registered as the server provides custom paths
+		// without formal schema definitions. Future work should add proper
+		// YANG models for filesystem monitoring capabilities.
+		SupportedModels: []*gnmi.ModelData{},
 		SupportedEncodings: []gnmi.Encoding{
 			gnmi.Encoding_JSON,
 			gnmi.Encoding_JSON_IETF,
