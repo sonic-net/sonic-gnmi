@@ -82,24 +82,6 @@ func TestGetDiskSpace_InvalidPath(t *testing.T) {
 	assert.Contains(t, err.Error(), "filesystem path is required")
 }
 
-func TestGetDiskSpaceTotal_InvalidPath(t *testing.T) {
-	client := &Client{}
-	ctx := context.Background()
-
-	_, err := client.GetDiskSpaceTotal(ctx, "")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "filesystem path is required")
-}
-
-func TestGetDiskSpaceAvailable_InvalidPath(t *testing.T) {
-	client := &Client{}
-	ctx := context.Background()
-
-	_, err := client.GetDiskSpaceAvailable(ctx, "")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "filesystem path is required")
-}
-
 // Integration test helper - requires a running gNMI server.
 func TestIntegration_WithRunningServer(t *testing.T) {
 	// Skip this test unless we're in integration test mode
@@ -147,19 +129,5 @@ func TestIntegration_WithRunningServer(t *testing.T) {
 		assert.Greater(t, info.TotalMB, int64(0))
 		assert.GreaterOrEqual(t, info.AvailableMB, int64(0))
 		assert.LessOrEqual(t, info.AvailableMB, info.TotalMB)
-	})
-
-	// Test GetDiskSpaceTotal
-	t.Run("disk_space_total", func(t *testing.T) {
-		totalMB, err := client.GetDiskSpaceTotal(ctx, ".")
-		require.NoError(t, err)
-		assert.Greater(t, totalMB, int64(0))
-	})
-
-	// Test GetDiskSpaceAvailable
-	t.Run("disk_space_available", func(t *testing.T) {
-		availableMB, err := client.GetDiskSpaceAvailable(ctx, ".")
-		require.NoError(t, err)
-		assert.GreaterOrEqual(t, availableMB, int64(0))
 	})
 }

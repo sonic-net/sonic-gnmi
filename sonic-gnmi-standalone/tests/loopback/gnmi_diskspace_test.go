@@ -62,22 +62,6 @@ func TestGNMIDiskSpaceLoopback(t *testing.T) {
 		assert.Greater(t, diskInfo.TotalMB, int64(0), "Total MB should be positive")
 		assert.GreaterOrEqual(t, diskInfo.AvailableMB, int64(0), "Available MB should be non-negative")
 	})
-
-	t.Run("disk_space_total_only", func(t *testing.T) {
-		// Test total disk space only
-		totalMB, err := client.GetDiskSpaceTotal(ctx, ".")
-		require.NoError(t, err, "GetDiskSpaceTotal RPC failed")
-
-		assert.Greater(t, totalMB, int64(0), "Total MB should be positive")
-	})
-
-	t.Run("disk_space_available_only", func(t *testing.T) {
-		// Test available disk space only
-		availableMB, err := client.GetDiskSpaceAvailable(ctx, ".")
-		require.NoError(t, err, "GetDiskSpaceAvailable RPC failed")
-
-		assert.GreaterOrEqual(t, availableMB, int64(0), "Available MB should be non-negative")
-	})
 }
 
 // TestGNMIDiskSpaceLoopback_InvalidPath tests error handling for invalid filesystem paths.

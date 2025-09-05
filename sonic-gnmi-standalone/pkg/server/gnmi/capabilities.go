@@ -29,11 +29,8 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmi.CapabilityRequest) 
 }
 
 // getSupportedPaths returns a list of all supported gNMI paths.
-// This is used for documentation and validation purposes.
 func getSupportedPaths() []string {
 	return []string{
 		"/sonic/system/filesystem[path=*]/disk-space",
-		"/sonic/system/filesystem[path=*]/disk-space/total-mb",
-		"/sonic/system/filesystem[path=*]/disk-space/available-mb",
 	}
 }

@@ -67,10 +67,6 @@ func main() {
 		err = runCapabilities(ctx, client)
 	case "disk-space", "ds":
 		err = runDiskSpace(ctx, client, config.Args)
-	case "disk-space-total", "dst":
-		err = runDiskSpaceTotal(ctx, client, config.Args)
-	case "disk-space-available", "dsa":
-		err = runDiskSpaceAvailable(ctx, client, config.Args)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", config.Command)
 		printUsage()
@@ -126,14 +122,6 @@ Commands:
         Get disk space information for filesystem path
         Example: sonic-gnmi disk-space /host
 
-  disk-space-total, dst PATH
-        Get total disk space for filesystem path
-        Example: sonic-gnmi disk-space-total /host
-
-  disk-space-available, dsa PATH
-        Get available disk space for filesystem path
-        Example: sonic-gnmi disk-space-available /host
-
 Examples:
   # Get server capabilities
   sonic-gnmi capabilities
@@ -188,36 +176,6 @@ func runDiskSpace(ctx context.Context, client *gnmi.Client, args []string) error
 	}
 
 	fmt.Println(string(jsonBytes))
-	return nil
-}
-
-func runDiskSpaceTotal(ctx context.Context, client *gnmi.Client, args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("disk-space-total command requires exactly one argument (filesystem path)")
-	}
-
-	path := args[0]
-	totalMB, err := client.GetDiskSpaceTotal(ctx, path)
-	if err != nil {
-		return fmt.Errorf("failed to get total disk space: %w", err)
-	}
-
-	fmt.Printf("%d\n", totalMB)
-	return nil
-}
-
-func runDiskSpaceAvailable(ctx context.Context, client *gnmi.Client, args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("disk-space-available command requires exactly one argument (filesystem path)")
-	}
-
-	path := args[0]
-	availableMB, err := client.GetDiskSpaceAvailable(ctx, path)
-	if err != nil {
-		return fmt.Errorf("failed to get available disk space: %w", err)
-	}
-
-	fmt.Printf("%d\n", availableMB)
 	return nil
 }
 

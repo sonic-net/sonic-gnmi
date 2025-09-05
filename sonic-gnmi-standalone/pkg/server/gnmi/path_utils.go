@@ -64,29 +64,15 @@ func isDiskSpacePath(path *gnmi.Path) bool {
 		path.Elem[3].Name == "disk-space"
 }
 
-// getDiskSpaceField determines which disk space field is being requested.
-// Returns "both", "total", or "available" based on the path.
-func getDiskSpaceField(path *gnmi.Path) (string, error) {
+// validateDiskSpacePath validates that the disk space path is correctly formatted.
+func validateDiskSpacePath(path *gnmi.Path) error {
 	if !isDiskSpacePath(path) {
-		return "", fmt.Errorf("not a disk space path: %s", pathToString(path))
+		return fmt.Errorf("not a disk space path: %s", pathToString(path))
 	}
 
-	// If path ends at disk-space, return both metrics
-	if len(path.Elem) == 4 {
-		return "both", nil
+	if len(path.Elem) != 4 {
+		return fmt.Errorf("invalid disk space path: %s", pathToString(path))
 	}
 
-	// If path has a specific field, check what it is
-	if len(path.Elem) == 5 {
-		switch path.Elem[4].Name {
-		case "total-mb":
-			return "total", nil
-		case "available-mb":
-			return "available", nil
-		default:
-			return "", fmt.Errorf("unknown disk space metric: %s", path.Elem[4].Name)
-		}
-	}
-
-	return "", fmt.Errorf("invalid disk space path structure: %s", pathToString(path))
+	return nil
 }
