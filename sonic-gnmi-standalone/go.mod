@@ -4,6 +4,7 @@ go 1.19
 
 require (
 	github.com/golang/glog v1.0.0
+	github.com/openconfig/gnmi v0.0.0-20220617175856-41246b1b3507
 	github.com/openconfig/gnoi v0.2.0
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
