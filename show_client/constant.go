@@ -1,6 +1,6 @@
 package show_client
 
-var QsfPDataMap = map[string]string{
+var QsfpDataMap = map[string]string{
 	"model":                     "Vendor PN",
 	"vendor_oui":                "Vendor OUI",
 	"vendor_date":               "Vendor Date Code(YYYY-MM-DD Lot)",

@@ -130,7 +130,7 @@ func mergeMaps(a, b map[string]string) map[string]string {
 
 func getTransceiverDataMap(sfpInfoDict map[string]interface{}) map[string]string {
 	if sfpInfoDict == nil {
-		return QsfPDataMap
+		return QsfpDataMap
 	}
 	isSfpCmis := isTransceiverCmis(sfpInfoDict)
 	isSfpCCmis := isTransceiverCCmis(sfpInfoDict)
@@ -140,13 +140,13 @@ func getTransceiverDataMap(sfpInfoDict map[string]interface{}) map[string]string
 	} else if isSfpCmis {
 		return CmisDataMap
 	} else {
-		return QsfPDataMap
+		return QsfpDataMap
 	}
 }
 
 func covertApplicationAdvertisementToOutputString(indent string, sfpInfoDict map[string]interface{}) string {
 	key := "application_advertisement"
-	fieldName := fmt.Sprintf("%s%s: ", indent, QsfPDataMap[key])
+	fieldName := fmt.Sprintf("%s%s: ", indent, QsfpDataMap[key])
 	output := fieldName
 
 	appAdvStr, ok := sfpInfoDict[key].(string)
@@ -256,9 +256,9 @@ func convertSfpInfoToOutputString(sfpInfoDict map[string]interface{}, sfpFirmwar
 		case "specification_compliance":
 			if !isSfpCmis {
 				if sfpInfoDict["type"] == "QSFP-DD Double Density 8X Pluggable Transceiver" {
-					output += fmt.Sprintf("%s%s: %v\n", indent, QsfPDataMap[key], sfpInfoDict[key])
+					output += fmt.Sprintf("%s%s: %v\n", indent, QsfpDataMap[key], sfpInfoDict[key])
 				} else {
-					output += fmt.Sprintf("%s%s:\n", indent, QsfPDataMap[key])
+					output += fmt.Sprintf("%s%s:\n", indent, QsfpDataMap[key])
 
 					specComplianceDict := make(map[string]interface{})
 					specStr, ok := sfpInfoDict["specification_compliance"]
@@ -288,7 +288,7 @@ func convertSfpInfoToOutputString(sfpInfoDict map[string]interface{}, sfpFirmwar
 							value = fmt.Sprintf("%v", v)
 						}
 					}
-					output += fmt.Sprintf("%s%s: %v\n", indent, QsfPDataMap[key], value)
+					output += fmt.Sprintf("%s%s: %v\n", indent, QsfpDataMap[key], value)
 				}
 			}
 		case "application_advertisement":
