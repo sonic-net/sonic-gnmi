@@ -63,6 +63,9 @@ type TelemetryConfig struct {
 	EnableCrl             *bool
 	CrlExpireDuration     *int
 	ImgDirPath            *string
+	AuthzMetaFile         *string
+	AuthPolicyEnabled     *bool
+	AuthzPolicyFile       *string
 }
 
 func main() {
@@ -178,6 +181,9 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
 		CrlExpireDuration:     fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
 		ImgDirPath:            fs.String("img_dir", "/tmp/host_tmp", "Directory path where image will be transferred."),
+		AuthzMetaFile:         fs.String("authz_meta", "/keys/authz-version.json", "authz policy metadata JSON file"),
+		AuthPolicyEnabled:     fs.Bool("authz_policy_enabled", false, "Enable authz policy. Require insecure flag to be false."),
+		AuthzPolicyFile:       fs.String("authorization_policy_file", "/keys/authorization_policy.json", "Full path name of the JSON authorization policy file."),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -260,6 +266,9 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	// Populate the OS-related fields directly on the gnmi.Config struct.
 	cfg.ImgDir = *telemetryCfg.ImgDirPath
 
+	cfg.AuthzMetaFile = string(*telemetryCfg.AuthzMetaFile)
+	cfg.AuthzPolicy = *telemetryCfg.AuthPolicyEnabled && !*telemetryCfg.Insecure
+	cfg.AuthzPolicyFile = string(*telemetryCfg.AuthzPolicyFile)
 	return telemetryCfg, cfg, nil
 }
 

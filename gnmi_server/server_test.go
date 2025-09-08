@@ -208,8 +208,14 @@ func createAuthServer(t *testing.T, port int64) *Server {
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: true,
-		UserAuth:            AuthTypes{"password": true, "cert": true, "jwt": true},
-		ImgDir:              "/tmp",
+		UserAuth: AuthTypes{
+			"password": true,
+			"cert":     true,
+			"jwt":      true,
+		},
+		ImgDir:          "/tmp",
+		AuthzMetaFile:   TestAuthzMetaFile,
+		AuthzPolicyFile: TestAuthzPolicyFile,
 	}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
