@@ -5,11 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"runtime/debug"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	lvl "github.com/sonic-net/sonic-gnmi/gnmi_server/log"
 	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
@@ -26,10 +30,13 @@ import (
 	"github.com/openconfig/gnoi/factory_reset"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 
+	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
+	gnsiAuthzpb "github.com/openconfig/gnsi/authz"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/authz"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
@@ -38,6 +45,16 @@ import (
 
 var (
 	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+)
+
+// Path to the `/var/log/telemetry-con` directory on the `host` side.
+const (
+	HostVarLogPath            = "/var/log"
+	authLogPath               = "/host_var/log/messages"
+	StackTraceFileNamePrefix  = "stack-trace"
+	StackTraceFileNameSuffix  = ".txt"
+	StackTraceFileNamePattern = StackTraceFileNamePrefix + ".*" + StackTraceFileNameSuffix
+	authzRefreshingInterval   = 5 * time.Second
 )
 
 // Server manages a single gNMI Server implementation. Each client that connects
@@ -59,6 +76,8 @@ type Server struct {
 	masterEID     uint128
 	gnoi_system_pb.UnimplementedSystemServer
 	factory_reset.UnimplementedFactoryResetServer
+	authzWatcher *authz.FileWatcherInterceptor
+	gnsiAuthz    *GNSIAuthzServer
 }
 
 // handleOperationalGet handles OPERATIONAL target requests directly with standard gNMI types
@@ -148,6 +167,9 @@ type Config struct {
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
+	AuthzPolicy         bool   // Enable authz policy.
+	AuthzPolicyFile     string // Path to JSON file with authz policies.
+	AuthzMetaFile       string // Path to JSON file with authz metadata.
 }
 
 var AuthLock sync.Mutex
@@ -228,6 +250,44 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 	common_utils.InitCounters()
 
+	//gnsi authz
+	PanicRecover := func(p interface{}) (err error) {
+		debug.PrintStack()
+		log.V(lvl.ERROR).Info(p)
+		file, err := os.CreateTemp(HostVarLogPath, StackTraceFileNamePattern)
+		if err != nil {
+			log.V(lvl.ERROR).Info(err)
+			return err
+		}
+		defer file.Close()
+		if _, err := file.Write(debug.Stack()); err != nil {
+			log.V(lvl.ERROR).Info(err)
+		}
+		return status.Errorf(codes.Unknown, "%v", p)
+	}
+	recopts := []grpc_recovery.Option{
+		grpc_recovery.WithRecoveryHandler(PanicRecover),
+	}
+
+	// Set authorization policy.
+	var authzWatcher *authz.FileWatcherInterceptor
+	if config.AuthzPolicy {
+		authzWatcher, err := authz.NewFileWatcher(config.AuthzPolicyFile, authzRefreshingInterval)
+		if err != nil {
+			return nil, err
+		} else {
+			opts = append(opts, grpc.ChainStreamInterceptor(
+				authzWatcher.StreamInterceptor,
+				grpc_recovery.StreamServerInterceptor(recopts...)))
+			opts = append(opts, grpc.ChainUnaryInterceptor(
+				authzWatcher.UnaryInterceptor,
+				grpc_recovery.UnaryServerInterceptor(recopts...)))
+		}
+	} else {
+		opts = append(opts, grpc.ChainStreamInterceptor(grpc_recovery.StreamServerInterceptor(recopts...)))
+		opts = append(opts, grpc.ChainUnaryInterceptor(grpc_recovery.UnaryServerInterceptor(recopts...)))
+	}
+
 	s := grpc.NewServer(opts...)
 	reflection.Register(s)
 
@@ -240,11 +300,15 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		// the request comes from a master controller.
 		ReqFromMaster: ReqFromMasterDisabledMA,
 		masterEID:     uint128{High: 0, Low: 0},
+		authzWatcher:  authzWatcher,
 	}
 
 	fileSrv := &FileServer{Server: srv}
 	osSrv := &OSServer{Server: srv}
 	containerzSrv := &ContainerzServer{server: srv}
+	// Register the gNSI Servers
+	srv.gnsiAuthz = NewGNSIAuthzServer(srv)
+	gnsiAuthzpb.RegisterAuthzServer(srv.s, srv.gnsiAuthz)
 
 	var err error
 	if srv.config.Port < 0 {
