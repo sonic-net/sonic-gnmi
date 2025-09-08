@@ -38,11 +38,13 @@ import (
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_healthz_pb "github.com/openconfig/gnoi/healthz"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
+	gnsi_authz_pb "github.com/openconfig/gnsi/authz"
 	gnsi_certz_pb "github.com/openconfig/gnsi/certz"
 	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
 	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/authz"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/tls/certprovider"
 	"google.golang.org/grpc/peer"
@@ -54,6 +56,12 @@ import (
 var (
 	muPath             = &sync.RWMutex{}
 	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+)
+
+// Path to the `/var/log/telemetry-con` directory on the `host` side.
+const (
+	authLogPath             = "/host_var/log/messages"
+	authzRefreshingInterval = 5 * time.Second
 )
 
 // Server manages a single gNMI Server implementation. Each client that connects
@@ -82,7 +90,9 @@ type Server struct {
 	masterEID     uint128
 	gnoi_system_pb.UnimplementedSystemServer
 	factory_reset.UnimplementedFactoryResetServer
-	gnsiCertz *GNSICertzServer
+	gnsiCertz    *GNSICertzServer
+	authzWatcher *authz.FileWatcherInterceptor
+	gnsiAuthz    *GNSIAuthzServer
 }
 
 // handleOperationalGet handles OPERATIONAL target requests directly with standard gNMI types
@@ -203,16 +213,19 @@ type Config struct {
 	ImgDir     string
 	GetOptions func(*Config) ([]grpc.ServerOption, []certprovider.Provider, error)
 	// gnsi.certz mTLS flags
-	CaCertLnk     string // Path to symlink pointing to current CA certificate.
-	SrvCertLnk    string // Path to symlink pointing to current server's certificate.
-	SrvKeyLnk     string // Path to symlink pointing to current server's private key.
-	CaCertFile    string // Path to the first CA certificate.
-	SrvCertFile   string // Path to the first server's certificate.
-	SrvKeyFile    string // Path to the first server's private key.
-	CertCRLConfig string // Path to the CRL directory. Disable if empty.
-	IntManFile    string // Path to the Integrity Manifest file.
-	CertzMetaFile string // Path to JSON file with gRPC credential metadata.
-	FedPolicyFile string // Path to federation policy file.
+	CaCertLnk       string // Path to symlink pointing to current CA certificate.
+	SrvCertLnk      string // Path to symlink pointing to current server's certificate.
+	SrvKeyLnk       string // Path to symlink pointing to current server's private key.
+	CaCertFile      string // Path to the first CA certificate.
+	SrvCertFile     string // Path to the first server's certificate.
+	SrvKeyFile      string // Path to the first server's private key.
+	CertCRLConfig   string // Path to the CRL directory. Disable if empty.
+	IntManFile      string // Path to the Integrity Manifest file.
+	CertzMetaFile   string // Path to JSON file with gRPC credential metadata.
+	FedPolicyFile   string // Path to federation policy file.
+	AuthzPolicy     bool   // Enable authz policy.
+	AuthzPolicyFile string // Path to JSON file with authz policies.
+	AuthzMetaFile   string // Path to JSON file with authz metadata.
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -303,10 +316,11 @@ func (i AuthTypes) Unset(mode string) error {
 // registerAllServices registers all gNMI and gNOI services on the given gRPC server.
 func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 	osSrv *OSServer, containerzSrv *ContainerzServer,
-	debugSrv *DebugServer, healthzSrv *HealthzServer, certzSrv *GNSICertzServer) {
+	debugSrv *DebugServer, healthzSrv *HealthzServer, certzSrv *GNSICertzServer, authzSrv *GNSIAuthzServer) {
 	gnmipb.RegisterGNMIServer(s, srv)
 	factory_reset.RegisterFactoryResetServer(s, srv)
 	gnsi_certz_pb.RegisterCertzServer(s, certzSrv)
+	gnsi_authz_pb.RegisterAuthzServer(s, authzSrv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(s, srv)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
 		gnoi_system_pb.RegisterSystemServer(s, srv)
@@ -470,13 +484,33 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	var providers []certprovider.Provider
 	common_utils.InitCounters()
 
+	// Set authorization policy.
+	var authzWatcher *authz.FileWatcherInterceptor
+	if config.AuthzPolicy {
+		authzWatcher, err := authz.NewFileWatcher(config.AuthzPolicyFile, authzRefreshingInterval)
+		if err != nil {
+			return nil, err
+		} else {
+			commonOpts = append(commonOpts, grpc.ChainStreamInterceptor(
+				authzWatcher.StreamInterceptor))
+			commonOpts = append(commonOpts, grpc.ChainUnaryInterceptor(
+				authzWatcher.UnaryInterceptor))
+		}
+	}
+
+	s := grpc.NewServer(commonOpts...)
+	reflection.Register(s)
+
 	srv := &Server{
 		config:            config,
 		clients:           map[string]*Client{},
 		certProviders:     providers,
 		SaveStartupConfig: saveOnSetDisabled,
-		ReqFromMaster:     ReqFromMasterDisabledMA,
-		masterEID:         uint128{High: 0, Low: 0},
+		// ReqFromMaster point to a function that is called to verify if
+		// the request comes from a master controller.
+		ReqFromMaster: ReqFromMasterDisabledMA,
+		masterEID:     uint128{High: 0, Low: 0},
+		authzWatcher:  authzWatcher,
 	}
 
 	// Create service servers (shared between TCP and UDS)
@@ -489,6 +523,9 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	}
 	containerzSrv := &ContainerzServer{server: srv}
 	healthzSrv := &HealthzServer{Server: srv}
+	authzSrv := NewGNSIAuthzServer(srv)
+	srv.gnsiAuthz = authzSrv
+
 	readWhitelist, writeWhitelist := gnoi_debug.ConstructWhitelists()
 	debugSrv := &DebugServer{
 		Server:         srv,
@@ -511,7 +548,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			return nil, fmt.Errorf("failed to open listener port %d: %v", config.Port, err)
 		}
 
-		registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, certzSrv)
+		registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, certzSrv, authzSrv)
 	}
 
 	// UDS Server (UnixSocket set)
@@ -547,7 +584,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			srv.udsListener = nil
 			srv.udsServer = nil
 		} else {
-			registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, certzSrv)
+			registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, certzSrv, authzSrv)
 		}
 	}
 

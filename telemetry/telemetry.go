@@ -72,6 +72,9 @@ type TelemetryConfig struct {
 	IntManFile            *string
 	CertzMetaFile         *string
 	ImgDirPath            *string
+	AuthzMetaFile         *string
+	AuthPolicyEnabled     *bool
+	AuthzPolicyFile       *string
 }
 
 func main() {
@@ -194,6 +197,9 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		IntManFile:            fs.String("integrity_manifest_file", "", "Full path name of integrity manifest file."),
 		CertCRLConfig:         fs.String("cert_crl_dir", "/mtls/crl", "Directory for CRL files"),
 		CertzMetaFile:         fs.String("grpc_meta", "/keys/grpc-version.json", "gRPC credentials metadata JSON file"),
+		AuthzMetaFile:         fs.String("authz_meta", "/keys/authz-version.json", "authz policy metadata JSON file"),
+		AuthPolicyEnabled:     fs.Bool("authz_policy_enabled", false, "Enable authz policy. Require insecure flag to be false."),
+		AuthzPolicyFile:       fs.String("authorization_policy_file", "/keys/authorization_policy.json", "Full path name of the JSON authorization policy file."),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -305,6 +311,9 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		log.V(2).Info("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
 	}
 
+	cfg.AuthzMetaFile = string(*telemetryCfg.AuthzMetaFile)
+	cfg.AuthzPolicy = *telemetryCfg.AuthPolicyEnabled && !*telemetryCfg.Insecure
+	cfg.AuthzPolicyFile = string(*telemetryCfg.AuthzPolicyFile)
 	return telemetryCfg, cfg, nil
 }
 
