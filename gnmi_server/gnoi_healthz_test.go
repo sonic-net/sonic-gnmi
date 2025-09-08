@@ -458,6 +458,99 @@ var testHealthzCases = []struct {
 		},
 	},
 	{
+		desc: "Acknowledge fails with Authentication_Error",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			patch := gomonkey.ApplyFuncReturn(authenticate, nil, status.Error(codes.Unauthenticated, "unauthenticated"))
+			defer patch.Reset()
+			req := &healthz.AcknowledgeRequest{Id: "ack-event"}
+
+			resp, err := sc.Acknowledge(ctx, req)
+
+			if err == nil {
+				t.Errorf("Expected authentication error, got nil")
+			}
+			if status.Code(err) != codes.Unauthenticated {
+				t.Errorf("Expected Unauthenticated error, got: %v", err)
+			}
+			if resp != nil {
+				t.Errorf("Expected nil response, got: %+v", resp)
+			}
+		},
+	},
+	{
+		desc: "TestHealthzServer_Acknowledge",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			fakeClient := &ssc.FakeClient{}
+
+			// Patch NewDbusClient to return the fake client
+			patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+				return fakeClient, nil
+			})
+			defer patch.Reset()
+
+			// Create a request with a valid ID
+			req := &healthz.AcknowledgeRequest{
+				Id: "ack-event",
+			}
+
+			// Call Acknowledge
+			resp, err := sc.Acknowledge(ctx, req)
+
+			if err != nil {
+				t.Errorf("Expected no error, got: %v", err)
+			}
+			if resp == nil {
+				t.Errorf("Expected non-nil response, got nil")
+			}
+		},
+	},
+	{
+		desc: "TestHealthzServer_Acknowledge_DBUS_Error",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			fakeClient := &ssc.FakeClientWithError{}
+
+			// Patch NewDbusClient to return the fake client
+			patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+				return fakeClient, nil
+			})
+			defer patch.Reset()
+
+			// Create a request with a valid ID
+			req := &healthz.AcknowledgeRequest{
+				Id: "ack-event",
+			}
+
+			// Call Acknowledge
+			resp, err := sc.Acknowledge(ctx, req)
+			if err == nil {
+				t.Errorf("Expected error, got nil")
+			}
+			if resp != nil {
+				t.Errorf("Expected nil response, got: %+v", resp)
+			}
+		},
+	},
+	{
+		desc: "Acknowledge_NewDbusClient_Error",
+		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			// Patch NewDbusClient to return an error
+			patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+				return nil, fmt.Errorf("simulated dbus client creation error")
+			})
+			defer patch.Reset()
+			req := &healthz.AcknowledgeRequest{Id: "ack-event"}
+			resp, err := sc.Acknowledge(ctx, req)
+
+			if err == nil {
+				t.Errorf("Expected error due to client creation failure, got nil")
+			}
+
+			if resp != nil {
+				t.Errorf("Expected nil response, got: %+v", resp)
+			}
+		},
+	},
+	{
 		desc: "TestHealthzArtifact_FileNotFound",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
 			srv := &HealthzServer{}
