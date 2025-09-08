@@ -295,6 +295,29 @@ func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.
 	return nil
 }
 
+// Acknowledge implements the corresponding RPC.
+func (srv *HealthzServer) Acknowledge(ctx context.Context, req *healthz.AcknowledgeRequest) (*healthz.AcknowledgeResponse, error) {
+	log.V(1).Infof("Acknowledge RPC Get request ID: %+v", req.GetId())
+	ctx, err := authenticate(srv.config, ctx, "gnoi", false)
+	if err != nil {
+		log.Errorf("Healthz.Acknowledge authentication failed: %v", err)
+		return nil, err
+	}
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		log.Errorf("NewDbusClient error: %v\n", err)
+		return nil, err
+	}
+	defer sc.Close()
+	_, err = sc.HealthzAck(req.GetId())
+	if err != nil {
+		log.Errorf("HealthzAck() Dbus failed: %v", err)
+		return nil, status.Errorf(codes.Internal, "Host service error: %v", err)
+	}
+
+	return &healthz.AcknowledgeResponse{}, nil
+}
+
 func (srv *HealthzServer) List(ctx context.Context, req *healthz.ListRequest) (*healthz.ListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "gNOI Healthz List not implemented")
 }
