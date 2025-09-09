@@ -1,23 +1,25 @@
 package gnmi
 
 import (
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	"io/ioutil"
 	"os/exec"
 	"reflect"
 	"testing"
+
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	"github.com/agiledragon/gomonkey/v2"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
 const (
-	ServerPort    = 8081
-	ApplDbNum     = 0
-	AsicDbNum     = 1
-	CountersDbNum = 2
-	ConfigDbNum   = 4
-	StateDbNum    = 6
+	ServerPort        = 8081
+	ApplDbNum         = 0
+	AsicDbNum         = 1
+	CountersDbNum     = 2
+	ConfigDbNum       = 4
+	StateDbNum        = 6
+	ChassisStateDbNum = 13
 
 	TargetAddr   = "127.0.0.1:8081"
 	QueryTimeout = 10

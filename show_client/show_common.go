@@ -16,6 +16,10 @@ import (
 const AppDBPortTable = "PORT_TABLE"
 const StateDBPortTable = "PORT_TABLE"
 
+// Database names
+const StateDB = "STATE_DB"
+const ConfigDB = "CONFIG_DB"
+
 const (
 	dbIndex    = 0 // The first index for a query will be the DB
 	tableIndex = 1 // The second index for a query will be the table

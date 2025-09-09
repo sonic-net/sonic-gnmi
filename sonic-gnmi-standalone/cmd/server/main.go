@@ -67,6 +67,14 @@ func main() {
 		EnableGNOISystem().
 		EnableGNMI()
 
+	// Configure certificates based on advanced options
+	if config.Global.UseSONiCConfig {
+		glog.V(1).Infof("Using SONiC ConfigDB certificates: redis=%s, db=%d, table=%s",
+			config.Global.RedisAddr, config.Global.RedisDB, config.Global.ConfigTableName)
+		builder = builder.WithSONiCCertificates(config.Global.RedisAddr, config.Global.RedisDB).
+			WithConfigTableName(config.Global.ConfigTableName)
+	}
+
 	// Configure TLS based on command-line flags
 	if !config.Global.TLSEnabled {
 		glog.V(1).Info("TLS disabled via command-line flag")

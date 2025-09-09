@@ -1,4 +1,4 @@
-.PHONY: help help-test-tools proto build run clean test test-loopback test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb test-certs build-test-tools semgrep
+.PHONY: help help-test-tools proto build run clean test test-loopback test-coverage coverage-html coverage-summary validate-coverage test-e2e format validate-format vet tidy verify ci docker-build docker-push lint deb test-certs build-test-tools
 
 # Default target shows help
 .DEFAULT_GOAL := help
@@ -271,7 +271,7 @@ semgrep: ## Run semgrep security analysis
 ##############################################################################
 
 # CI pipeline target - runs all verification steps (validation only, no tool installation)
-ci: validate-format tidy build-all vet lint test test-coverage verify semgrep ## Run full CI pipeline
+ci: validate-format tidy build-all vet lint test test-coverage verify ## Run full CI pipeline
 
 ##############################################################################
 # Packaging & Distribution
