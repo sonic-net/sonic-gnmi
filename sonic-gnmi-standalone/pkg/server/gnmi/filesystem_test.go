@@ -159,10 +159,10 @@ func TestValidateDiskSpacePath_EdgeCases(t *testing.T) {
 
 func TestResolveFilesystemPath_EdgeCases(t *testing.T) {
 	tests := []struct {
-		name       string
-		rootFS     string
-		fsPath     string
-		expected   string
+		name        string
+		rootFS      string
+		fsPath      string
+		expected    string
 		description string
 	}{
 		{

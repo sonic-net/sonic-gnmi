@@ -10,10 +10,46 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v2"
 
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/workflow"
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/workflow/steps"
 )
+
+// WorkflowDefinition represents a structured workflow for YAML generation.
+type WorkflowDefinition struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Name string `yaml:"name"`
+	} `yaml:"metadata"`
+	Spec struct {
+		Steps []StepDefinition `yaml:"steps"`
+	} `yaml:"spec"`
+}
+
+// StepDefinition represents a structured step for YAML generation.
+type StepDefinition struct {
+	Name   string                 `yaml:"name"`
+	Type   string                 `yaml:"type"`
+	Params map[string]interface{} `yaml:"params"`
+}
+
+// generateWorkflowYAML creates YAML content from structured data.
+func generateWorkflowYAML(name string, steps []StepDefinition) (string, error) {
+	workflow := WorkflowDefinition{
+		APIVersion: "sonic.net/v1",
+		Kind:       "UpgradeWorkflow",
+	}
+	workflow.Metadata.Name = name
+	workflow.Spec.Steps = steps
+
+	yamlBytes, err := yaml.Marshal(&workflow)
+	if err != nil {
+		return "", err
+	}
+	return string(yamlBytes), nil
+}
 
 // TestCheckDiskSpaceLoopback_Success tests successful disk space validation
 // when sufficient space is available.
@@ -23,23 +59,24 @@ func TestCheckDiskSpaceLoopback_Success(t *testing.T) {
 	testServer := SetupInsecureTestServer(t, tempDir, []string{"gnmi"})
 	defer testServer.Stop()
 
-	// Create workflow YAML with realistic disk space requirements
+	// Create workflow with realistic disk space requirements
 	// We'll check the root path "/" which should have plenty of space
-	workflowContent := `apiVersion: sonic.net/v1
-kind: UpgradeWorkflow
-metadata:
-  name: disk-space-success-test
-spec:
-  steps:
-    - name: check-root-space
-      type: check-disk-space
-      params:
-        path: "/"
-        min_available_mb: 100  # Require only 100MB - should pass
-`
+	workflowSteps := []StepDefinition{
+		{
+			Name: "check-root-space",
+			Type: "check-disk-space",
+			Params: map[string]interface{}{
+				"path":             "/",
+				"min_available_mb": 100, // Require only 100MB - should pass
+			},
+		},
+	}
+
+	workflowContent, err := generateWorkflowYAML("disk-space-success-test", workflowSteps)
+	require.NoError(t, err, "Failed to generate workflow YAML")
 
 	workflowFile := filepath.Join(tempDir, "disk-check-success.yaml")
-	err := os.WriteFile(workflowFile, []byte(workflowContent), 0644)
+	err = os.WriteFile(workflowFile, []byte(workflowContent), 0644)
 	require.NoError(t, err, "Failed to create workflow file")
 
 	// Load and execute workflow
@@ -75,23 +112,24 @@ func TestCheckDiskSpaceLoopback_InsufficientSpace(t *testing.T) {
 	testServer := SetupInsecureTestServer(t, tempDir, []string{"gnmi"})
 	defer testServer.Stop()
 
-	// Create workflow YAML with unrealistic disk space requirements
+	// Create workflow with unrealistic disk space requirements
 	// We'll require 1TB of space which should definitely fail
-	workflowContent := `apiVersion: sonic.net/v1
-kind: UpgradeWorkflow
-metadata:
-  name: disk-space-failure-test
-spec:
-  steps:
-    - name: check-unrealistic-space
-      type: check-disk-space
-      params:
-        path: "/"
-        min_available_mb: 1000000  # Require 1TB - should fail
-`
+	workflowSteps := []StepDefinition{
+		{
+			Name: "check-unrealistic-space",
+			Type: "check-disk-space",
+			Params: map[string]interface{}{
+				"path":             "/",
+				"min_available_mb": 1000000, // Require 1TB - should fail
+			},
+		},
+	}
+
+	workflowContent, err := generateWorkflowYAML("disk-space-failure-test", workflowSteps)
+	require.NoError(t, err, "Failed to generate workflow YAML")
 
 	workflowFile := filepath.Join(tempDir, "disk-check-failure.yaml")
-	err := os.WriteFile(workflowFile, []byte(workflowContent), 0644)
+	err = os.WriteFile(workflowFile, []byte(workflowContent), 0644)
 	require.NoError(t, err, "Failed to create workflow file")
 
 	// Load and execute workflow
@@ -128,22 +166,23 @@ func TestCheckDiskSpaceLoopback_InvalidPath(t *testing.T) {
 	testServer := SetupInsecureTestServer(t, tempDir, []string{"gnmi"})
 	defer testServer.Stop()
 
-	// Create workflow YAML with an invalid path
-	workflowContent := `apiVersion: sonic.net/v1
-kind: UpgradeWorkflow
-metadata:
-  name: disk-space-invalid-path-test
-spec:
-  steps:
-    - name: check-invalid-path
-      type: check-disk-space
-      params:
-        path: "/nonexistent/invalid/path"
-        min_available_mb: 100
-`
+	// Create workflow with an invalid path
+	workflowSteps := []StepDefinition{
+		{
+			Name: "check-invalid-path",
+			Type: "check-disk-space",
+			Params: map[string]interface{}{
+				"path":             "/nonexistent/invalid/path",
+				"min_available_mb": 100,
+			},
+		},
+	}
+
+	workflowContent, err := generateWorkflowYAML("disk-space-invalid-path-test", workflowSteps)
+	require.NoError(t, err, "Failed to generate workflow YAML")
 
 	workflowFile := filepath.Join(tempDir, "disk-check-invalid.yaml")
-	err := os.WriteFile(workflowFile, []byte(workflowContent), 0644)
+	err = os.WriteFile(workflowFile, []byte(workflowContent), 0644)
 	require.NoError(t, err, "Failed to create workflow file")
 
 	// Load and execute workflow
@@ -188,33 +227,34 @@ func TestCheckDiskSpaceWorkflowIntegration(t *testing.T) {
 	testServer := SetupInsecureTestServer(t, tempDir, []string{"gnoi.system", "gnmi"})
 	defer testServer.Stop()
 
-	// Create workflow YAML with both disk check and download
-	workflowContent := fmt.Sprintf(`apiVersion: sonic.net/v1
-kind: UpgradeWorkflow
-metadata:
-  name: integration-disk-check-download
-spec:
-  steps:
-    # Step 1: Check disk space before download
-    - name: pre-download-disk-check
-      type: check-disk-space
-      params:
-        path: "/"
-        min_available_mb: 50  # Small requirement for test
-    
-    # Step 2: Download package if space is available
-    - name: download-package
-      type: download
-      params:
-        url: "%s"
-        filename: "%s"
-        md5: "%s"
-        version: "integration-test"
-        activate: false
-`, httpServer.URL, packagePath, testMD5)
+	// Create workflow with both disk check and download
+	workflowSteps := []StepDefinition{
+		{
+			Name: "pre-download-disk-check",
+			Type: "check-disk-space",
+			Params: map[string]interface{}{
+				"path":             "/",
+				"min_available_mb": 50, // Small requirement for test
+			},
+		},
+		{
+			Name: "download-package",
+			Type: "download",
+			Params: map[string]interface{}{
+				"url":      httpServer.URL,
+				"filename": packagePath,
+				"md5":      testMD5,
+				"version":  "integration-test",
+				"activate": false,
+			},
+		},
+	}
+
+	workflowContent, err := generateWorkflowYAML("integration-disk-check-download", workflowSteps)
+	require.NoError(t, err, "Failed to generate workflow YAML")
 
 	workflowFile := filepath.Join(tempDir, "integration-workflow.yaml")
-	err := os.WriteFile(workflowFile, []byte(workflowContent), 0644)
+	err = os.WriteFile(workflowFile, []byte(workflowContent), 0644)
 	require.NoError(t, err, "Failed to create workflow file")
 
 	// Load and execute workflow
@@ -268,33 +308,34 @@ func TestCheckDiskSpaceWorkflowIntegration_FailsBeforeDownload(t *testing.T) {
 	testServer := SetupInsecureTestServer(t, tempDir, []string{"gnoi.system", "gnmi"})
 	defer testServer.Stop()
 
-	// Create workflow YAML with unrealistic disk requirement
-	workflowContent := fmt.Sprintf(`apiVersion: sonic.net/v1
-kind: UpgradeWorkflow
-metadata:
-  name: disk-check-prevents-download
-spec:
-  steps:
-    # Step 1: Check for impossible disk space requirement
-    - name: impossible-disk-check
-      type: check-disk-space
-      params:
-        path: "/"
-        min_available_mb: 2000000  # Require 2TB - should fail
-    
-    # Step 2: This download should never execute
-    - name: should-not-download
-      type: download
-      params:
-        url: "%s"
-        filename: "%s"
-        md5: "%s"
-        version: "should-not-happen"
-        activate: false
-`, httpServer.URL, packagePath, testMD5)
+	// Create workflow with unrealistic disk requirement
+	workflowSteps := []StepDefinition{
+		{
+			Name: "impossible-disk-check",
+			Type: "check-disk-space",
+			Params: map[string]interface{}{
+				"path":             "/",
+				"min_available_mb": 2000000, // Require 2TB - should fail
+			},
+		},
+		{
+			Name: "should-not-download",
+			Type: "download",
+			Params: map[string]interface{}{
+				"url":      httpServer.URL,
+				"filename": packagePath,
+				"md5":      testMD5,
+				"version":  "should-not-happen",
+				"activate": false,
+			},
+		},
+	}
+
+	workflowContent, err := generateWorkflowYAML("disk-check-prevents-download", workflowSteps)
+	require.NoError(t, err, "Failed to generate workflow YAML")
 
 	workflowFile := filepath.Join(tempDir, "fail-before-download.yaml")
-	err := os.WriteFile(workflowFile, []byte(workflowContent), 0644)
+	err = os.WriteFile(workflowFile, []byte(workflowContent), 0644)
 	require.NoError(t, err, "Failed to create workflow file")
 
 	// Load and execute workflow
@@ -335,34 +376,39 @@ func TestCheckDiskSpaceMultiPath(t *testing.T) {
 	testServer := SetupInsecureTestServer(t, tempDir, []string{"gnmi"})
 	defer testServer.Stop()
 
-	// Create workflow YAML checking multiple paths
-	workflowContent := `apiVersion: sonic.net/v1
-kind: UpgradeWorkflow
-metadata:
-  name: multi-path-disk-check
-spec:
-  steps:
-    - name: check-root-space
-      type: check-disk-space
-      params:
-        path: "/"
-        min_available_mb: 100
-        
-    - name: check-tmp-space
-      type: check-disk-space
-      params:
-        path: "/"
-        min_available_mb: 50
-        
-    - name: check-var-space
-      type: check-disk-space
-      params:
-        path: "/"
-        min_available_mb: 75
-`
+	// Create workflow checking multiple paths
+	workflowSteps := []StepDefinition{
+		{
+			Name: "check-root-space",
+			Type: "check-disk-space",
+			Params: map[string]interface{}{
+				"path":             "/",
+				"min_available_mb": 100,
+			},
+		},
+		{
+			Name: "check-tmp-space",
+			Type: "check-disk-space",
+			Params: map[string]interface{}{
+				"path":             "/",
+				"min_available_mb": 50,
+			},
+		},
+		{
+			Name: "check-var-space",
+			Type: "check-disk-space",
+			Params: map[string]interface{}{
+				"path":             "/",
+				"min_available_mb": 75,
+			},
+		},
+	}
+
+	workflowContent, err := generateWorkflowYAML("multi-path-disk-check", workflowSteps)
+	require.NoError(t, err, "Failed to generate workflow YAML")
 
 	workflowFile := filepath.Join(tempDir, "multi-path-check.yaml")
-	err := os.WriteFile(workflowFile, []byte(workflowContent), 0644)
+	err = os.WriteFile(workflowFile, []byte(workflowContent), 0644)
 	require.NoError(t, err, "Failed to create workflow file")
 
 	// Load and execute workflow
