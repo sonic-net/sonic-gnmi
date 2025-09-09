@@ -1,0 +1,22 @@
+apiVersion: sonic.net/v1
+kind: UpgradeWorkflow
+metadata:
+  name: sonic-upgrade-with-disk-check
+spec:
+  steps:
+    # Step 1: Check available disk space before downloading
+    - name: check-disk-space
+      type: check-disk-space
+      params:
+        path: "/tmp"
+        min_available_mb: 500  # Require at least 500MB free space
+    
+    # Step 2: Download the package if disk space is sufficient
+    - name: download-sonic-image
+      type: download
+      params:
+        url: "http://httpbin.org/robots.txt"
+        filename: "/tmp/test-package.txt"
+        md5: "46fd03688e49c6b6b0a2b7d3553c1e42"
+        version: "1.0.0"
+        activate: false

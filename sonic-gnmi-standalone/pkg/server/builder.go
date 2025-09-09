@@ -1,4 +1,11 @@
-// Package server creates gRPC servers with configurable services.
+// Package server provides a builder pattern for creating gRPC servers with configurable services.
+//
+// The ServerBuilder pattern provides:
+//   - Clean separation between infrastructure and services
+//   - Dynamic service enablement/disablement
+//   - Programmatic TLS/mTLS configuration
+//   - Configuration-driven service selection
+//   - Easy extension for new services
 //
 // Example usage:
 //
@@ -29,10 +36,12 @@ import (
 	"fmt"
 
 	"github.com/golang/glog"
+	"github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/openconfig/gnoi/system"
 
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/cert"
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server/config"
+	gnmiserver "github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server/gnmi"
 	gnoiSystem "github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server/gnoi/system"
 )
 
@@ -178,6 +187,13 @@ func (b *ServerBuilder) EnableGNOISystem() *ServerBuilder {
 	return b
 }
 
+// EnableGNMI enables the gNMI service, which provides network management
+// interface for configuration and operational state retrieval.
+func (b *ServerBuilder) EnableGNMI() *ServerBuilder {
+	b.services["gnmi"] = true
+	return b
+}
+
 // EnableServices enables multiple services at once based on a slice of service names.
 // Valid service names include: "gnoi.system", "gnoi.file", "gnoi.containerz", "gnmi".
 func (b *ServerBuilder) EnableServices(services []string) *ServerBuilder {
@@ -318,10 +334,17 @@ func (b *ServerBuilder) registerServices(srv *Server, rootFS string) {
 		serviceCount++
 	}
 
+	// Register gNMI service if enabled
+	if b.services["gnmi"] {
+		gnmiSrv := gnmiserver.NewServer(rootFS)
+		gnmi.RegisterGNMIServer(srv.grpcServer, gnmiSrv)
+		glog.Info("Registered gNMI service")
+		serviceCount++
+	}
+
 	// Future services will be implemented:
 	// - gNOI File service
 	// - gNOI Containerz service
-	// - gNMI service
 
 	if serviceCount == 0 {
 		glog.Info("Server created with gRPC reflection only - no services enabled")

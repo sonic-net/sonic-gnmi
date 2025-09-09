@@ -6,11 +6,13 @@ require (
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/golang/glog v1.0.0
+	github.com/openconfig/gnmi v0.0.0-20220617175856-41246b1b3507
 	github.com/openconfig/gnoi v0.2.0
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
 	google.golang.org/grpc v1.50.1
+	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
