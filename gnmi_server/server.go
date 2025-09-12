@@ -10,6 +10,7 @@ import (
 
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	upgradehandler "github.com/sonic-net/sonic-gnmi/pkg/server/upgrade-handler"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
@@ -58,6 +59,52 @@ type Server struct {
 	masterEID     uint128
 	gnoi_system_pb.UnimplementedSystemServer
 	factory_reset.UnimplementedFactoryResetServer
+}
+
+// handleUpgradeGet handles UPGRADE target requests directly with standard gNMI types
+func (s *Server) handleUpgradeGet(ctx context.Context, req *gnmipb.GetRequest, paths []*gnmipb.Path, prefix *gnmipb.Path) (*gnmipb.GetResponse, error) {
+	// Authentication - UPGRADE uses gnmi_readwrite permissions
+	authTarget := "gnmi_readwrite"
+	ctx, err := authenticate(s.config, ctx, authTarget, false)
+	if err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, err
+	}
+
+	// Create upgrade handler
+	upgradeClient, err := upgradehandler.NewUpgradeHandler(paths, prefix)
+	if err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+	defer upgradeClient.Close()
+
+	// Get data from upgrade handler
+	values, err := upgradeClient.Get(nil)
+	if err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		if st, ok := status.FromError(err); ok {
+			return nil, st.Err()
+		}
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+
+	// Convert directly to gNMI notifications (no SONiC wrapper!)
+	notifications := make([]*gnmipb.Notification, len(values))
+	for index, value := range values {
+		update := &gnmipb.Update{
+			Path: value.Path,
+			Val:  value.Value,
+		}
+
+		notifications[index] = &gnmipb.Notification{
+			Timestamp: value.Timestamp,
+			Prefix:    prefix,
+			Update:    []*gnmipb.Update{update},
+		}
+	}
+
+	return &gnmipb.GetResponse{Notification: notifications}, nil
 }
 
 // FileServer is the server API for File service.
@@ -449,6 +496,11 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 	var dc sdc.Client
 	var err error
+	// Handle UPGRADE target directly without SONiC routing
+	if target == "UPGRADE" {
+		return s.handleUpgradeGet(ctx, req, paths, prefix)
+	}
+
 	authTarget := "gnmi"
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
