@@ -68,11 +68,19 @@ type FileServer struct {
 	gnoi_file_pb.UnimplementedFileServer
 }
 
+// OSInstaller defines the interface for processing OS installation-related requests.
+type OSInstaller interface {
+	ProcessTransferReady(req string) (string, error)
+	ProcessTransferEnd(req string) (string, error)
+}
+
 // OSServer is the server API for System service.
 // All implementations must embed UnimplementedSystemServer
 // for forward compatibility
 type OSServer struct {
 	*Server
+	installer OSInstaller // Embed the new interface here
+	ImgDir    string
 	gnoi_os_pb.UnimplementedOSServer
 }
 
@@ -94,11 +102,32 @@ type Config struct {
 	UserAuth            AuthTypes
 	EnableTranslibWrite bool
 	EnableNativeWrite   bool
+	EnableTranslation   bool
 	ZmqPort             string
 	IdleConnDuration    int
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
+	// OS-related configuration
+	ImgDir               string
+	ProcessTransferReady func(string) (string, error)
+	ProcessTransferEnd   func(string) (string, error)
+}
+
+// DefaultOSInstaller is a concrete implementation of the OSInstaller interface.
+type DefaultOSInstaller struct {
+	transferReadyFunc func(string) (string, error)
+	transferEndFunc   func(string) (string, error)
+}
+
+// ProcessTransferReady implements the OSInstaller interface.
+func (install *DefaultOSInstaller) ProcessTransferReady(req string) (string, error) {
+	return install.transferReadyFunc(req)
+}
+
+// ProcessTransferEnd implements the OSInstaller interface.
+func (install *DefaultOSInstaller) ProcessTransferEnd(req string) (string, error) {
+	return install.transferEndFunc(req)
 }
 
 var AuthLock sync.Mutex
@@ -194,7 +223,19 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	fileSrv := &FileServer{Server: srv}
-	osSrv := &OSServer{Server: srv}
+
+	// Create an instance of the concrete OSInstaller implementation
+	osInstaller := &DefaultOSInstaller{
+		transferReadyFunc: srv.config.ProcessTransferReady,
+		transferEndFunc:   srv.config.ProcessTransferEnd,
+	}
+
+	osSrv := &OSServer{
+		Server:    srv,
+		installer: osInstaller, // Pass the installer dependency
+		ImgDir:    srv.config.ImgDir,
+	}
+
 	containerzSrv := &ContainerzServer{server: srv}
 
 	var err error
