@@ -120,16 +120,7 @@ func createClient(t *testing.T, port int) *grpc.ClientConn {
 	return conn
 }
 
-func createCommonOSCfg() *OSConfig {
-	return &OSConfig{
-		ImgDir:               "/tmp",
-		ProcessTransferReady: ProcessFakeTrfReady,
-		ProcessTransferEnd:   ProcessFakeTrfEnd,
-	}
-}
-
 func createServer(t *testing.T, port int64) *Server {
-	oscfg := createCommonOSCfg()
 	t.Helper()
 	certificate, err := testcert.NewCert()
 	if err != nil {
@@ -141,7 +132,13 @@ func createServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100, OSCfg: oscfg}
+	cfg := &Config{
+		Port:                port,
+		EnableTranslibWrite: true,
+		EnableNativeWrite:   true,
+		Threshold:           100,
+		ImgDir:              "/tmp",
+	}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
@@ -150,7 +147,6 @@ func createServer(t *testing.T, port int64) *Server {
 }
 
 func createReadServer(t *testing.T, port int64) *Server {
-	oscfg := createCommonOSCfg()
 	certificate, err := testcert.NewCert()
 	if err != nil {
 		t.Errorf("could not load server key pair: %s", err)
@@ -161,7 +157,11 @@ func createReadServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: false, OSCfg: oscfg}
+	cfg := &Config{
+		Port:                port,
+		EnableTranslibWrite: false,
+		ImgDir:              "/tmp",
+	}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
@@ -170,7 +170,6 @@ func createReadServer(t *testing.T, port int64) *Server {
 }
 
 func createRejectServer(t *testing.T, port int64) *Server {
-	oscfg := createCommonOSCfg()
 	certificate, err := testcert.NewCert()
 	if err != nil {
 		t.Errorf("could not load server key pair: %s", err)
@@ -181,7 +180,12 @@ func createRejectServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true, Threshold: 2, OSCfg: oscfg}
+	cfg := &Config{
+		Port:                port,
+		EnableTranslibWrite: true,
+		Threshold:           2,
+		ImgDir:              "/tmp",
+	}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
@@ -190,7 +194,6 @@ func createRejectServer(t *testing.T, port int64) *Server {
 }
 
 func createAuthServer(t *testing.T, port int64) *Server {
-	oscfg := createCommonOSCfg()
 	t.Helper()
 	certificate, err := testcert.NewCert()
 	if err != nil {
@@ -202,7 +205,12 @@ func createAuthServer(t *testing.T, port int64) *Server {
 	}
 
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{Port: port, EnableTranslibWrite: true, UserAuth: AuthTypes{"password": true, "cert": true, "jwt": true}, OSCfg: oscfg}
+	cfg := &Config{
+		Port:                port,
+		EnableTranslibWrite: true,
+		UserAuth:            AuthTypes{"password": true, "cert": true, "jwt": true},
+		ImgDir:              "/tmp",
+	}
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
@@ -229,7 +237,6 @@ func createInvalidServer(t *testing.T, port int64) *Server {
 }
 
 func createKeepAliveServer(t *testing.T, port int64) *Server {
-	oscfg := createCommonOSCfg()
 	t.Helper()
 	certificate, err := testcert.NewCert()
 	if err != nil {
@@ -248,7 +255,14 @@ func createKeepAliveServer(t *testing.T, port int64) *Server {
 		grpc.KeepaliveParams(keep_alive_params),
 	}
 	server_opts = append(server_opts, opts[0])
-	cfg := &Config{Port: port, EnableTranslibWrite: true, EnableNativeWrite: true, Threshold: 100, OSCfg: oscfg}
+	cfg := &Config{
+		Port:                port,
+		EnableTranslibWrite: true,
+		EnableNativeWrite:   true,
+		Threshold:           100,
+		ImgDir:              "/tmp",
+	}
+
 	s, err := NewServer(cfg, server_opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)

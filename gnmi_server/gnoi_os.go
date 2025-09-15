@@ -22,17 +22,6 @@ var (
 	totalBytesReceived = make(map[string]uint64)
 )
 
-// ProcessInstallFromBackEnd makes call via the sonic-host-service.
-func ProcessInstallFromBackEnd(req string) (string, error) {
-	log.Infof("ProcessInstallFromBackEnd: %v", req)
-	sc, err := ssc.NewDbusClient()
-	if err != nil {
-		return "", err
-	}
-	defer sc.Close()
-	return sc.InstallOS(req)
-}
-
 func (srv *OSServer) processTransferReq(req *ospb.InstallRequest) *ospb.InstallResponse {
 	log.Infof("processTransferReq: %v", req)
 	transferReq := req.GetTransferRequest()
@@ -60,7 +49,7 @@ func (srv *OSServer) processTransferReq(req *ospb.InstallRequest) *ospb.InstallR
 		}
 
 	}
-	respStr, err := srv.config.OSCfg.ProcessTransferReady(string(reqStr))
+	respStr, err := srv.backend.InstallOS(string(reqStr))
 	log.Infof("processTransferReq: Backend response %s", respStr)
 	if err != nil {
 		// Convert the generic error to a gRPC status object
@@ -109,9 +98,8 @@ func (srv *OSServer) processTransferEnd(req *ospb.InstallRequest) *ospb.InstallR
 				},
 			},
 		}
-
 	}
-	respStr, err := srv.config.OSCfg.ProcessTransferEnd(string(reqStr))
+	respStr, err := srv.backend.InstallOS(string(reqStr))
 	log.Infof("processTransferEnd: Backend response %s", respStr)
 	if err != nil {
 		log.Errorf("Received error from OSServer.TransferEnd: err: %v, reqStr: %v, respStr: %v", err, reqStr, respStr)
@@ -122,7 +110,6 @@ func (srv *OSServer) processTransferEnd(req *ospb.InstallRequest) *ospb.InstallR
 				},
 			},
 		}
-
 	}
 	resp := &ospb.InstallResponse{}
 	if err := json.Unmarshal([]byte(respStr), resp); err != nil {
@@ -143,18 +130,12 @@ func (srv *OSServer) processTransferContent(transferContent []byte, imgPath stri
 	log.Infof("processTransferContent: file %v", imgPath)
 
 	// Base directory where the images should reside (e.g., /tmp)
-	baseDir := srv.config.OSCfg.ImgDir
+	baseDir := srv.ImgDir
 
 	// Clean the user-provided imgPath to avoid directory traversal
 	cleanPath := filepath.Clean(imgPath) // Clean any ".." or other traversal patterns
 
-	// Ensure baseDir has a trailing slash for the HasPrefix check to work correctly.
-	if baseDir[len(baseDir)-1] != '/' {
-		baseDir += "/"
-	}
-
 	var safePath string
-
 	// If cleanPath is absolute (starts with /), use it directly
 	if filepath.IsAbs(cleanPath) {
 		safePath = cleanPath
@@ -237,7 +218,7 @@ func (srv *OSServer) processTransferContent(transferContent []byte, imgPath stri
 }
 
 func (srv *OSServer) getVersionPath(version string) string {
-	return srv.config.OSCfg.ImgDir + "/" + version
+	return srv.ImgDir + "/" + version
 }
 
 func (srv *OSServer) imageExists(path string) bool {

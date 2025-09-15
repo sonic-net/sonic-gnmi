@@ -68,13 +68,18 @@ type FileServer struct {
 	gnoi_file_pb.UnimplementedFileServer
 }
 
+// OSBackend defines the interface for the OS installation backend service.
+type OSBackend interface {
+	InstallOS(req string) (string, error)
+}
+
 // OSServer is the server API for System service.
 // All implementations must embed UnimplementedSystemServer
 // for forward compatibility
 type OSServer struct {
 	*Server
-	ProcessTransferReady func(req string) (string, error)
-	ProcessTransferEnd   func(req string) (string, error)
+	backend OSBackend // Dependency interface
+	ImgDir  string
 	gnoi_os_pb.UnimplementedOSServer
 }
 
@@ -85,13 +90,6 @@ type ContainerzServer struct {
 }
 
 type AuthTypes map[string]bool
-
-// OSConfig is a collection of values for OSServer.
-type OSConfig struct {
-	ImgDir               string                       // Path to the directory where image is stored.
-	ProcessTransferReady func(string) (string, error) // Function that handles TransferReady request.
-	ProcessTransferEnd   func(string) (string, error) // Function that handles TransferEnd request.
-}
 
 // Config is a collection of values for Server
 type Config struct {
@@ -109,9 +107,22 @@ type Config struct {
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
-	// OSCfg holds informational status for gNOI OS Management.
-	// It is not used for setting operational configuration.
-	OSCfg *OSConfig
+	// Path to the directory where image is stored.
+	ImgDir string
+}
+
+// DBusOSBackend is a concrete implementation of OSBackend
+type DBusOSBackend struct{}
+
+// InstallOS implements the OSBackend interface.
+func (d *DBusOSBackend) InstallOS(req string) (string, error) {
+	log.Infof("DBusOSBackend.InstallOS: %v", req)
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		return "", err
+	}
+	defer sc.Close()
+	return sc.InstallOS(req)
 }
 
 var AuthLock sync.Mutex
@@ -207,11 +218,16 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	fileSrv := &FileServer{Server: srv}
+
+	// Create an instance of the concrete OSBackend implementation
+	osBackend := &DBusOSBackend{}
+
 	osSrv := &OSServer{
-		Server:               srv,
-		ProcessTransferReady: srv.config.OSCfg.ProcessTransferReady,
-		ProcessTransferEnd:   srv.config.OSCfg.ProcessTransferEnd,
+		Server:  srv,
+		backend: osBackend, // Pass the installer dependency
+		ImgDir:  srv.config.ImgDir,
 	}
+
 	containerzSrv := &ContainerzServer{server: srv}
 
 	var err error

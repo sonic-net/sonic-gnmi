@@ -231,11 +231,6 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	gnmi.JwtRefreshInt = time.Duration(*telemetryCfg.JwtRefInt * uint64(time.Second))
 	gnmi.JwtValidInt = time.Duration(*telemetryCfg.JwtValInt * uint64(time.Second))
 
-	oscfg := &gnmi.OSConfig{
-		ImgDir:               *telemetryCfg.ImgDirPath,
-		ProcessTransferReady: gnmi.ProcessInstallFromBackEnd,
-		ProcessTransferEnd:   gnmi.ProcessInstallFromBackEnd,
-	}
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*telemetryCfg.Port)
 	cfg.EnableTranslibWrite = bool(*telemetryCfg.GnmiTranslibWrite)
@@ -261,7 +256,9 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 
 	cfg.ZmqPort = zmqPort
 
-	cfg.OSCfg = oscfg
+	// Populate the OS-related fields directly on the gnmi.Config struct.
+	cfg.ImgDir = *telemetryCfg.ImgDirPath
+
 	return telemetryCfg, cfg, nil
 }
 
