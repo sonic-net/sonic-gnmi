@@ -25,6 +25,22 @@ import (
 	"unsafe"
 )
 
+// MockOSInstaller is a mock implementation of the OSInstaller interface for testing.
+type MockOSInstaller struct {
+	ProcessTransferReadyFunc func(req string) (string, error)
+	ProcessTransferEndFunc   func(req string) (string, error)
+}
+
+// ProcessTransferReady implements the OSInstaller interface.
+func (m *MockOSInstaller) ProcessTransferReady(req string) (string, error) {
+	return m.ProcessTransferReadyFunc(req)
+}
+
+// ProcessTransferEnd implements the OSInstaller interface.
+func (m *MockOSInstaller) ProcessTransferEnd(req string) (string, error) {
+	return m.ProcessTransferEndFunc(req)
+}
+
 type fakeInstallServer struct {
 	ospb.OS_InstallServer
 	sendErr error
@@ -86,7 +102,7 @@ var testOSCases = []struct {
 			if err == nil {
 				t.Fatal("Expected error!")
 			}
-			testErr(err, codes.Aborted, "Failed to process TransferRequest.", t)
+			testError(err, codes.Aborted, "Failed to process TransferRequest.", t)
 		},
 	},
 	{
@@ -115,7 +131,7 @@ var testOSCases = []struct {
 			if resp.GetTransferReady() == nil {
 				t.Fatal("Did not receive expected TransferReady response")
 			}
-			targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+			targetAddr := fmt.Sprintf("127.0.0.1:%d", s.Server.config.Port)
 			// Create a new client.
 			tlsConfig := &tls.Config{InsecureSkipVerify: true}
 			opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
@@ -148,7 +164,7 @@ var testOSCases = []struct {
 				t.Fatal("Expected error!")
 			}
 			t.Logf("InstallError=%v", err)
-			testErr(err, codes.Aborted, "Concurrent Install RPCs", t)
+			testError(err, codes.Aborted, "Concurrent Install RPCs", t)
 			// Continue with the existing stream.
 			t.Logf("Client continue with the existing stream")
 			err = stream.Send(&ospb.InstallRequest{
@@ -186,7 +202,7 @@ var testOSCases = []struct {
 			if err == nil {
 				t.Fatal("Expected error!")
 			}
-			testErr(err, codes.InvalidArgument, "Expected TransferRequest", t)
+			testError(err, codes.InvalidArgument, "Expected TransferRequest", t)
 		},
 	},
 	{
@@ -426,7 +442,8 @@ var testOSCases = []struct {
 				t.Fatal(err.Error())
 			}
 			// Receive TransferReady response.
-			resp, err := stream.Recv()
+			var resp *ospb.InstallResponse
+			resp, err = stream.Recv()
 			if err != nil {
 				t.Fatal(err.Error())
 			}
@@ -471,19 +488,16 @@ var testOSCases = []struct {
 	{
 		desc: "OSInstallFailsIfBackendErrorsOnTransferReady",
 		f: func(ctx context.Context, t *testing.T, sc ospb.OSClient, s *OSServer) {
-			// Save the original function to restore it later.
-			originalProcessTransferReady := s.config.OSCfg.ProcessTransferReady
+			// Patch the ProcessTransferReady method of the DefaultOSInstaller.
+			// This will affect the live server's installer.
+			patch := gomonkey.ApplyMethod(reflect.TypeOf(&DefaultOSInstaller{}), "ProcessTransferReady",
+				func(_ *DefaultOSInstaller, req string) (string, error) {
+					// Return a gRPC status error here to simulate a backend failure.
+					return "", status.Errorf(codes.Unimplemented, "OS Install not supported")
+				})
+			defer patch.Reset()
 
-			// Override backend to return an error
-			s.config.OSCfg.ProcessTransferReady = func(_ string) (string, error) {
-				return "", status.Errorf(codes.Unimplemented, "OS Install not supported")
-			}
-
-			// Use a defer statement to ensure the function is reset after the test.
-			defer func() {
-				s.config.OSCfg.ProcessTransferReady = originalProcessTransferReady
-			}()
-
+			// 1. Send TransferRequest to the server.
 			stream, err := sc.Install(ctx, grpc.EmptyCallOption{})
 			if err != nil {
 				t.Fatal(err)
@@ -496,9 +510,18 @@ var testOSCases = []struct {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Expect gRPC Unimplemented
+
+			// 2. Expect a gRPC error from the server, not a response message.
+			// The server should abort the stream immediately when the patched function returns an error.
 			_, err = stream.Recv()
-			if err == nil || grpc.Code(err) != codes.Unimplemented {
+
+			// 3. Assert that the received error is of the expected type and code.
+			if err == nil {
+				t.Fatal("Expected a gRPC error, but received a nil error.")
+			}
+
+			st, ok := status.FromError(err)
+			if !ok || st.Code() != codes.Unimplemented {
 				t.Fatalf("Expected Unimplemented, got: %v", err)
 			}
 		},
@@ -506,18 +529,38 @@ var testOSCases = []struct {
 	{
 		desc: "OSInstallFailsOnBadTransferReadyJSON",
 		f: func(ctx context.Context, t *testing.T, sc ospb.OSClient, s *OSServer) {
-			s.config.OSCfg.ProcessTransferReady = func(_ string) (string, error) {
-				return "{bad-json", nil
+			// Patch the ProcessTransferReady method of the DefaultOSInstaller.
+			// This will affect the live server's installer.
+			patch := gomonkey.ApplyMethod(reflect.TypeOf(&DefaultOSInstaller{}), "ProcessTransferReady",
+				func(_ *DefaultOSInstaller, req string) (string, error) {
+					return "{bad-json", nil
+				})
+			defer patch.Reset()
+
+			// 1. Send TransferRequest to the server.
+			stream, err := sc.Install(ctx, grpc.EmptyCallOption{})
+			if err != nil {
+				t.Fatal(err)
 			}
-			stream, _ := sc.Install(ctx, grpc.EmptyCallOption{})
-			stream.Send(&ospb.InstallRequest{
+			err = stream.Send(&ospb.InstallRequest{
 				Request: &ospb.InstallRequest_TransferRequest{
 					TransferRequest: &ospb.TransferRequest{Version: "os1.2"},
 				},
 			})
-			resp, _ := stream.Recv()
-			if resp.GetInstallError() == nil {
-				t.Fatal("Expected InstallError due to bad JSON")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// 2. Expect an InstallError response from the server.
+			resp, err := stream.Recv()
+			if err != nil {
+				t.Fatalf("Expected a response, but received gRPC error: %v", err)
+			}
+
+			// 3. Assert that the received response is an InstallError.
+			instErr := resp.GetInstallError()
+			if instErr == nil {
+				t.Fatal("Expected an InstallError, but got a nil response.")
 			}
 		},
 	},
@@ -592,7 +635,18 @@ func TestOSServer(t *testing.T) {
 			}
 			defer conn.Close()
 			sc := ospb.NewOSClient(conn)
-			test.f(ctx, t, sc, &OSServer{Server: s})
+
+			// We must now properly create the OSServer instance with its dependencies
+			// The ImgDir is on the OSServer, and the installer is on the Server config.
+			osSrv := &OSServer{
+				Server: s,
+				installer: &DefaultOSInstaller{
+					transferReadyFunc: s.config.ProcessTransferReady,
+					transferEndFunc:   s.config.ProcessTransferEnd,
+				},
+				ImgDir: s.config.ImgDir,
+			}
+			test.f(ctx, t, sc, osSrv)
 		})
 	}
 }
@@ -668,13 +722,11 @@ func TestProcessTransferContent_OpenFileError(t *testing.T) {
 	})
 	defer patch.Reset()
 
-	// Initialize the Server struct with a mock Config
+	// Initialize the OSServer struct with a mock Config that has the ImgDir field.
 	srv := &OSServer{
 		Server: &Server{
 			config: &Config{
-				OSCfg: &OSConfig{
-					ImgDir: "/tmp", // Mock directory path
-				},
+				ImgDir: "/tmp", // Mock directory path
 			},
 		},
 	}
@@ -717,13 +769,11 @@ func TestProcessTransferContent_WriteError(t *testing.T) {
 		return nil
 	})
 
-	// Initialize the Server struct with a mock Config
+	// Initialize the OSServer struct with a mock Config that has the ImgDir field.
 	srv := &OSServer{
 		Server: &Server{
 			config: &Config{
-				OSCfg: &OSConfig{
-					ImgDir: "/tmp", // Mock directory path
-				},
+				ImgDir: "/tmp", // Mock directory path
 			},
 		},
 	}
@@ -769,13 +819,11 @@ func TestProcessTransferContent_CloseError(t *testing.T) {
 		return errors.New("simulated Close failure")
 	})
 
-	// Initialize the Server struct with a mock Config
+	// Initialize the OSServer struct with a mock Config that has the ImgDir field.
 	srv := &OSServer{
 		Server: &Server{
 			config: &Config{
-				OSCfg: &OSConfig{
-					ImgDir: "/tmp", // Mock directory path
-				},
+				ImgDir: "/tmp", // Mock directory path
 			},
 		},
 	}
@@ -886,18 +934,10 @@ func TestProcessTransferReq_GenericError(t *testing.T) {
 	}
 
 	// 2. Create the mock OSServer and its dependencies
-	// The key is to create the OSConfig and assign a mock function to its field.
-	mockOSCfg := &OSConfig{
-		// Assign your mock function directly to the field
-		ProcessTransferReady: func(req string) (string, error) {
-			return "", fmt.Errorf("this is a generic backend error")
-		},
-	}
-
 	mockSrv := &OSServer{
-		Server: &Server{
-			config: &Config{
-				OSCfg: mockOSCfg,
+		installer: &MockOSInstaller{
+			ProcessTransferReadyFunc: func(req string) (string, error) {
+				return "", fmt.Errorf("this is a generic backend error")
 			},
 		},
 	}
@@ -917,15 +957,6 @@ func TestProcessTransferReq_GenericError(t *testing.T) {
 	}
 }
 
-// MockOSCfg is a mock implementation of the OSCfg interface.
-type MockOSCfg struct {
-	ProcessTransferEndFunc func(reqStr string) (respStr string, err error)
-}
-
-func (m *MockOSCfg) ProcessTransferEnd(reqStr string) (string, error) {
-	return m.ProcessTransferEndFunc(reqStr)
-}
-
 func TestProcessTransferEnd_UnmarshalError(t *testing.T) {
 	// Create a mock function for ProcessTransferEnd.
 	// This function returns a JSON string that is valid but
@@ -935,17 +966,9 @@ func TestProcessTransferEnd_UnmarshalError(t *testing.T) {
 	}
 
 	// Create the necessary structs to run the test.
-	osConfig := &OSConfig{
-		ProcessTransferEnd: mockProcessTransferEnd,
-	}
-
-	config := &Config{
-		OSCfg: osConfig,
-	}
-
 	srv := &OSServer{
-		Server: &Server{
-			config: config,
+		installer: &MockOSInstaller{
+			ProcessTransferEndFunc: mockProcessTransferEnd,
 		},
 	}
 
@@ -1003,19 +1026,15 @@ func TestProcessTransferEnd_MarshalError(t *testing.T) {
 
 func TestProcessTransferEnd_BackendError(t *testing.T) {
 	// Create a mock OSConfig that returns an error.
-	mockOSCfg := &OSConfig{
-		ProcessTransferEnd: func(req string) (string, error) {
+	mockInstaller := &MockOSInstaller{
+		ProcessTransferEndFunc: func(req string) (string, error) {
 			return "", fmt.Errorf("this is a backend error")
 		},
 	}
 
-	// Create a mock server with the mock OSConfig.
+	// Create a mock server with the mock OSInstaller.
 	srv := &OSServer{
-		Server: &Server{
-			config: &Config{
-				OSCfg: mockOSCfg,
-			},
-		},
+		installer: mockInstaller,
 	}
 
 	// Call the function under test with a valid request.
@@ -1031,5 +1050,21 @@ func TestProcessTransferEnd_BackendError(t *testing.T) {
 	expectedDetail := "Error in TransferEnd response: err: this is a backend error"
 	if !strings.Contains(installError.GetDetail(), expectedDetail) {
 		t.Errorf("Expected detail to contain '%s', but got '%s'", expectedDetail, installError.GetDetail())
+	}
+}
+
+func testError(err error, code codes.Code, msg string, t *testing.T) {
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status error, got %T", err)
+	}
+	if st.Code() != code {
+		t.Fatalf("expected status code %s, got %s", code, st.Code())
+	}
+	if !strings.Contains(st.Message(), msg) {
+		t.Fatalf("expected error message to contain %q, got %q", msg, st.Message())
 	}
 }
