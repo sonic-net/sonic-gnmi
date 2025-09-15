@@ -1,11 +1,14 @@
 package host_service
 
 import (
-	"reflect"
-	"testing"
-
+	"errors"
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/godbus/dbus/v5"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"reflect"
+	"strings"
+	"testing"
 )
 
 func TestNewDbusClient(t *testing.T) {
@@ -1190,5 +1193,199 @@ func TestFactoryReset(t *testing.T) {
 	}
 	if result != expectedResult {
 		t.Errorf("Expected result: %s, got: %s", expectedResult, result)
+	}
+}
+
+func TestInstallOSSuccess(t *testing.T) {
+	req := "stable"
+
+	patch := gomonkey.ApplyFunc(DbusApi, func(busName, busPath, intName string, timeout int, args ...interface{}) (interface{}, error) {
+		return "stable", nil
+	})
+	defer patch.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	result, err := client.InstallOS(req)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if result != "stable" {
+		t.Errorf("Expected 'stable', got: %v", result)
+	}
+}
+
+func TestInstallOSUnimplemented(t *testing.T) {
+	req := "stable"
+
+	patch := gomonkey.ApplyFunc(DbusApi, func(busName, busPath, intName string, timeout int, args ...interface{}) (interface{}, error) {
+		return "ERROR_UNIMPLEMENTED: OS Install not supported", nil
+	})
+	defer patch.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	_, err = client.InstallOS(req)
+	if err == nil || status.Code(err) != codes.Unimplemented {
+		t.Errorf("Expected Unimplemented error, got: %v", err)
+	}
+}
+
+func TestInstallOSDbusClientError(t *testing.T) {
+	req := "stable"
+
+	patch := gomonkey.ApplyFunc(DbusApi, func(busName, busPath, intName string, timeout int, args ...interface{}) (interface{}, error) {
+		return nil, errors.New("mock D-Bus error")
+	})
+	defer patch.Reset()
+
+	// Call the function under test
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	_, err = client.InstallOS(req)
+	if err == nil || !strings.Contains(err.Error(), "mock D-Bus error") {
+		t.Fatalf("expected dbus error, got: %v (%v)", err, client)
+	}
+}
+
+func TestInstallOSInvalidTypeFromDbusApi(t *testing.T) {
+	req := "stable"
+
+	patch := gomonkey.ApplyFunc(DbusApi, func(busName, busPath, intName string, timeout int, args ...interface{}) (interface{}, error) {
+		return 42, nil // Not a string
+	})
+	defer patch.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Errorf("NewDbusClient failed: %v", err)
+	}
+	_, err = client.InstallOS(req)
+	if err == nil || !strings.Contains(err.Error(), "Invalid result type") {
+		t.Fatalf("expected type error, got: %v (%v)", err, client)
+	}
+}
+
+func TestDbusCallReturnsError(t *testing.T) {
+	errMsg := "mock dbus call error"
+
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = errors.New(errMsg) // Set the error field
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Fatalf("NewDbusClient failed: %v", err)
+	}
+
+	// This function call will trigger the mocked D-Bus call
+	_, err = client.GetFileStat("/dummy/path")
+
+	if err == nil {
+		t.Errorf("Expected an error, but got nil")
+	}
+
+	if !strings.Contains(err.Error(), errMsg) {
+		t.Errorf("Expected error message to contain '%s', but got '%s'", errMsg, err.Error())
+	}
+}
+
+func TestDbusCallReturnsEmptyBody(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 0) // Empty body
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Fatalf("NewDbusClient failed: %v", err)
+	}
+
+	_, err = client.GetFileStat("/dummy/path")
+
+	if err == nil {
+		t.Errorf("Expected an error, but got nil")
+	}
+
+	if !strings.Contains(err.Error(), "Dbus result is empty") {
+		t.Errorf("Expected error message to contain 'Dbus result is empty', but got '%s'", err.Error())
+	}
+}
+
+func TestDbusCallReturnsInvalidResultType(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 1)
+		ret.Body[0] = "not an int32" // Set a non-integer type
+		ch <- ret
+		return &dbus.Call{}
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Fatalf("NewDbusClient failed: %v", err)
+	}
+
+	_, err = client.GetFileStat("/dummy/path")
+
+	if err == nil {
+		t.Errorf("Expected an error, but got nil")
+	}
+
+	if !strings.Contains(err.Error(), "Invalid result type") {
+		t.Errorf("Expected error message to contain 'Invalid result type', but got '%s'", err.Error())
+	}
+}
+
+func TestDbusCallTimeout(t *testing.T) {
+	// Mock the DbusApi function to simulate a timeout error
+	patch := gomonkey.ApplyFunc(DbusApi, func(busName, busPath, intName string, timeout int, args ...interface{}) (interface{}, error) {
+		return nil, errors.New("timeout")
+	})
+	defer patch.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Fatalf("NewDbusClient failed: %v", err)
+	}
+
+	_, err = client.GetFileStat("/dummy/path")
+	if err == nil {
+		t.Errorf("Expected a timeout error, but got nil")
+	}
+
+	if !strings.Contains(err.Error(), "timeout") {
+		t.Errorf("Expected a timeout error, but got: %v", err)
 	}
 }
