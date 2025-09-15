@@ -68,13 +68,19 @@ type FileServer struct {
 	gnoi_file_pb.UnimplementedFileServer
 }
 
+// OSInstaller defines the interface for processing OS installation-related requests.
+type OSInstaller interface {
+	ProcessTransferReady(req string) (string, error)
+	ProcessTransferEnd(req string) (string, error)
+}
+
 // OSServer is the server API for System service.
 // All implementations must embed UnimplementedSystemServer
 // for forward compatibility
 type OSServer struct {
 	*Server
-	ProcessTransferReady func(req string) (string, error)
-	ProcessTransferEnd   func(req string) (string, error)
+	installer OSInstaller
+	ImgDir    string
 	gnoi_os_pb.UnimplementedOSServer
 }
 
@@ -85,13 +91,6 @@ type ContainerzServer struct {
 }
 
 type AuthTypes map[string]bool
-
-// OSConfig is a collection of values for OSServer.
-type OSConfig struct {
-	ImgDir               string                       // Path to the directory where image is stored.
-	ProcessTransferReady func(string) (string, error) // Function that handles TransferReady request.
-	ProcessTransferEnd   func(string) (string, error) // Function that handles TransferEnd request.
-}
 
 // Config is a collection of values for Server
 type Config struct {
@@ -109,9 +108,27 @@ type Config struct {
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
-	// OSCfg holds informational status for gNOI OS Management.
-	// It is not used for setting operational configuration.
-	OSCfg *OSConfig
+	// These fields provide operational status/paths and necessary runtime
+	// callbacks for gNOI OS Install RPCs. It is not used for setting operational configuration.
+	ImgDir               string                       // Path to the directory where image is stored.
+	ProcessTransferReady func(string) (string, error) // Function that handles TransferReady request.
+	ProcessTransferEnd   func(string) (string, error) // Function that handles TransferEnd request.
+}
+
+// DefaultOSInstaller is a concrete implementation of the OSInstaller interface.
+type DefaultOSInstaller struct {
+	transferReadyFunc func(string) (string, error)
+	transferEndFunc   func(string) (string, error)
+}
+
+// ProcessTransferReady implements the OSInstaller interface.
+func (install *DefaultOSInstaller) ProcessTransferReady(req string) (string, error) {
+	return install.transferReadyFunc(req)
+}
+
+// ProcessTransferEnd implements the OSInstaller interface.
+func (install *DefaultOSInstaller) ProcessTransferEnd(req string) (string, error) {
+	return install.transferEndFunc(req)
 }
 
 var AuthLock sync.Mutex
@@ -207,11 +224,19 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	fileSrv := &FileServer{Server: srv}
-	osSrv := &OSServer{
-		Server:               srv,
-		ProcessTransferReady: srv.config.OSCfg.ProcessTransferReady,
-		ProcessTransferEnd:   srv.config.OSCfg.ProcessTransferEnd,
+
+	// Create an instance of the concrete OSInstaller implementation
+	osInstaller := &DefaultOSInstaller{
+		transferReadyFunc: srv.config.ProcessTransferReady,
+		transferEndFunc:   srv.config.ProcessTransferEnd,
 	}
+
+	osSrv := &OSServer{
+		Server:    srv,
+		installer: osInstaller, // Pass the installer dependency
+		ImgDir:    srv.config.ImgDir,
+	}
+
 	containerzSrv := &ContainerzServer{server: srv}
 
 	var err error
