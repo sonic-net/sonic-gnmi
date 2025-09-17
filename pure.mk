@@ -104,6 +104,32 @@ test-coverage: test
 		fi; \
 	done
 
+# Generate XML coverage report for Azure pipelines
+.PHONY: coverage-xml
+coverage-xml: test
+	@echo "Generating XML coverage report for Azure..."
+	@if command -v gocov >/dev/null 2>&1 && command -v gocov-xml >/dev/null 2>&1; then \
+		echo "Converting coverage to XML format..."; \
+		rm -f coverage-*.out; \
+		for pkg in $(PACKAGES); do \
+			if [ -f $$pkg/coverage.out ]; then \
+				pkgname=$$(echo $$pkg | tr '/' '-'); \
+				cp $$pkg/coverage.out coverage-$$pkgname.out; \
+			fi; \
+		done; \
+		if ls coverage-*.out >/dev/null 2>&1; then \
+			gocov convert coverage-*.out | gocov-xml -source $(shell pwd) > coverage.xml; \
+			rm -f coverage-*.out; \
+			echo "XML coverage report generated: coverage.xml"; \
+		else \
+			echo "No coverage files found"; \
+		fi; \
+	else \
+		echo "Warning: gocov and gocov-xml not available"; \
+		echo "Install with: go install github.com/axw/gocov/gocov@latest"; \
+		echo "              go install github.com/AlekSi/gocov-xml@latest"; \
+	fi
+
 # Build test - ensure the package builds
 .PHONY: build-test
 build-test:
@@ -211,6 +237,7 @@ help:
 	@echo "  quick            - Quick validation (fmt, vet, build)"
 	@echo "  test             - Run tests with coverage"
 	@echo "  test-coverage    - Generate HTML coverage reports"
+	@echo "  coverage-xml     - Generate XML coverage for Azure"
 	@echo "  fmt              - Format code"
 	@echo "  fmt-check        - Check code formatting"
 	@echo "  vet              - Run static analysis"
