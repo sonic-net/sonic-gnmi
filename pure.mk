@@ -1,23 +1,23 @@
-# vanilla.mk - Simple CI for vanilla-runnable packages without SONiC dependencies
-# Usage: make -f vanilla.mk ci
+# pure.mk - Simple CI for pure packages without SONiC dependencies
+# Usage: make -f pure.mk ci
 #
 # This makefile supports testing packages that don't require CGO or SONiC dependencies.
-# Add new vanilla-runnable packages to VANILLA_PACKAGES below.
+# Add new pure packages to PURE_PACKAGES below.
 #
-# Goal: Eventually all packages should be vanilla-runnable unless they absolutely
+# Goal: Eventually all packages should be pure unless they absolutely
 # require CGO dependencies. All CGO/SONiC dependencies should be properly quarantined.
 
 # Go configuration
 GO ?= go
 GOROOT ?= $(shell $(GO) env GOROOT)
 
-# Vanilla-runnable packages (no CGO/SONiC dependencies)
-# Add new packages here as they become vanilla-compatible
-VANILLA_PACKAGES := \
+# Pure packages (no CGO/SONiC dependencies)
+# Add new packages here as they become pure-compatible
+PURE_PACKAGES := \
 	internal/diskspace \
 	pkg/server/upgrade-handler
 
-# Future packages to make vanilla-runnable:
+# Future packages to make pure:
 # TODO: sonic-gnmi-standalone/pkg/workflow
 # TODO: sonic-gnmi-standalone/pkg/client/config  
 # TODO: sonic-gnmi-standalone/internal/checksum
@@ -27,7 +27,7 @@ VANILLA_PACKAGES := \
 # TODO: transl_utils (isolate from translib dependencies)
 
 # You can test specific packages by setting PACKAGES=pkg/specific/package
-PACKAGES ?= $(VANILLA_PACKAGES)
+PACKAGES ?= $(PURE_PACKAGES)
 
 # Default target
 .DEFAULT_GOAL := ci
@@ -35,7 +35,7 @@ PACKAGES ?= $(VANILLA_PACKAGES)
 # Clean up any build artifacts
 .PHONY: clean
 clean:
-	@echo "Cleaning vanilla build artifacts..."
+	@echo "Cleaning pure build artifacts..."
 	$(GO) clean -cache -testcache
 	@for pkg in $(PACKAGES); do \
 		rm -f $$pkg/coverage.out $$pkg/coverage.html; \
@@ -44,14 +44,14 @@ clean:
 # Format check - ensure code is properly formatted
 .PHONY: fmt-check
 fmt-check:
-	@echo "Checking Go code formatting for vanilla packages..."
+	@echo "Checking Go code formatting for pure packages..."
 	@for pkg in $(PACKAGES); do \
 		echo "Checking $$pkg..."; \
 		files=$$($(GOROOT)/bin/gofmt -l $$pkg/*.go 2>/dev/null || true); \
 		if [ -n "$$files" ]; then \
 			echo "The following files need formatting in $$pkg:"; \
 			echo "$$files"; \
-			echo "Please run 'make -f vanilla.mk fmt' or 'gofmt -w $$pkg/*.go'"; \
+			echo "Please run 'make -f pure.mk fmt' or 'gofmt -w $$pkg/*.go'"; \
 			exit 1; \
 		fi; \
 	done
@@ -60,7 +60,7 @@ fmt-check:
 # Format code
 .PHONY: fmt
 fmt:
-	@echo "Formatting Go code for vanilla packages..."
+	@echo "Formatting Go code for pure packages..."
 	@for pkg in $(PACKAGES); do \
 		echo "Formatting $$pkg..."; \
 		$(GOROOT)/bin/gofmt -w $$pkg/*.go 2>/dev/null || true; \
@@ -69,7 +69,7 @@ fmt:
 # Vet - static analysis
 .PHONY: vet
 vet:
-	@echo "Running go vet on vanilla packages..."
+	@echo "Running go vet on pure packages..."
 	@for pkg in $(PACKAGES); do \
 		echo "Vetting $$pkg..."; \
 		cd $$pkg && $(GO) vet ./...; \
@@ -79,7 +79,7 @@ vet:
 # Test - run all tests with coverage
 .PHONY: test
 test:
-	@echo "Running tests for vanilla packages..."
+	@echo "Running tests for pure packages..."
 	@for pkg in $(PACKAGES); do \
 		echo ""; \
 		echo "=== Testing $$pkg ==="; \
@@ -107,7 +107,7 @@ test-coverage: test
 # Build test - ensure the package builds
 .PHONY: build-test
 build-test:
-	@echo "Testing build of vanilla packages..."
+	@echo "Testing build of pure packages..."
 	@for pkg in $(PACKAGES); do \
 		echo "Building $$pkg..."; \
 		cd $$pkg && $(GO) build -v ./...; \
@@ -117,12 +117,12 @@ build-test:
 # Lint check using basic go tools
 .PHONY: lint
 lint: fmt-check vet
-	@echo "Basic linting complete for vanilla packages"
+	@echo "Basic linting complete for pure packages"
 
 # Benchmark tests
 .PHONY: bench
 bench:
-	@echo "Running benchmarks for vanilla packages..."
+	@echo "Running benchmarks for pure packages..."
 	@for pkg in $(PACKAGES); do \
 		echo "Benchmarking $$pkg..."; \
 		cd $$pkg && $(GO) test -bench=. -benchmem ./...; \
@@ -144,7 +144,7 @@ mod-verify:
 # Security scan using gosec if available
 .PHONY: security
 security:
-	@echo "Running security scan on vanilla packages..."
+	@echo "Running security scan on pure packages..."
 	@if command -v gosec >/dev/null 2>&1; then \
 		for pkg in $(PACKAGES); do \
 			echo "Scanning $$pkg..."; \
@@ -159,8 +159,8 @@ security:
 # List vanilla packages
 .PHONY: list-packages
 list-packages:
-	@echo "Vanilla-runnable packages:"
-	@for pkg in $(VANILLA_PACKAGES); do \
+	@echo "Pure packages:"
+	@for pkg in $(PURE_PACKAGES); do \
 		echo "  - $$pkg"; \
 	done
 	@echo ""
@@ -175,7 +175,7 @@ list-packages:
 ci: clean mod-verify lint build-test test
 	@echo ""
 	@echo "============================================="
-	@echo "✅ Vanilla CI completed successfully!"
+	@echo "✅ Pure CI completed successfully!"
 	@echo "============================================="
 	@echo "Tested packages:"
 	@for pkg in $(PACKAGES); do \
@@ -195,15 +195,15 @@ ci: clean mod-verify lint build-test test
 # Quick check for development
 .PHONY: quick
 quick: fmt-check vet build-test
-	@echo "Quick validation complete for vanilla packages"
+	@echo "Quick validation complete for pure packages"
 
 # Help target
 .PHONY: help
 help:
-	@echo "Vanilla CI Makefile for SONiC gNMI"
+	@echo "Pure CI Makefile for SONiC gNMI"
 	@echo ""
 	@echo "This makefile supports testing packages without CGO or SONiC dependencies."
-	@echo "The goal is to eventually make all packages vanilla-runnable by properly"
+	@echo "The goal is to eventually make all packages pure by properly"
 	@echo "quarantining CGO/SONiC dependencies."
 	@echo ""
 	@echo "Available targets:"
@@ -219,17 +219,17 @@ help:
 	@echo "  bench            - Run benchmarks"
 	@echo "  security         - Run security scan (requires gosec)"
 	@echo "  mod-verify       - Verify go modules"
-	@echo "  list-packages    - List vanilla packages"
+	@echo "  list-packages    - List pure packages"
 	@echo "  clean            - Clean build artifacts"
 	@echo "  help             - Show this help"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make -f vanilla.mk ci"
-	@echo "  make -f vanilla.mk quick"
-	@echo "  make -f vanilla.mk test-coverage"
-	@echo "  make -f vanilla.mk PACKAGES=pkg/server/upgrade-handler ci"
+	@echo "  make -f pure.mk ci"
+	@echo "  make -f pure.mk quick"
+	@echo "  make -f pure.mk test-coverage"
+	@echo "  make -f pure.mk PACKAGES=pkg/server/upgrade-handler ci"
 	@echo ""
-	@echo "Currently vanilla packages:"
-	@for pkg in $(VANILLA_PACKAGES); do \
+	@echo "Currently pure packages:"
+	@for pkg in $(PURE_PACKAGES); do \
 		echo "  - $$pkg"; \
 	done
