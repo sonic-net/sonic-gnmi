@@ -4,6 +4,7 @@ package diskspace
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -33,6 +34,14 @@ func (m *Monitor) Get(path string) (*Info, error) {
 	// Clean the path
 	cleanPath := filepath.Clean(path)
 
+	// Handle container environment: translate host paths to container mount point
+	// Only apply translation if /mnt/host exists (running in container)
+	if !strings.HasPrefix(cleanPath, "/mnt/host") {
+		if _, err := os.Stat("/mnt/host"); err == nil {
+			cleanPath = "/mnt/host" + cleanPath
+		}
+	}
+
 	// Get filesystem statistics using syscall.Statfs
 	var stat syscall.Statfs_t
 	err := syscall.Statfs(cleanPath, &stat)
@@ -52,7 +61,7 @@ func (m *Monitor) Get(path string) (*Info, error) {
 	availableMB := availableBytes / (1024 * 1024)
 
 	return &Info{
-		Path:        cleanPath,
+		Path:        path, // Return original path, not translated path
 		TotalMB:     totalMB,
 		AvailableMB: availableMB,
 	}, nil
@@ -65,6 +74,14 @@ func (m *Monitor) IsValidPath(path string) bool {
 	}
 
 	cleanPath := filepath.Clean(path)
+
+	// Handle container environment: translate host paths to container mount point
+	// Only apply translation if /mnt/host exists (running in container)
+	if !strings.HasPrefix(cleanPath, "/mnt/host") {
+		if _, err := os.Stat("/mnt/host"); err == nil {
+			cleanPath = "/mnt/host" + cleanPath
+		}
+	}
 
 	// Try to get filesystem stats - if it works, path is valid
 	var stat syscall.Statfs_t
