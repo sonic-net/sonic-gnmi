@@ -91,6 +91,17 @@ test:
 		cd - >/dev/null; \
 	done
 
+# Generate coverage files for Azure pipeline integration
+.PHONY: azure-coverage
+azure-coverage:
+	@echo "Generating coverage files for Azure pipeline..."
+	@for pkg in $(PACKAGES); do \
+		echo "Testing $$pkg..."; \
+		pkgname=$$(echo $$pkg | tr '/' '-'); \
+		$(GO) test -race -coverprofile=coverage-pure-$$pkgname.txt -covermode=atomic -v ./$$pkg; \
+	done
+	@echo "Coverage files generated for Azure pipeline"
+
 # Test with coverage report
 .PHONY: test-coverage
 test-coverage: test
