@@ -35,6 +35,21 @@ type SetPackageParams struct {
 	Activate bool
 }
 
+// RebootParams contains the parameters for a Reboot operation.
+type RebootParams struct {
+	// Method is the reboot method (COLD, WARM, etc.) - defaults to COLD
+	Method system.RebootMethod
+
+	// Delay is the number of nanoseconds to delay before rebooting (optional)
+	Delay uint64
+
+	// Message is a human-readable message explaining the reason for reboot (optional)
+	Message string
+
+	// Force indicates whether to force reboot without graceful shutdown (optional)
+	Force bool
+}
+
 // SystemClient provides access to gNOI System service methods.
 type SystemClient struct {
 	conn   *grpc.ClientConn
@@ -131,8 +146,32 @@ func (c *SystemClient) SetPackage(ctx context.Context, params *SetPackageParams)
 	return nil
 }
 
+// Reboot triggers a system reboot on the target device.
+func (c *SystemClient) Reboot(ctx context.Context, params *RebootParams) error {
+	// Default to COLD reboot if method is not specified
+	method := params.Method
+	if method == system.RebootMethod_UNKNOWN {
+		method = system.RebootMethod_COLD
+	}
+
+	// Create reboot request
+	req := &system.RebootRequest{
+		Method:  method,
+		Delay:   params.Delay,
+		Message: params.Message,
+		Force:   params.Force,
+	}
+
+	// Execute reboot
+	_, err := c.client.Reboot(ctx, req)
+	if err != nil {
+		return fmt.Errorf("reboot request failed: %w", err)
+	}
+
+	return nil
+}
+
 // Future System service methods to be implemented:
-// - Reboot(ctx, *RebootParams) error
 // - RebootStatus(ctx, *RebootStatusParams) (*RebootStatusResult, error)
 // - CancelReboot(ctx, *CancelRebootParams) error
 // - KillProcess(ctx, *KillProcessParams) error
