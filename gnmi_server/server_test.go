@@ -1012,6 +1012,7 @@ type subscriptionQuery struct {
 	Query          []string
 	SubMode        pb.SubscriptionMode
 	SampleInterval uint64
+	HeartbeatInterval uint64
 }
 
 func pathToString(q client.Path) string {
@@ -1048,6 +1049,7 @@ func createQuery(subListMode pb.SubscriptionList_Mode, target string, queries []
 				Path:           pp,
 				Mode:           qq.SubMode,
 				SampleInterval: qq.SampleInterval,
+				HeartbeatInterval: qq.HeartbeatInterval,
 			})
 	}
 
@@ -1095,7 +1097,7 @@ func createStateDbQueryOnChangeMode(t *testing.T, paths ...string) client.Query 
 }
 
 // createCountersDbQueryOnChangeMode creates a query with ON_CHANGE mode.
-func createCountersDbQueryOnChangeMode(t *testing.T, paths ...string) client.Query {
+func createCountersDbQueryOnChangeMode(t *testing.T, interval time.Duration, paths ...string) client.Query {
 	return createQueryOrFail(t,
 		pb.SubscriptionList_STREAM,
 		"COUNTERS_DB",
@@ -1103,6 +1105,7 @@ func createCountersDbQueryOnChangeMode(t *testing.T, paths ...string) client.Que
 			{
 				Query:   paths,
 				SubMode: pb.SubscriptionMode_ON_CHANGE,
+				HeartbeatInterval: uint64(interval.Nanoseconds()),
 			},
 		},
 		false)
@@ -2357,8 +2360,34 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	}
 	tests := []TestExec{
 		{
+			desc:       "Testing invalid heartbeat interval",
+			q:          createCountersDbQueryOnChangeMode(t, 10 * time.Second, "COUNTERS_PORT_NAME_MAP"),
+			wantSubErr: fmt.Errorf("rpc error: code = InvalidArgument desc = invalid heartbeat interval: 10s. It cannot be less than %v", sdc.MinHeartbeatInterval),
+			wantNoti:   []client.Notification{},
+		},
+		{
+			desc: "stream query with Heartbeat interval for table key Ethernet68 with new test_field field",
+			q:    createCountersDbQueryOnChangeMode(t, 30 * time.Second, "COUNTERS", "Ethernet68"),
+			updates: []tablePathValue{
+				{
+					dbName:    "COUNTERS_DB",
+					tableName: "COUNTERS",
+					tableKey:  "oid:0x1000000000039", // "Ethernet68": "oid:0x1000000000039",
+					delimitor: ":",
+					field:     "test_field",
+					value:     "test_value",
+				},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS", "Ethernet68"}, TS: time.Unix(0, 200), Val: countersEthernet68Json},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS", "Ethernet68"}, TS: time.Unix(0, 200), Val: countersEthernet68Json},
+			},
+		},
+		{
 			desc: "stream query for table COUNTERS_PORT_NAME_MAP with new test_field field",
-			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS_PORT_NAME_MAP"),
+			q:    createCountersDbQueryOnChangeMode(t, 0, "COUNTERS_PORT_NAME_MAP"),
 			updates: []tablePathValue{{
 				dbName:    "COUNTERS_DB",
 				tableName: "COUNTERS_PORT_NAME_MAP",
@@ -2374,7 +2403,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		},
 		{
 			desc: "stream query for table key Ethernet68 with new test_field field",
-			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "Ethernet68"),
+			q:    createCountersDbQueryOnChangeMode(t, 0, "COUNTERS", "Ethernet68"),
 			updates: []tablePathValue{
 				{
 					dbName:    "COUNTERS_DB",
@@ -2402,7 +2431,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		},
 		{
 			desc: "(use vendor alias) stream query for table key Ethernet68/1 with new test_field field",
-			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "Ethernet68/1"),
+			q:    createCountersDbQueryOnChangeMode(t, 0, "COUNTERS", "Ethernet68/1"),
 			updates: []tablePathValue{
 				{
 					dbName:    "COUNTERS_DB",
@@ -2430,7 +2459,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		},
 		{
 			desc: "stream query for COUNTERS/Ethernet68/SAI_PORT_STAT_PFC_7_RX_PKTS with update of field value",
-			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"),
+			q:    createCountersDbQueryOnChangeMode(t, 0, "COUNTERS", "Ethernet68", "SAI_PORT_STAT_PFC_7_RX_PKTS"),
 			updates: []tablePathValue{
 				{
 					dbName:    "COUNTERS_DB",
@@ -2458,7 +2487,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		},
 		{
 			desc: "(use vendor alias) stream query for COUNTERS/[Ethernet68/1]/SAI_PORT_STAT_PFC_7_RX_PKTS with update of field value",
-			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"),
+			q:    createCountersDbQueryOnChangeMode(t, 0, "COUNTERS", "Ethernet68/1", "SAI_PORT_STAT_PFC_7_RX_PKTS"),
 			updates: []tablePathValue{
 				{
 					dbName:    "COUNTERS_DB",
@@ -2633,7 +2662,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		},
 		{
 			desc: "stream query for COUNTERS/Ethernet68/Pfcwd with update of field value",
-			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "Ethernet68", "Pfcwd"),
+			q:    createCountersDbQueryOnChangeMode(t, 0, "COUNTERS", "Ethernet68", "Pfcwd"),
 			updates: []tablePathValue{
 				{
 					dbName:    "COUNTERS_DB",
@@ -2661,7 +2690,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		},
 		{
 			desc: "(use vendor alias) stream query for COUNTERS/[Ethernet68/1]/Pfcwd with update of field value",
-			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "Ethernet68/1", "Pfcwd"),
+			q:    createCountersDbQueryOnChangeMode(t, 0, "COUNTERS", "Ethernet68/1", "Pfcwd"),
 			updates: []tablePathValue{
 				{
 					dbName:    "COUNTERS_DB",
@@ -2689,7 +2718,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		},
 		{
 			desc: "stream query for table key Ethernet* with new test_field field on Ethernet68",
-			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "Ethernet*"),
+			q:    createCountersDbQueryOnChangeMode(t, 0, "COUNTERS", "Ethernet*"),
 			updates: []tablePathValue{
 				{
 					dbName:    "COUNTERS_DB",
@@ -2717,7 +2746,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		},
 		{
 			desc: "stream query for table key Ethernet*/SAI_PORT_STAT_PFC_7_RX_PKTS with field value update",
-			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"),
+			q:    createCountersDbQueryOnChangeMode(t, 0, "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"),
 			updates: []tablePathValue{
 				{
 					dbName:    "COUNTERS_DB",
@@ -2737,7 +2766,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		},
 		{
 			desc: "stream query for table key Ethernet*/Pfcwd with field value update",
-			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "Ethernet*", "Pfcwd"),
+			q:    createCountersDbQueryOnChangeMode(t, 0, "COUNTERS", "Ethernet*", "Pfcwd"),
 			updates: []tablePathValue{
 				{
 					dbName:    "COUNTERS_DB",
