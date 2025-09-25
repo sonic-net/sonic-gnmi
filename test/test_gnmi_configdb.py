@@ -1,6 +1,7 @@
 
 import os
 import json
+import subprocess
 import time
 import threading, queue
 from utils import gnmi_set, gnmi_get, gnmi_dump, run_cmd
@@ -452,58 +453,64 @@ class TestGNMIConfigDb:
         assert ret != 0, "Failed to detect invalid replace path"
         assert "Invalid elem length" in msg, msg
 
-    def test_gnmi_poll_01(self):
+    def test_gnmi_poll_01(self):  
         path = "/CONFIG_DB/localhost/DEVICE_METADATA"
         cnt = 3
         interval = 1
-        ret, msg = gnmi_subscribe_poll(path, interval, cnt, timeout=0)
+        ret, msg, process = gnmi_subscribe_poll(path, interval, cnt, timeout=0)
         assert ret == 0, 'Fail to subscribe: ' + msg
         assert msg.count("bgp_asn") == cnt, 'Invalid result: ' + msg
+        process.kill()
 
     def test_gnmi_poll_invalid_01(self):
         path = "/CONFIG_DB/localhost/INVALID_TABLE"
         cnt = 3
         interval = 1
-        ret, msg = gnmi_subscribe_poll(path, interval, cnt, timeout=10)
+        ret, msg, process = gnmi_subscribe_poll(path, interval, cnt, timeout=10)
         assert ret == 0, 'Fail to subscribe: ' + msg
         assert msg.count("bgp_asn") == 0, 'Invalid result: ' + msg
         assert "rpc error" in msg, 'Invalid result: ' + msg
+        process.kill()
 
     def test_gnmi_stream_sample_01(self):
         # Subscribe table
         path = "/CONFIG_DB/localhost/DEVICE_METADATA"
         cnt = 3
         interval = 1
-        ret, msg = gnmi_subscribe_stream_sample(path, interval, cnt, timeout=10)
+        ret, msg, process = gnmi_subscribe_stream_sample(path, interval, cnt, timeout=10)
         assert ret == 0, 'Fail to subscribe: ' + msg
         assert msg.count("bgp_asn") >= cnt, 'Invalid result: ' + msg
+        process.kill()
 
     def test_gnmi_stream_sample_02(self):
         # Subscribe table key
         path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost"
         cnt = 3
         interval = 1
-        ret, msg = gnmi_subscribe_stream_sample(path, interval, cnt, timeout=10)
+        ret, msg, process = gnmi_subscribe_stream_sample(path, interval, cnt, timeout=10)
         assert ret == 0, 'Fail to subscribe: ' + msg
         assert msg.count("bgp_asn") >= cnt, 'Invalid result: ' + msg
+        process.kill()
 
     def test_gnmi_stream_sample_03(self):
         # Subscribe table field
         path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost/bgp_asn"
         cnt = 3
         interval = 1
-        ret, msg = gnmi_subscribe_stream_sample(path, interval, cnt, timeout=10)
+        ret, msg, process = gnmi_subscribe_stream_sample(path, interval, cnt, timeout=10)
         assert ret == 0, 'Fail to subscribe: ' + msg
         assert msg.count("bgp_asn") >= cnt, 'Invalid result: ' + msg
+        process.kill()
 
     def test_gnmi_stream_sample_invalid_01(self):
         path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost/invalid_field"
         cnt = 3
         interval = 1
-        ret, msg = gnmi_subscribe_stream_sample(path, interval, cnt, timeout=10)
+        ret, msg, process = gnmi_subscribe_stream_sample(path, interval, cnt, timeout=10)
         assert ret == 0, 'Fail to subscribe: ' + msg
         assert msg.count("bgp_asn") == 0, 'Invalid result: ' + msg
         assert "rpc error" in msg, 'Invalid result: ' + msg
+        process.kill()
 
     def test_gnmi_stream_onchange_01(self):
         # Init bgp_asn
@@ -516,8 +523,8 @@ class TestGNMIConfigDb:
         def worker():
             # Subscribe table
             path = "/CONFIG_DB/localhost/DEVICE_METADATA"
-            ret, msg = gnmi_subscribe_stream_onchange(path, cnt+3, timeout=10)
-            result_queue.put((ret, msg))
+            ret, msg, process = gnmi_subscribe_stream_onchange(path, cnt+3, timeout=10)
+            result_queue.put((ret, msg, process))
 
         t = threading.Thread(target=worker)
         t.start()
@@ -532,9 +539,10 @@ class TestGNMIConfigDb:
             run_cmd(cmd)
 
         t.join()
-        ret, msg = result_queue.get()
+        ret, msg, process = result_queue.get()
         assert ret == 0, 'Fail to subscribe: ' + msg
         assert msg.count("bgp_asn") >= cnt+1, 'Invalid result: ' + msg
+        process.kill()
 
     def test_gnmi_stream_onchange_02(self):
         # Init bgp_asn
@@ -547,8 +555,8 @@ class TestGNMIConfigDb:
         def worker():
             # Subscribe table key
             path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost"
-            ret, msg = gnmi_subscribe_stream_onchange(path, cnt+3, timeout=10)
-            result_queue.put((ret, msg))
+            ret, msg, process = gnmi_subscribe_stream_onchange(path, cnt+3, timeout=10)
+            result_queue.put((ret, msg, process))
 
         t = threading.Thread(target=worker)
         t.start()
@@ -563,9 +571,10 @@ class TestGNMIConfigDb:
             run_cmd(cmd)
 
         t.join()
-        ret, msg = result_queue.get()
+        ret, msg, process = result_queue.get()
         assert ret == 0, 'Fail to subscribe: ' + msg
         assert msg.count("bgp_asn") >= cnt+1, 'Invalid result: ' + msg
+        process.kill()
 
     def test_gnmi_stream_onchange_03(self):
         # Init bgp_asn
@@ -578,8 +587,8 @@ class TestGNMIConfigDb:
         def worker():
             # Subscribe table field
             path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost/bgp_asn"
-            ret, msg = gnmi_subscribe_stream_onchange(path, cnt+1, timeout=10)
-            result_queue.put((ret, msg))
+            ret, msg, process = gnmi_subscribe_stream_onchange(path, cnt+1, timeout=10)
+            result_queue.put((ret, msg, process))
 
         t = threading.Thread(target=worker)
         t.start()
@@ -591,6 +600,7 @@ class TestGNMIConfigDb:
             run_cmd(cmd)
 
         t.join()
-        ret, msg = result_queue.get()
+        ret, msg, process = result_queue.get()
         assert ret == 0, 'Fail to subscribe: ' + msg
         assert "bgp_asn" in msg, 'Invalid result: ' + msg
+        process.kill()
