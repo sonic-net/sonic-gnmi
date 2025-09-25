@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/Azure/sonic-mgmt-common/translib"
-	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -34,7 +33,7 @@ type TranslClient struct {
 	/* GNMI Path to REST URL Mapping */
 	path2URI map[*gnmipb.Path]string
 	channel  chan struct{}
-	q        *queue.PriorityQueue
+	q        *LimitedQueue
 
 	synced     sync.WaitGroup  // Control when to send gNMI sync_response
 	w          *sync.WaitGroup // wait for all sub go routines to finish
@@ -134,21 +133,12 @@ func (c *TranslClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, upda
 	return nil
 }
 
-func enqueFatalMsgTranslib(c *TranslClient, msg string) {
-	c.q.Put(Value{
-		&spb.Value{
-			Timestamp: time.Now().UnixNano(),
-			Fatal:     msg,
-		},
-	})
-}
-
 func enqueueSyncMessage(c *TranslClient) {
 	m := &spb.Value{
 		Timestamp:    time.Now().UnixNano(),
 		SyncResponse: true,
 	}
-	c.q.Put(Value{m})
+	c.q.EnqueueItem(Value{m})
 }
 
 // recoverSubscribe recovers from possible panics during subscribe handling.
@@ -161,7 +151,7 @@ func recoverSubscribe(c *TranslClient) {
 		log.Error(string(buff))
 
 		err := status.Errorf(codes.Internal, "%v", r)
-		enqueFatalMsgTranslib(c, fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
+		c.q.enqueFatalMsg(fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
 	}
 }
 
@@ -191,7 +181,7 @@ func tickerCleanup(ticker_map map[int][]*ticker_info, c *TranslClient) {
 	}
 }
 
-func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *TranslClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 
 	defer c.w.Done()
@@ -202,7 +192,7 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 	c.encoding = subscribe.Encoding
 
 	if err := c.parseVersion(); err != nil {
-		enqueFatalMsgTranslib(c, err.Error())
+		c.q.enqueFatalMsg(err.Error())
 		return
 	}
 
@@ -236,7 +226,7 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 
 	subSupport, err := translib.IsSubscribeSupported(req)
 	if err != nil {
-		enqueFatalMsgTranslib(c, fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
+		c.q.enqueFatalMsg(fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
 		return
 	}
 
@@ -258,13 +248,13 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 			if pInfo.IsOnChangeSupported {
 				subscribe_mode = gnmipb.SubscriptionMode_ON_CHANGE
 			} else {
-				enqueFatalMsgTranslib(c, fmt.Sprintf("ON_CHANGE Streaming mode invalid for %v", pathStr))
+				c.q.enqueFatalMsg(fmt.Sprintf("ON_CHANGE Streaming mode invalid for %v", pathStr))
 				return
 			}
 		case gnmipb.SubscriptionMode_SAMPLE:
 			subscribe_mode = gnmipb.SubscriptionMode_SAMPLE
 		default:
-			enqueFatalMsgTranslib(c, fmt.Sprintf("Invalid Subscription Mode %d", sub.Mode))
+			c.q.enqueFatalMsg(fmt.Sprintf("Invalid Subscription Mode %d", sub.Mode))
 			return
 		}
 
@@ -273,7 +263,7 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 		}
 
 		if hb := sub.HeartbeatInterval; hb > 0 && hb < uint64(pInfo.MinInterval)*uint64(time.Second) {
-			enqueFatalMsgTranslib(c, fmt.Sprintf("Invalid Heartbeat Interval %ds, minimum interval is %ds",
+			c.q.enqueFatalMsg(fmt.Sprintf("Invalid Heartbeat Interval %ds, minimum interval is %ds",
 				sub.HeartbeatInterval/uint64(time.Second), subSupport[i].MinInterval))
 			return
 		}
@@ -285,7 +275,7 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 			if interval == 0 {
 				interval = minInterval
 			} else if interval < minInterval {
-				enqueFatalMsgTranslib(c, fmt.Sprintf("Invalid SampleInterval %ds, minimum interval is %ds", interval/int(time.Second), pInfo.MinInterval))
+				c.q.enqueFatalMsg(fmt.Sprintf("Invalid SampleInterval %ds, minimum interval is %ds", interval/int(time.Second), pInfo.MinInterval))
 				return
 			}
 
@@ -379,7 +369,7 @@ func addTimer(c *TranslClient, ticker_map map[int][]*ticker_info, cases *[]refle
 	}
 }
 
-func (c *TranslClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *TranslClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 	defer c.w.Done()
 	defer recoverSubscribe(c)
@@ -388,7 +378,7 @@ func (c *TranslClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sy
 	c.encoding = subscribe.Encoding
 
 	if err := c.parseVersion(); err != nil {
-		enqueFatalMsgTranslib(c, err.Error())
+		c.q.enqueFatalMsg(err.Error())
 		return
 	}
 
@@ -397,7 +387,7 @@ func (c *TranslClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sy
 		_, more := <-c.channel
 		if !more {
 			log.V(1).Infof("%v poll channel closed, exiting pollDb routine", c)
-			enqueFatalMsgTranslib(c, "")
+			c.q.enqueFatalMsg("")
 			return
 		}
 
@@ -415,11 +405,11 @@ func (c *TranslClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sy
 	}
 }
 
-func (c *TranslClient) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *TranslClient) AppDBPollRun(q *LimitedQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	return
 }
 
-func (c *TranslClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *TranslClient) OnceRun(q *LimitedQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 	defer c.w.Done()
 	defer recoverSubscribe(c)
@@ -429,14 +419,14 @@ func (c *TranslClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sy
 	c.encoding = subscribe.Encoding
 
 	if err := c.parseVersion(); err != nil {
-		enqueFatalMsgTranslib(c, err.Error())
+		c.q.enqueFatalMsg(err.Error())
 		return
 	}
 
 	_, more := <-c.channel
 	if !more {
 		log.V(1).Infof("%v once channel closed, exiting onceDb routine", c)
-		enqueFatalMsgTranslib(c, "")
+		c.q.enqueFatalMsg("")
 		return
 	}
 
