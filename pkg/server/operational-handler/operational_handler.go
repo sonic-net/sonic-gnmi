@@ -104,8 +104,15 @@ func (h *OperationalHandler) pathMatches(requestedPath, supportedPath string) bo
 	// For now, handle the case where supportedPath contains [path=*] wildcard
 	if supportedPath == "filesystem/disk-space" {
 		// Match paths like "filesystem[path=*]/disk-space"
-		return requestedPath == "filesystem/disk-space" ||
-			requestedPath[len(requestedPath)-len("/disk-space"):] == "/disk-space"
+		suffix := "/disk-space"
+		if requestedPath == "filesystem/disk-space" {
+			return true
+		}
+		// Check if requestedPath ends with the suffix (safely handle short paths)
+		if len(requestedPath) >= len(suffix) && requestedPath[len(requestedPath)-len(suffix):] == suffix {
+			return true
+		}
+		return false
 	}
 	return requestedPath == supportedPath
 }

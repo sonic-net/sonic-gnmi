@@ -158,6 +158,24 @@ func TestOperationalHandler_PathMatches(t *testing.T) {
 			supportedPath: "filesystem/disk-space",
 			expected:      false,
 		},
+		{
+			name:          "short path no panic",
+			requestedPath: "short",
+			supportedPath: "filesystem/disk-space",
+			expected:      false,
+		},
+		{
+			name:          "empty path no panic",
+			requestedPath: "",
+			supportedPath: "filesystem/disk-space",
+			expected:      false,
+		},
+		{
+			name:          "path shorter than suffix no panic",
+			requestedPath: "/disk",
+			supportedPath: "filesystem/disk-space",
+			expected:      false,
+		},
 	}
 
 	for _, tt := range tests {
