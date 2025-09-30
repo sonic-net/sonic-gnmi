@@ -72,15 +72,15 @@ func (s *Server) handleOperationalGet(ctx context.Context, req *gnmipb.GetReques
 	}
 
 	// Create operational handler
-	operationalClient, err := operationalhandler.NewOperationalHandler(paths, prefix)
+	operationalHandler, err := operationalhandler.NewOperationalHandler(paths, prefix)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
-	defer operationalClient.Close()
+	defer operationalHandler.Close()
 
 	// Get data from operational handler
-	values, err := operationalClient.Get(nil)
+	values, err := operationalHandler.Get(nil)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		if st, ok := status.FromError(err); ok {

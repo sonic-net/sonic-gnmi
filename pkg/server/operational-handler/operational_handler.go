@@ -16,9 +16,9 @@ type Value struct {
 	Timestamp int64
 }
 
-// Client is the minimal interface required for gNMI handlers.
+// Handler is the minimal interface required for gNMI handlers.
 // This avoids importing the full sonic_data_client package.
-type Client interface {
+type Handler interface {
 	StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
 	PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
 	AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
@@ -30,7 +30,7 @@ type Client interface {
 	FailedSend()
 }
 
-// OperationalHandler implements the Client interface for operational state gNMI queries.
+// OperationalHandler implements the Handler interface for operational state gNMI queries.
 // It handles paths like /sonic/system/filesystem[path=*]/disk-space for disk space monitoring
 // and other operational data.
 type OperationalHandler struct {
@@ -50,8 +50,8 @@ type PathHandler interface {
 }
 
 // NewOperationalHandler creates a new OperationalHandler for the given paths and prefix.
-// It follows the same signature as other sonic-gnmi clients like NewNonDbClient.
-func NewOperationalHandler(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
+// It follows the same signature as other sonic-gnmi handlers like NewNonDbClient.
+func NewOperationalHandler(paths []*gnmipb.Path, prefix *gnmipb.Path) (Handler, error) {
 	handler := &OperationalHandler{
 		prefix:       prefix,
 		paths:        paths,
@@ -136,7 +136,7 @@ func (h *OperationalHandler) pathToString(path *gnmipb.Path) string {
 	return pathStr
 }
 
-// Get implements the Client interface Get method.
+// Get implements the Handler interface Get method.
 func (h *OperationalHandler) Get(w *sync.WaitGroup) ([]*Value, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -183,7 +183,7 @@ func (h *OperationalHandler) Get(w *sync.WaitGroup) ([]*Value, error) {
 	return values, nil
 }
 
-// StreamRun implements the Client interface StreamRun method (streaming subscriptions).
+// StreamRun implements the Handler interface StreamRun method (streaming subscriptions).
 // For now, this is a stub implementation as operational queries typically use Get requests.
 func (h *OperationalHandler) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	defer w.Done()
@@ -197,7 +197,7 @@ func (h *OperationalHandler) StreamRun(q *queue.PriorityQueue, stop chan struct{
 	}
 }
 
-// PollRun implements the Client interface PollRun method.
+// PollRun implements the Handler interface PollRun method.
 func (h *OperationalHandler) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	defer w.Done()
 
@@ -208,7 +208,7 @@ func (h *OperationalHandler) PollRun(q *queue.PriorityQueue, poll chan struct{},
 	}
 }
 
-// AppDBPollRun implements the Client interface AppDBPollRun method.
+// AppDBPollRun implements the Handler interface AppDBPollRun method.
 func (h *OperationalHandler) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	defer w.Done()
 
@@ -219,7 +219,7 @@ func (h *OperationalHandler) AppDBPollRun(q *queue.PriorityQueue, poll chan stru
 	}
 }
 
-// OnceRun implements the Client interface OnceRun method.
+// OnceRun implements the Handler interface OnceRun method.
 func (h *OperationalHandler) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	defer w.Done()
 
@@ -230,25 +230,25 @@ func (h *OperationalHandler) OnceRun(q *queue.PriorityQueue, once chan struct{},
 	}
 }
 
-// Set implements the Client interface Set method.
+// Set implements the Handler interface Set method.
 // Operational queries are primarily read-only, so this returns an error.
 func (h *OperationalHandler) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	return fmt.Errorf("set operations not supported on operational paths")
 }
 
-// Capabilities implements the Client interface Capabilities method.
+// Capabilities implements the Handler interface Capabilities method.
 func (h *OperationalHandler) Capabilities() []gnmipb.ModelData {
 	// Return empty slice for now - operational queries don't require specific YANG models
 	return []gnmipb.ModelData{}
 }
 
-// Close implements the Client interface Close method.
+// Close implements the Handler interface Close method.
 func (h *OperationalHandler) Close() error {
 	// No resources to clean up for the operational handler
 	return nil
 }
 
-// FailedSend implements the Client interface FailedSend method.
+// FailedSend implements the Handler interface FailedSend method.
 func (h *OperationalHandler) FailedSend() {
 	// No-op for operational handler
 }

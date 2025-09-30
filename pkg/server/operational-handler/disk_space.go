@@ -15,7 +15,7 @@ type DiskSpaceHandler struct {
 }
 
 // DiskSpaceInfo represents the disk space information returned by gNMI queries.
-// This maintains backward compatibility with existing gNMI clients.
+// This maintains backward compatibility with existing gNMI handlers.
 type DiskSpaceInfo struct {
 	Path        string `json:"path"`
 	TotalMB     uint64 `json:"total-mb"`

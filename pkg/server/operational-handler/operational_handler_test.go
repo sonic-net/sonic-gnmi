@@ -191,19 +191,19 @@ func TestOperationalHandler_Get(t *testing.T) {
 		Target: "OPERATIONAL",
 	}
 
-	client, err := NewOperationalHandler(paths, prefix)
+	handler, err := NewOperationalHandler(paths, prefix)
 	if err != nil {
 		t.Fatalf("failed to create operational handler: %v", err)
 	}
 
 	// Cast to OperationalHandler to access Get method
-	handler, ok := client.(*OperationalHandler)
+	opHandler, ok := handler.(*OperationalHandler)
 	if !ok {
 		t.Fatal("expected OperationalHandler type")
 	}
 
 	// Test Get method
-	values, err := handler.Get(nil)
+	values, err := opHandler.Get(nil)
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
@@ -419,16 +419,16 @@ func TestOperationalHandler_Integration(t *testing.T) {
 	}
 
 	// Create handler
-	client, err := NewOperationalHandler(paths, prefix)
+	handler, err := NewOperationalHandler(paths, prefix)
 	if err != nil {
 		t.Fatalf("failed to create operational handler: %v", err)
 	}
-	defer client.Close()
+	defer handler.Close()
 
-	handler := client.(*OperationalHandler)
+	opHandler := handler.(*OperationalHandler)
 
 	// Get data for all paths
-	values, err := handler.Get(nil)
+	values, err := opHandler.Get(nil)
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
