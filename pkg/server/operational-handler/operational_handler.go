@@ -3,6 +3,7 @@ package operationalhandler
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
@@ -144,6 +145,8 @@ func (h *OperationalHandler) Get(w *sync.WaitGroup) ([]*Value, error) {
 	defer h.mu.RUnlock()
 
 	var values []*Value
+	// Capture timestamp at the beginning of the Get operation
+	ts := time.Now().UnixNano()
 
 	for _, path := range h.paths {
 		pathStr := h.pathToString(path)
@@ -177,7 +180,7 @@ func (h *OperationalHandler) Get(w *sync.WaitGroup) ([]*Value, error) {
 		value := &Value{
 			Path:      path,
 			Value:     &gnmipb.TypedValue{Value: &gnmipb.TypedValue_JsonVal{JsonVal: data}},
-			Timestamp: 0, // Will be set by the server
+			Timestamp: ts,
 		}
 
 		values = append(values, value)
