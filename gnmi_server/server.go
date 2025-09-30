@@ -10,6 +10,7 @@ import (
 
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
@@ -58,6 +59,54 @@ type Server struct {
 	masterEID     uint128
 	gnoi_system_pb.UnimplementedSystemServer
 	factory_reset.UnimplementedFactoryResetServer
+}
+
+// handleOperationalGet handles OPERATIONAL target requests directly with standard gNMI types
+func (s *Server) handleOperationalGet(ctx context.Context, req *gnmipb.GetRequest, paths []*gnmipb.Path, prefix *gnmipb.Path) (*gnmipb.GetResponse, error) {
+	// Authentication - use gnoi auth even though this is a gNMI Get operation.
+	// The OPERATIONAL target provides operational state queries (like disk space)
+	// that supplement gNOI services when existing gNOI definitions don't provide
+	// what we need. This allows reusing gnoi_readonly/gnoi_readwrite roles
+	// for operational data access control.
+	authTarget := "gnoi"
+	ctx, err := authenticate(s.config, ctx, authTarget, false)
+	if err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, err
+	}
+
+	// Create operational handler
+	operationalHandler, err := operationalhandler.NewOperationalHandler(paths, prefix)
+	if err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+	defer operationalHandler.Close()
+
+	// Get data from operational handler
+	values, err := operationalHandler.Get(nil)
+	if err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		// Handler returns proper status errors, propagate them directly
+		return nil, err
+	}
+
+	// Convert directly to gNMI notifications (no SONiC wrapper!)
+	notifications := make([]*gnmipb.Notification, len(values))
+	for index, value := range values {
+		update := &gnmipb.Update{
+			Path: value.Path,
+			Val:  value.Value,
+		}
+
+		notifications[index] = &gnmipb.Notification{
+			Timestamp: value.Timestamp,
+			Prefix:    prefix,
+			Update:    []*gnmipb.Update{update},
+		}
+	}
+
+	return &gnmipb.GetResponse{Notification: notifications}, nil
 }
 
 // FileServer is the server API for File service.
@@ -449,6 +498,11 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 	var dc sdc.Client
 	var err error
+	// Handle OPERATIONAL target directly without SONiC routing
+	if target == "OPERATIONAL" {
+		return s.handleOperationalGet(ctx, req, paths, prefix)
+	}
+
 	authTarget := "gnmi"
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
