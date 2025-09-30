@@ -63,8 +63,12 @@ type Server struct {
 
 // handleOperationalGet handles OPERATIONAL target requests directly with standard gNMI types
 func (s *Server) handleOperationalGet(ctx context.Context, req *gnmipb.GetRequest, paths []*gnmipb.Path, prefix *gnmipb.Path) (*gnmipb.GetResponse, error) {
-	// Authentication - OPERATIONAL uses gnmi_readwrite permissions
-	authTarget := "gnmi_readwrite"
+	// Authentication - use gnoi auth even though this is a gNMI Get operation.
+	// The OPERATIONAL target provides operational state queries (like disk space)
+	// that supplement gNOI services when existing gNOI definitions don't provide
+	// what we need. This allows reusing gnoi_readonly/gnoi_readwrite roles
+	// for operational data access control.
+	authTarget := "gnoi"
 	ctx, err := authenticate(s.config, ctx, authTarget, false)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
