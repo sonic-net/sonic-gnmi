@@ -2,6 +2,7 @@ package operationalhandler
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -475,4 +476,92 @@ func TestOperationalHandler_Integration(t *testing.T) {
 		t.Logf("Path %d: %s -> Total: %d MB, Available: %d MB",
 			i, diskSpace.Path, diskSpace.TotalMB, diskSpace.AvailableMB)
 	}
+}
+
+// TestOperationalHandler_ConcurrentGet verifies that concurrent Get requests
+// don't block each other and complete successfully
+func TestOperationalHandler_ConcurrentGet(t *testing.T) {
+	paths := []*gnmipb.Path{
+		{
+			Elem: []*gnmipb.PathElem{
+				{Name: "sonic"},
+				{Name: "system"},
+				{
+					Name: "filesystem",
+					Key:  map[string]string{"path": "/"},
+				},
+				{Name: "disk-space"},
+			},
+		},
+	}
+
+	prefix := &gnmipb.Path{
+		Target: "OPERATIONAL",
+	}
+
+	handler, err := NewOperationalHandler(paths, prefix)
+	if err != nil {
+		t.Fatalf("failed to create operational handler: %v", err)
+	}
+	defer handler.Close()
+
+	opHandler := handler.(*OperationalHandler)
+
+	// Run multiple concurrent Get requests
+	const numGoroutines = 10
+	errChan := make(chan error, numGoroutines)
+	doneChan := make(chan bool, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			values, err := opHandler.Get(nil)
+			if err != nil {
+				errChan <- fmt.Errorf("goroutine %d: Get failed: %v", id, err)
+				return
+			}
+
+			if len(values) != 1 {
+				errChan <- fmt.Errorf("goroutine %d: expected 1 value, got %d", id, len(values))
+				return
+			}
+
+			// Verify the value is valid
+			jsonVal := values[0].Value.GetJsonVal()
+			if jsonVal == nil {
+				errChan <- fmt.Errorf("goroutine %d: expected JSON value", id)
+				return
+			}
+
+			var diskSpace DiskSpaceInfo
+			err = json.Unmarshal(jsonVal, &diskSpace)
+			if err != nil {
+				errChan <- fmt.Errorf("goroutine %d: failed to unmarshal JSON: %v", id, err)
+				return
+			}
+
+			if diskSpace.TotalMB == 0 {
+				errChan <- fmt.Errorf("goroutine %d: expected non-zero total MB", id)
+				return
+			}
+
+			doneChan <- true
+		}(i)
+	}
+
+	// Wait for all goroutines to complete
+	successCount := 0
+	for i := 0; i < numGoroutines; i++ {
+		select {
+		case err := <-errChan:
+			t.Error(err)
+		case <-doneChan:
+			successCount++
+		}
+	}
+
+	if successCount != numGoroutines {
+		t.Errorf("expected %d successful goroutines, got %d", numGoroutines, successCount)
+	}
+
+	t.Logf("Successfully completed %d concurrent Get requests", successCount)
 }
