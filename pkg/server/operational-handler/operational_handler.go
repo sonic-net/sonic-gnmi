@@ -148,13 +148,17 @@ func (h *OperationalHandler) pathToString(path *gnmipb.Path) string {
 
 // Get implements the Handler interface Get method.
 func (h *OperationalHandler) Get(w *sync.WaitGroup) ([]*Value, error) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	var values []*Value
 	// Capture timestamp at the beginning of the Get operation
 	ts := time.Now().UnixNano()
 
+	// Build list of (path, handler) pairs while holding the lock
+	type pathHandlerPair struct {
+		path    *gnmipb.Path
+		handler PathHandler
+	}
+	var pairs []pathHandlerPair
+
+	h.mu.RLock()
 	for _, path := range h.paths {
 		pathStr := h.pathToString(path)
 
@@ -173,19 +177,28 @@ func (h *OperationalHandler) Get(w *sync.WaitGroup) ([]*Value, error) {
 		}
 
 		if handler == nil {
+			h.mu.RUnlock()
 			return nil, status.Errorf(codes.Unimplemented, "no handler found for path: %s", pathStr)
 		}
 
-		// Get data from the handler
-		data, err := handler.HandleGet(path)
+		pairs = append(pairs, pathHandlerPair{path: path, handler: handler})
+	}
+	h.mu.RUnlock()
+
+	// Now perform I/O operations without holding the lock
+	var values []*Value
+	for _, pair := range pairs {
+		// Get data from the handler (may involve disk I/O)
+		data, err := pair.handler.HandleGet(pair.path)
 		if err != nil {
+			pathStr := h.pathToString(pair.path)
 			// Wrap the underlying error with NotFound - most errors are path-related
 			return nil, status.Errorf(codes.NotFound, "failed to get data for path %s: %v", pathStr, err)
 		}
 
 		// Create Value from the data
 		value := &Value{
-			Path:      path,
+			Path:      pair.path,
 			Value:     &gnmipb.TypedValue{Value: &gnmipb.TypedValue_JsonVal{JsonVal: data}},
 			Timestamp: ts,
 		}
