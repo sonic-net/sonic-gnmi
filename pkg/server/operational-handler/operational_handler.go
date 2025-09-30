@@ -6,6 +6,8 @@ import (
 
 	"github.com/Workiva/go-datastructures/queue"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Value represents a gNMI value with path and data.
@@ -68,7 +70,7 @@ func NewOperationalHandler(paths []*gnmipb.Path, prefix *gnmipb.Path) (Handler, 
 	for _, path := range paths {
 		pathStr := handler.pathToString(path)
 		if !handler.isPathSupported(pathStr) {
-			return nil, fmt.Errorf("unsupported path: %s", pathStr)
+			return nil, status.Errorf(codes.Unimplemented, "unsupported path: %s", pathStr)
 		}
 	}
 
@@ -161,13 +163,14 @@ func (h *OperationalHandler) Get(w *sync.WaitGroup) ([]*Value, error) {
 		}
 
 		if handler == nil {
-			return nil, fmt.Errorf("no handler found for path: %s", pathStr)
+			return nil, status.Errorf(codes.Unimplemented, "no handler found for path: %s", pathStr)
 		}
 
 		// Get data from the handler
 		data, err := handler.HandleGet(path)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get data for path %s: %v", pathStr, err)
+			// Wrap the underlying error with NotFound - most errors are path-related
+			return nil, status.Errorf(codes.NotFound, "failed to get data for path %s: %v", pathStr, err)
 		}
 
 		// Create Value from the data
