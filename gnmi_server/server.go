@@ -87,10 +87,8 @@ func (s *Server) handleOperationalGet(ctx context.Context, req *gnmipb.GetReques
 	values, err := operationalHandler.Get(nil)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
-		if st, ok := status.FromError(err); ok {
-			return nil, st.Err()
-		}
-		return nil, status.Error(codes.NotFound, err.Error())
+		// Handler returns proper status errors, propagate them directly
+		return nil, err
 	}
 
 	// Convert directly to gNMI notifications (no SONiC wrapper!)
