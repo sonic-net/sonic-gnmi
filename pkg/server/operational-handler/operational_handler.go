@@ -1,4 +1,4 @@
-package upgradehandler
+package operationalhandler
 
 import (
 	"fmt"
@@ -30,10 +30,10 @@ type Client interface {
 	FailedSend()
 }
 
-// UpgradeHandler implements the Client interface for upgrade-related gNMI operations.
+// OperationalHandler implements the Client interface for operational state gNMI queries.
 // It handles paths like /sonic/system/filesystem[path=*]/disk-space for disk space monitoring
-// and other upgrade-related functionality.
-type UpgradeHandler struct {
+// and other operational data.
+type OperationalHandler struct {
 	prefix       *gnmipb.Path
 	paths        []*gnmipb.Path
 	pathHandlers map[string]PathHandler
@@ -49,10 +49,10 @@ type PathHandler interface {
 	SupportedPaths() []string
 }
 
-// NewUpgradeHandler creates a new UpgradeHandler for the given paths and prefix.
+// NewOperationalHandler creates a new OperationalHandler for the given paths and prefix.
 // It follows the same signature as other sonic-gnmi clients like NewNonDbClient.
-func NewUpgradeHandler(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
-	handler := &UpgradeHandler{
+func NewOperationalHandler(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
+	handler := &OperationalHandler{
 		prefix:       prefix,
 		paths:        paths,
 		pathHandlers: make(map[string]PathHandler),
@@ -76,7 +76,7 @@ func NewUpgradeHandler(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error
 }
 
 // isPathSupported checks if a path string is supported by any registered handler.
-func (h *UpgradeHandler) isPathSupported(pathStr string) bool {
+func (h *OperationalHandler) isPathSupported(pathStr string) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -96,7 +96,7 @@ func (h *UpgradeHandler) isPathSupported(pathStr string) bool {
 }
 
 // pathMatches checks if a requested path matches a supported path pattern.
-func (h *UpgradeHandler) pathMatches(requestedPath, supportedPath string) bool {
+func (h *OperationalHandler) pathMatches(requestedPath, supportedPath string) bool {
 	// Simple pattern matching for now - can be enhanced for more complex patterns
 	// For now, handle the case where supportedPath contains [path=*] wildcard
 	if supportedPath == "filesystem/disk-space" {
@@ -108,7 +108,7 @@ func (h *UpgradeHandler) pathMatches(requestedPath, supportedPath string) bool {
 }
 
 // pathToString converts a gNMI Path to a string representation.
-func (h *UpgradeHandler) pathToString(path *gnmipb.Path) string {
+func (h *OperationalHandler) pathToString(path *gnmipb.Path) string {
 	if path == nil {
 		return ""
 	}
@@ -137,7 +137,7 @@ func (h *UpgradeHandler) pathToString(path *gnmipb.Path) string {
 }
 
 // Get implements the Client interface Get method.
-func (h *UpgradeHandler) Get(w *sync.WaitGroup) ([]*Value, error) {
+func (h *OperationalHandler) Get(w *sync.WaitGroup) ([]*Value, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -184,12 +184,12 @@ func (h *UpgradeHandler) Get(w *sync.WaitGroup) ([]*Value, error) {
 }
 
 // StreamRun implements the Client interface StreamRun method (streaming subscriptions).
-// For now, this is a stub implementation as upgrade operations typically use Get requests.
-func (h *UpgradeHandler) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+// For now, this is a stub implementation as operational queries typically use Get requests.
+func (h *OperationalHandler) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	defer w.Done()
 
-	// TODO: Implement streaming support if needed for upgrade operations
-	// For now, upgrade operations are primarily Get-based
+	// TODO: Implement streaming support if needed for operational queries
+	// For now, operational queries are primarily Get-based
 
 	select {
 	case <-stop:
@@ -198,7 +198,7 @@ func (h *UpgradeHandler) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w
 }
 
 // PollRun implements the Client interface PollRun method.
-func (h *UpgradeHandler) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (h *OperationalHandler) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	defer w.Done()
 
 	// TODO: Implement poll support if needed
@@ -209,10 +209,10 @@ func (h *UpgradeHandler) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *
 }
 
 // AppDBPollRun implements the Client interface AppDBPollRun method.
-func (h *UpgradeHandler) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (h *OperationalHandler) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	defer w.Done()
 
-	// Not applicable for upgrade handler
+	// Not applicable for operational handler
 	select {
 	case <-poll:
 		return
@@ -220,7 +220,7 @@ func (h *UpgradeHandler) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}
 }
 
 // OnceRun implements the Client interface OnceRun method.
-func (h *UpgradeHandler) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (h *OperationalHandler) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	defer w.Done()
 
 	// TODO: Implement once support if needed
@@ -231,24 +231,24 @@ func (h *UpgradeHandler) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *
 }
 
 // Set implements the Client interface Set method.
-// Upgrade operations are primarily read-only, so this returns an error.
-func (h *UpgradeHandler) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
-	return fmt.Errorf("set operations not supported on upgrade paths")
+// Operational queries are primarily read-only, so this returns an error.
+func (h *OperationalHandler) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
+	return fmt.Errorf("set operations not supported on operational paths")
 }
 
 // Capabilities implements the Client interface Capabilities method.
-func (h *UpgradeHandler) Capabilities() []gnmipb.ModelData {
-	// Return empty slice for now - upgrade operations don't require specific YANG models
+func (h *OperationalHandler) Capabilities() []gnmipb.ModelData {
+	// Return empty slice for now - operational queries don't require specific YANG models
 	return []gnmipb.ModelData{}
 }
 
 // Close implements the Client interface Close method.
-func (h *UpgradeHandler) Close() error {
-	// No resources to clean up for the upgrade handler
+func (h *OperationalHandler) Close() error {
+	// No resources to clean up for the operational handler
 	return nil
 }
 
 // FailedSend implements the Client interface FailedSend method.
-func (h *UpgradeHandler) FailedSend() {
-	// No-op for upgrade handler
+func (h *OperationalHandler) FailedSend() {
+	// No-op for operational handler
 }

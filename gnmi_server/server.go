@@ -10,7 +10,7 @@ import (
 
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
-	upgradehandler "github.com/sonic-net/sonic-gnmi/pkg/server/upgrade-handler"
+	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
@@ -61,9 +61,9 @@ type Server struct {
 	factory_reset.UnimplementedFactoryResetServer
 }
 
-// handleUpgradeGet handles UPGRADE target requests directly with standard gNMI types
-func (s *Server) handleUpgradeGet(ctx context.Context, req *gnmipb.GetRequest, paths []*gnmipb.Path, prefix *gnmipb.Path) (*gnmipb.GetResponse, error) {
-	// Authentication - UPGRADE uses gnmi_readwrite permissions
+// handleOperationalGet handles OPERATIONAL target requests directly with standard gNMI types
+func (s *Server) handleOperationalGet(ctx context.Context, req *gnmipb.GetRequest, paths []*gnmipb.Path, prefix *gnmipb.Path) (*gnmipb.GetResponse, error) {
+	// Authentication - OPERATIONAL uses gnmi_readwrite permissions
 	authTarget := "gnmi_readwrite"
 	ctx, err := authenticate(s.config, ctx, authTarget, false)
 	if err != nil {
@@ -71,16 +71,16 @@ func (s *Server) handleUpgradeGet(ctx context.Context, req *gnmipb.GetRequest, p
 		return nil, err
 	}
 
-	// Create upgrade handler
-	upgradeClient, err := upgradehandler.NewUpgradeHandler(paths, prefix)
+	// Create operational handler
+	operationalClient, err := operationalhandler.NewOperationalHandler(paths, prefix)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
-	defer upgradeClient.Close()
+	defer operationalClient.Close()
 
-	// Get data from upgrade handler
-	values, err := upgradeClient.Get(nil)
+	// Get data from operational handler
+	values, err := operationalClient.Get(nil)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		if st, ok := status.FromError(err); ok {
@@ -496,9 +496,9 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 	var dc sdc.Client
 	var err error
-	// Handle UPGRADE target directly without SONiC routing
-	if target == "UPGRADE" {
-		return s.handleUpgradeGet(ctx, req, paths, prefix)
+	// Handle OPERATIONAL target directly without SONiC routing
+	if target == "OPERATIONAL" {
+		return s.handleOperationalGet(ctx, req, paths, prefix)
 	}
 
 	authTarget := "gnmi"

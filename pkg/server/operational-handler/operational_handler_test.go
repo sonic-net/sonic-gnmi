@@ -1,4 +1,4 @@
-package upgradehandler
+package operationalhandler
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
-func TestNewUpgradeHandler(t *testing.T) {
+func TestNewOperationalHandler(t *testing.T) {
 	// Test valid paths
 	paths := []*gnmipb.Path{
 		{
@@ -26,12 +26,12 @@ func TestNewUpgradeHandler(t *testing.T) {
 	}
 
 	prefix := &gnmipb.Path{
-		Target: "UPGRADE",
+		Target: "OPERATIONAL",
 	}
 
-	handler, err := NewUpgradeHandler(paths, prefix)
+	handler, err := NewOperationalHandler(paths, prefix)
 	if err != nil {
-		t.Fatalf("failed to create upgrade handler: %v", err)
+		t.Fatalf("failed to create operational handler: %v", err)
 	}
 
 	if handler == nil {
@@ -45,7 +45,7 @@ func TestNewUpgradeHandler(t *testing.T) {
 	}
 }
 
-func TestNewUpgradeHandler_UnsupportedPath(t *testing.T) {
+func TestNewOperationalHandler_UnsupportedPath(t *testing.T) {
 	// Test with unsupported path
 	paths := []*gnmipb.Path{
 		{
@@ -58,17 +58,17 @@ func TestNewUpgradeHandler_UnsupportedPath(t *testing.T) {
 	}
 
 	prefix := &gnmipb.Path{
-		Target: "UPGRADE",
+		Target: "OPERATIONAL",
 	}
 
-	_, err := NewUpgradeHandler(paths, prefix)
+	_, err := NewOperationalHandler(paths, prefix)
 	if err == nil {
 		t.Fatal("expected error for unsupported path")
 	}
 }
 
-func TestUpgradeHandler_PathToString(t *testing.T) {
-	handler := &UpgradeHandler{}
+func TestOperationalHandler_PathToString(t *testing.T) {
+	handler := &OperationalHandler{}
 
 	tests := []struct {
 		name     string
@@ -131,8 +131,8 @@ func TestUpgradeHandler_PathToString(t *testing.T) {
 	}
 }
 
-func TestUpgradeHandler_PathMatches(t *testing.T) {
-	handler := &UpgradeHandler{}
+func TestOperationalHandler_PathMatches(t *testing.T) {
+	handler := &OperationalHandler{}
 
 	tests := []struct {
 		name          string
@@ -171,7 +171,7 @@ func TestUpgradeHandler_PathMatches(t *testing.T) {
 	}
 }
 
-func TestUpgradeHandler_Get(t *testing.T) {
+func TestOperationalHandler_Get(t *testing.T) {
 	// Create handler with disk space path
 	paths := []*gnmipb.Path{
 		{
@@ -188,18 +188,18 @@ func TestUpgradeHandler_Get(t *testing.T) {
 	}
 
 	prefix := &gnmipb.Path{
-		Target: "UPGRADE",
+		Target: "OPERATIONAL",
 	}
 
-	client, err := NewUpgradeHandler(paths, prefix)
+	client, err := NewOperationalHandler(paths, prefix)
 	if err != nil {
-		t.Fatalf("failed to create upgrade handler: %v", err)
+		t.Fatalf("failed to create operational handler: %v", err)
 	}
 
-	// Cast to UpgradeHandler to access Get method
-	handler, ok := client.(*UpgradeHandler)
+	// Cast to OperationalHandler to access Get method
+	handler, ok := client.(*OperationalHandler)
 	if !ok {
-		t.Fatal("expected UpgradeHandler type")
+		t.Fatal("expected OperationalHandler type")
 	}
 
 	// Test Get method
@@ -238,8 +238,8 @@ func TestUpgradeHandler_Get(t *testing.T) {
 	}
 }
 
-func TestUpgradeHandler_Set(t *testing.T) {
-	handler := &UpgradeHandler{}
+func TestOperationalHandler_Set(t *testing.T) {
+	handler := &OperationalHandler{}
 
 	// Set operations should not be supported
 	err := handler.Set(nil, nil, nil)
@@ -248,8 +248,8 @@ func TestUpgradeHandler_Set(t *testing.T) {
 	}
 }
 
-func TestUpgradeHandler_Capabilities(t *testing.T) {
-	handler := &UpgradeHandler{}
+func TestOperationalHandler_Capabilities(t *testing.T) {
+	handler := &OperationalHandler{}
 
 	capabilities := handler.Capabilities()
 	// Should return empty slice for now
@@ -258,8 +258,8 @@ func TestUpgradeHandler_Capabilities(t *testing.T) {
 	}
 }
 
-func TestUpgradeHandler_StreamRun(t *testing.T) {
-	handler := &UpgradeHandler{}
+func TestOperationalHandler_StreamRun(t *testing.T) {
+	handler := &OperationalHandler{}
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -278,8 +278,8 @@ func TestUpgradeHandler_StreamRun(t *testing.T) {
 	// Test passes if no panic or deadlock occurs
 }
 
-func TestUpgradeHandler_PollRun(t *testing.T) {
-	handler := &UpgradeHandler{}
+func TestOperationalHandler_PollRun(t *testing.T) {
+	handler := &OperationalHandler{}
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -298,8 +298,8 @@ func TestUpgradeHandler_PollRun(t *testing.T) {
 	// Test passes if no panic or deadlock occurs
 }
 
-func TestUpgradeHandler_OnceRun(t *testing.T) {
-	handler := &UpgradeHandler{}
+func TestOperationalHandler_OnceRun(t *testing.T) {
+	handler := &OperationalHandler{}
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -318,8 +318,8 @@ func TestUpgradeHandler_OnceRun(t *testing.T) {
 	// Test passes if no panic or deadlock occurs
 }
 
-func TestUpgradeHandler_AppDBPollRun(t *testing.T) {
-	handler := &UpgradeHandler{}
+func TestOperationalHandler_AppDBPollRun(t *testing.T) {
+	handler := &OperationalHandler{}
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -338,8 +338,8 @@ func TestUpgradeHandler_AppDBPollRun(t *testing.T) {
 	// Test passes if no panic or deadlock occurs
 }
 
-func TestUpgradeHandler_FailedSend(t *testing.T) {
-	handler := &UpgradeHandler{}
+func TestOperationalHandler_FailedSend(t *testing.T) {
+	handler := &OperationalHandler{}
 
 	// FailedSend should not panic
 	handler.FailedSend()
@@ -347,8 +347,8 @@ func TestUpgradeHandler_FailedSend(t *testing.T) {
 	// Test passes if no panic occurs
 }
 
-func TestUpgradeHandler_IsPathSupported(t *testing.T) {
-	handler := &UpgradeHandler{
+func TestOperationalHandler_IsPathSupported(t *testing.T) {
+	handler := &OperationalHandler{
 		pathHandlers: map[string]PathHandler{
 			"filesystem/disk-space": NewDiskSpaceHandler(),
 		},
@@ -387,7 +387,7 @@ func TestUpgradeHandler_IsPathSupported(t *testing.T) {
 }
 
 // Integration test for the complete workflow
-func TestUpgradeHandler_Integration(t *testing.T) {
+func TestOperationalHandler_Integration(t *testing.T) {
 	// Create multiple paths
 	paths := []*gnmipb.Path{
 		{
@@ -415,17 +415,17 @@ func TestUpgradeHandler_Integration(t *testing.T) {
 	}
 
 	prefix := &gnmipb.Path{
-		Target: "UPGRADE",
+		Target: "OPERATIONAL",
 	}
 
 	// Create handler
-	client, err := NewUpgradeHandler(paths, prefix)
+	client, err := NewOperationalHandler(paths, prefix)
 	if err != nil {
-		t.Fatalf("failed to create upgrade handler: %v", err)
+		t.Fatalf("failed to create operational handler: %v", err)
 	}
 	defer client.Close()
 
-	handler := client.(*UpgradeHandler)
+	handler := client.(*OperationalHandler)
 
 	// Get data for all paths
 	values, err := handler.Get(nil)

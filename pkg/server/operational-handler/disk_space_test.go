@@ -1,4 +1,4 @@
-package upgradehandler
+package operationalhandler
 
 import (
 	"encoding/json"

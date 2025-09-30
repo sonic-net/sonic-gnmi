@@ -15,7 +15,7 @@ GOROOT ?= $(shell $(GO) env GOROOT)
 # Add new packages here as they become pure-compatible
 PURE_PACKAGES := \
 	internal/diskspace \
-	pkg/server/upgrade-handler
+	pkg/server/operational-handler
 
 # Future packages to make pure:
 # TODO: sonic-gnmi-standalone/pkg/workflow
@@ -265,7 +265,7 @@ help:
 	@echo "  make -f pure.mk ci"
 	@echo "  make -f pure.mk quick"
 	@echo "  make -f pure.mk test-coverage"
-	@echo "  make -f pure.mk PACKAGES=pkg/server/upgrade-handler ci"
+	@echo "  make -f pure.mk PACKAGES=pkg/server/operational-handler ci"
 	@echo ""
 	@echo "Currently pure packages:"
 	@for pkg in $(PURE_PACKAGES); do \
