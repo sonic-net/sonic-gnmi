@@ -7,6 +7,7 @@ import (
 
 	log "github.com/golang/glog"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoifile "github.com/sonic-net/sonic-gnmi/pkg/gnoi/file"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 
 	"google.golang.org/grpc/codes"
@@ -104,8 +105,7 @@ func (srv *FileServer) TransferToRemote(ctx context.Context, req *gnoi_file_pb.T
 		log.Errorf("authentication failed in TransferToRemote RPC: %v", err)
 		return nil, err
 	}
-	log.Warning("file.TransferToRemote RPC is unimplemented")
-	return nil, status.Errorf(codes.Unimplemented, "Method file.TransferToRemote is unimplemented.")
+	return gnoifile.HandleTransferToRemote(ctx, req)
 }
 
 // Put RPC is unimplemented.

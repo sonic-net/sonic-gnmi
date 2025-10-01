@@ -15,7 +15,10 @@ GOROOT ?= $(shell $(GO) env GOROOT)
 # Add new packages here as they become pure-compatible
 PURE_PACKAGES := \
 	internal/diskspace \
-	pkg/server/operational-handler
+	internal/hash \
+	internal/download \
+	pkg/server/operational-handler \
+	pkg/gnoi/file
 
 # Future packages to make pure:
 # TODO: sonic-gnmi-standalone/pkg/workflow
