@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/openconfig/gnoi/common"
@@ -332,5 +333,139 @@ func TestHandleTransferToRemote_ContextCancellation(t *testing.T) {
 	_, err := HandleTransferToRemote(ctx, req)
 	if err == nil {
 		t.Error("HandleTransferToRemote() expected error for cancelled context, got nil")
+	}
+}
+
+func TestValidatePath_AllowedPaths(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"tmp file", "/tmp/firmware.bin"},
+		{"tmp nested", "/tmp/upgrades/v1.0/firmware.bin"},
+		{"host root", "/host/firmware.bin"},
+		{"host nested", "/host/postupgrade-binaries/mlnx-fw.bin"},
+		{"var log", "/var/log/upgrade.log"},
+		{"var log nested", "/var/log/upgrades/2024-10-01.log"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePath(tt.path)
+			if err != nil {
+				t.Errorf("validatePath(%q) returned error for allowed path: %v", tt.path, err)
+			}
+		})
+	}
+}
+
+func TestValidatePath_RejectedPaths(t *testing.T) {
+	tests := []struct {
+		name        string
+		path        string
+		expectedErr string
+	}{
+		{
+			name:        "relative path",
+			path:        "tmp/firmware.bin",
+			expectedErr: "path must be absolute",
+		},
+		{
+			name:        "path traversal",
+			path:        "/tmp/../etc/passwd",
+			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+		},
+		{
+			name:        "etc directory",
+			path:        "/etc/passwd",
+			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+		},
+		{
+			name:        "boot directory",
+			path:        "/boot/grub/grub.cfg",
+			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+		},
+		{
+			name:        "usr directory",
+			path:        "/usr/bin/malicious",
+			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+		},
+		{
+			name:        "root directory",
+			path:        "/root/.ssh/authorized_keys",
+			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+		},
+		{
+			name:        "bin directory",
+			path:        "/bin/bash",
+			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+		},
+		{
+			name:        "sbin directory",
+			path:        "/sbin/init",
+			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+		},
+		{
+			name:        "home directory",
+			path:        "/home/admin/.ssh/id_rsa",
+			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePath(tt.path)
+			if err == nil {
+				t.Errorf("validatePath(%q) expected error, got nil", tt.path)
+				return
+			}
+			if !strings.Contains(err.Error(), tt.expectedErr) {
+				t.Errorf("validatePath(%q) error = %q, want substring %q",
+					tt.path, err.Error(), tt.expectedErr)
+			}
+		})
+	}
+}
+
+func TestHandleTransferToRemote_PathSecurityValidation(t *testing.T) {
+	// Test that security validation is enforced via the RPC handler
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("test"))
+	}))
+	defer server.Close()
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"etc passwd", "/etc/passwd"},
+		{"boot grub", "/boot/grub/grub.cfg"},
+		{"usr bin", "/usr/bin/malicious"},
+		{"relative path", "tmp/file.bin"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &gnoi_file_pb.TransferToRemoteRequest{
+				LocalPath: tt.path,
+				RemoteDownload: &common.RemoteDownload{
+					Path:     server.URL,
+					Protocol: common.RemoteDownload_HTTP,
+				},
+			}
+
+			ctx := context.Background()
+			_, err := HandleTransferToRemote(ctx, req)
+			if err == nil {
+				t.Errorf("HandleTransferToRemote() with path %q expected error, got nil", tt.path)
+				return
+			}
+
+			st, ok := status.FromError(err)
+			if !ok || st.Code() != codes.InvalidArgument {
+				t.Errorf("Expected InvalidArgument error for path %q, got %v", tt.path, err)
+			}
+		})
 	}
 }

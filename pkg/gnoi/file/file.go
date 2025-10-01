@@ -5,6 +5,7 @@ package file
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +50,11 @@ func HandleTransferToRemote(
 	localPath := req.GetLocalPath()
 	if localPath == "" {
 		return nil, status.Error(codes.InvalidArgument, "local_path cannot be empty")
+	}
+
+	// Validate path is in allowed directories for security
+	if err := validatePath(localPath); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid local_path: %v", err)
 	}
 
 	// Validate protocol - only HTTP supported initially
@@ -113,4 +119,45 @@ func translatePathForContainer(path string) string {
 
 	// Not in container, return original path
 	return cleanPath
+}
+
+// validatePath checks if the requested path is within allowed directories.
+// This prevents security issues like overwriting critical system files.
+//
+// Allowed directories for SONiC devices:
+//   - /tmp/               - Temporary files, firmware images
+//   - /host/              - Persistent storage (firmware, binaries, config)
+//   - /var/log/           - Log files
+//
+// Rejected paths:
+//   - /etc/, /boot/, /usr/, /bin/, /sbin/ - Critical system directories
+//   - Relative paths or paths with .. traversal
+func validatePath(path string) error {
+	// Clean the path to resolve . and .. components
+	cleanPath := filepath.Clean(path)
+
+	// Must be absolute path
+	if !filepath.IsAbs(cleanPath) {
+		return fmt.Errorf("path must be absolute, got: %s", path)
+	}
+
+	// Check if path contains .. after cleaning (path traversal attempt)
+	if strings.Contains(cleanPath, "..") {
+		return fmt.Errorf("path traversal not allowed: %s", path)
+	}
+
+	// Whitelist of allowed directory prefixes
+	allowedPrefixes := []string{
+		"/tmp/",
+		"/host/",
+		"/var/log/",
+	}
+
+	for _, prefix := range allowedPrefixes {
+		if strings.HasPrefix(cleanPath, prefix) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("path must be under /tmp/, /host/, or /var/log/, got: %s", cleanPath)
 }
