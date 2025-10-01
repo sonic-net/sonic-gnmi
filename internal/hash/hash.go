@@ -26,8 +26,10 @@ func CalculateMD5(filePath string) ([]byte, error) {
 // CalculateMD5Reader calculates the MD5 hash from an io.Reader.
 // Returns the raw MD5 hash bytes (16 bytes), not hex-encoded.
 // Useful for calculating hashes from streams or testing with in-memory data.
+// MD5 is required by gNOI File.TransferToRemote specification (types.HashType_MD5).
+// This is used for file integrity verification, not cryptographic security.
 func CalculateMD5Reader(reader io.Reader) ([]byte, error) {
-	hasher := md5.New()
+	hasher := md5.New() // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
 
 	if _, err := io.Copy(hasher, reader); err != nil {
 		return nil, fmt.Errorf("failed to read data for hashing: %w", err)
