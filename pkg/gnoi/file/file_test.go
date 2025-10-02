@@ -285,7 +285,7 @@ func TestTranslatePathForContainer(t *testing.T) {
 			expected: "/tmp/test.bin",
 		},
 		{
-			name:     "already has /mnt/host",
+			name:     "path with /mnt/host gets translated",
 			input:    "/mnt/host/tmp/test.bin",
 			expected: "/mnt/host/tmp/test.bin",
 		},
@@ -300,7 +300,8 @@ func TestTranslatePathForContainer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := translatePathForContainer(tt.input)
 			// When not in container (no /mnt/host), should return cleaned path
-			// We can't test the container case in unit tests without mocking
+			// When in container, would return /mnt/host + cleaned path
+			// We can't reliably test container case in unit tests
 			if got != tt.expected && got != "/mnt/host"+tt.expected {
 				t.Errorf("translatePathForContainer(%q) = %q, want %q or %q",
 					tt.input, got, tt.expected, "/mnt/host"+tt.expected)

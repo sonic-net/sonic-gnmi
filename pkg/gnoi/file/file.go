@@ -107,11 +107,6 @@ func translatePathForContainer(path string) string {
 	// Clean the path first
 	cleanPath := filepath.Clean(path)
 
-	// If path already starts with /mnt/host, don't double-prefix
-	if strings.HasPrefix(cleanPath, "/mnt/host") {
-		return cleanPath
-	}
-
 	// Check if /mnt/host exists (indicates we're running in a container)
 	if _, err := os.Stat("/mnt/host"); err == nil {
 		return "/mnt/host" + cleanPath
