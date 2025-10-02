@@ -125,13 +125,21 @@ func translatePathForContainer(path string) string {
 // This prevents security issues like overwriting critical system files.
 //
 // Allowed directories for SONiC devices:
-//   - /tmp/               - Temporary files, firmware images
-//   - /host/              - Persistent storage (firmware, binaries, config)
-//   - /var/log/           - Log files
+//   - /tmp/      - Temporary files, firmware images
+//   - /var/tmp/  - Temporary files that persist across reboots
 //
-// Rejected paths:
+// Rejected paths include:
 //   - /etc/, /boot/, /usr/, /bin/, /sbin/ - Critical system directories
+//   - /host/ - Contains grub config, overlayfs layers, machine.conf
+//   - /var/log/ - System logs
+//   - /home/, /root/ - User home directories with SSH keys
 //   - Relative paths or paths with .. traversal
+//
+// Rationale: Only temporary directories are safe for firmware downloads.
+// Writing to /host/ risks:
+//   - Overwriting /host/grub/grub.cfg (brick device on reboot)
+//   - Corrupting /host/image-*/rw/ (overlayfs upperdir, kernel panic)
+//   - Modifying /host/machine.conf (platform detection failure)
 func validatePath(path string) error {
 	// Clean the path to resolve . and .. components
 	cleanPath := filepath.Clean(path)
@@ -149,8 +157,7 @@ func validatePath(path string) error {
 	// Whitelist of allowed directory prefixes
 	allowedPrefixes := []string{
 		"/tmp/",
-		"/host/",
-		"/var/log/",
+		"/var/tmp/",
 	}
 
 	for _, prefix := range allowedPrefixes {
@@ -159,5 +166,5 @@ func validatePath(path string) error {
 		}
 	}
 
-	return fmt.Errorf("path must be under /tmp/, /host/, or /var/log/, got: %s", cleanPath)
+	return fmt.Errorf("path must be under /tmp/ or /var/tmp/, got: %s", cleanPath)
 }

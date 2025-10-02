@@ -343,10 +343,8 @@ func TestValidatePath_AllowedPaths(t *testing.T) {
 	}{
 		{"tmp file", "/tmp/firmware.bin"},
 		{"tmp nested", "/tmp/upgrades/v1.0/firmware.bin"},
-		{"host root", "/host/firmware.bin"},
-		{"host nested", "/host/postupgrade-binaries/mlnx-fw.bin"},
-		{"var log", "/var/log/upgrade.log"},
-		{"var log nested", "/var/log/upgrades/2024-10-01.log"},
+		{"var tmp file", "/var/tmp/firmware.bin"},
+		{"var tmp nested", "/var/tmp/downloads/image.bin"},
 	}
 
 	for _, tt := range tests {
@@ -373,42 +371,62 @@ func TestValidatePath_RejectedPaths(t *testing.T) {
 		{
 			name:        "path traversal",
 			path:        "/tmp/../etc/passwd",
-			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+			expectedErr: "path must be under /tmp/ or /var/tmp/",
 		},
 		{
 			name:        "etc directory",
 			path:        "/etc/passwd",
-			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+			expectedErr: "path must be under /tmp/ or /var/tmp/",
 		},
 		{
 			name:        "boot directory",
 			path:        "/boot/grub/grub.cfg",
-			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+			expectedErr: "path must be under /tmp/ or /var/tmp/",
 		},
 		{
 			name:        "usr directory",
 			path:        "/usr/bin/malicious",
-			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+			expectedErr: "path must be under /tmp/ or /var/tmp/",
 		},
 		{
 			name:        "root directory",
 			path:        "/root/.ssh/authorized_keys",
-			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+			expectedErr: "path must be under /tmp/ or /var/tmp/",
 		},
 		{
 			name:        "bin directory",
 			path:        "/bin/bash",
-			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+			expectedErr: "path must be under /tmp/ or /var/tmp/",
 		},
 		{
 			name:        "sbin directory",
 			path:        "/sbin/init",
-			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+			expectedErr: "path must be under /tmp/ or /var/tmp/",
 		},
 		{
 			name:        "home directory",
 			path:        "/home/admin/.ssh/id_rsa",
-			expectedErr: "path must be under /tmp/, /host/, or /var/log/",
+			expectedErr: "path must be under /tmp/ or /var/tmp/",
+		},
+		{
+			name:        "host grub config",
+			path:        "/host/grub/grub.cfg",
+			expectedErr: "path must be under /tmp/ or /var/tmp/",
+		},
+		{
+			name:        "host machine.conf",
+			path:        "/host/machine.conf",
+			expectedErr: "path must be under /tmp/ or /var/tmp/",
+		},
+		{
+			name:        "host overlayfs rw",
+			path:        "/host/image-master/rw/usr/bin/test",
+			expectedErr: "path must be under /tmp/ or /var/tmp/",
+		},
+		{
+			name:        "var log",
+			path:        "/var/log/syslog",
+			expectedErr: "path must be under /tmp/ or /var/tmp/",
 		},
 	}
 
