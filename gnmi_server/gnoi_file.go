@@ -2,6 +2,7 @@ package gnmi
 
 import (
 	"context"
+	"os"
 	"strconv"
 	"strings"
 
@@ -136,13 +137,12 @@ func (srv *FileServer) Remove(ctx context.Context, req *gnoi_file_pb.RemoveReque
 		log.Errorf("Invalid request: remote_file field is empty")
 		return nil, status.Error(codes.InvalidArgument, "Invalid request: remote_file field is empty.")
 	}
-	sc, err := ssc.NewDbusClient()
+
+	// Use native Go to remove the file instead of Dbus client
+	err = os.Remove(req.GetRemoteFile())
 	if err != nil {
-		log.Errorf("NewDbusClient error: %v", err)
-		return nil, err
+		log.Errorf("Remove RPC failed: %v", err)
+		return nil, status.Error(codes.Internal, err.Error())
 	}
-	defer sc.Close()
-	err = sc.RemoveFile(req.GetRemoteFile())
-	log.Errorf("Remove RPC failed: %v", err)
-	return &gnoi_file_pb.RemoveResponse{}, err
+	return &gnoi_file_pb.RemoveResponse{}, nil
 }
