@@ -1,0 +1,18 @@
+apiVersion: sonic.net/v1
+kind: UpgradeConfig
+metadata:
+  name: production-upgrade
+spec:
+  firmware:
+    desiredVersion: "SONiC-OS-202311.1-build123"
+    downloadUrl: "https://sonic-build.azurewebsites.net/api/sonic/artifacts?branchName=master&platform=vs&target=target/sonic-vs.bin"
+    savePath: "/host/sonic-images/"
+    expectedMd5: "d41d8cd98f00b204e9800998ecf8427e"
+  download:
+    connectTimeout: 60
+    totalTimeout: 600
+  server:
+    address: "localhost:50051"
+    tlsEnabled: true
+    tlsCertFile: "/etc/ssl/certs/server.crt"
+    tlsKeyFile: "/etc/ssl/private/server.key"
