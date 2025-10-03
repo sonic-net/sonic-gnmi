@@ -2,6 +2,7 @@ package operationalhandler
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,6 +68,12 @@ func NewOperationalHandler(paths []*gnmipb.Path, prefix *gnmipb.Path) (Handler, 
 		handler.pathHandlers[supportedPath] = diskSpaceHandler
 	}
 
+	// Register firmware handler
+	firmwareHandler := NewFirmwareHandler()
+	for _, supportedPath := range firmwareHandler.SupportedPaths() {
+		handler.pathHandlers[supportedPath] = firmwareHandler
+	}
+
 	// Validate that all requested paths are supported
 	for _, path := range paths {
 		pathStr := handler.pathToString(path)
@@ -114,6 +121,19 @@ func (h *OperationalHandler) pathMatches(requestedPath, supportedPath string) bo
 		}
 		return false
 	}
+
+	if supportedPath == "firmware/files" {
+		// Match paths like "firmware[directory=*]/files", "firmware[directory=*]/files/count", etc.
+		if requestedPath == "firmware/files" {
+			return true
+		}
+		// Check if requestedPath contains firmware/files pattern
+		if strings.Contains(requestedPath, "firmware") && strings.Contains(requestedPath, "/files") {
+			return true
+		}
+		return false
+	}
+
 	return requestedPath == supportedPath
 }
 
