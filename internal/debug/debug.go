@@ -8,12 +8,12 @@ import (
 
 const (
 	FAILED_TO_RUN = -1
-	NSENTER_CMD = "nsenter"
-	DEFAULT_ACC = "admin"
+	NSENTER_CMD   = "nsenter"
+	DEFAULT_ACC   = "admin"
 )
 
 var (
-	NSENTER_ARGS = []string {
+	NSENTER_ARGS = []string{
 		"--target",
 		"1",
 		"--mount",
@@ -22,17 +22,17 @@ var (
 		"--net",
 		"--pid",
 	}
-	USER_ARGS = []string {
+	USER_ARGS = []string{
 		"su",
 		"-",
 	}
-	SHELL_ARGS = []string {
-		 "-c",
+	SHELL_ARGS = []string{
+		"-c",
 	}
 
 	USER_AND_CMD = 2
 	// Length required for nsenter's args, user args, shell args, the user, the command
-	ARG_LEN = len(NSENTER_ARGS)+len(USER_ARGS)+len(SHELL_ARGS)+USER_AND_CMD
+	ARG_LEN = len(NSENTER_ARGS) + len(USER_ARGS) + len(SHELL_ARGS) + USER_AND_CMD
 )
 
 // Small wrapper to provide io.Writer interface impl for channel
@@ -113,4 +113,3 @@ func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, c
 
 	return 0, nil
 }
-

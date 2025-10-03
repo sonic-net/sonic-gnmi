@@ -2,13 +2,13 @@ package debug
 
 import (
 	"context"
-	"time"
 	"sync"
+	"time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	debug "github.com/sonic-net/sonic-gnmi/internal/debug"
 	debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // HandleCommandRequest implements the logic for the Debug RPC, per the gNOI spec.
@@ -26,7 +26,7 @@ func HandleCommandRequest(
 	ctx context.Context,
 	req *debug_pb.DebugRequest,
 	stream debug_pb.Debug_DebugServer,
-) (error) {
+) error {
 	// Validate request
 	if req == nil {
 		return status.Error(codes.InvalidArgument, "request cannot be nil")
@@ -56,7 +56,7 @@ func HandleCommandRequest(
 	switch mode {
 	case debug_pb.DebugRequest_MODE_CLI:
 		wg.Add(1)
-		go func()  {
+		go func() {
 			defer wg.Done()
 
 			// Send request, indicating start of execution
