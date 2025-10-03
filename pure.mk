@@ -15,6 +15,7 @@ GOROOT ?= $(shell $(GO) env GOROOT)
 # Add new packages here as they become pure-compatible
 PURE_PACKAGES := \
 	internal/diskspace \
+	internal/firmware \
 	pkg/server/operational-handler
 
 # Future packages to make pure:
