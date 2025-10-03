@@ -28,6 +28,7 @@ import (
 
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
+	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -129,6 +130,12 @@ type OSServer struct {
 type ContainerzServer struct {
 	server *Server
 	gnoi_containerz_pb.UnimplementedContainerzServer
+}
+
+// DebugServer is the server API for Debug service.
+type DebugServer struct {
+	*Server
+	gnoi_debug_pb.UnimplementedDebugServer
 }
 
 type AuthTypes map[string]bool
@@ -245,6 +252,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	fileSrv := &FileServer{Server: srv}
 	osSrv := &OSServer{Server: srv}
 	containerzSrv := &ContainerzServer{server: srv}
+	debugSrv := &DebugServer{server: srv}
 
 	var err error
 	if srv.config.Port < 0 {
@@ -262,6 +270,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		gnoi_file_pb.RegisterFileServer(srv.s, fileSrv)
 		gnoi_os_pb.RegisterOSServer(srv.s, osSrv)
 		gnoi_containerz_pb.RegisterContainerzServer(srv.s, containerzSrv)
+		gnoi_debug_pb.RegisterDebugServer(srv.s, debugSrv)
 	}
 	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
