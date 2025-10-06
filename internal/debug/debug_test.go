@@ -141,7 +141,7 @@ type mockExitError struct {
 	code int
 }
 
-func (e mockExitError) Error() string { return fmt.Sprintf("exit code %d", e.code) }
+func (e mockExitError) Error() string  { return fmt.Sprintf("exit code %d", e.code) }
 func (e *mockExitError) ExitCode() int { return e.code }
 
 func TestRunCommand(t *testing.T) {

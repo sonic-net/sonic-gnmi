@@ -48,7 +48,7 @@ type ExecutableCommand interface {
 	StdoutPipe() (io.ReadCloser, error)
 }
 
-// Interface 
+// Interface
 type ExitError interface {
 	ExitCode() int
 }

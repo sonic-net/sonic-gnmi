@@ -11,6 +11,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+var (
+	// Allow DI for mocking
+	runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, cmdStr string, roleAccount string, byteLimit int64) (int, error) {
+		return debug.RunCommand(ctx, outCh, errCh, cmdStr, roleAccount, byteLimit)
+	}
+)
+
 // HandleCommandRequest implements the logic for the Debug RPC, per the gNOI spec.
 // It validates the request, then runs the command on the host, streaming responses
 // back to the client.
@@ -23,10 +30,11 @@ import (
 // Returns:
 //   - Error with appropriate gRPC status code on failure
 func HandleCommandRequest(
-	ctx context.Context,
 	req *debug_pb.DebugRequest,
 	stream debug_pb.Debug_DebugServer,
 ) error {
+	ctx := stream.Context()
+
 	// Validate request
 	if req == nil {
 		return status.Error(codes.InvalidArgument, "request cannot be nil")
@@ -49,53 +57,64 @@ func HandleCommandRequest(
 
 	mode := req.GetMode()
 	var wg sync.WaitGroup
-	done := make(chan bool, 1)
 	outCh := make(chan string, 100)
 	errCh := make(chan string, 100)
 
 	switch mode {
 	case debug_pb.DebugRequest_MODE_CLI:
-		wg.Add(1)
+		// 1. Send request, indicating start of execution
+		err := sendReqInResponse(stream, req)
+		if err != nil {
+			return nil
+		}
+
+		// 2. Send stdout/stderr
+		wg.Add(2)
 		go func() {
 			defer wg.Done()
 
-			// Send request, indicating start of execution
-			err := sendReqInResponse(stream, req)
-			if err != nil {
-				return
-			}
-
 			for {
 				select {
-				// If ctx is done, we can't send any more, end early
 				case <-ctx.Done():
 					return
-				case stdout := <-outCh:
-					err := sendDataInResponse(stream, stdout)
-					if err != nil {
+				case stdout, ok := <-outCh:
+					if !ok {
+						return
+					}
+
+					if err := sendDataInResponse(stream, stdout); err != nil {
 						// Stream is broken, end early
 						return
 					}
-				case stderr := <-errCh:
-					err := sendDataInResponse(stream, stderr)
-					if err != nil {
-						// Stream is broken, end early
-						return
-					}
-				// Done comes last to ensure outCh & errCh are first empty
-				case <-done:
-					return
 				}
 			}
 		}()
-		exitCode, err := debug.RunCommand(ctx, outCh, errCh, string(command), roleAccount, byteLimit)
-		done <- true
+		go func() {
+			defer wg.Done()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case stderr, ok := <-errCh:
+					if !ok {
+						return
+					}
+
+					if err := sendDataInResponse(stream, stderr); err != nil {
+						// Stream is broken, end early
+						return
+					}
+				}
+			}
+		}()
+		exitCode, err := runCommand(ctx, outCh, errCh, string(command), roleAccount, byteLimit)
 		if err != nil {
 			return status.Errorf(codes.FailedPrecondition, "Failed to run command '%s': '%v'", command, err)
 		}
 		wg.Wait()
 
-		// Send status (with exit code), indicating completion
+		// 3. Send status (with exit code), indicating completion
 		sendStatusInResponse(stream, exitCode)
 
 	case debug_pb.DebugRequest_MODE_SHELL:
@@ -110,31 +129,27 @@ func HandleCommandRequest(
 // Helper functions to hide creation of nested res structs
 
 func sendReqInResponse(stream debug_pb.Debug_DebugServer, req *debug_pb.DebugRequest) error {
-	err := stream.Send(
+	return stream.Send(
 		&debug_pb.DebugResponse{
 			Response: &debug_pb.DebugResponse_Request{
 				Request: req,
 			},
 		},
 	)
-
-	return err
 }
 
 func sendDataInResponse(stream debug_pb.Debug_DebugServer, data string) error {
-	err := stream.Send(
+	return stream.Send(
 		&debug_pb.DebugResponse{
 			Response: &debug_pb.DebugResponse_Data{
 				Data: []byte(data),
 			},
 		},
 	)
-
-	return err
 }
 
 func sendStatusInResponse(stream debug_pb.Debug_DebugServer, exitCode int) error {
-	err := stream.Send(
+	return stream.Send(
 		&debug_pb.DebugResponse{
 			Response: &debug_pb.DebugResponse_Status{
 				Status: &debug_pb.DebugStatus{
@@ -143,6 +158,4 @@ func sendStatusInResponse(stream debug_pb.Debug_DebugServer, exitCode int) error
 			},
 		},
 	)
-
-	return err
 }
