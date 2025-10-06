@@ -7,7 +7,7 @@ import (
 )
 
 func (srv *DebugServer) Debug(req *gnoi_debug_pb.DebugRequest, stream gnoi_debug_pb.Debug_DebugServer) error {
-	log.Infof("GNOI Debug RPC called with request: %+v", req)
+	log.Infof("gNOI Debug RPC called with request: %+v", req)
 	_, err := authenticate(srv.config, stream.Context(), "gnoi", true)
 	if err != nil {
 		log.Errorf("authentication failed in Debug RPC: %v", err)
