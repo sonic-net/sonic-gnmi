@@ -33,7 +33,25 @@ var (
 	USER_AND_CMD = 2
 	// Length required for nsenter's args, user args, shell args, the user, the command
 	ARG_LEN = len(NSENTER_ARGS) + len(USER_ARGS) + len(SHELL_ARGS) + USER_AND_CMD
+
+	// Allow DI for mocking
+	execCommandWithContext = func(ctx context.Context, name string, args ...string) ExecutableCommand {
+		return exec.CommandContext(ctx, name, args...)
+	}
 )
+
+// Interface containing the methods we use from the exec.Cmd struct
+type ExecutableCommand interface {
+	Start() error
+	Wait() error
+	StderrPipe() (io.ReadCloser, error)
+	StdoutPipe() (io.ReadCloser, error)
+}
+
+// Interface 
+type ExitError interface {
+	ExitCode() int
+}
 
 // Small wrapper to provide io.Writer interface impl for channel
 type chanWriter struct {
@@ -47,6 +65,7 @@ func (w *chanWriter) Write(p []byte) (n int, err error) {
 
 // Reads from reader, piping into the provided channel until EOF.
 func outputReaderToChannel(reader io.Reader, outCh chan<- string, byteLimit int64) error {
+	defer close(outCh)
 	writer := &chanWriter{
 		ch: outCh,
 	}
@@ -80,7 +99,7 @@ func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, c
 	fullArgs = append(fullArgs, SHELL_ARGS...)
 	fullArgs = append(fullArgs, cmdStr)
 
-	command := exec.CommandContext(ctx, NSENTER_CMD, fullArgs...)
+	command := execCommandWithContext(ctx, NSENTER_CMD, fullArgs...)
 
 	stdout, err := command.StdoutPipe()
 	if err != nil {
@@ -102,9 +121,9 @@ func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, c
 	err = command.Wait()
 	if err != nil {
 		switch err.(type) {
-		case *exec.ExitError:
-			castErr := err.(*exec.ExitError)
+		case ExitError:
 			// If the command fails, just return exit code - no issue with the infrastructure
+			castErr := err.(ExitError)
 			return castErr.ExitCode(), nil
 		default:
 			return FAILED_TO_RUN, err
