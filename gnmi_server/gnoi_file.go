@@ -12,6 +12,7 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+        filehandler "github.com/sonic-net/sonic-gnmi/pkg/gnoi/file"
 )
 
 func (srv *FileServer) Stat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_pb.StatResponse, error) {
@@ -145,4 +146,34 @@ func (srv *FileServer) Remove(ctx context.Context, req *gnoi_file_pb.RemoveReque
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	return &gnoi_file_pb.RemoveResponse{}, nil
+
+func (srv *FileServer) Remove(ctx context.Context, req *gnoi_file_pb.RemoveRequest) (*gnoi_file_pb.RemoveResponse, error) {
+    log.Infof("GNOI File Remove RPC called with request: %+v", req)
+    if req == nil {
+        log.Errorf("Nil request received")
+        return nil, status.Error(codes.InvalidArgument, "Invalid nil request.")
+    }
+    _, err := authenticate(srv.config, ctx, "gnoi", false)
+    if err != nil {
+        log.Errorf("authentication failed in Remove RPC: %v", err)
+        return nil, err
+    }
+    if req.GetRemoteFile() == "" {
+        log.Errorf("Invalid request: remote_file field is empty")
+        return nil, status.Error(codes.InvalidArgument, "Invalid request: remote_file field is empty.")
+    }
+
+    // Refactored: use dedicated handler for file removal
+    // Import your handler, e.g.:
+    // import filehandler "yourmodule/pkg/gnoi/file"
+
+    err = filehandler.RemoveFile(req.GetRemoteFile())
+    if err != nil {
+        log.Errorf("Remove RPC failed: %v", err)
+        return nil, status.Error(codes.PermissionDenied, err.Error())
+    }
+
+    return &gnoi_file_pb.RemoveResponse{}, nil
+}
+
 }
