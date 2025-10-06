@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os/exec"
+	"sync"
 )
 
 const (
@@ -65,7 +66,6 @@ func (w *chanWriter) Write(p []byte) (n int, err error) {
 
 // Reads from reader, piping into the provided channel until EOF.
 func outputReaderToChannel(reader io.Reader, outCh chan<- string, byteLimit int64) error {
-	defer close(outCh)
 	writer := &chanWriter{
 		ch: outCh,
 	}
@@ -88,6 +88,11 @@ func outputReaderToChannel(reader io.Reader, outCh chan<- string, byteLimit int6
 //
 // Returns status code of the operation, with optional error.
 func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, cmdStr string, roleAccount string, byteLimit int64) (int, error) {
+	defer func() {
+		close(outCh)
+		close(errCh)
+	}()
+
 	fullArgs := make([]string, 0, ARG_LEN)
 	fullArgs = append(fullArgs, NSENTER_ARGS...)
 	fullArgs = append(fullArgs, USER_ARGS...)
@@ -115,8 +120,17 @@ func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, c
 		return FAILED_TO_RUN, err
 	}
 
-	go outputReaderToChannel(stdout, outCh, byteLimit)
-	go outputReaderToChannel(stderr, errCh, byteLimit)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		outputReaderToChannel(stdout, outCh, byteLimit)
+		wg.Done()
+	}()
+	go func() {
+		outputReaderToChannel(stderr, errCh, byteLimit)
+		wg.Done()
+	}()
+	wg.Wait()
 
 	err = command.Wait()
 	if err != nil {

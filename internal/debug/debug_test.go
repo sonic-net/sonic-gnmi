@@ -91,6 +91,7 @@ func TestOutputReaderToChannel(t *testing.T) {
 			outCh := make(chan string, 10)
 
 			err := outputReaderToChannel(tc.reader, outCh, tc.byteLimit)
+			close(outCh)
 
 			var receivedOut []string
 			for s := range outCh {
