@@ -49,7 +49,7 @@ type ExecutableCommand interface {
 	StdoutPipe() (io.ReadCloser, error)
 }
 
-// Interface
+// Interface containing methods used from exec.ExitError
 type ExitError interface {
 	ExitCode() int
 }

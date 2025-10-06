@@ -72,42 +72,13 @@ func HandleCommandRequest(
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case stdout, ok := <-outCh:
-					if !ok {
-						return
-					}
-
-					if err := sendDataInResponse(stream, stdout); err != nil {
-						// Stream is broken, end early
-						return
-					}
-				}
-			}
+			streamDataInChannel(ctx, stream, outCh)
 		}()
 		go func() {
 			defer wg.Done()
-
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case stderr, ok := <-errCh:
-					if !ok {
-						return
-					}
-
-					if err := sendDataInResponse(stream, stderr); err != nil {
-						// Stream is broken, end early
-						return
-					}
-				}
-			}
+			streamDataInChannel(ctx, stream, errCh)
 		}()
+
 		exitCode, err := runCommand(ctx, outCh, errCh, string(command), roleAccount, byteLimit)
 		if err != nil {
 			return status.Errorf(codes.FailedPrecondition, "Failed to run command '%s': '%v'", command, err)
@@ -124,6 +95,26 @@ func HandleCommandRequest(
 	}
 
 	return nil
+}
+
+// Helper to send all data held within a channel to stream, in succession.
+// If the context completes, or the stream breaks, will abort early.
+// Otherwise, will run till the channel is closed by the writer.
+func streamDataInChannel(ctx context.Context, stream debug_pb.Debug_DebugServer, ch <-chan string) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case data, ok := <-ch:
+			if !ok {
+				return
+			}
+
+			if err := sendDataInResponse(stream, data); err != nil {
+				return
+			}
+		}
+	}
 }
 
 // Helper functions to hide creation of nested res structs
