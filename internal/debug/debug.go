@@ -33,7 +33,7 @@ var (
 
 	USER_AND_CMD = 2
 	// Length required for nsenter's args, user args, shell args, the user, the command
-	ARG_LEN = len(NSENTER_ARGS) + len(USER_ARGS) + len(SHELL_ARGS) + USER_AND_CMD
+	STATIC_ARG_LEN = len(NSENTER_ARGS) + len(USER_ARGS) + len(SHELL_ARGS) + USER_AND_CMD
 
 	// Allow DI for mocking
 	execCommandWithContext = func(ctx context.Context, name string, args ...string) ExecutableCommand {
@@ -87,13 +87,13 @@ func outputReaderToChannel(reader io.Reader, outCh chan<- string, byteLimit int6
 // Optionally runs command as the specified user (default is 'admin'), and has an optional byte limit for responses.
 //
 // Returns status code of the operation, with optional error.
-func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, cmdStr string, roleAccount string, byteLimit int64) (int, error) {
+func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
 	defer func() {
 		close(outCh)
 		close(errCh)
 	}()
 
-	fullArgs := make([]string, 0, ARG_LEN)
+	fullArgs := make([]string, 0, STATIC_ARG_LEN+len(args))
 	fullArgs = append(fullArgs, NSENTER_ARGS...)
 	fullArgs = append(fullArgs, USER_ARGS...)
 	if roleAccount == "" {
@@ -102,7 +102,8 @@ func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, c
 		fullArgs = append(fullArgs, roleAccount)
 	}
 	fullArgs = append(fullArgs, SHELL_ARGS...)
-	fullArgs = append(fullArgs, cmdStr)
+	fullArgs = append(fullArgs, cmd)
+	fullArgs = append(fullArgs, args...)
 
 	command := execCommandWithContext(ctx, NSENTER_CMD, fullArgs...)
 

@@ -13,8 +13,8 @@ import (
 
 var (
 	// Allow DI for mocking
-	runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, cmdStr string, roleAccount string, byteLimit int64) (int, error) {
-		return debug.RunCommand(ctx, outCh, errCh, cmdStr, roleAccount, byteLimit)
+	runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
+		return debug.RunCommand(ctx, outCh, errCh, roleAccount, byteLimit, cmd, args...)
 	}
 )
 
@@ -32,6 +32,7 @@ var (
 func HandleCommandRequest(
 	req *debug_pb.DebugRequest,
 	stream debug_pb.Debug_DebugServer,
+	whitelist map[string]string,
 ) error {
 	ctx := stream.Context()
 
@@ -43,6 +44,11 @@ func HandleCommandRequest(
 	command := req.GetCommand()
 	if command == nil {
 		return status.Error(codes.InvalidArgument, "command cannot be nil")
+	}
+
+	cmdPath, cmdArgs, err := ValidateAndExtract(string(command), whitelist)
+	if err != nil {
+		return status.Errorf(codes.PermissionDenied, "command failed validation: %v", err)
 	}
 
 	// Optional args
@@ -79,7 +85,7 @@ func HandleCommandRequest(
 			streamDataInChannel(ctx, stream, errCh)
 		}()
 
-		exitCode, err := runCommand(ctx, outCh, errCh, string(command), roleAccount, byteLimit)
+		exitCode, err := runCommand(ctx, outCh, errCh, roleAccount, byteLimit, cmdPath, cmdArgs...)
 		if err != nil {
 			return status.Errorf(codes.FailedPrecondition, "Failed to run command '%s': '%v'", command, err)
 		}

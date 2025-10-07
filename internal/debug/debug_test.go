@@ -176,7 +176,7 @@ func TestRunCommand(t *testing.T) {
 			expectErr:        false,
 			expectedStdout:   "OK",
 			expectedStderr:   "",
-			expectedArgs:     []string{"--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "su", "-", "admin", "-c", "echo 'test'"},
+			expectedArgs:     []string{"--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "su", "-", "admin", "-c", "echo", "'test'"},
 		},
 		{
 			name: "Successful execution with custom user",
@@ -289,7 +289,8 @@ func TestRunCommand(t *testing.T) {
 			outCh := make(chan string, 10)
 			errCh := make(chan string, 10)
 
-			exitCode, err := RunCommand(tc.ctx, outCh, errCh, tc.cmdStr, tc.roleAccount, 0)
+			args := strings.Split(tc.cmdStr, " ")
+			exitCode, err := RunCommand(tc.ctx, outCh, errCh, tc.roleAccount, 0, args[0], args[1:]...)
 
 			if exitCode != tc.expectedExitCode {
 				t.Errorf("Expected exit code %d, but got %d", tc.expectedExitCode, exitCode)

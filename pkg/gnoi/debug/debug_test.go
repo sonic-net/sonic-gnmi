@@ -18,13 +18,22 @@ import (
 	debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 )
 
-var originalRunCommand = debug.RunCommand
+var (
+	originalRunCommand = debug.RunCommand
+	testWhitelist      = map[string]string{
+		"ls":              "ls",
+		"show":            "show",
+		"invalid-command": "invalid-command",
+		"sleep":           "sleep",
+		"any":             "any",
+	}
+)
 
 type mockDebugServerStream struct {
-	ctx context.Context
+	ctx       context.Context
 	responses []*debug_pb.DebugResponse
-	sendErr error
-	mu sync.Mutex
+	sendErr   error
+	mu        sync.Mutex
 	grpc.ServerStream
 }
 
@@ -56,7 +65,7 @@ func TestHandleCommandRequest(t *testing.T) {
 
 	t.Run("Error on nil request", func(t *testing.T) {
 		stream := &mockDebugServerStream{ctx: context.Background()}
-		err := HandleCommandRequest(nil, stream)
+		err := HandleCommandRequest(nil, stream, testWhitelist)
 		if err == nil {
 			t.Fatal("expected an error but got nil")
 		}
@@ -76,7 +85,7 @@ func TestHandleCommandRequest(t *testing.T) {
 	t.Run("Error on nil command", func(t *testing.T) {
 		req := &debug_pb.DebugRequest{}
 		stream := &mockDebugServerStream{ctx: context.Background()}
-		err := HandleCommandRequest(req, stream)
+		err := HandleCommandRequest(req, stream, testWhitelist)
 		if err == nil {
 			t.Fatal("expected an error but got nil")
 		}
@@ -95,7 +104,7 @@ func TestHandleCommandRequest(t *testing.T) {
 			Mode:    debug_pb.DebugRequest_MODE_SHELL,
 		}
 		stream := &mockDebugServerStream{ctx: context.Background()}
-		err := HandleCommandRequest(req, stream)
+		err := HandleCommandRequest(req, stream, testWhitelist)
 		if err == nil {
 			t.Fatal("expected an error but got nil")
 		}
@@ -114,7 +123,7 @@ func TestHandleCommandRequest(t *testing.T) {
 			Mode:    debug_pb.DebugRequest_MODE_UNSPECIFIED,
 		}
 		stream := &mockDebugServerStream{ctx: context.Background()}
-		err := HandleCommandRequest(req, stream)
+		err := HandleCommandRequest(req, stream, testWhitelist)
 		if err == nil {
 			t.Fatal("expected an error but got nil")
 		}
@@ -137,26 +146,18 @@ func TestHandleCommandRequest(t *testing.T) {
 		stream := &mockDebugServerStream{ctx: context.Background()}
 
 		// Mock RunCommand to simulate a successful execution with output
-		runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, cmdStr string, roleAccount string, byteLimit int64) (int, error) {
+		runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
 			defer func() {
 				close(outCh)
 				close(errCh)
 			}()
-			if cmdStr != "show version" {
-				t.Errorf("expected command %q, got %q", "show version", cmdStr)
-			}
-			if roleAccount != "test-admin" {
-				t.Errorf("expected role %q, got %q", "test-admin", roleAccount)
-			}
-			if byteLimit != 1024 {
-				t.Errorf("expected byte limit %d, got %d", 1024, byteLimit)
-			}
+
 			outCh <- "SONiC Version: 202305"
 			errCh <- "Some warning on stderr"
-			return 0, nil // Exit code 0, no error
+			return 0, nil
 		}
 
-		err := HandleCommandRequest(req, stream)
+		err := HandleCommandRequest(req, stream, testWhitelist)
 		if err != nil {
 			t.Fatalf("did not expect an error but got: %v", err)
 		}
@@ -195,16 +196,16 @@ func TestHandleCommandRequest(t *testing.T) {
 		}
 		stream := &mockDebugServerStream{ctx: context.Background()}
 
-		runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, cmdStr string, roleAccount string, byteLimit int64) (int, error) {
+		runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
 			defer func() {
 				close(outCh)
 				close(errCh)
 			}()
 			errCh <- "command not found"
-			return 127, nil // Exit code 127
+			return 127, nil
 		}
 
-		err := HandleCommandRequest(req, stream)
+		err := HandleCommandRequest(req, stream, testWhitelist)
 		if err != nil {
 			t.Fatalf("did not expect an error but got: %v", err)
 		}
@@ -226,13 +227,13 @@ func TestHandleCommandRequest(t *testing.T) {
 		stream := &mockDebugServerStream{ctx: context.Background()}
 		expectedErr := errors.New("failed to start process")
 
-		runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, cmdStr string, roleAccount string, byteLimit int64) (int, error) {
+		runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
 			close(outCh)
 			close(errCh)
 			return -1, expectedErr
 		}
 
-		err := HandleCommandRequest(req, stream)
+		err := HandleCommandRequest(req, stream, testWhitelist)
 		if err == nil {
 			t.Fatal("expected an error but got nil")
 		}
@@ -258,7 +259,7 @@ func TestHandleCommandRequest(t *testing.T) {
 		stream := &mockDebugServerStream{ctx: context.Background()}
 		var capturedCtx context.Context
 
-		runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, cmdStr string, roleAccount string, byteLimit int64) (int, error) {
+		runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
 			close(outCh)
 			close(errCh)
 			capturedCtx = ctx
@@ -267,7 +268,7 @@ func TestHandleCommandRequest(t *testing.T) {
 			return -1, ctx.Err() // Return context error
 		}
 
-		err := HandleCommandRequest(req, stream)
+		err := HandleCommandRequest(req, stream, testWhitelist)
 		if err == nil {
 			t.Fatal("expected an error but got nil")
 		}

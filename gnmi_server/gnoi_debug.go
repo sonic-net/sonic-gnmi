@@ -14,5 +14,6 @@ func (srv *DebugServer) Debug(req *gnoi_debug_pb.DebugRequest, stream gnoi_debug
 		return err
 	}
 
-	return gnoi_debug.HandleCommandRequest(req, stream)
+	// TODO: Pass whitelist based on write/read access
+	return gnoi_debug.HandleCommandRequest(req, stream, nil)
 }
