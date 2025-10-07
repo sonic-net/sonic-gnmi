@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"mvdan.cc/sh/v3/shell"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -13,29 +14,38 @@ var ErrRejected = errors.New("command rejected by policy")
 
 // ValidateAndExtract parses the input shell text and, if allowed by policy (i.e. the rules within this fn),
 // returns (absCmdPath, args, nil). Otherwise returns ErrRejected.
-func ValidateAndExtract(input string, whitelist map[string]string) (absCmd string, args []string, err error) {
+func ValidateAndExtract(inputRaw string, whitelist map[string]string) (absCmd string, args []string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("%w: recover error: %v", ErrRejected, r)
 		}
 	}()
 
+	// Expand to remove variables, using container env variables
+	// TODO: confirm that container has relevant env variables from host
+	inputSan, err := shell.Expand(inputRaw, nil)
+	if err != nil {
+		return "", nil, fmt.Errorf("%w: expansion error: %w", ErrRejected, err)
+	}
+
+	// Parse into an AST for introspection
 	p := syntax.NewParser(syntax.Variant(syntax.LangBash))
-	f, err := p.Parse(strings.NewReader(input), "")
+	ast, err := p.Parse(strings.NewReader(inputSan), "")
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: parse error: %w", ErrRejected, err)
 	}
 
-	unsafe := walkForDangerousNodeTypes(f)
+	// Reject any remaining dangerous nodes
+	unsafe := walkForDangerousNodeTypes(ast)
 	if unsafe {
-		return "", nil, fmt.Errorf("%w: `%s` contains unsafe statements", ErrRejected, input)
+		return "", nil, fmt.Errorf("%w: `%s` contains unsafe statements", ErrRejected, inputRaw)
 	}
 
 	// Must be exactly one statement (complete command).
-	if len(f.Stmts) != 1 {
-		return "", nil, fmt.Errorf("%w: must be exactly one statement (got %d)", ErrRejected, len(f.Stmts))
+	if len(ast.Stmts) != 1 {
+		return "", nil, fmt.Errorf("%w: must be exactly one statement (got %d)", ErrRejected, len(ast.Stmts))
 	}
-	stmt := f.Stmts[0]
+	stmt := ast.Stmts[0]
 
 	// Disallow negation, background, coprocessing, semicolons, and redirects.
 	if stmt.Negated {
