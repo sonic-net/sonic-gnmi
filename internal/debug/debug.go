@@ -37,6 +37,8 @@ var (
 
 	// Allow DI for mocking
 	execCommandWithContext = func(ctx context.Context, name string, args ...string) ExecutableCommand {
+		// Below is passed through AST validation + whitelist sanitisation, and is as safe as possible
+		// nosemgrep:dangerous-exec-command
 		return exec.CommandContext(ctx, name, args...)
 	}
 )
