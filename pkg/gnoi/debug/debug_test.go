@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -61,195 +62,108 @@ func (s *mockDebugServerStream) getResponses() []*debug_pb.DebugResponse {
 }
 
 func TestHandleCommandRequest(t *testing.T) {
-	defer func() { runCommand = originalRunCommand }()
+	testCases := []struct {
+		name         string
+		req          *debug_pb.DebugRequest
+		runCmdFn     func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error)
+		expectedData []string
+		expectedCode int32
+		expectErr    bool
+		errType      codes.Code
+		errMsg       string
+	}{
+		{
+			name:      "Error on nil request",
+			req:       nil,
+			expectErr: true,
+			errType:   codes.InvalidArgument,
+			errMsg:    "request cannot be nil",
+		},
+		{
+			name:      "Error on nil command",
+			req:       &debug_pb.DebugRequest{},
+			expectErr: true,
+			errType:   codes.InvalidArgument,
+		},
+		{
+			name: "Error on unimplemented SHELL mode",
+			req: &debug_pb.DebugRequest{
+				Command: []byte("ls"),
+				Mode:    debug_pb.DebugRequest_MODE_SHELL,
+			},
+			expectErr: true,
+			errType:   codes.Unimplemented,
+		},
+		{
+			name: "Error on UNSPECIFIED mode",
+			req: &debug_pb.DebugRequest{
+				Command: []byte("ls"),
+				Mode:    debug_pb.DebugRequest_MODE_UNSPECIFIED,
+			},
+			expectErr: true,
+			errType:   codes.InvalidArgument,
+		},
+		{
+			name: "Successful execution",
+			req: &debug_pb.DebugRequest{
+				Command:     []byte("show version"),
+				Mode:        debug_pb.DebugRequest_MODE_CLI,
+				RoleAccount: "test-admin",
+				ByteLimit:   1024,
+			},
+			runCmdFn: func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
+				defer func() {
+					close(outCh)
+					close(errCh)
+				}()
 
-	t.Run("Error on nil request", func(t *testing.T) {
-		stream := &mockDebugServerStream{ctx: context.Background()}
-		err := HandleCommandRequest(nil, stream, testWhitelist)
-		if err == nil {
-			t.Fatal("expected an error but got nil")
-		}
-		st, ok := status.FromError(err)
-		if !ok {
-			t.Fatal("expected error to be a gRPC status error")
-		}
-		if st.Code() != codes.InvalidArgument {
-			t.Errorf("expected code %v, got %v", codes.InvalidArgument, st.Code())
-		}
-		expectedMsg := "request cannot be nil"
-		if !strings.Contains(st.Message(), expectedMsg) {
-			t.Errorf("expected message to contain %q, but it was %q", expectedMsg, st.Message())
-		}
-	})
-
-	t.Run("Error on nil command", func(t *testing.T) {
-		req := &debug_pb.DebugRequest{}
-		stream := &mockDebugServerStream{ctx: context.Background()}
-		err := HandleCommandRequest(req, stream, testWhitelist)
-		if err == nil {
-			t.Fatal("expected an error but got nil")
-		}
-		st, ok := status.FromError(err)
-		if !ok {
-			t.Fatal("expected error to be a gRPC status error")
-		}
-		if st.Code() != codes.InvalidArgument {
-			t.Errorf("expected code %v, got %v", codes.InvalidArgument, st.Code())
-		}
-	})
-
-	t.Run("Error on unimplemented SHELL mode", func(t *testing.T) {
-		req := &debug_pb.DebugRequest{
-			Command: []byte("ls"),
-			Mode:    debug_pb.DebugRequest_MODE_SHELL,
-		}
-		stream := &mockDebugServerStream{ctx: context.Background()}
-		err := HandleCommandRequest(req, stream, testWhitelist)
-		if err == nil {
-			t.Fatal("expected an error but got nil")
-		}
-		st, ok := status.FromError(err)
-		if !ok {
-			t.Fatal("expected error to be a gRPC status error")
-		}
-		if st.Code() != codes.Unimplemented {
-			t.Errorf("expected code %v, got %v", codes.Unimplemented, st.Code())
-		}
-	})
-
-	t.Run("Error on UNSPECIFIED mode", func(t *testing.T) {
-		req := &debug_pb.DebugRequest{
-			Command: []byte("ls"),
-			Mode:    debug_pb.DebugRequest_MODE_UNSPECIFIED,
-		}
-		stream := &mockDebugServerStream{ctx: context.Background()}
-		err := HandleCommandRequest(req, stream, testWhitelist)
-		if err == nil {
-			t.Fatal("expected an error but got nil")
-		}
-		st, ok := status.FromError(err)
-		if !ok {
-			t.Fatal("expected error to be a gRPC status error")
-		}
-		if st.Code() != codes.InvalidArgument {
-			t.Errorf("expected code %v, got %v", codes.InvalidArgument, st.Code())
-		}
-	})
-
-	t.Run("Successful execution", func(t *testing.T) {
-		req := &debug_pb.DebugRequest{
-			Command:     []byte("show version"),
-			Mode:        debug_pb.DebugRequest_MODE_CLI,
-			RoleAccount: "test-admin",
-			ByteLimit:   1024,
-		}
-		stream := &mockDebugServerStream{ctx: context.Background()}
-
-		// Mock RunCommand to simulate a successful execution with output
-		runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
-			defer func() {
+				outCh <- "SONiC Version: 202305"
+				errCh <- "Some warning on stderr"
+				return 0, nil
+			},
+			expectedCode: 0,
+			expectedData: []string{
+				"SONiC Version: 202305",
+				"Some warning on stderr",
+			},
+		},
+		{
+			name: "Execution fails with non-zero exit code",
+			req: &debug_pb.DebugRequest{
+				Command: []byte("invalid-command"),
+				Mode:    debug_pb.DebugRequest_MODE_CLI,
+			},
+			runCmdFn: func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
+				defer func() {
+					close(outCh)
+					close(errCh)
+				}()
+				errCh <- "command not found"
+				return 127, nil
+			},
+			expectedCode: 127,
+			expectedData: []string{
+				"command not found",
+			},
+		},
+		{
+			name: "RunCommand returns an infrastructure error",
+			req: &debug_pb.DebugRequest{
+				Command: []byte("any"),
+				Mode:    debug_pb.DebugRequest_MODE_CLI,
+			},
+			runCmdFn: func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
 				close(outCh)
 				close(errCh)
-			}()
+				return -1, errors.New("failed to start process")
+			},
+			expectErr: true,
+			errType:   codes.FailedPrecondition,
+			errMsg:    "failed to start process",
+		},
+	}
 
-			outCh <- "SONiC Version: 202305"
-			errCh <- "Some warning on stderr"
-			return 0, nil
-		}
-
-		err := HandleCommandRequest(req, stream, testWhitelist)
-		if err != nil {
-			t.Fatalf("did not expect an error but got: %v", err)
-		}
-
-		responses := stream.getResponses()
-		if len(responses) != 4 {
-			t.Logf("res: %+v", responses)
-			t.Fatalf("expected 4 responses, got %d", len(responses))
-		}
-
-		// 1. Check Request response
-		if !reflect.DeepEqual(req, responses[0].GetRequest()) {
-			t.Errorf("unexpected request response, got %+v", responses[0].GetRequest())
-		}
-
-		// 2. Check Data responses (order is not guaranteed between stdout/stderr)
-		stdout := "SONiC Version: 202305"
-		stderr := "Some warning on stderr"
-		data1 := string(responses[1].GetData())
-		data2 := string(responses[2].GetData())
-
-		if !((data1 == stdout && data2 == stderr) || (data1 == stderr && data2 == stdout)) {
-			t.Errorf("unexpected data responses, got %q and %q", data1, data2)
-		}
-
-		// 3. Check Status response
-		if code := responses[3].GetStatus().GetCode(); code != 0 {
-			t.Errorf("expected exit code 0, got %d", code)
-		}
-	})
-
-	t.Run("Execution fails with non-zero exit code", func(t *testing.T) {
-		req := &debug_pb.DebugRequest{
-			Command: []byte("invalid-command"),
-			Mode:    debug_pb.DebugRequest_MODE_CLI,
-		}
-		stream := &mockDebugServerStream{ctx: context.Background()}
-
-		runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
-			defer func() {
-				close(outCh)
-				close(errCh)
-			}()
-			errCh <- "command not found"
-			return 127, nil
-		}
-
-		err := HandleCommandRequest(req, stream, testWhitelist)
-		if err != nil {
-			t.Fatalf("did not expect an error but got: %v", err)
-		}
-
-		responses := stream.getResponses()
-		if len(responses) != 3 { // Request, Data, Status
-			t.Fatalf("expected 3 responses, got %d", len(responses))
-		}
-		if code := responses[2].GetStatus().GetCode(); code != 127 {
-			t.Errorf("expected exit code 127, got %d", code)
-		}
-	})
-
-	t.Run("RunCommand returns an infrastructure error", func(t *testing.T) {
-		req := &debug_pb.DebugRequest{
-			Command: []byte("any"),
-			Mode:    debug_pb.DebugRequest_MODE_CLI,
-		}
-		stream := &mockDebugServerStream{ctx: context.Background()}
-		expectedErr := errors.New("failed to start process")
-
-		runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
-			close(outCh)
-			close(errCh)
-			return -1, expectedErr
-		}
-
-		err := HandleCommandRequest(req, stream, testWhitelist)
-		if err == nil {
-			t.Fatal("expected an error but got nil")
-		}
-
-		st, ok := status.FromError(err)
-		if !ok {
-			t.Fatal("expected error to be a gRPC status error")
-		}
-		if st.Code() != codes.FailedPrecondition {
-			t.Errorf("expected code %v, got %v", codes.FailedPrecondition, st.Code())
-		}
-		if !strings.Contains(st.Message(), expectedErr.Error()) {
-			t.Errorf("expected message to contain %q, but it was %q", expectedErr.Error(), st.Message())
-		}
-	})
-
+	// Annoying to capture in table tests, just keep separate
 	t.Run("Timeout is respected", func(t *testing.T) {
 		req := &debug_pb.DebugRequest{
 			Command: []byte("sleep 10"),
@@ -279,6 +193,69 @@ func TestHandleCommandRequest(t *testing.T) {
 			t.Errorf("expected context error %v, got %v", context.DeadlineExceeded, capturedCtx.Err())
 		}
 	})
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.runCmdFn != nil {
+				runCommand = tc.runCmdFn
+			}
+			defer func() { runCommand = originalRunCommand }()
+
+			stream := &mockDebugServerStream{ctx: context.Background()}
+			err := HandleCommandRequest(tc.req, stream, testWhitelist)
+
+			if tc.expectErr {
+				if err == nil {
+					t.Fatal("expected an error, but got nil")
+				}
+
+				st, ok := status.FromError(err)
+				if !ok {
+					t.Fatalf("expected error to be a gRPC error, got: %v", err)
+				}
+
+				if st.Code() != tc.errType {
+					t.Errorf("expected code %v, got: %v", tc.errType, st.Code())
+				}
+
+				if !strings.Contains(st.Message(), tc.errMsg) {
+					t.Errorf("expected message to contain %q, got: %q", tc.errMsg, st.Message())
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("did not expect an error but got: %v", err)
+				}
+
+				responses := stream.getResponses()
+				expectedNumRes := len(tc.expectedData) + 2
+				if len(responses) != expectedNumRes {
+					t.Fatalf("expected %d responses, got %d", expectedNumRes, len(responses))
+				}
+
+				// 1. Check first res is the request
+				if !reflect.DeepEqual(tc.req, responses[0].GetRequest()) {
+					t.Errorf("unexpected request response, got %+v", responses[0].GetRequest())
+				}
+
+				// 2. Check the in-between res
+				if tc.expectedData != nil {
+					for _, res := range responses[1 : len(responses)-1] {
+						data := string(res.GetData())
+
+						if !slices.Contains(tc.expectedData, data) {
+							t.Errorf("responses did not contain expected data: %s", data)
+						}
+					}
+				}
+
+				// Check the in-between res
+				// 3. Check last is the exit code
+				if code := responses[len(responses)-1].GetStatus().GetCode(); code != tc.expectedCode {
+					t.Errorf("expected exit code %d, got %d", tc.expectedCode, code)
+				}
+			}
+		})
+	}
 }
 
 // --- Test Helper Functions ---
