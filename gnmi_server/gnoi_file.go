@@ -136,31 +136,6 @@ func (srv *FileServer) Remove(ctx context.Context, req *gnoi_file_pb.RemoveReque
 		log.Errorf("authentication failed in Remove RPC: %v", err)
 		return nil, err
 	}
-	if req.GetRemoteFile() == "" {
-		log.Errorf("Invalid request: remote_file field is empty")
-		return nil, status.Error(codes.InvalidArgument, "Invalid request: remote_file field is empty.")
-	}
-
-	// Use native Go to remove the file instead of Dbus client
-	err = os.Remove(req.GetRemoteFile())
-	if err != nil {
-		log.Errorf("Remove RPC failed: %v", err)
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	return &gnoi_file_pb.RemoveResponse{}, nil
-
-// Remove implements the corresponding RPC.
-func (srv *FileServer) Remove(ctx context.Context, req *gnoi_file_pb.RemoveRequest) (*gnoi_file_pb.RemoveResponse, error) {
-	log.Infof("GNOI File Remove RPC called with request: %+v", req)
-	if req == nil {
-		log.Errorf("Nil request received")
-		return nil, status.Error(codes.InvalidArgument, "Invalid nil request.")
-	}
-	_, err := authenticate(srv.config, ctx, "gnoi", false)
-	if err != nil {
-		log.Errorf("authentication failed in Remove RPC: %v", err)
-		return nil, err
-	}
 	// Delegate to handler (all logic except authentication is in the handler)
 	return gnoifile.HandleFileRemove(ctx, req)
 }
