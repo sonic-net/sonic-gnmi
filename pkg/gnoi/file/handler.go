@@ -1,11 +1,15 @@
 package file
 
 import (
+    "context"
     "os"
-    "log"
     "strings"
     "path/filepath"
-    "errors"
+
+    log "github.com/golang/glog"
+    gnoi_file_pb "github.com/openconfig/gnoi/file"
+    "google.golang.org/grpc/codes"
+    "google.golang.org/grpc/status"
 )
 
 var allowedPrefixes = []string{"/tmp/", "/var/tmp/"}
@@ -31,7 +35,6 @@ func isBlacklisted(path string) bool {
 
 func hasPathTraversal(path string) bool {
     clean := filepath.Clean(path)
-    // Ensures cleaned path does not escape allowed prefix
     for _, prefix := range allowedPrefixes {
         if strings.HasPrefix(clean, prefix) {
             return false
@@ -40,25 +43,39 @@ func hasPathTraversal(path string) bool {
     return true
 }
 
-func RemoveFile(path string) error {
-    log.Printf("Request to remove file: %s", path)
-    if isBlacklisted(path) {
-        log.Printf("Denied: blacklisted file removal attempt: %s", path)
-        return errors.New("removal of critical system files is forbidden")
+func HandleFileRemove(ctx context.Context, req *gnoi_file_pb.RemoveRequest) (*gnoi_file_pb.RemoveResponse, error) {
+    log.Infof("HandleFileRemove called with request: %+v", req)
+
+    if req == nil {
+        log.Errorf("Nil request received")
+        return nil, status.Error(codes.InvalidArgument, "Invalid nil request.")
     }
-    if !isWhitelisted(path) {
-        log.Printf("Denied: file not in allowed directory: %s", path)
-        return errors.New("only files in /tmp/ or /var/tmp/ can be removed")
+
+    remoteFile := req.GetRemoteFile()
+    if remoteFile == "" {
+        log.Errorf("Invalid request: remote_file field is empty")
+        return nil, status.Error(codes.InvalidArgument, "Invalid request: remote_file field is empty.")
     }
-    if hasPathTraversal(path) {
-        log.Printf("Denied: path traversal detected in: %s", path)
-        return errors.New("path traversal detected")
+
+    if isBlacklisted(remoteFile) {
+        log.Errorf("Denied: blacklisted file removal attempt: %s", remoteFile)
+        return nil, status.Error(codes.PermissionDenied, "removal of critical system files is forbidden")
     }
-    err := os.Remove(path)
+    if !isWhitelisted(remoteFile) {
+        log.Errorf("Denied: file not in allowed directory: %s", remoteFile)
+        return nil, status.Error(codes.PermissionDenied, "only files in /tmp/ or /var/tmp/ can be removed")
+    }
+    if hasPathTraversal(remoteFile) {
+        log.Errorf("Denied: path traversal detected in: %s", remoteFile)
+        return nil, status.Error(codes.PermissionDenied, "path traversal detected")
+    }
+
+    err := os.Remove(remoteFile)
     if err != nil {
-        log.Printf("Error removing file: %s: %v", path, err)
-        return err
+        log.Errorf("Remove RPC failed: %v", err)
+        return &gnoi_file_pb.RemoveResponse{}, err
     }
-    log.Printf("Successfully removed file: %s", path)
-    return nil
+
+    log.Infof("Successfully removed file: %s", remoteFile)
+    return &gnoi_file_pb.RemoveResponse{}, nil
 }
