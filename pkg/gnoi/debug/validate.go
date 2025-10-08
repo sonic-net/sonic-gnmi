@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -13,7 +14,7 @@ var ErrRejected = errors.New("command rejected by policy")
 
 // ValidateAndExtract parses the input shell text and, if allowed by policy (i.e. the rules within this fn),
 // returns (absCmdPath, args, nil). Otherwise returns ErrRejected.
-func ValidateAndExtract(input string, whitelist map[string]string) (absCmd string, args []string, err error) {
+func ValidateAndExtract(input string, whitelist []string) (absCmd string, args []string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("%w: recover error: %v", ErrRejected, r)
@@ -85,12 +86,11 @@ func ValidateAndExtract(input string, whitelist map[string]string) (absCmd strin
 
 	// The first argv element is the command name. Look it up in whitelist.
 	cmdName := filepath.Base(argv[0]) // use basename for matching
-	absPath, ok := whitelist[cmdName]
-	if !ok {
+	if !slices.Contains(whitelist, cmdName) {
 		return "", nil, fmt.Errorf("%w: command %q is not whitelisted", ErrRejected, cmdName)
 	}
 
-	return absPath, argv[1:], nil
+	return cmdName, argv[1:], nil
 }
 
 // Helper which walks a given AST from the provided node, checking for potentially dangerous node types.

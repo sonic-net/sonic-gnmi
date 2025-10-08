@@ -21,12 +21,12 @@ import (
 
 var (
 	originalRunCommand = debug.RunCommand
-	testWhitelist      = map[string]string{
-		"ls":              "ls",
-		"show":            "show",
-		"invalid-command": "invalid-command",
-		"sleep":           "sleep",
-		"any":             "any",
+	testWhitelist      = []string{
+		"ls",
+		"show",
+		"invalid-command",
+		"sleep",
+		"any",
 	}
 )
 

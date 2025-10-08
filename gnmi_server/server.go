@@ -29,6 +29,7 @@ import (
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
+	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -135,6 +136,8 @@ type ContainerzServer struct {
 // DebugServer is the server API for Debug service.
 type DebugServer struct {
 	*Server
+	readWhitelist []string
+	writeWhitelist []string
 	gnoi_debug_pb.UnimplementedDebugServer
 }
 
@@ -252,7 +255,13 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	fileSrv := &FileServer{Server: srv}
 	osSrv := &OSServer{Server: srv}
 	containerzSrv := &ContainerzServer{server: srv}
-	debugSrv := &DebugServer{Server: srv}
+
+	readWhitelist, writeWhitelist := constructWhitelists()
+	debugSrv := &DebugServer{
+		Server: srv,
+		readWhitelist: readWhitelist,
+		writeWhitelist: writeWhitelist,
+	}
 
 	var err error
 	if srv.config.Port < 0 {

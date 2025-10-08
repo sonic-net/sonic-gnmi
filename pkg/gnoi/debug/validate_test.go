@@ -2,17 +2,17 @@ package debug
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
 
-// Example whitelist: map from allowed command `name` -> `absolute path executed`.
-var exampleWhitelist = map[string]string{
-	"echo":  "/usr/bin/echo",
-	"ls":    "/bin/ls",
-	"cat":   "/bin/cat",
-	"tar":   "/usr/bin/tar",
-	"sleep": "/bin/sleep",
+var exampleWhitelist = []string{
+	"echo",
+	"ls",
+	"cat",
+	"tar",
+	"sleep",
 }
 
 func TestValidateAndExtract(t *testing.T) {
@@ -27,14 +27,14 @@ func TestValidateAndExtract(t *testing.T) {
 			name:         "simple echo",
 			input:        "echo hello world",
 			allow:        true,
-			expectedCmd:  "/usr/bin/echo",
+			expectedCmd:  "echo",
 			expectedArgs: []string{"hello", "world"},
 		},
 		{
 			name:         "simple ls",
 			input:        "ls -la /tmp",
 			allow:        true,
-			expectedCmd:  "/bin/ls",
+			expectedCmd:  "ls",
 			expectedArgs: []string{"-la", "/tmp"},
 		},
 		{
@@ -61,7 +61,7 @@ func TestValidateAndExtract(t *testing.T) {
 			name:         "absolute path allowed",
 			input:        "/bin/ls -l",
 			allow:        true,
-			expectedCmd:  "/bin/ls",
+			expectedCmd:  "ls",
 			expectedArgs: []string{"-l"},
 		},
 		{
@@ -169,14 +169,7 @@ func FuzzValidateAndExtract(f *testing.F) {
 		// Allowed commands must obey invariants:
 		if err == nil {
 			// 1. Command path must be in whitelist.
-			found := false
-			for _, allowed := range exampleWhitelist {
-				if cmd == allowed {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if !slices.Contains(exampleWhitelist, cmd) {
 				t.Fatalf("allowed command %q not in whitelist (input=%q)", cmd, input)
 			}
 

@@ -32,7 +32,7 @@ var (
 func HandleCommandRequest(
 	req *debug_pb.DebugRequest,
 	stream debug_pb.Debug_DebugServer,
-	whitelist map[string]string,
+	whitelist []string,
 ) error {
 	ctx := stream.Context()
 
