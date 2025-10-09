@@ -2,6 +2,7 @@ package operationalhandler
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,6 +68,24 @@ func NewOperationalHandler(paths []*gnmipb.Path, prefix *gnmipb.Path) (Handler, 
 		handler.pathHandlers[supportedPath] = diskSpaceHandler
 	}
 
+	// Register file listing handler if filesystem/files paths are requested
+	needsFileHandler := false
+	for _, path := range paths {
+		pathStr := handler.pathToString(path)
+		// Check for both firmware paths (legacy) and filesystem/files paths (new)
+		if strings.Contains(pathStr, "firmware") || (strings.Contains(pathStr, "filesystem") && strings.Contains(pathStr, "files")) {
+			needsFileHandler = true
+			break
+		}
+	}
+
+	if needsFileHandler {
+		fileHandler := NewFirmwareHandler() // Still using FirmwareHandler internally
+		for _, supportedPath := range fileHandler.SupportedPaths() {
+			handler.pathHandlers[supportedPath] = fileHandler
+		}
+	}
+
 	// Validate that all requested paths are supported
 	for _, path := range paths {
 		pathStr := handler.pathToString(path)
@@ -114,6 +133,32 @@ func (h *OperationalHandler) pathMatches(requestedPath, supportedPath string) bo
 		}
 		return false
 	}
+
+	if supportedPath == "filesystem/files" {
+		// Match paths like "filesystem[path=*]/files", "filesystem[path=*]/files[pattern=*]/list", etc.
+		if requestedPath == "filesystem/files" {
+			return true
+		}
+		// Check if requestedPath contains filesystem/files pattern
+		if strings.Contains(requestedPath, "filesystem") && strings.Contains(requestedPath, "/files") {
+			return true
+		}
+		return false
+	}
+
+	// Legacy support for firmware paths (deprecated, use filesystem/files instead)
+	if supportedPath == "firmware/files" {
+		// Match paths like "firmware[directory=*]/files", "firmware[directory=*]/files/count", etc.
+		if requestedPath == "firmware/files" {
+			return true
+		}
+		// Check if requestedPath contains firmware/files pattern
+		if strings.Contains(requestedPath, "firmware") && strings.Contains(requestedPath, "/files") {
+			return true
+		}
+		return false
+	}
+
 	return requestedPath == supportedPath
 }
 
