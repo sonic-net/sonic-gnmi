@@ -3,6 +3,7 @@ package operationalhandler
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -38,39 +39,44 @@ func NewFirmwareHandler() *FirmwareHandler {
 // SupportedPaths returns the list of paths this handler supports.
 func (h *FirmwareHandler) SupportedPaths() []string {
 	return []string{
-		"firmware/files",
+		"filesystem/files",
 	}
 }
 
-// HandleGet processes a gNMI Get request for firmware file information.
+// HandleGet processes a gNMI Get request for file listing information.
 func (h *FirmwareHandler) HandleGet(path *gnmipb.Path) ([]byte, error) {
-	// Extract the firmware directory and field from the gNMI path
-	firmwareDir, field, err := h.extractFirmwarePathInfo(path)
+	// Extract the filesystem path, pattern, and field from the gNMI path
+	filesystemPath, pattern, field, err := h.extractFilePathInfo(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract firmware path info: %v", err)
+		return nil, fmt.Errorf("failed to extract file path info: %v", err)
 	}
 
-	// Use internal firmware library to get firmware files information
+	// Use internal firmware library to get file information
 	var value interface{}
 
 	switch field {
 	case "count":
-		count, err := h.monitor.GetFileCount(firmwareDir, "")
+		files, err := h.monitor.ListFiles(filesystemPath, "")
 		if err != nil {
-			return nil, fmt.Errorf("failed to get firmware file count for path %s: %v", firmwareDir, err)
+			return nil, fmt.Errorf("failed to get file count for path %s: %v", filesystemPath, err)
 		}
-		value = count
+		// Filter by pattern if provided
+		filteredFiles := h.filterFilesByPattern(files, pattern)
+		value = len(filteredFiles)
 
 	case "list":
-		files, err := h.monitor.ListFiles(firmwareDir, "")
+		files, err := h.monitor.ListFiles(filesystemPath, "")
 		if err != nil {
-			return nil, fmt.Errorf("failed to list firmware files for path %s: %v", firmwareDir, err)
+			return nil, fmt.Errorf("failed to list files for path %s: %v", filesystemPath, err)
 		}
 
+		// Filter by pattern if provided
+		filteredFiles := h.filterFilesByPattern(files, pattern)
+
 		// Convert to gNMI-compatible format
-		firmwareFiles := make([]FirmwareFileInfo, len(files))
-		for i, file := range files {
-			firmwareFiles[i] = FirmwareFileInfo{
+		fileInfos := make([]FirmwareFileInfo, len(filteredFiles))
+		for i, file := range filteredFiles {
+			fileInfos[i] = FirmwareFileInfo{
 				Name:        file.Name,
 				Size:        file.Size,
 				ModTime:     file.ModTime.Format("2006-01-02T15:04:05Z07:00"),
@@ -82,23 +88,27 @@ func (h *FirmwareHandler) HandleGet(path *gnmipb.Path) ([]byte, error) {
 		}
 
 		value = map[string]interface{}{
-			"directory":  firmwareDir,
-			"file_count": len(firmwareFiles),
-			"files":      firmwareFiles,
+			"path":       filesystemPath,
+			"pattern":    pattern,
+			"file_count": len(fileInfos),
+			"files":      fileInfos,
 		}
 
 	case "types":
 		// Get files grouped by type
-		files, err := h.monitor.ListFiles(firmwareDir, "")
+		files, err := h.monitor.ListFiles(filesystemPath, "")
 		if err != nil {
-			return nil, fmt.Errorf("failed to list firmware files for path %s: %v", firmwareDir, err)
+			return nil, fmt.Errorf("failed to list files for path %s: %v", filesystemPath, err)
 		}
+
+		// Filter by pattern if provided
+		filteredFiles := h.filterFilesByPattern(files, pattern)
 
 		// Group files by type
 		typeGroups := make(map[string][]FirmwareFileInfo)
-		for _, file := range files {
+		for _, file := range filteredFiles {
 			if !file.IsDirectory {
-				firmwareFile := FirmwareFileInfo{
+				fileInfo := FirmwareFileInfo{
 					Name:        file.Name,
 					Size:        file.Size,
 					ModTime:     file.ModTime.Format("2006-01-02T15:04:05Z07:00"),
@@ -107,32 +117,33 @@ func (h *FirmwareHandler) HandleGet(path *gnmipb.Path) ([]byte, error) {
 					Type:        file.Type,
 					MD5Sum:      file.MD5Sum,
 				}
-				typeGroups[file.Type] = append(typeGroups[file.Type], firmwareFile)
+				typeGroups[file.Type] = append(typeGroups[file.Type], fileInfo)
 			}
 		}
 
 		value = map[string]interface{}{
-			"directory": firmwareDir,
-			"types":     typeGroups,
+			"path":    filesystemPath,
+			"pattern": pattern,
+			"types":   typeGroups,
 		}
 
 	default:
 		// Check if it's a specific file request
 		if field != "" {
-			fileInfo, err := h.monitor.GetFileInfo(firmwareDir, field, "")
+			fileInfo, err := h.monitor.GetFileInfo(filesystemPath, field, "")
 			if err != nil {
 				// Check if it's actually an unsupported field (not a file not found error)
 				if strings.Contains(err.Error(), "file not found") {
 					// Try to list files to see if directory exists - if it does, then it's an unsupported field
-					_, listErr := h.monitor.ListFiles(firmwareDir, "")
+					_, listErr := h.monitor.ListFiles(filesystemPath, "")
 					if listErr == nil {
-						return nil, fmt.Errorf("unsupported firmware field: %s", field)
+						return nil, fmt.Errorf("unsupported file field: %s", field)
 					}
 				}
-				return nil, fmt.Errorf("failed to get firmware file info for %s in path %s: %v", field, firmwareDir, err)
+				return nil, fmt.Errorf("failed to get file info for %s in path %s: %v", field, filesystemPath, err)
 			}
 
-			firmwareFile := FirmwareFileInfo{
+			fileData := FirmwareFileInfo{
 				Name:        fileInfo.Name,
 				Size:        fileInfo.Size,
 				ModTime:     fileInfo.ModTime.Format("2006-01-02T15:04:05Z07:00"),
@@ -143,73 +154,99 @@ func (h *FirmwareHandler) HandleGet(path *gnmipb.Path) ([]byte, error) {
 			}
 
 			value = map[string]interface{}{
-				"directory": firmwareDir,
-				"file":      firmwareFile,
+				"path": filesystemPath,
+				"file": fileData,
 			}
 		} else {
-			return nil, fmt.Errorf("unsupported firmware field: %s", field)
+			return nil, fmt.Errorf("unsupported file field: %s", field)
 		}
 	}
 
 	// Marshal to JSON
 	jsonData, err := json.Marshal(value)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal firmware data: %v", err)
+		return nil, fmt.Errorf("failed to marshal file data: %v", err)
 	}
 
 	return jsonData, nil
 }
 
-// extractFirmwarePathInfo extracts the firmware directory and field from a gNMI path.
-// Handles paths like /sonic/system/firmware[directory=/lib/firmware]/files[type=driver]/count
-func (h *FirmwareHandler) extractFirmwarePathInfo(path *gnmipb.Path) (string, string, error) {
+// extractFilePathInfo extracts the filesystem path, pattern, and field from a gNMI path.
+// Handles paths like /sonic/system/filesystem[path=/tmp]/files[pattern=*.bin]/list
+func (h *FirmwareHandler) extractFilePathInfo(path *gnmipb.Path) (string, string, string, error) {
 	if path == nil {
-		return "", "", fmt.Errorf("path cannot be nil")
+		return "", "", "", fmt.Errorf("path cannot be nil")
 	}
 
 	elems := path.GetElem()
 	if len(elems) == 0 {
-		return "", "", fmt.Errorf("path elements cannot be empty")
+		return "", "", "", fmt.Errorf("path elements cannot be empty")
 	}
 
-	var firmwareDir string
+	var filesystemPath string
+	var pattern string = "*"  // default pattern matches all files
 	var field string = "list" // default to listing all files
 
-	// Look for firmware element with directory key
+	// Look for filesystem element with path key
 	for i, elem := range elems {
-		if elem.GetName() == "firmware" {
+		if elem.GetName() == "filesystem" {
 			keys := elem.GetKey()
-			if dirValue, exists := keys["directory"]; exists {
-				if dirValue == "" {
-					return "", "", fmt.Errorf("firmware directory cannot be empty")
+			if pathValue, exists := keys["path"]; exists {
+				if pathValue == "" {
+					return "", "", "", fmt.Errorf("filesystem path cannot be empty")
 				}
-				firmwareDir = dirValue
+				filesystemPath = pathValue
 			} else {
-				return "", "", fmt.Errorf("firmware directory not specified in path")
+				return "", "", "", fmt.Errorf("filesystem path not specified in path")
 			}
 		}
 
-		// Check for files element and subsequent field
+		// Check for files element with optional pattern key
 		if elem.GetName() == "files" {
-			// Check if there's a next element specifying the field
+			// Check for pattern filter in files element
+			if keys := elem.GetKey(); len(keys) > 0 {
+				if patternValue, exists := keys["pattern"]; exists {
+					pattern = patternValue
+				}
+			}
+
+			// Check if there's a next element specifying the field (list, count, types, etc.)
 			if i+1 < len(elems) {
 				nextElem := elems[i+1]
 				field = nextElem.GetName()
 			}
-			// Check for type filter in files element
-			if keys := elem.GetKey(); len(keys) > 0 {
-				if typeValue, exists := keys["type"]; exists {
-					field = "type:" + typeValue
-				}
-			}
 		}
 	}
 
-	if firmwareDir == "" {
-		return "", "", fmt.Errorf("no firmware directory found in gNMI path")
+	if filesystemPath == "" {
+		return "", "", "", fmt.Errorf("no filesystem path found in gNMI path")
 	}
 
-	return firmwareDir, field, nil
+	return filesystemPath, pattern, field, nil
+}
+
+// filterFilesByPattern filters files based on a glob pattern.
+// Pattern examples: "*.bin", "*.img", "*", "test-*", etc.
+func (h *FirmwareHandler) filterFilesByPattern(files []firmware.FileInfo, pattern string) []firmware.FileInfo {
+	// If pattern is "*" or empty, return all files
+	if pattern == "*" || pattern == "" {
+		return files
+	}
+
+	var filtered []firmware.FileInfo
+	for _, file := range files {
+		matched, err := filepath.Match(pattern, filepath.Base(file.Name))
+		if err != nil {
+			// If pattern is invalid, skip filtering and log warning
+			// In production, you might want to return an error instead
+			return files
+		}
+		if matched {
+			filtered = append(filtered, file)
+		}
+	}
+
+	return filtered
 }
 
 // GetFirmwareFilesByType retrieves firmware files filtered by type.

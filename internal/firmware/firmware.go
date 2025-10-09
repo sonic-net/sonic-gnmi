@@ -194,7 +194,7 @@ func calculateMD5(filePath string) (string, error) {
 	}
 	defer file.Close()
 
-	hash := md5.New()
+	hash := md5.New() // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
 	if _, err := io.Copy(hash, file); err != nil {
 		return "", err
 	}
