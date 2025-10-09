@@ -16,36 +16,60 @@ func TestFirmwareHandler_SupportedPaths(t *testing.T) {
 	handler := NewFirmwareHandler()
 	paths := handler.SupportedPaths()
 
-	expected := []string{"firmware/files"}
+	expected := []string{"filesystem/files"}
 	assert.Equal(t, expected, paths)
 }
 
-func TestFirmwareHandler_ExtractFirmwarePathInfo(t *testing.T) {
+func TestFirmwareHandler_ExtractFilePathInfo(t *testing.T) {
 	handler := NewFirmwareHandler()
 
 	tests := []struct {
-		name          string
-		path          *gnmipb.Path
-		expectedDir   string
-		expectedField string
-		wantErr       bool
+		name            string
+		path            *gnmipb.Path
+		expectedPath    string
+		expectedPattern string
+		expectedField   string
+		wantErr         bool
 	}{
 		{
-			name: "valid path with firmware directory",
+			name: "valid path with filesystem path",
 			path: &gnmipb.Path{
 				Elem: []*gnmipb.PathElem{
 					{Name: "sonic"},
 					{Name: "system"},
 					{
-						Name: "firmware",
-						Key:  map[string]string{"directory": "/lib/firmware"},
+						Name: "filesystem",
+						Key:  map[string]string{"path": "/tmp"},
 					},
 					{Name: "files"},
 				},
 			},
-			expectedDir:   "/lib/firmware",
-			expectedField: "list",
-			wantErr:       false,
+			expectedPath:    "/tmp",
+			expectedPattern: "*",
+			expectedField:   "list",
+			wantErr:         false,
+		},
+		{
+			name: "path with pattern filter",
+			path: &gnmipb.Path{
+				Elem: []*gnmipb.PathElem{
+					{Name: "sonic"},
+					{Name: "system"},
+					{
+						Name: "filesystem",
+						Key:  map[string]string{"path": "/tmp"},
+					},
+					{
+						Name: "files",
+						Key:  map[string]string{"pattern": "*.bin"},
+					},
+					{Name: "list"},
+				},
+			},
+			expectedPath:    "/tmp",
+			expectedPattern: "*.bin",
+			expectedField:   "list",
+			wantErr:         false,
 		},
 		{
 			name: "path with count field",
@@ -54,36 +78,20 @@ func TestFirmwareHandler_ExtractFirmwarePathInfo(t *testing.T) {
 					{Name: "sonic"},
 					{Name: "system"},
 					{
-						Name: "firmware",
-						Key:  map[string]string{"directory": "/lib/firmware"},
-					},
-					{Name: "files"},
-					{Name: "count"},
-				},
-			},
-			expectedDir:   "/lib/firmware",
-			expectedField: "count",
-			wantErr:       false,
-		},
-		{
-			name: "path with type filter",
-			path: &gnmipb.Path{
-				Elem: []*gnmipb.PathElem{
-					{Name: "sonic"},
-					{Name: "system"},
-					{
-						Name: "firmware",
-						Key:  map[string]string{"directory": "/lib/firmware"},
+						Name: "filesystem",
+						Key:  map[string]string{"path": "/tmp"},
 					},
 					{
 						Name: "files",
-						Key:  map[string]string{"type": "driver"},
+						Key:  map[string]string{"pattern": "*.bin"},
 					},
+					{Name: "count"},
 				},
 			},
-			expectedDir:   "/lib/firmware",
-			expectedField: "type:driver",
-			wantErr:       false,
+			expectedPath:    "/tmp",
+			expectedPattern: "*.bin",
+			expectedField:   "count",
+			wantErr:         false,
 		},
 		{
 			name:    "nil path",
@@ -98,7 +106,7 @@ func TestFirmwareHandler_ExtractFirmwarePathInfo(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "no firmware element",
+			name: "no filesystem element",
 			path: &gnmipb.Path{
 				Elem: []*gnmipb.PathElem{
 					{Name: "sonic"},
@@ -109,13 +117,13 @@ func TestFirmwareHandler_ExtractFirmwarePathInfo(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "firmware element without directory key",
+			name: "filesystem element without path key",
 			path: &gnmipb.Path{
 				Elem: []*gnmipb.PathElem{
 					{Name: "sonic"},
 					{Name: "system"},
 					{
-						Name: "firmware",
+						Name: "filesystem",
 						Key:  map[string]string{"other": "value"},
 					},
 					{Name: "files"},
@@ -124,14 +132,14 @@ func TestFirmwareHandler_ExtractFirmwarePathInfo(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "firmware element with empty directory",
+			name: "filesystem element with empty path",
 			path: &gnmipb.Path{
 				Elem: []*gnmipb.PathElem{
 					{Name: "sonic"},
 					{Name: "system"},
 					{
-						Name: "firmware",
-						Key:  map[string]string{"directory": ""},
+						Name: "filesystem",
+						Key:  map[string]string{"path": ""},
 					},
 					{Name: "files"},
 				},
@@ -142,13 +150,14 @@ func TestFirmwareHandler_ExtractFirmwarePathInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dir, field, err := handler.extractFirmwarePathInfo(tt.path)
+			path, pattern, field, err := handler.extractFilePathInfo(tt.path)
 
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tt.expectedDir, dir)
+				assert.Equal(t, tt.expectedPath, path)
+				assert.Equal(t, tt.expectedPattern, pattern)
 				assert.Equal(t, tt.expectedField, field)
 			}
 		})
@@ -178,14 +187,14 @@ func TestFirmwareHandler_HandleGet(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("list all firmware files", func(t *testing.T) {
+	t.Run("list all files", func(t *testing.T) {
 		path := &gnmipb.Path{
 			Elem: []*gnmipb.PathElem{
 				{Name: "sonic"},
 				{Name: "system"},
 				{
-					Name: "firmware",
-					Key:  map[string]string{"directory": firmwareDir},
+					Name: "filesystem",
+					Key:  map[string]string{"path": firmwareDir},
 				},
 				{Name: "files"},
 			},
@@ -198,7 +207,8 @@ func TestFirmwareHandler_HandleGet(t *testing.T) {
 		err = json.Unmarshal(data, &response)
 		require.NoError(t, err)
 
-		assert.Equal(t, firmwareDir, response["directory"])
+		assert.Equal(t, firmwareDir, response["path"])
+		assert.Equal(t, "*", response["pattern"])
 		assert.Equal(t, float64(4), response["file_count"]) // JSON unmarshals numbers as float64
 
 		files, ok := response["files"].([]interface{})
@@ -230,14 +240,14 @@ func TestFirmwareHandler_HandleGet(t *testing.T) {
 		}
 	})
 
-	t.Run("get firmware file count", func(t *testing.T) {
+	t.Run("get file count", func(t *testing.T) {
 		path := &gnmipb.Path{
 			Elem: []*gnmipb.PathElem{
 				{Name: "sonic"},
 				{Name: "system"},
 				{
-					Name: "firmware",
-					Key:  map[string]string{"directory": firmwareDir},
+					Name: "filesystem",
+					Key:  map[string]string{"path": firmwareDir},
 				},
 				{Name: "files"},
 				{Name: "count"},
@@ -253,14 +263,57 @@ func TestFirmwareHandler_HandleGet(t *testing.T) {
 		assert.Equal(t, 4, count)
 	})
 
-	t.Run("get specific firmware file info", func(t *testing.T) {
+	t.Run("list files with pattern filter", func(t *testing.T) {
 		path := &gnmipb.Path{
 			Elem: []*gnmipb.PathElem{
 				{Name: "sonic"},
 				{Name: "system"},
 				{
-					Name: "firmware",
-					Key:  map[string]string{"directory": firmwareDir},
+					Name: "filesystem",
+					Key:  map[string]string{"path": firmwareDir},
+				},
+				{
+					Name: "files",
+					Key:  map[string]string{"pattern": "*.bin"},
+				},
+				{Name: "list"},
+			},
+		}
+
+		data, err := handler.HandleGet(path)
+		require.NoError(t, err)
+
+		var response map[string]interface{}
+		err = json.Unmarshal(data, &response)
+		require.NoError(t, err)
+
+		assert.Equal(t, firmwareDir, response["path"])
+		assert.Equal(t, "*.bin", response["pattern"])
+		assert.Equal(t, float64(3), response["file_count"]) // Only .bin files
+
+		files, ok := response["files"].([]interface{})
+		assert.True(t, ok)
+		assert.Len(t, files, 3)
+
+		// Verify all files have .bin extension
+		for _, fileInterface := range files {
+			file, ok := fileInterface.(map[string]interface{})
+			assert.True(t, ok)
+
+			name, ok := file["name"].(string)
+			assert.True(t, ok)
+			assert.Contains(t, name, ".bin")
+		}
+	})
+
+	t.Run("get specific file info", func(t *testing.T) {
+		path := &gnmipb.Path{
+			Elem: []*gnmipb.PathElem{
+				{Name: "sonic"},
+				{Name: "system"},
+				{
+					Name: "filesystem",
+					Key:  map[string]string{"path": firmwareDir},
 				},
 				{Name: "files"},
 				{Name: "bootloader.bin"},
@@ -274,7 +327,7 @@ func TestFirmwareHandler_HandleGet(t *testing.T) {
 		err = json.Unmarshal(data, &response)
 		require.NoError(t, err)
 
-		assert.Equal(t, firmwareDir, response["directory"])
+		assert.Equal(t, firmwareDir, response["path"])
 
 		file, ok := response["file"].(map[string]interface{})
 		assert.True(t, ok)
@@ -290,8 +343,8 @@ func TestFirmwareHandler_HandleGet(t *testing.T) {
 				{Name: "sonic"},
 				{Name: "system"},
 				{
-					Name: "firmware",
-					Key:  map[string]string{"directory": firmwareDir},
+					Name: "filesystem",
+					Key:  map[string]string{"path": firmwareDir},
 				},
 				{Name: "files"},
 				{Name: "types"},
@@ -305,7 +358,7 @@ func TestFirmwareHandler_HandleGet(t *testing.T) {
 		err = json.Unmarshal(data, &response)
 		require.NoError(t, err)
 
-		assert.Equal(t, firmwareDir, response["directory"])
+		assert.Equal(t, firmwareDir, response["path"])
 
 		types, ok := response["types"].(map[string]interface{})
 		assert.True(t, ok)
@@ -407,8 +460,8 @@ func TestFirmwareHandler_ErrorCases(t *testing.T) {
 				{Name: "sonic"},
 				{Name: "system"},
 				{
-					Name: "firmware",
-					Key:  map[string]string{"directory": "/non/existent/path"},
+					Name: "filesystem",
+					Key:  map[string]string{"path": "/non/existent/path"},
 				},
 				{Name: "files"},
 			},
@@ -426,8 +479,8 @@ func TestFirmwareHandler_ErrorCases(t *testing.T) {
 				{Name: "sonic"},
 				{Name: "system"},
 				{
-					Name: "firmware",
-					Key:  map[string]string{"directory": tempDir},
+					Name: "filesystem",
+					Key:  map[string]string{"path": tempDir},
 				},
 				{Name: "files"},
 				{Name: "nonexistent.bin"},
@@ -436,7 +489,7 @@ func TestFirmwareHandler_ErrorCases(t *testing.T) {
 
 		_, err := handler.HandleGet(path)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "unsupported firmware field")
+		assert.Contains(t, err.Error(), "unsupported file field")
 	})
 
 	t.Run("unsupported field", func(t *testing.T) {
@@ -446,8 +499,8 @@ func TestFirmwareHandler_ErrorCases(t *testing.T) {
 				{Name: "sonic"},
 				{Name: "system"},
 				{
-					Name: "firmware",
-					Key:  map[string]string{"directory": tempDir},
+					Name: "filesystem",
+					Key:  map[string]string{"path": tempDir},
 				},
 				{Name: "files"},
 				{Name: "unsupported"},
@@ -456,6 +509,6 @@ func TestFirmwareHandler_ErrorCases(t *testing.T) {
 
 		_, err := handler.HandleGet(path)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "unsupported firmware field")
+		assert.Contains(t, err.Error(), "unsupported file field")
 	})
 }
