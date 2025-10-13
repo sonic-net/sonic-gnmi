@@ -176,7 +176,7 @@ func TestRunCommand(t *testing.T) {
 			expectErr:        false,
 			expectedStdout:   "OK",
 			expectedStderr:   "",
-			expectedArgs:     []string{"--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "su", "-", "admin", "-c", "echo", "'test'"},
+			expectedArgs:     []string{"--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "su", "-", "admin", "-c", "echo 'test'"},
 		},
 		{
 			name: "Successful execution with custom user",

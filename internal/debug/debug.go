@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os/exec"
+	"strings"
 	"sync"
 )
 
@@ -95,6 +96,13 @@ func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, r
 		close(errCh)
 	}()
 
+	var fullCmd strings.Builder
+	fullCmd.WriteString(cmd)
+	for _, arg := range args {
+		fullCmd.WriteString(" ")
+		fullCmd.WriteString(arg)
+	}
+
 	fullArgs := make([]string, 0, STATIC_ARG_LEN+len(args))
 	fullArgs = append(fullArgs, NSENTER_ARGS...)
 	fullArgs = append(fullArgs, USER_ARGS...)
@@ -104,8 +112,7 @@ func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, r
 		fullArgs = append(fullArgs, roleAccount)
 	}
 	fullArgs = append(fullArgs, SHELL_ARGS...)
-	fullArgs = append(fullArgs, cmd)
-	fullArgs = append(fullArgs, args...)
+	fullArgs = append(fullArgs, fullCmd.String())
 
 	command := execCommandWithContext(ctx, NSENTER_CMD, fullArgs...)
 
