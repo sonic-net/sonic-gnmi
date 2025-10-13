@@ -2,7 +2,6 @@ package debug
 
 import (
 	"errors"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -169,7 +168,7 @@ func FuzzValidateAndExtract(f *testing.F) {
 		// Allowed commands must obey invariants:
 		if err == nil {
 			// 1. Command path must be in whitelist.
-			if !slices.Contains(exampleWhitelist, cmd) {
+			if !sliceContains(exampleWhitelist, cmd) {
 				t.Fatalf("allowed command %q not in whitelist (input=%q)", cmd, input)
 			}
 

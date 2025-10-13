@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -86,7 +85,7 @@ func ValidateAndExtract(input string, whitelist []string) (absCmd string, args [
 
 	// The first argv element is the command name. Look it up in whitelist.
 	cmdName := filepath.Base(argv[0]) // use basename for matching
-	if !slices.Contains(whitelist, cmdName) {
+	if !sliceContains(whitelist, cmdName) {
 		return "", nil, fmt.Errorf("%w: command %q is not whitelisted", ErrRejected, cmdName)
 	}
 
@@ -125,4 +124,16 @@ func walkForDangerousNodeTypes(node syntax.Node) bool {
 	})
 
 	return unsafe
+}
+
+// Helper which ports the slices.Contains functionality for string slices to this version of Go.
+// Returns whether the string exists within the provided slice.
+func sliceContains(slice []string, str string) bool {
+	for _, slice_str := range slice {
+		if slice_str == str {
+			return true
+		}
+	}
+
+	return false
 }

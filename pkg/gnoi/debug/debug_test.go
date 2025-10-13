@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -242,7 +241,7 @@ func TestHandleCommandRequest(t *testing.T) {
 					for _, res := range responses[1 : len(responses)-1] {
 						data := string(res.GetData())
 
-						if !slices.Contains(tc.expectedData, data) {
+						if !sliceContains(tc.expectedData, data) {
 							t.Errorf("responses did not contain expected data: %s", data)
 						}
 					}
