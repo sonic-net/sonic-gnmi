@@ -24,7 +24,7 @@ func ValidateAndExtract(input string, whitelist []string) (absCmd string, args [
 	p := syntax.NewParser(syntax.Variant(syntax.LangBash))
 	ast, err := p.Parse(strings.NewReader(input), "")
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: parse error: %w", ErrRejected, err)
+		return "", nil, fmt.Errorf("%w: parse error: %v", ErrRejected, err)
 	}
 
 	// Reject any remaining dangerous nodes
