@@ -12,7 +12,6 @@ import (
 	gnoifile "github.com/sonic-net/sonic-gnmi/pkg/gnoi/file"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
 )
 
 func (srv *FileServer) Stat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_pb.StatResponse, error) {
