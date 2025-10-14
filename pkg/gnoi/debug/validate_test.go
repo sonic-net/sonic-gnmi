@@ -12,6 +12,7 @@ var exampleWhitelist = []string{
 	"cat",
 	"tar",
 	"sleep",
+	"grep",
 }
 
 func TestValidateAndExtract(t *testing.T) {
@@ -57,11 +58,9 @@ func TestValidateAndExtract(t *testing.T) {
 			allow: false,
 		},
 		{
-			name:         "absolute path allowed",
-			input:        "/bin/ls -l",
-			allow:        true,
-			expectedCmd:  "ls",
-			expectedArgs: []string{"-l"},
+			name:  "absolute path",
+			input: "/bin/ls -l",
+			allow: false,
 		},
 		{
 			name:  "redirect",
@@ -84,8 +83,20 @@ func TestValidateAndExtract(t *testing.T) {
 			allow: false,
 		},
 		{
-			name:  "pipeline",
-			input: "ls | grep foo",
+			name:         "valid pipeline",
+			input:        "ls | grep foo",
+			allow:        true,
+			expectedCmd:  "ls",
+			expectedArgs: []string{"|", "grep", "foo"},
+		},
+		{
+			name:  "pipeline with empty stmt",
+			input: "ls | | grep foo",
+			allow: false,
+		},
+		{
+			name:  "pipeline with invalid command",
+			input: "ls | rm -rf /",
 			allow: false,
 		},
 		{
@@ -174,7 +185,7 @@ func FuzzValidateAndExtract(f *testing.F) {
 
 			// 2. Args must be non-empty literals, no dangerous symbols.
 			for _, a := range args {
-				if strings.ContainsAny(a, "$`|&;<>(){}[]*?") {
+				if strings.ContainsAny(a, dangerousCharSet) {
 					t.Errorf("allowed arg contains dangerous char: %q (input=%q)", a, input)
 				}
 			}
