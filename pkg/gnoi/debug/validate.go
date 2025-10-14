@@ -34,7 +34,7 @@ func ValidateCommand(input string, whitelist []string) (err error) {
 		return fmt.Errorf("%w: `%s` contains unsafe statements", ErrRejected, input)
 	}
 
-	// Must be exactly one statement (complete command).
+	// Must be contain at least one statement
 	if len(ast.Stmts) == 0 {
 		return fmt.Errorf("%w: no statements found within parsed command: %s", ErrRejected, input)
 	}
@@ -101,10 +101,12 @@ func validateStmt(stmt *syntax.Stmt, whitelist []string) error {
 		}
 	case *syntax.BinaryCmd:
 		binCmd := stmt.Cmd.(*syntax.BinaryCmd)
+		// Only allow pipeline
 		if binCmd.Op != syntax.Pipe {
 			return fmt.Errorf("%w: only simple commands and pipelines allowed (no subshells, control structures, etc)", ErrRejected)
 		}
 
+		// Validate statements on both sides of the operator
 		errX := validateStmt(binCmd.X, whitelist)
 		if errX != nil {
 			return errX
