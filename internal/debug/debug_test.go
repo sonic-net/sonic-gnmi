@@ -289,8 +289,7 @@ func TestRunCommand(t *testing.T) {
 			outCh := make(chan string, 10)
 			errCh := make(chan string, 10)
 
-			args := strings.Split(tc.cmdStr, " ")
-			exitCode, err := RunCommand(tc.ctx, outCh, errCh, tc.roleAccount, 0, args[0], args[1:]...)
+			exitCode, err := RunCommand(tc.ctx, outCh, errCh, tc.roleAccount, 0, tc.cmdStr)
 
 			if exitCode != tc.expectedExitCode {
 				t.Errorf("Expected exit code %d, but got %d", tc.expectedExitCode, exitCode)

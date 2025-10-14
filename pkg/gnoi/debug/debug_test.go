@@ -64,7 +64,7 @@ func TestHandleCommandRequest(t *testing.T) {
 	testCases := []struct {
 		name         string
 		req          *debug_pb.DebugRequest
-		runCmdFn     func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error)
+		runCmdFn     func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string) (int, error)
 		expectedData []string
 		expectedCode int32
 		expectErr    bool
@@ -110,7 +110,7 @@ func TestHandleCommandRequest(t *testing.T) {
 				RoleAccount: "test-admin",
 				ByteLimit:   1024,
 			},
-			runCmdFn: func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
+			runCmdFn: func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string) (int, error) {
 				defer func() {
 					close(outCh)
 					close(errCh)
@@ -132,7 +132,7 @@ func TestHandleCommandRequest(t *testing.T) {
 				Command: []byte("invalid-command"),
 				Mode:    debug_pb.DebugRequest_MODE_CLI,
 			},
-			runCmdFn: func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
+			runCmdFn: func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string) (int, error) {
 				defer func() {
 					close(outCh)
 					close(errCh)
@@ -151,7 +151,7 @@ func TestHandleCommandRequest(t *testing.T) {
 				Command: []byte("any"),
 				Mode:    debug_pb.DebugRequest_MODE_CLI,
 			},
-			runCmdFn: func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
+			runCmdFn: func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string) (int, error) {
 				close(outCh)
 				close(errCh)
 				return -1, errors.New("failed to start process")
@@ -172,7 +172,7 @@ func TestHandleCommandRequest(t *testing.T) {
 		stream := &mockDebugServerStream{ctx: context.Background()}
 		var capturedCtx context.Context
 
-		runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
+		runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string) (int, error) {
 			close(outCh)
 			close(errCh)
 			capturedCtx = ctx

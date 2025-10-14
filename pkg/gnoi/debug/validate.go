@@ -12,9 +12,9 @@ const dangerousCharSet = "$`&;<>(){}[]*?"
 
 var ErrRejected = errors.New("command rejected by policy")
 
-// ValidateAndExtract parses the input shell text and, if allowed by policy (i.e. the rules within this fn),
-// returns (absCmdPath, args, nil). Otherwise returns ErrRejected.
-func ValidateAndExtract(input string, whitelist []string) (absCmd string, args []string, err error) {
+// ValidateCommand parses the input shell text and, if allowed by policy (i.e. the rules within this fn),
+// Returns nil for valid command. Otherwise returns ErrRejected.
+func ValidateCommand(input string, whitelist []string) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("%w: recover error: %v", ErrRejected, r)
@@ -25,30 +25,28 @@ func ValidateAndExtract(input string, whitelist []string) (absCmd string, args [
 	p := syntax.NewParser(syntax.Variant(syntax.LangBash))
 	ast, err := p.Parse(strings.NewReader(input), input)
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: parse error: %v", ErrRejected, err)
+		return fmt.Errorf("%w: parse error: %v", ErrRejected, err)
 	}
 
 	// Reject any remaining dangerous nodes
 	unsafe := walkForDangerousNodeTypes(ast)
 	if unsafe {
-		return "", nil, fmt.Errorf("%w: `%s` contains unsafe statements", ErrRejected, input)
+		return fmt.Errorf("%w: `%s` contains unsafe statements", ErrRejected, input)
 	}
 
 	// Must be exactly one statement (complete command).
 	if len(ast.Stmts) == 0 {
-		return "", nil, fmt.Errorf("%w: no statements found within parsed command: %s", ErrRejected, input)
+		return fmt.Errorf("%w: no statements found within parsed command: %s", ErrRejected, input)
 	}
 
 	for _, stmt := range ast.Stmts {
 		err := validateStmt(stmt, whitelist)
 		if err != nil {
-			return "", nil, err
+			return err
 		}
 	}
 
-	finalCmd := strings.Split(input, " ")
-
-	return finalCmd[0], finalCmd[1:], nil
+	return nil
 }
 
 // Helper which validates a provided statement against statement-specific policies, along with the whitelist.

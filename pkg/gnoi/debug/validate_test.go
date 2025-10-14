@@ -108,26 +108,15 @@ func TestValidateAndExtract(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd, args, err := ValidateAndExtract(tt.input, exampleWhitelist)
+			err := ValidateCommand(tt.input, exampleWhitelist)
 
 			if tt.allow {
 				if err != nil {
 					t.Fatalf("expected allow, got error: %v", err)
 				}
-				if cmd != tt.expectedCmd {
-					t.Errorf("expected cmd %q, got %q", tt.expectedCmd, cmd)
-				}
-				if len(args) != len(tt.expectedArgs) {
-					t.Fatalf("expected %d args, got %d (%v)", len(tt.expectedArgs), len(args), args)
-				}
-				for i := range args {
-					if args[i] != tt.expectedArgs[i] {
-						t.Errorf("arg[%d]: expected %q, got %q", i, tt.expectedArgs[i], args[i])
-					}
-				}
 			} else {
 				if err == nil {
-					t.Fatalf("expected rejection, but command was allowed: %q %v", cmd, args)
+					t.Fatalf("expected rejection, but command was allowed: %s", tt.input)
 				}
 				if !errors.Is(err, ErrRejected) && !strings.Contains(err.Error(), "rejected") {
 					t.Errorf("expected rejection error, got: %v", err)
@@ -174,10 +163,12 @@ func FuzzValidateAndExtract(f *testing.F) {
 			}
 		}()
 
-		cmd, args, err := ValidateAndExtract(input, exampleWhitelist)
+		err := ValidateCommand(input, exampleWhitelist)
 
 		// Allowed commands must obey invariants:
 		if err == nil {
+			args := strings.Split(input, " ")
+			cmd := args[0]
 			// 1. Command path must be in whitelist.
 			if !sliceContains(exampleWhitelist, cmd) {
 				t.Fatalf("allowed command %q not in whitelist (input=%q)", cmd, input)

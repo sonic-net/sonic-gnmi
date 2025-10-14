@@ -13,8 +13,8 @@ import (
 
 var (
 	// Allow DI for mocking
-	runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
-		return debug.RunCommand(ctx, outCh, errCh, roleAccount, byteLimit, cmd, args...)
+	runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string) (int, error) {
+		return debug.RunCommand(ctx, outCh, errCh, roleAccount, byteLimit, cmd)
 	}
 )
 
@@ -46,7 +46,7 @@ func HandleCommandRequest(
 		return status.Error(codes.InvalidArgument, "command cannot be nil")
 	}
 
-	cmdPath, cmdArgs, err := ValidateAndExtract(string(command), whitelist)
+	err := ValidateCommand(string(command), whitelist)
 	if err != nil {
 		return status.Errorf(codes.PermissionDenied, "command failed validation: %v", err)
 	}
@@ -85,7 +85,7 @@ func HandleCommandRequest(
 			streamDataInChannel(ctx, stream, errCh)
 		}()
 
-		exitCode, err := runCommand(ctx, outCh, errCh, roleAccount, byteLimit, cmdPath, cmdArgs...)
+		exitCode, err := runCommand(ctx, outCh, errCh, roleAccount, byteLimit, string(command))
 		if err != nil {
 			return status.Errorf(codes.FailedPrecondition, "Failed to run command '%s': '%v'", command, err)
 		}

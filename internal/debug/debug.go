@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"os/exec"
-	"strings"
 	"sync"
 )
 
@@ -90,20 +89,13 @@ func outputReaderToChannel(reader io.Reader, outCh chan<- string, byteLimit int6
 // Optionally runs command as the specified user (default is 'admin'), and has an optional byte limit for responses.
 //
 // Returns status code of the operation, with optional error.
-func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string, args ...string) (int, error) {
+func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string) (int, error) {
 	defer func() {
 		close(outCh)
 		close(errCh)
 	}()
 
-	var fullCmd strings.Builder
-	fullCmd.WriteString(cmd)
-	for _, arg := range args {
-		fullCmd.WriteString(" ")
-		fullCmd.WriteString(arg)
-	}
-
-	fullArgs := make([]string, 0, STATIC_ARG_LEN+len(args))
+	fullArgs := make([]string, 0, STATIC_ARG_LEN)
 	fullArgs = append(fullArgs, NSENTER_ARGS...)
 	fullArgs = append(fullArgs, USER_ARGS...)
 	if roleAccount == "" {
@@ -112,7 +104,7 @@ func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, r
 		fullArgs = append(fullArgs, roleAccount)
 	}
 	fullArgs = append(fullArgs, SHELL_ARGS...)
-	fullArgs = append(fullArgs, fullCmd.String())
+	fullArgs = append(fullArgs, cmd)
 
 	command := execCommandWithContext(ctx, NSENTER_CMD, fullArgs...)
 
