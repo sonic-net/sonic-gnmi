@@ -148,6 +148,7 @@ type Config struct {
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
+	MaxNumSubscribers   uint64
 }
 
 var AuthLock sync.Mutex
@@ -415,6 +416,12 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	c.setConnectionManager(s.config.Threshold)
 
 	s.cMu.Lock()
+	if uint64(len(s.clients)) >= s.config.MaxNumSubscribers {
+		log.V(2).Infof("Max clients reached. Rejecting new client %s", c)
+		c.Close()
+		s.cMu.Unlock()
+		return grpc.Errorf(codes.ResourceExhausted, "Maximum number of subscriptions reached")
+	}
 	if oc, ok := s.clients[c.String()]; ok {
 		log.V(2).Infof("Delete duplicate client %s", oc)
 		oc.Close()
@@ -423,10 +430,13 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	s.clients[c.String()] = c
 	s.cMu.Unlock()
 
+	defer func() {
+		s.cMu.Lock()
+		delete(s.clients, c.String())
+		s.cMu.Unlock()
+	}()
+
 	err := c.Run(stream, s.config)
-	s.cMu.Lock()
-	delete(s.clients, c.String())
-	s.cMu.Unlock()
 
 	log.Flush()
 	return err
