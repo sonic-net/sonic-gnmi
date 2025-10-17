@@ -65,6 +65,7 @@ func constructWhitelists() (read, write []string) {
 		"counterpoll",
 		"bcmcmd",
 		"redis-cli",
+		"sonic-db-cli",
 		"sonic-clear",
 		"wc",
 		"portstat",
