@@ -12,10 +12,9 @@ GO ?= go
 GOROOT ?= $(shell $(GO) env GOROOT)
 
 # Pure packages (no CGO/SONiC dependencies)
-# Add new packages here as they become pure-compatible.
+# Add new packages here as they become pure-compatible
 PURE_PACKAGES := \
 	internal/diskspace \
-	internal/firmware \
 	pkg/server/operational-handler
 
 # Future packages to make pure:
