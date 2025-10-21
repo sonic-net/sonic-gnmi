@@ -1,7 +1,7 @@
 # SONiC-telemetry
 
 ## Description
-This repository contains implementation for the sonic system telemetry services:
+This repository contains implementation for the sonic system telemetry services:  ddde
 - dial-in mode system telemetry server: `telemetry`
 - dial-out mode system telemetry client `dialout_client_cli`
 
