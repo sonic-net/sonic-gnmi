@@ -60,8 +60,8 @@ func ValidateCommand(input string, whitelist []string) (err error) {
 		return fmt.Errorf("%w: no statements found within parsed command: %s", ErrRejected, input)
 	}
 
-	for _, stmt := range ast.Stmts {
-		err := validateStatement(stmt, whitelist)
+	for _, statement := range ast.Stmts {
+		err := validateStatement(statement, whitelist)
 		if err != nil {
 			return err
 		}
@@ -74,29 +74,29 @@ func ValidateCommand(input string, whitelist []string) (err error) {
 // Recurses on any found pipelines, to validate the commands on either side.
 //
 // Returns nil on success, or the specific validation error, if any.
-func validateStatement(stmt *syntax.Stmt, whitelist []string) error {
+func validateStatement(statement *syntax.Stmt, whitelist []string) error {
 	// Disallow negation, background, coprocessing, semicolons, and redirects.
-	if stmt.Negated {
+	if statement.Negated {
 		return fmt.Errorf("%w: negation '!' not allowed", ErrRejected)
 	}
-	if stmt.Background {
+	if statement.Background {
 		return fmt.Errorf("%w: background '&' not allowed", ErrRejected)
 	}
-	if stmt.Coprocess {
+	if statement.Coprocess {
 		return fmt.Errorf("%w: coprocess '|&' not allowed", ErrRejected)
 	}
 	// Semicolon valid -> multiple commands. Deny.
-	if stmt.Semicolon.IsValid() {
+	if statement.Semicolon.IsValid() {
 		return fmt.Errorf("%w: multiple/terminated commands not allowed", ErrRejected)
 	}
-	if len(stmt.Redirs) > 0 {
+	if len(statement.Redirs) > 0 {
 		return fmt.Errorf("%w: redirects not allowed", ErrRejected)
 	}
 
 	// Command must be a simple call expression or pipeline (no binary/case/...).
-	switch stmt.Cmd.(type) {
+	switch statement.Cmd.(type) {
 	case *syntax.CallExpr:
-		call := stmt.Cmd.(*syntax.CallExpr)
+		call := statement.Cmd.(*syntax.CallExpr)
 		// Disallow assignments in the call (e.g. FOO=bar echo ...)
 		if len(call.Assigns) > 0 {
 			return fmt.Errorf("%w: inline assignments not allowed", ErrRejected)
@@ -121,7 +121,7 @@ func validateStatement(stmt *syntax.Stmt, whitelist []string) error {
 			return fmt.Errorf("%w: command %q is not whitelisted", ErrRejected, cmdName)
 		}
 	case *syntax.BinaryCmd:
-		binCmd := stmt.Cmd.(*syntax.BinaryCmd)
+		binCmd := statement.Cmd.(*syntax.BinaryCmd)
 		// Only allow pipeline
 		if binCmd.Op != syntax.Pipe {
 			return fmt.Errorf("%w: only simple commands and pipelines allowed (no subshells, control structures, etc)", ErrRejected)
