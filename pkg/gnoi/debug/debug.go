@@ -71,7 +71,7 @@ func HandleCommandRequest(
 		// 1. Send request, indicating start of execution
 		err := sendReqInResponse(stream, req)
 		if err != nil {
-			return nil
+			return status.Errorf(codes.FailedPrecondition, "Failed to run command '%s': '%v'", command, err)
 		}
 
 		// 2. Send stdout/stderr
