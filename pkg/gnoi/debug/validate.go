@@ -8,11 +8,32 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-const dangerousCharSet = "$`&;<>(){}[]*?"
+const dangerousCharSet = "~$`&;<>(){}[]*?"
 
 var ErrRejected = errors.New("command rejected by policy")
 
-// ValidateCommand parses the input shell text and, if allowed by policy (i.e. the rules within this fn),
+// ValidateCommand parses the input shell text and, if allowed by policy (i.e. the rules within this fn).
+// Policies:
+//   - Must not contain potentially dangerous characters: $`&;<>(){}[]*?
+//   - Must not contain potentially dangerous node types:
+//   - Subshell
+//   - Command substitution
+//   - Arthmetic expression
+//   - Binary commands (other than pipe)
+//   - Redirect
+//   - Parameter expansion
+//   - Extended glob expressions
+//   - Must contain at least one statement
+//   - Each statement must not contain:
+//   - Negation
+//   - Background
+//   - Coprocess
+//   - Semicolons
+//   - Redirect
+//   - Each statment must either be a:
+//   - Call expression (evaluated against the above)
+//   - Binary pipe expression (with left and right recursed upon)
+//
 // Returns nil for valid command. Otherwise returns ErrRejected.
 func ValidateCommand(input string, whitelist []string) (err error) {
 	defer func() {
@@ -40,7 +61,7 @@ func ValidateCommand(input string, whitelist []string) (err error) {
 	}
 
 	for _, stmt := range ast.Stmts {
-		err := validateStmt(stmt, whitelist)
+		err := validateStatement(stmt, whitelist)
 		if err != nil {
 			return err
 		}
@@ -53,7 +74,7 @@ func ValidateCommand(input string, whitelist []string) (err error) {
 // Recurses on any found pipelines, to validate the commands on either side.
 //
 // Returns nil on success, or the specific validation error, if any.
-func validateStmt(stmt *syntax.Stmt, whitelist []string) error {
+func validateStatement(stmt *syntax.Stmt, whitelist []string) error {
 	// Disallow negation, background, coprocessing, semicolons, and redirects.
 	if stmt.Negated {
 		return fmt.Errorf("%w: negation '!' not allowed", ErrRejected)
@@ -107,11 +128,11 @@ func validateStmt(stmt *syntax.Stmt, whitelist []string) error {
 		}
 
 		// Validate statements on both sides of the operator
-		errX := validateStmt(binCmd.X, whitelist)
+		errX := validateStatement(binCmd.X, whitelist)
 		if errX != nil {
 			return errX
 		}
-		errY := validateStmt(binCmd.Y, whitelist)
+		errY := validateStatement(binCmd.Y, whitelist)
 		if errY != nil {
 			return errY
 		}

@@ -90,13 +90,110 @@ func TestValidateAndExtract(t *testing.T) {
 			expectedArgs: []string{"|", "grep", "foo"},
 		},
 		{
-			name:  "pipeline with empty stmt",
+			name:         "valid pipeline - multiple chained statements",
+			input:        "ls | echo foobar | grep foo",
+			allow:        true,
+			expectedCmd:  "ls",
+			expectedArgs: []string{"|", "echo", "foobar", "|", "grep", "foo"},
+		},
+		{
+			name:  "pipeline with empty statement",
 			input: "ls | | grep foo",
 			allow: false,
 		},
 		{
-			name:  "pipeline with invalid command",
+			name:  "pipeline with invalid command - command injection",
 			input: "ls | rm -rf /",
+			allow: false,
+		},
+		{
+			name:  "malicious formatting - command injection",
+			input: "ls \"-la;rm -rf /\"",
+			allow: false,
+		},
+		{
+			name:  "logical AND",
+			input: "echo a && echo b",
+			allow: false,
+		},
+		{
+			name:  "logical OR",
+			input: "echo a || echo b",
+			allow: false,
+		},
+		{
+			name:  "subshell",
+			input: "(ls /)",
+			allow: false,
+		},
+		{
+			name:  "group commands",
+			input: "{ echo a; echo b; }",
+			allow: false,
+		},
+		{
+			name:  "brace expansion",
+			input: "echo {foo,bar}",
+			allow: false,
+		},
+		{
+			name:  "tilde expansion",
+			input: "ls ~",
+			allow: false,
+		},
+		{
+			name:  "input redirect",
+			input: "cat < /etc/hosts",
+			allow: false,
+		},
+		{
+			name:  "here string",
+			input: "grep foo <<< 'bar'",
+			allow: false,
+		},
+		{
+			name:  "here document",
+			input: "cat << EOF\nhello\nEOF",
+			allow: false,
+		},
+		{
+			name:  "arithmetic expansion",
+			input: "echo $((1+1))",
+			allow: false,
+		},
+		{
+			name:  "process substitution",
+			input: "diff <(ls /) <(ls /usr)",
+			allow: false,
+		},
+		{
+			name:  "empty input",
+			input: "",
+			allow: false,
+		},
+		{
+			name:  "whitespace input",
+			input: "   ",
+			allow: false,
+		},
+		{
+			name:  "leading semicolon",
+			input: "; echo foo",
+			allow: false,
+		},
+		{
+			name:  "pipeline with malicious quoted arg",
+			input: "ls | grep '; rm -rf /'",
+			allow: false,
+		},
+		{
+			name:  "pipeline with subshell",
+			input: "ls | $(grep foo)",
+			allow: false,
+		},
+		{
+			name:  "glob wildcard",
+			input: "ls *",
 			allow: false,
 		},
 		{
