@@ -30,7 +30,7 @@ var ErrRejected = errors.New("command rejected by policy")
 //   - Coprocess
 //   - Semicolons
 //   - Redirect
-//   - Each statment must either be a:
+//   - Each statement must either be a:
 //   - Call expression (evaluated against the above)
 //   - Binary pipe expression (with left and right recursed upon)
 //
