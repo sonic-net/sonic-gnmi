@@ -18,7 +18,7 @@ var ErrRejected = errors.New("command rejected by policy")
 //   - Must not contain potentially dangerous node types:
 //   - Subshell
 //   - Command substitution
-//   - Arthmetic expression
+//   - Arithmetic expression
 //   - Binary commands (other than pipe)
 //   - Redirect
 //   - Parameter expansion
