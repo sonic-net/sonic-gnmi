@@ -263,16 +263,33 @@ func TestGnoiFileServer(t *testing.T) {
 		// Patch NewDbusClient to return FakeClient
 		patches.ApplyFuncReturn(ssc.NewDbusClient, &ssc.FakeClient{}, nil)
 
+		// create a real temporary file so Remove has something to delete
+		tmpf, err := os.CreateTemp("", "gnoi-remove-success-*.txt")
+		if err != nil {
+			t.Fatalf("failed to create temp file: %v", err)
+		}
+		tmpPath := tmpf.Name()
+		if cerr := tmpf.Close(); cerr != nil {
+			t.Fatalf("failed to close temp file: %v", cerr)
+		}
+		// ensure cleanup if the handler didn't remove it for any reason
+		defer func() { _ = os.Remove(tmpPath) }()
+
 		fs := &FileServer{
 			Server: &Server{
 				config: &Config{},
 			},
 		}
-		req := &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/test.txt"}
+		req := &gnoi_file_pb.RemoveRequest{RemoteFile: tmpPath}
 		resp, err := fs.Remove(context.Background(), req)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
+
+		// verify file was actually removed
+		if _, statErr := os.Stat(tmpPath); !os.IsNotExist(statErr) {
+			t.Fatalf("expected file to be removed, stat error: %v", statErr)
+		}
 	})
 
 	t.Run("Remove_Fails_NilRequest", func(t *testing.T) {
