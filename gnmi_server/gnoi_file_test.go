@@ -366,7 +366,6 @@ func TestGnoiFileServer(t *testing.T) {
 		assert.Equal(t, "simulated failure", err.Error())
 	})
 
-
 	t.Run("Get_Fails_With_Auth_Error", func(t *testing.T) {
 		patch := gomonkey.ApplyFuncReturn(authenticate, nil, status.Error(codes.Unauthenticated, "unauthenticated"))
 		defer patch.Reset()
