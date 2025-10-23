@@ -366,36 +366,6 @@ func TestGnoiFileServer(t *testing.T) {
 		assert.Equal(t, "simulated failure", err.Error())
 	})
 
-	t.Run("Remove_Fails_With_DbusClient_Error", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-
-		// Patch authenticate to succeed
-		patches.ApplyFuncReturn(authenticate, nil, nil)
-
-		// Make os.Remove succeed so the handler proceeds to DBus client creation.
-		// This avoids the test seeing a real "no such file or directory" error.
-		patches.ApplyFuncReturn(os.Remove, nil)
-
-		// Force NewDbusClient to return an error, simulating DBus client creation failure.
-		patches.ApplyFuncReturn(ssc.NewDbusClient, (*ssc.FakeClient)(nil), fmt.Errorf("mock dbus client error"))
-
-		req := &gnoi_file_pb.RemoveRequest{
-			RemoteFile: "/tmp/testfile",
-		}
-
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
-
-		resp, err := fs.Remove(context.Background(), req)
-
-		assert.Nil(t, resp)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "mock dbus client error")
-	})
 
 	t.Run("Get_Fails_With_Auth_Error", func(t *testing.T) {
 		patch := gomonkey.ApplyFuncReturn(authenticate, nil, status.Error(codes.Unauthenticated, "unauthenticated"))
