@@ -1124,7 +1124,7 @@ func TestINotifyCertMonitoringErrors(t *testing.T) {
 	}
 }
 
-//Temporarily disabling this function due to flakiness, Zain will later fix this function
+// Temporarily disabling this function due to flakiness, Zain will later fix this function
 func DisabledTestINotifyCertMonitoringAddWatcherError(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
