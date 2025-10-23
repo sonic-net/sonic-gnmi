@@ -73,7 +73,11 @@ func NewOperationalHandler(paths []*gnmipb.Path, prefix *gnmipb.Path) (Handler, 
 	for _, path := range paths {
 		pathStr := handler.pathToString(path)
 		// Check for both firmware paths (legacy) and filesystem/files paths (new)
-		if strings.Contains(pathStr, "firmware") || (strings.Contains(pathStr, "filesystem") && strings.Contains(pathStr, "files")) {
+		// Must explicitly contain "/files/" or "/files[" to avoid matching "/filesystem"
+		if strings.Contains(pathStr, "/firmware") ||
+			strings.Contains(pathStr, "/files/") ||
+			strings.Contains(pathStr, "/files[") ||
+			strings.HasSuffix(pathStr, "/files") {
 			needsFileHandler = true
 			break
 		}
