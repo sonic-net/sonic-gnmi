@@ -26,7 +26,11 @@ import (
 
 func TestGenCert(t *testing.T) {
 	// Check that generation works at all.
-	cert, err := NewCert()
+	certBuf, keyBuf, err := NewCert()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := tls.X509KeyPair(certBuf.Bytes(), keyBuf.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}
