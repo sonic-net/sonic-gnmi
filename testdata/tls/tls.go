@@ -22,7 +22,6 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -32,14 +31,14 @@ import (
 
 // NewCert will create a new tls.Certificate for use in testing.
 // This cert is self signed and must not be used in production code.
-func NewCert() (tls.Certificate, error) {
+func NewCert() (*bytes.Buffer, *bytes.Buffer, error) {
 	notBefore := time.Now()
 	notAfter := notBefore.Add(time.Hour)
 
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
-		return tls.Certificate{}, err
+		return nil, nil, err
 	}
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
@@ -57,11 +56,11 @@ func NewCert() (tls.Certificate, error) {
 
 	priv, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
-		return tls.Certificate{}, err
+		return nil, nil, err
 	}
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	if err != nil {
-		return tls.Certificate{}, err
+		return nil, nil, err
 	}
 
 	certBuf := &bytes.Buffer{}
@@ -69,5 +68,5 @@ func NewCert() (tls.Certificate, error) {
 	keyBuf := &bytes.Buffer{}
 	pem.Encode(keyBuf, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
 
-	return tls.X509KeyPair(certBuf.Bytes(), keyBuf.Bytes())
+	return certBuf, keyBuf, nil
 }

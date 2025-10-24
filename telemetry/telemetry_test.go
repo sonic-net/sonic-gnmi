@@ -299,11 +299,12 @@ func TestStartGNMIServerGracefulStop(t *testing.T) {
 
 // Generate a new TLS cert using NewCert and save key pair to specified file path
 func saveCertKeyPair(certPath, keyPath string) error {
-	cert, err := testdata.NewCert()
+	certBuf, keyBuf, err := testdata.NewCert()
 	if err != nil {
 		return err
 	}
-
+	var cert tls.Certificate
+	cert, err = tls.X509KeyPair(certBuf.Bytes(), keyBuf.Bytes())
 	certBytes := cert.Certificate[0]
 	keyBytes := x509.MarshalPKCS1PrivateKey(cert.PrivateKey.(*rsa.PrivateKey))
 
