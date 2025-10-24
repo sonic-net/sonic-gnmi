@@ -42,4 +42,13 @@ func TestFakeClientMethods(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, "", output)
 	assert.Equal(t, "Previous reset is ongoing", err.Error())
+
+	output, err = client.InstallOS("stable")
+	assert.NoError(t, err)
+	assert.Equal(t, "stable", output)
+
+	output, err = client.InstallOS("")
+	assert.Error(t, err)
+	assert.Equal(t, "", output)
+	assert.Equal(t, "invalid OS install request", err.Error())
 }
