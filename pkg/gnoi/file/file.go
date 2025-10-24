@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	common "github.com/openconfig/gnoi/common"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
@@ -17,6 +18,14 @@ import (
 	"github.com/sonic-net/sonic-gnmi/internal/hash"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+const (
+	// Maximum time allowed for downloading a file (5 minutes for large firmware images)
+	downloadTimeout = 5 * time.Minute
+
+	// Maximum file size allowed (4GB - typical maximum firmware size)
+	maxFileSize = 4 * 1024 * 1024 * 1024 // 4GB in bytes
 )
 
 // HandleTransferToRemote implements the complete logic for the TransferToRemote RPC.
@@ -73,8 +82,12 @@ func HandleTransferToRemote(
 	// Only apply if /mnt/host exists (running in container) and path doesn't already have it
 	translatedPath := translatePathForContainer(localPath)
 
-	// Download file from URL
-	if err := download.DownloadHTTP(ctx, url, translatedPath); err != nil {
+	// Create context with timeout for download operation
+	downloadCtx, cancel := context.WithTimeout(ctx, downloadTimeout)
+	defer cancel()
+
+	// Download file from URL with timeout and size limit
+	if err := download.DownloadHTTP(downloadCtx, url, translatedPath, maxFileSize); err != nil {
 		return nil, status.Errorf(codes.Internal, "download failed: %v", err)
 	}
 

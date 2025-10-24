@@ -26,7 +26,7 @@ func TestDownloadHTTP_Success(t *testing.T) {
 
 	// Download file
 	ctx := context.Background()
-	err := DownloadHTTP(ctx, server.URL, outputPath)
+	err := DownloadHTTP(ctx, server.URL, outputPath, 0)
 	if err != nil {
 		t.Fatalf("DownloadHTTP() error = %v", err)
 	}
@@ -54,7 +54,7 @@ func TestDownloadHTTP_HTTPError(t *testing.T) {
 	outputPath := filepath.Join(tempDir, "downloaded.txt")
 
 	ctx := context.Background()
-	err := DownloadHTTP(ctx, server.URL, outputPath)
+	err := DownloadHTTP(ctx, server.URL, outputPath, 0)
 	if err == nil {
 		t.Error("DownloadHTTP() expected error for 404 response, got nil")
 	}
@@ -82,7 +82,7 @@ func TestDownloadHTTP_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	err := DownloadHTTP(ctx, server.URL, outputPath)
+	err := DownloadHTTP(ctx, server.URL, outputPath, 0)
 	if err == nil {
 		t.Error("DownloadHTTP() expected error for cancelled context, got nil")
 	}
@@ -98,7 +98,7 @@ func TestDownloadHTTP_InvalidURL(t *testing.T) {
 	outputPath := filepath.Join(tempDir, "downloaded.txt")
 
 	ctx := context.Background()
-	err := DownloadHTTP(ctx, "not-a-valid-url", outputPath)
+	err := DownloadHTTP(ctx, "not-a-valid-url", outputPath, 0)
 	if err == nil {
 		t.Error("DownloadHTTP() expected error for invalid URL, got nil")
 	}
@@ -118,7 +118,7 @@ func TestDownloadHTTP_CreateDirectory(t *testing.T) {
 	outputPath := filepath.Join(tempDir, "dir1", "dir2", "dir3", "file.txt")
 
 	ctx := context.Background()
-	err := DownloadHTTP(ctx, server.URL, outputPath)
+	err := DownloadHTTP(ctx, server.URL, outputPath, 0)
 	if err != nil {
 		t.Fatalf("DownloadHTTP() error = %v", err)
 	}
@@ -151,7 +151,7 @@ func TestDownloadHTTP_LargeFile(t *testing.T) {
 	outputPath := filepath.Join(tempDir, "large.bin")
 
 	ctx := context.Background()
-	err := DownloadHTTP(ctx, server.URL, outputPath)
+	err := DownloadHTTP(ctx, server.URL, outputPath, 0)
 	if err != nil {
 		t.Fatalf("DownloadHTTP() error = %v", err)
 	}
@@ -188,7 +188,7 @@ func TestDownloadHTTP_Overwrite(t *testing.T) {
 
 	// Download should overwrite
 	ctx := context.Background()
-	err = DownloadHTTP(ctx, server.URL, outputPath)
+	err = DownloadHTTP(ctx, server.URL, outputPath, 0)
 	if err != nil {
 		t.Fatalf("DownloadHTTP() error = %v", err)
 	}
@@ -229,10 +229,139 @@ func TestDownloadHTTP_ServerError(t *testing.T) {
 			outputPath := filepath.Join(tempDir, "file.txt")
 
 			ctx := context.Background()
-			err := DownloadHTTP(ctx, server.URL, outputPath)
+			err := DownloadHTTP(ctx, server.URL, outputPath, 0)
 			if err == nil {
 				t.Errorf("DownloadHTTP() expected error for status %d, got nil", tt.statusCode)
 			}
 		})
+	}
+}
+
+func TestDownloadHTTP_SizeExceedsLimit(t *testing.T) {
+	// Create a test HTTP server with 100 bytes of content
+	testContent := make([]byte, 100)
+	for i := range testContent {
+		testContent[i] = 'A'
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
+		w.WriteHeader(http.StatusOK)
+		w.Write(testContent)
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	outputPath := filepath.Join(tempDir, "downloaded.txt")
+
+	// Set limit to 50 bytes (less than actual size)
+	ctx := context.Background()
+	err := DownloadHTTP(ctx, server.URL, outputPath, 50)
+	if err == nil {
+		t.Error("DownloadHTTP() expected error for size limit exceeded, got nil")
+	}
+
+	// Verify file was not created or was cleaned up
+	if _, statErr := os.Stat(outputPath); !os.IsNotExist(statErr) {
+		t.Error("DownloadHTTP() should clean up file when size limit exceeded")
+	}
+}
+
+func TestDownloadHTTP_WithinLimit(t *testing.T) {
+	// Create a test HTTP server with 50 bytes of content
+	testContent := make([]byte, 50)
+	for i := range testContent {
+		testContent[i] = 'B'
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
+		w.WriteHeader(http.StatusOK)
+		w.Write(testContent)
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	outputPath := filepath.Join(tempDir, "downloaded.txt")
+
+	// Set limit to 100 bytes (more than actual size)
+	ctx := context.Background()
+	err := DownloadHTTP(ctx, server.URL, outputPath, 100)
+	if err != nil {
+		t.Fatalf("DownloadHTTP() error = %v", err)
+	}
+
+	// Verify file was created and content matches
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read downloaded file: %v", err)
+	}
+
+	if len(content) != len(testContent) {
+		t.Errorf("Downloaded size = %d, want %d", len(content), len(testContent))
+	}
+}
+
+func TestDownloadHTTP_NoLimit(t *testing.T) {
+	// Create a test HTTP server with 200 bytes of content
+	testContent := make([]byte, 200)
+	for i := range testContent {
+		testContent[i] = 'C'
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(testContent)
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	outputPath := filepath.Join(tempDir, "downloaded.txt")
+
+	// Set limit to 0 (no limit)
+	ctx := context.Background()
+	err := DownloadHTTP(ctx, server.URL, outputPath, 0)
+	if err != nil {
+		t.Fatalf("DownloadHTTP() error = %v", err)
+	}
+
+	// Verify file was created
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read downloaded file: %v", err)
+	}
+
+	if len(content) != len(testContent) {
+		t.Errorf("Downloaded size = %d, want %d", len(content), len(testContent))
+	}
+}
+
+func TestDownloadHTTP_Timeout(t *testing.T) {
+	// Create a test HTTP server with very slow response
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		// Write slowly to trigger timeout
+		for i := 0; i < 100; i++ {
+			w.Write([]byte("slow"))
+			time.Sleep(100 * time.Millisecond) // Total 10 seconds
+		}
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	outputPath := filepath.Join(tempDir, "downloaded.txt")
+
+	// Create context with 1 second timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	err := DownloadHTTP(ctx, server.URL, outputPath, 0)
+	if err == nil {
+		t.Error("DownloadHTTP() expected timeout error, got nil")
+	}
+
+	// Verify file was cleaned up
+	if _, statErr := os.Stat(outputPath); !os.IsNotExist(statErr) {
+		t.Error("DownloadHTTP() should clean up file on timeout")
 	}
 }
