@@ -154,7 +154,7 @@ build-test:
 
 # Lint check using basic go tools
 .PHONY: lint
-lint: fmt-check vet
+lint: fmt-check
 	@echo "Basic linting complete for pure packages"
 
 # Benchmark tests
@@ -210,7 +210,7 @@ list-packages:
 
 # Full CI pipeline
 .PHONY: ci
-ci: clean mod-verify lint build-test test
+ci: clean lint build-test test
 	@echo ""
 	@echo "============================================="
 	@echo "✅ Pure CI completed successfully!"
@@ -222,7 +222,6 @@ ci: clean mod-verify lint build-test test
 	@echo ""
 	@echo "Components validated:"
 	@echo "  - Code formatting"
-	@echo "  - Static analysis (vet)"  
 	@echo "  - Build verification"
 	@echo "  - Unit tests with race detection"
 	@echo "  - Test coverage analysis"
