@@ -12,17 +12,18 @@ GO ?= go
 GOROOT ?= $(shell $(GO) env GOROOT)
 
 # Pure packages (no CGO/SONiC dependencies)
-# Add new packages here as they become pure-compatible
+# Add new packages here as they become pure-compatible.
 PURE_PACKAGES := \
 	internal/diskspace \
 	internal/hash \
 	internal/download \
+	internal/firmware \
 	pkg/server/operational-handler \
 	pkg/gnoi/file
 
 # Future packages to make pure:
 # TODO: sonic-gnmi-standalone/pkg/workflow
-# TODO: sonic-gnmi-standalone/pkg/client/config  
+# TODO: sonic-gnmi-standalone/pkg/client/config
 # TODO: sonic-gnmi-standalone/internal/checksum
 # TODO: sonic-gnmi-standalone/internal/download
 # TODO: common_utils (parts that don't need CGO)
@@ -224,7 +225,7 @@ ci: clean mod-verify lint build-test test
 	@echo ""
 	@echo "Components validated:"
 	@echo "  - Code formatting"
-	@echo "  - Static analysis (vet)"  
+	@echo "  - Static analysis (vet)"
 	@echo "  - Build verification"
 	@echo "  - Unit tests with race detection"
 	@echo "  - Test coverage analysis"

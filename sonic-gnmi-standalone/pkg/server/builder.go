@@ -29,10 +29,12 @@ import (
 	"fmt"
 
 	"github.com/golang/glog"
+	"github.com/openconfig/gnoi/file"
 	"github.com/openconfig/gnoi/system"
 
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/cert"
 	"github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server/config"
+	snfile "github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server/gnoi/file"
 	gnoiSystem "github.com/sonic-net/sonic-gnmi/sonic-gnmi-standalone/pkg/server/gnoi/system"
 )
 
@@ -187,6 +189,12 @@ func (b *ServerBuilder) EnableServices(services []string) *ServerBuilder {
 	return b
 }
 
+// EnableGNOIFile enables the gNOI File service.
+func (b *ServerBuilder) EnableGNOIFile() *ServerBuilder {
+	b.services["gnoi.file"] = true
+	return b
+}
+
 // Build creates and configures the gRPC server with the specified services.
 // It registers only the services that have been explicitly enabled through
 // the builder methods. Returns an error if server creation fails.
@@ -315,6 +323,14 @@ func (b *ServerBuilder) registerServices(srv *Server, rootFS string) {
 		systemServer := gnoiSystem.NewServer(rootFS)
 		system.RegisterSystemServer(srv.grpcServer, systemServer)
 		glog.Info("Registered gNOI System service")
+		serviceCount++
+	}
+
+	// Register gNOI File service
+	if b.services["gnoi.file"] {
+		fileServer := &snfile.FileServer{}
+		file.RegisterFileServer(srv.grpcServer, fileServer)
+		glog.Info("Registered gNOI File service")
 		serviceCount++
 	}
 
