@@ -1170,7 +1170,6 @@ func TestINotifyCertMonitoringAddWatcherError(t *testing.T) {
 }
 
 func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
-	// Create temp directory for symlink rotation test
 	tmpDir := t.TempDir()
 	testServerCert := filepath.Join(tmpDir, "server.crt")
 	testServerKey := filepath.Join(tmpDir, "server.key")
@@ -1213,7 +1212,7 @@ func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 	serverControlSignal := make(chan ServerControlValue, 1)
 	testReadySignal := make(chan int, 1)
 	var certLoaded int32
-	atomic.StoreInt32(&certLoaded, 0) // Mark certs as not loaded yet (so monitoring continues after REMOVE)
+	atomic.StoreInt32(&certLoaded, 0)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -1233,7 +1232,6 @@ func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 		t.Fatalf("Failed to create new cert/key pair: %v", err)
 	}
 
-	// Remove old symlink and create new one (simulates ln -sf which generates REMOVE + CREATE)
 	os.Remove(testServerCert)
 	err = os.Symlink(certBackup2, testServerCert)
 	if err != nil {
@@ -1246,8 +1244,6 @@ func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 		t.Fatalf("Failed to update key symlink: %v", err)
 	}
 
-	// Should receive ServerRestart signals from REMOVE events, then ServerStart after both symlinks updated
-	// Drain any ServerRestart signals
 	for {
 		select {
 		case val := <-serverControlSignal:
@@ -1272,6 +1268,79 @@ func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 				return
 			}
 		}
+	}
+}
+
+func TestINotifyCertMonitoringCertValidationFails(t *testing.T) {
+	tmpDir := t.TempDir()
+	testServerCert := filepath.Join(tmpDir, "server.crt")
+	testServerKey := filepath.Join(tmpDir, "server.key")
+
+	timeoutInterval := 5
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
+	defer cancel()
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testCertValidationFails", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-v=2", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, _, err := setupFlags(fs)
+	if err != nil {
+		t.Fatalf("Failed to setup flags: %v", err)
+	}
+
+	serverControlSignal := make(chan ServerControlValue, 1)
+	testReadySignal := make(chan int, 1)
+	var certLoaded int32
+	atomic.StoreInt32(&certLoaded, 0)
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatalf("Failed to create watcher: %v", err)
+	}
+
+	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal, &certLoaded)
+
+	<-testReadySignal
+
+	tempDir := t.TempDir()
+	tempCert := filepath.Join(tempDir, "temp.crt")
+	tempKey := filepath.Join(tempDir, "temp.key")
+	
+	err = saveCertKeyPair(tempCert, tempKey)
+	if err != nil {
+		t.Fatalf("Failed to create temp cert/key pair: %v", err)
+	}
+
+	err = copyFile(tempCert, testServerCert)
+	if err != nil {
+		t.Fatalf("Failed to copy cert file: %v", err)
+	}
+
+	select {
+	case val := <-serverControlSignal:
+		t.Errorf("Expected no signal due to cert validation failure, but got signal: %d", val)
+	case <-time.After(500 * time.Millisecond):
+		t.Log("Correctly received no signal after cert validation failure")
+	}
+
+	err = copyFile(tempKey, testServerKey)
+	if err != nil {
+		t.Fatalf("Failed to copy key file: %v", err)
+	}
+
+	select {
+	case val := <-serverControlSignal:
+		if val != ServerStart {
+			t.Errorf("Expected ServerStart from serverControlSignal, got %d", val)
+		} else {
+			t.Log("Received correct ServerStart signal after valid cert/key pair written")
+		}
+	case <-ctx.Done():
+		t.Errorf("Expected ServerStart from serverControlSignal after valid cert, but got none")
 	}
 }
 
