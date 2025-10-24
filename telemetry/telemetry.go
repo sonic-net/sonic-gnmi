@@ -297,14 +297,14 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 					log.V(1).Infof("Inotify watcher has received event: %v", event)
 					if event.Op&fsnotify.CloseWrite == fsnotify.CloseWrite || event.Op&fsnotify.MovedTo == fsnotify.MovedTo || event.Op&fsnotify.Create == fsnotify.Create {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
-						
+
 						// Validate cert/key pair before signaling reload
 						_, err := tls.LoadX509KeyPair(*telemetryCfg.ServerCert, *telemetryCfg.ServerKey)
 						if err != nil {
 							log.V(1).Infof("Cert validation failed: %v", err)
 							continue // Keep monitoring - wait for matching cert/key pair
 						}
-						
+
 						log.V(1).Infof("Cert validation succeeded, signaling server reload")
 						serverControlSignal <- ServerStart
 						done <- true

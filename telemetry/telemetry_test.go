@@ -1174,7 +1174,7 @@ func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 	tmpDir := t.TempDir()
 	testServerCert := filepath.Join(tmpDir, "server.crt")
 	testServerKey := filepath.Join(tmpDir, "server.key")
-	
+
 	timeoutInterval := 10
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
@@ -1187,7 +1187,7 @@ func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 	// Create initial cert/key files with numbered backup names
 	certBackup1 := filepath.Join(tmpDir, "server.crt.1")
 	keyBackup1 := filepath.Join(tmpDir, "server.key.1")
-	
+
 	err := saveCertKeyPair(certBackup1, keyBackup1)
 	if err != nil {
 		t.Fatalf("Failed to create initial cert/key pair: %v", err)
@@ -1227,7 +1227,7 @@ func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 	// Simulate cert rotation: create new backup files and update symlinks (like ln -sf)
 	certBackup2 := filepath.Join(tmpDir, "server.crt.2")
 	keyBackup2 := filepath.Join(tmpDir, "server.key.2")
-	
+
 	err = saveCertKeyPair(certBackup2, keyBackup2)
 	if err != nil {
 		t.Fatalf("Failed to create new cert/key pair: %v", err)
