@@ -1309,7 +1309,7 @@ func TestINotifyCertMonitoringCertValidationFails(t *testing.T) {
 	tempDir := t.TempDir()
 	tempCert := filepath.Join(tempDir, "temp.crt")
 	tempKey := filepath.Join(tempDir, "temp.key")
-	
+
 	err = saveCertKeyPair(tempCert, tempKey)
 	if err != nil {
 		t.Fatalf("Failed to create temp cert/key pair: %v", err)

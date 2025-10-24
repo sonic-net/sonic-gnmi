@@ -295,7 +295,7 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 					filepath.Ext(event.Name) == ".cer" || filepath.Ext(event.Name) == ".pem" ||
 					filepath.Ext(event.Name) == ".key") {
 					log.V(1).Infof("Inotify watcher has received event: %v", event)
-					if event.Op&(fsnotify.CloseWrite|fsnotify.MovedTo|fsnotify.Create) != 0 { {
+					if event.Op&(fsnotify.CloseWrite|fsnotify.MovedTo|fsnotify.Create) != 0 {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
 
 						// Validate cert/key pair before signaling reload
@@ -310,7 +310,7 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 						done <- true
 						return
 					}
-					if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 { {
+					if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
 						log.V(1).Infof("Cert file has been deleted: %s", event.Name)
 						serverControlSignal <- ServerRestart   // let server know that a remove/rename event occurred
 						if atomic.LoadInt32(certLoaded) == 1 { // Should continue monitoring if certs are not present
