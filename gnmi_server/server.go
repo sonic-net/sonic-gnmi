@@ -28,6 +28,7 @@ import (
 
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
+	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
 	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -255,7 +256,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	osSrv := &OSServer{Server: srv}
 	containerzSrv := &ContainerzServer{server: srv}
 
-	readWhitelist, writeWhitelist := constructWhitelists()
+	readWhitelist, writeWhitelist := gnoi_debug.ConstructWhitelists()
 	debugSrv := &DebugServer{
 		Server:         srv,
 		readWhitelist:  readWhitelist,
