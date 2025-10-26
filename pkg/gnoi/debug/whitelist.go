@@ -43,7 +43,7 @@ func ConstructWhitelists() (read, write []string) {
 		return defaultWhitelists()
 	}
 
-	return whitelists.ReadWhitelist, whitelists.WriteWhitelist
+	return whitelists.ReadWhitelist, append(whitelists.WriteWhitelist, whitelists.ReadWhitelist...)
 }
 
 // Helper function to construct lists of allowed commands for read and write users,

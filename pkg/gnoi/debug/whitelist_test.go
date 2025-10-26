@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -52,7 +53,7 @@ write_whitelist:
   - cmd4
 `,
 			expectedRead:  []string{"cmd1", "cmd2"},
-			expectedWrite: []string{"cmd3", "cmd4"},
+			expectedWrite: []string{"cmd1", "cmd2", "cmd3", "cmd4"},
 		},
 		{
 			name:          "Failure - File Not Found",
@@ -112,6 +113,12 @@ read_whitelist:
 			}
 
 			read, write := ConstructWhitelists()
+
+			// Ensure that all whitelists are sorted, for comparison
+			sort.Strings(read)
+			sort.Strings(write)
+			sort.Strings(tc.expectedRead)
+			sort.Strings(tc.expectedWrite)
 
 			if !reflect.DeepEqual(read, tc.expectedRead) {
 				t.Errorf("Read whitelist mismatch:\ngot:  %v\nwant: %v", read, tc.expectedRead)
