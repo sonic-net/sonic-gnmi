@@ -295,13 +295,22 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 					filepath.Ext(event.Name) == ".cer" || filepath.Ext(event.Name) == ".pem" ||
 					filepath.Ext(event.Name) == ".key") {
 					log.V(1).Infof("Inotify watcher has received event: %v", event)
-					if event.Op&fsnotify.CloseWrite == fsnotify.CloseWrite || event.Op&fsnotify.MovedTo == fsnotify.MovedTo {
+					if event.Op&(fsnotify.CloseWrite|fsnotify.MovedTo|fsnotify.Create) != 0 {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
-						serverControlSignal <- ServerStart // let server know that a write/create event occurred
+
+						// Validate cert/key pair before signaling reload
+						_, err := tls.LoadX509KeyPair(*telemetryCfg.ServerCert, *telemetryCfg.ServerKey)
+						if err != nil {
+							log.V(1).Infof("Cert validation failed: %v", err)
+							continue // Keep monitoring - wait for matching cert/key pair
+						}
+
+						log.V(1).Infof("Cert validation succeeded, signaling server reload")
+						serverControlSignal <- ServerStart
 						done <- true
 						return
 					}
-					if event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename {
+					if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
 						log.V(1).Infof("Cert file has been deleted: %s", event.Name)
 						serverControlSignal <- ServerRestart   // let server know that a remove/rename event occurred
 						if atomic.LoadInt32(certLoaded) == 1 { // Should continue monitoring if certs are not present
