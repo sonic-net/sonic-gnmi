@@ -19,6 +19,8 @@ import (
 	"time"
 
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
+	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
+	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
 	"github.com/fsnotify/fsnotify"
@@ -462,6 +464,18 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 
 			gnmi.GenerateJwtSecretKey()
 		}
+
+		// Setup DPU proxy interceptor (always enabled, regardless of TLS)
+		// Create Redis client for DPU info resolution
+		redisClient := dpuproxy.NewRedisClient(dpuproxy.DefaultRedisSocket, dpuproxy.StateDB)
+		redisAdapter := dpuproxy.NewGoRedisAdapter(redisClient)
+		dpuResolver := dpuproxy.NewDPUResolver(redisAdapter)
+
+		dpuProxy := dpuproxy.NewDPUProxy(dpuResolver)
+		interceptorChain := interceptors.NewChain(dpuProxy)
+		opts = append(opts,
+			grpc.UnaryInterceptor(interceptorChain.UnaryInterceptor()),
+			grpc.StreamInterceptor(interceptorChain.StreamInterceptor()))
 
 		s, err := gnmi.NewServer(cfg, opts)
 		if err != nil {
