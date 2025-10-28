@@ -225,8 +225,8 @@ endif
 	$(GO) install github.com/AlekSi/gocov-xml@latest
 	$(GO) mod vendor
 
-	# Filter out "mocks" from the coverage reports
-	for file in coverage-*.txt; do grep -v "/mocks/" $$file > $$file.filtered; done
+	# Filter out "mocks" and generated "proto" files from the coverage reports
+	for file in coverage-*.txt; do grep -v -e "/mocks/" -e "proto/" $$file > $$file.filtered; done
 
 	# Convert and generate the final coverage.xml file
 	gocov convert coverage-*.txt.filtered | gocov-xml -source $(shell pwd) > coverage.xml
