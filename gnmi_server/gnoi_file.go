@@ -9,7 +9,9 @@ import (
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 
-	gnoifile "github.com/sonic-net/sonic-gnmi/pkg/gnoi/file"
+	// Renamed local package alias to avoid redeclaration / collision.
+	filepkg "github.com/sonic-net/sonic-gnmi/pkg/gnoi/file"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -134,5 +136,5 @@ func (srv *FileServer) Remove(ctx context.Context, req *gnoi_file_pb.RemoveReque
 		return nil, err
 	}
 	// Delegate to handler (all logic except authentication is in the handler)
-	return gnoifile.HandleFileRemove(ctx, req)
+	return filepkg.HandleFileRemove(ctx, req)
 }
