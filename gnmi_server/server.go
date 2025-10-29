@@ -122,6 +122,8 @@ type FileServer struct {
 // for forward compatibility
 type OSServer struct {
 	*Server
+	ProcessTransferReady func(req string) (string, error)
+	ProcessTransferEnd   func(req string) (string, error)
 	gnoi_os_pb.UnimplementedOSServer
 }
 
@@ -133,6 +135,13 @@ type ContainerzServer struct {
 
 type AuthTypes map[string]bool
 
+// OSConfig is a collection of values for OSServer.
+type OSConfig struct {
+	ImgDir               string                       // Path to the directory where image is stored.
+	ProcessTransferReady func(string) (string, error) // Function that handles TransferReady request.
+	ProcessTransferEnd   func(string) (string, error) // Function that handles TransferEnd request.
+}
+
 // Config is a collection of values for Server
 type Config struct {
 	// Port for the Server to listen on. If 0 or unset the Server will pick a port
@@ -143,11 +152,14 @@ type Config struct {
 	UserAuth            AuthTypes
 	EnableTranslibWrite bool
 	EnableNativeWrite   bool
+	EnableTranslation   bool
 	ZmqPort             string
 	IdleConnDuration    int
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
+	// gnoi
+	OSCfg *OSConfig
 }
 
 var AuthLock sync.Mutex
@@ -243,7 +255,11 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	fileSrv := &FileServer{Server: srv}
-	osSrv := &OSServer{Server: srv}
+	osSrv := &OSServer{
+		Server:               srv,
+		ProcessTransferReady: srv.config.OSCfg.ProcessTransferReady,
+		ProcessTransferEnd:   srv.config.OSCfg.ProcessTransferEnd,
+	}
 	containerzSrv := &ContainerzServer{server: srv}
 
 	var err error
