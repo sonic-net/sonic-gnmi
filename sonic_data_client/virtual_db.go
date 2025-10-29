@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	log "github.com/golang/glog"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
 
 // virtual db is to Handle
@@ -35,6 +36,9 @@ var (
 
 	// Queue name to oid map in COUNTERS table of COUNTERS_DB
 	countersQueueNameMap = make(map[string]string)
+
+	// MY_SID prefix to oid map in COUNTERS table of COUNTERS_DB
+	countersSidMap = make(map[string]string)
 
 	// SONiC interface name to priority group indices and then to oid (from COUNTERS table of COUNTERS_DB)
 	countersPGNameMap = make(map[string]map[string]string)
@@ -85,6 +89,9 @@ var (
 		}, { // stats for one or all Fabric ports
 			path:      []string{"COUNTERS_DB", "COUNTERS", "SWITCH*"},
 			transFunc: v2rTranslate(v2rSwitchPacketIntegrityDrop),
+		}, {
+			path:      []string{"COUNTERS_DB", "COUNTERS", "SID*"},
+			transFunc: v2rTranslate(v2rSRv6SidStats),
 		},
 	}
 )
@@ -137,6 +144,17 @@ func initCountersPortNameMap() error {
 	var err error
 	if len(countersPortNameMap) == 0 {
 		countersPortNameMap, err = getCountersMap("COUNTERS_PORT_NAME_MAP")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func initCountersSidMap() error {
+	var err error
+	if len(countersSidMap) == 0 {
+		countersSidMap, err = getCountersMap("COUNTERS_SRV6_NAME_MAP")
 		if err != nil {
 			return err
 		}
@@ -810,6 +828,45 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 		}
 	}
 	log.V(6).Infof("v2rEthPortQueStats: %v", tblPaths)
+	return tblPaths, nil
+}
+
+// Populate real data paths from paths like
+// [COUNTERS_DB COUNTERS *] or [COUNTERS_DB COUNTERS fcbb:bbbb:1::/48]
+func v2rSRv6SidStats(paths []string) ([]tablePath, error) {
+	var tblPaths []tablePath
+	if strings.HasSuffix(paths[KeyIdx], "*") { // All SID Counters
+		for sid, oid := range countersSidMap {
+			namespace, _ := sdcfg.GetDbDefaultNamespace()
+			separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+			tblPath := tablePath{
+				dbNamespace:  namespace,
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx],
+				tableKey:     oid,
+				delimitor:    separator,
+				jsonTableKey: sid,
+			}
+			tblPaths = append(tblPaths, tblPath)
+		}
+	} else {
+		sid := paths[KeyIdx][4:] // Remove the "SID:" prefix
+		if oid, ok := countersSidMap[sid]; ok {
+			namespace, _ := sdcfg.GetDbDefaultNamespace()
+			separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+			tblPath := tablePath{
+				dbNamespace: namespace,
+				dbName:      paths[DbIdx],
+				tableName:   paths[TblIdx],
+				tableKey:    oid,
+				delimitor:   separator,
+			}
+			tblPaths = append(tblPaths, tblPath)
+		} else {
+			log.V(2).Infof("SID:%v doesn't exist in counter oid map!", sid)
+			return nil, fmt.Errorf("SID:%v doesn't exist in counter oid map!", sid)
+		}
+	}
 	return tblPaths, nil
 }
 
