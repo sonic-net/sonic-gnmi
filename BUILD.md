@@ -6,6 +6,8 @@ This guide describes how to build `sonic-gnmi` Debian package in a lightweight c
 
 The build process uses the official SONiC build container (`sonic-slave-bookworm`) and pre-built dependencies from Azure pipeline artifacts. This approach is faster and requires less disk space than a full sonic-buildimage build.
 
+**IMPORTANT:** The steps in this guide are extracted from [`azure-pipelines.yml`](azure-pipelines.yml). If you encounter any discrepancies or need the most up-to-date build process, always refer to `azure-pipelines.yml` as the ultimate source of truth.
+
 ## Prerequisites
 
 - Docker installed and running
