@@ -143,13 +143,38 @@ docker exec sonic-gnmi-build bash -c "dpkg -i \
   /workspace/target/debs/bookworm/libswsscommon-dev_1.0.0_amd64.deb"
 ```
 
-## Step 4: Clone and Build sonic-mgmt-common
+## Step 4: Clone Required Repositories
+
+sonic-gnmi requires two additional SONiC repositories to build:
+
+### 4.1 Clone sonic-mgmt-common
 
 ```bash
-# Clone sonic-mgmt-common (if not already present)
 cd $WORKSPACE
 git clone https://github.com/sonic-net/sonic-mgmt-common.git --depth 1 --branch master
+```
 
+### 4.2 Clone sonic-swss-common
+
+**IMPORTANT:** sonic-gnmi has CGO code (`sonic_data_client/events_client.go`) that references `../../sonic-swss-common/common` for header files. You must clone sonic-swss-common at the same level as sonic-gnmi.
+
+```bash
+cd $WORKSPACE
+git clone https://github.com/sonic-net/sonic-swss-common.git --depth 1 --branch master
+```
+
+**Directory structure after cloning:**
+```
+$WORKSPACE/
+├── sonic-gnmi/
+├── sonic-mgmt-common/
+├── sonic-swss-common/
+└── target/
+```
+
+## Step 5: Build sonic-mgmt-common
+
+```bash
 # Build sonic-mgmt-common
 docker exec -w /workspace/sonic-mgmt-common sonic-gnmi-build bash -c \
   "NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc"
@@ -161,15 +186,6 @@ docker exec sonic-gnmi-build bash -c "dpkg -i \
 ```
 
 **Note:** Ignore the postinst warning about `debian/sonic-mgmt-common-codegen.install` - the packages install correctly.
-
-## Step 5: Clone sonic-swss-common
-
-**IMPORTANT:** sonic-gnmi has CGO code (`sonic_data_client/events_client.go`) that references `../../sonic-swss-common/common` for header files. You must clone sonic-swss-common at the same level as sonic-gnmi.
-
-```bash
-cd $WORKSPACE
-git clone https://github.com/sonic-net/sonic-swss-common.git --depth 1 --branch master
-```
 
 ## Step 6: Build sonic-gnmi
 
