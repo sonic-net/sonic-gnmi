@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 func TestExtractTargetMetadata_NoMetadata(t *testing.T) {
@@ -175,10 +177,9 @@ func TestDPUProxy_UnaryInterceptor_WithDPUMetadata(t *testing.T) {
 	proxy := NewDPUProxy(nil)
 	interceptor := proxy.UnaryInterceptor()
 
-	handlerCalled := false
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		handlerCalled = true
-		return "response", nil
+		t.Error("Handler should not be called for non-forwardable gNMI method with DPU metadata")
+		return nil, nil
 	}
 
 	md := metadata.New(map[string]string{
@@ -187,18 +188,24 @@ func TestDPUProxy_UnaryInterceptor_WithDPUMetadata(t *testing.T) {
 	})
 	ctx := metadata.NewIncomingContext(context.Background(), md)
 
+	// /gnmi.gNMI/Get is not in the forwardable registry, should be rejected
 	resp, err := interceptor(ctx, "request", &grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"}, handler)
 
-	if err != nil {
-		t.Errorf("Expected no error, got: %v", err)
+	if err == nil {
+		t.Error("Expected error for non-forwardable gNMI method with DPU metadata")
 	}
 
-	if !handlerCalled {
-		t.Error("Expected handler to be called (pass-through in Phase 1)")
+	if resp != nil {
+		t.Errorf("Expected nil response, got: %v", resp)
 	}
 
-	if resp != "response" {
-		t.Errorf("Expected 'response', got: %v", resp)
+	// Check that error is Unimplemented
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Errorf("Expected gRPC status error, got: %v", err)
+	}
+	if st.Code() != codes.Unimplemented {
+		t.Errorf("Expected Unimplemented code, got: %v", st.Code())
 	}
 }
 
@@ -271,9 +278,8 @@ func TestDPUProxy_StreamInterceptor_WithDPUMetadata(t *testing.T) {
 	proxy := NewDPUProxy(nil)
 	interceptor := proxy.StreamInterceptor()
 
-	handlerCalled := false
 	handler := func(srv interface{}, ss grpc.ServerStream) error {
-		handlerCalled = true
+		t.Error("Handler should not be called for non-forwardable gNMI method with DPU metadata")
 		return nil
 	}
 
@@ -284,14 +290,20 @@ func TestDPUProxy_StreamInterceptor_WithDPUMetadata(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), md)
 	ss := &mockServerStream{ctx: ctx}
 
+	// /gnmi.gNMI/Subscribe is not in the forwardable registry, should be rejected
 	err := interceptor(nil, ss, &grpc.StreamServerInfo{FullMethod: "/gnmi.gNMI/Subscribe"}, handler)
 
-	if err != nil {
-		t.Errorf("Expected no error, got: %v", err)
+	if err == nil {
+		t.Error("Expected error for non-forwardable gNMI method with DPU metadata")
 	}
 
-	if !handlerCalled {
-		t.Error("Expected handler to be called (pass-through in Phase 1)")
+	// Check that error is Unimplemented
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Errorf("Expected gRPC status error, got: %v", err)
+	}
+	if st.Code() != codes.Unimplemented {
+		t.Errorf("Expected Unimplemented code, got: %v", st.Code())
 	}
 }
 
@@ -305,4 +317,74 @@ func TestNewDPUProxy(t *testing.T) {
 	// Verify it implements the Interceptor interface by checking methods exist
 	_ = proxy.UnaryInterceptor()
 	_ = proxy.StreamInterceptor()
+}
+
+func TestDPUProxy_UnaryInterceptor_NonForwardableMethod(t *testing.T) {
+	proxy := NewDPUProxy(nil)
+	interceptor := proxy.UnaryInterceptor()
+
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		t.Error("Handler should not be called for non-forwardable method with DPU metadata")
+		return nil, nil
+	}
+
+	// Use DPU metadata with a non-forwardable method
+	md := metadata.New(map[string]string{
+		MetadataKeyTargetType:  "dpu",
+		MetadataKeyTargetIndex: "0",
+	})
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	// Use a method that's not in the forwardable registry
+	resp, err := interceptor(ctx, "request", &grpc.UnaryServerInfo{FullMethod: "/some.Service/NonForwardable"}, handler)
+
+	if err == nil {
+		t.Error("Expected error for non-forwardable method with DPU metadata")
+	}
+
+	if resp != nil {
+		t.Errorf("Expected nil response, got: %v", resp)
+	}
+
+	// Check that error is Unimplemented
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Errorf("Expected gRPC status error, got: %v", err)
+	}
+	if st.Code() != codes.Unimplemented {
+		t.Errorf("Expected Unimplemented code, got: %v", st.Code())
+	}
+}
+
+func TestDPUProxy_StreamInterceptor_NonForwardableMethod(t *testing.T) {
+	proxy := NewDPUProxy(nil)
+	interceptor := proxy.StreamInterceptor()
+
+	handler := func(srv interface{}, ss grpc.ServerStream) error {
+		t.Error("Handler should not be called for non-forwardable method with DPU metadata")
+		return nil
+	}
+
+	// Use DPU metadata with a non-forwardable method
+	md := metadata.New(map[string]string{
+		MetadataKeyTargetType:  "dpu",
+		MetadataKeyTargetIndex: "0",
+	})
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+	ss := &mockServerStream{ctx: ctx}
+
+	err := interceptor(nil, ss, &grpc.StreamServerInfo{FullMethod: "/some.Service/NonForwardable"}, handler)
+
+	if err == nil {
+		t.Error("Expected error for non-forwardable method with DPU metadata")
+	}
+
+	// Check that error is Unimplemented
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Errorf("Expected gRPC status error, got: %v", err)
+	}
+	if st.Code() != codes.Unimplemented {
+		t.Errorf("Expected Unimplemented code, got: %v", st.Code())
+	}
 }
