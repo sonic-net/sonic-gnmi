@@ -55,12 +55,18 @@ type TelemetryConfig struct {
 	GnmiTranslibWrite     *bool
 	GnmiNativeWrite       *bool
 	Threshold             *int
+	StreamingThreshold    *int
+	UnaryThreshold        *int
 	WithMasterArbitration *bool
 	WithSaveOnSet         *bool
 	IdleConnDuration      *int
 	Vrf                   *string
 	EnableCrl             *bool
 	CrlExpireDuration     *int
+	CertCRLConfig         *string
+	IntManFile            *string
+	CertzMetaFile         *string
+	ImgDirPath            *string
 }
 
 func main() {
@@ -155,9 +161,6 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		UserAuth:              gnmi.AuthTypes{"password": false, "cert": false, "jwt": false},
 		Port:                  fs.Int("port", -1, "port to listen on"),
 		LogLevel:              fs.Int("v", 2, "log level of process"),
-		CaCert:                fs.String("ca_crt", "", "CA certificate for client certificate validation. Optional."),
-		ServerCert:            fs.String("server_crt", "", "TLS server certificate"),
-		ServerKey:             fs.String("server_key", "", "TLS server private key"),
 		ConfigTableName:       fs.String("config_table_name", "", "Config table name"),
 		ZmqAddress:            fs.String("zmq_address", "", "Orchagent ZMQ address, deprecated, please use zmq_port."),
 		ZmqPort:               fs.String("zmq_port", "", "Orchagent ZMQ port, when not set or empty string telemetry server will switch to Redis based communication channel."),
@@ -175,6 +178,12 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		Vrf:                   fs.String("vrf", "", "VRF name, when zmq_address belong on a VRF, need VRF name to bind ZMQ."),
 		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
 		CrlExpireDuration:     fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
+		CaCert:                fs.String("ca_crt", "", "CA certificate for client certificate validation. Optional."),
+		ServerCert:            fs.String("server_crt", "", "TLS server certificate"),
+		ServerKey:             fs.String("server_key", "", "TLS server private key"),
+		IntManFile:            fs.String("integrity_manifest_file", "", "Full path name of integrity manifest file."),
+		CertCRLConfig:         fs.String("cert_crl_dir", "", "CRL directory. Disable if empty."),
+		CertzMetaFile:         fs.String("grpc_meta", "/keys/grpc-version.json", "gRPC credentials metadata JSON file"),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -228,6 +237,12 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	// Move to new function
 	gnmi.JwtRefreshInt = time.Duration(*telemetryCfg.JwtRefInt * uint64(time.Second))
 	gnmi.JwtValidInt = time.Duration(*telemetryCfg.JwtValInt * uint64(time.Second))
+	/*
+		oscfg := &gnmi.OSConfig{
+			ImgDir:          *telemetryCfg.ImgDirPath,
+			ProcessTrfReady: gnmi.ProcessInstallFromBackEnd,
+			ProcessTrfEnd:   gnmi.ProcessInstallFromBackEnd,
+		}*/
 
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*telemetryCfg.Port)
@@ -239,6 +254,16 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.ConfigTableName = *telemetryCfg.ConfigTableName
 	cfg.Vrf = *telemetryCfg.Vrf
 	cfg.EnableCrl = *telemetryCfg.EnableCrl
+	cfg.CaCertLnk = "/keys/ca_cert.lnk"
+	cfg.CaCertFile = string(*telemetryCfg.CaCert)
+	cfg.SrvCertLnk = "/keys/server_cert.lnk"
+	cfg.SrvCertFile = string(*telemetryCfg.ServerCert)
+	cfg.SrvKeyLnk = "/keys/server_key.lnk"
+	cfg.SrvKeyFile = string(*telemetryCfg.ServerKey)
+	cfg.CertCRLConfig = string(*telemetryCfg.CertCRLConfig)
+	cfg.IntManFile = string(*telemetryCfg.IntManFile)
+	cfg.CertzMetaFile = string(*telemetryCfg.CertzMetaFile)
+	//cfg.OSCfg = oscfg
 
 	gnmi.SetCrlExpireDuration(time.Duration(*telemetryCfg.CrlExpireDuration) * time.Second)
 
@@ -253,6 +278,23 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	}
 
 	cfg.ZmqPort = zmqPort
+
+	if *telemetryCfg.CaCert != "" {
+		cfg.CaCertLnk = filepath.Dir(*telemetryCfg.CaCert) + "/ca_cert.lnk"
+	}
+	if *telemetryCfg.ServerCert != "" {
+		cfg.SrvCertLnk = filepath.Dir(*telemetryCfg.ServerCert) + "/server_cert.lnk"
+	}
+	if *telemetryCfg.ServerKey != "" {
+		cfg.SrvKeyLnk = filepath.Dir(*telemetryCfg.ServerKey) + "/server_key.lnk"
+	}
+	if !*telemetryCfg.Insecure {
+		cfg.GetOptions = gnmi.SrvAdvConfig
+	}
+	if *telemetryCfg.CaCert == "" && telemetryCfg.UserAuth.Enabled("cert") {
+		telemetryCfg.UserAuth.Unset("cert")
+		log.V(2).Info("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
+	}
 
 	return telemetryCfg, cfg, nil
 }
@@ -356,9 +398,11 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 
 		if !*telemetryCfg.NoTLS {
 			var certificate tls.Certificate
-			var err error
+			//var err error
 			if *telemetryCfg.Insecure {
-				certificate, err = testcert.NewCert()
+				//certificate, key, err := testcert.NewCert()
+				certBuf, keyBuf, err := testcert.NewCert()
+				certificate, err = tls.X509KeyPair(certBuf.Bytes(), keyBuf.Bytes())
 				if err != nil {
 					log.Errorf("could not load server key pair: %s", err)
 					return
