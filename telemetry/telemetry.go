@@ -58,6 +58,7 @@ type TelemetryConfig struct {
 	WithMasterArbitration *bool
 	WithSaveOnSet         *bool
 	IdleConnDuration      *int
+	GnmiVrf               *string
 	Vrf                   *string
 	EnableCrl             *bool
 	CrlExpireDuration     *int
@@ -172,7 +173,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		WithMasterArbitration: fs.Bool("with-master-arbitration", false, "Enables master arbitration policy."),
 		WithSaveOnSet:         fs.Bool("with-save-on-set", false, "Enables save-on-set."),
 		IdleConnDuration:      fs.Int("idle_conn_duration", 5, "Seconds before server closes idle connections"),
-		Vrf:                   fs.String("vrf", "", "VRF name, when zmq_address belong on a VRF, need VRF name to bind ZMQ."),
+		GnmiVrf:               fs.String("gnmi_vrf", "", "VRF name for gNMI server binding."),
+		Vrf:                   fs.String("vrf", "", "VRF name for ZMQ client binding."),
 		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
 		CrlExpireDuration:     fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
 	}
@@ -237,6 +239,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.Threshold = int(*telemetryCfg.Threshold)
 	cfg.IdleConnDuration = int(*telemetryCfg.IdleConnDuration)
 	cfg.ConfigTableName = *telemetryCfg.ConfigTableName
+	cfg.GnmiVrf = *telemetryCfg.GnmiVrf
 	cfg.Vrf = *telemetryCfg.Vrf
 	cfg.EnableCrl = *telemetryCfg.EnableCrl
 
