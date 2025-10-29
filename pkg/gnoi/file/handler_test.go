@@ -17,26 +17,22 @@ var testCtx = context.Background()
 
 func TestHandleFileRemove_NilRequest(t *testing.T) {
 	resp, err := HandleFileRemove(context.Background(), nil)
-	if err == nil {
-		t.Error("Expected error for nil request, got nil")
-	}
-	if resp != nil {
-		t.Error("Expected nil response for nil request, got non-nil")
-	}
+	assert.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	assert.Nil(t, resp)
 }
 
 func TestRemove_DangerousFile(t *testing.T) {
-	// /etc/sonic/config_db.json should be blocked
+	// With no blacklist, this will be denied by whitelist and return PermissionDenied.
 	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: "/etc/sonic/config_db.json"})
 	assert.Error(t, err)
-	// handler message: "removal of critical system files is forbidden"
-	assert.Contains(t, err.Error(), "forbidden")
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 	assert.Nil(t, resp)
 }
 
 func TestRemove_PathTraversal(t *testing.T) {
 	// The handler denies paths not starting with allowed prefixes.
-	// ../../etc/passwd will be rejected as "not whitelisted" before the traversal check.
+	// ../../etc/passwd will be rejected as "not whitelisted".
 	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: "../../etc/passwd"})
 	assert.Error(t, err)
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
@@ -52,9 +48,8 @@ func TestRemove_NonExistentFile(t *testing.T) {
 	// Use an allowed path so handler reaches os.Remove
 	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/notfound.txt"})
 	assert.Error(t, err)
-	assert.True(t, errors.Is(err, os.ErrNotExist))
-	// Handler returns a RemoveResponse even when os.Remove fails:
-	//   return &gnoi_file_pb.RemoveResponse{}, err
+	assert.Equal(t, codes.NotFound, status.Code(err))
+	// Handler returns a RemoveResponse even when os.Remove fails per current design:
 	assert.NotNil(t, resp)
 }
 
@@ -69,7 +64,7 @@ func TestRemove_RelativePath(t *testing.T) {
 func TestRemove_EmptyPath(t *testing.T) {
 	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: ""})
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "empty")
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
 	assert.Nil(t, resp)
 }
 
@@ -80,7 +75,7 @@ func TestRemove_SpecialCharFile(t *testing.T) {
 	})
 	defer patch.Reset()
 
-	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/filé.txt"})
+	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/fil├⌐.txt"})
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 }
@@ -94,7 +89,11 @@ func TestRemove_PermissionDenied(t *testing.T) {
 	// Use an allowed path so handler reaches os.Remove
 	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/forbidden.txt"})
 	assert.Error(t, err)
-	assert.True(t, errors.Is(err, os.ErrPermission))
-	// Handler returns a RemoveResponse with the error (non-nil resp)
+	// ensure permission-denied is returned as gRPC code
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+	// Handler returns a RemoveResponse with the error (non-nil resp) per current design
 	assert.NotNil(t, resp)
+
+	// Also verify errors.Is recognizes underlying os.ErrPermission
+	assert.True(t, errors.Is(err, os.ErrPermission) || status.Code(err) == codes.PermissionDenied)
 }

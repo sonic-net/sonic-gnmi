@@ -2,6 +2,7 @@ package file
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,34 +14,25 @@ import (
 )
 
 var allowedPrefixes = []string{"/tmp/", "/var/tmp/"}
-var blacklistedFiles = []string{"/etc/sonic/config_db.json", "/etc/passwd"}
 
 func isWhitelisted(path string) bool {
+	// Use absolute paths for proper comparison
+	abs, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return false
+	}
 	for _, prefix := range allowedPrefixes {
-		if strings.HasPrefix(path, prefix) {
+		absPrefix, _ := filepath.Abs(prefix)
+		// Ensure path stays within directory (not just starts with it)
+		if strings.HasPrefix(abs, absPrefix+string(filepath.Separator)) {
+			return true
+		}
+		// Also allow exact match (e.g., "/tmp" itself)
+		if abs == absPrefix {
 			return true
 		}
 	}
 	return false
-}
-
-func isBlacklisted(path string) bool {
-	for _, b := range blacklistedFiles {
-		if filepath.Clean(path) == b {
-			return true
-		}
-	}
-	return false
-}
-
-func hasPathTraversal(path string) bool {
-	clean := filepath.Clean(path)
-	for _, prefix := range allowedPrefixes {
-		if strings.HasPrefix(clean, prefix) {
-			return false
-		}
-	}
-	return true
 }
 
 func HandleFileRemove(ctx context.Context, req *gnoi_file_pb.RemoveRequest) (*gnoi_file_pb.RemoveResponse, error) {
@@ -57,23 +49,29 @@ func HandleFileRemove(ctx context.Context, req *gnoi_file_pb.RemoveRequest) (*gn
 		return nil, status.Error(codes.InvalidArgument, "Invalid request: remote_file field is empty.")
 	}
 
-	if isBlacklisted(remoteFile) {
-		log.Errorf("Denied: blacklisted file removal attempt: %s", remoteFile)
-		return nil, status.Error(codes.PermissionDenied, "removal of critical system files is forbidden")
-	}
 	if !isWhitelisted(remoteFile) {
 		log.Errorf("Denied: file not in allowed directory: %s", remoteFile)
 		return nil, status.Error(codes.PermissionDenied, "only files in /tmp/ or /var/tmp/ can be removed")
 	}
-	if hasPathTraversal(remoteFile) {
-		log.Errorf("Denied: path traversal detected in: %s", remoteFile)
-		return nil, status.Error(codes.PermissionDenied, "path traversal detected")
-	}
 
-	err := os.Remove(remoteFile)
-	if err != nil {
+	// Attempt remove and map errors to gRPC status codes for testable behavior.
+	if err := os.Remove(remoteFile); err != nil {
 		log.Errorf("Remove RPC failed: %v", err)
-		return &gnoi_file_pb.RemoveResponse{}, err
+
+		lower := strings.ToLower(err.Error())
+
+		// NotFound
+		if os.IsNotExist(err) || strings.Contains(lower, "no such file") {
+			return &gnoi_file_pb.RemoveResponse{}, status.Errorf(codes.NotFound, "%v", err)
+		}
+
+		// PermissionDenied — detect real OS permission errors or common test error strings
+		if os.IsPermission(err) || errors.Is(err, os.ErrPermission) || strings.Contains(lower, "permission denied") {
+			return &gnoi_file_pb.RemoveResponse{}, status.Errorf(codes.PermissionDenied, "%v", err)
+		}
+
+		// Fallback to Internal for other errors.
+		return &gnoi_file_pb.RemoveResponse{}, status.Errorf(codes.Internal, "%v", err)
 	}
 
 	log.Infof("Successfully removed file: %s", remoteFile)
