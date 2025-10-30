@@ -117,11 +117,18 @@ type FileServer struct {
 	gnoi_file_pb.UnimplementedFileServer
 }
 
+// OSBackend defines the interface for the OS installation backend service.
+type OSBackend interface {
+	InstallOS(req string) (string, error)
+}
+
 // OSServer is the server API for System service.
 // All implementations must embed UnimplementedSystemServer
 // for forward compatibility
 type OSServer struct {
 	*Server
+	backend OSBackend // Dependency interface
+	ImgDir  string
 	gnoi_os_pb.UnimplementedOSServer
 }
 
@@ -143,11 +150,28 @@ type Config struct {
 	UserAuth            AuthTypes
 	EnableTranslibWrite bool
 	EnableNativeWrite   bool
+	EnableTranslation   bool
 	ZmqPort             string
 	IdleConnDuration    int
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
+	// Path to the directory where image is stored.
+	ImgDir string
+}
+
+// DBusOSBackend is a concrete implementation of OSBackend
+type DBusOSBackend struct{}
+
+// InstallOS implements the OSBackend interface.
+func (d *DBusOSBackend) InstallOS(req string) (string, error) {
+	log.Infof("DBusOSBackend.InstallOS: %v", req)
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		return "", err
+	}
+	defer sc.Close()
+	return sc.InstallOS(req)
 }
 
 var AuthLock sync.Mutex
@@ -243,7 +267,16 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	fileSrv := &FileServer{Server: srv}
-	osSrv := &OSServer{Server: srv}
+
+	// Create an instance of the concrete OSBackend implementation
+	osBackend := &DBusOSBackend{}
+
+	osSrv := &OSServer{
+		Server:  srv,
+		backend: osBackend, // Pass the installer dependency
+		ImgDir:  srv.config.ImgDir,
+	}
+
 	containerzSrv := &ContainerzServer{server: srv}
 
 	var err error
