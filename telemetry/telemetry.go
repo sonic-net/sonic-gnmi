@@ -61,6 +61,7 @@ type TelemetryConfig struct {
 	Vrf                   *string
 	EnableCrl             *bool
 	CrlExpireDuration     *int
+	ImgDirPath            *string
 }
 
 func main() {
@@ -175,6 +176,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		Vrf:                   fs.String("vrf", "", "VRF name, when zmq_address belong on a VRF, need VRF name to bind ZMQ."),
 		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
 		CrlExpireDuration:     fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
+		ImgDirPath:            fs.String("img_dir", "/tmp/host_tmp", "Directory path where image will be transferred."),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -229,6 +231,11 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	gnmi.JwtRefreshInt = time.Duration(*telemetryCfg.JwtRefInt * uint64(time.Second))
 	gnmi.JwtValidInt = time.Duration(*telemetryCfg.JwtValInt * uint64(time.Second))
 
+	oscfg := &gnmi.OSConfig{
+		ImgDir:               *telemetryCfg.ImgDirPath,
+		ProcessTransferReady: gnmi.ProcessInstallFromBackEnd,
+		ProcessTransferEnd:   gnmi.ProcessInstallFromBackEnd,
+	}
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*telemetryCfg.Port)
 	cfg.EnableTranslibWrite = bool(*telemetryCfg.GnmiTranslibWrite)
@@ -254,6 +261,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 
 	cfg.ZmqPort = zmqPort
 
+	cfg.OSCfg = oscfg
 	return telemetryCfg, cfg, nil
 }
 
