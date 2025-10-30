@@ -1,0 +1,4 @@
+{
+    "SAI_COUNTER_STAT_PACKETS": "0",
+    "SAI_COUNTER_STAT_BYTES": "0"
+}
