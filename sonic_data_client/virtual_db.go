@@ -832,7 +832,7 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 }
 
 // Populate real data paths from paths like
-// [COUNTERS_DB COUNTERS *] or [COUNTERS_DB COUNTERS fcbb:bbbb:1::/48]
+// [COUNTERS_DB COUNTERS SID*] or [COUNTERS_DB COUNTERS SID:fcbb:bbbb:1::/48]
 func v2rSRv6SidStats(paths []string) ([]tablePath, error) {
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // All SID Counters
