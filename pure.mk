@@ -18,6 +18,8 @@ PURE_PACKAGES := \
 	internal/hash \
 	internal/download \
 	internal/firmware \
+	pkg/interceptors \
+	pkg/interceptors/dpuproxy \
 	pkg/server/operational-handler \
 	pkg/gnoi/file
 

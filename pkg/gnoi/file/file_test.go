@@ -2,7 +2,9 @@ package file
 
 import (
 	"context"
+	"crypto/md5"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -486,5 +488,493 @@ func TestHandleTransferToRemote_PathSecurityValidation(t *testing.T) {
 				t.Errorf("Expected InvalidArgument error for path %q, got %v", tt.path, err)
 			}
 		})
+	}
+}
+
+// mockPutStream implements gnoi_file_pb.File_PutServer for testing
+type mockPutStream struct {
+	gnoi_file_pb.File_PutServer
+	requests  []*gnoi_file_pb.PutRequest
+	responses []*gnoi_file_pb.PutResponse
+	recvIdx   int
+	recvErr   error
+	sendErr   error
+	ctx       context.Context
+}
+
+func newMockPutStream() *mockPutStream {
+	return &mockPutStream{
+		requests: make([]*gnoi_file_pb.PutRequest, 0),
+		ctx:      context.Background(),
+	}
+}
+
+func (m *mockPutStream) Context() context.Context {
+	return m.ctx
+}
+
+func (m *mockPutStream) Recv() (*gnoi_file_pb.PutRequest, error) {
+	if m.recvErr != nil {
+		return nil, m.recvErr
+	}
+	if m.recvIdx >= len(m.requests) {
+		return nil, io.EOF
+	}
+	req := m.requests[m.recvIdx]
+	m.recvIdx++
+	return req, nil
+}
+
+func (m *mockPutStream) SendAndClose(resp *gnoi_file_pb.PutResponse) error {
+	if m.sendErr != nil {
+		return m.sendErr
+	}
+	m.responses = append(m.responses, resp)
+	return nil
+}
+
+func (m *mockPutStream) addOpenRequest(path string, perms uint32) {
+	m.requests = append(m.requests, &gnoi_file_pb.PutRequest{
+		Request: &gnoi_file_pb.PutRequest_Open{
+			Open: &gnoi_file_pb.PutRequest_Details{
+				RemoteFile:  path,
+				Permissions: perms,
+			},
+		},
+	})
+}
+
+func (m *mockPutStream) addContentRequest(content []byte) {
+	m.requests = append(m.requests, &gnoi_file_pb.PutRequest{
+		Request: &gnoi_file_pb.PutRequest_Contents{
+			Contents: content,
+		},
+	})
+}
+
+func (m *mockPutStream) addHashRequest(hash []byte) {
+	m.requests = append(m.requests, &gnoi_file_pb.PutRequest{
+		Request: &gnoi_file_pb.PutRequest_Hash{
+			Hash: &types.HashType{
+				Method: types.HashType_MD5,
+				Hash:   hash,
+			},
+		},
+	})
+}
+
+func TestHandlePut_Success(t *testing.T) {
+	// Test successful file upload
+	stream := newMockPutStream()
+
+	// Content to upload
+	content := []byte("test file content for gNOI Put RPC")
+
+	// Calculate MD5 hash
+	hasher := md5.New()
+	hasher.Write(content)
+	expectedHash := hasher.Sum(nil)
+
+	// Setup request sequence
+	stream.addOpenRequest("/tmp/test.txt", 0644)
+	stream.addContentRequest(content)
+	stream.addHashRequest(expectedHash)
+
+	// Execute
+	err := HandlePut(stream)
+	if err != nil {
+		t.Fatalf("HandlePut() error = %v", err)
+	}
+
+	// Verify response was sent
+	if len(stream.responses) != 1 {
+		t.Fatalf("Expected 1 response, got %d", len(stream.responses))
+	}
+
+	// Verify file was created with correct content
+	path := "/tmp/test.txt"
+	if _, err := os.Stat("/mnt/host"); err == nil {
+		path = "/mnt/host/tmp/test.txt"
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("Failed to read uploaded file: %v", err)
+	}
+
+	if string(data) != string(content) {
+		t.Errorf("File content = %q, want %q", data, content)
+	}
+
+	// Cleanup
+	os.Remove(path)
+}
+
+func TestHandlePut_MultipleChunks(t *testing.T) {
+	// Test file upload with multiple content chunks
+	stream := newMockPutStream()
+
+	// Content in chunks
+	chunks := [][]byte{
+		[]byte("chunk1 "),
+		[]byte("chunk2 "),
+		[]byte("chunk3"),
+	}
+
+	// Calculate total hash
+	hasher := md5.New()
+	for _, chunk := range chunks {
+		hasher.Write(chunk)
+	}
+	expectedHash := hasher.Sum(nil)
+
+	// Setup request sequence
+	stream.addOpenRequest("/tmp/chunked.txt", 0600)
+	for _, chunk := range chunks {
+		stream.addContentRequest(chunk)
+	}
+	stream.addHashRequest(expectedHash)
+
+	// Execute
+	err := HandlePut(stream)
+	if err != nil {
+		t.Fatalf("HandlePut() error = %v", err)
+	}
+
+	// Verify file content
+	path := "/tmp/chunked.txt"
+	if _, err := os.Stat("/mnt/host"); err == nil {
+		path = "/mnt/host/tmp/chunked.txt"
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("Failed to read uploaded file: %v", err)
+	}
+
+	expected := "chunk1 chunk2 chunk3"
+	if string(data) != expected {
+		t.Errorf("File content = %q, want %q", data, expected)
+	}
+
+	// Verify permissions
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Failed to stat file: %v", err)
+	}
+
+	if info.Mode().Perm() != 0600 {
+		t.Errorf("File permissions = %o, want %o", info.Mode().Perm(), 0600)
+	}
+
+	// Cleanup
+	os.Remove(path)
+}
+
+func TestHandlePut_HashMismatch(t *testing.T) {
+	// Test hash validation failure
+	stream := newMockPutStream()
+
+	content := []byte("test content")
+	wrongHash := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+		0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f}
+
+	stream.addOpenRequest("/tmp/hashfail.txt", 0644)
+	stream.addContentRequest(content)
+	stream.addHashRequest(wrongHash)
+
+	// Execute
+	err := HandlePut(stream)
+	if err == nil {
+		t.Fatal("Expected error for hash mismatch, got nil")
+	}
+
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.DataLoss {
+		t.Errorf("Expected DataLoss error, got %v", err)
+	}
+
+	if !strings.Contains(st.Message(), "hash mismatch") {
+		t.Errorf("Error message = %q, want substring 'hash mismatch'", st.Message())
+	}
+
+	// Verify temp file was cleaned up
+	tempPath := "/tmp/hashfail.txt.tmp"
+	if _, err := os.Stat("/mnt/host"); err == nil {
+		tempPath = "/mnt/host/tmp/hashfail.txt.tmp"
+	}
+
+	if _, err := os.Stat(tempPath); !os.IsNotExist(err) {
+		t.Error("Temp file was not cleaned up after hash mismatch")
+		os.Remove(tempPath)
+	}
+}
+
+func TestHandlePut_InvalidPaths(t *testing.T) {
+	// Test path security validation
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"etc file", "/etc/passwd"},
+		{"boot file", "/boot/grub/grub.cfg"},
+		{"usr bin", "/usr/bin/malicious"},
+		{"relative path", "tmp/file.txt"},
+		{"path traversal", "/tmp/../etc/passwd"},
+		{"home directory", "/home/admin/.ssh/id_rsa"},
+		{"root directory", "/root/.bashrc"},
+		{"var log", "/var/log/syslog"},
+		{"host grub", "/host/grub/grub.cfg"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stream := newMockPutStream()
+			stream.addOpenRequest(tt.path, 0644)
+
+			err := HandlePut(stream)
+			if err == nil {
+				t.Errorf("Expected error for path %q, got nil", tt.path)
+				return
+			}
+
+			st, ok := status.FromError(err)
+			if !ok || st.Code() != codes.InvalidArgument {
+				t.Errorf("Expected InvalidArgument error for path %q, got %v", tt.path, err)
+			}
+		})
+	}
+}
+
+func TestHandlePut_NoOpenMessage(t *testing.T) {
+	// Test missing Open message
+	stream := newMockPutStream()
+	stream.addContentRequest([]byte("content"))
+
+	err := HandlePut(stream)
+	if err == nil {
+		t.Fatal("Expected error for missing Open message, got nil")
+	}
+
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.InvalidArgument {
+		t.Errorf("Expected InvalidArgument error, got %v", err)
+	}
+
+	if !strings.Contains(st.Message(), "first message must be Open") {
+		t.Errorf("Error message = %q, want substring 'first message must be Open'", st.Message())
+	}
+}
+
+func TestHandlePut_EmptyRemotePath(t *testing.T) {
+	// Test empty remote path
+	stream := newMockPutStream()
+	stream.addOpenRequest("", 0644)
+
+	err := HandlePut(stream)
+	if err == nil {
+		t.Fatal("Expected error for empty path, got nil")
+	}
+
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.InvalidArgument {
+		t.Errorf("Expected InvalidArgument error, got %v", err)
+	}
+
+	if !strings.Contains(st.Message(), "remote_file cannot be empty") {
+		t.Errorf("Error message = %q, want substring 'remote_file cannot be empty'", st.Message())
+	}
+}
+
+func TestHandlePut_DefaultPermissions(t *testing.T) {
+	// Test default permissions when not specified
+	stream := newMockPutStream()
+
+	content := []byte("test default perms")
+	hasher := md5.New()
+	hasher.Write(content)
+	expectedHash := hasher.Sum(nil)
+
+	// Permission 0 should default to 0644
+	stream.addOpenRequest("/tmp/default_perms.txt", 0)
+	stream.addContentRequest(content)
+	stream.addHashRequest(expectedHash)
+
+	err := HandlePut(stream)
+	if err != nil {
+		t.Fatalf("HandlePut() error = %v", err)
+	}
+
+	// Verify file permissions
+	path := "/tmp/default_perms.txt"
+	if _, err := os.Stat("/mnt/host"); err == nil {
+		path = "/mnt/host/tmp/default_perms.txt"
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Failed to stat file: %v", err)
+	}
+
+	if info.Mode().Perm() != 0644 {
+		t.Errorf("File permissions = %o, want %o", info.Mode().Perm(), 0644)
+	}
+
+	// Cleanup
+	os.Remove(path)
+}
+
+func TestHandlePut_StreamError(t *testing.T) {
+	// Test stream receive error
+	stream := newMockPutStream()
+	stream.recvErr = context.Canceled
+
+	err := HandlePut(stream)
+	if err == nil {
+		t.Fatal("Expected error for stream error, got nil")
+	}
+
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.Internal {
+		t.Errorf("Expected Internal error, got %v", err)
+	}
+}
+
+func TestHandlePut_LargeFile(t *testing.T) {
+	// Test uploading a larger file in chunks
+	stream := newMockPutStream()
+
+	// Create 1MB of data in 64KB chunks
+	chunkSize := 64 * 1024
+	totalSize := 1024 * 1024
+	chunks := make([][]byte, 0)
+	hasher := md5.New()
+
+	for written := 0; written < totalSize; written += chunkSize {
+		chunk := make([]byte, chunkSize)
+		// Fill with pattern
+		for i := range chunk {
+			chunk[i] = byte((written + i) % 256)
+		}
+		chunks = append(chunks, chunk)
+		hasher.Write(chunk)
+	}
+
+	expectedHash := hasher.Sum(nil)
+
+	// Setup request sequence
+	stream.addOpenRequest("/tmp/large_file.bin", 0644)
+	for _, chunk := range chunks {
+		stream.addContentRequest(chunk)
+	}
+	stream.addHashRequest(expectedHash)
+
+	// Execute
+	err := HandlePut(stream)
+	if err != nil {
+		t.Fatalf("HandlePut() error = %v", err)
+	}
+
+	// Verify file size
+	path := "/tmp/large_file.bin"
+	if _, err := os.Stat("/mnt/host"); err == nil {
+		path = "/mnt/host/tmp/large_file.bin"
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Failed to stat file: %v", err)
+	}
+
+	if info.Size() != int64(totalSize) {
+		t.Errorf("File size = %d, want %d", info.Size(), totalSize)
+	}
+
+	// Cleanup
+	os.Remove(path)
+}
+
+func TestHandlePut_VarTmpPath(t *testing.T) {
+	// Test /var/tmp path is allowed
+	stream := newMockPutStream()
+
+	content := []byte("var tmp test")
+	hasher := md5.New()
+	hasher.Write(content)
+	expectedHash := hasher.Sum(nil)
+
+	stream.addOpenRequest("/var/tmp/test.txt", 0644)
+	stream.addContentRequest(content)
+	stream.addHashRequest(expectedHash)
+
+	err := HandlePut(stream)
+	if err != nil {
+		t.Fatalf("HandlePut() error = %v", err)
+	}
+
+	// Verify file was created
+	path := "/var/tmp/test.txt"
+	if _, err := os.Stat("/mnt/host"); err == nil {
+		path = "/mnt/host/var/tmp/test.txt"
+	}
+
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Error("File was not created in /var/tmp")
+	}
+
+	// Cleanup
+	os.Remove(path)
+}
+
+func TestHandlePut_UnexpectedEOF(t *testing.T) {
+	// Test EOF after content but before hash
+	stream := newMockPutStream()
+
+	stream.addOpenRequest("/tmp/eof_test.txt", 0644)
+	stream.addContentRequest([]byte("content"))
+	// Don't add hash - Recv will return EOF
+
+	err := HandlePut(stream)
+	if err == nil {
+		t.Fatal("Expected error for unexpected EOF, got nil")
+	}
+
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.InvalidArgument {
+		t.Errorf("Expected InvalidArgument error, got %v", err)
+	}
+
+	if !strings.Contains(st.Message(), "unexpected end of stream") {
+		t.Errorf("Error message = %q, want substring 'unexpected end of stream'", st.Message())
+	}
+
+	// Cleanup temp file if it was created
+	tempPath := "/tmp/eof_test.txt.tmp"
+	if _, err := os.Stat("/mnt/host"); err == nil {
+		tempPath = "/mnt/host/tmp/eof_test.txt.tmp"
+	}
+	os.Remove(tempPath)
+}
+
+func TestHandlePut_InvalidMessageType(t *testing.T) {
+	// Test receiving invalid message type (neither contents nor hash)
+	stream := newMockPutStream()
+
+	stream.addOpenRequest("/tmp/invalid_msg.txt", 0644)
+	// Add a request with no content or hash
+	stream.requests = append(stream.requests, &gnoi_file_pb.PutRequest{})
+
+	err := HandlePut(stream)
+	if err == nil {
+		t.Fatal("Expected error for invalid message type, got nil")
+	}
+
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.InvalidArgument {
+		t.Errorf("Expected InvalidArgument error, got %v", err)
+	}
+
+	if !strings.Contains(st.Message(), "message must contain contents or hash") {
+		t.Errorf("Error message = %q, want substring 'message must contain contents or hash'", st.Message())
 	}
 }

@@ -108,7 +108,9 @@ func (srv *FileServer) TransferToRemote(ctx context.Context, req *gnoi_file_pb.T
 	return gnoifile.HandleTransferToRemote(ctx, req)
 }
 
-// Put RPC is unimplemented.
+// Put implements the gNOI File.Put RPC.
+// It receives a file stream from the client, validates the path, writes the file
+// to the filesystem, and verifies the hash.
 func (srv *FileServer) Put(stream gnoi_file_pb.File_PutServer) error {
 	log.Infof("GNOI File Put RPC called")
 	_, err := authenticate(srv.config, stream.Context(), "gnoi", false)
@@ -116,8 +118,7 @@ func (srv *FileServer) Put(stream gnoi_file_pb.File_PutServer) error {
 		log.Errorf("authentication failed in Put RPC: %v", err)
 		return err
 	}
-	log.Warning("file.Put RPC is unimplemented")
-	return status.Errorf(codes.Unimplemented, "Method file.Put is unimplemented.")
+	return gnoifile.HandlePut(stream)
 }
 
 // Remove implements the corresponding RPC.

@@ -32,6 +32,7 @@ require (
 )
 
 require (
+	github.com/alicebob/miniredis/v2 v2.35.0 // indirect
 	github.com/antchfx/jsonquery v1.1.4 // indirect
 	github.com/antchfx/xmlquery v1.3.1 // indirect
 	github.com/antchfx/xpath v1.1.10 // indirect
@@ -47,6 +48,7 @@ require (
 	github.com/openconfig/goyang v0.0.0-20200309174518-a00bece872fc // indirect
 	github.com/philopon/go-toposort v0.0.0-20170620085441-9be86dbd762f // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go4.org/intern v0.0.0-20211027215823-ae77deb06f29 // indirect
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
 	golang.org/x/sys v0.26.0 // indirect
