@@ -233,6 +233,7 @@ type Config struct {
 	PathzPolicy     bool   // Enable gNMI pathz policy.
 	PathzPolicyFile string // Path to gNMI pathz policy file.
 	PathzMetaFile   string // Path to JSON file with pathz metadata.
+	UseSingleTcp    bool   // Allow multiple Subscribe RPCs on a single TCP connection.
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -814,21 +815,25 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	*/
 
 	c := NewClient(pr.Addr)
+	c.useSingleTcp = s.config.UseSingleTcp
 
 	c.setLogLevel(s.config.LogLevel)
 	c.setConnectionManager(s.config.Threshold)
 
 	s.cMu.Lock()
+	log.V(1).Infof("New Subscribe RPC: client %s (peer: %s, total active: %d)", c.String(), pr.Addr, len(s.clients))
 	if oc, ok := s.clients[c.String()]; ok {
 		log.V(2).Infof("Delete duplicate client %s", oc)
 		oc.Close()
 		delete(s.clients, c.String())
 	}
 	s.clients[c.String()] = c
+	log.V(1).Infof("Client %s registered (total active: %d)", c.String(), len(s.clients))
 	s.cMu.Unlock()
 
 	err := c.Run(stream, s.config)
 	s.cMu.Lock()
+	log.V(1).Infof("Client %s completed, removing (total active: %d)", c.String(), len(s.clients)-1)
 	delete(s.clients, c.String())
 	s.cMu.Unlock()
 

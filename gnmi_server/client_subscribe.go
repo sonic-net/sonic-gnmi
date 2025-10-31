@@ -12,20 +12,23 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 )
 
 // Client contains information about a subscribe client that has connected to the server.
 type Client struct {
-	addr      net.Addr
-	sendMsg   int64
-	recvMsg   int64
-	errors    int64
-	polled    chan struct{}
-	stop      chan struct{}
-	once      chan struct{}
-	mu        sync.RWMutex
-	q         *queue.PriorityQueue
-	subscribe *gnmipb.SubscriptionList
+	addr         net.Addr
+	id           uint64 // Unique ID for this client instance
+	useSingleTcp bool   // When true, include unique ID in String() to allow multiple streams per TCP connection
+	sendMsg      int64
+	recvMsg      int64
+	errors       int64
+	polled       chan struct{}
+	stop         chan struct{}
+	once         chan struct{}
+	mu           sync.RWMutex
+	q            *queue.PriorityQueue
+	subscribe    *gnmipb.SubscriptionList
 	// Wait for all sub go routine to finish
 	w        sync.WaitGroup
 	fatal    bool
@@ -38,12 +41,17 @@ const logLevelDebug int = 7
 const logLevelMax int = logLevelDebug
 
 var connectionManager *ConnectionManager
+var connectionManagerMu sync.Mutex // Protects connectionManager initialization
+
+// Global counter for unique client IDs
+var clientIDCounter uint64
 
 // NewClient returns a new initialized client.
 func NewClient(addr net.Addr) *Client {
 	pq := queue.NewPriorityQueue(1, false)
 	return &Client{
 		addr:     addr,
+		id:       atomic.AddUint64(&clientIDCounter, 1),
 		q:        pq,
 		logLevel: logLevelError,
 	}
@@ -54,6 +62,9 @@ func (c *Client) setLogLevel(lvl int) {
 }
 
 func (c *Client) setConnectionManager(threshold int) {
+	connectionManagerMu.Lock()
+	defer connectionManagerMu.Unlock()
+
 	if connectionManager != nil && threshold == connectionManager.GetThreshold() {
 		return
 	}
@@ -65,7 +76,11 @@ func (c *Client) setConnectionManager(threshold int) {
 }
 
 // String returns the target the client is querying.
+// When useSingleTcp is enabled, includes a unique ID to allow multiple streams per TCP connection.
 func (c *Client) String() string {
+	if c.useSingleTcp {
+		return fmt.Sprintf("%s#%d", c.addr.String(), c.id)
+	}
 	return c.addr.String()
 }
 

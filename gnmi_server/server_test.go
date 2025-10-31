@@ -2213,9 +2213,11 @@ func TestGnmiGetMultiNs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error Setting up MultiNamespace files with err %T", err)
 	}
+	sdc.ResetRedisClients()
 
 	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
 	t.Cleanup(func() {
+		sdc.ResetRedisClients()
 		if err := test_utils.CleanUpMultiNamespace(); err != nil {
 			t.Fatalf("error Cleaning up MultiNamespace files with err %T", err)
 
@@ -4105,9 +4107,11 @@ func TestGnmiSubscribeMultiNs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error Setting up MultiNamespace files with err %T", err)
 	}
+	sdc.ResetRedisClients()
 
 	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
 	t.Cleanup(func() {
+		sdc.ResetRedisClients()
 		if err := test_utils.CleanUpMultiNamespace(); err != nil {
 			t.Fatalf("error Cleaning up MultiNamespace files with err %T", err)
 
@@ -5652,9 +5656,11 @@ func TestGNMINativeMultiNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error Setting up MultiNamespace files with err %T", err)
 	}
+	sdc.ResetRedisClients()
 
 	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
 	t.Cleanup(func() {
+		sdc.ResetRedisClients()
 		if err := test_utils.CleanUpMultiNamespace(); err != nil {
 			t.Fatalf("error Cleaning up MultiNamespace files with err %T", err)
 
