@@ -31,6 +31,8 @@ import (
 	"github.com/openconfig/ygot/ygot"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	"github.com/sonic-net/sonic-gnmi/transl_utils"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // translSubscriber is an extension of TranslClient to service Subscribe RPC.
@@ -79,7 +81,7 @@ func (ts *translSubscriber) doSample(path string) {
 	err := translib.Stream(req)
 	if err != nil {
 		req.Q.Dispose()
-		enqueFatalMsgTranslib(c, fmt.Sprintf("Subscribe operation failed with error = %v", err))
+		enqueFatalMsg(c.q, fmt.Sprintf("Subscribe operation failed with error = %v", err))
 	}
 
 	ts.synced.Wait()
@@ -109,7 +111,7 @@ func (ts *translSubscriber) doOnChange(stringPaths []string) {
 	err := translib.Subscribe(req)
 	if err != nil {
 		q.Dispose()
-		enqueFatalMsgTranslib(c, "Subscribe operation failed with error: "+err.Error())
+		enqueFatalMsg(c.q, "Subscribe operation failed with error: "+err.Error())
 	}
 
 	ts.synced.Wait()
@@ -135,7 +137,7 @@ func (ts *translSubscriber) processResponses(q *queue.PriorityQueue) {
 			return
 		}
 		if err != nil {
-			enqueFatalMsgTranslib(c, fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
+			enqueFatalMsg(c.q, fmt.Sprintf("Subscribe operation failed with error =%v", err.Error()))
 			return
 		}
 		switch v := items[0].(type) {
@@ -143,7 +145,7 @@ func (ts *translSubscriber) processResponses(q *queue.PriorityQueue) {
 
 			if v.IsTerminated {
 				//DB Connection or other backend error
-				enqueFatalMsgTranslib(c, "DB Connection Error")
+				enqueFatalMsg(c.q, "DB Connection Error")
 				close(c.channel)
 				return
 			}
@@ -164,8 +166,14 @@ func (ts *translSubscriber) processResponses(q *queue.PriorityQueue) {
 			}
 
 			if err := ts.notify(v); err != nil {
+				if st, ok := status.FromError(err); ok {
+					if st.Code() == codes.ResourceExhausted {
+						enqueFatalMsg(c.q, st.Message())
+						return
+					}
+				}
 				log.Warning(err)
-				enqueFatalMsgTranslib(c, "Internal error")
+				enqueFatalMsg(c.q, "Internal error")
 				return
 			}
 		default:
@@ -186,8 +194,13 @@ func (ts *translSubscriber) notify(v *translib.SubscribeResponse) error {
 	}
 
 	spbv := &spb.Value{Notification: msg}
-	ts.client.q.Put(Value{spbv})
 	log.V(6).Infof("Added spbv %#v", spbv)
+	err = ts.client.q.EnqueueItem(Value{spbv})
+	if st, ok := status.FromError(err); ok {
+		if st.Code() == codes.ResourceExhausted {
+			return err
+		}
+	}
 	return nil
 }
 
