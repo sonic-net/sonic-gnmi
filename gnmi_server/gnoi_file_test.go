@@ -363,7 +363,8 @@ func TestGnoiFileServer(t *testing.T) {
 		_, err := fs.Remove(context.Background(), req)
 
 		assert.Error(t, err)
-		assert.Equal(t, "simulated failure", err.Error())
+		assert.Equal(t, codes.Internal, status.Code(err))
+		assert.Equal(t, "simulated failure", status.Convert(err).Message())
 	})
 
 	t.Run("Get_Fails_With_Auth_Error", func(t *testing.T) {
