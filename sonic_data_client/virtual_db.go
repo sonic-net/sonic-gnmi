@@ -850,6 +850,10 @@ func v2rSRv6SidStats(paths []string) ([]tablePath, error) {
 			tblPaths = append(tblPaths, tblPath)
 		}
 	} else {
+		if !strings.HasPrefix(paths[KeyIdx], "SID:") {
+			log.V(2).Infof("Key %v is not a valid SRv6 SID format!", paths[KeyIdx])
+			return nil, fmt.Errorf("Key %v is not a valid SRv6 SID format!", paths[KeyIdx])
+		}
 		sid := paths[KeyIdx][4:] // Remove the "SID:" prefix
 		if oid, ok := countersSidMap[sid]; ok {
 			namespace, _ := sdcfg.GetDbDefaultNamespace()
