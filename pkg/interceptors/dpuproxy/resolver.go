@@ -18,6 +18,7 @@ const (
 	// DefaultGNMIPort is the fallback gNMI port if not configured in CONFIG_DB
 	DefaultGNMIPort = "50052"
 
+
 	// ChassisMidplaneTablePrefix is the Redis key prefix for DPU midplane info
 	ChassisMidplaneTablePrefix = "CHASSIS_MIDPLANE_TABLE|DPU"
 
@@ -38,6 +39,9 @@ type DPUInfo struct {
 
 	// GNMIPort is the gNMI server port on the DPU (from CONFIG_DB)
 	GNMIPort string
+
+	// GNMIPortsToTry is a list of ports to try in order (for robustness)
+	GNMIPortsToTry []string
 }
 
 // DPUResolver resolves DPU information from Redis.
@@ -97,10 +101,20 @@ func (r *DPUResolver) GetDPUInfo(ctx context.Context, dpuIndex string) (*DPUInfo
 		gnmiPort = DefaultGNMIPort
 	}
 
+	// Build list of ports to try - prioritize configured port, then common ports
+	commonGNMIPorts := []string{"8080", "50052"}
+	portsToTry := []string{gnmiPort}
+	for _, commonPort := range commonGNMIPorts {
+		if commonPort != gnmiPort {
+			portsToTry = append(portsToTry, commonPort)
+		}
+	}
+
 	return &DPUInfo{
-		Index:     dpuIndex,
-		IPAddress: ipAddr,
-		Reachable: reachable,
-		GNMIPort:  gnmiPort,
+		Index:          dpuIndex,
+		IPAddress:      ipAddr,
+		Reachable:      reachable,
+		GNMIPort:       gnmiPort,
+		GNMIPortsToTry: portsToTry,
 	}, nil
 }

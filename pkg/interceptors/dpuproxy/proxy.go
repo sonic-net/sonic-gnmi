@@ -12,6 +12,7 @@ import (
 	system "github.com/openconfig/gnoi/system"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
@@ -76,6 +77,7 @@ type DPUProxy struct {
 	// Connection management
 	connMu sync.RWMutex
 	conns  map[string]*grpc.ClientConn // key: DPU index (e.g., "0", "1")
+	connPorts map[string]string        // key: DPU index, value: successful port
 
 	// TODO (Future Phase): Add connection health monitoring
 	// - Periodic health checks using grpc.ConnectivityState
@@ -91,8 +93,9 @@ type DPUProxy struct {
 // If resolver is nil, Redis operations will be skipped (for testing).
 func NewDPUProxy(resolver *DPUResolver) *DPUProxy {
 	return &DPUProxy{
-		resolver: resolver,
-		conns:    make(map[string]*grpc.ClientConn),
+		resolver:  resolver,
+		conns:     make(map[string]*grpc.ClientConn),
+		connPorts: make(map[string]string),
 	}
 }
 
@@ -109,7 +112,7 @@ func (p *DPUProxy) getForwardingMode(method string) (ForwardingMode, bool) {
 
 // getConnection retrieves or creates a gRPC connection to the specified DPU.
 // Connections are cached and reused. Uses keepalive settings for long-lived connections.
-func (p *DPUProxy) getConnection(ctx context.Context, dpuIndex, ipAddress, port string) (*grpc.ClientConn, error) {
+func (p *DPUProxy) getConnection(ctx context.Context, dpuIndex, ipAddress string, portsToTry []string) (*grpc.ClientConn, error) {
 	// Check if we already have a connection
 	p.connMu.RLock()
 	if conn, ok := p.conns[dpuIndex]; ok {
@@ -127,28 +130,47 @@ func (p *DPUProxy) getConnection(ctx context.Context, dpuIndex, ipAddress, port 
 		return conn, nil
 	}
 
-	// Create new connection with keepalive settings for long-lived connections
-	target := fmt.Sprintf("%s:%s", ipAddress, port)
-	glog.Infof("[DPUProxy] Creating new gRPC connection to DPU%s at %s", dpuIndex, target)
+	// Try multiple ports to find the working gNMI service
+	var lastErr error
+	for i, port := range portsToTry {
+		target := fmt.Sprintf("%s:%s", ipAddress, port)
+		glog.Infof("[DPUProxy] Trying to connect to DPU%s at %s (attempt %d/%d)", dpuIndex, target, i+1, len(portsToTry))
 
-	conn, err := grpc.NewClient(
-		target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                10 * time.Second, // Send keepalive ping every 10s
-			Timeout:             3 * time.Second,  // Wait 3s for ping ack before considering connection dead
-			PermitWithoutStream: true,             // Send pings even when no active RPCs
-		}),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create connection to DPU%s at %s: %w", dpuIndex, target, err)
+		// Create connection with keepalive settings for long-lived connections
+		conn, err := grpc.NewClient(
+			target,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithKeepaliveParams(keepalive.ClientParameters{
+				Time:                10 * time.Second, // Send keepalive ping every 10s
+				Timeout:             3 * time.Second,  // Wait 3s for ping ack before considering connection dead
+				PermitWithoutStream: true,             // Send pings even when no active RPCs
+			}),
+		)
+
+		if err != nil {
+			lastErr = err
+			glog.Warningf("[DPUProxy] Failed to connect to DPU%s at %s: %v", dpuIndex, target, err)
+			continue
+		}
+
+		// Test the connection by checking its state
+		state := conn.GetState()
+
+		if state == connectivity.Ready || state == connectivity.Idle {
+			// Cache the successful connection and port for reuse
+			p.conns[dpuIndex] = conn
+			p.connPorts[dpuIndex] = port
+			glog.Infof("[DPUProxy] Successfully connected to DPU%s at %s", dpuIndex, target)
+			return conn, nil
+		}
+
+		// Connection not ready, try next port
+		conn.Close()
+		lastErr = fmt.Errorf("connection state: %v", state)
+		glog.Warningf("[DPUProxy] Connection to DPU%s at %s not ready (state: %v)", dpuIndex, target, state)
 	}
 
-	// Cache the connection for reuse
-	p.conns[dpuIndex] = conn
-	glog.Infof("[DPUProxy] Successfully created connection to DPU%s at %s", dpuIndex, target)
-
-	return conn, nil
+	return nil, fmt.Errorf("failed to connect to DPU%s on any port %v: last error: %w", dpuIndex, portsToTry, lastErr)
 }
 
 // forwardTimeRequest forwards a gNOI System.Time request to the DPU.
@@ -311,7 +333,7 @@ func (p *DPUProxy) UnaryInterceptor() grpc.UnaryServerInterceptor {
 					}
 
 					// Get or create connection to DPU
-					conn, err := p.getConnection(ctx, dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.GNMIPort)
+					conn, err := p.getConnection(ctx, dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.GNMIPortsToTry)
 					if err != nil {
 						glog.Errorf("[DPUProxy] Failed to get connection to DPU%s: %v", dpuInfo.Index, err)
 						return nil, status.Errorf(codes.Internal,
@@ -319,8 +341,9 @@ func (p *DPUProxy) UnaryInterceptor() grpc.UnaryServerInterceptor {
 					}
 
 					// Forward the request to DPU based on method
+					actualPort := p.connPorts[dpuInfo.Index]
 					glog.Infof("[DPUProxy] Forwarding %s to DPU%s at %s:%s",
-						info.FullMethod, dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.GNMIPort)
+						info.FullMethod, dpuInfo.Index, dpuInfo.IPAddress, actualPort)
 
 					// Handle method-specific forwarding
 					switch info.FullMethod {
@@ -402,7 +425,7 @@ func (p *DPUProxy) StreamInterceptor() grpc.StreamServerInterceptor {
 					}
 
 					// Get or create connection to DPU
-					conn, err := p.getConnection(ctx, dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.GNMIPort)
+					conn, err := p.getConnection(ctx, dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.GNMIPortsToTry)
 					if err != nil {
 						glog.Errorf("[DPUProxy] Failed to get connection to DPU%s: %v", dpuInfo.Index, err)
 						return status.Errorf(codes.Internal,
@@ -410,8 +433,9 @@ func (p *DPUProxy) StreamInterceptor() grpc.StreamServerInterceptor {
 					}
 
 					// Forward the stream to DPU
+					actualPort := p.connPorts[dpuInfo.Index]
 					glog.Infof("[DPUProxy] Forwarding stream %s to DPU%s at %s:%s",
-						info.FullMethod, dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.GNMIPort)
+						info.FullMethod, dpuInfo.Index, dpuInfo.IPAddress, actualPort)
 
 					return p.forwardStream(ctx, conn, ss, info)
 				}
