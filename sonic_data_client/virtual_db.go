@@ -73,7 +73,13 @@ var (
 		}, { // Periodic PG watermarks for one or all Ethernet ports
 			path:      []string{"COUNTERS_DB", "PERIODIC_WATERMARKS", "Ethernet*", "PriorityGroups"},
 			transFunc: v2rTranslate(v2rEthPortPGPeriodicWMs),
- 		},
+		}, { // COUNTER_DB RATES Ethernet*
+			path:      []string{"COUNTERS_DB", "RATES", "Ethernet*"},
+			transFunc: v2rTranslate(v2rEthPortStats),
+		}, { // COUNTER_DB RATES Ethernet* FEC_PRE_BER
+			path:      []string{"COUNTERS_DB", "RATES", "Ethernet*", "*"},
+			transFunc: v2rTranslate(v2rEthPortFieldStats),
+		},
 	}
 )
 
