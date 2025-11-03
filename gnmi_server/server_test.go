@@ -1870,6 +1870,14 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 			wantRetCode: codes.OK,
 			wantRespVal: countersSidSingleEntryByte,
 			valTest:     true,
+		}, {
+			desc:       "get COUNTERS:fcbb:bbbb:2::/48 -- malformed",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "fcbb:bbbb:2::/48" >
+				`,
+			wantRetCode: codes.NotFound,
 		},
 
 		// Happy path
