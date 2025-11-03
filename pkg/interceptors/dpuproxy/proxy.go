@@ -109,7 +109,7 @@ func (p *DPUProxy) getForwardingMode(method string) (ForwardingMode, bool) {
 
 // getConnection retrieves or creates a gRPC connection to the specified DPU.
 // Connections are cached and reused. Uses keepalive settings for long-lived connections.
-func (p *DPUProxy) getConnection(ctx context.Context, dpuIndex, ipAddress string) (*grpc.ClientConn, error) {
+func (p *DPUProxy) getConnection(ctx context.Context, dpuIndex, ipAddress, port string) (*grpc.ClientConn, error) {
 	// Check if we already have a connection
 	p.connMu.RLock()
 	if conn, ok := p.conns[dpuIndex]; ok {
@@ -128,7 +128,7 @@ func (p *DPUProxy) getConnection(ctx context.Context, dpuIndex, ipAddress string
 	}
 
 	// Create new connection with keepalive settings for long-lived connections
-	target := fmt.Sprintf("%s:50052", ipAddress)
+	target := fmt.Sprintf("%s:%s", ipAddress, port)
 	glog.Infof("[DPUProxy] Creating new gRPC connection to DPU%s at %s", dpuIndex, target)
 
 	conn, err := grpc.NewClient(
@@ -311,7 +311,7 @@ func (p *DPUProxy) UnaryInterceptor() grpc.UnaryServerInterceptor {
 					}
 
 					// Get or create connection to DPU
-					conn, err := p.getConnection(ctx, dpuInfo.Index, dpuInfo.IPAddress)
+					conn, err := p.getConnection(ctx, dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.GNMIPort)
 					if err != nil {
 						glog.Errorf("[DPUProxy] Failed to get connection to DPU%s: %v", dpuInfo.Index, err)
 						return nil, status.Errorf(codes.Internal,
@@ -319,8 +319,8 @@ func (p *DPUProxy) UnaryInterceptor() grpc.UnaryServerInterceptor {
 					}
 
 					// Forward the request to DPU based on method
-					glog.Infof("[DPUProxy] Forwarding %s to DPU%s at %s:50052",
-						info.FullMethod, dpuInfo.Index, dpuInfo.IPAddress)
+					glog.Infof("[DPUProxy] Forwarding %s to DPU%s at %s:%s",
+						info.FullMethod, dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.GNMIPort)
 
 					// Handle method-specific forwarding
 					switch info.FullMethod {
@@ -402,7 +402,7 @@ func (p *DPUProxy) StreamInterceptor() grpc.StreamServerInterceptor {
 					}
 
 					// Get or create connection to DPU
-					conn, err := p.getConnection(ctx, dpuInfo.Index, dpuInfo.IPAddress)
+					conn, err := p.getConnection(ctx, dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.GNMIPort)
 					if err != nil {
 						glog.Errorf("[DPUProxy] Failed to get connection to DPU%s: %v", dpuInfo.Index, err)
 						return status.Errorf(codes.Internal,
@@ -410,8 +410,8 @@ func (p *DPUProxy) StreamInterceptor() grpc.StreamServerInterceptor {
 					}
 
 					// Forward the stream to DPU
-					glog.Infof("[DPUProxy] Forwarding stream %s to DPU%s at %s:50052",
-						info.FullMethod, dpuInfo.Index, dpuInfo.IPAddress)
+					glog.Infof("[DPUProxy] Forwarding stream %s to DPU%s at %s:%s",
+						info.FullMethod, dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.GNMIPort)
 
 					return p.forwardStream(ctx, conn, ss, info)
 				}

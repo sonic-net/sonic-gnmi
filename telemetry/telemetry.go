@@ -466,10 +466,14 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 		}
 
 		// Setup DPU proxy interceptor (always enabled, regardless of TLS)
-		// Create Redis client for DPU info resolution
-		redisClient := dpuproxy.NewRedisClient(dpuproxy.DefaultRedisSocket, dpuproxy.StateDB)
-		redisAdapter := dpuproxy.NewGoRedisAdapter(redisClient)
-		dpuResolver := dpuproxy.NewDPUResolver(redisAdapter)
+		// Create Redis clients for DPU info resolution from both StateDB and ConfigDB
+		stateRedisClient := dpuproxy.NewRedisClient(dpuproxy.DefaultRedisSocket, dpuproxy.StateDB)
+		stateRedisAdapter := dpuproxy.NewGoRedisAdapter(stateRedisClient)
+		
+		configRedisClient := dpuproxy.NewRedisClient(dpuproxy.DefaultRedisSocket, dpuproxy.ConfigDB)
+		configRedisAdapter := dpuproxy.NewGoRedisAdapter(configRedisClient)
+		
+		dpuResolver := dpuproxy.NewDPUResolver(stateRedisAdapter, configRedisAdapter)
 
 		dpuProxy := dpuproxy.NewDPUProxy(dpuResolver)
 		interceptorChain := interceptors.NewChain(dpuProxy)
