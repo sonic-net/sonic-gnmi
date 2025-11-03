@@ -72,6 +72,8 @@ func main() {
 			gnoi_os.Verify(conn, ctx)
 		case "Activate":
 			gnoi_os.Activate(conn, ctx)
+		case "Install":
+			gnoi_os.Install(conn, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
