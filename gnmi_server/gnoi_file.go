@@ -11,6 +11,7 @@ import (
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -97,7 +98,8 @@ func (srv *FileServer) Get(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.Fil
 	return status.Errorf(codes.Unimplemented, "Method file.Get is unimplemented.")
 }
 
-// TransferToRemote RPC is unimplemented.
+// TransferToRemote downloads a file from a remote URL.
+// If DPU headers are present (HandleOnNPU mode), it downloads to NPU then uploads to the specified DPU.
 func (srv *FileServer) TransferToRemote(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest) (*gnoi_file_pb.TransferToRemoteResponse, error) {
 	log.Infof("GNOI File TransferToRemote RPC called with request: %+v", req)
 	_, err := authenticate(srv.config, ctx, "gnoi", false)
@@ -105,6 +107,27 @@ func (srv *FileServer) TransferToRemote(ctx context.Context, req *gnoi_file_pb.T
 		log.Errorf("authentication failed in TransferToRemote RPC: %v", err)
 		return nil, err
 	}
+
+	// Check for DPU headers (HandleOnNPU mode from DPU proxy)
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		targetType := ""
+		targetIndex := ""
+
+		if vals := md.Get("x-sonic-ss-target-type"); len(vals) > 0 {
+			targetType = vals[0]
+		}
+		if vals := md.Get("x-sonic-ss-target-index"); len(vals) > 0 {
+			targetIndex = vals[0]
+		}
+
+		// If DPU headers are present, handle DPU transfer logic
+		if targetType == "dpu" && targetIndex != "" {
+			log.Infof("[TransferToRemote] DPU routing detected: target-type=%s, target-index=%s", targetType, targetIndex)
+			return gnoifile.HandleTransferToRemoteForDPU(ctx, req, targetIndex, "localhost:8080")
+		}
+	}
+
+	// No DPU headers, handle normally for NPU
 	return gnoifile.HandleTransferToRemote(ctx, req)
 }
 
@@ -147,3 +170,4 @@ func (srv *FileServer) Remove(ctx context.Context, req *gnoi_file_pb.RemoveReque
 	log.Errorf("Remove RPC failed: %v", err)
 	return &gnoi_file_pb.RemoveResponse{}, err
 }
+

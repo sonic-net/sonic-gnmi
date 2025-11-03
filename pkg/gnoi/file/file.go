@@ -19,7 +19,10 @@ import (
 	"github.com/openconfig/gnoi/types"
 	"github.com/sonic-net/sonic-gnmi/internal/download"
 	"github.com/sonic-net/sonic-gnmi/internal/hash"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -295,4 +298,150 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 
 	// Step 10: Send success response
 	return stream.SendAndClose(&gnoi_file_pb.PutResponse{})
+}
+
+// HandleTransferToRemoteForDPU handles TransferToRemote when DPU headers are present.
+// It downloads the file to NPU first, then uploads it to the specified DPU using File.Put.
+//
+// This function implements the complete DPU transfer workflow:
+//   - Downloads file to a temporary location on NPU
+//   - Reads the downloaded file with container path translation
+//   - Creates a gRPC connection with DPU routing metadata
+//   - Uploads the file to DPU using File.Put streaming RPC
+//   - Cleans up temporary files
+//
+// Parameters:
+//   - ctx: Context for the operation
+//   - req: Original TransferToRemoteRequest with target DPU path
+//   - dpuIndex: Target DPU index (e.g., "0", "1")
+//   - proxyAddress: Address of the gNOI proxy server (e.g., "localhost:8080")
+//
+// Returns:
+//   - TransferToRemoteResponse with MD5 hash on success
+//   - Error with appropriate gRPC status code on failure
+func HandleTransferToRemoteForDPU(
+	ctx context.Context,
+	req *gnoi_file_pb.TransferToRemoteRequest,
+	dpuIndex string,
+	proxyAddress string,
+) (*gnoi_file_pb.TransferToRemoteResponse, error) {
+	// Validate inputs
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
+	}
+	if dpuIndex == "" {
+		return nil, status.Error(codes.InvalidArgument, "dpuIndex cannot be empty")
+	}
+	if proxyAddress == "" {
+		return nil, status.Error(codes.InvalidArgument, "proxyAddress cannot be empty")
+	}
+
+	// Step 1: Download file to NPU temp location
+	tempPath := fmt.Sprintf("/tmp/dpu_transfer_%s_%d", dpuIndex, time.Now().UnixNano())
+
+	// Create a modified request with temp path
+	npuReq := &gnoi_file_pb.TransferToRemoteRequest{
+		LocalPath:      tempPath,
+		RemoteDownload: req.GetRemoteDownload(),
+	}
+
+	// Download to NPU
+	resp, err := HandleTransferToRemote(ctx, npuReq)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to download to NPU: %v", err)
+	}
+
+	// Ensure cleanup of temp file (use the same path translation as reading)
+	defer func() {
+		cleanupPath := tempPath
+		if _, err := os.Stat("/mnt/host"); err == nil {
+			cleanupPath = "/mnt/host" + tempPath
+		}
+		if err := os.Remove(cleanupPath); err != nil {
+			// Log warning but don't fail the operation
+		}
+	}()
+
+	// Step 2: Read the downloaded file (apply container path translation)
+	// The file was downloaded to host filesystem via HandleTransferToRemote, so we need to read from /mnt/host prefix
+	translatedTempPath := tempPath
+	if _, err := os.Stat("/mnt/host"); err == nil {
+		translatedTempPath = "/mnt/host" + tempPath
+	}
+
+	fileData, err := os.ReadFile(translatedTempPath)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to read downloaded file: %v", err)
+	}
+
+	// Step 3: Connect to DPU via proxy
+	// Create metadata for DPU routing
+	md := metadata.New(map[string]string{
+		"x-sonic-ss-target-type":  "dpu",
+		"x-sonic-ss-target-index": dpuIndex,
+	})
+	outCtx := metadata.NewOutgoingContext(ctx, md)
+
+	// Connect to local gNOI server which will proxy to DPU
+	conn, err := grpc.Dial(proxyAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to connect to proxy: %v", err)
+	}
+	defer conn.Close()
+
+	fileClient := gnoi_file_pb.NewFileClient(conn)
+
+	// Step 4: Use File.Put to upload to DPU
+	putClient, err := fileClient.Put(outCtx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create Put client: %v", err)
+	}
+
+	// Send Open request
+	openReq := &gnoi_file_pb.PutRequest{
+		Request: &gnoi_file_pb.PutRequest_Open{
+			Open: &gnoi_file_pb.PutRequest_Details{
+				RemoteFile:  req.GetLocalPath(), // Use original target path
+				Permissions: 0644,
+			},
+		},
+	}
+	if err := putClient.Send(openReq); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to send open request: %v", err)
+	}
+
+	// Send file contents in chunks
+	chunkSize := 64 * 1024 // 64KB chunks
+	for i := 0; i < len(fileData); i += chunkSize {
+		end := i + chunkSize
+		if end > len(fileData) {
+			end = len(fileData)
+		}
+
+		contentReq := &gnoi_file_pb.PutRequest{
+			Request: &gnoi_file_pb.PutRequest_Contents{
+				Contents: fileData[i:end],
+			},
+		}
+		if err := putClient.Send(contentReq); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to send content: %v", err)
+		}
+	}
+
+	// Send hash (reuse the hash from download response)
+	hashReq := &gnoi_file_pb.PutRequest{
+		Request: &gnoi_file_pb.PutRequest_Hash{
+			Hash: resp.GetHash(),
+		},
+	}
+	if err := putClient.Send(hashReq); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to send hash: %v", err)
+	}
+
+	// Close and get response
+	if _, err := putClient.CloseAndRecv(); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to complete Put to DPU: %v", err)
+	}
+
+	return resp, nil
 }

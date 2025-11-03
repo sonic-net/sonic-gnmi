@@ -3,10 +3,12 @@ package dpuproxy
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
 	"github.com/golang/glog"
+	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	system "github.com/openconfig/gnoi/system"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -15,30 +17,51 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// ForwardableMethod represents a gRPC method that can be forwarded to DPU.
+// ForwardingMode defines how a method should be handled when DPU headers are present.
+type ForwardingMode string
+
+const (
+	// ForwardToDPU sends the request directly to the specified DPU
+	ForwardToDPU ForwardingMode = "forward"
+	// HandleOnNPU processes the request on NPU but preserves DPU context for special logic
+	HandleOnNPU ForwardingMode = "npu"
+)
+
+// ForwardableMethod represents a gRPC method that can be processed when DPU headers are present.
 type ForwardableMethod struct {
 	FullMethod  string
 	Description string
-	Enabled     bool
+	Mode        ForwardingMode
 }
 
-// defaultForwardableMethods is the registry of methods that can be forwarded to DPU.
-// Initially all methods are disabled and must be explicitly enabled when ready.
+// defaultForwardableMethods is the registry of methods that can be processed when DPU headers are present.
+// Methods not in this registry will be rejected with an error when DPU headers are provided.
 var defaultForwardableMethods = []ForwardableMethod{
 	{
 		FullMethod:  "/gnoi.system.System/Time",
 		Description: "Get current time from DPU (for testing)",
-		Enabled:     true, // Enabled for Phase 2.1 testing
+		Mode:        ForwardToDPU,
 	},
 	{
-		FullMethod:  "/gnoi.system.System/Reboot",
-		Description: "Reboot the DPU",
-		Enabled:     false,
+		FullMethod:  "/gnoi.file.File/Put",
+		Description: "Upload file to DPU",
+		Mode:        ForwardToDPU,
 	},
 	{
-		FullMethod:  "/gnoi.system.System/SetPackage",
-		Description: "Install software package on DPU",
-		Enabled:     false,
+		FullMethod:  "/gnoi.file.File/TransferToRemote",
+		Description: "Download from URL, then upload to DPU",
+		Mode:        HandleOnNPU,
+	},
+	// gRPC reflection methods needed for grpcurl to work with DPU headers
+	{
+		FullMethod:  "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
+		Description: "gRPC reflection service v1",
+		Mode:        HandleOnNPU,
+	},
+	{
+		FullMethod:  "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
+		Description: "gRPC reflection service v1alpha",
+		Mode:        HandleOnNPU,
 	},
 }
 
@@ -73,14 +96,15 @@ func NewDPUProxy(resolver *DPUResolver) *DPUProxy {
 	}
 }
 
-// shouldForwardToDPU checks if a method is registered as forwardable and enabled.
-func (p *DPUProxy) shouldForwardToDPU(method string) bool {
+// getForwardingMode checks if a method is registered and returns its forwarding mode.
+// Returns the ForwardingMode and a boolean indicating if the method was found.
+func (p *DPUProxy) getForwardingMode(method string) (ForwardingMode, bool) {
 	for _, m := range defaultForwardableMethods {
 		if m.FullMethod == method {
-			return m.Enabled
+			return m.Mode, true
 		}
 	}
-	return false
+	return "", false
 }
 
 // getConnection retrieves or creates a gRPC connection to the specified DPU.
@@ -151,6 +175,87 @@ func (p *DPUProxy) forwardTimeRequest(ctx context.Context, conn *grpc.ClientConn
 	return resp, nil
 }
 
+// forwardStream forwards a streaming RPC to the DPU.
+// This implements bidirectional streaming proxy between client and DPU.
+func (p *DPUProxy) forwardStream(ctx context.Context, conn *grpc.ClientConn, ss grpc.ServerStream, info *grpc.StreamServerInfo) error {
+	// For File.Put, we need to handle the streaming RPC
+	if info.FullMethod == "/gnoi.file.File/Put" {
+		return p.forwardFilePutStream(ctx, conn, ss)
+	}
+
+	// Add other stream methods here as needed
+	return status.Errorf(codes.Unimplemented, "stream forwarding for method %s not implemented", info.FullMethod)
+}
+
+// forwardFilePutStream forwards a File.Put streaming RPC to the DPU.
+func (p *DPUProxy) forwardFilePutStream(ctx context.Context, conn *grpc.ClientConn, ss grpc.ServerStream) error {
+	// Create File client for DPU
+	fileClient := gnoi_file_pb.NewFileClient(conn)
+
+	// Create a client stream to the DPU
+	clientStream, err := fileClient.Put(ctx)
+	if err != nil {
+		glog.Errorf("[DPUProxy] Failed to create client stream to DPU: %v", err)
+		return status.Errorf(codes.Internal, "failed to create client stream to DPU: %v", err)
+	}
+
+	// Channel to signal completion of request forwarding
+	forwardDone := make(chan error, 1)
+
+	// Goroutine to forward requests from client to DPU
+	go func() {
+		defer func() {
+			// Close the send side when done receiving from client
+			if err := clientStream.CloseSend(); err != nil {
+				glog.Warningf("[DPUProxy] Error closing send on client stream: %v", err)
+			}
+		}()
+
+		for {
+			// Receive request from client
+			var req gnoi_file_pb.PutRequest
+			if err := ss.RecvMsg(&req); err != nil {
+				if err == io.EOF {
+					glog.V(2).Infof("[DPUProxy] Client finished sending requests")
+					forwardDone <- nil
+					return
+				}
+				glog.Errorf("[DPUProxy] Error receiving from client: %v", err)
+				forwardDone <- err
+				return
+			}
+
+			// Forward request to DPU
+			if err := clientStream.Send(&req); err != nil {
+				glog.Errorf("[DPUProxy] Error sending to DPU: %v", err)
+				forwardDone <- err
+				return
+			}
+		}
+	}()
+
+	// Wait for all requests to be forwarded
+	if err := <-forwardDone; err != nil {
+		return err
+	}
+
+	// Now get the response from DPU after all requests are sent
+	response, err := clientStream.CloseAndRecv()
+	if err != nil {
+		glog.Errorf("[DPUProxy] Error getting response from DPU: %v", err)
+		return status.Errorf(codes.Internal, "error getting response from DPU: %v", err)
+	}
+
+	// Send response back to client
+	if err := ss.SendMsg(response); err != nil {
+		glog.Errorf("[DPUProxy] Error sending response to client: %v", err)
+		return status.Errorf(codes.Internal, "error sending response to client: %v", err)
+	}
+
+	glog.Infof("[DPUProxy] Successfully forwarded File.Put stream to DPU")
+	return nil
+}
+
 // UnaryInterceptor returns a gRPC unary server interceptor for DPU routing.
 // It intercepts unary RPC calls and checks for routing metadata.
 func (p *DPUProxy) UnaryInterceptor() grpc.UnaryServerInterceptor {
@@ -160,59 +265,79 @@ func (p *DPUProxy) UnaryInterceptor() grpc.UnaryServerInterceptor {
 
 		// If DPU routing is requested, validate and route
 		if targetMeta.IsDPUTarget() {
-			// Check if this method is forwardable
-			if !p.shouldForwardToDPU(info.FullMethod) {
-				glog.Warningf("[DPUProxy] Method %s is not forwardable to DPU, rejecting request",
+			// Check forwarding mode for this method
+			mode, found := p.getForwardingMode(info.FullMethod)
+			if !found {
+				glog.Warningf("[DPUProxy] Method %s is not registered for DPU routing, rejecting request",
 					info.FullMethod)
 				return nil, status.Errorf(codes.Unimplemented,
 					"method %s does not support DPU routing; remove x-sonic-ss-target-* metadata headers",
 					info.FullMethod)
 			}
 
-			glog.Infof("[DPUProxy] DPU routing requested: method=%s, target-type=%s, target-index=%s",
-				info.FullMethod, targetMeta.TargetType, targetMeta.TargetIndex)
+			glog.Infof("[DPUProxy] DPU routing requested: method=%s, mode=%s, target-type=%s, target-index=%s",
+				info.FullMethod, mode, targetMeta.TargetType, targetMeta.TargetIndex)
 
-			// Resolve DPU information from Redis (if resolver is available)
-			if p.resolver != nil {
-				dpuInfo, err := p.resolver.GetDPUInfo(ctx, targetMeta.TargetIndex)
-				if err != nil {
-					glog.Warningf("[DPUProxy] Error resolving DPU%s: %v, returning error",
-						targetMeta.TargetIndex, err)
-					return nil, status.Errorf(codes.NotFound,
-						"DPU%s not found or unreachable: %v", targetMeta.TargetIndex, err)
+			// Handle based on forwarding mode
+			switch mode {
+			case HandleOnNPU:
+				// Pass through to NPU handler but preserve DPU context in metadata
+				glog.Infof("[DPUProxy] HandleOnNPU mode: passing %s to NPU with DPU context preserved",
+					info.FullMethod)
+				// The DPU context is already in ctx metadata, NPU handler can access it
+				return handler(ctx, req)
+
+			case ForwardToDPU:
+				// Forward to DPU - existing logic
+				glog.Infof("[DPUProxy] ForwardToDPU mode: routing %s to DPU", info.FullMethod)
+
+				// Resolve DPU information from Redis (if resolver is available)
+				if p.resolver != nil {
+					dpuInfo, err := p.resolver.GetDPUInfo(ctx, targetMeta.TargetIndex)
+					if err != nil {
+						glog.Warningf("[DPUProxy] Error resolving DPU%s: %v, returning error",
+							targetMeta.TargetIndex, err)
+						return nil, status.Errorf(codes.NotFound,
+							"DPU%s not found or unreachable: %v", targetMeta.TargetIndex, err)
+					}
+
+					glog.Infof("[DPUProxy] Resolved DPU%s: ip=%s, reachable=%t",
+						dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.Reachable)
+
+					if !dpuInfo.Reachable {
+						glog.Warningf("[DPUProxy] DPU%s is unreachable, returning error", dpuInfo.Index)
+						return nil, status.Errorf(codes.Unavailable,
+							"DPU%s is not currently reachable", dpuInfo.Index)
+					}
+
+					// Get or create connection to DPU
+					conn, err := p.getConnection(ctx, dpuInfo.Index, dpuInfo.IPAddress)
+					if err != nil {
+						glog.Errorf("[DPUProxy] Failed to get connection to DPU%s: %v", dpuInfo.Index, err)
+						return nil, status.Errorf(codes.Internal,
+							"failed to connect to DPU%s: %v", dpuInfo.Index, err)
+					}
+
+					// Forward the request to DPU based on method
+					glog.Infof("[DPUProxy] Forwarding %s to DPU%s at %s:50052",
+						info.FullMethod, dpuInfo.Index, dpuInfo.IPAddress)
+
+					// Handle method-specific forwarding
+					switch info.FullMethod {
+					case "/gnoi.system.System/Time":
+						return p.forwardTimeRequest(ctx, conn, req)
+					default:
+						// This shouldn't happen due to getForwardingMode check, but handle gracefully
+						glog.Errorf("[DPUProxy] Unknown forwardable method: %s", info.FullMethod)
+						return nil, status.Errorf(codes.Unimplemented,
+							"forwarding for method %s not yet implemented", info.FullMethod)
+					}
 				}
 
-				glog.Infof("[DPUProxy] Resolved DPU%s: ip=%s, reachable=%t",
-					dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.Reachable)
-
-				if !dpuInfo.Reachable {
-					glog.Warningf("[DPUProxy] DPU%s is unreachable, returning error", dpuInfo.Index)
-					return nil, status.Errorf(codes.Unavailable,
-						"DPU%s is not currently reachable", dpuInfo.Index)
-				}
-
-				// Get or create connection to DPU
-				conn, err := p.getConnection(ctx, dpuInfo.Index, dpuInfo.IPAddress)
-				if err != nil {
-					glog.Errorf("[DPUProxy] Failed to get connection to DPU%s: %v", dpuInfo.Index, err)
-					return nil, status.Errorf(codes.Internal,
-						"failed to connect to DPU%s: %v", dpuInfo.Index, err)
-				}
-
-				// Forward the request to DPU based on method
-				glog.Infof("[DPUProxy] Forwarding %s to DPU%s at %s:50052",
-					info.FullMethod, dpuInfo.Index, dpuInfo.IPAddress)
-
-				// Handle method-specific forwarding
-				switch info.FullMethod {
-				case "/gnoi.system.System/Time":
-					return p.forwardTimeRequest(ctx, conn, req)
-				default:
-					// This shouldn't happen due to shouldForwardToDPU check, but handle gracefully
-					glog.Errorf("[DPUProxy] Unknown forwardable method: %s", info.FullMethod)
-					return nil, status.Errorf(codes.Unimplemented,
-						"forwarding for method %s not yet implemented", info.FullMethod)
-				}
+			default:
+				glog.Errorf("[DPUProxy] Unknown forwarding mode %s for method %s", mode, info.FullMethod)
+				return nil, status.Errorf(codes.Internal,
+					"unknown forwarding mode for method %s", info.FullMethod)
 			}
 		}
 
@@ -231,43 +356,70 @@ func (p *DPUProxy) StreamInterceptor() grpc.StreamServerInterceptor {
 
 		// If DPU routing is requested, validate and route
 		if targetMeta.IsDPUTarget() {
-			// Check if this method is forwardable
-			if !p.shouldForwardToDPU(info.FullMethod) {
-				glog.Warningf("[DPUProxy] Method %s is not forwardable to DPU, rejecting stream",
+			// Check forwarding mode for this method
+			mode, found := p.getForwardingMode(info.FullMethod)
+			if !found {
+				glog.Warningf("[DPUProxy] Method %s is not registered for DPU routing, rejecting stream",
 					info.FullMethod)
 				return status.Errorf(codes.Unimplemented,
 					"method %s does not support DPU routing; remove x-sonic-ss-target-* metadata headers",
 					info.FullMethod)
 			}
 
-			glog.Infof("[DPUProxy] DPU streaming requested: method=%s, target-type=%s, target-index=%s",
-				info.FullMethod, targetMeta.TargetType, targetMeta.TargetIndex)
+			glog.Infof("[DPUProxy] DPU streaming requested: method=%s, mode=%s, target-type=%s, target-index=%s",
+				info.FullMethod, mode, targetMeta.TargetType, targetMeta.TargetIndex)
 
-			// Resolve DPU information from Redis (if resolver is available)
-			if p.resolver != nil {
-				dpuInfo, err := p.resolver.GetDPUInfo(ctx, targetMeta.TargetIndex)
-				if err != nil {
-					glog.Warningf("[DPUProxy] Error resolving DPU%s: %v, returning error",
-						targetMeta.TargetIndex, err)
-					return status.Errorf(codes.NotFound,
-						"DPU%s not found or unreachable: %v", targetMeta.TargetIndex, err)
+			// Handle based on forwarding mode
+			switch mode {
+			case HandleOnNPU:
+				// Pass through to NPU handler but preserve DPU context in metadata
+				glog.Infof("[DPUProxy] HandleOnNPU mode: passing stream %s to NPU with DPU context preserved",
+					info.FullMethod)
+				// The DPU context is already in ctx metadata, NPU handler can access it
+				return handler(srv, ss)
+
+			case ForwardToDPU:
+				// Forward to DPU - existing logic
+				glog.Infof("[DPUProxy] ForwardToDPU mode: routing stream %s to DPU", info.FullMethod)
+
+				// Resolve DPU information from Redis (if resolver is available)
+				if p.resolver != nil {
+					dpuInfo, err := p.resolver.GetDPUInfo(ctx, targetMeta.TargetIndex)
+					if err != nil {
+						glog.Warningf("[DPUProxy] Error resolving DPU%s: %v, returning error",
+							targetMeta.TargetIndex, err)
+						return status.Errorf(codes.NotFound,
+							"DPU%s not found or unreachable: %v", targetMeta.TargetIndex, err)
+					}
+
+					glog.Infof("[DPUProxy] Resolved DPU%s: ip=%s, reachable=%t",
+						dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.Reachable)
+
+					if !dpuInfo.Reachable {
+						glog.Warningf("[DPUProxy] DPU%s is unreachable, returning error", dpuInfo.Index)
+						return status.Errorf(codes.Unavailable,
+							"DPU%s is not currently reachable", dpuInfo.Index)
+					}
+
+					// Get or create connection to DPU
+					conn, err := p.getConnection(ctx, dpuInfo.Index, dpuInfo.IPAddress)
+					if err != nil {
+						glog.Errorf("[DPUProxy] Failed to get connection to DPU%s: %v", dpuInfo.Index, err)
+						return status.Errorf(codes.Internal,
+							"failed to connect to DPU%s: %v", dpuInfo.Index, err)
+					}
+
+					// Forward the stream to DPU
+					glog.Infof("[DPUProxy] Forwarding stream %s to DPU%s at %s:50052",
+						info.FullMethod, dpuInfo.Index, dpuInfo.IPAddress)
+
+					return p.forwardStream(ctx, conn, ss, info)
 				}
 
-				glog.Infof("[DPUProxy] Resolved DPU%s: ip=%s, reachable=%t",
-					dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.Reachable)
-
-				if !dpuInfo.Reachable {
-					glog.Warningf("[DPUProxy] DPU%s is unreachable, returning error", dpuInfo.Index)
-					return status.Errorf(codes.Unavailable,
-						"DPU%s is not currently reachable", dpuInfo.Index)
-				}
-
-				// TODO (Phase 2.1): Implement actual DPU streaming proxy
-				// 1. Get or create gRPC client connection to dpuInfo.IPAddress:50052
-				// 2. Forward the stream to DPU
-				// 3. Bidirectionally relay messages between client and DPU
-				glog.Infof("[DPUProxy] TODO: Would forward stream %s to %s:50052 (not implemented yet)",
-					info.FullMethod, dpuInfo.IPAddress)
+			default:
+				glog.Errorf("[DPUProxy] Unknown forwarding mode %s for stream method %s", mode, info.FullMethod)
+				return status.Errorf(codes.Internal,
+					"unknown forwarding mode for stream method %s", info.FullMethod)
 			}
 		}
 
