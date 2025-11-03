@@ -682,7 +682,7 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 		}
 		err = initCountersSidMap()
 		if err != nil {
-			return err
+			log.Errorf("Could not create CountersSidMap: %v", err)
 		}
 	}
 
