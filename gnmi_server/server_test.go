@@ -999,6 +999,30 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_switch_counter := loadConfig(t, "COUNTERS:oid:0x21000000000000", countersSwitch_id_Byte)
 	loadDB(t, rclient, mpi_switch_counter)
 
+	fileName = "../testdata/COUNTERS_SRV6_NAME_MAP.json"
+	countersSRv6NameMapByte, err := os.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	counters_srv6_name_map := loadConfig(t, "COUNTERS_SRV6_NAME_MAP", countersSRv6NameMapByte)
+	loadDB(t, rclient, counters_srv6_name_map)
+
+	fileName = "../testdata/COUNTERS:oid:0x54000000004f63.txt"
+	sid1_byte, err := os.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	sid1_counter := loadConfig(t, "COUNTERS:oid:0x54000000004f63", sid1_byte)
+	loadDB(t, rclient, sid1_counter)
+
+	fileName = "../testdata/COUNTERS:oid:0x54000000004f64.txt"
+	sid2_byte, err := os.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	sid2_counter := loadConfig(t, "COUNTERS:oid:0x54000000004f64", sid2_byte)
+	loadDB(t, rclient, sid2_counter)
+
 	// Load CONFIG_DB for alias translation
 	prepareConfigDb(t, namespace)
 
@@ -1584,6 +1608,18 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
+	fileName = "../testdata/COUNTERS:SID_wildcard.json"
+	countersSidWildcardByte, err := os.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+
+	fileName = "../testdata/COUNTERS:SID_single_entry.json"
+	countersSidSingleEntryByte, err := os.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+
 	stateDBPath := "STATE_DB"
 
 	ns, _ := sdcfg.GetDbDefaultNamespace()
@@ -1840,6 +1876,42 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 			pathTarget:  stateDBPath,
 			textPbPath:  ``,
 			valTest:     true,
+			wantRetCode: codes.NotFound,
+		}, {
+			desc:       "get COUNTERS:SID*",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "SID*" >
+				`,
+			wantRetCode: codes.OK,
+			wantRespVal: countersSidWildcardByte,
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS:SID:fcbb:bbbb:2::/48",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "SID:fcbb:bbbb:2::/48" >
+				`,
+			wantRetCode: codes.OK,
+			wantRespVal: countersSidSingleEntryByte,
+			valTest:     true,
+		}, {
+			desc:       "get COUNTERS:fcbb:bbbb:2::/48 -- malformed",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "fcbb:bbbb:2::/48" >
+				`,
+			wantRetCode: codes.NotFound,
+		}, {
+			desc:       "get COUNTERS:fcbb:bbbb:3::/48 -- not existing",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "SID:fcbb:bbbb:3::/48" >
+				`,
 			wantRetCode: codes.NotFound,
 		},
 
@@ -2286,6 +2358,19 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	json.Unmarshal(countersEthernetWildPfcwdByte, &tmp6)
 	tmp6.(map[string]interface{})["Ethernet68/1:3"].(map[string]interface{})["PFC_WD_QUEUE_STATS_DEADLOCK_DETECTED"] = "1"
 	countersEthernetWildPfcwdUpdate := tmp6
+
+	var countersSidCountersWildcardJson interface{}
+	// for SID* subscription
+	fileName = "../testdata/COUNTERS:SID_wildcard.json"
+	countersSidWildcardByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	json.Unmarshal(countersSidWildcardByte, &countersSidCountersWildcardJson)
+	//The update with new value
+	tmp = map[string]interface{}{"SAI_COUNTER_STAT_PACKETS": "4", "SAI_COUNTER_STAT_BYTES": "0"}
+	singleSidCounterJsonUpdate := make(map[string]interface{})
+	singleSidCounterJsonUpdate["fcbb:bbbb:1::/48"] = tmp
 
 	///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -3423,6 +3508,64 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}}, //empty update
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: countersEthernet68PfcwdAliasJsonUpdate},
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}}, //empty update
+			},
+		},
+		{
+			desc: "poll query for COUNTERS/SID* with field value change",
+			poll: 3,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"COUNTERS", "SID*"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			updates: []tablePathValue{
+				{
+					dbName:    "COUNTERS_DB",
+					tableName: "COUNTERS",
+					tableKey:  "oid:0x54000000004f63",
+					delimitor: ":",
+					field:     "SAI_COUNTER_STAT_PACKETS",
+					value:     "4", // being changed to 4 from 0
+				},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "SID*"}, TS: time.Unix(0, 200), Val: countersSidCountersWildcardJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "SID*"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersSidCountersWildcardJson, singleSidCounterJsonUpdate)},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "SID*"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersSidCountersWildcardJson, singleSidCounterJsonUpdate)},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "SID*"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersSidCountersWildcardJson, singleSidCounterJsonUpdate)},
+				client.Sync{},
+			},
+		},
+		{
+			desc: "stream query for table key SID* with field value update",
+			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "SID*"),
+			updates: []tablePathValue{
+				createCountersTableSetUpdate("oid:0x54000000004f63", "SAI_COUNTER_STAT_PACKETS", "4"),
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "SID*"}, TS: time.Unix(0, 200), Val: countersSidCountersWildcardJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "SID*"}, TS: time.Unix(0, 200), Val: singleSidCounterJsonUpdate},
+			},
+		},
+		{
+			desc:              "sample stream query for table key SID* with field value update",
+			q:                 createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "SID*"),
+			generateIntervals: true,
+			updates: []tablePathValue{
+				createCountersTableSetUpdate("oid:0x54000000004f63", "SAI_COUNTER_STAT_PACKETS", "4"),
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "SID*"}, TS: time.Unix(0, 200), Val: countersSidCountersWildcardJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "SID*"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersSidCountersWildcardJson, singleSidCounterJsonUpdate)},
 			},
 		},
 	}
