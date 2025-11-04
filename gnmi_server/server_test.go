@@ -1883,7 +1883,7 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 			pathTarget: "COUNTERS_DB",
 			textPbPath: `
 					elem: <name: "COUNTERS" >
-					elem: <name: "fcbb:bbbb:3::/48" >
+					elem: <name: "SID:fcbb:bbbb:3::/48" >
 				`,
 			wantRetCode: codes.NotFound,
 		},
