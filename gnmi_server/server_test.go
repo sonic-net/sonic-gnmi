@@ -3515,9 +3515,8 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
-			desc:              "stream query for table key SID* with field value update",
-			q:                 createCountersDbQueryOnChangeMode(t, "COUNTERS", "SID*"),
-			generateIntervals: true,
+			desc: "stream query for table key SID* with field value update",
+			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "SID*"),
 			updates: []tablePathValue{
 				createCountersTableSetUpdate("oid:0x54000000004f63", "SAI_COUNTER_STAT_PACKETS", "4"),
 				createCountersTableSetUpdate("oid:0x54000000004f63", "SAI_COUNTER_STAT_BYTES", "1024"),
