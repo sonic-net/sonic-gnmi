@@ -1878,6 +1878,14 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 					elem: <name: "fcbb:bbbb:2::/48" >
 				`,
 			wantRetCode: codes.NotFound,
+		}, {
+			desc:       "get COUNTERS:fcbb:bbbb:3::/48 -- not existing",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "COUNTERS" >
+					elem: <name: "fcbb:bbbb:3::/48" >
+				`,
+			wantRetCode: codes.NotFound,
 		},
 
 		// Happy path
