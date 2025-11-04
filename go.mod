@@ -2,6 +2,7 @@ module github.com/sonic-net/sonic-gnmi
 
 go 1.19
 
+
 require (
 	github.com/Azure/sonic-mgmt-common v0.0.0-00010101000000-000000000000
 	github.com/Workiva/go-datastructures v1.0.50
@@ -17,6 +18,7 @@ require (
 	github.com/golang/mock v1.6.0
 	github.com/golang/protobuf v1.5.4
 	github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2
+	github.com/google/go-cmp v0.7.0
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/kylelemons/godebug v1.1.0
 	github.com/maruel/natural v1.1.1
@@ -50,7 +52,6 @@ require (
 	github.com/envoyproxy/go-control-plane v0.12.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.0.4 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
-	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/onsi/ginkgo v1.10.3 // indirect
 	github.com/onsi/gomega v1.7.1 // indirect
 	github.com/openconfig/goyang v0.0.0-20200309174518-a00bece872fc // indirect
