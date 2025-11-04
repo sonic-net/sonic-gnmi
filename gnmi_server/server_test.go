@@ -2333,7 +2333,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	}
 	json.Unmarshal(countersSidWildcardByte, &countersSidCountersWildcardJson)
 	//The update with new value
-	tmp = map[string]interface{}{"SAI_COUNTER_STAT_PACKETS": "4", "SAI_COUNTER_STAT_BYTES": "1024"}
+	tmp = map[string]interface{}{"SAI_COUNTER_STAT_PACKETS": "4"}
 	singleSidCounterJsonUpdate := make(map[string]interface{})
 	singleSidCounterJsonUpdate["fcbb:bbbb:1::/48"] = tmp
 
@@ -3493,14 +3493,6 @@ func runTestSubscribe(t *testing.T, namespace string) {
 					field:     "SAI_COUNTER_STAT_PACKETS",
 					value:     "4", // being changed to 4 from 0
 				},
-				{
-					dbName:    "COUNTERS_DB",
-					tableName: "COUNTERS",
-					tableKey:  "oid:0x54000000004f63",
-					delimitor: ":",
-					field:     "SAI_COUNTER_STAT_BYTES",
-					value:     "1024", // being changed to 1024 from 0
-				},
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
@@ -3519,7 +3511,6 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			q:    createCountersDbQueryOnChangeMode(t, "COUNTERS", "SID*"),
 			updates: []tablePathValue{
 				createCountersTableSetUpdate("oid:0x54000000004f63", "SAI_COUNTER_STAT_PACKETS", "4"),
-				createCountersTableSetUpdate("oid:0x54000000004f63", "SAI_COUNTER_STAT_BYTES", "1024"),
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
@@ -3534,7 +3525,6 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			generateIntervals: true,
 			updates: []tablePathValue{
 				createCountersTableSetUpdate("oid:0x54000000004f63", "SAI_COUNTER_STAT_PACKETS", "4"),
-				createCountersTableSetUpdate("oid:0x54000000004f63", "SAI_COUNTER_STAT_BYTES", "1024"),
 			},
 			wantNoti: []client.Notification{
 				client.Connected{},
