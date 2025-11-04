@@ -2333,7 +2333,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	}
 	json.Unmarshal(countersSidWildcardByte, &countersSidCountersWildcardJson)
 	//The update with new value
-	tmp = map[string]interface{}{"SAI_COUNTER_STAT_PACKETS": "4"}
+	tmp = map[string]interface{}{"SAI_COUNTER_STAT_PACKETS": "4", "SAI_COUNTER_STAT_BYTES": "0"}
 	singleSidCounterJsonUpdate := make(map[string]interface{})
 	singleSidCounterJsonUpdate["fcbb:bbbb:1::/48"] = tmp
 
