@@ -2,35 +2,56 @@ package gnmi
 
 import (
 	"fmt"
-	"github.com/Workiva/go-datastructures/queue"
-	log "github.com/golang/glog"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"io"
 	"net"
 	"strings"
 	"sync"
+	"time"
+
+	//lvl "github.com/sonic-net/sonic-gnmi/gnmi_server/log"
+	gnmipt "github.com/sonic-net/sonic-gnmi/gnmi_server/pathtransl"
+	"github.com/sonic-net/sonic-gnmi/metric_recorder"
+	"github.com/sonic-net/sonic-gnmi/pathz_authorizer"
+	//spb "github.com/sonic-net/sonic-gnmi/proto/gnmi_sonic"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+
+	"github.com/Workiva/go-datastructures/queue"
+	log "github.com/golang/glog"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	//pathzpb "github.com/openconfig/gnsi/pathz"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	//durationpb "google.golang.org/protobuf/types/known/durationpb"
+	//timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Client contains information about a subscribe client that has connected to the server.
 type Client struct {
-	addr      net.Addr
-	sendMsg   int64
-	recvMsg   int64
-	errors    int64
-	polled    chan struct{}
-	stop      chan struct{}
-	once      chan struct{}
-	mu        sync.RWMutex
-	q         *queue.PriorityQueue
-	subscribe *gnmipb.SubscriptionList
+	addr              net.Addr
+	sendMsg           int64
+	recvMsg           int64
+	errors            int64
+	polled            chan struct{}
+	stop              chan struct{}
+	once              chan struct{}
+	connectionManager *ConnectionManager
+	mu                sync.RWMutex
+	q                 *queue.PriorityQueue
+	qDepthCur         uint64
+	qDepthMax         uint64
+	subscribe         *gnmipb.SubscriptionList
 	// Wait for all sub go routine to finish
-	w        sync.WaitGroup
-	fatal    bool
-	logLevel int
+	w                 sync.WaitGroup
+	fatal             bool
+	translCtx         gnmipt.TranslatorCtx
+	enableTranslation bool
+	logLevel          int
+	pathzProcessor    pathz_authorizer.GnmiAuthzProcessorInterface
+	recorder          *metric_recorder.SecurityMetricRecorder
+	sonicDataClient   sdc.Client
+	startTime         time.Time
+	syncTime          time.Time
 }
 
 // Syslog level for error
@@ -38,15 +59,19 @@ const logLevelError int = 3
 const logLevelDebug int = 7
 const logLevelMax int = logLevelDebug
 
-var connectionManager *ConnectionManager
-
 // NewClient returns a new initialized client.
-func NewClient(addr net.Addr) *Client {
+func NewClient(addr net.Addr, pathzProcessor pathz_authorizer.GnmiAuthzProcessorInterface, recorder *metric_recorder.SecurityMetricRecorder, cm *ConnectionManager) *Client {
 	pq := queue.NewPriorityQueue(1, false)
 	return &Client{
-		addr:     addr,
-		q:        pq,
-		logLevel: logLevelError,
+		addr:              addr,
+		q:                 pq,
+		connectionManager: cm,
+		translCtx:         nil,
+		enableTranslation: false,
+		logLevel:          logLevelError,
+		pathzProcessor:    pathzProcessor,
+		recorder:          recorder,
+		startTime:         time.Now(),
 	}
 }
 
@@ -55,14 +80,14 @@ func (c *Client) setLogLevel(lvl int) {
 }
 
 func (c *Client) setConnectionManager(threshold int) {
-	if connectionManager != nil && threshold == connectionManager.GetThreshold() {
+	if c.connectionManager != nil && threshold == c.connectionManager.GetThreshold() {
 		return
 	}
-	connectionManager = &ConnectionManager{
+	c.connectionManager = &ConnectionManager{
 		connections: make(map[string]struct{}),
 		threshold:   threshold,
 	}
-	connectionManager.PrepareRedis()
+	c.connectionManager.PrepareRedis()
 }
 
 // String returns the target the client is querying.
@@ -146,11 +171,11 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 		return status.Error(codes.InvalidArgument, "Origin conflict between prefix and paths")
 	}
 
-	if connectionKey, valid = connectionManager.Add(c.addr, query.String()); !valid {
+	if connectionKey, valid = c.connectionManager.Add(c.addr, query.String()); !valid {
 		return grpc.Errorf(codes.Unavailable, "Server connections are at capacity.")
 	}
 
-	defer connectionManager.Remove(connectionKey) // remove key from connection list
+	defer c.connectionManager.Remove(connectionKey) // remove key from connection list
 
 	var dc sdc.Client
 

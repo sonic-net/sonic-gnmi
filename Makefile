@@ -113,12 +113,13 @@ endif
 
 # download and apply patch for gnmi client, which will break advancetls
 # backup crypto and gnxi
-	mkdir backup_crypto
+	mkdir -p backup_crypto
 	cp -r vendor/golang.org/x/crypto/* backup_crypto/
 
 # download and patch crypto and gnxi
 	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
-	cp -r $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413/* vendor/golang.org/x/crypto/
+	#cp -r $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413/* vendor/golang.org/x/crypto/
+	cp -r $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.36.0/* vendor/golang.org/x/crypto/
 	chmod -R u+w vendor
 	patch -d vendor -p0 < patches/gnmi_cli.all.patch
 	patch -d vendor -p0 < patches/gnmi_set.patch
@@ -126,13 +127,24 @@ endif
 	git apply patches/0001-Updated-to-filter-and-write-to-file.patch
 	git apply patches/0003-Fix-client-json-parsing-issue.patch
 
+# Manually adding patched client packages and their dependencies
+# to vendor/modules.txt. This satisfies 'go install -mod=vendor' lookup checks,
+# which are required after manual patching/copying of gnxi and gnmi-cli code.
+	echo "github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2" >> vendor/modules.txt
+	echo "github.com/google/gnxi/gnmi_get" >> vendor/modules.txt
+	echo "github.com/google/gnxi/gnmi_set" >> vendor/modules.txt
+	echo "github.com/openconfig/gnmi/cli" >> vendor/modules.txt
+	echo "github.com/openconfig/gnmi/client/flags" >> vendor/modules.txt
+	echo "golang.org/x/crypto/ssh/terminal" >> vendor/modules.txt
+	echo "github.com/openconfig/gnmi/cmd/gnmi_cli" >> vendor/modules.txt
+
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/gnmi_get -mod=vendor github.com/google/gnxi/gnmi_get
 	$(GO) build -o ${GOBIN}/gnmi_set -mod=vendor github.com/google/gnxi/gnmi_set
 	$(GO) build -o ${GOBIN}/gnmi_cli -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 else
-	$(GO) install -mod=vendor github.com/google/gnxi/gnmi_get
-	$(GO) install -mod=vendor github.com/google/gnxi/gnmi_set
+	$(GO) install -mod=vendor -buildvcs=false github.com/google/gnxi/gnmi_get
+	$(GO) install -mod=vendor -buildvcs=false github.com/google/gnxi/gnmi_set
 	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 endif
 

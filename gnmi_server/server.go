@@ -9,7 +9,10 @@ import (
 	"sync"
 
 	"github.com/Azure/sonic-mgmt-common/translib"
+	gnsiPathzpb "github.com/openconfig/gnsi/pathz"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/metric_recorder"
+	"github.com/sonic-net/sonic-gnmi/pathz_authorizer"
 	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
@@ -25,6 +28,8 @@ import (
 	gnoi_containerz_pb "github.com/openconfig/gnoi/containerz"
 	"github.com/openconfig/gnoi/factory_reset"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
+	lvl "github.com/sonic-net/sonic-gnmi/gnmi_server/log"
+	"google.golang.org/grpc/credentials"
 
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
@@ -59,6 +64,9 @@ type Server struct {
 	masterEID     uint128
 	gnoi_system_pb.UnimplementedSystemServer
 	factory_reset.UnimplementedFactoryResetServer
+	gnsiPathz         *GNSIPathzServer
+	recorder          *metric_recorder.SecurityMetricRecorder
+	ConnectionManager *ConnectionManager
 }
 
 // handleOperationalGet handles OPERATIONAL target requests directly with standard gNMI types
@@ -117,18 +125,11 @@ type FileServer struct {
 	gnoi_file_pb.UnimplementedFileServer
 }
 
-// OSBackend defines the interface for the OS installation backend service.
-type OSBackend interface {
-	InstallOS(req string) (string, error)
-}
-
 // OSServer is the server API for System service.
 // All implementations must embed UnimplementedSystemServer
 // for forward compatibility
 type OSServer struct {
 	*Server
-	backend OSBackend // Dependency interface
-	ImgDir  string
 	gnoi_os_pb.UnimplementedOSServer
 }
 
@@ -150,28 +151,14 @@ type Config struct {
 	UserAuth            AuthTypes
 	EnableTranslibWrite bool
 	EnableNativeWrite   bool
-	EnableTranslation   bool
 	ZmqPort             string
 	IdleConnDuration    int
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
-	// Path to the directory where image is stored.
-	ImgDir string
-}
-
-// DBusOSBackend is a concrete implementation of OSBackend
-type DBusOSBackend struct{}
-
-// InstallOS implements the OSBackend interface.
-func (d *DBusOSBackend) InstallOS(req string) (string, error) {
-	log.Infof("DBusOSBackend.InstallOS: %v", req)
-	sc, err := ssc.NewDbusClient()
-	if err != nil {
-		return "", err
-	}
-	defer sc.Close()
-	return sc.InstallOS(req)
+	PathzPolicy         bool   // Enable gNMI pathz policy.
+	PathzPolicyFile     string // Path to gNMI pathz policy file.
+	PathzMetaFile       string // Path to JSON file with pathz metadata.
 }
 
 var AuthLock sync.Mutex
@@ -252,6 +239,11 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 	common_utils.InitCounters()
 
+	recorder, rerr := metric_recorder.NewSecurityMetricRecorder("gnxi", "/host_var/log/messages")
+	if rerr != nil {
+		return nil, fmt.Errorf("failed to create SecurityMetricRecorder: %v", rerr)
+	}
+
 	s := grpc.NewServer(opts...)
 	reflection.Register(s)
 
@@ -264,19 +256,11 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		// the request comes from a master controller.
 		ReqFromMaster: ReqFromMasterDisabledMA,
 		masterEID:     uint128{High: 0, Low: 0},
+		recorder:      recorder,
 	}
 
 	fileSrv := &FileServer{Server: srv}
-
-	// Create an instance of the concrete OSBackend implementation
-	osBackend := &DBusOSBackend{}
-
-	osSrv := &OSServer{
-		Server:  srv,
-		backend: osBackend, // Pass the installer dependency
-		ImgDir:  srv.config.ImgDir,
-	}
-
+	osSrv := &OSServer{Server: srv}
 	containerzSrv := &ContainerzServer{server: srv}
 
 	var err error
@@ -301,6 +285,8 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 
 	}
 	spb_gnoi.RegisterDebugServer(srv.s, srv)
+	srv.gnsiPathz = NewGNSIPathzServer(srv)
+	gnsiPathzpb.RegisterPathzServer(srv.s, srv.gnsiPathz)
 	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
 	return srv, nil
 }
@@ -442,7 +428,18 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	}
 	*/
 
-	c := NewClient(pr.Addr)
+	pathzProcessor := s.gnsiPathz.pathzProcessor
+	if !s.config.PathzPolicy {
+		pathzProcessor = nil
+	}
+	c := NewClient(pr.Addr, pathzProcessor, s.recorder, s.ConnectionManager)
+
+	/*
+		log.V(lvl.INFO).Infof("Entering Subscribe RPC with client: %s ", c.String())
+		defer func() {
+			log.V(lvl.INFO).Infof("Exiting Subscribe RPC after %v with client: %s ", time.Since(start), c.String())
+		}()
+	*/
 
 	c.setLogLevel(s.config.LogLevel)
 	c.setConnectionManager(s.config.Threshold)
@@ -509,6 +506,37 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	if req.GetType() != gnmipb.GetRequest_ALL {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Errorf(codes.Unimplemented, "unsupported request type: %s", gnmipb.GetRequest_DataType_name[int32(req.GetType())])
+	}
+	// gNMI path based authorization
+	if s.config.PathzPolicy && len(req.GetPath()) != 0 {
+		newPaths := []*gnmipb.Path{}
+		user, err := getUsername(ctx)
+		if err != nil {
+			log.V(lvl.WARNING).Infof("GetRequest User not found: %s", err.Error())
+			return nil, err
+		}
+		for _, path := range req.GetPath() {
+			// Only process the authorized paths in the request.
+			r, err := s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), path, gnsiPathzpb.Mode_MODE_READ)
+			if err != nil || r.Action != gnsiPathzpb.Action_ACTION_PERMIT {
+				s.recorder.Record(metric_recorder.PathzRecord{
+					Permitted: false,
+					Rpc:       "get",
+					Path:      pathz_authorizer.PrintPathWithPrefix(req.GetPrefix(), path),
+				})
+				continue
+			}
+			s.recorder.Record(metric_recorder.PathzRecord{
+				Permitted: true,
+				Rpc:       "get",
+				Path:      pathz_authorizer.PrintPathWithPrefix(req.GetPrefix(), path),
+			})
+			newPaths = append(newPaths, path)
+		}
+		if len(newPaths) == 0 {
+			return nil, status.Error(codes.PermissionDenied, "Unauthorized request. Rejected by pathz policy.")
+		}
+		req.Path = newPaths
 	}
 
 	if err := s.checkEncodingAndModel(req.GetEncoding(), req.GetUseModels()); err != nil {
@@ -627,6 +655,69 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	if s.config.EnableTranslibWrite == false && s.config.EnableNativeWrite == false {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
+	}
+	// gNMI path based authorization
+	if s.config.PathzPolicy {
+		user, err := getUsername(ctx)
+		if err != nil {
+			log.V(lvl.WARNING).Infof("SetRequest User not found: %s", err.Error())
+			return nil, err
+		}
+		permitted := true
+		for _, path := range req.GetDelete() {
+			r, err := s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), path, gnsiPathzpb.Mode_MODE_WRITE)
+			if err != nil || r.Action != gnsiPathzpb.Action_ACTION_PERMIT {
+				s.recorder.Record(metric_recorder.PathzRecord{
+					Permitted: false,
+					Rpc:       "set",
+					Path:      pathz_authorizer.PrintPathWithPrefix(req.GetPrefix(), path),
+				})
+				permitted = false
+			} else {
+				s.recorder.Record(metric_recorder.PathzRecord{
+					Permitted: true,
+					Rpc:       "set",
+					Path:      pathz_authorizer.PrintPathWithPrefix(req.GetPrefix(), path),
+				})
+			}
+		}
+		for _, update := range req.GetReplace() {
+			r, err := s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), update.GetPath(), gnsiPathzpb.Mode_MODE_WRITE)
+			if err != nil || r.Action != gnsiPathzpb.Action_ACTION_PERMIT {
+				s.recorder.Record(metric_recorder.PathzRecord{
+					Permitted: false,
+					Rpc:       "set",
+					Path:      pathz_authorizer.PrintPathWithPrefix(req.GetPrefix(), update.GetPath()),
+				})
+				permitted = false
+			} else {
+				s.recorder.Record(metric_recorder.PathzRecord{
+					Permitted: true,
+					Rpc:       "set",
+					Path:      pathz_authorizer.PrintPathWithPrefix(req.GetPrefix(), update.GetPath()),
+				})
+			}
+		}
+		for _, update := range req.GetUpdate() {
+			r, err := s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), update.GetPath(), gnsiPathzpb.Mode_MODE_WRITE)
+			if err != nil || r.Action != gnsiPathzpb.Action_ACTION_PERMIT {
+				s.recorder.Record(metric_recorder.PathzRecord{
+					Permitted: false,
+					Rpc:       "set",
+					Path:      pathz_authorizer.PrintPathWithPrefix(req.GetPrefix(), update.GetPath()),
+				})
+				permitted = false
+			} else {
+				s.recorder.Record(metric_recorder.PathzRecord{
+					Permitted: true,
+					Rpc:       "set",
+					Path:      pathz_authorizer.PrintPathWithPrefix(req.GetPrefix(), update.GetPath()),
+				})
+			}
+		}
+		if !permitted {
+			return nil, status.Error(codes.PermissionDenied, "Unauthorized request. Rejected by pathz policy.")
+		}
 	}
 	var results []*gnmipb.UpdateResult
 
@@ -774,6 +865,28 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 		SupportedEncodings: supportedEncodings,
 		GNMIVersion:        "0.7.0",
 		Extension:          exts}, nil
+}
+
+// Obtain the user name as the last element of the SPIFFE ID.
+func getUsername(ctx context.Context) (string, error) {
+	pr, ok := peer.FromContext(ctx)
+	if !ok {
+		return "", grpc.Errorf(codes.Unauthenticated, "failed to get peer from ctx")
+	}
+	tlsInfo, ok := pr.AuthInfo.(credentials.TLSInfo)
+	if !ok {
+		return "", grpc.Errorf(codes.Unauthenticated, "no tls info was found")
+	}
+	spiffe := tlsInfo.SPIFFEID
+	if spiffe == nil {
+		return "", grpc.Errorf(codes.Unauthenticated, "failed to get SPIFFE ID")
+	}
+	path := spiffe.Path
+	usernamePos := strings.LastIndex(path, "/")
+	if usernamePos == -1 {
+		return "", status.Errorf(codes.Unauthenticated, "failed to get username from SPIFFE ID: %s", spiffe)
+	}
+	return path[usernamePos+1:], nil
 }
 
 type uint128 struct {
