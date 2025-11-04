@@ -75,9 +75,9 @@ type DPUProxy struct {
 	resolver *DPUResolver
 
 	// Connection management
-	connMu sync.RWMutex
-	conns  map[string]*grpc.ClientConn // key: DPU index (e.g., "0", "1")
-	connPorts map[string]string        // key: DPU index, value: successful port
+	connMu    sync.RWMutex
+	conns     map[string]*grpc.ClientConn // key: DPU index (e.g., "0", "1")
+	connPorts map[string]string           // key: DPU index, value: successful port
 
 	// TODO (Future Phase): Add connection health monitoring
 	// - Periodic health checks using grpc.ConnectivityState

@@ -170,4 +170,3 @@ func (srv *FileServer) Remove(ctx context.Context, req *gnoi_file_pb.RemoveReque
 	log.Errorf("Remove RPC failed: %v", err)
 	return &gnoi_file_pb.RemoveResponse{}, err
 }
-

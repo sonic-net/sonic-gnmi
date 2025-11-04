@@ -469,10 +469,10 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 		// Create Redis clients for DPU info resolution from both StateDB and ConfigDB
 		stateRedisClient := dpuproxy.NewRedisClient(dpuproxy.DefaultRedisSocket, dpuproxy.StateDB)
 		stateRedisAdapter := dpuproxy.NewGoRedisAdapter(stateRedisClient)
-		
+
 		configRedisClient := dpuproxy.NewRedisClient(dpuproxy.DefaultRedisSocket, dpuproxy.ConfigDB)
 		configRedisAdapter := dpuproxy.NewGoRedisAdapter(configRedisClient)
-		
+
 		dpuResolver := dpuproxy.NewDPUResolver(stateRedisAdapter, configRedisAdapter)
 
 		dpuProxy := dpuproxy.NewDPUProxy(dpuResolver)

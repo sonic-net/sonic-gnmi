@@ -18,7 +18,6 @@ const (
 	// DefaultGNMIPort is the fallback gNMI port if not configured in CONFIG_DB
 	DefaultGNMIPort = "50052"
 
-
 	// ChassisMidplaneTablePrefix is the Redis key prefix for DPU midplane info
 	ChassisMidplaneTablePrefix = "CHASSIS_MIDPLANE_TABLE|DPU"
 
