@@ -1,0 +1,86 @@
+//go:build ignore
+// +build ignore
+
+// This file demonstrates how the exec package can be integrated with the existing
+// sonic-gnmi codebase. It's marked with +build ignore to prevent it from being
+// compiled during regular builds.
+
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/sonic-net/sonic-gnmi/pkg/exec"
+)
+
+func main() {
+	// Example 1: Simple command execution similar to show_client usage
+	fmt.Println("Example 1: Simple command execution")
+	output, err := exec.RunHostCommandSimple("hostname")
+	if err != nil {
+		log.Printf("Error: %v", err)
+	} else {
+		fmt.Printf("Host name: %s\n", output)
+	}
+
+	// Example 2: Execute with timeout
+	fmt.Println("\nExample 2: Command with timeout")
+	ctx := context.Background()
+	opts := &exec.RunHostCommandOptions{
+		Timeout: 5 * time.Second,
+	}
+	result, err := exec.RunHostCommand(ctx, "ip", []string{"addr", "show"}, opts)
+	if err != nil {
+		log.Printf("Error: %v", err)
+		return
+	}
+
+	if result.ExitCode == 0 {
+		fmt.Println("Network interfaces retrieved successfully")
+		// Process output as needed
+	} else {
+		fmt.Printf("Command failed with exit code %d\n", result.ExitCode)
+		fmt.Printf("Error output: %s\n", result.Stderr)
+	}
+
+	// Example 3: Run Redis CLI command (common in SONiC)
+	fmt.Println("\nExample 3: Redis CLI command")
+	result, err = exec.RunHostCommand(ctx, "redis-cli", []string{"-n", "4", "HGETALL", "PORT_TABLE:Ethernet0"}, nil)
+	if err != nil {
+		log.Printf("Error: %v", err)
+	} else {
+		fmt.Printf("Redis output:\n%s", result.Stdout)
+	}
+
+	// Example 4: Using specific namespaces
+	fmt.Println("\nExample 4: Specific namespace access")
+	opts = &exec.RunHostCommandOptions{
+		Namespaces: []string{"net"}, // Only network namespace
+	}
+	result, err = exec.RunHostCommand(ctx, "ss", []string{"-tulpn"}, opts)
+	if err != nil {
+		log.Printf("Error: %v", err)
+	} else {
+		fmt.Println("Network connections retrieved")
+	}
+
+	// Example 5: Parse complex command string
+	fmt.Println("\nExample 5: Parse command string")
+	cmdStr := `docker exec -it database redis-cli -n 4 HGET "PORT_TABLE:Ethernet0" admin_status`
+	cmd, args, err := exec.ParseCommand(cmdStr)
+	if err != nil {
+		log.Printf("Parse error: %v", err)
+	} else {
+		fmt.Printf("Command: %s\n", cmd)
+		fmt.Printf("Arguments: %v\n", args)
+
+		// Execute the parsed command
+		result, err = exec.RunHostCommand(ctx, cmd, args, nil)
+		if err == nil {
+			fmt.Printf("Result: %s\n", result.Stdout)
+		}
+	}
+}

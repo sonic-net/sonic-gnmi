@@ -21,7 +21,10 @@ PURE_PACKAGES := \
 	pkg/interceptors \
 	pkg/interceptors/dpuproxy \
 	pkg/server/operational-handler \
-	pkg/gnoi/file
+	pkg/gnoi/file \
+	pkg/exec \
+	pkg/gnoi/os \
+	pkg/gnoi/system
 
 # Future packages to make pure:
 # TODO: sonic-gnmi-standalone/pkg/workflow

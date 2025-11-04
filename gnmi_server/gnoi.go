@@ -6,6 +6,7 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 	log "github.com/golang/glog"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
+	gnoios "github.com/sonic-net/sonic-gnmi/pkg/gnoi/os"
 	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
@@ -30,38 +31,9 @@ func (srv *OSServer) Verify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) 
 	}
 
 	log.V(1).Info("gNOI: Verify")
-	dbus, err := ssc.NewDbusClient()
-	if err != nil {
-		log.V(2).Infof("Failed to create dbus client: %v", err)
-		return nil, err
-	}
-	defer dbus.Close()
 
-	image_json, err := dbus.ListImages()
-	if err != nil {
-		log.V(2).Infof("Failed to list images: %v", err)
-		return nil, err
-	}
-
-	images := make(map[string]interface{})
-	err = json.Unmarshal([]byte(image_json), &images)
-	if err != nil {
-		log.V(2).Infof("Failed to unmarshal images: %v", err)
-		return nil, err
-	}
-
-	current, exists := images["current"]
-	if !exists {
-		return nil, status.Errorf(codes.Internal, "Key 'current' not found in images")
-	}
-	current_image, ok := current.(string)
-	if !ok {
-		return nil, status.Errorf(codes.Internal, "Failed to assert current image as string")
-	}
-	resp := &gnoi_os_pb.VerifyResponse{
-		Version: current_image,
-	}
-	return resp, nil
+	// Use the pure implementation from pkg/gnoi/os
+	return gnoios.HandleVerify(ctx, req)
 }
 
 func (srv *OSServer) Activate(ctx context.Context, req *gnoi_os_pb.ActivateRequest) (*gnoi_os_pb.ActivateResponse, error) {
