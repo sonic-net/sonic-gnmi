@@ -33,9 +33,18 @@ func TestDPUResolver_Integration_RealRedis(t *testing.T) {
 	})
 	defer client.Close()
 
-	// Create adapter and resolver
-	adapter := NewGoRedisAdapter(client)
-	resolver := NewDPUResolver(adapter)
+	// Create adapters and resolver
+	stateAdapter := NewGoRedisAdapter(client)
+
+	// Create config client (database 4)
+	configClient := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+		DB:   4,
+	})
+	defer configClient.Close()
+	configAdapter := NewGoRedisAdapter(configClient)
+
+	resolver := NewDPUResolver(stateAdapter, configAdapter)
 
 	// Test DPU0 (reachable)
 	t.Run("DPU0_Reachable", func(t *testing.T) {
@@ -111,11 +120,15 @@ func TestDPUResolver_Integration_PartialData(t *testing.T) {
 	// DPU with missing access field
 	s.HSet("CHASSIS_MIDPLANE_TABLE|DPU3", "ip_address", "169.254.200.4")
 
-	client := redis.NewClient(&redis.Options{Addr: s.Addr(), DB: 6})
-	defer client.Close()
+	stateClient := redis.NewClient(&redis.Options{Addr: s.Addr(), DB: 6})
+	defer stateClient.Close()
 
-	adapter := NewGoRedisAdapter(client)
-	resolver := NewDPUResolver(adapter)
+	configClient := redis.NewClient(&redis.Options{Addr: s.Addr(), DB: 4})
+	defer configClient.Close()
+
+	stateAdapter := NewGoRedisAdapter(stateClient)
+	configAdapter := NewGoRedisAdapter(configClient)
+	resolver := NewDPUResolver(stateAdapter, configAdapter)
 
 	info, err := resolver.GetDPUInfo(context.Background(), "3")
 	if err != nil {
@@ -138,11 +151,15 @@ func TestDPUResolver_Integration_EmptyDatabase(t *testing.T) {
 	s.Select(6)
 	// Don't add any data
 
-	client := redis.NewClient(&redis.Options{Addr: s.Addr(), DB: 6})
-	defer client.Close()
+	stateClient := redis.NewClient(&redis.Options{Addr: s.Addr(), DB: 6})
+	defer stateClient.Close()
 
-	adapter := NewGoRedisAdapter(client)
-	resolver := NewDPUResolver(adapter)
+	configClient := redis.NewClient(&redis.Options{Addr: s.Addr(), DB: 4})
+	defer configClient.Close()
+
+	stateAdapter := NewGoRedisAdapter(stateClient)
+	configAdapter := NewGoRedisAdapter(configClient)
+	resolver := NewDPUResolver(stateAdapter, configAdapter)
 
 	info, err := resolver.GetDPUInfo(context.Background(), "0")
 	if err == nil {

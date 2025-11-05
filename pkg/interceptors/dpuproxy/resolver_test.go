@@ -23,7 +23,7 @@ func (m *mockRedisClient) HGetAll(ctx context.Context, key string) (map[string]s
 }
 
 func TestDPUResolver_GetDPUInfo_Success(t *testing.T) {
-	mock := &mockRedisClient{
+	stateMock := &mockRedisClient{
 		data: map[string]map[string]string{
 			"CHASSIS_MIDPLANE_TABLE|DPU0": {
 				"ip_address": "169.254.200.1",
@@ -31,8 +31,15 @@ func TestDPUResolver_GetDPUInfo_Success(t *testing.T) {
 			},
 		},
 	}
+	configMock := &mockRedisClient{
+		data: map[string]map[string]string{
+			"DPU|dpu0": {
+				"gnmi_port": "8080",
+			},
+		},
+	}
 
-	resolver := NewDPUResolver(mock)
+	resolver := NewDPUResolver(stateMock, configMock)
 	info, err := resolver.GetDPUInfo(context.Background(), "0")
 
 	if err != nil {
@@ -57,7 +64,7 @@ func TestDPUResolver_GetDPUInfo_Success(t *testing.T) {
 }
 
 func TestDPUResolver_GetDPUInfo_Unreachable(t *testing.T) {
-	mock := &mockRedisClient{
+	stateMock := &mockRedisClient{
 		data: map[string]map[string]string{
 			"CHASSIS_MIDPLANE_TABLE|DPU2": {
 				"ip_address": "169.254.200.3",
@@ -65,8 +72,11 @@ func TestDPUResolver_GetDPUInfo_Unreachable(t *testing.T) {
 			},
 		},
 	}
+	configMock := &mockRedisClient{
+		data: map[string]map[string]string{},
+	}
 
-	resolver := NewDPUResolver(mock)
+	resolver := NewDPUResolver(stateMock, configMock)
 	info, err := resolver.GetDPUInfo(context.Background(), "2")
 
 	if err != nil {
@@ -83,7 +93,7 @@ func TestDPUResolver_GetDPUInfo_Unreachable(t *testing.T) {
 }
 
 func TestDPUResolver_GetDPUInfo_MissingAccessField(t *testing.T) {
-	mock := &mockRedisClient{
+	stateMock := &mockRedisClient{
 		data: map[string]map[string]string{
 			"CHASSIS_MIDPLANE_TABLE|DPU1": {
 				"ip_address": "169.254.200.2",
@@ -91,8 +101,11 @@ func TestDPUResolver_GetDPUInfo_MissingAccessField(t *testing.T) {
 			},
 		},
 	}
+	configMock := &mockRedisClient{
+		data: map[string]map[string]string{},
+	}
 
-	resolver := NewDPUResolver(mock)
+	resolver := NewDPUResolver(stateMock, configMock)
 	info, err := resolver.GetDPUInfo(context.Background(), "1")
 
 	if err != nil {
@@ -105,11 +118,14 @@ func TestDPUResolver_GetDPUInfo_MissingAccessField(t *testing.T) {
 }
 
 func TestDPUResolver_GetDPUInfo_NotFound(t *testing.T) {
-	mock := &mockRedisClient{
+	stateMock := &mockRedisClient{
+		data: map[string]map[string]string{},
+	}
+	configMock := &mockRedisClient{
 		data: map[string]map[string]string{},
 	}
 
-	resolver := NewDPUResolver(mock)
+	resolver := NewDPUResolver(stateMock, configMock)
 	info, err := resolver.GetDPUInfo(context.Background(), "99")
 
 	if err == nil {
@@ -120,14 +136,14 @@ func TestDPUResolver_GetDPUInfo_NotFound(t *testing.T) {
 		t.Errorf("Expected nil DPUInfo, got: %+v", info)
 	}
 
-	expectedErr := "DPU99 not found in Redis"
+	expectedErr := "DPU99 not found in StateDB"
 	if err.Error() != expectedErr {
 		t.Errorf("Expected error '%s', got: %v", expectedErr, err)
 	}
 }
 
 func TestDPUResolver_GetDPUInfo_MissingIPAddress(t *testing.T) {
-	mock := &mockRedisClient{
+	stateMock := &mockRedisClient{
 		data: map[string]map[string]string{
 			"CHASSIS_MIDPLANE_TABLE|DPU3": {
 				"access": "True",
@@ -135,8 +151,11 @@ func TestDPUResolver_GetDPUInfo_MissingIPAddress(t *testing.T) {
 			},
 		},
 	}
+	configMock := &mockRedisClient{
+		data: map[string]map[string]string{},
+	}
 
-	resolver := NewDPUResolver(mock)
+	resolver := NewDPUResolver(stateMock, configMock)
 	info, err := resolver.GetDPUInfo(context.Background(), "3")
 
 	if err == nil {
@@ -149,7 +168,7 @@ func TestDPUResolver_GetDPUInfo_MissingIPAddress(t *testing.T) {
 }
 
 func TestDPUResolver_GetDPUInfo_EmptyIPAddress(t *testing.T) {
-	mock := &mockRedisClient{
+	stateMock := &mockRedisClient{
 		data: map[string]map[string]string{
 			"CHASSIS_MIDPLANE_TABLE|DPU4": {
 				"ip_address": "",
@@ -157,8 +176,11 @@ func TestDPUResolver_GetDPUInfo_EmptyIPAddress(t *testing.T) {
 			},
 		},
 	}
+	configMock := &mockRedisClient{
+		data: map[string]map[string]string{},
+	}
 
-	resolver := NewDPUResolver(mock)
+	resolver := NewDPUResolver(stateMock, configMock)
 	info, err := resolver.GetDPUInfo(context.Background(), "4")
 
 	if err == nil {
@@ -171,11 +193,14 @@ func TestDPUResolver_GetDPUInfo_EmptyIPAddress(t *testing.T) {
 }
 
 func TestDPUResolver_GetDPUInfo_RedisError(t *testing.T) {
-	mock := &mockRedisClient{
+	stateMock := &mockRedisClient{
 		err: errors.New("connection refused"),
 	}
+	configMock := &mockRedisClient{
+		data: map[string]map[string]string{},
+	}
 
-	resolver := NewDPUResolver(mock)
+	resolver := NewDPUResolver(stateMock, configMock)
 	info, err := resolver.GetDPUInfo(context.Background(), "0")
 
 	if err == nil {
@@ -188,7 +213,7 @@ func TestDPUResolver_GetDPUInfo_RedisError(t *testing.T) {
 }
 
 func TestDPUResolver_GetDPUInfo_MultipleDPUs(t *testing.T) {
-	mock := &mockRedisClient{
+	stateMock := &mockRedisClient{
 		data: map[string]map[string]string{
 			"CHASSIS_MIDPLANE_TABLE|DPU0": {
 				"ip_address": "169.254.200.1",
@@ -204,8 +229,11 @@ func TestDPUResolver_GetDPUInfo_MultipleDPUs(t *testing.T) {
 			},
 		},
 	}
+	configMock := &mockRedisClient{
+		data: map[string]map[string]string{},
+	}
 
-	resolver := NewDPUResolver(mock)
+	resolver := NewDPUResolver(stateMock, configMock)
 
 	// Test DPU0
 	info0, err := resolver.GetDPUInfo(context.Background(), "0")
@@ -227,14 +255,19 @@ func TestDPUResolver_GetDPUInfo_MultipleDPUs(t *testing.T) {
 }
 
 func TestNewDPUResolver(t *testing.T) {
-	mock := &mockRedisClient{}
-	resolver := NewDPUResolver(mock)
+	stateMock := &mockRedisClient{}
+	configMock := &mockRedisClient{}
+	resolver := NewDPUResolver(stateMock, configMock)
 
 	if resolver == nil {
 		t.Error("Expected non-nil resolver")
 	}
 
-	if resolver.client == nil {
-		t.Error("Expected resolver to have client set")
+	if resolver.stateClient == nil {
+		t.Error("Expected resolver to have stateClient set")
+	}
+
+	if resolver.configClient == nil {
+		t.Error("Expected resolver to have configClient set")
 	}
 }
