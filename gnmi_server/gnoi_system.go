@@ -12,7 +12,8 @@ import (
 	"github.com/golang/protobuf/proto"
 	syspb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
-	gnoisystem "github.com/sonic-net/sonic-gnmi/pkg/gnoi/system"
+	"github.com/sonic-net/sonic-gnmi/pkg/gnoi/system"
+	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -199,6 +200,16 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 
+	// Check for DPU metadata
+	targetMetadata := dpuproxy.ExtractTargetMetadata(ctx)
+	if targetMetadata.IsDPUTarget() {
+		log.V(1).Infof("DPU reboot request detected: type=%s, index=%s",
+			targetMetadata.TargetType, targetMetadata.TargetIndex)
+
+		// Handle DPU reboot using the pure implementation
+		return system.HandleDPUReboot(ctx, req, targetMetadata.TargetIndex)
+	}
+
 	// Initialize State DB.
 	rclient, err := common_utils.GetRedisDBClient()
 	if err != nil {
@@ -317,7 +328,7 @@ func (srv *Server) SetPackage(rs syspb.System_SetPackageServer) error {
 	}
 
 	// Use the pure implementation from pkg/gnoi/system
-	resp, err := gnoisystem.HandleSetPackage(ctx, req)
+	resp, err := system.HandleSetPackage(ctx, req)
 	if err != nil {
 		return err
 	}

@@ -53,6 +53,11 @@ var defaultForwardableMethods = []ForwardableMethod{
 		Description: "Download from URL, then upload to DPU",
 		Mode:        HandleOnNPU,
 	},
+	{
+		FullMethod:  "/gnoi.system.System/Reboot",
+		Description: "Reboot DPU from NPU host",
+		Mode:        HandleOnNPU,
+	},
 	// gRPC reflection methods needed for grpcurl to work with DPU headers
 	{
 		FullMethod:  "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",

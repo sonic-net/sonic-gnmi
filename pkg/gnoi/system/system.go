@@ -111,3 +111,35 @@ func activatePackage(ctx context.Context, version string) error {
 	log.V(1).Infof("sonic-installer set-default completed successfully: %s", strings.TrimSpace(result.Stdout))
 	return nil
 }
+
+// HandleDPUReboot implements DPU reboot functionality using the reboot command.
+// It reboots the specified DPU using the "reboot -d DPU{index}" command.
+// The reboot command is executed asynchronously and may return non-zero exit codes,
+// which is normal behavior for reboot operations.
+func HandleDPUReboot(ctx context.Context, req *syspb.RebootRequest, dpuIndex string) (*syspb.RebootResponse, error) {
+	log.V(1).Infof("HandleDPUReboot: rebooting DPU%s", dpuIndex)
+
+	// Construct the reboot command for the specific DPU
+	dpuTarget := fmt.Sprintf("DPU%s", dpuIndex)
+
+	// Execute reboot command for the DPU
+	// Note: Reboot commands typically return non-zero exit codes and may not complete
+	// before the system reboots, so we don't treat non-zero exit codes as errors
+	result, err := exec.RunHostCommand(ctx, "reboot", []string{"-d", dpuTarget}, nil)
+	if err != nil {
+		log.Errorf("Failed to execute DPU reboot command: %v", err)
+		return nil, fmt.Errorf("failed to execute DPU reboot command: %v", err)
+	}
+
+	// Log the command output for debugging but don't treat non-zero exit codes as errors
+	// This is because reboot commands often return non-zero codes but still work correctly
+	if result.ExitCode != 0 {
+		log.V(1).Infof("DPU reboot command completed with exit code %d (normal for reboot): stdout=%s, stderr=%s",
+			result.ExitCode, strings.TrimSpace(result.Stdout), strings.TrimSpace(result.Stderr))
+	} else {
+		log.V(1).Infof("DPU reboot command completed with exit code 0: %s", strings.TrimSpace(result.Stdout))
+	}
+
+	log.V(1).Infof("Successfully initiated reboot for %s", dpuTarget)
+	return &syspb.RebootResponse{}, nil
+}
