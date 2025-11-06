@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	log "github.com/golang/glog"
 	syspb "github.com/openconfig/gnoi/system"
@@ -79,7 +80,11 @@ func installPackage(ctx context.Context, filename string) error {
 	log.V(1).Infof("Installing package: %s", filename)
 
 	// Execute sonic-installer install command with -y flag for non-interactive installation
-	result, err := exec.RunHostCommand(ctx, "sonic-installer", []string{"install", "-y", filename}, nil)
+	// Use a longer timeout as sonic-installer can take several minutes
+	opts := &exec.RunHostCommandOptions{
+		Timeout: 10 * time.Minute, // Allow up to 10 minutes for installation
+	}
+	result, err := exec.RunHostCommand(ctx, "sonic-installer", []string{"install", "-y", filename}, opts)
 	if err != nil {
 		return fmt.Errorf("failed to run sonic-installer install: %v", err)
 	}
@@ -98,7 +103,11 @@ func activatePackage(ctx context.Context, version string) error {
 	log.V(1).Infof("Activating package version: %s", version)
 
 	// Execute sonic-installer set-default command
-	result, err := exec.RunHostCommand(ctx, "sonic-installer", []string{"set-default", version}, nil)
+	// Use a longer timeout for consistency
+	opts := &exec.RunHostCommandOptions{
+		Timeout: 2 * time.Minute, // Allow up to 2 minutes for setting default
+	}
+	result, err := exec.RunHostCommand(ctx, "sonic-installer", []string{"set-default", version}, opts)
 	if err != nil {
 		return fmt.Errorf("failed to run sonic-installer set-default: %v", err)
 	}

@@ -58,6 +58,11 @@ var defaultForwardableMethods = []ForwardableMethod{
 		Description: "Reboot DPU from NPU host",
 		Mode:        HandleOnNPU,
 	},
+	{
+		FullMethod:  "/gnoi.system.System/SetPackage",
+		Description: "Install package on DPU",
+		Mode:        ForwardToDPU,
+	},
 	// gRPC reflection methods needed for grpcurl to work with DPU headers
 	{
 		FullMethod:  "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
@@ -210,6 +215,11 @@ func (p *DPUProxy) forwardStream(ctx context.Context, conn *grpc.ClientConn, ss 
 		return p.forwardFilePutStream(ctx, conn, ss)
 	}
 
+	// For System.SetPackage, we need to handle the streaming RPC
+	if info.FullMethod == "/gnoi.system.System/SetPackage" {
+		return p.forwardSetPackageStream(ctx, conn, ss)
+	}
+
 	// Add other stream methods here as needed
 	return status.Errorf(codes.Unimplemented, "stream forwarding for method %s not implemented", info.FullMethod)
 }
@@ -280,6 +290,75 @@ func (p *DPUProxy) forwardFilePutStream(ctx context.Context, conn *grpc.ClientCo
 	}
 
 	glog.Infof("[DPUProxy] Successfully forwarded File.Put stream to DPU")
+	return nil
+}
+
+// forwardSetPackageStream forwards a System.SetPackage streaming RPC to the DPU.
+func (p *DPUProxy) forwardSetPackageStream(ctx context.Context, conn *grpc.ClientConn, ss grpc.ServerStream) error {
+	// Create System client for DPU
+	systemClient := system.NewSystemClient(conn)
+
+	// Create a client stream to the DPU
+	clientStream, err := systemClient.SetPackage(ctx)
+	if err != nil {
+		glog.Errorf("[DPUProxy] Failed to create SetPackage client stream to DPU: %v", err)
+		return status.Errorf(codes.Internal, "failed to create SetPackage client stream to DPU: %v", err)
+	}
+
+	// Channel to signal completion of request forwarding
+	forwardDone := make(chan error, 1)
+
+	// Goroutine to forward requests from client to DPU
+	go func() {
+		defer func() {
+			// Close the send side when done receiving from client
+			if err := clientStream.CloseSend(); err != nil {
+				glog.Warningf("[DPUProxy] Error closing send on SetPackage client stream: %v", err)
+			}
+		}()
+
+		for {
+			// Receive request from client
+			var req system.SetPackageRequest
+			if err := ss.RecvMsg(&req); err != nil {
+				if err == io.EOF {
+					glog.V(2).Infof("[DPUProxy] SetPackage client finished sending requests")
+					forwardDone <- nil
+					return
+				}
+				glog.Errorf("[DPUProxy] Error receiving SetPackage from client: %v", err)
+				forwardDone <- err
+				return
+			}
+
+			// Forward request to DPU
+			if err := clientStream.Send(&req); err != nil {
+				glog.Errorf("[DPUProxy] Error sending SetPackage to DPU: %v", err)
+				forwardDone <- err
+				return
+			}
+		}
+	}()
+
+	// Wait for all requests to be forwarded
+	if err := <-forwardDone; err != nil {
+		return err
+	}
+
+	// Now get the response from DPU after all requests are sent
+	response, err := clientStream.CloseAndRecv()
+	if err != nil {
+		glog.Errorf("[DPUProxy] Error getting SetPackage response from DPU: %v", err)
+		return status.Errorf(codes.Internal, "error getting SetPackage response from DPU: %v", err)
+	}
+
+	// Send response back to client
+	if err := ss.SendMsg(response); err != nil {
+		glog.Errorf("[DPUProxy] Error sending SetPackage response to client: %v", err)
+		return status.Errorf(codes.Internal, "error sending SetPackage response to client: %v", err)
+	}
+
+	glog.Infof("[DPUProxy] Successfully forwarded System.SetPackage stream to DPU")
 	return nil
 }
 
