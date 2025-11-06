@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	debug "github.com/sonic-net/sonic-gnmi/internal/debug"
+	exec "github.com/sonic-net/sonic-gnmi/internal/exec"
 	debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -14,7 +14,7 @@ import (
 var (
 	// Allow DI for mocking
 	runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string) (int, error) {
-		return debug.RunCommand(ctx, outCh, errCh, roleAccount, byteLimit, cmd)
+		return exec.RunCommand(ctx, outCh, errCh, roleAccount, byteLimit, cmd)
 	}
 )
 

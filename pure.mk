@@ -14,7 +14,7 @@ GOROOT ?= $(shell $(GO) env GOROOT)
 # Pure packages (no CGO/SONiC dependencies)
 # Add new packages here as they become pure-compatible
 PURE_PACKAGES := \
-	internal/debug \
+	internal/exec \
 	pkg/gnoi/debug \
 	internal/diskspace \
 	pkg/server/operational-handler

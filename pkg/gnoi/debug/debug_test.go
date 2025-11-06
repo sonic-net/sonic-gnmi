@@ -14,12 +14,12 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/sonic-net/sonic-gnmi/internal/debug"
+	exec "github.com/sonic-net/sonic-gnmi/internal/exec"
 	debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 )
 
 var (
-	originalRunCommand = debug.RunCommand
+	originalRunCommand = exec.RunCommand
 	testWhitelist      = []string{
 		"ls",
 		"show",
