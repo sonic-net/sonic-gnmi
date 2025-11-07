@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/golang/glog"
 	common "github.com/openconfig/gnoi/common"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	"github.com/openconfig/gnoi/types"
@@ -241,8 +242,15 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to create temp file: %v", err)
 	}
-	defer f.Close()
-	defer os.Remove(tempPath) // Clean up temp file on error or success
+	defer func() {
+		f.Close()
+		// Only remove if file still exists (indicates failure path)
+		if _, err := os.Stat(tempPath); err == nil {
+			if rmErr := os.Remove(tempPath); rmErr != nil {
+				log.Errorf("Failed to cleanup temp file %s: %v", tempPath, rmErr)
+			}
+		}
+	}()
 
 	// Step 5: Receive chunks and write to temp file
 	hasher := md5.New() // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
