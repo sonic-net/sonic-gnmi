@@ -3,19 +3,19 @@ package gnmi
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"strings"
 	jwt "github.com/dgrijalva/jwt-go"
 	log "github.com/golang/glog"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	gnoios "github.com/sonic-net/sonic-gnmi/pkg/gnoi/os"
-	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"os"
 	"os/user"
+	"strings"
 	"time"
 )
 
