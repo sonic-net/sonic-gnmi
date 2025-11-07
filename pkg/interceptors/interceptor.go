@@ -39,13 +39,12 @@ func (c *Chain) UnaryInterceptor() grpc.UnaryServerInterceptor {
 
 		// Iterate interceptors in reverse order to build the chain
 		for i := len(c.interceptors) - 1; i >= 0; i-- {
-			interceptor := c.interceptors[i]
-			currentHandler := chainedHandler
-
-			// Wrap the current handler with this interceptor
-			chainedHandler = func(ctx context.Context, req interface{}) (interface{}, error) {
-				return interceptor.UnaryInterceptor()(ctx, req, info, currentHandler)
-			}
+			// Capture variables by value using immediate function invocation
+			chainedHandler = func(interceptor Interceptor, currentHandler grpc.UnaryHandler) grpc.UnaryHandler {
+				return func(ctx context.Context, req interface{}) (interface{}, error) {
+					return interceptor.UnaryInterceptor()(ctx, req, info, currentHandler)
+				}
+			}(c.interceptors[i], chainedHandler)
 		}
 
 		// Execute the chained handler
@@ -63,13 +62,12 @@ func (c *Chain) StreamInterceptor() grpc.StreamServerInterceptor {
 
 		// Iterate interceptors in reverse order to build the chain
 		for i := len(c.interceptors) - 1; i >= 0; i-- {
-			interceptor := c.interceptors[i]
-			currentHandler := chainedHandler
-
-			// Wrap the current handler with this interceptor
-			chainedHandler = func(srv interface{}, ss grpc.ServerStream) error {
-				return interceptor.StreamInterceptor()(srv, ss, info, currentHandler)
-			}
+			// Capture variables by value using immediate function invocation
+			chainedHandler = func(interceptor Interceptor, currentHandler grpc.StreamHandler) grpc.StreamHandler {
+				return func(srv interface{}, ss grpc.ServerStream) error {
+					return interceptor.StreamInterceptor()(srv, ss, info, currentHandler)
+				}
+			}(c.interceptors[i], chainedHandler)
 		}
 
 		// Execute the chained handler
