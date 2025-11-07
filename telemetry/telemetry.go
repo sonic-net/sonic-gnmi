@@ -20,7 +20,6 @@ import (
 
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
-	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
 	"github.com/fsnotify/fsnotify"
@@ -470,21 +469,15 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			gnmi.GenerateJwtSecretKey()
 		}
 
-		// Setup DPU proxy interceptor (always enabled, regardless of TLS)
-		// Create Redis clients for DPU info resolution from both StateDB and ConfigDB
-		stateRedisClient := dpuproxy.NewRedisClient(dpuproxy.DefaultRedisSocket, dpuproxy.StateDB)
-		stateRedisAdapter := dpuproxy.NewGoRedisAdapter(stateRedisClient)
+		// Setup interceptor chain (includes DPU proxy with Redis-based routing)
+		serverChain, err := interceptors.NewServerChain()
+		if err != nil {
+			log.Errorf("Failed to create interceptor chain: %v", err)
+			return
+		}
+		defer serverChain.Close() // Ensure cleanup on exit
 
-		configRedisClient := dpuproxy.NewRedisClient(dpuproxy.DefaultRedisSocket, dpuproxy.ConfigDB)
-		configRedisAdapter := dpuproxy.NewGoRedisAdapter(configRedisClient)
-
-		dpuResolver := dpuproxy.NewDPUResolver(stateRedisAdapter, configRedisAdapter)
-
-		dpuProxy := dpuproxy.NewDPUProxy(dpuResolver)
-		interceptorChain := interceptors.NewChain(dpuProxy)
-		opts = append(opts,
-			grpc.UnaryInterceptor(interceptorChain.UnaryInterceptor()),
-			grpc.StreamInterceptor(interceptorChain.StreamInterceptor()))
+		opts = append(opts, serverChain.GetServerOptions()...)
 
 		s, err := gnmi.NewServer(cfg, opts)
 		if err != nil {
