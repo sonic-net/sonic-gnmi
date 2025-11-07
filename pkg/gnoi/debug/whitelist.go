@@ -65,7 +65,6 @@ func defaultWhitelists() (read, write []string) {
 		"ps",
 		"uptime",
 		"awk",
-		"xargs",
 		"show",
 		"TSC",
 	}
