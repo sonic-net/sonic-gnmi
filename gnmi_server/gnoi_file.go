@@ -120,10 +120,10 @@ func (srv *FileServer) TransferToRemote(ctx context.Context, req *gnoi_file_pb.T
 			targetIndex = vals[0]
 		}
 
-		// If DPU headers are present, handle DPU transfer logic
+		// If DPU headers are present, handle DPU transfer logic using efficient streaming
 		if targetType == "dpu" && targetIndex != "" {
 			log.Infof("[TransferToRemote] DPU routing detected: target-type=%s, target-index=%s", targetType, targetIndex)
-			return gnoifile.HandleTransferToRemoteForDPU(ctx, req, targetIndex, "localhost:8080")
+			return gnoifile.HandleTransferToRemoteForDPUStreaming(ctx, req, targetIndex, "localhost:8080")
 		}
 	}
 

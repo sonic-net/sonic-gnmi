@@ -445,3 +445,155 @@ func HandleTransferToRemoteForDPU(
 
 	return resp, nil
 }
+
+// HandleTransferToRemoteForDPUStreaming implements efficient streaming proxy for DPU file transfers.
+// This function streams data directly from HTTP source to DPU without intermediate disk storage
+// or loading the entire file into memory. It calculates MD5 hash concurrently during streaming.
+func HandleTransferToRemoteForDPUStreaming(
+	ctx context.Context,
+	req *gnoi_file_pb.TransferToRemoteRequest,
+	dpuIndex string,
+	proxyAddress string,
+) (*gnoi_file_pb.TransferToRemoteResponse, error) {
+	// Validate inputs
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
+	}
+	if dpuIndex == "" {
+		return nil, status.Error(codes.InvalidArgument, "dpuIndex cannot be empty")
+	}
+	if proxyAddress == "" {
+		return nil, status.Error(codes.InvalidArgument, "proxyAddress cannot be empty")
+	}
+
+	remoteDownload := req.GetRemoteDownload()
+	if remoteDownload == nil {
+		return nil, status.Error(codes.InvalidArgument, "remote_download cannot be nil")
+	}
+
+	localPath := req.GetLocalPath()
+	if localPath == "" {
+		return nil, status.Error(codes.InvalidArgument, "local_path cannot be empty")
+	}
+
+	// Validate protocol - only HTTP supported
+	protocol := remoteDownload.GetProtocol()
+	if protocol != common.RemoteDownload_HTTP {
+		return nil, status.Errorf(codes.Unimplemented,
+			"only HTTP protocol is supported, got protocol %v", protocol)
+	}
+
+	url := remoteDownload.GetPath()
+	if url == "" {
+		return nil, status.Error(codes.InvalidArgument, "remote download path (URL) cannot be empty")
+	}
+
+	// Create context with timeout for streaming operation
+	streamCtx, cancel := context.WithTimeout(ctx, downloadTimeout)
+	defer cancel()
+
+	// Step 1: Create HTTP streaming connection
+	httpStream, _, err := download.DownloadHTTPStreaming(streamCtx, url, maxFileSize)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create HTTP stream: %v", err)
+	}
+	defer httpStream.Close()
+
+	// Step 2: Connect to DPU via proxy
+	md := metadata.New(map[string]string{
+		"x-sonic-ss-target-type":  "dpu",
+		"x-sonic-ss-target-index": dpuIndex,
+	})
+	outCtx := metadata.NewOutgoingContext(streamCtx, md)
+
+	conn, err := grpc.Dial(proxyAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to connect to proxy: %v", err)
+	}
+	defer conn.Close()
+
+	fileClient := gnoi_file_pb.NewFileClient(conn)
+
+	// Step 3: Create DPU Put stream
+	putClient, err := fileClient.Put(outCtx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create Put client: %v", err)
+	}
+
+	// Send Open request
+	openReq := &gnoi_file_pb.PutRequest{
+		Request: &gnoi_file_pb.PutRequest_Open{
+			Open: &gnoi_file_pb.PutRequest_Details{
+				RemoteFile:  localPath,
+				Permissions: 0644,
+			},
+		},
+	}
+	if err := putClient.Send(openReq); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to send open request: %v", err)
+	}
+
+	// Step 4: Set up concurrent hash calculation
+	hashCalc := hash.NewStreamingMD5Calculator()
+	teeReader := io.TeeReader(httpStream, hashCalc)
+
+	// Step 5: Stream file contents in chunks
+	chunkSize := 64 * 1024 // 64KB chunks
+	buffer := make([]byte, chunkSize)
+
+	for {
+		select {
+		case <-streamCtx.Done():
+			return nil, status.Error(codes.DeadlineExceeded, "streaming operation timed out")
+		default:
+		}
+
+		// Read next chunk from HTTP stream (via TeeReader for concurrent hashing)
+		n, err := teeReader.Read(buffer)
+		if n > 0 {
+			// Send chunk to DPU
+			contentReq := &gnoi_file_pb.PutRequest{
+				Request: &gnoi_file_pb.PutRequest_Contents{
+					Contents: buffer[:n],
+				},
+			}
+			if err := putClient.Send(contentReq); err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to send content chunk: %v", err)
+			}
+		}
+
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to read from HTTP stream: %v", err)
+		}
+	}
+
+	// Step 6: Send final hash
+	hashBytes := hashCalc.Sum()
+	hashReq := &gnoi_file_pb.PutRequest{
+		Request: &gnoi_file_pb.PutRequest_Hash{
+			Hash: &types.HashType{
+				Method: types.HashType_MD5,
+				Hash:   hashBytes,
+			},
+		},
+	}
+	if err := putClient.Send(hashReq); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to send hash: %v", err)
+	}
+
+	// Step 7: Close and get response
+	if _, err := putClient.CloseAndRecv(); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to complete Put to DPU: %v", err)
+	}
+
+	// Build response with calculated hash
+	return &gnoi_file_pb.TransferToRemoteResponse{
+		Hash: &types.HashType{
+			Method: types.HashType_MD5,
+			Hash:   hashBytes,
+		},
+	}, nil
+}
