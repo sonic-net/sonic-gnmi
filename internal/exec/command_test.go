@@ -176,7 +176,7 @@ func TestRunCommand(t *testing.T) {
 			expectErr:        false,
 			expectedStdout:   "OK",
 			expectedStderr:   "",
-			expectedArgs:     []string{"--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "su", "-", "admin", "-c", "echo 'test'"},
+			expectedArgs:     []string{"--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "systemd-run", "-p", "ProtectSystem=strict", "-p", "PrivateDevices=true", "-Pq", "--uid=admin", "sh", "-c", "echo 'test'"},
 		},
 		{
 			name: "Successful execution with custom user",
@@ -193,7 +193,7 @@ func TestRunCommand(t *testing.T) {
 			expectErr:        false,
 			expectedStdout:   "Data",
 			expectedStderr:   "",
-			expectedArgs:     []string{"--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "su", "-", "testuser", "-c", "ls"},
+			expectedArgs:     []string{"--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "systemd-run", "-p", "ProtectSystem=strict", "-p", "PrivateDevices=true", "-Pq", "--uid=testuser", "sh", "-c", "ls"},
 		},
 		{
 			name: "Command fails with non-zero exit code",

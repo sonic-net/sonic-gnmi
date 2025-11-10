@@ -2,6 +2,7 @@ package exec
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os/exec"
 	"sync"
@@ -23,17 +24,22 @@ var (
 		"--net",
 		"--pid",
 	}
-	USER_ARGS = []string{
-		"su",
-		"-",
+	SYSTEMD_RUN_ARGS = []string{
+		"systemd-run",
+		"-p",
+		"ProtectSystem=strict",
+		"-p",
+		"PrivateDevices=true",
+		"-Pq",
 	}
 	SHELL_ARGS = []string{
+		"sh",
 		"-c",
 	}
 
 	USER_AND_CMD = 2
 	// Length required for nsenter's args, user args, shell args, the user, the command
-	STATIC_ARG_LEN = len(NSENTER_ARGS) + len(USER_ARGS) + len(SHELL_ARGS) + USER_AND_CMD
+	STATIC_ARG_LEN = len(NSENTER_ARGS) + len(SYSTEMD_RUN_ARGS) + len(SHELL_ARGS) + USER_AND_CMD
 
 	// Allow DI for mocking
 	execCommandWithContext = func(ctx context.Context, name string, args ...string) ExecutableCommand {
@@ -97,12 +103,12 @@ func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, r
 
 	fullArgs := make([]string, 0, STATIC_ARG_LEN)
 	fullArgs = append(fullArgs, NSENTER_ARGS...)
-	fullArgs = append(fullArgs, USER_ARGS...)
-	if roleAccount == "" {
-		fullArgs = append(fullArgs, DEFAULT_ACC)
-	} else {
-		fullArgs = append(fullArgs, roleAccount)
+	fullArgs = append(fullArgs, SYSTEMD_RUN_ARGS...)
+	account := roleAccount
+	if account == "" {
+		account = DEFAULT_ACC
 	}
+	fullArgs = append(fullArgs, fmt.Sprintf("--uid=%s", account))
 	fullArgs = append(fullArgs, SHELL_ARGS...)
 	fullArgs = append(fullArgs, cmd)
 
