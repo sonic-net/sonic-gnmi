@@ -93,6 +93,15 @@ var (
 			path:      []string{"COUNTERS_DB", "COUNTERS", "SID*"},
 			transFunc: v2rTranslate(v2rSRv6SidStats),
 		},
+		{ // stats for one or all Ethernet ports
+			path:      []string{"COUNTERS_DB", "RATES", "Ethernet*"},
+			transFunc: v2rTranslate(v2rEthPortStats),
+		}, 
+		{ // specific field stats for one or all Ethernet ports
+			path:      []string{"COUNTERS_DB", "RATES", "Ethernet*", "*"},
+			transFunc: v2rTranslate(v2rEthPortFieldStats),
+		},
+
 	}
 )
 
