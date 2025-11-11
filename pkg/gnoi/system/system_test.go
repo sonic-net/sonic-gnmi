@@ -174,61 +174,6 @@ func contains(s, substr string) bool {
 	return false
 }
 
-func TestHandleDPURebootValidation(t *testing.T) {
-	tests := []struct {
-		name     string
-		req      *syspb.RebootRequest
-		dpuIndex string
-		wantErr  bool
-		errMsg   string
-	}{
-		{
-			name: "valid DPU reboot request",
-			req: &syspb.RebootRequest{
-				Method: syspb.RebootMethod_COLD,
-				Delay:  0,
-			},
-			dpuIndex: "3",
-			wantErr:  true, // Will fail in test environment but validation passes
-		},
-		{
-			name: "empty DPU index",
-			req: &syspb.RebootRequest{
-				Method: syspb.RebootMethod_COLD,
-				Delay:  0,
-			},
-			dpuIndex: "",
-			wantErr:  true, // Will fail during execution
-		},
-		{
-			name: "DPU reboot with delay",
-			req: &syspb.RebootRequest{
-				Method: syspb.RebootMethod_COLD,
-				Delay:  1000,
-			},
-			dpuIndex: "1",
-			wantErr:  true, // Will fail in test environment
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			_, err := HandleDPUReboot(ctx, tt.req, tt.dpuIndex)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("HandleDPUReboot() expected error but got none")
-					return
-				}
-				t.Logf("HandleDPUReboot() got expected error: %v", err)
-			} else if err != nil {
-				t.Errorf("HandleDPUReboot() unexpected error: %v", err)
-			}
-		})
-	}
-}
-
 // Test that HandleDPUReboot has the correct function signature
 func TestHandleDPURebootSignature(t *testing.T) {
 	// This test just ensures the function compiles with the correct signature

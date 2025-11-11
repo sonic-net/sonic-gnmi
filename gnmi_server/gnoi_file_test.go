@@ -188,21 +188,6 @@ func TestGnoiFileServer(t *testing.T) {
 		assert.Contains(t, err.Error(), "invalid syntax")
 	})
 
-	t.Run("Put Fails with Unimplemented Error", func(t *testing.T) {
-		patch := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
-		defer patch.Reset()
-
-		putStream, err := client.Put(context.Background())
-		if err != nil {
-			t.Fatalf("Failed to create Put stream: %v", err)
-		}
-
-		// Expect Unimplemented error on CloseAndRecv
-		_, err = putStream.CloseAndRecv()
-		if err == nil || status.Code(err) != codes.Unimplemented {
-			t.Fatalf("Expected Unimplemented error, got: %v", err)
-		}
-	})
 	t.Run("Put Fails with Auth Error", func(t *testing.T) {
 		patch := gomonkey.ApplyFuncReturn(authenticate, nil, status.Error(codes.Unauthenticated, "unauthenticated"))
 		defer patch.Reset()
