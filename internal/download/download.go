@@ -142,7 +142,9 @@ func DownloadHTTPStreaming(ctx context.Context, url string, maxSize int64) (io.R
 	// Create a limited reader to enforce size limit during streaming
 	var reader io.ReadCloser = resp.Body
 	if maxSize > 0 {
-		// Wrap with limit reader and custom closer that preserves original close
+		// Wrap with limit reader allowing one extra byte for oversized file detection.
+		// This intentionally allows reading maxSize+1 bytes so that limitedReadCloser.Read()
+		// can detect when the file exceeds the limit and return an appropriate error.
 		limitedReader := io.LimitReader(resp.Body, maxSize+1)
 		reader = &limitedReadCloser{
 			Reader:  limitedReader,

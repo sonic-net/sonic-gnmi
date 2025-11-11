@@ -243,7 +243,9 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 		return status.Errorf(codes.Internal, "failed to create temp file: %v", err)
 	}
 	defer func() {
-		f.Close()
+		if closeErr := f.Close(); closeErr != nil {
+			log.Errorf("Failed to close temp file %s: %v", tempPath, closeErr)
+		}
 		// Only remove if file still exists (indicates failure path)
 		if _, err := os.Stat(tempPath); err == nil {
 			if rmErr := os.Remove(tempPath); rmErr != nil {

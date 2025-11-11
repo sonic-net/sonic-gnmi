@@ -12,7 +12,6 @@ import (
 	system "github.com/openconfig/gnoi/system"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
@@ -163,21 +162,29 @@ func (p *DPUProxy) getConnection(ctx context.Context, dpuIndex, ipAddress string
 			continue
 		}
 
-		// Test the connection by checking its state
-		state := conn.GetState()
+		// Test the connection with a simple health check RPC
+		// Use a short timeout for the connectivity test
+		testCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
 
-		if state == connectivity.Ready || state == connectivity.Idle {
+		// Try a simple gNOI System.Time RPC as a connectivity test
+		systemClient := system.NewSystemClient(conn)
+		_, err = systemClient.Time(testCtx, &system.TimeRequest{})
+
+		// If the RPC succeeds OR fails with a known gRPC error (not network error),
+		// we consider the connection working. Network errors indicate unreachable target.
+		if err == nil || status.Code(err) != codes.Unavailable {
 			// Cache the successful connection and port for reuse
 			p.conns[dpuIndex] = conn
 			p.connPorts[dpuIndex] = port
-			glog.Infof("[DPUProxy] Successfully connected to DPU%s at %s", dpuIndex, target)
+			glog.Infof("[DPUProxy] Successfully verified connectivity to DPU%s at %s", dpuIndex, target)
 			return conn, nil
 		}
 
-		// Connection not ready, try next port
+		// Connection test failed, try next port
 		conn.Close()
-		lastErr = fmt.Errorf("connection state: %v", state)
-		glog.Warningf("[DPUProxy] Connection to DPU%s at %s not ready (state: %v)", dpuIndex, target, state)
+		lastErr = err
+		glog.Warningf("[DPUProxy] Connectivity test failed for DPU%s at %s: %v", dpuIndex, target, err)
 	}
 
 	return nil, fmt.Errorf("failed to connect to DPU%s on any port %v: last error: %w", dpuIndex, portsToTry, lastErr)

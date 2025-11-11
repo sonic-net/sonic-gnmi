@@ -108,10 +108,9 @@ func RunHostCommand(ctx context.Context, command string, args []string, opts *Ru
 	// Extract exit code if available
 	if exitError, ok := err.(*exec.ExitError); ok {
 		result.ExitCode = exitError.ExitCode()
-	} else if err == nil {
-		result.ExitCode = 0
 	} else {
-		result.ExitCode = -1
+		// Exit code is unavailable; rely on Error field to indicate issues.
+		result.ExitCode = 0
 	}
 
 	return result, nil

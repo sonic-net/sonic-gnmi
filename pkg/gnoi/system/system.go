@@ -140,14 +140,9 @@ func HandleDPUReboot(ctx context.Context, req *syspb.RebootRequest, dpuIndex str
 		return nil, fmt.Errorf("failed to execute DPU reboot command: %v", err)
 	}
 
-	// Log the command output for debugging but don't treat non-zero exit codes as errors
-	// This is because reboot commands often return non-zero codes but still work correctly
-	if result.ExitCode != 0 {
-		log.V(1).Infof("DPU reboot command completed with exit code %d (normal for reboot): stdout=%s, stderr=%s",
-			result.ExitCode, strings.TrimSpace(result.Stdout), strings.TrimSpace(result.Stderr))
-	} else {
-		log.V(1).Infof("DPU reboot command completed with exit code 0: %s", strings.TrimSpace(result.Stdout))
-	}
+	// Log the command output for debugging - all exit codes are expected for reboot commands
+	log.V(1).Infof("DPU reboot command completed with exit code %d (all exit codes are expected for reboot): stdout=%s, stderr=%s",
+		result.ExitCode, strings.TrimSpace(result.Stdout), strings.TrimSpace(result.Stderr))
 
 	log.V(1).Infof("Successfully initiated reboot for %s", dpuTarget)
 	return &syspb.RebootResponse{}, nil
