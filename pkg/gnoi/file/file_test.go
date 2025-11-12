@@ -1378,7 +1378,7 @@ func TestHandleTransferToRemoteForDPUStreaming_SuccessPath(t *testing.T) {
 	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
 		w.WriteHeader(http.StatusOK)
-		
+
 		// Write in chunks to simulate streaming
 		chunkSize := 32 * 1024
 		for i := 0; i < len(testContent); i += chunkSize {
@@ -1521,7 +1521,7 @@ func TestValidatePath_ComprehensiveSecurityTests(t *testing.T) {
 			"exact /tmp should fail (needs trailing slash)",
 		},
 		{
-			"var tmp exact match", 
+			"var tmp exact match",
 			"/var/tmp",
 			false,
 			"exact /var/tmp should fail (needs trailing slash)",
@@ -1536,7 +1536,7 @@ func TestValidatePath_ComprehensiveSecurityTests(t *testing.T) {
 			"var tmp with file",
 			"/var/tmp/file",
 			true,
-			"file in /var/tmp should pass", 
+			"file in /var/tmp should pass",
 		},
 		{
 			"case sensitive paths",
@@ -1545,7 +1545,7 @@ func TestValidatePath_ComprehensiveSecurityTests(t *testing.T) {
 			"case variations should fail",
 		},
 		{
-			"symlink attempt", 
+			"symlink attempt",
 			"/tmp/../tmp/file.bin",
 			true, // This actually passes because it cleans to "/tmp/file.bin" which is valid
 			"path traversal gets cleaned to valid path",
@@ -1568,10 +1568,10 @@ func TestValidatePath_ComprehensiveSecurityTests(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validatePath(tt.path)
 			if tt.shouldPass && err != nil {
-				t.Errorf("validatePath(%q) failed but should pass: %v (%s)", 
+				t.Errorf("validatePath(%q) failed but should pass: %v (%s)",
 					tt.path, err, tt.description)
 			} else if !tt.shouldPass && err == nil {
-				t.Errorf("validatePath(%q) passed but should fail: %s", 
+				t.Errorf("validatePath(%q) passed but should fail: %s",
 					tt.path, tt.description)
 			}
 		})
@@ -1580,14 +1580,14 @@ func TestValidatePath_ComprehensiveSecurityTests(t *testing.T) {
 
 func TestHandleTransferToRemote_EdgeCases(t *testing.T) {
 	// Test additional edge cases to improve coverage
-	
+
 	t.Run("large file download", func(t *testing.T) {
 		// Create large test content (1MB)
 		largeContent := make([]byte, 1024*1024)
 		for i := range largeContent {
 			largeContent[i] = byte(i % 256)
 		}
-		
+
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write(largeContent)
@@ -1670,11 +1670,11 @@ func TestHandlePut_AdditionalEdgeCases(t *testing.T) {
 
 	t.Run("multiple small chunks", func(t *testing.T) {
 		stream := newMockPutStream()
-		
+
 		// Multiple very small chunks
 		chunks := [][]byte{
 			[]byte("a"),
-			[]byte("b"), 
+			[]byte("b"),
 			[]byte("c"),
 			[]byte("d"),
 			[]byte("e"),
@@ -1708,7 +1708,7 @@ func TestHandlePut_AdditionalEdgeCases(t *testing.T) {
 	t.Run("send error on stream", func(t *testing.T) {
 		stream := newMockPutStream()
 		stream.sendErr = fmt.Errorf("mock send error")
-		
+
 		content := []byte("test")
 		hasher := md5.New()
 		hasher.Write(content)
@@ -1728,9 +1728,9 @@ func TestHandlePut_AdditionalEdgeCases(t *testing.T) {
 func TestValidatePath_AdditionalCases(t *testing.T) {
 	// More validation test cases
 	tests := []struct {
-		name     string
-		path     string
-		wantErr  bool
+		name    string
+		path    string
+		wantErr bool
 	}{
 		{"tmp subdir nested", "/tmp/subdir/nested/file.bin", false},
 		{"var tmp subdir nested", "/var/tmp/subdir/nested/file.bin", false},
@@ -1755,11 +1755,11 @@ func TestValidatePath_AdditionalCases(t *testing.T) {
 
 func TestTranslatePathForContainer_Coverage(t *testing.T) {
 	// Test to ensure both branches of container detection are covered
-	
+
 	// Test the case where /mnt/host doesn't exist (normal case)
 	testPath := "/tmp/test-file.bin"
 	result := translatePathForContainer(testPath)
-	
+
 	// Should either be the clean path or prefixed with /mnt/host
 	if result != "/tmp/test-file.bin" && result != "/mnt/host/tmp/test-file.bin" {
 		t.Errorf("Unexpected result from translatePathForContainer: %s", result)
@@ -1834,7 +1834,7 @@ func TestHandleTransferToRemoteForDPUStreaming_HTTPSuccessGRPCFail(t *testing.T)
 	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(largeContent)))
 		w.WriteHeader(http.StatusOK)
-		
+
 		// Write in chunks to simulate real streaming
 		chunkSize := 64 * 1024
 		for i := 0; i < len(largeContent); i += chunkSize {
@@ -1889,10 +1889,10 @@ func TestHandlePut_ErrorPaths(t *testing.T) {
 
 	t.Run("context cancelled during streaming", func(t *testing.T) {
 		stream := newMockPutStream()
-		
-		// Set up context cancellation 
+
+		// Set up context cancellation
 		stream.ctx, _ = context.WithCancel(context.Background())
-		
+
 		content := []byte("test content")
 		hasher := md5.New()
 		hasher.Write(content)
@@ -1917,9 +1917,9 @@ func TestValidatePath_ExactDirectories(t *testing.T) {
 		path    string
 		wantErr bool
 	}{
-		{"/tmp", true},         // Exact /tmp should fail
-		{"/var/tmp", true},     // Exact /var/tmp should fail
-		{"/tmp/file", false},   // File in /tmp should pass
+		{"/tmp", true},           // Exact /tmp should fail
+		{"/var/tmp", true},       // Exact /var/tmp should fail
+		{"/tmp/file", false},     // File in /tmp should pass
 		{"/var/tmp/file", false}, // File in /var/tmp should pass
 	}
 
@@ -1938,12 +1938,12 @@ func TestTranslatePathForContainer_ErrorRecovery(t *testing.T) {
 	// Test various paths that exercise the filepath.Clean edge cases
 	edgePaths := []string{
 		"/tmp/",
-		"/tmp//",  
+		"/tmp//",
 		"/tmp/./",
 		"/tmp/../tmp/",
 		"/var/tmp/.",
 		"/var/tmp/..",
-		"",  // Empty string
+		"", // Empty string
 	}
 
 	for _, path := range edgePaths {
@@ -2017,7 +2017,7 @@ func TestHandlePut_HighCoverageEdgeCases(t *testing.T) {
 	t.Run("file permissions edge cases", func(t *testing.T) {
 		// Test various permission values
 		perms := []uint32{0600, 0644, 0755, 0777, 0000}
-		
+
 		for i, perm := range perms {
 			t.Run(fmt.Sprintf("perm_%o", perm), func(t *testing.T) {
 				stream := newMockPutStream()
@@ -2049,7 +2049,7 @@ func TestHandlePut_HighCoverageEdgeCases(t *testing.T) {
 	t.Run("chmod failure simulation", func(t *testing.T) {
 		// Test chmod failure by using invalid permissions on an inaccessible file
 		stream := newMockPutStream()
-		
+
 		content := []byte("chmod test content")
 		hasher := md5.New()
 		hasher.Write(content)
@@ -2068,7 +2068,7 @@ func TestHandlePut_HighCoverageEdgeCases(t *testing.T) {
 	t.Run("rename failure edge case", func(t *testing.T) {
 		// Test rename failure path
 		stream := newMockPutStream()
-		
+
 		content := []byte("rename test content")
 		hasher := md5.New()
 		hasher.Write(content)
@@ -2094,7 +2094,7 @@ func TestValidatePath_HighCoverage(t *testing.T) {
 		wantErr bool
 	}{
 		{"empty string", "", true},
-		{"just slash", "/", true}, 
+		{"just slash", "/", true},
 		{"tmp no file", "/tmp", true},
 		{"var tmp no file", "/var/tmp", true},
 		{"double dots after clean", "/tmp/../etc/passwd", true},
@@ -2148,7 +2148,7 @@ func TestDPUFunctions_MoreCoverage(t *testing.T) {
 
 	t.Run("DPU streaming with very large content", func(t *testing.T) {
 		// Test streaming with large content to exercise chunk processing
-		hugeContent := make([]byte, 4*1024*1024) // 4MB  
+		hugeContent := make([]byte, 4*1024*1024) // 4MB
 		for i := range hugeContent {
 			hugeContent[i] = byte(i % 256)
 		}
@@ -2156,7 +2156,7 @@ func TestDPUFunctions_MoreCoverage(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(hugeContent)))
 			w.WriteHeader(http.StatusOK)
-			
+
 			// Stream in many small chunks to exercise the streaming loop
 			chunkSize := 32 * 1024 // 32KB chunks
 			for i := 0; i < len(hugeContent); i += chunkSize {
@@ -2208,11 +2208,11 @@ func TestDPUFunctions_AggressiveCoverage(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		
+
 		// Test both DPU functions to exercise container path logic
 		_, err1 := HandleTransferToRemoteForDPU(ctx, req, "0", "localhost:99999")
 		_, err2 := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "localhost:99999")
-		
+
 		// Both should fail at gRPC connection but exercise file download/streaming
 		if err1 == nil || err2 == nil {
 			t.Fatal("Expected connection errors")
@@ -2222,7 +2222,7 @@ func TestDPUFunctions_AggressiveCoverage(t *testing.T) {
 	t.Run("DPU metadata creation", func(t *testing.T) {
 		// Test metadata creation logic with various DPU indices
 		dpuIndices := []string{"0", "1", "2", "10", "99"}
-		
+
 		for _, idx := range dpuIndices {
 			t.Run(fmt.Sprintf("dpu_%s", idx), func(t *testing.T) {
 				// Small content to minimize test time
@@ -2242,17 +2242,17 @@ func TestDPUFunctions_AggressiveCoverage(t *testing.T) {
 				}
 
 				ctx := context.Background()
-				
+
 				// This exercises metadata creation and file processing for each DPU
 				_, err := HandleTransferToRemoteForDPU(ctx, req, idx, "localhost:99999")
 				if err == nil {
 					t.Fatal("Expected connection error")
 				}
-				
+
 				// Also test streaming version
 				_, err2 := HandleTransferToRemoteForDPUStreaming(ctx, req, idx, "localhost:99999")
 				if err2 == nil {
-					t.Fatal("Expected connection error")  
+					t.Fatal("Expected connection error")
 				}
 			})
 		}
@@ -2276,13 +2276,13 @@ func TestDPUFunctions_AggressiveCoverage(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		
+
 		// This should exercise the defer cleanup logic
 		_, err := HandleTransferToRemoteForDPU(ctx, req, "0", "localhost:99999")
 		if err == nil {
 			t.Fatal("Expected connection error")
 		}
-		
+
 		// The cleanup logic should have removed the temp file
 		// We exercise the cleanup code path but can't test exact match
 		// because the filename includes timestamp
@@ -2291,7 +2291,7 @@ func TestDPUFunctions_AggressiveCoverage(t *testing.T) {
 	t.Run("DPU streaming chunk processing", func(t *testing.T) {
 		// Test streaming with specific chunk sizes to exercise the streaming loop
 		chunkSizes := []int{1024, 4096, 16384, 65536} // Different chunk sizes
-		
+
 		for i, chunkSize := range chunkSizes {
 			t.Run(fmt.Sprintf("chunk_%d", chunkSize), func(t *testing.T) {
 				// Create content that will be processed in multiple chunks
@@ -2299,7 +2299,7 @@ func TestDPUFunctions_AggressiveCoverage(t *testing.T) {
 				for j := range content {
 					content[j] = byte(j % 256)
 				}
-				
+
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
 					w.WriteHeader(http.StatusOK)
@@ -2316,7 +2316,7 @@ func TestDPUFunctions_AggressiveCoverage(t *testing.T) {
 				}
 
 				ctx := context.Background()
-				
+
 				// This exercises the streaming and chunking logic
 				_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "localhost:99999")
 				if err == nil {
@@ -2333,11 +2333,11 @@ func TestAllFunctions_FinalCoverage(t *testing.T) {
 		// Test both branches of the container detection
 		paths := []string{
 			"/tmp/test1.bin",
-			"/var/tmp/test2.bin", 
+			"/var/tmp/test2.bin",
 			"/tmp/subdir/test3.bin",
 			"/var/tmp/nested/deep/test4.bin",
 		}
-		
+
 		for _, path := range paths {
 			result := translatePathForContainer(path)
 			if result == "" {
@@ -2349,16 +2349,16 @@ func TestAllFunctions_FinalCoverage(t *testing.T) {
 	t.Run("validatePath all validation branches", func(t *testing.T) {
 		// Test to hit all validation branches
 		testCases := []string{
-			"relative/path",           // relative path
+			"relative/path",          // relative path
 			"/tmp/../etc/passwd",     // traversal after cleaning
 			"/",                      // root only
 			"/tmp",                   // exact tmp
-			"/var/tmp",              // exact var/tmp  
-			"/home/user/file.bin",   // disallowed directory
-			"/tmp/validfile.bin",    // valid tmp file
+			"/var/tmp",               // exact var/tmp
+			"/home/user/file.bin",    // disallowed directory
+			"/tmp/validfile.bin",     // valid tmp file
 			"/var/tmp/validfile.bin", // valid var/tmp file
 		}
-		
+
 		for _, tc := range testCases {
 			err := validatePath(tc)
 			// Don't care about the result, just exercising all code paths
@@ -2369,7 +2369,7 @@ func TestAllFunctions_FinalCoverage(t *testing.T) {
 	t.Run("handlePut error path coverage", func(t *testing.T) {
 		// Test various error conditions in HandlePut
 		errorCases := []struct {
-			name string
+			name  string
 			setup func() *mockPutStream
 		}{
 			{
@@ -2389,7 +2389,7 @@ func TestAllFunctions_FinalCoverage(t *testing.T) {
 				},
 			},
 		}
-		
+
 		for _, tc := range errorCases {
 			t.Run(tc.name, func(t *testing.T) {
 				stream := tc.setup()

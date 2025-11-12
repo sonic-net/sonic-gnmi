@@ -84,7 +84,7 @@ func TestHandleVerify(t *testing.T) {
 	req := &gnoi_os_pb.VerifyRequest{}
 
 	resp, err := HandleVerify(ctx, req)
-	
+
 	// In test environment, sonic-installer is likely not available or requires nsenter
 	// We expect an error, but we're testing the function doesn't panic and handles errors properly
 	if err != nil {
@@ -105,10 +105,10 @@ func TestHandleVerifyWithContext(t *testing.T) {
 	// Test HandleVerify with a cancelled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
-	
+
 	req := &gnoi_os_pb.VerifyRequest{}
 	_, err := HandleVerify(ctx, req)
-	
+
 	// Should fail due to cancelled context
 	if err == nil {
 		t.Error("HandleVerify should fail with cancelled context")
