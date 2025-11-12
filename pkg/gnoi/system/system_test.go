@@ -91,6 +91,19 @@ func TestHandleSetPackageValidation(t *testing.T) {
 			},
 			wantErr: false, // Would fail during actual execution but validation passes
 		},
+		{
+			name: "valid request with activation",
+			req: &syspb.SetPackageRequest{
+				Request: &syspb.SetPackageRequest_Package{
+					Package: &syspb.Package{
+						Filename: "/path/to/image.bin",
+						Version:  "test-version",
+						Activate: true,
+					},
+				},
+			},
+			wantErr: false, // Would fail during actual execution but validation passes
+		},
 	}
 
 	for _, tt := range tests {

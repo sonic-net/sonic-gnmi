@@ -77,9 +77,46 @@ Next: SONiC-OS-20250610.08`,
 	}
 }
 
-// Note: Testing HandleVerify requires nsenter permissions, so it would typically
-// be tested in integration tests or with mocks. Here we just ensure the function
-// signature is correct.
+func TestHandleVerify(t *testing.T) {
+	// Test that HandleVerify attempts to run sonic-installer
+	// Even if it fails due to missing permissions/environment, we test the error handling paths
+	ctx := context.Background()
+	req := &gnoi_os_pb.VerifyRequest{}
+
+	resp, err := HandleVerify(ctx, req)
+	
+	// In test environment, sonic-installer is likely not available or requires nsenter
+	// We expect an error, but we're testing the function doesn't panic and handles errors properly
+	if err != nil {
+		// Expected - sonic-installer not available in test environment
+		t.Logf("Expected error in test environment: %v", err)
+	} else {
+		// If it succeeds (unlikely in test env), verify response format
+		if resp == nil {
+			t.Error("HandleVerify returned nil response with no error")
+		}
+		if resp != nil && resp.Version == "" {
+			t.Error("HandleVerify returned empty version")
+		}
+	}
+}
+
+func TestHandleVerifyWithContext(t *testing.T) {
+	// Test HandleVerify with a cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+	
+	req := &gnoi_os_pb.VerifyRequest{}
+	_, err := HandleVerify(ctx, req)
+	
+	// Should fail due to cancelled context
+	if err == nil {
+		t.Error("HandleVerify should fail with cancelled context")
+	}
+}
+
+// Note: Testing HandleVerify with actual sonic-installer requires nsenter permissions,
+// so comprehensive testing would typically be done in integration tests or with mocks.
 func TestHandleVerifySignature(t *testing.T) {
 	// This test just ensures the function compiles with the correct signature
 	var _ func(context.Context, *gnoi_os_pb.VerifyRequest) (*gnoi_os_pb.VerifyResponse, error) = HandleVerify
