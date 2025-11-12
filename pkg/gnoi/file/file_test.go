@@ -18,6 +18,7 @@ import (
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	"github.com/openconfig/gnoi/types"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -2401,4 +2402,47 @@ func TestAllFunctions_FinalCoverage(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestHandlePut_DPURouting(t *testing.T) {
+	// Test DPU routing logic in HandlePut
+	stream := newMockPutStream()
+
+	// Add DPU metadata to context
+	md := metadata.New(map[string]string{
+		"x-sonic-ss-target-type":  "dpu",
+		"x-sonic-ss-target-index": "1",
+	})
+	stream.ctx = metadata.NewIncomingContext(context.Background(), md)
+
+	content := []byte("test dpu content")
+	expectedHash := md5.Sum(content)
+
+	stream.addOpenRequest("/tmp/dpu_test.txt", 0644)
+	stream.addContentRequest(content)
+	stream.addHashRequest(expectedHash[:])
+
+	// Execute - should handle DPU routing but still perform normal put
+	err := HandlePut(stream)
+	if err != nil {
+		t.Fatalf("HandlePut() with DPU routing error = %v", err)
+	}
+
+	// Verify file was created (DPU routing currently uses same logic)
+	path := "/tmp/dpu_test.txt"
+	if _, err := os.Stat("/mnt/host"); err == nil {
+		path = "/mnt/host/tmp/dpu_test.txt"
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("Failed to read uploaded file: %v", err)
+	}
+
+	if string(data) != string(content) {
+		t.Errorf("File content = %q, want %q", data, content)
+	}
+
+	// Cleanup
+	os.Remove(path)
 }

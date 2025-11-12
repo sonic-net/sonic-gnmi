@@ -132,8 +132,7 @@ func (srv *FileServer) TransferToRemote(ctx context.Context, req *gnoi_file_pb.T
 }
 
 // Put implements the gNOI File.Put RPC.
-// It receives a file stream from the client, validates the path, writes the file
-// to the filesystem, and verifies the hash.
+// It authenticates the request and delegates to the pure Go handler.
 func (srv *FileServer) Put(stream gnoi_file_pb.File_PutServer) error {
 	log.Infof("GNOI File Put RPC called")
 	_, err := authenticate(srv.config, stream.Context(), "gnoi", false)

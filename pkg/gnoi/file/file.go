@@ -184,7 +184,7 @@ func validatePath(path string) error {
 	return fmt.Errorf("path must be under /tmp/ or /var/tmp/, got: %s", cleanPath)
 }
 
-// HandlePut implements the complete logic for the Put RPC.
+// HandlePut implements the complete logic for the Put RPC with DPU routing support.
 // It receives a file stream from the client, validates the path, writes the file
 // to the filesystem, and verifies the hash.
 //
@@ -206,6 +206,26 @@ func validatePath(path string) error {
 //   - PutResponse on success
 //   - Error with appropriate gRPC status code on failure
 func HandlePut(stream gnoi_file_pb.File_PutServer) error {
+	// Step 0: Check for DPU headers (HandleOnNPU mode from DPU proxy)
+	if md, ok := metadata.FromIncomingContext(stream.Context()); ok {
+		targetType := ""
+		targetIndex := ""
+
+		if vals := md.Get("x-sonic-ss-target-type"); len(vals) > 0 {
+			targetType = vals[0]
+		}
+		if vals := md.Get("x-sonic-ss-target-index"); len(vals) > 0 {
+			targetIndex = vals[0]
+		}
+
+		// If DPU headers are present, handle DPU put logic
+		if targetType == "dpu" && targetIndex != "" {
+			log.Infof("[HandlePut] DPU routing detected: target-type=%s, target-index=%s", targetType, targetIndex)
+			// For now, we'll use the same logic but could route to specific DPU endpoint
+			// In the future, this could establish a connection to the specific DPU
+		}
+	}
+
 	// Step 1: Receive the first message (must be Open)
 	firstReq, err := stream.Recv()
 	if err != nil {
