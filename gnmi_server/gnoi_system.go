@@ -13,7 +13,6 @@ import (
 	syspb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/pkg/gnoi/system"
-	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -226,15 +225,15 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 	}
 
 	// System reboot.
-	resp, err, _ := sendRebootReqOnNotifCh(ctx, req, rclient, rebootKey)
+	respInterface, err, _ := sendRebootReqOnNotifCh(ctx, req, rclient, rebootKey)
 	if err != nil {
 		return nil, err
 	}
-	if resp == nil {
+	if respInterface == nil {
 		log.V(2).Info("Reboot request received empty response from Reboot Backend.")
-		resp = &syspb.RebootResponse{}
+		respInterface = &syspb.RebootResponse{}
 	}
-	return resp.(*syspb.RebootResponse), nil
+	return respInterface.(*syspb.RebootResponse), nil
 }
 
 // RebootStatus implements the corresponding RPC.

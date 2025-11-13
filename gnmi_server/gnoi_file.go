@@ -11,7 +11,6 @@ import (
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
