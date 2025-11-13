@@ -32,7 +32,7 @@ func TestDPU_SuccessPathMocking(t *testing.T) {
 			os.MkdirAll("/mnt/host/tmp", 0755)
 			os.WriteFile(hostPath, testData, 0644)
 		}
-		
+
 		hash := md5.Sum(testData)
 		return &gnoi_file_pb.TransferToRemoteResponse{
 			Hash: &types.HashType{
@@ -163,7 +163,7 @@ func TestDPU_StreamingSuccess(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock the download package's DownloadHTTPStreaming 
+	// Mock the download package's DownloadHTTPStreaming
 	patches.ApplyFunc(download.DownloadHTTPStreaming, func(ctx context.Context, url string, maxFileSize int64) (io.ReadCloser, int64, error) {
 		// Return a mock reader that simulates HTTP response body
 		return io.NopCloser(strings.NewReader("streaming test data")), 18, nil
@@ -226,13 +226,13 @@ type mockFileInfo struct {
 	isDir bool
 }
 
-func (m *mockFileInfo) Name() string       { return m.name }
-func (m *mockFileInfo) Size() int64        { return 0 }
-func (m *mockFileInfo) Mode() os.FileMode  { 
-	if m.isDir { 
-		return os.ModeDir 
+func (m *mockFileInfo) Name() string { return m.name }
+func (m *mockFileInfo) Size() int64  { return 0 }
+func (m *mockFileInfo) Mode() os.FileMode {
+	if m.isDir {
+		return os.ModeDir
 	}
-	return 0644 
+	return 0644
 }
 func (m *mockFileInfo) ModTime() time.Time { return time.Now() }
 func (m *mockFileInfo) IsDir() bool        { return m.isDir }
@@ -270,7 +270,7 @@ func (m *mockSuccessPutClient) CloseAndRecv() (*gnoi_file_pb.PutResponse, error)
 	return &gnoi_file_pb.PutResponse{}, nil
 }
 
-func (m *mockSuccessPutClient) Header() (metadata.MD, error)  { return nil, nil }
+func (m *mockSuccessPutClient) Header() (metadata.MD, error) { return nil, nil }
 func (m *mockSuccessPutClient) Trailer() metadata.MD         { return nil }
 func (m *mockSuccessPutClient) CloseSend() error             { return nil }
 func (m *mockSuccessPutClient) Context() context.Context     { return context.Background() }

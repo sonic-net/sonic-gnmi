@@ -95,23 +95,23 @@ func TestHandleVerify_ParseVersionError(t *testing.T) {
 
 func TestHandleVerify_DifferentVersionFormats(t *testing.T) {
 	testCases := []struct {
-		name           string
-		output         string
+		name            string
+		output          string
 		expectedVersion string
 	}{
 		{
-			name:           "standard format",
-			output:         "Current: SONiC-OS-20250610.08\nNext: SONiC-OS-20250610.08",
+			name:            "standard format",
+			output:          "Current: SONiC-OS-20250610.08\nNext: SONiC-OS-20250610.08",
 			expectedVersion: "SONiC-OS-20250610.08",
 		},
 		{
-			name:           "master build",
-			output:         "Current: SONiC-OS-master.0-dirty-20251103.214532\nNext: SONiC-OS-master.0-dirty-20251103.214532",
+			name:            "master build",
+			output:          "Current: SONiC-OS-master.0-dirty-20251103.214532\nNext: SONiC-OS-master.0-dirty-20251103.214532",
 			expectedVersion: "SONiC-OS-master.0-dirty-20251103.214532",
 		},
 		{
-			name:           "with spaces",
-			output:         "Current:   SONiC-OS-20250610.08   \nNext: SONiC-OS-20250610.08",
+			name:            "with spaces",
+			output:          "Current:   SONiC-OS-20250610.08   \nNext: SONiC-OS-20250610.08",
 			expectedVersion: "SONiC-OS-20250610.08",
 		},
 	}
@@ -148,9 +148,9 @@ func TestHandleVerify_DifferentVersionFormats(t *testing.T) {
 
 // Helper function to check if a string contains a substring
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || 
-		(len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || 
-		containsAt(s, substr))))
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
+			containsAt(s, substr))))
 }
 
 func containsAt(s, substr string) bool {
