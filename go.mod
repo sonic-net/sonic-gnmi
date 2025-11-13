@@ -54,6 +54,7 @@ require (
 	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	inet.af/netaddr v0.0.0-20230525184311-b8eac61e914a // indirect
+	mvdan.cc/sh/v3 v3.8.0 // indirect
 )
 
 replace (
