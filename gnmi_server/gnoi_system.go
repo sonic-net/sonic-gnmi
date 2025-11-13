@@ -200,17 +200,20 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 
-	// Check for DPU metadata
-	targetMetadata := dpuproxy.ExtractTargetMetadata(ctx)
-	if targetMetadata.IsDPUTarget() {
-		log.V(1).Infof("DPU reboot request detected: type=%s, index=%s",
-			targetMetadata.TargetType, targetMetadata.TargetIndex)
-
-		// Handle DPU reboot using the pure implementation
-		return system.HandleDPUReboot(ctx, req, targetMetadata.TargetIndex)
+	// Try the pure handler first (it handles DPU routing internally)
+	resp, err := system.HandleReboot(ctx, req)
+	if err != nil {
+		// If it's not the "NPU fallback" error, return the actual error
+		if status.Code(err) != codes.Unimplemented {
+			return nil, err
+		}
+		// Otherwise fall through to NPU handling
+	} else {
+		// DPU case handled successfully by pure handler
+		return resp, nil
 	}
 
-	// Initialize State DB.
+	// Initialize State DB for NPU reboot.
 	rclient, err := common_utils.GetRedisDBClient()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -320,27 +323,8 @@ func (srv *Server) SetPackage(rs syspb.System_SetPackageServer) error {
 	}
 	log.V(1).Info("gNOI: SetPackage request received")
 
-	// Receive the package request
-	req, err := rs.Recv()
-	if err != nil {
-		log.Errorf("Failed to receive package request: %v", err)
-		return err
-	}
-
-	// Use the pure implementation from pkg/gnoi/system
-	resp, err := system.HandleSetPackage(ctx, req)
-	if err != nil {
-		return err
-	}
-
-	// Send response to client
-	if err := rs.SendAndClose(resp); err != nil {
-		log.Errorf("Failed to send response: %v", err)
-		return err
-	}
-
-	log.V(1).Info("SetPackage completed successfully")
-	return nil
+	// Delegate all logic to the pure handler
+	return system.HandleSetPackageStream(rs)
 }
 
 // SwitchControlProcessor implements the corresponding RPC.

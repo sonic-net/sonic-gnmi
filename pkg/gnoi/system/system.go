@@ -12,9 +12,61 @@ import (
 	log "github.com/golang/glog"
 	syspb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/pkg/exec"
+	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// HandleReboot implements the business logic for System.Reboot RPC.
+// It checks for DPU metadata and routes to the appropriate reboot handler.
+func HandleReboot(ctx context.Context, req *syspb.RebootRequest) (*syspb.RebootResponse, error) {
+	// Check for DPU metadata
+	targetMetadata := dpuproxy.ExtractTargetMetadata(ctx)
+	if targetMetadata.IsDPUTarget() {
+		log.V(1).Infof("DPU reboot request detected: type=%s, index=%s",
+			targetMetadata.TargetType, targetMetadata.TargetIndex)
+
+		// Handle DPU reboot using the pure implementation
+		return HandleDPUReboot(ctx, req, targetMetadata.TargetIndex)
+	}
+
+	// No DPU headers, this would be handled by the NPU reboot logic
+	// We return an error here since NPU reboot requires additional dependencies
+	// that should be handled in the server wrapper
+	return nil, status.Error(codes.Unimplemented, "NPU reboot should be handled in server wrapper")
+}
+
+// HandleSetPackageStream implements the complete streaming logic for SetPackage RPC.
+// It handles the streaming protocol and delegates to HandleSetPackage for the actual work.
+func HandleSetPackageStream(stream interface {
+	Context() context.Context
+	Recv() (*syspb.SetPackageRequest, error)
+	SendAndClose(*syspb.SetPackageResponse) error
+}) error {
+	ctx := stream.Context()
+
+	// Receive the package request
+	req, err := stream.Recv()
+	if err != nil {
+		log.Errorf("Failed to receive package request: %v", err)
+		return err
+	}
+
+	// Use the pure implementation
+	resp, err := HandleSetPackage(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	// Send response to client
+	if err := stream.SendAndClose(resp); err != nil {
+		log.Errorf("Failed to send response: %v", err)
+		return err
+	}
+
+	log.V(1).Info("SetPackage completed successfully")
+	return nil
+}
 
 // HandleSetPackage implements the business logic for System.SetPackage RPC using sonic-installer.
 // It validates the request and calls sonic-installer install to install the local image.

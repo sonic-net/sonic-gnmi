@@ -14,9 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/openconfig/gnoi/common"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	"github.com/openconfig/gnoi/types"
+	"github.com/sonic-net/sonic-gnmi/internal/download"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -2445,4 +2447,68 @@ func TestHandlePut_DPURouting(t *testing.T) {
 
 	// Cleanup
 	os.Remove(path)
+}
+
+func TestHandleTransferToRemote_DPU_Routing(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	// Mock HandleTransferToRemoteForDPUStreaming to succeed
+	patches.ApplyFunc(HandleTransferToRemoteForDPUStreaming,
+		func(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest, dpuIndex string, dpuAddr string) (*gnoi_file_pb.TransferToRemoteResponse, error) {
+			return &gnoi_file_pb.TransferToRemoteResponse{}, nil
+		})
+
+	// Create context with DPU metadata (this covers lines 57-72 in the refactored code)
+	md := metadata.New(map[string]string{
+		"x-sonic-ss-target-type":  "dpu",
+		"x-sonic-ss-target-index": "0",
+	})
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	req := &gnoi_file_pb.TransferToRemoteRequest{
+		LocalPath: "/tmp/test.txt",
+		RemoteDownload: &common.RemoteDownload{
+			Path:     "http://example.com/file.txt",
+			Protocol: common.RemoteDownload_HTTP,
+		},
+	}
+
+	resp, err := HandleTransferToRemote(ctx, req)
+	if err != nil {
+		t.Fatalf("HandleTransferToRemote() with DPU metadata returned error: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("HandleTransferToRemote() with DPU metadata returned nil response")
+	}
+}
+
+func TestHandleTransferToRemote_NPU_Fallback(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	// Mock download.DownloadHTTP to succeed for NPU path
+	patches.ApplyFunc(download.DownloadHTTP,
+		func(ctx context.Context, url, localPath string, maxSize int64) error {
+			// Create a test file
+			return os.WriteFile(localPath, []byte("test content"), 0644)
+		})
+
+	ctx := context.Background() // No DPU metadata - should call handleTransferToRemoteNPU
+
+	req := &gnoi_file_pb.TransferToRemoteRequest{
+		LocalPath: "/tmp/test.txt",
+		RemoteDownload: &common.RemoteDownload{
+			Path:     "http://example.com/file.txt",
+			Protocol: common.RemoteDownload_HTTP,
+		},
+	}
+
+	resp, err := HandleTransferToRemote(ctx, req)
+	if err != nil {
+		t.Fatalf("HandleTransferToRemote() without DPU metadata returned error: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("HandleTransferToRemote() without DPU metadata returned nil response")
+	}
 }

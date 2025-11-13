@@ -4,8 +4,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/openconfig/gnoi/common"
 	syspb "github.com/openconfig/gnoi/system"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 func TestHandleSetPackageValidation(t *testing.T) {
@@ -191,4 +195,126 @@ func contains(s, substr string) bool {
 func TestHandleDPURebootSignature(t *testing.T) {
 	// This test just ensures the function compiles with the correct signature
 	var _ func(context.Context, *syspb.RebootRequest, string) (*syspb.RebootResponse, error) = HandleDPUReboot
+}
+
+func TestHandleReboot_DPU_Routing(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	// Mock HandleDPUReboot to succeed
+	patches.ApplyFunc(HandleDPUReboot,
+		func(ctx context.Context, req *syspb.RebootRequest, dpuIndex string) (*syspb.RebootResponse, error) {
+			return &syspb.RebootResponse{}, nil
+		})
+
+	// Create context with DPU metadata
+	md := metadata.New(map[string]string{
+		"x-sonic-ss-target-type":  "dpu",
+		"x-sonic-ss-target-index": "0",
+	})
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	req := &syspb.RebootRequest{}
+
+	resp, err := HandleReboot(ctx, req)
+	if err != nil {
+		t.Fatalf("HandleReboot() with DPU metadata returned error: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("HandleReboot() with DPU metadata returned nil response")
+	}
+}
+
+func TestHandleReboot_NPU_Fallback(t *testing.T) {
+	ctx := context.Background() // No DPU metadata
+
+	req := &syspb.RebootRequest{}
+
+	resp, err := HandleReboot(ctx, req)
+	if err == nil {
+		t.Fatal("HandleReboot() without DPU metadata should return Unimplemented error")
+	}
+	if resp != nil {
+		t.Error("HandleReboot() should return nil response on NPU fallback error")
+	}
+
+	// Should return Unimplemented status for NPU fallback
+	if status.Code(err) != codes.Unimplemented {
+		t.Errorf("Expected Unimplemented error, got: %v", err)
+	}
+}
+
+func TestHandleSetPackageStream_Success(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	// Mock HandleSetPackage to succeed
+	patches.ApplyFunc(HandleSetPackage,
+		func(ctx context.Context, req *syspb.SetPackageRequest) (*syspb.SetPackageResponse, error) {
+			return &syspb.SetPackageResponse{}, nil
+		})
+
+	// Create mock stream
+	mockStream := &mockSetPackageStream{
+		ctx: context.Background(),
+		req: &syspb.SetPackageRequest{
+			Request: &syspb.SetPackageRequest_Package{
+				Package: &syspb.Package{
+					Filename: "/test/package.bin",
+					Version:  "1.0.0",
+				},
+			},
+		},
+	}
+
+	err := HandleSetPackageStream(mockStream)
+	if err != nil {
+		t.Fatalf("HandleSetPackageStream() returned error: %v", err)
+	}
+
+	if !mockStream.sendCalled {
+		t.Error("Expected SendAndClose to be called")
+	}
+}
+
+func TestHandleSetPackageStream_ReceiveError(t *testing.T) {
+	// Create mock stream that fails on Recv
+	mockStream := &mockSetPackageStream{
+		ctx:     context.Background(),
+		recvErr: status.Error(codes.Internal, "recv failed"),
+	}
+
+	err := HandleSetPackageStream(mockStream)
+	if err == nil {
+		t.Fatal("HandleSetPackageStream() should return error when Recv fails")
+	}
+
+	if mockStream.sendCalled {
+		t.Error("SendAndClose should not be called when Recv fails")
+	}
+}
+
+// Mock stream for testing HandleSetPackageStream
+type mockSetPackageStream struct {
+	ctx        context.Context
+	req        *syspb.SetPackageRequest
+	recvErr    error
+	sendErr    error
+	sendCalled bool
+}
+
+func (m *mockSetPackageStream) Context() context.Context {
+	return m.ctx
+}
+
+func (m *mockSetPackageStream) Recv() (*syspb.SetPackageRequest, error) {
+	if m.recvErr != nil {
+		return nil, m.recvErr
+	}
+	return m.req, nil
+}
+
+func (m *mockSetPackageStream) SendAndClose(resp *syspb.SetPackageResponse) error {
+	m.sendCalled = true
+	return m.sendErr
 }

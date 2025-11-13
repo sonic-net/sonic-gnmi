@@ -36,13 +36,13 @@ const (
 )
 
 // HandleTransferToRemote implements the complete logic for the TransferToRemote RPC.
-// It validates the request, downloads the file from the remote URL, calculates the MD5 hash,
-// and returns the response.
+// It validates the request, checks for DPU metadata, and routes accordingly.
 //
 // This function handles:
+//   - DPU metadata extraction and routing decisions
 //   - Protocol validation (HTTP only for now)
 //   - Container path translation (prepends /mnt/host when running in container)
-//   - File download via HTTP
+//   - File download via HTTP (for NPU) or DPU streaming (for DPU targets)
 //   - MD5 hash calculation
 //   - Response construction
 //
@@ -50,6 +50,35 @@ const (
 //   - TransferToRemoteResponse with MD5 hash on success
 //   - Error with appropriate gRPC status code on failure
 func HandleTransferToRemote(
+	ctx context.Context,
+	req *gnoi_file_pb.TransferToRemoteRequest,
+) (*gnoi_file_pb.TransferToRemoteResponse, error) {
+	// Check for DPU headers (HandleOnNPU mode from DPU proxy)
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		targetType := ""
+		targetIndex := ""
+
+		if vals := md.Get("x-sonic-ss-target-type"); len(vals) > 0 {
+			targetType = vals[0]
+		}
+		if vals := md.Get("x-sonic-ss-target-index"); len(vals) > 0 {
+			targetIndex = vals[0]
+		}
+
+		// If DPU headers are present, handle DPU transfer logic using efficient streaming
+		if targetType == "dpu" && targetIndex != "" {
+			log.Infof("[TransferToRemote] DPU routing detected: target-type=%s, target-index=%s", targetType, targetIndex)
+			return HandleTransferToRemoteForDPUStreaming(ctx, req, targetIndex, "localhost:8080")
+		}
+	}
+
+	// No DPU headers, handle normally for NPU
+	return handleTransferToRemoteNPU(ctx, req)
+}
+
+// handleTransferToRemoteNPU implements the NPU-specific logic for TransferToRemote RPC.
+// This is the original HandleTransferToRemote logic extracted to a separate function.
+func handleTransferToRemoteNPU(
 	ctx context.Context,
 	req *gnoi_file_pb.TransferToRemoteRequest,
 ) (*gnoi_file_pb.TransferToRemoteResponse, error) {

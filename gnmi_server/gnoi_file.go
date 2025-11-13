@@ -108,26 +108,7 @@ func (srv *FileServer) TransferToRemote(ctx context.Context, req *gnoi_file_pb.T
 		return nil, err
 	}
 
-	// Check for DPU headers (HandleOnNPU mode from DPU proxy)
-	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		targetType := ""
-		targetIndex := ""
-
-		if vals := md.Get("x-sonic-ss-target-type"); len(vals) > 0 {
-			targetType = vals[0]
-		}
-		if vals := md.Get("x-sonic-ss-target-index"); len(vals) > 0 {
-			targetIndex = vals[0]
-		}
-
-		// If DPU headers are present, handle DPU transfer logic using efficient streaming
-		if targetType == "dpu" && targetIndex != "" {
-			log.Infof("[TransferToRemote] DPU routing detected: target-type=%s, target-index=%s", targetType, targetIndex)
-			return gnoifile.HandleTransferToRemoteForDPUStreaming(ctx, req, targetIndex, "localhost:8080")
-		}
-	}
-
-	// No DPU headers, handle normally for NPU
+	// Delegate all logic to the pure handler function
 	return gnoifile.HandleTransferToRemote(ctx, req)
 }
 

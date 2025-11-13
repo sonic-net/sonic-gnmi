@@ -231,6 +231,71 @@ func TestGnoiFileServer(t *testing.T) {
 		}
 	})
 
+	t.Run("TransferToRemote DPU Success", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+
+		// Mock authenticate to succeed
+		patches.ApplyFuncReturn(authenticate, nil, nil)
+
+		// Mock HandleTransferToRemoteForDPUStreaming to succeed
+		patches.ApplyFunc(gnoifile.HandleTransferToRemoteForDPUStreaming,
+			func(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest, dpuIndex string, dpuAddr string) (*gnoi_file_pb.TransferToRemoteResponse, error) {
+				return &gnoi_file_pb.TransferToRemoteResponse{}, nil
+			})
+
+		fs := &FileServer{
+			Server: &Server{
+				config: &Config{},
+			},
+		}
+
+		// Create context with DPU metadata (lines 117, 120, 125-126)
+		md := metadata.New(map[string]string{
+			"x-sonic-ss-target-type":  "dpu",
+			"x-sonic-ss-target-index": "0",
+		})
+		ctx := metadata.NewIncomingContext(context.Background(), md)
+
+		req := &gnoi_file_pb.TransferToRemoteRequest{
+			LocalPath: "/tmp/test.txt",
+		}
+
+		resp, err := fs.TransferToRemote(ctx, req)
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("TransferToRemote NPU Success", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+
+		// Mock authenticate to succeed
+		patches.ApplyFuncReturn(authenticate, nil, nil)
+
+		// Mock HandleTransferToRemote to succeed
+		patches.ApplyFunc(gnoifile.HandleTransferToRemote,
+			func(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest) (*gnoi_file_pb.TransferToRemoteResponse, error) {
+				return &gnoi_file_pb.TransferToRemoteResponse{}, nil
+			})
+
+		fs := &FileServer{
+			Server: &Server{
+				config: &Config{},
+			},
+		}
+
+		ctx := context.Background() // No DPU metadata - should call regular function
+
+		req := &gnoi_file_pb.TransferToRemoteRequest{
+			LocalPath: "/tmp/test.txt",
+		}
+
+		resp, err := fs.TransferToRemote(ctx, req)
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
 	t.Run("TransferToRemote Fails with Auth Error", func(t *testing.T) {
 		patch := gomonkey.ApplyFuncReturn(authenticate, nil, status.Error(codes.Unauthenticated, "unauthenticated"))
 		defer patch.Reset()
