@@ -92,7 +92,7 @@ test:
 	@for pkg in $(PACKAGES); do \
 		echo ""; \
 		echo "=== Testing $$pkg ==="; \
-		cd $$pkg && $(GO) test -v -race -coverprofile=coverage.out -covermode=atomic ./...; \
+		cd $$pkg && $(GO) test -gcflags="all=-N -l" -v -race -coverprofile=coverage.out -covermode=atomic ./...; \
 		if [ -f coverage.out ]; then \
 			echo "Coverage for $$pkg:"; \
 			$(GO) tool cover -func=coverage.out; \
@@ -107,7 +107,7 @@ azure-coverage:
 	@for pkg in $(PACKAGES); do \
 		echo "Testing $$pkg..."; \
 		pkgname=$$(echo $$pkg | tr '/' '-'); \
-		$(GO) test -race -coverprofile=coverage-pure-$$pkgname.txt -covermode=atomic -v ./$$pkg; \
+		$(GO) test -gcflags="all=-N -l" -race -coverprofile=coverage-pure-$$pkgname.txt -covermode=atomic -v ./$$pkg; \
 	done
 	@echo "Coverage files generated for Azure pipeline"
 
