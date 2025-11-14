@@ -95,3 +95,88 @@ func DownloadHTTP(ctx context.Context, url, localPath string, maxSize int64) err
 
 	return nil
 }
+
+// DownloadHTTPStreaming creates an HTTP stream for downloading from a URL.
+// Returns an io.ReadCloser that streams the response body directly without
+// writing to disk. The caller is responsible for closing the reader.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout
+//   - url: HTTP URL to download from
+//   - maxSize: Maximum file size in bytes (0 = no limit)
+//
+// Returns:
+//   - io.ReadCloser: Stream of the response body
+//   - int64: Content length from HTTP headers (-1 if unknown)
+//   - error: Any error during HTTP request setup
+//
+// The returned reader will enforce size limits during streaming.
+// Context cancellation will abort the stream.
+func DownloadHTTPStreaming(ctx context.Context, url string, maxSize int64) (io.ReadCloser, int64, error) {
+	// Create HTTP request with context for timeout and cancellation support
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, -1, fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	// Perform HTTP GET
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, -1, fmt.Errorf("HTTP request failed: %w", err)
+	}
+
+	// Check HTTP status code
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		resp.Body.Close()
+		return nil, -1, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, resp.Status)
+	}
+
+	// Check file size limit if specified
+	if maxSize > 0 && resp.ContentLength > maxSize {
+		resp.Body.Close()
+		return nil, -1, fmt.Errorf("file size %d bytes exceeds maximum allowed size %d bytes",
+			resp.ContentLength, maxSize)
+	}
+
+	// Create a limited reader to enforce size limit during streaming
+	var reader io.ReadCloser = resp.Body
+	if maxSize > 0 {
+		// Wrap with limit reader allowing one extra byte for oversized file detection.
+		// This intentionally allows reading maxSize+1 bytes so that limitedReadCloser.Read()
+		// can detect when the file exceeds the limit and return an appropriate error.
+		limitedReader := io.LimitReader(resp.Body, maxSize+1)
+		reader = &limitedReadCloser{
+			Reader:  limitedReader,
+			closer:  resp.Body,
+			maxSize: maxSize,
+		}
+	}
+
+	return reader, resp.ContentLength, nil
+}
+
+// limitedReadCloser wraps a LimitReader with size checking and proper cleanup
+type limitedReadCloser struct {
+	io.Reader
+	closer  io.Closer
+	maxSize int64
+	read    int64
+}
+
+func (l *limitedReadCloser) Read(p []byte) (n int, err error) {
+	n, err = l.Reader.Read(p)
+	l.read += int64(n)
+
+	// Check if we exceeded the size limit
+	if l.maxSize > 0 && l.read > l.maxSize {
+		l.closer.Close()
+		return n, fmt.Errorf("downloaded file size exceeds maximum allowed size %d bytes", l.maxSize)
+	}
+
+	return n, err
+}
+
+func (l *limitedReadCloser) Close() error {
+	return l.closer.Close()
+}

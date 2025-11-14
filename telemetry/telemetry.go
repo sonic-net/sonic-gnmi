@@ -19,6 +19,7 @@ import (
 	"time"
 
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
+	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
 	"github.com/fsnotify/fsnotify"
@@ -354,7 +355,21 @@ func signalHandler(serverControlSignal chan<- ServerControlValue, sigchannel <-c
 func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal chan ServerControlValue, stopSignalHandler chan<- bool, wg *sync.WaitGroup) {
 	defer wg.Done()
 
+	var currentServerChain *interceptors.ServerChain
+	defer func() {
+		// Cleanup on function exit (ServerStop)
+		if currentServerChain != nil {
+			currentServerChain.Close()
+		}
+	}()
+
 	for {
+		// Close previous chain before creating new one on restart
+		if currentServerChain != nil {
+			currentServerChain.Close()
+			currentServerChain = nil
+		}
+
 		var opts []grpc.ServerOption
 		var certLoaded int32
 		atomic.StoreInt32(&certLoaded, 0) // Not loaded
@@ -467,6 +482,16 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 
 			gnmi.GenerateJwtSecretKey()
 		}
+
+		// Setup interceptor chain (includes DPU proxy with Redis-based routing)
+		var err error
+		currentServerChain, err = interceptors.NewServerChain()
+		if err != nil {
+			log.Errorf("Failed to create interceptor chain: %v", err)
+			return
+		}
+
+		opts = append(opts, currentServerChain.GetServerOptions()...)
 
 		s, err := gnmi.NewServer(cfg, opts)
 		if err != nil {

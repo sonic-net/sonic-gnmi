@@ -97,7 +97,8 @@ func (srv *FileServer) Get(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.Fil
 	return status.Errorf(codes.Unimplemented, "Method file.Get is unimplemented.")
 }
 
-// TransferToRemote RPC is unimplemented.
+// TransferToRemote downloads a file from a remote URL.
+// If DPU headers are present (HandleOnNPU mode), it downloads to NPU then uploads to the specified DPU.
 func (srv *FileServer) TransferToRemote(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest) (*gnoi_file_pb.TransferToRemoteResponse, error) {
 	log.Infof("GNOI File TransferToRemote RPC called with request: %+v", req)
 	_, err := authenticate(srv.config, ctx, "gnoi", false)
@@ -105,10 +106,13 @@ func (srv *FileServer) TransferToRemote(ctx context.Context, req *gnoi_file_pb.T
 		log.Errorf("authentication failed in TransferToRemote RPC: %v", err)
 		return nil, err
 	}
+
+	// Delegate all logic to the pure handler function
 	return gnoifile.HandleTransferToRemote(ctx, req)
 }
 
-// Put RPC is unimplemented.
+// Put implements the gNOI File.Put RPC.
+// It authenticates the request and delegates to the pure Go handler.
 func (srv *FileServer) Put(stream gnoi_file_pb.File_PutServer) error {
 	log.Infof("GNOI File Put RPC called")
 	_, err := authenticate(srv.config, stream.Context(), "gnoi", false)
@@ -116,8 +120,7 @@ func (srv *FileServer) Put(stream gnoi_file_pb.File_PutServer) error {
 		log.Errorf("authentication failed in Put RPC: %v", err)
 		return err
 	}
-	log.Warning("file.Put RPC is unimplemented")
-	return status.Errorf(codes.Unimplemented, "Method file.Put is unimplemented.")
+	return gnoifile.HandlePut(stream)
 }
 
 // Remove implements the corresponding RPC.

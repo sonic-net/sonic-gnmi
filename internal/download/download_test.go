@@ -3,10 +3,12 @@ package download
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -363,5 +365,219 @@ func TestDownloadHTTP_Timeout(t *testing.T) {
 	// Verify file was cleaned up
 	if _, statErr := os.Stat(outputPath); !os.IsNotExist(statErr) {
 		t.Error("DownloadHTTP() should clean up file on timeout")
+	}
+}
+
+// Tests for streaming download functionality
+
+func TestDownloadHTTPStreaming_Success(t *testing.T) {
+	testContent := []byte("test streaming content")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
+		w.WriteHeader(http.StatusOK)
+		w.Write(testContent)
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	reader, contentLength, err := DownloadHTTPStreaming(ctx, server.URL, 0)
+	if err != nil {
+		t.Fatalf("DownloadHTTPStreaming() error = %v", err)
+	}
+	defer reader.Close()
+
+	if contentLength != int64(len(testContent)) {
+		t.Errorf("Content length = %d, want %d", contentLength, len(testContent))
+	}
+
+	// Read all content from stream
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("Failed to read stream: %v", err)
+	}
+
+	if string(content) != string(testContent) {
+		t.Errorf("Streamed content = %q, want %q", content, testContent)
+	}
+}
+
+func TestDownloadHTTPStreaming_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("Not Found"))
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	reader, _, err := DownloadHTTPStreaming(ctx, server.URL, 0)
+	if err == nil {
+		reader.Close()
+		t.Error("DownloadHTTPStreaming() expected error for 404 response, got nil")
+	}
+}
+
+func TestDownloadHTTPStreaming_SizeLimit(t *testing.T) {
+	testContent := make([]byte, 100)
+	for i := range testContent {
+		testContent[i] = 'A'
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(testContent)))
+		w.WriteHeader(http.StatusOK)
+		w.Write(testContent)
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	reader, _, err := DownloadHTTPStreaming(ctx, server.URL, 50) // Limit to 50 bytes
+	if err == nil {
+		reader.Close()
+		t.Error("DownloadHTTPStreaming() expected error for size limit exceeded")
+	}
+
+	if !strings.Contains(err.Error(), "exceeds maximum allowed size") {
+		t.Errorf("Error should mention size limit, got: %v", err)
+	}
+}
+
+func TestDownloadHTTPStreaming_SizeLimitDuringRead(t *testing.T) {
+	// Test size limit enforcement during streaming (chunked transfer encoding)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Use chunked transfer encoding to avoid Content-Length header
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Error("Server does not support flushing")
+			return
+		}
+
+		w.Header().Set("Transfer-Encoding", "chunked")
+		w.WriteHeader(http.StatusOK)
+
+		// Send data in chunks that will exceed the limit
+		for i := 0; i < 10; i++ {
+			w.Write([]byte("1234567890")) // 10 bytes per chunk = 100 bytes total
+			flusher.Flush()
+		}
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	reader, contentLength, err := DownloadHTTPStreaming(ctx, server.URL, 50) // Limit to 50 bytes
+	if err != nil {
+		t.Fatalf("DownloadHTTPStreaming() setup error = %v", err)
+	}
+	defer reader.Close()
+
+	// Content length should be -1 for chunked transfer
+	if contentLength != -1 {
+		t.Errorf("Expected content length -1 for chunked transfer, got %d", contentLength)
+	}
+
+	// Try to read more than the limit
+	buffer := make([]byte, 100)
+	totalRead := 0
+	for totalRead < 100 {
+		n, err := reader.Read(buffer[totalRead:])
+		totalRead += n
+		if err != nil {
+			if strings.Contains(err.Error(), "exceeds maximum allowed size") {
+				// This is expected when size limit is exceeded during read
+				if totalRead > 50 {
+					return // Test passed - limit was enforced
+				}
+			}
+			if err == io.EOF {
+				break
+			}
+			t.Fatalf("Unexpected read error: %v", err)
+		}
+	}
+
+	// The limitedReadCloser should enforce the limit during read
+	if totalRead > 51 { // Allow 1 byte over to detect the limit
+		t.Errorf("Read %d bytes, but limit was 50 bytes", totalRead)
+	}
+}
+
+func TestDownloadHTTPStreaming_ContextCancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(2 * time.Second) // Slow response
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("slow content"))
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	reader, _, err := DownloadHTTPStreaming(ctx, server.URL, 0)
+	if err == nil {
+		reader.Close()
+		t.Error("DownloadHTTPStreaming() expected error for cancelled context, got nil")
+	}
+}
+
+func TestDownloadHTTPStreaming_LargeFile(t *testing.T) {
+	// Test streaming a large file (1MB)
+	largeContent := make([]byte, 1024*1024)
+	for i := range largeContent {
+		largeContent[i] = byte(i % 256)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(largeContent)))
+		w.WriteHeader(http.StatusOK)
+
+		// Write in chunks to simulate real streaming
+		chunkSize := 64 * 1024
+		for i := 0; i < len(largeContent); i += chunkSize {
+			end := i + chunkSize
+			if end > len(largeContent) {
+				end = len(largeContent)
+			}
+			w.Write(largeContent[i:end])
+		}
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	reader, contentLength, err := DownloadHTTPStreaming(ctx, server.URL, 0)
+	if err != nil {
+		t.Fatalf("DownloadHTTPStreaming() error = %v", err)
+	}
+	defer reader.Close()
+
+	if contentLength != int64(len(largeContent)) {
+		t.Errorf("Content length = %d, want %d", contentLength, len(largeContent))
+	}
+
+	// Read in chunks and verify content
+	buffer := make([]byte, 32*1024) // 32KB chunks
+	totalRead := 0
+	for {
+		n, err := reader.Read(buffer)
+		if n > 0 {
+			// Verify content matches expected pattern
+			for i := 0; i < n; i++ {
+				expected := byte((totalRead + i) % 256)
+				if buffer[i] != expected {
+					t.Errorf("Content mismatch at byte %d: got %d, want %d",
+						totalRead+i, buffer[i], expected)
+					return
+				}
+			}
+			totalRead += n
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("Read error: %v", err)
+		}
+	}
+
+	if totalRead != len(largeContent) {
+		t.Errorf("Total read = %d, want %d", totalRead, len(largeContent))
 	}
 }
