@@ -225,7 +225,7 @@ func TestHandleReboot_DPU_Routing(t *testing.T) {
 	}
 }
 
-func TestHandleReboot_NPU_Fallback(t *testing.T) {
+func TestHandleReboot_Local_Fallback(t *testing.T) {
 	ctx := context.Background() // No DPU metadata
 
 	req := &syspb.RebootRequest{}
@@ -235,10 +235,10 @@ func TestHandleReboot_NPU_Fallback(t *testing.T) {
 		t.Fatal("HandleReboot() without DPU metadata should return Unimplemented error")
 	}
 	if resp != nil {
-		t.Error("HandleReboot() should return nil response on NPU fallback error")
+		t.Error("HandleReboot() should return nil response on local fallback error")
 	}
 
-	// Should return Unimplemented status for NPU fallback
+	// Should return Unimplemented status for local fallback
 	if status.Code(err) != codes.Unimplemented {
 		t.Errorf("Expected Unimplemented error, got: %v", err)
 	}

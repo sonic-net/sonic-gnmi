@@ -23,8 +23,8 @@ type ForwardingMode string
 const (
 	// ForwardToDPU sends the request directly to the specified DPU
 	ForwardToDPU ForwardingMode = "forward"
-	// HandleOnNPU processes the request on NPU but preserves DPU context for special logic
-	HandleOnNPU ForwardingMode = "npu"
+	// HandleLocally processes the request locally but preserves DPU context for special logic
+	HandleLocally ForwardingMode = "local"
 )
 
 // ForwardableMethod represents a gRPC method that can be processed when DPU headers are present.
@@ -50,12 +50,12 @@ var defaultForwardableMethods = []ForwardableMethod{
 	{
 		FullMethod:  "/gnoi.file.File/TransferToRemote",
 		Description: "Download from URL, then upload to DPU",
-		Mode:        HandleOnNPU,
+		Mode:        HandleLocally,
 	},
 	{
 		FullMethod:  "/gnoi.system.System/Reboot",
 		Description: "Reboot DPU from NPU host",
-		Mode:        HandleOnNPU,
+		Mode:        HandleLocally,
 	},
 	{
 		FullMethod:  "/gnoi.system.System/SetPackage",
@@ -66,12 +66,12 @@ var defaultForwardableMethods = []ForwardableMethod{
 	{
 		FullMethod:  "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
 		Description: "gRPC reflection service v1",
-		Mode:        HandleOnNPU,
+		Mode:        HandleLocally,
 	},
 	{
 		FullMethod:  "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
 		Description: "gRPC reflection service v1alpha",
-		Mode:        HandleOnNPU,
+		Mode:        HandleLocally,
 	},
 }
 
@@ -393,9 +393,9 @@ func (p *DPUProxy) UnaryInterceptor() grpc.UnaryServerInterceptor {
 
 			// Handle based on forwarding mode
 			switch mode {
-			case HandleOnNPU:
+			case HandleLocally:
 				// Pass through to NPU handler but preserve DPU context in metadata
-				glog.Infof("[DPUProxy] HandleOnNPU mode: passing %s to NPU with DPU context preserved",
+				glog.Infof("[DPUProxy] HandleLocally mode: passing %s to local handler with DPU context preserved",
 					info.FullMethod)
 				// The DPU context is already in ctx metadata, NPU handler can access it
 				return handler(ctx, req)
@@ -485,9 +485,9 @@ func (p *DPUProxy) StreamInterceptor() grpc.StreamServerInterceptor {
 
 			// Handle based on forwarding mode
 			switch mode {
-			case HandleOnNPU:
+			case HandleLocally:
 				// Pass through to NPU handler but preserve DPU context in metadata
-				glog.Infof("[DPUProxy] HandleOnNPU mode: passing stream %s to NPU with DPU context preserved",
+				glog.Infof("[DPUProxy] HandleLocally mode: passing stream %s to local handler with DPU context preserved",
 					info.FullMethod)
 				// The DPU context is already in ctx metadata, NPU handler can access it
 				return handler(srv, ss)

@@ -202,17 +202,17 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 	// Try the pure handler first (it handles DPU routing internally)
 	resp, err := system.HandleReboot(ctx, req)
 	if err != nil {
-		// If it's not the "NPU fallback" error, return the actual error
+		// If it's not the "local fallback" error, return the actual error
 		if status.Code(err) != codes.Unimplemented {
 			return nil, err
 		}
-		// Otherwise fall through to NPU handling
+		// Otherwise fall through to local handling
 	} else {
 		// DPU case handled successfully by pure handler
 		return resp, nil
 	}
 
-	// Initialize State DB for NPU reboot.
+	// Initialize State DB for local reboot.
 	rclient, err := common_utils.GetRedisDBClient()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())

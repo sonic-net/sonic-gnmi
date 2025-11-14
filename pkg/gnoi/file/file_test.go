@@ -2494,7 +2494,7 @@ func TestHandleTransferToRemote_NPU_Fallback(t *testing.T) {
 			return os.WriteFile(localPath, []byte("test content"), 0644)
 		})
 
-	ctx := context.Background() // No DPU metadata - should call handleTransferToRemoteNPU
+	ctx := context.Background() // No DPU metadata - should call handleTransferToRemoteLocal
 
 	req := &gnoi_file_pb.TransferToRemoteRequest{
 		LocalPath: "/tmp/test.txt",

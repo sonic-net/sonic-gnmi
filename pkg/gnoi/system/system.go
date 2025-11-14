@@ -30,10 +30,10 @@ func HandleReboot(ctx context.Context, req *syspb.RebootRequest) (*syspb.RebootR
 		return HandleDPUReboot(ctx, req, targetMetadata.TargetIndex)
 	}
 
-	// No DPU headers, this would be handled by the NPU reboot logic
-	// We return an error here since NPU reboot requires additional dependencies
+	// No DPU headers, this would be handled by the local reboot logic
+	// We return an error here since local reboot requires additional dependencies
 	// that should be handled in the server wrapper
-	return nil, status.Error(codes.Unimplemented, "NPU reboot should be handled in server wrapper")
+	return nil, status.Error(codes.Unimplemented, "local reboot should be handled in server wrapper")
 }
 
 // HandleSetPackageStream implements the complete streaming logic for SetPackage RPC.

@@ -149,13 +149,13 @@ func TestDPUProxy_getForwardingMode_Success(t *testing.T) {
 		t.Errorf("Expected ForwardToDPU mode, got: %v", mode)
 	}
 
-	// Test HandleOnNPU method
+	// Test HandleLocally method
 	mode, found = proxy.getForwardingMode("/gnoi.system.System/Reboot")
 	if !found {
 		t.Error("Expected to find /gnoi.system.System/Reboot method")
 	}
-	if mode != HandleOnNPU {
-		t.Errorf("Expected HandleOnNPU mode, got: %v", mode)
+	if mode != HandleLocally {
+		t.Errorf("Expected HandleLocally mode, got: %v", mode)
 	}
 }
 
@@ -1116,7 +1116,7 @@ func TestDPUProxy_StreamInterceptor_ForwardToDPU_GetConnectionError(t *testing.T
 	}
 }
 
-func TestDPUProxy_StreamInterceptor_HandleOnNPU(t *testing.T) {
+func TestDPUProxy_StreamInterceptor_HandleLocally(t *testing.T) {
 	proxy := NewDPUProxy(nil)
 	interceptor := proxy.StreamInterceptor()
 
@@ -1134,7 +1134,7 @@ func TestDPUProxy_StreamInterceptor_HandleOnNPU(t *testing.T) {
 
 	ss := &mockServerStreamForProxy{ctx: ctx}
 
-	// Test HandleOnNPU method (e.g., Reboot)
+	// Test HandleLocally method (e.g., Reboot)
 	err := interceptor(nil, ss, &grpc.StreamServerInfo{FullMethod: "/gnoi.system.System/Reboot"}, handler)
 
 	if err != nil {
@@ -1142,7 +1142,7 @@ func TestDPUProxy_StreamInterceptor_HandleOnNPU(t *testing.T) {
 	}
 
 	if !handlerCalled {
-		t.Error("Handler should be called for HandleOnNPU mode")
+		t.Error("Handler should be called for HandleLocally mode")
 	}
 }
 

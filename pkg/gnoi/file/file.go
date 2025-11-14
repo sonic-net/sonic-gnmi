@@ -72,13 +72,13 @@ func HandleTransferToRemote(
 		}
 	}
 
-	// No DPU headers, handle normally for NPU
-	return handleTransferToRemoteNPU(ctx, req)
+	// No DPU headers, handle normally for local device
+	return handleTransferToRemoteLocal(ctx, req)
 }
 
-// handleTransferToRemoteNPU implements the NPU-specific logic for TransferToRemote RPC.
+// handleTransferToRemoteLocal implements the local device logic for TransferToRemote RPC.
 // This is the original HandleTransferToRemote logic extracted to a separate function.
-func handleTransferToRemoteNPU(
+func handleTransferToRemoteLocal(
 	ctx context.Context,
 	req *gnoi_file_pb.TransferToRemoteRequest,
 ) (*gnoi_file_pb.TransferToRemoteResponse, error) {
