@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"reflect"
 	"testing"
 
@@ -323,16 +324,33 @@ func TestGnoiFileServer(t *testing.T) {
 		// Patch NewDbusClient to return FakeClient
 		patches.ApplyFuncReturn(ssc.NewDbusClient, &ssc.FakeClient{}, nil)
 
+		// create a real temporary file so Remove has something to delete
+		tmpf, err := os.CreateTemp("", "gnoi-remove-success-*.txt")
+		if err != nil {
+			t.Fatalf("failed to create temp file: %v", err)
+		}
+		tmpPath := tmpf.Name()
+		if cerr := tmpf.Close(); cerr != nil {
+			t.Fatalf("failed to close temp file: %v", cerr)
+		}
+		// ensure cleanup if the handler didn't remove it for any reason
+		defer func() { _ = os.Remove(tmpPath) }()
+
 		fs := &FileServer{
 			Server: &Server{
 				config: &Config{},
 			},
 		}
-		req := &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/test.txt"}
+		req := &gnoi_file_pb.RemoveRequest{RemoteFile: tmpPath}
 		resp, err := fs.Remove(context.Background(), req)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
+
+		// verify file was actually removed
+		if _, statErr := os.Stat(tmpPath); !os.IsNotExist(statErr) {
+			t.Fatalf("expected file to be removed, stat error: %v", statErr)
+		}
 	})
 
 	t.Run("Remove_Fails_NilRequest", func(t *testing.T) {
@@ -387,9 +405,13 @@ func TestGnoiFileServer(t *testing.T) {
 		patches := gomonkey.NewPatches()
 		defer patches.Reset()
 
+		// Patch authenticate to succeed
 		patches.ApplyFuncReturn(authenticate, nil, nil)
 
-		// Patch NewDbusClient to return an erroring client
+		// Make os.Remove return a simulated error so the handler reports it.
+		patches.ApplyFuncReturn(os.Remove, fmt.Errorf("simulated failure"))
+
+		// Patch NewDbusClient to return an erring client if needed by the handler branch later.
 		patches.ApplyFuncReturn(ssc.NewDbusClient, &ssc.FakeClientWithError{}, nil)
 
 		fs := &FileServer{
@@ -401,33 +423,8 @@ func TestGnoiFileServer(t *testing.T) {
 		_, err := fs.Remove(context.Background(), req)
 
 		assert.Error(t, err)
-		assert.Equal(t, "simulated failure", err.Error())
-	})
-
-	t.Run("Remove_Fails_With_DbusClient_Error", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-
-		patches.ApplyFuncReturn(authenticate, nil, nil)
-
-		// Force NewDbusClient to return an error
-		patches.ApplyFuncReturn(ssc.NewDbusClient, nil, fmt.Errorf("mock dbus client error"))
-
-		req := &gnoi_file_pb.RemoveRequest{
-			RemoteFile: "/tmp/testfile",
-		}
-
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
-
-		resp, err := fs.Remove(context.Background(), req)
-
-		assert.Nil(t, resp)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "mock dbus client error")
+		assert.Equal(t, codes.Internal, status.Code(err))
+		assert.Equal(t, "simulated failure", status.Convert(err).Message())
 	})
 
 	t.Run("Get_Fails_With_Auth_Error", func(t *testing.T) {
