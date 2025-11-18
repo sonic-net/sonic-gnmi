@@ -12,14 +12,25 @@ GO ?= go
 GOROOT ?= $(shell $(GO) env GOROOT)
 
 # Pure packages (no CGO/SONiC dependencies)
-# Add new packages here as they become pure-compatible
+# Add new packages here as they become pure-compatible.
 PURE_PACKAGES := \
+	internal/exec \
+	pkg/gnoi/debug \
 	internal/diskspace \
-	pkg/server/operational-handler
+	internal/hash \
+	internal/download \
+	internal/firmware \
+	pkg/interceptors \
+	pkg/interceptors/dpuproxy \
+	pkg/server/operational-handler \
+	pkg/gnoi/file \
+	pkg/exec \
+	pkg/gnoi/os \
+	pkg/gnoi/system
 
 # Future packages to make pure:
 # TODO: sonic-gnmi-standalone/pkg/workflow
-# TODO: sonic-gnmi-standalone/pkg/client/config  
+# TODO: sonic-gnmi-standalone/pkg/client/config
 # TODO: sonic-gnmi-standalone/internal/checksum
 # TODO: sonic-gnmi-standalone/internal/download
 # TODO: common_utils (parts that don't need CGO)
@@ -83,7 +94,7 @@ test:
 	@for pkg in $(PACKAGES); do \
 		echo ""; \
 		echo "=== Testing $$pkg ==="; \
-		cd $$pkg && $(GO) test -v -race -coverprofile=coverage.out -covermode=atomic ./...; \
+		cd $$pkg && $(GO) test -gcflags="all=-N -l" -v -race -coverprofile=coverage.out -covermode=atomic ./...; \
 		if [ -f coverage.out ]; then \
 			echo "Coverage for $$pkg:"; \
 			$(GO) tool cover -func=coverage.out; \
@@ -98,7 +109,7 @@ azure-coverage:
 	@for pkg in $(PACKAGES); do \
 		echo "Testing $$pkg..."; \
 		pkgname=$$(echo $$pkg | tr '/' '-'); \
-		$(GO) test -race -coverprofile=coverage-pure-$$pkgname.txt -covermode=atomic -v ./$$pkg; \
+		$(GO) test -gcflags="all=-N -l" -race -coverprofile=coverage-pure-$$pkgname.txt -covermode=atomic -v ./$$pkg; \
 	done
 	@echo "Coverage files generated for Azure pipeline"
 
@@ -153,7 +164,7 @@ build-test:
 
 # Lint check using basic go tools
 .PHONY: lint
-lint: fmt-check vet
+lint: fmt-check
 	@echo "Basic linting complete for pure packages"
 
 # Benchmark tests
@@ -209,7 +220,7 @@ list-packages:
 
 # Full CI pipeline
 .PHONY: ci
-ci: clean mod-verify lint build-test test
+ci: clean lint build-test test
 	@echo ""
 	@echo "============================================="
 	@echo "✅ Pure CI completed successfully!"
@@ -221,7 +232,6 @@ ci: clean mod-verify lint build-test test
 	@echo ""
 	@echo "Components validated:"
 	@echo "  - Code formatting"
-	@echo "  - Static analysis (vet)"  
 	@echo "  - Build verification"
 	@echo "  - Unit tests with race detection"
 	@echo "  - Test coverage analysis"

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
+	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
 	"github.com/fsnotify/fsnotify"
@@ -61,6 +62,7 @@ type TelemetryConfig struct {
 	Vrf                   *string
 	EnableCrl             *bool
 	CrlExpireDuration     *int
+	ImgDirPath            *string
 }
 
 func main() {
@@ -175,6 +177,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		Vrf:                   fs.String("vrf", "", "VRF name, when zmq_address belong on a VRF, need VRF name to bind ZMQ."),
 		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
 		CrlExpireDuration:     fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
+		ImgDirPath:            fs.String("img_dir", "/tmp/host_tmp", "Directory path where image will be transferred."),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -254,6 +257,9 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 
 	cfg.ZmqPort = zmqPort
 
+	// Populate the OS-related fields directly on the gnmi.Config struct.
+	cfg.ImgDir = *telemetryCfg.ImgDirPath
+
 	return telemetryCfg, cfg, nil
 }
 
@@ -295,13 +301,22 @@ func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryCon
 					filepath.Ext(event.Name) == ".cer" || filepath.Ext(event.Name) == ".pem" ||
 					filepath.Ext(event.Name) == ".key") {
 					log.V(1).Infof("Inotify watcher has received event: %v", event)
-					if event.Op&fsnotify.CloseWrite == fsnotify.CloseWrite || event.Op&fsnotify.MovedTo == fsnotify.MovedTo {
+					if event.Op&(fsnotify.CloseWrite|fsnotify.MovedTo|fsnotify.Create) != 0 {
 						log.V(1).Infof("Cert File has been modified: %s", event.Name)
-						serverControlSignal <- ServerStart // let server know that a write/create event occurred
+
+						// Validate cert/key pair before signaling reload
+						_, err := tls.LoadX509KeyPair(*telemetryCfg.ServerCert, *telemetryCfg.ServerKey)
+						if err != nil {
+							log.V(1).Infof("Cert validation failed: %v", err)
+							continue // Keep monitoring - wait for matching cert/key pair
+						}
+
+						log.V(1).Infof("Cert validation succeeded, signaling server reload")
+						serverControlSignal <- ServerStart
 						done <- true
 						return
 					}
-					if event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename {
+					if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
 						log.V(1).Infof("Cert file has been deleted: %s", event.Name)
 						serverControlSignal <- ServerRestart   // let server know that a remove/rename event occurred
 						if atomic.LoadInt32(certLoaded) == 1 { // Should continue monitoring if certs are not present
@@ -340,7 +355,21 @@ func signalHandler(serverControlSignal chan<- ServerControlValue, sigchannel <-c
 func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal chan ServerControlValue, stopSignalHandler chan<- bool, wg *sync.WaitGroup) {
 	defer wg.Done()
 
+	var currentServerChain *interceptors.ServerChain
+	defer func() {
+		// Cleanup on function exit (ServerStop)
+		if currentServerChain != nil {
+			currentServerChain.Close()
+		}
+	}()
+
 	for {
+		// Close previous chain before creating new one on restart
+		if currentServerChain != nil {
+			currentServerChain.Close()
+			currentServerChain = nil
+		}
+
 		var opts []grpc.ServerOption
 		var certLoaded int32
 		atomic.StoreInt32(&certLoaded, 0) // Not loaded
@@ -453,6 +482,16 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 
 			gnmi.GenerateJwtSecretKey()
 		}
+
+		// Setup interceptor chain (includes DPU proxy with Redis-based routing)
+		var err error
+		currentServerChain, err = interceptors.NewServerChain()
+		if err != nil {
+			log.Errorf("Failed to create interceptor chain: %v", err)
+			return
+		}
+
+		opts = append(opts, currentServerChain.GetServerOptions()...)
 
 		s, err := gnmi.NewServer(cfg, opts)
 		if err != nil {

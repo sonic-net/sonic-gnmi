@@ -73,6 +73,12 @@ stages:
       submodules: recursive
       displayName: 'Checkout sonic-swss-common'
 
+    - script: |
+        pushd sonic-gnmi
+        make -f pure.mk ci
+        popd
+      displayName: "Run pure package CI (no dependencies)"
+
     - task: DownloadPipelineArtifact@2
       inputs:
         source: specific

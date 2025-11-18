@@ -28,6 +28,8 @@ import (
 
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
+	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
+	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -117,11 +119,18 @@ type FileServer struct {
 	gnoi_file_pb.UnimplementedFileServer
 }
 
+// OSBackend defines the interface for the OS installation backend service.
+type OSBackend interface {
+	InstallOS(req string) (string, error)
+}
+
 // OSServer is the server API for System service.
 // All implementations must embed UnimplementedSystemServer
 // for forward compatibility
 type OSServer struct {
 	*Server
+	backend OSBackend // Dependency interface
+	ImgDir  string
 	gnoi_os_pb.UnimplementedOSServer
 }
 
@@ -129,6 +138,14 @@ type OSServer struct {
 type ContainerzServer struct {
 	server *Server
 	gnoi_containerz_pb.UnimplementedContainerzServer
+}
+
+// DebugServer is the server API for Debug service.
+type DebugServer struct {
+	*Server
+	readWhitelist  []string
+	writeWhitelist []string
+	gnoi_debug_pb.UnimplementedDebugServer
 }
 
 type AuthTypes map[string]bool
@@ -143,11 +160,28 @@ type Config struct {
 	UserAuth            AuthTypes
 	EnableTranslibWrite bool
 	EnableNativeWrite   bool
+	EnableTranslation   bool
 	ZmqPort             string
 	IdleConnDuration    int
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
+	// Path to the directory where image is stored.
+	ImgDir string
+}
+
+// DBusOSBackend is a concrete implementation of OSBackend
+type DBusOSBackend struct{}
+
+// InstallOS implements the OSBackend interface.
+func (d *DBusOSBackend) InstallOS(req string) (string, error) {
+	log.Infof("DBusOSBackend.InstallOS: %v", req)
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		return "", err
+	}
+	defer sc.Close()
+	return sc.InstallOS(req)
 }
 
 var AuthLock sync.Mutex
@@ -243,8 +277,24 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	fileSrv := &FileServer{Server: srv}
-	osSrv := &OSServer{Server: srv}
+
+	// Create an instance of the concrete OSBackend implementation
+	osBackend := &DBusOSBackend{}
+
+	osSrv := &OSServer{
+		Server:  srv,
+		backend: osBackend, // Pass the installer dependency
+		ImgDir:  srv.config.ImgDir,
+	}
+
 	containerzSrv := &ContainerzServer{server: srv}
+
+	readWhitelist, writeWhitelist := gnoi_debug.ConstructWhitelists()
+	debugSrv := &DebugServer{
+		Server:         srv,
+		readWhitelist:  readWhitelist,
+		writeWhitelist: writeWhitelist,
+	}
 
 	var err error
 	if srv.config.Port < 0 {
@@ -262,6 +312,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		gnoi_file_pb.RegisterFileServer(srv.s, fileSrv)
 		gnoi_os_pb.RegisterOSServer(srv.s, osSrv)
 		gnoi_containerz_pb.RegisterContainerzServer(srv.s, containerzSrv)
+		gnoi_debug_pb.RegisterDebugServer(srv.s, debugSrv)
 	}
 	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)

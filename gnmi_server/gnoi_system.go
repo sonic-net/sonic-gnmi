@@ -12,6 +12,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	syspb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/pkg/gnoi/system"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -198,7 +199,20 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 
-	// Initialize State DB.
+	// Try the pure handler first (it handles DPU routing internally)
+	resp, err := system.HandleReboot(ctx, req)
+	if err != nil {
+		// If it's not the "local fallback" error, return the actual error
+		if status.Code(err) != codes.Unimplemented {
+			return nil, err
+		}
+		// Otherwise fall through to local handling
+	} else {
+		// DPU case handled successfully by pure handler
+		return resp, nil
+	}
+
+	// Initialize State DB for local reboot.
 	rclient, err := common_utils.GetRedisDBClient()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -211,15 +225,15 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 	}
 
 	// System reboot.
-	resp, err, _ := sendRebootReqOnNotifCh(ctx, req, rclient, rebootKey)
+	respInterface, err, _ := sendRebootReqOnNotifCh(ctx, req, rclient, rebootKey)
 	if err != nil {
 		return nil, err
 	}
-	if resp == nil {
+	if respInterface == nil {
 		log.V(2).Info("Reboot request received empty response from Reboot Backend.")
-		resp = &syspb.RebootResponse{}
+		respInterface = &syspb.RebootResponse{}
 	}
-	return resp.(*syspb.RebootResponse), nil
+	return respInterface.(*syspb.RebootResponse), nil
 }
 
 // RebootStatus implements the corresponding RPC.
@@ -308,83 +322,8 @@ func (srv *Server) SetPackage(rs syspb.System_SetPackageServer) error {
 	}
 	log.V(1).Info("gNOI: SetPackage request received")
 
-	// Create D-Bus client
-	dbus, err := ssc.NewDbusClient()
-	if err != nil {
-		log.Errorf("Failed to create D-Bus client: %v", err)
-		return status.Errorf(codes.Internal, "failed to create D-Bus client: %v", err)
-	}
-	defer dbus.Close()
-
-	// Receive the package request
-	req, err := rs.Recv()
-	if err != nil {
-		log.Errorf("Failed to receive package request: %v", err)
-		return err
-	}
-
-	// Validate request type
-	pkg, ok := req.GetRequest().(*syspb.SetPackageRequest_Package)
-	if !ok {
-		errMsg := fmt.Sprintf("invalid request type: %T, expected SetPackageRequest_Package", req.GetRequest())
-		log.Errorf(errMsg)
-		return status.Errorf(codes.InvalidArgument, errMsg)
-	}
-
-	// A filename and a version must be provided
-	if pkg.Package.Filename == "" {
-		log.Errorf("Filename is missing in package request")
-		return status.Errorf(codes.InvalidArgument, "filename is missing in package request")
-	}
-	if pkg.Package.Version == "" {
-		log.Errorf("Version is missing in package request")
-		return status.Errorf(codes.InvalidArgument, "version is missing in package request")
-	}
-	// Log the package filename and version
-	log.V(1).Infof("Package filename: %s, version: %s", pkg.Package.Filename, pkg.Package.Version)
-
-	// Download the package if RemoteDownload is provided
-	if pkg.Package.RemoteDownload != nil {
-		// Validate RemoteDownload
-		log.V(1).Infof("RemoteDownload provided")
-		// Check if the path is provided
-		if pkg.Package.RemoteDownload.Path == "" {
-			log.Errorf("RemoteDownload path is missing")
-			return status.Errorf(codes.InvalidArgument, "remote download path is missing")
-		}
-		log.V(1).Infof("RemoteDownload path: %s", pkg.Package.RemoteDownload.Path)
-
-		// Download the package
-		err = dbus.DownloadImage(pkg.Package.RemoteDownload.Path, pkg.Package.Filename)
-		if err != nil {
-			log.Errorf("Failed to download image: %v", err)
-			return status.Errorf(codes.Internal, "failed to download image: %v", err)
-		}
-		log.V(1).Infof("Package %s downloaded successfully to %s", pkg.Package.Version, pkg.Package.Filename)
-	}
-
-	// If activate is requested, install the package and set it to be the next boot image
-	if pkg.Package.Activate {
-		log.V(1).Infof("Activate is requested")
-		// Install the package
-		err = dbus.InstallImage(pkg.Package.Filename)
-		if err != nil {
-			log.Errorf("Failed to install image: %v", err)
-			return status.Errorf(codes.Internal, "failed to install image: %v", err)
-		}
-		log.V(1).Infof("Package %s installed successfully", pkg.Package.Filename)
-		// Currently, Installing the image will automatically set it as the next boot image
-		log.V(1).Infof("Package %s set as next boot image", pkg.Package.Filename)
-	}
-
-	// Send response to client
-	if err := rs.SendAndClose(&syspb.SetPackageResponse{}); err != nil {
-		log.Errorf("Failed to send response: %v", err)
-		return err
-	}
-
-	log.V(1).Infof("SetPackage completed successfully for %s", pkg.Package.Filename)
-	return nil
+	// Delegate all logic to the pure handler
+	return system.HandleSetPackageStream(rs)
 }
 
 // SwitchControlProcessor implements the corresponding RPC.
