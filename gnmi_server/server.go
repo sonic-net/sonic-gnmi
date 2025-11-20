@@ -10,6 +10,7 @@ import (
 
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
@@ -27,6 +28,8 @@ import (
 
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
+	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
+	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -60,6 +63,54 @@ type Server struct {
 	factory_reset.UnimplementedFactoryResetServer
 }
 
+// handleOperationalGet handles OPERATIONAL target requests directly with standard gNMI types
+func (s *Server) handleOperationalGet(ctx context.Context, req *gnmipb.GetRequest, paths []*gnmipb.Path, prefix *gnmipb.Path) (*gnmipb.GetResponse, error) {
+	// Authentication - use gnoi auth even though this is a gNMI Get operation.
+	// The OPERATIONAL target provides operational state queries (like disk space)
+	// that supplement gNOI services when existing gNOI definitions don't provide
+	// what we need. This allows reusing gnoi_readonly/gnoi_readwrite roles
+	// for operational data access control.
+	authTarget := "gnoi"
+	ctx, err := authenticate(s.config, ctx, authTarget, false)
+	if err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, err
+	}
+
+	// Create operational handler
+	operationalHandler, err := operationalhandler.NewOperationalHandler(paths, prefix)
+	if err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+	defer operationalHandler.Close()
+
+	// Get data from operational handler
+	values, err := operationalHandler.Get(nil)
+	if err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		// Handler returns proper status errors, propagate them directly
+		return nil, err
+	}
+
+	// Convert directly to gNMI notifications (no SONiC wrapper!)
+	notifications := make([]*gnmipb.Notification, len(values))
+	for index, value := range values {
+		update := &gnmipb.Update{
+			Path: value.Path,
+			Val:  value.Value,
+		}
+
+		notifications[index] = &gnmipb.Notification{
+			Timestamp: value.Timestamp,
+			Prefix:    prefix,
+			Update:    []*gnmipb.Update{update},
+		}
+	}
+
+	return &gnmipb.GetResponse{Notification: notifications}, nil
+}
+
 // FileServer is the server API for File service.
 // All implementations must embed UnimplementedFileServer
 // for forward compatibility
@@ -68,11 +119,18 @@ type FileServer struct {
 	gnoi_file_pb.UnimplementedFileServer
 }
 
+// OSBackend defines the interface for the OS installation backend service.
+type OSBackend interface {
+	InstallOS(req string) (string, error)
+}
+
 // OSServer is the server API for System service.
 // All implementations must embed UnimplementedSystemServer
 // for forward compatibility
 type OSServer struct {
 	*Server
+	backend OSBackend // Dependency interface
+	ImgDir  string
 	gnoi_os_pb.UnimplementedOSServer
 }
 
@@ -80,6 +138,14 @@ type OSServer struct {
 type ContainerzServer struct {
 	server *Server
 	gnoi_containerz_pb.UnimplementedContainerzServer
+}
+
+// DebugServer is the server API for Debug service.
+type DebugServer struct {
+	*Server
+	readWhitelist  []string
+	writeWhitelist []string
+	gnoi_debug_pb.UnimplementedDebugServer
 }
 
 type AuthTypes map[string]bool
@@ -94,12 +160,29 @@ type Config struct {
 	UserAuth            AuthTypes
 	EnableTranslibWrite bool
 	EnableNativeWrite   bool
+	EnableTranslation   bool
 	ZmqPort             string
 	IdleConnDuration    int
 	ConfigTableName     string
 	Vrf                 string
 	EnableCrl           bool
 	MaxNumSubscribers   uint64
+	// Path to the directory where image is stored.
+	ImgDir string
+}
+
+// DBusOSBackend is a concrete implementation of OSBackend
+type DBusOSBackend struct{}
+
+// InstallOS implements the OSBackend interface.
+func (d *DBusOSBackend) InstallOS(req string) (string, error) {
+	log.Infof("DBusOSBackend.InstallOS: %v", req)
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		return "", err
+	}
+	defer sc.Close()
+	return sc.InstallOS(req)
 }
 
 var AuthLock sync.Mutex
@@ -195,8 +278,24 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	fileSrv := &FileServer{Server: srv}
-	osSrv := &OSServer{Server: srv}
+
+	// Create an instance of the concrete OSBackend implementation
+	osBackend := &DBusOSBackend{}
+
+	osSrv := &OSServer{
+		Server:  srv,
+		backend: osBackend, // Pass the installer dependency
+		ImgDir:  srv.config.ImgDir,
+	}
+
 	containerzSrv := &ContainerzServer{server: srv}
+
+	readWhitelist, writeWhitelist := gnoi_debug.ConstructWhitelists()
+	debugSrv := &DebugServer{
+		Server:         srv,
+		readWhitelist:  readWhitelist,
+		writeWhitelist: writeWhitelist,
+	}
 
 	var err error
 	if srv.config.Port < 0 {
@@ -214,6 +313,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		gnoi_file_pb.RegisterFileServer(srv.s, fileSrv)
 		gnoi_os_pb.RegisterOSServer(srv.s, osSrv)
 		gnoi_containerz_pb.RegisterContainerzServer(srv.s, containerzSrv)
+		gnoi_debug_pb.RegisterDebugServer(srv.s, debugSrv)
 	}
 	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
@@ -459,6 +559,11 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 	var dc sdc.Client
 	var err error
+	// Handle OPERATIONAL target directly without SONiC routing
+	if target == "OPERATIONAL" {
+		return s.handleOperationalGet(ctx, req, paths, prefix)
+	}
+
 	authTarget := "gnmi"
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)

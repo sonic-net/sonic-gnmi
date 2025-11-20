@@ -64,7 +64,8 @@ func main() {
 	builder := server.NewServerBuilder().
 		WithAddress(config.Global.Addr).
 		WithRootFS(config.Global.RootFS).
-		EnableGNOISystem()
+		EnableGNOISystem().
+		EnableGNOIFile()
 
 	// Configure certificates based on advanced options
 	if config.Global.UseSONiCConfig {

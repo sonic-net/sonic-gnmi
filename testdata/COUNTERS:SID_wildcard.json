@@ -1,0 +1,10 @@
+{
+    "fcbb:bbbb:1::/48": {
+        "SAI_COUNTER_STAT_PACKETS": "0",
+        "SAI_COUNTER_STAT_BYTES": "0"
+    },
+    "fcbb:bbbb:2::/48": {
+        "SAI_COUNTER_STAT_PACKETS": "10",
+        "SAI_COUNTER_STAT_BYTES": "40960"
+    }
+}
