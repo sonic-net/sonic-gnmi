@@ -24,3 +24,12 @@ swsscommon/swsscommon.go
 swsscommon/swsscommon.i
 swsscommon/swsscommon_wrap.cxx
 swsscommon/swsscommon_wrap.h
+
+# Coverage files
+coverage.out
+coverage-*.txt
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo

@@ -10,18 +10,28 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	gnoi_common "github.com/openconfig/gnoi/common"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoifile "github.com/sonic-net/sonic-gnmi/pkg/gnoi/file"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
 // === Test Setup Helpers ===
-func createFileServer(t *testing.T, port int) *grpc.Server {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+func createFileServer(t *testing.T, port int) (*grpc.Server, string) {
+	var listener net.Listener
+	var err error
+
+	if port == 0 {
+		// Use dynamic port
+		listener, err = net.Listen("tcp", ":0")
+	} else {
+		listener, err = net.Listen("tcp", fmt.Sprintf(":%d", port))
+	}
 	if err != nil {
 		t.Fatalf("Failed to listen: %v", err)
 	}
@@ -40,19 +50,19 @@ func createFileServer(t *testing.T, port int) *grpc.Server {
 		}
 	}()
 
-	return s
+	return s, listener.Addr().String()
 }
 
 // === Actual Tests ===
 func TestGnoiFileServer(t *testing.T) {
-	s := createFileServer(t, 8081)
+	s, addr := createFileServer(t, 0) // Use dynamic port
 	defer s.Stop()
 
 	//tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	//opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
-	conn, err := grpc.Dial("127.0.0.1:8081", opts...)
+	conn, err := grpc.Dial(addr, opts...)
 	if err != nil {
 		t.Fatalf("Failed to dial server: %v", err)
 	}
@@ -188,21 +198,6 @@ func TestGnoiFileServer(t *testing.T) {
 		assert.Contains(t, err.Error(), "invalid syntax")
 	})
 
-	t.Run("Put Fails with Unimplemented Error", func(t *testing.T) {
-		patch := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
-		defer patch.Reset()
-
-		putStream, err := client.Put(context.Background())
-		if err != nil {
-			t.Fatalf("Failed to create Put stream: %v", err)
-		}
-
-		// Expect Unimplemented error on CloseAndRecv
-		_, err = putStream.CloseAndRecv()
-		if err == nil || status.Code(err) != codes.Unimplemented {
-			t.Fatalf("Expected Unimplemented error, got: %v", err)
-		}
-	})
 	t.Run("Put Fails with Auth Error", func(t *testing.T) {
 		patch := gomonkey.ApplyFuncReturn(authenticate, nil, status.Error(codes.Unauthenticated, "unauthenticated"))
 		defer patch.Reset()
@@ -234,6 +229,71 @@ func TestGnoiFileServer(t *testing.T) {
 		if err == nil || status.Code(err) != codes.Unimplemented {
 			t.Fatalf("Expected Unimplemented error, got: %v", err)
 		}
+	})
+
+	t.Run("TransferToRemote DPU Success", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+
+		// Mock authenticate to succeed
+		patches.ApplyFuncReturn(authenticate, nil, nil)
+
+		// Mock HandleTransferToRemoteForDPUStreaming to succeed
+		patches.ApplyFunc(gnoifile.HandleTransferToRemoteForDPUStreaming,
+			func(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest, dpuIndex string, dpuAddr string) (*gnoi_file_pb.TransferToRemoteResponse, error) {
+				return &gnoi_file_pb.TransferToRemoteResponse{}, nil
+			})
+
+		fs := &FileServer{
+			Server: &Server{
+				config: &Config{},
+			},
+		}
+
+		// Create context with DPU metadata (lines 117, 120, 125-126)
+		md := metadata.New(map[string]string{
+			"x-sonic-ss-target-type":  "dpu",
+			"x-sonic-ss-target-index": "0",
+		})
+		ctx := metadata.NewIncomingContext(context.Background(), md)
+
+		req := &gnoi_file_pb.TransferToRemoteRequest{
+			LocalPath: "/tmp/test.txt",
+		}
+
+		resp, err := fs.TransferToRemote(ctx, req)
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("TransferToRemote NPU Success", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+
+		// Mock authenticate to succeed
+		patches.ApplyFuncReturn(authenticate, nil, nil)
+
+		// Mock HandleTransferToRemote to succeed
+		patches.ApplyFunc(gnoifile.HandleTransferToRemote,
+			func(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest) (*gnoi_file_pb.TransferToRemoteResponse, error) {
+				return &gnoi_file_pb.TransferToRemoteResponse{}, nil
+			})
+
+		fs := &FileServer{
+			Server: &Server{
+				config: &Config{},
+			},
+		}
+
+		ctx := context.Background() // No DPU metadata - should call regular function
+
+		req := &gnoi_file_pb.TransferToRemoteRequest{
+			LocalPath: "/tmp/test.txt",
+		}
+
+		resp, err := fs.TransferToRemote(ctx, req)
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
 	})
 
 	t.Run("TransferToRemote Fails with Auth Error", func(t *testing.T) {
@@ -399,4 +459,68 @@ func TestGnoiFileServer(t *testing.T) {
 		}
 	})
 
+	// Test Put function success path (line 143)
+	t.Run("Put_Success", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+
+		patches.ApplyFuncReturn(authenticate, nil, nil)
+
+		// Mock the gnoifile.HandlePut function to return success
+		patches.ApplyFunc(gnoifile.HandlePut,
+			func(stream gnoi_file_pb.File_PutServer) error {
+				return nil
+			})
+
+		fs := &FileServer{
+			Server: &Server{
+				config: &Config{},
+			},
+		}
+
+		// Create a mock stream
+		mockStream := &mockPutStream{
+			ctx: context.Background(),
+		}
+
+		err := fs.Put(mockStream)
+		assert.NoError(t, err)
+	})
+
+}
+
+// Mock stream for Put testing
+type mockPutStream struct {
+	ctx context.Context
+}
+
+func (m *mockPutStream) Context() context.Context {
+	return m.ctx
+}
+
+func (m *mockPutStream) SendMsg(msg interface{}) error {
+	return nil
+}
+
+func (m *mockPutStream) RecvMsg(msg interface{}) error {
+	return nil
+}
+
+func (m *mockPutStream) Recv() (*gnoi_file_pb.PutRequest, error) {
+	return nil, nil
+}
+
+func (m *mockPutStream) SendAndClose(resp *gnoi_file_pb.PutResponse) error {
+	return nil
+}
+
+func (m *mockPutStream) SendHeader(metadata.MD) error {
+	return nil
+}
+
+func (m *mockPutStream) SetTrailer(metadata.MD) {
+}
+
+func (m *mockPutStream) SetHeader(metadata.MD) error {
+	return nil
 }

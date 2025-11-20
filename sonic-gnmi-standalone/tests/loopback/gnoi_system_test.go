@@ -100,12 +100,12 @@ func TestGNOISystemSetPackageLoopback_DownloadFailure(t *testing.T) {
 	client := SetupGNOIClient(t, testServer.Addr, false)
 	defer client.Close()
 
-	// Test SetPackage with invalid URL - should fail
+	//   Test SetPackage with invalid URL - should fail
 	ctx, cancel := WithTestTimeout(10 * time.Second)
 	defer cancel()
 
 	params := &clientGnoi.SetPackageParams{
-		URL:      "http://invalid-url-that-does-not-exist.example.com/package.bin",
+		URL:      "http://127.0.0.1:65534/nonexistent/package.bin",
 		Filename: filepath.Join(tempDir, "test-download-fail.bin"),
 		MD5:      "d41d8cd98f00b204e9800998ecf8427e", // Empty file MD5
 	}
