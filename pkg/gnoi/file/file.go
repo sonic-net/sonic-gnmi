@@ -677,8 +677,15 @@ func HandleFileRemove(ctx context.Context, req *gnoi_file_pb.RemoveRequest) (*gn
 		return nil, status.Error(codes.PermissionDenied, "only files in /tmp/ or /var/tmp/ can be removed")
 	}
 
+	// NEW: map host path to container path if needed.
+	// translatePathForContainer will prepend /mnt/host inside the gnmi container
+	// when appropriate, so files created on the DUT in /tmp/ are visible.
+	localPath := remoteFile
+	translatedPath := translatePathForContainer(localPath)
+	log.Infof("HandleFileRemove removing file: remote=%s translated=%s", remoteFile, translatedPath)
+
 	// Attempt remove and map errors to gRPC status codes for testable behavior.
-	if err := os.Remove(remoteFile); err != nil {
+	if err := os.Remove(translatedPath); err != nil {
 		log.Errorf("Remove RPC failed: %v", err)
 
 		lower := strings.ToLower(err.Error())
