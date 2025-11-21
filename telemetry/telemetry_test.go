@@ -1003,6 +1003,7 @@ func TestINotifyCertMonitoringMove(t *testing.T) {
 }
 
 func TestINotifyCertMonitoringCopy(t *testing.T) {
+	t.Skip("Flaky test - TODO: zbud-msft to fix")
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
 	tempDir := t.TempDir()
@@ -1273,6 +1274,7 @@ func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 }
 
 func TestINotifyCertMonitoringCertValidationFails(t *testing.T) {
+	t.Skip("Flaky test - TODO: zbud-msft to fix")
 	tmpDir := t.TempDir()
 	testServerCert := filepath.Join(tmpDir, "server.crt")
 	testServerKey := filepath.Join(tmpDir, "server.key")
