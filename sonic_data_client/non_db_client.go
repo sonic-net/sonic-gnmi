@@ -471,7 +471,6 @@ func (c *NonDbClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.Wai
 		Timestamp:    time.Now().UnixNano(),
 		SyncResponse: true,
 	}
-	// c.q.EnqueueItem(Value{spbv})
 	if err := c.q.EnqueueItem(Value{spbv}); err != nil {
 		if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
 			c.q.enqueFatalMsg(st.Message())
@@ -560,7 +559,6 @@ func (c *NonDbClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.WaitG
 			Timestamp:    time.Now().UnixNano(),
 			SyncResponse: true,
 		}
-		// c.q.EnqueueItem(Value{spbv})
 		if err := c.q.EnqueueItem(Value{spbv}); err != nil {
 			if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
 				c.q.enqueFatalMsg(st.Message())

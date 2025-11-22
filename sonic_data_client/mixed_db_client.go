@@ -1631,7 +1631,6 @@ func (c *MixedDbClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.Wai
 				SyncResponse: false,
 				Val:          val,
 			}
-			// c.q.EnqueueItem(Value{spbv})
 			if errEnq := c.q.EnqueueItem(Value{spbv}); errEnq != nil {
 				if st, ok := status.FromError(errEnq); ok && st.Code() == codes.ResourceExhausted {
 					c.q.enqueFatalMsg(st.Message())
@@ -1645,7 +1644,6 @@ func (c *MixedDbClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.Wai
 			Timestamp:    time.Now().UnixNano(),
 			SyncResponse: true,
 		}
-		// c.q.EnqueueItem(Value{spbv})
 		if err := c.q.EnqueueItem(Value{spbv}); err != nil {
 			if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
 				c.q.enqueFatalMsg(st.Message())
@@ -1708,7 +1706,6 @@ func (c *MixedDbClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.W
 		Timestamp:    time.Now().UnixNano(),
 		SyncResponse: true,
 	}
-	// c.q.EnqueueItem(Value{spbv})
 	if err := c.q.EnqueueItem(Value{spbv}); err != nil {
 		if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
 			c.q.enqueFatalMsg(st.Message())
@@ -1832,9 +1829,6 @@ func (c *MixedDbClient) dbFieldSubscribe(gnmiPath *gnmipb.Path, onChange bool, i
 			c.q.enqueFatalMsg("Internal error")
 			return err
 		}
-		// 	log.V(1).Infof("Queue error:  %v", err)
-		// 	return err
-		// }
 		return nil
 	}
 

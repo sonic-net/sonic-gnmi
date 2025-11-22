@@ -10,6 +10,8 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"strings"
 	"sync"
@@ -75,7 +77,7 @@ func TestForceEnqueueItemWithNotification(t *testing.T) {
 	}
 }
 
-// DB Client 
+// DB Client
 func TestDbClientSubscriptionModeFatalMsg(t *testing.T) {
 	var wg sync.WaitGroup
 	q := NewLimitedQueue(1, false, 100)
@@ -163,7 +165,7 @@ func TestPollRun_EnqueueItemResourceExhausted(t *testing.T) {
 
 func TestPollRun_SyncResponseEnqueueItemResourceExhausted(t *testing.T) {
 	var wg sync.WaitGroup
-	q := NewLimitedQueue(1, false, 1) // Small queue to simulate overflow
+	q := NewLimitedQueue(1, false, 1)
 	poll := make(chan struct{})
 
 	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
@@ -948,4 +950,145 @@ func TestRecoverFatalMsg(t *testing.T) {
 		t.Errorf("Unexpected fatal message: %v", item.Fatal)
 	}
 
+}
+
+//Testing
+
+func TestEnqueueItem(t *testing.T) {
+	q := NewLimitedQueue(10, false, 100)
+	val := &spb.Value{
+		Timestamp: time.Now().UnixNano(),
+	}
+	err := q.EnqueueItem(Value{val})
+	if err != nil {
+		t.Errorf("EnqueueItem returned error: %v", err)
+	}
+}
+
+func TestEnqueueItemError(t *testing.T) {
+	q := NewLimitedQueue(10, false, 0)
+	val := &spb.Value{
+		Timestamp: time.Now().UnixNano(),
+	}
+	err := q.EnqueueItem(Value{val})
+	if err == nil {
+		t.Errorf("EnqueueItem did not return error")
+	}
+	if st, ok := status.FromError(err); !ok || st.Code() != codes.ResourceExhausted {
+		t.Errorf("EnqueueItem returned incorrect error: %v", err)
+	}
+}
+
+func TestStreamRun_EnqueFatalMsgMixed(t *testing.T) {
+	var wg sync.WaitGroup
+	var synced sync.WaitGroup
+
+	q := NewLimitedQueue(1, false, 0)
+	stop := make(chan struct{})
+
+	client := &MixedDbClient{
+		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+		paths:   []*gnmipb.Path{{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}},
+		q:       q,
+		channel: stop,
+		w:       &wg,
+		synced:  synced,
+	}
+
+	notification := &gnmipb.Notification{
+		Timestamp: time.Now().UnixNano(),
+		Update: []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+				Val:  &gnmipb.TypedValue{Value: &gnmipb.TypedValue_StringVal{StringVal: "up"}},
+			},
+		},
+	}
+
+	item := Value{
+		&spb.Value{
+			Notification: notification,
+		},
+	}
+	// Fill the queue to simulate ResourceExhausted
+	_ = q.EnqueueItem(item)
+
+	// Create a subscription with unsupported mode
+	sub := &gnmipb.Subscription{
+		Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+		Mode: gnmipb.SubscriptionMode_SAMPLE,
+	}
+	subList := &gnmipb.SubscriptionList{
+		Subscription: []*gnmipb.Subscription{sub},
+	}
+
+	wg.Add(1)
+	synced.Add(1)
+	go client.StreamRun(q, stop, &wg, subList)
+	wg.Wait()
+
+	itemOut, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if itemOut.Fatal == "" {
+		t.Errorf("Expected fatal message, got: %v", itemOut)
+	}
+}
+
+func TestPollRun_EnqueFatalMsgMixed(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 0)
+	poll := make(chan struct{})
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := MixedDbClient{
+		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{path: {{dbName: "APPL_DB", tableName: "INTERFACES"}}},
+	}
+
+	// Fill the queue to simulate ResourceExhausted
+	notification := &gnmipb.Notification{
+		Timestamp: time.Now().UnixNano(),
+		Update: []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+				Val:  &gnmipb.TypedValue{Value: &gnmipb.TypedValue_StringVal{StringVal: "up"}},
+			},
+		},
+	}
+
+	item := Value{
+		&spb.Value{
+			Notification: notification,
+		},
+	}
+
+	_ = q.EnqueueItem(item)
+
+	originalFunc := getTypedValueFunc
+	getTypedValueFunc = func(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error) {
+		return &gnmipb.TypedValue{
+			Value: &gnmipb.TypedValue_StringVal{StringVal: "mocked"},
+		}, nil
+	}
+	defer func() { getTypedValueFunc = originalFunc }()
+
+	client.q = q
+	client.channel = poll
+
+	wg.Add(1)
+	go client.PollRun(q, poll, &wg, nil)
+
+	// Trigger the poll
+	poll <- struct{}{}
+	close(poll)
+	wg.Wait()
+
+	// Check for fatal messages
+	_, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
 }

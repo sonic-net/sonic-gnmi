@@ -410,9 +410,6 @@ func send_event(evtc *EventClient, tv *gnmipb.TypedValue,
 		evtc.q.enqueFatalMsg("Internal error")
 		return err
 	}
-	// log.V(3).Infof("Queue error:  %v", err)
-	// return err
-	// }
 	return nil
 }
 

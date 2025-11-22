@@ -250,7 +250,6 @@ func (c *DbClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.WaitGr
 		Timestamp:    time.Now().UnixNano(),
 		SyncResponse: true,
 	}
-	// errEnq := c.q.EnqueueItem(Value{spbv})
 	if errEnq := c.q.EnqueueItem(Value{spbv}); errEnq != nil {
 		if st, ok := status.FromError(errEnq); ok && st.Code() == codes.ResourceExhausted {
 			c.q.enqueFatalMsg(st.Message())
@@ -337,7 +336,6 @@ func (c *DbClient) AppDBPollRun(q *LimitedQueue, poll chan struct{}, w *sync.Wai
 							},
 						},
 					}
-					// c.q.EnqueueItem(Value{spbv})
 					if errEnq := c.q.EnqueueItem(Value{spbv}); errEnq != nil {
 						if st, ok := status.FromError(errEnq); ok && st.Code() == codes.ResourceExhausted {
 							c.q.enqueFatalMsg(st.Message())
@@ -358,7 +356,6 @@ func (c *DbClient) AppDBPollRun(q *LimitedQueue, poll chan struct{}, w *sync.Wai
 					SyncResponse: false,
 					Val:          val,
 				}
-				// c.q.EnqueueItem(Value{spbv})
 				if errEnq := c.q.EnqueueItem(Value{spbv}); errEnq != nil {
 					if st, ok := status.FromError(errEnq); ok && st.Code() == codes.ResourceExhausted {
 						c.q.enqueFatalMsg(st.Message())
@@ -373,7 +370,6 @@ func (c *DbClient) AppDBPollRun(q *LimitedQueue, poll chan struct{}, w *sync.Wai
 			Timestamp:    time.Now().UnixNano(),
 			SyncResponse: true,
 		}
-		// c.q.EnqueueItem(Value{spbv})
 		if errEnq := c.q.EnqueueItem(Value{spbv}); errEnq != nil {
 			if st, ok := status.FromError(errEnq); ok && st.Code() == codes.ResourceExhausted {
 				c.q.enqueFatalMsg(st.Message())
@@ -412,7 +408,6 @@ func (c *DbClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.WaitGrou
 				SyncResponse: false,
 				Val:          val,
 			}
-			// c.q.EnqueueItem(Value{spbv})
 			if errEnq := c.q.EnqueueItem(Value{spbv}); errEnq != nil {
 				if st, ok := status.FromError(errEnq); ok && st.Code() == codes.ResourceExhausted {
 					c.q.enqueFatalMsg(st.Message())
