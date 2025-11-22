@@ -137,8 +137,8 @@ func createServer(t *testing.T, port int64) *Server {
 		Port:                port,
 		EnableTranslibWrite: true,
 		EnableNativeWrite:   true,
-		Threshold:           100, 
-		MaxNumSubscribers: 10,
+		Threshold:           100,
+		MaxNumSubscribers:   10,
 		ImgDir:              "/tmp",
 	}
 	s, err := NewServer(cfg, opts)
@@ -161,8 +161,8 @@ func createReadServer(t *testing.T, port int64) *Server {
 	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
 		Port:                port,
-		EnableTranslibWrite: false, 
-		MaxNumSubscribers: 10,
+		EnableTranslibWrite: false,
+		MaxNumSubscribers:   10,
 		ImgDir:              "/tmp",
 	}
 	s, err := NewServer(cfg, opts)
@@ -187,7 +187,7 @@ func createRejectServer(t *testing.T, port int64) *Server {
 		Port:                port,
 		EnableTranslibWrite: true,
 		Threshold:           2,
-		MaxNumSubscribers: 10,
+		MaxNumSubscribers:   10,
 		ImgDir:              "/tmp",
 	}
 	s, err := NewServer(cfg, opts)
@@ -212,8 +212,8 @@ func createAuthServer(t *testing.T, port int64) *Server {
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: true,
-		UserAuth:            AuthTypes{"password": true, "cert": true, "jwt": true}, 
-		MaxNumSubscribers: 10,
+		UserAuth:            AuthTypes{"password": true, "cert": true, "jwt": true},
+		MaxNumSubscribers:   10,
 		ImgDir:              "/tmp",
 	}
 	s, err := NewServer(cfg, opts)
@@ -285,8 +285,8 @@ func createKeepAliveServer(t *testing.T, port int64) *Server {
 		Port:                port,
 		EnableTranslibWrite: true,
 		EnableNativeWrite:   true,
-		Threshold:           100, 
-		MaxNumSubscribers: 10,
+		Threshold:           100,
+		MaxNumSubscribers:   10,
 		ImgDir:              "/tmp",
 	}
 

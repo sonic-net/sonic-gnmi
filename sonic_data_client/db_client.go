@@ -19,6 +19,8 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -234,7 +236,7 @@ func (c *DbClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.WaitGr
 				c.synced.Add(1)
 				go streamOnChangeSubscription(c, sub.GetPath())
 			} else {
-				enqueFatalMsg(c.q, fmt.Sprintf("unsupported subscription mode, %v", subMode))
+				c.q.enqueFatalMsg(fmt.Sprintf("unsupported subscription mode, %v", subMode))
 				return
 			}
 		}
@@ -244,12 +246,16 @@ func (c *DbClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.WaitGr
 	// in the SubscriptionList has been transmitted at least once
 	c.synced.Wait()
 	// Inject sync message
-	c.q.EnqueueItem(Value{
-		&spb.Value{
-			Timestamp:    time.Now().UnixNano(),
-			SyncResponse: true,
-		},
-	})
+	spbv := &spb.Value{
+		Timestamp:    time.Now().UnixNano(),
+		SyncResponse: true,
+	}
+	if errEnq := c.q.EnqueueItem(Value{spbv}); errEnq != nil {
+		if st, ok := status.FromError(errEnq); ok && st.Code() == codes.ResourceExhausted {
+			c.q.enqueFatalMsg(st.Message())
+			return
+		}
+	}
 	log.V(2).Infof("%v Synced", c.pathG2S)
 
 	<-c.channel
@@ -277,7 +283,7 @@ func streamOnChangeSubscription(c *DbClient, gnmiPath *gnmipb.Path) {
 func streamSampleSubscription(c *DbClient, sub *gnmipb.Subscription, updateOnly bool) {
 	samplingInterval, err := validateSampleInterval(sub)
 	if err != nil {
-		enqueFatalMsg(c.q, err.Error())
+		c.q.enqueFatalMsg(err.Error())
 		c.synced.Done()
 		c.w.Done()
 		return
@@ -330,7 +336,12 @@ func (c *DbClient) AppDBPollRun(q *LimitedQueue, poll chan struct{}, w *sync.Wai
 							},
 						},
 					}
-					c.q.EnqueueItem(Value{spbv})
+					if errEnq := c.q.EnqueueItem(Value{spbv}); errEnq != nil {
+						if st, ok := status.FromError(errEnq); ok && st.Code() == codes.ResourceExhausted {
+							c.q.enqueFatalMsg(st.Message())
+							return
+						}
+					}
 					log.V(6).Infof("Added spbv #%v", spbv)
 					prevUpdates[pathKey] = false
 				}
@@ -345,7 +356,12 @@ func (c *DbClient) AppDBPollRun(q *LimitedQueue, poll chan struct{}, w *sync.Wai
 					SyncResponse: false,
 					Val:          val,
 				}
-				c.q.EnqueueItem(Value{spbv})
+				if errEnq := c.q.EnqueueItem(Value{spbv}); errEnq != nil {
+					if st, ok := status.FromError(errEnq); ok && st.Code() == codes.ResourceExhausted {
+						c.q.enqueFatalMsg(st.Message())
+						return
+					}
+				}
 				prevUpdates[pathKey] = true
 				log.V(6).Infof("Added spbv #%v", spbv)
 			}
@@ -354,7 +370,12 @@ func (c *DbClient) AppDBPollRun(q *LimitedQueue, poll chan struct{}, w *sync.Wai
 			Timestamp:    time.Now().UnixNano(),
 			SyncResponse: true,
 		}
-		c.q.EnqueueItem(Value{spbv})
+		if errEnq := c.q.EnqueueItem(Value{spbv}); errEnq != nil {
+			if st, ok := status.FromError(errEnq); ok && st.Code() == codes.ResourceExhausted {
+				c.q.enqueFatalMsg(st.Message())
+				return
+			}
+		}
 		log.V(6).Infof("Added spbv #%v", spbv)
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
@@ -387,16 +408,25 @@ func (c *DbClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.WaitGrou
 				SyncResponse: false,
 				Val:          val,
 			}
-			c.q.EnqueueItem(Value{spbv})
+			if errEnq := c.q.EnqueueItem(Value{spbv}); errEnq != nil {
+				if st, ok := status.FromError(errEnq); ok && st.Code() == codes.ResourceExhausted {
+					c.q.enqueFatalMsg(st.Message())
+					return
+				}
+			}
 			log.V(6).Infof("Added spbv #%v", spbv)
 		}
 
-		c.q.EnqueueItem(Value{
-			&spb.Value{
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: true,
-			},
-		})
+		spbv := &spb.Value{
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: true,
+		}
+		if errEnq := c.q.EnqueueItem(Value{spbv}); errEnq != nil {
+			if st, ok := status.FromError(errEnq); ok && st.Code() == codes.ResourceExhausted {
+				c.q.enqueFatalMsg(st.Message())
+				return
+			}
+		}
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
 }
@@ -1163,7 +1193,7 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 	sendVal := func(msi map[string]interface{}) error {
 		val, err := Msi2TypedValue(msi)
 		if err != nil {
-			enqueFatalMsg(c.q, err.Error())
+			c.q.enqueFatalMsg(err.Error())
 			return err
 		}
 
@@ -1175,10 +1205,13 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 		}
 
 		if err = c.q.EnqueueItem(Value{spbv}); err != nil {
+			if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
+				c.q.enqueFatalMsg(st.Message())
+				return err
+			}
 			log.V(1).Infof("Queue error:  %v", err)
 			return err
 		}
-
 		return nil
 	}
 
@@ -1254,6 +1287,10 @@ func dbFieldSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interva
 		}
 
 		if err := c.q.EnqueueItem(Value{spbv}); err != nil {
+			if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
+				c.q.enqueFatalMsg(st.Message())
+				return err
+			}
 			log.V(1).Infof("Queue error:  %v", err)
 			return err
 		}
@@ -1265,7 +1302,7 @@ func dbFieldSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interva
 	val := readVal()
 	err := sendVal(val)
 	if err != nil {
-		enqueFatalMsg(c.q, err.Error())
+		c.q.enqueFatalMsg(err.Error())
 		c.synced.Done()
 		return
 	}
@@ -1347,7 +1384,7 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 				if tblPath.tableKey != "" {
 					err = TableData2Msi(&tblPath, false, nil, &newMsi)
 					if err != nil {
-						enqueFatalMsg(c.q, err.Error())
+						c.q.enqueFatalMsg(err.Error())
 						return
 					}
 				} else {
@@ -1359,7 +1396,7 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 					tblPath.tableKey = subscr.Channel[prefixLen:]
 					err = TableData2Msi(&tblPath, true, nil, &newMsi)
 					if err != nil {
-						enqueFatalMsg(c.q, err.Error())
+						c.q.enqueFatalMsg(err.Error())
 						return
 					}
 				}
@@ -1406,7 +1443,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 	// Helper to handle fatal case.
 	handleFatalMsg := func(msg string) {
 		log.V(1).Infof(msg)
-		enqueFatalMsg(c.q, msg)
+		c.q.enqueFatalMsg(msg)
 		signalSync()
 	}
 
@@ -1425,6 +1462,10 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 			Val:       val,
 		}
 		if err = c.q.EnqueueItem(Value{spbv}); err != nil {
+			if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
+				c.q.enqueFatalMsg(st.Message())
+				return err
+			}
 			return fmt.Errorf("Queue error:  %v", err)
 		}
 
