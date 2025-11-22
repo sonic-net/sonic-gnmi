@@ -75,7 +75,7 @@ func TestForceEnqueueItemWithNotification(t *testing.T) {
 	}
 }
 
-// DB Client
+// DB Client 
 func TestDbClientSubscriptionModeFatalMsg(t *testing.T) {
 	var wg sync.WaitGroup
 	q := NewLimitedQueue(1, false, 100)
