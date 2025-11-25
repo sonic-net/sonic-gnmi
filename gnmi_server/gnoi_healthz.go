@@ -206,3 +206,11 @@ func (srv *HealthzServer) Get(ctx context.Context, req *healthz.GetRequest) (*he
 	log.Warning("Healthz.Get received unsupported component path")
 	return nil, status.Errorf(codes.Unimplemented, "Healthz.Get is unimplemented for component: [%s].", path.GetElem())
 }
+
+func (srv *HealthzServer) List(ctx context.Context, req *healthz.ListRequest) (*healthz.ListResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "gNOI Healthz List not implemented")
+}
+
+func (srv *HealthzServer) Check(ctx context.Context, req *healthz.CheckRequest) (*healthz.CheckResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "gNOI Healthz Check not implemented")
+}
