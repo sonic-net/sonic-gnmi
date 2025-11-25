@@ -1086,9 +1086,97 @@ func TestPollRun_EnqueFatalMsgMixed(t *testing.T) {
 	close(poll)
 	wg.Wait()
 
-	// Check for fatal messages
 	_, err := q.DequeueItem()
 	if err != nil {
 		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+}
+
+func TestPollRun_EnqueueItemDb(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 0)
+	poll := make(chan struct{}, 1)
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := DbClient{
+		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{path: {{dbName: "APPL_DB", tableName: "INTERFACES"}}},
+		q:       q,
+		channel: poll,
+	}
+
+	notification := &gnmipb.Notification{
+		Timestamp: time.Now().UnixNano(),
+		Update: []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
+				},
+			},
+		},
+	}
+
+	item := Value{
+		&spb.Value{
+			Notification: notification,
+		},
+	}
+
+	_ = q.EnqueueItem(item)
+
+	poll <- struct{}{}
+	wg.Add(1)
+	go client.PollRun(q, poll, &wg, nil)
+	wg.Wait()
+
+	deq_item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if !strings.Contains(deq_item.Fatal, "Subscribe output queue exhausted") {
+		t.Errorf("Expected fatal message for ResourceExhausted, got: %v", deq_item.Fatal)
+	}
+}
+
+func TestClientSubscriptionModeNon(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 0)
+	stop := make(chan struct{}, 1)
+
+	dummyGetter := func() ([]byte, error) {
+		return nil, nil
+	}
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := NonDbClient{
+		prefix:      &gnmipb.Path{},
+		path2Getter: map[*gnmipb.Path]dataGetFunc{path: dummyGetter},
+		q:           q,
+		channel:     stop,
+	}
+
+	subscribe := &gnmipb.SubscriptionList{
+		Subscription: []*gnmipb.Subscription{
+			{
+				Path: path,
+				Mode: gnmipb.SubscriptionMode_SAMPLE,
+			},
+		},
+	}
+
+	stop <- struct{}{}
+	wg.Add(1)
+	go client.StreamRun(q, stop, &wg, subscribe)
+	wg.Wait()
+
+	item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if !strings.Contains(item.Fatal, "Unsupported subscription mode") {
+		t.Errorf("Expected fatal message for unsupported mode, got: %v", item.Fatal)
 	}
 }
