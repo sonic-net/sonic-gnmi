@@ -56,3 +56,32 @@ type FakeClientWithError struct {
 func (f *FakeClientWithError) RemoveFile(path string) error {
 	return errors.New("simulated failure")
 }
+
+func (f *FakeClient) HealthzCheck(req string) (string, error) {
+	if req == "" {
+		return "", fmt.Errorf("request cannot be empty")
+	}
+	return "fake-check-success", nil
+}
+
+func (f *FakeClient) HealthzCollect(req string) (string, error) {
+	if req == "" {
+		return "", fmt.Errorf("request cannot be empty")
+	}
+	return "/tmp/dump/fake-collect-success", nil
+}
+
+func (f *FakeClientWithError) HealthzCollect(req string) (string, error) {
+	return "", fmt.Errorf("dbus failure")
+}
+
+func (f *FakeClient) HealthzAck(req string) (string, error) {
+	if req == "" {
+		return "", fmt.Errorf("request cannot be empty")
+	}
+	return "fake-ack-success", nil
+}
+
+func (f *FakeClientWithError) HealthzAck(req string) (string, error) {
+	return "", fmt.Errorf("simulated dbus error")
+}
