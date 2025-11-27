@@ -79,3 +79,14 @@ func (f *FakeClient) HealthzCollect(req string) (string, error) {
 func (f *FakeClientWithError) HealthzCollect(req string) (string, error) {
 	return "", fmt.Errorf("dbus failure")
 }
+
+func (f *FakeClient) HealthzAck(req string) (string, error) {
+	if req == "" {
+		return "", fmt.Errorf("request cannot be empty")
+	}
+	return "fake-ack-success", nil
+}
+
+func (f *FakeClientWithError) HealthzAck(req string) (string, error) {
+	return "", fmt.Errorf("simulated dbus error")
+}

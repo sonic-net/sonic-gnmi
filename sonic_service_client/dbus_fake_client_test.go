@@ -67,4 +67,12 @@ func TestFakeClientMethods(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, "", output)
 	assert.Equal(t, "request cannot be empty", err.Error())
+
+	output, err = client.HealthzAck("ack-event")
+	assert.NoError(t, err)
+	assert.Equal(t, "fake-ack-success", output)
+	output, err = client.HealthzAck("")
+	assert.Error(t, err)
+	assert.Equal(t, "", output)
+	assert.Equal(t, "request cannot be empty", err.Error())
 }
