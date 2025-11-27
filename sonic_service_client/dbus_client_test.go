@@ -1197,6 +1197,43 @@ func TestFactoryReset(t *testing.T) {
 		t.Errorf("Expected result: %s, got: %s", expectedResult, result)
 	}
 }
+func TestHealthzAck_Success(t *testing.T) {
+	req := `{"id":"test-event-123"}`
+	expected_resp := "ack-success"
+
+	// Patch dbus.SystemBus to return a fake connection
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+
+	// Patch (*dbus.Object).Go to simulate DBus response
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		if method != "org.SONiC.HostService.debug_info.ack" {
+			t.Errorf("Wrong method: %v", method)
+		}
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = make([]interface{}, 2)
+		ret.Body[0] = int32(0) // success code
+		ret.Body[1] = expected_resp
+		ch <- ret
+		return ret
+	})
+	defer mock2.Reset()
+
+	client, err := NewDbusClient()
+	if err != nil {
+		t.Fatalf("NewDbusClient failed: %v", err)
+	}
+	result, err := client.HealthzAck(req)
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+	if result != expected_resp {
+		t.Errorf("Expected result: %s, got: %s", expected_resp, result)
+	}
+}
 
 func TestInstallOSSuccess(t *testing.T) {
 	req := "stable"
@@ -1566,6 +1603,55 @@ func TestHealthzCheck_InvalidReturnType(t *testing.T) {
 
 	client, _ := NewDbusClient()
 	result, err := client.HealthzCheck(req)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Invalid result type")
+	assert.Equal(t, "", result)
+}
+
+//To cover return paths in HealthzAck
+
+func TestHealthzAck_DbusError(t *testing.T) {
+	req := `{"id":"ack-event"}`
+
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (*dbus.Conn, error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = fmt.Errorf("fake-dbus-error")
+		ch <- ret
+		return ret
+	})
+	defer mock2.Reset()
+
+	client, _ := NewDbusClient()
+	result, err := client.HealthzAck(req)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "fake-dbus-error")
+	assert.Equal(t, "", result)
+}
+
+func TestHealthzAck_InvalidReturnType(t *testing.T) {
+	req := `{"id":"ack-event"}`
+
+	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (*dbus.Conn, error) {
+		return &dbus.Conn{}, nil
+	})
+	defer mock1.Reset()
+
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
+		ret := &dbus.Call{}
+		ret.Err = nil
+		ret.Body = []interface{}{int32(0), 1234} // int instead of string
+		ch <- ret
+		return ret
+	})
+	defer mock2.Reset()
+
+	client, _ := NewDbusClient()
+	result, err := client.HealthzAck(req)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "Invalid result type")
 	assert.Equal(t, "", result)
