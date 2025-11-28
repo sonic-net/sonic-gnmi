@@ -58,8 +58,14 @@ func TestRunTelemetry(t *testing.T) {
 
 func TestFlags(t *testing.T) {
 	originalArgs := os.Args
+	originalJwtRefreshInt := gnmi.JwtRefreshInt
+	originalJwtValidInt := gnmi.JwtValidInt
+	originalCrlExpireDuration := gnmi.GetCrlExpireDuration()
 	defer func() {
 		os.Args = originalArgs
+		gnmi.JwtRefreshInt = originalJwtRefreshInt
+		gnmi.JwtValidInt = originalJwtValidInt
+		gnmi.SetCrlExpireDuration(originalCrlExpireDuration)
 	}()
 
 	tests := []struct {

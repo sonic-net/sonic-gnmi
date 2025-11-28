@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 	"unsafe"
@@ -5502,7 +5503,12 @@ func TestServerConfigGnmiVrf(t *testing.T) {
 	}
 	s, err := NewServer(cfg, []grpc.ServerOption{})
 	if s != nil {
-		defer s.Stop()
+		defer func() {
+			s.ForceStop()
+			if s.lis != nil {
+				s.lis.Close()
+			}
+		}()
 	}
 	if err != nil {
 		t.Logf("Expected error when VRF doesn't exist: %v", err)
@@ -5538,7 +5544,12 @@ func TestServerConfigZmqVrf(t *testing.T) {
 	}
 	s, err := NewServer(cfg, []grpc.ServerOption{})
 	if s != nil {
-		defer s.Stop()
+		defer func() {
+			s.ForceStop()
+			if s.lis != nil {
+				s.lis.Close()
+			}
+		}()
 	}
 	if err != nil {
 		t.Errorf("Failed to create server: %v", err)
@@ -5549,112 +5560,361 @@ func TestServerConfigZmqVrf(t *testing.T) {
 	}
 }
 
-func TestServerConfigGnmiVrfEmpty(t *testing.T) {
-	// Test that empty GnmiVrf uses default listener
-	cfg := &Config{
-		Port:                8084,
-		EnableTranslibWrite: true,
-		EnableNativeWrite:   true,
-		Threshold:           100,
-		GnmiVrf:             "",
-		Vrf:                 "",
+func TestServerConfigGnmiVrfEmptyAndDefault(t *testing.T) {
+	// Test that empty GnmiVrf and "default" GnmiVrf both use default listener
+	tests := []struct {
+		name    string
+		gnmiVrf string
+	}{
+		{"empty GnmiVrf", ""},
+		{"default GnmiVrf", "default"},
 	}
-	s, err := NewServer(cfg, []grpc.ServerOption{})
-	if s != nil {
-		defer s.Stop()
-	}
-	if err != nil {
-		t.Errorf("Failed to create server with empty GnmiVrf: %v", err)
-		return
-	}
-	if s.lis == nil {
-		t.Errorf("Expected server listener to be created")
-	} else {
-		t.Logf("Server successfully created with default listener on address: %s", s.lis.Addr().String())
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Port:                0,
+				EnableTranslibWrite: true,
+				EnableNativeWrite:   true,
+				Threshold:           100,
+				GnmiVrf:             tt.gnmiVrf,
+				Vrf:                 "",
+			}
+			s, err := NewServer(cfg, []grpc.ServerOption{})
+			if s != nil {
+				defer func() {
+					s.ForceStop()
+					if s.lis != nil {
+						s.lis.Close()
+					}
+				}()
+			}
+			if err != nil {
+				t.Errorf("Failed to create server with GnmiVrf=%q: %v", tt.gnmiVrf, err)
+				return
+			}
+			if s.lis == nil {
+				t.Errorf("Expected server listener to be created")
+			} else {
+				t.Logf("Server with GnmiVrf=%q created on: %s", tt.gnmiVrf, s.lis.Addr().String())
+			}
+		})
 	}
 }
 
-func TestServerConfigGnmiVrfDefault(t *testing.T) {
-	// Test that "default" GnmiVrf uses default listener (not VRF-aware)
-	// Use port 0 to let OS assign an available port to avoid conflicts
-	cfg := &Config{
-		Port:                0,
-		EnableTranslibWrite: true,
-		EnableNativeWrite:   true,
-		Threshold:           100,
-		GnmiVrf:             "default",
-		Vrf:                 "",
-	}
-	s, err := NewServer(cfg, []grpc.ServerOption{})
-	if s != nil {
-		defer s.Stop()
-	}
-	if err != nil {
-		t.Errorf("Failed to create server with 'default' GnmiVrf: %v", err)
-		return
-	}
-	if s.lis == nil {
-		t.Errorf("Expected server listener to be created")
-	} else {
-		t.Logf("Server successfully created with default listener on address: %s", s.lis.Addr().String())
+func mockSyscalls() func() {
+	origSocket := sysSocket
+	origSetsockoptInt := sysSetsockoptInt
+	origSetsockoptString := sysSetsockoptString
+	origBind := sysBind
+	origListen := sysListen
+	origClose := sysClose
+	origNewFile := osNewFile
+	origFileListener := netFileListener
+
+	return func() {
+		sysSocket = origSocket
+		sysSetsockoptInt = origSetsockoptInt
+		sysSetsockoptString = origSetsockoptString
+		sysBind = origBind
+		sysListen = origListen
+		sysClose = origClose
+		osNewFile = origNewFile
+		netFileListener = origFileListener
 	}
 }
 
-func TestCreateVrfListenerInvalidVrf(t *testing.T) {
-	// Test createVrfListener with non-existent VRF
-	listener, err := createVrfListener("non-existent-vrf", 9999)
+type mockFile struct {
+	name string
+}
+
+func (m *mockFile) Close() error { return nil }
+func (m *mockFile) Name() string { return m.name }
+
+func TestCreateVrfListenerSocketError(t *testing.T) {
+	restore := mockSyscalls()
+	defer restore()
+
+	sysSocket = func(domain, typ, proto int) (int, error) {
+		return -1, fmt.Errorf("mock socket error")
+	}
+
+	_, err := createVrfListener("test-vrf", 8080)
 	if err == nil {
-		if listener != nil {
-			listener.Close()
-		}
-		t.Errorf("Expected error when binding to non-existent VRF, but got nil")
-		return
+		t.Fatal("Expected error when socket creation fails")
 	}
-	if !contains(err.Error(), "VRF") && !contains(err.Error(), "bind") {
-		t.Errorf("Error message should mention VRF or bind, got: %v", err)
+	if !contains(err.Error(), "failed to create socket") {
+		t.Errorf("Expected 'failed to create socket' error, got: %v", err)
 	}
-	t.Logf("Got expected error for non-existent VRF: %v", err)
 }
 
-func TestCreateVrfListenerPortInUse(t *testing.T) {
-	// First, create a regular listener on a port
-	regularListener, err := net.Listen("tcp", "127.0.0.1:0")
+func TestCreateVrfListenerSOReuseAddrError(t *testing.T) {
+	restore := mockSyscalls()
+	defer restore()
+
+	sysSocket = func(domain, typ, proto int) (int, error) {
+		return 5, nil
+	}
+	sysClose = func(fd int) error { return nil }
+	callCount := 0
+	sysSetsockoptInt = func(fd, level, opt, value int) error {
+		callCount++
+		if callCount == 1 {
+			return fmt.Errorf("mock SO_REUSEADDR error")
+		}
+		return nil
+	}
+
+	_, err := createVrfListener("test-vrf", 8080)
+	if err == nil {
+		t.Fatal("Expected error when SO_REUSEADDR fails")
+	}
+	if !contains(err.Error(), "failed to set SO_REUSEADDR") {
+		t.Errorf("Expected 'failed to set SO_REUSEADDR' error, got: %v", err)
+	}
+}
+
+func TestCreateVrfListenerIPV6OnlyError(t *testing.T) {
+	restore := mockSyscalls()
+	defer restore()
+
+	sysSocket = func(domain, typ, proto int) (int, error) {
+		return 5, nil
+	}
+	sysClose = func(fd int) error { return nil }
+	callCount := 0
+	sysSetsockoptInt = func(fd, level, opt, value int) error {
+		callCount++
+		if callCount == 2 {
+			return fmt.Errorf("mock IPV6_V6ONLY error")
+		}
+		return nil
+	}
+
+	_, err := createVrfListener("test-vrf", 8080)
+	if err == nil {
+		t.Fatal("Expected error when IPV6_V6ONLY fails")
+	}
+	if !contains(err.Error(), "failed to set IPV6_V6ONLY") {
+		t.Errorf("Expected 'failed to set IPV6_V6ONLY' error, got: %v", err)
+	}
+}
+
+func TestCreateVrfListenerBindToDeviceError(t *testing.T) {
+	restore := mockSyscalls()
+	defer restore()
+
+	sysSocket = func(domain, typ, proto int) (int, error) {
+		return 5, nil
+	}
+	sysClose = func(fd int) error { return nil }
+	sysSetsockoptInt = func(fd, level, opt, value int) error {
+		return nil
+	}
+	sysSetsockoptString = func(fd, level, opt int, value string) error {
+		return fmt.Errorf("mock BINDTODEVICE error: VRF not found")
+	}
+
+	_, err := createVrfListener("nonexistent-vrf", 8080)
+	if err == nil {
+		t.Fatal("Expected error when BINDTODEVICE fails")
+	}
+	if !contains(err.Error(), "failed to bind socket to VRF") {
+		t.Errorf("Expected 'failed to bind socket to VRF' error, got: %v", err)
+	}
+}
+
+func TestCreateVrfListenerBindError(t *testing.T) {
+	restore := mockSyscalls()
+	defer restore()
+
+	sysSocket = func(domain, typ, proto int) (int, error) {
+		return 5, nil
+	}
+	sysClose = func(fd int) error { return nil }
+	sysSetsockoptInt = func(fd, level, opt, value int) error {
+		return nil
+	}
+	sysSetsockoptString = func(fd, level, opt int, value string) error {
+		return nil
+	}
+	sysBind = func(fd int, sa syscall.Sockaddr) error {
+		return fmt.Errorf("mock bind error: address in use")
+	}
+
+	_, err := createVrfListener("test-vrf", 8080)
+	if err == nil {
+		t.Fatal("Expected error when bind fails")
+	}
+	if !contains(err.Error(), "failed to bind to port") {
+		t.Errorf("Expected 'failed to bind to port' error, got: %v", err)
+	}
+}
+
+func TestCreateVrfListenerListenError(t *testing.T) {
+	restore := mockSyscalls()
+	defer restore()
+
+	sysSocket = func(domain, typ, proto int) (int, error) {
+		return 5, nil
+	}
+	sysClose = func(fd int) error { return nil }
+	sysSetsockoptInt = func(fd, level, opt, value int) error {
+		return nil
+	}
+	sysSetsockoptString = func(fd, level, opt int, value string) error {
+		return nil
+	}
+	sysBind = func(fd int, sa syscall.Sockaddr) error {
+		return nil
+	}
+	sysListen = func(fd int, backlog int) error {
+		return fmt.Errorf("mock listen error")
+	}
+
+	_, err := createVrfListener("test-vrf", 8080)
+	if err == nil {
+		t.Fatal("Expected error when listen fails")
+	}
+	if !contains(err.Error(), "failed to listen") {
+		t.Errorf("Expected 'failed to listen' error, got: %v", err)
+	}
+}
+
+func TestCreateVrfListenerFileListenerError(t *testing.T) {
+	restore := mockSyscalls()
+	defer restore()
+
+	sysSocket = func(domain, typ, proto int) (int, error) {
+		return 5, nil
+	}
+	sysClose = func(fd int) error { return nil }
+	sysSetsockoptInt = func(fd, level, opt, value int) error {
+		return nil
+	}
+	sysSetsockoptString = func(fd, level, opt int, value string) error {
+		return nil
+	}
+	sysBind = func(fd int, sa syscall.Sockaddr) error {
+		return nil
+	}
+	sysListen = func(fd int, backlog int) error {
+		return nil
+	}
+	osNewFile = func(fd uintptr, name string) *os.File {
+		return nil
+	}
+	netFileListener = func(f *os.File) (net.Listener, error) {
+		return nil, fmt.Errorf("mock FileListener error")
+	}
+
+	_, err := createVrfListener("test-vrf", 8080)
+	if err == nil {
+		t.Fatal("Expected error when FileListener fails")
+	}
+	if !contains(err.Error(), "failed to create listener from file") {
+		t.Errorf("Expected 'failed to create listener from file' error, got: %v", err)
+	}
+}
+
+type mockListener struct {
+	addr net.Addr
+}
+
+func (m *mockListener) Accept() (net.Conn, error) { return nil, nil }
+func (m *mockListener) Close() error              { return nil }
+func (m *mockListener) Addr() net.Addr            { return m.addr }
+
+func TestCreateVrfListenerSuccess(t *testing.T) {
+	restore := mockSyscalls()
+	defer restore()
+
+	var socketDomain, socketType, socketProto int
+	var setsockoptCalls []struct {
+		level, opt, value int
+	}
+	var bindToDeviceVrf string
+	var bindPort int
+	var listenBacklog int
+
+	sysSocket = func(domain, typ, proto int) (int, error) {
+		socketDomain = domain
+		socketType = typ
+		socketProto = proto
+		return 5, nil
+	}
+	sysClose = func(fd int) error { return nil }
+	sysSetsockoptInt = func(fd, level, opt, value int) error {
+		setsockoptCalls = append(setsockoptCalls, struct{ level, opt, value int }{level, opt, value})
+		return nil
+	}
+	sysSetsockoptString = func(fd, level, opt int, value string) error {
+		bindToDeviceVrf = value
+		return nil
+	}
+	sysBind = func(fd int, sa syscall.Sockaddr) error {
+		if addr, ok := sa.(*syscall.SockaddrInet6); ok {
+			bindPort = addr.Port
+		}
+		return nil
+	}
+	sysListen = func(fd int, backlog int) error {
+		listenBacklog = backlog
+		return nil
+	}
+	osNewFile = func(fd uintptr, name string) *os.File {
+		return nil
+	}
+	netFileListener = func(f *os.File) (net.Listener, error) {
+		return &mockListener{addr: &net.TCPAddr{IP: net.IPv6zero, Port: 8080}}, nil
+	}
+
+	listener, err := createVrfListener("test-vrf", 8080)
 	if err != nil {
-		t.Fatalf("Failed to create regular listener: %v", err)
+		t.Fatalf("Expected success, got error: %v", err)
 	}
-	defer regularListener.Close()
-
-	port := regularListener.Addr().(*net.TCPAddr).Port
-	t.Logf("Testing with port: %d", port)
-
-	// Try to create VRF listener on same port (will fail due to VRF not existing)
-	listener, err := createVrfListener("test-vrf", int64(port))
-	if err == nil {
-		if listener != nil {
-			listener.Close()
-		}
-		t.Logf("VRF listener created (VRF might exist in system)")
-		return
+	if listener == nil {
+		t.Fatal("Expected non-nil listener")
 	}
-	t.Logf("Got expected error: %v", err)
-}
-
-func TestCreateVrfListenerIPv6Support(t *testing.T) {
-	// Test that createVrfListener creates IPv6 socket with IPV6_V6ONLY=0
-	listener, err := createVrfListener("test-ipv6-vrf", 19999)
-	if err == nil {
-		if listener != nil {
-			listener.Close()
-		}
-		t.Logf("VRF listener created successfully (VRF exists in system)")
-		return
+	defer listener.Close()
+	if socketDomain != syscall.AF_INET6 {
+		t.Errorf("Expected AF_INET6 (%d), got %d", syscall.AF_INET6, socketDomain)
 	}
-
-	// Expected to fail, but error should be about VRF binding, not socket creation
-	if contains(err.Error(), "failed to create socket") {
-		t.Errorf("Should not fail at socket creation, got: %v", err)
+	if socketType != syscall.SOCK_STREAM {
+		t.Errorf("Expected SOCK_STREAM (%d), got %d", syscall.SOCK_STREAM, socketType)
 	}
-	t.Logf("Got expected error (VRF doesn't exist): %v", err)
+	if socketProto != 0 {
+		t.Errorf("Expected protocol 0, got %d", socketProto)
+	}
+	if len(setsockoptCalls) < 1 {
+		t.Fatal("Expected at least one setsockopt call for SO_REUSEADDR")
+	}
+	if setsockoptCalls[0].level != syscall.SOL_SOCKET || setsockoptCalls[0].opt != syscall.SO_REUSEADDR {
+		t.Errorf("First setsockopt should be SO_REUSEADDR")
+	}
+	if len(setsockoptCalls) < 2 {
+		t.Fatal("Expected at least two setsockopt calls")
+	}
+	if setsockoptCalls[1].level != syscall.IPPROTO_IPV6 || setsockoptCalls[1].opt != syscall.IPV6_V6ONLY {
+		t.Errorf("Second setsockopt should be IPV6_V6ONLY")
+	}
+	if setsockoptCalls[1].value != 0 {
+		t.Errorf("IPV6_V6ONLY should be 0 for dual-stack, got %d", setsockoptCalls[1].value)
+	}
+	if bindToDeviceVrf != "test-vrf" {
+		t.Errorf("Expected VRF 'test-vrf', got '%s'", bindToDeviceVrf)
+	}
+	if bindPort != 8080 {
+		t.Errorf("Expected port 8080, got %d", bindPort)
+	}
+	if listenBacklog != syscall.SOMAXCONN {
+		t.Errorf("Expected SOMAXCONN (%d), got %d", syscall.SOMAXCONN, listenBacklog)
+	}
+	addr := listener.Addr()
+	if addr == nil {
+		t.Error("Expected non-nil address")
+	}
+	t.Logf("Successfully created mocked VRF listener on %s", addr.String())
 }
 
 func contains(s, substr string) bool {
@@ -5669,148 +5929,6 @@ func containsHelper(s, substr string) bool {
 		}
 	}
 	return false
-}
-
-func TestCreateVrfListenerDualStack(t *testing.T) {
-	// Test that createVrfListener is configured for dual-stack (IPv4 and IPv6)
-	t.Log("createVrfListener uses AF_INET6 with IPV6_V6ONLY=0 for dual-stack support")
-	t.Log("This allows the listener to accept both IPv4 and IPv6 connections")
-	listener, err := createVrfListener("test-dual-stack-vrf", 29999)
-	if err == nil {
-		if listener != nil {
-			addr := listener.Addr()
-			t.Logf("Listener created on address: %s", addr.String())
-			listener.Close()
-		}
-		return
-	}
-	t.Logf("Expected error in test environment (no VRF): %v", err)
-}
-
-func TestServerVrfConfigurationMatrix(t *testing.T) {
-	// Test matrix of different VRF configurations
-	tests := []struct {
-		name        string
-		gnmiVrf     string
-		zmqVrf      string
-		port        int64
-		expectError bool
-		description string
-	}{
-		{
-			name:        "No VRF configuration",
-			gnmiVrf:     "",
-			zmqVrf:      "",
-			port:        18001,
-			expectError: false,
-			description: "Should use default listener",
-		},
-		{
-			name:        "Default GNMI VRF",
-			gnmiVrf:     "default",
-			zmqVrf:      "",
-			port:        18002,
-			expectError: false,
-			description: "Should use default listener (not VRF-aware)",
-		},
-		{
-			name:        "Only ZMQ VRF set",
-			gnmiVrf:     "",
-			zmqVrf:      "zmq-vrf",
-			port:        18003,
-			expectError: false,
-			description: "Should use default listener for GNMI, ZMQ VRF for ZMQ",
-		},
-		{
-			name:        "Non-existent GNMI VRF",
-			gnmiVrf:     "non-existent-vrf",
-			zmqVrf:      "",
-			port:        18004,
-			expectError: true,
-			description: "Should fail when VRF doesn't exist",
-		},
-		{
-			name:        "Both VRFs set",
-			gnmiVrf:     "gnmi-vrf",
-			zmqVrf:      "zmq-vrf",
-			port:        18005,
-			expectError: true,
-			description: "Should fail when GNMI VRF doesn't exist",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{
-				Port:                tt.port,
-				EnableTranslibWrite: true,
-				EnableNativeWrite:   true,
-				Threshold:           100,
-				GnmiVrf:             tt.gnmiVrf,
-				Vrf:                 tt.zmqVrf,
-			}
-
-			s, err := NewServer(cfg, []grpc.ServerOption{})
-
-			if s != nil {
-				defer s.Stop()
-			}
-
-			if tt.expectError {
-				if err == nil {
-					t.Logf("%s: Expected error but got none (VRF might exist)", tt.description)
-				} else {
-					t.Logf("%s: Got expected error: %v", tt.description, err)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("%s: Unexpected error: %v", tt.description, err)
-					return
-				}
-
-				// Verify configuration
-				if s.config.GnmiVrf != tt.gnmiVrf {
-					t.Errorf("Expected GnmiVrf=%s, got %s", tt.gnmiVrf, s.config.GnmiVrf)
-				}
-				if s.config.Vrf != tt.zmqVrf {
-					t.Errorf("Expected Vrf=%s, got %s", tt.zmqVrf, s.config.Vrf)
-				}
-
-				if s.lis == nil {
-					t.Errorf("Expected listener to be created")
-				} else {
-					t.Logf("%s: Server created successfully on %s", tt.description, s.lis.Addr().String())
-				}
-			}
-		})
-	}
-}
-
-func TestCreateVrfListenerErrorPaths(t *testing.T) {
-	t.Log("createVrfListener has the following error paths:")
-	t.Log("1. Socket creation failure (syscall.Socket)")
-	t.Log("2. SO_REUSEADDR setting failure (syscall.SetsockoptInt)")
-	t.Log("3. IPV6_V6ONLY setting failure (syscall.SetsockoptInt)")
-	t.Log("4. SO_BINDTODEVICE failure - VRF doesn't exist (syscall.SetsockoptString)")
-	t.Log("5. Bind failure - port in use or permission denied (syscall.Bind)")
-	t.Log("6. Listen failure (syscall.Listen)")
-	t.Log("7. FileListener creation failure (net.FileListener)")
-	t.Log("")
-	t.Log("All error paths properly use defer to close fd and file")
-
-	listener, err := createVrfListener("error-path-test-vrf", 39999)
-	if err == nil {
-		if listener != nil {
-			listener.Close()
-		}
-		t.Log("VRF exists in system, cannot test error path")
-		return
-	}
-
-	if err.Error() == "" {
-		t.Errorf("Error message should not be empty")
-	}
-	t.Logf("Error path tested successfully: %v", err)
 }
 
 func TestParseOrigin(t *testing.T) {

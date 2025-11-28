@@ -267,33 +267,54 @@ func (i AuthTypes) Unset(mode string) error {
 	return nil
 }
 
+var (
+	sysSocket           = syscall.Socket
+	sysSetsockoptInt    = syscall.SetsockoptInt
+	sysSetsockoptString = syscall.SetsockoptString
+	sysBind             = syscall.Bind
+	sysListen           = syscall.Listen
+	sysClose            = syscall.Close
+	osNewFile           = os.NewFile
+	netFileListener     = net.FileListener
+)
+
 func createVrfListener(vrf string, port int64) (net.Listener, error) {
-	fd, err := syscall.Socket(syscall.AF_INET6, syscall.SOCK_STREAM, 0)
+	fd, err := sysSocket(syscall.AF_INET6, syscall.SOCK_STREAM, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create socket: %v", err)
 	}
-	defer syscall.Close(fd)
 
-	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1); err != nil {
+	fdOwned := true
+	defer func() {
+		if fdOwned {
+			sysClose(fd)
+		}
+	}()
+
+	if err := sysSetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1); err != nil {
 		return nil, fmt.Errorf("failed to set SO_REUSEADDR: %v", err)
 	}
-	if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0); err != nil {
+	if err := sysSetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0); err != nil {
 		return nil, fmt.Errorf("failed to set IPV6_V6ONLY: %v", err)
 	}
-	if err := syscall.SetsockoptString(fd, syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, vrf); err != nil {
+	if err := sysSetsockoptString(fd, syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, vrf); err != nil {
 		return nil, fmt.Errorf("failed to bind socket to VRF %s: %v", vrf, err)
 	}
 	addr := &syscall.SockaddrInet6{Port: int(port)}
-	if err := syscall.Bind(fd, addr); err != nil {
+	if err := sysBind(fd, addr); err != nil {
 		return nil, fmt.Errorf("failed to bind to port %d: %v", port, err)
 	}
-	if err := syscall.Listen(fd, syscall.SOMAXCONN); err != nil {
+	if err := sysListen(fd, syscall.SOMAXCONN); err != nil {
 		return nil, fmt.Errorf("failed to listen: %v", err)
 	}
-	file := os.NewFile(uintptr(fd), "")
-	defer file.Close()
 
-	listener, err := net.FileListener(file)
+	file := osNewFile(uintptr(fd), "")
+	if file != nil {
+		fdOwned = false
+		defer file.Close()
+	}
+
+	listener, err := netFileListener(file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create listener from file: %v", err)
 	}
