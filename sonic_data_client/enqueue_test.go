@@ -1091,51 +1091,6 @@ func TestPollRun_EnqueFatalMsgMixed(t *testing.T) {
 	}
 }
 
-// func TestPollRun_EnqueueItemDb(t *testing.T) {
-// 	var wg sync.WaitGroup
-// 	q := NewLimitedQueue(1, false, 0)
-// 	poll := make(chan struct{}, 1)
-
-// 	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
-
-// 	client := DbClient{
-// 		prefix:  &gnmipb.Path{Target: "APPL_DB"},
-// 		pathG2S: map[*gnmipb.Path][]tablePath{path: {{dbName: "APPL_DB", tableName: "INTERFACES"}}},
-// 		q:       q,
-// 		channel: poll,
-// 	}
-
-// 	notification := &gnmipb.Notification{
-// 		Timestamp: time.Now().UnixNano(),
-// 		Update: []*gnmipb.Update{
-// 			{
-// 				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
-// 				Val: &gnmipb.TypedValue{
-// 					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
-// 				},
-// 			},
-// 		},
-// 	}
-
-// 	item := Value{
-// 		&spb.Value{
-// 			Notification: notification,
-// 		},
-// 	}
-
-// 	_ = q.EnqueueItem(item)
-
-// 	poll <- struct{}{}
-// 	wg.Add(1)
-// 	go client.PollRun(q, poll, &wg, nil)
-// 	wg.Wait()
-
-// 	_, err := q.DequeueItem()
-// 	if err != nil {
-// 		t.Fatalf("Expected fatal message, got error: %v", err)
-// 	}
-// }
-
 func TestClientSubscriptionModeNon(t *testing.T) {
 	var wg sync.WaitGroup
 	q := NewLimitedQueue(1, false, 0)
@@ -1190,7 +1145,6 @@ func TestPollRun_EnqueFatalMsgNon(t *testing.T) {
 		q:           q,
 	}
 
-	// Fill the queue to simulate ResourceExhausted
 	notification := &gnmipb.Notification{
 		Timestamp: time.Now().UnixNano(),
 		Update: []*gnmipb.Update{
@@ -1223,7 +1177,6 @@ func TestPollRun_EnqueFatalMsgNon(t *testing.T) {
 	wg.Add(1)
 	go client.PollRun(q, poll, &wg, nil)
 
-	// Trigger the poll
 	poll <- struct{}{}
 	close(poll)
 	wg.Wait()
@@ -1231,5 +1184,87 @@ func TestPollRun_EnqueFatalMsgNon(t *testing.T) {
 	_, err := q.DequeueItem()
 	if err != nil {
 		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+}
+
+func TestDoSampleFatalMsg_EnqueFatal(t *testing.T) {
+	var wg sync.WaitGroup
+	var syncGroup sync.WaitGroup
+
+	q := &LimitedQueue{
+		Q:              queue.NewPriorityQueue(1, false),
+		maxSize:        0,
+		queueLengthSum: 0,
+	}
+
+	client := &TranslClient{
+		q:       q,
+		channel: make(chan struct{}),
+		w:       &wg,
+	}
+
+	subscriber := &translSubscriber{
+		client:      client,
+		synced:      syncGroup,
+		sampleCache: nil,
+	}
+
+	streamFunc = func(req translib.SubscribeRequest) error {
+		return fmt.Errorf("simulated stream failure")
+	}
+	defer func() { streamFunc = translib.Stream }()
+
+	wg.Add(1)
+	subscriber.doSample("/test/path")
+
+	item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+
+	spbv := &item
+	if spbv == nil {
+		t.Fatalf("Expected *spb.Value, got %T", &item)
+	}
+
+	if !strings.Contains(spbv.Fatal, "Subscribe operation failed") {
+		t.Errorf("Expected fatal message, got: %v", spbv.Fatal)
+	}
+}
+
+func TestDbClientSubscriptionModeFatalMsg_ResourceExhausted(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 100)
+	stop := make(chan struct{}, 1)
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+	client := DbClient{
+		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{path: {{dbName: "APPL_DB", tableName: "INTERFACES"}}},
+		q:       q,
+		channel: stop,
+	}
+
+	subscribe := &gnmipb.SubscriptionList{
+		Subscription: []*gnmipb.Subscription{
+			{
+				Path: path,
+				Mode: 0,
+			},
+		},
+	}
+
+	stop <- struct{}{}
+	wg.Add(1)
+	go client.StreamRun(q, stop, &wg, subscribe)
+	wg.Wait()
+
+	item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
+	}
+	if !strings.Contains(item.Fatal, "unsupported subscription mode") {
+		t.Errorf("Expected fatal message for unsupported mode, got: %v", item.Fatal)
 	}
 }
