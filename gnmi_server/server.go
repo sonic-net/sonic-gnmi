@@ -27,6 +27,7 @@ import (
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoi_healthz_pb "github.com/openconfig/gnoi/healthz"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
 	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
@@ -146,6 +147,14 @@ type DebugServer struct {
 	readWhitelist  []string
 	writeWhitelist []string
 	gnoi_debug_pb.UnimplementedDebugServer
+}
+
+// HealthzServer is the server API for System Health service.
+// All implementations must embed UnimplementedSystemServer
+// for forward compatibility
+type HealthzServer struct {
+	*Server
+	gnoi_healthz_pb.UnimplementedHealthzServer
 }
 
 type AuthTypes map[string]bool
@@ -288,6 +297,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	containerzSrv := &ContainerzServer{server: srv}
+	healthzSrv := &HealthzServer{Server: srv}
 
 	readWhitelist, writeWhitelist := gnoi_debug.ConstructWhitelists()
 	debugSrv := &DebugServer{
@@ -313,6 +323,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		gnoi_os_pb.RegisterOSServer(srv.s, osSrv)
 		gnoi_containerz_pb.RegisterContainerzServer(srv.s, containerzSrv)
 		gnoi_debug_pb.RegisterDebugServer(srv.s, debugSrv)
+		gnoi_healthz_pb.RegisterHealthzServer(srv.s, healthzSrv)
 	}
 	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
