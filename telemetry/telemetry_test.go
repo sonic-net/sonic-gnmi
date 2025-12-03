@@ -213,7 +213,7 @@ func TestStartGNMIServer(t *testing.T) {
 	}
 }
 
-func TestStartGNMIServerGracefulStop(t *testing.T) {
+func TestStartGNMIServerCertRotationVsShutdown(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
 	timeoutInterval := 15
@@ -259,11 +259,13 @@ func TestStartGNMIServerGracefulStop(t *testing.T) {
 	wg := &sync.WaitGroup{}
 
 	counter := 0
-	exitCalled := false
+	stopCalled := false
+	forceStopCalled := false
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
-		exitCalled = true
+		stopCalled = true
 	})
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "ForceStop", func(_ *gnmi.Server) {
+		forceStopCalled = true
 	})
 
 	defer patches.Reset()
@@ -292,9 +294,203 @@ func TestStartGNMIServerGracefulStop(t *testing.T) {
 
 	wg.Wait()
 
-	if !exitCalled {
-		t.Errorf("s.Stop should be called if gnmi server is called to shutdown")
+	if stopCalled {
+		t.Errorf("s.Stop should NOT be called on cert rotation")
 	}
+	if !forceStopCalled {
+		t.Errorf("s.ForceStop should be called on ServerStop signal")
+	}
+}
+
+func TestStartGNMIServerCertRotationNoRestart(t *testing.T) {
+	testServerCert := "../testdata/certs/testserver.cert"
+	testServerKey := "../testdata/certs/testserver.key"
+	timeoutInterval := 15
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
+	defer cancel()
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testCertRotationNoRestart", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, cfg, err := setupFlags(fs)
+
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
+		return tls.Certificate{}, nil
+	})
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+		return &gnmi.Server{}, nil
+	})
+	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
+		return grpc.EmptyServerOption{}
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Serve", func(_ *gnmi.Server) error {
+		return nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
+		return ""
+	})
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
+	})
+
+	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
+	wg := &sync.WaitGroup{}
+
+	counter := 0
+	stopCalled := false
+	forceStopCalled := false
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
+		stopCalled = true
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "ForceStop", func(_ *gnmi.Server) {
+		forceStopCalled = true
+	})
+
+	defer patches.Reset()
+
+	wg.Add(1)
+
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+
+	for {
+		select {
+		case <-tick.C:
+			if counter == 0 { // simulate first cert rotation
+				sendSignal(serverControlSignal, ServerStart)
+			} else if counter == 1 { // simulate second cert rotation
+				sendSignal(serverControlSignal, ServerRestart)
+			} else { // simulate sigterm
+				sendSignal(serverControlSignal, ServerStop)
+			}
+			counter += 1
+		case <-ctx.Done():
+			t.Errorf("Failed to send shutdown signal")
+			return
+		}
+		if counter > 2 { // all signals have been sent
+			break
+		}
+	}
+
+	wg.Wait()
+
+	if stopCalled {
+		t.Errorf("s.Stop should NOT be called on cert rotation, server should keep running")
+	}
+	if !forceStopCalled {
+		t.Errorf("s.ForceStop should be called on ServerStop signal")
+	}
+}
+
+func TestStartGNMIServerGetCertificateCallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	testServerCert := filepath.Join(tmpDir, "server.crt")
+	testServerKey := filepath.Join(tmpDir, "server.key")
+	timeoutInterval := 15
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
+	defer cancel()
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	// Create initial cert/key pair
+	err := saveCertKeyPair(testServerCert, testServerKey)
+	if err != nil {
+		t.Fatalf("Failed to create initial cert/key pair: %v", err)
+	}
+
+	fs := flag.NewFlagSet("testGetCertCallback", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, cfg, err := setupFlags(fs)
+
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	getCertificateSet := false
+	certificatesSet := false
+	var mu sync.Mutex
+
+	patches := gomonkey.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+		return &gnmi.Server{}, nil
+	})
+	patches.ApplyFunc(grpc.Creds, func(c credentials.TransportCredentials) grpc.ServerOption {
+		// Check TLS config to verify GetCertificate is set (not Certificates)
+		tlsConfig := c.(interface{ TLSConfig() *tls.Config }).TLSConfig()
+		mu.Lock()
+		if tlsConfig.GetCertificate != nil {
+			getCertificateSet = true
+			// Test the callback works by calling it
+			cert, err := tlsConfig.GetCertificate(nil)
+			if err != nil || cert == nil {
+				t.Errorf("GetCertificate callback failed: %v", err)
+			}
+		}
+		if len(tlsConfig.Certificates) > 0 {
+			certificatesSet = true
+		}
+		mu.Unlock()
+		return grpc.EmptyServerOption{}
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Serve", func(_ *gnmi.Server) error {
+		return nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
+		return ""
+	})
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
+	})
+
+	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
+	wg := &sync.WaitGroup{}
+
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "ForceStop", func(_ *gnmi.Server) {
+	})
+
+	defer patches.Reset()
+
+	wg.Add(1)
+
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+
+	// Wait for setup to complete
+	time.Sleep(200 * time.Millisecond)
+
+	sendSignal(serverControlSignal, ServerStop)
+
+	select {
+	case <-ctx.Done():
+		t.Errorf("Test timed out")
+		return
+	default:
+		wg.Wait()
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if !getCertificateSet {
+		t.Errorf("Expected TLS config to have GetCertificate callback set for dynamic cert loading")
+	}
+	if certificatesSet {
+		t.Errorf("Expected TLS config to NOT have static Certificates array set (should use GetCertificate instead)")
+	}
+	t.Log("TLS config correctly uses GetCertificate callback for dynamic cert loading")
 }
 
 // Generate a new TLS cert using NewCert and save key pair to specified file path
