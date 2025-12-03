@@ -1,9 +1,14 @@
 package host_service
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // FakeClient is a mock implementation of the Service interface.
-type FakeClient struct{}
+type FakeClient struct {
+	CollectResponse string
+}
 
 func (f *FakeClient) Close() error                         { return nil }
 func (f *FakeClient) ConfigReload(fileName string) error   { return nil }
@@ -55,4 +60,22 @@ type FakeClientWithError struct {
 
 func (f *FakeClientWithError) RemoveFile(path string) error {
 	return errors.New("simulated failure")
+}
+
+func (f *FakeClient) HealthzCheck(req string) (string, error) {
+	if req == "" {
+		return "", fmt.Errorf("request cannot be empty")
+	}
+	return "fake-check-success", nil
+}
+
+func (f *FakeClient) HealthzCollect(req string) (string, error) {
+	if req == "" {
+		return "", fmt.Errorf("request cannot be empty")
+	}
+	return "/tmp/dump/fake-collect-success", nil
+}
+
+func (f *FakeClientWithError) HealthzCollect(req string) (string, error) {
+	return "", fmt.Errorf("dbus failure")
 }
