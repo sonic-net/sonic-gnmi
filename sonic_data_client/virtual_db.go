@@ -40,6 +40,9 @@ var (
 	// MY_SID prefix to oid map in COUNTERS table of COUNTERS_DB
 	countersSidMap = make(map[string]string)
 
+	// ACL table:rule name to oid map in COUNTERS table of COUNTERS_DB
+	countersAclRuleMap = make(map[string]string)
+
 	// SONiC interface name to priority group indices and then to oid (from COUNTERS table of COUNTERS_DB)
 	countersPGNameMap = make(map[string]map[string]string)
 
@@ -92,6 +95,11 @@ var (
 		}, {
 			path:      []string{"COUNTERS_DB", "COUNTERS", "SID*"},
 			transFunc: v2rTranslate(v2rSRv6SidStats),
+		}, { // ACL rule counters (virtual)
+			// [COUNTERS_DB COUNTERS ACL_RULE*] or
+			// [COUNTERS_DB COUNTERS ACL_RULE:DATAACL:RULE_1]
+			path:      []string{"COUNTERS_DB", "COUNTERS", "ACL_RULE*"},
+			transFunc: v2rTranslate(v2rAclRuleStats),
 		},
 	}
 )
@@ -155,6 +163,19 @@ func initCountersSidMap() error {
 	var err error
 	if len(countersSidMap) == 0 {
 		countersSidMap, err = getCountersMap("COUNTERS_SRV6_NAME_MAP")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func initCountersAclRuleMap() error {
+	var err error
+	if len(countersAclRuleMap) == 0 {
+		// ACL_COUNTER_RULE_MAP is a hash in COUNTERS_DB:
+		//   "DATAACL:RULE_1" -> "oid:0x9000000000711"
+		countersAclRuleMap, err = getCountersMap("ACL_COUNTER_RULE_MAP")
 		if err != nil {
 			return err
 		}
@@ -874,6 +895,56 @@ func v2rSRv6SidStats(paths []string) ([]tablePath, error) {
 	return tblPaths, nil
 }
 
+// Populate real data paths from paths like
+// [COUNTERS_DB COUNTERS ACL_RULE*] or
+// [COUNTERS_DB COUNTERS ACL_RULE:DATAACL:RULE_1]
+func v2rAclRuleStats(paths []string) ([]tablePath, error) {
+	var tblPaths []tablePath
+
+	// Wildcard: list all ACL rules in the map
+	if strings.HasSuffix(paths[KeyIdx], "*") {
+		for ruleName, oid := range countersAclRuleMap {
+			// ruleName here is "DATAACL:RULE_1"
+			namespace, _ := sdcfg.GetDbDefaultNamespace()
+			separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+			tblPath := tablePath{
+				dbNamespace:  namespace,
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx], // "COUNTERS"
+				tableKey:     oid,           // real COUNTERS:oid:... key
+				delimitor:    separator,
+				jsonTableKey: ruleName, // appear as "DATAACL:RULE_1" in JSON
+			}
+			tblPaths = append(tblPaths, tblPath)
+		}
+		return tblPaths, nil
+	}
+
+	// Single rule: expected format ACL_RULE:<ACL_TABLE>:<RULE_NAME>
+	if !strings.HasPrefix(paths[KeyIdx], "ACL_RULE:") {
+		return nil, fmt.Errorf("Key %v is not a valid ACL rule format!", paths[KeyIdx])
+	}
+
+	// Remove "ACL_RULE:" prefix; this should match the exact field in ACL_COUNTER_RULE_MAP
+	ruleName := paths[KeyIdx][len("ACL_RULE:"):] // e.g. "DATAACL:RULE_1"
+
+	if oid, ok := countersAclRuleMap[ruleName]; ok {
+		namespace, _ := sdcfg.GetDbDefaultNamespace()
+		separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+		tblPath := tablePath{
+			dbNamespace: namespace,
+			dbName:      paths[DbIdx],
+			tableName:   paths[TblIdx],
+			tableKey:    oid,
+			delimitor:   separator,
+		}
+		tblPaths = append(tblPaths, tblPath)
+		return tblPaths, nil
+	}
+
+	return nil, fmt.Errorf("ACL_RULE:%v doesn't exist in counter oid map!", ruleName)
+}
+
 func getVendorPortName(port string) string {
 	// Get vendor port name from name2aliasMap
 	if alias, ok := name2aliasMap[port]; ok {
@@ -910,6 +981,7 @@ func ClearMappings() {
 		alias2nameMap,
 		countersFabricPortNameMap,
 		countersQueueNameMap,
+		countersAclRuleMap,
 	}
 	for _, counterMap := range counterMaps {
 		for entry := range counterMap {
