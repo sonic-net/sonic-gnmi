@@ -42,6 +42,9 @@ type Service interface {
 	ListImages() (string, error)
 	ActivateImage(image string) error
 	FactoryReset(cmd string) (string, error)
+	//Healthz Service APIs
+	HealthzCheck(req string) (string, error)
+	HealthzCollect(req string) (string, error)
 	// Docker services APIs
 	LoadDockerImage(image string) error
 	InstallOS(req string) (string, error)
@@ -364,5 +367,41 @@ func (c *DbusClient) InstallOS(req string) (string, error) {
 		return "", status.Errorf(codes.Unimplemented, "%s", strResult)
 	}
 	log.Infof("InstallOS: Result %v", strResult)
+	return strResult, nil
+}
+
+func (c *DbusClient) HealthzCheck(req string) (string, error) {
+	modName := "debug_info"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".check"
+
+	common_utils.IncCounter(common_utils.GNOI_HEALTHZ_CHECK)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	return strResult, nil
+}
+
+func (c *DbusClient) HealthzCollect(req string) (string, error) {
+	modName := "debug_info"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".collect"
+
+	common_utils.IncCounter(common_utils.GNOI_HEALTHZ_COLLECT)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
 	return strResult, nil
 }
