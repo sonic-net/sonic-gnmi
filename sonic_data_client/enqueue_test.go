@@ -1232,7 +1232,7 @@ func TestDoSampleFatalMsg_EnqueFatal(t *testing.T) {
 	}
 }
 
-func TestDbClientSubscriptionModeFatalMsg_ResourceExhausted(t *testing.T) { //new test
+func TestDbClientSubscriptionModeFatalMsg_ResourceExhausted(t *testing.T) {
 	var wg sync.WaitGroup
 	q := NewLimitedQueue(1, false, 100)
 	stop := make(chan struct{}, 1)
