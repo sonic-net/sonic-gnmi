@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
@@ -173,6 +175,7 @@ type Config struct {
 	ZmqPort             string
 	IdleConnDuration    int
 	ConfigTableName     string
+	GnmiVrf             string
 	Vrf                 string
 	EnableCrl           bool
 	// Path to the directory where image is stored.
@@ -264,6 +267,61 @@ func (i AuthTypes) Unset(mode string) error {
 	return nil
 }
 
+var (
+	sysSocket           = syscall.Socket
+	sysSetsockoptInt    = syscall.SetsockoptInt
+	sysSetsockoptString = syscall.SetsockoptString
+	sysBind             = syscall.Bind
+	sysListen           = syscall.Listen
+	sysClose            = syscall.Close
+	osNewFile           = os.NewFile
+	netFileListener     = net.FileListener
+)
+
+func createVrfListener(vrf string, port int64) (net.Listener, error) {
+	fd, err := sysSocket(syscall.AF_INET6, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create socket: %v", err)
+	}
+
+	fdOwned := true
+	defer func() {
+		if fdOwned {
+			sysClose(fd)
+		}
+	}()
+
+	if err := sysSetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1); err != nil {
+		return nil, fmt.Errorf("failed to set SO_REUSEADDR: %v", err)
+	}
+	if err := sysSetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0); err != nil {
+		return nil, fmt.Errorf("failed to set IPV6_V6ONLY: %v", err)
+	}
+	if err := sysSetsockoptString(fd, syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, vrf); err != nil {
+		return nil, fmt.Errorf("failed to bind socket to VRF %s: %v", vrf, err)
+	}
+	addr := &syscall.SockaddrInet6{Port: int(port)}
+	if err := sysBind(fd, addr); err != nil {
+		return nil, fmt.Errorf("failed to bind to port %d: %v", port, err)
+	}
+	if err := sysListen(fd, syscall.SOMAXCONN); err != nil {
+		return nil, fmt.Errorf("failed to listen: %v", err)
+	}
+
+	file := osNewFile(uintptr(fd), "")
+	if file != nil {
+		fdOwned = false
+		defer file.Close()
+	}
+
+	listener, err := netFileListener(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create listener from file: %v", err)
+	}
+	log.V(1).Infof("Created VRF-bound listener on VRF %s, port %d", vrf, port)
+	return listener, nil
+}
+
 // New returns an initialized Server.
 func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if config == nil {
@@ -310,7 +368,13 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if srv.config.Port < 0 {
 		srv.config.Port = 0
 	}
-	srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", srv.config.Port))
+
+	// Create VRF-aware listener if GNMI VRF is specified
+	if srv.config.GnmiVrf != "" && srv.config.GnmiVrf != "default" {
+		srv.lis, err = createVrfListener(srv.config.GnmiVrf, srv.config.Port)
+	} else {
+		srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", srv.config.Port))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to open listener port %d: %v", srv.config.Port, err)
 	}
