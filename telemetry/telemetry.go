@@ -38,6 +38,78 @@ const (
 	ServerRestart ServerControlValue = iota // 2
 )
 
+
+type CertCache struct {
+	cert       *tls.Certificate
+	caPool     *x509.CertPool
+	caPath     string
+	mu         sync.RWMutex
+	hasWatcher atomic.Bool
+}
+
+func (c *CertCache) Get() *tls.Certificate {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.cert
+}
+
+func (c *CertCache) Set(cert *tls.Certificate) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cert = cert
+}
+
+func (c *CertCache) GetCAPool() *x509.CertPool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.caPool
+}
+
+func (c *CertCache) SetCAPool(pool *x509.CertPool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.caPool = pool
+}
+
+func loadAndValidateCert(certPath, keyPath string) (*tls.Certificate, error) {
+	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load cert/key pair: %v", err)
+	}
+
+	// Parse the leaf certificate to check expiration
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate: %v", err)
+	}
+	cert.Leaf = leaf
+
+	if time.Now().After(leaf.NotAfter) {
+		return nil, fmt.Errorf("certificate expired at %v", leaf.NotAfter)
+	}
+
+	if time.Now().Before(leaf.NotBefore) {
+		return nil, fmt.Errorf("certificate not valid until %v", leaf.NotBefore)
+	}
+
+	return &cert, nil
+}
+
+
+func loadAndValidateCA(caPath string) (*x509.CertPool, error) {
+	ca, err := ioutil.ReadFile(caPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA certificate: %v", err)
+	}
+
+	certPool := x509.NewCertPool()
+	if ok := certPool.AppendCertsFromPEM(ca); !ok {
+		return nil, fmt.Errorf("failed to parse CA certificate")
+	}
+
+	return certPool, nil
+}
+
 type TelemetryConfig struct {
 	UserAuth              gnmi.AuthTypes
 	Port                  *int
@@ -273,71 +345,62 @@ func isFlagPassed(fs *flag.FlagSet, name string) bool {
 	return found
 }
 
-func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
+func iNotifyCertMonitoring(watcher *fsnotify.Watcher, telemetryCfg *TelemetryConfig, certCache *CertCache, stopChan <-chan struct{}, testReadySignal chan<- int) {
 	defer watcher.Close()
-
-	done := make(chan bool)
 
 	telemetryCertDirectory := filepath.Dir(*telemetryCfg.ServerCert)
 
 	log.V(1).Infof("Begin cert monitoring on %s", telemetryCertDirectory)
 
-	err := watcher.Add(telemetryCertDirectory) // Adding watcher to cert directory
-	if err != nil {
-		log.Errorf("Received error when adding watcher to cert directory: %v", err)
-		serverControlSignal <- ServerStop
-		return
-	}
-
 	if testReadySignal != nil { // for testing only
 		testReadySignal <- 0
 	}
 
-	go func() {
-		for {
-			select {
-			case event := <-watcher.Events:
-				if event.Name != "" && (filepath.Ext(event.Name) == ".cert" || filepath.Ext(event.Name) == ".crt" ||
-					filepath.Ext(event.Name) == ".cer" || filepath.Ext(event.Name) == ".pem" ||
-					filepath.Ext(event.Name) == ".key") {
-					log.V(1).Infof("Inotify watcher has received event: %v", event)
-					if event.Op&(fsnotify.CloseWrite|fsnotify.MovedTo|fsnotify.Create) != 0 {
-						log.V(1).Infof("Cert File has been modified: %s", event.Name)
+	for {
+		select {
+		case <-stopChan:
+			log.V(1).Infof("Cert monitoring stopped")
+			return
+		case event := <-watcher.Events:
+			if event.Name != "" && (filepath.Ext(event.Name) == ".cert" || filepath.Ext(event.Name) == ".crt" ||
+				filepath.Ext(event.Name) == ".cer" || filepath.Ext(event.Name) == ".pem" ||
+				filepath.Ext(event.Name) == ".key") {
+				log.V(1).Infof("Inotify watcher has received event: %v", event)
+				if event.Op&(fsnotify.CloseWrite|fsnotify.MovedTo|fsnotify.Create) != 0 {
+					log.V(1).Infof("Cert File has been modified: %s", event.Name)
 
-						// Validate cert/key pair before signaling reload
-						_, err := tls.LoadX509KeyPair(*telemetryCfg.ServerCert, *telemetryCfg.ServerKey)
-						if err != nil {
-							log.V(1).Infof("Cert validation failed: %v", err)
-							continue // Keep monitoring - wait for matching cert/key pair
-						}
-
-						log.V(1).Infof("Cert validation succeeded, signaling server reload")
-						serverControlSignal <- ServerStart
-						done <- true
-						return
+					// Validate and load cert/key pair before updating cache
+					cert, err := loadAndValidateCert(*telemetryCfg.ServerCert, *telemetryCfg.ServerKey)
+					if err != nil {
+						log.V(1).Infof("Cert validation failed: %v", err)
+						continue // Keep monitoring - wait for valid cert/key pair
 					}
-					if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
-						log.V(1).Infof("Cert file has been deleted: %s", event.Name)
-						serverControlSignal <- ServerRestart   // let server know that a remove/rename event occurred
-						if atomic.LoadInt32(certLoaded) == 1 { // Should continue monitoring if certs are not present
-							done <- true
-							return
+
+					// Update the cert cache with the new valid cert
+					certCache.Set(cert)
+					log.V(1).Infof("Cert cache updated with new certificate (expires: %v)", cert.Leaf.NotAfter)
+
+					// Reload CA cert if configured
+					if certCache.caPath != "" {
+						caPool, err := loadAndValidateCA(certCache.caPath)
+						if err != nil {
+							log.V(1).Infof("CA cert validation failed (keeping cached CA): %v", err)
+						} else {
+							certCache.SetCAPool(caPool)
+							log.V(1).Infof("CA cert cache updated")
 						}
 					}
 				}
-			case err := <-watcher.Errors:
-				if err != nil {
-					log.Errorf("Received error event when watching cert: %v", err)
-					serverControlSignal <- ServerStop
-					done <- true
-					return // If watcher is unable to access cert file stop monitoring
+				if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+					log.V(1).Infof("Cert file has been deleted/renamed: %s (keeping cached cert)", event.Name)
 				}
 			}
+		case err := <-watcher.Errors:
+			if err != nil {
+				log.Errorf("Received error event when watching cert: %v", err)
+			}
 		}
-	}()
-
-	<-done
-	log.V(6).Infof("Closing cert rotation monitoring")
+	}
 }
 
 func signalHandler(serverControlSignal chan<- ServerControlValue, sigchannel <-chan os.Signal, stopSignalHandler <-chan bool, wg *sync.WaitGroup) {
@@ -364,12 +427,15 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 	}()
 
 	var opts []grpc.ServerOption
-	var certLoaded int32
-	atomic.StoreInt32(&certLoaded, 0) // Not loaded
+
+	certCache := &CertCache{}
+
+	// Channel to stop cert monitoring goroutine on shutdown
+	stopCertMonitor := make(chan struct{})
+	defer close(stopCertMonitor)
 
 	if !*telemetryCfg.NoTLS {
 		var err error
-		var watcher *fsnotify.Watcher
 		if *telemetryCfg.Insecure {
 			_, err = testcert.NewCert()
 			if err != nil {
@@ -378,65 +444,69 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			}
 		} else {
 			// Try to create fsnotify watcher for cert rotation monitoring
-			watcher, err = fsnotify.NewWatcher()
+			watcher, err := fsnotify.NewWatcher()
 			if err != nil {
 				log.Errorf("Failed to create fsnotify watcher: %v", err)
-				log.Errorf("Certificate rotation monitoring will be disabled")
-				watcher = nil
-			}
-
-			// Start cert monitoring if watcher was created successfully
-			if watcher != nil {
-				go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, nil, &certLoaded)
+				certCache.hasWatcher.Store(false)
+			} else {
+				// Try to add watcher to cert directory
+				telemetryCertDirectory := filepath.Dir(*telemetryCfg.ServerCert)
+				err = watcher.Add(telemetryCertDirectory)
+				if err != nil {
+					log.Errorf("Failed to add watcher to cert directory %s: %v", telemetryCertDirectory, err)
+					watcher.Close()
+					certCache.hasWatcher.Store(false)
+				} else {
+					certCache.hasWatcher.Store(true)
+					go iNotifyCertMonitoring(watcher, telemetryCfg, certCache, stopCertMonitor, nil)
+				}
 			}
 
 			// Try to load initial certificates
-			for {
-				_, err = tls.LoadX509KeyPair(*telemetryCfg.ServerCert, *telemetryCfg.ServerKey)
-				if err != nil {
-					computeSHA512Checksum(*telemetryCfg.ServerCert)
-					computeSHA512Checksum(*telemetryCfg.ServerKey)
-					log.Errorf("could not load server key pair: %s", err)
+			cert, err := loadAndValidateCert(*telemetryCfg.ServerCert, *telemetryCfg.ServerKey)
+			if err != nil {
+				computeSHA512Checksum(*telemetryCfg.ServerCert)
+				computeSHA512Checksum(*telemetryCfg.ServerKey)
+				log.Errorf("could not load server key pair: %s", err)
 
-					// Scenario 1: No certs + No watcher → Fatal exit (let process restart)
-					if watcher == nil {
-						log.Fatalf("Certificate files not found and cert monitoring is disabled. Cannot start server. Exiting.")
-						return
-					}
-
-					// Scenario 2: No certs + Has watcher → Wait for watcher to detect certs
-					log.V(1).Infof("Waiting for certificate files to be created...")
-					for {
-						serverControlValue := <-serverControlSignal
-						if serverControlValue == ServerStop {
-							return // server called to shutdown
-						}
-						if serverControlValue == ServerStart {
-							break // retry loading certs after cert has been written or created
-						}
-						// Ignore other signals, wait for cert creation
-					}
-					continue // retry loading
+				// No certs + No watcher, fatal exit
+				if !certCache.hasWatcher.Load() {
+					log.Fatalf("Certificate files not found and cert monitoring is disabled. Cannot start server. Exiting.")
+					return
 				}
-
-				// Scenario 3 & 4: Certs loaded successfully
-				if watcher == nil {
-					log.Warning("Certificate rotation monitoring is disabled. Server will NOT reload certificates.")
+				// No certs + Has watcher → Start server, wait for watcher to populate cache
+				log.V(2).Infof("No valid certificates found at startup. Server will start but connections will fail until certificates are available.")
+			} else {
+				// Certs loaded successfully, populate cache
+				certCache.Set(cert)
+				log.V(2).Infof("Initial certificates loaded and cached (expires: %v)", cert.Leaf.NotAfter)
+				if !certCache.hasWatcher.Load() {
+					log.Warning("Certificate rotation monitoring is disabled")
 				} else {
-					log.V(1).Infof("Certificate rotation monitoring enabled")
+					log.V(2).Infof("Certificate rotation monitoring enabled")
 				}
-				break // successfully loaded
 			}
 		}
 
 		tlsCfg := &tls.Config{
 			ClientAuth: tls.RequireAndVerifyClientCert,
+			// GetCertificate reads from cache
 			GetCertificate: func(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-				cert, err := tls.LoadX509KeyPair(*telemetryCfg.ServerCert, *telemetryCfg.ServerKey)
-				if err != nil {
-					return nil, err
+				cert := certCache.Get()
+				if cert == nil {
+					if !certCache.hasWatcher.Load() {
+						log.Fatalf("No certificate available and cert monitoring is disabled. Cannot serve connections.")
+					}
+					return nil, fmt.Errorf("no certificate available in cache")
 				}
-				return &cert, nil
+				// Check if cert is expired
+				if cert.Leaf != nil && time.Now().After(cert.Leaf.NotAfter) {
+					if !certCache.hasWatcher.Load() {
+						log.Fatalf("Cached certificate expired and cert monitoring is disabled. Cannot serve connections.")
+					}
+					return nil, fmt.Errorf("cached certificate expired at %v", cert.Leaf.NotAfter)
+				}
+				return cert, nil
 			},
 			MinVersion:               tls.VersionTLS12,
 			CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
@@ -451,48 +521,69 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			},
 		}
 
+
 		if *telemetryCfg.AllowNoClientCert {
-			// RequestClientCert will ask client for a certificate but won't
-			// require it to proceed. If certificate is provided, it will be
-			// verified.
 			tlsCfg.ClientAuth = tls.RequestClientCert
 		}
 
 		if *telemetryCfg.CaCert != "" {
-			for {
-				caCertLoaded := true
-				ca, err := ioutil.ReadFile(*telemetryCfg.CaCert)
-				if err != nil {
-					log.Errorf("could not read CA certificate: %s", err)
-					caCertLoaded = false
-				}
-				certPool := x509.NewCertPool()
-				if ok := certPool.AppendCertsFromPEM(ca); !ok {
-					log.Errorf("failed to append CA certificate")
-					caCertLoaded = false
-				}
-				if !caCertLoaded {
-					// Scenario 1: No CA cert + No watcher → Fatal exit
-					if watcher == nil {
-						log.Fatalf("CA certificate file not found and cert monitoring is disabled. Cannot start server. Exiting.")
-						return
-					}
+			certCache.caPath = *telemetryCfg.CaCert
 
-					// Scenario 2: No CA cert + Has watcher → Wait for watcher
-					log.V(1).Infof("Waiting for CA certificate file to be created...")
-					for {
-						serverControlValue := <-serverControlSignal
-						if serverControlValue == ServerStop {
-							return // server called to shutdown
-						}
-						if serverControlValue == ServerStart {
-							break // retry loading CA cert after it has been written or created
-						}
-					}
-					continue // retry loading
+			caPool, err := loadAndValidateCA(*telemetryCfg.CaCert)
+			if err != nil {
+				log.Errorf("could not load CA certificate: %s", err)
+				// No CA cert + No watcher, fatal exit
+				if !certCache.hasWatcher.Load() {
+					log.Fatalf("CA certificate file not found and cert monitoring is disabled. Cannot start server. Exiting.")
+					return
 				}
-				tlsCfg.ClientCAs = certPool
-				break // successfully loaded
+				log.V(2).Infof("CA certificate not found.")
+			} else {
+				certCache.SetCAPool(caPool)
+				log.V(2).Infof("CA certificate loaded and cached")
+			}
+
+			tlsCfg.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+				if len(rawCerts) == 0 {
+					return nil
+				}
+				// Client provided a cert, verify it against CA pool
+				caPool := certCache.GetCAPool()
+				if caPool == nil {
+					if !certCache.hasWatcher.Load() {
+						log.Fatalf("No CA certificate available and cert monitoring is disabled. Cannot verify client certs.")
+					}
+					return fmt.Errorf("no CA certificate available for client verification")
+				}
+
+				// Parse the client certificate
+				cert, err := x509.ParseCertificate(rawCerts[0])
+				if err != nil {
+					return fmt.Errorf("failed to parse client certificate: %v", err)
+				}
+
+				// Create intermediates pool
+				intermediates := x509.NewCertPool()
+				for _, rawCert := range rawCerts[1:] {
+					intermediateCert, err := x509.ParseCertificate(rawCert)
+					if err != nil {
+						continue
+					}
+					intermediates.AddCert(intermediateCert)
+				}
+
+				// Verify the client certificate against CA pool
+				opts := x509.VerifyOptions{
+					Roots:         caPool,
+					Intermediates: intermediates,
+					KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+				}
+				_, err = cert.Verify(opts)
+				if err != nil {
+					return fmt.Errorf("client certificate verification failed: %v", err)
+				}
+
+				return nil
 			}
 		} else {
 			if telemetryCfg.UserAuth.Enabled("cert") {
@@ -500,8 +591,6 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 				log.Warning("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
 			}
 		}
-
-		atomic.StoreInt32(&certLoaded, 1) // Certs have loaded
 
 		keep_alive_params := keepalive.ServerParameters{
 			MaxConnectionIdle: time.Duration(*telemetryCfg.IdleConnDuration) * time.Second, // duration in which idle connection will be closed, default is inf
@@ -560,8 +649,6 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			log.Flush()
 			return
 		}
-		// ServerStart or ServerRestart - cert rotation event
-		log.V(1).Infof("Certificate rotation detected, new connections will use updated certificates")
 	}
 }
 
