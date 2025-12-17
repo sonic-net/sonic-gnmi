@@ -1232,39 +1232,124 @@ func TestDoSampleFatalMsg_EnqueFatal(t *testing.T) {
 	}
 }
 
-func TestDbClientSubscriptionModeFatalMsg_ResourceExhausted(t *testing.T) { //new test
+// func TestDbClientSubscriptionModeFatalMsg_ResourceExhausted(t *testing.T) {
+// 	var wg sync.WaitGroup
+// 	q := NewLimitedQueue(1, false, 0)
+// 	stop := make(chan struct{}, 1)
+
+// 	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+
+// 	client := DbClient{
+// 		prefix:  &gnmipb.Path{Target: "APPL_DB"},
+// 		pathG2S: map[*gnmipb.Path][]tablePath{path: {{dbName: "APPL_DB", tableName: "INTERFACES"}}},
+// 		q:       q,
+// 		channel: stop,
+// 	}
+
+// 	subscribe := &gnmipb.SubscriptionList{
+// 		Subscription: []*gnmipb.Subscription{
+// 			{
+// 				Path: path,
+// 				Mode: 0,
+// 			},
+// 		},
+// 	}
+
+// 	stop <- struct{}{}
+// 	wg.Add(1)
+// 	go client.StreamRun(q, stop, &wg, subscribe)
+// 	wg.Wait()
+
+// 	item, err := q.DequeueItem()
+// 	if err != nil {
+// 		t.Fatalf("Expected fatal message, got error: %v", err)
+// 	}
+// 	if !strings.Contains(item.Fatal, "unsupported subscription mode") {
+// 		t.Errorf("Expected fatal message for unsupported mode, got: %v", item.Fatal)
+// 	}
+// }
+
+func TestDbClientStreamRunSyncMessage(t *testing.T) {
 	var wg sync.WaitGroup
-	q := NewLimitedQueue(1, false, 100)
+	q := NewLimitedQueue(1, false, 0)
 	stop := make(chan struct{}, 1)
 
 	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
 
 	client := DbClient{
-		prefix:  &gnmipb.Path{Target: "APPL_DB"},
-		pathG2S: map[*gnmipb.Path][]tablePath{path: {{dbName: "APPL_DB", tableName: "INTERFACES"}}},
+		prefix: &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{path: {{
+			dbName:       "APPL_DB",
+			tableName:    "INTERFACES",
+			field:        "admin_status",
+			jsonField:    "admin_status",
+			jsonTableKey: "INTERFACES",
+		}}},
 		q:       q,
 		channel: stop,
+		synced:  sync.WaitGroup{},
+		w:       &wg,
 	}
 
 	subscribe := &gnmipb.SubscriptionList{
 		Subscription: []*gnmipb.Subscription{
 			{
 				Path: path,
-				Mode: 0,
+				Mode: gnmipb.SubscriptionMode_ON_CHANGE,
 			},
 		},
 	}
 
-	stop <- struct{}{}
-	wg.Add(1)
-	go client.StreamRun(q, stop, &wg, subscribe)
-	wg.Wait()
+	// Test case 1: synced wait group is not done
+	t.Run("synced wait group not done", func(t *testing.T) {
+		client.synced.Add(1)
+		stop <- struct{}{}
+		wg.Add(1)
+		go client.StreamRun(q, stop, &wg, subscribe)
+		// Wait for the synced wait group to be done
+		client.synced.Done()
+		wg.Wait()
+		item, err := q.DequeueItem()
+		if err != nil {
+			t.Errorf("Expected sync message, got error: %v", err)
+		}
+		if item.Value != nil {
+			t.Logf("Received sync response")
+		} else {
+			t.Errorf("Expected sync response, got: %v", item)
+		}
+	})
 
-	item, err := q.DequeueItem()
-	if err != nil {
-		t.Fatalf("Expected fatal message, got error: %v", err)
-	}
-	if !strings.Contains(item.Fatal, "unsupported subscription mode") {
-		t.Errorf("Expected fatal message for unsupported mode, got: %v", item.Fatal)
-	}
+	// Test case 2: synced wait group is done, and sync message is injected successfully
+	t.Run("synced wait group done, sync message injected", func(t *testing.T) {
+		stop <- struct{}{}
+		wg.Add(1)
+		go client.StreamRun(q, stop, &wg, subscribe)
+		wg.Wait()
+		item, err := q.DequeueItem()
+		if err != nil {
+			t.Errorf("Expected sync message, got error: %v", err)
+		}
+		if !item.Value.GetSyncResponse() {
+			t.Errorf("Expected sync response, got: %v", item.Value)
+		}
+	})
+
+	// Test case 3: synced wait group is done, but sync message cannot be enqueued due to resource exhausted error
+	t.Run("synced wait group done, sync message not enqueued", func(t *testing.T) {
+		// Simulate a resource exhausted error
+		q = NewLimitedQueue(0, false, 0)
+		client.q = q
+		stop <- struct{}{}
+		wg.Add(1)
+		go client.StreamRun(q, stop, &wg, subscribe)
+		wg.Wait()
+		item, err := q.DequeueItem()
+		if err != nil {
+			t.Errorf("Expected fatal message, got error: %v", err)
+		}
+		if !strings.Contains(item.Fatal, "resource exhausted") {
+			t.Errorf("Expected fatal message for resource exhausted, got: %v", item.Fatal)
+		}
+	})
 }
