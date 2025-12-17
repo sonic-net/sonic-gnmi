@@ -196,6 +196,7 @@ $(GOBIN)/protoc-gen-go:
 	$(GO) install github.com/golang/protobuf/protoc-gen-go
 
 
+
 DBCONFG = $(DBDIR)/database_config.json
 ENVFILE = build/test/env.txt
 TESTENV = $(shell cat $(ENVFILE))
@@ -209,30 +210,25 @@ $(ENVFILE):
 	tools/test/env.sh | grep -v DB_CONFIG_PATH | tee $@
 
 check_gotest: $(DBCONFG) $(ENVFILE)
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/telemetry
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 20m -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
-ifneq ($(ENABLE_DIALOUT_VALUE),0)
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
-endif
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_data_client
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-dbus.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_service_client
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -coverprofile=coverage-translutils.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/transl_utils
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -coverprofile=coverage-gnoi-client-system.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/gnoi_client/system
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
+	$(GO) test -race -v -mod=vendor -timeout 20m \
+		-covermode=atomic -coverprofile=coverage.txt -coverpkg=./... \
+		$(BLD_FLAGS) \
+		./...
 
 	# Install required coverage tools
 	$(GO) install github.com/axw/gocov/gocov@v1.1.0
 	$(GO) install github.com/AlekSi/gocov-xml@latest
 	$(GO) mod vendor
 
-	# Filter out "mocks" and generated "proto" files from the coverage reports
-	for file in coverage-*.txt; do grep -v -e "/mocks/" -e "proto/" $$file > $$file.filtered; done
+	# Filter out "mocks" and generated "proto" files from the coverage report
+	grep -v -e "/mocks/" -e "proto/" coverage.txt > coverage.filtered.txt
 
 	# Convert and generate the final coverage.xml file
-	gocov convert coverage-*.txt.filtered | gocov-xml -source $(shell pwd) > coverage.xml
+	cat coverage.filtered.txt | gocov-xml -source $(shell pwd) > coverage.xml
 
 	# Cleanup temporary files
-	rm -rf coverage-*.txt coverage-*.txt.filtered
+	rm -rf coverage.txt coverage.filtered.txt
 
 
 check_memleak: $(DBCONFG) $(ENVFILE)
@@ -287,5 +283,3 @@ endif
 	rm $(DESTDIR)/usr/sbin/gnoi_openconfig_client
 	rm $(DESTDIR)/usr/sbin/gnoi_sonic_client
 	rm $(DESTDIR)/usr/sbin/gnmi_dump
-
-
