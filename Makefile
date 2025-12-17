@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 ifeq ($(GOPATH),)
 export GOPATH=/tmp/go
 endif
@@ -209,20 +211,22 @@ $(ENVFILE):
 	tools/test/env.sh | grep -v DB_CONFIG_PATH | tee $@
 
 check_gotest: $(DBCONFG) $(ENVFILE)
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/telemetry
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 20m -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
+	@rm -f junit-report.xml
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -json -race -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/telemetry > /tmp/gotest-telemetry.json; ret=$$?; cat /tmp/gotest-telemetry.json | $(GOBIN)/go-junit-report > junit-report.xml; rm /tmp/gotest-telemetry.json; (exit $$ret)
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -json -race -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config > /tmp/gotest-config.json; ret=$$?; cat /tmp/gotest-config.json | $(GOBIN)/go-junit-report >> junit-report.xml; rm /tmp/gotest-config.json; (exit $$ret)
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -json -race -timeout 20m -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../... > /tmp/gotest-gnmi.json; ret=$$?; cat /tmp/gotest-gnmi.json | $(GOBIN)/go-junit-report >> junit-report.xml; rm /tmp/gotest-gnmi.json; (exit $$ret)
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -json -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client > /tmp/gotest-dialout.json; ret=$$?; cat /tmp/gotest-dialout.json | $(GOBIN)/go-junit-report >> junit-report.xml; rm /tmp/gotest-dialout.json; (exit $$ret)
 endif
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_data_client
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-dbus.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_service_client
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -coverprofile=coverage-translutils.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/transl_utils
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -coverprofile=coverage-gnoi-client-system.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/gnoi_client/system
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -json -race -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_data_client > /tmp/gotest-data.json; ret=$$?; cat /tmp/gotest-data.json | $(GOBIN)/go-junit-report >> junit-report.xml; rm /tmp/gotest-data.json; (exit $$ret)
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -json -race -coverprofile=coverage-dbus.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_service_client > /tmp/gotest-dbus.json; ret=$$?; cat /tmp/gotest-dbus.json | $(GOBIN)/go-junit-report >> junit-report.xml; rm /tmp/gotest-dbus.json; (exit $$ret)
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -json -race -coverprofile=coverage-translutils.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/transl_utils > /tmp/gotest-translutils.json; ret=$$?; cat /tmp/gotest-translutils.json | $(GOBIN)/go-junit-report >> junit-report.xml; rm /tmp/gotest-translutils.json; (exit $$ret)
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -json -race -coverprofile=coverage-gnoi-client-system.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/gnoi_client/system > /tmp/gotest-gnoi.json; ret=$$?; cat /tmp/gotest-gnoi.json | $(GOBIN)/go-junit-report >> junit-report.xml; rm /tmp/gotest-gnoi.json; (exit $$ret)
 
 	# Install required coverage tools
 	$(GO) install github.com/axw/gocov/gocov@v1.1.0
 	$(GO) install github.com/AlekSi/gocov-xml@latest
+	$(GO) install github.com/jstemmer/go-junit-report@v1.0.0
 	$(GO) mod vendor
 
 	# Filter out "mocks" and generated "proto" files from the coverage reports
@@ -287,5 +291,3 @@ endif
 	rm $(DESTDIR)/usr/sbin/gnoi_openconfig_client
 	rm $(DESTDIR)/usr/sbin/gnoi_sonic_client
 	rm $(DESTDIR)/usr/sbin/gnmi_dump
-
-
