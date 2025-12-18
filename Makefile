@@ -209,24 +209,7 @@ $(ENVFILE):
 	mkdir -p $(@D)
 	tools/test/env.sh | grep -v DB_CONFIG_PATH | tee $@
 
-# Dynamically generate the list of packages to test, excluding main executables.
-# We exclude packages that are actual executables, as they might have
-# conflicting flag definitions or are not meant to be imported into a test binary.
-GO_TEST_EXCLUDE_PKGS_PATTERNS := \
-	'github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/.*' \
-	'github.com/sonic-net/sonic-gnmi/gnmi_server' \
-	'github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli' \
-	'github.com/sonic-net/sonic-gnmi/dialout/dialout_server_cli' \
-	'github.com/sonic-net/sonic-gnmi/gnoi_client' \
-	'github.com/sonic-net/sonic-gnmi/gnmi_dump' \
-	'github.com/sonic-net/sonic-gnmi/telemetry'
-
-# Use a shell function to filter packages, handle spaces in patterns
-define filter_go_test_packages
-    $(GO) list ./... | grep -vE '$(subst $(space),|,$(1))'
-endef
-
-GO_TEST_PKGS := $(call filter_go_test_packages,$(GO_TEST_EXCLUDE_PKGS_PATTERNS))
+GO_TEST_PKGS := $(shell go list ./... | grep -vE 'build/gnoi_yang/client|gnmi_server|dialout/.*_cli|gnoi_client|gnmi_dump|telemetry')
 
 check_gotest: $(DBCONFG) $(ENVFILE)
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
