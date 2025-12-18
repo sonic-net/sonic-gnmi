@@ -208,32 +208,60 @@ $(ENVFILE):
 	mkdir -p $(@D)
 	tools/test/env.sh | grep -v DB_CONFIG_PATH | tee $@
 
+# Integration packages that require CGO/SONiC dependencies and special test environment.
+# These are based on the packages tested in the original check_gotest target from master branch.
+INTEGRATION_PKGS := \
+	github.com/sonic-net/sonic-gnmi/telemetry \
+	github.com/sonic-net/sonic-gnmi/sonic_db_config \
+	github.com/sonic-net/sonic-gnmi/gnmi_server \
+	github.com/sonic-net/sonic-gnmi/dialout/dialout_client \
+	github.com/sonic-net/sonic-gnmi/sonic_data_client \
+	github.com/sonic-net/sonic-gnmi/sonic_service_client \
+	github.com/sonic-net/sonic-gnmi/transl_utils \
+	github.com/sonic-net/sonic-gnmi/gnoi_client/system
+
+# check_gotest now only runs integration tests. Pure tests are run via pure.mk in the pipeline.
 check_gotest: $(DBCONFG) $(ENVFILE)
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/telemetry
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 20m -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
-ifneq ($(ENABLE_DIALOUT_VALUE),0)
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
-endif
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_data_client
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-dbus.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_service_client
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -coverprofile=coverage-translutils.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/transl_utils
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -coverprofile=coverage-gnoi-client-system.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/gnoi_client/system
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
+		$(GO) test -race -v -mod=vendor -timeout 20m \
+			-covermode=atomic -coverprofile=coverage.txt \
+		$(BLD_FLAGS) \
+		$(INTEGRATION_PKGS)
 
 	# Install required coverage tools
 	$(GO) install github.com/axw/gocov/gocov@v1.1.0
 	$(GO) install github.com/AlekSi/gocov-xml@latest
 	$(GO) mod vendor
 
-	# Filter out "mocks" and generated "proto" files from the coverage reports
-	for file in coverage-*.txt; do grep -v -e "/mocks/" -e "proto/" $$file > $$file.filtered; done
+	# Filter out "mocks" and generated "proto" files from the coverage report
+	grep -v -e "/mocks/" -e "proto/" coverage.txt > coverage.filtered.txt
 
 	# Convert and generate the final coverage.xml file
-	gocov convert coverage-*.txt.filtered | gocov-xml -source $(shell pwd) > coverage.xml
+	cat coverage.filtered.txt | gocov-xml -source $(shell pwd) > coverage.xml
 
 	# Cleanup temporary files
-	rm -rf coverage-*.txt coverage-*.txt.filtered
+	rm -rf coverage.txt coverage.filtered.txt
 
+# Test target that produces JUnit XML output for Azure Pipelines
+# This demonstrates individual test results in the pipeline UI.
+# See azure-pipelines.yml for integration example.
+check_junit: 
+	@echo "Installing gotestsum for JUnit XML generation..."
+	$(GO) install gotest.tools/gotestsum@v1.11.0
+	@echo "Running tests with JUnit XML output..."
+	@mkdir -p $(BUILD_DIR)/test-results
+	# Run a small pure package test to demonstrate JUnit reporting
+	gotestsum --junitfile $(BUILD_DIR)/test-results/junit-debug.xml \
+		--format testname \
+		-- -v -race -coverprofile=$(BUILD_DIR)/test-results/coverage-debug.txt \
+		github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug
+	# Run another package for more test variety
+	gotestsum --junitfile $(BUILD_DIR)/test-results/junit-hash.xml \
+		--format testname \
+		-- -v -race -coverprofile=$(BUILD_DIR)/test-results/coverage-hash.txt \
+		github.com/sonic-net/sonic-gnmi/internal/hash
+	@echo "JUnit XML files generated in $(BUILD_DIR)/test-results/"
+	@echo "Coverage files generated for individual packages"
 
 check_memleak: $(DBCONFG) $(ENVFILE)
 	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor $(MEMCHECK_FLAGS) -v github.com/sonic-net/sonic-gnmi/telemetry
@@ -287,5 +315,4 @@ endif
 	rm $(DESTDIR)/usr/sbin/gnoi_openconfig_client
 	rm $(DESTDIR)/usr/sbin/gnoi_sonic_client
 	rm $(DESTDIR)/usr/sbin/gnmi_dump
-
 
