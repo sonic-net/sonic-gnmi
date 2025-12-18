@@ -208,28 +208,17 @@ $(ENVFILE):
 	mkdir -p $(@D)
 	tools/test/env.sh | grep -v DB_CONFIG_PATH | tee $@
 
-# Packages that have no CGO/SONiC dependencies and can be tested without a special environment.
-# This list is derived from pure.mk.
-PURE_PKGS := \
-	github.com/sonic-net/sonic-gnmi/internal/exec \
-	github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug \
-	github.com/sonic-net/sonic-gnmi/internal/diskspace \
-	github.com/sonic-net/sonic-gnmi/internal/hash \
-	github.com/sonic-net/sonic-gnmi/internal/download \
-	github.com/sonic-net/sonic-gnmi/internal/firmware \
-	github.com/sonic-net/sonic-gnmi/pkg/interceptors \
-	github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy \
-	github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler \
-	github.com/sonic-net/sonic-gnmi/pkg/gnoi/file \
-	github.com/sonic-net/sonic-gnmi/pkg/exec \
-	github.com/sonic-net/sonic-gnmi/pkg/gnoi/os \
-	github.com/sonic-net/sonic-gnmi/pkg/gnoi/system
-
-# Define space variable for substitution
-space := $(null) $(null)
-
-# Packages that are not pure and not main executables. These are the integration tests.
-INTEGRATION_PKGS := $(shell go list ./... | grep -v 'test' | grep -vE '$(subst $(space),|,$(PURE_PKGS))|build/gnoi_yang/client|gnmi_server|dialout/.*_cli|gnoi_client|gnmi_dump|telemetry')
+# Integration packages that require CGO/SONiC dependencies and special test environment.
+# These are based on the packages tested in the original check_gotest target from master branch.
+INTEGRATION_PKGS := \
+	github.com/sonic-net/sonic-gnmi/telemetry \
+	github.com/sonic-net/sonic-gnmi/sonic_db_config \
+	github.com/sonic-net/sonic-gnmi/gnmi_server \
+	github.com/sonic-net/sonic-gnmi/dialout/dialout_client \
+	github.com/sonic-net/sonic-gnmi/sonic_data_client \
+	github.com/sonic-net/sonic-gnmi/sonic_service_client \
+	github.com/sonic-net/sonic-gnmi/transl_utils \
+	github.com/sonic-net/sonic-gnmi/gnoi_client/system
 
 # check_gotest now only runs integration tests. Pure tests are run via pure.mk in the pipeline.
 check_gotest: $(DBCONFG) $(ENVFILE)
