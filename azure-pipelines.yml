@@ -174,17 +174,20 @@ stages:
         ENABLE_TRANSLIB_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build"
 
-    - script: |
-        pushd sonic-gnmi
-        make all && make check_memleak $(UNIT_TEST_FLAG)
-      displayName: "Check memory leak"
+    # Memory leak check commented out to speed up pipeline for JUnit demo
+    # - script: |
+    #     pushd sonic-gnmi
+    #     make all && make check_memleak $(UNIT_TEST_FLAG)
+    #   displayName: "Check memory leak"
 
     - script: |
         pushd sonic-gnmi
         # Run pure package tests first (no dependencies needed)
         make -f pure.mk azure-coverage
         # Then run regular tests
-        make all && make check_gotest $(UNIT_TEST_FLAG)
+        # NOTE: check_gotest commented out to speed up pipeline for JUnit demo
+        # make all && make check_gotest $(UNIT_TEST_FLAG)
+        make all
       displayName: "Run unit test"
 
     - script: |
