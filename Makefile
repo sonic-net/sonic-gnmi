@@ -18,7 +18,7 @@ GNOI_YANG := $(BUILD_GNOI_YANG_PROTO_DIR)/.gnoi_yang_done
 TOOLS_DIR        := $(TOPDIR)/tools
 PYANG_PLUGIN_DIR := $(TOOLS_DIR)/pyang_plugins
 PYANG  ?= pyang
-GOROOT ?= $(shell $(GO) env GOROO)
+GOROOT ?= $(shell $(GO) env GOROOT)
 FORMAT_CHECK = $(BUILD_DIR)/.formatcheck
 FORMAT_LOG = $(BUILD_DIR)/go_format.log
 # Find all .go files excluding vendor, build, and patches files
@@ -71,9 +71,9 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* vendor/github.com/google/gnxi/
 
 # Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
-	 sed -i 's/patch -d $${DEST_DIR}\\/\\#patch -d $${DEST_DIR}\\/g' $(MGMT_COMMON_DIR)/patches/apply.sh
+	sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
-	 sed -i 's/\\#patch -d $${DEST_DIR}\\/patch -d $${DEST_DIR}\\/g' $(MGMT_COMMON_DIR)/patches/apply.sh
+	sed -i 's/#patch -d $${DEST_DIR}\/github.com\/golang\/glog/patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 
 	chmod -R u+w vendor
 	patch -d vendor -p0 < patches/gnmi_path.patch
@@ -196,7 +196,6 @@ $(GOBIN)/protoc-gen-go:
 	$(GO) install github.com/golang/protobuf/protoc-gen-go
 
 
-
 DBCONFG = $(DBDIR)/database_config.json
 ENVFILE = build/test/env.txt
 TESTENV = $(shell cat $(ENVFILE))
@@ -209,14 +208,33 @@ $(ENVFILE):
 	mkdir -p $(@D)
 	tools/test/env.sh | grep -v DB_CONFIG_PATH | tee $@
 
-GO_TEST_PKGS := $(shell go list ./... | grep -vE 'build/gnoi_yang/client|gnmi_server|dialout/.*_cli|gnoi_client|gnmi_dump|telemetry')
+# Packages that have no CGO/SONiC dependencies and can be tested without a special environment.
+# This list is derived from pure.mk.
+PURE_PKGS := \
+	github.com/sonic-net/sonic-gnmi/internal/exec \
+	github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug \
+	github.com/sonic-net/sonic-gnmi/internal/diskspace \
+	github.com/sonic-net/sonic-gnmi/internal/hash \
+	github.com/sonic-net/sonic-gnmi/internal/download \
+	github.com/sonic-net/sonic-gnmi/internal/firmware \
+	github.com/sonic-net/sonic-gnmi/pkg/interceptors \
+	github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy \
+	github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler \
+	github.com/sonic-net/sonic-gnmi/pkg/gnoi/file \
+	github.com/sonic-net/sonic-gnmi/pkg/exec \
+	github.com/sonic-net/sonic-gnmi/pkg/gnoi/os \
+	github.com/sonic-net/sonic-gnmi/pkg/gnoi/system
 
+# Packages that are not pure and not main executables. These are the integration tests.
+INTEGRATION_PKGS := $(shell go list ./... | grep -v 'test' | grep -vE '$(subst $(space),|,$(PURE_PKGS))|build/gnoi_yang/client|gnmi_server|dialout/.*_cli|gnoi_client|gnmi_dump|telemetry')
+
+# check_gotest now only runs integration tests. Pure tests are run via pure.mk in the pipeline.
 check_gotest: $(DBCONFG) $(ENVFILE)
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
-	$(GO) test -race -v -mod=vendor -timeout 20m \
-		-covermode=atomic -coverprofile=coverage.txt -coverpkg=./... \
+		$(GO) test -race -v -mod=vendor -timeout 20m \
+			-covermode=atomic -coverprofile=coverage.txt \
 		$(BLD_FLAGS) \
-		$(GO_TEST_PKGS)
+		$(INTEGRATION_PKGS)
 
 	# Install required coverage tools
 	$(GO) install github.com/axw/gocov/gocov@v1.1.0
@@ -285,3 +303,4 @@ endif
 	rm $(DESTDIR)/usr/sbin/gnoi_openconfig_client
 	rm $(DESTDIR)/usr/sbin/gnoi_sonic_client
 	rm $(DESTDIR)/usr/sbin/gnmi_dump
+
