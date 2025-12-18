@@ -225,6 +225,9 @@ PURE_PKGS := \
 	github.com/sonic-net/sonic-gnmi/pkg/gnoi/os \
 	github.com/sonic-net/sonic-gnmi/pkg/gnoi/system
 
+# Define space variable for substitution
+space := $(null) $(null)
+
 # Packages that are not pure and not main executables. These are the integration tests.
 INTEGRATION_PKGS := $(shell go list ./... | grep -v 'test' | grep -vE '$(subst $(space),|,$(PURE_PKGS))|build/gnoi_yang/client|gnmi_server|dialout/.*_cli|gnoi_client|gnmi_dump|telemetry')
 
