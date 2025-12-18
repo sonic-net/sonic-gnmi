@@ -187,6 +187,21 @@ stages:
         make all && make check_gotest $(UNIT_TEST_FLAG)
       displayName: "Run unit test"
 
+    - script: |
+        pushd sonic-gnmi
+        # Run tests with JUnit XML output for detailed test results
+        make check_junit
+      displayName: "Generate JUnit test results"
+
+    - task: PublishTestResults@2
+      displayName: 'Publish Test Results'
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: '**/junit-*.xml'
+        searchFolder: '$(System.DefaultWorkingDirectory)/sonic-gnmi/build/bin/test-results'
+        publishRunAttachments: true
+      condition: always()
+
     - publish: $(Build.ArtifactStagingDirectory)/
       artifact: sonic-gnmi
       displayName: "Archive artifacts"

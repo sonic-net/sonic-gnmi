@@ -242,6 +242,26 @@ check_gotest: $(DBCONFG) $(ENVFILE)
 	# Cleanup temporary files
 	rm -rf coverage.txt coverage.filtered.txt
 
+# Test target that produces JUnit XML output for Azure Pipelines
+# This demonstrates individual test results in the pipeline UI.
+# See azure-pipelines.yml for integration example.
+check_junit: 
+	@echo "Installing gotestsum for JUnit XML generation..."
+	$(GO) install gotest.tools/gotestsum@v1.11.0
+	@echo "Running tests with JUnit XML output..."
+	@mkdir -p $(BUILD_DIR)/test-results
+	# Run a small pure package test to demonstrate JUnit reporting
+	gotestsum --junitfile $(BUILD_DIR)/test-results/junit-debug.xml \
+		--format testname \
+		-- -v -race -coverprofile=$(BUILD_DIR)/test-results/coverage-debug.txt \
+		github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug
+	# Run another package for more test variety
+	gotestsum --junitfile $(BUILD_DIR)/test-results/junit-hash.xml \
+		--format testname \
+		-- -v -race -coverprofile=$(BUILD_DIR)/test-results/coverage-hash.txt \
+		github.com/sonic-net/sonic-gnmi/internal/hash
+	@echo "JUnit XML files generated in $(BUILD_DIR)/test-results/"
+	@echo "Coverage files generated for individual packages"
 
 check_memleak: $(DBCONFG) $(ENVFILE)
 	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor $(MEMCHECK_FLAGS) -v github.com/sonic-net/sonic-gnmi/telemetry
