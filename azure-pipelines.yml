@@ -47,6 +47,7 @@ stages:
     timeoutInMinutes: 60
 
     pool:
+      name: sonicso1ES-amd64
       vmImage: ubuntu-22.04
 
     variables:
