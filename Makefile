@@ -18,7 +18,7 @@ GNOI_YANG := $(BUILD_GNOI_YANG_PROTO_DIR)/.gnoi_yang_done
 TOOLS_DIR        := $(TOPDIR)/tools
 PYANG_PLUGIN_DIR := $(TOOLS_DIR)/pyang_plugins
 PYANG  ?= pyang
-GOROOT ?= $(shell $(GO) env GOROOT)
+GOROOT ?= $(shell $(GO) env GOROO)
 FORMAT_CHECK = $(BUILD_DIR)/.formatcheck
 FORMAT_LOG = $(BUILD_DIR)/go_format.log
 # Find all .go files excluding vendor, build, and patches files
@@ -71,9 +71,9 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* vendor/github.com/google/gnxi/
 
 # Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
-		 sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
+	 sed -i 's/patch -d $${DEST_DIR}\\/\\#patch -d $${DEST_DIR}\\/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
-		 sed -i 's/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
+	 sed -i 's/\\#patch -d $${DEST_DIR}\\/patch -d $${DEST_DIR}\\/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 
 	chmod -R u+w vendor
 	patch -d vendor -p0 < patches/gnmi_path.patch
@@ -209,12 +209,31 @@ $(ENVFILE):
 	mkdir -p $(@D)
 	tools/test/env.sh | grep -v DB_CONFIG_PATH | tee $@
 
+# Dynamically generate the list of packages to test, excluding main executables.
+# We exclude packages that are actual executables, as they might have
+# conflicting flag definitions or are not meant to be imported into a test binary.
+GO_TEST_EXCLUDE_PKGS_PATTERNS := \
+	'github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/.*' \
+	'github.com/sonic-net/sonic-gnmi/gnmi_server' \
+	'github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli' \
+	'github.com/sonic-net/sonic-gnmi/dialout/dialout_server_cli' \
+	'github.com/sonic-net/sonic-gnmi/gnoi_client' \
+	'github.com/sonic-net/sonic-gnmi/gnmi_dump' \
+	'github.com/sonic-net/sonic-gnmi/telemetry'
+
+# Use a shell function to filter packages, handle spaces in patterns
+define filter_go_test_packages
+    $(GO) list ./... | grep -vE '$(subst $(space),|,$(1))'
+endef
+
+GO_TEST_PKGS := $(call filter_go_test_packages,$(GO_TEST_EXCLUDE_PKGS_PATTERNS))
+
 check_gotest: $(DBCONFG) $(ENVFILE)
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
 	$(GO) test -race -v -mod=vendor -timeout 20m \
 		-covermode=atomic -coverprofile=coverage.txt -coverpkg=./... \
 		$(BLD_FLAGS) \
-		./...
+		$(GO_TEST_PKGS)
 
 	# Install required coverage tools
 	$(GO) install github.com/axw/gocov/gocov@v1.1.0
@@ -283,4 +302,3 @@ endif
 	rm $(DESTDIR)/usr/sbin/gnoi_openconfig_client
 	rm $(DESTDIR)/usr/sbin/gnoi_sonic_client
 	rm $(DESTDIR)/usr/sbin/gnmi_dump
-
