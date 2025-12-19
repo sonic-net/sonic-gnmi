@@ -194,7 +194,10 @@ stages:
       condition: always()
       inputs:
         testResultsFormat: 'JUnit'
-        testResultsFiles: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-integration-basic.xml'
+        testResultsFiles: |
+          $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-integration-basic.xml
+          $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-integration-env.xml
+          $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-integration-dialout.xml
         failTaskOnFailedTests: true
         publishRunAttachments: true
         testRunTitle: 'Integration Tests'

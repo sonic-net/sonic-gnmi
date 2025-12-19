@@ -236,24 +236,21 @@ endif
 
 
 # Integration test packages - basic ones (no special environment needed)
-# Note: Most packages commented out for quick pipeline feedback during development
 INTEGRATION_BASIC_PKGS := \
 	github.com/sonic-net/sonic-gnmi/sonic_db_config \
-	github.com/sonic-net/sonic-gnmi/sonic_service_client
-	# github.com/sonic-net/sonic-gnmi/telemetry \
-	# github.com/sonic-net/sonic-gnmi/sonic_data_client
+	github.com/sonic-net/sonic-gnmi/sonic_service_client \
+	github.com/sonic-net/sonic-gnmi/telemetry \
+	github.com/sonic-net/sonic-gnmi/sonic_data_client
 
 # Integration test packages that need special environment
-# Note: All commented out for quick pipeline feedback during development
-INTEGRATION_ENV_PKGS := 
-	# github.com/sonic-net/sonic-gnmi/gnmi_server \
-	# github.com/sonic-net/sonic-gnmi/transl_utils \
-	# github.com/sonic-net/sonic-gnmi/gnoi_client/system
+INTEGRATION_ENV_PKGS := \
+	github.com/sonic-net/sonic-gnmi/gnmi_server \
+	github.com/sonic-net/sonic-gnmi/transl_utils \
+	github.com/sonic-net/sonic-gnmi/gnoi_client/system
 
 # Dialout package (conditional)
-# Note: Commented out for quick pipeline feedback during development
-INTEGRATION_DIALOUT_PKG := 
-	# github.com/sonic-net/sonic-gnmi/dialout/dialout_client
+INTEGRATION_DIALOUT_PKG := \
+	github.com/sonic-net/sonic-gnmi/dialout/dialout_client
 
 # Memory leak test packages that require CGO/SONiC dependencies and special sanitizer flags
 # Note: sonic_data_client and telemetry excluded due to underlying libyang memory leaks in test environment
@@ -349,56 +346,64 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE)
 		fi; \
 	fi
 	
-	# Run packages needing special environment (currently empty for quick feedback)
-	# @if [ -n "$(INTEGRATION_ENV_PKGS)" ]; then \
-	# 	echo "Running environment-dependent integration tests..."; \
-	# 	if [ -f $(shell $(GO) env GOPATH)/bin/gotestsum ]; then \
-	# 		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
-	# 			sudo -E $(shell $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-env.xml \
-	# 			--format testname \
-	# 			-- -race -timeout 20m -coverprofile=test-results/coverage-integration-env.txt \
-	# 			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
-	# 	else \
-	# 		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
-	# 			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-env.xml \
-	# 			--format testname \
-	# 			-- -race -timeout 20m -coverprofile=test-results/coverage-integration-env.txt \
-	# 			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
-	# 	fi; \
-	# fi
+	# Run packages needing special environment
+	@if [ -n "$(INTEGRATION_ENV_PKGS)" ]; then \
+		echo "Running environment-dependent integration tests..."; \
+		if [ -f $(shell $(GO) env GOPATH)/bin/gotestsum ]; then \
+			CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
+				sudo -E $(shell $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-env.xml \
+				--format testname \
+				-- -race -timeout 20m -coverprofile=test-results/coverage-integration-env.txt \
+				-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
+		else \
+			CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
+				sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-env.xml \
+				--format testname \
+				-- -race -timeout 20m -coverprofile=test-results/coverage-integration-env.txt \
+				-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
+		fi; \
+	fi
 	
-	# Run dialout package if enabled (currently empty for quick feedback)
-	# ifneq ($(ENABLE_DIALOUT_VALUE),0)
-	# @if [ -n "$(INTEGRATION_DIALOUT_PKG)" ]; then \
-	# 	echo "Running dialout integration tests..."; \
-	# 	if [ -f $(shell $(GO) env GOPATH)/bin/gotestsum ]; then \
-	# 		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
-	# 			sudo -E $(shell $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-dialout.xml \
-	# 			--format testname \
-	# 			-- -coverprofile=test-results/coverage-integration-dialout.txt \
-	# 			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG); \
-	# 	else \
-	# 		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
-	# 			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-dialout.xml \
-	# 			--format testname \
-	# 			-- -coverprofile=test-results/coverage-integration-dialout.txt \
-	# 			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG); \
-	# 	fi; \
-	# fi
-	# endif
+	# Run dialout package if enabled
+ifneq ($(ENABLE_DIALOUT_VALUE),0)
+	@if [ -n "$(INTEGRATION_DIALOUT_PKG)" ]; then \
+		echo "Running dialout integration tests..."; \
+		if [ -f $(shell $(GO) env GOPATH)/bin/gotestsum ]; then \
+			CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
+				sudo -E $(shell $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-dialout.xml \
+				--format testname \
+				-- -coverprofile=test-results/coverage-integration-dialout.txt \
+				-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG); \
+		else \
+			CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
+				sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-dialout.xml \
+				--format testname \
+				-- -coverprofile=test-results/coverage-integration-dialout.txt \
+				-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG); \
+		fi; \
+	fi
+endif
 	
 	@echo ""
 	@echo "============================================="
 	@echo "✅ Integration JUnit XML generation completed!"
 	@echo "============================================="
 	@echo "Files generated:"
-	@echo "  - test-results/junit-integration-basic.xml"
+	@echo "  - test-results/junit-integration-basic.xml (Basic packages)"
+	@echo "  - test-results/junit-integration-env.xml (Environment-dependent packages)"
+ifneq ($(ENABLE_DIALOUT_VALUE),0)
+	@echo "  - test-results/junit-integration-dialout.xml (Dialout package)"
+endif
 	@echo ""
-	@echo "Tested packages (trimmed for quick feedback):"
+	@echo "Tested packages:"
+	@echo "Basic packages:"
 	@for pkg in $(INTEGRATION_BASIC_PKGS); do echo "  - $$pkg"; done
-	@echo ""
-	@echo "TODO: Uncomment packages in INTEGRATION_ENV_PKGS and INTEGRATION_DIALOUT_PKG"
-	@echo "      and their corresponding test blocks for full integration testing"
+	@echo "Environment-dependent packages:"
+	@for pkg in $(INTEGRATION_ENV_PKGS); do echo "  - $$pkg"; done
+ifneq ($(ENABLE_DIALOUT_VALUE),0)
+	@echo "Dialout package:"
+	@for pkg in $(INTEGRATION_DIALOUT_PKG); do echo "  - $$pkg"; done
+endif
 
 
 clean:
