@@ -188,132 +188,25 @@ stages:
     # Integration tests have been separated from pure package tests
     # Pure package CI now runs in the separate PureCIJob above
     # The steps below are for integration testing with SONiC dependencies
-    # Currently commented out for fast iteration during development
-    # Re-enable these steps for full integration testing before merge
     
-    # To enable dependency installation, uncomment this template reference:
-    # - template: .azure/templates/install-dependencies.yml
-    #   parameters:
-    #     buildBranch: $(BUILD_BRANCH)
+    # Install SONiC dependencies using shared template
+    - template: .azure/templates/install-dependencies.yml
+      parameters:
+        buildBranch: $(BUILD_BRANCH)
     
-    # Comment out for fast iteration - can be re-enabled later
-    # - task: DownloadPipelineArtifact@2
-    #   inputs:
-    #     source: specific
-    #     project: build
-    #     pipeline: 142
-    #     artifact: sonic-buildimage.vs
-    #     runVersion: 'latestFromBranch'
-    #     runBranch: 'refs/heads/$(BUILD_BRANCH)'
-    #     patterns: |
-    #         target/debs/bookworm/libyang*.deb
-    #         target/debs/bookworm/libnl*.deb
-    #         target/python-wheels/bookworm/sonic_yang_models*.whl
-    #   displayName: "Download bookworm debs"
-
-    # Comment out for fast iteration - can be re-enabled later
-    # - script: |
-    #     # PYTEST
-    #     sudo pip3 install -U pytest
-    #     sudo pip3 install -U jsonpatch
-    #
-    #     # REDIS
-    #     sudo apt-get update
-    #     sudo apt-get install -y redis-server
-    #     sudo sed -ri 's/^# unixsocket/unixsocket/' /etc/redis/redis.conf
-    #     sudo sed -ri 's/^unixsocketperm .../unixsocketperm 777/' /etc/redis/redis.conf
-    #     sudo sed -ri 's/redis-server.sock/redis.sock/' /etc/redis/redis.conf
-    #     sudo service redis-server start
-    #
-    #     # LIBYANG
-    #     sudo dpkg -i ../target/debs/bookworm/libyang*1.0.73*.deb
-    #   displayName: "Install dependency"
-    #
-    # - script: |
-    #     # SONIC YANGS
-    #     set -ex
-    #     sudo pip3 install ../target/python-wheels/bookworm/sonic_yang_models-1.0-py3-none-any.whl
-    #   displayName: "Install sonic yangs"
-    #
-    # - script: |
-    #     # LIBSWSSCOMMON
-    #     sudo apt-get -y purge libnl-3-dev libnl-route-3-dev
-    #     sudo dpkg -i ../target/debs/bookworm/libnl-3-200_*.deb
-    #     sudo dpkg -i ../target/debs/bookworm/libnl-genl-3-200_*.deb
-    #     sudo dpkg -i ../target/debs/bookworm/libnl-route-3-200_*.deb
-    #     sudo dpkg -i ../target/debs/bookworm/libnl-nf-3-200_*.deb
-    #   displayName: "Install libswsscommon dependencies"
-    #
-    # - script: |
-    #     set -ex
-    #     # Install .NET CORE
-    #     curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-    #     sudo apt-add-repository https://packages.microsoft.com/debian/12/prod
-    #     sudo apt-get update
-    #     sudo apt-get install -y dotnet-sdk-8.0
-    #   displayName: "Install .NET CORE"
-    #
-    # - task: DownloadPipelineArtifact@2
-    #   inputs:
-    #     source: specific
-    #     project: build
-    #     pipeline: Azure.sonic-swss-common
-    #     artifact: sonic-swss-common-bookworm
-    #     runVersion: 'latestFromBranch'
-    #     runBranch: 'refs/heads/$(BUILD_BRANCH)'
-    #   displayName: "Download sonic-swss-common"
-
-    # Comment out for fast iteration - can be re-enabled later
-    # - script: |
-    #     set -ex
-    #     # LIBSWSSCOMMON
-    #     sudo dpkg -i libswsscommon_1.0.0_amd64.deb
-    #     sudo dpkg -i libswsscommon-dev_1.0.0_amd64.deb
-    #     sudo dpkg -i python3-swsscommon_1.0.0_amd64.deb
-    #   workingDirectory: $(Pipeline.Workspace)/
-    #   displayName: 'Install libswsscommon package'
-    #
-    # - script: |
-    #     sudo apt-get install -y protobuf-compiler
-    #     protoc --version
-    #   displayName: 'Install protoc'
-    #
-    # - script: |
-    #     set -ex
-    #     ls -l
-    #
-    #     pushd sonic-mgmt-common
-    #
-    #     NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
-    #
-    #     popd
-    #
-    #     pushd sonic-gnmi
-    #
-    #     ENABLE_TRANSLIB_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
-    #   displayName: "Build"
-    #
-    # - script: |
-    #     pushd sonic-gnmi
-    #     # Run pure package tests first (no dependencies needed)
-    #     make -f pure.mk azure-coverage
-    #     # Then run regular tests
-    #     make all && make check_gotest $(UNIT_TEST_FLAG)
-    #   displayName: "Run unit test"
-
-    # Placeholder for integration job - currently disabled for fast iteration
+    # Run integration tests
     - script: |
-        echo "Integration CI job placeholder - build and test steps commented out for fast iteration"
-        echo "To enable full integration testing, uncomment the build and test steps above"
-      displayName: 'Integration CI placeholder'
+        pushd sonic-gnmi
+        make all && $(UNIT_TEST_FLAG) make check_gotest
+        popd
+      displayName: "Run Integration Tests"
 
-    # Comment out for fast iteration - can be re-enabled later
-    # - publish: $(Build.ArtifactStagingDirectory)/
-    #   artifact: sonic-gnmi
-    #   displayName: "Archive artifacts"
-    #
-    # - task: PublishCodeCoverageResults@1
-    #   inputs:
-    #     codeCoverageTool: Cobertura
-    #     summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
-    #   displayName: 'Publish coverage'
+    - publish: $(Build.ArtifactStagingDirectory)/
+      artifact: sonic-gnmi
+      displayName: "Archive artifacts"
+
+    - task: PublishCodeCoverageResults@1
+      inputs:
+        codeCoverageTool: Cobertura
+        summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
+      displayName: 'Publish coverage'
