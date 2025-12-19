@@ -300,6 +300,10 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE)
 	@echo "Running integration tests with JUnit XML output..."
 	@mkdir -p test-results
 	
+	# TODO: Fix tests to not depend on /etc/sonic existing
+	# Creating directory here as workaround for poorly written tests
+	sudo mkdir -p /etc/sonic && sudo chmod 777 /etc/sonic
+	
 	# Run basic packages (no special environment needed)
 	@if [ -n "$(INTEGRATION_BASIC_PKGS)" ]; then \
 		echo "Running basic integration tests..."; \
