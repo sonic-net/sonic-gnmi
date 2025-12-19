@@ -254,15 +254,9 @@ check_memleak: $(DBCONFG) $(ENVFILE)
 check_memleak_junit: $(DBCONFG) $(ENVFILE)
 	@echo "Installing gotestsum for memory leak JUnit XML generation..."
 	$(GO) install gotest.tools/gotestsum@v1.11.0
-	@echo "DEBUG: Checking gotestsum installation..."
-	@echo "GOPATH: $(shell $(GO) env GOPATH)"
-	@ls -la $(shell $(GO) env GOPATH)/bin/gotestsum || echo "gotestsum not found at $(shell $(GO) env GOPATH)/bin/gotestsum"
-	@which gotestsum || echo "gotestsum not in PATH"
 	@if [ ! -f $(shell $(GO) env GOPATH)/bin/gotestsum ]; then \
 		echo "Installing gotestsum with sudo since user install failed..."; \
 		sudo $(GO) install gotest.tools/gotestsum@v1.11.0; \
-		echo "Sudo GOPATH: $(shell sudo $(GO) env GOPATH)"; \
-		ls -la $(shell sudo $(GO) env GOPATH)/bin/gotestsum || echo "sudo install also failed"; \
 	fi
 	@echo "Running memory leak tests with JUnit XML output..."
 	@mkdir -p test-results
