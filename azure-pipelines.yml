@@ -125,19 +125,61 @@ stages:
       submodules: recursive
       displayName: 'Checkout sonic-swss-common'
 
-    # Comment out for fast iteration - can be re-enabled later
-    # [Dependencies installation steps would go here]
-    
-    # - script: |
-    #     pushd sonic-gnmi
-    #     make all && make check_memleak $(UNIT_TEST_FLAG)
-    #   displayName: "Check memory leak"
+    # Memory leak tests require basic dependencies
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        source: specific
+        project: build
+        pipeline: Azure.sonic-swss-common
+        artifact: sonic-swss-common-bookworm
+        runVersion: 'latestFromBranch'
+        runBranch: 'refs/heads/$(BUILD_BRANCH)'
+      displayName: "Download sonic-swss-common"
 
-    # Placeholder for memory leak tests - currently disabled for fast iteration
     - script: |
-        echo "Memory leak tests placeholder - test steps commented out for fast iteration"
-        echo "To enable memory leak testing, uncomment the build and test steps above"
-      displayName: 'Memory leak tests placeholder'
+        set -ex
+        # LIBSWSSCOMMON
+        sudo dpkg -i libswsscommon_1.0.0_amd64.deb
+        sudo dpkg -i libswsscommon-dev_1.0.0_amd64.deb
+        sudo dpkg -i python3-swsscommon_1.0.0_amd64.deb
+      workingDirectory: $(Pipeline.Workspace)/
+      displayName: 'Install libswsscommon package'
+
+    - script: |
+        sudo apt-get install -y protobuf-compiler
+        protoc --version
+      displayName: 'Install protoc'
+
+    - script: |
+        set -ex
+        pushd sonic-mgmt-common
+        NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
+        popd
+        pushd sonic-gnmi
+        ENABLE_TRANSLIB_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc)
+      displayName: "Build dependencies"
+
+    # Memory leak tests with JUnit XML generation
+    
+    - bash: |
+        set -euo pipefail
+        export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH)/bin
+        pushd sonic-gnmi
+        make all && make check_memleak_junit $(UNIT_TEST_FLAG)
+        popd
+      displayName: 'Run Memory Leak Tests with JUnit XML'
+
+    - task: PublishTestResults@2
+      displayName: 'Publish Memory Leak Test Results'
+      condition: always()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: |
+          $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-memleak-standard.xml
+          $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-memleak-gnmi-server.xml
+        failTaskOnFailedTests: true
+        publishRunAttachments: true
+        testRunTitle: 'Memory Leak Tests'
 
   # Full integration testing with SONiC dependencies
   - job: IntegrationCIJob
