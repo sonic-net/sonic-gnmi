@@ -21,7 +21,6 @@ PURE_PACKAGES := \
 	internal/download \
 	internal/firmware \
 	pkg/interceptors \
-	pkg/interceptors/dpuproxy \
 	pkg/server/operational-handler \
 	pkg/gnoi/file \
 	pkg/exec \
@@ -36,6 +35,7 @@ PURE_PACKAGES := \
 # TODO: common_utils (parts that don't need CGO)
 # TODO: gnoi_client/config
 # TODO: transl_utils (isolate from translib dependencies)
+# TODO: pkg/interceptors/dpuproxy (needs gRPC infrastructure mocking)
 
 # You can test specific packages by setting PACKAGES=pkg/specific/package
 PACKAGES ?= $(PURE_PACKAGES)
@@ -239,6 +239,32 @@ ci: clean lint build-test test
 	@echo "This validates that these packages can be developed"
 	@echo "and tested without SONiC/CGO dependencies."
 
+# JUnit XML output for Azure Pipelines test reporting
+.PHONY: junit-xml
+junit-xml: clean
+	@echo "Installing gotestsum for JUnit XML generation..."
+	$(GO) install gotest.tools/gotestsum@v1.11.0
+	@echo "Running pure package tests with JUnit XML output..."
+	@mkdir -p test-results
+	@export PATH=$(PATH):$(shell $(GO) env GOPATH)/bin && \
+	gotestsum --junitfile test-results/junit-pure.xml \
+		--format testname \
+		-- -v -race -coverprofile=test-results/coverage-pure.txt \
+		-covermode=atomic \
+		$(addprefix ./,$(PACKAGES)) || true
+	@echo ""
+	@echo "============================================="
+	@echo "✅ JUnit XML generation completed!"
+	@echo "============================================="
+	@echo "Files generated:"
+	@echo "  - test-results/junit-pure.xml (JUnit test results)"
+	@echo "  - test-results/coverage-pure.txt (Coverage data)"
+	@echo ""
+	@echo "Tested packages:"
+	@for pkg in $(PACKAGES); do \
+		echo "  - $$pkg"; \
+	done
+
 # Quick check for development
 .PHONY: quick
 quick: fmt-check vet build-test
@@ -255,6 +281,7 @@ help:
 	@echo ""
 	@echo "Available targets:"
 	@echo "  ci               - Full CI pipeline (default)"
+	@echo "  junit-xml        - Generate JUnit XML for Azure Pipelines"
 	@echo "  quick            - Quick validation (fmt, vet, build)"
 	@echo "  test             - Run tests with coverage"
 	@echo "  test-coverage    - Generate HTML coverage reports"
