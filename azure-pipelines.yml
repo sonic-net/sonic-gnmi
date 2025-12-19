@@ -68,18 +68,8 @@ stages:
     - bash: |
         set -euo pipefail
         export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH)/bin
-        go install gotest.tools/gotestsum@v1.11.0
-        mkdir -p test-results
-        gotestsum \
-          --format testname \
-          --junitfile "$(System.DefaultWorkingDirectory)/test-results/junit-pure.xml" \
-          -- -v -race -coverprofile=test-results/coverage-pure.txt \
-          -covermode=atomic \
-          ./internal/exec ./pkg/gnoi/debug ./internal/diskspace \
-          ./internal/hash ./internal/download ./internal/firmware \
-          ./pkg/interceptors ./pkg/server/operational-handler \
-          ./pkg/gnoi/file ./pkg/exec ./pkg/gnoi/os ./pkg/gnoi/system
-      displayName: 'Run Pure Package Tests (gotestsum -> JUnit)'
+        make -f pure.mk junit-xml
+      displayName: 'Run Pure Package Tests'
 
     - task: PublishTestResults@2
       displayName: 'Publish Pure Package Test Results'
@@ -134,20 +124,17 @@ stages:
     
     - bash: |
         set -euo pipefail
-        export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH)/bin
         pushd sonic-gnmi
-        make all && make check_memleak_junit $(UNIT_TEST_FLAG)
+        make all && $(UNIT_TEST_FLAG) make check_memleak_junit
         popd
-      displayName: 'Run Memory Leak Tests with JUnit XML'
+      displayName: 'Run Memory Leak Tests'
 
     - task: PublishTestResults@2
       displayName: 'Publish Memory Leak Test Results'
       condition: always()
       inputs:
         testResultsFormat: 'JUnit'
-        testResultsFiles: |
-          $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-memleak-standard.xml
-          $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-memleak-gnmi-server.xml
+        testResultsFiles: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-memleak-standard.xml'
         failTaskOnFailedTests: true
         publishRunAttachments: true
         testRunTitle: 'Memory Leak Tests'
@@ -195,7 +182,8 @@ stages:
         buildBranch: $(BUILD_BRANCH)
     
     # Run integration tests
-    - script: |
+    - bash: |
+        set -euo pipefail
         pushd sonic-gnmi
         make all && $(UNIT_TEST_FLAG) make check_gotest
         popd
