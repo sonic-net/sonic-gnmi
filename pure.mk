@@ -243,7 +243,9 @@ ci: clean lint build-test test
 .PHONY: junit-xml
 junit-xml: clean
 	@echo "Installing gotestsum for JUnit XML generation..."
-	$(GO) install gotest.tools/gotestsum@v1.11.0
+	@if ! command -v gotestsum >/dev/null 2>&1; then \
+		$(GO) install gotest.tools/gotestsum@v1.11.0; \
+	fi
 	@echo "Running pure package tests with JUnit XML output..."
 	@mkdir -p test-results
 	@export PATH=$(PATH):$(shell $(GO) env GOPATH)/bin && \

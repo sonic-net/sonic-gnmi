@@ -134,7 +134,7 @@ stages:
       displayName: 'Memory leak tests placeholder'
 
   # Full integration testing with SONiC dependencies
-  - job: IntegrationCIJob  
+  - job: IntegrationCIJob
     displayName: "Integration CI"
     timeoutInMinutes: 60
 
@@ -166,7 +166,11 @@ stages:
       submodules: recursive
       displayName: 'Checkout sonic-swss-common'
 
-    # Pure package CI moved to separate PureCIJob
+    # Integration tests have been separated from pure package tests
+    # Pure package CI now runs in the separate PureCIJob above
+    # The steps below are for integration testing with SONiC dependencies
+    # Currently commented out for fast iteration during development
+    # Re-enable these steps for full integration testing before merge
     
     # Comment out for fast iteration - can be re-enabled later
     # - task: DownloadPipelineArtifact@2
