@@ -67,7 +67,7 @@ stages:
 
     - bash: |
         set -euo pipefail
-        export PATH=$PATH:/usr/local/go/bin
+        export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH)/bin
         go install gotest.tools/gotestsum@v1.11.0
         mkdir -p test-results
         gotestsum \
