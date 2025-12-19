@@ -270,37 +270,13 @@ check_memleak: $(DBCONFG) $(ENVFILE)
 .PHONY: check_memleak_junit
 check_memleak_junit: $(DBCONFG) $(ENVFILE)
 	@echo "Installing gotestsum for memory leak JUnit XML generation..."
-	$(GO) install gotest.tools/gotestsum@v1.11.0
-	@if [ ! -f $(shell $(GO) env GOPATH)/bin/gotestsum ]; then \
-		echo "Installing gotestsum with sudo since user install failed..."; \
-		sudo $(GO) install gotest.tools/gotestsum@v1.11.0; \
-	fi
+	sudo $(GO) install gotest.tools/gotestsum@v1.11.0
 	@echo "Running memory leak tests with JUnit XML output..."
 	@mkdir -p test-results
-	@if [ -f $(shell $(GO) env GOPATH)/bin/gotestsum ]; then \
-		echo "Using user-installed gotestsum..."; \
-		CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" \
-			sudo -E $(shell $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-memleak-standard.xml \
-			--format testname \
-			-- -mod=vendor $(MEMCHECK_FLAGS) -v $(MEMLEAK_STANDARD_PKGS); \
-	else \
-		echo "Using sudo-installed gotestsum..."; \
-		CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" \
-			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-memleak-standard.xml \
-			--format testname \
-			-- -mod=vendor $(MEMCHECK_FLAGS) -v $(MEMLEAK_STANDARD_PKGS); \
-	fi
-	# @if [ -f $(shell $(GO) env GOPATH)/bin/gotestsum ]; then \
-	# 	CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" \
-	# 		sudo -E $(shell $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-memleak-gnmi-server.xml \
-	# 		--format testname \
-	# 		-- -mod=vendor $(MEMCHECK_FLAGS) -v $(MEMLEAK_GNMI_SERVER_PKG) -run="$(MEMLEAK_TEST_PATTERN)"; \
-	# else \
-	# 	CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" \
-	# 		sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-memleak-gnmi-server.xml \
-	# 		--format testname \
-	# 		-- -mod=vendor $(MEMCHECK_FLAGS) -v $(MEMLEAK_GNMI_SERVER_PKG) -run="$(MEMLEAK_TEST_PATTERN)"; \
-	# fi
+	CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" \
+		sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-memleak-standard.xml \
+		--format testname \
+		-- -mod=vendor $(MEMCHECK_FLAGS) -v $(MEMLEAK_STANDARD_PKGS)
 	@echo ""
 	@echo "============================================="
 	@echo "✅ Memory leak JUnit XML generation completed!"
@@ -320,67 +296,39 @@ check_memleak_junit: $(DBCONFG) $(ENVFILE)
 .PHONY: check_gotest_junit
 check_gotest_junit: $(DBCONFG) $(ENVFILE)
 	@echo "Installing gotestsum for integration test JUnit XML generation..."
-	$(GO) install gotest.tools/gotestsum@v1.11.0
-	@if [ ! -f $(shell $(GO) env GOPATH)/bin/gotestsum ]; then \
-		echo "Installing gotestsum with sudo since user install failed..."; \
-		sudo $(GO) install gotest.tools/gotestsum@v1.11.0; \
-	fi
+	sudo $(GO) install gotest.tools/gotestsum@v1.11.0
 	@echo "Running integration tests with JUnit XML output..."
 	@mkdir -p test-results
 	
 	# Run basic packages (no special environment needed)
 	@if [ -n "$(INTEGRATION_BASIC_PKGS)" ]; then \
 		echo "Running basic integration tests..."; \
-		if [ -f $(shell $(GO) env GOPATH)/bin/gotestsum ]; then \
-			CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" \
-				sudo -E $(shell $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-basic.xml \
-				--format testname \
-				-- -race -coverprofile=test-results/coverage-integration-basic.txt \
-				-covermode=atomic -mod=vendor -v $(INTEGRATION_BASIC_PKGS); \
-		else \
-			CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" \
-				sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-basic.xml \
-				--format testname \
-				-- -race -coverprofile=test-results/coverage-integration-basic.txt \
-				-covermode=atomic -mod=vendor -v $(INTEGRATION_BASIC_PKGS); \
-		fi; \
+		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" \
+			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-basic.xml \
+			--format testname \
+			-- -race -coverprofile=test-results/coverage-integration-basic.txt \
+			-covermode=atomic -mod=vendor -v $(INTEGRATION_BASIC_PKGS); \
 	fi
 	
 	# Run packages needing special environment
 	@if [ -n "$(INTEGRATION_ENV_PKGS)" ]; then \
 		echo "Running environment-dependent integration tests..."; \
-		if [ -f $(shell $(GO) env GOPATH)/bin/gotestsum ]; then \
-			CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
-				sudo -E $(shell $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-env.xml \
-				--format testname \
-				-- -race -timeout 20m -coverprofile=test-results/coverage-integration-env.txt \
-				-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
-		else \
-			CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
-				sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-env.xml \
-				--format testname \
-				-- -race -timeout 20m -coverprofile=test-results/coverage-integration-env.txt \
-				-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
-		fi; \
+		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
+			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-env.xml \
+			--format testname \
+			-- -race -timeout 20m -coverprofile=test-results/coverage-integration-env.txt \
+			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
 	fi
 	
 	# Run dialout package if enabled
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	@if [ -n "$(INTEGRATION_DIALOUT_PKG)" ]; then \
 		echo "Running dialout integration tests..."; \
-		if [ -f $(shell $(GO) env GOPATH)/bin/gotestsum ]; then \
-			CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
-				sudo -E $(shell $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-dialout.xml \
-				--format testname \
-				-- -coverprofile=test-results/coverage-integration-dialout.txt \
-				-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG); \
-		else \
-			CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
-				sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-dialout.xml \
-				--format testname \
-				-- -coverprofile=test-results/coverage-integration-dialout.txt \
-				-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG); \
-		fi; \
+		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
+			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-dialout.xml \
+			--format testname \
+			-- -coverprofile=test-results/coverage-integration-dialout.txt \
+			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG); \
 	fi
 endif
 	
