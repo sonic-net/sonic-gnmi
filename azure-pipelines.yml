@@ -125,39 +125,10 @@ stages:
       submodules: recursive
       displayName: 'Checkout sonic-swss-common'
 
-    # Memory leak tests require basic dependencies
-    - task: DownloadPipelineArtifact@2
-      inputs:
-        source: specific
-        project: build
-        pipeline: Azure.sonic-swss-common
-        artifact: sonic-swss-common-bookworm
-        runVersion: 'latestFromBranch'
-        runBranch: 'refs/heads/$(BUILD_BRANCH)'
-      displayName: "Download sonic-swss-common"
-
-    - script: |
-        set -ex
-        # LIBSWSSCOMMON
-        sudo dpkg -i libswsscommon_1.0.0_amd64.deb
-        sudo dpkg -i libswsscommon-dev_1.0.0_amd64.deb
-        sudo dpkg -i python3-swsscommon_1.0.0_amd64.deb
-      workingDirectory: $(Pipeline.Workspace)/
-      displayName: 'Install libswsscommon package'
-
-    - script: |
-        sudo apt-get install -y protobuf-compiler
-        protoc --version
-      displayName: 'Install protoc'
-
-    - script: |
-        set -ex
-        pushd sonic-mgmt-common
-        NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
-        popd
-        pushd sonic-gnmi
-        ENABLE_TRANSLIB_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc)
-      displayName: "Build dependencies"
+    # Install SONiC dependencies using shared template
+    - template: .azure/templates/install-dependencies.yml
+      parameters:
+        buildBranch: $(BUILD_BRANCH)
 
     # Memory leak tests with JUnit XML generation
     
@@ -219,6 +190,11 @@ stages:
     # The steps below are for integration testing with SONiC dependencies
     # Currently commented out for fast iteration during development
     # Re-enable these steps for full integration testing before merge
+    
+    # To enable dependency installation, uncomment this template reference:
+    # - template: .azure/templates/install-dependencies.yml
+    #   parameters:
+    #     buildBranch: $(BUILD_BRANCH)
     
     # Comment out for fast iteration - can be re-enabled later
     # - task: DownloadPipelineArtifact@2
