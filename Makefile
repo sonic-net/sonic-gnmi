@@ -256,12 +256,12 @@ check_memleak_junit: $(DBCONFG) $(ENVFILE)
 	@$(GO) install gotest.tools/gotestsum@v1.11.0
 	@echo "Running memory leak tests with JUnit XML output..."
 	@mkdir -p test-results
-	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" \
-		$(shell $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-memleak-standard.xml \
+	sudo -E PATH="$(PATH):$(shell $(GO) env GOPATH)/bin" CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" \
+		gotestsum --junitfile test-results/junit-memleak-standard.xml \
 		--format testname \
 		-- -mod=vendor $(MEMCHECK_FLAGS) -v $(MEMLEAK_STANDARD_PKGS)
-	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" \
-		$(shell $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-memleak-gnmi-server.xml \
+	sudo -E PATH="$(PATH):$(shell $(GO) env GOPATH)/bin" CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" \
+		gotestsum --junitfile test-results/junit-memleak-gnmi-server.xml \
 		--format testname \
 		-- -mod=vendor $(MEMCHECK_FLAGS) -v $(MEMLEAK_GNMI_SERVER_PKG) -run="$(MEMLEAK_TEST_PATTERN)"
 	@echo ""
