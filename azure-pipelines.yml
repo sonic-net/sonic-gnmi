@@ -185,9 +185,19 @@ stages:
     - bash: |
         set -euo pipefail
         pushd sonic-gnmi
-        make all && $(UNIT_TEST_FLAG) make check_gotest
+        make all && $(UNIT_TEST_FLAG) make check_gotest_junit
         popd
       displayName: "Run Integration Tests"
+
+    - task: PublishTestResults@2
+      displayName: 'Publish Integration Test Results'
+      condition: always()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-integration-basic.xml'
+        failTaskOnFailedTests: true
+        publishRunAttachments: true
+        testRunTitle: 'Integration Tests'
 
     - publish: $(Build.ArtifactStagingDirectory)/
       artifact: sonic-gnmi
