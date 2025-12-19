@@ -254,9 +254,18 @@ check_memleak: $(DBCONFG) $(ENVFILE)
 check_memleak_junit: $(DBCONFG) $(ENVFILE)
 	@echo "Installing gotestsum for memory leak JUnit XML generation..."
 	@sudo $(GO) install gotest.tools/gotestsum@v1.11.0
-	@echo "DEBUG: Verifying gotestsum installation..."
-	@which gotestsum || echo "gotestsum not in PATH"
-	@sudo which gotestsum || echo "gotestsum not found with sudo"
+	@echo "DEBUG: Checking Go environment and gotestsum installation..."
+	@echo "Normal user GOPATH: $(shell $(GO) env GOPATH)"
+	@echo "Sudo GOPATH: $(shell sudo $(GO) env GOPATH)"
+	@echo "Normal user GOBIN: $(shell $(GO) env GOBIN)"
+	@echo "Sudo GOBIN: $(shell sudo $(GO) env GOBIN)"
+	@ls -la $(shell sudo $(GO) env GOPATH)/bin/gotestsum || echo "gotestsum not found in sudo GOPATH/bin"
+	@ls -la /root/go/bin/gotestsum || echo "gotestsum not found in /root/go/bin"
+	@echo "Installing gotestsum to /usr/local/bin..."
+	@sudo $(GO) build -o /usr/local/bin/gotestsum gotest.tools/gotestsum@v1.11.0
+	@echo "Verifying system installation..."
+	@which gotestsum
+	@sudo which gotestsum
 	@echo "Running memory leak tests with JUnit XML output..."
 	@mkdir -p test-results
 	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" \
