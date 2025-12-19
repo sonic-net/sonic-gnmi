@@ -65,25 +65,31 @@ stages:
         go version
       displayName: 'Install Go'
 
-    - script: |
+    - bash: |
+        set -euo pipefail
         export PATH=$PATH:/usr/local/go/bin
-        make -f pure.mk ci
-      displayName: 'Run Pure Package CI'
-
-    - script: |
-        export PATH=$PATH:/usr/local/go/bin
-        make -f pure.mk junit-xml
-      displayName: 'Generate JUnit XML for Pure Packages'
+        go install gotest.tools/gotestsum@v1.11.0
+        mkdir -p test-results
+        gotestsum \
+          --format testname \
+          --junitfile "$(System.DefaultWorkingDirectory)/test-results/junit-pure.xml" \
+          -- -v -race -coverprofile=test-results/coverage-pure.txt \
+          -covermode=atomic \
+          ./internal/exec ./pkg/gnoi/debug ./internal/diskspace \
+          ./internal/hash ./internal/download ./internal/firmware \
+          ./pkg/interceptors ./pkg/server/operational-handler \
+          ./pkg/gnoi/file ./pkg/exec ./pkg/gnoi/os ./pkg/gnoi/system
+      displayName: 'Run Pure Package Tests (gotestsum -> JUnit)'
 
     - task: PublishTestResults@2
       displayName: 'Publish Pure Package Test Results'
+      condition: always()
       inputs:
         testResultsFormat: 'JUnit'
-        testResultsFiles: '**/junit-pure.xml'
-        searchFolder: '$(System.DefaultWorkingDirectory)'
+        testResultsFiles: '$(System.DefaultWorkingDirectory)/test-results/junit-pure.xml'
+        failTaskOnFailedTests: true
         publishRunAttachments: true
         testRunTitle: 'Pure Package Tests'
-      condition: always()
 
   # Memory leak testing with address sanitizer
   - job: MemoryLeakJob

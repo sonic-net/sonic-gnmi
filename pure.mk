@@ -240,6 +240,8 @@ ci: clean lint build-test test
 	@echo "and tested without SONiC/CGO dependencies."
 
 # JUnit XML output for Azure Pipelines test reporting
+# Note: The Azure pipeline now calls gotestsum directly with set -euo pipefail
+# This target is kept for local testing convenience
 .PHONY: junit-xml
 junit-xml: clean
 	@echo "Installing gotestsum for JUnit XML generation..."
@@ -253,7 +255,7 @@ junit-xml: clean
 		--format testname \
 		-- -v -race -coverprofile=test-results/coverage-pure.txt \
 		-covermode=atomic \
-		$(addprefix ./,$(PACKAGES)) || true
+		$(addprefix ./,$(PACKAGES))
 	@echo ""
 	@echo "============================================="
 	@echo "✅ JUnit XML generation completed!"
