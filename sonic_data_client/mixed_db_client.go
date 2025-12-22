@@ -2066,13 +2066,10 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 	// Listen on updates from tables.
 	// Depending on the interval, send the updates every interval or on change only.
 	intervalTicker := make(<-chan time.Time)
+	if interval > 0 {
+		intervalTicker = GetIntervalTicker()(interval)
+	}
 	for {
-
-		// The interval ticker ticks only when the interval is non-zero.
-		// Otherwise (e.g. on-change mode) it would never tick.
-		if interval > 0 {
-			intervalTicker = GetIntervalTicker()(interval)
-		}
 
 		select {
 		case updatedTable := <-updateChannel:
@@ -2102,7 +2099,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 				msiAll = make(map[string]interface{})
 				log.V(6).Infof("msiAll cleared: %v", len(msiAll))
 			}
-
+			intervalTicker = GetIntervalTicker()(interval)
 		case <-c.channel:
 			log.V(1).Infof("Stopping dbTableKeySubscribe routine for %v ", c.pathG2S)
 			return
