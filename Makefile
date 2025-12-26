@@ -113,7 +113,7 @@ endif
 
 # download and apply patch for gnmi client, which will break advancetls
 # backup crypto and gnxi
-	mkdir backup_crypto
+	mkdir -p backup_crypto
 	cp -r vendor/golang.org/x/crypto/* backup_crypto/
 
 # download and patch crypto and gnxi
@@ -125,6 +125,17 @@ endif
 	patch -d vendor -p0 < patches/gnmi_get.patch
 	git apply patches/0001-Updated-to-filter-and-write-to-file.patch
 	git apply patches/0003-Fix-client-json-parsing-issue.patch
+
+# Manually adding patched client packages and their dependencies
+# to vendor/modules.txt. This satisfies 'go install -mod=vendor' lookup checks,
+# which are required after manual patching/copying of gnxi and gnmi-cli code.
+	echo "github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2" >> vendor/modules.txt
+	echo "github.com/google/gnxi/gnmi_get" >> vendor/modules.txt
+	echo "github.com/google/gnxi/gnmi_set" >> vendor/modules.txt
+	echo "github.com/openconfig/gnmi/cli" >> vendor/modules.txt
+	echo "github.com/openconfig/gnmi/client/flags" >> vendor/modules.txt
+	echo "golang.org/x/crypto/ssh/terminal" >> vendor/modules.txt
+	echo "github.com/openconfig/gnmi/cmd/gnmi_cli" >> vendor/modules.txt
 
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/gnmi_get -mod=vendor github.com/google/gnxi/gnmi_get
@@ -181,6 +192,8 @@ $(BUILD_GNOI_YANG_PROTO_DIR)/.proto_sonic_done: $(SONIC_YANGS)
 
 $(GNOI_YANG): $(BUILD_GNOI_YANG_PROTO_DIR)/.proto_api_done $(BUILD_GNOI_YANG_PROTO_DIR)/.proto_sonic_done
 	@echo "+++++ Compiling PROTOBUF files; +++++"
+	# Remove the toolchain directive added by newer Go versions
+	sed -i '/^toolchain/d' go.mod
 	$(GO) install github.com/gogo/protobuf/protoc-gen-gofast
 	@mkdir -p $(@D)
 	$(foreach file, $(wildcard $(BUILD_GNOI_YANG_PROTO_DIR)/*/*.proto), PATH=$(PROTOC_PATH) protoc -I$(@D) $(PROTOC_OPTS_WITHOUT_VENDOR) --gofast_out=plugins=grpc,Mgoogle/protobuf/struct.proto=github.com/gogo/protobuf/types:$(BUILD_GNOI_YANG_PROTO_DIR) $(file);)
@@ -212,6 +225,7 @@ check_gotest: $(DBCONFG) $(ENVFILE)
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/telemetry
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 20m -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 20m -coverprofile=coverage-pathz_authorizer.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/pathz_authorizer -coverpkg ../...
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
 endif
