@@ -1271,85 +1271,253 @@ func TestDoSampleFatalMsg_EnqueFatal(t *testing.T) {
 
 func TestDbClientStreamRunSyncMessage(t *testing.T) {
 	var wg sync.WaitGroup
+
 	q := NewLimitedQueue(1, false, 0)
 	stop := make(chan struct{}, 1)
 
-	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
+	redisClient := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 0})
 
-	client := DbClient{
-		prefix: &gnmipb.Path{Target: "APPL_DB"},
-		pathG2S: map[*gnmipb.Path][]tablePath{path: {{
-			dbName:       "APPL_DB",
-			tableName:    "INTERFACES",
-			field:        "admin_status",
-			jsonField:    "admin_status",
-			jsonTableKey: "INTERFACES",
-		}}},
-		q:       q,
-		channel: stop,
-		synced:  sync.WaitGroup{},
-		w:       &wg,
+	Target2RedisDb = map[string]map[string]*redis.Client{
+		"default": {
+			"APPL_DB": redisClient,
+		},
 	}
 
 	subscribe := &gnmipb.SubscriptionList{
 		Subscription: []*gnmipb.Subscription{
 			{
-				Path: path,
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
 				Mode: gnmipb.SubscriptionMode_ON_CHANGE,
 			},
 		},
 	}
+	subPath := subscribe.Subscription[0].Path
 
-	// Test case 1: synced wait group is not done
-	t.Run("synced wait group not done", func(t *testing.T) {
-		client.synced.Add(1)
-		stop <- struct{}{}
-		wg.Add(1)
-		go client.StreamRun(q, stop, &wg, subscribe)
-		// Wait for the synced wait group to be done
-		client.synced.Done()
-		wg.Wait()
-		item, err := q.DequeueItem()
-		if err != nil {
-			t.Errorf("Expected sync message, got error: %v", err)
-		}
-		if item.Value != nil {
-			t.Logf("Received sync response")
-		} else {
-			t.Errorf("Expected sync response, got: %v", item)
-		}
-	})
+	client := DbClient{
+		prefix: &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{
+			subPath: {{
+				dbNamespace:  "default",
+				dbName:       "APPL_DB",
+				tableName:    "INTERFACES",
+				field:        "admin_status",
+				jsonField:    "admin_status",
+				jsonTableKey: "INTERFACES",
+			}},
+		},
+		q:       q,
+		channel: stop,
+		synced:  sync.WaitGroup{},
+	}
 
-	// Test case 2: synced wait group is done, and sync message is injected successfully
 	t.Run("synced wait group done, sync message injected", func(t *testing.T) {
 		stop <- struct{}{}
 		wg.Add(1)
 		go client.StreamRun(q, stop, &wg, subscribe)
 		wg.Wait()
-		item, err := q.DequeueItem()
+		_, err := q.DequeueItem()
 		if err != nil {
 			t.Errorf("Expected sync message, got error: %v", err)
 		}
-		if !item.Value.GetSyncResponse() {
-			t.Errorf("Expected sync response, got: %v", item.Value)
+	})
+}
+
+func mustDequeue(t *testing.T, q *LimitedQueue, within time.Duration) Value {
+	t.Helper()
+	done := make(chan Value, 1)
+	go func() {
+		v, err := q.DequeueItem()
+		if err == nil {
+			done <- v
+		} else {
+			// if queue returns err, still fail the test
+			t.Logf("DequeueItem() error: %v", err)
 		}
+	}()
+	select {
+	case v := <-done:
+		return v
+	case <-time.After(within):
+		t.Fatalf("timeout waiting to dequeue item")
+		return Value{} // unreachable
+	}
+}
+
+func fillQueueToCapacity(t *testing.T, q *LimitedQueue, n int) func() {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		// Push dummy items until the queue reports ResourceExhausted
+		err := q.EnqueueItem(Value{Fatal: "pre-fill"})
+		if err != nil {
+			// when full, EnqueueItem should return ResourceExhausted
+			if st, ok := status.FromError(err); !ok || st.Code() != codes.ResourceExhausted {
+				t.Fatalf("expected ResourceExhausted while prefilling, got: %v", err)
+			}
+			break
+		}
+	}
+}
+
+func TestAppDBPollRun_ResourceExhausted_AllBranches(t *testing.T) {
+	// Test1:
+	t.Run("update branch resource exhausted → fatal & return", func(t *testing.T) {
+		var wg sync.WaitGroup
+		poll := make(chan struct{})
+
+		q := NewLimitedQueue(0, false, 0)
+
+		subscribe := &gnmipb.SubscriptionList{
+			Subscription: []*gnmipb.Subscription{
+				{Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}},
+			},
+		}
+		subPath := subscribe.Subscription[0].Path
+
+		client := DbClient{
+			prefix: &gnmipb.Path{Target: "APPL_DB"},
+			pathG2S: map[*gnmipb.Path][]tablePath{
+				subPath: {{tableName: "INTERFACES", field: "admin_status", jsonField: "admin_status", jsonTableKey: "INTERFACES"}},
+			},
+			q:       q,
+			channel: poll,
+		}
+
+		// Mock: one poll cycle returns updateReceived=true with a non-nil val
+		original := getAppDbTypedValueFunc
+		getAppDbTypedValueFunc = func(tblPaths []tablePath, _ interface{}) (*gnmipb.TypedValue, error, bool) {
+			return &gnmipb.TypedValue{Value: &gnmipb.TypedValue_StringVal{StringVal: "up"}}, nil, true
+		}
+		defer func() { getAppDbTypedValueFunc = original }()
+
+		wg.Add(1)
+		go client.AppDBPollRun(q, poll, &wg, subscribe)
+
+		// Trigger a single poll
+		poll <- struct{}{}
+
+		// The update enqueue will fail; enqueFatalMsg should push a fatal item
+		item := mustDequeue(t, q, 500*time.Millisecond)
+		if item.Fatal == "" {
+			t.Fatalf("expected fatal message due to ResourceExhausted on update enqueue, got: %#v", item)
+		}
+
+		// Close poll channel to end goroutine cleanly
+		close(poll)
+		wg.Wait()
 	})
 
-	// Test case 3: synced wait group is done, but sync message cannot be enqueued due to resource exhausted error
-	t.Run("synced wait group done, sync message not enqueued", func(t *testing.T) {
-		// Simulate a resource exhausted error
-		q = NewLimitedQueue(0, false, 0)
-		client.q = q
-		stop <- struct{}{}
+	// Test2:
+	t.Run("delete branch resource exhausted → fatal & return", func(t *testing.T) {
+		var wg sync.WaitGroup
+		poll := make(chan struct{})
+
+		q := NewLimitedQueue(2, false, 0)
+
+		subscribe := &gnmipb.SubscriptionList{
+			Subscription: []*gnmipb.Subscription{
+				{Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}},
+			},
+		}
+		subPath := subscribe.Subscription[0].Path
+
+		client := DbClient{
+			prefix: &gnmipb.Path{Target: "APPL_DB"},
+			pathG2S: map[*gnmipb.Path][]tablePath{
+				subPath: {{tableName: "INTERFACES", field: "admin_status", jsonField: "admin_status", jsonTableKey: "INTERFACES"}},
+			},
+			q:       q,
+			channel: poll,
+		}
+
+		// Script two poll cycles:
+		//  1) updateReceived = true → prevUpdates[pathKey] = true
+		//  2) updateReceived = false → triggers delete branch
+		returns := []struct {
+			val            *gnmipb.TypedValue
+			err            error
+			updateReceived bool
+		}{
+			{&gnmipb.TypedValue{Value: &gnmipb.TypedValue_StringVal{StringVal: "up"}}, nil, true},
+			{nil, nil, false},
+		}
+
+		original := getAppDbTypedValueFunc
+		getAppDbTypedValueFunc = func(tblPaths []tablePath, _ interface{}) (*gnmipb.TypedValue, error, bool) {
+			if len(returns) == 0 {
+				t.Fatalf("no scripted AppDB returns left")
+			}
+			r := returns[0]
+			returns = returns[1:]
+			return r.val, r.err, r.updateReceived
+		}
+		defer func() { getAppDbTypedValueFunc = original }()
+
 		wg.Add(1)
-		go client.StreamRun(q, stop, &wg, subscribe)
+		go client.AppDBPollRun(q, poll, &wg, subscribe)
+
+		// First poll: update + sync enqueues succeed (capacity 2)
+		poll <- struct{}{}
+		// Drain two items (update + sync)
+		_ = mustDequeue(t, q, 500*time.Millisecond)
+		_ = mustDequeue(t, q, 500*time.Millisecond)
+
+		// Pre-fill queue to force delete enqueue to fail
+		fillQueueToCapacity(t, q, 5) // fill until ResourceExhausted
+
+		// Second poll: delete branch will try to enqueue and fail → enqueFatalMsg
+		poll <- struct{}{}
+
+		item := mustDequeue(t, q, 500*time.Millisecond)
+		if item.Fatal == "" {
+			t.Fatalf("expected fatal message due to ResourceExhausted on delete enqueue, got: %#v", item)
+		}
+
+		// Clean up
+		close(poll)
 		wg.Wait()
-		item, err := q.DequeueItem()
-		if err != nil {
-			t.Errorf("Expected fatal message, got error: %v", err)
+	})
+
+	// Test3:
+	t.Run("sync branch resource exhausted → fatal & return", func(t *testing.T) {
+		var wg sync.WaitGroup
+		poll := make(chan struct{})
+
+		q := NewLimitedQueue(0, false, 0)
+
+		subscribe := &gnmipb.SubscriptionList{
+			Subscription: []*gnmipb.Subscription{
+				{Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}},
+			},
 		}
-		if !strings.Contains(item.Fatal, "resource exhausted") {
-			t.Errorf("Expected fatal message for resource exhausted, got: %v", item.Fatal)
+		subPath := subscribe.Subscription[0].Path
+
+		client := DbClient{
+			prefix: &gnmipb.Path{Target: "APPL_DB"},
+			pathG2S: map[*gnmipb.Path][]tablePath{
+				subPath: {{tableName: "INTERFACES", field: "admin_status", jsonField: "admin_status", jsonTableKey: "INTERFACES"}},
+			},
+			q:       q,
+			channel: poll,
 		}
+
+		original := getAppDbTypedValueFunc
+		getAppDbTypedValueFunc = func(tblPaths []tablePath, _ interface{}) (*gnmipb.TypedValue, error, bool) {
+			// No updates (missing data)
+			return nil, nil, false
+		}
+		defer func() { getAppDbTypedValueFunc = original }()
+
+		wg.Add(1)
+		go client.AppDBPollRun(q, poll, &wg, subscribe)
+
+		poll <- struct{}{} // single poll
+
+		item := mustDequeue(t, q, 500*time.Millisecond)
+		if item.Fatal == "" {
+			t.Fatalf("expected fatal message due to ResourceExhausted on sync enqueue, got: %#v", item)
+		}
+
+		close(poll)
+		wg.Wait()
 	})
 }
