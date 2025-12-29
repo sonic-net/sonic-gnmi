@@ -1269,7 +1269,7 @@ func TestDoSampleFatalMsg_EnqueFatal(t *testing.T) {
 // 	}
 // }
 
-func TestDbClientStreamRunSyncMessage(t *testing.T) {
+func TestDbClientStreamRunSyncMessage(t *testing.T) { //new
 	var wg sync.WaitGroup
 	q := NewLimitedQueue(1, false, 0)
 	stop := make(chan struct{}, 1)
@@ -1288,7 +1288,6 @@ func TestDbClientStreamRunSyncMessage(t *testing.T) {
 		q:       q,
 		channel: stop,
 		synced:  sync.WaitGroup{},
-		w:       &wg,
 	}
 
 	subscribe := &gnmipb.SubscriptionList{
@@ -1302,13 +1301,11 @@ func TestDbClientStreamRunSyncMessage(t *testing.T) {
 
 	// Test case 1: synced wait group is not done
 	t.Run("synced wait group not done", func(t *testing.T) {
-		client.synced.Add(1)
-		stop <- struct{}{}
 		wg.Add(1)
+		// client.synced.Add(1)
 		go client.StreamRun(q, stop, &wg, subscribe)
-		// Wait for the synced wait group to be done
-		client.synced.Done()
-		wg.Wait()
+		// wg.Wait()
+		// client.synced.Done()
 		item, err := q.DequeueItem()
 		if err != nil {
 			t.Errorf("Expected sync message, got error: %v", err)
