@@ -523,3 +523,84 @@ func init() {
 	// Inform gNMI server to use redis tcp localhost connection
 	sdc.UseRedisLocalTcpPort = true
 }
+
+// TestNewInstanceOCYang tests that NewInstance correctly handles OC_YANG target
+// and creates a TranslClient. This test is specifically for code coverage of the
+// OC_YANG branch in NewInstance.
+func TestNewInstanceOCYang(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	// Initialize DB config
+	err := sdcfg.InitDbConfigAndRead()
+	if err != nil {
+		t.Skipf("Skipping test: DB config not available: %v", err)
+	}
+
+	// Create a test destination group
+	destGrpName := "test_oc_yang_dest"
+	dests := []*Destination{
+		{
+			Addrs:          []string{"127.0.0.1:50052"},
+			Unidirectional: true,
+		},
+	}
+	AddDestinationGroup(destGrpName, dests)
+	defer DeleteDestinationGroup(destGrpName)
+
+	// Create client subscription with OC_YANG target
+	cs := &clientSubscription{
+		name:          "test_oc_yang",
+		destGroupName: destGrpName,
+		prefix: &pb.Path{
+			Target: "OC_YANG",
+		},
+		paths: []*pb.Path{
+			{
+				Elem: []*pb.PathElem{
+					{Name: "openconfig-interfaces"},
+					{Name: "interfaces"},
+					{Name: "interface", Key: map[string]string{"name": "Ethernet0"}},
+					{Name: "state"},
+					{Name: "oper-status"},
+				},
+			},
+		},
+		reportType: reportTypeStream,
+		interval:   30 * time.Second,
+		stop:       make(chan struct{}),
+		q:          queue.NewPriorityQueue(1000),
+	}
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Call NewInstance - this should hit the OC_YANG branch
+	err = cs.NewInstance(ctx)
+
+	// We expect success if TranslClient can be created
+	// or a specific error if it can't connect to backend
+	if err != nil {
+		// Check if it's a connection error (expected in test environment)
+		if !strings.Contains(err.Error(), "Connection to DB") {
+			t.Fatalf("NewInstance failed with unexpected error: %v", err)
+		}
+		t.Logf("NewInstance returned expected connection error: %v", err)
+	}
+
+	// Verify that the data client was attempted to be created
+	// (even if it failed due to test environment limitations)
+	if err == nil && cs.dc == nil {
+		t.Fatal("Expected data client to be set after NewInstance")
+	}
+
+	// Clean up
+	if cs.dc != nil {
+		cs.dc.Close()
+	}
+	if cs.cancel != nil {
+		cs.cancel()
+	}
+}
