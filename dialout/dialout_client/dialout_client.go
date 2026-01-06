@@ -9,7 +9,9 @@ import (
 	"github.com/go-redis/redis"
 	log "github.com/golang/glog"
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
+	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	"github.com/openconfig/ygot/ygot"
+	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
@@ -184,19 +186,48 @@ func (cs *clientSubscription) NewInstance(ctx context.Context) error {
 		return fmt.Errorf("Destination group %v doesn't exist", cs.destGroupName)
 	}
 
+	// Extract origin and target from prefix and paths
+	origin := cs.prefix.GetOrigin()
 	target := cs.prefix.GetTarget()
-	if target == "" {
-		return fmt.Errorf("Empty target data not supported yet")
+
+	// Parse origin from paths if not set in prefix
+	if o, err := gnmi.ParseOrigin(cs.paths); err != nil {
+		return err // origin conflict within paths
+	} else if len(origin) == 0 {
+		origin = o // Use origin from paths if not given in prefix
+	} else if len(o) != 0 && o != origin {
+		return fmt.Errorf("Origin conflict between prefix and paths")
 	}
+
+	log.V(2).Infof("origin=%q, target=%q for %v", origin, target, cs.name)
 
 	// Connection to system data source
 	var dc sdc.Client
 	var err error
-	if target == "OTHERS" {
+	var extensions []*gnmi_extpb.Extension // No extensions for dialout client
+
+	// Handle origin-based and target-based routing
+	if origin == "openconfig" {
+		dc, err = sdc.NewTranslClient(cs.prefix, cs.paths, ctx, extensions, sdc.TranslWildcardOption{})
+	} else if gnmi.IsNativeOrigin(origin) {
+		// Native origin (sonic-db) - use MixedDbClient
+		var targetDbName string
+		dc, err = sdc.NewMixedDbClient(cs.paths, cs.prefix, origin, gpb.Encoding_JSON_IETF, "", "", &targetDbName)
+	} else if len(origin) != 0 {
+		return fmt.Errorf("Unsupported origin: %s", origin)
+	} else if target == "" {
+		return fmt.Errorf("Empty target data not supported")
+	} else if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(cs.paths, cs.prefix)
-	} else {
+	} else if targetDbName, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(cs.paths, cs.prefix)
+		log.V(2).Infof("Using DbClient for target database: %s", targetDbName)
+	} else {
+		// For any other target or no target match, create new Transl Client
+		// This handles cases like "OC_YANG" or other unrecognized targets as OpenConfig
+		dc, err = sdc.NewTranslClient(cs.prefix, cs.paths, ctx, extensions, sdc.TranslWildcardOption{})
 	}
+
 	if err != nil {
 		log.V(1).Infof("Connection to DB for %v failed: %v", *cs, err)
 		return fmt.Errorf("Connection to DB for %v failed: %v", *cs, err)
