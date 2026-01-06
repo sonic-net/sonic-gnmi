@@ -194,6 +194,8 @@ func (cs *clientSubscription) NewInstance(ctx context.Context) error {
 	var err error
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(cs.paths, cs.prefix)
+	} else if target == "OC_YANG" {
+		dc, err = sdc.NewTranslClient(cs.prefix, cs.paths, ctx, nil, sdc.TranslWildcardOption{})
 	} else {
 		dc, err = sdc.NewDbClient(cs.paths, cs.prefix)
 	}
