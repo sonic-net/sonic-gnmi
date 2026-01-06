@@ -582,7 +582,7 @@ func TestNewInstanceOCYang(t *testing.T) {
 	if err != nil {
 		// Check if it's a connection/DB error (expected in test environment)
 		if !strings.Contains(err.Error(), "Connection to DB") &&
-		   !strings.Contains(err.Error(), "Destination group") {
+			!strings.Contains(err.Error(), "Destination group") {
 			t.Logf("NewInstance returned error (expected in test env): %v", err)
 		} else {
 			t.Logf("NewInstance returned expected error: %v", err)
