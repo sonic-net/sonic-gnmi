@@ -9,11 +9,13 @@ import (
 
 	"gopkg.in/yaml.v2"
 
-	"github.com/Workiva/go-datastructures/queue"
 	linuxproc "github.com/c9s/goprocinfo/linux"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Non db client is to Handle
@@ -368,7 +370,7 @@ type NonDbClient struct {
 	prefix      *gnmipb.Path
 	path2Getter map[*gnmipb.Path]dataGetFunc
 
-	q       *queue.PriorityQueue
+	q       *LimitedQueue
 	channel chan struct{}
 
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
@@ -423,7 +425,7 @@ func (c *NonDbClient) String() string {
 }
 
 // StreamRun implements stream subscription for non-DB queries. It supports SAMPLE mode only.
-func (c *NonDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *NonDbClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 	defer c.w.Done()
 	c.q = q
@@ -434,13 +436,13 @@ func (c *NonDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *s
 	for _, sub := range subscribe.GetSubscription() {
 		subMode := sub.GetMode()
 		if subMode != gnmipb.SubscriptionMode_SAMPLE {
-			putFatalMsg(c.q, fmt.Sprintf("Unsupported subscription mode: %v.", subMode))
+			c.q.enqueFatalMsg(fmt.Sprintf("Unsupported subscription mode: %v.", subMode))
 			return
 		}
 
 		interval, err := validateSampleInterval(sub)
 		if err != nil {
-			putFatalMsg(c.q, err.Error())
+			c.q.enqueFatalMsg(err.Error())
 			return
 		}
 
@@ -465,12 +467,16 @@ func (c *NonDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *s
 		runGetterAndSend(c, gnmiPath, getter)
 	}
 
-	c.q.Put(Value{
-		&spb.Value{
-			Timestamp:    time.Now().UnixNano(),
-			SyncResponse: true,
-		},
-	})
+	spbv := &spb.Value{
+		Timestamp:    time.Now().UnixNano(),
+		SyncResponse: true,
+	}
+	if err := c.q.EnqueueItem(Value{spbv}); err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
+			c.q.enqueFatalMsg(st.Message())
+			return
+		}
+	}
 
 	// Start a GO routine for each sub as they might have different intervals
 	for sub, interval := range validatedSubs {
@@ -518,16 +524,21 @@ func runGetterAndSend(c *NonDbClient, gnmiPath *gnmipb.Path, getter dataGetFunc)
 			}},
 	}
 
-	err = c.q.Put(Value{spbv})
-	if err != nil {
-		log.V(3).Infof("Failed to put for %v, %v", gnmiPath, err)
-	} else {
-		log.V(6).Infof("Added spbv #%v", spbv)
+	if err := c.q.EnqueueItem(Value{spbv}); err != nil {
+		if st, ok := status.FromError(err); ok {
+			if st.Code() == codes.ResourceExhausted {
+				c.q.enqueFatalMsg(st.Message())
+				return err
+			}
+		}
+		c.q.enqueFatalMsg("Internal error")
+		return err
 	}
+	log.V(6).Infof("Added spbv #%v", spbv)
 	return err
 }
 
-func (c *NonDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *NonDbClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 	defer c.w.Done()
 	c.q = q
@@ -544,21 +555,26 @@ func (c *NonDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *syn
 			runGetterAndSend(c, gnmiPath, getter)
 		}
 
-		c.q.Put(Value{
-			&spb.Value{
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: true,
-			},
-		})
+		spbv := &spb.Value{
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: true,
+		}
+		if err := c.q.EnqueueItem(Value{spbv}); err != nil {
+			if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
+				c.q.enqueFatalMsg(st.Message())
+				return
+			}
+		}
+
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
 }
 
-func (c *NonDbClient) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *NonDbClient) AppDBPollRun(q *LimitedQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	return
 }
 
-func (c *NonDbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *NonDbClient) OnceRun(q *LimitedQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	return
 }
 func (c *NonDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
