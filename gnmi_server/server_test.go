@@ -65,6 +65,14 @@ import (
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
 
+const (
+	srvTestCertFile   = "../testdata/mtls/server_test_cert.pem"
+	srvTestKeyFile    = "../testdata/mtls/server_test_key.pem"
+	srvTestKeyLink    = "../testdata/mtls/server_key.lnk"
+	srvTestCertLink   = "../testdata/mtls/server_cert.lnk"
+	certzTestMetaFile = "../testdata/mtls/grpc-version.json"
+)
+
 var clientTypes = []string{gclient.Type}
 
 func loadConfig(t *testing.T, key string, in []byte) map[string]interface{} {
@@ -122,7 +130,9 @@ func createClient(t *testing.T, port int) *grpc.ClientConn {
 
 func createServer(t *testing.T, port int64) *Server {
 	t.Helper()
-	certificate, err := testcert.NewCert()
+	certBuf, keyBuf, err := testcert.NewCert()
+	var certificate tls.Certificate
+	certificate, err = tls.X509KeyPair(certBuf.Bytes(), keyBuf.Bytes())
 	if err != nil {
 		t.Fatalf("could not load server key pair: %s", err)
 	}
@@ -146,8 +156,46 @@ func createServer(t *testing.T, port int64) *Server {
 	return s
 }
 
+func createMTLSServer(t *testing.T, caCert string) *Server {
+	t.Helper()
+	cfg := &Config{CaCertLnk: CACert, CaCertFile: caCert,
+		SrvCertFile: SCertV1, SrvKeyFile: SKeyV1,
+		CertzMetaFile: certzTestMetaFile, CertCRLConfig: crlConfigTestPath,
+		GetOptions: SrvAdvConfig, SrvCertLnk: srvTestCertLink,
+		SrvKeyLnk: srvTestKeyLink, Port: 8081}
+
+	if err := resetSrvCertKeyToV1(cfg); err != nil {
+		t.Fatalf("Couldn't reset server certificate/key: %v", err)
+	}
+	s := createCertzServer(t, cfg)
+	return s
+}
+
+func createCertzServer(t *testing.T, cfg *Config) *Server {
+	t.Helper()
+	certBuf, keyBuf, err := testcert.NewCert()
+	var certificate tls.Certificate
+	certificate, err = tls.X509KeyPair(certBuf.Bytes(), keyBuf.Bytes())
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	s, err := NewServer(cfg, opts)
+	if err != nil {
+		t.Fatalf("Failed to create gNMI server: %v", err)
+	}
+	return s
+}
+
 func createReadServer(t *testing.T, port int64) *Server {
-	certificate, err := testcert.NewCert()
+	certBuf, keyBuf, err := testcert.NewCert()
+	var certificate tls.Certificate
+	certificate, err = tls.X509KeyPair(certBuf.Bytes(), keyBuf.Bytes())
 	if err != nil {
 		t.Errorf("could not load server key pair: %s", err)
 	}
@@ -170,7 +218,9 @@ func createReadServer(t *testing.T, port int64) *Server {
 }
 
 func createRejectServer(t *testing.T, port int64) *Server {
-	certificate, err := testcert.NewCert()
+	certBuf, keyBuf, err := testcert.NewCert()
+	var certificate tls.Certificate
+	certificate, err = tls.X509KeyPair(certBuf.Bytes(), keyBuf.Bytes())
 	if err != nil {
 		t.Errorf("could not load server key pair: %s", err)
 	}
@@ -195,7 +245,9 @@ func createRejectServer(t *testing.T, port int64) *Server {
 
 func createAuthServer(t *testing.T, port int64) *Server {
 	t.Helper()
-	certificate, err := testcert.NewCert()
+	certBuf, keyBuf, err := testcert.NewCert()
+	var certificate tls.Certificate
+	certificate, err = tls.X509KeyPair(certBuf.Bytes(), keyBuf.Bytes())
 	if err != nil {
 		t.Fatalf("could not load server key pair: %s", err)
 	}
@@ -219,7 +271,9 @@ func createAuthServer(t *testing.T, port int64) *Server {
 }
 
 func createInvalidServer(t *testing.T, port int64) *Server {
-	certificate, err := testcert.NewCert()
+	certBuf, keyBuf, err := testcert.NewCert()
+	var certificate tls.Certificate
+	certificate, err = tls.X509KeyPair(certBuf.Bytes(), keyBuf.Bytes())
 	if err != nil {
 		t.Errorf("could not load server key pair: %s", err)
 	}
@@ -238,7 +292,9 @@ func createInvalidServer(t *testing.T, port int64) *Server {
 
 func createKeepAliveServer(t *testing.T, port int64) *Server {
 	t.Helper()
-	certificate, err := testcert.NewCert()
+	certBuf, keyBuf, err := testcert.NewCert()
+	var certificate tls.Certificate
+	certificate, err = tls.X509KeyPair(certBuf.Bytes(), keyBuf.Bytes())
 	if err != nil {
 		t.Fatalf("could not load server key pair: %s", err)
 	}
