@@ -335,10 +335,25 @@ ifneq ($(ENABLE_DIALOUT_VALUE),0)
 			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG); \
 	fi
 endif
-	
+
+	# Generate Cobertura XML coverage report for Azure Pipelines
+	@echo "Installing coverage tools..."
+	$(GO) install github.com/axw/gocov/gocov@v1.1.0
+	$(GO) install github.com/AlekSi/gocov-xml@latest
+	$(GO) mod vendor
+
+	@echo "Generating coverage.xml..."
+	@for file in test-results/coverage-*.txt; do \
+		if [ -f "$$file" ]; then \
+			grep -v -e "/mocks/" -e "proto/" "$$file" > "$$file.filtered" 2>/dev/null || true; \
+		fi; \
+	done
+	gocov convert test-results/coverage-*.txt.filtered | gocov-xml -source $(shell pwd) > coverage.xml
+	@rm -f test-results/coverage-*.txt.filtered
+
 	@echo ""
 	@echo "============================================="
-	@echo "✅ Integration JUnit XML generation completed!"
+	@echo "Integration JUnit XML generation completed!"
 	@echo "============================================="
 	@echo "Files generated:"
 	@echo "  - test-results/junit-integration-basic.xml (Basic packages)"
@@ -346,6 +361,7 @@ endif
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	@echo "  - test-results/junit-integration-dialout.xml (Dialout package)"
 endif
+	@echo "  - coverage.xml (Cobertura coverage report)"
 	@echo ""
 	@echo "Tested packages:"
 	@echo "Basic packages:"
