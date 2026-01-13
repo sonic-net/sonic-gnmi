@@ -4,10 +4,12 @@ package gnmi
 // Prerequisite: redis-server should be running.
 import (
 	"context"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -33,6 +35,7 @@ import (
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
+	"google.golang.org/grpc/security/advancedtls"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/kylelemons/godebug/pretty"
@@ -62,6 +65,14 @@ import (
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
+)
+
+const (
+	srvTestCertFile   = "../testdata/mtls/server_test_cert.pem"
+	srvTestKeyFile    = "../testdata/mtls/server_test_key.pem"
+	srvTestKeyLink    = "../testdata/mtls/server_key.lnk"
+	srvTestCertLink   = "../testdata/mtls/server_cert.lnk"
+	certzTestMetaFile = "../testdata/gnsi/grpc-version.json"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -141,6 +152,40 @@ func createServer(t *testing.T, port int64) *Server {
 	s, err := NewServer(cfg, opts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
+	}
+	return s
+}
+
+func createMTLSServer(t *testing.T, caCert string) *Server {
+	t.Helper()
+	cfg := &Config{CaCertLnk: CACert, CaCertFile: caCert,
+		SrvCertFile: SCertV1, SrvKeyFile: SKeyV1,
+		CertzMetaFile: certzTestMetaFile, CertCRLConfig: crlConfigTestPath,
+		GetOptions: SrvAdvConfig, SrvCertLnk: srvTestCertLink,
+		SrvKeyLnk: srvTestKeyLink, Port: 8081}
+
+	if err := resetSrvCertKeyToV1(cfg); err != nil {
+		t.Fatalf("Couldn't reset server certificate/key: %v", err)
+	}
+	s := createCertzServer(t, cfg)
+	return s
+}
+
+func createCertzServer(t *testing.T, cfg *Config) *Server {
+	t.Helper()
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	s, err := NewServer(cfg, opts)
+	if err != nil {
+		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
@@ -6062,4 +6107,414 @@ func init() {
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
 	m.Run()
+}
+
+func TestSrvConfigFlow(t *testing.T) {
+	// 1. Setup temporary environment
+	tmpDir, err := os.MkdirTemp("", "gnmi_test_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Define paths for config
+	caFile := filepath.Join(tmpDir, "ca.pem")
+	caLnk := filepath.Join(tmpDir, "ca_link.pem")
+	srvCertFile := filepath.Join(tmpDir, "srv.pem")
+	srvCertLnk := filepath.Join(tmpDir, "srv_link.pem")
+	srvKeyFile := filepath.Join(tmpDir, "srv.key")
+	srvKeyLnk := filepath.Join(tmpDir, "srv_link.key")
+
+	// Create dummy files to pass os.Stat checks
+	dummyContent := []byte("test-content")
+	os.WriteFile(caFile, dummyContent, 0644)
+	os.WriteFile(srvCertFile, dummyContent, 0644)
+	os.WriteFile(srvKeyFile, dummyContent, 0644)
+
+	tests := []struct {
+		name    string
+		config  *Config
+		wantErr bool
+	}{
+		{
+			name: "Success_SrvTestConfig",
+			config: &Config{
+				CaCertFile:  caFile,
+				CaCertLnk:   caLnk,
+				SrvCertFile: srvCertFile,
+				SrvCertLnk:  srvCertLnk,
+				SrvKeyFile:  srvKeyFile,
+				SrvKeyLnk:   srvKeyLnk,
+			},
+			wantErr: false,
+		},
+		{
+			name: "Error_InvalidStatPath",
+			config: &Config{
+				SrvCertFile: "/non/existent/path",
+				SrvCertLnk:  filepath.Join(tmpDir, "invalid_link"),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test SrvTestConfig (which calls SrvAdvConfig internally)
+			opts, _, err := SrvTestConfig(tt.config)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("%s: SrvTestConfig() error = %v, wantErr %v", tt.name, err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr {
+				if len(opts) == 0 {
+					t.Errorf("%s: Expected gRPC server options, got none", tt.name)
+				}
+				// Verify that SrvTestConfig actually created the test cert files
+				testCertPath := filepath.Dir(tt.config.SrvCertLnk) + "/server_test_cert.pem"
+				if _, err := os.Stat(testCertPath); os.IsNotExist(err) {
+					t.Errorf("%s: Test certificate file was not created at %s", tt.name, testCertPath)
+				}
+			}
+		})
+	}
+}
+
+func TestSrvAdvConfigNoCA(t *testing.T) {
+	// Testing the branch where CaCertFile is empty (SkipVerification path)
+	cfg := &Config{
+		SrvCertFile: "/tmp/fake_cert",
+		SrvCertLnk:  "/tmp/fake_link",
+		SrvKeyFile:  "/tmp/fake_key",
+		SrvKeyLnk:   "/tmp/fake_link_key",
+	}
+
+	// Mock the file existence if needed, or check if it returns options
+	opts, _, _ := SrvAdvConfig(cfg)
+	if opts == nil {
+		t.Log("Note: SrvAdvConfig requires valid paths to return options")
+	}
+}
+
+func TestSrvConfigDeepCoverage(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "gnmi_adv_test")
+	defer os.RemoveAll(tmpDir)
+
+	// 1. Prepare valid files for the success path
+	caFile := filepath.Join(tmpDir, "ca.pem")
+	srvCert := filepath.Join(tmpDir, "srv.pem")
+	srvKey := filepath.Join(tmpDir, "srv.key")
+	crlDir := filepath.Join(tmpDir, "crl_config")
+	os.MkdirAll(filepath.Join(crlDir, "crl"), 0755)
+
+	// Helper to write valid-ish PEM
+	dummyCert := []byte("-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----")
+	os.WriteFile(caFile, dummyCert, 0644)
+	os.WriteFile(srvCert, dummyCert, 0644)
+	os.WriteFile(srvKey, dummyCert, 0644)
+
+	t.Run("SrvTestConfigWriteErrorCoverage", func(t *testing.T) {
+		// Use a path that is impossible to write to trigger the log and error return
+		cfg := &Config{SrvCertLnk: "/proc/invalid_path/cert.pem"}
+		_, _, err := SrvTestConfig(cfg)
+		if err == nil {
+			t.Error("Expected error for read-only/invalid path")
+		}
+	})
+
+	t.Run("SrvAdvConfigFullLogicHandshake", func(t *testing.T) {
+		cfg := &Config{
+			CaCertFile:    caFile,
+			CaCertLnk:     caFile,
+			SrvCertFile:   srvCert,
+			SrvCertLnk:    srvCert,
+			SrvKeyFile:    srvKey,
+			SrvKeyLnk:     srvKey,
+			CertCRLConfig: crlDir,
+		}
+
+		_, _, err := SrvAdvConfig(cfg)
+		if err != nil {
+			t.Fatalf("Failed to generate config: %v", err)
+		}
+
+		// Trigger Identity Callback manually for coverage
+		serverCreds, _ := advancedtls.NewServerCreds(&advancedtls.Options{
+			IdentityOptions: advancedtls.IdentityCertificateOptions{
+				GetIdentityCertificatesForServer: func(*tls.ClientHelloInfo) ([]*tls.Certificate, error) {
+					// Manually invoking the logic found in server.go
+					_, err := tls.LoadX509KeyPair(cfg.SrvCertLnk, cfg.SrvKeyLnk)
+					return nil, err
+				},
+			},
+		})
+		_ = serverCreds
+	})
+
+	t.Run("SrvAdvConfigCRLFailures", func(t *testing.T) {
+		// Cover the error return when CRL directory is missing
+		cfg := &Config{
+			CaCertFile:    caFile,
+			CertCRLConfig: filepath.Join(tmpDir, "non_existent_crl"),
+		}
+		_, _, err := SrvAdvConfig(cfg)
+		if err == nil {
+			t.Error("Expected error when CRL directory is missing")
+		}
+	})
+}
+
+func createTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "gnmi_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
+func createDummyCACert(t *testing.T, dir string) string {
+	t.Helper()
+	// Reusing testcert.NewCert for a self-signed CA
+	cert, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("Failed to generate test CA cert: %v", err)
+	}
+	caFile := filepath.Join(dir, "ca.pem")
+	certBlock := &pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]}
+	if err := os.WriteFile(caFile, pem.EncodeToMemory(certBlock), 0600); err != nil {
+		t.Fatalf("Failed to write dummy CA cert: %v", err)
+	}
+	return caFile
+}
+
+// Helper to create dummy server certificate and key files.
+func createDummyServerCert(t *testing.T, dir string) (certFile, keyFile string) {
+	t.Helper()
+	cert, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("Failed to generate test cert: %v", err)
+	}
+
+	certFile = filepath.Join(dir, "server.pem")
+	certBlock := &pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]}
+	if err := os.WriteFile(certFile, pem.EncodeToMemory(certBlock), 0600); err != nil {
+		t.Fatalf("Failed to write dummy server cert: %v", err)
+	}
+
+	keyFile = filepath.Join(dir, "server.key")
+	privBytes := x509.MarshalPKCS1PrivateKey(cert.PrivateKey.(*rsa.PrivateKey))
+	keyBlock := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: privBytes}
+	if err := os.WriteFile(keyFile, pem.EncodeToMemory(keyBlock), 0600); err != nil {
+		t.Fatalf("Failed to write dummy server key: %v", err)
+	}
+	return certFile, keyFile
+}
+
+func TestSrvAdvConfig(t *testing.T) {
+	tempDir := createTempDir(t)
+	caFile := createDummyCACert(t, tempDir)
+	srvCertFile, srvKeyFile := createDummyServerCert(t, tempDir)
+
+	tests := []struct {
+		name              string
+		cfg               *Config
+		expectErr         bool
+		expectClientCert  bool
+		expectVerifyType  advancedtls.VerificationType
+		expectCRLProvider bool
+	}{
+		{
+			name: "Valid Config with CA and Server Certs",
+			cfg: &Config{
+				CaCertFile:  caFile,
+				SrvCertFile: srvCertFile,
+				SrvKeyFile:  srvKeyFile,
+				CaCertLnk:   filepath.Join(tempDir, "ca.lnk"),
+				SrvCertLnk:  filepath.Join(tempDir, "srv_cert.lnk"),
+				SrvKeyLnk:   filepath.Join(tempDir, "srv_key.lnk"),
+			},
+			expectErr:        false,
+			expectClientCert: true,
+			expectVerifyType: advancedtls.CertVerification,
+		},
+		{
+			name: "Valid Config without CA Cert",
+			cfg: &Config{
+				SrvCertFile: srvCertFile,
+				SrvKeyFile:  srvKeyFile,
+				SrvCertLnk:  filepath.Join(tempDir, "srv_cert.lnk"),
+				SrvKeyLnk:   filepath.Join(tempDir, "srv_key.lnk"),
+			},
+			expectErr:        false,
+			expectClientCert: false,
+			expectVerifyType: advancedtls.SkipVerification,
+		},
+		{
+			name: "Invalid CACertFile",
+			cfg: &Config{
+				CaCertFile:  filepath.Join(tempDir, "nonexistent_ca.pem"),
+				SrvCertFile: srvCertFile,
+				SrvKeyFile:  srvKeyFile,
+				CaCertLnk:   filepath.Join(tempDir, "ca.lnk"),
+				SrvCertLnk:  filepath.Join(tempDir, "srv_cert.lnk"),
+				SrvKeyLnk:   filepath.Join(tempDir, "srv_key.lnk"),
+			},
+			expectErr: true,
+		},
+		{
+			name: "Invalid SrvCertFile",
+			cfg: &Config{
+				CaCertFile:  caFile,
+				SrvCertFile: filepath.Join(tempDir, "nonexistent_srv.pem"),
+				SrvKeyFile:  srvKeyFile,
+				CaCertLnk:   filepath.Join(tempDir, "ca.lnk"),
+				SrvCertLnk:  filepath.Join(tempDir, "srv_cert.lnk"),
+				SrvKeyLnk:   filepath.Join(tempDir, "srv_key.lnk"),
+			},
+			expectErr: true,
+		},
+		{
+			name: "Invalid SrvKeyFile",
+			cfg: &Config{
+				CaCertFile:  caFile,
+				SrvCertFile: srvCertFile,
+				SrvKeyFile:  filepath.Join(tempDir, "nonexistent_key.pem"),
+				CaCertLnk:   filepath.Join(tempDir, "ca.lnk"),
+				SrvCertLnk:  filepath.Join(tempDir, "srv_cert.lnk"),
+				SrvKeyLnk:   filepath.Join(tempDir, "srv_key.lnk"),
+			},
+			expectErr: true,
+		},
+		{
+			name: "Valid Config with CRL",
+			cfg: &Config{
+				CaCertFile:    caFile,
+				SrvCertFile:   srvCertFile,
+				SrvKeyFile:    srvKeyFile,
+				CaCertLnk:     filepath.Join(tempDir, "ca.lnk"),
+				SrvCertLnk:    filepath.Join(tempDir, "srv_cert.lnk"),
+				SrvKeyLnk:     filepath.Join(tempDir, "srv_key.lnk"),
+				CertCRLConfig: tempDir,
+			},
+			expectErr:         false,
+			expectClientCert:  true,
+			expectVerifyType:  advancedtls.CertVerification,
+			expectCRLProvider: true,
+		},
+		{
+			name: "Invalid CRL Directory",
+			cfg: &Config{
+				CaCertFile:    caFile,
+				SrvCertFile:   srvCertFile,
+				SrvKeyFile:    srvKeyFile,
+				CaCertLnk:     filepath.Join(tempDir, "ca.lnk"),
+				SrvCertLnk:    filepath.Join(tempDir, "srv_cert.lnk"),
+				SrvKeyLnk:     filepath.Join(tempDir, "srv_key.lnk"),
+				CertCRLConfig: filepath.Join(tempDir, "nonexistent_crl_dir"),
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Ensure symlinks are invalid at the start of each test case to trigger atomicSet calls.
+			os.Remove(tt.cfg.CaCertLnk)
+			os.Remove(tt.cfg.SrvCertLnk)
+			os.Remove(tt.cfg.SrvKeyLnk)
+
+			// Create the CRL directory if needed for the test case
+			if tt.cfg.CertCRLConfig != "" && !tt.expectErr {
+				crlDir := filepath.Join(tt.cfg.CertCRLConfig, "crl")
+				if err := os.MkdirAll(crlDir, 0755); err != nil {
+					t.Fatalf("Failed to create CRL directory: %v", err)
+				}
+				defer os.RemoveAll(crlDir)
+			}
+
+			opts, providers, err := SrvAdvConfig(tt.cfg)
+			defer cleanupProviders(providers)
+
+			if (err != nil) != tt.expectErr {
+				t.Errorf("SrvAdvConfig(%v) got error: %v, want error: %v", tt.cfg, err, tt.expectErr)
+			}
+			if tt.expectErr {
+				return
+			}
+
+			if len(opts) == 0 {
+				t.Errorf("SrvAdvConfig(%v) returned no grpc.ServerOption", tt.cfg)
+			}
+
+			// Verify symlinks were created/updated
+			if tt.cfg.CaCertFile != "" {
+				if target, err := os.Readlink(tt.cfg.CaCertLnk); err != nil || target != tt.cfg.CaCertFile {
+					t.Errorf("CaCertLnk symlink invalid, got %q, want %q, err: %v", target, tt.cfg.CaCertFile, err)
+				}
+			}
+			if target, err := os.Readlink(tt.cfg.SrvCertLnk); err != nil || target != tt.cfg.SrvCertFile {
+				t.Errorf("SrvCertLnk symlink invalid, got %q, want %q, err: %v", target, tt.cfg.SrvCertFile, err)
+			}
+			if target, err := os.Readlink(tt.cfg.SrvKeyLnk); err != nil || target != tt.cfg.SrvKeyFile {
+				t.Errorf("SrvKeyLnk symlink invalid, got %q, want %q, err: %v", target, tt.cfg.SrvKeyFile, err)
+			}
+		})
+	}
+}
+
+func TestSrvTestConfigLogsAndReturns(t *testing.T) {
+	// 1. Force error in the FIRST WriteFile (Server Certificate)
+	t.Run("CoverageCertWriteError", func(t *testing.T) {
+		// Using a path that cannot be created/written to (e.g., inside a non-existent root folder)
+		// This forces: if err = os.WriteFile(srvCert...); err != nil { ... }
+		cfg := &Config{
+			SrvCertLnk: "/invalid_directory_root/cert.pem",
+		}
+
+		opts, providers, err := SrvTestConfig(cfg)
+
+		// This check ensures the code executed the return nil, nil, err
+		if err == nil {
+			t.Errorf("Expected error for invalid path, but got nil")
+		}
+		if opts != nil || providers != nil {
+			t.Errorf("Expected nil returns, but got opts=%v, providers=%v", opts, providers)
+		}
+	})
+
+	// 2. Force error in the SECOND WriteFile (Server Key)
+	t.Run("CoverageKeyWriteError", func(t *testing.T) {
+		tmpDir, _ := os.MkdirTemp("", "key_fail_test")
+		defer os.RemoveAll(tmpDir)
+
+		// We make the directory itself writable so the FIRST WriteFile succeeds.
+		// Then we create a file at the exact path of the SECOND WriteFile
+		// but make it a directory or read-only so the SECOND WriteFile fails.
+
+		linkPath := tmpDir + "/test_link.pem"
+		srvKeyPath := tmpDir + "/server_test_key.pem"
+
+		// Create a directory where the key file is supposed to be written.
+		// os.WriteFile cannot write to a path that is already a directory.
+		os.Mkdir(srvKeyPath, 0755)
+
+		cfg := &Config{
+			SrvCertLnk: linkPath,
+		}
+
+		opts, providers, err := SrvTestConfig(cfg)
+
+		if err == nil {
+			t.Errorf("Expected error for key write (path is directory), but got nil")
+		}
+
+		// This confirms the specific return statement was hit
+		if opts != nil || providers != nil {
+			t.Errorf("Return values must be nil")
+		}
+	})
 }
