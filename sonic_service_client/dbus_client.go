@@ -88,6 +88,7 @@ func DbusApi(busName string, busPath string, intName string, timeout int, args .
 		common_utils.IncCounter(common_utils.DBUS_FAIL)
 		return nil, err
 	}
+	defer conn.Close()
 
 	ch := make(chan *dbus.Call, 1)
 	obj := conn.Object(busName, dbus.ObjectPath(busPath))
