@@ -141,7 +141,7 @@ stages:
 
   # Full integration testing with SONiC dependencies
   - job: IntegrationCIJob
-    displayName: "Integration CI"
+    displayName: "build"
     timeoutInMinutes: 60
 
     pool:
