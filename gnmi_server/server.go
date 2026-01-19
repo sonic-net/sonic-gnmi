@@ -2,6 +2,7 @@ package gnmi
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -31,7 +32,6 @@ import (
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
 	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"

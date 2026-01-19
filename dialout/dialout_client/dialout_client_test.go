@@ -4,22 +4,9 @@ package telemetry_dialout
 // Prerequisite: redis-server should be running.
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
-	"github.com/go-redis/redis"
-	//"github.com/golang/protobuf/proto"
-	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
-
-	//"github.com/kylelemons/godebug/pretty"
-	//"github.com/openconfig/gnmi/client"
-	pb "github.com/openconfig/gnmi/proto/gnmi"
-	"github.com/openconfig/gnmi/value"
-	"golang.org/x/net/context"
-	"google.golang.org/grpc"
-	//"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
-	//"google.golang.org/grpc/status"
-	//"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -28,10 +15,17 @@ import (
 	"testing"
 	"time"
 
-	gclient "github.com/openconfig/gnmi/client/gnmi"
 	sds "github.com/sonic-net/sonic-gnmi/dialout/dialout_server"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
+
+	gclient "github.com/openconfig/gnmi/client/gnmi"
+	pb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/openconfig/gnmi/value"
+	"github.com/redis/go-redis/v9"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -56,7 +50,7 @@ func loadDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{}) {
 	for key, fv := range mpi {
 		switch fv.(type) {
 		case map[string]interface{}:
-			_, err := rclient.HMSet(key, fv.(map[string]interface{})).Result()
+			_, err := rclient.HMSet(context.Background(), key, fv.(map[string]interface{})).Result()
 			if err != nil {
 				t.Fatal("Invalid data for db: ", key, fv, err)
 			}
@@ -111,7 +105,7 @@ func getRedisClient(t *testing.T) *redis.Client {
 		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err = rclient.Ping().Result()
+	_, err = rclient.Ping(context.Background()).Result()
 	if err != nil {
 		t.Fatal("failed to connect to redis server ", err)
 	}
@@ -149,7 +143,7 @@ func getConfigDbClient(t *testing.T) *redis.Client {
 		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err = rclient.Ping().Result()
+	_, err = rclient.Ping(context.Background()).Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -160,7 +154,7 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 	for key, fv := range mpi {
 		switch fv.(type) {
 		case map[string]interface{}:
-			_, err := rclient.HMSet(key, fv.(map[string]interface{})).Result()
+			_, err := rclient.HMSet(context.Background(), key, fv.(map[string]interface{})).Result()
 			if err != nil {
 				t.Errorf("Invalid data for db: %v : %v %v", key, fv, err)
 			}
@@ -173,7 +167,7 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 func prepareConfigDb(t *testing.T) {
 	rclient := getConfigDbClient(t)
 	defer rclient.Close()
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 
 	fileName := "../../testdata/COUNTERS_PORT_ALIAS_MAP.txt"
 	countersPortAliasMapByte, err := ioutil.ReadFile(fileName)
@@ -195,7 +189,7 @@ func prepareConfigDb(t *testing.T) {
 func prepareDb(t *testing.T) {
 	rclient := getRedisClient(t)
 	defer rclient.Close()
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 	//Enable keysapce notification
 	os.Setenv("PATH", "$PATH:/usr/bin:/sbin:/bin:/usr/local/bin:/usr/local/Cellar/redis/4.0.8/bin")
 	cmd := exec.Command("redis-cli", "config", "set", "notify-keyspace-events", "KEA")
@@ -483,9 +477,9 @@ func TestGNMIDialOutPublish(t *testing.T) {
 			for _, update := range tt.updates {
 				switch update.op {
 				case "hdel":
-					rclient.HDel(update.tableName+update.delimitor+update.tableKey, update.field)
+					rclient.HDel(context.Background(), update.tableName+update.delimitor+update.tableKey, update.field)
 				default:
-					rclient.HSet(update.tableName+update.delimitor+update.tableKey, update.field, update.value)
+					rclient.HSet(context.Background(), update.tableName+update.delimitor+update.tableKey, update.field, update.value)
 				}
 				time.Sleep(time.Millisecond * 500)
 			}

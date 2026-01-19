@@ -1,6 +1,7 @@
 package gnmi
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -21,7 +22,6 @@ import (
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	dbconfig "github.com/sonic-net/sonic-gnmi/sonic_db_config"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -901,7 +901,7 @@ func updateDb(t *testing.T, data DbDataMap) {
 		defer redis.Close()
 		for key, fields := range tableData {
 			if fields == nil {
-				redis.Del(key)
+				redis.Del(context.Background(), key)
 				continue
 			}
 
@@ -916,10 +916,10 @@ func updateDb(t *testing.T, data DbDataMap) {
 			}
 
 			if len(modFields) != 0 {
-				redis.HMSet(key, modFields)
+				redis.HMSet(context.Background(), key, modFields)
 			}
 			if len(delFields) != 0 {
-				redis.HDel(key, delFields...)
+				redis.HDel(context.Background(), key, delFields...)
 			}
 		}
 	}
