@@ -39,6 +39,7 @@ const APPL_DB int = 0
 const DPU_APPL_DB_NAME string = "DPU_APPL_DB"
 const APPL_DB_NAME string = "APPL_DB"
 const DASH_TABLE_PREFIX string = "DASH_"
+const DASH_HA_TABLE_PREFIX string = "DASH_HA_"
 const SWSS_TIMEOUT uint = 0
 const MAX_RETRY_COUNT uint = 5
 const RETRY_DELAY_MILLISECOND uint = 100
@@ -260,7 +261,7 @@ func (c *MixedDbClient) GetTable(table string) swsscommon.ProducerStateTable {
 		return pt
 	}
 
-	if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
+	if strings.HasPrefix(table, DASH_TABLE_PREFIX) && !strings.HasPrefix(table, DASH_HA_TABLE_PREFIX) && c.zmqClient != nil {
 		log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
 		zmqTable := swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)
 		c.zmqTableMap[table] = zmqTable
