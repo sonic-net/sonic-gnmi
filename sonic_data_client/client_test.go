@@ -824,3 +824,56 @@ func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
 	m.Run()
 }
+
+// TestGetTableDashHA verifies that DASH_HA_ tables use ProducerStateTable
+// instead of ZmqProducerStateTable, even when ZMQ client is available.
+// This is required because sonic-dash-ha subscribes to DASH_HA_ tables
+// using SubscriberStateTable which works with ProducerStateTable.
+func TestGetTableDashHA(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	// Create ZMQ server and client
+	zmqServer := swsscommon.NewZmqServer("tcp://*:3234")
+	zmqAddress := "tcp://127.0.0.1:3234"
+
+	client := MixedDbClient{
+		applDB:      swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
+		tableMap:    map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap: map[string]swsscommon.ZmqProducerStateTable{},
+		zmqClient:   swsscommon.NewZmqClient(zmqAddress),
+	}
+
+	// Test DASH_ROUTE table - should use ZmqProducerStateTable
+	_ = client.GetTable("DASH_ROUTE")
+	if _, ok := client.zmqTableMap["DASH_ROUTE"]; !ok {
+		t.Errorf("DASH_ROUTE should use ZmqProducerStateTable")
+	}
+	if _, ok := client.tableMap["DASH_ROUTE"]; ok {
+		t.Errorf("DASH_ROUTE should not use ProducerStateTable")
+	}
+
+	// Test DASH_HA_SET_CONFIG_TABLE table - should use ProducerStateTable (not ZMQ)
+	_ = client.GetTable("DASH_HA_SET_CONFIG_TABLE")
+	if _, ok := client.tableMap["DASH_HA_SET_CONFIG_TABLE"]; !ok {
+		t.Errorf("DASH_HA_SET_CONFIG_TABLE should use ProducerStateTable")
+	}
+	if _, ok := client.zmqTableMap["DASH_HA_SET_CONFIG_TABLE"]; ok {
+		t.Errorf("DASH_HA_SET_CONFIG_TABLE should not use ZmqProducerStateTable")
+	}
+
+	// Test DASH_HA_SCOPE_CONFIG_TABLE table - should use ProducerStateTable (not ZMQ)
+	_ = client.GetTable("DASH_HA_SCOPE_CONFIG_TABLE")
+	if _, ok := client.tableMap["DASH_HA_SCOPE_CONFIG_TABLE"]; !ok {
+		t.Errorf("DASH_HA_SCOPE_CONFIG_TABLE should use ProducerStateTable")
+	}
+	if _, ok := client.zmqTableMap["DASH_HA_SCOPE_CONFIG_TABLE"]; ok {
+		t.Errorf("DASH_HA_SCOPE_CONFIG_TABLE should not use ZmqProducerStateTable")
+	}
+
+	// Cleanup
+	client.Close()
+	swsscommon.DeleteZmqClient(client.zmqClient)
+	swsscommon.DeleteZmqServer(zmqServer)
+}
