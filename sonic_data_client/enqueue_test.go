@@ -1322,26 +1322,26 @@ func TestDbClientStreamRunSyncMessage(t *testing.T) {
 	})
 }
 
-// func mustDequeue(t *testing.T, q *LimitedQueue, within time.Duration) Value {
-// 	t.Helper()
-// 	done := make(chan Value, 1)
-// 	go func() {
-// 		v, err := q.DequeueItem()
-// 		if err == nil {
-// 			done <- v
-// 		} else {
-// 			// if queue returns err, still fail the test
-// 			t.Logf("DequeueItem() error: %v", err)
-// 		}
-// 	}()
-// 	select {
-// 	case v := <-done:
-// 		return v
-// 	case <-time.After(within):
-// 		t.Fatalf("timeout waiting to dequeue item")
-// 		return Value{} // unreachable
-// 	}
-// }
+func mustDequeue(t *testing.T, q *LimitedQueue, within time.Duration) Value {
+	t.Helper()
+	done := make(chan Value, 1)
+	go func() {
+		v, err := q.DequeueItem()
+		if err == nil {
+			done <- v
+		} else {
+			// if queue returns err, still fail the test
+			t.Logf("DequeueItem() error: %v", err)
+		}
+	}()
+	select {
+	case v := <-done:
+		return v
+	case <-time.After(within):
+		t.Fatalf("timeout waiting to dequeue item")
+		return Value{} // unreachable
+	}
+}
 
 // Ensure these helpers are only used by the test; mark them as helpers.
 func mustDequeueUntilFatal(t *testing.T, q *LimitedQueue, timeout time.Duration) Value {
@@ -1357,44 +1357,56 @@ func mustDequeueUntilFatal(t *testing.T, q *LimitedQueue, timeout time.Duration)
 	return Value{}
 }
 
-func drainAll(t *testing.T, q *LimitedQueue, max int, perRead time.Duration) []Value {
-	t.Helper()
-	var got []Value
-	for i := 0; i < max; i++ {
-		item, ok := tryDequeue(q, perRead)
-		if !ok {
-			break
-		}
-		got = append(got, item)
+// func drainAll(t *testing.T, q *LimitedQueue, max int, perRead time.Duration) []Value {
+// 	t.Helper()
+// 	var got []Value
+// 	for i := 0; i < max; i++ {
+// 		item, ok := tryDequeue(q, perRead)
+// 		if !ok {
+// 			break
+// 		}
+// 		got = append(got, item)
+// 	}
+// 	return got
+// }
+
+// // tryDequeue: non-fatal helper used by drainAll (or just fold into mustDequeue if you already have one).
+// func tryDequeue(q *LimitedQueue, d time.Duration) (Value, bool) {
+// 	timer := time.NewTimer(d)
+// 	defer timer.Stop()
+// 	select {
+// 	case v := <-q.Q.Out: // or whichever channel your queue exposes
+// 		return v, true
+// 	case <-timer.C:
+// 		return Value{}, false
+// 	}
+// }
+
+// makeDummyValue returns a minimal Value that still counts against queue size.
+func makeDummyValue() Value {
+	spbv := &spb.Value{
+		// Keep it as small as possible; we just need it to occupy bytes.
+		Timestamp:    time.Now().UnixNano(),
+		SyncResponse: false,
+		// No Path/Delete/Val needed for prefill.
 	}
-	return got
+	return Value{spbv}
 }
 
-// tryDequeue: non-fatal helper used by drainAll (or just fold into mustDequeue if you already have one).
-func tryDequeue(q *LimitedQueue, d time.Duration) (Value, bool) {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case v := <-q.Q.Out: // or whichever channel your queue exposes
-		return v, true
-	case <-timer.C:
-		return Value{}, false
-	}
-}
-
-func fillQueueToCapacity(t *testing.T, q *LimitedQueue, n int) func() {
+// fillQueueToCapacity enqueues small Values until the queue returns ResourceExhausted.
+// maxIters guards against infinite loops if maxSize is huge/misconfigured.
+func fillQueueToCapacity(t *testing.T, q *LimitedQueue, maxIters int) {
 	t.Helper()
-	for i := 0; i < n; i++ {
-		// Push dummy items until the queue reports ResourceExhausted
-		err := q.EnqueueItem(Value{Fatal: "pre-fill"})
-		if err != nil {
-			// when full, EnqueueItem should return ResourceExhausted
+	for i := 0; i < maxIters; i++ {
+		if err := q.EnqueueItem(makeDummyValue()); err != nil {
 			if st, ok := status.FromError(err); !ok || st.Code() != codes.ResourceExhausted {
 				t.Fatalf("expected ResourceExhausted while prefilling, got: %v", err)
 			}
-			break
+			// Queue is now full.
+			return
 		}
 	}
+	t.Fatalf("fillQueueToCapacity: hit maxIters=%d without ResourceExhausted; increase maxIters or check queue sizing", maxIters)
 }
 
 func TestAppDBPollRun_ResourceExhausted_AllBranches(t *testing.T) {
@@ -1454,10 +1466,21 @@ func TestAppDBPollRun_ResourceExhausted_AllBranches(t *testing.T) {
 
 		q := NewLimitedQueue(0, false, 0)
 
-		subscribe := &gnmipb.SubscriptionList{ /* ... same as before ... */ }
+		subscribe := &gnmipb.SubscriptionList{
+			Subscription: []*gnmipb.Subscription{
+				{Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}},
+			},
+		}
 		subPath := subscribe.Subscription[0].Path
 
-		client := DbClient{ /* ... same as before ... */ }
+		client := DbClient{
+			prefix: &gnmipb.Path{Target: "APPL_DB"},
+			pathG2S: map[*gnmipb.Path][]tablePath{
+				subPath: {{tableName: "INTERFACES", field: "admin_status", jsonField: "admin_status", jsonTableKey: "INTERFACES"}},
+			},
+			q:       q,
+			channel: poll,
+		}
 
 		original := getAppDbTypedValueFunc
 		getAppDbTypedValueFunc = func(tblPaths []tablePath, _ interface{}) (*gnmipb.TypedValue, error, bool) {
