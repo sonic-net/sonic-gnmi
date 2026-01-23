@@ -261,6 +261,8 @@ func (c *MixedDbClient) GetTable(table string) swsscommon.ProducerStateTable {
 		return pt
 	}
 
+	// DASH_HA_ tables use ProducerStateTable (not ZMQ) because hamgrd subscribes
+	// via SubscriberStateTable which has rehydration support.
 	if strings.HasPrefix(table, DASH_TABLE_PREFIX) && !strings.HasPrefix(table, DASH_HA_TABLE_PREFIX) && c.zmqClient != nil {
 		log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
 		zmqTable := swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)

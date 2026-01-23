@@ -836,14 +836,19 @@ func TestGetTableDashHA(t *testing.T) {
 
 	// Create ZMQ server and client
 	zmqServer := swsscommon.NewZmqServer("tcp://*:3234")
+	defer swsscommon.DeleteZmqServer(zmqServer)
 	zmqAddress := "tcp://127.0.0.1:3234"
+
+	zmqClient := swsscommon.NewZmqClient(zmqAddress)
+	defer swsscommon.DeleteZmqClient(zmqClient)
 
 	client := MixedDbClient{
 		applDB:      swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
 		tableMap:    map[string]swsscommon.ProducerStateTable{},
 		zmqTableMap: map[string]swsscommon.ZmqProducerStateTable{},
-		zmqClient:   swsscommon.NewZmqClient(zmqAddress),
+		zmqClient:   zmqClient,
 	}
+	defer client.Close()
 
 	// Test DASH_ROUTE table - should use ZmqProducerStateTable
 	_ = client.GetTable("DASH_ROUTE")
@@ -871,9 +876,4 @@ func TestGetTableDashHA(t *testing.T) {
 	if _, ok := client.zmqTableMap["DASH_HA_SCOPE_CONFIG_TABLE"]; ok {
 		t.Errorf("DASH_HA_SCOPE_CONFIG_TABLE should not use ZmqProducerStateTable")
 	}
-
-	// Cleanup
-	client.Close()
-	swsscommon.DeleteZmqClient(client.zmqClient)
-	swsscommon.DeleteZmqServer(zmqServer)
 }
