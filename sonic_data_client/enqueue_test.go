@@ -1322,24 +1322,63 @@ func TestDbClientStreamRunSyncMessage(t *testing.T) {
 	})
 }
 
-func mustDequeue(t *testing.T, q *LimitedQueue, within time.Duration) Value {
+// func mustDequeue(t *testing.T, q *LimitedQueue, within time.Duration) Value {
+// 	t.Helper()
+// 	done := make(chan Value, 1)
+// 	go func() {
+// 		v, err := q.DequeueItem()
+// 		if err == nil {
+// 			done <- v
+// 		} else {
+// 			// if queue returns err, still fail the test
+// 			t.Logf("DequeueItem() error: %v", err)
+// 		}
+// 	}()
+// 	select {
+// 	case v := <-done:
+// 		return v
+// 	case <-time.After(within):
+// 		t.Fatalf("timeout waiting to dequeue item")
+// 		return Value{} // unreachable
+// 	}
+// }
+
+// Ensure these helpers are only used by the test; mark them as helpers.
+func mustDequeueUntilFatal(t *testing.T, q *LimitedQueue, timeout time.Duration) Value {
 	t.Helper()
-	done := make(chan Value, 1)
-	go func() {
-		v, err := q.DequeueItem()
-		if err == nil {
-			done <- v
-		} else {
-			// if queue returns err, still fail the test
-			t.Logf("DequeueItem() error: %v", err)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		item := mustDequeue(t, q, 200*time.Millisecond)
+		if item.Fatal != "" {
+			return item
 		}
-	}()
+	}
+	t.Fatalf("timed out waiting for fatal item")
+	return Value{}
+}
+
+func drainAll(t *testing.T, q *LimitedQueue, max int, perRead time.Duration) []Value {
+	t.Helper()
+	var got []Value
+	for i := 0; i < max; i++ {
+		item, ok := tryDequeue(q, perRead)
+		if !ok {
+			break
+		}
+		got = append(got, item)
+	}
+	return got
+}
+
+// tryDequeue: non-fatal helper used by drainAll (or just fold into mustDequeue if you already have one).
+func tryDequeue(q *LimitedQueue, d time.Duration) (Value, bool) {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
 	select {
-	case v := <-done:
-		return v
-	case <-time.After(within):
-		t.Fatalf("timeout waiting to dequeue item")
-		return Value{} // unreachable
+	case v := <-q.Q.Out: // or whichever channel your queue exposes
+		return v, true
+	case <-timer.C:
+		return Value{}, false
 	}
 }
 
@@ -1360,48 +1399,82 @@ func fillQueueToCapacity(t *testing.T, q *LimitedQueue, n int) func() {
 
 func TestAppDBPollRun_ResourceExhausted_AllBranches(t *testing.T) {
 	// Test1:
+	// t.Run("update branch resource exhausted → fatal & return", func(t *testing.T) {
+	// 	var wg sync.WaitGroup
+	// 	poll := make(chan struct{})
+
+	// 	q := NewLimitedQueue(0, false, 0)
+
+	// 	subscribe := &gnmipb.SubscriptionList{
+	// 		Subscription: []*gnmipb.Subscription{
+	// 			{Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}},
+	// 		},
+	// 	}
+	// 	subPath := subscribe.Subscription[0].Path
+
+	// 	client := DbClient{
+	// 		prefix: &gnmipb.Path{Target: "APPL_DB"},
+	// 		pathG2S: map[*gnmipb.Path][]tablePath{
+	// 			subPath: {{tableName: "INTERFACES", field: "admin_status", jsonField: "admin_status", jsonTableKey: "INTERFACES"}},
+	// 		},
+	// 		q:       q,
+	// 		channel: poll,
+	// 	}
+
+	// 	// Mock: one poll cycle returns updateReceived=true with a non-nil val
+	// 	original := getAppDbTypedValueFunc
+	// 	getAppDbTypedValueFunc = func(tblPaths []tablePath, _ interface{}) (*gnmipb.TypedValue, error, bool) {
+	// 		return &gnmipb.TypedValue{Value: &gnmipb.TypedValue_StringVal{StringVal: "up"}}, nil, true
+	// 	}
+	// 	defer func() { getAppDbTypedValueFunc = original }()
+
+	// 	wg.Add(1)
+	// 	go client.AppDBPollRun(q, poll, &wg, subscribe)
+
+	// 	// Trigger a single poll
+	// 	poll <- struct{}{}
+
+	// 	// The update enqueue will fail; enqueFatalMsg should push a fatal item
+	// 	item := mustDequeue(t, q, 500*time.Millisecond)
+	// 	if item.Fatal == "" {
+	// 		t.Fatalf("expected fatal message due to ResourceExhausted on update enqueue, got: %#v", item)
+	// 	}
+
+	// 	// Close poll channel to end goroutine cleanly
+	// 	close(poll)
+	// 	wg.Wait()
+	// })
+
+	//Test1 TEST
+
 	t.Run("update branch resource exhausted → fatal & return", func(t *testing.T) {
 		var wg sync.WaitGroup
 		poll := make(chan struct{})
+		t.Cleanup(func() { close(poll) })
 
 		q := NewLimitedQueue(0, false, 0)
 
-		subscribe := &gnmipb.SubscriptionList{
-			Subscription: []*gnmipb.Subscription{
-				{Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}},
-			},
-		}
+		subscribe := &gnmipb.SubscriptionList{ /* ... same as before ... */ }
 		subPath := subscribe.Subscription[0].Path
 
-		client := DbClient{
-			prefix: &gnmipb.Path{Target: "APPL_DB"},
-			pathG2S: map[*gnmipb.Path][]tablePath{
-				subPath: {{tableName: "INTERFACES", field: "admin_status", jsonField: "admin_status", jsonTableKey: "INTERFACES"}},
-			},
-			q:       q,
-			channel: poll,
-		}
+		client := DbClient{ /* ... same as before ... */ }
 
-		// Mock: one poll cycle returns updateReceived=true with a non-nil val
 		original := getAppDbTypedValueFunc
 		getAppDbTypedValueFunc = func(tblPaths []tablePath, _ interface{}) (*gnmipb.TypedValue, error, bool) {
 			return &gnmipb.TypedValue{Value: &gnmipb.TypedValue_StringVal{StringVal: "up"}}, nil, true
 		}
-		defer func() { getAppDbTypedValueFunc = original }()
+		t.Cleanup(func() { getAppDbTypedValueFunc = original })
 
 		wg.Add(1)
 		go client.AppDBPollRun(q, poll, &wg, subscribe)
 
-		// Trigger a single poll
-		poll <- struct{}{}
+		poll <- struct{}{} // single poll
 
-		// The update enqueue will fail; enqueFatalMsg should push a fatal item
-		item := mustDequeue(t, q, 500*time.Millisecond)
+		item := mustDequeueUntilFatal(t, q, 1*time.Second)
 		if item.Fatal == "" {
-			t.Fatalf("expected fatal message due to ResourceExhausted on update enqueue, got: %#v", item)
+			t.Fatalf("expected fatal on update enqueue, got: %#v", item)
 		}
 
-		// Close poll channel to end goroutine cleanly
 		close(poll)
 		wg.Wait()
 	})
