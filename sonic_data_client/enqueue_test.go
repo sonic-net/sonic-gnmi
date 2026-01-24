@@ -1343,126 +1343,35 @@ func mustDequeue(t *testing.T, q *LimitedQueue, within time.Duration) Value {
 	}
 }
 
-// Ensure these helpers are only used by the test; mark them as helpers.
-func mustDequeueUntilFatal(t *testing.T, q *LimitedQueue, timeout time.Duration) Value {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		item := mustDequeue(t, q, 200*time.Millisecond)
-		if item.Fatal != "" {
-			return item
-		}
-	}
-	t.Fatalf("timed out waiting for fatal item")
-	return Value{}
-}
-
-// func drainAll(t *testing.T, q *LimitedQueue, max int, perRead time.Duration) []Value {
-// 	t.Helper()
-// 	var got []Value
-// 	for i := 0; i < max; i++ {
-// 		item, ok := tryDequeue(q, perRead)
-// 		if !ok {
-// 			break
-// 		}
-// 		got = append(got, item)
-// 	}
-// 	return got
-// }
-
-// // tryDequeue: non-fatal helper used by drainAll (or just fold into mustDequeue if you already have one).
-// func tryDequeue(q *LimitedQueue, d time.Duration) (Value, bool) {
-// 	timer := time.NewTimer(d)
-// 	defer timer.Stop()
-// 	select {
-// 	case v := <-q.Q.Out: // or whichever channel your queue exposes
-// 		return v, true
-// 	case <-timer.C:
-// 		return Value{}, false
-// 	}
-// }
-
-// makeDummyValue returns a minimal Value that still counts against queue size.
 func makeDummyValue() Value {
 	spbv := &spb.Value{
-		// Keep it as small as possible; we just need it to occupy bytes.
 		Timestamp:    time.Now().UnixNano(),
 		SyncResponse: false,
-		// No Path/Delete/Val needed for prefill.
 	}
 	return Value{spbv}
 }
 
-// fillQueueToCapacity enqueues small Values until the queue returns ResourceExhausted.
-// maxIters guards against infinite loops if maxSize is huge/misconfigured.
-func fillQueueToCapacity(t *testing.T, q *LimitedQueue, maxIters int) {
+func fillQueueToCapacity(t *testing.T, q *LimitedQueue, n int) {
 	t.Helper()
-	for i := 0; i < maxIters; i++ {
-		if err := q.EnqueueItem(makeDummyValue()); err != nil {
+	for i := 0; i < n; i++ {
+		// Push dummy items until the queue reports ResourceExhausted
+		err := q.EnqueueItem(makeDummyValue())
+		if err != nil {
+			// when full, EnqueueItem should return ResourceExhausted
 			if st, ok := status.FromError(err); !ok || st.Code() != codes.ResourceExhausted {
 				t.Fatalf("expected ResourceExhausted while prefilling, got: %v", err)
 			}
-			// Queue is now full.
 			return
 		}
 	}
-	t.Fatalf("fillQueueToCapacity: hit maxIters=%d without ResourceExhausted; increase maxIters or check queue sizing", maxIters)
+	t.Fatalf("fillQueueToCapacity: hit max queue fill = %d without ResourceExhausted", n)
 }
 
 func TestAppDBPollRun_ResourceExhausted_AllBranches(t *testing.T) {
 	// Test1:
-	// t.Run("update branch resource exhausted → fatal & return", func(t *testing.T) {
-	// 	var wg sync.WaitGroup
-	// 	poll := make(chan struct{})
-
-	// 	q := NewLimitedQueue(0, false, 0)
-
-	// 	subscribe := &gnmipb.SubscriptionList{
-	// 		Subscription: []*gnmipb.Subscription{
-	// 			{Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}},
-	// 		},
-	// 	}
-	// 	subPath := subscribe.Subscription[0].Path
-
-	// 	client := DbClient{
-	// 		prefix: &gnmipb.Path{Target: "APPL_DB"},
-	// 		pathG2S: map[*gnmipb.Path][]tablePath{
-	// 			subPath: {{tableName: "INTERFACES", field: "admin_status", jsonField: "admin_status", jsonTableKey: "INTERFACES"}},
-	// 		},
-	// 		q:       q,
-	// 		channel: poll,
-	// 	}
-
-	// 	// Mock: one poll cycle returns updateReceived=true with a non-nil val
-	// 	original := getAppDbTypedValueFunc
-	// 	getAppDbTypedValueFunc = func(tblPaths []tablePath, _ interface{}) (*gnmipb.TypedValue, error, bool) {
-	// 		return &gnmipb.TypedValue{Value: &gnmipb.TypedValue_StringVal{StringVal: "up"}}, nil, true
-	// 	}
-	// 	defer func() { getAppDbTypedValueFunc = original }()
-
-	// 	wg.Add(1)
-	// 	go client.AppDBPollRun(q, poll, &wg, subscribe)
-
-	// 	// Trigger a single poll
-	// 	poll <- struct{}{}
-
-	// 	// The update enqueue will fail; enqueFatalMsg should push a fatal item
-	// 	item := mustDequeue(t, q, 500*time.Millisecond)
-	// 	if item.Fatal == "" {
-	// 		t.Fatalf("expected fatal message due to ResourceExhausted on update enqueue, got: %#v", item)
-	// 	}
-
-	// 	// Close poll channel to end goroutine cleanly
-	// 	close(poll)
-	// 	wg.Wait()
-	// })
-
-	//Test1 TEST
-
-	t.Run("update branch resource exhausted → fatal & return", func(t *testing.T) {
+	t.Run("update resource exhausted fatal & return", func(t *testing.T) {
 		var wg sync.WaitGroup
 		poll := make(chan struct{})
-		t.Cleanup(func() { close(poll) })
 
 		q := NewLimitedQueue(0, false, 0)
 
@@ -1476,34 +1385,45 @@ func TestAppDBPollRun_ResourceExhausted_AllBranches(t *testing.T) {
 		client := DbClient{
 			prefix: &gnmipb.Path{Target: "APPL_DB"},
 			pathG2S: map[*gnmipb.Path][]tablePath{
-				subPath: {{tableName: "INTERFACES", field: "admin_status", jsonField: "admin_status", jsonTableKey: "INTERFACES"}},
+				subPath: {{
+					dbNamespace:  "default",
+					dbName:       "APPL_DB",
+					tableName:    "INTERFACES",
+					field:        "admin_status",
+					jsonField:    "admin_status",
+					jsonTableKey: "INTERFACES",
+				}},
 			},
 			q:       q,
 			channel: poll,
 		}
 
+		// Mock: one poll cycle returns updateReceived=true with a non-nil val
 		original := getAppDbTypedValueFunc
-		getAppDbTypedValueFunc = func(tblPaths []tablePath, _ interface{}) (*gnmipb.TypedValue, error, bool) {
+		getAppDbTypedValueFunc = func(tblPaths []tablePath, _ *string) (*gnmipb.TypedValue, error, bool) {
 			return &gnmipb.TypedValue{Value: &gnmipb.TypedValue_StringVal{StringVal: "up"}}, nil, true
 		}
-		t.Cleanup(func() { getAppDbTypedValueFunc = original })
+		defer func() { getAppDbTypedValueFunc = original }()
 
 		wg.Add(1)
 		go client.AppDBPollRun(q, poll, &wg, subscribe)
 
-		poll <- struct{}{} // single poll
+		// Trigger a single poll
+		poll <- struct{}{}
 
-		item := mustDequeueUntilFatal(t, q, 1*time.Second)
+		// The update enqueue will fail; enqueFatalMsg should push a fatal item
+		item := mustDequeue(t, q, 500*time.Millisecond)
 		if item.Fatal == "" {
-			t.Fatalf("expected fatal on update enqueue, got: %#v", item)
+			t.Fatalf("expected fatal message due to ResourceExhausted on update enqueue, got: %#v", item)
 		}
 
+		// Close poll channel to end goroutine cleanly
 		close(poll)
 		wg.Wait()
 	})
 
 	// Test2:
-	t.Run("delete branch resource exhausted → fatal & return", func(t *testing.T) {
+	t.Run("delete resource exhausted fatal & return", func(t *testing.T) {
 		var wg sync.WaitGroup
 		poll := make(chan struct{})
 
@@ -1519,7 +1439,14 @@ func TestAppDBPollRun_ResourceExhausted_AllBranches(t *testing.T) {
 		client := DbClient{
 			prefix: &gnmipb.Path{Target: "APPL_DB"},
 			pathG2S: map[*gnmipb.Path][]tablePath{
-				subPath: {{tableName: "INTERFACES", field: "admin_status", jsonField: "admin_status", jsonTableKey: "INTERFACES"}},
+				subPath: {{
+					dbNamespace:  "default",
+					dbName:       "APPL_DB",
+					tableName:    "INTERFACES",
+					field:        "admin_status",
+					jsonField:    "admin_status",
+					jsonTableKey: "INTERFACES",
+				}},
 			},
 			q:       q,
 			channel: poll,
@@ -1538,7 +1465,7 @@ func TestAppDBPollRun_ResourceExhausted_AllBranches(t *testing.T) {
 		}
 
 		original := getAppDbTypedValueFunc
-		getAppDbTypedValueFunc = func(tblPaths []tablePath, _ interface{}) (*gnmipb.TypedValue, error, bool) {
+		getAppDbTypedValueFunc = func(tblPaths []tablePath, _ *string) (*gnmipb.TypedValue, error, bool) {
 			if len(returns) == 0 {
 				t.Fatalf("no scripted AppDB returns left")
 			}
@@ -1574,7 +1501,7 @@ func TestAppDBPollRun_ResourceExhausted_AllBranches(t *testing.T) {
 	})
 
 	// Test3:
-	t.Run("sync branch resource exhausted → fatal & return", func(t *testing.T) {
+	t.Run("sync resource exhausted fatal & return", func(t *testing.T) {
 		var wg sync.WaitGroup
 		poll := make(chan struct{})
 
@@ -1590,14 +1517,21 @@ func TestAppDBPollRun_ResourceExhausted_AllBranches(t *testing.T) {
 		client := DbClient{
 			prefix: &gnmipb.Path{Target: "APPL_DB"},
 			pathG2S: map[*gnmipb.Path][]tablePath{
-				subPath: {{tableName: "INTERFACES", field: "admin_status", jsonField: "admin_status", jsonTableKey: "INTERFACES"}},
+				subPath: {{
+					dbNamespace:  "default",
+					dbName:       "APPL_DB",
+					tableName:    "INTERFACES",
+					field:        "admin_status",
+					jsonField:    "admin_status",
+					jsonTableKey: "INTERFACES",
+				}},
 			},
 			q:       q,
 			channel: poll,
 		}
 
 		original := getAppDbTypedValueFunc
-		getAppDbTypedValueFunc = func(tblPaths []tablePath, _ interface{}) (*gnmipb.TypedValue, error, bool) {
+		getAppDbTypedValueFunc = func(tblPaths []tablePath, _ *string) (*gnmipb.TypedValue, error, bool) {
 			// No updates (missing data)
 			return nil, nil, false
 		}
