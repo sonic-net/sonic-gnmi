@@ -93,6 +93,10 @@ type MixedDbClient struct {
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
 	w      *sync.WaitGroup // wait for all sub go routines to finish
 	mu     sync.RWMutex    // Mutex for data protection among routines for DbClient
+
+	// Direct DB write configuration (bypassing D-Bus)
+	enableDirectDbWrite bool
+	directDbWriteTables []string
 }
 
 // redis client connected to each DB
@@ -492,15 +496,17 @@ func init() {
 	initRedisDbMap()
 }
 
-func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string, vrf string, targetDbName *string) (Client, error) {
+func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string, vrf string, targetDbName *string, enableDirectDbWrite bool, directDbWriteTables []string) (Client, error) {
 	var err error
 
 	// Initialize RedisDbMap for test
 	initRedisDbMap()
 
 	var client = MixedDbClient{
-		tableMap:    map[string]swsscommon.ProducerStateTable{},
-		zmqTableMap: map[string]swsscommon.ZmqProducerStateTable{},
+		tableMap:            map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap:         map[string]swsscommon.ZmqProducerStateTable{},
+		enableDirectDbWrite: enableDirectDbWrite,
+		directDbWriteTables: directDbWriteTables,
 	}
 
 	// Get namespace count and container count from db config
@@ -1462,6 +1468,108 @@ func (c *MixedDbClient) SetDB(delete []*gnmipb.Path, replace []*gnmipb.Update, u
 	return nil
 }
 
+// isTableAllowedForDirectWrite checks if a table is in the allowed list for direct DB write.
+func (c *MixedDbClient) isTableAllowedForDirectWrite(tableName string) bool {
+	for _, allowed := range c.directDbWriteTables {
+		if allowed == tableName {
+			return true
+		}
+	}
+	return false
+}
+
+// getTableNameFromPath extracts the table name from a gNMI path.
+func (c *MixedDbClient) getTableNameFromPath(path *gnmipb.Path) (string, error) {
+	fullPath, err := c.gnmiFullPath(c.prefix, path)
+	if err != nil {
+		return "", err
+	}
+	elems := fullPath.GetElem()
+	if elems == nil || len(elems) == 0 {
+		return "", fmt.Errorf("Invalid path: no elements")
+	}
+	return elems[0].GetName(), nil
+}
+
+// validateDirectDbWritePaths validates that all paths are allowed for direct DB write.
+// Returns true if direct write can be used, false otherwise.
+func (c *MixedDbClient) validateDirectDbWritePaths(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) bool {
+	if !c.enableDirectDbWrite || len(c.directDbWriteTables) == 0 {
+		return false
+	}
+
+	// Check all delete paths
+	for _, path := range delete {
+		tableName, err := c.getTableNameFromPath(path)
+		if err != nil || !c.isTableAllowedForDirectWrite(tableName) {
+			return false
+		}
+	}
+
+	// Check all replace paths
+	for _, item := range replace {
+		tableName, err := c.getTableNameFromPath(item.GetPath())
+		if err != nil || !c.isTableAllowedForDirectWrite(tableName) {
+			return false
+		}
+	}
+
+	// Check all update paths
+	for _, item := range update {
+		tableName, err := c.getTableNameFromPath(item.GetPath())
+		if err != nil || !c.isTableAllowedForDirectWrite(tableName) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// SetConfigDBDirect performs direct CONFIG_DB write bypassing D-Bus.
+// This is only allowed for specific tables configured via directDbWriteTables.
+func (c *MixedDbClient) SetConfigDBDirect(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
+	log.V(2).Infof("SetConfigDBDirect: Using direct DB write for CONFIG_DB")
+
+	/* DELETE */
+	deletePathList, err := c.getAllDbtablePath(delete)
+	if err != nil {
+		return err
+	}
+
+	for _, tblPaths := range deletePathList {
+		err = c.handleTableData(tblPaths)
+		if err != nil {
+			return err
+		}
+	}
+
+	/* REPLACE */
+	for _, item := range replace {
+		tblPaths, err := c.getDbtablePath(item.GetPath(), item.GetVal())
+		if err != nil {
+			return err
+		}
+		err = c.handleTableData(tblPaths)
+		if err != nil {
+			return err
+		}
+	}
+
+	/* UPDATE */
+	for _, item := range update {
+		tblPaths, err := c.getDbtablePath(item.GetPath(), item.GetVal())
+		if err != nil {
+			return err
+		}
+		err = c.handleTableData(tblPaths)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
 	// Full configuration will be overwritten next set request
 	fileName := c.workPath + "/config_db.json.tmp"
@@ -1491,6 +1599,12 @@ func (c *MixedDbClient) SetConfigDB(delete []*gnmipb.Path, replace []*gnmipb.Upd
 			return c.ReplaceFullConfig(delete, replace, update)
 		}
 	}
+
+	// Check if direct DB write can be used (bypassing D-Bus)
+	if c.validateDirectDbWritePaths(delete, replace, update) {
+		return c.SetConfigDBDirect(delete, replace, update)
+	}
+
 	return c.SetIncrementalConfig(delete, replace, update)
 }
 

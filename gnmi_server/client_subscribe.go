@@ -163,7 +163,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 		dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions, sdc.TranslWildcardOption{})
 	} else if IsNativeOrigin(origin) {
 		var targetDbName string
-		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, gnmipb.Encoding_JSON_IETF, "", "", &targetDbName)
+		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, gnmipb.Encoding_JSON_IETF, "", "", &targetDbName, false, nil)
 		authTarget = "gnmi_" + targetDbName
 	} else if len(origin) != 0 {
 		return grpc.Errorf(codes.Unimplemented, "Unsupported origin: %s", origin)

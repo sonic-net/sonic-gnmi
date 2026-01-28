@@ -63,6 +63,8 @@ type TelemetryConfig struct {
 	EnableCrl             *bool
 	CrlExpireDuration     *int
 	ImgDirPath            *string
+	EnableDirectDbWrite   *bool
+	DirectDbWriteTables   *string
 }
 
 func main() {
@@ -178,6 +180,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
 		CrlExpireDuration:     fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
 		ImgDirPath:            fs.String("img_dir", "/tmp/host_tmp", "Directory path where image will be transferred."),
+		EnableDirectDbWrite:   fs.Bool("direct_db_write", false, "Enable direct CONFIG_DB write bypassing D-Bus for allowed tables"),
+		DirectDbWriteTables:   fs.String("direct_db_write_tables", "", "Comma-separated table names allowed for direct DB write"),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -259,6 +263,12 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 
 	// Populate the OS-related fields directly on the gnmi.Config struct.
 	cfg.ImgDir = *telemetryCfg.ImgDirPath
+
+	// Populate direct DB write configuration
+	cfg.EnableDirectDbWrite = *telemetryCfg.EnableDirectDbWrite
+	if *telemetryCfg.DirectDbWriteTables != "" {
+		cfg.DirectDbWriteTables = strings.Split(*telemetryCfg.DirectDbWriteTables, ",")
+	}
 
 	return telemetryCfg, cfg, nil
 }

@@ -177,6 +177,10 @@ type Config struct {
 	EnableCrl           bool
 	// Path to the directory where image is stored.
 	ImgDir string
+	// EnableDirectDbWrite enables direct CONFIG_DB write bypassing D-Bus
+	EnableDirectDbWrite bool
+	// DirectDbWriteTables is a list of table names allowed for direct DB write
+	DirectDbWriteTables []string
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -584,7 +588,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		}
 		if check := IsNativeOrigin(origin); check {
 			var targetDbName string
-			dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
+			dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName, false, nil)
 			authTarget = "gnmi_" + targetDbName
 		} else {
 			dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions)
@@ -690,7 +694,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 			return nil, grpc.Errorf(codes.Unimplemented, "GNMI native write is disabled")
 		}
 		var targetDbName string
-		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
+		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName, s.config.EnableDirectDbWrite, s.config.DirectDbWriteTables)
 		authTarget = "gnmi_" + targetDbName
 	} else {
 		if s.config.EnableTranslibWrite == false {
@@ -774,7 +778,7 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 	dc, _ := sdc.NewTranslClient(nil, nil, ctx, extensions)
 	supportedModels = append(supportedModels, dc.Capabilities()...)
 	var targetDbName string
-	dc, _ = sdc.NewMixedDbClient(nil, nil, "", gnmipb.Encoding_JSON_IETF, s.config.ZmqPort, s.config.Vrf, &targetDbName)
+	dc, _ = sdc.NewMixedDbClient(nil, nil, "", gnmipb.Encoding_JSON_IETF, s.config.ZmqPort, s.config.Vrf, &targetDbName, false, nil)
 	supportedModels = append(supportedModels, dc.Capabilities()...)
 
 	suppModels := make([]*gnmipb.ModelData, len(supportedModels))
