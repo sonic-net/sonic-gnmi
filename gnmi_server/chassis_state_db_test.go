@@ -21,9 +21,32 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+func getChassisStateDbRedisClient(t *testing.T, namespace string) *RedisClient {
+	addr, err := sdcfg.GetDbTcpAddr("CHASSIS_STATE_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get addr %v", err)
+	}
+	db, err := sdcfg.GetDbId("CHASSIS_STATE_DB", namespace)
+	if err != nil {
+		t.Fatalf("failed to get db %v", err)
+	}
+	rclient := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    addr,
+		Password: "",
+		DB: db,
+		DialTimeout: 0,
+	})
+	_, err = rclient.Ping().Result()
+	if err != nil {
+		t.Fatalf("failed to connect to redis server %v", err)
+	}
+	return rclient
+}
+
 // prepareChassisStateDb loads DPU_STATE test data into CHASSIS_STATE_DB (db 13)
 func prepareChassisStateDb(t *testing.T, namespace string) {
-	rclient := getRedisClientN(t, 13, namespace)
+	rclient := getChassisStateDbRedisClient(t, namespace)
 	defer rclient.Close()
 	rclient.FlushDB()
 

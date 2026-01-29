@@ -13,8 +13,6 @@ import (
 )
 
 const (
-	dpuStateTable = "DPU_STATE"
-
 	// Operational status constants
 	operStatusOnline        = "Online"
 	operStatusOffline       = "Offline"
@@ -126,15 +124,7 @@ func getSystemHealthDpu(options sdc.OptionMap) ([]byte, error) {
 
 	// Process the data
 	var allRows []DpuStateRow
-	for moduleKey, stateInfo := range stateData {
-		// Extract module name from key (format: "DPU_STATE|DPU0")
-		keyParts := strings.Split(moduleKey, "|")
-		if len(keyParts) != 2 {
-			log.V(2).Infof("getSystemHealthDpu: skipping invalid key: %s", moduleKey)
-			continue
-		}
-		moduleName := keyParts[1]
-
+	for moduleName, stateInfo := range stateData {
 		stateInfoMap, ok := stateInfo.(map[string]interface{})
 		if !ok {
 			log.V(2).Infof("getSystemHealthDpu: skipping invalid state info for module: %s", moduleName)
