@@ -181,5 +181,11 @@ func getChassisDataDirect(moduleName string) (map[string]interface{}, error) {
 		log.V(2).Infof("No DPU_STATE keys found for module: %s", moduleName)
 	}
 
+	if moduleName != "" && moduleName != "all" && len(data) > 0 {
+		data = map[string]interface{}{
+			moduleName: data,
+		}
+	}
+
 	return data, nil
 }

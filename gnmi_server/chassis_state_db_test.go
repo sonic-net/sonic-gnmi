@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-redis/redis"
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/openconfig/gnmi/client"
 	pb "github.com/openconfig/gnmi/proto/gnmi"
@@ -21,7 +22,7 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-func getChassisStateDbRedisClient(t *testing.T, namespace string) *RedisClient {
+func getChassisStateDbRedisClient(t *testing.T, namespace string) *redis.Client {
 	addr, err := sdcfg.GetDbTcpAddr("CHASSIS_STATE_DB", namespace)
 	if err != nil {
 		t.Fatalf("failed to get addr %v", err)
@@ -31,10 +32,10 @@ func getChassisStateDbRedisClient(t *testing.T, namespace string) *RedisClient {
 		t.Fatalf("failed to get db %v", err)
 	}
 	rclient := redis.NewClient(&redis.Options{
-		Network: "tcp",
-		Addr:    addr,
-		Password: "",
-		DB: db,
+		Network:     "tcp",
+		Addr:        addr,
+		Password:    "",
+		DB:          db,
 		DialTimeout: 0,
 	})
 	_, err = rclient.Ping().Result()
