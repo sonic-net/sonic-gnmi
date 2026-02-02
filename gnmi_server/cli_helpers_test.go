@@ -79,5 +79,6 @@ func ResetDataSetsAndMappings(t *testing.T) {
 	FlushDataSet(t, CountersDbNum)
 	FlushDataSet(t, ConfigDbNum)
 	FlushDataSet(t, StateDbNum)
+	FlushDataSet(t, ChassisStateDbNum)
 	sdc.ClearMappings()
 }
