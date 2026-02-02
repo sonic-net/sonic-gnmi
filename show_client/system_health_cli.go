@@ -8,17 +8,11 @@ import (
 
 	log "github.com/golang/glog"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
-	swsscommon "github.com/sonic-net/sonic-gnmi/swsscommon"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 const (
-	dpuStateTable = "DPU_STATE"
-	chassisServer = "redis_chassis.server"
-	chassisPort   = 6380
-	chassisDB     = 13
-
 	// Operational status constants
 	operStatusOnline        = "Online"
 	operStatusOffline       = "Offline"
@@ -130,15 +124,7 @@ func getSystemHealthDpu(options sdc.OptionMap) ([]byte, error) {
 
 	// Process the data
 	var allRows []DpuStateRow
-	for moduleKey, stateInfo := range stateData {
-		// Extract module name from key (format: "DPU_STATE|DPU0")
-		keyParts := strings.Split(moduleKey, "|")
-		if len(keyParts) != 2 {
-			log.V(2).Infof("getSystemHealthDpu: skipping invalid key: %s", moduleKey)
-			continue
-		}
-		moduleName := keyParts[1]
-
+	for moduleName, stateInfo := range stateData {
 		stateInfoMap, ok := stateInfo.(map[string]interface{})
 		if !ok {
 			log.V(2).Infof("getSystemHealthDpu: skipping invalid state info for module: %s", moduleName)
@@ -172,57 +158,34 @@ func getSystemHealthDpu(options sdc.OptionMap) ([]byte, error) {
 	return jsonData, nil
 }
 
-// Get data directly from chassis database using SonicV2Connector
+// Get data from chassis database using GetMapFromQueries
 func getChassisDataDirect(moduleName string) (map[string]interface{}, error) {
-	// Create SonicV2Connector similar to Python implementation
-	chassisStateDB := swsscommon.NewSonicV2Connector_Native(false, "")
-	defer chassisStateDB.Close()
-
-	// Connect to the chassis database
-	chassisStateDB.Connect("CHASSIS_STATE_DB")
-
-	// Create key pattern
-	keyPattern := "DPU_STATE|*"
+	var queries [][]string
 	if moduleName != "" && moduleName != "all" {
-		keyPattern = "DPU_STATE|" + moduleName
-	}
-
-	// Get keys from the database
-	keys := chassisStateDB.Keys("CHASSIS_STATE_DB", keyPattern)
-	if keys.Size() == 0 {
-		log.V(2).Infof("No DPU_STATE keys found for pattern: %s", keyPattern)
-		return make(map[string]interface{}), nil
-	}
-
-	// Build result map
-	result := make(map[string]interface{})
-	for i := int64(0); i < keys.Size(); i++ {
-		key := keys.Get(int(i))
-		// Get all fields for this key
-		stateInfo := chassisStateDB.Get_all("CHASSIS_STATE_DB", key)
-
-		// Convert to map[string]interface{}
-		stateMap := make(map[string]interface{})
-		// Get all fields from the FieldValueMap
-		// Since FieldValueMap doesn't have a Keys() method, we'll try to get all known fields
-		// Based on the actual database structure we observed
-		allPossibleFields := []string{
-			"id",
-			"dpu_midplane_link_state", "dpu_midplane_link_time", "dpu_midplane_link_reason",
-			"dpu_control_plane_state", "dpu_control_plane_time", "dpu_control_plane_reason",
-			"dpu_data_plane_state", "dpu_data_plane_time", "dpu_data_plane_reason",
+		queries = [][]string{
+			{"CHASSIS_STATE_DB", "DPU_STATE", moduleName},
 		}
-		for _, field := range allPossibleFields {
-			if stateInfo.Has_key(field) {
-				stateMap[field] = stateInfo.Get(field)
-			}
+	} else {
+		queries = [][]string{
+			{"CHASSIS_STATE_DB", "DPU_STATE"},
 		}
-
-		// Log the fields we found for debugging
-		log.V(2).Infof("Found fields for key %s: %v", key, stateMap)
-
-		result[key] = stateMap
 	}
 
-	return result, nil
+	data, err := GetMapFromQueries(queries)
+	if err != nil {
+		log.Errorf("Unable to get data from queries %v, got err: %v", queries, err)
+		return nil, err
+	}
+
+	if len(data) == 0 {
+		log.V(2).Infof("No DPU_STATE keys found for module: %s", moduleName)
+	}
+
+	if moduleName != "" && moduleName != "all" && len(data) > 0 {
+		data = map[string]interface{}{
+			moduleName: data,
+		}
+	}
+
+	return data, nil
 }
