@@ -17,6 +17,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 )
 
 var streamFunc = translib.Stream
@@ -1615,20 +1616,91 @@ func TestPollRun_EnqueueItemResourceExhausted_TestB(t *testing.T) {
 	wg.Wait()
 }
 
-func TestMixedDbClientPollRun_EnqueFatalMsg_TestB(t *testing.T) {
-	var wg sync.WaitGroup
-	var synced sync.WaitGroup
-	poll := make(chan struct{})
-	q := NewLimitedQueue(1, false, 1)
-	stop := make(chan struct{})
+//testing mixeddb dbfieldsubscribe
 
-	client := &MixedDbClient{
-		prefix:  &gnmipb.Path{Target: "APPL_DB"},
-		paths:   []*gnmipb.Path{{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}},
+type fakeDBKey struct {
+	netns         string
+	containerName string
+	empty         bool
+}
+
+func (f *fakeDBKey) GetNetns() string         { return f.netns }
+func (f *fakeDBKey) GetContainerName() string { return f.containerName }
+func (f *fakeDBKey) IsEmpty() bool            { return f.empty }
+
+func (f *fakeDBKey) SetNetns(namespace string) {
+	f.netns = namespace
+	return
+}
+func (f *fakeDBKey) SetContainerName(container string) {
+	f.containerName = container
+	return
+}
+func (f *fakeDBKey) SwigIsSonicDBKey() {}
+
+func (f *fakeDBKey) Swigcptr() uintptr {
+	return uintptr(unsafe.Pointer(f))
+}
+
+func (f *fakeDBKey) ToString() string {
+	return "fakeDBKey(" + f.netns + "," + f.containerName + ")"
+}
+
+func TestDbFieldSubscribe_MixedDb_EnqueueItemResourceExhausted(t *testing.T) {
+	var wg sync.WaitGroup
+	q := NewLimitedQueue(1, false, 1)
+	stop := make(chan struct{}, 1)
+
+	originalRedisDbMap := redisDbMap
+	originalGlobalRedisDbMap := RedisDbMap
+
+	t.Cleanup(func() {
+		redisDbMap = originalRedisDbMap
+		RedisDbMap = originalGlobalRedisDbMap
+	})
+
+	redisClient := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+		DB:   0,
+	})
+
+	err := redisClient.HSet("INTERFACES:Ethernet0", "admin_status", "up").Err()
+	if err != nil {
+		t.Fatalf("Failed to set test data in Redis: %v", err)
+	}
+
+	redisDbMap = make(map[string]*redis.Client)
+	RedisDbMap = redisDbMap
+	redisDbMap["test:APPL_DB"] = redisClient
+
+	path := &gnmipb.Path{
+		Elem: []*gnmipb.PathElem{
+			{Name: "interfaces"},
+			{Name: "state"},
+			{Name: "counters"},
+			{Name: "in-octets"},
+		},
+	}
+
+	client := MixedDbClient{
+		prefix: &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{path: {{
+			dbNamespace:  "default",
+			dbName:       "APPL_DB",
+			tableName:    "INTERFACES",
+			tableKey:     "Ethernet0",
+			field:        "admin_status",
+			jsonField:    "admin_status",
+			jsonTableKey: "Ethernet0",
+			delimitor:    ":",
+		}}},
 		q:       q,
 		channel: stop,
+		synced:  sync.WaitGroup{},
 		w:       &wg,
-		synced:  synced,
+		target:  "APPL_DB",
+		mapkey:  "test",
+		dbkey:   &fakeDBKey{netns: "test-ns", containerName: "test-container"},
 	}
 
 	notification := &gnmipb.Notification{
@@ -1636,7 +1708,9 @@ func TestMixedDbClientPollRun_EnqueFatalMsg_TestB(t *testing.T) {
 		Update: []*gnmipb.Update{
 			{
 				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
-				Val:  &gnmipb.TypedValue{Value: &gnmipb.TypedValue_StringVal{StringVal: "up"}},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
+				},
 			},
 		},
 	}
@@ -1646,44 +1720,103 @@ func TestMixedDbClientPollRun_EnqueFatalMsg_TestB(t *testing.T) {
 			Notification: notification,
 		},
 	}
-	// Fill the queue to simulate ResourceExhausted
+
 	_ = q.EnqueueItem(item)
 
-	sub := &gnmipb.Subscription{
-		Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
-		Mode: gnmipb.SubscriptionMode_SAMPLE,
+	wg.Add(1)
+	client.synced.Add(1)
+	go client.dbFieldSubscribe(path, false, time.Millisecond*10)
+	time.Sleep(20 * time.Millisecond)
+	stop <- struct{}{}
+	wg.Wait()
+	client.synced.Wait()
+
+	deq_item, err := q.DequeueItem()
+	if err != nil {
+		t.Fatalf("Expected fatal message, got error: %v", err)
 	}
-	subList := &gnmipb.SubscriptionList{
-		Subscription: []*gnmipb.Subscription{sub},
+	if !strings.Contains(deq_item.Fatal, "Subscribe output queue exhausted") {
+		t.Errorf("Expected fatal message for ResourceExhausted, got: %v", deq_item.Fatal)
+	}
+}
+
+func TestMixedDbClientPollRun_EnqueFatalMsg_TestB(t *testing.T) {
+	var wg sync.WaitGroup
+	var synced sync.WaitGroup
+	poll := make(chan struct{})
+	q := NewLimitedQueue(0, false, 0)
+
+	originalRedisDbMap := redisDbMap
+	originalGlobalRedisDbMap := RedisDbMap
+
+	t.Cleanup(func() {
+		redisDbMap = originalRedisDbMap
+		RedisDbMap = originalGlobalRedisDbMap
+	})
+
+	redisClient := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+		DB:   0,
+	})
+
+	err := redisClient.HSet("INTERFACES:Ethernet0", "admin_status", "up").Err()
+	if err != nil {
+		t.Fatalf("Failed to set test data in Redis: %v", err)
 	}
 
-	getMixedDbtablePath := client.getDbtablePath
-	original := getMixedDbtablePath
-	getMixedDbtablePath = func(path *gnmipb.Path, value *gnmipb.TypedValue) ([]tablePath, error) {
-		return []tablePath{
+	redisDbMap = make(map[string]*redis.Client)
+	RedisDbMap = redisDbMap
+	redisDbMap["test:APPL_DB"] = redisClient
+
+	path := &gnmipb.Path{
+		Elem: []*gnmipb.PathElem{
+			{Name: "interfaces"},
+			{Name: "state"},
+			{Name: "counters"},
+			{Name: "in-octets"},
+		},
+	}
+
+	client := MixedDbClient{
+		prefix: &gnmipb.Path{Target: "APPL_DB"},
+		pathG2S: map[*gnmipb.Path][]tablePath{path: {{
+			dbNamespace:  "default",
+			dbName:       "APPL_DB",
+			tableName:    "INTERFACES",
+			tableKey:     "Ethernet0",
+			field:        "admin_status",
+			jsonField:    "admin_status",
+			jsonTableKey: "Ethernet0",
+			delimitor:    ":",
+		}}},
+		q:       q,
+		channel: stop,
+		synced:  sync.WaitGroup{},
+		w:       &wg,
+		target:  "APPL_DB",
+		mapkey:  "test",
+		dbkey:   &fakeDBKey{netns: "test-ns", containerName: "test-container"},
+	}
+
+	notification := &gnmipb.Notification{
+		Timestamp: time.Now().UnixNano(),
+		Update: []*gnmipb.Update{
 			{
-				dbNamespace: "default",
-				dbName:      "APPL_DB",
-				tableName:   "INTERFACES",
-				tableKey:    "",
-				field:       "admin_status",
-				index:       -1,
-				delimitor:   ":",
-				operation:   opRemove,
-				jsonValue:   "",
-				protoValue:  "",
+				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
+				},
 			},
-		}, nil
+		},
 	}
-	defer func() { getMixedDbtablePath = original }()
 
-	originalFunc := getTypedValueFunc
-	getTypedValueFunc = func(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error) {
-		return &gnmipb.TypedValue{
-			Value: &gnmipb.TypedValue_StringVal{StringVal: "mocked"},
-		}, nil
+	item := Value{
+		&spb.Value{
+			Notification: notification,
+		},
 	}
-	defer func() { getTypedValueFunc = originalFunc }()
+
+	_ = q.EnqueueItem(item)
 
 	wg.Add(1)
 	go client.PollRun(q, poll, &wg, subList)
