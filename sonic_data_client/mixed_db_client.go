@@ -104,9 +104,13 @@ func shouldBypassValidation(ctx context.Context) bool {
 	return false
 }
 
-// getConfigDbClient creates a go-redis client for CONFIG_DB
+// getConfigDbClientFunc is the function used to get a CONFIG_DB client.
+// Can be overridden in tests.
+var getConfigDbClientFunc = getConfigDbClientDefault
+
+// getConfigDbClientDefault creates a go-redis client for CONFIG_DB
 // Pattern from gnmi_server/connection_manager.go
-func getConfigDbClient() (*redis.Client, error) {
+func getConfigDbClientDefault() (*redis.Client, error) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	addr, err := sdcfg.GetDbTcpAddr("CONFIG_DB", ns)
 	if err != nil {
@@ -124,6 +128,11 @@ func getConfigDbClient() (*redis.Client, error) {
 		DialTimeout: 0,
 	})
 	return client, nil
+}
+
+// getConfigDbClient returns a Redis client for CONFIG_DB
+func getConfigDbClient() (*redis.Client, error) {
+	return getConfigDbClientFunc()
 }
 
 // checkSKU verifies device SKU matches one of the allowed prefixes (uses go-redis)
