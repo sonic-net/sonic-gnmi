@@ -1,3 +1,6 @@
+//go:build !gnmi_memcheck
+// +build !gnmi_memcheck
+
 package client
 
 import (
@@ -290,11 +293,11 @@ func TestApplyPatchDirectly(t *testing.T) {
 		}
 
 		// Verify data was written
-		vni, _ := mr.HGet("VNET|vnet1", "vni")
+		vni := mr.HGet("VNET|vnet1", "vni")
 		if vni != "1000" {
 			t.Errorf("Expected vni=1000, got %s", vni)
 		}
-		scope, _ := mr.HGet("VNET|vnet1", "scope")
+		scope := mr.HGet("VNET|vnet1", "scope")
 		if scope != "default" {
 			t.Errorf("Expected scope=default, got %s", scope)
 		}
@@ -317,7 +320,7 @@ func TestApplyPatchDirectly(t *testing.T) {
 			t.Errorf("applyPatchDirectly() error = %v", err)
 		}
 
-		vni, _ := mr.HGet("VNET|vnet1", "vni")
+		vni := mr.HGet("VNET|vnet1", "vni")
 		if vni != "2000" {
 			t.Errorf("Expected vni=2000, got %s", vni)
 		}
@@ -363,12 +366,12 @@ func TestApplyPatchDirectly(t *testing.T) {
 			t.Errorf("applyPatchDirectly() error = %v", err)
 		}
 
-		vni, _ := mr.HGet("VNET|vnet1", "vni")
+		vni := mr.HGet("VNET|vnet1", "vni")
 		if vni != "3000" {
 			t.Errorf("Expected vni=3000, got %s", vni)
 		}
 		// scope should be unchanged
-		scope, _ := mr.HGet("VNET|vnet1", "scope")
+		scope := mr.HGet("VNET|vnet1", "scope")
 		if scope != "default" {
 			t.Errorf("Expected scope=default, got %s", scope)
 		}
@@ -409,8 +412,8 @@ func TestApplyPatchDirectly(t *testing.T) {
 			t.Errorf("applyPatchDirectly() error = %v", err)
 		}
 
-		vni1, _ := mr.HGet("VNET|vnet1", "vni")
-		vni2, _ := mr.HGet("VNET|vnet2", "vni")
+		vni1 := mr.HGet("VNET|vnet1", "vni")
+		vni2 := mr.HGet("VNET|vnet2", "vni")
 		if vni1 != "1000" || vni2 != "2000" {
 			t.Errorf("Expected vni1=1000, vni2=2000, got %s, %s", vni1, vni2)
 		}
