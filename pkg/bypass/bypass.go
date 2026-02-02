@@ -81,6 +81,37 @@ func ShouldBypass(ctx context.Context, prefix *gnmipb.Path, updates []*gnmipb.Up
 	return true
 }
 
+// ShouldBypassDelete checks if delete paths should use the fast bypass path.
+// Same conditions as ShouldBypass but for delete operations.
+func ShouldBypassDelete(ctx context.Context, prefix *gnmipb.Path, deletes []*gnmipb.Path) bool {
+	if !hasBypassHeader(ctx) {
+		return false
+	}
+	if !checkSKU() {
+		return false
+	}
+	if !checkAllowedDeletePaths(prefix, deletes) {
+		return false
+	}
+	return true
+}
+
+// checkAllowedDeletePaths verifies all delete paths target allowed tables
+func checkAllowedDeletePaths(prefix *gnmipb.Path, deletes []*gnmipb.Path) bool {
+	for _, path := range deletes {
+		table := extractTable(prefix, path)
+		if table == "" {
+			glog.V(2).Infof("Bypass: could not extract table from delete path")
+			return false
+		}
+		if !AllowedTables[table] {
+			glog.V(2).Infof("Bypass: table %s not in allowlist for delete", table)
+			return false
+		}
+	}
+	return true
+}
+
 // hasBypassHeader checks gRPC metadata for bypass header
 func hasBypassHeader(ctx context.Context) bool {
 	if ctx == nil {
@@ -213,6 +244,31 @@ func Apply(ctx context.Context, prefix *gnmipb.Path, updates []*gnmipb.Update) e
 			}
 			glog.V(2).Infof("Bypass: wrote %s.%s = %s", redisKey, field, strVal)
 		}
+	}
+
+	return nil
+}
+
+// Delete executes bypass delete directly to ConfigDB
+// Returns nil on success, error on failure
+func Delete(ctx context.Context, prefix *gnmipb.Path, deletes []*gnmipb.Path) error {
+	rclient, err := getConfigDbClientFunc()
+	if err != nil {
+		return fmt.Errorf("bypass: failed to get CONFIG_DB client: %v", err)
+	}
+	defer rclient.Close()
+
+	for _, path := range deletes {
+		table, key, _ := parsePath(prefix, path)
+		if table == "" || key == "" {
+			return fmt.Errorf("bypass: invalid delete path, cannot extract table/key")
+		}
+
+		redisKey := table + "|" + key
+		if _, err := rclient.Del(redisKey).Result(); err != nil {
+			return fmt.Errorf("bypass: Del failed for %s: %v", redisKey, err)
+		}
+		glog.V(2).Infof("Bypass: deleted %s", redisKey)
 	}
 
 	return nil

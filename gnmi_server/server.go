@@ -694,7 +694,10 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		// Fast path: bypass validation for allowed tables/SKUs
 		// This skips MixedDbClient initialization and writes directly to Redis
 		allUpdates := append(req.GetReplace(), req.GetUpdate()...)
-		if len(req.GetDelete()) == 0 && len(allUpdates) > 0 && bypass.ShouldBypass(ctx, prefix, allUpdates) {
+		allDeletes := req.GetDelete()
+
+		// Check if we can use bypass for updates (no deletes case)
+		if len(allDeletes) == 0 && len(allUpdates) > 0 && bypass.ShouldBypass(ctx, prefix, allUpdates) {
 			log.V(2).Infof("Bypass fast path: writing directly to ConfigDB")
 			if err := bypass.Apply(ctx, prefix, allUpdates); err != nil {
 				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
@@ -706,6 +709,27 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 				results = append(results, &gnmipb.UpdateResult{
 					Path: u.GetPath(),
 					Op:   gnmipb.UpdateResult_UPDATE,
+				})
+			}
+			return &gnmipb.SetResponse{
+				Prefix:   req.GetPrefix(),
+				Response: results,
+			}, nil
+		}
+
+		// Check if we can use bypass for deletes (no updates case)
+		if len(allUpdates) == 0 && len(allDeletes) > 0 && bypass.ShouldBypassDelete(ctx, prefix, allDeletes) {
+			log.V(2).Infof("Bypass fast path: deleting directly from ConfigDB")
+			if err := bypass.Delete(ctx, prefix, allDeletes); err != nil {
+				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+				return nil, status.Error(codes.Internal, err.Error())
+			}
+			// Build response
+			var results []*gnmipb.UpdateResult
+			for _, d := range allDeletes {
+				results = append(results, &gnmipb.UpdateResult{
+					Path: d,
+					Op:   gnmipb.UpdateResult_DELETE,
 				})
 			}
 			return &gnmipb.SetResponse{
