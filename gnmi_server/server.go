@@ -10,6 +10,7 @@ import (
 
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
 	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
@@ -689,6 +690,30 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 			return nil, grpc.Errorf(codes.Unimplemented, "GNMI native write is disabled")
 		}
+
+		// Fast path: bypass validation for allowed tables/SKUs
+		// This skips MixedDbClient initialization and writes directly to Redis
+		allUpdates := append(req.GetReplace(), req.GetUpdate()...)
+		if len(req.GetDelete()) == 0 && len(allUpdates) > 0 && bypass.ShouldBypass(ctx, prefix, allUpdates) {
+			log.V(2).Infof("Bypass fast path: writing directly to ConfigDB")
+			if err := bypass.Apply(ctx, prefix, allUpdates); err != nil {
+				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+				return nil, status.Error(codes.Internal, err.Error())
+			}
+			// Build response
+			var results []*gnmipb.UpdateResult
+			for _, u := range allUpdates {
+				results = append(results, &gnmipb.UpdateResult{
+					Path: u.GetPath(),
+					Op:   gnmipb.UpdateResult_UPDATE,
+				})
+			}
+			return &gnmipb.SetResponse{
+				Prefix:   req.GetPrefix(),
+				Response: results,
+			}, nil
+		}
+
 		var targetDbName string
 		dc, err = sdc.NewMixedDbClient(ctx, paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
 		authTarget = "gnmi_" + targetDbName
