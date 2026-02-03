@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -23,6 +24,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/Azure/sonic-mgmt-common/translib/db"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
@@ -6047,6 +6049,90 @@ func TestGnoiAuthorization(t *testing.T) {
 	}
 
 	s.Stop()
+}
+func TestConfigDbJournal(t *testing.T) {
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	rclient := getConfigDbClient(t, ns)
+	defer db.CloseRedisClient(rclient)
+	tests := []struct {
+		desc          string
+		cmd           func()
+		expectedEntry string
+	}{
+		{
+			desc: "HSetNew",
+			cmd: func() {
+				rclient.HSet(context.Background(), "DB_JOURNAL|Test", "new", "test")
+			},
+			expectedEntry: "hset DB_JOURNAL|Test +new:test",
+		},
+		{
+			desc: "HSetExisting",
+			cmd: func() {
+				rclient.HSet(context.Background(), "DB_JOURNAL|Test", "new", "already exists")
+			},
+			expectedEntry: "hset DB_JOURNAL|Test new=already exists",
+		},
+		{
+			desc: "HDel",
+			cmd: func() {
+				rclient.HDel(context.Background(), "DB_JOURNAL|Test", "new")
+			},
+			expectedEntry: "hdel DB_JOURNAL|Test -new",
+		},
+		{
+			desc: "Set",
+			cmd: func() {
+				rclient.Set(context.Background(), "NEW_DBJOURNAL_TABLE", "TEST", 0)
+			},
+			expectedEntry: "set NEW_DBJOURNAL_TABLE",
+		},
+		{
+			desc: "Del",
+			cmd: func() {
+				rclient.Del(context.Background(), "NEW_DBJOURNAL_TABLE")
+			},
+			expectedEntry: "del NEW_DBJOURNAL_TABLE",
+		},
+	}
+
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.Stop()
+
+	// Ensure the keys used in this test are not already in the DB.
+	rclient.Del(context.Background(), "DB_JOURNAL|Test")
+	rclient.Del(context.Background(), "NEW_DBJOURNAL_TABLE")
+	time.Sleep(500 * time.Millisecond)
+
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			// Clear the DbJournal file
+			err := os.Remove(HostVarLogPath + "/config_db.txt")
+			if err != nil {
+				t.Fatalf("Failed to remove journal file: %v", err)
+			}
+
+			// Trigger a redis event
+			test.cmd()
+
+			time.Sleep(500 * time.Millisecond)
+
+			// Verify the contents of the file
+			file, err := os.Open(HostVarLogPath + "/config_db.txt")
+			if err != nil {
+				t.Fatalf("Failed to open file: %v", err)
+			}
+			defer file.Close()
+			data, err := io.ReadAll(file)
+			if err != nil {
+				t.Fatalf("Failed to read file: %v", err)
+			}
+			if !strings.Contains(string(data), test.expectedEntry) {
+				t.Fatalf("Incorrect file contents: %s", data)
+			}
+		})
+	}
 }
 
 func init() {
