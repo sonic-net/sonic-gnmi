@@ -1,0 +1,17 @@
+rules: <
+  id: "Rule1"
+  user: "User1"
+  path: <
+  >
+  action: ACTION_PERMIT
+  mode: MODE_READ
+>
+groups: <
+  name: "Group1"
+  users: <
+    name: "User1"
+  >
+  users: <
+    name: "User2"
+  >
+>
