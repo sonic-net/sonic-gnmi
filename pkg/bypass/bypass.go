@@ -203,15 +203,42 @@ func Apply(ctx context.Context, prefix *gnmipb.Path, updates []*gnmipb.Update) e
 
 	for _, update := range updates {
 		table, key, field := parsePath(prefix, update.GetPath())
-		if table == "" || key == "" {
-			return fmt.Errorf("bypass: invalid path, cannot extract table/key")
+		if table == "" {
+			return fmt.Errorf("bypass: invalid path, cannot extract table")
 		}
 
-		redisKey := table + "|" + key
 		val := update.GetVal()
+		jsonVal := val.GetJsonIetfVal()
+
+		// Bulk table update: key is empty, JSON contains multiple entries
+		// Path: CONFIG_DB/localhost/TABLE
+		// JSON: {"entryKey1": {"field": "value"}, "entryKey2": {...}}
+		if key == "" {
+			if len(jsonVal) == 0 {
+				return fmt.Errorf("bypass: bulk update requires JSON value")
+			}
+			var bulkData map[string]map[string]interface{}
+			if err := json.Unmarshal(jsonVal, &bulkData); err != nil {
+				return fmt.Errorf("bypass: failed to unmarshal bulk JSON: %v", err)
+			}
+			for entryKey, entryFields := range bulkData {
+				redisKey := table + "|" + entryKey
+				fields := make(map[string]interface{})
+				for k, v := range entryFields {
+					fields[k] = fmt.Sprintf("%v", v)
+				}
+				if _, err := rclient.HMSet(redisKey, fields).Result(); err != nil {
+					return fmt.Errorf("bypass: HMSet failed for %s: %v", redisKey, err)
+				}
+				glog.V(2).Infof("Bypass: wrote %s with %d fields", redisKey, len(fields))
+			}
+			continue
+		}
+
+		// Single entry update: path has TABLE/KEY
+		redisKey := table + "|" + key
 
 		// Handle JSON IETF value
-		jsonVal := val.GetJsonIetfVal()
 		if len(jsonVal) > 0 {
 			var data map[string]interface{}
 			if err := json.Unmarshal(jsonVal, &data); err != nil {
