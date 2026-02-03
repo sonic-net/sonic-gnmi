@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"net"
 	"strings"
@@ -39,8 +40,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+var enableConfigDbJournal = flag.Bool("enable_config_db_journal", true, "enable config db journal")
+
 var (
 	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+)
+
+const (
+	HostVarLogPath = "/var/log"
 )
 
 // Server manages a single gNMI Server implementation. Each client that connects
@@ -62,6 +69,8 @@ type Server struct {
 	masterEID     uint128
 	gnoi_system_pb.UnimplementedSystemServer
 	factory_reset.UnimplementedFactoryResetServer
+	// DB Journals
+	configDbJournal *DbJournal
 }
 
 // handleOperationalGet handles OPERATIONAL target requests directly with standard gNMI types
@@ -330,6 +339,12 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 
 	}
 	spb_gnoi.RegisterDebugServer(srv.s, srv)
+	if *enableConfigDbJournal {
+		srv.configDbJournal, err = NewDbJournal("CONFIG_DB")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create CONFIG_DB Journal: %v", err)
+		}
+	}
 	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
 	return srv, nil
 }
