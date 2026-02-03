@@ -325,10 +325,19 @@ func parsePath(prefix *gnmipb.Path, path *gnmipb.Path) (table, key, field string
 		table = parts[0]
 	}
 	if len(parts) >= 2 {
-		key = parts[1]
+		key = decodeJsonPointer(parts[1])
 	}
 	if len(parts) >= 3 {
 		field = parts[2]
 	}
 	return
+}
+
+// decodeJsonPointer decodes JSON Pointer escaping (RFC 6901)
+// ~1 -> /
+// ~0 -> ~
+func decodeJsonPointer(s string) string {
+	s = strings.ReplaceAll(s, "~1", "/")
+	s = strings.ReplaceAll(s, "~0", "~")
+	return s
 }
