@@ -321,8 +321,10 @@ func parsePath(prefix *gnmipb.Path, path *gnmipb.Path) (table, key, field string
 		parts = append(parts, name)
 	}
 
-	if len(parts) >= 2 {
+	if len(parts) >= 1 {
 		table = parts[0]
+	}
+	if len(parts) >= 2 {
 		key = parts[1]
 	}
 	if len(parts) >= 3 {
