@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync"
 
@@ -162,8 +163,11 @@ type AuthTypes map[string]bool
 // Config is a collection of values for Server
 type Config struct {
 	// Port for the Server to listen on. If 0 or unset the Server will pick a port
-	// for this Server.
-	Port                int64
+	// for this Server. Port takes precedence over UnixSocket.
+	Port int64
+	// UnixSocket is the path to a Unix domain socket to listen on.
+	// Only used if Port <= 0.
+	UnixSocket          string
 	LogLevel            int
 	Threshold           int
 	UserAuth            AuthTypes
@@ -307,12 +311,27 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	var err error
-	if srv.config.Port < 0 {
-		srv.config.Port = 0
-	}
-	srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", srv.config.Port))
-	if err != nil {
-		return nil, fmt.Errorf("failed to open listener port %d: %v", srv.config.Port, err)
+	// Port takes precedence over UnixSocket
+	if srv.config.Port > 0 {
+		// TCP mode (explicit port set)
+		srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", srv.config.Port))
+		if err != nil {
+			return nil, fmt.Errorf("failed to open listener port %d: %v", srv.config.Port, err)
+		}
+	} else if srv.config.UnixSocket != "" {
+		// Unix domain socket mode
+		os.Remove(srv.config.UnixSocket) // Remove stale socket
+		srv.lis, err = net.Listen("unix", srv.config.UnixSocket)
+		if err != nil {
+			return nil, fmt.Errorf("failed to listen on unix socket %s: %v", srv.config.UnixSocket, err)
+		}
+		os.Chmod(srv.config.UnixSocket, 0666) // Allow local access
+	} else {
+		// Default: pick a port (original behavior when port=0 or -1)
+		srv.lis, err = net.Listen("tcp", ":0")
+		if err != nil {
+			return nil, fmt.Errorf("failed to open listener: %v", err)
+		}
 	}
 	gnmipb.RegisterGNMIServer(srv.s, srv)
 	factory_reset.RegisterFactoryResetServer(srv.s, srv)
