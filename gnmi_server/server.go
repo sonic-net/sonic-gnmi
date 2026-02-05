@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
@@ -29,10 +30,12 @@ import (
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_healthz_pb "github.com/openconfig/gnoi/healthz"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
+	gnsiAuthzpb "github.com/openconfig/gnsi/authz"
 	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
 	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/authz"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
@@ -41,6 +44,12 @@ import (
 
 var (
 	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+)
+
+// Path to the `/var/log/telemetry-con` directory on the `host` side.
+const (
+	authLogPath             = "/host_var/log/messages"
+	authzRefreshingInterval = 5 * time.Second
 )
 
 // Server manages a single gNMI Server implementation. Each client that connects
@@ -62,6 +71,8 @@ type Server struct {
 	masterEID     uint128
 	gnoi_system_pb.UnimplementedSystemServer
 	factory_reset.UnimplementedFactoryResetServer
+	authzWatcher *authz.FileWatcherInterceptor
+	gnsiAuthz    *GNSIAuthzServer
 }
 
 // handleOperationalGet handles OPERATIONAL target requests directly with standard gNMI types
@@ -176,7 +187,10 @@ type Config struct {
 	Vrf                 string
 	EnableCrl           bool
 	// Path to the directory where image is stored.
-	ImgDir string
+	ImgDir          string
+	AuthzPolicy     bool   // Enable authz policy.
+	AuthzPolicyFile string // Path to JSON file with authz policies.
+	AuthzMetaFile   string // Path to JSON file with authz metadata.
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -271,6 +285,20 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 	common_utils.InitCounters()
 
+	// Set authorization policy.
+	var authzWatcher *authz.FileWatcherInterceptor
+	if config.AuthzPolicy {
+		authzWatcher, err := authz.NewFileWatcher(config.AuthzPolicyFile, authzRefreshingInterval)
+		if err != nil {
+			return nil, err
+		} else {
+			opts = append(opts, grpc.ChainStreamInterceptor(
+				authzWatcher.StreamInterceptor))
+			opts = append(opts, grpc.ChainUnaryInterceptor(
+				authzWatcher.UnaryInterceptor))
+		}
+	}
+
 	s := grpc.NewServer(opts...)
 	reflection.Register(s)
 
@@ -283,6 +311,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		// the request comes from a master controller.
 		ReqFromMaster: ReqFromMasterDisabledMA,
 		masterEID:     uint128{High: 0, Low: 0},
+		authzWatcher:  authzWatcher,
 	}
 
 	fileSrv := &FileServer{Server: srv}
@@ -298,6 +327,9 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 
 	containerzSrv := &ContainerzServer{server: srv}
 	healthzSrv := &HealthzServer{Server: srv}
+	// Register the gNSI Servers
+	srv.gnsiAuthz = NewGNSIAuthzServer(srv)
+	gnsiAuthzpb.RegisterAuthzServer(srv.s, srv.gnsiAuthz)
 
 	readWhitelist, writeWhitelist := gnoi_debug.ConstructWhitelists()
 	debugSrv := &DebugServer{
