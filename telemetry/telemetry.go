@@ -201,8 +201,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	}
 
 	switch {
-	case *telemetryCfg.Port <= 0:
-		return nil, nil, fmt.Errorf("port must be > 0.")
+	case *telemetryCfg.Port <= 0 && *telemetryCfg.UnixSocket == "":
+		return nil, nil, fmt.Errorf("port must be > 0 (or specify --unix_socket).")
 	}
 
 	switch {
