@@ -16,6 +16,7 @@ GOROOT ?= $(shell $(GO) env GOROOT)
 PURE_PACKAGES := \
 	internal/exec \
 	pkg/gnoi/debug \
+	pkg/bypass \
 	internal/diskspace \
 	internal/hash \
 	internal/download \
