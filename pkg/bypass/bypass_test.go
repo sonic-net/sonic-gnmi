@@ -1315,3 +1315,278 @@ func TestGetConfigDbClientDefault_DefaultConstants(t *testing.T) {
 		t.Errorf("Expected defaultRedisTCP=127.0.0.1:6379, got %s", defaultRedisTCP)
 	}
 }
+
+func TestTrySet(t *testing.T) {
+	mr := miniredis.RunT(t)
+	defer mr.Close()
+
+	originalFunc := getConfigDbClientFunc
+	defer func() { getConfigDbClientFunc = originalFunc }()
+
+	getConfigDbClientFunc = func() (*redis.Client, error) {
+		return redis.NewClient(&redis.Options{
+			Addr: mr.Addr(),
+			DB:   0,
+		}), nil
+	}
+
+	// Set up allowed SKU
+	mr.HSet("DEVICE_METADATA|localhost", "hwsku", "Cisco-8102-test")
+
+	t.Run("bypass conditions not met - no header", func(t *testing.T) {
+		ctx := context.Background()
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{{Name: "VNET"}, {Name: "vnet1"}},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"vni": "1000"}`)},
+				},
+			},
+		}
+
+		resp, used, err := TrySet(ctx, nil, nil, updates)
+		if used {
+			t.Error("TrySet should return used=false when bypass header missing")
+		}
+		if resp != nil {
+			t.Error("Expected nil response when bypass not used")
+		}
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("bypass conditions not met - disallowed table", func(t *testing.T) {
+		ctx := metadata.NewIncomingContext(
+			context.Background(),
+			metadata.Pairs(MetadataKeyBypassValidation, "true"),
+		)
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{{Name: "PORT"}, {Name: "Ethernet0"}},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"speed": "100000"}`)},
+				},
+			},
+		}
+
+		resp, used, err := TrySet(ctx, nil, nil, updates)
+		if used {
+			t.Error("TrySet should return used=false for disallowed table")
+		}
+		if resp != nil {
+			t.Error("Expected nil response when bypass not used")
+		}
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("bypass with updates only", func(t *testing.T) {
+		mr.FlushAll()
+		mr.HSet("DEVICE_METADATA|localhost", "hwsku", "Cisco-8102-test")
+
+		ctx := metadata.NewIncomingContext(
+			context.Background(),
+			metadata.Pairs(MetadataKeyBypassValidation, "true"),
+		)
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{{Name: "VNET"}, {Name: "vnet1"}},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"vni": "1000"}`)},
+				},
+			},
+		}
+
+		resp, used, err := TrySet(ctx, nil, nil, updates)
+		if !used {
+			t.Error("TrySet should return used=true when bypass conditions met")
+		}
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+		if resp == nil {
+			t.Fatal("Expected non-nil response")
+		}
+		if len(resp.Response) != 1 {
+			t.Errorf("Expected 1 result, got %d", len(resp.Response))
+		}
+		if resp.Response[0].Op != gnmipb.UpdateResult_UPDATE {
+			t.Errorf("Expected UPDATE op, got %v", resp.Response[0].Op)
+		}
+
+		// Verify data was written
+		vni := mr.HGet("VNET|vnet1", "vni")
+		if vni != "1000" {
+			t.Errorf("Expected vni=1000, got %s", vni)
+		}
+	})
+
+	t.Run("bypass with deletes only", func(t *testing.T) {
+		mr.FlushAll()
+		mr.HSet("DEVICE_METADATA|localhost", "hwsku", "Cisco-8102-test")
+		mr.HSet("VNET|vnet1", "vni", "1000")
+
+		ctx := metadata.NewIncomingContext(
+			context.Background(),
+			metadata.Pairs(MetadataKeyBypassValidation, "true"),
+		)
+		deletes := []*gnmipb.Path{
+			{
+				Elem: []*gnmipb.PathElem{{Name: "VNET"}, {Name: "vnet1"}},
+			},
+		}
+
+		resp, used, err := TrySet(ctx, nil, deletes, nil)
+		if !used {
+			t.Error("TrySet should return used=true when bypass conditions met")
+		}
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+		if resp == nil {
+			t.Fatal("Expected non-nil response")
+		}
+		if len(resp.Response) != 1 {
+			t.Errorf("Expected 1 result, got %d", len(resp.Response))
+		}
+		if resp.Response[0].Op != gnmipb.UpdateResult_DELETE {
+			t.Errorf("Expected DELETE op, got %v", resp.Response[0].Op)
+		}
+
+		// Verify data was deleted
+		if mr.Exists("VNET|vnet1") {
+			t.Error("Expected key to be deleted")
+		}
+	})
+
+	t.Run("bypass with mixed deletes and updates", func(t *testing.T) {
+		mr.FlushAll()
+		mr.HSet("DEVICE_METADATA|localhost", "hwsku", "Cisco-8102-test")
+		mr.HSet("VNET|vnet_old", "vni", "999")
+
+		ctx := metadata.NewIncomingContext(
+			context.Background(),
+			metadata.Pairs(MetadataKeyBypassValidation, "true"),
+		)
+		deletes := []*gnmipb.Path{
+			{
+				Elem: []*gnmipb.PathElem{{Name: "VNET"}, {Name: "vnet_old"}},
+			},
+		}
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{{Name: "VNET"}, {Name: "vnet_new"}},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"vni": "2000"}`)},
+				},
+			},
+		}
+
+		resp, used, err := TrySet(ctx, nil, deletes, updates)
+		if !used {
+			t.Error("TrySet should return used=true")
+		}
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+		if resp == nil {
+			t.Fatal("Expected non-nil response")
+		}
+		if len(resp.Response) != 2 {
+			t.Errorf("Expected 2 results, got %d", len(resp.Response))
+		}
+
+		// Verify delete happened (first per gNMI spec)
+		if mr.Exists("VNET|vnet_old") {
+			t.Error("Expected old key to be deleted")
+		}
+		// Verify update happened
+		vni := mr.HGet("VNET|vnet_new", "vni")
+		if vni != "2000" {
+			t.Errorf("Expected vni=2000, got %s", vni)
+		}
+	})
+
+	t.Run("empty operations", func(t *testing.T) {
+		ctx := metadata.NewIncomingContext(
+			context.Background(),
+			metadata.Pairs(MetadataKeyBypassValidation, "true"),
+		)
+
+		resp, used, err := TrySet(ctx, nil, nil, nil)
+		if used {
+			t.Error("TrySet should return used=false for empty operations")
+		}
+		if resp != nil {
+			t.Error("Expected nil response")
+		}
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+	})
+}
+
+func TestTrySetErrors(t *testing.T) {
+	t.Run("update error returns used=true with error", func(t *testing.T) {
+		originalFunc := getConfigDbClientFunc
+		defer func() { getConfigDbClientFunc = originalFunc }()
+
+		getConfigDbClientFunc = func() (*redis.Client, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+
+		ctx := metadata.NewIncomingContext(
+			context.Background(),
+			metadata.Pairs(MetadataKeyBypassValidation, "true"),
+		)
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{{Name: "VNET"}, {Name: "vnet1"}},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"vni": "1000"}`)},
+				},
+			},
+		}
+
+		// Need to mock checkSKU to pass - but it will fail on Apply
+		// For this test, we need the SKU check to pass first
+		mr := miniredis.RunT(t)
+		defer mr.Close()
+
+		// First call succeeds (SKU check), second fails (Apply)
+		callCount := 0
+		getConfigDbClientFunc = func() (*redis.Client, error) {
+			callCount++
+			if callCount == 1 {
+				// SKU check succeeds
+				return redis.NewClient(&redis.Options{Addr: mr.Addr(), DB: 0}), nil
+			}
+			// Apply fails
+			return nil, fmt.Errorf("connection refused")
+		}
+		mr.HSet("DEVICE_METADATA|localhost", "hwsku", "Cisco-8102-test")
+
+		resp, used, err := TrySet(ctx, nil, nil, updates)
+		if !used {
+			t.Error("TrySet should return used=true when bypass was attempted")
+		}
+		if err == nil {
+			t.Error("Expected error")
+		}
+		if resp != nil {
+			t.Error("Expected nil response on error")
+		}
+	})
+}

@@ -692,52 +692,14 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		}
 
 		// Fast path: bypass validation for allowed tables/SKUs
-		// This skips MixedDbClient initialization and writes directly to Redis
 		allUpdates := append(req.GetReplace(), req.GetUpdate()...)
-		allDeletes := req.GetDelete()
-
-		// Check if we can use bypass for this request (updates, deletes, or both)
-		canBypass := (len(allUpdates) > 0 || len(allDeletes) > 0) &&
-			(len(allUpdates) == 0 || bypass.ShouldBypass(ctx, prefix, allUpdates)) &&
-			(len(allDeletes) == 0 || bypass.ShouldBypassDelete(ctx, prefix, allDeletes))
-
-		if canBypass {
-			log.V(2).Infof("Bypass fast path: direct ConfigDB operations")
-			var results []*gnmipb.UpdateResult
-
-			// Execute deletes first (per gNMI spec order)
-			if len(allDeletes) > 0 {
-				if err := bypass.Delete(ctx, prefix, allDeletes); err != nil {
-					common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-					return nil, status.Error(codes.Internal, err.Error())
-				}
-				for _, d := range allDeletes {
-					results = append(results, &gnmipb.UpdateResult{
-						Path: d,
-						Op:   gnmipb.UpdateResult_DELETE,
-					})
-				}
+		if resp, used, err := bypass.TrySet(ctx, prefix, req.GetDelete(), allUpdates); used {
+			if err != nil {
+				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+				return nil, status.Error(codes.Internal, err.Error())
 			}
-
-			// Then execute updates
-			if len(allUpdates) > 0 {
-				if err := bypass.Apply(ctx, prefix, allUpdates); err != nil {
-					common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-					return nil, status.Error(codes.Internal, err.Error())
-				}
-				for _, u := range allUpdates {
-					results = append(results, &gnmipb.UpdateResult{
-						Path: u.GetPath(),
-						Op:   gnmipb.UpdateResult_UPDATE,
-					})
-				}
-			}
-
 			common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
-			return &gnmipb.SetResponse{
-				Prefix:   req.GetPrefix(),
-				Response: results,
-			}, nil
+			return resp, nil
 		}
 
 		var targetDbName string

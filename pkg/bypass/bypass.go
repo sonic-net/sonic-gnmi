@@ -366,3 +366,56 @@ func decodeJsonPointer(s string) string {
 	s = strings.ReplaceAll(s, "~0", "~")
 	return s
 }
+
+// TrySet attempts to execute a gNMI Set via the bypass fast path.
+// Returns (response, true, nil) if bypass was used successfully.
+// Returns (nil, true, error) if bypass was attempted but failed.
+// Returns (nil, false, nil) if bypass conditions were not met (caller should use normal path).
+func TrySet(ctx context.Context, prefix *gnmipb.Path, deletes []*gnmipb.Path, updates []*gnmipb.Update) (*gnmipb.SetResponse, bool, error) {
+	// Must have at least one operation
+	if len(updates) == 0 && len(deletes) == 0 {
+		return nil, false, nil
+	}
+
+	// Check bypass conditions for all operations
+	if len(updates) > 0 && !ShouldBypass(ctx, prefix, updates) {
+		return nil, false, nil
+	}
+	if len(deletes) > 0 && !ShouldBypassDelete(ctx, prefix, deletes) {
+		return nil, false, nil
+	}
+
+	glog.V(2).Infof("Bypass fast path: direct ConfigDB operations")
+	var results []*gnmipb.UpdateResult
+
+	// Execute deletes first (per gNMI spec order)
+	if len(deletes) > 0 {
+		if err := Delete(ctx, prefix, deletes); err != nil {
+			return nil, true, err
+		}
+		for _, d := range deletes {
+			results = append(results, &gnmipb.UpdateResult{
+				Path: d,
+				Op:   gnmipb.UpdateResult_DELETE,
+			})
+		}
+	}
+
+	// Then execute updates
+	if len(updates) > 0 {
+		if err := Apply(ctx, prefix, updates); err != nil {
+			return nil, true, err
+		}
+		for _, u := range updates {
+			results = append(results, &gnmipb.UpdateResult{
+				Path: u.GetPath(),
+				Op:   gnmipb.UpdateResult_UPDATE,
+			})
+		}
+	}
+
+	return &gnmipb.SetResponse{
+		Prefix:   prefix,
+		Response: results,
+	}, true, nil
+}
