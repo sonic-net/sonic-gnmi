@@ -318,7 +318,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to listen on unix socket %s: %v", srv.config.UnixSocket, err)
 		}
-		os.Chmod(srv.config.UnixSocket, 0666) // Allow local access
+		os.Chmod(srv.config.UnixSocket, 0660) // Allow root access only
 	} else {
 		// TCP mode (original behavior)
 		srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", srv.config.Port))
