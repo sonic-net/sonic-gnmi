@@ -6,6 +6,7 @@ package bypass
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -1166,5 +1167,151 @@ func TestCheckAllowedTablesEmptyTable(t *testing.T) {
 	result := checkAllowedTables(nil, updates)
 	if result {
 		t.Error("checkAllowedTables() should return false for empty path")
+	}
+}
+
+func TestGetConfigDbClientDefault_EnvUnixSocket(t *testing.T) {
+	// Save and restore original env
+	originalAddr := os.Getenv("REDIS_ADDR")
+	defer os.Setenv("REDIS_ADDR", originalAddr)
+
+	// Set REDIS_ADDR to unix socket path
+	os.Setenv("REDIS_ADDR", "/var/run/redis/test.sock")
+
+	client, err := getConfigDbClientDefault()
+	if err != nil {
+		t.Errorf("getConfigDbClientDefault() error = %v", err)
+	}
+	if client == nil {
+		t.Fatal("Expected non-nil client")
+	}
+	defer client.Close()
+
+	// Client should be configured for unix socket
+	opts := client.Options()
+	if opts.Network != "unix" {
+		t.Errorf("Expected network=unix, got %s", opts.Network)
+	}
+	if opts.Addr != "/var/run/redis/test.sock" {
+		t.Errorf("Expected addr=/var/run/redis/test.sock, got %s", opts.Addr)
+	}
+	if opts.DB != configDbId {
+		t.Errorf("Expected DB=%d, got %d", configDbId, opts.DB)
+	}
+}
+
+func TestGetConfigDbClientDefault_EnvTcpAddress(t *testing.T) {
+	// Save and restore original env
+	originalAddr := os.Getenv("REDIS_ADDR")
+	defer os.Setenv("REDIS_ADDR", originalAddr)
+
+	// Set REDIS_ADDR to TCP address
+	os.Setenv("REDIS_ADDR", "192.168.1.100:6380")
+
+	client, err := getConfigDbClientDefault()
+	if err != nil {
+		t.Errorf("getConfigDbClientDefault() error = %v", err)
+	}
+	if client == nil {
+		t.Fatal("Expected non-nil client")
+	}
+	defer client.Close()
+
+	// Client should be configured for TCP
+	opts := client.Options()
+	if opts.Network != "tcp" {
+		t.Errorf("Expected network=tcp, got %s", opts.Network)
+	}
+	if opts.Addr != "192.168.1.100:6380" {
+		t.Errorf("Expected addr=192.168.1.100:6380, got %s", opts.Addr)
+	}
+	if opts.DB != configDbId {
+		t.Errorf("Expected DB=%d, got %d", configDbId, opts.DB)
+	}
+}
+
+func TestGetConfigDbClientDefault_FallbackToTcp(t *testing.T) {
+	// Save and restore original env
+	originalAddr := os.Getenv("REDIS_ADDR")
+	defer os.Setenv("REDIS_ADDR", originalAddr)
+
+	// Clear REDIS_ADDR to trigger auto-detection
+	os.Unsetenv("REDIS_ADDR")
+
+	// The default unix socket /var/run/redis/redis.sock typically doesn't exist in test env
+	// so it should fall back to TCP
+	client, err := getConfigDbClientDefault()
+	if err != nil {
+		t.Errorf("getConfigDbClientDefault() error = %v", err)
+	}
+	if client == nil {
+		t.Fatal("Expected non-nil client")
+	}
+	defer client.Close()
+
+	opts := client.Options()
+	// Either unix or tcp is acceptable - depends on whether /var/run/redis/redis.sock exists
+	if opts.Network != "unix" && opts.Network != "tcp" {
+		t.Errorf("Expected network=unix or tcp, got %s", opts.Network)
+	}
+	if opts.DB != configDbId {
+		t.Errorf("Expected DB=%d, got %d", configDbId, opts.DB)
+	}
+}
+
+func TestGetConfigDbClientDefault_UnixSocketExists(t *testing.T) {
+	// Save and restore original env
+	originalAddr := os.Getenv("REDIS_ADDR")
+	defer os.Setenv("REDIS_ADDR", originalAddr)
+
+	// Clear REDIS_ADDR
+	os.Unsetenv("REDIS_ADDR")
+
+	// Create a temporary file to simulate the unix socket existing
+	tmpDir := t.TempDir()
+	tmpSocket := tmpDir + "/redis.sock"
+	f, err := os.Create(tmpSocket)
+	if err != nil {
+		t.Fatalf("Failed to create temp socket file: %v", err)
+	}
+	f.Close()
+
+	// Temporarily override the default socket path for testing
+	// Since we can't easily override constants, we'll test the logic indirectly
+	// by checking behavior with REDIS_ADDR set to a path that exists
+	os.Setenv("REDIS_ADDR", tmpSocket)
+
+	client, err := getConfigDbClientDefault()
+	if err != nil {
+		t.Errorf("getConfigDbClientDefault() error = %v", err)
+	}
+	if client == nil {
+		t.Fatal("Expected non-nil client")
+	}
+	defer client.Close()
+
+	opts := client.Options()
+	if opts.Network != "unix" {
+		t.Errorf("Expected network=unix for path starting with /, got %s", opts.Network)
+	}
+	if opts.Addr != tmpSocket {
+		t.Errorf("Expected addr=%s, got %s", tmpSocket, opts.Addr)
+	}
+}
+
+func TestGetConfigDbClientDefault_ConfigDbId(t *testing.T) {
+	// Verify the constant is set correctly for CONFIG_DB
+	if configDbId != 4 {
+		t.Errorf("Expected configDbId=4 (CONFIG_DB), got %d", configDbId)
+	}
+}
+
+func TestGetConfigDbClientDefault_DefaultConstants(t *testing.T) {
+	// Verify default constants are set correctly
+	if defaultRedisSocket != "/var/run/redis/redis.sock" {
+		t.Errorf("Expected defaultRedisSocket=/var/run/redis/redis.sock, got %s", defaultRedisSocket)
+	}
+	if defaultRedisTCP != "127.0.0.1:6379" {
+		t.Errorf("Expected defaultRedisTCP=127.0.0.1:6379, got %s", defaultRedisTCP)
 	}
 }

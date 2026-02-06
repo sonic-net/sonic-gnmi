@@ -39,22 +39,39 @@ var AllowedSKUPrefixes = []string{
 // Default CONFIG_DB connection settings
 // CONFIG_DB is database ID 4 in SONiC
 const (
-	defaultRedisAddr = "127.0.0.1:6379"
-	configDbId       = 4
+	defaultRedisSocket = "/var/run/redis/redis.sock"
+	defaultRedisTCP    = "127.0.0.1:6379"
+	configDbId         = 4
 )
 
 // getConfigDbClientFunc allows mocking in tests
 var getConfigDbClientFunc = getConfigDbClientDefault
 
 func getConfigDbClientDefault() (*redis.Client, error) {
-	// Use environment variable if set, otherwise use default
+	// Priority: REDIS_ADDR env > Unix socket > TCP fallback
 	addr := os.Getenv("REDIS_ADDR")
-	if addr == "" {
-		addr = defaultRedisAddr
+	network := "unix"
+
+	if addr != "" {
+		// Environment variable set - determine network type
+		if strings.HasPrefix(addr, "/") {
+			network = "unix"
+		} else {
+			network = "tcp"
+		}
+	} else {
+		// Try Unix socket first (better performance), fallback to TCP
+		if _, err := os.Stat(defaultRedisSocket); err == nil {
+			addr = defaultRedisSocket
+			network = "unix"
+		} else {
+			addr = defaultRedisTCP
+			network = "tcp"
+		}
 	}
 
 	client := redis.NewClient(&redis.Options{
-		Network:     "tcp",
+		Network:     network,
 		Addr:        addr,
 		Password:    "",
 		DB:          configDbId,
