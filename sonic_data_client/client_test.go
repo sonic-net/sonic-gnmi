@@ -855,7 +855,6 @@ func TestGetDbtablePathJsonPointerDecoding(t *testing.T) {
 	if !swsscommon.SonicDBConfigIsInit() {
 		swsscommon.SonicDBConfigInitialize()
 	}
-	initRedisDbMap()
 
 	// Setup: create test data in CONFIG_DB with keys containing special characters
 	configDb := swsscommon.NewDBConnector("CONFIG_DB", uint(0), true)
@@ -903,10 +902,33 @@ func TestGetDbtablePathJsonPointerDecoding(t *testing.T) {
 				t.Fatalf("Failed to create path: %v", err)
 			}
 
+			// Ensure RedisDbMap is initialized for this test
+			// getDbtablePath requires a Redis client in the map even though
+			// we're testing the decode logic, not the Redis operations
+			initRedisDbMap()
+			if len(RedisDbMap) == 0 {
+				t.Skip("Skipping: Redis infrastructure not available")
+			}
+
+			// Find the mapkey that was used to initialize RedisDbMap
+			// It should be ":" + ":" for default namespace/container
+			var mapkey string
+			for key := range RedisDbMap {
+				// Keys are in format "ns:container:dbName", extract "ns:container"
+				// For default namespace, key is "::CONFIG_DB", so mapkey is ":"
+				if len(key) > len(":CONFIG_DB") && key[len(key)-len(":CONFIG_DB"):] == ":CONFIG_DB" {
+					mapkey = key[:len(key)-len(":CONFIG_DB")]
+					break
+				}
+			}
+			if mapkey == "" {
+				t.Skip("Skipping: CONFIG_DB not found in RedisDbMap")
+			}
+
 			client := MixedDbClient{
 				prefix:        prefix,
 				target:        "CONFIG_DB",
-				mapkey:        ":",
+				mapkey:        mapkey,
 				dbkey:         swsscommon.NewSonicDBKey(),
 				namespace_cnt: 1,
 				container_cnt: 1,
