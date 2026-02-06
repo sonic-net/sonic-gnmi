@@ -670,7 +670,8 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 	var mappedKey string
 	if len(stringSlice) > 2 { // tmp, to remove mappedKey
 		mappedKey = stringSlice[2]
-		// Decode JSON Pointer escaping (RFC 6901): ~1 -> /, ~0 -> ~
+		// Decode JSON Pointer escaping (RFC 6901): ~1 -> /, then ~0 -> ~
+		// Order matters: ~1 first to avoid turning ~01 into ~1 then into /
 		mappedKey = strings.ReplaceAll(mappedKey, "~1", "/")
 		mappedKey = strings.ReplaceAll(mappedKey, "~0", "~")
 	}
