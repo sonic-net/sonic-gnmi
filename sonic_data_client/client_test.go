@@ -820,6 +820,31 @@ func TestGetZmqClient(t *testing.T) {
 	}
 }
 
+func TestDecodeJsonPointer(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"10.224.0.3~132", "10.224.0.3/32"},
+		{"foo~0bar", "foo~bar"},
+		{"a~1b~0c", "a/b~c"},
+		{"no-escapes", "no-escapes"},
+		{"", ""},
+		// RFC 6901: ~01 should decode to ~1 (tilde followed by 1), not to /
+		{"~01", "~1"},
+		{"~00", "~0"},
+		{"~10", "/0"},
+		{"~11", "/1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			if got := DecodeJsonPointer(tt.input); got != tt.expected {
+				t.Errorf("DecodeJsonPointer(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestGetDbtablePathJsonPointerDecoding(t *testing.T) {
 	// This test verifies that getDbtablePath properly decodes JSON Pointer escaping (RFC 6901)
 	// where ~1 represents / and ~0 represents ~

@@ -91,7 +91,8 @@ func checkOptionsInPath(path *gnmipb.Path, options map[string]ShowCmdOption) (ma
 			if _, ok := options[key]; !ok {
 				return nil, status.Errorf(codes.InvalidArgument, "option %v for path %v is not a valid option", key, path)
 			}
-			passedOptions[key] = val
+			// Decode JSON Pointer escaping (RFC 6901) in option values
+			passedOptions[key] = DecodeJsonPointer(val)
 		}
 	}
 	return passedOptions, nil
