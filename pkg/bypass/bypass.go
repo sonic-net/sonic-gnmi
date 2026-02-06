@@ -227,6 +227,10 @@ func Apply(ctx context.Context, prefix *gnmipb.Path, updates []*gnmipb.Update) e
 				for k, v := range entryFields {
 					fields[k] = fmt.Sprintf("%v", v)
 				}
+				// For empty entry, use NULL placeholder (SONiC convention)
+				if len(fields) == 0 {
+					fields["NULL"] = "NULL"
+				}
 				if _, err := rclient.HMSet(redisKey, fields).Result(); err != nil {
 					return fmt.Errorf("bypass: HMSet failed for %s: %v", redisKey, err)
 				}
@@ -248,6 +252,10 @@ func Apply(ctx context.Context, prefix *gnmipb.Path, updates []*gnmipb.Update) e
 			fields := make(map[string]interface{})
 			for k, v := range data {
 				fields[k] = fmt.Sprintf("%v", v)
+			}
+			// For empty JSON {}, use NULL placeholder (SONiC convention for empty entries)
+			if len(fields) == 0 {
+				fields["NULL"] = "NULL"
 			}
 			if _, err := rclient.HMSet(redisKey, fields).Result(); err != nil {
 				return fmt.Errorf("bypass: HMSet failed for %s: %v", redisKey, err)

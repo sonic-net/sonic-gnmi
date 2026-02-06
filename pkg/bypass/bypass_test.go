@@ -556,6 +556,80 @@ func TestApply(t *testing.T) {
 			t.Error("Expected error for bulk update without JSON")
 		}
 	})
+
+	t.Run("empty JSON value - single entry", func(t *testing.T) {
+		mr.FlushAll()
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{
+						{Name: "CONFIG_DB"},
+						{Name: "localhost"},
+						{Name: "VNET"},
+						{Name: "vnet1"},
+					},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_JsonIetfVal{
+						JsonIetfVal: []byte(`{}`),
+					},
+				},
+			},
+		}
+
+		err := Apply(context.Background(), nil, updates)
+		if err != nil {
+			t.Errorf("Apply() error = %v, expected nil for empty JSON", err)
+		}
+
+		// Key should exist with NULL placeholder (SONiC convention)
+		if !mr.Exists("VNET|vnet1") {
+			t.Error("Key should exist with NULL placeholder")
+		}
+		nullVal := mr.HGet("VNET|vnet1", "NULL")
+		if nullVal != "NULL" {
+			t.Errorf("Expected NULL=NULL, got %s", nullVal)
+		}
+	})
+
+	t.Run("empty JSON value - bulk update", func(t *testing.T) {
+		mr.FlushAll()
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{
+						{Name: "CONFIG_DB"},
+						{Name: "localhost"},
+						{Name: "VNET"},
+					},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_JsonIetfVal{
+						JsonIetfVal: []byte(`{"vnet1": {}, "vnet2": {"vni": "2000"}}`),
+					},
+				},
+			},
+		}
+
+		err := Apply(context.Background(), nil, updates)
+		if err != nil {
+			t.Errorf("Apply() error = %v", err)
+		}
+
+		// vnet1 should exist with NULL placeholder
+		if !mr.Exists("VNET|vnet1") {
+			t.Error("VNET|vnet1 should exist with NULL placeholder")
+		}
+		nullVal := mr.HGet("VNET|vnet1", "NULL")
+		if nullVal != "NULL" {
+			t.Errorf("Expected NULL=NULL for vnet1, got %s", nullVal)
+		}
+		// vnet2 should exist with its field
+		vni := mr.HGet("VNET|vnet2", "vni")
+		if vni != "2000" {
+			t.Errorf("Expected vni=2000 for vnet2, got %s", vni)
+		}
+	})
 }
 
 func TestDelete(t *testing.T) {
