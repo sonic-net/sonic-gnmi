@@ -20,22 +20,6 @@ const (
 	MetadataKeyBypassValidation = "x-sonic-ss-bypass-validation"
 )
 
-// AllowedTables lists ConfigDB tables that can bypass validation (exact match)
-var AllowedTables = map[string]bool{
-	"VNET":               true,
-	"VNET_ROUTE_TUNNEL":  true,
-	"VLAN_SUB_INTERFACE": true,
-	"ACL_RULE":           true,
-	"BGP_PEER_RANGE":     true,
-}
-
-// AllowedSKUPrefixes lists HwSku prefixes that can use bypass validation
-var AllowedSKUPrefixes = []string{
-	"Cisco-8102",
-	"Cisco-8101",
-	"Cisco-8223",
-}
-
 // Default CONFIG_DB connection settings
 // CONFIG_DB is database ID 4 in SONiC
 const (
