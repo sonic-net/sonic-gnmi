@@ -3,7 +3,10 @@ package gnmi
 // server_test covers gNMI get, subscribe (stream and poll) test
 // Prerequisite: redis-server should be running.
 import (
+	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -20,19 +23,17 @@ import (
 	"time"
 	"unsafe"
 
-	"crypto/x509"
-	"crypto/x509/pkix"
-
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
-	"github.com/go-redis/redis"
 	"github.com/golang/protobuf/proto"
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/openconfig/gnmi/client"
@@ -40,8 +41,8 @@ import (
 	ext_pb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	"github.com/openconfig/gnmi/value"
 	"github.com/openconfig/ygot/ygot"
+	"github.com/redis/go-redis/v9"
 
-	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -61,8 +62,6 @@ import (
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
-	"github.com/sonic-net/sonic-gnmi/common_utils"
-	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -87,7 +86,7 @@ func loadDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{}) {
 	for key, fv := range mpi {
 		switch fv.(type) {
 		case map[string]interface{}:
-			_, err := rclient.HMSet(key, fv.(map[string]interface{})).Result()
+			_, err := rclient.HMSet(context.Background(), key, fv.(map[string]interface{})).Result()
 			if err != nil {
 				t.Errorf("Invalid data for db:  %v : %v %v", key, fv, err)
 			}
@@ -100,7 +99,7 @@ func loadDBNotStrict(t *testing.T, rclient *redis.Client, mpi map[string]interfa
 	for key, fv := range mpi {
 		switch fv.(type) {
 		case map[string]interface{}:
-			rclient.HMSet(key, fv.(map[string]interface{})).Result()
+			rclient.HMSet(context.Background(), key, fv.(map[string]interface{})).Result()
 
 		}
 	}
@@ -573,7 +572,7 @@ func getRedisClientN(t *testing.T, n int, namespace string) *redis.Client {
 		DB:          n,
 		DialTimeout: 0,
 	})
-	_, err = rclient.Ping().Result()
+	_, err = rclient.Ping(context.Background()).Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -596,7 +595,7 @@ func getRedisClient(t *testing.T, namespace string) *redis.Client {
 		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err = rclient.Ping().Result()
+	_, err = rclient.Ping(context.Background()).Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -619,7 +618,7 @@ func getConfigDbClient(t *testing.T, namespace string) *redis.Client {
 		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err = rclient.Ping().Result()
+	_, err = rclient.Ping(context.Background()).Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -630,7 +629,7 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 	for key, fv := range mpi {
 		switch fv.(type) {
 		case map[string]interface{}:
-			_, err := rclient.HMSet(key, fv.(map[string]interface{})).Result()
+			_, err := rclient.HMSet(context.Background(), key, fv.(map[string]interface{})).Result()
 			if err != nil {
 				t.Errorf("Invalid data for db: %v : %v %v", key, fv, err)
 			}
@@ -643,7 +642,7 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 func initFullConfigDb(t *testing.T, namespace string) {
 	rclient := getConfigDbClient(t, namespace)
 	defer rclient.Close()
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 
 	fileName := "../testdata/CONFIG_DHCP_SERVER.txt"
 	config, err := ioutil.ReadFile(fileName)
@@ -657,7 +656,7 @@ func initFullConfigDb(t *testing.T, namespace string) {
 func initFullCountersDb(t *testing.T, namespace string) {
 	rclient := getRedisClient(t, namespace)
 	defer rclient.Close()
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 
 	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
@@ -852,7 +851,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 func prepareConfigDb(t *testing.T, namespace string) {
 	rclient := getConfigDbClient(t, namespace)
 	defer rclient.Close()
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 
 	fileName := "../testdata/COUNTERS_PORT_ALIAS_MAP.txt"
 	countersPortAliasMapByte, err := ioutil.ReadFile(fileName)
@@ -873,8 +872,8 @@ func prepareConfigDb(t *testing.T, namespace string) {
 func prepareStateDb(t *testing.T, namespace string) {
 	rclient := getRedisClientN(t, 6, namespace)
 	defer rclient.Close()
-	rclient.FlushDB()
-	rclient.HSet("SWITCH_CAPABILITY|switch", "test_field", "test_value")
+	rclient.FlushDB(context.Background())
+	rclient.HSet(context.Background(), "SWITCH_CAPABILITY|switch", "test_field", "test_value")
 	fileName := "../testdata/NEIGH_STATE_TABLE.txt"
 	neighStateTableByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -888,7 +887,7 @@ func prepareStateDb(t *testing.T, namespace string) {
 func prepareDb(t *testing.T, namespace string) {
 	rclient := getRedisClient(t, namespace)
 	defer rclient.Close()
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 	//Enable keysapce notification
 	os.Setenv("PATH", "/usr/bin:/sbin:/bin:/usr/local/bin")
 	cmd := exec.Command("redis-cli", "config", "set", "notify-keyspace-events", "KEA")
@@ -1120,7 +1119,7 @@ func prepareDb(t *testing.T, namespace string) {
 func prepareDbTranslib(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClient(t, ns)
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 	rclient.Close()
 
 	//Enable keysapce notification
@@ -3788,9 +3787,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		for _, prepare := range tt.prepares {
 			switch prepare.op {
 			case "hdel":
-				rclient.HDel(prepare.tableName+prepare.delimitor+prepare.tableKey, prepare.field)
+				rclient.HDel(context.Background(), prepare.tableName+prepare.delimitor+prepare.tableKey, prepare.field)
 			default:
-				rclient.HSet(prepare.tableName+prepare.delimitor+prepare.tableKey, prepare.field, prepare.value)
+				rclient.HSet(context.Background(), prepare.tableName+prepare.delimitor+prepare.tableKey, prepare.field, prepare.value)
 			}
 		}
 
@@ -3845,11 +3844,11 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			for _, update := range tt.updates {
 				switch update.op {
 				case "hdel":
-					rclient.HDel(update.tableName+update.delimitor+update.tableKey, update.field)
+					rclient.HDel(context.Background(), update.tableName+update.delimitor+update.tableKey, update.field)
 				case "intervaltick":
 					// This is not a DB update but a request to trigger sample interval
 				default:
-					rclient.HSet(update.tableName+update.delimitor+update.tableKey, update.field, update.value)
+					rclient.HSet(context.Background(), update.tableName+update.delimitor+update.tableKey, update.field, update.value)
 				}
 
 				time.Sleep(time.Millisecond * 1000)
@@ -4548,7 +4547,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
 			paths := tt.paths
 			mutexPaths.Unlock()
 
-			rclient.Del(paths...)
+			rclient.Del(context.Background(), paths...)
 
 			time.Sleep(time.Millisecond * 1500)
 
@@ -4972,7 +4971,7 @@ func TestConnectionDataSet(t *testing.T) {
 
 			wg.Wait()
 
-			resultMap, err := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
+			resultMap, err := rclient.HGetAll(context.Background(), "TELEMETRY_CONNECTIONS").Result()
 
 			if resultMap == nil {
 				t.Errorf("result Map is nil, expected non nil, err: %v", err)

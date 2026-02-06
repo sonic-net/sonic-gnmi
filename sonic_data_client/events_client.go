@@ -11,6 +11,7 @@ package client
 import "C"
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -20,12 +21,12 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/go-redis/redis"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	spb "github.com/sonic-net/sonic-gnmi/proto"
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	"github.com/redis/go-redis/v9"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -247,7 +248,7 @@ func update_stats(evtc *EventClient) {
 
 		// Init current values for cumulative keys and clear for absolute
 		for _, key := range STATS_CUMULATIVE_KEYS {
-			fv, err := rclient.HGetAll(key).Result()
+			fv, err := rclient.HGetAll(context.Background(), key).Result()
 			if err != nil {
 				number, errC := strconv.ParseUint(fv[STATS_FIELD_NAME], 10, 64)
 				if errC == nil {
@@ -280,10 +281,8 @@ func update_stats(evtc *EventClient) {
 		if (wr_counters == nil) || !reflect.DeepEqual(tmp_counters, *wr_counters) {
 			for key, val := range tmp_counters {
 				sval := strconv.FormatUint(val, 10)
-				ret, err := rclient.HSet(key, STATS_FIELD_NAME, sval).Result()
-				if !ret {
-					log.V(3).Infof("EventClient failed to update COUNTERS key:%s val:%v err:%v",
-						key, sval, err)
+				if _, err := rclient.HSet(context.Background(), key, STATS_FIELD_NAME, sval).Result(); err != nil {
+					log.V(3).Infof("EventClient failed to update COUNTERS key:%s val:%v err:%v", key, sval, err)
 				}
 			}
 			wr_counters = &tmp_counters
