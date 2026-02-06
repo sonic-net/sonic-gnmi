@@ -7,13 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-redis/redis"
-	log "github.com/golang/glog"
-	"github.com/golang/protobuf/proto"
-	syspb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/pkg/gnoi/system"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
+
+	log "github.com/golang/glog"
+	"github.com/golang/protobuf/proto"
+	syspb "github.com/openconfig/gnoi/system"
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	pjson "google.golang.org/protobuf/encoding/protojson"
@@ -120,8 +121,8 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 	defer np.Close()
 
 	// Subscribe to the response channel.
-	sub := sc.Subscribe(rebootRespCh)
-	if _, err = sub.Receive(); err != nil {
+	sub := sc.Subscribe(ctx, rebootRespCh)
+	if _, err = sub.Receive(ctx); err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error()), msgDataStr
 	}
 	defer sub.Close()
