@@ -180,7 +180,20 @@ stages:
     - template: .azure/templates/install-dependencies.yml
       parameters:
         buildBranch: $(BUILD_BRANCH)
-    
+
+    # Build sonic-mgmt-common and sonic-gnmi
+    - script: |
+        set -ex
+        ls -l
+
+        pushd sonic-mgmt-common
+        NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
+        popd
+
+        pushd sonic-gnmi
+        ENABLE_TRANSLIB_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
+      displayName: "Build"
+
     # Run integration tests
     - bash: |
         set -euo pipefail
