@@ -311,14 +311,7 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	var err error
-	// Port takes precedence over UnixSocket
-	if srv.config.Port > 0 {
-		// TCP mode (explicit port set)
-		srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", srv.config.Port))
-		if err != nil {
-			return nil, fmt.Errorf("failed to open listener port %d: %v", srv.config.Port, err)
-		}
-	} else if srv.config.UnixSocket != "" {
+	if srv.config.UnixSocket != "" {
 		// Unix domain socket mode
 		os.Remove(srv.config.UnixSocket) // Remove stale socket
 		srv.lis, err = net.Listen("unix", srv.config.UnixSocket)
@@ -327,10 +320,10 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		}
 		os.Chmod(srv.config.UnixSocket, 0666) // Allow local access
 	} else {
-		// Default: pick a port (original behavior when port=0 or -1)
-		srv.lis, err = net.Listen("tcp", ":0")
+		// TCP mode (original behavior)
+		srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", srv.config.Port))
 		if err != nil {
-			return nil, fmt.Errorf("failed to open listener: %v", err)
+			return nil, fmt.Errorf("failed to open listener port %d: %v", srv.config.Port, err)
 		}
 	}
 	gnmipb.RegisterGNMIServer(srv.s, srv)
