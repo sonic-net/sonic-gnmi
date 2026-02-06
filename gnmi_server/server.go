@@ -585,7 +585,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		}
 		if check := IsNativeOrigin(origin); check {
 			var targetDbName string
-			dc, err = sdc.NewMixedDbClient(ctx, paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
+			dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
 			authTarget = "gnmi_" + targetDbName
 		} else {
 			dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions)
@@ -733,6 +733,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 				}
 			}
 
+			common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
 			return &gnmipb.SetResponse{
 				Prefix:   req.GetPrefix(),
 				Response: results,
@@ -740,7 +741,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		}
 
 		var targetDbName string
-		dc, err = sdc.NewMixedDbClient(ctx, paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
+		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
 		authTarget = "gnmi_" + targetDbName
 	} else {
 		if s.config.EnableTranslibWrite == false {
@@ -824,7 +825,7 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 	dc, _ := sdc.NewTranslClient(nil, nil, ctx, extensions)
 	supportedModels = append(supportedModels, dc.Capabilities()...)
 	var targetDbName string
-	dc, _ = sdc.NewMixedDbClient(context.Background(), nil, nil, "", gnmipb.Encoding_JSON_IETF, s.config.ZmqPort, s.config.Vrf, &targetDbName)
+	dc, _ = sdc.NewMixedDbClient(nil, nil, "", gnmipb.Encoding_JSON_IETF, s.config.ZmqPort, s.config.Vrf, &targetDbName)
 	supportedModels = append(supportedModels, dc.Capabilities()...)
 
 	suppModels := make([]*gnmipb.ModelData, len(supportedModels))

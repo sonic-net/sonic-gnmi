@@ -6,7 +6,6 @@ import "C"
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -29,7 +28,6 @@ import (
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -68,172 +66,6 @@ var (
 	}
 )
 
-// Bypass validation constants and allowlists
-const (
-	MetadataKeyBypassValidation = "x-sonic-ss-bypass-validation"
-)
-
-// BypassAllowedTables lists ConfigDB tables that can bypass validation (exact match).
-var BypassAllowedTables = map[string]bool{
-	"VNET":               true,
-	"VNET_ROUTE_TUNNEL":  true,
-	"VLAN_SUB_INTERFACE": true,
-	"ACL_RULE":           true,
-	"BGP_PEER_RANGE":     true,
-}
-
-// BypassAllowedSKUPrefixes lists HwSku prefixes that can use bypass validation.
-var BypassAllowedSKUPrefixes = []string{
-	"Cisco-8102", // e.g., Cisco-8102-28FH-DPU-C28
-	"Cisco-8101", // e.g., Cisco-8101-O32
-	"Cisco-8223", // TBD
-}
-
-// shouldBypassValidation checks gRPC metadata for bypass header
-func shouldBypassValidation(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return false
-	}
-	if values := md.Get(MetadataKeyBypassValidation); len(values) > 0 {
-		return values[0] == "true"
-	}
-	return false
-}
-
-// getConfigDbClientFunc is the function used to get a CONFIG_DB client.
-// Can be overridden in tests.
-var getConfigDbClientFunc = getConfigDbClientDefault
-
-// getConfigDbClientDefault creates a go-redis client for CONFIG_DB
-// Pattern from gnmi_server/connection_manager.go
-func getConfigDbClientDefault() (*redis.Client, error) {
-	ns, _ := sdcfg.GetDbDefaultNamespace()
-	addr, err := sdcfg.GetDbTcpAddr("CONFIG_DB", ns)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get CONFIG_DB address: %v", err)
-	}
-	db, err := sdcfg.GetDbId("CONFIG_DB", ns)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get CONFIG_DB id: %v", err)
-	}
-	client := redis.NewClient(&redis.Options{
-		Network:     "tcp",
-		Addr:        addr,
-		Password:    "",
-		DB:          db,
-		DialTimeout: 0,
-	})
-	return client, nil
-}
-
-// getConfigDbClient returns a Redis client for CONFIG_DB
-func getConfigDbClient() (*redis.Client, error) {
-	return getConfigDbClientFunc()
-}
-
-// checkSKU verifies device SKU matches one of the allowed prefixes (uses go-redis)
-func checkSKU() bool {
-	rclient, err := getConfigDbClient()
-	if err != nil {
-		log.V(2).Infof("Bypass validation: failed to get CONFIG_DB client: %v", err)
-		return false
-	}
-	defer rclient.Close()
-
-	// Read hwsku from DEVICE_METADATA|localhost
-	hwsku, err := rclient.HGet("DEVICE_METADATA|localhost", "hwsku").Result()
-	if err != nil {
-		log.V(2).Infof("Bypass validation: failed to read SKU: %v", err)
-		return false
-	}
-
-	for _, prefix := range BypassAllowedSKUPrefixes {
-		if strings.HasPrefix(hwsku, prefix) {
-			return true
-		}
-	}
-	log.V(2).Infof("Bypass validation: SKU %s does not match any allowed prefix", hwsku)
-	return false
-}
-
-// isAllowedTable checks if all tables in patch are in the allowlist (exact match)
-func isAllowedTable(patchList []map[string]interface{}) bool {
-	for _, patch := range patchList {
-		path, ok := patch["path"].(string)
-		if !ok {
-			return false
-		}
-		// Path format: "/TABLE_NAME/KEY" or "/TABLE_NAME/KEY/FIELD"
-		parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-		if len(parts) == 0 {
-			return false
-		}
-		table := parts[0]
-		if !BypassAllowedTables[table] {
-			log.V(2).Infof("Bypass validation: table %s not in allowlist", table)
-			return false
-		}
-	}
-	return true
-}
-
-// applyPatchDirectly writes to ConfigDB using go-redis (bypassing DBUS/GCU)
-func (c *MixedDbClient) applyPatchDirectly(patchList []map[string]interface{}) error {
-	rclient, err := getConfigDbClient()
-	if err != nil {
-		return err
-	}
-	defer rclient.Close()
-
-	for _, patch := range patchList {
-		op, _ := patch["op"].(string)
-		path, _ := patch["path"].(string)
-
-		// Path format: "/TABLE_NAME/KEY" or "/TABLE_NAME/KEY/FIELD"
-		parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-		if len(parts) < 2 {
-			return fmt.Errorf("invalid patch path: %s", path)
-		}
-		table := parts[0]
-		key := parts[1]
-		redisKey := table + "|" + key // CONFIG_DB key format: TABLE|KEY
-
-		switch op {
-		case "add", "replace":
-			value := patch["value"]
-			switch v := value.(type) {
-			case map[string]interface{}:
-				// Full entry: HMSet all fields
-				fields := make(map[string]interface{})
-				for field, val := range v {
-					fields[field] = fmt.Sprintf("%v", val)
-				}
-				if _, err := rclient.HMSet(redisKey, fields).Result(); err != nil {
-					return fmt.Errorf("HMSet failed for %s: %v", redisKey, err)
-				}
-			default:
-				// Single field update: /TABLE/KEY/FIELD with scalar value
-				if len(parts) >= 3 {
-					field := parts[2]
-					if _, err := rclient.HSet(redisKey, field, fmt.Sprintf("%v", value)).Result(); err != nil {
-						return fmt.Errorf("HSet failed for %s.%s: %v", redisKey, field, err)
-					}
-				}
-			}
-
-		case "remove":
-			if _, err := rclient.Del(redisKey).Result(); err != nil {
-				return fmt.Errorf("Del failed for %s: %v", redisKey, err)
-			}
-		}
-	}
-	return nil
-}
-
 type MixedDbClient struct {
 	prefix      *gnmipb.Path
 	paths       []*gnmipb.Path
@@ -260,9 +92,6 @@ type MixedDbClient struct {
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
 	w      *sync.WaitGroup // wait for all sub go routines to finish
 	mu     sync.RWMutex    // Mutex for data protection among routines for DbClient
-
-	// Context for gRPC metadata extraction (bypass validation)
-	ctx context.Context
 }
 
 // redis client connected to each DB
@@ -660,7 +489,7 @@ func init() {
 	initRedisDbMap()
 }
 
-func NewMixedDbClient(ctx context.Context, paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string, vrf string, targetDbName *string) (Client, error) {
+func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string, vrf string, targetDbName *string) (Client, error) {
 	var err error
 
 	// Initialize RedisDbMap for test
@@ -669,7 +498,6 @@ func NewMixedDbClient(ctx context.Context, paths []*gnmipb.Path, prefix *gnmipb.
 	var client = MixedDbClient{
 		tableMap:    map[string]swsscommon.ProducerStateTable{},
 		zmqTableMap: map[string]swsscommon.ZmqProducerStateTable{},
-		ctx:         ctx,
 	}
 
 	// Get namespace count and container count from db config
@@ -1538,12 +1366,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 	}
 
 	if c.origin == "sonic-db" {
-		if shouldBypassValidation(c.ctx) && checkSKU() && isAllowedTable(patchList) {
-			log.V(2).Infof("Bypass validation enabled: writing directly to ConfigDB")
-			err = c.applyPatchDirectly(patchList)
-		} else {
-			err = sc.ApplyPatchDb(string(text))
-		}
+		err = sc.ApplyPatchDb(string(text))
 	}
 
 	if err == nil {

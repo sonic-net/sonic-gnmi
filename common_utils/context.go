@@ -42,6 +42,7 @@ const (
 	GNMI_GET_FAIL
 	GNMI_SET
 	GNMI_SET_FAIL
+	GNMI_SET_BYPASS
 	GNOI_REBOOT
 	GNOI_FACTORY_RESET
 	GNOI_OS_INSTALL
@@ -80,6 +81,8 @@ func (c CounterType) String() string {
 		return "GNMI set"
 	case GNMI_SET_FAIL:
 		return "GNMI set fail"
+	case GNMI_SET_BYPASS:
+		return "GNMI set bypass"
 	case GNOI_REBOOT:
 		return "GNOI reboot"
 	case GNOI_FACTORY_RESET:
