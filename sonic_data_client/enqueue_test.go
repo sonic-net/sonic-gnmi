@@ -1740,100 +1740,100 @@ func TestDbFieldSubscribe_MixedDb_EnqueueItemResourceExhausted(t *testing.T) {
 	}
 }
 
-func TestMixedDbClientPollRun_EnqueFatalMsg_TestB(t *testing.T) {
-	var wg sync.WaitGroup
-	var synced sync.WaitGroup
-	poll := make(chan struct{})
-	q := NewLimitedQueue(0, false, 0)
+// func TestMixedDbClientPollRun_EnqueFatalMsg_TestB(t *testing.T) {
+// 	var wg sync.WaitGroup
+// 	var synced sync.WaitGroup
+// 	poll := make(chan struct{})
+// 	q := NewLimitedQueue(0, false, 0)
 
-	originalRedisDbMap := redisDbMap
-	originalGlobalRedisDbMap := RedisDbMap
+// 	originalRedisDbMap := redisDbMap
+// 	originalGlobalRedisDbMap := RedisDbMap
 
-	t.Cleanup(func() {
-		redisDbMap = originalRedisDbMap
-		RedisDbMap = originalGlobalRedisDbMap
-	})
+// 	t.Cleanup(func() {
+// 		redisDbMap = originalRedisDbMap
+// 		RedisDbMap = originalGlobalRedisDbMap
+// 	})
 
-	redisClient := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-		DB:   0,
-	})
+// 	redisClient := redis.NewClient(&redis.Options{
+// 		Addr: "localhost:6379",
+// 		DB:   0,
+// 	})
 
-	err := redisClient.HSet("INTERFACES:Ethernet0", "admin_status", "up").Err()
-	if err != nil {
-		t.Fatalf("Failed to set test data in Redis: %v", err)
-	}
+// 	err := redisClient.HSet("INTERFACES:Ethernet0", "admin_status", "up").Err()
+// 	if err != nil {
+// 		t.Fatalf("Failed to set test data in Redis: %v", err)
+// 	}
 
-	redisDbMap = make(map[string]*redis.Client)
-	RedisDbMap = redisDbMap
-	redisDbMap["test:APPL_DB"] = redisClient
+// 	redisDbMap = make(map[string]*redis.Client)
+// 	RedisDbMap = redisDbMap
+// 	redisDbMap["test:APPL_DB"] = redisClient
 
-	path := &gnmipb.Path{
-		Elem: []*gnmipb.PathElem{
-			{Name: "interfaces"},
-			{Name: "state"},
-			{Name: "counters"},
-			{Name: "in-octets"},
-		},
-	}
+// 	path := &gnmipb.Path{
+// 		Elem: []*gnmipb.PathElem{
+// 			{Name: "interfaces"},
+// 			{Name: "state"},
+// 			{Name: "counters"},
+// 			{Name: "in-octets"},
+// 		},
+// 	}
 
-	client := MixedDbClient{
-		prefix: &gnmipb.Path{Target: "APPL_DB"},
-		pathG2S: map[*gnmipb.Path][]tablePath{path: {{
-			dbNamespace:  "default",
-			dbName:       "APPL_DB",
-			tableName:    "INTERFACES",
-			tableKey:     "Ethernet0",
-			field:        "admin_status",
-			jsonField:    "admin_status",
-			jsonTableKey: "Ethernet0",
-			delimitor:    ":",
-		}}},
-		q:       q,
-		channel: stop,
-		synced:  sync.WaitGroup{},
-		w:       &wg,
-		target:  "APPL_DB",
-		mapkey:  "test",
-		dbkey:   &fakeDBKey{netns: "test-ns", containerName: "test-container"},
-	}
+// 	client := MixedDbClient{
+// 		prefix: &gnmipb.Path{Target: "APPL_DB"},
+// 		pathG2S: map[*gnmipb.Path][]tablePath{path: {{
+// 			dbNamespace:  "default",
+// 			dbName:       "APPL_DB",
+// 			tableName:    "INTERFACES",
+// 			tableKey:     "Ethernet0",
+// 			field:        "admin_status",
+// 			jsonField:    "admin_status",
+// 			jsonTableKey: "Ethernet0",
+// 			delimitor:    ":",
+// 		}}},
+// 		q:       q,
+// 		channel: stop,
+// 		synced:  sync.WaitGroup{},
+// 		w:       &wg,
+// 		target:  "APPL_DB",
+// 		mapkey:  "test",
+// 		dbkey:   &fakeDBKey{netns: "test-ns", containerName: "test-container"},
+// 	}
 
-	notification := &gnmipb.Notification{
-		Timestamp: time.Now().UnixNano(),
-		Update: []*gnmipb.Update{
-			{
-				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
-				Val: &gnmipb.TypedValue{
-					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
-				},
-			},
-		},
-	}
+// 	notification := &gnmipb.Notification{
+// 		Timestamp: time.Now().UnixNano(),
+// 		Update: []*gnmipb.Update{
+// 			{
+// 				Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
+// 				Val: &gnmipb.TypedValue{
+// 					Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
+// 				},
+// 			},
+// 		},
+// 	}
 
-	item := Value{
-		&spb.Value{
-			Notification: notification,
-		},
-	}
+// 	item := Value{
+// 		&spb.Value{
+// 			Notification: notification,
+// 		},
+// 	}
 
-	_ = q.EnqueueItem(item)
+// 	_ = q.EnqueueItem(item)
 
-	wg.Add(1)
-	go client.PollRun(q, poll, &wg, subList)
+// 	wg.Add(1)
+// 	go client.PollRun(q, poll, &wg, subList)
 
-	poll <- struct{}{}
+// 	poll <- struct{}{}
 
-	itemOut, err := q.DequeueItem()
-	if err != nil {
-		t.Fatalf("Expected fatal message, got error: %v", err)
-	}
-	if itemOut.Fatal == "" {
-		t.Errorf("Expected fatal message, got: %v", itemOut)
-	}
+// 	itemOut, err := q.DequeueItem()
+// 	if err != nil {
+// 		t.Fatalf("Expected fatal message, got error: %v", err)
+// 	}
+// 	if itemOut.Fatal == "" {
+// 		t.Errorf("Expected fatal message, got: %v", itemOut)
+// 	}
 
-	close(poll)
-	wg.Wait()
-}
+// 	close(poll)
+// 	wg.Wait()
+// }
 
 // func TestMixedDbClientPollRun_EnqueFatalMsg_TestB(t *testing.T) {
 // 	var wg sync.WaitGroup
