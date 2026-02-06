@@ -5,6 +5,7 @@ package bypass
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -860,5 +861,310 @@ func TestAllowedSKUPrefixes(t *testing.T) {
 		if AllowedSKUPrefixes[i] != prefix {
 			t.Errorf("Expected prefix %s at index %d, got %s", prefix, i, AllowedSKUPrefixes[i])
 		}
+	}
+}
+
+func TestApplyScalarField(t *testing.T) {
+	mr := miniredis.RunT(t)
+	defer mr.Close()
+
+	originalFunc := getConfigDbClientFunc
+	defer func() { getConfigDbClientFunc = originalFunc }()
+
+	getConfigDbClientFunc = func() (*redis.Client, error) {
+		return redis.NewClient(&redis.Options{
+			Addr: mr.Addr(),
+			DB:   0,
+		}), nil
+	}
+
+	t.Run("scalar string field update", func(t *testing.T) {
+		mr.FlushAll()
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{
+						{Name: "CONFIG_DB"},
+						{Name: "localhost"},
+						{Name: "VNET"},
+						{Name: "vnet1"},
+						{Name: "vni"},
+					},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_StringVal{
+						StringVal: "5000",
+					},
+				},
+			},
+		}
+
+		err := Apply(context.Background(), nil, updates)
+		if err != nil {
+			t.Errorf("Apply() error = %v", err)
+		}
+
+		vni := mr.HGet("VNET|vnet1", "vni")
+		if vni != "5000" {
+			t.Errorf("Expected vni=5000, got %s", vni)
+		}
+	})
+
+	t.Run("scalar int field update", func(t *testing.T) {
+		mr.FlushAll()
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{
+						{Name: "CONFIG_DB"},
+						{Name: "localhost"},
+						{Name: "VNET"},
+						{Name: "vnet1"},
+						{Name: "priority"},
+					},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_IntVal{
+						IntVal: 100,
+					},
+				},
+			},
+		}
+
+		err := Apply(context.Background(), nil, updates)
+		if err != nil {
+			t.Errorf("Apply() error = %v", err)
+		}
+
+		priority := mr.HGet("VNET|vnet1", "priority")
+		if priority != "100" {
+			t.Errorf("Expected priority=100, got %s", priority)
+		}
+	})
+
+	t.Run("scalar uint field update", func(t *testing.T) {
+		mr.FlushAll()
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{
+						{Name: "CONFIG_DB"},
+						{Name: "localhost"},
+						{Name: "VNET"},
+						{Name: "vnet1"},
+						{Name: "counter"},
+					},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_UintVal{
+						UintVal: 999,
+					},
+				},
+			},
+		}
+
+		err := Apply(context.Background(), nil, updates)
+		if err != nil {
+			t.Errorf("Apply() error = %v", err)
+		}
+
+		counter := mr.HGet("VNET|vnet1", "counter")
+		if counter != "999" {
+			t.Errorf("Expected counter=999, got %s", counter)
+		}
+	})
+}
+
+func TestApplyErrors(t *testing.T) {
+	t.Run("client error", func(t *testing.T) {
+		originalFunc := getConfigDbClientFunc
+		defer func() { getConfigDbClientFunc = originalFunc }()
+
+		getConfigDbClientFunc = func() (*redis.Client, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{
+						{Name: "VNET"},
+						{Name: "vnet1"},
+					},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_JsonIetfVal{
+						JsonIetfVal: []byte(`{"vni": "1000"}`),
+					},
+				},
+			},
+		}
+
+		err := Apply(context.Background(), nil, updates)
+		if err == nil {
+			t.Error("Expected error for client failure")
+		}
+	})
+
+	t.Run("invalid JSON in bulk update", func(t *testing.T) {
+		mr := miniredis.RunT(t)
+		defer mr.Close()
+
+		originalFunc := getConfigDbClientFunc
+		defer func() { getConfigDbClientFunc = originalFunc }()
+
+		getConfigDbClientFunc = func() (*redis.Client, error) {
+			return redis.NewClient(&redis.Options{
+				Addr: mr.Addr(),
+				DB:   0,
+			}), nil
+		}
+
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{
+						{Name: "CONFIG_DB"},
+						{Name: "localhost"},
+						{Name: "VNET"},
+					},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_JsonIetfVal{
+						JsonIetfVal: []byte(`{invalid json`),
+					},
+				},
+			},
+		}
+
+		err := Apply(context.Background(), nil, updates)
+		if err == nil {
+			t.Error("Expected error for invalid JSON")
+		}
+	})
+
+	t.Run("invalid JSON in single entry", func(t *testing.T) {
+		mr := miniredis.RunT(t)
+		defer mr.Close()
+
+		originalFunc := getConfigDbClientFunc
+		defer func() { getConfigDbClientFunc = originalFunc }()
+
+		getConfigDbClientFunc = func() (*redis.Client, error) {
+			return redis.NewClient(&redis.Options{
+				Addr: mr.Addr(),
+				DB:   0,
+			}), nil
+		}
+
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{
+						{Name: "CONFIG_DB"},
+						{Name: "localhost"},
+						{Name: "VNET"},
+						{Name: "vnet1"},
+					},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_JsonIetfVal{
+						JsonIetfVal: []byte(`not valid json`),
+					},
+				},
+			},
+		}
+
+		err := Apply(context.Background(), nil, updates)
+		if err == nil {
+			t.Error("Expected error for invalid JSON")
+		}
+	})
+}
+
+func TestDeleteErrors(t *testing.T) {
+	t.Run("client error", func(t *testing.T) {
+		originalFunc := getConfigDbClientFunc
+		defer func() { getConfigDbClientFunc = originalFunc }()
+
+		getConfigDbClientFunc = func() (*redis.Client, error) {
+			return nil, fmt.Errorf("connection refused")
+		}
+
+		deletes := []*gnmipb.Path{
+			{
+				Elem: []*gnmipb.PathElem{
+					{Name: "VNET"},
+					{Name: "vnet1"},
+				},
+			},
+		}
+
+		err := Delete(context.Background(), nil, deletes)
+		if err == nil {
+			t.Error("Expected error for client failure")
+		}
+	})
+}
+
+func TestCheckSKUError(t *testing.T) {
+	originalFunc := getConfigDbClientFunc
+	defer func() { getConfigDbClientFunc = originalFunc }()
+
+	getConfigDbClientFunc = func() (*redis.Client, error) {
+		return nil, fmt.Errorf("connection refused")
+	}
+
+	result := checkSKU()
+	if result {
+		t.Error("checkSKU() should return false when client fails")
+	}
+}
+
+func TestExtractTableWithPrefix(t *testing.T) {
+	prefix := &gnmipb.Path{
+		Elem: []*gnmipb.PathElem{
+			{Name: "CONFIG_DB"},
+			{Name: "localhost"},
+		},
+	}
+	path := &gnmipb.Path{
+		Elem: []*gnmipb.PathElem{
+			{Name: "VNET"},
+			{Name: "vnet1"},
+		},
+	}
+
+	table := extractTable(prefix, path)
+	if table != "VNET" {
+		t.Errorf("Expected table=VNET, got %s", table)
+	}
+}
+
+func TestCheckAllowedDeletePathsEmptyTable(t *testing.T) {
+	deletes := []*gnmipb.Path{
+		{
+			Elem: []*gnmipb.PathElem{},
+		},
+	}
+
+	result := checkAllowedDeletePaths(nil, deletes)
+	if result {
+		t.Error("checkAllowedDeletePaths() should return false for empty path")
+	}
+}
+
+func TestCheckAllowedTablesEmptyTable(t *testing.T) {
+	updates := []*gnmipb.Update{
+		{
+			Path: &gnmipb.Path{
+				Elem: []*gnmipb.PathElem{},
+			},
+		},
+	}
+
+	result := checkAllowedTables(nil, updates)
+	if result {
+		t.Error("checkAllowedTables() should return false for empty path")
 	}
 }
