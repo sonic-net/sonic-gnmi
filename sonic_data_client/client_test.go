@@ -820,6 +820,91 @@ func TestGetZmqClient(t *testing.T) {
 	}
 }
 
+func TestGetDbtablePathJsonPointerDecoding(t *testing.T) {
+	// This test verifies that getDbtablePath properly decodes JSON Pointer escaping (RFC 6901)
+	// where ~1 represents / and ~0 represents ~
+	//
+	// Use case: CIDR notation like 10.224.0.3/32 is encoded as 10.224.0.3~132 in gNMI paths
+	// The SET path decoded these correctly, but GET did not, causing lookups to fail.
+
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+	initRedisDbMap()
+
+	// Setup: create test data in CONFIG_DB with keys containing special characters
+	configDb := swsscommon.NewDBConnector("CONFIG_DB", uint(0), true)
+	defer swsscommon.DeleteDBConnector(configDb)
+
+	testTable := swsscommon.NewTable(configDb, "TEST_TABLE")
+	defer swsscommon.DeleteTable(testTable)
+
+	// Create entries with "/" and "~" in keys (the actual Redis keys)
+	testTable.Hset("10.224.0.3/32", "nexthop", "192.168.1.1")
+	testTable.Hset("foo~bar", "value", "tilde-test")
+	testTable.Hset("a/b~c", "value", "mixed-test")
+
+	tests := []struct {
+		name        string
+		encodedKey  string // Key as it appears in gNMI path (JSON Pointer encoded)
+		expectedKey string // Key after decoding (actual Redis key)
+	}{
+		{
+			name:        "slash encoded as ~1",
+			encodedKey:  "10.224.0.3~132",
+			expectedKey: "10.224.0.3/32",
+		},
+		{
+			name:        "tilde encoded as ~0",
+			encodedKey:  "foo~0bar",
+			expectedKey: "foo~bar",
+		},
+		{
+			name:        "mixed ~1 and ~0",
+			encodedKey:  "a~1b~0c",
+			expectedKey: "a/b~c",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create gNMI path with encoded key
+			prefix, err := xpath.ToGNMIPath("CONFIG_DB/localhost")
+			if err != nil {
+				t.Fatalf("Failed to create prefix: %v", err)
+			}
+			path, err := xpath.ToGNMIPath("TEST_TABLE/" + tt.encodedKey)
+			if err != nil {
+				t.Fatalf("Failed to create path: %v", err)
+			}
+
+			client := MixedDbClient{
+				prefix:        prefix,
+				target:        "CONFIG_DB",
+				mapkey:        ":",
+				dbkey:         swsscommon.NewSonicDBKey(),
+				namespace_cnt: 1,
+				container_cnt: 1,
+			}
+			defer swsscommon.DeleteSonicDBKey(client.dbkey)
+
+			tblPaths, err := client.getDbtablePath(path, nil)
+			if err != nil {
+				t.Fatalf("getDbtablePath failed: %v", err)
+			}
+
+			if len(tblPaths) == 0 {
+				t.Fatal("Expected at least one tablePath")
+			}
+
+			// Verify the key was properly decoded
+			if tblPaths[0].tableKey != tt.expectedKey {
+				t.Errorf("tableKey = %q, want %q", tblPaths[0].tableKey, tt.expectedKey)
+			}
+		})
+	}
+}
+
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
 	m.Run()
