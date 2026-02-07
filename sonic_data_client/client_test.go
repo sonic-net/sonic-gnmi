@@ -925,6 +925,13 @@ func TestGetDbtablePathJsonPointerDecoding(t *testing.T) {
 				t.Skip("Skipping: CONFIG_DB not found in RedisDbMap")
 			}
 
+			// Verify the Redis client actually exists before proceeding
+			// initRedisDbMap may have cleared the map and failed to repopulate
+			lookupKey := mapkey + ":CONFIG_DB"
+			if _, ok := RedisDbMap[lookupKey]; !ok {
+				t.Skipf("Skipping: Redis client for %q not present in RedisDbMap", lookupKey)
+			}
+
 			client := MixedDbClient{
 				prefix:        prefix,
 				target:        "CONFIG_DB",
