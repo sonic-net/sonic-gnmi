@@ -1742,8 +1742,6 @@ func TestDbFieldSubscribe_MixedDb_EnqueueItemResourceExhausted(t *testing.T) {
 	}
 }
 
-// passing from here
-
 func TestMixedDbClientPollRun_EnqueFatalMsg_TestB(t *testing.T) {
 	var wg sync.WaitGroup
 	poll := make(chan struct{})
