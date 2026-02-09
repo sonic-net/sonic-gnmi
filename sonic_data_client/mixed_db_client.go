@@ -25,7 +25,6 @@ import (
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 
-	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/redis/go-redis/v9"

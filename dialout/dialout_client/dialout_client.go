@@ -15,7 +15,6 @@ import (
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
-	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/openconfig/ygot/ygot"
