@@ -1,12 +1,14 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 
-	log "github.com/golang/glog"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+
+	log "github.com/golang/glog"
 )
 
 // virtual db is to Handle
@@ -39,6 +41,9 @@ var (
 
 	// MY_SID prefix to oid map in COUNTERS table of COUNTERS_DB
 	countersSidMap = make(map[string]string)
+
+	// ACL table:rule name to oid map in COUNTERS table of COUNTERS_DB
+	countersAclRuleMap = make(map[string]string)
 
 	// SONiC interface name to priority group indices and then to oid (from COUNTERS table of COUNTERS_DB)
 	countersPGNameMap = make(map[string]map[string]string)
@@ -92,6 +97,11 @@ var (
 		}, {
 			path:      []string{"COUNTERS_DB", "COUNTERS", "SID*"},
 			transFunc: v2rTranslate(v2rSRv6SidStats),
+		}, { // ACL rule counters (virtual)
+			// [COUNTERS_DB COUNTERS ACL_RULE*] or
+			// [COUNTERS_DB COUNTERS ACL_RULE:DATAACL:RULE_1]
+			path:      []string{"COUNTERS_DB", "COUNTERS", "ACL_RULE*"},
+			transFunc: v2rTranslate(v2rAclRuleStats),
 		},
 	}
 )
@@ -162,6 +172,19 @@ func initCountersSidMap() error {
 	return nil
 }
 
+func initCountersAclRuleMap() error {
+	var err error
+	if len(countersAclRuleMap) == 0 {
+		// ACL_COUNTER_RULE_MAP is a hash in COUNTERS_DB:
+		//   "DATAACL:RULE_1" -> "oid:0x9000000000711"
+		countersAclRuleMap, err = getCountersMap("ACL_COUNTER_RULE_MAP")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func initAliasMap() error {
 	var err error
 	if len(alias2nameMap) == 0 {
@@ -224,14 +247,14 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 	}
 	for namespace, redisDb := range redis_client_map {
 		separator, _ := GetTableKeySeparator(dbName, namespace)
-		_, err := redisDb.Ping().Result()
+		_, err := redisDb.Ping(context.Background()).Result()
 		if err != nil {
 			log.V(1).Infof("Can not connect to %v in namsespace %v, err: %v", dbName, namespace, err)
 			return nil, err
 		}
 
 		keyName := fmt.Sprintf("%s%v*", pfcwdTableName, separator)
-		resp, err := redisDb.Keys(keyName).Result()
+		resp, err := redisDb.Keys(context.Background(), keyName).Result()
 		if err != nil {
 			log.V(1).Infof("redis get keys failed for %v in namsepace %v, key = %v, err: %v", dbName, namespace, keyName, err)
 			return nil, err
@@ -253,7 +276,7 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 
 		// Get Queue indexes that are enabled with PFC-WD
 		keyName = "PORT_QOS_MAP*"
-		resp, err = redisDb.Keys(keyName).Result()
+		resp, err = redisDb.Keys(context.Background(), keyName).Result()
 		if err != nil {
 			log.V(1).Infof("redis get keys failed for %v in namespace %v, key = %v, err: %v", dbName, namespace, keyName, err)
 			return nil, err
@@ -273,14 +296,14 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 		}
 
 		fieldName := "pfc_enable"
-		priorities, err := redisDb.HGet(qos_key, fieldName).Result()
+		priorities, err := redisDb.HGet(context.Background(), qos_key, fieldName).Result()
 		if err != nil {
 			log.V(1).Infof("redis get field failed for %v in namsepace %v, key = %v, field = %v, err: %v", dbName, namespace, qos_key, fieldName, err)
 			return nil, err
 		}
 
 		keyName = fmt.Sprintf("MAP_PFC_PRIORITY_TO_QUEUE%vAZURE", separator)
-		pfc_queue_map, err := redisDb.HGetAll(keyName).Result()
+		pfc_queue_map, err := redisDb.HGetAll(context.Background(), keyName).Result()
 		if err != nil {
 			log.V(1).Infof("redis get fields failed for %v in namsepace %v, key = %v, err: %v", dbName, namespace, keyName, err)
 			return nil, err
@@ -332,20 +355,20 @@ func getAliasMap() (map[string]string, map[string]string, map[string]string, err
 	}
 	for namespace, redisDb := range redis_client_map {
 		separator, _ := GetTableKeySeparator(dbName, namespace)
-		_, err := redisDb.Ping().Result()
+		_, err := redisDb.Ping(context.Background()).Result()
 		if err != nil {
 			log.V(1).Infof("Can not connect to %v, in namsepace %v, err: %v", dbName, namespace, err)
 			return nil, nil, nil, err
 		}
 
 		keyName := fmt.Sprintf("PORT%v*", separator)
-		resp, err := redisDb.Keys(keyName).Result()
+		resp, err := redisDb.Keys(context.Background(), keyName).Result()
 		if err != nil {
 			log.V(1).Infof("redis get keys failed for %v in namsepace %v, key = %v, err: %v", dbName, namespace, keyName, err)
 			return nil, nil, nil, err
 		}
 		for _, key := range resp {
-			alias, err := redisDb.HGet(key, "alias").Result()
+			alias, err := redisDb.HGet(context.Background(), key, "alias").Result()
 			if err != nil {
 				log.V(1).Infof("redis get field alias failed for %v in namsepace %v, key = %v, err: %v", dbName, namespace, key, err)
 				// redis get alias failed so return nil for maps and the error
@@ -379,7 +402,7 @@ func getCountersMap(tableName string) (map[string]string, error) {
 		return nil, err
 	}
 	for namespace, redisDb := range redis_client_map {
-		fv, err := redisDb.HGetAll(tableName).Result()
+		fv, err := redisDb.HGetAll(context.Background(), tableName).Result()
 		if err != nil {
 			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, tableName: %s", namespace, tableName)
 			return nil, err
@@ -400,7 +423,7 @@ func getFabricCountersMap(tableName string) (map[string]string, error) {
 		return nil, err
 	}
 	for namespace, redisDb := range redis_client_map {
-		fv, err := redisDb.HGetAll(tableName).Result()
+		fv, err := redisDb.HGetAll(context.Background(), tableName).Result()
 		if err != nil {
 			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, tableName: %s", namespace, tableName)
 			return nil, err
@@ -482,7 +505,7 @@ func getSwitchStatMap(tableName string) (map[string]string, error) {
 		return nil, err
 	}
 	for namespace, redisDb := range redis_client_map {
-		fv, err := redisDb.HGetAll(tableName).Result()
+		fv, err := redisDb.HGetAll(context.Background(), tableName).Result()
 		if err != nil {
 			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, tableName: %s", namespace, tableName)
 			return nil, err
@@ -874,6 +897,56 @@ func v2rSRv6SidStats(paths []string) ([]tablePath, error) {
 	return tblPaths, nil
 }
 
+// Populate real data paths from paths like
+// [COUNTERS_DB COUNTERS ACL_RULE*] or
+// [COUNTERS_DB COUNTERS ACL_RULE:DATAACL:RULE_1]
+func v2rAclRuleStats(paths []string) ([]tablePath, error) {
+	var tblPaths []tablePath
+
+	// Wildcard: list all ACL rules in the map
+	if strings.HasSuffix(paths[KeyIdx], "*") {
+		for ruleName, oid := range countersAclRuleMap {
+			// ruleName here is "DATAACL:RULE_1"
+			namespace, _ := sdcfg.GetDbDefaultNamespace()
+			separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+			tblPath := tablePath{
+				dbNamespace:  namespace,
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx], // "COUNTERS"
+				tableKey:     oid,           // real COUNTERS:oid:... key
+				delimitor:    separator,
+				jsonTableKey: ruleName, // appear as "DATAACL:RULE_1" in JSON
+			}
+			tblPaths = append(tblPaths, tblPath)
+		}
+		return tblPaths, nil
+	}
+
+	// Single rule: expected format ACL_RULE:<ACL_TABLE>:<RULE_NAME>
+	if !strings.HasPrefix(paths[KeyIdx], "ACL_RULE:") {
+		return nil, fmt.Errorf("Key %v is not a valid ACL rule format!", paths[KeyIdx])
+	}
+
+	// Remove "ACL_RULE:" prefix; this should match the exact field in ACL_COUNTER_RULE_MAP
+	ruleName := paths[KeyIdx][len("ACL_RULE:"):] // e.g. "DATAACL:RULE_1"
+
+	if oid, ok := countersAclRuleMap[ruleName]; ok {
+		namespace, _ := sdcfg.GetDbDefaultNamespace()
+		separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+		tblPath := tablePath{
+			dbNamespace: namespace,
+			dbName:      paths[DbIdx],
+			tableName:   paths[TblIdx],
+			tableKey:    oid,
+			delimitor:   separator,
+		}
+		tblPaths = append(tblPaths, tblPath)
+		return tblPaths, nil
+	}
+
+	return nil, fmt.Errorf("ACL_RULE:%v doesn't exist in counter oid map!", ruleName)
+}
+
 func getVendorPortName(port string) string {
 	// Get vendor port name from name2aliasMap
 	if alias, ok := name2aliasMap[port]; ok {
@@ -910,6 +983,7 @@ func ClearMappings() {
 		alias2nameMap,
 		countersFabricPortNameMap,
 		countersQueueNameMap,
+		countersAclRuleMap,
 	}
 	for _, counterMap := range counterMaps {
 		for entry := range counterMap {
