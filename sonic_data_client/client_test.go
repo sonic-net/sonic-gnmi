@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -830,6 +831,9 @@ func TestMain(m *testing.M) {
 // This is required because sonic-dash-ha subscribes to DASH_HA_ tables
 // using SubscriberStateTable.
 func TestGetTableDashHA(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	if !swsscommon.SonicDBConfigIsInit() {
 		swsscommon.SonicDBConfigInitialize()
 	}

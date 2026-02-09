@@ -2164,6 +2164,7 @@ func (c *MixedDbClient) Close() error {
 		swsscommon.DeleteZmqProducerStateTable(pt)
 	}
 	for _, t := range c.plainTableMap {
+		t.Flush()
 		swsscommon.DeleteTable(t)
 	}
 	if c.applDB != nil {
