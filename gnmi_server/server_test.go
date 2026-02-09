@@ -5468,6 +5468,96 @@ func TestServerPort(t *testing.T) {
 	s.Stop()
 }
 
+func TestServerUnixSocket(t *testing.T) {
+	t.Helper()
+	socketPath := filepath.Join(t.TempDir(), "gnmi_test.sock")
+
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &Config{
+		Port:                -1, // Disable TCP mode
+		UnixSocket:          socketPath,
+		EnableTranslibWrite: true,
+		EnableNativeWrite:   true,
+		Threshold:           100,
+		ImgDir:              "/tmp",
+	}
+	s, err := NewServer(cfg, opts)
+	if err != nil {
+		t.Fatalf("Failed to create gNMI server with Unix socket: %v", err)
+	}
+	defer s.Stop()
+
+	// Verify the socket file was created
+	info, err := os.Stat(socketPath)
+	if err != nil {
+		t.Fatalf("Unix socket file not created: %v", err)
+	}
+
+	// Verify socket permissions (should be 0660)
+	expectedPerm := os.FileMode(0660)
+	actualPerm := info.Mode().Perm()
+	if actualPerm != expectedPerm {
+		t.Errorf("Unix socket has wrong permissions: got %o, want %o", actualPerm, expectedPerm)
+	}
+
+	// Verify the address is the socket path
+	addr := s.Address()
+	if addr != socketPath {
+		t.Errorf("Server address mismatch: got %s, want %s", addr, socketPath)
+	}
+}
+
+func TestServerUnixSocketRemovesStaleSocket(t *testing.T) {
+	t.Helper()
+	socketPath := filepath.Join(t.TempDir(), "gnmi_stale.sock")
+
+	// Create a stale socket file
+	f, err := os.Create(socketPath)
+	if err != nil {
+		t.Fatalf("Failed to create stale socket file: %v", err)
+	}
+	f.Close()
+
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &Config{
+		Port:                -1,
+		UnixSocket:          socketPath,
+		EnableTranslibWrite: true,
+		EnableNativeWrite:   true,
+		Threshold:           100,
+		ImgDir:              "/tmp",
+	}
+	s, err := NewServer(cfg, opts)
+	if err != nil {
+		t.Fatalf("Failed to create gNMI server after removing stale socket: %v", err)
+	}
+	defer s.Stop()
+
+	// Verify server started successfully with the socket
+	addr := s.Address()
+	if addr != socketPath {
+		t.Errorf("Server address mismatch: got %s, want %s", addr, socketPath)
+	}
+}
+
 func TestNilServerStop(t *testing.T) {
 	// Create a server with nil grpc server, such that s.Stop is called with nil value
 	t.Log("Expecting s.Stop to log error as server is nil")
