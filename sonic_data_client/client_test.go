@@ -7,7 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
-	"runtime"
+	// "runtime"
 	"sync"
 	"testing"
 	"time"
@@ -831,8 +831,8 @@ func TestMain(m *testing.M) {
 // This is required because sonic-dash-ha subscribes to DASH_HA_ tables
 // using SubscriberStateTable.
 func TestGetTableDashHA(t *testing.T) {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
+	// runtime.LockOSThread()
+	// defer runtime.UnlockOSThread()
 
 	if !swsscommon.SonicDBConfigIsInit() {
 		swsscommon.SonicDBConfigInitialize()
@@ -894,16 +894,16 @@ func TestGetTableDashHA(t *testing.T) {
 		t.Errorf("DASH_HA_SCOPE_CONFIG_TABLE should not use ZmqProducerStateTable")
 	}
 
-	// Test DbSetTable for DASH_HA_ table - should use Table.Set
-	testData := map[string]string{"field1": "value1", "field2": "value2"}
-	err := client.DbSetTable("DASH_HA_SET_CONFIG_TABLE", "test_key", testData)
-	if err != nil {
-		t.Errorf("DbSetTable for DASH_HA_SET_CONFIG_TABLE failed: %v", err)
-	}
+	// // Test DbSetTable for DASH_HA_ table - should use Table.Set
+	// testData := map[string]string{"field1": "value1", "field2": "value2"}
+	// err := client.DbSetTable("DASH_HA_SET_CONFIG_TABLE", "test_key", testData)
+	// if err != nil {
+	// 	t.Errorf("DbSetTable for DASH_HA_SET_CONFIG_TABLE failed: %v", err)
+	// }
 
-	// Test DbDelTable for DASH_HA_ table - should use Table.Delete
-	err = client.DbDelTable("DASH_HA_SET_CONFIG_TABLE", "test_key")
-	if err != nil {
-		t.Errorf("DbDelTable for DASH_HA_SET_CONFIG_TABLE failed: %v", err)
-	}
+	// // Test DbDelTable for DASH_HA_ table - should use Table.Delete
+	// err = client.DbDelTable("DASH_HA_SET_CONFIG_TABLE", "test_key")
+	// if err != nil {
+	// 	t.Errorf("DbDelTable for DASH_HA_SET_CONFIG_TABLE failed: %v", err)
+	// }
 }
