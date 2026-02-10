@@ -4,6 +4,7 @@ package gnmi
 // Covers: Poll mode, Sample mode, and Get operations for DPU_STATE table
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"io/ioutil"
@@ -11,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-redis/redis"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/openconfig/gnmi/client"
 	pb "github.com/openconfig/gnmi/proto/gnmi"
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
-	"golang.org/x/net/context"
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -38,7 +39,7 @@ func getChassisStateDbRedisClient(t *testing.T, namespace string) *redis.Client 
 		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err = rclient.Ping().Result()
+	_, err = rclient.Ping(context.Background()).Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -49,7 +50,7 @@ func getChassisStateDbRedisClient(t *testing.T, namespace string) *redis.Client 
 func prepareChassisStateDb(t *testing.T, namespace string) {
 	rclient := getChassisStateDbRedisClient(t, namespace)
 	defer rclient.Close()
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 
 	fileName := "../testdata/DPU_STATE.txt"
 	dpuStateBytes, err := ioutil.ReadFile(fileName)
