@@ -1,0 +1,12 @@
+{
+    "id": "0",
+    "dpu_midplane_link_state": "UP",
+    "dpu_midplane_link_time": "Sat Aug 23 02:02:47 AM UTC 2025",
+    "dpu_midplane_link_reason": "OK",
+    "dpu_control_plane_state": "UP",
+    "dpu_control_plane_time": "Mon Aug 25 08:59:57 AM UTC 2025",
+    "dpu_control_plane_reason": "OK",
+    "dpu_data_plane_state": "UP",
+    "dpu_data_plane_time": "Sat Aug 23 02:02:53 AM UTC 2025",
+    "dpu_data_plane_reason": "OK"
+}
