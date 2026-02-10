@@ -73,6 +73,7 @@ stages:
         set -euo pipefail
         export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH)/bin
         cd sonic-gnmi
+        go mod tidy
         make -f pure.mk junit-xml
       displayName: 'Run Pure Package Tests'
 
