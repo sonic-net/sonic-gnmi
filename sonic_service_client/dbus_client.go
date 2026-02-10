@@ -1,6 +1,7 @@
 package host_service
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
@@ -49,7 +50,30 @@ type Service interface {
 	// Docker services APIs
 	LoadDockerImage(image string) error
 	InstallOS(req string) (string, error)
+	//Credentialz service APIs
+	SSHMgmtSet(cmd string) error
+	GLOMEConfigSet(ctx context.Context, cmd string) error
+	SSHCheckpoint(action CredzCheckpointAction) error
+	GLOMERestoreCheckpoint(ctx context.Context) error
+	ConsoleSet(cmd string) error
+	ConsoleCheckpoint(action CredzCheckpointAction) error
 }
+
+// Define a function type that matches the DbusApi signature
+type DbusApiFunc func(busName, busPath, intName string, timeout int, args ...interface{}) (interface{}, error)
+
+// Use a variable to hold the implementation.
+// It defaults to the real DbusApi function.
+var dbusApiCaller DbusApiFunc = DbusApi
+
+type CredzCheckpointAction string
+
+const (
+	CredzCPCreate        CredzCheckpointAction = ".create_checkpoint"
+	CredzCPDelete        CredzCheckpointAction = ".delete_checkpoint"
+	CredzCPRestore       CredzCheckpointAction = ".restore_checkpoint"
+	CredzGlomePushConfig CredzCheckpointAction = ".push_config"
+)
 
 type DbusClient struct {
 	busNamePrefix string
@@ -423,4 +447,97 @@ func (c *DbusClient) HealthzAck(req string) (string, error) {
 		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
 	}
 	return strResult, nil
+}
+
+func (c *DbusClient) ConsoleSet(cmd string) error {
+	modName := "gnsi_console"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".set"
+
+	common_utils.IncCounter(common_utils.GNSI_CREDZ_SET)
+	_, err := dbusApiCaller(busName, busPath, intName, 10, cmd)
+	return err
+}
+
+func (c *DbusClient) SSHMgmtSet(cmd string) error {
+	modName := "ssh_mgmt"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".set"
+
+	common_utils.IncCounter(common_utils.GNSI_CREDZ_SET)
+	_, err := dbusApiCaller(busName, busPath, intName, 10, cmd)
+	return err
+}
+
+// GLOMEConfigSet is used to write the GLOME config in the host service file system.
+func (c *DbusClient) GLOMEConfigSet(ctx context.Context, cmd string) error {
+	modName := "glome"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + string(CredzGlomePushConfig)
+
+	common_utils.IncCounter(common_utils.GNSI_CREDZ_SET)
+	timeout := 10 // Default timeout in seconds.
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return context.DeadlineExceeded
+		}
+		timeout = int(remaining.Seconds())
+		if timeout > 10 {
+			timeout = 10
+		}
+	}
+	_, err := dbusApiCaller(busName, busPath, intName, timeout, cmd)
+	return err
+}
+
+func (c *DbusClient) ConsoleCheckpoint(action CredzCheckpointAction) error {
+	modName := "gnsi_console"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + string(action)
+
+	common_utils.IncCounter(common_utils.GNSI_CREDZ_CHECKPOINT)
+	_, err := dbusApiCaller(busName, busPath, intName, 10, "")
+	return err
+}
+
+func (c *DbusClient) SSHCheckpoint(action CredzCheckpointAction) error {
+	modName := "ssh_mgmt"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + string(action)
+
+	common_utils.IncCounter(common_utils.GNSI_CREDZ_CHECKPOINT)
+	_, err := dbusApiCaller(busName, busPath, intName, 10, "")
+	return err
+}
+
+// GLOMERestoreCheckpoint is used to restore the GLOME config metadata to the
+// checkpoint state. This is used to rollback the GLOME config in the host
+// service file system.
+func (c *DbusClient) GLOMERestoreCheckpoint(ctx context.Context) error {
+	modName := "glome"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + string(CredzCPRestore)
+
+	common_utils.IncCounter(common_utils.GNSI_CREDZ_CHECKPOINT)
+	// Default timeout in seconds. Set to 5 minutes to give enough time for rollback.
+	timeout := 300
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return context.DeadlineExceeded
+		}
+		timeout = int(remaining.Seconds())
+		if timeout > 10 {
+			timeout = 10
+		}
+	}
+	_, err := dbusApiCaller(busName, busPath, intName, timeout)
+	return err
 }
