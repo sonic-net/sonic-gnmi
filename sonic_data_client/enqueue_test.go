@@ -78,7 +78,6 @@ func TestForceEnqueueItemWithNotification(t *testing.T) {
 	}
 }
 
-// DB Client
 func TestDbClientSubscriptionModeFatalMsg(t *testing.T) {
 	var wg sync.WaitGroup
 	q := NewLimitedQueue(1, false, 100)
@@ -569,7 +568,6 @@ func TestStreamRun_EnqueFatalMsg(t *testing.T) {
 	}
 }
 
-// Mixed DB Client
 func TestMixedDbClientSubscriptionModeFatalMsg(t *testing.T) {
 	var wg sync.WaitGroup
 	q := NewLimitedQueue(1, false, 100)
@@ -610,7 +608,6 @@ func TestMixedDbClientSubscriptionModeFatalMsg(t *testing.T) {
 	}
 }
 
-// Non DB Client
 func TestNonDbClientSubscriptionModeFatalMsg(t *testing.T) {
 	var wg sync.WaitGroup
 	q := NewLimitedQueue(1, false, 100)
@@ -739,7 +736,6 @@ func TestNonDbClientValidSubscription(t *testing.T) {
 	}
 }
 
-// Translib Data Client
 func TestDoSampleFatalMsg(t *testing.T) {
 	var wg sync.WaitGroup
 	var syncGroup sync.WaitGroup
@@ -952,8 +948,6 @@ func TestRecoverFatalMsg(t *testing.T) {
 	}
 
 }
-
-//Testing
 
 func TestEnqueueItem(t *testing.T) {
 	q := NewLimitedQueue(10, false, 100)
@@ -1233,43 +1227,6 @@ func TestDoSampleFatalMsg_EnqueFatal(t *testing.T) {
 	}
 }
 
-// func TestDbClientSubscriptionModeFatalMsg_ResourceExhausted(t *testing.T) {
-// 	var wg sync.WaitGroup
-// 	q := NewLimitedQueue(1, false, 0)
-// 	stop := make(chan struct{}, 1)
-
-// 	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}}
-
-// 	client := DbClient{
-// 		prefix:  &gnmipb.Path{Target: "APPL_DB"},
-// 		pathG2S: map[*gnmipb.Path][]tablePath{path: {{dbName: "APPL_DB", tableName: "INTERFACES"}}},
-// 		q:       q,
-// 		channel: stop,
-// 	}
-
-// 	subscribe := &gnmipb.SubscriptionList{
-// 		Subscription: []*gnmipb.Subscription{
-// 			{
-// 				Path: path,
-// 				Mode: 0,
-// 			},
-// 		},
-// 	}
-
-// 	stop <- struct{}{}
-// 	wg.Add(1)
-// 	go client.StreamRun(q, stop, &wg, subscribe)
-// 	wg.Wait()
-
-// 	item, err := q.DequeueItem()
-// 	if err != nil {
-// 		t.Fatalf("Expected fatal message, got error: %v", err)
-// 	}
-// 	if !strings.Contains(item.Fatal, "unsupported subscription mode") {
-// 		t.Errorf("Expected fatal message for unsupported mode, got: %v", item.Fatal)
-// 	}
-// }
-
 func TestDbClientStreamRunSyncMessage(t *testing.T) {
 	var wg sync.WaitGroup
 
@@ -1504,24 +1461,12 @@ func TestAppDBPollRun_ResourceExhausted_AllBranches(t *testing.T) {
 				Value: &gnmipb.TypedValue_StringVal{StringVal: "up"},
 			}, nil, false
 		}
-		// getAppDbTypedValueFunc = func(tblPaths []tablePath, _ *string) (*gnmipb.TypedValue, error, bool) {
-		// 	return nil, nil, false
-		// }
-		// no update => triggers delete branch since prevUpdates[pathKey] == true
 		defer func() { getAppDbTypedValueFunc = original }()
 
 		wg.Add(1)
 		go client.AppDBPollRun(q, poll, &wg, subscribe)
 
 		poll <- struct{}{}
-
-		// Drain the “update” enqueue attempt
-		// potentially continue and trigger the second poll:
-		//
-		// item1 := mustDequeue(t, q, 500*time.Millisecond)
-		// _ = item1
-
-		// poll <- struct{}{}
 
 		item := mustDequeue(t, q, 500*time.Millisecond)
 		if item.Fatal == "" {
@@ -1615,8 +1560,6 @@ func TestPollRun_EnqueueItemResourceExhausted_TestB(t *testing.T) {
 	close(poll)
 	wg.Wait()
 }
-
-//testing mixeddb dbfieldsubscribe
 
 type fakeDBKey struct {
 	netns         string
