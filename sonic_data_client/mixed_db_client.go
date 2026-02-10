@@ -25,7 +25,6 @@ import (
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 
-	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/redis/go-redis/v9"
@@ -74,7 +73,7 @@ type MixedDbClient struct {
 	paths       []*gnmipb.Path
 	pathG2S     map[*gnmipb.Path][]tablePath
 	encoding    gnmipb.Encoding
-	q           *queue.PriorityQueue
+	q           *LimitedQueue
 	channel     chan struct{}
 	target      string
 	origin      string
@@ -1601,11 +1600,11 @@ func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	return values, nil
 }
 
-func (c *MixedDbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *MixedDbClient) OnceRun(q *LimitedQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	return
 }
 
-func (c *MixedDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *MixedDbClient) PollRun(q *LimitedQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 	defer c.w.Done()
 	c.q = q
@@ -1637,25 +1636,34 @@ func (c *MixedDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *s
 				SyncResponse: false,
 				Val:          val,
 			}
-			c.q.Put(Value{spbv})
+			if errEnq := c.q.EnqueueItem(Value{spbv}); errEnq != nil {
+				if st, ok := status.FromError(errEnq); ok && st.Code() == codes.ResourceExhausted {
+					c.q.enqueFatalMsg(st.Message())
+					return
+				}
+			}
 			log.V(6).Infof("Added spbv #%v", spbv)
 		}
 
-		c.q.Put(Value{
-			&spb.Value{
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: true,
-			},
-		})
+		spbv := &spb.Value{
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: true,
+		}
+		if err := c.q.EnqueueItem(Value{spbv}); err != nil {
+			if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
+				c.q.enqueFatalMsg(st.Message())
+				return
+			}
+		}
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
 }
 
-func (c *MixedDbClient) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *MixedDbClient) AppDBPollRun(q *LimitedQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	return
 }
 
-func (c *MixedDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *MixedDbClient) StreamRun(q *LimitedQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 	defer c.w.Done()
 	c.q = q
@@ -1689,7 +1697,7 @@ func (c *MixedDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w 
 				c.synced.Add(1)
 				go c.streamOnChangeSubscription(sub.GetPath())
 			} else {
-				putFatalMsg(c.q, fmt.Sprintf("unsupported subscription mode, %v", subMode))
+				c.q.enqueFatalMsg(fmt.Sprintf("unsupported subscription mode, %v", subMode))
 				return
 			}
 		}
@@ -1699,12 +1707,16 @@ func (c *MixedDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w 
 	// in the SubscriptionList has been transmitted at least once
 	c.synced.Wait()
 	// Inject sync message
-	c.q.Put(Value{
-		&spb.Value{
-			Timestamp:    time.Now().UnixNano(),
-			SyncResponse: true,
-		},
-	})
+	spbv := &spb.Value{
+		Timestamp:    time.Now().UnixNano(),
+		SyncResponse: true,
+	}
+	if err := c.q.EnqueueItem(Value{spbv}); err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
+			c.q.enqueFatalMsg(st.Message())
+			return
+		}
+	}
 	log.V(2).Infof("%v Synced", c.pathG2S)
 
 	<-c.channel
@@ -1716,7 +1728,7 @@ func (c *MixedDbClient) streamOnChangeSubscription(gnmiPath *gnmipb.Path) {
 	tblPaths, err := c.getDbtablePath(gnmiPath, nil)
 	if err != nil {
 		msg := fmt.Sprintf("streamOnChangeSubscription error:  %v", err)
-		putFatalMsg(c.q, msg)
+		c.q.enqueFatalMsg(msg)
 		c.synced.Done()
 		c.w.Done()
 		return
@@ -1735,7 +1747,7 @@ func (c *MixedDbClient) streamOnChangeSubscription(gnmiPath *gnmipb.Path) {
 func (c *MixedDbClient) streamSampleSubscription(sub *gnmipb.Subscription, updateOnly bool) {
 	samplingInterval, err := validateSampleInterval(sub)
 	if err != nil {
-		putFatalMsg(c.q, err.Error())
+		c.q.enqueFatalMsg(err.Error())
 		c.synced.Done()
 		c.w.Done()
 		return
@@ -1744,7 +1756,7 @@ func (c *MixedDbClient) streamSampleSubscription(sub *gnmipb.Subscription, updat
 	gnmiPath := sub.GetPath()
 	tblPaths, err := c.getDbtablePath(gnmiPath, nil)
 	if err != nil {
-		putFatalMsg(c.q, err.Error())
+		c.q.enqueFatalMsg(err.Error())
 		c.synced.Done()
 		c.w.Done()
 		return
@@ -1766,7 +1778,7 @@ func (c *MixedDbClient) dbFieldSubscribe(gnmiPath *gnmipb.Path, onChange bool, i
 
 	tblPaths, err := c.getDbtablePath(gnmiPath, nil)
 	if err != nil {
-		putFatalMsg(c.q, err.Error())
+		c.q.enqueFatalMsg(err.Error())
 		c.synced.Done()
 		return
 	}
@@ -1775,7 +1787,7 @@ func (c *MixedDbClient) dbFieldSubscribe(gnmiPath *gnmipb.Path, onChange bool, i
 	redisDb, ok := RedisDbMap[c.mapkey+":"+tblPath.dbName]
 	if !ok {
 		msg := fmt.Sprintf("RedisDbMap not exist:  %v", c.mapkey+":"+tblPath.dbName)
-		putFatalMsg(c.q, msg)
+		c.q.enqueFatalMsg(msg)
 		c.synced.Done()
 		return
 	}
@@ -1812,11 +1824,16 @@ func (c *MixedDbClient) dbFieldSubscribe(gnmiPath *gnmipb.Path, onChange bool, i
 			},
 		}
 
-		if err := c.q.Put(Value{spbv}); err != nil {
-			log.V(1).Infof("Queue error:  %v", err)
+		if err := c.q.EnqueueItem(Value{spbv}); err != nil {
+			if st, ok := status.FromError(err); ok {
+				if st.Code() == codes.ResourceExhausted {
+					c.q.enqueFatalMsg(st.Message())
+					return err
+				}
+			}
+			c.q.enqueFatalMsg("Internal error")
 			return err
 		}
-
 		return nil
 	}
 
@@ -1824,7 +1841,7 @@ func (c *MixedDbClient) dbFieldSubscribe(gnmiPath *gnmipb.Path, onChange bool, i
 	val := readVal()
 	err = sendVal(val)
 	if err != nil {
-		putFatalMsg(c.q, err.Error())
+		c.q.enqueFatalMsg(err.Error())
 		c.synced.Done()
 		return
 	}
@@ -1901,7 +1918,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 				if tblPath.tableKey != "" {
 					err = c.tableData2Msi(&tblPath, false, nil, &newMsi)
 					if err != nil {
-						putFatalMsg(c.q, err.Error())
+						c.q.enqueFatalMsg(err.Error())
 						return
 					}
 				} else {
@@ -1913,7 +1930,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 					tblPath.tableKey = subscr.Channel[prefixLen:]
 					err = c.tableData2Msi(&tblPath, true, nil, &newMsi)
 					if err != nil {
-						putFatalMsg(c.q, err.Error())
+						c.q.enqueFatalMsg(err.Error())
 						return
 					}
 				}
@@ -1959,7 +1976,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 	// Helper to handle fatal case.
 	handleFatalMsg := func(msg string) {
 		log.V(1).Infof(msg)
-		putFatalMsg(c.q, msg)
+		c.q.enqueFatalMsg(msg)
 		signalSync()
 	}
 
@@ -1991,10 +2008,15 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 		if sendDeleteField {
 			(*spbv).Delete = []*gnmipb.Path{gnmiPath}
 		}
-		if err = c.q.Put(Value{spbv}); err != nil {
+		if err = c.q.EnqueueItem(Value{spbv}); err != nil {
+			if st, ok := status.FromError(err); ok {
+				if st.Code() == codes.ResourceExhausted {
+					c.q.enqueFatalMsg(st.Message())
+					return err
+				}
+			}
 			return fmt.Errorf("Queue error:  %v", err)
 		}
-
 		return nil
 	}
 
