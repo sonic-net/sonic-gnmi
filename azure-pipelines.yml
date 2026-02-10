@@ -146,7 +146,7 @@ stages:
         testRunTitle: 'Memory Leak Tests'
 
   # Full integration testing with SONiC dependencies
-  - job: IntegrationCIJob
+  - job: build
     displayName: "build"
     timeoutInMinutes: 60
 
