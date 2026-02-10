@@ -1075,7 +1075,6 @@ func TestPollRun_EnqueFatalMsgMixed(t *testing.T) {
 	wg.Add(1)
 	go client.PollRun(q, poll, &wg, nil)
 
-	// Trigger the poll
 	poll <- struct{}{}
 	close(poll)
 	wg.Wait()
