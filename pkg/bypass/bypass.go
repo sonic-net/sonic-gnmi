@@ -240,10 +240,7 @@ func Apply(ctx context.Context, prefix *gnmipb.Path, updates []*gnmipb.Update) e
 			}
 			for entryKey, entryFields := range bulkData {
 				redisKey := table + "|" + entryKey
-				fields := make(map[string]interface{})
-				for k, v := range entryFields {
-					fields[k] = fmt.Sprintf("%v", v)
-				}
+				fields := convertToRedisFields(entryFields)
 				// For empty entry, use NULL placeholder (SONiC convention)
 				if len(fields) == 0 {
 					fields["NULL"] = "NULL"
@@ -266,10 +263,7 @@ func Apply(ctx context.Context, prefix *gnmipb.Path, updates []*gnmipb.Update) e
 				return fmt.Errorf("bypass: failed to unmarshal JSON: %v", err)
 			}
 
-			fields := make(map[string]interface{})
-			for k, v := range data {
-				fields[k] = fmt.Sprintf("%v", v)
-			}
+			fields := convertToRedisFields(data)
 			// For empty JSON {}, use NULL placeholder (SONiC convention for empty entries)
 			if len(fields) == 0 {
 				fields["NULL"] = "NULL"
@@ -365,6 +359,27 @@ func decodeJsonPointer(s string) string {
 	s = strings.ReplaceAll(s, "~1", "/")
 	s = strings.ReplaceAll(s, "~0", "~")
 	return s
+}
+
+// convertToRedisFields converts a map of JSON values to SONiC Redis field format.
+// SONiC convention: list/array fields use @ suffix and comma-separated values.
+// Example: {"ip_range": ["10.0.1.0/24", "10.0.2.0/24"]} -> {"ip_range@": "10.0.1.0/24,10.0.2.0/24"}
+func convertToRedisFields(data map[string]interface{}) map[string]interface{} {
+	fields := make(map[string]interface{})
+	for k, v := range data {
+		switch val := v.(type) {
+		case []interface{}:
+			// SONiC convention: list fields use @ suffix and comma-separated values
+			var strVals []string
+			for _, item := range val {
+				strVals = append(strVals, fmt.Sprintf("%v", item))
+			}
+			fields[k+"@"] = strings.Join(strVals, ",")
+		default:
+			fields[k] = fmt.Sprintf("%v", v)
+		}
+	}
+	return fields
 }
 
 // TrySet attempts to execute a gNMI Set via the bypass fast path.

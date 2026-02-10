@@ -1590,3 +1590,190 @@ func TestTrySetErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestConvertToRedisFields(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    map[string]interface{}
+		expected map[string]interface{}
+	}{
+		{
+			name: "scalar string value",
+			input: map[string]interface{}{
+				"name": "test",
+			},
+			expected: map[string]interface{}{
+				"name": "test",
+			},
+		},
+		{
+			name: "scalar int value",
+			input: map[string]interface{}{
+				"vni": 1000,
+			},
+			expected: map[string]interface{}{
+				"vni": "1000",
+			},
+		},
+		{
+			name: "list value - SONiC convention",
+			input: map[string]interface{}{
+				"ip_range": []interface{}{"10.0.1.0/24", "10.0.2.0/24"},
+			},
+			expected: map[string]interface{}{
+				"ip_range@": "10.0.1.0/24,10.0.2.0/24",
+			},
+		},
+		{
+			name: "mixed scalar and list values",
+			input: map[string]interface{}{
+				"name":     "WLPARTNER_PASSIVE_V4",
+				"peer_asn": "4210000062",
+				"ip_range": []interface{}{"10.0.1.0/24", "10.0.2.0/24"},
+			},
+			expected: map[string]interface{}{
+				"name":      "WLPARTNER_PASSIVE_V4",
+				"peer_asn":  "4210000062",
+				"ip_range@": "10.0.1.0/24,10.0.2.0/24",
+			},
+		},
+		{
+			name: "empty list",
+			input: map[string]interface{}{
+				"ports": []interface{}{},
+			},
+			expected: map[string]interface{}{
+				"ports@": "",
+			},
+		},
+		{
+			name: "single item list",
+			input: map[string]interface{}{
+				"members": []interface{}{"Ethernet0"},
+			},
+			expected: map[string]interface{}{
+				"members@": "Ethernet0",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertToRedisFields(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Errorf("convertToRedisFields() returned %d fields, want %d", len(result), len(tt.expected))
+			}
+			for k, v := range tt.expected {
+				if result[k] != v {
+					t.Errorf("convertToRedisFields()[%s] = %v, want %v", k, result[k], v)
+				}
+			}
+		})
+	}
+}
+
+func TestApplyWithListFields(t *testing.T) {
+	mr := miniredis.RunT(t)
+	defer mr.Close()
+
+	originalFunc := getConfigDbClientFunc
+	defer func() { getConfigDbClientFunc = originalFunc }()
+
+	getConfigDbClientFunc = func() (*redis.Client, error) {
+		return redis.NewClient(&redis.Options{
+			Addr: mr.Addr(),
+			DB:   0,
+		}), nil
+	}
+
+	t.Run("BGP_PEER_RANGE with ip_range list - single entry", func(t *testing.T) {
+		mr.FlushAll()
+		// This mimics the exact request from the bug report
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{
+						{Name: "CONFIG_DB"},
+						{Name: "localhost"},
+						{Name: "BGP_PEER_RANGE"},
+						{Name: "Vnet_1000|WLPARTNER_PASSIVE_V4"},
+					},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_JsonIetfVal{
+						JsonIetfVal: []byte(`{"name":"WLPARTNER_PASSIVE_V4","peer_asn":"4210000062","ip_range":["10.0.1.0/24", "10.0.2.0/24"]}`),
+					},
+				},
+			},
+		}
+
+		err := Apply(context.Background(), nil, updates)
+		if err != nil {
+			t.Errorf("Apply() error = %v", err)
+		}
+
+		// Verify SONiC convention: ip_range@ with comma-separated values
+		ipRange := mr.HGet("BGP_PEER_RANGE|Vnet_1000|WLPARTNER_PASSIVE_V4", "ip_range@")
+		expectedIpRange := "10.0.1.0/24,10.0.2.0/24"
+		if ipRange != expectedIpRange {
+			t.Errorf("Expected ip_range@=%s, got %s", expectedIpRange, ipRange)
+		}
+
+		// Verify scalar fields remain unchanged
+		name := mr.HGet("BGP_PEER_RANGE|Vnet_1000|WLPARTNER_PASSIVE_V4", "name")
+		if name != "WLPARTNER_PASSIVE_V4" {
+			t.Errorf("Expected name=WLPARTNER_PASSIVE_V4, got %s", name)
+		}
+
+		peerAsn := mr.HGet("BGP_PEER_RANGE|Vnet_1000|WLPARTNER_PASSIVE_V4", "peer_asn")
+		if peerAsn != "4210000062" {
+			t.Errorf("Expected peer_asn=4210000062, got %s", peerAsn)
+		}
+
+		// Verify ip_range (without @) does NOT exist
+		badIpRange := mr.HGet("BGP_PEER_RANGE|Vnet_1000|WLPARTNER_PASSIVE_V4", "ip_range")
+		if badIpRange != "" {
+			t.Errorf("ip_range (without @) should not exist, got %s", badIpRange)
+		}
+	})
+
+	t.Run("bulk update with list fields", func(t *testing.T) {
+		mr.FlushAll()
+		updates := []*gnmipb.Update{
+			{
+				Path: &gnmipb.Path{
+					Elem: []*gnmipb.PathElem{
+						{Name: "CONFIG_DB"},
+						{Name: "localhost"},
+						{Name: "BGP_PEER_RANGE"},
+					},
+				},
+				Val: &gnmipb.TypedValue{
+					Value: &gnmipb.TypedValue_JsonIetfVal{
+						JsonIetfVal: []byte(`{
+							"Vnet_1000|PEER_V4": {"name":"PEER_V4","ip_range":["10.1.0.0/24"]},
+							"Vnet_2000|PEER_V6": {"name":"PEER_V6","ip_range":["10.2.0.0/24","10.3.0.0/24"]}
+						}`),
+					},
+				},
+			},
+		}
+
+		err := Apply(context.Background(), nil, updates)
+		if err != nil {
+			t.Errorf("Apply() error = %v", err)
+		}
+
+		// Verify first entry
+		ipRange1 := mr.HGet("BGP_PEER_RANGE|Vnet_1000|PEER_V4", "ip_range@")
+		if ipRange1 != "10.1.0.0/24" {
+			t.Errorf("Expected ip_range@=10.1.0.0/24, got %s", ipRange1)
+		}
+
+		// Verify second entry
+		ipRange2 := mr.HGet("BGP_PEER_RANGE|Vnet_2000|PEER_V6", "ip_range@")
+		if ipRange2 != "10.2.0.0/24,10.3.0.0/24" {
+			t.Errorf("Expected ip_range@=10.2.0.0/24,10.3.0.0/24, got %s", ipRange2)
+		}
+	})
+}
