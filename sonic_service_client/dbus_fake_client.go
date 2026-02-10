@@ -1,6 +1,7 @@
 package host_service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 )
@@ -8,6 +9,7 @@ import (
 // FakeClient is a mock implementation of the Service interface.
 type FakeClient struct {
 	CollectResponse string
+	Command         chan []string
 }
 
 func (f *FakeClient) Close() error                         { return nil }
@@ -89,4 +91,34 @@ func (f *FakeClient) HealthzAck(req string) (string, error) {
 
 func (f *FakeClientWithError) HealthzAck(req string) (string, error) {
 	return "", fmt.Errorf("simulated dbus error")
+}
+
+func (f *FakeClient) ConsoleCheckpoint(action CredzCheckpointAction) error {
+	f.Command <- []string{"gnsi_console" + string(action), ""}
+	return nil
+}
+
+func (f *FakeClient) ConsoleSet(cmd string) error {
+	f.Command <- []string{"gnsi_console.set", cmd}
+	return nil
+}
+
+func (f *FakeClient) SSHCheckpoint(action CredzCheckpointAction) error {
+	f.Command <- []string{"ssh_mgmt" + string(action), ""}
+	return nil
+}
+
+func (f *FakeClient) SSHMgmtSet(cmd string) error {
+	f.Command <- []string{"ssh_mgmt.set", cmd}
+	return nil
+}
+
+func (f *FakeClient) GLOMEConfigSet(ctx context.Context, cmd string) error {
+	f.Command <- []string{"glome" + string(CredzGlomePushConfig), cmd}
+	return nil
+}
+
+func (f *FakeClient) GLOMERestoreCheckpoint(ctx context.Context) error {
+	f.Command <- []string{"glome" + string(CredzCPRestore), ""}
+	return nil
 }
