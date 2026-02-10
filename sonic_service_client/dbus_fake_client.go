@@ -1,6 +1,7 @@
 package host_service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 )
@@ -90,3 +91,10 @@ func (f *FakeClient) HealthzAck(req string) (string, error) {
 func (f *FakeClientWithError) HealthzAck(req string) (string, error) {
 	return "", fmt.Errorf("simulated dbus error")
 }
+
+func (f *FakeClient) ConsoleCheckpoint(CredzCheckpointAction) error        { return nil }
+func (f *FakeClient) ConsoleSet(cmd string) error                          { return nil }
+func (f *FakeClient) SSHCheckpoint(CredzCheckpointAction) error            { return nil }
+func (f *FakeClient) SSHMgmtSet(cmd string) error                          { return nil }
+func (f *FakeClient) GLOMEConfigSet(ctx context.Context, cmd string) error { return nil }
+func (f *FakeClient) GLOMERestoreCheckpoint(ctx context.Context) error     { return nil }
