@@ -58,6 +58,10 @@ stages:
       clean: true
       displayName: 'Checkout code'
 
+    - checkout: sonic-mgmt-common
+      clean: true
+      displayName: 'Checkout sonic-mgmt-common'
+
     - script: |
         wget https://go.dev/dl/go$(GO_VERSION).linux-amd64.tar.gz
         sudo tar -C /usr/local -xzf go$(GO_VERSION).linux-amd64.tar.gz
@@ -68,6 +72,7 @@ stages:
     - bash: |
         set -euo pipefail
         export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH)/bin
+        cd sonic-gnmi
         make -f pure.mk junit-xml
       displayName: 'Run Pure Package Tests'
 
@@ -76,7 +81,7 @@ stages:
       condition: always()
       inputs:
         testResultsFormat: 'JUnit'
-        testResultsFiles: '$(System.DefaultWorkingDirectory)/test-results/junit-pure.xml'
+        testResultsFiles: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-pure.xml'
         failTaskOnFailedTests: true
         publishRunAttachments: true
         testRunTitle: 'Pure Package Tests'
