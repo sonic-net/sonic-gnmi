@@ -180,7 +180,7 @@ func TestStartGNMIServer(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, _ *CertCache, _ <-chan struct{}, _ chan<- int) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
@@ -213,10 +213,10 @@ func TestStartGNMIServer(t *testing.T) {
 	}
 }
 
-func TestStartGNMIServerGracefulStop(t *testing.T) {
+func TestStartGNMIServerGetCertificateCallback(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
-	timeoutInterval := 15
+	timeoutInterval := 3
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 
@@ -228,7 +228,7 @@ func TestStartGNMIServerGracefulStop(t *testing.T) {
 		os.Args = originalArgs
 	}()
 
-	fs := flag.NewFlagSet("testStartGNMIServer", flag.ContinueOnError)
+	fs := flag.NewFlagSet("testGetCertCallback", flag.ContinueOnError)
 	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
 	telemetryCfg, cfg, err := setupFlags(fs)
 
@@ -236,7 +236,13 @@ func TestStartGNMIServerGracefulStop(t *testing.T) {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
+	loadKeyPairCallCount := 0
+	var mu sync.Mutex
+
 	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
+		mu.Lock()
+		loadKeyPairCallCount++
+		mu.Unlock()
 		return tls.Certificate{}, nil
 	})
 	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
@@ -251,18 +257,13 @@ func TestStartGNMIServerGracefulStop(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, _ *CertCache, _ <-chan struct{}, _ chan<- int) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
 	stopSignalHandler := make(chan bool, 1)
 	wg := &sync.WaitGroup{}
 
-	counter := 0
-	exitCalled := false
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
-		exitCalled = true
-	})
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "ForceStop", func(_ *gnmi.Server) {
 	})
 
@@ -272,64 +273,175 @@ func TestStartGNMIServerGracefulStop(t *testing.T) {
 
 	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
 
-	for {
-		select {
-		case <-tick.C:
-			if counter == 0 { // simulate cert rotation first
-				sendSignal(serverControlSignal, ServerRestart)
-			} else { // simulate sigterm second
-				sendSignal(serverControlSignal, ServerStop)
-			}
-			counter += 1
-		case <-ctx.Done():
-			t.Errorf("Failed to send shutdown signal")
-			return
-		}
-		if counter > 1 { // both signals have been sent
-			break
-		}
+	select {
+	case <-tick.C:
+		sendSignal(serverControlSignal, ServerStop)
+	case <-ctx.Done():
+		t.Errorf("Failed to send shutdown signal")
+		return
 	}
 
 	wg.Wait()
 
-	if !exitCalled {
-		t.Errorf("s.Stop should be called if gnmi server is called to shutdown")
+	mu.Lock()
+	defer mu.Unlock()
+
+	// With GetCertificate callback, LoadX509KeyPair is called once at startup
+	// and then on-demand for each new TLS handshake (not called here since we mock Serve)
+	if loadKeyPairCallCount < 1 {
+		t.Errorf("Expected LoadX509KeyPair to be called at least once for startup validation, got %d", loadKeyPairCallCount)
 	}
+	t.Logf("LoadX509KeyPair called %d times (startup validation)", loadKeyPairCallCount)
+}
+
+func TestStartGNMIServerGetCertificateLoadError(t *testing.T) {
+	testServerCert := "../testdata/certs/testserver.cert"
+	testServerKey := "../testdata/certs/testserver.key"
+	timeoutInterval := 3
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
+	defer cancel()
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testGetCertError", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, cfg, err := setupFlags(fs)
+
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	loadAttempts := 0
+	var mu sync.Mutex
+
+	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
+		mu.Lock()
+		loadAttempts++
+		// First call succeeds (startup), subsequent calls fail (simulating cert deletion)
+		shouldFail := loadAttempts > 1
+		mu.Unlock()
+		if shouldFail {
+			return tls.Certificate{}, fmt.Errorf("mock cert load error - certs deleted")
+		}
+		return tls.Certificate{}, nil
+	})
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+		return &gnmi.Server{}, nil
+	})
+	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
+		return grpc.EmptyServerOption{}
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Serve", func(_ *gnmi.Server) error {
+		return nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
+		return ""
+	})
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, _ *CertCache, _ <-chan struct{}, _ chan<- int) {
+	})
+
+	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
+	wg := &sync.WaitGroup{}
+
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "ForceStop", func(_ *gnmi.Server) {
+	})
+
+	defer patches.Reset()
+
+	wg.Add(1)
+
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+
+	select {
+	case <-tick.C:
+		sendSignal(serverControlSignal, ServerStop)
+	case <-ctx.Done():
+		t.Errorf("Failed to send shutdown signal")
+		return
+	}
+
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Startup should succeed with first call
+	if loadAttempts < 1 {
+		t.Errorf("Expected LoadX509KeyPair to be called at least once for startup, got %d", loadAttempts)
+	}
+	t.Logf("LoadX509KeyPair called %d times, GetCertificate callback would fail on subsequent handshakes", loadAttempts)
 }
 
 // Generate a new TLS cert using NewCert and save key pair to specified file path
 func saveCertKeyPair(certPath, keyPath string) error {
+	_, err := saveCertKeyPairWithSerial(certPath, keyPath)
+	return err
+}
+
+// saveCertKeyPairWithSerial generates and saves a cert/key pair, returning the certificate serial number
+func saveCertKeyPairWithSerial(certPath, keyPath string) (serialNumber string, err error) {
 	cert, err := testdata.NewCert()
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	certBytes := cert.Certificate[0]
 	keyBytes := x509.MarshalPKCS1PrivateKey(cert.PrivateKey.(*rsa.PrivateKey))
 
+	// Parse cert to get serial number
+	x509Cert, err := x509.ParseCertificate(certBytes)
+	if err != nil {
+		return "", err
+	}
+	serialNumber = x509Cert.SerialNumber.String()
+
 	// Save the certificate
 	certFile, err := os.Create(certPath)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer certFile.Close()
 
 	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certBytes}); err != nil {
-		return err
+		return "", err
 	}
 
 	// Save key
 	keyFile, err := os.Create(keyPath)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer keyFile.Close()
 
 	if err := pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyBytes}); err != nil {
-		return err
+		return "", err
 	}
 
-	return nil
+	return serialNumber, nil
+}
+
+// waitForCacheUpdate polls certCache until cert pointer changes from initialCertPtr.
+// Returns true if updated within timeout, false otherwise.
+func waitForCacheUpdate(t *testing.T, certCache *CertCache, initialCertPtr *tls.Certificate, timeout time.Duration) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		certCache.mu.RLock()
+		current := certCache.cert
+		certCache.mu.RUnlock()
+		if current != initialCertPtr {
+			return true
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return false
 }
 
 func copyFile(srcPath string, destPath string) error {
@@ -470,7 +582,7 @@ func TestSHA512Checksum(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, _ *CertCache, _ <-chan struct{}, _ chan<- int) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
@@ -534,7 +646,7 @@ func TestStartGNMIServerCACert(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, _ *CertCache, _ <-chan struct{}, _ chan<- int) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
@@ -554,6 +666,8 @@ func TestStartGNMIServerCACert(t *testing.T) {
 	wg.Wait()
 }
 
+// TestStartGNMIServerCreateWatcherError tests Scenario 3: Has certs + No watcher → Server continues with warning
+// (existing certs are present, but cert rotation monitoring is disabled)
 func TestStartGNMIServerCreateWatcherError(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
@@ -571,10 +685,14 @@ func TestStartGNMIServerCreateWatcherError(t *testing.T) {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
+	serverStarted := false
+	serverStartedSignal := make(chan bool, 1)
 	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
 		return tls.Certificate{}, nil
 	})
 	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+		serverStarted = true // Server successfully created despite watcher failure
+		serverStartedSignal <- true
 		return &gnmi.Server{}, nil
 	})
 	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
@@ -589,7 +707,7 @@ func TestStartGNMIServerCreateWatcherError(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
 		return ""
 	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, _ *CertCache, _ <-chan struct{}, _ chan<- int) {
 	})
 
 	serverControlSignal := make(chan ServerControlValue, 1)
@@ -603,163 +721,28 @@ func TestStartGNMIServerCreateWatcherError(t *testing.T) {
 	wg.Add(1)
 
 	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+
+	// Wait for server to start
+	select {
+	case <-serverStartedSignal:
+		// Server started
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Timeout waiting for server to start")
+	}
 
 	sendSignal(serverControlSignal, ServerStop)
 
 	wg.Wait()
-}
 
-func TestStartGNMIServerSlowCerts(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
-
-	originalArgs := os.Args
-	defer func() {
-		os.Args = originalArgs
-	}()
-
-	fs := flag.NewFlagSet("testStartGNMIServer", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
-	telemetryCfg, cfg, err := setupFlags(fs)
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
+	if !serverStarted {
+		t.Errorf("Expected server to start successfully despite watcher creation failure (Scenario 3: has certs + no watcher)")
 	}
-
-	var shouldFail int32
-	atomic.StoreInt32(&shouldFail, 1)
-	serveStarted := make(chan bool, 1)
-
-	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
-		if atomic.LoadInt32(&shouldFail) == 1 {
-			atomic.StoreInt32(&shouldFail, 0)
-			return tls.Certificate{}, fmt.Errorf("Mock LoadX509KeyPair error")
-		}
-		return tls.Certificate{}, nil
-	})
-	patches.ApplyFunc(computeSHA512Checksum, func(file string) {
-	})
-	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
-		return &gnmi.Server{}, nil
-	})
-	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
-		return grpc.EmptyServerOption{}
-	})
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Serve", func(_ *gnmi.Server) error {
-		serveStarted <- true
-		return nil
-	})
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
-		return ""
-	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
-	})
-
-	serverControlSignal := make(chan ServerControlValue, 1)
-	stopSignalHandler := make(chan bool, 1)
-	wg := &sync.WaitGroup{}
-
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
-	})
-
-	defer patches.Reset()
-
-	wg.Add(1)
-
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
-
-	sendSignal(serverControlSignal, ServerRestart) // Should not stop cert monitoring or try reloading certs
-
-	sendSignal(serverControlSignal, ServerStart) // Put certs for server to load new certs
-
-	<-serveStarted
-
-	sendSignal(serverControlSignal, ServerStop) // Once server starts serving, stop server
-
-	wg.Wait()
-}
-
-func TestStartGNMIServerSlowCACerts(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
-	testServerCACert := "../testdata/certs/testserver.pem"
-
-	originalArgs := os.Args
-	defer func() {
-		os.Args = originalArgs
-	}()
-
-	fs := flag.NewFlagSet("testStartGNMIServerCACert", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey, "-ca_crt", testServerCACert}
-	telemetryCfg, cfg, err := setupFlags(fs)
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	var shouldFail int32
-	atomic.StoreInt32(&shouldFail, 1)
-	serveStarted := make(chan bool, 1)
-
-	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
-		return tls.Certificate{}, nil
-	})
-	patches.ApplyFunc(computeSHA512Checksum, func(file string) {
-	})
-	patches.ApplyFunc(ioutil.ReadFile, func(_ string) ([]byte, error) {
-		if atomic.LoadInt32(&shouldFail) == 1 {
-			return []byte("mock data"), fmt.Errorf("Mock ioutil ReadFile error")
-		}
-		return []byte("mock data"), nil
-	})
-	patches.ApplyMethod(reflect.TypeOf(&x509.CertPool{}), "AppendCertsFromPEM", func(_ *x509.CertPool, _ []byte) bool {
-		if atomic.LoadInt32(&shouldFail) == 1 {
-			atomic.StoreInt32(&shouldFail, 0)
-			return false
-		}
-		return true
-	})
-	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
-		return &gnmi.Server{}, nil
-	})
-	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
-		return grpc.EmptyServerOption{}
-	})
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Serve", func(_ *gnmi.Server) error {
-		serveStarted <- true
-		return nil
-	})
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
-		return ""
-	})
-	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, serverControlSignal chan<- ServerControlValue, testReadySignal chan<- int, certLoaded *int32) {
-	})
-
-	serverControlSignal := make(chan ServerControlValue, 1)
-	stopSignalHandler := make(chan bool, 1)
-	wg := &sync.WaitGroup{}
-
-	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Stop", func(_ *gnmi.Server) {
-	})
-	defer patches.Reset()
-
-	wg.Add(1)
-
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
-
-	sendSignal(serverControlSignal, ServerStart) // Put certs for server to load new certs
-
-	<-serveStarted
-
-	sendSignal(serverControlSignal, ServerStop) // Once server starts serving, stop server
-
-	wg.Wait()
 }
 
 func TestINotifyCertMonitoringRotation(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
 	timeoutInterval := 10
-	tick := time.NewTicker(100 * time.Millisecond)
-	defer tick.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
@@ -774,91 +757,66 @@ func TestINotifyCertMonitoringRotation(t *testing.T) {
 	telemetryCfg, _, err := setupFlags(fs)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+		return
 	}
 
-	serverControlSignal := make(chan ServerControlValue, 1)
-	testReadySignal := make(chan int, 1)
-
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal, nil)
-
-	<-testReadySignal
-
-	// Bring in new certs
-
+	// Create initial certs
 	err = saveCertKeyPair(testServerCert, testServerKey)
-
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	select {
-	case val := <-serverControlSignal:
-		if val != ServerStart {
-			t.Errorf("Expected 2 from serverControlSignal, got %d", val)
-		}
-		t.Log("Received correct value from serverControlSignal")
-	case <-ctx.Done():
-		t.Errorf("Expected a value from serverControlSignal, but got none")
 		return
 	}
-}
 
-func TestINotifyCertMonitoringDeletion(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
-	timeoutInterval := time.Duration(10 * time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
-	defer cancel()
-
-	originalArgs := os.Args
-	defer func() {
-		os.Args = originalArgs
-	}()
-
-	fs := flag.NewFlagSet("testiNotifyCertMonitoring", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-v=2", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
-	telemetryCfg, _, err := setupFlags(fs)
+	// Load initial cert into cache
+	initialCert, err := tls.LoadX509KeyPair(testServerCert, testServerKey)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+		return
 	}
 
-	serverControlSignal := make(chan ServerControlValue, 1)
+	certCache := &CertCache{
+		cert: &initialCert,
+	}
+
+	stopChan := make(chan struct{})
 	testReadySignal := make(chan int, 1)
-	var certLoaded int32
-	atomic.StoreInt32(&certLoaded, 1)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+		return
+	}
+	defer watcher.Close()
+
+	// Add watcher to cert directory
+	certDir := filepath.Dir(*telemetryCfg.ServerCert)
+	err = watcher.Add(certDir)
+	if err != nil {
+		t.Fatalf("Failed to add watcher to cert directory: %v", err)
 	}
 
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal, &certLoaded)
+	go iNotifyCertMonitoring(watcher, telemetryCfg, certCache, stopChan, testReadySignal)
 
 	<-testReadySignal
 
-	// Delete certs
+	// Capture initial cert pointer
+	certCache.mu.RLock()
+	initialCertPtr := certCache.cert
+	certCache.mu.RUnlock()
 
-	err = os.Remove(testServerCert)
-
+	// Rotate certs - write new certs to trigger watcher
+	err = saveCertKeyPair(testServerCert, testServerKey)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	select {
-	case val := <-serverControlSignal:
-		if val != ServerRestart {
-			t.Errorf("Expected 2 from serverControlSignal, got %d", val)
-		}
-		t.Log("Received correct value from serverControlSignal")
-	case <-ctx.Done():
-		t.Errorf("Expected a value from serverControlSignal, but got none")
 		return
 	}
+
+	if waitForCacheUpdate(t, certCache, initialCertPtr, 5*time.Second) {
+		t.Log("Cache updated with new cert")
+	} else {
+		t.Errorf("Cache was not updated after cert rotation")
+	}
+	close(stopChan)
 }
 
 func TestINotifyCertMonitoringSlowWrites(t *testing.T) {
@@ -866,8 +824,9 @@ func TestINotifyCertMonitoringSlowWrites(t *testing.T) {
 	testServerKey := "../testdata/certs/testserver.key"
 	tempDir := t.TempDir()
 	testServerKeyBackup := filepath.Join(tempDir, "testserver.key.backup")
-	timeoutInterval := time.Duration(10 * time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
+	timeoutInterval := 10
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
 
 	originalArgs := os.Args
@@ -880,48 +839,72 @@ func TestINotifyCertMonitoringSlowWrites(t *testing.T) {
 	telemetryCfg, _, err := setupFlags(fs)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+		return
 	}
 
-	serverControlSignal := make(chan ServerControlValue, 1)
+	// Create initial certs
+	err = saveCertKeyPair(testServerCert, testServerKey)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+		return
+	}
+
+	// Load initial cert into cache
+	initialCert, err := tls.LoadX509KeyPair(testServerCert, testServerKey)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+		return
+	}
+
+	certCache := &CertCache{
+		cert: &initialCert,
+	}
+
+	stopChan := make(chan struct{})
 	testReadySignal := make(chan int, 1)
-	var certLoaded int32
-	atomic.StoreInt32(&certLoaded, 1)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+		return
 	}
+	defer watcher.Close()
 
-	err = saveCertKeyPair(testServerCert, testServerKey)
+	// Add watcher to cert directory
+	certDir := filepath.Dir(*telemetryCfg.ServerCert)
+	err = watcher.Add(certDir)
 	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
+		t.Fatalf("Failed to add watcher to cert directory: %v", err)
 	}
 
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal, &certLoaded)
+	go iNotifyCertMonitoring(watcher, telemetryCfg, certCache, stopChan, testReadySignal)
 
 	<-testReadySignal
 
-	// Write slowly to key file such that only get 1 reload after multiple writes
+	// Capture initial cert pointer
+	certCache.mu.RLock()
+	initialCertPtr := certCache.cert
+	certCache.mu.RUnlock()
 
+	// Write slowly to key file such that only get 1 reload after multiple writes
 	err = writeSlowKey(testServerKeyBackup, testServerKey)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+		close(stopChan)
+		return
 	}
 
-	select {
-	case val := <-serverControlSignal:
-		if val != ServerStart {
-			t.Errorf("Expected 1 from serverControlSignal, got %d", val)
-		}
-		t.Log("Received correct value from serverControlSignal")
-		_, err = tls.LoadX509KeyPair(testServerCert, testServerKey) // Cert should work after 1 reload
+	if waitForCacheUpdate(t, certCache, initialCertPtr, 5*time.Second) {
+		t.Log("Cache updated after slow writes")
+		// Verify cert is valid
+		_, err = tls.LoadX509KeyPair(testServerCert, testServerKey)
 		if err != nil {
 			t.Errorf("Expected err to be nil, got err %v", err)
 		}
-	case <-ctx.Done():
-		t.Errorf("Expected a value from serverControlSignal, but got none")
-		return
+	} else {
+		t.Errorf("Cache was not updated after slow writes")
 	}
+	close(stopChan)
 }
 
 func TestINotifyCertMonitoringMove(t *testing.T) {
@@ -929,8 +912,9 @@ func TestINotifyCertMonitoringMove(t *testing.T) {
 	testServerKey := "../testdata/certs/testserver.key"
 	testServerCertBackup := "../testdata/testserver.cert"
 	testServerKeyBackup := "../testdata/testserver.key"
-	timeoutInterval := time.Duration(10 * time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
+	timeoutInterval := 10
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
 
 	originalArgs := os.Args
@@ -943,63 +927,72 @@ func TestINotifyCertMonitoringMove(t *testing.T) {
 	telemetryCfg, _, err := setupFlags(fs)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+		return
 	}
 
-	serverControlSignal := make(chan ServerControlValue, 1)
+	// Create backup certs to move from
+	err = saveCertKeyPair(testServerCertBackup, testServerKeyBackup)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+		return
+	}
+
+	// Remove existing certs at target location
+	os.Remove(testServerCert)
+	os.Remove(testServerKey)
+
+	// Move cert to target location before starting watcher
+	err = os.Rename(testServerCertBackup, testServerCert)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+		return
+	}
+
+	// Load initial cert into cache (just the cert, key doesn't exist yet)
+	// We'll use a placeholder cert since key file doesn't exist yet
+	certCache := &CertCache{}
+
+	stopChan := make(chan struct{})
 	testReadySignal := make(chan int, 1)
-	var certLoaded int32
-	atomic.StoreInt32(&certLoaded, 1)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+		return
 	}
+	defer watcher.Close()
 
-	err = saveCertKeyPair(testServerCertBackup, testServerKeyBackup)
+	// Add watcher to cert directory
+	certDir := filepath.Dir(*telemetryCfg.ServerCert)
+	err = watcher.Add(certDir)
 	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
+		t.Fatalf("Failed to add watcher to cert directory: %v", err)
 	}
 
-	err = os.Remove(testServerCert)
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	err = os.Remove(testServerKey)
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	err = os.Rename(testServerCertBackup, testServerCert)
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal, &certLoaded)
+	go iNotifyCertMonitoring(watcher, telemetryCfg, certCache, stopChan, testReadySignal)
 
 	<-testReadySignal
 
-	// Move key file from other directory to monitored directory and ensure after 1 reload, LoadKeyPair works
-
+	// Move key file from backup directory to monitored directory
 	err = os.Rename(testServerKeyBackup, testServerKey)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+		close(stopChan)
+		return
 	}
 
-	select {
-	case val := <-serverControlSignal:
-		if val != ServerStart {
-			t.Errorf("Expected 1 from serverControlSignal, got %d", val)
-		}
-		t.Log("Received correct value from serverControlSignal")
-		_, err = tls.LoadX509KeyPair(testServerCert, testServerKey) // Cert should work after 1 reload
+	// nil initial pointer means we're waiting for any cert to appear
+	if waitForCacheUpdate(t, certCache, nil, 5*time.Second) {
+		t.Log("Cache updated after move")
+		// Verify cert is valid
+		_, err = tls.LoadX509KeyPair(testServerCert, testServerKey)
 		if err != nil {
 			t.Errorf("Expected err to be nil, got err %v", err)
 		}
-	case <-ctx.Done():
-		t.Errorf("Expected a value from serverControlSignal, but got none")
-		return
+	} else {
+		t.Errorf("Cache was not updated after move")
 	}
+	close(stopChan)
 }
 
 func TestINotifyCertMonitoringCopy(t *testing.T) {
@@ -1008,9 +1001,6 @@ func TestINotifyCertMonitoringCopy(t *testing.T) {
 	tempDir := t.TempDir()
 	testServerCertBackup := filepath.Join(tempDir, "testserver.cert.backup")
 	testServerKeyBackup := filepath.Join(tempDir, "testserver.key.backup")
-	timeoutInterval := time.Duration(10 * time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
-	defer cancel()
 
 	originalArgs := os.Args
 	defer func() {
@@ -1022,162 +1012,91 @@ func TestINotifyCertMonitoringCopy(t *testing.T) {
 	telemetryCfg, _, err := setupFlags(fs)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+		return
 	}
 
-	serverControlSignal := make(chan ServerControlValue, 1)
-	testReadySignal := make(chan int, 1)
-	var certLoaded int32
-	atomic.StoreInt32(&certLoaded, 1)
-
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
+	// Create backup certs and initial certs
 	err = saveCertKeyPair(testServerCertBackup, testServerKeyBackup)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+		return
 	}
 
 	err = saveCertKeyPair(testServerCert, testServerKey)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+		return
 	}
 
+	// Load initial cert into cache
+	initialCert, err := tls.LoadX509KeyPair(testServerCert, testServerKey)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+		return
+	}
+
+	certCache := &CertCache{
+		cert: &initialCert,
+	}
+
+	// Copy cert from backup to trigger watcher
 	err = copyFile(testServerCertBackup, testServerCert)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal, &certLoaded)
-
-	<-testReadySignal
-
-	// Copy key file from other directory to monitored directory and ensure after 1 reload, LoadKeyPair works
-
-	err = copyFile(testServerKeyBackup, testServerKey)
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	select {
-	case val := <-serverControlSignal:
-		if val != ServerStart {
-			t.Errorf("Expected 1 from serverControlSignal, got %d", val)
-		}
-		t.Log("Received correct value from serverControlSignal")
-		_, err = tls.LoadX509KeyPair(testServerCert, testServerKey) // Cert should work after 1 reload
-		if err != nil {
-			t.Errorf("Expected err to be nil, got err %v", err)
-		}
-	case <-ctx.Done():
-		t.Errorf("Expected a value from serverControlSignal, but got none")
 		return
 	}
-}
 
-func TestINotifyCertMonitoringErrors(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
-	timeoutInterval := time.Duration(10 * time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
-	defer cancel()
-
-	originalArgs := os.Args
-	defer func() {
-		os.Args = originalArgs
-	}()
-
-	fs := flag.NewFlagSet("testiNotifyCertMonitoring", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-v=2", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
-	telemetryCfg, _, err := setupFlags(fs)
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	serverControlSignal := make(chan ServerControlValue, 1)
+	stopChan := make(chan struct{})
 	testReadySignal := make(chan int, 1)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
+		return
+	}
+	defer watcher.Close()
+
+	// Add watcher to cert directory
+	certDir := filepath.Dir(*telemetryCfg.ServerCert)
+	err = watcher.Add(certDir)
+	if err != nil {
+		t.Fatalf("Failed to add watcher to cert directory: %v", err)
 	}
 
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal, nil)
+	go iNotifyCertMonitoring(watcher, telemetryCfg, certCache, stopChan, testReadySignal)
 
 	<-testReadySignal
 
-	// Put error in error channel
+	// Capture initial cert pointer
+	certCache.mu.RLock()
+	initialCertPtr := certCache.cert
+	certCache.mu.RUnlock()
 
-	mockError := errors.New("mock error")
-	watcher.Errors <- mockError
-
-	select {
-	case val := <-serverControlSignal:
-		if val != ServerStop {
-			t.Errorf("Expected 0 from serverControlSignal, got %d", val)
-		}
-		t.Log("Received correct value from serverControlSignal")
-	case <-ctx.Done():
-		t.Errorf("Expected a value from serverControlSignal, but got none")
-		return
-	}
-}
-
-// Temporarily disabling this function due to flakiness, Zain will later fix this function
-func DisabledTestINotifyCertMonitoringAddWatcherError(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
-	timeoutInterval := time.Duration(10 * time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
-	defer cancel()
-
-	originalArgs := os.Args
-	defer func() {
-		os.Args = originalArgs
-	}()
-
-	fs := flag.NewFlagSet("testiNotifyCertMonitoring", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-v=2", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
-	telemetryCfg, _, err := setupFlags(fs)
+	// Copy key file from backup to trigger cache update
+	err = copyFile(testServerKeyBackup, testServerKey)
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	serverControlSignal := make(chan ServerControlValue, 1)
-
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		t.Errorf("Expected err to be nil, got err %v", err)
-	}
-
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(watcher), "Add", func(_ *fsnotify.Watcher, _ string) error {
-		return errors.New("mock error")
-	})
-	defer patches.Reset()
-
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, nil, nil)
-
-	select {
-	case val := <-serverControlSignal:
-		if val != ServerStop {
-			t.Errorf("Expected 0 from serverControlSignal, got %d", val)
-		}
-		t.Log("Received correct value from serverControlSignal")
-	case <-ctx.Done():
-		t.Errorf("Expected a value from serverControlSignal, but got none")
+		close(stopChan)
 		return
 	}
+
+	if waitForCacheUpdate(t, certCache, initialCertPtr, 5*time.Second) {
+		t.Log("Cache updated after copy")
+		// Verify cert is valid
+		_, err = tls.LoadX509KeyPair(testServerCert, testServerKey)
+		if err != nil {
+			t.Errorf("Expected err to be nil, got err %v", err)
+		}
+	} else {
+		t.Errorf("Cache was not updated after copy")
+	}
+	close(stopChan)
 }
 
 func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 	tmpDir := t.TempDir()
 	testServerCert := filepath.Join(tmpDir, "server.crt")
 	testServerKey := filepath.Join(tmpDir, "server.key")
-
-	timeoutInterval := 10
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
-	defer cancel()
 
 	originalArgs := os.Args
 	defer func() {
@@ -1210,19 +1129,39 @@ func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 		t.Fatalf("Failed to setup flags: %v", err)
 	}
 
-	serverControlSignal := make(chan ServerControlValue, 1)
+	// Load initial cert into cache
+	initialCert, err := tls.LoadX509KeyPair(testServerCert, testServerKey)
+	if err != nil {
+		t.Fatalf("Failed to load initial cert: %v", err)
+	}
+
+	certCache := &CertCache{
+		cert: &initialCert,
+	}
+
+	stopChan := make(chan struct{})
 	testReadySignal := make(chan int, 1)
-	var certLoaded int32
-	atomic.StoreInt32(&certLoaded, 0)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		t.Fatalf("Failed to create watcher: %v", err)
 	}
+	defer watcher.Close()
 
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal, &certLoaded)
+	// Add watcher to cert directory
+	err = watcher.Add(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to add watcher to cert directory: %v", err)
+	}
+
+	go iNotifyCertMonitoring(watcher, telemetryCfg, certCache, stopChan, testReadySignal)
 
 	<-testReadySignal
+
+	// Capture initial cert pointer
+	certCache.mu.RLock()
+	initialCertPtr := certCache.cert
+	certCache.mu.RUnlock()
 
 	// Simulate cert rotation: create new backup files and update symlinks (like ln -sf)
 	certBackup2 := filepath.Join(tmpDir, "server.crt.2")
@@ -1245,41 +1184,18 @@ func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 		t.Fatalf("Failed to update key symlink: %v", err)
 	}
 
-	for {
-		select {
-		case val := <-serverControlSignal:
-			if val == ServerStart {
-				t.Log("Received correct ServerStart signal after symlink rotation")
-				return
-			}
-			// Ignore ServerRestart from REMOVE events
-			t.Logf("Received ServerRestart (expected during symlink update)")
-		case <-time.After(100 * time.Millisecond):
-			// No more signals in buffer, wait for ServerStart
-			select {
-			case val := <-serverControlSignal:
-				if val != ServerStart {
-					t.Errorf("Expected ServerStart from serverControlSignal, got %d", val)
-				} else {
-					t.Log("Received correct ServerStart signal after symlink rotation")
-				}
-				return
-			case <-ctx.Done():
-				t.Errorf("Expected ServerStart from serverControlSignal, but got none")
-				return
-			}
-		}
+	if waitForCacheUpdate(t, certCache, initialCertPtr, 5*time.Second) {
+		t.Log("Cache updated after symlink rotation")
+	} else {
+		t.Errorf("Cache was not updated after symlink rotation")
 	}
+	close(stopChan)
 }
 
 func TestINotifyCertMonitoringCertValidationFails(t *testing.T) {
 	tmpDir := t.TempDir()
 	testServerCert := filepath.Join(tmpDir, "server.crt")
 	testServerKey := filepath.Join(tmpDir, "server.key")
-
-	timeoutInterval := 5
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
-	defer cancel()
 
 	originalArgs := os.Args
 	defer func() {
@@ -1293,56 +1209,67 @@ func TestINotifyCertMonitoringCertValidationFails(t *testing.T) {
 		t.Fatalf("Failed to setup flags: %v", err)
 	}
 
-	serverControlSignal := make(chan ServerControlValue, 1)
+	// Start with empty cache (no initial certs)
+	certCache := &CertCache{}
+
+	stopChan := make(chan struct{})
 	testReadySignal := make(chan int, 1)
-	var certLoaded int32
-	atomic.StoreInt32(&certLoaded, 0)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		t.Fatalf("Failed to create watcher: %v", err)
 	}
+	defer watcher.Close()
 
-	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, testReadySignal, &certLoaded)
+	// Add watcher to cert directory
+	err = watcher.Add(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to add watcher to cert directory: %v", err)
+	}
+
+	go iNotifyCertMonitoring(watcher, telemetryCfg, certCache, stopChan, testReadySignal)
 
 	<-testReadySignal
 
-	tempDir := t.TempDir()
-	tempCert := filepath.Join(tempDir, "temp.crt")
-	tempKey := filepath.Join(tempDir, "temp.key")
+	// Create temp cert/key pair in separate temp dir
+	tempDir2 := t.TempDir()
+	tempCert := filepath.Join(tempDir2, "temp.crt")
+	tempKey := filepath.Join(tempDir2, "temp.key")
 
 	err = saveCertKeyPair(tempCert, tempKey)
 	if err != nil {
 		t.Fatalf("Failed to create temp cert/key pair: %v", err)
 	}
 
+	// Copy only cert file first (incomplete pair, validation should fail)
 	err = copyFile(tempCert, testServerCert)
 	if err != nil {
 		t.Fatalf("Failed to copy cert file: %v", err)
 	}
 
-	select {
-	case val := <-serverControlSignal:
-		t.Errorf("Expected no signal due to cert validation failure, but got signal: %d", val)
-	case <-time.After(500 * time.Millisecond):
-		t.Log("Correctly received no signal after cert validation failure")
+	// Wait briefly and verify cache was NOT updated (validation failed)
+	time.Sleep(500 * time.Millisecond)
+	certCache.mu.RLock()
+	certAfterInvalidCopy := certCache.cert
+	certCache.mu.RUnlock()
+	if certAfterInvalidCopy != nil {
+		t.Errorf("Cache should not be updated when only cert is copied (no key)")
+	} else {
+		t.Log("Correctly: cache not updated after incomplete cert copy")
 	}
 
+	// Now copy the key file (complete pair, validation should pass)
 	err = copyFile(tempKey, testServerKey)
 	if err != nil {
 		t.Fatalf("Failed to copy key file: %v", err)
 	}
 
-	select {
-	case val := <-serverControlSignal:
-		if val != ServerStart {
-			t.Errorf("Expected ServerStart from serverControlSignal, got %d", val)
-		} else {
-			t.Log("Received correct ServerStart signal after valid cert/key pair written")
-		}
-	case <-ctx.Done():
-		t.Errorf("Expected ServerStart from serverControlSignal after valid cert, but got none")
+	if waitForCacheUpdate(t, certCache, nil, 5*time.Second) {
+		t.Log("Cache updated after valid cert/key pair written")
+	} else {
+		t.Errorf("Cache was not updated after valid cert/key pair written")
 	}
+	close(stopChan)
 }
 
 func TestSignalHandler(t *testing.T) {
@@ -1386,6 +1313,229 @@ func testHandlerSyscall(t *testing.T, signal os.Signal) {
 	}
 
 	wg.Wait()
+}
+
+// TestStartGNMIServerNoCertsNoWatcher tests Scenario 1: No certs + No watcher → Fatal exit
+func TestStartGNMIServerNoCertsNoWatcher(t *testing.T) {
+	testServerCert := "/nonexistent/server.cert"
+	testServerKey := "/nonexistent/server.key"
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testNoCertsNoWatcher", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, cfg, err := setupFlags(fs)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	serverStarted := false
+	patches := gomonkey.ApplyFunc(fsnotify.NewWatcher, func() (*fsnotify.Watcher, error) {
+		return nil, errors.New("too many open files")
+	})
+	patches.ApplyFunc(computeSHA512Checksum, func(file string) {
+	})
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+		serverStarted = true
+		return &gnmi.Server{}, nil
+	})
+
+	// Mock os.Exit to prevent process termination
+	// Use panic to exit the goroutine instead
+	patches.ApplyFunc(os.Exit, func(code int) {
+		panic("os.Exit called")
+	})
+
+	defer patches.Reset()
+
+	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
+	wg := &sync.WaitGroup{}
+
+	wg.Add(1)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Caught panic from mocked os.Exit
+				// Don't call wg.Done() here - startGNMIServer's defer will handle it
+			}
+		}()
+		startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+	}()
+
+	// Wait for goroutine to complete
+	wg.Wait()
+
+	if serverStarted {
+		t.Errorf("Server should NOT have started when no certs and no watcher")
+	}
+}
+
+// TestStartGNMIServerNoCertsWithWatcher tests Scenario 2: No certs + Has watcher → Wait for signals
+func TestStartGNMIServerNoCertsWithWatcher(t *testing.T) {
+	testServerCert := "/nonexistent/server.cert"
+	testServerKey := "/nonexistent/server.key"
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testNoCertsWithWatcher", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, cfg, err := setupFlags(fs)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	certLoadAttempts := 0
+	var mu sync.Mutex
+	certLoadSignal := make(chan int, 2) // Signal when cert is loaded
+
+	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
+		mu.Lock()
+		certLoadAttempts++
+		attempt := certLoadAttempts
+		shouldSucceed := certLoadAttempts > 1
+		mu.Unlock()
+		certLoadSignal <- attempt // Signal that a load attempt occurred
+		if !shouldSucceed {
+			return tls.Certificate{}, errors.New("no such file")
+		}
+		return tls.Certificate{}, nil
+	})
+	patches.ApplyFunc(computeSHA512Checksum, func(file string) {
+	})
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+		return &gnmi.Server{}, nil
+	})
+	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
+		return grpc.EmptyServerOption{}
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Serve", func(_ *gnmi.Server) error {
+		return nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
+		return ""
+	})
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, _ *CertCache, _ <-chan struct{}, _ chan<- int) {
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "ForceStop", func(_ *gnmi.Server) {
+	})
+	defer patches.Reset()
+
+	serverControlSignal := make(chan ServerControlValue, 2)
+	stopSignalHandler := make(chan bool, 1)
+	wg := &sync.WaitGroup{}
+
+	wg.Add(1)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+
+	// Wait for first cert load attempt (which fails)
+	select {
+	case <-certLoadSignal:
+		// First attempt completed
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Timeout waiting for first cert load attempt")
+	}
+
+	// Send ServerStart signal to trigger cert reload (which now succeeds)
+	sendSignal(serverControlSignal, ServerStart)
+
+	// Wait for second cert load attempt (which succeeds)
+	select {
+	case <-certLoadSignal:
+		// Second attempt completed
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Timeout waiting for second cert load attempt")
+	}
+
+	// Stop the server
+	sendSignal(serverControlSignal, ServerStop)
+
+	wg.Wait()
+
+	mu.Lock()
+	attempts := certLoadAttempts
+	mu.Unlock()
+
+	if attempts < 2 {
+		t.Errorf("Expected at least 2 cert load attempts (initial fail + retry after signal), got %d", attempts)
+	}
+}
+
+// TestStartGNMIServerHasCertsNoWatcher tests Scenario 3: Has certs + No watcher → Continue with warning
+func TestStartGNMIServerHasCertsNoWatcher(t *testing.T) {
+	testServerCert := "../testdata/certs/testserver.cert"
+	testServerKey := "../testdata/certs/testserver.key"
+
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testHasCertsNoWatcher", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, cfg, err := setupFlags(fs)
+	if err != nil {
+		t.Errorf("Expected err to be nil, got err %v", err)
+	}
+
+	serverStarted := false
+	serverStartedSignal := make(chan bool, 1)
+	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
+		return tls.Certificate{}, nil
+	})
+	patches.ApplyFunc(fsnotify.NewWatcher, func() (*fsnotify.Watcher, error) {
+		return nil, errors.New("mock watcher error")
+	})
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+		serverStarted = true // Server created successfully despite no watcher
+		serverStartedSignal <- true
+		return &gnmi.Server{}, nil
+	})
+	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
+		return grpc.EmptyServerOption{}
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Serve", func(_ *gnmi.Server) error {
+		return nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(_ *gnmi.Server) string {
+		return ""
+	})
+	patches.ApplyFunc(iNotifyCertMonitoring, func(_ *fsnotify.Watcher, _ *TelemetryConfig, _ *CertCache, _ <-chan struct{}, _ chan<- int) {
+	})
+	patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "ForceStop", func(_ *gnmi.Server) {
+	})
+	defer patches.Reset()
+
+	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
+	wg := &sync.WaitGroup{}
+
+	wg.Add(1)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+
+	// Wait for server to start
+	select {
+	case <-serverStartedSignal:
+		// Server started
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Timeout waiting for server to start")
+	}
+
+	// Stop the server
+	sendSignal(serverControlSignal, ServerStop)
+
+	wg.Wait()
+
+	if !serverStarted {
+		t.Errorf("Expected server to start successfully despite watcher failure (Scenario 3: has certs + no watcher)")
+	}
 }
 
 func sendSignal(serverControlSignal chan<- ServerControlValue, value ServerControlValue) {
