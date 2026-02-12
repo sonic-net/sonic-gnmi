@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
-	// "runtime"
 	"sync"
 	"testing"
 	"time"
@@ -831,29 +830,23 @@ func TestMain(m *testing.M) {
 // This is required because sonic-dash-ha subscribes to DASH_HA_ tables
 // using SubscriberStateTable.
 func TestGetTableDashHA(t *testing.T) {
-	// runtime.LockOSThread()
-	// defer runtime.UnlockOSThread()
-
 	if !swsscommon.SonicDBConfigIsInit() {
 		swsscommon.SonicDBConfigInitialize()
 	}
 
 	// Create ZMQ server and client
 	zmqServer := swsscommon.NewZmqServer("tcp://*:3234")
-	defer swsscommon.DeleteZmqServer(zmqServer)
 	zmqAddress := "tcp://127.0.0.1:3234"
-
 	zmqClient := swsscommon.NewZmqClient(zmqAddress)
-	defer swsscommon.DeleteZmqClient(zmqClient)
+	applDB := swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false)
 
 	client := MixedDbClient{
-		applDB:        swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
+		applDB:        applDB,
 		tableMap:      map[string]swsscommon.ProducerStateTable{},
 		zmqTableMap:   map[string]swsscommon.ZmqProducerStateTable{},
 		plainTableMap: map[string]swsscommon.Table{},
 		zmqClient:     zmqClient,
 	}
-	defer client.Close()
 
 	// Test DASH_ROUTE table - should use ZmqProducerStateTable
 	_ = client.GetTable("DASH_ROUTE")
@@ -894,16 +887,38 @@ func TestGetTableDashHA(t *testing.T) {
 		t.Errorf("DASH_HA_SCOPE_CONFIG_TABLE should not use ZmqProducerStateTable")
 	}
 
-	// // Test DbSetTable for DASH_HA_ table - should use Table.Set
-	// testData := map[string]string{"field1": "value1", "field2": "value2"}
-	// err := client.DbSetTable("DASH_HA_SET_CONFIG_TABLE", "test_key", testData)
-	// if err != nil {
-	// 	t.Errorf("DbSetTable for DASH_HA_SET_CONFIG_TABLE failed: %v", err)
-	// }
+	// Test DbSetTable for DASH_HA_ table - should use Table.Set
+	testData := map[string]string{"field1": "value1", "field2": "value2"}
+	err := client.DbSetTable("DASH_HA_SET_CONFIG_TABLE", "test_key", testData)
+	if err != nil {
+		t.Errorf("DbSetTable for DASH_HA_SET_CONFIG_TABLE failed: %v", err)
+	}
 
-	// // Test DbDelTable for DASH_HA_ table - should use Table.Delete
-	// err = client.DbDelTable("DASH_HA_SET_CONFIG_TABLE", "test_key")
-	// if err != nil {
-	// 	t.Errorf("DbDelTable for DASH_HA_SET_CONFIG_TABLE failed: %v", err)
-	// }
+	// Test DbDelTable for DASH_HA_ table - should use Table.Delete
+	err = client.DbDelTable("DASH_HA_SET_CONFIG_TABLE", "test_key")
+	if err != nil {
+		t.Errorf("DbDelTable for DASH_HA_SET_CONFIG_TABLE failed: %v", err)
+	}
+
+	// Cleanup in reverse order of dependencies:
+	// 1. Delete ZmqProducerStateTable entries (they reference both applDB and zmqClient)
+	for _, zmqTable := range client.zmqTableMap {
+		swsscommon.DeleteZmqProducerStateTable(zmqTable)
+	}
+	client.zmqTableMap = map[string]swsscommon.ZmqProducerStateTable{}
+
+	// 2. Delete Table entries (they reference applDB)
+	for _, plainTable := range client.plainTableMap {
+		plainTable.Flush()
+		swsscommon.DeleteTable(plainTable)
+	}
+	client.plainTableMap = map[string]swsscommon.Table{}
+
+	// 3. Delete applDB
+	swsscommon.DeleteDBConnector(applDB)
+	client.applDB = nil
+
+	// 4. Delete ZMQ client and server
+	swsscommon.DeleteZmqClient(zmqClient)
+	swsscommon.DeleteZmqServer(zmqServer)
 }
