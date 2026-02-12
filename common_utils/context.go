@@ -48,6 +48,8 @@ const (
 	GNOI_HEALTHZ_ACK
 	GNOI_HEALTHZ_CHECK
 	GNOI_HEALTHZ_COLLECT
+	GNSI_CREDZ_SET
+	GNSI_CREDZ_CHECKPOINT
 	DBUS
 	DBUS_FAIL
 	DBUS_APPLY_PATCH_DB
@@ -92,6 +94,10 @@ func (c CounterType) String() string {
 		return "GNOI Healthz Check"
 	case GNOI_HEALTHZ_COLLECT:
 		return "GNOI Healthz Collect"
+	case GNSI_CREDZ_SET:
+		return "GNSI Credz Set"
+	case GNSI_CREDZ_CHECKPOINT:
+		return "GNSI Credz Checkpoint"
 	case DBUS:
 		return "DBUS"
 	case DBUS_FAIL:

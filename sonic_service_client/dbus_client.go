@@ -1,6 +1,7 @@
 package host_service
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
@@ -49,13 +50,47 @@ type Service interface {
 	// Docker services APIs
 	LoadDockerImage(image string) error
 	InstallOS(req string) (string, error)
+	//Credentialz service APIs
+	SSHMgmtSet(cmd string) error
+	GLOMEConfigSet(ctx context.Context, cmd string) error
+	SSHCheckpoint(action CredzCheckpointAction) error
+	GLOMERestoreCheckpoint(ctx context.Context) error
+	ConsoleSet(cmd string) error
+	ConsoleCheckpoint(action CredzCheckpointAction) error
 }
+
+type CredzCheckpointAction string
+
+const (
+	CredzCPCreate        CredzCheckpointAction = ".create_checkpoint"
+	CredzCPDelete        CredzCheckpointAction = ".delete_checkpoint"
+	CredzCPRestore       CredzCheckpointAction = ".restore_checkpoint"
+	CredzGlomePushConfig CredzCheckpointAction = ".push_config"
+	NamePrefix                                 = "org.SONiC.HostService."
+	PathPrefix                                 = "/org/SONiC/HostService/"
+)
 
 type DbusClient struct {
 	busNamePrefix string
 	busPathPrefix string
 	intNamePrefix string
 	channel       chan struct{}
+}
+
+type Caller interface {
+	DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error)
+}
+
+type DbusCaller struct{}
+
+type FakeDbusCaller struct {
+	Msg string
+}
+
+type FailDbusCaller struct{}
+
+type SpyDbusCaller struct {
+	Command chan []string
 }
 
 func NewDbusClient() (Service, error) {
@@ -78,6 +113,81 @@ func (c *DbusClient) Close() error {
 		close(c.channel)
 	}
 	return nil
+}
+
+func (_ *FailDbusCaller) DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error) {
+	return "", fmt.Errorf("%v %v", intName, args)
+}
+
+func (c *SpyDbusCaller) DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error) {
+	resp := []string{intName}
+	for _, el := range args {
+		resp = append(resp, fmt.Sprintf("%v", el))
+	}
+	c.Command <- resp
+	return "", nil
+}
+
+func (_ *DbusCaller) DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error) {
+	common_utils.IncCounter(common_utils.DBUS)
+	conn, err := dbus.SystemBus()
+	log.V(2).Infof("DBUS Call: %v %v", intName, args)
+	if err != nil {
+		log.V(2).Infof("Failed to connect to system bus: %v", err)
+		common_utils.IncCounter(common_utils.DBUS_FAIL)
+		return nil, err
+	}
+
+	ch := make(chan *dbus.Call, 1)
+	obj := conn.Object(busName, dbus.ObjectPath(busPath))
+	obj.Go(intName, 0, ch, args...)
+
+	select {
+	case call := <-ch:
+		if call.Err != nil {
+			common_utils.IncCounter(common_utils.DBUS_FAIL)
+			return nil, call.Err
+		}
+		result := call.Body
+		if len(result) == 0 {
+			common_utils.IncCounter(common_utils.DBUS_FAIL)
+			return nil, fmt.Errorf("Dbus result is empty %v", result)
+		}
+		if ret, ok := result[0].(int32); ok {
+			if ret == 0 {
+				if len(result) != 2 {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return nil, fmt.Errorf("Dbus result is invalid %v", result)
+				}
+				if _, ok := result[1].(string); !ok {
+					return nil, fmt.Errorf("Dbus result is invalid: second element is not string.")
+				}
+				return result[1], nil
+			} else {
+				if len(result) != 2 {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return nil, fmt.Errorf("Dbus result is invalid %v", result)
+				}
+				if msg, check := result[1].(string); check {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return nil, fmt.Errorf(msg)
+				} else if msg, check := result[1].(map[string]string); check {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return nil, fmt.Errorf(msg["error"])
+				} else {
+					common_utils.IncCounter(common_utils.DBUS_FAIL)
+					return nil, fmt.Errorf("Invalid result message type %v %v", result[1], reflect.TypeOf(result[1]))
+				}
+			}
+		} else {
+			common_utils.IncCounter(common_utils.DBUS_FAIL)
+			return nil, fmt.Errorf("Invalid result type %v %v", result[0], reflect.TypeOf(result[0]))
+		}
+	case <-time.After(time.Duration(timeout) * time.Second):
+		log.V(2).Infof("DbusApi: timeout")
+		common_utils.IncCounter(common_utils.DBUS_FAIL)
+		return nil, fmt.Errorf("Timeout %v", timeout)
+	}
 }
 
 func DbusApi(busName string, busPath string, intName string, timeout int, args ...interface{}) (interface{}, error) {
@@ -423,4 +533,97 @@ func (c *DbusClient) HealthzAck(req string) (string, error) {
 		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
 	}
 	return strResult, nil
+}
+
+func (c *DbusClient) ConsoleSet(cmd string) error {
+	modName := "gnsi_console"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".set"
+
+	common_utils.IncCounter(common_utils.GNSI_CREDZ_SET)
+	_, err := DbusApi(busName, busPath, intName, 10, []string{cmd})
+	return err
+}
+
+func (c *DbusClient) SSHMgmtSet(cmd string) error {
+	modName := "ssh_mgmt"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + ".set"
+
+	common_utils.IncCounter(common_utils.GNSI_CREDZ_SET)
+	_, err := DbusApi(busName, busPath, intName, 10, []string{cmd})
+	return err
+}
+
+// GLOMEConfigSet is used to write the GLOME config in the host service file system.
+func (c *DbusClient) GLOMEConfigSet(ctx context.Context, cmd string) error {
+	modName := "glome"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + string(CredzGlomePushConfig)
+
+	common_utils.IncCounter(common_utils.GNSI_CREDZ_SET)
+	timeout := 10 // Default timeout in seconds.
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return context.DeadlineExceeded
+		}
+		timeout = int(remaining.Seconds())
+		if timeout > 10 {
+			timeout = 10
+		}
+	}
+	_, err := DbusApi(busName, busPath, intName, timeout, cmd)
+	return err
+}
+
+func (c *DbusClient) ConsoleCheckpoint(action CredzCheckpointAction) error {
+	modName := "gnsi_console"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + string(action)
+
+	common_utils.IncCounter(common_utils.GNSI_CREDZ_CHECKPOINT)
+	_, err := DbusApi(busName, busPath, intName, 10, "")
+	return err
+}
+
+func (c *DbusClient) SSHCheckpoint(action CredzCheckpointAction) error {
+	modName := "ssh_mgmt"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + string(action)
+
+	common_utils.IncCounter(common_utils.GNSI_CREDZ_CHECKPOINT)
+	_, err := DbusApi(busName, busPath, intName, 10, "")
+	return err
+}
+
+// GLOMERestoreCheckpoint is used to restore the GLOME config metadata to the
+// checkpoint state. This is used to rollback the GLOME config in the host
+// service file system.
+func (c *DbusClient) GLOMERestoreCheckpoint(ctx context.Context) error {
+	modName := "glome"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + string(CredzCPRestore)
+
+	common_utils.IncCounter(common_utils.GNSI_CREDZ_CHECKPOINT)
+	// Default timeout in seconds. Set to 5 minutes to give enough time for rollback.
+	timeout := 300
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return context.DeadlineExceeded
+		}
+		timeout = int(remaining.Seconds())
+		if timeout > 10 {
+			timeout = 10
+		}
+	}
+	_, err := DbusApi(busName, busPath, intName, timeout)
+	return err
 }
