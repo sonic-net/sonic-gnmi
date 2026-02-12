@@ -41,6 +41,7 @@ const (
 type TelemetryConfig struct {
 	UserAuth              gnmi.AuthTypes
 	Port                  *int
+	UnixSocket            *string
 	LogLevel              *int
 	CaCert                *string
 	ServerCert            *string
@@ -156,6 +157,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	telemetryCfg := &TelemetryConfig{
 		UserAuth:              gnmi.AuthTypes{"password": false, "cert": false, "jwt": false},
 		Port:                  fs.Int("port", -1, "port to listen on"),
+		UnixSocket:            fs.String("unix_socket", "", "Unix socket path to listen on (only used if port <= 0)"),
 		LogLevel:              fs.Int("v", 2, "log level of process"),
 		CaCert:                fs.String("ca_crt", "", "CA certificate for client certificate validation. Optional."),
 		ServerCert:            fs.String("server_crt", "", "TLS server certificate"),
@@ -199,8 +201,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	}
 
 	switch {
-	case *telemetryCfg.Port <= 0:
-		return nil, nil, fmt.Errorf("port must be > 0.")
+	case *telemetryCfg.Port <= 0 && *telemetryCfg.UnixSocket == "":
+		return nil, nil, fmt.Errorf("port must be > 0 (or specify --unix_socket).")
 	}
 
 	switch {
@@ -234,6 +236,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*telemetryCfg.Port)
+	cfg.UnixSocket = *telemetryCfg.UnixSocket
 	cfg.EnableTranslibWrite = bool(*telemetryCfg.GnmiTranslibWrite)
 	cfg.EnableNativeWrite = bool(*telemetryCfg.GnmiNativeWrite)
 	cfg.LogLevel = int(*telemetryCfg.LogLevel)

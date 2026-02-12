@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -139,6 +140,64 @@ func TestFlags(t *testing.T) {
 		if *config.LogLevel != test.expectedLogLevel {
 			t.Errorf("Expected log_level to be %d, got %d", test.expectedLogLevel, *config.LogLevel)
 		}
+	}
+}
+
+func TestFlagsPortValidation(t *testing.T) {
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	tests := []struct {
+		name        string
+		args        []string
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "port <= 0 without unix_socket should error",
+			args:        []string{"cmd", "-port", "0", "-noTLS"},
+			expectError: true,
+			errorMsg:    "port must be > 0 (or specify --unix_socket)",
+		},
+		{
+			name:        "negative port without unix_socket should error",
+			args:        []string{"cmd", "-port", "-1", "-noTLS"},
+			expectError: true,
+			errorMsg:    "port must be > 0 (or specify --unix_socket)",
+		},
+		{
+			name:        "port <= 0 with unix_socket should succeed",
+			args:        []string{"cmd", "-port", "-1", "-unix_socket", "/tmp/gnmi_test.sock", "-noTLS"},
+			expectError: false,
+		},
+		{
+			name:        "valid port without unix_socket should succeed",
+			args:        []string{"cmd", "-port", "8080", "-noTLS"},
+			expectError: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fs := flag.NewFlagSet("testPortValidation", flag.ContinueOnError)
+			os.Args = test.args
+
+			_, _, err := setupFlags(fs)
+
+			if test.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got nil")
+				} else if !strings.Contains(err.Error(), test.errorMsg) {
+					t.Errorf("Expected error containing %q, got %q", test.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error but got: %v", err)
+				}
+			}
+		})
 	}
 }
 
