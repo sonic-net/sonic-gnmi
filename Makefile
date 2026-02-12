@@ -113,7 +113,7 @@ endif
 
 # download and apply patch for gnmi client, which will break advancetls
 # backup crypto and gnxi
-	mkdir backup_crypto
+	mkdir -p backup_crypto
 	cp -r vendor/golang.org/x/crypto/* backup_crypto/
 
 # download and patch crypto and gnxi
@@ -377,6 +377,7 @@ endif
 clean:
 	$(RM) -r build
 	$(RM) -r vendor
+	$(RM) -r backup_crypto
 
 # File target that generates a diff file if formatting is incorrect
 $(FORMAT_CHECK): $(GO_FILES)
