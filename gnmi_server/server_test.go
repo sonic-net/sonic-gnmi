@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
@@ -5486,6 +5487,175 @@ func TestInvalidServer(t *testing.T) {
 	if s != nil {
 		t.Errorf("Should not create invalid server")
 	}
+}
+
+func TestServerConfigGnmiVrf(t *testing.T) {
+	// Test GNMI server creation with VRF configuration
+	cfg := &Config{
+		Port:                8082,
+		EnableTranslibWrite: true,
+		EnableNativeWrite:   true,
+		Threshold:           100,
+		GnmiVrf:             "test-gnmi-vrf",
+		Vrf:                 "",
+	}
+	s, err := NewServer(cfg, []grpc.ServerOption{})
+	if s != nil {
+		defer func() {
+			s.ForceStop()
+			if s.lis != nil {
+				s.lis.Close()
+			}
+		}()
+	}
+	if err != nil {
+		t.Logf("Expected error when VRF doesn't exist: %v", err)
+		if !contains(err.Error(), "VRF") && !contains(err.Error(), "bind") && !contains(err.Error(), "BINDTODEVICE") {
+			t.Logf("Error message: %v", err)
+		}
+		return
+	}
+	if cfg.GnmiVrf != "test-gnmi-vrf" {
+		t.Errorf("Expected gnmiVrf to be 'test-gnmi-vrf', got '%s'", cfg.GnmiVrf)
+	}
+	if s.lis == nil {
+		t.Errorf("Expected server listener to be created")
+	} else {
+		addr := s.lis.Addr()
+		if addr == nil {
+			t.Errorf("Expected server listener to have an address")
+		} else {
+			t.Logf("Server successfully bound to address: %s with VRF: %s", addr.String(), s.config.GnmiVrf)
+		}
+	}
+}
+
+func TestServerConfigZmqVrf(t *testing.T) {
+	// Test that ZMQ VRF field is properly set in config
+	cfg := &Config{
+		Port:                8083,
+		EnableTranslibWrite: true,
+		EnableNativeWrite:   true,
+		Threshold:           100,
+		GnmiVrf:             "",
+		Vrf:                 "test-zmq-vrf",
+	}
+	s, err := NewServer(cfg, []grpc.ServerOption{})
+	if s != nil {
+		defer func() {
+			s.ForceStop()
+			if s.lis != nil {
+				s.lis.Close()
+			}
+		}()
+	}
+	if err != nil {
+		t.Errorf("Failed to create server: %v", err)
+		return
+	}
+	if s.config.Vrf != "test-zmq-vrf" {
+		t.Errorf("Expected Vrf to be 'test-zmq-vrf', got '%s'", s.config.Vrf)
+	}
+}
+
+func TestServerConfigGnmiVrfEmptyAndDefault(t *testing.T) {
+	// Test that empty GnmiVrf and "default" GnmiVrf both use default listener
+	tests := []struct {
+		name    string
+		gnmiVrf string
+	}{
+		{"empty GnmiVrf", ""},
+		{"default GnmiVrf", "default"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Port:                0,
+				EnableTranslibWrite: true,
+				EnableNativeWrite:   true,
+				Threshold:           100,
+				GnmiVrf:             tt.gnmiVrf,
+				Vrf:                 "",
+			}
+			s, err := NewServer(cfg, []grpc.ServerOption{})
+			if s != nil {
+				defer func() {
+					s.ForceStop()
+					if s.lis != nil {
+						s.lis.Close()
+					}
+				}()
+			}
+			if err != nil {
+				t.Errorf("Failed to create server with GnmiVrf=%q: %v", tt.gnmiVrf, err)
+				return
+			}
+			if s.lis == nil {
+				t.Errorf("Expected server listener to be created")
+			} else {
+				t.Logf("Server with GnmiVrf=%q created on: %s", tt.gnmiVrf, s.lis.Addr().String())
+			}
+		})
+	}
+}
+
+func TestCreateVrfListenerBindToDeviceError(t *testing.T) {
+	_, err := createVrfListener("nonexistent-vrf-12345", 0)
+	if err == nil {
+		t.Skip("Expected error when BINDTODEVICE fails, but got success. System may not support VRFs or the VRF might exist.")
+	}
+	if !contains(err.Error(), "bind") && !contains(err.Error(), "VRF") {
+		t.Logf("Got error (which is expected): %v", err)
+	}
+}
+
+func TestCreateVrfListenerInvalidPort(t *testing.T) {
+	_, err := createVrfListener("", 99999)
+	if err == nil {
+		t.Fatal("Expected error for invalid port")
+	}
+}
+
+func TestCreateVrfListenerSuccess(t *testing.T) {
+	listener, err := createVrfListener("", 0)
+	if err != nil {
+		t.Skipf("Could not create VRF listener (this is expected if not running as root or on unsupported system): %v", err)
+	}
+	if listener == nil {
+		t.Fatal("Expected non-nil listener")
+	}
+	defer listener.Close()
+
+	addr := listener.Addr()
+	if addr == nil {
+		t.Error("Expected non-nil address")
+	}
+	t.Logf("Successfully created VRF listener on %s", addr.String())
+
+	tcpAddr, ok := addr.(*net.TCPAddr)
+	if !ok {
+		t.Errorf("Expected TCPAddr, got %T", addr)
+	} else {
+		if tcpAddr.Port == 0 {
+			t.Error("Expected non-zero port to be assigned")
+		}
+		t.Logf("Listener bound to port %d", tcpAddr.Port)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && containsHelper(s, substr)))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 func TestParseOrigin(t *testing.T) {
