@@ -56,12 +56,17 @@ type TelemetryConfig struct {
 	GnmiTranslibWrite     *bool
 	GnmiNativeWrite       *bool
 	Threshold             *int
+	StreamingThreshold    *int
+	UnaryThreshold        *int
 	WithMasterArbitration *bool
 	WithSaveOnSet         *bool
 	IdleConnDuration      *int
 	Vrf                   *string
 	EnableCrl             *bool
 	CrlExpireDuration     *int
+	CertCRLConfig         *string
+	IntManFile            *string
+	CertzMetaFile         *string
 	ImgDirPath            *string
 }
 
@@ -157,9 +162,6 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		UserAuth:              gnmi.AuthTypes{"password": false, "cert": false, "jwt": false},
 		Port:                  fs.Int("port", -1, "port to listen on"),
 		LogLevel:              fs.Int("v", 2, "log level of process"),
-		CaCert:                fs.String("ca_crt", "", "CA certificate for client certificate validation. Optional."),
-		ServerCert:            fs.String("server_crt", "", "TLS server certificate"),
-		ServerKey:             fs.String("server_key", "", "TLS server private key"),
 		ConfigTableName:       fs.String("config_table_name", "", "Config table name"),
 		ZmqAddress:            fs.String("zmq_address", "", "Orchagent ZMQ address, deprecated, please use zmq_port."),
 		ZmqPort:               fs.String("zmq_port", "", "Orchagent ZMQ port, when not set or empty string telemetry server will switch to Redis based communication channel."),
@@ -178,6 +180,12 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
 		CrlExpireDuration:     fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
 		ImgDirPath:            fs.String("img_dir", "/tmp/host_tmp", "Directory path where image will be transferred."),
+		CaCert:                fs.String("ca_crt", "", "CA certificate for client certificate validation. Optional."),
+		ServerCert:            fs.String("server_crt", "", "TLS server certificate"),
+		ServerKey:             fs.String("server_key", "", "TLS server private key"),
+		IntManFile:            fs.String("integrity_manifest_file", "", "Full path name of integrity manifest file."),
+		CertCRLConfig:         fs.String("cert_crl_dir", "", "CRL directory. Disable if empty."),
+		CertzMetaFile:         fs.String("grpc_meta", "/keys/grpc-version.json", "gRPC credentials metadata JSON file"),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -242,6 +250,16 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.ConfigTableName = *telemetryCfg.ConfigTableName
 	cfg.Vrf = *telemetryCfg.Vrf
 	cfg.EnableCrl = *telemetryCfg.EnableCrl
+	cfg.CaCertLnk = "/keys/ca_cert.lnk"
+	cfg.CaCertFile = string(*telemetryCfg.CaCert)
+	cfg.SrvCertLnk = "/keys/server_cert.lnk"
+	cfg.SrvCertFile = string(*telemetryCfg.ServerCert)
+	cfg.SrvKeyLnk = "/keys/server_key.lnk"
+	cfg.SrvKeyFile = string(*telemetryCfg.ServerKey)
+	cfg.CertCRLConfig = string(*telemetryCfg.CertCRLConfig)
+	cfg.IntManFile = string(*telemetryCfg.IntManFile)
+	cfg.CertzMetaFile = string(*telemetryCfg.CertzMetaFile)
+	//cfg.OSCfg = oscfg
 
 	gnmi.SetCrlExpireDuration(time.Duration(*telemetryCfg.CrlExpireDuration) * time.Second)
 
@@ -259,6 +277,22 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 
 	// Populate the OS-related fields directly on the gnmi.Config struct.
 	cfg.ImgDir = *telemetryCfg.ImgDirPath
+	if *telemetryCfg.CaCert != "" {
+		cfg.CaCertLnk = filepath.Dir(*telemetryCfg.CaCert) + "/ca_cert.lnk"
+	}
+	if *telemetryCfg.ServerCert != "" {
+		cfg.SrvCertLnk = filepath.Dir(*telemetryCfg.ServerCert) + "/server_cert.lnk"
+	}
+	if *telemetryCfg.ServerKey != "" {
+		cfg.SrvKeyLnk = filepath.Dir(*telemetryCfg.ServerKey) + "/server_key.lnk"
+	}
+	if !*telemetryCfg.Insecure {
+		cfg.GetOptions = gnmi.SrvAdvConfig
+	}
+	if *telemetryCfg.CaCert == "" && telemetryCfg.UserAuth.Enabled("cert") {
+		telemetryCfg.UserAuth.Unset("cert")
+		log.V(2).Info("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
+	}
 
 	return telemetryCfg, cfg, nil
 }
