@@ -251,10 +251,10 @@ junit-xml: clean
 	fi
 	@echo "Installing gocov tools for coverage conversion..."
 	@if ! command -v gocov >/dev/null 2>&1; then \
-		$(GO) install github.com/axw/gocov/gocov@latest; \
+		$(GO) install github.com/axw/gocov/gocov@v1.1.0; \
 	fi
 	@if ! command -v gocov-xml >/dev/null 2>&1; then \
-		$(GO) install github.com/AlekSi/gocov-xml@latest; \
+		$(GO) install github.com/AlekSi/gocov-xml@v1.1.0; \
 	fi
 	@echo "Running pure package tests with JUnit XML output..."
 	@mkdir -p test-results
