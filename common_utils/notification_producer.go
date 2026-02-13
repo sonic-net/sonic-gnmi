@@ -1,12 +1,14 @@
 package common_utils
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
-	"github.com/go-redis/redis"
-	log "github.com/golang/glog"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+
+	log "github.com/golang/glog"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -35,7 +37,7 @@ func GetRedisDBClient() (*redis.Client, error) {
 	if rclient == nil {
 		return nil, fmt.Errorf("Cannot create redis client.")
 	}
-	if _, err := rclient.Ping().Result(); err != nil {
+	if _, err := rclient.Ping(context.Background()).Result(); err != nil {
 		return nil, err
 	}
 	return rclient, nil
@@ -85,5 +87,5 @@ func (n *NotificationProducer) Send(op, data string, kvs map[string]string) erro
 		return err
 	}
 	log.Infof("Publishing to channel %s: %v.", n.ch, string(val))
-	return n.rc.Publish(n.ch, val).Err()
+	return n.rc.Publish(context.Background(), n.ch, val).Err()
 }
