@@ -87,6 +87,13 @@ stages:
         publishRunAttachments: true
         testRunTitle: 'Pure Package Tests'
 
+    - task: PublishCodeCoverageResults@1
+      displayName: 'Publish Pure Package Coverage'
+      condition: always()
+      inputs:
+        codeCoverageTool: Cobertura
+        summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/coverage-pure.xml'
+
   # Memory leak testing with address sanitizer
   - job: MemoryLeakJob
     displayName: "Memory Leak Tests"
