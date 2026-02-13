@@ -9,9 +9,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/go-redis/redis"
 	"github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -153,7 +153,7 @@ func checkSKU() bool {
 	}
 	defer rclient.Close()
 
-	hwsku, err := rclient.HGet(context.Background(), "DEVICE_METADATA|localhost", "hwsku").Result()
+	hwsku, err := rclient.HGet("DEVICE_METADATA|localhost", "hwsku").Result()
 	if err != nil {
 		glog.V(2).Infof("Bypass: failed to read SKU: %v", err)
 		return false
@@ -245,8 +245,8 @@ func Apply(ctx context.Context, prefix *gnmipb.Path, updates []*gnmipb.Update) e
 				if len(fields) == 0 {
 					fields["NULL"] = "NULL"
 				}
-				if _, err := rclient.HSet(context.Background(), redisKey, fields).Result(); err != nil {
-					return fmt.Errorf("bypass: HSet failed for %s: %v", redisKey, err)
+				if _, err := rclient.HMSet(redisKey, fields).Result(); err != nil {
+					return fmt.Errorf("bypass: HMSet failed for %s: %v", redisKey, err)
 				}
 				glog.V(2).Infof("Bypass: wrote %s with %d fields", redisKey, len(fields))
 			}
@@ -268,8 +268,8 @@ func Apply(ctx context.Context, prefix *gnmipb.Path, updates []*gnmipb.Update) e
 			if len(fields) == 0 {
 				fields["NULL"] = "NULL"
 			}
-			if _, err := rclient.HSet(context.Background(), redisKey, fields).Result(); err != nil {
-				return fmt.Errorf("bypass: HSet failed for %s: %v", redisKey, err)
+			if _, err := rclient.HMSet(redisKey, fields).Result(); err != nil {
+				return fmt.Errorf("bypass: HMSet failed for %s: %v", redisKey, err)
 			}
 			glog.V(2).Infof("Bypass: wrote %s with %d fields", redisKey, len(fields))
 			continue
@@ -285,7 +285,7 @@ func Apply(ctx context.Context, prefix *gnmipb.Path, updates []*gnmipb.Update) e
 			} else if v := val.GetUintVal(); v != 0 {
 				strVal = fmt.Sprintf("%d", v)
 			}
-			if _, err := rclient.HSet(context.Background(), redisKey, field, strVal).Result(); err != nil {
+			if _, err := rclient.HSet(redisKey, field, strVal).Result(); err != nil {
 				return fmt.Errorf("bypass: HSet failed for %s.%s: %v", redisKey, field, err)
 			}
 			glog.V(2).Infof("Bypass: wrote %s.%s = %s", redisKey, field, strVal)
@@ -311,7 +311,7 @@ func Delete(ctx context.Context, prefix *gnmipb.Path, deletes []*gnmipb.Path) er
 		}
 
 		redisKey := table + "|" + key
-		if _, err := rclient.Del(context.Background(), redisKey).Result(); err != nil {
+		if _, err := rclient.Del(redisKey).Result(); err != nil {
 			return fmt.Errorf("bypass: Del failed for %s: %v", redisKey, err)
 		}
 		glog.V(2).Infof("Bypass: deleted %s", redisKey)

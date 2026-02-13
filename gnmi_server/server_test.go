@@ -3,10 +3,7 @@ package gnmi
 // server_test covers gNMI get, subscribe (stream and poll) test
 // Prerequisite: redis-server should be running.
 import (
-	"context"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -23,18 +20,19 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/sonic-net/sonic-gnmi/common_utils"
-	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
+	"crypto/x509"
+	"crypto/x509/pkix"
+
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
-	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
+	"github.com/go-redis/redis"
 	"github.com/golang/protobuf/proto"
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/openconfig/gnmi/client"
@@ -42,8 +40,8 @@ import (
 	ext_pb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	"github.com/openconfig/gnmi/value"
 	"github.com/openconfig/ygot/ygot"
-	"github.com/redis/go-redis/v9"
 
+	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -63,6 +61,8 @@ import (
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -87,7 +87,7 @@ func loadDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{}) {
 	for key, fv := range mpi {
 		switch fv.(type) {
 		case map[string]interface{}:
-			_, err := rclient.HMSet(context.Background(), key, fv.(map[string]interface{})).Result()
+			_, err := rclient.HMSet(key, fv.(map[string]interface{})).Result()
 			if err != nil {
 				t.Errorf("Invalid data for db:  %v : %v %v", key, fv, err)
 			}
@@ -100,7 +100,7 @@ func loadDBNotStrict(t *testing.T, rclient *redis.Client, mpi map[string]interfa
 	for key, fv := range mpi {
 		switch fv.(type) {
 		case map[string]interface{}:
-			rclient.HMSet(context.Background(), key, fv.(map[string]interface{})).Result()
+			rclient.HMSet(key, fv.(map[string]interface{})).Result()
 
 		}
 	}
@@ -546,7 +546,7 @@ func getRedisClientN(t *testing.T, n int, namespace string) *redis.Client {
 		DB:          n,
 		DialTimeout: 0,
 	})
-	_, err = rclient.Ping(context.Background()).Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -569,7 +569,7 @@ func getRedisClient(t *testing.T, namespace string) *redis.Client {
 		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err = rclient.Ping(context.Background()).Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -592,7 +592,7 @@ func getConfigDbClient(t *testing.T, namespace string) *redis.Client {
 		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err = rclient.Ping(context.Background()).Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -603,7 +603,7 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 	for key, fv := range mpi {
 		switch fv.(type) {
 		case map[string]interface{}:
-			_, err := rclient.HMSet(context.Background(), key, fv.(map[string]interface{})).Result()
+			_, err := rclient.HMSet(key, fv.(map[string]interface{})).Result()
 			if err != nil {
 				t.Errorf("Invalid data for db: %v : %v %v", key, fv, err)
 			}
@@ -616,7 +616,7 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 func initFullConfigDb(t *testing.T, namespace string) {
 	rclient := getConfigDbClient(t, namespace)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
+	rclient.FlushDB()
 
 	fileName := "../testdata/CONFIG_DHCP_SERVER.txt"
 	config, err := ioutil.ReadFile(fileName)
@@ -630,7 +630,7 @@ func initFullConfigDb(t *testing.T, namespace string) {
 func initFullCountersDb(t *testing.T, namespace string) {
 	rclient := getRedisClient(t, namespace)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
+	rclient.FlushDB()
 
 	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
@@ -825,7 +825,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 func prepareConfigDb(t *testing.T, namespace string) {
 	rclient := getConfigDbClient(t, namespace)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
+	rclient.FlushDB()
 
 	fileName := "../testdata/COUNTERS_PORT_ALIAS_MAP.txt"
 	countersPortAliasMapByte, err := ioutil.ReadFile(fileName)
@@ -846,8 +846,8 @@ func prepareConfigDb(t *testing.T, namespace string) {
 func prepareStateDb(t *testing.T, namespace string) {
 	rclient := getRedisClientN(t, 6, namespace)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
-	rclient.HSet(context.Background(), "SWITCH_CAPABILITY|switch", "test_field", "test_value")
+	rclient.FlushDB()
+	rclient.HSet("SWITCH_CAPABILITY|switch", "test_field", "test_value")
 	fileName := "../testdata/NEIGH_STATE_TABLE.txt"
 	neighStateTableByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -861,7 +861,7 @@ func prepareStateDb(t *testing.T, namespace string) {
 func prepareDb(t *testing.T, namespace string) {
 	rclient := getRedisClient(t, namespace)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
+	rclient.FlushDB()
 	//Enable keysapce notification
 	os.Setenv("PATH", "/usr/bin:/sbin:/bin:/usr/local/bin")
 	cmd := exec.Command("redis-cli", "config", "set", "notify-keyspace-events", "KEA")
@@ -1093,7 +1093,7 @@ func prepareDb(t *testing.T, namespace string) {
 func prepareDbTranslib(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClient(t, ns)
-	rclient.FlushDB(context.Background())
+	rclient.FlushDB()
 	rclient.Close()
 
 	//Enable keysapce notification
@@ -3761,9 +3761,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		for _, prepare := range tt.prepares {
 			switch prepare.op {
 			case "hdel":
-				rclient.HDel(context.Background(), prepare.tableName+prepare.delimitor+prepare.tableKey, prepare.field)
+				rclient.HDel(prepare.tableName+prepare.delimitor+prepare.tableKey, prepare.field)
 			default:
-				rclient.HSet(context.Background(), prepare.tableName+prepare.delimitor+prepare.tableKey, prepare.field, prepare.value)
+				rclient.HSet(prepare.tableName+prepare.delimitor+prepare.tableKey, prepare.field, prepare.value)
 			}
 		}
 
@@ -3818,11 +3818,11 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			for _, update := range tt.updates {
 				switch update.op {
 				case "hdel":
-					rclient.HDel(context.Background(), update.tableName+update.delimitor+update.tableKey, update.field)
+					rclient.HDel(update.tableName+update.delimitor+update.tableKey, update.field)
 				case "intervaltick":
 					// This is not a DB update but a request to trigger sample interval
 				default:
-					rclient.HSet(context.Background(), update.tableName+update.delimitor+update.tableKey, update.field, update.value)
+					rclient.HSet(update.tableName+update.delimitor+update.tableKey, update.field, update.value)
 				}
 
 				time.Sleep(time.Millisecond * 1000)
@@ -4521,7 +4521,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
 			paths := tt.paths
 			mutexPaths.Unlock()
 
-			rclient.Del(context.Background(), paths...)
+			rclient.Del(paths...)
 
 			time.Sleep(time.Millisecond * 1500)
 
@@ -4945,7 +4945,7 @@ func TestConnectionDataSet(t *testing.T) {
 
 			wg.Wait()
 
-			resultMap, err := rclient.HGetAll(context.Background(), "TELEMETRY_CONNECTIONS").Result()
+			resultMap, err := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
 
 			if resultMap == nil {
 				t.Errorf("result Map is nil, expected non nil, err: %v", err)
@@ -6048,107 +6048,6 @@ func TestGnoiAuthorization(t *testing.T) {
 	}
 
 	s.Stop()
-}
-
-func TestGnmiSetBypass(t *testing.T) {
-	if !ENABLE_NATIVE_WRITE {
-		t.Skip("skipping test, native write not enabled")
-	}
-
-	sdcfg.Init()
-	s := createServer(t, 8085)
-	go runServer(t, s)
-	defer s.Stop()
-
-	ns, _ := sdcfg.GetDbDefaultNamespace()
-	prepareDb(t, ns)
-
-	tlsConfig := &tls.Config{InsecureSkipVerify: true}
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
-
-	targetAddr := "127.0.0.1:8085"
-	conn, err := grpc.Dial(targetAddr, opts...)
-	if err != nil {
-		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
-	}
-	defer conn.Close()
-
-	gClient := pb.NewGNMIClient(conn)
-
-	// Test case 1: Bypass success path
-	t.Run("bypass_success", func(t *testing.T) {
-		mockResp := &gnmipb.SetResponse{
-			Response: []*gnmipb.UpdateResult{
-				{Op: gnmipb.UpdateResult_UPDATE},
-			},
-		}
-		mock := gomonkey.ApplyFunc(bypass.TrySet, func(ctx context.Context, prefix *gnmipb.Path, deletes []*gnmipb.Path, updates []*gnmipb.Update) (*gnmipb.SetResponse, bool, error) {
-			return mockResp, true, nil
-		})
-		defer mock.Reset()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		req := &gnmipb.SetRequest{
-			Prefix: &gnmipb.Path{
-				Target: "COUNTERS_DB",
-				Origin: "sonic-db",
-			},
-			Update: []*gnmipb.Update{
-				{
-					Path: &gnmipb.Path{
-						Elem: []*gnmipb.PathElem{{Name: "localhost"}, {Name: "VNET"}, {Name: "test"}},
-					},
-					Val: &gnmipb.TypedValue{
-						Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"vni": "1000"}`)},
-					},
-				},
-			},
-		}
-
-		_, err := gClient.Set(ctx, req)
-		if err != nil {
-			t.Errorf("Set with bypass should succeed, got error: %v", err)
-		}
-	})
-
-	// Test case 2: Bypass error path
-	t.Run("bypass_error", func(t *testing.T) {
-		mock := gomonkey.ApplyFunc(bypass.TrySet, func(ctx context.Context, prefix *gnmipb.Path, deletes []*gnmipb.Path, updates []*gnmipb.Update) (*gnmipb.SetResponse, bool, error) {
-			return nil, true, fmt.Errorf("bypass error: connection refused")
-		})
-		defer mock.Reset()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		req := &gnmipb.SetRequest{
-			Prefix: &gnmipb.Path{
-				Target: "COUNTERS_DB",
-				Origin: "sonic-db",
-			},
-			Update: []*gnmipb.Update{
-				{
-					Path: &gnmipb.Path{
-						Elem: []*gnmipb.PathElem{{Name: "localhost"}, {Name: "VNET"}, {Name: "test"}},
-					},
-					Val: &gnmipb.TypedValue{
-						Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"vni": "1000"}`)},
-					},
-				},
-			},
-		}
-
-		_, err := gClient.Set(ctx, req)
-		if err == nil {
-			t.Error("Set with bypass error should fail")
-		}
-		st, ok := status.FromError(err)
-		if !ok || st.Code() != codes.Internal {
-			t.Errorf("Expected Internal error code, got: %v", err)
-		}
-	})
 }
 
 func init() {

@@ -11,7 +11,6 @@ package client
 import "C"
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -21,13 +20,13 @@ import (
 	"time"
 	"unsafe"
 
-	spb "github.com/sonic-net/sonic-gnmi/proto"
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	"github.com/go-redis/redis"
 
 	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	"github.com/redis/go-redis/v9"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
 
 const SUBSCRIBER_TIMEOUT = (2 * 1000) // 2 seconds
@@ -246,7 +245,7 @@ func update_stats(evtc *EventClient) {
 
 		// Init current values for cumulative keys and clear for absolute
 		for _, key := range STATS_CUMULATIVE_KEYS {
-			fv, err := rclient.HGetAll(context.Background(), key).Result()
+			fv, err := rclient.HGetAll(key).Result()
 			if err != nil {
 				number, errC := strconv.ParseUint(fv[STATS_FIELD_NAME], 10, 64)
 				if errC == nil {
@@ -279,8 +278,10 @@ func update_stats(evtc *EventClient) {
 		if (wr_counters == nil) || !reflect.DeepEqual(tmp_counters, *wr_counters) {
 			for key, val := range tmp_counters {
 				sval := strconv.FormatUint(val, 10)
-				if _, err := rclient.HSet(context.Background(), key, STATS_FIELD_NAME, sval).Result(); err != nil {
-					log.V(3).Infof("EventClient failed to update COUNTERS key:%s val:%v err:%v", key, sval, err)
+				ret, err := rclient.HSet(key, STATS_FIELD_NAME, sval).Result()
+				if !ret {
+					log.V(3).Infof("EventClient failed to update COUNTERS key:%s val:%v err:%v",
+						key, sval, err)
 				}
 			}
 			wr_counters = &tmp_counters

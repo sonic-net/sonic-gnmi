@@ -1,27 +1,27 @@
 package telemetry_dialout
 
 import (
-	"context"
+	// "encoding/json"
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/Workiva/go-datastructures/queue"
+	"github.com/go-redis/redis"
+	log "github.com/golang/glog"
+	gpb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/openconfig/ygot/ygot"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	"golang.org/x/net/context"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"net"
+	//"reflect"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	spb "github.com/sonic-net/sonic-gnmi/proto"
-	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
-
-	"github.com/Workiva/go-datastructures/queue"
-	log "github.com/golang/glog"
-	gpb "github.com/openconfig/gnmi/proto/gnmi"
-	"github.com/openconfig/ygot/ygot"
-	"github.com/redis/go-redis/v9"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
 const (
@@ -194,8 +194,6 @@ func (cs *clientSubscription) NewInstance(ctx context.Context) error {
 	var err error
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(cs.paths, cs.prefix)
-	} else if target == "OC_YANG" {
-		dc, err = sdc.NewTranslClient(cs.prefix, cs.paths, ctx, nil, sdc.TranslWildcardOption{})
 	} else {
 		dc, err = sdc.NewDbClient(cs.paths, cs.prefix)
 	}
@@ -468,7 +466,7 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 		return err
 	}
 	tableKey := "TELEMETRY_CLIENT" + separator + key
-	fv, err := redisDb.HGetAll(context.Background(), tableKey).Result()
+	fv, err := redisDb.HGetAll(tableKey).Result()
 	if err != nil {
 		log.V(2).Infof("redis HGetAll failed for %s with error %v", tableKey, err)
 		return fmt.Errorf("redis HGetAll failed for %s with error %v", tableKey, err)
@@ -687,10 +685,10 @@ func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 	prefixLen := len(pattern)
 	pattern += "*"
 
-	pubsub := redisDb.PSubscribe(context.Background(), pattern)
+	pubsub := redisDb.PSubscribe(pattern)
 	defer pubsub.Close()
 
-	msgi, err := pubsub.ReceiveTimeout(context.Background(), time.Second)
+	msgi, err := pubsub.ReceiveTimeout(time.Second)
 	if err != nil {
 		log.V(1).Infof("psubscribe to %s failed %v", pattern, err)
 		return fmt.Errorf("psubscribe to %s failed %v", pattern, err)
@@ -704,7 +702,7 @@ func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 
 	var dbkeys []string
 	dbkey_prefix := "TELEMETRY_CLIENT" + separator
-	dbkeys, err = redisDb.Keys(context.Background(), dbkey_prefix+"*").Result()
+	dbkeys, err = redisDb.Keys(dbkey_prefix + "*").Result()
 	if err != nil {
 		log.V(2).Infof("redis Keys failed for %v with err %v", pattern, err)
 		return err
@@ -715,7 +713,7 @@ func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 	}
 
 	for {
-		msgi, err := pubsub.ReceiveTimeout(context.Background(), time.Millisecond*1000)
+		msgi, err := pubsub.ReceiveTimeout(time.Millisecond * 1000)
 		if err != nil {
 			neterr, ok := err.(net.Error)
 			if ok {

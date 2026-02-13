@@ -13,7 +13,6 @@ var exampleWhitelist = []string{
 	"tar",
 	"sleep",
 	"grep",
-	"awk",
 }
 
 func TestValidateAndExtract(t *testing.T) {
@@ -37,13 +36,6 @@ func TestValidateAndExtract(t *testing.T) {
 			allow:        true,
 			expectedCmd:  "ls",
 			expectedArgs: []string{"-la", "/tmp"},
-		},
-		{
-			name:         "grep pipeline",
-			input:        "ls -la | grep \"filename.txt\"",
-			allow:        true,
-			expectedCmd:  "ls",
-			expectedArgs: []string{"-la", "|", "grep", "\"filename.txt\""},
 		},
 		{
 			name:  "command substitution",
@@ -190,8 +182,8 @@ func TestValidateAndExtract(t *testing.T) {
 			allow: false,
 		},
 		{
-			name:  "awk with malicious command",
-			input: "awk BEGIN\\ \\{\\ cmd\\ =\\ \\\"ip\\ link\\\"\\;\\ while\\ \\(\\ \\(\\ cmd\\ \\|\\ getline\\ result\\ \\)\\ \\>\\ 0\\ \\)\\ \\{\\ print\\ result\\ \\}\\;\\ close\\(cmd\\)\\;\\ \\}",
+			name:  "pipeline with malicious quoted arg",
+			input: "ls | grep '; rm -rf /'",
 			allow: false,
 		},
 		{

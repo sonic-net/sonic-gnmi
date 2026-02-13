@@ -4,9 +4,22 @@ package telemetry_dialout
 // Prerequisite: redis-server should be running.
 
 import (
-	"context"
 	"crypto/tls"
 	"encoding/json"
+	"github.com/go-redis/redis"
+	//"github.com/golang/protobuf/proto"
+	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
+
+	//"github.com/kylelemons/godebug/pretty"
+	//"github.com/openconfig/gnmi/client"
+	pb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/openconfig/gnmi/value"
+	"golang.org/x/net/context"
+	"google.golang.org/grpc"
+	//"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	//"google.golang.org/grpc/status"
+	//"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -15,17 +28,10 @@ import (
 	"testing"
 	"time"
 
+	gclient "github.com/openconfig/gnmi/client/gnmi"
 	sds "github.com/sonic-net/sonic-gnmi/dialout/dialout_server"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
-	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
-
-	gclient "github.com/openconfig/gnmi/client/gnmi"
-	pb "github.com/openconfig/gnmi/proto/gnmi"
-	"github.com/openconfig/gnmi/value"
-	"github.com/redis/go-redis/v9"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -50,7 +56,7 @@ func loadDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{}) {
 	for key, fv := range mpi {
 		switch fv.(type) {
 		case map[string]interface{}:
-			_, err := rclient.HMSet(context.Background(), key, fv.(map[string]interface{})).Result()
+			_, err := rclient.HMSet(key, fv.(map[string]interface{})).Result()
 			if err != nil {
 				t.Fatal("Invalid data for db: ", key, fv, err)
 			}
@@ -105,7 +111,7 @@ func getRedisClient(t *testing.T) *redis.Client {
 		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err = rclient.Ping(context.Background()).Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatal("failed to connect to redis server ", err)
 	}
@@ -143,7 +149,7 @@ func getConfigDbClient(t *testing.T) *redis.Client {
 		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err = rclient.Ping(context.Background()).Result()
+	_, err = rclient.Ping().Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -154,7 +160,7 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 	for key, fv := range mpi {
 		switch fv.(type) {
 		case map[string]interface{}:
-			_, err := rclient.HMSet(context.Background(), key, fv.(map[string]interface{})).Result()
+			_, err := rclient.HMSet(key, fv.(map[string]interface{})).Result()
 			if err != nil {
 				t.Errorf("Invalid data for db: %v : %v %v", key, fv, err)
 			}
@@ -167,7 +173,7 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 func prepareConfigDb(t *testing.T) {
 	rclient := getConfigDbClient(t)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
+	rclient.FlushDB()
 
 	fileName := "../../testdata/COUNTERS_PORT_ALIAS_MAP.txt"
 	countersPortAliasMapByte, err := ioutil.ReadFile(fileName)
@@ -189,7 +195,7 @@ func prepareConfigDb(t *testing.T) {
 func prepareDb(t *testing.T) {
 	rclient := getRedisClient(t)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
+	rclient.FlushDB()
 	//Enable keysapce notification
 	os.Setenv("PATH", "$PATH:/usr/bin:/sbin:/bin:/usr/local/bin:/usr/local/Cellar/redis/4.0.8/bin")
 	cmd := exec.Command("redis-cli", "config", "set", "notify-keyspace-events", "KEA")
@@ -477,9 +483,9 @@ func TestGNMIDialOutPublish(t *testing.T) {
 			for _, update := range tt.updates {
 				switch update.op {
 				case "hdel":
-					rclient.HDel(context.Background(), update.tableName+update.delimitor+update.tableKey, update.field)
+					rclient.HDel(update.tableName+update.delimitor+update.tableKey, update.field)
 				default:
-					rclient.HSet(context.Background(), update.tableName+update.delimitor+update.tableKey, update.field, update.value)
+					rclient.HSet(update.tableName+update.delimitor+update.tableKey, update.field, update.value)
 				}
 				time.Sleep(time.Millisecond * 500)
 			}
@@ -516,75 +522,4 @@ func TestGNMIDialOutPublish(t *testing.T) {
 func init() {
 	// Inform gNMI server to use redis tcp localhost connection
 	sdc.UseRedisLocalTcpPort = true
-}
-
-// TestNewInstanceOCYang tests that NewInstance correctly handles OC_YANG target
-// and creates a TranslClient. This test is specifically for code coverage of the
-// OC_YANG branch in NewInstance.
-func TestNewInstanceOCYang(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping test in short mode")
-	}
-
-	// Initialize DB config
-	err := sdcfg.Init()
-	if err != nil {
-		t.Skipf("Skipping test: DB config not available: %v", err)
-	}
-
-	// Create a test destination group
-	destGrpName := "test_oc_yang_dest"
-	dests := []Destination{
-		{
-			Addrs: "127.0.0.1:50052",
-		},
-	}
-	destGrpNameMap[destGrpName] = dests
-	defer delete(destGrpNameMap, destGrpName)
-
-	// Create client subscription with OC_YANG target
-	cs := &clientSubscription{
-		name:          "test_oc_yang",
-		destGroupName: destGrpName,
-		prefix: &pb.Path{
-			Target: "OC_YANG",
-		},
-		paths: []*pb.Path{
-			{
-				Elem: []*pb.PathElem{
-					{Name: "openconfig-interfaces"},
-					{Name: "interfaces"},
-					{Name: "interface", Key: map[string]string{"name": "Ethernet0"}},
-					{Name: "state"},
-					{Name: "oper-status"},
-				},
-			},
-		},
-		reportType: Stream,
-		interval:   30 * time.Second,
-	}
-
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Call NewInstance - this should hit the OC_YANG branch
-	err = cs.NewInstance(ctx)
-
-	// We expect an error since TranslClient creation will fail in test environment
-	// The important thing is that it attempts to create TranslClient (code coverage)
-	if err != nil {
-		// Check if it's a connection/DB error (expected in test environment)
-		if !strings.Contains(err.Error(), "Connection to DB") &&
-			!strings.Contains(err.Error(), "Destination group") {
-			t.Logf("NewInstance returned error (expected in test env): %v", err)
-		} else {
-			t.Logf("NewInstance returned expected error: %v", err)
-		}
-	} else {
-		// If it succeeded, clean up
-		if cs.dc != nil {
-			cs.dc.Close()
-		}
-	}
 }

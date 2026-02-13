@@ -4,11 +4,6 @@
             "hostname" : "127.0.0.1",
             "port" : 6379,
             "unix_socket_path" : "/var/run/redis0/redis.sock"
-        },
-        "redis-chassis":{
-            "hostname" : "redis_chassis.server",
-            "port" : 6380,
-            "unix_socket_path" : "/var/run/redis-chassis/redis-chassis.sock"
         }
     },
     "DATABASES" : {
@@ -46,11 +41,6 @@
             "id" : 6,
             "separator": "|",
             "instance" : "redis"
-        },
-        "CHASSIS_STATE_DB" : {
-            "id" : 13,
-            "separator": "|",
-            "instance" : "redis-chassis"
         },
         "SNMP_OVERLAY_DB" : {
             "id" : 7,

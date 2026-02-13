@@ -2,17 +2,15 @@
 package main
 
 import (
-	"context"
 	"crypto/tls"
 	"flag"
+	log "github.com/golang/glog"
+	gpb "github.com/openconfig/gnmi/proto/gnmi"
+	dc "github.com/sonic-net/sonic-gnmi/dialout/dialout_client"
+	"golang.org/x/net/context"
 	"os"
 	"os/signal"
 	"time"
-
-	dc "github.com/sonic-net/sonic-gnmi/dialout/dialout_client"
-
-	log "github.com/golang/glog"
-	gpb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
 var (

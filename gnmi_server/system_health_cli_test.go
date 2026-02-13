@@ -209,9 +209,6 @@ func TestGetShowSystemHealthDpu(t *testing.T) {
 			`,
 			wantRetCode: codes.NotFound,
 			valTest:     false,
-			testInit: func() {
-				FlushDataSet(t, ChassisStateDbNum)
-			},
 		},
 		{
 			desc:       "query SHOW system-health dpu - all modules",
@@ -260,7 +257,6 @@ func TestGetShowSystemHealthDpu(t *testing.T) {
 			wantRetCode: codes.NotFound, // Should return NotFound error
 			valTest:     false,          // No value test needed for error case
 			testInit: func() {
-				FlushDataSet(t, ChassisStateDbNum)
 				AddDataSet(t, ChassisStateDbNum, "../testdata/DPU_STATE.txt")
 			},
 		},

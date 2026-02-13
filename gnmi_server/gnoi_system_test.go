@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sonic-net/sonic-gnmi/common_utils"
-
+	"github.com/go-redis/redis"
 	syspb "github.com/openconfig/gnoi/system"
 	typespb "github.com/openconfig/gnoi/types"
-	"github.com/redis/go-redis/v9"
+
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -36,8 +36,8 @@ func testErr(err error, code codes.Code, pattern string, t *testing.T) {
 }
 
 func RebootBackendResponse(t *testing.T, sc *redis.Client, expectedResponse codes.Code, fvs map[string]string, done chan bool, key string) {
-	sub := sc.Subscribe(context.Background(), "Reboot_Request_Channel")
-	if _, err := sub.Receive(context.Background()); err != nil {
+	sub := sc.Subscribe("Reboot_Request_Channel")
+	if _, err := sub.Receive(); err != nil {
 		t.Errorf("RebootBackendResponse failed to subscribe to request channel: %v", err)
 		return
 	}

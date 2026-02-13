@@ -107,11 +107,11 @@ func validateStatement(statement *syntax.Stmt, whitelist []string) error {
 			return fmt.Errorf("%w: empty call", ErrRejected)
 		}
 
-		// Check that every word only consists of word parts with safe node types
-		for _, word := range call.Args {
-			err := validateWordParts(word, word.Parts)
-			if err != nil {
-				return err
+		// Every Word must be a literal (no param/cmd/arith/brace/glob/...).
+		for i, w := range call.Args {
+			lit := w.Lit()
+			if lit == "" {
+				return fmt.Errorf("%w: word %d is not a plain literal (contains expansions/substs/globs)", ErrRejected, i)
 			}
 		}
 
@@ -180,39 +180,6 @@ func walkForDangerousNodeTypes(node syntax.Node) bool {
 	})
 
 	return unsafe
-}
-
-// Helper to determine whether a set of word parts contains any potentially dangerous constructs.
-// Allowed word part types are:
-//   - Lit: Represents a literal, will not be affected by expansion
-//   - SglQuoted: Represents a string enclosed in single quotes, will not be affected by expansion
-//   - DblQuoted: Represents word parts enclosed in double quotes, may be affected by expansion (requiring recursive validation)
-func validateWordParts(word *syntax.Word, wordParts []syntax.WordPart) error {
-	for _, part := range wordParts {
-		switch partType := part.(type) {
-		case *syntax.Lit:
-			continue
-		case *syntax.SglQuoted:
-			continue
-		case *syntax.DblQuoted:
-			subParts := part.(*syntax.DblQuoted).Parts
-			err := validateWordParts(word, subParts)
-			if err != nil {
-				return err
-			}
-			continue
-		default:
-			var wordString strings.Builder
-			var wordPartString strings.Builder
-			printer := syntax.NewPrinter()
-			printer.Print(&wordString, word)
-			printer.Print(&wordPartString, part)
-
-			return fmt.Errorf("%w: '%s' contained in '%s' is invalid type: %s", ErrRejected, wordPartString.String(), wordString.String(), partType)
-		}
-	}
-
-	return nil
 }
 
 // Helper which ports the slices.Contains functionality for string slices to this version of Go.

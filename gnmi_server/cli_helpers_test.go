@@ -1,7 +1,6 @@
 package gnmi
 
 import (
-	"context"
 	"io/ioutil"
 	"os/exec"
 	"reflect"
@@ -56,7 +55,7 @@ func FlushDataSet(t *testing.T, dbNum int) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, dbNum, ns)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
+	rclient.FlushDB()
 }
 
 func AddDataSet(t *testing.T, dbNum int, fileName string) {
@@ -79,6 +78,5 @@ func ResetDataSetsAndMappings(t *testing.T) {
 	FlushDataSet(t, CountersDbNum)
 	FlushDataSet(t, ConfigDbNum)
 	FlushDataSet(t, StateDbNum)
-	FlushDataSet(t, ChassisStateDbNum)
 	sdc.ClearMappings()
 }

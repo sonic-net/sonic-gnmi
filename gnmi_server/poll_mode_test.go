@@ -3,18 +3,17 @@ package gnmi
 // server_test covers gNMI get, subscribe (stream and poll) test
 // Prerequisite: redis-server should be running.
 import (
-	"context"
 	"crypto/tls"
 	"encoding/json"
+	"github.com/kylelemons/godebug/pretty"
+	"github.com/openconfig/gnmi/client"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	"golang.org/x/net/context"
 	"io/ioutil"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/kylelemons/godebug/pretty"
-	"github.com/openconfig/gnmi/client"
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
 
 func TestPollMissingTableThenTableKey(t *testing.T) {
@@ -68,7 +67,7 @@ func TestPollMissingTableThenTableKey(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, 0, ns)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
+	rclient.FlushDB()
 	var mutexGotNoti sync.Mutex
 
 	for _, tt := range tests {
@@ -162,7 +161,7 @@ func TestPollMissingTableAndTableKey(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, 0, ns)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
+	rclient.FlushDB()
 	var mutexGotNoti sync.Mutex
 
 	for _, tt := range tests {
@@ -271,7 +270,7 @@ func TestPollMissingTableThenAdded(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, 0, ns)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
+	rclient.FlushDB()
 
 	var mutexGotNoti sync.Mutex
 
@@ -308,8 +307,8 @@ func TestPollMissingTableThenAdded(t *testing.T) {
 
 			for i := 0; i < tt.poll; i++ {
 				if i == 2 { // After first 2 polls, add data
-					rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
-					rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
+					rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
+					rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
 					// Sleep just one second to allow redis data to be entered
 					time.Sleep(time.Millisecond * 1000)
 				}
@@ -386,7 +385,7 @@ func TestPollMissingKeyThenAdded(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, 0, ns)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
+	rclient.FlushDB()
 
 	var mutexGotNoti sync.Mutex
 
@@ -423,8 +422,8 @@ func TestPollMissingKeyThenAdded(t *testing.T) {
 
 			for i := 0; i < tt.poll; i++ {
 				if i == 2 { // After first 2 polls, add data
-					rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
-					rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
+					rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
+					rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
 					// Sleep just one second to allow redis data to be entered
 					time.Sleep(time.Millisecond * 1000)
 				}
@@ -512,7 +511,7 @@ func TestPollMissingTableAndKeyThenAdded(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, 0, ns)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
+	rclient.FlushDB()
 
 	var mutexGotNoti sync.Mutex
 
@@ -549,10 +548,10 @@ func TestPollMissingTableAndKeyThenAdded(t *testing.T) {
 
 			for i := 0; i < tt.poll; i++ {
 				if i == 2 { // After first 2 polls, add data
-					rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
-					rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
-					rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
-					rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
+					rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
+					rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
+					rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
+					rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
 					// Sleep just one second to allow redis data to be entered
 					time.Sleep(time.Millisecond * 1000)
 				}
@@ -655,9 +654,9 @@ func TestPollPresentTableMissingTableKey(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, 0, ns)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
-	rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
-	rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
+	rclient.FlushDB()
+	rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
+	rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
 
 	var mutexGotNoti sync.Mutex
 
@@ -694,8 +693,8 @@ func TestPollPresentTableMissingTableKey(t *testing.T) {
 
 			for i := 0; i < tt.poll; i++ {
 				if i == 2 { // After first 2 polls, add data
-					rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
-					rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
+					rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
+					rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
 					// Sleep just one second to allow redis data to be entered
 					time.Sleep(time.Millisecond * 1000)
 				}
@@ -797,9 +796,9 @@ func TestPollPresentTableKeyMissingTable(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, 0, ns)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
-	rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
-	rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
+	rclient.FlushDB()
+	rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
+	rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
 
 	var mutexGotNoti sync.Mutex
 
@@ -836,8 +835,8 @@ func TestPollPresentTableKeyMissingTable(t *testing.T) {
 
 			for i := 0; i < tt.poll; i++ {
 				if i == 2 { // After first 2 polls, add data
-					rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
-					rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
+					rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
+					rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
 					// Sleep just one second to allow redis data to be entered
 					time.Sleep(time.Millisecond * 1000)
 				}
@@ -926,9 +925,9 @@ func TestPollTableDeleted(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, 0, ns)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
-	rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
-	rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
+	rclient.FlushDB()
+	rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
+	rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
 
 	var mutexGotNoti sync.Mutex
 
@@ -970,7 +969,7 @@ func TestPollTableDeleted(t *testing.T) {
 
 			for i := 0; i < tt.poll; i++ {
 				if i == 2 { // After first 2 polls, del data
-					rclient.FlushDB(context.Background())
+					rclient.FlushDB()
 					// Sleep just one second to allow redis data to be deleted
 					time.Sleep(time.Millisecond * 1000)
 				}
@@ -1040,8 +1039,8 @@ func TestPollTableFieldDeleted(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, 0, ns)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
-	rclient.HSet(context.Background(), "LLDP_LOC_CHASSIS", "lldp_loc_sys_name", "dummy")
+	rclient.FlushDB()
+	rclient.HSet("LLDP_LOC_CHASSIS", "lldp_loc_sys_name", "dummy")
 
 	var mutexGotNoti sync.Mutex
 
@@ -1083,7 +1082,7 @@ func TestPollTableFieldDeleted(t *testing.T) {
 
 			for i := 0; i < tt.poll; i++ {
 				if i == 2 { // After first 2 polls, del data
-					rclient.FlushDB(context.Background())
+					rclient.FlushDB()
 					// Sleep just one second to allow redis data to be deleted
 					time.Sleep(time.Millisecond * 1000)
 				}
@@ -1161,9 +1160,9 @@ func TestPollTableKeyDeleted(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, 0, ns)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
-	rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
-	rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
+	rclient.FlushDB()
+	rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
+	rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
 
 	var mutexGotNoti sync.Mutex
 
@@ -1206,7 +1205,7 @@ func TestPollTableKeyDeleted(t *testing.T) {
 
 			for i := 0; i < tt.poll; i++ {
 				if i == 2 { // After first 2 polls, del data
-					rclient.FlushDB(context.Background())
+					rclient.FlushDB()
 					// Sleep just one second to allow redis data to be deleted
 					time.Sleep(time.Millisecond * 1000)
 				}
@@ -1296,11 +1295,11 @@ func TestPollTableAndTableKeyBothDeleted(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, 0, ns)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
-	rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
-	rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
-	rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
-	rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
+	rclient.FlushDB()
+	rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
+	rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
+	rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
+	rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
 
 	var mutexGotNoti sync.Mutex
 
@@ -1343,7 +1342,7 @@ func TestPollTableAndTableKeyBothDeleted(t *testing.T) {
 
 			for i := 0; i < tt.poll; i++ {
 				if i == 2 { // After first 2 polls, delete data
-					rclient.FlushDB(context.Background())
+					rclient.FlushDB()
 					// Sleep just one second to allow redis data to be deleted
 					time.Sleep(time.Millisecond * 1000)
 				}
@@ -1446,11 +1445,11 @@ func TestPollTableAndTableKeyTableDeleted(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, 0, ns)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
-	rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
-	rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
-	rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
-	rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
+	rclient.FlushDB()
+	rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
+	rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
+	rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
+	rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
 
 	var mutexGotNoti sync.Mutex
 
@@ -1493,7 +1492,7 @@ func TestPollTableAndTableKeyTableDeleted(t *testing.T) {
 
 			for i := 0; i < tt.poll; i++ {
 				if i == 2 { // After first 2 polls, delete data
-					rclient.Del(context.Background(), "LLDP_ENTRY_TABLE:eth0")
+					rclient.Del("LLDP_ENTRY_TABLE:eth0")
 					// Sleep just one second to allow redis data to be deleted
 					time.Sleep(time.Millisecond * 1000)
 				}
@@ -1596,11 +1595,11 @@ func TestPollTableAndTableKeyTableKeyDeleted(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, 0, ns)
 	defer rclient.Close()
-	rclient.FlushDB(context.Background())
-	rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
-	rclient.HSet(context.Background(), "LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
-	rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
-	rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
+	rclient.FlushDB()
+	rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_port_id", "dummy")
+	rclient.HSet("LLDP_ENTRY_TABLE:eth0", "lldp_rem_sys_name", "dummy")
+	rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "ifname", "dummy")
+	rclient.HSet("ROUTE_TABLE:0.0.0.0/0", "nexthop", "dummy")
 
 	var mutexGotNoti sync.Mutex
 
@@ -1643,7 +1642,7 @@ func TestPollTableAndTableKeyTableKeyDeleted(t *testing.T) {
 
 			for i := 0; i < tt.poll; i++ {
 				if i == 2 { // After first 2 polls, delete data
-					rclient.Del(context.Background(), "ROUTE_TABLE:0.0.0.0/0")
+					rclient.Del("ROUTE_TABLE:0.0.0.0/0")
 					// Sleep just one second to allow redis data to be deleted
 					time.Sleep(time.Millisecond * 1000)
 				}
