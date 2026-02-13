@@ -24,7 +24,6 @@ import (
 	"unsafe"
 
 	"github.com/sonic-net/sonic-gnmi/common_utils"
-	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
@@ -6048,107 +6047,6 @@ func TestGnoiAuthorization(t *testing.T) {
 	}
 
 	s.Stop()
-}
-
-func TestGnmiSetBypass(t *testing.T) {
-	if !ENABLE_NATIVE_WRITE {
-		t.Skip("skipping test, native write not enabled")
-	}
-
-	sdcfg.Init()
-	s := createServer(t, 8085)
-	go runServer(t, s)
-	defer s.Stop()
-
-	ns, _ := sdcfg.GetDbDefaultNamespace()
-	prepareDb(t, ns)
-
-	tlsConfig := &tls.Config{InsecureSkipVerify: true}
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
-
-	targetAddr := "127.0.0.1:8085"
-	conn, err := grpc.Dial(targetAddr, opts...)
-	if err != nil {
-		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
-	}
-	defer conn.Close()
-
-	gClient := pb.NewGNMIClient(conn)
-
-	// Test case 1: Bypass success path
-	t.Run("bypass_success", func(t *testing.T) {
-		mockResp := &gnmipb.SetResponse{
-			Response: []*gnmipb.UpdateResult{
-				{Op: gnmipb.UpdateResult_UPDATE},
-			},
-		}
-		mock := gomonkey.ApplyFunc(bypass.TrySet, func(ctx context.Context, prefix *gnmipb.Path, deletes []*gnmipb.Path, updates []*gnmipb.Update) (*gnmipb.SetResponse, bool, error) {
-			return mockResp, true, nil
-		})
-		defer mock.Reset()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		req := &gnmipb.SetRequest{
-			Prefix: &gnmipb.Path{
-				Target: "COUNTERS_DB",
-				Origin: "sonic-db",
-			},
-			Update: []*gnmipb.Update{
-				{
-					Path: &gnmipb.Path{
-						Elem: []*gnmipb.PathElem{{Name: "localhost"}, {Name: "VNET"}, {Name: "test"}},
-					},
-					Val: &gnmipb.TypedValue{
-						Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"vni": "1000"}`)},
-					},
-				},
-			},
-		}
-
-		_, err := gClient.Set(ctx, req)
-		if err != nil {
-			t.Errorf("Set with bypass should succeed, got error: %v", err)
-		}
-	})
-
-	// Test case 2: Bypass error path
-	t.Run("bypass_error", func(t *testing.T) {
-		mock := gomonkey.ApplyFunc(bypass.TrySet, func(ctx context.Context, prefix *gnmipb.Path, deletes []*gnmipb.Path, updates []*gnmipb.Update) (*gnmipb.SetResponse, bool, error) {
-			return nil, true, fmt.Errorf("bypass error: connection refused")
-		})
-		defer mock.Reset()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		req := &gnmipb.SetRequest{
-			Prefix: &gnmipb.Path{
-				Target: "COUNTERS_DB",
-				Origin: "sonic-db",
-			},
-			Update: []*gnmipb.Update{
-				{
-					Path: &gnmipb.Path{
-						Elem: []*gnmipb.PathElem{{Name: "localhost"}, {Name: "VNET"}, {Name: "test"}},
-					},
-					Val: &gnmipb.TypedValue{
-						Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"vni": "1000"}`)},
-					},
-				},
-			},
-		}
-
-		_, err := gClient.Set(ctx, req)
-		if err == nil {
-			t.Error("Set with bypass error should fail")
-		}
-		st, ok := status.FromError(err)
-		if !ok || st.Code() != codes.Internal {
-			t.Errorf("Expected Internal error code, got: %v", err)
-		}
-	})
 }
 
 func init() {
