@@ -11,6 +11,7 @@ import (
 
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
 	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
@@ -689,6 +690,18 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 			return nil, grpc.Errorf(codes.Unimplemented, "GNMI native write is disabled")
 		}
+
+		// Fast path: bypass validation for allowed tables/SKUs
+		allUpdates := append(req.GetReplace(), req.GetUpdate()...)
+		if resp, used, err := bypass.TrySet(ctx, prefix, req.GetDelete(), allUpdates); used {
+			if err != nil {
+				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+				return nil, status.Error(codes.Internal, err.Error())
+			}
+			common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
+			return resp, nil
+		}
+
 		var targetDbName string
 		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
 		authTarget = "gnmi_" + targetDbName

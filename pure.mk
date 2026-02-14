@@ -16,6 +16,7 @@ GOROOT ?= $(shell $(GO) env GOROOT)
 PURE_PACKAGES := \
 	internal/exec \
 	pkg/gnoi/debug \
+	pkg/bypass \
 	internal/diskspace \
 	internal/hash \
 	internal/download \
@@ -248,6 +249,13 @@ junit-xml: clean
 	@if ! command -v gotestsum >/dev/null 2>&1; then \
 		$(GO) install gotest.tools/gotestsum@v1.11.0; \
 	fi
+	@echo "Installing gocov tools for coverage conversion..."
+	@if ! command -v gocov >/dev/null 2>&1; then \
+		$(GO) install github.com/axw/gocov/gocov@v1.1.0; \
+	fi
+	@if ! command -v gocov-xml >/dev/null 2>&1; then \
+		$(GO) install github.com/AlekSi/gocov-xml@v1.1.0; \
+	fi
 	@echo "Running pure package tests with JUnit XML output..."
 	@mkdir -p test-results
 	@export PATH=$(PATH):$(shell $(GO) env GOPATH)/bin && \
@@ -256,6 +264,12 @@ junit-xml: clean
 		-- -v -race -coverprofile=test-results/coverage-pure.txt \
 		-covermode=atomic \
 		$(addprefix ./,$(PACKAGES))
+	@echo "Converting coverage to Cobertura XML format..."
+	@export PATH=$(PATH):$(shell $(GO) env GOPATH)/bin && \
+	if [ -f test-results/coverage-pure.txt ]; then \
+		gocov convert test-results/coverage-pure.txt | gocov-xml -source $(shell pwd) > test-results/coverage-pure.xml; \
+		echo "Coverage XML generated: test-results/coverage-pure.xml"; \
+	fi
 	@echo ""
 	@echo "============================================="
 	@echo "✅ JUnit XML generation completed!"
@@ -263,6 +277,7 @@ junit-xml: clean
 	@echo "Files generated:"
 	@echo "  - test-results/junit-pure.xml (JUnit test results)"
 	@echo "  - test-results/coverage-pure.txt (Coverage data)"
+	@echo "  - test-results/coverage-pure.xml (Cobertura coverage for Azure)"
 	@echo ""
 	@echo "Tested packages:"
 	@for pkg in $(PACKAGES); do \

@@ -87,6 +87,13 @@ stages:
         publishRunAttachments: true
         testRunTitle: 'Pure Package Tests'
 
+    - task: PublishCodeCoverageResults@1
+      displayName: 'Publish Pure Package Coverage'
+      condition: always()
+      inputs:
+        codeCoverageTool: Cobertura
+        summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/coverage-pure.xml'
+
   # Memory leak testing with address sanitizer
   - job: MemoryLeakJob
     displayName: "Memory Leak Tests"
@@ -197,8 +204,16 @@ stages:
         popd
 
         pushd sonic-gnmi
-        ENABLE_TRANSLIB_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
+        ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build"
+
+    # Run pure package tests for coverage (test results already published by PureCIJob)
+    - bash: |
+        set -euo pipefail
+        pushd sonic-gnmi
+        make -f pure.mk junit-xml || true
+        popd
+      displayName: "Run Pure Package Tests (coverage only)"
 
     # Run integration tests
     - bash: |
