@@ -5458,12 +5458,40 @@ func TestGNMINativeMultiNamespace(t *testing.T) {
 }
 
 func TestServerPort(t *testing.T) {
-	s := createServer(t, -8080)
-	port := s.Port()
-	if port != 0 {
-		t.Errorf("Invalid port: %d", port)
+	s := createServer(t, 8080)
+	if s == nil {
+		t.Fatal("Failed to create server")
 	}
-	s.Stop()
+	port := s.Port()
+	if port != 8080 {
+		t.Errorf("Expected port 8080, got: %d", port)
+	}
+	s.ForceStop()
+}
+
+func TestServerNegativePortFails(t *testing.T) {
+	// Negative port should fail server creation
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &Config{
+		Port:      -8080,
+		Threshold: 100,
+	}
+	s, err := NewServer(cfg, tlsOpts, nil)
+	if err == nil {
+		s.ForceStop()
+		t.Error("Expected error for negative port, but server was created")
+	}
+	if s != nil {
+		t.Error("Expected nil server for negative port")
+	}
 }
 
 func TestNilServerStop(t *testing.T) {
