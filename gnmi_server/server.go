@@ -49,8 +49,8 @@ var (
 // via Subscribe or Get will receive a stream of updates based on the requested
 // path. Set request is processed by server too.
 type Server struct {
-	s       *grpc.Server
-	lis     net.Listener
+	s   *grpc.Server
+	lis net.Listener
 	// udsServer is the gRPC server for Unix domain socket connections (no TLS).
 	// This is nil if UnixSocket is not configured.
 	udsServer *grpc.Server
