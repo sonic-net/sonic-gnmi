@@ -264,6 +264,11 @@ func (c *MixedDbClient) GetTable(table string) swsscommon.ProducerStateTable {
 		return pt
 	}
 
+	_, ok = c.plainTableMap[table]
+	if ok {
+		return nil
+	}
+
 	// DASH_HA_ tables use Table (not ProducerStateTable),
 	// which allows multiple subscribers (8 instances of hamgrd) to consume that table.
 	if strings.HasPrefix(table, DASH_HA_TABLE_PREFIX) {
@@ -361,6 +366,9 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 		// DASH_HA_ tables use Table,
 		// direct Redis operations doesn't require retry.
 		t := c.plainTableMap[table]
+		if t == nil {
+			return fmt.Errorf("table %s not found in plainTableMap", table)
+		}
 		return TableSetWrapper(t, key, vec)
 	}
 	return RetryHelper(
@@ -376,6 +384,9 @@ func (c *MixedDbClient) DbDelTable(table string, key string) error {
 		// DASH_HA_ tables use Table,
 		// direct Redis operations doesn't require retry.
 		t := c.plainTableMap[table]
+		if t == nil {
+			return fmt.Errorf("table %s not found in plainTableMap", table)
+		}
 		return TableDeleteWrapper(t, key)
 	}
 	return RetryHelper(
