@@ -1,53 +1,27 @@
 {
-    "TRANSCEIVER_STATUS_SW|Ethernet90": {
+    "TRANSCEIVER_STATUS_SW|Ethernet0": {
         "cmis_state": "READY",
         "error": "N/A",
         "status": "1"
     },
-    "TRANSCEIVER_STATUS_SW|Ethernet91": {
+    "TRANSCEIVER_STATUS_SW|Ethernet40": {
         "cmis_state": "READY",
         "error": "N/A",
         "status": "1"
     },
-    "TRANSCEIVER_STATUS_SW|Ethernet92": {
+    "TRANSCEIVER_STATUS_SW|Ethernet80": {
         "cmis_state": "READY",
         "error": "N/A",
         "status": "1"
     },
-    "TRANSCEIVER_STATUS_SW|Ethernet93": {
+    "TRANSCEIVER_STATUS_SW|Ethernet120": {
         "cmis_state": "READY",
         "error": "N/A",
         "status": "1"
     },
-    "TRANSCEIVER_STATUS_SW|Ethernet94": {
-        "cmis_state": "READY",
-        "error": "N/A",
-        "status": "1"
-    },
-    "TRANSCEIVER_STATUS_SW|Ethernet95": {
-        "cmis_state": "READY",
-        "error": "N/A",
-        "status": "1"
-    },
-    "TRANSCEIVER_STATUS_SW|Ethernet96": {
-        "cmis_state": "READY",
-        "error": "N/A",
-        "status": "1"
-    },
-    "TRANSCEIVER_STATUS_SW|Ethernet97": {
-        "cmis_state": "READY",
-        "error": "N/A",
-        "status": "1"
-    },
-    "TRANSCEIVER_STATUS_SW|Ethernet98": {
-        "cmis_state": "READY",
-        "error": "N/A",
-        "status": "1"
-    },
-    "TRANSCEIVER_STATUS_SW|Ethernet99": {
+    "TRANSCEIVER_STATUS_SW|Ethernet160": {
         "cmis_state": "READY",
         "error": "N/A",
         "status": "1"
     }
 }
-
