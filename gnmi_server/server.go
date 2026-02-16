@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync"
 
@@ -50,9 +51,15 @@ var (
 type Server struct {
 	s       *grpc.Server
 	lis     net.Listener
-	config  *Config
-	cMu     sync.Mutex
-	clients map[string]*Client
+	// udsServer is the gRPC server for Unix domain socket connections (no TLS).
+	// This is nil if UnixSocket is not configured.
+	udsServer *grpc.Server
+	// udsListener is the listener for Unix domain socket connections.
+	// This is nil if UnixSocket is not configured.
+	udsListener net.Listener
+	config      *Config
+	cMu         sync.Mutex
+	clients     map[string]*Client
 	// SaveStartupConfig points to a function that is called to save changes of
 	// configuration to a file. By default it points to an empty function -
 	// the configuration is not saved to a file.
@@ -163,8 +170,11 @@ type AuthTypes map[string]bool
 // Config is a collection of values for Server
 type Config struct {
 	// Port for the Server to listen on. If 0 or unset the Server will pick a port
-	// for this Server.
-	Port                int64
+	// for this Server. Port > 0 enables the TCP listener.
+	Port int64
+	// UnixSocket is the path to a Unix domain socket to listen on.
+	// When set, an additional listener is created for local connections without TLS.
+	UnixSocket          string
 	LogLevel            int
 	Threshold           int
 	UserAuth            AuthTypes
@@ -265,41 +275,58 @@ func (i AuthTypes) Unset(mode string) error {
 	return nil
 }
 
-// New returns an initialized Server.
-func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
+// registerAllServices registers all gNMI and gNOI services on the given gRPC server.
+func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
+	osSrv *OSServer, containerzSrv *ContainerzServer,
+	debugSrv *DebugServer, healthzSrv *HealthzServer) {
+	gnmipb.RegisterGNMIServer(s, srv)
+	factory_reset.RegisterFactoryResetServer(s, srv)
+	spb_jwt_gnoi.RegisterSonicJwtServiceServer(s, srv)
+	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
+		gnoi_system_pb.RegisterSystemServer(s, srv)
+		gnoi_file_pb.RegisterFileServer(s, fileSrv)
+		gnoi_os_pb.RegisterOSServer(s, osSrv)
+		gnoi_containerz_pb.RegisterContainerzServer(s, containerzSrv)
+		gnoi_debug_pb.RegisterDebugServer(s, debugSrv)
+		gnoi_healthz_pb.RegisterHealthzServer(s, healthzSrv)
+	}
+	if srv.config.EnableTranslibWrite {
+		spb_gnoi.RegisterSonicServiceServer(s, srv)
+	}
+	spb_gnoi.RegisterDebugServer(s, srv)
+}
+
+// NewServer returns an initialized Server.
+//
+// tlsOpts contains TLS credentials and is used only for the TCP listener.
+// commonOpts contains interceptors, keepalive params, etc. and is used for both listeners.
+//
+// When config.Port > 0, a TCP listener is created with TLS.
+// When config.UnixSocket is set, an additional UDS listener is created without TLS.
+func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*Server, error) {
 	if config == nil {
 		return nil, errors.New("config not provided")
 	}
 	common_utils.InitCounters()
 
-	s := grpc.NewServer(opts...)
-	reflection.Register(s)
-
 	srv := &Server{
-		s:                 s,
 		config:            config,
 		clients:           map[string]*Client{},
 		SaveStartupConfig: saveOnSetDisabled,
-		// ReqFromMaster point to a function that is called to verify if
-		// the request comes from a master controller.
-		ReqFromMaster: ReqFromMasterDisabledMA,
-		masterEID:     uint128{High: 0, Low: 0},
+		ReqFromMaster:     ReqFromMasterDisabledMA,
+		masterEID:         uint128{High: 0, Low: 0},
 	}
 
+	// Create service servers (shared between TCP and UDS)
 	fileSrv := &FileServer{Server: srv}
-
-	// Create an instance of the concrete OSBackend implementation
 	osBackend := &DBusOSBackend{}
-
 	osSrv := &OSServer{
 		Server:  srv,
-		backend: osBackend, // Pass the installer dependency
+		backend: osBackend,
 		ImgDir:  srv.config.ImgDir,
 	}
-
 	containerzSrv := &ContainerzServer{server: srv}
 	healthzSrv := &HealthzServer{Server: srv}
-
 	readWhitelist, writeWhitelist := gnoi_debug.ConstructWhitelists()
 	debugSrv := &DebugServer{
 		Server:         srv,
@@ -308,64 +335,123 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	}
 
 	var err error
-	if srv.config.Port < 0 {
-		srv.config.Port = 0
-	}
-	srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", srv.config.Port))
-	if err != nil {
-		return nil, fmt.Errorf("failed to open listener port %d: %v", srv.config.Port, err)
-	}
-	gnmipb.RegisterGNMIServer(srv.s, srv)
-	factory_reset.RegisterFactoryResetServer(srv.s, srv)
-	spb_jwt_gnoi.RegisterSonicJwtServiceServer(srv.s, srv)
-	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
-		gnoi_system_pb.RegisterSystemServer(srv.s, srv)
-		gnoi_file_pb.RegisterFileServer(srv.s, fileSrv)
-		gnoi_os_pb.RegisterOSServer(srv.s, osSrv)
-		gnoi_containerz_pb.RegisterContainerzServer(srv.s, containerzSrv)
-		gnoi_debug_pb.RegisterDebugServer(srv.s, debugSrv)
-		gnoi_healthz_pb.RegisterHealthzServer(srv.s, healthzSrv)
-	}
-	if srv.config.EnableTranslibWrite {
-		spb_gnoi.RegisterSonicServiceServer(srv.s, srv)
 
+	// TCP Server (Port > 0)
+	if config.Port > 0 {
+		tcpOpts := append(tlsOpts, commonOpts...)
+		srv.s = grpc.NewServer(tcpOpts...)
+		reflection.Register(srv.s)
+
+		srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
+		if err != nil {
+			return nil, fmt.Errorf("failed to open listener port %d: %v", config.Port, err)
+		}
+
+		registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv)
 	}
-	spb_gnoi.RegisterDebugServer(srv.s, srv)
+
+	// UDS Server (UnixSocket set)
+	if config.UnixSocket != "" {
+		// UDS server uses only commonOpts (no TLS)
+		srv.udsServer = grpc.NewServer(commonOpts...)
+		reflection.Register(srv.udsServer)
+
+		os.Remove(config.UnixSocket) // Remove stale socket
+		srv.udsListener, err = net.Listen("unix", config.UnixSocket)
+		if err != nil {
+			// Cleanup TCP listener if it was created
+			if srv.lis != nil {
+				srv.lis.Close()
+			}
+			return nil, fmt.Errorf("failed to listen on unix socket %s: %v", config.UnixSocket, err)
+		}
+		os.Chmod(config.UnixSocket, 0660) // Restrict to root only
+
+		registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv)
+	}
+
+	// Require at least one listener
+	if srv.lis == nil && srv.udsListener == nil {
+		return nil, errors.New("no listener configured: port must be > 0 or unix_socket must be set")
+	}
+
 	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
 	return srv, nil
 }
 
 // Serve will start the Server serving and block until closed.
+// If both TCP and UDS listeners are configured, both are served concurrently.
 func (srv *Server) Serve() error {
-	s := srv.s
-	if s == nil {
+	if srv.s == nil && srv.udsServer == nil {
 		return fmt.Errorf("Serve() failed: not initialized")
 	}
-	return srv.s.Serve(srv.lis)
+
+	errChan := make(chan error, 2)
+
+	// Start TCP server if configured
+	if srv.s != nil && srv.lis != nil {
+		go func() {
+			log.V(1).Infof("Starting TCP server on %s", srv.lis.Addr().String())
+			if err := srv.s.Serve(srv.lis); err != nil {
+				errChan <- fmt.Errorf("TCP server: %w", err)
+			}
+		}()
+	}
+
+	// Start UDS server if configured
+	if srv.udsServer != nil && srv.udsListener != nil {
+		go func() {
+			log.V(1).Infof("Starting UDS server on %s", srv.udsListener.Addr().String())
+			if err := srv.udsServer.Serve(srv.udsListener); err != nil {
+				errChan <- fmt.Errorf("UDS server: %w", err)
+			}
+		}()
+	}
+
+	// Block until first error (or server stop)
+	return <-errChan
 }
 
+// ForceStop stops the server immediately without waiting for connections to close.
 func (srv *Server) ForceStop() {
-	s := srv.s
-	if s == nil {
-		log.Errorf("ForceStop() failed: not initialized")
-		return
+	if srv.s != nil {
+		srv.s.Stop()
 	}
-	s.Stop()
+	if srv.udsServer != nil {
+		srv.udsServer.Stop()
+	}
+	// Cleanup UDS socket file
+	if srv.config != nil && srv.config.UnixSocket != "" {
+		os.Remove(srv.config.UnixSocket)
+	}
 }
 
+// Stop gracefully stops the server, waiting for active connections to close.
 func (srv *Server) Stop() {
-	s := srv.s
-	if s == nil {
-		log.Errorf("Stop() failed: not initialized")
-		return
+	if srv.s != nil {
+		srv.s.GracefulStop()
 	}
-	s.GracefulStop()
+	if srv.udsServer != nil {
+		srv.udsServer.GracefulStop()
+	}
+	// Cleanup UDS socket file
+	if srv.config != nil && srv.config.UnixSocket != "" {
+		os.Remove(srv.config.UnixSocket)
+	}
 }
 
 // Address returns the port the Server is listening to.
+// Address returns the addresses the Server is listening on.
 func (srv *Server) Address() string {
-	addr := srv.lis.Addr().String()
-	return strings.Replace(addr, "[::]", "localhost", 1)
+	var addrs []string
+	if srv.lis != nil {
+		addr := srv.lis.Addr().String()
+		addrs = append(addrs, strings.Replace(addr, "[::]", "localhost", 1))
+	}
+	if srv.udsListener != nil {
+		addrs = append(addrs, srv.udsListener.Addr().String())
+	}
+	return strings.Join(addrs, ", ")
 }
 
 // Port returns the port the Server is listening to.

@@ -130,7 +130,7 @@ func createServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: true,
@@ -138,7 +138,7 @@ func createServer(t *testing.T, port int64) *Server {
 		Threshold:           100,
 		ImgDir:              "/tmp",
 	}
-	s, err := NewServer(cfg, opts)
+	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
 	}
@@ -155,13 +155,13 @@ func createReadServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: false,
 		ImgDir:              "/tmp",
 	}
-	s, err := NewServer(cfg, opts)
+	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
@@ -178,14 +178,14 @@ func createRejectServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: true,
 		Threshold:           2,
 		ImgDir:              "/tmp",
 	}
-	s, err := NewServer(cfg, opts)
+	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
@@ -203,14 +203,14 @@ func createAuthServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: true,
 		UserAuth:            AuthTypes{"password": true, "cert": true, "jwt": true},
 		ImgDir:              "/tmp",
 	}
-	s, err := NewServer(cfg, opts)
+	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
@@ -227,8 +227,8 @@ func createInvalidServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	s, err := NewServer(nil, opts)
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	s, err := NewServer(nil, tlsOpts, nil)
 	if err != nil {
 		return nil
 	}
@@ -246,14 +246,13 @@ func createKeepAliveServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	keep_alive_params := keepalive.ServerParameters{
 		MaxConnectionIdle: 1 * time.Second,
 	}
-	server_opts := []grpc.ServerOption{
+	commonOpts := []grpc.ServerOption{
 		grpc.KeepaliveParams(keep_alive_params),
 	}
-	server_opts = append(server_opts, opts[0])
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: true,
@@ -262,7 +261,7 @@ func createKeepAliveServer(t *testing.T, port int64) *Server {
 		ImgDir:              "/tmp",
 	}
 
-	s, err := NewServer(cfg, server_opts)
+	s, err := NewServer(cfg, tlsOpts, commonOpts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
 	}
