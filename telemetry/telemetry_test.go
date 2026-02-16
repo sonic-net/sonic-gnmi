@@ -158,7 +158,7 @@ func TestStartGNMIServer(t *testing.T) {
 	}()
 
 	fs := flag.NewFlagSet("testStartGNMIServer", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey, "-output_queue_size", "10"}
 	telemetryCfg, cfg, err := setupFlags(fs)
 
 	if err != nil {
@@ -229,7 +229,7 @@ func TestStartGNMIServerGracefulStop(t *testing.T) {
 	}()
 
 	fs := flag.NewFlagSet("testStartGNMIServer", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey, "-output_queue_size", "10"}
 	telemetryCfg, cfg, err := setupFlags(fs)
 
 	if err != nil {

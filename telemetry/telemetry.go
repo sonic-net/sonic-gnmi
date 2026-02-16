@@ -62,6 +62,8 @@ type TelemetryConfig struct {
 	Vrf                   *string
 	EnableCrl             *bool
 	CrlExpireDuration     *int
+	OutputQueSize         *uint64
+	MaxSubscribers        *uint64
 	ImgDirPath            *string
 }
 
@@ -177,6 +179,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		Vrf:                   fs.String("vrf", "", "VRF name, when zmq_address belong on a VRF, need VRF name to bind ZMQ."),
 		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
 		CrlExpireDuration:     fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
+		OutputQueSize:         fs.Uint64("output_queue_size", 10, "Output Queue Maximum Size per Subscribe Session (MB)"),
+		MaxSubscribers:        fs.Uint64("maximum_subscribers", 10, "Maximum amount of subscribers"),
 		ImgDirPath:            fs.String("img_dir", "/tmp/host_tmp", "Directory path where image will be transferred."),
 	}
 
@@ -231,6 +235,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	// Move to new function
 	gnmi.JwtRefreshInt = time.Duration(*telemetryCfg.JwtRefInt * uint64(time.Second))
 	gnmi.JwtValidInt = time.Duration(*telemetryCfg.JwtValInt * uint64(time.Second))
+	gnmi.OutputQueSize = *telemetryCfg.OutputQueSize * uint64(1024*1024)
 
 	cfg := &gnmi.Config{}
 	cfg.Port = int64(*telemetryCfg.Port)
@@ -242,6 +247,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.ConfigTableName = *telemetryCfg.ConfigTableName
 	cfg.Vrf = *telemetryCfg.Vrf
 	cfg.EnableCrl = *telemetryCfg.EnableCrl
+	cfg.MaxNumSubscribers = *telemetryCfg.MaxSubscribers
 
 	gnmi.SetCrlExpireDuration(time.Duration(*telemetryCfg.CrlExpireDuration) * time.Second)
 

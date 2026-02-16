@@ -2,7 +2,6 @@ package gnmi
 
 import (
 	"fmt"
-	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
@@ -15,6 +14,8 @@ import (
 	"sync"
 )
 
+var OutputQueSize uint64
+
 // Client contains information about a subscribe client that has connected to the server.
 type Client struct {
 	addr      net.Addr
@@ -25,7 +26,7 @@ type Client struct {
 	stop      chan struct{}
 	once      chan struct{}
 	mu        sync.RWMutex
-	q         *queue.PriorityQueue
+	q         *sdc.LimitedQueue
 	subscribe *gnmipb.SubscriptionList
 	// Wait for all sub go routine to finish
 	w        sync.WaitGroup
@@ -42,7 +43,7 @@ var connectionManager *ConnectionManager
 
 // NewClient returns a new initialized client.
 func NewClient(addr net.Addr) *Client {
-	pq := queue.NewPriorityQueue(1, false)
+	pq := sdc.NewLimitedQueue(1, false, OutputQueSize)
 	return &Client{
 		addr:     addr,
 		q:        pq,
@@ -228,7 +229,10 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 	c.Close()
 	// Wait until all child go routines exited
 	c.w.Wait()
-	return grpc.Errorf(codes.InvalidArgument, "%s", err)
+	if err != nil {
+		return grpc.Errorf(codes.InvalidArgument, "%s", err)
+	}
+	return err
 }
 
 // Closing of client queue is triggered upon end of stream receive or stream error
@@ -238,11 +242,11 @@ func (c *Client) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	log.V(1).Infof("Client %s Close, sendMsg %v recvMsg %v errors %v", c, c.sendMsg, c.recvMsg, c.errors)
-	if c.q != nil {
-		if c.q.Disposed() {
+	if c.q.Q != nil {
+		if c.q.Q.Disposed() {
 			return
 		}
-		c.q.Dispose()
+		c.q.Q.Dispose()
 	}
 	if c.stop != nil {
 		close(c.stop)
@@ -298,12 +302,8 @@ func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 	for {
 		var val *sdc.Value
-		items, err := c.q.Get(1)
+		item, err := c.q.DequeueItem()
 
-		if items == nil {
-			log.V(1).Infof("%v", err)
-			return err
-		}
 		if err != nil {
 			c.errors++
 			log.V(1).Infof("%v", err)
@@ -312,18 +312,12 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 
 		var resp *gnmipb.SubscribeResponse
 
-		switch v := items[0].(type) {
-		case sdc.Value:
-			if resp, err = sdc.ValToResp(v); err != nil {
-				c.errors++
-				return err
-			}
-			val = &v
-		default:
-			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], c)
+		if resp, err = sdc.ValToResp(item); err != nil {
 			c.errors++
+			return err
 		}
 
+		val = &item
 		c.sendMsg++
 		err = stream.Send(resp)
 		if err != nil {
