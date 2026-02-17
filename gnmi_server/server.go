@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
@@ -174,6 +175,7 @@ type Config struct {
 	ZmqPort             string
 	IdleConnDuration    int
 	ConfigTableName     string
+	GnmiVrf             string
 	Vrf                 string
 	EnableCrl           bool
 	// Path to the directory where image is stored.
@@ -265,6 +267,31 @@ func (i AuthTypes) Unset(mode string) error {
 	return nil
 }
 
+func createVrfListener(vrf string, port int64) (net.Listener, error) {
+	lc := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			var err error
+			ctrlErr := c.Control(func(fd uintptr) {
+				err = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, vrf)
+			})
+			if ctrlErr != nil {
+				return ctrlErr
+			}
+			if err != nil {
+				return fmt.Errorf("failed to bind socket to VRF %s: %v", vrf, err)
+			}
+			return nil
+		},
+	}
+
+	listener, err := lc.Listen(context.Background(), "tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return nil, err
+	}
+	log.V(1).Infof("Created VRF-bound listener on VRF %s, port %d", vrf, port)
+	return listener, nil
+}
+
 // New returns an initialized Server.
 func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if config == nil {
@@ -311,7 +338,13 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 	if srv.config.Port < 0 {
 		srv.config.Port = 0
 	}
-	srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", srv.config.Port))
+
+	// Create VRF-aware listener if GNMI VRF is specified
+	if srv.config.GnmiVrf != "" && srv.config.GnmiVrf != "default" {
+		srv.lis, err = createVrfListener(srv.config.GnmiVrf, srv.config.Port)
+	} else {
+		srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", srv.config.Port))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to open listener port %d: %v", srv.config.Port, err)
 	}

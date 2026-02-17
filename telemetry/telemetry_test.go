@@ -58,8 +58,14 @@ func TestRunTelemetry(t *testing.T) {
 
 func TestFlags(t *testing.T) {
 	originalArgs := os.Args
+	originalJwtRefreshInt := gnmi.JwtRefreshInt
+	originalJwtValidInt := gnmi.JwtValidInt
+	originalCrlExpireDuration := gnmi.GetCrlExpireDuration()
 	defer func() {
 		os.Args = originalArgs
+		gnmi.JwtRefreshInt = originalJwtRefreshInt
+		gnmi.JwtValidInt = originalJwtValidInt
+		gnmi.SetCrlExpireDuration(originalCrlExpireDuration)
 	}()
 
 	tests := []struct {
@@ -68,6 +74,8 @@ func TestFlags(t *testing.T) {
 		expectedThreshold int
 		expectedIdleDur   int
 		expectedLogLevel  int
+		expectedGnmiVrf   string
+		expectedVrf       string
 	}{
 		{
 			[]string{"cmd", "-port", "9090", "-threshold", "200", "-idle_conn_duration", "10", "-v", "6", "-noTLS"},
@@ -75,6 +83,8 @@ func TestFlags(t *testing.T) {
 			200,
 			10,
 			6,
+			"",
+			"",
 		},
 		{
 			[]string{"cmd", "-port", "2020", "-threshold", "500", "-idle_conn_duration", "4", "-v", "0", "-insecure"},
@@ -82,6 +92,8 @@ func TestFlags(t *testing.T) {
 			500,
 			4,
 			0,
+			"",
+			"",
 		},
 		{
 			[]string{"cmd", "-port", "5050", "-threshold", "10", "-idle_conn_duration", "3", "-v", "-3", "-noTLS"},
@@ -89,6 +101,17 @@ func TestFlags(t *testing.T) {
 			10,
 			3,
 			2,
+			"",
+			"",
+		},
+		{
+			[]string{"cmd", "-port", "8082", "-threshold", "1", "-idle_conn_duration", "1", "-gnmi_vrf", "test-gnmi-vrf", "-vrf", "test-zmq-vrf", "-noTLS"},
+			8082,
+			1,
+			1,
+			2,
+			"test-gnmi-vrf",
+			"test-zmq-vrf",
 		},
 		{
 			[]string{"cmd", "-port", "8081", "-threshold", "1", "-idle_conn_duration", "1"},
@@ -96,6 +119,8 @@ func TestFlags(t *testing.T) {
 			1,
 			1,
 			2,
+			"",
+			"",
 		},
 		{
 			[]string{"cmd", "-port", "8081", "-threshold", "1", "-idle_conn_duration", "1", "-server_crt", "../testdata/certs/testserver.cert"},
@@ -103,6 +128,8 @@ func TestFlags(t *testing.T) {
 			1,
 			1,
 			2,
+			"",
+			"",
 		},
 	}
 
@@ -138,6 +165,14 @@ func TestFlags(t *testing.T) {
 
 		if *config.LogLevel != test.expectedLogLevel {
 			t.Errorf("Expected log_level to be %d, got %d", test.expectedLogLevel, *config.LogLevel)
+		}
+
+		if *config.GnmiVrf != test.expectedGnmiVrf {
+			t.Errorf("Expected gnmi_vrf to be %s, got %s", test.expectedGnmiVrf, *config.GnmiVrf)
+		}
+
+		if *config.Vrf != test.expectedVrf {
+			t.Errorf("Expected vrf to be %s, got %s", test.expectedVrf, *config.Vrf)
 		}
 	}
 }
