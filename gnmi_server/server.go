@@ -31,6 +31,7 @@ import (
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_healthz_pb "github.com/openconfig/gnoi/healthz"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
+	gnsiCredzpb "github.com/openconfig/gnsi/credentialz"
 	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
 	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 	"google.golang.org/grpc"
@@ -41,7 +42,8 @@ import (
 )
 
 var (
-	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+	supportedEncodings            = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
+	dbusCaller         ssc.Caller = &ssc.DbusCaller{}
 )
 
 // Server manages a single gNMI Server implementation. Each client that connects
@@ -63,6 +65,7 @@ type Server struct {
 	masterEID     uint128
 	gnoi_system_pb.UnimplementedSystemServer
 	factory_reset.UnimplementedFactoryResetServer
+	gnsiCredz *GNSICredentialzServer
 }
 
 // handleOperationalGet handles OPERATIONAL target requests directly with standard gNMI types
@@ -177,7 +180,9 @@ type Config struct {
 	Vrf                 string
 	EnableCrl           bool
 	// Path to the directory where image is stored.
-	ImgDir string
+	ImgDir              string
+	SshCredMetaFile     string // Path to JSON file with SSH server credential metadata.
+	ConsoleCredMetaFile string // Path to JSON file with console credential metadata.
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -306,6 +311,9 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		readWhitelist:  readWhitelist,
 		writeWhitelist: writeWhitelist,
 	}
+
+	srv.gnsiCredz = NewGNSICredentialzServer(srv)
+	gnsiCredzpb.RegisterCredentialzServer(srv.s, srv.gnsiCredz)
 
 	var err error
 	if srv.config.Port < 0 {
