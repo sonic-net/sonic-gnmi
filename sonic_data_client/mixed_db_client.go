@@ -68,21 +68,22 @@ var (
 )
 
 type MixedDbClient struct {
-	prefix      *gnmipb.Path
-	paths       []*gnmipb.Path
-	pathG2S     map[*gnmipb.Path][]tablePath
-	encoding    gnmipb.Encoding
-	q           *queue.PriorityQueue
-	channel     chan struct{}
-	target      string
-	origin      string
-	workPath    string
-	jClient     *JsonClient
-	applDB      swsscommon.DBConnector
-	zmqAddress  string
-	zmqClient   swsscommon.ZmqClient
-	tableMap    map[string]swsscommon.ProducerStateTable
-	zmqTableMap map[string]swsscommon.ZmqProducerStateTable
+	prefix        *gnmipb.Path
+	paths         []*gnmipb.Path
+	pathG2S       map[*gnmipb.Path][]tablePath
+	encoding      gnmipb.Encoding
+	q             *queue.PriorityQueue
+	channel       chan struct{}
+	target        string
+	origin        string
+	workPath      string
+	jClient       *JsonClient
+	applDB        swsscommon.DBConnector
+	zmqAddress    string
+	zmqClient     swsscommon.ZmqClient
+	tableMap      map[string]swsscommon.ProducerStateTable
+	zmqTableMap   map[string]swsscommon.ZmqProducerStateTable
+	plainTableMap map[string]swsscommon.Table
 	// swsscommon introduced dbkey to support multiple database
 	dbkey swsscommon.SonicDBKey
 	// Convert dbkey to string, namespace:container
@@ -261,9 +262,19 @@ func (c *MixedDbClient) GetTable(table string) swsscommon.ProducerStateTable {
 		return pt
 	}
 
-	// DASH_HA_ tables use ProducerStateTable (not ZMQ) because hamgrd subscribes
-	// via SubscriberStateTable which has rehydration support.
-	if strings.HasPrefix(table, DASH_TABLE_PREFIX) && !strings.HasPrefix(table, DASH_HA_TABLE_PREFIX) && c.zmqClient != nil {
+	_, ok = c.plainTableMap[table]
+	if ok {
+		return nil
+	}
+
+	// DASH_HA_ tables use Table (not ProducerStateTable),
+	// which allows multiple subscribers (8 instances of hamgrd) to consume that table.
+	if strings.HasPrefix(table, DASH_HA_TABLE_PREFIX) {
+		log.V(2).Infof("Create Table: %s", table)
+		plainTable := swsscommon.NewTable(c.applDB, table)
+		c.plainTableMap[table] = plainTable
+		return nil
+	} else if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
 		log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
 		zmqTable := swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)
 		c.zmqTableMap[table] = zmqTable
@@ -294,6 +305,24 @@ func ProducerStateTableDeleteWrapper(pt swsscommon.ProducerStateTable, key strin
 	// convert panic to error
 	defer CatchException(&err)
 	pt.Delete(key, "DEL", "")
+	return
+}
+
+func TableSetWrapper(t swsscommon.Table, key string, value swsscommon.FieldValuePairs) (err error) {
+	// convert panic to error
+	defer CatchException(&err)
+	t.Set(key, value, "SET", "")
+	return
+}
+
+func TableDeleteWrapper(t swsscommon.Table, key string) (err error) {
+	// convert panic to error
+	defer CatchException(&err)
+	t.Delete(key, "DEL", "")
+	// Table.del() in C++ pushes to the pipeline but doesn't flush
+	// (unlike Table.set() which flushes when not buffered).
+	// Explicit flush is needed to drain the pipeline and avoid memory leaks.
+	t.Flush()
 	return
 }
 
@@ -331,6 +360,15 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 	}
 
 	pt := c.GetTable(table)
+	if pt == nil {
+		// DASH_HA_ tables use Table,
+		// direct Redis operations doesn't require retry.
+		t := c.plainTableMap[table]
+		if t == nil {
+			return fmt.Errorf("table %s not found in plainTableMap", table)
+		}
+		return TableSetWrapper(t, key, vec)
+	}
 	return RetryHelper(
 		c.zmqClient,
 		func() error {
@@ -340,6 +378,15 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 
 func (c *MixedDbClient) DbDelTable(table string, key string) error {
 	pt := c.GetTable(table)
+	if pt == nil {
+		// DASH_HA_ tables use Table,
+		// direct Redis operations doesn't require retry.
+		t := c.plainTableMap[table]
+		if t == nil {
+			return fmt.Errorf("table %s not found in plainTableMap", table)
+		}
+		return TableDeleteWrapper(t, key)
+	}
 	return RetryHelper(
 		c.zmqClient,
 		func() error {
@@ -499,8 +546,9 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	initRedisDbMap()
 
 	var client = MixedDbClient{
-		tableMap:    map[string]swsscommon.ProducerStateTable{},
-		zmqTableMap: map[string]swsscommon.ZmqProducerStateTable{},
+		tableMap:      map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap:   map[string]swsscommon.ZmqProducerStateTable{},
+		plainTableMap: map[string]swsscommon.Table{},
 	}
 
 	// Get namespace count and container count from db config
@@ -2123,6 +2171,10 @@ func (c *MixedDbClient) Close() error {
 	}
 	for _, pt := range c.zmqTableMap {
 		swsscommon.DeleteZmqProducerStateTable(pt)
+	}
+	for _, t := range c.plainTableMap {
+		t.Flush()
+		swsscommon.DeleteTable(t)
 	}
 	if c.applDB != nil {
 		swsscommon.DeleteDBConnector(c.applDB)
