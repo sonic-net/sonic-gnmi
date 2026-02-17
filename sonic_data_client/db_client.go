@@ -229,7 +229,7 @@ func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync
 			if subMode == gnmipb.SubscriptionMode_SAMPLE {
 				c.w.Add(1)      // wait group to indicate the streaming session is complete.
 				c.synced.Add(1) // wait group to indicate whether sync_response is sent.
-				go streamSampleSubscription(c, sub, subscribe.GetUpdatesOnly())
+				go streamSampleSubscription(c, sub)
 			} else if subMode == gnmipb.SubscriptionMode_ON_CHANGE {
 				c.w.Add(1)
 				c.synced.Add(1)
@@ -269,13 +269,13 @@ func streamOnChangeSubscription(c *DbClient, gnmiPath *gnmipb.Path) {
 			go dbFieldSubscribe(c, gnmiPath, true, time.Millisecond*200)
 		}
 	} else {
-		// sample interval and update only parameters are not applicable
+		// sample interval and suppress redundant parameters are not applicable
 		go dbTableKeySubscribe(c, gnmiPath, 0, true)
 	}
 }
 
 // streamSampleSubscription implements Subscription "SAMPLE STREAM" mode
-func streamSampleSubscription(c *DbClient, sub *gnmipb.Subscription, updateOnly bool) {
+func streamSampleSubscription(c *DbClient, sub *gnmipb.Subscription) {
 	samplingInterval, err := validateSampleInterval(sub)
 	if err != nil {
 		enqueueFatalMsg(c, err.Error())
@@ -289,12 +289,12 @@ func streamSampleSubscription(c *DbClient, sub *gnmipb.Subscription, updateOnly 
 	log.V(2).Infof("streamSampleSubscription gnmiPath: %v", gnmiPath)
 	if tblPaths[0].field != "" {
 		if len(tblPaths) > 1 {
-			dbFieldMultiSubscribe(c, gnmiPath, false, samplingInterval, updateOnly)
+			dbFieldMultiSubscribe(c, gnmiPath, false, samplingInterval, sub.GetSuppressRedundant())
 		} else {
 			dbFieldSubscribe(c, gnmiPath, false, samplingInterval)
 		}
 	} else {
-		dbTableKeySubscribe(c, gnmiPath, samplingInterval, updateOnly)
+		dbTableKeySubscribe(c, gnmiPath, samplingInterval, sub.GetSuppressRedundant())
 	}
 }
 
@@ -1129,9 +1129,9 @@ func putFatalMsg(q *queue.PriorityQueue, msg string) {
 // dbFieldMultiSubscribe would read a field from multiple tables and put to output queue.
 // It handles queries like "COUNTERS/Ethernet*/xyz" where the path translates to a field  in multiple tables.
 // For SAMPLE mode, it would send periodically regardless of change.
-// However, if `updateOnly` is true, the payload would include only the changed fields.
+// However, if `suppressRedundant` is true, the payload would include only the changed fields.
 // For ON_CHANGE mode, it would send only if the value has changed since the last update.
-func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interval time.Duration, updateOnly bool) {
+func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interval time.Duration, suppressRedundant bool) {
 	defer c.w.Done()
 
 	tblPaths := c.pathG2S[gnmiPath]
@@ -1165,7 +1165,7 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 
 			// This value was saved before and it hasn't changed since then
 			_, valueMapped := path2ValueMap[tblPath]
-			if (onChange || updateOnly) && valueMapped && val == path2ValueMap[tblPath] {
+			if (onChange || suppressRedundant) && valueMapped && val == path2ValueMap[tblPath] {
 				continue
 			}
 
@@ -1405,7 +1405,7 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 // dbTableKeySubscribe subscribes to tables using a table keys.
 // Handles queries like "COUNTERS/Ethernet0" or "COUNTERS/Ethernet*"
 // This function handles both ON_CHANGE and SAMPLE modes. "interval" being 0 is interpreted as ON_CHANGE mode.
-func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Duration, updateOnly bool) {
+func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Duration, suppressRedundant bool) {
 	defer c.w.Done()
 
 	tblPaths := c.pathG2S[gnmiPath]
@@ -1505,7 +1505,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 	signalSync()
 
 	// Clear the payload so that next time it will send only updates
-	if updateOnly {
+	if suppressRedundant {
 		msiAll = make(map[string]interface{})
 	}
 
@@ -1547,7 +1547,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 			}
 
 			// Clear the payload so that next time it will send only updates
-			if updateOnly {
+			if suppressRedundant {
 				msiAll = make(map[string]interface{})
 				log.V(6).Infof("msiAll cleared: %v", len(msiAll))
 			}
