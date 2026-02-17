@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -1390,6 +1391,28 @@ func testHandlerSyscall(t *testing.T, signal os.Signal) {
 
 func sendSignal(serverControlSignal chan<- ServerControlValue, value ServerControlValue) {
 	serverControlSignal <- value
+}
+
+func TestFlagsNoPortNoUnixSocket(t *testing.T) {
+	// Test that validation fails when neither port nor unix_socket is specified
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testNoPortNoUnixSocket", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "0", "-noTLS"}
+
+	cfg, _, err := setupFlags(fs)
+	if err == nil {
+		t.Error("Expected error when port is 0 and no unix_socket, but got nil")
+	}
+	if cfg != nil {
+		t.Error("Expected nil config when validation fails")
+	}
+	if err != nil && !strings.Contains(err.Error(), "port must be > 0") {
+		t.Errorf("Expected 'port must be > 0' error, got: %v", err)
+	}
 }
 
 func TestMain(m *testing.M) {

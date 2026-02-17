@@ -5494,6 +5494,135 @@ func TestServerNegativePortFails(t *testing.T) {
 	}
 }
 
+func TestServerUnixSocketOnly(t *testing.T) {
+	// Test creating a UDS-only server (no TCP listener)
+	socketPath := "/tmp/gnmi_test_uds_only.sock"
+	os.Remove(socketPath) // Ensure clean state
+
+	cfg := &Config{
+		Port:       0, // No TCP
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create UDS-only server: %v", err)
+	}
+	if s == nil {
+		t.Fatal("Server is nil")
+	}
+	if s.udsServer == nil {
+		t.Error("UDS server should not be nil")
+	}
+	if s.udsListener == nil {
+		t.Error("UDS listener should not be nil")
+	}
+	if s.s != nil {
+		t.Error("TCP server should be nil for UDS-only")
+	}
+
+	// Test Address() returns UDS path
+	addr := s.Address()
+	if addr != socketPath {
+		t.Errorf("Expected address %s, got %s", socketPath, addr)
+	}
+
+	s.ForceStop()
+
+	// Verify socket was cleaned up
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Error("Socket file should be removed after ForceStop")
+		os.Remove(socketPath)
+	}
+}
+
+func TestServerUnixSocketStop(t *testing.T) {
+	// Test graceful Stop() on UDS server
+	socketPath := "/tmp/gnmi_test_uds_stop.sock"
+	os.Remove(socketPath)
+
+	cfg := &Config{
+		Port:       0,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create UDS server: %v", err)
+	}
+
+	s.Stop()
+
+	// Verify socket was cleaned up
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Error("Socket file should be removed after Stop")
+		os.Remove(socketPath)
+	}
+}
+
+func TestServerUnixSocketInvalidPath(t *testing.T) {
+	// Test failure when UDS path is invalid (directory doesn't exist)
+	socketPath := "/nonexistent/dir/gnmi.sock"
+
+	cfg := &Config{
+		Port:       0,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, nil, nil)
+	if err == nil {
+		s.ForceStop()
+		t.Error("Expected error for invalid socket path")
+	}
+	if s != nil {
+		t.Error("Server should be nil for invalid socket path")
+	}
+}
+
+func TestServerDualListener(t *testing.T) {
+	// Test creating a server with both TCP and UDS listeners
+	socketPath := "/tmp/gnmi_test_dual.sock"
+	os.Remove(socketPath)
+
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+
+	cfg := &Config{
+		Port:       8181,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, tlsOpts, nil)
+	if err != nil {
+		t.Fatalf("Failed to create dual-listener server: %v", err)
+	}
+	if s.s == nil {
+		t.Error("TCP server should not be nil")
+	}
+	if s.udsServer == nil {
+		t.Error("UDS server should not be nil")
+	}
+
+	// Test Address() returns both addresses
+	addr := s.Address()
+	if !strings.Contains(addr, "8181") {
+		t.Errorf("Address should contain TCP port, got: %s", addr)
+	}
+	if !strings.Contains(addr, socketPath) {
+		t.Errorf("Address should contain socket path, got: %s", addr)
+	}
+
+	s.ForceStop()
+	os.Remove(socketPath)
+}
+
 func TestNilServerStop(t *testing.T) {
 	// Create a server with nil grpc server, such that s.Stop is called with nil value
 	t.Log("Expecting s.Stop to log error as server is nil")
