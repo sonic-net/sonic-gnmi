@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -355,6 +356,15 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		// UDS server uses only commonOpts (no TLS)
 		srv.udsServer = grpc.NewServer(commonOpts...)
 		reflection.Register(srv.udsServer)
+
+		// Create socket directory if it doesn't exist
+		socketDir := filepath.Dir(config.UnixSocket)
+		if err := os.MkdirAll(socketDir, 0755); err != nil {
+			if srv.lis != nil {
+				srv.lis.Close()
+			}
+			return nil, fmt.Errorf("failed to create socket directory %s: %v", socketDir, err)
+		}
 
 		os.Remove(config.UnixSocket) // Remove stale socket
 		srv.udsListener, err = net.Listen("unix", config.UnixSocket)

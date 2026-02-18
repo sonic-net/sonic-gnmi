@@ -5561,8 +5561,14 @@ func TestServerUnixSocketStop(t *testing.T) {
 }
 
 func TestServerUnixSocketInvalidPath(t *testing.T) {
-	// Test failure when UDS path is invalid (directory doesn't exist)
-	socketPath := "/nonexistent/dir/gnmi.sock"
+	// Test failure when UDS path is under a file (not a directory)
+	// Create a file that will block directory creation
+	blockingFile := "/tmp/gnmi_test_blocking_file"
+	os.WriteFile(blockingFile, []byte("block"), 0644)
+	defer os.Remove(blockingFile)
+
+	// Try to create socket under the file (impossible)
+	socketPath := blockingFile + "/gnmi.sock"
 
 	cfg := &Config{
 		Port:       0,

@@ -157,7 +157,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	telemetryCfg := &TelemetryConfig{
 		UserAuth:              gnmi.AuthTypes{"password": false, "cert": false, "jwt": false},
 		Port:                  fs.Int("port", -1, "port to listen on"),
-		UnixSocket:            fs.String("unix_socket", "", "Unix socket path for local connections without TLS"),
+		UnixSocket:            fs.String("unix_socket", "/var/run/gnmi/gnmi.sock", "Unix socket path for local connections without TLS (set to empty to disable)"),
 		LogLevel:              fs.Int("v", 2, "log level of process"),
 		CaCert:                fs.String("ca_crt", "", "CA certificate for client certificate validation. Optional."),
 		ServerCert:            fs.String("server_crt", "", "TLS server certificate"),

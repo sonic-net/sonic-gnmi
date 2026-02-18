@@ -1401,7 +1401,8 @@ func TestFlagsNoPortNoUnixSocket(t *testing.T) {
 	}()
 
 	fs := flag.NewFlagSet("testNoPortNoUnixSocket", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-port", "0", "-noTLS"}
+	// Explicitly disable unix_socket (since it now has a default) and set port to 0
+	os.Args = []string{"cmd", "-port", "0", "-unix_socket", "", "-noTLS"}
 
 	cfg, _, err := setupFlags(fs)
 	if err == nil {
