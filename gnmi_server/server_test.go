@@ -5560,6 +5560,50 @@ func TestServerUnixSocketStop(t *testing.T) {
 	}
 }
 
+func TestServerUnixSocketServeAndStop(t *testing.T) {
+	// Test that Serve() returns when Stop() is called
+	socketPath := "/tmp/gnmi_test_uds_serve.sock"
+	os.Remove(socketPath)
+
+	cfg := &Config{
+		Port:       0,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create UDS server: %v", err)
+	}
+
+	// Start Serve() in a goroutine
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- s.Serve()
+	}()
+
+	// Give server time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Stop the server
+	s.Stop()
+
+	// Verify Serve() returns
+	select {
+	case err := <-serveDone:
+		if err != nil {
+			t.Errorf("Serve() returned unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("Serve() did not return after Stop()")
+	}
+
+	// Verify socket was cleaned up
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Error("Socket file should be removed after Stop")
+		os.Remove(socketPath)
+	}
+}
+
 func TestServerDualListener(t *testing.T) {
 	// Test creating a server with both TCP and UDS listeners
 	socketPath := "/tmp/gnmi_test_dual.sock"
