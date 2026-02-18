@@ -1,0 +1,7 @@
+sonic-ops-server (1.0.0-1) unstable; urgency=medium
+
+  * Initial release
+  * gRPC server for SONiC firmware management
+  * System information services
+
+ -- SONiC Team <sonic@example.com>  Thu, 26 Jun 2025 00:00:00 +0000

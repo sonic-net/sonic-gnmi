@@ -1,0 +1,10 @@
+# Semgrep ignore patterns
+
+# TLS InsecureSkipVerify is intentionally used for testing only
+# This is a controlled usage with clear documentation
+internal/client/grpc/connection.go
+
+# Intentionally running as root in Docker container
+# Root privileges are required for nsenter to access host namespaces
+# and execute sonic-installer commands
+docker/Dockerfile

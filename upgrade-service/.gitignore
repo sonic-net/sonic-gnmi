@@ -1,0 +1,14 @@
+bin/
+build/
+
+# Coverage files
+coverage.out
+coverage.html
+
+# Debian packaging
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/sonic-ops-server/
+
+# AI Agent
+CLAUDE.md
