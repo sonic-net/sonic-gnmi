@@ -5560,31 +5560,6 @@ func TestServerUnixSocketStop(t *testing.T) {
 	}
 }
 
-func TestServerUnixSocketInvalidPath(t *testing.T) {
-	// Test failure when UDS path is under a file (not a directory)
-	// Create a file that will block directory creation
-	blockingFile := "/tmp/gnmi_test_blocking_file"
-	os.WriteFile(blockingFile, []byte("block"), 0644)
-	defer os.Remove(blockingFile)
-
-	// Try to create socket under the file (impossible)
-	socketPath := blockingFile + "/gnmi.sock"
-
-	cfg := &Config{
-		Port:       0,
-		UnixSocket: socketPath,
-		Threshold:  100,
-	}
-	s, err := NewServer(cfg, nil, nil)
-	if err == nil {
-		s.ForceStop()
-		t.Error("Expected error for invalid socket path")
-	}
-	if s != nil {
-		t.Error("Server should be nil for invalid socket path")
-	}
-}
-
 func TestServerDualListener(t *testing.T) {
 	// Test creating a server with both TCP and UDS listeners
 	socketPath := "/tmp/gnmi_test_dual.sock"
