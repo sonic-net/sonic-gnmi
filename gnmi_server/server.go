@@ -375,9 +375,16 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			}
 			return nil, fmt.Errorf("failed to listen on unix socket %s: %v", config.UnixSocket, err)
 		}
-		os.Chmod(config.UnixSocket, 0660) // Restrict to root only
-
-		registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv)
+		// Restrict socket access to container user (root) and group
+		if err := os.Chmod(config.UnixSocket, 0660); err != nil {
+			log.Warningf("Failed to set permissions on unix socket %s: %v; disabling UDS listener", config.UnixSocket, err)
+			srv.udsListener.Close()
+			os.Remove(config.UnixSocket)
+			srv.udsListener = nil
+			srv.udsServer = nil
+		} else {
+			registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv)
+		}
 	}
 
 	// Require at least one listener
@@ -402,8 +409,11 @@ func (srv *Server) Serve() error {
 	if srv.s != nil && srv.lis != nil {
 		go func() {
 			log.V(1).Infof("Starting TCP server on %s", srv.lis.Addr().String())
-			if err := srv.s.Serve(srv.lis); err != nil {
+			err := srv.s.Serve(srv.lis)
+			if err != nil {
 				errChan <- fmt.Errorf("TCP server: %w", err)
+			} else {
+				errChan <- nil
 			}
 		}()
 	}
@@ -412,8 +422,11 @@ func (srv *Server) Serve() error {
 	if srv.udsServer != nil && srv.udsListener != nil {
 		go func() {
 			log.V(1).Infof("Starting UDS server on %s", srv.udsListener.Addr().String())
-			if err := srv.udsServer.Serve(srv.udsListener); err != nil {
+			err := srv.udsServer.Serve(srv.udsListener)
+			if err != nil {
 				errChan <- fmt.Errorf("UDS server: %w", err)
+			} else {
+				errChan <- nil
 			}
 		}()
 	}
@@ -450,7 +463,6 @@ func (srv *Server) Stop() {
 	}
 }
 
-// Address returns the port the Server is listening to.
 // Address returns the addresses the Server is listening on.
 func (srv *Server) Address() string {
 	var addrs []string
