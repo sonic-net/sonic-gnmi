@@ -3,9 +3,11 @@ package client
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"reflect"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,10 +26,13 @@ import (
 )
 
 const (
-	DELETE  int = 0
-	REPLACE int = 1
-	UPDATE  int = 2
+	DELETE     int = 0
+	REPLACE    int = 1
+	UPDATE     int = 2
+	maxWorkers     = 2 // max workers for parallel processing of Get/Subscribe requests
 )
+
+var useParallelProcessing = flag.Bool("use_parallel_processing", true, "use parallel processing for GET/SUBSCRIBE requests")
 
 type TranslClient struct {
 	prefix *gnmipb.Path
@@ -44,6 +49,38 @@ type TranslClient struct {
 
 	version  *translib.Version // Client version; populated by parseVersion()
 	encoding gnmipb.Encoding
+}
+type pathFromGetReq struct {
+	path *gnmipb.Path
+	uri  string
+	c    *TranslClient
+}
+
+type pathFromSubReq struct {
+	path string
+	ts   *translSubscriber
+}
+
+func findMin(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func joinErrorsWithNewline(errs []error) error {
+	//Length of 'err' validation is done before func call.
+	var errStrings []string
+	for _, err := range errs {
+		if err != nil {
+			errStrings = append(errStrings, err.Error())
+		}
+	}
+	if len(errStrings) == 0 {
+		return nil // Return actual nil, not an empty error object
+	}
+	// Using "\n" matches the visual output of errors.Join
+	return fmt.Errorf("%s", strings.Join(errStrings, "\n"))
 }
 
 func NewTranslClient(prefix *gnmipb.Path, getpaths []*gnmipb.Path, ctx context.Context, extensions []*gnmi_extpb.Extension, opts ...TranslClientOption) (Client, error) {
@@ -76,6 +113,7 @@ func NewTranslClient(prefix *gnmipb.Path, getpaths []*gnmipb.Path, ctx context.C
 func (c *TranslClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	rc, ctx := common_utils.GetContext(c.ctx)
 	c.ctx = ctx
+	var errs []error
 	var values []*spb.Value
 	ts := time.Now()
 
@@ -83,22 +121,55 @@ func (c *TranslClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	if version != nil {
 		rc.BundleVersion = version
 	}
-	/* Iterate through all GNMI paths. */
+	// Iterate through all GNMI paths in parallel. The max number of workers is equal to
+	// the number of Openconfig modules in a root query.
+	numPaths := len(c.path2URI)
+	pathChan := make(chan pathFromGetReq, numPaths)
+	valueChan := make(chan *spb.Value, numPaths)
+	errChan := make(chan error, numPaths)
+	workerWg := &sync.WaitGroup{}
+	readerWg := &sync.WaitGroup{}
+
+	numWorkers := 1
+	if *useParallelProcessing {
+		numWorkers = findMin(numPaths, maxWorkers)
+	}
+
+	// Spawn workers to process the paths in the GET request.
+	for i := 0; i < numWorkers; i++ {
+		workerWg.Add(1)
+		go processGetWorker(pathChan, valueChan, errChan, workerWg)
+	}
+
+	// Send the paths in the GET request to the workers through the channel.
 	for gnmiPath, URIPath := range c.path2URI {
-		/* Fill values for each GNMI path. */
-		val, err := transutil.TranslProcessGet(URIPath, nil, c.ctx)
+		pathChan <- pathFromGetReq{path: gnmiPath, uri: URIPath, c: c}
+	}
+	close(pathChan)
 
-		if err != nil {
-			return nil, err
+	// Start goroutines to read the response values and errors from the workers.
+	readerWg.Add(2)
+	go func() {
+		defer readerWg.Done()
+		for value := range valueChan {
+			values = append(values, value)
 		}
+	}()
+	go func() {
+		defer readerWg.Done()
+		for err := range errChan {
+			errs = append(errs, err)
+		}
+	}()
 
-		/* Value of each path is added to spb value structure. */
-		values = append(values, &spb.Value{
-			Prefix:    c.prefix,
-			Path:      gnmiPath,
-			Timestamp: ts.UnixNano(),
-			Val:       val,
-		})
+	// Wait for all goroutines to finish.
+	workerWg.Wait()
+	close(valueChan)
+	close(errChan)
+	readerWg.Wait()
+
+	if len(errs) != 0 {
+		return nil, joinErrorsWithNewline(errs)
 	}
 
 	/* The values structure at the end is returned and then updates in notitications as
@@ -108,6 +179,31 @@ func (c *TranslClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	log.V(4).Infof("TranslClient :Get done, total time taken: %v ms", int64(time.Since(ts)/time.Millisecond))
 
 	return values, nil
+}
+
+// processGetWorker is a worker function to remove paths from a GET request off of the channel and process them.
+func processGetWorker(pathChan <-chan pathFromGetReq, valueChan chan<- *spb.Value, errChan chan<- error, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for path := range pathChan {
+		log.Infof("getWorker processing path: %v", path)
+		val, resp, err := transutil.TranslProcessGet(path.uri, nil, path.c.ctx, path.c.encoding)
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		var valueTree ygot.ValidatedGoStruct
+		if resp != nil {
+			valueTree = resp.ValueTree
+		}
+		v, err := buildValueForGet(path.c.prefix, path.path, path.c.encoding, val, valueTree)
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		valueChan <- v
+	}
 }
 
 func (c *TranslClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
@@ -240,7 +336,19 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 		return
 	}
 
+	numSubWorkers := 1
+	if *useParallelProcessing {
+		numSubWorkers = findMin(len(subscribe.Subscription), maxWorkers)
+	}
+
 	var onChangeSubsString []string
+	// Spawn routines to process the Sample subscriptions
+	wg := &sync.WaitGroup{}
+	subChan := make(chan pathFromSubReq, len(subscribe.Subscription))
+	for i := 0; i < numSubWorkers; i++ {
+		wg.Add(1)
+		go processSubWorker(subChan, wg)
+	}
 
 	for i, pInfo := range subSupport {
 		sub := subscribe.Subscription[pInfo.ID]
@@ -259,12 +367,14 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 				subscribe_mode = gnmipb.SubscriptionMode_ON_CHANGE
 			} else {
 				enqueFatalMsgTranslib(c, fmt.Sprintf("ON_CHANGE Streaming mode invalid for %v", pathStr))
+				close(subChan)
 				return
 			}
 		case gnmipb.SubscriptionMode_SAMPLE:
 			subscribe_mode = gnmipb.SubscriptionMode_SAMPLE
 		default:
 			enqueFatalMsgTranslib(c, fmt.Sprintf("Invalid Subscription Mode %d", sub.Mode))
+			close(subChan)
 			return
 		}
 
@@ -275,6 +385,7 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 		if hb := sub.HeartbeatInterval; hb > 0 && hb < uint64(pInfo.MinInterval)*uint64(time.Second) {
 			enqueFatalMsgTranslib(c, fmt.Sprintf("Invalid Heartbeat Interval %ds, minimum interval is %ds",
 				sub.HeartbeatInterval/uint64(time.Second), subSupport[i].MinInterval))
+			close(subChan)
 			return
 		}
 
@@ -286,6 +397,7 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 				interval = minInterval
 			} else if interval < minInterval {
 				enqueFatalMsgTranslib(c, fmt.Sprintf("Invalid SampleInterval %ds, minimum interval is %ds", interval/int(time.Second), pInfo.MinInterval))
+				close(subChan)
 				return
 			}
 
@@ -306,7 +418,8 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 			}
 
 			// do initial sync & build the cache
-			ts.doSample(pathStr)
+			// Add the path to the channel to be processed in parallel
+			subChan <- pathFromSubReq{path: pathStr, ts: &ts}
 
 			addTimer(c, ticker_map, &cases, cases_map, interval, sub, pathStr, false)
 			//Heartbeat intervals are valid for SAMPLE in the case suppress_redundant is specified
@@ -321,18 +434,21 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 		}
 		log.V(6).Infof("End Sub: %v", sub)
 	}
+	close(subChan)
 
 	if len(onChangeSubsString) > 0 {
 		ts := translSubscriber{
 			client:     c,
 			session:    ss,
 			filterMsgs: subscribe.UpdatesOnly,
+			sampleWg:   wg,
 		}
 		ts.doOnChange(onChangeSubsString)
 	} else {
 		// If at least one ON_CHANGE subscription was present, then
 		// ts.doOnChange() would have sent the sync message.
 		// Explicitly send one here if all are SAMPLE subscriptions.
+		wg.Wait()
 		enqueueSyncMessage(c)
 	}
 
@@ -344,16 +460,37 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 			return
 		}
 
-		for _, tick := range ticker_map[cases_map[chosen]] {
+		// Start goroutines to process the Sample.
+		ticks := ticker_map[cases_map[chosen]]
+		tickSubChan := make(chan pathFromSubReq, len(ticks))
+		numTickWorkers := 1
+		if *useParallelProcessing {
+			numTickWorkers = findMin(len(ticks), maxWorkers)
+		}
+		for i := 0; i < numTickWorkers; i++ {
+			wg.Add(1)
+			go processSubWorker(tickSubChan, wg)
+		}
+		for _, tick := range ticks {
 			log.V(6).Infof("tick, heartbeat: %t, path: %s\n", tick.heartbeat, c.path2URI[tick.sub.Path])
 			ts := translSubscriber{
 				client:      c,
 				session:     ss,
 				sampleCache: sampleCache[tick.pathStr],
 				filterDups:  (!tick.heartbeat && tick.sub.SuppressRedundant),
+				sampleWg:    wg,
 			}
-			ts.doSample(tick.pathStr)
+			tickSubChan <- pathFromSubReq{path: tick.pathStr, ts: &ts}
 		}
+		close(tickSubChan)
+		wg.Wait()
+	}
+}
+
+func processSubWorker(subChan <-chan pathFromSubReq, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for sub := range subChan {
+		sub.ts.doSample(sub.path)
 	}
 }
 
@@ -402,12 +539,26 @@ func (c *TranslClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sy
 		}
 
 		t1 := time.Now()
+		// Spawn worker threads to process the subscription
+		numPaths := len(c.path2URI)
+		wg := &sync.WaitGroup{}
+		subChan := make(chan pathFromSubReq, numPaths)
+		numWorkers := 1
+		if *useParallelProcessing {
+			numWorkers = findMin(numPaths, maxWorkers)
+		}
+		for i := 0; i < numWorkers; i++ {
+			wg.Add(1)
+			go processSubWorker(subChan, wg)
+		}
 		for _, gnmiPath := range c.path2URI {
 			if synced || !subscribe.UpdatesOnly {
 				ts := translSubscriber{client: c}
-				ts.doSample(gnmiPath)
+				subChan <- pathFromSubReq{path: gnmiPath, ts: &ts}
 			}
 		}
+		close(subChan)
+		wg.Wait()
 
 		enqueueSyncMessage(c)
 		synced = true
@@ -441,11 +592,24 @@ func (c *TranslClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sy
 	}
 
 	t1 := time.Now()
+	// Spawn worker threads to process the subscription
+	numPaths := len(c.path2URI)
+	wg := &sync.WaitGroup{}
+	subChan := make(chan pathFromSubReq, numPaths)
+	numWorkers := 1
+	if *useParallelProcessing {
+		numWorkers = findMin(numPaths, maxWorkers)
+	}
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go processSubWorker(subChan, wg)
+	}
 	for _, gnmiPath := range c.path2URI {
 		ts := translSubscriber{client: c}
-		ts.doSample(gnmiPath)
+		subChan <- pathFromSubReq{path: gnmiPath, ts: &ts}
 	}
-
+	close(subChan)
+	wg.Wait()
 	enqueueSyncMessage(c)
 	log.V(4).Infof("Sync done, once time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 
@@ -487,6 +651,98 @@ func getBundleVersion(extensions []*gnmi_extpb.Extension) *string {
 	return nil
 }
 
+// setPrefixTarget fills prefix taregt for given Notification objects.
+func setPrefixTarget(notifs []*gnmipb.Notification, target string) {
+	for _, n := range notifs {
+		if n.Prefix == nil {
+			n.Prefix = &gnmipb.Path{Target: target}
+		} else {
+			n.Prefix.Target = target
+		}
+	}
+}
+
+// Creates a spb.Value out of data from the translib according to the requested encoding.
+func buildValue(prefix *gnmipb.Path, path *gnmipb.Path, enc gnmipb.Encoding,
+	typedVal *gnmipb.TypedValue, valueTree ygot.ValidatedGoStruct) (*spb.Value, error) {
+
+	switch enc {
+	case gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF:
+		if typedVal == nil {
+			return nil, nil
+		}
+		return &spb.Value{
+			Prefix:       prefix,
+			Path:         path,
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: false,
+			Val:          typedVal,
+		}, nil
+
+	case gnmipb.Encoding_PROTO:
+		if valueTree == nil {
+			return nil, nil
+		}
+
+		fullPath := transutil.GnmiTranslFullPath(prefix, path)
+		removeLastPathElem(fullPath)
+		notifications, err := ygot.TogNMINotifications(
+			valueTree,
+			time.Now().UnixNano(),
+			ygot.GNMINotificationsConfig{
+				UsePathElem:    true,
+				PathElemPrefix: fullPath.GetElem(),
+			})
+		if err != nil {
+			return nil, fmt.Errorf("Cannot convert OC Struct to Notifications: %s", err)
+		}
+		if len(notifications) != 1 {
+			return nil, fmt.Errorf("YGOT returned wrong number of notifications")
+		}
+		if len(prefix.Target) != 0 {
+			// Copy target from reqest.. ygot.TogNMINotifications does not fill it.
+			setPrefixTarget(notifications, prefix.Target)
+		}
+		return &spb.Value{
+			Notification: notifications[0],
+		}, nil
+	default:
+		return nil, fmt.Errorf("Unsupported Encoding %s", enc)
+	}
+}
+
+// buildValueForGet generates a spb.Value for GetRequest.
+// Besides the same function as buildValue, it generates spb.Value for nil value as well.
+// Return: spb.Value is guaranteed not nil when error is nil.
+func buildValueForGet(prefix *gnmipb.Path, path *gnmipb.Path, enc gnmipb.Encoding,
+	typedVal *gnmipb.TypedValue, valueTree ygot.ValidatedGoStruct) (*spb.Value, error) {
+
+	if spv, err := buildValue(prefix, path, enc, typedVal, valueTree); err != nil || spv != nil {
+		return spv, err
+	}
+
+	// spv is nil. Server needs to generate Notification for GetRequest.
+	switch enc {
+	case gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF:
+		return &spb.Value{
+			Prefix:       prefix,
+			Path:         path,
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: false,
+			Val:          &gnmipb.TypedValue{Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte("{}")}},
+		}, nil
+
+	case gnmipb.Encoding_PROTO:
+		// The Notification has no update and its prefix is the full path.
+		fullPath := transutil.GnmiTranslFullPath(prefix, path)
+		return &spb.Value{
+			Notification: &gnmipb.Notification{Prefix: fullPath, Timestamp: time.Now().UnixNano()},
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("Unsupported Encoding %s", enc)
+	}
+}
 func (c *TranslClient) parseVersion() error {
 	bv := getBundleVersion(c.extensions)
 	if bv == nil {
