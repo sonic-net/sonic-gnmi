@@ -44,6 +44,7 @@ type translSubscriber struct {
 	synced      sync.WaitGroup  // To signal receipt of sync message from translib
 	rcvdPaths   map[string]bool // Paths from received SubscribeResponse
 	msgBuilder  notificationBuilder
+	sampleWg    *sync.WaitGroup // WaitGroup to indicate when Sample subscriptions have finished processing
 }
 
 // notificationBuilder creates gnmipb.Notification from a translib.SubscribeResponse
@@ -155,6 +156,10 @@ func (ts *translSubscriber) processResponses(q *queue.PriorityQueue) {
 					return
 				}
 
+				if ts.sampleWg != nil {
+					// Wait for any sample subscriptions to finish before sending sync response.
+					ts.sampleWg.Wait()
+				}
 				log.V(6).Infof("SENDING SYNC")
 				enqueueSyncMessage(c)
 				syncDone = true
