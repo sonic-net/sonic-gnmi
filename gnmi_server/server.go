@@ -357,9 +357,10 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		srv.udsServer = grpc.NewServer(commonOpts...)
 		reflection.Register(srv.udsServer)
 
-		// Create socket directory if it doesn't exist
+		// Create socket directory if it doesn't exist (0750 to prevent unauthorized access
+		// during the window between socket creation and permission setting)
 		socketDir := filepath.Dir(config.UnixSocket)
-		if err := os.MkdirAll(socketDir, 0755); err != nil {
+		if err := os.MkdirAll(socketDir, 0750); err != nil {
 			if srv.lis != nil {
 				srv.lis.Close()
 			}
