@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -168,7 +169,7 @@ func TestStartGNMIServer(t *testing.T) {
 	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
 		return tls.Certificate{}, nil
 	})
-	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*gnmi.Server, error) {
 		return &gnmi.Server{}, nil
 	})
 	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
@@ -239,7 +240,7 @@ func TestStartGNMIServerGracefulStop(t *testing.T) {
 	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
 		return tls.Certificate{}, nil
 	})
-	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*gnmi.Server, error) {
 		return &gnmi.Server{}, nil
 	})
 	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
@@ -458,7 +459,7 @@ func TestSHA512Checksum(t *testing.T) {
 	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
 		return tls.Certificate{}, fmt.Errorf("Mock LoadX509KeyPair error")
 	})
-	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*gnmi.Server, error) {
 		return &gnmi.Server{}, nil
 	})
 	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
@@ -522,7 +523,7 @@ func TestStartGNMIServerCACert(t *testing.T) {
 	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
 		return tls.Certificate{}, nil
 	})
-	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*gnmi.Server, error) {
 		return &gnmi.Server{}, nil
 	})
 	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
@@ -574,7 +575,7 @@ func TestStartGNMIServerCreateWatcherError(t *testing.T) {
 	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(certFile, keyFile string) (tls.Certificate, error) {
 		return tls.Certificate{}, nil
 	})
-	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*gnmi.Server, error) {
 		return &gnmi.Server{}, nil
 	})
 	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
@@ -638,7 +639,7 @@ func TestStartGNMIServerSlowCerts(t *testing.T) {
 	})
 	patches.ApplyFunc(computeSHA512Checksum, func(file string) {
 	})
-	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*gnmi.Server, error) {
 		return &gnmi.Server{}, nil
 	})
 	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
@@ -717,7 +718,7 @@ func TestStartGNMIServerSlowCACerts(t *testing.T) {
 		}
 		return true
 	})
-	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, opts []grpc.ServerOption) (*gnmi.Server, error) {
+	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*gnmi.Server, error) {
 		return &gnmi.Server{}, nil
 	})
 	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
@@ -1390,6 +1391,29 @@ func testHandlerSyscall(t *testing.T, signal os.Signal) {
 
 func sendSignal(serverControlSignal chan<- ServerControlValue, value ServerControlValue) {
 	serverControlSignal <- value
+}
+
+func TestFlagsNoPortNoUnixSocket(t *testing.T) {
+	// Test that validation fails when neither port nor unix_socket is specified
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	fs := flag.NewFlagSet("testNoPortNoUnixSocket", flag.ContinueOnError)
+	// Explicitly disable unix_socket (since it now has a default) and set port to 0
+	os.Args = []string{"cmd", "-port", "0", "-unix_socket", "", "-noTLS"}
+
+	cfg, _, err := setupFlags(fs)
+	if err == nil {
+		t.Error("Expected error when port is 0 and no unix_socket, but got nil")
+	}
+	if cfg != nil {
+		t.Error("Expected nil config when validation fails")
+	}
+	if err != nil && !strings.Contains(err.Error(), "port must be > 0") {
+		t.Errorf("Expected 'port must be > 0' error, got: %v", err)
+	}
 }
 
 func TestMain(m *testing.M) {

@@ -130,7 +130,7 @@ func createServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: true,
@@ -138,7 +138,7 @@ func createServer(t *testing.T, port int64) *Server {
 		Threshold:           100,
 		ImgDir:              "/tmp",
 	}
-	s, err := NewServer(cfg, opts)
+	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
 	}
@@ -155,13 +155,13 @@ func createReadServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: false,
 		ImgDir:              "/tmp",
 	}
-	s, err := NewServer(cfg, opts)
+	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
@@ -178,14 +178,14 @@ func createRejectServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: true,
 		Threshold:           2,
 		ImgDir:              "/tmp",
 	}
-	s, err := NewServer(cfg, opts)
+	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
@@ -203,14 +203,14 @@ func createAuthServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: true,
 		UserAuth:            AuthTypes{"password": true, "cert": true, "jwt": true},
 		ImgDir:              "/tmp",
 	}
-	s, err := NewServer(cfg, opts)
+	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
@@ -227,8 +227,8 @@ func createInvalidServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	s, err := NewServer(nil, opts)
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	s, err := NewServer(nil, tlsOpts, nil)
 	if err != nil {
 		return nil
 	}
@@ -246,14 +246,13 @@ func createKeepAliveServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	keep_alive_params := keepalive.ServerParameters{
 		MaxConnectionIdle: 1 * time.Second,
 	}
-	server_opts := []grpc.ServerOption{
+	commonOpts := []grpc.ServerOption{
 		grpc.KeepaliveParams(keep_alive_params),
 	}
-	server_opts = append(server_opts, opts[0])
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: true,
@@ -262,7 +261,7 @@ func createKeepAliveServer(t *testing.T, port int64) *Server {
 		ImgDir:              "/tmp",
 	}
 
-	s, err := NewServer(cfg, server_opts)
+	s, err := NewServer(cfg, tlsOpts, commonOpts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
 	}
@@ -5459,12 +5458,194 @@ func TestGNMINativeMultiNamespace(t *testing.T) {
 }
 
 func TestServerPort(t *testing.T) {
-	s := createServer(t, -8080)
-	port := s.Port()
-	if port != 0 {
-		t.Errorf("Invalid port: %d", port)
+	s := createServer(t, 8080)
+	if s == nil {
+		t.Fatal("Failed to create server")
 	}
+	port := s.Port()
+	if port != 8080 {
+		t.Errorf("Expected port 8080, got: %d", port)
+	}
+	s.ForceStop()
+}
+
+func TestServerNegativePortFails(t *testing.T) {
+	// Negative port should fail server creation
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &Config{
+		Port:      -8080,
+		Threshold: 100,
+	}
+	s, err := NewServer(cfg, tlsOpts, nil)
+	if err == nil {
+		s.ForceStop()
+		t.Error("Expected error for negative port, but server was created")
+	}
+	if s != nil {
+		t.Error("Expected nil server for negative port")
+	}
+}
+
+func TestServerUnixSocketOnly(t *testing.T) {
+	// Test creating a UDS-only server (no TCP listener)
+	socketPath := "/tmp/gnmi_test_uds_only.sock"
+	os.Remove(socketPath) // Ensure clean state
+
+	cfg := &Config{
+		Port:       0, // No TCP
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create UDS-only server: %v", err)
+	}
+	if s == nil {
+		t.Fatal("Server is nil")
+	}
+	if s.udsServer == nil {
+		t.Error("UDS server should not be nil")
+	}
+	if s.udsListener == nil {
+		t.Error("UDS listener should not be nil")
+	}
+	if s.s != nil {
+		t.Error("TCP server should be nil for UDS-only")
+	}
+
+	// Test Address() returns UDS path
+	addr := s.Address()
+	if addr != socketPath {
+		t.Errorf("Expected address %s, got %s", socketPath, addr)
+	}
+
+	s.ForceStop()
+
+	// Verify socket was cleaned up
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Error("Socket file should be removed after ForceStop")
+		os.Remove(socketPath)
+	}
+}
+
+func TestServerUnixSocketStop(t *testing.T) {
+	// Test graceful Stop() on UDS server
+	socketPath := "/tmp/gnmi_test_uds_stop.sock"
+	os.Remove(socketPath)
+
+	cfg := &Config{
+		Port:       0,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create UDS server: %v", err)
+	}
+
 	s.Stop()
+
+	// Verify socket was cleaned up
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Error("Socket file should be removed after Stop")
+		os.Remove(socketPath)
+	}
+}
+
+func TestServerUnixSocketServeAndStop(t *testing.T) {
+	// Test that Serve() returns when Stop() is called
+	socketPath := "/tmp/gnmi_test_uds_serve.sock"
+	os.Remove(socketPath)
+
+	cfg := &Config{
+		Port:       0,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create UDS server: %v", err)
+	}
+
+	// Start Serve() in a goroutine
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- s.Serve()
+	}()
+
+	// Give server time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Stop the server
+	s.Stop()
+
+	// Verify Serve() returns
+	select {
+	case err := <-serveDone:
+		if err != nil {
+			t.Errorf("Serve() returned unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("Serve() did not return after Stop()")
+	}
+
+	// Verify socket was cleaned up
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Error("Socket file should be removed after Stop")
+		os.Remove(socketPath)
+	}
+}
+
+func TestServerDualListener(t *testing.T) {
+	// Test creating a server with both TCP and UDS listeners
+	socketPath := "/tmp/gnmi_test_dual.sock"
+	os.Remove(socketPath)
+
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+
+	cfg := &Config{
+		Port:       8181,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, tlsOpts, nil)
+	if err != nil {
+		t.Fatalf("Failed to create dual-listener server: %v", err)
+	}
+	if s.s == nil {
+		t.Error("TCP server should not be nil")
+	}
+	if s.udsServer == nil {
+		t.Error("UDS server should not be nil")
+	}
+
+	// Test Address() returns both addresses
+	addr := s.Address()
+	if !strings.Contains(addr, "8181") {
+		t.Errorf("Address should contain TCP port, got: %s", addr)
+	}
+	if !strings.Contains(addr, socketPath) {
+		t.Errorf("Address should contain socket path, got: %s", addr)
+	}
+
+	s.ForceStop()
+	os.Remove(socketPath)
 }
 
 func TestNilServerStop(t *testing.T) {
