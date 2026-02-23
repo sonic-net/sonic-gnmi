@@ -100,6 +100,12 @@ var (
 			// [COUNTERS_DB COUNTERS ACL_RULE:DATAACL:RULE_1]
 			path:      []string{"COUNTERS_DB", "COUNTERS", "ACL_RULE*"},
 			transFunc: v2rTranslate(v2rAclRuleStats),
+		}, { // PORT_PHY_ATTR stats for one or all Ethernet ports (no alias translation)
+			path:      []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*"},
+			transFunc: v2rTranslate(v2rPortPhyAttrStats),
+		}, { // specific field stats for PORT_PHY_ATTR for one or all Ethernet ports (no alias translation)
+			path:      []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*", "*"},
+			transFunc: v2rTranslate(v2rPortPhyAttrFieldStats),
 		},
 	}
 )
@@ -943,6 +949,100 @@ func v2rAclRuleStats(paths []string) ([]tablePath, error) {
 	}
 
 	return nil, fmt.Errorf("ACL_RULE:%v doesn't exist in counter oid map!", ruleName)
+}
+
+// Populate real data paths from paths like
+// [COUNTERS_DB PORT_PHY_ATTR Ethernet*] or [COUNTERS_DB PORT_PHY_ATTR Ethernet68]
+// Unlike v2rEthPortStats, this does NOT apply vendor alias translation.
+func v2rPortPhyAttrStats(paths []string) ([]tablePath, error) {
+	var tblPaths []tablePath
+	if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
+		for port, oid := range countersPortNameMap {
+			namespace, ok := port2namespaceMap[port]
+			if !ok {
+				return nil, fmt.Errorf("%v does not have namespace associated", port)
+			}
+			separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+			tblPath := tablePath{
+				dbNamespace:  namespace,
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx],
+				tableKey:     oid,
+				delimitor:    separator,
+				jsonTableKey: port, // Use SONiC interface name directly, no alias
+			}
+			tblPaths = append(tblPaths, tblPath)
+		}
+	} else { // single port
+		name := paths[KeyIdx]
+		oid, ok := countersPortNameMap[name]
+		if !ok {
+			return nil, fmt.Errorf("%v not a valid sonic interface", name)
+		}
+		namespace, ok := port2namespaceMap[name]
+		if !ok {
+			return nil, fmt.Errorf("%v does not have namespace associated", name)
+		}
+		separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+		tblPaths = []tablePath{{
+			dbNamespace: namespace,
+			dbName:      paths[DbIdx],
+			tableName:   paths[TblIdx],
+			tableKey:    oid,
+			delimitor:   separator,
+		}}
+	}
+	log.V(6).Infof("v2rPortPhyAttrStats: %v", tblPaths)
+	return tblPaths, nil
+}
+
+// Populate real data paths from paths like
+// [COUNTERS_DB PORT_PHY_ATTR Ethernet* phy_rx_signal_detect] or
+// [COUNTERS_DB PORT_PHY_ATTR Ethernet68 phy_rx_signal_detect]
+// Unlike v2rEthPortFieldStats, this does NOT apply vendor alias translation.
+func v2rPortPhyAttrFieldStats(paths []string) ([]tablePath, error) {
+	var tblPaths []tablePath
+	if strings.HasSuffix(paths[KeyIdx], "*") {
+		for port, oid := range countersPortNameMap {
+			namespace, ok := port2namespaceMap[port]
+			if !ok {
+				return nil, fmt.Errorf("%v does not have namespace associated", port)
+			}
+			separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+			tblPath := tablePath{
+				dbNamespace:  namespace,
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx],
+				tableKey:     oid,
+				field:        paths[FieldIdx],
+				delimitor:    separator,
+				jsonTableKey: port,
+				jsonField:    paths[FieldIdx],
+			}
+			tblPaths = append(tblPaths, tblPath)
+		}
+	} else { // single port
+		name := paths[KeyIdx]
+		oid, ok := countersPortNameMap[name]
+		if !ok {
+			return nil, fmt.Errorf("%v not a valid sonic interface", name)
+		}
+		namespace, ok := port2namespaceMap[name]
+		if !ok {
+			return nil, fmt.Errorf("%v does not have namespace associated", name)
+		}
+		separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+		tblPaths = []tablePath{{
+			dbNamespace: namespace,
+			dbName:      paths[DbIdx],
+			tableName:   paths[TblIdx],
+			tableKey:    oid,
+			field:       paths[FieldIdx],
+			delimitor:   separator,
+		}}
+	}
+	log.V(6).Infof("v2rPortPhyAttrFieldStats: %+v", tblPaths)
+	return tblPaths, nil
 }
 
 func getVendorPortName(port string) string {

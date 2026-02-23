@@ -484,6 +484,13 @@ func ValToResp(val Value) (*gnmipb.SubscribeResponse, error) {
 	}
 }
 
+// countersDbHasTableKeys returns true if the given COUNTERS_DB table stores
+// data under per-object keys (e.g. COUNTERS, PORT_PHY_ATTR).  Tables that are
+// stored as a single hash without sub-keys return false.
+func countersDbHasTableKeys(tableName string) bool {
+	return tableName == "COUNTERS" || tableName == "PORT_PHY_ATTR"
+}
+
 func GetTableKeySeparator(target string, ns string) (string, error) {
 	_, ok := spb.Target_value[target]
 	if !ok {
@@ -507,11 +514,15 @@ func GetRedisClientsForDb(target string) (redis_client_map map[string]*redis.Cli
 			return redis_client_map, err
 		}
 		for _, ns := range ns_list {
-			redis_client_map[ns] = Target2RedisDb[ns][target]
+			if client := Target2RedisDb[ns][target]; client != nil {
+				redis_client_map[ns] = client
+			}
 		}
 	} else {
 		ns, _ := sdcfg.GetDbDefaultNamespace()
-		redis_client_map[ns] = Target2RedisDb[ns][target]
+		if client := Target2RedisDb[ns][target]; client != nil {
+			redis_client_map[ns] = client
+		}
 	}
 	return redis_client_map, nil
 }
@@ -882,8 +893,8 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 
 	//Only table name provided
 	if tblPath.tableKey == "" {
-		// tables in COUNTERS_DB other than COUNTERS table doesn't have keys
-		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
+		// tables in COUNTERS_DB other than COUNTERS/PORT_PHY_ATTR don't have keys
+		if tblPath.dbName == "COUNTERS_DB" && !countersDbHasTableKeys(tblPath.tableName) {
 			pattern = tblPath.tableName
 		} else {
 			pattern = tblPath.tableName + tblPath.delimitor + "*"
@@ -1453,8 +1464,8 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 		// Subscribe to keyspace notification
 		pattern := "__keyspace@" + strconv.Itoa(int(spb.Target_value[tblPath.dbName])) + "__:"
 		pattern += tblPath.tableName
-		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
-			// tables in COUNTERS_DB other than COUNTERS don't have keys, skip delimitor
+		if tblPath.dbName == "COUNTERS_DB" && !countersDbHasTableKeys(tblPath.tableName) {
+			// tables in COUNTERS_DB without per-object keys, skip delimitor
 		} else {
 			pattern += tblPath.delimitor
 		}
