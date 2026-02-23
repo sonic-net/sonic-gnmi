@@ -1998,8 +1998,8 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 		// Subscribe to keyspace notification
 		pattern := "__keyspace@" + strconv.Itoa(int(spb.Target_value[tblPath.dbName])) + "__:"
 		pattern += tblPath.tableName
-		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
-			// tables in COUNTERS_DB other than COUNTERS don't have keys, skip delimitor
+		if tblPath.dbName == "COUNTERS_DB" && !countersDbHasTableKeys(tblPath.tableName) {
+			// tables in COUNTERS_DB without per-object keys, skip delimitor
 		} else {
 			pattern += tblPath.delimitor
 		}
