@@ -100,6 +100,12 @@ var (
 			// [COUNTERS_DB COUNTERS ACL_RULE:DATAACL:RULE_1]
 			path:      []string{"COUNTERS_DB", "COUNTERS", "ACL_RULE*"},
 			transFunc: v2rTranslate(v2rAclRuleStats),
+		}, { // COUNTER_DB PORT_PHY_ATTR Ethernet*
+			path:      []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*"},
+			transFunc: v2rTranslate(v2rEthPortStats),
+		}, { // COUNTER_DB PORT_PHY_ATTR Ethernet* FEC_PRE_BER
+			path:      []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*", "*"},
+			transFunc: v2rTranslate(v2rEthPortFieldStats),
 		},
 	}
 )
