@@ -12,8 +12,12 @@ import (
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/google/gnxi/utils/xpath"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/redis/go-redis/v9"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 )
@@ -818,6 +822,94 @@ func TestGetZmqClient(t *testing.T) {
 	for _, client := range zmqClientMap {
 		swsscommon.DeleteZmqClient(client)
 	}
+}
+
+func TestInitRedisDbClients(t *testing.T) {
+	defaultNs, _ := sdcfg.GetDbDefaultNamespace()
+
+	t.Run("SkipUnavailableDb", func(t *testing.T) {
+		// Save and reset global state
+		origMap := Target2RedisDb
+		Target2RedisDb = make(map[string]map[string]*redis.Client)
+		defer func() { Target2RedisDb = origMap }()
+
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+			return []string{defaultNs}, nil
+		})
+		defer patches.Reset()
+
+		patches.ApplyFunc(sdcfg.GetDbSock, func(dbName string, ns string) (string, error) {
+			if dbName == "CHASSIS_STATE_DB" {
+				return "", fmt.Errorf("database not available")
+			}
+			return "/var/run/redis/redis.sock", nil
+		})
+
+		initRedisDbClients()
+
+		nsMap, ok := Target2RedisDb[defaultNs]
+		if !ok {
+			t.Fatalf("namespace %q not found in Target2RedisDb", defaultNs)
+		}
+		if _, exists := nsMap["CHASSIS_STATE_DB"]; exists {
+			t.Errorf("CHASSIS_STATE_DB should have been skipped")
+		}
+		// Verify at least one other DB was initialized
+		if _, exists := nsMap["CONFIG_DB"]; !exists {
+			t.Errorf("CONFIG_DB should have been initialized")
+		}
+		if _, exists := nsMap["APPL_DB"]; !exists {
+			t.Errorf("APPL_DB should have been initialized")
+		}
+	})
+
+	t.Run("AllDbsAvailable", func(t *testing.T) {
+		origMap := Target2RedisDb
+		Target2RedisDb = make(map[string]map[string]*redis.Client)
+		defer func() { Target2RedisDb = origMap }()
+
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+			return []string{defaultNs}, nil
+		})
+		defer patches.Reset()
+
+		patches.ApplyFunc(sdcfg.GetDbSock, func(dbName string, ns string) (string, error) {
+			return "/var/run/redis/redis.sock", nil
+		})
+
+		initRedisDbClients()
+
+		nsMap, ok := Target2RedisDb[defaultNs]
+		if !ok {
+			t.Fatalf("namespace %q not found in Target2RedisDb", defaultNs)
+		}
+		// All non-OTHERS entries should be present
+		for dbName := range spb.Target_value {
+			if dbName == "OTHERS" {
+				continue
+			}
+			if _, exists := nsMap[dbName]; !exists {
+				t.Errorf("expected %s to be initialized", dbName)
+			}
+		}
+	})
+
+	t.Run("GetDbAllNamespacesFails", func(t *testing.T) {
+		origMap := Target2RedisDb
+		Target2RedisDb = make(map[string]map[string]*redis.Client)
+		defer func() { Target2RedisDb = origMap }()
+
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+			return nil, fmt.Errorf("namespace retrieval failed")
+		})
+		defer patches.Reset()
+
+		initRedisDbClients()
+
+		if len(Target2RedisDb) != 0 {
+			t.Errorf("Target2RedisDb should be empty when GetDbAllNamespaces fails, got %d entries", len(Target2RedisDb))
+		}
+	})
 }
 
 func TestMain(m *testing.M) {

@@ -580,6 +580,10 @@ func useRedisTcpClient() error {
 
 // Client package prepare redis clients to all DBs automatically
 func init() {
+	initRedisDbClients()
+}
+
+func initRedisDbClients() {
 	AllNamespaces, err := sdcfg.GetDbAllNamespaces()
 	if err != nil {
 		log.Errorf("init error:  %v", err)
