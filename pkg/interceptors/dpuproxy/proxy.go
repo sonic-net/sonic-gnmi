@@ -75,6 +75,22 @@ var defaultForwardableMethods = []ForwardableMethod{
 	},
 }
 
+var defaultProxy *DPUProxy
+
+// SetDefaultProxy registers the DPU proxy singleton for use by handlers
+// that need direct DPU connections (e.g., TransferToRemote file operations).
+func SetDefaultProxy(p *DPUProxy) { defaultProxy = p }
+
+// GetDPUConnection returns a cached gRPC connection to the specified DPU.
+// It resolves DPU info via Redis and establishes/reuses connections.
+// The returned connection is cached — callers must NOT close it.
+func GetDPUConnection(ctx context.Context, dpuIndex string) (*grpc.ClientConn, error) {
+	if defaultProxy == nil {
+		return nil, fmt.Errorf("DPU proxy not initialized")
+	}
+	return defaultProxy.GetDPUConnection(ctx, dpuIndex)
+}
+
 // DPUProxy is a gRPC interceptor that routes requests to DPU targets based on metadata.
 // It examines incoming gRPC metadata for x-sonic-ss-target-type and x-sonic-ss-target-index
 // headers and routes requests accordingly.
@@ -106,6 +122,22 @@ func NewDPUProxy(resolver *DPUResolver) *DPUProxy {
 		conns:     make(map[string]*grpc.ClientConn),
 		connPorts: make(map[string]string),
 	}
+}
+
+// GetDPUConnection resolves DPU info and returns a cached gRPC connection to the DPU.
+// The returned connection is cached — callers must NOT close it.
+func (p *DPUProxy) GetDPUConnection(ctx context.Context, dpuIndex string) (*grpc.ClientConn, error) {
+	if p.resolver == nil {
+		return nil, fmt.Errorf("resolver not available")
+	}
+	dpuInfo, err := p.resolver.GetDPUInfo(ctx, dpuIndex)
+	if err != nil {
+		return nil, err
+	}
+	if !dpuInfo.Reachable {
+		return nil, status.Errorf(codes.Unavailable, "DPU%s not reachable", dpuIndex)
+	}
+	return p.getConnection(ctx, dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.GNMIPortsToTry)
 }
 
 // getForwardingMode checks if a method is registered and returns its forwarding mode.

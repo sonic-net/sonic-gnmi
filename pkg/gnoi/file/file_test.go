@@ -19,6 +19,8 @@ import (
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	"github.com/openconfig/gnoi/types"
 	"github.com/sonic-net/sonic-gnmi/internal/download"
+	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -984,116 +986,9 @@ func TestHandlePut_InvalidMessageType(t *testing.T) {
 	}
 }
 
-func TestHandleTransferToRemoteForDPU_NilRequest(t *testing.T) {
-	ctx := context.Background()
-	_, err := HandleTransferToRemoteForDPU(ctx, nil, "0", "localhost:8080")
-	if err == nil {
-		t.Fatal("Expected error for nil request, got nil")
-	}
-
-	st, ok := status.FromError(err)
-	if !ok || st.Code() != codes.InvalidArgument {
-		t.Errorf("Expected InvalidArgument error, got %v", err)
-	}
-
-	if !strings.Contains(st.Message(), "request cannot be nil") {
-		t.Errorf("Error message = %q, want substring 'request cannot be nil'", st.Message())
-	}
-}
-
-func TestHandleTransferToRemoteForDPU_EmptyDpuIndex(t *testing.T) {
-	ctx := context.Background()
-	req := &gnoi_file_pb.TransferToRemoteRequest{
-		LocalPath: "/tmp/test.bin",
-		RemoteDownload: &common.RemoteDownload{
-			Path:     "http://example.com/file",
-			Protocol: common.RemoteDownload_HTTP,
-		},
-	}
-	_, err := HandleTransferToRemoteForDPU(ctx, req, "", "localhost:8080")
-	if err == nil {
-		t.Fatal("Expected error for empty dpuIndex, got nil")
-	}
-
-	st, ok := status.FromError(err)
-	if !ok || st.Code() != codes.InvalidArgument {
-		t.Errorf("Expected InvalidArgument error, got %v", err)
-	}
-
-	if !strings.Contains(st.Message(), "dpuIndex cannot be empty") {
-		t.Errorf("Error message = %q, want substring 'dpuIndex cannot be empty'", st.Message())
-	}
-}
-
-func TestHandleTransferToRemoteForDPU_EmptyProxyAddress(t *testing.T) {
-	ctx := context.Background()
-	req := &gnoi_file_pb.TransferToRemoteRequest{
-		LocalPath: "/tmp/test.bin",
-		RemoteDownload: &common.RemoteDownload{
-			Path:     "http://example.com/file",
-			Protocol: common.RemoteDownload_HTTP,
-		},
-	}
-	_, err := HandleTransferToRemoteForDPU(ctx, req, "0", "")
-	if err == nil {
-		t.Fatal("Expected error for empty proxyAddress, got nil")
-	}
-
-	st, ok := status.FromError(err)
-	if !ok || st.Code() != codes.InvalidArgument {
-		t.Errorf("Expected InvalidArgument error, got %v", err)
-	}
-
-	if !strings.Contains(st.Message(), "proxyAddress cannot be empty") {
-		t.Errorf("Error message = %q, want substring 'proxyAddress cannot be empty'", st.Message())
-	}
-}
-
-func TestHandleTransferToRemoteForDPU_InvalidRemoteDownload(t *testing.T) {
-	ctx := context.Background()
-	req := &gnoi_file_pb.TransferToRemoteRequest{
-		LocalPath: "/tmp/test.bin",
-		// Missing RemoteDownload
-	}
-	_, err := HandleTransferToRemoteForDPU(ctx, req, "0", "localhost:8080")
-	if err == nil {
-		t.Fatal("Expected error for missing remote download, got nil")
-	}
-
-	// The error should come from HandleTransferToRemote validation
-	st, ok := status.FromError(err)
-	if !ok || st.Code() != codes.Internal {
-		t.Errorf("Expected Internal error (from failed download), got %v", err)
-	}
-}
-
-func TestHandleTransferToRemoteForDPU_DownloadFailure(t *testing.T) {
-	ctx := context.Background()
-	req := &gnoi_file_pb.TransferToRemoteRequest{
-		LocalPath: "/tmp/test.bin",
-		RemoteDownload: &common.RemoteDownload{
-			Path:     "http://invalid-url-that-does-not-exist.example",
-			Protocol: common.RemoteDownload_HTTP,
-		},
-	}
-	_, err := HandleTransferToRemoteForDPU(ctx, req, "0", "localhost:8080")
-	if err == nil {
-		t.Fatal("Expected error for download failure, got nil")
-	}
-
-	st, ok := status.FromError(err)
-	if !ok || st.Code() != codes.Internal {
-		t.Errorf("Expected Internal error, got %v", err)
-	}
-
-	if !strings.Contains(st.Message(), "failed to download to NPU") {
-		t.Errorf("Error message = %q, want substring 'failed to download to NPU'", st.Message())
-	}
-}
-
 func TestHandleTransferToRemoteForDPUStreaming_NilRequest(t *testing.T) {
 	ctx := context.Background()
-	_, err := HandleTransferToRemoteForDPUStreaming(ctx, nil, "0", "localhost:8080")
+	_, err := HandleTransferToRemoteForDPUStreaming(ctx, nil, "0")
 	if err == nil {
 		t.Fatal("Expected error for nil request, got nil")
 	}
@@ -1117,7 +1012,7 @@ func TestHandleTransferToRemoteForDPUStreaming_EmptyDpuIndex(t *testing.T) {
 			Protocol: common.RemoteDownload_HTTP,
 		},
 	}
-	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "", "localhost:8080")
+	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "")
 	if err == nil {
 		t.Fatal("Expected error for empty dpuIndex, got nil")
 	}
@@ -1132,37 +1027,13 @@ func TestHandleTransferToRemoteForDPUStreaming_EmptyDpuIndex(t *testing.T) {
 	}
 }
 
-func TestHandleTransferToRemoteForDPUStreaming_EmptyProxyAddress(t *testing.T) {
-	ctx := context.Background()
-	req := &gnoi_file_pb.TransferToRemoteRequest{
-		LocalPath: "/tmp/test.bin",
-		RemoteDownload: &common.RemoteDownload{
-			Path:     "http://example.com/file",
-			Protocol: common.RemoteDownload_HTTP,
-		},
-	}
-	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "")
-	if err == nil {
-		t.Fatal("Expected error for empty proxyAddress, got nil")
-	}
-
-	st, ok := status.FromError(err)
-	if !ok || st.Code() != codes.InvalidArgument {
-		t.Errorf("Expected InvalidArgument error, got %v", err)
-	}
-
-	if !strings.Contains(st.Message(), "proxyAddress cannot be empty") {
-		t.Errorf("Error message = %q, want substring 'proxyAddress cannot be empty'", st.Message())
-	}
-}
-
 func TestHandleTransferToRemoteForDPUStreaming_NilRemoteDownload(t *testing.T) {
 	ctx := context.Background()
 	req := &gnoi_file_pb.TransferToRemoteRequest{
 		LocalPath: "/tmp/test.bin",
 		// Missing RemoteDownload
 	}
-	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "localhost:8080")
+	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0")
 	if err == nil {
 		t.Fatal("Expected error for nil remote download, got nil")
 	}
@@ -1186,7 +1057,7 @@ func TestHandleTransferToRemoteForDPUStreaming_EmptyLocalPath(t *testing.T) {
 			Protocol: common.RemoteDownload_HTTP,
 		},
 	}
-	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "localhost:8080")
+	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0")
 	if err == nil {
 		t.Fatal("Expected error for empty local path, got nil")
 	}
@@ -1210,7 +1081,7 @@ func TestHandleTransferToRemoteForDPUStreaming_UnsupportedProtocol(t *testing.T)
 			Protocol: common.RemoteDownload_HTTPS, // Unsupported
 		},
 	}
-	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "localhost:8080")
+	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0")
 	if err == nil {
 		t.Fatal("Expected error for unsupported protocol, got nil")
 	}
@@ -1234,7 +1105,7 @@ func TestHandleTransferToRemoteForDPUStreaming_EmptyURL(t *testing.T) {
 			Protocol: common.RemoteDownload_HTTP,
 		},
 	}
-	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "localhost:8080")
+	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0")
 	if err == nil {
 		t.Fatal("Expected error for empty URL, got nil")
 	}
@@ -1258,7 +1129,7 @@ func TestHandleTransferToRemoteForDPUStreaming_InvalidURL(t *testing.T) {
 			Protocol: common.RemoteDownload_HTTP,
 		},
 	}
-	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "localhost:8080")
+	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0")
 	if err == nil {
 		t.Fatal("Expected error for invalid URL, got nil")
 	}
@@ -1284,7 +1155,7 @@ func TestHandleTransferToRemoteForDPUStreaming_ContextCancellation(t *testing.T)
 			Protocol: common.RemoteDownload_HTTP,
 		},
 	}
-	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "localhost:8080")
+	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0")
 	if err == nil {
 		t.Fatal("Expected error for cancelled context, got nil")
 	}
@@ -1296,83 +1167,10 @@ func TestHandleTransferToRemoteForDPUStreaming_ContextCancellation(t *testing.T)
 	}
 }
 
-func TestHandleTransferToRemoteForDPU_SuccessPath(t *testing.T) {
-	// Test successful DPU transfer with mock server
-	testContent := []byte("test DPU firmware content")
-	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write(testContent)
-	}))
-	defer httpServer.Close()
-
-	// Create a mock gRPC server to simulate DPU proxy
-	grpcServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Simulate successful gRPC response
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	}))
-	defer grpcServer.Close()
-
-	ctx := context.Background()
-	req := &gnoi_file_pb.TransferToRemoteRequest{
-		LocalPath: "/tmp/dpu_test.bin",
-		RemoteDownload: &common.RemoteDownload{
-			Path:     httpServer.URL,
-			Protocol: common.RemoteDownload_HTTP,
-		},
-	}
-
-	// This will fail at the gRPC connection step, but we test the HTTP download part
-	_, err := HandleTransferToRemoteForDPU(ctx, req, "0", "invalid-proxy:8080")
-	if err == nil {
-		t.Fatal("Expected error due to invalid proxy address, got nil")
-	}
-
-	// Verify the error is from the proxy connection, not from earlier validation
-	st, ok := status.FromError(err)
-	if !ok || st.Code() != codes.Internal {
-		t.Errorf("Expected Internal error from proxy connection, got %v", err)
-	}
-
-	if !strings.Contains(st.Message(), "failed to create Put client") && !strings.Contains(st.Message(), "failed to connect to proxy") {
-		t.Errorf("Error message = %q, want substring about connection failure", st.Message())
-	}
-}
-
-func TestHandleTransferToRemoteForDPU_FileReadFailure(t *testing.T) {
-	// Test scenario where file download succeeds but reading fails
-	testContent := []byte("test content")
-	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write(testContent)
-	}))
-	defer httpServer.Close()
-
-	ctx := context.Background()
-	req := &gnoi_file_pb.TransferToRemoteRequest{
-		LocalPath: "/tmp/read_fail_test.bin",
-		RemoteDownload: &common.RemoteDownload{
-			Path:     httpServer.URL,
-			Protocol: common.RemoteDownload_HTTP,
-		},
-	}
-
-	// This test exercises the file download and read path
-	// It will fail at gRPC connection but exercises more code
-	_, err := HandleTransferToRemoteForDPU(ctx, req, "0", "127.0.0.1:99999") // Invalid port
-	if err == nil {
-		t.Fatal("Expected error, got nil")
-	}
-
-	// Should be an internal error from proxy connection failure
-	st, ok := status.FromError(err)
-	if !ok || st.Code() != codes.Internal {
-		t.Errorf("Expected Internal error, got %v", err)
-	}
-}
-
 func TestHandleTransferToRemoteForDPUStreaming_SuccessPath(t *testing.T) {
 	// Test successful streaming transfer with chunked data
+	// HTTP streaming works, but DPU connection is mocked to return error
+	// to validate the HTTP streaming part before the DPU connection step.
 	testContent := make([]byte, 200*1024) // 200KB test data
 	for i := range testContent {
 		testContent[i] = byte(i % 256)
@@ -1394,6 +1192,14 @@ func TestHandleTransferToRemoteForDPUStreaming_SuccessPath(t *testing.T) {
 	}))
 	defer httpServer.Close()
 
+	// Mock dpuproxy.GetDPUConnection to return error so the test validates
+	// HTTP streaming works before the DPU connection step fails.
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(dpuproxy.GetDPUConnection, func(ctx context.Context, dpuIndex string) (*grpc.ClientConn, error) {
+		return nil, fmt.Errorf("mock DPU connection failure")
+	})
+
 	ctx := context.Background()
 	req := &gnoi_file_pb.TransferToRemoteRequest{
 		LocalPath: "/tmp/streaming_test.bin",
@@ -1403,20 +1209,16 @@ func TestHandleTransferToRemoteForDPUStreaming_SuccessPath(t *testing.T) {
 		},
 	}
 
-	// This will fail at gRPC connection but exercises the HTTP streaming and hash calculation
-	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "invalid-proxy:8080")
+	// This will fail at DPU connection but exercises the HTTP streaming and hash calculation
+	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0")
 	if err == nil {
-		t.Fatal("Expected error due to invalid proxy, got nil")
+		t.Fatal("Expected error due to DPU connection failure, got nil")
 	}
 
-	// Should fail at proxy connection step
+	// Should fail at DPU connection step
 	st, ok := status.FromError(err)
 	if !ok || st.Code() != codes.Internal {
 		t.Errorf("Expected Internal error, got %v", err)
-	}
-
-	if !strings.Contains(st.Message(), "failed to create Put client") && !strings.Contains(st.Message(), "failed to connect to proxy") {
-		t.Errorf("Error message = %q, want substring about connection failure", st.Message())
 	}
 }
 
@@ -1431,7 +1233,7 @@ func TestHandleTransferToRemoteForDPUStreaming_NetworkError(t *testing.T) {
 		},
 	}
 
-	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "localhost:8080")
+	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0")
 	if err == nil {
 		t.Fatal("Expected error for network failure, got nil")
 	}
@@ -1469,7 +1271,7 @@ func TestHandleTransferToRemoteForDPUStreaming_TimeoutDuringStream(t *testing.T)
 		},
 	}
 
-	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "localhost:8080")
+	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0")
 	if err == nil {
 		t.Fatal("Expected timeout error, got nil")
 	}
@@ -1795,38 +1597,6 @@ func TestTranslatePathForContainer_Coverage(t *testing.T) {
 	}
 }
 
-// Test coverage for DPU functions by creating scenario where HTTP succeeds but gRPC fails
-func TestHandleTransferToRemoteForDPU_HTTPSuccessGRPCFail(t *testing.T) {
-	// Create HTTP server that works
-	testContent := []byte("DPU transfer test content with enough data to test the full download and read path")
-	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write(testContent)
-	}))
-	defer httpServer.Close()
-
-	ctx := context.Background()
-	req := &gnoi_file_pb.TransferToRemoteRequest{
-		LocalPath: "/tmp/dpu_http_success.bin",
-		RemoteDownload: &common.RemoteDownload{
-			Path:     httpServer.URL,
-			Protocol: common.RemoteDownload_HTTP,
-		},
-	}
-
-	// Use invalid proxy to force gRPC failure AFTER HTTP download succeeds
-	_, err := HandleTransferToRemoteForDPU(ctx, req, "0", "localhost:99999")
-	if err == nil {
-		t.Fatal("Expected error from gRPC connection failure")
-	}
-
-	// Should be connection error to proxy
-	st, ok := status.FromError(err)
-	if !ok || st.Code() != codes.Internal {
-		t.Errorf("Expected Internal error, got %v", err)
-	}
-}
-
 func TestHandleTransferToRemoteForDPUStreaming_HTTPSuccessGRPCFail(t *testing.T) {
 	// Create large HTTP content to test streaming path
 	largeContent := make([]byte, 512*1024) // 512KB
@@ -1850,6 +1620,13 @@ func TestHandleTransferToRemoteForDPUStreaming_HTTPSuccessGRPCFail(t *testing.T)
 	}))
 	defer httpServer.Close()
 
+	// Mock dpuproxy.GetDPUConnection to return error to force gRPC failure
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(dpuproxy.GetDPUConnection, func(ctx context.Context, dpuIndex string) (*grpc.ClientConn, error) {
+		return nil, fmt.Errorf("mock DPU connection failure")
+	})
+
 	ctx := context.Background()
 	req := &gnoi_file_pb.TransferToRemoteRequest{
 		LocalPath: "/tmp/dpu_streaming_test.bin",
@@ -1859,13 +1636,13 @@ func TestHandleTransferToRemoteForDPUStreaming_HTTPSuccessGRPCFail(t *testing.T)
 		},
 	}
 
-	// Use invalid proxy to force gRPC failure AFTER HTTP streaming succeeds
-	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "localhost:99999")
+	// DPU connection failure AFTER HTTP streaming succeeds
+	_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0")
 	if err == nil {
-		t.Fatal("Expected error from gRPC connection failure")
+		t.Fatal("Expected error from DPU connection failure")
 	}
 
-	// Should be connection error to proxy
+	// Should be connection error from DPU connection
 	st, ok := status.FromError(err)
 	if !ok || st.Code() != codes.Internal {
 		t.Errorf("Expected Internal error, got %v", err)
@@ -2120,35 +1897,6 @@ func TestValidatePath_HighCoverage(t *testing.T) {
 
 // Additional DPU function tests with more coverage
 func TestDPUFunctions_MoreCoverage(t *testing.T) {
-	t.Run("DPU with large file and connection failure", func(t *testing.T) {
-		// Test with larger file to exercise more of the DPU code paths
-		largeContent := make([]byte, 2*1024*1024) // 2MB
-		for i := range largeContent {
-			largeContent[i] = byte(i % 256)
-		}
-
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write(largeContent)
-		}))
-		defer server.Close()
-
-		ctx := context.Background()
-		req := &gnoi_file_pb.TransferToRemoteRequest{
-			LocalPath: "/tmp/large_dpu_test.bin",
-			RemoteDownload: &common.RemoteDownload{
-				Path:     server.URL,
-				Protocol: common.RemoteDownload_HTTP,
-			},
-		}
-
-		// This exercises more of the file reading logic before gRPC fails
-		_, err := HandleTransferToRemoteForDPU(ctx, req, "0", "127.0.0.1:99999")
-		if err == nil {
-			t.Fatal("Expected connection error")
-		}
-	})
-
 	t.Run("DPU streaming with very large content", func(t *testing.T) {
 		// Test streaming with large content to exercise chunk processing
 		hugeContent := make([]byte, 4*1024*1024) // 4MB
@@ -2181,8 +1929,15 @@ func TestDPUFunctions_MoreCoverage(t *testing.T) {
 			},
 		}
 
-		// This exercises the streaming and hash calculation extensively before gRPC failure
-		_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "127.0.0.1:99999")
+		// Mock dpuproxy.GetDPUConnection to return error
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patches.ApplyFunc(dpuproxy.GetDPUConnection, func(ctx context.Context, dpuIndex string) (*grpc.ClientConn, error) {
+			return nil, fmt.Errorf("mock DPU connection failure")
+		})
+
+		// This exercises the streaming and hash calculation extensively before DPU connection failure
+		_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0")
 		if err == nil {
 			t.Fatal("Expected connection error")
 		}
@@ -2194,13 +1949,20 @@ func TestDPUFunctions_AggressiveCoverage(t *testing.T) {
 	// Test all the early validation and file handling paths extensively
 
 	t.Run("DPU container path logic", func(t *testing.T) {
-		// Test the container path translation logic in DPU functions
+		// Test the container path translation logic in DPU streaming function
 		testContent := []byte("container path test")
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write(testContent)
 		}))
 		defer server.Close()
+
+		// Mock dpuproxy.GetDPUConnection to return error
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patches.ApplyFunc(dpuproxy.GetDPUConnection, func(ctx context.Context, dpuIndex string) (*grpc.ClientConn, error) {
+			return nil, fmt.Errorf("mock DPU connection failure")
+		})
 
 		req := &gnoi_file_pb.TransferToRemoteRequest{
 			LocalPath: "/tmp/container_path_test.bin",
@@ -2212,13 +1974,12 @@ func TestDPUFunctions_AggressiveCoverage(t *testing.T) {
 
 		ctx := context.Background()
 
-		// Test both DPU functions to exercise container path logic
-		_, err1 := HandleTransferToRemoteForDPU(ctx, req, "0", "localhost:99999")
-		_, err2 := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "localhost:99999")
+		// Test streaming DPU function to exercise container path logic
+		_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0")
 
-		// Both should fail at gRPC connection but exercise file download/streaming
-		if err1 == nil || err2 == nil {
-			t.Fatal("Expected connection errors")
+		// Should fail at DPU connection but exercise file streaming
+		if err == nil {
+			t.Fatal("Expected connection error")
 		}
 	})
 
@@ -2236,6 +1997,13 @@ func TestDPUFunctions_AggressiveCoverage(t *testing.T) {
 				}))
 				defer server.Close()
 
+				// Mock dpuproxy.GetDPUConnection to return error
+				patches := gomonkey.NewPatches()
+				defer patches.Reset()
+				patches.ApplyFunc(dpuproxy.GetDPUConnection, func(ctx context.Context, dpuIndex string) (*grpc.ClientConn, error) {
+					return nil, fmt.Errorf("mock DPU connection failure")
+				})
+
 				req := &gnoi_file_pb.TransferToRemoteRequest{
 					LocalPath: fmt.Sprintf("/tmp/dpu_%s_test.bin", idx),
 					RemoteDownload: &common.RemoteDownload{
@@ -2246,49 +2014,13 @@ func TestDPUFunctions_AggressiveCoverage(t *testing.T) {
 
 				ctx := context.Background()
 
-				// This exercises metadata creation and file processing for each DPU
-				_, err := HandleTransferToRemoteForDPU(ctx, req, idx, "localhost:99999")
+				// Test streaming version with metadata creation for each DPU index
+				_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, idx)
 				if err == nil {
-					t.Fatal("Expected connection error")
-				}
-
-				// Also test streaming version
-				_, err2 := HandleTransferToRemoteForDPUStreaming(ctx, req, idx, "localhost:99999")
-				if err2 == nil {
 					t.Fatal("Expected connection error")
 				}
 			})
 		}
-	})
-
-	t.Run("DPU file cleanup logic", func(t *testing.T) {
-		// Test the cleanup logic in DPU functions
-		content := []byte("cleanup logic test content")
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write(content)
-		}))
-		defer server.Close()
-
-		req := &gnoi_file_pb.TransferToRemoteRequest{
-			LocalPath: "/tmp/cleanup_logic_test.bin",
-			RemoteDownload: &common.RemoteDownload{
-				Path:     server.URL,
-				Protocol: common.RemoteDownload_HTTP,
-			},
-		}
-
-		ctx := context.Background()
-
-		// This should exercise the defer cleanup logic
-		_, err := HandleTransferToRemoteForDPU(ctx, req, "0", "localhost:99999")
-		if err == nil {
-			t.Fatal("Expected connection error")
-		}
-
-		// The cleanup logic should have removed the temp file
-		// We exercise the cleanup code path but can't test exact match
-		// because the filename includes timestamp
 	})
 
 	t.Run("DPU streaming chunk processing", func(t *testing.T) {
@@ -2310,6 +2042,13 @@ func TestDPUFunctions_AggressiveCoverage(t *testing.T) {
 				}))
 				defer server.Close()
 
+				// Mock dpuproxy.GetDPUConnection to return error
+				patches := gomonkey.NewPatches()
+				defer patches.Reset()
+				patches.ApplyFunc(dpuproxy.GetDPUConnection, func(ctx context.Context, dpuIndex string) (*grpc.ClientConn, error) {
+					return nil, fmt.Errorf("mock DPU connection failure")
+				})
+
 				req := &gnoi_file_pb.TransferToRemoteRequest{
 					LocalPath: fmt.Sprintf("/tmp/chunk_test_%d.bin", i),
 					RemoteDownload: &common.RemoteDownload{
@@ -2321,7 +2060,7 @@ func TestDPUFunctions_AggressiveCoverage(t *testing.T) {
 				ctx := context.Background()
 
 				// This exercises the streaming and chunking logic
-				_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0", "localhost:99999")
+				_, err := HandleTransferToRemoteForDPUStreaming(ctx, req, "0")
 				if err == nil {
 					t.Fatal("Expected connection error")
 				}
@@ -2455,7 +2194,7 @@ func TestHandleTransferToRemote_DPU_Routing(t *testing.T) {
 
 	// Mock HandleTransferToRemoteForDPUStreaming to succeed
 	patches.ApplyFunc(HandleTransferToRemoteForDPUStreaming,
-		func(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest, dpuIndex string, dpuAddr string) (*gnoi_file_pb.TransferToRemoteResponse, error) {
+		func(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest, dpuIndex string) (*gnoi_file_pb.TransferToRemoteResponse, error) {
 			return &gnoi_file_pb.TransferToRemoteResponse{}, nil
 		})
 

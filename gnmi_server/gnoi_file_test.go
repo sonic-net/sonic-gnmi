@@ -241,7 +241,7 @@ func TestGnoiFileServer(t *testing.T) {
 
 		// Mock HandleTransferToRemoteForDPUStreaming to succeed
 		patches.ApplyFunc(gnoifile.HandleTransferToRemoteForDPUStreaming,
-			func(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest, dpuIndex string, dpuAddr string) (*gnoi_file_pb.TransferToRemoteResponse, error) {
+			func(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest, dpuIndex string) (*gnoi_file_pb.TransferToRemoteResponse, error) {
 				return &gnoi_file_pb.TransferToRemoteResponse{}, nil
 			})
 
