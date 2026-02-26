@@ -956,6 +956,78 @@ func TestInitRedisDbClients(t *testing.T) {
 	})
 }
 
+func TestUseRedisTcpClient(t *testing.T) {
+	ns := ""
+
+	t.Run("Disabled", func(t *testing.T) {
+		origFlag := UseRedisLocalTcpPort
+		UseRedisLocalTcpPort = false
+		defer func() { UseRedisLocalTcpPort = origFlag }()
+
+		err := useRedisTcpClient()
+		if err != nil {
+			t.Fatalf("Expected nil when UseRedisLocalTcpPort is false, got: %v", err)
+		}
+	})
+
+	t.Run("SkipUnavailableDb", func(t *testing.T) {
+		defer saveAndResetTarget2RedisDb()()
+		origFlag := UseRedisLocalTcpPort
+		UseRedisLocalTcpPort = true
+		defer func() { UseRedisLocalTcpPort = origFlag }()
+
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+			return []string{ns}, nil
+		})
+		defer patches.Reset()
+
+		patches.ApplyFunc(sdcfg.GetDbTcpAddr, func(dbName string, _ string) (string, error) {
+			if dbName == "CHASSIS_STATE_DB" {
+				return "", fmt.Errorf("DB CHASSIS_STATE_DB not found")
+			}
+			return "127.0.0.1:6379", nil
+		})
+
+		err := useRedisTcpClient()
+		if err != nil {
+			t.Fatalf("Expected no error when skipping unavailable DB, got: %v", err)
+		}
+
+		nsMap, ok := Target2RedisDb[ns]
+		if !ok {
+			t.Fatal("Expected namespace to exist in Target2RedisDb")
+		}
+		if _, exists := nsMap["CHASSIS_STATE_DB"]; exists {
+			t.Error("CHASSIS_STATE_DB should have been skipped in TCP mode")
+		}
+		for _, dbName := range []string{"CONFIG_DB", "APPL_DB", "STATE_DB"} {
+			if _, exists := nsMap[dbName]; !exists {
+				t.Errorf("Expected %s to be initialized in TCP mode", dbName)
+			}
+		}
+	})
+
+	t.Run("GetDbAllNamespacesFails", func(t *testing.T) {
+		defer saveAndResetTarget2RedisDb()()
+		origFlag := UseRedisLocalTcpPort
+		UseRedisLocalTcpPort = true
+		defer func() { UseRedisLocalTcpPort = origFlag }()
+
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+			return nil, fmt.Errorf("namespace error")
+		})
+		defer patches.Reset()
+
+		err := useRedisTcpClient()
+		if err == nil {
+			t.Fatal("Expected error when GetDbAllNamespaces fails")
+		}
+		if len(Target2RedisDb) != 0 {
+			t.Errorf("Expected Target2RedisDb to be empty, got %d entries", len(Target2RedisDb))
+		}
+	})
+}
+
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
 	m.Run()
