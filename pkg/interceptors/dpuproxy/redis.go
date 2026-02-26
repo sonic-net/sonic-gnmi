@@ -3,7 +3,7 @@ package dpuproxy
 import (
 	"context"
 
-	"github.com/go-redis/redis"
+	"github.com/redis/go-redis/v9"
 )
 
 // RedisClient defines the interface for Redis operations needed by DPU resolver.
@@ -25,7 +25,7 @@ func NewGoRedisAdapter(client *redis.Client) *GoRedisAdapter {
 
 // HGetAll implements RedisClient interface.
 func (a *GoRedisAdapter) HGetAll(ctx context.Context, key string) (map[string]string, error) {
-	return a.client.HGetAll(key).Result()
+	return a.client.HGetAll(ctx, key).Result()
 }
 
 // NewRedisClient creates a new Redis client connected to SONiC's Redis instance.

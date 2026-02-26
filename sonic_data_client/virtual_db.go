@@ -1,12 +1,14 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 
-	log "github.com/golang/glog"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+
+	log "github.com/golang/glog"
 )
 
 // virtual db is to Handle
@@ -251,14 +253,14 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 	}
 	for namespace, redisDb := range redis_client_map {
 		separator, _ := GetTableKeySeparator(dbName, namespace)
-		_, err := redisDb.Ping().Result()
+		_, err := redisDb.Ping(context.Background()).Result()
 		if err != nil {
 			log.V(1).Infof("Can not connect to %v in namsespace %v, err: %v", dbName, namespace, err)
 			return nil, err
 		}
 
 		keyName := fmt.Sprintf("%s%v*", pfcwdTableName, separator)
-		resp, err := redisDb.Keys(keyName).Result()
+		resp, err := redisDb.Keys(context.Background(), keyName).Result()
 		if err != nil {
 			log.V(1).Infof("redis get keys failed for %v in namsepace %v, key = %v, err: %v", dbName, namespace, keyName, err)
 			return nil, err
@@ -280,7 +282,7 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 
 		// Get Queue indexes that are enabled with PFC-WD
 		keyName = "PORT_QOS_MAP*"
-		resp, err = redisDb.Keys(keyName).Result()
+		resp, err = redisDb.Keys(context.Background(), keyName).Result()
 		if err != nil {
 			log.V(1).Infof("redis get keys failed for %v in namespace %v, key = %v, err: %v", dbName, namespace, keyName, err)
 			return nil, err
@@ -300,14 +302,14 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 		}
 
 		fieldName := "pfc_enable"
-		priorities, err := redisDb.HGet(qos_key, fieldName).Result()
+		priorities, err := redisDb.HGet(context.Background(), qos_key, fieldName).Result()
 		if err != nil {
 			log.V(1).Infof("redis get field failed for %v in namsepace %v, key = %v, field = %v, err: %v", dbName, namespace, qos_key, fieldName, err)
 			return nil, err
 		}
 
 		keyName = fmt.Sprintf("MAP_PFC_PRIORITY_TO_QUEUE%vAZURE", separator)
-		pfc_queue_map, err := redisDb.HGetAll(keyName).Result()
+		pfc_queue_map, err := redisDb.HGetAll(context.Background(), keyName).Result()
 		if err != nil {
 			log.V(1).Infof("redis get fields failed for %v in namsepace %v, key = %v, err: %v", dbName, namespace, keyName, err)
 			return nil, err
@@ -359,20 +361,20 @@ func getAliasMap() (map[string]string, map[string]string, map[string]string, err
 	}
 	for namespace, redisDb := range redis_client_map {
 		separator, _ := GetTableKeySeparator(dbName, namespace)
-		_, err := redisDb.Ping().Result()
+		_, err := redisDb.Ping(context.Background()).Result()
 		if err != nil {
 			log.V(1).Infof("Can not connect to %v, in namsepace %v, err: %v", dbName, namespace, err)
 			return nil, nil, nil, err
 		}
 
 		keyName := fmt.Sprintf("PORT%v*", separator)
-		resp, err := redisDb.Keys(keyName).Result()
+		resp, err := redisDb.Keys(context.Background(), keyName).Result()
 		if err != nil {
 			log.V(1).Infof("redis get keys failed for %v in namsepace %v, key = %v, err: %v", dbName, namespace, keyName, err)
 			return nil, nil, nil, err
 		}
 		for _, key := range resp {
-			alias, err := redisDb.HGet(key, "alias").Result()
+			alias, err := redisDb.HGet(context.Background(), key, "alias").Result()
 			if err != nil {
 				log.V(1).Infof("redis get field alias failed for %v in namsepace %v, key = %v, err: %v", dbName, namespace, key, err)
 				// redis get alias failed so return nil for maps and the error
@@ -406,7 +408,7 @@ func getCountersMap(tableName string) (map[string]string, error) {
 		return nil, err
 	}
 	for namespace, redisDb := range redis_client_map {
-		fv, err := redisDb.HGetAll(tableName).Result()
+		fv, err := redisDb.HGetAll(context.Background(), tableName).Result()
 		if err != nil {
 			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, tableName: %s", namespace, tableName)
 			return nil, err
@@ -427,7 +429,7 @@ func getFabricCountersMap(tableName string) (map[string]string, error) {
 		return nil, err
 	}
 	for namespace, redisDb := range redis_client_map {
-		fv, err := redisDb.HGetAll(tableName).Result()
+		fv, err := redisDb.HGetAll(context.Background(), tableName).Result()
 		if err != nil {
 			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, tableName: %s", namespace, tableName)
 			return nil, err
@@ -509,7 +511,7 @@ func getSwitchStatMap(tableName string) (map[string]string, error) {
 		return nil, err
 	}
 	for namespace, redisDb := range redis_client_map {
-		fv, err := redisDb.HGetAll(tableName).Result()
+		fv, err := redisDb.HGetAll(context.Background(), tableName).Result()
 		if err != nil {
 			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, tableName: %s", namespace, tableName)
 			return nil, err

@@ -3,7 +3,10 @@ package gnmi
 // server_test covers gNMI get, subscribe (stream and poll) test
 // Prerequisite: redis-server should be running.
 import (
+	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -20,19 +23,17 @@ import (
 	"time"
 	"unsafe"
 
-	"crypto/x509"
-	"crypto/x509/pkix"
-
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
-	"github.com/go-redis/redis"
 	"github.com/golang/protobuf/proto"
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/openconfig/gnmi/client"
@@ -40,8 +41,8 @@ import (
 	ext_pb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	"github.com/openconfig/gnmi/value"
 	"github.com/openconfig/ygot/ygot"
+	"github.com/redis/go-redis/v9"
 
-	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -61,8 +62,6 @@ import (
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
-	"github.com/sonic-net/sonic-gnmi/common_utils"
-	"github.com/sonic-net/sonic-gnmi/swsscommon"
 )
 
 var clientTypes = []string{gclient.Type}
@@ -87,7 +86,7 @@ func loadDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{}) {
 	for key, fv := range mpi {
 		switch fv.(type) {
 		case map[string]interface{}:
-			_, err := rclient.HMSet(key, fv.(map[string]interface{})).Result()
+			_, err := rclient.HMSet(context.Background(), key, fv.(map[string]interface{})).Result()
 			if err != nil {
 				t.Errorf("Invalid data for db:  %v : %v %v", key, fv, err)
 			}
@@ -100,7 +99,7 @@ func loadDBNotStrict(t *testing.T, rclient *redis.Client, mpi map[string]interfa
 	for key, fv := range mpi {
 		switch fv.(type) {
 		case map[string]interface{}:
-			rclient.HMSet(key, fv.(map[string]interface{})).Result()
+			rclient.HMSet(context.Background(), key, fv.(map[string]interface{})).Result()
 
 		}
 	}
@@ -131,7 +130,7 @@ func createServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: true,
@@ -139,7 +138,7 @@ func createServer(t *testing.T, port int64) *Server {
 		Threshold:           100,
 		ImgDir:              "/tmp",
 	}
-	s, err := NewServer(cfg, opts)
+	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
 	}
@@ -156,13 +155,13 @@ func createReadServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: false,
 		ImgDir:              "/tmp",
 	}
-	s, err := NewServer(cfg, opts)
+	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
@@ -179,14 +178,14 @@ func createRejectServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: true,
 		Threshold:           2,
 		ImgDir:              "/tmp",
 	}
-	s, err := NewServer(cfg, opts)
+	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
@@ -204,14 +203,14 @@ func createAuthServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: true,
 		UserAuth:            AuthTypes{"password": true, "cert": true, "jwt": true},
 		ImgDir:              "/tmp",
 	}
-	s, err := NewServer(cfg, opts)
+	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
 		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
@@ -228,8 +227,8 @@ func createInvalidServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	s, err := NewServer(nil, opts)
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	s, err := NewServer(nil, tlsOpts, nil)
 	if err != nil {
 		return nil
 	}
@@ -247,14 +246,13 @@ func createKeepAliveServer(t *testing.T, port int64) *Server {
 		Certificates: []tls.Certificate{certificate},
 	}
 
-	opts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	keep_alive_params := keepalive.ServerParameters{
 		MaxConnectionIdle: 1 * time.Second,
 	}
-	server_opts := []grpc.ServerOption{
+	commonOpts := []grpc.ServerOption{
 		grpc.KeepaliveParams(keep_alive_params),
 	}
-	server_opts = append(server_opts, opts[0])
 	cfg := &Config{
 		Port:                port,
 		EnableTranslibWrite: true,
@@ -263,7 +261,7 @@ func createKeepAliveServer(t *testing.T, port int64) *Server {
 		ImgDir:              "/tmp",
 	}
 
-	s, err := NewServer(cfg, server_opts)
+	s, err := NewServer(cfg, tlsOpts, commonOpts)
 	if err != nil {
 		t.Errorf("Failed to create gNMI server: %v", err)
 	}
@@ -546,7 +544,7 @@ func getRedisClientN(t *testing.T, n int, namespace string) *redis.Client {
 		DB:          n,
 		DialTimeout: 0,
 	})
-	_, err = rclient.Ping().Result()
+	_, err = rclient.Ping(context.Background()).Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -569,7 +567,7 @@ func getRedisClient(t *testing.T, namespace string) *redis.Client {
 		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err = rclient.Ping().Result()
+	_, err = rclient.Ping(context.Background()).Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -592,7 +590,7 @@ func getConfigDbClient(t *testing.T, namespace string) *redis.Client {
 		DB:          db,
 		DialTimeout: 0,
 	})
-	_, err = rclient.Ping().Result()
+	_, err = rclient.Ping(context.Background()).Result()
 	if err != nil {
 		t.Fatalf("failed to connect to redis server %v", err)
 	}
@@ -603,7 +601,7 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 	for key, fv := range mpi {
 		switch fv.(type) {
 		case map[string]interface{}:
-			_, err := rclient.HMSet(key, fv.(map[string]interface{})).Result()
+			_, err := rclient.HMSet(context.Background(), key, fv.(map[string]interface{})).Result()
 			if err != nil {
 				t.Errorf("Invalid data for db: %v : %v %v", key, fv, err)
 			}
@@ -616,7 +614,7 @@ func loadConfigDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{
 func initFullConfigDb(t *testing.T, namespace string) {
 	rclient := getConfigDbClient(t, namespace)
 	defer rclient.Close()
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 
 	fileName := "../testdata/CONFIG_DHCP_SERVER.txt"
 	config, err := ioutil.ReadFile(fileName)
@@ -630,7 +628,7 @@ func initFullConfigDb(t *testing.T, namespace string) {
 func initFullCountersDb(t *testing.T, namespace string) {
 	rclient := getRedisClient(t, namespace)
 	defer rclient.Close()
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 
 	fileName := "../testdata/COUNTERS_PORT_NAME_MAP.txt"
 	countersPortNameMapByte, err := ioutil.ReadFile(fileName)
@@ -845,7 +843,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 func prepareConfigDb(t *testing.T, namespace string) {
 	rclient := getConfigDbClient(t, namespace)
 	defer rclient.Close()
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 
 	fileName := "../testdata/COUNTERS_PORT_ALIAS_MAP.txt"
 	countersPortAliasMapByte, err := ioutil.ReadFile(fileName)
@@ -866,8 +864,8 @@ func prepareConfigDb(t *testing.T, namespace string) {
 func prepareStateDb(t *testing.T, namespace string) {
 	rclient := getRedisClientN(t, 6, namespace)
 	defer rclient.Close()
-	rclient.FlushDB()
-	rclient.HSet("SWITCH_CAPABILITY|switch", "test_field", "test_value")
+	rclient.FlushDB(context.Background())
+	rclient.HSet(context.Background(), "SWITCH_CAPABILITY|switch", "test_field", "test_value")
 	fileName := "../testdata/NEIGH_STATE_TABLE.txt"
 	neighStateTableByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -881,7 +879,7 @@ func prepareStateDb(t *testing.T, namespace string) {
 func prepareDb(t *testing.T, namespace string) {
 	rclient := getRedisClient(t, namespace)
 	defer rclient.Close()
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 	//Enable keysapce notification
 	os.Setenv("PATH", "/usr/bin:/sbin:/bin:/usr/local/bin")
 	cmd := exec.Command("redis-cli", "config", "set", "notify-keyspace-events", "KEA")
@@ -1133,7 +1131,7 @@ func prepareDb(t *testing.T, namespace string) {
 func prepareDbTranslib(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClient(t, ns)
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 	rclient.Close()
 
 	//Enable keysapce notification
@@ -3931,9 +3929,9 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		for _, prepare := range tt.prepares {
 			switch prepare.op {
 			case "hdel":
-				rclient.HDel(prepare.tableName+prepare.delimitor+prepare.tableKey, prepare.field)
+				rclient.HDel(context.Background(), prepare.tableName+prepare.delimitor+prepare.tableKey, prepare.field)
 			default:
-				rclient.HSet(prepare.tableName+prepare.delimitor+prepare.tableKey, prepare.field, prepare.value)
+				rclient.HSet(context.Background(), prepare.tableName+prepare.delimitor+prepare.tableKey, prepare.field, prepare.value)
 			}
 		}
 
@@ -3988,11 +3986,11 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			for _, update := range tt.updates {
 				switch update.op {
 				case "hdel":
-					rclient.HDel(update.tableName+update.delimitor+update.tableKey, update.field)
+					rclient.HDel(context.Background(), update.tableName+update.delimitor+update.tableKey, update.field)
 				case "intervaltick":
 					// This is not a DB update but a request to trigger sample interval
 				default:
-					rclient.HSet(update.tableName+update.delimitor+update.tableKey, update.field, update.value)
+					rclient.HSet(context.Background(), update.tableName+update.delimitor+update.tableKey, update.field, update.value)
 				}
 
 				time.Sleep(time.Millisecond * 1000)
@@ -4691,7 +4689,7 @@ func TestTableKeyOnDeletion(t *testing.T) {
 			paths := tt.paths
 			mutexPaths.Unlock()
 
-			rclient.Del(paths...)
+			rclient.Del(context.Background(), paths...)
 
 			time.Sleep(time.Millisecond * 1500)
 
@@ -5115,7 +5113,7 @@ func TestConnectionDataSet(t *testing.T) {
 
 			wg.Wait()
 
-			resultMap, err := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
+			resultMap, err := rclient.HGetAll(context.Background(), "TELEMETRY_CONNECTIONS").Result()
 
 			if resultMap == nil {
 				t.Errorf("result Map is nil, expected non nil, err: %v", err)
@@ -5630,12 +5628,194 @@ func TestGNMINativeMultiNamespace(t *testing.T) {
 }
 
 func TestServerPort(t *testing.T) {
-	s := createServer(t, -8080)
-	port := s.Port()
-	if port != 0 {
-		t.Errorf("Invalid port: %d", port)
+	s := createServer(t, 8080)
+	if s == nil {
+		t.Fatal("Failed to create server")
 	}
+	port := s.Port()
+	if port != 8080 {
+		t.Errorf("Expected port 8080, got: %d", port)
+	}
+	s.ForceStop()
+}
+
+func TestServerNegativePortFails(t *testing.T) {
+	// Negative port should fail server creation
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+	cfg := &Config{
+		Port:      -8080,
+		Threshold: 100,
+	}
+	s, err := NewServer(cfg, tlsOpts, nil)
+	if err == nil {
+		s.ForceStop()
+		t.Error("Expected error for negative port, but server was created")
+	}
+	if s != nil {
+		t.Error("Expected nil server for negative port")
+	}
+}
+
+func TestServerUnixSocketOnly(t *testing.T) {
+	// Test creating a UDS-only server (no TCP listener)
+	socketPath := "/tmp/gnmi_test_uds_only.sock"
+	os.Remove(socketPath) // Ensure clean state
+
+	cfg := &Config{
+		Port:       0, // No TCP
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create UDS-only server: %v", err)
+	}
+	if s == nil {
+		t.Fatal("Server is nil")
+	}
+	if s.udsServer == nil {
+		t.Error("UDS server should not be nil")
+	}
+	if s.udsListener == nil {
+		t.Error("UDS listener should not be nil")
+	}
+	if s.s != nil {
+		t.Error("TCP server should be nil for UDS-only")
+	}
+
+	// Test Address() returns UDS path
+	addr := s.Address()
+	if addr != socketPath {
+		t.Errorf("Expected address %s, got %s", socketPath, addr)
+	}
+
+	s.ForceStop()
+
+	// Verify socket was cleaned up
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Error("Socket file should be removed after ForceStop")
+		os.Remove(socketPath)
+	}
+}
+
+func TestServerUnixSocketStop(t *testing.T) {
+	// Test graceful Stop() on UDS server
+	socketPath := "/tmp/gnmi_test_uds_stop.sock"
+	os.Remove(socketPath)
+
+	cfg := &Config{
+		Port:       0,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create UDS server: %v", err)
+	}
+
 	s.Stop()
+
+	// Verify socket was cleaned up
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Error("Socket file should be removed after Stop")
+		os.Remove(socketPath)
+	}
+}
+
+func TestServerUnixSocketServeAndStop(t *testing.T) {
+	// Test that Serve() returns when Stop() is called
+	socketPath := "/tmp/gnmi_test_uds_serve.sock"
+	os.Remove(socketPath)
+
+	cfg := &Config{
+		Port:       0,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create UDS server: %v", err)
+	}
+
+	// Start Serve() in a goroutine
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- s.Serve()
+	}()
+
+	// Give server time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Stop the server
+	s.Stop()
+
+	// Verify Serve() returns
+	select {
+	case err := <-serveDone:
+		if err != nil {
+			t.Errorf("Serve() returned unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("Serve() did not return after Stop()")
+	}
+
+	// Verify socket was cleaned up
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Error("Socket file should be removed after Stop")
+		os.Remove(socketPath)
+	}
+}
+
+func TestServerDualListener(t *testing.T) {
+	// Test creating a server with both TCP and UDS listeners
+	socketPath := "/tmp/gnmi_test_dual.sock"
+	os.Remove(socketPath)
+
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+
+	cfg := &Config{
+		Port:       8181,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, tlsOpts, nil)
+	if err != nil {
+		t.Fatalf("Failed to create dual-listener server: %v", err)
+	}
+	if s.s == nil {
+		t.Error("TCP server should not be nil")
+	}
+	if s.udsServer == nil {
+		t.Error("UDS server should not be nil")
+	}
+
+	// Test Address() returns both addresses
+	addr := s.Address()
+	if !strings.Contains(addr, "8181") {
+		t.Errorf("Address should contain TCP port, got: %s", addr)
+	}
+	if !strings.Contains(addr, socketPath) {
+		t.Errorf("Address should contain socket path, got: %s", addr)
+	}
+
+	s.ForceStop()
+	os.Remove(socketPath)
 }
 
 func TestNilServerStop(t *testing.T) {
