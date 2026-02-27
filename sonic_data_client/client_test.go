@@ -13,9 +13,9 @@ import (
 
 	"github.com/Workiva/go-datastructures/queue"
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/go-redis/redis"
 	"github.com/google/gnxi/utils/xpath"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	"github.com/redis/go-redis/v9"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
