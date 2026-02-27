@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
@@ -88,4 +89,9 @@ func (n *NotificationProducer) Send(op, data string, kvs map[string]string) erro
 	}
 	log.Infof("Publishing to channel %s: %v.", n.ch, string(val))
 	return n.rc.Publish(context.Background(), n.ch, val).Err()
+}
+
+// getKey generates the hash key from the supplied string array.
+func GetKey(k []string) string {
+	return strings.Join(k, "|")
 }
