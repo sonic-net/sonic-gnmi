@@ -1,14 +1,16 @@
 package gnmi
 
 import (
-	log "github.com/golang/glog"
+	"context"
 	"net"
 	"regexp"
 	"sync"
 	"time"
 
-	"github.com/go-redis/redis"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+
+	log "github.com/golang/glog"
+	"github.com/redis/go-redis/v9"
 )
 
 const table = "TELEMETRY_CONNECTIONS"
@@ -45,14 +47,14 @@ func (cm *ConnectionManager) PrepareRedis() {
 		DialTimeout: 0,
 	})
 
-	res, _ := rclient.HGetAll("TELEMETRY_CONNECTIONS").Result()
+	res, _ := rclient.HGetAll(context.Background(), "TELEMETRY_CONNECTIONS").Result()
 
 	if res == nil {
 		return
 	}
 
 	for key, _ := range res {
-		rclient.HDel(table, key)
+		rclient.HDel(context.Background(), table, key)
 	}
 }
 
@@ -109,8 +111,7 @@ func storeKeyRedis(key string) {
 		log.V(1).Infof("Redis client is nil, cannot store connection key")
 		return
 	}
-	ret, err := rclient.HSet(table, key, "active").Result()
-	if !ret {
+	if _, err := rclient.HSet(context.Background(), table, key, "active").Result(); err != nil {
 		log.V(1).Infof("Subscribe client failed to update telemetry connection key:%s err:%v", key, err)
 	}
 }
@@ -121,7 +122,7 @@ func deleteKeyRedis(key string) {
 		return
 	}
 
-	ret, err := rclient.HDel(table, key).Result()
+	ret, err := rclient.HDel(context.Background(), table, key).Result()
 	if ret == 0 {
 		log.V(1).Infof("Subscribe client failed to delete telemetry connection key:%s err:%v", key, err)
 	}

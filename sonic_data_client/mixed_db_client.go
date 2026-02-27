@@ -6,6 +6,7 @@ import "C"
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -18,15 +19,16 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/Workiva/go-datastructures/queue"
-	"github.com/go-redis/redis"
-	log "github.com/golang/glog"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
+
+	"github.com/Workiva/go-datastructures/queue"
+	log "github.com/golang/glog"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -39,6 +41,7 @@ const APPL_DB int = 0
 const DPU_APPL_DB_NAME string = "DPU_APPL_DB"
 const APPL_DB_NAME string = "APPL_DB"
 const DASH_TABLE_PREFIX string = "DASH_"
+const DASH_HA_TABLE_PREFIX string = "DASH_HA_"
 const SWSS_TIMEOUT uint = 0
 const MAX_RETRY_COUNT uint = 5
 const RETRY_DELAY_MILLISECOND uint = 100
@@ -67,21 +70,22 @@ var (
 )
 
 type MixedDbClient struct {
-	prefix      *gnmipb.Path
-	paths       []*gnmipb.Path
-	pathG2S     map[*gnmipb.Path][]tablePath
-	encoding    gnmipb.Encoding
-	q           *queue.PriorityQueue
-	channel     chan struct{}
-	target      string
-	origin      string
-	workPath    string
-	jClient     *JsonClient
-	applDB      swsscommon.DBConnector
-	zmqAddress  string
-	zmqClient   swsscommon.ZmqClient
-	tableMap    map[string]swsscommon.ProducerStateTable
-	zmqTableMap map[string]swsscommon.ZmqProducerStateTable
+	prefix        *gnmipb.Path
+	paths         []*gnmipb.Path
+	pathG2S       map[*gnmipb.Path][]tablePath
+	encoding      gnmipb.Encoding
+	q             *queue.PriorityQueue
+	channel       chan struct{}
+	target        string
+	origin        string
+	workPath      string
+	jClient       *JsonClient
+	applDB        swsscommon.DBConnector
+	zmqAddress    string
+	zmqClient     swsscommon.ZmqClient
+	tableMap      map[string]swsscommon.ProducerStateTable
+	zmqTableMap   map[string]swsscommon.ZmqProducerStateTable
+	plainTableMap map[string]swsscommon.Table
 	// swsscommon introduced dbkey to support multiple database
 	dbkey swsscommon.SonicDBKey
 	// Convert dbkey to string, namespace:container
@@ -260,7 +264,19 @@ func (c *MixedDbClient) GetTable(table string) swsscommon.ProducerStateTable {
 		return pt
 	}
 
-	if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
+	_, ok = c.plainTableMap[table]
+	if ok {
+		return nil
+	}
+
+	// DASH_HA_ tables use Table (not ProducerStateTable),
+	// which allows multiple subscribers (8 instances of hamgrd) to consume that table.
+	if strings.HasPrefix(table, DASH_HA_TABLE_PREFIX) {
+		log.V(2).Infof("Create Table: %s", table)
+		plainTable := swsscommon.NewTable(c.applDB, table)
+		c.plainTableMap[table] = plainTable
+		return nil
+	} else if strings.HasPrefix(table, DASH_TABLE_PREFIX) && c.zmqClient != nil {
 		log.V(2).Infof("Create ZmqProducerStateTable:  %s", table)
 		zmqTable := swsscommon.NewZmqProducerStateTable(c.applDB, table, c.zmqClient)
 		c.zmqTableMap[table] = zmqTable
@@ -291,6 +307,24 @@ func ProducerStateTableDeleteWrapper(pt swsscommon.ProducerStateTable, key strin
 	// convert panic to error
 	defer CatchException(&err)
 	pt.Delete(key, "DEL", "")
+	return
+}
+
+func TableSetWrapper(t swsscommon.Table, key string, value swsscommon.FieldValuePairs) (err error) {
+	// convert panic to error
+	defer CatchException(&err)
+	t.Set(key, value, "SET", "")
+	return
+}
+
+func TableDeleteWrapper(t swsscommon.Table, key string) (err error) {
+	// convert panic to error
+	defer CatchException(&err)
+	t.Delete(key, "DEL", "")
+	// Table.del() in C++ pushes to the pipeline but doesn't flush
+	// (unlike Table.set() which flushes when not buffered).
+	// Explicit flush is needed to drain the pipeline and avoid memory leaks.
+	t.Flush()
 	return
 }
 
@@ -328,6 +362,15 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 	}
 
 	pt := c.GetTable(table)
+	if pt == nil {
+		// DASH_HA_ tables use Table,
+		// direct Redis operations doesn't require retry.
+		t := c.plainTableMap[table]
+		if t == nil {
+			return fmt.Errorf("table %s not found in plainTableMap", table)
+		}
+		return TableSetWrapper(t, key, vec)
+	}
 	return RetryHelper(
 		c.zmqClient,
 		func() error {
@@ -337,6 +380,15 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 
 func (c *MixedDbClient) DbDelTable(table string, key string) error {
 	pt := c.GetTable(table)
+	if pt == nil {
+		// DASH_HA_ tables use Table,
+		// direct Redis operations doesn't require retry.
+		t := c.plainTableMap[table]
+		if t == nil {
+			return fmt.Errorf("table %s not found in plainTableMap", table)
+		}
+		return TableDeleteWrapper(t, key)
+	}
 	return RetryHelper(
 		c.zmqClient,
 		func() error {
@@ -496,8 +548,9 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	initRedisDbMap()
 
 	var client = MixedDbClient{
-		tableMap:    map[string]swsscommon.ProducerStateTable{},
-		zmqTableMap: map[string]swsscommon.ZmqProducerStateTable{},
+		tableMap:      map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap:   map[string]swsscommon.ZmqProducerStateTable{},
+		plainTableMap: map[string]swsscommon.Table{},
 	}
 
 	// Get namespace count and container count from db config
@@ -687,7 +740,7 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 	case 1: // only db name provided
 	case 2: // only table name provided
 		if tblPath.operation == opRemove {
-			res, err := redisDb.Keys(tblPath.tableName + "*").Result()
+			res, err := redisDb.Keys(context.Background(), tblPath.tableName+"*").Result()
 			if err != nil || len(res) < 1 {
 				log.V(2).Infof("Invalid db table Path %v %v", c.target, dbPath)
 				return nil, fmt.Errorf("Failed to find %v %v %v %v", c.target, dbPath, err, res)
@@ -696,7 +749,7 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 		tblPath.tableKey = ""
 	case 3: // Third element must be table key
 		if tblPath.operation == opRemove {
-			_, err := redisDb.Exists(tblPath.tableName + tblPath.delimitor + mappedKey).Result()
+			_, err := redisDb.Exists(context.Background(), tblPath.tableName+tblPath.delimitor+mappedKey).Result()
 			if err != nil {
 				return nil, fmt.Errorf("redis Exists op failed for %v", dbPath)
 			}
@@ -704,7 +757,7 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 		tblPath.tableKey = mappedKey
 	case 4: // Fourth element must be field name
 		if tblPath.operation == opRemove {
-			_, err := redisDb.Exists(tblPath.tableName + tblPath.delimitor + mappedKey).Result()
+			_, err := redisDb.Exists(context.Background(), tblPath.tableName+tblPath.delimitor+mappedKey).Result()
 			if err != nil {
 				return nil, fmt.Errorf("redis Exists op failed for %v", dbPath)
 			}
@@ -713,7 +766,7 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 		tblPath.field = stringSlice[3]
 	case 5: // Fifth element must be list index
 		if tblPath.operation == opRemove {
-			_, err := redisDb.Exists(tblPath.tableName + tblPath.delimitor + mappedKey).Result()
+			_, err := redisDb.Exists(context.Background(), tblPath.tableName+tblPath.delimitor+mappedKey).Result()
 			if err != nil {
 				return nil, fmt.Errorf("redis Exists op failed for %v", dbPath)
 			}
@@ -806,7 +859,7 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 			return fmt.Errorf("Can not read all tables in COUNTERS_DB")
 		}
 		pattern = "*" + tblPath.delimitor + "*"
-		dbkeys, err = redisDb.Keys(pattern).Result()
+		dbkeys, err = redisDb.Keys(context.Background(), pattern).Result()
 		if err != nil {
 			log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
 			return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
@@ -819,7 +872,7 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 		} else {
 			pattern = tblPath.tableName + tblPath.delimitor + "*"
 		}
-		dbkeys, err = redisDb.Keys(pattern).Result()
+		dbkeys, err = redisDb.Keys(context.Background(), pattern).Result()
 		if err != nil {
 			log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
 			return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
@@ -830,7 +883,7 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 	}
 
 	for idx, dbkey := range dbkeys {
-		fv, err = redisDb.HGetAll(dbkey).Result()
+		fv, err = redisDb.HGetAll(context.Background(), dbkey).Result()
 		if err != nil {
 			log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
 			return err
@@ -935,7 +988,7 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 				// TODO: Use Yang model to identify leaf-list
 				if tblPath.index >= 0 {
 					field := tblPath.field + "@"
-					val, err := redisDb.HGet(key, field).Result()
+					val, err := redisDb.HGet(context.Background(), key, field).Result()
 					if err != nil {
 						log.V(2).Infof("redis HGet failed for %v", tblPath)
 						return nil, err
@@ -950,7 +1003,7 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 						}}, nil
 				} else {
 					field := tblPath.field
-					val, err := redisDb.HGet(key, field).Result()
+					val, err := redisDb.HGet(context.Background(), key, field).Result()
 					if err == nil {
 						return &gnmipb.TypedValue{
 							Value: &gnmipb.TypedValue_JsonIetfVal{
@@ -958,7 +1011,7 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 							}}, nil
 					}
 					field = field + "@"
-					val, err = redisDb.HGet(key, field).Result()
+					val, err = redisDb.HGet(context.Background(), key, field).Result()
 					if err == nil {
 						var output []byte
 						slice := strings.Split(val, ",")
@@ -1042,7 +1095,7 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 					pattern = tblPath.tableName + tblPath.delimitor + "*"
 				}
 				// Can't remove entry in temporary state table
-				dbkeys, err = redisDb.Keys(pattern).Result()
+				dbkeys, err = redisDb.Keys(context.Background(), pattern).Result()
 				if err != nil {
 					log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
 					return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
@@ -1783,7 +1836,7 @@ func (c *MixedDbClient) dbFieldSubscribe(gnmiPath *gnmipb.Path, onChange bool, i
 	}
 
 	readVal := func() string {
-		newVal, err := redisDb.HGet(key, tblPath.field).Result()
+		newVal, err := redisDb.HGet(context.Background(), key, tblPath.field).Result()
 		if err == redis.Nil {
 			log.V(2).Infof("%v doesn't exist with key %v in db", tblPath.field, key)
 			newVal = ""
@@ -1858,7 +1911,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 	for {
 		select {
 		default:
-			msgi, err := pubsub.ReceiveTimeout(time.Millisecond * 500)
+			msgi, err := pubsub.ReceiveTimeout(context.Background(), time.Millisecond*500)
 			if err != nil {
 				neterr, ok := err.(net.Error)
 				if ok {
@@ -2017,10 +2070,10 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 			handleFatalMsg(fmt.Sprintf("RedisDbMap not exist:  %v", c.mapkey+":"+tblPath.dbName))
 			return
 		}
-		pubsub := redisDb.PSubscribe(pattern)
+		pubsub := redisDb.PSubscribe(context.Background(), pattern)
 		defer pubsub.Close()
 
-		msgi, err := pubsub.ReceiveTimeout(time.Second)
+		msgi, err := pubsub.ReceiveTimeout(context.Background(), time.Second)
 		if err != nil {
 			handleFatalMsg(fmt.Sprintf("psubscribe to %s failed for %v", pattern, tblPath))
 			return
@@ -2066,13 +2119,10 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 	// Listen on updates from tables.
 	// Depending on the interval, send the updates every interval or on change only.
 	intervalTicker := make(<-chan time.Time)
+	if interval > 0 {
+		intervalTicker = GetIntervalTicker()(interval)
+	}
 	for {
-
-		// The interval ticker ticks only when the interval is non-zero.
-		// Otherwise (e.g. on-change mode) it would never tick.
-		if interval > 0 {
-			intervalTicker = GetIntervalTicker()(interval)
-		}
 
 		select {
 		case updatedTable := <-updateChannel:
@@ -2102,7 +2152,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 				msiAll = make(map[string]interface{})
 				log.V(6).Infof("msiAll cleared: %v", len(msiAll))
 			}
-
+			intervalTicker = GetIntervalTicker()(interval)
 		case <-c.channel:
 			log.V(1).Infof("Stopping dbTableKeySubscribe routine for %v ", c.pathG2S)
 			return
@@ -2120,6 +2170,10 @@ func (c *MixedDbClient) Close() error {
 	}
 	for _, pt := range c.zmqTableMap {
 		swsscommon.DeleteZmqProducerStateTable(pt)
+	}
+	for _, t := range c.plainTableMap {
+		t.Flush()
+		swsscommon.DeleteTable(t)
 	}
 	if c.applDB != nil {
 		swsscommon.DeleteDBConnector(c.applDB)

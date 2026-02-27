@@ -8,16 +8,17 @@ package gnmi.sonic;
 // target - the name of the target for which the path is a member. Only set in prefix for a path.
 enum Target {
   option allow_alias = true;
-  APPL_DB         = 0;
-  ASIC_DB         = 1;
-  COUNTERS_DB     = 2;
-  CONFIG_DB       = 4;
+  APPL_DB           = 0;
+  ASIC_DB           = 1;
+  COUNTERS_DB       = 2;
+  CONFIG_DB         = 4;
   // PFC_WD_DB shares the the same db number with FLEX_COUNTER_DB
-  PFC_WD_DB       = 5;
-  FLEX_COUNTER_DB = 5;
-  STATE_DB        = 6;
+  PFC_WD_DB         = 5;
+  FLEX_COUNTER_DB   = 5;
+  STATE_DB          = 6;
+  CHASSIS_STATE_DB  = 13;
   // For none-DB data
-  OTHERS          = 100;
+  OTHERS            = 100;
 }
 
 message SupportedBundleVersions {
