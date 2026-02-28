@@ -86,12 +86,27 @@ func init() {
 		nil,
 	)
 	sdc.RegisterCliPath(
-		[]string{"SHOW", "interface", "transceiver", "error-status"},
+		[]string{"SHOW", "interfaces", "transceiver", "error-status"},
 		getTransceiverErrorStatus,
 		nil,
 		showCmdOptionVerbose,
 		sdc.UnimplementedOption(showCmdOptionNamespace),
 		sdc.UnimplementedOption(showCmdOptionFetchFromHW),
 		showCmdOptionInterface,
+	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "interfaces", "transceiver", "eeprom"},
+		getTransceiverEEPROM,
+		nil,
+		showCmdOptionPort,
+		showCmdOptionDom,
+		sdc.UnimplementedOption(showCmdOptionNamespace),
+	)
+	sdc.RegisterCliPath(
+		[]string{"SHOW", "interfaces", "transceiver", "info"},
+		getTransceiverInfo,
+		nil,
+		showCmdOptionPort,
+		sdc.UnimplementedOption(showCmdOptionNamespace),
 	)
 }
