@@ -688,9 +688,9 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 	tblPath.tableName = ""
 	if len(stringSlice) > 1 {
 		tblPath.tableName = stringSlice[1]
-		// tables in COUNTERS_DB other than COUNTERS table doesn't have keys
+		// tables in COUNTERS_DB other than COUNTERS/PORT_PHY_ATTR don't have keys
 		// Insert a dummy table key
-		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
+		if tblPath.dbName == "COUNTERS_DB" && !countersDbHasTableKeys(tblPath.tableName) {
 			if len(stringSlice) == 2 {
 				stringSlice = append(stringSlice, "")
 			} else {
@@ -866,8 +866,8 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 		}
 	} else if tblPath.tableKey == "" {
 		// Only table name provided
-		// tables in COUNTERS_DB other than COUNTERS table doesn't have keys
-		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
+		// tables in COUNTERS_DB other than COUNTERS/PORT_PHY_ATTR don't have keys
+		if tblPath.dbName == "COUNTERS_DB" && !countersDbHasTableKeys(tblPath.tableName) {
 			pattern = tblPath.tableName
 		} else {
 			pattern = tblPath.tableName + tblPath.delimitor + "*"
@@ -1088,8 +1088,8 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 		if tblPath.operation == opRemove {
 			//Only table name provided
 			if tblPath.tableKey == "" {
-				// tables in COUNTERS_DB other than COUNTERS table doesn't have keys
-				if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
+				// tables in COUNTERS_DB other than COUNTERS/PORT_PHY_ATTR don't have keys
+				if tblPath.dbName == "COUNTERS_DB" && !countersDbHasTableKeys(tblPath.tableName) {
 					pattern = tblPath.tableName
 				} else {
 					pattern = tblPath.tableName + tblPath.delimitor + "*"
@@ -2051,8 +2051,8 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 		// Subscribe to keyspace notification
 		pattern := "__keyspace@" + strconv.Itoa(int(spb.Target_value[tblPath.dbName])) + "__:"
 		pattern += tblPath.tableName
-		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
-			// tables in COUNTERS_DB other than COUNTERS don't have keys, skip delimitor
+		if tblPath.dbName == "COUNTERS_DB" && !countersDbHasTableKeys(tblPath.tableName) {
+			// tables in COUNTERS_DB without per-object keys, skip delimitor
 		} else {
 			pattern += tblPath.delimitor
 		}

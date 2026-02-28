@@ -802,6 +802,26 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	aclRule1Counter := loadConfig(t, "COUNTERS:oid:0x9000000000711", aclRule1CounterByte)
 	loadDB(t, rclient, aclRule1Counter)
 
+	// Load PORT_PHY_ATTR data for Ethernet68 -> oid:0x1000000000039
+	fileName = "../testdata/PORT_PHY_ATTR:oid:0x1000000000039.txt"
+	phyAttrEth68Byte, err := os.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("failed to open %s, err: %v", fileName, err)
+	}
+
+	phyAttrEth68 := loadConfig(t, "PORT_PHY_ATTR:oid:0x1000000000039", phyAttrEth68Byte)
+	loadDB(t, rclient, phyAttrEth68)
+
+	// Load PORT_PHY_ATTR data for Ethernet1 -> oid:0x1000000000003
+	fileName = "../testdata/PORT_PHY_ATTR:oid:0x1000000000003.txt"
+	phyAttrEth1Byte, err := os.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("failed to open %s, err: %v", fileName, err)
+	}
+
+	phyAttrEth1 := loadConfig(t, "PORT_PHY_ATTR:oid:0x1000000000003", phyAttrEth1Byte)
+	loadDB(t, rclient, phyAttrEth1)
+
 	fileName = "../testdata/COUNTERS_DEBUG_NAME_SWITCH_STAT_MAP.txt"
 	countersDebugNameSwitchStatMapByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -1064,6 +1084,26 @@ func prepareDb(t *testing.T, namespace string) {
 
 	aclRule1Counter := loadConfig(t, "COUNTERS:oid:0x9000000000711", aclRule1CounterByte)
 	loadDB(t, rclient, aclRule1Counter)
+
+	// Load PORT_PHY_ATTR data for Ethernet68 -> oid:0x1000000000039
+	fileName = "../testdata/PORT_PHY_ATTR:oid:0x1000000000039.txt"
+	phyAttrEth68Byte, err := os.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("failed to open %s, err: %v", fileName, err)
+	}
+
+	phyAttrEth68 := loadConfig(t, "PORT_PHY_ATTR:oid:0x1000000000039", phyAttrEth68Byte)
+	loadDB(t, rclient, phyAttrEth68)
+
+	// Load PORT_PHY_ATTR data for Ethernet1 -> oid:0x1000000000003
+	fileName = "../testdata/PORT_PHY_ATTR:oid:0x1000000000003.txt"
+	phyAttrEth1Byte, err := os.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("failed to open %s, err: %v", fileName, err)
+	}
+
+	phyAttrEth1 := loadConfig(t, "PORT_PHY_ATTR:oid:0x1000000000003", phyAttrEth1Byte)
+	loadDB(t, rclient, phyAttrEth1)
 
 	fileName = "../testdata/COUNTERS:oid:0x54000000004f63.txt"
 	sid1_byte, err := os.ReadFile(fileName)
@@ -1691,6 +1731,19 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
 	}
 
+	// PORT_PHY_ATTR test vectors
+	fileName = "../testdata/PORT_PHY_ATTR:Ethernet_wildcard.json"
+	phyAttrWildcardByte, err := os.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("failed to open %s, err: %v", fileName, err)
+	}
+
+	fileName = "../testdata/PORT_PHY_ATTR:Ethernet_single_entry.json"
+	phyAttrSingleEntryByte, err := os.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("failed to open %s, err: %v", fileName, err)
+	}
+
 	stateDBPath := "STATE_DB"
 
 	ns, _ := sdcfg.GetDbDefaultNamespace()
@@ -1995,6 +2048,34 @@ func runGnmiTestGet(t *testing.T, namespace string) {
             `,
 			wantRetCode: codes.OK,
 			wantRespVal: countersAclSingleEntryByte,
+			valTest:     true,
+		}, {
+			desc:       "get PORT_PHY_ATTR:Ethernet*",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+                elem: <
+                    name: "PORT_PHY_ATTR"
+                >
+                elem: <
+                    name: "Ethernet*"
+                >
+            `,
+			wantRetCode: codes.OK,
+			wantRespVal: phyAttrWildcardByte,
+			valTest:     true,
+		}, {
+			desc:       "get PORT_PHY_ATTR:Ethernet68",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+                elem: <
+                    name: "PORT_PHY_ATTR"
+                >
+                elem: <
+                    name: "Ethernet68"
+                >
+            `,
+			wantRetCode: codes.OK,
+			wantRespVal: phyAttrSingleEntryByte,
 			valTest:     true,
 		}, {
 			desc:       "get COUNTERS:fcbb:bbbb:2::/48 -- malformed",
@@ -2489,6 +2570,26 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	}
 	singleAclCounterJsonUpdate := make(map[string]interface{})
 	singleAclCounterJsonUpdate["DATAACL:RULE_1"] = tmp
+
+	// PORT_PHY_ATTR wildcard + single entry update for subscriptions
+	var phyAttrWildcardJson interface{}
+	fileName = "../testdata/PORT_PHY_ATTR:Ethernet_wildcard.json"
+	phyAttrWildcardJsonByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("failed to open %s, err: %v", fileName, err)
+	}
+	err = json.Unmarshal(phyAttrWildcardJsonByte, &phyAttrWildcardJson)
+	if err != nil {
+		t.Fatalf("failed to unmarshal %s, err: %v", fileName, err)
+	}
+
+	tmp = map[string]interface{}{
+		"phy_rx_signal_detect":        "{\"0\":\"T*\", \"1\":\"T*\", \"2\":\"F*\"}",
+		"pcs_fec_lane_alignment_lock": "{\"0\":\"F*\", \"1\":\"F*\", \"2\":\"F*\"}",
+		"rx_snr":                      "{\"0\":5385, \"1\":5385, \"2\":5385}",
+	}
+	singlePhyAttrJsonUpdate := make(map[string]interface{})
+	singlePhyAttrJsonUpdate["Ethernet68"] = tmp
 
 	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Queues_alias.txt"
 	countersEthernetWildQueuesByte, err := ioutil.ReadFile(fileName)
@@ -3744,6 +3845,75 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "ACL_RULE*"}, TS: time.Unix(0, 200), Val: countersAclCountersWildcardJson},
 				client.Sync{},
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "ACL_RULE*"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersAclCountersWildcardJson, singleAclCounterJsonUpdate)},
+			},
+		},
+		{
+			desc: "poll query for PORT_PHY_ATTR/Ethernet*",
+			poll: 3,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"PORT_PHY_ATTR", "Ethernet*"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			updates: []tablePathValue{
+				// simulate phy_rx_signal_detect change on Ethernet68
+				{
+					dbName:    "COUNTERS_DB",
+					tableName: "PORT_PHY_ATTR",
+					tableKey:  "oid:0x1000000000039",
+					delimitor: ":",
+					field:     "phy_rx_signal_detect",
+					value:     "{\"0\":\"T*\", \"1\":\"T*\", \"2\":\"F*\"}",
+				},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{
+					Path: []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*"},
+					TS:   time.Unix(0, 200),
+					Val:  phyAttrWildcardJson,
+				},
+				client.Sync{},
+				client.Update{
+					Path: []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*"},
+					TS:   time.Unix(0, 200),
+					Val:  mergeStrMaps(phyAttrWildcardJson, singlePhyAttrJsonUpdate),
+				},
+				client.Sync{},
+				client.Update{
+					Path: []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*"},
+					TS:   time.Unix(0, 200),
+					Val:  mergeStrMaps(phyAttrWildcardJson, singlePhyAttrJsonUpdate),
+				},
+				client.Sync{},
+				client.Update{
+					Path: []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*"},
+					TS:   time.Unix(0, 200),
+					Val:  mergeStrMaps(phyAttrWildcardJson, singlePhyAttrJsonUpdate),
+				},
+				client.Sync{},
+			},
+		},
+		{
+			desc:              "sample stream query for PORT_PHY_ATTR/Ethernet* with field value update",
+			q:                 createCountersDbQuerySampleMode(t, 0, false, "PORT_PHY_ATTR", "Ethernet*"),
+			generateIntervals: true,
+			updates: []tablePathValue{
+				{
+					dbName:    "COUNTERS_DB",
+					tableName: "PORT_PHY_ATTR",
+					tableKey:  "oid:0x1000000000039",
+					delimitor: ":",
+					field:     "phy_rx_signal_detect",
+					value:     "{\"0\":\"T*\", \"1\":\"T*\", \"2\":\"F*\"}",
+				},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*"}, TS: time.Unix(0, 200), Val: phyAttrWildcardJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*"}, TS: time.Unix(0, 200), Val: mergeStrMaps(phyAttrWildcardJson, singlePhyAttrJsonUpdate)},
 			},
 		},
 	}
