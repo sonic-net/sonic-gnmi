@@ -25,6 +25,7 @@ func NewServerChain() (*ServerChain, error) {
 	// Create DPU resolver and proxy
 	dpuResolver := dpuproxy.NewDPUResolver(stateRedisAdapter, configRedisAdapter)
 	dpuProxy := dpuproxy.NewDPUProxy(dpuResolver)
+	dpuproxy.SetDefaultProxy(dpuProxy)
 
 	// Create interceptor chain with DPU proxy
 	chain := NewChain(dpuProxy)

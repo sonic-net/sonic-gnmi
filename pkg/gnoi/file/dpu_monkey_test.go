@@ -2,18 +2,16 @@ package file
 
 import (
 	"context"
-	"crypto/md5"
 	"io"
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/openconfig/gnoi/common"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
-	"github.com/openconfig/gnoi/types"
 	"github.com/sonic-net/sonic-gnmi/internal/download"
+	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -22,44 +20,19 @@ func TestDPU_SuccessPathMocking(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// 1. Mock HandleTransferToRemote to simulate successful download
-	patches.ApplyFunc(HandleTransferToRemote, func(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest) (*gnoi_file_pb.TransferToRemoteResponse, error) {
-		// Create actual temp file so the rest of the logic can read it
-		testData := []byte("mock downloaded data")
-		if err := os.WriteFile(req.LocalPath, testData, 0644); err == nil {
-			// Also create the /mnt/host version to test container path logic
-			hostPath := "/mnt/host" + req.LocalPath
-			os.MkdirAll("/mnt/host/tmp", 0755)
-			os.WriteFile(hostPath, testData, 0644)
-		}
-
-		hash := md5.Sum(testData)
-		return &gnoi_file_pb.TransferToRemoteResponse{
-			Hash: &types.HashType{
-				Method: types.HashType_MD5,
-				Hash:   hash[:],
-			},
-		}, nil
-	})
-
-	// 2. Mock grpc.Dial to return a connection, and mock its Close method
-	patches.ApplyFunc(grpc.Dial, func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+	// 1. Mock dpuproxy.GetDPUConnection to return a connection
+	patches.ApplyFunc(dpuproxy.GetDPUConnection, func(ctx context.Context, dpuIndex string) (*grpc.ClientConn, error) {
 		return &grpc.ClientConn{}, nil
 	})
 
-	// Mock ClientConn.Close to avoid nil pointer panic
-	patches.ApplyMethod(&grpc.ClientConn{}, "Close", func(*grpc.ClientConn) error {
-		return nil
-	})
-
-	// 3. Mock gnoi_file_pb.NewFileClient
-	patches.ApplyFunc(gnoi_file_pb.NewFileClient, func(cc grpc.ClientConnInterface) gnoi_file_pb.FileClient {
+	// 2. Mock newFileClient package variable (avoids inlining issues with gomonkey)
+	patches.ApplyGlobalVar(&newFileClient, func(cc grpc.ClientConnInterface) gnoi_file_pb.FileClient {
 		return &mockSuccessFileClient{}
 	})
 
-	// 4. Mock os.Remove to always succeed (for cleanup testing)
-	patches.ApplyFunc(os.Remove, func(name string) error {
-		return nil
+	// 3. Mock the download package's DownloadHTTPStreaming
+	patches.ApplyFunc(download.DownloadHTTPStreaming, func(ctx context.Context, url string, maxFileSize int64) (io.ReadCloser, int64, error) {
+		return io.NopCloser(strings.NewReader("streaming test data")), 18, nil
 	})
 
 	req := &gnoi_file_pb.TransferToRemoteRequest{
@@ -70,57 +43,30 @@ func TestDPU_SuccessPathMocking(t *testing.T) {
 		},
 	}
 
-	// Test HandleTransferToRemoteForDPU success path
-	resp, err := HandleTransferToRemoteForDPU(context.Background(), req, "dpu1", "localhost:8080")
-	if err != nil {
-		t.Logf("DPU function returned error: %v", err)
-	} else {
-		t.Logf("DPU function success: %v", resp)
-	}
-
 	// Test HandleTransferToRemoteForDPUStreaming success path
-	resp2, err2 := HandleTransferToRemoteForDPUStreaming(context.Background(), req, "dpu2", "localhost:8080")
-	if err2 != nil {
-		t.Logf("DPU streaming returned error: %v", err2)
+	resp, err := HandleTransferToRemoteForDPUStreaming(context.Background(), req, "dpu2")
+	if err != nil {
+		t.Logf("DPU streaming returned error: %v", err)
 	} else {
-		t.Logf("DPU streaming success: %v", resp2)
+		t.Logf("DPU streaming success: %v", resp)
 	}
 }
 
 func TestDPU_ContainerPathBranches(t *testing.T) {
-	// Test specifically to hit container path logic without causing infinite recursion
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock HandleTransferToRemote to succeed and create files
-	patches.ApplyFunc(HandleTransferToRemote, func(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest) (*gnoi_file_pb.TransferToRemoteResponse, error) {
-		testData := []byte("container test data")
-		hash := md5.Sum(testData)
-		return &gnoi_file_pb.TransferToRemoteResponse{
-			Hash: &types.HashType{Hash: hash[:]},
-		}, nil
-	})
-
-	// Mock os.ReadFile to return success (simulate file exists)
-	patches.ApplyFunc(os.ReadFile, func(name string) ([]byte, error) {
-		return []byte("mock file content"), nil
-	})
-
-	// Mock grpc.Dial and related functions to succeed but fail at Send
-	patches.ApplyFunc(grpc.Dial, func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+	// Mock dpuproxy.GetDPUConnection
+	patches.ApplyFunc(dpuproxy.GetDPUConnection, func(ctx context.Context, dpuIndex string) (*grpc.ClientConn, error) {
 		return &grpc.ClientConn{}, nil
 	})
 
-	patches.ApplyMethod(&grpc.ClientConn{}, "Close", func(*grpc.ClientConn) error {
-		return nil
-	})
-
-	patches.ApplyFunc(gnoi_file_pb.NewFileClient, func(cc grpc.ClientConnInterface) gnoi_file_pb.FileClient {
+	patches.ApplyGlobalVar(&newFileClient, func(cc grpc.ClientConnInterface) gnoi_file_pb.FileClient {
 		return &mockFailureFileClient{}
 	})
 
-	patches.ApplyFunc(os.Remove, func(name string) error {
-		return nil
+	patches.ApplyFunc(download.DownloadHTTPStreaming, func(ctx context.Context, url string, maxFileSize int64) (io.ReadCloser, int64, error) {
+		return io.NopCloser(strings.NewReader("container test data")), 18, nil
 	})
 
 	req := &gnoi_file_pb.TransferToRemoteRequest{
@@ -132,18 +78,21 @@ func TestDPU_ContainerPathBranches(t *testing.T) {
 	}
 
 	// This should exercise the DPU path with mocked components
-	_, err := HandleTransferToRemoteForDPU(context.Background(), req, "container-test", "localhost:8080")
+	_, err := HandleTransferToRemoteForDPUStreaming(context.Background(), req, "container-test")
 	t.Logf("Container path test result: %v", err)
 }
 
 func TestDPU_ErrorPaths(t *testing.T) {
-	// Test various error conditions to get better coverage
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Test with HandleTransferToRemote failure
-	patches.ApplyFunc(HandleTransferToRemote, func(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest) (*gnoi_file_pb.TransferToRemoteResponse, error) {
+	// Mock dpuproxy.GetDPUConnection to fail
+	patches.ApplyFunc(dpuproxy.GetDPUConnection, func(ctx context.Context, dpuIndex string) (*grpc.ClientConn, error) {
 		return nil, os.ErrNotExist
+	})
+
+	patches.ApplyFunc(download.DownloadHTTPStreaming, func(ctx context.Context, url string, maxFileSize int64) (io.ReadCloser, int64, error) {
+		return io.NopCloser(strings.NewReader("error test data")), 14, nil
 	})
 
 	req := &gnoi_file_pb.TransferToRemoteRequest{
@@ -154,32 +103,26 @@ func TestDPU_ErrorPaths(t *testing.T) {
 		},
 	}
 
-	_, err := HandleTransferToRemoteForDPU(context.Background(), req, "error-test", "localhost:8080")
+	_, err := HandleTransferToRemoteForDPUStreaming(context.Background(), req, "error-test")
 	t.Logf("Error path test result: %v", err)
 }
 
 func TestDPU_StreamingSuccess(t *testing.T) {
-	// Test the streaming DPU function to increase coverage
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
 	// Mock the download package's DownloadHTTPStreaming
 	patches.ApplyFunc(download.DownloadHTTPStreaming, func(ctx context.Context, url string, maxFileSize int64) (io.ReadCloser, int64, error) {
-		// Return a mock reader that simulates HTTP response body
 		return io.NopCloser(strings.NewReader("streaming test data")), 18, nil
 	})
 
-	// Mock grpc.Dial
-	patches.ApplyFunc(grpc.Dial, func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+	// Mock dpuproxy.GetDPUConnection
+	patches.ApplyFunc(dpuproxy.GetDPUConnection, func(ctx context.Context, dpuIndex string) (*grpc.ClientConn, error) {
 		return &grpc.ClientConn{}, nil
 	})
 
-	patches.ApplyMethod(&grpc.ClientConn{}, "Close", func(*grpc.ClientConn) error {
-		return nil
-	})
-
 	// Mock file client to return success
-	patches.ApplyFunc(gnoi_file_pb.NewFileClient, func(cc grpc.ClientConnInterface) gnoi_file_pb.FileClient {
+	patches.ApplyGlobalVar(&newFileClient, func(cc grpc.ClientConnInterface) gnoi_file_pb.FileClient {
 		return &mockSuccessFileClient{}
 	})
 
@@ -191,7 +134,7 @@ func TestDPU_StreamingSuccess(t *testing.T) {
 		},
 	}
 
-	resp, err := HandleTransferToRemoteForDPUStreaming(context.Background(), req, "stream-test", "localhost:8080")
+	resp, err := HandleTransferToRemoteForDPUStreaming(context.Background(), req, "stream-test")
 	if err != nil {
 		t.Logf("Streaming test returned error: %v", err)
 	} else {
@@ -200,7 +143,6 @@ func TestDPU_StreamingSuccess(t *testing.T) {
 }
 
 func TestDPU_StreamingError(t *testing.T) {
-	// Test streaming function with DownloadHTTPStreaming failure
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
@@ -216,27 +158,11 @@ func TestDPU_StreamingError(t *testing.T) {
 		},
 	}
 
-	_, err := HandleTransferToRemoteForDPUStreaming(context.Background(), req, "stream-error-test", "localhost:8080")
+	_, err := HandleTransferToRemoteForDPUStreaming(context.Background(), req, "stream-error-test")
 	t.Logf("Streaming error test result: %v", err)
 }
 
 // Mock implementations
-type mockFileInfo struct {
-	name  string
-	isDir bool
-}
-
-func (m *mockFileInfo) Name() string { return m.name }
-func (m *mockFileInfo) Size() int64  { return 0 }
-func (m *mockFileInfo) Mode() os.FileMode {
-	if m.isDir {
-		return os.ModeDir
-	}
-	return 0644
-}
-func (m *mockFileInfo) ModTime() time.Time { return time.Now() }
-func (m *mockFileInfo) IsDir() bool        { return m.isDir }
-func (m *mockFileInfo) Sys() interface{}   { return nil }
 
 type mockSuccessFileClient struct{}
 
