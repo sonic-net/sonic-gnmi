@@ -3,6 +3,10 @@ package gnmi
 import (
 	"bytes"
 	"context"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
@@ -10,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
@@ -33,16 +38,21 @@ import (
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_healthz_pb "github.com/openconfig/gnoi/healthz"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
+	gnsi_certz_pb "github.com/openconfig/gnsi/certz"
 	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
 	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
+	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/tls/certprovider"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/security/advancedtls"
 	"google.golang.org/grpc/status"
 )
 
 var (
+	muPath             = &sync.RWMutex{}
 	supportedEncodings = []gnmipb.Encoding{gnmipb.Encoding_JSON, gnmipb.Encoding_JSON_IETF, gnmipb.Encoding_PROTO}
 )
 
@@ -57,10 +67,11 @@ type Server struct {
 	udsServer *grpc.Server
 	// udsListener is the listener for Unix domain socket connections.
 	// This is nil if UnixSocket is not configured.
-	udsListener net.Listener
-	config      *Config
-	cMu         sync.Mutex
-	clients     map[string]*Client
+	udsListener   net.Listener
+	config        *Config
+	cMu           sync.Mutex
+	clients       map[string]*Client
+	certProviders []certprovider.Provider
 	// SaveStartupConfig points to a function that is called to save changes of
 	// configuration to a file. By default it points to an empty function -
 	// the configuration is not saved to a file.
@@ -71,6 +82,7 @@ type Server struct {
 	masterEID     uint128
 	gnoi_system_pb.UnimplementedSystemServer
 	factory_reset.UnimplementedFactoryResetServer
+	gnsiCertz *GNSICertzServer
 }
 
 // handleOperationalGet handles OPERATIONAL target requests directly with standard gNMI types
@@ -188,7 +200,19 @@ type Config struct {
 	Vrf                 string
 	EnableCrl           bool
 	// Path to the directory where image is stored.
-	ImgDir string
+	ImgDir     string
+	GetOptions func(*Config) ([]grpc.ServerOption, []certprovider.Provider, error)
+	// gnsi.certz mTLS flags
+	CaCertLnk     string // Path to symlink pointing to current CA certificate.
+	SrvCertLnk    string // Path to symlink pointing to current server's certificate.
+	SrvKeyLnk     string // Path to symlink pointing to current server's private key.
+	CaCertFile    string // Path to the first CA certificate.
+	SrvCertFile   string // Path to the first server's certificate.
+	SrvKeyFile    string // Path to the first server's private key.
+	CertCRLConfig string // Path to the CRL directory. Disable if empty.
+	IntManFile    string // Path to the Integrity Manifest file.
+	CertzMetaFile string // Path to JSON file with gRPC credential metadata.
+	FedPolicyFile string // Path to federation policy file.
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -279,9 +303,10 @@ func (i AuthTypes) Unset(mode string) error {
 // registerAllServices registers all gNMI and gNOI services on the given gRPC server.
 func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 	osSrv *OSServer, containerzSrv *ContainerzServer,
-	debugSrv *DebugServer, healthzSrv *HealthzServer) {
+	debugSrv *DebugServer, healthzSrv *HealthzServer, certzSrv *GNSICertzServer) {
 	gnmipb.RegisterGNMIServer(s, srv)
 	factory_reset.RegisterFactoryResetServer(s, srv)
+	gnsi_certz_pb.RegisterCertzServer(s, certzSrv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(s, srv)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
 		gnoi_system_pb.RegisterSystemServer(s, srv)
@@ -295,6 +320,140 @@ func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 		spb_gnoi.RegisterSonicServiceServer(s, srv)
 	}
 	spb_gnoi.RegisterDebugServer(s, srv)
+
+}
+
+// SrvTestConfig returns test mTLS server configuration to be used to start gNMI/gNOI server in test environment.
+func SrvTestConfig(cfg *Config) ([]grpc.ServerOption, []certprovider.Provider, error) {
+	cert, err := testcert.NewCert()
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not generate test server credentials: %s", err)
+	}
+	srvCert := filepath.Dir(cfg.SrvCertLnk) + "/server_test_cert.pem"
+	certBlock := &pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]}
+	if err = os.WriteFile(srvCert, pem.EncodeToMemory(certBlock), 0600); err != nil {
+		return nil, nil, err
+	}
+	srvKey := filepath.Dir(cfg.SrvCertLnk) + "/server_test_key.pem"
+	privBytes := x509.MarshalPKCS1PrivateKey(cert.PrivateKey.(*rsa.PrivateKey))
+	keyBlock := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: privBytes}
+	if err = os.WriteFile(srvKey, pem.EncodeToMemory(keyBlock), 0600); err != nil {
+		return nil, nil, err
+	}
+
+	return SrvAdvConfig(cfg)
+}
+
+// SrvAdvConfig returns mTLS server configuration to be used to start gNMI/gNOI server with rotating certificates.
+func SrvAdvConfig(cfg *Config) ([]grpc.ServerOption, []certprovider.Provider, error) {
+	// 1. Safety Check: Ensure link paths are not empty before OS operations.
+	// This prevents os.Stat("") or os.Symlink("", ...) from crashing.
+	if cfg.CaCertLnk == "" {
+		cfg.CaCertLnk = "/keys/ca_cert.lnk"
+	}
+	if cfg.SrvCertLnk == "" {
+		cfg.SrvCertLnk = "/keys/server_cert.lnk"
+	}
+	if cfg.SrvKeyLnk == "" {
+		cfg.SrvKeyLnk = "/keys/server_key.lnk"
+	}
+	muPath.Lock()
+	defer muPath.Unlock()
+
+	log.V(1).Infof("Setting server credentials using: %v; %v; %v; %v; %v; %v;", cfg.CaCertLnk, cfg.CaCertFile, cfg.SrvCertLnk, cfg.SrvCertFile, cfg.SrvKeyLnk, cfg.SrvKeyFile)
+	// CA Certificate Check
+	if cfg.CaCertFile != "" {
+		if _, err := os.Stat(cfg.CaCertFile); err != nil {
+			return nil, nil, fmt.Errorf("CA certificate file not found: %v", err)
+		}
+		if !isSymlinkValid(cfg.CaCertLnk) {
+			atomicSetCACert(cfg, cfg.CaCertFile)
+		}
+	} else {
+		log.V(1).Infof("CaCertFile is empty; client certificate verification will be disabled.")
+	}
+	// Server Certificate & Key Check (Mandatory for TLS)
+	if !isSymlinkValid(cfg.SrvCertLnk) || !isSymlinkValid(cfg.SrvKeyLnk) {
+		if cfg.SrvCertFile == "" || cfg.SrvKeyFile == "" {
+			return nil, nil, fmt.Errorf("server certificate or key file path is empty")
+		}
+		if _, err := os.Stat(cfg.SrvCertFile); err != nil {
+			return nil, nil, fmt.Errorf("server certificate file stat error: %v", err)
+		}
+		if _, err := os.Stat(cfg.SrvKeyFile); err != nil {
+			return nil, nil, fmt.Errorf("server key file stat error: %v", err)
+		}
+		atomicSetSrvCertKeyPair(cfg, cfg.SrvCertFile, cfg.SrvKeyFile)
+	}
+
+	providers := []certprovider.Provider{}
+	identityOptions := advancedtls.IdentityCertificateOptions{
+		// Read the certificate and the key for every new connection.
+		GetIdentityCertificatesForServer: func(*tls.ClientHelloInfo) ([]*tls.Certificate, error) {
+			muPath.RLock()
+			defer muPath.RUnlock()
+
+			cert, err := tls.LoadX509KeyPair(cfg.SrvCertLnk, cfg.SrvKeyLnk)
+			if err != nil {
+				return nil, fmt.Errorf("could not load server key pair: %s", err)
+			}
+			return []*tls.Certificate{&cert}, nil
+		},
+	}
+
+	serverOption := &advancedtls.Options{
+		IdentityOptions: identityOptions,
+		AdditionalPeerVerification: func(params *advancedtls.HandshakeVerificationInfo) (*advancedtls.PostHandshakeVerificationResults, error) {
+			return &advancedtls.PostHandshakeVerificationResults{}, nil
+		},
+		RequireClientCert: false,
+		VerificationType:  advancedtls.SkipVerification,
+	}
+	if cfg.CaCertFile != "" {
+		serverOption.RootOptions = advancedtls.RootCertificateOptions{
+			// Read the CA certificate for every new connection.
+			GetRootCertificates: func(params *advancedtls.ConnectionInfo) (*advancedtls.RootCertificates, error) {
+				muPath.RLock()
+				defer muPath.RUnlock()
+
+				caCertPem, err := os.ReadFile(cfg.CaCertLnk)
+				if err != nil {
+					return nil, fmt.Errorf("could not read CA certificate: %s", err)
+				}
+				certPool := x509.NewCertPool()
+				if ok := certPool.AppendCertsFromPEM(caCertPem); !ok {
+					return nil, fmt.Errorf("failed to append CA certificate")
+				}
+				return &advancedtls.RootCertificates{TrustCerts: certPool}, nil
+			},
+		}
+		// If the server want the client to send certificates.
+		serverOption.RequireClientCert = true
+		// Doing only the certificate check.
+		serverOption.VerificationType = advancedtls.CertVerification
+		// CRL config.
+		if cfg.CertCRLConfig != "" {
+			if _, err := os.ReadDir(filepath.Join(cfg.CertCRLConfig, "crl")); err != nil {
+				return nil, nil, err
+			}
+			p, err := advancedtls.NewFileWatcherCRLProvider(advancedtls.FileWatcherOptions{
+				CRLDirectory:    filepath.Join(cfg.CertCRLConfig, "crl"),
+				RefreshDuration: time.Minute,
+			})
+			if err != nil {
+				return nil, nil, err
+			}
+			serverOption.RevocationOptions = &advancedtls.RevocationOptions{
+				DenyUndetermined: false,
+				CRLProvider:      p,
+			}
+		}
+	}
+	serverCreds, err := advancedtls.NewServerCreds(serverOption)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []grpc.ServerOption{grpc.Creds(serverCreds)}, providers, nil
 }
 
 // NewServer returns an initialized Server.
@@ -308,11 +467,13 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	if config == nil {
 		return nil, errors.New("config not provided")
 	}
+	var providers []certprovider.Provider
 	common_utils.InitCounters()
 
 	srv := &Server{
 		config:            config,
 		clients:           map[string]*Client{},
+		certProviders:     providers,
 		SaveStartupConfig: saveOnSetDisabled,
 		ReqFromMaster:     ReqFromMasterDisabledMA,
 		masterEID:         uint128{High: 0, Low: 0},
@@ -334,6 +495,8 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		readWhitelist:  readWhitelist,
 		writeWhitelist: writeWhitelist,
 	}
+	certzSrv := NewGNSICertzServer(srv)
+	srv.gnsiCertz = certzSrv
 
 	var err error
 
@@ -348,7 +511,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			return nil, fmt.Errorf("failed to open listener port %d: %v", config.Port, err)
 		}
 
-		registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv)
+		registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, certzSrv)
 	}
 
 	// UDS Server (UnixSocket set)
@@ -384,7 +547,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			srv.udsListener = nil
 			srv.udsServer = nil
 		} else {
-			registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv)
+			registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, certzSrv)
 		}
 	}
 
@@ -1001,4 +1164,16 @@ func ReqFromMasterEnabledMA(req *gnmipb.SetRequest, masterEID *uint128) error {
 // is disabled.
 func ReqFromMasterDisabledMA(req *gnmipb.SetRequest, masterEID *uint128) error {
 	return nil
+}
+
+func cleanupProviders(ps []certprovider.Provider) {
+	for _, p := range ps {
+		p.Close()
+	}
+}
+
+// Cleanup stops the gNMI/gNOI server and does required cleanup.
+func (srv *Server) Cleanup() {
+	srv.s.Stop()
+	cleanupProviders(srv.certProviders)
 }
