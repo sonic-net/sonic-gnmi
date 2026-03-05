@@ -66,9 +66,14 @@ RUN set -ex; \
     cd /opt/sonic-mgmt-common && \
         NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc; \
     sudo dpkg -i /opt/sonic-mgmt-common_1.0.0_amd64.deb; \
-    # Fix postinst bug: script references a path only valid inside sonic-buildimage tree \
+    # sonic-mgmt-common-codegen postinst bug: the script tries to cd into a path
+    # (sonic/src/sonic-mgmt-common) that only exists inside the sonic-buildimage
+    # build tree. dpkg -i will overwrite /var/lib/dpkg/info/...postinst from the
+    # .deb before running it, so we must: (1) let dpkg -i fail, (2) patch the
+    # postinst on disk, (3) dpkg --configure to complete the installation.
+    sudo dpkg -i /opt/sonic-mgmt-common-codegen_1.0.0_amd64.deb || true; \
     echo '#!/usr/bin/env bash' | sudo tee /var/lib/dpkg/info/sonic-mgmt-common-codegen.postinst; \
-    sudo dpkg -i /opt/sonic-mgmt-common-codegen_1.0.0_amd64.deb; \
+    sudo dpkg --configure sonic-mgmt-common-codegen; \
     rm -f /opt/sonic-mgmt-common_*.deb /opt/sonic-mgmt-common-codegen_*.deb \
           /opt/sonic-mgmt-common_*.buildinfo /opt/sonic-mgmt-common_*.changes
 
