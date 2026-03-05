@@ -311,11 +311,11 @@ stages:
     # Build sonic_yang_models wheel from source (no ADO artifact available separately)
     - bash: |
         set -ex
+        pip3 install --break-system-packages jinja2 wheel setuptools
         git clone --depth=1 --filter=blob:none --sparse \
           https://github.com/sonic-net/sonic-buildimage.git /tmp/sonic-buildimage
         cd /tmp/sonic-buildimage && git sparse-checkout set src/sonic-yang-models
         cd src/sonic-yang-models
-        pip3 install --break-system-packages jinja2 wheel setuptools
         python3 setup.py bdist_wheel
         cp dist/sonic_yang_models-*.whl $(Pipeline.Workspace)/sonic-deps/
       displayName: 'Build sonic_yang_models wheel'
