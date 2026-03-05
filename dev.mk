@@ -92,10 +92,18 @@ test-pure: _ensure_up
 		"cd /workspace/sonic-gnmi && make -f pure.mk junit-xml"
 
 # ── Build dev image locally ────────────────────────────────────────────────────
-# Useful when CI hasn't published the image yet, or for local iteration.
-# Downloads all artifacts at build time — no manual steps required.
+# fetch-deps downloads all required .deb and .whl files into deps/
+# mirroring what DownloadPipelineArtifact does in the Azure Pipeline.
+.PHONY: fetch-deps
+fetch-deps:
+	@echo "Fetching SONiC dep artifacts from Azure DevOps..."
+	@mkdir -p deps
+	@python3 scripts/fetch-deps.py deps/
+	@echo "✅ Deps ready in deps/"
+
+# dev-image builds the container image locally (runs fetch-deps first).
 .PHONY: dev-image
-dev-image:
+dev-image: fetch-deps
 	docker build \
 		--build-arg BUILD_BRANCH=$(BUILD_BRANCH) \
 		-f Dockerfile.dev \

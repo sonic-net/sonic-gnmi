@@ -274,6 +274,61 @@ stages:
       clean: true
       displayName: 'Checkout code'
 
+    # Download libyang + libnl from sonic-buildimage.common_libs (pipeline 465)
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        source: specific
+        project: build
+        pipeline: 465
+        artifact: common-lib
+        runVersion: latestFromBranch
+        runBranch: refs/heads/master
+        patterns: |
+          target/debs/bookworm/libyang*1.0.73*.deb
+          target/debs/bookworm/libnl-3-200_*.deb
+          target/debs/bookworm/libnl-genl-3-200_*.deb
+          target/debs/bookworm/libnl-route-3-200_*.deb
+          target/debs/bookworm/libnl-nf-3-200_*.deb
+        path: $(Pipeline.Workspace)/sonic-deps
+      displayName: 'Download libyang + libnl'
+
+    # Download swsscommon from sonic-swss-common (pipeline 9)
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        source: specific
+        project: build
+        pipeline: 9
+        artifact: sonic-swss-common-bookworm
+        runVersion: latestFromBranch
+        runBranch: refs/heads/master
+        patterns: |
+          libswsscommon_1.0.0_amd64.deb
+          libswsscommon-dev_1.0.0_amd64.deb
+          python3-swsscommon_1.0.0_amd64.deb
+        path: $(Pipeline.Workspace)/sonic-deps
+      displayName: 'Download swsscommon'
+
+    # Build sonic_yang_models wheel from source (no ADO artifact available separately)
+    - bash: |
+        set -ex
+        git clone --depth=1 --filter=blob:none --sparse \
+          https://github.com/sonic-net/sonic-buildimage.git /tmp/sonic-buildimage
+        cd /tmp/sonic-buildimage && git sparse-checkout set src/sonic-yang-models
+        cd src/sonic-yang-models
+        pip3 install --break-system-packages jinja2 wheel setuptools
+        python3 setup.py bdist_wheel
+        cp dist/sonic_yang_models-*.whl $(Pipeline.Workspace)/sonic-deps/
+      displayName: 'Build sonic_yang_models wheel'
+
+    # Flatten all deps into a single deps/ directory for the Docker build context
+    - bash: |
+        set -ex
+        mkdir -p deps
+        find $(Pipeline.Workspace)/sonic-deps -name "*.deb" -exec cp {} deps/ \;
+        find $(Pipeline.Workspace)/sonic-deps -name "*.whl" -exec cp {} deps/ \;
+        ls -lh deps/
+      displayName: 'Collect deps into build context'
+
     - bash: |
         set -ex
         IMAGE_TAG="sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
