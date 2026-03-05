@@ -1,0 +1,124 @@
+# sonic-gnmi Development Container
+#
+# Bakes in all SONiC dependencies so developers (and AI agents) don't need to
+# manually fetch artifacts from Azure DevOps pipelines.
+#
+# Pre-installed:
+#   - libyang 1.0.73 + libnl (from sonic-buildimage.common_libs)
+#   - libswsscommon + python3-swsscommon (from sonic-swss-common)
+#   - sonic_yang_models Python wheel (built from source)
+#   - sonic-mgmt-common (built from source, installed + source kept at /opt/sonic-mgmt-common)
+#   - redis-server, protobuf-compiler, pytest, jsonpatch
+#
+# Usage: see dev.mk
+
+FROM sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
+
+ARG BUILD_BRANCH=master
+
+# ── System tools ──────────────────────────────────────────────────────────────
+RUN sudo apt-get update -qq && \
+    sudo apt-get install -y --no-install-recommends \
+        curl \
+        unzip \
+        redis-server \
+        protobuf-compiler \
+        git \
+        python3-pip \
+        jinja2 \
+    && sudo rm -rf /var/lib/apt/lists/*
+
+# ── Python tools ──────────────────────────────────────────────────────────────
+RUN sudo pip3 install --break-system-packages -U pytest jsonpatch jinja2 wheel setuptools
+
+# ── Download SONiC dep artifacts from public Azure DevOps pipelines ────────────
+# Pipeline 465: Azure.sonic-buildimage.common_libs  → common-lib artifact
+#               Contains: libyang 1.0.73, libnl 3.7.0
+# Pipeline 9:   Azure.sonic-swss-common             → sonic-swss-common-bookworm
+#               Contains: libswsscommon, libswsscommon-dev, python3-swsscommon
+RUN set -ex; \
+    \
+    # ── common-lib: libyang + libnl ──────────────────────────────────────────\
+    COMMON_LIB_BUILD=$(curl -sf \
+        "https://dev.azure.com/mssonic/build/_apis/build/builds?definitions=465&resultFilter=succeeded&branchName=refs/heads/master&\$top=1&api-version=7.1" \
+        | python3 -c "import sys,json; print(json.load(sys.stdin)['value'][0]['id'])"); \
+    COMMON_LIB_URL=$(curl -sf \
+        "https://dev.azure.com/mssonic/build/_apis/build/builds/${COMMON_LIB_BUILD}/artifacts?artifactName=common-lib&api-version=7.1" \
+        | python3 -c "import sys,json; print(json.load(sys.stdin)['resource']['downloadUrl'])"); \
+    curl -sL --max-time 300 "${COMMON_LIB_URL}" -o /tmp/common-lib.zip; \
+    \
+    sudo apt-get -y purge libnl-3-dev libnl-route-3-dev 2>/dev/null || true; \
+    cd /tmp && unzip -j common-lib.zip \
+        "common-lib/target/debs/bookworm/libyang_1.0.73_amd64.deb" \
+        "common-lib/target/debs/bookworm/libyang-dev_1.0.73_amd64.deb" \
+        "common-lib/target/debs/bookworm/libnl-3-200_*.deb" \
+        "common-lib/target/debs/bookworm/libnl-genl-3-200_*.deb" \
+        "common-lib/target/debs/bookworm/libnl-route-3-200_*.deb" \
+        "common-lib/target/debs/bookworm/libnl-nf-3-200_*.deb" \
+        -d /tmp/sonic-deps/; \
+    sudo dpkg -i /tmp/sonic-deps/libyang_1.0.73_amd64.deb; \
+    sudo dpkg -i /tmp/sonic-deps/libyang-dev_1.0.73_amd64.deb; \
+    sudo dpkg -i /tmp/sonic-deps/libnl-3-200_*.deb; \
+    sudo dpkg -i /tmp/sonic-deps/libnl-genl-3-200_*.deb; \
+    sudo dpkg -i /tmp/sonic-deps/libnl-route-3-200_*.deb; \
+    sudo dpkg -i /tmp/sonic-deps/libnl-nf-3-200_*.deb; \
+    sudo apt-get --fix-broken install -y; \
+    \
+    # ── swsscommon ───────────────────────────────────────────────────────────\
+    SWSS_BUILD=$(curl -sf \
+        "https://dev.azure.com/mssonic/build/_apis/build/builds?definitions=9&resultFilter=succeeded&branchName=refs/heads/master&\$top=1&api-version=7.1" \
+        | python3 -c "import sys,json; print(json.load(sys.stdin)['value'][0]['id'])"); \
+    SWSS_URL=$(curl -sf \
+        "https://dev.azure.com/mssonic/build/_apis/build/builds/${SWSS_BUILD}/artifacts?artifactName=sonic-swss-common-bookworm&api-version=7.1" \
+        | python3 -c "import sys,json; print(json.load(sys.stdin)['resource']['downloadUrl'])"); \
+    curl -sL --max-time 120 "${SWSS_URL}" -o /tmp/swss-common.zip; \
+    cd /tmp && unzip -j swss-common.zip \
+        "sonic-swss-common-bookworm/libswsscommon_1.0.0_amd64.deb" \
+        "sonic-swss-common-bookworm/libswsscommon-dev_1.0.0_amd64.deb" \
+        "sonic-swss-common-bookworm/python3-swsscommon_1.0.0_amd64.deb" \
+        -d /tmp/sonic-deps/; \
+    sudo dpkg -i /tmp/sonic-deps/libswsscommon_1.0.0_amd64.deb; \
+    sudo dpkg -i /tmp/sonic-deps/libswsscommon-dev_1.0.0_amd64.deb; \
+    sudo dpkg -i /tmp/sonic-deps/python3-swsscommon_1.0.0_amd64.deb; \
+    \
+    # ── cleanup ──────────────────────────────────────────────────────────────\
+    rm -rf /tmp/common-lib.zip /tmp/swss-common.zip /tmp/sonic-deps
+
+# ── sonic_yang_models wheel (built from source) ───────────────────────────────
+RUN set -ex; \
+    git clone --depth=1 --filter=blob:none --sparse \
+        https://github.com/sonic-net/sonic-buildimage.git /tmp/sonic-buildimage; \
+    cd /tmp/sonic-buildimage && git sparse-checkout set src/sonic-yang-models; \
+    cd src/sonic-yang-models && python3 setup.py bdist_wheel; \
+    sudo pip3 install --break-system-packages dist/sonic_yang_models-*.whl; \
+    rm -rf /tmp/sonic-buildimage
+
+# ── Configure Redis ────────────────────────────────────────────────────────────
+RUN sudo sed -ri 's/^# unixsocket/unixsocket/' /etc/redis/redis.conf && \
+    sudo sed -ri 's/^unixsocketperm .../unixsocketperm 777/' /etc/redis/redis.conf && \
+    sudo sed -ri 's/redis-server\.sock/redis.sock/' /etc/redis/redis.conf
+
+# ── Build + install sonic-mgmt-common ─────────────────────────────────────────
+# Source is kept at /opt/sonic-mgmt-common because sonic-gnmi's Makefile
+# references MGMT_COMMON_DIR for YANG files and patches.
+RUN set -ex; \
+    git clone --depth=1 --branch ${BUILD_BRANCH} \
+        https://github.com/sonic-net/sonic-mgmt-common.git /opt/sonic-mgmt-common; \
+    git config --global --add safe.directory /opt/sonic-mgmt-common; \
+    cd /opt/sonic-mgmt-common && \
+        NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc; \
+    sudo dpkg -i /opt/sonic-mgmt-common_1.0.0_amd64.deb; \
+    # Fix postinst bug: script references a path only valid inside sonic-buildimage tree \
+    echo '#!/usr/bin/env bash' | sudo tee /var/lib/dpkg/info/sonic-mgmt-common-codegen.postinst; \
+    sudo dpkg -i /opt/sonic-mgmt-common-codegen_1.0.0_amd64.deb; \
+    rm -f /opt/sonic-mgmt-common_*.deb /opt/sonic-mgmt-common-codegen_*.deb \
+          /opt/sonic-mgmt-common_*.buildinfo /opt/sonic-mgmt-common_*.changes
+
+# /workspace/sonic-mgmt-common is the path sonic-gnmi's Makefile expects
+# (MGMT_COMMON_DIR = $(TOPDIR)/../sonic-mgmt-common, TOPDIR = /workspace/sonic-gnmi)
+RUN sudo mkdir -p /workspace && \
+    sudo ln -s /opt/sonic-mgmt-common /workspace/sonic-mgmt-common && \
+    git config --global --add safe.directory /workspace/sonic-gnmi && \
+    git config --global --add safe.directory /workspace/sonic-mgmt-common
+
+WORKDIR /workspace/sonic-gnmi
