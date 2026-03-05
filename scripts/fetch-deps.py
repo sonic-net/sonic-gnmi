@@ -18,8 +18,29 @@ import tempfile
 import urllib.request
 import json
 import zipfile
+from urllib.parse import urlparse
 
 ADO_BASE = "https://dev.azure.com/mssonic/build/_apis/build"
+
+# Allowlisted hostnames for artifact downloads.
+_ALLOWED_HOSTS = {
+    "dev.azure.com",
+    "artprodcus3.artifacts.visualstudio.com",
+    "artprodcus2.artifacts.visualstudio.com",
+    "artprodeus1.artifacts.visualstudio.com",
+    "artprodwus3.artifacts.visualstudio.com",
+    "github.com",
+    "go.dev",
+}
+
+
+def _safe_urlopen(url):
+    """Open a URL, raising ValueError if the host is not in the allowlist."""
+    host = urlparse(url).hostname or ""
+    # Allow any *.artifacts.visualstudio.com subdomain
+    if not (host in _ALLOWED_HOSTS or host.endswith(".artifacts.visualstudio.com")):
+        raise ValueError(f"URL host '{host}' is not in the allowlist: {url}")
+    return urllib.request.urlopen(url)  # noqa: S310
 
 COMMON_LIB_FILES = [
     "target/debs/bookworm/libyang_1.0.73_amd64.deb",
@@ -39,7 +60,7 @@ SWSS_FILES = [
 
 def ado_get(path):
     url = f"{ADO_BASE}/{path}"
-    with urllib.request.urlopen(url) as r:
+    with _safe_urlopen(url) as r:
         return json.loads(r.read())
 
 
@@ -60,7 +81,7 @@ def artifact_download_url(build_id, artifact_name):
 
 def download_zip(url, label):
     print(f"  Downloading {label} ...")
-    with urllib.request.urlopen(url) as r:
+    with _safe_urlopen(url) as r:
         return io.BytesIO(r.read())
 
 
