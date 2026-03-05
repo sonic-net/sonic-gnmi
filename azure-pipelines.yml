@@ -257,8 +257,8 @@ stages:
 #       add a docker push step after the build step here.
 - stage: DevContainer
   displayName: "Dev Container Image"
-  dependsOn: []   # run in parallel with Build stage
-  condition: succeeded()
+  dependsOn: []   # run in parallel with Build stage, always runs regardless of Build outcome
+  condition: always()
 
   jobs:
   - job: BuildDevImage
