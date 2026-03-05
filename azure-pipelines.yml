@@ -258,7 +258,7 @@ stages:
 - stage: DevContainer
   displayName: "Dev Container Image"
   dependsOn: []   # run in parallel with Build stage
-  condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+  condition: succeeded()
 
   jobs:
   - job: BuildDevImage
