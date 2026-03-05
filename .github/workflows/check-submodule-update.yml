@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  contents: read
   issues: write
 
 jobs:
@@ -13,19 +14,27 @@ jobs:
     if: github.repository_owner == 'sonic-net'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/submodule-watchers.json
+          sparse-checkout-cone-mode: false
       - uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
+            const config = JSON.parse(fs.readFileSync('.github/submodule-watchers.json', 'utf8'));
+            const assignees = config.assignees || [];
+            const thresholdHours = config.threshold_hours || 96;
+
             const { data } = await github.rest.search.issuesAndPullRequests({
               q: 'repo:sonic-net/sonic-buildimage is:pr is:open "submodule" "sonic-gnmi" in:title author:mssonicbld'
             });
 
             const now = new Date();
-            const THRESHOLD_HOURS = 96;
 
             for (const pr of data.items) {
               const ageHours = (now - new Date(pr.created_at)) / 3600000;
-              if (ageHours < THRESHOLD_HOURS) continue;
+              if (ageHours < thresholdHours) continue;
 
               const existing = await github.rest.search.issuesAndPullRequests({
                 q: `repo:sonic-net/sonic-gnmi is:issue is:open "buildimage#${pr.number}" in:title`
@@ -50,6 +59,7 @@ jobs:
                   `This usually means Azure Pipelines is failing to run. Investigate the PR and determine if a rebase, manual CI trigger, or code fix is needed.`,
                 ].join('\n'),
                 labels: ['submodule-stuck'],
+                assignees: assignees,
               });
 
               console.log(`Filed issue for stuck PR #${pr.number} (${branch}, ${ageDays} days old)`);
