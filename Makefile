@@ -222,7 +222,7 @@ $(ENVFILE):
 check_gotest: $(DBCONFG) $(ENVFILE)
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/telemetry
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 20m -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 20m -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -gcflags=all=-l -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
 endif
@@ -325,14 +325,15 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE)
 			-covermode=atomic -mod=vendor -v $(INTEGRATION_BASIC_PKGS); \
 	fi
 	
-	# Run packages needing special environment
+	# Run packages needing special environment.
+	# -gcflags=all=-l disables inlining, required for gomonkey-based mocks in gnmi_server tests.
 	@if [ -n "$(INTEGRATION_ENV_PKGS)" ]; then \
 		echo "Running environment-dependent integration tests..."; \
 		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
 			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-env.xml \
 			--format testname \
 			-- -race -timeout 20m -coverprofile=test-results/coverage-integration-env.txt \
-			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
+			-covermode=atomic -mod=vendor $(BLD_FLAGS) -gcflags=all=-l -v $(INTEGRATION_ENV_PKGS); \
 	fi
 	
 	# Run dialout package if enabled
