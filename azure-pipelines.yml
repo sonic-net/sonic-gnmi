@@ -245,3 +245,58 @@ stages:
         codeCoverageTool: Cobertura
         summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
       displayName: 'Publish coverage'
+
+# ── Dev Container Image ────────────────────────────────────────────────────────
+# Builds the sonic-gnmi developer container image (Dockerfile.dev) and
+# publishes it as a pipeline artifact.
+#
+# Only runs on pushes to master/release branches (not PRs) since the image
+# only needs to be refreshed when Dockerfile.dev or its deps change.
+#
+# TODO: once a service connection to a public registry is configured,
+#       add a docker push step after the build step here.
+- stage: DevContainer
+  displayName: "Dev Container Image"
+  dependsOn: []   # run in parallel with Build stage
+  condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+
+  jobs:
+  - job: BuildDevImage
+    displayName: "Build dev container image"
+    timeoutInMinutes: 60
+
+    # Run on the host (not inside a container) so Docker is available.
+    pool:
+      name: sonicso1ES-amd64
+
+    steps:
+    - checkout: self
+      clean: true
+      displayName: 'Checkout code'
+
+    - bash: |
+        set -ex
+        IMAGE_TAG="sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
+        IMAGE_LATEST="sonic-gnmi-dev:latest"
+
+        docker build \
+          --build-arg BUILD_BRANCH=$(BUILD_BRANCH) \
+          -f Dockerfile.dev \
+          -t "${IMAGE_TAG}" \
+          -t "${IMAGE_LATEST}" \
+          .
+
+        # Save as compressed tar for the pipeline artifact.
+        # To push to a registry later, add:
+        #   docker tag ${IMAGE_TAG} <registry>/<repo>:${TAG}
+        #   docker push <registry>/<repo>:${TAG}
+        mkdir -p "$(Build.ArtifactStagingDirectory)/dev-image"
+        docker save "${IMAGE_TAG}" | gzip -1 \
+          > "$(Build.ArtifactStagingDirectory)/dev-image/sonic-gnmi-dev.tar.gz"
+
+        echo "Image saved: $(Build.ArtifactStagingDirectory)/dev-image/sonic-gnmi-dev.tar.gz"
+      displayName: 'Build dev container image'
+
+    - publish: $(Build.ArtifactStagingDirectory)/dev-image
+      artifact: sonic-gnmi-dev-image
+      displayName: 'Publish dev image artifact'
