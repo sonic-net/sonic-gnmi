@@ -11,36 +11,17 @@ Usage: python3 scripts/fetch-deps.py <output-dir>
 """
 
 import io
-import os
-import sys
-import subprocess
-import tempfile
-import urllib.request
 import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
 import zipfile
-from urllib.parse import urlparse
+
+import requests
 
 ADO_BASE = "https://dev.azure.com/mssonic/build/_apis/build"
-
-# Allowlisted hostnames for artifact downloads.
-_ALLOWED_HOSTS = {
-    "dev.azure.com",
-    "artprodcus3.artifacts.visualstudio.com",
-    "artprodcus2.artifacts.visualstudio.com",
-    "artprodeus1.artifacts.visualstudio.com",
-    "artprodwus3.artifacts.visualstudio.com",
-    "github.com",
-    "go.dev",
-}
-
-
-def _safe_urlopen(url):
-    """Open a URL, raising ValueError if the host is not in the allowlist."""
-    host = urlparse(url).hostname or ""
-    # Allow any *.artifacts.visualstudio.com subdomain
-    if not (host in _ALLOWED_HOSTS or host.endswith(".artifacts.visualstudio.com")):
-        raise ValueError(f"URL host '{host}' is not in the allowlist: {url}")
-    return urllib.request.urlopen(url)  # noqa: S310
 
 COMMON_LIB_FILES = [
     "target/debs/bookworm/libyang_1.0.73_amd64.deb",
@@ -60,8 +41,9 @@ SWSS_FILES = [
 
 def ado_get(path):
     url = f"{ADO_BASE}/{path}"
-    with _safe_urlopen(url) as r:
-        return json.loads(r.read())
+    resp = requests.get(url, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def latest_build_id(pipeline_id, branch="master"):
@@ -81,21 +63,26 @@ def artifact_download_url(build_id, artifact_name):
 
 def download_zip(url, label):
     print(f"  Downloading {label} ...")
-    with _safe_urlopen(url) as r:
-        return io.BytesIO(r.read())
+    resp = requests.get(url, timeout=300, stream=True)
+    resp.raise_for_status()
+    buf = io.BytesIO()
+    for chunk in resp.iter_content(chunk_size=8192):
+        buf.write(chunk)
+    buf.seek(0)
+    return buf
 
 
 def extract_files(zip_bytes, file_list, out_dir):
     with zipfile.ZipFile(zip_bytes) as z:
         for path in file_list:
             basename = os.path.basename(path)
-            # Handle glob-style: find the first match by suffix
-            matches = [n for n in z.namelist() if n.endswith(basename) or
+            # Prefer exact match, fall back to prefix match (handles version wildcards)
+            matches = [n for n in z.namelist()
+                       if os.path.basename(n) == basename or
                        (basename.endswith("_amd64.deb") and
-                        os.path.basename(n).startswith(basename.split("_")[0])
-                        and n.endswith(".deb")
-                        and "dbgsym" not in n and ".log" not in n)]
-            # Prefer exact match
+                        os.path.basename(n).startswith(basename.split("_")[0]) and
+                        n.endswith(".deb") and
+                        "dbgsym" not in n and ".log" not in n)]
             exact = [n for n in matches if os.path.basename(n) == basename]
             target = (exact or matches)[0] if (exact or matches) else None
             if not target:
@@ -118,21 +105,15 @@ def build_sonic_yang_models(out_dir):
             ["git", "sparse-checkout", "set", "src/sonic-yang-models"],
             cwd=tmp, check=True, capture_output=True
         )
-        subprocess.run(
-            ["git", "checkout"],
-            cwd=tmp, check=True, capture_output=True
-        )
+        subprocess.run(["git", "checkout"], cwd=tmp, check=True, capture_output=True)
         src = os.path.join(tmp, "src", "sonic-yang-models")
         subprocess.run(
             [sys.executable, "setup.py", "bdist_wheel"],
             cwd=src, check=True, capture_output=True
         )
-        dist = os.path.join(src, "dist")
-        for whl in os.listdir(dist):
+        for whl in os.listdir(os.path.join(src, "dist")):
             if whl.endswith(".whl"):
-                dest = os.path.join(out_dir, whl)
-                import shutil
-                shutil.copy(os.path.join(dist, whl), dest)
+                shutil.copy(os.path.join(src, "dist", whl), os.path.join(out_dir, whl))
                 print(f"  + {whl}")
 
 

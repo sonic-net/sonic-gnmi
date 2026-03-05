@@ -97,6 +97,7 @@ test-pure: _ensure_up
 .PHONY: fetch-deps
 fetch-deps:
 	@echo "Fetching SONiC dep artifacts from Azure DevOps..."
+	@python3 -c "import requests" 2>/dev/null || pip3 install requests --break-system-packages -q
 	@mkdir -p deps
 	@python3 scripts/fetch-deps.py deps/
 	@echo "✅ Deps ready in deps/"
