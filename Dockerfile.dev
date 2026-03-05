@@ -26,10 +26,12 @@ RUN sudo apt-get update -qq && \
         redis-server \
         protobuf-compiler \
         git \
+        python3-setuptools \
+        python3-wheel \
     && sudo rm -rf /var/lib/apt/lists/*
 
 # ── Python tools ──────────────────────────────────────────────────────────────
-RUN sudo pip3 install --break-system-packages -U pytest jsonpatch jinja2 wheel setuptools
+RUN sudo pip3 install --break-system-packages -U pytest jsonpatch jinja2
 
 # ── Install dep debs from build context ───────────────────────────────────────
 COPY deps/ /tmp/sonic-deps/
