@@ -34,8 +34,12 @@ _ensure_redis:
 # ── Container lifecycle ────────────────────────────────────────────────────────
 .PHONY: dev-up
 dev-up:
-	@echo "Pulling $(DEV_IMAGE) ..."
-	docker pull $(DEV_IMAGE)
+	@if ! docker image inspect $(DEV_IMAGE) >/dev/null 2>&1; then \
+		echo "Pulling $(DEV_IMAGE) ..."; \
+		docker pull $(DEV_IMAGE); \
+	else \
+		echo "Using local image $(DEV_IMAGE)"; \
+	fi
 	docker run -d \
 		--name $(CONTAINER_NAME) \
 		-v $(WORKSPACE):/workspace/sonic-gnmi \
