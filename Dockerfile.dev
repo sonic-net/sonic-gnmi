@@ -1,0 +1,87 @@
+# sonic-gnmi Development Container
+#
+# Bakes in all SONiC dependencies so developers (and AI agents) don't need to
+# manually fetch artifacts from Azure DevOps pipelines.
+#
+# Pre-installed:
+#   - libyang 1.0.73 + libnl (from sonic-buildimage.common_libs)
+#   - libswsscommon + python3-swsscommon (from sonic-swss-common)
+#   - sonic_yang_models Python wheel (built from source)
+#   - sonic-mgmt-common (built from source, source kept at /opt/sonic-mgmt-common)
+#   - redis-server, protobuf-compiler, pytest, jsonpatch
+#
+# Build context expects a deps/ directory containing the required .deb files
+# and sonic_yang_models wheel. In CI this is populated by DownloadPipelineArtifact;
+# locally it is populated by: make -f dev.mk fetch-deps
+#
+# Usage: see dev.mk
+
+FROM sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
+
+ARG BUILD_BRANCH=master
+
+# ── System tools ──────────────────────────────────────────────────────────────
+RUN sudo apt-get update -qq && \
+    sudo apt-get install -y --no-install-recommends \
+        redis-server \
+        protobuf-compiler \
+        git \
+        python3-setuptools \
+        python3-wheel \
+    && sudo rm -rf /var/lib/apt/lists/*
+
+# ── Python tools ──────────────────────────────────────────────────────────────
+RUN sudo pip3 install --break-system-packages -U pytest jsonpatch jinja2
+
+# ── Install dep debs from build context ───────────────────────────────────────
+COPY deps/ /tmp/sonic-deps/
+
+RUN set -ex; \
+    sudo apt-get -y purge libnl-3-dev libnl-route-3-dev 2>/dev/null || true; \
+    sudo dpkg -i /tmp/sonic-deps/libyang_1.0.73_amd64.deb; \
+    sudo dpkg -i /tmp/sonic-deps/libyang-dev_1.0.73_amd64.deb; \
+    sudo dpkg -i /tmp/sonic-deps/libnl-3-200_*.deb; \
+    sudo dpkg -i /tmp/sonic-deps/libnl-genl-3-200_*.deb; \
+    sudo dpkg -i /tmp/sonic-deps/libnl-route-3-200_*.deb; \
+    sudo dpkg -i /tmp/sonic-deps/libnl-nf-3-200_*.deb; \
+    sudo apt-get --fix-broken install -y; \
+    sudo dpkg -i /tmp/sonic-deps/libswsscommon_1.0.0_amd64.deb; \
+    sudo dpkg -i /tmp/sonic-deps/libswsscommon-dev_1.0.0_amd64.deb; \
+    sudo dpkg -i /tmp/sonic-deps/python3-swsscommon_1.0.0_amd64.deb; \
+    sudo pip3 install --break-system-packages /tmp/sonic-deps/sonic_yang_models-*.whl; \
+    rm -rf /tmp/sonic-deps
+
+# ── Configure Redis ────────────────────────────────────────────────────────────
+RUN sudo sed -ri 's/^# (unixsocket\b)/\1/' /etc/redis/redis.conf && \
+    sudo sed -ri 's/^#?\s*unixsocketperm\s+[0-9]+/unixsocketperm 770/' /etc/redis/redis.conf && \
+    sudo sed -ri 's/redis-server\.sock/redis.sock/' /etc/redis/redis.conf
+
+# ── Build + install sonic-mgmt-common ─────────────────────────────────────────
+# Source is kept at /opt/sonic-mgmt-common because sonic-gnmi's Makefile
+# references MGMT_COMMON_DIR for YANG files and patches.
+RUN set -ex; \
+    git clone --depth=1 --branch ${BUILD_BRANCH} \
+        https://github.com/sonic-net/sonic-mgmt-common.git /opt/sonic-mgmt-common; \
+    git config --global --add safe.directory /opt/sonic-mgmt-common; \
+    cd /opt/sonic-mgmt-common && \
+        NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc; \
+    sudo dpkg -i /opt/sonic-mgmt-common_1.0.0_amd64.deb; \
+    # sonic-mgmt-common-codegen postinst bug: the script tries to cd into a path
+    # (sonic/src/sonic-mgmt-common) that only exists inside the sonic-buildimage
+    # build tree. dpkg -i will overwrite /var/lib/dpkg/info/...postinst from the
+    # .deb before running it, so we must: (1) let dpkg -i fail, (2) patch the
+    # postinst on disk, (3) dpkg --configure to complete the installation.
+    sudo dpkg -i /opt/sonic-mgmt-common-codegen_1.0.0_amd64.deb || true; \
+    echo '#!/usr/bin/env bash' | sudo tee /var/lib/dpkg/info/sonic-mgmt-common-codegen.postinst; \
+    sudo dpkg --configure sonic-mgmt-common-codegen; \
+    rm -f /opt/sonic-mgmt-common_*.deb /opt/sonic-mgmt-common-codegen_*.deb \
+          /opt/sonic-mgmt-common_*.buildinfo /opt/sonic-mgmt-common_*.changes
+
+# /workspace/sonic-mgmt-common is the path sonic-gnmi's Makefile expects
+# (MGMT_COMMON_DIR = $(TOPDIR)/../sonic-mgmt-common, TOPDIR = /workspace/sonic-gnmi)
+RUN sudo mkdir -p /workspace && \
+    sudo ln -s /opt/sonic-mgmt-common /workspace/sonic-mgmt-common && \
+    git config --global --add safe.directory /workspace/sonic-gnmi && \
+    git config --global --add safe.directory /workspace/sonic-mgmt-common
+
+WORKDIR /workspace/sonic-gnmi
