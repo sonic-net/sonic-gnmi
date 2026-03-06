@@ -11,7 +11,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	"github.com/redis/go-redis/v9"
+	"github.com/go-redis/redis/v7"
 	"google.golang.org/grpc/metadata"
 )
 
