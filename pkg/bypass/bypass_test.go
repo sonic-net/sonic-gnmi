@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/go-redis/redis/v7"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"google.golang.org/grpc/metadata"
 )
 

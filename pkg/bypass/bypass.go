@@ -9,9 +9,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/go-redis/redis/v7"
 	"github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	"github.com/go-redis/redis/v7"
 	"google.golang.org/grpc/metadata"
 )
 
