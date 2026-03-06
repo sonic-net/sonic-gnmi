@@ -43,18 +43,28 @@ dev-up:
 	else \
 		echo "Using local image $(DEV_IMAGE)"; \
 	fi
-	docker run -d \
-		--name $(CONTAINER_NAME) \
-		-v $(WORKSPACE):/workspace/sonic-gnmi \
-		$(DEV_IMAGE) \
-		sleep infinity
+	@if docker ps -a --format '{{.Names}}' | grep -qx "$(CONTAINER_NAME)"; then \
+		if docker ps --format '{{.Names}}' | grep -qx "$(CONTAINER_NAME)"; then \
+			echo "Container '$(CONTAINER_NAME)' is already running."; \
+		else \
+			echo "Starting existing container '$(CONTAINER_NAME)' ..."; \
+			docker start $(CONTAINER_NAME) > /dev/null; \
+		fi; \
+	else \
+		docker run -d \
+			--name $(CONTAINER_NAME) \
+			-v $(WORKSPACE):/workspace/sonic-gnmi \
+			$(DEV_IMAGE) \
+			sleep infinity; \
+	fi
 	@echo ""
 	@echo "✅ Container '$(CONTAINER_NAME)' is running."
 	@echo "   Run 'make -f dev.mk build' or 'make -f dev.mk test PKG=...'"
 
 .PHONY: dev-down
 dev-down:
-	docker stop $(CONTAINER_NAME) && docker rm $(CONTAINER_NAME) || true
+	-docker stop $(CONTAINER_NAME)
+	-docker rm $(CONTAINER_NAME)
 
 .PHONY: shell
 shell: _ensure_up _ensure_redis
@@ -82,8 +92,8 @@ endif
 		"cd /workspace/sonic-gnmi && \
 		 export $(CGO_ENV) && \
 		 $(if $(TEST), \
-		   sudo -E go test -v -mod=vendor $(GOMONKEY_FLAGS) -run '$(TEST)' github.com/sonic-net/sonic-gnmi/$(PKG), \
-		   sudo -E go test -v -mod=vendor $(GOMONKEY_FLAGS) github.com/sonic-net/sonic-gnmi/$(PKG))"
+		   sudo -E go test -v $(GOMONKEY_FLAGS) -run '$(TEST)' github.com/sonic-net/sonic-gnmi/$(PKG), \
+		   sudo -E go test -v $(GOMONKEY_FLAGS) github.com/sonic-net/sonic-gnmi/$(PKG))"
 
 # Run the full integration test suite (slow — ~30 min)
 .PHONY: test-all
@@ -99,19 +109,11 @@ test-pure: _ensure_up
 		"cd /workspace/sonic-gnmi && make -f pure.mk junit-xml"
 
 # ── Build dev image locally ────────────────────────────────────────────────────
-# fetch-deps downloads all required .deb and .whl files into deps/
-# mirroring what DownloadPipelineArtifact does in the Azure Pipeline.
-.PHONY: fetch-deps
-fetch-deps:
-	@echo "Fetching SONiC dep artifacts from Azure DevOps..."
-	@python3 -c "import requests" 2>/dev/null || pip3 install requests --break-system-packages -q
-	@mkdir -p deps
-	@python3 scripts/fetch-deps.py deps/
-	@echo "✅ Deps ready in deps/"
-
-# dev-image builds the container image locally (runs fetch-deps first).
+# Place pre-downloaded deps/ (libyang, libnl, swsscommon, yang_models wheel)
+# in this directory before running dev-image. The Azure pipeline uses
+# .azure/templates/download-dependencies.yml to populate deps/ automatically.
 .PHONY: dev-image
-dev-image: fetch-deps
+dev-image:
 	docker build \
 		--build-arg BUILD_BRANCH=$(BUILD_BRANCH) \
 		-f Dockerfile.dev \
