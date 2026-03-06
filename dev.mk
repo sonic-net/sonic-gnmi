@@ -18,7 +18,10 @@ BUILD_BRANCH   ?= master
 
 # CGO flags required for all go test invocations
 CGO_ENV := CGO_LDFLAGS='-lswsscommon -lhiredis' \
-           CGO_CXXFLAGS='-I/usr/include/swss -w -Wall -fpermissive'
+           CGO_CXXFLAGS='-I/usr/include/swss -w -Wall -fpermissive' \
+           CGO_CFLAGS='-I/usr/include/swss'
+# -gcflags=all=-l disables inlining, required for gomonkey-based mocks in gnmi_server tests
+GOMONKEY_FLAGS := -gcflags=all=-l
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 _container_running = $(shell docker ps --filter "name=^$(CONTAINER_NAME)$$" --format '{{.Names}}' 2>/dev/null)
@@ -79,8 +82,8 @@ endif
 		"cd /workspace/sonic-gnmi && \
 		 export $(CGO_ENV) && \
 		 $(if $(TEST), \
-		   sudo -E go test -v -mod=vendor -run '$(TEST)' github.com/sonic-net/sonic-gnmi/$(PKG), \
-		   sudo -E go test -v -mod=vendor github.com/sonic-net/sonic-gnmi/$(PKG))"
+		   sudo -E go test -v -mod=vendor $(GOMONKEY_FLAGS) -run '$(TEST)' github.com/sonic-net/sonic-gnmi/$(PKG), \
+		   sudo -E go test -v -mod=vendor $(GOMONKEY_FLAGS) github.com/sonic-net/sonic-gnmi/$(PKG))"
 
 # Run the full integration test suite (slow — ~30 min)
 .PHONY: test-all
