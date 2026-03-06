@@ -257,9 +257,8 @@ stages:
 #       add a docker push step after the build step here.
 - stage: DevContainer
   displayName: "Dev Container Image"
-  dependsOn: []   # run in parallel with Build stage
-  # Only build the dev image on pushes to master/release branches, not on PRs
-  condition: and(always(), ne(variables['Build.Reason'], 'PullRequest'))
+  dependsOn: []   # run in parallel with Build stage, always runs
+  condition: always()
 
   jobs:
   - job: BuildDevImage
