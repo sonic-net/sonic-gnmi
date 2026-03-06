@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"flag"
 	"fmt"
 	"github.com/agiledragon/gomonkey/v2"
+	glog "github.com/golang/glog"
 	ospb "github.com/openconfig/gnoi/os"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
@@ -739,11 +741,20 @@ func newTestOSServer() *OSServer {
 }
 
 func TestProcessTransferContent_OpenFileError(t *testing.T) {
+	// Flush and redirect glog before patching os.OpenFile. Without this, glog's
+	// background flush goroutine can call os.OpenFile to rotate its log file and
+	// hit our mock, causing glog to call os.Exit and crash the test binary.
+	glog.Flush()
+	flag.Set("logtostderr", "true")
+
 	// Mock the os.OpenFile function to simulate a failure
 	patch := gomonkey.ApplyFunc(os.OpenFile, func(name string, flag int, perm os.FileMode) (*os.File, error) {
 		return nil, errors.New("simulated OpenFile failure")
 	})
-	defer patch.Reset()
+	defer func() {
+		patch.Reset()
+		flag.Set("logtostderr", "false")
+	}()
 
 	srv := newTestOSServer()
 
@@ -764,6 +775,12 @@ func TestProcessTransferContent_OpenFileError(t *testing.T) {
 }
 
 func TestProcessTransferContent_WriteError(t *testing.T) {
+	// Flush and redirect glog to stderr before patching os.OpenFile to prevent
+	// glog's background goroutine from hitting the mock and calling os.Exit.
+	glog.Flush()
+	flag.Set("logtostderr", "true")
+	defer flag.Set("logtostderr", "false")
+
 	// Create a dummy *os.File
 	f := &os.File{}
 
@@ -808,6 +825,12 @@ func TestProcessTransferContent_WriteError(t *testing.T) {
 }
 
 func TestProcessTransferContent_CloseError(t *testing.T) {
+	// Flush and redirect glog to stderr before patching os.OpenFile to prevent
+	// glog's background goroutine from hitting the mock and calling os.Exit.
+	glog.Flush()
+	flag.Set("logtostderr", "true")
+	defer flag.Set("logtostderr", "false")
+
 	f := &os.File{}
 
 	patches := gomonkey.NewPatches()
