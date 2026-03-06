@@ -52,8 +52,8 @@ RUN set -ex; \
     rm -rf /tmp/sonic-deps
 
 # ── Configure Redis ────────────────────────────────────────────────────────────
-RUN sudo sed -ri 's/^# unixsocket/unixsocket/' /etc/redis/redis.conf && \
-    sudo sed -ri 's/^unixsocketperm .../unixsocketperm 777/' /etc/redis/redis.conf && \
+RUN sudo sed -ri 's/^# (unixsocket\b)/\1/' /etc/redis/redis.conf && \
+    sudo sed -ri 's/^#?\s*unixsocketperm\s+[0-9]+/unixsocketperm 770/' /etc/redis/redis.conf && \
     sudo sed -ri 's/redis-server\.sock/redis.sock/' /etc/redis/redis.conf
 
 # ── Build + install sonic-mgmt-common ─────────────────────────────────────────
