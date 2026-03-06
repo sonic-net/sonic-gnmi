@@ -1040,7 +1040,7 @@ func writeCredentialsMetadataToDB(tbl, key, fld, val string) error {
 		log.V(0).Info(err.Error())
 		return fmt.Errorf("REDIS is not available: %v", err)
 	}
-	sc.Close()
+	defer sc.Close()
 
 	// Write metadata.
 	path := common_utils.GetKey([]string{credentialsTbl, tbl})
