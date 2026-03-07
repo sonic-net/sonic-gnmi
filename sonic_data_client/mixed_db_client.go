@@ -1989,7 +1989,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 // dbTableKeySubscribe subscribes to tables using a table keys.
 // Handles queries like "COUNTERS/Ethernet0" or "COUNTERS/Ethernet*"
 // This function handles both ON_CHANGE and SAMPLE modes. "interval" being 0 is interpreted as ON_CHANGE mode.
-func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time.Duration, updateOnly bool) {
+func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time.Duration, suppressRedundant bool) {
 	defer c.w.Done()
 
 	msiAll := make(map[string]interface{})
@@ -2106,7 +2106,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 	signalSync()
 
 	// Clear the payload so that next time it will send only updates
-	if updateOnly {
+	if suppressRedundant {
 		msiAll = make(map[string]interface{})
 	}
 
@@ -2148,7 +2148,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 			}
 
 			// Clear the payload so that next time it will send only updates
-			if updateOnly {
+			if suppressRedundant {
 				msiAll = make(map[string]interface{})
 				log.V(6).Infof("msiAll cleared: %v", len(msiAll))
 			}
