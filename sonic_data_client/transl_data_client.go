@@ -35,11 +35,13 @@ type TranslClient struct {
 	path2URI map[*gnmipb.Path]string
 	channel  chan struct{}
 	q        *queue.PriorityQueue
+	superSub *superSubscription
 
 	synced     sync.WaitGroup  // Control when to send gNMI sync_response
 	w          *sync.WaitGroup // wait for all sub go routines to finish
 	mu         sync.RWMutex    // Mutex for data protection among routines for transl_client
 	ctx        context.Context //Contains Auth info and request info
+	wakeChan   chan bool       // wakeChan is used to wake up the client to notify it is the new primary client.
 	extensions []*gnmi_extpb.Extension
 
 	version  *translib.Version // Client version; populated by parseVersion()
@@ -65,6 +67,7 @@ func NewTranslClient(prefix *gnmipb.Path, getpaths []*gnmipb.Path, ctx context.C
 		/* Populate GNMI path to REST URL map. */
 		err = transutil.PopulateClientPaths(prefix, getpaths, &client.path2URI, addWildcardKeys)
 	}
+	client.wakeChan = make(chan bool, 1)
 
 	if err != nil {
 		return nil, err
@@ -168,6 +171,7 @@ func recoverSubscribe(c *TranslClient) {
 type ticker_info struct {
 	t         *time.Ticker
 	sub       *gnmipb.Subscription
+	interval  int
 	pathStr   string
 	heartbeat bool
 }
@@ -183,11 +187,9 @@ func getTranslNotificationType(mode gnmipb.SubscriptionMode) translib.Notificati
 	}
 }
 
-func tickerCleanup(ticker_map map[int][]*ticker_info, c *TranslClient) {
-	for _, v := range ticker_map {
-		for _, ti := range v {
-			ti.t.Stop()
-		}
+func tickerCleanup(tickers map[int]*time.Ticker) {
+	for _, ticker := range tickers {
+		ticker.Stop()
 	}
 }
 
@@ -205,12 +207,8 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 		enqueFatalMsgTranslib(c, err.Error())
 		return
 	}
+	intervalToTickerInfoMap := make(map[int][]*ticker_info)
 
-	ticker_map := make(map[int][]*ticker_info)
-
-	defer tickerCleanup(ticker_map, c)
-	var cases []reflect.SelectCase
-	cases_map := make(map[int]int)
 	var subscribe_mode gnmipb.SubscriptionMode
 	translPaths := make([]translib.IsSubscribePath, len(subscribe.Subscription))
 	sampleCache := make(map[string]*ygotCache)
@@ -308,15 +306,15 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 			// do initial sync & build the cache
 			ts.doSample(pathStr)
 
-			addTimer(c, ticker_map, &cases, cases_map, interval, sub, pathStr, false)
+			addTimer(intervalToTickerInfoMap, interval, sub, pathStr, false)
 			//Heartbeat intervals are valid for SAMPLE in the case suppress_redundant is specified
 			if sub.SuppressRedundant && sub.HeartbeatInterval > 0 {
-				addTimer(c, ticker_map, &cases, cases_map, int(sub.HeartbeatInterval), sub, pathStr, true)
+				addTimer(intervalToTickerInfoMap, int(sub.HeartbeatInterval), sub, pathStr, true)
 			}
 		} else if subscribe_mode == gnmipb.SubscriptionMode_ON_CHANGE {
 			onChangeSubsString = append(onChangeSubsString, pathStr)
 			if sub.HeartbeatInterval > 0 {
-				addTimer(c, ticker_map, &cases, cases_map, int(sub.HeartbeatInterval), sub, pathStr, true)
+				addTimer(intervalToTickerInfoMap, int(sub.HeartbeatInterval), sub, pathStr, true)
 			}
 		}
 		log.V(6).Infof("End Sub: %v", sub)
@@ -336,15 +334,41 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 		enqueueSyncMessage(c)
 	}
 
-	cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(c.channel)})
+	// Add the subscription to a SuperSubscrption.
+	c.addClientToSuperSubscription(subscribe)
+	defer c.leaveSuperSubscription()
+
+	// Get tickers and cases to do samples.
+	err = c.superSub.populateTickers(intervalToTickerInfoMap)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to fetch shared tickers from Super Subscription: %v", err)
+		log.V(0).Info(errMsg)
+		enqueFatalMsgTranslib(c, errMsg)
+		return
+	}
+	cases, caseIndexToIntervalMap := buildSelectCases(intervalToTickerInfoMap, c.channel)
+
+	// Non-primary clients do not need to listen for ticks unless they're woken up by the Super Subscription.
+	for !c.isPrimary() {
+		select {
+		case <-c.wakeChan:
+			log.V(2).Infof("Secondary client (%p) waking up: isPrimary=%v, tickers=%v", c, c.isPrimary(), intervalToTickerInfoMap)
+			continue
+		case <-c.channel:
+			log.V(2).Infof("Secondary client (%p) received close signal", c)
+			return
+		}
+	}
 
 	for {
 		chosen, _, ok := reflect.Select(cases)
-		if !ok {
+		if !ok || chosen >= len(caseIndexToIntervalMap) || c.q == nil || c.q.Disposed() {
+			log.V(2).Infof("TranslClient (%p) exiting StreamRun because an exit signal was received!", c)
 			return
 		}
 
-		for _, tick := range ticker_map[cases_map[chosen]] {
+		ticks := intervalToTickerInfoMap[caseIndexToIntervalMap[chosen]]
+		for _, tick := range ticks {
 			log.V(6).Infof("tick, heartbeat: %t, path: %s\n", tick.heartbeat, c.path2URI[tick.sub.Path])
 			ts := translSubscriber{
 				client:      c,
@@ -357,26 +381,49 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 	}
 }
 
-func addTimer(c *TranslClient, ticker_map map[int][]*ticker_info, cases *[]reflect.SelectCase, cases_map map[int]int, interval int, sub *gnmipb.Subscription, pathStr string, heartbeat bool) {
-	//Reuse ticker for same sample intervals, otherwise create a new one.
-	if ticker_map[interval] == nil {
-		ticker_map[interval] = make([]*ticker_info, 1, 1)
-		ticker_map[interval][0] = &ticker_info{
-			t:         time.NewTicker(time.Duration(interval) * time.Nanosecond),
+// addTimer adds a new ticker_info with the given interval, sub, and heartbeat to the intervalToTickerInfoMap.
+func addTimer(intervalToTickerInfoMap map[int][]*ticker_info, interval int, sub *gnmipb.Subscription, pathStr string, heartbeat bool) {
+	if tickers, ok := intervalToTickerInfoMap[interval]; ok && tickers != nil {
+		tickers = append(tickers, &ticker_info{
 			sub:       sub,
 			pathStr:   pathStr,
-			heartbeat: heartbeat,
-		}
-		cases_map[len(*cases)] = interval
-		*cases = append(*cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ticker_map[interval][0].t.C)})
-	} else {
-		ticker_map[interval] = append(ticker_map[interval], &ticker_info{
-			t:         ticker_map[interval][0].t,
-			sub:       sub,
-			pathStr:   pathStr,
+			interval:  interval,
 			heartbeat: heartbeat,
 		})
+		intervalToTickerInfoMap[interval] = tickers
+	} else {
+		intervalToTickerInfoMap[interval] = []*ticker_info{{
+			sub:       sub,
+			pathStr:   pathStr,
+			interval:  interval,
+			heartbeat: heartbeat,
+		}}
 	}
+}
+
+// buildSelectCases takes in the intervalToTickerInfoMap and a close channel and returns the cases and caseIndexToIntervalMap that include
+// those ticker channels.
+// - cases is a slice of SelectCase used to call select across all the ticker and close channels.
+// - caseIndexToIntervalMap is a map from ticker index within the cases slice to the corresponding interval. It can be used to
+// associate an interval with the chosen case during the select operation.
+func buildSelectCases(intervalToTickerInfoMap map[int][]*ticker_info, closeChan <-chan struct{}) ([]reflect.SelectCase, map[int]int) {
+	cases := make([]reflect.SelectCase, 0)
+	caseIndexToIntervalMap := make(map[int]int)
+
+	for interval, tickers := range intervalToTickerInfoMap {
+		if len(tickers) < 1 {
+			continue
+		}
+		ticker := tickers[0]
+		if ticker == nil {
+			log.V(0).Infof("Failed to build select case for interval %v because ticker is nil!", interval)
+			continue
+		}
+		caseIndexToIntervalMap[len(cases)] = interval
+		cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ticker.t.C)})
+	}
+	cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(closeChan)})
+	return cases, caseIndexToIntervalMap
 }
 
 func (c *TranslClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
