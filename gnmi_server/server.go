@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Azure/sonic-mgmt-common/translib"
+	gnsiPathzpb "github.com/openconfig/gnsi/pathz"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
 	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
@@ -34,6 +35,7 @@ import (
 	gnoi_containerz_pb "github.com/openconfig/gnoi/containerz"
 	"github.com/openconfig/gnoi/factory_reset"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
+	"google.golang.org/grpc/credentials"
 
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_healthz_pb "github.com/openconfig/gnoi/healthz"
@@ -82,7 +84,9 @@ type Server struct {
 	masterEID     uint128
 	gnoi_system_pb.UnimplementedSystemServer
 	factory_reset.UnimplementedFactoryResetServer
-	gnsiCertz *GNSICertzServer
+	gnsiCertz         *GNSICertzServer
+	gnsiPathz         *GNSIPathzServer
+	ConnectionManager *ConnectionManager
 }
 
 // handleOperationalGet handles OPERATIONAL target requests directly with standard gNMI types
@@ -203,16 +207,19 @@ type Config struct {
 	ImgDir     string
 	GetOptions func(*Config) ([]grpc.ServerOption, []certprovider.Provider, error)
 	// gnsi.certz mTLS flags
-	CaCertLnk     string // Path to symlink pointing to current CA certificate.
-	SrvCertLnk    string // Path to symlink pointing to current server's certificate.
-	SrvKeyLnk     string // Path to symlink pointing to current server's private key.
-	CaCertFile    string // Path to the first CA certificate.
-	SrvCertFile   string // Path to the first server's certificate.
-	SrvKeyFile    string // Path to the first server's private key.
-	CertCRLConfig string // Path to the CRL directory. Disable if empty.
-	IntManFile    string // Path to the Integrity Manifest file.
-	CertzMetaFile string // Path to JSON file with gRPC credential metadata.
-	FedPolicyFile string // Path to federation policy file.
+	CaCertLnk       string // Path to symlink pointing to current CA certificate.
+	SrvCertLnk      string // Path to symlink pointing to current server's certificate.
+	SrvKeyLnk       string // Path to symlink pointing to current server's private key.
+	CaCertFile      string // Path to the first CA certificate.
+	SrvCertFile     string // Path to the first server's certificate.
+	SrvKeyFile      string // Path to the first server's private key.
+	CertCRLConfig   string // Path to the CRL directory. Disable if empty.
+	IntManFile      string // Path to the Integrity Manifest file.
+	CertzMetaFile   string // Path to JSON file with gRPC credential metadata.
+	FedPolicyFile   string // Path to federation policy file.
+	PathzPolicy     bool   // Enable gNMI pathz policy.
+	PathzPolicyFile string // Path to gNMI pathz policy file.
+	PathzMetaFile   string // Path to JSON file with pathz metadata.
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -556,6 +563,9 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		return nil, errors.New("no listener configured: port must be > 0 or unix_socket must be set")
 	}
 
+	spb_gnoi.RegisterDebugServer(srv.s, srv)
+	srv.gnsiPathz = NewGNSIPathzServer(srv)
+	gnsiPathzpb.RegisterPathzServer(srv.s, srv.gnsiPathz)
 	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
 	return srv, nil
 }
@@ -812,6 +822,23 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Errorf(codes.Unimplemented, "unsupported request type: %s", gnmipb.GetRequest_DataType_name[int32(req.GetType())])
 	}
+	// gNMI path based authorization
+	if s.config.PathzPolicy && len(req.GetPath()) != 0 {
+		newPaths := []*gnmipb.Path{}
+		user, err := getUsername(ctx)
+		if err != nil {
+			log.V(1).Infof("GetRequest User not found: %s", err.Error())
+			return nil, err
+		}
+		for _, path := range req.GetPath() {
+			// Only process the authorized paths in the request.
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), path, gnsiPathzpb.Mode_MODE_READ)
+		}
+		if len(newPaths) == 0 {
+			return nil, status.Error(codes.PermissionDenied, "Unauthorized request. Rejected by pathz policy.")
+		}
+		req.Path = newPaths
+	}
 
 	if err := s.checkEncodingAndModel(req.GetEncoding(), req.GetUseModels()); err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
@@ -929,6 +956,27 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	if s.config.EnableTranslibWrite == false && s.config.EnableNativeWrite == false {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
+	}
+	// gNMI path based authorization
+	if s.config.PathzPolicy {
+		user, err := getUsername(ctx)
+		if err != nil {
+			log.V(1).Infof("SetRequest User not found: %s", err.Error())
+			return nil, err
+		}
+		permitted := true
+		for _, path := range req.GetDelete() {
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), path, gnsiPathzpb.Mode_MODE_WRITE)
+		}
+		for _, update := range req.GetReplace() {
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), update.GetPath(), gnsiPathzpb.Mode_MODE_WRITE)
+		}
+		for _, update := range req.GetUpdate() {
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), update.GetPath(), gnsiPathzpb.Mode_MODE_WRITE)
+		}
+		if !permitted {
+			return nil, status.Error(codes.PermissionDenied, "Unauthorized request. Rejected by pathz policy.")
+		}
 	}
 	var results []*gnmipb.UpdateResult
 
@@ -1088,6 +1136,28 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 		SupportedEncodings: supportedEncodings,
 		GNMIVersion:        "0.7.0",
 		Extension:          exts}, nil
+}
+
+// Obtain the user name as the last element of the SPIFFE ID.
+func getUsername(ctx context.Context) (string, error) {
+	pr, ok := peer.FromContext(ctx)
+	if !ok {
+		return "", grpc.Errorf(codes.Unauthenticated, "failed to get peer from ctx")
+	}
+	tlsInfo, ok := pr.AuthInfo.(credentials.TLSInfo)
+	if !ok {
+		return "", grpc.Errorf(codes.Unauthenticated, "no tls info was found")
+	}
+	spiffe := tlsInfo.SPIFFEID
+	if spiffe == nil {
+		return "", grpc.Errorf(codes.Unauthenticated, "failed to get SPIFFE ID")
+	}
+	path := spiffe.Path
+	usernamePos := strings.LastIndex(path, "/")
+	if usernamePos == -1 {
+		return "", status.Errorf(codes.Unauthenticated, "failed to get username from SPIFFE ID: %s", spiffe)
+	}
+	return path[usernamePos+1:], nil
 }
 
 type uint128 struct {
