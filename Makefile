@@ -66,6 +66,7 @@ go.mod:
 	$(GO) mod init github.com/sonic-net/sonic-gnmi
 
 $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
+	$(GO) mod tidy
 	$(GO) mod vendor
 	$(GO) mod download github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2
 	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* vendor/github.com/google/gnxi/
@@ -234,6 +235,7 @@ endif
 	# Install required coverage tools
 	$(GO) install github.com/axw/gocov/gocov@v1.1.0
 	$(GO) install github.com/AlekSi/gocov-xml@latest
+	$(GO) mod tidy
 	$(GO) mod vendor
 
 	# Filter out "mocks" and generated "proto" files from the coverage reports
@@ -351,6 +353,7 @@ endif
 	@echo "Installing coverage tools..."
 	$(GO) install github.com/axw/gocov/gocov@v1.1.0
 	$(GO) install github.com/AlekSi/gocov-xml@latest
+	$(GO) mod tidy
 	$(GO) mod vendor
 
 	@echo "Generating coverage.xml..."
