@@ -1,6 +1,8 @@
 module github.com/sonic-net/sonic-gnmi
 
-go 1.19
+go 1.23.0
+
+toolchain go1.24.4
 
 
 require (
@@ -54,7 +56,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/onsi/ginkgo v1.10.3 // indirect
 	github.com/onsi/gomega v1.7.1 // indirect
-	github.com/openconfig/goyang v0.0.0-20200309174518-a00bece872fc // indirect
+	github.com/openconfig/goyang v1.6.0 // indirect
 	github.com/philopon/go-toposort v0.0.0-20170620085441-9be86dbd762f // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
@@ -74,9 +76,6 @@ replace (
 	// Glog patch needs to be updated to remove this.
 	github.com/golang/glog => github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/openconfig/gnmi => github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
+	github.com/openconfig/goyang => github.com/openconfig/goyang v0.0.0-20200309174518-a00bece872fc
 	github.com/openconfig/ygot => github.com/openconfig/ygot v0.7.1
-	golang.org/x/crypto => golang.org/x/crypto v0.24.0
-	golang.org/x/sys => golang.org/x/sys v0.26.0
-	google.golang.org/grpc => google.golang.org/grpc v1.64.1
-	google.golang.org/protobuf => google.golang.org/protobuf v1.34.1
 )
