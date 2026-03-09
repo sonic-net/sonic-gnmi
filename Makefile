@@ -260,10 +260,18 @@ endif
 
 
 # Integration test packages - basic ones (no special environment needed)
+# Packages that use gomonkey and require -gcflags=all=-l to disable inlining.
+# Go 1.21+ inlines more aggressively; without this flag gomonkey patches fail.
 INTEGRATION_BASIC_PKGS := \
 	github.com/sonic-net/sonic-gnmi/sonic_db_config \
 	github.com/sonic-net/sonic-gnmi/sonic_service_client \
-	github.com/sonic-net/sonic-gnmi/telemetry \
+	github.com/sonic-net/sonic-gnmi/telemetry
+
+# sonic_data_client runs separately: it uses CGO (ZeroMQ) whose cleanup
+# interacts poorly with -gcflags=all=-l, causing the test binary to hang
+# after tests complete. It does use gomonkey (ApplyFunc only) which works
+# without the flag on ApplyFunc targets.
+INTEGRATION_BASIC_CGO_PKGS := \
 	github.com/sonic-net/sonic-gnmi/sonic_data_client
 
 # Integration test packages that need special environment
@@ -331,12 +339,20 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE)
 	
 	# Run basic packages (no special environment needed)
 	@if [ -n "$(INTEGRATION_BASIC_PKGS)" ]; then \
-		echo "Running basic integration tests..."; \
+		echo "Running basic integration tests (with -gcflags=all=-l for gomonkey)..."; \
 		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" \
 			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-basic.xml \
 			--format testname \
 			-- -race -coverprofile=test-results/coverage-integration-basic.txt \
 			-covermode=atomic -mod=vendor -gcflags=all=-l -v $(INTEGRATION_BASIC_PKGS); \
+	fi
+	@if [ -n "$(INTEGRATION_BASIC_CGO_PKGS)" ]; then \
+		echo "Running CGO integration tests (no -gcflags=all=-l to avoid CGO cleanup hang)..."; \
+		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" \
+			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-basic-cgo.xml \
+			--format testname \
+			-- -race -timeout 3m -coverprofile=test-results/coverage-integration-basic-cgo.txt \
+			-covermode=atomic -mod=vendor -v $(INTEGRATION_BASIC_CGO_PKGS); \
 	fi
 	
 	# Run packages needing special environment
