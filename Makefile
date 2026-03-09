@@ -336,7 +336,7 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE)
 			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-basic.xml \
 			--format testname \
 			-- -race -coverprofile=test-results/coverage-integration-basic.txt \
-			-covermode=atomic -mod=vendor -v $(INTEGRATION_BASIC_PKGS); \
+			-covermode=atomic -mod=vendor -gcflags=all=-l -v $(INTEGRATION_BASIC_PKGS); \
 	fi
 	
 	# Run packages needing special environment
