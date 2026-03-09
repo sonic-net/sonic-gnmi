@@ -62,6 +62,7 @@ func SetCrlExpireDuration(duration time.Duration) {
 	CrlDxpireDuration = duration
 }
 
+//go:noinline
 func CrlExpired(crl *Crl) bool {
 	now := time.Now()
 	expireTime := crl.thisUpdate.Add(GetCrlExpireDuration())
@@ -74,6 +75,7 @@ func CrlExpired(crl *Crl) bool {
 	return now.After(expireTime)
 }
 
+//go:noinline
 func CrlNeedUpdate(crl *Crl) bool {
 	now := time.Now()
 	glog.Infof("CrlNeedUpdate nextUpdate: %s, now: %s", crl.nextUpdate.Format(time.ANSIC), now.Format(time.ANSIC))
@@ -156,6 +158,7 @@ func ClientCertAuthenAndAuthor(ctx context.Context, serviceConfigTableName strin
 	return ctx, nil
 }
 
+//go:noinline
 func TryDownload(url string) bool {
 	glog.Infof("Download CRL start: %s", url)
 	resp, err := http.Get(url)
@@ -181,6 +184,7 @@ func TryDownload(url string) bool {
 	return true
 }
 
+//go:noinline
 func GetCrlUrls(cert x509.Certificate) []string {
 	glog.Infof("Get Crl Urls for cert: %v", cert.CRLDistributionPoints)
 	return cert.CRLDistributionPoints
