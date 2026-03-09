@@ -7,6 +7,7 @@ package gnmi
 import (
 	"crypto/tls"
 	"testing"
+	"time"
 
 	pb "github.com/openconfig/gnmi/proto/gnmi"
 
