@@ -206,28 +206,29 @@ stages:
       displayName: "Build sonic-mgmt-common"
 
     # Install Go 1.23 after sonic-mgmt-common is built (sonic-mgmt-common uses Go 1.19)
-    # sonic-gnmi's go.mod requires 'go 1.23', and its deps (grpc v1.69.2, x/crypto v0.36.0,
+    # sonic-gnmi's go.mod requires 'go 1.23.0', and its deps (grpc v1.69.2, x/crypto v0.36.0,
     # x/sys v0.33.0) use stdlib packages (maps, slices, math/rand/v2) added in Go 1.21-1.22.
+    # Prepend to PATH so our Go 1.23.9 takes priority over the system Go 1.19 (/usr/bin/go)
+    # in ALL subsequent tasks (including sudo -E invocations in integration tests).
     - script: |
         wget -q https://go.dev/dl/go$(GO_VERSION).linux-amd64.tar.gz
         sudo tar -C /usr/local -xzf go$(GO_VERSION).linux-amd64.tar.gz
-        echo "##vso[task.setvariable variable=PATH]$(PATH):/usr/local/go/bin"
+        echo "##vso[task.setvariable variable=PATH]/usr/local/go/bin:$PATH"
         /usr/local/go/bin/go version
       displayName: 'Install Go $(GO_VERSION) for sonic-gnmi'
 
     # Build sonic-gnmi with Go 1.23
-    # Run go mod tidy first: go.sum may differ between Go 1.26 (used locally) and Go 1.23 (CI).
-    # go mod vendor in Go 1.23+ requires the module graph to be consistent before vendoring.
     - script: |
         set -ex
+        export PATH=/usr/local/go/bin:$PATH
         pushd sonic-gnmi
-        /usr/local/go/bin/go mod tidy
         ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build sonic-gnmi"
 
     # Run pure package tests for coverage (test results already published by PureCIJob)
     - bash: |
         set -euo pipefail
+        export PATH=/usr/local/go/bin:$PATH
         pushd sonic-gnmi
         make -f pure.mk junit-xml || true
         popd
@@ -236,6 +237,7 @@ stages:
     # Run integration tests
     - bash: |
         set -euo pipefail
+        export PATH=/usr/local/go/bin:$PATH
         pushd sonic-gnmi
         make all && $(UNIT_TEST_FLAG) make check_gotest_junit
         popd
