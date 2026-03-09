@@ -213,6 +213,8 @@ stages:
     - script: |
         wget -q https://go.dev/dl/go$(GO_VERSION).linux-amd64.tar.gz
         sudo tar -C /usr/local -xzf go$(GO_VERSION).linux-amd64.tar.gz
+        # Symlink into /usr/local/bin so sudo's secure_path finds Go 1.23 before /usr/bin/go (1.19)
+        sudo ln -sf /usr/local/go/bin/go /usr/local/bin/go
         echo "##vso[task.setvariable variable=PATH]/usr/local/go/bin:$PATH"
         /usr/local/go/bin/go version
       displayName: 'Install Go $(GO_VERSION) for sonic-gnmi'
