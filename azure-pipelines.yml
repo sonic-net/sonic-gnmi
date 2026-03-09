@@ -186,13 +186,6 @@ stages:
       submodules: recursive
       displayName: 'Checkout sonic-swss-common'
 
-    - script: |
-        wget -q https://go.dev/dl/go$(GO_VERSION).linux-amd64.tar.gz
-        sudo tar -C /usr/local -xzf go$(GO_VERSION).linux-amd64.tar.gz
-        echo "##vso[task.setvariable variable=PATH]$(PATH):/usr/local/go/bin"
-        /usr/local/go/bin/go version
-      displayName: 'Install Go $(GO_VERSION)'
-
     # Integration tests have been separated from pure package tests
     # Pure package CI now runs in the separate PureCIJob above
     # The steps below are for integration testing with SONiC dependencies
@@ -202,7 +195,7 @@ stages:
       parameters:
         buildBranch: $(BUILD_BRANCH)
 
-    # Build sonic-mgmt-common and sonic-gnmi
+    # Build sonic-mgmt-common with the system Go (1.19) before upgrading
     - script: |
         set -ex
         ls -l
@@ -210,10 +203,24 @@ stages:
         pushd sonic-mgmt-common
         NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
         popd
+      displayName: "Build sonic-mgmt-common"
 
+    # Install Go 1.23 after sonic-mgmt-common is built (sonic-mgmt-common uses Go 1.19)
+    # sonic-gnmi's go.mod requires 'go 1.23', and its deps (grpc v1.69.2, x/crypto v0.36.0,
+    # x/sys v0.33.0) use stdlib packages (maps, slices, math/rand/v2) added in Go 1.21-1.22.
+    - script: |
+        wget -q https://go.dev/dl/go$(GO_VERSION).linux-amd64.tar.gz
+        sudo tar -C /usr/local -xzf go$(GO_VERSION).linux-amd64.tar.gz
+        echo "##vso[task.setvariable variable=PATH]$(PATH):/usr/local/go/bin"
+        /usr/local/go/bin/go version
+      displayName: 'Install Go $(GO_VERSION) for sonic-gnmi'
+
+    # Build sonic-gnmi with Go 1.23
+    - script: |
+        set -ex
         pushd sonic-gnmi
         ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
-      displayName: "Build"
+      displayName: "Build sonic-gnmi"
 
     # Run pure package tests for coverage (test results already published by PureCIJob)
     - bash: |
