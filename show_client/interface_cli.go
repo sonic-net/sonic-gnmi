@@ -64,6 +64,16 @@ func calculateUtil(rate string, portSpeed string) string {
 	return fmt.Sprintf("%.2f%%", util)
 }
 
+// SleepSeconds is a //go:noinline wrapper around time.Sleep. It is
+// exported so that gomonkey.ApplyFunc(show_client.SleepSeconds, ...) can
+// reliably patch it in tests without requiring -gcflags=all=-l (which
+// causes CGO/translib packages to hang when inlining is globally disabled).
+//
+//go:noinline
+func SleepSeconds(n int) {
+	time.Sleep(time.Duration(n) * time.Second)
+}
+
 func computeState(iface string, portTable map[string]interface{}) string {
 	entry, ok := portTable[iface].(map[string]interface{})
 	if !ok {
@@ -84,6 +94,7 @@ func computeState(iface string, portTable map[string]interface{}) string {
 	}
 }
 
+//go:noinline
 func getInterfaceCounters(options sdc.OptionMap) ([]byte, error) {
 	var ifaces []string
 	period := 0
@@ -112,7 +123,7 @@ func getInterfaceCounters(options sdc.OptionMap) ([]byte, error) {
 		return json.Marshal(oldSnapshot)
 	}
 
-	time.Sleep(time.Duration(period) * time.Second)
+	SleepSeconds(period)
 
 	newSnapshot, err := getInterfaceCountersSnapshot(ifaces)
 	if err != nil {
