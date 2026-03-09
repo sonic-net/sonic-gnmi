@@ -216,9 +216,12 @@ stages:
       displayName: 'Install Go $(GO_VERSION) for sonic-gnmi'
 
     # Build sonic-gnmi with Go 1.23
+    # Run go mod tidy first: go.sum may differ between Go 1.26 (used locally) and Go 1.23 (CI).
+    # go mod vendor in Go 1.23+ requires the module graph to be consistent before vendoring.
     - script: |
         set -ex
         pushd sonic-gnmi
+        /usr/local/go/bin/go mod tidy
         ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build sonic-gnmi"
 
