@@ -1,6 +1,6 @@
 module github.com/sonic-net/sonic-gnmi
 
-go 1.23
+go 1.23.0
 
 require (
 	github.com/Azure/sonic-mgmt-common v0.0.0-00010101000000-000000000000
@@ -72,6 +72,7 @@ require (
 
 replace (
 	github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common
+	github.com/fsnotify/fsnotify => github.com/fsnotify/fsnotify v1.4.7
 	// Glog patch needs to be updated to remove this.
 	github.com/golang/glog => github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/openconfig/gnmi => github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
