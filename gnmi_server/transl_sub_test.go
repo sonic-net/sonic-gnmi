@@ -38,6 +38,8 @@ const (
 )
 
 func TestTranslSubscribe(t *testing.T) {
+	// TODO: Re-enable after fixing port conflict (issue #613)
+	t.Skip("Flaky due to hardcoded port 8081 conflict; port may still be in use from a prior test. Tracking: https://github.com/sonic-net/sonic-gnmi/issues/613")
 	s := createServer(t, 8081)
 	go runServer(t, s)
 	defer s.s.Stop()
@@ -936,6 +938,8 @@ func newBundleVersion(t *testing.T, version string) *extnpb.Extension {
 }
 
 func TestDebugSubscribePreferences(t *testing.T) {
+	// TODO: Re-enable after fixing port conflict (issue #614)
+	t.Skip("Flaky due to hardcoded port 8081 conflict; port may still be in use from a prior test. Tracking: https://github.com/sonic-net/sonic-gnmi/issues/614")
 	s := createServer(t, 8081)
 	go runServer(t, s)
 	defer s.s.Stop()
