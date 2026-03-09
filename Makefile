@@ -353,7 +353,7 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE)
 			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-env.xml \
 			--format testname \
 			-- -race -timeout 20m -coverprofile=test-results/coverage-integration-env.txt \
-			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
+			-covermode=atomic -mod=vendor $(BLD_FLAGS) -gcflags=all=-l -v $(INTEGRATION_ENV_PKGS); \
 	fi
 	
 	# Run dialout package if enabled
