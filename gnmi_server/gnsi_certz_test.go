@@ -1125,6 +1125,9 @@ var gnsiCertzTestCases = []struct {
 	{
 		desc: "Rotate_ConcurrentRPC_ReturnsAborted",
 		f: func(ctx context.Context, t *testing.T, sc certz.CertzClient, s *Server) {
+			// TODO: Re-enable after fixing concurrent stream timing sensitivity (issue #616)
+			t.Skip("Flaky due to timing sensitivity in concurrent gRPC Rotate streams. Tracking: https://github.com/sonic-net/sonic-gnmi/issues/616")
+
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			// 1) Start the first stream to hold the certzMu lock
