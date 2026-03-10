@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
@@ -6361,6 +6362,42 @@ func TestAuthenticate(t *testing.T) {
 		t.Errorf("authenticate with empty role should pass: %v", err)
 	}
 
+	cancel()
+}
+
+func CreateUDSCtx() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	p := peer.Peer{
+		Addr: &net.UnixAddr{Name: "/tmp/test.sock", Net: "unix"},
+	}
+	ctx = peer.NewContext(ctx, &p)
+	return ctx, cancel
+}
+
+func TestAuthenticateGnoiUDS(t *testing.T) {
+	cfg := &Config{UserAuth: AuthTypes{"password": false, "cert": true, "jwt": false}}
+
+	// gNOI over UDS should succeed (both read and write)
+	ctx, cancel := CreateUDSCtx()
+	_, err := authenticate(cfg, ctx, "gnoi", false)
+	if err != nil {
+		t.Errorf("gNOI read over UDS should succeed: %v", err)
+	}
+	cancel()
+
+	ctx, cancel = CreateUDSCtx()
+	_, err = authenticate(cfg, ctx, "gnoi", true)
+	if err != nil {
+		t.Errorf("gNOI write over UDS should succeed: %v", err)
+	}
+	cancel()
+
+	// gNMI over UDS should still fail with cert-only auth (no TLS creds on UDS)
+	ctx, cancel = CreateUDSCtx()
+	_, err = authenticate(cfg, ctx, "gnmi", false)
+	if err == nil {
+		t.Errorf("gNMI over UDS with cert auth should fail")
+	}
 	cancel()
 }
 
