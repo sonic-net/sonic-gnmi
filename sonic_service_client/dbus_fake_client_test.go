@@ -1,13 +1,16 @@
 package host_service
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestFakeClientMethods(t *testing.T) {
-	client := &FakeClient{}
+	client := &FakeClient{
+		Command: make(chan []string, 10),
+	}
 
 	assert.NoError(t, client.Close())
 	assert.NoError(t, client.ConfigReload("test.conf"))
@@ -75,4 +78,51 @@ func TestFakeClientMethods(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, "", output)
 	assert.Equal(t, "request cannot be empty", err.Error())
+
+	// --- Credentialz Fake Tests ---
+
+	t.Run("SSHCheckpoint", func(t *testing.T) {
+		err := client.SSHCheckpoint(CredzCPCreate)
+		assert.NoError(t, err)
+		msg := <-client.Command
+		assert.Equal(t, []string{"ssh_mgmt.create_checkpoint", ""}, msg)
+	})
+
+	t.Run("SSHMgmtSet", func(t *testing.T) {
+		testCmd := `{"SshAccountKeys": []}`
+		err := client.SSHMgmtSet(testCmd)
+		assert.NoError(t, err)
+		msg := <-client.Command
+		assert.Equal(t, []string{"ssh_mgmt.set", testCmd}, msg)
+	})
+
+	t.Run("ConsoleCheckpoint", func(t *testing.T) {
+		err := client.ConsoleCheckpoint(CredzCPRestore)
+		assert.NoError(t, err)
+		msg := <-client.Command
+		assert.Equal(t, []string{"gnsi_console.restore_checkpoint", ""}, msg)
+	})
+
+	t.Run("ConsoleSet", func(t *testing.T) {
+		testCmd := `{"ConsolePasswords": []}`
+		err := client.ConsoleSet(testCmd)
+		assert.NoError(t, err)
+		msg := <-client.Command
+		assert.Equal(t, []string{"gnsi_console.set", testCmd}, msg)
+	})
+
+	t.Run("GLOMEConfigSet", func(t *testing.T) {
+		testCmd := `{"enabled": true}`
+		err := client.GLOMEConfigSet(context.Background(), testCmd)
+		assert.NoError(t, err)
+		msg := <-client.Command
+		assert.Equal(t, []string{"glome.push_config", testCmd}, msg)
+	})
+
+	t.Run("GLOMERestoreCheckpoint", func(t *testing.T) {
+		err := client.GLOMERestoreCheckpoint(context.Background())
+		assert.NoError(t, err)
+		msg := <-client.Command
+		assert.Equal(t, []string{"glome.restore_checkpoint", ""}, msg)
+	})
 }
