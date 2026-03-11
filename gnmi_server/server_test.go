@@ -6365,7 +6365,7 @@ func TestAuthenticate(t *testing.T) {
 	cancel()
 }
 
-func CreateUDSCtx() (context.Context, context.CancelFunc) {
+func createUDSCtx() (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	p := peer.Peer{
 		Addr: &net.UnixAddr{Name: "/tmp/test.sock", Net: "unix"},
@@ -6374,31 +6374,19 @@ func CreateUDSCtx() (context.Context, context.CancelFunc) {
 	return ctx, cancel
 }
 
-func TestAuthenticateGnoiUDS(t *testing.T) {
+func TestAuthenticateUDS(t *testing.T) {
 	cfg := &Config{UserAuth: AuthTypes{"password": false, "cert": true, "jwt": false}}
 
-	// gNOI over UDS should succeed (both read and write)
-	ctx, cancel := CreateUDSCtx()
-	_, err := authenticate(cfg, ctx, "gnoi", false)
-	if err != nil {
-		t.Errorf("gNOI read over UDS should succeed: %v", err)
+	for _, target := range []string{"gnmi", "gnoi"} {
+		for _, write := range []bool{false, true} {
+			ctx, cancel := createUDSCtx()
+			_, err := authenticate(cfg, ctx, target, write)
+			if err != nil {
+				t.Errorf("%s (write=%v) over UDS should succeed: %v", target, write, err)
+			}
+			cancel()
+		}
 	}
-	cancel()
-
-	ctx, cancel = CreateUDSCtx()
-	_, err = authenticate(cfg, ctx, "gnoi", true)
-	if err != nil {
-		t.Errorf("gNOI write over UDS should succeed: %v", err)
-	}
-	cancel()
-
-	// gNMI over UDS should still fail with cert-only auth (no TLS creds on UDS)
-	ctx, cancel = CreateUDSCtx()
-	_, err = authenticate(cfg, ctx, "gnmi", false)
-	if err == nil {
-		t.Errorf("gNMI over UDS with cert auth should fail")
-	}
-	cancel()
 }
 
 type MockServerStream struct {

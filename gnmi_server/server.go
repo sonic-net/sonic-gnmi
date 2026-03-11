@@ -655,14 +655,12 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	success := false
 	rc, ctx := common_utils.GetContext(ctx)
 
-	// Allow all gNOI access for UDS (Unix Domain Socket) connections.
+	// Skip authentication for UDS (Unix Domain Socket) connections.
 	// UDS security is enforced at the file-system level via socket permissions.
-	if target == "gnoi" {
-		if pr, ok := peer.FromContext(ctx); ok && pr.Addr != nil {
-			if _, isUnix := pr.Addr.(*net.UnixAddr); isUnix {
-				rc.Auth.AuthEnabled = false
-				return ctx, nil
-			}
+	if pr, ok := peer.FromContext(ctx); ok && pr.Addr != nil {
+		if _, isUnix := pr.Addr.(*net.UnixAddr); isUnix {
+			rc.Auth.AuthEnabled = false
+			return ctx, nil
 		}
 	}
 
