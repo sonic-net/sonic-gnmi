@@ -691,6 +691,16 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	var err error
 	success := false
 	rc, ctx := common_utils.GetContext(ctx)
+
+	// Skip authentication for UDS (Unix Domain Socket) connections.
+	// UDS security is enforced at the file-system level via socket permissions.
+	if pr, ok := peer.FromContext(ctx); ok && pr.Addr != nil {
+		if _, isUnix := pr.Addr.(*net.UnixAddr); isUnix {
+			rc.Auth.AuthEnabled = false
+			return ctx, nil
+		}
+	}
+
 	if !config.UserAuth.Any() {
 		//No Auth enabled
 		rc.Auth.AuthEnabled = false

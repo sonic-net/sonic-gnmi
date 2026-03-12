@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
@@ -6368,6 +6369,30 @@ func TestAuthenticate(t *testing.T) {
 	}
 
 	cancel()
+}
+
+func createUDSCtx() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	p := peer.Peer{
+		Addr: &net.UnixAddr{Name: "/tmp/test.sock", Net: "unix"},
+	}
+	ctx = peer.NewContext(ctx, &p)
+	return ctx, cancel
+}
+
+func TestAuthenticateUDS(t *testing.T) {
+	cfg := &Config{UserAuth: AuthTypes{"password": false, "cert": true, "jwt": false}}
+
+	for _, target := range []string{"gnmi", "gnoi"} {
+		for _, write := range []bool{false, true} {
+			ctx, cancel := createUDSCtx()
+			_, err := authenticate(cfg, ctx, target, write)
+			if err != nil {
+				t.Errorf("%s (write=%v) over UDS should succeed: %v", target, write, err)
+			}
+			cancel()
+		}
+	}
 }
 
 type MockServerStream struct {
