@@ -162,6 +162,7 @@ stages:
       vmImage: ubuntu-22.04
 
     variables:
+      GO_VERSION: '1.23.9'
       DIFF_COVER_CHECK_THRESHOLD: 80
       DIFF_COVER_ENABLE: 'true'
       DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)/sonic-gnmi
@@ -193,6 +194,14 @@ stages:
     - template: .azure/templates/install-dependencies.yml
       parameters:
         buildBranch: $(BUILD_BRANCH)
+
+    # Install Go 1.23.9 (required for go.mod `go 1.23`; sonic-slave-bookworm ships an older Go)
+    - script: |
+        wget https://go.dev/dl/go$(GO_VERSION).linux-amd64.tar.gz
+        sudo tar -C /usr/local -xzf go$(GO_VERSION).linux-amd64.tar.gz
+        export PATH=$PATH:/usr/local/go/bin
+        go version
+      displayName: 'Install Go'
 
     # Build sonic-mgmt-common and sonic-gnmi
     - script: |
