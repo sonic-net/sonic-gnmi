@@ -302,6 +302,32 @@ stages:
         echo "Image saved: $(Build.ArtifactStagingDirectory)/dev-image/sonic-gnmi-dev.tar.gz"
       displayName: 'Build dev container image'
 
+    # Smoke-test: start the container and run a fast pure-Go test to verify
+    # that swsscommon bindings, Go toolchain, and basic packages all work.
+    - bash: |
+        set -ex
+        IMAGE_TAG="sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
+
+        # Start container with current source mounted
+        docker run -d --name sonic-gnmi-dev-smoke \
+          -v "$(Build.SourcesDirectory)/sonic-gnmi:/workspace/sonic-gnmi" \
+          "${IMAGE_TAG}" sleep 300
+
+        # Sync vendor, then run a representative test that exercises swsscommon bindings
+        docker exec sonic-gnmi-dev-smoke bash -c "
+          set -ex
+          cd /workspace/sonic-gnmi
+          go mod vendor
+          export CGO_LDFLAGS='-lswsscommon -lhiredis'
+          export CGO_CXXFLAGS='-I/usr/include/swss -w -Wall -fpermissive'
+          export CGO_CFLAGS='-I/usr/include/swss'
+          sudo -E go test -v -gcflags=all=-l -run 'TestGetDbMultiInstance' \
+            github.com/sonic-net/sonic-gnmi/sonic_db_config
+        "
+
+        docker rm -f sonic-gnmi-dev-smoke
+      displayName: 'Smoke test dev container image'
+
     - publish: $(Build.ArtifactStagingDirectory)/dev-image
       artifact: sonic-gnmi-dev-image
       displayName: 'Publish dev image artifact'
