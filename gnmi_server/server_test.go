@@ -26,6 +26,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/Azure/sonic-mgmt-common/translib/db"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
@@ -6480,6 +6481,145 @@ func TestGnoiAuthorization(t *testing.T) {
 	}
 
 	s.Stop()
+}
+func TestMultipleSubscribers(t *testing.T) {
+	tests := []struct {
+		name          string
+		delay         time.Duration // The delay between sending the subscriptions.
+		duration      time.Duration // The duration of the subscriptions.
+		sampleUpdates uint          // The number of Sample updates expected based on the duration and sample interval.
+	}{
+		{
+			name:          "TestSubscribeWithNoDelay",
+			delay:         0 * time.Second,
+			duration:      5 * time.Second,
+			sampleUpdates: 4,
+		},
+		{
+			name:          "TestSubscribeWithPartialDelay",
+			delay:         2 * time.Second,
+			duration:      5 * time.Second,
+			sampleUpdates: 4,
+		},
+		{
+			name:          "TestSubscribeWithFullDelay",
+			delay:         5 * time.Second,
+			duration:      5 * time.Second,
+			sampleUpdates: 4,
+		},
+	}
+
+	// Create the server
+	s := createServer(t, 8081)
+	s.config.EnableTranslation = true
+	go runServer(t, s)
+	defer s.Stop()
+
+	// The server is ready - now a request is needed.
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	samplePath, _ := xpath.ToGNMIPath("/interfaces/interface[name=Ethernet1]/state/name")
+	onChangePath, _ := xpath.ToGNMIPath("/system/state/hostname")
+	subReq := &pb.SubscribeRequest{
+		Request: &pb.SubscribeRequest_Subscribe{
+			Subscribe: &pb.SubscriptionList{
+				Prefix:   &pb.Path{Origin: "openconfig", Target: "OC_YANG"},
+				Mode:     pb.SubscriptionList_STREAM,
+				Encoding: pb.Encoding_PROTO,
+				Subscription: []*pb.Subscription{
+					{
+						Path:           samplePath,
+						Mode:           pb.SubscriptionMode_SAMPLE,
+						SampleInterval: 1000000000, // 1 second
+					},
+					{
+						Path: onChangePath,
+						Mode: pb.SubscriptionMode_ON_CHANGE,
+					},
+				},
+			},
+		},
+	}
+
+	var subTest = func(t *testing.T, duration time.Duration, expectedSamples uint, wg *sync.WaitGroup) {
+		defer wg.Done()
+		t.Helper()
+		numSampleUpdates := uint(0)
+		numOnChangeUpdates := uint(0)
+		rclient := db.RedisClient(db.ConfigDB)
+		defer db.CloseRedisClient(rclient)
+		ctx, cancel := context.WithTimeout(context.Background(), duration)
+		defer cancel()
+		stream, err := gClient.Subscribe(ctx, grpc.MaxCallRecvMsgSize(6000000))
+		if err != nil {
+			t.Error(err.Error())
+			return
+		}
+		// Send the subscription and wait for sync response
+		if err = stream.Send(subReq); err != nil {
+			t.Errorf("Failed to send subscription: %v", err)
+			return
+		}
+		go func() {
+			time.Sleep(duration)
+
+		}()
+		syncReceived := false
+		for {
+			resp, err := stream.Recv()
+			if err != nil {
+				break
+			}
+			if resp.GetSyncResponse() {
+				syncReceived = true
+
+				// Trigger an OnChange update.
+				if err = rclient.HSet(context.Background(), "DEVICE_METADATA|localhost", "hostname", time.Now().String()).Err(); err != nil {
+					t.Logf("Failed to set hostname field: %v", err)
+				}
+
+				continue
+			}
+			if syncReceived {
+				if strings.Contains(resp.GetUpdate().GetUpdate()[0].GetPath().String(), "\"name\"") {
+					numSampleUpdates += 1
+				} else if strings.Contains(resp.GetUpdate().GetUpdate()[0].GetPath().String(), "\"hostname\"") {
+					numOnChangeUpdates += 1
+				}
+			}
+		}
+		if numSampleUpdates < expectedSamples {
+			t.Errorf("Unexpected number of Sample updates after sync response: got=%v, want at least %v", numSampleUpdates, expectedSamples)
+		}
+		if numOnChangeUpdates < 1 {
+			t.Errorf("Unexpected number of OnChange updates after sync response: got=%v, want at least %v", numOnChangeUpdates, 1)
+		}
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			wg := &sync.WaitGroup{}
+
+			wg.Add(1)
+			go subTest(t, test.duration, test.sampleUpdates, wg)
+
+			time.Sleep(test.delay)
+
+			wg.Add(1)
+			go subTest(t, test.duration, test.sampleUpdates, wg)
+
+			wg.Wait()
+		})
+	}
 }
 
 func init() {
