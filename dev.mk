@@ -77,13 +77,14 @@ dev-down:
 shell: _ensure_up _ensure_redis
 	docker exec -it $(CONTAINER_NAME) bash
 
-# ── Vendor sync ────────────────────────────────────────────────────────────────
-# vendor/ is not committed to the repo; sync it before building or testing.
+# ── Generate + vendor sync ─────────────────────────────────────────────────────
+# Generates swsscommon SWIG bindings from the installed swsscommon.i, then
+# syncs vendor/. Must run before any build or test that uses swsscommon CGO.
 .PHONY: vendor
 vendor: _ensure_up
 	docker exec $(CONTAINER_NAME) bash -c \
-		"cd /workspace/sonic-gnmi && go mod vendor"
-	@echo "✅ vendor/ synced."
+		"cd /workspace/sonic-gnmi && make -C swsscommon && go mod vendor"
+	@echo "✅ swsscommon bindings generated, vendor/ synced."
 
 # ── Build ──────────────────────────────────────────────────────────────────────
 .PHONY: build
