@@ -192,6 +192,8 @@ $(BUILD_GNOI_YANG_PROTO_DIR)/.proto_sonic_done: $(SONIC_YANGS)
 
 $(GNOI_YANG): $(BUILD_GNOI_YANG_PROTO_DIR)/.proto_api_done $(BUILD_GNOI_YANG_PROTO_DIR)/.proto_sonic_done
 	@echo "+++++ Compiling PROTOBUF files; +++++"
+	# Remove the toolchain directive added by newer Go versions
+	sed -i '/^toolchain/d' go.mod
 	$(GO) install github.com/gogo/protobuf/protoc-gen-gofast
 	@mkdir -p $(@D)
 	$(foreach file, $(wildcard $(BUILD_GNOI_YANG_PROTO_DIR)/*/*.proto), PATH=$(PROTOC_PATH) protoc -I$(@D) $(PROTOC_OPTS_WITHOUT_VENDOR) --gofast_out=plugins=grpc,Mgoogle/protobuf/struct.proto=github.com/gogo/protobuf/types:$(BUILD_GNOI_YANG_PROTO_DIR) $(file);)
@@ -223,6 +225,7 @@ check_gotest: $(DBCONFG) $(ENVFILE)
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/telemetry
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 20m -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 20m -coverprofile=coverage-pathz_authorizer.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/pathz_authorizer -coverpkg ../...
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
 endif
@@ -256,6 +259,7 @@ INTEGRATION_BASIC_PKGS := \
 # Integration test packages that need special environment
 INTEGRATION_ENV_PKGS := \
 	github.com/sonic-net/sonic-gnmi/gnmi_server \
+	github.com/sonic-net/sonic-gnmi/pathz_authorizer \
 	github.com/sonic-net/sonic-gnmi/transl_utils \
 	github.com/sonic-net/sonic-gnmi/gnoi_client/system
 
