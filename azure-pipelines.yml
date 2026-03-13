@@ -313,7 +313,11 @@ stages:
           -v "$(Build.SourcesDirectory)/sonic-gnmi:/workspace/sonic-gnmi" \
           "${IMAGE_TAG}" sleep 300
 
-        # Sync vendor, then run a representative test that exercises swsscommon bindings
+        # Sync vendor, then run the sonic_db_config test suite.
+        # These tests exercise swsscommon CGO bindings (SonicDBKey, DbConnector, etc.)
+        # without needing Redis or a running SONiC system — fast and representative.
+        # A failure here means the swsscommon version in the image is incompatible
+        # with the current source.
         docker exec sonic-gnmi-dev-smoke bash -c "
           set -ex
           cd /workspace/sonic-gnmi
@@ -321,7 +325,7 @@ stages:
           export CGO_LDFLAGS='-lswsscommon -lhiredis'
           export CGO_CXXFLAGS='-I/usr/include/swss -w -Wall -fpermissive'
           export CGO_CFLAGS='-I/usr/include/swss'
-          sudo -E go test -v -gcflags=all=-l -run 'TestGetDbMultiInstance' \
+          sudo -E go test -v -gcflags=all=-l \
             github.com/sonic-net/sonic-gnmi/sonic_db_config
         "
 
