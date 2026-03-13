@@ -77,9 +77,17 @@ dev-down:
 shell: _ensure_up _ensure_redis
 	docker exec -it $(CONTAINER_NAME) bash
 
+# ── Vendor sync ────────────────────────────────────────────────────────────────
+# vendor/ is not committed to the repo; sync it before building or testing.
+.PHONY: vendor
+vendor: _ensure_up
+	docker exec $(CONTAINER_NAME) bash -c \
+		"cd /workspace/sonic-gnmi && go mod vendor"
+	@echo "✅ vendor/ synced."
+
 # ── Build ──────────────────────────────────────────────────────────────────────
 .PHONY: build
-build: _ensure_up
+build: vendor
 	docker exec $(CONTAINER_NAME) bash -c \
 		"cd /workspace/sonic-gnmi && \
 		 ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y \
@@ -91,7 +99,7 @@ build: _ensure_up
 #   make -f dev.mk test PKG=gnmi_server TEST=TestServerUnixSocket
 #   make -f dev.mk test PKG=sonic_db_config
 .PHONY: test
-test: _ensure_up _ensure_redis
+test: vendor _ensure_up _ensure_redis
 ifndef PKG
 	$(error PKG is required. Example: make -f dev.mk test PKG=gnmi_server TEST=TestServerUnixSocket)
 endif
@@ -104,7 +112,7 @@ endif
 
 # Run the full integration test suite (slow — ~30 min)
 .PHONY: test-all
-test-all: _ensure_up _ensure_redis
+test-all: vendor _ensure_up _ensure_redis
 	docker exec $(CONTAINER_NAME) bash -c \
 		"cd /workspace/sonic-gnmi && \
 		 make all && ENABLE_TRANSLIB_WRITE=y make check_gotest"
