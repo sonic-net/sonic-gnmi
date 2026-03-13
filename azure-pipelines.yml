@@ -308,9 +308,10 @@ stages:
         set -ex
         IMAGE_TAG="sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
 
-        # Start container with current source mounted
+        # Start container with current source mounted.
+        # With a single `checkout: self`, Build.SourcesDirectory is the repo root.
         docker run -d --name sonic-gnmi-dev-smoke \
-          -v "$(Build.SourcesDirectory)/sonic-gnmi:/workspace/sonic-gnmi" \
+          -v "$(Build.SourcesDirectory):/workspace/sonic-gnmi" \
           "${IMAGE_TAG}" sleep 300
 
         # Sync vendor, then run the sonic_db_config test suite.
@@ -329,7 +330,7 @@ stages:
             github.com/sonic-net/sonic-gnmi/sonic_db_config
         "
 
-        docker rm -f sonic-gnmi-dev-smoke
+        docker rm -f sonic-gnmi-dev-smoke || true
       displayName: 'Smoke test dev container image'
 
     - publish: $(Build.ArtifactStagingDirectory)/dev-image
