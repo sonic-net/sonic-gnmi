@@ -26,6 +26,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/Azure/sonic-mgmt-common/translib/db"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
@@ -6480,6 +6481,107 @@ func TestGnoiAuthorization(t *testing.T) {
 	}
 
 	s.Stop()
+}
+
+func TestSubscriptionDeduplication(t *testing.T) {
+	// Create the server
+	s := createServer(t, 8081)
+	s.config.EnableTranslation = true
+	go runServer(t, s)
+	defer s.Stop()
+
+	rclient := db.RedisClient(db.ConfigDB)
+	defer db.CloseRedisClient(rclient)
+
+	// The server is ready - now a request is needed.
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	samplePath, _ := xpath.ToGNMIPath("/interfaces/interface[name=Ethernet1]/config/description")
+	subReq := &pb.SubscribeRequest{
+		Request: &pb.SubscribeRequest_Subscribe{
+			Subscribe: &pb.SubscriptionList{
+				Prefix:   &pb.Path{Origin: "openconfig", Target: "OC_YANG"},
+				Mode:     pb.SubscriptionList_STREAM,
+				Encoding: pb.Encoding_PROTO,
+				Subscription: []*pb.Subscription{
+					{
+						Path:           samplePath,
+						Mode:           pb.SubscriptionMode_SAMPLE,
+						SampleInterval: 1000000000, // 1 second
+					},
+				},
+			},
+		},
+	}
+
+	updates := make([][]*pb.SubscribeResponse, 2)
+	wg := sync.WaitGroup{}
+
+	// Start a goroutine to change the description of the port every 100ms.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		end := time.Now().Add(5 * time.Second)
+		for time.Now().Before(end) {
+			if err := rclient.HSet(context.Background(), "PORT|Ethernet1", "description", time.Now().String()).Err(); err != nil {
+				t.Errorf("Failed to set description: %v", err)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+
+	// Start two Sample subscriptions and collect their responses.
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			subUpdates := []*pb.SubscribeResponse{}
+			ctx, cancel := context.WithTimeout(context.Background(), 5500*time.Millisecond)
+			defer cancel()
+
+			stream, err := gClient.Subscribe(ctx, grpc.MaxCallRecvMsgSize(6000000))
+			if err != nil {
+				t.Error(err.Error())
+				return
+			}
+			if err = stream.Send(subReq); err != nil {
+				t.Errorf("Failed to send subscription: %v", err)
+				return
+			}
+
+			syncReceived := false
+			for {
+				resp, err := stream.Recv()
+				if err != nil {
+					break
+				}
+				if resp.GetSyncResponse() {
+					syncReceived = true
+					continue
+				}
+				if syncReceived {
+					subUpdates = append(subUpdates, resp)
+				}
+			}
+			updates[i] = subUpdates
+		}(i)
+		time.Sleep(300 * time.Millisecond)
+	}
+	wg.Wait()
+
+	if !reflect.DeepEqual(updates[0], updates[1]) {
+		t.Errorf("Updates received do not match for identical subscriptions!\nFirst Client's Updates:%v\nSeconds Client's Updates:%v", updates[0], updates[1])
+	}
 }
 
 func init() {
