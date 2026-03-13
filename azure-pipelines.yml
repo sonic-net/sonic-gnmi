@@ -316,6 +316,49 @@ stages:
         make -f dev.mk dev-down DEV_IMAGE="${IMAGE_TAG}" || true
       displayName: 'Smoke test dev container image'
 
+    # ── Experimental: push to registries ──────────────────────────────────────
+    # Best-effort only (continueOnError: true). Results tell us which registry
+    # is already accessible from the ADO agent without extra setup.
+    # Revert these steps once we pick a registry.
+
+    - bash: |
+        IMAGE_TAG="sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
+        GHCR_IMAGE="ghcr.io/sonic-net/sonic-gnmi/dev:$(Build.SourceBranchName)-$(Build.BuildId)"
+        GHCR_LATEST="ghcr.io/sonic-net/sonic-gnmi/dev:latest"
+
+        echo "Attempting GHCR push..."
+        # Try with GITHUB_TOKEN if available as a pipeline variable
+        if [ -n "$(GITHUB_TOKEN)" ]; then
+          echo "$(GITHUB_TOKEN)" | docker login ghcr.io -u sonic-net --password-stdin
+        else
+          echo "No GITHUB_TOKEN variable found — attempting anonymous login"
+          docker login ghcr.io 2>&1 || true
+        fi
+
+        docker tag "${IMAGE_TAG}" "${GHCR_IMAGE}"
+        docker tag "${IMAGE_TAG}" "${GHCR_LATEST}"
+        docker push "${GHCR_IMAGE}"
+        docker push "${GHCR_LATEST}"
+        echo "✅ GHCR push succeeded: ${GHCR_IMAGE}"
+      displayName: '[Experiment] Push to GHCR (sonic-net)'
+      continueOnError: true
+
+    - bash: |
+        IMAGE_TAG="sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
+        ACR_IMAGE="sonicdev-microsoft.azurecr.io/sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
+        ACR_LATEST="sonicdev-microsoft.azurecr.io/sonic-gnmi-dev:latest"
+
+        echo "Attempting ACR push via az acr login..."
+        az acr login --name sonicdev-microsoft 2>&1
+
+        docker tag "${IMAGE_TAG}" "${ACR_IMAGE}"
+        docker tag "${IMAGE_TAG}" "${ACR_LATEST}"
+        docker push "${ACR_IMAGE}"
+        docker push "${ACR_LATEST}"
+        echo "✅ ACR push succeeded: ${ACR_IMAGE}"
+      displayName: '[Experiment] Push to ACR (sonicdev-microsoft)'
+      continueOnError: true
+
     - publish: $(Build.ArtifactStagingDirectory)/dev-image
       artifact: sonic-gnmi-dev-image
       displayName: 'Publish dev image artifact'
