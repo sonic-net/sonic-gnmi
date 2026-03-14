@@ -229,7 +229,14 @@ stages:
     - bash: |
         set -euo pipefail
         pushd sonic-gnmi
-        make all && $(UNIT_TEST_FLAG) make check_gotest_junit
+        make all
+        # 'go mod vendor' (called by make all) rewrites go.mod with Go 1.21+ 3-part version
+        # format ('go 1.23.0') and adds a 'toolchain' directive. The check_gotest_junit target
+        # runs gotestsum under sudo, which resolves 'go' via sudo's secure_path (typically
+        # /usr/bin/go from apt = Go 1.19). Go 1.19 cannot parse 'go 1.23.0' or 'toolchain'.
+        # Restore go.mod to the committed state (go 1.23, no toolchain) before running tests.
+        git checkout -- go.mod
+        $(UNIT_TEST_FLAG) make check_gotest_junit
         popd
       displayName: "Run Integration Tests"
 
