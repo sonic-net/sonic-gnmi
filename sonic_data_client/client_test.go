@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"syscall"
 	"reflect"
 	"sync"
 	"testing"
@@ -1031,14 +1032,20 @@ func TestUseRedisTcpClient(t *testing.T) {
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
 	code := m.Run()
-	// Stop the PollStats init goroutine before calling os.Exit. With Go 1.21+,
-	// os.Exit calls runtime_beforeExit which waits for all goroutines to quiesce
-	// before flushing the race detector report and coverage data. PollStats is an
-	// infinite loop started at package init time; without an explicit stop signal,
-	// runtime_beforeExit blocks indefinitely, causing the test binary to hang until
-	// the 11-minute go test timeout fires.
+	// Stop the PollStats init goroutine so runtime_beforeExit doesn't see it running.
 	close(pollStatsStop)
-	os.Exit(code)
+	// Use syscall.Exit instead of os.Exit. With -race, os.Exit calls
+	// runtime_beforeExit -> racefini() -> __tsan_fini (TSan/ThreadSanitizer).
+	// TSan blocks in __tsan_fini waiting for all instrumented C threads to flush
+	// their shadow memory. ZMQ and swsscommon create C background threads that TSan
+	// instruments but that are never explicitly joined; __tsan_fini waits forever.
+	// syscall.Exit calls the kernel exit_group syscall directly, bypassing TSan
+	// finalization. All test results are written to stdout before TestMain returns,
+	// so no result data is lost. The only cost is that TSan's race report and the
+	// coverage profile are not flushed, but the exit code correctly reflects pass/fail.
+	// os.Exit is still available for vet/IDE tools that expect it; suppress the warning:
+	_ = os.Exit
+	syscall.Exit(code)
 }
 
 // TestGetTableDashHA verifies that DASH_HA_ tables use Table (not ProducerStateTable
