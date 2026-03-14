@@ -237,6 +237,11 @@ stages:
         # Fix: symlink our Go 1.23.9 into /usr/local/bin, which precedes /usr/bin in
         # the default Debian sudo secure_path (/usr/local/bin before /usr/bin).
         sudo ln -sf /usr/local/go/bin/go /usr/local/bin/go
+        # Go 1.21+ inlines small functions, breaking gomonkey's runtime function patching.
+        # Tests that rely on gomonkey (e.g. TestNewEventClient, TestGetFileStat) hang or
+        # panic when the patch silently fails and the real CGo/DBus call runs instead.
+        # Disable inlining globally so gomonkey patches apply correctly.
+        export GOFLAGS='-gcflags=all=-l'
         $(UNIT_TEST_FLAG) make check_gotest_junit
         popd
       displayName: "Run Integration Tests"
