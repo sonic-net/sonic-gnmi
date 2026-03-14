@@ -66,6 +66,11 @@ go.mod:
 	$(GO) mod init github.com/sonic-net/sonic-gnmi
 
 $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
+	@GO_MOD_VER=$$(sed -n 's/^go //p' go.mod) && \
+	 GO_CUR_VER=$$($(GO) env GOVERSION | sed 's/go//') && \
+	 if printf '%s\n' "$$GO_MOD_VER" "$$GO_CUR_VER" | sort -V | head -1 | grep -qx "$$GO_MOD_VER"; then \
+	   $(GO) mod tidy; \
+	 fi
 	$(GO) mod vendor
 	$(GO) mod download github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2
 	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* vendor/github.com/google/gnxi/
@@ -237,6 +242,11 @@ endif
 	# Install required coverage tools
 	$(GO) install github.com/axw/gocov/gocov@v1.1.0
 	$(GO) install github.com/AlekSi/gocov-xml@latest
+	@GO_MOD_VER=$$(sed -n 's/^go //p' go.mod) && \
+	 GO_CUR_VER=$$($(GO) env GOVERSION | sed 's/go//') && \
+	 if printf '%s\n' "$$GO_MOD_VER" "$$GO_CUR_VER" | sort -V | head -1 | grep -qx "$$GO_MOD_VER"; then \
+	   $(GO) mod tidy; \
+	 fi
 	$(GO) mod vendor
 
 	# Filter out "mocks" and generated "proto" files from the coverage reports
@@ -355,6 +365,11 @@ endif
 	@echo "Installing coverage tools..."
 	$(GO) install github.com/axw/gocov/gocov@v1.1.0
 	$(GO) install github.com/AlekSi/gocov-xml@latest
+	@GO_MOD_VER=$$(sed -n 's/^go //p' go.mod) && \
+	 GO_CUR_VER=$$($(GO) env GOVERSION | sed 's/go//') && \
+	 if printf '%s\n' "$$GO_MOD_VER" "$$GO_CUR_VER" | sort -V | head -1 | grep -qx "$$GO_MOD_VER"; then \
+	   $(GO) mod tidy; \
+	 fi
 	$(GO) mod vendor
 
 	@echo "Generating coverage.xml..."
