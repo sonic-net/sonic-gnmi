@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"syscall"
 	"reflect"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
