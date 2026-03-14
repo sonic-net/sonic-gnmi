@@ -214,9 +214,6 @@ stages:
         popd
 
         pushd sonic-gnmi
-        # go mod tidy required before vendor with Go 1.21+: module graph must be consistent
-        # PATH is already set to Go 1.23.9 by the Install Go step above.
-        go mod tidy
         ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build"
 
