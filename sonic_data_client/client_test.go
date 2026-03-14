@@ -1030,7 +1030,14 @@ func TestUseRedisTcpClient(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
-	m.Run()
+	// os.Exit is required here. With Go 1.21+, if TestMain returns without calling
+	// os.Exit, the runtime performs goroutine/CGo cleanup that can block indefinitely:
+	//   - PollStats() is an init-spawned infinite loop that never exits naturally.
+	//   - ZMQ/swsscommon create C threads that Go 1.21+ tries to clean up on exit.
+	// With Go 1.19, os.Exit was called immediately by the test framework. Go 1.21+
+	// changed this: if TestMain returns, a "graceful" exit path is used that waits
+	// for goroutines, causing the test binary to hang for 11 minutes until timeout.
+	os.Exit(m.Run())
 }
 
 // TestGetTableDashHA verifies that DASH_HA_ tables use Table (not ProducerStateTable
