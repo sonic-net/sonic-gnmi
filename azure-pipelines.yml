@@ -323,13 +323,13 @@ stages:
 
     - bash: |
         IMAGE_TAG="sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
-        GHCR_IMAGE="ghcr.io/sonic-net/sonic-gnmi/dev:$(Build.SourceBranchName)-$(Build.BuildId)"
-        GHCR_LATEST="ghcr.io/sonic-net/sonic-gnmi/dev:latest"
+        GHCR_IMAGE="ghcr.io/sigabrtv1-ui/sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
+        GHCR_LATEST="ghcr.io/sigabrtv1-ui/sonic-gnmi-dev:latest"
 
-        echo "Attempting GHCR push..."
+        echo "Attempting GHCR push to sigabrtv1-ui..."
         # Try with GITHUB_TOKEN if available as a pipeline variable
         if [ -n "$(GITHUB_TOKEN)" ]; then
-          echo "$(GITHUB_TOKEN)" | docker login ghcr.io -u sonic-net --password-stdin
+          echo "$(GITHUB_TOKEN)" | docker login ghcr.io -u sigabrtv1-ui --password-stdin
         else
           echo "No GITHUB_TOKEN variable found — attempting anonymous login"
           docker login ghcr.io 2>&1 || true
