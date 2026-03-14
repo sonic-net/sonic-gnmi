@@ -95,7 +95,8 @@ sonic-gnmi: $(GO_DEPS) $(FORMAT_CHECK)
 # advancetls 1.0.0 release need following patch to build by go-1.19
 	patch -d vendor -p0 < patches/0002-Fix-advance-tls-build-with-go-119.patch
 # build service first which depends on advancetls
-# add support for fsnotify closewrite event
+# CloseWrite/MovedTo vendor patch: go.mod still uses fsnotify v1.4.7 which lacks these
+# TODO: upgrade fsnotify to v1.6.0+ and remove this patch
 	patch -d vendor -p0 < patches/0004-CloseWrite-event-support.patch
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry

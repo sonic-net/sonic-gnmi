@@ -343,8 +343,19 @@ func WriteStatsToBuffer(stat *linuxproc.Stat) {
 	statsR.mu.Unlock()
 }
 
+// pollStatsStop can be closed to terminate the PollStats goroutine.
+// This is used by TestMain to let the goroutine exit before os.Exit,
+// which allows Go's runtime_beforeExit (race detector / coverage flush)
+// to complete without blocking indefinitely on a running goroutine.
+var pollStatsStop = make(chan struct{})
+
 func PollStats() {
 	for {
+		select {
+		case <-pollStatsStop:
+			return
+		default:
+		}
 		stat, err := linuxproc.ReadStat("/proc/stat")
 		if err != nil {
 			log.V(2).Infof("stat read fail")

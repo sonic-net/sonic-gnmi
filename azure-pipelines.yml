@@ -162,6 +162,7 @@ stages:
       vmImage: ubuntu-22.04
 
     variables:
+      GO_VERSION: '1.23.9'
       DIFF_COVER_CHECK_THRESHOLD: 80
       DIFF_COVER_ENABLE: 'true'
       DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)/sonic-gnmi
@@ -194,6 +195,15 @@ stages:
       parameters:
         buildBranch: $(BUILD_BRANCH)
 
+    # Install Go 1.23.9 (required for go.mod `go 1.23`; sonic-slave-bookworm ships an older Go)
+    # Use ##vso[task.prependpath] so the PATH change persists for all subsequent steps in this job.
+    - script: |
+        wget https://go.dev/dl/go$(GO_VERSION).linux-amd64.tar.gz
+        sudo tar -C /usr/local -xzf go$(GO_VERSION).linux-amd64.tar.gz
+        echo "##vso[task.prependpath]/usr/local/go/bin"
+        /usr/local/go/bin/go version
+      displayName: 'Install Go'
+
     # Build sonic-mgmt-common and sonic-gnmi
     - script: |
         set -ex
@@ -219,7 +229,20 @@ stages:
     - bash: |
         set -euo pipefail
         pushd sonic-gnmi
-        make all && $(UNIT_TEST_FLAG) make check_gotest_junit
+        make all
+        # check_gotest_junit runs gotestsum under 'sudo -E'. sudo resolves 'go' via its
+        # secure_path, which finds the apt-installed Go 1.19 at /usr/bin/go rather than
+        # our Go 1.23.9 at /usr/local/go/bin/go. Go 1.19 cannot compile packages using
+        # Go 1.21+ stdlib (slices, maps, crypto/ecdh, math/rand/v2).
+        # Fix: symlink our Go 1.23.9 into /usr/local/bin, which precedes /usr/bin in
+        # the default Debian sudo secure_path (/usr/local/bin before /usr/bin).
+        sudo ln -sf /usr/local/go/bin/go /usr/local/bin/go
+        # Go 1.21+ inlines small functions, breaking gomonkey's runtime function patching.
+        # Tests that rely on gomonkey (e.g. TestNewEventClient, TestGetFileStat) hang or
+        # panic when the patch silently fails and the real CGo/DBus call runs instead.
+        # Disable inlining globally so gomonkey patches apply correctly.
+        export GOFLAGS='-gcflags=all=-l'
+        $(UNIT_TEST_FLAG) make check_gotest_junit
         popd
       displayName: "Run Integration Tests"
 

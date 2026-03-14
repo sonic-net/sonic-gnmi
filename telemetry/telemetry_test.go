@@ -1009,7 +1009,11 @@ func TestINotifyCertMonitoringCopy(t *testing.T) {
 	tempDir := t.TempDir()
 	testServerCertBackup := filepath.Join(tempDir, "testserver.cert.backup")
 	testServerKeyBackup := filepath.Join(tempDir, "testserver.key.backup")
-	timeoutInterval := time.Duration(10 * time.Second)
+	// Use 60s to accommodate slow goroutine scheduling under Go 1.21+ with -race.
+	// The iNotifyCertMonitoring goroutine may take >10s to start when CI is under
+	// load (multiple packages run in parallel with the race detector). The context
+	// timeout must cover: goroutine startup (<-testReadySignal) + file copy + signal.
+	timeoutInterval := time.Duration(60 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 

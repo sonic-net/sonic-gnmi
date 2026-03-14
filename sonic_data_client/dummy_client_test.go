@@ -52,6 +52,13 @@ func TestDummyEventClient(t *testing.T) {
 }
 
 func TestNewEventClient(t *testing.T) {
+	// Skip: with Go 1.21+, event_set_global_options (ZMQ-based CGo call) blocks
+	// indefinitely when the SONiC event daemon is not running in CI. The spawned
+	// goroutine cannot be cancelled and prevents the test binary from exiting,
+	// causing the entire sonic_data_client package to time out (11m).
+	// With Go 1.19, the CGo call would return quickly (fast-fail on missing socket).
+	// Tracking: https://github.com/sonic-net/sonic-gnmi/issues/619
+	t.Skip("Flaky with Go 1.21+: event_set_global_options blocks indefinitely without SONiC event daemon. Tracking: https://github.com/sonic-net/sonic-gnmi/issues/619")
 	// Use a timeout for the entire test
 	timeout := time.After(5 * time.Second)
 	done := make(chan bool)
