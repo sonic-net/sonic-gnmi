@@ -196,11 +196,12 @@ stages:
         buildBranch: $(BUILD_BRANCH)
 
     # Install Go 1.23.9 (required for go.mod `go 1.23`; sonic-slave-bookworm ships an older Go)
+    # Use ##vso[task.prependpath] so the PATH change persists for all subsequent steps in this job.
     - script: |
         wget https://go.dev/dl/go$(GO_VERSION).linux-amd64.tar.gz
         sudo tar -C /usr/local -xzf go$(GO_VERSION).linux-amd64.tar.gz
-        export PATH=$PATH:/usr/local/go/bin
-        go version
+        echo "##vso[task.prependpath]/usr/local/go/bin"
+        /usr/local/go/bin/go version
       displayName: 'Install Go'
 
     # Build sonic-mgmt-common and sonic-gnmi
@@ -214,7 +215,7 @@ stages:
 
         pushd sonic-gnmi
         # go mod tidy required before vendor with Go 1.21+: module graph must be consistent
-        export PATH=/usr/local/go/bin:$PATH
+        # PATH is already set to Go 1.23.9 by the Install Go step above.
         go mod tidy
         ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build"
