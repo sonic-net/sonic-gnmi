@@ -1030,6 +1030,9 @@ func TestUseRedisTcpClient(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
+	// Stop the PollStats goroutine started in init() so it cannot race with
+	// tests that patch os.OpenFile or os.File methods via gomonkey.
+	StopPollStats()
 	m.Run()
 }
 

@@ -6494,6 +6494,9 @@ func init() {
 
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
+	// Stop the PollStats goroutine started in sonic_data_client's init() so it
+	// cannot race with tests that patch os.OpenFile or os.File methods via gomonkey.
+	sdc.StopPollStats()
 	m.Run()
 }
 
