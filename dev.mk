@@ -11,11 +11,10 @@
 #   make -f dev.mk dev-image       # build the dev image locally (no CI needed)
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-# Official image (once sonic-net configures GHCR push in CI):
-#   ghcr.io/sonic-net/sonic-gnmi/dev:latest
-# Community/fork mirror (available now, no setup required):
-#   ghcr.io/sigabrtv1-ui/sonic-gnmi-dev:latest
-DEV_IMAGE      ?= ghcr.io/sonic-net/sonic-gnmi/dev:latest
+# Pre-built image hosted on sonicdev-microsoft ACR (publicly pullable, no auth):
+#   sonicdev-microsoft.azurecr.io:443/sonic-gnmi-dev:latest
+# Rebuilt by CI on every push to master/release branches.
+DEV_IMAGE      ?= sonicdev-microsoft.azurecr.io:443/sonic-gnmi-dev:latest
 CONTAINER_NAME ?= sonic-gnmi-dev
 WORKSPACE      := $(abspath .)
 BUILD_BRANCH   ?= master
@@ -47,7 +46,7 @@ dev-up:
 		echo "Pulled $(DEV_IMAGE)"; \
 	else \
 		echo "⚠️  Could not pull $(DEV_IMAGE) — building locally (this takes ~10 min on first run)."; \
-		echo "   Tip: use a pre-built mirror: make -f dev.mk dev-up DEV_IMAGE=ghcr.io/sigabrtv1-ui/sonic-gnmi-dev:latest"; \
+		echo "   Requires: deps/ populated via 'make -f dev.mk fetch-deps' or the CI download-dependencies template."; \
 		$(MAKE) -f dev.mk dev-image; \
 	fi
 	@if docker ps -a --format '{{.Names}}' | grep -qx "$(CONTAINER_NAME)"; then \
@@ -147,7 +146,7 @@ help:
 	@echo ""
 	@echo "sonic-gnmi dev workflow (dev.mk)"
 	@echo ""
-	@echo "  make -f dev.mk dev-up                              Pull image (or build locally) + start container"
+	@echo "  make -f dev.mk dev-up                              Pull pre-built image from ACR + start container"
 	@echo "  make -f dev.mk dev-down                            Stop + remove container"
 	@echo "  make -f dev.mk shell                               Interactive shell"
 	@echo "  make -f dev.mk build                               Build sonic-gnmi .deb"

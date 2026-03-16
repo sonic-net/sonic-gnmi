@@ -269,17 +269,17 @@ stages:
       displayName: 'Publish coverage'
 
 # ── Dev Container Image ────────────────────────────────────────────────────────
-# Builds the sonic-gnmi developer container image (Dockerfile.dev) and
-# publishes it as a pipeline artifact.
+# Builds the sonic-gnmi developer container image (Dockerfile.dev) and pushes
+# it to sonicdev-microsoft.azurecr.io (publicly pullable, no auth required).
 #
-# Only runs on pushes to master/release branches (not PRs) since the image
-# only needs to be refreshed when Dockerfile.dev or its deps change.
+# Image: sonicdev-microsoft.azurecr.io:443/sonic-gnmi-dev:latest
 #
-# TODO: once a service connection to a public registry is configured,
-#       add a docker push step after the build step here.
+# Runs in parallel with Build stage (dependsOn: []).
+# Always builds (even on PRs) to catch Dockerfile.dev regressions early.
+# Only pushes on non-PR builds (master / release branches).
 - stage: DevContainer
   displayName: "Dev Container Image"
-  dependsOn: []   # run in parallel with Build stage, always runs
+  dependsOn: []
   condition: always()
 
   jobs:
@@ -290,6 +290,10 @@ stages:
     # Run on the host (not inside a container) so Docker is available.
     pool:
       name: sonicso1ES-amd64
+
+    variables:
+      ACR_REGISTRY: sonicdev-microsoft.azurecr.io:443
+      ACR_REPO: sonicdev-microsoft.azurecr.io:443/sonic-gnmi-dev
 
     steps:
     - checkout: self
@@ -303,34 +307,27 @@ stages:
 
     - bash: |
         set -ex
-        IMAGE_TAG="sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
-        IMAGE_LATEST="sonic-gnmi-dev:latest"
+        IMAGE_TAG="$(ACR_REPO):$(Build.SourceBranchName)-$(Build.BuildId)"
+        IMAGE_BRANCH="$(ACR_REPO):$(Build.SourceBranchName)"
+        IMAGE_LATEST="$(ACR_REPO):latest"
 
         docker build \
           --build-arg BUILD_BRANCH=$(BUILD_BRANCH) \
           -f Dockerfile.dev \
           -t "${IMAGE_TAG}" \
-          -t "${IMAGE_LATEST}" \
           .
 
-        # Save as compressed tar for the pipeline artifact.
-        # To push to a registry later, add:
-        #   docker tag ${IMAGE_TAG} <registry>/<repo>:${TAG}
-        #   docker push <registry>/<repo>:${TAG}
-        mkdir -p "$(Build.ArtifactStagingDirectory)/dev-image"
-        docker save "${IMAGE_TAG}" | gzip -1 \
-          > "$(Build.ArtifactStagingDirectory)/dev-image/sonic-gnmi-dev.tar.gz"
-
-        echo "Image saved: $(Build.ArtifactStagingDirectory)/dev-image/sonic-gnmi-dev.tar.gz"
+        echo "##vso[task.setvariable variable=IMAGE_TAG]${IMAGE_TAG}"
+        echo "##vso[task.setvariable variable=IMAGE_BRANCH]${IMAGE_BRANCH}"
+        echo "##vso[task.setvariable variable=IMAGE_LATEST]${IMAGE_LATEST}"
       displayName: 'Build dev container image'
 
     # Smoke-test: start the container and run a fast pure-Go test to verify
     # that swsscommon bindings, Go toolchain, and basic packages all work.
     - bash: |
         set -ex
-        IMAGE_TAG="sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
+        IMAGE_TAG="$(IMAGE_TAG)"
 
-        # Smoke-test using dev.mk — the same workflow contributors use locally.
         # sonic_db_config exercises swsscommon CGO bindings (SonicDBKey, DbConnector)
         # without needing Redis, catching swsscommon version mismatches early.
         make -f dev.mk dev-up DEV_IMAGE="${IMAGE_TAG}"
@@ -338,49 +335,31 @@ stages:
         make -f dev.mk dev-down DEV_IMAGE="${IMAGE_TAG}" || true
       displayName: 'Smoke test dev container image'
 
-    # ── Experimental: push to registries ──────────────────────────────────────
-    # Best-effort only (continueOnError: true). Results tell us which registry
-    # is already accessible from the ADO agent without extra setup.
-    # Revert these steps once we pick a registry.
+    # Login to sonicdev-microsoft ACR using the 'sonicdev' service connection.
+    # Skipped on PRs (push step is also conditioned, but login is harmless on PRs).
+    - task: Docker@2
+      displayName: 'Login to sonicdev-microsoft ACR'
+      condition: ne(variables['Build.Reason'], 'PullRequest')
+      inputs:
+        command: login
+        containerRegistry: sonicdev
 
+    # Push on non-PR builds only (master and release branches).
+    # Tags pushed:
+    #   :$(Build.SourceBranchName)-$(Build.BuildId)   — immutable per-build tag
+    #   :$(Build.SourceBranchName)                     — rolling branch tag
+    #   :latest                                         — only on master
     - bash: |
-        IMAGE_TAG="sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
-        GHCR_IMAGE="ghcr.io/sigabrtv1-ui/sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
-        GHCR_LATEST="ghcr.io/sigabrtv1-ui/sonic-gnmi-dev:latest"
+        set -ex
+        docker push "$(IMAGE_TAG)"
 
-        echo "Attempting GHCR push to sigabrtv1-ui..."
-        # Try with GITHUB_TOKEN if available as a pipeline variable
-        if [ -n "$(GITHUB_TOKEN)" ]; then
-          echo "$(GITHUB_TOKEN)" | docker login ghcr.io -u sigabrtv1-ui --password-stdin
-        else
-          echo "No GITHUB_TOKEN variable found — attempting anonymous login"
-          docker login ghcr.io 2>&1 || true
+        docker tag "$(IMAGE_TAG)" "$(IMAGE_BRANCH)"
+        docker push "$(IMAGE_BRANCH)"
+
+        if [[ "$(Build.SourceBranchName)" == "master" ]]; then
+          docker tag "$(IMAGE_TAG)" "$(IMAGE_LATEST)"
+          docker push "$(IMAGE_LATEST)"
         fi
-
-        docker tag "${IMAGE_TAG}" "${GHCR_IMAGE}"
-        docker tag "${IMAGE_TAG}" "${GHCR_LATEST}"
-        docker push "${GHCR_IMAGE}"
-        docker push "${GHCR_LATEST}"
-        echo "✅ GHCR push succeeded: ${GHCR_IMAGE}"
-      displayName: '[Experiment] Push to GHCR (sonic-net)'
-      continueOnError: true
-
-    - bash: |
-        IMAGE_TAG="sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
-        ACR_IMAGE="sonicdev-microsoft.azurecr.io/sonic-gnmi-dev:$(Build.SourceBranchName)-$(Build.BuildId)"
-        ACR_LATEST="sonicdev-microsoft.azurecr.io/sonic-gnmi-dev:latest"
-
-        echo "Attempting ACR push via az acr login..."
-        az acr login --name sonicdev-microsoft 2>&1
-
-        docker tag "${IMAGE_TAG}" "${ACR_IMAGE}"
-        docker tag "${IMAGE_TAG}" "${ACR_LATEST}"
-        docker push "${ACR_IMAGE}"
-        docker push "${ACR_LATEST}"
-        echo "✅ ACR push succeeded: ${ACR_IMAGE}"
-      displayName: '[Experiment] Push to ACR (sonicdev-microsoft)'
-      continueOnError: true
-
-    - publish: $(Build.ArtifactStagingDirectory)/dev-image
-      artifact: sonic-gnmi-dev-image
-      displayName: 'Publish dev image artifact'
+        echo "✅ Pushed $(IMAGE_TAG)"
+      displayName: 'Push dev image to ACR'
+      condition: ne(variables['Build.Reason'], 'PullRequest')
