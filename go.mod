@@ -1,7 +1,6 @@
 module github.com/sonic-net/sonic-gnmi
 
-go 1.19
-
+go 1.26.1
 
 require (
 	github.com/Azure/sonic-mgmt-common v0.0.0-00010101000000-000000000000
@@ -11,7 +10,6 @@ require (
 	github.com/c9s/goprocinfo v0.0.0-20191125144613-4acdd056c72d
 	github.com/dgrijalva/jwt-go v3.2.1-0.20210802184156-9742bd7fca1c+incompatible
 	github.com/fsnotify/fsnotify v1.4.7
-	github.com/go-redis/redis/v7 v7.4.1
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/glog v1.2.4
@@ -51,6 +49,7 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/envoyproxy/go-control-plane v0.12.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.0.4 // indirect
+	github.com/go-redis/redis/v7 v7.4.1 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/onsi/ginkgo v1.10.3 // indirect
 	github.com/onsi/gomega v1.7.1 // indirect
