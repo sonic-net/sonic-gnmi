@@ -245,3 +245,51 @@ stages:
         codeCoverageTool: Cobertura
         summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
       displayName: 'Publish coverage'
+
+- stage: BuildArm64
+  dependsOn: Build
+  condition: succeeded('Build')
+  jobs:
+  - job: arm64
+    displayName: "arm64 deb build"
+    timeoutInMinutes: 60
+
+    pool:
+      name: sonicso1ES-arm64
+
+    container:
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:$(BUILD_BRANCH)-arm64
+
+    steps:
+    - checkout: self
+      clean: true
+      submodules: recursive
+      displayName: 'Checkout code'
+
+    - checkout: sonic-mgmt-common
+      clean: true
+      submodules: recursive
+      displayName: 'Checkout sonic-mgmt-common'
+
+    - checkout: sonic-swss-common
+      clean: true
+      submodules: recursive
+      displayName: 'Checkout sonic-swss-common'
+
+    - template: .azure/templates/install-dependencies-arm64.yml
+      parameters:
+        buildBranch: $(BUILD_BRANCH)
+
+    - script: |
+        set -ex
+        pushd sonic-mgmt-common
+        NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
+        popd
+
+        pushd sonic-gnmi
+        dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
+      displayName: "Build ARM64 deb"
+
+    - publish: $(Build.ArtifactStagingDirectory)/
+      artifact: sonic-gnmi.arm64
+      displayName: "Archive ARM64 artifacts"
