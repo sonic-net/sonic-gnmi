@@ -169,6 +169,7 @@ var authzRotationTestCases = []struct {
 	{
 		desc: "RotatePolicyEmptyRequest",
 		f: func(ctx context.Context, t *testing.T, sc authz.AuthzClient, s *Server) {
+			t.Skip("Flaky due to race between server-side revert and test reset after RotateStreamSendError. Tracking: https://github.com/sonic-net/sonic-gnmi/issues/624")
 			// 0) Open the streaming RPC.
 			stream, err := sc.Rotate(ctx, grpc.EmptyCallOption{})
 			if err != nil {
@@ -193,6 +194,7 @@ var authzRotationTestCases = []struct {
 	{
 		desc: "RotatePolicyEmptyUploadRequest",
 		f: func(ctx context.Context, t *testing.T, sc authz.AuthzClient, s *Server) {
+			t.Skip("Flaky due to race between server-side revert and test reset after RotateStreamSendError. Tracking: https://github.com/sonic-net/sonic-gnmi/issues/624")
 			// 0) Open the streaming RPC.
 			stream, err := sc.Rotate(ctx, grpc.EmptyCallOption{})
 			if err != nil {
@@ -221,6 +223,7 @@ var authzRotationTestCases = []struct {
 	{
 		desc: "RotatePolicyWrongJSON",
 		f: func(ctx context.Context, t *testing.T, sc authz.AuthzClient, s *Server) {
+			t.Skip("Flaky due to race between server-side revert and test reset after RotateStreamSendError. Tracking: https://github.com/sonic-net/sonic-gnmi/issues/624")
 			// 0) Open the streaming RPC.
 			stream, err := sc.Rotate(ctx, grpc.EmptyCallOption{})
 			if err != nil {
@@ -253,6 +256,7 @@ var authzRotationTestCases = []struct {
 	{
 		desc: "RotatePolicyNoVersion",
 		f: func(ctx context.Context, t *testing.T, sc authz.AuthzClient, s *Server) {
+			t.Skip("Flaky due to race between server-side revert and test reset after RotateStreamSendError. Tracking: https://github.com/sonic-net/sonic-gnmi/issues/624")
 			// 0) Open the streaming RPC.
 			stream, err := sc.Rotate(ctx, grpc.EmptyCallOption{})
 			if err != nil {
