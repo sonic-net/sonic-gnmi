@@ -14,15 +14,15 @@ func TestHandleSetPackage_SuccessWithoutActivation(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock exec.RunHostCommand to return successful installation
-	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
+	// Mock exec.RunHostCommandAsync to return successful installation
+	patches.ApplyFunc(exec.RunHostCommandAsync, func(cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.AsyncCommandHandle, error) {
 		if cmd == "sonic-installer" && len(args) >= 1 && args[0] == "install" {
-			return &exec.CommandResult{
+			return exec.NewCompletedAsyncHandle(&exec.CommandResult{
 				Stdout:   "Installation completed successfully",
 				Stderr:   "",
 				ExitCode: 0,
 				Error:    nil,
-			}, nil
+			}), nil
 		}
 		return nil, fmt.Errorf("unexpected command: %s %v", cmd, args)
 	})
@@ -52,24 +52,24 @@ func TestHandleSetPackage_SuccessWithActivation(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock exec.RunHostCommand to handle both install and set-default commands
-	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
+	// Mock exec.RunHostCommandAsync to handle both install and set-default commands
+	patches.ApplyFunc(exec.RunHostCommandAsync, func(cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.AsyncCommandHandle, error) {
 		if cmd == "sonic-installer" {
 			if len(args) >= 1 && args[0] == "install" {
-				return &exec.CommandResult{
+				return exec.NewCompletedAsyncHandle(&exec.CommandResult{
 					Stdout:   "Installation completed successfully",
 					Stderr:   "",
 					ExitCode: 0,
 					Error:    nil,
-				}, nil
+				}), nil
 			}
 			if len(args) >= 1 && args[0] == "set-default" {
-				return &exec.CommandResult{
+				return exec.NewCompletedAsyncHandle(&exec.CommandResult{
 					Stdout:   "Default image set successfully",
 					Stderr:   "",
 					ExitCode: 0,
 					Error:    nil,
-				}, nil
+				}), nil
 			}
 		}
 		return nil, fmt.Errorf("unexpected command: %s %v", cmd, args)
@@ -100,8 +100,8 @@ func TestHandleSetPackage_InstallCommandError(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock exec.RunHostCommand to return command execution error
-	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
+	// Mock exec.RunHostCommandAsync to return command start error
+	patches.ApplyFunc(exec.RunHostCommandAsync, func(cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.AsyncCommandHandle, error) {
 		return nil, fmt.Errorf("permission denied")
 	})
 
@@ -130,16 +130,16 @@ func TestHandleSetPackage_ActivateCommandError(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock exec.RunHostCommand: install succeeds, set-default fails
-	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
+	// Mock exec.RunHostCommandAsync: install succeeds, set-default fails
+	patches.ApplyFunc(exec.RunHostCommandAsync, func(cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.AsyncCommandHandle, error) {
 		if cmd == "sonic-installer" {
 			if len(args) >= 1 && args[0] == "install" {
-				return &exec.CommandResult{
+				return exec.NewCompletedAsyncHandle(&exec.CommandResult{
 					Stdout:   "Installation completed successfully",
 					Stderr:   "",
 					ExitCode: 0,
 					Error:    nil,
-				}, nil
+				}), nil
 			}
 			if len(args) >= 1 && args[0] == "set-default" {
 				return nil, fmt.Errorf("set-default command failed")
@@ -173,18 +173,17 @@ func TestInstallPackage_Success(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock exec.RunHostCommand to return successful installation
-	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
-		return &exec.CommandResult{
+	// Mock exec.RunHostCommandAsync to return successful installation
+	patches.ApplyFunc(exec.RunHostCommandAsync, func(cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.AsyncCommandHandle, error) {
+		return exec.NewCompletedAsyncHandle(&exec.CommandResult{
 			Stdout:   "Package installed successfully",
 			Stderr:   "",
 			ExitCode: 0,
 			Error:    nil,
-		}, nil
+		}), nil
 	})
 
-	ctx := context.Background()
-	err := installPackage(ctx, "/tmp/test-image.bin")
+	err := installPackage("/tmp/test-image.bin")
 	if err != nil {
 		t.Fatalf("installPackage() returned error: %v", err)
 	}
@@ -194,19 +193,18 @@ func TestInstallPackage_CommandError(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock exec.RunHostCommand to return command execution error
-	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
+	// Mock exec.RunHostCommandAsync to return command start error
+	patches.ApplyFunc(exec.RunHostCommandAsync, func(cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.AsyncCommandHandle, error) {
 		return nil, fmt.Errorf("command not found")
 	})
 
-	ctx := context.Background()
-	err := installPackage(ctx, "/tmp/test-image.bin")
+	err := installPackage("/tmp/test-image.bin")
 	if err == nil {
 		t.Fatal("installPackage() should return error when command fails")
 	}
 
-	if !containsSubstring(err.Error(), "failed to run sonic-installer install") {
-		t.Errorf("installPackage() error = %v, should contain 'failed to run sonic-installer install'", err)
+	if !containsSubstring(err.Error(), "failed to start sonic-installer install") {
+		t.Errorf("installPackage() error = %v, should contain 'failed to start sonic-installer install'", err)
 	}
 }
 
@@ -214,18 +212,17 @@ func TestActivatePackage_Success(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock exec.RunHostCommand to return successful activation
-	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
-		return &exec.CommandResult{
+	// Mock exec.RunHostCommandAsync to return successful activation
+	patches.ApplyFunc(exec.RunHostCommandAsync, func(cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.AsyncCommandHandle, error) {
+		return exec.NewCompletedAsyncHandle(&exec.CommandResult{
 			Stdout:   "Default image set successfully",
 			Stderr:   "",
 			ExitCode: 0,
 			Error:    nil,
-		}, nil
+		}), nil
 	})
 
-	ctx := context.Background()
-	err := activatePackage(ctx, "test-version-1.0.0")
+	err := activatePackage("test-version-1.0.0")
 	if err != nil {
 		t.Fatalf("activatePackage() returned error: %v", err)
 	}
@@ -235,19 +232,18 @@ func TestActivatePackage_CommandError(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock exec.RunHostCommand to return command execution error
-	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
+	// Mock exec.RunHostCommandAsync to return command start error
+	patches.ApplyFunc(exec.RunHostCommandAsync, func(cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.AsyncCommandHandle, error) {
 		return nil, fmt.Errorf("permission denied")
 	})
 
-	ctx := context.Background()
-	err := activatePackage(ctx, "test-version-1.0.0")
+	err := activatePackage("test-version-1.0.0")
 	if err == nil {
 		t.Fatal("activatePackage() should return error when command fails")
 	}
 
-	if !containsSubstring(err.Error(), "failed to run sonic-installer set-default") {
-		t.Errorf("activatePackage() error = %v, should contain 'failed to run sonic-installer set-default'", err)
+	if !containsSubstring(err.Error(), "failed to start sonic-installer set-default") {
+		t.Errorf("activatePackage() error = %v, should contain 'failed to start sonic-installer set-default'", err)
 	}
 }
 
