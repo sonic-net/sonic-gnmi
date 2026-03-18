@@ -3,5 +3,9 @@
 # output every command that modifies files on the build system.
 #export DH_VERBOSE = 1
 
+# Go 1.18+ enables VCS stamping by default, which fails in build environments
+# where the .git directory is not available (e.g., sonic-buildimage dpkg builds).
+export GOFLAGS += -buildvcs=false
+
 %:
 	dh $@ 
