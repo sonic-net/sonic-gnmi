@@ -46,6 +46,10 @@ func NewServer(config *Config, opts []grpc.ServerOption) (*Server, error) {
 		return nil, errors.New("config not provided")
 	}
 
+	opts = append(opts,
+		grpc.MaxRecvMsgSize(64<<20),
+		grpc.MaxSendMsgSize(64<<20),
+	)
 	s := grpc.NewServer(opts...)
 	reflection.Register(s)
 
