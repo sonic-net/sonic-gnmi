@@ -247,7 +247,7 @@ stages:
       displayName: 'Publish coverage'
 
 - stage: BuildArm64
-  dependsOn: Build
+  dependsOn: []
   jobs:
   - job: arm64
     displayName: "arm64 deb build"
