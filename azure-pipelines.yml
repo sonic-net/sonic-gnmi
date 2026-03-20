@@ -20,7 +20,7 @@ pr:
 variables:
   - name: BUILD_BRANCH
     ${{ if eq(variables['Build.Reason'], 'PullRequest') }}:
-      value: $(System.PullRequest.TargetBranch)
+      value: ${{ replace(variables['System.PullRequest.TargetBranch'], 'refs/heads/', '') }}
     ${{ else }}:
       value: $(Build.SourceBranchName)
   - name: UNIT_TEST_FLAG
@@ -247,7 +247,7 @@ stages:
       displayName: 'Publish coverage'
 
 - stage: BuildArm64
-  dependsOn: []
+  dependsOn: Build
   jobs:
   - job: arm64
     displayName: "arm64 deb build"
@@ -286,7 +286,7 @@ stages:
         popd
 
         pushd sonic-gnmi
-        dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
+        ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build ARM64 deb"
 
     - publish: $(Build.ArtifactStagingDirectory)/
