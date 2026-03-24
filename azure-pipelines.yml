@@ -25,6 +25,9 @@ variables:
       value: $(Build.SourceBranchName)
   - name: UNIT_TEST_FLAG
     value: 'ENABLE_TRANSLIB_WRITE=y'
+  - name: GO_VERSION
+    value: '1.26.1'
+
 
 resources:
   repositories:
@@ -50,9 +53,6 @@ stages:
     pool:
       vmImage: ubuntu-22.04
 
-    variables:
-      GO_VERSION: '1.19.8'
-
     steps:
     - checkout: self
       clean: true
@@ -63,9 +63,15 @@ stages:
       displayName: 'Checkout sonic-mgmt-common'
 
     - script: |
-        wget https://go.dev/dl/go$(GO_VERSION).linux-amd64.tar.gz
-        sudo tar -C /usr/local -xzf go$(GO_VERSION).linux-amd64.tar.gz
-        export PATH=$PATH:/usr/local/go/bin
+        set -ex
+        if [ "$(printf "1.26\n$(go version | awk '{print $3}' | sed 's/go//')" | sort -V | head -n1)" = "1.26" ]; then
+          echo "Go version >= 1.26"
+        else
+          echo "Go version < 1.26"
+          wget https://go.dev/dl/go$(GO_VERSION).linux-amd64.tar.gz
+          sudo tar -C /usr/local -xzf go$(GO_VERSION).linux-amd64.tar.gz
+          export PATH=$PATH:/usr/local/go/bin
+        fi
         go version
       displayName: 'Install Go'
 
@@ -184,6 +190,19 @@ stages:
       clean: true
       submodules: recursive
       displayName: 'Checkout sonic-swss-common'
+
+    - script: |
+        set -ex
+        if [ "$(printf "1.26\n$(go version | awk '{print $3}' | sed 's/go//')" | sort -V | head -n1)" = "1.26" ]; then
+          echo "Go version >= 1.26"
+        else
+          echo "Go version < 1.26"
+          wget https://go.dev/dl/go$(GO_VERSION).linux-amd64.tar.gz
+          sudo tar -C /usr/local -xzf go$(GO_VERSION).linux-amd64.tar.gz
+          export PATH=$PATH:/usr/local/go/bin
+        fi
+        go version
+      displayName: 'Install Go'
 
     # Integration tests have been separated from pure package tests
     # Pure package CI now runs in the separate PureCIJob above
