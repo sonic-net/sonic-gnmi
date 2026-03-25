@@ -289,6 +289,9 @@ stages:
         dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build ARM64 deb"
 
+    - script: rm -rf $(Build.ArtifactStagingDirectory)/download
+      displayName: "Remove downloaded dependencies from artifacts"
+
     - publish: $(Build.ArtifactStagingDirectory)/
       artifact: sonic-gnmi.arm64
       displayName: "Archive ARM64 artifacts"
