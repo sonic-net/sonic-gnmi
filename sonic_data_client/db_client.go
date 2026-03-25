@@ -262,7 +262,7 @@ func streamOnChangeSubscription(c *DbClient, gnmiPath *gnmipb.Path) {
 	tblPaths := c.pathG2S[gnmiPath]
 	log.V(2).Infof("streamOnChangeSubscription gnmiPath: %v", gnmiPath)
 
-	if tblPaths[0].field != "" {
+	if len(tblPaths) > 0 && tblPaths[0].field != "" {
 		if len(tblPaths) > 1 {
 			go dbFieldMultiSubscribe(c, gnmiPath, true, time.Millisecond*200, false)
 		} else {
@@ -287,7 +287,7 @@ func streamSampleSubscription(c *DbClient, sub *gnmipb.Subscription, updateOnly 
 	gnmiPath := sub.GetPath()
 	tblPaths := c.pathG2S[gnmiPath]
 	log.V(2).Infof("streamSampleSubscription gnmiPath: %v", gnmiPath)
-	if tblPaths[0].field != "" {
+	if len(tblPaths) > 0 && tblPaths[0].field != "" {
 		if len(tblPaths) > 1 {
 			dbFieldMultiSubscribe(c, gnmiPath, false, samplingInterval, updateOnly)
 		} else {
