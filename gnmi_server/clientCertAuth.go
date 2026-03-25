@@ -160,12 +160,14 @@ func TryDownload(url string) bool {
 	glog.Infof("Download CRL start: %s", url)
 	resp, err := http.Get(url)
 
-	if resp != nil {
-		defer resp.Body.Close()
-	}
-
-	if err != nil || resp.StatusCode != http.StatusOK {
+	if err != nil {
 		glog.Infof("Download CRL: %s failed: %v", url, err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		glog.Infof("Download CRL: %s failed: HTTP %d", url, resp.StatusCode)
 		return false
 	}
 
