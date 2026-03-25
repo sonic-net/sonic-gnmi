@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Azure/sonic-mgmt-common/translib"
@@ -211,6 +212,7 @@ type Config struct {
 	ZmqPort             string
 	IdleConnDuration    int
 	ConfigTableName     string
+	GnmiVrf             string
 	Vrf                 string
 	EnableCrl           bool
 	// Path to the directory where image is stored.
@@ -480,7 +482,31 @@ func SrvAdvConfig(cfg *Config) ([]grpc.ServerOption, []certprovider.Provider, er
 }
 
 // NewServer returns an initialized Server.
-//
+func createVrfListener(vrf string, port int64) (net.Listener, error) {
+	lc := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			var err error
+			ctrlErr := c.Control(func(fd uintptr) {
+				err = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, vrf)
+			})
+			if ctrlErr != nil {
+				return ctrlErr
+			}
+			if err != nil {
+				return fmt.Errorf("failed to bind socket to VRF %s: %v", vrf, err)
+			}
+			return nil
+		},
+	}
+
+	listener, err := lc.Listen(context.Background(), "tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return nil, err
+	}
+	log.V(1).Infof("Created VRF-bound listener on VRF %s, port %d", vrf, port)
+	return listener, nil
+}
+
 // tlsOpts contains TLS credentials and is used only for the TCP listener.
 // commonOpts contains interceptors, keepalive params, etc. and is used for both listeners.
 //
@@ -553,7 +579,12 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		srv.s = grpc.NewServer(tcpOpts...)
 		reflection.Register(srv.s)
 
-		srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
+		// Create VRF-aware listener if GNMI VRF is specified
+		if config.GnmiVrf != "" && config.GnmiVrf != "default" {
+			srv.lis, err = createVrfListener(config.GnmiVrf, config.Port)
+		} else {
+			srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
+		}
 		if err != nil {
 			log.Warningf("Failed to open listener port %d: %v; disabling TCP listener", config.Port, err)
 			srv.s.Stop()
