@@ -527,6 +527,17 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 				MaxConnectionIdle: time.Duration(*telemetryCfg.IdleConnDuration) * time.Second, // duration in which idle connection will be closed, default is inf
 			}
 
+			// Allow clients (e.g. DPU proxy) to send keepalive pings at a
+			// reasonable rate. Without this the default MinTime is 5 minutes,
+			// causing "too_many_pings" GOAWAY for clients that ping more
+			// frequently during long-running operations like SetPackage.
+			// See: https://github.com/sonic-net/sonic-gnmi/issues/619
+			keep_alive_policy := keepalive.EnforcementPolicy{
+				MinTime:             20 * time.Second, // Allow pings as frequent as every 20s
+				PermitWithoutStream: true,             // Allow pings when there are no active streams
+			}
+			commonOpts = append(commonOpts, grpc.KeepaliveEnforcementPolicy(keep_alive_policy))
+
 			tlsOpts = []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 
 			if *telemetryCfg.IdleConnDuration > 0 { // non inf case

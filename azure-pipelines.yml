@@ -132,6 +132,8 @@ stages:
     - template: .azure/templates/install-dependencies.yml
       parameters:
         buildBranch: $(BUILD_BRANCH)
+        arch: amd64
+        installTestDeps: true
 
     # Memory leak tests with JUnit XML generation
     
@@ -185,14 +187,12 @@ stages:
       submodules: recursive
       displayName: 'Checkout sonic-swss-common'
 
-    # Integration tests have been separated from pure package tests
-    # Pure package CI now runs in the separate PureCIJob above
-    # The steps below are for integration testing with SONiC dependencies
-    
     # Install SONiC dependencies using shared template
     - template: .azure/templates/install-dependencies.yml
       parameters:
         buildBranch: $(BUILD_BRANCH)
+        arch: amd64
+        installTestDeps: true
 
     # Build sonic-mgmt-common and sonic-gnmi
     - script: |
@@ -245,3 +245,25 @@ stages:
         codeCoverageTool: Cobertura
         summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
       displayName: 'Publish coverage'
+
+- stage: BuildArm64
+  dependsOn: []
+  jobs:
+  - job: arm64
+    displayName: "arm64 deb build"
+    timeoutInMinutes: 60
+
+    pool:
+      name: sonicso1ES-arm64
+
+    container:
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:$(BUILD_BRANCH)-arm64
+
+    steps:
+    - template: .azure/templates/build-deb.yml
+      parameters:
+        buildBranch: $(BUILD_BRANCH)
+        arch: arm64
+        commonLibArtifact: common-lib.arm64
+        swssCommonArtifact: sonic-swss-common-bookworm.arm64
+        publishArtifact: sonic-gnmi.arm64
