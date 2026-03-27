@@ -264,3 +264,6 @@ stages:
       parameters:
         buildBranch: $(BUILD_BRANCH)
         arch: arm64
+        commonLibArtifact: common-lib.arm64
+        swssCommonArtifact: sonic-swss-common-bookworm.arm64
+        publishArtifact: sonic-gnmi.arm64
