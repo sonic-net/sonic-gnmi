@@ -132,6 +132,8 @@ stages:
     - template: .azure/templates/install-dependencies.yml
       parameters:
         buildBranch: $(BUILD_BRANCH)
+        arch: amd64
+        installTestDeps: true
 
     # Memory leak tests with JUnit XML generation
     
@@ -185,14 +187,12 @@ stages:
       submodules: recursive
       displayName: 'Checkout sonic-swss-common'
 
-    # Integration tests have been separated from pure package tests
-    # Pure package CI now runs in the separate PureCIJob above
-    # The steps below are for integration testing with SONiC dependencies
-    
     # Install SONiC dependencies using shared template
     - template: .azure/templates/install-dependencies.yml
       parameters:
         buildBranch: $(BUILD_BRANCH)
+        arch: amd64
+        installTestDeps: true
 
     # Build sonic-mgmt-common and sonic-gnmi
     - script: |
@@ -260,38 +260,7 @@ stages:
       image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:$(BUILD_BRANCH)-arm64
 
     steps:
-    - checkout: self
-      clean: true
-      submodules: recursive
-      displayName: 'Checkout code'
-
-    - checkout: sonic-mgmt-common
-      clean: true
-      submodules: recursive
-      displayName: 'Checkout sonic-mgmt-common'
-
-    - checkout: sonic-swss-common
-      clean: true
-      submodules: recursive
-      displayName: 'Checkout sonic-swss-common'
-
-    - template: .azure/templates/install-dependencies-arm64.yml
+    - template: .azure/templates/build-deb.yml
       parameters:
         buildBranch: $(BUILD_BRANCH)
-
-    - script: |
-        set -ex
-        pushd sonic-mgmt-common
-        NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
-        popd
-
-        pushd sonic-gnmi
-        ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
-      displayName: "Build ARM64 deb"
-
-    - script: rm -rf $(Build.ArtifactStagingDirectory)/download
-      displayName: "Remove downloaded dependencies from artifacts"
-
-    - publish: $(Build.ArtifactStagingDirectory)/
-      artifact: sonic-gnmi.arm64
-      displayName: "Archive ARM64 artifacts"
+        arch: arm64
