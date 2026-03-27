@@ -247,7 +247,7 @@ ci: clean lint build-test test
 junit-xml: clean
 	@echo "Installing gotestsum for JUnit XML generation..."
 	@if ! command -v gotestsum >/dev/null 2>&1; then \
-		$(GO) install gotest.tools/gotestsum@v1.11.0; \
+		$(GO) install gotest.tools/gotestsum@v1.13.0; \
 	fi
 	@echo "Installing gocov tools for coverage conversion..."
 	@if ! command -v gocov >/dev/null 2>&1; then \
