@@ -286,7 +286,7 @@ stages:
         popd
 
         pushd sonic-gnmi
-        dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
+        ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
       displayName: "Build ARM64 deb"
 
     - script: rm -rf $(Build.ArtifactStagingDirectory)/download
