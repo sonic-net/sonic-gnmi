@@ -17,6 +17,17 @@ pr:
     - 202???
     - 201???
 
+# Scheduled nightly run on master for flakiness detection.
+# always: true ensures the run fires even when there are no new commits,
+# giving a consistent stream of data points for test analytics.
+schedules:
+- cron: "0 0 * * *"
+  displayName: "Nightly master run"
+  branches:
+    include:
+    - master
+  always: true
+
 variables:
   - name: BUILD_BRANCH
     ${{ if eq(variables['Build.Reason'], 'PullRequest') }}:
@@ -25,6 +36,13 @@ variables:
       value: $(Build.SourceBranchName)
   - name: UNIT_TEST_FLAG
     value: 'ENABLE_TRANSLIB_WRITE=y'
+  # Label used in testRunTitle to distinguish scheduled runs from PR/push runs
+  # in Azure DevOps test analytics, making it easier to filter for clean signal.
+  - name: RUN_TYPE
+    ${{ if eq(variables['Build.Reason'], 'Schedule') }}:
+      value: 'Nightly'
+    ${{ else }}:
+      value: 'CI'
 
 resources:
   repositories:
@@ -85,7 +103,7 @@ stages:
         testResultsFiles: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-pure.xml'
         failTaskOnFailedTests: true
         publishRunAttachments: true
-        testRunTitle: 'Pure Package Tests'
+        testRunTitle: '$(RUN_TYPE) - Pure Package Tests'
 
     - task: PublishCodeCoverageResults@1
       displayName: 'Publish Pure Package Coverage'
@@ -150,7 +168,7 @@ stages:
         testResultsFiles: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-memleak-standard.xml'
         failTaskOnFailedTests: true
         publishRunAttachments: true
-        testRunTitle: 'Memory Leak Tests'
+        testRunTitle: '$(RUN_TYPE) - Memory Leak Tests'
 
   # Full integration testing with SONiC dependencies
   - job: build
@@ -234,7 +252,7 @@ stages:
           $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-integration-dialout.xml
         failTaskOnFailedTests: true
         publishRunAttachments: true
-        testRunTitle: 'Integration Tests'
+        testRunTitle: '$(RUN_TYPE) - Integration Tests'
 
     - publish: $(Build.ArtifactStagingDirectory)/
       artifact: sonic-gnmi
