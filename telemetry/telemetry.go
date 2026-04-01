@@ -538,6 +538,13 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			}
 			commonOpts = append(commonOpts, grpc.KeepaliveEnforcementPolicy(keep_alive_policy))
 
+			// Increase flow control windows so large file transfers via Put
+			// (e.g. 1.4GB firmware) are not bottlenecked by the default 64KB window.
+			commonOpts = append(commonOpts,
+				grpc.InitialWindowSize(16*1024*1024),     // 16 MB per-stream
+				grpc.InitialConnWindowSize(16*1024*1024), // 16 MB per-connection
+			)
+
 			tlsOpts = []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 
 			if *telemetryCfg.IdleConnDuration > 0 { // non inf case

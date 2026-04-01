@@ -191,6 +191,11 @@ func (p *DPUProxy) getConnection(ctx context.Context, dpuIndex, ipAddress string
 				Timeout:             10 * time.Second, // Wait 10s for ping ack before considering connection dead
 				PermitWithoutStream: true,             // Send pings even when no active RPCs
 			}),
+			// Increase flow control windows so large file transfers (e.g. 1.4GB
+			// firmware via Put) can keep multiple 64KB chunks in-flight instead
+			// of blocking on the default 64KB window after every send.
+			grpc.WithInitialWindowSize(16*1024*1024),     // 16 MB per-stream
+			grpc.WithInitialConnWindowSize(16*1024*1024), // 16 MB per-connection
 		)
 
 		if err != nil {

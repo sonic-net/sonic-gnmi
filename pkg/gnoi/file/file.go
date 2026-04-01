@@ -4,6 +4,7 @@
 package file
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/md5"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	log "github.com/golang/glog"
@@ -28,8 +30,9 @@ import (
 )
 
 const (
-	// Maximum time allowed for downloading a file (5 minutes for large firmware images)
-	downloadTimeout = 5 * time.Minute
+	// Maximum time allowed for downloading a file (30 minutes for large firmware
+	// images streamed through gRPC proxy to DPU)
+	downloadTimeout = 30 * time.Minute
 
 	// Maximum file size allowed (4GB - typical maximum firmware size)
 	maxFileSize = 4 * 1024 * 1024 * 1024 // 4GB in bytes
@@ -169,6 +172,66 @@ func translatePathForContainer(path string) string {
 	return cleanPath
 }
 
+// copyFile copies src to dst using buffered I/O. It creates dst with 0644
+// permissions (caller should Chmod afterwards if needed). On error the
+// partial dst file is removed.
+//
+// After the copy completes, the destination file is synced to disk and the
+// kernel is advised to release the page cache for the written data. This
+// prevents repeated large transfers from filling the page cache and causing
+// memory pressure that slows down tmpfs allocations.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open source: %w", err)
+	}
+	defer in.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return fmt.Errorf("create destination directory: %w", err)
+	}
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("create destination: %w", err)
+	}
+	defer func() {
+		out.Close()
+		if err != nil {
+			os.Remove(dst)
+		}
+	}()
+
+	if _, err = io.Copy(out, in); err != nil {
+		return fmt.Errorf("copy data: %w", err)
+	}
+
+	// Flush to disk before advising the kernel to drop pages
+	if err = out.Sync(); err != nil {
+		return fmt.Errorf("sync: %w", err)
+	}
+
+	// Advise kernel to release page cache for this file so repeated
+	// large transfers don't cause memory pressure on tmpfs.
+	dropPageCache(out)
+
+	return out.Close()
+}
+
+// dropPageCache advises the kernel that the pages backing this file are no
+// longer needed and can be reclaimed. Uses POSIX_FADV_DONTNEED via the
+// fadvise64 syscall on Linux; silently no-ops on other platforms or errors.
+func dropPageCache(f *os.File) {
+	info, err := f.Stat()
+	if err != nil {
+		return
+	}
+	// syscall.Fadvise is not available in all Go versions, use raw syscall.
+	// POSIX_FADV_DONTNEED = 4
+	_, _, _ = syscall.Syscall6(syscall.SYS_FADVISE64,
+		uintptr(f.Fd()), 0, uintptr(info.Size()), 4, 0, 0)
+}
+
 // validatePath checks if the requested path is within allowed directories.
 // This prevents security issues like overwriting critical system files.
 //
@@ -259,6 +322,8 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 		}
 	}
 
+	putStart := time.Now()
+
 	// Step 1: Receive the first message (must be Open)
 	firstReq, err := stream.Recv()
 	if err != nil {
@@ -281,25 +346,39 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 		permissions = 0644
 	}
 
+	log.Infof("[HandlePut] Receiving file: path=%s permissions=%o", remotePath, permissions)
+
 	// Step 2: Validate path is in allowed directories
 	if err := validatePath(remotePath); err != nil {
 		return status.Errorf(codes.InvalidArgument, "invalid remote_file: %v", err)
 	}
 
-	// Step 3: Container path translation
-	translatedPath := translatePathForContainer(remotePath)
+	// Step 3: Determine write paths.
+	// In a container environment, /tmp and /var/tmp are typically tmpfs
+	// (RAM-backed) while /mnt/host points to the host filesystem (slow
+	// eMMC on DPUs). To keep gRPC streaming fast we receive into the
+	// container-local path first, then copy to the host filesystem after
+	// the stream completes. This avoids slow disk I/O blocking gRPC
+	// flow control during the transfer.
+	cleanPath := filepath.Clean(remotePath)
+	finalPath := translatePathForContainer(remotePath)
+	stagingPath := cleanPath // container-local (tmpfs if /tmp or /var/tmp)
 
-	// Step 4: Create temp file for atomic write
-	tempPath := translatedPath + ".tmp"
+	// Only use two-phase write when the paths actually differ (i.e., in a container)
+	twoPhase := finalPath != stagingPath
+
+	if twoPhase {
+		log.Infof("[HandlePut] Two-phase write: staging to %s (tmpfs), then copying to %s (host)", stagingPath, finalPath)
+	}
+
+	// Step 4: Create temp file in staging location for fast writes
+	tempPath := stagingPath + ".tmp"
 	f, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to create temp file: %v", err)
 	}
 	defer func() {
-		if closeErr := f.Close(); closeErr != nil {
-			log.Errorf("Failed to close temp file %s: %v", tempPath, closeErr)
-		}
-		// Only remove if file still exists (indicates failure path)
+		// Clean up temp file on failure (on success it has been renamed/removed)
 		if _, err := os.Stat(tempPath); err == nil {
 			if rmErr := os.Remove(tempPath); rmErr != nil {
 				log.Errorf("Failed to cleanup temp file %s: %v", tempPath, rmErr)
@@ -307,8 +386,17 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 		}
 	}()
 
-	// Step 5: Receive chunks and write to temp file
-	hasher := md5.New() // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
+	// Step 5: Receive chunks and write to temp file via buffered writer.
+	// Buffering reduces the number of syscalls and avoids per-chunk disk I/O
+	// that would slow down gRPC flow control acks.
+	bw := bufio.NewWriterSize(f, 1024*1024) // 1 MB write buffer
+	hasher := md5.New()                     // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
+
+	const progressInterval = 10 * time.Second // Log every 10 seconds
+	var totalBytes int64
+	recvStart := time.Now()
+	nextLogTime := recvStart.Add(progressInterval)
+
 	for {
 		req, err := stream.Recv()
 		if err != nil {
@@ -316,18 +404,27 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 				return status.Error(codes.InvalidArgument, "unexpected end of stream before hash")
 			}
 			if err == context.Canceled || err == context.DeadlineExceeded {
-				return status.Errorf(codes.Canceled, "stream canceled: %v", err)
+				return status.Errorf(codes.Canceled, "stream canceled after %.1f MB: %v",
+					float64(totalBytes)/(1024*1024), err)
 			}
-			return status.Errorf(codes.Internal, "failed to receive chunk: %v", err)
+			return status.Errorf(codes.Internal, "failed to receive chunk after %.1f MB: %v",
+				float64(totalBytes)/(1024*1024), err)
 		}
 
 		if contents := req.GetContents(); contents != nil {
-			// Write chunk to file
-			if _, err := f.Write(contents); err != nil {
+			// Write chunk to buffered writer
+			if _, err := bw.Write(contents); err != nil {
 				return status.Errorf(codes.Internal, "failed to write chunk: %v", err)
 			}
 			// Update hash
 			hasher.Write(contents)
+			totalBytes += int64(len(contents))
+
+			if now := time.Now(); now.After(nextLogTime) {
+				log.Infof("[HandlePut] Progress: %.0f MB received in %v",
+					float64(totalBytes)/(1024*1024), now.Sub(recvStart).Round(time.Second))
+				nextLogTime = now.Add(progressInterval)
+			}
 		} else if hashMsg := req.GetHash(); hashMsg != nil {
 			// Step 6: Verify hash
 			calculatedHash := hasher.Sum(nil)
@@ -344,20 +441,45 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 		}
 	}
 
-	// Step 7: Close the temp file before renaming
+	recvElapsed := time.Since(recvStart)
+	log.Infof("[HandlePut] Receive complete: %.1f MB in %v, hash verified",
+		float64(totalBytes)/(1024*1024), recvElapsed.Round(time.Millisecond))
+
+	// Step 7: Flush buffered writer and close the temp file
+	if err := bw.Flush(); err != nil {
+		return status.Errorf(codes.Internal, "failed to flush write buffer: %v", err)
+	}
 	if err := f.Close(); err != nil {
 		return status.Errorf(codes.Internal, "failed to close temp file: %v", err)
 	}
 
-	// Step 8: Set permissions on temp file
+	// Step 8: Set permissions
 	if err := os.Chmod(tempPath, os.FileMode(permissions)); err != nil {
 		return status.Errorf(codes.Internal, "failed to set permissions: %v", err)
 	}
 
-	// Step 9: Atomic rename to final path
-	if err := os.Rename(tempPath, translatedPath); err != nil {
-		return status.Errorf(codes.Internal, "failed to rename file: %v", err)
+	// Step 9: Move file to final destination
+	if twoPhase {
+		// Cross-filesystem: copy from tmpfs staging to host filesystem, then
+		// remove the staging file. This is slower but happens after the gRPC
+		// stream is fully received, so it doesn't affect transfer throughput.
+		copyStart := time.Now()
+		if err := copyFile(tempPath, finalPath); err != nil {
+			return status.Errorf(codes.Internal, "failed to copy to host filesystem: %v", err)
+		}
+		os.Remove(tempPath) // clean up staging file
+		log.Infof("[HandlePut] Copied to host filesystem in %v", time.Since(copyStart).Round(time.Millisecond))
+	} else {
+		// Same filesystem: atomic rename
+		if err := os.Rename(tempPath, finalPath); err != nil {
+			return status.Errorf(codes.Internal, "failed to rename file: %v", err)
+		}
 	}
+
+	log.Infof("[HandlePut] Transfer complete: %.1f MB in %v, path=%s",
+		float64(totalBytes)/(1024*1024),
+		time.Since(putStart).Round(time.Millisecond),
+		remotePath)
 
 	// Step 10: Send success response
 	return stream.SendAndClose(&gnoi_file_pb.PutResponse{})
@@ -408,8 +530,12 @@ func HandleTransferToRemoteForDPUStreaming(
 	streamCtx, cancel := context.WithTimeout(ctx, downloadTimeout)
 	defer cancel()
 
+	transferStart := time.Now()
+	log.Infof("[TransferToRemote-DPU%s] Starting transfer: url=%s localPath=%s",
+		dpuIndex, url, localPath)
+
 	// Step 1: Create HTTP streaming connection
-	httpStream, _, err := download.DownloadHTTPStreaming(streamCtx, url, maxFileSize)
+	httpStream, contentLength, err := download.DownloadHTTPStreaming(streamCtx, url, maxFileSize)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create HTTP stream: %v", err)
 	}
@@ -447,35 +573,53 @@ func HandleTransferToRemoteForDPUStreaming(
 	teeReader := io.TeeReader(httpStream, hashCalc)
 
 	// Step 5: Stream file contents in chunks
-	chunkSize := 64 * 1024 // 64KB chunks
+	chunkSize := 64 * 1024 // 64KB per proto spec
 	buffer := make([]byte, chunkSize)
+
+	const progressInterval = 10 * time.Second
+	var totalBytes int64
+	streamStart := time.Now()
+	nextLogTime := streamStart.Add(progressInterval)
 
 	for {
 		select {
 		case <-streamCtx.Done():
-			return nil, status.Error(codes.DeadlineExceeded, "streaming operation timed out")
+			return nil, status.Errorf(codes.DeadlineExceeded,
+				"streaming timed out after %.1f MB in %v", float64(totalBytes)/(1024*1024), time.Since(streamStart))
 		default:
 		}
 
-		// Read next chunk from HTTP stream (via TeeReader for concurrent hashing)
-		n, err := teeReader.Read(buffer)
+		n, readErr := teeReader.Read(buffer)
 		if n > 0 {
-			// Send chunk to DPU
 			contentReq := &gnoi_file_pb.PutRequest{
 				Request: &gnoi_file_pb.PutRequest_Contents{
 					Contents: buffer[:n],
 				},
 			}
-			if err := putClient.Send(contentReq); err != nil {
-				return nil, status.Errorf(codes.Internal, "failed to send content chunk: %v", err)
+			if sendErr := putClient.Send(contentReq); sendErr != nil {
+				return nil, status.Errorf(codes.Internal, "failed to send content chunk after %.1f MB: %v",
+					float64(totalBytes)/(1024*1024), sendErr)
+			}
+			totalBytes += int64(n)
+
+			if now := time.Now(); now.After(nextLogTime) {
+				elapsed := now.Sub(streamStart)
+				pctDone := ""
+				if contentLength > 0 {
+					pctDone = fmt.Sprintf(" (%.0f%%)", float64(totalBytes)*100/float64(contentLength))
+				}
+				log.Infof("[TransferToRemote-DPU%s] Progress: %.0f MB%s in %v",
+					dpuIndex, float64(totalBytes)/(1024*1024), pctDone, elapsed.Round(time.Second))
+				nextLogTime = now.Add(progressInterval)
 			}
 		}
 
-		if err == io.EOF {
+		if readErr == io.EOF {
 			break
 		}
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to read from HTTP stream: %v", err)
+		if readErr != nil {
+			return nil, status.Errorf(codes.Internal, "failed to read from HTTP stream after %.1f MB: %v",
+				float64(totalBytes)/(1024*1024), readErr)
 		}
 	}
 
@@ -497,6 +641,9 @@ func HandleTransferToRemoteForDPUStreaming(
 	if _, err := putClient.CloseAndRecv(); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to complete Put to DPU: %v", err)
 	}
+
+	log.Infof("[TransferToRemote-DPU%s] Transfer complete: %.1f MB in %v",
+		dpuIndex, float64(totalBytes)/(1024*1024), time.Since(transferStart).Round(time.Millisecond))
 
 	// Build response with calculated hash
 	return &gnoi_file_pb.TransferToRemoteResponse{
