@@ -6906,3 +6906,168 @@ func TestSrvTestConfigLogsAndReturns(t *testing.T) {
 		}
 	})
 }
+
+func TestTCPListenerFailsUDSContinues(t *testing.T) {
+	// Pre-bind a port so the server's TCP listener fails to bind
+	blocker, err := net.Listen("tcp", ":18282")
+	if err != nil {
+		t.Fatalf("Failed to pre-bind port: %v", err)
+	}
+	defer blocker.Close()
+
+	socketPath := "/tmp/gnmi_test_tcp_fail_uds.sock"
+	os.Remove(socketPath)
+	defer os.Remove(socketPath)
+
+	cfg := &Config{
+		Port:       18282, // Same port as blocker — will fail
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("NewServer should succeed with UDS when TCP fails: %v", err)
+	}
+	if s == nil {
+		t.Fatal("Server should not be nil")
+	}
+	if s.s != nil {
+		t.Error("TCP server should be nil when TCP bind fails")
+	}
+	if s.lis != nil {
+		t.Error("TCP listener should be nil when TCP bind fails")
+	}
+	if s.udsServer == nil {
+		t.Error("UDS server should not be nil")
+	}
+	if s.udsListener == nil {
+		t.Error("UDS listener should not be nil")
+	}
+
+	s.ForceStop()
+}
+
+func TestUDSListenerFailsTCPContinues(t *testing.T) {
+	// Use a socket path under /dev/null (a file, not a directory) to force
+	// MkdirAll failure when creating the socket directory
+	socketPath := "/dev/null/gnmi_test.sock"
+
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+
+	cfg := &Config{
+		Port:       18283,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, tlsOpts, nil)
+	if err != nil {
+		t.Fatalf("NewServer should succeed with TCP when UDS fails: %v", err)
+	}
+	if s == nil {
+		t.Fatal("Server should not be nil")
+	}
+	if s.s == nil {
+		t.Error("TCP server should not be nil")
+	}
+	if s.lis == nil {
+		t.Error("TCP listener should not be nil")
+	}
+	if s.udsServer != nil {
+		t.Error("UDS server should be nil when UDS setup fails")
+	}
+	if s.udsListener != nil {
+		t.Error("UDS listener should be nil when UDS setup fails")
+	}
+
+	s.ForceStop()
+}
+
+func TestBothListenersFail(t *testing.T) {
+	// Pre-bind port to force TCP failure
+	blocker, err := net.Listen("tcp", ":18284")
+	if err != nil {
+		t.Fatalf("Failed to pre-bind port: %v", err)
+	}
+	defer blocker.Close()
+
+	// Use invalid socket path to force UDS failure
+	socketPath := "/dev/null/gnmi_test.sock"
+
+	cfg := &Config{
+		Port:       18284,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, nil, nil)
+	if err == nil {
+		s.ForceStop()
+		t.Error("NewServer should fail when both listeners fail")
+	}
+	if s != nil {
+		t.Error("Server should be nil when both listeners fail")
+	}
+}
+
+func TestServeBlocksWhenOneListenerCloses(t *testing.T) {
+	// Verify that Serve() does not return when only one listener fails;
+	// it should keep blocking until all listeners have stopped.
+	socketPath := "/tmp/gnmi_test_serve_block.sock"
+	os.Remove(socketPath)
+	defer os.Remove(socketPath)
+
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+
+	cfg := &Config{
+		Port:       18285,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, tlsOpts, nil)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- s.Serve()
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Close TCP listener to simulate a runtime failure
+	s.lis.Close()
+
+	// Serve() should NOT return yet — UDS listener is still active
+	select {
+	case <-serveDone:
+		t.Error("Serve() should not return when only one listener fails")
+	case <-time.After(200 * time.Millisecond):
+		// Expected: Serve still blocking
+	}
+
+	// Stop the server so both listeners shut down
+	s.Stop()
+
+	select {
+	case <-serveDone:
+		// Serve returned after Stop — correct behavior
+	case <-time.After(2 * time.Second):
+		t.Error("Serve() did not return after Stop()")
+	}
+}
