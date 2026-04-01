@@ -132,6 +132,8 @@ stages:
     - template: .azure/templates/install-dependencies.yml
       parameters:
         buildBranch: $(BUILD_BRANCH)
+        arch: amd64
+        installTestDeps: true
 
     # Memory leak tests with JUnit XML generation
     
@@ -185,27 +187,20 @@ stages:
       submodules: recursive
       displayName: 'Checkout sonic-swss-common'
 
-    # Integration tests have been separated from pure package tests
-    # Pure package CI now runs in the separate PureCIJob above
-    # The steps below are for integration testing with SONiC dependencies
-    
     # Install SONiC dependencies using shared template
     - template: .azure/templates/install-dependencies.yml
       parameters:
         buildBranch: $(BUILD_BRANCH)
+        arch: amd64
+        installTestDeps: true
 
-    # Build sonic-mgmt-common and sonic-gnmi
+    # Build sonic-mgmt-common (generates Go code that sonic-gnmi imports)
     - script: |
         set -ex
-        ls -l
-
         pushd sonic-mgmt-common
         NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
         popd
-
-        pushd sonic-gnmi
-        ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
-      displayName: "Build"
+      displayName: "Build sonic-mgmt-common"
 
     # Run pure package tests for coverage (test results already published by PureCIJob)
     - bash: |
@@ -236,12 +231,50 @@ stages:
         publishRunAttachments: true
         testRunTitle: 'Integration Tests'
 
-    - publish: $(Build.ArtifactStagingDirectory)/
-      artifact: sonic-gnmi
-      displayName: "Archive artifacts"
-
     - task: PublishCodeCoverageResults@1
       inputs:
         codeCoverageTool: Cobertura
         summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
       displayName: 'Publish coverage'
+
+- stage: BuildAmd64
+  dependsOn: []
+  jobs:
+  - job: amd64
+    displayName: "amd64 deb build"
+    timeoutInMinutes: 60
+
+    pool:
+      name: sonicso1ES-amd64
+      vmImage: ubuntu-22.04
+
+    container:
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
+
+    steps:
+    - template: .azure/templates/build-deb.yml
+      parameters:
+        buildBranch: $(BUILD_BRANCH)
+        arch: amd64
+
+- stage: BuildArm64
+  dependsOn: []
+  jobs:
+  - job: arm64
+    displayName: "arm64 deb build"
+    timeoutInMinutes: 60
+
+    pool:
+      name: sonicso1ES-arm64
+
+    container:
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:$(BUILD_BRANCH)-arm64
+
+    steps:
+    - template: .azure/templates/build-deb.yml
+      parameters:
+        buildBranch: $(BUILD_BRANCH)
+        arch: arm64
+        commonLibArtifact: common-lib.arm64
+        swssCommonArtifact: sonic-swss-common-bookworm.arm64
+        publishArtifact: sonic-gnmi.arm64
