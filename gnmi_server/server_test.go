@@ -7071,3 +7071,151 @@ func TestServeBlocksWhenOneListenerCloses(t *testing.T) {
 		t.Error("Serve() did not return after Stop()")
 	}
 }
+
+func TestUDSBindFailsTCPContinues(t *testing.T) {
+	// Directory creation succeeds but socket bind fails (path too long for unix socket)
+	tmpDir, err := os.MkdirTemp("", "gnmi_test_uds_bind")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Unix domain socket paths are limited to ~108 chars; exceed that limit
+	longName := strings.Repeat("a", 200)
+	socketPath := filepath.Join(tmpDir, longName)
+
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+
+	cfg := &Config{
+		Port:       18286,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, tlsOpts, nil)
+	if err != nil {
+		t.Fatalf("NewServer should succeed with TCP when UDS bind fails: %v", err)
+	}
+	if s.udsServer != nil {
+		t.Error("UDS server should be nil when socket bind fails")
+	}
+	if s.udsListener != nil {
+		t.Error("UDS listener should be nil when socket bind fails")
+	}
+	if s.s == nil || s.lis == nil {
+		t.Error("TCP server and listener should still work")
+	}
+
+	s.ForceStop()
+}
+
+func TestUDSChmodFailsTCPContinues(t *testing.T) {
+	socketPath := "/tmp/gnmi_test_chmod_fail.sock"
+	os.Remove(socketPath)
+	defer os.Remove(socketPath)
+
+	// Patch os.Chmod to fail for the socket path
+	patch := gomonkey.ApplyFunc(os.Chmod, func(name string, mode os.FileMode) error {
+		if name == socketPath {
+			return fmt.Errorf("simulated chmod failure")
+		}
+		return nil
+	})
+	defer patch.Reset()
+
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+
+	cfg := &Config{
+		Port:       18287,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, tlsOpts, nil)
+	if err != nil {
+		t.Fatalf("NewServer should succeed with TCP when UDS chmod fails: %v", err)
+	}
+	if s.udsServer != nil {
+		t.Error("UDS server should be nil when chmod fails")
+	}
+	if s.udsListener != nil {
+		t.Error("UDS listener should be nil when chmod fails")
+	}
+	if s.s == nil || s.lis == nil {
+		t.Error("TCP server and listener should still work")
+	}
+
+	// Socket file should have been cleaned up
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Error("Socket file should be removed after chmod failure")
+	}
+
+	s.ForceStop()
+}
+
+func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
+	socketPath := "/tmp/gnmi_test_uds_serve_err.sock"
+	os.Remove(socketPath)
+	defer os.Remove(socketPath)
+
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not load server key pair: %s", err)
+	}
+	tlsCfg := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{certificate},
+	}
+	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
+
+	cfg := &Config{
+		Port:       18288,
+		UnixSocket: socketPath,
+		Threshold:  100,
+	}
+	s, err := NewServer(cfg, tlsOpts, nil)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- s.Serve()
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Close UDS listener to simulate a UDS runtime failure
+	s.udsListener.Close()
+
+	// Serve() should NOT return — TCP listener is still active
+	select {
+	case <-serveDone:
+		t.Error("Serve() should not return when only UDS listener fails")
+	case <-time.After(200 * time.Millisecond):
+		// Expected: Serve still blocking
+	}
+
+	s.Stop()
+
+	select {
+	case <-serveDone:
+		// Serve returned after Stop — correct behavior
+	case <-time.After(2 * time.Second):
+		t.Error("Serve() did not return after Stop()")
+	}
+}
