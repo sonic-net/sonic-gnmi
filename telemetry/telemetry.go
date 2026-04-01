@@ -470,6 +470,7 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 				ClientAuth:               tls.RequireAndVerifyClientCert,
 				Certificates:             []tls.Certificate{certificate},
 				MinVersion:               tls.VersionTLS12,
+				SessionTicketsDisabled:   true,
 				CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
 				PreferServerCipherSuites: true,
 				CipherSuites: []uint16{
