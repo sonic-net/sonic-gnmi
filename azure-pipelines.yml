@@ -25,6 +25,8 @@ variables:
       value: $(Build.SourceBranchName)
   - name: UNIT_TEST_FLAG
     value: 'ENABLE_TRANSLIB_WRITE=y'
+  - name: DIFF_COVER_THRESHOLD
+    value: 80
 
 resources:
   repositories:
@@ -87,12 +89,16 @@ stages:
         publishRunAttachments: true
         testRunTitle: 'Pure Package Tests'
 
-    - task: PublishCodeCoverageResults@1
+    - task: PublishCodeCoverageResults@2
       displayName: 'Publish Pure Package Coverage'
       condition: always()
       inputs:
-        codeCoverageTool: Cobertura
         summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/coverage-pure.xml'
+
+    - publish: $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/coverage-pure.xml
+      artifact: coverage-pure
+      displayName: 'Publish pure coverage artifact'
+      condition: always()
 
   # Memory leak testing with address sanitizer
   - job: MemoryLeakJob
@@ -104,9 +110,6 @@ stages:
       vmImage: ubuntu-22.04
 
     variables:
-      DIFF_COVER_CHECK_THRESHOLD: 80
-      DIFF_COVER_ENABLE: 'true'
-      DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)/sonic-gnmi
       UNIT_TEST_FLAG: 'ENABLE_TRANSLIB_WRITE=y'
 
     container:
@@ -136,7 +139,7 @@ stages:
         installTestDeps: true
 
     # Memory leak tests with JUnit XML generation
-    
+
     - bash: |
         set -euo pipefail
         pushd sonic-gnmi
@@ -175,6 +178,7 @@ stages:
     - checkout: self
       clean: true
       submodules: recursive
+      fetchDepth: 0
       displayName: 'Checkout code'
 
     - checkout: sonic-mgmt-common
@@ -231,11 +235,44 @@ stages:
         publishRunAttachments: true
         testRunTitle: 'Integration Tests'
 
-    - task: PublishCodeCoverageResults@1
+    - task: PublishCodeCoverageResults@2
       inputs:
-        codeCoverageTool: Cobertura
         summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
       displayName: 'Publish coverage'
+
+    - publish: $(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml
+      artifact: coverage-integration
+      displayName: 'Publish integration coverage artifact'
+      condition: always()
+
+  - job: DiffCoverageCheck
+    displayName: "Diff Coverage Check"
+    dependsOn: [PureCIJob, build]
+    condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))
+    timeoutInMinutes: 10
+    pool:
+      vmImage: ubuntu-22.04
+    steps:
+    - checkout: self
+      clean: true
+      fetchDepth: 0
+
+    - download: current
+      artifact: coverage-pure
+
+    - download: current
+      artifact: coverage-integration
+
+    - bash: |
+        set -euo pipefail
+        pip3 install --quiet diff-cover
+        diff-cover \
+          $(Pipeline.Workspace)/coverage-integration/coverage.xml \
+          $(Pipeline.Workspace)/coverage-pure/coverage-pure.xml \
+          --compare-branch origin/$(BUILD_BRANCH) \
+          --src-roots . \
+          --fail-under $(DIFF_COVER_THRESHOLD)
+      displayName: 'Run diff-cover'
 
 - stage: BuildAmd64
   dependsOn: []
