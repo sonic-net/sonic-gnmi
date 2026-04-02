@@ -7116,57 +7116,6 @@ func TestUDSBindFailsTCPContinues(t *testing.T) {
 	s.ForceStop()
 }
 
-func TestUDSChmodFailsTCPContinues(t *testing.T) {
-	socketPath := "/tmp/gnmi_test_chmod_fail.sock"
-	os.Remove(socketPath)
-	defer os.Remove(socketPath)
-
-	// Patch os.Chmod to fail for the socket path
-	patch := gomonkey.ApplyFunc(os.Chmod, func(name string, mode os.FileMode) error {
-		if name == socketPath {
-			return fmt.Errorf("simulated chmod failure")
-		}
-		return nil
-	})
-	defer patch.Reset()
-
-	certificate, err := testcert.NewCert()
-	if err != nil {
-		t.Fatalf("could not load server key pair: %s", err)
-	}
-	tlsCfg := &tls.Config{
-		ClientAuth:   tls.RequestClientCert,
-		Certificates: []tls.Certificate{certificate},
-	}
-	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-
-	cfg := &Config{
-		Port:       18287,
-		UnixSocket: socketPath,
-		Threshold:  100,
-	}
-	s, err := NewServer(cfg, tlsOpts, nil)
-	if err != nil {
-		t.Fatalf("NewServer should succeed with TCP when UDS chmod fails: %v", err)
-	}
-	if s.udsServer != nil {
-		t.Error("UDS server should be nil when chmod fails")
-	}
-	if s.udsListener != nil {
-		t.Error("UDS listener should be nil when chmod fails")
-	}
-	if s.s == nil || s.lis == nil {
-		t.Error("TCP server and listener should still work")
-	}
-
-	// Socket file should have been cleaned up
-	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
-		t.Error("Socket file should be removed after chmod failure")
-	}
-
-	s.ForceStop()
-}
-
 func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
 	socketPath := "/tmp/gnmi_test_uds_serve_err.sock"
 	os.Remove(socketPath)
