@@ -2,11 +2,11 @@
 
 ## Non-obvious gotchas
 
-These are things you cannot discover by reading the code. Everything else, read the code.
+These are things that are easy to miss when just reading the code or building locally. For everything else, read the code.
 
 1. **Sibling directory layout required.** `go.mod` has `replace github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common`. You must clone both repos side-by-side. `go mod vendor` fails with no clear error otherwise.
 
-2. **Build tags silently disable write support.** `make all` without `ENABLE_TRANSLIB_WRITE=y` produces a binary that looks functional but silently drops all gNMI Set operations. Tests for writes get `t.Skip()`'d. Production builds use both `ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y`.
+2. **Write support is disabled by default (read-only mode).** `make all` without `ENABLE_TRANSLIB_WRITE=y` (and/or `ENABLE_NATIVE_WRITE=y`) produces a binary that accepts gNMI `Set` RPCs but fails them with `codes.Unimplemented` ("GNMI is in read-only mode") unless write is explicitly enabled at build/start time. Tests for writes get `t.Skip()`'d when write flags are off. Production builds enable both `ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y`.
 
 3. **"Unit tests" require sudo + Redis.** Many `*_test.go` files copy configs to `/var/run/redis/sonic-db/`, need a running Redis server, and require root access. They look like unit tests but are integration tests.
 
