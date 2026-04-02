@@ -177,13 +177,18 @@ func (p *DPUProxy) getConnection(ctx context.Context, dpuIndex, ipAddress string
 		target := fmt.Sprintf("%s:%s", ipAddress, port)
 		glog.Infof("[DPUProxy] Trying to connect to DPU%s at %s (attempt %d/%d)", dpuIndex, target, i+1, len(portsToTry))
 
-		// Create connection with keepalive settings for long-lived connections
+		// Create connection with keepalive settings for long-lived connections.
+		// Use a conservative ping interval to avoid triggering the server's
+		// default EnforcementPolicy (MinTime=5m). Operations like SetPackage
+		// can block for minutes during image installation; aggressive pinging
+		// causes the server to send GOAWAY with "too_many_pings".
+		// See: https://github.com/sonic-net/sonic-gnmi/issues/619
 		conn, err := grpc.NewClient(
 			target,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:                10 * time.Second, // Send keepalive ping every 10s
-				Timeout:             3 * time.Second,  // Wait 3s for ping ack before considering connection dead
+				Time:                30 * time.Second, // Send keepalive ping every 30s
+				Timeout:             10 * time.Second, // Wait 10s for ping ack before considering connection dead
 				PermitWithoutStream: true,             // Send pings even when no active RPCs
 			}),
 		)
