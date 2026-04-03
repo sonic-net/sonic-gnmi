@@ -953,7 +953,6 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, err
 	}
-	notifications := make([]*gnmipb.Notification, len(paths))
 	spbValues, err := dc.Get(nil)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
@@ -963,17 +962,18 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 
-	for index, spbValue := range spbValues {
+	notifications := make([]*gnmipb.Notification, 0, len(spbValues))
+	for _, spbValue := range spbValues {
 		update := &gnmipb.Update{
 			Path: spbValue.GetPath(),
 			Val:  spbValue.GetVal(),
 		}
 
-		notifications[index] = &gnmipb.Notification{
+		notifications = append(notifications, &gnmipb.Notification{
 			Timestamp: spbValue.GetTimestamp(),
 			Prefix:    prefix,
 			Update:    []*gnmipb.Update{update},
-		}
+		})
 	}
 	return &gnmipb.GetResponse{Notification: notifications}, nil
 }

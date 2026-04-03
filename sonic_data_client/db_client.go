@@ -601,12 +601,11 @@ func gnmiFullPath(prefix, path *gnmipb.Path) *gnmipb.Path {
 
 func populateAllDbtablePath(prefix *gnmipb.Path, paths []*gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
 	for _, path := range paths {
-		err := populateDbtablePath(prefix, path, pathG2S)
-		if err != nil {
+		if err := parsePath(prefix, path, pathG2S); err != nil {
 			return err
 		}
 	}
-	return nil
+	return probePathElements(pathG2S)
 }
 
 // parsePath resolves a gNMI path into a tablePath struct and stores it in pathG2S.
@@ -735,8 +734,7 @@ func parsePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath)
 func probePathElements(pathG2S *map[*gnmipb.Path][]tablePath) error {
 	for path, tblPaths := range *pathG2S {
 		for i, tblPath := range tblPaths {
-			// V2R-resolved paths and field-only paths don't need probing
-			if tblPath.jsonTableKey != "" || tblPath.field != "" || tblPath.tableKey == "" {
+			if tblPath.isVirtualPath || tblPath.field != "" || tblPath.tableKey == "" {
 				continue
 			}
 
@@ -809,7 +807,10 @@ func validatePath(pathG2S *map[*gnmipb.Path][]tablePath) error {
 				return fmt.Errorf("Redis Client not present for dbName %v dbNamespace %v", tblPath.dbName, tblPath.dbNamespace)
 			}
 			key := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
-			n, _ := redisDb.Exists(context.Background(), key).Result()
+			n, err := redisDb.Exists(context.Background(), key).Result()
+			if err != nil {
+				return fmt.Errorf("redis Exists op failed for %v: %v", key, err)
+			}
 			if n != 1 {
 				log.V(2).Infof("No valid entry found on %v with key %v", tblPath.dbName, key)
 				return fmt.Errorf("No valid entry found on %v with key %v", tblPath.dbName, key)
