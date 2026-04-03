@@ -963,13 +963,15 @@ func (c *MixedDbClient) msi2TypedValue(msi map[string]interface{}) (*gnmipb.Type
 	}
 }
 
-func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error) {
+// Returns typed value, error, and bool indicating whether data was found for the queried paths.
+func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error, bool) {
 	var useKey bool
+	var updateReceived bool
 	msi := make(map[string]interface{})
 	for _, tblPath := range tblPaths {
 		redisDb, ok := RedisDbMap[c.mapkey+":"+tblPath.dbName]
 		if !ok {
-			return nil, fmt.Errorf("Redis Client not present for dbName %v mapkey %v", tblPath.dbName, c.mapkey)
+			return nil, fmt.Errorf("Redis Client not present for dbName %v mapkey %v", tblPath.dbName, c.mapkey), true
 		}
 
 		if tblPath.jsonField == "" { // Not asked to include field in json value, which means not wildcard query
@@ -990,17 +992,17 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 					field := tblPath.field + "@"
 					val, err := redisDb.HGet(context.Background(), key, field).Result()
 					if err != nil {
-						log.V(2).Infof("redis HGet failed for %v", tblPath)
-						return nil, err
+						log.V(2).Infof("redis HGet failed for %v, data does not exist", tblPath)
+						continue
 					}
 					slice := strings.Split(val, ",")
 					if tblPath.index >= len(slice) {
-						return nil, fmt.Errorf("Invalid index %v for %v", tblPath.index, slice)
+						return nil, fmt.Errorf("Invalid index %v for %v", tblPath.index, slice), true
 					}
 					return &gnmipb.TypedValue{
 						Value: &gnmipb.TypedValue_JsonIetfVal{
 							JsonIetfVal: []byte(`"` + slice[tblPath.index] + `"`),
-						}}, nil
+						}}, nil, true
 				} else {
 					field := tblPath.field
 					val, err := redisDb.HGet(context.Background(), key, field).Result()
@@ -1008,7 +1010,7 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 						return &gnmipb.TypedValue{
 							Value: &gnmipb.TypedValue_JsonIetfVal{
 								JsonIetfVal: []byte(`"` + val + `"`),
-							}}, nil
+							}}, nil, true
 					}
 					field = field + "@"
 					val, err = redisDb.HGet(context.Background(), key, field).Result()
@@ -1017,25 +1019,35 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 						slice := strings.Split(val, ",")
 						output, err = json.Marshal(slice)
 						if err != nil {
-							return nil, err
+							return nil, err, true
 						}
 						return &gnmipb.TypedValue{
 							Value: &gnmipb.TypedValue_JsonIetfVal{
 								JsonIetfVal: []byte(output),
-							}}, nil
+							}}, nil, true
 					}
-					log.V(2).Infof("redis HGet failed for %v", tblPath)
-					return nil, err
+					log.V(2).Infof("redis HGet failed for %v, data does not exist", tblPath)
+					continue
 				}
 			}
 		}
 
 		err := c.tableData2Msi(&tblPath, useKey, nil, &msi)
 		if err != nil {
-			return nil, err
+			return nil, err, true
+		}
+
+		if !updateReceived {
+			if len(msi) > 0 {
+				updateReceived = true
+			}
 		}
 	}
-	return c.msi2TypedValue(msi)
+	if !updateReceived {
+		return nil, nil, false
+	}
+	val, err := c.msi2TypedValue(msi)
+	return val, err, true
 }
 
 func ConvertDbEntry(inputData map[string]interface{}) map[string]string {
@@ -1631,7 +1643,10 @@ func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 			if err != nil {
 				return nil, err
 			}
-			val, err := c.tableData2TypedValue(tblPaths, nil)
+			val, err, updateReceived := c.tableData2TypedValue(tblPaths, nil)
+			if !updateReceived {
+				continue // Skip paths with no data
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -1659,6 +1674,8 @@ func (c *MixedDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *s
 	c.q = q
 	c.channel = poll
 
+	prevUpdates := make(map[string]bool)
+
 	for {
 		_, more := <-c.channel
 		if !more {
@@ -1667,40 +1684,56 @@ func (c *MixedDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *s
 		}
 		t1 := time.Now()
 		for _, gnmiPath := range c.paths {
+			pathKey := fmt.Sprintf("%v", gnmiPath)
 			tblPaths, err := c.getDbtablePath(gnmiPath, nil)
 			if err != nil {
 				log.V(2).Infof("Unable to get table path due to err: %v", err)
 				return
 			}
-			val, err := c.tableData2TypedValue(tblPaths, nil)
-			if err != nil {
+			val, err, updateReceived := c.tableData2TypedValue(tblPaths, nil)
+			if !updateReceived {
+				if prevUpdate, exists := prevUpdates[pathKey]; exists && prevUpdate {
+					log.V(6).Infof("Delete received for message for %v", gnmiPath)
+					spbv := &spb.Value{
+						Timestamp:    time.Now().UnixNano(),
+						Prefix:       c.prefix,
+						SyncResponse: false,
+						Delete:       []*gnmipb.Path{gnmiPath},
+						Val: &gnmipb.TypedValue{
+							Value: &gnmipb.TypedValue_StringVal{
+								StringVal: "",
+							},
+						},
+					}
+					c.q.Put(Value{spbv})
+					log.V(6).Infof("Added spbv #%v", spbv)
+					prevUpdates[pathKey] = false
+				}
+			} else if err != nil {
 				log.V(2).Infof("Unable to create gnmi TypedValue due to err: %v", err)
 				return
+			} else {
+				spbv := &spb.Value{
+					Prefix:       c.prefix,
+					Path:         gnmiPath,
+					Timestamp:    time.Now().UnixNano(),
+					SyncResponse: false,
+					Val:          val,
+				}
+				c.q.Put(Value{spbv})
+				prevUpdates[pathKey] = true
+				log.V(6).Infof("Added spbv #%v", spbv)
 			}
-
-			spbv := &spb.Value{
-				Prefix:       c.prefix,
-				Path:         gnmiPath,
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: false,
-				Val:          val,
-			}
-			c.q.Put(Value{spbv})
-			log.V(6).Infof("Added spbv #%v", spbv)
 		}
 
-		c.q.Put(Value{
-			&spb.Value{
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: true,
-			},
-		})
+		spbv := &spb.Value{
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: true,
+		}
+		c.q.Put(Value{spbv})
+		log.V(6).Infof("Added spbv #%v", spbv)
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
-}
-
-func (c *MixedDbClient) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
-	return
 }
 
 func (c *MixedDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {

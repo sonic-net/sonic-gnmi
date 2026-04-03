@@ -2,7 +2,6 @@
 package client
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -41,8 +40,6 @@ type Client interface {
 	// The service will stop upon detection of poll channel closing.
 	// It should run as a go routine
 	PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
-	// Poll to service AppDB only
-	AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
 	OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
 	// Get return data from the data source in format of *spb.Value
 	Get(w *sync.WaitGroup) ([]*spb.Value, error)
@@ -135,6 +132,7 @@ type tablePath struct {
 	jsonTableKey  string
 	jsonDelimitor string
 	jsonField     string
+	isVirtualPath bool
 }
 
 type Value struct {
@@ -192,6 +190,12 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
 	} else {
 		return &client, nil
 	}
+}
+
+// ValidatePaths checks that all resolved paths in the client exist in Redis.
+// Returns an error if any key is not found. Used by Get to enforce NOT_FOUND.
+func (c *DbClient) ValidatePaths() error {
+	return validatePath(&c.pathG2S)
 }
 
 // String returns the target the client is querying.
@@ -298,7 +302,7 @@ func streamSampleSubscription(c *DbClient, sub *gnmipb.Subscription, updateOnly 
 	}
 }
 
-func (c *DbClient) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
+func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.w = w
 	defer c.w.Done()
 	c.q = q
@@ -316,9 +320,9 @@ func (c *DbClient) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *s
 
 		for gnmiPath, tblPaths := range c.pathG2S {
 			pathKey := fmt.Sprintf("%v", gnmiPath)
-			val, err, updateReceived := AppDBTableData2TypedValue(tblPaths, nil)
+			val, err, updateReceived := subscribeTableData2TypedValue(tblPaths, nil)
 			if !updateReceived { // No updates sent for missing data
-				if prevUpdate, exists := prevUpdates[pathKey]; exists && prevUpdate == true {
+				if prevUpdate, exists := prevUpdates[pathKey]; exists && prevUpdate {
 					log.V(6).Infof("Delete received for message for %v", gnmiPath)
 					spbv := &spb.Value{
 						Timestamp:    time.Now().UnixNano(),
@@ -357,47 +361,6 @@ func (c *DbClient) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *s
 		}
 		c.q.Put(Value{spbv})
 		log.V(6).Infof("Added spbv #%v", spbv)
-		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
-	}
-}
-
-func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
-	c.w = w
-	defer c.w.Done()
-	c.q = q
-	c.channel = poll
-
-	for {
-		_, more := <-c.channel
-		if !more {
-			log.V(1).Infof("%v poll channel closed, exiting pollDb routine", c)
-			return
-		}
-		t1 := time.Now()
-		for gnmiPath, tblPaths := range c.pathG2S {
-			val, err := tableData2TypedValue(tblPaths, nil)
-			if err != nil {
-				log.V(2).Infof("Unable to create gnmi TypedValue due to err: %v", err)
-				return
-			}
-
-			spbv := &spb.Value{
-				Prefix:       c.prefix,
-				Path:         gnmiPath,
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: false,
-				Val:          val,
-			}
-			c.q.Put(Value{spbv})
-			log.V(6).Infof("Added spbv #%v", spbv)
-		}
-
-		c.q.Put(Value{
-			&spb.Value{
-				Timestamp:    time.Now().UnixNano(),
-				SyncResponse: true,
-			},
-		})
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
 }
@@ -646,20 +609,18 @@ func populateAllDbtablePath(prefix *gnmipb.Path, paths []*gnmipb.Path, pathG2S *
 	return nil
 }
 
-// Populate table path in DB from gnmi path
-func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
-	var buffer bytes.Buffer
-	var dbPath string
+// parsePath resolves a gNMI path into a tablePath struct and stores it in pathG2S.
+// Handles COUNTERS_DB initialization and V2R virtual path lookup.
+// Does NOT make any Redis existence checks — see probePathElements and validatePath.
+func parsePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
 	var tblPath tablePath
 
 	target := prefix.GetTarget()
 	targetDbName, targetDbNameValid, targetDbNameSpace, targetDbNameSpaceExist := IsTargetDb(target)
-	// Verify it is a valid db name
 	if !targetDbNameValid {
 		return fmt.Errorf("Invalid target dbName %v", targetDbName)
 	}
 
-	// Verify Namespace is valid
 	dbNamespace, ok, err := sdcfg.GetDbNamespaceFromTarget(targetDbNameSpace)
 	if err != nil {
 		return fmt.Errorf("Failed to get namespace %v", err)
@@ -717,22 +678,18 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	elems := fullPath.GetElem()
 	if elems != nil {
 		for i, elem := range elems {
-			// TODO: Usage of key field
 			log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
-			if i != 0 {
-				buffer.WriteString(separator)
-			}
-			buffer.WriteString(elem.GetName())
 			stringSlice = append(stringSlice, elem.GetName())
 		}
-		dbPath = buffer.String()
 	}
 
 	// First lookup the Virtual path to Real path mapping tree
-	// The path from gNMI might not be real db path
 	if tblPaths, err := lookupV2R(stringSlice); err == nil {
 		if targetDbNameSpaceExist {
 			return fmt.Errorf("Target having %v namespace is not supported for V2R Dataset", dbNamespace)
+		}
+		for i := range tblPaths {
+			tblPaths[i].isVirtualPath = true
 		}
 		(*pathG2S)[path] = tblPaths
 		log.V(5).Infof("v2r from %v to %+v ", stringSlice, tblPaths)
@@ -740,6 +697,7 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	} else {
 		log.V(5).Infof("v2r lookup failed for %v %v", stringSlice, err)
 	}
+
 	tblPath.dbNamespace = dbNamespace
 	tblPath.dbName = targetDbName
 	if len(stringSlice) > 1 {
@@ -747,97 +705,128 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 	}
 	tblPath.delimitor = separator
 
-	var mappedKey string
-	if len(stringSlice) > 2 { // tmp, to remove mappedKey
-		mappedKey = stringSlice[2]
-	}
-
-	redisDb, ok := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
-	if !ok {
-		return fmt.Errorf("Redis Client not present for dbName %v dbNamespace %v", targetDbName, dbNamespace)
-	}
-
-	// The expect real db path could be in one of the formats:
-	// <1> DB Table
-	// <2> DB Table Key
-	// <3> DB Table Field
-	// <4> DB Table Key Field
-	// <5> DB Table Key Key Field
+	// For paths with 3+ elements, we don't know yet if the element is a key or field.
+	// Default to tableKey; probePathElements will disambiguate using Redis.
 	switch len(stringSlice) {
 	case 2: // only table name provided
-		wildcardTableName := tblPath.tableName + "*"
-		log.V(6).Infof("Fetching all keys for %v with table name %s", target, wildcardTableName)
-		res, err := redisDb.Keys(context.Background(), wildcardTableName).Result()
-		if err != nil {
-			return fmt.Errorf("redis Keys op failed for %v %v, got err %v %v", target, dbPath, err, res)
-		}
-		log.V(6).Infof("Result of keys operation for %v %v, got %v", target, dbPath, res)
 		tblPath.tableKey = ""
-	case 3: // Third element could be table key; or field name in which case table name itself is the key too
-		if targetDbName == "APPL_DB" {
-			keyExists, err := redisDb.Exists(context.Background(), tblPath.tableName+tblPath.delimitor+mappedKey).Result()
-			if err != nil {
-				return fmt.Errorf("redis Exists op failed for %v", dbPath)
-			}
-			if keyExists == 1 { // Existing Table:Key
-				tblPath.tableKey = mappedKey
-			} else {
-				fieldExists, err := redisDb.HExists(context.Background(), tblPath.tableName, mappedKey).Result()
-				if err != nil {
-					return fmt.Errorf("redis HExists op failed for %v", dbPath)
-				}
-				if fieldExists { // Existing field in Table
-					tblPath.field = mappedKey
-				} else { // Non existing table key
-					tblPath.tableKey = mappedKey
-				}
-			}
-		} else {
-			n, err := redisDb.Exists(context.Background(), tblPath.tableName+tblPath.delimitor+mappedKey).Result()
-			if err != nil {
-				return fmt.Errorf("redis Exists op failed for %v", dbPath)
-			}
-			if n == 1 {
-				tblPath.tableKey = mappedKey
-			} else {
-				tblPath.field = mappedKey
-			}
-		}
-	case 4: // Fourth element could part of the table key or field name
-		tblPath.tableKey = mappedKey + tblPath.delimitor + stringSlice[3]
-		// verify whether this key exists
-		key := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
-		n, err := redisDb.Exists(context.Background(), key).Result()
-		if err != nil {
-			return fmt.Errorf("redis Exists op failed for %v", dbPath)
-		}
-		if n != 1 { // Looks like the Fourth slice is not part of the key
-			tblPath.tableKey = mappedKey
-			tblPath.field = stringSlice[3]
-		}
-	case 5: // both third and fourth element are part of table key, fourth element must be field name
-		tblPath.tableKey = mappedKey + tblPath.delimitor + stringSlice[3]
+	case 3:
+		tblPath.tableKey = stringSlice[2]
+	case 4:
+		tblPath.tableKey = stringSlice[2] + tblPath.delimitor + stringSlice[3]
+	case 5:
+		tblPath.tableKey = stringSlice[2] + tblPath.delimitor + stringSlice[3]
 		tblPath.field = stringSlice[4]
 	default:
-		log.V(2).Infof("Invalid db table Path %v", dbPath)
-		return fmt.Errorf("Invalid db table Path %v", dbPath)
-	}
-
-	if targetDbName != "APPL_DB" {
-		var key string
-		if tblPath.tableKey != "" {
-			key = tblPath.tableName + tblPath.delimitor + tblPath.tableKey
-			n, _ := redisDb.Exists(context.Background(), key).Result()
-			if n != 1 {
-				log.V(2).Infof("No valid entry found on %v with key %v", dbPath, key)
-				return fmt.Errorf("No valid entry found on %v with key %v", dbPath, key)
-			}
-		}
+		log.V(2).Infof("Invalid db table Path %v", stringSlice)
+		return fmt.Errorf("Invalid db table Path %v", stringSlice)
 	}
 
 	(*pathG2S)[path] = []tablePath{tblPath}
 	log.V(5).Infof("tablePath %+v", tblPath)
 	return nil
+}
+
+// probePathElements uses Redis Exists/HExists to disambiguate whether a path element
+// is a table key or a field name. For 3-element paths (DB/TABLE/X): if TABLE|X exists
+// as a key it's a key; else if X is a field in TABLE it's a field; else default to key
+// (allows subscribing to paths that don't exist yet per gNMI spec). Same logic for
+// 4-element paths with composite keys.
+func probePathElements(pathG2S *map[*gnmipb.Path][]tablePath) error {
+	for path, tblPaths := range *pathG2S {
+		for i, tblPath := range tblPaths {
+			// V2R-resolved paths and field-only paths don't need probing
+			if tblPath.jsonTableKey != "" || tblPath.field != "" || tblPath.tableKey == "" {
+				continue
+			}
+
+			redisDb, ok := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
+			if !ok {
+				return fmt.Errorf("Redis Client not present for dbName %v dbNamespace %v", tblPath.dbName, tblPath.dbNamespace)
+			}
+
+			// Check if the key contains the delimiter — if so, it's a composite key candidate
+			// from a 4-element path (DB/TABLE/K1/K2)
+			if strings.Contains(tblPath.tableKey, tblPath.delimitor) {
+				compositeKey := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+				n, err := redisDb.Exists(context.Background(), compositeKey).Result()
+				if err != nil {
+					return fmt.Errorf("redis Exists op failed for %v", compositeKey)
+				}
+				if n == 1 {
+					continue // Composite key exists, classification is correct
+				}
+				// Composite key doesn't exist — check if the second part is a field
+				parts := strings.SplitN(tblPath.tableKey, tblPath.delimitor, 2)
+				singleKey := tblPath.tableName + tblPath.delimitor + parts[0]
+				fieldExists, ferr := redisDb.HExists(context.Background(), singleKey, parts[1]).Result()
+				if ferr != nil {
+					return fmt.Errorf("redis HExists op failed for %v field %v", singleKey, parts[1])
+				}
+				if fieldExists {
+					tblPaths[i].tableKey = parts[0]
+					tblPaths[i].field = parts[1]
+				}
+				// else: default stays as composite key (allows future existence)
+			} else {
+				// Simple key from a 3-element path (DB/TABLE/X)
+				fullKey := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+				keyExists, err := redisDb.Exists(context.Background(), fullKey).Result()
+				if err != nil {
+					return fmt.Errorf("redis Exists op failed for %v", fullKey)
+				}
+				if keyExists == 1 {
+					continue // Key exists, classification is correct
+				}
+				// Key doesn't exist — check if it's a field name
+				fieldExists, err := redisDb.HExists(context.Background(), tblPath.tableName, tblPath.tableKey).Result()
+				if err != nil {
+					return fmt.Errorf("redis HExists op failed for %v", tblPath.tableName)
+				}
+				if fieldExists {
+					tblPaths[i].field = tblPath.tableKey
+					tblPaths[i].tableKey = ""
+				}
+				// else: default stays as tableKey (allows future existence)
+			}
+		}
+		(*pathG2S)[path] = tblPaths
+	}
+	return nil
+}
+
+// validatePath checks that all resolved table paths with keys actually exist in Redis.
+// Returns an error if any key is not found. Used by Get to enforce NOT_FOUND semantics.
+// Subscribe callers should skip this to allow monitoring for future path existence.
+func validatePath(pathG2S *map[*gnmipb.Path][]tablePath) error {
+	for _, tblPaths := range *pathG2S {
+		for _, tblPath := range tblPaths {
+			if tblPath.tableKey == "" || tblPath.isVirtualPath {
+				continue
+			}
+			redisDb, ok := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
+			if !ok {
+				return fmt.Errorf("Redis Client not present for dbName %v dbNamespace %v", tblPath.dbName, tblPath.dbNamespace)
+			}
+			key := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+			n, _ := redisDb.Exists(context.Background(), key).Result()
+			if n != 1 {
+				log.V(2).Infof("No valid entry found on %v with key %v", tblPath.dbName, key)
+				return fmt.Errorf("No valid entry found on %v with key %v", tblPath.dbName, key)
+			}
+		}
+	}
+	return nil
+}
+
+// populateDbtablePath resolves a gNMI path for Subscribe callers.
+// Parses the path and probes Redis to disambiguate key vs field,
+// but does NOT validate existence — allows subscribing to paths that don't exist yet.
+func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
+	if err := parsePath(prefix, path, pathG2S); err != nil {
+		return err
+	}
+	return probePathElements(pathG2S)
 }
 
 // makeJSON renders the database Key op value_pairs to map[string]interface{} for JSON marshall.
@@ -939,67 +928,15 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 			return err
 		}
 		log.V(4).Infof("Data pulled for dbkey %s: %v", dbkey, fv)
-		if tblPath.jsonTableKey != "" { // If jsonTableKey was prepared, use it
-			err = makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
-		} else if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
-			err = makeJSON_redis(msi, nil, op, fv)
-		} else {
-			var key string
-			// Split dbkey string into two parts and second part is key in table
-			keys := strings.SplitN(dbkey, tblPath.delimitor, 2)
-			if len(keys) < 2 {
-				return fmt.Errorf("dbkey: %s, failed split from delimitor %v", dbkey, tblPath.delimitor)
-			}
-			key = keys[1]
-			err = makeJSON_redis(msi, &key, op, fv)
-		}
-		if err != nil {
-			log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
-			return err
-		}
-		log.V(6).Infof("Added idex %v fv %v ", idx, fv)
-	}
-	return nil
-}
 
-func AppDBTableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]interface{}) error {
-	redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
-
-	var pattern string
-	var dbkeys []string
-	var err error
-	var fv map[string]string
-
-	//Only table name provided
-	if tblPath.tableKey == "" {
-		// tables in COUNTERS_DB other than COUNTERS table doesn't have keys
-		pattern = tblPath.tableName + tblPath.delimitor + "*"
-		dbkeys, err = redisDb.Keys(context.Background(), pattern).Result()
-		if err != nil {
-			log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
-			return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
-		}
-	} else {
-		// both table name and key provided
-		dbkeys = []string{tblPath.tableName + tblPath.delimitor + tblPath.tableKey}
-	}
-
-	log.V(4).Infof("dbkeys to be pulled from redis %v", dbkeys)
-
-	for idx, dbkey := range dbkeys {
-		fv, err = redisDb.HGetAll(context.Background(), dbkey).Result()
-		if err != nil {
-			log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
-			return err
-		}
-		log.V(4).Infof("Data pulled for dbkey %s: %v", dbkey, fv)
-
-		if len(fv) == 0 { // Skip update for non data path
-			log.V(6).Infof("Missing data for dbkey %s, will check next key", dbkey)
+		if len(fv) == 0 {
+			log.V(6).Infof("No data for dbkey %s, skipping", dbkey)
 			continue
 		}
 
-		if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
+		if tblPath.jsonTableKey != "" { // If jsonTableKey was prepared, use it
+			err = makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
+		} else if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
 			err = makeJSON_redis(msi, nil, op, fv)
 		} else {
 			var key string
@@ -1036,14 +973,14 @@ func Msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
 		}}, nil
 }
 
+// tableData2TypedValue is used by Get. Returns error on missing field.
 func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error) {
 	var useKey bool
 	msi := make(map[string]interface{})
 	for _, tblPath := range tblPaths {
 		redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
 
-		if tblPath.jsonField == "" { // Not asked to include field in json value, which means not wildcard query
-			// table path includes table, key and field
+		if tblPath.jsonField == "" {
 			if tblPath.field != "" {
 				if len(tblPaths) != 1 {
 					log.V(2).Infof("WARNING: more than one path exists for field granularity query: %v", tblPaths)
@@ -1057,11 +994,9 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 
 				val, err := redisDb.HGet(context.Background(), key, tblPath.field).Result()
 				if err != nil {
-					log.V(2).Infof("redis HGet failed for %v", tblPath)
 					return nil, err
 				}
 				log.V(4).Infof("Data pulled for key %s and field %s: %s", key, tblPath.field, val)
-				// TODO: support multiple table paths
 				return &gnmipb.TypedValue{
 					Value: &gnmipb.TypedValue_StringVal{
 						StringVal: val,
@@ -1076,16 +1011,17 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 	return Msi2TypedValue(msi)
 }
 
-// Returns typed value, error, or bool. Bool specifies that there is data available for the tablePath that was queried.
-func AppDBTableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error, bool) {
+// subscribeTableData2TypedValue is used by Poll and Sample subscribe modes.
+// Returns 3 values: (value, error, updateReceived).
+// Skips missing fields instead of erroring, so the RPC stays open.
+func subscribeTableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue, error, bool) {
 	var useKey bool
 	var updateReceived bool
 	msi := make(map[string]interface{})
 	for _, tblPath := range tblPaths {
 		redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
 
-		if tblPath.jsonField == "" { // Not asked to include field in json value, which means not wildcard query
-			// table path includes table, key and field
+		if tblPath.jsonField == "" {
 			if tblPath.field != "" {
 				if len(tblPaths) != 1 {
 					log.V(2).Infof("WARNING: more than one path exists for field granularity query: %v", tblPaths)
@@ -1103,23 +1039,19 @@ func AppDBTableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedV
 					continue
 				}
 				log.V(4).Infof("Data pulled for key %s and field %s: %s", key, tblPath.field, val)
-				// TODO: support multiple table paths
 				return &gnmipb.TypedValue{
 					Value: &gnmipb.TypedValue_StringVal{
 						StringVal: val,
 					}}, nil, true
 			}
 		}
-		err := AppDBTableData2Msi(&tblPath, useKey, nil, &msi)
-
+		err := TableData2Msi(&tblPath, useKey, nil, &msi)
 		if err != nil {
 			return nil, err, true
 		}
 
-		if !updateReceived {
-			if len(msi) > 0 { // Update occurred
-				updateReceived = true
-			}
+		if !updateReceived && len(msi) > 0 {
+			updateReceived = true
 		}
 	}
 	if !updateReceived {

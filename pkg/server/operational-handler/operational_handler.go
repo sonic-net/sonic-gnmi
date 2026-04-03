@@ -25,7 +25,6 @@ type Value struct {
 type Handler interface {
 	StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
 	PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
-	AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
 	OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList)
 	Get(w *sync.WaitGroup) ([]*Value, error)
 	Set(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error
@@ -279,17 +278,6 @@ func (h *OperationalHandler) PollRun(q *queue.PriorityQueue, poll chan struct{},
 	defer w.Done()
 
 	// TODO: Implement poll support if needed
-	select {
-	case <-poll:
-		return
-	}
-}
-
-// AppDBPollRun implements the Handler interface AppDBPollRun method.
-func (h *OperationalHandler) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
-	defer w.Done()
-
-	// Not applicable for operational handler
 	select {
 	case <-poll:
 		return

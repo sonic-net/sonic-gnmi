@@ -336,7 +336,7 @@ func TestPFCWDErrors(t *testing.T) {
 	})
 	defer mock.Reset()
 
-	fileName := "../testdata/COUNTERS:Ethernet_wildcard_alias.txt"
+	fileName := "../testdata/COUNTERS:Ethernet_wildcard_alias_expected.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1722,7 +1722,7 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_alias.txt"
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard_alias_expected.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1734,7 +1734,7 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Pfcwd_alias.txt"
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Pfcwd_alias_expected.txt"
 	countersEthernetWildcardPfcwdByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1790,7 +1790,7 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 	}
 
 	// PORT_PHY_ATTR test vectors
-	fileName = "../testdata/PORT_PHY_ATTR:Ethernet_wildcard.json"
+	fileName = "../testdata/PORT_PHY_ATTR:Ethernet_wildcard_expected.json"
 	phyAttrWildcardByte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
@@ -2399,7 +2399,7 @@ func createQueueCountersJsonObjects(ethNum int, queueNum int, updatedCounters ma
 
 	ethName := fmt.Sprintf("Ethernet%d", ethNum)
 	queueName := fmt.Sprintf("%s:%d", ethName, queueNum)
-	queueFile := fmt.Sprintf("../testdata/COUNTERS:%s:Queues.txt", ethName)
+	queueFile := fmt.Sprintf("../testdata/COUNTERS:%s:Queues_expected.txt", ethName)
 	queueCountersByte, err := ioutil.ReadFile(queueFile)
 	if err != nil {
 		err = fmt.Errorf("read file %v err: %v", queueFile, err)
@@ -2413,7 +2413,7 @@ func createQueueCountersJsonObjects(ethNum int, queueNum int, updatedCounters ma
 
 	// Alias translation
 	queueAliasName := fmt.Sprintf("%s/1:%d", ethName, queueNum)
-	queueAliasFile := fmt.Sprintf("../testdata/COUNTERS:%s:Queues_alias.txt", ethName)
+	queueAliasFile := fmt.Sprintf("../testdata/COUNTERS:%s:Queues_alias_expected.txt", ethName)
 	queueAliasCountersByte, err := ioutil.ReadFile(queueAliasFile)
 	if err != nil {
 		err = fmt.Errorf("read file %v err: %v", queueAliasFile, err)
@@ -2535,7 +2535,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	tmp5.(map[string]interface{})["Ethernet68/1:3"].(map[string]interface{})["PFC_WD_QUEUE_STATS_DEADLOCK_DETECTED"] = "1"
 	countersEthernet68PfcwdAliasPollUpdate := tmp5
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_alias.txt"
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard_alias_expected.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -2545,7 +2545,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	// Will have "test_field" : "test_value" in Ethernet68,
 	countersEtherneWildcardJsonUpdate := map[string]interface{}{"Ethernet68/1": countersEthernet68JsonUpdate}
 
-	fileName = "../testdata/RATES:Ethernet_wildcard_alias.txt"
+	fileName = "../testdata/RATES:Ethernet_wildcard_alias_expected.txt"
 	ratesEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -2583,7 +2583,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	allPortPfcJsonUpdate["Ethernet68/1"] = pfc7Map
 
 	// for Ethernet*/Pfcwd subscription
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Pfcwd_alias.txt"
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Pfcwd_alias_expected.txt"
 	countersEthernetWildPfcwdByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -2631,7 +2631,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 
 	// PORT_PHY_ATTR wildcard + single entry update for subscriptions
 	var phyAttrWildcardJson interface{}
-	fileName = "../testdata/PORT_PHY_ATTR:Ethernet_wildcard.json"
+	fileName = "../testdata/PORT_PHY_ATTR:Ethernet_wildcard_expected.json"
 	phyAttrWildcardJsonByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
@@ -2649,7 +2649,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	singlePhyAttrJsonUpdate := make(map[string]interface{})
 	singlePhyAttrJsonUpdate["Ethernet68"] = tmp
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Queues_alias.txt"
+	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Queues_alias_expected.txt"
 	countersEthernetWildQueuesByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -2689,7 +2689,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 
 	///////////////////////////////////////////////////////////////////////////////////////////////
 
-	fileName = "../testdata/PERIODIC_WATERMARKS:Ethernet_wildcard:PriorityGroups_alias.txt"
+	fileName = "../testdata/PERIODIC_WATERMARKS:Ethernet_wildcard:PriorityGroups_alias_expected.txt"
 	pgWatermarksEthernetWildByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -2697,7 +2697,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	var pgWatermarksEthernetWildJson interface{}
 	json.Unmarshal(pgWatermarksEthernetWildByte, &pgWatermarksEthernetWildJson)
 
-	fileName = "../testdata/PERIODIC_WATERMARKS:Ethernet16:PriorityGroups.txt"
+	fileName = "../testdata/PERIODIC_WATERMARKS:Ethernet16:PriorityGroups_expected.txt"
 	pgWatermarksEthernet16Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -2714,7 +2714,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	pgWatermarksEthernet16JsonUpdate["Ethernet16:5"] = eth16_5
 
 	// Alias translation for query PERIODIC_WATERMARKS:Ethernet16/1:PriorityGroups
-	fileName = "../testdata/PERIODIC_WATERMARKS:Ethernet16:PriorityGroups_alias.txt"
+	fileName = "../testdata/PERIODIC_WATERMARKS:Ethernet16:PriorityGroups_alias_expected.txt"
 	pgWatermarksEthernet16AliasByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -5058,10 +5058,7 @@ func TestNonExistentTableNoError(t *testing.T) {
 				Queries: []client.Path{{"TRANSCEIVER_DOM_SENSOR"}},
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			},
-			wantNoti: []client.Notification{
-				client.Update{Path: []string{"STATE_DB", "TRANSCEIVER_DOM_SENSOR"}, TS: time.Unix(0, 200), Val: transceiverDomSensorTableJson},
-				client.Update{Path: []string{"STATE_DB", "TRANSCEIVER_DOM_SENSOR"}, TS: time.Unix(0, 200), Val: transceiverDomSensorTableJson},
-			},
+			wantNoti: []client.Notification{},
 		},
 	}
 	namespace, _ := sdcfg.GetDbDefaultNamespace()
@@ -5077,10 +5074,7 @@ func TestNonExistentTableNoError(t *testing.T) {
 			var gotNoti []client.Notification
 			q.NotificationHandler = func(n client.Notification) error {
 				mutexNoti.Lock()
-				if nn, ok := n.(client.Update); ok {
-					nn.TS = time.Unix(0, 200)
-					gotNoti = append(gotNoti, nn)
-				}
+				gotNoti = append(gotNoti, n)
 				mutexNoti.Unlock()
 				return nil
 			}
@@ -5109,10 +5103,11 @@ func TestNonExistentTableNoError(t *testing.T) {
 				t.Errorf("expected non zero notifications")
 			}
 
-			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
-				t.Log("\n Want: \n", tt.wantNoti)
-				t.Log("\n Got: \n", gotNoti)
-				t.Errorf("unexpected updates: \n%s", diff)
+			// Verify no updates are sent for non-existent table, only syncs
+			for _, n := range gotNoti {
+				if _, isUpdate := n.(client.Update); isUpdate {
+					t.Errorf("unexpected Update notification for non-existent table")
+				}
 			}
 
 			mutexNoti.Unlock()

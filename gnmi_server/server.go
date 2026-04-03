@@ -920,6 +920,11 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		authTarget = "gnmi_show"
 	} else if targetDbName, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
+		if err == nil {
+			if dbClient, ok := dc.(*sdc.DbClient); ok {
+				err = dbClient.ValidatePaths()
+			}
+		}
 		authTarget = "gnmi_" + targetDbName
 	} else {
 		if origin == "" {

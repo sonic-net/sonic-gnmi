@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/status"
 	"io"
 	"net"
-	"strings"
 	"sync"
 )
 
@@ -208,11 +207,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 		c.polled = make(chan struct{}, 1)
 		c.polled <- struct{}{}
 		c.w.Add(1)
-		if target == "APPL_DB" || strings.HasPrefix(target, "APPL_DB/") {
-			go dc.AppDBPollRun(c.q, c.polled, &c.w, c.subscribe)
-		} else {
-			go dc.PollRun(c.q, c.polled, &c.w, c.subscribe)
-		}
+		go dc.PollRun(c.q, c.polled, &c.w, c.subscribe)
 	case gnmipb.SubscriptionList_ONCE:
 		c.once = make(chan struct{}, 1)
 		c.once <- struct{}{}
