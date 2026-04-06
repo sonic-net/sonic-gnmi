@@ -336,7 +336,7 @@ func TestGNMIDialOutPublish(t *testing.T) {
 	}
 	_ = countersEthernet68Byte
 
-	fileName = "../../testdata/COUNTERS:Ethernet_wildcard_alias.txt"
+	fileName = "../../testdata/COUNTERS:Ethernet_wildcard_alias_expected.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
