@@ -554,10 +554,12 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 
 		srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
 		if err != nil {
-			return nil, fmt.Errorf("failed to open listener port %d: %v", config.Port, err)
+			log.Warningf("Failed to open listener port %d: %v; disabling TCP listener", config.Port, err)
+			srv.s.Stop()
+			srv.s = nil
+		} else {
+			registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, certzSrv, authzSrv, pathzSrv)
 		}
-
-		registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, certzSrv, authzSrv, pathzSrv)
 	}
 
 	// UDS Server (UnixSocket set)
@@ -570,30 +572,29 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		// during the window between socket creation and permission setting)
 		socketDir := filepath.Dir(config.UnixSocket)
 		if err := os.MkdirAll(socketDir, 0750); err != nil {
-			if srv.lis != nil {
-				srv.lis.Close()
-			}
-			return nil, fmt.Errorf("failed to create socket directory %s: %v", socketDir, err)
-		}
-
-		os.Remove(config.UnixSocket) // Remove stale socket
-		srv.udsListener, err = net.Listen("unix", config.UnixSocket)
-		if err != nil {
-			// Cleanup TCP listener if it was created
-			if srv.lis != nil {
-				srv.lis.Close()
-			}
-			return nil, fmt.Errorf("failed to listen on unix socket %s: %v", config.UnixSocket, err)
-		}
-		// Restrict socket access to container user (root) and group
-		if err := os.Chmod(config.UnixSocket, 0660); err != nil {
-			log.Warningf("Failed to set permissions on unix socket %s: %v; disabling UDS listener", config.UnixSocket, err)
-			srv.udsListener.Close()
-			os.Remove(config.UnixSocket)
-			srv.udsListener = nil
+			log.Warningf("Failed to create socket directory %s: %v; disabling UDS listener", socketDir, err)
+			srv.udsServer.Stop()
 			srv.udsServer = nil
 		} else {
-			registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, certzSrv, authzSrv, pathzSrv)
+			os.Remove(config.UnixSocket) // Remove stale socket
+			srv.udsListener, err = net.Listen("unix", config.UnixSocket)
+			if err != nil {
+				log.Warningf("Failed to listen on unix socket %s: %v; disabling UDS listener", config.UnixSocket, err)
+				srv.udsServer.Stop()
+				srv.udsServer = nil
+			} else {
+				// Restrict socket access to container user (root) and group
+				if err := os.Chmod(config.UnixSocket, 0660); err != nil {
+					log.Warningf("Failed to set permissions on unix socket %s: %v; disabling UDS listener", config.UnixSocket, err)
+					srv.udsListener.Close()
+					os.Remove(config.UnixSocket)
+					srv.udsListener = nil
+					srv.udsServer.Stop()
+					srv.udsServer = nil
+				} else {
+					registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, certzSrv, authzSrv, pathzSrv)
+				}
+			}
 		}
 	}
 
@@ -608,41 +609,53 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 
 // Serve will start the Server serving and block until closed.
 // If both TCP and UDS listeners are configured, both are served concurrently.
+// A failure in one listener does not affect the other; Serve blocks until all
+// active listeners have stopped.
 func (srv *Server) Serve() error {
 	if srv.s == nil && srv.udsServer == nil {
 		return fmt.Errorf("Serve() failed: not initialized")
 	}
 
-	errChan := make(chan error, 2)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var errs []string
 
 	// Start TCP server if configured
 	if srv.s != nil && srv.lis != nil {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			log.V(1).Infof("Starting TCP server on %s", srv.lis.Addr().String())
-			err := srv.s.Serve(srv.lis)
-			if err != nil {
-				errChan <- fmt.Errorf("TCP server: %w", err)
-			} else {
-				errChan <- nil
+			if err := srv.s.Serve(srv.lis); err != nil {
+				log.Errorf("TCP server error: %v", err)
+				mu.Lock()
+				errs = append(errs, fmt.Sprintf("TCP server: %v", err))
+				mu.Unlock()
 			}
 		}()
 	}
 
 	// Start UDS server if configured
 	if srv.udsServer != nil && srv.udsListener != nil {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			log.V(1).Infof("Starting UDS server on %s", srv.udsListener.Addr().String())
-			err := srv.udsServer.Serve(srv.udsListener)
-			if err != nil {
-				errChan <- fmt.Errorf("UDS server: %w", err)
-			} else {
-				errChan <- nil
+			if err := srv.udsServer.Serve(srv.udsListener); err != nil {
+				log.Errorf("UDS server error: %v", err)
+				mu.Lock()
+				errs = append(errs, fmt.Sprintf("UDS server: %v", err))
+				mu.Unlock()
 			}
 		}()
 	}
 
-	// Block until first error (or server stop)
-	return <-errChan
+	wg.Wait()
+
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return nil
 }
 
 // ForceStop stops the server immediately without waiting for connections to close.
