@@ -1164,6 +1164,10 @@ func TestParsePath(t *testing.T) {
 		rclient := Target2RedisDb[ns]["COUNTERS_DB"]
 		rclient.HSet(context.Background(), "COUNTERS_PORT_NAME_MAP", "Ethernet68", "oid:0x1000000000039")
 
+		configDb := Target2RedisDb[ns]["CONFIG_DB"]
+		configDb.HSet(context.Background(), "PORT|Ethernet68", "alias", "Ethernet68", "index", "68")
+		defer configDb.Del(context.Background(), "PORT|Ethernet68")
+
 		os.Setenv("UNIT_TEST", "1")
 		ClearMappings()
 		os.Unsetenv("UNIT_TEST")
@@ -1193,6 +1197,11 @@ func TestParsePath(t *testing.T) {
 		rclient := Target2RedisDb[ns]["COUNTERS_DB"]
 		rclient.HSet(context.Background(), "COUNTERS_PORT_NAME_MAP", "Ethernet68", "oid:0x1000000000039")
 		rclient.HSet(context.Background(), "COUNTERS_PORT_NAME_MAP", "Ethernet1", "oid:0x1000000000003")
+
+		configDb := Target2RedisDb[ns]["CONFIG_DB"]
+		configDb.HSet(context.Background(), "PORT|Ethernet68", "alias", "Ethernet68", "index", "68")
+		configDb.HSet(context.Background(), "PORT|Ethernet1", "alias", "Ethernet1", "index", "1")
+		defer configDb.Del(context.Background(), "PORT|Ethernet68", "PORT|Ethernet1")
 
 		os.Setenv("UNIT_TEST", "1")
 		ClearMappings()
