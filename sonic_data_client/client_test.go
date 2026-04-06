@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1056,7 +1057,7 @@ func setupTestTarget2RedisDb(t *testing.T) func() {
 	return func() {
 		for _, nsMap := range Target2RedisDb {
 			for _, rc := range nsMap {
-				rc.FlushDB(rc.Context())
+				rc.FlushDB(context.Background())
 			}
 		}
 		restore()
@@ -1161,7 +1162,7 @@ func TestParsePath(t *testing.T) {
 
 		ns := ""
 		rclient := Target2RedisDb[ns]["COUNTERS_DB"]
-		rclient.HSet(rclient.Context(), "COUNTERS_PORT_NAME_MAP", "Ethernet68", "oid:0x1000000000039")
+		rclient.HSet(context.Background(), "COUNTERS_PORT_NAME_MAP", "Ethernet68", "oid:0x1000000000039")
 
 		ClearMappings()
 		err := initCountersPortNameMap()
@@ -1196,8 +1197,8 @@ func TestParsePath(t *testing.T) {
 
 		ns := ""
 		rclient := Target2RedisDb[ns]["COUNTERS_DB"]
-		rclient.HSet(rclient.Context(), "COUNTERS_PORT_NAME_MAP", "Ethernet68", "oid:0x1000000000039")
-		rclient.HSet(rclient.Context(), "COUNTERS_PORT_NAME_MAP", "Ethernet1", "oid:0x1000000000003")
+		rclient.HSet(context.Background(), "COUNTERS_PORT_NAME_MAP", "Ethernet68", "oid:0x1000000000039")
+		rclient.HSet(context.Background(), "COUNTERS_PORT_NAME_MAP", "Ethernet1", "oid:0x1000000000003")
 
 		ClearMappings()
 		err := initCountersPortNameMap()
@@ -1236,8 +1237,8 @@ func TestProbePathElements(t *testing.T) {
 
 	t.Run("StateDB_KeyExists_StaysAsKey", func(t *testing.T) {
 		rclient := Target2RedisDb[ns]["STATE_DB"]
-		rclient.HSet(rclient.Context(), "NEIGH_STATE_TABLE|10.0.0.57", "state", "Established")
-		defer rclient.Del(rclient.Context(), "NEIGH_STATE_TABLE|10.0.0.57")
+		rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "state", "Established")
+		defer rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
 
 		pathG2S := map[*gnmipb.Path][]tablePath{
 			{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}},
@@ -1257,8 +1258,8 @@ func TestProbePathElements(t *testing.T) {
 
 	t.Run("StateDB_FieldExists_ReclassifiedAsField", func(t *testing.T) {
 		rclient := Target2RedisDb[ns]["STATE_DB"]
-		rclient.HSet(rclient.Context(), "SWITCH_CAPABILITY", "test_field", "test_value")
-		defer rclient.Del(rclient.Context(), "SWITCH_CAPABILITY")
+		rclient.HSet(context.Background(), "SWITCH_CAPABILITY", "test_field", "test_value")
+		defer rclient.Del(context.Background(), "SWITCH_CAPABILITY")
 
 		pathG2S := map[*gnmipb.Path][]tablePath{
 			{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "SWITCH_CAPABILITY", tableKey: "test_field", delimitor: "|"}},
@@ -1292,8 +1293,8 @@ func TestProbePathElements(t *testing.T) {
 
 	t.Run("APPL_DB_RouteExists_StaysAsKey", func(t *testing.T) {
 		rclient := Target2RedisDb[ns]["APPL_DB"]
-		rclient.HSet(rclient.Context(), "ROUTE_TABLE:0.0.0.0/0", "nexthop", "10.0.0.1")
-		defer rclient.Del(rclient.Context(), "ROUTE_TABLE:0.0.0.0/0")
+		rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "nexthop", "10.0.0.1")
+		defer rclient.Del(context.Background(), "ROUTE_TABLE:0.0.0.0/0")
 
 		pathG2S := map[*gnmipb.Path][]tablePath{
 			{}: {{dbNamespace: ns, dbName: "APPL_DB", tableName: "ROUTE_TABLE", tableKey: "0.0.0.0/0", delimitor: ":"}},
@@ -1338,8 +1339,8 @@ func TestProbePathElements(t *testing.T) {
 
 	t.Run("CompositeKey_SecondPartIsField", func(t *testing.T) {
 		rclient := Target2RedisDb[ns]["STATE_DB"]
-		rclient.HSet(rclient.Context(), "VLAN_MEMBER_TABLE|Vlan100", "tagging_mode", "tagged")
-		defer rclient.Del(rclient.Context(), "VLAN_MEMBER_TABLE|Vlan100")
+		rclient.HSet(context.Background(), "VLAN_MEMBER_TABLE|Vlan100", "tagging_mode", "tagged")
+		defer rclient.Del(context.Background(), "VLAN_MEMBER_TABLE|Vlan100")
 
 		pathG2S := map[*gnmipb.Path][]tablePath{
 			{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "VLAN_MEMBER_TABLE", tableKey: "Vlan100|tagging_mode", delimitor: "|"}},
@@ -1363,7 +1364,7 @@ func TestValidatePath(t *testing.T) {
 	defer cleanup()
 	ns := ""
 	rclient := Target2RedisDb[ns]["STATE_DB"]
-	rclient.HSet(rclient.Context(), "NEIGH_STATE_TABLE|10.0.0.57", "state", "Established")
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "state", "Established")
 
 	t.Run("KeyExists_NoError", func(t *testing.T) {
 		pathG2S := map[*gnmipb.Path][]tablePath{
@@ -1421,8 +1422,8 @@ func TestTableData2Msi_SkipsEmptyData(t *testing.T) {
 
 	t.Run("STATE_DB_ExistingKey_ReturnsData", func(t *testing.T) {
 		rclient := Target2RedisDb[ns]["STATE_DB"]
-		rclient.HSet(rclient.Context(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP", "state", "Established")
-		defer rclient.Del(rclient.Context(), "NEIGH_STATE_TABLE|10.0.0.57")
+		rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP", "state", "Established")
+		defer rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
 
 		msi := make(map[string]interface{})
 		tblPath := tablePath{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}
@@ -1449,8 +1450,8 @@ func TestTableData2Msi_SkipsEmptyData(t *testing.T) {
 
 	t.Run("APPL_DB_ExistingRoute_ReturnsData", func(t *testing.T) {
 		rclient := Target2RedisDb[ns]["APPL_DB"]
-		rclient.HSet(rclient.Context(), "ROUTE_TABLE:0.0.0.0/0", "nexthop", "10.0.0.1", "ifname", "Ethernet0")
-		defer rclient.Del(rclient.Context(), "ROUTE_TABLE:0.0.0.0/0")
+		rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "nexthop", "10.0.0.1", "ifname", "Ethernet0")
+		defer rclient.Del(context.Background(), "ROUTE_TABLE:0.0.0.0/0")
 
 		msi := make(map[string]interface{})
 		tblPath := tablePath{dbNamespace: ns, dbName: "APPL_DB", tableName: "ROUTE_TABLE", tableKey: "0.0.0.0/0", delimitor: ":"}
@@ -1465,8 +1466,8 @@ func TestTableData2Msi_SkipsEmptyData(t *testing.T) {
 
 	t.Run("COUNTERS_DB_VirtualPath_ExistingData", func(t *testing.T) {
 		rclient := Target2RedisDb[ns]["COUNTERS_DB"]
-		rclient.HSet(rclient.Context(), "COUNTERS:oid:0x1000000000039", "SAI_PORT_STAT_IF_IN_OCTETS", "100", "SAI_PORT_STAT_IF_OUT_OCTETS", "200")
-		defer rclient.Del(rclient.Context(), "COUNTERS:oid:0x1000000000039")
+		rclient.HSet(context.Background(), "COUNTERS:oid:0x1000000000039", "SAI_PORT_STAT_IF_IN_OCTETS", "100", "SAI_PORT_STAT_IF_OUT_OCTETS", "200")
+		defer rclient.Del(context.Background(), "COUNTERS:oid:0x1000000000039")
 
 		msi := make(map[string]interface{})
 		tblPath := tablePath{dbNamespace: ns, dbName: "COUNTERS_DB", tableName: "COUNTERS", tableKey: "oid:0x1000000000039", delimitor: ":", isVirtualPath: true}
@@ -1499,8 +1500,8 @@ func TestSubscribeTableData2TypedValue(t *testing.T) {
 	rclient := Target2RedisDb[ns]["STATE_DB"]
 
 	t.Run("DataExists_ReturnsTrue", func(t *testing.T) {
-		rclient.HSet(rclient.Context(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
-		defer rclient.Del(rclient.Context(), "NEIGH_STATE_TABLE|10.0.0.57")
+		rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
+		defer rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
 
 		tblPaths := []tablePath{{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}}
 		val, err, updateReceived := subscribeTableData2TypedValue(tblPaths, nil)
@@ -1554,7 +1555,7 @@ func TestPollRunDeleteTracking(t *testing.T) {
 	defer cleanup()
 	ns := ""
 	rclient := Target2RedisDb[ns]["STATE_DB"]
-	rclient.HSet(rclient.Context(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
 
 	gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
 	c := DbClient{
@@ -1573,7 +1574,7 @@ func TestPollRunDeleteTracking(t *testing.T) {
 	poll <- struct{}{}
 	time.Sleep(100 * time.Millisecond)
 
-	rclient.Del(rclient.Context(), "NEIGH_STATE_TABLE|10.0.0.57")
+	rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
 
 	poll <- struct{}{}
 	time.Sleep(100 * time.Millisecond)
@@ -1609,7 +1610,7 @@ func TestValidatePaths(t *testing.T) {
 	defer cleanup()
 	ns := ""
 	rclient := Target2RedisDb[ns]["STATE_DB"]
-	rclient.HSet(rclient.Context(), "NEIGH_STATE_TABLE|10.0.0.57", "state", "Established")
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "state", "Established")
 
 	t.Run("ExistingPath_NoError", func(t *testing.T) {
 		c := DbClient{
