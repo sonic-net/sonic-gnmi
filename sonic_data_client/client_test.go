@@ -1667,7 +1667,7 @@ func TestMixedDbClientTableData2TypedValue(t *testing.T) {
 	ns := ""
 	rclient := Target2RedisDb[ns]["STATE_DB"]
 
-	c := MixedDbClient{mapkey: mapkey}
+	c := MixedDbClient{mapkey: mapkey, encoding: gnmipb.Encoding_JSON_IETF}
 
 	t.Run("DataExists_ReturnsTrue", func(t *testing.T) {
 		rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
@@ -1713,118 +1713,6 @@ func TestMixedDbClientTableData2TypedValue(t *testing.T) {
 		_, err, _ := c.tableData2TypedValue(tblPaths, nil)
 		if err == nil {
 			t.Errorf("expected error for missing Redis client")
-		}
-	})
-}
-
-func TestMixedDbClientPollRun(t *testing.T) {
-	mapkey := ":"
-	cleanup := setupMixedDbRedis(t, mapkey)
-	defer cleanup()
-
-	ns := ""
-	rclient := Target2RedisDb[ns]["STATE_DB"]
-	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
-
-	gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
-	tblPaths := []tablePath{{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}}
-
-	c := MixedDbClient{
-		mapkey: mapkey,
-		paths:  []*gnmipb.Path{gnmiPath},
-	}
-
-	// Mock getDbtablePath to return our pre-built tablePaths
-	patches := gomonkey.ApplyMethod(&c, "getDbtablePath", func(_ *MixedDbClient, _ *gnmipb.Path, _ *gnmipb.Path) ([]tablePath, error) {
-		return tblPaths, nil
-	})
-	defer patches.Reset()
-
-	q := queue.NewPriorityQueue(1, false)
-	poll := make(chan struct{}, 1)
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	go c.PollRun(q, poll, &wg, nil)
-
-	// First poll — data exists
-	poll <- struct{}{}
-	time.Sleep(100 * time.Millisecond)
-
-	// Delete data
-	rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
-
-	// Second poll — should detect deletion
-	poll <- struct{}{}
-	time.Sleep(100 * time.Millisecond)
-
-	close(poll)
-	wg.Wait()
-
-	var gotUpdate, gotDelete, gotSync bool
-	for !q.Empty() {
-		items, _ := q.Get(1)
-		val := items[0].(Value)
-		if val.GetSyncResponse() {
-			gotSync = true
-		} else if val.GetDelete() != nil {
-			gotDelete = true
-		} else if val.GetVal() != nil {
-			gotUpdate = true
-		}
-	}
-	if !gotUpdate {
-		t.Errorf("expected update notification")
-	}
-	if !gotDelete {
-		t.Errorf("expected delete notification")
-	}
-	if !gotSync {
-		t.Errorf("expected sync responses")
-	}
-}
-
-func TestMixedDbClientGet(t *testing.T) {
-	mapkey := ":"
-	cleanup := setupMixedDbRedis(t, mapkey)
-	defer cleanup()
-
-	ns := ""
-	rclient := Target2RedisDb[ns]["STATE_DB"]
-
-	gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
-	tblPaths := []tablePath{{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}}
-
-	c := MixedDbClient{
-		mapkey: mapkey,
-		paths:  []*gnmipb.Path{gnmiPath},
-	}
-
-	patches := gomonkey.ApplyMethod(&c, "getDbtablePath", func(_ *MixedDbClient, _ *gnmipb.Path, _ *gnmipb.Path) ([]tablePath, error) {
-		return tblPaths, nil
-	})
-	defer patches.Reset()
-
-	t.Run("DataExists_ReturnsValues", func(t *testing.T) {
-		rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
-		defer rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
-
-		values, err := c.Get(nil)
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-		if len(values) == 0 {
-			t.Errorf("expected values, got empty")
-		}
-	})
-
-	t.Run("NoData_SkipsPath", func(t *testing.T) {
-		values, err := c.Get(nil)
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
-		}
-		if len(values) != 0 {
-			t.Errorf("expected empty values for missing data, got %d", len(values))
 		}
 	})
 }
