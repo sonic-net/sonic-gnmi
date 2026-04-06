@@ -1164,20 +1164,14 @@ func TestParsePath(t *testing.T) {
 		rclient := Target2RedisDb[ns]["COUNTERS_DB"]
 		rclient.HSet(context.Background(), "COUNTERS_PORT_NAME_MAP", "Ethernet68", "oid:0x1000000000039")
 
+		os.Setenv("UNIT_TEST", "1")
 		ClearMappings()
-		err := initCountersPortNameMap()
-		if err != nil {
-			t.Fatalf("initCountersPortNameMap failed: %v", err)
-		}
-		err = initAliasMap()
-		if err != nil {
-			t.Fatalf("initAliasMap failed: %v", err)
-		}
+		os.Unsetenv("UNIT_TEST")
 
 		pathG2S := make(map[*gnmipb.Path][]tablePath)
 		prefix := &gnmipb.Path{Target: "COUNTERS_DB"}
 		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}, {Name: "Ethernet68"}}}
-		err = parsePath(prefix, path, &pathG2S)
+		err := parsePath(prefix, path, &pathG2S)
 		if err != nil {
 			t.Fatalf("parsePath failed: %v", err)
 		}
@@ -1200,20 +1194,14 @@ func TestParsePath(t *testing.T) {
 		rclient.HSet(context.Background(), "COUNTERS_PORT_NAME_MAP", "Ethernet68", "oid:0x1000000000039")
 		rclient.HSet(context.Background(), "COUNTERS_PORT_NAME_MAP", "Ethernet1", "oid:0x1000000000003")
 
+		os.Setenv("UNIT_TEST", "1")
 		ClearMappings()
-		err := initCountersPortNameMap()
-		if err != nil {
-			t.Fatalf("initCountersPortNameMap failed: %v", err)
-		}
-		err = initAliasMap()
-		if err != nil {
-			t.Fatalf("initAliasMap failed: %v", err)
-		}
+		os.Unsetenv("UNIT_TEST")
 
 		pathG2S := make(map[*gnmipb.Path][]tablePath)
 		prefix := &gnmipb.Path{Target: "COUNTERS_DB"}
 		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}, {Name: "Ethernet*"}}}
-		err = parsePath(prefix, path, &pathG2S)
+		err := parsePath(prefix, path, &pathG2S)
 		if err != nil {
 			t.Fatalf("parsePath failed: %v", err)
 		}
