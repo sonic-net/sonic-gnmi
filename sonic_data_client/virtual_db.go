@@ -66,13 +66,13 @@ var (
 	countersDebugNameSwitchStatMap = make(map[string]string)
 
 	// sync.Once guards for each init function
-	initCountersPortNameMapOnce      sync.Once
-	initCountersQueueNameMapOnce     sync.Once
-	initCountersPGNameMapOnce        sync.Once
-	initCountersSidMapOnce           sync.Once
-	initCountersAclRuleMapOnce       sync.Once
-	initAliasMapOnce                 sync.Once
-	initCountersPfcwdNameMapOnce     sync.Once
+	initCountersPortNameMapOnce       sync.Once
+	initCountersQueueNameMapOnce      sync.Once
+	initCountersPGNameMapOnce         sync.Once
+	initCountersSidMapOnce            sync.Once
+	initCountersAclRuleMapOnce        sync.Once
+	initAliasMapOnce                  sync.Once
+	initCountersPfcwdNameMapOnce      sync.Once
 	initCountersFabricPortNameMapOnce sync.Once
 
 	// path2TFuncTbl is used to populate trie tree which is reponsible
@@ -197,7 +197,6 @@ func GetCountersQueueTypeMap() (map[string]string, error) {
 	}
 	return countersQueueTypeMap, nil
 }
-
 
 func initCountersPortNameMap() error {
 	var initErr error
@@ -1173,7 +1172,6 @@ func InitCountersPGNameMap() error         { return initCountersPGNameMap() }
 func InitCountersSidMap() error            { return initCountersSidMap() }
 func InitCountersAclRuleMap() error        { return initCountersAclRuleMap() }
 func InitCountersFabricPortNameMap() error { return initCountersFabricPortNameMap() }
-
 
 // Populate real data paths from paths like
 // [COUNTERS_DB PERIODIC_WATERMARKS Ethernet* PriorityGroups] or
