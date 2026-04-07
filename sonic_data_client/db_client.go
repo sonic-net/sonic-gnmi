@@ -127,7 +127,7 @@ type tablePath struct {
 	// path name to be used in json data which may be different
 	// from the real data path. Ex. in Counters table, real tableKey
 	// is oid:0x####, while key name like Ethernet## may be put
-	// in json data. They are to be filled in populateDbtablePath()
+	// in json data. They are to be filled in resolveSubscribePath()
 	jsonTableName string
 	jsonTableKey  string
 	jsonDelimitor string
@@ -195,7 +195,7 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
 // ValidatePaths checks that all resolved paths in the client exist in Redis.
 // Returns an error if any key is not found. Used by Get to enforce NOT_FOUND.
 func (c *DbClient) ValidatePaths() error {
-	return validatePath(&c.pathG2S)
+	return ensureKeysExistInRedis(&c.pathG2S)
 }
 
 // String returns the target the client is querying.
@@ -610,7 +610,7 @@ func populateAllDbtablePath(prefix *gnmipb.Path, paths []*gnmipb.Path, pathG2S *
 
 // parsePath resolves a gNMI path into a tablePath struct and stores it in pathG2S.
 // Handles COUNTERS_DB initialization and V2R virtual path lookup.
-// Does NOT make any Redis existence checks — see probePathElements and validatePath.
+// Does NOT make any Redis existence checks — see probePathElements and ensureKeysExistInRedis.
 func parsePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
 	var tblPath tablePath
 
@@ -793,10 +793,10 @@ func probePathElements(pathG2S *map[*gnmipb.Path][]tablePath) error {
 	return nil
 }
 
-// validatePath checks that all resolved table paths with keys actually exist in Redis.
+// ensureKeysExistInRedis checks that all resolved table paths with keys actually exist in Redis.
 // Returns an error if any key is not found. Used by Get to enforce NOT_FOUND semantics.
 // Subscribe callers should skip this to allow monitoring for future path existence.
-func validatePath(pathG2S *map[*gnmipb.Path][]tablePath) error {
+func ensureKeysExistInRedis(pathG2S *map[*gnmipb.Path][]tablePath) error {
 	for _, tblPaths := range *pathG2S {
 		for _, tblPath := range tblPaths {
 			if tblPath.tableKey == "" || tblPath.isVirtualPath {
@@ -820,10 +820,10 @@ func validatePath(pathG2S *map[*gnmipb.Path][]tablePath) error {
 	return nil
 }
 
-// populateDbtablePath resolves a gNMI path for Subscribe callers.
+// resolveSubscribePath resolves a gNMI path for Subscribe callers.
 // Parses the path and probes Redis to disambiguate key vs field,
 // but does NOT validate existence — allows subscribing to paths that don't exist yet.
-func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
+func resolveSubscribePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
 	if err := parsePath(prefix, path, pathG2S); err != nil {
 		return err
 	}

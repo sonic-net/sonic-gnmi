@@ -1400,9 +1400,9 @@ func TestPopulateDbtablePath(t *testing.T) {
 		pathG2S := make(map[*gnmipb.Path][]tablePath)
 		prefix := &gnmipb.Path{Target: "STATE_DB"}
 		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
-		err := populateDbtablePath(prefix, path, &pathG2S)
+		err := resolveSubscribePath(prefix, path, &pathG2S)
 		if err != nil {
-			t.Fatalf("populateDbtablePath failed: %v", err)
+			t.Fatalf("resolveSubscribePath failed: %v", err)
 		}
 		for _, tblPaths := range pathG2S {
 			if tblPaths[0].tableKey != "10.0.0.57" {
@@ -1415,9 +1415,9 @@ func TestPopulateDbtablePath(t *testing.T) {
 		pathG2S := make(map[*gnmipb.Path][]tablePath)
 		prefix := &gnmipb.Path{Target: "STATE_DB"}
 		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.99"}}}
-		err := populateDbtablePath(prefix, path, &pathG2S)
+		err := resolveSubscribePath(prefix, path, &pathG2S)
 		if err != nil {
-			t.Fatalf("populateDbtablePath failed: %v", err)
+			t.Fatalf("resolveSubscribePath failed: %v", err)
 		}
 		for _, tblPaths := range pathG2S {
 			if tblPaths[0].tableKey != "10.0.0.99" {
@@ -1462,7 +1462,7 @@ func TestValidatePath(t *testing.T) {
 		pathG2S := map[*gnmipb.Path][]tablePath{
 			{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}},
 		}
-		if err := validatePath(&pathG2S); err != nil {
+		if err := ensureKeysExistInRedis(&pathG2S); err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
 	})
@@ -1471,7 +1471,7 @@ func TestValidatePath(t *testing.T) {
 		pathG2S := map[*gnmipb.Path][]tablePath{
 			{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.99", delimitor: "|"}},
 		}
-		if err := validatePath(&pathG2S); err == nil {
+		if err := ensureKeysExistInRedis(&pathG2S); err == nil {
 			t.Errorf("expected error for missing key")
 		}
 	})
@@ -1480,7 +1480,7 @@ func TestValidatePath(t *testing.T) {
 		pathG2S := map[*gnmipb.Path][]tablePath{
 			{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "", delimitor: "|"}},
 		}
-		if err := validatePath(&pathG2S); err != nil {
+		if err := ensureKeysExistInRedis(&pathG2S); err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
 	})
@@ -1489,7 +1489,7 @@ func TestValidatePath(t *testing.T) {
 		pathG2S := map[*gnmipb.Path][]tablePath{
 			{}: {{dbNamespace: ns, dbName: "COUNTERS_DB", tableName: "COUNTERS", tableKey: "oid:0xDEAD", delimitor: ":", isVirtualPath: true}},
 		}
-		if err := validatePath(&pathG2S); err != nil {
+		if err := ensureKeysExistInRedis(&pathG2S); err != nil {
 			t.Errorf("expected no error for virtual path, got %v", err)
 		}
 	})
@@ -1498,7 +1498,7 @@ func TestValidatePath(t *testing.T) {
 		pathG2S := map[*gnmipb.Path][]tablePath{
 			{}: {{dbNamespace: "bad_ns", dbName: "NONEXISTENT_DB", tableName: "TABLE", tableKey: "key", delimitor: "|"}},
 		}
-		if err := validatePath(&pathG2S); err == nil {
+		if err := ensureKeysExistInRedis(&pathG2S); err == nil {
 			t.Errorf("expected error for missing Redis client")
 		}
 	})

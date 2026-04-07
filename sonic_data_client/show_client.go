@@ -124,7 +124,7 @@ func (c *ShowClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 
 func PopulateTablePaths(prefix, path *gnmipb.Path) ([]TablePath, error) {
 	m := make(map[*gnmipb.Path][]tablePath)
-	if err := populateDbtablePath(prefix, path, &m); err != nil {
+	if err := resolveSubscribePath(prefix, path, &m); err != nil {
 		return nil, err
 	}
 	return m[path], nil
