@@ -1671,14 +1671,14 @@ func TestSubscribeTableData2TypedValue(t *testing.T) {
 		defer rclient.Del(context.Background(), "COUNTERS:oid:0x1000000000039")
 
 		tblPaths := []tablePath{{
-			dbNamespace:  ns,
-			dbName:       "COUNTERS_DB",
-			tableName:    "COUNTERS",
-			tableKey:     "oid:0x1000000000039",
-			delimitor:    ":",
-			jsonField:    "SAI_PORT_STAT_PFC_7_RX_PKTS",
-			jsonTableKey: "Ethernet68",
-			field:        "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			dbNamespace:   ns,
+			dbName:        "COUNTERS_DB",
+			tableName:     "COUNTERS",
+			tableKey:      "oid:0x1000000000039",
+			delimitor:     ":",
+			jsonField:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			jsonTableKey:  "Ethernet68",
+			field:         "SAI_PORT_STAT_PFC_7_RX_PKTS",
 			isVirtualPath: true,
 		}}
 		val, err, updateReceived := subscribeTableData2TypedValue(tblPaths, nil)
@@ -1695,14 +1695,14 @@ func TestSubscribeTableData2TypedValue(t *testing.T) {
 
 	t.Run("JsonField_VirtualPath_MissingData", func(t *testing.T) {
 		tblPaths := []tablePath{{
-			dbNamespace:  ns,
-			dbName:       "COUNTERS_DB",
-			tableName:    "COUNTERS",
-			tableKey:     "oid:0xDEADBEEF",
-			delimitor:    ":",
-			jsonField:    "SAI_PORT_STAT_PFC_7_RX_PKTS",
-			jsonTableKey: "Ethernet99",
-			field:        "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			dbNamespace:   ns,
+			dbName:        "COUNTERS_DB",
+			tableName:     "COUNTERS",
+			tableKey:      "oid:0xDEADBEEF",
+			delimitor:     ":",
+			jsonField:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			jsonTableKey:  "Ethernet99",
+			field:         "SAI_PORT_STAT_PFC_7_RX_PKTS",
 			isVirtualPath: true,
 		}}
 		_, err, updateReceived := subscribeTableData2TypedValue(tblPaths, nil)
