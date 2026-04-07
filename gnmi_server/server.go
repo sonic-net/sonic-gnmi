@@ -933,6 +933,15 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		authTarget = "gnmi_show"
 	} else if targetDbName, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
+		if err == nil {
+			// For Get requests, validate that all requested keys exist in Redis.
+			// NewDbClient allows non-existent paths (needed for Subscribe to monitor
+			// future data per gNMI spec), but Get should return NOT_FOUND immediately
+			// if any path doesn't exist (per gNMI spec Section 3.3.4).
+			if dbClient, ok := dc.(*sdc.DbClient); ok {
+				err = dbClient.ValidatePaths()
+			}
+		}
 		authTarget = "gnmi_" + targetDbName
 	} else {
 		if origin == "" {
@@ -961,7 +970,6 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, err
 	}
-	notifications := make([]*gnmipb.Notification, len(paths))
 	spbValues, err := dc.Get(nil)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
@@ -971,17 +979,18 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 
-	for index, spbValue := range spbValues {
+	notifications := make([]*gnmipb.Notification, 0, len(spbValues))
+	for _, spbValue := range spbValues {
 		update := &gnmipb.Update{
 			Path: spbValue.GetPath(),
 			Val:  spbValue.GetVal(),
 		}
 
-		notifications[index] = &gnmipb.Notification{
+		notifications = append(notifications, &gnmipb.Notification{
 			Timestamp: spbValue.GetTimestamp(),
 			Prefix:    prefix,
 			Update:    []*gnmipb.Update{update},
-		}
+		})
 	}
 	return &gnmipb.GetResponse{Notification: notifications}, nil
 }

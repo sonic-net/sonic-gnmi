@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1024,6 +1025,984 @@ func TestUseRedisTcpClient(t *testing.T) {
 		}
 		if len(Target2RedisDb) != 0 {
 			t.Errorf("Expected Target2RedisDb to be empty, got %d entries", len(Target2RedisDb))
+		}
+	})
+}
+
+// setupTestTarget2RedisDb populates Target2RedisDb with real TCP Redis clients
+// using the same gomonkey pattern as TestUseRedisTcpClient.
+func setupTestTarget2RedisDb(t *testing.T) func() {
+	t.Helper()
+	restore := saveAndResetTarget2RedisDb()
+	origFlag := UseRedisLocalTcpPort
+	UseRedisLocalTcpPort = true
+
+	ns := ""
+	patches := gomonkey.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+		return []string{ns}, nil
+	})
+	patches.ApplyFunc(sdcfg.GetDbTcpAddr, func(dbName string, _ string) (string, error) {
+		return "127.0.0.1:6379", nil
+	})
+
+	err := useRedisTcpClient()
+	patches.Reset()
+	UseRedisLocalTcpPort = origFlag
+
+	if err != nil {
+		restore()
+		t.Fatalf("useRedisTcpClient failed: %v", err)
+	}
+
+	return func() {
+		for _, nsMap := range Target2RedisDb {
+			for _, rc := range nsMap {
+				rc.FlushDB(context.Background())
+			}
+		}
+		restore()
+	}
+}
+
+func TestParsePath(t *testing.T) {
+	t.Run("TwoElements_TableOnly", func(t *testing.T) {
+		pathG2S := make(map[*gnmipb.Path][]tablePath)
+		prefix := &gnmipb.Path{Target: "STATE_DB"}
+		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}}}
+		err := parsePath(prefix, path, &pathG2S)
+		if err != nil {
+			t.Fatalf("parsePath failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].tableName != "NEIGH_STATE_TABLE" {
+				t.Errorf("expected tableName NEIGH_STATE_TABLE, got %v", tblPaths[0].tableName)
+			}
+			if tblPaths[0].tableKey != "" {
+				t.Errorf("expected empty tableKey, got %v", tblPaths[0].tableKey)
+			}
+		}
+	})
+
+	t.Run("ThreeElements_STATE_DB", func(t *testing.T) {
+		pathG2S := make(map[*gnmipb.Path][]tablePath)
+		prefix := &gnmipb.Path{Target: "STATE_DB"}
+		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+		err := parsePath(prefix, path, &pathG2S)
+		if err != nil {
+			t.Fatalf("parsePath failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].tableKey != "10.0.0.57" {
+				t.Errorf("expected tableKey 10.0.0.57, got %v", tblPaths[0].tableKey)
+			}
+		}
+	})
+
+	t.Run("ThreeElements_APPL_DB_EscapedRoute", func(t *testing.T) {
+		pathG2S := make(map[*gnmipb.Path][]tablePath)
+		prefix := &gnmipb.Path{Target: "APPL_DB"}
+		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "ROUTE_TABLE"}, {Name: "0.0.0.0/0"}}}
+		err := parsePath(prefix, path, &pathG2S)
+		if err != nil {
+			t.Fatalf("parsePath failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].tableKey != "0.0.0.0/0" {
+				t.Errorf("expected tableKey 0.0.0.0/0, got %v", tblPaths[0].tableKey)
+			}
+		}
+	})
+
+	t.Run("FourElements_CompositeKey", func(t *testing.T) {
+		pathG2S := make(map[*gnmipb.Path][]tablePath)
+		prefix := &gnmipb.Path{Target: "STATE_DB"}
+		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "VLAN_MEMBER_TABLE"}, {Name: "Vlan100"}, {Name: "Ethernet0"}}}
+		err := parsePath(prefix, path, &pathG2S)
+		if err != nil {
+			t.Fatalf("parsePath failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].tableKey != "Vlan100|Ethernet0" {
+				t.Errorf("expected composite key Vlan100|Ethernet0, got %v", tblPaths[0].tableKey)
+			}
+		}
+	})
+
+	t.Run("FiveElements_CompositeKeyAndField", func(t *testing.T) {
+		pathG2S := make(map[*gnmipb.Path][]tablePath)
+		prefix := &gnmipb.Path{Target: "STATE_DB"}
+		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "VLAN_MEMBER_TABLE"}, {Name: "Vlan100"}, {Name: "Ethernet0"}, {Name: "tagging_mode"}}}
+		err := parsePath(prefix, path, &pathG2S)
+		if err != nil {
+			t.Fatalf("parsePath failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].tableKey != "Vlan100|Ethernet0" {
+				t.Errorf("expected key Vlan100|Ethernet0, got %v", tblPaths[0].tableKey)
+			}
+			if tblPaths[0].field != "tagging_mode" {
+				t.Errorf("expected field tagging_mode, got %v", tblPaths[0].field)
+			}
+		}
+	})
+
+	t.Run("InvalidPath_TooManyElements", func(t *testing.T) {
+		pathG2S := make(map[*gnmipb.Path][]tablePath)
+		prefix := &gnmipb.Path{Target: "STATE_DB"}
+		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "A"}, {Name: "B"}, {Name: "C"}, {Name: "D"}, {Name: "E"}}}
+		err := parsePath(prefix, path, &pathG2S)
+		if err == nil {
+			t.Errorf("expected error for 6-element path")
+		}
+	})
+
+	t.Run("COUNTERS_DB_VirtualPath_Ethernet68", func(t *testing.T) {
+		cleanup := setupTestTarget2RedisDb(t)
+		defer cleanup()
+
+		ns := ""
+		rclient := Target2RedisDb[ns]["COUNTERS_DB"]
+		rclient.HSet(context.Background(), "COUNTERS_PORT_NAME_MAP", "Ethernet68", "oid:0x1000000000039")
+
+		configDb := Target2RedisDb[ns]["CONFIG_DB"]
+		configDb.HSet(context.Background(), "PORT|Ethernet68", "alias", "Ethernet68", "index", "68")
+		defer configDb.Del(context.Background(), "PORT|Ethernet68")
+
+		os.Setenv("UNIT_TEST", "1")
+		ClearMappings()
+		os.Unsetenv("UNIT_TEST")
+
+		pathG2S := make(map[*gnmipb.Path][]tablePath)
+		prefix := &gnmipb.Path{Target: "COUNTERS_DB"}
+		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}, {Name: "Ethernet68"}}}
+		err := parsePath(prefix, path, &pathG2S)
+		if err != nil {
+			t.Fatalf("parsePath failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if !tblPaths[0].isVirtualPath {
+				t.Errorf("expected isVirtualPath=true for COUNTERS/Ethernet68")
+			}
+			if tblPaths[0].tableKey != "oid:0x1000000000039" {
+				t.Errorf("expected tableKey oid:0x1000000000039, got %v", tblPaths[0].tableKey)
+			}
+		}
+	})
+
+	t.Run("COUNTERS_DB_VirtualPath_EthernetWildcard", func(t *testing.T) {
+		cleanup := setupTestTarget2RedisDb(t)
+		defer cleanup()
+
+		ns := ""
+		rclient := Target2RedisDb[ns]["COUNTERS_DB"]
+		rclient.HSet(context.Background(), "COUNTERS_PORT_NAME_MAP", "Ethernet68", "oid:0x1000000000039")
+		rclient.HSet(context.Background(), "COUNTERS_PORT_NAME_MAP", "Ethernet1", "oid:0x1000000000003")
+
+		configDb := Target2RedisDb[ns]["CONFIG_DB"]
+		configDb.HSet(context.Background(), "PORT|Ethernet68", "alias", "Ethernet68", "index", "68")
+		configDb.HSet(context.Background(), "PORT|Ethernet1", "alias", "Ethernet1", "index", "1")
+		defer configDb.Del(context.Background(), "PORT|Ethernet68", "PORT|Ethernet1")
+
+		os.Setenv("UNIT_TEST", "1")
+		ClearMappings()
+		os.Unsetenv("UNIT_TEST")
+
+		pathG2S := make(map[*gnmipb.Path][]tablePath)
+		prefix := &gnmipb.Path{Target: "COUNTERS_DB"}
+		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}, {Name: "Ethernet*"}}}
+		err := parsePath(prefix, path, &pathG2S)
+		if err != nil {
+			t.Fatalf("parsePath failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if len(tblPaths) < 2 {
+				t.Fatalf("expected at least 2 tablePaths for Ethernet*, got %d", len(tblPaths))
+			}
+			for _, tp := range tblPaths {
+				if !tp.isVirtualPath {
+					t.Errorf("expected isVirtualPath=true for all wildcard paths")
+				}
+			}
+		}
+	})
+}
+
+func TestProbePathElements(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+	ns := ""
+
+	t.Run("StateDB_KeyExists_StaysAsKey", func(t *testing.T) {
+		rclient := Target2RedisDb[ns]["STATE_DB"]
+		rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "state", "Established")
+		defer rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
+
+		pathG2S := map[*gnmipb.Path][]tablePath{
+			{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}},
+		}
+		if err := probePathElements(&pathG2S); err != nil {
+			t.Fatalf("probePathElements failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].tableKey != "10.0.0.57" {
+				t.Errorf("expected tableKey 10.0.0.57, got %v", tblPaths[0].tableKey)
+			}
+			if tblPaths[0].field != "" {
+				t.Errorf("expected empty field, got %v", tblPaths[0].field)
+			}
+		}
+	})
+
+	t.Run("StateDB_FieldExists_ReclassifiedAsField", func(t *testing.T) {
+		rclient := Target2RedisDb[ns]["STATE_DB"]
+		rclient.HSet(context.Background(), "SWITCH_CAPABILITY", "test_field", "test_value")
+		defer rclient.Del(context.Background(), "SWITCH_CAPABILITY")
+
+		pathG2S := map[*gnmipb.Path][]tablePath{
+			{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "SWITCH_CAPABILITY", tableKey: "test_field", delimitor: "|"}},
+		}
+		if err := probePathElements(&pathG2S); err != nil {
+			t.Fatalf("probePathElements failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].field != "test_field" {
+				t.Errorf("expected field test_field, got %v", tblPaths[0].field)
+			}
+			if tblPaths[0].tableKey != "" {
+				t.Errorf("expected empty tableKey, got %v", tblPaths[0].tableKey)
+			}
+		}
+	})
+
+	t.Run("StateDB_NeitherExists_DefaultsToKey", func(t *testing.T) {
+		pathG2S := map[*gnmipb.Path][]tablePath{
+			{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.99", delimitor: "|"}},
+		}
+		if err := probePathElements(&pathG2S); err != nil {
+			t.Fatalf("probePathElements failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].tableKey != "10.0.0.99" {
+				t.Errorf("expected tableKey 10.0.0.99, got %v", tblPaths[0].tableKey)
+			}
+		}
+	})
+
+	t.Run("APPL_DB_RouteExists_StaysAsKey", func(t *testing.T) {
+		rclient := Target2RedisDb[ns]["APPL_DB"]
+		rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "nexthop", "10.0.0.1")
+		defer rclient.Del(context.Background(), "ROUTE_TABLE:0.0.0.0/0")
+
+		pathG2S := map[*gnmipb.Path][]tablePath{
+			{}: {{dbNamespace: ns, dbName: "APPL_DB", tableName: "ROUTE_TABLE", tableKey: "0.0.0.0/0", delimitor: ":"}},
+		}
+		if err := probePathElements(&pathG2S); err != nil {
+			t.Fatalf("probePathElements failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].tableKey != "0.0.0.0/0" {
+				t.Errorf("expected tableKey 0.0.0.0/0, got %v", tblPaths[0].tableKey)
+			}
+		}
+	})
+
+	t.Run("APPL_DB_NonExistentRoute_DefaultsToKey", func(t *testing.T) {
+		pathG2S := map[*gnmipb.Path][]tablePath{
+			{}: {{dbNamespace: ns, dbName: "APPL_DB", tableName: "ROUTE_TABLE", tableKey: "0.0.0.0/0", delimitor: ":"}},
+		}
+		if err := probePathElements(&pathG2S); err != nil {
+			t.Fatalf("probePathElements failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].tableKey != "0.0.0.0/0" {
+				t.Errorf("expected tableKey 0.0.0.0/0, got %v", tblPaths[0].tableKey)
+			}
+		}
+	})
+
+	t.Run("VirtualPath_Skipped", func(t *testing.T) {
+		pathG2S := map[*gnmipb.Path][]tablePath{
+			{}: {{dbNamespace: ns, dbName: "COUNTERS_DB", tableName: "COUNTERS", tableKey: "oid:0x123", delimitor: ":", isVirtualPath: true}},
+		}
+		if err := probePathElements(&pathG2S); err != nil {
+			t.Fatalf("probePathElements failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].tableKey != "oid:0x123" {
+				t.Errorf("virtual path should not be modified")
+			}
+		}
+	})
+
+	t.Run("CompositeKey_Exists", func(t *testing.T) {
+		rclient := Target2RedisDb[ns]["STATE_DB"]
+		rclient.HSet(context.Background(), "VLAN_MEMBER_TABLE|Vlan100|Ethernet0", "tagging_mode", "tagged")
+		defer rclient.Del(context.Background(), "VLAN_MEMBER_TABLE|Vlan100|Ethernet0")
+
+		pathG2S := map[*gnmipb.Path][]tablePath{
+			{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "VLAN_MEMBER_TABLE", tableKey: "Vlan100|Ethernet0", delimitor: "|"}},
+		}
+		if err := probePathElements(&pathG2S); err != nil {
+			t.Fatalf("probePathElements failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].tableKey != "Vlan100|Ethernet0" {
+				t.Errorf("expected composite key Vlan100|Ethernet0, got %v", tblPaths[0].tableKey)
+			}
+			if tblPaths[0].field != "" {
+				t.Errorf("expected empty field, got %v", tblPaths[0].field)
+			}
+		}
+	})
+
+	t.Run("CompositeKey_SecondPartIsField", func(t *testing.T) {
+		rclient := Target2RedisDb[ns]["STATE_DB"]
+		rclient.HSet(context.Background(), "VLAN_MEMBER_TABLE|Vlan100", "tagging_mode", "tagged")
+		defer rclient.Del(context.Background(), "VLAN_MEMBER_TABLE|Vlan100")
+
+		pathG2S := map[*gnmipb.Path][]tablePath{
+			{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "VLAN_MEMBER_TABLE", tableKey: "Vlan100|tagging_mode", delimitor: "|"}},
+		}
+		if err := probePathElements(&pathG2S); err != nil {
+			t.Fatalf("probePathElements failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].tableKey != "Vlan100" {
+				t.Errorf("expected tableKey Vlan100, got %v", tblPaths[0].tableKey)
+			}
+			if tblPaths[0].field != "tagging_mode" {
+				t.Errorf("expected field tagging_mode, got %v", tblPaths[0].field)
+			}
+		}
+	})
+
+	t.Run("MissingRedisClient_ReturnsError", func(t *testing.T) {
+		pathG2S := map[*gnmipb.Path][]tablePath{
+			{}: {{dbNamespace: "bad_ns", dbName: "NONEXISTENT_DB", tableName: "TABLE", tableKey: "key", delimitor: "|"}},
+		}
+		err := probePathElements(&pathG2S)
+		if err == nil {
+			t.Errorf("expected error for missing Redis client")
+		}
+	})
+}
+
+func TestPopulateDbtablePath(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+
+	ns := ""
+	rclient := Target2RedisDb[ns]["STATE_DB"]
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "state", "Established")
+	defer rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
+
+	t.Run("ExistingKey", func(t *testing.T) {
+		pathG2S := make(map[*gnmipb.Path][]tablePath)
+		prefix := &gnmipb.Path{Target: "STATE_DB"}
+		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+		err := resolveSubscribePath(prefix, path, &pathG2S)
+		if err != nil {
+			t.Fatalf("resolveSubscribePath failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].tableKey != "10.0.0.57" {
+				t.Errorf("expected tableKey 10.0.0.57, got %v", tblPaths[0].tableKey)
+			}
+		}
+	})
+
+	t.Run("NonExistentKey_DefaultsToKey", func(t *testing.T) {
+		pathG2S := make(map[*gnmipb.Path][]tablePath)
+		prefix := &gnmipb.Path{Target: "STATE_DB"}
+		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.99"}}}
+		err := resolveSubscribePath(prefix, path, &pathG2S)
+		if err != nil {
+			t.Fatalf("resolveSubscribePath failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if tblPaths[0].tableKey != "10.0.0.99" {
+				t.Errorf("expected tableKey 10.0.0.99, got %v", tblPaths[0].tableKey)
+			}
+		}
+	})
+}
+
+func TestPopulateAllDbtablePath(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+
+	ns := ""
+	rclient := Target2RedisDb[ns]["STATE_DB"]
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "state", "Established")
+	defer rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
+
+	pathG2S := make(map[*gnmipb.Path][]tablePath)
+	prefix := &gnmipb.Path{Target: "STATE_DB"}
+	paths := []*gnmipb.Path{
+		{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}},
+		{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.99"}}},
+	}
+	err := populateAllDbtablePath(prefix, paths, &pathG2S)
+	if err != nil {
+		t.Fatalf("populateAllDbtablePath failed: %v", err)
+	}
+	if len(pathG2S) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(pathG2S))
+	}
+}
+
+func TestValidatePath(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+	ns := ""
+	rclient := Target2RedisDb[ns]["STATE_DB"]
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "state", "Established")
+
+	t.Run("KeyExists_NoError", func(t *testing.T) {
+		pathG2S := map[*gnmipb.Path][]tablePath{
+			{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}},
+		}
+		if err := ensureKeysExistInRedis(&pathG2S); err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("KeyMissing_ReturnsError", func(t *testing.T) {
+		pathG2S := map[*gnmipb.Path][]tablePath{
+			{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.99", delimitor: "|"}},
+		}
+		if err := ensureKeysExistInRedis(&pathG2S); err == nil {
+			t.Errorf("expected error for missing key")
+		}
+	})
+
+	t.Run("EmptyTableKey_Skipped", func(t *testing.T) {
+		pathG2S := map[*gnmipb.Path][]tablePath{
+			{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "", delimitor: "|"}},
+		}
+		if err := ensureKeysExistInRedis(&pathG2S); err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("VirtualPath_Skipped", func(t *testing.T) {
+		pathG2S := map[*gnmipb.Path][]tablePath{
+			{}: {{dbNamespace: ns, dbName: "COUNTERS_DB", tableName: "COUNTERS", tableKey: "oid:0xDEAD", delimitor: ":", isVirtualPath: true}},
+		}
+		if err := ensureKeysExistInRedis(&pathG2S); err != nil {
+			t.Errorf("expected no error for virtual path, got %v", err)
+		}
+	})
+
+	t.Run("MissingRedisClient_ReturnsError", func(t *testing.T) {
+		pathG2S := map[*gnmipb.Path][]tablePath{
+			{}: {{dbNamespace: "bad_ns", dbName: "NONEXISTENT_DB", tableName: "TABLE", tableKey: "key", delimitor: "|"}},
+		}
+		if err := ensureKeysExistInRedis(&pathG2S); err == nil {
+			t.Errorf("expected error for missing Redis client")
+		}
+	})
+}
+
+func TestTableData2Msi_SkipsEmptyData(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+	ns := ""
+
+	t.Run("STATE_DB_NonExistentKey_Skipped", func(t *testing.T) {
+		msi := make(map[string]interface{})
+		tblPath := tablePath{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.99", delimitor: "|"}
+		err := TableData2Msi(&tblPath, false, nil, &msi)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if len(msi) != 0 {
+			t.Errorf("expected empty msi, got %v", msi)
+		}
+	})
+
+	t.Run("STATE_DB_ExistingKey_ReturnsData", func(t *testing.T) {
+		rclient := Target2RedisDb[ns]["STATE_DB"]
+		rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP", "state", "Established")
+		defer rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
+
+		msi := make(map[string]interface{})
+		tblPath := tablePath{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}
+		err := TableData2Msi(&tblPath, false, nil, &msi)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if len(msi) == 0 {
+			t.Errorf("expected data, got empty msi")
+		}
+	})
+
+	t.Run("APPL_DB_NonExistentRoute_Skipped", func(t *testing.T) {
+		msi := make(map[string]interface{})
+		tblPath := tablePath{dbNamespace: ns, dbName: "APPL_DB", tableName: "ROUTE_TABLE", tableKey: "0.0.0.0/0", delimitor: ":"}
+		err := TableData2Msi(&tblPath, false, nil, &msi)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if len(msi) != 0 {
+			t.Errorf("expected empty msi, got %v", msi)
+		}
+	})
+
+	t.Run("APPL_DB_ExistingRoute_ReturnsData", func(t *testing.T) {
+		rclient := Target2RedisDb[ns]["APPL_DB"]
+		rclient.HSet(context.Background(), "ROUTE_TABLE:0.0.0.0/0", "nexthop", "10.0.0.1", "ifname", "Ethernet0")
+		defer rclient.Del(context.Background(), "ROUTE_TABLE:0.0.0.0/0")
+
+		msi := make(map[string]interface{})
+		tblPath := tablePath{dbNamespace: ns, dbName: "APPL_DB", tableName: "ROUTE_TABLE", tableKey: "0.0.0.0/0", delimitor: ":"}
+		err := TableData2Msi(&tblPath, false, nil, &msi)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if len(msi) == 0 {
+			t.Errorf("expected data, got empty msi")
+		}
+	})
+
+	t.Run("COUNTERS_DB_VirtualPath_ExistingData", func(t *testing.T) {
+		rclient := Target2RedisDb[ns]["COUNTERS_DB"]
+		rclient.HSet(context.Background(), "COUNTERS:oid:0x1000000000039", "SAI_PORT_STAT_IF_IN_OCTETS", "100", "SAI_PORT_STAT_IF_OUT_OCTETS", "200")
+		defer rclient.Del(context.Background(), "COUNTERS:oid:0x1000000000039")
+
+		msi := make(map[string]interface{})
+		tblPath := tablePath{dbNamespace: ns, dbName: "COUNTERS_DB", tableName: "COUNTERS", tableKey: "oid:0x1000000000039", delimitor: ":", isVirtualPath: true}
+		err := TableData2Msi(&tblPath, false, nil, &msi)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if len(msi) == 0 {
+			t.Errorf("expected counter data, got empty msi")
+		}
+	})
+
+	t.Run("COUNTERS_DB_VirtualPath_MissingData_Skipped", func(t *testing.T) {
+		msi := make(map[string]interface{})
+		tblPath := tablePath{dbNamespace: ns, dbName: "COUNTERS_DB", tableName: "COUNTERS", tableKey: "oid:0xDEADBEEF", delimitor: ":", isVirtualPath: true}
+		err := TableData2Msi(&tblPath, false, nil, &msi)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if len(msi) != 0 {
+			t.Errorf("expected empty msi for missing counter OID, got %v", msi)
+		}
+	})
+
+	t.Run("COUNTERS_DB_JsonTableKey_ReturnsData", func(t *testing.T) {
+		rclient := Target2RedisDb[ns]["COUNTERS_DB"]
+		rclient.HSet(context.Background(), "COUNTERS:oid:0x1000000000039", "SAI_PORT_STAT_IF_IN_OCTETS", "100")
+		defer rclient.Del(context.Background(), "COUNTERS:oid:0x1000000000039")
+
+		msi := make(map[string]interface{})
+		tblPath := tablePath{dbNamespace: ns, dbName: "COUNTERS_DB", tableName: "COUNTERS", tableKey: "oid:0x1000000000039", delimitor: ":", jsonTableKey: "Ethernet68", isVirtualPath: true}
+		err := TableData2Msi(&tblPath, false, nil, &msi)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if _, ok := msi["Ethernet68"]; !ok {
+			t.Errorf("expected Ethernet68 in msi, got %v", msi)
+		}
+	})
+}
+
+func TestSubscribeTableData2TypedValue(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+	ns := ""
+	rclient := Target2RedisDb[ns]["STATE_DB"]
+
+	t.Run("DataExists_ReturnsTrue", func(t *testing.T) {
+		rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
+		defer rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
+
+		tblPaths := []tablePath{{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}}
+		val, err, updateReceived := subscribeTableData2TypedValue(tblPaths, nil)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if !updateReceived {
+			t.Errorf("expected updateReceived=true")
+		}
+		if val == nil {
+			t.Errorf("expected non-nil value")
+		}
+	})
+
+	t.Run("NoData_ReturnsFalse", func(t *testing.T) {
+		tblPaths := []tablePath{{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.99", delimitor: "|"}}
+		_, err, updateReceived := subscribeTableData2TypedValue(tblPaths, nil)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if updateReceived {
+			t.Errorf("expected updateReceived=false")
+		}
+	})
+
+	t.Run("MissingField_ContinuesNotErrors", func(t *testing.T) {
+		tblPaths := []tablePath{{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.99", delimitor: "|", field: "nonexistent"}}
+		_, err, updateReceived := subscribeTableData2TypedValue(tblPaths, nil)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if updateReceived {
+			t.Errorf("expected updateReceived=false")
+		}
+	})
+
+	t.Run("APPL_DB_NonExistentRoute_ReturnsFalse", func(t *testing.T) {
+		tblPaths := []tablePath{{dbNamespace: ns, dbName: "APPL_DB", tableName: "ROUTE_TABLE", tableKey: "0.0.0.0/0", delimitor: ":"}}
+		_, err, updateReceived := subscribeTableData2TypedValue(tblPaths, nil)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if updateReceived {
+			t.Errorf("expected updateReceived=false")
+		}
+	})
+
+	t.Run("JsonField_VirtualPath_ExistingData", func(t *testing.T) {
+		countersClient := Target2RedisDb[ns]["COUNTERS_DB"]
+		countersClient.HSet(context.Background(), "COUNTERS:oid:0x1000000000039", "SAI_PORT_STAT_PFC_7_RX_PKTS", "2")
+		defer countersClient.Del(context.Background(), "COUNTERS:oid:0x1000000000039")
+
+		tblPaths := []tablePath{{
+			dbNamespace:   ns,
+			dbName:        "COUNTERS_DB",
+			tableName:     "COUNTERS",
+			tableKey:      "oid:0x1000000000039",
+			delimitor:     ":",
+			jsonField:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			jsonTableKey:  "Ethernet68",
+			field:         "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			isVirtualPath: true,
+		}}
+		val, err, updateReceived := subscribeTableData2TypedValue(tblPaths, nil)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if !updateReceived {
+			t.Errorf("expected updateReceived=true")
+		}
+		if val == nil {
+			t.Errorf("expected non-nil value")
+		}
+	})
+
+	t.Run("JsonField_VirtualPath_MissingData", func(t *testing.T) {
+		tblPaths := []tablePath{{
+			dbNamespace:   ns,
+			dbName:        "COUNTERS_DB",
+			tableName:     "COUNTERS",
+			tableKey:      "oid:0xDEADBEEF",
+			delimitor:     ":",
+			jsonField:     "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			jsonTableKey:  "Ethernet99",
+			field:         "SAI_PORT_STAT_PFC_7_RX_PKTS",
+			isVirtualPath: true,
+		}}
+		_, err, updateReceived := subscribeTableData2TypedValue(tblPaths, nil)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if updateReceived {
+			t.Errorf("expected updateReceived=false")
+		}
+	})
+}
+
+func TestPollRunDeleteTracking(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+	ns := ""
+	rclient := Target2RedisDb[ns]["STATE_DB"]
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
+
+	gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+	c := DbClient{
+		pathG2S: map[*gnmipb.Path][]tablePath{
+			gnmiPath: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}},
+		},
+	}
+
+	q := queue.NewPriorityQueue(1, false)
+	poll := make(chan struct{}, 1)
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go c.PollRun(q, poll, &wg, nil)
+
+	poll <- struct{}{}
+	time.Sleep(100 * time.Millisecond)
+
+	rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
+
+	poll <- struct{}{}
+	time.Sleep(100 * time.Millisecond)
+
+	close(poll)
+	wg.Wait()
+
+	var gotUpdate, gotDelete, gotSync bool
+	for !q.Empty() {
+		items, _ := q.Get(1)
+		val := items[0].(Value)
+		if val.GetSyncResponse() {
+			gotSync = true
+		} else if val.GetDelete() != nil {
+			gotDelete = true
+		} else if val.GetVal() != nil {
+			gotUpdate = true
+		}
+	}
+	if !gotUpdate {
+		t.Errorf("expected update notification")
+	}
+	if !gotDelete {
+		t.Errorf("expected delete notification")
+	}
+	if !gotSync {
+		t.Errorf("expected sync responses")
+	}
+}
+
+func TestValidatePaths(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+	ns := ""
+	rclient := Target2RedisDb[ns]["STATE_DB"]
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "state", "Established")
+
+	t.Run("ExistingPath_NoError", func(t *testing.T) {
+		c := DbClient{
+			pathG2S: map[*gnmipb.Path][]tablePath{
+				{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}},
+			},
+		}
+		if err := c.ValidatePaths(); err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("MissingPath_ReturnsError", func(t *testing.T) {
+		c := DbClient{
+			pathG2S: map[*gnmipb.Path][]tablePath{
+				{}: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.99", delimitor: "|"}},
+			},
+		}
+		if err := c.ValidatePaths(); err == nil {
+			t.Errorf("expected error for missing path")
+		}
+	})
+
+	t.Run("VirtualPath_Skipped", func(t *testing.T) {
+		c := DbClient{
+			pathG2S: map[*gnmipb.Path][]tablePath{
+				{}: {{dbNamespace: ns, dbName: "COUNTERS_DB", tableName: "COUNTERS", tableKey: "oid:0xDEAD", delimitor: ":", isVirtualPath: true}},
+			},
+		}
+		if err := c.ValidatePaths(); err != nil {
+			t.Errorf("expected no error for virtual path, got %v", err)
+		}
+	})
+}
+
+// setupMixedDbRedis sets up RedisDbMap for MixedDbClient tests.
+func setupMixedDbRedis(t *testing.T, mapkey string) func() {
+	t.Helper()
+	cleanup := setupTestTarget2RedisDb(t)
+	ns := ""
+	origRedisDbMap := RedisDbMap
+	RedisDbMap = make(map[string]*redis.Client)
+	for dbName, rc := range Target2RedisDb[ns] {
+		RedisDbMap[mapkey+":"+dbName] = rc
+	}
+	return func() {
+		RedisDbMap = origRedisDbMap
+		cleanup()
+	}
+}
+
+func TestMixedDbClientTableData2TypedValue(t *testing.T) {
+	mapkey := ":"
+	cleanup := setupMixedDbRedis(t, mapkey)
+	defer cleanup()
+
+	ns := ""
+	rclient := Target2RedisDb[ns]["STATE_DB"]
+
+	c := MixedDbClient{mapkey: mapkey, encoding: gnmipb.Encoding_JSON_IETF}
+
+	t.Run("DataExists_ReturnsTrue", func(t *testing.T) {
+		rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
+		defer rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
+
+		tblPaths := []tablePath{{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}}
+		val, err, updateReceived := c.tableData2TypedValue(tblPaths, nil)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if !updateReceived {
+			t.Errorf("expected updateReceived=true")
+		}
+		if val == nil {
+			t.Errorf("expected non-nil value")
+		}
+	})
+
+	t.Run("NoData_ReturnsFalse", func(t *testing.T) {
+		tblPaths := []tablePath{{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.99", delimitor: "|"}}
+		_, err, updateReceived := c.tableData2TypedValue(tblPaths, nil)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if updateReceived {
+			t.Errorf("expected updateReceived=false")
+		}
+	})
+
+	t.Run("MissingField_ContinuesNotErrors", func(t *testing.T) {
+		tblPaths := []tablePath{{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.99", delimitor: "|", field: "nonexistent", index: -1}}
+		_, err, updateReceived := c.tableData2TypedValue(tblPaths, nil)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if updateReceived {
+			t.Errorf("expected updateReceived=false")
+		}
+	})
+
+	t.Run("MissingRedisClient_ReturnsError", func(t *testing.T) {
+		tblPaths := []tablePath{{dbNamespace: ns, dbName: "NONEXISTENT_DB", tableName: "TABLE", tableKey: "key", delimitor: "|"}}
+		_, err, _ := c.tableData2TypedValue(tblPaths, nil)
+		if err == nil {
+			t.Errorf("expected error for missing Redis client")
+		}
+	})
+
+	t.Run("IndexField_MissingData_Continues", func(t *testing.T) {
+		tblPaths := []tablePath{{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.99", delimitor: "|", field: "nonexistent", index: 0}}
+		_, err, updateReceived := c.tableData2TypedValue(tblPaths, nil)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if updateReceived {
+			t.Errorf("expected updateReceived=false")
+		}
+	})
+}
+
+func TestMixedDbClientPollRun(t *testing.T) {
+	mapkey := ":"
+	cleanup := setupMixedDbRedis(t, mapkey)
+	defer cleanup()
+
+	ns := ""
+	rclient := Target2RedisDb[ns]["STATE_DB"]
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
+
+	gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+	tblPaths := []tablePath{{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}}
+
+	c := MixedDbClient{
+		mapkey:   mapkey,
+		encoding: gnmipb.Encoding_JSON_IETF,
+		paths:    []*gnmipb.Path{gnmiPath},
+	}
+
+	patches := gomonkey.ApplyPrivateMethod(&c, "getDbtablePath", func(_ *MixedDbClient, _ *gnmipb.Path, _ *gnmipb.Path) ([]tablePath, error) {
+		return tblPaths, nil
+	})
+	defer patches.Reset()
+
+	q := queue.NewPriorityQueue(1, false)
+	poll := make(chan struct{}, 1)
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go c.PollRun(q, poll, &wg, nil)
+
+	poll <- struct{}{}
+	time.Sleep(100 * time.Millisecond)
+
+	rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
+
+	poll <- struct{}{}
+	time.Sleep(100 * time.Millisecond)
+
+	close(poll)
+	wg.Wait()
+
+	var gotUpdate, gotDelete, gotSync bool
+	for !q.Empty() {
+		items, _ := q.Get(1)
+		val := items[0].(Value)
+		if val.GetSyncResponse() {
+			gotSync = true
+		} else if val.GetDelete() != nil {
+			gotDelete = true
+		} else if val.GetVal() != nil {
+			gotUpdate = true
+		}
+	}
+	if !gotUpdate {
+		t.Errorf("expected update notification")
+	}
+	if !gotDelete {
+		t.Errorf("expected delete notification")
+	}
+	if !gotSync {
+		t.Errorf("expected sync responses")
+	}
+}
+
+func TestMixedDbClientGet(t *testing.T) {
+	mapkey := ":"
+	cleanup := setupMixedDbRedis(t, mapkey)
+	defer cleanup()
+
+	ns := ""
+	rclient := Target2RedisDb[ns]["STATE_DB"]
+
+	gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+	tblPaths := []tablePath{{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}}
+
+	c := MixedDbClient{
+		mapkey:   mapkey,
+		encoding: gnmipb.Encoding_JSON_IETF,
+		paths:    []*gnmipb.Path{gnmiPath},
+	}
+
+	patches := gomonkey.ApplyPrivateMethod(&c, "getDbtablePath", func(_ *MixedDbClient, _ *gnmipb.Path, _ *gnmipb.Path) ([]tablePath, error) {
+		return tblPaths, nil
+	})
+	defer patches.Reset()
+
+	t.Run("DataExists_ReturnsValues", func(t *testing.T) {
+		rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
+		defer rclient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57")
+
+		values, err := c.Get(nil)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if len(values) == 0 {
+			t.Errorf("expected values, got empty")
+		}
+	})
+
+	t.Run("NoData_SkipsPath", func(t *testing.T) {
+		values, err := c.Get(nil)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if len(values) != 0 {
+			t.Errorf("expected empty values for missing data, got %d", len(values))
 		}
 	})
 }

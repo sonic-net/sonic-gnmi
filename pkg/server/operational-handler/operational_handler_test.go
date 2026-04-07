@@ -337,26 +337,6 @@ func TestOperationalHandler_OnceRun(t *testing.T) {
 	// Test passes if no panic or deadlock occurs
 }
 
-func TestOperationalHandler_AppDBPollRun(t *testing.T) {
-	handler := &OperationalHandler{}
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	poll := make(chan struct{})
-
-	// Start AppDBPollRun in goroutine
-	go handler.AppDBPollRun(nil, poll, &wg, nil)
-
-	// Signal poll
-	close(poll)
-
-	// Wait for completion
-	wg.Wait()
-
-	// Test passes if no panic or deadlock occurs
-}
-
 func TestOperationalHandler_FailedSend(t *testing.T) {
 	handler := &OperationalHandler{}
 

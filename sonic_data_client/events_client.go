@@ -448,10 +448,6 @@ func (evtc *EventClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, wg 
 	return
 }
 
-func (evtc *EventClient) AppDBPollRun(q *queue.PriorityQueue, poll chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
-	return
-}
-
 func (evtc *EventClient) Close() error {
 	return nil
 }
