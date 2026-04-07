@@ -176,11 +176,9 @@ func GetCountersQueueTypeMap() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(countersQueueNameMap) == 0 {
-		err = initCountersQueueNameMap()
-		if err != nil {
-			return nil, err
-		}
+	err = initCountersQueueNameMap()
+	if err != nil {
+		return nil, err
 	}
 	countersQueueTypeMap := make(map[string]string)
 	for queue, oid := range countersQueueNameMap {
