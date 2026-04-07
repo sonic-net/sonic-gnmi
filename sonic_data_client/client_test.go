@@ -1667,8 +1667,9 @@ func TestSubscribeTableData2TypedValue(t *testing.T) {
 	})
 
 	t.Run("JsonField_VirtualPath_ExistingData", func(t *testing.T) {
-		rclient.HSet(context.Background(), "COUNTERS:oid:0x1000000000039", "SAI_PORT_STAT_PFC_7_RX_PKTS", "2")
-		defer rclient.Del(context.Background(), "COUNTERS:oid:0x1000000000039")
+		countersClient := Target2RedisDb[ns]["COUNTERS_DB"]
+		countersClient.HSet(context.Background(), "COUNTERS:oid:0x1000000000039", "SAI_PORT_STAT_PFC_7_RX_PKTS", "2")
+		defer countersClient.Del(context.Background(), "COUNTERS:oid:0x1000000000039")
 
 		tblPaths := []tablePath{{
 			dbNamespace:   ns,
