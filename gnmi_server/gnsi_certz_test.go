@@ -61,8 +61,9 @@ const (
 )
 
 var gnsiCertzTestCases = []struct {
-	desc string
-	f    func(ctx context.Context, t *testing.T, sc certz.CertzClient, s *Server)
+	desc    string
+	timeout time.Duration
+	f       func(ctx context.Context, t *testing.T, sc certz.CertzClient, s *Server)
 }{
 	{
 		desc: "RotateCertificateDefaultSuccess",
@@ -1123,11 +1124,9 @@ var gnsiCertzTestCases = []struct {
 		},
 	},
 	{
-		desc: "Rotate_ConcurrentRPC_ReturnsAborted",
+		desc:    "Rotate_ConcurrentRPC_ReturnsAborted",
+		timeout: 10 * time.Second, // Set specifically for this case
 		f: func(ctx context.Context, t *testing.T, sc certz.CertzClient, s *Server) {
-			// TODO: Re-enable after fixing concurrent stream timing sensitivity (issue #616)
-			t.Skip("Flaky due to timing sensitivity in concurrent gRPC Rotate streams. Tracking: https://github.com/sonic-net/sonic-gnmi/issues/616")
-
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			// 1) Start the first stream to hold the certzMu lock
@@ -1588,8 +1587,13 @@ func TestGnsiCertzServer(t *testing.T) {
 	var mu sync.Mutex
 
 	for _, test := range gnsiCertzTestCases {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		// Attach both TLS transport and the PerRPC BasicAuth credentials
+		// Check if the test case defines a custom timeout, otherwise default to 1s
+		tWait := 1 * time.Second
+		if test.timeout > 0 {
+			tWait = test.timeout
+		}
+		// Use the determined timeout for the parent context
+		ctx, cancel := context.WithTimeout(context.Background(), tWait)
 
 		t.Run(test.desc, func(t *testing.T) {
 			mu.Lock()
