@@ -935,6 +935,7 @@ func prepareStateDb(t *testing.T, namespace string) {
 }
 
 func prepareDb(t *testing.T, namespace string) {
+	sdc.ClearMappings()
 	rclient := getRedisClient(t, namespace)
 	defer rclient.Close()
 	rclient.FlushDB(context.Background())
