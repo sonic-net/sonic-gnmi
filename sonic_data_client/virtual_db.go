@@ -1126,25 +1126,6 @@ func getPortNamespace(port string) (string, error) {
 	return namespace, nil
 }
 
-func ClearMappings() {
-	value := os.Getenv("UNIT_TEST")
-	if value != "1" {
-		return
-	}
-	counterMaps := []map[string]string{
-		countersPortNameMap,
-		alias2nameMap,
-		countersFabricPortNameMap,
-		countersQueueNameMap,
-		countersAclRuleMap,
-	}
-	for _, counterMap := range counterMaps {
-		for entry := range counterMap {
-			delete(counterMap, entry)
-		}
-	}
-}
-
 func AliasToPortNameMap() map[string]string {
 	// Ensure alias map is initialized
 	initAliasMap()
