@@ -1,7 +1,9 @@
 package client
 
 import (
+	"fmt"
 	"sort"
+	"sync"
 	"testing"
 
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
@@ -354,5 +356,192 @@ func TestV2rPortPhyAttrFieldStats_SingleMissingNamespace(t *testing.T) {
 	_, err := v2rPortPhyAttrFieldStats(paths)
 	if err == nil {
 		t.Fatal("expected error for port missing namespace, got nil")
+	}
+}
+
+// --------------------------------------------------------------------------
+// Tests for sync.Once error paths and clearMappingsMu.RLock coverage
+// --------------------------------------------------------------------------
+
+// mockError is a helper to swap a function variable, returning a restore func.
+func setupErrorMock(t *testing.T) func() {
+	t.Helper()
+	origCounters := getCountersMapFn
+	origAlias := getAliasMapFn
+	origFabric := getFabricCountersMapFn
+	origPfcwd := getPfcwdMapFn
+
+	mockErr := fmt.Errorf("mock redis error")
+	getCountersMapFn = func(string) (map[string]string, error) { return nil, mockErr }
+	getAliasMapFn = func() (map[string]string, map[string]string, map[string]string, error) {
+		return nil, nil, nil, mockErr
+	}
+	getFabricCountersMapFn = func(string) (map[string]string, error) { return nil, mockErr }
+	getPfcwdMapFn = func() (map[string]map[string]string, error) { return nil, mockErr }
+
+	return func() {
+		getCountersMapFn = origCounters
+		getAliasMapFn = origAlias
+		getFabricCountersMapFn = origFabric
+		getPfcwdMapFn = origPfcwd
+	}
+}
+
+func TestInitFuncsReturnError(t *testing.T) {
+	sdcfg.Init()
+	restore := setupErrorMock(t)
+	defer restore()
+
+	tests := []struct {
+		desc     string
+		initFunc func() error
+		once     *sync.Once
+	}{
+		{"countersQueueNameMap", initCountersQueueNameMap, &initCountersQueueNameMapOnce},
+		{"countersPGNameMap", initCountersPGNameMap, &initCountersPGNameMapOnce},
+		{"countersPortNameMap", initCountersPortNameMap, &initCountersPortNameMapOnce},
+		{"countersSidMap", initCountersSidMap, &initCountersSidMapOnce},
+		{"countersAclRuleMap", initCountersAclRuleMap, &initCountersAclRuleMapOnce},
+		{"aliasMap", initAliasMap, &initAliasMapOnce},
+		{"countersPfcwdNameMap", initCountersPfcwdNameMap, &initCountersPfcwdNameMapOnce},
+		{"countersFabricPortNameMap", initCountersFabricPortNameMap, &initCountersFabricPortNameMapOnce},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			// Reset the sync.Once so it fires again
+			*tt.once = sync.Once{}
+			err := tt.initFunc()
+			if err == nil {
+				t.Errorf("expected error from %s, got nil", tt.desc)
+			}
+		})
+	}
+}
+
+func TestV2rFabricPortStats_EmptyMap(t *testing.T) {
+	sdcfg.Init()
+	origMap := countersFabricPortNameMap
+	countersFabricPortNameMap = map[string]string{}
+	defer func() { countersFabricPortNameMap = origMap }()
+
+	paths := []string{"COUNTERS_DB", "COUNTERS", "PORT*"}
+	tblPaths, err := v2rFabricPortStats(paths)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tblPaths) != 0 {
+		t.Errorf("expected 0 paths, got %d", len(tblPaths))
+	}
+}
+
+func TestV2rEthPortStats_EmptyMap(t *testing.T) {
+	sdcfg.Init()
+	restore := setupPortMaps(t)
+	defer restore()
+	countersPortNameMap = map[string]string{}
+
+	paths := []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}
+	tblPaths, err := v2rEthPortStats(paths)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tblPaths) != 0 {
+		t.Errorf("expected 0 paths, got %d", len(tblPaths))
+	}
+}
+
+func TestV2rEthPortFieldStats_EmptyMap(t *testing.T) {
+	sdcfg.Init()
+	restore := setupPortMaps(t)
+	defer restore()
+	countersPortNameMap = map[string]string{}
+
+	paths := []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "SAI_PORT_STAT_IF_IN_OCTETS"}
+	tblPaths, err := v2rEthPortFieldStats(paths)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tblPaths) != 0 {
+		t.Errorf("expected 0 paths, got %d", len(tblPaths))
+	}
+}
+
+func TestV2rEthPortPfcwdStats_EmptyMap(t *testing.T) {
+	sdcfg.Init()
+	origMap := countersPfcwdNameMap
+	countersPfcwdNameMap = make(map[string]map[string]string)
+	defer func() { countersPfcwdNameMap = origMap }()
+
+	paths := []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"}
+	tblPaths, err := v2rEthPortPfcwdStats(paths)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tblPaths) != 0 {
+		t.Errorf("expected 0 paths, got %d", len(tblPaths))
+	}
+}
+
+func TestV2rEthPortQueStats_EmptyMap(t *testing.T) {
+	sdcfg.Init()
+	origMap := countersQueueNameMap
+	countersQueueNameMap = map[string]string{}
+	defer func() { countersQueueNameMap = origMap }()
+
+	paths := []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Queues"}
+	tblPaths, err := v2rEthPortQueStats(paths)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tblPaths) != 0 {
+		t.Errorf("expected 0 paths, got %d", len(tblPaths))
+	}
+}
+
+func TestV2rAclRuleStats_EmptyMap(t *testing.T) {
+	sdcfg.Init()
+	origMap := countersAclRuleMap
+	countersAclRuleMap = map[string]string{}
+	defer func() { countersAclRuleMap = origMap }()
+
+	paths := []string{"COUNTERS_DB", "COUNTERS", "ACL_RULE*"}
+	tblPaths, err := v2rAclRuleStats(paths)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tblPaths) != 0 {
+		t.Errorf("expected 0 paths, got %d", len(tblPaths))
+	}
+}
+
+func TestAliasToPortNameMap_WithRLock(t *testing.T) {
+	sdcfg.Init()
+	origAlias := alias2nameMap
+	origOnce := initAliasMapOnce
+	alias2nameMap = map[string]string{"Eth0": "Ethernet0"}
+	// Pre-fire the Once so initAliasMap doesn't hit Redis
+	initAliasMapOnce = sync.Once{}
+	initAliasMapOnce.Do(func() {})
+	defer func() {
+		alias2nameMap = origAlias
+		initAliasMapOnce = origOnce
+	}()
+
+	result := AliasToPortNameMap()
+	if result["Eth0"] != "Ethernet0" {
+		t.Errorf("expected Eth0->Ethernet0, got %v", result)
+	}
+}
+
+func TestClearMappings_Resets(t *testing.T) {
+	t.Setenv("UNIT_TEST", "1")
+
+	countersPortNameMap["testport"] = "testoid"
+
+	ClearMappings()
+
+	if _, ok := countersPortNameMap["testport"]; ok {
+		t.Errorf("expected countersPortNameMap to be cleared")
 	}
 }
