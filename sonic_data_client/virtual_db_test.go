@@ -537,7 +537,12 @@ func TestAliasToPortNameMap_WithRLock(t *testing.T) {
 func TestClearMappings_Resets(t *testing.T) {
 	t.Setenv("UNIT_TEST", "1")
 
+	origMap := countersPortNameMap
+	if countersPortNameMap == nil {
+		countersPortNameMap = make(map[string]string)
+	}
 	countersPortNameMap["testport"] = "testoid"
+	defer func() { countersPortNameMap = origMap }()
 
 	ClearMappings()
 
