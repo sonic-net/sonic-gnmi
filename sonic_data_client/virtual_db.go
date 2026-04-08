@@ -78,7 +78,6 @@ var (
 	// Mutex to protect ClearMappings from racing with init functions
 	clearMappingsMu sync.RWMutex
 
-
 	// path2TFuncTbl is used to populate trie tree which is reponsible
 	// for virtual path to real data path translation
 	pathTransFuncTbl = []pathTransFunc{
