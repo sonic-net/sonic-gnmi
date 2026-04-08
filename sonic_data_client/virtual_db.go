@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
@@ -63,6 +64,19 @@ var (
 
 	// SONiC Switch ID to Switch Stat packet integrity drop counters
 	countersDebugNameSwitchStatMap = make(map[string]string)
+
+	// sync.Once guards for each init function
+	initCountersPortNameMapOnce       sync.Once
+	initCountersQueueNameMapOnce      sync.Once
+	initCountersPGNameMapOnce         sync.Once
+	initCountersSidMapOnce            sync.Once
+	initCountersAclRuleMapOnce        sync.Once
+	initAliasMapOnce                  sync.Once
+	initCountersPfcwdNameMapOnce      sync.Once
+	initCountersFabricPortNameMapOnce sync.Once
+
+	// Mutex to protect ClearMappings from racing with init functions
+	clearMappingsMu sync.RWMutex
 
 	// path2TFuncTbl is used to populate trie tree which is reponsible
 	// for virtual path to real data path translation
@@ -125,106 +139,129 @@ func (t *Trie) v2rTriePopulate() {
 }
 
 func initCountersQueueNameMap() error {
-	var err error
-	if len(countersQueueNameMap) == 0 {
-		countersQueueNameMap, err = getCountersMap("COUNTERS_QUEUE_NAME_MAP")
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
+	var initErr error
+	initCountersQueueNameMapOnce.Do(func() {
+		var err error
+		countersQueueNameMap, err = GetCountersMap("COUNTERS_QUEUE_NAME_MAP")
 		if err != nil {
-			return err
+			initErr = err
 		}
-	}
-	return nil
+	})
+	return initErr
 }
 
 func initCountersPGNameMap() error {
-	if len(countersPGNameMap) == 0 {
-		pgOidMap, err := getCountersMap("COUNTERS_PG_NAME_MAP")
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
+	var initErr error
+	initCountersPGNameMapOnce.Do(func() {
+		pgOidMap, err := GetCountersMap("COUNTERS_PG_NAME_MAP")
 		if err != nil {
-			return err
+			initErr = err
+			return
 		}
 		for pg, oid := range pgOidMap {
 			// pg is in format of "Ethernet64:7"
 			pg_parts := strings.Split(pg, ":")
 			if len(pg_parts) != 2 {
-				return fmt.Errorf("invalid pg name %v", pg)
+				initErr = fmt.Errorf("invalid pg name %v", pg)
+				return
 			}
 			if _, ok := countersPGNameMap[pg_parts[0]]; !ok {
 				countersPGNameMap[pg_parts[0]] = make(map[string]string)
 			}
 			countersPGNameMap[pg_parts[0]][pg_parts[1]] = oid
 		}
-	}
-	return nil
+	})
+	return initErr
 }
 
 func initCountersPortNameMap() error {
-	var err error
-	if len(countersPortNameMap) == 0 {
-		countersPortNameMap, err = getCountersMap("COUNTERS_PORT_NAME_MAP")
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
+	var initErr error
+	initCountersPortNameMapOnce.Do(func() {
+		var err error
+		countersPortNameMap, err = GetCountersMap("COUNTERS_PORT_NAME_MAP")
 		if err != nil {
-			return err
+			initErr = err
 		}
-	}
-	return nil
+	})
+	return initErr
 }
 
 func initCountersSidMap() error {
-	var err error
-	if len(countersSidMap) == 0 {
-		countersSidMap, err = getCountersMap("COUNTERS_SRV6_NAME_MAP")
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
+	var initErr error
+	initCountersSidMapOnce.Do(func() {
+		var err error
+		countersSidMap, err = GetCountersMap("COUNTERS_SRV6_NAME_MAP")
 		if err != nil {
-			return err
+			initErr = err
 		}
-	}
-	return nil
+	})
+	return initErr
 }
 
 func initCountersAclRuleMap() error {
-	var err error
-	if len(countersAclRuleMap) == 0 {
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
+	var initErr error
+	initCountersAclRuleMapOnce.Do(func() {
+		var err error
 		// ACL_COUNTER_RULE_MAP is a hash in COUNTERS_DB:
 		//   "DATAACL:RULE_1" -> "oid:0x9000000000711"
-		countersAclRuleMap, err = getCountersMap("ACL_COUNTER_RULE_MAP")
+		countersAclRuleMap, err = GetCountersMap("ACL_COUNTER_RULE_MAP")
 		if err != nil {
-			return err
+			initErr = err
 		}
-	}
-	return nil
+	})
+	return initErr
 }
 
 func initAliasMap() error {
-	var err error
-	if len(alias2nameMap) == 0 {
-		alias2nameMap, name2aliasMap, port2namespaceMap, err = getAliasMap()
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
+	var initErr error
+	initAliasMapOnce.Do(func() {
+		var err error
+		alias2nameMap, name2aliasMap, port2namespaceMap, err = GetAliasMap()
 		if err != nil {
-			return err
+			initErr = err
 		}
-	}
-	return nil
+	})
+	return initErr
 }
 
 func initCountersPfcwdNameMap() error {
-	var err error
-	if len(countersPfcwdNameMap) == 0 {
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
+	var initErr error
+	initCountersPfcwdNameMapOnce.Do(func() {
+		var err error
 		countersPfcwdNameMap, err = GetPfcwdMap()
 		if err != nil {
-			return err
+			initErr = err
 		}
-	}
-	return nil
+	})
+	return initErr
 }
 
 func initCountersFabricPortNameMap() error {
-	var err error
-	// Reset map for Unit test to ensure that counters db is updated
-	// after changing from single to multi-asic config
-	value := os.Getenv("UNIT_TEST")
-	if len(countersFabricPortNameMap) == 0 || value == "1" {
-		countersFabricPortNameMap, err = getFabricCountersMap("COUNTERS_FABRIC_PORT_NAME_MAP")
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
+	var initErr error
+	initCountersFabricPortNameMapOnce.Do(func() {
+		var err error
+		countersFabricPortNameMap, err = GetFabricCountersMap("COUNTERS_FABRIC_PORT_NAME_MAP")
 		if err != nil {
-			return err
+			initErr = err
 		}
-	}
-	return nil
+	})
+	return initErr
 }
 
 func initDebugNameSwitchStatMap() error {
@@ -349,7 +386,7 @@ func GetPfcwdMap() (map[string]map[string]string, error) {
 }
 
 // Get the mapping between sonic interface name and vendor alias and sonic-interface to namespace map
-func getAliasMap() (map[string]string, map[string]string, map[string]string, error) {
+func GetAliasMap() (map[string]string, map[string]string, map[string]string, error) {
 	var alias2name_map = make(map[string]string)
 	var name2alias_map = make(map[string]string)
 	var port2namespace_map = make(map[string]string)
@@ -400,7 +437,7 @@ func addmap(a map[string]string, b map[string]string) {
 
 // Get the mapping between objects in counters DB, Ex. port name to oid in "COUNTERS_PORT_NAME_MAP" table.
 // Aussuming static port name to oid map in COUNTERS table
-func getCountersMap(tableName string) (map[string]string, error) {
+func GetCountersMap(tableName string) (map[string]string, error) {
 	counter_map := make(map[string]string)
 	dbName := "COUNTERS_DB"
 	redis_client_map, err := GetRedisClientsForDb(dbName)
@@ -421,7 +458,7 @@ func getCountersMap(tableName string) (map[string]string, error) {
 
 // Get the mapping between objects in counters DB, Ex. port name to oid in "COUNTERS_FABRIC_PORT_NAME_MAP" table.
 // Aussuming static port name to oid map in COUNTERS table
-func getFabricCountersMap(tableName string) (map[string]string, error) {
+func GetFabricCountersMap(tableName string) (map[string]string, error) {
 	counter_map := make(map[string]string)
 	dbName := "COUNTERS_DB"
 	redis_client_map, err := GetRedisClientsForDb(dbName)
@@ -454,6 +491,8 @@ func getFabricCountersMap(tableName string) (map[string]string, error) {
 // Populate real data paths from paths like
 // [COUNTER_DB COUNTERS PORT*] or [COUNTER_DB COUNTERS PORT0]
 func v2rFabricPortStats(paths []string) ([]tablePath, error) {
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
 		for port, oid := range countersFabricPortNameMap {
@@ -586,6 +625,8 @@ func v2rSwitchPacketIntegrityDrop(paths []string) ([]tablePath, error) {
 // Populate real data paths from paths like
 // [COUNTER_DB COUNTERS Ethernet*] or [COUNTER_DB COUNTERS Ethernet68]
 func v2rEthPortStats(paths []string) ([]tablePath, error) {
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
 		for port, oid := range countersPortNameMap {
@@ -650,6 +691,8 @@ func v2rEthPortStats(paths []string) ([]tablePath, error) {
 //
 // case of "*" field could be covered in v2rEthPortStats()
 func v2rEthPortFieldStats(paths []string) ([]tablePath, error) {
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") {
 		for port, oid := range countersPortNameMap {
@@ -709,6 +752,8 @@ func v2rEthPortFieldStats(paths []string) ([]tablePath, error) {
 // Populate real data paths from paths like
 // [COUNTER_DB COUNTERS Ethernet* Pfcwd] or [COUNTER_DB COUNTERS Ethernet68 Pfcwd]
 func v2rEthPortPfcwdStats(paths []string) ([]tablePath, error) {
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // Pfcwd on all Ethernet ports
 		for port, pfcqueues := range countersPfcwdNameMap {
@@ -794,6 +839,8 @@ func buildTablePath(namespace, dbName, tableName, tableKey, separator, field, js
 // Populate real data paths from paths like
 // [COUNTERS_DB COUNTERS Ethernet* Queues] or [COUNTERS_DB COUNTERS Ethernet68 Queues]
 func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
 	// paths[DbIdx] = "COUNTERS_DB"
 	separator, _ := GetTableKeySeparator(paths[DbIdx], "")
 	field := "SAI_QUEUE_STAT_SHARED_WATERMARK_BYTES"
@@ -907,6 +954,8 @@ func v2rSRv6SidStats(paths []string) ([]tablePath, error) {
 // [COUNTERS_DB COUNTERS ACL_RULE*] or
 // [COUNTERS_DB COUNTERS ACL_RULE:DATAACL:RULE_1]
 func v2rAclRuleStats(paths []string) ([]tablePath, error) {
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
 	var tblPaths []tablePath
 
 	// Wildcard: list all ACL rules in the map
@@ -957,6 +1006,8 @@ func v2rAclRuleStats(paths []string) ([]tablePath, error) {
 // [COUNTERS_DB PORT_PHY_ATTR Ethernet*] or [COUNTERS_DB PORT_PHY_ATTR Ethernet68]
 // Unlike v2rEthPortStats, this does NOT apply vendor alias translation.
 func v2rPortPhyAttrStats(paths []string) ([]tablePath, error) {
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
 		for port, oid := range countersPortNameMap {
@@ -1003,6 +1054,8 @@ func v2rPortPhyAttrStats(paths []string) ([]tablePath, error) {
 // [COUNTERS_DB PORT_PHY_ATTR Ethernet68 phy_rx_signal_detect]
 // Unlike v2rEthPortFieldStats, this does NOT apply vendor alias translation.
 func v2rPortPhyAttrFieldStats(paths []string) ([]tablePath, error) {
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") {
 		for port, oid := range countersPortNameMap {
@@ -1093,6 +1146,11 @@ func ClearMappings() {
 }
 
 func AliasToPortNameMap() map[string]string {
+	// Ensure alias map is initialized
+	initAliasMap()
+
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
 	output := make(map[string]string, len(alias2nameMap))
 	for alias, portName := range alias2nameMap {
 		output[alias] = portName
@@ -1140,6 +1198,45 @@ func v2rEthPortPGPeriodicWMs(paths []string) ([]tablePath, error) {
 	log.V(6).Infof("v2rEthPortPGPeriodicWMs: %v", tblPaths)
 	return tblPaths, nil
 }
+
+func ClearMappings() {
+	value := os.Getenv("UNIT_TEST")
+	if value != "1" {
+		return
+	}
+	clearMappingsMu.Lock()
+	defer clearMappingsMu.Unlock()
+
+	counterMaps := []map[string]string{
+		countersPortNameMap,
+		alias2nameMap,
+		countersFabricPortNameMap,
+		countersQueueNameMap,
+		countersAclRuleMap,
+	}
+	for _, counterMap := range counterMaps {
+		for entry := range counterMap {
+			delete(counterMap, entry)
+		}
+	}
+
+	// Reset sync.Once guards so the next call re-initializes.
+	initCountersPortNameMapOnce = sync.Once{}
+	initCountersQueueNameMapOnce = sync.Once{}
+	initCountersPGNameMapOnce = sync.Once{}
+	initCountersSidMapOnce = sync.Once{}
+	initCountersAclRuleMapOnce = sync.Once{}
+	initAliasMapOnce = sync.Once{}
+	initCountersPfcwdNameMapOnce = sync.Once{}
+	initCountersFabricPortNameMapOnce = sync.Once{}
+}
+
+func InitCountersPortNameMap() error       { return initCountersPortNameMap() }
+func InitCountersQueueNameMap() error      { return initCountersQueueNameMap() }
+func InitCountersPGNameMap() error         { return initCountersPGNameMap() }
+func InitCountersSidMap() error            { return initCountersSidMap() }
+func InitCountersAclRuleMap() error        { return initCountersAclRuleMap() }
+func InitCountersFabricPortNameMap() error { return initCountersFabricPortNameMap() }
 
 func lookupV2R(paths []string) ([]tablePath, error) {
 	n, ok := v2rTrie.Find(paths)
