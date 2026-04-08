@@ -312,8 +312,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		cfg.GetOptions = gnmi.SrvAdvConfig
 	}
 	if *telemetryCfg.CaCert == "" && telemetryCfg.UserAuth.Enabled("cert") {
-		telemetryCfg.UserAuth.Unset("cert")
-		log.V(2).Info("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
+		log.Fatalf("--client_auth cert requires --cacert option. Cannot start without CA certificate.")
 	}
 
 	cfg.AuthzMetaFile = string(*telemetryCfg.AuthzMetaFile)
@@ -435,6 +434,9 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 		var certLoaded int32
 		atomic.StoreInt32(&certLoaded, 0) // Not loaded
 
+		// Set application-layer auth regardless of transport (TLS or noTLS)
+		cfg.UserAuth = telemetryCfg.UserAuth
+
 		if !*telemetryCfg.NoTLS {
 			var certificate tls.Certificate
 			var err error
@@ -550,8 +552,6 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			if *telemetryCfg.IdleConnDuration > 0 { // non inf case
 				commonOpts = append(commonOpts, grpc.KeepaliveParams(keep_alive_params))
 			}
-
-			cfg.UserAuth = telemetryCfg.UserAuth
 
 			gnmi.GenerateJwtSecretKey()
 		}
