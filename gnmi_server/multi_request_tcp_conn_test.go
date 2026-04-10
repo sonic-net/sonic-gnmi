@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"io"
 	"io/ioutil"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,7 +16,7 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-func createServerWithSingleTcp(t *testing.T, port int64) *Server {
+func createServerWithStreamMultiplexing(t *testing.T, port int64) *Server {
 	t.Helper()
 	certificate, err := testcert.NewCert()
 	if err != nil {
@@ -35,7 +34,7 @@ func createServerWithSingleTcp(t *testing.T, port int64) *Server {
 		EnableNativeWrite:   true,
 		Threshold:           100,
 		ImgDir:              "/tmp",
-		UseSingleTcp:        true,
+		EnableStreamMultiplexing:        true,
 	}
 	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
@@ -45,7 +44,7 @@ func createServerWithSingleTcp(t *testing.T, port int64) *Server {
 }
 
 func TestMultipleStreamsOnSameTCPConn(t *testing.T) {
-	s := createServerWithSingleTcp(t, 8081)
+	s := createServerWithStreamMultiplexing(t, 8081)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -280,19 +279,12 @@ func TestMultipleStreamsOnSameTCPConn(t *testing.T) {
 	// Verify server state WHILE streams are still active
 	s.cMu.Lock()
 	activeClients := len(s.clients)
-	clientKeys := make([]string, 0, len(s.clients))
+	clientKeys := make([]ClientKey, 0, len(s.clients))
 	uniqueAddrs := make(map[string]bool)
 
 	for clientKey := range s.clients {
 		clientKeys = append(clientKeys, clientKey)
-		// Extract address (before '#')
-		for i, ch := range clientKey {
-			if ch == '#' {
-				addr := clientKey[:i]
-				uniqueAddrs[addr] = true
-				break
-			}
-		}
+		uniqueAddrs[clientKey.PeerAddr] = true
 	}
 	s.cMu.Unlock()
 
@@ -381,7 +373,7 @@ collectLoop:
 }
 
 func TestMixedModeStreamsOnSameTCPConn(t *testing.T) {
-	s := createServerWithSingleTcp(t, 8082)
+	s := createServerWithStreamMultiplexing(t, 8082)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -539,13 +531,11 @@ func TestMixedModeStreamsOnSameTCPConn(t *testing.T) {
 	// Check server state while streams are active
 	s.cMu.Lock()
 	activeClients := len(s.clients)
-	clientKeys := make([]string, 0, len(s.clients))
+	clientKeys := make([]ClientKey, 0, len(s.clients))
 	uniqueAddrs := make(map[string]bool)
 	for clientKey := range s.clients {
 		clientKeys = append(clientKeys, clientKey)
-		if idx := strings.Index(clientKey, "#"); idx >= 0 {
-			uniqueAddrs[clientKey[:idx]] = true
-		}
+		uniqueAddrs[clientKey.PeerAddr] = true
 	}
 	s.cMu.Unlock()
 
@@ -619,10 +609,10 @@ collectLoop:
 	}
 }
 
-// TestMultipleStreamsDuplicateCloseWithoutFlag verifies that when UseSingleTcp is false (default),
+// TestMultipleStreamsDuplicateCloseWithoutFlag verifies that when EnableStreamMultiplexing is false (default),
 // the legacy behavior is preserved: a second Subscribe from the same peer closes the first.
 func TestMultipleStreamsDuplicateCloseWithoutFlag(t *testing.T) {
-	// Use createServer (not createServerWithSingleTcp) — UseSingleTcp defaults to false
+	// Use createServer (not createServerWithStreamMultiplexing) — EnableStreamMultiplexing defaults to false
 	s := createServer(t, 8081)
 	go runServer(t, s)
 	defer s.ForceStop()
@@ -734,5 +724,5 @@ func TestMultipleStreamsDuplicateCloseWithoutFlag(t *testing.T) {
 	}
 
 	stream2.CloseSend()
-	t.Logf("SUCCESS: Legacy duplicate-close behavior works when UseSingleTcp is disabled")
+	t.Logf("SUCCESS: Legacy duplicate-close behavior works when EnableStreamMultiplexing is disabled")
 }

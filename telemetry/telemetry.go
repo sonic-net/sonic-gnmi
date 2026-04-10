@@ -75,7 +75,7 @@ type TelemetryConfig struct {
 	AuthzMetaFile         *string
 	AuthPolicyEnabled     *bool
 	AuthzPolicyFile       *string
-	UseSingleTcp          *bool
+	EnableStreamMultiplexing          *bool
 }
 
 func main() {
@@ -201,7 +201,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		AuthzMetaFile:         fs.String("authz_meta", "/keys/authz-version.json", "authz policy metadata JSON file"),
 		AuthPolicyEnabled:     fs.Bool("authz_policy_enabled", false, "Enable authz policy. Require insecure flag to be false."),
 		AuthzPolicyFile:       fs.String("authorization_policy_file", "/keys/authorization_policy.json", "Full path name of the JSON authorization policy file."),
-		UseSingleTcp:          fs.Bool("use_single_tcp", false, "Allow multiple Subscribe RPCs on a single TCP connection"),
+		EnableStreamMultiplexing:          fs.Bool("enable_stream_multiplexing", false, "Allow multiple Subscribe RPCs on a single TCP connection via HTTP/2 stream multiplexing"),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -316,7 +316,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.AuthzMetaFile = string(*telemetryCfg.AuthzMetaFile)
 	cfg.AuthzPolicy = *telemetryCfg.AuthPolicyEnabled && !*telemetryCfg.Insecure
 	cfg.AuthzPolicyFile = string(*telemetryCfg.AuthzPolicyFile)
-	cfg.UseSingleTcp = *telemetryCfg.UseSingleTcp
+	cfg.EnableStreamMultiplexing = *telemetryCfg.EnableStreamMultiplexing
 	return telemetryCfg, cfg, nil
 }
 

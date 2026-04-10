@@ -80,7 +80,7 @@ type Server struct {
 	udsListener   net.Listener
 	config        *Config
 	cMu           sync.Mutex
-	clients       map[string]*Client
+	clients       map[ClientKey]*Client
 	certProviders []certprovider.Provider
 	// SaveStartupConfig points to a function that is called to save changes of
 	// configuration to a file. By default it points to an empty function -
@@ -233,7 +233,7 @@ type Config struct {
 	PathzPolicy     bool   // Enable gNMI pathz policy.
 	PathzPolicyFile string // Path to gNMI pathz policy file.
 	PathzMetaFile   string // Path to JSON file with pathz metadata.
-	UseSingleTcp    bool   // Allow multiple Subscribe RPCs on a single TCP connection.
+	EnableStreamMultiplexing    bool   // Allow multiple Subscribe RPCs on a single TCP connection.
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -512,7 +512,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 
 	srv := &Server{
 		config:            config,
-		clients:           map[string]*Client{},
+		clients:           map[ClientKey]*Client{},
 		certProviders:     providers,
 		SaveStartupConfig: saveOnSetDisabled,
 		// ReqFromMaster point to a function that is called to verify if
@@ -815,26 +815,28 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	*/
 
 	c := NewClient(pr.Addr)
-	c.useSingleTcp = s.config.UseSingleTcp
+	c.enableStreamMultiplexing = s.config.EnableStreamMultiplexing
 
 	c.setLogLevel(s.config.LogLevel)
 	c.setConnectionManager(s.config.Threshold)
 
+	clientKey := c.Key()
+
 	s.cMu.Lock()
 	log.V(1).Infof("New Subscribe RPC: client %s (peer: %s, total active: %d)", c.String(), pr.Addr, len(s.clients))
-	if oc, ok := s.clients[c.String()]; ok {
+	if oc, ok := s.clients[clientKey]; ok {
 		log.V(2).Infof("Delete duplicate client %s", oc)
 		oc.Close()
-		delete(s.clients, c.String())
+		delete(s.clients, clientKey)
 	}
-	s.clients[c.String()] = c
+	s.clients[clientKey] = c
 	log.V(1).Infof("Client %s registered (total active: %d)", c.String(), len(s.clients))
 	s.cMu.Unlock()
 
 	err := c.Run(stream, s.config)
 	s.cMu.Lock()
 	log.V(1).Infof("Client %s completed, removing (total active: %d)", c.String(), len(s.clients)-1)
-	delete(s.clients, c.String())
+	delete(s.clients, clientKey)
 	s.cMu.Unlock()
 
 	log.Flush()
