@@ -12,20 +12,32 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 )
+
+// ClientKey is the key used in the server's client map for duplicate detection.
+// When EnableStreamMultiplexing is true, each stream gets a unique StreamID
+// so multiple streams from the same peer coexist. When false, StreamID is 0
+// and the peer address alone identifies the client (legacy behavior).
+type ClientKey struct {
+	PeerAddr string
+	StreamID uint64
+}
 
 // Client contains information about a subscribe client that has connected to the server.
 type Client struct {
-	addr      net.Addr
-	sendMsg   int64
-	recvMsg   int64
-	errors    int64
-	polled    chan struct{}
-	stop      chan struct{}
-	once      chan struct{}
-	mu        sync.RWMutex
-	q         *queue.PriorityQueue
-	subscribe *gnmipb.SubscriptionList
+	addr                     net.Addr
+	id                       uint64 // Unique ID for this client instance
+	enableStreamMultiplexing bool   // When true, include unique stream ID in Key() for multiplexing
+	sendMsg                  int64
+	recvMsg                  int64
+	errors                   int64
+	polled                   chan struct{}
+	stop                     chan struct{}
+	once                     chan struct{}
+	mu                       sync.RWMutex
+	q                        *queue.PriorityQueue
+	subscribe                *gnmipb.SubscriptionList
 	// Wait for all sub go routine to finish
 	w        sync.WaitGroup
 	fatal    bool
@@ -38,12 +50,17 @@ const logLevelDebug int = 7
 const logLevelMax int = logLevelDebug
 
 var connectionManager *ConnectionManager
+var connectionManagerMu sync.Mutex // Protects connectionManager initialization
+
+// Global counter for unique client IDs
+var clientIDCounter uint64
 
 // NewClient returns a new initialized client.
 func NewClient(addr net.Addr) *Client {
 	pq := queue.NewPriorityQueue(1, false)
 	return &Client{
 		addr:     addr,
+		id:       atomic.AddUint64(&clientIDCounter, 1),
 		q:        pq,
 		logLevel: logLevelError,
 	}
@@ -54,6 +71,9 @@ func (c *Client) setLogLevel(lvl int) {
 }
 
 func (c *Client) setConnectionManager(threshold int) {
+	connectionManagerMu.Lock()
+	defer connectionManagerMu.Unlock()
+
 	if connectionManager != nil && threshold == connectionManager.GetThreshold() {
 		return
 	}
@@ -64,9 +84,20 @@ func (c *Client) setConnectionManager(threshold int) {
 	connectionManager.PrepareRedis()
 }
 
-// String returns the target the client is querying.
+// Key returns the client's key for use in the server's client map.
+// When EnableStreamMultiplexing is true, each stream has a unique StreamID.
+// When false, StreamID is 0 so all streams from the same peer share the same key (legacy behavior).
+func (c *Client) Key() ClientKey {
+	var streamID uint64
+	if c.enableStreamMultiplexing {
+		streamID = c.id
+	}
+	return ClientKey{PeerAddr: c.addr.String(), StreamID: streamID}
+}
+
+// String returns a human-readable description of the client for logging.
 func (c *Client) String() string {
-	return c.addr.String()
+	return fmt.Sprintf("%s#%d", c.addr.String(), c.id)
 }
 
 // Populate SONiC data path from prefix and subscription path.

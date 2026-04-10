@@ -24,6 +24,8 @@ type ConnectionManager struct {
 }
 
 func (cm *ConnectionManager) GetThreshold() int {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 	return cm.threshold
 }
 
