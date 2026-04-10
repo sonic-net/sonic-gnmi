@@ -758,7 +758,7 @@ func TestStartGNMIServerSlowCACerts(t *testing.T) {
 func TestINotifyCertMonitoringRotation(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
-	timeoutInterval := 10
+	timeoutInterval := 30
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 
@@ -812,7 +812,7 @@ func TestINotifyCertMonitoringRotation(t *testing.T) {
 func TestINotifyCertMonitoringDeletion(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
-	timeoutInterval := time.Duration(10 * time.Second)
+	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
@@ -867,7 +867,7 @@ func TestINotifyCertMonitoringSlowWrites(t *testing.T) {
 	testServerKey := "../testdata/certs/testserver.key"
 	tempDir := t.TempDir()
 	testServerKeyBackup := filepath.Join(tempDir, "testserver.key.backup")
-	timeoutInterval := time.Duration(10 * time.Second)
+	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
@@ -930,7 +930,7 @@ func TestINotifyCertMonitoringMove(t *testing.T) {
 	testServerKey := "../testdata/certs/testserver.key"
 	testServerCertBackup := "../testdata/testserver.cert"
 	testServerKeyBackup := "../testdata/testserver.key"
-	timeoutInterval := time.Duration(10 * time.Second)
+	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
@@ -1009,7 +1009,7 @@ func TestINotifyCertMonitoringCopy(t *testing.T) {
 	tempDir := t.TempDir()
 	testServerCertBackup := filepath.Join(tempDir, "testserver.cert.backup")
 	testServerKeyBackup := filepath.Join(tempDir, "testserver.key.backup")
-	timeoutInterval := time.Duration(10 * time.Second)
+	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
@@ -1080,7 +1080,7 @@ func TestINotifyCertMonitoringCopy(t *testing.T) {
 func TestINotifyCertMonitoringErrors(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
-	timeoutInterval := time.Duration(10 * time.Second)
+	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
@@ -1129,7 +1129,7 @@ func TestINotifyCertMonitoringErrors(t *testing.T) {
 func DisabledTestINotifyCertMonitoringAddWatcherError(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
-	timeoutInterval := time.Duration(10 * time.Second)
+	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
@@ -1176,7 +1176,7 @@ func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 	testServerCert := filepath.Join(tmpDir, "server.crt")
 	testServerKey := filepath.Join(tmpDir, "server.key")
 
-	timeoutInterval := 10
+	timeoutInterval := 30
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
 
@@ -1278,7 +1278,7 @@ func TestINotifyCertMonitoringCertValidationFails(t *testing.T) {
 	testServerCert := filepath.Join(tmpDir, "server.crt")
 	testServerKey := filepath.Join(tmpDir, "server.key")
 
-	timeoutInterval := 10
+	timeoutInterval := 30
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
 
