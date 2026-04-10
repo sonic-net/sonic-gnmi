@@ -48,6 +48,7 @@ func TestDummyEventClient(t *testing.T) {
 	})
 	evtc.FailedSend()
 	evtc.subs_handle = C_init_subs(true)
+	C_deinit_subs(evtc.subs_handle)
 
 }
 
