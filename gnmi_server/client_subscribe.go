@@ -26,18 +26,18 @@ type ClientKey struct {
 
 // Client contains information about a subscribe client that has connected to the server.
 type Client struct {
-	addr         net.Addr
-	id           uint64 // Unique ID for this client instance
+	addr                     net.Addr
+	id                       uint64 // Unique ID for this client instance
 	enableStreamMultiplexing bool   // When true, include unique stream ID in Id() for multiplexing
-	sendMsg      int64
-	recvMsg      int64
-	errors       int64
-	polled       chan struct{}
-	stop         chan struct{}
-	once         chan struct{}
-	mu           sync.RWMutex
-	q            *queue.PriorityQueue
-	subscribe    *gnmipb.SubscriptionList
+	sendMsg                  int64
+	recvMsg                  int64
+	errors                   int64
+	polled                   chan struct{}
+	stop                     chan struct{}
+	once                     chan struct{}
+	mu                       sync.RWMutex
+	q                        *queue.PriorityQueue
+	subscribe                *gnmipb.SubscriptionList
 	// Wait for all sub go routine to finish
 	w        sync.WaitGroup
 	fatal    bool

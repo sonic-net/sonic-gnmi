@@ -217,23 +217,23 @@ type Config struct {
 	ImgDir     string
 	GetOptions func(*Config) ([]grpc.ServerOption, []certprovider.Provider, error)
 	// gnsi.certz mTLS flags
-	CaCertLnk       string // Path to symlink pointing to current CA certificate.
-	SrvCertLnk      string // Path to symlink pointing to current server's certificate.
-	SrvKeyLnk       string // Path to symlink pointing to current server's private key.
-	CaCertFile      string // Path to the first CA certificate.
-	SrvCertFile     string // Path to the first server's certificate.
-	SrvKeyFile      string // Path to the first server's private key.
-	CertCRLConfig   string // Path to the CRL directory. Disable if empty.
-	IntManFile      string // Path to the Integrity Manifest file.
-	CertzMetaFile   string // Path to JSON file with gRPC credential metadata.
-	FedPolicyFile   string // Path to federation policy file.
-	AuthzPolicy     bool   // Enable authz policy.
-	AuthzPolicyFile string // Path to JSON file with authz policies.
-	AuthzMetaFile   string // Path to JSON file with authz metadata.
-	PathzPolicy     bool   // Enable gNMI pathz policy.
-	PathzPolicyFile string // Path to gNMI pathz policy file.
-	PathzMetaFile   string // Path to JSON file with pathz metadata.
-	EnableStreamMultiplexing    bool   // Allow multiple Subscribe RPCs on a single TCP connection.
+	CaCertLnk                string // Path to symlink pointing to current CA certificate.
+	SrvCertLnk               string // Path to symlink pointing to current server's certificate.
+	SrvKeyLnk                string // Path to symlink pointing to current server's private key.
+	CaCertFile               string // Path to the first CA certificate.
+	SrvCertFile              string // Path to the first server's certificate.
+	SrvKeyFile               string // Path to the first server's private key.
+	CertCRLConfig            string // Path to the CRL directory. Disable if empty.
+	IntManFile               string // Path to the Integrity Manifest file.
+	CertzMetaFile            string // Path to JSON file with gRPC credential metadata.
+	FedPolicyFile            string // Path to federation policy file.
+	AuthzPolicy              bool   // Enable authz policy.
+	AuthzPolicyFile          string // Path to JSON file with authz policies.
+	AuthzMetaFile            string // Path to JSON file with authz metadata.
+	PathzPolicy              bool   // Enable gNMI pathz policy.
+	PathzPolicyFile          string // Path to gNMI pathz policy file.
+	PathzMetaFile            string // Path to JSON file with pathz metadata.
+	EnableStreamMultiplexing bool   // Allow multiple Subscribe RPCs on a single TCP connection.
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend

@@ -29,12 +29,12 @@ func createServerWithStreamMultiplexing(t *testing.T, port int64) *Server {
 
 	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
-		Port:                port,
-		EnableTranslibWrite: true,
-		EnableNativeWrite:   true,
-		Threshold:           100,
-		ImgDir:              "/tmp",
-		EnableStreamMultiplexing:        true,
+		Port:                     port,
+		EnableTranslibWrite:      true,
+		EnableNativeWrite:        true,
+		Threshold:                100,
+		ImgDir:                   "/tmp",
+		EnableStreamMultiplexing: true,
 	}
 	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
