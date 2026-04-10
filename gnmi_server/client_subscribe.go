@@ -28,7 +28,7 @@ type ClientKey struct {
 type Client struct {
 	addr                     net.Addr
 	id                       uint64 // Unique ID for this client instance
-	enableStreamMultiplexing bool   // When true, include unique stream ID in Id() for multiplexing
+	enableStreamMultiplexing bool   // When true, include unique stream ID in Key() for multiplexing
 	sendMsg                  int64
 	recvMsg                  int64
 	errors                   int64
