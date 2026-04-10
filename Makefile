@@ -46,6 +46,10 @@ ifneq ($(BLD_TAGS),)
 BLD_FLAGS := -tags "$(strip $(BLD_TAGS))"
 endif
 
+# Disable function inlining so gomonkey can patch methods at runtime.
+# Required for Go 1.24+ where the compiler aggressively inlines methods.
+TEST_FLAGS := -gcflags=all=-l
+
 MEMCHECK_TAGS := $(BLD_TAGS) gnmi_memcheck
 ifneq ($(MEMCHECK_TAGS),)
 MEMCHECK_FLAGS := -tags "$(strip $(MEMCHECK_TAGS))"
@@ -227,17 +231,17 @@ $(ENVFILE):
 	tools/test/env.sh | grep -v DB_CONFIG_PATH | tee $@
 
 check_gotest: $(DBCONFG) $(ENVFILE)
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/telemetry
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 20m -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 20m -coverprofile=coverage-pathz_authorizer.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/pathz_authorizer -coverpkg ../...
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/telemetry
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 20m $(TEST_FLAGS) -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 20m $(TEST_FLAGS) -coverprofile=coverage-pathz_authorizer.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/pathz_authorizer -coverpkg ../...
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test $(TEST_FLAGS) -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
 endif
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_data_client
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race -coverprofile=coverage-dbus.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_service_client
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -coverprofile=coverage-translutils.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/transl_utils
-	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -coverprofile=coverage-gnoi-client-system.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/gnoi_client/system
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_data_client
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-dbus.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_service_client
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-translutils.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/transl_utils
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-gnoi-client-system.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/gnoi_client/system
 
 	# Install required coverage tools
 	$(GO) install github.com/axw/gocov/gocov@v1.1.0
@@ -288,7 +292,7 @@ MEMLEAK_STANDARD_PKGS := \
 # MEMLEAK_TEST_PATTERN := ^TestGNMINative
 
 check_memleak: $(DBCONFG) $(ENVFILE)
-	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -mod=vendor $(MEMCHECK_FLAGS) -v $(MEMLEAK_STANDARD_PKGS)
+	sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -mod=vendor $(TEST_FLAGS) $(MEMCHECK_FLAGS) -v $(MEMLEAK_STANDARD_PKGS)
 	# sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -mod=vendor $(MEMCHECK_FLAGS) -v $(MEMLEAK_GNMI_SERVER_PKG) -run="$(MEMLEAK_TEST_PATTERN)"
 
 # JUnit XML output for memory leak tests in Azure Pipelines
@@ -335,7 +339,7 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE)
 		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" \
 			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-basic.xml \
 			--format testname \
-			-- -race -coverprofile=test-results/coverage-integration-basic.txt \
+			-- -race $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-basic.txt \
 			-covermode=atomic -mod=vendor -v $(INTEGRATION_BASIC_PKGS); \
 	fi
 	
@@ -345,7 +349,7 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE)
 		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
 			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-env.xml \
 			--format testname \
-			-- -race -timeout 20m -coverprofile=test-results/coverage-integration-env.txt \
+			-- -race -timeout 20m $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-env.txt \
 			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
 	fi
 	
@@ -356,7 +360,7 @@ ifneq ($(ENABLE_DIALOUT_VALUE),0)
 		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
 			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-dialout.xml \
 			--format testname \
-			-- -coverprofile=test-results/coverage-integration-dialout.txt \
+			-- $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-dialout.txt \
 			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG); \
 	fi
 endif
