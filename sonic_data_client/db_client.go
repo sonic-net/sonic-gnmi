@@ -1372,7 +1372,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 
 	// Helper to handle fatal case.
 	handleFatalMsg := func(msg string) {
-		log.V(1).Infof(msg)
+		log.V(1).Infof("%s", msg)
 		enqueueFatalMsg(c, msg)
 		signalSync()
 	}

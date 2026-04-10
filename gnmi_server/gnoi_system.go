@@ -173,8 +173,8 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 			}
 			if swssCode := SwssToErrorCode(data); swssCode != codes.OK {
 				errStr := fmt.Sprintf("Response Notification returned SWSS Error code: %v, error = %v", swssCode, msgDataStr)
-				log.V(1).Infof(errStr)
-				return nil, status.Errorf(swssCode, errStr), msgDataStr
+				log.V(1).Infof("%s", errStr)
+				return nil, status.Errorf(swssCode, "%s", errStr), msgDataStr
 			}
 			return resp, nil, msgDataStr
 
