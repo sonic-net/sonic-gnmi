@@ -345,10 +345,13 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE)
 	
 	# Run packages needing special environment
 	@if [ -n "$(INTEGRATION_ENV_PKGS)" ]; then \
+		echo "Pre-checking env packages compile..."; \
+		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
+			sudo -E $(GO) test -run=^$$ -mod=vendor $(BLD_FLAGS) $(INTEGRATION_ENV_PKGS) 2>&1 || true; \
 		echo "Running environment-dependent integration tests..."; \
 		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
 			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-env.xml \
-			--format standard-verbose \
+			--format testname \
 			-- -race -timeout 20m $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-env.txt \
 			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
 	fi
