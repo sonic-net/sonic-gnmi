@@ -348,7 +348,7 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE)
 		echo "Running environment-dependent integration tests..."; \
 		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
 			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-env.xml \
-			--format testname \
+			--format standard-verbose \
 			-- -race -timeout 20m $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-env.txt \
 			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
 	fi
