@@ -48,7 +48,7 @@ endif
 
 # Disable function inlining so gomonkey can patch methods at runtime.
 # Required for Go 1.24+ where the compiler aggressively inlines methods.
-TEST_FLAGS := -gcflags='all=-N -l'
+TEST_FLAGS := -gcflags=all=-l
 
 MEMCHECK_TAGS := $(BLD_TAGS) gnmi_memcheck
 ifneq ($(MEMCHECK_TAGS),)
