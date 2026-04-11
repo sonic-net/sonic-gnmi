@@ -77,7 +77,7 @@ func JwtAuthenAndAuthor(ctx context.Context) (*spb.JwtToken, context.Context, er
 		return hmacSampleSecret, nil
 	})
 	if err != nil {
-		return &token, ctx, status.Errorf(codes.Unauthenticated, err.Error())
+		return &token, ctx, status.Errorf(codes.Unauthenticated, "%s", err.Error())
 	}
 	if !tkn.Valid {
 		return &token, ctx, status.Errorf(codes.Unauthenticated, "Invalid JWT Token")

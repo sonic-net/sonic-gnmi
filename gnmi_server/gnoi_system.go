@@ -116,14 +116,14 @@ func processMsgPayload(pload string) (string, string, map[string]string, error) 
 func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Client, rebootNotifKey string) (resp proto.Message, err error, msgDataStr string) {
 	np, err := common_utils.NewNotificationProducer(rebootReqCh)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error()), msgDataStr
+		return nil, status.Errorf(codes.Internal, "%s", err.Error()), msgDataStr
 	}
 	defer np.Close()
 
 	// Subscribe to the response channel.
 	sub := sc.Subscribe(ctx, rebootRespCh)
 	if _, err = sub.Receive(ctx); err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error()), msgDataStr
+		return nil, status.Errorf(codes.Internal, "%s", err.Error()), msgDataStr
 	}
 	defer sub.Close()
 	channel := sub.Channel()
@@ -142,11 +142,11 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 
 	reqStr, err := json.Marshal(req)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error()), msgDataStr
+		return nil, status.Errorf(codes.Internal, "%s", err.Error()), msgDataStr
 	}
 	// Publish to notification channel.
 	if err := np.Send(rebootNotifKey, "", map[string]string{dataMsgFld: string(reqStr)}); err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error()), msgDataStr
+		return nil, status.Errorf(codes.Internal, "%s", err.Error()), msgDataStr
 	}
 
 	// Wait for response on Reboot_Response_Channel.
@@ -157,13 +157,13 @@ func sendRebootReqOnNotifCh(ctx context.Context, req proto.Message, sc *redis.Cl
 		case msg := <-channel:
 			op, data, fvs, err := processMsgPayload(msg.Payload)
 			if err != nil {
-				return nil, status.Errorf(codes.Internal, fmt.Sprintf("Error while receiving Response Notification: [%s] for message [%s]", err.Error(), msg)), msgDataStr
+				return nil, status.Errorf(codes.Internal, "%s", fmt.Sprintf("Error while receiving Response Notification: [%s] for message [%s]", err.Error(), msg)), msgDataStr
 			}
 			log.V(1).Infof("[Reboot_Log] Received on the Reboot notification channel: op = [%v], data = [%v], fvs = [%v]", op, data, fvs)
 
 			if op != rebootNotifKey {
 				log.V(1).Infof("[Reboot_Log] Op: %v doesn't match for %v!", op, rebootNotifKey)
-				tErr = status.Errorf(codes.Internal, fmt.Sprintf("Op: %v doesn't match for %v!", op, rebootNotifKey))
+				tErr = status.Errorf(codes.Internal, "%s", fmt.Sprintf("Op: %v doesn't match for %v!", op, rebootNotifKey))
 				continue
 			}
 			if fvs != nil {
@@ -197,7 +197,7 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 	}
 	log.V(2).Info("gNOI: Reboot")
 	if err := ValidateRebootRequest(req); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+		return nil, status.Errorf(codes.InvalidArgument, "%s", err.Error())
 	}
 
 	// Try the pure handler first (it handles DPU routing internally)
@@ -216,7 +216,7 @@ func (srv *Server) Reboot(ctx context.Context, req *syspb.RebootRequest) (*syspb
 	// Initialize State DB for local reboot.
 	rclient, err := common_utils.GetRedisDBClient()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
+		return nil, status.Errorf(codes.Internal, "%s", err.Error())
 	}
 	defer rclient.Close()
 
@@ -248,19 +248,19 @@ func (srv *Server) RebootStatus(ctx context.Context, req *syspb.RebootStatusRequ
 	// Initialize State DB.
 	rclient, err := common_utils.GetRedisDBClient()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
+		return nil, status.Errorf(codes.Internal, "%s", err.Error())
 	}
 	defer rclient.Close()
 
 	respStr, err, msgData := sendRebootReqOnNotifCh(ctx, req, rclient, rebootStatusKey)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
+		return nil, status.Errorf(codes.Internal, "%s", err.Error())
 	}
 	if msgData == "" || respStr == nil {
 		return nil, status.Errorf(codes.Internal, "Received empty RebootStatusResponse")
 	}
 	if err := pjson.Unmarshal([]byte(msgData), resp); err != nil {
-		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Cannot unmarshal the response: [%s]; err: [%s]", msgData, err.Error()))
+		return nil, status.Errorf(codes.Internal, "%s", fmt.Sprintf("Cannot unmarshal the response: [%s]; err: [%s]", msgData, err.Error()))
 	}
 	log.V(1).Infof("gNOI: Returning RebootStatusResponse: resp = [%v]\n, msgData = [%v]", resp, msgData)
 	return resp, nil
@@ -276,13 +276,13 @@ func (srv *Server) CancelReboot(ctx context.Context, req *syspb.CancelRebootRequ
 	// Initialize State DB.
 	rclient, err := common_utils.GetRedisDBClient()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
+		return nil, status.Errorf(codes.Internal, "%s", err.Error())
 	}
 	defer rclient.Close()
 
 	resp, err, _ := sendRebootReqOnNotifCh(ctx, req, rclient, rebootCancelKey)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
+		return nil, status.Errorf(codes.Internal, "%s", err.Error())
 	}
 	if resp == nil {
 		log.V(2).Info("CancelReboot request received empty response from Reboot Backend.")
