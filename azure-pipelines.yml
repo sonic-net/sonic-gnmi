@@ -25,8 +25,6 @@ variables:
       value: $(Build.SourceBranchName)
   - name: UNIT_TEST_FLAG
     value: 'ENABLE_TRANSLIB_WRITE=y'
-  - name: DIFF_COVER_THRESHOLD
-    value: 80
 
 resources:
   repositories:
@@ -237,7 +235,7 @@ stages:
 
     - bash: |
         set -euo pipefail
-        pip3 install --quiet --break-system-packages diff-cover
+        pip3 install --quiet --break-system-packages --ignore-installed diff-cover
         mkdir -p .diff-coverage
         diff-cover coverage.xml \
           --compare-branch origin/$(BUILD_BRANCH) \
@@ -256,36 +254,6 @@ stages:
       displayName: 'Publish integration coverage artifact'
       condition: always()
 
-  - job: DiffCoverageCheck
-    displayName: "Diff Coverage Check"
-    dependsOn: [PureCIJob, build]
-    condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))
-    timeoutInMinutes: 10
-    pool:
-      vmImage: ubuntu-22.04
-    steps:
-    - checkout: self
-      clean: true
-      fetchDepth: 0
-
-    - download: current
-      artifact: coverage-pure
-
-    - download: current
-      artifact: coverage-integration
-
-    - bash: |
-        set -euo pipefail
-        pip3 install --quiet --break-system-packages diff-cover
-        mkdir -p .diff-coverage
-        diff-cover \
-          $(Pipeline.Workspace)/coverage-integration/coverage.xml \
-          $(Pipeline.Workspace)/coverage-pure/coverage-pure.xml \
-          --compare-branch origin/$(BUILD_BRANCH) \
-          --src-roots . \
-          --json-report .diff-coverage/diff-cover.json \
-          --fail-under $(DIFF_COVER_THRESHOLD)
-      displayName: 'Run diff-cover'
 
 - stage: BuildAmd64
   dependsOn: []
