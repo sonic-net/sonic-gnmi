@@ -25,6 +25,8 @@ variables:
       value: $(Build.SourceBranchName)
   - name: UNIT_TEST_FLAG
     value: 'ENABLE_TRANSLIB_WRITE=y'
+  - name: DIFF_COVER_WORKING_DIRECTORY
+    value: $(System.DefaultWorkingDirectory)/sonic-gnmi
 
 resources:
   repositories:
@@ -234,14 +236,8 @@ stages:
         testRunTitle: 'Integration Tests'
 
     - bash: |
-        set -euo pipefail
         pip3 install --quiet --break-system-packages --ignore-installed diff-cover
-        mkdir -p .diff-coverage
-        diff-cover coverage.xml \
-          --compare-branch origin/$(BUILD_BRANCH) \
-          --src-roots . \
-          --json-report .diff-coverage/diff-cover.json || true
-      displayName: 'Generate diff-cover JSON for coverage decorator'
+      displayName: 'Pre-install diff-cover for pipeline decorator'
       workingDirectory: $(System.DefaultWorkingDirectory)/sonic-gnmi
 
     - task: PublishCodeCoverageResults@2
