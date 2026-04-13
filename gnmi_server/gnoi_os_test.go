@@ -1303,7 +1303,7 @@ func TestInstall_SendErrorAfterTransferContent(t *testing.T) {
 				TransferRequest: &ospb.TransferRequest{Version: "1.0"},
 			}},
 			{Request: &ospb.InstallRequest_TransferContent{
-				TransferContent: &ospb.TransferContent{},
+				TransferContent: []byte("test data"),
 			}},
 		},
 		sendFailAt: 2, // TransferReady succeeds, TransferContent response fails
