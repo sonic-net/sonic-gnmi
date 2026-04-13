@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
 	"github.com/agiledragon/gomonkey/v2"
 	ospb "github.com/openconfig/gnoi/os"
 	"github.com/stretchr/testify/assert"
@@ -15,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 	json "google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"io"
 	"os"
 	"reflect"
 	"strings"
@@ -1215,7 +1215,7 @@ func TestInstall_SendErrorOnTransferEnd(t *testing.T) {
 	})
 
 	osSrv := &OSServer{
-		Server:  &Server{config: &Config{ImgDir: "/tmp"}},
+		Server: &Server{config: &Config{ImgDir: "/tmp"}},
 		backend: &MockOSBackend{
 			InstallOSFunc: func(req string) (string, error) {
 				// Return TransferReady for TransferRequest, Validated for TransferEnd
