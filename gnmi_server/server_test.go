@@ -5440,7 +5440,7 @@ func TestTableData2MsiUseKey(t *testing.T) {
 	newMsi := make(map[string]interface{})
 	sdc.TableData2Msi(&tblPath, true, nil, &newMsi)
 	newMsiData, _ := json.MarshalIndent(newMsi, "", "  ")
-	t.Logf(string(newMsiData))
+	t.Logf("%s", string(newMsiData))
 	expectedMsi := map[string]interface{}{
 		"10.0.0.57": map[string]interface{}{
 			"peerType": "e-BGP",
@@ -5448,7 +5448,7 @@ func TestTableData2MsiUseKey(t *testing.T) {
 		},
 	}
 	expectedMsiData, _ := json.MarshalIndent(expectedMsi, "", "  ")
-	t.Logf(string(expectedMsiData))
+	t.Logf("%s", string(expectedMsiData))
 
 	if !reflect.DeepEqual(newMsi, expectedMsi) {
 		t.Errorf("Msi data does not match for use key = true")

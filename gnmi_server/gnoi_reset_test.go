@@ -14,6 +14,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
+	protov2 "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -51,6 +53,21 @@ func TestGnoiResetServer(t *testing.T) {
 		}
 	})
 
+	t.Run("Unsuccessful Reset, Marshal Error", func(t *testing.T) {
+		patch := gomonkey.ApplyFunc(protojson.Marshal, func(m protov2.Message) ([]byte, error) {
+			return nil, fmt.Errorf("marshal failure")
+		})
+		defer patch.Reset()
+
+		_, err := c.Start(context.Background(), &reset_pb.StartRequest{})
+		if err == nil {
+			t.Fatalf("Expected error but got success")
+		}
+		if status.Code(err) != codes.Internal {
+			t.Fatalf("Expected Internal error but got %v", err)
+		}
+	})
+
 	t.Run("Unsuccessful Reset, DBUS Client Error", func(t *testing.T) {
 		patch := gomonkey.ApplyFuncReturn(ssc.NewDbusClient, nil, fmt.Errorf("client error"))
 		defer patch.Reset()
@@ -76,6 +93,36 @@ func TestGnoiResetServer(t *testing.T) {
 		}
 		if _, ok := resp.GetResponse().(*reset_pb.StartResponse_ResetError); !ok {
 			t.Fatalf("Expected ResetError but got %#v", resp.Response)
+		}
+	})
+
+	t.Run("Unsuccessful Reset, Backend Error", func(t *testing.T) {
+		patch1 := gomonkey.ApplyFuncReturn(ssc.NewDbusClient, &ssc.DbusClient{}, nil)
+		patch2 := gomonkey.ApplyFuncReturn(ssc.DbusApi, "", fmt.Errorf("backend failure"))
+		defer patch1.Reset()
+		defer patch2.Reset()
+
+		_, err := c.Start(context.Background(), &reset_pb.StartRequest{})
+		if err == nil {
+			t.Fatalf("Expected error but got success")
+		}
+		if status.Code(err) != codes.Internal {
+			t.Fatalf("Expected Internal error but got %v", err)
+		}
+	})
+
+	t.Run("Unsuccessful Reset, Unmarshal Error", func(t *testing.T) {
+		patch1 := gomonkey.ApplyFuncReturn(ssc.NewDbusClient, &ssc.DbusClient{}, nil)
+		patch2 := gomonkey.ApplyFuncReturn(ssc.DbusApi, "<<<not json>>>", nil)
+		defer patch1.Reset()
+		defer patch2.Reset()
+
+		_, err := c.Start(context.Background(), &reset_pb.StartRequest{})
+		if err == nil {
+			t.Fatalf("Expected error but got success")
+		}
+		if status.Code(err) != codes.Internal {
+			t.Fatalf("Expected Internal error but got %v", err)
 		}
 	})
 

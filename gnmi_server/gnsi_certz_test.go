@@ -745,7 +745,8 @@ var gnsiCertzTestCases = []struct {
 		},
 	},
 	{
-		desc: "GenerateCsrRSA",
+		desc:    "GenerateCsrRSA",
+		timeout: 10 * time.Second,
 		f: func(ctx context.Context, t *testing.T, sc certz.CertzClient, s *Server) {
 			stream, err := sc.Rotate(ctx, grpc.EmptyCallOption{})
 			if err != nil {
@@ -785,7 +786,8 @@ var gnsiCertzTestCases = []struct {
 		},
 	},
 	{
-		desc: "GenerateCsrECDSA",
+		desc:    "GenerateCsrECDSA",
+		timeout: 10 * time.Second,
 		f: func(ctx context.Context, t *testing.T, sc certz.CertzClient, s *Server) {
 			stream, err := sc.Rotate(ctx, grpc.EmptyCallOption{})
 			if err != nil {
@@ -826,7 +828,8 @@ var gnsiCertzTestCases = []struct {
 		},
 	},
 	{
-		desc: "GenerateCsrAttest",
+		desc:    "GenerateCsrAttest",
+		timeout: 10 * time.Second,
 		f: func(ctx context.Context, t *testing.T, sc certz.CertzClient, s *Server) {
 			stream, err := sc.Rotate(ctx, grpc.EmptyCallOption{})
 			if err != nil {
