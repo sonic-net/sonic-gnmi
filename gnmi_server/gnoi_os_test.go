@@ -1268,3 +1268,58 @@ func TestInstall_SendErrorOnTransferEnd(t *testing.T) {
 		t.Fatalf("Expected 'send end failed' in error, got: %v", err)
 	}
 }
+
+func TestInstall_SendErrorAfterTransferContent(t *testing.T) {
+	patches := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+	defer patches.Reset()
+
+	// Patch processTransferContent to return a non-nil TransferProgress response
+	patches.ApplyMethod(reflect.TypeOf(&OSServer{}), "processTransferContent",
+		func(_ *OSServer, _ []byte, _ string) *ospb.InstallResponse {
+			return &ospb.InstallResponse{
+				Response: &ospb.InstallResponse_TransferProgress{
+					TransferProgress: &ospb.TransferProgress{
+						BytesReceived: 100,
+					},
+				},
+			}
+		})
+
+	// Patch imageExists to return false so we reach processTransferContent
+	patches.ApplyMethod(reflect.TypeOf(&OSServer{}), "imageExists",
+		func(_ *OSServer, _ string) bool { return false })
+
+	// Build a valid TransferReady JSON for the backend response
+	readyResp := &ospb.InstallResponse{
+		Response: &ospb.InstallResponse_TransferReady{
+			TransferReady: &ospb.TransferReady{},
+		},
+	}
+	readyJSON, _ := json.Marshal(readyResp)
+
+	fakeStream := &fakeInstallServer{
+		recvQueue: []*ospb.InstallRequest{
+			{Request: &ospb.InstallRequest_TransferRequest{
+				TransferRequest: &ospb.TransferRequest{Version: "1.0"},
+			}},
+			{Request: &ospb.InstallRequest_TransferContent{
+				TransferContent: &ospb.TransferContent{},
+			}},
+		},
+		sendFailAt: 2, // TransferReady succeeds, TransferContent response fails
+	}
+
+	osSrv := &OSServer{
+		Server: &Server{config: &Config{ImgDir: "/tmp"}},
+		backend: &MockOSBackend{
+			InstallOSFunc: func(req string) (string, error) {
+				return string(readyJSON), nil
+			},
+		},
+	}
+
+	err := osSrv.Install(fakeStream)
+	assert.Error(t, err)
+	st, _ := status.FromError(err)
+	assert.Equal(t, codes.Aborted, st.Code())
+}
