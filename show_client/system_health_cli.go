@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	log "github.com/golang/glog"
 	"google.golang.org/grpc/codes"
@@ -161,6 +162,26 @@ func getSystemHealthDpu(options sdc.OptionMap) ([]byte, error) {
 
 // Get data from chassis database using GetMapFromQueries
 func getChassisDataDirect(moduleName string) (map[string]interface{}, error) {
+	// Check whether CHASSIS_STATE_DB is present in the runtime database config.
+	// On non-chassis platform, CHASSIS_STATE_DB won't be present in database_config.json.
+	// Check Db exists before querying.
+
+	dbList, err := sdcfg.GetDbList(sdcfg.SONIC_DEFAULT_NAMESPACE)
+	if err != nil {
+		return nil, fmt.Errorf("getChassisDataDirect: failed to get DB list: %w", err)
+	}
+	chassisStateDBPresent := false
+	for _, db := range dbList {
+		if db == "CHASSIS_STATE_DB" {
+			chassisStateDBPresent = true
+			break
+		}
+	}
+	if !chassisStateDBPresent {
+		log.V(2).Infof("getChassisDataDirect: CHASSIS_STATE_DB not present on this platform, skipping")
+		return make(map[string]interface{}), nil
+	}
+
 	var queries [][]string
 	if moduleName != "" && moduleName != "all" {
 		queries = [][]string{
