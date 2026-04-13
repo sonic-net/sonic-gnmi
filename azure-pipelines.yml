@@ -237,7 +237,7 @@ stages:
 
     - bash: |
         set -euo pipefail
-        pip3 install --quiet diff-cover
+        pip3 install --quiet --break-system-packages diff-cover
         mkdir -p .diff-coverage
         diff-cover coverage.xml \
           --compare-branch origin/$(BUILD_BRANCH) \
@@ -276,7 +276,7 @@ stages:
 
     - bash: |
         set -euo pipefail
-        pip3 install --quiet diff-cover
+        pip3 install --quiet --break-system-packages diff-cover
         mkdir -p .diff-coverage
         diff-cover \
           $(Pipeline.Workspace)/coverage-integration/coverage.xml \
