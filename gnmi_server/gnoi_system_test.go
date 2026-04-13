@@ -349,6 +349,30 @@ func TestRebootStatus_GetRedisDBClientError(t *testing.T) {
 	}
 }
 
+func TestRebootStatus_UnmarshalError(t *testing.T) {
+	patches := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+	defer patches.Reset()
+
+	patches.ApplyFunc(common_utils.GetRedisDBClient, func() (*redis.Client, error) {
+		return redis.NewClient(&redis.Options{}), nil
+	})
+
+	patches.ApplyFuncReturn(sendRebootReqOnNotifCh,
+		&syspb.RebootStatusResponse{}, nil, "not valid json")
+
+	srv := &Server{config: &Config{}}
+	req := &syspb.RebootStatusRequest{}
+
+	_, err := srv.RebootStatus(context.Background(), req)
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+	st, _ := status.FromError(err)
+	if st.Code() != codes.Internal {
+		t.Errorf("Expected Internal, got %v", st.Code())
+	}
+}
+
 func TestCancelReboot_GetRedisDBClientError(t *testing.T) {
 	patches := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
 	defer patches.Reset()

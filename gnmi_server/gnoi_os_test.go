@@ -1298,6 +1298,7 @@ func TestInstall_SendErrorAfterTransferContent(t *testing.T) {
 				TransferContent: []byte("test data"),
 			}},
 		},
+		sendErr:    errors.New("send transfer progress failed"),
 		sendFailAt: 2, // TransferReady succeeds, TransferContent response fails
 	}
 
@@ -1314,4 +1315,5 @@ func TestInstall_SendErrorAfterTransferContent(t *testing.T) {
 	assert.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.Aborted, st.Code())
+	assert.Contains(t, err.Error(), "send transfer progress failed")
 }
