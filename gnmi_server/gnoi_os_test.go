@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"github.com/agiledragon/gomonkey/v2"
 	ospb "github.com/openconfig/gnoi/os"
 	"github.com/stretchr/testify/assert"
@@ -61,12 +62,38 @@ var (
 
 type fakeInstallServer struct {
 	ospb.OS_InstallServer
-	sendErr error
-	ctx     context.Context
+	sendErr    error
+	sendFailAt int // fail on the Nth Send call (0 = always fail, -1 = never fail)
+	sendCount  int
+	recvQueue  []*ospb.InstallRequest
+	recvErrs   []error
+	recvIdx    int
+	ctx        context.Context
 }
 
 func (f *fakeInstallServer) Send(*ospb.InstallResponse) error {
-	return f.sendErr
+	f.sendCount++
+	if f.sendFailAt == 0 {
+		return f.sendErr
+	}
+	if f.sendFailAt > 0 && f.sendCount >= f.sendFailAt {
+		return f.sendErr
+	}
+	return nil
+}
+
+func (f *fakeInstallServer) Recv() (*ospb.InstallRequest, error) {
+	if f.recvIdx < len(f.recvErrs) && f.recvErrs[f.recvIdx] != nil {
+		err := f.recvErrs[f.recvIdx]
+		f.recvIdx++
+		return nil, err
+	}
+	if f.recvIdx < len(f.recvQueue) {
+		msg := f.recvQueue[f.recvIdx]
+		f.recvIdx++
+		return msg, nil
+	}
+	return nil, io.EOF
 }
 
 func (f *fakeInstallServer) Context() context.Context {
@@ -637,8 +664,9 @@ var testOSCases = []struct {
 			}
 			// Prepare fake server stream that simulates Send error
 			fakeStream := &fakeInstallServer{
-				sendErr: errors.New("simulated send error"),
-				ctx:     ctx,
+				sendErr:    errors.New("simulated send error"),
+				sendFailAt: 0,
+				ctx:        ctx,
 			}
 
 			// Call Install directly with the fake stream
@@ -1065,4 +1093,178 @@ func TestHandleErrorResponse_MarshalError(t *testing.T) {
 
 	assert.NotNil(t, resp)
 	t.Logf("Got response: %+v", resp)
+}
+
+// TestInstall_RecvErrorOnTransferRequest covers line 282: Recv() returns error
+// when reading the initial TransferRequest.
+func TestInstall_RecvErrorOnTransferRequest(t *testing.T) {
+	ctx := context.Background()
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+		return ctx, nil
+	})
+
+	osSrv := &OSServer{
+		Server:  &Server{config: &Config{}},
+		backend: &MockOSBackend{},
+	}
+
+	fakeStream := &fakeInstallServer{
+		sendFailAt: -1,
+		recvErrs:   []error{errors.New("recv failed")},
+		ctx:        ctx,
+	}
+
+	err := osSrv.Install(fakeStream)
+	if err == nil || status.Code(err) != codes.Aborted {
+		t.Fatalf("Expected Aborted error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "recv failed") {
+		t.Fatalf("Expected 'recv failed' in error, got: %v", err)
+	}
+}
+
+// TestInstall_SendErrorOnTransferReady covers line 301: Send() fails when
+// sending the TransferReady response after processing the TransferRequest.
+func TestInstall_SendErrorOnTransferReady(t *testing.T) {
+	ctx := context.Background()
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+		return ctx, nil
+	})
+
+	osSrv := &OSServer{
+		Server:  &Server{config: &Config{}},
+		backend: &MockOSBackend{InstallOSFunc: mockTransferReadySuccess},
+	}
+
+	fakeStream := &fakeInstallServer{
+		sendErr:    errors.New("send ready failed"),
+		sendFailAt: 1, // fail on first Send
+		recvQueue: []*ospb.InstallRequest{
+			{
+				Request: &ospb.InstallRequest_TransferRequest{
+					TransferRequest: &ospb.TransferRequest{
+						Version: "1.0",
+					},
+				},
+			},
+		},
+		ctx: ctx,
+	}
+
+	err := osSrv.Install(fakeStream)
+	if err == nil || status.Code(err) != codes.Aborted {
+		t.Fatalf("Expected Aborted error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "send ready failed") {
+		t.Fatalf("Expected 'send ready failed' in error, got: %v", err)
+	}
+}
+
+// TestInstall_RecvErrorDuringTransferContent covers line 328: Recv() returns
+// error during the TransferContent streaming loop.
+func TestInstall_RecvErrorDuringTransferContent(t *testing.T) {
+	ctx := context.Background()
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+		return ctx, nil
+	})
+
+	osSrv := &OSServer{
+		Server:  &Server{config: &Config{ImgDir: "/tmp"}},
+		backend: &MockOSBackend{InstallOSFunc: mockTransferReadySuccess},
+		ImgDir:  "/tmp",
+	}
+
+	fakeStream := &fakeInstallServer{
+		sendFailAt: -1, // never fail Send
+		recvQueue: []*ospb.InstallRequest{
+			{
+				Request: &ospb.InstallRequest_TransferRequest{
+					TransferRequest: &ospb.TransferRequest{
+						Version: "1.0",
+					},
+				},
+			},
+		},
+		recvErrs: []error{nil, errors.New("content recv failed")},
+		ctx:      ctx,
+	}
+
+	err := osSrv.Install(fakeStream)
+	if err == nil || status.Code(err) != codes.Aborted {
+		t.Fatalf("Expected Aborted error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "content recv failed") {
+		t.Fatalf("Expected 'content recv failed' in error, got: %v", err)
+	}
+}
+
+// TestInstall_SendErrorOnTransferEnd covers line 378: Send() fails when
+// sending the response after processing TransferEnd.
+func TestInstall_SendErrorOnTransferEnd(t *testing.T) {
+	ctx := context.Background()
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+		return ctx, nil
+	})
+
+	osSrv := &OSServer{
+		Server:  &Server{config: &Config{ImgDir: "/tmp"}},
+		backend: &MockOSBackend{
+			InstallOSFunc: func(req string) (string, error) {
+				// Return TransferReady for TransferRequest, Validated for TransferEnd
+				var installReq ospb.InstallRequest
+				if err := json.Unmarshal([]byte(req), &installReq); err != nil {
+					return "", err
+				}
+				if installReq.GetTransferRequest() != nil {
+					resp := &ospb.InstallResponse{
+						Response: &ospb.InstallResponse_TransferReady{},
+					}
+					respStr, _ := json.Marshal(resp)
+					return string(respStr), nil
+				}
+				resp := &ospb.InstallResponse{
+					Response: &ospb.InstallResponse_Validated{},
+				}
+				respStr, _ := json.Marshal(resp)
+				return string(respStr), nil
+			},
+		},
+		ImgDir: "/tmp",
+	}
+
+	fakeStream := &fakeInstallServer{
+		sendErr:    errors.New("send end failed"),
+		sendFailAt: 2, // succeed on first Send (TransferReady), fail on second (TransferEnd)
+		recvQueue: []*ospb.InstallRequest{
+			{
+				Request: &ospb.InstallRequest_TransferRequest{
+					TransferRequest: &ospb.TransferRequest{
+						Version: "1.0",
+					},
+				},
+			},
+			{
+				Request: &ospb.InstallRequest_TransferEnd{
+					TransferEnd: &ospb.TransferEnd{},
+				},
+			},
+		},
+		ctx: ctx,
+	}
+
+	err := osSrv.Install(fakeStream)
+	if err == nil || status.Code(err) != codes.Aborted {
+		t.Fatalf("Expected Aborted error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "send end failed") {
+		t.Fatalf("Expected 'send end failed' in error, got: %v", err)
+	}
 }
