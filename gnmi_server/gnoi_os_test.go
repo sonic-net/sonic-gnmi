@@ -1273,21 +1273,13 @@ func TestInstall_SendErrorAfterTransferContent(t *testing.T) {
 	patches := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
 	defer patches.Reset()
 
-	// Patch processTransferContent to return a non-nil TransferProgress response
-	patches.ApplyMethod(reflect.TypeOf(&OSServer{}), "processTransferContent",
-		func(_ *OSServer, _ []byte, _ string) *ospb.InstallResponse {
-			return &ospb.InstallResponse{
-				Response: &ospb.InstallResponse_TransferProgress{
-					TransferProgress: &ospb.TransferProgress{
-						BytesReceived: 100,
-					},
-				},
-			}
-		})
-
-	// Patch imageExists to return false so we reach processTransferContent
-	patches.ApplyMethod(reflect.TypeOf(&OSServer{}), "imageExists",
-		func(_ *OSServer, _ string) bool { return false })
+	// Use a temp directory so processTransferContent can write the file
+	// and return a non-nil TransferProgress response naturally.
+	tmpDir, err := os.MkdirTemp("", "gnoi_os_test_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
 
 	// Build a valid TransferReady JSON for the backend response
 	readyResp := &ospb.InstallResponse{
@@ -1310,7 +1302,7 @@ func TestInstall_SendErrorAfterTransferContent(t *testing.T) {
 	}
 
 	osSrv := &OSServer{
-		Server: &Server{config: &Config{ImgDir: "/tmp"}},
+		Server: &Server{config: &Config{ImgDir: tmpDir}},
 		backend: &MockOSBackend{
 			InstallOSFunc: func(req string) (string, error) {
 				return string(readyJSON), nil
@@ -1318,7 +1310,7 @@ func TestInstall_SendErrorAfterTransferContent(t *testing.T) {
 		},
 	}
 
-	err := osSrv.Install(fakeStream)
+	err = osSrv.Install(fakeStream)
 	assert.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.Aborted, st.Code())
