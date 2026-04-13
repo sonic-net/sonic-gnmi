@@ -236,7 +236,7 @@ stages:
         testRunTitle: 'Integration Tests'
 
     - bash: |
-        pip3 install --quiet --break-system-packages --ignore-installed diff-cover
+        sudo pip3 install --quiet --break-system-packages --ignore-installed diff-cover
       displayName: 'Pre-install diff-cover for pipeline decorator'
       workingDirectory: $(System.DefaultWorkingDirectory)/sonic-gnmi
 
