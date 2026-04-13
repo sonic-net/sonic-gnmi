@@ -235,6 +235,17 @@ stages:
         publishRunAttachments: true
         testRunTitle: 'Integration Tests'
 
+    - bash: |
+        set -euo pipefail
+        pip3 install --quiet diff-cover
+        mkdir -p .diff-coverage
+        diff-cover coverage.xml \
+          --compare-branch origin/$(BUILD_BRANCH) \
+          --src-roots . \
+          --json-report .diff-coverage/diff-cover.json || true
+      displayName: 'Generate diff-cover JSON for coverage decorator'
+      workingDirectory: $(System.DefaultWorkingDirectory)/sonic-gnmi
+
     - task: PublishCodeCoverageResults@2
       inputs:
         summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
@@ -266,11 +277,13 @@ stages:
     - bash: |
         set -euo pipefail
         pip3 install --quiet diff-cover
+        mkdir -p .diff-coverage
         diff-cover \
           $(Pipeline.Workspace)/coverage-integration/coverage.xml \
           $(Pipeline.Workspace)/coverage-pure/coverage-pure.xml \
           --compare-branch origin/$(BUILD_BRANCH) \
           --src-roots . \
+          --json-report .diff-coverage/diff-cover.json \
           --fail-under $(DIFF_COVER_THRESHOLD)
       displayName: 'Run diff-cover'
 
