@@ -2213,11 +2213,9 @@ func TestGnmiGetMultiNs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error Setting up MultiNamespace files with err %T", err)
 	}
-	sdc.ResetRedisClients()
 
 	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
 	t.Cleanup(func() {
-		sdc.ResetRedisClients()
 		if err := test_utils.CleanUpMultiNamespace(); err != nil {
 			t.Fatalf("error Cleaning up MultiNamespace files with err %T", err)
 
@@ -4107,11 +4105,9 @@ func TestGnmiSubscribeMultiNs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error Setting up MultiNamespace files with err %T", err)
 	}
-	sdc.ResetRedisClients()
 
 	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
 	t.Cleanup(func() {
-		sdc.ResetRedisClients()
 		if err := test_utils.CleanUpMultiNamespace(); err != nil {
 			t.Fatalf("error Cleaning up MultiNamespace files with err %T", err)
 
@@ -5440,7 +5436,7 @@ func TestTableData2MsiUseKey(t *testing.T) {
 	newMsi := make(map[string]interface{})
 	sdc.TableData2Msi(&tblPath, true, nil, &newMsi)
 	newMsiData, _ := json.MarshalIndent(newMsi, "", "  ")
-	t.Logf(string(newMsiData))
+	t.Logf("%s", string(newMsiData))
 	expectedMsi := map[string]interface{}{
 		"10.0.0.57": map[string]interface{}{
 			"peerType": "e-BGP",
@@ -5448,7 +5444,7 @@ func TestTableData2MsiUseKey(t *testing.T) {
 		},
 	}
 	expectedMsiData, _ := json.MarshalIndent(expectedMsi, "", "  ")
-	t.Logf(string(expectedMsiData))
+	t.Logf("%s", string(expectedMsiData))
 
 	if !reflect.DeepEqual(newMsi, expectedMsi) {
 		t.Errorf("Msi data does not match for use key = true")
@@ -5656,11 +5652,9 @@ func TestGNMINativeMultiNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error Setting up MultiNamespace files with err %T", err)
 	}
-	sdc.ResetRedisClients()
 
 	/* https://www.gopherguides.com/articles/test-cleanup-in-go-1-14*/
 	t.Cleanup(func() {
-		sdc.ResetRedisClients()
 		if err := test_utils.CleanUpMultiNamespace(); err != nil {
 			t.Fatalf("error Cleaning up MultiNamespace files with err %T", err)
 

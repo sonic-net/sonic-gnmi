@@ -113,7 +113,7 @@ stages:
       UNIT_TEST_FLAG: 'ENABLE_TRANSLIB_WRITE=y'
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:latest
 
     steps:
     - checkout: self
@@ -172,7 +172,7 @@ stages:
       DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)/sonic-gnmi
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:latest
 
     steps:
     - checkout: self
@@ -286,7 +286,7 @@ stages:
       vmImage: ubuntu-22.04
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:latest
 
     steps:
     - template: .azure/templates/build-deb.yml
@@ -305,7 +305,7 @@ stages:
       name: sonicso1ES-arm64
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:$(BUILD_BRANCH)-arm64
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:$(BUILD_BRANCH)-arm64
 
     steps:
     - template: .azure/templates/build-deb.yml
@@ -313,5 +313,5 @@ stages:
         buildBranch: $(BUILD_BRANCH)
         arch: arm64
         commonLibArtifact: common-lib.arm64
-        swssCommonArtifact: sonic-swss-common-bookworm.arm64
+        swssCommonArtifact: sonic-swss-common-trixie.arm64
         publishArtifact: sonic-gnmi.arm64

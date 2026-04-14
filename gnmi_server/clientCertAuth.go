@@ -181,6 +181,7 @@ func TryDownload(url string) bool {
 	return true
 }
 
+//go:noinline
 func GetCrlUrls(cert x509.Certificate) []string {
 	glog.Infof("Get Crl Urls for cert: %v", cert.CRLDistributionPoints)
 	return cert.CRLDistributionPoints
