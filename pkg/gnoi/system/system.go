@@ -77,8 +77,8 @@ func HandleSetPackage(ctx context.Context, req *syspb.SetPackageRequest) (*syspb
 	pkg, ok := req.GetRequest().(*syspb.SetPackageRequest_Package)
 	if !ok {
 		errMsg := fmt.Sprintf("invalid request type: %T, expected SetPackageRequest_Package", req.GetRequest())
-		log.Errorf(errMsg)
-		return nil, status.Errorf(codes.InvalidArgument, errMsg)
+		log.Errorf("%s", errMsg)
+		return nil, status.Errorf(codes.InvalidArgument, "%s", errMsg)
 	}
 
 	// Validate required fields

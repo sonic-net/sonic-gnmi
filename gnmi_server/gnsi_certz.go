@@ -530,7 +530,7 @@ func (srv *GNSICertzServer) saveEntities(profileID string, entityMsg *certz.Enti
 		return attemptWrite(expEntity.CertPath, bundle, 0600)
 	case crlType:
 		if err := rotateCRLBundle(entityMsg.GetCertificateRevocationListBundle(), expEntity.CertPath); err != nil {
-			return status.Errorf(codes.Aborted, err.Error())
+			return status.Errorf(codes.Aborted, "%s", err.Error())
 		}
 		return nil
 	case apType:

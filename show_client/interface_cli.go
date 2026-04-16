@@ -11,6 +11,10 @@ import (
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
+// SleepFunc is used for sleeping between counter snapshots.
+// Replaced in tests to inject test data instead of waiting.
+var SleepFunc = time.Sleep
+
 type InterfaceCountersResponse struct {
 	State  string
 	RxOk   string
@@ -112,7 +116,7 @@ func getInterfaceCounters(options sdc.OptionMap) ([]byte, error) {
 		return json.Marshal(oldSnapshot)
 	}
 
-	time.Sleep(time.Duration(period) * time.Second)
+	SleepFunc(time.Duration(period) * time.Second)
 
 	newSnapshot, err := getInterfaceCountersSnapshot(ifaces)
 	if err != nil {

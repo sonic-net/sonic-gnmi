@@ -214,7 +214,7 @@ func (srv *GNSIPathzServer) Rotate(stream pathz.Pathz_RotateServer) error {
 			log.V(0).Infof("Reverting to last good state Received error: %v", err)
 			// Connection closed without Finalize message. Revert all changes made until now.
 			srv.revertPolicy()
-			return status.Errorf(codes.Aborted, err.Error())
+			return status.Errorf(codes.Aborted, "%s", err.Error())
 		}
 		if endReq := req.GetFinalizeRotation(); endReq != nil {
 			// This is the last message. All changes are final.
@@ -242,7 +242,7 @@ func (srv *GNSIPathzServer) Rotate(stream pathz.Pathz_RotateServer) error {
 			log.V(0).Infof("Reverting to last good state; While sending a confirmation got error: %v", err)
 			// Connection closed without Finalize message. Revert all changes made until now.
 			srv.revertPolicy()
-			return status.Errorf(codes.Aborted, err.Error())
+			return status.Errorf(codes.Aborted, "%s", err.Error())
 		}
 	}
 }
@@ -262,7 +262,7 @@ func (srv *GNSIPathzServer) processRotateRequest(req *pathz.RotateRequest) (*pat
 	srv.pathzMetadata.PathzVersion = policyReq.GetVersion()
 	srv.pathzMetadata.PathzCreatedOn = strconv.FormatUint(policyReq.GetCreatedOn(), 10)
 	if err := srv.updatePolicy(policyReq.GetPolicy()); err != nil {
-		return nil, status.Errorf(codes.Aborted, err.Error())
+		return nil, status.Errorf(codes.Aborted, "%s", err.Error())
 	}
 	srv.policyUpdated = true
 	resp := &pathz.RotateResponse{

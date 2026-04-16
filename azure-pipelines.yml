@@ -25,8 +25,8 @@ variables:
       value: $(Build.SourceBranchName)
   - name: UNIT_TEST_FLAG
     value: 'ENABLE_TRANSLIB_WRITE=y'
-  - name: DIFF_COVER_THRESHOLD
-    value: 80
+  - name: DIFF_COVER_WORKING_DIRECTORY
+    value: $(System.DefaultWorkingDirectory)/sonic-gnmi
 
 resources:
   repositories:
@@ -53,7 +53,7 @@ stages:
       vmImage: ubuntu-22.04
 
     variables:
-      GO_VERSION: '1.19.8'
+      GO_VERSION: '1.24.4'
 
     steps:
     - checkout: self
@@ -113,7 +113,7 @@ stages:
       UNIT_TEST_FLAG: 'ENABLE_TRANSLIB_WRITE=y'
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:latest
 
     steps:
     - checkout: self
@@ -172,7 +172,7 @@ stages:
       DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)/sonic-gnmi
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:latest
 
     steps:
     - checkout: self
@@ -235,6 +235,11 @@ stages:
         publishRunAttachments: true
         testRunTitle: 'Integration Tests'
 
+    - bash: |
+        sudo pip3 install --quiet --break-system-packages --ignore-installed diff-cover
+      displayName: 'Pre-install diff-cover for pipeline decorator'
+      workingDirectory: $(System.DefaultWorkingDirectory)/sonic-gnmi
+
     - task: PublishCodeCoverageResults@2
       inputs:
         summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
@@ -245,34 +250,6 @@ stages:
       displayName: 'Publish integration coverage artifact'
       condition: always()
 
-  - job: DiffCoverageCheck
-    displayName: "Diff Coverage Check"
-    dependsOn: [PureCIJob, build]
-    condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))
-    timeoutInMinutes: 10
-    pool:
-      vmImage: ubuntu-22.04
-    steps:
-    - checkout: self
-      clean: true
-      fetchDepth: 0
-
-    - download: current
-      artifact: coverage-pure
-
-    - download: current
-      artifact: coverage-integration
-
-    - bash: |
-        set -euo pipefail
-        pip3 install --quiet diff-cover
-        diff-cover \
-          $(Pipeline.Workspace)/coverage-integration/coverage.xml \
-          $(Pipeline.Workspace)/coverage-pure/coverage-pure.xml \
-          --compare-branch origin/$(BUILD_BRANCH) \
-          --src-roots . \
-          --fail-under $(DIFF_COVER_THRESHOLD)
-      displayName: 'Run diff-cover'
 
 - stage: BuildAmd64
   dependsOn: []
@@ -286,7 +263,7 @@ stages:
       vmImage: ubuntu-22.04
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:latest
 
     steps:
     - template: .azure/templates/build-deb.yml
@@ -305,7 +282,7 @@ stages:
       name: sonicso1ES-arm64
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:$(BUILD_BRANCH)-arm64
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:$(BUILD_BRANCH)-arm64
 
     steps:
     - template: .azure/templates/build-deb.yml
@@ -313,5 +290,5 @@ stages:
         buildBranch: $(BUILD_BRANCH)
         arch: arm64
         commonLibArtifact: common-lib.arm64
-        swssCommonArtifact: sonic-swss-common-bookworm.arm64
+        swssCommonArtifact: sonic-swss-common-trixie.arm64
         publishArtifact: sonic-gnmi.arm64

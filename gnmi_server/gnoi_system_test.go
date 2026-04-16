@@ -3,12 +3,15 @@ package gnmi
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"regexp"
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/pkg/gnoi/system"
 
 	syspb "github.com/openconfig/gnoi/system"
 	typespb "github.com/openconfig/gnoi/types"
@@ -295,4 +298,98 @@ func TestSystem(t *testing.T) {
 			t.Fatalf("Invalid System Time %d", resp.Time)
 		}
 	})
+}
+
+func TestReboot_GetRedisDBClientError(t *testing.T) {
+	patches := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+	defer patches.Reset()
+
+	// HandleReboot returns Unimplemented for non-DPU, so Reboot falls through to Redis
+	patches.ApplyFuncReturn(system.HandleReboot, nil, status.Error(codes.Unimplemented, "local"))
+
+	// Patch GetRedisDBClient to fail
+	patches.ApplyFunc(common_utils.GetRedisDBClient, func() (*redis.Client, error) {
+		return nil, errors.New("redis unavailable")
+	})
+
+	srv := &Server{config: &Config{}}
+	req := &syspb.RebootRequest{
+		Method:  syspb.RebootMethod_COLD,
+		Message: "test",
+	}
+
+	_, err := srv.Reboot(context.Background(), req)
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+	st, _ := status.FromError(err)
+	if st.Code() != codes.Internal {
+		t.Errorf("Expected Internal, got %v", st.Code())
+	}
+}
+
+func TestRebootStatus_GetRedisDBClientError(t *testing.T) {
+	patches := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+	defer patches.Reset()
+
+	patches.ApplyFunc(common_utils.GetRedisDBClient, func() (*redis.Client, error) {
+		return nil, errors.New("redis unavailable")
+	})
+
+	srv := &Server{config: &Config{}}
+	req := &syspb.RebootStatusRequest{}
+
+	_, err := srv.RebootStatus(context.Background(), req)
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+	st, _ := status.FromError(err)
+	if st.Code() != codes.Internal {
+		t.Errorf("Expected Internal, got %v", st.Code())
+	}
+}
+
+func TestRebootStatus_UnmarshalError(t *testing.T) {
+	patches := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+	defer patches.Reset()
+
+	patches.ApplyFunc(common_utils.GetRedisDBClient, func() (*redis.Client, error) {
+		return redis.NewClient(&redis.Options{}), nil
+	})
+
+	patches.ApplyFuncReturn(sendRebootReqOnNotifCh,
+		&syspb.RebootStatusResponse{}, nil, "not valid json")
+
+	srv := &Server{config: &Config{}}
+	req := &syspb.RebootStatusRequest{}
+
+	_, err := srv.RebootStatus(context.Background(), req)
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+	st, _ := status.FromError(err)
+	if st.Code() != codes.Internal {
+		t.Errorf("Expected Internal, got %v", st.Code())
+	}
+}
+
+func TestCancelReboot_GetRedisDBClientError(t *testing.T) {
+	patches := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+	defer patches.Reset()
+
+	patches.ApplyFunc(common_utils.GetRedisDBClient, func() (*redis.Client, error) {
+		return nil, errors.New("redis unavailable")
+	})
+
+	srv := &Server{config: &Config{}}
+	req := &syspb.CancelRebootRequest{}
+
+	_, err := srv.CancelReboot(context.Background(), req)
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+	st, _ := status.FromError(err)
+	if st.Code() != codes.Internal {
+		t.Errorf("Expected Internal, got %v", st.Code())
+	}
 }
