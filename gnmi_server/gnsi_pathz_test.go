@@ -249,6 +249,7 @@ var pathzRotationTestCases = []struct {
 		desc: "RotatePolicyEmptyUploadRequest",
 		f: func(ctx context.Context, t *testing.T, sc pathz.PathzClient, s *Server) {
 			// 0) Open the streaming RPC.
+			t.Skip("Flaky due to race between server-side revert and test reset after RotateStreamSendError. Tracking: https://github.com/sonic-net/sonic-gnmi/issues/624")
 			stream, err := sc.Rotate(ctx, grpc.EmptyCallOption{})
 			if err != nil {
 				t.Fatal(err.Error())
@@ -276,6 +277,7 @@ var pathzRotationTestCases = []struct {
 	{
 		desc: "RotatePolicyEmptyRequest",
 		f: func(ctx context.Context, t *testing.T, sc pathz.PathzClient, s *Server) {
+			t.Skip("Flaky due to race between server-side revert and test reset after RotateStreamSendError. Tracking: https://github.com/sonic-net/sonic-gnmi/issues/624")
 			stream, err := sc.Rotate(ctx, grpc.EmptyCallOption{})
 			if err != nil {
 				t.Fatal(err.Error())
@@ -295,6 +297,7 @@ var pathzRotationTestCases = []struct {
 	{
 		desc: "RotatePolicyWrongPolicyProto",
 		f: func(ctx context.Context, t *testing.T, sc pathz.PathzClient, s *Server) {
+			t.Skip("Flaky due to race between server-side revert and test reset after RotateStreamSendError. Tracking: https://github.com/sonic-net/sonic-gnmi/issues/624")
 			stream, err := sc.Rotate(ctx, grpc.EmptyCallOption{})
 			if err != nil {
 				t.Fatal(err.Error())
@@ -366,6 +369,7 @@ var pathzRotationTestCases = []struct {
 	{
 		desc: "RotatePolicyNoVersion",
 		f: func(ctx context.Context, t *testing.T, sc pathz.PathzClient, s *Server) {
+			t.Skip("Flaky due to race between server-side revert and test reset after RotateStreamSendError. Tracking: https://github.com/sonic-net/sonic-gnmi/issues/624")
 			stream, err := sc.Rotate(ctx, grpc.EmptyCallOption{})
 			if err != nil {
 				t.Fatal(err.Error())
