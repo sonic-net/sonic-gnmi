@@ -44,6 +44,20 @@ func GetRedisDBClient() (*redis.Client, error) {
 	return rclient, nil
 }
 
+func IsAutoRestartEnabled() bool {
+	redisDb, err := GetRedisDBClient()
+	if err != nil {
+		log.Errorf("failed to connect to Redis for auto_restart check: %v", err)
+		return false
+	}
+	value, err := redisDb.HGet("FEATURE|gnmi", "auto_restart").Result()
+	if err != nil {
+		log.Errorf("failed to read FEATURE|gnmi auto_restart: %v", err)
+		return false
+	}
+	return value == "enabled"
+}
+
 // NotificationProducer provides utilities for sending messages using notification channel.
 // NewNotificationProducer must be called for a new producer.
 // Close must be called when finished.

@@ -96,6 +96,8 @@ type MixedDbClient struct {
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
 	w      *sync.WaitGroup // wait for all sub go routines to finish
 	mu     sync.RWMutex    // Mutex for data protection among routines for DbClient
+
+	configReloadCallback func(autoRestartEnabled bool) // callback to issue after sending RPC response back to the gNMI client
 }
 
 // redis client connected to each DB
@@ -1452,11 +1454,29 @@ func (c *MixedDbClient) SetFullConfig(delete []*gnmipb.Path, replace []*gnmipb.U
 	if err != nil {
 		return err
 	}
+	defer os.Remove(fileName)
 
 	PyCodeInGo := fmt.Sprintf(PyCodeForYang, fileName)
 	err = RunPyCode(PyCodeInGo)
 	if err != nil {
 		return fmt.Errorf("Yang validation failed!")
+	}
+
+	c.configReloadCallback = func(autoRestartEnabled bool) {
+		sc, err := ssc.NewDbusClient()
+		if err != nil {
+			log.Error("SetFullConfig: failed to init D-Bus client for config reload")
+			return
+		}
+		defer sc.Close()
+		err = sc.ConfigReload(string(content))
+		if err != nil {
+			log.Errorf("SetFullConfig: config reload failed; gNMI server must be restarted. Err: %s", err.Error())
+			if autoRestartEnabled {
+				// gNMI service is configured to auto-restart on failures, so we panic to "soft reset" the service
+				panic(err.Error())
+			}
+		}
 	}
 
 	return nil
@@ -2222,4 +2242,15 @@ func (c *MixedDbClient) SentOne(val *Value) {
 }
 
 func (c *MixedDbClient) FailedSend() {
+}
+
+func (c *MixedDbClient) ConfigReloadRequested() bool {
+	return c.configReloadCallback != nil
+}
+
+func (c *MixedDbClient) MaybeRunCallback(autoRestartEnabled bool) {
+	if c.configReloadCallback != nil {
+		c.configReloadCallback(autoRestartEnabled)
+	}
+	c.configReloadCallback = nil
 }

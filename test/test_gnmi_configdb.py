@@ -286,10 +286,6 @@ class TestGNMIConfigDb:
 
         ret, msg = gnmi_set(delete_list, update_list, [])
         assert ret == 0, msg
-        assert os.path.exists(config_file), "No config file"
-        with open(config_file,'r') as cf:
-            config_json = json.load(cf)
-        assert test_data == config_json, "Wrong config file"
 
     def test_gnmi_full_negative(self):
         delete_list = ['/sonic-db:CONFIG_DB/localhost/']
@@ -377,7 +373,7 @@ class TestGNMIConfigDb:
         create_checkpoint(checkpoint_file, text)
 
         get_list = ['/sonic-db:CONFIG_DB/localhost/DASH_VNET/vnet_3721/address_spaces/0/abc']
- 
+
         ret, _ = gnmi_get(get_list)
         assert ret != 0, 'Invalid path'
 
@@ -386,7 +382,7 @@ class TestGNMIConfigDb:
         create_checkpoint(checkpoint_file, text)
 
         get_list = ['/sonic-db:CONFIG_DB/localhost/DASH_VNET/vnet_3721/address_spaces/abc']
- 
+
         ret, _ = gnmi_get(get_list)
         assert ret != 0, 'Invalid path'
 
@@ -395,7 +391,7 @@ class TestGNMIConfigDb:
         create_checkpoint(checkpoint_file, text)
 
         get_list = ['/sonic-db:CONFIG_DB/localhost/DASH_VNET/vnet_3721/address_spaces/1000']
- 
+
         ret, _ = gnmi_get(get_list)
         assert ret != 0, 'Invalid path'
 
@@ -504,6 +500,70 @@ class TestGNMIConfigDb:
         assert ret == 0, 'Fail to subscribe: ' + msg
         assert msg.count("bgp_asn") == 0, 'Invalid result: ' + msg
         assert "rpc error" in msg, 'Invalid result: ' + msg
+
+    def test_gnmi_subscribe_stream_severed_on_config_reload(self):
+        result_queue = queue.Queue()
+
+        def subscribe_worker():
+            path = "/CONFIG_DB/localhost/DEVICE_METADATA"
+            # open long-lived stream subscribe, so that it stays up until the server eventually kills it
+            ret, msg = gnmi_subscribe_stream_sample(path, interval=5, count=100, timeout=30)
+            result_queue.put((ret, msg))
+
+        t = threading.Thread(target=subscribe_worker)
+        t.start()
+
+        # wait for subscribe connection to be established
+        time.sleep(2)
+
+        ret, msg_list = gnmi_get(['/sonic-db:CONFIG_DB/localhost/'])
+        assert ret == 0, 'Fail to get current config'
+        file_name = 'reload_config_db.test'
+        with open(file_name, 'w') as f:
+            f.write(msg_list[0] if msg_list else '{}')
+        delete_list = ['/sonic-db:CONFIG_DB/localhost/']
+        update_list = ['/sonic-db:CONFIG_DB/localhost/:@./' + file_name]
+
+        ret, msg = gnmi_set(delete_list, update_list, [])
+        assert ret == 0, 'Fail to trigger config reload: ' + msg
+
+        time.sleep(5)
+
+        # Wait for the subscribe thread to finish, the server should have disconnected
+        t.join(timeout=15)
+        assert not t.is_alive(), 'Subscribe stream was not severed after config reload'
+
+        ret, msg = result_queue.get(timeout=5)
+        assert ret != 0 or 'rpc error' in msg or 'config reload requested' in msg or 'transport' in msg, \
+            'Subscribe stream should have been severed, got: ' + msg
+
+    def test_gnmi_subscribe_stream_preserved_on_invalid_config_reload(self):
+        result_queue = queue.Queue()
+
+        def subscribe_worker():
+            path = "/CONFIG_DB/localhost/DEVICE_METADATA"
+            ret, msg = gnmi_subscribe_stream_sample(path, interval=5, count=100, timeout=30)
+            result_queue.put((ret, msg))
+
+        t = threading.Thread(target=subscribe_worker)
+        t.start()
+
+        # wait for subscribe connection to be established
+        time.sleep(2)
+
+        delete_list = ['/sonic-db:CONFIG_DB/localhost/']
+        update_list = ['/sonic-db:CONFIG_DB/localhost/:abc']
+
+        ret, msg = gnmi_set(delete_list, update_list, [])
+        assert ret != 0, 'Invalid config reload should have failed: ' + msg
+
+        time.sleep(5)
+
+        assert t.is_alive(), 'Subscribe stream was incorrectly stopped'
+        assert result_queue.empty(), "should not have received anything from the subscribe RPC"
+
+        # clean up: wait for subscribe connection to time out
+        t.join()
 
     def test_gnmi_stream_onchange_01(self):
         # Init bgp_asn

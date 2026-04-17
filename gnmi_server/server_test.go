@@ -36,7 +36,11 @@ import (
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
+<<<<<<< HEAD
 	"google.golang.org/grpc/security/advancedtls"
+=======
+	"github.com/stretchr/testify/assert"
+>>>>>>> d745f4d (NOS-5746: Implement ConfigReload on full config SET update (#114))
 
 	"github.com/golang/protobuf/proto"
 	"github.com/kylelemons/godebug/pretty"
@@ -5562,6 +5566,16 @@ func TestGNMINative(t *testing.T) {
 	defer mock2.Reset()
 	mock3 := gomonkey.ApplyFunc(sdc.RunPyCode, func(text string) error { return nil })
 	defer mock3.Reset()
+	mock4 := gomonkey.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "ConfigReload", func(c *ssc.DbusClient, config string) error {
+		common_utils.IncCounter(common_utils.DBUS_CONFIG_RELOAD)
+		return nil
+	})
+	defer mock4.Reset()
+	mock5 := gomonkey.ApplyMethod(reflect.TypeOf(&Server{}), "PostResCallback", func(s *Server, dc *sdc.MixedDbClient) {
+		assert.True(t, dc.ConfigReloadRequested(), "ConfigReload callback should have been registered")
+		s.dropSubscribeConns(ConfigReloadRequested)
+	})
+	defer mock5.Reset()
 
 	sdcfg.Init()
 	s := createServer(t, 8080)
