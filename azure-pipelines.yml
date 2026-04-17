@@ -157,8 +157,8 @@ stages:
         testRunTitle: 'Memory Leak Tests'
 
   # Full integration testing with SONiC dependencies
-  - job: build
-    displayName: "build"
+  - job: IntegrationTest
+    displayName: "Integration Test"
     timeoutInMinutes: 60
 
     pool:
@@ -246,7 +246,7 @@ stages:
 
   - job: DiffCoverageCheck
     displayName: "Diff Coverage Check"
-    dependsOn: [PureCIJob, build]
+    dependsOn: [PureCIJob, IntegrationTest]
     condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))
     timeoutInMinutes: 10
 
