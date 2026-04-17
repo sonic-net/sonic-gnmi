@@ -36,8 +36,8 @@ import (
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
-	"google.golang.org/grpc/security/advancedtls"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/security/advancedtls"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/kylelemons/godebug/pretty"
