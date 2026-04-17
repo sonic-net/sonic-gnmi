@@ -104,7 +104,7 @@ func (srv *GNSIAuthzServer) Rotate(stream authz.Authz_RotateServer) error {
 				log.V(0).Infof("[%v]gnsi: failed to revert authz policy file (%v): %v", session, srv.config.AuthzPolicyFile, err)
 			}
 			srv.revertAuthzFileFreshness()
-			return status.Errorf(codes.Aborted, err.Error())
+			return status.Errorf(codes.Aborted, "%s", err.Error())
 		}
 		if endReq := req.GetFinalizeRotation(); endReq != nil {
 			// This is the last message. All changes are final.
@@ -130,7 +130,7 @@ func (srv *GNSIAuthzServer) Rotate(stream authz.Authz_RotateServer) error {
 				log.V(0).Infof("[%v]gnsi: failed to revert authz policy file (%v): %v", session, srv.config.AuthzPolicyFile, err)
 			}
 			srv.revertAuthzFileFreshness()
-			return status.Errorf(codes.Aborted, err.Error())
+			return status.Errorf(codes.Aborted, "%s", err.Error())
 		}
 	}
 }
@@ -158,13 +158,13 @@ func (srv *GNSIAuthzServer) processRotateRequest(req *authz.RotateAuthzRequest) 
 		return nil, status.Errorf(codes.AlreadyExists, "Authz with version `%v` already exists", policyReq.GetVersion())
 	}
 	if err := srv.writeAuthzMetadataToDB(authzVersionFld, policyReq.GetVersion()); err != nil {
-		return nil, status.Errorf(codes.Aborted, err.Error())
+		return nil, status.Errorf(codes.Aborted, "%s", err.Error())
 	}
 	if err := srv.writeAuthzMetadataToDB(authzCreatedOnFld, strconv.FormatUint(policyReq.GetCreatedOn(), 10)); err != nil {
-		return nil, status.Errorf(codes.Aborted, err.Error())
+		return nil, status.Errorf(codes.Aborted, "%s", err.Error())
 	}
 	if err := srv.saveToAuthzFile(policyReq.GetPolicy()); err != nil {
-		return nil, status.Errorf(codes.Aborted, err.Error())
+		return nil, status.Errorf(codes.Aborted, "%s", err.Error())
 	}
 	resp := &authz.RotateAuthzResponse{
 		RotateResponse: &authz.RotateAuthzResponse_UploadResponse{},

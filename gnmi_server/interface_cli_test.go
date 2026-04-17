@@ -12,6 +12,7 @@ import (
 	pb "github.com/openconfig/gnmi/proto/gnmi"
 
 	"github.com/agiledragon/gomonkey/v2"
+	sc "github.com/sonic-net/sonic-gnmi/show_client"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -120,7 +121,7 @@ func TestGetInterfaceCounters(t *testing.T) {
 		}
 		var patches *gomonkey.Patches
 		if test.mockSleep {
-			patches = gomonkey.ApplyFunc(time.Sleep, func(d time.Duration) {
+			patches = gomonkey.ApplyGlobalVar(&sc.SleepFunc, func(d time.Duration) {
 				AddDataSet(t, CountersDbNum, portCountersTwoFileName)
 				AddDataSet(t, CountersDbNum, portRatesTwoFileName)
 			})

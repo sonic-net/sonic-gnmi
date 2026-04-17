@@ -2039,7 +2039,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 
 	// Helper to handle fatal case.
 	handleFatalMsg := func(msg string) {
-		log.V(1).Infof(msg)
+		log.V(1).Infof("%s", msg)
 		putFatalMsg(c.q, msg)
 		signalSync()
 	}

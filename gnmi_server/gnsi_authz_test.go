@@ -3,7 +3,9 @@ package gnmi
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/openconfig/gnsi/authz"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -926,3 +928,142 @@ const authzTestPolicyFileV2 = `{
     ]
   }
 }`
+
+// TestProcessRotateRequest_WriteDBErrors covers lines 161, 164, 167
+// where writeCredentialsMetadataToDB or saveToAuthzFile fails.
+func TestProcessRotateRequest_WriteDBErrors(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "authz-db-err-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	policyFile := filepath.Join(tmpDir, "authz_policy.json")
+	if err := os.WriteFile(policyFile, []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("WriteVersionToDB_Fails", func(t *testing.T) {
+		s := &Server{
+			config: &Config{AuthzPolicyFile: policyFile},
+		}
+		srv := &GNSIAuthzServer{
+			Server:        s,
+			authzMetadata: NewAuthzMetadata(),
+		}
+		s.gnsiAuthz = srv
+
+		patch := gomonkey.ApplyFunc(writeCredentialsMetadataToDB,
+			func(tbl, key, fld, val string) error {
+				if fld == authzVersionFld {
+					return errors.New("db write version failed")
+				}
+				return nil
+			})
+		defer patch.Reset()
+
+		req := &authz.RotateAuthzRequest{
+			RotateRequest: &authz.RotateAuthzRequest_UploadRequest{
+				UploadRequest: &authz.UploadRequest{
+					Version:   "v-new",
+					CreatedOn: 12345,
+					Policy:    authzTestPolicyFileV1,
+				},
+			},
+		}
+
+		_, err := srv.processRotateRequest(req)
+		if err == nil {
+			t.Fatal("Expected error but got success")
+		}
+		if status.Code(err) != codes.Aborted {
+			t.Fatalf("Expected Aborted error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "db write version failed") {
+			t.Fatalf("Expected 'db write version failed' in error, got: %v", err)
+		}
+	})
+
+	t.Run("WriteCreatedOnToDB_Fails", func(t *testing.T) {
+		s := &Server{
+			config: &Config{AuthzPolicyFile: policyFile},
+		}
+		srv := &GNSIAuthzServer{
+			Server:        s,
+			authzMetadata: NewAuthzMetadata(),
+		}
+		s.gnsiAuthz = srv
+
+		callCount := 0
+		patch := gomonkey.ApplyFunc(writeCredentialsMetadataToDB,
+			func(tbl, key, fld, val string) error {
+				callCount++
+				if fld == authzCreatedOnFld {
+					return errors.New("db write created_on failed")
+				}
+				return nil
+			})
+		defer patch.Reset()
+
+		req := &authz.RotateAuthzRequest{
+			RotateRequest: &authz.RotateAuthzRequest_UploadRequest{
+				UploadRequest: &authz.UploadRequest{
+					Version:   "v-new-2",
+					CreatedOn: 12345,
+					Policy:    authzTestPolicyFileV1,
+				},
+			},
+		}
+
+		_, err := srv.processRotateRequest(req)
+		if err == nil {
+			t.Fatal("Expected error but got success")
+		}
+		if status.Code(err) != codes.Aborted {
+			t.Fatalf("Expected Aborted error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "db write created_on failed") {
+			t.Fatalf("Expected 'db write created_on failed' in error, got: %v", err)
+		}
+	})
+
+	t.Run("SaveToAuthzFile_Fails", func(t *testing.T) {
+		s := &Server{
+			config: &Config{AuthzPolicyFile: policyFile},
+		}
+		srv := &GNSIAuthzServer{
+			Server:        s,
+			authzMetadata: NewAuthzMetadata(),
+		}
+		s.gnsiAuthz = srv
+
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patches.ApplyFunc(writeCredentialsMetadataToDB,
+			func(tbl, key, fld, val string) error {
+				return nil
+			})
+		patches.ApplyPrivateMethod(srv, "saveToAuthzFile",
+			func(_ *GNSIAuthzServer, policy string) error {
+				return errors.New("save file failed")
+			})
+
+		req := &authz.RotateAuthzRequest{
+			RotateRequest: &authz.RotateAuthzRequest_UploadRequest{
+				UploadRequest: &authz.UploadRequest{
+					Version:   "v-new-3",
+					CreatedOn: 12345,
+					Policy:    authzTestPolicyFileV1,
+				},
+			},
+		}
+
+		_, err := srv.processRotateRequest(req)
+		if err == nil {
+			t.Fatal("Expected error but got success")
+		}
+		if status.Code(err) != codes.Aborted {
+			t.Fatalf("Expected Aborted error, got: %v", err)
+		}
+	})
+}
