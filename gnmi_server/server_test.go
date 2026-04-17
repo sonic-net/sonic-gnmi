@@ -36,11 +36,8 @@ import (
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
-<<<<<<< HEAD
 	"google.golang.org/grpc/security/advancedtls"
-=======
 	"github.com/stretchr/testify/assert"
->>>>>>> d745f4d (NOS-5746: Implement ConfigReload on full config SET update (#114))
 
 	"github.com/golang/protobuf/proto"
 	"github.com/kylelemons/godebug/pretty"
