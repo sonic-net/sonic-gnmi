@@ -64,6 +64,7 @@ type TelemetryConfig struct {
 	IdleConnDuration         *int
 	GnmiVrf                  *string
 	Vrf                      *string
+	BindAddress              *string
 	EnableCrl                *bool
 	CrlExpireDuration        *int
 	CaCertLnk                *string
@@ -77,6 +78,7 @@ type TelemetryConfig struct {
 	AuthPolicyEnabled        *bool
 	AuthzPolicyFile          *string
 	EnableStreamMultiplexing *bool
+}
 }
 
 func main() {
@@ -188,6 +190,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		IdleConnDuration:         fs.Int("idle_conn_duration", 5, "Seconds before server closes idle connections"),
 		GnmiVrf:                  fs.String("gnmi_vrf", "", "VRF name for gNMI server binding."),
 		Vrf:                      fs.String("vrf", "", "VRF name for ZMQ client binding."),
+		BindAddress:              fs.String("bind_address", "", "Address to bind the gRPC TCP listener. Empty binds all interfaces. Use 127.0.0.1 to restrict to localhost."),
 		EnableCrl:                fs.Bool("enable_crl", false, "Enable certificate revocation list"),
 		CrlExpireDuration:        fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
 		ImgDirPath:               fs.String("img_dir", "/tmp/host_tmp", "Directory path where image will be transferred."),
@@ -204,6 +207,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		AuthPolicyEnabled:        fs.Bool("authz_policy_enabled", false, "Enable authz policy. Require insecure flag to be false."),
 		AuthzPolicyFile:          fs.String("authorization_policy_file", "/keys/authorization_policy.json", "Full path name of the JSON authorization policy file."),
 		EnableStreamMultiplexing: fs.Bool("enable_stream_multiplexing", false, "Allow multiple Subscribe RPCs on a single TCP connection via HTTP/2 stream multiplexing"),
+	}
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -269,6 +273,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.ConfigTableName = *telemetryCfg.ConfigTableName
 	cfg.GnmiVrf = *telemetryCfg.GnmiVrf
 	cfg.Vrf = *telemetryCfg.Vrf
+	cfg.BindAddress = *telemetryCfg.BindAddress
 	cfg.EnableCrl = *telemetryCfg.EnableCrl
 	cfg.CaCertLnk = *telemetryCfg.CaCertLnk
 	cfg.CaCertFile = *telemetryCfg.CaCert

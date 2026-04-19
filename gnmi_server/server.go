@@ -236,6 +236,11 @@ type Config struct {
 	PathzPolicyFile          string // Path to gNMI pathz policy file.
 	PathzMetaFile            string // Path to JSON file with pathz metadata.
 	EnableStreamMultiplexing bool   // Allow multiple Subscribe RPCs on a single TCP connection.
+	// BindAddress is the network address to bind the TCP listener.
+	// When empty, binds to all interfaces (0.0.0.0). Use "127.0.0.1" to
+	// restrict to localhost only (e.g. when running without TLS).
+	BindAddress              string
+}
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -579,11 +584,12 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		srv.s = grpc.NewServer(tcpOpts...)
 		reflection.Register(srv.s)
 
+		bindAddr := config.BindAddress
 		// Create VRF-aware listener if GNMI VRF is specified
 		if config.GnmiVrf != "" && config.GnmiVrf != "default" {
 			srv.lis, err = createVrfListener(config.GnmiVrf, config.Port)
 		} else {
-			srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
+			srv.lis, err = net.Listen("tcp", fmt.Sprintf("%s:%d", bindAddr, config.Port))
 		}
 		if err != nil {
 			log.Warningf("Failed to open listener port %d: %v; disabling TCP listener", config.Port, err)
