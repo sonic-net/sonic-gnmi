@@ -41,7 +41,7 @@ func TestRunTelemetry(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	args := []string{"telemetry", "-logtostderr", "-port", "50051", "-v=2", "-noTLS"}
+	args := []string{"telemetry", "-logtostderr", "-port", "50051", "-v=2", "-noTLS", "-bind_address", "127.0.0.1"}
 	os.Args = args
 	err := runTelemetry(os.Args)
 	if err != nil {
@@ -79,7 +79,7 @@ func TestFlags(t *testing.T) {
 		expectedVrf       string
 	}{
 		{
-			[]string{"cmd", "-port", "9090", "-threshold", "200", "-idle_conn_duration", "10", "-v", "6", "-noTLS"},
+			[]string{"cmd", "-port", "9090", "-threshold", "200", "-idle_conn_duration", "10", "-v", "6", "-noTLS", "-bind_address", "127.0.0.1"},
 			9090,
 			200,
 			10,
@@ -97,7 +97,7 @@ func TestFlags(t *testing.T) {
 			"",
 		},
 		{
-			[]string{"cmd", "-port", "5050", "-threshold", "10", "-idle_conn_duration", "3", "-v", "-3", "-noTLS"},
+			[]string{"cmd", "-port", "5050", "-threshold", "10", "-idle_conn_duration", "3", "-v", "-3", "-noTLS", "-bind_address", "127.0.0.1"},
 			5050,
 			10,
 			3,
@@ -1448,6 +1448,20 @@ func TestFlagsNoPortNoUnixSocket(t *testing.T) {
 	}
 	if err != nil && !strings.Contains(err.Error(), "port must be > 0") {
 		t.Errorf("Expected 'port must be > 0' error, got: %v", err)
+	}
+}
+
+func TestNoTLSRequiresBindAddress(t *testing.T) {
+	// Regression test: --noTLS without --bind_address 127.0.0.1 must be rejected.
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	fs := flag.NewFlagSet("testNoTLSRequiresBindAddress", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-noTLS"}
+
+	_, _, err := setupFlags(fs)
+	if err == nil {
+		t.Error("Expected error when --noTLS used without --bind_address 127.0.0.1")
 	}
 }
 

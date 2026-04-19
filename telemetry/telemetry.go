@@ -233,6 +233,10 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		return nil, nil, fmt.Errorf("port must be > 0 (or specify --unix_socket).")
 	}
 
+	if *telemetryCfg.NoTLS && *telemetryCfg.BindAddress != "127.0.0.1" {
+		return nil, nil, fmt.Errorf("--noTLS requires --bind_address 127.0.0.1 to prevent cleartext gRPC exposure over the network")
+	}
+
 	switch {
 	case *telemetryCfg.Threshold < 0:
 		return nil, nil, fmt.Errorf("threshold must be >= 0.")
