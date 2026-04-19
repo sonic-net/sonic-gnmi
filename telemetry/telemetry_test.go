@@ -249,6 +249,40 @@ func TestStartGNMIServer(t *testing.T) {
 	}
 }
 
+func TestStartGNMIServerNoTLS(t *testing.T) {
+	// Regression test: cfg.UserAuth must be set in noTLS mode.
+	// Before the fix, UserAuth was only populated inside if !NoTLS{},
+	// so auth was bypassed when --noTLS was active.
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	fs := flag.NewFlagSet("testStartGNMIServerNoTLS", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1", "-client_auth", "password"}
+	telemetryCfg, cfg, err := setupFlags(fs)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	patches := gomonkey.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*gnmi.Server, error) {
+		if !cfg.UserAuth.Enabled("password") {
+			t.Error("cfg.UserAuth should have password enabled in noTLS mode")
+		}
+		return nil, fmt.Errorf("stop server")
+	})
+	defer patches.Reset()
+
+	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		startServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler)
+	}()
+	stopSignalHandler <- true
+	wg.Wait()
+}
+
 func TestStartGNMIServerGracefulStop(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
