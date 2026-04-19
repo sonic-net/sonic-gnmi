@@ -1451,7 +1451,6 @@ func TestFlagsNoPortNoUnixSocket(t *testing.T) {
 	}
 }
 
-
 func TestNoTLSAuthNotBypassed(t *testing.T) {
 	// Regression test for auth bypass in noTLS mode.
 	// Before the fix, cfg.UserAuth was only set inside if !NoTLS{},
