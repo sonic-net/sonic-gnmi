@@ -1455,17 +1455,19 @@ func TestNoTLSAuthNotBypassed(t *testing.T) {
 	// Regression test for auth bypass in noTLS mode.
 	// Before the fix, cfg.UserAuth was only set inside if !NoTLS{},
 	// so authentication was silently bypassed when --noTLS was active.
+	// We verify via telemetryCfg.UserAuth (the source) since cfg.UserAuth
+	// is populated later in the server goroutine, not in setupFlags.
 	originalArgs := os.Args
 	defer func() { os.Args = originalArgs }()
 
 	fs := flag.NewFlagSet("testNoTLSAuthNotBypassed", flag.ContinueOnError)
 	os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-client_auth", "password"}
 
-	_, cfg, err := setupFlags(fs)
+	telemetryCfg, _, err := setupFlags(fs)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	if !cfg.UserAuth.Enabled("password") {
+	if !telemetryCfg.UserAuth.Enabled("password") {
 		t.Error("Expected password auth to be enabled in noTLS mode, but was bypassed")
 	}
 }
