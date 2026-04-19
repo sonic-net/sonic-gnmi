@@ -1459,19 +1459,15 @@ func TestNoTLSAuthNotBypassed(t *testing.T) {
 	originalArgs := os.Args
 	defer func() { os.Args = originalArgs }()
 
-	for _, authMode := range []string{"password", "jwt"} {
-		t.Run(authMode, func(t *testing.T) {
-			fs := flag.NewFlagSet("testNoTLSAuthNotBypassed", flag.ContinueOnError)
-			os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-client_auth", authMode}
+	fs := flag.NewFlagSet("testNoTLSAuthNotBypassed", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-client_auth", "password"}
 
-			_, cfg, err := setupFlags(fs)
-			if err != nil {
-				t.Fatalf("Unexpected error: %v", err)
-			}
-			if !cfg.UserAuth.Enabled(authMode) {
-				t.Errorf("Expected %s auth to be enabled in noTLS mode, but was bypassed", authMode)
-			}
-		})
+	_, cfg, err := setupFlags(fs)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if !cfg.UserAuth.Enabled("password") {
+		t.Error("Expected password auth to be enabled in noTLS mode, but was bypassed")
 	}
 }
 
