@@ -1451,6 +1451,30 @@ func TestFlagsNoPortNoUnixSocket(t *testing.T) {
 	}
 }
 
+
+func TestNoTLSAuthNotBypassed(t *testing.T) {
+	// Regression test for auth bypass in noTLS mode.
+	// Before the fix, cfg.UserAuth was only set inside if !NoTLS{},
+	// so authentication was silently bypassed when --noTLS was active.
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	for _, authMode := range []string{"password", "jwt"} {
+		t.Run(authMode, func(t *testing.T) {
+			fs := flag.NewFlagSet("testNoTLSAuthNotBypassed", flag.ContinueOnError)
+			os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-client_auth", authMode}
+
+			_, cfg, err := setupFlags(fs)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			if !cfg.UserAuth.Enabled(authMode) {
+				t.Errorf("Expected %s auth to be enabled in noTLS mode, but was bypassed", authMode)
+			}
+		})
+	}
+}
+
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
 	m.Run()
