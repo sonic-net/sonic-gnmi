@@ -69,6 +69,17 @@ var UseRedisLocalTcpPort bool = false
 // redis client connected to each DB
 var Target2RedisDb = make(map[string]map[string]*redis.Client)
 
+// Ensure useRedisTcpClient is only called once to avoid race conditions
+var useRedisTcpClientOnce sync.Once
+var useRedisTcpClientErr error
+
+// ResetRedisClients resets the useRedisTcpClient sync.Once so Target2RedisDb
+// gets re-populated. Used by multi-namespace tests when namespace config changes.
+func ResetRedisClients() {
+	useRedisTcpClientOnce = sync.Once{}
+	useRedisTcpClientErr = nil
+}
+
 // MinSampleInterval is the lowest sampling interval for streaming subscriptions.
 // Any non-zero value that less than this threshold is considered invalid argument.
 var MinSampleInterval = time.Second
@@ -178,7 +189,12 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
 
 	// Testing program may ask to use redis local tcp connection
 	if UseRedisLocalTcpPort {
-		useRedisTcpClient()
+		useRedisTcpClientOnce.Do(func() {
+			useRedisTcpClientErr = useRedisTcpClient()
+		})
+		if useRedisTcpClientErr != nil {
+			return nil, useRedisTcpClientErr
+		}
 	}
 
 	client.prefix = prefix
@@ -1372,7 +1388,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 
 	// Helper to handle fatal case.
 	handleFatalMsg := func(msg string) {
-		log.V(1).Infof(msg)
+		log.V(1).Infof("%s", msg)
 		enqueueFatalMsg(c, msg)
 		signalSync()
 	}

@@ -264,7 +264,7 @@ func (srv *OSServer) Install(stream ospb.OS_InstallServer) error {
 		if err != nil {
 			log.V(1).Infoln("Error while sending InstallError response: ", err)
 			log.Errorf("InstallResponse: %v", err)
-			return status.Errorf(codes.Aborted, err.Error())
+			return status.Errorf(codes.Aborted, "%s", err.Error())
 		}
 		return status.Errorf(codes.Aborted, "Concurrent Install RPCs are not allowed.")
 	}
@@ -279,7 +279,7 @@ func (srv *OSServer) Install(stream ospb.OS_InstallServer) error {
 	}
 	if err != nil {
 		log.Errorf("Install: Received error %v while receiving TransferRequest!", err)
-		return status.Errorf(codes.Aborted, err.Error())
+		return status.Errorf(codes.Aborted, "%s", err.Error())
 	}
 	transferReq := req.GetTransferRequest()
 	if transferReq == nil {
@@ -298,7 +298,7 @@ func (srv *OSServer) Install(stream ospb.OS_InstallServer) error {
 	if resp != nil {
 		if err := stream.Send(resp); err != nil {
 			log.Errorf("Install: Error %v in sending TransferReady response:", err)
-			return status.Errorf(codes.Aborted, err.Error())
+			return status.Errorf(codes.Aborted, "%s", err.Error())
 		}
 	}
 
@@ -325,7 +325,7 @@ func (srv *OSServer) Install(stream ospb.OS_InstallServer) error {
 		}
 		if err != nil {
 			log.Errorf("Install: Error %v in receiving TransferContent", err)
-			return status.Errorf(codes.Aborted, err.Error())
+			return status.Errorf(codes.Aborted, "%s", err.Error())
 		}
 		if transferReq := req.GetTransferRequest(); transferReq != nil {
 			log.Errorf("Install: Received a TransferReq out-of-sequence.")
@@ -350,7 +350,7 @@ func (srv *OSServer) Install(stream ospb.OS_InstallServer) error {
 			if err := stream.Send(resp); err != nil {
 				log.Errorf("Install: Error %v in sending TransferContent response", err)
 				srv.removeIncompleteTransfer(imgPath)
-				return status.Errorf(codes.Aborted, err.Error())
+				return status.Errorf(codes.Aborted, "%s", err.Error())
 			}
 		}
 		if resp == nil || resp.GetInstallError() != nil {
@@ -375,7 +375,7 @@ func (srv *OSServer) Install(stream ospb.OS_InstallServer) error {
 		if err := stream.Send(resp); err != nil {
 			log.Errorf("Install: Error %v in sending TransferEnd response. Aborting..", err)
 			srv.removeIncompleteTransfer(imgPath)
-			return status.Errorf(codes.Aborted, err.Error())
+			return status.Errorf(codes.Aborted, "%s", err.Error())
 		}
 	}
 	if resp == nil || resp.GetInstallError() != nil {

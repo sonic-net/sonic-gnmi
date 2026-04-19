@@ -550,3 +550,28 @@ func TestClearMappings_Resets(t *testing.T) {
 		t.Errorf("expected countersPortNameMap to be cleared")
 	}
 }
+
+func TestResetRedisClients(t *testing.T) {
+	// Verify ResetRedisClients resets the sync.Once and error
+	ResetRedisClients()
+
+	// After reset, the sync.Once should fire again on next NewDbClient call
+	// Exercise the UseRedisLocalTcpPort path
+	origFlag := UseRedisLocalTcpPort
+	UseRedisLocalTcpPort = true
+	defer func() { UseRedisLocalTcpPort = origFlag }()
+
+	sdcfg.Init()
+
+	useRedisTcpClientOnce.Do(func() {
+		useRedisTcpClientErr = fmt.Errorf("mock error")
+	})
+
+	_, err := NewDbClient(nil, nil)
+	if err == nil {
+		t.Errorf("expected error from NewDbClient when useRedisTcpClient fails")
+	}
+
+	// Reset again to clean up for other tests
+	ResetRedisClients()
+}

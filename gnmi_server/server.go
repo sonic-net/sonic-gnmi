@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Azure/sonic-mgmt-common/translib"
@@ -80,7 +81,7 @@ type Server struct {
 	udsListener   net.Listener
 	config        *Config
 	cMu           sync.Mutex
-	clients       map[string]*Client
+	clients       map[ClientKey]*Client
 	certProviders []certprovider.Provider
 	// SaveStartupConfig points to a function that is called to save changes of
 	// configuration to a file. By default it points to an empty function -
@@ -211,28 +212,30 @@ type Config struct {
 	ZmqPort             string
 	IdleConnDuration    int
 	ConfigTableName     string
+	GnmiVrf             string
 	Vrf                 string
 	EnableCrl           bool
 	// Path to the directory where image is stored.
 	ImgDir     string
 	GetOptions func(*Config) ([]grpc.ServerOption, []certprovider.Provider, error)
 	// gnsi.certz mTLS flags
-	CaCertLnk       string // Path to symlink pointing to current CA certificate.
-	SrvCertLnk      string // Path to symlink pointing to current server's certificate.
-	SrvKeyLnk       string // Path to symlink pointing to current server's private key.
-	CaCertFile      string // Path to the first CA certificate.
-	SrvCertFile     string // Path to the first server's certificate.
-	SrvKeyFile      string // Path to the first server's private key.
-	CertCRLConfig   string // Path to the CRL directory. Disable if empty.
-	IntManFile      string // Path to the Integrity Manifest file.
-	CertzMetaFile   string // Path to JSON file with gRPC credential metadata.
-	FedPolicyFile   string // Path to federation policy file.
-	AuthzPolicy     bool   // Enable authz policy.
-	AuthzPolicyFile string // Path to JSON file with authz policies.
-	AuthzMetaFile   string // Path to JSON file with authz metadata.
-	PathzPolicy     bool   // Enable gNMI pathz policy.
-	PathzPolicyFile string // Path to gNMI pathz policy file.
-	PathzMetaFile   string // Path to JSON file with pathz metadata.
+	CaCertLnk                string // Path to symlink pointing to current CA certificate.
+	SrvCertLnk               string // Path to symlink pointing to current server's certificate.
+	SrvKeyLnk                string // Path to symlink pointing to current server's private key.
+	CaCertFile               string // Path to the first CA certificate.
+	SrvCertFile              string // Path to the first server's certificate.
+	SrvKeyFile               string // Path to the first server's private key.
+	CertCRLConfig            string // Path to the CRL directory. Disable if empty.
+	IntManFile               string // Path to the Integrity Manifest file.
+	CertzMetaFile            string // Path to JSON file with gRPC credential metadata.
+	FedPolicyFile            string // Path to federation policy file.
+	AuthzPolicy              bool   // Enable authz policy.
+	AuthzPolicyFile          string // Path to JSON file with authz policies.
+	AuthzMetaFile            string // Path to JSON file with authz metadata.
+	PathzPolicy              bool   // Enable gNMI pathz policy.
+	PathzPolicyFile          string // Path to gNMI pathz policy file.
+	PathzMetaFile            string // Path to JSON file with pathz metadata.
+	EnableStreamMultiplexing bool   // Allow multiple Subscribe RPCs on a single TCP connection.
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -479,7 +482,31 @@ func SrvAdvConfig(cfg *Config) ([]grpc.ServerOption, []certprovider.Provider, er
 }
 
 // NewServer returns an initialized Server.
-//
+func createVrfListener(vrf string, port int64) (net.Listener, error) {
+	lc := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			var err error
+			ctrlErr := c.Control(func(fd uintptr) {
+				err = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, vrf)
+			})
+			if ctrlErr != nil {
+				return ctrlErr
+			}
+			if err != nil {
+				return fmt.Errorf("failed to bind socket to VRF %s: %v", vrf, err)
+			}
+			return nil
+		},
+	}
+
+	listener, err := lc.Listen(context.Background(), "tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return nil, err
+	}
+	log.V(1).Infof("Created VRF-bound listener on VRF %s, port %d", vrf, port)
+	return listener, nil
+}
+
 // tlsOpts contains TLS credentials and is used only for the TCP listener.
 // commonOpts contains interceptors, keepalive params, etc. and is used for both listeners.
 //
@@ -511,7 +538,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 
 	srv := &Server{
 		config:            config,
-		clients:           map[string]*Client{},
+		clients:           map[ClientKey]*Client{},
 		certProviders:     providers,
 		SaveStartupConfig: saveOnSetDisabled,
 		// ReqFromMaster point to a function that is called to verify if
@@ -552,7 +579,12 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		srv.s = grpc.NewServer(tcpOpts...)
 		reflection.Register(srv.s)
 
-		srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
+		// Create VRF-aware listener if GNMI VRF is specified
+		if config.GnmiVrf != "" && config.GnmiVrf != "default" {
+			srv.lis, err = createVrfListener(config.GnmiVrf, config.Port)
+		} else {
+			srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
+		}
 		if err != nil {
 			log.Warningf("Failed to open listener port %d: %v; disabling TCP listener", config.Port, err)
 			srv.s.Stop()
@@ -814,22 +846,28 @@ func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	*/
 
 	c := NewClient(pr.Addr)
+	c.enableStreamMultiplexing = s.config.EnableStreamMultiplexing
 
 	c.setLogLevel(s.config.LogLevel)
 	c.setConnectionManager(s.config.Threshold)
 
+	clientKey := c.Key()
+
 	s.cMu.Lock()
-	if oc, ok := s.clients[c.String()]; ok {
+	log.V(1).Infof("New Subscribe RPC: client %s (peer: %s, total active: %d)", c.String(), pr.Addr, len(s.clients))
+	if oc, ok := s.clients[clientKey]; ok {
 		log.V(2).Infof("Delete duplicate client %s", oc)
 		oc.Close()
-		delete(s.clients, c.String())
+		delete(s.clients, clientKey)
 	}
-	s.clients[c.String()] = c
+	s.clients[clientKey] = c
+	log.V(1).Infof("Client %s registered (total active: %d)", c.String(), len(s.clients))
 	s.cMu.Unlock()
 
 	err := c.Run(stream, s.config)
 	s.cMu.Lock()
-	delete(s.clients, c.String())
+	log.V(1).Infof("Client %s completed, removing (total active: %d)", c.String(), len(s.clients)-1)
+	delete(s.clients, clientKey)
 	s.cMu.Unlock()
 
 	log.Flush()

@@ -118,10 +118,10 @@ func DbusApi(busName string, busPath string, intName string, timeout int, args .
 				}
 				if msg, check := result[1].(string); check {
 					common_utils.IncCounter(common_utils.DBUS_FAIL)
-					return nil, fmt.Errorf(msg)
+					return nil, fmt.Errorf("%s", msg)
 				} else if msg, check := result[1].(map[string]string); check {
 					common_utils.IncCounter(common_utils.DBUS_FAIL)
-					return nil, fmt.Errorf(msg["error"])
+					return nil, fmt.Errorf("%s", msg["error"])
 				} else {
 					common_utils.IncCounter(common_utils.DBUS_FAIL)
 					return nil, fmt.Errorf("Invalid result message type %v %v", result[1], reflect.TypeOf(result[1]))

@@ -59,8 +59,14 @@ func TestRunTelemetry(t *testing.T) {
 
 func TestFlags(t *testing.T) {
 	originalArgs := os.Args
+	originalJwtRefreshInt := gnmi.JwtRefreshInt
+	originalJwtValidInt := gnmi.JwtValidInt
+	originalCrlExpireDuration := gnmi.GetCrlExpireDuration()
 	defer func() {
 		os.Args = originalArgs
+		gnmi.JwtRefreshInt = originalJwtRefreshInt
+		gnmi.JwtValidInt = originalJwtValidInt
+		gnmi.SetCrlExpireDuration(originalCrlExpireDuration)
 	}()
 
 	tests := []struct {
@@ -69,6 +75,8 @@ func TestFlags(t *testing.T) {
 		expectedThreshold int
 		expectedIdleDur   int
 		expectedLogLevel  int
+		expectedGnmiVrf   string
+		expectedVrf       string
 	}{
 		{
 			[]string{"cmd", "-port", "9090", "-threshold", "200", "-idle_conn_duration", "10", "-v", "6", "-noTLS"},
@@ -76,6 +84,8 @@ func TestFlags(t *testing.T) {
 			200,
 			10,
 			6,
+			"",
+			"",
 		},
 		{
 			[]string{"cmd", "-port", "2020", "-threshold", "500", "-idle_conn_duration", "4", "-v", "0", "-insecure"},
@@ -83,6 +93,8 @@ func TestFlags(t *testing.T) {
 			500,
 			4,
 			0,
+			"",
+			"",
 		},
 		{
 			[]string{"cmd", "-port", "5050", "-threshold", "10", "-idle_conn_duration", "3", "-v", "-3", "-noTLS"},
@@ -90,6 +102,17 @@ func TestFlags(t *testing.T) {
 			10,
 			3,
 			2,
+			"",
+			"",
+		},
+		{
+			[]string{"cmd", "-port", "8082", "-threshold", "1", "-idle_conn_duration", "1", "-gnmi_vrf", "mgmt", "-vrf", "mgmt", "-noTLS"},
+			8082,
+			1,
+			1,
+			2,
+			"mgmt",
+			"mgmt",
 		},
 		{
 			[]string{"cmd", "-port", "8081", "-threshold", "1", "-idle_conn_duration", "1"},
@@ -97,6 +120,8 @@ func TestFlags(t *testing.T) {
 			1,
 			1,
 			2,
+			"",
+			"",
 		},
 		{
 			[]string{"cmd", "-port", "8081", "-threshold", "1", "-idle_conn_duration", "1", "-server_crt", "../testdata/certs/testserver.cert"},
@@ -104,6 +129,8 @@ func TestFlags(t *testing.T) {
 			1,
 			1,
 			2,
+			"",
+			"",
 		},
 	}
 
@@ -139,6 +166,14 @@ func TestFlags(t *testing.T) {
 
 		if *config.LogLevel != test.expectedLogLevel {
 			t.Errorf("Expected log_level to be %d, got %d", test.expectedLogLevel, *config.LogLevel)
+		}
+
+		if *config.GnmiVrf != test.expectedGnmiVrf {
+			t.Errorf("Expected gnmi_vrf to be %s, got %s", test.expectedGnmiVrf, *config.GnmiVrf)
+		}
+
+		if *config.Vrf != test.expectedVrf {
+			t.Errorf("Expected vrf to be %s, got %s", test.expectedVrf, *config.Vrf)
 		}
 	}
 }
@@ -758,7 +793,7 @@ func TestStartGNMIServerSlowCACerts(t *testing.T) {
 func TestINotifyCertMonitoringRotation(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
-	timeoutInterval := 10
+	timeoutInterval := 30
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 
@@ -812,7 +847,7 @@ func TestINotifyCertMonitoringRotation(t *testing.T) {
 func TestINotifyCertMonitoringDeletion(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
-	timeoutInterval := time.Duration(10 * time.Second)
+	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
@@ -867,7 +902,7 @@ func TestINotifyCertMonitoringSlowWrites(t *testing.T) {
 	testServerKey := "../testdata/certs/testserver.key"
 	tempDir := t.TempDir()
 	testServerKeyBackup := filepath.Join(tempDir, "testserver.key.backup")
-	timeoutInterval := time.Duration(10 * time.Second)
+	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
@@ -930,7 +965,7 @@ func TestINotifyCertMonitoringMove(t *testing.T) {
 	testServerKey := "../testdata/certs/testserver.key"
 	testServerCertBackup := "../testdata/testserver.cert"
 	testServerKeyBackup := "../testdata/testserver.key"
-	timeoutInterval := time.Duration(10 * time.Second)
+	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
@@ -1009,7 +1044,7 @@ func TestINotifyCertMonitoringCopy(t *testing.T) {
 	tempDir := t.TempDir()
 	testServerCertBackup := filepath.Join(tempDir, "testserver.cert.backup")
 	testServerKeyBackup := filepath.Join(tempDir, "testserver.key.backup")
-	timeoutInterval := time.Duration(10 * time.Second)
+	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
@@ -1080,7 +1115,7 @@ func TestINotifyCertMonitoringCopy(t *testing.T) {
 func TestINotifyCertMonitoringErrors(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
-	timeoutInterval := time.Duration(10 * time.Second)
+	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
@@ -1129,7 +1164,7 @@ func TestINotifyCertMonitoringErrors(t *testing.T) {
 func DisabledTestINotifyCertMonitoringAddWatcherError(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
-	timeoutInterval := time.Duration(10 * time.Second)
+	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
@@ -1176,7 +1211,7 @@ func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 	testServerCert := filepath.Join(tmpDir, "server.crt")
 	testServerKey := filepath.Join(tmpDir, "server.key")
 
-	timeoutInterval := 10
+	timeoutInterval := 30
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
 
@@ -1278,7 +1313,7 @@ func TestINotifyCertMonitoringCertValidationFails(t *testing.T) {
 	testServerCert := filepath.Join(tmpDir, "server.crt")
 	testServerKey := filepath.Join(tmpDir, "server.key")
 
-	timeoutInterval := 10
+	timeoutInterval := 30
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
 

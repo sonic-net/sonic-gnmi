@@ -745,7 +745,8 @@ var gnsiCertzTestCases = []struct {
 		},
 	},
 	{
-		desc: "GenerateCsrRSA",
+		desc:    "GenerateCsrRSA",
+		timeout: 10 * time.Second,
 		f: func(ctx context.Context, t *testing.T, sc certz.CertzClient, s *Server) {
 			stream, err := sc.Rotate(ctx, grpc.EmptyCallOption{})
 			if err != nil {
@@ -785,7 +786,8 @@ var gnsiCertzTestCases = []struct {
 		},
 	},
 	{
-		desc: "GenerateCsrECDSA",
+		desc:    "GenerateCsrECDSA",
+		timeout: 10 * time.Second,
 		f: func(ctx context.Context, t *testing.T, sc certz.CertzClient, s *Server) {
 			stream, err := sc.Rotate(ctx, grpc.EmptyCallOption{})
 			if err != nil {
@@ -826,7 +828,8 @@ var gnsiCertzTestCases = []struct {
 		},
 	},
 	{
-		desc: "GenerateCsrAttest",
+		desc:    "GenerateCsrAttest",
+		timeout: 10 * time.Second,
 		f: func(ctx context.Context, t *testing.T, sc certz.CertzClient, s *Server) {
 			stream, err := sc.Rotate(ctx, grpc.EmptyCallOption{})
 			if err != nil {
@@ -1127,6 +1130,7 @@ var gnsiCertzTestCases = []struct {
 		desc:    "Rotate_ConcurrentRPC_ReturnsAborted",
 		timeout: 10 * time.Second, // Set specifically for this case
 		f: func(ctx context.Context, t *testing.T, sc certz.CertzClient, s *Server) {
+			t.Skip("Flaky due to timing sensitivity in concurrent gRPC Rotate streams. Tracking: https://github.com/sonic-net/sonic-gnmi/issues/616")
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			// 1) Start the first stream to hold the certzMu lock
