@@ -205,6 +205,10 @@ func TestStartGNMIServer(t *testing.T) {
 		return tls.Certificate{}, nil
 	})
 	patches.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*gnmi.Server, error) {
+		// Verify cfg.UserAuth is set (regression test for noTLS auth bypass fix)
+		if cfg.UserAuth == nil {
+			t.Error("cfg.UserAuth should not be nil")
+		}
 		return &gnmi.Server{}, nil
 	})
 	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
