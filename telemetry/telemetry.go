@@ -1,7 +1,6 @@
 package main
 
 import (
-	"net"
 	"crypto/sha512"
 	"crypto/tls"
 	"crypto/x509"
@@ -10,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -79,7 +79,6 @@ type TelemetryConfig struct {
 	AuthPolicyEnabled        *bool
 	AuthzPolicyFile          *string
 	EnableStreamMultiplexing *bool
-}
 }
 
 func main() {
@@ -209,7 +208,6 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		AuthzPolicyFile:          fs.String("authorization_policy_file", "/keys/authorization_policy.json", "Full path name of the JSON authorization policy file."),
 		EnableStreamMultiplexing: fs.Bool("enable_stream_multiplexing", false, "Allow multiple Subscribe RPCs on a single TCP connection via HTTP/2 stream multiplexing"),
 	}
-	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
 	fs.Parse(os.Args[1:])
@@ -239,7 +237,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		if ip == nil || !ip.IsLoopback() {
 			return nil, nil, fmt.Errorf(
 				"--noTLS requires --bind_address to be a loopback address (e.g. 127.0.0.1 or ::1) " +
-				"to prevent cleartext gRPC exposure over the network")
+					"to prevent cleartext gRPC exposure over the network")
 		}
 	}
 
