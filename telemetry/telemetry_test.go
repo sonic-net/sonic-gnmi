@@ -263,9 +263,14 @@ func TestStartGNMIServerNoTLS(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
+	userAuthSet := make(chan struct{}, 1)
 	patches := gomonkey.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*gnmi.Server, error) {
 		if !cfg.UserAuth.Enabled("password") {
 			t.Error("cfg.UserAuth should have password enabled in noTLS mode")
+		}
+		select {
+		case userAuthSet <- struct{}{}:
+		default:
 		}
 		return nil, fmt.Errorf("stop server")
 	})
@@ -276,6 +281,12 @@ func TestStartGNMIServerNoTLS(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+	select {
+	case <-userAuthSet:
+		// cfg.UserAuth was verified in the gnmi.NewServer patch
+	case <-time.After(3 * time.Second):
+		t.Error("startGNMIServer did not call gnmi.NewServer within timeout")
+	}
 	serverControlSignal <- ServerStop
 	wg.Wait()
 }
