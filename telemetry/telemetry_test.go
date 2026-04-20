@@ -276,7 +276,7 @@ func TestStartGNMIServerNoTLS(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
-	stopSignalHandler <- true
+	serverControlSignal <- ServerStop
 	wg.Wait()
 }
 
