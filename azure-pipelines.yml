@@ -245,7 +245,7 @@ stages:
       condition: always()
 
   - job: build
-    displayName: "Diff Coverage Check"
+    displayName: "build"
     dependsOn: [PureCIJob, IntegrationTest]
     condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))
     timeoutInMinutes: 10
