@@ -257,7 +257,7 @@ func TestStartGNMIServerNoTLS(t *testing.T) {
 	defer func() { os.Args = originalArgs }()
 
 	fs := flag.NewFlagSet("testStartGNMIServerNoTLS", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1", "-client_auth", "password"}
+	os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-client_auth", "password"}
 	telemetryCfg, cfg, err := setupFlags(fs)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -275,10 +275,7 @@ func TestStartGNMIServerNoTLS(t *testing.T) {
 	stopSignalHandler := make(chan bool, 1)
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		startServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler)
-	}()
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
 	stopSignalHandler <- true
 	wg.Wait()
 }
