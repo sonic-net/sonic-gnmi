@@ -239,8 +239,7 @@ type Config struct {
 	// BindAddress is the network address to bind the TCP listener.
 	// When empty, binds to all interfaces (0.0.0.0). Use "127.0.0.1" to
 	// restrict to localhost only (e.g. when running without TLS).
-	BindAddress              string
-}
+	BindAddress string
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
