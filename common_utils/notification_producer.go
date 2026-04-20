@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
@@ -50,7 +51,10 @@ func IsAutoRestartEnabled() bool {
 		log.Errorf("failed to connect to Redis for auto_restart check: %v", err)
 		return false
 	}
-	value, err := redisDb.HGet("FEATURE|gnmi", "auto_restart").Result()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	value, err := redisDb.HGet(ctx, "FEATURE|gnmi", "auto_restart").Result()
 	if err != nil {
 		log.Errorf("failed to read FEATURE|gnmi auto_restart: %v", err)
 		return false
