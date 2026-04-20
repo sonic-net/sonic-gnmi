@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"crypto/sha512"
 	"crypto/tls"
 	"crypto/x509"
@@ -233,8 +234,13 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		return nil, nil, fmt.Errorf("port must be > 0 (or specify --unix_socket).")
 	}
 
-	if *telemetryCfg.NoTLS && *telemetryCfg.BindAddress != "127.0.0.1" {
-		return nil, nil, fmt.Errorf("--noTLS requires --bind_address 127.0.0.1 to prevent cleartext gRPC exposure over the network")
+	if *telemetryCfg.NoTLS {
+		ip := net.ParseIP(*telemetryCfg.BindAddress)
+		if ip == nil || !ip.IsLoopback() {
+			return nil, nil, fmt.Errorf(
+				"--noTLS requires --bind_address to be a loopback address (e.g. 127.0.0.1 or ::1) " +
+				"to prevent cleartext gRPC exposure over the network")
+		}
 	}
 
 	switch {
