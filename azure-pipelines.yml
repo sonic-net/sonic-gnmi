@@ -158,7 +158,7 @@ stages:
 
   # Full integration testing with SONiC dependencies
   - job: IntegrationTest
-    displayName: "Integration Test"
+    displayName: "Integration Tests"
     timeoutInMinutes: 60
 
     pool:
@@ -244,7 +244,7 @@ stages:
       displayName: 'Publish integration coverage artifact'
       condition: always()
 
-  - job: DiffCoverageCheck
+  - job: build
     displayName: "Diff Coverage Check"
     dependsOn: [PureCIJob, IntegrationTest]
     condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))
