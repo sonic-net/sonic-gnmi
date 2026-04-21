@@ -20,6 +20,7 @@ PYANG_PLUGIN_DIR := $(TOOLS_DIR)/pyang_plugins
 PYANG  ?= pyang
 GOROOT ?= $(shell $(GO) env GOROOT)
 FORMAT_CHECK = $(BUILD_DIR)/.formatcheck
+FORMAT_LOG = $(BUILD_DIR)/go_format.log
 # Find all .go files excluding vendor, build, and patches files
 GO_FILES := $(shell find . -type f -name '*.go' ! -path './vendor/*' ! -path './build/*' ! -path './patches/*' ! -path './proto/*' ! -path './swsscommon/*')
 export CVL_SCHEMA_PATH := $(MGMT_COMMON_DIR)/build/cvl/schema
@@ -415,40 +416,21 @@ clean:
 	$(RM) -r vendor
 	$(RM) -r backup_crypto
 
-# Stamp file that records when formatting last passed; depended on by the
-# main `sonic-gnmi` build target so the check is incremental.
-# The body is intentionally identical to the `fmt-check` target in pure.mk.
+# File target that generates a diff file if formatting is incorrect
 $(FORMAT_CHECK): $(GO_FILES)
 	@echo "Checking Go file formatting..."
-	@mkdir -p $(@D)
-	@offending=$$($(GOROOT)/bin/gofmt -l $(GO_FILES)); \
-	if [ -n "$$offending" ]; then \
-		echo ""; \
-		echo "::error::gofmt found $$(echo "$$offending" | wc -l) unformatted Go file(s):"; \
-		echo "$$offending" | sed 's/^/  /'; \
-		echo ""; \
-		echo "----- gofmt diff (first 200 lines) -----"; \
-		$(GOROOT)/bin/gofmt -d $$offending | head -n 200; \
-		echo "----------------------------------------"; \
-		echo ""; \
-		echo "Fix with:"; \
-		echo "    make fmt    # or: gofmt -w <file>"; \
-		echo "and commit the result."; \
+	@echo $(GO_FILES)
+	mkdir -p $(@D)
+	@$(GOROOT)/bin/gofmt -l $(GO_FILES) > $(FORMAT_LOG)
+	@if [ -s $(FORMAT_LOG) ]; then \
+		cat $(FORMAT_LOG); \
+		echo "Formatting issues found. Please run 'gofmt -w <file>' on the above files and commit the changes."; \
 		exit 1; \
+	else \
+		echo "All files are properly formatted."; \
+		rm -f $(FORMAT_LOG); \
 	fi
-	@echo "All files are properly formatted."
-	@touch $@
-
-# Convenience phony wrappers. `fmt-check` intentionally bypasses the stamp
-# file so it is callable without knowing the build-directory layout, and
-# always re-runs (unlike the incremental $(FORMAT_CHECK) target above).
-.PHONY: fmt-check fmt
-fmt-check: $(FORMAT_CHECK)
-
-fmt:
-	@echo "Formatting Go sources with gofmt..."
-	@$(GOROOT)/bin/gofmt -w $(GO_FILES)
-	@echo "Done."
+	touch $@
 
 install:
 	$(INSTALL) -D $(BUILD_DIR)/telemetry $(DESTDIR)/usr/sbin/telemetry

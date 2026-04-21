@@ -53,43 +53,30 @@ clean:
 		rm -f $$pkg/coverage.out $$pkg/coverage.html; \
 	done
 
-# Format check - ensure pure packages are properly formatted.
-# Scoped intentionally to pure packages only; the full-repo check lives in
-# the top-level Makefile.
+# Format check - ensure code is properly formatted
 .PHONY: fmt-check
 fmt-check:
-	@echo "Checking Go file formatting (pure packages)..."
-	@files=""; for pkg in $(PACKAGES); do \
-		files="$$files $$(find $$pkg -maxdepth 1 -type f -name '*.go')"; \
-	done; \
-	offending=$$($(GOROOT)/bin/gofmt -l $$files); \
-	if [ -n "$$offending" ]; then \
-		echo ""; \
-		echo "::error::gofmt found $$(echo "$$offending" | wc -l) unformatted Go file(s):"; \
-		echo "$$offending" | sed 's/^/  /'; \
-		echo ""; \
-		echo "----- gofmt diff (first 200 lines) -----"; \
-		$(GOROOT)/bin/gofmt -d $$offending | head -n 200; \
-		echo "----------------------------------------"; \
-		echo ""; \
-		echo "Fix with:"; \
-		echo "    make -f pure.mk fmt    # or: gofmt -w <file>"; \
-		echo "and commit the result."; \
-		exit 1; \
-	fi
-	@echo "All files are properly formatted."
-
-# Format pure-package code in place.
-.PHONY: fmt
-fmt:
-	@echo "Formatting Go sources in pure packages with gofmt..."
+	@echo "Checking Go code formatting for pure packages..."
 	@for pkg in $(PACKAGES); do \
-		files=$$(find $$pkg -maxdepth 1 -type f -name '*.go'); \
+		echo "Checking $$pkg..."; \
+		files=$$($(GOROOT)/bin/gofmt -l $$pkg/*.go 2>/dev/null || true); \
 		if [ -n "$$files" ]; then \
-			$(GOROOT)/bin/gofmt -w $$files; \
+			echo "The following files need formatting in $$pkg:"; \
+			echo "$$files"; \
+			echo "Please run 'make -f pure.mk fmt' or 'gofmt -w $$pkg/*.go'"; \
+			exit 1; \
 		fi; \
 	done
-	@echo "Done."
+	@echo "All files are properly formatted."
+
+# Format code
+.PHONY: fmt
+fmt:
+	@echo "Formatting Go code for pure packages..."
+	@for pkg in $(PACKAGES); do \
+		echo "Formatting $$pkg..."; \
+		$(GOROOT)/bin/gofmt -w $$pkg/*.go 2>/dev/null || true; \
+	done
 
 # Vet - static analysis
 .PHONY: vet
