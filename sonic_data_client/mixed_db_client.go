@@ -1626,6 +1626,53 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 	return values, nil
 }
 
+// validateTablePathsExist returns an error if any of the resolved table paths refers
+// to a Redis key or hash field that does not exist. Used by Get to enforce NOT_FOUND
+// per gNMI spec §3.3.4, matching DbClient.ensureKeysExistInRedis. Without this, Get
+// silently skips missing data and returns empty notifications.
+func (c *MixedDbClient) validateTablePathsExist(tblPaths []tablePath) error {
+	for _, tblPath := range tblPaths {
+		redisDb, ok := RedisDbMap[c.mapkey+":"+tblPath.dbName]
+		if !ok {
+			return fmt.Errorf("Redis Client not present for dbName %v mapkey %v", tblPath.dbName, c.mapkey)
+		}
+		// Table-only or wildcard queries: no specific entity to validate.
+		if tblPath.tableKey == "" && tblPath.field == "" {
+			continue
+		}
+		// Hash-only table (e.g. COUNTERS_QUEUE_NAME_MAP): the table itself is a hash
+		// and the "field" is a member of it. Accept either the plain field or the
+		// "<field>@" leaf-list form that tableData2TypedValue also probes.
+		if tblPath.tableKey == "" && tblPath.field != "" {
+			hexists, err := redisDb.HExists(context.Background(), tblPath.tableName, tblPath.field).Result()
+			if err != nil {
+				return fmt.Errorf("redis HExists op failed for %v field %v: %v", tblPath.tableName, tblPath.field, err)
+			}
+			if hexists {
+				continue
+			}
+			hexistsList, err := redisDb.HExists(context.Background(), tblPath.tableName, tblPath.field+"@").Result()
+			if err != nil {
+				return fmt.Errorf("redis HExists op failed for %v field %v@: %v", tblPath.tableName, tblPath.field, err)
+			}
+			if !hexistsList {
+				return fmt.Errorf("No valid entry found on %v with field %v", tblPath.tableName, tblPath.field)
+			}
+			continue
+		}
+		// Table-key-level query: validate the Redis key exists.
+		key := tblPath.tableName + tblPath.delimitor + tblPath.tableKey
+		n, err := redisDb.Exists(context.Background(), key).Result()
+		if err != nil {
+			return fmt.Errorf("redis Exists op failed for %v: %v", key, err)
+		}
+		if n != 1 {
+			return fmt.Errorf("No valid entry found on %v with key %v", tblPath.dbName, key)
+		}
+	}
+	return nil
+}
+
 func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	if c.target == "CONFIG_DB" {
 		ret, err := c.GetCheckPoint()
@@ -1641,6 +1688,9 @@ func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 		for _, gnmiPath := range c.paths {
 			tblPaths, err := c.getDbtablePath(gnmiPath, nil)
 			if err != nil {
+				return nil, err
+			}
+			if err := c.validateTablePathsExist(tblPaths); err != nil {
 				return nil, err
 			}
 			val, err, updateReceived := c.tableData2TypedValue(tblPaths, nil)
