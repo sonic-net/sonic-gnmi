@@ -41,7 +41,40 @@ resources:
     ref: refs/heads/$(BUILD_BRANCH)
 
 stages:
+- stage: StaticChecks
+  displayName: "Static Checks"
+  jobs:
+  - job: GoStaticChecks
+    displayName: "Go static checks"
+    timeoutInMinutes: 10
+
+    pool:
+      vmImage: ubuntu-22.04
+
+    variables:
+      GO_VERSION: '1.24.4'
+
+    steps:
+    - checkout: self
+      clean: true
+      displayName: 'Checkout code'
+
+    - script: |
+        set -euo pipefail
+        wget -q https://go.dev/dl/go$(GO_VERSION).linux-amd64.tar.gz
+        sudo tar -C /usr/local -xzf go$(GO_VERSION).linux-amd64.tar.gz
+        export PATH=$PATH:/usr/local/go/bin
+        go version
+      displayName: 'Install Go'
+
+    - bash: |
+        set -euo pipefail
+        export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH)/bin
+        make fmt-check
+      displayName: 'gofmt'
+
 - stage: Build
+  dependsOn: [StaticChecks]
   jobs:
   # Fast pure package testing - no SONiC dependencies needed
   - job: PureCIJob
@@ -69,13 +102,6 @@ stages:
         export PATH=$PATH:/usr/local/go/bin
         go version
       displayName: 'Install Go'
-
-    - bash: |
-        set -euo pipefail
-        export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH)/bin
-        cd sonic-gnmi
-        make fmt-check
-      displayName: 'Go format check (gofmt)'
 
     - bash: |
         set -euo pipefail
@@ -278,7 +304,7 @@ stages:
       artifact: coverage-integration
 
 - stage: BuildAmd64
-  dependsOn: []
+  dependsOn: [StaticChecks]
   jobs:
   - job: amd64
     displayName: "amd64 deb build"
@@ -298,7 +324,7 @@ stages:
         arch: amd64
 
 - stage: BuildArm64
-  dependsOn: []
+  dependsOn: [StaticChecks]
   jobs:
   - job: arm64
     displayName: "arm64 deb build"
