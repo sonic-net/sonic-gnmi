@@ -58,8 +58,10 @@ func InvalidateVersionFileStash() {
 }
 
 var (
-	clientTrie *Trie
-	statsR     statsRing
+	clientTrie    *Trie
+	statsR        statsRing
+	pollStatsDone = make(chan struct{})
+	pollStatsOnce sync.Once
 
 	versionFileStash sonicVersionYmlStash
 
@@ -343,8 +345,21 @@ func WriteStatsToBuffer(stat *linuxproc.Stat) {
 	statsR.mu.Unlock()
 }
 
+// StopPollStats stops the background PollStats goroutine. Safe to call multiple
+// times. Intended for use in test teardown (e.g. TestMain) to prevent the
+// goroutine from leaking across test cases and racing on os.File pointers.
+func StopPollStats() {
+	pollStatsOnce.Do(func() { close(pollStatsDone) })
+}
+
 func PollStats() {
 	for {
+		select {
+		case <-pollStatsDone:
+			return
+		default:
+		}
+
 		stat, err := linuxproc.ReadStat("/proc/stat")
 		if err != nil {
 			log.V(2).Infof("stat read fail")
@@ -352,9 +367,13 @@ func PollStats() {
 		}
 
 		WriteStatsToBuffer(stat)
-		time.Sleep(time.Millisecond * 100)
-	}
 
+		select {
+		case <-pollStatsDone:
+			return
+		case <-time.After(time.Millisecond * 100):
+		}
+	}
 }
 
 func init() {
