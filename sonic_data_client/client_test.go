@@ -1996,13 +1996,13 @@ func TestMixedDbClientGet(t *testing.T) {
 		}
 	})
 
-	t.Run("NoData_SkipsPath", func(t *testing.T) {
+	t.Run("NoData_ReturnsError", func(t *testing.T) {
 		values, err := c.Get(nil)
-		if err != nil {
-			t.Errorf("expected no error, got %v", err)
+		if err == nil {
+			t.Errorf("expected NOT_FOUND error for missing specific-key path, got nil")
 		}
 		if len(values) != 0 {
-			t.Errorf("expected empty values for missing data, got %d", len(values))
+			t.Errorf("expected no values for missing data, got %d", len(values))
 		}
 	})
 }
