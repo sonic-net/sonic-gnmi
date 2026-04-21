@@ -53,18 +53,16 @@ clean:
 		rm -f $$pkg/coverage.out $$pkg/coverage.html; \
 	done
 
-# Find all .go files excluding vendor, build, and generated/patched dirs.
-# Kept in sync with the definition in the top-level Makefile so that
-# `make fmt-check` and `make -f pure.mk fmt-check` check the exact same set of
-# files with the exact same command.
-GO_FILES := $(shell find . -type f -name '*.go' ! -path './vendor/*' ! -path './build/*' ! -path './patches/*' ! -path './proto/*' ! -path './swsscommon/*')
-
-# Format check - ensure code is properly formatted.
-# Mirrors the .formatcheck target in the top-level Makefile.
+# Format check - ensure pure packages are properly formatted.
+# Scoped intentionally to pure packages only; the full-repo check lives in
+# the top-level Makefile.
 .PHONY: fmt-check
 fmt-check:
-	@echo "Checking Go file formatting..."
-	@offending=$$($(GOROOT)/bin/gofmt -l $(GO_FILES)); \
+	@echo "Checking Go file formatting (pure packages)..."
+	@files=""; for pkg in $(PACKAGES); do \
+		files="$$files $$(find $$pkg -maxdepth 1 -type f -name '*.go')"; \
+	done; \
+	offending=$$($(GOROOT)/bin/gofmt -l $$files); \
 	if [ -n "$$offending" ]; then \
 		echo ""; \
 		echo "::error::gofmt found $$(echo "$$offending" | wc -l) unformatted Go file(s):"; \
@@ -75,17 +73,22 @@ fmt-check:
 		echo "----------------------------------------"; \
 		echo ""; \
 		echo "Fix with:"; \
-		echo "    make fmt    # or: gofmt -w <file>"; \
+		echo "    make -f pure.mk fmt    # or: gofmt -w <file>"; \
 		echo "and commit the result."; \
 		exit 1; \
 	fi
 	@echo "All files are properly formatted."
 
-# Format code in place.
+# Format pure-package code in place.
 .PHONY: fmt
 fmt:
-	@echo "Formatting Go sources with gofmt..."
-	@$(GOROOT)/bin/gofmt -w $(GO_FILES)
+	@echo "Formatting Go sources in pure packages with gofmt..."
+	@for pkg in $(PACKAGES); do \
+		files=$$(find $$pkg -maxdepth 1 -type f -name '*.go'); \
+		if [ -n "$$files" ]; then \
+			$(GOROOT)/bin/gofmt -w $$files; \
+		fi; \
+	done
 	@echo "Done."
 
 # Vet - static analysis

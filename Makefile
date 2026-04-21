@@ -443,11 +443,12 @@ $(FORMAT_CHECK): $(GO_FILES)
 # file so it is callable without knowing the build-directory layout, and
 # always re-runs (unlike the incremental $(FORMAT_CHECK) target above).
 .PHONY: fmt-check fmt
-fmt-check:
-	@$(MAKE) --no-print-directory -f pure.mk fmt-check
+fmt-check: $(FORMAT_CHECK)
 
 fmt:
-	@$(MAKE) --no-print-directory -f pure.mk fmt
+	@echo "Formatting Go sources with gofmt..."
+	@$(GOROOT)/bin/gofmt -w $(GO_FILES)
+	@echo "Done."
 
 install:
 	$(INSTALL) -D $(BUILD_DIR)/telemetry $(DESTDIR)/usr/sbin/telemetry
