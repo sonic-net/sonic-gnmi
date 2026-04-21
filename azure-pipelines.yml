@@ -25,8 +25,7 @@ variables:
       value: $(Build.SourceBranchName)
   - name: UNIT_TEST_FLAG
     value: 'ENABLE_TRANSLIB_WRITE=y'
-  - name: DIFF_COVER_WORKING_DIRECTORY
-    value: $(System.DefaultWorkingDirectory)/sonic-gnmi
+
 
 resources:
   repositories:
@@ -158,18 +157,13 @@ stages:
         testRunTitle: 'Memory Leak Tests'
 
   # Full integration testing with SONiC dependencies
-  - job: build
-    displayName: "build"
+  - job: IntegrationTest
+    displayName: "Integration Tests"
     timeoutInMinutes: 60
 
     pool:
       name: sonicso1ES-amd64
       vmImage: ubuntu-22.04
-
-    variables:
-      DIFF_COVER_CHECK_THRESHOLD: 80
-      DIFF_COVER_ENABLE: 'true'
-      DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)/sonic-gnmi
 
     container:
       image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:latest
@@ -250,6 +244,31 @@ stages:
       displayName: 'Publish integration coverage artifact'
       condition: always()
 
+  - job: build
+    displayName: "build"
+    dependsOn: [PureCIJob, IntegrationTest]
+    condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))
+    timeoutInMinutes: 10
+
+    pool:
+      vmImage: ubuntu-22.04
+
+    variables:
+      DIFF_COVER_ENABLE: 'true'
+      DIFF_COVER_CHECK_THRESHOLD: 80
+      DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)
+      DIFF_COVER_COVERAGE_FILES: '$(Pipeline.Workspace)/coverage-integration/coverage.xml $(Pipeline.Workspace)/coverage-pure/coverage-pure.xml'
+
+    steps:
+    - checkout: self
+      clean: true
+      fetchDepth: 0
+
+    - download: current
+      artifact: coverage-pure
+
+    - download: current
+      artifact: coverage-integration
 
 - stage: BuildAmd64
   dependsOn: []

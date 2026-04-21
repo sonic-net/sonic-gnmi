@@ -1644,11 +1644,19 @@ func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 				return nil, err
 			}
 			val, err, updateReceived := c.tableData2TypedValue(tblPaths, nil)
-			if !updateReceived {
-				continue // Skip paths with no data
-			}
 			if err != nil {
 				return nil, err
+			}
+			if !updateReceived {
+				// Specific paths (with a tableKey or field) that produce no data are
+				// NOT_FOUND per gNMI spec §3.3.4. Table-only queries legitimately
+				// return empty data, so skip them quietly.
+				for _, t := range tblPaths {
+					if t.tableKey != "" || t.field != "" {
+						return nil, fmt.Errorf("No valid entry found for path %v", gnmiPath)
+					}
+				}
+				continue
 			}
 			values = append(values, &spb.Value{
 				Prefix:    c.prefix,
