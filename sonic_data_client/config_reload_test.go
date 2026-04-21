@@ -67,6 +67,40 @@ func TestSetFullConfig(t *testing.T) {
 	}
 }
 
+func TestSetFullConfigDbusClientFail(t *testing.T) {
+	mock1 := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+		return nil, fmt.Errorf("failed to create dbus client")
+	})
+	defer mock1.Reset()
+
+	configReloadCalled := false
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&ssc.DbusClient{}), "ConfigReload", func(dbus *ssc.DbusClient, config string) error {
+		configReloadCalled = true
+		return nil
+	})
+	defer mock2.Reset()
+
+	mock3 := gomonkey.ApplyFunc(RunPyCode, func(text string) error {
+		return nil
+	})
+	defer mock3.Reset()
+
+	tmpDir := t.TempDir()
+	c := &MixedDbClient{workPath: tmpDir}
+	update := getFullConfigUpdateMessage(`{"DEVICE_METADATA": {}}`)
+
+	err := c.SetFullConfig(nil, nil, update)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !c.ConfigReloadRequested() {
+		t.Fatal("expected configReloadCallback to be registered after successful SetFullConfig")
+	}
+
+	c.MaybeRunCallback(true)
+	assert.False(t, configReloadCalled)
+}
+
 func TestSetFullConfigReloadFail(t *testing.T) {
 	mock := gomonkey.ApplyFunc(RunPyCode, func(text string) error {
 		return nil

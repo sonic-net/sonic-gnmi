@@ -5547,6 +5547,31 @@ print('%s')
 	s.Stop()
 }
 
+func TestGNMIPostResCallback(t *testing.T) {
+	sdcfg.Init()
+	s := createServer(t, 8080)
+	defer s.Stop()
+	callbackCount := 0
+	mock1 := gomonkey.ApplyFunc(common_utils.IsAutoRestartEnabled, func() bool { return true })
+	defer mock1.Reset()
+	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&sdc.MixedDbClient{}), "MaybeRunCallback", func(dc *sdc.MixedDbClient, restartEnabled bool) {
+		callbackCount++
+	})
+	defer mock2.Reset()
+	mock3 := gomonkey.ApplyFunc((*Server).dropSubscribeConns, func(s *Server, reason string) {})
+	defer mock3.Reset()
+	mock4 := gomonkey.ApplyMethod(reflect.TypeOf(&Server{}), "Stop", func(s *Server) {})
+	defer mock4.Reset()
+
+	dc := &sdc.MixedDbClient{}
+	s.PostResCallback(dc)
+	assert.True(t, callbackCount == 1)
+
+	mock1 = gomonkey.ApplyFunc(common_utils.IsAutoRestartEnabled, func() bool { return false })
+	s.PostResCallback(dc)
+	assert.True(t, callbackCount == 2)
+}
+
 func TestGNMINative(t *testing.T) {
 	mock1 := gomonkey.ApplyFunc(dbus.SystemBus, func() (conn *dbus.Conn, err error) {
 		return &dbus.Conn{}, nil
