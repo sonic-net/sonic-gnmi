@@ -74,6 +74,13 @@ stages:
         set -euo pipefail
         export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH)/bin
         cd sonic-gnmi
+        make fmt-check
+      displayName: 'Go format check (gofmt)'
+
+    - bash: |
+        set -euo pipefail
+        export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH)/bin
+        cd sonic-gnmi
         go mod tidy
         make -f pure.mk junit-xml
       displayName: 'Run Pure Package Tests'
@@ -141,9 +148,9 @@ stages:
 
     - bash: |
         set -euo pipefail
-        pushd sonic-gnmi
-        make all && $(UNIT_TEST_FLAG) make check_memleak_junit
-        popd
+        cd sonic-gnmi
+        make all
+        $(UNIT_TEST_FLAG) make check_memleak_junit
       displayName: 'Run Memory Leak Tests'
 
     - task: PublishTestResults@2
@@ -211,9 +218,9 @@ stages:
     # Run integration tests
     - bash: |
         set -euo pipefail
-        pushd sonic-gnmi
-        make all && $(UNIT_TEST_FLAG) make check_gotest_junit
-        popd
+        cd sonic-gnmi
+        make all
+        $(UNIT_TEST_FLAG) make check_gotest_junit
       displayName: "Run Integration Tests"
 
     - task: PublishTestResults@2
@@ -242,7 +249,7 @@ stages:
     - publish: $(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml
       artifact: coverage-integration
       displayName: 'Publish integration coverage artifact'
-      condition: always()
+      condition: succeeded()
 
   - job: build
     displayName: "build"

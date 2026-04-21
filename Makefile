@@ -419,18 +419,36 @@ clean:
 # File target that generates a diff file if formatting is incorrect
 $(FORMAT_CHECK): $(GO_FILES)
 	@echo "Checking Go file formatting..."
-	@echo $(GO_FILES)
-	mkdir -p $(@D)
+	@mkdir -p $(@D)
 	@$(GOROOT)/bin/gofmt -l $(GO_FILES) > $(FORMAT_LOG)
 	@if [ -s $(FORMAT_LOG) ]; then \
-		cat $(FORMAT_LOG); \
-		echo "Formatting issues found. Please run 'gofmt -w <file>' on the above files and commit the changes."; \
+		echo ""; \
+		echo "::error::gofmt found $$(wc -l < $(FORMAT_LOG)) unformatted Go file(s):"; \
+		sed 's/^/  /' $(FORMAT_LOG); \
+		echo ""; \
+		echo "----- gofmt diff (first 200 lines) -----"; \
+		$(GOROOT)/bin/gofmt -d $$(cat $(FORMAT_LOG)) | head -n 200; \
+		echo "----------------------------------------"; \
+		echo ""; \
+		echo "Fix with:"; \
+		echo "    make fmt    # or: gofmt -w <file>"; \
+		echo "and commit the result."; \
 		exit 1; \
 	else \
 		echo "All files are properly formatted."; \
 		rm -f $(FORMAT_LOG); \
 	fi
-	touch $@
+	@touch $@
+
+# Convenience phony wrappers so CI / developers can invoke fmt-check without
+# depending on the stamp-file path layout.
+.PHONY: fmt-check fmt
+fmt-check: $(FORMAT_CHECK)
+
+fmt:
+	@echo "Formatting Go sources with gofmt..."
+	@$(GOROOT)/bin/gofmt -w $(GO_FILES)
+	@echo "Done."
 
 install:
 	$(INSTALL) -D $(BUILD_DIR)/telemetry $(DESTDIR)/usr/sbin/telemetry
