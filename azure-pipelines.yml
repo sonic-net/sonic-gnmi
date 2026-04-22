@@ -186,6 +186,15 @@ stages:
         arch: amd64
         installTestDeps: true
 
+    # Build sonic-mgmt-common (generates Go code that sonic-gnmi imports via
+    # $(MGMT_COMMON_DIR)/build/yang). Required by `make all` in sonic-gnmi.
+    - script: |
+        set -ex
+        pushd sonic-mgmt-common
+        NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
+        popd
+      displayName: "Build sonic-mgmt-common"
+
     # Memory leak tests with JUnit XML generation
 
     - bash: |
