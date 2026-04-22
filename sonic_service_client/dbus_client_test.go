@@ -1,6 +1,7 @@
 package host_service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/agiledragon/gomonkey/v2"
@@ -11,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewDbusClient(t *testing.T) {
@@ -1655,4 +1657,134 @@ func TestHealthzAck_InvalidReturnType(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "Invalid result type")
 	assert.Equal(t, "", result)
+}
+
+func TestCredentialzDbusMethods(t *testing.T) {
+	client := &DbusClient{
+		busNamePrefix: "org.SONiC.HostService.",
+		busPathPrefix: "/org/SONiC/HostService/",
+		intNamePrefix: "org.SONiC.HostService.",
+	}
+	// Save the original implementation to restore it later
+	originalDbusApi := dbusApiCaller
+	defer func() { dbusApiCaller = originalDbusApi }()
+
+	t.Run("ConsoleSet", func(t *testing.T) {
+		expectedCmd := "test-password-json"
+		// Overwrite the caller variable with a mock
+		dbusApiCaller = func(bus, path, intf string, timeout int, args ...interface{}) (interface{}, error) {
+			assert.Equal(t, "org.SONiC.HostService.gnsi_console", bus)
+			assert.Equal(t, "org.SONiC.HostService.gnsi_console.set", intf)
+			assert.Equal(t, expectedCmd, args[0])
+			return nil, nil
+		}
+
+		err := client.ConsoleSet(expectedCmd)
+		assert.NoError(t, err)
+	})
+
+	t.Run("SSHMgmtSet", func(t *testing.T) {
+		expectedCmd := "test-ssh-key-json"
+		dbusApiCaller = func(bus, path, intf string, timeout int, args ...interface{}) (interface{}, error) {
+			assert.Equal(t, "org.SONiC.HostService.ssh_mgmt", bus)
+			assert.Equal(t, "org.SONiC.HostService.ssh_mgmt.set", intf)
+			assert.Equal(t, expectedCmd, args[0])
+			return nil, nil
+		}
+
+		err := client.SSHMgmtSet(expectedCmd)
+		assert.NoError(t, err)
+	})
+
+	t.Run("SSHCheckpoint", func(t *testing.T) {
+		dbusApiCaller = func(bus, path, intf string, timeout int, args ...interface{}) (interface{}, error) {
+			assert.Equal(t, "org.SONiC.HostService.ssh_mgmt.create_checkpoint", intf)
+			assert.Equal(t, "", args[0])
+			return nil, nil
+		}
+
+		err := client.SSHCheckpoint(CredzCPCreate)
+		assert.NoError(t, err)
+	})
+
+	t.Run("GLOMEConfigSetWithContext", func(t *testing.T) {
+		expectedCmd := "glome-json"
+		// Create a context with a 5-second deadline to test timeout calculation
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		dbusApiCaller = func(bus, path, intf string, timeout int, args ...interface{}) (interface{}, error) {
+			assert.Equal(t, "org.SONiC.HostService.glome.push_config", intf)
+			assert.Equal(t, expectedCmd, args[0])
+			// Timeout should be roughly 5 (based on ctx)
+			assert.True(t, timeout <= 5)
+			return nil, nil
+		}
+
+		err := client.GLOMEConfigSet(ctx, expectedCmd)
+		assert.NoError(t, err)
+	})
+
+	t.Run("GLOMERestoreCheckpoint", func(t *testing.T) {
+		dbusApiCaller = func(bus, path, intf string, timeout int, args ...interface{}) (interface{}, error) {
+
+			assert.Equal(t, "org.SONiC.HostService.glome.restore_checkpoint", intf)
+			// Restore checkpoint for GLOME often has a high default timeout (300s)
+			assert.Equal(t, 300, timeout)
+			return nil, nil
+		}
+		err := client.GLOMERestoreCheckpoint(context.Background())
+		assert.NoError(t, err)
+	})
+}
+
+func TestConsoleCheckpoint(t *testing.T) {
+	client := &DbusClient{
+		busNamePrefix: "org.SONiC.HostService.",
+		busPathPrefix: "/org/SONiC/HostService/",
+		intNamePrefix: "org.SONiC.HostService.",
+	}
+	originalDbusApi := dbusApiCaller
+	defer func() { dbusApiCaller = originalDbusApi }()
+
+	tests := []struct {
+		name     string
+		action   CredzCheckpointAction
+		wantIntf string
+	}{
+		{
+			name:     "Console Create Checkpoint",
+			action:   CredzCPCreate,
+			wantIntf: "org.SONiC.HostService.gnsi_console.create_checkpoint",
+		},
+		{
+			name:     "Console Delete Checkpoint",
+			action:   CredzCPDelete,
+			wantIntf: "org.SONiC.HostService.gnsi_console.delete_checkpoint",
+		},
+		{
+			name:     "Console Restore Checkpoint",
+			action:   CredzCPRestore,
+			wantIntf: "org.SONiC.HostService.gnsi_console.restore_checkpoint",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dbusApiCaller = func(bus, path, intf string, timeout int, args ...interface{}) (interface{}, error) {
+				assert.Equal(t, "org.SONiC.HostService.gnsi_console", bus)
+				assert.Equal(t, "/org/SONiC/HostService/gnsi_console", path)
+				assert.Equal(t, tt.wantIntf, intf)
+				assert.Equal(t, 10, timeout)
+
+				// Verify ConsoleCheckpoint passes an empty string as the payload
+				assert.Len(t, args, 1)
+				assert.Equal(t, "", args[0])
+
+				return nil, nil
+			}
+
+			err := client.ConsoleCheckpoint(tt.action)
+			assert.NoError(t, err)
+		})
+	}
 }
