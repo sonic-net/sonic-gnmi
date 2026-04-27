@@ -5,6 +5,7 @@ import (
 	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -43,6 +44,9 @@ type Client struct {
 	fatal    bool
 	logLevel int
 }
+
+// key used to forcefully shutdown all active gNMI Subscribes
+const ConfigReloadRequested string = "full config reload requested"
 
 // Syslog level for error
 const logLevelError int = 3
@@ -252,6 +256,9 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 	go c.recv(stream)
 	err = c.send(stream, dc)
 	c.Close()
+	if err != nil && err.Error() == ConfigReloadRequested {
+		return grpc.Errorf(codes.Unavailable, "%s", err)
+	}
 	// Wait until all child go routines exited
 	c.w.Wait()
 	return grpc.Errorf(codes.InvalidArgument, "%s", err)
@@ -279,6 +286,27 @@ func (c *Client) Close() {
 	if c.once != nil {
 		close(c.once)
 	}
+}
+
+// Abort() enqueues a Fatal message to the subscribed client's queue
+// (if not already disposed). This will cause c.send() to exit out
+// and proceed with client connection teardown.
+//
+// If calling to abort subscribe RPCs in preparation for a config reload,
+// pass in `ConfigReloadRequested` as the argument.
+func (c *Client) Abort(reason string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.q == nil || c.q.Disposed() {
+		return
+	}
+
+	c.q.Put(sdc.Value{
+		Value: &spb.Value{
+			Fatal: reason,
+		},
+	})
 }
 
 func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
