@@ -62,6 +62,16 @@ var defaultForwardableMethods = []ForwardableMethod{
 		Description: "Install package on DPU",
 		Mode:        ForwardToDPU,
 	},
+	{
+		FullMethod:  "/gnoi.os.OS/Verify",
+		Description: "Verify current OS version on DPU",
+		Mode:        ForwardToDPU,
+	},
+	{
+		FullMethod:  "/gnoi.os.OS/Activate",
+		Description: "Activate OS version on DPU",
+		Mode:        ForwardToDPU,
+	},
 	// gRPC reflection methods needed for grpcurl to work with DPU headers
 	{
 		FullMethod:  "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
