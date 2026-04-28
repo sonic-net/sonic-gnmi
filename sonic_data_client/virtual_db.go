@@ -1019,7 +1019,11 @@ func v2rPortPhyAttrStats(paths []string) ([]tablePath, error) {
 	defer clearMappingsMu.RUnlock()
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // All Ethernet ports
+		keyPrefix := strings.TrimSuffix(paths[KeyIdx], "*")
 		for port, oid := range countersPortNameMap {
+			if !strings.HasPrefix(port, keyPrefix) {
+				continue
+			}
 			namespace, ok := port2namespaceMap[port]
 			if !ok {
 				return nil, fmt.Errorf("%v does not have namespace associated", port)
@@ -1067,7 +1071,11 @@ func v2rPortPhyAttrFieldStats(paths []string) ([]tablePath, error) {
 	defer clearMappingsMu.RUnlock()
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") {
+		keyPrefix := strings.TrimSuffix(paths[KeyIdx], "*")
 		for port, oid := range countersPortNameMap {
+			if !strings.HasPrefix(port, keyPrefix) {
+				continue
+			}
 			namespace, ok := port2namespaceMap[port]
 			if !ok {
 				return nil, fmt.Errorf("%v does not have namespace associated", port)
