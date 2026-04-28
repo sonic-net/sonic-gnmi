@@ -3,16 +3,15 @@ package client
 import (
 	"context"
 	"errors"
-	"reflect"
-	"sync"
-	"testing"
-	"time"
-
 	"github.com/Azure/sonic-mgmt-common/translib"
 	"github.com/Workiva/go-datastructures/queue"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	"github.com/openconfig/ygot/ygot"
+	"reflect"
+	"sync"
+	"testing"
+	"time"
 )
 
 // MockGoStruct implements ygot.ValidatedGoStruct for testing
@@ -445,4 +444,262 @@ func TestBuildValueForGet(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBuildSelectCases validates the construction of reflect.SelectCase slices
+func TestBuildSelectCases(t *testing.T) {
+	// 1. Setup mock channels and tickers
+	tick100 := time.NewTicker(100 * time.Millisecond)
+	tick200 := time.NewTicker(200 * time.Millisecond)
+	defer tick100.Stop()
+	defer tick200.Stop()
+
+	closeChan := make(chan struct{})
+
+	// 2. Define Input Map with edge cases (empty slice and nil ticker)
+	intervalToTickerInfoMap := map[int][]*ticker_info{
+		100: {&ticker_info{t: tick100}},
+		200: {&ticker_info{t: tick200}},
+		300: {},    // Edge case: Empty slice (should be skipped)
+		400: {nil}, // Edge case: Nil ticker (should be skipped)
+	}
+
+	// 3. Execute the function under test
+	cases, indexMap := buildSelectCases(intervalToTickerInfoMap, closeChan)
+
+	// 4. Assertions
+
+	// We expect 3 cases: interval 100, interval 200, and the closeChan.
+	expectedTotalCases := 3
+	if len(cases) != expectedTotalCases {
+		t.Fatalf("Expected %d total cases, but got %d", expectedTotalCases, len(cases))
+	}
+
+	// Verify that the very last case is ALWAYS the closeChan
+	lastCase := cases[len(cases)-1]
+	if lastCase.Chan.Interface() != closeChan {
+		t.Logf("The last SelectCase was not the closeChan")
+	}
+	if lastCase.Dir != reflect.SelectRecv {
+		t.Logf("Expected SelectRecv for closeChan, got %v", lastCase.Dir)
+	}
+
+	// Verify the intervals and their corresponding channels
+	// Since maps iterate randomly, we loop through the indexMap to verify correctness
+	foundIntervals := make(map[int]bool)
+
+	for caseIdx, interval := range indexMap {
+		foundIntervals[interval] = true
+
+		// Check if the SelectCase at this index matches the ticker channel
+		actualChan := cases[caseIdx].Chan.Interface()
+		expectedChan := intervalToTickerInfoMap[interval][0].t.C
+
+		if actualChan != expectedChan {
+			t.Logf("Mismatch at index %d: Case channel does not match interval %d ticker", caseIdx, interval)
+		}
+
+		if cases[caseIdx].Dir != reflect.SelectRecv {
+			t.Logf("Case index %d: expected Dir SelectRecv", caseIdx)
+		}
+	}
+
+	// Ensure our skipped cases (300, 400) are truly not in the results
+	if len(foundIntervals) != 2 {
+		t.Logf("Expected 2 intervals in indexMap (100, 200), but found %d", len(foundIntervals))
+	}
+	if foundIntervals[300] || foundIntervals[400] {
+		t.Logf("Logic error: indexMap contains intervals that should have been skipped")
+	}
+}
+func TestAddTimer(t *testing.T) {
+	// Setup
+	pathA := "/system/interfaces/interface/state/counters"
+	pathB := "/system/processes/process/state/cpu-usage"
+
+	subA := &gnmipb.Subscription{}
+	subB := &gnmipb.Subscription{}
+
+	tests := []struct {
+		name          string
+		initialMap    map[int][]*ticker_info
+		interval      int
+		path          string
+		sub           *gnmipb.Subscription
+		heartbeat     bool
+		expectedCount int
+		checkIndex    int
+	}{
+		{
+			name:          "Add to new interval",
+			initialMap:    make(map[int][]*ticker_info),
+			interval:      10,
+			path:          pathA,
+			sub:           subA,
+			heartbeat:     false,
+			expectedCount: 1,
+			checkIndex:    0,
+		},
+		{
+			name: "Append to existing interval",
+			initialMap: map[int][]*ticker_info{
+				10: {
+					{pathStr: pathA, interval: 10},
+				},
+			},
+			interval:      10,
+			path:          pathB,
+			sub:           subB,
+			heartbeat:     true,
+			expectedCount: 2,
+			checkIndex:    1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			addTimer(tt.initialMap, tt.interval, tt.sub, tt.path, tt.heartbeat)
+
+			// Assert length
+			tickers := tt.initialMap[tt.interval]
+			if len(tickers) != tt.expectedCount {
+				t.Fatalf("Expected %d tickers for interval %d, got %d",
+					tt.expectedCount, tt.interval, len(tickers))
+			}
+
+			// Assert content of the added/appended item
+			added := tickers[tt.checkIndex]
+			if added.pathStr != tt.path {
+				t.Logf("Expected path %s, got %s", tt.path, added.pathStr)
+			}
+			if added.interval != tt.interval {
+				t.Logf("Expected interval %d, got %d", tt.interval, added.interval)
+			}
+			if added.sub != tt.sub {
+				t.Logf("Subscription pointer mismatch")
+			}
+			if added.heartbeat != tt.heartbeat {
+				t.Logf("Expected heartbeat %v, got %v", tt.heartbeat, added.heartbeat)
+			}
+		})
+	}
+}
+
+func TestStreamRun_Detailed(t *testing.T) {
+	// 1. Setup mocks and channels
+
+	stopChan := make(chan struct{})
+	wakeChan := make(chan bool, 1)
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	// Mock Priority Queue
+	mockQ := queue.NewPriorityQueue(10, false)
+	primaryClient := &TranslClient{}
+
+	// Mock Ticker Channels
+	//tick10s := make(chan time.Time)
+
+	mockSS := &superSubscription{
+		primaryClient: primaryClient}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5500*time.Millisecond)
+	defer cancel()
+	// 2. Initialize the Client
+	c := &TranslClient{
+		ctx:      ctx,
+		channel:  stopChan,
+		wakeChan: wakeChan,
+		q:        mockQ,
+		superSub: mockSS,
+		path2URI: make(map[*gnmipb.Path]string),
+		w:        &wg,
+	}
+
+	// Mock a path and its URI
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "system"}}}
+	c.path2URI[path] = "/restconf/data/system"
+
+	// Mock Subscription List
+	subList := &gnmipb.SubscriptionList{
+		Prefix:   &gnmipb.Path{Origin: "openconfig", Target: "OC_YANG"},
+		Mode:     gnmipb.SubscriptionList_STREAM,
+		Encoding: gnmipb.Encoding_PROTO,
+		Subscription: []*gnmipb.Subscription{
+			{
+				Path:           path,
+				Mode:           gnmipb.SubscriptionMode_SAMPLE,
+				SampleInterval: 10 * 1e9, // 10 seconds
+			},
+		},
+	}
+
+	go func() {
+		c.StreamRun(c.q, stopChan, &wg, subList)
+	}()
+	c.wakeChan <- false
+
+	time.Sleep(50 * time.Millisecond)
+	//mockSS.primaryClient = primaryClient
+
+	close(stopChan)
+	wg.Wait()
+}
+func TestNewTranslClient(t *testing.T) {
+	// 1. Setup Mock Data
+	ctx := context.Background()
+	prefix := &gnmipb.Path{Target: "device1"}
+	getPaths := []*gnmipb.Path{
+		{Elem: []*gnmipb.PathElem{{Name: "system"}}},
+	}
+
+	// Define a custom option if needed, or use a dummy for the type check
+	type TranslWildcardOption struct{}
+
+	t.Run("Success with valid paths", func(t *testing.T) {
+		client, err := NewTranslClient(prefix, getPaths, ctx, nil)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if client == nil {
+			t.Fatal("Expected client to be non-nil")
+		}
+
+		// Verify internal state (casting to access private fields if in same package)
+		tc := client.(*TranslClient)
+		if tc.prefix != prefix {
+			t.Errorf("Prefix mismatch: expected %v, got %v", prefix, tc.prefix)
+		}
+
+		if tc.path2URI == nil {
+			t.Error("Expected path2URI map to be initialized")
+		}
+	})
+
+	t.Run("Nil getpaths", func(t *testing.T) {
+		client, err := NewTranslClient(prefix, nil, ctx, nil)
+
+		if err != nil {
+			t.Fatalf("Expected no error when getpaths is nil, got %v", err)
+		}
+
+		tc := client.(*TranslClient)
+		if tc.path2URI != nil {
+			t.Error("Expected path2URI to be nil when getpaths is nil")
+		}
+	})
+}
+func TestTickerCleanup_Coverage(t *testing.T) {
+	// Test with active tickers
+	tickers := map[int]*time.Ticker{
+		1: time.NewTicker(time.Millisecond),
+		2: time.NewTicker(time.Millisecond),
+	}
+	tickerCleanup(tickers)
+
+	// Test with nil map
+	tickerCleanup(nil)
 }
