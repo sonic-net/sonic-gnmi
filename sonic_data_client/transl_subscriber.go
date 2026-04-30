@@ -191,7 +191,15 @@ func (ts *translSubscriber) notify(v *translib.SubscribeResponse) error {
 	}
 
 	spbv := &spb.Value{Notification: msg}
-	ts.client.q.Put(Value{spbv})
+	if ts.client.superSub != nil && v == nil {
+		ts.client.superSub.sendNotifications(spbv)
+		ts.client.superSub.sharedUpdates.Add(1)
+	} else {
+		ts.client.q.Put(Value{spbv})
+		if ts.client.superSub != nil {
+			ts.client.superSub.exclusiveUpdates.Add(1)
+		}
+	}
 	log.V(6).Infof("Added spbv %#v", spbv)
 	return nil
 }
