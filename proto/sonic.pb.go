@@ -26,6 +26,7 @@ const (
 	Target_FLEX_COUNTER_DB Target = 5
 	Target_STATE_DB        Target = 6
 	Target_CHASSIS_STATE_DB Target = 13
+	Target_DPU_COUNTERS_DB  Target = 18
 	// For none-DB data
 	Target_OTHERS Target = 100
 )
@@ -39,6 +40,7 @@ var Target_name = map[int32]string{
 	// Duplicate value: 5: "FLEX_COUNTER_DB",
 	6:   "STATE_DB",
 	13:  "CHASSIS_STATE_DB",
+	18:  "DPU_COUNTERS_DB",
 	100: "OTHERS",
 }
 var Target_value = map[string]int32{
@@ -50,6 +52,7 @@ var Target_value = map[string]int32{
 	"FLEX_COUNTER_DB":  5,
 	"STATE_DB":         6,
 	"CHASSIS_STATE_DB": 13,
+	"DPU_COUNTERS_DB": 18,
 	"OTHERS":          100,
 }
 
