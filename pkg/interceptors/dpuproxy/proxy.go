@@ -62,6 +62,11 @@ var defaultForwardableMethods = []ForwardableMethod{
 		Description: "Install package on DPU",
 		Mode:        ForwardToDPU,
 	},
+	{
+		FullMethod:  "/gnoi.system.System/RebootStatus",
+		Description: "Check reboot status on DPU",
+		Mode:        ForwardToDPU,
+	},
 	// gRPC reflection methods needed for grpcurl to work with DPU headers
 	{
 		FullMethod:  "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
@@ -248,6 +253,27 @@ func (p *DPUProxy) forwardTimeRequest(ctx context.Context, conn *grpc.ClientConn
 	}
 
 	glog.Infof("[DPUProxy] Successfully forwarded Time request to DPU, response: %v", resp)
+	return resp, nil
+}
+
+// forwardRebootStatusRequest forwards a gNOI System.RebootStatus request to the DPU.
+func (p *DPUProxy) forwardRebootStatusRequest(ctx context.Context, conn *grpc.ClientConn, req interface{}) (interface{}, error) {
+	rebootStatusReq, ok := req.(*system.RebootStatusRequest)
+	if !ok {
+		glog.Errorf("[DPUProxy] Invalid request type for System.RebootStatus method: %T", req)
+		return nil, status.Errorf(codes.Internal,
+			"invalid request type for System.RebootStatus: expected *system.RebootStatusRequest, got %T", req)
+	}
+
+	client := system.NewSystemClient(conn)
+	resp, err := client.RebootStatus(ctx, rebootStatusReq)
+	if err != nil {
+		glog.Errorf("[DPUProxy] Error forwarding System.RebootStatus request to DPU: %v", err)
+		return nil, err
+	}
+
+	glog.Infof("[DPUProxy] Successfully forwarded System.RebootStatus to DPU, active=%v, wait=%v",
+		resp.GetActive(), resp.GetWait())
 	return resp, nil
 }
 
@@ -477,6 +503,8 @@ func (p *DPUProxy) UnaryInterceptor() grpc.UnaryServerInterceptor {
 					switch info.FullMethod {
 					case "/gnoi.system.System/Time":
 						return p.forwardTimeRequest(ctx, conn, req)
+					case "/gnoi.system.System/RebootStatus":
+						return p.forwardRebootStatusRequest(ctx, conn, req)
 					default:
 						// This shouldn't happen due to getForwardingMode check, but handle gracefully
 						glog.Errorf("[DPUProxy] Unknown forwardable method: %s", info.FullMethod)
