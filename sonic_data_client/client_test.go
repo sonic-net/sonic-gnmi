@@ -2558,6 +2558,14 @@ func TestParsePathDpuCountersDb(t *testing.T) {
 }
 
 func TestClearMappingsIncludesEniMaps(t *testing.T) {
+	// Ensure maps are initialized (may be nil if a prior test's init failed)
+	if countersEniNameMap == nil {
+		countersEniNameMap = make(map[string]string)
+	}
+	if countersEniOidNameMap == nil {
+		countersEniOidNameMap = make(map[string]string)
+	}
+
 	// Populate ENI maps
 	countersEniNameMap["test_eni"] = "oid:0xTEST"
 	countersEniOidNameMap["oid:0xTEST"] = "test_eni"
