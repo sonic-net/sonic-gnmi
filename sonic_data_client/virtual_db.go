@@ -131,7 +131,7 @@ var (
 			path:      []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*", "*"},
 			transFunc: v2rTranslate(v2rPortPhyAttrFieldStats),
 		}, { // ENI counters stats for one or all ENIs in DPU_COUNTERS_DB
-			path:      []string{"DPU_COUNTERS_DB", "COUNTERS", "ENI*"},
+			path:      []string{"DPU_COUNTERS_DB", "COUNTERS", "ENI", "*"},
 			transFunc: v2rTranslate(v2rEniStats),
 		}, { // DASH_METER stats for specific ENI and metering class
 			path:      []string{"DPU_COUNTERS_DB", "DASH_METER", "*", "*"},
@@ -1306,7 +1306,7 @@ func getDashMeterKeys(redisDb *redis.Client, separator string, eniOid string, me
 }
 
 // v2rEniStats translates virtual ENI counter paths to real Redis paths.
-// Handles: [DPU_COUNTERS_DB COUNTERS ENI*] and [DPU_COUNTERS_DB COUNTERS <eni_name>]
+// Handles: [DPU_COUNTERS_DB COUNTERS ENI *] and [DPU_COUNTERS_DB COUNTERS ENI <eni_name>]
 func v2rEniStats(paths []string) ([]tablePath, error) {
 	clearMappingsMu.RLock()
 	defer clearMappingsMu.RUnlock()
@@ -1314,7 +1314,7 @@ func v2rEniStats(paths []string) ([]tablePath, error) {
 	namespace, _ := sdcfg.GetDbDefaultNamespace()
 	separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
 
-	if strings.HasSuffix(paths[KeyIdx], "*") { // All ENIs
+	if strings.HasSuffix(paths[FieldIdx], "*") { // All ENIs
 		for eniName, oid := range countersEniNameMap {
 			tblPath := tablePath{
 				dbNamespace:  namespace,
@@ -1327,7 +1327,7 @@ func v2rEniStats(paths []string) ([]tablePath, error) {
 			tblPaths = append(tblPaths, tblPath)
 		}
 	} else { // specific ENI
-		eniName := paths[KeyIdx]
+		eniName := paths[FieldIdx]
 		oid, ok := countersEniNameMap[eniName]
 		if !ok {
 			return nil, fmt.Errorf("%v not a valid ENI name", eniName)

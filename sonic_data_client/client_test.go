@@ -2129,7 +2129,7 @@ func TestV2rEniStats(t *testing.T) {
 	}
 
 	t.Run("Wildcard_AllENIs", func(t *testing.T) {
-		paths := []string{"DPU_COUNTERS_DB", "COUNTERS", "ENI*"}
+		paths := []string{"DPU_COUNTERS_DB", "COUNTERS", "ENI", "*"}
 		tblPaths, err := v2rEniStats(paths)
 		if err != nil {
 			t.Fatalf("v2rEniStats failed: %v", err)
@@ -2153,7 +2153,7 @@ func TestV2rEniStats(t *testing.T) {
 	})
 
 	t.Run("Specific_ENI", func(t *testing.T) {
-		paths := []string{"DPU_COUNTERS_DB", "COUNTERS", "eni1"}
+		paths := []string{"DPU_COUNTERS_DB", "COUNTERS", "ENI", "eni1"}
 		tblPaths, err := v2rEniStats(paths)
 		if err != nil {
 			t.Fatalf("v2rEniStats failed: %v", err)
@@ -2167,7 +2167,7 @@ func TestV2rEniStats(t *testing.T) {
 	})
 
 	t.Run("Invalid_ENI", func(t *testing.T) {
-		paths := []string{"DPU_COUNTERS_DB", "COUNTERS", "nonexistent"}
+		paths := []string{"DPU_COUNTERS_DB", "COUNTERS", "ENI", "nonexistent"}
 		_, err := v2rEniStats(paths)
 		if err == nil {
 			t.Errorf("expected error for invalid ENI name")
@@ -2538,14 +2538,14 @@ func TestParsePathDpuCountersDb(t *testing.T) {
 	t.Run("DPU_COUNTERS_DB_ENI_VirtualPath", func(t *testing.T) {
 		pathG2S := make(map[*gnmipb.Path][]tablePath)
 		prefix := &gnmipb.Path{Target: "DPU_COUNTERS_DB"}
-		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}, {Name: "eni1"}}}
+		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}, {Name: "ENI"}, {Name: "eni1"}}}
 		err := parsePath(prefix, path, &pathG2S)
 		if err != nil {
 			t.Fatalf("parsePath failed: %v", err)
 		}
 		for _, tblPaths := range pathG2S {
 			if !tblPaths[0].isVirtualPath {
-				t.Errorf("expected isVirtualPath=true for COUNTERS/eni1")
+				t.Errorf("expected isVirtualPath=true for COUNTERS/ENI/eni1")
 			}
 			if tblPaths[0].tableKey != "oid:0xENI1" {
 				t.Errorf("expected tableKey oid:0xENI1, got %v", tblPaths[0].tableKey)
