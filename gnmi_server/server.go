@@ -844,6 +844,14 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	return ctx, nil
 }
 
+func (s *Server) dropSubscribeConns(msg string) {
+	s.cMu.Lock()
+	defer s.cMu.Unlock()
+	for _, c := range s.clients {
+		c.Abort(msg)
+	}
+}
+
 // Subscribe implements the gNMI Subscribe RPC.
 func (s *Server) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	ctx := stream.Context()
@@ -1071,6 +1079,18 @@ func SaveOnSetEnabled() error {
 // SaveOnSetDisabeld does nothing.
 func saveOnSetDisabled() error { return nil }
 
+func (s *Server) PostResCallback(dc *sdc.MixedDbClient) {
+	autoRestartEnabled := common_utils.IsAutoRestartEnabled()
+	if autoRestartEnabled {
+		log.V(1).Info("server: waiting for in-flight RPCs to finish")
+		s.dropSubscribeConns(ConfigReloadRequested)
+		s.Stop() // blocking
+	} else {
+		log.Warning("gNMI auto-restart disabled, skipping RPC aborts.")
+	}
+	dc.MaybeRunCallback(autoRestartEnabled)
+}
+
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
 	e := s.ReqFromMaster(req, &s.masterEID)
 	if e != nil {
@@ -1211,6 +1231,10 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 	} else {
 		s.SaveStartupConfig()
+
+		if mdc, ok := dc.(*sdc.MixedDbClient); ok && mdc.ConfigReloadRequested() {
+			go s.PostResCallback(mdc)
+		}
 	}
 
 	return &gnmipb.SetResponse{
