@@ -9,6 +9,7 @@ import (
 
 	"github.com/golang/glog"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	system "github.com/openconfig/gnoi/system"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -261,6 +262,46 @@ func (p *DPUProxy) forwardTimeRequest(ctx context.Context, conn *grpc.ClientConn
 	return resp, nil
 }
 
+// forwardOSVerifyRequest forwards a gNOI OS.Verify request to the DPU.
+func (p *DPUProxy) forwardOSVerifyRequest(ctx context.Context, conn *grpc.ClientConn, req interface{}) (interface{}, error) {
+	verifyReq, ok := req.(*gnoi_os_pb.VerifyRequest)
+	if !ok {
+		glog.Errorf("[DPUProxy] Invalid request type for OS.Verify method: %T", req)
+		return nil, status.Errorf(codes.Internal,
+			"invalid request type for OS.Verify: expected *os.VerifyRequest, got %T", req)
+	}
+
+	client := gnoi_os_pb.NewOSClient(conn)
+	resp, err := client.Verify(ctx, verifyReq)
+	if err != nil {
+		glog.Errorf("[DPUProxy] Error forwarding OS.Verify request to DPU: %v", err)
+		return nil, err
+	}
+
+	glog.Infof("[DPUProxy] Successfully forwarded OS.Verify to DPU, version: %v", resp.GetVersion())
+	return resp, nil
+}
+
+// forwardOSActivateRequest forwards a gNOI OS.Activate request to the DPU.
+func (p *DPUProxy) forwardOSActivateRequest(ctx context.Context, conn *grpc.ClientConn, req interface{}) (interface{}, error) {
+	activateReq, ok := req.(*gnoi_os_pb.ActivateRequest)
+	if !ok {
+		glog.Errorf("[DPUProxy] Invalid request type for OS.Activate method: %T", req)
+		return nil, status.Errorf(codes.Internal,
+			"invalid request type for OS.Activate: expected *os.ActivateRequest, got %T", req)
+	}
+
+	client := gnoi_os_pb.NewOSClient(conn)
+	resp, err := client.Activate(ctx, activateReq)
+	if err != nil {
+		glog.Errorf("[DPUProxy] Error forwarding OS.Activate request to DPU: %v", err)
+		return nil, err
+	}
+
+	glog.Infof("[DPUProxy] Successfully forwarded OS.Activate to DPU")
+	return resp, nil
+}
+
 // forwardStream forwards a streaming RPC to the DPU.
 // This implements bidirectional streaming proxy between client and DPU.
 func (p *DPUProxy) forwardStream(ctx context.Context, conn *grpc.ClientConn, ss grpc.ServerStream, info *grpc.StreamServerInfo) error {
@@ -487,6 +528,10 @@ func (p *DPUProxy) UnaryInterceptor() grpc.UnaryServerInterceptor {
 					switch info.FullMethod {
 					case "/gnoi.system.System/Time":
 						return p.forwardTimeRequest(ctx, conn, req)
+					case "/gnoi.os.OS/Verify":
+						return p.forwardOSVerifyRequest(ctx, conn, req)
+					case "/gnoi.os.OS/Activate":
+						return p.forwardOSActivateRequest(ctx, conn, req)
 					default:
 						// This shouldn't happen due to getForwardingMode check, but handle gracefully
 						glog.Errorf("[DPUProxy] Unknown forwardable method: %s", info.FullMethod)
