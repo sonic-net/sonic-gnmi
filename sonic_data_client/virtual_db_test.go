@@ -108,6 +108,41 @@ func TestV2rPortPhyAttrStats_Wildcard(t *testing.T) {
 	}
 }
 
+func TestV2rPortPhyAttrStats_WildcardPrefixFilter(t *testing.T) {
+	sdcfg.Init()
+	restore := setupPortMaps(t)
+	defer restore()
+
+	countersPortNameMap = map[string]string{
+		"etp0": "oid:0x1000000000001",
+		"etp1": "oid:0x1000000000002",
+	}
+	port2namespaceMap = map[string]string{
+		"etp0": "",
+		"etp1": "",
+	}
+
+	// Query Ethernet* should not match etp* keys.
+	paths := []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*"}
+	tblPaths, err := v2rPortPhyAttrStats(paths)
+	if err != nil {
+		t.Fatalf("v2rPortPhyAttrStats returned error: %v", err)
+	}
+	if len(tblPaths) != 0 {
+		t.Fatalf("expected 0 table paths for Ethernet* against etp* map, got %d", len(tblPaths))
+	}
+
+	// Query etp* should match etp keys.
+	paths = []string{"COUNTERS_DB", "PORT_PHY_ATTR", "etp*"}
+	tblPaths, err = v2rPortPhyAttrStats(paths)
+	if err != nil {
+		t.Fatalf("v2rPortPhyAttrStats returned error: %v", err)
+	}
+	if len(tblPaths) != 2 {
+		t.Fatalf("expected 2 table paths for etp* wildcard, got %d", len(tblPaths))
+	}
+}
+
 func TestV2rPortPhyAttrStats_SinglePort(t *testing.T) {
 	sdcfg.Init()
 	restore := setupPortMaps(t)
@@ -253,6 +288,41 @@ func TestV2rPortPhyAttrFieldStats_Wildcard(t *testing.T) {
 	}
 	if tp.field != "phy_rx_signal_detect" {
 		t.Errorf("field = %q, want phy_rx_signal_detect", tp.field)
+	}
+}
+
+func TestV2rPortPhyAttrFieldStats_WildcardPrefixFilter(t *testing.T) {
+	sdcfg.Init()
+	restore := setupPortMaps(t)
+	defer restore()
+
+	countersPortNameMap = map[string]string{
+		"etp0": "oid:0x1000000000001",
+		"etp1": "oid:0x1000000000002",
+	}
+	port2namespaceMap = map[string]string{
+		"etp0": "",
+		"etp1": "",
+	}
+
+	// Query Ethernet* should not match etp* keys.
+	paths := []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*", "phy_rx_signal_detect"}
+	tblPaths, err := v2rPortPhyAttrFieldStats(paths)
+	if err != nil {
+		t.Fatalf("v2rPortPhyAttrFieldStats returned error: %v", err)
+	}
+	if len(tblPaths) != 0 {
+		t.Fatalf("expected 0 table paths for Ethernet* against etp* map, got %d", len(tblPaths))
+	}
+
+	// Query etp* should match etp keys.
+	paths = []string{"COUNTERS_DB", "PORT_PHY_ATTR", "etp*", "phy_rx_signal_detect"}
+	tblPaths, err = v2rPortPhyAttrFieldStats(paths)
+	if err != nil {
+		t.Fatalf("v2rPortPhyAttrFieldStats returned error: %v", err)
+	}
+	if len(tblPaths) != 2 {
+		t.Fatalf("expected 2 table paths for etp* wildcard, got %d", len(tblPaths))
 	}
 }
 
