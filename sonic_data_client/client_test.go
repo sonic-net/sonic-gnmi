@@ -1054,18 +1054,6 @@ func setupTestTarget2RedisDb(t *testing.T) func() {
 		t.Fatalf("useRedisTcpClient failed: %v", err)
 	}
 
-	// Remove clients whose Redis DB index exceeds the server's limit.
-	// This happens when a DB like DPU_COUNTERS_DB uses an ID (e.g. 18)
-	// above the default Redis "databases 16" setting.
-	for _, nsMap := range Target2RedisDb {
-		for dbName, rc := range nsMap {
-			if err := rc.Ping(context.Background()).Err(); err != nil {
-				rc.Close()
-				delete(nsMap, dbName)
-			}
-		}
-	}
-
 	return func() {
 		for _, nsMap := range Target2RedisDb {
 			for _, rc := range nsMap {
