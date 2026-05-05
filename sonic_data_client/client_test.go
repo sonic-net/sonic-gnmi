@@ -2197,7 +2197,7 @@ func TestV2rDashMeterByEniAndClass(t *testing.T) {
 	ns := ""
 	rclient := Target2RedisDb[ns]["DPU_COUNTERS_DB"]
 	if rclient == nil {
-		t.Skip("DPU_COUNTERS_DB Redis client not available")
+		t.Fatal("DPU_COUNTERS_DB Redis client not available — ensure Redis is configured with 'databases 20'")
 	}
 
 	// Insert a DASH_METER key
@@ -2266,7 +2266,7 @@ func TestV2rDashMeterByEni(t *testing.T) {
 	ns := ""
 	rclient := Target2RedisDb[ns]["DPU_COUNTERS_DB"]
 	if rclient == nil {
-		t.Skip("DPU_COUNTERS_DB Redis client not available")
+		t.Fatal("DPU_COUNTERS_DB Redis client not available — ensure Redis is configured with 'databases 20'")
 	}
 
 	// Insert multiple DASH_METER keys
@@ -2339,7 +2339,7 @@ func TestGetDpuCountersMap(t *testing.T) {
 	ns := ""
 	rclient := Target2RedisDb[ns]["DPU_COUNTERS_DB"]
 	if rclient == nil {
-		t.Skip("DPU_COUNTERS_DB Redis client not available")
+		t.Fatal("DPU_COUNTERS_DB Redis client not available — ensure Redis is configured with 'databases 20'")
 	}
 
 	rclient.HSet(context.Background(), "COUNTERS_ENI_NAME_MAP", "eni1", "oid:0xENI1")
@@ -2377,7 +2377,7 @@ func TestGetCountersMapForDb(t *testing.T) {
 	t.Run("DPU_COUNTERS_DB", func(t *testing.T) {
 		rclient := Target2RedisDb[ns]["DPU_COUNTERS_DB"]
 		if rclient == nil {
-			t.Skip("DPU_COUNTERS_DB Redis client not available")
+			t.Fatal("DPU_COUNTERS_DB Redis client not available — ensure Redis is configured with 'databases 20'")
 		}
 		rclient.HSet(context.Background(), "TEST_MAP", "key1", "val1")
 		defer rclient.Del(context.Background(), "TEST_MAP")
@@ -2447,7 +2447,7 @@ func TestGetDashMeterKeys(t *testing.T) {
 	ns := ""
 	rclient := Target2RedisDb[ns]["DPU_COUNTERS_DB"]
 	if rclient == nil {
-		t.Skip("DPU_COUNTERS_DB Redis client not available")
+		t.Fatal("DPU_COUNTERS_DB Redis client not available — ensure Redis is configured with 'databases 20'")
 	}
 
 	// Insert test keys
