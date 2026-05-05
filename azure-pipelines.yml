@@ -25,6 +25,8 @@ variables:
       value: $(Build.SourceBranchName)
   - name: UNIT_TEST_FLAG
     value: 'ENABLE_TRANSLIB_WRITE=y'
+  - name: DIFF_COVER_THRESHOLD
+    value: 80
 
 resources:
   repositories:
@@ -42,18 +44,73 @@ resources:
 stages:
 - stage: Build
   jobs:
-  - job:
-    displayName: "build"
-    timeoutInMinutes: 60
+  # Fast pure package testing - no SONiC dependencies needed
+  - job: PureCIJob
+    displayName: "Pure Package CI"
+    timeoutInMinutes: 15
+
+    pool:
+      vmImage: ubuntu-22.04
+
+    variables:
+      GO_VERSION: '1.19.8'
+
+    steps:
+    - checkout: self
+      clean: true
+      displayName: 'Checkout code'
+
+    - checkout: sonic-mgmt-common
+      clean: true
+      displayName: 'Checkout sonic-mgmt-common'
+
+    - script: |
+        wget https://go.dev/dl/go$(GO_VERSION).linux-amd64.tar.gz
+        sudo tar -C /usr/local -xzf go$(GO_VERSION).linux-amd64.tar.gz
+        export PATH=$PATH:/usr/local/go/bin
+        go version
+      displayName: 'Install Go'
+
+    - bash: |
+        set -euo pipefail
+        export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH)/bin
+        cd sonic-gnmi
+        go mod tidy
+        make -f pure.mk junit-xml
+      displayName: 'Run Pure Package Tests'
+
+    - task: PublishTestResults@2
+      displayName: 'Publish Pure Package Test Results'
+      condition: always()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-pure.xml'
+        failTaskOnFailedTests: true
+        publishRunAttachments: true
+        testRunTitle: 'Pure Package Tests'
+
+    - task: PublishCodeCoverageResults@2
+      displayName: 'Publish Pure Package Coverage'
+      condition: always()
+      inputs:
+        summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/coverage-pure.xml'
+
+    - publish: $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/coverage-pure.xml
+      artifact: coverage-pure
+      displayName: 'Publish pure coverage artifact'
+      condition: always()
+
+  # Memory leak testing with address sanitizer
+  - job: MemoryLeakJob
+    displayName: "Memory Leak Tests"
+    timeoutInMinutes: 45
 
     pool:
       name: sonicso1ES-amd64
       vmImage: ubuntu-22.04
 
     variables:
-      DIFF_COVER_CHECK_THRESHOLD: 80
-      DIFF_COVER_ENABLE: 'true'
-      DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)/sonic-gnmi
+      UNIT_TEST_FLAG: 'ENABLE_TRANSLIB_WRITE=y'
 
     container:
       image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
@@ -74,125 +131,179 @@ stages:
       submodules: recursive
       displayName: 'Checkout sonic-swss-common'
 
-    - script: |
+    # Install SONiC dependencies using shared template
+    - template: .azure/templates/install-dependencies.yml
+      parameters:
+        buildBranch: $(BUILD_BRANCH)
+        arch: amd64
+        installTestDeps: true
+
+    # Memory leak tests with JUnit XML generation
+
+    - bash: |
+        set -euo pipefail
         pushd sonic-gnmi
-        make -f pure.mk ci
+        make all && $(UNIT_TEST_FLAG) make check_memleak_junit
         popd
-      displayName: "Run pure package CI (no dependencies)"
+      displayName: 'Run Memory Leak Tests'
 
-    - task: DownloadPipelineArtifact@2
+    - task: PublishTestResults@2
+      displayName: 'Publish Memory Leak Test Results'
+      condition: always()
       inputs:
-        source: specific
-        project: build
-        pipeline: 142
-        artifact: sonic-buildimage.vs
-        runVersion: 'latestFromBranch'
-        runBranch: 'refs/heads/$(BUILD_BRANCH)'
-        patterns: |
-            target/debs/bookworm/libyang*.deb
-            target/debs/bookworm/libnl*.deb
-            target/python-wheels/bookworm/sonic_yang_models*.whl
-      displayName: "Download bookworm debs"
+        testResultsFormat: 'JUnit'
+        testResultsFiles: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-memleak-standard.xml'
+        failTaskOnFailedTests: true
+        publishRunAttachments: true
+        testRunTitle: 'Memory Leak Tests'
 
-    - script: |
-        # PYTEST
-        sudo pip3 install -U pytest
-        sudo pip3 install -U jsonpatch
+  # Full integration testing with SONiC dependencies
+  - job: build
+    displayName: "build"
+    timeoutInMinutes: 60
 
-        # REDIS
-        sudo apt-get update
-        sudo apt-get install -y redis-server
-        sudo sed -ri 's/^# unixsocket/unixsocket/' /etc/redis/redis.conf
-        sudo sed -ri 's/^unixsocketperm .../unixsocketperm 777/' /etc/redis/redis.conf
-        sudo sed -ri 's/redis-server.sock/redis.sock/' /etc/redis/redis.conf
-        sudo service redis-server start
+    pool:
+      name: sonicso1ES-amd64
+      vmImage: ubuntu-22.04
 
-        # LIBYANG
-        sudo dpkg -i ../target/debs/bookworm/libyang*1.0.73*.deb
-      displayName: "Install dependency"
+    variables:
+      DIFF_COVER_CHECK_THRESHOLD: 80
+      DIFF_COVER_ENABLE: 'true'
+      DIFF_COVER_WORKING_DIRECTORY: $(System.DefaultWorkingDirectory)/sonic-gnmi
 
-    - script: |
-        # SONIC YANGS
-        set -ex
-        sudo pip3 install ../target/python-wheels/bookworm/sonic_yang_models-1.0-py3-none-any.whl
-      displayName: "Install sonic yangs"
+    container:
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
 
-    - script: |
-        # LIBSWSSCOMMON
-        sudo apt-get -y purge libnl-3-dev libnl-route-3-dev
-        sudo dpkg -i ../target/debs/bookworm/libnl-3-200_*.deb
-        sudo dpkg -i ../target/debs/bookworm/libnl-genl-3-200_*.deb
-        sudo dpkg -i ../target/debs/bookworm/libnl-route-3-200_*.deb
-        sudo dpkg -i ../target/debs/bookworm/libnl-nf-3-200_*.deb
-      displayName: "Install libswsscommon dependencies"
+    steps:
+    - checkout: self
+      clean: true
+      submodules: recursive
+      fetchDepth: 0
+      displayName: 'Checkout code'
 
-    - script: |
-        set -ex
-        # Install .NET CORE
-        curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-        sudo apt-add-repository https://packages.microsoft.com/debian/12/prod
-        sudo apt-get update
-        sudo apt-get install -y dotnet-sdk-8.0
-      displayName: "Install .NET CORE"
+    - checkout: sonic-mgmt-common
+      clean: true
+      submodules: recursive
+      displayName: 'Checkout sonic-mgmt-common'
 
-    - task: DownloadPipelineArtifact@2
-      inputs:
-        source: specific
-        project: build
-        pipeline: Azure.sonic-swss-common
-        artifact: sonic-swss-common-bookworm
-        runVersion: 'latestFromBranch'
-        runBranch: 'refs/heads/$(BUILD_BRANCH)'
-      displayName: "Download sonic-swss-common"
+    - checkout: sonic-swss-common
+      clean: true
+      submodules: recursive
+      displayName: 'Checkout sonic-swss-common'
 
+    # Install SONiC dependencies using shared template
+    - template: .azure/templates/install-dependencies.yml
+      parameters:
+        buildBranch: $(BUILD_BRANCH)
+        arch: amd64
+        installTestDeps: true
+
+    # Build sonic-mgmt-common (generates Go code that sonic-gnmi imports)
     - script: |
         set -ex
-        # LIBSWSSCOMMON
-        sudo dpkg -i libswsscommon_1.0.0_amd64.deb
-        sudo dpkg -i libswsscommon-dev_1.0.0_amd64.deb
-        sudo dpkg -i python3-swsscommon_1.0.0_amd64.deb
-      workingDirectory: $(Pipeline.Workspace)/
-      displayName: 'Install libswsscommon package'
-
-    - script: |
-        sudo apt-get install -y protobuf-compiler
-        protoc --version
-      displayName: 'Install protoc'
-
-    - script: |
-        set -ex
-        ls -l
-
         pushd sonic-mgmt-common
-
         NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
-
         popd
+      displayName: "Build sonic-mgmt-common"
 
+    # Run integration tests
+    - bash: |
+        set -euo pipefail
         pushd sonic-gnmi
+        make all && $(UNIT_TEST_FLAG) make check_gotest_junit
+        popd
+      displayName: "Run Integration Tests"
 
-        ENABLE_TRANSLIB_WRITE=y dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc) && cp ../*.deb $(Build.ArtifactStagingDirectory)/
-      displayName: "Build"
-
-    - script: |
-        pushd sonic-gnmi
-        make all && make check_memleak $(UNIT_TEST_FLAG)
-      displayName: "Check memory leak"
-
-    - script: |
-        pushd sonic-gnmi
-        # Run pure package tests first (no dependencies needed)
-        make -f pure.mk azure-coverage
-        # Then run regular tests
-        make all && make check_gotest $(UNIT_TEST_FLAG)
-      displayName: "Run unit test"
-
-    - publish: $(Build.ArtifactStagingDirectory)/
-      artifact: sonic-gnmi
-      displayName: "Archive artifacts"
-
-    - task: PublishCodeCoverageResults@1
+    - task: PublishTestResults@2
+      displayName: 'Publish Integration Test Results'
+      condition: always()
       inputs:
-        codeCoverageTool: Cobertura
+        testResultsFormat: 'JUnit'
+        testResultsFiles: |
+          $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-integration-basic.xml
+          $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-integration-env.xml
+          $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-integration-dialout.xml
+        failTaskOnFailedTests: true
+        publishRunAttachments: true
+        testRunTitle: 'Integration Tests'
+
+    - task: PublishCodeCoverageResults@2
+      inputs:
         summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml'
       displayName: 'Publish coverage'
+
+    - publish: $(System.DefaultWorkingDirectory)/sonic-gnmi/coverage.xml
+      artifact: coverage-integration
+      displayName: 'Publish integration coverage artifact'
+      condition: always()
+
+  - job: DiffCoverageCheck
+    displayName: "Diff Coverage Check"
+    dependsOn: [PureCIJob, build]
+    condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))
+    timeoutInMinutes: 10
+    pool:
+      vmImage: ubuntu-22.04
+    steps:
+    - checkout: self
+      clean: true
+      fetchDepth: 0
+
+    - download: current
+      artifact: coverage-pure
+
+    - download: current
+      artifact: coverage-integration
+
+    - bash: |
+        set -euo pipefail
+        pip3 install --quiet diff-cover
+        diff-cover \
+          $(Pipeline.Workspace)/coverage-integration/coverage.xml \
+          $(Pipeline.Workspace)/coverage-pure/coverage-pure.xml \
+          --compare-branch origin/$(BUILD_BRANCH) \
+          --src-roots . \
+          --fail-under $(DIFF_COVER_THRESHOLD)
+      displayName: 'Run diff-cover'
+
+- stage: BuildAmd64
+  dependsOn: []
+  jobs:
+  - job: amd64
+    displayName: "amd64 deb build"
+    timeoutInMinutes: 60
+
+    pool:
+      name: sonicso1ES-amd64
+      vmImage: ubuntu-22.04
+
+    container:
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
+
+    steps:
+    - template: .azure/templates/build-deb.yml
+      parameters:
+        buildBranch: $(BUILD_BRANCH)
+        arch: amd64
+
+- stage: BuildArm64
+  dependsOn: []
+  jobs:
+  - job: arm64
+    displayName: "arm64 deb build"
+    timeoutInMinutes: 60
+
+    pool:
+      name: sonicso1ES-arm64
+
+    container:
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:$(BUILD_BRANCH)-arm64
+
+    steps:
+    - template: .azure/templates/build-deb.yml
+      parameters:
+        buildBranch: $(BUILD_BRANCH)
+        arch: arm64
+        commonLibArtifact: common-lib.arm64
+        swssCommonArtifact: sonic-swss-common-bookworm.arm64
+        publishArtifact: sonic-gnmi.arm64

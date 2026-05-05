@@ -9,6 +9,7 @@ import (
 
 	"github.com/golang/glog"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	system "github.com/openconfig/gnoi/system"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -60,6 +61,16 @@ var defaultForwardableMethods = []ForwardableMethod{
 	{
 		FullMethod:  "/gnoi.system.System/SetPackage",
 		Description: "Install package on DPU",
+		Mode:        ForwardToDPU,
+	},
+	{
+		FullMethod:  "/gnoi.os.OS/Verify",
+		Description: "Verify current OS version on DPU",
+		Mode:        ForwardToDPU,
+	},
+	{
+		FullMethod:  "/gnoi.os.OS/Activate",
+		Description: "Activate OS version on DPU",
 		Mode:        ForwardToDPU,
 	},
 	// gRPC reflection methods needed for grpcurl to work with DPU headers
@@ -177,13 +188,18 @@ func (p *DPUProxy) getConnection(ctx context.Context, dpuIndex, ipAddress string
 		target := fmt.Sprintf("%s:%s", ipAddress, port)
 		glog.Infof("[DPUProxy] Trying to connect to DPU%s at %s (attempt %d/%d)", dpuIndex, target, i+1, len(portsToTry))
 
-		// Create connection with keepalive settings for long-lived connections
+		// Create connection with keepalive settings for long-lived connections.
+		// Use a conservative ping interval to avoid triggering the server's
+		// default EnforcementPolicy (MinTime=5m). Operations like SetPackage
+		// can block for minutes during image installation; aggressive pinging
+		// causes the server to send GOAWAY with "too_many_pings".
+		// See: https://github.com/sonic-net/sonic-gnmi/issues/619
 		conn, err := grpc.NewClient(
 			target,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:                10 * time.Second, // Send keepalive ping every 10s
-				Timeout:             3 * time.Second,  // Wait 3s for ping ack before considering connection dead
+				Time:                30 * time.Second, // Send keepalive ping every 30s
+				Timeout:             10 * time.Second, // Wait 10s for ping ack before considering connection dead
 				PermitWithoutStream: true,             // Send pings even when no active RPCs
 			}),
 		)
@@ -243,6 +259,46 @@ func (p *DPUProxy) forwardTimeRequest(ctx context.Context, conn *grpc.ClientConn
 	}
 
 	glog.Infof("[DPUProxy] Successfully forwarded Time request to DPU, response: %v", resp)
+	return resp, nil
+}
+
+// forwardOSVerifyRequest forwards a gNOI OS.Verify request to the DPU.
+func (p *DPUProxy) forwardOSVerifyRequest(ctx context.Context, conn *grpc.ClientConn, req interface{}) (interface{}, error) {
+	verifyReq, ok := req.(*gnoi_os_pb.VerifyRequest)
+	if !ok {
+		glog.Errorf("[DPUProxy] Invalid request type for OS.Verify method: %T", req)
+		return nil, status.Errorf(codes.Internal,
+			"invalid request type for OS.Verify: expected *os.VerifyRequest, got %T", req)
+	}
+
+	client := gnoi_os_pb.NewOSClient(conn)
+	resp, err := client.Verify(ctx, verifyReq)
+	if err != nil {
+		glog.Errorf("[DPUProxy] Error forwarding OS.Verify request to DPU: %v", err)
+		return nil, err
+	}
+
+	glog.Infof("[DPUProxy] Successfully forwarded OS.Verify to DPU, version: %v", resp.GetVersion())
+	return resp, nil
+}
+
+// forwardOSActivateRequest forwards a gNOI OS.Activate request to the DPU.
+func (p *DPUProxy) forwardOSActivateRequest(ctx context.Context, conn *grpc.ClientConn, req interface{}) (interface{}, error) {
+	activateReq, ok := req.(*gnoi_os_pb.ActivateRequest)
+	if !ok {
+		glog.Errorf("[DPUProxy] Invalid request type for OS.Activate method: %T", req)
+		return nil, status.Errorf(codes.Internal,
+			"invalid request type for OS.Activate: expected *os.ActivateRequest, got %T", req)
+	}
+
+	client := gnoi_os_pb.NewOSClient(conn)
+	resp, err := client.Activate(ctx, activateReq)
+	if err != nil {
+		glog.Errorf("[DPUProxy] Error forwarding OS.Activate request to DPU: %v", err)
+		return nil, err
+	}
+
+	glog.Infof("[DPUProxy] Successfully forwarded OS.Activate to DPU")
 	return resp, nil
 }
 
@@ -472,6 +528,10 @@ func (p *DPUProxy) UnaryInterceptor() grpc.UnaryServerInterceptor {
 					switch info.FullMethod {
 					case "/gnoi.system.System/Time":
 						return p.forwardTimeRequest(ctx, conn, req)
+					case "/gnoi.os.OS/Verify":
+						return p.forwardOSVerifyRequest(ctx, conn, req)
+					case "/gnoi.os.OS/Activate":
+						return p.forwardOSActivateRequest(ctx, conn, req)
 					default:
 						// This shouldn't happen due to getForwardingMode check, but handle gracefully
 						glog.Errorf("[DPUProxy] Unknown forwardable method: %s", info.FullMethod)
