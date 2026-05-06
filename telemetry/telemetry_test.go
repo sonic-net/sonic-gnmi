@@ -1451,6 +1451,27 @@ func TestFlagsNoPortNoUnixSocket(t *testing.T) {
 	}
 }
 
+func TestCertAuthDisabledWhenNoCaCert(t *testing.T) {
+	// When --client_auth includes "cert" but --ca_crt is empty, cert auth must be
+	// disabled (not fatal) so the server can still start with the remaining auth modes.
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	fs := flag.NewFlagSet("testCertAuthDisabledWhenNoCaCert", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-client_auth", "cert,password"}
+
+	telemetryCfg, _, err := setupFlags(fs)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if telemetryCfg.UserAuth.Enabled("cert") {
+		t.Error("Expected cert auth to be disabled when ca_crt is empty, but it was still enabled")
+	}
+	if !telemetryCfg.UserAuth.Enabled("password") {
+		t.Error("Expected password auth to remain enabled after cert was disabled")
+	}
+}
+
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
 	m.Run()
