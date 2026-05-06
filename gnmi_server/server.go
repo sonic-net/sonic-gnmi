@@ -44,6 +44,7 @@ import (
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	gnsi_authz_pb "github.com/openconfig/gnsi/authz"
 	gnsi_certz_pb "github.com/openconfig/gnsi/certz"
+	gnsi_credentialz_pb "github.com/openconfig/gnsi/credentialz"
 	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
 	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
@@ -106,6 +107,8 @@ type Server struct {
 	ConnectionManager *ConnectionManager
 	// DB Journals
 	configDbJournal *DbJournal
+	gnsiCredentialz *GNSICredentialzServer
+	gnsi_credentialz_pb.UnimplementedCredentialzServer
 }
 
 // handleOperationalGet handles OPERATIONAL target requests directly with standard gNMI types
@@ -227,27 +230,29 @@ type Config struct {
 	ImgDir     string
 	GetOptions func(*Config) ([]grpc.ServerOption, []certprovider.Provider, error)
 	// gnsi.certz mTLS flags
-	CaCertLnk                string // Path to symlink pointing to current CA certificate.
-	SrvCertLnk               string // Path to symlink pointing to current server's certificate.
-	SrvKeyLnk                string // Path to symlink pointing to current server's private key.
-	CaCertFile               string // Path to the first CA certificate.
-	SrvCertFile              string // Path to the first server's certificate.
-	SrvKeyFile               string // Path to the first server's private key.
-	CertCRLConfig            string // Path to the CRL directory. Disable if empty.
-	IntManFile               string // Path to the Integrity Manifest file.
-	CertzMetaFile            string // Path to JSON file with gRPC credential metadata.
-	FedPolicyFile            string // Path to federation policy file.
-	AuthzPolicy              bool   // Enable authz policy.
-	AuthzPolicyFile          string // Path to JSON file with authz policies.
-	AuthzMetaFile            string // Path to JSON file with authz metadata.
-	PathzPolicy              bool   // Enable gNMI pathz policy.
-	PathzPolicyFile          string // Path to gNMI pathz policy file.
-	PathzMetaFile            string // Path to JSON file with pathz metadata.
-	EnableStreamMultiplexing bool   // Allow multiple Subscribe RPCs on a single TCP connection.
+	EnableStreamMultiplexing bool // Allow multiple Subscribe RPCs on a single TCP connection.
 	// BindAddress is the network address to bind the TCP listener.
 	// When empty, binds to all interfaces (0.0.0.0). Use "127.0.0.1" to
 	// restrict to localhost only (e.g. when running without TLS).
-	BindAddress string
+	BindAddress         string
+	CaCertLnk           string // Path to symlink pointing to current CA certificate.
+	SrvCertLnk          string // Path to symlink pointing to current server's certificate.
+	SrvKeyLnk           string // Path to symlink pointing to current server's private key.
+	CaCertFile          string // Path to the first CA certificate.
+	SrvCertFile         string // Path to the first server's certificate.
+	SrvKeyFile          string // Path to the first server's private key.
+	CertCRLConfig       string // Path to the CRL directory. Disable if empty.
+	IntManFile          string // Path to the Integrity Manifest file.
+	CertzMetaFile       string // Path to JSON file with gRPC credential metadata.
+	FedPolicyFile       string // Path to federation policy file.
+	AuthzPolicy         bool   // Enable authz policy.
+	AuthzPolicyFile     string // Path to JSON file with authz policies.
+	AuthzMetaFile       string // Path to JSON file with authz metadata.
+	PathzPolicy         bool   // Enable gNMI pathz policy.
+	PathzPolicyFile     string // Path to gNMI pathz policy file.
+	PathzMetaFile       string // Path to JSON file with pathz metadata.
+	SshCredMetaFile     string // Path to JSON file with SSH server credential metadata.
+	ConsoleCredMetaFile string // Path to JSON file with console credential metadata.
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -338,12 +343,13 @@ func (i AuthTypes) Unset(mode string) error {
 // registerAllServices registers all gNMI and gNOI services on the given gRPC server.
 func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 	osSrv *OSServer, containerzSrv *ContainerzServer,
-	debugSrv *DebugServer, healthzSrv *HealthzServer, certzSrv *GNSICertzServer, authzSrv *GNSIAuthzServer, pathzSrv *GNSIPathzServer) {
+	debugSrv *DebugServer, healthzSrv *HealthzServer, certzSrv *GNSICertzServer, authzSrv *GNSIAuthzServer, pathzSrv *GNSIPathzServer, credentialzSrv *GNSICredentialzServer) {
 	gnmipb.RegisterGNMIServer(s, srv)
 	factory_reset.RegisterFactoryResetServer(s, srv)
 	gnsi_certz_pb.RegisterCertzServer(s, certzSrv)
 	gnsi_authz_pb.RegisterAuthzServer(s, authzSrv)
 	gnsi_pathz_pb.RegisterPathzServer(s, pathzSrv)
+	gnsi_credentialz_pb.RegisterCredentialzServer(s, credentialzSrv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(s, srv)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
 		gnoi_system_pb.RegisterSystemServer(s, srv)
@@ -357,7 +363,6 @@ func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 		spb_gnoi.RegisterSonicServiceServer(s, srv)
 	}
 	spb_gnoi.RegisterDebugServer(s, srv)
-
 }
 
 // SrvTestConfig returns test mTLS server configuration to be used to start gNMI/gNOI server in test environment.
@@ -583,6 +588,8 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	certzSrv := NewGNSICertzServer(srv)
 	srv.gnsiCertz = certzSrv
 
+	credentialzSrv := NewGNSICredentialzServer(srv)
+	srv.gnsiCredentialz = credentialzSrv
 	var err error
 
 	// TCP Server (Port > 0)
@@ -603,7 +610,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			srv.s.Stop()
 			srv.s = nil
 		} else {
-			registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, certzSrv, authzSrv, pathzSrv)
+			registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
 		}
 	}
 
@@ -637,7 +644,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 					srv.udsServer.Stop()
 					srv.udsServer = nil
 				} else {
-					registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, certzSrv, authzSrv, pathzSrv)
+					registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
 				}
 			}
 		}
