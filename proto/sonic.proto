@@ -17,6 +17,7 @@ enum Target {
   FLEX_COUNTER_DB   = 5;
   STATE_DB          = 6;
   CHASSIS_STATE_DB  = 13;
+  DPU_COUNTERS_DB   = 18;
   // For none-DB data
   OTHERS            = 100;
 }

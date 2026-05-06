@@ -2109,3 +2109,475 @@ func TestGetTableDashHA(t *testing.T) {
 	swsscommon.DeleteZmqClient(zmqClient)
 	swsscommon.DeleteZmqServer(zmqServer)
 }
+
+func TestV2rEniStats(t *testing.T) {
+	// Save and restore the ENI maps
+	origEniNameMap := countersEniNameMap
+	origEniOidNameMap := countersEniOidNameMap
+	defer func() {
+		countersEniNameMap = origEniNameMap
+		countersEniOidNameMap = origEniOidNameMap
+	}()
+
+	countersEniNameMap = map[string]string{
+		"eni1": "oid:0xENI1",
+		"eni2": "oid:0xENI2",
+	}
+	countersEniOidNameMap = map[string]string{
+		"oid:0xENI1": "eni1",
+		"oid:0xENI2": "eni2",
+	}
+
+	t.Run("Wildcard_AllENIs", func(t *testing.T) {
+		paths := []string{"DPU_COUNTERS_DB", "COUNTERS", "ENI", "*"}
+		tblPaths, err := v2rEniStats(paths)
+		if err != nil {
+			t.Fatalf("v2rEniStats failed: %v", err)
+		}
+		if len(tblPaths) != 2 {
+			t.Fatalf("expected 2 tablePaths, got %d", len(tblPaths))
+		}
+		eniFound := map[string]bool{}
+		for _, tp := range tblPaths {
+			if tp.dbName != "DPU_COUNTERS_DB" {
+				t.Errorf("expected dbName DPU_COUNTERS_DB, got %v", tp.dbName)
+			}
+			if tp.tableName != "COUNTERS" {
+				t.Errorf("expected tableName COUNTERS, got %v", tp.tableName)
+			}
+			eniFound[tp.jsonTableKey] = true
+		}
+		if !eniFound["eni1"] || !eniFound["eni2"] {
+			t.Errorf("expected both eni1 and eni2 in results, got %v", eniFound)
+		}
+	})
+
+	t.Run("Specific_ENI", func(t *testing.T) {
+		paths := []string{"DPU_COUNTERS_DB", "COUNTERS", "ENI", "eni1"}
+		tblPaths, err := v2rEniStats(paths)
+		if err != nil {
+			t.Fatalf("v2rEniStats failed: %v", err)
+		}
+		if len(tblPaths) != 1 {
+			t.Fatalf("expected 1 tablePath, got %d", len(tblPaths))
+		}
+		if tblPaths[0].tableKey != "oid:0xENI1" {
+			t.Errorf("expected tableKey oid:0xENI1, got %v", tblPaths[0].tableKey)
+		}
+	})
+
+	t.Run("Invalid_ENI", func(t *testing.T) {
+		paths := []string{"DPU_COUNTERS_DB", "COUNTERS", "ENI", "nonexistent"}
+		_, err := v2rEniStats(paths)
+		if err == nil {
+			t.Errorf("expected error for invalid ENI name")
+		}
+	})
+}
+
+func TestV2rDashMeterByEniAndClass(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+
+	// Save and restore the ENI maps
+	origEniNameMap := countersEniNameMap
+	origEniOidNameMap := countersEniOidNameMap
+	defer func() {
+		countersEniNameMap = origEniNameMap
+		countersEniOidNameMap = origEniOidNameMap
+	}()
+
+	countersEniNameMap = map[string]string{
+		"eni1": "oid:0xENI1",
+	}
+	countersEniOidNameMap = map[string]string{
+		"oid:0xENI1": "eni1",
+	}
+
+	ns := ""
+	rclient := Target2RedisDb[ns]["DPU_COUNTERS_DB"]
+	if rclient == nil {
+		t.Fatal("DPU_COUNTERS_DB Redis client not available — ensure Redis is configured with 'databases 20'")
+	}
+
+	// Insert a DASH_METER key
+	dashKey := `COUNTERS:{"eni_id":"oid:0xENI1","meter_class":"100","switch_id":"oid:0xSW1"}`
+	rclient.HSet(context.Background(), dashKey, "bytes", "1000", "packets", "10")
+	defer rclient.Del(context.Background(), dashKey)
+
+	t.Run("Specific_ENI_And_Class", func(t *testing.T) {
+		paths := []string{"DPU_COUNTERS_DB", "DASH_METER", "eni1", "100"}
+		tblPaths, err := v2rDashMeterByEniAndClass(paths)
+		if err != nil {
+			t.Fatalf("v2rDashMeterByEniAndClass failed: %v", err)
+		}
+		if len(tblPaths) != 1 {
+			t.Fatalf("expected 1 tablePath, got %d", len(tblPaths))
+		}
+		if tblPaths[0].dbName != "DPU_COUNTERS_DB" {
+			t.Errorf("expected dbName DPU_COUNTERS_DB, got %v", tblPaths[0].dbName)
+		}
+		if tblPaths[0].tableName != "COUNTERS" {
+			t.Errorf("expected tableName COUNTERS, got %v", tblPaths[0].tableName)
+		}
+		if tblPaths[0].jsonTableKey != "100" {
+			t.Errorf("expected jsonTableKey '100', got %v", tblPaths[0].jsonTableKey)
+		}
+	})
+
+	t.Run("Invalid_ENI", func(t *testing.T) {
+		paths := []string{"DPU_COUNTERS_DB", "DASH_METER", "bad_eni", "100"}
+		_, err := v2rDashMeterByEniAndClass(paths)
+		if err == nil {
+			t.Errorf("expected error for invalid ENI name")
+		}
+	})
+
+	t.Run("NoMatching_Class", func(t *testing.T) {
+		paths := []string{"DPU_COUNTERS_DB", "DASH_METER", "eni1", "999"}
+		_, err := v2rDashMeterByEniAndClass(paths)
+		if err == nil {
+			t.Errorf("expected error when no matching meter class")
+		}
+	})
+}
+
+func TestV2rDashMeterByEni(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+
+	// Save and restore the ENI maps
+	origEniNameMap := countersEniNameMap
+	origEniOidNameMap := countersEniOidNameMap
+	defer func() {
+		countersEniNameMap = origEniNameMap
+		countersEniOidNameMap = origEniOidNameMap
+	}()
+
+	countersEniNameMap = map[string]string{
+		"eni1": "oid:0xENI1",
+		"eni2": "oid:0xENI2",
+	}
+	countersEniOidNameMap = map[string]string{
+		"oid:0xENI1": "eni1",
+		"oid:0xENI2": "eni2",
+	}
+
+	ns := ""
+	rclient := Target2RedisDb[ns]["DPU_COUNTERS_DB"]
+	if rclient == nil {
+		t.Fatal("DPU_COUNTERS_DB Redis client not available — ensure Redis is configured with 'databases 20'")
+	}
+
+	// Insert multiple DASH_METER keys
+	key1 := `COUNTERS:{"eni_id":"oid:0xENI1","meter_class":"100","switch_id":"oid:0xSW1"}`
+	key2 := `COUNTERS:{"eni_id":"oid:0xENI1","meter_class":"200","switch_id":"oid:0xSW1"}`
+	key3 := `COUNTERS:{"eni_id":"oid:0xENI2","meter_class":"100","switch_id":"oid:0xSW1"}`
+	// Also insert a non-JSON COUNTERS key that should be skipped
+	key4 := "COUNTERS:oid:0x1000000000039"
+	rclient.HSet(context.Background(), key1, "bytes", "1000")
+	rclient.HSet(context.Background(), key2, "bytes", "2000")
+	rclient.HSet(context.Background(), key3, "bytes", "3000")
+	rclient.HSet(context.Background(), key4, "SAI_PORT_STAT_IF_IN_OCTETS", "999")
+	defer func() {
+		rclient.Del(context.Background(), key1, key2, key3, key4)
+	}()
+
+	t.Run("Specific_ENI_AllClasses", func(t *testing.T) {
+		paths := []string{"DPU_COUNTERS_DB", "DASH_METER", "eni1"}
+		tblPaths, err := v2rDashMeterByEni(paths)
+		if err != nil {
+			t.Fatalf("v2rDashMeterByEni failed: %v", err)
+		}
+		if len(tblPaths) != 2 {
+			t.Fatalf("expected 2 tablePaths for eni1, got %d", len(tblPaths))
+		}
+		classFound := map[string]bool{}
+		for _, tp := range tblPaths {
+			classFound[tp.jsonTableKey] = true
+			if tp.dbName != "DPU_COUNTERS_DB" {
+				t.Errorf("expected dbName DPU_COUNTERS_DB, got %v", tp.dbName)
+			}
+		}
+		if !classFound["100"] || !classFound["200"] {
+			t.Errorf("expected classes 100 and 200, got %v", classFound)
+		}
+	})
+
+	t.Run("Wildcard_AllENIs_AllClasses", func(t *testing.T) {
+		paths := []string{"DPU_COUNTERS_DB", "DASH_METER", "*"}
+		tblPaths, err := v2rDashMeterByEni(paths)
+		if err != nil {
+			t.Fatalf("v2rDashMeterByEni failed: %v", err)
+		}
+		if len(tblPaths) != 3 {
+			t.Fatalf("expected 3 tablePaths for all ENIs, got %d", len(tblPaths))
+		}
+		keyFound := map[string]bool{}
+		for _, tp := range tblPaths {
+			keyFound[tp.jsonTableKey] = true
+		}
+		// Wildcard uses "eniName/class" format
+		if !keyFound["eni1/100"] || !keyFound["eni1/200"] || !keyFound["eni2/100"] {
+			t.Errorf("expected eni1/100, eni1/200, eni2/100 in results, got %v", keyFound)
+		}
+	})
+
+	t.Run("Invalid_ENI", func(t *testing.T) {
+		paths := []string{"DPU_COUNTERS_DB", "DASH_METER", "bad_eni"}
+		_, err := v2rDashMeterByEni(paths)
+		if err == nil {
+			t.Errorf("expected error for invalid ENI name")
+		}
+	})
+}
+
+func TestGetDpuCountersMap(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+
+	ns := ""
+	rclient := Target2RedisDb[ns]["DPU_COUNTERS_DB"]
+	if rclient == nil {
+		t.Fatal("DPU_COUNTERS_DB Redis client not available — ensure Redis is configured with 'databases 20'")
+	}
+
+	rclient.HSet(context.Background(), "COUNTERS_ENI_NAME_MAP", "eni1", "oid:0xENI1")
+	defer rclient.Del(context.Background(), "COUNTERS_ENI_NAME_MAP")
+
+	result, err := GetDpuCountersMap("COUNTERS_ENI_NAME_MAP")
+	if err != nil {
+		t.Fatalf("GetDpuCountersMap failed: %v", err)
+	}
+	if result["eni1"] != "oid:0xENI1" {
+		t.Errorf("expected eni1->oid:0xENI1, got %v", result)
+	}
+}
+
+func TestGetCountersMapForDb(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+
+	ns := ""
+
+	t.Run("COUNTERS_DB", func(t *testing.T) {
+		rclient := Target2RedisDb[ns]["COUNTERS_DB"]
+		rclient.HSet(context.Background(), "COUNTERS_PORT_NAME_MAP", "Ethernet0", "oid:0x100")
+		defer rclient.Del(context.Background(), "COUNTERS_PORT_NAME_MAP")
+
+		result, err := GetCountersMapForDb("COUNTERS_DB", "COUNTERS_PORT_NAME_MAP")
+		if err != nil {
+			t.Fatalf("GetCountersMapForDb failed: %v", err)
+		}
+		if result["Ethernet0"] != "oid:0x100" {
+			t.Errorf("expected Ethernet0->oid:0x100, got %v", result)
+		}
+	})
+
+	t.Run("DPU_COUNTERS_DB", func(t *testing.T) {
+		rclient := Target2RedisDb[ns]["DPU_COUNTERS_DB"]
+		if rclient == nil {
+			t.Fatal("DPU_COUNTERS_DB Redis client not available — ensure Redis is configured with 'databases 20'")
+		}
+		rclient.HSet(context.Background(), "TEST_MAP", "key1", "val1")
+		defer rclient.Del(context.Background(), "TEST_MAP")
+
+		result, err := GetCountersMapForDb("DPU_COUNTERS_DB", "TEST_MAP")
+		if err != nil {
+			t.Fatalf("GetCountersMapForDb failed: %v", err)
+		}
+		if result["key1"] != "val1" {
+			t.Errorf("expected key1->val1, got %v", result)
+		}
+	})
+}
+
+func TestInitCountersEniNameMap(t *testing.T) {
+	origFn := getDpuCountersMapFn
+	defer func() { getDpuCountersMapFn = origFn }()
+
+	t.Run("Success", func(t *testing.T) {
+		os.Setenv("UNIT_TEST", "1")
+		ClearMappings()
+		os.Unsetenv("UNIT_TEST")
+
+		getDpuCountersMapFn = func(tableName string) (map[string]string, error) {
+			switch tableName {
+			case "COUNTERS_ENI_NAME_MAP":
+				return map[string]string{"eni1": "oid:0xENI1"}, nil
+			case "COUNTERS_ENI_OID_NAME_MAP":
+				return map[string]string{"oid:0xENI1": "eni1"}, nil
+			default:
+				return nil, fmt.Errorf("unexpected table %s", tableName)
+			}
+		}
+
+		err := initCountersEniNameMap()
+		if err != nil {
+			t.Fatalf("initCountersEniNameMap failed: %v", err)
+		}
+		if countersEniNameMap["eni1"] != "oid:0xENI1" {
+			t.Errorf("expected eni1->oid:0xENI1, got %v", countersEniNameMap)
+		}
+		if countersEniOidNameMap["oid:0xENI1"] != "eni1" {
+			t.Errorf("expected oid:0xENI1->eni1, got %v", countersEniOidNameMap)
+		}
+	})
+
+	t.Run("Error_NameMap", func(t *testing.T) {
+		os.Setenv("UNIT_TEST", "1")
+		ClearMappings()
+		os.Unsetenv("UNIT_TEST")
+
+		getDpuCountersMapFn = func(tableName string) (map[string]string, error) {
+			return nil, fmt.Errorf("redis error")
+		}
+
+		err := initCountersEniNameMap()
+		if err == nil {
+			t.Errorf("expected error when COUNTERS_ENI_NAME_MAP fails")
+		}
+	})
+}
+
+func TestGetDashMeterKeys(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+
+	ns := ""
+	rclient := Target2RedisDb[ns]["DPU_COUNTERS_DB"]
+	if rclient == nil {
+		t.Fatal("DPU_COUNTERS_DB Redis client not available — ensure Redis is configured with 'databases 20'")
+	}
+
+	// Insert test keys
+	key1 := `COUNTERS:{"eni_id":"oid:0xENI1","meter_class":"100","switch_id":"oid:0xSW1"}`
+	key2 := `COUNTERS:{"eni_id":"oid:0xENI2","meter_class":"200","switch_id":"oid:0xSW1"}`
+	// Non-JSON key that should be skipped
+	key3 := "COUNTERS:oid:0x1000000000039"
+	rclient.HSet(context.Background(), key1, "bytes", "1000")
+	rclient.HSet(context.Background(), key2, "bytes", "2000")
+	rclient.HSet(context.Background(), key3, "SAI_PORT_STAT_IF_IN_OCTETS", "999")
+	defer func() {
+		rclient.Del(context.Background(), key1, key2, key3)
+	}()
+
+	t.Run("All_Keys", func(t *testing.T) {
+		results, err := getDashMeterKeys(rclient, ":", "", "")
+		if err != nil {
+			t.Fatalf("getDashMeterKeys failed: %v", err)
+		}
+		if len(results) != 2 {
+			t.Fatalf("expected 2 results (non-JSON key skipped), got %d", len(results))
+		}
+	})
+
+	t.Run("Filter_By_ENI", func(t *testing.T) {
+		results, err := getDashMeterKeys(rclient, ":", "oid:0xENI1", "")
+		if err != nil {
+			t.Fatalf("getDashMeterKeys failed: %v", err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result for ENI1, got %d", len(results))
+		}
+		if results[0].eniOid != "oid:0xENI1" {
+			t.Errorf("expected eniOid oid:0xENI1, got %v", results[0].eniOid)
+		}
+	})
+
+	t.Run("Filter_By_ENI_And_Class", func(t *testing.T) {
+		results, err := getDashMeterKeys(rclient, ":", "oid:0xENI1", "100")
+		if err != nil {
+			t.Fatalf("getDashMeterKeys failed: %v", err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+		if results[0].meterClass != "100" {
+			t.Errorf("expected meterClass 100, got %v", results[0].meterClass)
+		}
+	})
+
+	t.Run("No_Match", func(t *testing.T) {
+		results, err := getDashMeterKeys(rclient, ":", "oid:0xNONEXISTENT", "")
+		if err != nil {
+			t.Fatalf("getDashMeterKeys failed: %v", err)
+		}
+		if len(results) != 0 {
+			t.Errorf("expected 0 results, got %d", len(results))
+		}
+	})
+}
+
+func TestParsePathDpuCountersDb(t *testing.T) {
+	// Save and restore the ENI maps
+	origEniNameMap := countersEniNameMap
+	origEniOidNameMap := countersEniOidNameMap
+	origFn := getDpuCountersMapFn
+	defer func() {
+		countersEniNameMap = origEniNameMap
+		countersEniOidNameMap = origEniOidNameMap
+		getDpuCountersMapFn = origFn
+	}()
+
+	getDpuCountersMapFn = func(tableName string) (map[string]string, error) {
+		switch tableName {
+		case "COUNTERS_ENI_NAME_MAP":
+			return map[string]string{"eni1": "oid:0xENI1"}, nil
+		case "COUNTERS_ENI_OID_NAME_MAP":
+			return map[string]string{"oid:0xENI1": "eni1"}, nil
+		default:
+			return nil, fmt.Errorf("unexpected table %s", tableName)
+		}
+	}
+
+	os.Setenv("UNIT_TEST", "1")
+	ClearMappings()
+	os.Unsetenv("UNIT_TEST")
+
+	t.Run("DPU_COUNTERS_DB_ENI_VirtualPath", func(t *testing.T) {
+		pathG2S := make(map[*gnmipb.Path][]tablePath)
+		prefix := &gnmipb.Path{Target: "DPU_COUNTERS_DB"}
+		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}, {Name: "ENI"}, {Name: "eni1"}}}
+		err := parsePath(prefix, path, &pathG2S)
+		if err != nil {
+			t.Fatalf("parsePath failed: %v", err)
+		}
+		for _, tblPaths := range pathG2S {
+			if !tblPaths[0].isVirtualPath {
+				t.Errorf("expected isVirtualPath=true for COUNTERS/ENI/eni1")
+			}
+			if tblPaths[0].tableKey != "oid:0xENI1" {
+				t.Errorf("expected tableKey oid:0xENI1, got %v", tblPaths[0].tableKey)
+			}
+			if tblPaths[0].dbName != "DPU_COUNTERS_DB" {
+				t.Errorf("expected dbName DPU_COUNTERS_DB, got %v", tblPaths[0].dbName)
+			}
+		}
+	})
+}
+
+func TestClearMappingsIncludesEniMaps(t *testing.T) {
+	// Ensure maps are initialized (may be nil if a prior test's init failed)
+	if countersEniNameMap == nil {
+		countersEniNameMap = make(map[string]string)
+	}
+	if countersEniOidNameMap == nil {
+		countersEniOidNameMap = make(map[string]string)
+	}
+
+	// Populate ENI maps
+	countersEniNameMap["test_eni"] = "oid:0xTEST"
+	countersEniOidNameMap["oid:0xTEST"] = "test_eni"
+
+	os.Setenv("UNIT_TEST", "1")
+	ClearMappings()
+	os.Unsetenv("UNIT_TEST")
+
+	if len(countersEniNameMap) != 0 {
+		t.Errorf("expected countersEniNameMap to be cleared, got %v", countersEniNameMap)
+	}
+	if len(countersEniOidNameMap) != 0 {
+		t.Errorf("expected countersEniOidNameMap to be cleared, got %v", countersEniOidNameMap)
+	}
+}
