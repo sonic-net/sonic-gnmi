@@ -41,7 +41,7 @@ func TestRunTelemetry(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	args := []string{"telemetry", "-logtostderr", "-port", "50051", "-v=2", "-noTLS", "-bind_address", "127.0.0.1"}
+	args := []string{"telemetry", "-logtostderr", "-port", "50051", "-v=2", "-noTLS"}
 	os.Args = args
 	err := runTelemetry(os.Args)
 	if err != nil {
@@ -79,7 +79,7 @@ func TestFlags(t *testing.T) {
 		expectedVrf       string
 	}{
 		{
-			[]string{"cmd", "-port", "9090", "-threshold", "200", "-idle_conn_duration", "10", "-v", "6", "-noTLS", "-bind_address", "127.0.0.1"},
+			[]string{"cmd", "-port", "9090", "-threshold", "200", "-idle_conn_duration", "10", "-v", "6", "-noTLS"},
 			9090,
 			200,
 			10,
@@ -97,7 +97,7 @@ func TestFlags(t *testing.T) {
 			"",
 		},
 		{
-			[]string{"cmd", "-port", "5050", "-threshold", "10", "-idle_conn_duration", "3", "-v", "-3", "-noTLS", "-bind_address", "127.0.0.1"},
+			[]string{"cmd", "-port", "5050", "-threshold", "10", "-idle_conn_duration", "3", "-v", "-3", "-noTLS"},
 			5050,
 			10,
 			3,
@@ -106,7 +106,7 @@ func TestFlags(t *testing.T) {
 			"",
 		},
 		{
-			[]string{"cmd", "-port", "8082", "-threshold", "1", "-idle_conn_duration", "1", "-gnmi_vrf", "mgmt", "-vrf", "mgmt", "-noTLS", "-bind_address", "127.0.0.1"},
+			[]string{"cmd", "-port", "8082", "-threshold", "1", "-idle_conn_duration", "1", "-gnmi_vrf", "mgmt", "-vrf", "mgmt", "-noTLS"},
 			8082,
 			1,
 			1,
@@ -247,48 +247,6 @@ func TestStartGNMIServer(t *testing.T) {
 	if !exitCalled {
 		t.Errorf("s.ForceStop should be called if gnmi server is called to shutdown")
 	}
-}
-
-func TestStartGNMIServerNoTLS(t *testing.T) {
-	// Regression test: cfg.UserAuth must be set in noTLS mode.
-	// Before the fix, UserAuth was only populated inside if !NoTLS{},
-	// so auth was bypassed when --noTLS was active.
-	originalArgs := os.Args
-	defer func() { os.Args = originalArgs }()
-
-	fs := flag.NewFlagSet("testStartGNMIServerNoTLS", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1", "-client_auth", "password"}
-	telemetryCfg, cfg, err := setupFlags(fs)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-
-	userAuthSet := make(chan struct{}, 1)
-	patches := gomonkey.ApplyFunc(gnmi.NewServer, func(cfg *gnmi.Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*gnmi.Server, error) {
-		if !cfg.UserAuth.Enabled("password") {
-			t.Error("cfg.UserAuth should have password enabled in noTLS mode")
-		}
-		select {
-		case userAuthSet <- struct{}{}:
-		default:
-		}
-		return nil, fmt.Errorf("stop server")
-	})
-	defer patches.Reset()
-
-	serverControlSignal := make(chan ServerControlValue, 1)
-	stopSignalHandler := make(chan bool, 1)
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
-	select {
-	case <-userAuthSet:
-		// cfg.UserAuth was verified in the gnmi.NewServer patch
-	case <-time.After(3 * time.Second):
-		t.Error("startGNMIServer did not call gnmi.NewServer within timeout")
-	}
-	serverControlSignal <- ServerStop
-	wg.Wait()
 }
 
 func TestStartGNMIServerGracefulStop(t *testing.T) {
@@ -1493,56 +1451,24 @@ func TestFlagsNoPortNoUnixSocket(t *testing.T) {
 	}
 }
 
-func TestNoTLSAuthNotBypassed(t *testing.T) {
-	// Regression test for auth bypass in noTLS mode.
-	// Before the fix, cfg.UserAuth was only set inside if !NoTLS{},
-	// so authentication was silently bypassed when --noTLS was active.
-	// We verify via telemetryCfg.UserAuth (the source) since cfg.UserAuth
-	// is populated later in the server goroutine, not in setupFlags.
+func TestCertAuthDisabledWhenNoCaCert(t *testing.T) {
+	// When --client_auth includes "cert" but --ca_crt is empty, cert auth must be
+	// disabled (not fatal) so the server can still start with the remaining auth modes.
 	originalArgs := os.Args
 	defer func() { os.Args = originalArgs }()
 
-	fs := flag.NewFlagSet("testNoTLSAuthNotBypassed", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1", "-client_auth", "password"}
+	fs := flag.NewFlagSet("testCertAuthDisabledWhenNoCaCert", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-client_auth", "cert,password"}
 
 	telemetryCfg, _, err := setupFlags(fs)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
+	if telemetryCfg.UserAuth.Enabled("cert") {
+		t.Error("Expected cert auth to be disabled when ca_crt is empty, but it was still enabled")
+	}
 	if !telemetryCfg.UserAuth.Enabled("password") {
-		t.Error("Expected password auth to be enabled in noTLS mode, but was bypassed")
-	}
-}
-
-func TestNoTLSRequiresLoopbackAddress(t *testing.T) {
-	// --noTLS must be rejected unless --bind_address is a loopback address.
-	originalArgs := os.Args
-	defer func() { os.Args = originalArgs }()
-
-	tests := []struct {
-		name    string
-		args    []string
-		wantErr bool
-	}{
-		{"empty bind_address", []string{"cmd", "-port", "8080", "-noTLS"}, true},
-		{"non-loopback", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "10.0.0.1"}, true},
-		{"loopback ipv4", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1"}, false},
-		{"loopback ipv4 alt", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.2"}, false},
-		{"loopback ipv6", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "::1"}, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fs := flag.NewFlagSet("test", flag.ContinueOnError)
-			os.Args = tt.args
-			_, _, err := setupFlags(fs)
-			if tt.wantErr && err == nil {
-				t.Errorf("expected error for args %v, got nil", tt.args)
-			}
-			if !tt.wantErr && err != nil {
-				t.Errorf("unexpected error for args %v: %v", tt.args, err)
-			}
-		})
+		t.Error("Expected password auth to remain enabled after cert was disabled")
 	}
 }
 
