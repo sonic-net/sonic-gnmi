@@ -388,3 +388,30 @@ func TestDPUProxy_StreamInterceptor_NonForwardableMethod(t *testing.T) {
 		t.Errorf("Expected Unimplemented code, got: %v", st.Code())
 	}
 }
+
+// TestAllForwardToDPUMethodsHaveHandlers validates that every method registered
+// as ForwardToDPU in defaultForwardableMethods has a corresponding forwarding
+// handler implemented.
+func TestAllForwardToDPUMethodsHaveHandlers(t *testing.T) {
+	unaryHandled := map[string]bool{
+		"/gnoi.system.System/Time": true,
+		"/gnoi.os.OS/Verify":       true,
+		"/gnoi.os.OS/Activate":     true,
+	}
+
+	streamHandled := map[string]bool{
+		"/gnoi.file.File/Put":            true,
+		"/gnoi.system.System/SetPackage": true,
+	}
+
+	for _, m := range defaultForwardableMethods {
+		if m.Mode != ForwardToDPU {
+			continue
+		}
+		if !unaryHandled[m.FullMethod] && !streamHandled[m.FullMethod] {
+			t.Errorf("ForwardToDPU method %s (%s) has no forwarding handler — "+
+				"add a case to UnaryInterceptor or forwardStream AND update this test",
+				m.FullMethod, m.Description)
+		}
+	}
+}
