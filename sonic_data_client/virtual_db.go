@@ -1344,47 +1344,71 @@ func v2rEniStats(paths []string) ([]tablePath, error) {
 	return tblPaths, nil
 }
 
-// v2rDashMeterByEniAndClass translates a specific ENI + metering class path to real Redis keys.
+// v2rDashMeterByEniAndClass translates ENI + metering class paths to real Redis keys.
 // Handles: [DPU_COUNTERS_DB DASH_METER <eni_name> <meter_class>]
+// and:     [DPU_COUNTERS_DB DASH_METER * <meter_class>] — specific class for all ENIs
 func v2rDashMeterByEniAndClass(paths []string) ([]tablePath, error) {
 	clearMappingsMu.RLock()
 	defer clearMappingsMu.RUnlock()
 
-	eniName := paths[KeyIdx]
 	meterClass := paths[FieldIdx]
 	namespace, _ := sdcfg.GetDbDefaultNamespace()
 	separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
-
-	eniOid, ok := countersEniNameMap[eniName]
-	if !ok {
-		return nil, fmt.Errorf("%v not a valid ENI name", eniName)
-	}
 
 	redisDb := Target2RedisDb[namespace][paths[DbIdx]]
 	if redisDb == nil {
 		return nil, fmt.Errorf("Redis client not available for %s", paths[DbIdx])
 	}
 
-	keys, err := getDashMeterKeys(redisDb, separator, eniOid, meterClass)
-	if err != nil {
-		return nil, err
-	}
-	if len(keys) == 0 {
-		return nil, fmt.Errorf("No DASH_METER entry found for ENI %v class %v", eniName, meterClass)
-	}
-
 	var tblPaths []tablePath
-	for _, k := range keys {
-		// tableKey is the JSON portion after "COUNTERS:"
-		tableKey := strings.TrimPrefix(k.fullKey, "COUNTERS"+separator)
-		tblPaths = append(tblPaths, tablePath{
-			dbNamespace:  namespace,
-			dbName:       paths[DbIdx],
-			tableName:    "COUNTERS",
-			tableKey:     tableKey,
-			delimitor:    separator,
-			jsonTableKey: meterClass,
-		})
+
+	if strings.HasSuffix(paths[KeyIdx], "*") { // All ENIs, specific meter class
+		keys, err := getDashMeterKeys(redisDb, separator, "", meterClass)
+		if err != nil {
+			return nil, err
+		}
+		for _, k := range keys {
+			eniName, ok := countersEniOidNameMap[k.eniOid]
+			if !ok {
+				log.V(2).Infof("Unknown ENI OID %v in DASH_METER key, skipping", k.eniOid)
+				continue
+			}
+			tableKey := strings.TrimPrefix(k.fullKey, "COUNTERS"+separator)
+			tblPaths = append(tblPaths, tablePath{
+				dbNamespace:  namespace,
+				dbName:       paths[DbIdx],
+				tableName:    "COUNTERS",
+				tableKey:     tableKey,
+				delimitor:    separator,
+				jsonTableKey: eniName + "/" + meterClass,
+			})
+		}
+	} else { // Specific ENI, specific meter class
+		eniName := paths[KeyIdx]
+		eniOid, ok := countersEniNameMap[eniName]
+		if !ok {
+			return nil, fmt.Errorf("%v not a valid ENI name", eniName)
+		}
+
+		keys, err := getDashMeterKeys(redisDb, separator, eniOid, meterClass)
+		if err != nil {
+			return nil, err
+		}
+		if len(keys) == 0 {
+			return nil, fmt.Errorf("No DASH_METER entry found for ENI %v class %v", eniName, meterClass)
+		}
+
+		for _, k := range keys {
+			tableKey := strings.TrimPrefix(k.fullKey, "COUNTERS"+separator)
+			tblPaths = append(tblPaths, tablePath{
+				dbNamespace:  namespace,
+				dbName:       paths[DbIdx],
+				tableName:    "COUNTERS",
+				tableKey:     tableKey,
+				delimitor:    separator,
+				jsonTableKey: meterClass,
+			})
+		}
 	}
 	log.V(6).Infof("v2rDashMeterByEniAndClass: %v", tblPaths)
 	return tblPaths, nil

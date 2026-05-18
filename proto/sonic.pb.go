@@ -22,9 +22,9 @@ const (
 	Target_COUNTERS_DB Target = 2
 	Target_CONFIG_DB   Target = 4
 	// PFC_WD_DB shares the the same db number with FLEX_COUNTER_DB
-	Target_PFC_WD_DB       Target = 5
-	Target_FLEX_COUNTER_DB Target = 5
-	Target_STATE_DB        Target = 6
+	Target_PFC_WD_DB        Target = 5
+	Target_FLEX_COUNTER_DB  Target = 5
+	Target_STATE_DB         Target = 6
 	Target_CHASSIS_STATE_DB Target = 13
 	Target_DPU_COUNTERS_DB  Target = 18
 	// For none-DB data
@@ -52,8 +52,8 @@ var Target_value = map[string]int32{
 	"FLEX_COUNTER_DB":  5,
 	"STATE_DB":         6,
 	"CHASSIS_STATE_DB": 13,
-	"DPU_COUNTERS_DB": 18,
-	"OTHERS":          100,
+	"DPU_COUNTERS_DB":  18,
+	"OTHERS":           100,
 }
 
 func (x Target) String() string {

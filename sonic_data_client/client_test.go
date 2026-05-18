@@ -2240,6 +2240,46 @@ func TestV2rDashMeterByEniAndClass(t *testing.T) {
 			t.Errorf("expected error when no matching meter class")
 		}
 	})
+
+	t.Run("Wildcard_ENI_Specific_Class", func(t *testing.T) {
+		// Add a second ENI with the same meter class and a different class key
+		countersEniNameMap["eni2"] = "oid:0xENI2"
+		countersEniOidNameMap["oid:0xENI2"] = "eni2"
+		dashKey2 := `COUNTERS:{"eni_id":"oid:0xENI2","meter_class":"100","switch_id":"oid:0xSW1"}`
+		dashKey3 := `COUNTERS:{"eni_id":"oid:0xENI2","meter_class":"200","switch_id":"oid:0xSW1"}`
+		rclient.HSet(context.Background(), dashKey2, "bytes", "2000", "packets", "20")
+		rclient.HSet(context.Background(), dashKey3, "bytes", "3000", "packets", "30")
+		defer rclient.Del(context.Background(), dashKey2)
+		defer rclient.Del(context.Background(), dashKey3)
+		defer func() {
+			delete(countersEniNameMap, "eni2")
+			delete(countersEniOidNameMap, "oid:0xENI2")
+		}()
+
+		paths := []string{"DPU_COUNTERS_DB", "DASH_METER", "*", "100"}
+		tblPaths, err := v2rDashMeterByEniAndClass(paths)
+		if err != nil {
+			t.Fatalf("v2rDashMeterByEniAndClass wildcard failed: %v", err)
+		}
+		if len(tblPaths) != 2 {
+			t.Fatalf("expected 2 tablePaths for wildcard ENI, got %d", len(tblPaths))
+		}
+		// Verify exact jsonTableKeys returned
+		keyFound := map[string]bool{}
+		for _, tp := range tblPaths {
+			if tp.tableName != "COUNTERS" {
+				t.Errorf("expected tableName COUNTERS, got %v", tp.tableName)
+			}
+			keyFound[tp.jsonTableKey] = true
+		}
+		if !keyFound["eni1/100"] || !keyFound["eni2/100"] {
+			t.Errorf("expected eni1/100 and eni2/100, got %v", keyFound)
+		}
+		// class 200 must not be returned when filtering for class 100
+		if keyFound["eni2/200"] {
+			t.Errorf("class 200 should not be returned when filtering for class 100")
+		}
+	})
 }
 
 func TestV2rDashMeterByEni(t *testing.T) {
