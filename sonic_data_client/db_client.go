@@ -686,7 +686,7 @@ func parsePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath)
 	if targetDbName == "DPU_COUNTERS_DB" {
 		err := initCountersEniNameMap()
 		if err != nil {
-			return err
+			log.Errorf("Could not create CountersEniNameMap: %v", err)
 		}
 	}
 
