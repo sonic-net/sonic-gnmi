@@ -2372,7 +2372,7 @@ func TestV2rDashMeterByEni(t *testing.T) {
 	})
 }
 
-func TestGetDpuCountersMap(t *testing.T) {
+func TestGetDpuCountersMapForDb(t *testing.T) {
 	cleanup := setupTestTarget2RedisDb(t)
 	defer cleanup()
 
@@ -2385,9 +2385,9 @@ func TestGetDpuCountersMap(t *testing.T) {
 	rclient.HSet(context.Background(), "COUNTERS_ENI_NAME_MAP", "eni1", "oid:0xENI1")
 	defer rclient.Del(context.Background(), "COUNTERS_ENI_NAME_MAP")
 
-	result, err := GetDpuCountersMap("COUNTERS_ENI_NAME_MAP")
+	result, err := GetCountersMapForDb("DPU_COUNTERS_DB", "COUNTERS_ENI_NAME_MAP")
 	if err != nil {
-		t.Fatalf("GetDpuCountersMap failed: %v", err)
+		t.Fatalf("GetCountersMapForDb for DPU_COUNTERS_DB failed: %v", err)
 	}
 	if result["eni1"] != "oid:0xENI1" {
 		t.Errorf("expected eni1->oid:0xENI1, got %v", result)
@@ -2476,6 +2476,27 @@ func TestInitCountersEniNameMap(t *testing.T) {
 		err := initCountersEniNameMap()
 		if err == nil {
 			t.Errorf("expected error when COUNTERS_ENI_NAME_MAP fails")
+		}
+	})
+
+	t.Run("Error_OidNameMap_NilsOutNameMap", func(t *testing.T) {
+		os.Setenv("UNIT_TEST", "1")
+		ClearMappings()
+		os.Unsetenv("UNIT_TEST")
+
+		getDpuCountersMapFn = func(tableName string) (map[string]string, error) {
+			if tableName == "COUNTERS_ENI_NAME_MAP" {
+				return map[string]string{"eni1": "oid:0xENI1"}, nil
+			}
+			return nil, fmt.Errorf("redis error on OID map")
+		}
+
+		err := initCountersEniNameMap()
+		if err == nil {
+			t.Errorf("expected error when COUNTERS_ENI_OID_NAME_MAP fails")
+		}
+		if countersEniNameMap != nil {
+			t.Errorf("expected countersEniNameMap to be nil after partial failure, got %v", countersEniNameMap)
 		}
 	})
 }

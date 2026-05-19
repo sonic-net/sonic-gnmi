@@ -150,7 +150,7 @@ var (
 	getAliasMapFn          = func() (map[string]string, map[string]string, map[string]string, error) { return GetAliasMap() }
 	getFabricCountersMapFn = func(t string) (map[string]string, error) { return GetFabricCountersMap(t) }
 	getPfcwdMapFn          = func() (map[string]map[string]string, error) { return GetPfcwdMap() }
-	getDpuCountersMapFn    = func(t string) (map[string]string, error) { return GetDpuCountersMap(t) }
+	getDpuCountersMapFn    = func(t string) (map[string]string, error) { return GetCountersMapForDb("DPU_COUNTERS_DB", t) }
 )
 
 func (t *Trie) v2rTriePopulate() {
@@ -318,6 +318,7 @@ func initCountersEniNameMap() error {
 		}
 		countersEniOidNameMap, err = getDpuCountersMapFn("COUNTERS_ENI_OID_NAME_MAP")
 		if err != nil {
+			countersEniNameMap = nil
 			initErr = err
 		}
 	})
@@ -484,22 +485,7 @@ func addmap(a map[string]string, b map[string]string) {
 // Get the mapping between objects in counters DB, Ex. port name to oid in "COUNTERS_PORT_NAME_MAP" table.
 // Aussuming static port name to oid map in COUNTERS table
 func GetCountersMap(tableName string) (map[string]string, error) {
-	counter_map := make(map[string]string)
-	dbName := "COUNTERS_DB"
-	redis_client_map, err := GetRedisClientsForDb(dbName)
-	if err != nil {
-		return nil, err
-	}
-	for namespace, redisDb := range redis_client_map {
-		fv, err := redisDb.HGetAll(context.Background(), tableName).Result()
-		if err != nil {
-			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, tableName: %s", namespace, tableName)
-			return nil, err
-		}
-		addmap(counter_map, fv)
-		log.V(6).Infof("tableName: %s in namespace %v, map %v", tableName, namespace, fv)
-	}
-	return counter_map, nil
+	return GetCountersMapForDb("COUNTERS_DB", tableName)
 }
 
 // Get the mapping between objects in counters DB, Ex. port name to oid in "COUNTERS_FABRIC_PORT_NAME_MAP" table.
@@ -552,11 +538,6 @@ func GetCountersMapForDb(dbName string, tableName string) (map[string]string, er
 		log.V(6).Infof("tableName: %s in namespace %v, map %v", tableName, namespace, fv)
 	}
 	return counter_map, nil
-}
-
-// GetDpuCountersMap retrieves a hash map from DPU_COUNTERS_DB.
-func GetDpuCountersMap(tableName string) (map[string]string, error) {
-	return GetCountersMapForDb("DPU_COUNTERS_DB", tableName)
 }
 
 // Populate real data paths from paths like
