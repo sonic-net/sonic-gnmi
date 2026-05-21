@@ -93,15 +93,27 @@ func HandleSetPackage(ctx context.Context, req *syspb.SetPackageRequest) (*syspb
 		return nil, status.Errorf(codes.InvalidArgument, "remote download is not supported, image must be local")
 	}
 
-	// Log the package details
-	log.V(1).Infof("Installing package: filename=%s, version=%s, activate=%v",
-		pkg.Package.Filename, pkg.Package.Version, pkg.Package.Activate)
-
 	// Validate filename is absolute path
 	if !filepath.IsAbs(pkg.Package.Filename) {
 		log.Errorf("Filename must be an absolute path: %s", pkg.Package.Filename)
 		return nil, status.Errorf(codes.InvalidArgument, "filename must be an absolute path")
 	}
+
+	// Resolve version: use provided version, or auto-resolve from image binary
+	version := pkg.Package.Version
+	if version == "" {
+		resolved, err := getBinaryVersion(ctx, pkg.Package.Filename)
+		if err != nil {
+			log.Errorf("Failed to resolve version from image %s: %v", pkg.Package.Filename, err)
+			return nil, status.Errorf(codes.Internal, "failed to resolve version from image: %v", err)
+		}
+		version = resolved
+		log.V(1).Infof("Auto-resolved version from image: %s", version)
+	}
+
+	// Log the package details
+	log.V(1).Infof("Installing package: filename=%s, version=%s, activate=%v",
+		pkg.Package.Filename, version, pkg.Package.Activate)
 
 	// Install the package using sonic-installer
 	if err := installPackage(ctx, pkg.Package.Filename); err != nil {
@@ -113,17 +125,6 @@ func HandleSetPackage(ctx context.Context, req *syspb.SetPackageRequest) (*syspb
 
 	// If activate is requested, set as next boot image
 	if pkg.Package.Activate {
-		version := pkg.Package.Version
-		if version == "" {
-			// Auto-resolve version from the image binary
-			resolved, err := getBinaryVersion(ctx, pkg.Package.Filename)
-			if err != nil {
-				log.Errorf("Failed to resolve version from image %s: %v", pkg.Package.Filename, err)
-				return nil, status.Errorf(codes.Internal, "failed to resolve version from image: %v", err)
-			}
-			version = resolved
-			log.V(1).Infof("Auto-resolved version from image: %s", version)
-		}
 		if err := activatePackage(ctx, version); err != nil {
 			log.Errorf("Failed to activate package %s: %v", version, err)
 			return nil, status.Errorf(codes.Internal, "failed to activate package: %v", err)
