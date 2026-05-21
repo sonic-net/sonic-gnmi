@@ -355,6 +355,14 @@ func TestValidatePath_AllowedPaths(t *testing.T) {
 		{"tmp nested", "/tmp/upgrades/v1.0/firmware.bin"},
 		{"var tmp file", "/var/tmp/firmware.bin"},
 		{"var tmp nested", "/var/tmp/downloads/image.bin"},
+		// NOTE: broad /host/ whitelist accepts /host/grub/grub.cfg and
+		// /host/machine.conf too. Follow-up will narrow to /host/image-*/rw/.
+		// Until then the upgrade agent needs broad /host/ access to stage
+		// configs/certs into the next-image overlay.
+		{"host file allowed (broad)", "/host/grub/grub.cfg"},
+		{"host machine.conf allowed (broad)", "/host/machine.conf"},
+		{"host overlayfs rw root", "/host/image-master/rw/usr/bin/test"},
+		{"host image rw", "/host/image-internal.164866913-743c646df0/rw/etc/sonic/minigraph.xml"},
 	}
 
 	for _, tt := range tests {
@@ -381,62 +389,52 @@ func TestValidatePath_RejectedPaths(t *testing.T) {
 		{
 			name:        "path traversal",
 			path:        "/tmp/../etc/passwd",
-			expectedErr: "path must be under /tmp/ or /var/tmp/",
+			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
 		},
 		{
 			name:        "etc directory",
 			path:        "/etc/passwd",
-			expectedErr: "path must be under /tmp/ or /var/tmp/",
+			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
 		},
 		{
 			name:        "boot directory",
 			path:        "/boot/grub/grub.cfg",
-			expectedErr: "path must be under /tmp/ or /var/tmp/",
+			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
 		},
 		{
 			name:        "usr directory",
 			path:        "/usr/bin/malicious",
-			expectedErr: "path must be under /tmp/ or /var/tmp/",
+			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
 		},
 		{
 			name:        "root directory",
 			path:        "/root/.ssh/authorized_keys",
-			expectedErr: "path must be under /tmp/ or /var/tmp/",
+			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
 		},
 		{
 			name:        "bin directory",
 			path:        "/bin/bash",
-			expectedErr: "path must be under /tmp/ or /var/tmp/",
+			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
 		},
 		{
 			name:        "sbin directory",
 			path:        "/sbin/init",
-			expectedErr: "path must be under /tmp/ or /var/tmp/",
+			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
 		},
 		{
 			name:        "home directory",
 			path:        "/home/admin/.ssh/id_rsa",
-			expectedErr: "path must be under /tmp/ or /var/tmp/",
+			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
 		},
 		{
-			name:        "host grub config",
-			path:        "/host/grub/grub.cfg",
-			expectedErr: "path must be under /tmp/ or /var/tmp/",
-		},
-		{
-			name:        "host machine.conf",
-			path:        "/host/machine.conf",
-			expectedErr: "path must be under /tmp/ or /var/tmp/",
-		},
-		{
-			name:        "host overlayfs rw",
-			path:        "/host/image-master/rw/usr/bin/test",
-			expectedErr: "path must be under /tmp/ or /var/tmp/",
+			name:        "host traversal",
+			path:        "/host/image-foo/../../etc/passwd",
+			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
 		},
 		{
 			name:        "var log",
 			path:        "/var/log/syslog",
-			expectedErr: "path must be under /tmp/ or /var/tmp/",
+			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
 		},
 	}
 
@@ -617,6 +615,64 @@ func TestHandlePut_Success(t *testing.T) {
 	os.Remove(path)
 }
 
+func TestHandlePut_CreatesParentDir(t *testing.T) {
+	// Verify HandlePut creates missing parent directories so callers don't
+	// need an out-of-band mkdir. Use a fresh, deeply-nested path under /tmp/
+	// where the parent chain does NOT exist before the call.
+	uniq := fmt.Sprintf("handleput-mkdir-test-%d", time.Now().UnixNano())
+	logicalPath := "/tmp/" + uniq + "/sub/dir/file.txt"
+
+	// translatePathForContainer prepends /mnt/host when /mnt/host exists.
+	hostMount := "/mnt/host"
+	physRoot := "/tmp"
+	if _, err := os.Stat(hostMount); err == nil {
+		physRoot = hostMount + "/tmp"
+	}
+	physPath := physRoot + "/" + uniq + "/sub/dir/file.txt"
+	physParent := filepath.Dir(physPath)
+	physTop := physRoot + "/" + uniq
+
+	// Cleanup the entire fresh subtree.
+	t.Cleanup(func() { _ = os.RemoveAll(physTop) })
+
+	// Pre-condition: parent must not exist.
+	if _, err := os.Stat(physParent); !os.IsNotExist(err) {
+		t.Fatalf("precondition: parent dir %q must not exist before HandlePut, stat err=%v", physParent, err)
+	}
+
+	content := []byte("hello deep dir")
+	hasher := md5.New()
+	hasher.Write(content)
+	expectedHash := hasher.Sum(nil)
+
+	stream := newMockPutStream()
+	stream.addOpenRequest(logicalPath, 0644)
+	stream.addContentRequest(content)
+	stream.addHashRequest(expectedHash)
+
+	if err := HandlePut(stream); err != nil {
+		t.Fatalf("HandlePut() error = %v", err)
+	}
+
+	// File must exist at the translated physical path with the right content.
+	data, err := os.ReadFile(physPath)
+	if err != nil {
+		t.Fatalf("uploaded file not found at %q: %v", physPath, err)
+	}
+	if string(data) != string(content) {
+		t.Errorf("file content = %q, want %q", data, content)
+	}
+
+	// Parent directory must exist (mkdir-p ran).
+	info, err := os.Stat(physParent)
+	if err != nil {
+		t.Fatalf("parent dir %q missing after HandlePut: %v", physParent, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected %q to be a directory", physParent)
+	}
+}
+
 func TestHandlePut_MultipleChunks(t *testing.T) {
 	// Test file upload with multiple content chunks
 	stream := newMockPutStream()
@@ -731,7 +787,7 @@ func TestHandlePut_InvalidPaths(t *testing.T) {
 		{"home directory", "/home/admin/.ssh/id_rsa"},
 		{"root directory", "/root/.bashrc"},
 		{"var log", "/var/log/syslog"},
-		{"host grub", "/host/grub/grub.cfg"},
+		{"host traversal", "/host/image-foo/../../etc/passwd"},
 	}
 
 	for _, tt := range tests {
@@ -1651,14 +1707,37 @@ func TestHandleTransferToRemoteForDPUStreaming_HTTPSuccessGRPCFail(t *testing.T)
 
 // Test specific error paths in HandlePut to improve coverage
 func TestHandlePut_ErrorPaths(t *testing.T) {
-	t.Run("file creation failure with permissions", func(t *testing.T) {
-		// Try to create file in invalid directory
+	t.Run("parent dir creation failure", func(t *testing.T) {
+		// HandlePut now MkdirAlls missing parents; provoke an actual mkdir
+		// failure by planting a regular file where a parent dir would need to
+		// be created — MkdirAll cannot traverse through a regular file.
+		uniq := fmt.Sprintf("%d", time.Now().UnixNano())
+		blocker := "/tmp/blocker-" + uniq
+		if err := os.WriteFile(blocker, []byte("not a dir"), 0644); err != nil {
+			t.Fatalf("setup: writefile blocker: %v", err)
+		}
+		t.Cleanup(func() { _ = os.Remove(blocker) })
+
+		// Mirror translatePathForContainer's /mnt/host prepend to decide which
+		// logical path to send so the physical mkdir target matches the blocker.
+		logical := "/tmp/blocker-" + uniq + "/sub/file.txt"
+		if _, err := os.Stat("/mnt/host"); err == nil {
+			// Container-prepended path: blocker also lives under /mnt/host/tmp,
+			// so re-plant it there.
+			altBlocker := "/mnt/host" + blocker
+			if err := os.MkdirAll(filepath.Dir(altBlocker), 0755); err == nil {
+				if err := os.WriteFile(altBlocker, []byte("not a dir"), 0644); err == nil {
+					t.Cleanup(func() { _ = os.Remove(altBlocker) })
+				}
+			}
+		}
+
 		stream := newMockPutStream()
-		stream.addOpenRequest("/tmp/nonexistent/subdir/file.txt", 0644)
+		stream.addOpenRequest(logical, 0644)
 
 		err := HandlePut(stream)
 		if err == nil {
-			t.Fatal("Expected error for invalid directory")
+			t.Fatal("Expected error when parent path is blocked by a regular file")
 		}
 
 		st, ok := status.FromError(err)

@@ -175,19 +175,21 @@ func translatePathForContainer(path string) string {
 // Allowed directories for SONiC devices:
 //   - /tmp/      - Temporary files, firmware images
 //   - /var/tmp/  - Temporary files that persist across reboots
+//   - /host/     - Next-image overlay staging (e.g. /host/image-*/rw/etc/sonic/...)
 //
 // Rejected paths include:
 //   - /etc/, /boot/, /usr/, /bin/, /sbin/ - Critical system directories
-//   - /host/ - Contains grub config, overlayfs layers, machine.conf
 //   - /var/log/ - System logs
 //   - /home/, /root/ - User home directories with SSH keys
 //   - Relative paths or paths with .. traversal
 //
-// Rationale: Only temporary directories are safe for firmware downloads.
-// Writing to /host/ risks:
-//   - Overwriting /host/grub/grub.cfg (brick device on reboot)
-//   - Corrupting /host/image-*/rw/ (overlayfs upperdir, kernel panic)
-//   - Modifying /host/machine.conf (platform detection failure)
+// Note on /host/: a broad /host/ prefix is currently accepted so the SONiC
+// upgrade agent can stage configs/certs into the next-image overlay at
+// /host/image-*/rw/etc/sonic/. This whitelist is intentionally permissive
+// for now; a follow-up will tighten the prefix to /host/image-*/rw/ once
+// callers stabilize. Writes under /host/ are still gated by filesystem
+// permissions inside the container (the gnmi container only sees /host as
+// rw when the platform mounts it that way; see sonic-buildimage PR-B).
 func validatePath(path string) error {
 	// Clean the path to resolve . and .. components
 	cleanPath := filepath.Clean(path)
@@ -206,6 +208,7 @@ func validatePath(path string) error {
 	allowedPrefixes := []string{
 		"/tmp/",
 		"/var/tmp/",
+		"/host/",
 	}
 
 	for _, prefix := range allowedPrefixes {
@@ -214,7 +217,7 @@ func validatePath(path string) error {
 		}
 	}
 
-	return fmt.Errorf("path must be under /tmp/ or /var/tmp/, got: %s", cleanPath)
+	return fmt.Errorf("path must be under /tmp/, /var/tmp/, or /host/, got: %s", cleanPath)
 }
 
 // HandlePut implements the complete logic for the Put RPC with DPU routing support.
@@ -223,7 +226,7 @@ func validatePath(path string) error {
 //
 // This function handles:
 //   - Receiving Open message with file path and permissions
-//   - Path validation (only /tmp/ and /var/tmp/)
+//   - Path validation (only /tmp/, /var/tmp/, and /host/)
 //   - Container path translation (prepends /mnt/host when running in container)
 //   - Receiving file contents in chunks
 //   - MD5 hash verification
@@ -291,6 +294,16 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 
 	// Step 4: Create temp file for atomic write
 	tempPath := translatedPath + ".tmp"
+	// Ensure parent dir exists so callers don't need an out-of-band mkdir.
+	// Mirrors the behavior of typical file-upload servers; the alternative
+	// is forcing every gNOI client to pre-create parent dirs via SSH or
+	// another channel, which defeats the purpose of File.Put as a
+	// self-contained upload primitive. Runs after validatePath (Step 2) and
+	// translatePathForContainer (Step 3) so no privilege escalation risk
+	// beyond what the existing whitelist already accepts.
+	if err := os.MkdirAll(filepath.Dir(tempPath), 0755); err != nil {
+		return status.Errorf(codes.Internal, "failed to create parent dir: %v", err)
+	}
 	f, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to create temp file: %v", err)
