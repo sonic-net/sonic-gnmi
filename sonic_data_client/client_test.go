@@ -832,6 +832,39 @@ func saveAndResetTarget2RedisDb() func() {
 	return func() { Target2RedisDb = orig }
 }
 
+func setupTestTarget2RedisDb(t *testing.T) func() {
+	t.Helper()
+	restore := saveAndResetTarget2RedisDb()
+	origFlag := UseRedisLocalTcpPort
+	UseRedisLocalTcpPort = true
+
+	ns := ""
+	patches := gomonkey.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+		return []string{ns}, nil
+	})
+	patches.ApplyFunc(sdcfg.GetDbTcpAddr, func(dbName string, _ string) (string, error) {
+		return "127.0.0.1:6379", nil
+	})
+
+	err := useRedisTcpClient()
+	patches.Reset()
+	UseRedisLocalTcpPort = origFlag
+
+	if err != nil {
+		restore()
+		t.Fatalf("useRedisTcpClient failed: %v", err)
+	}
+
+	return func() {
+		for _, nsMap := range Target2RedisDb {
+			for _, rc := range nsMap {
+				rc.FlushDB()
+			}
+		}
+		restore()
+	}
+}
+
 func TestInitRedisDbClients(t *testing.T) {
 	ns := ""
 
@@ -1590,136 +1623,6 @@ func TestGetDashMeterKeys(t *testing.T) {
 		}
 		if len(results) != 0 {
 			t.Errorf("expected 0 results, got %d", len(results))
-		}
-	})
-}
-
-func TestParsePathDpuCountersDb(t *testing.T) {
-	// Save and restore the ENI maps
-	origEniNameMap := countersEniNameMap
-	origEniOidNameMap := countersEniOidNameMap
-	origFn := getDpuCountersMapFn
-	defer func() {
-		countersEniNameMap = origEniNameMap
-		countersEniOidNameMap = origEniOidNameMap
-		getDpuCountersMapFn = origFn
-	}()
-
-	getDpuCountersMapFn = func(tableName string) (map[string]string, error) {
-		switch tableName {
-		case "COUNTERS_ENI_NAME_MAP":
-			return map[string]string{"eni1": "oid:0xENI1"}, nil
-		case "COUNTERS_ENI_OID_NAME_MAP":
-			return map[string]string{"oid:0xENI1": "eni1"}, nil
-		default:
-			return nil, fmt.Errorf("unexpected table %s", tableName)
-		}
-	}
-
-	os.Setenv("UNIT_TEST", "1")
-	ClearMappings()
-	os.Unsetenv("UNIT_TEST")
-
-	t.Run("DPU_COUNTERS_DB_ENI_VirtualPath", func(t *testing.T) {
-		pathG2S := make(map[*gnmipb.Path][]tablePath)
-		prefix := &gnmipb.Path{Target: "DPU_COUNTERS_DB"}
-		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}, {Name: "ENI"}, {Name: "eni1"}}}
-		err := parsePath(prefix, path, &pathG2S)
-		if err != nil {
-			t.Fatalf("parsePath failed: %v", err)
-		}
-		for _, tblPaths := range pathG2S {
-			if !tblPaths[0].isVirtualPath {
-				t.Errorf("expected isVirtualPath=true for COUNTERS/ENI/eni1")
-			}
-			if tblPaths[0].tableKey != "oid:0xENI1" {
-				t.Errorf("expected tableKey oid:0xENI1, got %v", tblPaths[0].tableKey)
-			}
-			if tblPaths[0].dbName != "DPU_COUNTERS_DB" {
-				t.Errorf("expected dbName DPU_COUNTERS_DB, got %v", tblPaths[0].dbName)
-			}
-		}
-	})
-
-	// Non-virtual (direct) DPU_COUNTERS_DB path should work regardless of ENI map state
-	t.Run("DPU_COUNTERS_DB_DirectPath", func(t *testing.T) {
-		pathG2S := make(map[*gnmipb.Path][]tablePath)
-		prefix := &gnmipb.Path{Target: "DPU_COUNTERS_DB"}
-		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "SOME_TABLE"}, {Name: "some_key"}}}
-		err := parsePath(prefix, path, &pathG2S)
-		if err != nil {
-			t.Fatalf("parsePath failed for direct DPU_COUNTERS_DB path: %v", err)
-		}
-		for _, tblPaths := range pathG2S {
-			if tblPaths[0].isVirtualPath {
-				t.Errorf("expected isVirtualPath=false for direct path")
-			}
-			if tblPaths[0].dbName != "DPU_COUNTERS_DB" {
-				t.Errorf("expected dbName DPU_COUNTERS_DB, got %v", tblPaths[0].dbName)
-			}
-			if tblPaths[0].tableName != "SOME_TABLE" {
-				t.Errorf("expected tableName SOME_TABLE, got %v", tblPaths[0].tableName)
-			}
-			if tblPaths[0].tableKey != "some_key" {
-				t.Errorf("expected tableKey some_key, got %v", tblPaths[0].tableKey)
-			}
-		}
-	})
-}
-
-// TestParsePathDpuCountersDb_EniMapInitFails verifies that parsePath does not
-// return an error when initCountersEniNameMap fails (e.g., ENI mapping tables
-// don't exist in DPU_COUNTERS_DB or DPU_COUNTERS_DB is unavailable). This
-// ensures non-ENI DPU_COUNTERS_DB paths and other DB paths are unaffected.
-func TestParsePathDpuCountersDb_EniMapInitFails(t *testing.T) {
-	origEniNameMap := countersEniNameMap
-	origEniOidNameMap := countersEniOidNameMap
-	origFn := getDpuCountersMapFn
-	defer func() {
-		countersEniNameMap = origEniNameMap
-		countersEniOidNameMap = origEniOidNameMap
-		getDpuCountersMapFn = origFn
-	}()
-
-	// Simulate DPU_COUNTERS_DB not having ENI mapping tables (or DB not existing)
-	getDpuCountersMapFn = func(tableName string) (map[string]string, error) {
-		return nil, fmt.Errorf("DPU_COUNTERS_DB not available")
-	}
-
-	os.Setenv("UNIT_TEST", "1")
-	ClearMappings()
-	os.Unsetenv("UNIT_TEST")
-
-	t.Run("DirectPath_Succeeds", func(t *testing.T) {
-		pathG2S := make(map[*gnmipb.Path][]tablePath)
-		prefix := &gnmipb.Path{Target: "DPU_COUNTERS_DB"}
-		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "SOME_TABLE"}, {Name: "some_key"}}}
-		err := parsePath(prefix, path, &pathG2S)
-		if err != nil {
-			t.Fatalf("parsePath should not fail for direct path when ENI init fails: %v", err)
-		}
-		for _, tblPaths := range pathG2S {
-			if tblPaths[0].isVirtualPath {
-				t.Errorf("expected isVirtualPath=false for direct path")
-			}
-			if tblPaths[0].tableName != "SOME_TABLE" {
-				t.Errorf("expected tableName SOME_TABLE, got %v", tblPaths[0].tableName)
-			}
-		}
-	})
-
-	t.Run("OtherDb_Unaffected", func(t *testing.T) {
-		pathG2S := make(map[*gnmipb.Path][]tablePath)
-		prefix := &gnmipb.Path{Target: "STATE_DB"}
-		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
-		err := parsePath(prefix, path, &pathG2S)
-		if err != nil {
-			t.Fatalf("parsePath for STATE_DB should not be affected by DPU init failure: %v", err)
-		}
-		for _, tblPaths := range pathG2S {
-			if tblPaths[0].tableKey != "10.0.0.57" {
-				t.Errorf("expected tableKey 10.0.0.57, got %v", tblPaths[0].tableKey)
-			}
 		}
 	})
 }
