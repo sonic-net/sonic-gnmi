@@ -52,22 +52,22 @@ func TestHandleSetPackage_ActivateWithAutoResolvedVersion(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock exec.RunHostCommand to handle install, binary_version, and set-default
+	// Mock exec.RunHostCommand to handle binary_version, install, and set-default
 	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
 		if cmd == "sonic-installer" {
-			if len(args) >= 1 && args[0] == "install" {
-				return &exec.CommandResult{
-					Stdout:   "Installation completed successfully",
-					ExitCode: 0,
-				}, nil
-			}
 			if len(args) >= 1 && args[0] == "binary_version" {
 				return &exec.CommandResult{
 					Stdout:   "SONiC-OS-4.2.0-Enterprise\n",
 					ExitCode: 0,
 				}, nil
 			}
-			if len(args) >= 1 && args[0] == "set-default" {
+			if len(args) >= 1 && args[0] == "install" {
+				return &exec.CommandResult{
+					Stdout:   "Installation completed successfully",
+					ExitCode: 0,
+				}, nil
+			}
+			if len(args) >= 2 && args[0] == "set-default" {
 				if args[1] != "SONiC-OS-4.2.0-Enterprise" {
 					return nil, fmt.Errorf("unexpected version: %s", args[1])
 				}
@@ -85,7 +85,7 @@ func TestHandleSetPackage_ActivateWithAutoResolvedVersion(t *testing.T) {
 		Request: &syspb.SetPackageRequest_Package{
 			Package: &syspb.Package{
 				Filename: "/tmp/test-image.bin",
-				Version:  "", // Empty! Should auto-resolve
+				Version:  "", // Empty! Should auto-resolve before install
 				Activate: true,
 			},
 		},
@@ -104,20 +104,12 @@ func TestHandleSetPackage_AutoResolveVersionFails(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock: install succeeds, binary_version fails
+	// Mock: binary_version fails — should reject before install
 	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
-		if cmd == "sonic-installer" {
-			if len(args) >= 1 && args[0] == "install" {
-				return &exec.CommandResult{
-					Stdout:   "Installation completed successfully",
-					ExitCode: 0,
-				}, nil
-			}
-			if len(args) >= 1 && args[0] == "binary_version" {
-				return nil, fmt.Errorf("binary_version command failed")
-			}
+		if cmd == "sonic-installer" && len(args) >= 1 && args[0] == "binary_version" {
+			return nil, fmt.Errorf("binary_version command failed")
 		}
-		return nil, fmt.Errorf("unexpected command: %s %v", cmd, args)
+		return nil, fmt.Errorf("unexpected command (install should not be called): %s %v", cmd, args)
 	})
 
 	ctx := context.Background()
@@ -137,6 +129,52 @@ func TestHandleSetPackage_AutoResolveVersionFails(t *testing.T) {
 	}
 	if !containsSubstring(err.Error(), "failed to resolve version from image") {
 		t.Errorf("HandleSetPackage() error = %v, should contain 'failed to resolve version from image'", err)
+	}
+}
+
+func TestHandleSetPackage_EmptyVersionNoActivate(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	// Mock: binary_version and install succeed, set-default should NOT be called
+	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
+		if cmd == "sonic-installer" {
+			if len(args) >= 1 && args[0] == "binary_version" {
+				return &exec.CommandResult{
+					Stdout:   "SONiC-OS-4.2.0-Enterprise\n",
+					ExitCode: 0,
+				}, nil
+			}
+			if len(args) >= 1 && args[0] == "install" {
+				return &exec.CommandResult{
+					Stdout:   "Installation completed successfully",
+					ExitCode: 0,
+				}, nil
+			}
+			if len(args) >= 1 && args[0] == "set-default" {
+				return nil, fmt.Errorf("set-default should not be called when activate=false")
+			}
+		}
+		return nil, fmt.Errorf("unexpected command: %s %v", cmd, args)
+	})
+
+	ctx := context.Background()
+	req := &syspb.SetPackageRequest{
+		Request: &syspb.SetPackageRequest_Package{
+			Package: &syspb.Package{
+				Filename: "/tmp/test-image.bin",
+				Version:  "",
+				Activate: false,
+			},
+		},
+	}
+
+	resp, err := HandleSetPackage(ctx, req)
+	if err != nil {
+		t.Fatalf("HandleSetPackage() returned error: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("HandleSetPackage() returned nil response")
 	}
 }
 

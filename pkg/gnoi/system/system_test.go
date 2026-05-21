@@ -41,7 +41,7 @@ func TestHandleSetPackageValidation(t *testing.T) {
 			errMsg:  "filename is missing",
 		},
 		{
-			name: "missing version - no longer fails validation, auto-resolved from image",
+			name: "empty version - resolved from image before install",
 			req: &syspb.SetPackageRequest{
 				Request: &syspb.SetPackageRequest_Package{
 					Package: &syspb.Package{
@@ -50,7 +50,7 @@ func TestHandleSetPackageValidation(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false, // Version is now auto-resolved; validation no longer rejects this
+			wantErr: false, // Version is auto-resolved from image; no longer rejected
 		},
 		{
 			name: "remote download not supported",
