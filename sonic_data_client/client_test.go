@@ -1337,6 +1337,37 @@ func TestV2rDashMeterByEniAndClass(t *testing.T) {
 			t.Errorf("class 200 should not be returned when filtering for class 100")
 		}
 	})
+
+	t.Run("Nil_RedisClient", func(t *testing.T) {
+		// Temporarily remove DPU_COUNTERS_DB from Target2RedisDb
+		ns := ""
+		origNs := Target2RedisDb[ns]
+		Target2RedisDb[ns] = map[string]*redis.Client{}
+		defer func() { Target2RedisDb[ns] = origNs }()
+
+		paths := []string{"DPU_COUNTERS_DB", "DASH_METER", "eni1", "100"}
+		_, err := v2rDashMeterByEniAndClass(paths)
+		if err == nil {
+			t.Errorf("expected error when Redis client is nil")
+		}
+	})
+
+	t.Run("Wildcard_Unknown_ENI_OID", func(t *testing.T) {
+		// Insert a DASH_METER key with an OID not in countersEniOidNameMap
+		unknownKey := `COUNTERS:{"eni_id":"oid:0xUNKNOWN","meter_class":"100","switch_id":"oid:0xSW1"}`
+		rclient.HSet(unknownKey, "bytes", "999")
+		defer rclient.Del(unknownKey)
+
+		paths := []string{"DPU_COUNTERS_DB", "DASH_METER", "*", "100"}
+		tblPaths, err := v2rDashMeterByEniAndClass(paths)
+		if err != nil {
+			t.Fatalf("v2rDashMeterByEniAndClass wildcard failed: %v", err)
+		}
+		// Only eni1 should be returned; unknown OID should be skipped
+		if len(tblPaths) != 1 {
+			t.Fatalf("expected 1 tablePath (unknown OID skipped), got %d", len(tblPaths))
+		}
+	})
 }
 
 func TestV2rDashMeterByEni(t *testing.T) {
@@ -1425,6 +1456,37 @@ func TestV2rDashMeterByEni(t *testing.T) {
 		_, err := v2rDashMeterByEni(paths)
 		if err == nil {
 			t.Errorf("expected error for invalid ENI name")
+		}
+	})
+
+	t.Run("Nil_RedisClient", func(t *testing.T) {
+		// Temporarily remove DPU_COUNTERS_DB from Target2RedisDb
+		origNs := Target2RedisDb[ns]
+		Target2RedisDb[ns] = map[string]*redis.Client{}
+		defer func() { Target2RedisDb[ns] = origNs }()
+
+		paths := []string{"DPU_COUNTERS_DB", "DASH_METER", "eni1"}
+		_, err := v2rDashMeterByEni(paths)
+		if err == nil {
+			t.Errorf("expected error when Redis client is nil")
+		}
+	})
+
+	t.Run("Wildcard_Unknown_ENI_OID", func(t *testing.T) {
+		// Insert a key with an OID not in countersEniOidNameMap
+		unknownKey := `COUNTERS:{"eni_id":"oid:0xUNKNOWN","meter_class":"300","switch_id":"oid:0xSW1"}`
+		rclient.HSet(unknownKey, "bytes", "999")
+		defer rclient.Del(unknownKey)
+
+		paths := []string{"DPU_COUNTERS_DB", "DASH_METER", "*"}
+		tblPaths, err := v2rDashMeterByEni(paths)
+		if err != nil {
+			t.Fatalf("v2rDashMeterByEni wildcard failed: %v", err)
+		}
+		// Only 3 valid results (eni1 class 100, eni1 class 200, eni2 class 100);
+		// unknown OID key should be skipped
+		if len(tblPaths) != 3 {
+			t.Fatalf("expected 3 tablePaths (unknown OID skipped), got %d", len(tblPaths))
 		}
 	})
 }
@@ -1623,6 +1685,22 @@ func TestGetDashMeterKeys(t *testing.T) {
 		}
 		if len(results) != 0 {
 			t.Errorf("expected 0 results, got %d", len(results))
+		}
+	})
+
+	t.Run("Malformed_JSON_Key", func(t *testing.T) {
+		// Insert a key with invalid JSON that starts with '{' — should be skipped
+		badKey := "COUNTERS:{not valid json"
+		rclient.HSet(badKey, "foo", "bar")
+		defer rclient.Del(badKey)
+
+		results, err := getDashMeterKeys(rclient, ":", "", "")
+		if err != nil {
+			t.Fatalf("getDashMeterKeys failed: %v", err)
+		}
+		// Should still return 2 valid keys, skipping the malformed one
+		if len(results) != 2 {
+			t.Fatalf("expected 2 results (malformed JSON skipped), got %d", len(results))
 		}
 	})
 }
