@@ -160,6 +160,103 @@ func buildNsenterArgs(opts *RunHostCommandOptions, command string, args []string
 	return nsenterArgs
 }
 
+// AsyncCommandHandle represents a handle to a running asynchronous command.
+// The underlying process is decoupled from any caller context so it will
+// continue running even if the originating gRPC stream is cancelled.
+type AsyncCommandHandle struct {
+	done   chan struct{}
+	result *CommandResult
+}
+
+// Wait blocks until the command completes and returns the result.
+func (h *AsyncCommandHandle) Wait() *CommandResult {
+	<-h.done
+	return h.result
+}
+
+// Done returns a channel that is closed when the command completes.
+func (h *AsyncCommandHandle) Done() <-chan struct{} {
+	return h.done
+}
+
+// RunHostCommandAsync starts a command on the host using nsenter, but unlike
+// RunHostCommand the process is NOT tied to any caller-supplied context.
+// This is critical for long-running operations (e.g. sonic-installer) that
+// must survive gRPC client disconnects.
+//
+// The Timeout field in opts is still honoured via an internal background
+// context. If Timeout is zero the defaultTimeout is used.
+func RunHostCommandAsync(command string, args []string, opts *RunHostCommandOptions) (*AsyncCommandHandle, error) {
+	if command == "" {
+		return nil, fmt.Errorf("command cannot be empty")
+	}
+
+	if opts == nil {
+		opts = &RunHostCommandOptions{}
+	}
+
+	timeout := opts.Timeout
+	if timeout == 0 {
+		timeout = defaultTimeout
+	}
+
+	// Use a background context so the process is never killed by the
+	// caller's context cancellation (e.g. gRPC stream teardown).
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+
+	nsenterArgs := buildNsenterArgs(opts, command, args)
+	cmd := exec.CommandContext(ctx, "nsenter", nsenterArgs...)
+
+	if opts.WorkingDir != "" {
+		cmd.Dir = opts.WorkingDir
+	}
+	if len(opts.Environment) > 0 {
+		cmd.Env = append(cmd.Env, opts.Environment...)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to start command: %v", err)
+	}
+
+	handle := &AsyncCommandHandle{
+		done: make(chan struct{}),
+	}
+
+	go func() {
+		defer cancel()
+		defer close(handle.done)
+
+		err := cmd.Wait()
+		result := &CommandResult{
+			Stdout: stdout.String(),
+			Stderr: stderr.String(),
+			Error:  err,
+		}
+		if exitError, ok := err.(*exec.ExitError); ok {
+			result.ExitCode = exitError.ExitCode()
+		}
+		handle.result = result
+	}()
+
+	return handle, nil
+}
+
+// NewCompletedAsyncHandle creates an AsyncCommandHandle that is already
+// completed with the given result. This is useful for testing.
+func NewCompletedAsyncHandle(result *CommandResult) *AsyncCommandHandle {
+	h := &AsyncCommandHandle{
+		done:   make(chan struct{}),
+		result: result,
+	}
+	close(h.done)
+	return h
+}
+
 // IsNsenterAvailable checks if nsenter is available in the system
 func IsNsenterAvailable() bool {
 	cmd := exec.Command("which", "nsenter")

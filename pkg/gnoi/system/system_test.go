@@ -133,16 +133,14 @@ func TestHandleSetPackageValidation(t *testing.T) {
 }
 
 func TestInstallPackageValidation(t *testing.T) {
-	ctx := context.Background()
-
 	// Test empty filename
-	err := installPackage(ctx, "")
+	err := installPackage("")
 	if err == nil {
 		t.Error("installPackage() with empty filename should fail")
 	}
 
 	// Test with non-existent file (will fail but tests the command execution path)
-	err = installPackage(ctx, "/nonexistent/path/image.bin")
+	err = installPackage("/nonexistent/path/image.bin")
 	if err == nil {
 		t.Error("installPackage() with non-existent file should fail")
 	}
@@ -150,16 +148,14 @@ func TestInstallPackageValidation(t *testing.T) {
 }
 
 func TestActivatePackageValidation(t *testing.T) {
-	ctx := context.Background()
-
 	// Test empty version
-	err := activatePackage(ctx, "")
+	err := activatePackage("")
 	if err == nil {
 		t.Error("activatePackage() with empty version should fail")
 	}
 
 	// Test with non-existent version (will fail but tests the command execution path)
-	err = activatePackage(ctx, "non-existent-version")
+	err = activatePackage("non-existent-version")
 	if err == nil {
 		t.Error("activatePackage() with non-existent version should fail")
 	}

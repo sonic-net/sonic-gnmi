@@ -312,6 +312,100 @@ func TestParseCommand(t *testing.T) {
 	}
 }
 
+func TestRunHostCommandAsync(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("nsenter tests can only run on Linux")
+	}
+	if !IsNsenterAvailable() {
+		t.Skip("nsenter is not available on this system")
+	}
+
+	testResult, _ := RunHostCommand(context.Background(), "true", nil, nil)
+	if testResult != nil && testResult.Error != nil && strings.Contains(testResult.Stderr, "Permission denied") {
+		t.Skip("Insufficient permissions to run nsenter tests")
+	}
+
+	t.Run("empty command", func(t *testing.T) {
+		_, err := RunHostCommandAsync("", nil, nil)
+		if err == nil {
+			t.Error("RunHostCommandAsync() with empty command should return error")
+		}
+	})
+
+	t.Run("simple echo", func(t *testing.T) {
+		handle, err := RunHostCommandAsync("echo", []string{"async-test"}, &RunHostCommandOptions{
+			Timeout: 5 * time.Second,
+		})
+		if err != nil {
+			t.Fatalf("RunHostCommandAsync() failed to start: %v", err)
+		}
+
+		result := handle.Wait()
+		if result.Error != nil {
+			t.Errorf("command failed: %v", result.Error)
+		}
+		if !strings.Contains(result.Stdout, "async-test") {
+			t.Errorf("expected stdout to contain 'async-test', got %q", result.Stdout)
+		}
+	})
+
+	t.Run("done channel closes on completion", func(t *testing.T) {
+		handle, err := RunHostCommandAsync("true", nil, &RunHostCommandOptions{
+			Timeout: 5 * time.Second,
+		})
+		if err != nil {
+			t.Fatalf("RunHostCommandAsync() failed to start: %v", err)
+		}
+
+		select {
+		case <-handle.Done():
+			// expected
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for Done() channel")
+		}
+
+		result := handle.Wait()
+		if result.ExitCode != 0 {
+			t.Errorf("expected exit code 0, got %d", result.ExitCode)
+		}
+	})
+
+	t.Run("captures non-zero exit code", func(t *testing.T) {
+		handle, err := RunHostCommandAsync("false", nil, &RunHostCommandOptions{
+			Timeout: 5 * time.Second,
+		})
+		if err != nil {
+			t.Fatalf("RunHostCommandAsync() failed to start: %v", err)
+		}
+
+		result := handle.Wait()
+		if result.ExitCode == 0 {
+			t.Error("expected non-zero exit code for 'false' command")
+		}
+	})
+}
+
+func TestNewCompletedAsyncHandle(t *testing.T) {
+	expected := &CommandResult{
+		Stdout:   "test output",
+		ExitCode: 0,
+	}
+	handle := NewCompletedAsyncHandle(expected)
+
+	// Done channel should already be closed
+	select {
+	case <-handle.Done():
+		// expected
+	default:
+		t.Fatal("Done() channel should be closed for completed handle")
+	}
+
+	result := handle.Wait()
+	if result != expected {
+		t.Error("Wait() should return the provided result")
+	}
+}
+
 func TestIsNsenterAvailable(t *testing.T) {
 	// This test just verifies the function runs without error
 	// The actual result depends on the system

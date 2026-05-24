@@ -107,8 +107,8 @@ func HandleSetPackage(ctx context.Context, req *syspb.SetPackageRequest) (*syspb
 		return nil, status.Errorf(codes.InvalidArgument, "filename must be an absolute path")
 	}
 
-	// Install the package using sonic-installer
-	if err := installPackage(ctx, pkg.Package.Filename); err != nil {
+	// Install the package using sonic-installer (async, survives gRPC disconnect)
+	if err := installPackage(pkg.Package.Filename); err != nil {
 		log.Errorf("Failed to install package %s: %v", pkg.Package.Filename, err)
 		return nil, status.Errorf(codes.Internal, "failed to install package: %v", err)
 	}
@@ -117,7 +117,7 @@ func HandleSetPackage(ctx context.Context, req *syspb.SetPackageRequest) (*syspb
 
 	// If activate is requested, set as next boot image
 	if pkg.Package.Activate {
-		if err := activatePackage(ctx, pkg.Package.Version); err != nil {
+		if err := activatePackage(pkg.Package.Version); err != nil {
 			log.Errorf("Failed to activate package %s: %v", pkg.Package.Version, err)
 			return nil, status.Errorf(codes.Internal, "failed to activate package: %v", err)
 		}
@@ -128,7 +128,9 @@ func HandleSetPackage(ctx context.Context, req *syspb.SetPackageRequest) (*syspb
 }
 
 // installPackage installs a SONiC image using sonic-installer install command.
-func installPackage(ctx context.Context, filename string) error {
+// The command is started asynchronously and decoupled from any caller context
+// so that it survives gRPC client disconnects.
+func installPackage(filename string) error {
 	log.V(1).Infof("Installing package: %s", filename)
 
 	// Execute sonic-installer install command with -y flag for non-interactive installation
@@ -136,11 +138,12 @@ func installPackage(ctx context.Context, filename string) error {
 	opts := &exec.RunHostCommandOptions{
 		Timeout: 10 * time.Minute, // Allow up to 10 minutes for installation
 	}
-	result, err := exec.RunHostCommand(ctx, "sonic-installer", []string{"install", "-y", filename}, opts)
+	handle, err := exec.RunHostCommandAsync("sonic-installer", []string{"install", "-y", filename}, opts)
 	if err != nil {
-		return fmt.Errorf("failed to run sonic-installer install: %v", err)
+		return fmt.Errorf("failed to start sonic-installer install: %v", err)
 	}
 
+	result := handle.Wait()
 	if result.Error != nil {
 		return fmt.Errorf("sonic-installer install failed with exit code %d: %s",
 			result.ExitCode, result.Stderr)
@@ -151,7 +154,8 @@ func installPackage(ctx context.Context, filename string) error {
 }
 
 // activatePackage sets a SONiC image as the next boot image using sonic-installer set-default.
-func activatePackage(ctx context.Context, version string) error {
+// Like installPackage, the command is decoupled from any caller context.
+func activatePackage(version string) error {
 	log.V(1).Infof("Activating package version: %s", version)
 
 	// Execute sonic-installer set-default command
@@ -159,11 +163,12 @@ func activatePackage(ctx context.Context, version string) error {
 	opts := &exec.RunHostCommandOptions{
 		Timeout: 2 * time.Minute, // Allow up to 2 minutes for setting default
 	}
-	result, err := exec.RunHostCommand(ctx, "sonic-installer", []string{"set-default", version}, opts)
+	handle, err := exec.RunHostCommandAsync("sonic-installer", []string{"set-default", version}, opts)
 	if err != nil {
-		return fmt.Errorf("failed to run sonic-installer set-default: %v", err)
+		return fmt.Errorf("failed to start sonic-installer set-default: %v", err)
 	}
 
+	result := handle.Wait()
 	if result.Error != nil {
 		return fmt.Errorf("sonic-installer set-default failed with exit code %d: %s",
 			result.ExitCode, result.Stderr)
