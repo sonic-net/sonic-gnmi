@@ -872,6 +872,53 @@ func TestInitRedisDbClients(t *testing.T) {
 		}
 	})
 
+	t.Run("SkipUnconfiguredDbWithoutGetDbSock", func(t *testing.T) {
+		defer saveAndResetTarget2RedisDb()()
+
+		const skippedDb = "CHASSIS_STATE_DB"
+		configuredDbs := []string{"CONFIG_DB", "APPL_DB", "STATE_DB"}
+		getDbSockCalls := 0
+		getDbSockCalledForSkipped := false
+
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+			return []string{ns}, nil
+		})
+		defer patches.Reset()
+
+		patches.ApplyFunc(sdcfg.GetDbList, func(_ string) ([]string, error) {
+			return configuredDbs, nil
+		})
+
+		patches.ApplyFunc(sdcfg.GetDbSock, func(dbName string, _ string) (string, error) {
+			getDbSockCalls++
+			if dbName == skippedDb {
+				getDbSockCalledForSkipped = true
+			}
+			return "/var/run/redis/redis.sock", nil
+		})
+
+		initRedisDbClients()
+
+		nsMap, ok := Target2RedisDb[ns]
+		if !ok {
+			t.Fatal("Expected namespace to exist in Target2RedisDb")
+		}
+		if _, exists := nsMap[skippedDb]; exists {
+			t.Errorf("%s should have been skipped because it is not configured", skippedDb)
+		}
+		if getDbSockCalledForSkipped {
+			t.Errorf("GetDbSock should not be called for unconfigured DB %s", skippedDb)
+		}
+		if getDbSockCalls != len(configuredDbs) {
+			t.Errorf("Expected GetDbSock to be called %d times, got %d", len(configuredDbs), getDbSockCalls)
+		}
+		for _, dbName := range configuredDbs {
+			if _, exists := nsMap[dbName]; !exists {
+				t.Errorf("Expected %s to be initialized", dbName)
+			}
+		}
+	})
+
 	t.Run("AllDbsAvailable", func(t *testing.T) {
 		defer saveAndResetTarget2RedisDb()()
 
