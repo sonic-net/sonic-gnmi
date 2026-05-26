@@ -86,10 +86,6 @@ func HandleSetPackage(ctx context.Context, req *syspb.SetPackageRequest) (*syspb
 		log.Errorf("Filename is missing in package request")
 		return nil, status.Errorf(codes.InvalidArgument, "filename is missing in package request")
 	}
-	if pkg.Package.Version == "" {
-		log.Errorf("Version is missing in package request")
-		return nil, status.Errorf(codes.InvalidArgument, "version is missing in package request")
-	}
 
 	// Reject RemoteDownload - require local image
 	if pkg.Package.RemoteDownload != nil {
@@ -97,15 +93,27 @@ func HandleSetPackage(ctx context.Context, req *syspb.SetPackageRequest) (*syspb
 		return nil, status.Errorf(codes.InvalidArgument, "remote download is not supported, image must be local")
 	}
 
-	// Log the package details
-	log.V(1).Infof("Installing package: filename=%s, version=%s, activate=%v",
-		pkg.Package.Filename, pkg.Package.Version, pkg.Package.Activate)
-
 	// Validate filename is absolute path
 	if !filepath.IsAbs(pkg.Package.Filename) {
 		log.Errorf("Filename must be an absolute path: %s", pkg.Package.Filename)
 		return nil, status.Errorf(codes.InvalidArgument, "filename must be an absolute path")
 	}
+
+	// Resolve version: use provided version, or auto-resolve from image binary
+	version := pkg.Package.Version
+	if version == "" {
+		resolved, err := getBinaryVersion(ctx, pkg.Package.Filename)
+		if err != nil {
+			log.Errorf("Failed to resolve version from image %s: %v", pkg.Package.Filename, err)
+			return nil, status.Errorf(codes.Internal, "failed to resolve version from image: %v", err)
+		}
+		version = resolved
+		log.V(1).Infof("Auto-resolved version from image: %s", version)
+	}
+
+	// Log the package details
+	log.V(1).Infof("Installing package: filename=%s, version=%s, activate=%v",
+		pkg.Package.Filename, version, pkg.Package.Activate)
 
 	// Install the package using sonic-installer
 	if err := installPackage(ctx, pkg.Package.Filename); err != nil {
@@ -117,11 +125,11 @@ func HandleSetPackage(ctx context.Context, req *syspb.SetPackageRequest) (*syspb
 
 	// If activate is requested, set as next boot image
 	if pkg.Package.Activate {
-		if err := activatePackage(ctx, pkg.Package.Version); err != nil {
-			log.Errorf("Failed to activate package %s: %v", pkg.Package.Version, err)
+		if err := activatePackage(ctx, version); err != nil {
+			log.Errorf("Failed to activate package %s: %v", version, err)
 			return nil, status.Errorf(codes.Internal, "failed to activate package: %v", err)
 		}
-		log.V(1).Infof("Successfully activated package %s", pkg.Package.Version)
+		log.V(1).Infof("Successfully activated package %s", version)
 	}
 
 	return &syspb.SetPackageResponse{}, nil
@@ -148,6 +156,32 @@ func installPackage(ctx context.Context, filename string) error {
 
 	log.V(1).Infof("sonic-installer install completed successfully: %s", strings.TrimSpace(result.Stdout))
 	return nil
+}
+
+// getBinaryVersion extracts the version string from a SONiC image using sonic-installer binary_version.
+func getBinaryVersion(ctx context.Context, filename string) (string, error) {
+	log.V(1).Infof("Resolving binary version for: %s", filename)
+
+	opts := &exec.RunHostCommandOptions{
+		Timeout: 1 * time.Minute,
+	}
+	result, err := exec.RunHostCommand(ctx, "sonic-installer", []string{"binary_version", filename}, opts)
+	if err != nil {
+		return "", fmt.Errorf("failed to run sonic-installer binary_version: %v", err)
+	}
+
+	if result.Error != nil {
+		return "", fmt.Errorf("sonic-installer binary_version failed with exit code %d: %s",
+			result.ExitCode, result.Stderr)
+	}
+
+	version := strings.TrimSpace(result.Stdout)
+	if version == "" {
+		return "", fmt.Errorf("sonic-installer binary_version returned empty output for %s", filename)
+	}
+
+	log.V(1).Infof("Resolved binary version: %s", version)
+	return version, nil
 }
 
 // activatePackage sets a SONiC image as the next boot image using sonic-installer set-default.
