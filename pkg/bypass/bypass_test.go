@@ -835,7 +835,7 @@ func TestShouldBypassDelete(t *testing.T) {
 }
 
 func TestAllowedTables(t *testing.T) {
-	expectedTables := []string{"VNET", "VNET_ROUTE_TUNNEL", "VLAN_SUB_INTERFACE", "ACL_RULE", "BGP_PEER_RANGE"}
+	expectedTables := []string{"VNET", "VNET_ROUTE_TUNNEL", "VLAN_SUB_INTERFACE", "ACL_RULE", "BGP_PEER_RANGE", "BGP_NEIGHBOR", "PREFIX_LIST"}
 
 	for _, table := range expectedTables {
 		if !AllowedTables[table] {

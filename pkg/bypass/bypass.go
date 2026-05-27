@@ -27,6 +27,8 @@ var AllowedTables = map[string]bool{
 	"VLAN_SUB_INTERFACE": true,
 	"ACL_RULE":           true,
 	"BGP_PEER_RANGE":     true,
+	"BGP_NEIGHBOR":       true,
+	"PREFIX_LIST":        true,
 }
 
 // AllowedSKUPrefixes lists HwSku prefixes that can use bypass validation
