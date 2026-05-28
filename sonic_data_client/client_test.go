@@ -2109,3 +2109,248 @@ func TestGetTableDashHA(t *testing.T) {
 	swsscommon.DeleteZmqClient(zmqClient)
 	swsscommon.DeleteZmqServer(zmqServer)
 }
+func TestDbClientOnceRun(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+	ns := ""
+	rclient := Target2RedisDb[ns]["STATE_DB"]
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
+
+	t.Run("Success_ReturnsUpdateAndSync", func(t *testing.T) {
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+		c := DbClient{
+			pathG2S: map[*gnmipb.Path][]tablePath{
+				gnmiPath: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}},
+			},
+		}
+
+		q := queue.NewPriorityQueue(1, false)
+		once := make(chan struct{}, 1)
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		go c.OnceRun(q, once, &wg, nil)
+
+		once <- struct{}{}
+		wg.Wait()
+
+		var gotUpdate, gotSync bool
+		for !q.Empty() {
+			items, _ := q.Get(1)
+			val := items[0].(Value)
+			if val.GetSyncResponse() {
+				gotSync = true
+			} else if val.GetVal() != nil {
+				gotUpdate = true
+			}
+		}
+		if !gotUpdate {
+			t.Errorf("expected update notification")
+		}
+		if !gotSync {
+			t.Errorf("expected sync response")
+		}
+	})
+
+	t.Run("ChannelClosed_ExitsEarly", func(t *testing.T) {
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+		c := DbClient{
+			pathG2S: map[*gnmipb.Path][]tablePath{
+				gnmiPath: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}},
+			},
+		}
+
+		q := queue.NewPriorityQueue(1, false)
+		once := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		close(once)
+		go c.OnceRun(q, once, &wg, nil)
+		wg.Wait()
+
+		if !q.Empty() {
+			t.Errorf("expected no items in queue when channel is closed")
+		}
+	})
+
+	t.Run("NoData_ReturnsSyncOnly", func(t *testing.T) {
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.99"}}}
+		c := DbClient{
+			pathG2S: map[*gnmipb.Path][]tablePath{
+				gnmiPath: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.99", delimitor: "|"}},
+			},
+		}
+
+		q := queue.NewPriorityQueue(1, false)
+		once := make(chan struct{}, 1)
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		go c.OnceRun(q, once, &wg, nil)
+
+		once <- struct{}{}
+		wg.Wait()
+
+		var gotSync bool
+		var gotUpdate bool
+		for !q.Empty() {
+			items, _ := q.Get(1)
+			val := items[0].(Value)
+			if val.GetSyncResponse() {
+				gotSync = true
+			} else if val.GetVal() != nil {
+				gotUpdate = true
+			}
+		}
+		if gotUpdate {
+			t.Errorf("did not expect update for non-existent key")
+		}
+		if !gotSync {
+			t.Errorf("expected sync response even with no data")
+		}
+	})
+}
+
+func TestMixedDbClientOnceRun(t *testing.T) {
+	mapkey := ":"
+	cleanup := setupMixedDbRedis(t, mapkey)
+	defer cleanup()
+
+	ns := ""
+	rclient := Target2RedisDb[ns]["STATE_DB"]
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
+
+	t.Run("Success_ReturnsUpdateAndSync", func(t *testing.T) {
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+		tblPaths := []tablePath{{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}}
+
+		c := MixedDbClient{
+			mapkey:   mapkey,
+			encoding: gnmipb.Encoding_JSON_IETF,
+			paths:    []*gnmipb.Path{gnmiPath},
+		}
+
+		patches := gomonkey.ApplyPrivateMethod(&c, "getDbtablePath", func(_ *MixedDbClient, _ *gnmipb.Path, _ *gnmipb.Path) ([]tablePath, error) {
+			return tblPaths, nil
+		})
+		defer patches.Reset()
+
+		q := queue.NewPriorityQueue(1, false)
+		once := make(chan struct{}, 1)
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		go c.OnceRun(q, once, &wg, nil)
+
+		once <- struct{}{}
+		wg.Wait()
+
+		var gotUpdate, gotSync bool
+		for !q.Empty() {
+			items, _ := q.Get(1)
+			val := items[0].(Value)
+			if val.GetSyncResponse() {
+				gotSync = true
+			} else if val.GetVal() != nil {
+				gotUpdate = true
+			}
+		}
+		if !gotUpdate {
+			t.Errorf("expected update notification")
+		}
+		if !gotSync {
+			t.Errorf("expected sync response")
+		}
+	})
+
+	t.Run("ChannelClosed_ExitsEarly", func(t *testing.T) {
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+
+		c := MixedDbClient{
+			mapkey:   mapkey,
+			encoding: gnmipb.Encoding_JSON_IETF,
+			paths:    []*gnmipb.Path{gnmiPath},
+		}
+
+		q := queue.NewPriorityQueue(1, false)
+		once := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		close(once)
+		go c.OnceRun(q, once, &wg, nil)
+		wg.Wait()
+
+		if !q.Empty() {
+			t.Errorf("expected no items in queue when channel is closed")
+		}
+	})
+
+	t.Run("GetDbtablePath_Error", func(t *testing.T) {
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "BAD_TABLE"}}}
+
+		c := MixedDbClient{
+			mapkey:   mapkey,
+			encoding: gnmipb.Encoding_JSON_IETF,
+			paths:    []*gnmipb.Path{gnmiPath},
+		}
+
+		patches := gomonkey.ApplyPrivateMethod(&c, "getDbtablePath", func(_ *MixedDbClient, _ *gnmipb.Path, _ *gnmipb.Path) ([]tablePath, error) {
+			return nil, fmt.Errorf("simulated getDbtablePath error")
+		})
+		defer patches.Reset()
+
+		q := queue.NewPriorityQueue(1, false)
+		once := make(chan struct{}, 1)
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		go c.OnceRun(q, once, &wg, nil)
+
+		once <- struct{}{}
+		wg.Wait()
+
+		// Should have a fatal message in the queue
+		if q.Empty() {
+			t.Fatalf("expected fatal message in queue")
+		}
+		items, _ := q.Get(1)
+		val := items[0].(Value)
+		if val.GetSyncResponse() {
+			t.Errorf("expected fatal error, not sync response")
+		}
+	})
+
+	t.Run("TableData2TypedValue_Error", func(t *testing.T) {
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+		// Use a tablePath with a missing redis client to trigger error
+		tblPaths := []tablePath{{dbNamespace: "nonexistent_ns", dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}}
+
+		c := MixedDbClient{
+			mapkey:   mapkey,
+			encoding: gnmipb.Encoding_JSON_IETF,
+			paths:    []*gnmipb.Path{gnmiPath},
+		}
+
+		patches := gomonkey.ApplyPrivateMethod(&c, "getDbtablePath", func(_ *MixedDbClient, _ *gnmipb.Path, _ *gnmipb.Path) ([]tablePath, error) {
+			return tblPaths, nil
+		})
+		defer patches.Reset()
+
+		q := queue.NewPriorityQueue(1, false)
+		once := make(chan struct{}, 1)
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		go c.OnceRun(q, once, &wg, nil)
+
+		once <- struct{}{}
+		wg.Wait()
+
+		// Should have a fatal message in the queue
+		if q.Empty() {
+			t.Fatalf("expected fatal message in queue")
+		}
+	})
+}
