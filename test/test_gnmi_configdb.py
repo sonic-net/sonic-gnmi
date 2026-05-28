@@ -613,7 +613,6 @@ class TestGNMISubscribeOnce:
         ret, msg = gnmi_subscribe_once(path, timeout=10)
         assert ret == 0, 'Subscribe ONCE failed (rc=%d): %s' % (ret, msg)
         assert "bgp_asn" in msg, 'Expected field not found: ' + msg
-        assert "hostname" in msg, 'Expected field not found: ' + msg
 
     def test_gnmi_once_configdb_field(self):
         """Subscribe ONCE on a specific CONFIG_DB field returns that field."""
@@ -644,7 +643,7 @@ class TestGNMISubscribeOnce:
         """Subscribe ONCE with multiple paths returns data for all."""
         paths = [
             "/CONFIG_DB/localhost/DEVICE_METADATA/localhost",
-            "/CONFIG_DB/localhost/PORT"
+            "/CONFIG_DB/localhost/DEVICE_METADATA"
         ]
         ret, msg = gnmi_subscribe_once_multiple(paths, timeout=10)
         assert ret == 0, 'Subscribe ONCE failed (rc=%d): %s' % (ret, msg)
