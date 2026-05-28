@@ -1,13 +1,10 @@
 package client
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 
-	"github.com/go-redis/redis"
 	log "github.com/golang/glog"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
@@ -65,25 +62,6 @@ var (
 	// SONiC Switch ID to Switch Stat packet integrity drop counters
 	countersDebugNameSwitchStatMap = make(map[string]string)
 
-	// ENI name to OID map in COUNTERS_ENI_NAME_MAP of DPU_COUNTERS_DB
-	countersEniNameMap = make(map[string]string)
-	// ENI OID to name map in COUNTERS_ENI_OID_NAME_MAP of DPU_COUNTERS_DB
-	countersEniOidNameMap = make(map[string]string)
-
-	// sync.Once guards for each init function
-	initCountersPortNameMapOnce       sync.Once
-	initCountersQueueNameMapOnce      sync.Once
-	initCountersPGNameMapOnce         sync.Once
-	initCountersSidMapOnce            sync.Once
-	initCountersAclRuleMapOnce        sync.Once
-	initAliasMapOnce                  sync.Once
-	initCountersPfcwdNameMapOnce      sync.Once
-	initCountersFabricPortNameMapOnce sync.Once
-	initCountersEniNameMapOnce        sync.Once
-
-	// Mutex to protect ClearMappings from racing with init functions
-	clearMappingsMu sync.RWMutex
-
 	// path2TFuncTbl is used to populate trie tree which is reponsible
 	// for virtual path to real data path translation
 	pathTransFuncTbl = []pathTransFunc{
@@ -128,27 +106,8 @@ var (
 		}, { // specific field stats for PORT_PHY_ATTR for one or all Ethernet ports (no alias translation)
 			path:      []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*", "*"},
 			transFunc: v2rTranslate(v2rPortPhyAttrFieldStats),
-		}, { // ENI counters stats for one or all ENIs in DPU_COUNTERS_DB
-			path:      []string{"DPU_COUNTERS_DB", "COUNTERS", "ENI", "*"},
-			transFunc: v2rTranslate(v2rEniStats),
-		}, { // DASH_METER stats for specific ENI and metering class
-			path:      []string{"DPU_COUNTERS_DB", "DASH_METER", "*", "*"},
-			transFunc: v2rTranslate(v2rDashMeterByEniAndClass),
-		}, { // DASH_METER stats for all metering classes of a specific ENI (or all ENIs)
-			path:      []string{"DPU_COUNTERS_DB", "DASH_METER", "*"},
-			transFunc: v2rTranslate(v2rDashMeterByEni),
 		},
 	}
-)
-
-// Function variables for map fetching. Init functions call these instead of
-// the concrete implementations, allowing tests to inject errors.
-var (
-	getCountersMapFn       = func(t string) (map[string]string, error) { return GetCountersMap(t) }
-	getAliasMapFn          = func() (map[string]string, map[string]string, map[string]string, error) { return getAliasMap() }
-	getFabricCountersMapFn = func(t string) (map[string]string, error) { return getFabricCountersMap(t) }
-	getPfcwdMapFn          = func() (map[string]map[string]string, error) { return GetPfcwdMap() }
-	getDpuCountersMapFn    = func(t string) (map[string]string, error) { return GetCountersMapForDb("DPU_COUNTERS_DB", t) }
 )
 
 func (t *Trie) v2rTriePopulate() {
@@ -166,7 +125,7 @@ func (t *Trie) v2rTriePopulate() {
 func initCountersQueueNameMap() error {
 	var err error
 	if len(countersQueueNameMap) == 0 {
-		countersQueueNameMap, err = GetCountersMap("COUNTERS_QUEUE_NAME_MAP")
+		countersQueueNameMap, err = getCountersMap("COUNTERS_QUEUE_NAME_MAP")
 		if err != nil {
 			return err
 		}
@@ -176,7 +135,7 @@ func initCountersQueueNameMap() error {
 
 func initCountersPGNameMap() error {
 	if len(countersPGNameMap) == 0 {
-		pgOidMap, err := GetCountersMap("COUNTERS_PG_NAME_MAP")
+		pgOidMap, err := getCountersMap("COUNTERS_PG_NAME_MAP")
 		if err != nil {
 			return err
 		}
@@ -198,7 +157,7 @@ func initCountersPGNameMap() error {
 func initCountersPortNameMap() error {
 	var err error
 	if len(countersPortNameMap) == 0 {
-		countersPortNameMap, err = GetCountersMap("COUNTERS_PORT_NAME_MAP")
+		countersPortNameMap, err = getCountersMap("COUNTERS_PORT_NAME_MAP")
 		if err != nil {
 			return err
 		}
@@ -209,7 +168,7 @@ func initCountersPortNameMap() error {
 func initCountersSidMap() error {
 	var err error
 	if len(countersSidMap) == 0 {
-		countersSidMap, err = GetCountersMap("COUNTERS_SRV6_NAME_MAP")
+		countersSidMap, err = getCountersMap("COUNTERS_SRV6_NAME_MAP")
 		if err != nil {
 			return err
 		}
@@ -222,7 +181,7 @@ func initCountersAclRuleMap() error {
 	if len(countersAclRuleMap) == 0 {
 		// ACL_COUNTER_RULE_MAP is a hash in COUNTERS_DB:
 		//   "DATAACL:RULE_1" -> "oid:0x9000000000711"
-		countersAclRuleMap, err = GetCountersMap("ACL_COUNTER_RULE_MAP")
+		countersAclRuleMap, err = getCountersMap("ACL_COUNTER_RULE_MAP")
 		if err != nil {
 			return err
 		}
@@ -278,26 +237,6 @@ func initDebugNameSwitchStatMap() error {
 		}
 	}
 	return nil
-}
-
-func initCountersEniNameMap() error {
-	clearMappingsMu.RLock()
-	defer clearMappingsMu.RUnlock()
-	var initErr error
-	initCountersEniNameMapOnce.Do(func() {
-		var err error
-		countersEniNameMap, err = getDpuCountersMapFn("COUNTERS_ENI_NAME_MAP")
-		if err != nil {
-			initErr = err
-			return
-		}
-		countersEniOidNameMap, err = getDpuCountersMapFn("COUNTERS_ENI_OID_NAME_MAP")
-		if err != nil {
-			countersEniNameMap = nil
-			initErr = err
-		}
-	})
-	return initErr
 }
 
 // Get the mapping between sonic interface name and oids of their PFC-WD enabled queues in COUNTERS_DB
@@ -459,8 +398,23 @@ func addmap(a map[string]string, b map[string]string) {
 
 // Get the mapping between objects in counters DB, Ex. port name to oid in "COUNTERS_PORT_NAME_MAP" table.
 // Aussuming static port name to oid map in COUNTERS table
-func GetCountersMap(tableName string) (map[string]string, error) {
-	return GetCountersMapForDb("COUNTERS_DB", tableName)
+func getCountersMap(tableName string) (map[string]string, error) {
+	counter_map := make(map[string]string)
+	dbName := "COUNTERS_DB"
+	redis_client_map, err := GetRedisClientsForDb(dbName)
+	if err != nil {
+		return nil, err
+	}
+	for namespace, redisDb := range redis_client_map {
+		fv, err := redisDb.HGetAll(tableName).Result()
+		if err != nil {
+			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, tableName: %s", namespace, tableName)
+			return nil, err
+		}
+		addmap(counter_map, fv)
+		log.V(6).Infof("tableName: %s in namespace %v, map %v", tableName, namespace, fv)
+	}
+	return counter_map, nil
 }
 
 // Get the mapping between objects in counters DB, Ex. port name to oid in "COUNTERS_FABRIC_PORT_NAME_MAP" table.
@@ -491,26 +445,6 @@ func getFabricCountersMap(tableName string) (map[string]string, error) {
 		}
 		addmap(counter_map, namespaceFv)
 		log.V(6).Infof("tableName: %s in namespace %v, map %v", tableName, namespace, namespaceFv)
-	}
-	return counter_map, nil
-}
-
-// GetCountersMapForDb retrieves a hash map from the specified DB.
-// This is a generalized version of GetCountersMap that accepts a DB name.
-func GetCountersMapForDb(dbName string, tableName string) (map[string]string, error) {
-	counter_map := make(map[string]string)
-	redis_client_map, err := GetRedisClientsForDb(dbName)
-	if err != nil {
-		return nil, err
-	}
-	for namespace, redisDb := range redis_client_map {
-		fv, err := redisDb.HGetAll(tableName).Result()
-		if err != nil {
-			log.V(2).Infof("redis HGetAll failed for %s in namespace %v, tableName: %s", dbName, namespace, tableName)
-			return nil, err
-		}
-		addmap(counter_map, fv)
-		log.V(6).Infof("tableName: %s in namespace %v, map %v", tableName, namespace, fv)
 	}
 	return counter_map, nil
 }
@@ -1137,6 +1071,25 @@ func getPortNamespace(port string) (string, error) {
 	return namespace, nil
 }
 
+func ClearMappings() {
+	value := os.Getenv("UNIT_TEST")
+	if value != "1" {
+		return
+	}
+	counterMaps := []map[string]string{
+		countersPortNameMap,
+		alias2nameMap,
+		countersFabricPortNameMap,
+		countersQueueNameMap,
+		countersAclRuleMap,
+	}
+	for _, counterMap := range counterMaps {
+		for entry := range counterMap {
+			delete(counterMap, entry)
+		}
+	}
+}
+
 func AliasToPortNameMap() map[string]string {
 	output := make(map[string]string, len(alias2nameMap))
 	for alias, portName := range alias2nameMap {
@@ -1185,277 +1138,6 @@ func v2rEthPortPGPeriodicWMs(paths []string) ([]tablePath, error) {
 	log.V(6).Infof("v2rEthPortPGPeriodicWMs: %v", tblPaths)
 	return tblPaths, nil
 }
-
-// dashMeterKeyInfo holds parsed components of a DASH_METER JSON-formatted Redis key.
-type dashMeterKeyInfo struct {
-	fullKey    string // full Redis key, e.g. COUNTERS:{"eni_id":"oid:0x1","meter_class":"1","switch_id":"oid:0x2"}
-	eniOid     string
-	meterClass string
-	switchOid  string
-}
-
-// getDashMeterKeys scans DPU_COUNTERS_DB for DASH_METER keys (COUNTERS:{...} with JSON payloads)
-// and returns parsed key info. If eniOid is non-empty, only keys matching that ENI OID are returned.
-// If meterClass is non-empty, only keys matching that meter class are returned.
-func getDashMeterKeys(redisDb *redis.Client, separator string, eniOid string, meterClass string) ([]dashMeterKeyInfo, error) {
-	pattern := "COUNTERS" + separator + "*"
-	dbkeys, err := redisDb.Keys(pattern).Result()
-	if err != nil {
-		return nil, fmt.Errorf("redis Keys failed for pattern %s: %v", pattern, err)
-	}
-
-	prefix := "COUNTERS" + separator
-	var results []dashMeterKeyInfo
-	for _, dbkey := range dbkeys {
-		// DASH_METER keys have JSON after "COUNTERS<sep>"; skip non-JSON keys (e.g. COUNTERS:oid:...)
-		jsonPart := strings.TrimPrefix(dbkey, prefix)
-		if !strings.HasPrefix(jsonPart, "{") {
-			continue
-		}
-
-		var keyFields struct {
-			EniId      string `json:"eni_id"`
-			MeterClass string `json:"meter_class"`
-			SwitchId   string `json:"switch_id"`
-		}
-		if err := json.Unmarshal([]byte(jsonPart), &keyFields); err != nil {
-			log.V(4).Infof("Skipping non-JSON COUNTERS key: %s", dbkey)
-			continue
-		}
-
-		if eniOid != "" && keyFields.EniId != eniOid {
-			continue
-		}
-		if meterClass != "" && keyFields.MeterClass != meterClass {
-			continue
-		}
-
-		results = append(results, dashMeterKeyInfo{
-			fullKey:    dbkey,
-			eniOid:     keyFields.EniId,
-			meterClass: keyFields.MeterClass,
-			switchOid:  keyFields.SwitchId,
-		})
-	}
-	return results, nil
-}
-
-// v2rEniStats translates virtual ENI counter paths to real Redis paths.
-// Handles: [DPU_COUNTERS_DB COUNTERS ENI *] and [DPU_COUNTERS_DB COUNTERS ENI <eni_name>]
-func v2rEniStats(paths []string) ([]tablePath, error) {
-	clearMappingsMu.RLock()
-	defer clearMappingsMu.RUnlock()
-	var tblPaths []tablePath
-	namespace, _ := sdcfg.GetDbDefaultNamespace()
-	separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
-
-	if strings.HasSuffix(paths[FieldIdx], "*") { // All ENIs
-		for eniName, oid := range countersEniNameMap {
-			tblPath := tablePath{
-				dbNamespace:  namespace,
-				dbName:       paths[DbIdx],
-				tableName:    paths[TblIdx],
-				tableKey:     oid,
-				delimitor:    separator,
-				jsonTableKey: eniName,
-			}
-			tblPaths = append(tblPaths, tblPath)
-		}
-	} else { // specific ENI
-		eniName := paths[FieldIdx]
-		oid, ok := countersEniNameMap[eniName]
-		if !ok {
-			return nil, fmt.Errorf("%v not a valid ENI name", eniName)
-		}
-		tblPaths = []tablePath{{
-			dbNamespace: namespace,
-			dbName:      paths[DbIdx],
-			tableName:   paths[TblIdx],
-			tableKey:    oid,
-			delimitor:   separator,
-		}}
-	}
-	log.V(6).Infof("v2rEniStats: %v", tblPaths)
-	return tblPaths, nil
-}
-
-// v2rDashMeterByEniAndClass translates ENI + metering class paths to real Redis keys.
-// Handles: [DPU_COUNTERS_DB DASH_METER <eni_name> <meter_class>]
-// and:     [DPU_COUNTERS_DB DASH_METER * <meter_class>] — specific class for all ENIs
-func v2rDashMeterByEniAndClass(paths []string) ([]tablePath, error) {
-	clearMappingsMu.RLock()
-	defer clearMappingsMu.RUnlock()
-
-	meterClass := paths[FieldIdx]
-	namespace, _ := sdcfg.GetDbDefaultNamespace()
-	separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
-
-	redisDb := Target2RedisDb[namespace][paths[DbIdx]]
-	if redisDb == nil {
-		return nil, fmt.Errorf("Redis client not available for %s", paths[DbIdx])
-	}
-
-	var tblPaths []tablePath
-
-	if strings.HasSuffix(paths[KeyIdx], "*") { // All ENIs, specific meter class
-		keys, err := getDashMeterKeys(redisDb, separator, "", meterClass)
-		if err != nil {
-			return nil, err
-		}
-		for _, k := range keys {
-			eniName, ok := countersEniOidNameMap[k.eniOid]
-			if !ok {
-				log.V(2).Infof("Unknown ENI OID %v in DASH_METER key, skipping", k.eniOid)
-				continue
-			}
-			tableKey := strings.TrimPrefix(k.fullKey, "COUNTERS"+separator)
-			tblPaths = append(tblPaths, tablePath{
-				dbNamespace:  namespace,
-				dbName:       paths[DbIdx],
-				tableName:    "COUNTERS",
-				tableKey:     tableKey,
-				delimitor:    separator,
-				jsonTableKey: eniName + "/" + meterClass,
-			})
-		}
-	} else { // Specific ENI, specific meter class
-		eniName := paths[KeyIdx]
-		eniOid, ok := countersEniNameMap[eniName]
-		if !ok {
-			return nil, fmt.Errorf("%v not a valid ENI name", eniName)
-		}
-
-		keys, err := getDashMeterKeys(redisDb, separator, eniOid, meterClass)
-		if err != nil {
-			return nil, err
-		}
-		if len(keys) == 0 {
-			return nil, fmt.Errorf("No DASH_METER entry found for ENI %v class %v", eniName, meterClass)
-		}
-
-		for _, k := range keys {
-			tableKey := strings.TrimPrefix(k.fullKey, "COUNTERS"+separator)
-			tblPaths = append(tblPaths, tablePath{
-				dbNamespace:  namespace,
-				dbName:       paths[DbIdx],
-				tableName:    "COUNTERS",
-				tableKey:     tableKey,
-				delimitor:    separator,
-				jsonTableKey: meterClass,
-			})
-		}
-	}
-	log.V(6).Infof("v2rDashMeterByEniAndClass: %v", tblPaths)
-	return tblPaths, nil
-}
-
-// v2rDashMeterByEni translates ENI-level DASH_METER paths to real Redis keys.
-// Handles: [DPU_COUNTERS_DB DASH_METER <eni_name>] — all meter classes for one ENI
-// and [DPU_COUNTERS_DB DASH_METER *] — all meter classes for all ENIs
-func v2rDashMeterByEni(paths []string) ([]tablePath, error) {
-	clearMappingsMu.RLock()
-	defer clearMappingsMu.RUnlock()
-
-	namespace, _ := sdcfg.GetDbDefaultNamespace()
-	separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
-
-	redisDb := Target2RedisDb[namespace][paths[DbIdx]]
-	if redisDb == nil {
-		return nil, fmt.Errorf("Redis client not available for %s", paths[DbIdx])
-	}
-
-	var tblPaths []tablePath
-
-	if strings.HasSuffix(paths[KeyIdx], "*") { // All ENIs, all meter classes
-		keys, err := getDashMeterKeys(redisDb, separator, "", "")
-		if err != nil {
-			return nil, err
-		}
-		for _, k := range keys {
-			eniName, ok := countersEniOidNameMap[k.eniOid]
-			if !ok {
-				log.V(2).Infof("Unknown ENI OID %v in DASH_METER key, skipping", k.eniOid)
-				continue
-			}
-			tableKey := strings.TrimPrefix(k.fullKey, "COUNTERS"+separator)
-			tblPaths = append(tblPaths, tablePath{
-				dbNamespace:  namespace,
-				dbName:       paths[DbIdx],
-				tableName:    "COUNTERS",
-				tableKey:     tableKey,
-				delimitor:    separator,
-				jsonTableKey: eniName + "/" + k.meterClass,
-			})
-		}
-	} else { // Specific ENI, all meter classes
-		eniName := paths[KeyIdx]
-		eniOid, ok := countersEniNameMap[eniName]
-		if !ok {
-			return nil, fmt.Errorf("%v not a valid ENI name", eniName)
-		}
-
-		keys, err := getDashMeterKeys(redisDb, separator, eniOid, "")
-		if err != nil {
-			return nil, err
-		}
-		for _, k := range keys {
-			tableKey := strings.TrimPrefix(k.fullKey, "COUNTERS"+separator)
-			tblPaths = append(tblPaths, tablePath{
-				dbNamespace:  namespace,
-				dbName:       paths[DbIdx],
-				tableName:    "COUNTERS",
-				tableKey:     tableKey,
-				delimitor:    separator,
-				jsonTableKey: k.meterClass,
-			})
-		}
-	}
-	log.V(6).Infof("v2rDashMeterByEni: %v", tblPaths)
-	return tblPaths, nil
-}
-
-func ClearMappings() {
-	value := os.Getenv("UNIT_TEST")
-	if value != "1" {
-		return
-	}
-	clearMappingsMu.Lock()
-	defer clearMappingsMu.Unlock()
-
-	counterMaps := []map[string]string{
-		countersPortNameMap,
-		alias2nameMap,
-		countersFabricPortNameMap,
-		countersQueueNameMap,
-		countersAclRuleMap,
-		countersEniNameMap,
-		countersEniOidNameMap,
-	}
-	for _, counterMap := range counterMaps {
-		for entry := range counterMap {
-			delete(counterMap, entry)
-		}
-	}
-
-	// Reset sync.Once guards so the next call re-initializes.
-	initCountersPortNameMapOnce = sync.Once{}
-	initCountersQueueNameMapOnce = sync.Once{}
-	initCountersPGNameMapOnce = sync.Once{}
-	initCountersSidMapOnce = sync.Once{}
-	initCountersAclRuleMapOnce = sync.Once{}
-	initAliasMapOnce = sync.Once{}
-	initCountersPfcwdNameMapOnce = sync.Once{}
-	initCountersFabricPortNameMapOnce = sync.Once{}
-	initCountersEniNameMapOnce = sync.Once{}
-}
-
-func InitCountersPortNameMap() error       { return initCountersPortNameMap() }
-func InitCountersQueueNameMap() error      { return initCountersQueueNameMap() }
-func InitCountersPGNameMap() error         { return initCountersPGNameMap() }
-func InitCountersSidMap() error            { return initCountersSidMap() }
-func InitCountersAclRuleMap() error        { return initCountersAclRuleMap() }
-func InitCountersFabricPortNameMap() error { return initCountersFabricPortNameMap() }
-func InitCountersEniNameMap() error        { return initCountersEniNameMap() }
 
 func lookupV2R(paths []string) ([]tablePath, error) {
 	n, ok := v2rTrie.Find(paths)
