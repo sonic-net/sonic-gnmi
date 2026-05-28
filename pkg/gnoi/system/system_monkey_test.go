@@ -16,7 +16,7 @@ func TestHandleSetPackage_SuccessWithoutActivation(t *testing.T) {
 
 	// Mock exec.RunHostCommand to return successful installation
 	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
-		if cmd == "sonic-installer" && len(args) >= 1 && args[0] == "install" {
+		if cmd == "/usr/local/bin/sonic-installer" && len(args) >= 1 && args[0] == "install" {
 			return &exec.CommandResult{
 				Stdout:   "Installation completed successfully",
 				Stderr:   "",
@@ -52,10 +52,10 @@ func TestHandleSetPackage_ActivateWithAutoResolvedVersion(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock exec.RunHostCommand to handle binary_version, install, and set-default
+	// Mock exec.RunHostCommand to handle binary-version, install, and set-default
 	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
-		if cmd == "sonic-installer" {
-			if len(args) >= 1 && args[0] == "binary_version" {
+		if cmd == "/usr/local/bin/sonic-installer" {
+			if len(args) >= 1 && args[0] == "binary-version" {
 				return &exec.CommandResult{
 					Stdout:   "SONiC-OS-4.2.0-Enterprise\n",
 					ExitCode: 0,
@@ -104,10 +104,10 @@ func TestHandleSetPackage_AutoResolveVersionFails(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock: binary_version fails — should reject before install
+	// Mock: binary-version fails — should reject before install
 	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
-		if cmd == "sonic-installer" && len(args) >= 1 && args[0] == "binary_version" {
-			return nil, fmt.Errorf("binary_version command failed")
+		if cmd == "/usr/local/bin/sonic-installer" && len(args) >= 1 && args[0] == "binary-version" {
+			return nil, fmt.Errorf("binary-version command failed")
 		}
 		return nil, fmt.Errorf("unexpected command (install should not be called): %s %v", cmd, args)
 	})
@@ -125,7 +125,7 @@ func TestHandleSetPackage_AutoResolveVersionFails(t *testing.T) {
 
 	_, err := HandleSetPackage(ctx, req)
 	if err == nil {
-		t.Fatal("HandleSetPackage() should return error when binary_version fails")
+		t.Fatal("HandleSetPackage() should return error when binary-version fails")
 	}
 	if !containsSubstring(err.Error(), "failed to resolve version from image") {
 		t.Errorf("HandleSetPackage() error = %v, should contain 'failed to resolve version from image'", err)
@@ -136,10 +136,10 @@ func TestHandleSetPackage_EmptyVersionNoActivate(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock: binary_version and install succeed, set-default should NOT be called
+	// Mock: binary-version and install succeed, set-default should NOT be called
 	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
-		if cmd == "sonic-installer" {
-			if len(args) >= 1 && args[0] == "binary_version" {
+		if cmd == "/usr/local/bin/sonic-installer" {
+			if len(args) >= 1 && args[0] == "binary-version" {
 				return &exec.CommandResult{
 					Stdout:   "SONiC-OS-4.2.0-Enterprise\n",
 					ExitCode: 0,
@@ -183,7 +183,7 @@ func TestGetBinaryVersion_Success(t *testing.T) {
 	defer patches.Reset()
 
 	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
-		if cmd == "sonic-installer" && len(args) >= 1 && args[0] == "binary_version" {
+		if cmd == "/usr/local/bin/sonic-installer" && len(args) >= 1 && args[0] == "binary-version" {
 			return &exec.CommandResult{
 				Stdout:   "SONiC-OS-4.2.0-Enterprise\n",
 				ExitCode: 0,
@@ -236,8 +236,8 @@ func TestGetBinaryVersion_CommandError(t *testing.T) {
 	if err == nil {
 		t.Fatal("getBinaryVersion() should return error when command fails")
 	}
-	if !containsSubstring(err.Error(), "failed to run sonic-installer binary_version") {
-		t.Errorf("getBinaryVersion() error = %v, should contain 'failed to run sonic-installer binary_version'", err)
+	if !containsSubstring(err.Error(), "failed to run sonic-installer binary-version") {
+		t.Errorf("getBinaryVersion() error = %v, should contain 'failed to run sonic-installer binary-version'", err)
 	}
 }
 
@@ -247,7 +247,7 @@ func TestHandleSetPackage_SuccessWithActivation(t *testing.T) {
 
 	// Mock exec.RunHostCommand to handle both install and set-default commands
 	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
-		if cmd == "sonic-installer" {
+		if cmd == "/usr/local/bin/sonic-installer" {
 			if len(args) >= 1 && args[0] == "install" {
 				return &exec.CommandResult{
 					Stdout:   "Installation completed successfully",
@@ -325,7 +325,7 @@ func TestHandleSetPackage_ActivateCommandError(t *testing.T) {
 
 	// Mock exec.RunHostCommand: install succeeds, set-default fails
 	patches.ApplyFunc(exec.RunHostCommand, func(ctx context.Context, cmd string, args []string, opts *exec.RunHostCommandOptions) (*exec.CommandResult, error) {
-		if cmd == "sonic-installer" {
+		if cmd == "/usr/local/bin/sonic-installer" {
 			if len(args) >= 1 && args[0] == "install" {
 				return &exec.CommandResult{
 					Stdout:   "Installation completed successfully",
