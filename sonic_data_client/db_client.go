@@ -574,6 +574,28 @@ func init() {
 }
 
 func initRedisDbClients() {
+	// Build the set of DBs present in the runtime database_config.json so
+	// we can skip DBs absent on this platform before calling GetDbSock, which would otherwise
+	// log ERR for every missing DB.
+	// Note: GetDbList always returns the default namespace DB list.
+	// This is safe because all namespaces carry the same DB names; they differ only in
+	// socket paths. GetDbList and GetDbAllNamespaces share the same DbInit gate,
+	// so if GetDbList fails GetDbAllNamespaces would fail too;
+	// returning early here avoids redundant failures.
+	runtimeDbList, err := sdcfg.GetDbList(sdcfg.SONIC_DEFAULT_NAMESPACE)
+	if err != nil {
+		log.Errorf("initRedisDbClients: failed to get runtime DB list: %v", err)
+		return
+	}
+	if len(runtimeDbList) == 0 {
+		log.Errorf("initRedisDbClients: runtime DB list is empty, database config may be corrupt")
+		return
+	}
+	runtimeDbSet := make(map[string]bool, len(runtimeDbList))
+	for _, db := range runtimeDbList {
+		runtimeDbSet[db] = true
+	}
+
 	AllNamespaces, err := sdcfg.GetDbAllNamespaces()
 	if err != nil {
 		log.Errorf("init error:  %v", err)
@@ -583,6 +605,13 @@ func initRedisDbClients() {
 		Target2RedisDb[dbNamespace] = make(map[string]*redis.Client)
 		for dbName, dbn := range spb.Target_value {
 			if dbName != "OTHERS" {
+				// Skip DBs not present in the runtime database_config.json.
+				// runtimeDbSet is non-empty here (guaranteed by the early return
+				// above), so a missing key safely returns false in Go.
+				if !runtimeDbSet[dbName] {
+					log.V(2).Infof("initRedisDbClients: skipping %s, not in runtime DB config", dbName)
+					continue
+				}
 				addr, err := sdcfg.GetDbSock(dbName, dbNamespace)
 				if err != nil {
 					log.Warningf("Skipping %s in namespace %s: %v", dbName, dbNamespace, err)
