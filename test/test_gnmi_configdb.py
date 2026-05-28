@@ -5,6 +5,7 @@ import time
 import threading, queue
 from utils import gnmi_set, gnmi_get, gnmi_dump, run_cmd
 from utils import gnmi_subscribe_poll, gnmi_subscribe_stream_sample, gnmi_subscribe_stream_onchange
+from utils import gnmi_subscribe_once, gnmi_subscribe_once_multiple
 
 import pytest
 
@@ -594,3 +595,75 @@ class TestGNMIConfigDb:
         ret, msg = result_queue.get()
         assert ret == 0, 'Fail to subscribe: ' + msg
         assert "bgp_asn" in msg, 'Invalid result: ' + msg
+
+
+class TestGNMISubscribeOnce:
+    """Tests for Subscribe ONCE mode (OnceRun implementation)."""
+
+    def test_gnmi_once_configdb_table(self):
+        """Subscribe ONCE on a CONFIG_DB table returns data and completes."""
+        path = "/CONFIG_DB/localhost/DEVICE_METADATA"
+        ret, msg = gnmi_subscribe_once(path, timeout=10)
+        assert ret == 0, 'Subscribe ONCE failed (rc=%d): %s' % (ret, msg)
+        assert "bgp_asn" in msg, 'Expected DEVICE_METADATA content not found: ' + msg
+
+    def test_gnmi_once_configdb_key(self):
+        """Subscribe ONCE on a specific CONFIG_DB key returns data and completes."""
+        path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost"
+        ret, msg = gnmi_subscribe_once(path, timeout=10)
+        assert ret == 0, 'Subscribe ONCE failed (rc=%d): %s' % (ret, msg)
+        assert "bgp_asn" in msg, 'Expected field not found: ' + msg
+        assert "hostname" in msg, 'Expected field not found: ' + msg
+
+    def test_gnmi_once_configdb_field(self):
+        """Subscribe ONCE on a specific CONFIG_DB field returns that field."""
+        path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost/bgp_asn"
+        ret, msg = gnmi_subscribe_once(path, timeout=10)
+        assert ret == 0, 'Subscribe ONCE failed (rc=%d): %s' % (ret, msg)
+        assert "bgp_asn" in msg, 'Expected field not found: ' + msg
+
+    def test_gnmi_once_invalid_table(self):
+        """Subscribe ONCE on a non-existent table returns error or empty."""
+        path = "/CONFIG_DB/localhost/NONEXISTENT_TABLE_XYZ"
+        ret, msg = gnmi_subscribe_once(path, timeout=10)
+        # Should complete (not hang) regardless of whether table exists
+        # rc=124 means timeout which indicates OnceRun is broken
+        assert ret != 124, 'Subscribe ONCE timed out (OnceRun not implemented): ' + msg
+
+    def test_gnmi_once_does_not_hang(self):
+        """Subscribe ONCE must complete within a reasonable time, not hang."""
+        path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost"
+        start = time.time()
+        ret, msg = gnmi_subscribe_once(path, timeout=10)
+        elapsed = time.time() - start
+        assert ret == 0, 'Subscribe ONCE failed (rc=%d): %s' % (ret, msg)
+        # OnceRun should complete in well under 5 seconds
+        assert elapsed < 5, 'Subscribe ONCE took too long (%.1fs), possible hang' % elapsed
+
+    def test_gnmi_once_multiple_paths(self):
+        """Subscribe ONCE with multiple paths returns data for all."""
+        paths = [
+            "/CONFIG_DB/localhost/DEVICE_METADATA/localhost",
+            "/CONFIG_DB/localhost/PORT"
+        ]
+        ret, msg = gnmi_subscribe_once_multiple(paths, timeout=10)
+        assert ret == 0, 'Subscribe ONCE failed (rc=%d): %s' % (ret, msg)
+        assert "bgp_asn" in msg, 'DEVICE_METADATA not found: ' + msg
+
+    def test_gnmi_once_returns_current_data(self):
+        """Subscribe ONCE returns the current value after a SET."""
+        # Set a known value
+        update_path = '/sonic-db:CONFIG_DB/localhost/DEVICE_METADATA/localhost/bgp_asn'
+        cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn 99999'
+        run_cmd(cmd)
+        time.sleep(0.5)
+
+        # Subscribe ONCE should return the updated value
+        path = "/CONFIG_DB/localhost/DEVICE_METADATA/localhost"
+        ret, msg = gnmi_subscribe_once(path, timeout=10)
+        assert ret == 0, 'Subscribe ONCE failed (rc=%d): %s' % (ret, msg)
+        assert "99999" in msg, 'Updated value not reflected in ONCE response: ' + msg
+
+        # Restore
+        cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn 65100'
+        run_cmd(cmd)

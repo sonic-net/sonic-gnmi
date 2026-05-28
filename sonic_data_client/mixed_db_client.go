@@ -1789,7 +1789,51 @@ func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 }
 
 func (c *MixedDbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
-	return
+	c.w = w
+	defer c.w.Done()
+	c.q = q
+	c.channel = once
+
+	_, more := <-c.channel
+	if !more {
+		log.V(1).Infof("%v once channel closed, exiting OnceRun routine", c)
+		return
+	}
+
+	t1 := time.Now()
+	for _, gnmiPath := range c.paths {
+		tblPaths, err := c.getDbtablePath(gnmiPath, nil)
+		if err != nil {
+			log.V(2).Infof("OnceRun: Unable to get table path due to err: %v", err)
+			putFatalMsg(c.q, fmt.Sprintf("OnceRun error: %v", err))
+			return
+		}
+		val, err, updateReceived := c.tableData2TypedValue(tblPaths, nil)
+		if err != nil {
+			log.V(2).Infof("OnceRun: Unable to create gnmi TypedValue due to err: %v", err)
+			putFatalMsg(c.q, fmt.Sprintf("OnceRun error: %v", err))
+			return
+		}
+		if updateReceived {
+			spbv := &spb.Value{
+				Prefix:       c.prefix,
+				Path:         gnmiPath,
+				Timestamp:    time.Now().UnixNano(),
+				SyncResponse: false,
+				Val:          val,
+			}
+			c.q.Put(Value{spbv})
+			log.V(6).Infof("OnceRun: Added spbv #%v", spbv)
+		}
+	}
+
+	c.q.Put(Value{
+		&spb.Value{
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: true,
+		},
+	})
+	log.V(4).Infof("OnceRun: Sync done, total time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 }
 
 func (c *MixedDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
