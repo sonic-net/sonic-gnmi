@@ -683,13 +683,6 @@ func parsePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath)
 		}
 	}
 
-	if targetDbName == "DPU_COUNTERS_DB" {
-		err := initCountersEniNameMap()
-		if err != nil {
-			log.Errorf("Could not create CountersEniNameMap: %v", err)
-		}
-	}
-
 	fullPath := path
 	if prefix != nil {
 		fullPath = gnmiFullPath(prefix, path)
