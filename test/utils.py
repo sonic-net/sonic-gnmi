@@ -198,6 +198,31 @@ def gnmi_subscribe_stream_onchange(gnmi_path, count, timeout):
     ret, msg = run_cmd(cmd)
     return ret, msg
 
+def gnmi_subscribe_once(gnmi_path, timeout=30):
+    path = os.getcwd()
+    cmd = 'timeout %u ' % timeout
+    cmd += path + '/build/bin/gnmi_cli '
+    cmd += '-client_types=gnmi -a 127.0.0.1:8080 -logtostderr -insecure '
+    # Use sonic-db as default origin
+    cmd += '-origin=sonic-db '
+    cmd += '-query_type=once '
+    cmd += '-q %s' % (gnmi_path)
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
+def gnmi_subscribe_once_multiple(gnmi_paths, timeout=30):
+    path = os.getcwd()
+    cmd = 'timeout %u ' % timeout
+    cmd += path + '/build/bin/gnmi_cli '
+    cmd += '-client_types=gnmi -a 127.0.0.1:8080 -logtostderr -insecure '
+    # Use sonic-db as default origin
+    cmd += '-origin=sonic-db '
+    cmd += '-query_type=once '
+    for gnmi_path in gnmi_paths:
+        cmd += '-q %s ' % (gnmi_path)
+    ret, msg = run_cmd(cmd)
+    return ret, msg
+
 def gnmi_dump(name):
     path = os.getcwd()
     cmd = 'sudo ' + path + '/build/bin/gnmi_dump'
