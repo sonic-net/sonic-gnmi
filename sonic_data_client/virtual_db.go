@@ -92,6 +92,9 @@ var (
 		{ // stats for one or all Ethernet ports
 			path:      []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"},
 			transFunc: v2rTranslate(v2rEthPortStats),
+		}, { // per-interface counters keyed by SONiC interface name
+			path:      []string{"COUNTERS_DB", "INTERFACE_COUNTERS"},
+			transFunc: v2rTranslate(v2rInterfaceCountersStats),
 		}, { // specific field stats for one or all Ethernet ports
 			path:      []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "*"},
 			transFunc: v2rTranslate(v2rEthPortFieldStats),
@@ -729,6 +732,33 @@ func v2rEthPortStats(paths []string) ([]tablePath, error) {
 		}}
 	}
 	log.V(6).Infof("v2rEthPortStats: %v", tblPaths)
+	return tblPaths, nil
+}
+
+// v2rInterfaceCountersStats resolves the virtual path
+// [COUNTERS_DB INTERFACE_COUNTERS] to per-interface counter entries from the
+// underlying COUNTERS table, keyed by SONiC interface name (e.g. "Ethernet0").
+func v2rInterfaceCountersStats(paths []string) ([]tablePath, error) {
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
+	var tblPaths []tablePath
+	for port, oid := range countersPortNameMap {
+		namespace, ok := port2namespaceMap[port]
+		if !ok {
+			return nil, fmt.Errorf("%v does not have namespace associated", port)
+		}
+		separator, _ := GetTableKeySeparator(paths[DbIdx], namespace)
+		tblPath := tablePath{
+			dbNamespace:  namespace,
+			dbName:       paths[DbIdx],
+			tableName:    "COUNTERS", // INTERFACE_COUNTERS is virtual; data lives in COUNTERS
+			tableKey:     oid,
+			delimitor:    separator,
+			jsonTableKey: port,
+		}
+		tblPaths = append(tblPaths, tblPath)
+	}
+	log.V(6).Infof("v2rInterfaceCountersStats: %v", tblPaths)
 	return tblPaths, nil
 }
 

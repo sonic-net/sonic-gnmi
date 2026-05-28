@@ -2935,3 +2935,108 @@ func TestPollCountersDBWildcardEthernetMissingThenPartialAdded(t *testing.T) {
 		})
 	}
 }
+
+// TestPollInterfaceCountersVPath is an E2E poll-mode test for the
+// [COUNTERS_DB INTERFACE_COUNTERS] virtual path. It starts a gNMI server,
+// populates COUNTERS_DB via prepareDb (which loads counter data for Ethernet1
+// and Ethernet68), subscribes in Poll mode to [INTERFACE_COUNTERS], polls
+// multiple times, and compares the received notifications against the
+// COUNTERS:Ethernet_wildcard_expected.txt fixture (keyed by SONiC port name).
+func TestPollInterfaceCountersVPath(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.ForceStop()
+
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	prepareDb(t, ns)
+
+	fileName := "../testdata/COUNTERS:Ethernet_wildcard_expected.txt"
+	interfaceCountersExpectedByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var interfaceCountersExpectedJson interface{}
+	if err := json.Unmarshal(interfaceCountersExpectedByte, &interfaceCountersExpectedJson); err != nil {
+		t.Fatalf("unmarshal %v err: %v", fileName, err)
+	}
+
+	tests := []struct {
+		desc     string
+		q        client.Query
+		wantNoti []client.Notification
+		poll     int
+	}{
+		{
+			desc: "poll INTERFACE_COUNTERS",
+			poll: 3,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"INTERFACE_COUNTERS"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "INTERFACE_COUNTERS"}, TS: time.Unix(0, 200), Val: interfaceCountersExpectedJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "INTERFACE_COUNTERS"}, TS: time.Unix(0, 200), Val: interfaceCountersExpectedJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "INTERFACE_COUNTERS"}, TS: time.Unix(0, 200), Val: interfaceCountersExpectedJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "INTERFACE_COUNTERS"}, TS: time.Unix(0, 200), Val: interfaceCountersExpectedJson},
+				client.Sync{},
+			},
+		},
+	}
+
+	var mutexGotNoti sync.Mutex
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			q := tt.q
+			q.Addrs = []string{"127.0.0.1:8081"}
+			c := client.New()
+			var gotNoti []client.Notification
+
+			q.NotificationHandler = func(n client.Notification) error {
+				mutexGotNoti.Lock()
+				if nn, ok := n.(client.Update); ok {
+					nn.TS = time.Unix(0, 200)
+					gotNoti = append(gotNoti, nn)
+				} else {
+					gotNoti = append(gotNoti, n)
+				}
+				mutexGotNoti.Unlock()
+				return nil
+			}
+
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				if err := c.Subscribe(context.Background(), q); err != nil {
+					t.Errorf("c.Subscribe(): got error %v, expected nil", err)
+				}
+			}()
+
+			wg.Wait()
+
+			for i := 0; i < tt.poll; i++ {
+				err := c.Poll()
+				if err != nil {
+					t.Errorf("c.Poll(): got error %v, expected nil", err)
+				}
+			}
+
+			mutexGotNoti.Lock()
+			if diff := pretty.Compare(tt.wantNoti, gotNoti); diff != "" {
+				t.Log("\n Want: \n", tt.wantNoti)
+				t.Log("\n Got : \n", gotNoti)
+				t.Errorf("unexpected updates:\n%s", diff)
+			}
+			mutexGotNoti.Unlock()
+			c.Close()
+		})
+	}
+}

@@ -1,7 +1,9 @@
 package client
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"sync"
 	"testing"
@@ -574,4 +576,206 @@ func TestResetRedisClients(t *testing.T) {
 
 	// Reset again to clean up for other tests
 	ResetRedisClients()
+}
+
+// --------------------------------------------------------------------------
+// Tests for v2rInterfaceCountersStats (virtual_db.go)
+// --------------------------------------------------------------------------
+
+func TestV2rInterfaceCountersStats(t *testing.T) {
+	sdcfg.Init()
+	restore := setupPortMaps(t)
+	defer restore()
+
+	paths := []string{"COUNTERS_DB", "INTERFACE_COUNTERS"}
+	tblPaths, err := v2rInterfaceCountersStats(paths)
+	if err != nil {
+		t.Fatalf("v2rInterfaceCountersStats returned error: %v", err)
+	}
+	if len(tblPaths) != 2 {
+		t.Fatalf("expected 2 table paths, got %d", len(tblPaths))
+	}
+
+	// Sort for deterministic comparison (map iteration order is random).
+	sort.Slice(tblPaths, func(i, j int) bool {
+		return tblPaths[i].jsonTableKey < tblPaths[j].jsonTableKey
+	})
+
+	// Ethernet0
+	tp := tblPaths[0]
+	if tp.dbName != "COUNTERS_DB" {
+		t.Errorf("dbName = %q, want COUNTERS_DB", tp.dbName)
+	}
+	if tp.tableName != "COUNTERS" {
+		t.Errorf("tableName = %q, want COUNTERS (real backing table)", tp.tableName)
+	}
+	if tp.tableKey != "oid:0x1000000000001" {
+		t.Errorf("tableKey = %q, want oid:0x1000000000001", tp.tableKey)
+	}
+	if tp.jsonTableKey != "Ethernet0" {
+		t.Errorf("jsonTableKey = %q, want Ethernet0", tp.jsonTableKey)
+	}
+
+	// Ethernet68
+	tp = tblPaths[1]
+	if tp.tableName != "COUNTERS" {
+		t.Errorf("tableName = %q, want COUNTERS", tp.tableName)
+	}
+	if tp.tableKey != "oid:0x1000000000039" {
+		t.Errorf("tableKey = %q, want oid:0x1000000000039", tp.tableKey)
+	}
+	if tp.jsonTableKey != "Ethernet68" {
+		t.Errorf("jsonTableKey = %q, want Ethernet68", tp.jsonTableKey)
+	}
+}
+
+func TestV2rInterfaceCountersStats_EmptyMap(t *testing.T) {
+	sdcfg.Init()
+	restore := setupPortMaps(t)
+	defer restore()
+
+	countersPortNameMap = map[string]string{}
+	port2namespaceMap = map[string]string{}
+
+	paths := []string{"COUNTERS_DB", "INTERFACE_COUNTERS"}
+	tblPaths, err := v2rInterfaceCountersStats(paths)
+	if err != nil {
+		t.Fatalf("expected no error with empty map, got: %v", err)
+	}
+	if len(tblPaths) != 0 {
+		t.Errorf("expected 0 table paths, got %d", len(tblPaths))
+	}
+}
+
+func TestV2rInterfaceCountersStats_MissingNamespace(t *testing.T) {
+	sdcfg.Init()
+	restore := setupPortMaps(t)
+	defer restore()
+
+	// Add a port to the OID map without a namespace entry.
+	countersPortNameMap["Ethernet99"] = "oid:0x1000000000099"
+
+	paths := []string{"COUNTERS_DB", "INTERFACE_COUNTERS"}
+	_, err := v2rInterfaceCountersStats(paths)
+	if err == nil {
+		t.Fatal("expected error for port missing namespace, got nil")
+	}
+}
+
+// TestV2rInterfaceCountersTriePath verifies that the trie maps the virtual
+// path [COUNTERS_DB INTERFACE_COUNTERS] to v2rInterfaceCountersStats.
+func TestV2rInterfaceCountersTriePath(t *testing.T) {
+	sdcfg.Init()
+	restore := setupPortMaps(t)
+	defer restore()
+
+	tblPaths, err := lookupV2R([]string{"COUNTERS_DB", "INTERFACE_COUNTERS"})
+	if err != nil {
+		t.Fatalf("lookupV2R failed for INTERFACE_COUNTERS: %v", err)
+	}
+	if len(tblPaths) != 2 {
+		t.Fatalf("expected 2 table paths from trie lookup, got %d", len(tblPaths))
+	}
+	for _, tp := range tblPaths {
+		if tp.tableName != "COUNTERS" {
+			t.Errorf("tableName = %q, want COUNTERS", tp.tableName)
+		}
+		if tp.jsonTableKey != "Ethernet0" && tp.jsonTableKey != "Ethernet68" {
+			t.Errorf("jsonTableKey = %q, want Ethernet0 or Ethernet68", tp.jsonTableKey)
+		}
+	}
+}
+
+// TestV2rInterfaceCountersStats_FromTestdata loads the real COUNTERS_PORT_NAME_MAP
+// fixture from testdata/ and verifies v2rInterfaceCountersStats produces one
+// tablePath per port in the map, each pointing at the COUNTERS table by oid and
+// keyed in JSON by the SONiC interface name (no alias translation).
+func TestV2rInterfaceCountersStats_FromTestdata(t *testing.T) {
+	sdcfg.Init()
+
+	// Read the same fixture used by the gnmi_server integration tests.
+	raw, err := os.ReadFile("../testdata/COUNTERS_PORT_NAME_MAP.txt")
+	if err != nil {
+		t.Fatalf("failed to read COUNTERS_PORT_NAME_MAP.txt: %v", err)
+	}
+	portMap := map[string]string{}
+	if err := json.Unmarshal(raw, &portMap); err != nil {
+		t.Fatalf("failed to parse COUNTERS_PORT_NAME_MAP.txt: %v", err)
+	}
+	if len(portMap) == 0 {
+		t.Fatal("COUNTERS_PORT_NAME_MAP.txt produced empty map")
+	}
+
+	// Swap in the testdata-backed maps; restore on exit.
+	origPortNameMap := countersPortNameMap
+	origPort2NsMap := port2namespaceMap
+	defer func() {
+		countersPortNameMap = origPortNameMap
+		port2namespaceMap = origPort2NsMap
+	}()
+
+	countersPortNameMap = make(map[string]string, len(portMap))
+	port2namespaceMap = make(map[string]string, len(portMap))
+	for port, oid := range portMap {
+		countersPortNameMap[port] = oid
+		port2namespaceMap[port] = ""
+	}
+
+	paths := []string{"COUNTERS_DB", "INTERFACE_COUNTERS"}
+	tblPaths, err := v2rInterfaceCountersStats(paths)
+	if err != nil {
+		t.Fatalf("v2rInterfaceCountersStats returned error: %v", err)
+	}
+	if len(tblPaths) != len(portMap) {
+		t.Fatalf("expected %d table paths (one per port in fixture), got %d",
+			len(portMap), len(tblPaths))
+	}
+
+	// Index returned paths by SONiC interface name for easy lookup.
+	got := make(map[string]tablePath, len(tblPaths))
+	for _, tp := range tblPaths {
+		if _, dup := got[tp.jsonTableKey]; dup {
+			t.Errorf("duplicate jsonTableKey %q in result", tp.jsonTableKey)
+		}
+		got[tp.jsonTableKey] = tp
+	}
+
+	for port, wantOid := range portMap {
+		tp, ok := got[port]
+		if !ok {
+			t.Errorf("port %q missing from result", port)
+			continue
+		}
+		if tp.dbName != "COUNTERS_DB" {
+			t.Errorf("port %q: dbName = %q, want COUNTERS_DB", port, tp.dbName)
+		}
+		// INTERFACE_COUNTERS is virtual; data lives in the real COUNTERS table.
+		if tp.tableName != "COUNTERS" {
+			t.Errorf("port %q: tableName = %q, want COUNTERS", port, tp.tableName)
+		}
+		if tp.tableKey != wantOid {
+			t.Errorf("port %q: tableKey = %q, want %q", port, tp.tableKey, wantOid)
+		}
+		if tp.jsonTableKey != port {
+			t.Errorf("jsonTableKey = %q, want %q (SONiC name, no alias)",
+				tp.jsonTableKey, port)
+		}
+	}
+
+	// Spot-check a few well-known entries from the fixture so a future change
+	// to the testdata file doesn't silently weaken the assertion.
+	for port, wantOid := range map[string]string{
+		"Ethernet0":  "oid:0x1000000000002",
+		"Ethernet1":  "oid:0x1000000000003",
+		"Ethernet68": "oid:0x1000000000039",
+	} {
+		tp, ok := got[port]
+		if !ok {
+			t.Errorf("expected port %q from fixture not present in result", port)
+			continue
+		}
+		if tp.tableKey != wantOid {
+			t.Errorf("port %q: tableKey = %q, want %q", port, tp.tableKey, wantOid)
+		}
+	}
 }

@@ -427,6 +427,66 @@ func TestPFCWDErrors(t *testing.T) {
 	}
 }
 
+// TestGnmiGetInterfaceCountersVPath is an E2E Get-mode test for the
+// [COUNTERS_DB INTERFACE_COUNTERS] virtual path. It starts a gNMI server,
+// populates COUNTERS_DB via prepareDb (which loads counter data for
+// Ethernet1 and Ethernet68), issues a unary Get for [INTERFACE_COUNTERS],
+// and compares the returned JSON_IETF value against the
+// COUNTERS:Ethernet_wildcard_expected.txt fixture (keyed by SONiC port name).
+func TestGnmiGetInterfaceCountersVPath(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.ForceStop()
+
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	prepareDb(t, ns)
+
+	fileName := "../testdata/COUNTERS:Ethernet_wildcard_expected.txt"
+	interfaceCountersExpectedByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		{
+			desc:       "get INTERFACE_COUNTERS",
+			pathTarget: "COUNTERS_DB",
+			textPbPath: `
+					elem: <name: "INTERFACE_COUNTERS" >
+				`,
+			wantRetCode: codes.OK,
+			wantRespVal: interfaceCountersExpectedByte,
+			valTest:     true,
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+}
+
 // runTestGet requests a path from the server by Get grpc call, and compares if
 // the return code and response value are expected.
 func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTarget string,
