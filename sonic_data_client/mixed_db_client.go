@@ -463,6 +463,7 @@ func (c *MixedDbClient) DbBatchSetTable(table string, entries []tableBatchEntry)
 		swsscommon.DeleteFieldValuePairs(vec)
 	}
 
+	log.V(2).Infof("DbBatchSetTable: sending batched ZMQ set for table %s, batch size %d", table, len(entries))
 	return RetryHelper(
 		c.zmqClient,
 		func() error {
@@ -499,6 +500,7 @@ func (c *MixedDbClient) DbBatchDelTable(table string, keys []string) error {
 		keyVec.Add(k)
 	}
 
+	log.V(2).Infof("DbBatchDelTable: sending batched ZMQ del for table %s, batch size %d", table, len(keys))
 	return RetryHelper(
 		c.zmqClient,
 		func() error {
