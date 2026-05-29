@@ -2169,10 +2169,6 @@ func TestZmqBatchedSetEndToEnd(t *testing.T) {
 	}
 
 	swsscommon.DeleteZmqClient(zmqClient)
-	for k, c := range zmqClientMap {
-		swsscommon.DeleteZmqClient(c)
-		delete(zmqClientMap, k)
-	}
 }
 
 func TestZmqBatchedDelEndToEnd(t *testing.T) {
@@ -2209,10 +2205,6 @@ func TestZmqBatchedDelEndToEnd(t *testing.T) {
 	}
 
 	swsscommon.DeleteZmqClient(zmqClient)
-	for k, c := range zmqClientMap {
-		swsscommon.DeleteZmqClient(c)
-		delete(zmqClientMap, k)
-	}
 }
 
 func TestDbBatchSetTableFallsBackForPlainTable(t *testing.T) {
