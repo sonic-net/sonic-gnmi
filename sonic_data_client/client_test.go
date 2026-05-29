@@ -2169,8 +2169,9 @@ func TestZmqBatchedSetEndToEnd(t *testing.T) {
 	}
 
 	swsscommon.DeleteZmqClient(zmqClient)
-	for _, c := range zmqClientMap {
+	for k, c := range zmqClientMap {
 		swsscommon.DeleteZmqClient(c)
+		delete(zmqClientMap, k)
 	}
 }
 
@@ -2208,8 +2209,9 @@ func TestZmqBatchedDelEndToEnd(t *testing.T) {
 	}
 
 	swsscommon.DeleteZmqClient(zmqClient)
-	for _, c := range zmqClientMap {
+	for k, c := range zmqClientMap {
 		swsscommon.DeleteZmqClient(c)
+		delete(zmqClientMap, k)
 	}
 }
 
@@ -2335,15 +2337,11 @@ func TestHandleTableDataBatchesMultiKeyJSON(t *testing.T) {
 		jsonValue: jsonValue,
 	}}
 
-	// handleTableData looks up RedisDbMap[<mapkey>:<dbName>]; ensure a
-	// redis client is registered for the key.
-	mapKey := "test:" + APPL_DB_NAME
-	if _, ok := RedisDbMap[mapKey]; !ok {
-		RedisDbMap[mapKey] = redis.NewClient(&redis.Options{
-			Addr: "127.0.0.1:6379",
-			DB:   0,
-		})
-	}
+	// handleTableData looks up RedisDbMap[<mapkey>:<dbName>]; use the
+	// shared helper so RedisDbMap is initialized/restored deterministically
+	// across test ordering (other tests set RedisDbMap = nil).
+	redisCleanup := setupMixedDbRedis(t, "test")
+	defer redisCleanup()
 
 	if err := client.handleTableData(tblPaths); err != nil {
 		t.Fatalf("handleTableData returned error: %v", err)
@@ -2392,19 +2390,17 @@ func TestHandleTableDataBatchesOpRemove(t *testing.T) {
 		return nil
 	})
 
-	mapKey := "test:" + APPL_DB_NAME
-	if _, ok := RedisDbMap[mapKey]; !ok {
-		RedisDbMap[mapKey] = redis.NewClient(&redis.Options{
-			Addr: "127.0.0.1:6379",
-			DB:   0,
-		})
-	}
+	// Use the shared helper so RedisDbMap is initialized/restored
+	// deterministically across test ordering (other tests set
+	// RedisDbMap = nil).
+	redisCleanup := setupMixedDbRedis(t, "test")
+	defer redisCleanup()
 
 	// Seed three keys in Redis so the wildcard Keys() lookup returns
 	// multiple dbkeys.
 	const tableName = "DASH_BATCH_REMOVE_TABLE"
 	const delim = ":"
-	rdb := RedisDbMap[mapKey]
+	rdb := RedisDbMap["test:"+APPL_DB_NAME]
 	for _, k := range []string{"k0", "k1", "k2"} {
 		rdb.HSet(context.Background(), tableName+delim+k, "f", "v")
 	}
