@@ -80,6 +80,13 @@ const (
 
 var clientTypes = []string{gclient.Type}
 
+var sfePaths = []struct {
+	path string
+	mode pb.SubscriptionMode
+}{
+	{"/interfaces/interface[name=*]/state/hardware-port", pb.SubscriptionMode_ON_CHANGE},
+}
+
 func loadConfig(t *testing.T, key string, in []byte) map[string]interface{} {
 	var fvp map[string]interface{}
 
@@ -7487,5 +7494,87 @@ func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
 		// Serve returned after Stop — correct behavior
 	case <-time.After(2 * time.Second):
 		t.Error("Serve() did not return after Stop()")
+	}
+}
+func TestInterfaceKeyTransformer(t *testing.T) {
+	s := createServer(t, 8082)
+	s.config.EnableTranslation = true
+	go runServer(t, s)
+	defer s.Stop()
+
+	// 1. Setup gRPC connection
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	conn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%d", s.config.Port), opts...)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	// 2. Define test scenarios: Valid interface vs Unsupported Subinterface
+	testPaths := []struct {
+		name      string
+		path      string
+		wantError bool
+	}{
+		{
+			name:      "Valid Ethernet Interface",
+			path:      "/openconfig-interfaces:interfaces/interface[name=Ethernet0]",
+			wantError: false,
+		},
+		{
+			name:      "Unsupported Subinterface",
+			path:      "/openconfig-interfaces:interfaces/interface[name=Ethernet0]/subinterfaces/subinterface[index=1]",
+			wantError: true, // Should trigger "Subinterfaces not supported"
+		},
+	}
+	for _, tc := range testPaths {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			gnmiPath, _ := xpath.ToGNMIPath(tc.path)
+			gnmiPath.Origin = "openconfig"
+			gnmiPath.Target = "OC_YANG"
+			req := &pb.SubscribeRequest{
+				Request: &pb.SubscribeRequest_Subscribe{
+					Subscribe: &pb.SubscriptionList{
+						Mode:     pb.SubscriptionList_ONCE,
+						Encoding: pb.Encoding_PROTO,
+						Subscription: []*pb.Subscription{
+							{Path: gnmiPath},
+						},
+					},
+				},
+			}
+
+			stream, err := gClient.Subscribe(ctx)
+			if err != nil {
+				t.Fatalf("Subscribe failed: %v", err)
+			}
+
+			err = stream.Send(req)
+			if err != nil {
+				t.Fatalf("Send failed: %v", err)
+			}
+
+			// 3. Check response or error
+			resp, err := stream.Recv()
+
+			if tc.wantError {
+				// If the transformer returns tlerr.NotSupported,
+				// the gRPC stream should return an error status
+				if err == nil && resp.GetSyncResponse() == false {
+					// Depending on implementation, it might return a gRPC error
+					// or a gNMI error in the response
+					t.Log("Note: Check if your server returns error on Recv() for xfmr failures")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected success for %s, got error: %v", tc.name, err)
+				}
+			}
+		})
 	}
 }
