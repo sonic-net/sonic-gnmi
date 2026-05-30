@@ -13,25 +13,31 @@ from a registry to local disk**, so that a subsequent install step
 (`gnoi.os.Install`, package update, container image swap, …) can run against a
 known-good local copy.
 
-Today there is no gNMI/gNOI RPC that does this. The two superficially similar
-options don't fit:
+Today the closest thing is SONiC's `gnoi.file.TransferToRemote`. Important
+detail: although the upstream openconfig spec defines `TransferToRemote` as
+**upload** (target → remote URL), the SONiC implementation at
+`pkg/gnoi/file/file.go` actually performs a **download** — it HTTP GETs
+`remote_download.path` and writes the bytes into `local_path`. The proto
+message is reused but the semantics are inverted. That works for fetching
+images via a plain HTTP URL, and is what's in use today.
 
-| RPC                                  | Direction       | Why it doesn't fit ORAS                                                                                      |
-| ------------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------ |
-| `gnoi.file.TransferToRemote`         | target → remote | Upload, not download. Wrong direction.                                                                       |
-| `gnoi.system.SetPackage`             | client → target | Client must stream the bytes itself, or supply a `RemoteDownload` (HTTP/SFTP/SCP/HTTPS). No registry semantics — can't address `repository:tag`, doesn't understand manifests, layers, digests, or registry auth flows. |
-| `gnoi.containerz.Deploy`             | client → target | Client-streamed only. No "fetch this from a registry" mode.                                                  |
+It does **not** work for OCI/ORAS artifacts, which is what an ACR-backed
+deployment needs. Specifically:
+
+| Limitation of the current `TransferToRemote` path                                              | Why it blocks ACR/ORAS                                                                                              |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Hard-coded `RemoteDownload_HTTP` only (`file.go:111`) — `HTTPS`, `SFTP`, `SCP` return `Unimplemented`. | ACR is HTTPS-only.                                                                                                  |
+| `RemoteDownload.path` is a single URL.                                                         | OCI requires resolving `registry/repository:tag` → manifest → layer digests. Not a single URL.                      |
+| `RemoteDownload.credentials` is `{username, cleartext_password}` only.                          | ACR auth tiers: anonymous, basic admin, bearer token, AAD workload identity. Bearer/AAD don't fit.                  |
+| No manifest / layer awareness in the response (just an MD5 hash of the single downloaded blob). | Caller can't tell which layer is the `.bin`, can't verify per-layer digests, can't deduplicate by manifest digest.  |
+| Allowlist hard-codes `/tmp`, `/var/tmp`, `/host` (`file.go:208`); 4 GB max; 5-minute timeout.   | OS images > 4 GB exist (DPU bundles); ORAS-fetched artifacts need a managed staging area, not a free-form path.     |
+| No streaming progress; unary RPC blocks for the duration of the download.                       | Pulls can take many minutes on slow links; orchestrators need progress + cancellation.                              |
+| Semantics of "TransferToRemote = download" is itself a footgun — the name lies.                | A clean new RPC avoids continuing to overload a confusingly-named method.                                           |
 
 We deliberately **do not** try to extend `RemoteDownload` with a new
-`Protocol.ORAS` enum. OCI/ORAS is a richer model than a single
-URL-plus-credentials blob:
-
-- Artifacts have a manifest, a manifest digest, and one or more layers with
-  per-layer media types and digests.
-- Registry auth is non-trivial: anonymous, basic (ACR admin user), bearer
-  (pre-acquired token), or AAD workload identity federated to the device.
-- We want digest-based idempotency, per-layer filtering, and per-layer staging
-  paths surfaced back to the caller. `RemoteDownload` can't carry any of that.
+`Protocol.ORAS` enum, for the same reasons — its schema is too thin
+(single URL + flat creds) to carry registry/repo/tag-or-digest, manifests,
+multiple layers, or AAD workload-identity auth.
 
 ## 2. Goals & non-goals
 
