@@ -2109,3 +2109,316 @@ func TestGetTableDashHA(t *testing.T) {
 	swsscommon.DeleteZmqClient(zmqClient)
 	swsscommon.DeleteZmqServer(zmqServer)
 }
+
+// drainAllFromZmq pops entries from the consumer until the deadline expires
+// or `expected` entries have been seen. It returns the total drained.
+func drainAllFromZmq(consumer swsscommon.ZmqConsumerStateTable, expected int) int {
+	deadline := time.Now().Add(5 * time.Second)
+	total := 0
+	for time.Now().Before(deadline) && total < expected {
+		q := swsscommon.NewKeyOpFieldsValuesQueue()
+		consumer.Pops(q)
+		total += int(q.Size())
+		swsscommon.DeleteKeyOpFieldsValuesQueue(q)
+		if total < expected {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	return total
+}
+
+func TestZmqBatchedSetEndToEnd(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	const zmqAddr = "tcp://127.0.0.1:4234"
+	zmqServer := swsscommon.NewZmqServer("tcp://*:4234")
+	defer swsscommon.DeleteZmqServer(zmqServer)
+	const tableName = "DASH_ROUTE_TABLE"
+	db := swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false)
+	defer swsscommon.DeleteDBConnector(db)
+	consumer := swsscommon.NewZmqConsumerStateTable(db, tableName, zmqServer)
+	defer swsscommon.DeleteZmqConsumerStateTable(consumer)
+
+	zmqClient := swsscommon.NewZmqClient(zmqAddr)
+	client := MixedDbClient{
+		applDB:        swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
+		tableMap:      map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap:   map[string]swsscommon.ZmqProducerStateTable{},
+		plainTableMap: map[string]swsscommon.Table{},
+		zmqClient:     zmqClient,
+	}
+	defer client.Close()
+
+	const N = 5
+	entries := make([]tableBatchEntry, 0, N)
+	for i := 0; i < N; i++ {
+		entries = append(entries, tableBatchEntry{
+			key:    fmt.Sprintf("k%d", i),
+			values: map[string]string{"f": fmt.Sprintf("v%d", i)},
+		})
+	}
+
+	if err := client.DbBatchSetTable(tableName, entries); err != nil {
+		t.Fatalf("DbBatchSetTable returned error: %v", err)
+	}
+
+	if total := drainAllFromZmq(consumer, N); total != N {
+		t.Errorf("Consumer drained %d entries, want %d", total, N)
+	}
+
+	swsscommon.DeleteZmqClient(zmqClient)
+}
+
+func TestZmqBatchedDelEndToEnd(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	const zmqAddr = "tcp://127.0.0.1:4235"
+	zmqServer := swsscommon.NewZmqServer("tcp://*:4235")
+	defer swsscommon.DeleteZmqServer(zmqServer)
+	const tableName = "DASH_ROUTE_TABLE"
+	db := swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false)
+	defer swsscommon.DeleteDBConnector(db)
+	consumer := swsscommon.NewZmqConsumerStateTable(db, tableName, zmqServer)
+	defer swsscommon.DeleteZmqConsumerStateTable(consumer)
+
+	zmqClient := swsscommon.NewZmqClient(zmqAddr)
+	client := MixedDbClient{
+		applDB:        swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false),
+		tableMap:      map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap:   map[string]swsscommon.ZmqProducerStateTable{},
+		plainTableMap: map[string]swsscommon.Table{},
+		zmqClient:     zmqClient,
+	}
+	defer client.Close()
+
+	keys := []string{"k0", "k1", "k2", "k3"}
+	if err := client.DbBatchDelTable(tableName, keys); err != nil {
+		t.Fatalf("DbBatchDelTable returned error: %v", err)
+	}
+
+	if total := drainAllFromZmq(consumer, len(keys)); total != len(keys) {
+		t.Errorf("Consumer drained %d entries, want %d", total, len(keys))
+	}
+
+	swsscommon.DeleteZmqClient(zmqClient)
+}
+
+func TestDbBatchSetTableFallsBackForPlainTable(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	applDB := swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false)
+	client := MixedDbClient{
+		applDB:        applDB,
+		tableMap:      map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap:   map[string]swsscommon.ZmqProducerStateTable{},
+		plainTableMap: map[string]swsscommon.Table{},
+		zmqClient:     nil,
+	}
+
+	const tableName = "DASH_HA_SET_CONFIG_TABLE"
+	entries := []tableBatchEntry{
+		{key: "k0", values: map[string]string{"f": "v0"}},
+		{key: "k1", values: map[string]string{"f": "v1"}},
+		{key: "k2", values: map[string]string{"f": "v2"}},
+	}
+
+	if err := client.DbBatchSetTable(tableName, entries); err != nil {
+		t.Fatalf("DbBatchSetTable on plain table failed: %v", err)
+	}
+	if _, ok := client.zmqTableMap[tableName]; ok {
+		t.Errorf("plain table %s should not appear in zmqTableMap", tableName)
+	}
+	if _, ok := client.plainTableMap[tableName]; !ok {
+		t.Errorf("plain table %s should appear in plainTableMap", tableName)
+	}
+
+	for _, e := range entries {
+		_ = client.DbDelTable(tableName, e.key)
+	}
+	for _, plainTable := range client.plainTableMap {
+		plainTable.Flush()
+		swsscommon.DeleteTable(plainTable)
+	}
+	swsscommon.DeleteDBConnector(applDB)
+}
+
+func TestDbBatchSetTableEmptyAndSingle(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	applDB := swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false)
+	defer swsscommon.DeleteDBConnector(applDB)
+	client := MixedDbClient{
+		applDB:        applDB,
+		tableMap:      map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap:   map[string]swsscommon.ZmqProducerStateTable{},
+		plainTableMap: map[string]swsscommon.Table{},
+		zmqClient:     nil,
+	}
+
+	if err := client.DbBatchSetTable("DASH_HA_SET_CONFIG_TABLE", nil); err != nil {
+		t.Errorf("DbBatchSetTable with nil entries should be a no-op: %v", err)
+	}
+	if err := client.DbBatchDelTable("DASH_HA_SET_CONFIG_TABLE", nil); err != nil {
+		t.Errorf("DbBatchDelTable with nil keys should be a no-op: %v", err)
+	}
+
+	if err := client.DbBatchSetTable("DASH_HA_SET_CONFIG_TABLE", []tableBatchEntry{
+		{key: "k0", values: map[string]string{"f": "v0"}},
+	}); err != nil {
+		t.Errorf("DbBatchSetTable single-entry failed: %v", err)
+	}
+	if err := client.DbBatchDelTable("DASH_HA_SET_CONFIG_TABLE", []string{"k0"}); err != nil {
+		t.Errorf("DbBatchDelTable single-key failed: %v", err)
+	}
+
+	for _, plainTable := range client.plainTableMap {
+		plainTable.Flush()
+		swsscommon.DeleteTable(plainTable)
+	}
+}
+
+// TestHandleTableDataBatchesMultiKeyJSON proves that the multi-key JSON
+// opAdd path in handleTableData routes through DbBatchSetTable (one call)
+// instead of DbSetTable (N calls). This is the optimization that the issue
+// asks for: a single gNMI Set of N keys becomes one ZMQ round-trip.
+func TestHandleTableDataBatchesMultiKeyJSON(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	applDB := swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false)
+	defer swsscommon.DeleteDBConnector(applDB)
+
+	client := &MixedDbClient{
+		applDB:        applDB,
+		mapkey:        "test",
+		tableMap:      map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap:   map[string]swsscommon.ZmqProducerStateTable{},
+		plainTableMap: map[string]swsscommon.Table{},
+	}
+
+	var batchSetCalls, setCalls int
+	var batchSetEntries int
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyMethod(client, "DbBatchSetTable", func(_ *MixedDbClient, _ string, entries []tableBatchEntry) error {
+		batchSetCalls++
+		batchSetEntries += len(entries)
+		return nil
+	})
+	patches.ApplyMethod(client, "DbSetTable", func(_ *MixedDbClient, _ string, _ string, _ map[string]string) error {
+		setCalls++
+		return nil
+	})
+
+	// Multi-key JSON payload — three keys under one table.
+	jsonValue := `{"k0":{"f":"v0"},"k1":{"f":"v1"},"k2":{"f":"v2"}}`
+	tblPaths := []tablePath{{
+		dbName:    APPL_DB_NAME,
+		tableName: "DASH_ROUTE_TABLE",
+		delimitor: ":",
+		operation: opAdd,
+		jsonValue: jsonValue,
+	}}
+
+	// handleTableData looks up RedisDbMap[<mapkey>:<dbName>]; use the
+	// shared helper so RedisDbMap is initialized/restored deterministically
+	// across test ordering (other tests set RedisDbMap = nil).
+	redisCleanup := setupMixedDbRedis(t, "test")
+	defer redisCleanup()
+
+	if err := client.handleTableData(tblPaths); err != nil {
+		t.Fatalf("handleTableData returned error: %v", err)
+	}
+	if batchSetCalls != 1 {
+		t.Errorf("DbBatchSetTable called %d times, want 1", batchSetCalls)
+	}
+	if batchSetEntries != 3 {
+		t.Errorf("DbBatchSetTable received %d entries total, want 3", batchSetEntries)
+	}
+	if setCalls != 0 {
+		t.Errorf("DbSetTable called %d times, want 0 (multi-key JSON must batch)", setCalls)
+	}
+}
+
+// TestHandleTableDataBatchesOpRemove proves the opRemove path in
+// handleTableData routes through DbBatchDelTable when there are multiple
+// keys to delete.
+func TestHandleTableDataBatchesOpRemove(t *testing.T) {
+	if !swsscommon.SonicDBConfigIsInit() {
+		swsscommon.SonicDBConfigInitialize()
+	}
+
+	applDB := swsscommon.NewDBConnector(APPL_DB_NAME, SWSS_TIMEOUT, false)
+	defer swsscommon.DeleteDBConnector(applDB)
+
+	client := &MixedDbClient{
+		applDB:        applDB,
+		mapkey:        "test",
+		tableMap:      map[string]swsscommon.ProducerStateTable{},
+		zmqTableMap:   map[string]swsscommon.ZmqProducerStateTable{},
+		plainTableMap: map[string]swsscommon.Table{},
+	}
+
+	var batchDelCalls, delCalls int
+	var batchDelKeys int
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyMethod(client, "DbBatchDelTable", func(_ *MixedDbClient, _ string, keys []string) error {
+		batchDelCalls++
+		batchDelKeys += len(keys)
+		return nil
+	})
+	patches.ApplyMethod(client, "DbDelTable", func(_ *MixedDbClient, _ string, _ string) error {
+		delCalls++
+		return nil
+	})
+
+	// Use the shared helper so RedisDbMap is initialized/restored
+	// deterministically across test ordering (other tests set
+	// RedisDbMap = nil).
+	redisCleanup := setupMixedDbRedis(t, "test")
+	defer redisCleanup()
+
+	// Seed three keys in Redis so the wildcard Keys() lookup returns
+	// multiple dbkeys.
+	const tableName = "DASH_BATCH_REMOVE_TABLE"
+	const delim = ":"
+	rdb := RedisDbMap["test:"+APPL_DB_NAME]
+	for _, k := range []string{"k0", "k1", "k2"} {
+		rdb.HSet(context.Background(), tableName+delim+k, "f", "v")
+	}
+	defer func() {
+		for _, k := range []string{"k0", "k1", "k2"} {
+			rdb.Del(context.Background(), tableName+delim+k)
+		}
+	}()
+
+	tblPaths := []tablePath{{
+		dbName:    APPL_DB_NAME,
+		tableName: tableName,
+		delimitor: delim,
+		operation: opRemove,
+	}}
+
+	if err := client.handleTableData(tblPaths); err != nil {
+		t.Fatalf("handleTableData returned error: %v", err)
+	}
+	if batchDelCalls != 1 {
+		t.Errorf("DbBatchDelTable called %d times, want 1", batchDelCalls)
+	}
+	if batchDelKeys != 3 {
+		t.Errorf("DbBatchDelTable received %d keys, want 3", batchDelKeys)
+	}
+	if delCalls != 0 {
+		t.Errorf("DbDelTable called %d times, want 0 (multi-key remove must batch)", delCalls)
+	}
+}

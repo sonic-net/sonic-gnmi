@@ -310,6 +310,18 @@ func ProducerStateTableDeleteWrapper(pt swsscommon.ProducerStateTable, key strin
 	return
 }
 
+func ZmqProducerBatchedSetWrapper(pt swsscommon.ZmqProducerStateTable, keys swsscommon.VectorString, fvss swsscommon.FieldValuePairsList) (err error) {
+	defer CatchException(&err)
+	swsscommon.ZmqProducerBatchedSet(pt, keys, fvss)
+	return
+}
+
+func ZmqProducerBatchedDelWrapper(pt swsscommon.ZmqProducerStateTable, keys swsscommon.VectorString) (err error) {
+	defer CatchException(&err)
+	swsscommon.ZmqProducerBatchedDel(pt, keys)
+	return
+}
+
 func TableSetWrapper(t swsscommon.Table, key string, value swsscommon.FieldValuePairs) (err error) {
 	// convert panic to error
 	defer CatchException(&err)
@@ -393,6 +405,106 @@ func (c *MixedDbClient) DbDelTable(table string, key string) error {
 		c.zmqClient,
 		func() error {
 			return ProducerStateTableDeleteWrapper(pt, key)
+		})
+}
+
+// tableBatchEntry is a (key, field-value-map) pair scheduled to be written
+// to the same table in one batched call.
+type tableBatchEntry struct {
+	key    string
+	values map[string]string
+}
+
+// DbBatchSetTable writes multiple entries to a single table. When the table
+// is backed by ZmqProducerStateTable it issues one ZMQ message for the
+// whole batch (via swsscommon.ZmqProducerBatchedSet), turning N round-trips
+// into one. For plain Table / non-ZMQ ProducerStateTable backends there is
+// no batched C++ API, so we fall back to a per-entry loop. Single-entry
+// batches are delegated to DbSetTable to avoid extra allocation.
+func (c *MixedDbClient) DbBatchSetTable(table string, entries []tableBatchEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	if len(entries) == 1 {
+		return c.DbSetTable(table, entries[0].key, entries[0].values)
+	}
+
+	// GetTable lazily creates the right backend and registers it in the
+	// appropriate map. After this call zmqTableMap[table] is populated iff
+	// the table is ZMQ-backed.
+	c.GetTable(table)
+
+	zmqPt, isZmq := c.zmqTableMap[table]
+	if !isZmq {
+		// No batched API for plain Table or non-ZMQ ProducerStateTable —
+		// fall back to per-entry writes.
+		for _, e := range entries {
+			if err := c.DbSetTable(table, e.key, e.values); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	keys := swsscommon.NewVectorString()
+	defer swsscommon.DeleteVectorString(keys)
+	fvss := swsscommon.NewFieldValuePairsList()
+	defer swsscommon.DeleteFieldValuePairsList(fvss)
+	for _, e := range entries {
+		keys.Add(e.key)
+		vec := swsscommon.NewFieldValuePairs()
+		for k, v := range e.values {
+			pair := swsscommon.NewFieldValuePair(k, v)
+			vec.Add(pair)
+			swsscommon.DeleteFieldValuePair(pair)
+		}
+		// Add() copies vec into the list; release the local copy.
+		fvss.Add(vec)
+		swsscommon.DeleteFieldValuePairs(vec)
+	}
+
+	log.V(2).Infof("DbBatchSetTable: sending batched ZMQ set for table %s, batch size %d", table, len(entries))
+	return RetryHelper(
+		c.zmqClient,
+		func() error {
+			return ZmqProducerBatchedSetWrapper(zmqPt, keys, fvss)
+		})
+}
+
+// DbBatchDelTable deletes multiple keys from a single table. When the table
+// is backed by ZmqProducerStateTable a single batched ZMQ message is sent;
+// otherwise we fall back to a per-key loop.
+func (c *MixedDbClient) DbBatchDelTable(table string, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	if len(keys) == 1 {
+		return c.DbDelTable(table, keys[0])
+	}
+
+	c.GetTable(table)
+
+	zmqPt, isZmq := c.zmqTableMap[table]
+	if !isZmq {
+		for _, k := range keys {
+			if err := c.DbDelTable(table, k); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	keyVec := swsscommon.NewVectorString()
+	defer swsscommon.DeleteVectorString(keyVec)
+	for _, k := range keys {
+		keyVec.Add(k)
+	}
+
+	log.V(2).Infof("DbBatchDelTable: sending batched ZMQ del for table %s, batch size %d", table, len(keys))
+	return RetryHelper(
+		c.zmqClient,
+		func() error {
+			return ZmqProducerBatchedDelWrapper(zmqPt, keyVec)
 		})
 }
 
@@ -1117,13 +1229,14 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 				dbkeys = []string{tblPath.tableName + tblPath.delimitor + tblPath.tableKey}
 			}
 
+			tableKeys := make([]string, 0, len(dbkeys))
 			for _, dbkey := range dbkeys {
 				tableKey := strings.TrimPrefix(dbkey, tblPath.tableName+tblPath.delimitor)
-				err = c.DbDelTable(tblPath.tableName, tableKey)
-				if err != nil {
-					log.V(2).Infof("swsscommon delete failed for  %v, dbkey %s", tblPath, dbkey)
-					return err
-				}
+				tableKeys = append(tableKeys, tableKey)
+			}
+			if err := c.DbBatchDelTable(tblPath.tableName, tableKeys); err != nil {
+				log.V(2).Infof("swsscommon batched delete failed for %v, count %d", tblPath, len(tableKeys))
+				return err
 			}
 		} else if tblPath.operation == opAdd {
 			if tblPath.tableKey != "" {
@@ -1164,17 +1277,20 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 					return err
 				}
 				if vtable, ok := res.(map[string]interface{}); ok {
+					entries := make([]tableBatchEntry, 0, len(vtable))
 					for tableKey, tres := range vtable {
 						if vt, ret := tres.(map[string]interface{}); ret {
-							outputData := ConvertDbEntry(vt)
-							err = c.DbSetTable(tblPath.tableName, tableKey, outputData)
-							if err != nil {
-								log.V(2).Infof("swsscommon update failed for  %v, value %v", tblPath, outputData)
-								return err
-							}
+							entries = append(entries, tableBatchEntry{
+								key:    tableKey,
+								values: ConvertDbEntry(vt),
+							})
 						} else {
 							return fmt.Errorf("Key %v: Unsupported value %v type %v", tableKey, tres, reflect.TypeOf(tres))
 						}
+					}
+					if err := c.DbBatchSetTable(tblPath.tableName, entries); err != nil {
+						log.V(2).Infof("swsscommon batched update failed for %v, count %d", tblPath, len(entries))
+						return err
 					}
 				} else {
 					return fmt.Errorf("Unsupported value %v type %v", res, reflect.TypeOf(res))
