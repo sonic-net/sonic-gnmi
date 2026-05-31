@@ -1,0 +1,124 @@
+//
+// Copyright 2026 Microsoft Corp.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+
+// This file defines a SONiC gNOI service that pulls OCI/ORAS artifacts
+// (e.g. SONiC OS images stored in an Azure Container Registry) from a remote
+// registry into local storage on the target. See doc/oras-pull-design.md for
+// the full design.
+//
+// This is the PoC subset: a single Pull RPC, anonymous + basic auth, single
+// layer artifacts written to local_path. List/Delete and richer features are
+// tracked in the design doc.
+syntax = "proto3";
+
+package sonic.gnoi.oras.v1;
+
+import "github.com/openconfig/gnoi/types/types.proto";
+import "google/protobuf/duration.proto";
+
+option go_package = "./;oras";
+
+option (.gnoi.types.gnoi_version) = "0.1.0";
+
+service Oras {
+  // Pull fetches an OCI/ORAS artifact from a registry into a local file on
+  // the target. The response stream emits a single PullStarted message once
+  // the manifest is resolved, zero or more PullProgress messages while bytes
+  // are being transferred, and a final PullResult on success.
+  //
+  // Errors (gRPC status codes):
+  //   InvalidArgument:    missing required fields, unsupported layer count
+  //                       for the PoC (must be exactly one).
+  //   Unauthenticated:    registry rejected the supplied credentials.
+  //   FailedPrecondition: resolved manifest digest mismatch or destination
+  //                       path outside the allowlist.
+  //   Unavailable:        registry unreachable (DNS/TCP/timeout).
+  //   ResourceExhausted:  disk full while writing.
+  //   DataLoss:           digest verification failed after download.
+  //   Internal:           anything else.
+  rpc Pull(PullRequest) returns (stream PullResponse);
+}
+
+message PullRequest {
+  // Required. Registry hostname, e.g. "ksdatatest.azurecr.io".
+  string registry = 1;
+
+  // Required. Repository within the registry, e.g. "sonic-os-images".
+  string repository = 2;
+
+  // Required. Exactly one of tag/digest must be set.
+  oneof reference {
+    string tag    = 3;  // e.g. "20230531.46"
+    string digest = 4;  // e.g. "sha256:6f0923e8…"
+  }
+
+  // Required. Absolute path on the target where the artifact's single layer
+  // will be written. Must be under the file-server allowlist (currently
+  // /tmp/, /var/tmp/, /host/). Overwritten if it already exists.
+  string local_path = 5;
+
+  // Auth for the pull. Unset == anonymous.
+  AuthConfig auth = 6;
+
+  // Optional. HTTP(S) proxy used for the pull, e.g. "http://10.250.0.1:8888".
+  // Required on testbeds where the registry is not reachable via the
+  // device's default route.
+  string http_proxy = 7;
+}
+
+message AuthConfig {
+  oneof mode {
+    // Empty marker for explicit anonymous (otherwise distinguished from
+    // "field not set" by oneof semantics).
+    Anonymous anonymous = 1;
+    BasicAuth basic     = 2;
+  }
+}
+
+message Anonymous {}
+
+message BasicAuth {
+  string username = 1;
+  string password = 2;
+}
+
+message PullResponse {
+  oneof event {
+    PullStarted  started  = 1;
+    PullProgress progress = 2;
+    PullResult   result   = 3;
+  }
+}
+
+message PullStarted {
+  // Resolved manifest digest, even if the request used a tag.
+  string manifest_digest = 1;
+  // Total bytes the server expects to transfer (size of the selected layer).
+  uint64 total_bytes = 2;
+}
+
+message PullProgress {
+  uint64 bytes_transferred = 1;
+  uint64 total_bytes       = 2;
+}
+
+message PullResult {
+  // Resolved manifest digest.
+  string manifest_digest = 1;
+  // Digest of the layer that was written.
+  string layer_digest = 2;
+  // Size in bytes of the layer that was written.
+  uint64 bytes_written = 3;
+  // Absolute path on the target where the layer was written. Equal to
+  // PullRequest.local_path.
+  string local_path = 4;
+  // Wall-clock time from PullStarted to PullResult.
+  google.protobuf.Duration elapsed = 5;
+}
