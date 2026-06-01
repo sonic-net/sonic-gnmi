@@ -361,8 +361,11 @@ func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 		gnoi_containerz_pb.RegisterContainerzServer(s, containerzSrv)
 		gnoi_debug_pb.RegisterDebugServer(s, debugSrv)
 		gnoi_healthz_pb.RegisterHealthzServer(s, healthzSrv)
-		gnoi_oras_pb.RegisterOrasServer(s, orasSrv)
 	}
+	// ORAS Pull writes only into an allowlisted staging area inside the
+	// container; it has no relation to the gNMI write paths, so it is not
+	// gated by EnableTranslibWrite/EnableNativeWrite.
+	gnoi_oras_pb.RegisterOrasServer(s, orasSrv)
 	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(s, srv)
 	}
