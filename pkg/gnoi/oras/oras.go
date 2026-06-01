@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -34,6 +33,7 @@ import (
 	"oras.land/oras-go/v2/registry/remote/errcode"
 	"oras.land/oras-go/v2/registry/remote/retry"
 
+	"github.com/sonic-net/sonic-gnmi/pkg/hostfs"
 	oraspb "github.com/sonic-net/sonic-gnmi/proto/gnoi/oras"
 )
 
@@ -41,10 +41,6 @@ const (
 	// progressInterval bounds how often PullProgress messages are emitted.
 	progressInterval = 1 * time.Second
 )
-
-// allowedPathPrefixes mirrors the file-server allowlist in
-// pkg/gnoi/file/file.go to keep the on-disk write surface consistent.
-var allowedPathPrefixes = []string{"/tmp/", "/var/tmp/", "/host/"}
 
 // HandlePull implements the Pull RPC. The implementation is server-streaming:
 // it emits a single PullStarted once the manifest is resolved, zero or more
@@ -124,7 +120,14 @@ func handlePullWithRepo(req *oraspb.PullRequest, stream oraspb.Oras_PullServer, 
 	// Stage the layer into a temporary directory next to local_path, then
 	// rename into place on success. oras-go's file.Store writes by layer
 	// digest into the staging directory; we then move that file to local_path.
-	dir := filepath.Dir(req.GetLocalPath())
+	//
+	// Translate logical → on-disk path. Inside the gnmi container,
+	// /tmp/foo on the client becomes /mnt/host/tmp/foo here so the file
+	// lands on the host root (which is what every real consumer wants —
+	// e.g. sonic-installer reads from the host's /tmp, not from any
+	// container-private tmpfs).
+	hostPath := hostfs.Translate(req.GetLocalPath())
+	dir := filepath.Dir(hostPath)
 	stagingDir, err := os.MkdirTemp(dir, ".oras-pull-")
 	if err != nil {
 		return status.Errorf(codes.Internal, "create staging dir: %v", err)
@@ -171,15 +174,15 @@ func handlePullWithRepo(req *oraspb.PullRequest, stream oraspb.Oras_PullServer, 
 	// Move the layer file into place. file.Store wrote it as stagingName
 	// inside stagingDir.
 	srcPath := filepath.Join(stagingDir, stagingName)
-	if err := os.Rename(srcPath, req.GetLocalPath()); err != nil {
+	if err := os.Rename(srcPath, hostPath); err != nil {
 		// Only fall back to copy-and-delete for cross-filesystem renames;
 		// every other os.Rename failure (perm, target-is-dir, etc.) is
 		// surfaced as-is so it shows up in logs and the gRPC error.
 		if !isCrossDeviceError(err) {
 			return status.Errorf(codes.Internal, "rename to local_path: %v", err)
 		}
-		log.V(1).Infof("[Oras.Pull] rename %s -> %s: %v; falling back to copy", srcPath, req.GetLocalPath(), err)
-		if err := copyAndRemove(srcPath, req.GetLocalPath()); err != nil {
+		log.V(1).Infof("[Oras.Pull] rename %s -> %s: %v; falling back to copy", srcPath, hostPath, err)
+		if err := copyAndRemove(srcPath, hostPath); err != nil {
 			return status.Errorf(codes.Internal, "copy to local_path: %v", err)
 		}
 	}
@@ -229,26 +232,7 @@ func validatePullRequest(req *oraspb.PullRequest) error {
 	return nil
 }
 
-func validateLocalPath(p string) error {
-	cleaned := filepath.Clean(p)
-	if !filepath.IsAbs(cleaned) {
-		return fmt.Errorf("path must be absolute, got: %s", p)
-	}
-	// filepath.Clean has already collapsed any real `..` traversal segments
-	// against the absolute root. Any `..` left can only be a literal path
-	// component, so reject only segments that equal "..", not substrings.
-	for _, seg := range strings.Split(cleaned, string(filepath.Separator)) {
-		if seg == ".." {
-			return fmt.Errorf("path traversal not allowed: %s", p)
-		}
-	}
-	for _, prefix := range allowedPathPrefixes {
-		if strings.HasPrefix(cleaned, prefix) {
-			return nil
-		}
-	}
-	return fmt.Errorf("path must be under %v, got: %s", allowedPathPrefixes, cleaned)
-}
+func validateLocalPath(p string) error { return hostfs.Validate(p) }
 
 func pullReference(req *oraspb.PullRequest) string {
 	if d := req.GetDigest(); d != "" {

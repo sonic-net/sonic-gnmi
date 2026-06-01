@@ -27,6 +27,7 @@ PURE_PACKAGES := \
 	pkg/exec \
 	pkg/gnoi/os \
 	pkg/gnoi/oras \
+	pkg/hostfs \
 	pkg/gnoi/system
 
 # Future packages to make pure:
