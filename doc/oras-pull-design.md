@@ -231,6 +231,41 @@ message DeleteResponse {}
 
 ## 4. Server behavior
 
+### 4.0 End-to-end Pull flow
+
+The PoC delegates all registry I/O to [`oras-go/v2`][oras-go] and only owns the
+gRPC streaming, path handling, and progress reporting.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant S as gNMI server
+    participant R as Registry (ACR)
+    participant FS as Host filesystem
+
+    C->>S: Pull(ref, local_path, auth)
+    S->>R: resolve manifest, pick layer
+    S-->>C: PullStarted (total bytes)
+    loop while streaming
+        R-->>S: layer bytes
+        S->>FS: write to staging area
+        S-->>C: PullProgress
+    end
+    S->>FS: atomic move into local_path
+    S-->>C: PullResult (digests, bytes, elapsed)
+```
+
+- The server never speaks the OCI HTTP protocol directly; oras-go handles
+  resolve, auth, retries, and chunked blob fetches.
+- Bytes are streamed through the server into a staging file beside the
+  destination, then renamed into place so partial writes are never visible
+  at `local_path`.
+- Progress events tee off the in-flight transfer; the client sees a single
+  `PullStarted`, periodic `PullProgress`, and one terminal `PullResult`.
+
+[oras-go]: https://github.com/oras-project/oras-go
+
 ### 4.1 Staging layout
 
 ```
