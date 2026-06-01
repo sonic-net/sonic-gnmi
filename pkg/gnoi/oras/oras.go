@@ -13,7 +13,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -227,11 +226,6 @@ func validatePullRequest(req *oraspb.PullRequest) error {
 	if err := validateLocalPath(req.GetLocalPath()); err != nil {
 		return status.Errorf(codes.FailedPrecondition, "invalid local_path: %v", err)
 	}
-	if proxy := req.GetHttpProxy(); proxy != "" {
-		if _, err := url.Parse(proxy); err != nil {
-			return status.Errorf(codes.InvalidArgument, "invalid http_proxy: %v", err)
-		}
-	}
 	return nil
 }
 
@@ -270,15 +264,14 @@ func newRepository(req *oraspb.PullRequest) (*remote.Repository, error) {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid repository reference %q: %v", repoRef, err)
 	}
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	if proxy := req.GetHttpProxy(); proxy != "" {
-		u, _ := url.Parse(proxy)
-		transport.Proxy = http.ProxyURL(u)
-	}
-
+	// Use http.DefaultTransport so the standard HTTP_PROXY/HTTPS_PROXY/
+	// NO_PROXY env vars (honored by http.ProxyFromEnvironment) take effect.
+	// On lab testbeds where the target needs a proxy to reach the registry,
+	// set those env vars on the gnmi process; production switches with a
+	// route to the registry need no configuration.
 	client := &auth.Client{
 		Client: &http.Client{
-			Transport: retry.NewTransport(transport),
+			Transport: retry.NewTransport(http.DefaultTransport),
 		},
 		Cache: auth.NewCache(),
 	}

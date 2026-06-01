@@ -67,11 +67,6 @@ message PullRequest {
 
   // Auth for the pull. Unset == anonymous.
   AuthConfig auth = 6;
-
-  // Optional. HTTP(S) proxy used for the pull, e.g. "http://10.250.0.1:8888".
-  // Required on testbeds where the registry is not reachable via the
-  // device's default route.
-  string http_proxy = 7;
 }
 
 message AuthConfig {

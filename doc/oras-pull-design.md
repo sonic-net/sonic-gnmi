@@ -101,10 +101,10 @@ service Oras {
 
 ```proto
 message PullRequest {
-  // Required. Registry hostname[:port], e.g. "ksdatatest.azurecr.io".
+  // Required. Registry hostname[:port], e.g. "registry.example.com".
   string registry   = 1;
 
-  // Required. Repository within the registry, e.g. "sonic-os-images".
+  // Required. Repository within the registry, e.g. "namespace/image".
   string repository = 2;
 
   // Required. Exactly one of tag/digest must be set. If both are set the
@@ -117,51 +117,46 @@ message PullRequest {
 
   // Auth for the pull. Unset == anonymous.
   AuthConfig auth = 5;
-
-  // Optional. If set, only layers whose mediaType matches one of these
-  // are downloaded. Empty == all layers in the manifest.
-  // Use case: a SONiC OS artifact wrapping multiple files — fetch only the
-  // `.bin` layer, skip side-car SBOMs / signatures.
-  repeated string media_type_filter = 6;
-
-  // Optional. Source address used for outbound connections (parity with
-  // gnoi.common.RemoteDownload).
-  string source_address = 7;
-  // Optional. Source VRF.
-  string source_vrf     = 8;
-
-  // Optional. HTTP(S) proxy (e.g. "http://10.250.0.1:8888"). Required on
-  // testbeds where the registry is not reachable via the default route.
-  string http_proxy = 9;
-
-  // Optional. If true and the resolved manifest digest already exists in
-  // the local store, return success immediately without re-pulling.
-  bool skip_if_exists = 10;
-
-  // Optional. Pre-pull guard: if set and the resolved manifest digest does
-  // not match, fail with FAILED_PRECONDITION before writing any bytes.
-  string expected_manifest_digest = 11;
 }
 
 message AuthConfig {
   oneof mode {
-    bool             anonymous = 1;
+    Anonymous        anonymous = 1;
     BasicAuth        basic     = 2;
     BearerAuth       bearer    = 3;
     WorkloadIdentity workload  = 4;  // preferred
   }
 }
+message Anonymous        {}
 message BasicAuth        { string username = 1; string password = 2; }
 message BearerAuth       { string token = 1; }
 message WorkloadIdentity {
-  // Identifier of an AAD federated identity already provisioned on the device
-  // (e.g. via a sonic-host-services agent). The server exchanges it for an
-  // ACR access token at pull time. No secret material crosses the RPC.
+  // Identifier of a federated identity already provisioned on the device
+  // (e.g. via a sonic-host-services agent). The server exchanges it for a
+  // registry access token at pull time. No secret material crosses the RPC.
   string identity_name = 1;
-  // Optional. ACR resource scope, e.g. "https://management.azure.com/.default".
+  // Optional. Token-exchange resource scope.
   string resource = 2;
 }
 ```
+
+Out-of-scope-for-v1 knobs deliberately deferred:
+
+- `media_type_filter` — only meaningful once multi-layer artifacts are
+  supported. v1 rejects multi-layer manifests, so a filter has nothing to do.
+- `source_address` / `source_vrf` — handled one layer down by the routing /
+  netns configuration; not an app-level RPC concern. Other gNOI services
+  (`gnoi.os`, `gnoi.system.SetPackage`) don't carry them either.
+- `http_proxy` — read from standard `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`
+  env vars on the gnmi process (Go's `http.ProxyFromEnvironment`). Lab
+  testbeds inject these in the gnmi container; production switches with a
+  default route to the registry need no configuration.
+- `skip_if_exists` — requires an on-disk manifest-digest store the agent
+  doesn't yet keep. Caller idempotency can be approximated today by checking
+  the artifact at `local_path` before issuing the RPC.
+- `expected_manifest_digest` — redundant with the existing `digest` arm of
+  the `reference` oneof, which already gives the caller a TOCTOU-safe
+  digest-addressable pull.
 
 ### 3.2 PullResponse
 
@@ -329,8 +324,8 @@ require an explicit "image-mgmt" role.
 
 3. **Manifest schema validation.** Should the server enforce a SONiC-specific
    `artifactType` (e.g. `application/vnd.sonic.os-image.v1`) on Pull, or
-   accept any manifest and let the caller decide via `media_type_filter`?
-   Current draft does the latter.
+   accept any manifest and trust the caller? v1 accepts any single-layer
+   manifest; this can be tightened once we have a canonical artifactType.
 
 4. **Push back: do we even need List/Delete on the device, or should
    inventory live in the control plane?** Argument for keeping them on-device:

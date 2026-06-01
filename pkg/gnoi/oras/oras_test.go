@@ -75,7 +75,6 @@ func TestValidatePullRequest(t *testing.T) {
 		code codes.Code
 	}{
 		{"happy", func(r *oraspb.PullRequest) {}, codes.OK},
-		{"happy-with-proxy", func(r *oraspb.PullRequest) { r.HttpProxy = "http://10.0.0.1:8888" }, codes.OK},
 		{"happy-digest", func(r *oraspb.PullRequest) {
 			r.Reference = &oraspb.PullRequest_Digest{Digest: "sha256:" + strings.Repeat("a", 64)}
 		}, codes.OK},
@@ -86,7 +85,6 @@ func TestValidatePullRequest(t *testing.T) {
 		{"bad-localpath-relative", func(r *oraspb.PullRequest) { r.LocalPath = "out.bin" }, codes.FailedPrecondition},
 		{"bad-localpath-outside-allowlist", func(r *oraspb.PullRequest) { r.LocalPath = "/etc/passwd" }, codes.FailedPrecondition},
 		{"bad-localpath-traversal", func(r *oraspb.PullRequest) { r.LocalPath = "/tmp/../etc/passwd" }, codes.FailedPrecondition},
-		{"bad-proxy", func(r *oraspb.PullRequest) { r.HttpProxy = "http://[::1" }, codes.InvalidArgument},
 	}
 
 	for _, tc := range cases {
@@ -308,11 +306,10 @@ func TestNewRepositoryBadRef(t *testing.T) {
 	}
 }
 
-func TestNewRepositoryWiresCredentialAndProxy(t *testing.T) {
+func TestNewRepositoryWiresCredential(t *testing.T) {
 	req := &oraspb.PullRequest{
 		Registry:   "r.example.com",
 		Repository: "ns/repo",
-		HttpProxy:  "http://proxy.local:8888",
 		Auth: &oraspb.AuthConfig{Mode: &oraspb.AuthConfig_Basic{
 			Basic: &oraspb.BasicAuth{Username: "u", Password: "p"},
 		}},
