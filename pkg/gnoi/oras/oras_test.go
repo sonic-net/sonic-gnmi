@@ -21,6 +21,8 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
 
 	oraspb "github.com/sonic-net/sonic-gnmi/proto/gnoi/oras"
@@ -95,8 +97,7 @@ func TestValidatePullRequest(t *testing.T) {
 }
 
 func proto_clone(r *oraspb.PullRequest) *oraspb.PullRequest {
-	out := *r
-	return &out
+	return proto.Clone(r).(*oraspb.PullRequest)
 }
 
 // ---------- validateLocalPath ----------
@@ -283,6 +284,43 @@ func TestHandlePullValidationShortCircuit(t *testing.T) {
 	}
 }
 
+// TestHandlePullEndToEnd exercises the HandlePull wrapper itself (not just the
+// seam) by pointing at an unroutable registry. Validation and newRepository
+// must succeed; the actual resolve fails. This covers HandlePull lines that
+// delegate into handlePullWithRepo after a successful construction.
+func TestHandlePullEndToEnd(t *testing.T) {
+	dst := filepath.Join("/tmp", fmt.Sprintf("oras-test-%d.bin", os.Getpid()))
+	defer os.Remove(dst)
+	req := &oraspb.PullRequest{
+		Registry:   "127.0.0.1:1", // guaranteed connection refused
+		Repository: "ns/repo",
+		Reference:  &oraspb.PullRequest_Tag{Tag: "v1"},
+		LocalPath:  dst,
+	}
+	stream := &fakeStream{ctx: context.Background()}
+	err := HandlePull(req, stream)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := mustStatus(t, err).Code(); got != codes.Unavailable {
+		t.Errorf("expected Unavailable, got %v (%v)", got, err)
+	}
+}
+
+// TestHandlePullBadRegistryRef covers the HandlePull → newRepository error path.
+func TestHandlePullBadRegistryRef(t *testing.T) {
+	req := &oraspb.PullRequest{
+		Registry:   "BAD HOST", // space is invalid in registry ref
+		Repository: "ns/repo",
+		Reference:  &oraspb.PullRequest_Tag{Tag: "v1"},
+		LocalPath:  "/tmp/x.bin",
+	}
+	err := HandlePull(req, &fakeStream{ctx: context.Background()})
+	if err == nil || mustStatus(t, err).Code() != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument, got %v", err)
+	}
+}
+
 // ---------- HandlePull, via a fake OCI registry ----------
 
 // fakeStream collects PullResponse messages.
@@ -459,5 +497,173 @@ func TestHandlePullAuthFailure(t *testing.T) {
 	}
 	if got := mustStatus(t, err).Code(); got != codes.Unauthenticated {
 		t.Errorf("expected Unauthenticated, got %v (%v)", got, err)
+	}
+}
+
+// errStream returns an error on Send; used to exercise the "stream.Send
+// failed" branches in handlePullWithRepo.
+type errStream struct {
+	fakeStream
+	sendErr error
+}
+
+func (s *errStream) Send(r *oraspb.PullResponse) error { return s.sendErr }
+
+// newCustomRegistry serves a manifest+blob the test can fully control: the
+// supplied manifest body and blob body are returned verbatim. Useful for
+// injecting multi-layer manifests or a 500 on the blob endpoint.
+func newCustomRegistry(t *testing.T, mfBytes []byte, mfDigest, layerDigest string, layerHandler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v2/" || r.URL.Path == "/v2":
+			w.WriteHeader(200)
+		case strings.HasSuffix(r.URL.Path, "/manifests/v1") || strings.HasSuffix(r.URL.Path, "/manifests/"+mfDigest):
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
+			w.Header().Set("Docker-Content-Digest", mfDigest)
+			w.Header().Set("Content-Length", fmt.Sprint(len(mfBytes)))
+			if r.Method == http.MethodHead {
+				w.WriteHeader(200)
+				return
+			}
+			w.Write(mfBytes)
+		case layerDigest != "" && strings.HasSuffix(r.URL.Path, "/blobs/"+layerDigest):
+			layerHandler(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// makeManifest returns serialized manifest bytes + its sha256 digest.
+func makeManifest(t *testing.T, layers []ocispec.Descriptor) ([]byte, string) {
+	t.Helper()
+	m := ocispec.Manifest{MediaType: ocispec.MediaTypeImageManifest, Layers: layers}
+	m.SchemaVersion = 2
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(b)
+	return b, "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func mkReq(host, dst string) *oraspb.PullRequest {
+	return &oraspb.PullRequest{
+		Registry:   host,
+		Repository: "ns/repo",
+		Reference:  &oraspb.PullRequest_Tag{Tag: "v1"},
+		LocalPath:  dst,
+	}
+}
+
+func mkRepo(t *testing.T, req *oraspb.PullRequest) *remote.Repository {
+	t.Helper()
+	repo, err := newRepository(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.PlainHTTP = true
+	return repo
+}
+
+// TestHandlePullMultiLayerManifest: manifest with 2 layers must be rejected
+// by pickSingleLayer.
+func TestHandlePullMultiLayerManifest(t *testing.T) {
+	layers := []ocispec.Descriptor{
+		{MediaType: "application/octet-stream", Digest: digest.Digest("sha256:" + strings.Repeat("a", 64)), Size: 1},
+		{MediaType: "application/octet-stream", Digest: digest.Digest("sha256:" + strings.Repeat("b", 64)), Size: 1},
+	}
+	mfBytes, mfDigest := makeManifest(t, layers)
+	srv := newCustomRegistry(t, mfBytes, mfDigest, "", nil)
+	dst := filepath.Join("/tmp", fmt.Sprintf("oras-test-%d.bin", os.Getpid()))
+	defer os.Remove(dst)
+	req := mkReq(registryHost(t, srv), dst)
+	err := handlePullWithRepo(req, &fakeStream{ctx: context.Background()}, mkRepo(t, req))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := mustStatus(t, err).Code(); got != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument, got %v (%v)", got, err)
+	}
+}
+
+// TestHandlePullStartedSendError: stream.Send for PullStarted fails. Covers
+// the early Send-error branch.
+func TestHandlePullStartedSendError(t *testing.T) {
+	payload := []byte("x")
+	srv := newFakeRegistry(t, payload, false, "", "")
+	dst := filepath.Join("/tmp", fmt.Sprintf("oras-test-%d.bin", os.Getpid()))
+	defer os.Remove(dst)
+	req := mkReq(registryHost(t, srv), dst)
+	stream := &errStream{
+		fakeStream: fakeStream{ctx: context.Background()},
+		sendErr:    fmt.Errorf("stream broken"),
+	}
+	err := handlePullWithRepo(req, stream, mkRepo(t, req))
+	if err == nil || !strings.Contains(err.Error(), "stream broken") {
+		t.Errorf("expected stream broken error, got %v", err)
+	}
+}
+
+// TestHandlePullMkdirTempError: local_path under /tmp but the parent dir does
+// not exist, so MkdirTemp fails.
+func TestHandlePullMkdirTempError(t *testing.T) {
+	payload := []byte("x")
+	srv := newFakeRegistry(t, payload, false, "", "")
+	dst := fmt.Sprintf("/tmp/no-such-dir-%d/out.bin", os.Getpid())
+	req := mkReq(registryHost(t, srv), dst)
+	err := handlePullWithRepo(req, &fakeStream{ctx: context.Background()}, mkRepo(t, req))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := mustStatus(t, err).Code(); got != codes.Internal {
+		t.Errorf("expected Internal, got %v (%v)", got, err)
+	}
+}
+
+// TestHandlePullBlobFetchError: server returns 500 on the blob endpoint, so
+// fetchLayerWithProgress fails.
+func TestHandlePullBlobFetchError(t *testing.T) {
+	payload := []byte("hello")
+	layerSum := sha256.Sum256(payload)
+	layerDigest := "sha256:" + hex.EncodeToString(layerSum[:])
+	layers := []ocispec.Descriptor{{
+		MediaType: "application/octet-stream",
+		Digest:    digest.Digest(layerDigest),
+		Size:      int64(len(payload)),
+	}}
+	mfBytes, mfDigest := makeManifest(t, layers)
+	srv := newCustomRegistry(t, mfBytes, mfDigest, layerDigest, func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	})
+	dst := filepath.Join("/tmp", fmt.Sprintf("oras-test-%d.bin", os.Getpid()))
+	defer os.Remove(dst)
+	req := mkReq(registryHost(t, srv), dst)
+	err := handlePullWithRepo(req, &fakeStream{ctx: context.Background()}, mkRepo(t, req))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// TestCopyAndRemoveDstError covers the dst-open failure branch of copyAndRemove.
+func TestCopyAndRemoveDstError(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.WriteFile(src, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Make a read-only subdir and aim dst into it.
+	ro := filepath.Join(dir, "ro")
+	if err := os.Mkdir(ro, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(ro, 0700) })
+	if err := copyAndRemove(src, filepath.Join(ro, "dst")); err == nil {
+		t.Errorf("expected dst-open error")
 	}
 }
