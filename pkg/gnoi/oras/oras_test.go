@@ -292,8 +292,8 @@ type fakeStream struct {
 	sent []*oraspb.PullResponse
 }
 
-func (s *fakeStream) Context() context.Context             { return s.ctx }
-func (s *fakeStream) Send(r *oraspb.PullResponse) error    { s.sent = append(s.sent, r); return nil }
+func (s *fakeStream) Context() context.Context          { return s.ctx }
+func (s *fakeStream) Send(r *oraspb.PullResponse) error { s.sent = append(s.sent, r); return nil }
 
 // newFakeRegistry serves a single-layer OCI artifact at ns/repo:v1.
 // require auth: when require401 is true, every request returns 401 unless
