@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
@@ -22,8 +24,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/errcode"
 
 	oraspb "github.com/sonic-net/sonic-gnmi/proto/gnoi/oras"
 )
@@ -38,6 +42,22 @@ func mustStatus(t *testing.T, err error) *status.Status {
 	}
 	return s
 }
+
+// tmpUnderTmp returns a unique directory under /tmp (which is in the path
+// allowlist) and registers a cleanup. t.TempDir() can't be used in tests
+// that go through validateLocalPath because the test runner's $TMPDIR may
+// live elsewhere (e.g. $HOME/tmp), outside the allowlist.
+func tmpUnderTmp(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "oras-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
+func tmpDst(t *testing.T) string { return filepath.Join(tmpUnderTmp(t), "out.bin") }
 
 // ---------- validatePullRequest ----------
 
@@ -71,7 +91,7 @@ func TestValidatePullRequest(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := proto_clone(good)
+			req := protoClone(good)
 			tc.mut(req)
 			err := validatePullRequest(req)
 			if tc.code == codes.OK {
@@ -96,7 +116,7 @@ func TestValidatePullRequest(t *testing.T) {
 	})
 }
 
-func proto_clone(r *oraspb.PullRequest) *oraspb.PullRequest {
+func protoClone(r *oraspb.PullRequest) *oraspb.PullRequest {
 	return proto.Clone(r).(*oraspb.PullRequest)
 }
 
@@ -158,26 +178,75 @@ func TestMapRegistryError(t *testing.T) {
 	if mapRegistryError(nil, "op") != nil {
 		t.Errorf("nil should pass through")
 	}
-	cases := []struct {
-		msg  string
-		code codes.Code
-	}{
-		{"401 Unauthorized", codes.Unauthenticated},
-		{"authentication required", codes.Unauthenticated},
-		{"dial tcp: lookup x: no such host", codes.Unavailable},
-		{"connection refused", codes.Unavailable},
-		{"i/o timeout", codes.Unavailable},
-		{"404 not found", codes.NotFound},
-		{"write /tmp/x: no space left on device", codes.ResourceExhausted},
-		{"boom", codes.Internal},
-	}
-	for _, c := range cases {
-		got := mustStatus(t, mapRegistryError(errors.New(c.msg), "op")).Code()
-		if got != c.code {
-			t.Errorf("%q: want %v got %v", c.msg, c.code, got)
+
+	t.Run("plain error -> Internal", func(t *testing.T) {
+		got := mustStatus(t, mapRegistryError(errors.New("boom"), "op")).Code()
+		if got != codes.Internal {
+			t.Errorf("got %v", got)
 		}
-	}
+	})
+
+	t.Run("errcode 401 -> Unauthenticated", func(t *testing.T) {
+		err := &errcode.ErrorResponse{StatusCode: http.StatusUnauthorized, URL: &url.URL{}, Method: "GET"}
+		got := mustStatus(t, mapRegistryError(err, "op")).Code()
+		if got != codes.Unauthenticated {
+			t.Errorf("got %v", got)
+		}
+	})
+
+	t.Run("errcode 403 -> PermissionDenied", func(t *testing.T) {
+		err := &errcode.ErrorResponse{StatusCode: http.StatusForbidden, URL: &url.URL{}, Method: "GET"}
+		if got := mustStatus(t, mapRegistryError(err, "op")).Code(); got != codes.PermissionDenied {
+			t.Errorf("got %v", got)
+		}
+	})
+
+	t.Run("errcode 404 -> NotFound", func(t *testing.T) {
+		err := &errcode.ErrorResponse{StatusCode: http.StatusNotFound, URL: &url.URL{}, Method: "GET"}
+		if got := mustStatus(t, mapRegistryError(err, "op")).Code(); got != codes.NotFound {
+			t.Errorf("got %v", got)
+		}
+	})
+
+	t.Run("errdef.ErrNotFound -> NotFound", func(t *testing.T) {
+		if got := mustStatus(t, mapRegistryError(errdef.ErrNotFound, "op")).Code(); got != codes.NotFound {
+			t.Errorf("got %v", got)
+		}
+	})
+
+	t.Run("ECONNREFUSED -> Unavailable", func(t *testing.T) {
+		err := &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+		if got := mustStatus(t, mapRegistryError(err, "op")).Code(); got != codes.Unavailable {
+			t.Errorf("got %v", got)
+		}
+	})
+
+	t.Run("dns error -> Unavailable", func(t *testing.T) {
+		err := &net.DNSError{Err: "no such host", Name: "x"}
+		if got := mustStatus(t, mapRegistryError(err, "op")).Code(); got != codes.Unavailable {
+			t.Errorf("got %v", got)
+		}
+	})
+
+	t.Run("timeout -> Unavailable", func(t *testing.T) {
+		err := &timeoutErr{}
+		if got := mustStatus(t, mapRegistryError(err, "op")).Code(); got != codes.Unavailable {
+			t.Errorf("got %v", got)
+		}
+	})
+
+	t.Run("ENOSPC -> ResourceExhausted", func(t *testing.T) {
+		if got := mustStatus(t, mapRegistryError(syscall.ENOSPC, "op")).Code(); got != codes.ResourceExhausted {
+			t.Errorf("got %v", got)
+		}
+	})
 }
+
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string   { return "i/o timeout" }
+func (timeoutErr) Timeout() bool   { return true }
+func (timeoutErr) Temporary() bool { return true }
 
 // ---------- countingReader ----------
 
@@ -218,14 +287,14 @@ func TestCopyAndRemove(t *testing.T) {
 	}
 }
 
-// ---------- jsonUnmarshalStrict ----------
+// ---------- parseManifest ----------
 
 func TestJsonUnmarshalStrict(t *testing.T) {
 	var v map[string]any
-	if err := jsonUnmarshalStrict([]byte(`{"a":1}`), &v); err != nil || v["a"].(float64) != 1 {
+	if err := parseManifest([]byte(`{"a":1}`), &v); err != nil || v["a"].(float64) != 1 {
 		t.Errorf("ok case: v=%v err=%v", v, err)
 	}
-	if err := jsonUnmarshalStrict([]byte(`not json`), &v); err == nil {
+	if err := parseManifest([]byte(`not json`), &v); err == nil {
 		t.Errorf("expected error on bad json")
 	}
 }
@@ -289,8 +358,7 @@ func TestHandlePullValidationShortCircuit(t *testing.T) {
 // must succeed; the actual resolve fails. This covers HandlePull lines that
 // delegate into handlePullWithRepo after a successful construction.
 func TestHandlePullEndToEnd(t *testing.T) {
-	dst := filepath.Join("/tmp", fmt.Sprintf("oras-test-%d.bin", os.Getpid()))
-	defer os.Remove(dst)
+	dst := tmpDst(t)
 	req := &oraspb.PullRequest{
 		Registry:   "127.0.0.1:1", // guaranteed connection refused
 		Repository: "ns/repo",
@@ -426,8 +494,7 @@ func registryHost(t *testing.T, srv *httptest.Server) string {
 func TestHandlePullHappyPath(t *testing.T) {
 	payload := []byte("hello-image-bytes")
 	srv := newFakeRegistry(t, payload, false, "", "")
-	dst := filepath.Join("/tmp", fmt.Sprintf("oras-test-%d.bin", os.Getpid()))
-	defer os.Remove(dst)
+	dst := tmpDst(t)
 
 	req := &oraspb.PullRequest{
 		Registry:   registryHost(t, srv),
@@ -473,8 +540,7 @@ func TestHandlePullHappyPath(t *testing.T) {
 
 func TestHandlePullAuthFailure(t *testing.T) {
 	srv := newFakeRegistry(t, []byte("x"), true, "right", "right")
-	dst := filepath.Join("/tmp", fmt.Sprintf("oras-test-%d.bin", os.Getpid()))
-	defer os.Remove(dst)
+	dst := tmpDst(t)
 
 	req := &oraspb.PullRequest{
 		Registry:   registryHost(t, srv),
@@ -580,8 +646,7 @@ func TestHandlePullMultiLayerManifest(t *testing.T) {
 	}
 	mfBytes, mfDigest := makeManifest(t, layers)
 	srv := newCustomRegistry(t, mfBytes, mfDigest, "", nil)
-	dst := filepath.Join("/tmp", fmt.Sprintf("oras-test-%d.bin", os.Getpid()))
-	defer os.Remove(dst)
+	dst := tmpDst(t)
 	req := mkReq(registryHost(t, srv), dst)
 	err := handlePullWithRepo(req, &fakeStream{ctx: context.Background()}, mkRepo(t, req))
 	if err == nil {
@@ -597,8 +662,7 @@ func TestHandlePullMultiLayerManifest(t *testing.T) {
 func TestHandlePullStartedSendError(t *testing.T) {
 	payload := []byte("x")
 	srv := newFakeRegistry(t, payload, false, "", "")
-	dst := filepath.Join("/tmp", fmt.Sprintf("oras-test-%d.bin", os.Getpid()))
-	defer os.Remove(dst)
+	dst := tmpDst(t)
 	req := mkReq(registryHost(t, srv), dst)
 	stream := &errStream{
 		fakeStream: fakeStream{ctx: context.Background()},
@@ -615,7 +679,7 @@ func TestHandlePullStartedSendError(t *testing.T) {
 func TestHandlePullMkdirTempError(t *testing.T) {
 	payload := []byte("x")
 	srv := newFakeRegistry(t, payload, false, "", "")
-	dst := fmt.Sprintf("/tmp/no-such-dir-%d/out.bin", os.Getpid())
+	dst := filepath.Join(tmpUnderTmp(t), "no-such-dir", "out.bin")
 	req := mkReq(registryHost(t, srv), dst)
 	err := handlePullWithRepo(req, &fakeStream{ctx: context.Background()}, mkRepo(t, req))
 	if err == nil {
@@ -641,8 +705,7 @@ func TestHandlePullBlobFetchError(t *testing.T) {
 	srv := newCustomRegistry(t, mfBytes, mfDigest, layerDigest, func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	})
-	dst := filepath.Join("/tmp", fmt.Sprintf("oras-test-%d.bin", os.Getpid()))
-	defer os.Remove(dst)
+	dst := tmpDst(t)
 	req := mkReq(registryHost(t, srv), dst)
 	err := handlePullWithRepo(req, &fakeStream{ctx: context.Background()}, mkRepo(t, req))
 	if err == nil {
@@ -665,5 +728,20 @@ func TestCopyAndRemoveDstError(t *testing.T) {
 	t.Cleanup(func() { os.Chmod(ro, 0700) })
 	if err := copyAndRemove(src, filepath.Join(ro, "dst")); err == nil {
 		t.Errorf("expected dst-open error")
+	}
+}
+
+func TestIsCrossDeviceError(t *testing.T) {
+	if !isCrossDeviceError(syscall.EXDEV) {
+		t.Errorf("bare EXDEV should match")
+	}
+	if !isCrossDeviceError(&os.LinkError{Op: "rename", Old: "a", New: "b", Err: syscall.EXDEV}) {
+		t.Errorf("LinkError-wrapped EXDEV should match")
+	}
+	if isCrossDeviceError(syscall.EPERM) {
+		t.Errorf("non-EXDEV should not match")
+	}
+	if isCrossDeviceError(&os.LinkError{Op: "rename", Old: "a", New: "b", Err: syscall.EACCES}) {
+		t.Errorf("LinkError EACCES should not match")
 	}
 }

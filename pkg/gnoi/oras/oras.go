@@ -8,14 +8,18 @@ package oras
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	log "github.com/golang/glog"
@@ -24,10 +28,11 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/errcode"
 	"oras.land/oras-go/v2/registry/remote/retry"
 
 	oraspb "github.com/sonic-net/sonic-gnmi/proto/gnoi/oras"
@@ -58,11 +63,28 @@ func HandlePull(req *oraspb.PullRequest, stream oraspb.Oras_PullServer) error {
 	return handlePullWithRepo(req, stream, repo)
 }
 
+// safeStream wraps an Oras_PullServer with a mutex so that progressLoop and
+// the main goroutine can both Send without racing on the gRPC stream.
+// gRPC's ServerStream.Send is not safe for concurrent use.
+type safeStream struct {
+	mu     sync.Mutex
+	stream oraspb.Oras_PullServer
+}
+
+func (s *safeStream) Send(r *oraspb.PullResponse) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stream.Send(r)
+}
+
+func (s *safeStream) Context() context.Context { return s.stream.Context() }
+
 // handlePullWithRepo is the testable seam: HandlePull does request validation
 // and constructs the repository, then delegates here. Tests construct the
 // repository themselves (e.g. with PlainHTTP=true against an httptest server).
 func handlePullWithRepo(req *oraspb.PullRequest, stream oraspb.Oras_PullServer, repo *remote.Repository) error {
-	ctx := stream.Context()
+	ss := &safeStream{stream: stream}
+	ctx := ss.Context()
 	started := time.Now()
 
 	ref := pullReference(req)
@@ -89,7 +111,7 @@ func handlePullWithRepo(req *oraspb.PullRequest, stream oraspb.Oras_PullServer, 
 		return err
 	}
 
-	if err := stream.Send(&oraspb.PullResponse{
+	if err := ss.Send(&oraspb.PullResponse{
 		Event: &oraspb.PullResponse_Started{
 			Started: &oraspb.PullStarted{
 				ManifestDigest: manifestDesc.Digest.String(),
@@ -129,24 +151,41 @@ func handlePullWithRepo(req *oraspb.PullRequest, stream oraspb.Oras_PullServer, 
 	// non-Copy fetches, so we tee the fetch through a tracked reader.
 	var transferred atomic.Uint64
 	progressDone := make(chan struct{})
-	go progressLoop(ctx, stream, &transferred, uint64(layer.Size), progressDone)
-	defer func() { close(progressDone) }()
+	progressExited := make(chan struct{})
+	go func() {
+		progressLoop(ctx, ss, &transferred, uint64(layer.Size), progressDone)
+		close(progressExited)
+	}()
 
-	if err := fetchLayerWithProgress(ctx, repo, annotated, fs, &transferred); err != nil {
-		return mapRegistryError(err, "fetch layer")
+	fetchErr := fetchLayerWithProgress(ctx, repo, annotated, fs, &transferred)
+
+	// Stop the progress goroutine and wait for it to drain before any
+	// further Send on the stream, so the final PullResult can never race
+	// with a PullProgress (even though safeStream would serialize them).
+	close(progressDone)
+	<-progressExited
+
+	if fetchErr != nil {
+		return mapRegistryError(fetchErr, "fetch layer")
 	}
 
 	// Move the layer file into place. file.Store wrote it as stagingName
 	// inside stagingDir.
 	srcPath := filepath.Join(stagingDir, stagingName)
 	if err := os.Rename(srcPath, req.GetLocalPath()); err != nil {
-		// Rename across filesystems falls back to copy-and-delete.
+		// Only fall back to copy-and-delete for cross-filesystem renames;
+		// every other os.Rename failure (perm, target-is-dir, etc.) is
+		// surfaced as-is so it shows up in logs and the gRPC error.
+		if !isCrossDeviceError(err) {
+			return status.Errorf(codes.Internal, "rename to local_path: %v", err)
+		}
+		log.V(1).Infof("[Oras.Pull] rename %s -> %s: %v; falling back to copy", srcPath, req.GetLocalPath(), err)
 		if err := copyAndRemove(srcPath, req.GetLocalPath()); err != nil {
-			return status.Errorf(codes.Internal, "stage to local_path: %v", err)
+			return status.Errorf(codes.Internal, "copy to local_path: %v", err)
 		}
 	}
 
-	return stream.Send(&oraspb.PullResponse{
+	return ss.Send(&oraspb.PullResponse{
 		Event: &oraspb.PullResponse_Result{
 			Result: &oraspb.PullResult{
 				ManifestDigest: manifestDesc.Digest.String(),
@@ -157,6 +196,16 @@ func handlePullWithRepo(req *oraspb.PullRequest, stream oraspb.Oras_PullServer, 
 			},
 		},
 	})
+}
+
+// isCrossDeviceError reports whether err is an os.Rename failure caused by
+// src and dst being on different filesystems (EXDEV).
+func isCrossDeviceError(err error) bool {
+	var le *os.LinkError
+	if errors.As(err, &le) {
+		return errors.Is(le.Err, syscall.EXDEV)
+	}
+	return errors.Is(err, syscall.EXDEV)
 }
 
 func validatePullRequest(req *oraspb.PullRequest) error {
@@ -191,8 +240,13 @@ func validateLocalPath(p string) error {
 	if !filepath.IsAbs(cleaned) {
 		return fmt.Errorf("path must be absolute, got: %s", p)
 	}
-	if strings.Contains(cleaned, "..") {
-		return fmt.Errorf("path traversal not allowed: %s", p)
+	// filepath.Clean has already collapsed any real `..` traversal segments
+	// against the absolute root. Any `..` left can only be a literal path
+	// component, so reject only segments that equal "..", not substrings.
+	for _, seg := range strings.Split(cleaned, string(filepath.Separator)) {
+		if seg == ".." {
+			return fmt.Errorf("path traversal not allowed: %s", p)
+		}
 	}
 	for _, prefix := range allowedPathPrefixes {
 		if strings.HasPrefix(cleaned, prefix) {
@@ -240,7 +294,7 @@ func newRepository(req *oraspb.PullRequest) (*remote.Repository, error) {
 
 func pickSingleLayer(manifest []byte) (ocispec.Descriptor, error) {
 	var m ocispec.Manifest
-	if err := jsonUnmarshalStrict(manifest, &m); err != nil {
+	if err := parseManifest(manifest, &m); err != nil {
 		return ocispec.Descriptor{}, status.Errorf(codes.Internal, "parse manifest: %v", err)
 	}
 	if len(m.Layers) != 1 {
@@ -251,9 +305,7 @@ func pickSingleLayer(manifest []byte) (ocispec.Descriptor, error) {
 }
 
 // fetchLayerWithProgress copies a single layer descriptor into the file store
-// while updating the transferred counter. We use oras.Copy to leverage the
-// graph machinery, but with an artificial intermediate that lets us tee the
-// blob stream through a counter.
+// while updating the transferred counter.
 func fetchLayerWithProgress(ctx context.Context, src *remote.Repository, layer ocispec.Descriptor, dst *file.Store, transferred *atomic.Uint64) error {
 	rc, err := src.Fetch(ctx, layer)
 	if err != nil {
@@ -262,14 +314,10 @@ func fetchLayerWithProgress(ctx context.Context, src *remote.Repository, layer o
 	defer rc.Close()
 
 	tr := &countingReader{r: rc, n: transferred}
-	if err := dst.Push(ctx, layer, tr); err != nil {
-		return err
-	}
-	_ = oras.Copy // keep import in case we switch to oras.Copy later
-	return nil
+	return dst.Push(ctx, layer, tr)
 }
 
-func progressLoop(ctx context.Context, stream oraspb.Oras_PullServer, transferred *atomic.Uint64, total uint64, done <-chan struct{}) {
+func progressLoop(ctx context.Context, stream *safeStream, transferred *atomic.Uint64, total uint64, done <-chan struct{}) {
 	tick := time.NewTicker(progressInterval)
 	defer tick.Stop()
 	for {
@@ -334,21 +382,51 @@ func copyAndRemove(src, dst string) error {
 }
 
 // mapRegistryError translates oras-go / network errors into gRPC status codes
-// that match the design doc.
+// that match the design doc. Prefers typed-error inspection over substring
+// matching so that unrelated error text containing words like "404" or
+// "not found" does not get misclassified.
 func mapRegistryError(err error, op string) error {
 	if err == nil {
 		return nil
 	}
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "401") || strings.Contains(msg, "Unauthorized") || strings.Contains(msg, "authentication required"):
-		return status.Errorf(codes.Unauthenticated, "%s: %v", op, err)
-	case strings.Contains(msg, "no such host") || strings.Contains(msg, "connection refused") || strings.Contains(msg, "timeout"):
-		return status.Errorf(codes.Unavailable, "%s: %v", op, err)
-	case strings.Contains(msg, "404") || strings.Contains(msg, "not found"):
+
+	// oras-go typed errors.
+	var ec *errcode.ErrorResponse
+	if errors.As(err, &ec) {
+		switch ec.StatusCode {
+		case http.StatusUnauthorized:
+			return status.Errorf(codes.Unauthenticated, "%s: %v", op, err)
+		case http.StatusForbidden:
+			return status.Errorf(codes.PermissionDenied, "%s: %v", op, err)
+		case http.StatusNotFound:
+			return status.Errorf(codes.NotFound, "%s: %v", op, err)
+		}
+	}
+	if errors.Is(err, errdef.ErrNotFound) {
 		return status.Errorf(codes.NotFound, "%s: %v", op, err)
-	case strings.Contains(msg, "no space left on device"):
+	}
+
+	// Network-level classification.
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return status.Errorf(codes.Unavailable, "%s: %v", op, err)
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return status.Errorf(codes.Unavailable, "%s: %v", op, err)
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return status.Errorf(codes.Unavailable, "%s: %v", op, err)
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return status.Errorf(codes.Unavailable, "%s: %v", op, err)
+	}
+
+	// Disk-full is a syscall errno on Linux.
+	if errors.Is(err, syscall.ENOSPC) {
 		return status.Errorf(codes.ResourceExhausted, "%s: %v", op, err)
 	}
+
 	return status.Errorf(codes.Internal, "%s: %v", op, err)
 }

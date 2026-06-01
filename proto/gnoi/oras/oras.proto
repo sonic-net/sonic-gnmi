@@ -9,13 +9,9 @@
 //
 
 // This file defines a SONiC gNOI service that pulls OCI/ORAS artifacts
-// (e.g. SONiC OS images stored in an Azure Container Registry) from a remote
-// registry into local storage on the target. See doc/oras-pull-design.md for
-// the full design.
-//
-// This is the PoC subset: a single Pull RPC, anonymous + basic auth, single
-// layer artifacts written to local_path. List/Delete and richer features are
-// tracked in the design doc.
+// (e.g. SONiC OS images stored in an OCI registry) from a remote registry
+// into local storage on the target. See doc/oras-pull-design.md for the
+// full design.
 syntax = "proto3";
 
 package sonic.gnoi.oras.v1;
@@ -27,6 +23,11 @@ option go_package = "./;oras";
 
 option (.gnoi.types.gnoi_version) = "0.1.0";
 
+// Oras is a SONiC-specific gNOI service for OCI/ORAS pulls.
+//
+// PoC subset: a single Pull RPC, anonymous + basic auth, single-layer
+// artifacts written to local_path. List/Delete and richer features are
+// tracked in the design doc.
 service Oras {
   // Pull fetches an OCI/ORAS artifact from a registry into a local file on
   // the target. The response stream emits a single PullStarted message once
@@ -47,10 +48,10 @@ service Oras {
 }
 
 message PullRequest {
-  // Required. Registry hostname, e.g. "ksdatatest.azurecr.io".
+  // Required. Registry hostname, e.g. "registry.example.com".
   string registry = 1;
 
-  // Required. Repository within the registry, e.g. "sonic-os-images".
+  // Required. Repository within the registry, e.g. "namespace/image".
   string repository = 2;
 
   // Required. Exactly one of tag/digest must be set.
