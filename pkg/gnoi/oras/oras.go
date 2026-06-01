@@ -48,17 +48,22 @@ var allowedPathPrefixes = []string{"/tmp/", "/var/tmp/", "/host/"}
 // PullResult on success. Returning any error (including from stream.Send)
 // terminates the stream.
 func HandlePull(req *oraspb.PullRequest, stream oraspb.Oras_PullServer) error {
-	ctx := stream.Context()
-	started := time.Now()
-
 	if err := validatePullRequest(req); err != nil {
 		return err
 	}
-
 	repo, err := newRepository(req)
 	if err != nil {
 		return err
 	}
+	return handlePullWithRepo(req, stream, repo)
+}
+
+// handlePullWithRepo is the testable seam: HandlePull does request validation
+// and constructs the repository, then delegates here. Tests construct the
+// repository themselves (e.g. with PlainHTTP=true against an httptest server).
+func handlePullWithRepo(req *oraspb.PullRequest, stream oraspb.Oras_PullServer, repo *remote.Repository) error {
+	ctx := stream.Context()
+	started := time.Now()
 
 	ref := pullReference(req)
 	log.Infof("[Oras.Pull] resolving %s/%s@%s", req.GetRegistry(), req.GetRepository(), ref)
