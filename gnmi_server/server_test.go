@@ -4266,64 +4266,9 @@ func TestGNOI(t *testing.T) {
 		}
 	})
 
-	t.Run("FileStatSuccess", func(t *testing.T) {
-		// Stat now uses the host filesystem directly via /mnt/host (or
-		// directly when not in a container) instead of DBus. Build a real
-		// temp file and validate the round-trip; skip if /mnt/host exists
-		// because the temp file location may not be reachable through it.
-		if _, err := os.Stat("/mnt/host"); err == nil {
-			t.Skip("Stat exercised against /mnt/host elsewhere; skipping in this environment")
-		}
-
-		dir := t.TempDir()
-		path := filepath.Join(dir, "config_db.json")
-		if err := os.WriteFile(path, make([]byte, 1024), 0644); err != nil {
-			t.Fatalf("write file: %v", err)
-		}
-
-		ctx := context.Background()
-		req := &gnoi_file_pb.StatRequest{Path: path}
-		fc := gnoi_file_pb.NewFileClient(conn)
-
-		resp, err := fc.Stat(ctx, req)
-		if err != nil {
-			t.Fatalf("FileStat failed: %v", err)
-		}
-		if len(resp.Stats) != 1 {
-			t.Fatalf("Expected 1 StatInfo, got %d", len(resp.Stats))
-		}
-		statInfo := resp.Stats[0]
-		if statInfo.Path != path {
-			t.Errorf("Expected path %q, got %q", path, statInfo.Path)
-		}
-		if statInfo.Permissions != 644 {
-			t.Errorf("Expected permissions 644, got %d", statInfo.Permissions)
-		}
-		if statInfo.Size != 1024 {
-			t.Errorf("Expected size 1024, got %d", statInfo.Size)
-		}
-		if statInfo.LastModified == 0 {
-			t.Errorf("Expected non-zero last_modified")
-		}
-	})
-
-	t.Run("FileStatFailure", func(t *testing.T) {
-		// Non-existent path now returns NotFound directly from the OS.
-		ctx := context.Background()
-		req := &gnoi_file_pb.StatRequest{Path: "/tmp/non-existent-file-xyz-12345"}
-		fc := gnoi_file_pb.NewFileClient(conn)
-
-		resp, err := fc.Stat(ctx, req)
-		if err == nil {
-			t.Fatalf("Expected error but got none")
-		}
-		if resp != nil {
-			t.Fatalf("Expected nil response but got: %v", resp)
-		}
-		if status.Code(err) != codes.NotFound {
-			t.Errorf("Expected NotFound, got %v", err)
-		}
-	})
+	// Stat behavior is covered by pkg/gnoi/file/stat_test.go; the
+	// gnmi_server-level wiring (auth + delegation) is covered by
+	// TestGnoiFile in gnoi_file_test.go. No FileStat sub-test here.
 
 	t.Run("OSVerifySuccess", func(t *testing.T) {
 		mockClient := &ssc.DbusClient{}

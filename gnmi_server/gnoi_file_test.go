@@ -71,117 +71,10 @@ func TestGnoiFileServer(t *testing.T) {
 
 	client := gnoi_file_pb.NewFileClient(conn)
 
-	t.Run("Stat Success", func(t *testing.T) {
-		patch1 := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
-		defer patch1.Reset()
-
-		// Create a real temp file so HandleStat can stat it.
-		// HandleStat uses translatePathForContainer, which prepends /mnt/host
-		// only if /mnt/host exists on the test machine. Build the request path
-		// so it points at the temp file regardless of which branch is taken.
-		tmpDir := t.TempDir()
-		f, err := os.CreateTemp(tmpDir, "stat-success-*.txt")
-		if err != nil {
-			t.Fatalf("failed to create temp file: %v", err)
-		}
-		realPath := f.Name()
-		if _, err := f.WriteString("hello"); err != nil {
-			t.Fatalf("write: %v", err)
-		}
-		f.Close()
-
-		// If /mnt/host exists, translatePathForContainer will prepend it,
-		// so feed it the un-prefixed path. Otherwise pass realPath as-is.
-		reqPath := realPath
-		if _, err := os.Stat("/mnt/host"); err == nil {
-			// Build reverse: strip /mnt/host if temp file already lives under it,
-			// or skip the test when the temp dir is not reachable from /mnt/host.
-			t.Skip("test relies on plain /tmp; /mnt/host present on host")
-		}
-
-		req := &gnoi_file_pb.StatRequest{Path: reqPath}
-		resp, err := client.Stat(context.Background(), req)
-		if err != nil {
-			t.Fatalf("Expected success, got error: %v", err)
-		}
-		if len(resp.GetStats()) != 1 {
-			t.Fatalf("Expected 1 stat entry, got %d: %+v", len(resp.GetStats()), resp)
-		}
-		got := resp.Stats[0]
-		if got.Path != reqPath {
-			t.Errorf("Path = %q, want %q", got.Path, reqPath)
-		}
-		if got.Size != 5 {
-			t.Errorf("Size = %d, want 5", got.Size)
-		}
-	})
-
-	t.Run("Stat Directory lists children", func(t *testing.T) {
-		patch1 := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
-		defer patch1.Reset()
-
-		if _, err := os.Stat("/mnt/host"); err == nil {
-			t.Skip("test relies on plain /tmp; /mnt/host present on host")
-		}
-
-		dir := t.TempDir()
-		for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
-			if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0644); err != nil {
-				t.Fatalf("write %s: %v", name, err)
-			}
-		}
-
-		req := &gnoi_file_pb.StatRequest{Path: dir}
-		resp, err := client.Stat(context.Background(), req)
-		if err != nil {
-			t.Fatalf("Expected success, got error: %v", err)
-		}
-		if len(resp.GetStats()) != 3 {
-			t.Fatalf("Expected 3 stat entries, got %d: %+v", len(resp.GetStats()), resp)
-		}
-		for _, s := range resp.GetStats() {
-			if filepath.Dir(s.Path) != dir {
-				t.Errorf("entry %q not under dir %q", s.Path, dir)
-			}
-			if s.Size != 1 {
-				t.Errorf("entry %q size = %d, want 1", s.Path, s.Size)
-			}
-		}
-	})
-
-	t.Run("Stat NotFound", func(t *testing.T) {
-		patch1 := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
-		defer patch1.Reset()
-
-		req := &gnoi_file_pb.StatRequest{Path: "/tmp/definitely-does-not-exist-xyz-12345"}
-		_, err := client.Stat(context.Background(), req)
-		if err == nil || status.Code(err) != codes.NotFound {
-			t.Fatalf("Expected NotFound error, got: %v", err)
-		}
-	})
-
-	t.Run("Stat InvalidArgument empty path", func(t *testing.T) {
-		patch1 := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
-		defer patch1.Reset()
-
-		req := &gnoi_file_pb.StatRequest{Path: ""}
-		_, err := client.Stat(context.Background(), req)
-		if err == nil || status.Code(err) != codes.InvalidArgument {
-			t.Fatalf("Expected InvalidArgument error, got: %v", err)
-		}
-	})
-
-	t.Run("Stat InvalidArgument relative path", func(t *testing.T) {
-		patch1 := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
-		defer patch1.Reset()
-
-		req := &gnoi_file_pb.StatRequest{Path: "relative/path"}
-		_, err := client.Stat(context.Background(), req)
-		if err == nil || status.Code(err) != codes.InvalidArgument {
-			t.Fatalf("Expected InvalidArgument error, got: %v", err)
-		}
-	})
-
+	// Behavior coverage for HandleStat lives in pkg/gnoi/file/stat_test.go.
+	// The gnmi_server tests below only verify the server wiring: that the
+	// authenticate hook fires before the handler, and that handler errors
+	// surface as gRPC status codes through the server stack.
 	t.Run("Stat Fails with Auth Error", func(t *testing.T) {
 		patch := gomonkey.ApplyFuncReturn(authenticate, nil, status.Error(codes.Unauthenticated, "unauth"))
 		defer patch.Reset()
@@ -190,6 +83,20 @@ func TestGnoiFileServer(t *testing.T) {
 		_, err := client.Stat(context.Background(), req)
 		if err == nil || status.Code(err) != codes.Unauthenticated {
 			t.Fatalf("Expected unauthenticated error, got: %v", err)
+		}
+	})
+
+	t.Run("Stat Delegates to Handler", func(t *testing.T) {
+		// Smoke test: an authenticated request reaches HandleStat and a
+		// handler-level error (empty path -> InvalidArgument) propagates
+		// through the server stack as the matching gRPC status code.
+		patch := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+		defer patch.Reset()
+
+		req := &gnoi_file_pb.StatRequest{Path: ""}
+		_, err := client.Stat(context.Background(), req)
+		if err == nil || status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("Expected InvalidArgument from handler, got: %v", err)
 		}
 	})
 
