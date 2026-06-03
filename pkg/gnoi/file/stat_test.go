@@ -220,40 +220,40 @@ func TestStatInfoFromFileInfo_PermissionsOctalAsDecimal(t *testing.T) {
 // use this to cover error branches (permission denied, generic Internal)
 // that the root-on-tmpfs environment can't trigger via real os.Stat.
 func withFsStat(t *testing.T, fake func(string) (os.FileInfo, error)) {
-t.Helper()
-prev := fsStat
-fsStat = fake
-t.Cleanup(func() { fsStat = prev })
+	t.Helper()
+	prev := fsStat
+	fsStat = fake
+	t.Cleanup(func() { fsStat = prev })
 }
 
 // withFsReadDir is the os.ReadDir equivalent of withFsStat.
 func withFsReadDir(t *testing.T, fake func(string) ([]os.DirEntry, error)) {
-t.Helper()
-prev := fsReadDir
-fsReadDir = fake
-t.Cleanup(func() { fsReadDir = prev })
+	t.Helper()
+	prev := fsReadDir
+	fsReadDir = fake
+	t.Cleanup(func() { fsReadDir = prev })
 }
 
 func TestHandleStat_StatPermissionDenied(t *testing.T) {
-withFsStat(t, func(path string) (os.FileInfo, error) {
-return nil, &os.PathError{Op: "stat", Path: path, Err: os.ErrPermission}
-})
-_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
-if err == nil || status.Code(err) != codes.PermissionDenied {
-t.Fatalf("expected PermissionDenied, got %v", err)
-}
+	withFsStat(t, func(path string) (os.FileInfo, error) {
+		return nil, &os.PathError{Op: "stat", Path: path, Err: os.ErrPermission}
+	})
+	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
+	if err == nil || status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected PermissionDenied, got %v", err)
+	}
 }
 
 func TestHandleStat_StatGenericError(t *testing.T) {
-// e.g. ELOOP from a symlink loop is neither IsNotExist nor IsPermission;
-// HandleStat must surface it as Internal.
-withFsStat(t, func(path string) (os.FileInfo, error) {
-return nil, &os.PathError{Op: "stat", Path: path, Err: os.ErrInvalid}
-})
-_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
-if err == nil || status.Code(err) != codes.Internal {
-t.Fatalf("expected Internal, got %v", err)
-}
+	// e.g. ELOOP from a symlink loop is neither IsNotExist nor IsPermission;
+	// HandleStat must surface it as Internal.
+	withFsStat(t, func(path string) (os.FileInfo, error) {
+		return nil, &os.PathError{Op: "stat", Path: path, Err: os.ErrInvalid}
+	})
+	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
+	if err == nil || status.Code(err) != codes.Internal {
+		t.Fatalf("expected Internal, got %v", err)
+	}
 }
 
 // fakeDirInfo is a minimal os.FileInfo for a directory; the only fields
@@ -269,37 +269,37 @@ func (fakeDirInfo) IsDir() bool        { return true }
 func (fakeDirInfo) Sys() interface{}   { return nil }
 
 func TestHandleStat_ReadDirNotExistRace(t *testing.T) {
-// Stat says directory exists; ReadDir then races with a removal.
-// HandleStat must downgrade Internal to NotFound to keep transient
-// races from looking like server errors.
-withFsStat(t, func(string) (os.FileInfo, error) { return fakeDirInfo{}, nil })
-withFsReadDir(t, func(path string) ([]os.DirEntry, error) {
-return nil, &os.PathError{Op: "readdirent", Path: path, Err: os.ErrNotExist}
-})
-_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
-if err == nil || status.Code(err) != codes.NotFound {
-t.Fatalf("expected NotFound on race, got %v", err)
-}
+	// Stat says directory exists; ReadDir then races with a removal.
+	// HandleStat must downgrade Internal to NotFound to keep transient
+	// races from looking like server errors.
+	withFsStat(t, func(string) (os.FileInfo, error) { return fakeDirInfo{}, nil })
+	withFsReadDir(t, func(path string) ([]os.DirEntry, error) {
+		return nil, &os.PathError{Op: "readdirent", Path: path, Err: os.ErrNotExist}
+	})
+	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
+	if err == nil || status.Code(err) != codes.NotFound {
+		t.Fatalf("expected NotFound on race, got %v", err)
+	}
 }
 
 func TestHandleStat_ReadDirPermissionDenied(t *testing.T) {
-withFsStat(t, func(string) (os.FileInfo, error) { return fakeDirInfo{}, nil })
-withFsReadDir(t, func(path string) ([]os.DirEntry, error) {
-return nil, &os.PathError{Op: "readdirent", Path: path, Err: os.ErrPermission}
-})
-_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
-if err == nil || status.Code(err) != codes.PermissionDenied {
-t.Fatalf("expected PermissionDenied, got %v", err)
-}
+	withFsStat(t, func(string) (os.FileInfo, error) { return fakeDirInfo{}, nil })
+	withFsReadDir(t, func(path string) ([]os.DirEntry, error) {
+		return nil, &os.PathError{Op: "readdirent", Path: path, Err: os.ErrPermission}
+	})
+	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
+	if err == nil || status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected PermissionDenied, got %v", err)
+	}
 }
 
 func TestHandleStat_ReadDirGenericError(t *testing.T) {
-withFsStat(t, func(string) (os.FileInfo, error) { return fakeDirInfo{}, nil })
-withFsReadDir(t, func(path string) ([]os.DirEntry, error) {
-return nil, &os.PathError{Op: "readdirent", Path: path, Err: os.ErrInvalid}
-})
-_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
-if err == nil || status.Code(err) != codes.Internal {
-t.Fatalf("expected Internal, got %v", err)
-}
+	withFsStat(t, func(string) (os.FileInfo, error) { return fakeDirInfo{}, nil })
+	withFsReadDir(t, func(path string) ([]os.DirEntry, error) {
+		return nil, &os.PathError{Op: "readdirent", Path: path, Err: os.ErrInvalid}
+	})
+	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
+	if err == nil || status.Code(err) != codes.Internal {
+		t.Fatalf("expected Internal, got %v", err)
+	}
 }
