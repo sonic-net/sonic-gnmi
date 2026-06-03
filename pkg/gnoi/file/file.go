@@ -32,9 +32,25 @@ const (
 	// Maximum time allowed for downloading a file (5 minutes for large firmware images)
 	downloadTimeout = 5 * time.Minute
 
-	// Maximum file size allowed (4GB - typical maximum firmware size)
-	maxFileSize = 4 * 1024 * 1024 * 1024 // 4GB in bytes
+	// defaultMaxFileSize is the default cap for File.Get / File.Put / TransferToRemote
+	// (4 GiB — typical maximum firmware size). Exposed as a var below so tests can
+	// lower it without producing actual 4 GiB files.
+	defaultMaxFileSize = 4 * 1024 * 1024 * 1024
 )
+
+// hostRoot is the path prefix that maps the *container* view onto the *host*
+// filesystem. In production it is "/mnt/host" (the bind mount the gnmi
+// container ships with). Tests set it to a t.TempDir() so they can build real
+// fixtures (regular files, fifos, oversize sparse files, broken perms, ...)
+// without touching the actual /mnt/host on the test machine.
+//
+// translatePathForContainer is the only consumer; it prepends hostRoot to the
+// caller-supplied logical path when hostRoot exists on disk.
+var hostRoot = "/mnt/host"
+
+// maxFileSize is the per-RPC size cap. var (not const) so tests can lower it
+// to exercise the over-size branch without producing 4 GiB files.
+var maxFileSize int64 = defaultMaxFileSize
 
 // newFileClient wraps gnoi_file_pb.NewFileClient to allow test patching
 // (the generated function is tiny and gets inlined, defeating gomonkey).
@@ -171,9 +187,10 @@ func translatePathForContainer(path string) string {
 	// Clean the path first
 	cleanPath := filepath.Clean(path)
 
-	// Check if /mnt/host exists (indicates we're running in a container)
-	if _, err := os.Stat("/mnt/host"); err == nil {
-		return "/mnt/host" + cleanPath
+	// hostRoot exists on disk → we're running in a container with the host
+	// filesystem bind-mounted (or in a test that injected a fake root).
+	if _, err := os.Stat(hostRoot); err == nil {
+		return hostRoot + cleanPath
 	}
 
 	// Not in container, return original path
