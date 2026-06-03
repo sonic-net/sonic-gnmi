@@ -641,6 +641,13 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 	}
 
 	cleanReqPath := filepath.Clean(reqPath)
+	// Reject /mnt/host-prefixed inputs to avoid double-prefixing in
+	// translatePathForContainer (e.g. "/mnt/host/tmp/x" → "/mnt/host/mnt/host/tmp/x").
+	// Clients should pass host-visible paths like /tmp/..., /etc/..., /host/...
+	if cleanReqPath == "/mnt/host" || strings.HasPrefix(cleanReqPath, "/mnt/host/") {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"path must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", reqPath)
+	}
 	translatedPath := translatePathForContainer(cleanReqPath)
 
 	info, err := os.Stat(translatedPath)
@@ -668,6 +675,12 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 	// Directory: list immediate children (non-recursive).
 	entries, err := os.ReadDir(translatedPath)
 	if err != nil {
+		// The directory may have been removed between the os.Stat above
+		// and this ReadDir; surface that as NotFound, not Internal, so
+		// transient races don't look like server errors.
+		if os.IsNotExist(err) {
+			return nil, status.Errorf(codes.NotFound, "path not found: %s", reqPath)
+		}
 		if os.IsPermission(err) {
 			return nil, status.Errorf(codes.PermissionDenied, "permission denied reading directory: %s", reqPath)
 		}

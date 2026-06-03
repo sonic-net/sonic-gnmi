@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
@@ -11,15 +12,42 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// skipIfMntHost skips the test when /mnt/host exists on the host running the
-// tests. translatePathForContainer prepends /mnt/host in that case, which
-// breaks tests that point HandleStat at a t.TempDir() under /tmp because the
-// real path lives at /tmp/..., not /mnt/host/tmp/....
-func skipIfMntHost(t *testing.T) {
+// statTestRoot returns a (logicalRoot, physicalRoot) pair that the test
+// can use to build fixtures.
+//
+// When /mnt/host exists (containerized / SONiC-style host), HandleStat
+// translates an incoming logical path P into /mnt/host+P before touching
+// the filesystem. So a test that wants HandleStat to actually find its
+// fixture must:
+//   - put files at /mnt/host+P (the *physical* root), and
+//   - send P (the *logical* root) in the StatRequest.
+//
+// When /mnt/host is absent the two roots coincide.
+//
+// The helper builds a unique subdirectory under /tmp via os.MkdirTemp on
+// the physical root, registers cleanup, and returns:
+//   - logical:  what the test should put in StatRequest.Path
+//   - physical: where the test should actually create files/dirs
+func statTestRoot(t *testing.T) (logical, physical string) {
 	t.Helper()
+	physBase := "/tmp"
 	if _, err := os.Stat("/mnt/host"); err == nil {
-		t.Skip("/mnt/host exists; HandleStat path translation makes tempdirs unreachable")
+		physBase = "/mnt/host/tmp"
+		if err := os.MkdirAll(physBase, 0755); err != nil {
+			t.Fatalf("ensure /mnt/host/tmp: %v", err)
+		}
 	}
+	phys, err := os.MkdirTemp(physBase, "stat-test-*")
+	if err != nil {
+		t.Fatalf("mkdir temp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(phys) })
+
+	logi := phys
+	if strings.HasPrefix(phys, "/mnt/host") {
+		logi = strings.TrimPrefix(phys, "/mnt/host")
+	}
+	return logi, phys
 }
 
 func TestHandleStat_NilRequest(t *testing.T) {
@@ -43,10 +71,19 @@ func TestHandleStat_RelativePath(t *testing.T) {
 	}
 }
 
+func TestHandleStat_RejectsMntHostPrefix(t *testing.T) {
+	for _, p := range []string{"/mnt/host", "/mnt/host/tmp/foo"} {
+		_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: p})
+		if err == nil || status.Code(err) != codes.InvalidArgument {
+			t.Errorf("path %q: expected InvalidArgument, got %v", p, err)
+		}
+	}
+}
+
 func TestHandleStat_NotFound(t *testing.T) {
-	skipIfMntHost(t)
+	logi, _ := statTestRoot(t)
 	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{
-		Path: "/tmp/definitely-does-not-exist-zzzz-9876543",
+		Path: filepath.Join(logi, "definitely-does-not-exist-zzzz-9876543"),
 	})
 	if err == nil || status.Code(err) != codes.NotFound {
 		t.Fatalf("expected NotFound, got %v", err)
@@ -54,14 +91,14 @@ func TestHandleStat_NotFound(t *testing.T) {
 }
 
 func TestHandleStat_RegularFile(t *testing.T) {
-	skipIfMntHost(t)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "f.bin")
-	if err := os.WriteFile(path, []byte("hello world"), 0640); err != nil {
+	logi, phys := statTestRoot(t)
+	physPath := filepath.Join(phys, "f.bin")
+	if err := os.WriteFile(physPath, []byte("hello world"), 0640); err != nil {
 		t.Fatal(err)
 	}
+	logiPath := filepath.Join(logi, "f.bin")
 
-	resp, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: path})
+	resp, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: logiPath})
 	if err != nil {
 		t.Fatalf("HandleStat: %v", err)
 	}
@@ -69,13 +106,12 @@ func TestHandleStat_RegularFile(t *testing.T) {
 		t.Fatalf("got %d entries, want 1", len(resp.Stats))
 	}
 	got := resp.Stats[0]
-	if got.Path != path {
-		t.Errorf("Path = %q, want %q", got.Path, path)
+	if got.Path != logiPath {
+		t.Errorf("Path = %q, want %q", got.Path, logiPath)
 	}
 	if got.Size != 11 {
 		t.Errorf("Size = %d, want 11", got.Size)
 	}
-	// Permissions: 0640 → octal-as-decimal = 640.
 	if got.Permissions != 640 {
 		t.Errorf("Permissions = %d, want 640", got.Permissions)
 	}
@@ -88,21 +124,18 @@ func TestHandleStat_RegularFile(t *testing.T) {
 }
 
 func TestHandleStat_Directory(t *testing.T) {
-	skipIfMntHost(t)
-	dir := t.TempDir()
+	logi, phys := statTestRoot(t)
 	names := []string{"alpha.txt", "beta.txt", "gamma.txt"}
 	for _, n := range names {
-		if err := os.WriteFile(filepath.Join(dir, n), []byte("x"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(phys, n), []byte("x"), 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// Add a subdirectory to make sure directories are reported too.
-	subdir := filepath.Join(dir, "subdir")
-	if err := os.Mkdir(subdir, 0755); err != nil {
+	if err := os.Mkdir(filepath.Join(phys, "subdir"), 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	resp, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: dir})
+	resp, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: logi})
 	if err != nil {
 		t.Fatalf("HandleStat: %v", err)
 	}
@@ -112,8 +145,8 @@ func TestHandleStat_Directory(t *testing.T) {
 
 	seen := map[string]*gnoi_file_pb.StatInfo{}
 	for _, s := range resp.Stats {
-		if filepath.Dir(s.Path) != dir {
-			t.Errorf("entry %q not under dir %q", s.Path, dir)
+		if filepath.Dir(s.Path) != logi {
+			t.Errorf("entry %q not under dir %q", s.Path, logi)
 		}
 		seen[filepath.Base(s.Path)] = s
 	}
@@ -130,15 +163,13 @@ func TestHandleStat_Directory(t *testing.T) {
 	if s, ok := seen["subdir"]; !ok {
 		t.Error("missing subdir entry")
 	} else if s.Size != 0 {
-		// Per statInfoFromFileInfo, dirs report Size=0.
 		t.Errorf("subdir size = %d, want 0", s.Size)
 	}
 }
 
 func TestHandleStat_EmptyDirectory(t *testing.T) {
-	skipIfMntHost(t)
-	dir := t.TempDir()
-	resp, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: dir})
+	logi, _ := statTestRoot(t)
+	resp, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: logi})
 	if err != nil {
 		t.Fatalf("HandleStat: %v", err)
 	}
@@ -148,9 +179,8 @@ func TestHandleStat_EmptyDirectory(t *testing.T) {
 }
 
 func TestStatInfoFromFileInfo_PermissionsOctalAsDecimal(t *testing.T) {
-	skipIfMntHost(t)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "f")
+	_, phys := statTestRoot(t)
+	path := filepath.Join(phys, "f")
 	if err := os.WriteFile(path, []byte{}, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -166,9 +196,7 @@ func TestStatInfoFromFileInfo_PermissionsOctalAsDecimal(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Build expected by formatting mode in octal, then reading as
-		// decimal — same as the production code.
-		want := uint32(0)
+		var want uint32
 		switch mode {
 		case 0644:
 			want = 644
