@@ -29,8 +29,7 @@ func (srv *FileServer) Get(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.Fil
 		log.Errorf("authentication failed in Get RPC: %v", err)
 		return err
 	}
-	log.Warning("file.Get RPC is unimplemented")
-	return status.Errorf(codes.Unimplemented, "Method file.Get is unimplemented.")
+	return gnoifile.HandleGet(req, stream)
 }
 
 // TransferToRemote downloads a file from a remote URL.

@@ -333,7 +333,6 @@ func TestGnoiFileServer(t *testing.T) {
 
 		stream, err := client.Get(context.Background(), &gnoi_file_pb.GetRequest{})
 		if err == nil {
-			// since Get returns Unimplemented after auth, this should be hit
 			_, err = stream.Recv()
 		}
 
@@ -342,7 +341,12 @@ func TestGnoiFileServer(t *testing.T) {
 		}
 	})
 
-	t.Run("Get_Fails_With_Unimplemented_Error", func(t *testing.T) {
+	t.Run("Get_Delegates_To_Handler", func(t *testing.T) {
+		// Smoke test: an authenticated request reaches HandleGet and a
+		// handler-level error (empty remote_file -> InvalidArgument)
+		// propagates through the server stack as the matching gRPC
+		// status code. Behavior coverage for HandleGet lives in
+		// pkg/gnoi/file/get_test.go.
 		patch := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
 		defer patch.Reset()
 
@@ -351,8 +355,8 @@ func TestGnoiFileServer(t *testing.T) {
 			_, err = stream.Recv()
 		}
 
-		if err == nil || status.Code(err) != codes.Unimplemented {
-			t.Fatalf("Expected Unimplemented error, got: %v", err)
+		if err == nil || status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("Expected InvalidArgument from handler, got: %v", err)
 		}
 	})
 
