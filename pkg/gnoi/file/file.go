@@ -40,6 +40,16 @@ const (
 // (the generated function is tiny and gets inlined, defeating gomonkey).
 var newFileClient = gnoi_file_pb.NewFileClient
 
+// fsStat / fsReadDir are package-level seams over os.Stat and os.ReadDir.
+// Tests override them to exercise error branches that the root-on-tmpfs
+// test environment can't otherwise reach: permission-denied (root bypasses
+// DAC) and TOCTOU races (path removed between Stat and ReadDir). Production
+// callers go through os.* unchanged.
+var (
+	fsStat    = os.Stat
+	fsReadDir = os.ReadDir
+)
+
 // HandleTransferToRemote implements the complete logic for the TransferToRemote RPC.
 // It validates the request, checks for DPU metadata, and routes accordingly.
 //
@@ -650,7 +660,7 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 	}
 	translatedPath := translatePathForContainer(cleanReqPath)
 
-	info, err := os.Stat(translatedPath)
+	info, err := fsStat(translatedPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, status.Errorf(codes.NotFound, "path not found: %s", reqPath)
@@ -673,7 +683,7 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 	}
 
 	// Directory: list immediate children (non-recursive).
-	entries, err := os.ReadDir(translatedPath)
+	entries, err := fsReadDir(translatedPath)
 	if err != nil {
 		// The directory may have been removed between the os.Stat above
 		// and this ReadDir; surface that as NotFound, not Internal, so
