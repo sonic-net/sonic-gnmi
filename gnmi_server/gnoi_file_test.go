@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"reflect"
+	"path/filepath"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -73,17 +73,112 @@ func TestGnoiFileServer(t *testing.T) {
 
 	t.Run("Stat Success", func(t *testing.T) {
 		patch1 := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
-		patch2 := gomonkey.ApplyFuncReturn(ssc.NewDbusClient, &ssc.FakeClient{}, nil)
 		defer patch1.Reset()
-		defer patch2.Reset()
 
-		req := &gnoi_file_pb.StatRequest{Path: "/tmp/test.txt"}
+		// Create a real temp file so HandleStat can stat it.
+		// HandleStat uses translatePathForContainer, which prepends /mnt/host
+		// only if /mnt/host exists on the test machine. Build the request path
+		// so it points at the temp file regardless of which branch is taken.
+		tmpDir := t.TempDir()
+		f, err := os.CreateTemp(tmpDir, "stat-success-*.txt")
+		if err != nil {
+			t.Fatalf("failed to create temp file: %v", err)
+		}
+		realPath := f.Name()
+		if _, err := f.WriteString("hello"); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		f.Close()
+
+		// If /mnt/host exists, translatePathForContainer will prepend it,
+		// so feed it the un-prefixed path. Otherwise pass realPath as-is.
+		reqPath := realPath
+		if _, err := os.Stat("/mnt/host"); err == nil {
+			// Build reverse: strip /mnt/host if temp file already lives under it,
+			// or skip the test when the temp dir is not reachable from /mnt/host.
+			t.Skip("test relies on plain /tmp; /mnt/host present on host")
+		}
+
+		req := &gnoi_file_pb.StatRequest{Path: reqPath}
 		resp, err := client.Stat(context.Background(), req)
 		if err != nil {
 			t.Fatalf("Expected success, got error: %v", err)
 		}
-		if len(resp.GetStats()) == 0 || resp.Stats[0].Path != "/tmp/test.txt" {
-			t.Fatalf("Unexpected Stat response: %+v", resp)
+		if len(resp.GetStats()) != 1 {
+			t.Fatalf("Expected 1 stat entry, got %d: %+v", len(resp.GetStats()), resp)
+		}
+		got := resp.Stats[0]
+		if got.Path != reqPath {
+			t.Errorf("Path = %q, want %q", got.Path, reqPath)
+		}
+		if got.Size != 5 {
+			t.Errorf("Size = %d, want 5", got.Size)
+		}
+	})
+
+	t.Run("Stat Directory lists children", func(t *testing.T) {
+		patch1 := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+		defer patch1.Reset()
+
+		if _, err := os.Stat("/mnt/host"); err == nil {
+			t.Skip("test relies on plain /tmp; /mnt/host present on host")
+		}
+
+		dir := t.TempDir()
+		for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0644); err != nil {
+				t.Fatalf("write %s: %v", name, err)
+			}
+		}
+
+		req := &gnoi_file_pb.StatRequest{Path: dir}
+		resp, err := client.Stat(context.Background(), req)
+		if err != nil {
+			t.Fatalf("Expected success, got error: %v", err)
+		}
+		if len(resp.GetStats()) != 3 {
+			t.Fatalf("Expected 3 stat entries, got %d: %+v", len(resp.GetStats()), resp)
+		}
+		for _, s := range resp.GetStats() {
+			if filepath.Dir(s.Path) != dir {
+				t.Errorf("entry %q not under dir %q", s.Path, dir)
+			}
+			if s.Size != 1 {
+				t.Errorf("entry %q size = %d, want 1", s.Path, s.Size)
+			}
+		}
+	})
+
+	t.Run("Stat NotFound", func(t *testing.T) {
+		patch1 := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+		defer patch1.Reset()
+
+		req := &gnoi_file_pb.StatRequest{Path: "/tmp/definitely-does-not-exist-xyz-12345"}
+		_, err := client.Stat(context.Background(), req)
+		if err == nil || status.Code(err) != codes.NotFound {
+			t.Fatalf("Expected NotFound error, got: %v", err)
+		}
+	})
+
+	t.Run("Stat InvalidArgument empty path", func(t *testing.T) {
+		patch1 := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+		defer patch1.Reset()
+
+		req := &gnoi_file_pb.StatRequest{Path: ""}
+		_, err := client.Stat(context.Background(), req)
+		if err == nil || status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("Expected InvalidArgument error, got: %v", err)
+		}
+	})
+
+	t.Run("Stat InvalidArgument relative path", func(t *testing.T) {
+		patch1 := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+		defer patch1.Reset()
+
+		req := &gnoi_file_pb.StatRequest{Path: "relative/path"}
+		_, err := client.Stat(context.Background(), req)
+		if err == nil || status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("Expected InvalidArgument error, got: %v", err)
 		}
 	})
 
@@ -96,107 +191,6 @@ func TestGnoiFileServer(t *testing.T) {
 		if err == nil || status.Code(err) != codes.Unauthenticated {
 			t.Fatalf("Expected unauthenticated error, got: %v", err)
 		}
-	})
-
-	t.Run("Stat Fails with Dbus Error", func(t *testing.T) {
-		patch1 := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
-		patch2 := gomonkey.ApplyFuncReturn(ssc.NewDbusClient, nil, fmt.Errorf("dbus failure"))
-		defer patch1.Reset()
-		defer patch2.Reset()
-
-		req := &gnoi_file_pb.StatRequest{Path: "/tmp/test.txt"}
-		_, err := client.Stat(context.Background(), req)
-		if err == nil || status.Code(err) != codes.Internal {
-			t.Fatalf("Expected internal error, got: %v", err)
-		}
-	})
-
-	t.Run("Stat Fails on Invalid last_modified", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-
-		badClient := &ssc.FakeClient{}
-		patches.ApplyFuncReturn(authenticate, nil, nil)
-		patches.ApplyFuncReturn(ssc.NewDbusClient, badClient, nil)
-		patches.ApplyMethod(reflect.TypeOf(badClient), "GetFileStat", func(_ *ssc.FakeClient, path string) (map[string]string, error) {
-			return map[string]string{
-				"path":          path,
-				"last_modified": "not_a_number",
-				"permissions":   "644",
-				"size":          "100",
-				"umask":         "022",
-			}, nil
-		})
-
-		_, err := readFileStat("/path/to/file")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid syntax")
-	})
-
-	t.Run("Stat Fails on Invalid permissions", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-
-		badClient := &ssc.FakeClient{}
-		patches.ApplyFuncReturn(authenticate, nil, nil)
-		patches.ApplyFuncReturn(ssc.NewDbusClient, badClient, nil)
-		patches.ApplyMethod(reflect.TypeOf(badClient), "GetFileStat", func(_ *ssc.FakeClient, path string) (map[string]string, error) {
-			return map[string]string{
-				"path":          path,
-				"last_modified": "1686999999",
-				"permissions":   "xyz",
-				"size":          "100",
-				"umask":         "022",
-			}, nil
-		})
-
-		_, err := readFileStat("/path/to/file")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid syntax")
-	})
-
-	t.Run("Stat Fails on Invalid size", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-
-		badClient := &ssc.FakeClient{}
-		patches.ApplyFuncReturn(authenticate, nil, nil)
-		patches.ApplyFuncReturn(ssc.NewDbusClient, badClient, nil)
-		patches.ApplyMethod(reflect.TypeOf(badClient), "GetFileStat", func(_ *ssc.FakeClient, path string) (map[string]string, error) {
-			return map[string]string{
-				"path":          path,
-				"last_modified": "1686999999",
-				"permissions":   "644",
-				"size":          "abc",
-				"umask":         "022",
-			}, nil
-		})
-
-		_, err := readFileStat("/path/to/file")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid syntax")
-	})
-
-	t.Run("Stat Fails on Invalid umask", func(t *testing.T) {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-
-		badClient := &ssc.FakeClient{}
-		patches.ApplyFuncReturn(authenticate, nil, nil)
-		patches.ApplyFuncReturn(ssc.NewDbusClient, badClient, nil)
-		patches.ApplyMethod(reflect.TypeOf(badClient), "GetFileStat", func(_ *ssc.FakeClient, path string) (map[string]string, error) {
-			return map[string]string{
-				"path":          path,
-				"last_modified": "1686999999",
-				"permissions":   "644",
-				"size":          "100",
-				"umask":         "oXYZ",
-			}, nil
-		})
-
-		_, err := readFileStat("/path/to/file")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid syntax")
 	})
 
 	t.Run("Put Fails with Auth Error", func(t *testing.T) {

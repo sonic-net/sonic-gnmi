@@ -4267,60 +4267,50 @@ func TestGNOI(t *testing.T) {
 	})
 
 	t.Run("FileStatSuccess", func(t *testing.T) {
-		mockClient := &ssc.DbusClient{}
-		expectedResult := map[string]string{
-			"last_modified": "1609459200000000000",
-			"permissions":   "644",
-			"size":          "1024",
-			"umask":         "o022",
+		// Stat now uses the host filesystem directly via /mnt/host (or
+		// directly when not in a container) instead of DBus. Build a real
+		// temp file and validate the round-trip; skip if /mnt/host exists
+		// because the temp file location may not be reachable through it.
+		if _, err := os.Stat("/mnt/host"); err == nil {
+			t.Skip("Stat exercised against /mnt/host elsewhere; skipping in this environment")
 		}
-		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "GetFileStat", func(_ *ssc.DbusClient, path string) (map[string]string, error) {
-			return expectedResult, nil
-		})
-		defer mock.Reset()
 
-		// Prepare context and request
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config_db.json")
+		if err := os.WriteFile(path, make([]byte, 1024), 0644); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
+
 		ctx := context.Background()
-		req := &gnoi_file_pb.StatRequest{Path: "/etc/sonic/config_db.json"}
+		req := &gnoi_file_pb.StatRequest{Path: path}
 		fc := gnoi_file_pb.NewFileClient(conn)
 
 		resp, err := fc.Stat(ctx, req)
 		if err != nil {
 			t.Fatalf("FileStat failed: %v", err)
 		}
-		// Validate the response
-		if len(resp.Stats) == 0 {
-			t.Fatalf("Expected at least one StatInfo in response")
+		if len(resp.Stats) != 1 {
+			t.Fatalf("Expected 1 StatInfo, got %d", len(resp.Stats))
 		}
-
 		statInfo := resp.Stats[0]
-
-		if statInfo.LastModified != 1609459200000000000 {
-			t.Errorf("Expected last_modified %d but got %d", 1609459200000000000, statInfo.LastModified)
+		if statInfo.Path != path {
+			t.Errorf("Expected path %q, got %q", path, statInfo.Path)
 		}
-		if statInfo.Permissions != 420 {
-			t.Errorf("Expected permissions 420 but got %d", statInfo.Permissions)
+		if statInfo.Permissions != 644 {
+			t.Errorf("Expected permissions 644, got %d", statInfo.Permissions)
 		}
 		if statInfo.Size != 1024 {
-			t.Errorf("Expected size 1024 but got %d", statInfo.Size)
+			t.Errorf("Expected size 1024, got %d", statInfo.Size)
 		}
-		if statInfo.Umask != 18 {
-			t.Errorf("Expected umask 18 but got %d", statInfo.Umask)
+		if statInfo.LastModified == 0 {
+			t.Errorf("Expected non-zero last_modified")
 		}
 	})
 
 	t.Run("FileStatFailure", func(t *testing.T) {
-		mockClient := &ssc.DbusClient{}
-		expectedError := fmt.Errorf("failed to get file stats")
-
-		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "GetFileStat", func(_ *ssc.DbusClient, path string) (map[string]string, error) {
-			return nil, expectedError
-		})
-		defer mock.Reset()
-
-		// Prepare context and request
+		// Non-existent path now returns NotFound directly from the OS.
 		ctx := context.Background()
-		req := &gnoi_file_pb.StatRequest{Path: "/etc/sonic/config_db.json"}
+		req := &gnoi_file_pb.StatRequest{Path: "/tmp/non-existent-file-xyz-12345"}
 		fc := gnoi_file_pb.NewFileClient(conn)
 
 		resp, err := fc.Stat(ctx, req)
@@ -4330,9 +4320,8 @@ func TestGNOI(t *testing.T) {
 		if resp != nil {
 			t.Fatalf("Expected nil response but got: %v", resp)
 		}
-
-		if !strings.Contains(err.Error(), expectedError.Error()) {
-			t.Errorf("Expected error to contain '%v' but got '%v'", expectedError, err)
+		if status.Code(err) != codes.NotFound {
+			t.Errorf("Expected NotFound, got %v", err)
 		}
 	})
 
