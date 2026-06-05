@@ -65,7 +65,6 @@ import (
 	cacheclient "github.com/openconfig/gnmi/client"
 	gclient "github.com/openconfig/gnmi/client/gnmi"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 )
@@ -4266,75 +4265,9 @@ func TestGNOI(t *testing.T) {
 		}
 	})
 
-	t.Run("FileStatSuccess", func(t *testing.T) {
-		mockClient := &ssc.DbusClient{}
-		expectedResult := map[string]string{
-			"last_modified": "1609459200000000000",
-			"permissions":   "644",
-			"size":          "1024",
-			"umask":         "o022",
-		}
-		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "GetFileStat", func(_ *ssc.DbusClient, path string) (map[string]string, error) {
-			return expectedResult, nil
-		})
-		defer mock.Reset()
-
-		// Prepare context and request
-		ctx := context.Background()
-		req := &gnoi_file_pb.StatRequest{Path: "/etc/sonic/config_db.json"}
-		fc := gnoi_file_pb.NewFileClient(conn)
-
-		resp, err := fc.Stat(ctx, req)
-		if err != nil {
-			t.Fatalf("FileStat failed: %v", err)
-		}
-		// Validate the response
-		if len(resp.Stats) == 0 {
-			t.Fatalf("Expected at least one StatInfo in response")
-		}
-
-		statInfo := resp.Stats[0]
-
-		if statInfo.LastModified != 1609459200000000000 {
-			t.Errorf("Expected last_modified %d but got %d", 1609459200000000000, statInfo.LastModified)
-		}
-		if statInfo.Permissions != 420 {
-			t.Errorf("Expected permissions 420 but got %d", statInfo.Permissions)
-		}
-		if statInfo.Size != 1024 {
-			t.Errorf("Expected size 1024 but got %d", statInfo.Size)
-		}
-		if statInfo.Umask != 18 {
-			t.Errorf("Expected umask 18 but got %d", statInfo.Umask)
-		}
-	})
-
-	t.Run("FileStatFailure", func(t *testing.T) {
-		mockClient := &ssc.DbusClient{}
-		expectedError := fmt.Errorf("failed to get file stats")
-
-		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "GetFileStat", func(_ *ssc.DbusClient, path string) (map[string]string, error) {
-			return nil, expectedError
-		})
-		defer mock.Reset()
-
-		// Prepare context and request
-		ctx := context.Background()
-		req := &gnoi_file_pb.StatRequest{Path: "/etc/sonic/config_db.json"}
-		fc := gnoi_file_pb.NewFileClient(conn)
-
-		resp, err := fc.Stat(ctx, req)
-		if err == nil {
-			t.Fatalf("Expected error but got none")
-		}
-		if resp != nil {
-			t.Fatalf("Expected nil response but got: %v", resp)
-		}
-
-		if !strings.Contains(err.Error(), expectedError.Error()) {
-			t.Errorf("Expected error to contain '%v' but got '%v'", expectedError, err)
-		}
-	})
+	// Stat behavior is covered by pkg/gnoi/file/stat_test.go; the
+	// gnmi_server-level wiring (auth + delegation) is covered by
+	// TestGnoiFile in gnoi_file_test.go. No FileStat sub-test here.
 
 	t.Run("OSVerifySuccess", func(t *testing.T) {
 		mockClient := &ssc.DbusClient{}

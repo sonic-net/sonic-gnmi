@@ -2,16 +2,10 @@ package gnmi
 
 import (
 	"context"
-	"strconv"
-	"strings"
 
 	log "github.com/golang/glog"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoifile "github.com/sonic-net/sonic-gnmi/pkg/gnoi/file"
-	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
-
-	// Renamed local package alias to avoid redeclaration / collision.
-	filepkg "github.com/sonic-net/sonic-gnmi/pkg/gnoi/file"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -24,68 +18,7 @@ func (srv *FileServer) Stat(ctx context.Context, req *gnoi_file_pb.StatRequest) 
 		log.Errorf("authentication failed in Stat RPC: %v", err)
 		return nil, err
 	}
-	path := req.GetPath()
-	log.V(1).Info("Request: ", req)
-	statInfo, err := readFileStat(path)
-	if err != nil {
-		log.Errorf("readFileStat error: %v", err)
-		return nil, err
-	}
-	resp := &gnoi_file_pb.StatResponse{
-		Stats: []*gnoi_file_pb.StatInfo{statInfo},
-	}
-	return resp, nil
-}
-
-func readFileStat(path string) (*gnoi_file_pb.StatInfo, error) {
-	sc, err := ssc.NewDbusClient()
-	if err != nil {
-		log.Errorf("DbusClient init failed: %v", err)
-		return nil, status.Errorf(codes.Internal, "DBus client init failed: %v", err)
-	}
-	defer sc.Close()
-	data, err := sc.GetFileStat(path)
-	if err != nil {
-		log.V(2).Infof("Failed to read file stat at path %s: %v. Error ", path, err)
-		return nil, err
-	}
-	// Parse the data and populate StatInfo
-	lastModified, err := strconv.ParseUint(data["last_modified"], 10, 64)
-	if err != nil {
-		log.Errorf("Stat Fails on Invalid last_modified %v", err)
-		return nil, err
-	}
-
-	permissions, err := strconv.ParseUint(data["permissions"], 8, 32)
-	if err != nil {
-		log.Errorf("Stat Fails on Invalid permissions: %v", err)
-		return nil, err
-	}
-
-	size, err := strconv.ParseUint(data["size"], 10, 64)
-	if err != nil {
-		log.Errorf("Stat Fails on Invalid size: %v", err)
-		return nil, err
-	}
-
-	umaskStr := data["umask"]
-	if strings.HasPrefix(umaskStr, "o") {
-		umaskStr = umaskStr[1:] // Remove leading "o"
-	}
-	umask, err := strconv.ParseUint(umaskStr, 8, 32)
-	if err != nil {
-		log.Errorf("Stat Fails on Invalid umaskStr: %v", err)
-		return nil, err
-	}
-
-	statInfo := &gnoi_file_pb.StatInfo{
-		Path:         data["path"],
-		LastModified: lastModified,
-		Permissions:  uint32(permissions),
-		Size:         size,
-		Umask:        uint32(umask),
-	}
-	return statInfo, nil
+	return gnoifile.HandleStat(ctx, req)
 }
 
 // Get RPC is unimplemented.
@@ -139,5 +72,5 @@ func (srv *FileServer) Remove(ctx context.Context, req *gnoi_file_pb.RemoveReque
 		return nil, err
 	}
 	// Delegate to handler (all logic except authentication is in the handler)
-	return filepkg.HandleFileRemove(ctx, req)
+	return gnoifile.HandleFileRemove(ctx, req)
 }

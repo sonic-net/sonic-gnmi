@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +39,16 @@ const (
 // newFileClient wraps gnoi_file_pb.NewFileClient to allow test patching
 // (the generated function is tiny and gets inlined, defeating gomonkey).
 var newFileClient = gnoi_file_pb.NewFileClient
+
+// fsStat / fsReadDir are package-level seams over os.Stat and os.ReadDir.
+// Tests override them to exercise error branches that the root-on-tmpfs
+// test environment can't otherwise reach: permission-denied (root bypasses
+// DAC) and TOCTOU races (path removed between Stat and ReadDir). Production
+// callers go through os.* unchanged.
+var (
+	fsStat    = os.Stat
+	fsReadDir = os.ReadDir
+)
 
 // HandleTransferToRemote implements the complete logic for the TransferToRemote RPC.
 // It validates the request, checks for DPU metadata, and routes accordingly.
@@ -568,4 +579,141 @@ func HandleFileRemove(ctx context.Context, req *gnoi_file_pb.RemoveRequest) (*gn
 
 	log.Infof("Successfully removed file: %s", remoteFile)
 	return &gnoi_file_pb.RemoveResponse{}, nil
+}
+
+// defaultUmask is the assumed process file-creation mask reported in StatInfo.
+//
+// gNOI's StatInfo.umask is "Default file creation mask" — a process-level
+// attribute, not a per-file one. We can't query it per-file via os.Stat, and
+// reading the running process's umask via syscall.Umask is racy (it both gets
+// AND sets in a single call, briefly clobbering the real value for any
+// concurrent goroutine that creates files). SONiC services run with the
+// distro default of 0022, so report that.
+const defaultUmask = 0022
+
+// statInfoFromFileInfo builds a StatInfo for `info` at absolute path `reportPath`.
+//
+// `reportPath` is the path as the client should see it (i.e. with any
+// /mnt/host container-translation prefix already stripped) — gNOI clients
+// expect the StatInfo.path to round-trip the host-side path they asked for.
+//
+// Permissions field follows the gNOI proto: octal mode formatted as decimal
+// digits. e.g. mode 0755 → 755 (not 493).
+func statInfoFromFileInfo(reportPath string, info os.FileInfo) (*gnoi_file_pb.StatInfo, error) {
+	permsOctalStr := strconv.FormatUint(uint64(info.Mode().Perm()), 8)
+	perms, err := strconv.ParseUint(permsOctalStr, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode permissions for %s: %v", reportPath, err)
+	}
+
+	var size uint64
+	if !info.IsDir() {
+		// Reporting fs-block size for a directory is not portable and
+		// gNOI consumers don't rely on it. Leave size=0 for dirs.
+		if s := info.Size(); s > 0 {
+			size = uint64(s)
+		}
+	}
+
+	return &gnoi_file_pb.StatInfo{
+		Path:         reportPath,
+		LastModified: uint64(info.ModTime().UnixNano()),
+		Permissions:  uint32(perms),
+		Size:         size,
+		Umask:        defaultUmask,
+	}, nil
+}
+
+// HandleStat implements gNOI File.Stat using direct host-filesystem access
+// via the /mnt/host bind mount, replacing the legacy DBus host-service path.
+//
+// Per the gNOI proto: "Stat will list files at the provided path." So:
+//   - If the path is a regular file, return one StatInfo for it.
+//   - If the path is a directory, return one StatInfo for each immediate
+//     child (non-recursive), matching the documented "list" semantics.
+//     The directory itself is intentionally not included; clients that want
+//     metadata about the directory can stat its parent.
+//
+// The path field in each StatInfo is the host-visible path (the /mnt/host
+// container prefix is stripped on output) so clients see paths consistent
+// with what they requested.
+func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_pb.StatResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
+	}
+
+	reqPath := req.GetPath()
+	if reqPath == "" {
+		return nil, status.Error(codes.InvalidArgument, "path cannot be empty")
+	}
+	if !filepath.IsAbs(reqPath) {
+		return nil, status.Errorf(codes.InvalidArgument, "path must be absolute, got: %s", reqPath)
+	}
+
+	cleanReqPath := filepath.Clean(reqPath)
+	// Reject /mnt/host-prefixed inputs to avoid double-prefixing in
+	// translatePathForContainer (e.g. "/mnt/host/tmp/x" → "/mnt/host/mnt/host/tmp/x").
+	// Clients should pass host-visible paths like /tmp/..., /etc/..., /host/...
+	if cleanReqPath == "/mnt/host" || strings.HasPrefix(cleanReqPath, "/mnt/host/") {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"path must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", reqPath)
+	}
+	translatedPath := translatePathForContainer(cleanReqPath)
+
+	info, err := fsStat(translatedPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, status.Errorf(codes.NotFound, "path not found: %s", reqPath)
+		}
+		if os.IsPermission(err) {
+			return nil, status.Errorf(codes.PermissionDenied, "permission denied: %s", reqPath)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to stat %s: %v", reqPath, err)
+	}
+
+	resp := &gnoi_file_pb.StatResponse{}
+
+	if !info.IsDir() {
+		statInfo, err := statInfoFromFileInfo(cleanReqPath, info)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "%v", err)
+		}
+		resp.Stats = []*gnoi_file_pb.StatInfo{statInfo}
+		return resp, nil
+	}
+
+	// Directory: list immediate children (non-recursive).
+	entries, err := fsReadDir(translatedPath)
+	if err != nil {
+		// The directory may have been removed between the os.Stat above
+		// and this ReadDir; surface that as NotFound, not Internal, so
+		// transient races don't look like server errors.
+		if os.IsNotExist(err) {
+			return nil, status.Errorf(codes.NotFound, "path not found: %s", reqPath)
+		}
+		if os.IsPermission(err) {
+			return nil, status.Errorf(codes.PermissionDenied, "permission denied reading directory: %s", reqPath)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to read directory %s: %v", reqPath, err)
+	}
+
+	stats := make([]*gnoi_file_pb.StatInfo, 0, len(entries))
+	for _, entry := range entries {
+		entryInfo, err := entry.Info()
+		if err != nil {
+			// Entry vanished between ReadDir and Info (race): skip it
+			// rather than failing the whole listing.
+			log.Warningf("HandleStat: skipping %s/%s: %v", reqPath, entry.Name(), err)
+			continue
+		}
+		childReportPath := filepath.Join(cleanReqPath, entry.Name())
+		statInfo, err := statInfoFromFileInfo(childReportPath, entryInfo)
+		if err != nil {
+			log.Warningf("HandleStat: skipping %s: %v", childReportPath, err)
+			continue
+		}
+		stats = append(stats, statInfo)
+	}
+	resp.Stats = stats
+	return resp, nil
 }
