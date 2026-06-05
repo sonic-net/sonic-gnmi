@@ -144,7 +144,7 @@ func installPackage(ctx context.Context, filename string) error {
 	opts := &exec.RunHostCommandOptions{
 		Timeout: 10 * time.Minute, // Allow up to 10 minutes for installation
 	}
-	result, err := exec.RunHostCommand(ctx, "sonic-installer", []string{"install", "-y", filename}, opts)
+	result, err := exec.RunHostCommand(ctx, "/usr/local/bin/sonic-installer", []string{"install", "-y", filename}, opts)
 	if err != nil {
 		return fmt.Errorf("failed to run sonic-installer install: %v", err)
 	}
@@ -158,26 +158,26 @@ func installPackage(ctx context.Context, filename string) error {
 	return nil
 }
 
-// getBinaryVersion extracts the version string from a SONiC image using sonic-installer binary_version.
+// getBinaryVersion extracts the version string from a SONiC image using sonic-installer binary-version.
 func getBinaryVersion(ctx context.Context, filename string) (string, error) {
 	log.V(1).Infof("Resolving binary version for: %s", filename)
 
 	opts := &exec.RunHostCommandOptions{
 		Timeout: 1 * time.Minute,
 	}
-	result, err := exec.RunHostCommand(ctx, "sonic-installer", []string{"binary_version", filename}, opts)
+	result, err := exec.RunHostCommand(ctx, "/usr/local/bin/sonic-installer", []string{"binary-version", filename}, opts)
 	if err != nil {
-		return "", fmt.Errorf("failed to run sonic-installer binary_version: %v", err)
+		return "", fmt.Errorf("failed to run sonic-installer binary-version: %v", err)
 	}
 
 	if result.Error != nil {
-		return "", fmt.Errorf("sonic-installer binary_version failed with exit code %d: %s",
+		return "", fmt.Errorf("sonic-installer binary-version failed with exit code %d: %s",
 			result.ExitCode, result.Stderr)
 	}
 
 	version := strings.TrimSpace(result.Stdout)
 	if version == "" {
-		return "", fmt.Errorf("sonic-installer binary_version returned empty output for %s", filename)
+		return "", fmt.Errorf("sonic-installer binary-version returned empty output for %s", filename)
 	}
 
 	log.V(1).Infof("Resolved binary version: %s", version)
@@ -193,7 +193,7 @@ func activatePackage(ctx context.Context, version string) error {
 	opts := &exec.RunHostCommandOptions{
 		Timeout: 2 * time.Minute, // Allow up to 2 minutes for setting default
 	}
-	result, err := exec.RunHostCommand(ctx, "sonic-installer", []string{"set-default", version}, opts)
+	result, err := exec.RunHostCommand(ctx, "/usr/local/bin/sonic-installer", []string{"set-default", version}, opts)
 	if err != nil {
 		return fmt.Errorf("failed to run sonic-installer set-default: %v", err)
 	}
