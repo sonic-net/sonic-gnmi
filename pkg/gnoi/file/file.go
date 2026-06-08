@@ -32,9 +32,25 @@ const (
 	// Maximum time allowed for downloading a file (5 minutes for large firmware images)
 	downloadTimeout = 5 * time.Minute
 
-	// Maximum file size allowed (4GB - typical maximum firmware size)
-	maxFileSize = 4 * 1024 * 1024 * 1024 // 4GB in bytes
+	// defaultMaxFileSize is the default cap for File.Get / File.Put / TransferToRemote
+	// (4 GiB — typical maximum firmware size). Exposed as a var below so tests can
+	// lower it without producing actual 4 GiB files.
+	defaultMaxFileSize = 4 * 1024 * 1024 * 1024
 )
+
+// hostRoot is the path prefix that maps the *container* view onto the *host*
+// filesystem. In production it is "/mnt/host" (the bind mount the gnmi
+// container ships with). Tests set it to a t.TempDir() so they can build real
+// fixtures (regular files, fifos, oversize sparse files, broken perms, ...)
+// without touching the actual /mnt/host on the test machine.
+//
+// translatePathForContainer is the only consumer; it prepends hostRoot to the
+// caller-supplied logical path when hostRoot exists on disk.
+var hostRoot = "/mnt/host"
+
+// maxFileSize is the per-RPC size cap. var (not const) so tests can lower it
+// to exercise the over-size branch without producing 4 GiB files.
+var maxFileSize int64 = defaultMaxFileSize
 
 // newFileClient wraps gnoi_file_pb.NewFileClient to allow test patching
 // (the generated function is tiny and gets inlined, defeating gomonkey).
@@ -171,9 +187,10 @@ func translatePathForContainer(path string) string {
 	// Clean the path first
 	cleanPath := filepath.Clean(path)
 
-	// Check if /mnt/host exists (indicates we're running in a container)
-	if _, err := os.Stat("/mnt/host"); err == nil {
-		return "/mnt/host" + cleanPath
+	// hostRoot exists on disk → we're running in a container with the host
+	// filesystem bind-mounted (or in a test that injected a fake root).
+	if _, err := os.Stat(hostRoot); err == nil {
+		return hostRoot + cleanPath
 	}
 
 	// Not in container, return original path
@@ -716,4 +733,111 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 	}
 	resp.Stats = stats
 	return resp, nil
+}
+
+// HandleGet implements the complete logic for the gNOI File.Get RPC.
+//
+// Per the gNOI proto: "Get reads and streams the contents of a file from
+// the target. The file is streamed by sequential messages, each
+// containing up to 64KB of data. A final message is sent prior to
+// closing the stream that contains the hash of the data sent."
+//
+// Behavior:
+//   - Validates the request: non-nil, non-empty absolute path, and not
+//     prefixed with /mnt/host (clients pass host-visible paths).
+//   - Translates the path through translatePathForContainer so it works
+//     both inside the gnmi container and on a bare host.
+//   - Rejects directories with FailedPrecondition (the proto requires
+//     a file).
+//   - Streams the file in 64 KiB chunks while updating a running MD5,
+//     then sends a final HashType message. MD5 matches the convention
+//     used by HandlePut and HandleTransferToRemote in this package; it
+//     is integrity-only, not security-critical.
+func HandleGet(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.File_GetServer) error {
+	if req == nil {
+		return status.Error(codes.InvalidArgument, "request cannot be nil")
+	}
+	remoteFile := req.GetRemoteFile()
+	if remoteFile == "" {
+		return status.Error(codes.InvalidArgument, "remote_file cannot be empty")
+	}
+	if !filepath.IsAbs(remoteFile) {
+		return status.Errorf(codes.InvalidArgument, "remote_file must be absolute, got: %s", remoteFile)
+	}
+
+	cleanPath := filepath.Clean(remoteFile)
+	if cleanPath == "/mnt/host" || strings.HasPrefix(cleanPath, "/mnt/host/") {
+		return status.Errorf(codes.InvalidArgument,
+			"remote_file must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", remoteFile)
+	}
+
+	translatedPath := translatePathForContainer(cleanPath)
+
+	info, err := os.Stat(translatedPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return status.Errorf(codes.NotFound, "file not found: %s", remoteFile)
+		}
+		if os.IsPermission(err) {
+			return status.Errorf(codes.PermissionDenied, "permission denied: %s", remoteFile)
+		}
+		return status.Errorf(codes.Internal, "failed to stat %s: %v", remoteFile, err)
+	}
+	if info.IsDir() {
+		return status.Errorf(codes.FailedPrecondition, "remote_file is a directory: %s", remoteFile)
+	}
+	if !info.Mode().IsRegular() {
+		return status.Errorf(codes.FailedPrecondition, "remote_file is not a regular file: %s", remoteFile)
+	}
+	if info.Size() > maxFileSize {
+		return status.Errorf(codes.FailedPrecondition, "file %s exceeds maximum size of %d bytes", remoteFile, maxFileSize)
+	}
+
+	f, err := os.Open(translatedPath)
+	if err != nil {
+		if os.IsPermission(err) {
+			return status.Errorf(codes.PermissionDenied, "permission denied opening %s: %v", remoteFile, err)
+		}
+		return status.Errorf(codes.Internal, "failed to open %s: %v", remoteFile, err)
+	}
+	defer f.Close()
+
+	hashCalc := hash.NewStreamingMD5Calculator()
+	buf := make([]byte, 64*1024) // 64 KiB chunks per gNOI proto.
+	for {
+		if err := stream.Context().Err(); err != nil {
+			return status.FromContextError(err).Err()
+		}
+		n, readErr := f.Read(buf)
+		if n > 0 {
+			chunk := buf[:n]
+			if _, werr := hashCalc.Write(chunk); werr != nil {
+				return status.Errorf(codes.Internal, "hash update failed: %v", werr)
+			}
+			if serr := stream.Send(&gnoi_file_pb.GetResponse{
+				Response: &gnoi_file_pb.GetResponse_Contents{Contents: chunk},
+			}); serr != nil {
+				return status.Errorf(codes.Internal, "failed to send chunk: %v", serr)
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return status.Errorf(codes.Internal, "failed to read %s: %v", remoteFile, readErr)
+		}
+	}
+
+	if err := stream.Send(&gnoi_file_pb.GetResponse{
+		Response: &gnoi_file_pb.GetResponse_Hash{
+			Hash: &types.HashType{
+				Method: types.HashType_MD5,
+				Hash:   hashCalc.Sum(),
+			},
+		},
+	}); err != nil {
+		return status.Errorf(codes.Internal, "failed to send hash: %v", err)
+	}
+	log.Infof("Successfully streamed %d bytes from %s", info.Size(), remoteFile)
+	return nil
 }
