@@ -12,6 +12,8 @@ import (
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -246,5 +248,29 @@ func TestTryDownload(t *testing.T) {
 	downloaded := TryDownload("http://127.0.0.1:1234/")
 	if downloaded != false {
 		t.Errorf("Download should failed: %v", downloaded)
+	}
+}
+
+func TestTryDownloadRedirectError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/redirect", http.StatusFound)
+	}))
+	defer server.Close()
+
+	downloaded := TryDownload(server.URL)
+	if downloaded {
+		t.Errorf("Download should fail on redirect loop")
+	}
+}
+
+func TestTryDownloadNonOKResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	downloaded := TryDownload(server.URL)
+	if downloaded {
+		t.Errorf("Download should fail on non-OK response")
 	}
 }
