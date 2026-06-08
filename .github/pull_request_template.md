@@ -1,49 +1,45 @@
 <!--
-     Please make sure you've read and understood our contributing guidelines:
-     https://github.com/Azure/SONiC/blob/gh-pages/CONTRIBUTING.md
+Please make sure you've read and understood our contributing guidelines;
+https://github.com/Azure/SONiC/blob/gh-pages/CONTRIBUTING.md
 
-     ** Make sure all your commits include a signature generated with `git commit -s` **
-
-     If this is a bug fix, make sure your description includes "fixes #xxxx", or
-     "closes #xxxx" or "resolves #xxxx"
-
-     Please provide the following information:
+Please provide following information to help code review process a bit easier:
+-->
+### Description of PR
+<!--
+- Please include a summary of the change and which issue is fixed.
+- Please also include relevant motivation and context. Where should reviewer start? background context?
+- List any dependencies that are required for this change.
 -->
 
-#### Why I did it
+Summary:
+Fixes # (issue)
 
-#### How I did it
-
-#### How to verify it
-
-#### Which release branch to backport (provide reason below if selected)
+### Type of change
 
 <!--
-- Note we only backport fixes to a release branch, *not* features!
-- Please also provide a reason for the backporting below.
+- Fill x for your type of change.
 - e.g.
-- [x] 202006
+- [x] Bug fix
 -->
 
-- [ ] 201811
-- [ ] 201911
-- [ ] 202006
-- [ ] 202012
-- [ ] 202106
-- [ ] 202111
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Refactor / cleanup
+- [ ] Documentation update
+- [ ] Test improvement
 
-#### Description for the changelog
+### Approach
+#### What is the motivation for this PR?
+
+#### How did you do it?
+
+#### How did you verify/test it?
+
+#### Any platform specific information?
+
+### Documentation
 <!--
-Write a short (one line) summary that describes the changes in this
-pull request for inclusion in the changelog:
+(If it's a new feature, new test case)
+Did you update documentation/Wiki relevant to your implementation?
+Link to the wiki page?
 -->
-
-#### Link to config_db schema for YANG module changes
-<!--
-Provide a link to config_db schema for the table for which YANG model
-is defined
-Link should point to correct section on https://github.com/Azure/SONiC/wiki/Configuration.
--->
-
-#### A picture of a cute animal (not mandatory but encouraged)
-
