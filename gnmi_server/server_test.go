@@ -28,6 +28,8 @@ import (
 	"unsafe"
 
 	"github.com/Azure/sonic-mgmt-common/translib/db"
+	"github.com/Azure/sonic-mgmt-common/translib/ocbinds"
+	"github.com/Azure/sonic-mgmt-common/translib/transformer"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sgpb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
@@ -7420,5 +7422,25 @@ func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
 		// Serve returned after Stop — correct behavior
 	case <-time.After(2 * time.Second):
 		t.Error("Serve() did not return after Stop()")
+	}
+}
+func TestXfmr(t *testing.T) {
+	tests := []struct {
+		name string
+		f    func(t *testing.T)
+	}{
+		{
+			name: "DbToYang_pfm_components_xfmr with PublicXfmrParams",
+			f: func(t *testing.T) {
+				var device ygot.GoStruct = &ocbinds.Device{System: &ocbinds.OpenconfigSystem_System{}}
+				params := transformer.NewXfmrParams(transformer.PublicXfmrParams{YgRoot: &device})
+				if err := transformer.DbToYang_pfm_components_xfmr(*params); err != nil {
+					t.Logf("Calling transformer.DbToYang_sys_state_xfmr  failed: %#v", err)
+				}
+			},
+		},
+	}
+	for _, c := range tests {
+		t.Run(c.name, c.f)
 	}
 }
