@@ -546,8 +546,15 @@ func useRedisTcpClient() error {
 	}
 	for _, dbNamespace := range AllNamespaces {
 		Target2RedisDb[dbNamespace] = make(map[string]*redis.Client)
+		configured := configuredDbSet(dbNamespace)
 		for dbName, dbn := range spb.Target_value {
 			if dbName != "OTHERS" {
+				if configured != nil {
+					if _, ok := configured[dbName]; !ok {
+						log.V(2).Infof("Skipping %s in namespace %s: not configured on this platform", dbName, dbNamespace)
+						continue
+					}
+				}
 				addr, err := sdcfg.GetDbTcpAddr(dbName, dbNamespace)
 				if err != nil {
 					log.Warningf("Skipping %s in namespace %s: %v", dbName, dbNamespace, err)
@@ -573,6 +580,24 @@ func init() {
 	initRedisDbClients()
 }
 
+// configuredDbSet returns the set of DB names defined in the device's
+// SONiC database_config.json for the given namespace.
+func configuredDbSet(dbNamespace string) map[string]struct{} {
+	dbList, err := sdcfg.GetDbList(dbNamespace)
+	if err != nil {
+		log.V(2).Infof("GetDbList failed for namespace %s: %v", dbNamespace, err)
+		return nil
+	}
+	if len(dbList) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(dbList))
+	for _, name := range dbList {
+		set[name] = struct{}{}
+	}
+	return set
+}
+
 func initRedisDbClients() {
 	AllNamespaces, err := sdcfg.GetDbAllNamespaces()
 	if err != nil {
@@ -581,8 +606,15 @@ func initRedisDbClients() {
 	}
 	for _, dbNamespace := range AllNamespaces {
 		Target2RedisDb[dbNamespace] = make(map[string]*redis.Client)
+		configured := configuredDbSet(dbNamespace)
 		for dbName, dbn := range spb.Target_value {
 			if dbName != "OTHERS" {
+				if configured != nil {
+					if _, ok := configured[dbName]; !ok {
+						log.V(2).Infof("Skipping %s in namespace %s: not configured on this platform", dbName, dbNamespace)
+						continue
+					}
+				}
 				addr, err := sdcfg.GetDbSock(dbName, dbNamespace)
 				if err != nil {
 					log.Warningf("Skipping %s in namespace %s: %v", dbName, dbNamespace, err)
