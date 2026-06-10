@@ -591,9 +591,9 @@ func initRedisDbClients() {
 		log.Errorf("initRedisDbClients: runtime DB list is empty, database config may be corrupt")
 		return
 	}
-	runtimeDbSet := make(map[string]bool, len(runtimeDbList))
+	runtimeDbSet := make(map[string]struct{}, len(runtimeDbList))
 	for _, db := range runtimeDbList {
-		runtimeDbSet[db] = true
+		runtimeDbSet[db] = struct{}{}
 	}
 
 	AllNamespaces, err := sdcfg.GetDbAllNamespaces()
@@ -608,7 +608,7 @@ func initRedisDbClients() {
 				// Skip DBs not present in the runtime database_config.json.
 				// runtimeDbSet is non-empty here (guaranteed by the early return
 				// above), so a missing key safely returns false in Go.
-				if !runtimeDbSet[dbName] {
+				if _, ok := runtimeDbSet[dbName]; !ok {
 					log.V(2).Infof("initRedisDbClients: skipping %s, not in runtime DB config", dbName)
 					continue
 				}
