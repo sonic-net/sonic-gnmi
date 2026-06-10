@@ -933,7 +933,28 @@ func IsNativeOrigin(origin string) bool {
 }
 
 // Get implements the Get RPC in gNMI spec.
-func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
+func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (resp *gnmipb.GetResponse, err error) {
+	// GNMI-AUDIT logging
+	start := time.Now()
+	user := extractUser(ctx)
+	peer := extractPeer(ctx)
+
+	log.Infof("[GNMI-AUDIT] GetRequest user=%s peer=%s prefix=%v paths=%v type=%v",
+			user, peer, req.GetPrefix(), req.GetPath(), req.GetType())
+
+	// defer logs automatically when function returns
+	defer func() {
+		duration := time.Since(start)
+
+		if err != nil {
+			log.Errorf("[GNMI-AUDIT] GetResponse user=%s peer=%s status=FAIL err=%v duration=%v",
+					user, peer, err, duration)
+		} else {
+			log.Infof("[GNMI-AUDIT] GetResponse user=%s peer=%s status=OK duration=%v",
+					user, peer, duration)
+		}
+	}()
+
 	common_utils.IncCounter(common_utils.GNMI_GET)
 
 	if req.GetType() != gnmipb.GetRequest_ALL {
@@ -1074,8 +1095,19 @@ func SaveOnSetEnabled() error {
 func saveOnSetDisabled() error { return nil }
 
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
+	// GNMI-AUDIT logging
+	start := time.Now()
+	user := extractUser(ctx) // from auth metadata
+	peer := extractPeer(ctx) // client address
+
+	log.Infof("[GNMI-AUDIT] SetRequest user=%s peer=%s prefix=%v updates=%d replaces=%d deletes=%d",
+		user, peer, req.GetPrefix(), len(req.GetUpdate()), len(req.GetReplace()), len(req.GetDelete()))
+
 	e := s.ReqFromMaster(req, &s.masterEID)
 	if e != nil {
+		duration := time.Since(start)
+		log.Errorf("[GNMI-AUDIT] SetResponse user=%s peer=%s status=FAIL err=%v duration=%v",
+			user, peer, e, duration)
 		return nil, e
 	}
 
@@ -1215,11 +1247,21 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		s.SaveStartupConfig()
 	}
 
-	return &gnmipb.SetResponse{
+	resp := &gnmipb.SetResponse{
 		Prefix:   req.GetPrefix(),
 		Response: results,
-	}, err
+	}
 
+	duration := time.Since(start)
+
+	if err != nil {
+		log.Errorf("[GNMI-AUDIT] SetResponse user=%s peer=%s status=FAIL err=%v duration=%v",
+			user, peer, err, duration)
+	} else {
+		log.Infof("[GNMI-AUDIT] SetResponse user=%s peer=%s status=OK duration=%v",
+			user, peer, duration)
+	}
+	return resp, err
 }
 
 func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest) (*gnmipb.CapabilityResponse, error) {
