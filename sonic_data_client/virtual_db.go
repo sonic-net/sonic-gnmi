@@ -37,6 +37,12 @@ var (
 	// Queue name to oid map in COUNTERS table of COUNTERS_DB
 	countersQueueNameMap = make(map[string]string)
 
+	// VoQ name to oid map in COUNTERS table of COUNTERS_DB
+	countersVoQNameMap = make(map[string]string)
+
+	// VoQ OID to namespace map (which Redis namespace holds the counter data for each OID)
+	countersVoQOidNamespaceMap = make(map[string]string)
+
 	// MY_SID prefix to oid map in COUNTERS table of COUNTERS_DB
 	countersSidMap = make(map[string]string)
 
@@ -74,6 +80,9 @@ var (
 		}, { // Queue stats for one or all Ethernet ports
 			path:      []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Queues"},
 			transFunc: v2rTranslate(v2rEthPortQueStats),
+		}, { // VoQ stats for one or all System Ports
+			path:      []string{"COUNTERS_DB", "COUNTERS", "SwitchName*", "VoQs"},
+			transFunc: v2rTranslate(v2rSystemPortVoQStats),
 		}, { // PFC WD stats for one or all Ethernet ports
 			path:      []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Pfcwd"},
 			transFunc: v2rTranslate(v2rEthPortPfcwdStats),
@@ -187,6 +196,65 @@ func initCountersAclRuleMap() error {
 		}
 	}
 	return nil
+}
+
+func initCountersVoQNameMap() error {
+	var err error
+	if len(countersVoQNameMap) == 0 {
+		countersVoQNameMap, countersVoQOidNamespaceMap, err = getVoQCountersMap("COUNTERS_VOQ_NAME_MAP")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// getVoQCountersMap loads the VoQ name-to-OID map and determines which Redis
+// namespace actually holds the counter data for each OID. On multi-ASIC VoQ
+// chassis devices, the name map is replicated across all namespace DBs but the
+// actual counter OIDs may only exist in one namespace's COUNTERS table.
+func getVoQCountersMap(tableName string) (map[string]string, map[string]string, error) {
+	counterMap := make(map[string]string)
+	oidNsMap := make(map[string]string)
+	dbName := "COUNTERS_DB"
+	redisClientMap, err := GetRedisClientsForDb(dbName)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// First pass: collect name->oid mapping from all namespaces
+	for namespace, redisDb := range redisClientMap {
+		fv, err := redisDb.HGetAll(tableName).Result()
+		if err != nil {
+			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, tableName: %s", namespace, tableName)
+			return nil, nil, err
+		}
+		addmap(counterMap, fv)
+		log.V(6).Infof("tableName: %s in namespace %v, map entries: %d", tableName, namespace, len(fv))
+	}
+
+	// Second pass: determine which namespace has counter data for each OID
+	for namespace, redisDb := range redisClientMap {
+		keys, err := redisDb.Keys("COUNTERS:oid:*").Result()
+		if err != nil {
+			log.V(2).Infof("redis Keys failed for COUNTERS:oid:* in namespace %v: %v", namespace, err)
+			continue
+		}
+		existingOids := make(map[string]bool, len(keys))
+		for _, key := range keys {
+			// "COUNTERS:oid:0x..." -> "oid:0x..."
+			oid := strings.TrimPrefix(key, "COUNTERS:")
+			existingOids[oid] = true
+		}
+		for _, oid := range counterMap {
+			if existingOids[oid] {
+				oidNsMap[oid] = namespace
+			}
+		}
+	}
+
+	log.V(4).Infof("getVoQCountersMap: %d VoQ entries, %d OID-namespace mappings", len(counterMap), len(oidNsMap))
+	return counterMap, oidNsMap, nil
 }
 
 func initAliasMap() error {
@@ -1081,6 +1149,8 @@ func ClearMappings() {
 		alias2nameMap,
 		countersFabricPortNameMap,
 		countersQueueNameMap,
+		countersVoQNameMap,
+		countersVoQOidNamespaceMap,
 		countersAclRuleMap,
 	}
 	for _, counterMap := range counterMaps {
@@ -1136,6 +1206,160 @@ func v2rEthPortPGPeriodicWMs(paths []string) ([]tablePath, error) {
 		}
 	}
 	log.V(6).Infof("v2rEthPortPGPeriodicWMs: %v", tblPaths)
+	return tblPaths, nil
+}
+
+// parseVoQName parses VoQ name in format "str2-7804-lc7-1|Asic0|Ethernet84:3"
+// Returns: switchId, asicNamespace, interfaceName, voqIndex, error
+func parseVoQName(voqName string) (string, string, string, string, error) {
+	// Split by "|" to separate switch, asic, and interface parts
+	parts := strings.Split(voqName, "|")
+	if len(parts) != 3 {
+		return "", "", "", "", fmt.Errorf("invalid VoQ name format: %v, expected format: switch|asic|interface:voq", voqName)
+	}
+
+	switchId := parts[0]      // "str2-7804-lc7-1"
+	asicNamespace := parts[1] // "Asic0"
+	interfacePart := parts[2] // "Ethernet84:3"
+
+	// Split interface part by ":" to get interface and VoQ index
+	interfaceVoq := strings.Split(interfacePart, ":")
+	if len(interfaceVoq) != 2 {
+		return "", "", "", "", fmt.Errorf("invalid interface:voq format in: %v", interfacePart)
+	}
+
+	interfaceName := interfaceVoq[0] // "Ethernet84"
+	voqIndex := interfaceVoq[1]      // "3"
+
+	return switchId, asicNamespace, interfaceName, voqIndex, nil
+}
+
+// buildVoQJsonKey builds the JSON key for VoQ output
+func buildVoQJsonKey(switchId, asicNamespace, interfaceName, voqIndex string) string {
+	// Return format: "str2-7804-lc7-1|Asic0|Ethernet84:3"
+	return fmt.Sprintf("%s|%s|%s:%s", switchId, asicNamespace, interfaceName, voqIndex)
+}
+
+// resolveVoQNamespace determines the correct Redis namespace for a VoQ OID.
+// It checks the pre-computed oid-to-namespace map first, validates that the
+// cached namespace is currently active (part of the active namespace set returned
+// by GetRedisClientsForDb), and falls back to deriving the namespace from the
+// VoQ name's asic component.
+func resolveVoQNamespace(oid, asicNamespace string, activeNamespaces map[string]*redis.Client) string {
+	if ns, ok := countersVoQOidNamespaceMap[oid]; ok {
+		if activeNamespaces[ns] != nil {
+			return ns
+		}
+	}
+	return strings.ToLower(asicNamespace)
+}
+
+// Populate real data paths from paths like
+// [COUNTERS_DB COUNTERS SwitchName* VoQs] or [COUNTERS_DB COUNTERS SwitchName VoQs] or [COUNTERS_DB COUNTERS SwitchName|Asic|Port VoQs]
+func v2rSystemPortVoQStats(paths []string) ([]tablePath, error) {
+	// paths[DbIdx] = "COUNTERS_DB"
+	separator, _ := GetTableKeySeparator(paths[DbIdx], "")
+	// Get the currently active Redis clients for namespace validation
+	activeNamespaces, _ := GetRedisClientsForDb(paths[DbIdx])
+	var tblPaths []tablePath
+
+	// VoQs on all SwitchName* (str2-7804*)
+	if strings.HasSuffix(paths[KeyIdx], "*") {
+		for voqName, oid := range countersVoQNameMap {
+			switchId, asicNamespace, interfaceName, voqIndex, err := parseVoQName(voqName)
+			if err != nil {
+				log.V(2).Infof("Failed to parse VoQ name %v: %v", voqName, err)
+				continue
+			}
+
+			// Look up the namespace where this OID's counter data actually lives.
+			// Fall back to deriving from the VoQ name if not found or stale.
+			namespace := resolveVoQNamespace(oid, asicNamespace, activeNamespaces)
+
+			// Build JSON key for output with vendor alias
+			jsonVoqKey := buildVoQJsonKey(switchId, asicNamespace, interfaceName, voqIndex)
+
+			// Create table path for VoQ stats
+			tblPath := tablePath{
+				dbNamespace:  namespace,
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx],
+				tableKey:     oid,
+				delimitor:    separator,
+				jsonTableKey: jsonVoqKey,
+			}
+			tblPaths = append(tblPaths, tblPath)
+		}
+	} else if strings.Contains(paths[KeyIdx], "|") {
+		//VoQs on single SwitchName-SystemPort (str2-7804-lc7-1|Asic0|Ethernet84)
+		// Find all VoQs for this specific interface
+		requestedSystemPort := paths[KeyIdx] // e.g., "str2-7804-lc7-1|Asic0|Ethernet84"
+		for voqName, oid := range countersVoQNameMap {
+			// Filter: only process VoQs that match the requested system port
+			if !strings.Contains(voqName, requestedSystemPort) {
+				continue
+			}
+
+			switchId, asicNamespace, interfaceName, voqIndex, err := parseVoQName(voqName)
+			if err != nil {
+				log.V(2).Infof("Failed to parse VoQ name %v: %v", voqName, err)
+				continue
+			}
+
+			// Look up the namespace where this OID's counter data actually lives.
+			// Fall back to deriving from the VoQ name if not found or stale.
+			namespace := resolveVoQNamespace(oid, asicNamespace, activeNamespaces)
+
+			// Build JSON key for output with requested interface name (could be alias)
+			jsonVoqKey := buildVoQJsonKey(switchId, asicNamespace, interfaceName, voqIndex)
+
+			// Create table path for VoQ stats
+			tblPath := tablePath{
+				dbNamespace:  namespace,
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx],
+				tableKey:     oid,
+				delimitor:    separator,
+				jsonTableKey: jsonVoqKey,
+			}
+			tblPaths = append(tblPaths, tblPath)
+		}
+	} else {
+		//VoQs on single SwitchName (str2-7804-lc7-1)
+		// Find all VoQs for this specific SwitchName
+		requestedSwitchName := paths[KeyIdx] // e.g., "str2-7804-lc7-1"
+		for voqName, oid := range countersVoQNameMap {
+			// Filter: only process VoQs that match the requested switch name
+			if !strings.HasPrefix(voqName, requestedSwitchName+"|") {
+				continue
+			}
+
+			switchId, asicNamespace, interfaceName, voqIndex, err := parseVoQName(voqName)
+			if err != nil {
+				log.V(2).Infof("Failed to parse VoQ name %v: %v", voqName, err)
+				continue
+			}
+
+			// Look up the namespace where this OID's counter data actually lives.
+			// Fall back to deriving from the VoQ name if not found or stale.
+			namespace := resolveVoQNamespace(oid, asicNamespace, activeNamespaces)
+
+			// Build JSON key for output with requested interface name (could be alias)
+			jsonVoqKey := buildVoQJsonKey(switchId, asicNamespace, interfaceName, voqIndex)
+
+			// Create table path for VoQ stats
+			tblPath := tablePath{
+				dbNamespace:  namespace,
+				dbName:       paths[DbIdx],
+				tableName:    paths[TblIdx],
+				tableKey:     oid,
+				delimitor:    separator,
+				jsonTableKey: jsonVoqKey,
+			}
+			tblPaths = append(tblPaths, tblPath)
+		}
+	}
+	log.V(6).Infof("v2rSystemPortVoQStats: %v", tblPaths)
 	return tblPaths, nil
 }
 
