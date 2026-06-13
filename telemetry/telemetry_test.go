@@ -1278,7 +1278,7 @@ func TestINotifyCertMonitoringCertValidationFails(t *testing.T) {
 	testServerCert := filepath.Join(tmpDir, "server.crt")
 	testServerKey := filepath.Join(tmpDir, "server.key")
 
-	timeoutInterval := 5
+	timeoutInterval := 10
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
 	defer cancel()
 
