@@ -704,6 +704,10 @@ func populateDbtablePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]
 		if err != nil {
 			log.Errorf("Could not create CountersAclRuleMap: %v", err)
 		}
+		err = initCountersVoQNameMap()
+		if err != nil {
+			log.Errorf("Could not create CountersVoQNameMap: %v", err)
+		}
 	}
 
 	fullPath := path
