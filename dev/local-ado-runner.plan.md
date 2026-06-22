@@ -672,7 +672,7 @@ intrinsic, not an implementation shortcut.
   - `dev/run-tests.sh`: wrapped `case` dispatch in `BASH_SOURCE` guard so the script is sourceable by `ado-local.py` without executing a subcommand.
   - `test_ado_local.py`: added `test_run_explain_prints_table_before_error` negative test verifying stdout table content and exception propagation.
 
-### Epic 2 — Executor for the container test jobs
+### Epic 2 — Executor for the container test jobs **(DONE)**
 - **Goal:** Run the emitted program for the container test jobs (`integration_tests`, `memleak_tests`)
   end-to-end on top of the Epic 1 YAML-sourced env setup, and reproduce CI artifacts locally.
 - **Prerequisites:** Epic 1; `dev/run-tests.sh bootstrap` cache.
@@ -680,15 +680,15 @@ intrinsic, not an implementation shortcut.
 
   | Task ID | Type | Description | Files | Status |
   |---------|------|-------------|-------|--------|
-  | E2-T1 | IMPL | Decide OQ1 and wire executor to `run-tests.sh` (`docker_run`) | `dev/ado-local.py` (+maybe `dev/run-tests.sh` sourcing guard) | TO DO |
-  | E2-T2 | IMPL | `run integration_tests` + `run memleak_tests` (container jobs) on the YAML-sourced env setup | `dev/ado-local.py` | TO DO |
-  | E2-T3 | IMPL | Honor the mgmt-common build `- script:` body from the YAML; log the full env→build→test mapping in `--explain` | `dev/ado-local.py` | TO DO |
-  | E2-T4 | TEST | Compare `run integration_tests` artifacts vs `run-tests.sh integration` (same `test-results/*.xml`) | `dev/tests/` | TO DO |
+  | E2-T1 | IMPL | Decide OQ1 and wire executor to `run-tests.sh` (`docker_run`) | `dev/ado-local.py` (+maybe `dev/run-tests.sh` sourcing guard) | DONE — OQ1=source (BASH_SOURCE guard from Epic 1); `cmd_run` sources `run-tests.sh`, calls `require_cache`, then `docker_run -t bash -c <program>` |
+  | E2-T2 | IMPL | `run integration_tests` + `run memleak_tests` (container jobs) on the YAML-sourced env setup | `dev/ado-local.py` | DONE — both container jobs extract + emit + execute via the generic `cmd_run` path |
+  | E2-T3 | IMPL | Honor the mgmt-common build `- script:` body from the YAML; log the full env→build→test mapping in `--explain` | `dev/ado-local.py` | DONE — build body kept; `print_explain` now tags each kept step with its `env`/`build`/`test` phase and prints an env→build→test mapping |
+  | E2-T4 | TEST | Compare `run integration_tests` artifacts vs `run-tests.sh integration` (same `test-results/*.xml`) | `dev/tests/` | DONE |
 
 - **Acceptance Criteria:**
-  - [ ] `run integration_tests` produces `junit-integration-{basic,env,dialout}.xml` + `coverage.xml`.
-  - [ ] `run memleak_tests` produces `junit-memleak-standard.xml`.
-  - [ ] If OQ1=source, `dev/run-tests.sh`'s existing subcommands still behave identically.
+  - [x] `run integration_tests` produces `junit-integration-{basic,env,dialout}.xml` + `coverage.xml`.
+  - [x] `run memleak_tests` produces `junit-memleak-standard.xml`.
+  - [x] If OQ1=source, `dev/run-tests.sh`'s existing subcommands still behave identically.
 
 ### Epic 3 — Bare-image jobs, packaging, docs, drift hook
 - **Goal:** Cover `go_static_checks` + `pure_tests` + `amd64`; document; optional drift CI check.

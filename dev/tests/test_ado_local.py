@@ -285,5 +285,120 @@ class TestReadOnly(unittest.TestCase):
             self.assertEqual(mode.replace("b", "").replace("t", ""), "r")
 
 
+class TestEpic2PhaseMapping(unittest.TestCase):
+    """E2-T3: each kept step is tagged with its env→build→test phase and the
+    mapping is logged by `explain`/`run --explain`."""
+
+    def setUp(self):
+        self.records = ado.Pipeline(PIPELINE).extract("integration_tests", opts())
+
+    def test_kept_steps_have_all_three_phases(self):
+        phases = {r.phase for r in self.records if r.kind == ado.KEEP}
+        self.assertEqual(phases, {"env", "build", "test"})
+
+    def test_noop_and_error_steps_have_no_phase(self):
+        for r in self.records:
+            if r.kind != ado.KEEP:
+                self.assertIsNone(r.phase)
+
+    def test_env_phase_sourced_from_install_dependencies(self):
+        env = [r for r in self.records if r.phase == "env"]
+        self.assertTrue(env)
+        self.assertTrue(all(
+            r.source in ("install-dependencies.yml", "install-go.yml") for r in env))
+
+    def test_build_phase_is_mgmt_common_build(self):
+        build = [r for r in self.records if r.phase == "build"]
+        self.assertEqual(len(build), 1)
+        self.assertEqual(build[0].source, "setup-test-env.yml")
+        self.assertIn("dpkg-buildpackage", build[0].body)
+
+    def test_test_phase_runs_the_junit_target(self):
+        test = [r for r in self.records if r.phase == "test"]
+        self.assertTrue(test)
+        self.assertTrue(any("make check_gotest_junit" in (r.body or "") for r in test))
+
+    def test_explain_logs_env_build_test_mapping(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            ado.print_explain("integration_tests", self.records)
+        text = out.getvalue()
+        self.assertIn("PHASE", text)
+        self.assertIn("mapping", text)
+        # All three phase labels appear in the trailing mapping block.
+        mapping = text.split("mapping", 1)[1]
+        for phase in ("env", "build", "test"):
+            self.assertIn(phase, mapping)
+
+
+class TestEpic2Executor(unittest.TestCase):
+    """E2-T1/E2-T2: the container jobs are run via run-tests.sh's docker_run
+    (sourced, OQ1=source) on the YAML-sourced env setup."""
+
+    def test_cmd_run_sources_run_tests_sh_and_uses_docker_run(self):
+        # Capture the driver script cmd_run would hand to bash, without executing.
+        captured = {}
+
+        def fake_call(argv):
+            captured["argv"] = argv
+            return 0
+
+        orig = ado.subprocess.call
+        ado.subprocess.call = fake_call
+        try:
+            rc = ado.cmd_run(opts(command="run", job="integration_tests"))
+        finally:
+            ado.subprocess.call = orig
+        self.assertEqual(rc, 0)
+        driver = captured["argv"][2]
+        self.assertIn("source ", driver)
+        self.assertIn("run-tests.sh", driver)
+        self.assertIn("require_cache", driver)
+        self.assertIn("docker_run -t bash -c", driver)
+
+    def test_run_tests_sh_is_sourceable_without_dispatch(self):
+        # OQ1=source: the BASH_SOURCE guard means sourcing defines the helpers
+        # but runs no subcommand, so the existing CLI is unaffected.
+        with open(os.path.join(DEV_DIR, "run-tests.sh")) as f:
+            rt = f.read()
+        self.assertIn('if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then', rt)
+
+
+class TestEpic2Artifacts(unittest.TestCase):
+    """E2-T4: `run integration_tests`/`run memleak_tests` produce the same
+    test-results/*.xml as run-tests.sh integration, because both drive the same
+    make targets that emit those JUnit/coverage artifacts."""
+
+    def setUp(self):
+        with open(os.path.join(DEV_DIR, "run-tests.sh")) as f:
+            self.run_tests_sh = f.read()
+        with open(PIPELINE) as f:
+            self.pipeline_yml = f.read()
+        with open(os.path.join(REPO_ROOT, "Makefile")) as f:
+            self.makefile = f.read()
+
+    def test_integration_target_matches_run_tests_sh(self):
+        prog = ado.emit_program(ado.Pipeline(PIPELINE).extract("integration_tests", opts()))
+        self.assertIn("ENABLE_TRANSLIB_WRITE=y make check_gotest_junit", prog)
+        # run-tests.sh integration drives the identical target.
+        self.assertIn("ENABLE_TRANSLIB_WRITE=y make check_gotest_junit", self.run_tests_sh)
+
+    def test_integration_produces_expected_xml_artifacts(self):
+        prog = ado.emit_program(ado.Pipeline(PIPELINE).extract("integration_tests", opts()))
+        self.assertIn("make check_gotest_junit", prog)
+        # The check_gotest_junit target emits exactly these artifacts.
+        for name in ("junit-integration-basic.xml", "junit-integration-env.xml",
+                     "junit-integration-dialout.xml"):
+            self.assertIn(name, self.makefile)
+            self.assertIn(name, self.pipeline_yml)
+        self.assertIn("coverage.xml", self.makefile)
+
+    def test_memleak_produces_expected_xml_artifact(self):
+        prog = ado.emit_program(ado.Pipeline(PIPELINE).extract("memleak_tests", opts()))
+        self.assertIn("ENABLE_TRANSLIB_WRITE=y make check_memleak_junit", prog)
+        self.assertIn("junit-memleak-standard.xml", self.makefile)
+        self.assertIn("junit-memleak-standard.xml", self.pipeline_yml)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

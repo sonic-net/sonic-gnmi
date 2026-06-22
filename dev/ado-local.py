@@ -61,7 +61,7 @@ class UnsupportedConstruct(Exception):
 class Record:
     """One classified step."""
 
-    def __init__(self, kind, kind_label, display, source, body=None, workdir=None, note=None):
+    def __init__(self, kind, kind_label, display, source, body=None, workdir=None, note=None, phase=None):
         self.kind = kind
         self.kind_label = kind_label
         self.display = display
@@ -69,6 +69,8 @@ class Record:
         self.body = body
         self.workdir = workdir
         self.note = note
+        # env→build→test phase for kept shell steps (E2-T3); None for no-ops/errors.
+        self.phase = phase
 
 
 def load_yaml(path):
@@ -254,7 +256,8 @@ class Pipeline:
             workdir = None
             if step.get("workingDirectory"):
                 workdir = self.render(step["workingDirectory"], params)
-            return Record(KEEP, kind_label, display, src, body=body, workdir=workdir)
+            return Record(KEEP, kind_label, display, src, body=body, workdir=workdir,
+                          phase=_phase_of(src))
         if "checkout" in step:
             return Record(NOOP, "checkout", display or str(step["checkout"]), src,
                           note="bind-mounts already provide the repo")
@@ -319,6 +322,20 @@ def _apply_exclude_pkg_exec(records):
 
 # --- C5: emitter ----------------------------------------------------------
 
+def _phase_of(source):
+    """Map a kept shell step to its env→build→test phase (E2-T3).
+
+    The env-setup prelude comes from install-dependencies.yml/install-go.yml,
+    the sonic-mgmt-common build from setup-test-env.yml, and the job's own
+    inline bodies (make all + the JUnit make target) from the root pipeline.
+    """
+    if source in ("install-dependencies.yml", "install-go.yml"):
+        return "env"
+    if source == "setup-test-env.yml":
+        return "build"
+    return "test"
+
+
 def emit_program(records):
     parts = ["set -euo pipefail", ""]
     for r in records:
@@ -344,12 +361,28 @@ def assert_no_errors(records):
 
 def print_explain(job_key, records):
     print("# explain %s (stage %s)" % (job_key, SUPPORTED_JOBS.get(job_key, "?")))
-    print("%-6s %-26s %-26s %s" % ("STATUS", "TYPE", "SOURCE", "DISPLAY / NOTE"))
+    print("%-6s %-6s %-22s %-26s %s" % ("STATUS", "PHASE", "TYPE", "SOURCE", "DISPLAY / NOTE"))
     for r in records:
         detail = r.display or ""
         if r.note:
             detail = (detail + "  " if detail else "") + "(%s)" % r.note
-        print("%-6s %-26s %-26s %s" % (r.kind, r.kind_label, r.source, detail))
+        print("%-6s %-6s %-22s %-26s %s" % (
+            r.kind, r.phase or "-", r.kind_label, r.source, detail))
+    _print_phase_mapping(records)
+
+
+def _print_phase_mapping(records):
+    """E2-T3: log the full env→build→test mapping of the kept steps so a reader
+    can see exactly which YAML bodies become the env-setup prelude, the
+    sonic-mgmt-common build, and the job's own test command."""
+    kept = [r for r in records if r.kind == KEEP]
+    if not kept:
+        return
+    print("\n# env\u2192build\u2192test mapping (kept steps, in execution order)")
+    for phase in ("env", "build", "test"):
+        for r in kept:
+            if r.phase == phase:
+                print("%-6s %s [%s]" % (phase, r.display or "(no name)", r.source))
 
 
 def cmd_list(_opts):
