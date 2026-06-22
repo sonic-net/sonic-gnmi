@@ -28,13 +28,15 @@ func GetRedisDBClient() (*redis.Client, error) {
 		log.Errorf("DB err: %v", err)
 		return nil, err
 	}
-	rclient := redis.NewClient(&redis.Options{
+	opts := &redis.Options{
 		Network:     "tcp",
 		Addr:        addr,
 		Password:    "", // no password set
 		DB:          db,
 		DialTimeout: 0,
-	})
+	}
+	sdcfg.ApplyRedisPoolSize(opts)
+	rclient := redis.NewClient(opts)
 	if rclient == nil {
 		return nil, fmt.Errorf("Cannot create redis client.")
 	}

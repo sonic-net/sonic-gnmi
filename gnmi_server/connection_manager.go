@@ -41,13 +41,15 @@ func (cm *ConnectionManager) PrepareRedis() {
 		log.Errorf("DB err: %v", err)
 		return
 	}
-	rclient = redis.NewClient(&redis.Options{
+	opts := &redis.Options{
 		Network:     "tcp",
 		Addr:        addr,
 		Password:    "",
 		DB:          db,
 		DialTimeout: 0,
-	})
+	}
+	sdcfg.ApplyRedisPoolSize(opts)
+	rclient = redis.NewClient(opts)
 
 	res, _ := rclient.HGetAll(context.Background(), "TELEMETRY_CONNECTIONS").Result()
 
