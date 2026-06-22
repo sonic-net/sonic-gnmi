@@ -1,5 +1,6 @@
-// Package dbconfig redis_pool.go provides optional, environment-driven tuning
-// of the redis client connection pool used by gNMI's redis clients.
+// redis_pool.go provides optional, environment-driven tuning of the redis
+// client connection pool used by gNMI's redis clients.
+
 package dbconfig
 
 import (
@@ -33,9 +34,14 @@ func ApplyRedisPoolSize(opts *redis.Options) {
 		return
 	}
 	n, err := strconv.Atoi(v)
-	if err != nil || n <= 0 {
+	if err != nil {
 		log.Warningf("Ignoring invalid %s=%q (must be a positive integer): %v",
 			RedisPoolSizeEnvVar, v, err)
+		return
+	}
+	if n <= 0 {
+		log.Warningf("Ignoring non-positive %s=%q (must be a positive integer)",
+			RedisPoolSizeEnvVar, v)
 		return
 	}
 	opts.PoolSize = n

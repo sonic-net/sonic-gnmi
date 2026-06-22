@@ -3,7 +3,6 @@ package common_utils
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
@@ -37,9 +36,6 @@ func GetRedisDBClient() (*redis.Client, error) {
 	}
 	sdcfg.ApplyRedisPoolSize(opts)
 	rclient := redis.NewClient(opts)
-	if rclient == nil {
-		return nil, fmt.Errorf("Cannot create redis client.")
-	}
 	if _, err := rclient.Ping(context.Background()).Result(); err != nil {
 		return nil, err
 	}

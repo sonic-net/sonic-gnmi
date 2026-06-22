@@ -51,7 +51,11 @@ func (cm *ConnectionManager) PrepareRedis() {
 	sdcfg.ApplyRedisPoolSize(opts)
 	rclient = redis.NewClient(opts)
 
-	res, _ := rclient.HGetAll(context.Background(), "TELEMETRY_CONNECTIONS").Result()
+	res, err := rclient.HGetAll(context.Background(), table).Result()
+	if err != nil {
+		log.Errorf("Failed to read %s for cleanup: %v", table, err)
+		return
+	}
 
 	if res == nil {
 		return
