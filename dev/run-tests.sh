@@ -369,15 +369,20 @@ EOF
 #   build --arch   - cross-arch (e.g. arm64) package build
 # ----------------------------------------------------------------
 
-case "${1:-all}" in
-  bootstrap)   bootstrap ;;
-  pure)        run_pure ;;
-  integration) shift; run_integration "$@" ;;
-  build)       run_build ;;
-  shell)       run_shell ;;
-  playground)  shift; run_playground "$@" ;;
-  all)         bootstrap; run_pure; run_integration ;;
-  clean)       clean ;;
-  help|-h|--help) usage ;;
-  *) usage >&2; exit 1 ;;
-esac
+# Only dispatch when executed directly. When sourced (e.g. by dev/ado-local.py to
+# reuse docker_run/require_cache), the functions above are defined but no
+# subcommand runs. This is behavior-preserving for direct execution.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  case "${1:-all}" in
+    bootstrap)   bootstrap ;;
+    pure)        run_pure ;;
+    integration) shift; run_integration "$@" ;;
+    build)       run_build ;;
+    shell)       run_shell ;;
+    playground)  shift; run_playground "$@" ;;
+    all)         bootstrap; run_pure; run_integration ;;
+    clean)       clean ;;
+    help|-h|--help) usage ;;
+    *) usage >&2; exit 1 ;;
+  esac
+fi
