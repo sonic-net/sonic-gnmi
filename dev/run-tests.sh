@@ -137,11 +137,7 @@ sudo apt-get update >/dev/null
 sudo apt-get -y purge libnl-3-dev libnl-route-3-dev 2>/dev/null || true
 sudo dpkg -i /sonic-debs/*.deb || sudo apt-get install -f -y
 sudo pip3 install --break-system-packages /sonic-debs/sonic_yang_models-*.whl jsonpatch
-sudo apt-get install -y --no-install-recommends redis-server
-sudo sed -ri 's/^# unixsocket/unixsocket/' /etc/redis/redis.conf
-sudo sed -ri 's/^unixsocketperm .../unixsocketperm 777/' /etc/redis/redis.conf
-sudo sed -ri 's/redis-server.sock/redis.sock/' /etc/redis/redis.conf
-sudo service redis-server start
+bash /work/sonic-gnmi/scripts/setup-redis.sh
 git config --global --add safe.directory '*'
 export GOFLAGS=-buildvcs=false TMPDIR=/tmp
 EOF
