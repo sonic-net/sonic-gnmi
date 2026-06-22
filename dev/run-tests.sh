@@ -42,6 +42,35 @@ IMAGE="sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:latest"
 
 ARTIFACTS_URL='https://sonic-build.azurewebsites.net/api/sonic/artifacts?branchName=master&platform=vs&target='
 
+MODULE_PREFIX="github.com/sonic-net/sonic-gnmi"
+
+# resolve_pkg <name> -> prints "<tier> <full-module-path>"
+# Accepts a short package name (e.g. gnmi_server) or an already-qualified module
+# path, maps it to its full module path, and classifies it into the integration
+# tier (basic / env / dialout) used by `make check_gotest_junit`.
+resolve_pkg() {
+  local name="$1" short full tier
+  if [[ "$name" == *"/sonic-net/"* || "$name" == "$MODULE_PREFIX"* ]]; then
+    full="$name"
+    short="${name#"$MODULE_PREFIX"/}"
+  else
+    short="$name"
+    full="$MODULE_PREFIX/$name"
+  fi
+  case "$short" in
+    sonic_db_config|sonic_service_client|telemetry|sonic_data_client)
+      tier=basic ;;
+    gnmi_server|pathz_authorizer|transl_utils|gnoi_client/system)
+      tier=env ;;
+    dialout/dialout_client|dialout/dialout_client_cli|dialout)
+      tier=dialout ;;
+    *)
+      echo "resolve_pkg: unknown integration package '$name'" >&2
+      return 1 ;;
+  esac
+  printf '%s %s\n' "$tier" "$full"
+}
+
 # NOTE: the public mirror only keeps the CURRENT build's artifacts, so these
 # filenames go stale over time. If bootstrap 404s, find the new version in
 # rules/<pkg>.mk in sonic-net/sonic-buildimage@master and update here.
@@ -141,22 +170,76 @@ make -f pure.mk PACKAGES='$pure_packages' junit-xml
 "
 }
 
+# Build the non-pure (CGO) deps inside the container: sonic-mgmt-common
+# (generates the YANG bindings + cvl schema), then `make all`, which generates
+# the swsscommon Go wrapper and vendors + patches the deps. Required before any
+# `go test` / build of gnmi_server, sonic_data_client, dialout, telemetry, etc.
+build_nonpure_snippet() {
+  cat <<'EOF'
+echo '--- build sonic-mgmt-common ---'
+( cd /work/sonic-mgmt-common && NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc )
+echo '--- make all (swsscommon wrapper + vendor + patches) ---'
+( cd /work/sonic-gnmi && make all )
+EOF
+}
+
 run_integration() {
   require_cache
   echo "=== Integration tests in container ==="
+  # With no args, run the full suite exactly as before. With package args,
+  # classify each into its tier and override only the matching tier variables,
+  # emptying the others so their Makefile guards skip them.
+  local make_overrides=""
+  if [[ $# -gt 0 ]]; then
+    local basic_pkgs="" env_pkgs="" dialout_pkg=""
+    local arg resolved tier full
+    for arg in "$@"; do
+      if ! resolved="$(resolve_pkg "$arg")"; then
+        exit 1
+      fi
+      read -r tier full <<<"$resolved"
+      case "$tier" in
+        basic)   basic_pkgs="${basic_pkgs:+$basic_pkgs }$full" ;;
+        env)     env_pkgs="${env_pkgs:+$env_pkgs }$full" ;;
+        dialout) dialout_pkg="${dialout_pkg:+$dialout_pkg }$full" ;;
+      esac
+    done
+    echo "--- targeting subset: $* ---"
+    make_overrides="INTEGRATION_BASIC_PKGS='$basic_pkgs' INTEGRATION_ENV_PKGS='$env_pkgs' INTEGRATION_DIALOUT_PKG='$dialout_pkg'"
+  fi
   docker_run "-t" bash -c "$(container_setup_snippet)
-echo '--- build sonic-mgmt-common ---'
-cd /work/sonic-mgmt-common && NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
-cd /work/sonic-gnmi
-echo '--- make all ---'
-make all
+$(build_nonpure_snippet)
 echo '--- integration tests ---'
-ENABLE_TRANSLIB_WRITE=y make check_gotest_junit"
+cd /work/sonic-gnmi && ENABLE_TRANSLIB_WRITE=y make check_gotest_junit $make_overrides"
 }
 
 run_shell() {
   require_cache
-  docker_run "-it" bash -c "$(container_setup_snippet); exec bash"
+  # Drop into an interactive shell pre-wired for BOTH pure and non-pure work:
+  #  - CGO_* env so a bare `go test` on CGO packages finds swss-common headers/libs
+  #    (otherwise: swsscommon_wrap.cxx: fatal error: schema.h: No such file).
+  #  - a `build-nonpure` helper that builds mgmt-common + the swsscommon wrapper
+  #    + vendored/patched deps (run once per shell before testing gnmi_server etc).
+  docker_run "-it" bash -c "$(container_setup_snippet)
+cat >/tmp/gnmi-shellrc <<'RC'
+[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
+export GOFLAGS=-buildvcs=false TMPDIR=/tmp
+export CGO_LDFLAGS='-lswsscommon -lhiredis'
+export CGO_CXXFLAGS='-I/usr/include/swss -w -Wall -fpermissive'
+export CVL_SCHEMA_PATH=/work/sonic-mgmt-common/build/cvl/schema
+build-nonpure() {
+  ( cd /work/sonic-mgmt-common && NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc ) && \
+  ( cd /work/sonic-gnmi && make all )
+}
+cd /work/sonic-gnmi
+echo
+echo 'Pure packages (build instantly):'
+echo '  go test ./pkg/... ./internal/...'
+echo 'Non-pure packages (gnmi_server, sonic_data_client, dialout, ...):'
+echo '  build-nonpure   # once per shell: mgmt-common + swsscommon wrapper + vendor/patches'
+echo '  go test -mod=vendor -tags gnmi_translib_write -gcflags=all=-l ./gnmi_server/ -run TestServer -v'
+RC
+exec bash --rcfile /tmp/gnmi-shellrc"
 }
 
 run_build() {
@@ -186,7 +269,7 @@ clean() {
 case "${1:-all}" in
   bootstrap)   bootstrap ;;
   pure)        run_pure ;;
-  integration) run_integration ;;
+  integration) shift; run_integration "$@" ;;
   build)       run_build ;;
   shell)       run_shell ;;
   all)         bootstrap; run_pure; run_integration ;;

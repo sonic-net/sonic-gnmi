@@ -115,7 +115,12 @@ First run also pulls the `sonic-slave-trixie` image (anonymous pull). Expect
 
 `./dev/run-tests.sh shell` drops you into the container at `/work/sonic-gnmi`
 with `redis-server`, `libswsscommon`, `libyang3`, the SONiC libnl, and Python
-`jsonpatch` ready. From there `go test ./pkg/foo/...`, `make all`, etc. work.
+`jsonpatch` ready. The shell also exports the `CGO_*` flags and provides a
+`build-nonpure` helper. Pure packages work immediately
+(`go test ./pkg/... ./internal/...`); for non-pure packages (`gnmi_server`,
+`sonic_data_client`, `dialout`, ...) run `build-nonpure` once (builds
+`sonic-mgmt-common` + the swsscommon wrapper + vendored/patched deps), then
+`go test -mod=vendor -tags gnmi_translib_write -gcflags=all=-l ./gnmi_server/ -run TestServer -v`.
 
 ### Prefer pure packages
 - **Pure** (`pkg/...`, `internal/...`): plain Go, no CGO/SONiC deps, builds in
