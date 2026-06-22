@@ -29,6 +29,12 @@
 #   playground   - boot a live no-TLS gNMI/gNOI server + interactive client shell
 #   all          - bootstrap + pure + integration
 #   clean        - wipe the cache dir
+#   help         - print the usage summary
+#
+# Deferred CI-parity targets (gofmt/staticcheck, memleak, coverage, ci, build
+# --arch) are intentionally NOT here; they belong to the full CI-mirror driver
+# tracked in dev/local-ci-driver.plan.md. See the extension-point block next to
+# the case dispatch at the bottom of this file for exactly where they plug in.
 
 set -euo pipefail
 
@@ -329,6 +335,40 @@ clean() {
   rm -rf "$CACHE_DIR"
 }
 
+# usage prints the full subcommand summary. It is the single source of truth for
+# help text: the `*` catch-all and the `help` subcommand both call it. Adding a
+# new subcommand should touch exactly two places — the `case` dispatch below and
+# this function.
+usage() {
+  cat <<EOF
+usage: $0 [subcommand] [args]
+
+Subcommands:
+  bootstrap            clone sibling repos + fetch deb/wheel artifacts (idempotent)
+  pure                 pure-package unit tests (no SONiC deps, runs in container)
+  integration [pkg…]   integration tests; full suite when empty, focused subset when given
+  playground [port]    boot a live no-TLS gNMI/gNOI server + interactive client shell (default 8080)
+  build                dpkg-buildpackage sonic-gnmi.deb into dev/build-out/
+  shell                drop into container with deps installed
+  all                  bootstrap + pure + integration (default when no subcommand)
+  clean                wipe the dependency cache
+  help                 print this usage summary
+EOF
+}
+
+# --- deferred CI-parity targets (see local-ci-driver.plan.md) ---
+# The following subcommands are intentionally NOT implemented in this dev driver;
+# they belong to the full CI-mirror driver tracked in dev/local-ci-driver.plan.md.
+# They are listed here as future stubs so a later contributor knows exactly where
+# they plug in: each one is added in EXACTLY two places — the `case` dispatch
+# below and the usage() function above.
+#   staticcheck    - gofmt + staticcheck lint gate
+#   memleak        - make check_memleak_junit
+#   coverage       - diff-cover 80% coverage gate
+#   ci             - run the full CI-parity sequence (lint + tests + memleak + coverage)
+#   build --arch   - cross-arch (e.g. arm64) package build
+# ----------------------------------------------------------------
+
 case "${1:-all}" in
   bootstrap)   bootstrap ;;
   pure)        run_pure ;;
@@ -338,5 +378,6 @@ case "${1:-all}" in
   playground)  shift; run_playground "$@" ;;
   all)         bootstrap; run_pure; run_integration ;;
   clean)       clean ;;
-  *) echo "usage: $0 [bootstrap|pure|integration|build|shell|playground|all|clean]"; exit 1 ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 1 ;;
 esac

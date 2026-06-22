@@ -402,22 +402,22 @@ is up and the binaries are on `PATH`.)
   - [x] Client binaries are on `PATH` and can call the running server (TCP and/or UDS).
   - [x] `playground` is never invoked by `all`; exiting the shell tears everything down.
 
-### Epic 3 — Help, extension points, and docs
+### Epic 3 — Help, extension points, and docs (DONE)
 - **Goal:** Make the script self-describing and document the new flows; pre-mark growth path.
 - **Prerequisites:** Epics 1–2.
 - **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Add `usage` function listing all subcommands incl. `integration [pkg…]` and `playground [port]`; replace inline usage in `*` case | `dev/run-tests.sh` | TO DO |
-| E3-T2 | IMPL | Add labeled `# deferred CI-parity targets (see local-ci-driver.plan.md)` comment block naming `staticcheck`/`memleak`/`coverage`/`ci`/`build --arch` as future stubs | `dev/run-tests.sh` | TO DO |
-| E3-T3 | IMPL | Update `dev/SETUP.md`: subset syntax, `playground` section with example commands + security note, refreshed daily-use list | `dev/SETUP.md` | TO DO |
-| E3-T4 | TEST | Verify `usage`/help output matches dispatch; SETUP.md commands run as written | `dev/run-tests.sh`, `dev/SETUP.md` | TO DO |
+| E3-T1 | IMPL | Add `usage` function listing all subcommands incl. `integration [pkg…]` and `playground [port]`; replace inline usage in `*` case | `dev/run-tests.sh` | DONE |
+| E3-T2 | IMPL | Add labeled `# deferred CI-parity targets (see local-ci-driver.plan.md)` comment block naming `staticcheck`/`memleak`/`coverage`/`ci`/`build --arch` as future stubs | `dev/run-tests.sh` | DONE |
+| E3-T3 | IMPL | Update `dev/SETUP.md`: subset syntax, `playground` section with example commands + security note, refreshed daily-use list | `dev/SETUP.md` | DONE |
+| E3-T4 | TEST | Verify `usage`/help output matches dispatch; SETUP.md commands run as written | `dev/run-tests.sh`, `dev/SETUP.md` | DONE |
 
 - **Acceptance Criteria:**
-  - [ ] `./dev/run-tests.sh help` (and unknown-arg) prints all subcommands with new forms.
-  - [ ] The script header comment + extension block describe the deferred CI-parity path.
-  - [ ] `dev/SETUP.md` documents subset integration and the playground, including the security note.
+  - [x] `./dev/run-tests.sh help` (and unknown-arg) prints all subcommands with new forms.
+  - [x] The script header comment + extension block describe the deferred CI-parity path.
+  - [x] `dev/SETUP.md` documents subset integration and the playground, including the security note.
 
 ## References
 

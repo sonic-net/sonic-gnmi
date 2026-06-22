@@ -106,13 +106,33 @@ First run also pulls the `sonic-slave-trixie` image (anonymous pull). Expect
 ## 5. Daily use
 
 ```bash
-./dev/run-tests.sh pure          # pure unit tests, ~40s
-./dev/run-tests.sh integration   # full integration tests, ~20 min (locks terminal)
-./dev/run-tests.sh build         # produce sonic-gnmi_*.deb in dev/build-out/
-./dev/run-tests.sh shell         # bash inside the container with all deps installed
-./dev/run-tests.sh playground    # boot a live no-TLS gNMI/gNOI server + client shell
-./dev/run-tests.sh clean         # wipe the dependency cache (forces re-download)
+./dev/run-tests.sh pure                  # pure unit tests, ~40s
+./dev/run-tests.sh integration           # full integration tests, ~20 min (locks terminal)
+./dev/run-tests.sh integration gnmi_server   # focused subset: just one (or more) package(s)
+./dev/run-tests.sh build                 # produce sonic-gnmi_*.deb in dev/build-out/
+./dev/run-tests.sh shell                 # bash inside the container with all deps installed
+./dev/run-tests.sh playground            # boot a live no-TLS gNMI/gNOI server + client shell
+./dev/run-tests.sh clean                 # wipe the dependency cache (forces re-download)
+./dev/run-tests.sh help                  # print the full subcommand summary
 ```
+
+### Focused integration subset
+
+`integration` with no arguments runs the full suite exactly as before. Pass one
+or more package names to run **only** those through the same dockerized path,
+dramatically shortening the inner loop:
+
+```bash
+./dev/run-tests.sh integration gnmi_server                 # one package
+./dev/run-tests.sh integration sonic_data_client telemetry # several at once
+```
+
+Accepted names are the short package names (e.g. `gnmi_server`,
+`sonic_data_client`, `telemetry`, `dialout`) or their fully-qualified module
+paths. Each is classified into its integration tier (basic / env / dialout); the
+non-targeted tiers are emptied so their Makefile guards skip them — so a focused
+subset never drags in the dialout tests unless you asked for them.
+
 
 `./dev/run-tests.sh shell` drops you into the container at `/work/sonic-gnmi`
 with `redis-server`, `libswsscommon`, `libyang3`, the SONiC libnl, and Python
