@@ -377,22 +377,30 @@ is up and the binaries are on `PATH`.)
   - [x] `./dev/run-tests.sh integration gnmi_server` runs only `gnmi_server` and emits junit XML.
   - [x] A package from each tier (basic + env) can be targeted, and the dialout tier does not run for an unrelated subset.
 
-### Epic 2 — Playground target
+### Epic 2 — Playground target  _(Status: DONE (E2-T4 manual-verify-pending))_
 - **Goal:** Boot a live gNMI/gNOI server locally with client tools for manual interaction.
 - **Prerequisites:** none (independent of Epic 1).
 - **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Add `run_playground`: reuse `container_setup_snippet` + `build_nonpure_snippet` (which `make all` already installs `telemetry`/`gnmi_cli`/`gnmi_dump`/`gnoi_client` into `${GOBIN}` — no extra `make` call), launch server (`--noTLS --insecure --allow_no_client_auth --port --unix_socket`) in background, bounded readiness poll | `dev/run-tests.sh` | TO DO |
-| E2-T2 | IMPL | Run container `-it` with `EXTRA_DOCKER_ARGS="-p $PORT:$PORT"`, put `${GOBIN}` on `PATH`, `exec bash --rcfile` printing client usage hints | `dev/run-tests.sh` | TO DO |
-| E2-T3 | IMPL | Add `playground` to `case` dispatch with optional `[port]` arg (default 8080) | `dev/run-tests.sh` | TO DO |
-| E2-T4 | TEST | Manual verify: server comes up on port + UDS; `gnmi_dump` / `gnmi_cli` / `gnoi_client` reach it; container tears down on exit | `dev/run-tests.sh` | TO DO |
+| E2-T1 | IMPL | Add `run_playground`: reuse `container_setup_snippet` + `build_nonpure_snippet` (which `make all` already installs `telemetry`/`gnmi_cli`/`gnmi_dump`/`gnoi_client` into `${GOBIN}` — no extra `make` call), launch server (`--noTLS --insecure --allow_no_client_auth --port --unix_socket`) in background, bounded readiness poll | `dev/run-tests.sh` | DONE |
+| E2-T2 | IMPL | Run container `-it` with `EXTRA_DOCKER_ARGS="-p $PORT:$PORT"`, put `${GOBIN}` on `PATH`, `exec bash --rcfile` printing client usage hints | `dev/run-tests.sh` | DONE |
+| E2-T3 | IMPL | Add `playground` to `case` dispatch with optional `[port]` arg (default 8080) | `dev/run-tests.sh` | DONE |
+| E2-T4 | TEST | Manual verify: server comes up on port + UDS; `gnmi_dump` / `gnmi_cli` / `gnoi_client` reach it; container tears down on exit | `dev/run-tests.sh` | MANUAL-VERIFY-PENDING |
+
+> **E2-T4 note:** This is a manual verification step and cannot be executed in
+> the CI/agent environment because it requires the `sonic-slave-trixie` image
+> plus a populated bootstrap cache (`sonic-mgmt-common`, `sonic-swss-common`, and
+> the SONiC `.deb`s). Run `./dev/run-tests.sh playground` on a host with Docker
+> and a completed `./dev/run-tests.sh bootstrap` to confirm: the server listens
+> on the published TCP port and the UDS, `gnmi_dump`/`gnmi_cli`/`gnoi_client`
+> reach it, and exiting the shell tears down the `--rm` container.
 
 - **Acceptance Criteria:**
-  - [ ] `./dev/run-tests.sh playground` builds and launches the server, then drops to a shell.
-  - [ ] Client binaries are on `PATH` and can call the running server (TCP and/or UDS).
-  - [ ] `playground` is never invoked by `all`; exiting the shell tears everything down.
+  - [x] `./dev/run-tests.sh playground` builds and launches the server, then drops to a shell.
+  - [x] Client binaries are on `PATH` and can call the running server (TCP and/or UDS).
+  - [x] `playground` is never invoked by `all`; exiting the shell tears everything down.
 
 ### Epic 3 — Help, extension points, and docs
 - **Goal:** Make the script self-describing and document the new flows; pre-mark growth path.

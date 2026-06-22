@@ -84,7 +84,7 @@ no-ops.
 ./dev/run-tests.sh bootstrap
 ```
 
-Current working Trixie artifact set (see [§7](#7-troubleshooting) if a download
+Current working Trixie artifact set (see [§8](#8-troubleshooting) if a download
 404s):
 
 | Artifact | Version |
@@ -110,6 +110,7 @@ First run also pulls the `sonic-slave-trixie` image (anonymous pull). Expect
 ./dev/run-tests.sh integration   # full integration tests, ~20 min (locks terminal)
 ./dev/run-tests.sh build         # produce sonic-gnmi_*.deb in dev/build-out/
 ./dev/run-tests.sh shell         # bash inside the container with all deps installed
+./dev/run-tests.sh playground    # boot a live no-TLS gNMI/gNOI server + client shell
 ./dev/run-tests.sh clean         # wipe the dependency cache (forces re-download)
 ```
 
@@ -134,7 +135,53 @@ with `redis-server`, `libswsscommon`, `libyang3`, the SONiC libnl, and Python
 
 ---
 
-## 6. (Optional) Working against a DUT
+## 6. Playground — a live local server to hand-exercise RPCs
+
+```bash
+./dev/run-tests.sh playground          # server on 127.0.0.1:8080 + UDS, then a shell
+./dev/run-tests.sh playground 9090     # pick another port if 8080 is taken
+```
+
+`playground` builds everything (`build-nonpure` + `make all`, which installs
+`telemetry`, `gnmi_cli`, `gnmi_dump`, `gnoi_client`, `gnmi_get`, `gnmi_set` into
+`build/bin`), launches the telemetry/gNMI/gNOI server **in no-TLS mode** in the
+background, waits (bounded ~30s) until it is listening, then drops you into an
+interactive shell with those client binaries on `PATH`. The container runs with
+`-it` and publishes the port (`-p $PORT:$PORT`), so you can reach the server from
+the shell **or** from your host. Exiting the shell tears down the `--rm`
+container, the server, and Redis automatically.
+
+The server listens on two endpoints:
+
+- **TCP** `127.0.0.1:$PORT` (default `8080`)
+- **UDS** `/var/run/gnmi/gnmi.sock`
+
+Example commands once you are in the shell:
+
+```bash
+gnmi_dump                              # no args: prints this server's GNMI/GNOI/DBUS counters
+gnmi_cli -a 127.0.0.1:8080 -insecure -logtostderr -query_type Once \
+         -q '/COUNTERS/Ethernet0' -target COUNTERS_DB
+gnoi_client -target 127.0.0.1:8080 -insecure -rpc System.Time
+```
+
+The server log is at `/tmp/telemetry.log` inside the container.
+
+> **Expected noise:** the playground server has no populated SONiC DB tables, so
+> queries for real data may return errors. That is fine — `playground` is for
+> surface-level interaction (does the RPC reach the server, what does it answer),
+> not full data fidelity.
+
+> ⚠️ **Security — local throwaway only.** `playground` runs the server with
+> `--noTLS --insecure --allow_no_client_auth`, which **disables authentication**.
+> This is acceptable *only* because it runs in an ephemeral `--rm` container bound
+> to your own host. **Never** run it on a DUT or shared host, and never reuse
+> these flags for the `build`/deploy path. No secrets are introduced; the
+> published port stays on localhost.
+
+---
+
+## 7. (Optional) Working against a DUT
 
 Mutating on the DUT (installs a package, restarts a service) — opt-in.
 
@@ -188,7 +235,7 @@ $SSH "$DUT" 'sudo /tmp/grpcurl -plaintext -d "{\"path\":\"/tmp\"}" \
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 Every common failure and its fix — you should not need anything outside this file.
 
@@ -255,7 +302,7 @@ git checkout -- . && git clean -fd
 ### DUT: `tls: certificate required` on port 50051/50052
 The TCP listeners need a client cert signed by the server's CA; a vanilla KVM
 testbed only has the server cert. Don't fight it — use the UDS
-(`unix:///var/run/gnmi/gnmi.sock`, see [§6](#6-optional-working-against-a-dut)).
+(`unix:///var/run/gnmi/gnmi.sock`, see [§7](#7-optional-working-against-a-dut)).
 
 ### DUT: `grpcurl` says `missing port in address`
 You used a bare path or `-unix` flag on an old `grpcurl`. Use the
@@ -268,7 +315,7 @@ You used a bare path or `-unix` flag on an old `grpcurl`. Use the
 
 ---
 
-## 8. Quirks the driver already handles (FYI)
+## 9. Quirks the driver already handles (FYI)
 
 1. **`TMPDIR=/tmp` is mandatory** — `pkg/gnoi/file` tests use `t.TempDir()` but
    prod only allowlists `/tmp`, `/var/tmp`, `/host`.

@@ -26,6 +26,7 @@
 #   integration  - full integration tests inside sonic-slave-trixie container
 #   build        - dpkg-buildpackage sonic-gnmi.deb into dev/build-out/
 #   shell        - drop into container with deps installed
+#   playground   - boot a live no-TLS gNMI/gNOI server + interactive client shell
 #   all          - bootstrap + pure + integration
 #   clean        - wipe the cache dir
 
@@ -242,6 +243,68 @@ RC
 exec bash --rcfile /tmp/gnmi-shellrc"
 }
 
+# Boot a live gNMI/gNOI telemetry server inside the container (no-TLS, insecure)
+# and drop the developer into an interactive shell with the client binaries on
+# PATH so they can hand-exercise RPCs. This is a MANUAL exploration tool, never a
+# test: it must never be wired into `all`/`ci`. The --noTLS/--insecure/
+# --allow_no_client_auth flags disable auth and are acceptable ONLY because the
+# server runs in a throwaway --rm container bound to the developer's host; do not
+# reuse these flags for the build/deploy path.
+run_playground() {
+  require_cache
+  local port="${1:-8080}"
+  echo "=== Playground: live gNMI/gNOI server on 127.0.0.1:$port (no-TLS) ==="
+  # -it + publish the port so the server is also reachable from the host.
+  EXTRA_DOCKER_ARGS="-p $port:$port" \
+  docker_run "-it" bash -c "$(container_setup_snippet)
+$(build_nonpure_snippet)
+PORT=$port
+SOCK=/var/run/gnmi/gnmi.sock
+# make all installed the binaries into \${GOBIN} (build/bin); put it on PATH.
+export GOBIN=/work/sonic-gnmi/build/bin
+export PATH=\"\$GOBIN:\$PATH\"
+sudo mkdir -p /var/run/gnmi
+sudo chmod 777 /var/run/gnmi
+echo \"--- launching telemetry on port \$PORT + UDS \$SOCK (log: /tmp/telemetry.log) ---\"
+telemetry --noTLS --insecure --allow_no_client_auth --port \"\$PORT\" --unix_socket \"\$SOCK\" --logtostderr -v=2 >/tmp/telemetry.log 2>&1 &
+TELEMETRY_PID=\$!
+# Bounded readiness poll: wait up to ~30s for the TCP port to accept connections.
+ready=0
+for i in \$(seq 1 30); do
+  if ! kill -0 \"\$TELEMETRY_PID\" 2>/dev/null; then
+    echo '[warn] telemetry exited early; see /tmp/telemetry.log'; break
+  fi
+  if (exec 3<>/dev/tcp/127.0.0.1/\$PORT) 2>/dev/null; then
+    ready=1; break
+  fi
+  sleep 1
+done
+if [ \"\$ready\" = 1 ]; then
+  echo \"[ok] telemetry listening on 127.0.0.1:\$PORT (pid \$TELEMETRY_PID)\"
+else
+  echo '[warn] telemetry not confirmed listening after 30s; recent log:'
+  tail -n 20 /tmp/telemetry.log || true
+  echo '[warn] dropping to shell anyway — rerun telemetry manually if needed.'
+fi
+cat >/tmp/gnmi-playground-rc <<'RC'
+[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
+export GOBIN=/work/sonic-gnmi/build/bin
+export PATH=\"\$GOBIN:\$PATH\"
+cd /work/sonic-gnmi
+echo
+echo 'Playground: telemetry server (no-TLS) on 127.0.0.1:$port + UDS /var/run/gnmi/gnmi.sock'
+echo 'Client tools on PATH: telemetry gnmi_cli gnmi_dump gnoi_client gnmi_get gnmi_set'
+echo
+echo 'Examples:'
+echo '  gnmi_dump   # no args: prints this server process GNMI/GNOI/DBUS counters'
+echo \"  gnmi_cli -a 127.0.0.1:$port -insecure -logtostderr -query_type Once -q '/COUNTERS/Ethernet0' -target COUNTERS_DB\"
+echo '  gnoi_client -target 127.0.0.1:$port -insecure -rpc System.Time'
+echo
+echo 'Server log: /tmp/telemetry.log   Exit this shell to tear everything down.'
+RC
+exec bash --rcfile /tmp/gnmi-playground-rc"
+}
+
 run_build() {
   require_cache
   echo "=== Building sonic-gnmi.deb in container ==="
@@ -272,7 +335,8 @@ case "${1:-all}" in
   integration) shift; run_integration "$@" ;;
   build)       run_build ;;
   shell)       run_shell ;;
+  playground)  shift; run_playground "$@" ;;
   all)         bootstrap; run_pure; run_integration ;;
   clean)       clean ;;
-  *) echo "usage: $0 [bootstrap|pure|integration|build|shell|all|clean]"; exit 1 ;;
+  *) echo "usage: $0 [bootstrap|pure|integration|build|shell|playground|all|clean]"; exit 1 ;;
 esac
