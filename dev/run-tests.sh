@@ -152,6 +152,23 @@ docker_run() {
     "$IMAGE" "$@"
 }
 
+# Shared scaffold for the interactive subcommands (shell, playground). Runs the
+# container with -it, executes the standard container setup snippet, then any
+# caller-supplied pre-exec steps (e.g. build deps + boot the server), writes the
+# caller's rc-file body, and exec's an interactive bash seeded from it. Callers
+# set EXTRA_DOCKER_ARGS (e.g. -p) as a command prefix when extra docker flags are
+# needed; docker_run picks it up exactly as before.
+#   run_interactive_container <rcfile> <rc_body> [pre_exec]
+run_interactive_container() {
+  local rcfile="$1" rc_body="$2" pre_exec="${3:-}"
+  docker_run "-it" bash -c "$(container_setup_snippet)${pre_exec:+
+$pre_exec}
+cat >$rcfile <<'RC'
+$rc_body
+RC
+exec bash --rcfile $rcfile"
+}
+
 run_pure() {
   require_cache
   echo "=== Pure tests in container (no SONiC deps) ==="
@@ -173,11 +190,25 @@ make -f pure.mk PACKAGES='$pure_packages' junit-xml
 # (generates the YANG bindings + cvl schema), then `make all`, which generates
 # the swsscommon Go wrapper and vendors + patches the deps. Required before any
 # `go test` / build of gnmi_server, sonic_data_client, dialout, telemetry, etc.
+# The steps are `&&`-chained so a mgmt-common failure short-circuits before
+# `make all`: this matters most in `run_shell`'s interactive `build-nonpure`
+# helper, which runs without `set -e`, so without the chain a broken YANG build
+# would fall through to a confusing `make all` error instead of exiting early.
 build_nonpure_snippet() {
   cat <<'EOF'
-bash /work/sonic-gnmi/scripts/build-deb.sh mgmt-common /work/sonic-mgmt-common
-echo '--- make all (swsscommon wrapper + vendor + patches) ---'
-( cd /work/sonic-gnmi && make all )
+bash /work/sonic-gnmi/scripts/build-deb.sh mgmt-common /work/sonic-mgmt-common \
+  && echo '--- make all (swsscommon wrapper + vendor + patches) ---' \
+  && ( cd /work/sonic-gnmi && make all )
+EOF
+}
+
+# `make all` installs the gnmi/gnoi client + telemetry binaries into GOBIN
+# (build/bin). This block puts that GOBIN on PATH so the binaries are runnable;
+# it is duplicated in the playground's server-boot steps and its rc-file body.
+gobin_on_path_snippet() {
+  cat <<'EOF'
+export GOBIN=/work/sonic-gnmi/build/bin
+export PATH="$GOBIN:$PATH"
 EOF
 }
 
@@ -218,16 +249,13 @@ run_shell() {
   #    (otherwise: swsscommon_wrap.cxx: fatal error: schema.h: No such file).
   #  - a `build-nonpure` helper that builds mgmt-common + the swsscommon wrapper
   #    + vendored/patched deps (run once per shell before testing gnmi_server etc).
-  docker_run "-it" bash -c "$(container_setup_snippet)
-cat >/tmp/gnmi-shellrc <<'RC'
-[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
+  run_interactive_container /tmp/gnmi-shellrc "[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
 export GOFLAGS=-buildvcs=false TMPDIR=/tmp
 export CGO_LDFLAGS='-lswsscommon -lhiredis'
 export CGO_CXXFLAGS='-I/usr/include/swss -w -Wall -fpermissive'
 export CVL_SCHEMA_PATH=/work/sonic-mgmt-common/build/cvl/schema
 build-nonpure() {
-  bash /work/sonic-gnmi/scripts/build-deb.sh mgmt-common /work/sonic-mgmt-common && \
-  ( cd /work/sonic-gnmi && make all )
+$(build_nonpure_snippet)
 }
 cd /work/sonic-gnmi
 echo
@@ -235,9 +263,7 @@ echo 'Pure packages (build instantly):'
 echo '  go test ./pkg/... ./internal/...'
 echo 'Non-pure packages (gnmi_server, sonic_data_client, dialout, ...):'
 echo '  build-nonpure   # once per shell: mgmt-common + swsscommon wrapper + vendor/patches'
-echo '  go test -mod=vendor -tags gnmi_translib_write -gcflags=all=-l ./gnmi_server/ -run TestServer -v'
-RC
-exec bash --rcfile /tmp/gnmi-shellrc"
+echo '  go test -mod=vendor -tags gnmi_translib_write -gcflags=all=-l ./gnmi_server/ -run TestServer -v'"
 }
 
 # Boot a live gNMI/gNOI telemetry server inside the container (no-TLS, insecure)
@@ -251,15 +277,13 @@ run_playground() {
   require_cache
   local port="${1:-8080}"
   echo "=== Playground: live gNMI/gNOI server on 127.0.0.1:$port (no-TLS) ==="
-  # -it + publish the port so the server is also reachable from the host.
-  EXTRA_DOCKER_ARGS="-p $port:$port" \
-  docker_run "-it" bash -c "$(container_setup_snippet)
-$(build_nonpure_snippet)
+  # Pre-exec steps: build the non-pure deps, then boot the telemetry server and
+  # wait for it to listen before dropping into the shell.
+  local boot_body="$(build_nonpure_snippet)
 PORT=$port
 SOCK=/var/run/gnmi/gnmi.sock
 # make all installed the binaries into \${GOBIN} (build/bin); put it on PATH.
-export GOBIN=/work/sonic-gnmi/build/bin
-export PATH=\"\$GOBIN:\$PATH\"
+$(gobin_on_path_snippet)
 sudo mkdir -p /var/run/gnmi
 sudo chmod 777 /var/run/gnmi
 echo \"--- launching telemetry on port \$PORT + UDS \$SOCK (log: /tmp/telemetry.log) ---\"
@@ -282,11 +306,9 @@ else
   echo '[warn] telemetry not confirmed listening after 30s; recent log:'
   tail -n 20 /tmp/telemetry.log || true
   echo '[warn] dropping to shell anyway — rerun telemetry manually if needed.'
-fi
-cat >/tmp/gnmi-playground-rc <<'RC'
-[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
-export GOBIN=/work/sonic-gnmi/build/bin
-export PATH=\"\$GOBIN:\$PATH\"
+fi"
+  local rc_body="[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
+$(gobin_on_path_snippet)
 cd /work/sonic-gnmi
 echo
 echo 'Playground: telemetry server (no-TLS) on 127.0.0.1:$port + UDS /var/run/gnmi/gnmi.sock'
@@ -297,9 +319,10 @@ echo '  gnmi_dump   # no args: prints this server process GNMI/GNOI/DBUS counter
 echo \"  gnmi_cli -a 127.0.0.1:$port -insecure -logtostderr -query_type Once -q '/COUNTERS/Ethernet0' -target COUNTERS_DB\"
 echo '  gnoi_client -target 127.0.0.1:$port -insecure -rpc System.Time'
 echo
-echo 'Server log: /tmp/telemetry.log   Exit this shell to tear everything down.'
-RC
-exec bash --rcfile /tmp/gnmi-playground-rc"
+echo 'Server log: /tmp/telemetry.log   Exit this shell to tear everything down.'"
+  # -it + publish the port so the server is also reachable from the host.
+  EXTRA_DOCKER_ARGS="-p $port:$port" \
+  run_interactive_container /tmp/gnmi-playground-rc "$rc_body" "$boot_body"
 }
 
 run_build() {

@@ -514,21 +514,21 @@ consolidation work itself.
   - [x] Rendered ADO build commands reproduce master's env vars and `dpkg-buildpackage` argv.
   - [x] `test_build_scripts.sh` green (covers `mgmt-common`, `gnmi`, `all`, copy globs).
 
-### Epic D — Modularize `dev/run-tests.sh` (G3)
+### Epic D — Modularize `dev/run-tests.sh` (G3) — DONE
 - **Goal:** Factor shared scaffolding into helpers; zero behavior change.
 - **Prerequisites:** Epics B and C (they also edit `run-tests.sh`).
 - **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| D1 | IMPL | Add `run_interactive_container()` factoring shared `docker_run "-it"` + rc-file `exec bash --rcfile` scaffold | `dev/run-tests.sh` | TO DO |
-| D2 | IMPL | Rewrite `run_shell` + `run_playground` to call D1 (playground passes server-boot + `-p` extras) | `dev/run-tests.sh` | TO DO |
-| D3 | IMPL | Add `gobin_on_path_snippet()`; reuse `build_nonpure_snippet()` in `run_shell`'s `build-nonpure` helper (234-236) **only** (the one flow that matches). Leave `run_build`'s vendor-sync flow (318-321) functionally intact — route only its single mgmt-common build call through `build-deb.sh` (per Epic C); do **not** substitute `build_nonpure_snippet()` there (would inject `make all` and drop vendor-sync — see DD6) | `dev/run-tests.sh` | TO DO |
-| D4 | TEST | Diff generated `bash -c` snippets for `shell`/`playground`/`build` before vs after (manual/`bash -n` + snippet dump); confirm identical commands — in particular that `run_build` still emits vendor-sync (`go mod tidy && go mod vendor`) + `build-gnmi-deb`, not `make all` | `dev/run-tests.sh` | TO DO |
+| D1 | IMPL | Add `run_interactive_container()` factoring shared `docker_run "-it"` + rc-file `exec bash --rcfile` scaffold | `dev/run-tests.sh` | DONE |
+| D2 | IMPL | Rewrite `run_shell` + `run_playground` to call D1 (playground passes server-boot + `-p` extras) | `dev/run-tests.sh` | DONE |
+| D3 | IMPL | Add `gobin_on_path_snippet()`; reuse `build_nonpure_snippet()` in `run_shell`'s `build-nonpure` helper (234-236) **only** (the one flow that matches). Leave `run_build`'s vendor-sync flow (318-321) functionally intact — route only its single mgmt-common build call through `build-deb.sh` (per Epic C); do **not** substitute `build_nonpure_snippet()` there (would inject `make all` and drop vendor-sync — see DD6) | `dev/run-tests.sh` | DONE |
+| D4 | TEST | Diff generated `bash -c` snippets for `shell`/`playground`/`build` before vs after (manual/`bash -n` + snippet dump); confirm identical commands — in particular that `run_build` still emits vendor-sync (`go mod tidy && go mod vendor`) + `build-gnmi-deb`, not `make all` | `dev/run-tests.sh` | DONE |
 
 - **Acceptance Criteria:**
-  - [ ] `bash -n dev/run-tests.sh` passes; `help` output unchanged.
-  - [ ] Generated container commands for each subcommand are identical pre/post refactor.
+  - [x] `bash -n dev/run-tests.sh` passes; `help` output unchanged.
+  - [x] Generated container commands for each subcommand are identical pre/post refactor.
 
 ### Epic E — Consolidate design docs (G5)
 - **Goal:** One merged design/decisions doc; delete intermediates + dead refs.
