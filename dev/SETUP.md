@@ -84,15 +84,16 @@ no-ops.
 ./dev/run-tests.sh bootstrap
 ```
 
-Current working Trixie artifact set (see [§8](#8-troubleshooting) if a download
-404s):
+Current working Trixie artifact set, declared canonically in
+`scripts/deps-manifest.sh` (the single source of truth shared by the ADO install
+scripts and this dev runner) — see [§8](#8-troubleshooting) if a download 404s:
 
-| Artifact | Version |
-|----------|---------|
-| `libyang3`, `libyang-dev` | `3.12.2-1` |
-| `libnl-3-200`, `libnl-genl-3-200`, `libnl-route-3-200`, `libnl-nf-3-200` | `3.7.0-0.2+b1sonic1` |
-| `libswsscommon`, `libswsscommon-dev`, `python3-swsscommon` | `1.0.0` |
-| `sonic_yang_models` wheel | `1.0` |
+| Artifact | Version | Manifest variable |
+|----------|---------|-------------------|
+| `libyang3`, `libyang-dev` | `3.12.2-1` | `LIBYANG3_VER` |
+| `libnl-3-200`, `libnl-genl-3-200`, `libnl-route-3-200`, `libnl-nf-3-200` | `3.7.0-0.2+b1sonic1` | `LIBNL_VER` |
+| `libswsscommon`, `libswsscommon-dev`, `python3-swsscommon` | `1.0.0` | `SWSSCOMMON_VER` |
+| `sonic_yang_models` wheel | `1.0` | `YANG_MODELS_VER` |
 
 ### Step 3 — Verify pure tests
 ```bash
@@ -271,8 +272,9 @@ Docker needs to work without sudo. Start the daemon and/or add yourself to the
 
 ### `bootstrap` 404s on a `.deb`
 The public mirror only keeps the **current** build's artifacts, so a version got
-rotated upstream. Find the new version and update `DEB_TARGETS` in
-`dev/run-tests.sh`:
+rotated upstream. Find the new version and bump it in the shared manifest
+`scripts/deps-manifest.sh` (the single source of truth — `run-tests.sh` and the
+ADO install scripts both read it):
 
 1. Look up the version in `sonic-net/sonic-buildimage@master`, e.g.
    `rules/libyang3.mk` (`LIBYANG3_VERSION`), `rules/libnl3.mk`, etc.

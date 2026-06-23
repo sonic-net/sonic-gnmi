@@ -47,7 +47,11 @@ SWSS_COMMON_DIR="$CACHE_DIR/sonic-swss-common"
 DEBS_DIR="$CACHE_DIR/sonic-debs"
 IMAGE="sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:latest"
 
-ARTIFACTS_URL='https://sonic-build.azurewebsites.net/api/sonic/artifacts?branchName=master&platform=vs&target='
+# Dependency artifact names/versions/globs and the mirror URL live in the shared
+# manifest (scripts/deps-manifest.sh, G2) so a version bump touches exactly one
+# line there and stays in sync with the ADO install scripts. Sourcing it sets
+# ARTIFACTS_URL and provides deps_bootstrap_targets (used for DEB_TARGETS below).
+. "$GNMI_DIR/scripts/deps-manifest.sh"
 
 MODULE_PREFIX="github.com/sonic-net/sonic-gnmi"
 
@@ -80,19 +84,9 @@ resolve_pkg() {
 
 # NOTE: the public mirror only keeps the CURRENT build's artifacts, so these
 # filenames go stale over time. If bootstrap 404s, find the new version in
-# rules/<pkg>.mk in sonic-net/sonic-buildimage@master and update here.
-DEB_TARGETS=(
-  target/debs/trixie/libyang3_3.12.2-1_amd64.deb
-  target/debs/trixie/libyang-dev_3.12.2-1_amd64.deb
-  'target/debs/trixie/libnl-3-200_3.7.0-0.2%2Bb1sonic1_amd64.deb'
-  'target/debs/trixie/libnl-genl-3-200_3.7.0-0.2%2Bb1sonic1_amd64.deb'
-  'target/debs/trixie/libnl-route-3-200_3.7.0-0.2%2Bb1sonic1_amd64.deb'
-  'target/debs/trixie/libnl-nf-3-200_3.7.0-0.2%2Bb1sonic1_amd64.deb'
-  target/debs/trixie/libswsscommon_1.0.0_amd64.deb
-  target/debs/trixie/libswsscommon-dev_1.0.0_amd64.deb
-  target/debs/trixie/python3-swsscommon_1.0.0_amd64.deb
-  target/python-wheels/trixie/sonic_yang_models-1.0-py3-none-any.whl
-)
+# rules/<pkg>.mk in sonic-net/sonic-buildimage@master and bump it in
+# scripts/deps-manifest.sh (the shared SSOT for dep names/versions/URL).
+mapfile -t DEB_TARGETS < <(deps_bootstrap_targets)
 
 ensure_sibling_repo() {
   local dir="$1" url="$2"

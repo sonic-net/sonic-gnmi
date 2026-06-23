@@ -477,23 +477,23 @@ consolidation work itself.
   - [x] ADO templates' comments match master except where a step genuinely changed (DD4).
   - [x] No whitespace-only or reword-only hunks remain in `master..HEAD` for ADO files.
 
-### Epic B — Centralize dependency data into a manifest (G2)
+### Epic B — Centralize dependency data into a manifest (G2) — DONE
 - **Goal:** One declaration of dep names/versions/globs/URL consumed by scripts + dev runner.
 - **Prerequisites:** Epic A (avoids re-touching the same YAML).
 - **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| B1 | IMPL | Create manifest with versions, glob lists, `ARTIFACTS_URL`, accessors (`deps_swsscommon_debs`, `deps_bootstrap_targets`, `deps_download_globs`) | `scripts/deps-manifest.sh` | TO DO |
-| B2 | IMPL | Source manifest in `install-swsscommon.sh`; build filenames from `SWSSCOMMON_VER` | `scripts/install-swsscommon.sh` | TO DO |
-| B3 | IMPL | Source manifest in `run-tests.sh`; replace hardcoded `ARTIFACTS_URL` (50) + `DEB_TARGETS` (84-95) | `dev/run-tests.sh` | TO DO |
-| B4 | IMPL | Update `SETUP.md` dep table/URL to mark the manifest canonical (or generated) | `dev/SETUP.md` | TO DO |
-| B5 | TEST | Guard test: parse `install-dependencies.yml` `patterns:` and assert set-equality with manifest globs (incl. libpcre download-only, OQ3); assert swss filenames match manifest | `scripts/test_deps_manifest.sh` (or extend `test_install_scripts.sh`) | TO DO |
+| B1 | IMPL | Create manifest with versions, glob lists, `ARTIFACTS_URL`, accessors (`deps_swsscommon_debs`, `deps_bootstrap_targets`, `deps_download_globs`) | `scripts/deps-manifest.sh` | DONE |
+| B2 | IMPL | Source manifest in `install-swsscommon.sh`; build filenames from `SWSSCOMMON_VER` | `scripts/install-swsscommon.sh` | DONE |
+| B3 | IMPL | Source manifest in `run-tests.sh`; replace hardcoded `ARTIFACTS_URL` (50) + `DEB_TARGETS` (84-95) | `dev/run-tests.sh` | DONE |
+| B4 | IMPL | Update `SETUP.md` dep table/URL to mark the manifest canonical (or generated) | `dev/SETUP.md` | DONE |
+| B5 | TEST | Guard test: parse `install-dependencies.yml` `patterns:` and assert set-equality with manifest globs (incl. libpcre download-only, OQ3); assert swss filenames match manifest | `scripts/test_deps_manifest.sh` (or extend `test_install_scripts.sh`) | DONE |
 
 - **Acceptance Criteria:**
-  - [ ] Editing one manifest line changes both the ADO install filenames and the dev bootstrap.
-  - [ ] Rendered ADO `patterns:` are byte-identical to master (literals untouched).
-  - [ ] `test_install_scripts.sh` + guard test green.
+  - [x] Editing one manifest line changes both the ADO install filenames and the dev bootstrap.
+  - [x] Rendered ADO `patterns:` are byte-identical to master (literals untouched).
+  - [x] `test_install_scripts.sh` + guard test green.
 
 ### Epic C — Consolidate build scripts into `build-deb.sh` (G4)
 - **Goal:** One build entry point with subcommands; orphans deleted; callers updated.
