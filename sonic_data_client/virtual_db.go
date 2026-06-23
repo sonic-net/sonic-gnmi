@@ -288,18 +288,20 @@ func getVoQCountersMap(tableName string) (map[string]string, map[string]string, 
 		log.V(6).Infof("tableName: %s in namespace %v, map entries: %d", tableName, namespace, len(fv))
 	}
 
-	// Second pass: determine which namespace has counter data for each OID
+	// Second pass: determine which namespace has counter data for each OID.
+	// Use SCAN (cursor iteration) instead of KEYS so we don't block the Redis
+	// instance while walking the COUNTERS keyspace on large/production switches.
 	for namespace, redisDb := range redisClientMap {
-		keys, err := redisDb.Keys(context.Background(), "COUNTERS:oid:*").Result()
-		if err != nil {
-			log.V(2).Infof("redis Keys failed for COUNTERS:oid:* in namespace %v: %v", namespace, err)
-			continue
-		}
-		existingOids := make(map[string]bool, len(keys))
-		for _, key := range keys {
+		existingOids := make(map[string]bool)
+		iter := redisDb.Scan(context.Background(), 0, "COUNTERS:oid:*", 0).Iterator()
+		for iter.Next(context.Background()) {
 			// "COUNTERS:oid:0x..." -> "oid:0x..."
-			oid := strings.TrimPrefix(key, "COUNTERS:")
+			oid := strings.TrimPrefix(iter.Val(), "COUNTERS:")
 			existingOids[oid] = true
+		}
+		if err := iter.Err(); err != nil {
+			log.V(2).Infof("redis Scan failed for COUNTERS:oid:* in namespace %v: %v", namespace, err)
+			continue
 		}
 		for _, oid := range counterMap {
 			if existingOids[oid] {
@@ -1369,23 +1371,33 @@ func buildVoQJsonKey(switchId, asicNamespace, interfaceName, voqIndex string) st
 	return fmt.Sprintf("%s|%s|%s:%s", switchId, asicNamespace, interfaceName, voqIndex)
 }
 
-// resolveVoQNamespace determines the correct Redis namespace for a VoQ OID.
-// It checks the pre-computed oid-to-namespace map first, validates that the
-// cached namespace is currently active (part of the active namespace set returned
-// by GetRedisClientsForDb), and falls back to deriving the namespace from the
-// VoQ name's asic component.
-func resolveVoQNamespace(oid, asicNamespace string, activeNamespaces map[string]*redis.Client) string {
-	if ns, ok := countersVoQOidNamespaceMap[oid]; ok {
-		if activeNamespaces[ns] != nil {
-			return ns
-		}
+// resolveVoQNamespace determines the correct Redis namespace that owns a VoQ
+// OID's counter data. It returns the namespace recorded in the pre-computed
+// oid-to-namespace map only when that namespace is currently active (part of the
+// active namespace set returned by GetRedisClientsForDb).
+//
+// If the OID's owning namespace is unknown or no longer active, it returns
+// ok=false so the caller can skip the VoQ rather than guess a namespace.
+// Guessing (e.g. deriving from the VoQ name) risks reading the wrong Redis
+// instance (silent empty result) or, on a chassis, naming a non-local namespace
+// that has no Redis client and nil-dereferencing in the reader.
+//
+// Note: the oid-to-namespace ownership map is built once during initialization
+// (see initCountersVoQNameMap) and assumed fixed for the lifetime of the
+// process. If a counter's owning namespace changes (e.g. warm reboot, line-card
+// insert/remove), the mapping must be rebuilt via ClearMappings.
+func resolveVoQNamespace(oid string, activeNamespaces map[string]*redis.Client) (string, bool) {
+	if ns, ok := countersVoQOidNamespaceMap[oid]; ok && activeNamespaces[ns] != nil {
+		return ns, true
 	}
-	return strings.ToLower(asicNamespace)
+	return "", false
 }
 
 // Populate real data paths from paths like
 // [COUNTERS_DB COUNTERS SwitchName* VoQs] or [COUNTERS_DB COUNTERS SwitchName VoQs] or [COUNTERS_DB COUNTERS SwitchName|Asic|Port VoQs]
 func v2rSystemPortVoQStats(paths []string) ([]tablePath, error) {
+	clearMappingsMu.RLock()
+	defer clearMappingsMu.RUnlock()
 	// paths[DbIdx] = "COUNTERS_DB"
 	separator, _ := GetTableKeySeparator(paths[DbIdx], "")
 	// Get the currently active Redis clients for namespace validation
@@ -1402,8 +1414,12 @@ func v2rSystemPortVoQStats(paths []string) ([]tablePath, error) {
 			}
 
 			// Look up the namespace where this OID's counter data actually lives.
-			// Fall back to deriving from the VoQ name if not found or stale.
-			namespace := resolveVoQNamespace(oid, asicNamespace, activeNamespaces)
+			// Skip the VoQ if no active namespace owns it rather than guess.
+			namespace, ok := resolveVoQNamespace(oid, activeNamespaces)
+			if !ok {
+				log.V(2).Infof("Skipping VoQ %v: no active namespace owns OID %v", voqName, oid)
+				continue
+			}
 
 			// Build JSON key for output with vendor alias
 			jsonVoqKey := buildVoQJsonKey(switchId, asicNamespace, interfaceName, voqIndex)
@@ -1435,8 +1451,12 @@ func v2rSystemPortVoQStats(paths []string) ([]tablePath, error) {
 			}
 
 			// Look up the namespace where this OID's counter data actually lives.
-			// Fall back to deriving from the VoQ name if not found or stale.
-			namespace := resolveVoQNamespace(oid, asicNamespace, activeNamespaces)
+			// Skip the VoQ if no active namespace owns it rather than guess.
+			namespace, ok := resolveVoQNamespace(oid, activeNamespaces)
+			if !ok {
+				log.V(2).Infof("Skipping VoQ %v: no active namespace owns OID %v", voqName, oid)
+				continue
+			}
 
 			// Build JSON key for output with requested interface name (could be alias)
 			jsonVoqKey := buildVoQJsonKey(switchId, asicNamespace, interfaceName, voqIndex)
@@ -1469,8 +1489,12 @@ func v2rSystemPortVoQStats(paths []string) ([]tablePath, error) {
 			}
 
 			// Look up the namespace where this OID's counter data actually lives.
-			// Fall back to deriving from the VoQ name if not found or stale.
-			namespace := resolveVoQNamespace(oid, asicNamespace, activeNamespaces)
+			// Skip the VoQ if no active namespace owns it rather than guess.
+			namespace, ok := resolveVoQNamespace(oid, activeNamespaces)
+			if !ok {
+				log.V(2).Infof("Skipping VoQ %v: no active namespace owns OID %v", voqName, oid)
+				continue
+			}
 
 			// Build JSON key for output with requested interface name (could be alias)
 			jsonVoqKey := buildVoQJsonKey(switchId, asicNamespace, interfaceName, voqIndex)

@@ -756,7 +756,10 @@ func TestResolveVoQNamespace_FoundInMap(t *testing.T) {
 		"asic0": redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
 	}
 
-	ns := resolveVoQNamespace("oid:0x123", "Asic1", activeNs)
+	ns, ok := resolveVoQNamespace("oid:0x123", activeNs)
+	if !ok {
+		t.Fatalf("got ok=false, want ok=true")
+	}
 	if ns != "asic0" {
 		t.Errorf("got %q, want asic0", ns)
 	}
@@ -775,9 +778,10 @@ func TestResolveVoQNamespace_StaleNamespace(t *testing.T) {
 		"asic0": redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
 	}
 
-	ns := resolveVoQNamespace("oid:0x123", "Asic1", activeNs)
-	if ns != "asic1" { // falls back to lower(asicNamespace)
-		t.Errorf("got %q, want asic1", ns)
+	// Owning namespace is no longer active: do not guess, report ok=false.
+	ns, ok := resolveVoQNamespace("oid:0x123", activeNs)
+	if ok {
+		t.Errorf("got ok=true (ns=%q), want ok=false for stale namespace", ns)
 	}
 }
 
@@ -791,9 +795,10 @@ func TestResolveVoQNamespace_NotInMap(t *testing.T) {
 		"asic0": redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
 	}
 
-	ns := resolveVoQNamespace("oid:0x999", "Asic0", activeNs)
-	if ns != "asic0" { // falls back to lower(asicNamespace)
-		t.Errorf("got %q, want asic0", ns)
+	// Unknown owner: do not guess, report ok=false.
+	ns, ok := resolveVoQNamespace("oid:0x999", activeNs)
+	if ok {
+		t.Errorf("got ok=true (ns=%q), want ok=false for unknown OID", ns)
 	}
 }
 
