@@ -32,9 +32,9 @@
 #   help         - print the usage summary
 #
 # Deferred CI-parity targets (gofmt/staticcheck, memleak, coverage, ci, build
-# --arch) are intentionally NOT here; they belong to the full CI-mirror driver
-# tracked in dev/local-ci-driver.plan.md. See the extension-point block next to
-# the case dispatch at the bottom of this file for exactly where they plug in.
+# --arch) are intentionally NOT here; they belong to a future full CI-mirror
+# driver. See the extension-point block next to the case dispatch at the bottom
+# of this file for exactly where they plug in.
 
 set -euo pipefail
 
@@ -367,9 +367,9 @@ Subcommands:
 EOF
 }
 
-# --- deferred CI-parity targets (see local-ci-driver.plan.md) ---
+# --- deferred CI-parity targets ---
 # The following subcommands are intentionally NOT implemented in this dev driver;
-# they belong to the full CI-mirror driver tracked in dev/local-ci-driver.plan.md.
+# they belong to a future full CI-mirror driver.
 # They are listed here as future stubs so a later contributor knows exactly where
 # they plug in: each one is added in EXACTLY two places — the `case` dispatch
 # below and the usage() function above.
@@ -380,9 +380,9 @@ EOF
 #   build --arch   - cross-arch (e.g. arm64) package build
 # ----------------------------------------------------------------
 
-# Only dispatch when executed directly. When sourced (e.g. by dev/ado-local.py to
-# reuse docker_run/require_cache), the functions above are defined but no
-# subcommand runs. This is behavior-preserving for direct execution.
+# Only dispatch when executed directly. When sourced to reuse docker_run/
+# require_cache, the functions above are defined but no subcommand runs. This is
+# behavior-preserving for direct execution.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   case "${1:-all}" in
     bootstrap)   bootstrap ;;

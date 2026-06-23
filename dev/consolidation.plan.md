@@ -530,21 +530,21 @@ consolidation work itself.
   - [x] `bash -n dev/run-tests.sh` passes; `help` output unchanged.
   - [x] Generated container commands for each subcommand are identical pre/post refactor.
 
-### Epic E — Consolidate design docs (G5)
+### Epic E — Consolidate design docs (G5) — DONE
 - **Goal:** One merged design/decisions doc; delete intermediates + dead refs.
 - **Prerequisites:** Epics A–D (doc must reflect final state).
 - **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E1 | IMPL | Author `dev/design.md` merging the 2 plan + 2 decision docs + the lone `ci-script-extraction.plan.md` (five docs) into final-state narrative | `dev/design.md` | TO DO |
-| E2 | IMPL | Delete the five superseded docs (`ci-script-extraction.decisions.md` does not exist) | `dev/{dedupe-ci-dev,local-dev-runner}.{plan,decisions}.md`, `dev/ci-script-extraction.plan.md` | TO DO |
-| E3 | IMPL | Remove dead refs to `local-ci-driver.plan.md`/`ado-local.py` (run-tests.sh:36,353-366) | `dev/run-tests.sh` | TO DO |
-| E4 | TEST | `grep -rn 'local-ci-driver\|ado-local\|dedupe-ci-dev\|ci-script-extraction\|local-dev-runner' dev/ scripts/ .azure/` returns nothing | — | TO DO |
+| E1 | IMPL | Author `dev/design.md` merging the 2 plan + 2 decision docs + the lone `ci-script-extraction.plan.md` (five docs) into final-state narrative | `dev/design.md` | DONE |
+| E2 | IMPL | Delete the five superseded docs (`ci-script-extraction.decisions.md` does not exist) | `dev/{dedupe-ci-dev,local-dev-runner}.{plan,decisions}.md`, `dev/ci-script-extraction.plan.md` | DONE |
+| E3 | IMPL | Remove dead refs to `local-ci-driver.plan.md`/`ado-local.py` (run-tests.sh:36,353-366) | `dev/run-tests.sh` | DONE |
+| E4 | TEST | `grep -rn 'local-ci-driver\|ado-local\|dedupe-ci-dev\|ci-script-extraction\|local-dev-runner' dev/ scripts/ .azure/` returns nothing | — | DONE |
 
 - **Acceptance Criteria:**
-  - [ ] Exactly one design doc + `SETUP.md` remain under `dev/`.
-  - [ ] No dangling references to deleted files anywhere in the tree.
+  - [x] Exactly one design doc + `SETUP.md` remain under `dev/`.
+  - [x] No dangling references to deleted files anywhere in the tree.
 
 ### Closing Step (manual, out of scope for code epics)
 After all epics land and verification passes, **squash the entire branch into a single
