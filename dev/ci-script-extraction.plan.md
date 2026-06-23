@@ -562,26 +562,26 @@ so dev does not call `install-swsscommon.sh`; the dev `DEB_TARGETS` already incl
   - [x] gofmt gate exit codes/output unchanged (verified on known-bad + clean trees).
   - [x] `coverage.sonic-net.sonic-gnmi.build` naming untouched.
 
-### Epic B — SONiC dependency install scripts
+### Epic B — SONiC dependency install scripts  [DONE]
 - **Goal:** Extract the five install-dependencies units; rewire the template.
 - **Prerequisites:** none (independent of Epic A).
 - **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| B1 | IMPL | `install-test-deps.sh` from `install-dependencies.yml:71-76` (pytest+jsonpatch+apt update); read optional env `PIP_FLAGS` (default empty), forward as argv to `sudo pip3 install` | `scripts/install-test-deps.sh` | TO DO |
-| B2 | IMPL | `install-debs.sh <deb_dir>` from L83-85 (purge libnl + `dpkg -i $(find …)`); optional env `FIX_DEPS` appends `|| sudo apt-get install -f -y`; `set -e` (drop `-x`, D10) | `scripts/install-debs.sh` | TO DO |
-| B3 | IMPL | `install-yang-models.sh <wheel_glob>` from L102-103; optional env `PIP_FLAGS`; `set -e` | `scripts/install-yang-models.sh` | TO DO |
-| B4 | IMPL | `install-swsscommon.sh <arch> [deb_dir=.]` from L120-124/130-132; amd64-only python3 pkg | `scripts/install-swsscommon.sh` | TO DO |
-| B5 | IMPL | `install-protoc.sh [arch]` from L138-141/145-147; arm64-only `apt-get update` | `scripts/install-protoc.sh` | TO DO |
-| B6 | IMPL | Rewire `install-dependencies.yml`: 5 bodies → callers; merge arch-conditional swsscommon/protoc into one parameterized step each; keep `displayName (${arch})`; preserve `workingDirectory: $(Pipeline.Workspace)/`; trim comments | `.azure/templates/install-dependencies.yml` | TO DO |
-| B7 | TEST | Stub `pip3`/`apt-get`/`dpkg`/`find`/`protoc`; assert per-script argv, arch gating (amd64 installs python3-swsscommon, arm64 not; arm64 protoc runs `apt-get update`), `install-swsscommon.sh` cwd, `PIP_FLAGS` empty→verbatim / set→forwarded, and `FIX_DEPS` off→no fallback / on→`|| apt-get install -f -y` appended | `scripts/test_install_scripts.sh` | TO DO |
+| B1 | IMPL | `install-test-deps.sh` from `install-dependencies.yml:71-76` (pytest+jsonpatch+apt update); read optional env `PIP_FLAGS` (default empty), forward as argv to `sudo pip3 install` | `scripts/install-test-deps.sh` | DONE |
+| B2 | IMPL | `install-debs.sh <deb_dir>` from L83-85 (purge libnl + `dpkg -i $(find …)`); optional env `FIX_DEPS` appends `|| sudo apt-get install -f -y`; `set -e` (drop `-x`, D10) | `scripts/install-debs.sh` | DONE |
+| B3 | IMPL | `install-yang-models.sh <wheel_glob>` from L102-103; optional env `PIP_FLAGS`; `set -e` | `scripts/install-yang-models.sh` | DONE |
+| B4 | IMPL | `install-swsscommon.sh <arch> [deb_dir=.]` from L120-124/130-132; amd64-only python3 pkg | `scripts/install-swsscommon.sh` | DONE |
+| B5 | IMPL | `install-protoc.sh [arch]` from L138-141/145-147; arm64-only `apt-get update` | `scripts/install-protoc.sh` | DONE |
+| B6 | IMPL | Rewire `install-dependencies.yml`: 5 bodies → callers; merge arch-conditional swsscommon/protoc into one parameterized step each; keep `displayName (${arch})`; preserve `workingDirectory: $(Pipeline.Workspace)/`; trim comments | `.azure/templates/install-dependencies.yml` | DONE |
+| B7 | TEST | Stub `pip3`/`apt-get`/`dpkg`/`find`/`protoc`; assert per-script argv, arch gating (amd64 installs python3-swsscommon, arm64 not; arm64 protoc runs `apt-get update`), `install-swsscommon.sh` cwd, `PIP_FLAGS` empty→verbatim / set→forwarded, and `FIX_DEPS` off→no fallback / on→`|| apt-get install -f -y` appended | `scripts/test_install_scripts.sh` | DONE |
 
 - **Acceptance Criteria:**
-  - [ ] amd64 command-trace diff vs. pre-change YAML is empty (modulo displayName merge).
-  - [ ] arm64 command-trace diff is empty; no `python3-swsscommon` on arm64; arm64 protoc runs `apt-get update`.
-  - [ ] DownloadPipelineArtifact tasks and step order unchanged.
-  - [ ] `setup-redis.sh` still called immediately after `install-test-deps.sh` in the amd64+test branch.
+  - [x] amd64 command-trace diff vs. pre-change YAML is empty (modulo displayName merge).
+  - [x] arm64 command-trace diff is empty; no `python3-swsscommon` on arm64; arm64 protoc runs `apt-get update`.
+  - [x] DownloadPipelineArtifact tasks and step order unchanged.
+  - [x] `setup-redis.sh` still called immediately after `install-test-deps.sh` in the amd64+test branch.
 
 ### Epic C — Dev driver rewire
 - **Goal:** dev `container_setup_snippet` calls the same scripts.

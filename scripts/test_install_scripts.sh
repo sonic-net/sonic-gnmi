@@ -233,6 +233,192 @@ test_static_checks_gofmt_path() {
     "azure-pipelines.yml: StaticChecks gofmt resolves scripts/gofmt-check.sh"
 }
 
+# ---------------------------------------------------------------------------
+# SONiC dependency install scripts
+# ---------------------------------------------------------------------------
+# Stub pip3, apt-get, dpkg, find, protoc on PATH (plus the pass-through sudo) so
+# no real package operations run. Each stub records its argv so the tests can
+# assert the extracted scripts reproduce the original install-dependencies.yml
+# command bodies exactly.
+make_deps_workdir() {
+  WORK=$(mktemp -d)
+  BIN="$WORK/bin"
+  mkdir -p "$BIN"
+
+  cat > "$BIN/sudo" <<'EOF'
+#!/bin/sh
+exec "$@"
+EOF
+  chmod +x "$BIN/sudo"
+
+  for tool in pip3 apt-get protoc; do
+    cat > "$BIN/$tool" <<EOF
+#!/bin/sh
+echo "ARGV=\$*" >> "$WORK/$tool.log"
+EOF
+    chmod +x "$BIN/$tool"
+  done
+
+  # find stub: echo a fake .deb path under the searched dir so dpkg gets argv.
+  cat > "$BIN/find" <<EOF
+#!/bin/sh
+echo "\$1/pkg.deb" >> "$WORK/find.log"
+echo "\$1/pkg.deb"
+EOF
+  chmod +x "$BIN/find"
+}
+
+# dpkg stub variant that records argv and succeeds.
+install_dpkg_ok() {
+  cat > "$BIN/dpkg" <<EOF
+#!/bin/sh
+echo "ARGV=\$*" >> "$WORK/dpkg.log"
+EOF
+  chmod +x "$BIN/dpkg"
+}
+
+# dpkg stub variant that records argv and fails (drives the FIX_DEPS fallback).
+install_dpkg_fail() {
+  cat > "$BIN/dpkg" <<EOF
+#!/bin/sh
+echo "ARGV=\$*" >> "$WORK/dpkg.log"
+exit 1
+EOF
+  chmod +x "$BIN/dpkg"
+}
+
+assert_not_contains() {
+  # assert_not_contains <file> <needle> <description>
+  if [ ! -f "$1" ] || ! grep -qF -- "$2" "$1"; then
+    pass "$3"
+  else
+    fail "$3 (did not expect: $2)"
+  fi
+}
+
+# install-test-deps.sh ------------------------------------------------------
+test_install_test_deps_no_flags() {
+  make_deps_workdir
+  ( PATH="$BIN:$PATH" sh "$SCRIPT_DIR/install-test-deps.sh" )
+  assert_contains "$WORK/pip3.log" "ARGV=install -U pytest" \
+    "install-test-deps: PIP_FLAGS empty -> verbatim pytest argv"
+  assert_contains "$WORK/pip3.log" "ARGV=install -U jsonpatch" \
+    "install-test-deps: PIP_FLAGS empty -> verbatim jsonpatch argv"
+  assert_not_contains "$WORK/pip3.log" "--break-system-packages" \
+    "install-test-deps: PIP_FLAGS empty -> no --break-system-packages"
+  assert_contains "$WORK/apt-get.log" "ARGV=update" \
+    "install-test-deps: refreshes apt index"
+  cleanup
+}
+
+test_install_test_deps_with_flags() {
+  make_deps_workdir
+  ( PATH="$BIN:$PATH" PIP_FLAGS=--break-system-packages \
+      sh "$SCRIPT_DIR/install-test-deps.sh" )
+  assert_contains "$WORK/pip3.log" "ARGV=install --break-system-packages -U pytest" \
+    "install-test-deps: PIP_FLAGS forwarded as argv to pip3 (pytest)"
+  assert_contains "$WORK/pip3.log" "ARGV=install --break-system-packages -U jsonpatch" \
+    "install-test-deps: PIP_FLAGS forwarded as argv to pip3 (jsonpatch)"
+  cleanup
+}
+
+# install-debs.sh -----------------------------------------------------------
+test_install_debs_no_fix() {
+  make_deps_workdir
+  install_dpkg_fail
+  set +e
+  ( PATH="$BIN:$PATH" sh "$SCRIPT_DIR/install-debs.sh" /some/dir ) >/dev/null 2>&1
+  set -e
+  assert_contains "$WORK/dpkg.log" "ARGV=-i /some/dir/pkg.deb" \
+    "install-debs: dpkg -i \$(find <dir> -name '*.deb')"
+  assert_not_contains "$WORK/apt-get.log" "install -f -y" \
+    "install-debs: FIX_DEPS unset -> no apt-get install -f fallback"
+  cleanup
+}
+
+test_install_debs_with_fix() {
+  make_deps_workdir
+  install_dpkg_fail
+  set +e
+  ( PATH="$BIN:$PATH" FIX_DEPS=1 sh "$SCRIPT_DIR/install-debs.sh" /some/dir ) >/dev/null 2>&1
+  rc=$?
+  set -e
+  assert_eq "$rc" "0" "install-debs: FIX_DEPS=1 -> fallback recovers dpkg failure"
+  assert_contains "$WORK/apt-get.log" "install -f -y" \
+    "install-debs: FIX_DEPS=1 -> appends || sudo apt-get install -f -y"
+  cleanup
+}
+
+# install-yang-models.sh ----------------------------------------------------
+test_install_yang_no_flags() {
+  make_deps_workdir
+  ( PATH="$BIN:$PATH" sh "$SCRIPT_DIR/install-yang-models.sh" '/path/*.whl' )
+  assert_contains "$WORK/pip3.log" "ARGV=install /path/*.whl" \
+    "install-yang-models: PIP_FLAGS empty -> verbatim wheel argv"
+  assert_not_contains "$WORK/pip3.log" "--break-system-packages" \
+    "install-yang-models: PIP_FLAGS empty -> no --break-system-packages"
+  cleanup
+}
+
+test_install_yang_with_flags() {
+  make_deps_workdir
+  ( PATH="$BIN:$PATH" PIP_FLAGS=--break-system-packages \
+      sh "$SCRIPT_DIR/install-yang-models.sh" '/path/*.whl' )
+  assert_contains "$WORK/pip3.log" "ARGV=install --break-system-packages /path/*.whl" \
+    "install-yang-models: PIP_FLAGS forwarded as argv to pip3"
+  cleanup
+}
+
+# install-swsscommon.sh -----------------------------------------------------
+test_install_swsscommon_amd64() {
+  make_deps_workdir
+  install_dpkg_ok
+  ( PATH="$BIN:$PATH" sh "$SCRIPT_DIR/install-swsscommon.sh" amd64 )
+  assert_contains "$WORK/dpkg.log" "libswsscommon_1.0.0_amd64.deb" \
+    "install-swsscommon amd64: installs libswsscommon"
+  assert_contains "$WORK/dpkg.log" "libswsscommon-dev_1.0.0_amd64.deb" \
+    "install-swsscommon amd64: installs libswsscommon-dev"
+  assert_contains "$WORK/dpkg.log" "python3-swsscommon_1.0.0_amd64.deb" \
+    "install-swsscommon amd64: installs python3-swsscommon"
+  cleanup
+}
+
+test_install_swsscommon_arm64() {
+  make_deps_workdir
+  install_dpkg_ok
+  ( PATH="$BIN:$PATH" sh "$SCRIPT_DIR/install-swsscommon.sh" arm64 )
+  assert_contains "$WORK/dpkg.log" "libswsscommon_1.0.0_arm64.deb" \
+    "install-swsscommon arm64: installs libswsscommon"
+  assert_contains "$WORK/dpkg.log" "libswsscommon-dev_1.0.0_arm64.deb" \
+    "install-swsscommon arm64: installs libswsscommon-dev"
+  assert_not_contains "$WORK/dpkg.log" "python3-swsscommon" \
+    "install-swsscommon arm64: skips python3-swsscommon"
+  cleanup
+}
+
+# install-protoc.sh ---------------------------------------------------------
+test_install_protoc_amd64() {
+  make_deps_workdir
+  ( PATH="$BIN:$PATH" sh "$SCRIPT_DIR/install-protoc.sh" amd64 )
+  assert_not_contains "$WORK/apt-get.log" "ARGV=update" \
+    "install-protoc amd64: no apt-get update"
+  assert_contains "$WORK/apt-get.log" "ARGV=install -y protobuf-compiler" \
+    "install-protoc amd64: installs protobuf-compiler"
+  assert_contains "$WORK/protoc.log" "ARGV=--version" \
+    "install-protoc amd64: prints protoc version"
+  cleanup
+}
+
+test_install_protoc_arm64() {
+  make_deps_workdir
+  ( PATH="$BIN:$PATH" sh "$SCRIPT_DIR/install-protoc.sh" arm64 )
+  assert_contains "$WORK/apt-get.log" "ARGV=update" \
+    "install-protoc arm64: runs apt-get update first"
+  assert_contains "$WORK/apt-get.log" "ARGV=install -y protobuf-compiler" \
+    "install-protoc arm64: installs protobuf-compiler"
+  cleanup
+}
+
 test_install_go_explicit_args
 test_install_go_defaults
 test_install_go_arch_override
@@ -242,6 +428,16 @@ test_gofmt_check_excludes
 test_static_checks_path
 test_pure_tests_path
 test_static_checks_gofmt_path
+test_install_test_deps_no_flags
+test_install_test_deps_with_flags
+test_install_debs_no_fix
+test_install_debs_with_fix
+test_install_yang_no_flags
+test_install_yang_with_flags
+test_install_swsscommon_amd64
+test_install_swsscommon_arm64
+test_install_protoc_amd64
+test_install_protoc_arm64
 
 echo "-------------------------------------"
 echo "PASS: $PASS  FAIL: $FAIL"
