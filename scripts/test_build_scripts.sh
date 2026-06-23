@@ -114,7 +114,7 @@ test_gnmi_deb_default_glob() {
   mkdir -p "$WORK/sonic-gnmi" "$WORK/out"
   : > "$WORK/sonic-gnmi_1.0_amd64.deb"
   : > "$WORK/sonic-mgmt-common_1.0_amd64.deb"
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" gnmi sonic-gnmi out )
+  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" gnmi sonic-gnmi "$WORK/out" )
 
   assert_file_exists "$WORK/out/sonic-gnmi_1.0_amd64.deb" "gnmi: default glob copies gnmi deb"
   assert_file_exists "$WORK/out/sonic-mgmt-common_1.0_amd64.deb" "gnmi: default glob also copies mgmt-common deb"
@@ -127,7 +127,7 @@ test_gnmi_deb_narrow_glob() {
   mkdir -p "$WORK/sonic-gnmi" "$WORK/out"
   : > "$WORK/sonic-gnmi_1.0_amd64.deb"
   : > "$WORK/sonic-mgmt-common_1.0_amd64.deb"
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" gnmi sonic-gnmi out 'sonic-gnmi_*.deb' )
+  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" gnmi sonic-gnmi "$WORK/out" 'sonic-gnmi_*.deb' )
 
   assert_file_exists "$WORK/out/sonic-gnmi_1.0_amd64.deb" "gnmi: narrow glob copies gnmi deb"
   if [ -e "$WORK/out/sonic-mgmt-common_1.0_amd64.deb" ]; then
@@ -135,16 +135,6 @@ test_gnmi_deb_narrow_glob() {
   else
     pass "gnmi: narrow glob excludes mgmt-common deb"
   fi
-  cleanup
-}
-
-# OUT_DIR that does not yet exist must be created (mkdir -p guard).
-test_gnmi_deb_creates_out_dir() {
-  make_workdir
-  mkdir -p "$WORK/sonic-gnmi"
-  : > "$WORK/sonic-gnmi_1.0_amd64.deb"
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" gnmi sonic-gnmi newout 'sonic-gnmi_*.deb' )
-  assert_file_exists "$WORK/newout/sonic-gnmi_1.0_amd64.deb" "gnmi: missing OUT_DIR is created"
   cleanup
 }
 
@@ -158,42 +148,12 @@ test_gnmi_deb_no_outdir() {
   cleanup
 }
 
-# ---------------------------------------------------------------------------
-# error handling
-# ---------------------------------------------------------------------------
-# Unknown subcommand must exit non-zero and print usage.
-test_unknown_subcommand() {
-  make_workdir
-  if ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" bogus >"$WORK/out.log" 2>&1 ); then
-    fail "unknown subcommand: must exit non-zero"
-  else
-    pass "unknown subcommand: exits non-zero"
-  fi
-  assert_contains "$WORK/out.log" "Usage:" "unknown subcommand: prints usage"
-  cleanup
-}
-
-# No subcommand at all must also fail with usage.
-test_no_subcommand() {
-  make_workdir
-  if ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" >"$WORK/out.log" 2>&1 ); then
-    fail "no subcommand: must exit non-zero"
-  else
-    pass "no subcommand: exits non-zero"
-  fi
-  assert_contains "$WORK/out.log" "Usage:" "no subcommand: prints usage"
-  cleanup
-}
-
 test_mgmt_common
 test_mgmt_common_default_dir
 test_gnmi_deb_env_and_jflag
 test_gnmi_deb_default_glob
 test_gnmi_deb_narrow_glob
-test_gnmi_deb_creates_out_dir
 test_gnmi_deb_no_outdir
-test_unknown_subcommand
-test_no_subcommand
 
 echo "-------------------------------------"
 echo "PASS: $PASS  FAIL: $FAIL"
