@@ -3,9 +3,9 @@ package show_client
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
-	"sync"
 
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
@@ -161,42 +161,16 @@ func getSystemHealthDpu(options sdc.OptionMap) ([]byte, error) {
 	return jsonData, nil
 }
 
-// chassisDBCheck caches the one-time detection of whether CHASSIS_STATE_DB is
-// present in the runtime database_config.json. DB presence is a platform-level
-// fact that cannot change without a container restart, so caching with sync.Once
-// for the lifetime of the process. This avoids a repeated CGO
-// boundary crossing (SonicDBConfigGetDbList → C++ vector construction → Go slice
-// copy) on every gNMI GET.
-var chassisDBCheck = struct {
-	once    sync.Once
-	present bool
-	err     error
-}{}
-
 // Get data from chassis database using GetMapFromQueries
 func getChassisDataDirect(moduleName string) (map[string]interface{}, error) {
-	// Detect once whether CHASSIS_STATE_DB is available on this platform.
+	// Check whether CHASSIS_STATE_DB is present in the runtime database config.
 	// On non-chassis platforms, database_config.json strips it at container startup.
-	chassisDBCheck.once.Do(func() {
-		dbList, err := sdcfg.GetDbList(sdcfg.SONIC_DEFAULT_NAMESPACE)
-		if err != nil {
-			chassisDBCheck.err = fmt.Errorf("getChassisDataDirect: failed to get DB list: %w", err)
-			return
-		}
-		for _, db := range dbList {
-			if db == ChassisStateDB {
-				chassisDBCheck.present = true
-				break
-			}
-		}
-		if !chassisDBCheck.present {
-			log.V(2).Infof("getChassisDataDirect: %s not present on this platform, skipping", ChassisStateDB)
-		}
-	})
-	if chassisDBCheck.err != nil {
-		return nil, chassisDBCheck.err
+	dbList, err := sdcfg.GetDbList(sdcfg.SONIC_DEFAULT_NAMESPACE)
+	if err != nil {
+		return nil, fmt.Errorf("getChassisDataDirect: failed to get DB list: %w", err)
 	}
-	if !chassisDBCheck.present {
+	if !slices.Contains(dbList, ChassisStateDB) {
+		log.V(2).Infof("getChassisDataDirect: %s not present on this platform, skipping", ChassisStateDB)
 		return make(map[string]interface{}), nil
 	}
 
