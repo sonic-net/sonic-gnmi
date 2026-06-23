@@ -598,19 +598,19 @@ so dev does not call `install-swsscommon.sh`; the dev `DEB_TARGETS` already incl
   - [x] Container ends up with libyang/libnl/swsscommon + yang wheel + jsonpatch + redis configured, as before (plus pytest), with `--break-system-packages` honored and the `apt-get install -f -y` dpkg fallback preserved (`FIX_DEPS=1`).
 - **Completion Notes:** Implemented 2026-06-23. C2 validated via `bash -n` syntax checks; live container run deferred to CI (infrastructure constraint). Criteria marked complete per reviewer approval.
 
-### Epic D — Documentation & comment cleanup
+### Epic D — Documentation & comment cleanup  [DONE]
 - **Goal:** Trim verbose comments in touched scripts/YAML; keep only load-bearing notes.
 - **Prerequisites:** Epics A–C.
 - **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| D1 | IMPL | Reduce header comments in the 7 new scripts to terse load-bearing notes (match `setup-redis.sh` style) | `scripts/*.sh` | TO DO |
-| D2 | IMPL | Trim verbose `# === … ===` and usage blocks in `install-dependencies.yml`/`install-go.yml`; keep the coverage-naming note in `azure-pipelines.yml` | `.azure/templates/*.yml`, `azure-pipelines.yml` | TO DO |
+| D1 | IMPL | Reduce header comments in the 7 new scripts to terse load-bearing notes (match `setup-redis.sh` style) | `scripts/*.sh` | DONE |
+| D2 | IMPL | Trim verbose `# === … ===` and usage blocks in `install-dependencies.yml`/`install-go.yml`; keep the coverage-naming note in `azure-pipelines.yml` | `.azure/templates/*.yml`, `azure-pipelines.yml` | DONE |
 
 - **Acceptance Criteria:**
-  - [ ] No non-load-bearing comments remain in touched files.
-  - [ ] The `azure-pipelines.yml:8-14` coverage-naming note is preserved verbatim.
+  - [x] No non-load-bearing comments remain in touched files.
+  - [x] The `azure-pipelines.yml:8-14` coverage-naming note is preserved verbatim.
 
 ---
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install sonic-swss-common debs for <arch> from [deb_dir] — single source of
+# Install sonic-swss-common debs for <arch> from [deb_dir]. Single source of
 # truth for the ADO install-dependencies.yml step.
 #
 # deb_dir defaults to `.` because the ADO step sets workingDirectory and dpkg -i
