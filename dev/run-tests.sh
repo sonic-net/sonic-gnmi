@@ -133,11 +133,13 @@ container_setup_snippet() {
   cat <<'EOF'
 set -euo pipefail
 cd /work
-sudo apt-get update >/dev/null
-sudo apt-get -y purge libnl-3-dev libnl-route-3-dev 2>/dev/null || true
-sudo dpkg -i /sonic-debs/*.deb || sudo apt-get install -f -y
-sudo pip3 install --break-system-packages /sonic-debs/sonic_yang_models-*.whl jsonpatch
-bash /work/sonic-gnmi/scripts/setup-redis.sh
+SG=/work/sonic-gnmi/scripts
+export PIP_FLAGS=--break-system-packages   # PEP 668 (trixie); ADO leaves this unset
+export FIX_DEPS=1                           # preserves dpkg `|| apt-get install -f -y` fallback
+bash "$SG/install-test-deps.sh"
+bash "$SG/install-debs.sh" /sonic-debs
+bash "$SG/install-yang-models.sh" '/sonic-debs/sonic_yang_models-*.whl'
+bash "$SG/setup-redis.sh"
 git config --global --add safe.directory '*'
 export GOFLAGS=-buildvcs=false TMPDIR=/tmp
 EOF
