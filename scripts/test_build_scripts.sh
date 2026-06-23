@@ -1,19 +1,21 @@
 #!/bin/sh
-# Functional tests for scripts/build-mgmt-common.sh and scripts/build-gnmi-deb.sh.
+# Functional tests for scripts/build-deb.sh.
 #
 # These tests stub `dpkg-buildpackage` and `nproc` on PATH so no real package
 # build runs. The stubs record the environment, working directory, and argv they
-# were invoked with so the tests can assert that each build script reproduces the
+# were invoked with so the tests can assert that each subcommand reproduces the
 # original inlined commands exactly:
-#   - build-mgmt-common.sh : NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
-#   - build-gnmi-deb.sh    : ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y
-#                            dpkg-buildpackage -rfakeroot -b -us -uc -j<nproc>
-# plus the OUT_DIR / COPY_GLOB copy semantics.
+#   - build-deb.sh mgmt-common : NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
+#   - build-deb.sh gnmi        : ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y
+#                                dpkg-buildpackage -rfakeroot -b -us -uc -j<nproc>
+# plus the OUT_DIR / COPY_GLOB copy semantics, and the `all` subcommand that
+# chains mgmt-common then gnmi.
 #
 # Run: sh scripts/test_build_scripts.sh
 set -e
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+BUILD_DEB="$SCRIPT_DIR/build-deb.sh"
 PASS=0
 FAIL=0
 
@@ -69,12 +71,12 @@ cleanup() { [ -n "${WORK:-}" ] && rm -rf "$WORK"; }
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
-# build-mgmt-common.sh
+# build-deb.sh mgmt-common
 # ---------------------------------------------------------------------------
 test_mgmt_common() {
   make_workdir
   mkdir -p "$WORK/sonic-mgmt-common"
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$SCRIPT_DIR/build-mgmt-common.sh" sonic-mgmt-common )
+  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" mgmt-common sonic-mgmt-common )
 
   assert_file_exists "$WORK/dpkg.log" "mgmt-common: dpkg-buildpackage invoked"
   assert_contains "$WORK/dpkg.log" "NO_TEST_BINS=1" "mgmt-common: NO_TEST_BINS=1 set"
@@ -87,18 +89,18 @@ test_mgmt_common() {
 test_mgmt_common_default_dir() {
   make_workdir
   mkdir -p "$WORK/sonic-mgmt-common"
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$SCRIPT_DIR/build-mgmt-common.sh" )
+  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" mgmt-common )
   assert_contains "$WORK/dpkg.log" "CWD=$WORK/sonic-mgmt-common" "mgmt-common: default dir is sonic-mgmt-common"
   cleanup
 }
 
 # ---------------------------------------------------------------------------
-# build-gnmi-deb.sh
+# build-deb.sh gnmi
 # ---------------------------------------------------------------------------
 test_gnmi_deb_env_and_jflag() {
   make_workdir
   mkdir -p "$WORK/sonic-gnmi"
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$SCRIPT_DIR/build-gnmi-deb.sh" sonic-gnmi )
+  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" gnmi sonic-gnmi )
 
   assert_contains "$WORK/dpkg.log" "ENABLE_TRANSLIB_WRITE=y" "gnmi: ENABLE_TRANSLIB_WRITE=y set"
   assert_contains "$WORK/dpkg.log" "ENABLE_NATIVE_WRITE=y" "gnmi: ENABLE_NATIVE_WRITE=y set"
@@ -113,7 +115,7 @@ test_gnmi_deb_default_glob() {
   mkdir -p "$WORK/sonic-gnmi" "$WORK/out"
   : > "$WORK/sonic-gnmi_1.0_amd64.deb"
   : > "$WORK/sonic-mgmt-common_1.0_amd64.deb"
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$SCRIPT_DIR/build-gnmi-deb.sh" sonic-gnmi out )
+  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" gnmi sonic-gnmi out )
 
   assert_file_exists "$WORK/out/sonic-gnmi_1.0_amd64.deb" "gnmi: default glob copies gnmi deb"
   assert_file_exists "$WORK/out/sonic-mgmt-common_1.0_amd64.deb" "gnmi: default glob also copies mgmt-common deb"
@@ -126,7 +128,7 @@ test_gnmi_deb_narrow_glob() {
   mkdir -p "$WORK/sonic-gnmi" "$WORK/out"
   : > "$WORK/sonic-gnmi_1.0_amd64.deb"
   : > "$WORK/sonic-mgmt-common_1.0_amd64.deb"
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$SCRIPT_DIR/build-gnmi-deb.sh" sonic-gnmi out 'sonic-gnmi_*.deb' )
+  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" gnmi sonic-gnmi out 'sonic-gnmi_*.deb' )
 
   assert_file_exists "$WORK/out/sonic-gnmi_1.0_amd64.deb" "gnmi: narrow glob copies gnmi deb"
   if [ -e "$WORK/out/sonic-mgmt-common_1.0_amd64.deb" ]; then
@@ -142,7 +144,7 @@ test_gnmi_deb_creates_out_dir() {
   make_workdir
   mkdir -p "$WORK/sonic-gnmi"
   : > "$WORK/sonic-gnmi_1.0_amd64.deb"
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$SCRIPT_DIR/build-gnmi-deb.sh" sonic-gnmi newout 'sonic-gnmi_*.deb' )
+  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" gnmi sonic-gnmi newout 'sonic-gnmi_*.deb' )
   assert_file_exists "$WORK/newout/sonic-gnmi_1.0_amd64.deb" "gnmi: missing OUT_DIR is created"
   cleanup
 }
@@ -152,8 +154,66 @@ test_gnmi_deb_no_outdir() {
   make_workdir
   mkdir -p "$WORK/sonic-gnmi"
   : > "$WORK/sonic-gnmi_1.0_amd64.deb"
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$SCRIPT_DIR/build-gnmi-deb.sh" sonic-gnmi )
+  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" gnmi sonic-gnmi )
   assert_file_exists "$WORK/dpkg.log" "gnmi: builds even when OUT_DIR omitted"
+  cleanup
+}
+
+# ---------------------------------------------------------------------------
+# build-deb.sh all
+# ---------------------------------------------------------------------------
+# `all` chains mgmt-common then gnmi, preserving each build's env/argv and the
+# gnmi copy semantics.
+test_all_chains_both_builds() {
+  make_workdir
+  mkdir -p "$WORK/sonic-mgmt-common" "$WORK/sonic-gnmi" "$WORK/out"
+  : > "$WORK/sonic-gnmi_1.0_amd64.deb"
+  : > "$WORK/sonic-mgmt-common_1.0_amd64.deb"
+  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" all sonic-mgmt-common sonic-gnmi out 'sonic-gnmi_*.deb' )
+
+  assert_contains "$WORK/dpkg.log" "NO_TEST_BINS=1" "all: mgmt-common NO_TEST_BINS=1 set"
+  assert_contains "$WORK/dpkg.log" "CWD=$WORK/sonic-mgmt-common" "all: mgmt-common build ran"
+  assert_contains "$WORK/dpkg.log" "ENABLE_TRANSLIB_WRITE=y" "all: gnmi ENABLE_TRANSLIB_WRITE=y set"
+  assert_contains "$WORK/dpkg.log" "ARGV=-rfakeroot -b -us -uc -j4" "all: gnmi dpkg args include -j4"
+  assert_contains "$WORK/dpkg.log" "CWD=$WORK/sonic-gnmi" "all: gnmi build ran"
+  assert_file_exists "$WORK/out/sonic-gnmi_1.0_amd64.deb" "all: gnmi copy glob honored"
+  cleanup
+}
+
+# `all` with no args uses the default dirs for both builds.
+test_all_default_dirs() {
+  make_workdir
+  mkdir -p "$WORK/sonic-mgmt-common" "$WORK/sonic-gnmi"
+  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" all )
+  assert_contains "$WORK/dpkg.log" "CWD=$WORK/sonic-mgmt-common" "all: default mgmt-common dir"
+  assert_contains "$WORK/dpkg.log" "CWD=$WORK/sonic-gnmi" "all: default gnmi dir"
+  cleanup
+}
+
+# ---------------------------------------------------------------------------
+# error handling
+# ---------------------------------------------------------------------------
+# Unknown subcommand must exit non-zero and print usage.
+test_unknown_subcommand() {
+  make_workdir
+  if ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" bogus >"$WORK/out.log" 2>&1 ); then
+    fail "unknown subcommand: must exit non-zero"
+  else
+    pass "unknown subcommand: exits non-zero"
+  fi
+  assert_contains "$WORK/out.log" "Usage:" "unknown subcommand: prints usage"
+  cleanup
+}
+
+# No subcommand at all must also fail with usage.
+test_no_subcommand() {
+  make_workdir
+  if ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" >"$WORK/out.log" 2>&1 ); then
+    fail "no subcommand: must exit non-zero"
+  else
+    pass "no subcommand: exits non-zero"
+  fi
+  assert_contains "$WORK/out.log" "Usage:" "no subcommand: prints usage"
   cleanup
 }
 
@@ -164,6 +224,10 @@ test_gnmi_deb_default_glob
 test_gnmi_deb_narrow_glob
 test_gnmi_deb_creates_out_dir
 test_gnmi_deb_no_outdir
+test_all_chains_both_builds
+test_all_default_dirs
+test_unknown_subcommand
+test_no_subcommand
 
 echo "-------------------------------------"
 echo "PASS: $PASS  FAIL: $FAIL"

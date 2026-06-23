@@ -175,7 +175,7 @@ make -f pure.mk PACKAGES='$pure_packages' junit-xml
 # `go test` / build of gnmi_server, sonic_data_client, dialout, telemetry, etc.
 build_nonpure_snippet() {
   cat <<'EOF'
-bash /work/sonic-gnmi/scripts/build-mgmt-common.sh /work/sonic-mgmt-common
+bash /work/sonic-gnmi/scripts/build-deb.sh mgmt-common /work/sonic-mgmt-common
 echo '--- make all (swsscommon wrapper + vendor + patches) ---'
 ( cd /work/sonic-gnmi && make all )
 EOF
@@ -226,7 +226,7 @@ export CGO_LDFLAGS='-lswsscommon -lhiredis'
 export CGO_CXXFLAGS='-I/usr/include/swss -w -Wall -fpermissive'
 export CVL_SCHEMA_PATH=/work/sonic-mgmt-common/build/cvl/schema
 build-nonpure() {
-  bash /work/sonic-gnmi/scripts/build-mgmt-common.sh /work/sonic-mgmt-common && \
+  bash /work/sonic-gnmi/scripts/build-deb.sh mgmt-common /work/sonic-mgmt-common && \
   ( cd /work/sonic-gnmi && make all )
 }
 cd /work/sonic-gnmi
@@ -309,10 +309,10 @@ run_build() {
   local uid=$(id -u) gid=$(id -g)
   EXTRA_DOCKER_ARGS="-v $BUILD_OUT:/build-out" \
   docker_run "-t" bash -c "$(container_setup_snippet)
-bash /work/sonic-gnmi/scripts/build-mgmt-common.sh /work/sonic-mgmt-common
+bash /work/sonic-gnmi/scripts/build-deb.sh mgmt-common /work/sonic-mgmt-common
 echo '--- vendor sync sonic-gnmi ---'
 cd /work/sonic-gnmi && go mod tidy && go mod vendor
-bash /work/sonic-gnmi/scripts/build-gnmi-deb.sh /work/sonic-gnmi /build-out sonic-gnmi_*.deb
+bash /work/sonic-gnmi/scripts/build-deb.sh gnmi /work/sonic-gnmi /build-out sonic-gnmi_*.deb
 chown -R $uid:$gid /build-out"
   echo "deb(s) in $BUILD_OUT/:"
   ls -la "$BUILD_OUT/"

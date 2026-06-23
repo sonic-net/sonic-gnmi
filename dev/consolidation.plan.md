@@ -495,24 +495,24 @@ consolidation work itself.
   - [x] Rendered ADO `patterns:` are byte-identical to master (literals untouched).
   - [x] `test_install_scripts.sh` + guard test green.
 
-### Epic C — Consolidate build scripts into `build-deb.sh` (G4)
+### Epic C — Consolidate build scripts into `build-deb.sh` (G4) — DONE
 - **Goal:** One build entry point with subcommands; orphans deleted; callers updated.
 - **Prerequisites:** Epic A; coordinate `run-tests.sh` edits with Epic B/D.
 - **Tasks:**
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| C1 | IMPL | Create `build-deb.sh` with `mgmt-common\|gnmi\|all`; preserve exact env+argv+copy semantics | `scripts/build-deb.sh` | TO DO |
-| C2 | IMPL | Rewire `build-deb.yml` (mgmt-common + gnmi steps) to `build-deb.sh` | `.azure/templates/build-deb.yml` | TO DO |
-| C3 | IMPL | Rewire `setup-test-env.yml` mgmt-common step to `build-deb.sh mgmt-common` | `.azure/templates/setup-test-env.yml` | TO DO |
-| C4 | IMPL | Rewire `run-tests.sh` mgmt-common callers (184, 235, 318) + gnmi caller (321) to `build-deb.sh`; preserve `run_build`'s vendor-sync line (319-320) | `dev/run-tests.sh` | TO DO |
-| C5 | IMPL | Delete orphan scripts | `scripts/build-mgmt-common.sh`, `scripts/build-gnmi-deb.sh` | TO DO |
-| C6 | TEST | Rewrite `test_build_scripts.sh` to drive `build-deb.sh` subcommands; assert recorded env/argv/copy for `mgmt-common`, `gnmi`, `all` | `scripts/test_build_scripts.sh` | TO DO |
+| C1 | IMPL | Create `build-deb.sh` with `mgmt-common\|gnmi\|all`; preserve exact env+argv+copy semantics | `scripts/build-deb.sh` | DONE |
+| C2 | IMPL | Rewire `build-deb.yml` (mgmt-common + gnmi steps) to `build-deb.sh` | `.azure/templates/build-deb.yml` | DONE |
+| C3 | IMPL | Rewire `setup-test-env.yml` mgmt-common step to `build-deb.sh mgmt-common` | `.azure/templates/setup-test-env.yml` | DONE |
+| C4 | IMPL | Rewire `run-tests.sh` mgmt-common callers (184, 235, 318) + gnmi caller (321) to `build-deb.sh`; preserve `run_build`'s vendor-sync line (319-320) | `dev/run-tests.sh` | DONE |
+| C5 | IMPL | Delete orphan scripts | `scripts/build-mgmt-common.sh`, `scripts/build-gnmi-deb.sh` | DONE |
+| C6 | TEST | Rewrite `test_build_scripts.sh` to drive `build-deb.sh` subcommands; assert recorded env/argv/copy for `mgmt-common`, `gnmi`, `all` | `scripts/test_build_scripts.sh` | DONE |
 
 - **Acceptance Criteria:**
-  - [ ] `grep -r build-mgmt-common\|build-gnmi-deb` returns no live callers.
-  - [ ] Rendered ADO build commands reproduce master's env vars and `dpkg-buildpackage` argv.
-  - [ ] `test_build_scripts.sh` green (covers `mgmt-common`, `gnmi`, `all`, copy globs).
+  - [x] `grep -r build-mgmt-common\|build-gnmi-deb` returns no live callers.
+  - [x] Rendered ADO build commands reproduce master's env vars and `dpkg-buildpackage` argv.
+  - [x] `test_build_scripts.sh` green (covers `mgmt-common`, `gnmi`, `all`, copy globs).
 
 ### Epic D — Modularize `dev/run-tests.sh` (G3)
 - **Goal:** Factor shared scaffolding into helpers; zero behavior change.
