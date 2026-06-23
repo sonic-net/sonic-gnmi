@@ -3,7 +3,7 @@
 # templates (build-deb.yml, setup-test-env.yml) and dev/run-tests.sh.
 #   build-deb.sh mgmt-common [DIR]
 #   build-deb.sh gnmi [DIR] [OUT_DIR] [COPY_GLOB]
-set -e
+set -ex
 
 case "${1:-}" in
   mgmt-common)

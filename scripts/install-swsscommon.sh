@@ -7,7 +7,7 @@
 #
 # The filenames (incl. the swss-common version) come from the shared manifest
 # (scripts/deps-manifest.sh) so a version bump touches one line there (G2).
-set -e
+set -ex
 arch="$1"
 deb_dir="${2:-.}"
 . "$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/deps-manifest.sh"

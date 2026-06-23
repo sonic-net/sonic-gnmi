@@ -4,6 +4,6 @@
 #
 # PIP_FLAGS (default empty) is forwarded as an explicit argv token because sudo
 # resets the environment.
-set -e
+set -ex
 wheel_glob="$1"
 sudo pip3 install ${PIP_FLAGS} $wheel_glob
