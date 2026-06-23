@@ -60,7 +60,7 @@ contract; the consolidation is lift-and-shift only.
  (literal `patterns:` globs — byte-identical to master)
 
                   ┌──────────────────────────────┐
-                  │   scripts/build-deb.sh        │  mgmt-common | gnmi | all
+                  │   scripts/build-deb.sh        │  mgmt-common | gnmi
                   └───────────────┬──────────────┘
         called by: build-deb.yml · setup-test-env.yml · dev/run-tests.sh
 ```
@@ -113,10 +113,9 @@ A single script folding the two former build scripts:
 ```
 scripts/build-deb.sh mgmt-common [DIR]                           # = build-mgmt-common.sh
 scripts/build-deb.sh gnmi [DIR] [OUT_DIR] [COPY_GLOB]            # = build-gnmi-deb.sh
-scripts/build-deb.sh all [MGMT_DIR] [GNMI_DIR] [OUT_DIR] [GLOB] # mgmt-common then gnmi
 ```
 
-Internals are factored into `_build_mgmt_common()` and `_build_gnmi()`, preserving
+Internals are a single `case` over the subcommand, preserving
 exact env (`NO_TEST_BINS=1`; `ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y`) and
 argv (`-rfakeroot -b -us -uc`) plus the `OUT_DIR` / `COPY_GLOB` copy semantics.
 Callers: `.azure/templates/build-deb.yml`, `.azure/templates/setup-test-env.yml`,

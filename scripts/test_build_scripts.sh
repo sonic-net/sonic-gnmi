@@ -8,8 +8,7 @@
 #   - build-deb.sh mgmt-common : NO_TEST_BINS=1 dpkg-buildpackage -rfakeroot -b -us -uc
 #   - build-deb.sh gnmi        : ENABLE_TRANSLIB_WRITE=y ENABLE_NATIVE_WRITE=y
 #                                dpkg-buildpackage -rfakeroot -b -us -uc -j<nproc>
-# plus the OUT_DIR / COPY_GLOB copy semantics, and the `all` subcommand that
-# chains mgmt-common then gnmi.
+# plus the OUT_DIR / COPY_GLOB copy semantics.
 #
 # Run: sh scripts/test_build_scripts.sh
 set -e
@@ -160,37 +159,6 @@ test_gnmi_deb_no_outdir() {
 }
 
 # ---------------------------------------------------------------------------
-# build-deb.sh all
-# ---------------------------------------------------------------------------
-# `all` chains mgmt-common then gnmi, preserving each build's env/argv and the
-# gnmi copy semantics.
-test_all_chains_both_builds() {
-  make_workdir
-  mkdir -p "$WORK/sonic-mgmt-common" "$WORK/sonic-gnmi" "$WORK/out"
-  : > "$WORK/sonic-gnmi_1.0_amd64.deb"
-  : > "$WORK/sonic-mgmt-common_1.0_amd64.deb"
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" all sonic-mgmt-common sonic-gnmi out 'sonic-gnmi_*.deb' )
-
-  assert_contains "$WORK/dpkg.log" "NO_TEST_BINS=1" "all: mgmt-common NO_TEST_BINS=1 set"
-  assert_contains "$WORK/dpkg.log" "CWD=$WORK/sonic-mgmt-common" "all: mgmt-common build ran"
-  assert_contains "$WORK/dpkg.log" "ENABLE_TRANSLIB_WRITE=y" "all: gnmi ENABLE_TRANSLIB_WRITE=y set"
-  assert_contains "$WORK/dpkg.log" "ARGV=-rfakeroot -b -us -uc -j4" "all: gnmi dpkg args include -j4"
-  assert_contains "$WORK/dpkg.log" "CWD=$WORK/sonic-gnmi" "all: gnmi build ran"
-  assert_file_exists "$WORK/out/sonic-gnmi_1.0_amd64.deb" "all: gnmi copy glob honored"
-  cleanup
-}
-
-# `all` with no args uses the default dirs for both builds.
-test_all_default_dirs() {
-  make_workdir
-  mkdir -p "$WORK/sonic-mgmt-common" "$WORK/sonic-gnmi"
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$BUILD_DEB" all )
-  assert_contains "$WORK/dpkg.log" "CWD=$WORK/sonic-mgmt-common" "all: default mgmt-common dir"
-  assert_contains "$WORK/dpkg.log" "CWD=$WORK/sonic-gnmi" "all: default gnmi dir"
-  cleanup
-}
-
-# ---------------------------------------------------------------------------
 # error handling
 # ---------------------------------------------------------------------------
 # Unknown subcommand must exit non-zero and print usage.
@@ -224,8 +192,6 @@ test_gnmi_deb_default_glob
 test_gnmi_deb_narrow_glob
 test_gnmi_deb_creates_out_dir
 test_gnmi_deb_no_outdir
-test_all_chains_both_builds
-test_all_default_dirs
 test_unknown_subcommand
 test_no_subcommand
 
