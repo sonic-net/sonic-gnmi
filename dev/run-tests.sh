@@ -132,7 +132,7 @@ export PIP_FLAGS=--break-system-packages   # PEP 668 (trixie); ADO leaves this u
 export FIX_DEPS=1                           # preserves dpkg `|| apt-get install -f -y` fallback
 bash "$SG/install-test-deps.sh"
 bash "$SG/install-debs.sh" /sonic-debs
-bash "$SG/install-yang-models.sh" '/sonic-debs/sonic_yang_models-*.whl'
+sudo pip3 install ${PIP_FLAGS} /sonic-debs/sonic_yang_models-*.whl
 bash "$SG/setup-redis.sh"
 git config --global --add safe.directory '*'
 export GOFLAGS=-buildvcs=false TMPDIR=/tmp

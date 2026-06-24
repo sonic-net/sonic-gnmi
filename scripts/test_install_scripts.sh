@@ -1,19 +1,12 @@
 #!/bin/sh
-# Functional tests for scripts/install-go.sh and scripts/gofmt-check.sh.
+# Functional tests for scripts/gofmt-check.sh and the SONiC dependency install
+# scripts (install-test-deps.sh, install-debs.sh, install-swsscommon.sh,
+# install-protoc.sh).
 #
-# These tests stub `wget`, `tar`, and `gofmt` on PATH so no real download,
-# extraction, or Go toolchain is needed. The stubs record the argv they were
-# invoked with so the tests can assert that each script reproduces the original
-# inlined commands exactly:
-#   - install-go.sh : wget -q https://go.dev/dl/go<ver>.linux-<arch>.tar.gz
-#                     sudo tar -C /usr/local -xzf go<ver>.linux-<arch>.tar.gz
-#                     go version
-#   - gofmt-check.sh: gofmt -l of all non-excluded *.go files; exit 1 + diff on
-#                     a mis-formatted file, exit 0 + message on a clean tree.
-#
-# It also asserts the install-go.yml call-path prefix logic resolves to
-# `scripts/install-go.sh` for the single-checkout StaticChecks job and
-# `sonic-gnmi/scripts/install-go.sh` for the multi-checkout pure_tests job.
+# These tests stub external commands (gofmt, pip3, apt-get, dpkg, find, protoc)
+# on PATH so no real download, extraction, or package operations run. The stubs
+# record the argv they were invoked with so the tests can assert that each
+# script reproduces the original inlined commands exactly.
 #
 # Run: sh scripts/test_install_scripts.sh
 set -e
@@ -47,79 +40,6 @@ assert_eq() {
 
 cleanup() { [ -n "${WORK:-}" ] && rm -rf "$WORK"; }
 trap cleanup EXIT
-
-make_workdir() {
-  WORK=$(mktemp -d)
-  BIN="$WORK/bin"
-  mkdir -p "$BIN"
-
-  # Stub wget: record argv.
-  cat > "$BIN/wget" <<EOF
-#!/bin/sh
-echo "ARGV=\$*" >> "$WORK/wget.log"
-EOF
-  chmod +x "$BIN/wget"
-
-  # Stub sudo: just run the wrapped command (so tar stub still records argv).
-  cat > "$BIN/sudo" <<'EOF'
-#!/bin/sh
-exec "$@"
-EOF
-  chmod +x "$BIN/sudo"
-
-  # Stub tar: record argv.
-  cat > "$BIN/tar" <<EOF
-#!/bin/sh
-echo "ARGV=\$*" >> "$WORK/tar.log"
-EOF
-  chmod +x "$BIN/tar"
-
-  # Stub go: record argv (covers `go version` inside install-go.sh).
-  cat > "$BIN/go" <<EOF
-#!/bin/sh
-echo "ARGV=\$*" >> "$WORK/go.log"
-EOF
-  chmod +x "$BIN/go"
-}
-
-# ---------------------------------------------------------------------------
-# install-go.sh
-# ---------------------------------------------------------------------------
-test_install_go_explicit_args() {
-  make_workdir
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$SCRIPT_DIR/install-go.sh" 1.24.4 amd64 )
-
-  assert_contains "$WORK/wget.log" \
-    "https://go.dev/dl/go1.24.4.linux-amd64.tar.gz" \
-    "install-go: wget downloads linux-amd64 tarball"
-  assert_contains "$WORK/wget.log" "-q" "install-go: wget runs quietly"
-  assert_contains "$WORK/tar.log" "-C /usr/local -xzf go1.24.4.linux-amd64.tar.gz" \
-    "install-go: tar extracts to /usr/local"
-  assert_contains "$WORK/go.log" "ARGV=version" "install-go: go version invoked"
-  cleanup
-}
-
-# Defaults: version=1.24.4, arch=amd64 when no args given.
-test_install_go_defaults() {
-  make_workdir
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$SCRIPT_DIR/install-go.sh" )
-  assert_contains "$WORK/wget.log" \
-    "https://go.dev/dl/go1.24.4.linux-amd64.tar.gz" \
-    "install-go: default version/arch resolve to go1.24.4.linux-amd64"
-  cleanup
-}
-
-# arch parameter overrides the linux-<arch> segment.
-test_install_go_arch_override() {
-  make_workdir
-  ( cd "$WORK" && PATH="$BIN:$PATH" sh "$SCRIPT_DIR/install-go.sh" 1.24.4 arm64 )
-  assert_contains "$WORK/wget.log" \
-    "https://go.dev/dl/go1.24.4.linux-arm64.tar.gz" \
-    "install-go: arch override produces linux-arm64 tarball"
-  assert_contains "$WORK/tar.log" "go1.24.4.linux-arm64.tar.gz" \
-    "install-go: tar uses arch-specific tarball"
-  cleanup
-}
 
 # ---------------------------------------------------------------------------
 # gofmt-check.sh
@@ -208,22 +128,6 @@ test_gofmt_check_excludes() {
 }
 
 # ---------------------------------------------------------------------------
-# install-go.yml call-path prefix resolution (repoRoot logic)
-# ---------------------------------------------------------------------------
-# Mirrors `${{ parameters.repoRoot }}scripts/install-go.sh`: StaticChecks passes
-# nothing (repoRoot=''), pure_tests passes repoRoot='sonic-gnmi/'.
-resolve_path() { printf '%sscripts/install-go.sh' "$1"; }
-
-test_static_checks_path() {
-  assert_eq "$(resolve_path '')" "scripts/install-go.sh" \
-    "install-go.yml: StaticChecks (repoRoot='') resolves scripts/install-go.sh"
-}
-
-test_pure_tests_path() {
-  assert_eq "$(resolve_path 'sonic-gnmi/')" "sonic-gnmi/scripts/install-go.sh" \
-    "install-go.yml: pure_tests (repoRoot='sonic-gnmi/') resolves sonic-gnmi/scripts/install-go.sh"
-}
-
 # StaticChecks gofmt step calls the script at root with no prefix. Extract the
 # real call site from azure-pipelines.yml so this fails if it ever changes.
 test_static_checks_gofmt_path() {
@@ -306,8 +210,6 @@ test_install_test_deps_no_flags() {
     "install-test-deps: PIP_FLAGS empty -> verbatim jsonpatch argv"
   assert_not_contains "$WORK/pip3.log" "--break-system-packages" \
     "install-test-deps: PIP_FLAGS empty -> no --break-system-packages"
-  assert_contains "$WORK/apt-get.log" "ARGV=update" \
-    "install-test-deps: refreshes apt index"
   cleanup
 }
 
@@ -346,26 +248,6 @@ test_install_debs_with_fix() {
   assert_eq "$rc" "0" "install-debs: FIX_DEPS=1 -> fallback recovers dpkg failure"
   assert_contains "$WORK/apt-get.log" "install -f -y" \
     "install-debs: FIX_DEPS=1 -> appends || sudo apt-get install -f -y"
-  cleanup
-}
-
-# install-yang-models.sh ----------------------------------------------------
-test_install_yang_no_flags() {
-  make_deps_workdir
-  ( PATH="$BIN:$PATH" sh "$SCRIPT_DIR/install-yang-models.sh" '/path/*.whl' )
-  assert_contains "$WORK/pip3.log" "ARGV=install /path/*.whl" \
-    "install-yang-models: PIP_FLAGS empty -> verbatim wheel argv"
-  assert_not_contains "$WORK/pip3.log" "--break-system-packages" \
-    "install-yang-models: PIP_FLAGS empty -> no --break-system-packages"
-  cleanup
-}
-
-test_install_yang_with_flags() {
-  make_deps_workdir
-  ( PATH="$BIN:$PATH" PIP_FLAGS=--break-system-packages \
-      sh "$SCRIPT_DIR/install-yang-models.sh" '/path/*.whl' )
-  assert_contains "$WORK/pip3.log" "ARGV=install --break-system-packages /path/*.whl" \
-    "install-yang-models: PIP_FLAGS forwarded as argv to pip3"
   cleanup
 }
 
@@ -419,21 +301,14 @@ test_install_protoc_arm64() {
   cleanup
 }
 
-test_install_go_explicit_args
-test_install_go_defaults
-test_install_go_arch_override
 test_gofmt_check_clean_tree
 test_gofmt_check_bad_tree
 test_gofmt_check_excludes
-test_static_checks_path
-test_pure_tests_path
 test_static_checks_gofmt_path
 test_install_test_deps_no_flags
 test_install_test_deps_with_flags
 test_install_debs_no_fix
 test_install_debs_with_fix
-test_install_yang_no_flags
-test_install_yang_with_flags
 test_install_swsscommon_amd64
 test_install_swsscommon_arm64
 test_install_protoc_amd64

@@ -102,7 +102,6 @@ stages:
     - template: .azure/templates/install-go.yml
       parameters:
         version: $(GO_VERSION)
-        repoRoot: 'sonic-gnmi/'
 
     - bash: |
         set -euo pipefail
