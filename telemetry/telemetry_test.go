@@ -1473,7 +1473,8 @@ func TestCertAuthDisabledWhenNoCaCert(t *testing.T) {
 }
 
 func TestNoTLSRequiresLoopbackAddress(t *testing.T) {
-	// --noTLS must be rejected unless --bind_address is a loopback address.
+	// --noTLS rejects an explicitly non-loopback --bind_address. An empty
+	// --bind_address defaults to loopback (see TestNoTLSDefaultsToLoopback).
 	originalArgs := os.Args
 	defer func() { os.Args = originalArgs }()
 
@@ -1482,7 +1483,7 @@ func TestNoTLSRequiresLoopbackAddress(t *testing.T) {
 		args    []string
 		wantErr bool
 	}{
-		{"empty bind_address", []string{"cmd", "-port", "8080", "-noTLS"}, true},
+		{"empty bind_address", []string{"cmd", "-port", "8080", "-noTLS"}, false},
 		{"non-loopback", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "10.0.0.1"}, true},
 		{"loopback ipv4", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1"}, false},
 		{"loopback ipv4 alt", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.2"}, false},
@@ -1500,6 +1501,26 @@ func TestNoTLSRequiresLoopbackAddress(t *testing.T) {
 				t.Errorf("unexpected error for args %v: %v", tt.args, err)
 			}
 		})
+	}
+}
+
+func TestNoTLSDefaultsToLoopback(t *testing.T) {
+	// --noTLS without --bind_address starts successfully and binds loopback.
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	fs := flag.NewFlagSet("testNoTLSDefaultsToLoopback", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-noTLS"}
+
+	telemetryCfg, gnmiCfg, err := setupFlags(fs)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if got := *telemetryCfg.BindAddress; got != "127.0.0.1" {
+		t.Errorf("Expected BindAddress to default to 127.0.0.1, got %q", got)
+	}
+	if got := gnmiCfg.BindAddress; got != "127.0.0.1" {
+		t.Errorf("Expected gnmi.Config.BindAddress to default to 127.0.0.1, got %q", got)
 	}
 }
 
