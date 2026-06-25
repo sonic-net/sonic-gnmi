@@ -237,8 +237,11 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	}
 
 	if *telemetryCfg.NoTLS {
-		ip := net.ParseIP(*telemetryCfg.BindAddress)
-		if ip == nil || !ip.IsLoopback() {
+		if *telemetryCfg.BindAddress == "" {
+			// Default the cleartext listener to loopback.
+			*telemetryCfg.BindAddress = "127.0.0.1"
+			log.Warning("--noTLS set without --bind_address; defaulting to 127.0.0.1 (loopback only)")
+		} else if ip := net.ParseIP(*telemetryCfg.BindAddress); ip == nil || !ip.IsLoopback() {
 			return nil, nil, fmt.Errorf(
 				"--noTLS requires --bind_address to be a loopback address (e.g. 127.0.0.1 or ::1) " +
 					"to prevent cleartext gRPC exposure over the network")
