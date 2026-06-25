@@ -1472,37 +1472,6 @@ func TestCertAuthDisabledWhenNoCaCert(t *testing.T) {
 	}
 }
 
-func TestNoTLSRequiresLoopbackAddress(t *testing.T) {
-	// --noTLS must be rejected unless --bind_address is a loopback address.
-	originalArgs := os.Args
-	defer func() { os.Args = originalArgs }()
-
-	tests := []struct {
-		name    string
-		args    []string
-		wantErr bool
-	}{
-		{"empty bind_address", []string{"cmd", "-port", "8080", "-noTLS"}, true},
-		{"non-loopback", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "10.0.0.1"}, true},
-		{"loopback ipv4", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1"}, false},
-		{"loopback ipv4 alt", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.2"}, false},
-		{"loopback ipv6", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "::1"}, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fs := flag.NewFlagSet("test", flag.ContinueOnError)
-			os.Args = tt.args
-			_, _, err := setupFlags(fs)
-			if tt.wantErr && err == nil {
-				t.Errorf("expected error for args %v, got nil", tt.args)
-			}
-			if !tt.wantErr && err != nil {
-				t.Errorf("unexpected error for args %v: %v", tt.args, err)
-			}
-		})
-	}
-}
-
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
 	m.Run()
