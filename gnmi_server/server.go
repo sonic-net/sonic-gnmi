@@ -256,6 +256,10 @@ type Config struct {
 	EnableStreamMultiplexing bool   // Allow multiple Subscribe RPCs on a single TCP connection.
 	SshCredMetaFile          string // Path to JSON file with SSH server credential metadata.
 	ConsoleCredMetaFile      string // Path to JSON file with console credential metadata.
+	// BindAddress is the network address to bind the TCP listener.
+	// When empty, binds to all interfaces (0.0.0.0). Use "127.0.0.1" to
+	// restrict to localhost only (e.g. when running without TLS).
+	BindAddress string
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -610,7 +614,8 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		if config.GnmiVrf != "" && config.GnmiVrf != "default" {
 			srv.lis, err = createVrfListener(config.GnmiVrf, config.Port)
 		} else {
-			srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
+			bindAddr := config.BindAddress
+			srv.lis, err = net.Listen("tcp", fmt.Sprintf("%s:%d", bindAddr, config.Port))
 		}
 		if err != nil {
 			log.Warningf("Failed to open listener port %d: %v; disabling TCP listener", config.Port, err)

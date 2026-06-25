@@ -41,7 +41,7 @@ func TestRunTelemetry(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	args := []string{"telemetry", "-logtostderr", "-port", "50051", "-v=2", "-noTLS"}
+	args := []string{"telemetry", "-logtostderr", "-port", "50051", "-v=2", "-noTLS", "-bind_address", "127.0.0.1"}
 	os.Args = args
 	err := runTelemetry(os.Args)
 	if err != nil {
@@ -79,7 +79,7 @@ func TestFlags(t *testing.T) {
 		expectedVrf       string
 	}{
 		{
-			[]string{"cmd", "-port", "9090", "-threshold", "200", "-idle_conn_duration", "10", "-v", "6", "-noTLS"},
+			[]string{"cmd", "-port", "9090", "-threshold", "200", "-idle_conn_duration", "10", "-v", "6", "-noTLS", "-bind_address", "127.0.0.1"},
 			9090,
 			200,
 			10,
@@ -97,7 +97,7 @@ func TestFlags(t *testing.T) {
 			"",
 		},
 		{
-			[]string{"cmd", "-port", "5050", "-threshold", "10", "-idle_conn_duration", "3", "-v", "-3", "-noTLS"},
+			[]string{"cmd", "-port", "5050", "-threshold", "10", "-idle_conn_duration", "3", "-v", "-3", "-noTLS", "-bind_address", "127.0.0.1"},
 			5050,
 			10,
 			3,
@@ -106,7 +106,7 @@ func TestFlags(t *testing.T) {
 			"",
 		},
 		{
-			[]string{"cmd", "-port", "8082", "-threshold", "1", "-idle_conn_duration", "1", "-gnmi_vrf", "mgmt", "-vrf", "mgmt", "-noTLS"},
+			[]string{"cmd", "-port", "8082", "-threshold", "1", "-idle_conn_duration", "1", "-gnmi_vrf", "mgmt", "-vrf", "mgmt", "-noTLS", "-bind_address", "127.0.0.1"},
 			8082,
 			1,
 			1,
@@ -1458,7 +1458,7 @@ func TestCertAuthDisabledWhenNoCaCert(t *testing.T) {
 	defer func() { os.Args = originalArgs }()
 
 	fs := flag.NewFlagSet("testCertAuthDisabledWhenNoCaCert", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-client_auth", "cert,password"}
+	os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1", "-client_auth", "cert,password"}
 
 	telemetryCfg, _, err := setupFlags(fs)
 	if err != nil {
@@ -1469,6 +1469,37 @@ func TestCertAuthDisabledWhenNoCaCert(t *testing.T) {
 	}
 	if !telemetryCfg.UserAuth.Enabled("password") {
 		t.Error("Expected password auth to remain enabled after cert was disabled")
+	}
+}
+
+func TestNoTLSRequiresLoopbackAddress(t *testing.T) {
+	// --noTLS must be rejected unless --bind_address is a loopback address.
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr bool
+	}{
+		{"empty bind_address", []string{"cmd", "-port", "8080", "-noTLS"}, true},
+		{"non-loopback", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "10.0.0.1"}, true},
+		{"loopback ipv4", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1"}, false},
+		{"loopback ipv4 alt", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.2"}, false},
+		{"loopback ipv6", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "::1"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := flag.NewFlagSet("test", flag.ContinueOnError)
+			os.Args = tt.args
+			_, _, err := setupFlags(fs)
+			if tt.wantErr && err == nil {
+				t.Errorf("expected error for args %v, got nil", tt.args)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error for args %v: %v", tt.args, err)
+			}
+		})
 	}
 }
 
