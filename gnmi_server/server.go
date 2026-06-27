@@ -33,6 +33,7 @@ import (
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
 	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
+	gnoi_oras_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/oras"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -165,6 +166,12 @@ type HealthzServer struct {
 	gnoi_healthz_pb.UnimplementedHealthzServer
 }
 
+// OrasServer is the server API for the SONiC ORAS Pull service.
+type OrasServer struct {
+	*Server
+	gnoi_oras_pb.UnimplementedOrasServer
+}
+
 type AuthTypes map[string]bool
 
 // Config is a collection of values for Server
@@ -278,7 +285,7 @@ func (i AuthTypes) Unset(mode string) error {
 // registerAllServices registers all gNMI and gNOI services on the given gRPC server.
 func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 	osSrv *OSServer, containerzSrv *ContainerzServer,
-	debugSrv *DebugServer, healthzSrv *HealthzServer) {
+	debugSrv *DebugServer, healthzSrv *HealthzServer, orasSrv *OrasServer) {
 	gnmipb.RegisterGNMIServer(s, srv)
 	factory_reset.RegisterFactoryResetServer(s, srv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(s, srv)
@@ -290,6 +297,10 @@ func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 		gnoi_debug_pb.RegisterDebugServer(s, debugSrv)
 		gnoi_healthz_pb.RegisterHealthzServer(s, healthzSrv)
 	}
+	// ORAS Pull writes only into an allowlisted staging area inside the
+	// container; it has no relation to the gNMI write paths, so it is not
+	// gated by EnableTranslibWrite/EnableNativeWrite.
+	gnoi_oras_pb.RegisterOrasServer(s, orasSrv)
 	if srv.config.EnableTranslibWrite {
 		spb_gnoi.RegisterSonicServiceServer(s, srv)
 	}
@@ -333,6 +344,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		readWhitelist:  readWhitelist,
 		writeWhitelist: writeWhitelist,
 	}
+	orasSrv := &OrasServer{Server: srv}
 
 	var err error
 
@@ -347,7 +359,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			return nil, fmt.Errorf("failed to open listener port %d: %v", config.Port, err)
 		}
 
-		registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv)
+		registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, orasSrv)
 	}
 
 	// UDS Server (UnixSocket set)
@@ -383,7 +395,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			srv.udsListener = nil
 			srv.udsServer = nil
 		} else {
-			registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv)
+			registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, orasSrv)
 		}
 	}
 

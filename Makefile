@@ -152,6 +152,7 @@ PROTOC_OPTS_WITHOUT_VENDOR := -I/usr/local/include -I/usr/include
 # Generate following go & grpc bindings using teh legacy protoc-gen-go
 PROTO_GO_BINDINGS += proto/sonic_internal.pb.go
 PROTO_GO_BINDINGS += proto/gnoi/sonic_debug.pb.go
+PROTO_GO_BINDINGS += proto/gnoi/oras/oras.pb.go
 
 $(BUILD_GNOI_YANG_PROTO_DIR)/.proto_api_done: $(API_YANGS)
 	@echo "+++++ Generating PROTOBUF files for API Yang modules; +++++"
