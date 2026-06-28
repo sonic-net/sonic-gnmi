@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -249,6 +250,15 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	case *telemetryCfg.LogLevel < 0:
 		*telemetryCfg.LogLevel = 2
 		log.Infof("Log level must be greater than 0, setting to default value of 2")
+	}
+
+	if *telemetryCfg.NoTLS {
+		ip := net.ParseIP(*telemetryCfg.BindAddress)
+		if ip == nil || !ip.IsLoopback() {
+			return nil, nil, fmt.Errorf(
+				"--noTLS requires --bind_address to be a loopback address (e.g. 127.0.0.1 or ::1) " +
+					"to prevent cleartext gRPC exposure over the network")
+		}
 	}
 
 	if !*telemetryCfg.NoTLS && !*telemetryCfg.Insecure {
