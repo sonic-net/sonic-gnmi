@@ -872,6 +872,53 @@ func TestInitRedisDbClients(t *testing.T) {
 		}
 	})
 
+	t.Run("SkipUnconfiguredDbWithoutGetDbSock", func(t *testing.T) {
+		defer saveAndResetTarget2RedisDb()()
+
+		const skippedDb = "CHASSIS_STATE_DB"
+		configuredDbs := []string{"CONFIG_DB", "APPL_DB", "STATE_DB"}
+		getDbSockCalls := 0
+		getDbSockCalledForSkipped := false
+
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+			return []string{ns}, nil
+		})
+		defer patches.Reset()
+
+		patches.ApplyFunc(sdcfg.GetDbList, func(_ string) ([]string, error) {
+			return configuredDbs, nil
+		})
+
+		patches.ApplyFunc(sdcfg.GetDbSock, func(dbName string, _ string) (string, error) {
+			getDbSockCalls++
+			if dbName == skippedDb {
+				getDbSockCalledForSkipped = true
+			}
+			return "/var/run/redis/redis.sock", nil
+		})
+
+		initRedisDbClients()
+
+		nsMap, ok := Target2RedisDb[ns]
+		if !ok {
+			t.Fatal("Expected namespace to exist in Target2RedisDb")
+		}
+		if _, exists := nsMap[skippedDb]; exists {
+			t.Errorf("%s should have been skipped because it is not configured", skippedDb)
+		}
+		if getDbSockCalledForSkipped {
+			t.Errorf("GetDbSock should not be called for unconfigured DB %s", skippedDb)
+		}
+		if getDbSockCalls != len(configuredDbs) {
+			t.Errorf("Expected GetDbSock to be called %d times, got %d", len(configuredDbs), getDbSockCalls)
+		}
+		for _, dbName := range configuredDbs {
+			if _, exists := nsMap[dbName]; !exists {
+				t.Errorf("Expected %s to be initialized", dbName)
+			}
+		}
+	})
+
 	t.Run("AllDbsAvailable", func(t *testing.T) {
 		defer saveAndResetTarget2RedisDb()()
 
@@ -1008,6 +1055,59 @@ func TestUseRedisTcpClient(t *testing.T) {
 		}
 	})
 
+	t.Run("SkipUnconfiguredDbWithoutGetDbTcpAddr", func(t *testing.T) {
+		defer saveAndResetTarget2RedisDb()()
+		origFlag := UseRedisLocalTcpPort
+		UseRedisLocalTcpPort = true
+		defer func() { UseRedisLocalTcpPort = origFlag }()
+
+		const skippedDb = "CHASSIS_STATE_DB"
+		configuredDbs := []string{"CONFIG_DB", "APPL_DB", "STATE_DB"}
+		getDbTcpAddrCalls := 0
+		getDbTcpAddrCalledForSkipped := false
+
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+			return []string{ns}, nil
+		})
+		defer patches.Reset()
+
+		patches.ApplyFunc(sdcfg.GetDbList, func(_ string) ([]string, error) {
+			return configuredDbs, nil
+		})
+
+		patches.ApplyFunc(sdcfg.GetDbTcpAddr, func(dbName string, _ string) (string, error) {
+			getDbTcpAddrCalls++
+			if dbName == skippedDb {
+				getDbTcpAddrCalledForSkipped = true
+			}
+			return "127.0.0.1:6379", nil
+		})
+
+		err := useRedisTcpClient()
+		if err != nil {
+			t.Fatalf("Expected no error when skipping unconfigured DB, got: %v", err)
+		}
+
+		nsMap, ok := Target2RedisDb[ns]
+		if !ok {
+			t.Fatal("Expected namespace to exist in Target2RedisDb")
+		}
+		if _, exists := nsMap[skippedDb]; exists {
+			t.Errorf("%s should have been skipped because it is not configured", skippedDb)
+		}
+		if getDbTcpAddrCalledForSkipped {
+			t.Errorf("GetDbTcpAddr should not be called for unconfigured DB %s", skippedDb)
+		}
+		if getDbTcpAddrCalls != len(configuredDbs) {
+			t.Errorf("Expected GetDbTcpAddr to be called %d times, got %d", len(configuredDbs), getDbTcpAddrCalls)
+		}
+		for _, dbName := range configuredDbs {
+			if _, exists := nsMap[dbName]; !exists {
+				t.Errorf("Expected %s to be initialized in TCP mode", dbName)
+			}
+		}
+	})
+
 	t.Run("GetDbAllNamespacesFails", func(t *testing.T) {
 		defer saveAndResetTarget2RedisDb()()
 		origFlag := UseRedisLocalTcpPort
@@ -1025,6 +1125,19 @@ func TestUseRedisTcpClient(t *testing.T) {
 		}
 		if len(Target2RedisDb) != 0 {
 			t.Errorf("Expected Target2RedisDb to be empty, got %d entries", len(Target2RedisDb))
+		}
+	})
+}
+
+func TestConfiguredDbSet(t *testing.T) {
+	t.Run("GetDbListFailureReturnsNil", func(t *testing.T) {
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbList, func(_ string) ([]string, error) {
+			return nil, fmt.Errorf("GetDbList failure")
+		})
+		defer patches.Reset()
+
+		if got := configuredDbSet("asic0"); got != nil {
+			t.Fatalf("expected nil set on GetDbList failure, got: %#v", got)
 		}
 	})
 }
