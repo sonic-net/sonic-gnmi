@@ -53,6 +53,7 @@ import (
 	"google.golang.org/grpc/authz"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/tls/certprovider"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/security/advancedtls"
@@ -1319,6 +1320,35 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 		SupportedEncodings: supportedEncodings,
 		GNMIVersion:        "0.7.0",
 		Extension:          exts}, nil
+}
+
+func extractUser(ctx context.Context) string {
+	rc, _ := common_utils.GetContext(ctx)
+	if rc != nil && rc.Auth.User != "" {
+		return rc.Auth.User
+	}
+
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		for _, key := range []string{"username", "user", "x-remote-user"} {
+			if values := md.Get(key); len(values) > 0 && values[0] != "" {
+				return values[0]
+			}
+		}
+	}
+
+	if username, err := getUsername(ctx); err == nil && username != "" {
+		return username
+	}
+
+	return "unknown"
+}
+
+func extractPeer(ctx context.Context) string {
+	if pr, ok := peer.FromContext(ctx); ok && pr.Addr != nil {
+		return pr.Addr.String()
+	}
+
+	return "unknown"
 }
 
 // Obtain the user name as the last element of the SPIFFE ID.
