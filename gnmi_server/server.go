@@ -1144,20 +1144,20 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.
 	}
 	// gNMI path based authorization
 	if s.config.PathzPolicy {
-		user, err := getUsername(ctx)
-		if err != nil {
-			log.V(1).Infof("SetRequest User not found: %s", err.Error())
-			return nil, err
+		pathzUser, userErr := getUsername(ctx)
+		if userErr != nil {
+			log.V(1).Infof("SetRequest User not found: %s", userErr.Error())
+			return nil, userErr
 		}
 		permitted := true
 		for _, path := range req.GetDelete() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), path, gnsi_pathz_pb.Mode_MODE_WRITE)
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), path, gnsi_pathz_pb.Mode_MODE_WRITE)
 		}
 		for _, update := range req.GetReplace() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
 		}
 		for _, update := range req.GetUpdate() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
 		}
 		if !permitted {
 			return nil, status.Error(codes.PermissionDenied, "Unauthorized request. Rejected by pathz policy.")
