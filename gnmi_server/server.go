@@ -1112,29 +1112,10 @@ func SaveOnSetEnabled() error {
 // SaveOnSetDisabeld does nothing.
 func saveOnSetDisabled() error { return nil }
 
-func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.SetResponse, err error) {
-	// GNMI-AUDIT logging
-	start := time.Now()
-	auditUser := extractUser(ctx) // from auth metadata
-	auditPeer := extractPeer(ctx) // client address
-
-	log.Infof("[GNMI-AUDIT] SetRequest user=%s peer=%s prefix=%v updates=%d replaces=%d deletes=%d",
-		auditUser, auditPeer, req.GetPrefix(), len(req.GetUpdate()), len(req.GetReplace()), len(req.GetDelete()))
-
-	defer func() {
-		duration := time.Since(start)
-		if err != nil {
-			log.Errorf("[GNMI-AUDIT] SetResponse user=%s peer=%s status=FAIL err=%v duration=%v",
-				auditUser, auditPeer, err, duration)
-		} else {
-			log.Infof("[GNMI-AUDIT] SetResponse user=%s peer=%s status=OK duration=%v",
-				auditUser, auditPeer, duration)
-		}
-	}()
-
-	err = s.ReqFromMaster(req, &s.masterEID)
-	if err != nil {
-		return nil, err
+func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
+	e := s.ReqFromMaster(req, &s.masterEID)
+	if e != nil {
+		return nil, e
 	}
 
 	common_utils.IncCounter(common_utils.GNMI_SET)
@@ -1175,6 +1156,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.
 	encoding := gnmipb.Encoding_JSON_IETF
 
 	var dc sdc.Client
+	var err error
 	paths := req.GetDelete()
 	for _, path := range req.GetReplace() {
 		paths = append(paths, path.GetPath())
@@ -1272,7 +1254,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.
 		s.SaveStartupConfig()
 	}
 
-	resp = &gnmipb.SetResponse{
+	resp := &gnmipb.SetResponse{
 		Prefix:   req.GetPrefix(),
 		Response: results,
 	}
