@@ -954,11 +954,11 @@ func IsNativeOrigin(origin string) bool {
 func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (resp *gnmipb.GetResponse, err error) {
 	// GNMI-AUDIT logging
 	start := time.Now()
-	user := extractUser(ctx)
-	peer := extractPeer(ctx)
+	auditUser := extractUser(ctx)
+	auditPeer := extractPeer(ctx)
 
 	log.Infof("[GNMI-AUDIT] GetRequest user=%s peer=%s prefix=%v paths=%v type=%v",
-			user, peer, req.GetPrefix(), req.GetPath(), req.GetType())
+			auditUser, auditPeer, req.GetPrefix(), req.GetPath(), req.GetType())
 
 	// defer logs automatically when function returns
 	defer func() {
@@ -966,10 +966,10 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (resp *gnmipb.
 
 		if err != nil {
 			log.Errorf("[GNMI-AUDIT] GetResponse user=%s peer=%s status=FAIL err=%v duration=%v",
-					user, peer, err, duration)
+					auditUser, auditPeer, err, duration)
 		} else {
 			log.Infof("[GNMI-AUDIT] GetResponse user=%s peer=%s status=OK duration=%v",
-					user, peer, duration)
+					auditUser, auditPeer, duration)
 		}
 	}()
 
@@ -982,14 +982,14 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (resp *gnmipb.
 	// gNMI path based authorization
 	if s.config.PathzPolicy && len(req.GetPath()) != 0 {
 		newPaths := []*gnmipb.Path{}
-		pathzUser, userErr := getUsername(ctx)
-		if userErr != nil {
-			log.V(1).Infof("GetRequest User not found: %s", userErr.Error())
-			return nil, userErr
+		user, err := getUsername(ctx)
+		if err != nil {
+			log.V(1).Infof("GetRequest User not found: %s", err.Error())
+			return nil, err
 		}
 		for _, path := range req.GetPath() {
 			// Only process the authorized paths in the request.
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), path, gnsi_pathz_pb.Mode_MODE_READ)
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), path, gnsi_pathz_pb.Mode_MODE_READ)
 		}
 		if len(newPaths) == 0 {
 			return nil, status.Error(codes.PermissionDenied, "Unauthorized request. Rejected by pathz policy.")
@@ -1115,20 +1115,20 @@ func saveOnSetDisabled() error { return nil }
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.SetResponse, err error) {
 	// GNMI-AUDIT logging
 	start := time.Now()
-	user := extractUser(ctx) // from auth metadata
-	peer := extractPeer(ctx) // client address
+	auditUser := extractUser(ctx) // from auth metadata
+	auditPeer := extractPeer(ctx) // client address
 
 	log.Infof("[GNMI-AUDIT] SetRequest user=%s peer=%s prefix=%v updates=%d replaces=%d deletes=%d",
-		user, peer, req.GetPrefix(), len(req.GetUpdate()), len(req.GetReplace()), len(req.GetDelete()))
+		auditUser, auditPeer, req.GetPrefix(), len(req.GetUpdate()), len(req.GetReplace()), len(req.GetDelete()))
 
 	defer func() {
 		duration := time.Since(start)
 		if err != nil {
 			log.Errorf("[GNMI-AUDIT] SetResponse user=%s peer=%s status=FAIL err=%v duration=%v",
-				user, peer, err, duration)
+				auditUser, auditPeer, err, duration)
 		} else {
 			log.Infof("[GNMI-AUDIT] SetResponse user=%s peer=%s status=OK duration=%v",
-				user, peer, duration)
+				auditUser, auditPeer, duration)
 		}
 	}()
 
@@ -1144,20 +1144,20 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.
 	}
 	// gNMI path based authorization
 	if s.config.PathzPolicy {
-		pathzUser, userErr := getUsername(ctx)
-		if userErr != nil {
-			log.V(1).Infof("SetRequest User not found: %s", userErr.Error())
-			return nil, userErr
+		user, err := getUsername(ctx)
+		if err != nil {
+			log.V(1).Infof("SetRequest User not found: %s", err.Error())
+			return nil, err
 		}
 		permitted := true
 		for _, path := range req.GetDelete() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), path, gnsi_pathz_pb.Mode_MODE_WRITE)
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), path, gnsi_pathz_pb.Mode_MODE_WRITE)
 		}
 		for _, update := range req.GetReplace() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
 		}
 		for _, update := range req.GetUpdate() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
 		}
 		if !permitted {
 			return nil, status.Error(codes.PermissionDenied, "Unauthorized request. Rejected by pathz policy.")
