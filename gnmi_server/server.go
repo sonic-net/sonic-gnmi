@@ -962,14 +962,14 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (resp *gnmipb.
 	// gNMI path based authorization
 	if s.config.PathzPolicy && len(req.GetPath()) != 0 {
 		newPaths := []*gnmipb.Path{}
-		user, err := getUsername(ctx)
-		if err != nil {
-			log.V(1).Infof("GetRequest User not found: %s", err.Error())
-			return nil, err
+		pathzUser, userErr := getUsername(ctx)
+		if userErr != nil {
+			log.V(1).Infof("GetRequest User not found: %s", userErr.Error())
+			return nil, userErr
 		}
 		for _, path := range req.GetPath() {
 			// Only process the authorized paths in the request.
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), path, gnsi_pathz_pb.Mode_MODE_READ)
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), path, gnsi_pathz_pb.Mode_MODE_READ)
 		}
 		if len(newPaths) == 0 {
 			return nil, status.Error(codes.PermissionDenied, "Unauthorized request. Rejected by pathz policy.")
@@ -977,7 +977,8 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (resp *gnmipb.
 		req.Path = newPaths
 	}
 
-	if err := s.checkEncodingAndModel(req.GetEncoding(), req.GetUseModels()); err != nil {
+	err = s.checkEncodingAndModel(req.GetEncoding(), req.GetUseModels())
+	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Error(codes.Unimplemented, err.Error())
 	}
@@ -996,7 +997,6 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (resp *gnmipb.
 	log.V(2).Infof("GetRequest paths: %v", paths)
 
 	var dc sdc.Client
-	var err error
 	// Handle OPERATIONAL target directly without SONiC routing
 	if target == "OPERATIONAL" {
 		return s.handleOperationalGet(ctx, req, paths, prefix)
@@ -1092,7 +1092,7 @@ func SaveOnSetEnabled() error {
 // SaveOnSetDisabeld does nothing.
 func saveOnSetDisabled() error { return nil }
 
-func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
+func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.SetResponse, err error) {
 	// GNMI-AUDIT logging
 	start := time.Now()
 	user := extractUser(ctx) // from auth metadata
@@ -1101,12 +1101,20 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	log.Infof("[GNMI-AUDIT] SetRequest user=%s peer=%s prefix=%v updates=%d replaces=%d deletes=%d",
 		user, peer, req.GetPrefix(), len(req.GetUpdate()), len(req.GetReplace()), len(req.GetDelete()))
 
-	e := s.ReqFromMaster(req, &s.masterEID)
-	if e != nil {
+	defer func() {
 		duration := time.Since(start)
-		log.Errorf("[GNMI-AUDIT] SetResponse user=%s peer=%s status=FAIL err=%v duration=%v",
-			user, peer, e, duration)
-		return nil, e
+		if err != nil {
+			log.Errorf("[GNMI-AUDIT] SetResponse user=%s peer=%s status=FAIL err=%v duration=%v",
+				user, peer, err, duration)
+		} else {
+			log.Infof("[GNMI-AUDIT] SetResponse user=%s peer=%s status=OK duration=%v",
+				user, peer, duration)
+		}
+	}()
+
+	err = s.ReqFromMaster(req, &s.masterEID)
+	if err != nil {
+		return nil, err
 	}
 
 	common_utils.IncCounter(common_utils.GNMI_SET)
@@ -1116,20 +1124,20 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	}
 	// gNMI path based authorization
 	if s.config.PathzPolicy {
-		user, err := getUsername(ctx)
-		if err != nil {
-			log.V(1).Infof("SetRequest User not found: %s", err.Error())
-			return nil, err
+		pathzUser, userErr := getUsername(ctx)
+		if userErr != nil {
+			log.V(1).Infof("SetRequest User not found: %s", userErr.Error())
+			return nil, userErr
 		}
 		permitted := true
 		for _, path := range req.GetDelete() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), path, gnsi_pathz_pb.Mode_MODE_WRITE)
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), path, gnsi_pathz_pb.Mode_MODE_WRITE)
 		}
 		for _, update := range req.GetReplace() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
 		}
 		for _, update := range req.GetUpdate() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
 		}
 		if !permitted {
 			return nil, status.Error(codes.PermissionDenied, "Unauthorized request. Rejected by pathz policy.")
@@ -1147,7 +1155,6 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	encoding := gnmipb.Encoding_JSON_IETF
 
 	var dc sdc.Client
-	var err error
 	paths := req.GetDelete()
 	for _, path := range req.GetReplace() {
 		paths = append(paths, path.GetPath())
@@ -1170,13 +1177,13 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 
 		// Fast path: bypass validation for allowed tables/SKUs
 		allUpdates := append(req.GetReplace(), req.GetUpdate()...)
-		if resp, used, err := bypass.TrySet(ctx, prefix, req.GetDelete(), allUpdates); used {
-			if err != nil {
+		if bypassResp, used, bypassErr := bypass.TrySet(ctx, prefix, req.GetDelete(), allUpdates); used {
+			if bypassErr != nil {
 				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-				return nil, status.Error(codes.Internal, err.Error())
+				return nil, status.Error(codes.Internal, bypassErr.Error())
 			}
 			common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
-			return resp, nil
+			return bypassResp, nil
 		}
 
 		var targetDbName string
@@ -1245,19 +1252,9 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		s.SaveStartupConfig()
 	}
 
-	resp := &gnmipb.SetResponse{
+	resp = &gnmipb.SetResponse{
 		Prefix:   req.GetPrefix(),
 		Response: results,
-	}
-
-	duration := time.Since(start)
-
-	if err != nil {
-		log.Errorf("[GNMI-AUDIT] SetResponse user=%s peer=%s status=FAIL err=%v duration=%v",
-			user, peer, err, duration)
-	} else {
-		log.Infof("[GNMI-AUDIT] SetResponse user=%s peer=%s status=OK duration=%v",
-			user, peer, duration)
 	}
 	return resp, err
 }
