@@ -1237,6 +1237,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.
 		Prefix:   req.GetPrefix(),
 		Response: results,
 	}, err
+
 }
 
 func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest) (*gnmipb.CapabilityResponse, error) {
