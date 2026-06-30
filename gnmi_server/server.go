@@ -1094,151 +1094,173 @@ func SaveOnSetEnabled() error {
 func saveOnSetDisabled() error { return nil }
 
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
-	e := s.ReqFromMaster(req, &s.masterEID)
-	if e != nil {
-		return nil, e
-	}
+	start := time.Now()
+	auditUser := extractUser(ctx)
+	auditPeer := extractPeer(ctx)
 
-	common_utils.IncCounter(common_utils.GNMI_SET)
-	if s.config.EnableTranslibWrite == false && s.config.EnableNativeWrite == false {
-		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
-	}
-	// gNMI path based authorization
-	if s.config.PathzPolicy {
-		pathzUser, userErr := getUsername(ctx)
-		if userErr != nil {
-			log.V(1).Infof("SetRequest User not found: %s", userErr.Error())
-			return nil, userErr
-		}
-		permitted := true
-		for _, path := range req.GetDelete() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), path, gnsi_pathz_pb.Mode_MODE_WRITE)
-		}
-		for _, update := range req.GetReplace() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
-		}
-		for _, update := range req.GetUpdate() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
-		}
-		if !permitted {
-			return nil, status.Error(codes.PermissionDenied, "Unauthorized request. Rejected by pathz policy.")
-		}
-	}
-	var results []*gnmipb.UpdateResult
+	log.Infof("[GNMI-AUDIT] SetRequest user=%s peer=%s prefix=%v updates=%d replaces=%d deletes=%d",
+		auditUser, auditPeer, req.GetPrefix(), len(req.GetUpdate()), len(req.GetReplace()), len(req.GetDelete()))
 
-	/* Fetch the prefix. */
-	prefix := req.GetPrefix()
-	origin := ""
-	if prefix != nil {
-		origin = prefix.Origin
-	}
-	extensions := req.GetExtension()
-	encoding := gnmipb.Encoding_JSON_IETF
+	resp, err := func() (*gnmipb.SetResponse, error) {
+		ctx := ctx
 
-	var dc sdc.Client
-	var err error
-	paths := req.GetDelete()
-	for _, path := range req.GetReplace() {
-		paths = append(paths, path.GetPath())
-	}
-	for _, path := range req.GetUpdate() {
-		paths = append(paths, path.GetPath())
-	}
-	if origin == "" {
-		origin, err = ParseOrigin(paths)
+		e := s.ReqFromMaster(req, &s.masterEID)
+		if e != nil {
+			return nil, e
+		}
+
+		common_utils.IncCounter(common_utils.GNMI_SET)
+		if s.config.EnableTranslibWrite == false && s.config.EnableNativeWrite == false {
+			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+			return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
+		}
+		// gNMI path based authorization
+		if s.config.PathzPolicy {
+			pathzUser, userErr := getUsername(ctx)
+			if userErr != nil {
+				log.V(1).Infof("SetRequest User not found: %s", userErr.Error())
+				return nil, userErr
+			}
+			permitted := true
+			for _, path := range req.GetDelete() {
+				s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), path, gnsi_pathz_pb.Mode_MODE_WRITE)
+			}
+			for _, update := range req.GetReplace() {
+				s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
+			}
+			for _, update := range req.GetUpdate() {
+				s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
+			}
+			if !permitted {
+				return nil, status.Error(codes.PermissionDenied, "Unauthorized request. Rejected by pathz policy.")
+			}
+		}
+		var results []*gnmipb.UpdateResult
+
+		/* Fetch the prefix. */
+		prefix := req.GetPrefix()
+		origin := ""
+		if prefix != nil {
+			origin = prefix.Origin
+		}
+		extensions := req.GetExtension()
+		encoding := gnmipb.Encoding_JSON_IETF
+
+		var dc sdc.Client
+		var err error
+		paths := req.GetDelete()
+		for _, path := range req.GetReplace() {
+			paths = append(paths, path.GetPath())
+		}
+		for _, path := range req.GetUpdate() {
+			paths = append(paths, path.GetPath())
+		}
+		if origin == "" {
+			origin, err = ParseOrigin(paths)
+			if err != nil {
+				return nil, err
+			}
+		}
+		authTarget := "gnmi"
+		if check := IsNativeOrigin(origin); check {
+			if s.config.EnableNativeWrite == false {
+				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+				return nil, grpc.Errorf(codes.Unimplemented, "GNMI native write is disabled")
+			}
+
+			// Fast path: bypass validation for allowed tables/SKUs
+			allUpdates := append(req.GetReplace(), req.GetUpdate()...)
+			if bypassResp, used, bypassErr := bypass.TrySet(ctx, prefix, req.GetDelete(), allUpdates); used {
+				if bypassErr != nil {
+					common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+					return nil, status.Error(codes.Internal, bypassErr.Error())
+				}
+				common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
+				return bypassResp, nil
+			}
+
+			var targetDbName string
+			dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
+			authTarget = "gnmi_" + targetDbName
+		} else {
+			if s.config.EnableTranslibWrite == false {
+				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+				return nil, grpc.Errorf(codes.Unimplemented, "Translib write is disabled")
+			}
+			/* Create Transl client. */
+			dc, err = sdc.NewTranslClient(prefix, nil, ctx, extensions)
+		}
+
 		if err != nil {
+			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+			return nil, status.Error(codes.NotFound, err.Error())
+		}
+		defer dc.Close()
+
+		ctx, err = authenticate(s.config, ctx, authTarget, true)
+		if err != nil {
+			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 			return nil, err
 		}
-	}
-	authTarget := "gnmi"
-	if check := IsNativeOrigin(origin); check {
-		if s.config.EnableNativeWrite == false {
-			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-			return nil, grpc.Errorf(codes.Unimplemented, "GNMI native write is disabled")
-		}
+		/* DELETE */
+		for _, path := range req.GetDelete() {
+			log.V(2).Infof("Delete path: %v", path)
 
-		// Fast path: bypass validation for allowed tables/SKUs
-		allUpdates := append(req.GetReplace(), req.GetUpdate()...)
-		if bypassResp, used, bypassErr := bypass.TrySet(ctx, prefix, req.GetDelete(), allUpdates); used {
-			if bypassErr != nil {
-				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-				return nil, status.Error(codes.Internal, bypassErr.Error())
+			res := gnmipb.UpdateResult{
+				Path: path,
+				Op:   gnmipb.UpdateResult_DELETE,
 			}
-			common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
-			return bypassResp, nil
+
+			/* Add to Set response results. */
+			results = append(results, &res)
 		}
 
-		var targetDbName string
-		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
-		authTarget = "gnmi_" + targetDbName
-	} else {
-		if s.config.EnableTranslibWrite == false {
+		/* REPLACE */
+		for _, path := range req.GetReplace() {
+			log.V(2).Infof("Replace path: %v ", path)
+
+			res := gnmipb.UpdateResult{
+				Path: path.GetPath(),
+				Op:   gnmipb.UpdateResult_REPLACE,
+			}
+			/* Add to Set response results. */
+			results = append(results, &res)
+		}
+
+		/* UPDATE */
+		for _, path := range req.GetUpdate() {
+			log.V(2).Infof("Update path: %v ", path)
+
+			res := gnmipb.UpdateResult{
+				Path: path.GetPath(),
+				Op:   gnmipb.UpdateResult_UPDATE,
+			}
+			/* Add to Set response results. */
+			results = append(results, &res)
+		}
+		err = dc.Set(req.GetDelete(), req.GetReplace(), req.GetUpdate())
+		if err != nil {
 			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-			return nil, grpc.Errorf(codes.Unimplemented, "Translib write is disabled")
+		} else {
+			s.SaveStartupConfig()
 		}
-		/* Create Transl client. */
-		dc, err = sdc.NewTranslClient(prefix, nil, ctx, extensions)
-	}
 
+		resp := &gnmipb.SetResponse{
+			Prefix:   req.GetPrefix(),
+			Response: results,
+		}
+		return resp, err
+	}()
+
+	duration := time.Since(start)
 	if err != nil {
-		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-		return nil, status.Error(codes.NotFound, err.Error())
-	}
-	defer dc.Close()
-
-	ctx, err = authenticate(s.config, ctx, authTarget, true)
-	if err != nil {
-		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-		return nil, err
-	}
-	/* DELETE */
-	for _, path := range req.GetDelete() {
-		log.V(2).Infof("Delete path: %v", path)
-
-		res := gnmipb.UpdateResult{
-			Path: path,
-			Op:   gnmipb.UpdateResult_DELETE,
-		}
-
-		/* Add to Set response results. */
-		results = append(results, &res)
-	}
-
-	/* REPLACE */
-	for _, path := range req.GetReplace() {
-		log.V(2).Infof("Replace path: %v ", path)
-
-		res := gnmipb.UpdateResult{
-			Path: path.GetPath(),
-			Op:   gnmipb.UpdateResult_REPLACE,
-		}
-		/* Add to Set response results. */
-		results = append(results, &res)
-	}
-
-	/* UPDATE */
-	for _, path := range req.GetUpdate() {
-		log.V(2).Infof("Update path: %v ", path)
-
-		res := gnmipb.UpdateResult{
-			Path: path.GetPath(),
-			Op:   gnmipb.UpdateResult_UPDATE,
-		}
-		/* Add to Set response results. */
-		results = append(results, &res)
-	}
-	err = dc.Set(req.GetDelete(), req.GetReplace(), req.GetUpdate())
-	if err != nil {
-		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+		log.Errorf("[GNMI-AUDIT] SetResponse user=%s peer=%s status=FAIL err=%v duration=%v",
+			auditUser, auditPeer, err, duration)
 	} else {
-		s.SaveStartupConfig()
+		log.Infof("[GNMI-AUDIT] SetResponse user=%s peer=%s status=OK duration=%v",
+			auditUser, auditPeer, duration)
 	}
 
-	resp := &gnmipb.SetResponse{
-		Prefix:   req.GetPrefix(),
-		Response: results,
-	}
 	return resp, err
 }
 
