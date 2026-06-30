@@ -1093,7 +1093,7 @@ func SaveOnSetEnabled() error {
 // SaveOnSetDisabeld does nothing.
 func saveOnSetDisabled() error { return nil }
 
-func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.SetResponse, err error) {
+func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.SetResponse, retErr error) {
 	start := time.Now()
 	auditUser := extractUser(ctx)
 	auditPeer := extractPeer(ctx)
@@ -1103,9 +1103,9 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.
 
 	defer func() {
 		duration := time.Since(start)
-		if err != nil {
+		if retErr != nil {
 			log.Errorf("[GNMI-AUDIT] SetResponse user=%s peer=%s status=FAIL err=%v duration=%v",
-				auditUser, auditPeer, err, duration)
+				auditUser, auditPeer, retErr, duration)
 		} else {
 			log.Infof("[GNMI-AUDIT] SetResponse user=%s peer=%s status=OK duration=%v",
 				auditUser, auditPeer, duration)
@@ -1124,20 +1124,20 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.
 	}
 	// gNMI path based authorization
 	if s.config.PathzPolicy {
-		pathzUser, userErr := getUsername(ctx)
-		if userErr != nil {
-			log.V(1).Infof("SetRequest User not found: %s", userErr.Error())
-			return nil, userErr
+		user, err := getUsername(ctx)
+		if err != nil {
+			log.V(1).Infof("SetRequest User not found: %s", err.Error())
+			return nil, err
 		}
 		permitted := true
 		for _, path := range req.GetDelete() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), path, gnsi_pathz_pb.Mode_MODE_WRITE)
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), path, gnsi_pathz_pb.Mode_MODE_WRITE)
 		}
 		for _, update := range req.GetReplace() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
 		}
 		for _, update := range req.GetUpdate() {
-			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(pathzUser, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
+			s.gnsiPathz.pathzProcessor.AuthorizeWithPrefix(user, req.GetPrefix(), update.GetPath(), gnsi_pathz_pb.Mode_MODE_WRITE)
 		}
 		if !permitted {
 			return nil, status.Error(codes.PermissionDenied, "Unauthorized request. Rejected by pathz policy.")
@@ -1155,6 +1155,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.
 	encoding := gnmipb.Encoding_JSON_IETF
 
 	var dc sdc.Client
+	var err error
 	paths := req.GetDelete()
 	for _, path := range req.GetReplace() {
 		paths = append(paths, path.GetPath())
@@ -1177,13 +1178,13 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.
 
 		// Fast path: bypass validation for allowed tables/SKUs
 		allUpdates := append(req.GetReplace(), req.GetUpdate()...)
-		if bypassResp, used, bypassErr := bypass.TrySet(ctx, prefix, req.GetDelete(), allUpdates); used {
-			if bypassErr != nil {
+		if resp, used, err := bypass.TrySet(ctx, prefix, req.GetDelete(), allUpdates); used {
+			if err != nil {
 				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-				return nil, status.Error(codes.Internal, bypassErr.Error())
+				return nil, status.Error(codes.Internal, err.Error())
 			}
 			common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
-			return bypassResp, nil
+			return resp, nil
 		}
 
 		var targetDbName string
