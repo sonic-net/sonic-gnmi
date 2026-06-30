@@ -1312,15 +1312,15 @@ func extractPeer(ctx context.Context) string {
 	return "unknown"
 }
 
-func logGnmiAuditResponse(method, user, peerAddr string, start time.Time, errPtr *error) {
+func logGnmiAuditResponse(method, user, peer string, start time.Time, errPtr *error) {
 	duration := time.Since(start)
 
 	if errPtr != nil && *errPtr != nil {
 		log.Errorf("[GNMI-AUDIT] %sResponse user=%s peer=%s status=FAIL err=%v duration=%v",
-			method, user, peerAddr, *errPtr, duration)
+			method, user, peer, *errPtr, duration)
 	} else {
 		log.Infof("[GNMI-AUDIT] %sResponse user=%s peer=%s status=OK duration=%v",
-			method, user, peerAddr, duration)
+			method, user, peer, duration)
 	}
 }
 
