@@ -1272,11 +1272,10 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.
 		s.SaveStartupConfig()
 	}
 
-	resp = &gnmipb.SetResponse{
+	return &gnmipb.SetResponse{
 		Prefix:   req.GetPrefix(),
 		Response: results,
-	}
-	return resp, err
+	}, err
 }
 
 func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest) (*gnmipb.CapabilityResponse, error) {
