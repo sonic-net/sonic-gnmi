@@ -960,18 +960,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (resp *gnmipb.
 	log.Infof("[GNMI-AUDIT] GetRequest user=%s peer=%s prefix=%v paths=%v type=%v",
 			auditUser, auditPeer, req.GetPrefix(), req.GetPath(), req.GetType())
 
-	// defer logs automatically when function returns
-	defer func() {
-		duration := time.Since(start)
-
-		if err != nil {
-			log.Errorf("[GNMI-AUDIT] GetResponse user=%s peer=%s status=FAIL err=%v duration=%v",
-					auditUser, auditPeer, err, duration)
-		} else {
-			log.Infof("[GNMI-AUDIT] GetResponse user=%s peer=%s status=OK duration=%v",
-					auditUser, auditPeer, duration)
-		}
-	}()
+	defer logGnmiAuditResponse("Get", auditUser, auditPeer, start, &err)
 
 	common_utils.IncCounter(common_utils.GNMI_GET)
 
@@ -1120,16 +1109,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.
 	log.Infof("[GNMI-AUDIT] SetRequest user=%s peer=%s prefix=%v updates=%d replaces=%d deletes=%d",
 		auditUser, auditPeer, req.GetPrefix(), len(req.GetUpdate()), len(req.GetReplace()), len(req.GetDelete()))
 
-	defer func() {
-		duration := time.Since(start)
-		if retErr != nil {
-			log.Errorf("[GNMI-AUDIT] SetResponse user=%s peer=%s status=FAIL err=%v duration=%v",
-				auditUser, auditPeer, retErr, duration)
-		} else {
-			log.Infof("[GNMI-AUDIT] SetResponse user=%s peer=%s status=OK duration=%v",
-				auditUser, auditPeer, duration)
-		}
-	}()
+	defer logGnmiAuditResponse("Set", auditUser, auditPeer, start, &retErr)
 
 	e := s.ReqFromMaster(req, &s.masterEID)
 	if e != nil {
@@ -1348,6 +1328,18 @@ func extractPeer(ctx context.Context) string {
 	}
 
 	return "unknown"
+}
+
+func logGnmiAuditResponse(method, user, peerAddr string, start time.Time, errPtr *error) {
+	duration := time.Since(start)
+
+	if errPtr != nil && *errPtr != nil {
+		log.Errorf("[GNMI-AUDIT] %sResponse user=%s peer=%s status=FAIL err=%v duration=%v",
+			method, user, peerAddr, *errPtr, duration)
+	} else {
+		log.Infof("[GNMI-AUDIT] %sResponse user=%s peer=%s status=OK duration=%v",
+			method, user, peerAddr, duration)
+	}
 }
 
 // Obtain the user name as the last element of the SPIFFE ID.
