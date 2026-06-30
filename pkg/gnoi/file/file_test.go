@@ -1,6 +1,7 @@
 package file
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
@@ -364,6 +365,7 @@ func TestValidatePath_AllowedPaths(t *testing.T) {
 		{"host machine.conf allowed (broad)", "/host/machine.conf"},
 		{"host overlayfs rw root", "/host/image-master/rw/usr/bin/test"},
 		{"host image rw", "/host/image-internal.164866913-743c646df0/rw/etc/sonic/minigraph.xml"},
+		{"DLDD rules inbox", dlddRulesInboxPath},
 	}
 
 	for _, tt := range tests {
@@ -390,7 +392,7 @@ func TestValidatePath_RejectedPaths(t *testing.T) {
 		{
 			name:        "path traversal",
 			path:        "/tmp/../etc/passwd",
-			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
+			expectedErr: "path traversal not allowed",
 		},
 		{
 			name:        "etc directory",
@@ -430,11 +432,21 @@ func TestValidatePath_RejectedPaths(t *testing.T) {
 		{
 			name:        "host traversal",
 			path:        "/host/image-foo/../../etc/passwd",
-			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
+			expectedErr: "path traversal not allowed",
 		},
 		{
 			name:        "var log",
 			path:        "/var/log/syslog",
+			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
+		},
+		{
+			name:        "DLDD watcher state",
+			path:        "/var/lib/sonic/dldd/rules/.watch-state.json",
+			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
+		},
+		{
+			name:        "DLDD promoted rules",
+			path:        "/var/lib/sonic/dldd/rules/dld_rules.active.yaml",
 			expectedErr: "path must be under /tmp/, /var/tmp/, or /host/",
 		},
 	}
@@ -494,6 +506,22 @@ func TestHandleTransferToRemote_PathSecurityValidation(t *testing.T) {
 				t.Errorf("Expected InvalidArgument error for path %q, got %v", tt.path, err)
 			}
 		})
+	}
+}
+
+func TestHandleTransferToRemoteRejectsDLDDRulesInbox(t *testing.T) {
+	req := &gnoi_file_pb.TransferToRemoteRequest{
+		LocalPath: dlddRulesInboxPath,
+		RemoteDownload: &common.RemoteDownload{
+			Path:     "http://example.invalid/dld_rules.yaml",
+			Protocol: common.RemoteDownload_HTTP,
+		},
+	}
+
+	_, err := HandleTransferToRemote(context.Background(), req)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("HandleTransferToRemote() code = %v, want %v; err=%v",
+			status.Code(err), codes.PermissionDenied, err)
 	}
 }
 
@@ -614,6 +642,200 @@ func TestHandlePut_Success(t *testing.T) {
 
 	// Cleanup
 	os.Remove(path)
+}
+
+func TestHandlePut_DLDDRulesInbox(t *testing.T) {
+	previousHostRoot := hostRoot
+	hostRoot = t.TempDir()
+	t.Cleanup(func() { hostRoot = previousHostRoot })
+
+	content := []byte("schema_version: 0.0.1\nsignatures: []\n")
+	digest := md5.Sum(content)
+	stream := newMockPutStream()
+	stream.addOpenRequest(dlddRulesInboxPath, 0777)
+	stream.addContentRequest(content)
+	stream.addHashRequest(digest[:])
+
+	if err := HandlePut(stream); err != nil {
+		t.Fatalf("HandlePut() DLDD inbox error = %v", err)
+	}
+	got, err := os.ReadFile(hostRoot + dlddRulesInboxPath)
+	if err != nil {
+		t.Fatalf("read staged DLDD rules: %v", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Fatalf("staged DLDD rules = %q, want %q", got, content)
+	}
+	info, err := os.Stat(hostRoot + dlddRulesInboxPath)
+	if err != nil {
+		t.Fatalf("stat staged DLDD rules: %v", err)
+	}
+	if got := info.Mode().Perm(); got != dlddRulesInboxMode {
+		t.Fatalf("staged DLDD rules mode = %o, want %o", got, dlddRulesInboxMode)
+	}
+	parentInfo, err := os.Stat(filepath.Dir(hostRoot + dlddRulesInboxPath))
+	if err != nil {
+		t.Fatalf("stat DLDD inbox: %v", err)
+	}
+	if got := parentInfo.Mode().Perm(); got != 0750 {
+		t.Fatalf("DLDD inbox mode = %o, want 750", got)
+	}
+}
+
+func TestHandlePut_EnforcesMaximumSize(t *testing.T) {
+	previousHostRoot := hostRoot
+	previousMaxFileSize := maxFileSize
+	hostRoot = t.TempDir()
+	maxFileSize = 5
+	t.Cleanup(func() {
+		hostRoot = previousHostRoot
+		maxFileSize = previousMaxFileSize
+	})
+
+	stream := newMockPutStream()
+	stream.addOpenRequest("/tmp/oversized.bin", 0600)
+	stream.addContentRequest([]byte("1234"))
+	stream.addContentRequest([]byte("56"))
+	err := HandlePut(stream)
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("HandlePut() code = %v, want %v; err=%v", status.Code(err), codes.ResourceExhausted, err)
+	}
+	if _, err := os.Stat(hostRoot + "/tmp/oversized.bin"); !os.IsNotExist(err) {
+		t.Fatalf("oversized upload published a destination file; stat err=%v", err)
+	}
+	entries, err := os.ReadDir(hostRoot + "/tmp")
+	if err != nil {
+		t.Fatalf("read upload directory: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("oversized upload left temporary files: %v", entries)
+	}
+}
+
+func TestHandlePut_RejectsOversizedChunk(t *testing.T) {
+	previousHostRoot := hostRoot
+	hostRoot = t.TempDir()
+	t.Cleanup(func() { hostRoot = previousHostRoot })
+
+	stream := newMockPutStream()
+	stream.addOpenRequest("/tmp/oversized-chunk.bin", 0600)
+	stream.addContentRequest(make([]byte, maxPutChunkSize+1))
+	err := HandlePut(stream)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("HandlePut() code = %v, want %v; err=%v", status.Code(err), codes.InvalidArgument, err)
+	}
+	if _, err := os.Stat(hostRoot + "/tmp/oversized-chunk.bin"); !os.IsNotExist(err) {
+		t.Fatalf("oversized chunk published a destination file; stat err=%v", err)
+	}
+}
+
+func TestHandlePut_RejectsUnsupportedHashMethod(t *testing.T) {
+	previousHostRoot := hostRoot
+	hostRoot = t.TempDir()
+	t.Cleanup(func() { hostRoot = previousHostRoot })
+
+	content := []byte("content")
+	stream := newMockPutStream()
+	stream.addOpenRequest("/tmp/hash-method.bin", 0600)
+	stream.addContentRequest(content)
+	stream.requests = append(stream.requests, &gnoi_file_pb.PutRequest{
+		Request: &gnoi_file_pb.PutRequest_Hash{Hash: &types.HashType{
+			Method: types.HashType_SHA256,
+			Hash:   make([]byte, 32),
+		}},
+	})
+
+	err := HandlePut(stream)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("HandlePut() code = %v, want %v; err=%v", status.Code(err), codes.InvalidArgument, err)
+	}
+}
+
+func TestHandlePut_ConcurrentAtomicReplacement(t *testing.T) {
+	previousHostRoot := hostRoot
+	hostRoot = t.TempDir()
+	t.Cleanup(func() { hostRoot = previousHostRoot })
+
+	const uploads = 8
+	payloads := make([][]byte, uploads)
+	results := make(chan error, uploads)
+	start := make(chan struct{})
+	for index := 0; index < uploads; index++ {
+		payload := bytes.Repeat([]byte{byte('A' + index)}, 64*1024)
+		payloads[index] = payload
+		stream := newMockPutStream()
+		stream.addOpenRequest(dlddRulesInboxPath, 0640)
+		stream.addContentRequest(payload)
+		digest := md5.Sum(payload)
+		stream.addHashRequest(digest[:])
+		go func() {
+			<-start
+			results <- HandlePut(stream)
+		}()
+	}
+	close(start)
+	for index := 0; index < uploads; index++ {
+		if err := <-results; err != nil {
+			t.Fatalf("concurrent HandlePut() failed: %v", err)
+		}
+	}
+
+	got, err := os.ReadFile(hostRoot + dlddRulesInboxPath)
+	if err != nil {
+		t.Fatalf("read final DLDD rules: %v", err)
+	}
+	matched := false
+	for _, payload := range payloads {
+		if bytes.Equal(got, payload) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		t.Fatal("concurrent uploads produced interleaved or truncated content")
+	}
+	entries, err := os.ReadDir(filepath.Dir(hostRoot + dlddRulesInboxPath))
+	if err != nil {
+		t.Fatalf("read DLDD inbox: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(dlddRulesInboxPath) {
+		t.Fatalf("concurrent uploads left unexpected files: %v", entries)
+	}
+}
+
+func TestHandlePut_DoesNotFollowLegacyFixedTempSymlink(t *testing.T) {
+	previousHostRoot := hostRoot
+	hostRoot = t.TempDir()
+	t.Cleanup(func() { hostRoot = previousHostRoot })
+
+	destination := hostRoot + dlddRulesInboxPath
+	if err := os.MkdirAll(filepath.Dir(destination), 0750); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(hostRoot, "outside")
+	if err := os.WriteFile(outside, []byte("unchanged"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	legacyTemp := destination + ".tmp"
+	if err := os.Symlink(outside, legacyTemp); err != nil {
+		t.Fatal(err)
+	}
+
+	content := []byte("schema_version: 0.0.1\n")
+	digest := md5.Sum(content)
+	stream := newMockPutStream()
+	stream.addOpenRequest(dlddRulesInboxPath, 0640)
+	stream.addContentRequest(content)
+	stream.addHashRequest(digest[:])
+	if err := HandlePut(stream); err != nil {
+		t.Fatalf("HandlePut() failed: %v", err)
+	}
+	if got, err := os.ReadFile(outside); err != nil || string(got) != "unchanged" {
+		t.Fatalf("legacy temp symlink target was modified: data=%q err=%v", got, err)
+	}
+	if got, err := os.ReadFile(destination); err != nil || !bytes.Equal(got, content) {
+		t.Fatalf("destination data=%q err=%v, want %q", got, err, content)
+	}
 }
 
 func TestHandlePut_CreatesParentDir(t *testing.T) {
@@ -1409,14 +1631,14 @@ func TestValidatePath_ComprehensiveSecurityTests(t *testing.T) {
 		{
 			"symlink attempt",
 			"/tmp/../tmp/file.bin",
-			true, // This actually passes because it cleans to "/tmp/file.bin" which is valid
-			"path traversal gets cleaned to valid path",
+			false,
+			"explicit parent traversal is rejected before normalization",
 		},
 		{
 			"null byte injection",
 			"/tmp/file\x00.bin",
-			true, // Go's filepath.Clean handles null bytes, this becomes valid
-			"null bytes get handled by filepath.Clean",
+			false,
+			"null bytes are not valid filesystem path data",
 		},
 		{
 			"very long path",

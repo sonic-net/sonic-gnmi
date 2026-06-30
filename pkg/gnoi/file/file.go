@@ -36,6 +36,12 @@ const (
 	// (4 GiB — typical maximum firmware size). Exposed as a var below so tests can
 	// lower it without producing actual 4 GiB files.
 	defaultMaxFileSize = 4 * 1024 * 1024 * 1024
+	maxPutChunkSize    = 64 * 1024
+
+	// This is the only persistent DLDD path writable through gNOI File. The
+	// watcher state and promoted generations alongside it remain daemon-owned.
+	dlddRulesInboxPath = "/var/lib/sonic/dldd/inbox/dld_rules.yaml"
+	dlddRulesInboxMode = 0640
 )
 
 // hostRoot is the path prefix that maps the *container* view onto the *host*
@@ -84,6 +90,13 @@ func HandleTransferToRemote(
 	ctx context.Context,
 	req *gnoi_file_pb.TransferToRemoteRequest,
 ) (*gnoi_file_pb.TransferToRemoteResponse, error) {
+	// DLDD rule delivery has stronger atomicity and mode requirements than a
+	// generic remote download. Only File.Put implements that publication path.
+	if req != nil && isDLDDRulesInbox(req.GetLocalPath()) {
+		return nil, status.Error(codes.PermissionDenied,
+			"the DLDD rules inbox can only be updated with gNOI File.Put")
+	}
+
 	// Check for DPU headers (HandleOnNPU mode from DPU proxy)
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
 		targetType := ""
@@ -204,6 +217,7 @@ func translatePathForContainer(path string) string {
 //   - /tmp/      - Temporary files, firmware images
 //   - /var/tmp/  - Temporary files that persist across reboots
 //   - /host/     - Next-image overlay staging (e.g. /host/image-*/rw/etc/sonic/...)
+//   - /var/lib/sonic/dldd/inbox/dld_rules.yaml - DLDD rules staging file
 //
 // Rejected paths include:
 //   - /etc/, /boot/, /usr/, /bin/, /sbin/ - Critical system directories
@@ -219,6 +233,14 @@ func translatePathForContainer(path string) string {
 // permissions inside the container (the gnmi container only sees /host as
 // rw when the platform mounts it that way; see sonic-buildimage PR-B).
 func validatePath(path string) error {
+	if strings.IndexByte(path, 0) >= 0 {
+		return fmt.Errorf("path contains a null byte")
+	}
+	for _, component := range strings.Split(path, string(filepath.Separator)) {
+		if component == ".." {
+			return fmt.Errorf("path traversal not allowed: %s", path)
+		}
+	}
 	// Clean the path to resolve . and .. components
 	cleanPath := filepath.Clean(path)
 
@@ -227,9 +249,8 @@ func validatePath(path string) error {
 		return fmt.Errorf("path must be absolute, got: %s", path)
 	}
 
-	// Check if path contains .. after cleaning (path traversal attempt)
-	if strings.Contains(cleanPath, "..") {
-		return fmt.Errorf("path traversal not allowed: %s", path)
+	if isDLDDRulesInbox(cleanPath) {
+		return nil
 	}
 
 	// Whitelist of allowed directory prefixes
@@ -245,7 +266,11 @@ func validatePath(path string) error {
 		}
 	}
 
-	return fmt.Errorf("path must be under /tmp/, /var/tmp/, or /host/, got: %s", cleanPath)
+	return fmt.Errorf("path must be under /tmp/, /var/tmp/, or /host/, or equal %s, got: %s", dlddRulesInboxPath, cleanPath)
+}
+
+func isDLDDRulesInbox(path string) bool {
+	return filepath.Clean(path) == dlddRulesInboxPath
 }
 
 // HandlePut implements the complete logic for the Put RPC with DPU routing support.
@@ -254,7 +279,7 @@ func validatePath(path string) error {
 //
 // This function handles:
 //   - Receiving Open message with file path and permissions
-//   - Path validation (only /tmp/, /var/tmp/, and /host/)
+//   - Path validation (temporary/image paths and the exact DLDD rules inbox)
 //   - Container path translation (prepends /mnt/host when running in container)
 //   - Receiving file contents in chunks
 //   - MD5 hash verification
@@ -311,6 +336,12 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 		// Default to 0644 if not specified
 		permissions = 0644
 	}
+	// The rules inbox is consumed by a privileged host service and is the only
+	// persistent DLDD path exposed to gNOI File. Do not let a remote caller make
+	// that file executable or writable by other users.
+	if isDLDDRulesInbox(remotePath) {
+		permissions = dlddRulesInboxMode
+	}
 
 	// Step 2: Validate path is in allowed directories
 	if err := validatePath(remotePath); err != nil {
@@ -320,8 +351,9 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 	// Step 3: Container path translation
 	translatedPath := translatePathForContainer(remotePath)
 
-	// Step 4: Create temp file for atomic write
-	tempPath := translatedPath + ".tmp"
+	// Step 4: Create a unique same-directory temporary file for atomic write.
+	// A fixed "<target>.tmp" path lets concurrent Put streams truncate and
+	// interleave one another and can follow an attacker-planted symlink.
 	// Ensure parent dir exists so callers don't need an out-of-band mkdir.
 	// Mirrors the behavior of typical file-upload servers; the alternative
 	// is forcing every gNOI client to pre-create parent dirs via SSH or
@@ -329,27 +361,39 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 	// self-contained upload primitive. Runs after validatePath (Step 2) and
 	// translatePathForContainer (Step 3) so no privilege escalation risk
 	// beyond what the existing whitelist already accepts.
-	if err := os.MkdirAll(filepath.Dir(tempPath), 0755); err != nil {
+	parentDir := filepath.Dir(translatedPath)
+	parentMode := os.FileMode(0755)
+	if isDLDDRulesInbox(remotePath) {
+		parentMode = 0750
+	}
+	if err := os.MkdirAll(parentDir, parentMode); err != nil {
 		return status.Errorf(codes.Internal, "failed to create parent dir: %v", err)
 	}
-	f, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if isDLDDRulesInbox(remotePath) {
+		if err := os.Chmod(parentDir, parentMode); err != nil {
+			return status.Errorf(codes.Internal, "failed to secure DLDD inbox directory: %v", err)
+		}
+	}
+	f, err := os.CreateTemp(parentDir, "."+filepath.Base(translatedPath)+"-*.tmp")
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to create temp file: %v", err)
 	}
+	tempPath := f.Name()
+	closed := false
 	defer func() {
-		if closeErr := f.Close(); closeErr != nil {
-			log.Errorf("Failed to close temp file %s: %v", tempPath, closeErr)
-		}
-		// Only remove if file still exists (indicates failure path)
-		if _, err := os.Stat(tempPath); err == nil {
-			if rmErr := os.Remove(tempPath); rmErr != nil {
-				log.Errorf("Failed to cleanup temp file %s: %v", tempPath, rmErr)
+		if !closed {
+			if closeErr := f.Close(); closeErr != nil {
+				log.Errorf("Failed to close temp file %s: %v", tempPath, closeErr)
 			}
+		}
+		if rmErr := os.Remove(tempPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			log.Errorf("Failed to cleanup temp file %s: %v", tempPath, rmErr)
 		}
 	}()
 
 	// Step 5: Receive chunks and write to temp file
 	hasher := md5.New() // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
+	var bytesWritten int64
 	for {
 		req, err := stream.Recv()
 		if err != nil {
@@ -363,14 +407,29 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 		}
 
 		if contents := req.GetContents(); contents != nil {
+			if len(contents) > maxPutChunkSize {
+				return status.Errorf(codes.InvalidArgument,
+					"content chunk exceeds gNOI File.Put maximum of %d bytes", maxPutChunkSize)
+			}
+			chunkSize := int64(len(contents))
+			if chunkSize > maxFileSize-bytesWritten {
+				return status.Errorf(codes.ResourceExhausted,
+					"file exceeds maximum size of %d bytes", maxFileSize)
+			}
 			// Write chunk to file
 			if _, err := f.Write(contents); err != nil {
 				return status.Errorf(codes.Internal, "failed to write chunk: %v", err)
 			}
+			bytesWritten += chunkSize
 			// Update hash
 			hasher.Write(contents)
 		} else if hashMsg := req.GetHash(); hashMsg != nil {
 			// Step 6: Verify hash
+			if hashMsg.GetMethod() != types.HashType_MD5 {
+				return status.Errorf(codes.InvalidArgument,
+					"unsupported hash method %s; MD5 is required by gNOI File.Put",
+					hashMsg.GetMethod())
+			}
 			calculatedHash := hasher.Sum(nil)
 			receivedHash := hashMsg.GetHash()
 
@@ -385,22 +444,36 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 		}
 	}
 
-	// Step 7: Close the temp file before renaming
+	// Step 7: Set permissions and flush file contents before publishing the
+	// completed candidate with rename.
+	if err := f.Chmod(os.FileMode(permissions)); err != nil {
+		return status.Errorf(codes.Internal, "failed to set permissions: %v", err)
+	}
+	if err := f.Sync(); err != nil {
+		return status.Errorf(codes.Internal, "failed to sync temp file: %v", err)
+	}
 	if err := f.Close(); err != nil {
 		return status.Errorf(codes.Internal, "failed to close temp file: %v", err)
 	}
+	closed = true
 
-	// Step 8: Set permissions on temp file
-	if err := os.Chmod(tempPath, os.FileMode(permissions)); err != nil {
-		return status.Errorf(codes.Internal, "failed to set permissions: %v", err)
-	}
-
-	// Step 9: Atomic rename to final path
+	// Step 8: Atomically publish the file, then persist the directory entry.
 	if err := os.Rename(tempPath, translatedPath); err != nil {
 		return status.Errorf(codes.Internal, "failed to rename file: %v", err)
 	}
+	directory, err := os.Open(parentDir)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to open destination directory for sync: %v", err)
+	}
+	if err := directory.Sync(); err != nil {
+		directory.Close()
+		return status.Errorf(codes.Internal, "failed to sync destination directory: %v", err)
+	}
+	if err := directory.Close(); err != nil {
+		return status.Errorf(codes.Internal, "failed to close destination directory: %v", err)
+	}
 
-	// Step 10: Send success response
+	// Step 9: Send success response
 	return stream.SendAndClose(&gnoi_file_pb.PutResponse{})
 }
 
@@ -561,10 +634,14 @@ func HandleFileRemove(ctx context.Context, req *gnoi_file_pb.RemoveRequest) (*gn
 		log.Errorf("Invalid request: remote_file field is empty")
 		return nil, status.Error(codes.InvalidArgument, "Invalid request: remote_file field is empty.")
 	}
+	if isDLDDRulesInbox(remoteFile) {
+		return nil, status.Error(codes.PermissionDenied,
+			"the DLDD rules inbox can only be updated with gNOI File.Put")
+	}
 
 	if err := validatePath(remoteFile); err != nil {
 		log.Errorf("Denied: %v", err)
-		return nil, status.Error(codes.PermissionDenied, "only files in /tmp/ or /var/tmp/ can be removed")
+		return nil, status.Errorf(codes.PermissionDenied, "path is not an allowed file location: %v", err)
 	}
 
 	// NEW: map host path to container path if needed.

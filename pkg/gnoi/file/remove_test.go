@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -28,6 +29,24 @@ func TestRemove_DangerousFile(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 	assert.Nil(t, resp)
+}
+
+func TestRemove_DLDDRulesInbox(t *testing.T) {
+	previousHostRoot := hostRoot
+	hostRoot = t.TempDir()
+	t.Cleanup(func() { hostRoot = previousHostRoot })
+
+	destination := hostRoot + dlddRulesInboxPath
+	assert.NoError(t, os.MkdirAll(filepath.Dir(destination), 0750))
+	assert.NoError(t, os.WriteFile(destination, []byte("rules"), dlddRulesInboxMode))
+
+	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: dlddRulesInboxPath})
+	assert.Error(t, err)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+	assert.Nil(t, resp)
+	content, readErr := os.ReadFile(destination)
+	assert.NoError(t, readErr)
+	assert.Equal(t, []byte("rules"), content)
 }
 
 func TestRemove_PathTraversal(t *testing.T) {

@@ -6698,6 +6698,37 @@ func TestAuthenticate(t *testing.T) {
 	cancel()
 }
 
+func TestAuthorizeTargetRoles(t *testing.T) {
+	tests := []struct {
+		name        string
+		roles       []string
+		writeAccess bool
+		wantCode    codes.Code
+	}{
+		{name: "read without target role remains compatible", roles: []string{"sonic_linux"}, wantCode: codes.OK},
+		{name: "read with readonly role", roles: []string{"gnoi_readonly"}, wantCode: codes.OK},
+		{name: "read with readwrite role", roles: []string{"gnoi_readwrite"}, wantCode: codes.OK},
+		{name: "explicit noaccess denies read", roles: []string{"gnoi_noaccess"}, wantCode: codes.PermissionDenied},
+		{name: "write requires target role", roles: []string{"sonic_linux"}, writeAccess: true, wantCode: codes.PermissionDenied},
+		{name: "readonly denies write", roles: []string{"gnoi_readonly"}, writeAccess: true, wantCode: codes.PermissionDenied},
+		{name: "readwrite allows write", roles: []string{"gnoi_readwrite"}, writeAccess: true, wantCode: codes.OK},
+		{name: "noaccess wins over readwrite", roles: []string{"gnoi_readwrite", "gnoi_noaccess"}, writeAccess: true, wantCode: codes.PermissionDenied},
+		{name: "other target readwrite does not allow write", roles: []string{"gnmi_readwrite"}, writeAccess: true, wantCode: codes.PermissionDenied},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rc := &common_utils.RequestContext{}
+			rc.Auth.User = "test-user"
+			rc.Auth.Roles = test.roles
+			err := authorizeTargetRoles(rc, "gnoi", test.writeAccess)
+			if got := status.Code(err); got != test.wantCode {
+				t.Fatalf("authorizeTargetRoles() code = %v, want %v; err=%v", got, test.wantCode, err)
+			}
+		})
+	}
+}
+
 func createUDSCtx() (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	p := peer.Peer{

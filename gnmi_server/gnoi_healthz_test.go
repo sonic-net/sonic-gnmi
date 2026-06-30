@@ -481,6 +481,9 @@ var testHealthzCases = []struct {
 		desc: "TestHealthzServer_Acknowledge",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
 			fakeClient := &ssc.FakeClient{}
+			resolver := useDefaultArtifactTestResolver(t)
+			artifactID := "/tmp/dump/ack-event"
+			writeArtifactTestFile(t, resolver, artifactID, []byte("artifact"))
 
 			// Patch NewDbusClient to return the fake client
 			patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
@@ -490,7 +493,7 @@ var testHealthzCases = []struct {
 
 			// Create a request with a valid ID
 			req := &healthz.AcknowledgeRequest{
-				Id: "ack-event",
+				Id: artifactID,
 			}
 
 			// Call Acknowledge
@@ -508,6 +511,9 @@ var testHealthzCases = []struct {
 		desc: "TestHealthzServer_Acknowledge_DBUS_Error",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
 			fakeClient := &ssc.FakeClientWithError{}
+			resolver := useDefaultArtifactTestResolver(t)
+			artifactID := "/tmp/dump/ack-event"
+			writeArtifactTestFile(t, resolver, artifactID, []byte("artifact"))
 
 			// Patch NewDbusClient to return the fake client
 			patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
@@ -517,7 +523,7 @@ var testHealthzCases = []struct {
 
 			// Create a request with a valid ID
 			req := &healthz.AcknowledgeRequest{
-				Id: "ack-event",
+				Id: artifactID,
 			}
 
 			// Call Acknowledge
@@ -533,12 +539,15 @@ var testHealthzCases = []struct {
 	{
 		desc: "Acknowledge_NewDbusClient_Error",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			resolver := useDefaultArtifactTestResolver(t)
+			artifactID := "/tmp/dump/ack-event"
+			writeArtifactTestFile(t, resolver, artifactID, []byte("artifact"))
 			// Patch NewDbusClient to return an error
 			patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
 				return nil, fmt.Errorf("simulated dbus client creation error")
 			})
 			defer patch.Reset()
-			req := &healthz.AcknowledgeRequest{Id: "ack-event"}
+			req := &healthz.AcknowledgeRequest{Id: artifactID}
 			resp, err := sc.Acknowledge(ctx, req)
 
 			if err == nil {
@@ -553,13 +562,10 @@ var testHealthzCases = []struct {
 	{
 		desc: "TestHealthzArtifact_FileNotFound",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
+			srv := newHealthzArtifactTestServer(t)
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/nonexistent_file.txt"}
 
-			// Use a dummy stream where Send does nothing
-			mockStream := &struct {
-				healthz.Healthz_ArtifactServer
-			}{}
+			mockStream := &artifactTestStream{ctx: ctx}
 
 			err := srv.Artifact(req, mockStream)
 			if err == nil {
@@ -577,13 +583,10 @@ var testHealthzCases = []struct {
 	{
 		desc: "TestHealthzArtifact_InvalidPath",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
+			srv := newHealthzArtifactTestServer(t)
 			req := &healthz.ArtifactRequest{Id: "/invalid/path/file.txt"}
 
-			// Use a dummy stream where Send does nothing
-			mockStream := &struct {
-				healthz.Healthz_ArtifactServer
-			}{}
+			mockStream := &artifactTestStream{ctx: ctx}
 
 			err := srv.Artifact(req, mockStream)
 			if err == nil {
@@ -598,24 +601,20 @@ var testHealthzCases = []struct {
 	{
 		desc: "TestHealthzArtifact_ValidPath",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
-			// Prepare a temporary valid file under /tmp/dump
-			tmpDir := "/tmp/dump"
-			_ = os.MkdirAll(tmpDir, 0755)
-			filePath := filepath.Join(tmpDir, "valid.txt")
+			srv := newHealthzArtifactTestServer(t)
+			filePath := "/tmp/dump/valid.txt"
+			realPath := srv.artifactResolver.containerPath(filePath)
 			content := []byte("this is valid test content")
-			if err := os.WriteFile(filePath, content, 0644); err != nil {
+			if err := os.WriteFile(realPath, content, 0644); err != nil {
 				t.Fatalf("failed to write temp file: %v", err)
 			}
-			defer os.Remove(filePath)
+			defer os.Remove(realPath)
 
 			req := &healthz.ArtifactRequest{Id: filePath}
-			mockStream := &struct {
-				healthz.Healthz_ArtifactServer
-			}{}
+			mockStream := &artifactTestStream{ctx: ctx}
 
 			err := srv.Artifact(req, mockStream)
-			if err == nil {
+			if err != nil {
 				t.Fatalf("expected success, got error: %v", err)
 			}
 		},
@@ -623,10 +622,10 @@ var testHealthzCases = []struct {
 	{
 		desc: "TestHealthzArtifact_SeekFailure",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
+			srv := newHealthzArtifactTestServer(t)
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/seek_fail.txt"}
 
-			realPath := "/mnt/host/tmp/dump/seek_fail.txt"
+			realPath := srv.artifactResolver.containerPath(req.GetId())
 			_ = os.MkdirAll(filepath.Dir(realPath), 0755)
 			_ = os.WriteFile(realPath, []byte("dummy"), 0644)
 			defer os.Remove(realPath)
@@ -637,7 +636,7 @@ var testHealthzCases = []struct {
 				},
 			)
 			defer patch.Reset()
-			mockStream := &struct{ healthz.Healthz_ArtifactServer }{}
+			mockStream := &artifactTestStream{ctx: ctx}
 			err := srv.Artifact(req, mockStream)
 			if err == nil {
 				t.Fatalf("expected seek failure, got nil")
@@ -651,35 +650,24 @@ var testHealthzCases = []struct {
 	{
 		desc: "TestHealthzArtifact_HeaderSendFailure",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
+			srv := newHealthzArtifactTestServer(t)
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/header_fail.txt"}
 
 			// Create a valid file
-			realPath := "/mnt/host/tmp/dump/header_fail.txt"
+			realPath := srv.artifactResolver.containerPath(req.GetId())
 			_ = os.MkdirAll(filepath.Dir(realPath), 0755)
 			_ = os.WriteFile(realPath, []byte("dummy data for header test"), 0644)
 			defer os.Remove(realPath)
 
-			// Define a mock stream struct
-			type mockArtifactStream struct {
-				healthz.Healthz_ArtifactServer
-				sendCount int
-			}
-			mockStream := &mockArtifactStream{}
-
-			// Patch Send() to simulate header send failure
-			patch := gomonkey.ApplyMethod(
-				reflect.TypeOf(mockStream), "Send",
-				func(_ *mockArtifactStream, resp *healthz.ArtifactResponse) error {
-					mockStream.sendCount++
-					// Fail only for header message
+			mockStream := &artifactTestStream{
+				ctx: ctx,
+				send: func(resp *healthz.ArtifactResponse) error {
 					if _, ok := resp.Contents.(*healthz.ArtifactResponse_Header); ok {
 						return fmt.Errorf("simulated header send failure")
 					}
 					return nil
 				},
-			)
-			defer patch.Reset()
+			}
 
 			err := srv.Artifact(req, mockStream)
 			if err == nil {
@@ -691,38 +679,32 @@ var testHealthzCases = []struct {
 				t.Errorf("expected Unknown error for header send failure, got %v", st.Code())
 			}
 
-			if mockStream.sendCount != 1 {
-				t.Errorf("expected Send to be called once (for header), got %d", mockStream.sendCount)
+			if len(mockStream.responses) != 1 {
+				t.Errorf("expected Send to be called once (for header), got %d", len(mockStream.responses))
 			}
 		},
 	},
 	{
 		desc: "TestHealthzArtifact_TrailerSendFailure",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
+			srv := newHealthzArtifactTestServer(t)
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/trailer_fail.txt"}
 
 			// Prepare a valid file
-			realPath := "/mnt/host/tmp/dump/trailer_fail.txt"
+			realPath := srv.artifactResolver.containerPath(req.GetId())
 			_ = os.MkdirAll(filepath.Dir(realPath), 0755)
 			_ = os.WriteFile(realPath, []byte("dummy file"), 0644)
 			defer os.Remove(realPath)
 
-			// Mock stream (any struct implementing the interface)
-			mockStream := &struct{ healthz.Healthz_ArtifactServer }{}
-
-			// Patch Send() on the interface type to simulate trailer failure
-			patch := gomonkey.ApplyMethod(
-				reflect.TypeOf(mockStream), "Send",
-				func(_ *struct{ healthz.Healthz_ArtifactServer }, resp *healthz.ArtifactResponse) error {
-					// Fail only for trailer
+			mockStream := &artifactTestStream{
+				ctx: ctx,
+				send: func(resp *healthz.ArtifactResponse) error {
 					if _, ok := resp.Contents.(*healthz.ArtifactResponse_Trailer); ok {
 						return fmt.Errorf("simulated trailer send failure")
 					}
 					return nil
 				},
-			)
-			defer patch.Reset()
+			}
 
 			err := srv.Artifact(req, mockStream)
 			if err == nil {
@@ -738,10 +720,10 @@ var testHealthzCases = []struct {
 	{
 		desc: "TestHealthzArtifact_FileReadFailure",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
+			srv := newHealthzArtifactTestServer(t)
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/read_fail.txt"}
 
-			realPath := "/mnt/host/tmp/dump/read_fail.txt"
+			realPath := srv.artifactResolver.containerPath(req.GetId())
 			_ = os.MkdirAll(filepath.Dir(realPath), 0755)
 			_ = os.WriteFile(realPath, []byte("dummy"), 0644)
 			defer os.Remove(realPath)
@@ -761,7 +743,7 @@ var testHealthzCases = []struct {
 			)
 			defer patch.Reset()
 
-			mockStream := &struct{ healthz.Healthz_ArtifactServer }{}
+			mockStream := &artifactTestStream{ctx: ctx}
 
 			err = srv.Artifact(req, mockStream)
 			if err == nil {
@@ -777,33 +759,23 @@ var testHealthzCases = []struct {
 	{
 		desc: "TestHealthzArtifact_ChunkSendFailure",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
+			srv := newHealthzArtifactTestServer(t)
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/chunk_fail.txt"}
 
-			realPath := "/mnt/host/tmp/dump/chunk_fail.txt"
+			realPath := srv.artifactResolver.containerPath(req.GetId())
 			_ = os.MkdirAll(filepath.Dir(realPath), 0755)
 			_ = os.WriteFile(realPath, make([]byte, 8192), 0644) // file > ddFileSegSize (4096)
 			defer os.Remove(realPath)
 
-			// Named struct for clarity
-			type mockArtifactStream struct {
-				healthz.Healthz_ArtifactServer
-				sendCount int
-			}
-			mockStream := &mockArtifactStream{}
-
-			// Patch Send() to fail during chunk data (not header/trailer)
-			patch := gomonkey.ApplyMethod(
-				reflect.TypeOf(mockStream), "Send",
-				func(_ *mockArtifactStream, resp *healthz.ArtifactResponse) error {
-					mockStream.sendCount++
+			mockStream := &artifactTestStream{
+				ctx: ctx,
+				send: func(resp *healthz.ArtifactResponse) error {
 					if _, ok := resp.Contents.(*healthz.ArtifactResponse_Bytes); ok {
 						return fmt.Errorf("simulated chunk send failure")
 					}
 					return nil
 				},
-			)
-			defer patch.Reset()
+			}
 
 			err := srv.Artifact(req, mockStream)
 			if err == nil {
@@ -815,8 +787,8 @@ var testHealthzCases = []struct {
 				t.Errorf("expected Unknown for chunk send failure, got %v", st.Code())
 			}
 
-			if mockStream.sendCount < 2 {
-				t.Errorf("expected Send called for header + chunk, got %d", mockStream.sendCount)
+			if len(mockStream.responses) < 2 {
+				t.Errorf("expected Send called for header + chunk, got %d", len(mockStream.responses))
 			}
 		},
 	},

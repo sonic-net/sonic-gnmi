@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -36,13 +34,20 @@ const (
 	ddLogLvlCritical string = "critical"
 	ddLogLvlAll      string = "all"
 	ddLogLvlSuf      string = "-info"
-	ddFileSegSize    int    = 4096
 )
 
 var (
 	artifactColTimeout time.Duration = 5 * time.Minute
 	artifactSleepTime  time.Duration = 5 * time.Second
 )
+
+func healthzMutationEnabled(config *Config) bool {
+	return config != nil && (config.EnableTranslibWrite || config.EnableNativeWrite)
+}
+
+func healthzReadOnlyError() error {
+	return status.Error(codes.Unimplemented, "gNOI Healthz mutation is disabled in read-only mode")
+}
 
 func isDebugData(p *types.Path) bool {
 	if p == nil {
@@ -146,22 +151,16 @@ func getDebugData(p *types.Path) (*healthz.GetResponse, error) {
 	}
 	fmt.Printf("Artifact file path received on Host: %s\n", s)
 
-	// Validate path is within allowed directory
-	allowedDir := "/tmp/dump"
-	cleanPath := filepath.Clean(s)
-	if !strings.HasPrefix(cleanPath, allowedDir) {
-		return nil, status.Errorf(codes.InvalidArgument, "Invalid artifact path")
-	}
-	file_path := healthzArtifactPath(cleanPath)
-	fmt.Printf("Artifact filepath inside gnmi container: %s\n", file_path)
-
-	// Stream-hash instead of loading entire file
-	f, err := os.Open(file_path)
+	// Reuse the Artifact RPC resolver for legacy debug artifacts. This keeps
+	// path containment and symlink handling identical across both Healthz APIs.
+	f, filePath, err := defaultArtifactResolver.open(s)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Error: [%v]", err)
+		return nil, err
 	}
 	defer f.Close()
+	fmt.Printf("Artifact filepath inside gnmi container: %s\n", filePath)
 
+	// Stream-hash instead of loading entire file
 	hasher := sha256.New()
 	size, err := io.Copy(hasher, f) // Streams through hasher, constant memory
 	if err != nil {
@@ -209,108 +208,43 @@ func (srv *HealthzServer) Get(ctx context.Context, req *healthz.GetRequest) (*he
 	path := req.GetPath()
 	log.V(1).Infof("Healthz.Get request path: %+v", path.GetElem())
 	if isDebugData(path) {
+		// The legacy Get implementation starts a new collection over D-Bus. It is
+		// not a read of an existing DLDD artifact and must respect the server's
+		// global write/mutation policy.
+		if !healthzMutationEnabled(srv.config) {
+			return nil, healthzReadOnlyError()
+		}
 		return getDebugData(path)
 	}
 	log.Warning("Healthz.Get received unsupported component path")
 	return nil, status.Errorf(codes.Unimplemented, "Healthz.Get is unimplemented for component: [%s].", path.GetElem())
 }
 
-func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.Healthz_ArtifactServer) error {
-	log.V(1).Infof("Artifact RPC Get request ID: %+v", req.GetId())
-	file := req.GetId()
-	allowedDir := "/tmp/dump"
-	cleanPath := filepath.Clean(file)
-	if !strings.HasPrefix(cleanPath, allowedDir) {
-		return status.Errorf(codes.InvalidArgument, "Invalid artifact path")
-	}
-	file_path := healthzArtifactPath(cleanPath)
-
-	f, err := os.Open(file_path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return status.Errorf(codes.NotFound, "File not found: %v", err)
-		}
-		return status.Errorf(codes.Internal, "Failed to open file: %v", err)
-	}
-	defer f.Close()
-
-	hasher := sha256.New()
-	size, err := io.Copy(hasher, f) // Streams through hasher, constant memory
-	if err != nil {
-		return status.Errorf(codes.Internal, "Error hashing: [%v]", err)
-	}
-	hashSum := hasher.Sum(nil)
-
-	// Reset file pointer to start for streaming chunks
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return status.Errorf(codes.Internal, "Failed to reset file pointer: %v", err)
-	}
-
-	header := &healthz.ArtifactResponse{
-		Contents: &healthz.ArtifactResponse_Header{
-			Header: &healthz.ArtifactHeader{
-				Id: file,
-				ArtifactType: &healthz.ArtifactHeader_File{
-					File: &healthz.FileArtifactType{
-						Name: file,
-						Size: size,
-						Hash: &types.HashType{
-							Method: types.HashType_SHA256,
-							Hash:   hashSum[:],
-						},
-					},
-				},
-			},
-		},
-	}
-	if err := stream.Send(header); err != nil {
-		log.Errorf("failed to send header: %v", err)
-		return err
-	}
-
-	buf := make([]byte, ddFileSegSize)
-
-	for {
-		n, err := f.Read(buf)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			log.Errorf("failed to send trailer: %v", err)
-			return status.Errorf(codes.Internal, "File read error: %v", err)
-		}
-		content := &healthz.ArtifactResponse{
-			Contents: &healthz.ArtifactResponse_Bytes{
-				Bytes: buf[:n],
-			},
-		}
-		if err := stream.Send(content); err != nil {
-			log.Errorf("failed to send Artifact data: %v", err)
-			return err
-		}
-	}
-
-	trailer := &healthz.ArtifactResponse{
-		Contents: &healthz.ArtifactResponse_Trailer{
-			Trailer: &healthz.ArtifactTrailer{},
-		},
-	}
-	if err := stream.Send(trailer); err != nil {
-		log.Errorf("failed to send trailer: %v", err)
-		return err
-	}
-	log.Infof("Successfully streamed artifact: %s (size=%d bytes)", file_path, size)
-	return nil
-}
-
 // Acknowledge implements the corresponding RPC.
 func (srv *HealthzServer) Acknowledge(ctx context.Context, req *healthz.AcknowledgeRequest) (*healthz.AcknowledgeResponse, error) {
 	log.V(1).Infof("Acknowledge RPC Get request ID: %+v", req.GetId())
-	ctx, err := authenticate(srv.config, ctx, "gnoi", false)
+	ctx, err := authenticate(srv.config, ctx, "gnoi", true)
 	if err != nil {
 		log.Errorf("Healthz.Acknowledge authentication failed: %v", err)
 		return nil, err
 	}
+	if req == nil || req.GetId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "Healthz.Acknowledge requires an event ID")
+	}
+	if !healthzMutationEnabled(srv.config) {
+		return nil, healthzReadOnlyError()
+	}
+
+	// Acknowledge is the destructive half of the legacy debug-artifact API.
+	// Resolve and pin the artifact through os.Root before forwarding its ID to
+	// the host service. The host service repeats this validation at deletion
+	// time, which closes the container/host validation gap.
+	artifact, _, err := srv.getArtifactResolver().openLegacy(req.GetId())
+	if err != nil {
+		return nil, err
+	}
+	defer artifact.Close()
+
 	sc, err := ssc.NewDbusClient()
 	if err != nil {
 		log.Errorf("NewDbusClient error: %v\n", err)
@@ -327,9 +261,18 @@ func (srv *HealthzServer) Acknowledge(ctx context.Context, req *healthz.Acknowle
 }
 
 func (srv *HealthzServer) List(ctx context.Context, req *healthz.ListRequest) (*healthz.ListResponse, error) {
+	if _, err := authenticate(srv.config, ctx, "gnoi", false); err != nil {
+		return nil, err
+	}
 	return nil, status.Errorf(codes.Unimplemented, "gNOI Healthz List not implemented")
 }
 
 func (srv *HealthzServer) Check(ctx context.Context, req *healthz.CheckRequest) (*healthz.CheckResponse, error) {
+	if _, err := authenticate(srv.config, ctx, "gnoi", true); err != nil {
+		return nil, err
+	}
+	if !healthzMutationEnabled(srv.config) {
+		return nil, healthzReadOnlyError()
+	}
 	return nil, status.Errorf(codes.Unimplemented, "gNOI Healthz Check not implemented")
 }
