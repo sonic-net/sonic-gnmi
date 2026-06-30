@@ -53,6 +53,7 @@ import (
 	"google.golang.org/grpc/authz"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/tls/certprovider"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/security/advancedtls"
@@ -950,7 +951,17 @@ func IsNativeOrigin(origin string) bool {
 }
 
 // Get implements the Get RPC in gNMI spec.
-func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
+func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (resp *gnmipb.GetResponse, err error) {
+	// GNMI-AUDIT logging
+	start := time.Now()
+	auditUser := extractUser(ctx)
+	auditPeer := extractPeer(ctx)
+
+	log.Infof("[GNMI-AUDIT] GetRequest user=%s peer=%s prefix=%v paths=%v type=%v",
+			auditUser, auditPeer, req.GetPrefix(), req.GetPath(), req.GetType())
+
+	defer logGnmiAuditResponse("Get", auditUser, auditPeer, start, &err)
+
 	common_utils.IncCounter(common_utils.GNMI_GET)
 
 	if req.GetType() != gnmipb.GetRequest_ALL {
@@ -975,7 +986,8 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		req.Path = newPaths
 	}
 
-	if err := s.checkEncodingAndModel(req.GetEncoding(), req.GetUseModels()); err != nil {
+	err = s.checkEncodingAndModel(req.GetEncoding(), req.GetUseModels())
+	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Error(codes.Unimplemented, err.Error())
 	}
@@ -994,7 +1006,6 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	log.V(2).Infof("GetRequest paths: %v", paths)
 
 	var dc sdc.Client
-	var err error
 	// Handle OPERATIONAL target directly without SONiC routing
 	if target == "OPERATIONAL" {
 		return s.handleOperationalGet(ctx, req, paths, prefix)
@@ -1090,7 +1101,16 @@ func SaveOnSetEnabled() error {
 // SaveOnSetDisabeld does nothing.
 func saveOnSetDisabled() error { return nil }
 
-func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
+func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (resp *gnmipb.SetResponse, retErr error) {
+	start := time.Now()
+	auditUser := extractUser(ctx)
+	auditPeer := extractPeer(ctx)
+
+	log.Infof("[GNMI-AUDIT] SetRequest user=%s peer=%s prefix=%v updates=%d replaces=%d deletes=%d",
+		auditUser, auditPeer, req.GetPrefix(), len(req.GetUpdate()), len(req.GetReplace()), len(req.GetDelete()))
+
+	defer logGnmiAuditResponse("Set", auditUser, auditPeer, start, &retErr)
+
 	e := s.ReqFromMaster(req, &s.masterEID)
 	if e != nil {
 		return nil, e
@@ -1280,6 +1300,47 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 		SupportedEncodings: supportedEncodings,
 		GNMIVersion:        "0.7.0",
 		Extension:          exts}, nil
+}
+
+func extractUser(ctx context.Context) string {
+	rc, _ := common_utils.GetContext(ctx)
+	if rc != nil && rc.Auth.User != "" {
+		return rc.Auth.User
+	}
+
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		for _, key := range []string{"username", "user", "x-remote-user"} {
+			if values := md.Get(key); len(values) > 0 && values[0] != "" {
+				return values[0]
+			}
+		}
+	}
+
+	if username, err := getUsername(ctx); err == nil && username != "" {
+		return username
+	}
+
+	return "unknown"
+}
+
+func extractPeer(ctx context.Context) string {
+	if pr, ok := peer.FromContext(ctx); ok && pr.Addr != nil {
+		return pr.Addr.String()
+	}
+
+	return "unknown"
+}
+
+func logGnmiAuditResponse(method, user, peer string, start time.Time, errPtr *error) {
+	duration := time.Since(start)
+
+	if errPtr != nil && *errPtr != nil {
+		log.Errorf("[GNMI-AUDIT] %sResponse user=%s peer=%s status=FAIL err=%v duration=%v",
+			method, user, peer, *errPtr, duration)
+	} else {
+		log.Infof("[GNMI-AUDIT] %sResponse user=%s peer=%s status=OK duration=%v",
+			method, user, peer, duration)
+	}
 }
 
 // Obtain the user name as the last element of the SPIFFE ID.
