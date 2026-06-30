@@ -1539,7 +1539,7 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 	if err != nil {
 		return err
 	}
-	log.V(2).Infof("JsonPatch: %s", text)
+	log.V(3).Infof("JsonPatch: %s", text)
 	patchFile := c.workPath + "/gcu.patch"
 	err = ioutil.WriteFile(patchFile, []byte(text), 0644)
 	if err != nil {
