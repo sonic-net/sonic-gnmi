@@ -37,7 +37,7 @@ func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.
 
 	artifactID := req.GetId()
 	log.V(1).Infof("Artifact RPC Get request ID: %+v", artifactID)
-	f, filePath, err := srv.getArtifactResolver().open(artifactID)
+	f, _, err := srv.getArtifactResolver().open(artifactID)
 	if err != nil {
 		return err
 	}
