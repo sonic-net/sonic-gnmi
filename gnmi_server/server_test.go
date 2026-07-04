@@ -7269,6 +7269,125 @@ func TestSrvAdvConfig(t *testing.T) {
 	}
 }
 
+// TestGnmiAuditLogging verifies that [GNMI-AUDIT] log entries are produced
+// with the correct method, user, peer, status, and error for Get and Set RPCs.
+func TestGnmiAuditLogging(t *testing.T) {
+	type auditCall struct {
+		method string
+		user   string
+		peer   string
+		status string
+		err    error
+	}
+
+	tests := []struct {
+		desc        string
+		setupServer func(t *testing.T) *Server
+		makeRequest func(t *testing.T, gClient pb.GNMIClient, ctx context.Context)
+		wantMethod  string
+		wantStatus  string
+		wantErrMsg  string
+	}{
+		{
+			desc:        "Get request logged as FAIL on auth failure",
+			setupServer: func(t *testing.T) *Server { return createAuthServer(t, 8081) },
+			makeRequest: func(t *testing.T, gClient pb.GNMIClient, ctx context.Context) {
+				gClient.Get(ctx, &pb.GetRequest{})
+			},
+			wantMethod: "Get",
+			wantStatus: "FAIL",
+			wantErrMsg: "Unauthenticated",
+		},
+		{
+			desc:        "Set request logged as FAIL on read-only server",
+			setupServer: func(t *testing.T) *Server { return createReadServer(t, 8081) },
+			makeRequest: func(t *testing.T, gClient pb.GNMIClient, ctx context.Context) {
+				gClient.Set(ctx, &pb.SetRequest{})
+			},
+			wantMethod: "Set",
+			wantStatus: "FAIL",
+			wantErrMsg: "read-only",
+		},
+		{
+			desc:        "Set request logged as FAIL on auth failure",
+			setupServer: func(t *testing.T) *Server { return createAuthServer(t, 8081) },
+			makeRequest: func(t *testing.T, gClient pb.GNMIClient, ctx context.Context) {
+				gClient.Set(ctx, &pb.SetRequest{})
+			},
+			wantMethod: "Set",
+			wantStatus: "FAIL",
+			wantErrMsg: "Unauthenticated",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			var mu sync.Mutex
+			var captured auditCall
+
+			mock := gomonkey.ApplyFunc(logGnmiAuditResponse,
+				func(method, user, peer string, start time.Time, errPtr *error) {
+					mu.Lock()
+					defer mu.Unlock()
+					captured.method = method
+					captured.user = user
+					captured.peer = peer
+					if errPtr != nil && *errPtr != nil {
+						captured.status = "FAIL"
+						captured.err = *errPtr
+					} else {
+						captured.status = "OK"
+					}
+				})
+			defer mock.Reset()
+
+			s := tt.setupServer(t)
+			go runServer(t, s)
+			defer s.Stop()
+
+			tlsConfig := &tls.Config{InsecureSkipVerify: true}
+			opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+			conn, err := grpc.Dial("127.0.0.1:8081", opts...)
+			if err != nil {
+				t.Fatalf("Dialing failed: %v", err)
+			}
+			defer conn.Close()
+
+			gClient := pb.NewGNMIClient(conn)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			tt.makeRequest(t, gClient, ctx)
+			// Allow time for the deferred audit log to fire after RPC returns.
+			time.Sleep(200 * time.Millisecond)
+
+			mu.Lock()
+			gotMethod := captured.method
+			gotStatus := captured.status
+			gotErr := captured.err
+			gotPeer := captured.peer
+			mu.Unlock()
+
+			if gotMethod != tt.wantMethod {
+				t.Errorf("audit method: got %q, want %q", gotMethod, tt.wantMethod)
+			}
+			if gotStatus != tt.wantStatus {
+				t.Errorf("audit status: got %q, want %q", gotStatus, tt.wantStatus)
+			}
+			if gotPeer == "" || gotPeer == "unknown" {
+				t.Errorf("audit peer should be populated, got %q", gotPeer)
+			}
+			if tt.wantErrMsg != "" {
+				if gotErr == nil {
+					t.Errorf("expected audit error containing %q but got nil", tt.wantErrMsg)
+				} else if !strings.Contains(gotErr.Error(), tt.wantErrMsg) {
+					t.Errorf("audit error %q does not contain %q", gotErr.Error(), tt.wantErrMsg)
+				}
+			}
+		})
+	}
+}
+
 func TestSrvTestConfigLogsAndReturns(t *testing.T) {
 	// 1. Force error in the FIRST WriteFile (Server Certificate)
 	t.Run("CoverageCertWriteError", func(t *testing.T) {
