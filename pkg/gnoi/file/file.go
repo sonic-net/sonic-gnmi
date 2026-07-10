@@ -330,6 +330,7 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 	if remotePath == "" {
 		return status.Error(codes.InvalidArgument, "remote_file cannot be empty")
 	}
+	isRulesInbox := isDLDDRulesInbox(remotePath)
 
 	permissions := openMsg.GetPermissions()
 	if permissions == 0 {
@@ -339,7 +340,7 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 	// The rules inbox is consumed by a privileged host service and is the only
 	// persistent DLDD path exposed to gNOI File. Do not let a remote caller make
 	// that file executable or writable by other users.
-	if isDLDDRulesInbox(remotePath) {
+	if isRulesInbox {
 		permissions = dlddRulesInboxMode
 	}
 
@@ -363,13 +364,13 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 	// beyond what the existing whitelist already accepts.
 	parentDir := filepath.Dir(translatedPath)
 	parentMode := os.FileMode(0755)
-	if isDLDDRulesInbox(remotePath) {
+	if isRulesInbox {
 		parentMode = 0750
 	}
 	if err := os.MkdirAll(parentDir, parentMode); err != nil {
 		return status.Errorf(codes.Internal, "failed to create parent dir: %v", err)
 	}
-	if isDLDDRulesInbox(remotePath) {
+	if isRulesInbox {
 		if err := os.Chmod(parentDir, parentMode); err != nil {
 			return status.Errorf(codes.Internal, "failed to secure DLDD inbox directory: %v", err)
 		}

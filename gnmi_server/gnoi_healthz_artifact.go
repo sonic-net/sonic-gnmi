@@ -26,6 +26,30 @@ func (srv *HealthzServer) getArtifactResolver() artifactPathResolver {
 	return srv.artifactResolver
 }
 
+func buildHealthzArtifactHeader(artifactID string, artifact io.ReadSeeker) (*healthz.ArtifactHeader, error) {
+	hasher := sha256.New()
+	size, err := io.Copy(hasher, artifact)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to hash artifact: %v", err)
+	}
+	if _, err := artifact.Seek(0, io.SeekStart); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to reset artifact file pointer: %v", err)
+	}
+	return &healthz.ArtifactHeader{
+		Id: artifactID,
+		ArtifactType: &healthz.ArtifactHeader_File{
+			File: &healthz.FileArtifactType{
+				Name: artifactID,
+				Size: size,
+				Hash: &types.HashType{
+					Method: types.HashType_SHA256,
+					Hash:   hasher.Sum(nil),
+				},
+			},
+		},
+	}, nil
+}
+
 func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.Healthz_ArtifactServer) error {
 	if _, err := healthzArtifactAuthenticate(srv.config, stream.Context(), "gnoi", false); err != nil {
 		log.Errorf("Healthz.Artifact authentication failed: %v", err)
@@ -42,40 +66,14 @@ func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.
 		return err
 	}
 	defer f.Close()
-	fileInfo, err := f.Stat()
+	artifactHeader, err := buildHealthzArtifactHeader(artifactID, f)
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to stat artifact: %v", err)
-	}
-	if !fileInfo.Mode().IsRegular() {
-		return status.Error(codes.InvalidArgument, "artifact is not a regular file")
-	}
-
-	hasher := sha256.New()
-	size, err := io.Copy(hasher, f)
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to hash artifact: %v", err)
-	}
-	hashSum := hasher.Sum(nil)
-
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return status.Errorf(codes.Internal, "failed to reset artifact file pointer: %v", err)
+		return err
 	}
 
 	header := &healthz.ArtifactResponse{
 		Contents: &healthz.ArtifactResponse_Header{
-			Header: &healthz.ArtifactHeader{
-				Id: artifactID,
-				ArtifactType: &healthz.ArtifactHeader_File{
-					File: &healthz.FileArtifactType{
-						Name: artifactID,
-						Size: size,
-						Hash: &types.HashType{
-							Method: types.HashType_SHA256,
-							Hash:   hashSum,
-						},
-					},
-				},
-			},
+			Header: artifactHeader,
 		},
 	}
 	if err := stream.Send(header); err != nil {
@@ -128,6 +126,6 @@ func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.
 		log.Errorf("failed to send artifact trailer: %v", err)
 		return err
 	}
-	log.Infof("Successfully streamed artifact ID %q (size=%d bytes)", artifactID, size)
+	log.Infof("Successfully streamed artifact ID %q (size=%d bytes)", artifactID, artifactHeader.GetFile().GetSize())
 	return nil
 }

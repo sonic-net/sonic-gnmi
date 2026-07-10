@@ -1,8 +1,10 @@
 package gnmi
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,6 +45,53 @@ func newHealthzArtifactTestServer(t *testing.T) *HealthzServer {
 	return &HealthzServer{
 		Server:           &Server{config: &Config{}},
 		artifactResolver: newArtifactTestResolver(t),
+	}
+}
+
+func TestBuildHealthzArtifactHeader(t *testing.T) {
+	tests := []struct {
+		name    string
+		content []byte
+	}{
+		{name: "non-empty", content: []byte("artifact content")},
+		{name: "empty"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			const artifactID = "artifact.tar.gz"
+			artifact := bytes.NewReader(test.content)
+
+			header, err := buildHealthzArtifactHeader(artifactID, artifact)
+			if err != nil {
+				t.Fatalf("buildHealthzArtifactHeader() failed: %v", err)
+			}
+			fileHeader := header.GetFile()
+			if header.GetId() != artifactID || fileHeader == nil || fileHeader.GetName() != artifactID {
+				t.Fatalf("unexpected artifact header: %+v", header)
+			}
+			if fileHeader.GetSize() != int64(len(test.content)) {
+				t.Fatalf("artifact size = %d, want %d", fileHeader.GetSize(), len(test.content))
+			}
+			wantHash := sha256.Sum256(test.content)
+			if fileHeader.GetHash().GetMethod() != types.HashType_SHA256 || !bytes.Equal(fileHeader.GetHash().GetHash(), wantHash[:]) {
+				t.Fatalf("unexpected artifact hash: %+v", fileHeader.GetHash())
+			}
+
+			position, err := artifact.Seek(0, io.SeekCurrent)
+			if err != nil {
+				t.Fatalf("artifact position check failed: %v", err)
+			}
+			if position != 0 {
+				t.Fatalf("artifact position = %d, want rewind to 0", position)
+			}
+			got, err := io.ReadAll(artifact)
+			if err != nil {
+				t.Fatalf("reading rewound artifact failed: %v", err)
+			}
+			if !bytes.Equal(got, test.content) {
+				t.Fatalf("rewound artifact content = %q, want %q", got, test.content)
+			}
+		})
 	}
 }
 
@@ -115,7 +164,7 @@ func TestHealthzArtifactStreamsEmptyContentMessage(t *testing.T) {
 
 func TestHealthzReadOnlyServerRejectsMutatingOperations(t *testing.T) {
 	server := newHealthzArtifactTestServer(t)
-	if healthzMutationEnabled(server.config) {
+	if writeEnabled(server.config) {
 		t.Fatal("test server unexpectedly has Healthz mutations enabled")
 	}
 
@@ -197,7 +246,7 @@ func TestHealthzAcknowledgeAcceptsContainedAbsoluteArtifact(t *testing.T) {
 	}
 }
 
-func TestHealthzMutationEnabledByEitherWriteBackend(t *testing.T) {
+func TestWriteEnabledByEitherWriteBackend(t *testing.T) {
 	tests := []struct {
 		name   string
 		config *Config
@@ -210,8 +259,8 @@ func TestHealthzMutationEnabledByEitherWriteBackend(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := healthzMutationEnabled(test.config); got != test.want {
-				t.Fatalf("healthzMutationEnabled() = %v, want %v", got, test.want)
+			if got := writeEnabled(test.config); got != test.want {
+				t.Fatalf("writeEnabled() = %v, want %v", got, test.want)
 			}
 		})
 	}

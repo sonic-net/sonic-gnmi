@@ -2,10 +2,8 @@ package gnmi
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -41,10 +39,6 @@ var (
 	artifactSleepTime  time.Duration = 5 * time.Second
 )
 
-func healthzMutationEnabled(config *Config) bool {
-	return config != nil && (config.EnableTranslibWrite || config.EnableNativeWrite)
-}
-
 func healthzReadOnlyError() error {
 	return status.Error(codes.Unimplemented, "gNOI Healthz mutation is disabled in read-only mode")
 }
@@ -54,9 +48,7 @@ func isDebugData(p *types.Path) bool {
 		return false
 	}
 	elems := p.GetElem()
-	for i, e := range elems {
-		fmt.Printf("elem[%d]: name=%s, keys=%v\n", i, e.GetName(), e.GetKey())
-	}
+	log.V(5).Infof("Healthz path elements: %+v", elems)
 	if len(elems) != 4 {
 		return false
 	}
@@ -89,7 +81,7 @@ func waitForArtifact(file string) (string, error) {
 	defer cancel()
 	for {
 		if result, err := sc.HealthzCheck(file); err == nil {
-			fmt.Printf("HealthzCheck Status:%s and Artifact file=%s\n", result, file)
+			log.V(2).Infof("HealthzCheck status=%q artifact=%q", result, file)
 			return result, nil
 		}
 		select {
@@ -137,7 +129,7 @@ func getDebugData(p *types.Path) (*healthz.GetResponse, error) {
 		//return nil, status.Errorf(codes.Internal, "Error: %v", err)
 		return nil, err
 	}
-	fmt.Printf("waitForArtifact result from HealthzCheck: %s\n", result)
+	log.V(2).Infof("HealthzCheck completed with status %q", result)
 
 	//Set Component HealthStatus based on HealthzCheck result
 	var healthStatus healthz.Status
@@ -149,7 +141,7 @@ func getDebugData(p *types.Path) (*healthz.GetResponse, error) {
 	default:
 		healthStatus = healthz.Status_STATUS_UNSPECIFIED
 	}
-	fmt.Printf("Artifact file path received on Host: %s\n", s)
+	log.V(2).Infof("Healthz host artifact path: %q", s)
 
 	// Reuse the Artifact RPC resolver for legacy debug artifacts. This keeps
 	// path containment and symlink handling identical across both Healthz APIs.
@@ -158,37 +150,20 @@ func getDebugData(p *types.Path) (*healthz.GetResponse, error) {
 		return nil, err
 	}
 	defer f.Close()
-	fmt.Printf("Artifact filepath inside gnmi container: %s\n", filePath)
+	log.V(2).Infof("Healthz container artifact path: %q", filePath)
 
-	// Stream-hash instead of loading entire file
-	hasher := sha256.New()
-	size, err := io.Copy(hasher, f) // Streams through hasher, constant memory
+	artifactHeader, err := buildHealthzArtifactHeader(s, f)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Error hashing: [%v]", err)
+		return nil, err
 	}
-	hashSum := hasher.Sum(nil)
 
 	log.Infof("Construct Get Response structure\n")
 	resp := &healthz.GetResponse{}
 	resp.Component = &healthz.ComponentStatus{
-		Path:   p,
-		Id:     s,
-		Status: healthStatus,
-		Artifacts: []*healthz.ArtifactHeader{
-			&healthz.ArtifactHeader{
-				Id: s,
-				ArtifactType: &healthz.ArtifactHeader_File{
-					File: &healthz.FileArtifactType{
-						Name: s,
-						Size: size,
-						Hash: &types.HashType{
-							Method: types.HashType_SHA256,
-							Hash:   hashSum[:],
-						},
-					},
-				},
-			},
-		},
+		Path:      p,
+		Id:        s,
+		Status:    healthStatus,
+		Artifacts: []*healthz.ArtifactHeader{artifactHeader},
 	}
 	return resp, nil
 }
@@ -211,7 +186,7 @@ func (srv *HealthzServer) Get(ctx context.Context, req *healthz.GetRequest) (*he
 		// The legacy Get implementation starts a new collection over D-Bus. It is
 		// not a read of an existing DLDD artifact and must respect the server's
 		// global write/mutation policy.
-		if !healthzMutationEnabled(srv.config) {
+		if !writeEnabled(srv.config) {
 			return nil, healthzReadOnlyError()
 		}
 		return getDebugData(path)
@@ -231,7 +206,7 @@ func (srv *HealthzServer) Acknowledge(ctx context.Context, req *healthz.Acknowle
 	if req == nil || req.GetId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "Healthz.Acknowledge requires an event ID")
 	}
-	if !healthzMutationEnabled(srv.config) {
+	if !writeEnabled(srv.config) {
 		return nil, healthzReadOnlyError()
 	}
 
@@ -271,7 +246,7 @@ func (srv *HealthzServer) Check(ctx context.Context, req *healthz.CheckRequest) 
 	if _, err := authenticate(srv.config, ctx, "gnoi", true); err != nil {
 		return nil, err
 	}
-	if !healthzMutationEnabled(srv.config) {
+	if !writeEnabled(srv.config) {
 		return nil, healthzReadOnlyError()
 	}
 	return nil, status.Errorf(codes.Unimplemented, "gNOI Healthz Check not implemented")

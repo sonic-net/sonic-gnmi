@@ -272,6 +272,10 @@ type Config struct {
 	PathsBlacklist *pathblacklist.Policy
 }
 
+func writeEnabled(config *Config) bool {
+	return config != nil && (config.EnableTranslibWrite || config.EnableNativeWrite)
+}
+
 // DBusOSBackend is a concrete implementation of OSBackend
 type DBusOSBackend struct{}
 
@@ -372,7 +376,7 @@ func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 	// gNMI Set support is disabled. Handlers independently gate Acknowledge,
 	// Check, and the legacy Get path that starts a new host-side collection.
 	gnoi_healthz_pb.RegisterHealthzServer(s, healthzSrv)
-	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
+	if writeEnabled(srv.config) {
 		gnoi_system_pb.RegisterSystemServer(s, srv)
 		gnoi_file_pb.RegisterFileServer(s, fileSrv)
 		gnoi_os_pb.RegisterOSServer(s, osSrv)
@@ -689,7 +693,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			return nil, fmt.Errorf("failed to create CONFIG_DB Journal: %v", err)
 		}
 	}
-	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
+	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !writeEnabled(srv.config))
 	return srv, nil
 }
 
@@ -1201,7 +1205,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	}
 
 	common_utils.IncCounter(common_utils.GNMI_SET)
-	if s.config.EnableTranslibWrite == false && s.config.EnableNativeWrite == false {
+	if !writeEnabled(s.config) {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
 	}
