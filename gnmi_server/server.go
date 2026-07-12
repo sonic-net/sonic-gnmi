@@ -958,7 +958,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (resp *gnmipb.
 	auditPeer := extractPeer(ctx)
 
 	log.Infof("[GNMI-AUDIT] GetRequest user=%s peer=%s prefix=%v paths=%v type=%v",
-			auditUser, auditPeer, req.GetPrefix(), req.GetPath(), req.GetType())
+		auditUser, auditPeer, req.GetPrefix(), req.GetPath(), req.GetType())
 
 	defer logGnmiAuditResponse("Get", auditUser, auditPeer, start, &err)
 
