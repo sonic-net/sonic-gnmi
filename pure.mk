@@ -51,7 +51,7 @@ PACKAGES ?= $(PURE_PACKAGES)
 clean:
 	@echo "Cleaning pure build artifacts..."
 	$(GO) clean -cache -testcache
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		rm -f $$pkg/coverage.out $$pkg/coverage.html; \
 	done
 
@@ -59,9 +59,9 @@ clean:
 .PHONY: fmt-check
 fmt-check:
 	@echo "Checking Go code formatting for pure packages..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		echo "Checking $$pkg..."; \
-		files=$$($(GOROOT)/bin/gofmt -l $$pkg/*.go 2>/dev/null || true); \
+		files=$$($(GOROOT)/bin/gofmt -l $$pkg/*.go); \
 		if [ -n "$$files" ]; then \
 			echo "The following files need formatting in $$pkg:"; \
 			echo "$$files"; \
@@ -75,41 +75,39 @@ fmt-check:
 .PHONY: fmt
 fmt:
 	@echo "Formatting Go code for pure packages..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		echo "Formatting $$pkg..."; \
-		$(GOROOT)/bin/gofmt -w $$pkg/*.go 2>/dev/null || true; \
+		$(GOROOT)/bin/gofmt -w $$pkg/*.go; \
 	done
 
 # Vet - static analysis
 .PHONY: vet
 vet:
 	@echo "Running go vet on pure packages..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		echo "Vetting $$pkg..."; \
-		cd $$pkg && $(GO) vet ./...; \
-		cd - >/dev/null; \
+		(cd $$pkg && $(GO) vet ./...); \
 	done
 
 # Test - run all tests with coverage
 .PHONY: test
 test:
 	@echo "Running tests for pure packages..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		echo ""; \
 		echo "=== Testing $$pkg ==="; \
-		cd $$pkg && $(GO) test -gcflags="all=-N -l" -v -race -coverprofile=coverage.out -covermode=atomic ./...; \
-		if [ -f coverage.out ]; then \
+		(cd $$pkg && $(GO) test -gcflags="all=-N -l" -v -race -coverprofile=coverage.out -covermode=atomic ./...); \
+		if [ -f $$pkg/coverage.out ]; then \
 			echo "Coverage for $$pkg:"; \
-			$(GO) tool cover -func=coverage.out; \
+			(cd $$pkg && $(GO) tool cover -func=coverage.out); \
 		fi; \
-		cd - >/dev/null; \
 	done
 
 # Generate coverage files for Azure pipeline integration
 .PHONY: azure-coverage
 azure-coverage:
 	@echo "Generating coverage files for Azure pipeline..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		echo "Testing $$pkg..."; \
 		pkgname=$$(echo $$pkg | tr '/' '-'); \
 		$(GO) test -gcflags="all=-N -l" -race -coverprofile=coverage-pure-$$pkgname.txt -covermode=atomic -v ./$$pkg; \
@@ -120,12 +118,11 @@ azure-coverage:
 .PHONY: test-coverage
 test-coverage: test
 	@echo "Generating HTML coverage reports..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		if [ -f $$pkg/coverage.out ]; then \
 			echo "Generating coverage report for $$pkg..."; \
-			cd $$pkg && $(GO) tool cover -html=coverage.out -o coverage.html; \
+			(cd $$pkg && $(GO) tool cover -html=coverage.out -o coverage.html); \
 			echo "Coverage report generated: $$pkg/coverage.html"; \
-			cd - >/dev/null; \
 		fi; \
 	done
 
@@ -133,7 +130,7 @@ test-coverage: test
 .PHONY: coverage-xml
 coverage-xml: test
 	@echo "Generating XML coverage report for Azure..."
-	@if command -v gocov >/dev/null 2>&1 && command -v gocov-xml >/dev/null 2>&1; then \
+	@set -e; if command -v gocov >/dev/null 2>&1 && command -v gocov-xml >/dev/null 2>&1; then \
 		echo "Converting coverage to XML format..."; \
 		rm -f coverage-*.out; \
 		for pkg in $(PACKAGES); do \
@@ -143,8 +140,9 @@ coverage-xml: test
 			fi; \
 		done; \
 		if ls coverage-*.out >/dev/null 2>&1; then \
-			gocov convert coverage-*.out | gocov-xml -source $(shell pwd) > coverage.xml; \
-			rm -f coverage-*.out; \
+			trap 'rm -f coverage-*.out coverage-pure.json' EXIT; \
+			gocov convert coverage-*.out > coverage-pure.json; \
+			gocov-xml -source $(shell pwd) < coverage-pure.json > coverage.xml; \
 			echo "XML coverage report generated: coverage.xml"; \
 		else \
 			echo "No coverage files found"; \
@@ -159,10 +157,9 @@ coverage-xml: test
 .PHONY: build-test
 build-test:
 	@echo "Testing build of pure packages..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		echo "Building $$pkg..."; \
-		cd $$pkg && $(GO) build -v ./...; \
-		cd - >/dev/null; \
+		(cd $$pkg && $(GO) build -v ./...); \
 	done
 
 # Lint check using basic go tools
@@ -174,10 +171,9 @@ lint: fmt-check
 .PHONY: bench
 bench:
 	@echo "Running benchmarks for pure packages..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		echo "Benchmarking $$pkg..."; \
-		cd $$pkg && $(GO) test -bench=. -benchmem ./...; \
-		cd - >/dev/null; \
+		(cd $$pkg && $(GO) test -bench=. -benchmem ./...); \
 	done
 
 # Module verification
@@ -196,11 +192,10 @@ mod-verify:
 .PHONY: security
 security:
 	@echo "Running security scan on pure packages..."
-	@if command -v gosec >/dev/null 2>&1; then \
+	@set -e; if command -v gosec >/dev/null 2>&1; then \
 		for pkg in $(PACKAGES); do \
 			echo "Scanning $$pkg..."; \
-			cd $$pkg && gosec ./...; \
-			cd - >/dev/null; \
+			(cd $$pkg && gosec ./...); \
 		done; \
 	else \
 		echo "gosec not available, skipping security scan"; \
