@@ -189,16 +189,37 @@ security:
 check-deps:
 	@echo "Checking pure dependency graph..."
 	@set -e; \
-	deps=$$(CGO_ENABLED=$(PURE_CGO_ENABLED) $(GO) list $(PURE_GO_FLAGS) -deps $(addprefix ./,$(PACKAGES))); \
+	deps=$$(CGO_ENABLED=$(PURE_CGO_ENABLED) $(GO) list $(PURE_GO_FLAGS) -test -deps $(addprefix ./,$(PACKAGES))); \
+	for dep in $$deps; do \
 	for forbidden in \
 		github.com/sonic-net/sonic-gnmi/swsscommon \
 		github.com/Azure/sonic-mgmt-common; do \
-		if printf '%s\n' "$$deps" | grep -Fx "$$forbidden" >/dev/null; then \
-			echo "Pure package graph includes forbidden dependency: $$forbidden"; \
-			exit 1; \
-		fi; \
+			case "$$dep" in \
+				"$$forbidden"|"$$forbidden"/*) \
+					echo "Pure package graph includes forbidden dependency: $$dep"; \
+					exit 1; \
+					;; \
+			esac; \
+		done; \
 	done
 	@echo "Pure dependency graph is clean."
+
+# Keep pure build constraints on provider adapters rather than business logic.
+.PHONY: check-tags
+check-tags:
+	@echo "Checking pure build-tag placement..."
+	@set -e; \
+	files=$$(grep -R -l '^//go:build .*pure' $(PURE_ROOTS) --include='*.go' 2>/dev/null || true); \
+	for file in $$files; do \
+		case "$$file" in \
+			internal/*/provider_*.go) ;; \
+			*) \
+				echo "Pure build tag is outside an internal provider adapter: $$file"; \
+				exit 1; \
+				;; \
+		esac; \
+	done
+	@echo "Pure build-tag placement is clean."
 
 # List pure packages
 .PHONY: list-packages
@@ -216,7 +237,7 @@ list-packages:
 
 # Full CI pipeline
 .PHONY: ci
-ci: clean check-deps lint build-test test
+ci: clean check-deps check-tags lint build-test test
 	@echo ""
 	@echo "============================================="
 	@echo "✅ Pure CI completed successfully!"
@@ -239,7 +260,7 @@ ci: clean check-deps lint build-test test
 # Note: The Azure pipeline now calls gotestsum directly with set -euo pipefail
 # This target is kept for local testing convenience
 .PHONY: junit-xml
-junit-xml: clean check-deps
+junit-xml: clean check-deps check-tags build-test
 	@echo "Installing gotestsum for JUnit XML generation..."
 	@if ! command -v gotestsum >/dev/null 2>&1; then \
 		$(GO) install gotest.tools/gotestsum@v1.11.0; \
@@ -282,7 +303,7 @@ junit-xml: clean check-deps
 
 # Quick check for development
 .PHONY: quick
-quick: check-deps fmt-check vet build-test
+quick: check-deps check-tags fmt-check vet build-test
 	@echo "Quick validation complete for pure packages"
 
 # Help target
@@ -309,6 +330,7 @@ help:
 	@echo "  bench            - Run benchmarks"
 	@echo "  security         - Run security scan (requires gosec)"
 	@echo "  check-deps       - Reject SONiC-only dependencies from pure packages"
+	@echo "  check-tags       - Restrict pure tags to provider adapters"
 	@echo "  mod-verify       - Verify go modules"
 	@echo "  list-packages    - List pure packages"
 	@echo "  clean            - Clean build artifacts"

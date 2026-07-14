@@ -118,7 +118,6 @@ stages:
     - bash: |
         set -euo pipefail
         export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH)/bin
-        cd sonic-gnmi
         make -f pure.mk junit-xml
       displayName: 'Run pure package tests'
 
@@ -127,7 +126,7 @@ stages:
       condition: always()
       inputs:
         testResultsFormat: 'JUnit'
-        testResultsFiles: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-pure.xml'
+        testResultsFiles: '$(Build.SourcesDirectory)/test-results/junit-pure.xml'
         failTaskOnFailedTests: true
         publishRunAttachments: true
         testRunTitle: 'Pure package tests'
@@ -136,9 +135,9 @@ stages:
       displayName: 'Publish pure package coverage'
       condition: always()
       inputs:
-        summaryFileLocation: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/coverage-pure.xml'
+        summaryFileLocation: '$(Build.SourcesDirectory)/test-results/coverage-pure.xml'
 
-    - publish: $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/coverage-pure.xml
+    - publish: $(Build.SourcesDirectory)/test-results/coverage-pure.xml
       artifact: coverage-pure
       displayName: 'Publish pure coverage artifact'
       condition: always()
@@ -208,6 +207,7 @@ stages:
       inputs:
         testResultsFormat: 'JUnit'
         testResultsFiles: |
+          $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-integration-dbconfig.xml
           $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-integration-basic.xml
           $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-integration-env.xml
           $(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-integration-dialout.xml

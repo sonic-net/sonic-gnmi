@@ -233,6 +233,7 @@ $(ENVFILE):
 
 check_gotest: $(DBCONFG) $(ENVFILE)
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/telemetry
+	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-internal-dbconfig.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/internal/dbconfig
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 40m $(TEST_FLAGS) -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
 	sudo CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 40m $(TEST_FLAGS) -coverprofile=coverage-pathz_authorizer.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/pathz_authorizer -coverpkg ../...
@@ -265,6 +266,9 @@ endif
 
 
 # Integration test packages - basic ones (no special environment needed)
+INTEGRATION_DB_CONFIG_PKG := \
+	github.com/sonic-net/sonic-gnmi/internal/dbconfig
+
 INTEGRATION_BASIC_PKGS := \
 	github.com/sonic-net/sonic-gnmi/sonic_db_config \
 	github.com/sonic-net/sonic-gnmi/sonic_service_client \
@@ -329,6 +333,14 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE)
 	sudo $(GO) install gotest.tools/gotestsum@v1.11.0
 	@echo "Running integration tests with JUnit XML output..."
 	@mkdir -p test-results
+
+	# Run the real dbconfig provider contract separately because it shares
+	# process-global swsscommon configuration with sonic_db_config tests.
+	CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" \
+		sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-dbconfig.xml \
+		--format testname \
+		-- -race $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-dbconfig.txt \
+		-covermode=atomic -mod=vendor -v $(INTEGRATION_DB_CONFIG_PKG)
 	
 	# TODO: Fix tests to not depend on /etc/sonic existing
 	# Creating directory here as workaround for poorly written tests
@@ -394,6 +406,7 @@ endif
 	@echo "Integration JUnit XML generation completed!"
 	@echo "============================================="
 	@echo "Files generated:"
+	@echo "  - test-results/junit-integration-dbconfig.xml (Database configuration provider)"
 	@echo "  - test-results/junit-integration-basic.xml (Basic packages)"
 	@echo "  - test-results/junit-integration-env.xml (Environment-dependent packages)"
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
@@ -469,5 +482,3 @@ diff-cover: coverage.xml test-results/coverage-pure.xml
 		--compare-branch $(TARGET_BRANCH) \
 		--src-roots . \
 		--fail-under $(DIFF_COVER_THRESHOLD)
-
-

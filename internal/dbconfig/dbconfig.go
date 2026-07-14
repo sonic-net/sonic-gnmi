@@ -81,6 +81,9 @@ func GetDbAllNamespaces() (namespaces []string, err error) {
 
 func GetDbNamespaceFromTarget(target string) (namespace string, found bool, err error) {
 	defer catchException(&err)
+	if target == DefaultNamespace {
+		return target, true, nil
+	}
 	namespaces, err := GetDbAllNamespaces()
 	if err != nil {
 		return "", false, err

@@ -11,38 +11,14 @@ import (
 
 func TestPureProviderReadsDatabaseConfig(t *testing.T) {
 	usePureConfig(t, filepath.Join("testdata", "database_config.json"))
-
-	id, err := GetDbId("CONFIG_DB", DefaultNamespace)
-	if err != nil {
-		t.Fatalf("GetDbId() error = %v", err)
-	}
-	if id != 42 {
-		t.Errorf("GetDbId() = %d, want 42", id)
-	}
-
-	separator, err := GetDbSeparator("CONFIG_DB", DefaultNamespace)
-	if err != nil {
-		t.Fatalf("GetDbSeparator() error = %v", err)
-	}
-	if separator != "~" {
-		t.Errorf("GetDbSeparator() = %q, want %q", separator, "~")
-	}
-
-	socket, err := GetDbSock("CONFIG_DB", DefaultNamespace)
-	if err != nil {
-		t.Fatalf("GetDbSock() error = %v", err)
-	}
-	if socket != "/tmp/standalone-redis.sock" {
-		t.Errorf("GetDbSock() = %q, want %q", socket, "/tmp/standalone-redis.sock")
-	}
-
-	address, err := GetDbTcpAddr("CONFIG_DB", DefaultNamespace)
-	if err != nil {
-		t.Fatalf("GetDbTcpAddr() error = %v", err)
-	}
-	if address != "db.example:6388" {
-		t.Errorf("GetDbTcpAddr() = %q, want %q", address, "db.example:6388")
-	}
+	runProviderContract(t, providerContract{
+		database:  "CONFIG_DB",
+		namespace: DefaultNamespace,
+		id:        42,
+		separator: "~",
+		socket:    "/tmp/standalone-redis.sock",
+		address:   "db.example:6388",
+	})
 }
 
 func TestPureProviderDescribesStandaloneNamespace(t *testing.T) {
@@ -118,7 +94,8 @@ func TestPureProviderRejectsUnknownDatabaseAndNamespace(t *testing.T) {
 }
 
 func TestPureProviderRejectsGlobalConfiguration(t *testing.T) {
-	usePureConfig(t, filepath.Join("..", "..", "testdata", "database_global.json"))
+	usePureConfig(t, filepath.Join("testdata", "database_config.json"))
+	globalConfigFile = filepath.Join("..", "..", "testdata", "database_global.json")
 
 	err := DbInit()
 	if err == nil || !strings.Contains(err.Error(), "global database configuration") {
@@ -126,11 +103,25 @@ func TestPureProviderRejectsGlobalConfiguration(t *testing.T) {
 	}
 }
 
+func TestDefaultTargetDoesNotInitializeProvider(t *testing.T) {
+	usePureConfig(t, filepath.Join(t.TempDir(), "missing-database-config.json"))
+
+	namespace, found, err := GetDbNamespaceFromTarget(DefaultNamespace)
+	if err != nil {
+		t.Fatalf("GetDbNamespaceFromTarget(default) error = %v", err)
+	}
+	if !found || namespace != DefaultNamespace {
+		t.Errorf("GetDbNamespaceFromTarget(default) = %q, %t; want default, true", namespace, found)
+	}
+}
+
 func usePureConfig(t *testing.T, path string) {
 	t.Helper()
 	databaseConfigFile = path
+	globalConfigFile = filepath.Join(t.TempDir(), "missing-global-config.json")
 	t.Cleanup(func() {
 		databaseConfigFile = defaultDatabaseConfigFile
+		globalConfigFile = defaultGlobalConfigFile
 	})
 	if err := Init(); err != nil {
 		t.Fatalf("Init() error = %v", err)

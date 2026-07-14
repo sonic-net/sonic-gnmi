@@ -4,15 +4,20 @@ package dbconfig
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
 )
 
-const defaultDatabaseConfigFile = ConfigFile
+const (
+	defaultDatabaseConfigFile = ConfigFile
+	defaultGlobalConfigFile   = GlobalConfigFile
+)
 
 var (
 	databaseConfigFile          = defaultDatabaseConfigFile
+	globalConfigFile            = defaultGlobalConfigFile
 	activeProvider     provider = &fileProvider{}
 )
 
@@ -39,6 +44,12 @@ type databaseEntry struct {
 }
 
 func (p *fileProvider) initialize() error {
+	if _, err := os.Stat(globalConfigFile); err == nil {
+		return fmt.Errorf("global database configuration is not supported by the pure provider")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect global database configuration: %w", err)
+	}
+
 	data, err := os.ReadFile(databaseConfigFile)
 	if err != nil {
 		return fmt.Errorf("read database configuration: %w", err)

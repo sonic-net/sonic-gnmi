@@ -51,6 +51,9 @@ func GetDbAllNamespaces() (ns_list []string, err error) {
 }
 
 func GetDbNamespaceFromTarget(target string) (ns string, ret bool, err error) {
+	if target == SONIC_DEFAULT_NAMESPACE {
+		return target, true, nil
+	}
 	if err := DbInit(); err != nil {
 		return "", false, err
 	}
