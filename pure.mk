@@ -1,44 +1,22 @@
-# pure.mk - Simple CI for pure packages without SONiC dependencies
+# pure.mk - Simple CI for canonical Go packages without SONiC dependencies
 # Usage: make -f pure.mk ci
 #
-# This makefile supports testing packages that don't require CGO or SONiC dependencies.
-# Add new pure packages to PURE_PACKAGES below.
-#
-# Goal: Eventually all packages should be pure unless they absolutely
-# require CGO dependencies. All CGO/SONiC dependencies should be properly quarantined.
+# Every Go package under internal/, pkg/, and cmd/ must remain pure. Packages
+# outside those canonical roots may depend on the SONiC build environment.
 
 # Go configuration
 GO ?= go
 GOROOT ?= $(shell $(GO) env GOROOT)
 
-# Pure packages (no CGO/SONiC dependencies)
-# Add new packages here as they become pure-compatible.
-PURE_PACKAGES := \
-	internal/exec \
-	pkg/gnoi/debug \
-	pkg/bypass \
-	internal/diskspace \
-	internal/hash \
-	internal/download \
-	internal/firmware \
-	pkg/interceptors \
-	pkg/server/operational-handler \
-	pkg/gnoi/file \
-	pkg/exec \
-	pkg/gnoi/os \
-	pkg/gnoi/oras \
-	pkg/hostfs \
-	pkg/gnoi/system
-
-# Future packages to make pure:
-# TODO: sonic-gnmi-standalone/pkg/workflow
-# TODO: sonic-gnmi-standalone/pkg/client/config
-# TODO: sonic-gnmi-standalone/internal/checksum
-# TODO: sonic-gnmi-standalone/internal/download
-# TODO: common_utils (parts that don't need CGO)
-# TODO: gnoi_client/config
-# TODO: transl_utils (isolate from translib dependencies)
-# TODO: pkg/interceptors/dpuproxy (needs gRPC infrastructure mocking)
+# Discover every package under the canonical pure roots. This makes purity a
+# path-based invariant instead of an allowlist that can omit new packages.
+PURE_ROOTS := internal pkg cmd
+PURE_PACKAGES := $(shell \
+	for root in $(PURE_ROOTS); do \
+		if [ -d "$$root" ]; then \
+			find "$$root" -type f -name '*.go' -print; \
+		fi; \
+	done | sed 's|/[^/]*$$||' | sort -u)
 
 # You can test specific packages by setting PACKAGES=pkg/specific/package
 PACKAGES ?= $(PURE_PACKAGES)
@@ -86,7 +64,7 @@ vet:
 	@echo "Running go vet on pure packages..."
 	@set -e; for pkg in $(PACKAGES); do \
 		echo "Vetting $$pkg..."; \
-		(cd $$pkg && $(GO) vet ./...); \
+		(cd $$pkg && $(GO) vet .); \
 	done
 
 # Test - run all tests with coverage
@@ -96,7 +74,7 @@ test:
 	@set -e; for pkg in $(PACKAGES); do \
 		echo ""; \
 		echo "=== Testing $$pkg ==="; \
-		(cd $$pkg && $(GO) test -gcflags="all=-N -l" -v -race -coverprofile=coverage.out -covermode=atomic ./...); \
+		(cd $$pkg && $(GO) test -gcflags="all=-N -l" -v -race -coverprofile=coverage.out -covermode=atomic .); \
 		if [ -f $$pkg/coverage.out ]; then \
 			echo "Coverage for $$pkg:"; \
 			(cd $$pkg && $(GO) tool cover -func=coverage.out); \
@@ -159,7 +137,7 @@ build-test:
 	@echo "Testing build of pure packages..."
 	@set -e; for pkg in $(PACKAGES); do \
 		echo "Building $$pkg..."; \
-		(cd $$pkg && $(GO) build -v ./...); \
+		(cd $$pkg && $(GO) build -v .); \
 	done
 
 # Lint check using basic go tools
@@ -173,7 +151,7 @@ bench:
 	@echo "Running benchmarks for pure packages..."
 	@set -e; for pkg in $(PACKAGES); do \
 		echo "Benchmarking $$pkg..."; \
-		(cd $$pkg && $(GO) test -bench=. -benchmem ./...); \
+		(cd $$pkg && $(GO) test -bench=. -benchmem .); \
 	done
 
 # Module verification
@@ -195,7 +173,7 @@ security:
 	@set -e; if command -v gosec >/dev/null 2>&1; then \
 		for pkg in $(PACKAGES); do \
 			echo "Scanning $$pkg..."; \
-			(cd $$pkg && gosec ./...); \
+			(cd $$pkg && gosec .); \
 		done; \
 	else \
 		echo "gosec not available, skipping security scan"; \
@@ -258,7 +236,8 @@ junit-xml: clean
 	@export PATH=$(PATH):$(shell $(GO) env GOPATH)/bin && \
 	gotestsum --junitfile test-results/junit-pure.xml \
 		--format testname \
-		-- -v -race -coverprofile=test-results/coverage-pure.txt \
+		-- -gcflags="all=-N -l" -v -race \
+		-coverprofile=test-results/coverage-pure.txt \
 		-covermode=atomic \
 		$(addprefix ./,$(PACKAGES))
 	@echo "Converting coverage to Cobertura XML format..."
