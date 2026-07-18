@@ -1,44 +1,22 @@
-# pure.mk - Simple CI for pure packages without SONiC dependencies
+# pure.mk - Simple CI for canonical Go packages without SONiC dependencies
 # Usage: make -f pure.mk ci
 #
-# This makefile supports testing packages that don't require CGO or SONiC dependencies.
-# Add new pure packages to PURE_PACKAGES below.
-#
-# Goal: Eventually all packages should be pure unless they absolutely
-# require CGO dependencies. All CGO/SONiC dependencies should be properly quarantined.
+# Every Go package under internal/, pkg/, and cmd/ must remain pure. Packages
+# outside those canonical roots may depend on the SONiC build environment.
 
 # Go configuration
 GO ?= go
 GOROOT ?= $(shell $(GO) env GOROOT)
 
-# Pure packages (no CGO/SONiC dependencies)
-# Add new packages here as they become pure-compatible.
-PURE_PACKAGES := \
-	internal/exec \
-	pkg/gnoi/debug \
-	pkg/bypass \
-	internal/diskspace \
-	internal/hash \
-	internal/download \
-	internal/firmware \
-	pkg/interceptors \
-	pkg/server/operational-handler \
-	pkg/gnoi/file \
-	pkg/exec \
-	pkg/gnoi/os \
-	pkg/gnoi/oras \
-	pkg/hostfs \
-	pkg/gnoi/system
-
-# Future packages to make pure:
-# TODO: sonic-gnmi-standalone/pkg/workflow
-# TODO: sonic-gnmi-standalone/pkg/client/config
-# TODO: sonic-gnmi-standalone/internal/checksum
-# TODO: sonic-gnmi-standalone/internal/download
-# TODO: common_utils (parts that don't need CGO)
-# TODO: gnoi_client/config
-# TODO: transl_utils (isolate from translib dependencies)
-# TODO: pkg/interceptors/dpuproxy (needs gRPC infrastructure mocking)
+# Discover every package under the canonical pure roots. This makes purity a
+# path-based invariant instead of an allowlist that can omit new packages.
+PURE_ROOTS := internal pkg cmd
+PURE_PACKAGES := $(shell \
+	for root in $(PURE_ROOTS); do \
+		if [ -d "$$root" ]; then \
+			find "$$root" -type f -name '*.go' -print; \
+		fi; \
+	done | sed 's|/[^/]*$$||' | sort -u)
 
 # You can test specific packages by setting PACKAGES=pkg/specific/package
 PACKAGES ?= $(PURE_PACKAGES)
@@ -51,7 +29,7 @@ PACKAGES ?= $(PURE_PACKAGES)
 clean:
 	@echo "Cleaning pure build artifacts..."
 	$(GO) clean -cache -testcache
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		rm -f $$pkg/coverage.out $$pkg/coverage.html; \
 	done
 
@@ -59,9 +37,9 @@ clean:
 .PHONY: fmt-check
 fmt-check:
 	@echo "Checking Go code formatting for pure packages..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		echo "Checking $$pkg..."; \
-		files=$$($(GOROOT)/bin/gofmt -l $$pkg/*.go 2>/dev/null || true); \
+		files=$$($(GOROOT)/bin/gofmt -l $$pkg/*.go); \
 		if [ -n "$$files" ]; then \
 			echo "The following files need formatting in $$pkg:"; \
 			echo "$$files"; \
@@ -75,41 +53,39 @@ fmt-check:
 .PHONY: fmt
 fmt:
 	@echo "Formatting Go code for pure packages..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		echo "Formatting $$pkg..."; \
-		$(GOROOT)/bin/gofmt -w $$pkg/*.go 2>/dev/null || true; \
+		$(GOROOT)/bin/gofmt -w $$pkg/*.go; \
 	done
 
 # Vet - static analysis
 .PHONY: vet
 vet:
 	@echo "Running go vet on pure packages..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		echo "Vetting $$pkg..."; \
-		cd $$pkg && $(GO) vet ./...; \
-		cd - >/dev/null; \
+		(cd $$pkg && $(GO) vet .); \
 	done
 
 # Test - run all tests with coverage
 .PHONY: test
 test:
 	@echo "Running tests for pure packages..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		echo ""; \
 		echo "=== Testing $$pkg ==="; \
-		cd $$pkg && $(GO) test -gcflags="all=-N -l" -v -race -coverprofile=coverage.out -covermode=atomic ./...; \
-		if [ -f coverage.out ]; then \
+		(cd $$pkg && $(GO) test -gcflags="all=-N -l" -v -race -coverprofile=coverage.out -covermode=atomic .); \
+		if [ -f $$pkg/coverage.out ]; then \
 			echo "Coverage for $$pkg:"; \
-			$(GO) tool cover -func=coverage.out; \
+			(cd $$pkg && $(GO) tool cover -func=coverage.out); \
 		fi; \
-		cd - >/dev/null; \
 	done
 
 # Generate coverage files for Azure pipeline integration
 .PHONY: azure-coverage
 azure-coverage:
 	@echo "Generating coverage files for Azure pipeline..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		echo "Testing $$pkg..."; \
 		pkgname=$$(echo $$pkg | tr '/' '-'); \
 		$(GO) test -gcflags="all=-N -l" -race -coverprofile=coverage-pure-$$pkgname.txt -covermode=atomic -v ./$$pkg; \
@@ -120,12 +96,11 @@ azure-coverage:
 .PHONY: test-coverage
 test-coverage: test
 	@echo "Generating HTML coverage reports..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		if [ -f $$pkg/coverage.out ]; then \
 			echo "Generating coverage report for $$pkg..."; \
-			cd $$pkg && $(GO) tool cover -html=coverage.out -o coverage.html; \
+			(cd $$pkg && $(GO) tool cover -html=coverage.out -o coverage.html); \
 			echo "Coverage report generated: $$pkg/coverage.html"; \
-			cd - >/dev/null; \
 		fi; \
 	done
 
@@ -133,7 +108,7 @@ test-coverage: test
 .PHONY: coverage-xml
 coverage-xml: test
 	@echo "Generating XML coverage report for Azure..."
-	@if command -v gocov >/dev/null 2>&1 && command -v gocov-xml >/dev/null 2>&1; then \
+	@set -e; if command -v gocov >/dev/null 2>&1 && command -v gocov-xml >/dev/null 2>&1; then \
 		echo "Converting coverage to XML format..."; \
 		rm -f coverage-*.out; \
 		for pkg in $(PACKAGES); do \
@@ -143,8 +118,9 @@ coverage-xml: test
 			fi; \
 		done; \
 		if ls coverage-*.out >/dev/null 2>&1; then \
-			gocov convert coverage-*.out | gocov-xml -source $(shell pwd) > coverage.xml; \
-			rm -f coverage-*.out; \
+			trap 'rm -f coverage-*.out coverage-pure.json' EXIT; \
+			gocov convert coverage-*.out > coverage-pure.json; \
+			gocov-xml -source $(shell pwd) < coverage-pure.json > coverage.xml; \
 			echo "XML coverage report generated: coverage.xml"; \
 		else \
 			echo "No coverage files found"; \
@@ -159,10 +135,9 @@ coverage-xml: test
 .PHONY: build-test
 build-test:
 	@echo "Testing build of pure packages..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		echo "Building $$pkg..."; \
-		cd $$pkg && $(GO) build -v ./...; \
-		cd - >/dev/null; \
+		(cd $$pkg && $(GO) build -v .); \
 	done
 
 # Lint check using basic go tools
@@ -174,10 +149,9 @@ lint: fmt-check
 .PHONY: bench
 bench:
 	@echo "Running benchmarks for pure packages..."
-	@for pkg in $(PACKAGES); do \
+	@set -e; for pkg in $(PACKAGES); do \
 		echo "Benchmarking $$pkg..."; \
-		cd $$pkg && $(GO) test -bench=. -benchmem ./...; \
-		cd - >/dev/null; \
+		(cd $$pkg && $(GO) test -bench=. -benchmem .); \
 	done
 
 # Module verification
@@ -196,11 +170,10 @@ mod-verify:
 .PHONY: security
 security:
 	@echo "Running security scan on pure packages..."
-	@if command -v gosec >/dev/null 2>&1; then \
+	@set -e; if command -v gosec >/dev/null 2>&1; then \
 		for pkg in $(PACKAGES); do \
 			echo "Scanning $$pkg..."; \
-			cd $$pkg && gosec ./...; \
-			cd - >/dev/null; \
+			(cd $$pkg && gosec .); \
 		done; \
 	else \
 		echo "gosec not available, skipping security scan"; \
@@ -263,7 +236,8 @@ junit-xml: clean
 	@export PATH=$(PATH):$(shell $(GO) env GOPATH)/bin && \
 	gotestsum --junitfile test-results/junit-pure.xml \
 		--format testname \
-		-- -v -race -coverprofile=test-results/coverage-pure.txt \
+		-- -gcflags="all=-N -l" -v -race \
+		-coverprofile=test-results/coverage-pure.txt \
 		-covermode=atomic \
 		$(addprefix ./,$(PACKAGES))
 	@echo "Converting coverage to Cobertura XML format..."
