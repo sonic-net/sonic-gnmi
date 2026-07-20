@@ -2527,6 +2527,376 @@ func TestGnmiGetTranslib(t *testing.T) {
 	}
 	s.Stop()
 }
+func TestGnmiGetTranslibPfmComp(t *testing.T) {
+
+	//t.Log("Start server")
+	s := createServer(t, 8081)
+	go runServer(t, s)
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+	configClient := getRedisClientN(t, 4, ns) // Force target DB 0
+	defer configClient.Close()
+
+	listFields := map[string]interface{}{
+		"name": "integrated_circuit67",
+	}
+
+	// Explicitly write both delimiter schemas into DB 0
+	configClient.HSet(ctx, "NODE_CFG|integrated_circuit67", listFields)
+
+	stateClient := getRedisClientN(t, 6, ns) // Force target DB 0
+	defer stateClient.Close()
+
+	// Explicitly write both delimiter schemas into DB 0
+	stateClient.HSet(ctx, "NODE_INFO|integrated_circuit67", listFields)
+
+	for dbIdx := 0; dbIdx <= 7; dbIdx++ {
+		rc := getRedisClientN(t, dbIdx, ns)
+		if rc != nil {
+			allKeys, _ := rc.Keys(context.Background(), "NODE_CFG*").Result()
+			if len(allKeys) > 0 {
+				fmt.Printf(">>>> [DEBUG] FOUND NODE_CFG IN DB %d: %v\n", dbIdx, allKeys)
+			}
+
+			rc.Close()
+		}
+	}
+
+	//t.Log("Start gNMI client")
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+
+	var emptyRespVal interface{}
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		timeout     time.Duration
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		{
+			desc:       "Get OC Platform Comp IC",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                        elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"integrated_circuit67" > >
+                `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OC Platform Comp state",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+			elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"integrated_circuit67" > > elem: <name: "state" >
+                `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OC Platform Comp IC state",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+			elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"integrated_circuit67" > > elem: <name: "integrated-circuit" > elem: <name: "state" >
+                `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OC Platform Comp IC config",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                        elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"integrated_circuit67" > > elem: <name: "integrated-circuit" > elem: <name: "config" >
+                `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+	}
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			if td.timeout == 0 {
+				td.timeout = 10 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), td.timeout)
+			defer cancel()
+
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+	s.Stop()
+}
+
+func TestGnmiGetTranslibPfmCompXcvr(t *testing.T) {
+
+	//t.Log("Start server")
+	s := createServer(t, 8081)
+	go runServer(t, s)
+
+	prepareDbTranslib(t)
+	ctx := context.Background()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	configClient := getRedisClientN(t, 4, ns) // Force target DB 0
+	defer configClient.Close()
+
+	listFields := map[string]interface{}{
+		"name": "Ethernet0",
+	}
+	listStatusFields := map[string]interface{}{
+		"name":   "Ethernet0",
+		"status": true,
+	}
+
+	// Explicitly write both delimiter schemas into DB 0
+	configClient.HSet(ctx, "TRANSCEIVER_CFG|Ethernet0", listFields)
+	configClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", listFields)
+	configClient.HSet(ctx, "TRANSCEIVER_STATUS|Ethernet0", listStatusFields)
+	configClient.HSet(ctx, "TRANSCEIVER_DOM_SENSOR|Ethernet0", listFields)
+
+	stateClient := getRedisClientN(t, 6, ns) // Force target DB 0
+	defer stateClient.Close()
+
+	// Explicitly write both delimiter schemas into DB 0
+	stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", listFields)
+	stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", listFields)
+	stateClient.HSet(ctx, "TRANSCEIVER_STATUS|Ethernet0", listStatusFields)
+	stateClient.HSet(ctx, "TRANSCEIVER_DOM_SENSOR|Ethernet0", listFields)
+
+	for dbIdx := 0; dbIdx <= 7; dbIdx++ {
+		rc := getRedisClientN(t, dbIdx, ns)
+		if rc != nil {
+			allKeys, _ := rc.Keys(context.Background(), "TRANSCEIVER*").Result()
+			if len(allKeys) > 0 {
+				fmt.Printf(">>>> [DEBUG] FOUND TRANSCEIVER IN DB %d: %v\n", dbIdx, allKeys)
+			}
+
+		}
+	}
+
+	//t.Log("Start gNMI client")
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+
+	var emptyRespVal interface{}
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		timeout     time.Duration
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		{
+			desc:       "Get OC Platform Comp Xcvr",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                        elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"Ethernet0" > >
+                `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+	}
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			if td.timeout == 0 {
+				td.timeout = 10 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), td.timeout)
+			defer cancel()
+
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+	s.Stop()
+}
+func TestGnmiSetCompPlfm(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+	configClient := getRedisClientN(t, 4, ns) // Force target DB 0
+	defer configClient.Close()
+
+	listFields := map[string]interface{}{
+		"name": "integrated_circuit67",
+	}
+
+	// Explicitly write both delimiter schemas into DB 0
+	configClient.HSet(ctx, "NODE_CFG|integrated_circuit67", listFields)
+
+	stateClient := getRedisClientN(t, 6, ns) // Force target DB 0
+	defer stateClient.Close()
+
+	// Explicitly write both delimiter schemas into DB 0
+	stateClient.HSet(ctx, "NODE_INFO|integrated_circuit67", listFields)
+
+	//t.Log("Start gNMI client")
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	tds := []struct {
+		desc          string
+		pathTarget    string
+		textPbPath    string
+		wantRetCode   codes.Code
+		wantRespVal   interface{}
+		attributeData string
+		operation     op_t
+		valTest       bool
+	}{
+		{
+			desc:          "Plfm path update",
+			pathTarget:    "OC_YANG",
+			textPbPath:    pathToPb("openconfig-platform:components/component[name=integrated_circuit67]"),
+			attributeData: `{"component": [{"name": "integrated_circuit67", "config": {"name": "integrated_circuit67"}, "integrated-circuit": {"config": {"node-id": "183930889"}}}]}`,
+			wantRetCode:   codes.OK,
+			operation:     Update,
+			valTest:       false,
+		},
+		{
+			desc:          "Plfm path delete",
+			pathTarget:    "OC_YANG",
+			textPbPath:    pathToPb("openconfig-platform:components/component[name=integrated_circuit67]/"),
+			attributeData: "",
+			wantRetCode:   codes.OK,
+			operation:     Delete,
+			valTest:       false,
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			runTestSet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.attributeData, td.operation)
+		})
+	}
+	s.Stop()
+}
+func TestGnmiSetCompTxvr(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+
+	prepareDbTranslib(t)
+
+	ctx := context.Background()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	configClient := getRedisClientN(t, 4, ns) // Force target DB 0
+	defer configClient.Close()
+
+	listFields := map[string]interface{}{
+		"name": "Ethernet0",
+	}
+	listStatusFields := map[string]interface{}{
+		"name":   "Ethernet0",
+		"status": true,
+	}
+
+	// Explicitly write both delimiter schemas into DB 0
+	configClient.HSet(ctx, "TRANSCEIVER_CFG|Ethernet0", listFields)
+	configClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", listFields)
+	configClient.HSet(ctx, "TRANSCEIVER_STATUS|Ethernet0", listStatusFields)
+	configClient.HSet(ctx, "TRANSCEIVER_DOM_SENSOR|Ethernet0", listFields)
+
+	stateClient := getRedisClientN(t, 6, ns) // Force target DB 0
+	defer stateClient.Close()
+
+	// Explicitly write both delimiter schemas into DB 0
+	stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", listFields)
+	stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", listFields)
+	stateClient.HSet(ctx, "TRANSCEIVER_STATUS|Ethernet0", listStatusFields)
+	stateClient.HSet(ctx, "TRANSCEIVER_DOM_SENSOR|Ethernet0", listFields)
+
+	for dbIdx := 0; dbIdx <= 7; dbIdx++ {
+		rc := getRedisClientN(t, dbIdx, ns)
+		if rc != nil {
+			allKeys, _ := rc.Keys(context.Background(), "TRANSCEIVER*").Result()
+			if len(allKeys) > 0 {
+				fmt.Printf(">>>> [DEBUG] FOUND TRANSCEIVER IN DB %d: %v\n", dbIdx, allKeys)
+			}
+
+		}
+	}
+	//t.Log("Start gNMI client")
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	tds := []struct {
+		desc          string
+		pathTarget    string
+		textPbPath    string
+		wantRetCode   codes.Code
+		wantRespVal   interface{}
+		attributeData string
+		operation     op_t
+		valTest       bool
+	}{
+		{
+			desc:          "Plfm xvr delete",
+			pathTarget:    "OC_YANG",
+			textPbPath:    pathToPb("openconfig-platform:components/component[name=Ethernet0]/"),
+			attributeData: "",
+			wantRetCode:   codes.Unknown,
+			operation:     Delete,
+			valTest:       false,
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			runTestSet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.attributeData, td.operation)
+		})
+	}
+	s.Stop()
+}
 
 type tablePathValue struct {
 	dbName    string
