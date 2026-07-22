@@ -21,6 +21,7 @@ import (
 	"io"
 	"io/ioutil"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1473,8 +1474,6 @@ func TestCertAuthDisabledWhenNoCaCert(t *testing.T) {
 }
 
 func TestNoTLSBindAddress(t *testing.T) {
-	// --noTLS must be rejected unless --bind_address is loopback or an explicitly
-	// allowed IPv4 link-local address.
 	originalArgs := os.Args
 	defer func() { os.Args = originalArgs }()
 
@@ -1488,12 +1487,11 @@ func TestNoTLSBindAddress(t *testing.T) {
 		{"loopback ipv4", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1"}, false},
 		{"loopback ipv4 alt", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.2"}, false},
 		{"loopback ipv6", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "::1"}, false},
-		{"link-local without opt-in", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "169.254.200.1"}, true},
-		{"link-local with opt-in", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "169.254.200.1", "-allow_no_tls_link_local"}, false},
-		{"link-local with default vrf", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "169.254.200.1", "-allow_no_tls_link_local", "-gnmi_vrf", "default"}, false},
-		{"link-local with non-default vrf", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "169.254.200.1", "-allow_no_tls_link_local", "-gnmi_vrf", "mgmt"}, true},
-		{"private with opt-in", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "10.0.0.1", "-allow_no_tls_link_local"}, true},
-		{"ipv6 link-local with opt-in", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "fe80::1", "-allow_no_tls_link_local"}, true},
+		{"link-local bind address", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "169.254.200.1"}, true},
+		{"loopback with non-default vrf", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1", "-gnmi_vrf", "mgmt"}, false},
+		{"interface and bind address", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1", "-no_tls_link_local_interface", "lo"}, true},
+		{"interface without noTLS", []string{"cmd", "-port", "8080", "-insecure", "-no_tls_link_local_interface", "lo"}, true},
+		{"interface with non-default vrf", []string{"cmd", "-port", "8080", "-noTLS", "-no_tls_link_local_interface", "lo", "-gnmi_vrf", "mgmt"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1505,6 +1503,87 @@ func TestNoTLSBindAddress(t *testing.T) {
 			}
 			if !tt.wantErr && err != nil {
 				t.Errorf("unexpected error for args %v: %v", tt.args, err)
+			}
+		})
+	}
+}
+
+func TestNoTLSLinkLocalInterface(t *testing.T) {
+	originalResolver := resolveIPv4LinkLocalAddress
+	defer func() { resolveIPv4LinkLocalAddress = originalResolver }()
+	resolveIPv4LinkLocalAddress = func(interfaceName string) (string, error) {
+		if interfaceName != "eth0-midplane" {
+			t.Fatalf("unexpected interface %q", interfaceName)
+		}
+		return "169.254.200.1", nil
+	}
+
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+	os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-no_tls_link_local_interface", "eth0-midplane"}
+	telemetryCfg, cfg, err := setupFlags(flag.NewFlagSet("test", flag.ContinueOnError))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := *telemetryCfg.BindAddress; got != "169.254.200.1" {
+		t.Fatalf("telemetry bind address = %q, want 169.254.200.1", got)
+	}
+	if got := cfg.BindAddress; got != "169.254.200.1" {
+		t.Fatalf("gNMI bind address = %q, want 169.254.200.1", got)
+	}
+}
+
+func TestWaitForIPv4LinkLocalAddress(t *testing.T) {
+	originalResolver := resolveIPv4LinkLocalAddress
+	defer func() { resolveIPv4LinkLocalAddress = originalResolver }()
+
+	calls := 0
+	resolveIPv4LinkLocalAddress = func(interfaceName string) (string, error) {
+		calls++
+		if calls == 1 {
+			return "", errors.New("address not ready")
+		}
+		return "169.254.200.1", nil
+	}
+	address, err := waitForIPv4LinkLocalAddress("eth0-midplane", time.Second, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if address != "169.254.200.1" || calls != 2 {
+		t.Fatalf("address = %q, calls = %d; want 169.254.200.1 after two calls", address, calls)
+	}
+
+	resolveIPv4LinkLocalAddress = func(interfaceName string) (string, error) {
+		return "", errors.New("address not ready")
+	}
+	if _, err := waitForIPv4LinkLocalAddress("eth0-midplane", 0, 0); err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+}
+
+func TestSelectIPv4LinkLocalAddress(t *testing.T) {
+	tests := []struct {
+		name      string
+		addresses []net.Addr
+		want      string
+		wantErr   bool
+	}{
+		{"one link-local", []net.Addr{&net.IPNet{IP: net.ParseIP("10.0.0.1"), Mask: net.CIDRMask(24, 32)}, &net.IPNet{IP: net.ParseIP("169.254.200.1"), Mask: net.CIDRMask(24, 32)}, &net.IPNet{IP: net.ParseIP("fe80::1"), Mask: net.CIDRMask(64, 128)}}, "169.254.200.1", false},
+		{"no link-local", []net.Addr{&net.IPNet{IP: net.ParseIP("10.0.0.1"), Mask: net.CIDRMask(24, 32)}}, "", true},
+		{"two link-local", []net.Addr{&net.IPNet{IP: net.ParseIP("169.254.200.1"), Mask: net.CIDRMask(24, 32)}, &net.IPNet{IP: net.ParseIP("169.254.200.2"), Mask: net.CIDRMask(24, 32)}}, "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := selectIPv4LinkLocalAddress("eth0-midplane", tt.addresses)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Fatalf("address = %q, want %q", got, tt.want)
 			}
 		})
 	}

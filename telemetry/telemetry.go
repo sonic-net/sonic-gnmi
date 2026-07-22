@@ -37,7 +37,12 @@ const (
 	ServerStop    ServerControlValue = iota // 0
 	ServerStart   ServerControlValue = iota // 1
 	ServerRestart ServerControlValue = iota // 2
+
+	linkLocalAddressWaitTimeout = 30 * time.Second
+	linkLocalAddressRetryDelay  = time.Second
 )
+
+var resolveIPv4LinkLocalAddress = ipv4LinkLocalAddress
 
 type TelemetryConfig struct {
 	UserAuth                 gnmi.AuthTypes
@@ -52,7 +57,7 @@ type TelemetryConfig struct {
 	ZmqPort                  *string
 	Insecure                 *bool
 	NoTLS                    *bool
-	AllowNoTLSLinkLocal      *bool
+	NoTLSLinkLocalInterface  *string
 	AllowNoClientCert        *bool
 	JwtRefInt                *uint64
 	JwtValInt                *uint64
@@ -87,7 +92,7 @@ type TelemetryConfig struct {
 func main() {
 	err := runTelemetry(os.Args)
 	if err != nil {
-		log.Errorf("Unable to setup telemetry config due to err: %v", err)
+		log.Fatalf("Unable to setup telemetry config due to err: %v", err)
 	}
 }
 
@@ -182,7 +187,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		ZmqPort:                  fs.String("zmq_port", "", "Orchagent ZMQ port, when not set or empty string telemetry server will switch to Redis based communication channel."),
 		Insecure:                 fs.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!"),
 		NoTLS:                    fs.Bool("noTLS", false, "disable TLS, for testing only!"),
-		AllowNoTLSLinkLocal:      fs.Bool("allow_no_tls_link_local", false, "Allow --noTLS to bind an IPv4 link-local address on a trusted local network."),
+		NoTLSLinkLocalInterface:  fs.String("no_tls_link_local_interface", "", "Bind --noTLS to the only IPv4 link-local address on this interface."),
 		AllowNoClientCert:        fs.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate."),
 		JwtRefInt:                fs.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed."),
 		JwtValInt:                fs.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for."),
@@ -254,16 +259,30 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		log.Infof("Log level must be greater than 0, setting to default value of 2")
 	}
 
-	if *telemetryCfg.NoTLS {
-		ip := net.ParseIP(*telemetryCfg.BindAddress)
-		linkLocalAllowed := *telemetryCfg.AllowNoTLSLinkLocal && ip != nil && ip.To4() != nil && ip.IsLinkLocalUnicast()
-		if ip == nil || (!ip.IsLoopback() && !linkLocalAllowed) {
-			return nil, nil, fmt.Errorf(
-				"--noTLS requires --bind_address to be a loopback address (e.g. 127.0.0.1 or ::1); " +
-					"an IPv4 link-local address requires --allow_no_tls_link_local")
+	if *telemetryCfg.NoTLSLinkLocalInterface != "" {
+		if !*telemetryCfg.NoTLS {
+			return nil, nil, fmt.Errorf("--no_tls_link_local_interface requires --noTLS")
 		}
-		if linkLocalAllowed && *telemetryCfg.GnmiVrf != "" && *telemetryCfg.GnmiVrf != "default" {
-			return nil, nil, fmt.Errorf("--allow_no_tls_link_local cannot be used with a non-default --gnmi_vrf")
+		if *telemetryCfg.BindAddress != "" {
+			return nil, nil, fmt.Errorf("--no_tls_link_local_interface cannot be used with --bind_address")
+		}
+		if *telemetryCfg.GnmiVrf != "" && *telemetryCfg.GnmiVrf != "default" {
+			return nil, nil, fmt.Errorf("--no_tls_link_local_interface cannot be used with a non-default --gnmi_vrf")
+		}
+	}
+
+	if *telemetryCfg.NoTLS {
+		if *telemetryCfg.NoTLSLinkLocalInterface != "" {
+			bindAddress, err := waitForIPv4LinkLocalAddress(*telemetryCfg.NoTLSLinkLocalInterface, linkLocalAddressWaitTimeout, linkLocalAddressRetryDelay)
+			if err != nil {
+				return nil, nil, err
+			}
+			*telemetryCfg.BindAddress = bindAddress
+		} else {
+			ip := net.ParseIP(*telemetryCfg.BindAddress)
+			if ip == nil || !ip.IsLoopback() {
+				return nil, nil, fmt.Errorf("--noTLS requires --bind_address to be a loopback address (e.g. 127.0.0.1 or ::1)")
+			}
 		}
 	}
 
@@ -344,6 +363,49 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.AuthzPolicyFile = string(*telemetryCfg.AuthzPolicyFile)
 	cfg.EnableStreamMultiplexing = *telemetryCfg.EnableStreamMultiplexing
 	return telemetryCfg, cfg, nil
+}
+
+func ipv4LinkLocalAddress(interfaceName string) (string, error) {
+	iface, err := net.InterfaceByName(interfaceName)
+	if err != nil {
+		return "", fmt.Errorf("cannot find link-local interface %q: %w", interfaceName, err)
+	}
+
+	addresses, err := iface.Addrs()
+	if err != nil {
+		return "", fmt.Errorf("cannot read addresses for link-local interface %q: %w", interfaceName, err)
+	}
+
+	return selectIPv4LinkLocalAddress(interfaceName, addresses)
+}
+
+func waitForIPv4LinkLocalAddress(interfaceName string, timeout, retryDelay time.Duration) (string, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		address, err := resolveIPv4LinkLocalAddress(interfaceName)
+		if err == nil {
+			return address, nil
+		}
+		if !time.Now().Before(deadline) {
+			return "", fmt.Errorf("timed out waiting for IPv4 link-local address on interface %q: %w", interfaceName, err)
+		}
+		time.Sleep(retryDelay)
+	}
+}
+
+func selectIPv4LinkLocalAddress(interfaceName string, addresses []net.Addr) (string, error) {
+	var linkLocalAddresses []string
+	for _, address := range addresses {
+		ip, _, err := net.ParseCIDR(address.String())
+		if err == nil && ip.To4() != nil && ip.IsLinkLocalUnicast() {
+			linkLocalAddresses = append(linkLocalAddresses, ip.String())
+		}
+	}
+
+	if len(linkLocalAddresses) != 1 {
+		return "", fmt.Errorf("link-local interface %q must have exactly one IPv4 link-local address; found %d", interfaceName, len(linkLocalAddresses))
+	}
+	return linkLocalAddresses[0], nil
 }
 
 func isFlagPassed(fs *flag.FlagSet, name string) bool {
