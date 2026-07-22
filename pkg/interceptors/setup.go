@@ -13,7 +13,7 @@ type ServerChain struct {
 }
 
 // NewServerChain creates a complete interceptor chain for the gNMI server.
-// Currently includes DPU proxy interceptor with Redis-based DPU resolution.
+// It includes RPC access logging and DPU proxying with Redis-based DPU resolution.
 // Returns the chain and a cleanup function that must be called during shutdown.
 func NewServerChain() (*ServerChain, error) {
 	// Create Redis clients for DPU info resolution from both StateDB and ConfigDB
