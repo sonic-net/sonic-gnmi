@@ -2527,6 +2527,84 @@ func TestGnmiGetTranslib(t *testing.T) {
 	}
 	s.Stop()
 }
+func TestGnmiGetTranslibXfmrIntf(t *testing.T) {
+
+	//t.Log("Start server")
+	s := createServer(t, 8081)
+	go runServer(t, s)
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+	stateClient := getRedisClientN(t, 6, ns)
+	defer stateClient.Close()
+	xcvrFields := map[string]interface{}{
+		"type": "QSFP28 or later",
+	}
+	stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet26", xcvrFields)
+
+	//t.Log("Start gNMI client")
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	var emptyRespVal interface{}
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		timeout     time.Duration
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		{
+			desc:       "Get OpenConfig Interface hardwareport",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"Ethernet0" > >
+            elem: <name: "state" >
+            elem: <name: "openconfig-platform-port:hardware-port" >
+                `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OpenConfig Interface transceiver",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"Ethernet0" > >
+            elem: <name: "state" >
+            elem: <name: "openconfig-platform-transceiver:transceiver" >
+                `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+	}
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			if td.timeout == 0 {
+				td.timeout = 10 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), td.timeout)
+			defer cancel()
+
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+	s.Stop()
+}
 
 type tablePathValue struct {
 	dbName    string
