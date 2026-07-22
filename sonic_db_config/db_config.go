@@ -291,6 +291,7 @@ func DbInit() (err error) {
 	if sonic_db_init {
 		return nil
 	}
+	defer CatchException(&err)
 	if err := internaldbconfig.DbInit(); err != nil {
 		return err
 	}
@@ -300,5 +301,6 @@ func DbInit() (err error) {
 
 func Init() (err error) {
 	sonic_db_init = false
+	defer CatchException(&err)
 	return internaldbconfig.Init()
 }
