@@ -1561,6 +1561,43 @@ func TestWaitForIPv4LinkLocalAddress(t *testing.T) {
 	}
 }
 
+func TestIPv4LinkLocalAddress(t *testing.T) {
+	originalInterfaceByName := interfaceByName
+	originalInterfaceAddresses := interfaceAddresses
+	defer func() {
+		interfaceByName = originalInterfaceByName
+		interfaceAddresses = originalInterfaceAddresses
+	}()
+
+	interfaceByName = func(name string) (*net.Interface, error) {
+		return nil, errors.New("not found")
+	}
+	if _, err := ipv4LinkLocalAddress("eth0-midplane"); err == nil {
+		t.Fatal("expected interface lookup error, got nil")
+	}
+
+	interfaceByName = func(name string) (*net.Interface, error) {
+		return &net.Interface{Name: name}, nil
+	}
+	interfaceAddresses = func(iface *net.Interface) ([]net.Addr, error) {
+		return nil, errors.New("addresses unavailable")
+	}
+	if _, err := ipv4LinkLocalAddress("eth0-midplane"); err == nil {
+		t.Fatal("expected address lookup error, got nil")
+	}
+
+	interfaceAddresses = func(iface *net.Interface) ([]net.Addr, error) {
+		return []net.Addr{&net.IPNet{IP: net.ParseIP("169.254.200.1"), Mask: net.CIDRMask(24, 32)}}, nil
+	}
+	address, err := ipv4LinkLocalAddress("eth0-midplane")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if address != "169.254.200.1" {
+		t.Fatalf("address = %q, want 169.254.200.1", address)
+	}
+}
+
 func TestSelectIPv4LinkLocalAddress(t *testing.T) {
 	tests := []struct {
 		name      string

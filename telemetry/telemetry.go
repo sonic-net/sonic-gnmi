@@ -42,7 +42,11 @@ const (
 	linkLocalAddressRetryDelay  = time.Second
 )
 
-var resolveIPv4LinkLocalAddress = ipv4LinkLocalAddress
+var (
+	interfaceByName             = net.InterfaceByName
+	interfaceAddresses          = func(iface *net.Interface) ([]net.Addr, error) { return iface.Addrs() }
+	resolveIPv4LinkLocalAddress = ipv4LinkLocalAddress
+)
 
 type TelemetryConfig struct {
 	UserAuth                 gnmi.AuthTypes
@@ -366,12 +370,12 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 }
 
 func ipv4LinkLocalAddress(interfaceName string) (string, error) {
-	iface, err := net.InterfaceByName(interfaceName)
+	iface, err := interfaceByName(interfaceName)
 	if err != nil {
 		return "", fmt.Errorf("cannot find link-local interface %q: %w", interfaceName, err)
 	}
 
-	addresses, err := iface.Addrs()
+	addresses, err := interfaceAddresses(iface)
 	if err != nil {
 		return "", fmt.Errorf("cannot read addresses for link-local interface %q: %w", interfaceName, err)
 	}
