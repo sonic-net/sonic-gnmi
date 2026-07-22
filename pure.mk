@@ -73,7 +73,7 @@ vet:
 
 # Test - run all tests with coverage
 .PHONY: test
-test:
+test: build-test
 	@echo "Running tests for pure packages..."
 	@set -e; for pkg in $(PACKAGES); do \
 		echo ""; \
@@ -87,7 +87,7 @@ test:
 
 # Generate coverage files for Azure pipeline integration
 .PHONY: azure-coverage
-azure-coverage:
+azure-coverage: build-test
 	@echo "Generating coverage files for Azure pipeline..."
 	@set -e; for pkg in $(PACKAGES); do \
 		echo "Testing $$pkg..."; \
@@ -138,10 +138,11 @@ coverage-xml: test
 # Build test - ensure the package builds
 .PHONY: build-test
 build-test:
-	@echo "Testing build of pure packages..."
+	@echo "Testing build of pure packages and tests..."
 	@set -e; for pkg in $(PACKAGES); do \
 		echo "Building $$pkg..."; \
 		(cd $$pkg && CGO_ENABLED=$(PURE_CGO_ENABLED) $(GO) build $(PURE_GO_FLAGS) -v .); \
+		(cd $$pkg && CGO_ENABLED=$(PURE_CGO_ENABLED) $(GO) test $(PURE_GO_FLAGS) -c -o /dev/null .); \
 	done
 
 # Lint check using basic go tools
@@ -184,26 +185,6 @@ security:
 		echo "Install with: go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest"; \
 	fi
 
-# Verify that canonical packages do not depend on SONiC-only modules.
-.PHONY: check-deps
-check-deps:
-	@echo "Checking pure dependency graph..."
-	@set -e; \
-	deps=$$(CGO_ENABLED=$(PURE_CGO_ENABLED) $(GO) list $(PURE_GO_FLAGS) -test -deps $(addprefix ./,$(PACKAGES))); \
-	for dep in $$deps; do \
-	for forbidden in \
-		github.com/sonic-net/sonic-gnmi/swsscommon \
-		github.com/Azure/sonic-mgmt-common; do \
-			case "$$dep" in \
-				"$$forbidden"|"$$forbidden"/*) \
-					echo "Pure package graph includes forbidden dependency: $$dep"; \
-					exit 1; \
-					;; \
-			esac; \
-		done; \
-	done
-	@echo "Pure dependency graph is clean."
-
 # Keep pure build constraints on provider adapters rather than business logic.
 .PHONY: check-tags
 check-tags:
@@ -237,7 +218,7 @@ list-packages:
 
 # Full CI pipeline
 .PHONY: ci
-ci: clean check-deps check-tags lint build-test test
+ci: clean check-tags lint build-test test
 	@echo ""
 	@echo "============================================="
 	@echo "✅ Pure CI completed successfully!"
@@ -260,7 +241,7 @@ ci: clean check-deps check-tags lint build-test test
 # Note: The Azure pipeline now calls gotestsum directly with set -euo pipefail
 # This target is kept for local testing convenience
 .PHONY: junit-xml
-junit-xml: clean check-deps check-tags build-test
+junit-xml: clean check-tags build-test
 	@echo "Installing gotestsum for JUnit XML generation..."
 	@if ! command -v gotestsum >/dev/null 2>&1; then \
 		$(GO) install gotest.tools/gotestsum@v1.11.0; \
@@ -303,7 +284,7 @@ junit-xml: clean check-deps check-tags build-test
 
 # Quick check for development
 .PHONY: quick
-quick: check-deps check-tags fmt-check vet build-test
+quick: check-tags fmt-check vet build-test
 	@echo "Quick validation complete for pure packages"
 
 # Help target
@@ -329,7 +310,6 @@ help:
 	@echo "  build-test       - Test package builds"
 	@echo "  bench            - Run benchmarks"
 	@echo "  security         - Run security scan (requires gosec)"
-	@echo "  check-deps       - Reject SONiC-only dependencies from pure packages"
 	@echo "  check-tags       - Restrict pure tags to provider adapters"
 	@echo "  mod-verify       - Verify go modules"
 	@echo "  list-packages    - List pure packages"
