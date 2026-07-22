@@ -96,7 +96,7 @@ func TestPureProviderRejectsUnknownDatabaseAndNamespace(t *testing.T) {
 
 func TestPureProviderRejectsGlobalConfiguration(t *testing.T) {
 	usePureConfig(t, filepath.Join("testdata", "database_config.json"))
-	globalConfigFile = filepath.Join("..", "..", "testdata", "database_global.json")
+	globalConfigFile = filepath.Join("..", "..", "..", "testdata", "database_global.json")
 
 	err := DbInit()
 	if err == nil || !strings.Contains(err.Error(), "global database configuration") {

@@ -4,7 +4,7 @@ package dbconfig
 
 import (
 	"fmt"
-	internaldbconfig "github.com/sonic-net/sonic-gnmi/internal/dbconfig"
+	internaldbconfig "github.com/sonic-net/sonic-gnmi/internal/adaptors/dbconfig"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"strconv"
 )

@@ -185,7 +185,7 @@ security:
 		echo "Install with: go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest"; \
 	fi
 
-# Keep pure build constraints on provider adapters rather than business logic.
+# Keep pure build constraints under internal/adaptors rather than business logic.
 .PHONY: check-tags
 check-tags:
 	@echo "Checking pure build-tag placement..."
@@ -193,12 +193,13 @@ check-tags:
 	files=$$(grep -R -l '^//go:build .*pure' $(PURE_ROOTS) --include='*.go' 2>/dev/null || true); \
 	for file in $$files; do \
 		case "$$file" in \
-			internal/*/provider_*.go) ;; \
-			*) \
-				echo "Pure build tag is outside an internal provider adapter: $$file"; \
-				exit 1; \
+			internal/adaptors/*/provider_*.go) \
+				relative=$${file#internal/adaptors/}; \
+				case "$$relative" in */*/*) ;; *) continue ;; esac; \
 				;; \
 		esac; \
+		echo "Pure build tag is outside a direct internal adaptor provider: $$file"; \
+		exit 1; \
 	done
 	@echo "Pure build-tag placement is clean."
 
@@ -310,7 +311,7 @@ help:
 	@echo "  build-test       - Test package builds"
 	@echo "  bench            - Run benchmarks"
 	@echo "  security         - Run security scan (requires gosec)"
-	@echo "  check-tags       - Restrict pure tags to provider adapters"
+	@echo "  check-tags       - Restrict pure tags to internal adaptors"
 	@echo "  mod-verify       - Verify go modules"
 	@echo "  list-packages    - List pure packages"
 	@echo "  clean            - Clean build artifacts"
