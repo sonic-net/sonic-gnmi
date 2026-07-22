@@ -26,6 +26,21 @@ func TestNewServerChain(t *testing.T) {
 	}
 }
 
+func TestNewServerChainStartsWithRPCLogger(t *testing.T) {
+	serverChain, err := NewServerChain()
+	if err != nil {
+		t.Fatalf("NewServerChain() failed: %v", err)
+	}
+	defer serverChain.Close()
+
+	if len(serverChain.chain.interceptors) < 2 {
+		t.Fatalf("server chain has %d interceptors, want at least logger and DPU proxy", len(serverChain.chain.interceptors))
+	}
+	if _, ok := serverChain.chain.interceptors[0].(*rpcLogger); !ok {
+		t.Fatalf("first server interceptor is %T, want *rpcLogger", serverChain.chain.interceptors[0])
+	}
+}
+
 func TestServerChain_GetServerOptions(t *testing.T) {
 	chain, err := NewServerChain()
 	if err != nil {

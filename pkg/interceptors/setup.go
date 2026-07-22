@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	log "github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	"google.golang.org/grpc"
 )
@@ -27,8 +28,8 @@ func NewServerChain() (*ServerChain, error) {
 	dpuProxy := dpuproxy.NewDPUProxy(dpuResolver)
 	dpuproxy.SetDefaultProxy(dpuProxy)
 
-	// Create interceptor chain with DPU proxy
-	chain := NewChain(dpuProxy)
+	// Keep access logging outermost so it records DPU-forwarded and rejected RPCs.
+	chain := NewChain(newRPCLogger(log.Infof), dpuProxy)
 
 	// Create cleanup function to close Redis clients
 	cleanup := func() error {
