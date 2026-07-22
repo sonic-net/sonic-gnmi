@@ -52,6 +52,7 @@ type TelemetryConfig struct {
 	ZmqPort                  *string
 	Insecure                 *bool
 	NoTLS                    *bool
+	AllowNoTLSLinkLocal      *bool
 	AllowNoClientCert        *bool
 	JwtRefInt                *uint64
 	JwtValInt                *uint64
@@ -181,6 +182,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		ZmqPort:                  fs.String("zmq_port", "", "Orchagent ZMQ port, when not set or empty string telemetry server will switch to Redis based communication channel."),
 		Insecure:                 fs.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!"),
 		NoTLS:                    fs.Bool("noTLS", false, "disable TLS, for testing only!"),
+		AllowNoTLSLinkLocal:      fs.Bool("allow_no_tls_link_local", false, "Allow --noTLS to bind an IPv4 link-local address on a trusted local network."),
 		AllowNoClientCert:        fs.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate."),
 		JwtRefInt:                fs.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed."),
 		JwtValInt:                fs.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for."),
@@ -254,10 +256,14 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 
 	if *telemetryCfg.NoTLS {
 		ip := net.ParseIP(*telemetryCfg.BindAddress)
-		if ip == nil || !ip.IsLoopback() {
+		linkLocalAllowed := *telemetryCfg.AllowNoTLSLinkLocal && ip != nil && ip.To4() != nil && ip.IsLinkLocalUnicast()
+		if ip == nil || (!ip.IsLoopback() && !linkLocalAllowed) {
 			return nil, nil, fmt.Errorf(
-				"--noTLS requires --bind_address to be a loopback address (e.g. 127.0.0.1 or ::1) " +
-					"to prevent cleartext gRPC exposure over the network")
+				"--noTLS requires --bind_address to be a loopback address (e.g. 127.0.0.1 or ::1); " +
+					"an IPv4 link-local address requires --allow_no_tls_link_local")
+		}
+		if linkLocalAllowed && *telemetryCfg.GnmiVrf != "" && *telemetryCfg.GnmiVrf != "default" {
+			return nil, nil, fmt.Errorf("--allow_no_tls_link_local cannot be used with a non-default --gnmi_vrf")
 		}
 	}
 

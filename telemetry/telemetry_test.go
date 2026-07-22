@@ -1472,8 +1472,9 @@ func TestCertAuthDisabledWhenNoCaCert(t *testing.T) {
 	}
 }
 
-func TestNoTLSRequiresLoopbackAddress(t *testing.T) {
-	// --noTLS must be rejected unless --bind_address is a loopback address.
+func TestNoTLSBindAddress(t *testing.T) {
+	// --noTLS must be rejected unless --bind_address is loopback or an explicitly
+	// allowed IPv4 link-local address.
 	originalArgs := os.Args
 	defer func() { os.Args = originalArgs }()
 
@@ -1487,6 +1488,12 @@ func TestNoTLSRequiresLoopbackAddress(t *testing.T) {
 		{"loopback ipv4", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1"}, false},
 		{"loopback ipv4 alt", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.2"}, false},
 		{"loopback ipv6", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "::1"}, false},
+		{"link-local without opt-in", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "169.254.200.1"}, true},
+		{"link-local with opt-in", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "169.254.200.1", "-allow_no_tls_link_local"}, false},
+		{"link-local with default vrf", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "169.254.200.1", "-allow_no_tls_link_local", "-gnmi_vrf", "default"}, false},
+		{"link-local with non-default vrf", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "169.254.200.1", "-allow_no_tls_link_local", "-gnmi_vrf", "mgmt"}, true},
+		{"private with opt-in", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "10.0.0.1", "-allow_no_tls_link_local"}, true},
+		{"ipv6 link-local with opt-in", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "fe80::1", "-allow_no_tls_link_local"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
