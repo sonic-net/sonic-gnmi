@@ -3,6 +3,7 @@
 package dbconfig
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -38,7 +39,7 @@ func TestPureProviderDescribesStandaloneNamespace(t *testing.T) {
 		t.Fatalf("GetDbAllNamespaces() error = %v", err)
 	}
 	if !reflect.DeepEqual(namespaces, []string{DefaultNamespace}) {
-		t.Errorf("GetDbAllNamespaces() = %q, want default namespace", namespaces)
+		t.Errorf("GetDbAllNamespaces() = %v, want default namespace", namespaces)
 	}
 
 	nonDefault, err := GetDbNonDefaultNamespaces()
@@ -46,7 +47,7 @@ func TestPureProviderDescribesStandaloneNamespace(t *testing.T) {
 		t.Fatalf("GetDbNonDefaultNamespaces() error = %v", err)
 	}
 	if len(nonDefault) != 0 {
-		t.Errorf("GetDbNonDefaultNamespaces() = %q, want none", nonDefault)
+		t.Errorf("GetDbNonDefaultNamespaces() = %v, want none", nonDefault)
 	}
 
 	multiNamespace, err := CheckDbMultiNamespace()
@@ -63,7 +64,7 @@ func TestPureProviderDescribesStandaloneNamespace(t *testing.T) {
 	}
 	wantDatabases := []string{"CONFIG_DB", "STATE_DB"}
 	if !reflect.DeepEqual(databases, wantDatabases) {
-		t.Errorf("GetDbList() = %q, want %q", databases, wantDatabases)
+		t.Errorf("GetDbList() = %v, want %v", databases, wantDatabases)
 	}
 }
 
@@ -101,6 +102,19 @@ func TestPureProviderRejectsGlobalConfiguration(t *testing.T) {
 	err := DbInit()
 	if err == nil || !strings.Contains(err.Error(), "global database configuration") {
 		t.Errorf("DbInit() error = %v, want unsupported global configuration error", err)
+	}
+}
+
+func TestPureProviderRejectsIncludes(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "database_config.json")
+	if err := os.WriteFile(configFile, []byte(`{"INCLUDES":["database_config.json"]}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	usePureConfig(t, configFile)
+
+	err := DbInit()
+	if err == nil || !strings.Contains(err.Error(), "INCLUDES") {
+		t.Errorf("DbInit() error = %v, want unsupported INCLUDES error", err)
 	}
 }
 
@@ -154,7 +168,7 @@ func runProviderContract(t *testing.T, contract providerContract) {
 		t.Fatalf("GetDbAllNamespaces() error = %v", err)
 	}
 	if !slices.Contains(namespaces, contract.namespace) {
-		t.Errorf("GetDbAllNamespaces() = %q, want namespace %q", namespaces, contract.namespace)
+		t.Errorf("GetDbAllNamespaces() = %v, want namespace %q", namespaces, contract.namespace)
 	}
 
 	databases, err := GetDbList(contract.namespace)
@@ -162,7 +176,7 @@ func runProviderContract(t *testing.T, contract providerContract) {
 		t.Fatalf("GetDbList() error = %v", err)
 	}
 	if !slices.Contains(databases, contract.database) {
-		t.Errorf("GetDbList() = %q, want database %q", databases, contract.database)
+		t.Errorf("GetDbList() = %v, want database %q", databases, contract.database)
 	}
 
 	id, err := GetDbId(contract.database, contract.namespace)

@@ -190,7 +190,7 @@ security:
 check-tags:
 	@echo "Checking pure build-tag placement..."
 	@set -e; \
-	files=$$(grep -R -l '^//go:build .*pure' $(PURE_ROOTS) --include='*.go' 2>/dev/null || true); \
+	files=$$(find $(PURE_ROOTS) -type f -name '*.go' -exec grep -l '^//go:build .*pure' {} + 2>/dev/null || true); \
 	for file in $$files; do \
 		case "$$file" in \
 			internal/adaptors/*/provider_*.go) \

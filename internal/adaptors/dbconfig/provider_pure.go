@@ -58,7 +58,7 @@ func (p *fileProvider) initialize() error {
 		return fmt.Errorf("parse database configuration: %w", err)
 	}
 	if len(p.config.Includes) > 0 {
-		return fmt.Errorf("global database configuration is not supported by the pure provider")
+		return fmt.Errorf("database configuration INCLUDES are not supported by the pure provider")
 	}
 	return nil
 }

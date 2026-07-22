@@ -3,6 +3,8 @@
 package dbconfig
 
 import (
+	"errors"
+	"fmt"
 	"os"
 
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
@@ -13,10 +15,12 @@ var activeProvider provider = swssProvider{}
 type swssProvider struct{}
 
 func (swssProvider) initialize() error {
-	if _, err := os.Stat(GlobalConfigFile); err == nil || os.IsExist(err) {
+	if _, err := os.Stat(GlobalConfigFile); err == nil {
 		if !swsscommon.SonicDBConfigIsGlobalInit() {
 			swsscommon.SonicDBConfigInitializeGlobalConfig()
 		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect global database configuration: %w", err)
 	} else if !swsscommon.SonicDBConfigIsInit() {
 		swsscommon.SonicDBConfigInitialize()
 	}
