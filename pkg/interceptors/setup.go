@@ -12,10 +12,20 @@ type ServerChain struct {
 	cleanup func() error
 }
 
-// NewServerChain creates a complete interceptor chain for the gNMI server.
-// It includes RPC access logging and DPU proxying with Redis-based DPU resolution.
+// NewServerChain creates a complete interceptor chain for the gNMI server with
+// DPU proxying and RPC access logging disabled.
 // Returns the chain and a cleanup function that must be called during shutdown.
 func NewServerChain() (*ServerChain, error) {
+	return newServerChain(false)
+}
+
+// NewServerChainWithRPCAccessLog creates a server chain with RPC access logging
+// outermost so it records DPU-forwarded and rejected RPCs.
+func NewServerChainWithRPCAccessLog() (*ServerChain, error) {
+	return newServerChain(true)
+}
+
+func newServerChain(enableRPCAccessLog bool) (*ServerChain, error) {
 	// Create Redis clients for DPU info resolution from both StateDB and ConfigDB
 	stateRedisClient := dpuproxy.NewRedisClient(dpuproxy.DefaultRedisSocket, dpuproxy.StateDB)
 	stateRedisAdapter := dpuproxy.NewGoRedisAdapter(stateRedisClient)
@@ -28,8 +38,10 @@ func NewServerChain() (*ServerChain, error) {
 	dpuProxy := dpuproxy.NewDPUProxy(dpuResolver)
 	dpuproxy.SetDefaultProxy(dpuProxy)
 
-	// Keep access logging outermost so it records DPU-forwarded and rejected RPCs.
-	chain := NewChain(newRPCLogger(log.Infof), dpuProxy)
+	chain := NewChain(dpuProxy)
+	if enableRPCAccessLog {
+		chain = NewChain(newRPCLogger(log.Infof), dpuProxy)
+	}
 
 	// Create cleanup function to close Redis clients
 	cleanup := func() error {
