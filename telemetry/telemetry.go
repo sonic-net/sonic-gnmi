@@ -79,7 +79,6 @@ type TelemetryConfig struct {
 	AuthPolicyEnabled        *bool
 	AuthzPolicyFile          *string
 	EnableStreamMultiplexing *bool
-	EnableRPCAccessLog       *bool
 	MaxRecvMsgSize           *int
 	MaxSendMsgSize           *int
 }
@@ -210,7 +209,6 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		AuthPolicyEnabled:        fs.Bool("authz_policy_enabled", false, "Enable authz policy. Require insecure flag to be false."),
 		AuthzPolicyFile:          fs.String("authorization_policy_file", "/keys/authorization_policy.json", "Full path name of the JSON authorization policy file."),
 		EnableStreamMultiplexing: fs.Bool("enable_stream_multiplexing", false, "Allow multiple Subscribe RPCs on a single TCP connection via HTTP/2 stream multiplexing"),
-		EnableRPCAccessLog:       fs.Bool("enable_rpc_access_log", false, "Enable one structured access log when each dispatched RPC completes"),
 		MaxRecvMsgSize:           fs.Int("max_recv_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can receive"),
 		MaxSendMsgSize:           fs.Int("max_send_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can send"),
 	}
@@ -582,11 +580,7 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 
 		// Setup interceptor chain (includes DPU proxy with Redis-based routing)
 		var err error
-		if *telemetryCfg.EnableRPCAccessLog {
-			currentServerChain, err = interceptors.NewServerChainWithRPCAccessLog()
-		} else {
-			currentServerChain, err = interceptors.NewServerChain()
-		}
+		currentServerChain, err = interceptors.NewServerChain()
 		if err != nil {
 			log.Errorf("Failed to create interceptor chain: %v", err)
 			return

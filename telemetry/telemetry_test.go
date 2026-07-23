@@ -178,33 +178,6 @@ func TestFlags(t *testing.T) {
 	}
 }
 
-func TestRPCAccessLogFlag(t *testing.T) {
-	originalArgs := os.Args
-	defer func() { os.Args = originalArgs }()
-
-	for _, test := range []struct {
-		name    string
-		args    []string
-		enabled bool
-	}{
-		{name: "disabled by default", args: []string{"cmd", "-port", "8080", "-insecure"}},
-		{name: "enabled", args: []string{"cmd", "-port", "8080", "-insecure", "-enable_rpc_access_log"}, enabled: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			fs := flag.NewFlagSet("testRPCAccessLogFlag", flag.ContinueOnError)
-			os.Args = test.args
-
-			telemetryCfg, _, err := setupFlags(fs)
-			if err != nil {
-				t.Fatalf("setupFlags() failed: %v", err)
-			}
-			if got := *telemetryCfg.EnableRPCAccessLog; got != test.enabled {
-				t.Fatalf("EnableRPCAccessLog = %t, want %t", got, test.enabled)
-			}
-		})
-	}
-}
-
 func TestStartGNMIServer(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"

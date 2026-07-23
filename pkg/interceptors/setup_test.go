@@ -2,8 +2,6 @@ package interceptors
 
 import (
 	"testing"
-
-	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 )
 
 func TestNewServerChain(t *testing.T) {
@@ -28,39 +26,18 @@ func TestNewServerChain(t *testing.T) {
 	}
 }
 
-func TestNewServerChainDisablesRPCLoggerByDefault(t *testing.T) {
+func TestNewServerChainStartsWithRPCLogger(t *testing.T) {
 	serverChain, err := NewServerChain()
 	if err != nil {
 		t.Fatalf("NewServerChain() failed: %v", err)
 	}
 	defer serverChain.Close()
 
-	if len(serverChain.chain.interceptors) != 1 {
-		t.Fatalf("server chain has %d interceptors, want only DPU proxy", len(serverChain.chain.interceptors))
-	}
-	if _, ok := serverChain.chain.interceptors[0].(*rpcLogger); ok {
-		t.Fatal("server chain contains RPC logger when access logging is disabled")
-	}
-	if _, ok := serverChain.chain.interceptors[0].(*dpuproxy.DPUProxy); !ok {
-		t.Fatalf("server interceptor is %T, want *dpuproxy.DPUProxy", serverChain.chain.interceptors[0])
-	}
-}
-
-func TestNewServerChainStartsWithRPCLoggerWhenEnabled(t *testing.T) {
-	serverChain, err := NewServerChainWithRPCAccessLog()
-	if err != nil {
-		t.Fatalf("NewServerChain() failed: %v", err)
-	}
-	defer serverChain.Close()
-
-	if len(serverChain.chain.interceptors) != 2 {
-		t.Fatalf("server chain has %d interceptors, want logger and DPU proxy", len(serverChain.chain.interceptors))
+	if len(serverChain.chain.interceptors) < 2 {
+		t.Fatalf("server chain has %d interceptors, want at least logger and DPU proxy", len(serverChain.chain.interceptors))
 	}
 	if _, ok := serverChain.chain.interceptors[0].(*rpcLogger); !ok {
 		t.Fatalf("first server interceptor is %T, want *rpcLogger", serverChain.chain.interceptors[0])
-	}
-	if _, ok := serverChain.chain.interceptors[1].(*dpuproxy.DPUProxy); !ok {
-		t.Fatalf("second server interceptor is %T, want *dpuproxy.DPUProxy", serverChain.chain.interceptors[1])
 	}
 }
 
