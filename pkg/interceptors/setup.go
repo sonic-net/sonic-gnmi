@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	log "github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	"google.golang.org/grpc"
 )
@@ -12,7 +13,7 @@ type ServerChain struct {
 }
 
 // NewServerChain creates a complete interceptor chain for the gNMI server.
-// Currently includes DPU proxy interceptor with Redis-based DPU resolution.
+// It includes RPC access logging and DPU proxying with Redis-based DPU resolution.
 // Returns the chain and a cleanup function that must be called during shutdown.
 func NewServerChain() (*ServerChain, error) {
 	// Create Redis clients for DPU info resolution from both StateDB and ConfigDB
@@ -27,8 +28,8 @@ func NewServerChain() (*ServerChain, error) {
 	dpuProxy := dpuproxy.NewDPUProxy(dpuResolver)
 	dpuproxy.SetDefaultProxy(dpuProxy)
 
-	// Create interceptor chain with DPU proxy
-	chain := NewChain(dpuProxy)
+	// Keep access logging outermost so it records DPU-forwarded and rejected RPCs.
+	chain := NewChain(newRPCLogger(log.Infof), dpuProxy)
 
 	// Create cleanup function to close Redis clients
 	cleanup := func() error {
