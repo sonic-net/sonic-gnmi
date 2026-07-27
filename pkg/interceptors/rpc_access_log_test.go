@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +30,14 @@ type accessLogRecord struct {
 	Peer       string `json:"peer"`
 	Code       string `json:"code"`
 	DurationMS int64  `json:"duration_ms"`
+	Suppressed uint64 `json:"suppressed"`
+}
+
+type accessLogSummary struct {
+	Version    int    `json:"v"`
+	Method     string `json:"method"`
+	Code       string `json:"code"`
+	Suppressed uint64 `json:"suppressed"`
 }
 
 type accessLogServerStream struct {
@@ -77,7 +86,7 @@ func parseAccessLog(t *testing.T, line string) accessLogRecord {
 		gotFields = append(gotFields, field)
 	}
 	slices.Sort(gotFields)
-	wantFields := []string{"code", "duration_ms", "method", "peer", "peer_type", "type", "v"}
+	wantFields := []string{"code", "duration_ms", "method", "peer", "peer_type", "suppressed", "type", "v"}
 	if !reflect.DeepEqual(gotFields, wantFields) {
 		t.Fatalf("log record fields = %v, want %v", gotFields, wantFields)
 	}
@@ -85,6 +94,38 @@ func parseAccessLog(t *testing.T, line string) accessLogRecord {
 	var got accessLogRecord
 	if err := json.Unmarshal(payload, &got); err != nil {
 		t.Fatalf("cannot decode access log: %v", err)
+	}
+	if got.Version != 2 {
+		t.Fatalf("access log version = %d, want 2", got.Version)
+	}
+	return got
+}
+
+func parseAccessLogSummary(t *testing.T, line string) accessLogSummary {
+	t.Helper()
+
+	const prefix = "RPC_ACCESS_SUMMARY "
+	if !strings.HasPrefix(line, prefix) {
+		t.Fatalf("log line %q does not start with %q", line, prefix)
+	}
+	payload := []byte(strings.TrimPrefix(line, prefix))
+	var fields map[string]interface{}
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		t.Fatalf("log summary is not valid JSON: %v", err)
+	}
+	gotFields := make([]string, 0, len(fields))
+	for field := range fields {
+		gotFields = append(gotFields, field)
+	}
+	slices.Sort(gotFields)
+	wantFields := []string{"code", "method", "suppressed", "v"}
+	if !reflect.DeepEqual(gotFields, wantFields) {
+		t.Fatalf("log summary fields = %v, want %v", gotFields, wantFields)
+	}
+
+	var got accessLogSummary
+	if err := json.Unmarshal(payload, &got); err != nil {
+		t.Fatalf("cannot decode access log summary: %v", err)
 	}
 	return got
 }
@@ -145,6 +186,169 @@ func TestRPCLoggerEndToEnd(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for RPC access log")
+	}
+}
+
+func TestRPCLoggerRateLimitsEachMethodAndCode(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC)
+	var lines []string
+	logger := newRPCLoggerWithClock(func(format string, args ...interface{}) {
+		lines = append(lines, fmt.Sprintf(format, args...))
+	}, func() time.Time { return now }, func(time.Duration, func()) {})
+	interceptor := logger.UnaryInterceptor()
+
+	call := func(method string, wantErr error) {
+		t.Helper()
+		_, err := interceptor(context.Background(), nil,
+			&grpc.UnaryServerInfo{FullMethod: method},
+			func(context.Context, interface{}) (interface{}, error) { return nil, wantErr })
+		if err != wantErr {
+			t.Fatalf("UnaryInterceptor() error = %v, want %v", err, wantErr)
+		}
+	}
+
+	call("/gnmi.gNMI/Get", nil)
+	call("/gnmi.gNMI/Get", nil)
+	call("/gnmi.gNMI/Get", nil)
+	if len(lines) != 1 {
+		t.Fatalf("same-key calls produced %d log lines, want 1: %v", len(lines), lines)
+	}
+
+	permissionDenied := status.Error(codes.PermissionDenied, "not allowed")
+	call("/gnmi.gNMI/Get", permissionDenied)
+	call("/gnmi.gNMI/Set", nil)
+	if len(lines) != 3 {
+		t.Fatalf("distinct-key calls produced %d log lines, want 3: %v", len(lines), lines)
+	}
+
+	now = now.Add(10 * time.Second)
+	call("/gnmi.gNMI/Get", nil)
+	if len(lines) != 4 {
+		t.Fatalf("call after interval produced %d log lines, want 4: %v", len(lines), lines)
+	}
+	got := parseAccessLog(t, lines[3])
+	if got.Method != "/gnmi.gNMI/Get" || got.Code != codes.OK.String() || got.Suppressed != 2 {
+		t.Fatalf("access log = %+v, want Get/OK with 2 suppressed calls", got)
+	}
+}
+
+func TestRPCLoggerReportsSuppressionAfterTrafficStops(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC)
+	var lines []string
+	var scheduled func()
+	logger := newRPCLoggerWithClock(func(format string, args ...interface{}) {
+		lines = append(lines, fmt.Sprintf(format, args...))
+	}, func() time.Time { return now }, func(delay time.Duration, f func()) {
+		if delay != 10*time.Second {
+			t.Fatalf("summary delay = %v, want 10s", delay)
+		}
+		scheduled = f
+	})
+	interceptor := logger.UnaryInterceptor()
+	call := func() {
+		_, _ = interceptor(context.Background(), nil,
+			&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"},
+			func(context.Context, interface{}) (interface{}, error) { return nil, nil })
+	}
+
+	call()
+	call()
+	call()
+	if scheduled == nil {
+		t.Fatal("suppression summary was not scheduled")
+	}
+	now = now.Add(10 * time.Second)
+	scheduled()
+
+	if len(lines) != 2 {
+		t.Fatalf("got %d log lines, want access and summary: %v", len(lines), lines)
+	}
+	got := parseAccessLogSummary(t, lines[1])
+	if got.Version != 1 || got.Method != "/gnmi.gNMI/Get" ||
+		got.Code != codes.OK.String() || got.Suppressed != 2 {
+		t.Fatalf("access log summary = %+v, want Get/OK with 2 suppressed calls", got)
+	}
+	call()
+	if len(lines) != 2 {
+		t.Fatalf("call after summary produced %d log lines, want shared rate limit", len(lines))
+	}
+}
+
+func TestRPCLoggerRetriesSummaryWhenAccessRecordWinsInterval(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC)
+	var lines []string
+	var scheduled []func()
+	logger := newRPCLoggerWithClock(func(format string, args ...interface{}) {
+		lines = append(lines, fmt.Sprintf(format, args...))
+	}, func() time.Time { return now }, func(delay time.Duration, f func()) {
+		if delay != 10*time.Second {
+			t.Fatalf("summary delay = %v, want 10s", delay)
+		}
+		scheduled = append(scheduled, f)
+	})
+	interceptor := logger.UnaryInterceptor()
+	call := func() {
+		_, _ = interceptor(context.Background(), nil,
+			&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"},
+			func(context.Context, interface{}) (interface{}, error) { return nil, nil })
+	}
+
+	call()
+	call()
+	now = now.Add(10 * time.Second)
+	call()
+	call()
+	scheduled[0]()
+	if len(scheduled) != 2 {
+		t.Fatalf("scheduled callbacks = %d, want summary retry", len(scheduled))
+	}
+	if len(lines) != 2 {
+		t.Fatalf("got %d log lines before retry, want 2: %v", len(lines), lines)
+	}
+
+	now = now.Add(10 * time.Second)
+	scheduled[1]()
+	if len(lines) != 3 {
+		t.Fatalf("got %d log lines after retry, want 3: %v", len(lines), lines)
+	}
+	if got := parseAccessLogSummary(t, lines[2]); got.Suppressed != 1 {
+		t.Fatalf("suppressed = %d, want 1 since last access record", got.Suppressed)
+	}
+}
+
+func TestRPCLoggerRateLimitIsConcurrent(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC)
+	var lines []string
+	var linesMu sync.Mutex
+	logger := newRPCLoggerWithClock(func(format string, args ...interface{}) {
+		linesMu.Lock()
+		defer linesMu.Unlock()
+		lines = append(lines, fmt.Sprintf(format, args...))
+	}, func() time.Time { return now }, func(time.Duration, func()) {})
+	interceptor := logger.UnaryInterceptor()
+
+	const calls = 100
+	var wg sync.WaitGroup
+	wg.Add(calls)
+	for range calls {
+		go func() {
+			defer wg.Done()
+			_, _ = interceptor(context.Background(), nil,
+				&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"},
+				func(context.Context, interface{}) (interface{}, error) { return nil, nil })
+		}()
+	}
+	wg.Wait()
+
+	if len(lines) != 1 {
+		t.Fatalf("concurrent calls produced %d log lines, want 1", len(lines))
+	}
+	now = now.Add(10 * time.Second)
+	_, _ = interceptor(context.Background(), nil,
+		&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"},
+		func(context.Context, interface{}) (interface{}, error) { return nil, nil })
+	if got := parseAccessLog(t, lines[1]); got.Suppressed != calls-1 {
+		t.Fatalf("suppressed = %d, want %d", got.Suppressed, calls-1)
 	}
 }
 
@@ -211,7 +415,7 @@ func TestRPCLoggerStreamError(t *testing.T) {
 
 	got := capturedRecord()
 	want := accessLogRecord{
-		Version:  1,
+		Version:  2,
 		RPCType:  "stream",
 		Method:   "/gnmi.gNMI/Subscribe",
 		PeerType: "unix",
@@ -296,7 +500,7 @@ func TestRPCLoggerUnarySuccess(t *testing.T) {
 
 	got := capturedRecord()
 	want := accessLogRecord{
-		Version:  1,
+		Version:  2,
 		RPCType:  "unary",
 		Method:   "/gnmi.gNMI/Get",
 		PeerType: "tcp",
