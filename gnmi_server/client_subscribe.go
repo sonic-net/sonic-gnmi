@@ -176,6 +176,10 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 		return status.Error(codes.InvalidArgument, "Origin conflict between prefix and paths")
 	}
 
+	if err := config.PathsBlacklist.CheckPaths(prefix, paths); err != nil {
+		return err
+	}
+
 	if connectionKey, valid = connectionManager.Add(c.addr, query.String()); !valid {
 		return grpc.Errorf(codes.Unavailable, "Server connections are at capacity.")
 	}

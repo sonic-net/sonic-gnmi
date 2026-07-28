@@ -260,6 +260,9 @@ type Config struct {
 	// When empty, binds to all interfaces (0.0.0.0). Use "127.0.0.1" to
 	// restrict to localhost only (e.g. when running without TLS).
 	BindAddress string
+	// PathsBlacklist rejects Get/Set/Subscribe requests referencing
+	// blacklisted paths. Nil disables enforcement.
+	PathsBlacklist *PathsBlacklist
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -957,6 +960,10 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Errorf(codes.Unimplemented, "unsupported request type: %s", gnmipb.GetRequest_DataType_name[int32(req.GetType())])
 	}
+	if err := s.config.PathsBlacklist.CheckPaths(req.GetPrefix(), req.GetPath()); err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, err
+	}
 	// gNMI path based authorization
 	if s.config.PathzPolicy && len(req.GetPath()) != 0 {
 		newPaths := []*gnmipb.Path{}
@@ -1100,6 +1107,20 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	if s.config.EnableTranslibWrite == false && s.config.EnableNativeWrite == false {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
+	}
+	if s.config.PathsBlacklist != nil {
+		setPaths := make([]*gnmipb.Path, 0, len(req.GetDelete())+len(req.GetReplace())+len(req.GetUpdate()))
+		setPaths = append(setPaths, req.GetDelete()...)
+		for _, update := range req.GetReplace() {
+			setPaths = append(setPaths, update.GetPath())
+		}
+		for _, update := range req.GetUpdate() {
+			setPaths = append(setPaths, update.GetPath())
+		}
+		if err := s.config.PathsBlacklist.CheckPaths(req.GetPrefix(), setPaths); err != nil {
+			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+			return nil, err
+		}
 	}
 	// gNMI path based authorization
 	if s.config.PathzPolicy {

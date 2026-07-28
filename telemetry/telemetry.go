@@ -81,6 +81,7 @@ type TelemetryConfig struct {
 	EnableStreamMultiplexing *bool
 	MaxRecvMsgSize           *int
 	MaxSendMsgSize           *int
+	PathsBlacklistFile       *string
 }
 
 func main() {
@@ -211,6 +212,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		EnableStreamMultiplexing: fs.Bool("enable_stream_multiplexing", false, "Allow multiple Subscribe RPCs on a single TCP connection via HTTP/2 stream multiplexing"),
 		MaxRecvMsgSize:           fs.Int("max_recv_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can receive"),
 		MaxSendMsgSize:           fs.Int("max_send_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can send"),
+		PathsBlacklistFile:       fs.String("paths_blacklist", "", "File with blacklisted gNMI paths, one 'TARGET PATH' entry per line. Requests referencing these paths are rejected. Empty disables the blacklist."),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -331,6 +333,15 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	if *telemetryCfg.CaCert == "" && telemetryCfg.UserAuth.Enabled("cert") {
 		telemetryCfg.UserAuth.Unset("cert")
 		log.V(2).Info("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
+	}
+
+	if *telemetryCfg.PathsBlacklistFile != "" {
+		blacklist, err := gnmi.LoadPathsBlacklist(*telemetryCfg.PathsBlacklistFile)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to load paths_blacklist file: %v", err)
+		}
+		cfg.PathsBlacklist = blacklist
+		log.V(1).Infof("Loaded %d blacklist entries from %s", blacklist.Len(), *telemetryCfg.PathsBlacklistFile)
 	}
 
 	cfg.AuthzMetaFile = string(*telemetryCfg.AuthzMetaFile)
