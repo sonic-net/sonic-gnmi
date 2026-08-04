@@ -87,10 +87,10 @@ func errorPath(err error) string {
 	}
 }
 
-// formatErrorWithPath appends "path: <p>" to the message if path is non-empty.
+// formatErrorWithPath appends "request path: <p>" to the message if path is non-empty.
 func formatErrorWithPath(msg, path string) string {
 	if path != "" {
-		return msg + "\n  path: " + path
+		return msg + "\n  request path: " + path
 	}
 	return msg
 }
@@ -132,7 +132,19 @@ func ToStatus(err error) *status.Status {
 		code = codes.InvalidArgument
 		data = err.CVLErrorInfo.ConstraintErrMsg
 		if len(data) == 0 {
+			data = err.CVLErrorInfo.Msg
+		}
+		if len(data) == 0 {
+			data = err.CVLErrorInfo.CVLErrDetails
+		}
+		if len(data) == 0 {
 			data = "Validation failed"
+		}
+		if tbl := err.CVLErrorInfo.TableName; tbl != "" {
+			data += fmt.Sprintf("; table: %s", tbl)
+			if keys := err.CVLErrorInfo.Keys; len(keys) > 0 {
+				data += fmt.Sprintf(", keys: %v", keys)
+			}
 		}
 	case tlerr.TranslibTransactionFail:
 		code = codes.Aborted

@@ -1734,7 +1734,7 @@ func TestGnmiSet(t *testing.T) {
 		}
 	}
 
-	t.Run("Invalid path error includes request path", func(t *testing.T) {
+	t.Run("Invalid path error includes node name", func(t *testing.T) {
 		invalidPath, _ := ygot.StringToStructuredPath(
 			"/openconfig-interfaces:interfaces/interface[name=Ethernet4]/unknown")
 		req := &pb.SetRequest{
