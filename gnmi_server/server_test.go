@@ -7583,3 +7583,275 @@ func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
 		t.Error("Serve() did not return after Stop()")
 	}
 }
+
+func getFreePort(t *testing.T) int64 {
+	t.Helper()
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("failed to resolve tcp addr: %v", err)
+	}
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatalf("failed to listen on free port: %v", err)
+	}
+	defer l.Close()
+	return int64(l.Addr().(*net.TCPAddr).Port)
+}
+
+func runTestSubscribeIntf(t *testing.T, ctx context.Context, gClient pb.GNMIClient, sPath *pb.Path, pathDesc string, expectedICs []string) {
+	req := &pb.SubscribeRequest{
+		Request: &pb.SubscribeRequest_Subscribe{
+			Subscribe: &pb.SubscriptionList{
+				Prefix:   &pb.Path{Origin: "openconfig", Target: "YANG"},
+				Mode:     pb.SubscriptionList_ONCE,
+				Encoding: pb.Encoding_JSON_IETF,
+				Subscription: []*pb.Subscription{
+					{Path: sPath},
+				},
+			},
+		},
+	}
+
+	stream, err := gClient.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Failed to open stream: %v", err)
+	}
+
+	if err := stream.Send(req); err != nil {
+		t.Fatalf("Failed to send req: %v", err)
+	}
+
+	foundComponents := make(map[string]bool)
+	syncReceived := false
+
+	allExpectedFound := func() bool {
+		for _, expected := range expectedICs {
+			if !foundComponents[expected] {
+				return false
+			}
+		}
+		return true
+	}
+
+	for {
+		// If we already received the sync response and found our expected items, we can exit early.
+		if syncReceived && allExpectedFound() {
+			break
+		}
+
+		resp, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) && allExpectedFound() {
+				break
+			}
+			t.Fatalf("Stream encountered an unexpected error: %v", err)
+		}
+
+		if resp.GetSyncResponse() {
+			t.Log("Received SyncResponse.")
+			syncReceived = true
+			continue
+		}
+
+		notification := resp.GetUpdate()
+		if notification == nil {
+			continue
+		}
+
+		intfName := ""
+		for _, elem := range notification.GetPrefix().GetElem() {
+			if val, ok := elem.GetKey()["name"]; ok && val != "" {
+				intfName = val
+				break
+			}
+		}
+		if intfName == "" {
+			for _, upd := range notification.GetUpdate() {
+				for _, elem := range upd.GetPath().GetElem() {
+					if val, ok := elem.GetKey()["name"]; ok && val != "" {
+						intfName = val
+						break
+					}
+				}
+				if intfName != "" {
+					break
+				}
+			}
+		}
+
+		if intfName != "" {
+			foundComponents[intfName] = true
+		}
+	}
+
+	if !syncReceived {
+		t.Errorf("Test %s failed: Never received gNMI SyncResponse", pathDesc)
+	}
+
+	for _, expected := range expectedICs {
+		if !foundComponents[expected] {
+			t.Errorf("Test %s failed: Expected component %q not found, got components: %v", pathDesc, expected, foundComponents)
+		}
+	}
+}
+
+func TestGnmiGetWildcardTranslibXfmrIntf(t *testing.T) {
+	// Create server on a unique port
+	freePort := getFreePort(t)
+	s := createServer(t, freePort)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+
+	// --- DB 4 (ConfigDB) Setup ---
+	// Wildcard discovery starts here. If EthernetX isn't in PORT table, it won't be found.
+	configDbId, _ := sdcfg.GetDbId("CONFIG_DB", ns)
+	configClient := getRedisClientN(t, configDbId, ns)
+	defer configClient.Close()
+	configClient.Set(ctx, "CONFIG_DB_INITIALIZED", "1", 0)
+
+	// Ethernet0 entry
+	if err := configClient.HSet(ctx, "PORT|Ethernet0", map[string]interface{}{
+		"index": "0",
+		"lanes": "1,2,3,4",
+		"id":    "100",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet0: %v", err)
+	}
+	// Ethernet4 entry
+	if err := configClient.HSet(ctx, "PORT|Ethernet4", map[string]interface{}{
+		"index": "4",
+		"lanes": "17,18,19,20",
+		"id":    "104",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet4: %v", err)
+	}
+
+	// --- DB 6 (StateDB) Setup ---
+	stateDbId, _ := sdcfg.GetDbId("STATE_DB", ns)
+	stateClient := getRedisClientN(t, stateDbId, ns)
+	defer stateClient.Close()
+	stateClient.Set(ctx, "STATE_DB_INITIALIZED", "1", 0)
+
+	// Port Table entries (used by hardware-port transformer)
+	if err := stateClient.HSet(ctx, "PORT_TABLE:Ethernet0", map[string]interface{}{"index": "0", "lanes": "1,2,3,4"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet0: %v", err)
+	}
+
+	if err := stateClient.HSet(ctx, "PORT_TABLE:Ethernet4", map[string]interface{}{"index": "4", "lanes": "17,18,19,20"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet4: %v", err)
+	}
+
+	// Transceiver info (used by physical-channel transformer)
+	// Note: many platforms use | as separator for TRANSCEIVER_INFO even in StateDB
+	if err := stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", map[string]interface{}{"type": "QSFP28"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet TRANSCEIVER_INFO|Ethernet0: %v", err)
+	}
+
+	if err := stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet4", map[string]interface{}{"type": "QSFP28"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet TRANSCEIVER_INFO|Ethernet4: %v", err)
+	}
+
+	// --- DB 0 (ApplDB) Setup ---
+	applDbId, _ := sdcfg.GetDbId("APPL_DB", ns)
+	applClient := getRedisClientN(t, applDbId, ns)
+	defer applClient.Close()
+	// Used for P4RT State ID lookups
+	if err := applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet0", map[string]interface{}{"id": "100"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet P4RT_PORT_ID_TABLE:Ethernet0: %v", err)
+	}
+
+	if err := applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet4", map[string]interface{}{"id": "104"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet P4RT_PORT_ID_TABLE:Ethernet4: %v", err)
+	}
+
+	// --- DB 2 (CountersDB) Setup ---
+	countersDbId, _ := sdcfg.GetDbId("COUNTERS_DB", ns)
+	countersClient := getRedisClientN(t, countersDbId, ns)
+	defer countersClient.Close()
+	// Map names to OIDs
+	if err := countersClient.HSet(ctx, "COUNTERS_PORT_NAME_MAP", "Ethernet0", "oid:0x100", "Ethernet4", "oid:0x104").Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS_PORT_NAME_MAP: %v", err)
+	}
+
+	// Actual counter data for the transformer
+	if err := countersClient.HSet(ctx, "COUNTERS:oid:0x100", "SAI_PORT_STAT_ETHER_STATS_CRC_ALIGN_ERRORS", "10").Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS:oid:0x100: %v", err)
+	}
+
+	if err := countersClient.HSet(ctx, "COUNTERS:oid:0x104", "SAI_PORT_STAT_ETHER_STATS_CRC_ALIGN_ERRORS", "40").Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS:oid:0x104: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		configClient.Del(cleanupCtx, "CONFIG_DB_INITIALIZED", "PORT|Ethernet0", "PORT|Ethernet4")
+		stateClient.Del(cleanupCtx, "STATE_DB_INITIALIZED", "PORT_TABLE:Ethernet0", "PORT_TABLE:Ethernet4", "TRANSCEIVER_INFO|Ethernet0", "TRANSCEIVER_INFO|Ethernet4")
+		applClient.Del(cleanupCtx, "P4RT_PORT_ID_TABLE:Ethernet0", "P4RT_PORT_ID_TABLE:Ethernet4")
+		countersClient.Del(cleanupCtx, "COUNTERS:oid:0x100", "COUNTERS:oid:0x104")
+		countersClient.HDel(cleanupCtx, "COUNTERS_PORT_NAME_MAP", "Ethernet0", "Ethernet4")
+	})
+
+	// gNMI Client connection
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	conn, err := grpc.Dial(targetAddr, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})))
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	// var emptyRespVal interface{}
+	tds := []struct {
+		desc        string
+		textPbPath  string
+		expectedICs []string
+	}{
+		{
+			desc:        "Wildcard Get all Interface State (Path Xfmr check)",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"*" > > elem: <name: "state" >`,
+			expectedICs: []string{"Ethernet0", "Ethernet4"},
+		},
+		{
+			desc:        "Wildcard Get all Interface Config (P4RT Config check)",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"*" > > elem: <name: "config" >`,
+			expectedICs: []string{"Ethernet0", "Ethernet4"},
+		},
+		{
+			desc:        "Wildcard Get all Interface Counters (Subtree Xfmr check)",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"*" > > elem: <name: "state" > elem: <name: "counters" >`,
+			expectedICs: []string{"Ethernet0", "Ethernet4"},
+		},
+		{
+			desc:        "Wildcard Get P4RT ID State for all",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"*" > > elem: <name: "state" > elem: <name: "openconfig-p4rt:id" >`,
+			expectedICs: []string{"Ethernet0", "Ethernet4"},
+		},
+		{
+			desc:        "Wildcard Get Hardware Port for all",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"*" > > elem: <name: "state" > elem: <name: "openconfig-platform-port:hardware-port" >`,
+			expectedICs: []string{"Ethernet0", "Ethernet4"},
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			path := new(pb.Path)
+			if err := proto.UnmarshalText(td.textPbPath, path); err != nil {
+				t.Fatalf("Failed to parse textPbPath: %v", err)
+			}
+			path.Target = "OC_YANG"
+
+			runTestSubscribeIntf(t, ctx, gClient, path, td.desc, td.expectedICs)
+		})
+	}
+}
