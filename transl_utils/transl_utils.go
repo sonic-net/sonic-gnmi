@@ -28,8 +28,10 @@ var (
 )
 
 type TranslibGetFunc func(translib.GetRequest) (translib.GetResponse, error)
+type TranslibBulkFunc func(translib.BulkRequest) (translib.BulkResponse, error)
 
 var translibGet TranslibGetFunc = translib.Get
+var translibBulk TranslibBulkFunc = translib.Bulk
 
 func init() {
 	transLibOpMap = map[int]string{
@@ -456,7 +458,7 @@ func TranslProcessBulk(delete []*gnmipb.Path, replace []*gnmipb.Update, update [
 		br.Request = append(br.Request, bulkReqEntry)
 	}
 
-	resp, err = translib.Bulk(br)
+	resp, err = translibBulk(br)
 
 	var firstErr error
 	for k := range resp.Response {
