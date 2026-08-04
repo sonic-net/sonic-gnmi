@@ -193,6 +193,7 @@ func initCountersPGNameMap() error {
 			initErr = err
 			return
 		}
+		local := make(map[string]map[string]string)
 		for pg, oid := range pgOidMap {
 			// pg is in format of "Ethernet64:7"
 			pg_parts := strings.Split(pg, ":")
@@ -200,11 +201,12 @@ func initCountersPGNameMap() error {
 				initErr = fmt.Errorf("invalid pg name %v", pg)
 				return
 			}
-			if _, ok := countersPGNameMap[pg_parts[0]]; !ok {
-				countersPGNameMap[pg_parts[0]] = make(map[string]string)
+			if _, ok := local[pg_parts[0]]; !ok {
+				local[pg_parts[0]] = make(map[string]string)
 			}
-			countersPGNameMap[pg_parts[0]][pg_parts[1]] = oid
+			local[pg_parts[0]][pg_parts[1]] = oid
 		}
+		countersPGNameMap = local
 	})
 	return initErr
 }
@@ -389,7 +391,7 @@ func initCountersBufferPoolNameMap() error {
 	if err != nil {
 		return err
 	}
-	countersBufferPoolNameByNamespace = make(map[string]map[string]string)
+	local := make(map[string]map[string]string)
 	for namespace, redisDb := range redis_client_map {
 		_, err := redisDb.Ping().Result()
 		if err != nil {
@@ -408,8 +410,9 @@ func initCountersBufferPoolNameMap() error {
 		for k, v := range fv {
 			poolMap[k] = v
 		}
-		countersBufferPoolNameByNamespace[namespace] = poolMap
+		local[namespace] = poolMap
 	}
+	countersBufferPoolNameByNamespace = local
 	return nil
 }
 
