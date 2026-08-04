@@ -19,8 +19,8 @@ import (
 	log "github.com/golang/glog"
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/openconfig/ygot/ygot"
-	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/redis/go-redis/v9"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
