@@ -991,7 +991,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	paths := req.GetPath()
 	extensions := req.GetExtension()
 	encoding := req.GetEncoding()
-	log.V(2).Infof("GetRequest paths: %v", paths)
+	log.V(3).Infof("GetRequest paths: %v", paths)
 
 	var dc sdc.Client
 	var err error
