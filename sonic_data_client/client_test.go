@@ -943,6 +943,7 @@ func ratesFieldTablePath(ns string) tablePath {
 		tableKey:    ratesTestOID,
 		delimitor:   ":",
 		field:       "RX_PPS",
+		index:       -1,
 	}
 }
 
@@ -1115,6 +1116,11 @@ func TestMixedDbClientSanitizeRateReadPaths(t *testing.T) {
 			channel: make(chan struct{}),
 			w:       &w,
 		}
+		ratesPath := ratesFieldTablePath(ns)
+		patches := gomonkey.ApplyPrivateMethod(&c, "getDbtablePath", func(_ *MixedDbClient, _ *gnmipb.Path, _ *gnmipb.Path) ([]tablePath, error) {
+			return []tablePath{ratesPath}, nil
+		})
+		defer patches.Reset()
 		c.synced.Add(1)
 		w.Add(1)
 		go c.dbFieldSubscribe(gnmiPath, false, time.Hour)
