@@ -1520,14 +1520,15 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 		// Subscribe to keyspace notification
 		pattern := "__keyspace@" + strconv.Itoa(int(spb.Target_value[tblPath.dbName])) + "__:"
 		pattern += tblPath.tableName
-		// COUNTERS_DB non-COUNTERS: skip delim so wildcard matches keyed and flat rows.
-		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
+		// COUNTERS_DB bare tables (no per-object keys): skip delim so wildcard
+		// matches both flat-hash rows and keyed rows.
+		if tblPath.dbName == "COUNTERS_DB" && !countersDbHasTableKeys(tblPath.tableName) {
 		} else {
 			pattern += tblPath.delimitor
 		}
 		// Bare-table subs: strip leading delim from event channel suffix.
 		delimSkipped := tblPath.dbName == "COUNTERS_DB" &&
-			tblPath.tableName != "COUNTERS" &&
+			!countersDbHasTableKeys(tblPath.tableName) &&
 			tblPath.tableKey == ""
 
 		var prefixLen int

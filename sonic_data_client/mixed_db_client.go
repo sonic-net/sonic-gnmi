@@ -2252,11 +2252,10 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 		// Subscribe to keyspace notification
 		pattern := "__keyspace@" + strconv.Itoa(int(spb.Target_value[tblPath.dbName])) + "__:"
 		pattern += tblPath.tableName
-		// Legacy: COUNTERS_DB non-COUNTERS PSUBSCRIBE pattern omits the
-		// delimiter so the wildcard matches both flat-hash rows
-		// (e.g. COUNTERS_PORT_NAME_MAP) and keyed rows
-		// (e.g. BUFFER_POOL_WATERMARKS:<oid>).
-		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
+		// COUNTERS_DB bare tables (no per-object keys): omit the delimiter so
+		// the wildcard matches both flat-hash rows (e.g. COUNTERS_PORT_NAME_MAP)
+		// and keyed rows (e.g. BUFFER_POOL_WATERMARKS:<oid>).
+		if tblPath.dbName == "COUNTERS_DB" && !countersDbHasTableKeys(tblPath.tableName) {
 			// skip delimitor
 		} else {
 			pattern += tblPath.delimitor
@@ -2265,7 +2264,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 		// table delimiter after prefixLen; strip it when extracting the key
 		// so tableData2Msi gets the correct row.
 		delimSkipped := tblPath.dbName == "COUNTERS_DB" &&
-			tblPath.tableName != "COUNTERS" &&
+			!countersDbHasTableKeys(tblPath.tableName) &&
 			tblPath.tableKey == ""
 
 		var prefixLen int
