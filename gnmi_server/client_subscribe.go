@@ -160,7 +160,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 	}
 
 	prefix := c.subscribe.GetPrefix()
-	origin := normalizeOrigin(prefix.GetOrigin())
+	origin := prefix.GetOrigin()
 	target := prefix.GetTarget()
 
 	paths, err := c.populateDbPathSubscrition(c.subscribe)
