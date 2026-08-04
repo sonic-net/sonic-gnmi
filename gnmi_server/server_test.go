@@ -4245,8 +4245,18 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				mutexGotNoti.Unlock()
 				return nil
 			}
+			// subscribeDone is closed once the Subscribe goroutine returns.
+			// For poll-mode queries, the vendored openconfig/gnmi client exits its
+			// Recv loop on the initial sync_response, after which the Subscribe
+			// goroutine terminates. We wait on this channel before driving Poll()
+			// to ensure only one goroutine is ever calling impl.Recv() on the
+			// shared *gnmi.Client at a time; otherwise the unsynchronised
+			// c.connected bookkeeping in vendored defaultRecv() races against
+			// concurrent reads from the Poll-driven Recv loop.
+			subscribeDone := make(chan struct{})
 			go func(t2 TestExec) {
 				defer wg.Done()
+				defer close(subscribeDone)
 				err := c.Subscribe(context.Background(), q)
 				if t2.wantSubErr != nil && t2.wantSubErr.Error() != err.Error() {
 					t.Errorf("c.Subscribe expected %v, got %v", t2.wantSubErr, err)
@@ -4284,6 +4294,20 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			}
 			// wait for half second for change to sync
 			time.Sleep(time.Millisecond * 500)
+
+			if tt.poll > 0 {
+				// Subscribe for poll queries must have returned (its run loop exits
+				// on the initial sync_response) before we trigger Poll(), so the
+				// shared gnmi client never has two goroutines calling Recv()
+				// concurrently. The bounded wait keeps the test from hanging in
+				// the unlikely event of an unrelated failure.
+				select {
+				case <-subscribeDone:
+				case <-time.After(10 * time.Second):
+					t.Errorf("Subscribe goroutine did not exit before Poll() within 10s; aborting poll loop to avoid data race")
+					return
+				}
+			}
 
 			for i := 0; i < tt.poll; i++ {
 				err := c.Poll()

@@ -825,6 +825,102 @@ func TestGetZmqClient(t *testing.T) {
 	}
 }
 
+// TestSanitizeRateValue covers scalar COUNTERS_DB RATES field formatting used
+// by direct-HGet GET and field-granularity subscribe paths.
+func TestSanitizeRateValue(t *testing.T) {
+	tests := []struct {
+		table, field, in, want string
+	}{
+		{"RATES", "RX_PPS", "7.3011167208919444e-22", "0"},
+		{"RATES", "RX_PPS", "0.11783383054514969", "0.12"},
+		{"RATES", "RX_PPS", "25.0", "25.00"},
+		{"RATES", "FEC_POST_BER", "0.004", "0.004"},
+		{"COUNTERS", "RX_PPS", "7.3e-22", "7.3e-22"},
+		{"RATES", "RX_PPS", "not-a-number", "not-a-number"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.table+"/"+tc.field, func(t *testing.T) {
+			got := sanitizeRateValue(tc.table, tc.field, tc.in)
+			if got != tc.want {
+				t.Errorf("sanitizeRateValue(%q, %q, %q) = %q, want %q",
+					tc.table, tc.field, tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSanitizeRateResidue covers the COUNTERS_DB RATES sanitizer, which
+// renders the orchagent EWMA-smoothed rate fields at CLI precision (%.2f /s)
+// rather than raw IEEE-754 doubles.
+func TestSanitizeRateResidue(t *testing.T) {
+	tests := []struct {
+		name  string
+		table string
+		in    map[string]string
+		want  map[string]string
+	}{
+		{
+			name:  "trap RATES arp_req denormal residue rounds to 0",
+			table: "RATES",
+			in: map[string]string{
+				"RX_PPS":                        "7.3011167208919444e-22",
+				"SAI_COUNTER_STAT_BYTES":        "592",
+				"SAI_COUNTER_STAT_PACKETS":      "4",
+				"SAI_COUNTER_STAT_PACKETS_last": "4",
+			},
+			want: map[string]string{
+				"RX_PPS":                        "0",
+				"SAI_COUNTER_STAT_BYTES":        "592",
+				"SAI_COUNTER_STAT_PACKETS":      "4",
+				"SAI_COUNTER_STAT_PACKETS_last": "4",
+			},
+		},
+		{
+			name:  "trap RATES bgp slow-decay value rounds to two decimals",
+			table: "RATES",
+			in: map[string]string{
+				"RX_PPS":                        "0.11783383054514969",
+				"SAI_COUNTER_STAT_BYTES":        "54397",
+				"SAI_COUNTER_STAT_PACKETS":      "256",
+				"SAI_COUNTER_STAT_PACKETS_last": "256",
+			},
+			want: map[string]string{
+				"RX_PPS":                        "0.12",
+				"SAI_COUNTER_STAT_BYTES":        "54397",
+				"SAI_COUNTER_STAT_PACKETS":      "256",
+				"SAI_COUNTER_STAT_PACKETS_last": "256",
+			},
+		},
+		{
+			name:  "healthy multi-PPS rate keeps two-decimal form",
+			table: "RATES",
+			in:    map[string]string{"RX_PPS": "7.234567"},
+			want:  map[string]string{"RX_PPS": "7.23"},
+		},
+		{
+			name:  "unparseable values left alone (no silent zeroing)",
+			table: "RATES",
+			in:    map[string]string{"RX_PPS": "not-a-number", "TX_PPS": ""},
+			want:  map[string]string{"RX_PPS": "not-a-number", "TX_PPS": ""},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := make(map[string]string, len(tc.in))
+			for k, v := range tc.in {
+				got[k] = v
+			}
+			sanitizeRateResidue(tc.table, got)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("sanitizeRateResidue(%q, ...) = %v, want %v", tc.table, got, tc.want)
+			}
+		})
+	}
+
+	sanitizeRateResidue("RATES", nil)
+	sanitizeRateResidue("RATES", map[string]string{})
+}
+
 // saveAndResetTarget2RedisDb saves the current Target2RedisDb map and returns
 // a cleanup function that restores it.
 func saveAndResetTarget2RedisDb() func() {
