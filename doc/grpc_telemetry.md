@@ -11,6 +11,7 @@
          * [Poll mode](#poll-mode)
       * [Virtual path](#virtual-path)
    * [Authentication](#authentication)
+   * [Get and Set audit records](#get-and-set-audit-records)
    * [Encryption](#encryption)
    * [AutoTest](#autotest)
    * [Performance and Scale Test](#performance-and-scale-test)
@@ -67,6 +68,26 @@ For data not available in DBs, Target name "OTHERS" is designated for that categ
 # SONiC system telemetry software architecture
 System telemetry in SONiC supports both dial-in mode and dial-out mode. The DB client takes care of retrieving data from SONiC redis database, while non-DB client serves data outside of redis databases. gRPC dial-in server (gNMI server) is described in this document,
 ![SOFTWARE ARCHITECTURE](img/dial_in_out.png)
+
+# Get and Set audit records
+
+The gRPC interceptor chain emits one `GNMI_AUDIT` completion record for every
+gNMI Get and Set call. These records use the same glog delivery path as
+`RPC_ACCESS`, but they are not rate-limited. Each record contains `v`,
+`request_id`, `principal`, `auth_result`, `peer_type`, `peer_address`, `method`,
+`path`, `time`, and `code`.
+
+Paths contain element names only. Path keys and request and response values are
+not logged. The interceptor uses a verified client-certificate common name or
+SAN as the principal when available, `local` for a Unix socket, and `unknown`
+otherwise. Basic and JWT usernames are not available to the outer interceptor.
+`auth_result` is `denied` for `Unauthenticated` and `PermissionDenied`, `local`
+for a Unix socket, and `not_evaluated` otherwise.
+
+`GNMI_AUDIT` and `RPC_ACCESS` share gRPC-code mapping, peer extraction, JSON
+framing, and the glog line sink. `RPC_ACCESS` retains its independent
+method/code rate limiter and suppression summaries.
+
 # gRPC operations for system telemetry in SONiC
 As mentioned at the beginning, SONiC gRPC data telemetry is largely based on gNMI protocol,  the GetRquest/GetResponse and SubscribeRequest/SubscribeResponse RPC have been implemented. Since SONiC doesn't have complete YANG data model yet, the DB, TABLE, KEY and Field path hierarchy is used as path to uniquely identify the configuration/state and counter data.
 

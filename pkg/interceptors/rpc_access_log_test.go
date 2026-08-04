@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	sharedlog "github.com/sonic-net/sonic-gnmi/pkg/logging"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -51,12 +52,13 @@ func (s *accessLogServerStream) Context() context.Context     { return s.ctx }
 func (s *accessLogServerStream) SendMsg(interface{}) error    { return nil }
 func (s *accessLogServerStream) RecvMsg(interface{}) error    { return nil }
 
-func captureAccessLog(t *testing.T) (func(string, ...interface{}), func() accessLogRecord) {
+func captureAccessLog(t *testing.T) (sharedlog.LineSink, func() accessLogRecord) {
 	t.Helper()
 
 	var lines []string
-	logf := func(format string, args ...interface{}) {
-		lines = append(lines, fmt.Sprintf(format, args...))
+	sink := func(line string) error {
+		lines = append(lines, line)
+		return nil
 	}
 	record := func() accessLogRecord {
 		t.Helper()
@@ -65,7 +67,7 @@ func captureAccessLog(t *testing.T) (func(string, ...interface{}), func() access
 		}
 		return parseAccessLog(t, lines[0])
 	}
-	return logf, record
+	return sink, record
 }
 
 func parseAccessLog(t *testing.T, line string) accessLogRecord {
@@ -138,8 +140,9 @@ func TestRPCLoggerEndToEnd(t *testing.T) {
 	defer listener.Close()
 
 	logs := make(chan string, 1)
-	logger := newRPCLogger(func(format string, args ...interface{}) {
-		logs <- fmt.Sprintf(format, args...)
+	logger := newRPCLogger(func(line string) error {
+		logs <- line
+		return nil
 	})
 	server := grpc.NewServer(
 		grpc.UnaryInterceptor(logger.UnaryInterceptor()),
@@ -192,8 +195,9 @@ func TestRPCLoggerEndToEnd(t *testing.T) {
 func TestRPCLoggerRateLimitsEachMethodAndCode(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC)
 	var lines []string
-	logger := newRPCLoggerWithClock(func(format string, args ...interface{}) {
-		lines = append(lines, fmt.Sprintf(format, args...))
+	logger := newRPCLoggerWithClock(func(line string) error {
+		lines = append(lines, line)
+		return nil
 	}, func() time.Time { return now }, func(time.Duration, func()) {})
 	interceptor := logger.UnaryInterceptor()
 
@@ -236,8 +240,9 @@ func TestRPCLoggerReportsSuppressionAfterTrafficStops(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC)
 	var lines []string
 	var scheduled func()
-	logger := newRPCLoggerWithClock(func(format string, args ...interface{}) {
-		lines = append(lines, fmt.Sprintf(format, args...))
+	logger := newRPCLoggerWithClock(func(line string) error {
+		lines = append(lines, line)
+		return nil
 	}, func() time.Time { return now }, func(delay time.Duration, f func()) {
 		if delay != 10*time.Second {
 			t.Fatalf("summary delay = %v, want 10s", delay)
@@ -278,8 +283,9 @@ func TestRPCLoggerRetriesSummaryWhenAccessRecordWinsInterval(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC)
 	var lines []string
 	var scheduled []func()
-	logger := newRPCLoggerWithClock(func(format string, args ...interface{}) {
-		lines = append(lines, fmt.Sprintf(format, args...))
+	logger := newRPCLoggerWithClock(func(line string) error {
+		lines = append(lines, line)
+		return nil
 	}, func() time.Time { return now }, func(delay time.Duration, f func()) {
 		if delay != 10*time.Second {
 			t.Fatalf("summary delay = %v, want 10s", delay)
@@ -320,10 +326,11 @@ func TestRPCLoggerRateLimitIsConcurrent(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC)
 	var lines []string
 	var linesMu sync.Mutex
-	logger := newRPCLoggerWithClock(func(format string, args ...interface{}) {
+	logger := newRPCLoggerWithClock(func(line string) error {
 		linesMu.Lock()
 		defer linesMu.Unlock()
-		lines = append(lines, fmt.Sprintf(format, args...))
+		lines = append(lines, line)
+		return nil
 	}, func() time.Time { return now }, func(time.Duration, func()) {})
 	interceptor := logger.UnaryInterceptor()
 
@@ -353,8 +360,8 @@ func TestRPCLoggerRateLimitIsConcurrent(t *testing.T) {
 }
 
 func TestRPCLoggerUnaryError(t *testing.T) {
-	logf, capturedRecord := captureAccessLog(t)
-	logger := newRPCLogger(logf)
+	sink, capturedRecord := captureAccessLog(t)
+	logger := newRPCLogger(sink)
 	info := &grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Set"}
 	wantErr := status.Error(codes.PermissionDenied, "not allowed")
 
@@ -379,8 +386,8 @@ func TestRPCLoggerUnaryError(t *testing.T) {
 }
 
 func TestRPCLoggerUnaryContextErrorUsesGRPCCode(t *testing.T) {
-	logf, capturedRecord := captureAccessLog(t)
-	logger := newRPCLogger(logf)
+	sink, capturedRecord := captureAccessLog(t)
+	logger := newRPCLogger(sink)
 
 	_, err := logger.UnaryInterceptor()(context.Background(), nil,
 		&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"},
@@ -396,8 +403,8 @@ func TestRPCLoggerUnaryContextErrorUsesGRPCCode(t *testing.T) {
 }
 
 func TestRPCLoggerStreamError(t *testing.T) {
-	logf, capturedRecord := captureAccessLog(t)
-	logger := newRPCLogger(logf)
+	sink, capturedRecord := captureAccessLog(t)
+	logger := newRPCLogger(sink)
 	ctx := peer.NewContext(context.Background(), &peer.Peer{
 		Addr: &net.UnixAddr{Name: "/var/run/gnmi/gnmi.sock", Net: "unix"},
 	})
@@ -429,8 +436,8 @@ func TestRPCLoggerStreamError(t *testing.T) {
 }
 
 func TestRPCLoggerStreamSuccess(t *testing.T) {
-	logf, capturedRecord := captureAccessLog(t)
-	logger := newRPCLogger(logf)
+	sink, capturedRecord := captureAccessLog(t)
+	logger := newRPCLogger(sink)
 	stream := &accessLogServerStream{ctx: context.Background()}
 
 	err := logger.StreamInterceptor()(nil, stream,
@@ -445,7 +452,7 @@ func TestRPCLoggerStreamSuccess(t *testing.T) {
 }
 
 func TestRPCLoggerDoesNotPropagateLoggingPanic(t *testing.T) {
-	logger := newRPCLogger(func(string, ...interface{}) { panic("log sink failure") })
+	logger := newRPCLogger(func(string) error { panic("log sink failure") })
 
 	response, err := logger.UnaryInterceptor()(context.Background(), nil,
 		&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"},
@@ -456,8 +463,8 @@ func TestRPCLoggerDoesNotPropagateLoggingPanic(t *testing.T) {
 }
 
 func TestRPCLoggerRecordsInnerShortCircuit(t *testing.T) {
-	logf, capturedRecord := captureAccessLog(t)
-	logger := newRPCLogger(logf)
+	sink, capturedRecord := captureAccessLog(t)
+	logger := newRPCLogger(sink)
 	calls := []string{}
 	shortCircuit := &mockInterceptor{name: "short-circuit", calls: &calls, shouldReplace: true}
 	chain := NewChain(logger, shortCircuit)
@@ -480,8 +487,8 @@ func TestRPCLoggerRecordsInnerShortCircuit(t *testing.T) {
 }
 
 func TestRPCLoggerUnarySuccess(t *testing.T) {
-	logf, capturedRecord := captureAccessLog(t)
-	logger := newRPCLogger(logf)
+	sink, capturedRecord := captureAccessLog(t)
+	logger := newRPCLogger(sink)
 	ctx := peer.NewContext(context.Background(), &peer.Peer{
 		Addr: &net.TCPAddr{IP: net.ParseIP("192.0.2.10"), Port: 50051},
 	})
