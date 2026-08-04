@@ -5,11 +5,13 @@ import (
 	"crypto/x509"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	sharedlog "github.com/sonic-net/sonic-gnmi/pkg/logging"
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -17,12 +19,25 @@ import (
 )
 
 const (
-	gnmiAuditPrefix    = "GNMI_AUDIT"
-	gnmiAuditVersion   = 1
-	gnmiAuditPathLimit = 32
-	gnmiGetMethod      = "/gnmi.gNMI/Get"
-	gnmiSetMethod      = "/gnmi.gNMI/Set"
+	gnmiAuditPrefix          = "GNMI_AUDIT"
+	gnmiAuditSummaryPrefix   = "GNMI_AUDIT_SUMMARY"
+	gnmiAuditVersion         = 1
+	gnmiAuditPathLimit       = 32
+	gnmiGetMethod            = "/gnmi.gNMI/Get"
+	gnmiSetMethod            = "/gnmi.gNMI/Set"
+	gnmiGetAuditRate         = 60
+	gnmiGetAuditBurst        = 60
+	gnmiAuditSummaryInterval = time.Hour
 )
+
+const (
+	gnmiAuditClassOK gnmiAuditClass = iota
+	gnmiAuditClassDenied
+	gnmiAuditClassError
+	gnmiAuditClassCount
+)
+
+type gnmiAuditClass uint8
 
 type gnmiAuditRecord struct {
 	Version     int      `json:"v"`
@@ -37,18 +52,53 @@ type gnmiAuditRecord struct {
 	Code        string   `json:"code"`
 }
 
+type gnmiAuditSummary struct {
+	Version         int    `json:"v"`
+	Method          string `json:"method"`
+	Class           string `json:"class"`
+	Suppressed      uint64 `json:"suppressed"`
+	IntervalSeconds int64  `json:"interval_seconds"`
+}
+
+type gnmiAuditLimit struct {
+	limiter    *rate.Limiter
+	suppressed uint64
+	scheduled  bool
+}
+
 type gnmiAuditLogger struct {
-	sink    sharedlog.LineSink
-	now     func() time.Time
-	counter uint64
+	sink     sharedlog.LineSink
+	now      func() time.Time
+	schedule scheduleFunc
+	counter  uint64
+	mu       sync.Mutex
+	limits   [gnmiAuditClassCount]*gnmiAuditLimit
 }
 
 func newGNMIAuditLogger(sink sharedlog.LineSink) *gnmiAuditLogger {
-	return newGNMIAuditLoggerWithClock(sink, time.Now)
+	return newGNMIAuditLoggerWithClockAndScheduler(sink, time.Now, func(delay time.Duration, f func()) {
+		time.AfterFunc(delay, f)
+	})
 }
 
 func newGNMIAuditLoggerWithClock(sink sharedlog.LineSink, now func() time.Time) *gnmiAuditLogger {
-	return &gnmiAuditLogger{sink: sink, now: now}
+	return newGNMIAuditLoggerWithClockAndScheduler(sink, now, func(delay time.Duration, f func()) {
+		time.AfterFunc(delay, f)
+	})
+}
+
+func newGNMIAuditLoggerWithClockAndScheduler(
+	sink sharedlog.LineSink,
+	now func() time.Time,
+	schedule scheduleFunc,
+) *gnmiAuditLogger {
+	logger := &gnmiAuditLogger{sink: sink, now: now, schedule: schedule}
+	for class := gnmiAuditClass(0); class < gnmiAuditClassCount; class++ {
+		logger.limits[class] = &gnmiAuditLimit{
+			limiter: rate.NewLimiter(rate.Every(time.Hour/gnmiGetAuditRate), gnmiGetAuditBurst),
+		}
+	}
+	return logger
 }
 
 func (l *gnmiAuditLogger) newRecord(ctx context.Context, req interface{}, method string) gnmiAuditRecord {
@@ -100,7 +150,69 @@ func (l *gnmiAuditLogger) setAuthResult(record *gnmiAuditRecord, code codes.Code
 }
 
 func (l *gnmiAuditLogger) emit(record gnmiAuditRecord) {
+	if record.Method == "gnmi.get" && !l.allowGet(gnmiAuditOutcomeClass(record.Code)) {
+		return
+	}
 	_ = sharedlog.WriteJSON(gnmiAuditPrefix, record, l.sink)
+}
+
+func (l *gnmiAuditLogger) allowGet(class gnmiAuditClass) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	limit := l.limits[class]
+	if limit.limiter.AllowN(l.now(), 1) {
+		return true
+	}
+
+	limit.suppressed++
+	if !limit.scheduled {
+		limit.scheduled = true
+		l.schedule(gnmiAuditSummaryInterval, func() { l.writeSummary(class) })
+	}
+	return false
+}
+
+func (l *gnmiAuditLogger) writeSummary(class gnmiAuditClass) {
+	l.mu.Lock()
+	limit := l.limits[class]
+	suppressed := limit.suppressed
+	limit.suppressed = 0
+	limit.scheduled = false
+	l.mu.Unlock()
+
+	if suppressed == 0 {
+		return
+	}
+	_ = sharedlog.WriteJSON(gnmiAuditSummaryPrefix, gnmiAuditSummary{
+		Version:         gnmiAuditVersion,
+		Method:          "gnmi.get",
+		Class:           class.String(),
+		Suppressed:      suppressed,
+		IntervalSeconds: int64(gnmiAuditSummaryInterval / time.Second),
+	}, l.sink)
+}
+
+func gnmiAuditOutcomeClass(code string) gnmiAuditClass {
+	switch code {
+	case codes.OK.String():
+		return gnmiAuditClassOK
+	case codes.Unauthenticated.String(), codes.PermissionDenied.String():
+		return gnmiAuditClassDenied
+	default:
+		return gnmiAuditClassError
+	}
+}
+
+func (c gnmiAuditClass) String() string {
+	switch c {
+	case gnmiAuditClassOK:
+		return "ok"
+	case gnmiAuditClassDenied:
+		return "denied"
+	default:
+		return "error"
+	}
 }
 
 func (l *gnmiAuditLogger) UnaryInterceptor() grpc.UnaryServerInterceptor {

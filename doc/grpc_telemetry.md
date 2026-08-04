@@ -71,11 +71,10 @@ System telemetry in SONiC supports both dial-in mode and dial-out mode. The DB c
 
 # Get and Set audit records
 
-The gRPC interceptor chain emits one `GNMI_AUDIT` completion record for every
-gNMI Get and Set call. These records use the same glog delivery path as
-`RPC_ACCESS`, but they are not rate-limited. Each record contains `v`,
-`request_id`, `principal`, `auth_result`, `peer_type`, `peer_address`, `method`,
-`path`, `time`, and `code`.
+The gRPC interceptor chain produces a completion audit decision for every gNMI
+Get and Set call. Individual `GNMI_AUDIT` records use the same glog delivery
+path as `RPC_ACCESS` and contain `v`, `request_id`, `principal`, `auth_result`,
+`peer_type`, `peer_address`, `method`, `path`, `time`, and `code`.
 
 Paths contain element names only. Path keys and request and response values are
 not logged. The interceptor uses a verified client-certificate common name or
@@ -87,6 +86,13 @@ for a Unix socket, and `not_evaluated` otherwise.
 `GNMI_AUDIT` and `RPC_ACCESS` share gRPC-code mapping, peer extraction, JSON
 framing, and the glog line sink. `RPC_ACCESS` retains its independent
 method/code rate limiter and suppression summaries.
+
+Set records are never rate-limited. Get records use three fixed token buckets
+for `ok`, `denied`, and `error` outcomes. Each bucket permits 60 records per
+hour with a burst of 60. A suppressed Get does not reach the glog sink. One
+`GNMI_AUDIT_SUMMARY` record per affected bucket reports the suppressed count
+after the one-hour summary interval without including principal, peer, or path
+data.
 
 # gRPC operations for system telemetry in SONiC
 As mentioned at the beginning, SONiC gRPC data telemetry is largely based on gNMI protocol,  the GetRquest/GetResponse and SubscribeRequest/SubscribeResponse RPC have been implemented. Since SONiC doesn't have complete YANG data model yet, the DB, TABLE, KEY and Field path hierarchy is used as path to uniquely identify the configuration/state and counter data.

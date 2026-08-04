@@ -28,6 +28,12 @@ type auditLogCapture struct {
 	lines []string
 }
 
+type auditScheduleCapture struct {
+	mu        sync.Mutex
+	delays    []time.Duration
+	callbacks []func()
+}
+
 func (c *auditLogCapture) sink(line string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -39,6 +45,19 @@ func (c *auditLogCapture) snapshot() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]string(nil), c.lines...)
+}
+
+func (c *auditScheduleCapture) schedule(delay time.Duration, callback func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.delays = append(c.delays, delay)
+	c.callbacks = append(c.callbacks, callback)
+}
+
+func (c *auditScheduleCapture) snapshot() ([]time.Duration, []func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]time.Duration(nil), c.delays...), append([]func(){}, c.callbacks...)
 }
 
 func decodeAuditRecord(t *testing.T, line string) gnmiAuditRecord {
@@ -71,6 +90,35 @@ func decodeAuditRecord(t *testing.T, line string) gnmiAuditRecord {
 		t.Fatalf("cannot decode audit record: %v", err)
 	}
 	return record
+}
+
+func decodeAuditSummary(t *testing.T, line string) gnmiAuditSummary {
+	t.Helper()
+
+	const prefix = gnmiAuditSummaryPrefix + " "
+	if !strings.HasPrefix(line, prefix) {
+		t.Fatalf("summary line %q does not start with %q", line, prefix)
+	}
+	payload := []byte(strings.TrimPrefix(line, prefix))
+	var fields map[string]interface{}
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		t.Fatalf("summary line is not valid JSON: %v", err)
+	}
+	gotFields := make([]string, 0, len(fields))
+	for field := range fields {
+		gotFields = append(gotFields, field)
+	}
+	slices.Sort(gotFields)
+	wantFields := []string{"class", "interval_seconds", "method", "suppressed", "v"}
+	if !reflect.DeepEqual(gotFields, wantFields) {
+		t.Fatalf("summary fields = %v, want %v", gotFields, wantFields)
+	}
+
+	var summary gnmiAuditSummary
+	if err := json.Unmarshal(payload, &summary); err != nil {
+		t.Fatalf("cannot decode audit summary: %v", err)
+	}
+	return summary
 }
 
 func TestGNMIAuditGetCompletion(t *testing.T) {
@@ -217,9 +265,15 @@ func TestGNMIAuditPanicIsRecordedAndRepropagated(t *testing.T) {
 	}
 }
 
-func TestGNMIAuditIsUnsampledAndConcurrent(t *testing.T) {
+func TestGNMIAuditGetRateLimitIsConcurrent(t *testing.T) {
+	now := time.Date(2026, time.August, 4, 19, 0, 0, 0, time.UTC)
 	capture := &auditLogCapture{}
-	logger := newGNMIAuditLogger(capture.sink)
+	schedules := &auditScheduleCapture{}
+	logger := newGNMIAuditLoggerWithClockAndScheduler(
+		capture.sink,
+		func() time.Time { return now },
+		schedules.schedule,
+	)
 	interceptor := logger.UnaryInterceptor()
 
 	const calls = 100
@@ -236,16 +290,169 @@ func TestGNMIAuditIsUnsampledAndConcurrent(t *testing.T) {
 	wg.Wait()
 
 	lines := capture.snapshot()
-	if len(lines) != calls {
-		t.Fatalf("concurrent audit lines = %d, want %d", len(lines), calls)
+	if len(lines) != gnmiGetAuditBurst {
+		t.Fatalf("concurrent audit lines = %d, want burst %d", len(lines), gnmiGetAuditBurst)
 	}
-	ids := make(map[string]struct{}, calls)
+	ids := make(map[string]struct{}, len(lines))
 	for _, line := range lines {
 		record := decodeAuditRecord(t, line)
 		ids[record.RequestID] = struct{}{}
 	}
-	if len(ids) != calls {
-		t.Fatalf("unique request IDs = %d, want %d", len(ids), calls)
+	if len(ids) != len(lines) {
+		t.Fatalf("unique request IDs = %d, want %d", len(ids), len(lines))
+	}
+
+	delays, callbacks := schedules.snapshot()
+	if !reflect.DeepEqual(delays, []time.Duration{time.Hour}) || len(callbacks) != 1 {
+		t.Fatalf("scheduled summaries = %v/%d, want [1h]/1", delays, len(callbacks))
+	}
+	callbacks[0]()
+
+	lines = capture.snapshot()
+	if len(lines) != gnmiGetAuditBurst+1 {
+		t.Fatalf("lines after summary = %d, want %d", len(lines), gnmiGetAuditBurst+1)
+	}
+	summary := decodeAuditSummary(t, lines[len(lines)-1])
+	if summary.Version != 1 || summary.Method != "gnmi.get" ||
+		summary.Class != "ok" || summary.Suppressed != calls-gnmiGetAuditBurst ||
+		summary.IntervalSeconds != 3600 {
+		t.Fatalf("summary = %+v", summary)
+	}
+
+	_, _ = interceptor(context.Background(), &gnmipb.GetRequest{},
+		&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
+		func(context.Context, interface{}) (interface{}, error) { return nil, nil })
+	delays, callbacks = schedules.snapshot()
+	if len(delays) != 2 || len(callbacks) != 2 {
+		t.Fatalf("rearmed summaries = %v/%d, want 2/2", delays, len(callbacks))
+	}
+	callbacks[1]()
+	lines = capture.snapshot()
+	if summary = decodeAuditSummary(t, lines[len(lines)-1]); summary.Suppressed != 1 {
+		t.Fatalf("rearmed summary = %+v, want one suppressed Get", summary)
+	}
+}
+
+func TestGNMIAuditSetIsUnsampledAndConcurrent(t *testing.T) {
+	capture := &auditLogCapture{}
+	schedules := &auditScheduleCapture{}
+	logger := newGNMIAuditLoggerWithClockAndScheduler(
+		capture.sink,
+		time.Now,
+		schedules.schedule,
+	)
+	interceptor := logger.UnaryInterceptor()
+
+	const calls = 100
+	var wg sync.WaitGroup
+	wg.Add(calls)
+	for range calls {
+		go func() {
+			defer wg.Done()
+			_, _ = interceptor(context.Background(), &gnmipb.SetRequest{},
+				&grpc.UnaryServerInfo{FullMethod: gnmiSetMethod},
+				func(context.Context, interface{}) (interface{}, error) { return nil, nil })
+		}()
+	}
+	wg.Wait()
+
+	lines := capture.snapshot()
+	if len(lines) != calls {
+		t.Fatalf("concurrent Set audit lines = %d, want %d", len(lines), calls)
+	}
+	if delays, callbacks := schedules.snapshot(); len(delays) != 0 || len(callbacks) != 0 {
+		t.Fatalf("Set scheduled summaries: %v/%d", delays, len(callbacks))
+	}
+	for _, line := range lines {
+		if record := decodeAuditRecord(t, line); record.Method != "gnmi.set" {
+			t.Fatalf("Set audit method = %q", record.Method)
+		}
+	}
+}
+
+func TestGNMIAuditGetOutcomeBucketsAreIndependentAndBounded(t *testing.T) {
+	now := time.Date(2026, time.August, 4, 19, 0, 0, 0, time.UTC)
+	capture := &auditLogCapture{}
+	schedules := &auditScheduleCapture{}
+	logger := newGNMIAuditLoggerWithClockAndScheduler(
+		capture.sink,
+		func() time.Time { return now },
+		schedules.schedule,
+	)
+	if len(logger.limits) != int(gnmiAuditClassCount) {
+		t.Fatalf("limiter buckets = %d, want %d", len(logger.limits), gnmiAuditClassCount)
+	}
+
+	errorsByClass := []error{
+		nil,
+		status.Error(codes.PermissionDenied, "denied"),
+		status.Error(codes.Internal, "failed"),
+	}
+	for _, rpcErr := range errorsByClass {
+		for i := 0; i <= gnmiGetAuditBurst; i++ {
+			_, _ = logger.UnaryInterceptor()(context.Background(), &gnmipb.GetRequest{},
+				&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
+				func(context.Context, interface{}) (interface{}, error) { return nil, rpcErr })
+		}
+	}
+
+	if lines := capture.snapshot(); len(lines) != gnmiGetAuditBurst*int(gnmiAuditClassCount) {
+		t.Fatalf("individual records = %d, want %d", len(lines),
+			gnmiGetAuditBurst*int(gnmiAuditClassCount))
+	}
+	delays, callbacks := schedules.snapshot()
+	if len(callbacks) != int(gnmiAuditClassCount) {
+		t.Fatalf("summary callbacks = %d, want %d", len(callbacks), gnmiAuditClassCount)
+	}
+	for _, delay := range delays {
+		if delay != time.Hour {
+			t.Fatalf("summary delay = %v, want 1h", delay)
+		}
+	}
+	for _, callback := range callbacks {
+		callback()
+	}
+
+	lines := capture.snapshot()
+	summaries := make(map[string]gnmiAuditSummary)
+	for _, line := range lines[gnmiGetAuditBurst*int(gnmiAuditClassCount):] {
+		summary := decodeAuditSummary(t, line)
+		summaries[summary.Class] = summary
+	}
+	for _, class := range []string{"ok", "denied", "error"} {
+		if summary, ok := summaries[class]; !ok || summary.Suppressed != 1 {
+			t.Fatalf("summary[%q] = %+v, found=%v", class, summary, ok)
+		}
+	}
+}
+
+func TestGNMIAuditGetLimiterRefillsOneTokenPerMinute(t *testing.T) {
+	now := time.Date(2026, time.August, 4, 19, 0, 0, 0, time.UTC)
+	capture := &auditLogCapture{}
+	schedules := &auditScheduleCapture{}
+	logger := newGNMIAuditLoggerWithClockAndScheduler(
+		capture.sink,
+		func() time.Time { return now },
+		schedules.schedule,
+	)
+	interceptor := logger.UnaryInterceptor()
+	call := func() {
+		_, _ = interceptor(context.Background(), &gnmipb.GetRequest{},
+			&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
+			func(context.Context, interface{}) (interface{}, error) { return nil, nil })
+	}
+
+	for i := 0; i < gnmiGetAuditBurst; i++ {
+		call()
+	}
+	call()
+	if got := len(capture.snapshot()); got != gnmiGetAuditBurst {
+		t.Fatalf("records before refill = %d, want %d", got, gnmiGetAuditBurst)
+	}
+	now = now.Add(time.Minute)
+	call()
+	if got := len(capture.snapshot()); got != gnmiGetAuditBurst+1 {
+		t.Fatalf("records after refill = %d, want %d", got, gnmiGetAuditBurst+1)
 	}
 }
 
