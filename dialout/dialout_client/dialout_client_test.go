@@ -383,7 +383,7 @@ func TestGNMIDialOutPublish(t *testing.T) {
 		desc: "DialOut to first collector in stream mode and synced",
 		cmds: []string{
 			"redis-cli -n 4 hset TELEMETRY_CLIENT|DestinationGroup_HS dst_addr 127.0.0.1:8080,127.0.0.1:8081",
-			"redis-cli -n 4 hmset TELEMETRY_CLIENT|Subscription_HS_RDMA path_target COUNTERS_DB dst_group HS report_type stream paths COUNTERS/Ethernet*",
+			"redis-cli -n 4 hmset TELEMETRY_CLIENT|Subscription_HS_RDMA path_target COUNTERS_DB dst_group HS report_type stream report_interval 5000 paths COUNTERS/Ethernet*",
 		},
 		collector: "s1",
 		wantRespVal: []*pb.SubscribeResponse{
