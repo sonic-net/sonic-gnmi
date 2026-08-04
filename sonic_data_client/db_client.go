@@ -106,11 +106,11 @@ func CreateTablePath(dbName string, tableName string, delimitor string, tableKey
 // matching both keyed (<table><delim>*) and flat-hash (<table>) layouts.
 func listBareTableKeys(rdb *redis.Client, tableName, delimitor string) ([]string, error) {
 	pattern := tableName + delimitor + "*"
-	keys, err := rdb.Keys(pattern).Result()
+	keys, err := rdb.Keys(context.Background(), pattern).Result()
 	if err != nil {
 		return nil, fmt.Errorf("redis Keys failed for pattern %q: %v", pattern, err)
 	}
-	if n, err := rdb.Exists(tableName).Result(); err != nil {
+	if n, err := rdb.Exists(context.Background(), tableName).Result(); err != nil {
 		return nil, fmt.Errorf("redis Exists failed for key %q: %v", tableName, err)
 	} else if n == 1 {
 		keys = append(keys, tableName)

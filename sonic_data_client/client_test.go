@@ -2167,6 +2167,7 @@ func TestMakeJSONRedisSkipsNull(t *testing.T) {
 			}
 		})
 	}
+}
 
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()

@@ -382,6 +382,9 @@ func initDebugNameSwitchStatMap() error {
 }
 
 func initCountersBufferPoolNameMap() error {
+	clearMappingsMu.Lock()
+	defer clearMappingsMu.Unlock()
+
 	value := os.Getenv("UNIT_TEST")
 	if len(countersBufferPoolNameByNamespace) > 0 && value != "1" {
 		return nil
@@ -393,12 +396,12 @@ func initCountersBufferPoolNameMap() error {
 	}
 	local := make(map[string]map[string]string)
 	for namespace, redisDb := range redis_client_map {
-		_, err := redisDb.Ping().Result()
+		_, err := redisDb.Ping(context.Background()).Result()
 		if err != nil {
 			log.V(1).Infof("Can not connect to %v in namespace %v, err: %v", dbName, namespace, err)
 			return err
 		}
-		fv, err := redisDb.HGetAll("COUNTERS_BUFFER_POOL_NAME_MAP").Result()
+		fv, err := redisDb.HGetAll(context.Background(), "COUNTERS_BUFFER_POOL_NAME_MAP").Result()
 		if err != nil {
 			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, table COUNTERS_BUFFER_POOL_NAME_MAP: %v", namespace, err)
 			return err
