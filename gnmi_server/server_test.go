@@ -134,6 +134,16 @@ func createClient(t *testing.T, port int) *grpc.ClientConn {
 
 func createServer(t *testing.T, port int64) *Server {
 	t.Helper()
+	if port == 0 {
+		// NewServer requires Port > 0; reserve an OS-assigned port for tests that
+		// want ephemeral binding to avoid fixed-port collisions under CI load.
+		lis, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to reserve ephemeral port: %v", err)
+		}
+		port = int64(lis.Addr().(*net.TCPAddr).Port)
+		lis.Close()
+	}
 	certificate, err := testcert.NewCert()
 	if err != nil {
 		t.Fatalf("could not load server key pair: %s", err)
@@ -146,6 +156,7 @@ func createServer(t *testing.T, port int64) *Server {
 	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 	cfg := &Config{
 		Port:                port,
+		BindAddress:         "127.0.0.1",
 		EnableTranslibWrite: true,
 		EnableNativeWrite:   true,
 		Threshold:           100,
@@ -153,7 +164,7 @@ func createServer(t *testing.T, port int64) *Server {
 	}
 	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
-		t.Errorf("Failed to create gNMI server: %v", err)
+		t.Fatalf("Failed to create gNMI server: %v", err)
 	}
 	return s
 }
