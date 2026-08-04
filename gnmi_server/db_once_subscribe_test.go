@@ -138,10 +138,10 @@ func TestOnceSubscribeStateDB(t *testing.T) {
 	// STATE_DB is redis logical DB 6 in the default sonic layout.
 	rclient := getRedisClientN(t, 6, ns)
 	defer rclient.Close()
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 
-	rclient.HSet("NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
-	rclient.HSet("NEIGH_STATE_TABLE|10.0.0.57", "state", "Established")
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "state", "Established")
 
 	var wantVal interface{}
 	if err := json.Unmarshal([]byte(`{"peerType":"e-BGP","state":"Established"}`), &wantVal); err != nil {
@@ -192,7 +192,7 @@ func TestOnceSubscribeStateDBMissingKey(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClientN(t, 6, ns)
 	defer rclient.Close()
-	rclient.FlushDB()
+	rclient.FlushDB(context.Background())
 
 	got := runOnce(t, s, client.Query{
 		Target:  "STATE_DB",
