@@ -6252,6 +6252,25 @@ func TestParseOrigin(t *testing.T) {
 	}
 }
 
+func TestNormalizeOrigin(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"openconfig", "openconfig"},
+		{"openconfig-interfaces", "openconfig"},
+		{"openconfig-system", "openconfig"},
+		{"sonic-db", "sonic-db"},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.in, func(t *testing.T) {
+			if got := normalizeOrigin(tc.in); got != tc.want {
+				t.Errorf("normalizeOrigin(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestMasterArbitration(t *testing.T) {
 	s := createServer(t, 8088)
 	// Turn on Master Arbitration
