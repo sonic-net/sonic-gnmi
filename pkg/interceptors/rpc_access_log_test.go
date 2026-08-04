@@ -144,9 +144,10 @@ func TestRPCLoggerEndToEnd(t *testing.T) {
 		logs <- line
 		return nil
 	})
+	completion := newRPCCompletionLoggerWithLoggers(logger, nil)
 	server := grpc.NewServer(
-		grpc.UnaryInterceptor(logger.UnaryInterceptor()),
-		grpc.StreamInterceptor(logger.StreamInterceptor()),
+		grpc.UnaryInterceptor(completion.UnaryInterceptor()),
+		grpc.StreamInterceptor(completion.StreamInterceptor()),
 	)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
@@ -199,7 +200,7 @@ func TestRPCLoggerRateLimitsEachMethodAndCode(t *testing.T) {
 		lines = append(lines, line)
 		return nil
 	}, func() time.Time { return now }, func(time.Duration, func()) {})
-	interceptor := logger.UnaryInterceptor()
+	interceptor := newRPCCompletionLoggerWithLoggers(logger, nil).UnaryInterceptor()
 
 	call := func(method string, wantErr error) {
 		t.Helper()
@@ -249,7 +250,7 @@ func TestRPCLoggerReportsSuppressionAfterTrafficStops(t *testing.T) {
 		}
 		scheduled = f
 	})
-	interceptor := logger.UnaryInterceptor()
+	interceptor := newRPCCompletionLoggerWithLoggers(logger, nil).UnaryInterceptor()
 	call := func() {
 		_, _ = interceptor(context.Background(), nil,
 			&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"},
@@ -292,7 +293,7 @@ func TestRPCLoggerRetriesSummaryWhenAccessRecordWinsInterval(t *testing.T) {
 		}
 		scheduled = append(scheduled, f)
 	})
-	interceptor := logger.UnaryInterceptor()
+	interceptor := newRPCCompletionLoggerWithLoggers(logger, nil).UnaryInterceptor()
 	call := func() {
 		_, _ = interceptor(context.Background(), nil,
 			&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"},
@@ -332,7 +333,7 @@ func TestRPCLoggerRateLimitIsConcurrent(t *testing.T) {
 		lines = append(lines, line)
 		return nil
 	}, func() time.Time { return now }, func(time.Duration, func()) {})
-	interceptor := logger.UnaryInterceptor()
+	interceptor := newRPCCompletionLoggerWithLoggers(logger, nil).UnaryInterceptor()
 
 	const calls = 100
 	var wg sync.WaitGroup
@@ -365,7 +366,7 @@ func TestRPCLoggerUnaryError(t *testing.T) {
 	info := &grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Set"}
 	wantErr := status.Error(codes.PermissionDenied, "not allowed")
 
-	response, err := logger.UnaryInterceptor()(context.Background(), "secret request", info,
+	response, err := newRPCCompletionLoggerWithLoggers(logger, nil).UnaryInterceptor()(context.Background(), "secret request", info,
 		func(context.Context, interface{}) (interface{}, error) {
 			return nil, wantErr
 		})
@@ -389,7 +390,7 @@ func TestRPCLoggerUnaryContextErrorUsesGRPCCode(t *testing.T) {
 	sink, capturedRecord := captureAccessLog(t)
 	logger := newRPCLogger(sink)
 
-	_, err := logger.UnaryInterceptor()(context.Background(), nil,
+	_, err := newRPCCompletionLoggerWithLoggers(logger, nil).UnaryInterceptor()(context.Background(), nil,
 		&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"},
 		func(context.Context, interface{}) (interface{}, error) {
 			return nil, context.DeadlineExceeded
@@ -412,7 +413,7 @@ func TestRPCLoggerStreamError(t *testing.T) {
 	info := &grpc.StreamServerInfo{FullMethod: "/gnmi.gNMI/Subscribe"}
 	wantErr := status.Error(codes.Canceled, "client closed stream")
 
-	err := logger.StreamInterceptor()(nil, stream, info,
+	err := newRPCCompletionLoggerWithLoggers(logger, nil).StreamInterceptor()(nil, stream, info,
 		func(interface{}, grpc.ServerStream) error {
 			return wantErr
 		})
@@ -440,7 +441,7 @@ func TestRPCLoggerStreamSuccess(t *testing.T) {
 	logger := newRPCLogger(sink)
 	stream := &accessLogServerStream{ctx: context.Background()}
 
-	err := logger.StreamInterceptor()(nil, stream,
+	err := newRPCCompletionLoggerWithLoggers(logger, nil).StreamInterceptor()(nil, stream,
 		&grpc.StreamServerInfo{FullMethod: "/gnmi.gNMI/Subscribe"},
 		func(interface{}, grpc.ServerStream) error { return nil })
 	if err != nil {
@@ -454,7 +455,7 @@ func TestRPCLoggerStreamSuccess(t *testing.T) {
 func TestRPCLoggerDoesNotPropagateLoggingPanic(t *testing.T) {
 	logger := newRPCLogger(func(string) error { panic("log sink failure") })
 
-	response, err := logger.UnaryInterceptor()(context.Background(), nil,
+	response, err := newRPCCompletionLoggerWithLoggers(logger, nil).UnaryInterceptor()(context.Background(), nil,
 		&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"},
 		func(context.Context, interface{}) (interface{}, error) { return "response", nil })
 	if err != nil || response != "response" {
@@ -467,7 +468,7 @@ func TestRPCLoggerRecordsInnerShortCircuit(t *testing.T) {
 	logger := newRPCLogger(sink)
 	calls := []string{}
 	shortCircuit := &mockInterceptor{name: "short-circuit", calls: &calls, shouldReplace: true}
-	chain := NewChain(logger, shortCircuit)
+	chain := NewChain(newRPCCompletionLoggerWithLoggers(logger, nil), shortCircuit)
 
 	response, err := chain.UnaryInterceptor()(context.Background(), nil,
 		&grpc.UnaryServerInfo{FullMethod: "/gnoi.os.OS/Activate"},
@@ -494,7 +495,7 @@ func TestRPCLoggerUnarySuccess(t *testing.T) {
 	})
 	info := &grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"}
 
-	response, err := logger.UnaryInterceptor()(ctx, "secret request", info,
+	response, err := newRPCCompletionLoggerWithLoggers(logger, nil).UnaryInterceptor()(ctx, "secret request", info,
 		func(context.Context, interface{}) (interface{}, error) {
 			return "response", nil
 		})

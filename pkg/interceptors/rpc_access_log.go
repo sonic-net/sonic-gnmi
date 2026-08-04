@@ -7,7 +7,6 @@ import (
 
 	sharedlog "github.com/sonic-net/sonic-gnmi/pkg/logging"
 	"golang.org/x/time/rate"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 )
 
@@ -147,24 +146,4 @@ func (l *rpcLogger) writeSummary(key rpcLogKey) {
 		Code:       key.code.String(),
 		Suppressed: suppressed,
 	}, l.sink)
-}
-
-// UnaryInterceptor logs the final outcome of a unary RPC.
-func (l *rpcLogger) UnaryInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		started := l.now()
-		response, err := handler(ctx, req)
-		l.log(ctx, "unary", info.FullMethod, started, err)
-		return response, err
-	}
-}
-
-// StreamInterceptor logs the final outcome of a streaming RPC.
-func (l *rpcLogger) StreamInterceptor() grpc.StreamServerInterceptor {
-	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		started := l.now()
-		err := handler(srv, stream)
-		l.log(stream.Context(), "stream", info.FullMethod, started, err)
-		return err
-	}
 }

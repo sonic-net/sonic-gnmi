@@ -134,7 +134,7 @@ func TestGNMIAuditGetCompletion(t *testing.T) {
 		}}},
 	}
 
-	response, err := logger.UnaryInterceptor()(ctx, req,
+	response, err := logger.unary(ctx, req,
 		&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
 		func(context.Context, interface{}) (interface{}, error) {
 			if lines := capture.snapshot(); len(lines) != 0 {
@@ -185,7 +185,7 @@ func TestGNMIAuditSetDeniedRedactsValues(t *testing.T) {
 	}
 	wantErr := status.Error(codes.PermissionDenied, "denied")
 
-	_, err := logger.UnaryInterceptor()(context.Background(), req,
+	_, err := logger.unary(context.Background(), req,
 		&grpc.UnaryServerInfo{FullMethod: gnmiSetMethod},
 		func(context.Context, interface{}) (interface{}, error) { return nil, wantErr })
 	if err != wantErr {
@@ -217,22 +217,15 @@ func TestGNMIAuditMethodScope(t *testing.T) {
 	capture := &auditLogCapture{}
 	logger := newGNMIAuditLogger(capture.sink)
 
-	response, err := logger.UnaryInterceptor()(context.Background(), nil,
+	response, err := logger.unary(context.Background(), nil,
 		&grpc.UnaryServerInfo{FullMethod: "/gnoi.system.System/Time"},
 		func(context.Context, interface{}) (interface{}, error) { return "response", nil })
 	if err != nil || response != "response" {
 		t.Fatalf("non-audit unary call = %v, %v", response, err)
 	}
 
-	stream := &accessLogServerStream{ctx: context.Background()}
-	err = logger.StreamInterceptor()(nil, stream,
-		&grpc.StreamServerInfo{FullMethod: "/gnmi.gNMI/Subscribe"},
-		func(interface{}, grpc.ServerStream) error { return nil })
-	if err != nil {
-		t.Fatalf("stream call failed: %v", err)
-	}
 	if lines := capture.snapshot(); len(lines) != 0 {
-		t.Fatalf("out-of-scope calls emitted audit records: %v", lines)
+		t.Fatalf("out-of-scope call emitted audit records: %v", lines)
 	}
 }
 
@@ -243,7 +236,7 @@ func TestGNMIAuditPanicIsRecordedAndRepropagated(t *testing.T) {
 
 	func() {
 		defer func() { recovered = recover() }()
-		_, _ = logger.UnaryInterceptor()(context.Background(), &gnmipb.GetRequest{},
+		_, _ = logger.unary(context.Background(), &gnmipb.GetRequest{},
 			&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
 			func(context.Context, interface{}) (interface{}, error) {
 				panic("SECRET_PANIC")
@@ -274,7 +267,7 @@ func TestGNMIAuditGetRateLimitIsConcurrent(t *testing.T) {
 		func() time.Time { return now },
 		schedules.schedule,
 	)
-	interceptor := logger.UnaryInterceptor()
+	interceptor := logger.unary
 
 	const calls = 100
 	var wg sync.WaitGroup
@@ -341,7 +334,7 @@ func TestGNMIAuditSetIsUnsampledAndConcurrent(t *testing.T) {
 		time.Now,
 		schedules.schedule,
 	)
-	interceptor := logger.UnaryInterceptor()
+	interceptor := logger.unary
 
 	const calls = 100
 	var wg sync.WaitGroup
@@ -390,7 +383,7 @@ func TestGNMIAuditGetOutcomeBucketsAreIndependentAndBounded(t *testing.T) {
 	}
 	for _, rpcErr := range errorsByClass {
 		for i := 0; i <= gnmiGetAuditBurst; i++ {
-			_, _ = logger.UnaryInterceptor()(context.Background(), &gnmipb.GetRequest{},
+			_, _ = logger.unary(context.Background(), &gnmipb.GetRequest{},
 				&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
 				func(context.Context, interface{}) (interface{}, error) { return nil, rpcErr })
 		}
@@ -435,7 +428,7 @@ func TestGNMIAuditGetLimiterRefillsOneTokenPerMinute(t *testing.T) {
 		func() time.Time { return now },
 		schedules.schedule,
 	)
-	interceptor := logger.UnaryInterceptor()
+	interceptor := logger.unary
 	call := func() {
 		_, _ = interceptor(context.Background(), &gnmipb.GetRequest{},
 			&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
@@ -465,13 +458,20 @@ func TestGNMIAuditAndRPCAccessShareSink(t *testing.T) {
 		lines = append(lines, line)
 		return nil
 	}
-	chain := NewChain(newRPCLogger(sink), newGNMIAuditLogger(sink))
+	chain := NewChain(newRPCCompletionLogger(sink))
+	handlerCalls := 0
 
 	_, err := chain.UnaryInterceptor()(context.Background(), &gnmipb.GetRequest{},
 		&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
-		func(context.Context, interface{}) (interface{}, error) { return nil, nil })
+		func(context.Context, interface{}) (interface{}, error) {
+			handlerCalls++
+			return nil, nil
+		})
 	if err != nil {
 		t.Fatalf("chained call failed: %v", err)
+	}
+	if handlerCalls != 1 {
+		t.Fatalf("handler calls = %d, want 1", handlerCalls)
 	}
 	if len(lines) != 2 {
 		t.Fatalf("shared sink lines = %d, want 2: %v", len(lines), lines)
@@ -484,7 +484,7 @@ func TestGNMIAuditAndRPCAccessShareSink(t *testing.T) {
 
 func TestGNMIAuditWriterPanicDoesNotChangeRPCResult(t *testing.T) {
 	logger := newGNMIAuditLogger(func(string) error { panic("sink failure") })
-	response, err := logger.UnaryInterceptor()(context.Background(), &gnmipb.GetRequest{},
+	response, err := logger.unary(context.Background(), &gnmipb.GetRequest{},
 		&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
 		func(context.Context, interface{}) (interface{}, error) { return "response", nil })
 	if err != nil || response != "response" {
@@ -562,7 +562,7 @@ func TestGNMIAuditUnixPeerIsLocal(t *testing.T) {
 	})
 	capture := &auditLogCapture{}
 	logger := newGNMIAuditLogger(capture.sink)
-	_, _ = logger.UnaryInterceptor()(ctx, &gnmipb.GetRequest{},
+	_, _ = logger.unary(ctx, &gnmipb.GetRequest{},
 		&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
 		func(context.Context, interface{}) (interface{}, error) {
 			return nil, status.Error(codes.PermissionDenied, "denied")

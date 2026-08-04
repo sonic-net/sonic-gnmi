@@ -71,10 +71,11 @@ System telemetry in SONiC supports both dial-in mode and dial-out mode. The DB c
 
 # Get and Set audit records
 
-The gRPC interceptor chain produces a completion audit decision for every gNMI
-Get and Set call. Individual `GNMI_AUDIT` records use the same glog delivery
-path as `RPC_ACCESS` and contain `v`, `request_id`, `principal`, `auth_result`,
-`peer_type`, `peer_address`, `method`, `path`, `time`, and `code`.
+One outer gRPC completion interceptor produces `RPC_ACCESS` records and a
+completion audit decision for every gNMI Get and Set call. Individual
+`GNMI_AUDIT` records use the same glog delivery path and contain `v`,
+`request_id`, `principal`, `auth_result`, `peer_type`, `peer_address`, `method`,
+`path`, `time`, and `code`.
 
 Paths contain element names only. Path keys and request and response values are
 not logged. The interceptor uses a verified client-certificate common name or

@@ -35,7 +35,7 @@ func NewServerChain() (*ServerChain, error) {
 	})
 
 	// Keep completion logging outside the DPU proxy so it records forwarded and rejected RPCs.
-	chain := NewChain(newRPCLogger(sink), newGNMIAuditLogger(sink), dpuProxy)
+	chain := NewChain(newRPCCompletionLogger(sink), dpuProxy)
 
 	// Create cleanup function to close Redis clients
 	cleanup := func() error {

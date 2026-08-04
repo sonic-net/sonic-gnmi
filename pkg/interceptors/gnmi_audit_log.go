@@ -215,22 +215,19 @@ func (c gnmiAuditClass) String() string {
 	}
 }
 
-func (l *gnmiAuditLogger) UnaryInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (response interface{}, err error) {
-		if info.FullMethod != gnmiGetMethod && info.FullMethod != gnmiSetMethod {
-			return handler(ctx, req)
-		}
-
-		record := l.newRecord(ctx, req, info.FullMethod)
-		defer l.finish(&record, &err)
+func (l *gnmiAuditLogger) unary(
+	ctx context.Context,
+	req interface{},
+	info *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler,
+) (response interface{}, err error) {
+	if info.FullMethod != gnmiGetMethod && info.FullMethod != gnmiSetMethod {
 		return handler(ctx, req)
 	}
-}
 
-func (l *gnmiAuditLogger) StreamInterceptor() grpc.StreamServerInterceptor {
-	return func(srv interface{}, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		return handler(srv, stream)
-	}
+	record := l.newRecord(ctx, req, info.FullMethod)
+	defer l.finish(&record, &err)
+	return handler(ctx, req)
 }
 
 func auditMethod(method string) string {
