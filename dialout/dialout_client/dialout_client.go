@@ -463,6 +463,24 @@ restart: //Remote server might go down, in that case we restart with next destin
 	Both spellings are accepted; see matchRowPrefix.
 */
 
+// resetTelemetryClientStateForTest closes running subscriptions and clears
+// in-memory telemetry client config. Used by integration tests between cases.
+func resetTelemetryClientStateForTest() {
+	configMu.Lock()
+	defer configMu.Unlock()
+	for _, cs := range ClientSubscriptionNameMap {
+		if cs != nil {
+			cs.Close()
+			if cs.cancel != nil {
+				cs.cancel()
+			}
+		}
+	}
+	ClientSubscriptionNameMap = make(map[string]*clientSubscription)
+	DestGrp2ClientSubMap = make(map[string][]string)
+	destGrpNameMap = make(map[string][]Destination)
+}
+
 // closeDestGroupClient close client instances for all clientSubscription using
 // this Destination Group
 func closeDestGroupClient(destGroupName string) {
