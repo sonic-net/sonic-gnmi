@@ -102,6 +102,22 @@ func CreateTablePath(dbName string, tableName string, delimitor string, tableKey
 	return tblPath
 }
 
+// listBareTableKeys returns all Redis keys for a bare table path,
+// matching both keyed (<table><delim>*) and flat-hash (<table>) layouts.
+func listBareTableKeys(rdb *redis.Client, tableName, delimitor string) ([]string, error) {
+	pattern := tableName + delimitor + "*"
+	keys, err := rdb.Keys(pattern).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis Keys failed for pattern %q: %v", pattern, err)
+	}
+	if n, err := rdb.Exists(tableName).Result(); err != nil {
+		return nil, fmt.Errorf("redis Exists failed for key %q: %v", tableName, err)
+	} else if n == 1 {
+		keys = append(keys, tableName)
+	}
+	return keys, nil
+}
+
 // Define a new function to set the IntervalTicker variable
 func SetIntervalTicker(f func(interval time.Duration) <-chan time.Time) {
 	if NeedMock == true {
@@ -921,6 +937,9 @@ func resolveSubscribePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][
 func makeJSON_redis(msi *map[string]interface{}, key *string, op *string, mfv map[string]string) error {
 	if key == nil && op == nil {
 		for f, v := range mfv {
+			if f == "NULL" {
+				continue
+			}
 			(*msi)[f] = v
 		}
 		return nil
@@ -928,6 +947,9 @@ func makeJSON_redis(msi *map[string]interface{}, key *string, op *string, mfv ma
 
 	fp := map[string]interface{}{}
 	for f, v := range mfv {
+		if f == "NULL" {
+			continue
+		}
 		fp[f] = v
 	}
 
@@ -969,26 +991,18 @@ func emitJSON(v *map[string]interface{}) ([]byte, error) {
 func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]interface{}) error {
 	redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
 
-	var pattern string
 	var dbkeys []string
 	var err error
 	var fv map[string]string
 
-	//Only table name provided
 	if tblPath.tableKey == "" {
-		// tables in COUNTERS_DB other than COUNTERS/PORT_PHY_ATTR don't have keys
-		if tblPath.dbName == "COUNTERS_DB" && !countersDbHasTableKeys(tblPath.tableName) {
-			pattern = tblPath.tableName
-		} else {
-			pattern = tblPath.tableName + tblPath.delimitor + "*"
-		}
-		dbkeys, err = redisDb.Keys(context.Background(), pattern).Result()
+		// Bare table path: collect both keyed and flat-hash entries.
+		dbkeys, err = listBareTableKeys(redisDb, tblPath.tableName, tblPath.delimitor)
 		if err != nil {
-			log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
-			return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
+			log.V(2).Infof("listBareTableKeys failed for %v: %v", tblPath, err)
+			return err
 		}
 	} else {
-		// both table name and key provided
 		dbkeys = []string{tblPath.tableName + tblPath.delimitor + tblPath.tableKey}
 	}
 
@@ -1347,9 +1361,10 @@ func dbFieldSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interva
 }
 
 type redisSubData struct {
-	tblPath   tablePath
-	pubsub    *redis.PubSub
-	prefixLen int
+	tblPath      tablePath
+	pubsub       *redis.PubSub
+	prefixLen    int
+	delimSkipped bool // PSUBSCRIBE pattern omitted the delimiter
 }
 
 // TODO: For delete operation, the exact content returned is to be clarified.
@@ -1357,7 +1372,19 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 	tblPath := rsd.tblPath
 	pubsub := rsd.pubsub
 	prefixLen := rsd.prefixLen
-	msi := make(map[string]interface{})
+	delimSkipped := rsd.delimSkipped
+	// Leave nil so the first event always sends, even when newMsi is empty
+	// (e.g. a NULL-only hash stripped by makeJSON_redis).
+	var msi map[string]interface{}
+
+	// Strip the leading delimiter only when the PSUBSCRIBE pattern omitted it.
+	keyFromChannel := func(channel string) string {
+		key := channel[prefixLen:]
+		if delimSkipped {
+			key = strings.TrimPrefix(key, tblPath.delimitor)
+		}
+		return key
+	}
 
 	log.V(2).Infof("Starting dbSingleTableKeySubscribe routine for %+v", tblPath)
 
@@ -1393,7 +1420,7 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 						log.V(2).Infof("Invalid psubscribe channel notification %v, shorter than %v", subscr.Channel, prefixLen)
 						continue
 					}
-					key := subscr.Channel[prefixLen:]
+					key := keyFromChannel(subscr.Channel)
 					newMsi[key] = fp
 				}
 			} else if subscr.Payload == "hset" {
@@ -1410,7 +1437,7 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 						log.V(2).Infof("Invalid psubscribe channel notification %v, shorter than %v", subscr.Channel, prefixLen)
 						continue
 					}
-					tblPath.tableKey = subscr.Channel[prefixLen:]
+					tblPath.tableKey = keyFromChannel(subscr.Channel)
 					err = TableData2Msi(&tblPath, true, nil, &newMsi)
 					if err != nil {
 						enqueueFatalMsg(c, err.Error())
@@ -1422,6 +1449,9 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 					continue
 				}
 				msi = newMsi
+				// Forward even empty newMsi (NULL-only hash) -- still a real change.
+				updateChannel <- newMsi
+				continue
 			} else {
 				log.V(2).Infof("Invalid psubscribe payload notification:  %v", subscr.Payload)
 				continue
@@ -1490,11 +1520,15 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 		// Subscribe to keyspace notification
 		pattern := "__keyspace@" + strconv.Itoa(int(spb.Target_value[tblPath.dbName])) + "__:"
 		pattern += tblPath.tableName
-		if tblPath.dbName == "COUNTERS_DB" && !countersDbHasTableKeys(tblPath.tableName) {
-			// tables in COUNTERS_DB without per-object keys, skip delimitor
+		// COUNTERS_DB non-COUNTERS: skip delim so wildcard matches keyed and flat rows.
+		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
 		} else {
 			pattern += tblPath.delimitor
 		}
+		// Bare-table subs: strip leading delim from event channel suffix.
+		delimSkipped := tblPath.dbName == "COUNTERS_DB" &&
+			tblPath.tableName != "COUNTERS" &&
+			tblPath.tableKey == ""
 
 		var prefixLen int
 		if tblPath.tableKey != "" {
@@ -1526,9 +1560,10 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 			return
 		}
 		rsd := redisSubData{
-			tblPath:   tblPath,
-			pubsub:    pubsub,
-			prefixLen: prefixLen,
+			tblPath:      tblPath,
+			pubsub:       pubsub,
+			prefixLen:    prefixLen,
+			delimSkipped: delimSkipped,
 		}
 		rsdList = append(rsdList, rsd)
 	}

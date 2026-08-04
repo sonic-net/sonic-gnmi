@@ -85,6 +85,9 @@ var (
 	// Mutex to protect ClearMappings from racing with init functions
 	clearMappingsMu sync.RWMutex
 
+	// Per-namespace buffer pool name to oid (COUNTERS_BUFFER_POOL_NAME_MAP in COUNTERS_DB)
+	countersBufferPoolNameByNamespace map[string]map[string]string
+
 	// path2TFuncTbl is used to populate trie tree which is reponsible
 	// for virtual path to real data path translation
 	pathTransFuncTbl = []pathTransFunc{
@@ -135,6 +138,12 @@ var (
 		}, { // specific field stats for PORT_PHY_ATTR for one or all Ethernet ports (no alias translation)
 			path:      []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*", "*"},
 			transFunc: v2rTranslate(v2rPortPhyAttrFieldStats),
+		}, { // Buffer pool watermarks - bare path returns all pools
+			path:      []string{"COUNTERS_DB", "BUFFER_POOL_WATERMARKS"},
+			transFunc: v2rTranslate(v2rBufferPoolWatermarks),
+		}, { // Buffer pool watermarks - specific pool or wildcard
+			path:      []string{"COUNTERS_DB", "BUFFER_POOL_WATERMARKS", "*"},
+			transFunc: v2rTranslate(v2rBufferPoolWatermarks),
 		},
 	}
 )
@@ -368,6 +377,47 @@ func initDebugNameSwitchStatMap() error {
 		}
 	}
 	return nil
+}
+
+func initCountersBufferPoolNameMap() error {
+	value := os.Getenv("UNIT_TEST")
+	if len(countersBufferPoolNameByNamespace) > 0 && value != "1" {
+		return nil
+	}
+	dbName := "COUNTERS_DB"
+	redis_client_map, err := GetRedisClientsForDb(dbName)
+	if err != nil {
+		return err
+	}
+	countersBufferPoolNameByNamespace = make(map[string]map[string]string)
+	for namespace, redisDb := range redis_client_map {
+		_, err := redisDb.Ping().Result()
+		if err != nil {
+			log.V(1).Infof("Can not connect to %v in namespace %v, err: %v", dbName, namespace, err)
+			return err
+		}
+		fv, err := redisDb.HGetAll("COUNTERS_BUFFER_POOL_NAME_MAP").Result()
+		if err != nil {
+			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, table COUNTERS_BUFFER_POOL_NAME_MAP: %v", namespace, err)
+			return err
+		}
+		if len(fv) == 0 {
+			continue
+		}
+		poolMap := make(map[string]string, len(fv))
+		for k, v := range fv {
+			poolMap[k] = v
+		}
+		countersBufferPoolNameByNamespace[namespace] = poolMap
+	}
+	return nil
+}
+
+func bufferPoolJSONKey(namespace, poolName string) string {
+	if namespace == "" {
+		return poolName
+	}
+	return poolName + "-" + namespace
 }
 
 // Get the mapping between sonic interface name and oids of their PFC-WD enabled queues in COUNTERS_DB
@@ -1512,6 +1562,57 @@ func v2rSystemPortVoQStats(paths []string) ([]tablePath, error) {
 		}
 	}
 	log.V(6).Infof("v2rSystemPortVoQStats: %v", tblPaths)
+	return tblPaths, nil
+}
+
+// v2rBufferPoolWatermarks resolves /BUFFER_POOL_WATERMARKS[/*|/<pool>]
+// to COUNTERS:<oid> rows via COUNTERS_BUFFER_POOL_NAME_MAP.
+// Bare and wildcard forms return all pools keyed by pool name.
+func v2rBufferPoolWatermarks(paths []string) ([]tablePath, error) {
+	if err := initCountersBufferPoolNameMap(); err != nil {
+		return nil, err
+	}
+	var tblPaths []tablePath
+	allPools := uint(len(paths)) <= KeyIdx || paths[KeyIdx] == "*"
+	if allPools {
+		for ns, pools := range countersBufferPoolNameByNamespace {
+			separator, _ := GetTableKeySeparator(paths[DbIdx], ns)
+			for poolName, oid := range pools {
+				tblPaths = append(tblPaths, tablePath{
+					dbNamespace:  ns,
+					dbName:       paths[DbIdx],
+					tableName:    "COUNTERS",
+					tableKey:     oid,
+					delimitor:    separator,
+					jsonTableKey: bufferPoolJSONKey(ns, poolName),
+				})
+			}
+		}
+		if len(tblPaths) == 0 {
+			return nil, fmt.Errorf("no buffer pools in COUNTERS_BUFFER_POOL_NAME_MAP")
+		}
+	} else {
+		key := paths[KeyIdx]
+		for ns, pools := range countersBufferPoolNameByNamespace {
+			oid, ok := pools[key]
+			if !ok {
+				continue
+			}
+			separator, _ := GetTableKeySeparator(paths[DbIdx], ns)
+			tblPaths = append(tblPaths, tablePath{
+				dbNamespace:  ns,
+				dbName:       paths[DbIdx],
+				tableName:    "COUNTERS",
+				tableKey:     oid,
+				delimitor:    separator,
+				jsonTableKey: bufferPoolJSONKey(ns, key),
+			})
+		}
+		if len(tblPaths) == 0 {
+			return nil, fmt.Errorf("%v not found in COUNTERS_BUFFER_POOL_NAME_MAP", key)
+		}
+	}
+	log.V(6).Infof("v2rBufferPoolWatermarks: %v", tblPaths)
 	return tblPaths, nil
 }
 

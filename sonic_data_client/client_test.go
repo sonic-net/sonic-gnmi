@@ -2108,6 +2108,66 @@ func TestMixedDbClientGet(t *testing.T) {
 	})
 }
 
+// TestMakeJSONRedisSkipsNull verifies that makeJSON_redis strips the SONiC
+// "NULL"/"NULL" placeholder field that Redis hashes carry when they would
+// otherwise be empty.
+func TestMakeJSONRedisSkipsNull(t *testing.T) {
+	key := "PortChannel1|Ethernet4"
+	op := "ADD"
+
+	tests := []struct {
+		name string
+		key  *string
+		op   *string
+		mfv  map[string]string
+		want map[string]interface{}
+	}{
+		{
+			name: "key and op nil, only NULL field",
+			key:  nil,
+			op:   nil,
+			mfv:  map[string]string{"NULL": "NULL"},
+			want: map[string]interface{}{},
+		},
+		{
+			name: "key and op nil, NULL mixed with real field",
+			key:  nil,
+			op:   nil,
+			mfv:  map[string]string{"NULL": "NULL", "admin_status": "up"},
+			want: map[string]interface{}{"admin_status": "up"},
+		},
+		{
+			name: "key set, only NULL field",
+			key:  &key,
+			op:   nil,
+			mfv:  map[string]string{"NULL": "NULL"},
+			want: map[string]interface{}{key: map[string]interface{}{}},
+		},
+		{
+			name: "key and op set, NULL mixed with real field",
+			key:  &key,
+			op:   &op,
+			mfv:  map[string]string{"NULL": "NULL", "admin_status": "up"},
+			want: map[string]interface{}{
+				key: map[string]interface{}{
+					op: map[string]interface{}{"admin_status": "up"},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := map[string]interface{}{}
+			if err := makeJSON_redis(&got, tc.key, tc.op, tc.mfv); err != nil {
+				t.Fatalf("makeJSON_redis returned error: %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("makeJSON_redis = %v, want %v", got, tc.want)
+			}
+		})
+	}
+
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
 	m.Run()
