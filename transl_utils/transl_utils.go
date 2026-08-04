@@ -65,6 +65,36 @@ func __log_audit_msg(ctx context.Context, reqType string, uriPath string, err er
 	Writer.Info(auditMsg)
 }
 
+// errorPath extracts the optional Path field from translib app error types.
+func errorPath(err error) string {
+	switch e := err.(type) {
+	case tlerr.TranslibSyntaxValidationError:
+		return errorPath(e.ErrorStr)
+	case tlerr.InvalidArgsError:
+		return e.Path
+	case tlerr.NotFoundError:
+		return e.Path
+	case tlerr.AlreadyExistsError:
+		return e.Path
+	case tlerr.NotSupportedError:
+		return e.Path
+	case tlerr.InternalError:
+		return e.Path
+	case tlerr.AuthorizationError:
+		return e.Path
+	default:
+		return ""
+	}
+}
+
+// formatErrorWithPath appends "path: <p>" to the message if path is non-empty.
+func formatErrorWithPath(msg, path string) string {
+	if path != "" {
+		return msg + "\n  path: " + path
+	}
+	return msg
+}
+
 // ToStatus returns a gRPC status object for a translib error.
 func ToStatus(err error) *status.Status {
 	if err == nil {
@@ -80,7 +110,13 @@ func ToStatus(err error) *status.Status {
 	case tlerr.TranslibSyntaxValidationError:
 		code = codes.InvalidArgument
 		data = err.ErrorStr.Error()
-	case tlerr.TranslibUnsupportedClientVersion, tlerr.InvalidArgsError, tlerr.NotSupportedError:
+	case tlerr.InvalidArgsError:
+		code = codes.InvalidArgument
+		data = err.Error()
+	case tlerr.NotSupportedError:
+		code = codes.InvalidArgument
+		data = err.Error()
+	case tlerr.TranslibUnsupportedClientVersion:
 		code = codes.InvalidArgument
 		data = err.Error()
 	case tlerr.InternalError:
@@ -114,6 +150,7 @@ func ToStatus(err error) *status.Status {
 	}
 
 	if s == nil {
+		data = formatErrorWithPath(data, errorPath(err))
 		s = status.New(code, data)
 	}
 	if log.V(3) {
@@ -409,21 +446,28 @@ func TranslProcessBulk(delete []*gnmipb.Path, replace []*gnmipb.Update, update [
 
 	resp, err = translib.Bulk(br)
 
+	var firstErr error
 	for k := range resp.Response {
 		__log_audit_msg(ctx, transLibOpMap[resp.Response[k].Operation], br.Request[k].Entry.Path, resp.Response[k].Entry.Err)
 		if resp.Response[k].Entry.Err != nil {
-			log.Warningf("%s=%v", resp.Response[k].Entry.Err.Error(), resp.Response[k].Entry.ErrSrc)
-			errors = append(errors, resp.Response[k].Entry.Err.Error())
+			entryErr := resp.Response[k].Entry.Err
+			log.Warningf("%s=%v", entryErr.Error(), resp.Response[k].Entry.ErrSrc)
+			errMsg := formatErrorWithPath(entryErr.Error(), br.Request[k].Entry.Path)
+			errors = append(errors, errMsg)
+			if firstErr == nil {
+				firstErr = entryErr
+			}
 		}
 	}
 
-	if err != nil && len(errors) == 0 { //Global error
+	if err != nil && len(errors) == 0 {
 		log.Errorf("Bulk Operation failed with Error: %v", err.Error())
-		errors = append(errors, err.Error())
+		return ToStatus(err).Err()
 	}
 
 	if len(errors) > 0 {
-		return fmt.Errorf("SET failed: %s", strings.Join(errors, "; "))
+		s := ToStatus(firstErr)
+		return status.Error(s.Code(), fmt.Sprintf("SET failed: %s", strings.Join(errors, "; ")))
 	}
 
 	return nil
