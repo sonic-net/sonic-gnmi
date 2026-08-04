@@ -2113,7 +2113,6 @@ func TestMixedDbClientGet(t *testing.T) {
 func setupMiniredisCountersDb(t *testing.T) (*miniredis.Miniredis, *redis.Client, func()) {
 	t.Helper()
 	mr := miniredis.RunT(t)
-	mr.SetNotifyKeyspaceEvents("KEA")
 	ns := ""
 	origTarget := Target2RedisDb
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr(), DB: 2})
@@ -2122,6 +2121,17 @@ func setupMiniredisCountersDb(t *testing.T) (*miniredis.Miniredis, *redis.Client
 	}
 	return mr, rdb, func() {
 		Target2RedisDb = origTarget
+	}
+}
+
+// publishKeyspaceEvent simulates a Redis keyspace notification. miniredis does
+// not implement CONFIG SET notify-keyspace-events, so subscribe tests publish
+// the __keyspace@<db>__ channel messages directly.
+func publishKeyspaceEvent(t *testing.T, rdb *redis.Client, db int, key, payload string) {
+	t.Helper()
+	channel := fmt.Sprintf("__keyspace@%d__:%s", db, key)
+	if err := rdb.Publish(context.Background(), channel, payload).Err(); err != nil {
+		t.Fatalf("publish keyspace event on %q: %v", channel, err)
 	}
 }
 
@@ -2217,6 +2227,7 @@ func runDbSingleTableKeySubscribeUpdate(t *testing.T, rsd redisSubData, mutate f
 	updateCh := make(chan map[string]interface{}, 1)
 	c := &DbClient{channel: make(chan struct{})}
 	go dbSingleTableKeySubscribe(c, rsd, updateCh)
+	time.Sleep(50 * time.Millisecond)
 	mutate(Target2RedisDb[rsd.tblPath.dbNamespace][rsd.tblPath.dbName])
 	select {
 	case msi := <-updateCh:
@@ -2251,8 +2262,10 @@ func TestDbSingleTableKeySubscribeBareTableDelimSkipped(t *testing.T) {
 		delimSkipped: true,
 	}
 	oid := "oid:0x100"
+	redisKey := "BUFFER_POOL_WATERMARKS:" + oid
 	msi := runDbSingleTableKeySubscribeUpdate(t, rsd, func(rdb *redis.Client) {
-		rdb.HSet(context.Background(), "BUFFER_POOL_WATERMARKS:"+oid, "SAI_BUFFER_POOL_STAT_WATERMARK_BYTES", "123")
+		rdb.HSet(context.Background(), redisKey, "SAI_BUFFER_POOL_STAT_WATERMARK_BYTES", "123")
+		publishKeyspaceEvent(t, rdb, 2, redisKey, "hset")
 	})
 	if _, ok := msi[oid]; !ok {
 		t.Fatalf("expected update keyed by %q, got %v", oid, msi)
@@ -2281,8 +2294,10 @@ func TestDbSingleTableKeySubscribePortPhyAttrKeepsDelimiter(t *testing.T) {
 		delimSkipped: false,
 	}
 	port := "Ethernet68"
+	redisKey := "PORT_PHY_ATTR:" + port
 	msi := runDbSingleTableKeySubscribeUpdate(t, rsd, func(rdb *redis.Client) {
-		rdb.HSet(context.Background(), "PORT_PHY_ATTR:"+port, "phy_rx_signal_detect", "1")
+		rdb.HSet(context.Background(), redisKey, "phy_rx_signal_detect", "1")
+		publishKeyspaceEvent(t, rdb, 2, redisKey, "hset")
 	})
 	if _, ok := msi[port]; !ok {
 		t.Fatalf("expected update keyed by %q, got %v", port, msi)
@@ -2317,9 +2332,12 @@ func TestMixedDbSingleTableKeySubscribeBareTableDelimSkipped(t *testing.T) {
 		delimSkipped: true,
 	}
 	go c.dbSingleTableKeySubscribe(rsd, updateCh)
+	time.Sleep(50 * time.Millisecond)
 
 	oid := "oid:0x200"
-	rdb.HSet(context.Background(), "BUFFER_POOL_WATERMARKS:"+oid, "SAI_BUFFER_POOL_STAT_WATERMARK_BYTES", "456")
+	redisKey := "BUFFER_POOL_WATERMARKS:" + oid
+	rdb.HSet(context.Background(), redisKey, "SAI_BUFFER_POOL_STAT_WATERMARK_BYTES", "456")
+	publishKeyspaceEvent(t, rdb, 2, redisKey, "hset")
 	select {
 	case msi := <-updateCh:
 		if _, ok := msi[oid]; !ok {
