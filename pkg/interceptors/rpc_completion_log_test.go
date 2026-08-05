@@ -96,7 +96,7 @@ func captureAccessLog(t *testing.T) (lineSink, func() rpcCompletionRecord) {
 func parseAccessLog(t *testing.T, line string) rpcCompletionRecord {
 	t.Helper()
 
-	const prefix = "RPC_ACCESS "
+	const prefix = "RPC_COMPLETION "
 	if !strings.HasPrefix(line, prefix) {
 		t.Fatalf("log line %q does not start with %q", line, prefix)
 	}
@@ -133,7 +133,7 @@ func parseAccessLog(t *testing.T, line string) rpcCompletionRecord {
 func parseAccessLogSummary(t *testing.T, line string) rpcCompletionSummary {
 	t.Helper()
 
-	const prefix = "RPC_ACCESS_SUMMARY "
+	const prefix = "RPC_COMPLETION_SUMMARY "
 	if !strings.HasPrefix(line, prefix) {
 		t.Fatalf("log line %q does not start with %q", line, prefix)
 	}

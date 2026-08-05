@@ -71,7 +71,7 @@ System telemetry in SONiC supports both dial-in mode and dial-out mode. The DB c
 
 # Get and Set audit records
 
-One outer gRPC completion interceptor emits one `RPC_ACCESS` record for each
+One outer gRPC completion interceptor emits one `RPC_COMPLETION` record for each
 allowed RPC. The unified record contains `v`, `type`, `method`, `peer_type`,
 `peer`, `principal`, `auth_type`, `path`, `code`, `duration_ms`, and
 `suppressed`. `principal`, `auth_type`, and `path` use empty defaults.
@@ -94,7 +94,7 @@ outside Get/Set. PR #723 method/code rate limiting and suppression summaries
 remain.
 
 Set records are never rate-limited. Get records use the same method/code bucket
-map and `RPC_ACCESS_SUMMARY` path as other RPCs, with 60 records/hour and burst
+map and `RPC_COMPLETION_SUMMARY` path as other RPCs, with 60 records/hour and burst
 60 instead of PR #723's default one record per 10 seconds. A suppressed Get
 does not reach the glog sink; its common summary reports method, code, and
 suppressed count.

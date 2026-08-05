@@ -17,11 +17,11 @@ import (
 )
 
 const (
-	rpcAccessLogPrefix        = "RPC_ACCESS"
-	rpcAccessLogSummaryPrefix = "RPC_ACCESS_SUMMARY"
-	rpcAccessLogInterval      = 10 * time.Second
-	gnmiGetMethod             = "/gnmi.gNMI/Get"
-	gnmiSetMethod             = "/gnmi.gNMI/Set"
+	rpcCompletionLogPrefix       = "RPC_COMPLETION"
+	rpcCompletionSummaryPrefix   = "RPC_COMPLETION_SUMMARY"
+	rpcCompletionDefaultInterval = 10 * time.Second
+	gnmiGetMethod                = "/gnmi.gNMI/Get"
+	gnmiSetMethod                = "/gnmi.gNMI/Set"
 )
 
 type scheduleFunc func(time.Duration, func())
@@ -46,8 +46,8 @@ type rpcLogPolicy struct {
 }
 
 var defaultRPCLogPolicy = rpcLogPolicy{
-	tokenInterval:   rpcAccessLogInterval,
-	summaryInterval: rpcAccessLogInterval,
+	tokenInterval:   rpcCompletionDefaultInterval,
+	summaryInterval: rpcCompletionDefaultInterval,
 	burst:           1,
 }
 
@@ -174,7 +174,7 @@ func (l *rpcCompletionLogger) log(
 	if data, err := json.Marshal(record); err == nil {
 		func() {
 			defer func() { _ = recover() }()
-			_ = l.sink(rpcAccessLogPrefix + " " + string(data))
+			_ = l.sink(rpcCompletionLogPrefix + " " + string(data))
 		}()
 	}
 }
@@ -247,7 +247,7 @@ func (l *rpcCompletionLogger) writeSummary(key rpcLogKey) {
 	if data, err := json.Marshal(summary); err == nil {
 		func() {
 			defer func() { _ = recover() }()
-			_ = l.sink(rpcAccessLogSummaryPrefix + " " + string(data))
+			_ = l.sink(rpcCompletionSummaryPrefix + " " + string(data))
 		}()
 	}
 }
