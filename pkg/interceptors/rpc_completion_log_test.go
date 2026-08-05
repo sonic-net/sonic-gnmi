@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type accessLogServerStream struct {
@@ -518,7 +519,8 @@ func TestDeriveRequestFields(t *testing.T) {
 	got := deriveRequestFields(ctx, &gnmipb.GetRequest{Path: []*gnmipb.Path{getPath}})
 	if got.peerType != "tcp" || got.address != "10.0.0.1:1234" ||
 		got.principal != "client-cn" || got.authType != "tls" ||
-		len(got.paths) != 1 || got.paths[0] != getPath {
+		len(got.paths) != 1 || got.paths[0] == getPath ||
+		!proto.Equal(got.paths[0], getPath) {
 		t.Fatalf("deriveRequestFields() = %+v", got)
 	}
 
@@ -529,23 +531,88 @@ func TestDeriveRequestFields(t *testing.T) {
 	}
 }
 
-func TestRequestPathsSet(t *testing.T) {
-	deletePath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "delete"}}}
-	replacePath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "replace"}}}
-	updatePath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "update"}}}
-	got := requestPaths(&gnmipb.SetRequest{
-		Delete:  []*gnmipb.Path{deletePath},
-		Replace: []*gnmipb.Update{{Path: replacePath}},
-		Update:  []*gnmipb.Update{{Path: updatePath}},
-	})
-	want := []*gnmipb.Path{deletePath, replacePath, updatePath}
-	if len(got) != len(want) {
-		t.Fatalf("Set paths = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("Set path[%d] = %v, want %v", i, got[i], want[i])
+func TestRPCLoggerRedactsPathKeysWithoutMutatingRequest(t *testing.T) {
+	newPath := func(name, secret string) *gnmipb.Path {
+		return &gnmipb.Path{
+			Element: []string{"legacy-" + secret},
+			Origin:  "openconfig",
+			Target:  "CONFIG_DB",
+			Elem: []*gnmipb.PathElem{{
+				Name: name,
+				Key:  map[string]string{"name": secret},
+			}},
 		}
+	}
+
+	getPath := newPath("interface", "Ethernet0")
+	deletePath := newPath("delete", "delete-secret")
+	replacePath := newPath("replace", "replace-secret")
+	updatePath := newPath("update", "update-secret")
+	tests := []struct {
+		name        string
+		method      string
+		req         interface{}
+		sourcePaths []*gnmipb.Path
+	}{
+		{
+			name:        "Get",
+			method:      gnmiGetMethod,
+			req:         &gnmipb.GetRequest{Path: []*gnmipb.Path{getPath}},
+			sourcePaths: []*gnmipb.Path{getPath},
+		},
+		{
+			name:   "Set",
+			method: gnmiSetMethod,
+			req: &gnmipb.SetRequest{
+				Delete:  []*gnmipb.Path{deletePath},
+				Replace: []*gnmipb.Update{{Path: replacePath}},
+				Update:  []*gnmipb.Update{{Path: updatePath}},
+			},
+			sourcePaths: []*gnmipb.Path{deletePath, replacePath, updatePath},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var line string
+			logger := newRPCCompletionLogger(func(got string) error {
+				line = got
+				return nil
+			})
+			_, err := logger.UnaryInterceptor()(context.Background(), test.req,
+				&grpc.UnaryServerInfo{FullMethod: test.method},
+				func(context.Context, interface{}) (interface{}, error) { return nil, nil })
+			if err != nil {
+				t.Fatalf("UnaryInterceptor() failed: %v", err)
+			}
+
+			var record rpcCompletionRecord
+			payload := strings.TrimPrefix(line, rpcCompletionLogPrefix+" ")
+			if err := json.Unmarshal([]byte(payload), &record); err != nil {
+				t.Fatalf("cannot decode completion record: %v", err)
+			}
+			if len(record.Path) != len(test.sourcePaths) {
+				t.Fatalf("logged paths = %v, want %d paths", record.Path, len(test.sourcePaths))
+			}
+			for i, loggedPath := range record.Path {
+				sourcePath := test.sourcePaths[i]
+				if loggedPath.GetOrigin() != "" ||
+					loggedPath.GetTarget() != "" ||
+					len(loggedPath.GetElement()) != 0 ||
+					len(loggedPath.GetElem()) != 1 ||
+					loggedPath.GetElem()[0].GetName() != sourcePath.GetElem()[0].GetName() ||
+					len(loggedPath.GetElem()[0].GetKey()) != 0 {
+					t.Fatalf("logged path[%d] = %v, want names-only path", i, loggedPath)
+				}
+				if got := sourcePath.GetElem()[0].GetKey()["name"]; got == "" {
+					t.Fatalf("source path[%d] key was mutated", i)
+				}
+				if strings.Contains(line, sourcePath.GetElem()[0].GetKey()["name"]) ||
+					strings.Contains(line, sourcePath.GetElement()[0]) {
+					t.Fatalf("completion record leaked path key: %s", line)
+				}
+			}
+		})
 	}
 }
 

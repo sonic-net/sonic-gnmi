@@ -297,17 +297,38 @@ func requestPaths(req interface{}) []*gnmipb.Path {
 	paths := []*gnmipb.Path{}
 	switch request := req.(type) {
 	case *gnmipb.GetRequest:
-		paths = append(paths, request.GetPath()...)
+		for _, path := range request.GetPath() {
+			paths = append(paths, redactedPath(path))
+		}
 	case *gnmipb.SetRequest:
-		paths = append(paths, request.GetDelete()...)
+		for _, path := range request.GetDelete() {
+			paths = append(paths, redactedPath(path))
+		}
 		for _, update := range request.GetReplace() {
-			paths = append(paths, update.GetPath())
+			paths = append(paths, redactedPath(update.GetPath()))
 		}
 		for _, update := range request.GetUpdate() {
-			paths = append(paths, update.GetPath())
+			paths = append(paths, redactedPath(update.GetPath()))
 		}
 	}
 	return paths
+}
+
+func redactedPath(path *gnmipb.Path) *gnmipb.Path {
+	if path == nil {
+		return nil
+	}
+
+	redacted := &gnmipb.Path{
+		Elem: make([]*gnmipb.PathElem, 0, len(path.GetElem())),
+	}
+	for _, elem := range path.GetElem() {
+		if elem == nil {
+			continue
+		}
+		redacted.Elem = append(redacted.Elem, &gnmipb.PathElem{Name: elem.GetName()})
+	}
+	return redacted
 }
 
 func presentedCertificateCommonName(requestPeer *peer.Peer) string {

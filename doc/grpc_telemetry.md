@@ -82,11 +82,12 @@ TLS peer certificate Common Name without chain, SAN, role, authentication, or
 authorization validation. After the deferred completion handler passes the
 rate limit, one `deriveRequestFields` wrapper performs the only peer-context
 existence check, then delegates address/type, presented CN, transport auth
-method, and raw path extraction. It is named for the request because paths are
-not peer data. Path keys may be present; request update values and responses
-are not included. Authenticated principal, the existing `TELEMETRY-*` request
-ID, and auth result are deferred until those values are available in the
-interceptor context.
+method, and redacted path-shape extraction. It is named for the request because
+paths are not peer data. Logged paths contain only element names; origin, target,
+`PathElem.Key` maps, and deprecated `Element` values are omitted. Request update
+values and responses are not included. Authenticated principal, the existing
+`TELEMETRY-*` request ID, and auth result are deferred until those values are
+available in the interceptor context.
 
 Other unary and streaming methods use the same record. Peer-derived
 `principal` and `auth_type` are populated when available; `path` remains empty
