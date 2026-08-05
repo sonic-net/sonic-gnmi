@@ -1544,3 +1544,42 @@ func TestV2rBufferPoolWatermarks_EmptyMap(t *testing.T) {
 		t.Fatal("expected error when COUNTERS_BUFFER_POOL_NAME_MAP is empty")
 	}
 }
+
+func TestInitCountersBufferPoolNameMap_RefreshesOnChange(t *testing.T) {
+	sdcfg.Init()
+	mr, restore := setupBufferPoolMaps(t)
+	defer restore()
+
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	if err := initCountersBufferPoolNameMap(); err != nil {
+		t.Fatalf("initCountersBufferPoolNameMap: %v", err)
+	}
+	pools, ok := countersBufferPoolNameByNamespace[ns]
+	if !ok || pools["ingress_lossless_pool"] == "" {
+		t.Fatalf("expected initial pool map, got %#v", countersBufferPoolNameByNamespace)
+	}
+
+	mr.HSet("COUNTERS_BUFFER_POOL_NAME_MAP", "egress_lossy_pool", "oid:0x5000000000003")
+	if err := initCountersBufferPoolNameMap(); err != nil {
+		t.Fatalf("init after add: %v", err)
+	}
+	pools = countersBufferPoolNameByNamespace[ns]
+	if pools["egress_lossy_pool"] != "oid:0x5000000000003" {
+		t.Errorf("new pool not visible after refresh: %#v", pools)
+	}
+
+	mr.Del("COUNTERS_BUFFER_POOL_NAME_MAP", "ingress_lossless_pool")
+	if err := initCountersBufferPoolNameMap(); err != nil {
+		t.Fatalf("init after delete: %v", err)
+	}
+	pools = countersBufferPoolNameByNamespace[ns]
+	if _, ok := pools["ingress_lossless_pool"]; ok {
+		t.Errorf("deleted pool still present after refresh: %#v", pools)
+	}
+
+	paths := []string{"COUNTERS_DB", "BUFFER_POOL_WATERMARKS", "ingress_lossless_pool"}
+	_, err := v2rBufferPoolWatermarks(paths)
+	if err == nil {
+		t.Fatal("expected error resolving deleted pool name")
+	}
+}

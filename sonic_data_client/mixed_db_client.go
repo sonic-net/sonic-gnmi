@@ -797,6 +797,17 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 
 	tblPath.dbNamespace = c.dbkey.GetNetns()
 	tblPath.dbName = c.target
+
+	// Virtual-to-real path mapping for COUNTERS_DB datasets (e.g. BUFFER_POOL_WATERMARKS).
+	if tblPath.dbName == "COUNTERS_DB" && len(stringSlice) > 1 {
+		if v2rPaths, err := lookupV2R(stringSlice); err == nil {
+			for i := range v2rPaths {
+				v2rPaths[i].isVirtualPath = true
+			}
+			return v2rPaths, nil
+		}
+	}
+
 	tblPath.tableName = ""
 	if len(stringSlice) > 1 {
 		tblPath.tableName = stringSlice[1]
@@ -994,6 +1005,25 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 			return err
 		}
 
+		if len(fv) == 0 {
+			log.V(6).Infof("No data for dbkey %s, skipping", dbkey)
+			continue
+		}
+
+		if tblPath.jsonField != "" && tblPath.jsonTableKey != "" {
+			val, err := redisDb.HGet(context.Background(), dbkey, tblPath.field).Result()
+			if err != nil {
+				log.V(3).Infof("redis HGet failed for %v %v", tblPath, err)
+				continue
+			}
+			fieldFv := map[string]string{tblPath.jsonField: val}
+			err = c.makeJSON_redis(msi, &tblPath.jsonTableKey, op, fieldFv)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+
 		if tblPath.tableName == "" {
 			// Split dbkey string into two parts
 			// First part is table name and second part is key in table
@@ -1007,6 +1037,12 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 				(*msi)[tableName] = table_msi
 			}
 			err = c.makeJSON_redis(table_msi, &key, op, fv)
+			if err != nil {
+				log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
+				return err
+			}
+		} else if tblPath.jsonTableKey != "" {
+			err = c.makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
 			if err != nil {
 				log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
 				return err
@@ -1030,6 +1066,9 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 			var key string
 			// Split dbkey string into two parts and second part is key in table
 			keys := strings.SplitN(dbkey, tblPath.delimitor, 2)
+			if len(keys) < 2 {
+				return fmt.Errorf("dbkey: %s, failed split from delimitor %v", dbkey, tblPath.delimitor)
+			}
 			key = keys[1]
 			err = c.makeJSON_redis(msi, &key, op, fv)
 			if err != nil {

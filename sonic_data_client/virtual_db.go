@@ -385,10 +385,6 @@ func initCountersBufferPoolNameMap() error {
 	clearMappingsMu.Lock()
 	defer clearMappingsMu.Unlock()
 
-	value := os.Getenv("UNIT_TEST")
-	if len(countersBufferPoolNameByNamespace) > 0 && value != "1" {
-		return nil
-	}
 	dbName := "COUNTERS_DB"
 	redis_client_map, err := GetRedisClientsForDb(dbName)
 	if err != nil {
@@ -1387,6 +1383,7 @@ func ClearMappings() {
 	initAliasMapOnce = sync.Once{}
 	initCountersPfcwdNameMapOnce = sync.Once{}
 	initCountersFabricPortNameMapOnce = sync.Once{}
+	countersBufferPoolNameByNamespace = nil
 }
 
 func InitCountersPortNameMap() error       { return initCountersPortNameMap() }

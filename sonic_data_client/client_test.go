@@ -2110,6 +2110,101 @@ func TestMixedDbClientGet(t *testing.T) {
 	})
 }
 
+func TestMixedDbClientGetBufferPoolWatermarks(t *testing.T) {
+	sdcfg.Init()
+	mapkey := ":"
+	cleanup := setupMixedDbRedis(t, mapkey)
+	defer cleanup()
+	t.Setenv("UNIT_TEST", "1")
+
+	ns := ""
+	rclient := Target2RedisDb[ns]["COUNTERS_DB"]
+	oid := "oid:0x5000000000001"
+	rclient.HSet(context.Background(), "COUNTERS_BUFFER_POOL_NAME_MAP", "ingress_lossless_pool", oid)
+	rclient.HSet(context.Background(), "COUNTERS:"+oid, "SAI_BUFFER_POOL_STAT_WATERMARK_BYTES", "100")
+	defer func() {
+		rclient.Del(context.Background(), "COUNTERS_BUFFER_POOL_NAME_MAP")
+		rclient.Del(context.Background(), "COUNTERS:"+oid)
+		countersBufferPoolNameByNamespace = nil
+	}()
+
+	gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "BUFFER_POOL_WATERMARKS"}}}
+	c := MixedDbClient{
+		mapkey:   mapkey,
+		target:   "COUNTERS_DB",
+		encoding: gnmipb.Encoding_JSON_IETF,
+		paths:    []*gnmipb.Path{gnmiPath},
+	}
+	c.dbkey = swsscommon.NewSonicDBKey()
+	defer swsscommon.DeleteSonicDBKey(c.dbkey)
+
+	t.Run("GetDbtablePath_V2R", func(t *testing.T) {
+		tblPaths, err := c.getDbtablePath(gnmiPath, nil)
+		if err != nil {
+			t.Fatalf("getDbtablePath: %v", err)
+		}
+		if len(tblPaths) != 1 {
+			t.Fatalf("expected 1 table path, got %d", len(tblPaths))
+		}
+		tp := tblPaths[0]
+		if tp.tableName != "COUNTERS" || tp.tableKey != oid {
+			t.Fatalf("unexpected COUNTERS mapping: %+v", tp)
+		}
+		if tp.jsonTableKey != "ingress_lossless_pool" {
+			t.Errorf("jsonTableKey = %q, want ingress_lossless_pool", tp.jsonTableKey)
+		}
+		if !tp.isVirtualPath {
+			t.Error("expected isVirtualPath=true")
+		}
+	})
+
+	t.Run("Get_PoolNameKeyed", func(t *testing.T) {
+		c.paths = []*gnmipb.Path{gnmiPath}
+		values, err := c.Get(nil)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(values) != 1 {
+			t.Fatalf("expected 1 value, got %d", len(values))
+		}
+		jv := values[0].GetVal().GetJsonIetfVal()
+		var msi map[string]interface{}
+		if err := json.Unmarshal(jv, &msi); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		pool, ok := msi["ingress_lossless_pool"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected pool-name keyed output, got %v", msi)
+		}
+		if pool["SAI_BUFFER_POOL_STAT_WATERMARK_BYTES"] != "100" {
+			t.Errorf("watermark = %v, want 100", pool["SAI_BUFFER_POOL_STAT_WATERMARK_BYTES"])
+		}
+	})
+
+	t.Run("Get_SinglePool", func(t *testing.T) {
+		singlePath := &gnmipb.Path{Elem: []*gnmipb.PathElem{
+			{Name: "BUFFER_POOL_WATERMARKS"},
+			{Name: "ingress_lossless_pool"},
+		}}
+		c.paths = []*gnmipb.Path{singlePath}
+		values, err := c.Get(nil)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(values) != 1 {
+			t.Fatalf("expected 1 value, got %d", len(values))
+		}
+		jv := values[0].GetVal().GetJsonIetfVal()
+		var msi map[string]interface{}
+		if err := json.Unmarshal(jv, &msi); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if _, ok := msi["ingress_lossless_pool"]; !ok {
+			t.Fatalf("expected ingress_lossless_pool key, got %v", msi)
+		}
+	})
+}
+
 func setupMiniredisCountersDb(t *testing.T) (*miniredis.Miniredis, *redis.Client, func()) {
 	t.Helper()
 	mr := miniredis.RunT(t)
