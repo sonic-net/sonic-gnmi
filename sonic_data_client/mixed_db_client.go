@@ -635,13 +635,15 @@ func initRedisDbMap() {
 				return
 			}
 			// DB connector for direct redis operation
-			redisDb := redis.NewClient(&redis.Options{
+			opts := &redis.Options{
 				Network:     "unix",
 				Addr:        addr,
 				Password:    "", // no password set
 				DB:          int(dbn),
 				DialTimeout: 0,
-			})
+			}
+			sdcfg.ApplyRedisPoolSize(opts)
+			redisDb := redis.NewClient(opts)
 			RedisDbMap[ns+":"+container+":"+dbName] = redisDb
 		}
 	}
