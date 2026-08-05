@@ -20,6 +20,7 @@ import (
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/openconfig/ygot/ygot"
 	"github.com/redis/go-redis/v9"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -194,10 +195,12 @@ func (cs *clientSubscription) NewInstance(ctx context.Context) error {
 	var err error
 	if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(cs.paths, cs.prefix)
-	} else if target == "OC_YANG" {
-		dc, err = sdc.NewTranslClient(cs.prefix, cs.paths, ctx, nil, sdc.TranslWildcardOption{})
-	} else {
+	} else if _, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(cs.paths, cs.prefix)
+	} else {
+		rc, ctx := common_utils.GetContext(ctx)
+		rc.Auth.AuthEnabled = false
+		dc, err = sdc.NewTranslClient(cs.prefix, cs.paths, ctx, nil, sdc.TranslWildcardOption{})
 	}
 	if err != nil {
 		log.V(1).Infof("Connection to DB for %v failed: %v", *cs, err)
@@ -210,8 +213,9 @@ func (cs *clientSubscription) NewInstance(ctx context.Context) error {
 }
 
 // send runs until process Queue returns an error.
-func (cs *clientSubscription) send(stream spb.GNMIDialOut_PublishClient) error {
+func (cs *clientSubscription) send(stream spb.GNMIDialOut_PublishClient, dc sdc.Client) error {
 	for {
+		var val *sdc.Value
 		items, err := cs.q.Get(1)
 
 		if items == nil {
@@ -231,6 +235,7 @@ func (cs *clientSubscription) send(stream spb.GNMIDialOut_PublishClient) error {
 				cs.errors++
 				return err
 			}
+			val = &v
 		default:
 			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], cs)
 			cs.errors++
@@ -241,8 +246,11 @@ func (cs *clientSubscription) send(stream spb.GNMIDialOut_PublishClient) error {
 		if err != nil {
 			log.V(1).Infof("Client %s sending error:%v", cs, err)
 			cs.errors++
+			dc.FailedSend()
 			return err
 		}
+
+		dc.SentOne(val)
 		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", cs, cs.sendMsg, resp)
 	}
 }
@@ -387,10 +395,27 @@ restart: //Remote server might go down, in that case we restart with next destin
 	case Stream:
 		select {
 		default:
+			// Create a subscription list for stream mode
+			subscriptions := make([]*gpb.Subscription, len(cs.paths))
+			for i, path := range cs.paths {
+				subscriptions[i] = &gpb.Subscription{
+					Path:           path,
+					Mode:           gpb.SubscriptionMode_SAMPLE,
+					SampleInterval: uint64(cs.interval.Nanoseconds()),
+				}
+			}
+
+			subscriptionList := &gpb.SubscriptionList{
+				Prefix:       cs.prefix,
+				Subscription: subscriptions,
+				Encoding:     clientCfg.Encoding,
+				Mode:         gpb.SubscriptionList_STREAM,
+				UpdatesOnly:  false,
+			}
+
 			cs.w.Add(1)
-			go cs.dc.StreamRun(cs.q, cs.stop, &cs.w, nil)
-			time.Sleep(100 * time.Millisecond)
-			err = cs.send(pub)
+			go cs.dc.StreamRun(cs.q, cs.stop, &cs.w, subscriptionList)
+			err = cs.send(pub, cs.dc)
 			if err != nil {
 				log.V(1).Infof("Client %v pub Send error:%v, cs.conTryCnt %v", cs.name, err, cs.conTryCnt)
 			}
@@ -437,6 +462,24 @@ restart: //Remote server might go down, in that case we restart with next destin
 	rows TELEMETRY_CLIENT|DestinationGroup|<name> and TELEMETRY_CLIENT|Subscription|<name>.
 	Both spellings are accepted; see matchRowPrefix.
 */
+
+// resetTelemetryClientStateForTest closes running subscriptions and clears
+// in-memory telemetry client config. Used by integration tests between cases.
+func resetTelemetryClientStateForTest() {
+	configMu.Lock()
+	defer configMu.Unlock()
+	for _, cs := range ClientSubscriptionNameMap {
+		if cs != nil {
+			cs.Close()
+			if cs.cancel != nil {
+				cs.cancel()
+			}
+		}
+	}
+	ClientSubscriptionNameMap = make(map[string]*clientSubscription)
+	DestGrp2ClientSubMap = make(map[string][]string)
+	destGrpNameMap = make(map[string][]Destination)
+}
 
 // closeDestGroupClient close client instances for all clientSubscription using
 // this Destination Group
@@ -622,11 +665,30 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 					ps := strings.Split(value, ",")
 					newPaths := []*gpb.Path{}
 					for _, p := range ps {
-						pp, err := ygot.StringToPath(p, ygot.StructuredPath)
+						// Extract origin if present (format: "origin:path")
+						var origin string
+						pathStr := p
+						// Split on first colon to separate origin from path
+						parts := strings.SplitN(p, ":", 2)
+						if len(parts) == 2 {
+							if !strings.Contains(parts[0], "/") && !strings.Contains(parts[0], "[") {
+								origin = parts[0]
+								pathStr = parts[1]
+							}
+						}
+
+						// Parse the path (without origin prefix)
+						pp, err := ygot.StringToPath(pathStr, ygot.StructuredPath, ygot.StringSlicePath)
 						if err != nil {
 							log.V(2).Infof("Invalid paths %v", value)
 							return fmt.Errorf("Invalid paths %v", value)
 						}
+
+						// Set the origin
+						if origin != "" {
+							pp.Origin = origin
+						}
+
 						// append *gpb.Path
 						newPaths = append(newPaths, pp)
 					}
