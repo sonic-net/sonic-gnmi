@@ -25,7 +25,6 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 )
 
 type accessLogServerStream struct {
@@ -519,8 +518,7 @@ func TestDeriveRequestFields(t *testing.T) {
 	got := deriveRequestFields(ctx, &gnmipb.GetRequest{Path: []*gnmipb.Path{getPath}})
 	if got.peerType != "tcp" || got.address != "10.0.0.1:1234" ||
 		got.principal != "client-cn" || got.authType != "tls" ||
-		len(got.paths) != 1 || got.paths[0] == getPath ||
-		!proto.Equal(got.paths[0], getPath) {
+		!reflect.DeepEqual(got.paths, []string{"/get"}) {
 		t.Fatalf("deriveRequestFields() = %+v", got)
 	}
 
@@ -596,13 +594,9 @@ func TestRPCLoggerRedactsPathKeysWithoutMutatingRequest(t *testing.T) {
 			}
 			for i, loggedPath := range record.Path {
 				sourcePath := test.sourcePaths[i]
-				if loggedPath.GetOrigin() != "" ||
-					loggedPath.GetTarget() != "" ||
-					len(loggedPath.GetElement()) != 0 ||
-					len(loggedPath.GetElem()) != 1 ||
-					loggedPath.GetElem()[0].GetName() != sourcePath.GetElem()[0].GetName() ||
-					len(loggedPath.GetElem()[0].GetKey()) != 0 {
-					t.Fatalf("logged path[%d] = %v, want names-only path", i, loggedPath)
+				wantPath := "/" + sourcePath.GetElem()[0].GetName()
+				if loggedPath != wantPath {
+					t.Fatalf("logged path[%d] = %q, want %q", i, loggedPath, wantPath)
 				}
 				if got := sourcePath.GetElem()[0].GetKey()["name"]; got == "" {
 					t.Fatalf("source path[%d] key was mutated", i)
@@ -613,6 +607,29 @@ func TestRPCLoggerRedactsPathKeysWithoutMutatingRequest(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRequestPathsFormatsSONiCPath(t *testing.T) {
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{
+		{Name: "PORT"},
+		{Name: "Ethernet0"},
+		{Name: "admin_status"},
+	}}
+	if got := formatRequestPath(path); got != "/PORT/Ethernet0/admin_status" {
+		t.Fatalf("formatRequestPath() = %q, want /PORT/Ethernet0/admin_status", got)
+	}
+}
+
+func TestRequestPathsMarksInvalidPaths(t *testing.T) {
+	for _, path := range []*gnmipb.Path{
+		nil,
+		{Elem: []*gnmipb.PathElem{nil}},
+		{Elem: []*gnmipb.PathElem{{}}},
+	} {
+		if got := formatRequestPath(path); got != "<invalid>" {
+			t.Fatalf("formatRequestPath() = %q, want <invalid>", got)
+		}
 	}
 }
 

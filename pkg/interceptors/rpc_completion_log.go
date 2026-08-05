@@ -8,6 +8,7 @@ import (
 	"time"
 
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/openconfig/ygot/ygot"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -63,17 +64,17 @@ var rpcLogPolicies = map[string]rpcLogPolicy{
 }
 
 type rpcCompletionRecord struct {
-	Version    int            `json:"v"`
-	RPCType    string         `json:"type"`
-	Method     string         `json:"method"`
-	PeerType   string         `json:"peer_type"`
-	Peer       string         `json:"peer"`
-	Principal  string         `json:"principal"`
-	AuthType   string         `json:"auth_type"`
-	Path       []*gnmipb.Path `json:"path"`
-	Code       string         `json:"code"`
-	DurationMS int64          `json:"duration_ms"`
-	Suppressed *uint64        `json:"suppressed,omitempty"`
+	Version    int      `json:"v"`
+	RPCType    string   `json:"type"`
+	Method     string   `json:"method"`
+	PeerType   string   `json:"peer_type"`
+	Peer       string   `json:"peer"`
+	Principal  string   `json:"principal"`
+	AuthType   string   `json:"auth_type"`
+	Path       []string `json:"path"`
+	Code       string   `json:"code"`
+	DurationMS int64    `json:"duration_ms"`
+	Suppressed *uint64  `json:"suppressed,omitempty"`
 }
 
 type rpcCompletionSummary struct {
@@ -88,7 +89,7 @@ type requestFields struct {
 	address   string
 	principal string
 	authType  string
-	paths     []*gnmipb.Path
+	paths     []string
 }
 
 // rpcCompletionLogger owns the server RPC completion lifecycle and rate policy.
@@ -293,42 +294,45 @@ func peerAddress(requestPeer *peer.Peer) (string, string) {
 	return peerType, peerAddress
 }
 
-func requestPaths(req interface{}) []*gnmipb.Path {
-	paths := []*gnmipb.Path{}
+func requestPaths(req interface{}) []string {
+	paths := []string{}
 	switch request := req.(type) {
 	case *gnmipb.GetRequest:
 		for _, path := range request.GetPath() {
-			paths = append(paths, redactedPath(path))
+			paths = append(paths, formatRequestPath(path))
 		}
 	case *gnmipb.SetRequest:
 		for _, path := range request.GetDelete() {
-			paths = append(paths, redactedPath(path))
+			paths = append(paths, formatRequestPath(path))
 		}
 		for _, update := range request.GetReplace() {
-			paths = append(paths, redactedPath(update.GetPath()))
+			paths = append(paths, formatRequestPath(update.GetPath()))
 		}
 		for _, update := range request.GetUpdate() {
-			paths = append(paths, redactedPath(update.GetPath()))
+			paths = append(paths, formatRequestPath(update.GetPath()))
 		}
 	}
 	return paths
 }
 
-func redactedPath(path *gnmipb.Path) *gnmipb.Path {
+func formatRequestPath(path *gnmipb.Path) string {
 	if path == nil {
-		return nil
+		return "<invalid>"
 	}
 
-	redacted := &gnmipb.Path{
-		Elem: make([]*gnmipb.PathElem, 0, len(path.GetElem())),
-	}
+	schemaPath := &gnmipb.Path{Elem: make([]*gnmipb.PathElem, 0, len(path.GetElem()))}
 	for _, elem := range path.GetElem() {
 		if elem == nil {
-			continue
+			return "<invalid>"
 		}
-		redacted.Elem = append(redacted.Elem, &gnmipb.PathElem{Name: elem.GetName()})
+		schemaPath.Elem = append(schemaPath.Elem, &gnmipb.PathElem{Name: elem.GetName()})
 	}
-	return redacted
+
+	formatted, err := ygot.PathToSchemaPath(schemaPath)
+	if err != nil {
+		return "<invalid>"
+	}
+	return formatted
 }
 
 func presentedCertificateCommonName(requestPeer *peer.Peer) string {

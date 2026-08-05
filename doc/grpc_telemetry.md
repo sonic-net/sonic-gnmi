@@ -71,8 +71,8 @@ System telemetry in SONiC supports both dial-in mode and dial-out mode. The DB c
 
 # Get and Set audit records
 
-One outer gRPC completion interceptor emits one `RPC_COMPLETION` record for each
-allowed RPC. The unified record contains `v`, `type`, `method`, `peer_type`,
+One outer gRPC completion interceptor emits one version 2 `RPC_COMPLETION`
+record for each allowed RPC. The unified record contains `v`, `type`, `method`, `peer_type`,
 `peer`, `principal`, `auth_type`, `path`, `code`, `duration_ms`, and
 `suppressed`. `principal`, `auth_type`, and `path` use empty defaults.
 
@@ -83,11 +83,12 @@ authorization validation. After the deferred completion handler passes the
 rate limit, one `deriveRequestFields` wrapper performs the only peer-context
 existence check, then delegates address/type, presented CN, transport auth
 method, and redacted path-shape extraction. It is named for the request because
-paths are not peer data. Logged paths contain only element names; origin, target,
-`PathElem.Key` maps, and deprecated `Element` values are omitted. Request update
-values and responses are not included. Authenticated principal, the existing
-`TELEMETRY-*` request ID, and auth result are deferred until those values are
-available in the interceptor context.
+paths are not peer data. `ygot.PathToSchemaPath` formats each logged path as an
+absolute names-only string. Origin, target, `PathElem.Key` maps, and deprecated
+`Element` values are omitted. Request update values and responses are not
+included. Authenticated principal, the existing `TELEMETRY-*` request ID, and
+auth result are deferred until those values are available in the interceptor
+context.
 
 Other unary and streaming methods use the same record. Peer-derived
 `principal` and `auth_type` are populated when available; `path` remains empty
