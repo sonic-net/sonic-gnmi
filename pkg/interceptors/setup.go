@@ -3,7 +3,6 @@ package interceptors
 import (
 	log "github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
-	sharedlog "github.com/sonic-net/sonic-gnmi/pkg/logging"
 	"google.golang.org/grpc"
 )
 
@@ -29,7 +28,7 @@ func NewServerChain() (*ServerChain, error) {
 	dpuProxy := dpuproxy.NewDPUProxy(dpuResolver)
 	dpuproxy.SetDefaultProxy(dpuProxy)
 
-	sink := sharedlog.LineSink(func(line string) error {
+	sink := lineSink(func(line string) error {
 		log.Infof("%s", line)
 		return nil
 	})
