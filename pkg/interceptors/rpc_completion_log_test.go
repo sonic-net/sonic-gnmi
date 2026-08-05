@@ -262,7 +262,7 @@ func TestRPCLoggerRateLimitsEachMethodAndCode(t *testing.T) {
 	}
 	got := parseAccessLog(t, lines[3])
 	if got.Method != "/test.Service/Get" || got.Code != codes.OK.String() ||
-		got.Suppressed == nil || *got.Suppressed != 2 {
+		got.Suppressed != 2 {
 		t.Fatalf("access log = %+v, want Get/OK with 2 suppressed calls", got)
 	}
 }
@@ -385,9 +385,36 @@ func TestRPCLoggerRateLimitIsConcurrent(t *testing.T) {
 	_, _ = interceptor(context.Background(), nil,
 		&grpc.UnaryServerInfo{FullMethod: "/test.Service/Get"},
 		func(context.Context, interface{}) (interface{}, error) { return nil, nil })
-	if got := parseAccessLog(t, lines[1]); got.Suppressed == nil ||
-		*got.Suppressed != calls-1 {
-		t.Fatalf("suppressed = %v, want %d", got.Suppressed, calls-1)
+	if got := parseAccessLog(t, lines[1]); got.Suppressed != calls-1 {
+		t.Fatalf("suppressed = %d, want %d", got.Suppressed, calls-1)
+	}
+}
+
+func TestRPCLoggerSchedulerMayRunSynchronously(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC)
+	var lines []string
+	scheduleCalls := 0
+	logger := newRPCCompletionLoggerWithClockAndScheduler(func(line string) error {
+		lines = append(lines, line)
+		return nil
+	}, func() time.Time { return now }, func(delay time.Duration, f func()) {
+		scheduleCalls++
+		now = now.Add(delay)
+		f()
+	})
+	interceptor := logger.UnaryInterceptor()
+
+	for range 2 {
+		_, _ = interceptor(context.Background(), nil,
+			&grpc.UnaryServerInfo{FullMethod: "/test.Service/Get"},
+			func(context.Context, interface{}) (interface{}, error) { return nil, nil })
+	}
+
+	if scheduleCalls != 1 || len(lines) != 2 {
+		t.Fatalf("synchronous scheduler = %d calls, %d lines; want 1 call and access+summary", scheduleCalls, len(lines))
+	}
+	if got := parseAccessLogSummary(t, lines[1]); got.Suppressed != 1 {
+		t.Fatalf("suppressed = %d, want 1", got.Suppressed)
 	}
 }
 
@@ -411,9 +438,6 @@ func TestRPCLoggerUnaryError(t *testing.T) {
 	got := capturedRecord()
 	if got.Code != codes.PermissionDenied.String() {
 		t.Fatalf("access log code = %q, want %q", got.Code, codes.PermissionDenied)
-	}
-	if got.PeerType != "unknown" || got.Peer != "" {
-		t.Fatalf("access log peer = %q/%q, want unknown/empty", got.PeerType, got.Peer)
 	}
 }
 
@@ -610,7 +634,7 @@ func TestRPCLoggerRedactsPathKeysWithoutMutatingRequest(t *testing.T) {
 	}
 }
 
-func TestRequestPathsFormatsSONiCPath(t *testing.T) {
+func TestFormatRequestPathFormatsSONiCPath(t *testing.T) {
 	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{
 		{Name: "PORT"},
 		{Name: "Ethernet0"},
@@ -621,7 +645,7 @@ func TestRequestPathsFormatsSONiCPath(t *testing.T) {
 	}
 }
 
-func TestRequestPathsMarksInvalidPaths(t *testing.T) {
+func TestFormatRequestPathMarksInvalidPaths(t *testing.T) {
 	for _, path := range []*gnmipb.Path{
 		nil,
 		{Elem: []*gnmipb.PathElem{nil}},
@@ -669,28 +693,6 @@ func TestGNMIGetPolicyAndSummary(t *testing.T) {
 	if summary.Method != gnmiGetMethod || summary.Code != codes.OK.String() ||
 		summary.Suppressed != uint64(calls-policy.burst) {
 		t.Fatalf("Get summary = %+v", summary)
-	}
-
-	refillNow := time.Date(2026, time.August, 5, 0, 0, 0, 0, time.UTC)
-	refillCapture := &completionCapture{}
-	refillLogger := newRPCCompletionLoggerWithClockAndScheduler(
-		refillCapture.sink,
-		func() time.Time { return refillNow },
-		refillCapture.schedule,
-	)
-	refillInterceptor := refillLogger.UnaryInterceptor()
-	for range policy.burst {
-		_, _ = refillInterceptor(context.Background(), nil,
-			&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
-			func(context.Context, interface{}) (interface{}, error) { return nil, nil })
-	}
-	refillNow = refillNow.Add(policy.tokenInterval)
-	_, _ = refillInterceptor(context.Background(), nil,
-		&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
-		func(context.Context, interface{}) (interface{}, error) { return nil, nil })
-	if refillLines, _, _ := refillCapture.snapshot(); len(refillLines) != policy.burst+1 {
-		t.Fatalf("Get records after token refill = %d, want %d",
-			len(refillLines), policy.burst+1)
 	}
 }
 

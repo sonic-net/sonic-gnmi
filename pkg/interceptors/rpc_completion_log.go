@@ -74,7 +74,7 @@ type rpcCompletionRecord struct {
 	Path       []string `json:"path"`
 	Code       string   `json:"code"`
 	DurationMS int64    `json:"duration_ms"`
-	Suppressed *uint64  `json:"suppressed,omitempty"`
+	Suppressed uint64   `json:"suppressed"`
 }
 
 type rpcCompletionSummary struct {
@@ -169,7 +169,7 @@ func (l *rpcCompletionLogger) log(
 		Path:       fields.paths,
 		Code:       code.String(),
 		DurationMS: finished.Sub(started).Milliseconds(),
-		Suppressed: &suppressed,
+		Suppressed: suppressed,
 	}
 
 	if data, err := json.Marshal(record); err == nil {
@@ -187,8 +187,6 @@ func (l *rpcCompletionLogger) allow(method string, code codes.Code, now time.Tim
 	}
 
 	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	key := rpcLogKey{method: method, code: code}
 	limit, ok := l.limits[key]
 	if !ok {
@@ -199,19 +197,28 @@ func (l *rpcCompletionLogger) allow(method string, code codes.Code, now time.Tim
 	}
 	if !limit.limiter.AllowN(now, 1) {
 		limit.suppressed++
-		l.scheduleSummary(key, limit)
+		shouldSchedule := markSummaryScheduled(limit)
+		l.mu.Unlock()
+		if shouldSchedule {
+			l.scheduleSummary(key)
+		}
 		return 0, false
 	}
 	suppressed := limit.suppressed
 	limit.suppressed = 0
+	l.mu.Unlock()
 	return suppressed, true
 }
 
-func (l *rpcCompletionLogger) scheduleSummary(key rpcLogKey, limit *rpcLogLimit) {
+func markSummaryScheduled(limit *rpcLogLimit) bool {
 	if limit.scheduled {
-		return
+		return false
 	}
 	limit.scheduled = true
+	return true
+}
+
+func (l *rpcCompletionLogger) scheduleSummary(key rpcLogKey) {
 	l.schedule(rpcLogPolicyForMethod(key.method).summaryInterval, func() { l.writeSummary(key) })
 }
 
@@ -231,8 +238,11 @@ func (l *rpcCompletionLogger) writeSummary(key rpcLogKey) {
 		return
 	}
 	if !limit.limiter.AllowN(l.now(), 1) {
-		l.scheduleSummary(key, limit)
+		shouldSchedule := markSummaryScheduled(limit)
 		l.mu.Unlock()
+		if shouldSchedule {
+			l.scheduleSummary(key)
+		}
 		return
 	}
 	suppressed := limit.suppressed
