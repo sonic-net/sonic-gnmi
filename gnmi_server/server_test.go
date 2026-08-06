@@ -7583,3 +7583,473 @@ func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
 		t.Error("Serve() did not return after Stop()")
 	}
 }
+
+func TestGnmiGetOpenconfigInterfacesAttributes(t *testing.T) {
+	// 1. Start gNMI server on a free port
+	s := createServer(t, 8085)
+	go runServer(t, s)
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+
+	// Connect to required Redis DBs (APPL_DB = 0, COUNTERS_DB = 2, CONFIG_DB = 4, STATE_DB = 6)
+	applClient := getRedisClientN(t, 0, ns) // APPL_DB (0)
+	defer applClient.Close()
+
+	countersClient := getRedisClientN(t, 2, ns) // COUNTERS_DB (2)
+	defer countersClient.Close()
+
+	configClient := getRedisClientN(t, 4, ns) // CONFIG_DB (4)
+	defer configClient.Close()
+
+	stateClient := getRedisClientN(t, 6, ns) // STATE_DB (6)
+	defer stateClient.Close()
+
+	// 2. Prepare Mock Data in Redis
+
+	// --- CONFIG_DB Data ---
+	configClient.HSet(ctx, "PORT|Ethernet999", map[string]interface{}{
+		"admin_status": "up",
+		"mtu":          "9000",
+		"description":  "UT_Ethernet999_Interface",
+		"mac-address":  "00:11:22:33:44:55",
+	})
+
+	configClient.HSet(ctx, "PORT|Ethernet998", map[string]interface{}{
+		"admin_status": "up",
+		"mtu":          "1500",
+		"description":  "UT_Ethernet998_Interface",
+	})
+
+	configClient.HSet(ctx, "PORT|Ethernet997", map[string]interface{}{
+		"admin_status": "up",
+	})
+
+	configClient.HSet(ctx, "PORTCHANNEL|PortChannel999", map[string]interface{}{
+		"admin_status": "up",
+		"mtu":          "9000",
+	})
+
+	configClient.HSet(ctx, "CPU_PORT|CPU", map[string]interface{}{
+		"admin_status": "up",
+	})
+
+	configClient.HSet(ctx, "DEVICE_METADATA|localhost", map[string]interface{}{
+		"mac": "AA:BB:CC:DD:EE:FF",
+	})
+
+	configClient.HSet(ctx, "P4RT_PORT_ID_TABLE|Ethernet999", map[string]interface{}{
+		"id": "100999",
+	})
+
+	// --- APPL_DB Data ---
+	// Ethernet999: UP status
+	applClient.HSet(ctx, "PORT_TABLE:Ethernet999", map[string]interface{}{
+		"admin_status": "up",
+		"oper_status":  "up",
+		"mtu":          "9000",
+		"description":  "UT_Ethernet999_Interface",
+		"mac-address":  "00:11:22:33:44:55",
+	})
+
+	// Ethernet998: DOWN status
+	applClient.HSet(ctx, "PORT_TABLE:Ethernet998", map[string]interface{}{
+		"admin_status": "up",
+		"oper_status":  "down",
+		"mtu":          "1500",
+		"description":  "UT_Ethernet998_Interface",
+	})
+
+	// Ethernet997: UNKNOWN status branch
+	applClient.HSet(ctx, "PORT_TABLE:Ethernet997", map[string]interface{}{
+		"admin_status": "up",
+		"oper_status":  "invalid_status",
+	})
+
+	applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet999", map[string]interface{}{
+		"id": "100999",
+	})
+
+	// --- STATE_DB & COUNTERS_DB Data ---
+	stateClient.HSet(ctx, "LAG_MEMBER_TABLE|PortChannel999|Ethernet998", map[string]interface{}{"status": "up"})
+	stateClient.HSet(ctx, "LAG_MEMBER_TABLE|PortChannel999|Ethernet999", map[string]interface{}{"status": "up"})
+
+	countersClient.HSet(ctx, "COUNTERS_PORT_NAME_MAP", "Ethernet998", "oid:0x1000000000001")
+	countersClient.HSet(ctx, "COUNTERS_PORT_NAME_MAP", "Ethernet999", "oid:0x1000000000002")
+
+	countersEth998 := map[string]interface{}{
+		"SAI_PORT_STAT_IP_IN_RECEIVES":          "100",
+		"SAI_PORT_STAT_IP_OUT_UCAST_PKTS":       "150",
+		"SAI_PORT_STAT_IP_OUT_NON_UCAST_PKTS":   "50",
+		"SAI_PORT_STAT_IPV6_IN_RECEIVES":        "200",
+		"SAI_PORT_STAT_IPV6_OUT_UCAST_PKTS":     "250",
+		"SAI_PORT_STAT_IPV6_OUT_NON_UCAST_PKTS": "50",
+		"SAI_PORT_STAT_IPV6_IN_DISCARDS":        "10",
+		"SAI_PORT_STAT_IPV6_OUT_DISCARDS":       "20",
+	}
+	countersEth999 := map[string]interface{}{
+		"SAI_PORT_STAT_IP_IN_RECEIVES":          "300",
+		"SAI_PORT_STAT_IP_OUT_UCAST_PKTS":       "350",
+		"SAI_PORT_STAT_IP_OUT_NON_UCAST_PKTS":   "50",
+		"SAI_PORT_STAT_IPV6_IN_RECEIVES":        "400",
+		"SAI_PORT_STAT_IPV6_OUT_UCAST_PKTS":     "450",
+		"SAI_PORT_STAT_IPV6_OUT_NON_UCAST_PKTS": "50",
+		"SAI_PORT_STAT_IPV6_IN_DISCARDS":        "30",
+		"SAI_PORT_STAT_IPV6_OUT_DISCARDS":       "40",
+	}
+	countersClient.HSet(ctx, "COUNTERS:oid:0x1000000000001", countersEth998)
+	countersClient.HSet(ctx, "COUNTERS:oid:0x1000000000002", countersEth999)
+
+	// Clean up seeded keys after test completion
+	defer func() {
+		applClient.Del(ctx, "PORT_TABLE:Ethernet999", "PORT_TABLE:Ethernet998", "PORT_TABLE:Ethernet997", "P4RT_PORT_ID_TABLE:Ethernet999")
+		configClient.Del(ctx, "PORT|Ethernet999", "PORT|Ethernet998", "PORT|Ethernet997", "PORTCHANNEL|PortChannel999", "CPU_PORT|CPU", "DEVICE_METADATA|localhost", "P4RT_PORT_ID_TABLE|Ethernet999")
+		stateClient.Del(ctx, "LAG_MEMBER_TABLE|PortChannel999|Ethernet998", "LAG_MEMBER_TABLE|PortChannel999|Ethernet999")
+		countersClient.Del(ctx, "COUNTERS:oid:0x1000000000001", "COUNTERS:oid:0x1000000000002")
+		countersClient.HDel(ctx, "COUNTERS_PORT_NAME_MAP", "Ethernet998", "Ethernet999")
+	}()
+
+	// 3. Setup gNMI Client Connection
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	targetAddr := "127.0.0.1:8085"
+	conn, err := grpc.Dial(targetAddr, dialOpts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	// 4. Define GET Test Scenarios
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		timeout     time.Duration
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		// --- Oper Status Transformer Branches ---
+		{
+			desc:       "Get Oper Status (UP)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"Ethernet999" > >
+				elem: <name: "state" >
+				elem: <name: "oper-status" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Oper Status (DOWN)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"Ethernet998" > >
+				elem: <name: "state" >
+				elem: <name: "oper-status" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Oper Status (UNKNOWN)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"Ethernet997" > >
+				elem: <name: "state" >
+				elem: <name: "oper-status" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Oper Status on CPU interface (Always UP)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"CPU" > >
+				elem: <name: "state" >
+				elem: <name: "oper-status" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+
+		// --- Enabled Transformer ---
+		{
+			desc:       "Get Config Enabled",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"Ethernet999" > >
+				elem: <name: "config" >
+				elem: <name: "enabled" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+
+		// --- MTU Transformer ---
+		{
+			desc:       "Get State MTU",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"Ethernet999" > >
+				elem: <name: "state" >
+				elem: <name: "mtu" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+
+		// --- Description Transformer ---
+		{
+			desc:       "Get State Description",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"Ethernet999" > >
+				elem: <name: "state" >
+				elem: <name: "description" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+
+		// --- MAC Address Transformer ---
+		{
+			desc:       "Get Ethernet MAC Address (Explicit Value)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"Ethernet999" > >
+				elem: <name: "openconfig-if-ethernet:ethernet" >
+				elem: <name: "state" >
+				elem: <name: "mac-address" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Ethernet MAC Address (Fallback to DEVICE_METADATA)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"Ethernet998" > >
+				elem: <name: "openconfig-if-ethernet:ethernet" >
+				elem: <name: "state" >
+				elem: <name: "mac-address" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+
+		// --- CPU & Management Interface Transformers ---
+		{
+			desc:       "Get CPU Leaf for CPU interface",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"CPU" > >
+				elem: <name: "state" >
+				elem: <name: "cpu" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Management Leaf for CPU interface",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"CPU" > >
+				elem: <name: "state" >
+				elem: <name: "management" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+
+		// --- PINS Ifindex Transformer ---
+		{
+			desc:       "Get State Ifindex",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"Ethernet999" > >
+				elem: <name: "state" >
+				elem: <name: "ifindex" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+
+		// --- Subinterface IPv4 / IPv6 Counters Transformers ---
+		{
+			desc:       "Get Subinterface IPv4 State Counters (PortChannel Aggregate)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"PortChannel999" > >
+				elem: <name: "subinterfaces" >
+				elem: <name: "subinterface" key:<key:"index" value:"0" > >
+				elem: <name: "openconfig-if-ip:ipv4" >
+				elem: <name: "state" >
+				elem: <name: "counters" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Subinterface IPv6 State Counters (PortChannel Aggregate)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"PortChannel999" > >
+				elem: <name: "subinterfaces" >
+				elem: <name: "subinterface" key:<key:"index" value:"0" > >
+				elem: <name: "openconfig-if-ip:ipv6" >
+				elem: <name: "state" >
+				elem: <name: "counters" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+
+		// --- Subinterface IPv4 Leaf-Level Counter Paths ---
+		{
+			desc:       "Get Subinterface IPv4 in-pkts Counter",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"PortChannel999" > >
+				elem: <name: "subinterfaces" >
+				elem: <name: "subinterface" key:<key:"index" value:"0" > >
+				elem: <name: "openconfig-if-ip:ipv4" >
+				elem: <name: "state" >
+				elem: <name: "counters" >
+				elem: <name: "in-pkts" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Subinterface IPv4 out-pkts Counter",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"PortChannel999" > >
+				elem: <name: "subinterfaces" >
+				elem: <name: "subinterface" key:<key:"index" value:"0" > >
+				elem: <name: "openconfig-if-ip:ipv4" >
+				elem: <name: "state" >
+				elem: <name: "counters" >
+				elem: <name: "out-pkts" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+
+		// --- Subinterface IPv6 Leaf-Level Counter Paths ---
+		{
+			desc:       "Get Subinterface IPv6 in-pkts Counter",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"PortChannel999" > >
+				elem: <name: "subinterfaces" >
+				elem: <name: "subinterface" key:<key:"index" value:"0" > >
+				elem: <name: "openconfig-if-ip:ipv6" >
+				elem: <name: "state" >
+				elem: <name: "counters" >
+				elem: <name: "in-pkts" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Subinterface IPv6 out-pkts Counter",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"PortChannel999" > >
+				elem: <name: "subinterfaces" >
+				elem: <name: "subinterface" key:<key:"index" value:"0" > >
+				elem: <name: "openconfig-if-ip:ipv6" >
+				elem: <name: "state" >
+				elem: <name: "counters" >
+				elem: <name: "out-pkts" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Subinterface IPv6 in-discarded-pkts Counter",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"PortChannel999" > >
+				elem: <name: "subinterfaces" >
+				elem: <name: "subinterface" key:<key:"index" value:"0" > >
+				elem: <name: "openconfig-if-ip:ipv6" >
+				elem: <name: "state" >
+				elem: <name: "counters" >
+				elem: <name: "in-discarded-pkts" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Subinterface IPv6 out-discarded-pkts Counter",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"PortChannel999" > >
+				elem: <name: "subinterfaces" >
+				elem: <name: "subinterface" key:<key:"index" value:"0" > >
+				elem: <name: "openconfig-if-ip:ipv6" >
+				elem: <name: "state" >
+				elem: <name: "counters" >
+				elem: <name: "out-discarded-pkts" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+
+		// --- Error Path Tests ---
+		{
+			desc:       "Get Ethernet Counters on CPU interface (Returns OK with empty payload)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces" >
+				elem: <name: "interface" key:<key:"name" value:"CPU" > >
+				elem: <name: "openconfig-if-ethernet:ethernet" >
+				elem: <name: "state" >
+				elem: <name: "counters" >
+			`,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+	}
+
+	// 5. Run GET Test Cases
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			if td.timeout == 0 {
+				td.timeout = 10 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), td.timeout)
+			defer cancel()
+
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+	s.Stop()
+}
