@@ -7583,3 +7583,170 @@ func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
 		t.Error("Serve() did not return after Stop()")
 	}
 }
+
+func runTestSubscribe(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathStr string) {
+	sPath, err := ygot.StringToStructuredPath(pathStr)
+	if err != nil {
+		t.Fatalf("String to path failed: %v", err)
+	}
+
+	// 2. Create the Subscribe Request with Wildcard Path
+	req := &pb.SubscribeRequest{
+		Request: &pb.SubscribeRequest_Subscribe{
+			Subscribe: &pb.SubscriptionList{
+				Prefix:   &pb.Path{Origin: "openconfig", Target: "YANG"},
+				Mode:     pb.SubscriptionList_ONCE,
+				Encoding: pb.Encoding_JSON_IETF,
+				Subscription: []*pb.Subscription{
+					{Path: sPath},
+				},
+			},
+		},
+	}
+	stream, err := gClient.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Failed to open stream: %v", err)
+	}
+	if err := stream.Send(req); err != nil {
+		t.Fatalf("Failed to send req: %v", err)
+	}
+	foundInterfaces := make(map[string]bool)
+
+	// 3. Receive and Parse Loop
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			break // Server closed connection after ONCE
+		}
+
+		if resp.GetSyncResponse() {
+			t.Log("Received SyncResponse. Wildcard expansion successful.")
+			break
+		}
+
+		notification := resp.GetUpdate()
+		if notification == nil {
+			continue
+		}
+
+		// Explicitly assign prefixElems
+		prefixElems := notification.GetPrefix().GetElem()
+
+		// Dynamically search prefixElems for the "name" key
+		intfName := ""
+		for _, elem := range prefixElems {
+			if val, ok := elem.GetKey()["name"]; ok && val != "" {
+				intfName = val
+				break
+			}
+		}
+
+		// Fallback: search in update path elements if prefix has no key
+		if intfName == "" {
+			for _, upd := range notification.GetUpdate() {
+				for _, elem := range upd.GetPath().GetElem() {
+					if val, ok := elem.GetKey()["name"]; ok && val != "" {
+						intfName = val
+						break
+					}
+				}
+				if intfName != "" {
+					break
+				}
+			}
+		}
+
+		if intfName == "" {
+			continue
+		}
+		// Record unique interface/component instance
+		if !foundInterfaces[intfName] {
+			foundInterfaces[intfName] = true
+			t.Logf("WILDCARD SUCCESS: Validated interface instance: %s", intfName)
+		}
+
+		for _, upd := range notification.GetUpdate() {
+			t.Logf("  -> Leaf %s | Value: %v", upd.GetPath().String(), upd.GetVal())
+		}
+	}
+
+	if len(foundInterfaces) == 0 {
+		t.Fatalf("No interfaces returned data for wildcard path: %s", pathStr)
+	}
+
+	t.Logf("TOTAL: Successfully verified %d unique interfaces for %s", len(foundInterfaces), pathStr)
+}
+
+func TestGnmiSubscribeTranslibXfmrIC(t *testing.T) {
+	// Create server on a unique port
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+
+	// Seed multiple instances to verify wildcard expansion across entries
+	icInstances := []string{"integrated_circuit67", "integrated_circuit68"}
+
+	for _, icName := range icInstances {
+		listFields := map[string]interface{}{
+			"name":        icName,
+			"node-id":     "1",
+			"node_id":     "1",
+			"type":        "INTEGRATED_CIRCUIT",
+			"oper-status": "ACTIVE",
+			"parent":      "chassis",
+			"description": "Integrated Circuit " + icName,
+		}
+		// Connect to STATE_DB (DB 6)
+		stateClient := getRedisClientN(t, 6, ns)
+
+		// Seed STATE_DB tables with pipe '|' and colon ':' key formats
+		stateClient.HSet(ctx, "NODE_INFO|"+icName, listFields)
+		stateClient.HSet(ctx, "COMPONENT|"+icName, listFields)
+		stateClient.HSet(ctx, "NODE_INFO:"+icName, listFields)
+		stateClient.HSet(ctx, "COMPONENT:"+icName, listFields)
+
+		stateClient.Close()
+
+	}
+
+	// gNMI Client connection
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	tds := []struct {
+		desc    string
+		pathStr string
+	}{
+		{
+			desc:    "Get all IC State (Wildcard expansion check)",
+			pathStr: "/openconfig-platform:components/component[name=*]/integrated-circuit/state",
+		},
+		{
+			desc:    "Get all IC (Wildcard expansion check)",
+			pathStr: "/openconfig-platform:components/component[name=*]/",
+		},
+		{
+			desc:    "Get all All State (Wildcard expansion check)",
+			pathStr: "/openconfig-platform:components/component[name=*]/state",
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			runTestSubscribe(t, ctx, gClient, td.pathStr)
+		})
+	}
+}
