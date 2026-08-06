@@ -486,6 +486,424 @@ func TestGnmiGetInterfaceCountersVPath(t *testing.T) {
 	}
 }
 
+func TestGnmiGetSoftwareComponents(t *testing.T) {
+	// 1. Start gNMI server
+	s := createServer(t, 8081)
+	go runServer(t, s)
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+
+	// Use StateDB (DB No 6 in SONiC)
+	stateClient := getRedisClientN(t, 6, ns)
+	defer stateClient.Close()
+
+	// CONFIG_DB (DB 4)
+	configClient := getRedisClientN(t, 4, ns)
+	defer configClient.Close()
+
+	// 2. Prepare Mock Data in Redis (SW_COMP_INFO Table)
+	// Mock an Operating System entry
+	osFields := map[string]interface{}{
+		"name":             "os0",
+		"software-version": "20240531.42",
+		"oper-status":      "active",
+		"type":             "OPERATING_SYSTEM",
+		"parent":           "chassis",
+	}
+	stateClient.HSet(ctx, "SW_COMP_INFO|os0", osFields)
+	configClient.HSet(ctx, "SW_COMP_INFO|os0", osFields)
+
+	// Mock OS entry with invalid oper-status
+	osBadOperFields := map[string]interface{}{
+		"name":        "os_bad_oper0",
+		"type":        "OPERATING_SYSTEM",
+		"oper-status": "invalid_oper_value",
+	}
+	stateClient.HSet(ctx, "SW_COMP_INFO|os_bad_oper0", osBadOperFields)
+	configClient.HSet(ctx, "SW_COMP_INFO|os_bad_oper0", osBadOperFields)
+
+	// Mock OS entry with missing software-version to trigger error path
+	osNoVerFields := map[string]interface{}{
+		"name": "os1",
+		"type": "OPERATING_SYSTEM",
+	}
+	stateClient.HSet(ctx, "SW_COMP_INFO|os1", osNoVerFields)
+	configClient.HSet(ctx, "SW_COMP_INFO|os1", osNoVerFields)
+
+	// Mock Boot Loader entry
+	bootFields := map[string]interface{}{
+		"name":             "boot_loader0",
+		"software-version": "2.06",
+		"module-type":      "BOOT_LOADER",
+		"type":             "SOFTWARE_MODULE",
+		"oper-status":      "active",
+	}
+	stateClient.HSet(ctx, "SW_COMP_INFO|boot_loader0", bootFields)
+	configClient.HSet(ctx, "SW_COMP_INFO|boot_loader0", bootFields)
+
+	// Mock BIOS entry
+	biosFields := map[string]interface{}{
+		"name":             "bios0",
+		"software-version": "1.0.0",
+		"type":             "BIOS",
+	}
+	stateClient.HSet(ctx, "SW_COMP_INFO|bios0", biosFields)
+	configClient.HSet(ctx, "SW_COMP_INFO|bios0", biosFields)
+
+	// Mock Network Stack (Software Module) entry
+	swModFields := map[string]interface{}{
+		"name":        "network_stack0",
+		"type":        "SOFTWARE_MODULE",
+		"module-type": "USERSPACE_PACKAGE_BUNDLE",
+		"oper-status": "active",
+	}
+	stateClient.HSet(ctx, "SW_COMP_INFO|network_stack0", swModFields)
+	configClient.HSet(ctx, "SW_COMP_INFO|network_stack0", swModFields)
+
+	// 3. Setup gNMI Client
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	// 4. Define Test Scenarios
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		timeout     time.Duration
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		// --- Container / Subtree Queries (AllPaths and StatePaths) ---
+		{
+			desc:       "Get OS Full Component Subtree (AllPaths)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os0" > >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OS State Container (StatePaths)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os0" > >
+                elem: <name: "state" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get BootLoader Full Subtree",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"boot_loader0" > >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get BIOS State Container",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"bios0" > >
+                elem: <name: "state" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Network Stack Full Subtree",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"network_stack0" > >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		// --- Individual Singular State Leaves---
+		{
+			desc:       "Get OS Component State Name",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os0" > >
+                elem: <name: "state" >
+                elem: <name: "name" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OS Component Type",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                                elem: <name: "openconfig-platform:components" >
+                                elem: <name: "component" key:<key:"name" value:"os0" > >
+                                elem: <name: "state" >
+                                elem: <name: "type" >
+                        `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OS Component State (Software Version)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                                elem: <name: "openconfig-platform:components" >
+                                elem: <name: "component" key:<key:"name" value:"os0" > >
+                                elem: <name: "state" >
+                                elem: <name: "software-version" >
+                        `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OS Component State Parent",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os0" > >
+                elem: <name: "state" >
+                elem: <name: "parent" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OS Component State Oper Status",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os0" > >
+                elem: <name: "state" >
+                elem: <name: "oper-status" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Bootloader Software Version",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                                elem: <name: "openconfig-platform:components" >
+                                elem: <name: "component" key:<key:"name" value:"boot_loader0" > >
+                                elem: <name: "state" >
+                                elem: <name: "software-version" >
+                        `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Bootloader component name",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                                elem: <name: "openconfig-platform:components" >
+                                elem: <name: "component" key:<key:"name" value:"boot_loader0" > >
+                                elem: <name: "state" >
+                                elem: <name: "name" >
+                        `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Bootloader Specific Type",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                                elem: <name: "openconfig-platform:components" >
+                                elem: <name: "component" key:<key:"name" value:"boot_loader0" > >
+                                elem: <name: "state" >
+                                elem: <name: "type" >
+                        `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Software Module (Network Stack) Type",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                                elem: <name: "openconfig-platform:components" >
+                                elem: <name: "component" key:<key:"name" value:"network_stack0" > >
+                                elem: <name: "software-module" >
+                                elem: <name: "state" >
+                                elem: <name: "module-type" >
+                        `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Software Module Oper Status",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                                elem: <name: "openconfig-platform:components" >
+                                elem: <name: "component" key:<key:"name" value:"network_stack0" > >
+                                elem: <name: "state" >
+                                elem: <name: "oper-status" >
+                        `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Network Stack Component State Type",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"network_stack0" > >
+                elem: <name: "state" >
+                elem: <name: "type" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get BIOS Component State Type",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"bios0" > >
+                elem: <name: "state" >
+                elem: <name: "type" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Software Module Container Path (COMP_SW_MOD)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"network_stack0" > >
+                elem: <name: "software-module" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Software Module State Container Path (COMP_SW_MOD_ST)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"network_stack0" > >
+                elem: <name: "software-module" >
+                elem: <name: "state" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		// --- Error Paths / Invalid Requests ---
+		{
+			desc:       "Get OS Component Software Version when missing in DB (Expect Error)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os1" > >
+                elem: <name: "state" >
+                elem: <name: "software-version" >
+`,
+			wantRetCode: codes.NotFound,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Non-Existent SW Component (Unknown Component Name)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os_non_existent" > >
+                elem: <name: "state" >
+            `,
+			wantRetCode: codes.NotFound,
+			valTest:     false,
+		},
+		{
+			desc:       "Trigger getCompTypeByName for OS pattern (not in DB)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os0_no_db" > >
+                elem: <name: "state" >
+            `,
+			wantRetCode: codes.NotFound,
+			valTest:     false,
+		},
+		{
+			desc:       "Trigger getCompTypeByName for Network Stack pattern (not in DB)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"network_stack1_no_db" > >
+                elem: <name: "state" >
+            `,
+			wantRetCode: codes.NotFound,
+			valTest:     false,
+		},
+		{
+			desc:       "Trigger getCompTypeByName for BootLoader pattern (not in DB)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"boot_loader_no_db" > >
+                elem: <name: "state" >
+            `,
+			wantRetCode: codes.NotFound,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Oper Status on OS with invalid status string in DB (Triggers invalid field value error)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os_bad_oper0" > >
+                elem: <name: "state" >
+                elem: <name: "oper-status" >
+            `,
+			wantRetCode: codes.NotFound,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Module Type on OS Component (Triggers cType != CompTypeNWStack error)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os0" > >
+                elem: <name: "software-module" >
+                elem: <name: "state" >
+                elem: <name: "module-type" >
+            `,
+			wantRetCode: codes.NotFound,
+			valTest:     false,
+		},
+	}
+
+	// 5. Run Tests
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			if td.timeout == 0 {
+				td.timeout = 10 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), td.timeout)
+			defer cancel()
+
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+	s.Stop()
+}
+
 // runTestGet requests a path from the server by Get grpc call, and compares if
 // the return code and response value are expected.
 func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTarget string,
