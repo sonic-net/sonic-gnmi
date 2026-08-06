@@ -30,9 +30,9 @@ require (
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/redis/go-redis/v9 v9.14.1
 	github.com/stretchr/testify v1.9.0
-	golang.org/x/crypto v0.36.0
-	golang.org/x/net v0.38.0
-	google.golang.org/grpc v1.69.2
+	golang.org/x/crypto v0.52.0
+	golang.org/x/net v0.55.0
+	google.golang.org/grpc v1.82.1
 	google.golang.org/grpc/security/advancedtls v1.0.0
 	google.golang.org/protobuf v1.36.6
 	gopkg.in/yaml.v2 v2.3.0
@@ -42,9 +42,9 @@ require (
 )
 
 require (
-	github.com/antchfx/jsonquery v1.1.4 // indirect
-	github.com/antchfx/xmlquery v1.3.1 // indirect
-	github.com/antchfx/xpath v1.1.10 // indirect
+	github.com/antchfx/jsonquery v1.3.7 // indirect
+	github.com/antchfx/xmlquery v1.5.1 // indirect
+	github.com/antchfx/xpath v1.3.6 // indirect
 	github.com/bgentry/speakeasy v0.1.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -65,7 +65,7 @@ require (
 	golang.org/x/sync v0.14.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/term v0.32.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240318140521-94a12d6c2237 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250106144421-5f5ef82da422 // indirect
 	inet.af/netaddr v0.0.0-20230525184311-b8eac61e914a // indirect
@@ -76,8 +76,8 @@ replace (
 	// Glog patch needs to be updated to remove this.
 	github.com/golang/glog => github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/openconfig/gnmi => github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
-	golang.org/x/crypto => golang.org/x/crypto v0.24.0
+	golang.org/x/crypto => golang.org/x/crypto v0.52.0
 	golang.org/x/sys => golang.org/x/sys v0.26.0
-	google.golang.org/grpc => google.golang.org/grpc v1.64.1
+	google.golang.org/grpc => google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf => google.golang.org/protobuf v1.34.1
 )
