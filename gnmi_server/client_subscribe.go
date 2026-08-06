@@ -254,7 +254,10 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 	c.Close()
 	// Wait until all child go routines exited
 	c.w.Wait()
-	return grpc.Errorf(codes.InvalidArgument, "%s", err)
+	if err != nil {
+		return grpc.Errorf(codes.InvalidArgument, "%s", err)
+	}
+	return nil
 }
 
 // Closing of client queue is triggered upon end of stream receive or stream error
@@ -361,5 +364,13 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 
 		dc.SentOne(val)
 		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
+
+		// gNMI spec §3.5.1.5.1: after sending sync_response for a ONCE
+		// subscription the server MUST close the RPC.  Without this return
+		// the send loop blocks on the next queue.Get() forever because
+		// OnceRun has already exited and no further items will be enqueued.
+		if resp.GetSyncResponse() && c.subscribe.GetMode() == gnmipb.SubscriptionList_ONCE {
+			return nil
+		}
 	}
 }
