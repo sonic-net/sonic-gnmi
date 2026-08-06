@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -7581,5 +7582,220 @@ func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
 		// Serve returned after Stop — correct behavior
 	case <-time.After(2 * time.Second):
 		t.Error("Serve() did not return after Stop()")
+	}
+}
+
+func getFreePort(t *testing.T) int64 {
+	t.Helper()
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("failed to resolve tcp addr: %v", err)
+	}
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatalf("failed to listen on free port: %v", err)
+	}
+	defer l.Close()
+	return int64(l.Addr().(*net.TCPAddr).Port)
+}
+
+func runTestSubscribeIntf(t *testing.T, ctx context.Context, gClient pb.GNMIClient, sPath *pb.Path, pathDesc string, expectedICs []string) {
+	req := &pb.SubscribeRequest{
+		Request: &pb.SubscribeRequest_Subscribe{
+			Subscribe: &pb.SubscriptionList{
+				Prefix:   &pb.Path{Origin: "openconfig", Target: "YANG"},
+				Mode:     pb.SubscriptionList_ONCE,
+				Encoding: pb.Encoding_JSON_IETF,
+				Subscription: []*pb.Subscription{
+					{Path: sPath},
+				},
+			},
+		},
+	}
+
+	stream, err := gClient.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Failed to open stream: %v", err)
+	}
+
+	if err := stream.Send(req); err != nil {
+		t.Fatalf("Failed to send req: %v", err)
+	}
+
+	foundComponents := make(map[string]bool)
+	syncReceived := false
+
+	allExpectedFound := func() bool {
+		for _, expected := range expectedICs {
+			if !foundComponents[expected] {
+				return false
+			}
+		}
+		return true
+	}
+
+	for {
+		// If we already received the sync response and found our expected items, we can exit early.
+		if syncReceived && allExpectedFound() {
+			break
+		}
+
+		resp, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) && allExpectedFound() {
+				break
+			}
+			t.Fatalf("Stream encountered an unexpected error: %v", err)
+		}
+
+		if resp.GetSyncResponse() {
+			t.Log("Received SyncResponse.")
+			syncReceived = true
+			continue
+		}
+
+		notification := resp.GetUpdate()
+		if notification == nil {
+			continue
+		}
+
+		intfName := ""
+		for _, elem := range notification.GetPrefix().GetElem() {
+			if val, ok := elem.GetKey()["name"]; ok && val != "" {
+				intfName = val
+				break
+			}
+		}
+		if intfName == "" {
+			for _, upd := range notification.GetUpdate() {
+				for _, elem := range upd.GetPath().GetElem() {
+					if val, ok := elem.GetKey()["name"]; ok && val != "" {
+						intfName = val
+						break
+					}
+				}
+				if intfName != "" {
+					break
+				}
+			}
+		}
+
+		if intfName != "" {
+			foundComponents[intfName] = true
+		}
+	}
+
+	if !syncReceived {
+		t.Errorf("Test %s failed: Never received gNMI SyncResponse", pathDesc)
+	}
+
+	for _, expected := range expectedICs {
+		if !foundComponents[expected] {
+			t.Errorf("Test %s failed: Expected component %q not found, got components: %v", pathDesc, expected, foundComponents)
+		}
+	}
+}
+
+func TestGnmiSubscribeTranslibXfmrIC_wildcard(t *testing.T) {
+	freePort := getFreePort(t)
+	s := createServer(t, freePort)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+
+	// Use distinct names for this specific test
+	icInstances := []string{"integrated_circuit67", "integrated_circuit68"}
+
+	configDbId, _ := sdcfg.GetDbId("CONFIG_DB", ns)
+	configClient := getRedisClientN(t, configDbId, ns)
+	defer configClient.Close()
+
+	stateDbId, _ := sdcfg.GetDbId("STATE_DB", ns)
+	stateClient := getRedisClientN(t, stateDbId, ns)
+	defer stateClient.Close()
+
+	for _, icName := range icInstances {
+		nodeId := "111"
+		if icName == "integrated_circuit68" {
+			nodeId = "112"
+		}
+
+		if err := configClient.HSet(ctx, "NODE_CFG|"+icName, map[string]interface{}{"name": icName, "node-id": nodeId}).Err(); err != nil {
+			t.Fatalf("Failed to HSet NODE_CFG: %v", err)
+		}
+
+		if err := stateClient.HSet(ctx, "NODE_INFO|"+icName, map[string]interface{}{
+			"name":    icName,
+			"parent":  "chassis",
+			"type":    "INTEGRATED_CIRCUIT",
+			"node-id": nodeId,
+		}).Err(); err != nil {
+			t.Fatalf("Failed to HSet NODE_INFO: %v", err)
+		}
+
+		name := icName
+		t.Cleanup(func() {
+			cleanupCtx := context.Background()
+			stateClient.Del(cleanupCtx, "NODE_INFO|"+name)
+			configClient.Del(cleanupCtx, "NODE_CFG|"+name)
+		})
+	}
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	conn, err := grpc.Dial(targetAddr, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})))
+	if err != nil {
+		t.Fatalf("Dialing failed: %v", err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	tds := []struct {
+		desc string
+		path *pb.Path
+	}{
+		{
+			desc: "Get all IC State (Wildcard expansion check)",
+			path: &pb.Path{
+				Elem: []*pb.PathElem{
+					{Name: "components"},
+					{Name: "component", Key: map[string]string{"name": "*"}},
+					{Name: "integrated-circuit"},
+					{Name: "state"},
+				},
+			},
+		},
+		{
+			desc: "Get all IC (Wildcard expansion check)",
+			path: &pb.Path{
+				Elem: []*pb.PathElem{
+					{Name: "components"},
+					{Name: "component", Key: map[string]string{"name": "*"}},
+				},
+			},
+		},
+		{
+			desc: "Get all Components State (Wildcard expansion check)",
+			path: &pb.Path{
+				Elem: []*pb.PathElem{
+					{Name: "components"},
+					{Name: "component", Key: map[string]string{"name": "*"}},
+					{Name: "state"},
+				},
+			},
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			subCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			runTestSubscribeIntf(t, subCtx, gClient, td.path, td.desc, icInstances)
+		})
 	}
 }
