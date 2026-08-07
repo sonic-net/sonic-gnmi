@@ -199,9 +199,10 @@ func (p *DPUProxy) getConnection(ctx context.Context, dpuIndex, ipAddress string
 		// the proxy encrypts the connection without verifying server identity.
 		conn, err := grpc.NewClient(
 			target,
+			// DPU certificates are ephemeral, so there is no stable trust anchor.
+			// nosemgrep: problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification
 			grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
-				// DPU certificates are ephemeral, so there is no stable trust anchor.
-				InsecureSkipVerify: true, // nosemgrep: problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification
+				InsecureSkipVerify: true,
 				MinVersion:         tls.VersionTLS12,
 			})),
 			grpc.WithKeepaliveParams(keepalive.ClientParameters{
