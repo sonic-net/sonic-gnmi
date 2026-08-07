@@ -200,7 +200,8 @@ func (p *DPUProxy) getConnection(ctx context.Context, dpuIndex, ipAddress string
 		conn, err := grpc.NewClient(
 			target,
 			grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
-				InsecureSkipVerify: true, // #nosec G402 -- ephemeral DPU certificate
+				// DPU certificates are ephemeral, so there is no stable trust anchor.
+				InsecureSkipVerify: true, // nosemgrep: problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification
 				MinVersion:         tls.VersionTLS12,
 			})),
 			grpc.WithKeepaliveParams(keepalive.ClientParameters{
