@@ -79,6 +79,17 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 	$(GO) mod download github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2
 	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* vendor/github.com/google/gnxi/
 
+# x/crypto/ssh/terminal imports x/term in v0.24.0+; gnmi_cli uses ssh/terminal
+# but go mod vendor omits both because the unpatched code doesn't import them.
+# Copy both explicitly so gnmi_cli can compile after patches are applied.
+	$(GO) mod download golang.org/x/term@v0.40.0
+	mkdir -p vendor/golang.org/x/crypto/ssh/terminal vendor/golang.org/x/term
+	cp $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.48.0/ssh/terminal/terminal.go \
+		vendor/golang.org/x/crypto/ssh/terminal/
+	rsync -r --chmod=u+w --exclude=testdata --exclude='*_test.go' \
+		$(GOPATH)/pkg/mod/golang.org/x/term@v0.40.0/ vendor/golang.org/x/term/
+	python3 -c 'p="# golang.org/x/term v0.40.0\n"; r=p+"## explicit; go 1.24.0\ngolang.org/x/term\n"; txt=open("vendor/modules.txt").read(); open("vendor/modules.txt","w").write(txt.replace(p,r,1) if "golang.org/x/term\n" not in txt else txt)'
+
 # Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
 	sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
