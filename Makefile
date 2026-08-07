@@ -120,14 +120,9 @@ endif
 
 endif
 
-# download and apply patch for gnmi client, which will break advancetls
-# backup crypto and gnxi
-	mkdir -p backup_crypto
-	cp -r vendor/golang.org/x/crypto/* backup_crypto/
-
-# download and patch crypto and gnxi
-	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
-	cp -r $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413/* vendor/golang.org/x/crypto/
+# download and apply patch for gnmi client
+# use the already-vendored crypto (no longer need the old 2019 override;
+# x/crypto v0.24.0+ retains ssh/terminal and RevokedCertificates backward compat)
 	chmod -R u+w vendor
 	patch -d vendor -p0 < patches/gnmi_cli.all.patch
 	patch -d vendor -p0 < patches/gnmi_set.patch
@@ -156,9 +151,6 @@ else
 	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 endif
 
-# restore old version
-	rm -rf vendor/golang.org/x/crypto/
-	mv backup_crypto/ vendor/golang.org/x/crypto/
 
 swsscommon_wrap:
 	make -C swsscommon
@@ -415,7 +407,6 @@ endif
 clean:
 	$(RM) -r build
 	$(RM) -r vendor
-	$(RM) -r backup_crypto
 
 # File target that generates a diff file if formatting is incorrect
 $(FORMAT_CHECK): $(GO_FILES)
