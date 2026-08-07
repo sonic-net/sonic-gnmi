@@ -35,6 +35,13 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # Install Go 1.25 so modules requiring go >= 1.25 (grpc v1.82.1, x/crypto v0.52.0)
+    # can be resolved by CodeQL's dependency installer.
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25'
+
     # Checkout sonic-mgmt-common repository which is used by sonic-gnmi
     - name: Checkout sonic-mgmt-common repository
       uses: actions/checkout@v4
