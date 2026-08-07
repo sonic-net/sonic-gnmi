@@ -79,7 +79,7 @@ replace (
 	github.com/golang/glog => github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/openconfig/gnmi => github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
 	golang.org/x/crypto => golang.org/x/crypto v0.52.0
-	golang.org/x/sys => golang.org/x/sys v0.26.0
+	golang.org/x/sys => golang.org/x/sys v0.45.0
 	google.golang.org/grpc => google.golang.org/grpc v1.82.1
-	google.golang.org/protobuf => google.golang.org/protobuf v1.34.1
+	google.golang.org/protobuf => google.golang.org/protobuf v1.36.11
 )
