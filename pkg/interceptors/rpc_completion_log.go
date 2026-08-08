@@ -284,7 +284,7 @@ func deriveRequestFields(ctx context.Context, req interface{}) requestFields {
 	}
 
 	fields.peerType, fields.address = peerAddress(requestPeer)
-	fields.principal = presentedCertificateCommonName(requestPeer)
+	fields.principal = verifiedCertificateCommonName(requestPeer)
 	fields.authType = peerAuthType(requestPeer)
 	return fields
 }
@@ -345,12 +345,12 @@ func formatRequestPath(path *gnmipb.Path) string {
 	return formatted
 }
 
-func presentedCertificateCommonName(requestPeer *peer.Peer) string {
+func verifiedCertificateCommonName(requestPeer *peer.Peer) string {
 	tlsInfo, ok := requestPeer.AuthInfo.(credentials.TLSInfo)
-	if !ok || len(tlsInfo.State.PeerCertificates) == 0 {
+	if !ok || len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.VerifiedChains[0]) == 0 {
 		return ""
 	}
-	return tlsInfo.State.PeerCertificates[0].Subject.CommonName
+	return tlsInfo.State.VerifiedChains[0][0].Subject.CommonName
 }
 
 func peerAuthType(requestPeer *peer.Peer) string {
