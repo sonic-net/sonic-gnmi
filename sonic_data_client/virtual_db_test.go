@@ -1468,6 +1468,78 @@ func TestInitCountersBufferPoolNameMap(t *testing.T) {
 	}
 }
 
+func TestInitCountersPGNameMapSuccess(t *testing.T) {
+	sdcfg.Init()
+	origCounters := getCountersMapFn
+	initCountersPGNameMapOnce = sync.Once{}
+	getCountersMapFn = func(string) (map[string]string, error) {
+		return map[string]string{"Ethernet64:7": "oid:0x100"}, nil
+	}
+	defer func() { getCountersMapFn = origCounters }()
+
+	if err := initCountersPGNameMap(); err != nil {
+		t.Fatalf("initCountersPGNameMap: %v", err)
+	}
+	if countersPGNameMap["Ethernet64"]["7"] != "oid:0x100" {
+		t.Errorf("unexpected pg map: %#v", countersPGNameMap)
+	}
+}
+
+func TestInitCountersPGNameMapInvalidPgName(t *testing.T) {
+	sdcfg.Init()
+	origCounters := getCountersMapFn
+	initCountersPGNameMapOnce = sync.Once{}
+	getCountersMapFn = func(string) (map[string]string, error) {
+		return map[string]string{"invalid_pg_name": "oid:0x200"}, nil
+	}
+	defer func() { getCountersMapFn = origCounters }()
+
+	if err := initCountersPGNameMap(); err == nil {
+		t.Fatal("expected error for invalid pg name")
+	}
+}
+
+func TestInitCountersBufferPoolNameMapPingFailure(t *testing.T) {
+	sdcfg.Init()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	origTarget := Target2RedisDb
+	origMaps := countersBufferPoolNameByNamespace
+	Target2RedisDb = map[string]map[string]*redis.Client{
+		ns: {"COUNTERS_DB": redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})},
+	}
+	countersBufferPoolNameByNamespace = nil
+	t.Setenv("UNIT_TEST", "1")
+	defer func() {
+		Target2RedisDb = origTarget
+		countersBufferPoolNameByNamespace = origMaps
+	}()
+
+	if err := initCountersBufferPoolNameMap(); err == nil {
+		t.Fatal("expected ping error")
+	}
+}
+
+func TestV2rBufferPoolWatermarks_InitFailure(t *testing.T) {
+	sdcfg.Init()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	origTarget := Target2RedisDb
+	origMaps := countersBufferPoolNameByNamespace
+	Target2RedisDb = map[string]map[string]*redis.Client{
+		ns: {"COUNTERS_DB": redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})},
+	}
+	countersBufferPoolNameByNamespace = nil
+	t.Setenv("UNIT_TEST", "1")
+	defer func() {
+		Target2RedisDb = origTarget
+		countersBufferPoolNameByNamespace = origMaps
+	}()
+
+	paths := []string{"COUNTERS_DB", "BUFFER_POOL_WATERMARKS"}
+	if _, err := v2rBufferPoolWatermarks(paths); err == nil {
+		t.Fatal("expected initCountersBufferPoolNameMap error")
+	}
+}
+
 func TestV2rBufferPoolWatermarks_AllPools(t *testing.T) {
 	sdcfg.Init()
 	_, restore := setupBufferPoolMaps(t)
