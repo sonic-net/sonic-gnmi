@@ -2128,8 +2128,12 @@ func TestMixedDbClientGetBufferPoolWatermarks(t *testing.T) {
 		countersBufferPoolNameByNamespace = nil
 	}()
 
+	prefix := &gnmipb.Path{Elem: []*gnmipb.PathElem{
+		{Name: "COUNTERS_DB"}, {Name: "localhost"},
+	}}
 	gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "BUFFER_POOL_WATERMARKS"}}}
 	c := MixedDbClient{
+		prefix:   prefix,
 		mapkey:   mapkey,
 		target:   "COUNTERS_DB",
 		encoding: gnmipb.Encoding_JSON_IETF,
