@@ -1568,7 +1568,7 @@ func TestInitCountersBufferPoolNameMap_RefreshesOnChange(t *testing.T) {
 		t.Errorf("new pool not visible after refresh: %#v", pools)
 	}
 
-	mr.Del("COUNTERS_BUFFER_POOL_NAME_MAP", "ingress_lossless_pool")
+	mr.HDel("COUNTERS_BUFFER_POOL_NAME_MAP", "ingress_lossless_pool")
 	if err := initCountersBufferPoolNameMap(); err != nil {
 		t.Fatalf("init after delete: %v", err)
 	}
