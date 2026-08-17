@@ -7585,20 +7585,6 @@ func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
 	}
 }
 
-func getFreePort(t *testing.T) int64 {
-	t.Helper()
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-	if err != nil {
-		t.Fatalf("failed to resolve tcp addr: %v", err)
-	}
-	l, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		t.Fatalf("failed to listen on free port: %v", err)
-	}
-	defer l.Close()
-	return int64(l.Addr().(*net.TCPAddr).Port)
-}
-
 func TestGnmiGetTranslibXfmrIntf(t *testing.T) {
 	// 1. Locally defined response structs matching JSON-IETF format
 	type HardwarePortResp struct {
@@ -8069,4 +8055,410 @@ func TestGnmiSubscribeTranslibXfmrIntf(t *testing.T) {
 			runTestSubscribeIntf(t, ctx, gClient, path, td.desc, td.expectedICs)
 		})
 	}
+}
+
+func TestGnmiGetPortChannelLagType(t *testing.T) {
+	type LagTypeConfigResp struct {
+		LagType string `json:"openconfig-if-aggregate:lag-type"`
+	}
+
+	marshal := func(v interface{}) []byte {
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatalf("Failed to marshal expected response: %v", err)
+		}
+		return b
+	}
+
+	// Server/DB setup
+	s := createServer(t, 0)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ctx := context.Background()
+	ns, err := sdcfg.GetDbDefaultNamespace()
+	if err != nil {
+		t.Fatalf("Failed to get default DB namespace: %v", err)
+	}
+
+	configDbId, err := sdcfg.GetDbId("CONFIG_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get DB ID for CONFIG_DB: %v", err)
+	}
+	configClient := getRedisClientN(t, configDbId, ns)
+	if err := configClient.Set(ctx, "CONFIG_DB_INITIALIZED", "1", 0).Err(); err != nil {
+		t.Fatalf("Failed to set CONFIG_DB_INITIALIZED: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		if err := configClient.Del(cleanupCtx, "PORTCHANNEL|PortChannel01", "PORTCHANNEL|PortChannel02").Err(); err != nil {
+			t.Logf("Failed to delete CONFIG_DB keys: %v", err)
+		}
+		configClient.Close()
+	})
+
+	if err := configClient.HSet(ctx, "PORTCHANNEL|PortChannel01", map[string]interface{}{
+		"admin_status": "up",
+		"lag_type":     "LACP",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORTCHANNEL|PortChannel01: %v", err)
+	}
+
+	if err := configClient.HSet(ctx, "PORTCHANNEL|PortChannel02", map[string]interface{}{
+		"admin_status": "up",
+		"lag_type":     "STATIC",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORTCHANNEL|PortChannel02: %v", err)
+	}
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	expectedLacp := LagTypeConfigResp{LagType: "LACP"}
+	expectedStatic := LagTypeConfigResp{LagType: "STATIC"}
+
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		{
+			desc:        "Get OC PortChannel LAG Type (LACP)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces"> elem: <name: "interface" key:<key:"name" value:"PortChannel01">> elem: <name: "openconfig-if-aggregate:aggregation"> elem: <name: "config"> elem: <name: "lag-type">`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(expectedLacp),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OC PortChannel LAG Type (STATIC)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces"> elem: <name: "interface" key:<key:"name" value:"PortChannel02">> elem: <name: "openconfig-if-aggregate:aggregation"> elem: <name: "config"> elem: <name: "lag-type">`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(expectedStatic),
+			valTest:     true,
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+}
+
+func TestGnmiGetTranslibXfmrPortChannel(t *testing.T) {
+	// 1. Locally defined response structs for concrete value assertions
+	type LagTypeConfigResp struct {
+		LagType string `json:"openconfig-if-aggregate:lag-type"`
+	}
+
+	type LagTypeStateResp struct {
+		LagType string `json:"openconfig-if-aggregate:lag-type"`
+	}
+
+	type LagSpeedResp struct {
+		LagSpeed uint32 `json:"openconfig-if-aggregate:lag-speed"`
+	}
+
+	type LagMembersResp struct {
+		Member []string `json:"openconfig-if-aggregate:member"`
+	}
+
+	marshal := func(v interface{}) []byte {
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatalf("Failed to marshal expected response: %v", err)
+		}
+		return b
+	}
+
+	// 2. Server and DB initialization
+	s := createServer(t, 0)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ns, err := sdcfg.GetDbDefaultNamespace()
+	if err != nil {
+		t.Fatalf("Failed to get default DB namespace: %v", err)
+	}
+	ctx := context.Background()
+
+	// --- DB 4: ConfigDB ---
+	configDbId, err := sdcfg.GetDbId("CONFIG_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get DB ID for CONFIG_DB: %v", err)
+	}
+	configClient := getRedisClientN(t, configDbId, ns)
+	if err := configClient.Set(ctx, "CONFIG_DB_INITIALIZED", "1", 0).Err(); err != nil {
+		t.Fatalf("Failed to set CONFIG_DB_INITIALIZED: %v", err)
+	}
+
+	// --- DB 0: ApplDB ---
+	applDbId, err := sdcfg.GetDbId("APPL_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get DB ID for APPL_DB: %v", err)
+	}
+	applClient := getRedisClientN(t, applDbId, ns)
+
+	// --- DB 6: StateDB ---
+	stateDbId, err := sdcfg.GetDbId("STATE_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get DB ID for STATE_DB: %v", err)
+	}
+	stateClient := getRedisClientN(t, stateDbId, ns)
+	if err := stateClient.Set(ctx, "STATE_DB_INITIALIZED", "1", 0).Err(); err != nil {
+		t.Fatalf("Failed to set STATE_DB_INITIALIZED: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		if err := configClient.Del(cleanupCtx, "PORT|Ethernet0", "PORTCHANNEL|PortChannel111", "PORTCHANNEL_MEMBER|PortChannel111|Ethernet0").Err(); err != nil {
+			t.Logf("Failed to delete CONFIG_DB keys: %v", err)
+		}
+		if err := applClient.Del(cleanupCtx, "LAG_TABLE:PortChannel111", "LAG_MEMBER_TABLE:PortChannel111:Ethernet0").Err(); err != nil {
+			t.Logf("Failed to delete APPL_DB keys: %v", err)
+		}
+		if err := stateClient.Del(cleanupCtx, "LAG_TABLE|PortChannel111", "LAG_MEMBER_TABLE|PortChannel111|Ethernet0").Err(); err != nil {
+			t.Logf("Failed to delete STATE_DB keys: %v", err)
+		}
+		configClient.Close()
+		applClient.Close()
+		stateClient.Close()
+	})
+
+	if err := configClient.HSet(ctx, "PORT|Ethernet0", map[string]interface{}{
+		"admin_status": "up",
+		"speed":        "10000",
+		"mtu":          "9100",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet0: %v", err)
+	}
+	if err := configClient.HSet(ctx, "PORTCHANNEL|PortChannel111", map[string]interface{}{
+		"admin_status": "up",
+		"mtu":          "9100",
+		"min_links":    "1",
+		"lag_type":     "LACP",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORTCHANNEL|PortChannel111: %v", err)
+	}
+	if err := configClient.HSet(ctx, "PORTCHANNEL_MEMBER|PortChannel111|Ethernet0", map[string]interface{}{
+		"link.speed":      "10000",
+		"runner.selected": "true",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORTCHANNEL_MEMBER|PortChannel111|Ethernet0: %v", err)
+	}
+
+	if err := applClient.HSet(ctx, "LAG_TABLE:PortChannel111", map[string]interface{}{
+		"admin_status":      "up",
+		"mtu":               "9100",
+		"setup.runner_name": "LACP",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet LAG_TABLE:PortChannel111: %v", err)
+	}
+	if err := applClient.HSet(ctx, "LAG_MEMBER_TABLE:PortChannel111:Ethernet0", map[string]interface{}{
+		"runner.selected": "true",
+		"link.speed":      "10000",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet LAG_MEMBER_TABLE:PortChannel111:Ethernet0: %v", err)
+	}
+
+	if err := stateClient.HSet(ctx, "LAG_TABLE|PortChannel111", map[string]interface{}{
+		"speed":       "10000",
+		"oper_status": "up",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet LAG_TABLE|PortChannel111: %v", err)
+	}
+	if err := stateClient.HSet(ctx, "LAG_MEMBER_TABLE|PortChannel111|Ethernet0", map[string]interface{}{
+		"runner.selected": "true",
+		"link.speed":      "10000",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet LAG_MEMBER_TABLE|PortChannel111|Ethernet0: %v", err)
+	}
+
+	// 3. gRPC Client Connection
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	// 4. Expected payloads
+	expectedLagTypeConfig := LagTypeConfigResp{LagType: "LACP"}
+	expectedLagTypeState := LagTypeStateResp{LagType: "LACP"}
+	expectedLagSpeed := LagSpeedResp{LagSpeed: 10000}
+	expectedLagMembers := LagMembersResp{Member: []string{"Ethernet0"}}
+
+	// 5. Test Scenarios
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		{
+			desc:        "Get OpenConfig PortChannel lag-type Config",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"PortChannel111" > > elem: <name: "openconfig-if-aggregate:aggregation" > elem: <name: "config" > elem: <name: "lag-type" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(expectedLagTypeConfig),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OpenConfig PortChannel lag-type State",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"PortChannel111" > > elem: <name: "openconfig-if-aggregate:aggregation" > elem: <name: "state" > elem: <name: "lag-type" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(expectedLagTypeState),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OpenConfig PortChannel lag-speed State",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"PortChannel111" > > elem: <name: "openconfig-if-aggregate:aggregation" > elem: <name: "state" > elem: <name: "lag-speed" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(expectedLagSpeed),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OpenConfig PortChannel members State",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"PortChannel111" > > elem: <name: "openconfig-if-aggregate:aggregation" > elem: <name: "state" > elem: <name: "member" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(expectedLagMembers),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OpenConfig PortChannel Aggregation Entire State",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"PortChannel111" > > elem: <name: "openconfig-if-aggregate:aggregation" > elem: <name: "state" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+		{
+			desc:        "Get OpenConfig PortChannel Aggregation Entire Subtree with Wildcard",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"*" > > elem: <name: "openconfig-if-aggregate:aggregation" >`,
+			wantRetCode: codes.NotFound,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+		{
+			desc:        "Get OpenConfig PortChannel Aggregation State Subtree with Wildcard",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"*" > > elem: <name: "openconfig-if-aggregate:aggregation" > elem: <name: "state" >`,
+			wantRetCode: codes.NotFound,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+		{
+			desc:        "Get OpenConfig PortChannel Interface Top Level",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"PortChannel111" > >`,
+			wantRetCode: codes.OK,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+}
+
+func TestGnmiLagTypeTransformer(t *testing.T) {
+	s := createServer(t, 0)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ctx := context.Background()
+	ns, err := sdcfg.GetDbDefaultNamespace()
+	if err != nil {
+		t.Fatalf("Failed to get default DB namespace: %v", err)
+	}
+
+	configDbId, err := sdcfg.GetDbId("CONFIG_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get DB ID for CONFIG_DB: %v", err)
+	}
+	configClient := getRedisClientN(t, configDbId, ns)
+	if err := configClient.Set(ctx, "CONFIG_DB_INITIALIZED", "1", 0).Err(); err != nil {
+		t.Fatalf("Failed to set CONFIG_DB_INITIALIZED: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		if err := configClient.Del(cleanupCtx, "PORTCHANNEL|"+lagName).Err(); err != nil {
+			t.Logf("Failed to delete CONFIG_DB keys: %v", err)
+		}
+		configClient.Close()
+	})
+
+	lagName := "PortChannel1"
+	if err := configClient.HSet(ctx, "PORTCHANNEL|"+lagName, map[string]interface{}{
+		"admin_status": "up",
+		"lag_type":     "LACP",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORTCHANNEL|%s: %v", lagName, err)
+	}
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	t.Run("LagType_Conflict_Error", func(t *testing.T) {
+		subCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		textPbPath := `
+elem: <name: "openconfig-interfaces:interfaces">
+elem: <name: "interface" key:<key:"name" value:"PortChannel1">>
+elem: <name: "openconfig-if-aggregate:aggregation">
+elem: <name: "config">
+elem: <name: "lag-type">
+`
+		attributeData := `{"openconfig-if-aggregate:lag-type": "STATIC"}`
+
+		runTestSet(t, subCtx, gClient, "OC_YANG",
+			textPbPath,
+			codes.Unknown,
+			nil,
+			attributeData,
+			Update)
+	})
 }
