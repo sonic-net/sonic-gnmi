@@ -1,6 +1,8 @@
 package interceptors
 
 import (
+	"context"
+
 	log "github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	"google.golang.org/grpc"
@@ -15,7 +17,7 @@ type ServerChain struct {
 // NewServerChain creates a complete interceptor chain for the gNMI server.
 // It includes RPC completion logging and DPU proxying with Redis-based DPU resolution.
 // Returns the chain and a cleanup function that must be called during shutdown.
-func NewServerChain() (*ServerChain, error) {
+func NewServerChain(routeAuthorizers ...func(context.Context, string) error) (*ServerChain, error) {
 	// Create Redis clients for DPU info resolution from both StateDB and ConfigDB
 	stateRedisClient := dpuproxy.NewRedisClient(dpuproxy.DefaultRedisSocket, dpuproxy.StateDB)
 	stateRedisAdapter := dpuproxy.NewGoRedisAdapter(stateRedisClient)
@@ -25,7 +27,11 @@ func NewServerChain() (*ServerChain, error) {
 
 	// Create DPU resolver and proxy
 	dpuResolver := dpuproxy.NewDPUResolver(stateRedisAdapter, configRedisAdapter)
-	dpuProxy := dpuproxy.NewDPUProxy(dpuResolver)
+	var routeAuthorizer func(context.Context, string) error
+	if len(routeAuthorizers) > 0 {
+		routeAuthorizer = routeAuthorizers[0]
+	}
+	dpuProxy := dpuproxy.NewDPUProxy(dpuResolver, routeAuthorizer)
 	dpuproxy.SetDefaultProxy(dpuProxy)
 
 	sink := lineSink(func(line string) error {
@@ -33,7 +39,7 @@ func NewServerChain() (*ServerChain, error) {
 		return nil
 	})
 
-	// Keep completion logging outside the DPU proxy so it records forwarded and rejected RPCs.
+	// Keep completion logging outside authorization so it records rejected RPCs.
 	chain := NewChain(newRPCCompletionLogger(sink), dpuProxy)
 
 	// Create cleanup function to close Redis clients

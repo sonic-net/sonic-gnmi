@@ -2,6 +2,7 @@ package dpuproxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -49,6 +50,11 @@ var defaultForwardableMethods = []ForwardableMethod{
 		Mode:        ForwardToDPU,
 	},
 	{
+		FullMethod:  "/gnoi.file.File/Get",
+		Description: "Download file from DPU",
+		Mode:        ForwardToDPU,
+	},
+	{
 		FullMethod:  "/gnoi.file.File/TransferToRemote",
 		Description: "Download from URL, then upload to DPU",
 		Mode:        HandleLocally,
@@ -88,6 +94,8 @@ var defaultForwardableMethods = []ForwardableMethod{
 
 var defaultProxy *DPUProxy
 
+var newFileClient = gnoi_file_pb.NewFileClient
+
 // SetDefaultProxy registers the DPU proxy singleton for use by handlers
 // that need direct DPU connections (e.g., TransferToRemote file operations).
 func SetDefaultProxy(p *DPUProxy) { defaultProxy = p }
@@ -108,7 +116,8 @@ func GetDPUConnection(ctx context.Context, dpuIndex string) (*grpc.ClientConn, e
 //
 // Current implementation (Phase 2.1): Actual forwarding to DPU gRPC servers with connection management.
 type DPUProxy struct {
-	resolver *DPUResolver
+	resolver        *DPUResolver
+	routeAuthorizer func(context.Context, string) error
 
 	// Connection management
 	connMu    sync.RWMutex
@@ -127,12 +136,16 @@ type DPUProxy struct {
 
 // NewDPUProxy creates a new DPU proxy interceptor with the given resolver.
 // If resolver is nil, Redis operations will be skipped (for testing).
-func NewDPUProxy(resolver *DPUResolver) *DPUProxy {
-	return &DPUProxy{
+func NewDPUProxy(resolver *DPUResolver, routeAuthorizer ...func(context.Context, string) error) *DPUProxy {
+	p := &DPUProxy{
 		resolver:  resolver,
 		conns:     make(map[string]*grpc.ClientConn),
 		connPorts: make(map[string]string),
 	}
+	if len(routeAuthorizer) > 0 {
+		p.routeAuthorizer = routeAuthorizer[0]
+	}
+	return p
 }
 
 // GetDPUConnection resolves DPU info and returns a cached gRPC connection to the DPU.
@@ -309,6 +322,9 @@ func (p *DPUProxy) forwardStream(ctx context.Context, conn *grpc.ClientConn, ss 
 	if info.FullMethod == "/gnoi.file.File/Put" {
 		return p.forwardFilePutStream(ctx, conn, ss)
 	}
+	if info.FullMethod == "/gnoi.file.File/Get" {
+		return p.forwardFileGetStream(ctx, conn, ss)
+	}
 
 	// For System.SetPackage, we need to handle the streaming RPC
 	if info.FullMethod == "/gnoi.system.System/SetPackage" {
@@ -317,6 +333,36 @@ func (p *DPUProxy) forwardStream(ctx context.Context, conn *grpc.ClientConn, ss 
 
 	// Add other stream methods here as needed
 	return status.Errorf(codes.Unimplemented, "stream forwarding for method %s not implemented", info.FullMethod)
+}
+
+func (p *DPUProxy) forwardFileGetStream(ctx context.Context, conn *grpc.ClientConn, ss grpc.ServerStream) error {
+	var req gnoi_file_pb.GetRequest
+	if err := ss.RecvMsg(&req); err != nil {
+		return status.Errorf(codes.Internal, "failed to receive File.Get request: %v", err)
+	}
+	clientStream, err := newFileClient(conn).Get(ctx, &req)
+	if err != nil {
+		return err
+	}
+	for {
+		resp, err := clientStream.Recv()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := ss.SendMsg(resp); err != nil {
+			return status.Errorf(codes.Internal, "failed to send File.Get response: %v", err)
+		}
+	}
+}
+
+func (p *DPUProxy) authorizeRoute(ctx context.Context, method string) error {
+	if p.routeAuthorizer == nil {
+		return status.Error(codes.PermissionDenied, "DPU routing authorization is not configured")
+	}
+	return p.routeAuthorizer(ctx, method)
 }
 
 // forwardFilePutStream forwards a File.Put streaming RPC to the DPU.
@@ -466,6 +512,9 @@ func (p *DPUProxy) UnaryInterceptor() grpc.UnaryServerInterceptor {
 
 		// If DPU routing is requested, validate and route
 		if targetMeta.IsDPUTarget() {
+			if err := p.authorizeRoute(ctx, info.FullMethod); err != nil {
+				return nil, err
+			}
 			// Check forwarding mode for this method
 			mode, found := p.getForwardingMode(info.FullMethod)
 			if !found {
@@ -562,6 +611,9 @@ func (p *DPUProxy) StreamInterceptor() grpc.StreamServerInterceptor {
 
 		// If DPU routing is requested, validate and route
 		if targetMeta.IsDPUTarget() {
+			if err := p.authorizeRoute(ctx, info.FullMethod); err != nil {
+				return err
+			}
 			// Check forwarding mode for this method
 			mode, found := p.getForwardingMode(info.FullMethod)
 			if !found {

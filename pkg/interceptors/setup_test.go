@@ -1,8 +1,6 @@
 package interceptors
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestNewServerChain(t *testing.T) {
 	chain, err := NewServerChain()

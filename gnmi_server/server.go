@@ -165,8 +165,21 @@ func (s *Server) handleOperationalGet(ctx context.Context, req *gnmipb.GetReques
 // for forward compatibility
 type FileServer struct {
 	*Server
+	transport fileTransport
 	gnoi_file_pb.UnimplementedFileServer
 }
+
+type fileTransport int
+
+const (
+	fileTransportTCP fileTransport = iota
+	fileTransportUDS
+)
+
+const (
+	defaultFileRelayJournalPath    = "/host/doa/state/relay-journal.json"
+	defaultFileRelayCompletionPath = "/host/doa/state/relay-completion.json"
+)
 
 // OSBackend defines the interface for the OS installation backend service.
 type OSBackend interface {
@@ -256,10 +269,98 @@ type Config struct {
 	EnableStreamMultiplexing bool   // Allow multiple Subscribe RPCs on a single TCP connection.
 	SshCredMetaFile          string // Path to JSON file with SSH server credential metadata.
 	ConsoleCredMetaFile      string // Path to JSON file with console credential metadata.
+	// FileRelayCertificateCN authorizes one verified client certificate
+	// identity for the two exact relay paths below. All three fields are required.
+	FileRelayCertificateCN  string
+	FileRelayDesiredPath    string
+	FileRelayStatusPath     string
+	FileRelayJournalPath    string
+	FileRelayCompletionPath string
 	// BindAddress is the network address to bind the TCP listener.
 	// When empty, binds to all interfaces (0.0.0.0). Use "127.0.0.1" to
 	// restrict to localhost only (e.g. when running without TLS).
 	BindAddress string
+}
+
+func (c *Config) fileRelayConfigured() bool {
+	return c != nil &&
+		c.FileRelayCertificateCN != "" &&
+		c.FileRelayDesiredPath != "" &&
+		c.FileRelayStatusPath != ""
+}
+
+func (c *Config) legacyFileEnabled() bool {
+	return c != nil && (c.EnableTranslibWrite || c.EnableNativeWrite)
+}
+
+func (c *Config) setFileRelayLocalDefaults() {
+	if c.FileRelayJournalPath == "" {
+		c.FileRelayJournalPath = defaultFileRelayJournalPath
+	}
+	if c.FileRelayCompletionPath == "" {
+		c.FileRelayCompletionPath = defaultFileRelayCompletionPath
+	}
+}
+
+func (c *Config) validateFileRelay() error {
+	if c == nil {
+		return errors.New("config not provided")
+	}
+	if !c.fileRelayConfigured() && (c.FileRelayJournalPath != "" || c.FileRelayCompletionPath != "") {
+		return errors.New("device-ops-agent relay local paths require complete HardwareProxy relay configuration")
+	}
+	values := []string{
+		c.FileRelayCertificateCN,
+		c.FileRelayDesiredPath,
+		c.FileRelayStatusPath,
+	}
+	configured := 0
+	for _, value := range values {
+		if value != "" {
+			configured++
+		}
+	}
+	if configured == 0 {
+		return nil
+	}
+	if configured != len(values) {
+		return errors.New("HardwareProxy file relay certificate CN, desired path, and status path must be configured together; missing relay config grants no access")
+	}
+	if strings.TrimSpace(c.FileRelayCertificateCN) != c.FileRelayCertificateCN {
+		return errors.New("HardwareProxy file relay certificate CN must not contain surrounding whitespace")
+	}
+	for name, path := range map[string]string{
+		"desired": c.FileRelayDesiredPath,
+		"status":  c.FileRelayStatusPath,
+	} {
+		if !filepath.IsAbs(path) || filepath.Clean(path) != path || containsParentPathSegment(path) || !strings.HasPrefix(path, "/var/tmp/") {
+			return fmt.Errorf("HardwareProxy file relay %s path must be a clean absolute path under /var/tmp/: %s", name, path)
+		}
+	}
+	if c.FileRelayDesiredPath == c.FileRelayStatusPath {
+		return errors.New("HardwareProxy file relay desired and status paths must differ")
+	}
+	if c.Port <= 0 {
+		return errors.New("HardwareProxy file relay requires the existing TLS TCP listener")
+	}
+	for name, path := range map[string]string{
+		"journal":    c.FileRelayJournalPath,
+		"completion": c.FileRelayCompletionPath,
+	} {
+		if !filepath.IsAbs(path) || filepath.Clean(path) != path || containsParentPathSegment(path) || !strings.HasPrefix(path, "/host/doa/state/") {
+			return fmt.Errorf("device-ops-agent relay %s path must be a clean absolute path under /host/doa/state/: %s", name, path)
+		}
+	}
+	return nil
+}
+
+func containsParentPathSegment(path string) bool {
+	for _, component := range strings.Split(path, "/") {
+		if component == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -360,12 +461,12 @@ func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(s, srv)
 	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
 		gnoi_system_pb.RegisterSystemServer(s, srv)
-		gnoi_file_pb.RegisterFileServer(s, fileSrv)
 		gnoi_os_pb.RegisterOSServer(s, osSrv)
 		gnoi_containerz_pb.RegisterContainerzServer(s, containerzSrv)
 		gnoi_debug_pb.RegisterDebugServer(s, debugSrv)
 		gnoi_healthz_pb.RegisterHealthzServer(s, healthzSrv)
 	}
+	registerFileService(s, srv, fileSrv)
 	// ORAS Pull writes only into an allowlisted staging area inside the
 	// container; it has no relation to the gNMI write paths, so it is not
 	// gated by EnableTranslibWrite/EnableNativeWrite.
@@ -374,6 +475,21 @@ func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 		spb_gnoi.RegisterSonicServiceServer(s, srv)
 	}
 	spb_gnoi.RegisterDebugServer(s, srv)
+}
+
+func registerFileService(s grpc.ServiceRegistrar, srv *Server, fileSrv *FileServer) {
+	if srv.config.legacyFileEnabled() {
+		gnoi_file_pb.RegisterFileServer(s, fileSrv)
+		return
+	}
+	if !srv.config.fileRelayConfigured() {
+		return
+	}
+	if fileSrv.transport == fileTransportUDS {
+		gnoi_file_pb.RegisterFileServer(s, fileSrv)
+	} else {
+		s.RegisterService(&relayTCPFileServiceDesc, fileSrv)
+	}
 }
 
 // SrvTestConfig returns test mTLS server configuration to be used to start gNMI/gNOI server in test environment.
@@ -544,6 +660,25 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	if config == nil {
 		return nil, errors.New("config not provided")
 	}
+	if config.fileRelayConfigured() {
+		config.setFileRelayLocalDefaults()
+	}
+	if err := config.validateFileRelay(); err != nil {
+		return nil, err
+	}
+	if config.fileRelayConfigured() {
+		if config.UnixSocket == "" {
+			return nil, errors.New("HardwareProxy file relay requires the existing local Unix socket")
+		}
+		if err := gnoifile.PrepareRestrictedPaths(
+			config.FileRelayDesiredPath,
+			config.FileRelayStatusPath,
+			config.FileRelayJournalPath,
+			config.FileRelayCompletionPath,
+		); err != nil {
+			return nil, fmt.Errorf("prepare gNOI File relay paths: %w", err)
+		}
+	}
 	var providers []certprovider.Provider
 	common_utils.InitCounters()
 
@@ -576,8 +711,9 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		authzWatcher:  authzWatcher,
 	}
 
-	// Create service servers (shared between TCP and UDS)
-	fileSrv := &FileServer{Server: srv}
+	// Create service servers. File uses transport-specific policy wrappers.
+	tcpFileSrv := &FileServer{Server: srv, transport: fileTransportTCP}
+	udsFileSrv := &FileServer{Server: srv, transport: fileTransportUDS}
 	osBackend := &DBusOSBackend{}
 	osSrv := &OSServer{
 		Server:  srv,
@@ -607,6 +743,12 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	// TCP Server (Port > 0)
 	if config.Port > 0 {
 		tcpOpts := append(tlsOpts, commonOpts...)
+		if config.fileRelayConfigured() {
+			tcpOpts = append(tcpOpts,
+				grpc.ChainUnaryInterceptor(hardwareProxyUnaryInterceptor(config)),
+				grpc.ChainStreamInterceptor(hardwareProxyStreamInterceptor(config)),
+			)
+		}
 		srv.s = grpc.NewServer(tcpOpts...)
 		reflection.Register(srv.s)
 
@@ -622,7 +764,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			srv.s.Stop()
 			srv.s = nil
 		} else {
-			registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
+			registerAllServices(srv.s, srv, tcpFileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
 		}
 	}
 
@@ -656,7 +798,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 					srv.udsServer.Stop()
 					srv.udsServer = nil
 				} else {
-					registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
+					registerAllServices(srv.udsServer, srv, udsFileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
 				}
 			}
 		}

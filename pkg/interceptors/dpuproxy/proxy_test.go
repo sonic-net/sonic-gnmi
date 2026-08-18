@@ -10,6 +10,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func allowDPURequest(context.Context, string) error { return nil }
+
 func TestExtractTargetMetadata_NoMetadata(t *testing.T) {
 	ctx := context.Background()
 	meta := ExtractTargetMetadata(ctx)
@@ -148,7 +150,7 @@ func TestExtractTargetMetadata_MultipleValues(t *testing.T) {
 }
 
 func TestDPUProxy_UnaryInterceptor_NoMetadata(t *testing.T) {
-	proxy := NewDPUProxy(nil) // No resolver needed for this test
+	proxy := NewDPUProxy(nil, allowDPURequest) // No resolver needed for this test
 	interceptor := proxy.UnaryInterceptor()
 
 	handlerCalled := false
@@ -174,7 +176,7 @@ func TestDPUProxy_UnaryInterceptor_NoMetadata(t *testing.T) {
 }
 
 func TestDPUProxy_UnaryInterceptor_WithDPUMetadata(t *testing.T) {
-	proxy := NewDPUProxy(nil)
+	proxy := NewDPUProxy(nil, allowDPURequest)
 	interceptor := proxy.UnaryInterceptor()
 
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
@@ -210,7 +212,7 @@ func TestDPUProxy_UnaryInterceptor_WithDPUMetadata(t *testing.T) {
 }
 
 func TestDPUProxy_UnaryInterceptor_WithNonDPUMetadata(t *testing.T) {
-	proxy := NewDPUProxy(nil)
+	proxy := NewDPUProxy(nil, allowDPURequest)
 	interceptor := proxy.UnaryInterceptor()
 
 	handlerCalled := false
@@ -251,7 +253,7 @@ func (m *mockServerStream) Context() context.Context {
 }
 
 func TestDPUProxy_StreamInterceptor_NoMetadata(t *testing.T) {
-	proxy := NewDPUProxy(nil)
+	proxy := NewDPUProxy(nil, allowDPURequest)
 	interceptor := proxy.StreamInterceptor()
 
 	handlerCalled := false
@@ -275,7 +277,7 @@ func TestDPUProxy_StreamInterceptor_NoMetadata(t *testing.T) {
 }
 
 func TestDPUProxy_StreamInterceptor_WithDPUMetadata(t *testing.T) {
-	proxy := NewDPUProxy(nil)
+	proxy := NewDPUProxy(nil, allowDPURequest)
 	interceptor := proxy.StreamInterceptor()
 
 	handler := func(srv interface{}, ss grpc.ServerStream) error {
@@ -308,7 +310,7 @@ func TestDPUProxy_StreamInterceptor_WithDPUMetadata(t *testing.T) {
 }
 
 func TestNewDPUProxy(t *testing.T) {
-	proxy := NewDPUProxy(nil)
+	proxy := NewDPUProxy(nil, allowDPURequest)
 
 	if proxy == nil {
 		t.Error("Expected non-nil DPUProxy")
@@ -320,7 +322,7 @@ func TestNewDPUProxy(t *testing.T) {
 }
 
 func TestDPUProxy_UnaryInterceptor_NonForwardableMethod(t *testing.T) {
-	proxy := NewDPUProxy(nil)
+	proxy := NewDPUProxy(nil, allowDPURequest)
 	interceptor := proxy.UnaryInterceptor()
 
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
@@ -357,7 +359,7 @@ func TestDPUProxy_UnaryInterceptor_NonForwardableMethod(t *testing.T) {
 }
 
 func TestDPUProxy_StreamInterceptor_NonForwardableMethod(t *testing.T) {
-	proxy := NewDPUProxy(nil)
+	proxy := NewDPUProxy(nil, allowDPURequest)
 	interceptor := proxy.StreamInterceptor()
 
 	handler := func(srv interface{}, ss grpc.ServerStream) error {
@@ -400,6 +402,7 @@ func TestAllForwardToDPUMethodsHaveHandlers(t *testing.T) {
 	}
 
 	streamHandled := map[string]bool{
+		"/gnoi.file.File/Get":            true,
 		"/gnoi.file.File/Put":            true,
 		"/gnoi.system.System/SetPackage": true,
 	}

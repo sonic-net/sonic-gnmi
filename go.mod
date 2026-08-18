@@ -32,6 +32,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/crypto v0.36.0
 	golang.org/x/net v0.38.0
+	golang.org/x/sys v0.33.0
 	golang.org/x/time v0.14.0
 	google.golang.org/grpc v1.69.2
 	google.golang.org/grpc/security/advancedtls v1.0.0
@@ -64,7 +65,6 @@ require (
 	go4.org/intern v0.0.0-20211027215823-ae77deb06f29 // indirect
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
 	golang.org/x/sync v0.14.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/term v0.32.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240318140521-94a12d6c2237 // indirect

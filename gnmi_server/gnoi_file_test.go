@@ -3,6 +3,7 @@ package gnmi
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"testing"
@@ -39,7 +40,7 @@ func createFileServer(t *testing.T, port int) (*grpc.Server, string) {
 	s := grpc.NewServer()
 	fileServer := &FileServer{
 		Server: &Server{
-			config: &Config{}, // Add config fields if required
+			config: &Config{EnableNativeWrite: true},
 		},
 	}
 	gnoi_file_pb.RegisterFileServer(s, fileServer)
@@ -147,7 +148,7 @@ func TestGnoiFileServer(t *testing.T) {
 
 		fs := &FileServer{
 			Server: &Server{
-				config: &Config{},
+				config: &Config{EnableNativeWrite: true},
 			},
 		}
 
@@ -182,7 +183,7 @@ func TestGnoiFileServer(t *testing.T) {
 
 		fs := &FileServer{
 			Server: &Server{
-				config: &Config{},
+				config: &Config{EnableNativeWrite: true},
 			},
 		}
 
@@ -238,7 +239,7 @@ func TestGnoiFileServer(t *testing.T) {
 
 		fs := &FileServer{
 			Server: &Server{
-				config: &Config{},
+				config: &Config{EnableNativeWrite: true},
 			},
 		}
 		req := &gnoi_file_pb.RemoveRequest{RemoteFile: tmpPath}
@@ -256,7 +257,7 @@ func TestGnoiFileServer(t *testing.T) {
 	t.Run("Remove_Fails_NilRequest", func(t *testing.T) {
 		fs := &FileServer{
 			Server: &Server{
-				config: &Config{},
+				config: &Config{EnableNativeWrite: true},
 			},
 		}
 		_, err := fs.Remove(context.Background(), nil)
@@ -272,7 +273,7 @@ func TestGnoiFileServer(t *testing.T) {
 
 		fs := &FileServer{
 			Server: &Server{
-				config: &Config{},
+				config: &Config{EnableNativeWrite: true},
 			},
 		}
 		req := &gnoi_file_pb.RemoveRequest{RemoteFile: ""}
@@ -291,7 +292,7 @@ func TestGnoiFileServer(t *testing.T) {
 
 		fs := &FileServer{
 			Server: &Server{
-				config: &Config{},
+				config: &Config{EnableNativeWrite: true},
 			},
 		}
 		req := &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/test.txt"}
@@ -316,7 +317,7 @@ func TestGnoiFileServer(t *testing.T) {
 
 		fs := &FileServer{
 			Server: &Server{
-				config: &Config{},
+				config: &Config{EnableNativeWrite: true},
 			},
 		}
 		req := &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/bad.txt"}
@@ -375,7 +376,7 @@ func TestGnoiFileServer(t *testing.T) {
 
 		fs := &FileServer{
 			Server: &Server{
-				config: &Config{},
+				config: &Config{EnableNativeWrite: true},
 			},
 		}
 
@@ -383,6 +384,7 @@ func TestGnoiFileServer(t *testing.T) {
 		mockStream := &mockPutStream{
 			ctx: context.Background(),
 		}
+		mockStream.addOpenRequest("/tmp/test.txt", 0600)
 
 		err := fs.Put(mockStream)
 		assert.NoError(t, err)
@@ -392,7 +394,9 @@ func TestGnoiFileServer(t *testing.T) {
 
 // Mock stream for Put testing
 type mockPutStream struct {
-	ctx context.Context
+	ctx      context.Context
+	requests []*gnoi_file_pb.PutRequest
+	recvIdx  int
 }
 
 func (m *mockPutStream) Context() context.Context {
@@ -408,7 +412,23 @@ func (m *mockPutStream) RecvMsg(msg interface{}) error {
 }
 
 func (m *mockPutStream) Recv() (*gnoi_file_pb.PutRequest, error) {
-	return nil, nil
+	if m.recvIdx >= len(m.requests) {
+		return nil, io.EOF
+	}
+	request := m.requests[m.recvIdx]
+	m.recvIdx++
+	return request, nil
+}
+
+func (m *mockPutStream) addOpenRequest(path string, permissions uint32) {
+	m.requests = append(m.requests, &gnoi_file_pb.PutRequest{
+		Request: &gnoi_file_pb.PutRequest_Open{
+			Open: &gnoi_file_pb.PutRequest_Details{
+				RemoteFile:  path,
+				Permissions: permissions,
+			},
+		},
+	})
 }
 
 func (m *mockPutStream) SendAndClose(resp *gnoi_file_pb.PutResponse) error {

@@ -114,24 +114,9 @@ func SearchCrlCache(url string) (bool, *Crl) {
 
 func ClientCertAuthenAndAuthor(ctx context.Context, serviceConfigTableName string, enableCrl bool) (context.Context, error) {
 	rc, ctx := common_utils.GetContext(ctx)
-	p, ok := peer.FromContext(ctx)
-	if !ok {
-		return ctx, status.Error(codes.Unauthenticated, "no peer found")
-	}
-	tlsAuth, ok := p.AuthInfo.(credentials.TLSInfo)
-	if !ok {
-		return ctx, status.Error(codes.Unauthenticated, "unexpected peer transport credentials")
-	}
-	if len(tlsAuth.State.VerifiedChains) == 0 || len(tlsAuth.State.VerifiedChains[0]) == 0 {
-		return ctx, status.Error(codes.Unauthenticated, "could not verify peer certificate")
-	}
-
-	var username string
-
-	username = tlsAuth.State.VerifiedChains[0][0].Subject.CommonName
-
-	if len(username) == 0 {
-		return ctx, status.Error(codes.Unauthenticated, "invalid username in certificate common name.")
+	username, err := AuthenticateClientCertificate(ctx, enableCrl)
+	if err != nil {
+		return ctx, err
 	}
 
 	if serviceConfigTableName != "" {
@@ -145,15 +130,35 @@ func ClientCertAuthenAndAuthor(ctx context.Context, serviceConfigTableName strin
 		}
 	}
 
-	if enableCrl {
-		err := VerifyCertCrl(tlsAuth.State)
-		if err != nil {
-			glog.Infof("[%s] Failed to verify cert with CRL; %v", rc.ID, err)
-			return ctx, err
-		}
+	return ctx, nil
+}
+
+// AuthenticateClientCertificate validates the peer certificate chain and CRL,
+// then returns the authenticated certificate Common Name.
+func AuthenticateClientCertificate(ctx context.Context, enableCrl bool) (string, error) {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return "", status.Error(codes.Unauthenticated, "no peer found")
+	}
+	tlsAuth, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok {
+		return "", status.Error(codes.Unauthenticated, "unexpected peer transport credentials")
+	}
+	if len(tlsAuth.State.VerifiedChains) == 0 || len(tlsAuth.State.VerifiedChains[0]) == 0 {
+		return "", status.Error(codes.Unauthenticated, "could not verify peer certificate")
 	}
 
-	return ctx, nil
+	username := tlsAuth.State.VerifiedChains[0][0].Subject.CommonName
+	if len(username) == 0 {
+		return "", status.Error(codes.Unauthenticated, "invalid username in certificate common name.")
+	}
+
+	if enableCrl {
+		if err := VerifyCertCrl(tlsAuth.State); err != nil {
+			return "", err
+		}
+	}
+	return username, nil
 }
 
 func TryDownload(url string) bool {

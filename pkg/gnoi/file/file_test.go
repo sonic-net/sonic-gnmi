@@ -1751,7 +1751,9 @@ func TestHandlePut_ErrorPaths(t *testing.T) {
 		stream := newMockPutStream()
 
 		// Set up context cancellation
-		stream.ctx, _ = context.WithCancel(context.Background())
+		var cancel context.CancelFunc
+		stream.ctx, cancel = context.WithCancel(context.Background())
+		defer cancel()
 
 		content := []byte("test content")
 		hasher := md5.New()

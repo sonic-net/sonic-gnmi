@@ -81,6 +81,9 @@ type TelemetryConfig struct {
 	EnableStreamMultiplexing *bool
 	MaxRecvMsgSize           *int
 	MaxSendMsgSize           *int
+	FileRelayCertificateCN   *string
+	FileRelayDesiredPath     *string
+	FileRelayStatusPath      *string
 }
 
 func main() {
@@ -211,6 +214,9 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		EnableStreamMultiplexing: fs.Bool("enable_stream_multiplexing", false, "Allow multiple Subscribe RPCs on a single TCP connection via HTTP/2 stream multiplexing"),
 		MaxRecvMsgSize:           fs.Int("max_recv_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can receive"),
 		MaxSendMsgSize:           fs.Int("max_send_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can send"),
+		FileRelayCertificateCN:   fs.String("hardware_proxy_file_relay_cert_cn", "", "Verified HardwareProxy client certificate Common Name authorized for the gNOI File relay"),
+		FileRelayDesiredPath:     fs.String("hardware_proxy_file_relay_desired_path", "", "Exact gNOI File.Put path authorized for HardwareProxy"),
+		FileRelayStatusPath:      fs.String("hardware_proxy_file_relay_status_path", "", "Exact gNOI File.Get path authorized for HardwareProxy"),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -268,6 +274,11 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		case *telemetryCfg.ServerKey == "":
 			return nil, nil, fmt.Errorf("serverKey must be set.")
 		}
+	}
+	fileRelayRequested := *telemetryCfg.FileRelayCertificateCN != "" ||
+		*telemetryCfg.FileRelayDesiredPath != "" || *telemetryCfg.FileRelayStatusPath != ""
+	if fileRelayRequested && (*telemetryCfg.NoTLS || *telemetryCfg.Insecure || *telemetryCfg.AllowNoClientCert || *telemetryCfg.CaCert == "") {
+		return nil, nil, fmt.Errorf("HardwareProxy file relay requires TLS with a CA-verified client certificate")
 	}
 
 	// Move to new function
@@ -337,6 +348,9 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.AuthzPolicy = *telemetryCfg.AuthPolicyEnabled && !*telemetryCfg.Insecure
 	cfg.AuthzPolicyFile = string(*telemetryCfg.AuthzPolicyFile)
 	cfg.EnableStreamMultiplexing = *telemetryCfg.EnableStreamMultiplexing
+	cfg.FileRelayCertificateCN = *telemetryCfg.FileRelayCertificateCN
+	cfg.FileRelayDesiredPath = *telemetryCfg.FileRelayDesiredPath
+	cfg.FileRelayStatusPath = *telemetryCfg.FileRelayStatusPath
 	return telemetryCfg, cfg, nil
 }
 
@@ -580,7 +594,9 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 
 		// Setup interceptor chain (includes DPU proxy with Redis-based routing)
 		var err error
-		currentServerChain, err = interceptors.NewServerChain()
+		currentServerChain, err = interceptors.NewServerChain(func(ctx context.Context, method string) error {
+			return gnmi.AuthorizeDPURequest(cfg, ctx, method)
+		})
 		if err != nil {
 			log.Errorf("Failed to create interceptor chain: %v", err)
 			return

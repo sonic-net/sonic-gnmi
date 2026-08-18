@@ -568,7 +568,7 @@ func TestDPUProxy_UnaryInterceptor_ForwardToDPU_WithResolver(t *testing.T) {
 		}, nil
 	})
 
-	proxy := NewDPUProxy(resolver)
+	proxy := NewDPUProxy(resolver, allowDPURequest)
 	interceptor := proxy.UnaryInterceptor()
 
 	handlerCalled := false
@@ -614,7 +614,7 @@ func TestDPUProxy_UnaryInterceptor_ForwardToDPU_ResolverError(t *testing.T) {
 		return nil, status.Error(codes.NotFound, "DPU not found")
 	})
 
-	proxy := NewDPUProxy(resolver)
+	proxy := NewDPUProxy(resolver, allowDPURequest)
 	interceptor := proxy.UnaryInterceptor()
 
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
@@ -662,7 +662,7 @@ func TestDPUProxy_UnaryInterceptor_ForwardToDPU_DPUUnreachable(t *testing.T) {
 		}, nil
 	})
 
-	proxy := NewDPUProxy(resolver)
+	proxy := NewDPUProxy(resolver, allowDPURequest)
 	interceptor := proxy.UnaryInterceptor()
 
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
@@ -1079,7 +1079,7 @@ func TestDPUProxy_StreamInterceptor_ForwardToDPU_GetConnectionError(t *testing.T
 		}, nil
 	})
 
-	proxy := NewDPUProxy(resolver)
+	proxy := NewDPUProxy(resolver, allowDPURequest)
 	interceptor := proxy.StreamInterceptor()
 
 	handlerCalled := false
@@ -1117,7 +1117,7 @@ func TestDPUProxy_StreamInterceptor_ForwardToDPU_GetConnectionError(t *testing.T
 }
 
 func TestDPUProxy_StreamInterceptor_HandleLocally(t *testing.T) {
-	proxy := NewDPUProxy(nil)
+	proxy := NewDPUProxy(nil, allowDPURequest)
 	interceptor := proxy.StreamInterceptor()
 
 	handlerCalled := false
@@ -1156,7 +1156,7 @@ func TestDPUProxy_StreamInterceptor_ResolverError(t *testing.T) {
 		return nil, status.Error(codes.NotFound, "DPU not found")
 	})
 
-	proxy := NewDPUProxy(resolver)
+	proxy := NewDPUProxy(resolver, allowDPURequest)
 	interceptor := proxy.StreamInterceptor()
 
 	handler := func(srv interface{}, ss grpc.ServerStream) error {
@@ -1202,7 +1202,7 @@ func TestDPUProxy_StreamInterceptor_DPUUnreachable(t *testing.T) {
 		}, nil
 	})
 
-	proxy := NewDPUProxy(resolver)
+	proxy := NewDPUProxy(resolver, allowDPURequest)
 	interceptor := proxy.StreamInterceptor()
 
 	handler := func(srv interface{}, ss grpc.ServerStream) error {

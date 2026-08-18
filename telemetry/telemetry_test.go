@@ -178,6 +178,61 @@ func TestFlags(t *testing.T) {
 	}
 }
 
+func TestFileRelayFlags(t *testing.T) {
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+	os.Args = []string{
+		"cmd", "-port", "50052",
+		"-server_crt", "server.crt", "-server_key", "server.key", "-ca_crt", "ca.crt",
+		"-hardware_proxy_file_relay_cert_cn", "hardware-proxy",
+		"-hardware_proxy_file_relay_desired_path", "/var/tmp/device-ops-agent/desired-software.json",
+		"-hardware_proxy_file_relay_status_path", "/var/tmp/device-ops-agent/software-status.json",
+	}
+	_, cfg, err := setupFlags(flag.NewFlagSet("file-relay", flag.ContinueOnError))
+	if err != nil {
+		t.Fatalf("setupFlags() error = %v", err)
+	}
+	if cfg.FileRelayCertificateCN != "hardware-proxy" ||
+		cfg.FileRelayDesiredPath != "/var/tmp/device-ops-agent/desired-software.json" ||
+		cfg.FileRelayStatusPath != "/var/tmp/device-ops-agent/software-status.json" {
+		t.Fatalf("unexpected relay config: %+v", cfg)
+	}
+}
+
+func TestFileRelayFlagsRequireVerifiedClientCertificate(t *testing.T) {
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+	for _, args := range [][]string{
+		{"cmd", "-port", "50052", "-insecure", "-hardware_proxy_file_relay_cert_cn", "hardware-proxy"},
+		{"cmd", "-port", "50052", "-noTLS", "-bind_address", "127.0.0.1", "-hardware_proxy_file_relay_cert_cn", "hardware-proxy"},
+		{"cmd", "-port", "50052", "-server_crt", "server.crt", "-server_key", "server.key", "-allow_no_client_auth", "-hardware_proxy_file_relay_cert_cn", "hardware-proxy"},
+	} {
+		os.Args = args
+		if _, _, err := setupFlags(flag.NewFlagSet("file-relay-tls", flag.ContinueOnError)); err == nil {
+			t.Fatalf("unsafe relay TLS flags accepted: %v", args)
+		}
+	}
+}
+
+func TestFileRelayFlagsRequireLocalUnixSocket(t *testing.T) {
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+	os.Args = []string{
+		"cmd", "-port", "50052", "-unix_socket", "",
+		"-server_crt", "server.crt", "-server_key", "server.key", "-ca_crt", "ca.crt",
+		"-hardware_proxy_file_relay_cert_cn", "hardware-proxy",
+		"-hardware_proxy_file_relay_desired_path", "/var/tmp/device-ops-agent/desired-software.json",
+		"-hardware_proxy_file_relay_status_path", "/var/tmp/device-ops-agent/software-status.json",
+	}
+	_, cfg, err := setupFlags(flag.NewFlagSet("file-relay-uds", flag.ContinueOnError))
+	if err != nil {
+		t.Fatalf("setupFlags() error = %v", err)
+	}
+	if _, err := gnmi.NewServer(cfg, nil, nil); err == nil || !strings.Contains(err.Error(), "local Unix socket") {
+		t.Fatalf("missing UDS error = %v", err)
+	}
+}
+
 func TestStartGNMIServer(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
