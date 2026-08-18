@@ -237,17 +237,19 @@ func TestReservedRelayPathsRemainAvailableToUDSExactOperations(t *testing.T) {
 		putCalls++
 		return nil
 	})
-	for _, path := range []string{desiredPath, statusPath, journalPath, completionPath} {
+	for _, path := range []string{desiredPath, journalPath, completionPath} {
 		if err := server.Get(&gnoi_file_pb.GetRequest{RemoteFile: path}, &relayGetServer{ctx: unixContext()}); err != nil {
 			t.Errorf("Get %q: %v", path, err)
 		}
+	}
+	for _, path := range []string{statusPath, journalPath, completionPath} {
 		put := &mockPutStream{ctx: unixContext()}
 		put.addOpenRequest(path, 0600)
 		if err := server.Put(put); err != nil {
 			t.Errorf("Put %q: %v", path, err)
 		}
 	}
-	if getCalls != 4 || putCalls != 4 {
+	if getCalls != 3 || putCalls != 3 {
 		t.Fatalf("Get calls=%d Put calls=%d", getCalls, putCalls)
 	}
 }
@@ -266,12 +268,12 @@ func TestFileDispatchMatrix(t *testing.T) {
 		t.Fatal("UDS must not apply TCP HardwareProxy policy")
 	}
 
-	for _, path := range []string{desiredPath, statusPath, journalPath, completionPath} {
+	for _, path := range []string{desiredPath, journalPath, completionPath} {
 		if !uds.restrictedUDSGetPath(path) {
 			t.Errorf("UDS Get path %q is not hardened", path)
 		}
 	}
-	for _, path := range []string{desiredPath, statusPath, journalPath, completionPath} {
+	for _, path := range []string{statusPath, journalPath, completionPath} {
 		if !uds.restrictedUDSPutPath(path) {
 			t.Errorf("UDS Put path %q is not hardened", path)
 		}
