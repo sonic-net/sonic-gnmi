@@ -21,6 +21,7 @@ import (
 
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
+	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
 	"github.com/fsnotify/fsnotify"
@@ -336,9 +337,14 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	}
 
 	if *telemetryCfg.PathsBlacklistFile != "" {
-		blacklist, err := gnmi.LoadPathsBlacklist(*telemetryCfg.PathsBlacklistFile)
+		blacklistFile, err := os.Open(*telemetryCfg.PathsBlacklistFile)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load paths_blacklist file: %v", err)
+			return nil, nil, fmt.Errorf("failed to open paths_blacklist file: %v", err)
+		}
+		blacklist, err := pathblacklist.Parse(blacklistFile)
+		blacklistFile.Close()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse paths_blacklist file %s: %v", *telemetryCfg.PathsBlacklistFile, err)
 		}
 		cfg.PathsBlacklist = blacklist
 		log.V(1).Infof("Loaded %d blacklist entries from %s", blacklist.Len(), *telemetryCfg.PathsBlacklistFile)

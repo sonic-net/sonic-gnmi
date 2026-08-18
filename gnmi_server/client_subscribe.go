@@ -176,10 +176,6 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 		return status.Error(codes.InvalidArgument, "Origin conflict between prefix and paths")
 	}
 
-	if err := config.PathsBlacklist.CheckPaths(prefix, paths); err != nil {
-		return err
-	}
-
 	if connectionKey, valid = connectionManager.Add(c.addr, query.String()); !valid {
 		return grpc.Errorf(codes.Unavailable, "Server connections are at capacity.")
 	}
@@ -230,6 +226,12 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 	ctx = stream.Context()
 	ctx, err = authenticate(config, ctx, authTarget, false)
 	if err != nil {
+		return err
+	}
+
+	// Checked after authenticate so unauthenticated callers get
+	// Unauthenticated instead of a policy result.
+	if err := checkPathsBlacklist(config.PathsBlacklist, prefix, paths); err != nil {
 		return err
 	}
 

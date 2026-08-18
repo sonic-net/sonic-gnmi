@@ -1,192 +1,171 @@
 package gnmi
 
 import (
-	"os"
-	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-func mustParseBlacklist(t *testing.T, content string) *PathsBlacklist {
+func mustPolicy(t *testing.T, content string) *pathblacklist.Policy {
 	t.Helper()
-	b, err := ParsePathsBlacklist(strings.NewReader(content), "test")
+	p, err := pathblacklist.Parse(strings.NewReader(content))
 	if err != nil {
-		t.Fatalf("ParsePathsBlacklist(%q) failed: %v", content, err)
+		t.Fatalf("Parse(%q) failed: %v", content, err)
 	}
-	return b
+	return p
 }
 
-func elemPath(target string, names ...string) (*gnmipb.Path, *gnmipb.Path) {
-	prefix := &gnmipb.Path{Target: target}
-	path := &gnmipb.Path{}
-	for _, name := range names {
-		path.Elem = append(path.Elem, &gnmipb.PathElem{Name: name})
-	}
-	return prefix, path
-}
-
-func TestParsePathsBlacklist(t *testing.T) {
-	tests := []struct {
-		desc    string
-		content string
-		wantLen int
-		wantErr bool
-	}{
-		{desc: "empty file", content: "", wantLen: 0},
-		{desc: "blank lines skipped", content: "\n\nCOUNTERS_DB /COUNTERS\n\n", wantLen: 1},
-		{desc: "multiple entries", content: "COUNTERS_DB /COUNTERS/Ethernet0\n* /a/b\n", wantLen: 2},
-		{desc: "wildcard elements", content: "APPL_DB /PORT_TABLE/*/oper_status\n", wantLen: 1},
-		{desc: "keyed path rejected", content: "APPL_DB /interfaces/interface[name=Ethernet0]/state\n", wantErr: true},
-		{desc: "missing path", content: "COUNTERS_DB\n", wantErr: true},
-		{desc: "too many fields", content: "COUNTERS_DB /COUNTERS extra\n", wantErr: true},
-		{desc: "empty path", content: "COUNTERS_DB /\n", wantErr: true},
-		{desc: "empty element", content: "APPL_DB /a//b\n", wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.desc, func(t *testing.T) {
-			b, err := ParsePathsBlacklist(strings.NewReader(tt.content), "test")
-			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("expected error, got nil")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if b.Len() != tt.wantLen {
-				t.Fatalf("Len() = %d, want %d", b.Len(), tt.wantLen)
-			}
-		})
-	}
-}
-
-func TestLoadPathsBlacklist(t *testing.T) {
-	if _, err := LoadPathsBlacklist("/nonexistent/blacklist.txt"); err == nil {
-		t.Fatal("expected error for missing file, got nil")
-	}
-
-	file := filepath.Join(t.TempDir(), "blacklist.txt")
-	if err := os.WriteFile(file, []byte("COUNTERS_DB /COUNTERS/Ethernet0\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	b, err := LoadPathsBlacklist(file)
-	if err != nil {
-		t.Fatalf("LoadPathsBlacklist failed: %v", err)
-	}
-	if b.Len() != 1 {
-		t.Fatalf("Len() = %d, want 1", b.Len())
-	}
-}
-
-func TestCheckPaths(t *testing.T) {
-	blacklist := mustParseBlacklist(t,
-		"COUNTERS_DB /COUNTERS/Ethernet0\n"+
-			"* /SECRET\n"+
-			"APPL_DB /PORT_TABLE/*/oper_status\n")
-
-	tests := []struct {
-		desc    string
-		target  string
-		elems   []string
-		blocked bool
-	}{
-		{desc: "exact match", target: "COUNTERS_DB", elems: []string{"COUNTERS", "Ethernet0"}, blocked: true},
-		{desc: "deeper than entry", target: "COUNTERS_DB", elems: []string{"COUNTERS", "Ethernet0", "SAI_PORT_STAT_IF_IN_ERRORS"}, blocked: true},
-		{desc: "ancestor of entry", target: "COUNTERS_DB", elems: []string{"COUNTERS"}, blocked: true},
-		{desc: "request wildcard covers entry", target: "COUNTERS_DB", elems: []string{"COUNTERS", "*"}, blocked: true},
-		{desc: "sibling allowed", target: "COUNTERS_DB", elems: []string{"COUNTERS", "Ethernet4"}, blocked: false},
-		{desc: "other target allowed", target: "CONFIG_DB", elems: []string{"COUNTERS", "Ethernet0"}, blocked: false},
-		{desc: "wildcard target blocks any target", target: "CONFIG_DB", elems: []string{"SECRET"}, blocked: true},
-		{desc: "wildcard entry element", target: "APPL_DB", elems: []string{"PORT_TABLE", "Ethernet12", "oper_status"}, blocked: true},
-		{desc: "wildcard entry element, other leaf", target: "APPL_DB", elems: []string{"PORT_TABLE", "Ethernet12", "admin_status"}, blocked: false},
-		{desc: "unrelated path allowed", target: "APPL_DB", elems: []string{"LLDP_ENTRY_TABLE"}, blocked: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.desc, func(t *testing.T) {
-			prefix, path := elemPath(tt.target, tt.elems...)
-			err := blacklist.CheckPaths(prefix, []*gnmipb.Path{path})
-			if tt.blocked {
-				if err == nil {
-					t.Fatal("expected PermissionDenied, got nil")
-				}
-				if status.Code(err) != codes.PermissionDenied {
-					t.Fatalf("expected PermissionDenied, got %v", err)
-				}
-			} else if err != nil {
-				t.Fatalf("expected nil, got %v", err)
-			}
-		})
-	}
-}
-
-func TestCheckPathsPrefixElems(t *testing.T) {
-	blacklist := mustParseBlacklist(t, "COUNTERS_DB /COUNTERS/Ethernet0\n")
-
-	// Path split across prefix elems and path elems.
-	prefix := &gnmipb.Path{
-		Target: "COUNTERS_DB",
-		Elem:   []*gnmipb.PathElem{{Name: "COUNTERS"}},
-	}
-	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "Ethernet0"}}}
-	if err := blacklist.CheckPaths(prefix, []*gnmipb.Path{path}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("expected PermissionDenied, got %v", err)
-	}
-}
-
-func TestCheckPathsDeprecatedElement(t *testing.T) {
-	blacklist := mustParseBlacklist(t, "COUNTERS_DB /COUNTERS/Ethernet0\n")
-
+func TestCheckPathsBlacklist(t *testing.T) {
+	policy := mustPolicy(t, "COUNTERS_DB /COUNTERS/Ethernet0\n")
 	prefix := &gnmipb.Path{Target: "COUNTERS_DB"}
-	path := &gnmipb.Path{Element: []string{"COUNTERS", "Ethernet0"}}
-	if err := blacklist.CheckPaths(prefix, []*gnmipb.Path{path}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("expected PermissionDenied, got %v", err)
-	}
-
-	allowed := &gnmipb.Path{Element: []string{"COUNTERS", "Ethernet4"}}
-	if err := blacklist.CheckPaths(prefix, []*gnmipb.Path{allowed}); err != nil {
-		t.Fatalf("expected nil, got %v", err)
-	}
-}
-
-func TestCheckPathsKeyedRequest(t *testing.T) {
-	// Keys on request elements are ignored; matching is by element name.
-	blacklist := mustParseBlacklist(t, "* /interfaces/interface/state\n")
-
-	prefix := &gnmipb.Path{}
-	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{
-		{Name: "interfaces"},
-		{Name: "interface", Key: map[string]string{"name": "Ethernet0"}},
-		{Name: "state"},
-	}}
-	if err := blacklist.CheckPaths(prefix, []*gnmipb.Path{path}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("expected PermissionDenied, got %v", err)
-	}
-}
-
-func TestCheckPathsNilBlacklist(t *testing.T) {
-	var blacklist *PathsBlacklist
-	prefix, path := elemPath("COUNTERS_DB", "COUNTERS", "Ethernet0")
-	if err := blacklist.CheckPaths(prefix, []*gnmipb.Path{path}); err != nil {
-		t.Fatalf("nil blacklist must allow everything, got %v", err)
-	}
-}
-
-func TestCheckPathsMultiplePaths(t *testing.T) {
-	blacklist := mustParseBlacklist(t, "COUNTERS_DB /COUNTERS/Ethernet0\n")
-	prefix := &gnmipb.Path{Target: "COUNTERS_DB"}
-	allowed := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}, {Name: "Ethernet4"}}}
 	blocked := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}, {Name: "Ethernet0"}}}
+	allowed := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}, {Name: "Ethernet4"}}}
 
-	// One blacklisted path anywhere in the request rejects the whole RPC.
-	if err := blacklist.CheckPaths(prefix, []*gnmipb.Path{allowed, blocked}); status.Code(err) != codes.PermissionDenied {
+	err := checkPathsBlacklist(policy, prefix, []*gnmipb.Path{allowed, blocked})
+	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("expected PermissionDenied, got %v", err)
 	}
-	if err := blacklist.CheckPaths(prefix, []*gnmipb.Path{allowed}); err != nil {
-		t.Fatalf("expected nil, got %v", err)
+	// The denial must be generic: no policy contents in the client-visible error.
+	if msg := status.Convert(err).Message(); strings.Contains(msg, "COUNTERS") {
+		t.Fatalf("error message leaks policy contents: %q", msg)
+	}
+
+	if err := checkPathsBlacklist(policy, prefix, []*gnmipb.Path{allowed}); err != nil {
+		t.Fatalf("expected nil for allowed path, got %v", err)
+	}
+	if err := checkPathsBlacklist(nil, prefix, []*gnmipb.Path{blocked}); err != nil {
+		t.Fatalf("nil policy must allow everything, got %v", err)
+	}
+}
+
+func TestNormalizeRequestPath(t *testing.T) {
+	tests := []struct {
+		desc   string
+		prefix *gnmipb.Path
+		path   *gnmipb.Path
+		want   pathblacklist.Path
+	}{
+		{
+			desc:   "target form",
+			prefix: &gnmipb.Path{Target: "CONFIG_DB"},
+			path:   &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "PORT"}}},
+			want:   pathblacklist.Path{Target: "CONFIG_DB", Elems: []string{"PORT"}},
+		},
+		{
+			desc:   "path split between prefix and path elems",
+			prefix: &gnmipb.Path{Target: "COUNTERS_DB", Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}}},
+			path:   &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "Ethernet0"}}},
+			want:   pathblacklist.Path{Target: "COUNTERS_DB", Elems: []string{"COUNTERS", "Ethernet0"}},
+		},
+		{
+			desc:   "deprecated Element field",
+			prefix: &gnmipb.Path{Target: "COUNTERS_DB", Element: []string{"COUNTERS"}},
+			path:   &gnmipb.Path{Element: []string{"Ethernet0"}},
+			want:   pathblacklist.Path{Target: "COUNTERS_DB", Elems: []string{"COUNTERS", "Ethernet0"}},
+		},
+		{
+			desc:   "mixed encodings: prefix Element with path Elem",
+			prefix: &gnmipb.Path{Target: "COUNTERS_DB", Element: []string{"COUNTERS"}},
+			path:   &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "Ethernet0"}}},
+			want:   pathblacklist.Path{Target: "COUNTERS_DB", Elems: []string{"COUNTERS", "Ethernet0"}},
+		},
+		{
+			desc:   "mixed encodings: prefix Elem with path Element",
+			prefix: &gnmipb.Path{Target: "COUNTERS_DB", Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}}},
+			path:   &gnmipb.Path{Element: []string{"Ethernet0"}},
+			want:   pathblacklist.Path{Target: "COUNTERS_DB", Elems: []string{"COUNTERS", "Ethernet0"}},
+		},
+		{
+			desc:   "keys on elements are ignored",
+			prefix: &gnmipb.Path{},
+			path: &gnmipb.Path{Elem: []*gnmipb.PathElem{
+				{Name: "interfaces"},
+				{Name: "interface", Key: map[string]string{"name": "Ethernet0"}},
+			}},
+			want: pathblacklist.Path{Elems: []string{"interfaces", "interface"}},
+		},
+		{
+			desc:   "sonic-db origin in prefix",
+			prefix: &gnmipb.Path{Origin: "sonic-db"},
+			path: &gnmipb.Path{Elem: []*gnmipb.PathElem{
+				{Name: "CONFIG_DB"}, {Name: "localhost"}, {Name: "PORT"}}},
+			want: pathblacklist.Path{Target: "CONFIG_DB", Elems: []string{"PORT"}},
+		},
+		{
+			desc:   "sonic-db origin in path",
+			prefix: nil,
+			path: &gnmipb.Path{Origin: "sonic-db", Elem: []*gnmipb.PathElem{
+				{Name: "CONFIG_DB"}, {Name: "localhost"}, {Name: "PORT"}, {Name: "Ethernet0"}}},
+			want: pathblacklist.Path{Target: "CONFIG_DB", Elems: []string{"PORT", "Ethernet0"}},
+		},
+		{
+			desc:   "sonic-db origin without table maps to whole database",
+			prefix: &gnmipb.Path{Origin: "sonic-db"},
+			path:   &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "CONFIG_DB"}, {Name: "localhost"}}},
+			want:   pathblacklist.Path{Target: "CONFIG_DB"},
+		},
+		{
+			desc:   "nil prefix and empty path",
+			prefix: nil,
+			path:   &gnmipb.Path{},
+			want:   pathblacklist.Path{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			got := normalizeRequestPath(tt.prefix, tt.path)
+			if got.Target != tt.want.Target || !reflect.DeepEqual(got.Elems, tt.want.Elems) {
+				t.Fatalf("normalizeRequestPath() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckPathsBlacklistSonicDbForm(t *testing.T) {
+	policy := mustPolicy(t, "CONFIG_DB /PORT\n")
+
+	// Both wire forms of the same request must be blocked.
+	targetForm := checkPathsBlacklist(policy,
+		&gnmipb.Path{Target: "CONFIG_DB"},
+		[]*gnmipb.Path{{Elem: []*gnmipb.PathElem{{Name: "PORT"}}}})
+	if status.Code(targetForm) != codes.PermissionDenied {
+		t.Fatalf("target form: expected PermissionDenied, got %v", targetForm)
+	}
+
+	nativeForm := checkPathsBlacklist(policy,
+		&gnmipb.Path{Origin: "sonic-db"},
+		[]*gnmipb.Path{{Elem: []*gnmipb.PathElem{
+			{Name: "CONFIG_DB"}, {Name: "localhost"}, {Name: "PORT"}}}})
+	if status.Code(nativeForm) != codes.PermissionDenied {
+		t.Fatalf("native form: expected PermissionDenied, got %v", nativeForm)
+	}
+
+	otherTable := checkPathsBlacklist(policy,
+		&gnmipb.Path{Origin: "sonic-db"},
+		[]*gnmipb.Path{{Elem: []*gnmipb.PathElem{
+			{Name: "CONFIG_DB"}, {Name: "localhost"}, {Name: "VLAN"}}}})
+	if otherTable != nil {
+		t.Fatalf("native form other table: expected nil, got %v", otherTable)
+	}
+}
+
+func TestCheckPathsBlacklistRootEntry(t *testing.T) {
+	policy := mustPolicy(t, "STATE_DB /\n")
+	blocked := checkPathsBlacklist(policy,
+		&gnmipb.Path{Target: "STATE_DB"},
+		[]*gnmipb.Path{{Elem: []*gnmipb.PathElem{{Name: "TRANSCEIVER_INFO"}}}})
+	if status.Code(blocked) != codes.PermissionDenied {
+		t.Fatalf("expected PermissionDenied for root entry, got %v", blocked)
+	}
+	allowed := checkPathsBlacklist(policy,
+		&gnmipb.Path{Target: "APPL_DB"},
+		[]*gnmipb.Path{{Elem: []*gnmipb.PathElem{{Name: "TRANSCEIVER_INFO"}}}})
+	if allowed != nil {
+		t.Fatalf("root entry must not affect other targets, got %v", allowed)
 	}
 }
