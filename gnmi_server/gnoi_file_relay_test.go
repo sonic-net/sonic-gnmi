@@ -486,19 +486,19 @@ func TestRelayOnlyUDSUsesRestrictedHandlers(t *testing.T) {
 		return nil
 	})
 
-	for _, path := range []string{desiredPath, statusPath, journalPath, completionPath} {
+	for _, path := range []string{desiredPath, journalPath, completionPath} {
 		if err := server.Get(&gnoi_file_pb.GetRequest{RemoteFile: path}, &relayGetServer{ctx: unixContext()}); err != nil {
 			t.Fatalf("UDS Get %q: %v", path, err)
 		}
 	}
-	for _, path := range []string{desiredPath, statusPath, journalPath, completionPath} {
+	for _, path := range []string{statusPath, journalPath, completionPath} {
 		stream := &mockPutStream{ctx: unixContext()}
 		stream.addOpenRequest(path, 0600)
 		if err := server.Put(stream); err != nil {
 			t.Fatalf("UDS Put %q: %v", path, err)
 		}
 	}
-	if getCalls != 4 || putCalls != 4 {
+	if getCalls != 3 || putCalls != 3 {
 		t.Fatalf("restricted Get calls=%d Put calls=%d", getCalls, putCalls)
 	}
 }

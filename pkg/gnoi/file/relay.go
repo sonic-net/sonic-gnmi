@@ -233,7 +233,7 @@ func HandleRestrictedPut(stream gnoi_file_pb.File_PutServer, allowedPath string)
 		return status.Errorf(codes.Internal, "failed to set relay file permissions: %v", err)
 	}
 
-	hasher := md5.New() // nosemgrep: MD5 is required by the gNOI File protocol.
+	hasher := md5.New() // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5 -- gNOI File requires MD5 wire integrity.
 	written := 0
 	for {
 		req, recvErr := stream.Recv()
@@ -352,7 +352,7 @@ func HandleRestrictedGet(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.File_
 	if len(data) > relayMaxFileSize {
 		return status.Errorf(codes.ResourceExhausted, "relay status file exceeds maximum size of %d bytes", relayMaxFileSize)
 	}
-	digest := md5.Sum(data) // nosemgrep: MD5 is required by the gNOI File protocol.
+	digest := md5.Sum(data) // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5 -- gNOI File requires MD5 wire integrity.
 	for len(data) > 0 {
 		chunkSize := len(data)
 		if chunkSize > relayMaxFileSize {

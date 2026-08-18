@@ -46,6 +46,7 @@ import (
 	gnsi_certz_pb "github.com/openconfig/gnsi/certz"
 	gnsi_credentialz_pb "github.com/openconfig/gnsi/credentialz"
 	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
+	gnoifile "github.com/sonic-net/sonic-gnmi/pkg/gnoi/file"
 	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 	gnoi_oras_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/oras"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"

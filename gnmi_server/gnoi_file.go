@@ -127,11 +127,15 @@ func (srv *FileServer) internalRelayPath(path string) bool {
 }
 
 func (srv *FileServer) restrictedUDSGetPath(path string) bool {
-	return srv.restrictedRelayPath(path)
+	return path == srv.config.FileRelayDesiredPath ||
+		path == srv.config.FileRelayJournalPath ||
+		path == srv.config.FileRelayCompletionPath
 }
 
 func (srv *FileServer) restrictedUDSPutPath(path string) bool {
-	return srv.restrictedRelayPath(path)
+	return path == srv.config.FileRelayStatusPath ||
+		path == srv.config.FileRelayJournalPath ||
+		path == srv.config.FileRelayCompletionPath
 }
 
 func (srv *FileServer) restrictedRelayPath(path string) bool {
