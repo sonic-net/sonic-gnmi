@@ -79,6 +79,17 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 	$(GO) mod download github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2
 	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* vendor/github.com/google/gnxi/
 
+# x/crypto/ssh/terminal imports x/term in v0.24.0+; gnmi_cli uses ssh/terminal
+# but go mod vendor omits both because the unpatched code doesn't import them.
+# Copy both explicitly so gnmi_cli can compile after patches are applied.
+	$(GO) mod download golang.org/x/term@v0.43.0
+	mkdir -p vendor/golang.org/x/crypto/ssh/terminal vendor/golang.org/x/term
+	cp $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.52.0/ssh/terminal/terminal.go \
+		vendor/golang.org/x/crypto/ssh/terminal/
+	rsync -r --chmod=u+w --exclude=testdata --exclude='*_test.go' \
+		$(GOPATH)/pkg/mod/golang.org/x/term@v0.43.0/ vendor/golang.org/x/term/
+	python3 -c 'p="# golang.org/x/term v0.43.0\n"; r=p+"## explicit; go 1.25.0\ngolang.org/x/term\n"; txt=open("vendor/modules.txt").read(); open("vendor/modules.txt","w").write(txt.replace(p,r,1) if "golang.org/x/term\n" not in txt else txt)'
+
 # Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
 	sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
@@ -120,14 +131,9 @@ endif
 
 endif
 
-# download and apply patch for gnmi client, which will break advancetls
-# backup crypto and gnxi
-	mkdir -p backup_crypto
-	cp -r vendor/golang.org/x/crypto/* backup_crypto/
-
-# download and patch crypto and gnxi
-	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
-	cp -r $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413/* vendor/golang.org/x/crypto/
+# download and apply patch for gnmi client
+# use the already-vendored crypto (no longer need the old 2019 override;
+# x/crypto v0.24.0+ retains ssh/terminal and RevokedCertificates backward compat)
 	chmod -R u+w vendor
 	patch -d vendor -p0 < patches/gnmi_cli.all.patch
 	patch -d vendor -p0 < patches/gnmi_set.patch
@@ -155,10 +161,6 @@ else
 	$(GO) install -mod=vendor github.com/google/gnxi/gnmi_set
 	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 endif
-
-# restore old version
-	rm -rf vendor/golang.org/x/crypto/
-	mv backup_crypto/ vendor/golang.org/x/crypto/
 
 swsscommon_wrap:
 	make -C swsscommon
@@ -415,7 +417,6 @@ endif
 clean:
 	$(RM) -r build
 	$(RM) -r vendor
-	$(RM) -r backup_crypto
 
 # File target that generates a diff file if formatting is incorrect
 $(FORMAT_CHECK): $(GO_FILES)
