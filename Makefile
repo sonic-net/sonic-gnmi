@@ -90,17 +90,7 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 		vendor/golang.org/x/crypto/ssh/terminal/
 	rsync -r --chmod=u+w --exclude=testdata --exclude='*_test.go' \
 		$(GOPATH)/pkg/mod/golang.org/x/term@v0.43.0/ vendor/golang.org/x/term/
-	python3 -c '
-import re, sys
-txt = open("vendor/modules.txt").read()
-pkg = "golang.org/x/term\n"
-if pkg not in txt:
-    m = re.search(r"^(# golang\.org/x/term [^\n]+\n## explicit[^\n]*\n)", txt, re.MULTILINE)
-    if not m:
-        sys.exit("ERROR: golang.org/x/term block not found in vendor/modules.txt; run go mod vendor first")
-    txt = txt[:m.end()] + pkg + txt[m.end():]
-    open("vendor/modules.txt", "w").write(txt)
-'
+	python3 -c 'import re, sys; txt=open("vendor/modules.txt").read(); pkg="golang.org/x/term\n"; m=re.search(r"^(# golang\.org/x/term [^\n]+\n## explicit[^\n]*\n)", txt, re.MULTILINE) if pkg not in txt else None; sys.exit("ERROR: golang.org/x/term block not found in vendor/modules.txt") if pkg not in txt and not m else None; open("vendor/modules.txt","w").write(txt[:m.end()]+pkg+txt[m.end():]) if m else None'
 	$(GO) mod download github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802
 	mkdir -p vendor/github.com/openconfig/gnmi/cmd/gnmi_cli \
 		vendor/github.com/openconfig/gnmi/cli \
