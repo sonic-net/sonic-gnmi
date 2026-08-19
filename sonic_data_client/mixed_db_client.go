@@ -239,7 +239,7 @@ func GetTableKeySeparatorByDBKey(target string, dbkey swsscommon.SonicDBKey) (st
 }
 
 func parseJson(str []byte) (interface{}, error) {
-	var res interface{}
+	var res interface{} // nosemgrep: go-unsafe-deserialization-interface -- generic JSON parse for dynamic DB keys
 	err := json.Unmarshal(str, &res)
 	if err != nil {
 		return res, fmt.Errorf("JSON unmarshalling error: %v", err)

@@ -1507,3 +1507,52 @@ func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
 	m.Run()
 }
+
+func TestPathsBlacklistFlag(t *testing.T) {
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	validFile := filepath.Join(t.TempDir(), "blacklist.txt")
+	if err := os.WriteFile(validFile, []byte("COUNTERS_DB /COUNTERS/Ethernet0\n* /SECRET\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	malformedFile := filepath.Join(t.TempDir(), "malformed.txt")
+	if err := os.WriteFile(malformedFile, []byte("COUNTERS_DB\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	baseArgs := []string{"cmd", "-port", "9090", "-noTLS", "-bind_address", "127.0.0.1"}
+
+	tests := []struct {
+		desc    string
+		args    []string
+		wantLen int
+		wantErr bool
+	}{
+		{desc: "valid blacklist file", args: append(baseArgs, "-paths_blacklist", validFile), wantLen: 2},
+		{desc: "flag not passed disables blacklist", args: baseArgs, wantLen: 0},
+		{desc: "missing file", args: append(baseArgs, "-paths_blacklist", "/nonexistent/blacklist.txt"), wantErr: true},
+		{desc: "malformed file", args: append(baseArgs, "-paths_blacklist", malformedFile), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			fs := flag.NewFlagSet("testPathsBlacklist", flag.ContinueOnError)
+			os.Args = tt.args
+			_, cfg, err := setupFlags(fs)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.PathsBlacklist.Len() != tt.wantLen {
+				t.Fatalf("PathsBlacklist.Len() = %d, want %d", cfg.PathsBlacklist.Len(), tt.wantLen)
+			}
+		})
+	}
+}

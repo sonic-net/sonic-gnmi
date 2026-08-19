@@ -42,4 +42,5 @@ EXPOSE 22/tcp
 # Following will expose 6379 port. Not needed except dugging.
 EXPOSE 6379/tcp
 
+USER root # nosemgrep: last-user-is-root,missing-user-entrypoint -- dev-only container, root required for sshd
 ENTRYPOINT service ssh restart && bash
