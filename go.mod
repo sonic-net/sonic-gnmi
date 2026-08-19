@@ -13,7 +13,7 @@ require (
 	github.com/go-redis/redismock/v9 v9.2.0
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gogo/protobuf v1.3.2
-	github.com/golang/glog v1.2.5
+	github.com/golang/glog v1.2.4
 	github.com/golang/mock v1.7.0-rc.1 // no stable v1.7.0; forced by cloud.google.com/go/spanner transitive dep
 	github.com/golang/protobuf v1.5.4
 	github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2
@@ -76,7 +76,7 @@ require (
 replace (
 	github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common
 	// Glog patch needs to be updated to remove this.
-	github.com/golang/glog => github.com/golang/glog v1.2.5
+	github.com/golang/glog => github.com/golang/glog v1.2.4
 	github.com/openconfig/gnmi => github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
 	golang.org/x/crypto => golang.org/x/crypto v0.52.0
 	golang.org/x/sys => golang.org/x/sys v0.45.0
