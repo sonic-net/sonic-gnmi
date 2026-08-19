@@ -1356,3 +1356,59 @@ func TestTrieBacktracking_DeadEndAtNonTerminal(t *testing.T) {
 		t.Fatal("expected trie NOT to find path ending at non-terminal node")
 	}
 }
+
+// --------------------------------------------------------------------------
+// Tests for GetPfcwdMap (virtual_db.go) - uses miniredis
+// --------------------------------------------------------------------------
+
+func setupMiniredisForConfigDb(t *testing.T) (*miniredis.Miniredis, string, func()) {
+	t.Helper()
+
+	mr := miniredis.RunT(t)
+	sdcfg.Init()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	sep, err := GetTableKeySeparator("CONFIG_DB", ns)
+	if err != nil {
+		t.Fatalf("GetTableKeySeparator: %v", err)
+	}
+
+	origTarget := Target2RedisDb
+	Target2RedisDb = map[string]map[string]*redis.Client{
+		ns: {
+			"CONFIG_DB": redis.NewClient(&redis.Options{Addr: mr.Addr()}),
+		},
+	}
+
+	return mr, sep, func() {
+		Target2RedisDb = origTarget
+	}
+}
+
+func TestGetPfcwdMap_PfcWdNotEnabled(t *testing.T) {
+	_, _, restore := setupMiniredisForConfigDb(t)
+	defer restore()
+
+	m, err := GetPfcwdMap()
+	if err != nil {
+		t.Fatalf("GetPfcwdMap returned error: %v", err)
+	}
+	if m != nil {
+		t.Fatalf("expected nil map when PFC_WD keys are absent, got %#v", m)
+	}
+}
+
+func TestGetPfcwdMap_PortQosMapEmpty(t *testing.T) {
+	mr, sep, restore := setupMiniredisForConfigDb(t)
+	defer restore()
+
+	// PFC_WD entries exist, but PORT_QOS_MAP* is absent.
+	mr.Set("PFC_WD"+sep+"Ethernet0", "1")
+
+	m, err := GetPfcwdMap()
+	if err != nil {
+		t.Fatalf("GetPfcwdMap returned error: %v", err)
+	}
+	if m != nil {
+		t.Fatalf("expected nil map when PORT_QOS_MAP keys are absent, got %#v", m)
+	}
+}
