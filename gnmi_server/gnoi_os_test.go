@@ -19,6 +19,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 	"unsafe"
@@ -803,9 +804,19 @@ func TestProcessTransferContent_WriteError(t *testing.T) {
 		return f, nil
 	})
 
-	// Patch (*os.File).Write to return an error (simulating write failure)
-	patches.ApplyMethod(reflect.TypeOf(f), "Write", func(_ *os.File, b []byte) (int, error) {
-		return 0, errors.New("simulated Write failure")
+	// Patch (*os.File).Write to return an error for our dummy file only.
+	// For all other files (glog's log files, stderr, etc.), use syscall.Write
+	// directly to bypass the gomonkey patch and avoid glog's error-exit path.
+	patches.ApplyMethod(reflect.TypeOf(f), "Write", func(file *os.File, b []byte) (int, error) {
+		if file == f {
+			return 0, errors.New("simulated Write failure")
+		}
+		// Pass through to the real underlying write (avoids recursion).
+		n, err := syscall.Write(int(file.Fd()), b)
+		if err != nil {
+			return n, &os.PathError{Op: "write", Path: file.Name(), Err: err}
+		}
+		return n, nil
 	})
 
 	// Patch (*os.File).Close to simulate a clean close (no error)
