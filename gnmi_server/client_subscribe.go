@@ -229,6 +229,12 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 		return err
 	}
 
+	// Checked after authenticate so unauthenticated callers get
+	// Unauthenticated instead of a policy result.
+	if err := checkPathsBlacklist(config.PathsBlacklist, prefix, paths); err != nil {
+		return err
+	}
+
 	switch mode {
 	case gnmipb.SubscriptionList_STREAM:
 		c.stop = make(chan struct{}, 1)

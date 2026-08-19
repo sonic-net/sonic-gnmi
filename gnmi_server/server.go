@@ -22,6 +22,7 @@ import (
 	gnsi_pathz_pb "github.com/openconfig/gnsi/pathz"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
+	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
 	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
@@ -122,6 +123,11 @@ func (s *Server) handleOperationalGet(ctx context.Context, req *gnmipb.GetReques
 	authTarget := "gnoi"
 	ctx, err := authenticate(s.config, ctx, authTarget, false)
 	if err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, err
+	}
+
+	if err := checkPathsBlacklist(s.config.PathsBlacklist, prefix, paths); err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, err
 	}
@@ -260,6 +266,9 @@ type Config struct {
 	// When empty, binds to all interfaces (0.0.0.0). Use "127.0.0.1" to
 	// restrict to localhost only (e.g. when running without TLS).
 	BindAddress string
+	// PathsBlacklist rejects Get/Set/Subscribe requests referencing
+	// blacklisted paths. Nil disables enforcement.
+	PathsBlacklist *pathblacklist.Policy
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -1046,6 +1055,12 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, err
 	}
+	// Checked after authenticate so unauthenticated callers get
+	// Unauthenticated instead of a policy result.
+	if err := checkPathsBlacklist(s.config.PathsBlacklist, prefix, paths); err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, err
+	}
 	spbValues, err := dc.Get(nil)
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
@@ -1100,6 +1115,24 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	if s.config.EnableTranslibWrite == false && s.config.EnableNativeWrite == false {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
+	}
+	// Unlike Get/Subscribe this runs before authenticate: the bypass fast
+	// path below executes writes before authenticate is reached, so a later
+	// check could be bypassed. The error is generic, so nothing about the
+	// policy contents is exposed to unauthenticated callers.
+	if s.config.PathsBlacklist.Len() != 0 {
+		setPaths := make([]*gnmipb.Path, 0, len(req.GetDelete())+len(req.GetReplace())+len(req.GetUpdate()))
+		setPaths = append(setPaths, req.GetDelete()...)
+		for _, update := range req.GetReplace() {
+			setPaths = append(setPaths, update.GetPath())
+		}
+		for _, update := range req.GetUpdate() {
+			setPaths = append(setPaths, update.GetPath())
+		}
+		if err := checkPathsBlacklist(s.config.PathsBlacklist, req.GetPrefix(), setPaths); err != nil {
+			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+			return nil, err
+		}
 	}
 	// gNMI path based authorization
 	if s.config.PathzPolicy {
