@@ -316,7 +316,7 @@ check_memleak: $(DBCONFG) $(ENVFILE)
 .PHONY: check_memleak_junit
 check_memleak_junit: $(DBCONFG) $(ENVFILE)
 	@echo "Installing gotestsum for memory leak JUnit XML generation..."
-	sudo $(GO) install gotest.tools/gotestsum@v1.11.0
+	sudo $(GO) install gotest.tools/gotestsum@v1.13.0
 	@echo "Running memory leak tests with JUnit XML output..."
 	@mkdir -p test-results
 	CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" \
@@ -342,7 +342,7 @@ check_memleak_junit: $(DBCONFG) $(ENVFILE)
 .PHONY: check_gotest_junit
 check_gotest_junit: $(DBCONFG) $(ENVFILE)
 	@echo "Installing gotestsum for integration test JUnit XML generation..."
-	sudo $(GO) install gotest.tools/gotestsum@v1.11.0
+	sudo $(GO) install gotest.tools/gotestsum@v1.13.0
 	@echo "Running integration tests with JUnit XML output..."
 	@mkdir -p test-results
 	
