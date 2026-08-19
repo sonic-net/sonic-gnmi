@@ -494,4 +494,3 @@ diff-cover: coverage.xml test-results/coverage-pure.xml
 		--src-roots . \
 		--fail-under $(DIFF_COVER_THRESHOLD)
 
-
