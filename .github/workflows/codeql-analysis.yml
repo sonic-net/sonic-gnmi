@@ -35,6 +35,11 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+    - name: Set up Go
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      with:
+        go-version: '1.25'
+
     # Checkout sonic-mgmt-common repository which is used by sonic-gnmi
     - name: Checkout sonic-mgmt-common repository
       uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

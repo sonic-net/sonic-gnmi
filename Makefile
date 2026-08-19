@@ -79,6 +79,31 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 	$(GO) mod download github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2
 	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* vendor/github.com/google/gnxi/
 
+# x/crypto/ssh/terminal imports x/term in v0.24.0+; gnmi_cli uses ssh/terminal
+# but go mod vendor omits both because the unpatched code doesn't import them.
+# Copy both explicitly so gnmi_cli can compile after patches are applied.
+# Also copy cmd/gnmi_cli and cli from the pinned gnmi module (go mod vendor omits
+# cmd packages that are not imported by any package in this module).
+	$(GO) mod download golang.org/x/term@v0.42.0
+	mkdir -p vendor/golang.org/x/crypto/ssh/terminal vendor/golang.org/x/term
+	cp $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.24.0/ssh/terminal/terminal.go \
+		vendor/golang.org/x/crypto/ssh/terminal/
+	rsync -r --chmod=u+w --exclude=testdata --exclude='*_test.go' \
+		$(GOPATH)/pkg/mod/golang.org/x/term@v0.42.0/ vendor/golang.org/x/term/
+	python3 -c 'import re, sys; txt=open("vendor/modules.txt").read(); pkg="golang.org/x/term\n"; m=re.search(r"^(# golang\.org/x/term [^\n]+\n## explicit[^\n]*\n)", txt, re.MULTILINE) if pkg not in txt else None; sys.exit("ERROR: golang.org/x/term block not found in vendor/modules.txt") if pkg not in txt and not m else None; open("vendor/modules.txt","w").write(txt[:m.end()]+pkg+txt[m.end():]) if m else None'
+	$(GO) mod download github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802
+	mkdir -p vendor/github.com/openconfig/gnmi/cmd/gnmi_cli \
+		vendor/github.com/openconfig/gnmi/cli \
+		vendor/github.com/openconfig/gnmi/client/flags
+	cp $(GOPATH)/pkg/mod/github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802/cmd/gnmi_cli/gnmi_cli.go \
+		vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/
+	cp $(GOPATH)/pkg/mod/github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802/cli/cli.go \
+		vendor/github.com/openconfig/gnmi/cli/
+	cp $(GOPATH)/pkg/mod/github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802/client/flags/intmap.go \
+		$(GOPATH)/pkg/mod/github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802/client/flags/stringlist.go \
+		$(GOPATH)/pkg/mod/github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802/client/flags/stringmap.go \
+		vendor/github.com/openconfig/gnmi/client/flags/
+
 # Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
 	sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
@@ -120,14 +145,9 @@ endif
 
 endif
 
-# download and apply patch for gnmi client, which will break advancetls
-# backup crypto and gnxi
-	mkdir -p backup_crypto
-	cp -r vendor/golang.org/x/crypto/* backup_crypto/
-
-# download and patch crypto and gnxi
-	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
-	cp -r $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413/* vendor/golang.org/x/crypto/
+# download and apply patch for gnmi client
+# use the already-vendored crypto (no longer need the old 2019 override;
+# x/crypto v0.24.0+ retains ssh/terminal and RevokedCertificates backward compat)
 	chmod -R u+w vendor
 	patch -d vendor -p0 < patches/gnmi_cli.all.patch
 	patch -d vendor -p0 < patches/gnmi_set.patch
@@ -155,10 +175,6 @@ else
 	$(GO) install -mod=vendor github.com/google/gnxi/gnmi_set
 	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 endif
-
-# restore old version
-	rm -rf vendor/golang.org/x/crypto/
-	mv backup_crypto/ vendor/golang.org/x/crypto/
 
 swsscommon_wrap:
 	make -C swsscommon
@@ -300,7 +316,7 @@ check_memleak: $(DBCONFG) $(ENVFILE)
 .PHONY: check_memleak_junit
 check_memleak_junit: $(DBCONFG) $(ENVFILE)
 	@echo "Installing gotestsum for memory leak JUnit XML generation..."
-	sudo $(GO) install gotest.tools/gotestsum@v1.12.3
+	sudo $(GO) install gotest.tools/gotestsum@v1.13.0
 	@echo "Running memory leak tests with JUnit XML output..."
 	@mkdir -p test-results
 	CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" \
@@ -326,7 +342,7 @@ check_memleak_junit: $(DBCONFG) $(ENVFILE)
 .PHONY: check_gotest_junit
 check_gotest_junit: $(DBCONFG) $(ENVFILE)
 	@echo "Installing gotestsum for integration test JUnit XML generation..."
-	sudo $(GO) install gotest.tools/gotestsum@v1.12.3
+	sudo $(GO) install gotest.tools/gotestsum@v1.13.0
 	@echo "Running integration tests with JUnit XML output..."
 	@mkdir -p test-results
 	
@@ -415,7 +431,6 @@ endif
 clean:
 	$(RM) -r build
 	$(RM) -r vendor
-	$(RM) -r backup_crypto
 
 # File target that generates a diff file if formatting is incorrect
 $(FORMAT_CHECK): $(GO_FILES)
