@@ -825,6 +825,320 @@ func TestGetZmqClient(t *testing.T) {
 	}
 }
 
+// TestSanitizeRateValue covers scalar COUNTERS_DB RATES field formatting used
+// by direct-HGet GET and field-granularity subscribe paths.
+func TestSanitizeRateValue(t *testing.T) {
+	tests := []struct {
+		table, field, in, want string
+	}{
+		{"RATES", "RX_PPS", "7.3011167208919444e-22", "0"},
+		{"RATES", "RX_PPS", "0.11783383054514969", "0.12"},
+		{"RATES", "RX_PPS", "25.0", "25.00"},
+		{"RATES", "FEC_POST_BER", "0.004", "0.004"},
+		{"COUNTERS", "RX_PPS", "7.3e-22", "7.3e-22"},
+		{"RATES", "RX_PPS", "not-a-number", "not-a-number"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.table+"/"+tc.field, func(t *testing.T) {
+			got := sanitizeRateValue(tc.table, tc.field, tc.in)
+			if got != tc.want {
+				t.Errorf("sanitizeRateValue(%q, %q, %q) = %q, want %q",
+					tc.table, tc.field, tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSanitizeRateResidue covers the COUNTERS_DB RATES sanitizer, which
+// renders the orchagent EWMA-smoothed rate fields at CLI precision (%.2f /s)
+// rather than raw IEEE-754 doubles.
+func TestSanitizeRateResidue(t *testing.T) {
+	tests := []struct {
+		name  string
+		table string
+		in    map[string]string
+		want  map[string]string
+	}{
+		{
+			name:  "trap RATES arp_req denormal residue rounds to 0",
+			table: "RATES",
+			in: map[string]string{
+				"RX_PPS":                        "7.3011167208919444e-22",
+				"SAI_COUNTER_STAT_BYTES":        "592",
+				"SAI_COUNTER_STAT_PACKETS":      "4",
+				"SAI_COUNTER_STAT_PACKETS_last": "4",
+			},
+			want: map[string]string{
+				"RX_PPS":                        "0",
+				"SAI_COUNTER_STAT_BYTES":        "592",
+				"SAI_COUNTER_STAT_PACKETS":      "4",
+				"SAI_COUNTER_STAT_PACKETS_last": "4",
+			},
+		},
+		{
+			name:  "trap RATES bgp slow-decay value rounds to two decimals",
+			table: "RATES",
+			in: map[string]string{
+				"RX_PPS":                        "0.11783383054514969",
+				"SAI_COUNTER_STAT_BYTES":        "54397",
+				"SAI_COUNTER_STAT_PACKETS":      "256",
+				"SAI_COUNTER_STAT_PACKETS_last": "256",
+			},
+			want: map[string]string{
+				"RX_PPS":                        "0.12",
+				"SAI_COUNTER_STAT_BYTES":        "54397",
+				"SAI_COUNTER_STAT_PACKETS":      "256",
+				"SAI_COUNTER_STAT_PACKETS_last": "256",
+			},
+		},
+		{
+			name:  "healthy multi-PPS rate keeps two-decimal form",
+			table: "RATES",
+			in:    map[string]string{"RX_PPS": "7.234567"},
+			want:  map[string]string{"RX_PPS": "7.23"},
+		},
+		{
+			name:  "unparseable values left alone (no silent zeroing)",
+			table: "RATES",
+			in:    map[string]string{"RX_PPS": "not-a-number", "TX_PPS": ""},
+			want:  map[string]string{"RX_PPS": "not-a-number", "TX_PPS": ""},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := make(map[string]string, len(tc.in))
+			for k, v := range tc.in {
+				got[k] = v
+			}
+			sanitizeRateResidue(tc.table, got)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("sanitizeRateResidue(%q, ...) = %v, want %v", tc.table, got, tc.want)
+			}
+		})
+	}
+
+	sanitizeRateResidue("RATES", nil)
+	sanitizeRateResidue("RATES", map[string]string{})
+}
+
+const (
+	ratesTestOID  = "oid:0x9000000000001"
+	ratesTestKey  = "RATES:" + ratesTestOID
+	ratesDenormal = "7.3011167208919444e-22"
+)
+
+func seedRatesRXPPSTestData(t *testing.T, rclient *redis.Client) {
+	t.Helper()
+	if err := rclient.HSet(context.Background(), ratesTestKey, "RX_PPS", ratesDenormal).Err(); err != nil {
+		t.Fatalf("HSet RATES test data: %v", err)
+	}
+	t.Cleanup(func() { rclient.Del(context.Background(), ratesTestKey) })
+}
+
+func ratesFieldTablePath(ns string) tablePath {
+	return tablePath{
+		dbNamespace: ns,
+		dbName:      "COUNTERS_DB",
+		tableName:   "RATES",
+		tableKey:    ratesTestOID,
+		delimitor:   ":",
+		field:       "RX_PPS",
+		index:       -1,
+	}
+}
+
+// TestSanitizeRateReadPaths covers COUNTERS_DB RATES sanitization on the
+// direct-HGet code paths added in db_client.go and mixed_db_client.go.
+func TestSanitizeRateReadPaths(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+	ns := ""
+	rclient := Target2RedisDb[ns]["COUNTERS_DB"]
+	seedRatesRXPPSTestData(t, rclient)
+	ratesPath := ratesFieldTablePath(ns)
+
+	t.Run("TableData2TypedValue", func(t *testing.T) {
+		val, err := tableData2TypedValue([]tablePath{ratesPath}, nil)
+		if err != nil {
+			t.Fatalf("tableData2TypedValue: %v", err)
+		}
+		got := val.GetStringVal()
+		if got != "0" {
+			t.Fatalf("tableData2TypedValue RX_PPS = %q, want %q", got, "0")
+		}
+	})
+
+	t.Run("SubscribeTableData2TypedValue", func(t *testing.T) {
+		val, err, ok := subscribeTableData2TypedValue([]tablePath{ratesPath}, nil)
+		if err != nil {
+			t.Fatalf("subscribeTableData2TypedValue: %v", err)
+		}
+		if !ok {
+			t.Fatal("expected updateReceived=true")
+		}
+		got := val.GetStringVal()
+		if got != "0" {
+			t.Fatalf("subscribeTableData2TypedValue RX_PPS = %q, want %q", got, "0")
+		}
+	})
+
+	t.Run("DbFieldSubscribe", func(t *testing.T) {
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{
+			{Name: "RATES"}, {Name: ratesTestOID}, {Name: "RX_PPS"},
+		}}
+		c := DbClient{
+			pathG2S: map[*gnmipb.Path][]tablePath{gnmiPath: {ratesPath}},
+			q:       pq,
+			channel: make(chan struct{}),
+			w:       &w,
+		}
+		c.synced.Add(1)
+		w.Add(1)
+		go dbFieldSubscribe(&c, gnmiPath, false, time.Hour)
+		c.synced.Wait()
+
+		items, err := pq.Get(1)
+		if err != nil {
+			t.Fatalf("queue Get: %v", err)
+		}
+		got := items[0].(Value).GetVal().GetStringVal()
+		if got != "0" {
+			t.Fatalf("dbFieldSubscribe RX_PPS = %q, want %q", got, "0")
+		}
+		close(c.channel)
+		w.Wait()
+	})
+
+	t.Run("DbFieldMultiSubscribe", func(t *testing.T) {
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "TRAP_FLOW_COUNTER"}}}
+		multiPath := ratesPath
+		multiPath.jsonField = "RX_PPS"
+		multiPath.jsonTableKey = "arp_req"
+		c := DbClient{
+			pathG2S: map[*gnmipb.Path][]tablePath{gnmiPath: {multiPath}},
+			q:       pq,
+			channel: make(chan struct{}),
+			w:       &w,
+		}
+		c.synced.Add(1)
+		w.Add(1)
+		go dbFieldMultiSubscribe(&c, gnmiPath, false, time.Hour, false)
+		c.synced.Wait()
+
+		items, err := pq.Get(1)
+		if err != nil {
+			t.Fatalf("queue Get: %v", err)
+		}
+		got := items[0].(Value).GetVal().GetJsonIetfVal()
+		var msi map[string]interface{}
+		if err := json.Unmarshal(got, &msi); err != nil {
+			t.Fatalf("unmarshal multi-subscribe payload: %v", err)
+		}
+		entry, ok := msi["arp_req"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected arp_req entry in %v", msi)
+		}
+		if entry["RX_PPS"] != "0" {
+			t.Fatalf("dbFieldMultiSubscribe RX_PPS = %v, want 0", entry["RX_PPS"])
+		}
+		close(c.channel)
+		w.Wait()
+	})
+}
+
+func TestMixedDbClientSanitizeRateReadPaths(t *testing.T) {
+	mapkey := ":"
+	cleanup := setupMixedDbRedis(t, mapkey)
+	defer cleanup()
+	ns := ""
+	rclient := Target2RedisDb[ns]["COUNTERS_DB"]
+	seedRatesRXPPSTestData(t, rclient)
+	ratesPath := ratesFieldTablePath(ns)
+
+	t.Run("TableData2TypedValue", func(t *testing.T) {
+		c := MixedDbClient{mapkey: mapkey, encoding: gnmipb.Encoding_JSON_IETF}
+		val, err, ok := c.tableData2TypedValue([]tablePath{ratesPath}, nil)
+		if err != nil {
+			t.Fatalf("tableData2TypedValue: %v", err)
+		}
+		if !ok {
+			t.Fatal("expected updateReceived=true")
+		}
+		var got string
+		if err := json.Unmarshal(val.GetJsonIetfVal(), &got); err != nil {
+			t.Fatalf("unmarshal JsonIetfVal: %v", err)
+		}
+		if got != "0" {
+			t.Fatalf("mixed tableData2TypedValue RX_PPS = %q, want %q", got, "0")
+		}
+	})
+
+	t.Run("TableData2Msi_DeriveRateTableFromDbkey", func(t *testing.T) {
+		stateClient := Target2RedisDb[ns]["STATE_DB"]
+		stateClient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
+		stateClient.HSet(context.Background(), "|weird", "peerType", "e-BGP")
+		t.Cleanup(func() {
+			stateClient.Del(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "|weird")
+		})
+
+		c := MixedDbClient{mapkey: mapkey, encoding: gnmipb.Encoding_JSON_IETF}
+		msi := make(map[string]interface{})
+		tblPath := tablePath{dbNamespace: ns, dbName: "STATE_DB", tableName: "", delimitor: "|"}
+		if err := c.tableData2Msi(&tblPath, false, nil, &msi); err != nil {
+			t.Fatalf("tableData2Msi: %v", err)
+		}
+		if len(msi) == 0 {
+			t.Fatal("expected tableData2Msi to read STATE_DB keys")
+		}
+	})
+
+	t.Run("DbFieldSubscribe", func(t *testing.T) {
+		pq := queue.NewPriorityQueue(1, false)
+		w := sync.WaitGroup{}
+		prefix := &gnmipb.Path{Elem: []*gnmipb.PathElem{
+			{Name: "COUNTERS_DB"}, {Name: "localhost"},
+		}}
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{
+			{Name: "RATES"}, {Name: ratesTestOID}, {Name: "RX_PPS"},
+		}}
+		dbkey := swsscommon.NewSonicDBKey()
+		defer swsscommon.DeleteSonicDBKey(dbkey)
+		c := MixedDbClient{
+			prefix:  prefix,
+			target:  "COUNTERS_DB",
+			mapkey:  mapkey,
+			dbkey:   dbkey,
+			q:       pq,
+			channel: make(chan struct{}),
+			w:       &w,
+		}
+		ratesPath := ratesFieldTablePath(ns)
+		patches := gomonkey.ApplyPrivateMethod(&c, "getDbtablePath", func(_ *MixedDbClient, _ *gnmipb.Path, _ *gnmipb.Path) ([]tablePath, error) {
+			return []tablePath{ratesPath}, nil
+		})
+		defer patches.Reset()
+		c.synced.Add(1)
+		w.Add(1)
+		go c.dbFieldSubscribe(gnmiPath, false, time.Hour)
+		c.synced.Wait()
+
+		items, err := pq.Get(1)
+		if err != nil {
+			t.Fatalf("queue Get: %v", err)
+		}
+		got := items[0].(Value).GetVal().GetStringVal()
+		if got != "0" {
+			t.Fatalf("mixed dbFieldSubscribe RX_PPS = %q, want %q", got, "0")
+		}
+		close(c.channel)
+		w.Wait()
+	})
+}
+
 // saveAndResetTarget2RedisDb saves the current Target2RedisDb map and returns
 // a cleanup function that restores it.
 func saveAndResetTarget2RedisDb() func() {

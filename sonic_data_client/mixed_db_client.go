@@ -1000,6 +1000,20 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 			log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
 			return err
 		}
+		// Strip COUNTERS_DB RATES EWMA decay residue so gNMI never emits the
+		// denormal tail (see sanitizeRateResidue doc in db_client.go). When the
+		// caller does not pin the table (tblPath.tableName empty) the actual
+		// table name lives in the dbkey prefix, so derive it from there using
+		// strings.Index (non-allocating) rather than SplitN.
+		rateTableName := tblPath.tableName
+		if rateTableName == "" {
+			if i := strings.Index(dbkey, tblPath.delimitor); i > 0 {
+				rateTableName = dbkey[:i]
+			} else {
+				rateTableName = dbkey
+			}
+		}
+		sanitizeRateResidue(rateTableName, fv)
 
 		if tblPath.tableName == "" {
 			// Split dbkey string into two parts
@@ -1119,6 +1133,7 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 					field := tblPath.field
 					val, err := redisDb.HGet(context.Background(), key, field).Result()
 					if err == nil {
+						val = sanitizeRateValue(tblPath.tableName, field, val)
 						return &gnmipb.TypedValue{
 							Value: &gnmipb.TypedValue_JsonIetfVal{
 								JsonIetfVal: []byte(`"` + val + `"`),
@@ -2046,7 +2061,7 @@ func (c *MixedDbClient) dbFieldSubscribe(gnmiPath *gnmipb.Path, onChange bool, i
 			newVal = ""
 		}
 
-		return newVal
+		return sanitizeRateValue(tblPath.tableName, tblPath.field, newVal)
 	}
 
 	sendVal := func(newVal string) error {

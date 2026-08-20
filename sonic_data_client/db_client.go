@@ -907,6 +907,65 @@ func ensureKeysExistInRedis(pathG2S *map[*gnmipb.Path][]tablePath) error {
 	return nil
 }
 
+// rateResidueFields enumerates the EWMA-smoothed fields published by the
+// orchagent rate scripts (port_rates.lua, rif_rates.lua, trap_rates.lua,
+// tunnel_rates.lua) into the COUNTERS_DB RATES table. Their smoothing
+// converges asymptotically to zero but in IEEE-754 never reaches it, and the
+// Lua runtime serialises the full double precision (e.g. "0.11783383054515"
+// or "7.3011167208919444e-22"). The CLI sanitises this at render time via the
+// "{:.2f}/s" formatter in utilities_common.netstat.format_prate, but gNMI
+// returns the raw stored string, which surfaces as either scientific notation
+// or noisy long decimals to clients.
+var rateResidueFields = map[string]struct{}{
+	"RX_PPS": {},
+	"TX_PPS": {},
+	"RX_BPS": {},
+	"TX_BPS": {},
+}
+
+// rateResiduePrecision is the number of decimal places kept when serialising
+// rate fields, matching the CLI's "%.2f /s" rendering. Any value that would
+// render as "0.00" (or "-0.00") is canonicalised to "0" so consumers see the
+// same operational state the CLI already shows as "0.00/s".
+const rateResiduePrecision = 2
+
+// sanitizeRateValue renders a single COUNTERS_DB RATES EWMA-smoothed field at
+// CLI precision. Used by direct-HGet read paths (GET leaf, ON_CHANGE/SAMPLE
+// field subscribe) and by sanitizeRateResidue for HGetAll rows.
+func sanitizeRateValue(tableName, field, val string) string {
+	if tableName != "RATES" {
+		return val
+	}
+	if _, ok := rateResidueFields[field]; !ok {
+		return val
+	}
+	f, err := strconv.ParseFloat(val, 64)
+	if err != nil {
+		return val
+	}
+	formatted := strconv.FormatFloat(f, 'f', rateResiduePrecision, 64)
+	if formatted == "0.00" || formatted == "-0.00" {
+		return "0"
+	}
+	return formatted
+}
+
+// sanitizeRateResidue rewrites rate fields in a COUNTERS_DB RATES:* hash so
+// they are emitted at CLI precision rather than raw double precision. It is a
+// no-op for any other table, for fields outside rateResidueFields (e.g.
+// *_ALPHA, *_SMOOTH_INTERVAL, *_last raw counter snapshots), and for values
+// that fail strconv.ParseFloat (those are left untouched, never silently
+// zeroed). Mutation is in-place; no map copies, no allocations beyond
+// strconv.FormatFloat's small result string.
+func sanitizeRateResidue(tableName string, fv map[string]string) {
+	if tableName != "RATES" || len(fv) == 0 {
+		return
+	}
+	for f, v := range fv {
+		fv[f] = sanitizeRateValue(tableName, f, v)
+	}
+}
+
 // resolveSubscribePath resolves a gNMI path for Subscribe callers.
 // Parses the path and probes Redis to disambiguate key vs field,
 // but does NOT validate existence — allows subscribing to paths that don't exist yet.
@@ -1003,7 +1062,7 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 			// ignore non-existing field which was derived from virtual path
 			return nil
 		}
-		fv = map[string]string{tblPath.jsonField: val}
+		fv = map[string]string{tblPath.jsonField: sanitizeRateValue(tblPath.tableName, tblPath.field, val)}
 		makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
 		log.V(6).Infof("Added json key %v fv %v ", tblPath.jsonTableKey, fv)
 		return nil
@@ -1015,6 +1074,7 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 			log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
 			return err
 		}
+		sanitizeRateResidue(tblPath.tableName, fv)
 		log.V(4).Infof("Data pulled for dbkey %s: %v", dbkey, fv)
 
 		if len(fv) == 0 {
@@ -1084,6 +1144,7 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 				if err != nil {
 					return nil, err
 				}
+				val = sanitizeRateValue(tblPath.tableName, tblPath.field, val)
 				log.V(4).Infof("Data pulled for key %s and field %s: %s", key, tblPath.field, val)
 				return &gnmipb.TypedValue{
 					Value: &gnmipb.TypedValue_StringVal{
@@ -1126,6 +1187,7 @@ func subscribeTableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.Ty
 					log.V(2).Infof("redis HGet failed for %v, data does not exist", tblPath)
 					continue
 				}
+				val = sanitizeRateValue(tblPath.tableName, tblPath.field, val)
 				log.V(4).Infof("Data pulled for key %s and field %s: %s", key, tblPath.field, val)
 				return &gnmipb.TypedValue{
 					Value: &gnmipb.TypedValue_StringVal{
@@ -1198,6 +1260,7 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 				log.V(1).Infof(" redis HGet error on %v with key %v", tblPath.field, key)
 				val = ""
 			}
+			val = sanitizeRateValue(tblPath.tableName, tblPath.field, val)
 
 			// This value was saved before and it hasn't changed since then
 			_, valueMapped := path2ValueMap[tblPath]
@@ -1292,7 +1355,7 @@ func dbFieldSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interva
 			newVal = ""
 		}
 
-		return newVal
+		return sanitizeRateValue(tblPath.tableName, tblPath.field, newVal)
 	}
 
 	sendVal := func(newVal string) error {
