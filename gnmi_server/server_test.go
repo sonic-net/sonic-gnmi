@@ -486,6 +486,409 @@ func TestGnmiGetInterfaceCountersVPath(t *testing.T) {
 	}
 }
 
+func TestGnmiGetPlatformSysEepromComponents(t *testing.T) {
+	// 1. Start gNMI server
+	s := createServer(t, 8081)
+	go runServer(t, s)
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+
+	// Use StateDB (DB No 6 in SONiC)
+	stateClient := getRedisClientN(t, 6, ns)
+	defer stateClient.Close()
+
+	// CONFIG_DB (DB 4)
+	configClient := getRedisClientN(t, 4, ns)
+	defer configClient.Close()
+
+	// 2. Prepare Mock Data in Redis (EEPROM_INFO Table)
+
+	// Product Name (0x21)
+	prodNameFields := map[string]interface{}{
+		"Name":  "Product Name",
+		"Value": "Test-Product-100",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x21", prodNameFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x21", prodNameFields)
+
+	// Part Number (0x22)
+	partNoFields := map[string]interface{}{
+		"Name":  "Part Number",
+		"Value": "PN-12345",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x22", partNoFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x22", partNoFields)
+
+	// Serial Number (0x23)
+	serialNoFields := map[string]interface{}{
+		"Name":  "Serial Number",
+		"Value": "SN-987654321",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x23", serialNoFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x23", serialNoFields)
+
+	// Base MAC Address (0x24)
+	baseMacFields := map[string]interface{}{
+		"Name":  "Base MAC Address",
+		"Value": "00:11:22:33:44:55",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x24", baseMacFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x24", baseMacFields)
+
+	// Manufacture Date (0x25)
+	mfgDateFields := map[string]interface{}{
+		"Name":  "Manufacture Date",
+		"Value": "2026-01-01",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x25", mfgDateFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x25", mfgDateFields)
+
+	// Device Version (0x26)
+	devVerFields := map[string]interface{}{
+		"Name":  "Device Version",
+		"Value": "v1.2.3",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x26", devVerFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x26", devVerFields)
+
+	// Label Revision (0x27)
+	labelRevFields := map[string]interface{}{
+		"Name":  "Label Revision",
+		"Value": "Rev-A",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x27", labelRevFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x27", labelRevFields)
+
+	// Platform Name (0x28)
+	platformNameFields := map[string]interface{}{
+		"Name":  "Platform Name",
+		"Value": "x86_64-test_platform-r0",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x28", platformNameFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x28", platformNameFields)
+
+	// ONIE Version (0x29)
+	onieVerFields := map[string]interface{}{
+		"Name":  "ONIE Version",
+		"Value": "2023.11",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x29", onieVerFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x29", onieVerFields)
+
+	// MAC Addresses (0x2A)
+	macAddrCountFields := map[string]interface{}{
+		"Name":  "MAC Addresses",
+		"Value": "4",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x2A", macAddrCountFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x2A", macAddrCountFields)
+
+	// Manufacturer (0x2B)
+	mfgNameFields := map[string]interface{}{
+		"Name":  "Manufacturer",
+		"Value": "Test-Manufacturer",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x2B", mfgNameFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x2B", mfgNameFields)
+
+	// Manufacture Country (0x2C)
+	countryFields := map[string]interface{}{
+		"Name":  "Manufacture Country",
+		"Value": "USA",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x2C", countryFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x2C", countryFields)
+
+	// Vendor Name (0x2D)
+	vendorNameFields := map[string]interface{}{
+		"Name":  "Vendor Name",
+		"Value": "Test-Vendor",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x2D", vendorNameFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x2D", vendorNameFields)
+
+	// Diag Version (0x2E)
+	diagVerFields := map[string]interface{}{
+		"Name":  "Diag Version",
+		"Value": "Diag-1.0",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x2E", diagVerFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x2E", diagVerFields)
+
+	// Service Tag (0x2F)
+	serviceTagFields := map[string]interface{}{
+		"Name":  "Service Tag",
+		"Value": "ST-123456",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x2F", serviceTagFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x2F", serviceTagFields)
+
+	// Card Type (0x30)
+	cardTypeFields := map[string]interface{}{
+		"Name":  "Card Type",
+		"Value": "Type-A",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x30", cardTypeFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x30", cardTypeFields)
+
+	// Model Name (0x31)
+	modelNameFields := map[string]interface{}{
+		"Name":  "Model Name",
+		"Value": "Model-X",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x31", modelNameFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x31", modelNameFields)
+
+	// Hardware Version (0x32)
+	hwVerFields := map[string]interface{}{
+		"Name":  "Hardware Version",
+		"Value": "HW-v1.0",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x32", hwVerFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x32", hwVerFields)
+
+	// Software Version (0x33)
+	swVerFields := map[string]interface{}{
+		"Name":  "Software Version",
+		"Value": "SW-v2.0",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x33", swVerFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x33", swVerFields)
+
+	// Magic Number (0x00)
+	magicNumFields := map[string]interface{}{
+		"Name":  "Magic Number",
+		"Value": "255",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0x00", magicNumFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0x00", magicNumFields)
+
+	// Vendor Extension (0xFD)
+	vendorExtFields := map[string]interface{}{
+		"Name":  "Vendor Extension",
+		"Value": "Ext-Data",
+	}
+	stateClient.HSet(ctx, "EEPROM_INFO|0xFD", vendorExtFields)
+	configClient.HSet(ctx, "EEPROM_INFO|0xFD", vendorExtFields)
+
+	// 3. Setup gNMI Client
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	// 4. Define Test Scenarios
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		timeout     time.Duration
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		// --- Top-Level List ---
+		{
+			desc:       "Get All Platform Components (Top-level ListAll)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		// --- Individual State Leaves ---
+		{
+			desc:       "Get System Eeprom State Name",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"eeprom" > >
+                elem: <name: "state" >
+                elem: <name: "name" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get System Eeprom State Location",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"eeprom" > >
+                elem: <name: "state" >
+                elem: <name: "location" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get System Eeprom State Empty",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"eeprom" > >
+                elem: <name: "state" >
+                elem: <name: "empty" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get System Eeprom State Removable",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"eeprom" > >
+                elem: <name: "state" >
+                elem: <name: "removable" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get System Eeprom State Oper Status",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"eeprom" > >
+                elem: <name: "state" >
+                elem: <name: "oper-status" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get System Eeprom State ID (Product Name)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"eeprom" > >
+                elem: <name: "state" >
+                elem: <name: "id" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get System Eeprom State Part Number",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"eeprom" > >
+                elem: <name: "state" >
+                elem: <name: "part-no" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get System Eeprom State Serial Number",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"eeprom" > >
+                elem: <name: "state" >
+                elem: <name: "serial-no" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get System Eeprom State Mfg Date",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"eeprom" > >
+                elem: <name: "state" >
+                elem: <name: "mfg-date" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get System Eeprom State Hardware Version",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"eeprom" > >
+                elem: <name: "state" >
+                elem: <name: "hardware-version" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get System Eeprom State Description",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"eeprom" > >
+                elem: <name: "state" >
+                elem: <name: "description" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get System Eeprom State Mfg Name",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"eeprom" > >
+                elem: <name: "state" >
+                elem: <name: "mfg-name" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get System Eeprom State Software Version",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"eeprom" > >
+                elem: <name: "state" >
+                elem: <name: "software-version" >
+            `,
+			wantRetCode: codes.OK,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Non-Existent Platform Component (Expect NotFound)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"non_existent_comp" > >
+                elem: <name: "state" >
+            `,
+			wantRetCode: codes.NotFound,
+			valTest:     false,
+		},
+	}
+
+	// 5. Run Tests
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			if td.timeout == 0 {
+				td.timeout = 10 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), td.timeout)
+			defer cancel()
+
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+	s.Stop()
+}
+
 // runTestGet requests a path from the server by Get grpc call, and compares if
 // the return code and response value are expected.
 func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTarget string,
