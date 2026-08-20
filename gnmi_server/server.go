@@ -937,6 +937,17 @@ func (s *Server) checkEncodingAndModel(encoding gnmipb.Encoding, models []*gnmip
 	return nil
 }
 
+// normalizeOrigin maps module-specific OpenConfig origins (e.g. openconfig-interfaces)
+// to the canonical "openconfig" origin expected by translib. Subscribe uses this
+// before prefix routing so openconfig-* module paths reach translib correctly.
+// Non-openconfig origins (e.g. "sonic-db") are returned unchanged.
+func normalizeOrigin(origin string) string {
+	if origin == "openconfig" || strings.HasPrefix(origin, "openconfig-") {
+		return "openconfig"
+	}
+	return origin
+}
+
 func ParseOrigin(paths []*gnmipb.Path) (string, error) {
 	origin := ""
 	if len(paths) == 0 {
