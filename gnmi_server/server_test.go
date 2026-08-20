@@ -555,6 +555,82 @@ func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 		}
 	}
 }
+func runTestSubscribeIntf(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathStr string) {
+
+	// 1. Construct the path: /openconfig-interfaces:interfaces/interface[name=*]/<suffix>
+	sPath, err := ygot.StringToStructuredPath(pathStr)
+	if err != nil {
+		t.Fatalf("String to path failed: %v", err)
+	}
+
+	// 2. Create the Subscribe Request
+	req := &pb.SubscribeRequest{
+		Request: &pb.SubscribeRequest_Subscribe{
+			Subscribe: &pb.SubscriptionList{
+				Prefix:   &pb.Path{Origin: "openconfig", Target: "YANG"},
+				Mode:     pb.SubscriptionList_ONCE,
+				Encoding: pb.Encoding_JSON_IETF,
+				Subscription: []*pb.Subscription{
+					{Path: sPath},
+				},
+			},
+		},
+	}
+
+	stream, err := gClient.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Failed to open stream: %v", err)
+	}
+	if err := stream.Send(req); err != nil {
+		t.Fatalf("Failed to send req: %v", err)
+	}
+	foundInterfaces := make(map[string]bool)
+
+	// 3. Receive and Parse Loop
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			break // Server closed connection after ONCE
+		}
+
+		if resp.GetSyncResponse() {
+			t.Log("Received SyncResponse. Wildcard expansion successful.")
+			break
+		}
+
+		notification := resp.GetUpdate()
+		if notification == nil {
+			continue
+		}
+
+		// Extract Interface Name from the Prefix (e.g. Ethernet0)
+		prefixElems := notification.GetPrefix().GetElem()
+		if len(prefixElems) < 2 {
+			continue
+		}
+		intfName := prefixElems[1].GetKey()["name"]
+		if intfName == "" {
+			continue
+		}
+
+		// Print formatted output exactly like the previous debug run
+		if !foundInterfaces[intfName] {
+			foundInterfaces[intfName] = true
+			t.Logf("WILDCARD SUCCESS: Validated interface instance: %s", intfName)
+		}
+
+		for _, upd := range notification.GetUpdate() {
+			// Print the specific leaf and its native gNMI value
+			t.Logf("  -> Leaf %s | Value: %v", upd.GetPath().String(), upd.GetVal())
+		}
+	}
+
+	if len(foundInterfaces) == 0 {
+		t.Fatalf("No interfaces returned data for wildcard path: %s", pathStr)
+	}
+
+	t.Logf("TOTAL: Successfully verified %d unique interfaces for %s", len(foundInterfaces), pathStr)
+}
 
 func extractJSON(val string) []byte {
 	jsonBytes, err := ioutil.ReadFile(val)
@@ -7581,5 +7657,118 @@ func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
 		// Serve returned after Stop — correct behavior
 	case <-time.After(2 * time.Second):
 		t.Error("Serve() did not return after Stop()")
+	}
+}
+
+func TestGnmiGetWildcardTranslibXfmrIntf(t *testing.T) {
+	// Create server on a unique port
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+
+	// --- DB 4 (ConfigDB) Setup ---
+	// Wildcard discovery starts here. If EthernetX isn't in PORT table, it won't be found.
+	configClient := getRedisClientN(t, 4, ns)
+	defer configClient.Close()
+	configClient.Set(ctx, "CONFIG_DB_INITIALIZED", "1", 0)
+
+	// Ethernet0 entry
+	configClient.HSet(ctx, "PORT|Ethernet0", map[string]interface{}{
+		"index": "0",
+		"lanes": "1,2,3,4",
+		"id":    "100",
+	})
+	// Ethernet4 entry
+	configClient.HSet(ctx, "PORT|Ethernet4", map[string]interface{}{
+		"index": "4",
+		"lanes": "17,18,19,20",
+		"id":    "104",
+	})
+
+	// --- DB 6 (StateDB) Setup ---
+	stateClient := getRedisClientN(t, 6, ns)
+	defer stateClient.Close()
+	stateClient.Set(ctx, "STATE_DB_INITIALIZED", "1", 0)
+
+	// Port Table entries (used by hardware-port transformer)
+	stateClient.HSet(ctx, "PORT_TABLE:Ethernet0", map[string]interface{}{"index": "0", "lanes": "1,2,3,4"})
+	stateClient.HSet(ctx, "PORT_TABLE:Ethernet4", map[string]interface{}{"index": "4", "lanes": "17,18,19,20"})
+	// Transceiver info (used by physical-channel transformer)
+	// Note: many platforms use | as separator for TRANSCEIVER_INFO even in StateDB
+	stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", map[string]interface{}{"type": "QSFP28"})
+	stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet4", map[string]interface{}{"type": "QSFP28"})
+
+	// --- DB 0 (ApplDB) Setup ---
+	applClient := getRedisClientN(t, 0, ns)
+	defer applClient.Close()
+	// Used for P4RT State ID lookups
+	applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet0", map[string]interface{}{"id": "100"})
+	applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet4", map[string]interface{}{"id": "104"})
+
+	// --- DB 2 (CountersDB) Setup ---
+	countersClient := getRedisClientN(t, 2, ns)
+	defer countersClient.Close()
+	// Map names to OIDs
+	countersClient.HSet(ctx, "COUNTERS_PORT_NAME_MAP", "Ethernet0", "oid:0x100", "Ethernet4", "oid:0x104")
+	// Actual counter data for the transformer
+	countersClient.HSet(ctx, "COUNTERS:oid:0x100", "SAI_PORT_STAT_ETHER_STATS_CRC_ALIGN_ERRORS", "10")
+	countersClient.HSet(ctx, "COUNTERS:oid:0x104", "SAI_PORT_STAT_ETHER_STATS_CRC_ALIGN_ERRORS", "40")
+
+	// gNMI Client connection
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	//var emptyRespVal interface{}
+	tds := []struct {
+		desc    string
+		pathStr string
+	}{
+		{
+			desc:    "Wildcard Get all Interface State (Path Xfmr check)",
+			pathStr: "/openconfig-interfaces:interfaces/interface[name=*]/state",
+		},
+		{
+			desc:    "Wildcard Get all Interface Config (P4RT Config check)",
+			pathStr: "/openconfig-interfaces:interfaces/interface[name=*]/config",
+		},
+		{
+			desc:    "Wildcard Get all Interface Counters (Subtree Xfmr check)",
+			pathStr: "/openconfig-interfaces:interfaces/interface[name=*]/state/counters",
+		},
+		{
+			desc:    "Wildcard Get P4RT ID State for all",
+			pathStr: "/openconfig-interfaces:interfaces/interface[name=*]/state/openconfig-p4rt:id",
+		},
+		{
+			desc:    "Wildcard Get Hardware Port for all",
+			pathStr: "/openconfig-interfaces:interfaces/interface[name=*]/state/openconfig-platform-port:hardware-port",
+		},
+		/*
+		   //Commenting this test case alone since it requires some code change in platform.json.Will enable after issue is fixed
+		   {
+		           desc:    "Wildcard Get Physical Channel for all",
+		           pathStr: "/openconfig-interfaces:interfaces/interface[name=*]/state/openconfig-platform-transceiver:physical-channel",
+		   },
+		*/
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			// target is always OC_YANG, wantRetCode OK
+			runTestSubscribeIntf(t, ctx, gClient, td.pathStr)
+		})
 	}
 }
