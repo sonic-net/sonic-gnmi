@@ -84,12 +84,12 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 # Copy both explicitly so gnmi_cli can compile after patches are applied.
 # Also copy cmd/gnmi_cli and cli from the pinned gnmi module (go mod vendor omits
 # cmd packages that are not imported by any package in this module).
-	$(GO) mod download golang.org/x/term@v0.42.0
+	$(GO) mod download golang.org/x/term@v0.43.0
 	mkdir -p vendor/golang.org/x/crypto/ssh/terminal vendor/golang.org/x/term
-	cp $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.24.0/ssh/terminal/terminal.go \
+	cp $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.52.0/ssh/terminal/terminal.go \
 		vendor/golang.org/x/crypto/ssh/terminal/
 	rsync -r --chmod=u+w --exclude=testdata --exclude='*_test.go' \
-		$(GOPATH)/pkg/mod/golang.org/x/term@v0.42.0/ vendor/golang.org/x/term/
+		$(GOPATH)/pkg/mod/golang.org/x/term@v0.43.0/ vendor/golang.org/x/term/
 	python3 -c 'import re, sys; txt=open("vendor/modules.txt").read(); pkg="golang.org/x/term\n"; m=re.search(r"^(# golang\.org/x/term [^\n]+\n## explicit[^\n]*\n)", txt, re.MULTILINE) if pkg not in txt else None; sys.exit("ERROR: golang.org/x/term block not found in vendor/modules.txt") if pkg not in txt and not m else None; open("vendor/modules.txt","w").write(txt[:m.end()]+pkg+txt[m.end():]) if m else None'
 	$(GO) mod download github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802
 	mkdir -p vendor/github.com/openconfig/gnmi/cmd/gnmi_cli \
