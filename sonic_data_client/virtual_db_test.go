@@ -1412,3 +1412,246 @@ func TestGetPfcwdMap_PortQosMapEmpty(t *testing.T) {
 		t.Fatalf("expected nil map when PORT_QOS_MAP keys are absent, got %#v", m)
 	}
 }
+
+// --------------------------------------------------------------------------
+// Tests for v2rBufferPoolWatermarks / initCountersBufferPoolNameMap
+// --------------------------------------------------------------------------
+
+func setupBufferPoolMaps(t *testing.T) (*miniredis.Miniredis, func()) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	sdcfg.Init()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	mr.HSet("COUNTERS_BUFFER_POOL_NAME_MAP", "ingress_lossless_pool", "oid:0x5000000000001")
+	mr.HSet("COUNTERS_BUFFER_POOL_NAME_MAP", "egress_lossy_pool", "oid:0x5000000000002")
+
+	origTarget := Target2RedisDb
+	origMaps := countersBufferPoolNameByNamespace
+	Target2RedisDb = map[string]map[string]*redis.Client{
+		ns: {
+			"COUNTERS_DB": redis.NewClient(&redis.Options{Addr: mr.Addr()}),
+		},
+	}
+	countersBufferPoolNameByNamespace = nil
+	t.Setenv("UNIT_TEST", "1")
+
+	return mr, func() {
+		Target2RedisDb = origTarget
+		countersBufferPoolNameByNamespace = origMaps
+	}
+}
+
+func TestBufferPoolJSONKey(t *testing.T) {
+	if got := bufferPoolJSONKey("", "ingress_lossless_pool"); got != "ingress_lossless_pool" {
+		t.Errorf("bufferPoolJSONKey empty ns = %q", got)
+	}
+	if got := bufferPoolJSONKey("ns1", "ingress_lossless_pool"); got != "ingress_lossless_pool-ns1" {
+		t.Errorf("bufferPoolJSONKey with ns = %q", got)
+	}
+}
+
+func TestInitCountersBufferPoolNameMap(t *testing.T) {
+	sdcfg.Init()
+	_, restore := setupBufferPoolMaps(t)
+	defer restore()
+
+	if err := initCountersBufferPoolNameMap(); err != nil {
+		t.Fatalf("initCountersBufferPoolNameMap: %v", err)
+	}
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	pools, ok := countersBufferPoolNameByNamespace[ns]
+	if !ok {
+		t.Fatalf("namespace %q missing from buffer pool map", ns)
+	}
+	if pools["ingress_lossless_pool"] != "oid:0x5000000000001" {
+		t.Errorf("ingress_lossless_pool oid = %q", pools["ingress_lossless_pool"])
+	}
+}
+
+func TestInitCountersPGNameMapSuccess(t *testing.T) {
+	sdcfg.Init()
+	origCounters := getCountersMapFn
+	initCountersPGNameMapOnce = sync.Once{}
+	getCountersMapFn = func(string) (map[string]string, error) {
+		return map[string]string{"Ethernet64:7": "oid:0x100"}, nil
+	}
+	defer func() { getCountersMapFn = origCounters }()
+
+	if err := initCountersPGNameMap(); err != nil {
+		t.Fatalf("initCountersPGNameMap: %v", err)
+	}
+	if countersPGNameMap["Ethernet64"]["7"] != "oid:0x100" {
+		t.Errorf("unexpected pg map: %#v", countersPGNameMap)
+	}
+}
+
+func TestInitCountersPGNameMapInvalidPgName(t *testing.T) {
+	sdcfg.Init()
+	origCounters := getCountersMapFn
+	initCountersPGNameMapOnce = sync.Once{}
+	getCountersMapFn = func(string) (map[string]string, error) {
+		return map[string]string{"invalid_pg_name": "oid:0x200"}, nil
+	}
+	defer func() { getCountersMapFn = origCounters }()
+
+	if err := initCountersPGNameMap(); err == nil {
+		t.Fatal("expected error for invalid pg name")
+	}
+}
+
+func TestInitCountersBufferPoolNameMapPingFailure(t *testing.T) {
+	sdcfg.Init()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	origTarget := Target2RedisDb
+	origMaps := countersBufferPoolNameByNamespace
+	Target2RedisDb = map[string]map[string]*redis.Client{
+		ns: {"COUNTERS_DB": redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})},
+	}
+	countersBufferPoolNameByNamespace = nil
+	t.Setenv("UNIT_TEST", "1")
+	defer func() {
+		Target2RedisDb = origTarget
+		countersBufferPoolNameByNamespace = origMaps
+	}()
+
+	if err := initCountersBufferPoolNameMap(); err == nil {
+		t.Fatal("expected ping error")
+	}
+}
+
+func TestV2rBufferPoolWatermarks_InitFailure(t *testing.T) {
+	sdcfg.Init()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	origTarget := Target2RedisDb
+	origMaps := countersBufferPoolNameByNamespace
+	Target2RedisDb = map[string]map[string]*redis.Client{
+		ns: {"COUNTERS_DB": redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})},
+	}
+	countersBufferPoolNameByNamespace = nil
+	t.Setenv("UNIT_TEST", "1")
+	defer func() {
+		Target2RedisDb = origTarget
+		countersBufferPoolNameByNamespace = origMaps
+	}()
+
+	paths := []string{"COUNTERS_DB", "BUFFER_POOL_WATERMARKS"}
+	if _, err := v2rBufferPoolWatermarks(paths); err == nil {
+		t.Fatal("expected initCountersBufferPoolNameMap error")
+	}
+}
+
+func TestV2rBufferPoolWatermarks_AllPools(t *testing.T) {
+	sdcfg.Init()
+	_, restore := setupBufferPoolMaps(t)
+	defer restore()
+
+	paths := []string{"COUNTERS_DB", "BUFFER_POOL_WATERMARKS"}
+	tblPaths, err := v2rBufferPoolWatermarks(paths)
+	if err != nil {
+		t.Fatalf("v2rBufferPoolWatermarks: %v", err)
+	}
+	if len(tblPaths) != 2 {
+		t.Fatalf("expected 2 table paths, got %d", len(tblPaths))
+	}
+	sort.Slice(tblPaths, func(i, j int) bool {
+		return tblPaths[i].jsonTableKey < tblPaths[j].jsonTableKey
+	})
+	if tblPaths[0].tableName != "COUNTERS" || tblPaths[0].tableKey != "oid:0x5000000000002" {
+		t.Errorf("unexpected first path: %+v", tblPaths[0])
+	}
+	if tblPaths[1].tableKey != "oid:0x5000000000001" {
+		t.Errorf("unexpected second path: %+v", tblPaths[1])
+	}
+}
+
+func TestV2rBufferPoolWatermarks_SinglePool(t *testing.T) {
+	sdcfg.Init()
+	_, restore := setupBufferPoolMaps(t)
+	defer restore()
+
+	paths := []string{"COUNTERS_DB", "BUFFER_POOL_WATERMARKS", "ingress_lossless_pool"}
+	tblPaths, err := v2rBufferPoolWatermarks(paths)
+	if err != nil {
+		t.Fatalf("v2rBufferPoolWatermarks: %v", err)
+	}
+	if len(tblPaths) != 1 {
+		t.Fatalf("expected 1 table path, got %d", len(tblPaths))
+	}
+	if tblPaths[0].jsonTableKey != "ingress_lossless_pool" {
+		t.Errorf("jsonTableKey = %q, want ingress_lossless_pool", tblPaths[0].jsonTableKey)
+	}
+}
+
+func TestV2rBufferPoolWatermarks_NotFound(t *testing.T) {
+	sdcfg.Init()
+	_, restore := setupBufferPoolMaps(t)
+	defer restore()
+
+	paths := []string{"COUNTERS_DB", "BUFFER_POOL_WATERMARKS", "missing_pool"}
+	_, err := v2rBufferPoolWatermarks(paths)
+	if err == nil {
+		t.Fatal("expected error for unknown pool")
+	}
+}
+
+func TestV2rBufferPoolWatermarks_EmptyMap(t *testing.T) {
+	sdcfg.Init()
+	mr := miniredis.RunT(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	origTarget := Target2RedisDb
+	origMaps := countersBufferPoolNameByNamespace
+	Target2RedisDb = map[string]map[string]*redis.Client{
+		ns: {"COUNTERS_DB": redis.NewClient(&redis.Options{Addr: mr.Addr()})},
+	}
+	countersBufferPoolNameByNamespace = nil
+	t.Setenv("UNIT_TEST", "1")
+	defer func() {
+		Target2RedisDb = origTarget
+		countersBufferPoolNameByNamespace = origMaps
+	}()
+
+	paths := []string{"COUNTERS_DB", "BUFFER_POOL_WATERMARKS"}
+	_, err := v2rBufferPoolWatermarks(paths)
+	if err == nil {
+		t.Fatal("expected error when COUNTERS_BUFFER_POOL_NAME_MAP is empty")
+	}
+}
+
+func TestInitCountersBufferPoolNameMap_RefreshesOnChange(t *testing.T) {
+	sdcfg.Init()
+	mr, restore := setupBufferPoolMaps(t)
+	defer restore()
+
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	if err := initCountersBufferPoolNameMap(); err != nil {
+		t.Fatalf("initCountersBufferPoolNameMap: %v", err)
+	}
+	pools, ok := countersBufferPoolNameByNamespace[ns]
+	if !ok || pools["ingress_lossless_pool"] == "" {
+		t.Fatalf("expected initial pool map, got %#v", countersBufferPoolNameByNamespace)
+	}
+
+	mr.HSet("COUNTERS_BUFFER_POOL_NAME_MAP", "egress_lossy_pool", "oid:0x5000000000003")
+	if err := initCountersBufferPoolNameMap(); err != nil {
+		t.Fatalf("init after add: %v", err)
+	}
+	pools = countersBufferPoolNameByNamespace[ns]
+	if pools["egress_lossy_pool"] != "oid:0x5000000000003" {
+		t.Errorf("new pool not visible after refresh: %#v", pools)
+	}
+
+	mr.HDel("COUNTERS_BUFFER_POOL_NAME_MAP", "ingress_lossless_pool")
+	if err := initCountersBufferPoolNameMap(); err != nil {
+		t.Fatalf("init after delete: %v", err)
+	}
+	pools = countersBufferPoolNameByNamespace[ns]
+	if _, ok := pools["ingress_lossless_pool"]; ok {
+		t.Errorf("deleted pool still present after refresh: %#v", pools)
+	}
+
+	paths := []string{"COUNTERS_DB", "BUFFER_POOL_WATERMARKS", "ingress_lossless_pool"}
+	_, err := v2rBufferPoolWatermarks(paths)
+	if err == nil {
+		t.Fatal("expected error resolving deleted pool name")
+	}
+}

@@ -797,6 +797,17 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 
 	tblPath.dbNamespace = c.dbkey.GetNetns()
 	tblPath.dbName = c.target
+
+	// Virtual-to-real path mapping for COUNTERS_DB datasets (e.g. BUFFER_POOL_WATERMARKS).
+	if tblPath.dbName == "COUNTERS_DB" && len(stringSlice) > 1 {
+		if v2rPaths, err := lookupV2R(stringSlice); err == nil {
+			for i := range v2rPaths {
+				v2rPaths[i].isVirtualPath = true
+			}
+			return v2rPaths, nil
+		}
+	}
+
 	tblPath.tableName = ""
 	if len(stringSlice) > 1 {
 		tblPath.tableName = stringSlice[1]
@@ -977,20 +988,13 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 			return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
 		}
 	} else if tblPath.tableKey == "" {
-		// Only table name provided
-		// tables in COUNTERS_DB other than COUNTERS/PORT_PHY_ATTR don't have keys
-		if tblPath.dbName == "COUNTERS_DB" && !countersDbHasTableKeys(tblPath.tableName) {
-			pattern = tblPath.tableName
-		} else {
-			pattern = tblPath.tableName + tblPath.delimitor + "*"
-		}
-		dbkeys, err = redisDb.Keys(context.Background(), pattern).Result()
+		// Bare table path: collect both keyed and flat-hash entries.
+		dbkeys, err = listBareTableKeys(redisDb, tblPath.tableName, tblPath.delimitor)
 		if err != nil {
-			log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
-			return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
+			log.V(2).Infof("listBareTableKeys failed for %v: %v", tblPath, err)
+			return err
 		}
 	} else {
-		// both table name and key provided
 		dbkeys = []string{tblPath.tableName + tblPath.delimitor + tblPath.tableKey}
 	}
 
@@ -999,6 +1003,25 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 		if err != nil {
 			log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
 			return err
+		}
+
+		if len(fv) == 0 {
+			log.V(6).Infof("No data for dbkey %s, skipping", dbkey)
+			continue
+		}
+
+		if tblPath.jsonField != "" && tblPath.jsonTableKey != "" {
+			val, err := redisDb.HGet(context.Background(), dbkey, tblPath.field).Result()
+			if err != nil {
+				log.V(3).Infof("redis HGet failed for %v %v", tblPath, err)
+				continue
+			}
+			fieldFv := map[string]string{tblPath.jsonField: val}
+			err = c.makeJSON_redis(msi, &tblPath.jsonTableKey, op, fieldFv)
+			if err != nil {
+				return err
+			}
+			continue
 		}
 
 		if tblPath.tableName == "" {
@@ -1014,6 +1037,12 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 				(*msi)[tableName] = table_msi
 			}
 			err = c.makeJSON_redis(table_msi, &key, op, fv)
+			if err != nil {
+				log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
+				return err
+			}
+		} else if tblPath.jsonTableKey != "" {
+			err = c.makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
 			if err != nil {
 				log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
 				return err
@@ -1037,6 +1066,9 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 			var key string
 			// Split dbkey string into two parts and second part is key in table
 			keys := strings.SplitN(dbkey, tblPath.delimitor, 2)
+			if len(keys) < 2 {
+				return fmt.Errorf("dbkey: %s, failed split from delimitor %v", dbkey, tblPath.delimitor)
+			}
 			key = keys[1]
 			err = c.makeJSON_redis(msi, &key, op, fv)
 			if err != nil {
@@ -1187,7 +1219,6 @@ func ConvertDbEntry(inputData map[string]interface{}) map[string]string {
 }
 
 func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
-	var pattern string
 	var dbkeys []string
 	var err error
 	var res interface{}
@@ -1210,22 +1241,15 @@ func (c *MixedDbClient) handleTableData(tblPaths []tablePath) error {
 		}
 
 		if tblPath.operation == opRemove {
-			//Only table name provided
 			if tblPath.tableKey == "" {
-				// tables in COUNTERS_DB other than COUNTERS/PORT_PHY_ATTR don't have keys
-				if tblPath.dbName == "COUNTERS_DB" && !countersDbHasTableKeys(tblPath.tableName) {
-					pattern = tblPath.tableName
-				} else {
-					pattern = tblPath.tableName + tblPath.delimitor + "*"
-				}
-				// Can't remove entry in temporary state table
+				// Bare-table delete: keyed rows only.
+				pattern := tblPath.tableName + tblPath.delimitor + "*"
 				dbkeys, err = redisDb.Keys(context.Background(), pattern).Result()
 				if err != nil {
 					log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
 					return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
 				}
 			} else {
-				// both table name and key provided
 				dbkeys = []string{tblPath.tableName + tblPath.delimitor + tblPath.tableKey}
 			}
 
@@ -2105,7 +2129,19 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 	tblPath := rsd.tblPath
 	pubsub := rsd.pubsub
 	prefixLen := rsd.prefixLen
-	msi := make(map[string]interface{})
+	delimSkipped := rsd.delimSkipped
+	// Leave nil so the first event always sends, even when newMsi is empty
+	// (e.g. a NULL-only hash stripped by makeJSON_redis).
+	var msi map[string]interface{}
+
+	// Strip the leading delimiter only when the PSUBSCRIBE pattern omitted it.
+	keyFromChannel := func(channel string) string {
+		key := channel[prefixLen:]
+		if delimSkipped {
+			key = strings.TrimPrefix(key, tblPath.delimitor)
+		}
+		return key
+	}
 
 	log.V(2).Infof("Starting dbSingleTableKeySubscribe routine for %+v", tblPath)
 
@@ -2141,7 +2177,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 						log.V(2).Infof("Invalid psubscribe channel notification %v, shorter than %v", subscr.Channel, prefixLen)
 						continue
 					}
-					key := subscr.Channel[prefixLen:]
+					key := keyFromChannel(subscr.Channel)
 					newMsi[key] = fp
 					newMsi["delete"] = "null_value"
 				}
@@ -2159,7 +2195,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 						log.V(2).Infof("Invalid psubscribe channel notification %v, shorter than %v", subscr.Channel, prefixLen)
 						continue
 					}
-					tblPath.tableKey = subscr.Channel[prefixLen:]
+					tblPath.tableKey = keyFromChannel(subscr.Channel)
 					err = c.tableData2Msi(&tblPath, true, nil, &newMsi)
 					if err != nil {
 						putFatalMsg(c.q, err.Error())
@@ -2171,6 +2207,9 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 					continue
 				}
 				msi = newMsi
+				// Forward even empty newMsi (NULL-only hash) -- still a real change.
+				updateChannel <- newMsi
+				continue
 			} else {
 				log.V(2).Infof("Invalid psubscribe payload notification:  %v", subscr.Payload)
 				continue
@@ -2252,11 +2291,20 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 		// Subscribe to keyspace notification
 		pattern := "__keyspace@" + strconv.Itoa(int(spb.Target_value[tblPath.dbName])) + "__:"
 		pattern += tblPath.tableName
+		// COUNTERS_DB bare tables (no per-object keys): omit the delimiter so
+		// the wildcard matches both flat-hash rows (e.g. COUNTERS_PORT_NAME_MAP)
+		// and keyed rows (e.g. BUFFER_POOL_WATERMARKS:<oid>).
 		if tblPath.dbName == "COUNTERS_DB" && !countersDbHasTableKeys(tblPath.tableName) {
-			// tables in COUNTERS_DB without per-object keys, skip delimitor
+			// skip delimitor
 		} else {
 			pattern += tblPath.delimitor
 		}
+		// On bare-table subs the keyspace event channel still carries the
+		// table delimiter after prefixLen; strip it when extracting the key
+		// so tableData2Msi gets the correct row.
+		delimSkipped := tblPath.dbName == "COUNTERS_DB" &&
+			!countersDbHasTableKeys(tblPath.tableName) &&
+			tblPath.tableKey == ""
 
 		var prefixLen int
 		if tblPath.tableKey != "" {
@@ -2292,9 +2340,10 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 			return
 		}
 		rsd := redisSubData{
-			tblPath:   tblPath,
-			pubsub:    pubsub,
-			prefixLen: prefixLen,
+			tblPath:      tblPath,
+			pubsub:       pubsub,
+			prefixLen:    prefixLen,
+			delimSkipped: delimSkipped,
 		}
 		rsdList = append(rsdList, rsd)
 	}

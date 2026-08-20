@@ -8,12 +8,14 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
+	"sort"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/gnxi/utils/xpath"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/redis/go-redis/v9"
@@ -2106,6 +2108,645 @@ func TestMixedDbClientGet(t *testing.T) {
 			t.Errorf("expected no values for missing data, got %d", len(values))
 		}
 	})
+}
+
+func TestMixedDbClientGetBufferPoolWatermarks(t *testing.T) {
+	sdcfg.Init()
+	mapkey := ":"
+	cleanup := setupMixedDbRedis(t, mapkey)
+	defer cleanup()
+	t.Setenv("UNIT_TEST", "1")
+
+	ns := ""
+	rclient := Target2RedisDb[ns]["COUNTERS_DB"]
+	oid := "oid:0x5000000000001"
+	rclient.HSet(context.Background(), "COUNTERS_BUFFER_POOL_NAME_MAP", "ingress_lossless_pool", oid)
+	rclient.HSet(context.Background(), "COUNTERS:"+oid, "SAI_BUFFER_POOL_STAT_WATERMARK_BYTES", "100")
+	defer func() {
+		rclient.Del(context.Background(), "COUNTERS_BUFFER_POOL_NAME_MAP")
+		rclient.Del(context.Background(), "COUNTERS:"+oid)
+		countersBufferPoolNameByNamespace = nil
+	}()
+
+	prefix := &gnmipb.Path{Elem: []*gnmipb.PathElem{
+		{Name: "COUNTERS_DB"}, {Name: "localhost"},
+	}}
+	gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "BUFFER_POOL_WATERMARKS"}}}
+	c := MixedDbClient{
+		prefix:   prefix,
+		mapkey:   mapkey,
+		target:   "COUNTERS_DB",
+		encoding: gnmipb.Encoding_JSON_IETF,
+		paths:    []*gnmipb.Path{gnmiPath},
+	}
+	c.dbkey = swsscommon.NewSonicDBKey()
+	defer swsscommon.DeleteSonicDBKey(c.dbkey)
+
+	t.Run("GetDbtablePath_V2R", func(t *testing.T) {
+		tblPaths, err := c.getDbtablePath(gnmiPath, nil)
+		if err != nil {
+			t.Fatalf("getDbtablePath: %v", err)
+		}
+		if len(tblPaths) != 1 {
+			t.Fatalf("expected 1 table path, got %d", len(tblPaths))
+		}
+		tp := tblPaths[0]
+		if tp.tableName != "COUNTERS" || tp.tableKey != oid {
+			t.Fatalf("unexpected COUNTERS mapping: %+v", tp)
+		}
+		if tp.jsonTableKey != "ingress_lossless_pool" {
+			t.Errorf("jsonTableKey = %q, want ingress_lossless_pool", tp.jsonTableKey)
+		}
+		if !tp.isVirtualPath {
+			t.Error("expected isVirtualPath=true")
+		}
+	})
+
+	t.Run("Get_PoolNameKeyed", func(t *testing.T) {
+		c.paths = []*gnmipb.Path{gnmiPath}
+		values, err := c.Get(nil)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(values) != 1 {
+			t.Fatalf("expected 1 value, got %d", len(values))
+		}
+		jv := values[0].GetVal().GetJsonIetfVal()
+		var msi map[string]interface{}
+		if err := json.Unmarshal(jv, &msi); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		pool, ok := msi["ingress_lossless_pool"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected pool-name keyed output, got %v", msi)
+		}
+		if pool["SAI_BUFFER_POOL_STAT_WATERMARK_BYTES"] != "100" {
+			t.Errorf("watermark = %v, want 100", pool["SAI_BUFFER_POOL_STAT_WATERMARK_BYTES"])
+		}
+	})
+
+	t.Run("Get_SinglePool", func(t *testing.T) {
+		singlePath := &gnmipb.Path{Elem: []*gnmipb.PathElem{
+			{Name: "BUFFER_POOL_WATERMARKS"},
+			{Name: "ingress_lossless_pool"},
+		}}
+		c.paths = []*gnmipb.Path{singlePath}
+		values, err := c.Get(nil)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(values) != 1 {
+			t.Fatalf("expected 1 value, got %d", len(values))
+		}
+		jv := values[0].GetVal().GetJsonIetfVal()
+		var msi map[string]interface{}
+		if err := json.Unmarshal(jv, &msi); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if _, ok := msi["ingress_lossless_pool"]; !ok {
+			t.Fatalf("expected ingress_lossless_pool key, got %v", msi)
+		}
+	})
+}
+
+func setupMiniredisCountersDb(t *testing.T) (*miniredis.Miniredis, *redis.Client, func()) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	ns := ""
+	origTarget := Target2RedisDb
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr(), DB: 2})
+	Target2RedisDb = map[string]map[string]*redis.Client{
+		ns: {"COUNTERS_DB": rdb},
+	}
+	return mr, rdb, func() {
+		Target2RedisDb = origTarget
+	}
+}
+
+// publishKeyspaceEvent simulates a Redis keyspace notification. miniredis does
+// not implement CONFIG SET notify-keyspace-events, so subscribe tests publish
+// the __keyspace@<db>__ channel messages directly.
+func publishKeyspaceEvent(t *testing.T, rdb *redis.Client, db int, key, payload string) {
+	t.Helper()
+	channel := fmt.Sprintf("__keyspace@%d__:%s", db, key)
+	if err := rdb.Publish(context.Background(), channel, payload).Err(); err != nil {
+		t.Fatalf("publish keyspace event on %q: %v", channel, err)
+	}
+}
+
+func TestListBareTableKeys(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	mr.HSet("BUFFER_POOL_WATERMARKS:oid:0x1", "field", "v")
+	mr.HSet("BUFFER_POOL_WATERMARKS", "NULL", "NULL")
+
+	keys, err := listBareTableKeys(rdb, "BUFFER_POOL_WATERMARKS", ":")
+	if err != nil {
+		t.Fatalf("listBareTableKeys: %v", err)
+	}
+	sort.Strings(keys)
+	want := []string{"BUFFER_POOL_WATERMARKS", "BUFFER_POOL_WATERMARKS:oid:0x1"}
+	if !reflect.DeepEqual(keys, want) {
+		t.Errorf("listBareTableKeys = %v, want %v", keys, want)
+	}
+}
+
+func TestListBareTableKeysClosedClient(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	mr.Close()
+
+	_, err := listBareTableKeys(rdb, "BUFFER_POOL_WATERMARKS", ":")
+	if err == nil {
+		t.Fatal("expected error from closed redis client")
+	}
+}
+
+func TestTableData2MsiListBareTableKeysError(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+	ns := ""
+
+	patches := gomonkey.ApplyFunc(listBareTableKeys, func(_ *redis.Client, _, _ string) ([]string, error) {
+		return nil, errors.New("mock listBareTableKeys error")
+	})
+	defer patches.Reset()
+
+	tblPath := tablePath{
+		dbNamespace: ns,
+		dbName:      "COUNTERS_DB",
+		tableName:   "BUFFER_POOL_WATERMARKS",
+		delimitor:   ":",
+	}
+	msi := make(map[string]interface{})
+	if err := TableData2Msi(&tblPath, false, nil, &msi); err == nil {
+		t.Fatal("expected listBareTableKeys error")
+	}
+}
+
+func TestTableData2MsiJsonFieldAndTableKey(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+	ns := ""
+	rclient := Target2RedisDb[ns]["COUNTERS_DB"]
+	redisKey := "COUNTERS:oid:0x1000000000040"
+	rclient.HSet(context.Background(), redisKey, "SAI_PORT_STAT_IF_IN_ERRORS", "42")
+	defer rclient.Del(context.Background(), redisKey)
+
+	tblPath := tablePath{
+		dbNamespace:  ns,
+		dbName:       "COUNTERS_DB",
+		tableName:    "COUNTERS",
+		tableKey:     "oid:0x1000000000040",
+		delimitor:    ":",
+		field:        "SAI_PORT_STAT_IF_IN_ERRORS",
+		jsonField:    "SAI_PORT_STAT_IF_IN_ERRORS",
+		jsonTableKey: "Ethernet70",
+	}
+	msi := make(map[string]interface{})
+	if err := TableData2Msi(&tblPath, false, nil, &msi); err != nil {
+		t.Fatalf("TableData2Msi: %v", err)
+	}
+	entry, ok := msi["Ethernet70"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected jsonTableKey entry, got %v", msi)
+	}
+	if entry["SAI_PORT_STAT_IF_IN_ERRORS"] != "42" {
+		t.Errorf("field value = %v, want 42", entry["SAI_PORT_STAT_IF_IN_ERRORS"])
+	}
+}
+
+func TestTableData2MsiBareTablePath(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+	ns := ""
+	rclient := Target2RedisDb[ns]["COUNTERS_DB"]
+	oid := "oid:0xbeef"
+	rclient.HSet(context.Background(), "BUFFER_POOL_WATERMARKS:"+oid, "SAI_BUFFER_POOL_STAT_WATERMARK_BYTES", "100")
+	defer rclient.Del(context.Background(), "BUFFER_POOL_WATERMARKS:"+oid)
+
+	tblPath := tablePath{
+		dbNamespace: ns,
+		dbName:      "COUNTERS_DB",
+		tableName:   "BUFFER_POOL_WATERMARKS",
+		delimitor:   ":",
+	}
+	msi := make(map[string]interface{})
+	if err := TableData2Msi(&tblPath, false, nil, &msi); err != nil {
+		t.Fatalf("TableData2Msi: %v", err)
+	}
+	entry, ok := msi[oid].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected keyed entry %q in msi, got %v", oid, msi)
+	}
+	if entry["SAI_BUFFER_POOL_STAT_WATERMARK_BYTES"] != "100" {
+		t.Errorf("watermark bytes = %v, want 100", entry["SAI_BUFFER_POOL_STAT_WATERMARK_BYTES"])
+	}
+}
+
+func TestMixedDbClientTableData2MsiBareTablePath(t *testing.T) {
+	mapkey := ":"
+	cleanup := setupMixedDbRedis(t, mapkey)
+	defer cleanup()
+	ns := ""
+	rclient := Target2RedisDb[ns]["COUNTERS_DB"]
+	oid := "oid:0xabcd"
+	rclient.HSet(context.Background(), "BUFFER_POOL_WATERMARKS:"+oid, "SAI_BUFFER_POOL_STAT_WATERMARK_BYTES", "200")
+	defer rclient.Del(context.Background(), "BUFFER_POOL_WATERMARKS:"+oid)
+
+	c := MixedDbClient{mapkey: mapkey, encoding: gnmipb.Encoding_JSON_IETF}
+	tblPath := tablePath{
+		dbNamespace: ns,
+		dbName:      "COUNTERS_DB",
+		tableName:   "BUFFER_POOL_WATERMARKS",
+		delimitor:   ":",
+	}
+	msi := make(map[string]interface{})
+	if err := c.tableData2Msi(&tblPath, false, nil, &msi); err != nil {
+		t.Fatalf("tableData2Msi: %v", err)
+	}
+	entry, ok := msi[oid].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected keyed entry %q in msi, got %v", oid, msi)
+	}
+	if entry["SAI_BUFFER_POOL_STAT_WATERMARK_BYTES"] != "200" {
+		t.Errorf("watermark bytes = %v, want 200", entry["SAI_BUFFER_POOL_STAT_WATERMARK_BYTES"])
+	}
+}
+
+func TestMixedDbClientTableData2MsiListBareTableKeysError(t *testing.T) {
+	mapkey := ":"
+	cleanup := setupMixedDbRedis(t, mapkey)
+	defer cleanup()
+	ns := ""
+
+	patches := gomonkey.ApplyFunc(listBareTableKeys, func(_ *redis.Client, _, _ string) ([]string, error) {
+		return nil, errors.New("mock listBareTableKeys error")
+	})
+	defer patches.Reset()
+
+	c := MixedDbClient{mapkey: mapkey, encoding: gnmipb.Encoding_JSON_IETF}
+	tblPath := tablePath{
+		dbNamespace: ns,
+		dbName:      "COUNTERS_DB",
+		tableName:   "BUFFER_POOL_WATERMARKS",
+		delimitor:   ":",
+	}
+	msi := make(map[string]interface{})
+	if err := c.tableData2Msi(&tblPath, false, nil, &msi); err == nil {
+		t.Fatal("expected listBareTableKeys error")
+	}
+}
+
+func TestMixedDbClientTableData2MsiJsonFieldAndTableKey(t *testing.T) {
+	mapkey := ":"
+	cleanup := setupMixedDbRedis(t, mapkey)
+	defer cleanup()
+	ns := ""
+	rclient := Target2RedisDb[ns]["COUNTERS_DB"]
+	redisKey := "COUNTERS:oid:0x1000000000050"
+	rclient.HSet(context.Background(), redisKey, "SAI_PORT_STAT_IF_OUT_ERRORS", "99")
+	defer rclient.Del(context.Background(), redisKey)
+
+	c := MixedDbClient{mapkey: mapkey, encoding: gnmipb.Encoding_JSON_IETF}
+	tblPath := tablePath{
+		dbNamespace:  ns,
+		dbName:       "COUNTERS_DB",
+		tableName:    "COUNTERS",
+		tableKey:     "oid:0x1000000000050",
+		delimitor:    ":",
+		field:        "SAI_PORT_STAT_IF_OUT_ERRORS",
+		jsonField:    "SAI_PORT_STAT_IF_OUT_ERRORS",
+		jsonTableKey: "Ethernet71",
+	}
+	msi := make(map[string]interface{})
+	if err := c.tableData2Msi(&tblPath, false, nil, &msi); err != nil {
+		t.Fatalf("tableData2Msi: %v", err)
+	}
+	entry, ok := msi["Ethernet71"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected jsonTableKey entry, got %v", msi)
+	}
+	if entry["SAI_PORT_STAT_IF_OUT_ERRORS"] != "99" {
+		t.Errorf("field value = %v, want 99", entry["SAI_PORT_STAT_IF_OUT_ERRORS"])
+	}
+}
+
+func TestMixedDbClientTableData2MsiMalformedDbkey(t *testing.T) {
+	mapkey := ":"
+	cleanup := setupMixedDbRedis(t, mapkey)
+	defer cleanup()
+	ns := ""
+
+	patches := gomonkey.ApplyFunc(listBareTableKeys, func(_ *redis.Client, _, _ string) ([]string, error) {
+		return []string{"malformed-no-delimiter"}, nil
+	})
+	defer patches.Reset()
+
+	c := MixedDbClient{mapkey: mapkey, encoding: gnmipb.Encoding_JSON_IETF}
+	tblPath := tablePath{
+		dbNamespace: ns,
+		dbName:      "COUNTERS_DB",
+		tableName:   "BUFFER_POOL_WATERMARKS",
+		delimitor:   ":",
+	}
+	msi := make(map[string]interface{})
+	rclient := Target2RedisDb[ns]["COUNTERS_DB"]
+	rclient.HSet(context.Background(), "malformed-no-delimiter", "SAI_BUFFER_POOL_STAT_WATERMARK_BYTES", "1")
+	defer rclient.Del(context.Background(), "malformed-no-delimiter")
+
+	if err := c.tableData2Msi(&tblPath, false, nil, &msi); err == nil {
+		t.Fatal("expected split error for malformed dbkey")
+	}
+}
+
+func waitForPubsubSubscribe(t *testing.T, pubsub *redis.PubSub, pattern string) {
+	t.Helper()
+	msgi, err := pubsub.ReceiveTimeout(context.Background(), time.Second)
+	if err != nil {
+		t.Fatalf("psubscribe receive: %v", err)
+	}
+	subscr, ok := msgi.(*redis.Subscription)
+	if !ok || subscr.Channel != pattern {
+		t.Fatalf("unexpected psubscribe ack: %v", msgi)
+	}
+}
+
+func runDbSingleTableKeySubscribeUpdate(t *testing.T, rsd redisSubData, mutate func(*redis.Client)) map[string]interface{} {
+	t.Helper()
+	updateCh := make(chan map[string]interface{}, 1)
+	c := &DbClient{channel: make(chan struct{})}
+	go dbSingleTableKeySubscribe(c, rsd, updateCh)
+	time.Sleep(50 * time.Millisecond)
+	mutate(Target2RedisDb[rsd.tblPath.dbNamespace][rsd.tblPath.dbName])
+	select {
+	case msi := <-updateCh:
+		close(c.channel)
+		return msi
+	case <-time.After(3 * time.Second):
+		close(c.channel)
+		t.Fatal("timed out waiting for keyspace update")
+		return nil
+	}
+}
+
+func TestDbSingleTableKeySubscribeBareTableDelimSkipped(t *testing.T) {
+	_, rdb, restore := setupMiniredisCountersDb(t)
+	defer restore()
+
+	tblPath := tablePath{
+		dbName:    "COUNTERS_DB",
+		tableName: "BUFFER_POOL_WATERMARKS",
+		delimitor: ":",
+	}
+	pattern := "__keyspace@2__:BUFFER_POOL_WATERMARKS*"
+	prefixLen := len("__keyspace@2__:BUFFER_POOL_WATERMARKS")
+	pubsub := rdb.PSubscribe(context.Background(), pattern)
+	defer pubsub.Close()
+	waitForPubsubSubscribe(t, pubsub, pattern)
+
+	rsd := redisSubData{
+		tblPath:      tblPath,
+		pubsub:       pubsub,
+		prefixLen:    prefixLen,
+		delimSkipped: true,
+	}
+	oid := "oid:0x100"
+	redisKey := "BUFFER_POOL_WATERMARKS:" + oid
+	msi := runDbSingleTableKeySubscribeUpdate(t, rsd, func(rdb *redis.Client) {
+		rdb.HSet(context.Background(), redisKey, "SAI_BUFFER_POOL_STAT_WATERMARK_BYTES", "123")
+		publishKeyspaceEvent(t, rdb, 2, redisKey, "hset")
+	})
+	if _, ok := msi[oid]; !ok {
+		t.Fatalf("expected update keyed by %q, got %v", oid, msi)
+	}
+}
+
+func TestDbSingleTableKeySubscribeBareTableDel(t *testing.T) {
+	_, rdb, restore := setupMiniredisCountersDb(t)
+	defer restore()
+
+	tblPath := tablePath{
+		dbName:    "COUNTERS_DB",
+		tableName: "BUFFER_POOL_WATERMARKS",
+		delimitor: ":",
+	}
+	pattern := "__keyspace@2__:BUFFER_POOL_WATERMARKS*"
+	prefixLen := len("__keyspace@2__:BUFFER_POOL_WATERMARKS")
+	pubsub := rdb.PSubscribe(context.Background(), pattern)
+	defer pubsub.Close()
+	waitForPubsubSubscribe(t, pubsub, pattern)
+
+	updateCh := make(chan map[string]interface{}, 1)
+	c := &DbClient{channel: make(chan struct{})}
+	rsd := redisSubData{
+		tblPath:      tblPath,
+		pubsub:       pubsub,
+		prefixLen:    prefixLen,
+		delimSkipped: true,
+	}
+	go dbSingleTableKeySubscribe(c, rsd, updateCh)
+	time.Sleep(50 * time.Millisecond)
+
+	oid := "oid:0x101"
+	redisKey := "BUFFER_POOL_WATERMARKS:" + oid
+	rdb.HSet(context.Background(), redisKey, "SAI_BUFFER_POOL_STAT_WATERMARK_BYTES", "1")
+	publishKeyspaceEvent(t, rdb, 2, redisKey, "del")
+	select {
+	case msi := <-updateCh:
+		if _, ok := msi[oid]; !ok {
+			t.Fatalf("expected delete update keyed by %q, got %v", oid, msi)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for bare-table delete update")
+	}
+	close(c.channel)
+}
+
+func TestDbSingleTableKeySubscribePortPhyAttrKeepsDelimiter(t *testing.T) {
+	_, rdb, restore := setupMiniredisCountersDb(t)
+	defer restore()
+
+	tblPath := tablePath{
+		dbName:    "COUNTERS_DB",
+		tableName: "PORT_PHY_ATTR",
+		delimitor: ":",
+	}
+	pattern := "__keyspace@2__:PORT_PHY_ATTR:*"
+	prefixLen := len("__keyspace@2__:PORT_PHY_ATTR:")
+	pubsub := rdb.PSubscribe(context.Background(), pattern)
+	defer pubsub.Close()
+	waitForPubsubSubscribe(t, pubsub, pattern)
+
+	rsd := redisSubData{
+		tblPath:      tblPath,
+		pubsub:       pubsub,
+		prefixLen:    prefixLen,
+		delimSkipped: false,
+	}
+	port := "Ethernet68"
+	redisKey := "PORT_PHY_ATTR:" + port
+	msi := runDbSingleTableKeySubscribeUpdate(t, rsd, func(rdb *redis.Client) {
+		rdb.HSet(context.Background(), redisKey, "phy_rx_signal_detect", "1")
+		publishKeyspaceEvent(t, rdb, 2, redisKey, "hset")
+	})
+	if _, ok := msi[port]; !ok {
+		t.Fatalf("expected update keyed by %q, got %v", port, msi)
+	}
+}
+
+func TestMixedDbSingleTableKeySubscribeBareTableDelimSkipped(t *testing.T) {
+	_, rdb, restore := setupMiniredisCountersDb(t)
+	defer restore()
+	mapkey := ":"
+	origRedisDbMap := RedisDbMap
+	RedisDbMap = map[string]*redis.Client{mapkey + ":COUNTERS_DB": rdb}
+	defer func() { RedisDbMap = origRedisDbMap }()
+
+	tblPath := tablePath{
+		dbName:    "COUNTERS_DB",
+		tableName: "BUFFER_POOL_WATERMARKS",
+		delimitor: ":",
+	}
+	pattern := "__keyspace@2__:BUFFER_POOL_WATERMARKS*"
+	prefixLen := len("__keyspace@2__:BUFFER_POOL_WATERMARKS")
+	pubsub := rdb.PSubscribe(context.Background(), pattern)
+	defer pubsub.Close()
+	waitForPubsubSubscribe(t, pubsub, pattern)
+
+	updateCh := make(chan map[string]interface{}, 1)
+	c := &MixedDbClient{mapkey: mapkey, channel: make(chan struct{})}
+	rsd := redisSubData{
+		tblPath:      tblPath,
+		pubsub:       pubsub,
+		prefixLen:    prefixLen,
+		delimSkipped: true,
+	}
+	go c.dbSingleTableKeySubscribe(rsd, updateCh)
+	time.Sleep(50 * time.Millisecond)
+
+	oid := "oid:0x200"
+	redisKey := "BUFFER_POOL_WATERMARKS:" + oid
+	rdb.HSet(context.Background(), redisKey, "SAI_BUFFER_POOL_STAT_WATERMARK_BYTES", "456")
+	publishKeyspaceEvent(t, rdb, 2, redisKey, "hset")
+	select {
+	case msi := <-updateCh:
+		if _, ok := msi[oid]; !ok {
+			t.Fatalf("expected update keyed by %q, got %v", oid, msi)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for mixed-db keyspace update")
+	}
+	close(c.channel)
+}
+
+func TestMixedDbSingleTableKeySubscribeBareTableDel(t *testing.T) {
+	_, rdb, restore := setupMiniredisCountersDb(t)
+	defer restore()
+	mapkey := ":"
+	origRedisDbMap := RedisDbMap
+	RedisDbMap = map[string]*redis.Client{mapkey + ":COUNTERS_DB": rdb}
+	defer func() { RedisDbMap = origRedisDbMap }()
+
+	tblPath := tablePath{
+		dbName:    "COUNTERS_DB",
+		tableName: "BUFFER_POOL_WATERMARKS",
+		delimitor: ":",
+	}
+	pattern := "__keyspace@2__:BUFFER_POOL_WATERMARKS*"
+	prefixLen := len("__keyspace@2__:BUFFER_POOL_WATERMARKS")
+	pubsub := rdb.PSubscribe(context.Background(), pattern)
+	defer pubsub.Close()
+	waitForPubsubSubscribe(t, pubsub, pattern)
+
+	updateCh := make(chan map[string]interface{}, 1)
+	c := &MixedDbClient{mapkey: mapkey, channel: make(chan struct{})}
+	rsd := redisSubData{
+		tblPath:      tblPath,
+		pubsub:       pubsub,
+		prefixLen:    prefixLen,
+		delimSkipped: true,
+	}
+	go c.dbSingleTableKeySubscribe(rsd, updateCh)
+	time.Sleep(50 * time.Millisecond)
+
+	oid := "oid:0x201"
+	redisKey := "BUFFER_POOL_WATERMARKS:" + oid
+	rdb.HSet(context.Background(), redisKey, "SAI_BUFFER_POOL_STAT_WATERMARK_BYTES", "1")
+	publishKeyspaceEvent(t, rdb, 2, redisKey, "del")
+	select {
+	case msi := <-updateCh:
+		if _, ok := msi[oid]; !ok {
+			t.Fatalf("expected delete update keyed by %q, got %v", oid, msi)
+		}
+		if msi["delete"] != "null_value" {
+			t.Errorf("expected delete marker, got %v", msi["delete"])
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for mixed-db bare-table delete update")
+	}
+	close(c.channel)
+}
+
+// TestMakeJSONRedisSkipsNull verifies that makeJSON_redis strips the SONiC
+// "NULL"/"NULL" placeholder field that Redis hashes carry when they would
+// otherwise be empty.
+func TestMakeJSONRedisSkipsNull(t *testing.T) {
+	key := "PortChannel1|Ethernet4"
+	op := "ADD"
+
+	tests := []struct {
+		name string
+		key  *string
+		op   *string
+		mfv  map[string]string
+		want map[string]interface{}
+	}{
+		{
+			name: "key and op nil, only NULL field",
+			key:  nil,
+			op:   nil,
+			mfv:  map[string]string{"NULL": "NULL"},
+			want: map[string]interface{}{},
+		},
+		{
+			name: "key and op nil, NULL mixed with real field",
+			key:  nil,
+			op:   nil,
+			mfv:  map[string]string{"NULL": "NULL", "admin_status": "up"},
+			want: map[string]interface{}{"admin_status": "up"},
+		},
+		{
+			name: "key set, only NULL field",
+			key:  &key,
+			op:   nil,
+			mfv:  map[string]string{"NULL": "NULL"},
+			want: map[string]interface{}{key: map[string]interface{}{}},
+		},
+		{
+			name: "key and op set, NULL mixed with real field",
+			key:  &key,
+			op:   &op,
+			mfv:  map[string]string{"NULL": "NULL", "admin_status": "up"},
+			want: map[string]interface{}{
+				key: map[string]interface{}{
+					op: map[string]interface{}{"admin_status": "up"},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := map[string]interface{}{}
+			if err := makeJSON_redis(&got, tc.key, tc.op, tc.mfv); err != nil {
+				t.Fatalf("makeJSON_redis returned error: %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("makeJSON_redis = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestMain(m *testing.M) {
