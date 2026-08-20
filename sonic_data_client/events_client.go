@@ -236,13 +236,15 @@ func update_stats(evtc *EventClient) {
 			return
 		}
 
-		rclient = redis.NewClient(&redis.Options{
+		opts := &redis.Options{
 			Network:     "tcp",
 			Addr:        addr,
 			Password:    "", // no password set,
 			DB:          dbId,
 			DialTimeout: 0,
-		})
+		}
+		sdcfg.ApplyRedisPoolSize(opts)
+		rclient = redis.NewClient(opts)
 
 		// Init current values for cumulative keys and clear for absolute
 		for _, key := range STATS_CUMULATIVE_KEYS {
