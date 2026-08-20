@@ -597,7 +597,7 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 			// TODO: start one subscription publish routine for this request
 			// Only start routine when DestGrp2ClientSubMap is not empty, or ...?
 			cs := clientSubscription{
-				interval: 5000, // default to 5000 milliseconds
+				interval: 5000 * time.Millisecond, // default to 5000 milliseconds
 				name:     name,
 				cancel:   cancel,
 			}
