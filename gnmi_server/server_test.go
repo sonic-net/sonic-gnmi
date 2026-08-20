@@ -2527,6 +2527,327 @@ func TestGnmiGetTranslib(t *testing.T) {
 	}
 	s.Stop()
 }
+func TestGnmiGetTranslibXfmrIntf(t *testing.T) {
+
+	//t.Log("Start server")
+	s := createServer(t, 8081)
+	go runServer(t, s)
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+
+	// --- DB 0 (ApplDB) Setup for P4RT State ---
+	applClient := getRedisClientN(t, 0, ns)
+	defer applClient.Close()
+	p4rtFields := map[string]interface{}{
+		"id": "100",
+	}
+	applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet0", p4rtFields)
+
+	// --- DB 2 (CountersDB) Setup for Interface Counters ---
+	countersClient := getRedisClientN(t, 2, ns)
+	defer countersClient.Close()
+	countersClient.HSet(ctx, "COUNTERS_PORT_NAME_MAP", "Ethernet0", "oid:0x1000000000001")
+	countersClient.HSet(ctx, "COUNTERS:oid:0x1000000000001", "SAI_PORT_STAT_ETHER_STATS_CRC_ALIGN_ERRORS", "10")
+
+	// --- DB 4 (ConfigDB) Setup for Config Transformer paths ---
+	configClient := getRedisClientN(t, 4, ns)
+	defer configClient.Close()
+	configClient.HSet(ctx, "PORT|Ethernet0", map[string]interface{}{
+		"index": "0",
+		"lanes": "1,2,3,4",
+		"id":    "100",
+	})
+
+	// --- DB 6 (StateDB) Setup for Port & Transceiver State ---
+	stateClient := getRedisClientN(t, 6, ns)
+	defer stateClient.Close()
+
+	// Hardware-port, transceiver, and physical-channel state lookups query PORT_TABLE
+	portTableFields := map[string]interface{}{
+		"index": "0",
+		"lanes": "1,2,3,4",
+	}
+	stateClient.HSet(ctx, "PORT_TABLE:Ethernet0", portTableFields)
+
+	// Transceiver info required by physical-channel transformer
+	// Populating both Ethernet0 and Ethernet1 ensures it passes regardless of index resolution
+	xcvrFields := map[string]interface{}{
+		"type": "QSFP28 or later",
+	}
+	stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", xcvrFields)
+	stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet1", xcvrFields)
+
+	//t.Log("Start gNMI client")
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	var emptyRespVal interface{}
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		timeout     time.Duration
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		// --- ORIGINAL SCENARIOS ---
+		{
+			desc:       "Get OpenConfig Interface hardwareport",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"Ethernet0" > >
+            elem: <name: "state" >
+            elem: <name: "openconfig-platform-port:hardware-port" >
+                `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OpenConfig Interface transceiver",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"Ethernet0" > >
+            elem: <name: "state" >
+            elem: <name: "openconfig-platform-transceiver:transceiver" >
+        `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+
+		// --- NEW SCENARIOS COVERING YOUR PR DIFF ---
+		{
+			desc:       "Get OpenConfig Interface physical-channel",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"Ethernet0" > >
+            elem: <name: "state" >
+            elem: <name: "openconfig-platform-transceiver:physical-channel" >
+        `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OpenConfig Interface P4RT ID State",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"Ethernet0" > >
+            elem: <name: "state" >
+            elem: <name: "openconfig-p4rt:id" >
+        `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OpenConfig Interface P4RT ID Config",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"Ethernet0" > >
+            elem: <name: "config" >
+            elem: <name: "openconfig-p4rt:id" >
+        `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OpenConfig Interface in-fcs-errors counter",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"Ethernet0" > >
+            elem: <name: "state" >
+            elem: <name: "counters" >
+            elem: <name: "in-fcs-errors" >
+        `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+
+		// --- TRIGGERS DbToYangPath_intf_path_xfmr ---
+		{
+			desc:       "Get OpenConfig Interface List Entry",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"Ethernet0" > >
+        `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OpenConfig Interface List Entry",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                        elem: <name: "openconfig-interfaces:interfaces" >
+                        elem: <name: "interface" key:<key:"name" value:"Ethernet0" > >
+            elem: <name: "state" >
+                `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		// --- TRIGGERS YangToDb_pins_if_id_xfmr ---
+		{
+			desc:       "Get OpenConfig Interface P4RT ID Config with Key Variable",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"Ethernet0" > >
+            elem: <name: "config" >
+        `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+	}
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			if td.timeout == 0 {
+				td.timeout = 10 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), td.timeout)
+			defer cancel()
+
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+	s.Stop()
+}
+func TestGnmiSubscribeTranslibXfmrIntf(t *testing.T) {
+	// Create server on a unique port
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+
+	// --- DB 4 (ConfigDB) Setup ---
+	// discovery starts here. If EthernetX isn't in PORT table, it won't be found.
+	configClient := getRedisClientN(t, 4, ns)
+	defer configClient.Close()
+	configClient.Set(ctx, "CONFIG_DB_INITIALIZED", "1", 0)
+
+	// Ethernet0 entry
+	configClient.HSet(ctx, "PORT|Ethernet0", map[string]interface{}{
+		"index": "0",
+		"lanes": "1,2,3,4",
+		"id":    "100",
+	})
+	// Ethernet4 entry
+	configClient.HSet(ctx, "PORT|Ethernet4", map[string]interface{}{
+		"index": "4",
+		"lanes": "17,18,19,20",
+		"id":    "104",
+	})
+
+	// --- DB 6 (StateDB) Setup ---
+	stateClient := getRedisClientN(t, 6, ns)
+	defer stateClient.Close()
+	stateClient.Set(ctx, "STATE_DB_INITIALIZED", "1", 0)
+
+	// Port Table entries (used by hardware-port transformer)
+	stateClient.HSet(ctx, "PORT_TABLE:Ethernet0", map[string]interface{}{"index": "0", "lanes": "1,2,3,4"})
+	stateClient.HSet(ctx, "PORT_TABLE:Ethernet4", map[string]interface{}{"index": "4", "lanes": "17,18,19,20"})
+
+	// Transceiver info (used by physical-channel transformer)
+	// Note: many platforms use | as separator for TRANSCEIVER_INFO even in StateDB
+	stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", map[string]interface{}{"type": "QSFP28"})
+	stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet4", map[string]interface{}{"type": "QSFP28"})
+
+	// --- DB 0 (ApplDB) Setup ---
+	applClient := getRedisClientN(t, 0, ns)
+	defer applClient.Close()
+	// Used for P4RT State ID lookups
+	applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet0", map[string]interface{}{"id": "100"})
+	applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet4", map[string]interface{}{"id": "104"})
+
+	// --- DB 2 (CountersDB) Setup ---
+	countersClient := getRedisClientN(t, 2, ns)
+	defer countersClient.Close()
+	// Map names to OIDs
+	countersClient.HSet(ctx, "COUNTERS_PORT_NAME_MAP", "Ethernet0", "oid:0x100", "Ethernet4", "oid:0x104")
+	// Actual counter data for the transformer
+	countersClient.HSet(ctx, "COUNTERS:oid:0x100", "SAI_PORT_STAT_ETHER_STATS_CRC_ALIGN_ERRORS", "10")
+	countersClient.HSet(ctx, "COUNTERS:oid:0x104", "SAI_PORT_STAT_ETHER_STATS_CRC_ALIGN_ERRORS", "40")
+
+	// gNMI Client connection
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	//var emptyRespVal interface{}
+	tds := []struct {
+		desc    string
+		pathStr string
+	}{
+		{
+			desc:    "Get all Interface State (Path Xfmr check)",
+			pathStr: "/openconfig-interfaces:interfaces/interface[name=Ethernet0]/state",
+		},
+		{
+			desc:    "Get all Interface Config (P4RT Config check)",
+			pathStr: "/openconfig-interfaces:interfaces/interface[name=Ethernet0]/config",
+		},
+		{
+			desc:    "Get all Interface Counters (Subtree Xfmr check)",
+			pathStr: "/openconfig-interfaces:interfaces/interface[name=Ethernet0]/state/counters",
+		},
+		{
+			desc:    "Get P4RT ID State for all",
+			pathStr: "/openconfig-interfaces:interfaces/interface[name=Ethernet0]/state/openconfig-p4rt:id",
+		},
+		{
+			desc:    "Get Hardware Port for all",
+			pathStr: "/openconfig-interfaces:interfaces/interface[name=Ethernet0]/state/openconfig-platform-port:hardware-port",
+		},
+		/*
+		   //Commenting this test case alone since it requires some code change in platform.json.Will enable after issue is fixed
+		   {
+		           desc:    "Get Physical Channel for all",
+		           pathStr: "/openconfig-interfaces:interfaces/interface[name=Ethernet0]/state/openconfig-platform-transceiver:physical-channel",
+		   },
+		*/
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			// target is always OC_YANG, wantRetCode OK
+			runTestSubscribe(t, ctx, gClient, td.pathStr)
+		})
+	}
+}
 
 type tablePathValue struct {
 	dbName    string
