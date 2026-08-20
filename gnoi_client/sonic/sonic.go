@@ -130,3 +130,47 @@ func ClearNeighbors(conn *grpc.ClientConn, ctx context.Context) {
 	}
 	fmt.Println(string(respstr))
 }
+
+// ConfigSave triggers SonicService.ConfigSave on the server, which persists
+// the running configuration to /etc/sonic/config_db.json. The server ignores
+// any caller-supplied path so `--jsonin` need only be `{}` (the default).
+func ConfigSave(conn *grpc.ClientConn, ctx context.Context) {
+	fmt.Println("Sonic ConfigSave")
+	ctx = utils.SetUserCreds(ctx)
+	sc := pb.NewSonicServiceClient(conn)
+	req := &pb.ConfigSaveRequest{
+		Input: &pb.ConfigSaveRequest_Input{},
+	}
+	json.Unmarshal([]byte(*config.Args), req)
+	resp, err := sc.ConfigSave(ctx, req)
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
+}
+
+// ConfigReload triggers SonicService.ConfigReload on the server. With an
+// empty `--jsonin` the server reloads from /etc/sonic/config_db.json; pass
+// `{"input":{"config_json":"<...>"}}` to reload an inline JSON document.
+func ConfigReload(conn *grpc.ClientConn, ctx context.Context) {
+	fmt.Println("Sonic ConfigReload")
+	ctx = utils.SetUserCreds(ctx)
+	sc := pb.NewSonicServiceClient(conn)
+	req := &pb.ConfigReloadRequest{
+		Input: &pb.ConfigReloadRequest_Input{},
+	}
+	json.Unmarshal([]byte(*config.Args), req)
+	resp, err := sc.ConfigReload(ctx, req)
+	if err != nil {
+		panic(err.Error())
+	}
+	respstr, err := json.Marshal(resp)
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Println(string(respstr))
+}
