@@ -535,6 +535,9 @@ func TestDeriveRequestFields(t *testing.T) {
 				PeerCertificates: []*x509.Certificate{{
 					Subject: pkix.Name{CommonName: "client-cn"},
 				}},
+				VerifiedChains: [][]*x509.Certificate{{{
+					Subject: pkix.Name{CommonName: "client-cn"},
+				}}},
 			},
 		},
 	})
@@ -544,6 +547,15 @@ func TestDeriveRequestFields(t *testing.T) {
 		got.principal != "client-cn" || got.authType != "tls" ||
 		!reflect.DeepEqual(got.paths, []string{"/get"}) {
 		t.Fatalf("deriveRequestFields() = %+v", got)
+	}
+
+	unverifiedCtx := peer.NewContext(context.Background(), &peer.Peer{
+		AuthInfo: credentials.TLSInfo{State: tls.ConnectionState{
+			PeerCertificates: []*x509.Certificate{{Subject: pkix.Name{CommonName: "spoofed-cn"}}},
+		}},
+	})
+	if got := deriveRequestFields(unverifiedCtx, nil); got.principal != "" {
+		t.Fatalf("unverified certificate principal = %q, want empty", got.principal)
 	}
 
 	empty := deriveRequestFields(context.Background(), nil)

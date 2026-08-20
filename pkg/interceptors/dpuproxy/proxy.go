@@ -2,6 +2,7 @@ package dpuproxy
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"sync"
@@ -13,7 +14,7 @@ import (
 	system "github.com/openconfig/gnoi/system"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 )
@@ -194,9 +195,16 @@ func (p *DPUProxy) getConnection(ctx context.Context, dpuIndex, ipAddress string
 		// can block for minutes during image installation; aggressive pinging
 		// causes the server to send GOAWAY with "too_many_pings".
 		// See: https://github.com/sonic-net/sonic-gnmi/issues/619
+		// DPU servers generate a new self-signed certificate at each startup, so
+		// the proxy encrypts the connection without verifying server identity.
 		conn, err := grpc.NewClient(
 			target,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			// DPU certificates are ephemeral, so there is no stable trust anchor.
+			// nosemgrep: problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification
+			grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+				InsecureSkipVerify: true,
+				MinVersion:         tls.VersionTLS12,
+			})),
 			grpc.WithKeepaliveParams(keepalive.ClientParameters{
 				Time:                30 * time.Second, // Send keepalive ping every 30s
 				Timeout:             10 * time.Second, // Wait 10s for ping ack before considering connection dead
