@@ -7583,3 +7583,329 @@ func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
 		t.Error("Serve() did not return after Stop()")
 	}
 }
+
+func TestGnmiGetTranslibXfmrPortChannel(t *testing.T) {
+	s := createServer(t, 8082)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+
+	// -------------------------------------------------------------
+	// DB 4: ConfigDB (Target configs: PORT, PORTCHANNEL, PORTCHANNEL_MEMBER)
+	// -------------------------------------------------------------
+	configClient := getRedisClientN(t, 4, ns)
+	defer configClient.Close()
+	configClient.Set(ctx, "CONFIG_DB_INITIALIZED", "1", 0)
+
+	// Base Physical Port
+	configClient.HSet(ctx, "PORT|Ethernet0", map[string]interface{}{
+		"admin_status": "up",
+		"speed":        "10000",
+		"mtu":          "9100",
+	})
+
+	// PortChannel Configuration
+	configClient.HSet(ctx, "PORTCHANNEL|PortChannel111", map[string]interface{}{
+		"admin_status": "up",
+		"mtu":          "9100",
+		"min_links":    "1",
+		"lag_type":     "LACP",
+	})
+
+	// PortChannel Member
+	configClient.HSet(ctx, "PORTCHANNEL_MEMBER|PortChannel111|Ethernet0", map[string]interface{}{
+		"link.speed":      "10000",
+		"runner.selected": "true",
+	})
+
+	// -------------------------------------------------------------
+	// DB 0: ApplDB (State resolution for LAG_TABLE & LAG_MEMBER_TABLE)
+	// -------------------------------------------------------------
+	applClient := getRedisClientN(t, 0, ns)
+	defer applClient.Close()
+
+	applClient.HSet(ctx, "LAG_TABLE:PortChannel111", map[string]interface{}{
+		"admin_status":      "up",
+		"mtu":               "9100",
+		"setup.runner_name": "LACP",
+	})
+
+	applClient.HSet(ctx, "LAG_MEMBER_TABLE:PortChannel111:Ethernet0", map[string]interface{}{
+		"runner.selected": "true",
+		"link.speed":      "10000",
+	})
+
+	// -------------------------------------------------------------
+	// DB 6: StateDB (Operational state)
+	// -------------------------------------------------------------
+	stateClient := getRedisClientN(t, 6, ns)
+	defer stateClient.Close()
+	stateClient.Set(ctx, "STATE_DB_INITIALIZED", "1", 0)
+
+	stateClient.HSet(ctx, "LAG_TABLE|PortChannel111", map[string]interface{}{
+		"speed":       "10000",
+		"oper_status": "up",
+	})
+
+	// -------------------------------------------------------------
+	// gNMI Client Setup
+	// -------------------------------------------------------------
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := "127.0.0.1:8082"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	var emptyRespVal interface{}
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		timeout     time.Duration
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		// --- LAG Type (Config & State) ---
+		{
+			desc:       "Get OpenConfig PortChannel lag-type Config",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"PortChannel111" > >
+            elem: <name: "openconfig-if-aggregate:aggregation" >
+            elem: <name: "config" >
+            elem: <name: "lag-type" >
+            `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+		{
+			desc:       "Get OpenConfig PortChannel lag-type State",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"PortChannel111" > >
+            elem: <name: "openconfig-if-aggregate:aggregation" >
+            elem: <name: "state" >
+            elem: <name: "lag-type" >
+            `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+
+		// --- LAG Speed (State) ---
+		{
+			desc:       "Get OpenConfig PortChannel lag-speed State",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"PortChannel111" > >
+            elem: <name: "openconfig-if-aggregate:aggregation" >
+            elem: <name: "state" >
+            elem: <name: "lag-speed" >
+            `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+
+		// --- LAG Members (State) ---
+		{
+			desc:       "Get OpenConfig PortChannel members State",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"PortChannel111" > >
+            elem: <name: "openconfig-if-aggregate:aggregation" >
+            elem: <name: "state" >
+            elem: <name: "member" >
+            `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+
+		// --- LAG Entire State Subtree ---
+		{
+			desc:       "Get OpenConfig PortChannel Aggregation Entire State",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"PortChannel111" > >
+            elem: <name: "openconfig-if-aggregate:aggregation" >
+            elem: <name: "state" >
+            `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+
+		// --- Full Interface Get (DbToYangPath_intf_lag_state_path_xfmr) ---
+		{
+			desc:       "Get OpenConfig PortChannel Interface Top Level",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+            elem: <name: "openconfig-interfaces:interfaces" >
+            elem: <name: "interface" key:<key:"name" value:"PortChannel111" > >
+            `,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     false,
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			if td.timeout == 0 {
+				td.timeout = 10 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), td.timeout)
+			defer cancel()
+
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+}
+
+func TestGnmiGetPortChannelLagType(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ctx := context.Background()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+
+	configClient := getRedisClientN(t, 4, ns)
+	defer configClient.Close()
+
+	portChannelLACP := map[string]interface{}{
+		"admin_status":      "up",
+		"setup.runner_name": "LACP",
+	}
+	portChannelStatic := map[string]interface{}{
+		"admin_status":      "up",
+		"setup.runner_name": "STATIC",
+	}
+
+	configClient.HSet(ctx, "PORTCHANNEL|PortChannel01", portChannelLACP)
+	configClient.HSet(ctx, "PORTCHANNEL|PortChannel02", portChannelStatic)
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		timeout     time.Duration
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		{
+			desc:       "Get OC PortChannel LAG Type (LACP)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces">
+				elem: <name: "interface" key:<key:"name" value:"PortChannel01">>
+				elem: <name: "openconfig-if-aggregate:aggregation">
+				elem: <name: "config">
+				elem: <name: "lag-type">
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: "LACP",
+			valTest:     false,
+		},
+		{
+			desc:       "Get OC PortChannel LAG Type (STATIC)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-interfaces:interfaces">
+				elem: <name: "interface" key:<key:"name" value:"PortChannel02">>
+				elem: <name: "openconfig-if-aggregate:aggregation">
+				elem: <name: "config">
+				elem: <name: "lag-type">
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: "STATIC",
+			valTest:     false,
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			if td.timeout == 0 {
+				td.timeout = 10 * time.Second
+			}
+			testCtx, cancel := context.WithTimeout(context.Background(), td.timeout)
+			defer cancel()
+
+			runTestGet(t, testCtx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+}
+
+func TestGnmiLagTypeTransformer(t *testing.T) {
+	s := createServer(t, 8081)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ctx := context.Background()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	configClient := getRedisClientN(t, 4, ns)
+	defer configClient.Close()
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	targetAddr := "127.0.0.1:8081"
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing failed: %v", err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	t.Run("LagType_Conflict_Error", func(t *testing.T) {
+		lagName := "PortChannel1"
+		configClient.HSet(ctx, "PORTCHANNEL|"+lagName, map[string]interface{}{"lag_type": "LACP"})
+
+		// Target the exact leaf path for lag-type to bypass parent container JSON unmarshaling issues
+		textPbPath := `
+			elem: <name: "openconfig-interfaces:interfaces">
+			elem: <name: "interface" key:<key:"name" value:"PortChannel1">>
+			elem: <name: "openconfig-if-aggregate:aggregation">
+			elem: <name: "config">
+			elem: <name: "lag-type">
+		`
+		attributeData := `{"openconfig-if-aggregate:lag-type": "STATIC"}`
+
+		runTestSet(t, ctx, gClient, "OC_YANG",
+			textPbPath,
+			codes.Unknown,
+			nil,
+			attributeData,
+			Update)
+	})
+}
