@@ -202,6 +202,102 @@ stages:
 
     - bash: |
         set -euo pipefail
+        # Ephemeral go.work module-graph proof (this step only, never
+        # committed to either repository). This proves module-graph
+        # resolution ONLY: that sonic-gnmi's and the selected
+        # sonic-mgmt-common commit resolve together in a workspace, and that
+        # github.com/Azure/sonic-mgmt-common binds to exactly that checkout.
+        # setup-test-env.yml's MGMT build has already run by this point and
+        # intentionally normalizes MGMT's working tree in place (its own
+        # `go mod tidy` + `go mod vendor` step), so this proof runs against
+        # that same post-build, normalized/generated MGMT checkout - not a
+        # pristine, untouched target-branch checkout - at the exact commit
+        # logged below (HEAD itself does not move; see setup-test-env.yml's
+        # exact-commit assertion). It is NOT a substitute for, and does not
+        # replace, the existing full build and tests below: `make all`
+        # (which regenerates sonic-gnmi's gitignored vendor/ directory from
+        # scratch via `go mod vendor` and applies both sonic-gnmi's own
+        # patches and sonic-mgmt-common's patches/apply.sh against it) and
+        # the integration test suite remain the real, gating validation
+        # against the selected sonic-mgmt-common and are left unchanged.
+        # This step does not compile any sonic-gnmi package directly under
+        # the workspace.
+        #
+        # All directories are canonicalized with `realpath` so the later
+        # comparison against `go list`'s resolved module directory can't
+        # spuriously mismatch due to a symlink (e.g. a symlinked agent temp
+        # or work directory) appearing on only one side.
+        GNMI_DIR=$(realpath "$(pwd)/sonic-gnmi")
+        MGMT_DIR=$(realpath "$(pwd)/sonic-mgmt-common")
+        mgmt_commit=$(git -C "$MGMT_DIR" rev-parse HEAD)
+        echo "sonic-mgmt-common exact commit for this module-graph proof: $mgmt_commit"
+
+        WORKDIR="$(Agent.TempDirectory)/go-work-integration"
+        mkdir -p "$WORKDIR"
+        WORKDIR=$(realpath "$WORKDIR")
+        GOWORK_FILE="$WORKDIR/go.work"
+        cleanup() {
+          rm -rf -- "$WORKDIR"
+        }
+        trap cleanup EXIT
+
+        # Read directly from the file (no pipe from another process), so
+        # this cannot trigger a SIGPIPE under `set -o pipefail` even though
+        # it stops at the first match.
+        go_directive=$(awk '$1=="go"{print $2; exit}' "$GNMI_DIR/go.mod")
+        if [ -z "$go_directive" ]; then
+          echo "::error::could not read the 'go' directive from $GNMI_DIR/go.mod"
+          exit 1
+        fi
+
+        # Derive sonic-gnmi's own glog replacement from its committed go.mod
+        # with no workspace in effect (GOWORK=off), rather than hardcoding
+        # it: sonic-gnmi and sonic-mgmt-common replace github.com/golang/glog
+        # with different versions for unrelated reasons, and go.work
+        # requires exactly one resolved replacement for a module shared by
+        # two `use`d modules. `go mod edit -json` only reads/parses go.mod;
+        # it never writes. Kept as a single-line python invocation (no
+        # embedded newlines) so this step's indentation stays valid YAML.
+        # python3 reads all of stdin before printing, so this pipe cannot
+        # SIGPIPE its producer either.
+        gnmi_glog_new=$(GOWORK=off go mod edit -json "$GNMI_DIR/go.mod" | python3 -c 'import json,sys; d=json.load(sys.stdin); m=[x for x in (d.get("Replace") or []) if x["Old"]["Path"]=="github.com/golang/glog"]; print((m[0]["New"]["Path"]+("@"+m[0]["New"]["Version"] if m[0]["New"].get("Version") else "")) if m else "")')
+        if [ -z "$gnmi_glog_new" ]; then
+          echo "::error::sonic-gnmi/go.mod no longer replaces github.com/golang/glog; this proof's glog conflict-resolution assumption is stale and must be re-verified"
+          exit 1
+        fi
+        echo "Resolving the ephemeral workspace's glog replacement to sonic-gnmi's own pin: $gnmi_glog_new"
+
+        {
+          echo "go ${go_directive}"
+          echo
+          echo "use ${GNMI_DIR}"
+          echo "use ${MGMT_DIR}"
+        } > "$GOWORK_FILE"
+        export GOWORK="$GOWORK_FILE"
+        go work edit -replace "github.com/golang/glog=${gnmi_glog_new}"
+
+        echo "=== Ephemeral go.work (not committed to either repository): $GOWORK_FILE ==="
+        cat "$GOWORK_FILE"
+
+        # `go list -m all` lists the whole workspace's build list; the awk
+        # filter never exits early, so it drains all of `go list`'s output
+        # and cannot SIGPIPE it under `set -o pipefail`.
+        echo "=== Module-graph proof: go list -m all under the ephemeral workspace ==="
+        resolved_mgmt_dir=$(cd "$GNMI_DIR" && go list -m -f '{{.Path}} {{.Dir}}' all | awk '$1=="github.com/Azure/sonic-mgmt-common"{print $2}')
+        if [ -z "$resolved_mgmt_dir" ]; then
+          echo "::error::github.com/Azure/sonic-mgmt-common did not resolve in the workspace module graph (go list -m all)"
+          exit 1
+        fi
+        resolved_mgmt_dir=$(realpath "$resolved_mgmt_dir")
+        if [ "$resolved_mgmt_dir" != "$MGMT_DIR" ]; then
+          echo "::error::github.com/Azure/sonic-mgmt-common resolved to $resolved_mgmt_dir, expected the checked-out $MGMT_DIR"
+          exit 1
+        fi
+        echo "github.com/Azure/sonic-mgmt-common (commit $mgmt_commit) resolves to the checked-out sonic-mgmt-common: $resolved_mgmt_dir"
+      displayName: 'Prove go.work module-graph resolution against selected sonic-mgmt-common'
+
+    - bash: |
+        set -euo pipefail
         cd sonic-gnmi
         make all
         $(UNIT_TEST_FLAG) make check_gotest_junit
