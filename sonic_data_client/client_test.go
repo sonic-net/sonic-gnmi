@@ -505,7 +505,7 @@ func TestSubscribeInternal(t *testing.T) {
 		client.w = &w
 		client.w.Add(1)
 		client.synced.Add(1)
-		client.streamSampleSubscription(&sub, false)
+		client.streamSampleSubscription(&sub)
 	}
 
 	// Test streamSampleSubscription
@@ -525,7 +525,7 @@ func TestSubscribeInternal(t *testing.T) {
 		client.synced.Add(1)
 		client.dbkey = swsscommon.NewSonicDBKey()
 		defer swsscommon.DeleteSonicDBKey(client.dbkey)
-		client.streamSampleSubscription(&sub, false)
+		client.streamSampleSubscription(&sub)
 	}
 
 	// Test dbFieldSubscribe
