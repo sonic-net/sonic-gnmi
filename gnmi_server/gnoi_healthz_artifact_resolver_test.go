@@ -26,15 +26,6 @@ func newArtifactTestResolver(t *testing.T) artifactPathResolver {
 	return resolver
 }
 
-func useDefaultArtifactTestResolver(t *testing.T) artifactPathResolver {
-	t.Helper()
-	resolver := newArtifactTestResolver(t)
-	previous := defaultArtifactResolver
-	defaultArtifactResolver = resolver
-	t.Cleanup(func() { defaultArtifactResolver = previous })
-	return resolver
-}
-
 func writeArtifactTestFile(t *testing.T, resolver artifactPathResolver, hostPath string, content []byte) string {
 	t.Helper()
 	containerPath := resolver.containerPath(hostPath)

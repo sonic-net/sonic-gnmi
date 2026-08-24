@@ -645,9 +645,7 @@ func TestHandlePut_Success(t *testing.T) {
 }
 
 func TestHandlePut_DLDDRulesInbox(t *testing.T) {
-	previousHostRoot := hostRoot
-	hostRoot = t.TempDir()
-	t.Cleanup(func() { hostRoot = previousHostRoot })
+	setTempHostRoot(t)
 
 	content := []byte("schema_version: 0.0.1\nsignatures: []\n")
 	digest := md5.Sum(content)
@@ -683,12 +681,10 @@ func TestHandlePut_DLDDRulesInbox(t *testing.T) {
 }
 
 func TestHandlePut_EnforcesMaximumSize(t *testing.T) {
-	previousHostRoot := hostRoot
 	previousMaxFileSize := maxFileSize
-	hostRoot = t.TempDir()
+	setTempHostRoot(t)
 	maxFileSize = 5
 	t.Cleanup(func() {
-		hostRoot = previousHostRoot
 		maxFileSize = previousMaxFileSize
 	})
 
@@ -713,9 +709,7 @@ func TestHandlePut_EnforcesMaximumSize(t *testing.T) {
 }
 
 func TestHandlePut_RejectsOversizedChunk(t *testing.T) {
-	previousHostRoot := hostRoot
-	hostRoot = t.TempDir()
-	t.Cleanup(func() { hostRoot = previousHostRoot })
+	setTempHostRoot(t)
 
 	stream := newMockPutStream()
 	stream.addOpenRequest("/tmp/oversized-chunk.bin", 0600)
@@ -730,9 +724,7 @@ func TestHandlePut_RejectsOversizedChunk(t *testing.T) {
 }
 
 func TestHandlePut_RejectsUnsupportedHashMethod(t *testing.T) {
-	previousHostRoot := hostRoot
-	hostRoot = t.TempDir()
-	t.Cleanup(func() { hostRoot = previousHostRoot })
+	setTempHostRoot(t)
 
 	content := []byte("content")
 	stream := newMockPutStream()
@@ -752,9 +744,7 @@ func TestHandlePut_RejectsUnsupportedHashMethod(t *testing.T) {
 }
 
 func TestHandlePut_ConcurrentAtomicReplacement(t *testing.T) {
-	previousHostRoot := hostRoot
-	hostRoot = t.TempDir()
-	t.Cleanup(func() { hostRoot = previousHostRoot })
+	setTempHostRoot(t)
 
 	const uploads = 8
 	payloads := make([][]byte, uploads)
@@ -804,9 +794,7 @@ func TestHandlePut_ConcurrentAtomicReplacement(t *testing.T) {
 }
 
 func TestHandlePut_DoesNotFollowLegacyFixedTempSymlink(t *testing.T) {
-	previousHostRoot := hostRoot
-	hostRoot = t.TempDir()
-	t.Cleanup(func() { hostRoot = previousHostRoot })
+	setTempHostRoot(t)
 
 	destination := hostRoot + dlddRulesInboxPath
 	if err := os.MkdirAll(filepath.Dir(destination), 0750); err != nil {

@@ -32,9 +32,7 @@ func TestRemove_DangerousFile(t *testing.T) {
 }
 
 func TestRemove_DLDDRulesInbox(t *testing.T) {
-	previousHostRoot := hostRoot
-	hostRoot = t.TempDir()
-	t.Cleanup(func() { hostRoot = previousHostRoot })
+	setTempHostRoot(t)
 
 	destination := hostRoot + dlddRulesInboxPath
 	assert.NoError(t, os.MkdirAll(filepath.Dir(destination), 0750))

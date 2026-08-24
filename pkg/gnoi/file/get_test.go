@@ -62,6 +62,17 @@ func (s *fakeGetServer) SetHeader(metadata.MD) error  { return nil }
 func (s *fakeGetServer) SendHeader(metadata.MD) error { return nil }
 func (s *fakeGetServer) SetTrailer(metadata.MD)       {}
 
+// setTempHostRoot points hostRoot at a fresh test directory, restores the
+// previous value during cleanup, and returns the injected root.
+func setTempHostRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	previous := hostRoot
+	hostRoot = root
+	t.Cleanup(func() { hostRoot = previous })
+	return root
+}
+
 // useTempHostRoot points hostRoot at a fresh t.TempDir() and restores it
 // when the test ends. Returns (logical, physical):
 //
@@ -80,10 +91,7 @@ func (s *fakeGetServer) SetTrailer(metadata.MD)       {}
 // whitelist so the handler accepts the logical path).
 func useTempHostRoot(t *testing.T) (logical, physical string) {
 	t.Helper()
-	root := t.TempDir()
-	prevRoot := hostRoot
-	hostRoot = root
-	t.Cleanup(func() { hostRoot = prevRoot })
+	root := setTempHostRoot(t)
 
 	// Build <root>/tmp/get-test-XXXX so the handler-visible logical path
 	// (after stripping <root>) starts with /tmp/, which validatePath

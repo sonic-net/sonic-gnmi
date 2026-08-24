@@ -160,12 +160,13 @@ var testHealthzCases = []struct {
 		desc: "GetDebugData_Marshal_Error",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
 			dummy_path := &types.Path{}
+			srv := newHealthzArtifactTestServer(t)
 
 			patch := gomonkey.ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
 				return nil, fmt.Errorf("marshal error")
 			})
 			defer patch.Reset()
-			_, err := getDebugData(dummy_path)
+			_, err := srv.getDebugData(dummy_path)
 			if err == nil || !strings.Contains(err.Error(), "marshal error") {
 				t.Errorf("Expected marshal error, got: %v", err)
 			}
@@ -175,13 +176,14 @@ var testHealthzCases = []struct {
 		desc: "GetDebugData_NewDbusClient_Error",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
 			dummy_path := &types.Path{}
+			srv := newHealthzArtifactTestServer(t)
 
 			patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
 				return nil, fmt.Errorf("dbus creation failed")
 			})
 			defer patch.Reset()
 
-			_, err := getDebugData(dummy_path)
+			_, err := srv.getDebugData(dummy_path)
 			if err == nil || !strings.Contains(err.Error(), "dbus creation failed") {
 				t.Errorf("Expected dbus client creation error, got: %v", err)
 			}
@@ -232,6 +234,7 @@ var testHealthzCases = []struct {
 		desc: "GetDebugData_HealthzCollect_DBus_Error",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
 			fakeclient := &ssc.FakeClientWithError{}
+			srv := newHealthzArtifactTestServer(t)
 
 			// Patch NewDbusClient to return fakeClient
 			patches := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
@@ -241,7 +244,7 @@ var testHealthzCases = []struct {
 
 			// Call getDebugData
 			path := &types.Path{} // dummy value
-			resp, err := getDebugData(path)
+			resp, err := srv.getDebugData(path)
 
 			// Validate
 			if err == nil {
@@ -260,44 +263,27 @@ var testHealthzCases = []struct {
 		desc: "GetDebugData_WaitForArtifact_error",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
 			dummy_path := &types.Path{}
+			srv := newHealthzArtifactTestServer(t)
 
 			patch1 := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
 				return &ssc.FakeClient{CollectResponse: "/tmp/fakefile"}, nil
 			})
-			patch2 := gomonkey.ApplyFunc(waitForArtifact, func(string) (string, error) {
+			patch2 := gomonkey.ApplyFunc(waitForArtifact, func(ssc.Service, string) (string, error) {
 				return "", fmt.Errorf("timeout")
 			})
 			defer patch1.Reset()
 			defer patch2.Reset()
 
-			_, err := getDebugData(dummy_path)
+			_, err := srv.getDebugData(dummy_path)
 			if err == nil || !strings.Contains(err.Error(), "timeout") {
 				t.Errorf("Expected wait timeout error, got: %v", err)
 			}
 		},
 	},
-
 	{
-		desc: "WaitForArtifact_NewDbusClient_Error",
-		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			// Patch NewDbusClient to return an error
-			patch := gomonkey.ApplyFuncReturn(ssc.NewDbusClient, nil, fmt.Errorf("dbus connection failed"))
-			defer patch.Reset()
-
-			_, err := waitForArtifact("any-file")
-			if err == nil {
-				t.Errorf("Expected error from NewDbusClient, got nil")
-			}
-			if err.Error() != "dbus connection failed" {
-				t.Errorf("Unexpected error message: %v", err)
-			}
-		},
-	},
-	{
-
 		desc: "GetDebugData_Success_Path",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			//defaultPath := &types.Path{}
+			srv := newHealthzArtifactTestServer(t)
 			defaultPath := &types.Path{
 				Elem: []*types.PathElem{
 					{Name: "components"},
@@ -306,27 +292,27 @@ var testHealthzCases = []struct {
 					{Name: "log-level-alert"},
 				},
 			}
-			// Create both host and container path versions
-			dummy_hostfile := "/tmp/dump/fake-collect-success"
-			dummy_containerfile := "/mnt/host/tmp/dump/fake-collect-success"
+			dummyHostFile := "/tmp/dump/fake-collect-success"
 			dummyData := []byte("dummy log data")
+			writeArtifactTestFile(t, srv.artifactResolver, dummyHostFile, dummyData)
 
-			_ = os.MkdirAll(filepath.Dir(dummy_containerfile), 0755)
-			if err := os.WriteFile(dummy_containerfile, dummyData, 0644); err != nil {
-				t.Fatalf("failed to create test artifact file: %v", err)
-			}
-			defer os.Remove(dummy_containerfile)
-
+			fakeClient := &ssc.FakeClient{CollectResponse: dummyHostFile}
 			patch1 := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
-				return &ssc.FakeClient{CollectResponse: dummy_hostfile}, nil
+				return fakeClient, nil
 			})
-			patch2 := gomonkey.ApplyFunc(waitForArtifact, func(string) (string, error) {
-				return dummy_hostfile, nil
+			patch2 := gomonkey.ApplyFunc(waitForArtifact, func(client ssc.Service, artifact string) (string, error) {
+				if client != fakeClient {
+					t.Fatalf("waitForArtifact received a different D-Bus client")
+				}
+				if artifact != dummyHostFile {
+					t.Fatalf("waitForArtifact artifact = %q, want %q", artifact, dummyHostFile)
+				}
+				return dummyHostFile, nil
 			})
 			defer patch1.Reset()
 			defer patch2.Reset()
 
-			resp, err := getDebugData(defaultPath)
+			resp, err := srv.getDebugData(defaultPath)
 			if err != nil {
 				t.Fatalf("Expected success, got error: %v", err)
 			}
@@ -357,7 +343,7 @@ var testHealthzCases = []struct {
 			})
 
 			// Patch waitForArtifact
-			patches.ApplyFunc(waitForArtifact, func(path string) (string, error) {
+			patches.ApplyFunc(waitForArtifact, func(ssc.Service, string) (string, error) {
 				return "", nil
 			})
 
@@ -424,16 +410,18 @@ var testHealthzCases = []struct {
 	{
 		desc: "HealthzCheck_SuccessPath",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
+			previousTimeout := artifactColTimeout
+			previousSleepTime := artifactSleepTime
 			artifactColTimeout = 40 * time.Millisecond
 			artifactSleepTime = 5 * time.Millisecond
+			t.Cleanup(func() {
+				artifactColTimeout = previousTimeout
+				artifactSleepTime = previousSleepTime
+			})
 
 			fakeclient := &ssc.FakeClientWithError{}
-			patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
-				return fakeclient, nil
-			})
-			defer patch.Reset()
 
-			result, err := waitForArtifact("/tmp/fakefile")
+			result, err := waitForArtifact(fakeclient, "/tmp/fakefile")
 			if err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
@@ -481,9 +469,10 @@ var testHealthzCases = []struct {
 		desc: "TestHealthzServer_Acknowledge",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
 			fakeClient := &ssc.FakeClient{}
-			resolver := useDefaultArtifactTestResolver(t)
+			srv := newHealthzArtifactTestServer(t)
+			srv.config.EnableNativeWrite = true
 			artifactID := "/tmp/dump/ack-event"
-			writeArtifactTestFile(t, resolver, artifactID, []byte("artifact"))
+			writeArtifactTestFile(t, srv.artifactResolver, artifactID, []byte("artifact"))
 
 			// Patch NewDbusClient to return the fake client
 			patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
@@ -497,7 +486,7 @@ var testHealthzCases = []struct {
 			}
 
 			// Call Acknowledge
-			resp, err := sc.Acknowledge(ctx, req)
+			resp, err := srv.Acknowledge(ctx, req)
 
 			if err != nil {
 				t.Errorf("Expected no error, got: %v", err)
@@ -511,9 +500,10 @@ var testHealthzCases = []struct {
 		desc: "TestHealthzServer_Acknowledge_DBUS_Error",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
 			fakeClient := &ssc.FakeClientWithError{}
-			resolver := useDefaultArtifactTestResolver(t)
+			srv := newHealthzArtifactTestServer(t)
+			srv.config.EnableNativeWrite = true
 			artifactID := "/tmp/dump/ack-event"
-			writeArtifactTestFile(t, resolver, artifactID, []byte("artifact"))
+			writeArtifactTestFile(t, srv.artifactResolver, artifactID, []byte("artifact"))
 
 			// Patch NewDbusClient to return the fake client
 			patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
@@ -527,7 +517,7 @@ var testHealthzCases = []struct {
 			}
 
 			// Call Acknowledge
-			resp, err := sc.Acknowledge(ctx, req)
+			resp, err := srv.Acknowledge(ctx, req)
 			if err == nil {
 				t.Errorf("Expected error, got nil")
 			}
@@ -539,16 +529,17 @@ var testHealthzCases = []struct {
 	{
 		desc: "Acknowledge_NewDbusClient_Error",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			resolver := useDefaultArtifactTestResolver(t)
+			srv := newHealthzArtifactTestServer(t)
+			srv.config.EnableNativeWrite = true
 			artifactID := "/tmp/dump/ack-event"
-			writeArtifactTestFile(t, resolver, artifactID, []byte("artifact"))
+			writeArtifactTestFile(t, srv.artifactResolver, artifactID, []byte("artifact"))
 			// Patch NewDbusClient to return an error
 			patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
 				return nil, fmt.Errorf("simulated dbus client creation error")
 			})
 			defer patch.Reset()
 			req := &healthz.AcknowledgeRequest{Id: artifactID}
-			resp, err := sc.Acknowledge(ctx, req)
+			resp, err := srv.Acknowledge(ctx, req)
 
 			if err == nil {
 				t.Errorf("Expected error due to client creation failure, got nil")
