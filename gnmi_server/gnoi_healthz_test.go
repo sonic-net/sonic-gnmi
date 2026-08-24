@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/openconfig/gnoi/healthz"
@@ -166,7 +165,7 @@ var testHealthzCases = []struct {
 				return nil, fmt.Errorf("marshal error")
 			})
 			defer patch.Reset()
-			_, err := srv.getDebugData(dummy_path)
+			_, err := srv.getDebugData(ctx, dummy_path)
 			if err == nil || !strings.Contains(err.Error(), "marshal error") {
 				t.Errorf("Expected marshal error, got: %v", err)
 			}
@@ -183,7 +182,7 @@ var testHealthzCases = []struct {
 			})
 			defer patch.Reset()
 
-			_, err := srv.getDebugData(dummy_path)
+			_, err := srv.getDebugData(ctx, dummy_path)
 			if err == nil || !strings.Contains(err.Error(), "dbus creation failed") {
 				t.Errorf("Expected dbus client creation error, got: %v", err)
 			}
@@ -244,7 +243,7 @@ var testHealthzCases = []struct {
 
 			// Call getDebugData
 			path := &types.Path{} // dummy value
-			resp, err := srv.getDebugData(path)
+			resp, err := srv.getDebugData(ctx, path)
 
 			// Validate
 			if err == nil {
@@ -268,13 +267,13 @@ var testHealthzCases = []struct {
 			patch1 := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
 				return &ssc.FakeClient{CollectResponse: "/tmp/fakefile"}, nil
 			})
-			patch2 := gomonkey.ApplyFunc(waitForArtifact, func(ssc.Service, string) (string, error) {
+			patch2 := gomonkey.ApplyFunc(waitForArtifact, func(context.Context, healthzArtifactChecker, string) (string, error) {
 				return "", fmt.Errorf("timeout")
 			})
 			defer patch1.Reset()
 			defer patch2.Reset()
 
-			_, err := srv.getDebugData(dummy_path)
+			_, err := srv.getDebugData(ctx, dummy_path)
 			if err == nil || !strings.Contains(err.Error(), "timeout") {
 				t.Errorf("Expected wait timeout error, got: %v", err)
 			}
@@ -300,19 +299,22 @@ var testHealthzCases = []struct {
 			patch1 := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
 				return fakeClient, nil
 			})
-			patch2 := gomonkey.ApplyFunc(waitForArtifact, func(client ssc.Service, artifact string) (string, error) {
+			patch2 := gomonkey.ApplyFunc(waitForArtifact, func(waitCtx context.Context, client healthzArtifactChecker, artifact string) (string, error) {
+				if waitCtx != ctx {
+					t.Fatal("waitForArtifact did not receive the request context")
+				}
 				if client != fakeClient {
 					t.Fatalf("waitForArtifact received a different D-Bus client")
 				}
 				if artifact != dummyHostFile {
 					t.Fatalf("waitForArtifact artifact = %q, want %q", artifact, dummyHostFile)
 				}
-				return dummyHostFile, nil
+				return healthzArtifactReady, nil
 			})
 			defer patch1.Reset()
 			defer patch2.Reset()
 
-			resp, err := srv.getDebugData(defaultPath)
+			resp, err := srv.getDebugData(ctx, defaultPath)
 			if err != nil {
 				t.Fatalf("Expected success, got error: %v", err)
 			}
@@ -343,8 +345,8 @@ var testHealthzCases = []struct {
 			})
 
 			// Patch waitForArtifact
-			patches.ApplyFunc(waitForArtifact, func(ssc.Service, string) (string, error) {
-				return "", nil
+			patches.ApplyFunc(waitForArtifact, func(context.Context, healthzArtifactChecker, string) (string, error) {
+				return healthzArtifactReady, nil
 			})
 
 			// Test 1: /components/component[name=healthz]/alert-info
@@ -407,30 +409,6 @@ var testHealthzCases = []struct {
 			}
 		},
 	},
-	{
-		desc: "HealthzCheck_SuccessPath",
-		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			previousTimeout := artifactColTimeout
-			previousSleepTime := artifactSleepTime
-			artifactColTimeout = 40 * time.Millisecond
-			artifactSleepTime = 5 * time.Millisecond
-			t.Cleanup(func() {
-				artifactColTimeout = previousTimeout
-				artifactSleepTime = previousSleepTime
-			})
-
-			fakeclient := &ssc.FakeClientWithError{}
-
-			result, err := waitForArtifact(fakeclient, "/tmp/fakefile")
-			if err != nil {
-				t.Fatalf("expected no error, got: %v", err)
-			}
-			if result != "fake-check-success" {
-				t.Errorf("expected 'fake-check-success', got: %s", result)
-			}
-		},
-	},
-
 	{
 		desc: "HealthzListFailsForInvalidComponent",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {

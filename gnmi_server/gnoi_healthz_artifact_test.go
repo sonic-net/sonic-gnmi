@@ -25,6 +25,19 @@ type artifactTestStream struct {
 	send      func(*healthz.ArtifactResponse) error
 }
 
+type legacyCollectionService struct {
+	ssc.Service
+	artifactID string
+}
+
+func (service *legacyCollectionService) HealthzCollect(string) (string, error) {
+	return service.artifactID, nil
+}
+
+func (*legacyCollectionService) Close() error {
+	return nil
+}
+
 func (stream *artifactTestStream) Context() context.Context {
 	if stream.ctx == nil {
 		return context.Background()
@@ -159,6 +172,31 @@ func TestHealthzArtifactStreamsEmptyContentMessage(t *testing.T) {
 	}
 	if _, ok := stream.responses[1].Contents.(*healthz.ArtifactResponse_Bytes); !ok {
 		t.Fatalf("middle response = %T, want ArtifactResponse_Bytes", stream.responses[1].Contents)
+	}
+}
+
+func TestLegacyHealthzCollectionRejectsOpaqueDLDDArtifactID(t *testing.T) {
+	server := newHealthzArtifactTestServer(t)
+	artifactID := "dldd-22222222222222222222222222222222.tar.gz"
+	writeArtifactTestFile(
+		t,
+		server.artifactResolver,
+		filepath.Join(server.artifactResolver.dlddDirectory, artifactID),
+		[]byte("DLDD artifact"),
+	)
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+		return &legacyCollectionService{artifactID: artifactID}, nil
+	})
+	patches.ApplyFunc(waitForArtifact, func(context.Context, healthzArtifactChecker, string) (string, error) {
+		return healthzArtifactReady, nil
+	})
+
+	_, err := server.getDebugData(context.Background(), &types.Path{})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("getDebugData() code = %v, want InvalidArgument; err=%v", status.Code(err), err)
 	}
 }
 

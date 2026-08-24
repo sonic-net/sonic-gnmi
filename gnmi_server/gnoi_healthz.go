@@ -3,9 +3,7 @@ package gnmi
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
-	"time"
 
 	log "github.com/golang/glog"
 	"github.com/openconfig/gnoi/healthz"
@@ -32,11 +30,6 @@ const (
 	ddLogLvlCritical string = "critical"
 	ddLogLvlAll      string = "all"
 	ddLogLvlSuf      string = "-info"
-)
-
-var (
-	artifactColTimeout time.Duration = 5 * time.Minute
-	artifactSleepTime  time.Duration = 5 * time.Second
 )
 
 func healthzReadOnlyError() error {
@@ -70,25 +63,7 @@ func isDebugData(p *types.Path) bool {
 	return true
 }
 
-func waitForArtifact(sc ssc.Service, file string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(),
-		artifactColTimeout)
-	defer cancel()
-	for {
-		if result, err := sc.HealthzCheck(file); err == nil {
-			log.V(2).Infof("HealthzCheck status=%q artifact=%q", result, file)
-			return result, nil
-		}
-		select {
-		case <-ctx.Done():
-			return "", fmt.Errorf("artifact collection timeout on file %s: %w", file, ctx.Err())
-		case <-time.After(artifactSleepTime):
-			// Continue loop
-		}
-	}
-}
-
-func (srv *HealthzServer) getDebugData(p *types.Path) (*healthz.GetResponse, error) {
+func (srv *HealthzServer) getDebugData(ctx context.Context, p *types.Path) (*healthz.GetResponse, error) {
 	log.Infof("getDebugData() request path: %+v\n", p)
 	c := ddComponentAll
 	ll := ddLogLvlAlert
@@ -118,28 +93,18 @@ func (srv *HealthzServer) getDebugData(p *types.Path) (*healthz.GetResponse, err
 		return nil, status.Errorf(codes.Internal, "Host service error: %v", err)
 	}
 	// Wait for artifact file to be ready.
-	result, err := waitForArtifact(sc, s)
+	result, err := waitForArtifact(ctx, sc, s)
 	if err != nil {
 		log.Errorf("waitForArtifact failed: %v", err)
 		return nil, err
 	}
 	log.V(2).Infof("HealthzCheck completed with status %q", result)
 
-	//Set Component HealthStatus based on HealthzCheck result
-	var healthStatus healthz.Status
-	switch result {
-	case "Artifact ready":
-		healthStatus = healthz.Status_STATUS_HEALTHY
-	case "Artifact not ready":
-		healthStatus = healthz.Status_STATUS_UNHEALTHY
-	default:
-		healthStatus = healthz.Status_STATUS_UNSPECIFIED
-	}
 	log.V(2).Infof("Healthz host artifact path: %q", s)
 
 	// Reuse the Artifact RPC resolver for legacy debug artifacts. This keeps
 	// path containment and symlink handling identical across both Healthz APIs.
-	f, filePath, err := srv.getArtifactResolver().open(s)
+	f, filePath, err := srv.getArtifactResolver().openLegacy(s)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +121,7 @@ func (srv *HealthzServer) getDebugData(p *types.Path) (*healthz.GetResponse, err
 	resp.Component = &healthz.ComponentStatus{
 		Path:      p,
 		Id:        s,
-		Status:    healthStatus,
+		Status:    healthz.Status_STATUS_HEALTHY,
 		Artifacts: []*healthz.ArtifactHeader{artifactHeader},
 	}
 	return resp, nil
@@ -183,7 +148,7 @@ func (srv *HealthzServer) Get(ctx context.Context, req *healthz.GetRequest) (*he
 		if !writeEnabled(srv.config) {
 			return nil, healthzReadOnlyError()
 		}
-		return srv.getDebugData(path)
+		return srv.getDebugData(ctx, path)
 	}
 	log.Warning("Healthz.Get received unsupported component path")
 	return nil, status.Errorf(codes.Unimplemented, "Healthz.Get is unimplemented for component: [%s].", path.GetElem())
