@@ -25,6 +25,18 @@ import (
 
 var testFile string = "/etc/sonic/ut.cp.json"
 
+func TestCheckPointPath(t *testing.T) {
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "/tmp/checkpoint")
+	if got := checkPointPath(); got != "/tmp/checkpoint" {
+		t.Fatalf("checkPointPath() = %q, want /tmp/checkpoint", got)
+	}
+
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "")
+	if got := checkPointPath(); got != "/etc/sonic" {
+		t.Fatalf("checkPointPath() = %q, want /etc/sonic", got)
+	}
+}
+
 func JsonEqual(a, b []byte) (bool, error) {
 	var j1, j2 interface{}
 	var err error

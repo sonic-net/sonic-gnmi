@@ -46,7 +46,14 @@ const SWSS_TIMEOUT uint = 0
 const MAX_RETRY_COUNT uint = 5
 const RETRY_DELAY_MILLISECOND uint = 100
 const RETRY_DELAY_FACTOR uint = 2
-const CHECK_POINT_PATH string = "/etc/sonic"
+
+func checkPointPath() string {
+	if path := os.Getenv("SONIC_GNMI_CHECKPOINT_DIR"); path != "" {
+		return path
+	}
+	return "/etc/sonic"
+}
+
 const ELEM_INDEX_DATABASE = 0
 const ELEM_INDEX_INSTANCE = 1
 const UPDATE_OPERATION = "add"
@@ -1407,12 +1414,13 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		}
 	}
 
-	err = sc.CreateCheckPoint(CHECK_POINT_PATH + "/config")
+	checkpointPath := checkPointPath()
+	err = sc.CreateCheckPoint(checkpointPath + "/config")
 	if err != nil {
 		return err
 	}
-	defer sc.DeleteCheckPoint(CHECK_POINT_PATH + "/config")
-	fileName := CHECK_POINT_PATH + "/config.cp.json"
+	defer sc.DeleteCheckPoint(checkpointPath + "/config")
+	fileName := checkpointPath + "/config.cp.json"
 	c.jClient, err = NewJsonClient(fileName, namespace)
 	if err != nil {
 		return err
@@ -1701,7 +1709,7 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 		}
 	}
 
-	fileName := CHECK_POINT_PATH + "/config.cp.json"
+	fileName := checkPointPath() + "/config.cp.json"
 	c.jClient, err = NewJsonClient(fileName, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("There's no check point")
