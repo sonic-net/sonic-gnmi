@@ -146,6 +146,27 @@ type tablePath struct {
 	isVirtualPath bool
 }
 
+// String omits request payloads so tablePath can be logged as valid text.
+func (p tablePath) String() string {
+	operation := fmt.Sprintf("unknown(%d)", p.operation)
+	switch p.operation {
+	case opAdd:
+		operation = "add"
+	case opRemove:
+		operation = "remove"
+	}
+
+	return fmt.Sprintf(
+		"tablePath{namespace=%+q db=%+q table=%+q key=%+q field=%+q operation=%+q index=%d json_bytes=%d proto_bytes=%d virtual=%t}",
+		p.dbNamespace, p.dbName, p.tableName, p.tableKey, p.field, operation,
+		p.index, len(p.jsonValue), len(p.protoValue), p.isVirtualPath,
+	)
+}
+
+func (p tablePath) GoString() string {
+	return p.String()
+}
+
 type Value struct {
 	*spb.Value
 }
