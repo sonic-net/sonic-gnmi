@@ -46,12 +46,13 @@ const SWSS_TIMEOUT uint = 0
 const MAX_RETRY_COUNT uint = 5
 const RETRY_DELAY_MILLISECOND uint = 100
 const RETRY_DELAY_FACTOR uint = 2
+const CHECK_POINT_PATH string = "/etc/sonic"
 
 func checkPointPath() string {
 	if path := os.Getenv("SONIC_GNMI_CHECKPOINT_DIR"); path != "" {
 		return path
 	}
-	return "/etc/sonic"
+	return CHECK_POINT_PATH
 }
 
 const ELEM_INDEX_DATABASE = 0

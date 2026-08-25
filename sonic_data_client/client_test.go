@@ -32,8 +32,8 @@ func TestCheckPointPath(t *testing.T) {
 	}
 
 	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "")
-	if got := checkPointPath(); got != "/etc/sonic" {
-		t.Fatalf("checkPointPath() = %q, want /etc/sonic", got)
+	if got := checkPointPath(); got != CHECK_POINT_PATH {
+		t.Fatalf("checkPointPath() = %q, want %q", got, CHECK_POINT_PATH)
 	}
 }
 
