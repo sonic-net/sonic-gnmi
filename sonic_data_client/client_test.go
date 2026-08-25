@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -19,11 +20,28 @@ import (
 	"github.com/redis/go-redis/v9"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 )
 
 var testFile string = "/etc/sonic/ut.cp.json"
+
+type checkpointService struct {
+	ssc.FakeClient
+	created string
+	deleted string
+}
+
+func (s *checkpointService) CreateCheckPoint(path string) error {
+	s.created = path
+	return nil
+}
+
+func (s *checkpointService) DeleteCheckPoint(path string) error {
+	s.deleted = path
+	return nil
+}
 
 func TestCheckPointPath(t *testing.T) {
 	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "/tmp/checkpoint")
@@ -34,6 +52,62 @@ func TestCheckPointPath(t *testing.T) {
 	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "")
 	if got := checkPointPath(); got != CHECK_POINT_PATH {
 		t.Fatalf("checkPointPath() = %q, want %q", got, CHECK_POINT_PATH)
+	}
+}
+
+func TestCheckpointPathCallers(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", dir)
+	checkpoint := []byte(`{"TEST_TABLE":{"key":{"field":"sentinel"}}}`)
+	if err := os.WriteFile(filepath.Join(dir, "config.cp.json"), checkpoint, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := &checkpointService{}
+	patches := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+		return service, nil
+	})
+	defer patches.Reset()
+	patches.ApplyFunc(sdcfg.CheckDbMultiNamespace, func() (bool, error) {
+		return false, nil
+	})
+
+	client := &MixedDbClient{}
+	if err := client.SetIncrementalConfig(nil, nil, nil); err != nil {
+		t.Fatalf("SetIncrementalConfig() error = %v", err)
+	}
+	wantCheckpoint := filepath.Join(dir, "config")
+	if service.created != wantCheckpoint {
+		t.Fatalf("CreateCheckPoint() path = %q, want %q", service.created, wantCheckpoint)
+	}
+	if service.deleted != wantCheckpoint {
+		t.Fatalf("DeleteCheckPoint() path = %q, want %q", service.deleted, wantCheckpoint)
+	}
+	got, err := client.jClient.Get([]string{"TEST_TABLE", "key", "field"})
+	if err != nil {
+		t.Fatalf("checkpoint read after SetIncrementalConfig() error = %v", err)
+	}
+	if string(got) != `"sentinel"` {
+		t.Fatalf("checkpoint value after SetIncrementalConfig() = %s, want %q", got, "sentinel")
+	}
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{
+		{Name: "CONFIG_DB"},
+		{Name: "localhost"},
+		{Name: "TEST_TABLE"},
+		{Name: "key"},
+		{Name: "field"},
+	}}
+	readClient := &MixedDbClient{paths: []*gnmipb.Path{path}}
+	values, err := readClient.GetCheckPoint()
+	if err != nil {
+		t.Fatalf("GetCheckPoint() error = %v", err)
+	}
+	if len(values) != 1 {
+		t.Fatalf("GetCheckPoint() returned %d values, want 1", len(values))
+	}
+	if got := string(values[0].Val.GetJsonIetfVal()); got != `"sentinel"` {
+		t.Fatalf("GetCheckPoint() value = %s, want %q", got, "sentinel")
 	}
 }
 
