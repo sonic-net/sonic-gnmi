@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
 	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
@@ -109,6 +110,9 @@ func runTelemetry(args []string) error {
 	telemetryCfg, cfg, err := setupFlags(fs) // telemetry flags will be populated after second parse
 	if err != nil {
 		return err
+	}
+	if err := common_utils.ValidateSharedMemoryKey(); err != nil {
+		return fmt.Errorf("invalid shared-memory configuration: %w", err)
 	}
 
 	// enable swss-common debug level

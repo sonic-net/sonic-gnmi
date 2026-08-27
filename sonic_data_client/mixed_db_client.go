@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -48,11 +49,14 @@ const RETRY_DELAY_MILLISECOND uint = 100
 const RETRY_DELAY_FACTOR uint = 2
 const CHECK_POINT_PATH string = "/etc/sonic"
 
-func checkPointPath() string {
+func checkPointPath() (string, error) {
 	if path := os.Getenv("SONIC_GNMI_CHECKPOINT_DIR"); path != "" {
-		return path
+		if !filepath.IsAbs(path) {
+			return "", fmt.Errorf("SONIC_GNMI_CHECKPOINT_DIR must be absolute: %q", path)
+		}
+		return filepath.Clean(path), nil
 	}
-	return CHECK_POINT_PATH
+	return CHECK_POINT_PATH, nil
 }
 
 const ELEM_INDEX_DATABASE = 0
@@ -1394,7 +1398,10 @@ with open(filename, 'r') as fp:
 `
 
 func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
-	var err error
+	checkpointPath, err := checkPointPath()
+	if err != nil {
+		return err
+	}
 
 	var sc ssc.Service
 	sc, err = ssc.NewDbusClient()
@@ -1415,13 +1422,12 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		}
 	}
 
-	checkpointPath := checkPointPath()
-	err = sc.CreateCheckPoint(checkpointPath + "/config")
+	err = sc.CreateCheckPoint(filepath.Join(checkpointPath, "config"))
 	if err != nil {
 		return err
 	}
-	defer sc.DeleteCheckPoint(checkpointPath + "/config")
-	fileName := checkpointPath + "/config.cp.json"
+	defer sc.DeleteCheckPoint(filepath.Join(checkpointPath, "config"))
+	fileName := filepath.Join(checkpointPath, "config.cp.json")
 	c.jClient, err = NewJsonClient(fileName, namespace)
 	if err != nil {
 		return err
@@ -1694,8 +1700,11 @@ func (c *MixedDbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, upd
 
 func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 	var values []*spb.Value
-	var err error
 	ts := time.Now()
+	checkpointPath, err := checkPointPath()
+	if err != nil {
+		return nil, err
+	}
 
 	multiNs, err := sdcfg.CheckDbMultiNamespace()
 	if err != nil {
@@ -1710,7 +1719,7 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 		}
 	}
 
-	fileName := checkPointPath() + "/config.cp.json"
+	fileName := filepath.Join(checkpointPath, "config.cp.json")
 	c.jClient, err = NewJsonClient(fileName, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("There's no check point")
@@ -1753,6 +1762,9 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 
 func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	if c.target == "CONFIG_DB" {
+		if _, err := checkPointPath(); err != nil {
+			return nil, err
+		}
 		ret, err := c.GetCheckPoint()
 		if err == nil {
 			return ret, err

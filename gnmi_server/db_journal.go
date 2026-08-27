@@ -246,6 +246,8 @@ func (dbj *DbJournal) rotateFile() error {
 	}
 
 	if fileStat.Size() >= maxFileSize {
+		journalDir := filepath.Dir(dbj.fileName)
+
 		// Close the journal file and open it as read-only to copy it
 		dbj.file.Close()
 		if dbj.file, err = os.OpenFile(dbj.fileName, os.O_RDONLY, 0644); err != nil {
@@ -253,7 +255,7 @@ func (dbj *DbJournal) rotateFile() error {
 		}
 
 		// Remove a rotated, zipped file if the maxBackups limit is reached
-		files, err := os.ReadDir(hostVarLogPath)
+		files, err := os.ReadDir(journalDir)
 		if err != nil {
 			return err
 		}
@@ -268,13 +270,13 @@ func (dbj *DbJournal) rotateFile() error {
 			}
 		}
 		if count >= maxBackups {
-			if err := os.Remove(filepath.Join(hostVarLogPath, oldest)); err != nil {
+			if err := os.Remove(filepath.Join(journalDir, oldest)); err != nil {
 				return err
 			}
 		}
 
 		// Compress the file
-		zipName := filepath.Join(hostVarLogPath, strings.ToLower(dbj.database)+"_"+time.Now().Format("20060102150405")+".gz")
+		zipName := filepath.Join(journalDir, strings.ToLower(dbj.database)+"_"+time.Now().Format("20060102150405")+".gz")
 		zipFile, err := os.Create(zipName)
 		if err != nil {
 			return err

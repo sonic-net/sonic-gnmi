@@ -45,13 +45,26 @@ func (s *checkpointService) DeleteCheckPoint(path string) error {
 
 func TestCheckPointPath(t *testing.T) {
 	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "/tmp/checkpoint")
-	if got := checkPointPath(); got != "/tmp/checkpoint" {
+	got, err := checkPointPath()
+	if err != nil {
+		t.Fatalf("checkPointPath() error = %v", err)
+	}
+	if got != "/tmp/checkpoint" {
 		t.Fatalf("checkPointPath() = %q, want /tmp/checkpoint", got)
 	}
 
 	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "")
-	if got := checkPointPath(); got != CHECK_POINT_PATH {
+	got, err = checkPointPath()
+	if err != nil {
+		t.Fatalf("checkPointPath() error = %v", err)
+	}
+	if got != CHECK_POINT_PATH {
 		t.Fatalf("checkPointPath() = %q, want %q", got, CHECK_POINT_PATH)
+	}
+
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "tmp/checkpoint")
+	if _, err := checkPointPath(); err == nil {
+		t.Fatal("checkPointPath() accepted a relative path")
 	}
 }
 
@@ -108,6 +121,37 @@ func TestCheckpointPathCallers(t *testing.T) {
 	}
 	if got := string(values[0].Val.GetJsonIetfVal()); got != `"sentinel"` {
 		t.Fatalf("GetCheckPoint() value = %s, want %q", got, "sentinel")
+	}
+}
+
+func TestCheckpointPathCallersRejectRelativePath(t *testing.T) {
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "tmp/checkpoint")
+	dbusCalled := false
+	dbConfigCalled := false
+	patches := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+		dbusCalled = true
+		return nil, errors.New("unexpected D-Bus call")
+	})
+	defer patches.Reset()
+	patches.ApplyFunc(sdcfg.CheckDbMultiNamespace, func() (bool, error) {
+		dbConfigCalled = true
+		return false, errors.New("unexpected database-config call")
+	})
+
+	wantErr := `SONIC_GNMI_CHECKPOINT_DIR must be absolute: "tmp/checkpoint"`
+	client := &MixedDbClient{}
+	if err := client.SetIncrementalConfig(nil, nil, nil); err == nil || err.Error() != wantErr {
+		t.Fatalf("SetIncrementalConfig() error = %v, want %q", err, wantErr)
+	}
+	if _, err := client.GetCheckPoint(); err == nil || err.Error() != wantErr {
+		t.Fatalf("GetCheckPoint() error = %v, want %q", err, wantErr)
+	}
+	client.target = "CONFIG_DB"
+	if _, err := client.Get(nil); err == nil || err.Error() != wantErr {
+		t.Fatalf("Get() error = %v, want %q", err, wantErr)
+	}
+	if dbusCalled || dbConfigCalled {
+		t.Fatalf("relative path reached dependencies: D-Bus = %v, database config = %v", dbusCalled, dbConfigCalled)
 	}
 }
 

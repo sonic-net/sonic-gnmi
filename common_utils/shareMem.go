@@ -32,6 +32,12 @@ func sharedMemoryKey() (int, error) {
 	return int(parsed), nil
 }
 
+// ValidateSharedMemoryKey verifies the configured key without accessing shared memory.
+func ValidateSharedMemoryKey() error {
+	_, err := sharedMemoryKey()
+	return err
+}
+
 func SetMemCounters(counters *[int(COUNTER_SIZE)]uint64) error {
 	key, err := sharedMemoryKey()
 	if err != nil {

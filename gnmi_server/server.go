@@ -554,6 +554,9 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		return nil, errors.New("config not provided")
 	}
 	var providers []certprovider.Provider
+	if err := common_utils.ValidateSharedMemoryKey(); err != nil {
+		return nil, fmt.Errorf("invalid shared-memory configuration: %w", err)
+	}
 	common_utils.InitCounters()
 
 	// Set authorization policy.

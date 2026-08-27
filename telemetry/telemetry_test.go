@@ -57,6 +57,19 @@ func TestRunTelemetry(t *testing.T) {
 	}
 }
 
+func TestRunTelemetryRejectsInvalidSharedMemoryKey(t *testing.T) {
+	originalArgs := os.Args
+	t.Cleanup(func() { os.Args = originalArgs })
+	t.Setenv("SONIC_GNMI_SHM_KEY", "invalid")
+
+	args := []string{"telemetry", "-port", "0", "-noTLS", "-bind_address", "127.0.0.1"}
+	os.Args = args
+	err := runTelemetry(args)
+	if err == nil || !strings.Contains(err.Error(), "invalid SONIC_GNMI_SHM_KEY") {
+		t.Fatalf("runTelemetry() error = %v, want invalid shared-memory key error", err)
+	}
+}
+
 func TestFlags(t *testing.T) {
 	originalArgs := os.Args
 	originalJwtRefreshInt := gnmi.JwtRefreshInt
