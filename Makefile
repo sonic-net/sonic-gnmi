@@ -8,6 +8,15 @@ DBDIR := /var/run/redis/sonic-db/
 GO ?= /usr/local/go/bin/go
 TOPDIR := $(abspath .)
 MGMT_COMMON_DIR := $(TOPDIR)/../sonic-mgmt-common
+GOWORK_FILE := $(shell $(GO) env GOWORK)
+ifneq ($(filter-out off,$(strip $(GOWORK_FILE))),)
+VENDOR_DIR := $(abspath $(dir $(GOWORK_FILE))/vendor)
+VENDOR_CMD := $(GO) work vendor
+else
+VENDOR_DIR := $(TOPDIR)/vendor
+VENDOR_CMD := $(GO) mod vendor
+endif
+MOD_TIDY_CMD := GOWORK=off $(GO) mod tidy
 BUILD_BASE := build
 BUILD_DIR := build/bin
 BUILD_GNOI_YANG_DIR := $(BUILD_BASE)/gnoi_yang
@@ -60,7 +69,7 @@ ifeq ($(ENABLE_DIALOUT),n)
 ENABLE_DIALOUT_VALUE = 0
 endif
 
-GO_DEPS := vendor/.done
+GO_DEPS := $(VENDOR_DIR)/.done
 PATCHES := $(wildcard patches/*.patch)
 PATCHES += $(shell find $(MGMT_COMMON_DIR)/patches -type f)
 
@@ -73,11 +82,11 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 	@GO_MOD_VER=$$(sed -n 's/^go //p' go.mod) && \
 	 GO_CUR_VER=$$($(GO) env GOVERSION | sed 's/go//') && \
 	 if printf '%s\n' "$$GO_MOD_VER" "$$GO_CUR_VER" | sort -V | head -1 | grep -qx "$$GO_MOD_VER"; then \
-	   $(GO) mod tidy; \
+	   $(MOD_TIDY_CMD); \
 	 fi
-	$(GO) mod vendor
+	$(VENDOR_CMD)
 	$(GO) mod download github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2
-	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* vendor/github.com/google/gnxi/
+	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* $(VENDOR_DIR)/github.com/google/gnxi/
 
 # x/crypto/ssh/terminal imports x/term in v0.24.0+; gnmi_cli uses ssh/terminal
 # but go mod vendor omits both because the unpatched code doesn't import them.
@@ -85,47 +94,47 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 # Also copy cmd/gnmi_cli and cli from the pinned gnmi module (go mod vendor omits
 # cmd packages that are not imported by any package in this module).
 	$(GO) mod download golang.org/x/term@v0.43.0
-	mkdir -p vendor/golang.org/x/crypto/ssh/terminal vendor/golang.org/x/term
+	mkdir -p $(VENDOR_DIR)/golang.org/x/crypto/ssh/terminal $(VENDOR_DIR)/golang.org/x/term
 	cp $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.52.0/ssh/terminal/terminal.go \
-		vendor/golang.org/x/crypto/ssh/terminal/
+		$(VENDOR_DIR)/golang.org/x/crypto/ssh/terminal/
 	rsync -r --chmod=u+w --exclude=testdata --exclude='*_test.go' \
-		$(GOPATH)/pkg/mod/golang.org/x/term@v0.43.0/ vendor/golang.org/x/term/
-	python3 -c 'import re, sys; txt=open("vendor/modules.txt").read(); pkg="golang.org/x/term\n"; m=re.search(r"^(# golang\.org/x/term [^\n]+\n## explicit[^\n]*\n)", txt, re.MULTILINE) if pkg not in txt else None; sys.exit("ERROR: golang.org/x/term block not found in vendor/modules.txt") if pkg not in txt and not m else None; open("vendor/modules.txt","w").write(txt[:m.end()]+pkg+txt[m.end():]) if m else None'
+		$(GOPATH)/pkg/mod/golang.org/x/term@v0.43.0/ $(VENDOR_DIR)/golang.org/x/term/
+	VENDOR_DIR=$(VENDOR_DIR) python3 -c 'import os, re, sys; path=os.path.join(os.environ["VENDOR_DIR"], "modules.txt"); txt=open(path).read(); pkg="golang.org/x/term\n"; m=re.search(r"^(# golang\.org/x/term [^\n]+\n## explicit[^\n]*\n)", txt, re.MULTILINE) if pkg not in txt else None; sys.exit("ERROR: golang.org/x/term block not found in vendor/modules.txt") if pkg not in txt and not m else None; open(path,"w").write(txt[:m.end()]+pkg+txt[m.end():]) if m else None'
 	$(GO) mod download github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802
-	mkdir -p vendor/github.com/openconfig/gnmi/cmd/gnmi_cli \
-		vendor/github.com/openconfig/gnmi/cli \
-		vendor/github.com/openconfig/gnmi/client/flags
+	mkdir -p $(VENDOR_DIR)/github.com/openconfig/gnmi/cmd/gnmi_cli \
+		$(VENDOR_DIR)/github.com/openconfig/gnmi/cli \
+		$(VENDOR_DIR)/github.com/openconfig/gnmi/client/flags
 	cp $(GOPATH)/pkg/mod/github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802/cmd/gnmi_cli/gnmi_cli.go \
-		vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/
+		$(VENDOR_DIR)/github.com/openconfig/gnmi/cmd/gnmi_cli/
 	cp $(GOPATH)/pkg/mod/github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802/cli/cli.go \
-		vendor/github.com/openconfig/gnmi/cli/
+		$(VENDOR_DIR)/github.com/openconfig/gnmi/cli/
 	cp $(GOPATH)/pkg/mod/github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802/client/flags/intmap.go \
 		$(GOPATH)/pkg/mod/github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802/client/flags/stringlist.go \
 		$(GOPATH)/pkg/mod/github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802/client/flags/stringmap.go \
-		vendor/github.com/openconfig/gnmi/client/flags/
+		$(VENDOR_DIR)/github.com/openconfig/gnmi/client/flags/
 
 # Apply patch from sonic-mgmt-common, ignore glog.patch because glog version changed
 	sed -i 's/patch -d $${DEST_DIR}\/github.com\/golang\/glog/\#patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
-	$(MGMT_COMMON_DIR)/patches/apply.sh vendor
+	$(MGMT_COMMON_DIR)/patches/apply.sh $(VENDOR_DIR)
 	sed -i 's/#patch -d $${DEST_DIR}\/github.com\/golang\/glog/patch -d $${DEST_DIR}\/github.com\/golang\/glog/g' $(MGMT_COMMON_DIR)/patches/apply.sh
 
-	chmod -R u+w vendor
-	patch -d vendor -p0 < patches/gnmi_path.patch
-	patch -d vendor -p0 < patches/gnmi_xpath.patch
+	chmod -R u+w $(VENDOR_DIR)
+	patch -d $(VENDOR_DIR) -p0 < patches/gnmi_path.patch
+	patch -d $(VENDOR_DIR) -p0 < patches/gnmi_xpath.patch
 
 	touch $@
 
 go-deps: $(GO_DEPS)
 
 go-deps-clean:
-	$(RM) -r vendor
+	$(RM) -r $(VENDOR_DIR)
 
 sonic-gnmi: $(GO_DEPS) $(FORMAT_CHECK)
 # advancetls 1.0.0 release need following patch to build by go-1.19
-	patch -d vendor -p0 < patches/0002-Fix-advance-tls-build-with-go-119.patch
+	patch -d $(VENDOR_DIR) -p0 < patches/0002-Fix-advance-tls-build-with-go-119.patch
 # build service first which depends on advancetls
 # add support for fsnotify closewrite event
-	patch -d vendor -p0 < patches/0004-CloseWrite-event-support.patch
+	patch -d $(VENDOR_DIR) -p0 < patches/0004-CloseWrite-event-support.patch
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
@@ -148,23 +157,23 @@ endif
 # download and apply patch for gnmi client
 # use the already-vendored crypto (no longer need the old 2019 override;
 # x/crypto v0.24.0+ retains ssh/terminal and RevokedCertificates backward compat)
-	chmod -R u+w vendor
-	patch -d vendor -p0 < patches/gnmi_cli.all.patch
-	patch -d vendor -p0 < patches/gnmi_set.patch
-	patch -d vendor -p0 < patches/gnmi_get.patch
-	git apply patches/0001-Updated-to-filter-and-write-to-file.patch
-	git apply patches/0003-Fix-client-json-parsing-issue.patch
+	chmod -R u+w $(VENDOR_DIR)
+	patch -d $(VENDOR_DIR) -p0 < patches/gnmi_cli.all.patch
+	patch -d $(VENDOR_DIR) -p0 < patches/gnmi_set.patch
+	patch -d $(VENDOR_DIR) -p0 < patches/gnmi_get.patch
+	patch -d $(VENDOR_DIR) -p2 < patches/0001-Updated-to-filter-and-write-to-file.patch
+	patch -d $(VENDOR_DIR) -p2 < patches/0003-Fix-client-json-parsing-issue.patch
 
 # Manually adding patched client packages and their dependencies
 # to vendor/modules.txt. This satisfies 'go install -mod=vendor' lookup checks,
 # which are required after manual patching/copying of gnxi and gnmi-cli code.
-	echo "github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2" >> vendor/modules.txt
-	echo "github.com/google/gnxi/gnmi_get" >> vendor/modules.txt
-	echo "github.com/google/gnxi/gnmi_set" >> vendor/modules.txt
-	echo "github.com/openconfig/gnmi/cli" >> vendor/modules.txt
-	echo "github.com/openconfig/gnmi/client/flags" >> vendor/modules.txt
-	echo "golang.org/x/crypto/ssh/terminal" >> vendor/modules.txt
-	echo "github.com/openconfig/gnmi/cmd/gnmi_cli" >> vendor/modules.txt
+	echo "github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2" >> $(VENDOR_DIR)/modules.txt
+	echo "github.com/google/gnxi/gnmi_get" >> $(VENDOR_DIR)/modules.txt
+	echo "github.com/google/gnxi/gnmi_set" >> $(VENDOR_DIR)/modules.txt
+	echo "github.com/openconfig/gnmi/cli" >> $(VENDOR_DIR)/modules.txt
+	echo "github.com/openconfig/gnmi/client/flags" >> $(VENDOR_DIR)/modules.txt
+	echo "golang.org/x/crypto/ssh/terminal" >> $(VENDOR_DIR)/modules.txt
+	echo "github.com/openconfig/gnmi/cmd/gnmi_cli" >> $(VENDOR_DIR)/modules.txt
 
 ifeq ($(CROSS_BUILD_ENVIRON),y)
 	$(GO) build -o ${GOBIN}/gnmi_get -mod=vendor github.com/google/gnxi/gnmi_get
@@ -182,7 +191,7 @@ swsscommon_wrap:
 .SECONDEXPANSION:
 
 PROTOC_PATH := $(PATH):$(GOBIN)
-PROTOC_OPTS := -I$(CURDIR)/vendor -I/usr/local/include -I/usr/include
+PROTOC_OPTS := -I$(VENDOR_DIR) -I/usr/local/include -I/usr/include
 PROTOC_OPTS_WITHOUT_VENDOR := -I/usr/local/include -I/usr/include
 
 # Generate following go & grpc bindings using teh legacy protoc-gen-go
@@ -266,9 +275,9 @@ endif
 	@GO_MOD_VER=$$(sed -n 's/^go //p' go.mod) && \
 	 GO_CUR_VER=$$($(GO) env GOVERSION | sed 's/go//') && \
 	 if printf '%s\n' "$$GO_MOD_VER" "$$GO_CUR_VER" | sort -V | head -1 | grep -qx "$$GO_MOD_VER"; then \
-	   $(GO) mod tidy; \
+	   $(MOD_TIDY_CMD); \
 	 fi
-	$(GO) mod vendor
+	$(VENDOR_CMD)
 
 	# Filter out "mocks" and generated "proto" files from the coverage reports
 	for file in coverage-*.txt; do grep -v -e "/mocks/" -e "proto/" $$file > $$file.filtered; done
@@ -392,9 +401,9 @@ endif
 	@GO_MOD_VER=$$(sed -n 's/^go //p' go.mod) && \
 	 GO_CUR_VER=$$($(GO) env GOVERSION | sed 's/go//') && \
 	 if printf '%s\n' "$$GO_MOD_VER" "$$GO_CUR_VER" | sort -V | head -1 | grep -qx "$$GO_MOD_VER"; then \
-	   $(GO) mod tidy; \
+	   $(MOD_TIDY_CMD); \
 	 fi
-	$(GO) mod vendor
+	$(VENDOR_CMD)
 
 	@echo "Generating coverage.xml..."
 	@for file in test-results/coverage-*.txt; do \
@@ -430,7 +439,7 @@ endif
 
 clean:
 	$(RM) -r build
-	$(RM) -r vendor
+	$(RM) -r $(VENDOR_DIR)
 
 # File target that generates a diff file if formatting is incorrect
 $(FORMAT_CHECK): $(GO_FILES)
@@ -484,5 +493,3 @@ diff-cover: coverage.xml test-results/coverage-pure.xml
 		--compare-branch $(TARGET_BRANCH) \
 		--src-roots . \
 		--fail-under $(DIFF_COVER_THRESHOLD)
-
-
