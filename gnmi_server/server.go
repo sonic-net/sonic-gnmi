@@ -21,6 +21,7 @@ import (
 	"github.com/Azure/sonic-mgmt-common/translib"
 	gnsi_pathz_pb "github.com/openconfig/gnsi/pathz"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/pkg/authzpolicy"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
 	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
 	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
@@ -51,7 +52,6 @@ import (
 	gnoi_oras_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/oras"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/authz"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/tls/certprovider"
 	"google.golang.org/grpc/peer"
@@ -103,7 +103,7 @@ type Server struct {
 	gnoi_system_pb.UnimplementedSystemServer
 	factory_reset.UnimplementedFactoryResetServer
 	gnsiCertz         *GNSICertzServer
-	authzWatcher      *authz.FileWatcherInterceptor
+	authzPolicy       *authzpolicy.PolicyInterceptor
 	gnsiAuthz         *GNSIAuthzServer
 	gnsiPathz         *GNSIPathzServer
 	ConnectionManager *ConnectionManager
@@ -254,6 +254,7 @@ type Config struct {
 	CertzMetaFile            string // Path to JSON file with gRPC credential metadata.
 	FedPolicyFile            string // Path to federation policy file.
 	AuthzPolicy              bool   // Enable authz policy.
+	AuthzPolicySource        string // Authorization policy source: file or config_db.
 	AuthzPolicyFile          string // Path to JSON file with authz policies.
 	AuthzMetaFile            string // Path to JSON file with authz metadata.
 	PathzPolicy              bool   // Enable gNMI pathz policy.
@@ -553,6 +554,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	if config == nil {
 		return nil, errors.New("config not provided")
 	}
+	var err error
 	var providers []certprovider.Provider
 	if err := common_utils.ValidateSharedMemoryKey(); err != nil {
 		return nil, fmt.Errorf("invalid shared-memory configuration: %w", err)
@@ -560,21 +562,23 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	common_utils.InitCounters()
 
 	// Set authorization policy.
-	var authzWatcher *authz.FileWatcherInterceptor
+	var methodAuthz *authzpolicy.PolicyInterceptor
 	if config.AuthzPolicy {
-		authzWatcher, err := authz.NewFileWatcher(config.AuthzPolicyFile, authzRefreshingInterval)
+		methodAuthz, err = loadAuthzPolicy(config)
 		if err != nil {
 			return nil, err
-		} else {
-			commonOpts = append(commonOpts, grpc.ChainStreamInterceptor(
-				authzWatcher.StreamInterceptor))
-			commonOpts = append(commonOpts, grpc.ChainUnaryInterceptor(
-				authzWatcher.UnaryInterceptor))
 		}
+		commonOpts = append(commonOpts,
+			grpc.ChainStreamInterceptor(methodAuthz.StreamInterceptor()),
+			grpc.ChainUnaryInterceptor(methodAuthz.UnaryInterceptor()),
+		)
 	}
-
-	s := grpc.NewServer(commonOpts...)
-	reflection.Register(s)
+	serverReady := false
+	defer func() {
+		if !serverReady && methodAuthz != nil {
+			methodAuthz.Close()
+		}
+	}()
 
 	srv := &Server{
 		config:            config,
@@ -585,7 +589,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		// the request comes from a master controller.
 		ReqFromMaster: ReqFromMasterDisabledMA,
 		masterEID:     uint128{High: 0, Low: 0},
-		authzWatcher:  authzWatcher,
+		authzPolicy:   methodAuthz,
 	}
 
 	// Create service servers (shared between TCP and UDS)
@@ -614,8 +618,6 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	credentialzSrv := NewGNSICredentialzServer(srv)
 	srv.gnsiCredentialz = credentialzSrv
 	orasSrv := &OrasServer{Server: srv}
-	var err error
-
 	// TCP Server (Port > 0)
 	if config.Port > 0 {
 		tcpOpts := append(tlsOpts, commonOpts...)
@@ -686,6 +688,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		}
 	}
 	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
+	serverReady = true
 	return srv, nil
 }
 
@@ -752,6 +755,9 @@ func (srv *Server) ForceStop() {
 	if srv.config != nil && srv.config.UnixSocket != "" {
 		os.Remove(srv.config.UnixSocket)
 	}
+	if srv.authzPolicy != nil {
+		srv.authzPolicy.Close()
+	}
 }
 
 // Stop gracefully stops the server, waiting for active connections to close.
@@ -765,6 +771,9 @@ func (srv *Server) Stop() {
 	// Cleanup UDS socket file
 	if srv.config != nil && srv.config.UnixSocket != "" {
 		os.Remove(srv.config.UnixSocket)
+	}
+	if srv.authzPolicy != nil {
+		srv.authzPolicy.Close()
 	}
 }
 
@@ -1425,5 +1434,8 @@ func cleanupProviders(ps []certprovider.Provider) {
 // Cleanup stops the gNMI/gNOI server and does required cleanup.
 func (srv *Server) Cleanup() {
 	srv.s.Stop()
+	if srv.authzPolicy != nil {
+		srv.authzPolicy.Close()
+	}
 	cleanupProviders(srv.certProviders)
 }

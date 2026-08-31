@@ -387,8 +387,8 @@ endif
 
 	# Generate Cobertura XML coverage report for Azure Pipelines
 	@echo "Installing coverage tools..."
-	$(GO) install github.com/axw/gocov/gocov@v1.1.0
-	$(GO) install github.com/AlekSi/gocov-xml@latest
+	GOPATH=$(abspath build/tools/go) $(GO) install github.com/axw/gocov/gocov@v1.1.0
+	GOPATH=$(abspath build/tools/go) $(GO) install github.com/AlekSi/gocov-xml@latest
 	@GO_MOD_VER=$$(sed -n 's/^go //p' go.mod) && \
 	 GO_CUR_VER=$$($(GO) env GOVERSION | sed 's/go//') && \
 	 if printf '%s\n' "$$GO_MOD_VER" "$$GO_CUR_VER" | sort -V | head -1 | grep -qx "$$GO_MOD_VER"; then \

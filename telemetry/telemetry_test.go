@@ -11,17 +11,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/agiledragon/gomonkey/v2"
-	"github.com/fsnotify/fsnotify"
-	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
-	"github.com/sonic-net/sonic-gnmi/test_utils"
-	testdata "github.com/sonic-net/sonic-gnmi/testdata/tls"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"io"
 	"io/ioutil"
 	"math/big"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -30,10 +24,22 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/agiledragon/gomonkey/v2"
+	"github.com/fsnotify/fsnotify"
+	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
+	"github.com/sonic-net/sonic-gnmi/swsscommon"
+	"github.com/sonic-net/sonic-gnmi/test_utils"
+	testdata "github.com/sonic-net/sonic-gnmi/testdata/tls"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 func TestRunTelemetry(t *testing.T) {
-	patches := gomonkey.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, serverControlSignal chan ServerControlValue, stopSignalHandler chan<- bool, wg *sync.WaitGroup) {
+	originalArgs := os.Args
+	t.Cleanup(func() { os.Args = originalArgs })
+
+	patches := gomonkey.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, serverControlSignal chan ServerControlValue, stopSignalHandler chan<- bool, serverError chan<- error, wg *sync.WaitGroup) {
 		defer wg.Done()
 	})
 	patches.ApplyFunc(signalHandler, func(serverControlSignal chan<- ServerControlValue, sigchannel <-chan os.Signal, stopSignalHandler <-chan bool, wg *sync.WaitGroup) {
@@ -54,6 +60,49 @@ func TestRunTelemetry(t *testing.T) {
 	logtostderrflag := flag.Lookup("logtostderr")
 	if logtostderrflag.Value.String() != "true" {
 		t.Errorf("Expected logtostderr to be true")
+	}
+}
+
+func TestRunTelemetryReturnsServerFailure(t *testing.T) {
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	patches := gomonkey.ApplyFunc(startGNMIServer, func(_ *TelemetryConfig, _ *gnmi.Config, _ chan ServerControlValue, stopSignalHandler chan<- bool, serverError chan<- error, wg *sync.WaitGroup) {
+		defer wg.Done()
+		stopSignalHandler <- true
+		serverError <- errors.New("invalid policy")
+	})
+	patches.ApplyFunc(signalHandler, func(_ chan<- ServerControlValue, _ <-chan os.Signal, stopSignalHandler <-chan bool, wg *sync.WaitGroup) {
+		defer wg.Done()
+		<-stopSignalHandler
+	})
+	patches.ApplyFunc(swsscommon.LoggerLinkToDbNative, func(...interface{}) {})
+	defer patches.Reset()
+
+	os.Args = []string{"telemetry", "-port", "50051", "-noTLS", "-bind_address", "127.0.0.1"}
+	err := runTelemetry(os.Args)
+	if err == nil || err.Error() != "invalid policy" {
+		t.Fatalf("runTelemetry() error = %v, want invalid policy", err)
+	}
+}
+
+func TestMainExitsNonzeroOnSetupFailure(t *testing.T) {
+	if os.Getenv("TEST_TELEMETRY_MAIN") == "1" {
+		os.Args = []string{"telemetry", "-noTLS", "-bind_address", "not-loopback"}
+		main()
+		return
+	}
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable() failed: %v", err)
+	}
+	cmd := exec.Command(executable, "-test.run=^TestMainExitsNonzeroOnSetupFailure$")
+	cmd.Env = append(os.Environ(), "TEST_TELEMETRY_MAIN=1")
+	err = cmd.Run()
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok || exitErr.ExitCode() != 1 {
+		t.Fatalf("telemetry exit = %v, want status 1", err)
 	}
 }
 
@@ -191,6 +240,93 @@ func TestFlags(t *testing.T) {
 	}
 }
 
+func TestAuthzPolicySourceFlag(t *testing.T) {
+	originalArgs := os.Args
+	originalJwtRefreshInt := gnmi.JwtRefreshInt
+	originalJwtValidInt := gnmi.JwtValidInt
+	originalCrlExpireDuration := gnmi.GetCrlExpireDuration()
+	defer func() {
+		os.Args = originalArgs
+		gnmi.JwtRefreshInt = originalJwtRefreshInt
+		gnmi.JwtValidInt = originalJwtValidInt
+		gnmi.SetCrlExpireDuration(originalCrlExpireDuration)
+	}()
+
+	os.Args = []string{"cmd", "-noTLS", "-bind_address", "127.0.0.1", "-authorization_policy_source", "config_db"}
+	_, cfg, err := setupFlags(flag.NewFlagSet("authz-source", flag.ContinueOnError))
+	if err != nil {
+		t.Fatalf("setupFlags() failed: %v", err)
+	}
+	if cfg.AuthzPolicySource != "config_db" {
+		t.Fatalf("AuthzPolicySource = %q, want config_db", cfg.AuthzPolicySource)
+	}
+}
+
+func TestAuthzPolicySourceDefaultsToFile(t *testing.T) {
+	originalArgs := os.Args
+	originalJwtRefreshInt := gnmi.JwtRefreshInt
+	originalJwtValidInt := gnmi.JwtValidInt
+	originalCrlExpireDuration := gnmi.GetCrlExpireDuration()
+	defer func() {
+		os.Args = originalArgs
+		gnmi.JwtRefreshInt = originalJwtRefreshInt
+		gnmi.JwtValidInt = originalJwtValidInt
+		gnmi.SetCrlExpireDuration(originalCrlExpireDuration)
+	}()
+
+	os.Args = []string{"cmd", "-noTLS", "-bind_address", "127.0.0.1"}
+	_, cfg, err := setupFlags(flag.NewFlagSet("authz-source-default", flag.ContinueOnError))
+	if err != nil {
+		t.Fatalf("setupFlags() failed: %v", err)
+	}
+	if cfg.AuthzPolicySource != "file" {
+		t.Fatalf("AuthzPolicySource = %q, want file", cfg.AuthzPolicySource)
+	}
+}
+
+func TestAuthzPolicySourceFlagRejectsUnknownSource(t *testing.T) {
+	originalArgs := os.Args
+	originalJwtRefreshInt := gnmi.JwtRefreshInt
+	originalJwtValidInt := gnmi.JwtValidInt
+	originalCrlExpireDuration := gnmi.GetCrlExpireDuration()
+	defer func() {
+		os.Args = originalArgs
+		gnmi.JwtRefreshInt = originalJwtRefreshInt
+		gnmi.JwtValidInt = originalJwtValidInt
+		gnmi.SetCrlExpireDuration(originalCrlExpireDuration)
+	}()
+
+	os.Args = []string{"cmd", "-noTLS", "-bind_address", "127.0.0.1", "-authorization_policy_source", "unknown"}
+	if _, _, err := setupFlags(flag.NewFlagSet("authz-source", flag.ContinueOnError)); err == nil {
+		t.Fatal("setupFlags() succeeded with an unknown authorization policy source")
+	}
+}
+
+func TestAuthzPolicyRejectsUnverifiedTransport(t *testing.T) {
+	originalArgs := os.Args
+	originalJwtRefreshInt := gnmi.JwtRefreshInt
+	originalJwtValidInt := gnmi.JwtValidInt
+	originalCrlExpireDuration := gnmi.GetCrlExpireDuration()
+	defer func() {
+		os.Args = originalArgs
+		gnmi.JwtRefreshInt = originalJwtRefreshInt
+		gnmi.JwtValidInt = originalJwtValidInt
+		gnmi.SetCrlExpireDuration(originalCrlExpireDuration)
+	}()
+
+	tests := [][]string{
+		{"cmd", "-noTLS", "-bind_address", "127.0.0.1", "-authz_policy_enabled"},
+		{"cmd", "-insecure", "-authz_policy_enabled"},
+		{"cmd", "-server_crt", "cert", "-server_key", "key", "-authz_policy_enabled", "-allow_no_client_auth"},
+	}
+	for _, args := range tests {
+		os.Args = args
+		if _, _, err := setupFlags(flag.NewFlagSet("authz-transport", flag.ContinueOnError)); err == nil {
+			t.Fatalf("setupFlags() accepted unverified authorization transport: %v", args)
+		}
+	}
+}
+
 func TestStartGNMIServer(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"
@@ -245,7 +381,7 @@ func TestStartGNMIServer(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, nil, wg)
 
 	select {
 	case <-tick.C: // Simulate shutdown
@@ -259,6 +395,48 @@ func TestStartGNMIServer(t *testing.T) {
 
 	if !exitCalled {
 		t.Errorf("s.ForceStop should be called if gnmi server is called to shutdown")
+	}
+}
+
+func TestStartGNMIServerReportsStartupFailure(t *testing.T) {
+	testServerCert := "../testdata/certs/testserver.cert"
+	testServerKey := "../testdata/certs/testserver.key"
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	os.Args = []string{"cmd", "-port", "8080", "-server_crt", testServerCert, "-server_key", testServerKey}
+	telemetryCfg, cfg, err := setupFlags(flag.NewFlagSet("startup-failure", flag.ContinueOnError))
+	if err != nil {
+		t.Fatalf("setupFlags() failed: %v", err)
+	}
+
+	patches := gomonkey.ApplyFunc(tls.LoadX509KeyPair, func(string, string) (tls.Certificate, error) {
+		return tls.Certificate{}, nil
+	})
+	patches.ApplyFunc(grpc.Creds, func(credentials.TransportCredentials) grpc.ServerOption {
+		return grpc.EmptyServerOption{}
+	})
+	patches.ApplyFunc(iNotifyCertMonitoring, func(*fsnotify.Watcher, *TelemetryConfig, chan<- ServerControlValue, chan<- int, *int32) {})
+	patches.ApplyFunc(gnmi.NewServer, func(*gnmi.Config, []grpc.ServerOption, []grpc.ServerOption) (*gnmi.Server, error) {
+		return nil, errors.New("invalid policy")
+	})
+	defer patches.Reset()
+
+	serverControlSignal := make(chan ServerControlValue, 1)
+	stopSignalHandler := make(chan bool, 1)
+	serverError := make(chan error, 1)
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, serverError, wg)
+	wg.Wait()
+
+	select {
+	case <-stopSignalHandler:
+	default:
+		t.Fatal("startGNMIServer() did not report startup failure")
+	}
+	if err := <-serverError; err == nil || err.Error() != "invalid policy" {
+		t.Fatalf("startGNMIServer() error = %v, want invalid policy", err)
 	}
 }
 
@@ -319,7 +497,7 @@ func TestStartGNMIServerGracefulStop(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, nil, wg)
 
 	for {
 		select {
@@ -533,7 +711,7 @@ func TestSHA512Checksum(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, nil, wg)
 
 	sendSignal(serverControlSignal, ServerStop)
 
@@ -596,7 +774,7 @@ func TestStartGNMIServerCACert(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, nil, wg)
 
 	sendSignal(serverControlSignal, ServerStop)
 
@@ -651,7 +829,7 @@ func TestStartGNMIServerCreateWatcherError(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, nil, wg)
 
 	sendSignal(serverControlSignal, ServerStop)
 
@@ -714,7 +892,7 @@ func TestStartGNMIServerSlowCerts(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, nil, wg)
 
 	sendSignal(serverControlSignal, ServerRestart) // Should not stop cert monitoring or try reloading certs
 
@@ -792,7 +970,7 @@ func TestStartGNMIServerSlowCACerts(t *testing.T) {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, nil, wg)
 
 	sendSignal(serverControlSignal, ServerStart) // Put certs for server to load new certs
 

@@ -21,6 +21,7 @@ import (
 
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
+	"github.com/sonic-net/sonic-gnmi/pkg/authzpolicy"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
 	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
@@ -79,6 +80,7 @@ type TelemetryConfig struct {
 	ImgDirPath               *string
 	AuthzMetaFile            *string
 	AuthPolicyEnabled        *bool
+	AuthzPolicySource        *string
 	AuthzPolicyFile          *string
 	EnableStreamMultiplexing *bool
 	MaxRecvMsgSize           *int
@@ -90,6 +92,7 @@ func main() {
 	err := runTelemetry(os.Args)
 	if err != nil {
 		log.Errorf("Unable to setup telemetry config due to err: %v", err)
+		os.Exit(1)
 	}
 }
 
@@ -122,6 +125,7 @@ func runTelemetry(args []string) error {
 	// serverControlSignal channel is a channel that will be used to notify gnmi server to start, stop, restart, depending of syscall or cert updates
 	var serverControlSignal = make(chan ServerControlValue, 1)
 	var stopSignalHandler = make(chan bool, 1)
+	var serverError = make(chan error, 1)
 	sigchannel := make(chan os.Signal, 1)
 	signal.Notify(sigchannel, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT, syscall.SIGHUP)
 
@@ -131,10 +135,15 @@ func runTelemetry(args []string) error {
 
 	wg.Add(1)
 
-	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, &wg)
+	go startGNMIServer(telemetryCfg, cfg, serverControlSignal, stopSignalHandler, serverError, &wg)
 
 	wg.Wait()
-	return nil
+	select {
+	case err := <-serverError:
+		return err
+	default:
+		return nil
+	}
 }
 
 func getGlogFlagsMap() map[string]bool {
@@ -213,6 +222,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		CertzMetaFile:            fs.String("grpc_meta", "/keys/grpc-version.json", "gRPC credentials metadata JSON file"),
 		AuthzMetaFile:            fs.String("authz_meta", "/keys/authz-version.json", "authz policy metadata JSON file"),
 		AuthPolicyEnabled:        fs.Bool("authz_policy_enabled", false, "Enable authz policy. Require insecure flag to be false."),
+		AuthzPolicySource:        fs.String("authorization_policy_source", authzpolicy.SourceFile, "Authorization policy source: file or config_db."),
 		AuthzPolicyFile:          fs.String("authorization_policy_file", "/keys/authorization_policy.json", "Full path name of the JSON authorization policy file."),
 		EnableStreamMultiplexing: fs.Bool("enable_stream_multiplexing", false, "Allow multiple Subscribe RPCs on a single TCP connection via HTTP/2 stream multiplexing"),
 		MaxRecvMsgSize:           fs.Int("max_recv_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can receive"),
@@ -355,7 +365,16 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	}
 
 	cfg.AuthzMetaFile = string(*telemetryCfg.AuthzMetaFile)
-	cfg.AuthzPolicy = *telemetryCfg.AuthPolicyEnabled && !*telemetryCfg.Insecure
+	switch *telemetryCfg.AuthzPolicySource {
+	case authzpolicy.SourceFile, authzpolicy.SourceConfigDB:
+		cfg.AuthzPolicySource = *telemetryCfg.AuthzPolicySource
+	default:
+		return nil, nil, fmt.Errorf("unsupported authorization_policy_source %q", *telemetryCfg.AuthzPolicySource)
+	}
+	if *telemetryCfg.AuthPolicyEnabled && (*telemetryCfg.Insecure || *telemetryCfg.NoTLS || *telemetryCfg.AllowNoClientCert) {
+		return nil, nil, fmt.Errorf("authorization policy requires verified client certificates")
+	}
+	cfg.AuthzPolicy = *telemetryCfg.AuthPolicyEnabled
 	cfg.AuthzPolicyFile = string(*telemetryCfg.AuthzPolicyFile)
 	cfg.EnableStreamMultiplexing = *telemetryCfg.EnableStreamMultiplexing
 	return telemetryCfg, cfg, nil
@@ -450,7 +469,7 @@ func signalHandler(serverControlSignal chan<- ServerControlValue, sigchannel <-c
 	}
 }
 
-func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal chan ServerControlValue, stopSignalHandler chan<- bool, wg *sync.WaitGroup) {
+func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal chan ServerControlValue, stopSignalHandler chan<- bool, serverError chan<- error, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	var currentServerChain *interceptors.ServerChain
@@ -604,6 +623,8 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 		currentServerChain, err = interceptors.NewServerChain()
 		if err != nil {
 			log.Errorf("Failed to create interceptor chain: %v", err)
+			stopSignalHandler <- true
+			reportServerError(serverError, err)
 			return
 		}
 
@@ -612,6 +633,8 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 		s, err := gnmi.NewServer(cfg, tlsOpts, commonOpts)
 		if err != nil {
 			log.Errorf("Failed to create gNMI server: %v", err)
+			stopSignalHandler <- true
+			reportServerError(serverError, err)
 			return
 		}
 		if *telemetryCfg.WithSaveOnSet {
@@ -643,6 +666,12 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 		s.Stop() // Graceful stop
 		// Both ServerStart and ServerRestart will loop and restart server
 		// We use different value to distinguish between write/create and remove/rename
+	}
+}
+
+func reportServerError(serverError chan<- error, err error) {
+	if serverError != nil {
+		serverError <- err
 	}
 }
 

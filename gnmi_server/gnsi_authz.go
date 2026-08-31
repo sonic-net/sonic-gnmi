@@ -5,16 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	log "github.com/golang/glog"
-	"github.com/openconfig/gnsi/authz"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
+
+	log "github.com/golang/glog"
+	"github.com/openconfig/gnsi/authz"
+	"github.com/sonic-net/sonic-gnmi/pkg/authzpolicy"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -51,6 +53,9 @@ func NewGNSIAuthzServer(srv *Server) *GNSIAuthzServer {
 		Server:        srv,
 		authzMetadata: NewAuthzMetadata(),
 	}
+	if srv.config.AuthzPolicySource == authzpolicy.SourceConfigDB {
+		return ret
+	}
 	log.V(2).Infof("gnsi: loading authz metadata from %s", srv.config.AuthzMetaFile)
 	log.V(2).Infof("gnsi: loading authz policy from %s", srv.config.AuthzPolicyFile)
 	if err := ret.loadAuthzFreshness(srv.config.AuthzMetaFile); err != nil {
@@ -70,6 +75,9 @@ func (srv *GNSIAuthzServer) Rotate(stream authz.Authz_RotateServer) error {
 	if err != nil {
 		log.Errorf("authentication failed in Rotate RPC: %v", err)
 		return err
+	}
+	if srv.config.AuthzPolicySource == authzpolicy.SourceConfigDB {
+		return status.Error(codes.FailedPrecondition, "gNSI Authz rotation is disabled when CONFIG_DB owns the authorization policy")
 	}
 	session := time.Now().Nanosecond()
 	// Concurrent Authz RPCs are not allowed.
