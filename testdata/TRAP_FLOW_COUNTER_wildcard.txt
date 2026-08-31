@@ -1,0 +1,16 @@
+{
+    "dhcp": {
+        "SAI_COUNTER_STAT_PACKETS": "100",
+        "SAI_COUNTER_STAT_BYTES": "2000"
+    },
+    "dhcp:rates": {
+        "RX_PPS": "50.25"
+    },
+    "bgp": {
+        "SAI_COUNTER_STAT_PACKETS": "50",
+        "SAI_COUNTER_STAT_BYTES": "1000"
+    },
+    "bgp:rates": {
+        "RX_PPS": "25.00"
+    }
+}
