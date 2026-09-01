@@ -7583,3 +7583,235 @@ func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
 		t.Error("Serve() did not return after Stop()")
 	}
 }
+
+func getFreePort(t *testing.T) int64 {
+	t.Helper()
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("failed to resolve tcp addr: %v", err)
+	}
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatalf("failed to listen on free port: %v", err)
+	}
+	defer l.Close()
+	return int64(l.Addr().(*net.TCPAddr).Port)
+}
+
+func TestGnmiGetTranslibPfmCompXcvr(t *testing.T) {
+	// 1. Define all structures locally inside the test function
+	type ComponentState struct {
+		Empty           bool   `json:"empty"`
+		FirmwareVersion string `json:"firmware-version"`
+		HardwareVersion string `json:"hardware-version"`
+		MfgDate         string `json:"mfg-date"`
+		MfgName         string `json:"mfg-name"`
+		Name            string `json:"name"`
+		OperStatus      string `json:"oper-status"`
+		PartNo          string `json:"part-no"`
+		Removable       bool   `json:"removable"`
+		SerialNo        string `json:"serial-no"`
+		Temperature     struct {
+			Instant string `json:"instant"`
+		} `json:"temperature"`
+		Type string `json:"type"`
+	}
+
+	type PhysicalChannel struct {
+		Index  int `json:"index"`
+		Config struct {
+			Index int `json:"index"`
+		} `json:"config"`
+		State struct {
+			Index      int `json:"index"`
+			InputPower struct {
+				Instant string `json:"instant"`
+			} `json:"input-power"`
+			LaserBiasCurrent struct {
+				Instant string `json:"instant"`
+			} `json:"laser-bias-current"`
+			TxLaser bool `json:"tx-laser"`
+		} `json:"state"`
+	}
+
+	type ComponentResp struct {
+		Component []struct {
+			Name   string `json:"name"`
+			Config struct {
+				Name string `json:"name"`
+			} `json:"config"`
+			State       ComponentState `json:"state"`
+			Transceiver struct {
+				PhysicalChannels struct {
+					Channel []PhysicalChannel `json:"channel"`
+				} `json:"physical-channels"`
+			} `json:"openconfig-platform-transceiver:transceiver"`
+		} `json:"openconfig-platform:component"`
+	}
+
+	type StateResp struct {
+		State ComponentState `json:"openconfig-platform:state"`
+	}
+
+	type TempResp struct {
+		Instant string `json:"openconfig-platform:instant"`
+	}
+
+	type PresenceResp struct {
+		Empty bool `json:"openconfig-platform:empty"`
+	}
+
+	// Server/DB setup
+	freePort := getFreePort(t)
+	s := createServer(t, freePort)
+	go runServer(t, s)
+	defer s.Stop()
+	prepareDbTranslib(t)
+	ctx := context.Background()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+
+	stateDbId, _ := sdcfg.GetDbId("STATE_DB", ns)
+	stateClient := getRedisClientN(t, stateDbId, ns)
+	defer stateClient.Close()
+	if err := stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", map[string]interface{}{"name": "Ethernet0"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet TRANSCEIVER_INFO: %v", err)
+	}
+
+	if err := stateClient.HSet(ctx, "TRANSCEIVER_STATUS|Ethernet0", map[string]interface{}{"name": "Ethernet0", "status": true}).Err(); err != nil {
+		t.Fatalf("Failed to HSet TRANSCEIVER_STATUS: %v", err)
+	}
+
+	if err := stateClient.HSet(ctx, "TRANSCEIVER_DOM_SENSOR|Ethernet0", map[string]interface{}{"name": "Ethernet0", "temperature": "101"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet TRANSCEIVER_DOM_SENSOR: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		stateClient.Del(cleanupCtx, "TRANSCEIVER_INFO|Ethernet0")
+		stateClient.Del(cleanupCtx, "TRANSCEIVER_STATUS|Ethernet0")
+		stateClient.Del(cleanupCtx, "TRANSCEIVER_DOM_SENSOR|Ethernet0")
+	})
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	// 2. Prepare Data to match your log output
+	commonState := ComponentState{
+		Empty:           false,
+		FirmwareVersion: "D",
+		HardwareVersion: "D",
+		MfgDate:         "2011-12-13 ",
+		MfgName:         "Amphenol",
+		Name:            "Ethernet0",
+		OperStatus:      "openconfig-platform-types:ACTIVE",
+		PartNo:          "599690001",
+		Removable:       true,
+		SerialNo:        "APF11490011J7E",
+		Type:            "openconfig-platform-types:TRANSCEIVER",
+	}
+	commonState.Temperature.Instant = "101"
+
+	channels := make([]PhysicalChannel, 4)
+	for i := 0; i < 4; i++ {
+		channels[i].Index, channels[i].Config.Index, channels[i].State.Index = i, i, i
+		channels[i].State.InputPower.Instant = "-Inf"
+		channels[i].State.LaserBiasCurrent.Instant = "0"
+		channels[i].State.TxLaser = false
+	}
+
+	// Initialize the 4 specific response objects
+	var compVal ComponentResp
+	compVal.Component = append(compVal.Component, struct {
+		Name   string `json:"name"`
+		Config struct {
+			Name string `json:"name"`
+		} `json:"config"`
+		State       ComponentState `json:"state"`
+		Transceiver struct {
+			PhysicalChannels struct {
+				Channel []PhysicalChannel `json:"channel"`
+			} `json:"physical-channels"`
+		} `json:"openconfig-platform-transceiver:transceiver"`
+	}{
+		Name: "Ethernet0",
+		Config: struct {
+			Name string `json:"name"`
+		}{Name: "Ethernet0"},
+		State: commonState,
+		Transceiver: struct {
+			PhysicalChannels struct {
+				Channel []PhysicalChannel `json:"channel"`
+			} `json:"physical-channels"`
+		}{PhysicalChannels: struct {
+			Channel []PhysicalChannel `json:"channel"`
+		}{Channel: channels}},
+	})
+
+	stateVal := StateResp{State: commonState}
+	tempVal := TempResp{Instant: "101"}
+	presenceVal := PresenceResp{Empty: false}
+
+	// Helper to marshal locally defined structs to []byte for runTestGet
+	marshal := func(v interface{}) []byte {
+		b, _ := json.Marshal(v)
+		return b
+	}
+
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		{
+			desc:        "Get OC Platform Comp Xcvr",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"Ethernet0" > >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(compVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OC Platform Comp Xcvr State",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(stateVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OC Platform Comp Xcvr Temperature",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" > elem: <name: "temperature" > elem: <name: "instant" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(tempVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OC Platform Comp Xcvr Presence",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" > elem: <name: "empty" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(presenceVal),
+			valTest:     true,
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			// Your existing runTestGet is called here
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+}
