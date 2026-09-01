@@ -70,6 +70,13 @@ func KillOrRestartProcess(restart bool, serviceName string) error {
 }
 
 func (srv *Server) KillProcess(ctx context.Context, req *syspb.KillProcessRequest) (*syspb.KillProcessResponse, error) {
+	// KillProcess changes host service state, so the TCP path must not use the
+	// server's unauthenticated mode. Unix socket access remains protected by
+	// the socket's file-system permissions.
+	if !isUnixPeer(ctx) && !srv.config.UserAuth.Any() {
+		return nil, status.Error(codes.Unauthenticated, "KillProcess requires client authentication")
+	}
+
 	_, err := authenticate(srv.config, ctx, "gnoi", true)
 	if err != nil {
 		return nil, err
