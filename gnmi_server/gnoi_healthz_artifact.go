@@ -15,10 +15,6 @@ const (
 	ddFileSegSize int = 4096
 )
 
-var (
-	healthzArtifactAuthenticate = authenticate
-)
-
 func (srv *HealthzServer) getArtifactResolver() artifactPathResolver {
 	if srv.artifactResolver.hostMount == "" {
 		return defaultArtifactResolver
@@ -51,7 +47,7 @@ func buildHealthzArtifactHeader(artifactID string, artifact io.ReadSeeker) (*hea
 }
 
 func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.Healthz_ArtifactServer) error {
-	if _, err := healthzArtifactAuthenticate(srv.config, stream.Context(), "gnoi", false); err != nil {
+	if _, err := authenticate(srv.config, stream.Context(), "gnoi", false); err != nil {
 		log.Errorf("Healthz.Artifact authentication failed: %v", err)
 		return err
 	}

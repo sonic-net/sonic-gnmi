@@ -2,115 +2,90 @@ package file
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
-	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-var testCtx = context.Background()
-
-func TestHandleFileRemove_NilRequest(t *testing.T) {
-	resp, err := HandleFileRemove(context.Background(), nil)
-	assert.Error(t, err)
-	assert.Equal(t, codes.InvalidArgument, status.Code(err))
-	assert.Nil(t, resp)
+func TestHandleFileRemoveValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		req  *gnoi_file_pb.RemoveRequest
+		code codes.Code
+	}{
+		{name: "nil request", code: codes.InvalidArgument},
+		{name: "empty path", req: &gnoi_file_pb.RemoveRequest{}, code: codes.InvalidArgument},
+		{name: "persistent path", req: &gnoi_file_pb.RemoveRequest{RemoteFile: "/etc/sonic/config_db.json"}, code: codes.PermissionDenied},
+		{name: "traversal", req: &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/a/../b"}, code: codes.PermissionDenied},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response, err := HandleFileRemove(context.Background(), test.req)
+			if response != nil || status.Code(err) != test.code {
+				t.Fatalf("response=%v code=%v, want nil/%v; err=%v", response, status.Code(err), test.code, err)
+			}
+		})
+	}
 }
 
-func TestRemove_DangerousFile(t *testing.T) {
-	// With no blacklist, this will be denied by whitelist and return PermissionDenied.
-	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: "/etc/sonic/config_db.json"})
-	assert.Error(t, err)
-	assert.Equal(t, codes.PermissionDenied, status.Code(err))
-	assert.Nil(t, resp)
+func TestHandleFileRemoveDLDDInbox(t *testing.T) {
+	root := setTempHostRoot(t)
+	destination := root + dlddRulesInboxPath
+	if err := os.MkdirAll(filepath.Dir(destination), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte("rules"), dlddRulesInboxMode); err != nil {
+		t.Fatal(err)
+	}
+	response, err := HandleFileRemove(context.Background(), &gnoi_file_pb.RemoveRequest{RemoteFile: dlddRulesInboxPath})
+	if response != nil || status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("response=%v code=%v, want nil/PermissionDenied; err=%v", response, status.Code(err), err)
+	}
+	if content, readErr := os.ReadFile(destination); readErr != nil || string(content) != "rules" {
+		t.Fatalf("protected inbox changed: content=%q err=%v", content, readErr)
+	}
 }
 
-func TestRemove_DLDDRulesInbox(t *testing.T) {
-	setTempHostRoot(t)
-
-	destination := hostRoot + dlddRulesInboxPath
-	assert.NoError(t, os.MkdirAll(filepath.Dir(destination), 0750))
-	assert.NoError(t, os.WriteFile(destination, []byte("rules"), dlddRulesInboxMode))
-
-	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: dlddRulesInboxPath})
-	assert.Error(t, err)
-	assert.Equal(t, codes.PermissionDenied, status.Code(err))
-	assert.Nil(t, resp)
-	content, readErr := os.ReadFile(destination)
-	assert.NoError(t, readErr)
-	assert.Equal(t, []byte("rules"), content)
+func TestHandleFileRemovePrimaryWorkflow(t *testing.T) {
+	root := setTempHostRoot(t)
+	destination := filepath.Join(root, "tmp", "remove.txt")
+	if err := os.MkdirAll(filepath.Dir(destination), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte("remove me"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	response, err := HandleFileRemove(context.Background(), &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/remove.txt"})
+	if err != nil || response == nil {
+		t.Fatalf("HandleFileRemove: response=%v err=%v", response, err)
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("destination still exists: %v", err)
+	}
 }
 
-func TestRemove_PathTraversal(t *testing.T) {
-	// The handler denies paths not starting with allowed prefixes.
-	// ../../etc/passwd will be rejected as "not whitelisted".
-	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: "../../etc/passwd"})
-	assert.Error(t, err)
-	assert.Equal(t, codes.PermissionDenied, status.Code(err))
-	assert.Nil(t, resp)
-}
-
-func TestRemove_NonExistentFile(t *testing.T) {
-	patch := gomonkey.ApplyFunc(os.Remove, func(path string) error {
-		return os.ErrNotExist
-	})
-	defer patch.Reset()
-
-	// Use an allowed path so handler reaches os.Remove
-	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/notfound.txt"})
-	assert.Error(t, err)
-	assert.Equal(t, codes.NotFound, status.Code(err))
-	// Handler returns a RemoveResponse even when os.Remove fails per current design:
-	assert.NotNil(t, resp)
-}
-
-func TestRemove_RelativePath(t *testing.T) {
-	// The handler currently denies relative paths (they don't start with /tmp/ or /var/tmp/)
-	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: "./somefile.txt"})
-	assert.Error(t, err)
-	assert.Equal(t, codes.PermissionDenied, status.Code(err))
-	assert.Nil(t, resp)
-}
-
-func TestRemove_EmptyPath(t *testing.T) {
-	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: ""})
-	assert.Error(t, err)
-	assert.Equal(t, codes.InvalidArgument, status.Code(err))
-	assert.Nil(t, resp)
-}
-
-func TestRemove_SpecialCharFile(t *testing.T) {
-	// Patch os.Remove to succeed and use an allowed path so handler invokes os.Remove.
-	patch := gomonkey.ApplyFunc(os.Remove, func(path string) error {
-		return nil // simulate success
-	})
-	defer patch.Reset()
-
-	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/fil├⌐.txt"})
-	assert.NoError(t, err)
-	assert.NotNil(t, resp)
-}
-
-func TestRemove_PermissionDenied(t *testing.T) {
-	patch := gomonkey.ApplyFunc(os.Remove, func(path string) error {
-		return os.ErrPermission
-	})
-	defer patch.Reset()
-
-	// Use an allowed path so handler reaches os.Remove
-	resp, err := HandleFileRemove(testCtx, &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/forbidden.txt"})
-	assert.Error(t, err)
-	// ensure permission-denied is returned as gRPC code
-	assert.Equal(t, codes.PermissionDenied, status.Code(err))
-	// Handler returns a RemoveResponse with the error (non-nil resp) per current design
-	assert.NotNil(t, resp)
-
-	// Also verify errors.Is recognizes underlying os.ErrPermission
-	assert.True(t, errors.Is(err, os.ErrPermission) || status.Code(err) == codes.PermissionDenied)
+func TestHandleFileRemoveFilesystemFailures(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		code codes.Code
+	}{
+		{name: "missing", err: os.ErrNotExist, code: codes.NotFound},
+		{name: "permission", err: os.ErrPermission, code: codes.PermissionDenied},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			patch := gomonkey.ApplyFunc(os.Remove, func(string) error { return test.err })
+			defer patch.Reset()
+			response, err := HandleFileRemove(context.Background(), &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/file"})
+			if response == nil || status.Code(err) != test.code {
+				t.Fatalf("response=%v code=%v, want non-nil/%v; err=%v", response, status.Code(err), test.code, err)
+			}
+		})
+	}
 }

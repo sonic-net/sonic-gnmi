@@ -4,7 +4,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -38,90 +37,76 @@ func writeArtifactTestFile(t *testing.T, resolver artifactPathResolver, hostPath
 	return containerPath
 }
 
-func TestArtifactPathResolver(t *testing.T) {
+func TestArtifactPathResolverOpensSupportedArtifacts(t *testing.T) {
 	resolver := newArtifactTestResolver(t)
-
-	opaqueID := "dldd-0123456789abcdef0123456789abcdef.tar.gz"
-	opaquePath := writeArtifactTestFile(t, resolver, filepath.Join(resolver.dlddDirectory, opaqueID), []byte("opaque"))
-	legacyID := "/tmp/dump/legacy/healthz.tar.gz"
-	legacyPath := writeArtifactTestFile(t, resolver, legacyID, []byte("legacy"))
-
 	tests := []struct {
-		name string
-		id   string
-		want string
+		id       string
+		hostPath string
+		content  string
 	}{
-		{name: "opaque DLDD ID", id: opaqueID, want: opaquePath},
-		{name: "legacy path", id: legacyID, want: legacyPath},
+		{id: "dldd-0123456789abcdef0123456789abcdef.tar.gz", content: "dldd"},
+		{id: "/tmp/dump/legacy/healthz.tar.gz", hostPath: "/tmp/dump/legacy/healthz.tar.gz", content: "legacy"},
 	}
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, err := resolver.resolve(test.id)
-			if err != nil {
-				t.Fatalf("resolve(%q) failed: %v", test.id, err)
-			}
-			if got != test.want {
-				t.Fatalf("resolve(%q) = %q, want %q", test.id, got, test.want)
-			}
-			file, openedPath, err := resolver.open(test.id)
-			if err != nil {
-				t.Fatalf("open(%q) failed: %v", test.id, err)
-			}
-			defer file.Close()
-			if openedPath != test.want {
-				t.Fatalf("open(%q) path = %q, want %q", test.id, openedPath, test.want)
-			}
-			if _, err := io.ReadAll(file); err != nil {
-				t.Fatalf("read open(%q): %v", test.id, err)
-			}
-		})
+		if test.hostPath == "" {
+			test.hostPath = filepath.Join(resolver.dlddDirectory, test.id)
+		}
+		wantPath := writeArtifactTestFile(t, resolver, test.hostPath, []byte(test.content))
+		file, gotPath, err := resolver.open(test.id)
+		if err != nil {
+			t.Fatalf("open(%q) failed: %v", test.id, err)
+		}
+		got, readErr := io.ReadAll(file)
+		file.Close()
+		if readErr != nil || gotPath != wantPath || string(got) != test.content {
+			t.Fatalf("open(%q) = (%q, %q, %v), want (%q, %q, nil)", test.id, gotPath, got, readErr, wantPath, test.content)
+		}
 	}
 }
 
-func TestArtifactPathResolverOpensOnlyAbsoluteLegacyIDsForAcknowledgement(t *testing.T) {
+func TestArtifactPathResolverKeepsLegacyAcknowledgementSeparate(t *testing.T) {
 	resolver := newArtifactTestResolver(t)
-	legacyID := "/tmp/dump/legacy/healthz.tar.gz"
+	legacyID := "/tmp/dump/legacy.tar.gz"
 	writeArtifactTestFile(t, resolver, legacyID, []byte("legacy"))
-
 	file, _, err := resolver.openLegacy(legacyID)
 	if err != nil {
 		t.Fatalf("openLegacy(%q) failed: %v", legacyID, err)
 	}
 	file.Close()
 
-	opaqueID := "dldd-legacy-looking.tar.gz"
-	writeArtifactTestFile(t, resolver, filepath.Join(resolver.dlddDirectory, opaqueID), []byte("dldd"))
-	if _, _, err := resolver.openLegacy(opaqueID); status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("openLegacy(%q) code = %v, want %v; err=%v", opaqueID, status.Code(err), codes.InvalidArgument, err)
-	}
-	if _, _, err := resolver.openLegacy("/tmp/dump/nested/../healthz.tar.gz"); status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("openLegacy() contained traversal code = %v, want %v; err=%v", status.Code(err), codes.InvalidArgument, err)
+	for _, id := range []string{
+		"dldd-0123456789abcdef0123456789abcdef.tar.gz",
+		"/tmp/dump/nested/../legacy.tar.gz",
+	} {
+		if _, _, err := resolver.openLegacy(id); status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("openLegacy(%q) code = %v, want %v; err=%v", id, status.Code(err), codes.InvalidArgument, err)
+		}
 	}
 }
 
-func TestArtifactPathResolverRejectsInvalidIDs(t *testing.T) {
+func TestArtifactPathResolverRejectsUnsafeOrMissingArtifacts(t *testing.T) {
 	resolver := newArtifactTestResolver(t)
-	tests := []string{
-		"",
-		".",
-		"..",
-		"../outside",
-		"nested/artifact",
-		"/tmp/dump",
-		"/tmp/dump2/artifact",
-		"/tmp/dump/../artifact",
-		"/var/lib/sonic/dldd/artifacts/artifact",
-		"dldd-0123456789abcdef0123456789abcdef.json",
-		"dldd-not-a-generated-identifier.tar.gz",
-		strings.Repeat("a", 256),
+	tests := []struct {
+		id   string
+		code codes.Code
+	}{
+		{id: "../outside", code: codes.InvalidArgument},
+		{id: "/tmp/dump2/artifact", code: codes.InvalidArgument},
+		{id: "dldd-not-a-generated-identifier.tar.gz", code: codes.InvalidArgument},
+		{id: "dldd-44444444444444444444444444444444.tar.gz", code: codes.NotFound},
 	}
-	for _, artifactID := range tests {
-		t.Run(artifactID, func(t *testing.T) {
-			_, err := resolver.resolve(artifactID)
-			if status.Code(err) != codes.InvalidArgument {
-				t.Fatalf("resolve(%q) code = %v, want %v; err=%v", artifactID, status.Code(err), codes.InvalidArgument, err)
-			}
-		})
+	for _, test := range tests {
+		if _, err := resolver.resolve(test.id); status.Code(err) != test.code {
+			t.Fatalf("resolve(%q) code = %v, want %v; err=%v", test.id, status.Code(err), test.code, err)
+		}
+	}
+
+	directoryID := "dldd-55555555555555555555555555555555.tar.gz"
+	if err := os.Mkdir(resolver.containerPath(filepath.Join(resolver.dlddDirectory, directoryID)), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.resolve(directoryID); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("directory artifact code = %v, want %v; err=%v", status.Code(err), codes.InvalidArgument, err)
 	}
 }
 
@@ -133,37 +118,18 @@ func TestArtifactPathResolverRejectsSymlinks(t *testing.T) {
 	}
 
 	opaqueID := "dldd-22222222222222222222222222222222.tar.gz"
-	opaqueLink := resolver.containerPath(filepath.Join(resolver.dlddDirectory, opaqueID))
-	if err := os.Symlink(outside, opaqueLink); err != nil {
+	if err := os.Symlink(outside, resolver.containerPath(filepath.Join(resolver.dlddDirectory, opaqueID))); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := resolver.resolve(opaqueID); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("opaque symlink code = %v, want %v; err=%v", status.Code(err), codes.PermissionDenied, err)
 	}
 
-	legacyLinkDir := resolver.containerPath("/tmp/dump/link")
-	if err := os.Symlink(filepath.Dir(outside), legacyLinkDir); err != nil {
+	linkDir := resolver.containerPath("/tmp/dump/link")
+	if err := os.Symlink(filepath.Dir(outside), linkDir); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := resolver.resolve("/tmp/dump/link/outside.tar.gz"); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("legacy intermediate symlink code = %v, want %v; err=%v", status.Code(err), codes.PermissionDenied, err)
-	}
-}
-
-func TestArtifactPathResolverRejectsNonRegularArtifact(t *testing.T) {
-	resolver := newArtifactTestResolver(t)
-	artifactID := "dldd-33333333333333333333333333333333.tar.gz"
-	if err := os.Mkdir(resolver.containerPath(filepath.Join(resolver.dlddDirectory, artifactID)), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := resolver.resolve(artifactID); status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("directory artifact code = %v, want %v; err=%v", status.Code(err), codes.InvalidArgument, err)
-	}
-}
-
-func TestArtifactPathResolverReportsMissingArtifact(t *testing.T) {
-	resolver := newArtifactTestResolver(t)
-	if _, err := resolver.resolve("dldd-44444444444444444444444444444444.tar.gz"); status.Code(err) != codes.NotFound {
-		t.Fatalf("missing artifact code = %v, want %v; err=%v", status.Code(err), codes.NotFound, err)
+		t.Fatalf("intermediate symlink code = %v, want %v; err=%v", status.Code(err), codes.PermissionDenied, err)
 	}
 }

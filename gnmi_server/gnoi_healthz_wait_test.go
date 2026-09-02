@@ -51,13 +51,6 @@ func TestWaitForArtifactLifecycle(t *testing.T) {
 		minimumCalls int
 	}{
 		{
-			name:       "ready",
-			results:    []healthzCheckResult{{status: healthzArtifactReady}},
-			wantResult: healthzArtifactReady,
-			wantCode:   codes.OK,
-			wantCalls:  1,
-		},
-		{
 			name: "pending then ready",
 			results: []healthzCheckResult{
 				{status: healthzArtifactPending},

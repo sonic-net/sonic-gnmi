@@ -22,6 +22,7 @@ import (
 	"github.com/openconfig/gnoi/types"
 	"github.com/sonic-net/sonic-gnmi/internal/download"
 	"github.com/sonic-net/sonic-gnmi/internal/hash"
+	"github.com/sonic-net/sonic-gnmi/pkg/hostfs"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -44,15 +45,20 @@ const (
 	dlddRulesInboxMode = 0640
 )
 
-// hostRoot is the path prefix that maps the *container* view onto the *host*
-// filesystem. In production it is "/mnt/host" (the bind mount the gnmi
-// container ships with). Tests set it to a t.TempDir() so they can build real
-// fixtures (regular files, fifos, oversize sparse files, broken perms, ...)
-// without touching the actual /mnt/host on the test machine.
-//
-// translatePathForContainer is the only consumer; it prepends hostRoot to the
-// caller-supplied logical path when hostRoot exists on disk.
-var hostRoot = "/mnt/host"
+var (
+	// File historically prepends an existing host mount even when the input is
+	// already mapped. Leave PreserveMapped false to retain that behavior.
+	fileHostMapper = hostfs.Mapper{Mount: hostfs.HostMount}
+	// Copy the common prefixes so a caller mutating hostfs.AllowedPrefixes cannot
+	// broaden File's security policy after package initialization.
+	fileWritePolicy = hostfs.Policy{
+		Prefixes:                 append([]string(nil), hostfs.AllowedPrefixes...),
+		ExactPaths:               []string{dlddRulesInboxPath},
+		RejectRawParentTraversal: true,
+		RejectNUL:                true,
+		AllowedDescription:       "under /tmp/, /var/tmp/, or /host/, or equal " + dlddRulesInboxPath,
+	}
+)
 
 // maxFileSize is the per-RPC size cap. var (not const) so tests can lower it
 // to exercise the over-size branch without producing 4 GiB files.
@@ -142,7 +148,7 @@ func handleTransferToRemoteLocal(
 	}
 
 	// Validate path is in allowed directories for security
-	if err := validatePath(localPath); err != nil {
+	if err := fileWritePolicy.Validate(localPath); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid local_path: %v", err)
 	}
 
@@ -159,8 +165,8 @@ func handleTransferToRemoteLocal(
 	}
 
 	// Container path translation: prepend /mnt/host to access host filesystem
-	// Only apply if /mnt/host exists (running in container) and path doesn't already have it
-	translatedPath := translatePathForContainer(localPath)
+	// when /mnt/host exists (running in the container).
+	translatedPath := fileHostMapper.Translate(localPath)
 
 	// Create context with timeout for download operation
 	downloadCtx, cancel := context.WithTimeout(ctx, downloadTimeout)
@@ -186,87 +192,6 @@ func handleTransferToRemoteLocal(
 			Hash:   hashBytes,
 		},
 	}, nil
-}
-
-// translatePathForContainer handles path translation for container environments.
-// If the code is running in a container with /mnt/host mount (host filesystem access),
-// it prepends /mnt/host to the path. This follows the same pattern as the diskspace package.
-//
-// Example:
-//   - Input: "/tmp/firmware.bin"
-//   - Running in container: "/mnt/host/tmp/firmware.bin"
-//   - Running on host: "/tmp/firmware.bin"
-func translatePathForContainer(path string) string {
-	// Clean the path first
-	cleanPath := filepath.Clean(path)
-
-	// hostRoot exists on disk → we're running in a container with the host
-	// filesystem bind-mounted (or in a test that injected a fake root).
-	if _, err := os.Stat(hostRoot); err == nil {
-		return hostRoot + cleanPath
-	}
-
-	// Not in container, return original path
-	return cleanPath
-}
-
-// validatePath checks if the requested path is within allowed directories.
-// This prevents security issues like overwriting critical system files.
-//
-// Allowed directories for SONiC devices:
-//   - /tmp/      - Temporary files, firmware images
-//   - /var/tmp/  - Temporary files that persist across reboots
-//   - /host/     - Next-image overlay staging (e.g. /host/image-*/rw/etc/sonic/...)
-//   - /var/lib/sonic/dldd/inbox/dld_rules.yaml - DLDD rules staging file
-//
-// Rejected paths include:
-//   - /etc/, /boot/, /usr/, /bin/, /sbin/ - Critical system directories
-//   - /var/log/ - System logs
-//   - /home/, /root/ - User home directories with SSH keys
-//   - Relative paths or paths with .. traversal
-//
-// Note on /host/: a broad /host/ prefix is currently accepted so the SONiC
-// upgrade agent can stage configs/certs into the next-image overlay at
-// /host/image-*/rw/etc/sonic/. This whitelist is intentionally permissive
-// for now; a follow-up will tighten the prefix to /host/image-*/rw/ once
-// callers stabilize. Writes under /host/ are still gated by filesystem
-// permissions inside the container (the gnmi container only sees /host as
-// rw when the platform mounts it that way; see sonic-buildimage PR-B).
-func validatePath(path string) error {
-	if strings.IndexByte(path, 0) >= 0 {
-		return fmt.Errorf("path contains a null byte")
-	}
-	for _, component := range strings.Split(path, string(filepath.Separator)) {
-		if component == ".." {
-			return fmt.Errorf("path traversal not allowed: %s", path)
-		}
-	}
-	// Clean the path to resolve . and .. components
-	cleanPath := filepath.Clean(path)
-
-	// Must be absolute path
-	if !filepath.IsAbs(cleanPath) {
-		return fmt.Errorf("path must be absolute, got: %s", path)
-	}
-
-	if isDLDDRulesInbox(cleanPath) {
-		return nil
-	}
-
-	// Whitelist of allowed directory prefixes
-	allowedPrefixes := []string{
-		"/tmp/",
-		"/var/tmp/",
-		"/host/",
-	}
-
-	for _, prefix := range allowedPrefixes {
-		if strings.HasPrefix(cleanPath, prefix) {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("path must be under /tmp/, /var/tmp/, or /host/, or equal %s, got: %s", dlddRulesInboxPath, cleanPath)
 }
 
 func isDLDDRulesInbox(path string) bool {
@@ -345,12 +270,12 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 	}
 
 	// Step 2: Validate path is in allowed directories
-	if err := validatePath(remotePath); err != nil {
+	if err := fileWritePolicy.Validate(remotePath); err != nil {
 		return status.Errorf(codes.InvalidArgument, "invalid remote_file: %v", err)
 	}
 
 	// Step 3: Container path translation
-	translatedPath := translatePathForContainer(remotePath)
+	translatedPath := fileHostMapper.Translate(remotePath)
 
 	// Step 4: Create a unique same-directory temporary file for atomic write.
 	// A fixed "<target>.tmp" path lets concurrent Put streams truncate and
@@ -359,8 +284,8 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 	// Mirrors the behavior of typical file-upload servers; the alternative
 	// is forcing every gNOI client to pre-create parent dirs via SSH or
 	// another channel, which defeats the purpose of File.Put as a
-	// self-contained upload primitive. Runs after validatePath (Step 2) and
-	// translatePathForContainer (Step 3) so no privilege escalation risk
+	// self-contained upload primitive. Runs after policy validation (Step 2)
+	// and host mapping (Step 3) so no privilege escalation risk
 	// beyond what the existing whitelist already accepts.
 	parentDir := filepath.Dir(translatedPath)
 	parentMode := os.FileMode(0755)
@@ -640,16 +565,16 @@ func HandleFileRemove(ctx context.Context, req *gnoi_file_pb.RemoveRequest) (*gn
 			"the DLDD rules inbox can only be updated with gNOI File.Put")
 	}
 
-	if err := validatePath(remoteFile); err != nil {
+	if err := fileWritePolicy.Validate(remoteFile); err != nil {
 		log.Errorf("Denied: %v", err)
 		return nil, status.Errorf(codes.PermissionDenied, "path is not an allowed file location: %v", err)
 	}
 
 	// NEW: map host path to container path if needed.
-	// translatePathForContainer will prepend /mnt/host inside the gnmi container
+	// fileHostMapper will prepend /mnt/host inside the gnmi container
 	// when appropriate, so files created on the DUT in /tmp/ are visible.
 	localPath := remoteFile
-	translatedPath := translatePathForContainer(localPath)
+	translatedPath := fileHostMapper.Translate(localPath)
 	log.Infof("HandleFileRemove removing file: remote=%s translated=%s", remoteFile, translatedPath)
 
 	// Attempt remove and map errors to gRPC status codes for testable behavior.
@@ -747,13 +672,13 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 
 	cleanReqPath := filepath.Clean(reqPath)
 	// Reject /mnt/host-prefixed inputs to avoid double-prefixing in
-	// translatePathForContainer (e.g. "/mnt/host/tmp/x" → "/mnt/host/mnt/host/tmp/x").
+	// fileHostMapper (e.g. "/mnt/host/tmp/x" → "/mnt/host/mnt/host/tmp/x").
 	// Clients should pass host-visible paths like /tmp/..., /etc/..., /host/...
 	if cleanReqPath == "/mnt/host" || strings.HasPrefix(cleanReqPath, "/mnt/host/") {
 		return nil, status.Errorf(codes.InvalidArgument,
 			"path must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", reqPath)
 	}
-	translatedPath := translatePathForContainer(cleanReqPath)
+	translatedPath := fileHostMapper.Translate(cleanReqPath)
 
 	info, err := fsStat(translatedPath)
 	if err != nil {
@@ -823,7 +748,7 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 // Behavior:
 //   - Validates the request: non-nil, non-empty absolute path, and not
 //     prefixed with /mnt/host (clients pass host-visible paths).
-//   - Translates the path through translatePathForContainer so it works
+//   - Translates the path through fileHostMapper so it works
 //     both inside the gnmi container and on a bare host.
 //   - Rejects directories with FailedPrecondition (the proto requires
 //     a file).
@@ -849,7 +774,7 @@ func HandleGet(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.File_GetServer)
 			"remote_file must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", remoteFile)
 	}
 
-	translatedPath := translatePathForContainer(cleanPath)
+	translatedPath := fileHostMapper.Translate(cleanPath)
 
 	info, err := os.Stat(translatedPath)
 	if err != nil {
