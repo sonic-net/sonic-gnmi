@@ -1,8 +1,12 @@
 package gnmi
 
 import (
+	"context"
 	"crypto/sha256"
 	"io"
+	"os"
+	"path/filepath"
+	"time"
 
 	log "github.com/golang/glog"
 	"github.com/openconfig/gnoi/healthz"
@@ -12,7 +16,9 @@ import (
 )
 
 const (
-	ddFileSegSize int = 4096
+	ddFileSegSize            int           = 4096
+	dlddArtifactWaitTimeout  time.Duration = 5 * time.Minute
+	dlddArtifactPollInterval time.Duration = 100 * time.Millisecond
 )
 
 func (srv *HealthzServer) getArtifactResolver() artifactPathResolver {
@@ -46,6 +52,33 @@ func buildHealthzArtifactHeader(artifactID string, artifact io.ReadSeeker) (*hea
 	}, nil
 }
 
+func waitForDLDDArtifact(
+	ctx context.Context,
+	resolver artifactPathResolver,
+	artifactID string,
+	timeout time.Duration,
+	interval time.Duration,
+) (*os.File, error) {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for {
+		file, _, err := resolver.open(artifactID)
+		if err == nil {
+			return file, nil
+		}
+		if filepath.IsAbs(artifactID) || status.Code(err) != codes.NotFound {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, status.FromContextError(ctx.Err()).Err()
+		case <-deadline.C:
+			return nil, status.Error(codes.NotFound, "artifact was not ready before the wait deadline")
+		case <-time.After(interval):
+		}
+	}
+}
+
 func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.Healthz_ArtifactServer) error {
 	if _, err := authenticate(srv.config, stream.Context(), "gnoi", false); err != nil {
 		log.Errorf("Healthz.Artifact authentication failed: %v", err)
@@ -57,7 +90,13 @@ func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.
 
 	artifactID := req.GetId()
 	log.V(1).Infof("Artifact RPC Get request ID: %+v", artifactID)
-	f, _, err := srv.getArtifactResolver().open(artifactID)
+	f, err := waitForDLDDArtifact(
+		stream.Context(),
+		srv.getArtifactResolver(),
+		artifactID,
+		dlddArtifactWaitTimeout,
+		dlddArtifactPollInterval,
+	)
 	if err != nil {
 		return err
 	}

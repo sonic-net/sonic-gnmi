@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/openconfig/gnoi/healthz"
@@ -109,6 +110,43 @@ func TestHealthzArtifactStreamsCompletedArchive(t *testing.T) {
 	}
 	if stream.responses[len(stream.responses)-1].GetTrailer() == nil {
 		t.Fatal("Artifact() did not terminate with a trailer")
+	}
+}
+
+func TestWaitForDLDDArtifactAllowsAsynchronousCollection(t *testing.T) {
+	resolver := newArtifactTestResolver(t)
+	artifactID := "dldd-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.gz"
+	written := make(chan error, 1)
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		path := resolver.containerPath(filepath.Join(resolver.dlddDirectory, artifactID))
+		written <- os.WriteFile(path, []byte("ready"), 0644)
+	}()
+
+	file, err := waitForDLDDArtifact(
+		context.Background(), resolver, artifactID, time.Second, 5*time.Millisecond,
+	)
+	if err != nil {
+		t.Fatalf("waitForDLDDArtifact() failed: %v", err)
+	}
+	file.Close()
+	if err := <-written; err != nil {
+		t.Fatalf("failed to create asynchronous artifact: %v", err)
+	}
+}
+
+func TestWaitForDLDDArtifactHonorsCancellation(t *testing.T) {
+	resolver := newArtifactTestResolver(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := waitForDLDDArtifact(
+		ctx, resolver, "dldd-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.tar.gz",
+		time.Second, 5*time.Millisecond,
+	)
+	if status.Code(err) != codes.Canceled {
+		t.Fatalf("waitForDLDDArtifact() code = %v, want %v; err=%v",
+			status.Code(err), codes.Canceled, err)
 	}
 }
 
