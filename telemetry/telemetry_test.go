@@ -191,6 +191,76 @@ func TestFlags(t *testing.T) {
 	}
 }
 
+func TestOptionalClientCertificatePolicy(t *testing.T) {
+	tests := []struct {
+		name              string
+		allowNoClientCert bool
+		want              tls.ClientAuthType
+	}{
+		{
+			name:              "client certificate required",
+			allowNoClientCert: false,
+			want:              tls.RequireAndVerifyClientCert,
+		},
+		{
+			name:              "client certificate optional and verified",
+			allowNoClientCert: true,
+			want:              tls.VerifyClientCertIfGiven,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := tlsClientAuthPolicy(test.allowNoClientCert); got != test.want {
+				t.Fatalf("tlsClientAuthPolicy(%t) = %v, want %v", test.allowNoClientCert, got, test.want)
+			}
+		})
+	}
+}
+
+func TestOptionalClientCertificateApplicationAuthModes(t *testing.T) {
+	originalArgs := os.Args
+	t.Cleanup(func() { os.Args = originalArgs })
+
+	tests := []struct {
+		name     string
+		authMode string
+	}{
+		{name: "no application authentication", authMode: "none"},
+		{name: "password authentication", authMode: "password"},
+		{name: "JWT authentication", authMode: "jwt"},
+		{name: "certificate or password authentication", authMode: "cert,password"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fs := flag.NewFlagSet("test", flag.ContinueOnError)
+			os.Args = []string{
+				"cmd", "-port", "8080", "-insecure", "-allow_no_client_auth",
+				"-client_auth", test.authMode, "-ca_crt", "test-ca.pem",
+			}
+
+			telemetryCfg, _, err := setupFlags(fs)
+			if err != nil {
+				t.Fatalf("setupFlags() error = %v", err)
+			}
+
+			if test.authMode == "none" {
+				if telemetryCfg.UserAuth.Any() {
+					t.Fatalf("UserAuth = %v, want no application authentication", telemetryCfg.UserAuth)
+				}
+				return
+			}
+
+			for _, mode := range strings.Split(test.authMode, ",") {
+				if !telemetryCfg.UserAuth.Enabled(mode) {
+					t.Fatalf("UserAuth = %v, want %q enabled", telemetryCfg.UserAuth, mode)
+				}
+			}
+		})
+	}
+}
+
 func TestStartGNMIServer(t *testing.T) {
 	testServerCert := "../testdata/certs/testserver.cert"
 	testServerKey := "../testdata/certs/testserver.key"

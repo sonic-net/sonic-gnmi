@@ -152,6 +152,13 @@ func getGlogFlagsMap() map[string]bool {
 	}
 }
 
+func tlsClientAuthPolicy(allowNoClientCert bool) tls.ClientAuthType {
+	if allowNoClientCert {
+		return tls.VerifyClientCertIfGiven
+	}
+	return tls.RequireAndVerifyClientCert
+}
+
 func parseOSArgs() ([]string, []string) {
 	glogFlags := []string{os.Args[0]}
 	telemetryFlags := []string{os.Args[0]}
@@ -187,7 +194,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		ZmqPort:                  fs.String("zmq_port", "", "Orchagent ZMQ port, when not set or empty string telemetry server will switch to Redis based communication channel."),
 		Insecure:                 fs.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!"),
 		NoTLS:                    fs.Bool("noTLS", false, "disable TLS, for testing only!"),
-		AllowNoClientCert:        fs.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate."),
+		AllowNoClientCert:        fs.Bool("allow_no_client_auth", false, "When set, a client certificate is optional, but a certificate provided by the client must be valid."),
 		JwtRefInt:                fs.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed."),
 		JwtValInt:                fs.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for."),
 		GnmiTranslibWrite:        fs.Bool("gnmi_translib_write", gnmi.ENABLE_TRANSLIB_WRITE, "Enable gNMI translib write for management framework"),
@@ -511,7 +518,7 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			}
 
 			tlsCfg := &tls.Config{
-				ClientAuth:               tls.RequireAndVerifyClientCert,
+				ClientAuth:               tlsClientAuthPolicy(*telemetryCfg.AllowNoClientCert),
 				Certificates:             []tls.Certificate{certificate},
 				MinVersion:               tls.VersionTLS12,
 				SessionTicketsDisabled:   true,
@@ -525,13 +532,6 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 				},
-			}
-
-			if *telemetryCfg.AllowNoClientCert {
-				// RequestClientCert will ask client for a certificate but won't
-				// require it to proceed. If certificate is provided, it will be
-				// verified.
-				tlsCfg.ClientAuth = tls.RequestClientCert
 			}
 
 			if *telemetryCfg.CaCert != "" {
