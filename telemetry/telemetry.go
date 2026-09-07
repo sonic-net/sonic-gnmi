@@ -19,8 +19,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
+	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
 	"github.com/fsnotify/fsnotify"
@@ -81,6 +83,7 @@ type TelemetryConfig struct {
 	EnableStreamMultiplexing *bool
 	MaxRecvMsgSize           *int
 	MaxSendMsgSize           *int
+	PathsBlacklistFile       *string
 }
 
 func main() {
@@ -107,6 +110,9 @@ func runTelemetry(args []string) error {
 	telemetryCfg, cfg, err := setupFlags(fs) // telemetry flags will be populated after second parse
 	if err != nil {
 		return err
+	}
+	if err := common_utils.ValidateSharedMemoryKey(); err != nil {
+		return fmt.Errorf("invalid shared-memory configuration: %w", err)
 	}
 
 	// enable swss-common debug level
@@ -211,6 +217,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		EnableStreamMultiplexing: fs.Bool("enable_stream_multiplexing", false, "Allow multiple Subscribe RPCs on a single TCP connection via HTTP/2 stream multiplexing"),
 		MaxRecvMsgSize:           fs.Int("max_recv_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can receive"),
 		MaxSendMsgSize:           fs.Int("max_send_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can send"),
+		PathsBlacklistFile:       fs.String("paths_blacklist", "", "File with blacklisted gNMI paths, one 'TARGET PATH' entry per line. Requests referencing these paths are rejected. Empty disables the blacklist."),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -331,6 +338,20 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	if *telemetryCfg.CaCert == "" && telemetryCfg.UserAuth.Enabled("cert") {
 		telemetryCfg.UserAuth.Unset("cert")
 		log.V(2).Info("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
+	}
+
+	if *telemetryCfg.PathsBlacklistFile != "" {
+		blacklistFile, err := os.Open(*telemetryCfg.PathsBlacklistFile)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to open paths_blacklist file: %v", err)
+		}
+		blacklist, err := pathblacklist.Parse(blacklistFile)
+		blacklistFile.Close()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse paths_blacklist file %s: %v", *telemetryCfg.PathsBlacklistFile, err)
+		}
+		cfg.PathsBlacklist = blacklist
+		log.V(1).Infof("Loaded %d blacklist entries from %s", blacklist.Len(), *telemetryCfg.PathsBlacklistFile)
 	}
 
 	cfg.AuthzMetaFile = string(*telemetryCfg.AuthzMetaFile)

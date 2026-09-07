@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -19,11 +20,140 @@ import (
 	"github.com/redis/go-redis/v9"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 )
 
 var testFile string = "/etc/sonic/ut.cp.json"
+
+type checkpointService struct {
+	ssc.FakeClient
+	created string
+	deleted string
+}
+
+func (s *checkpointService) CreateCheckPoint(path string) error {
+	s.created = path
+	return nil
+}
+
+func (s *checkpointService) DeleteCheckPoint(path string) error {
+	s.deleted = path
+	return nil
+}
+
+func TestCheckPointPath(t *testing.T) {
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "/tmp/checkpoint")
+	got, err := checkPointPath()
+	if err != nil {
+		t.Fatalf("checkPointPath() error = %v", err)
+	}
+	if got != "/tmp/checkpoint" {
+		t.Fatalf("checkPointPath() = %q, want /tmp/checkpoint", got)
+	}
+
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "")
+	got, err = checkPointPath()
+	if err != nil {
+		t.Fatalf("checkPointPath() error = %v", err)
+	}
+	if got != CHECK_POINT_PATH {
+		t.Fatalf("checkPointPath() = %q, want %q", got, CHECK_POINT_PATH)
+	}
+
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "tmp/checkpoint")
+	if _, err := checkPointPath(); err == nil {
+		t.Fatal("checkPointPath() accepted a relative path")
+	}
+}
+
+func TestCheckpointPathCallers(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", dir)
+	checkpoint := []byte(`{"TEST_TABLE":{"key":{"field":"sentinel"}}}`)
+	if err := os.WriteFile(filepath.Join(dir, "config.cp.json"), checkpoint, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := &checkpointService{}
+	patches := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+		return service, nil
+	})
+	defer patches.Reset()
+	patches.ApplyFunc(sdcfg.CheckDbMultiNamespace, func() (bool, error) {
+		return false, nil
+	})
+
+	client := &MixedDbClient{}
+	if err := client.SetIncrementalConfig(nil, nil, nil); err != nil {
+		t.Fatalf("SetIncrementalConfig() error = %v", err)
+	}
+	wantCheckpoint := filepath.Join(dir, "config")
+	if service.created != wantCheckpoint {
+		t.Fatalf("CreateCheckPoint() path = %q, want %q", service.created, wantCheckpoint)
+	}
+	if service.deleted != wantCheckpoint {
+		t.Fatalf("DeleteCheckPoint() path = %q, want %q", service.deleted, wantCheckpoint)
+	}
+	got, err := client.jClient.Get([]string{"TEST_TABLE", "key", "field"})
+	if err != nil {
+		t.Fatalf("checkpoint read after SetIncrementalConfig() error = %v", err)
+	}
+	if string(got) != `"sentinel"` {
+		t.Fatalf("checkpoint value after SetIncrementalConfig() = %s, want %q", got, "sentinel")
+	}
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{
+		{Name: "CONFIG_DB"},
+		{Name: "localhost"},
+		{Name: "TEST_TABLE"},
+		{Name: "key"},
+		{Name: "field"},
+	}}
+	readClient := &MixedDbClient{paths: []*gnmipb.Path{path}}
+	values, err := readClient.GetCheckPoint()
+	if err != nil {
+		t.Fatalf("GetCheckPoint() error = %v", err)
+	}
+	if len(values) != 1 {
+		t.Fatalf("GetCheckPoint() returned %d values, want 1", len(values))
+	}
+	if got := string(values[0].Val.GetJsonIetfVal()); got != `"sentinel"` {
+		t.Fatalf("GetCheckPoint() value = %s, want %q", got, "sentinel")
+	}
+}
+
+func TestCheckpointPathCallersRejectRelativePath(t *testing.T) {
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "tmp/checkpoint")
+	dbusCalled := false
+	dbConfigCalled := false
+	patches := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+		dbusCalled = true
+		return nil, errors.New("unexpected D-Bus call")
+	})
+	defer patches.Reset()
+	patches.ApplyFunc(sdcfg.CheckDbMultiNamespace, func() (bool, error) {
+		dbConfigCalled = true
+		return false, errors.New("unexpected database-config call")
+	})
+
+	wantErr := `SONIC_GNMI_CHECKPOINT_DIR must be absolute: "tmp/checkpoint"`
+	client := &MixedDbClient{}
+	if err := client.SetIncrementalConfig(nil, nil, nil); err == nil || err.Error() != wantErr {
+		t.Fatalf("SetIncrementalConfig() error = %v, want %q", err, wantErr)
+	}
+	if _, err := client.GetCheckPoint(); err == nil || err.Error() != wantErr {
+		t.Fatalf("GetCheckPoint() error = %v, want %q", err, wantErr)
+	}
+	client.target = "CONFIG_DB"
+	if _, err := client.Get(nil); err == nil || err.Error() != wantErr {
+		t.Fatalf("Get() error = %v, want %q", err, wantErr)
+	}
+	if dbusCalled || dbConfigCalled {
+		t.Fatalf("relative path reached dependencies: D-Bus = %v, database config = %v", dbusCalled, dbConfigCalled)
+	}
+}
 
 func JsonEqual(a, b []byte) (bool, error) {
 	var j1, j2 interface{}
@@ -1709,6 +1839,72 @@ func TestTableData2Msi_SkipsEmptyData(t *testing.T) {
 			t.Errorf("expected Ethernet68 in msi, got %v", msi)
 		}
 	})
+}
+
+func TestTableData2TypedValue_ConfigDBWildcardPreservesTables(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+
+	rclient := Target2RedisDb[""]["CONFIG_DB"]
+	rclient.HSet(context.Background(), "DEVICE_METADATA|localhost", "hostname", "sonic")
+	rclient.HSet(context.Background(), "PORT|Ethernet0", "admin_status", "up", "lanes@", "1,2")
+	rclient.HSet(context.Background(), "NTP_SERVER|10.0.0.1", "NULL", "NULL")
+	rclient.Set(context.Background(), "CONFIG_DB_INITIALIZED", "1", 0)
+
+	tblPath := tablePath{dbNamespace: "", dbName: "CONFIG_DB", tableName: "*", delimitor: "|"}
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "*"}}}
+	client := DbClient{
+		pathG2S:                map[*gnmipb.Path][]tablePath{path: {tblPath}},
+		preserveConfigDBTables: true,
+	}
+	values, err := client.Get(nil)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if len(values) != 1 {
+		t.Fatalf("Get() returned %d values, want 1", len(values))
+	}
+	var got map[string]interface{}
+	if err := json.Unmarshal(values[0].GetVal().GetJsonIetfVal(), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	want := map[string]interface{}{
+		"DEVICE_METADATA": map[string]interface{}{
+			"localhost": map[string]interface{}{"hostname": "sonic"},
+		},
+		"PORT": map[string]interface{}{
+			"Ethernet0": map[string]interface{}{
+				"admin_status": "up",
+				"lanes":        []interface{}{"1", "2"},
+			},
+		},
+		"NTP_SERVER": map[string]interface{}{
+			"10.0.0.1": map[string]interface{}{},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tableData2TypedValue() = %#v, want %#v", got, want)
+	}
+}
+
+func TestDbClientGet_ConfigDBWildcardLegacyBehavior(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+
+	rclient := Target2RedisDb[""]["CONFIG_DB"]
+	rclient.HSet(context.Background(), "PORT|Ethernet0", "admin_status", "up")
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "*"}}}
+	tblPath := tablePath{dbNamespace: "", dbName: "CONFIG_DB", tableName: "*", delimitor: "|"}
+	client := DbClient{pathG2S: map[*gnmipb.Path][]tablePath{path: {tblPath}}}
+	values, err := client.Get(nil)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got := string(values[0].GetVal().GetJsonIetfVal()); got != `{"Ethernet0":{"admin_status":"up"}}` {
+		t.Fatalf("legacy Get() = %s", got)
+	}
 }
 
 func TestSubscribeTableData2TypedValue(t *testing.T) {

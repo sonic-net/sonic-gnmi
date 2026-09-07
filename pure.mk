@@ -7,6 +7,33 @@
 # Go configuration
 GO ?= go
 GOROOT ?= $(shell $(GO) env GOROOT)
+HOST_GOOS = $(shell $(GO) env GOHOSTOS)
+HOST_GOARCH = $(shell $(GO) env GOHOSTARCH)
+HOST_GO_ENV = GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH)
+TOOLS_BIN_DIR := $(abspath build/tools/bin)
+GOTESTSUM := $(TOOLS_BIN_DIR)/gotestsum-v1.12.3
+GOCOV := $(TOOLS_BIN_DIR)/gocov-v1.1.0
+GOCOV_XML := $(TOOLS_BIN_DIR)/gocov-xml-v1.1.0
+GOSEC := $(TOOLS_BIN_DIR)/gosec-v2.28.0
+
+$(TOOLS_BIN_DIR):
+	@mkdir -p $@
+
+$(GOTESTSUM): | $(TOOLS_BIN_DIR)
+	@$(HOST_GO_ENV) GOBIN=$(TOOLS_BIN_DIR) $(GO) install gotest.tools/gotestsum@v1.12.3
+	@mv $(TOOLS_BIN_DIR)/gotestsum $@
+
+$(GOCOV): | $(TOOLS_BIN_DIR)
+	@$(HOST_GO_ENV) GOBIN=$(TOOLS_BIN_DIR) $(GO) install github.com/axw/gocov/gocov@v1.1.0
+	@mv $(TOOLS_BIN_DIR)/gocov $@
+
+$(GOCOV_XML): | $(TOOLS_BIN_DIR)
+	@$(HOST_GO_ENV) GOBIN=$(TOOLS_BIN_DIR) $(GO) install github.com/AlekSi/gocov-xml@v1.1.0
+	@mv $(TOOLS_BIN_DIR)/gocov-xml $@
+
+$(GOSEC): | $(TOOLS_BIN_DIR)
+	@$(HOST_GO_ENV) GOBIN=$(TOOLS_BIN_DIR) $(GO) install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
+	@mv $(TOOLS_BIN_DIR)/gosec $@
 
 # Discover every package under the canonical pure roots. This makes purity a
 # path-based invariant instead of an allowlist that can omit new packages.
@@ -106,29 +133,23 @@ test-coverage: test
 
 # Generate XML coverage report for Azure pipelines
 .PHONY: coverage-xml
-coverage-xml: test
+coverage-xml: test $(GOCOV) $(GOCOV_XML)
 	@echo "Generating XML coverage report for Azure..."
-	@set -e; if command -v gocov >/dev/null 2>&1 && command -v gocov-xml >/dev/null 2>&1; then \
-		echo "Converting coverage to XML format..."; \
-		rm -f coverage-*.out; \
-		for pkg in $(PACKAGES); do \
-			if [ -f $$pkg/coverage.out ]; then \
-				pkgname=$$(echo $$pkg | tr '/' '-'); \
-				cp $$pkg/coverage.out coverage-$$pkgname.out; \
-			fi; \
-		done; \
-		if ls coverage-*.out >/dev/null 2>&1; then \
-			trap 'rm -f coverage-*.out coverage-pure.json' EXIT; \
-			gocov convert coverage-*.out > coverage-pure.json; \
-			gocov-xml -source $(shell pwd) < coverage-pure.json > coverage.xml; \
-			echo "XML coverage report generated: coverage.xml"; \
-		else \
-			echo "No coverage files found"; \
+	@set -e; echo "Converting coverage to XML format..."; \
+	 rm -f coverage-*.out; \
+	 for pkg in $(PACKAGES); do \
+		if [ -f $$pkg/coverage.out ]; then \
+			pkgname=$$(echo $$pkg | tr '/' '-'); \
+			cp $$pkg/coverage.out coverage-$$pkgname.out; \
 		fi; \
-	else \
-		echo "Warning: gocov and gocov-xml not available"; \
-		echo "Install with: go install github.com/axw/gocov/gocov@latest"; \
-		echo "              go install github.com/AlekSi/gocov-xml@latest"; \
+	 done; \
+	 if ls coverage-*.out >/dev/null 2>&1; then \
+		trap 'rm -f coverage-*.out coverage-pure.json' EXIT; \
+		$(GOCOV) convert coverage-*.out > coverage-pure.json; \
+		$(GOCOV_XML) -source $(shell pwd) < coverage-pure.json > coverage.xml; \
+		echo "XML coverage report generated: coverage.xml"; \
+	 else \
+		echo "No coverage files found"; \
 	fi
 
 # Build test - ensure the package builds
@@ -166,19 +187,14 @@ mod-verify:
 		echo "Go modules are clean"; \
 	fi
 
-# Security scan using gosec if available
+# Security scan using the pinned gosec tool
 .PHONY: security
-security:
+security: $(GOSEC)
 	@echo "Running security scan on pure packages..."
-	@set -e; if command -v gosec >/dev/null 2>&1; then \
-		for pkg in $(PACKAGES); do \
-			echo "Scanning $$pkg..."; \
-			(cd $$pkg && gosec .); \
-		done; \
-	else \
-		echo "gosec not available, skipping security scan"; \
-		echo "Install with: go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest"; \
-	fi
+	@set -e; for pkg in $(PACKAGES); do \
+		echo "Scanning $$pkg..."; \
+		(cd $$pkg && $(GOSEC) .); \
+	done
 
 # List vanilla packages
 .PHONY: list-packages
@@ -220,30 +236,18 @@ ci: clean lint build-test test
 # This target is kept for local testing convenience
 .PHONY: junit-xml
 junit-xml: clean
-	@echo "Installing gotestsum for JUnit XML generation..."
-	@if ! command -v gotestsum >/dev/null 2>&1; then \
-		$(GO) install gotest.tools/gotestsum@v1.11.0; \
-	fi
-	@echo "Installing gocov tools for coverage conversion..."
-	@if ! command -v gocov >/dev/null 2>&1; then \
-		$(GO) install github.com/axw/gocov/gocov@v1.1.0; \
-	fi
-	@if ! command -v gocov-xml >/dev/null 2>&1; then \
-		$(GO) install github.com/AlekSi/gocov-xml@v1.1.0; \
-	fi
+	@$(MAKE) -f pure.mk $(GOTESTSUM) $(GOCOV) $(GOCOV_XML)
 	@echo "Running pure package tests with JUnit XML output..."
 	@mkdir -p test-results
-	@export PATH=$(PATH):$(shell $(GO) env GOPATH)/bin && \
-	gotestsum --junitfile test-results/junit-pure.xml \
+	@$(GOTESTSUM) --junitfile test-results/junit-pure.xml \
 		--format testname \
 		-- -gcflags="all=-N -l" -v -race \
 		-coverprofile=test-results/coverage-pure.txt \
 		-covermode=atomic \
 		$(addprefix ./,$(PACKAGES))
 	@echo "Converting coverage to Cobertura XML format..."
-	@export PATH=$(PATH):$(shell $(GO) env GOPATH)/bin && \
-	if [ -f test-results/coverage-pure.txt ]; then \
-		gocov convert test-results/coverage-pure.txt | gocov-xml -source $(shell pwd) > test-results/coverage-pure.xml; \
+	@if [ -f test-results/coverage-pure.txt ]; then \
+		$(GOCOV) convert test-results/coverage-pure.txt | $(GOCOV_XML) -source $(shell pwd) > test-results/coverage-pure.xml; \
 		echo "Coverage XML generated: test-results/coverage-pure.xml"; \
 	fi
 	@echo ""
@@ -287,7 +291,7 @@ help:
 	@echo "  lint             - Run linting checks"
 	@echo "  build-test       - Test package builds"
 	@echo "  bench            - Run benchmarks"
-	@echo "  security         - Run security scan (requires gosec)"
+	@echo "  security         - Run security scan"
 	@echo "  mod-verify       - Verify go modules"
 	@echo "  list-packages    - List pure packages"
 	@echo "  clean            - Clean build artifacts"
