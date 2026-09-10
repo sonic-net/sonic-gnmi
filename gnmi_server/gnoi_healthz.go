@@ -102,8 +102,7 @@ func (srv *HealthzServer) getDebugData(ctx context.Context, p *types.Path) (*hea
 
 	log.V(2).Infof("Healthz host artifact path: %q", s)
 
-	// Reuse the Artifact RPC resolver for legacy debug artifacts. This keeps
-	// path containment and symlink handling identical across both Healthz APIs.
+	// Apply the shared artifact containment checks.
 	f, filePath, err := srv.getArtifactResolver().openLegacy(s)
 	if err != nil {
 		return nil, err
@@ -142,9 +141,7 @@ func (srv *HealthzServer) Get(ctx context.Context, req *healthz.GetRequest) (*he
 	path := req.GetPath()
 	log.V(1).Infof("Healthz.Get request path: %+v", path.GetElem())
 	if isDebugData(path) {
-		// The legacy Get implementation starts a new collection over D-Bus. It is
-		// not a read of an existing DLDD artifact and must respect the server's
-		// global write/mutation policy.
+		// Starting a new debug collection requires write access.
 		if !writeEnabled(srv.config) {
 			return nil, healthzReadOnlyError()
 		}
@@ -169,10 +166,7 @@ func (srv *HealthzServer) Acknowledge(ctx context.Context, req *healthz.Acknowle
 		return nil, healthzReadOnlyError()
 	}
 
-	// Acknowledge is the destructive half of the legacy debug-artifact API.
-	// Resolve and pin the artifact through os.Root before forwarding its ID to
-	// the host service. The host service repeats this validation at deletion
-	// time, which closes the container/host validation gap.
+	// Pin the validated path before the host service deletes the artifact.
 	artifact, _, err := srv.getArtifactResolver().openLegacy(req.GetId())
 	if err != nil {
 		return nil, err

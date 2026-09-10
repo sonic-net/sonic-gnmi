@@ -11,17 +11,14 @@ import (
 )
 
 const (
-	// The gNMI container mounts the host filesystem read-only at /mnt/host.
-	// DLDD owns artifact creation and lifecycle under dlddArtifactDirectory;
-	// Healthz only resolves and streams artifacts from that directory.
+	// Healthz reads host artifacts through the read-only mount.
 	hostFilesystemMount     string = "/mnt/host"
 	legacyArtifactDirectory string = "/tmp/dump"
 	dlddArtifactDirectory   string = "/var/lib/sonic/dldd/artifacts"
 )
 
 var (
-	// DLDD is the only producer for relative IDs. Restricting them to its exact
-	// generated form keeps private sibling state manifests out of Artifact RPCs.
+	// Relative IDs expose only DLDD-generated archives.
 	opaqueArtifactIDPattern = regexp.MustCompile(`^dldd-[0-9a-f]{32}\.tar\.gz$`)
 	defaultArtifactResolver = artifactPathResolver{
 		hostMount:       hostFilesystemMount,
@@ -36,9 +33,7 @@ type artifactPathResolver struct {
 	dlddDirectory   string
 }
 
-// openLegacy opens an absolute artifact ID beneath the legacy debug dump
-// directory. Acknowledge must never accept opaque DLDD IDs: those artifacts
-// have a separate lifecycle and are not removed through the legacy D-Bus API.
+// openLegacy opens an absolute debug artifact and excludes DLDD IDs.
 func (r artifactPathResolver) openLegacy(artifactID string) (*os.File, string, error) {
 	if !filepath.IsAbs(artifactID) {
 		return nil, "", status.Error(codes.InvalidArgument, "legacy artifact ID must be an absolute path")
@@ -51,9 +46,7 @@ func (r artifactPathResolver) openLegacy(artifactID string) (*os.File, string, e
 	return r.open(artifactID)
 }
 
-// open resolves and opens an artifact beneath an os.Root. The preliminary
-// resolve rejects symbolic links for clear API errors; os.Root provides the
-// race-resistant containment guarantee between validation and open.
+// open validates containment and pins the artifact beneath an os.Root.
 func (r artifactPathResolver) open(artifactID string) (*os.File, string, error) {
 	containerPath, err := r.resolve(artifactID)
 	if err != nil {
