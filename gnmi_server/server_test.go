@@ -607,7 +607,7 @@ func runTestSet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTa
 }
 
 func runTestSetRaw(t *testing.T, ctx context.Context, gClient pb.GNMIClient, req *pb.SetRequest,
-	wantRetCode codes.Code) {
+	wantRetCode codes.Code, wantMsgSubstrs ...string) {
 	t.Helper()
 
 	_, err := gClient.Set(ctx, req)
@@ -618,7 +618,11 @@ func runTestSetRaw(t *testing.T, ctx context.Context, gClient pb.GNMIClient, req
 	if gotRetStatus.Code() != wantRetCode {
 		t.Log("err: ", err)
 		t.Fatalf("got return code %v, want %v", gotRetStatus.Code(), wantRetCode)
-	} else {
+	}
+	for _, substr := range wantMsgSubstrs {
+		if !strings.Contains(gotRetStatus.Message(), substr) {
+			t.Errorf("status message %q does not contain %q", gotRetStatus.Message(), substr)
+		}
 	}
 }
 
@@ -1729,6 +1733,16 @@ func TestGnmiSet(t *testing.T) {
 			})
 		}
 	}
+
+	t.Run("Invalid path error includes node name", func(t *testing.T) {
+		invalidPath, _ := ygot.StringToStructuredPath(
+			"/openconfig-interfaces:interfaces/interface[name=Ethernet4]/unknown")
+		req := &pb.SetRequest{
+			Delete: []*pb.Path{invalidPath},
+		}
+		runTestSetRaw(t, ctx, gClient, req, codes.Unknown, "unknown", "not found")
+	})
+
 	s.Stop()
 }
 
