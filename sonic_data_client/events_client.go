@@ -87,7 +87,9 @@ type EventClient struct {
 
 func Set_heartbeat(val int) {
 	s := fmt.Sprintf("{\"HEARTBEAT_INTERVAL\":%d}", val)
-	rc := C.event_set_global_options(C.CString(s))
+	cs := C.CString(s)
+	defer C.free(unsafe.Pointer(cs))
+	rc := C.event_set_global_options(cs)
 	if rc != 0 {
 		log.V(4).Infof("Failed to set heartbeat val=%d rc=%d", val, rc)
 	}
@@ -243,6 +245,7 @@ func update_stats(evtc *EventClient) {
 			DB:          dbId,
 			DialTimeout: 0,
 		})
+		defer rclient.Close()
 
 		// Init current values for cumulative keys and clear for absolute
 		for _, key := range STATS_CUMULATIVE_KEYS {
