@@ -7583,3 +7583,378 @@ func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
 		t.Error("Serve() did not return after Stop()")
 	}
 }
+
+func getFreePort(t *testing.T) int64 {
+	t.Helper()
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("failed to resolve tcp addr: %v", err)
+	}
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatalf("failed to listen on free port: %v", err)
+	}
+	defer l.Close()
+	return int64(l.Addr().(*net.TCPAddr).Port)
+}
+
+func TestGnmiGetOpenconfigInterfacesAttributes(t *testing.T) {
+	// 1. Define all structures locally inside the test function
+	type OperStatusResp struct {
+		OperStatus string `json:"openconfig-interfaces:oper-status"`
+	}
+
+	type IfindexResp struct {
+		Ifindex uint32 `json:"openconfig-interfaces:ifindex"`
+	}
+
+	type MtuResp struct {
+		Mtu uint16 `json:"openconfig-interfaces:mtu"`
+	}
+
+	type DescriptionResp struct {
+		Description string `json:"openconfig-interfaces:description"`
+	}
+
+	type MacAddressResp struct {
+		MacAddress string `json:"openconfig-if-ethernet:mac-address"`
+	}
+
+	type CpuResp struct {
+		Cpu bool `json:"openconfig-interfaces:cpu"`
+	}
+
+	type ManagementResp struct {
+		Management bool `json:"openconfig-interfaces:management"`
+	}
+
+	type EnabledResp struct {
+		Enabled bool `json:"openconfig-interfaces:enabled"`
+	}
+
+	type SubIntfV4CountersResp struct {
+		Counters struct {
+			InPkts  string `json:"in-pkts"`
+			OutPkts string `json:"out-pkts"`
+		} `json:"openconfig-if-ip:counters"`
+	}
+
+	type SubIntfV6CountersResp struct {
+		Counters struct {
+			InPkts           string `json:"in-pkts"`
+			OutPkts          string `json:"out-pkts"`
+			InDiscardedPkts  string `json:"in-discarded-pkts"`
+			OutDiscardedPkts string `json:"out-discarded-pkts"`
+		} `json:"openconfig-if-ip:counters"`
+	}
+
+	// Server/DB setup
+	freePort := getFreePort(t)
+	s := createServer(t, freePort)
+	go runServer(t, s)
+	defer s.Stop()
+	prepareDbTranslib(t)
+	ctx := context.Background()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+
+	// Setup CONFIG_DB
+	configDbId, _ := sdcfg.GetDbId("CONFIG_DB", ns)
+	configClient := getRedisClientN(t, configDbId, ns)
+	defer configClient.Close()
+	if err := configClient.HSet(ctx, "PORT|Ethernet999", map[string]interface{}{"admin_status": "up", "mtu": "9000", "description": "UT_Ethernet999_Interface", "mac-address": "00:11:22:33:44:55"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet999: %v", err)
+	}
+	if err := configClient.HSet(ctx, "PORT|Ethernet998", map[string]interface{}{"admin_status": "up", "mtu": "1500", "description": "UT_Ethernet998_Interface"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet998: %v", err)
+	}
+	if err := configClient.HSet(ctx, "PORT|Ethernet997", map[string]interface{}{"admin_status": "up"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet997: %v", err)
+	}
+	if err := configClient.HSet(ctx, "PORTCHANNEL|PortChannel999", map[string]interface{}{"admin_status": "up", "mtu": "9000"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORTCHANNEL|PortChannel999: %v", err)
+	}
+	if err := configClient.HSet(ctx, "CPU_PORT|CPU", map[string]interface{}{"admin_status": "up"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet CPU_PORT|CPU: %v", err)
+	}
+	if err := configClient.HSet(ctx, "DEVICE_METADATA|localhost", map[string]interface{}{"mac": "AA:BB:CC:DD:EE:FF"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet DEVICE_METADATA|localhost: %v", err)
+	}
+	if err := configClient.HSet(ctx, "P4RT_PORT_ID_TABLE|Ethernet999", map[string]interface{}{"id": "100999"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet P4RT_PORT_ID_TABLE|Ethernet999: %v", err)
+	}
+
+	// Setup APPL_DB
+	applDbId, _ := sdcfg.GetDbId("APPL_DB", ns)
+	applClient := getRedisClientN(t, applDbId, ns)
+	defer applClient.Close()
+	if err := applClient.HSet(ctx, "PORT_TABLE:Ethernet999", map[string]interface{}{"admin_status": "up", "oper_status": "up", "mtu": "9000", "description": "UT_Ethernet999_Interface", "mac-address": "00:11:22:33:44:55"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT_TABLE:Ethernet999: %v", err)
+	}
+	if err := applClient.HSet(ctx, "PORT_TABLE:Ethernet998", map[string]interface{}{"admin_status": "up", "oper_status": "down", "mtu": "1500", "description": "UT_Ethernet998_Interface"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT_TABLE:Ethernet998: %v", err)
+	}
+	if err := applClient.HSet(ctx, "PORT_TABLE:Ethernet997", map[string]interface{}{"admin_status": "up", "oper_status": "invalid_status"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT_TABLE:Ethernet997: %v", err)
+	}
+	if err := applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet999", map[string]interface{}{"id": "100999"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet P4RT_PORT_ID_TABLE:Ethernet999: %v", err)
+	}
+
+	// Setup STATE_DB
+	stateDbId, _ := sdcfg.GetDbId("STATE_DB", ns)
+	stateClient := getRedisClientN(t, stateDbId, ns)
+	defer stateClient.Close()
+	if err := stateClient.HSet(ctx, "LAG_MEMBER_TABLE|PortChannel999|Ethernet998", map[string]interface{}{"status": "up"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet LAG_MEMBER_TABLE Ethernet998: %v", err)
+	}
+	if err := stateClient.HSet(ctx, "LAG_MEMBER_TABLE|PortChannel999|Ethernet999", map[string]interface{}{"status": "up"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet LAG_MEMBER_TABLE Ethernet999: %v", err)
+	}
+
+	// Setup COUNTERS_DB
+	countersDbId, _ := sdcfg.GetDbId("COUNTERS_DB", ns)
+	countersClient := getRedisClientN(t, countersDbId, ns)
+	defer countersClient.Close()
+	if err := countersClient.HSet(ctx, "COUNTERS:oid:0x1000000000001", map[string]interface{}{
+		"SAI_PORT_STAT_IP_IN_RECEIVES":          "100",
+		"SAI_PORT_STAT_IP_OUT_UCAST_PKTS":       "150",
+		"SAI_PORT_STAT_IP_OUT_NON_UCAST_PKTS":   "50",
+		"SAI_PORT_STAT_IPV6_IN_RECEIVES":        "200",
+		"SAI_PORT_STAT_IPV6_OUT_UCAST_PKTS":     "250",
+		"SAI_PORT_STAT_IPV6_OUT_NON_UCAST_PKTS": "50",
+		"SAI_PORT_STAT_IPV6_IN_DISCARDS":        "10",
+		"SAI_PORT_STAT_IPV6_OUT_DISCARDS":       "20",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS:oid:0x1000000000001: %v", err)
+	}
+	if err := countersClient.HSet(ctx, "COUNTERS:oid:0x1000000000002", map[string]interface{}{
+		"SAI_PORT_STAT_IP_IN_RECEIVES":          "300",
+		"SAI_PORT_STAT_IP_OUT_UCAST_PKTS":       "350",
+		"SAI_PORT_STAT_IP_OUT_NON_UCAST_PKTS":   "50",
+		"SAI_PORT_STAT_IPV6_IN_RECEIVES":        "400",
+		"SAI_PORT_STAT_IPV6_OUT_UCAST_PKTS":     "450",
+		"SAI_PORT_STAT_IPV6_OUT_NON_UCAST_PKTS": "50",
+		"SAI_PORT_STAT_IPV6_IN_DISCARDS":        "30",
+		"SAI_PORT_STAT_IPV6_OUT_DISCARDS":       "40",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS:oid:0x1000000000002: %v", err)
+	}
+	if err := countersClient.HSet(ctx, "COUNTERS_PORT_NAME_MAP", "Ethernet998", "oid:0x1000000000001").Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS_PORT_NAME_MAP for Ethernet998: %v", err)
+	}
+	if err := countersClient.HSet(ctx, "COUNTERS_PORT_NAME_MAP", "Ethernet999", "oid:0x1000000000002").Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS_PORT_NAME_MAP for Ethernet999: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		configClient.Del(cleanupCtx, "PORT|Ethernet999", "PORT|Ethernet998", "PORT|Ethernet997", "PORTCHANNEL|PortChannel999", "CPU_PORT|CPU", "DEVICE_METADATA|localhost", "P4RT_PORT_ID_TABLE|Ethernet999")
+		applClient.Del(cleanupCtx, "PORT_TABLE:Ethernet999", "PORT_TABLE:Ethernet998", "PORT_TABLE:Ethernet997", "P4RT_PORT_ID_TABLE:Ethernet999")
+		stateClient.Del(cleanupCtx, "LAG_MEMBER_TABLE|PortChannel999|Ethernet998", "LAG_MEMBER_TABLE|PortChannel999|Ethernet999")
+		countersClient.Del(cleanupCtx, "COUNTERS:oid:0x1000000000001", "COUNTERS:oid:0x1000000000002")
+		countersClient.HDel(cleanupCtx, "COUNTERS_PORT_NAME_MAP", "Ethernet998", "Ethernet999")
+	})
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	// Helper to marshal locally defined structs to []byte for runTestGet
+	marshal := func(v interface{}) []byte {
+		b, _ := json.Marshal(v)
+		return b
+	}
+
+	// 2. Prepare Data to match expected output
+	operUpVal := OperStatusResp{OperStatus: "UP"}
+	operDownVal := OperStatusResp{OperStatus: "DOWN"}
+	operUnknownVal := OperStatusResp{OperStatus: "UNKNOWN"}
+
+	enabledVal := EnabledResp{Enabled: true}
+	mtuVal := MtuResp{Mtu: 9000}
+	descVal := DescriptionResp{Description: "UT_Ethernet999_Interface"}
+
+	macVal := MacAddressResp{MacAddress: "00:11:22:33:44:55"}
+	macFallbackVal := MacAddressResp{MacAddress: "AA:BB:CC:DD:EE:FF"}
+
+	cpuVal := CpuResp{Cpu: true}
+	mgmtVal := ManagementResp{Management: false}
+	ifindexVal := IfindexResp{Ifindex: 100999}
+
+	var v4Counters SubIntfV4CountersResp
+	v4Counters.Counters.InPkts = "400"
+	v4Counters.Counters.OutPkts = "600"
+
+	var v6Counters SubIntfV6CountersResp
+	v6Counters.Counters.InPkts = "600"
+	v6Counters.Counters.OutPkts = "800"
+	v6Counters.Counters.InDiscardedPkts = "40"
+	v6Counters.Counters.OutDiscardedPkts = "60"
+
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		{
+			desc:        "Get Oper Status (UP)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet999" > > elem: <name: "state" > elem: <name: "oper-status" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(operUpVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get Oper Status (DOWN)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet998" > > elem: <name: "state" > elem: <name: "oper-status" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(operDownVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get Oper Status (UNKNOWN)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet997" > > elem: <name: "state" > elem: <name: "oper-status" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(operUnknownVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get Oper Status on CPU interface (Always UP)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"CPU" > > elem: <name: "state" > elem: <name: "oper-status" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(operUpVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get Config Enabled",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet999" > > elem: <name: "config" > elem: <name: "enabled" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(enabledVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get State MTU",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet999" > > elem: <name: "state" > elem: <name: "mtu" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(mtuVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get State Description",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet999" > > elem: <name: "state" > elem: <name: "description" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(descVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get Ethernet MAC Address (Explicit Value)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet999" > > elem: <name: "openconfig-if-ethernet:ethernet" > elem: <name: "state" > elem: <name: "mac-address" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(macVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get Ethernet MAC Address (Fallback to DEVICE_METADATA)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet998" > > elem: <name: "openconfig-if-ethernet:ethernet" > elem: <name: "state" > elem: <name: "mac-address" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(macFallbackVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get CPU Leaf for CPU interface",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"CPU" > > elem: <name: "state" > elem: <name: "cpu" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(cpuVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get Management Leaf for CPU interface",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"CPU" > > elem: <name: "state" > elem: <name: "management" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(mgmtVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get State Ifindex",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet999" > > elem: <name: "state" > elem: <name: "ifindex" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(ifindexVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get Subinterface IPv4 State Counters (PortChannel Aggregate)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"PortChannel999" > > elem: <name: "subinterfaces" > elem: <name: "subinterface" key:<key:"index" value:"0" > > elem: <name: "openconfig-if-ip:ipv4" > elem: <name: "state" > elem: <name: "counters" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(v4Counters),
+			valTest:     true,
+		},
+		{
+			desc:        "Get Subinterface IPv6 State Counters (PortChannel Aggregate)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"PortChannel999" > > elem: <name: "subinterfaces" > elem: <name: "subinterface" key:<key:"index" value:"0" > > elem: <name: "openconfig-if-ip:ipv6" > elem: <name: "state" > elem: <name: "counters" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(v6Counters),
+			valTest:     true,
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			path := new(pb.Path)
+			if err := proto.UnmarshalText(td.textPbPath, path); err == nil {
+				path.Target = td.pathTarget
+				req := &pb.GetRequest{
+					Path:     []*pb.Path{path},
+					Encoding: pb.Encoding_JSON_IETF,
+				}
+				if resp, err := gClient.Get(ctx, req); err == nil {
+					printed := false
+					for _, notification := range resp.GetNotification() {
+						for _, update := range notification.GetUpdate() {
+							val := update.GetVal()
+							if val != nil && val.GetJsonIetfVal() != nil {
+								var rawJson interface{}
+								if err := json.Unmarshal(val.GetJsonIetfVal(), &rawJson); err == nil {
+									prettyJson, err := json.MarshalIndent(rawJson, "    ", "  ")
+									if err == nil {
+										t.Logf("[%s/%s] gotVal:\n    %s", t.Name(), td.desc, string(prettyJson))
+										printed = true
+									}
+								}
+							}
+						}
+					}
+					if !printed {
+						t.Logf("[%s/%s] gotVal:\n    {}", t.Name(), td.desc)
+					}
+				}
+			}
+
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+}
