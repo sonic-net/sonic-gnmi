@@ -1362,9 +1362,10 @@ func prepareDbTranslib(t *testing.T) {
 
 // subscriptionQuery represent the input to create an gnmi.Subscription instance.
 type subscriptionQuery struct {
-	Query          []string
-	SubMode        pb.SubscriptionMode
-	SampleInterval uint64
+	Query             []string
+	SubMode           pb.SubscriptionMode
+	SampleInterval    uint64
+	SuppressRedundant bool
 }
 
 func pathToString(q client.Path) string {
@@ -1379,28 +1380,26 @@ func pathToString(q client.Path) string {
 }
 
 // createQuery creates a client.Query with the given args. It assigns query.SubReq.
-func createQuery(subListMode pb.SubscriptionList_Mode, target string, queries []subscriptionQuery, updatesOnly bool) (*client.Query, error) {
+func createQuery(subListMode pb.SubscriptionList_Mode, target string, queries []subscriptionQuery) (*client.Query, error) {
 	s := &pb.SubscribeRequest_Subscribe{
 		Subscribe: &pb.SubscriptionList{
 			Mode:   subListMode,
 			Prefix: &pb.Path{Target: target},
 		},
 	}
-	if updatesOnly {
-		s.Subscribe.UpdatesOnly = true
-	}
 
 	for _, qq := range queries {
 		pp, err := ygot.StringToPath(pathToString(qq.Query), ygot.StructuredPath, ygot.StringSlicePath)
 		if err != nil {
-			return nil, fmt.Errorf("invalid query path %q: %v", qq, err)
+			return nil, fmt.Errorf("invalid query path %q: %v", qq.Query, err)
 		}
 		s.Subscribe.Subscription = append(
 			s.Subscribe.Subscription,
 			&pb.Subscription{
-				Path:           pp,
-				Mode:           qq.SubMode,
-				SampleInterval: qq.SampleInterval,
+				Path:              pp,
+				Mode:              qq.SubMode,
+				SampleInterval:    qq.SampleInterval,
+				SuppressRedundant: qq.SuppressRedundant,
 			})
 	}
 
@@ -1411,8 +1410,8 @@ func createQuery(subListMode pb.SubscriptionList_Mode, target string, queries []
 }
 
 // createQueryOrFail creates a query, in case of a failure it fails the test.
-func createQueryOrFail(t *testing.T, subListMode pb.SubscriptionList_Mode, target string, queries []subscriptionQuery, updatesOnly bool) client.Query {
-	q, err := createQuery(subListMode, target, queries, updatesOnly)
+func createQueryOrFail(t *testing.T, subListMode pb.SubscriptionList_Mode, target string, queries []subscriptionQuery) client.Query {
+	q, err := createQuery(subListMode, target, queries)
 	if err != nil {
 		t.Fatalf("failed to create query: %v", err)
 	}
@@ -1430,8 +1429,7 @@ func createEventsQuery(t *testing.T, paths ...string) client.Query {
 				Query:   paths,
 				SubMode: pb.SubscriptionMode_ON_CHANGE,
 			},
-		},
-		false)
+		})
 }
 
 func createStateDbQueryOnChangeMode(t *testing.T, paths ...string) client.Query {
@@ -1443,8 +1441,7 @@ func createStateDbQueryOnChangeMode(t *testing.T, paths ...string) client.Query 
 				Query:   paths,
 				SubMode: pb.SubscriptionMode_ON_CHANGE,
 			},
-		},
-		false)
+		})
 }
 
 // createCountersDbQueryOnChangeMode creates a query with ON_CHANGE mode.
@@ -1457,8 +1454,7 @@ func createCountersDbQueryOnChangeMode(t *testing.T, paths ...string) client.Que
 				Query:   paths,
 				SubMode: pb.SubscriptionMode_ON_CHANGE,
 			},
-		},
-		false)
+		})
 }
 
 // createRatesTableSetUpdate creates a HSET request on the RATES table.
@@ -1474,18 +1470,24 @@ func createRatesTableSetUpdate(tableKey string, fieldName string, fieldValue str
 }
 
 // createCountersDbQuerySampleMode creates a query with SAMPLE mode.
-func createCountersDbQuerySampleMode(t *testing.T, interval time.Duration, updateOnly bool, paths ...string) client.Query {
+func createCountersDbQuerySampleMode(t *testing.T, interval time.Duration, suppressRedundant bool, paths ...string) client.Query {
 	return createQueryOrFail(t,
 		pb.SubscriptionList_STREAM,
 		"COUNTERS_DB",
 		[]subscriptionQuery{
 			{
-				Query:          paths,
-				SubMode:        pb.SubscriptionMode_SAMPLE,
-				SampleInterval: uint64(interval.Nanoseconds()),
+				Query:             paths,
+				SubMode:           pb.SubscriptionMode_SAMPLE,
+				SampleInterval:    uint64(interval.Nanoseconds()),
+				SuppressRedundant: suppressRedundant,
 			},
-		},
-		updateOnly)
+		})
+}
+
+// withUpdatesOnly sets the SubscriptionList-level updates_only flag on the query.
+func withUpdatesOnly(q client.Query) client.Query {
+	q.SubReq.GetSubscribe().UpdatesOnly = true
+	return q
 }
 
 // createCountersTableSetUpdate creates a HSET request on the COUNTERS table.
@@ -3928,7 +3930,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
-			desc:              "(updates only) sample stream query for table key Ethernet* with new test_field field on Ethernet68",
+			desc:              "(suppress_redundant) sample stream query for table key Ethernet* with new test_field field on Ethernet68",
 			q:                 createCountersDbQuerySampleMode(t, 0, true, "COUNTERS", "Ethernet*"),
 			generateIntervals: true,
 			updates: []tablePathValue{
@@ -3943,6 +3945,27 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}}, //empty update
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEtherneWildcardJsonUpdate},
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}}, //empty update
+			},
+		},
+		{
+			// updates_only must not trigger suppression; the full payload is sent
+			// on every interval. (Skip-initial-sync updates_only semantics are not
+			// implemented for this client.)
+			desc:              "(updates_only) sample stream query for table key Ethernet* sends full payload every interval",
+			q:                 withUpdatesOnly(createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet*")),
+			generateIntervals: true,
+			updates: []tablePathValue{
+				createIntervalTickerUpdate(), // no value change but imitate interval ticker
+				createCountersTableSetUpdate("oid:0x1000000000039", "test_field", "test_value"),
+				createIntervalTickerUpdate(),
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardJson}, //full payload, not suppressed
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersEthernetWildcardJson, countersEtherneWildcardJsonUpdate)},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*"}, TS: time.Unix(0, 200), Val: mergeStrMaps(countersEthernetWildcardJson, countersEtherneWildcardJsonUpdate)}, //full payload again
 			},
 		},
 		/*
@@ -3979,6 +4002,27 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
+			// Exercises the dbFieldMultiSubscribe path (field across multiple tables)
+			// with suppress_redundant: a change produces an update containing only
+			// the changed leaf, an unchanged interval produces an empty update.
+			// Note: this path re-reads the field from redis on each tick, so a
+			// no-change tick placed before the HSET entry would race with it.
+			desc:              "(suppress_redundant) sample stream query for table field Ethernet*/SAI_PORT_STAT_PFC_7_RX_PKTS with field value update",
+			q:                 createCountersDbQuerySampleMode(t, 0, true, "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"),
+			generateIntervals: true,
+			updates: []tablePathValue{
+				createCountersTableSetUpdate("oid:0x1000000000039", "SAI_PORT_STAT_PFC_7_RX_PKTS", "4"),
+				createIntervalTickerUpdate(), // no value change but imitate interval ticker
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: countersEthernetWildcardPfcJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: singlePortPfcJsonUpdate},  //only the changed leaf
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "SAI_PORT_STAT_PFC_7_RX_PKTS"}, TS: time.Unix(0, 200), Val: map[string]interface{}{}}, //empty update
+			},
+		},
+		{
 			desc:              "sample stream query for table key Ethernet*/Pfcwd with field value update",
 			generateIntervals: true,
 			q:                 createCountersDbQuerySampleMode(t, 0, false, "COUNTERS", "Ethernet*", "Pfcwd"),
@@ -3993,7 +4037,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			},
 		},
 		{
-			desc:              "(update only) sample stream query for table key Ethernet*/Pfcwd with field value update",
+			desc:              "(suppress_redundant) sample stream query for table key Ethernet*/Pfcwd with field value update",
 			generateIntervals: true,
 			q:                 createCountersDbQuerySampleMode(t, 0, true, "COUNTERS", "Ethernet*", "Pfcwd"),
 			updates: []tablePathValue{

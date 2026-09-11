@@ -1953,7 +1953,7 @@ func (c *MixedDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w 
 			if subMode == gnmipb.SubscriptionMode_SAMPLE {
 				c.w.Add(1)      // wait group to indicate the streaming session is complete.
 				c.synced.Add(1) // wait group to indicate whether sync_response is sent.
-				go c.streamSampleSubscription(sub, subscribe.GetUpdatesOnly())
+				go c.streamSampleSubscription(sub)
 			} else if subMode == gnmipb.SubscriptionMode_ON_CHANGE {
 				c.w.Add(1)
 				c.synced.Add(1)
@@ -1996,13 +1996,13 @@ func (c *MixedDbClient) streamOnChangeSubscription(gnmiPath *gnmipb.Path) {
 	if tblPaths[0].field != "" {
 		go c.dbFieldSubscribe(gnmiPath, true, time.Millisecond*200)
 	} else {
-		// sample interval and update only parameters are not applicable
+		// sample interval and suppress redundant parameters are not applicable
 		go c.dbTableKeySubscribe(gnmiPath, 0, true)
 	}
 }
 
 // streamSampleSubscription implements Subscription "SAMPLE STREAM" mode
-func (c *MixedDbClient) streamSampleSubscription(sub *gnmipb.Subscription, updateOnly bool) {
+func (c *MixedDbClient) streamSampleSubscription(sub *gnmipb.Subscription) {
 	samplingInterval, err := validateSampleInterval(sub)
 	if err != nil {
 		putFatalMsg(c.q, err.Error())
@@ -2023,7 +2023,7 @@ func (c *MixedDbClient) streamSampleSubscription(sub *gnmipb.Subscription, updat
 	if tblPaths[0].field != "" {
 		c.dbFieldSubscribe(gnmiPath, false, samplingInterval)
 	} else {
-		c.dbTableKeySubscribe(gnmiPath, samplingInterval, updateOnly)
+		c.dbTableKeySubscribe(gnmiPath, samplingInterval, sub.GetSuppressRedundant())
 	}
 }
 
@@ -2211,7 +2211,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 // dbTableKeySubscribe subscribes to tables using a table keys.
 // Handles queries like "COUNTERS/Ethernet0" or "COUNTERS/Ethernet*"
 // This function handles both ON_CHANGE and SAMPLE modes. "interval" being 0 is interpreted as ON_CHANGE mode.
-func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time.Duration, updateOnly bool) {
+func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time.Duration, suppressRedundant bool) {
 	defer c.w.Done()
 
 	msiAll := make(map[string]interface{})
@@ -2328,7 +2328,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 	signalSync()
 
 	// Clear the payload so that next time it will send only updates
-	if updateOnly {
+	if suppressRedundant {
 		msiAll = make(map[string]interface{})
 	}
 
@@ -2370,7 +2370,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 			}
 
 			// Clear the payload so that next time it will send only updates
-			if updateOnly {
+			if suppressRedundant {
 				msiAll = make(map[string]interface{})
 				log.V(6).Infof("msiAll cleared: %v", len(msiAll))
 			}
