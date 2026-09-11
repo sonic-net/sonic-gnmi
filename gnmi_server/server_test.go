@@ -486,6 +486,291 @@ func TestGnmiGetInterfaceCountersVPath(t *testing.T) {
 	}
 }
 
+func TestGnmiGetPlatformSysEepromComponents(t *testing.T) {
+	// 1. Start gNMI server
+	freePort := getFreePort(t)
+	s := createServer(t, freePort)
+	go runServer(t, s)
+
+	prepareDbTranslib(t)
+
+	// 2. Setup gNMI Client
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	type EepromState struct {
+		Description     string `json:"description"`
+		Empty           bool   `json:"empty"`
+		HardwareVersion string `json:"hardware-version"`
+		ID              string `json:"id"`
+		Location        string `json:"location"`
+		MfgDate         string `json:"mfg-date"`
+		MfgName         string `json:"mfg-name"`
+		Name            string `json:"name"`
+		OperStatus      string `json:"oper-status"`
+		PartNo          string `json:"part-no"`
+		Removable       bool   `json:"removable"`
+		SerialNo        string `json:"serial-no"`
+		SoftwareVersion string `json:"software-version"`
+	}
+
+	type EepromResp struct {
+		State EepromState `json:"openconfig-platform:state"`
+	}
+
+	var eepromVal EepromResp
+	eepromVal.State = EepromState{
+		Description:     "x86_64-dell_z9100_c2538-r0",
+		Empty:           false,
+		HardwareVersion: "HW-v1.0",
+		ID:              "Z9100ON",
+		Location:        "Slot 1",
+		MfgDate:         "2026-01-01",
+		MfgName:         "Test-Manufacturer",
+		Name:            "System Eeprom",
+		OperStatus:      "openconfig-platform-types:ACTIVE",
+		PartNo:          "PN-12345",
+		Removable:       false,
+		SerialNo:        "SN-987654321",
+		SoftwareVersion: "SW-v2.0",
+	}
+
+	// 2. CONVERT TO JSON BYTES (This prevents the panic)
+	eepromBytes, err := json.Marshal(eepromVal)
+	if err != nil {
+		t.Fatalf("Failed to marshal eepromVal: %v", err)
+	}
+
+	// 3. Define Test Scenarios
+	var emptyRespVal interface{}
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		timeout     time.Duration
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		// EEPROM Data
+		{
+			desc:       "Get System Eeprom State Container",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"System Eeprom" > >
+				elem: <name: "state" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: eepromBytes,
+			valTest:     true,
+		},
+		// --- Individual State Leaves ---
+		{
+			desc:       "Get System Eeprom State Name",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"System Eeprom" > >
+				elem: <name: "state" >
+				elem: <name: "name" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     true,
+		},
+		{
+			desc:       "Get System Eeprom State Location",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"System Eeprom" > >
+				elem: <name: "state" >
+				elem: <name: "location" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     true,
+		},
+		{
+			desc:       "Get System Eeprom State Empty",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"System Eeprom" > >
+				elem: <name: "state" >
+				elem: <name: "empty" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     true,
+		},
+		{
+			desc:       "Get System Eeprom State Removable",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"System Eeprom" > >
+				elem: <name: "state" >
+				elem: <name: "removable" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     true,
+		},
+		{
+			desc:       "Get System Eeprom State Oper Status",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"System Eeprom" > >
+				elem: <name: "state" >
+				elem: <name: "oper-status" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     true,
+		},
+		{
+			desc:       "Get System Eeprom State ID (Product Name)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"System Eeprom" > >
+				elem: <name: "state" >
+				elem: <name: "id" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     true,
+		},
+		{
+			desc:       "Get System Eeprom State Part Number",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"System Eeprom" > >
+				elem: <name: "state" >
+				elem: <name: "part-no" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     true,
+		},
+		{
+			desc:       "Get System Eeprom State Serial Number",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"System Eeprom" > >
+				elem: <name: "state" >
+				elem: <name: "serial-no" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     true,
+		},
+		{
+			desc:       "Get System Eeprom State Mfg Date",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"System Eeprom" > >
+				elem: <name: "state" >
+				elem: <name: "mfg-date" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     true,
+		},
+		{
+			desc:       "Get System Eeprom State Hardware Version",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"System Eeprom" > >
+				elem: <name: "state" >
+				elem: <name: "hardware-version" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     true,
+		},
+		{
+			desc:       "Get System Eeprom State Description",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"System Eeprom" > >
+				elem: <name: "state" >
+				elem: <name: "description" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     true,
+		},
+		{
+			desc:       "Get System Eeprom State Mfg Name",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"System Eeprom" > >
+				elem: <name: "state" >
+				elem: <name: "mfg-name" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     true,
+		},
+		{
+			desc:       "Get System Eeprom State Software Version",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"System Eeprom" > >
+				elem: <name: "state" >
+				elem: <name: "software-version" >
+			`,
+			wantRetCode: codes.OK,
+			wantRespVal: emptyRespVal,
+			valTest:     true,
+		},
+		{
+			desc:       "Get Non-Existent Platform Component (Expect NotFound)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+				elem: <name: "openconfig-platform:components" >
+				elem: <name: "component" key:<key:"name" value:"non_existent_comp" > >
+				elem: <name: "state" >
+			`,
+			wantRetCode: codes.NotFound,
+			wantRespVal: emptyRespVal,
+			valTest:     true,
+		},
+	}
+
+	// 5. Run Tests
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			if td.timeout == 0 {
+				td.timeout = 10 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), td.timeout)
+			defer cancel()
+
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+	s.Stop()
+}
+
 // runTestGet requests a path from the server by Get grpc call, and compares if
 // the return code and response value are expected.
 func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTarget string,
