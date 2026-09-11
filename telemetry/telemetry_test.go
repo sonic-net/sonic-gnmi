@@ -110,6 +110,15 @@ func TestFlags(t *testing.T) {
 			"",
 		},
 		{
+			[]string{"cmd", "-port", "2021", "-threshold", "500", "-idle_conn_duration", "4", "-v", "0", "-dpu_ephemeral_tls"},
+			2021,
+			500,
+			4,
+			0,
+			"",
+			"",
+		},
+		{
 			[]string{"cmd", "-port", "5050", "-threshold", "10", "-idle_conn_duration", "3", "-v", "-3", "-noTLS", "-bind_address", "127.0.0.1"},
 			5050,
 			10,
@@ -188,6 +197,39 @@ func TestFlags(t *testing.T) {
 		if *config.Vrf != test.expectedVrf {
 			t.Errorf("Expected vrf to be %s, got %s", test.expectedVrf, *config.Vrf)
 		}
+	}
+}
+
+func TestDPUEphemeralTLSFlagConflicts(t *testing.T) {
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	tests := [][]string{
+		{"cmd", "-port", "50052", "-dpu_ephemeral_tls", "-insecure"},
+		{"cmd", "-port", "50052", "-dpu_ephemeral_tls", "-noTLS", "-bind_address", "127.0.0.1"},
+		{"cmd", "-port", "50052", "-dpu_ephemeral_tls", "-server_crt", "server.crt", "-server_key", "server.key"},
+	}
+	for _, args := range tests {
+		fs := flag.NewFlagSet("testDPUEphemeralTLSFlagConflicts", flag.ContinueOnError)
+		os.Args = args
+		if _, _, err := setupFlags(fs); err == nil {
+			t.Errorf("setupFlags(%v) succeeded, want conflicting mode error", args)
+		}
+	}
+}
+
+func TestDPUEphemeralTLSPreservesAuthzPolicy(t *testing.T) {
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	fs := flag.NewFlagSet("testDPUEphemeralTLSPreservesAuthzPolicy", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "50052", "-dpu_ephemeral_tls", "-authz_policy_enabled"}
+	_, cfg, err := setupFlags(fs)
+	if err != nil {
+		t.Fatalf("setupFlags() failed: %v", err)
+	}
+	if !cfg.AuthzPolicy {
+		t.Fatal("dpu_ephemeral_tls unexpectedly disabled authz policy")
 	}
 }
 
