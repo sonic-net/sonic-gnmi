@@ -486,6 +486,435 @@ func TestGnmiGetInterfaceCountersVPath(t *testing.T) {
 	}
 }
 
+func TestGnmiGetSoftwareComponents(t *testing.T) {
+	// 1. Define all structures locally inside the test function
+	type SoftwareComponentState struct {
+		Name            string `json:"name"`
+		Type            string `json:"type"`
+		Parent          string `json:"parent,omitempty"`
+		OperStatus      string `json:"oper-status,omitempty"`
+		SoftwareVersion string `json:"software-version"` // Removed omitempty to match server "" output
+	}
+
+	type SoftwareModuleState struct {
+		ModuleType string `json:"openconfig-platform-software:module-type,omitempty"`
+	}
+
+	type SoftwareModule struct {
+		State SoftwareModuleState `json:"state"`
+	}
+
+	type ComponentEntry struct {
+		Name           string                 `json:"name"`
+		State          SoftwareComponentState `json:"state"`
+		SoftwareModule *SoftwareModule        `json:"software-module,omitempty"`
+	}
+
+	type ComponentResp struct {
+		Component []ComponentEntry `json:"openconfig-platform:component"`
+	}
+
+	type StateResp struct {
+		State SoftwareComponentState `json:"openconfig-platform:state"`
+	}
+
+	type ModuleStateResp struct {
+		State SoftwareModuleState `json:"openconfig-platform:state"`
+	}
+
+	type ModuleContainerResp struct {
+		SoftwareModule SoftwareModule `json:"openconfig-platform:software-module"`
+	}
+
+	type NameResp struct {
+		Name string `json:"openconfig-platform:name"`
+	}
+
+	type TypeResp struct {
+		Type string `json:"openconfig-platform:type"`
+	}
+
+	type VersionResp struct {
+		Version string `json:"openconfig-platform:software-version"`
+	}
+
+	type ParentResp struct {
+		Parent string `json:"openconfig-platform:parent"`
+	}
+
+	type OperStatusResp struct {
+		OperStatus string `json:"openconfig-platform:oper-status"`
+	}
+
+	// Server/DB setup
+	freePort := getFreePort(t)
+	s := createServer(t, freePort)
+	go runServer(t, s)
+	defer s.Stop()
+	prepareDbTranslib(t)
+	ctx := context.Background()
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+
+	stateDbId, _ := sdcfg.GetDbId("STATE_DB", ns)
+	stateClient := getRedisClientN(t, stateDbId, ns)
+	defer stateClient.Close()
+
+	// Seed State DB
+	if err := stateClient.HSet(ctx, "DEVICE_METADATA|localhost", map[string]interface{}{
+		"software_version": "20240531.42",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet DEVICE_METADATA: %v", err)
+	}
+
+	if err := stateClient.HSet(ctx, "COMPONENT|os0", map[string]interface{}{
+		"name":        "os0",
+		"type":        "OPENCONFIG-PLATFORM-TYPES:OPERATING_SYSTEM",
+		"oper-status": "ACTIVE",
+		"parent":      "chassis",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet COMPONENT|os0: %v", err)
+	}
+
+	if err := stateClient.HSet(ctx, "COMPONENT|boot_loader0", map[string]interface{}{
+		"name":             "boot_loader0",
+		"type":             "OPENCONFIG-PLATFORM-TYPES:BOOT_LOADER",
+		"parent":           "chassis",
+		"software-version": "2.06",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet COMPONENT|boot_loader0: %v", err)
+	}
+
+	if err := stateClient.HSet(ctx, "COMPONENT|network_stack0", map[string]interface{}{
+		"name":        "network_stack0",
+		"type":        "OPENCONFIG-PLATFORM-TYPES:SOFTWARE_MODULE",
+		"oper-status": "ACTIVE",
+		"parent":      "chassis",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet COMPONENT|network_stack0: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		stateClient.Del(cleanupCtx, "DEVICE_METADATA|localhost")
+		stateClient.Del(cleanupCtx, "COMPONENT|os0")
+		stateClient.Del(cleanupCtx, "COMPONENT|boot_loader0")
+		stateClient.Del(cleanupCtx, "COMPONENT|network_stack0")
+	})
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	// 2. Prepare Expected Data Structs
+	osState := SoftwareComponentState{
+		Name:            "os0",
+		Type:            "openconfig-platform-types:OPERATING_SYSTEM",
+		OperStatus:      "openconfig-platform-types:ACTIVE",
+		Parent:          "chassis",
+		SoftwareVersion: "20240531.42",
+	}
+
+	bootloaderState := SoftwareComponentState{
+		Name:            "boot_loader0",
+		Type:            "openconfig-platform-types:BOOT_LOADER",
+		Parent:          "chassis",
+		SoftwareVersion: "2.06",
+	}
+
+	networkStackState := SoftwareComponentState{
+		Name:            "network_stack0",
+		Type:            "openconfig-platform-types:SOFTWARE_MODULE",
+		OperStatus:      "openconfig-platform-types:ACTIVE",
+		Parent:          "chassis",
+		SoftwareVersion: "", // Server returns empty string when not found in DB but exists in schema
+	}
+
+	modState := SoftwareModuleState{
+		ModuleType: "openconfig-platform-software:USERSPACE_PACKAGE_BUNDLE",
+	}
+
+	var osCompVal ComponentResp
+	osCompVal.Component = append(osCompVal.Component, ComponentEntry{
+		Name:  "os0",
+		State: osState,
+	})
+
+	var bootloaderCompVal ComponentResp
+	bootloaderCompVal.Component = append(bootloaderCompVal.Component, ComponentEntry{
+		Name:  "boot_loader0",
+		State: bootloaderState,
+	})
+
+	var networkStackCompVal ComponentResp
+	networkStackCompVal.Component = append(networkStackCompVal.Component, ComponentEntry{
+		Name:           "network_stack0",
+		State:          networkStackState,
+		SoftwareModule: &SoftwareModule{State: modState},
+	})
+
+	marshal := func(v interface{}) []byte {
+		b, _ := json.Marshal(v)
+		return b
+	}
+
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		{
+			desc:        "Get_OS_Full_Component_Subtree_(AllPaths)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"os0" > >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(osCompVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_OS_State_Container_(StatePaths)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"os0" > > elem: <name: "state" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(StateResp{State: osState}),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_BootLoader_Full_Subtree",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"boot_loader0" > >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(bootloaderCompVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_Network_Stack_Full_Subtree",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"network_stack0" > >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(networkStackCompVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_OS_Component_State_Name",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"os0" > > elem: <name: "state" > elem: <name: "name" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(NameResp{Name: "os0"}),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_OS_Component_Type",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"os0" > > elem: <name: "state" > elem: <name: "type" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(TypeResp{Type: "openconfig-platform-types:OPERATING_SYSTEM"}),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_OS_Component_State_(Software_Version)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"os0" > > elem: <name: "state" > elem: <name: "software-version" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(VersionResp{Version: "20240531.42"}),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_OS_Component_State_Parent",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"os0" > > elem: <name: "state" > elem: <name: "parent" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(ParentResp{Parent: "chassis"}),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_OS_Component_State_Oper_Status",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"os0" > > elem: <name: "state" > elem: <name: "oper-status" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(OperStatusResp{OperStatus: "openconfig-platform-types:ACTIVE"}),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_Bootloader_Software_Version",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"boot_loader0" > > elem: <name: "state" > elem: <name: "software-version" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(VersionResp{Version: "2.06"}),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_Bootloader_component_name",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"boot_loader0" > > elem: <name: "state" > elem: <name: "name" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(NameResp{Name: "boot_loader0"}),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_Bootloader_Specific_Type",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"boot_loader0" > > elem: <name: "state" > elem: <name: "type" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(TypeResp{Type: "openconfig-platform-types:BOOT_LOADER"}),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_Software_Module_(Network_Stack)_Type",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"network_stack0" > > elem: <name: "software-module" > elem: <name: "state" > elem: <name: "module-type" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(modState),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_Software_Module_Oper_Status",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"network_stack0" > > elem: <name: "state" > elem: <name: "oper-status" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(OperStatusResp{OperStatus: "openconfig-platform-types:ACTIVE"}),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_Network_Stack_Component_State_Type",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"network_stack0" > > elem: <name: "state" > elem: <name: "type" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(TypeResp{Type: "openconfig-platform-types:SOFTWARE_MODULE"}),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_Software_Module_Container_Path_(COMP_SW_MOD)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"network_stack0" > > elem: <name: "software-module" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(ModuleContainerResp{SoftwareModule: SoftwareModule{State: modState}}),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_Software_Module_State_Container_Path_(COMP_SW_MOD_ST)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"network_stack0" > > elem: <name: "software-module" > elem: <name: "state" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(ModuleStateResp{State: modState}),
+			valTest:     true,
+		},
+		{
+			desc:        "Get_Non-Existent_SW_Component_(NotFound)",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"unknown_comp" > >`,
+			wantRetCode: codes.NotFound,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+		// --- Error Paths / Invalid Requests ---
+		{
+			desc:       "Get OS Component Software Version when missing in DB (Expect Error)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os1" > >
+                elem: <name: "state" >
+                elem: <name: "software-version" >
+`,
+			wantRetCode: codes.NotFound,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Non-Existent SW Component (Unknown Component Name)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os_non_existent" > >
+                elem: <name: "state" >
+            `,
+			wantRetCode: codes.NotFound,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+		{
+			desc:       "Trigger getCompTypeByName for OS pattern (not in DB)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os0_no_db" > >
+                elem: <name: "state" >
+            `,
+			wantRetCode: codes.NotFound,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+		{
+			desc:       "Trigger getCompTypeByName for Network Stack pattern (not in DB)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"network_stack1_no_db" > >
+                elem: <name: "state" >
+            `,
+			wantRetCode: codes.NotFound,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+		{
+			desc:       "Trigger getCompTypeByName for BootLoader pattern (not in DB)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"boot_loader_no_db" > >
+                elem: <name: "state" >
+            `,
+			wantRetCode: codes.NotFound,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Oper Status on OS with invalid status string in DB (Triggers invalid field value error)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os_bad_oper0" > >
+                elem: <name: "state" >
+                elem: <name: "oper-status" >
+            `,
+			wantRetCode: codes.NotFound,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+		{
+			desc:       "Get Module Type on OS Component (Triggers cType != CompTypeNWStack error)",
+			pathTarget: "OC_YANG",
+			textPbPath: `
+                elem: <name: "openconfig-platform:components" >
+                elem: <name: "component" key:<key:"name" value:"os0" > >
+                elem: <name: "software-module" >
+                elem: <name: "state" >
+                elem: <name: "module-type" >
+            `,
+			wantRetCode: codes.NotFound,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+}
+
 // runTestGet requests a path from the server by Get grpc call, and compares if
 // the return code and response value are expected.
 func runTestGet(t *testing.T, ctx context.Context, gClient pb.GNMIClient, pathTarget string,
