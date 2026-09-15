@@ -7583,3 +7583,291 @@ func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
 		t.Error("Serve() did not return after Stop()")
 	}
 }
+
+func getFreePort(t *testing.T) int64 {
+	t.Helper()
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("failed to resolve tcp addr: %v", err)
+	}
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatalf("failed to listen on free port: %v", err)
+	}
+	defer l.Close()
+	return int64(l.Addr().(*net.TCPAddr).Port)
+}
+
+func TestGnmiGetTranslibPfmCompIC(t *testing.T) {
+
+	// Data structure for the node-id (namespaced and string type)
+	type ICNodeData struct {
+		NodeID string `json:"openconfig-p4rt:node-id"`
+	}
+
+	// Case 1: Full Component structure
+	type ComponentResp struct {
+		Component []struct {
+			Name  string `json:"name"`
+			State struct {
+				Name   string `json:"name"`
+				Parent string `json:"parent,omitempty"`
+				Type   string `json:"type"`
+			} `json:"state"`
+			IntegratedCircuit struct {
+				Config ICNodeData `json:"config"`
+				State  ICNodeData `json:"state"`
+			} `json:"integrated-circuit"`
+		} `json:"openconfig-platform:component"`
+	}
+
+	// Case 2: General State structure
+	type StateResp struct {
+		State struct {
+			Name   string `json:"name"`
+			Parent string `json:"parent,omitempty"`
+			Type   string `json:"type"`
+		} `json:"openconfig-platform:state"`
+	}
+
+	// Case 3: IC State structure
+	type ICStateResp struct {
+		State ICNodeData `json:"openconfig-platform:state"`
+	}
+
+	// Case 4: IC Config structure
+	type ICConfigResp struct {
+		Config ICNodeData `json:"openconfig-platform:config"`
+	}
+
+	// Server and DB Setup
+	freePort := getFreePort(t)
+	s := createServer(t, freePort)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+	icName := "integrated_circuit1"
+
+	// Setup CONFIG_DB
+	configDbId, _ := sdcfg.GetDbId("CONFIG_DB", ns)
+	configClient := getRedisClientN(t, configDbId, ns)
+	defer configClient.Close()
+	if err := configClient.HSet(ctx, "NODE_CFG|"+icName, map[string]interface{}{"name": icName, "node-id": "101"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet NODE_CFG: %v", err)
+	}
+
+	// Setup STATE_DB
+	stateDbId, _ := sdcfg.GetDbId("STATE_DB", ns)
+	stateClient := getRedisClientN(t, stateDbId, ns)
+	defer stateClient.Close()
+	if err := stateClient.HSet(ctx, "NODE_INFO|"+icName, map[string]interface{}{
+		"name":    icName,
+		"parent":  "chassis",
+		"type":    "INTEGRATED_CIRCUIT",
+		"node-id": "101",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet NODE_CFG: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		stateClient.Del(cleanupCtx, "NODE_INFO|"+icName)
+		configClient.Del(cleanupCtx, "NODE_CFG|"+icName)
+	})
+
+	// gRPC Client Setup
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	conn, err := grpc.Dial(targetAddr, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})))
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	// 2. Populate expected data objects
+	nodeVal := ICNodeData{NodeID: "101"}
+	icType := "openconfig-platform-types:INTEGRATED_CIRCUIT"
+
+	// Case 1: Full
+	var compFull ComponentResp
+	compFull.Component = append(compFull.Component, struct {
+		Name  string `json:"name"`
+		State struct {
+			Name   string `json:"name"`
+			Parent string `json:"parent,omitempty"`
+			Type   string `json:"type"`
+		} `json:"state"`
+		IntegratedCircuit struct {
+			Config ICNodeData `json:"config"`
+			State  ICNodeData `json:"state"`
+		} `json:"integrated-circuit"`
+	}{
+		Name: icName,
+		State: struct {
+			Name   string `json:"name"`
+			Parent string `json:"parent,omitempty"`
+			Type   string `json:"type"`
+		}{Name: icName, Parent: "chassis", Type: icType},
+		IntegratedCircuit: struct {
+			Config ICNodeData `json:"config"`
+			State  ICNodeData `json:"state"`
+		}{Config: nodeVal, State: nodeVal},
+	})
+
+	// Case 2: State (Note: Parent is omitted in your log for sub-state query)
+	var stateVal StateResp
+	stateVal.State.Name = icName
+	stateVal.State.Type = icType
+
+	// Case 3 & 4: Sub-container queries
+	icStateVal := ICStateResp{State: nodeVal}
+	icConfigVal := ICConfigResp{Config: nodeVal}
+
+	marshal := func(v interface{}) []byte {
+		b, _ := json.Marshal(v)
+		return b
+	}
+
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		{
+			desc:        "Get OC Platform Comp IC",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"integrated_circuit1" > >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(compFull),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OC Platform Comp state",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"integrated_circuit1" > > elem: <name: "state" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(stateVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OC Platform Comp IC state",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"integrated_circuit1" > > elem: <name: "integrated-circuit" > elem: <name: "state" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(icStateVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OC Platform Comp IC config",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"integrated_circuit1" > > elem: <name: "integrated-circuit" > elem: <name: "config" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(icConfigVal),
+			valTest:     true,
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+}
+
+func TestGnmiSetCompPlfmIC(t *testing.T) {
+	// Server and DB Setup
+	freePort := getFreePort(t)
+	s := createServer(t, freePort)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+	icName := "integrated_circuit67"
+	// Setup CONFIG_DB
+	configDbId, _ := sdcfg.GetDbId("CONFIG_DB", ns)
+	configClient := getRedisClientN(t, configDbId, ns)
+	defer configClient.Close()
+
+	listFields := map[string]interface{}{
+		"name": icName,
+	}
+
+	if err := configClient.HSet(ctx, "NODE_CFG|"+icName, listFields).Err(); err != nil {
+		t.Fatalf("Failed to HSet NODE_CFG: %v", err)
+	}
+
+	// Setup STATE_DB
+	stateDbId, _ := sdcfg.GetDbId("STATE_DB", ns)
+	stateClient := getRedisClientN(t, stateDbId, ns)
+	defer stateClient.Close()
+
+	if err := stateClient.HSet(ctx, "NODE_INFO|"+icName, listFields).Err(); err != nil {
+		t.Fatalf("Failed to HSet NODE_INFO: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		stateClient.Del(cleanupCtx, "NODE_INFO|"+icName)
+		configClient.Del(cleanupCtx, "NODE_CFG|"+icName)
+	})
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+
+	gClient := pb.NewGNMIClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	tds := []struct {
+		desc          string
+		pathTarget    string
+		textPbPath    string
+		wantRetCode   codes.Code
+		wantRespVal   interface{}
+		attributeData string
+		operation     op_t
+		valTest       bool
+	}{
+		{
+			desc:          "Plfm path update",
+			pathTarget:    "OC_YANG",
+			textPbPath:    pathToPb("openconfig-platform:components/component[name=integrated_circuit67]"),
+			attributeData: `{"component": [{"name": "integrated_circuit67", "config": {"name": "integrated_circuit67"}, "integrated-circuit": {"config": {"node-id": "183930889"}}}]}`,
+			wantRetCode:   codes.OK,
+			operation:     Update,
+			valTest:       false,
+		},
+		{
+			desc:          "Plfm path delete",
+			pathTarget:    "OC_YANG",
+			textPbPath:    pathToPb("openconfig-platform:components/component[name=integrated_circuit67]/"),
+			attributeData: "",
+			wantRetCode:   codes.OK,
+			operation:     Delete,
+			valTest:       false,
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			runTestSet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.attributeData, td.operation)
+		})
+	}
+}
