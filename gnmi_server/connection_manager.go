@@ -41,15 +41,21 @@ func (cm *ConnectionManager) PrepareRedis() {
 		log.Errorf("DB err: %v", err)
 		return
 	}
-	rclient = redis.NewClient(&redis.Options{
+	opts := &redis.Options{
 		Network:     "tcp",
 		Addr:        addr,
 		Password:    "",
 		DB:          db,
 		DialTimeout: 0,
-	})
+	}
+	sdcfg.ApplyRedisPoolSize(opts)
+	rclient = redis.NewClient(opts)
 
-	res, _ := rclient.HGetAll(context.Background(), "TELEMETRY_CONNECTIONS").Result()
+	res, err := rclient.HGetAll(context.Background(), table).Result()
+	if err != nil {
+		log.Errorf("Failed to read %s for cleanup: %v", table, err)
+		return
+	}
 
 	if res == nil {
 		return
