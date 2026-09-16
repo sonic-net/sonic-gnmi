@@ -147,6 +147,27 @@ type tablePath struct {
 	isVirtualPath bool
 }
 
+// String omits request payloads so tablePath can be logged as valid text.
+func (p tablePath) String() string {
+	operation := fmt.Sprintf("unknown(%d)", p.operation)
+	switch p.operation {
+	case opAdd:
+		operation = "add"
+	case opRemove:
+		operation = "remove"
+	}
+
+	return fmt.Sprintf(
+		"tablePath{namespace=%+q db=%+q table=%+q key=%+q field=%+q operation=%+q index=%d json_bytes=%d proto_bytes=%d virtual=%t}",
+		p.dbNamespace, p.dbName, p.tableName, p.tableKey, p.field, operation,
+		p.index, len(p.jsonValue), len(p.protoValue), p.isVirtualPath,
+	)
+}
+
+func (p tablePath) GoString() string {
+	return p.String()
+}
+
 type Value struct {
 	*spb.Value
 }
@@ -170,10 +191,11 @@ func (val Value) GetTimestamp() int64 {
 }
 
 type DbClient struct {
-	prefix  *gnmipb.Path
-	pathG2S map[*gnmipb.Path][]tablePath
-	q       *queue.PriorityQueue
-	channel chan struct{}
+	prefix                 *gnmipb.Path
+	pathG2S                map[*gnmipb.Path][]tablePath
+	preserveConfigDBTables bool
+	q                      *queue.PriorityQueue
+	channel                chan struct{}
 
 	synced sync.WaitGroup  // Control when to send gNMI sync_response
 	w      *sync.WaitGroup // wait for all sub go routines to finish
@@ -185,6 +207,15 @@ type DbClient struct {
 }
 
 func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
+	return newDbClient(paths, prefix, false)
+}
+
+// NewDbClientForGet creates a DbClient with unary Get response semantics.
+func NewDbClientForGet(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
+	return newDbClient(paths, prefix, true)
+}
+
+func newDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, preserveConfigDBTables bool) (Client, error) {
 	var client DbClient
 	var err error
 
@@ -200,6 +231,7 @@ func NewDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error) {
 
 	client.prefix = prefix
 	client.pathG2S = make(map[*gnmipb.Path][]tablePath)
+	client.preserveConfigDBTables = preserveConfigDBTables
 	err = populateAllDbtablePath(prefix, paths, &client.pathG2S)
 
 	if err != nil {
@@ -383,7 +415,45 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 }
 
 func (c *DbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
-	return
+	c.w = w
+	defer c.w.Done()
+	c.q = q
+	c.channel = once
+
+	_, more := <-c.channel
+	if !more {
+		log.V(1).Infof("%v once channel closed, exiting OnceRun routine", c)
+		return
+	}
+
+	t1 := time.Now()
+	for gnmiPath, tblPaths := range c.pathG2S {
+		val, err, updateReceived := subscribeTableData2TypedValue(tblPaths, nil)
+		if err != nil {
+			log.V(2).Infof("OnceRun: Unable to create gnmi TypedValue due to err: %v", err)
+			putFatalMsg(c.q, fmt.Sprintf("OnceRun error: %v", err))
+			return
+		}
+		if updateReceived {
+			spbv := &spb.Value{
+				Prefix:       c.prefix,
+				Path:         gnmiPath,
+				Timestamp:    time.Now().UnixNano(),
+				SyncResponse: false,
+				Val:          val,
+			}
+			c.q.Put(Value{spbv})
+			log.V(6).Infof("OnceRun: Added spbv #%v", spbv)
+		}
+	}
+
+	c.q.Put(Value{
+		&spb.Value{
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: true,
+		},
+	})
+	log.V(4).Infof("OnceRun: Sync done, total time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 }
 func (c *DbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	// wait sync for Get, not used for now
@@ -392,7 +462,13 @@ func (c *DbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	var values []*spb.Value
 	ts := time.Now()
 	for gnmiPath, tblPaths := range c.pathG2S {
-		val, err := tableData2TypedValue(tblPaths, nil)
+		var val *gnmipb.TypedValue
+		var err error
+		if c.preserveConfigDBTables && isConfigDBWildcard(tblPaths) {
+			val, err = configDBTables2TypedValue(&tblPaths[0])
+		} else {
+			val, err = tableData2TypedValue(tblPaths, nil)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -404,7 +480,7 @@ func (c *DbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 			Val:       val,
 		})
 	}
-	log.V(6).Infof("Getting #%v", values)
+	log.V(6).Infof("Get returned %d database value(s)", len(values))
 	log.V(4).Infof("Get done, total time taken: %v ms", int64(time.Since(ts)/time.Millisecond))
 	return values, nil
 }
@@ -576,6 +652,28 @@ func init() {
 }
 
 func initRedisDbClients() {
+	// Build the set of DBs present in the runtime database_config.json so
+	// we can skip DBs absent on this platform before calling GetDbSock, which would otherwise
+	// log ERR for every missing DB.
+	// Note: GetDbList always returns the default namespace DB list.
+	// This is safe because all namespaces carry the same DB names; they differ only in
+	// socket paths. GetDbList and GetDbAllNamespaces share the same DbInit gate,
+	// so if GetDbList fails GetDbAllNamespaces would fail too;
+	// returning early here avoids redundant failures.
+	runtimeDbList, err := sdcfg.GetDbList(sdcfg.SONIC_DEFAULT_NAMESPACE)
+	if err != nil {
+		log.Errorf("initRedisDbClients: failed to get runtime DB list: %v", err)
+		return
+	}
+	if len(runtimeDbList) == 0 {
+		log.Errorf("initRedisDbClients: runtime DB list is empty, database config may be corrupt")
+		return
+	}
+	runtimeDbSet := make(map[string]struct{}, len(runtimeDbList))
+	for _, db := range runtimeDbList {
+		runtimeDbSet[db] = struct{}{}
+	}
+
 	AllNamespaces, err := sdcfg.GetDbAllNamespaces()
 	if err != nil {
 		log.Errorf("init error:  %v", err)
@@ -585,6 +683,13 @@ func initRedisDbClients() {
 		Target2RedisDb[dbNamespace] = make(map[string]*redis.Client)
 		for dbName, dbn := range spb.Target_value {
 			if dbName != "OTHERS" {
+				// Skip DBs not present in the runtime database_config.json.
+				// runtimeDbSet is non-empty here (guaranteed by the early return
+				// above), so a missing key safely returns false in Go.
+				if _, ok := runtimeDbSet[dbName]; !ok {
+					log.V(2).Infof("initRedisDbClients: skipping %s, not in runtime DB config", dbName)
+					continue
+				}
 				addr, err := sdcfg.GetDbSock(dbName, dbNamespace)
 				if err != nil {
 					log.Warningf("Skipping %s in namespace %s: %v", dbName, dbNamespace, err)
@@ -683,6 +788,10 @@ func parsePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath)
 		err = initCountersAclRuleMap()
 		if err != nil {
 			log.Errorf("Could not create CountersAclRuleMap: %v", err)
+		}
+		err = initCountersVoQNameMap()
+		if err != nil {
+			log.Errorf("Could not create CountersVoQNameMap: %v", err)
 		}
 	}
 
@@ -883,7 +992,7 @@ func emitJSON(v *map[string]interface{}) ([]byte, error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.V(2).Infof("Recovered from panic: %v", r)
-			log.V(2).Infof("Current state of map to be serialized is: %v", *v)
+			log.V(2).Infof("Map to be serialized contains %d entries", len(*v))
 		}
 	}()
 	j, err := json.Marshal(*v)
@@ -924,12 +1033,12 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 		dbkeys = []string{tblPath.tableName + tblPath.delimitor + tblPath.tableKey}
 	}
 
-	log.V(4).Infof("dbkeys to be pulled from redis %v", dbkeys)
+	log.V(4).Infof("Pulling %d key(s) from Redis", len(dbkeys))
 
 	// Asked to use jsonField and jsonTableKey in the final json value
 	if tblPath.jsonField != "" && tblPath.jsonTableKey != "" {
 		val, err := redisDb.HGet(context.Background(), dbkeys[0], tblPath.field).Result()
-		log.V(4).Infof("Data pulled for key %s and field %s: %s", dbkeys[0], tblPath.field, val)
+		log.V(4).Infof("Data pulled for key %s and field %s", dbkeys[0], tblPath.field)
 		if err != nil {
 			log.V(3).Infof("redis HGet failed for %v %v", tblPath, err)
 			// ignore non-existing field which was derived from virtual path
@@ -937,7 +1046,7 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 		}
 		fv = map[string]string{tblPath.jsonField: val}
 		makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
-		log.V(6).Infof("Added json key %v fv %v ", tblPath.jsonTableKey, fv)
+		log.V(6).Infof("Added JSON key %v with %d field(s)", tblPath.jsonTableKey, len(fv))
 		return nil
 	}
 
@@ -947,7 +1056,7 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 			log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
 			return err
 		}
-		log.V(4).Infof("Data pulled for dbkey %s: %v", dbkey, fv)
+		log.V(4).Infof("Data pulled for dbkey %s with %d field(s)", dbkey, len(fv))
 
 		if len(fv) == 0 {
 			log.V(6).Infof("No data for dbkey %s, skipping", dbkey)
@@ -963,26 +1072,26 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 			// Split dbkey string into two parts and second part is key in table
 			keys := strings.SplitN(dbkey, tblPath.delimitor, 2)
 			if len(keys) < 2 {
-				return fmt.Errorf("dbkey: %s, failed split from delimitor %v", dbkey, tblPath.delimitor)
+				return fmt.Errorf("dbkey: %s, failed split from delimiter %v", dbkey, tblPath.delimitor)
 			}
 			key = keys[1]
 			err = makeJSON_redis(msi, &key, op, fv)
 		}
 		if err != nil {
-			log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
+			log.V(2).Infof("makeJSON failed for dbkey %s: %v", dbkey, err)
 			return err
 		}
-		log.V(6).Infof("Added idex %v fv %v ", idx, fv)
+		log.V(6).Infof("Added Redis result %d with %d field(s)", idx, len(fv))
 	}
 	return nil
 }
 
 func Msi2TypedValue(msi map[string]interface{}) (*gnmipb.TypedValue, error) {
-	log.V(4).Infof("State of map after adding redis data %v", msi)
+	log.V(4).Infof("Marshaling map with %d Redis data entries", len(msi))
 	jv, err := emitJSON(&msi)
 	if err != nil {
-		log.V(2).Infof("emitJSON err %s for  %v", err, msi)
-		return nil, fmt.Errorf("emitJSON err %s for  %v", err, msi)
+		log.V(2).Infof("emitJSON failed for map with %d entries: %v", len(msi), err)
+		return nil, fmt.Errorf("emitJSON failed: %v", err)
 	}
 	if jv == nil { // json and err is nil because panic potentially happened
 		return nil, fmt.Errorf("emitJSON failed to grab json value of map due to potential panic")
@@ -1016,7 +1125,7 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 				if err != nil {
 					return nil, err
 				}
-				log.V(4).Infof("Data pulled for key %s and field %s: %s", key, tblPath.field, val)
+				log.V(4).Infof("Data pulled for key %s and field %s", key, tblPath.field)
 				return &gnmipb.TypedValue{
 					Value: &gnmipb.TypedValue_StringVal{
 						StringVal: val,
@@ -1029,6 +1138,63 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 		}
 	}
 	return Msi2TypedValue(msi)
+}
+
+func isConfigDBWildcard(tblPaths []tablePath) bool {
+	return len(tblPaths) == 1 && tblPaths[0].dbName == "CONFIG_DB" &&
+		tblPaths[0].tableName == "*" && tblPaths[0].tableKey == ""
+}
+
+func configDBTables2TypedValue(tblPath *tablePath) (*gnmipb.TypedValue, error) {
+	msi := make(map[string]interface{})
+	if err := configDBTables2Msi(tblPath, &msi); err != nil {
+		return nil, err
+	}
+	return Msi2TypedValue(msi)
+}
+
+func configDBTables2Msi(tblPath *tablePath, msi *map[string]interface{}) error {
+	redisDb := Target2RedisDb[tblPath.dbNamespace][tblPath.dbName]
+	pattern := "*" + tblPath.delimitor + "*"
+	dbkeys, err := redisDb.Keys(context.Background(), pattern).Result()
+	if err != nil {
+		return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
+	}
+	for _, dbkey := range dbkeys {
+		fields, err := redisDb.HGetAll(context.Background(), dbkey).Result()
+		if err != nil {
+			return fmt.Errorf("redis HGetAll failed for %v, dbkey %s: %v", tblPath, dbkey, err)
+		}
+		if len(fields) == 0 {
+			continue
+		}
+		parts := strings.SplitN(dbkey, tblPath.delimitor, 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("dbkey: %s, failed split from delimiter %v", dbkey, tblPath.delimitor)
+		}
+		table, ok := (*msi)[parts[0]].(map[string]interface{})
+		if !ok {
+			table = make(map[string]interface{})
+			(*msi)[parts[0]] = table
+		}
+		table[parts[1]] = configDBFieldValues(fields)
+	}
+	return nil
+}
+
+func configDBFieldValues(fields map[string]string) map[string]interface{} {
+	values := make(map[string]interface{})
+	for field, value := range fields {
+		if field == "NULL" {
+			continue
+		}
+		if strings.HasSuffix(field, "@") {
+			values[strings.TrimSuffix(field, "@")] = strings.Split(value, ",")
+		} else {
+			values[field] = value
+		}
+	}
+	return values
 }
 
 // subscribeTableData2TypedValue is used by Poll and Sample subscribe modes.

@@ -18,6 +18,8 @@ const (
 	defaultTimeout = 30 * time.Second
 )
 
+var execCommandContext = exec.CommandContext
+
 // RunHostCommandOptions provides configuration options for RunHostCommand
 type RunHostCommandOptions struct {
 	// Timeout specifies the maximum duration for command execution
@@ -78,7 +80,7 @@ func RunHostCommand(ctx context.Context, command string, args []string, opts *Ru
 	nsenterArgs := buildNsenterArgs(opts, command, args)
 
 	// Create command
-	cmd := exec.CommandContext(ctx, "nsenter", nsenterArgs...)
+	cmd := execCommandContext(ctx, "nsenter", nsenterArgs...)
 
 	// Set working directory if specified
 	if opts.WorkingDir != "" {

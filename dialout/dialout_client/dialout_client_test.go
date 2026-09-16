@@ -409,6 +409,35 @@ func TestGNMIDialOutPublish(t *testing.T) {
 				},
 			},
 		},
+	}, {
+		// Same configuration spelled the way the sonic-telemetry_client YANG
+		// model keys it, i.e. what config replace and GCU write.
+		desc: "DialOut with YANG-canonical pipe separated keys",
+		cmds: []string{
+			"redis-cli -n 4 hset TELEMETRY_CLIENT|DestinationGroup|HS dst_addr 127.0.0.1:8080,127.0.0.1:8081",
+			"redis-cli -n 4 hmset TELEMETRY_CLIENT|Subscription|HS_RDMA path_target COUNTERS_DB dst_group HS report_type stream paths COUNTERS/Ethernet*",
+		},
+		collector: "s1",
+		wantRespVal: []*pb.SubscribeResponse{
+			&pb.SubscribeResponse{
+				Response: &pb.SubscribeResponse_Update{
+					Update: &pb.Notification{
+						Update: []*pb.Update{
+							{Val: &pb.TypedValue{
+								Value: &pb.TypedValue_JsonIetfVal{
+									JsonIetfVal: countersEthernetWildcardByte,
+								}},
+							},
+						},
+					},
+				},
+			},
+			&pb.SubscribeResponse{
+				Response: &pb.SubscribeResponse_SyncResponse{
+					SyncResponse: true,
+				},
+			},
+		},
 		//}, {
 		//	desc: "DialOut to second collector in stream mode upon failure of first collector",
 		//	cmds: []string{
@@ -585,6 +614,32 @@ func TestNewInstanceOCYang(t *testing.T) {
 		// If it succeeded, clean up
 		if cs.dc != nil {
 			cs.dc.Close()
+		}
+	}
+}
+
+func TestMatchRowPrefix(t *testing.T) {
+	tests := []struct {
+		key      string
+		rowType  string
+		wantName string
+		wantOk   bool
+	}{
+		{"DestinationGroup_HS", "DestinationGroup", "HS", true},
+		{"DestinationGroup|HS", "DestinationGroup", "HS", true},
+		{"Subscription_HS_RDMA", "Subscription", "HS_RDMA", true},
+		{"Subscription|HS_RDMA", "Subscription", "HS_RDMA", true},
+		{"DestinationGroup_", "DestinationGroup", "", true},
+		{"DestinationGroup|", "DestinationGroup", "", true},
+		{"Global", "DestinationGroup", "", false},
+		{"Subscription_HS", "DestinationGroup", "", false},
+		{"DestinationGroupHS", "DestinationGroup", "", false},
+	}
+	for _, tt := range tests {
+		name, ok := matchRowPrefix(tt.key, tt.rowType, "|")
+		if ok != tt.wantOk || name != tt.wantName {
+			t.Errorf("matchRowPrefix(%q, %q) = (%q, %v), want (%q, %v)",
+				tt.key, tt.rowType, name, ok, tt.wantName, tt.wantOk)
 		}
 	}
 }

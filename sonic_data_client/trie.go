@@ -136,21 +136,12 @@ func findNode(node *Node, keys []string) *Node {
 	}
 
 	if len(keys) == 0 {
-		return node
-	}
-
-	n, ok := node.Children()[keys[0]]
-	if !ok {
-		var val string
-		for val, n = range node.wildcards {
-			if strings.HasPrefix(keys[0], val[:len(val)-1]) {
-				ok = true
-				break
-			}
+		// Only succeed if this node has a terminal child, ensuring
+		// backtracking tries other wildcards when a path dead-ends.
+		if _, ok := node.Children()[""]; ok {
+			return node
 		}
-		if !ok {
-			return nil
-		}
+		return nil
 	}
 
 	var nkeys []string
@@ -158,5 +149,21 @@ func findNode(node *Node, keys []string) *Node {
 		nkeys = keys[1:]
 	}
 
-	return findNode(n, nkeys)
+	// Try exact match first
+	if n, ok := node.Children()[keys[0]]; ok {
+		if result := findNode(n, nkeys); result != nil {
+			return result
+		}
+	}
+
+	// Try all matching wildcards with backtracking
+	for val, n := range node.wildcards {
+		if strings.HasPrefix(keys[0], val[:len(val)-1]) {
+			if result := findNode(n, nkeys); result != nil {
+				return result
+			}
+		}
+	}
+
+	return nil
 }

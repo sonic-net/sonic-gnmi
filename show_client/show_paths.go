@@ -51,6 +51,11 @@ func init() {
 		showCmdOptionVerbose,
 	)
 	sdc.RegisterCliPath(
+		[]string{"SHOW", "bgp", "running-config"},
+		getBGPRunningConfig,
+		nil,
+	)
+	sdc.RegisterCliPath(
 		[]string{"SHOW", "ipv6", "bgp", "summary"},
 		getIPv6BGPSummary,
 		nil,

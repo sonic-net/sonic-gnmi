@@ -2,145 +2,196 @@ package exec
 
 import (
 	"context"
-	"runtime"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
 
+const commandHelperEnv = "GO_WANT_COMMAND_HELPER"
+
+func TestCommandHelperProcess(t *testing.T) {
+	if os.Getenv(commandHelperEnv) != "1" {
+		return
+	}
+
+	separator := -1
+	for i, arg := range os.Args {
+		if arg == "--" {
+			separator = i
+			break
+		}
+	}
+	if separator == -1 || separator+1 >= len(os.Args) {
+		os.Exit(2)
+	}
+
+	switch os.Args[separator+1] {
+	case "success":
+		fmt.Fprintln(os.Stdout, "helper stdout")
+		fmt.Fprintln(os.Stderr, "helper stderr")
+		os.Exit(0)
+	case "failure":
+		fmt.Fprintln(os.Stderr, "helper failure")
+		os.Exit(23)
+	case "sleep":
+		time.Sleep(10 * time.Second)
+		os.Exit(0)
+	default:
+		os.Exit(2)
+	}
+}
+
+type commandInvocation struct {
+	name string
+	args []string
+}
+
+func useCommandHelper(t *testing.T, behavior string) *commandInvocation {
+	t.Helper()
+
+	originalExecCommand := execCommandContext
+	invocation := &commandInvocation{}
+	execCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		invocation.name = name
+		invocation.args = append([]string(nil), args...)
+
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestCommandHelperProcess$", "--", behavior)
+		cmd.Env = append(os.Environ(), commandHelperEnv+"=1")
+		return cmd
+	}
+	t.Cleanup(func() {
+		execCommandContext = originalExecCommand
+	})
+
+	return invocation
+}
+
 func TestRunHostCommand(t *testing.T) {
-	// Skip tests if not running on Linux
-	if runtime.GOOS != "linux" {
-		t.Skip("nsenter tests can only run on Linux")
+	invocation := useCommandHelper(t, "success")
+
+	result, err := RunHostCommand(context.Background(), "echo", []string{"hello", "world"}, nil)
+	if err != nil {
+		t.Fatalf("RunHostCommand() error = %v", err)
 	}
-
-	// Skip if nsenter is not available
-	if !IsNsenterAvailable() {
-		t.Skip("nsenter is not available on this system")
+	if result.Error != nil {
+		t.Fatalf("RunHostCommand() command error = %v", result.Error)
 	}
-
-	// Check if we have permission to use nsenter (requires root or CAP_SYS_ADMIN)
-	// Try a simple test command first
-	testResult, _ := RunHostCommand(context.Background(), "true", nil, nil)
-	if testResult != nil && testResult.Error != nil && strings.Contains(testResult.Stderr, "Permission denied") {
-		t.Skip("Insufficient permissions to run nsenter tests (need root or CAP_SYS_ADMIN)")
+	if result.ExitCode != 0 {
+		t.Errorf("RunHostCommand() exit code = %d, want 0", result.ExitCode)
 	}
-
-	tests := []struct {
-		name    string
-		command string
-		args    []string
-		opts    *RunHostCommandOptions
-		wantErr bool
-		check   func(t *testing.T, result *CommandResult)
-	}{
-		{
-			name:    "simple echo command",
-			command: "echo",
-			args:    []string{"hello", "world"},
-			opts:    nil,
-			wantErr: false,
-			check: func(t *testing.T, result *CommandResult) {
-				if result.ExitCode != 0 {
-					t.Errorf("expected exit code 0, got %d", result.ExitCode)
-				}
-				if !strings.Contains(result.Stdout, "hello world") {
-					t.Errorf("expected output to contain 'hello world', got %s", result.Stdout)
-				}
-			},
-		},
-		{
-			name:    "command with timeout",
-			command: "sleep",
-			args:    []string{"0.1"},
-			opts: &RunHostCommandOptions{
-				Timeout: 1 * time.Second,
-			},
-			wantErr: false,
-			check: func(t *testing.T, result *CommandResult) {
-				if result.ExitCode != 0 {
-					t.Errorf("expected exit code 0, got %d", result.ExitCode)
-				}
-			},
-		},
-		{
-			name:    "empty command",
-			command: "",
-			args:    nil,
-			opts:    nil,
-			wantErr: true,
-			check:   nil,
-		},
-		{
-			name:    "non-existent command",
-			command: "this-command-does-not-exist",
-			args:    nil,
-			opts:    nil,
-			wantErr: false,
-			check: func(t *testing.T, result *CommandResult) {
-				if result.ExitCode == 0 {
-					t.Errorf("expected non-zero exit code for non-existent command")
-				}
-			},
-		},
-		{
-			name:    "command with custom namespaces",
-			command: "pwd",
-			args:    nil,
-			opts: &RunHostCommandOptions{
-				Namespaces: []string{"pid", "net"},
-			},
-			wantErr: false,
-			check: func(t *testing.T, result *CommandResult) {
-				if result.ExitCode != 0 {
-					t.Errorf("expected exit code 0, got %d", result.ExitCode)
-				}
-			},
-		},
+	if result.Stdout != "helper stdout\n" {
+		t.Errorf("RunHostCommand() stdout = %q, want %q", result.Stdout, "helper stdout\n")
 	}
+	if result.Stderr != "helper stderr\n" {
+		t.Errorf("RunHostCommand() stderr = %q, want %q", result.Stderr, "helper stderr\n")
+	}
+	if invocation.name != "nsenter" {
+		t.Errorf("RunHostCommand() executable = %q, want %q", invocation.name, "nsenter")
+	}
+	wantArgs := []string{
+		"--target", "1",
+		"--pid", "--mount", "--uts", "--ipc", "--net",
+		"--",
+		"echo", "hello", "world",
+	}
+	if !reflect.DeepEqual(invocation.args, wantArgs) {
+		t.Errorf("RunHostCommand() args = %q, want %q", invocation.args, wantArgs)
+	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := RunHostCommand(context.Background(), tt.command, tt.args, tt.opts)
+func TestRunHostCommandNonZeroExit(t *testing.T) {
+	useCommandHelper(t, "failure")
 
-			if (err != nil) != tt.wantErr {
-				t.Errorf("RunHostCommand() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
+	result, err := RunHostCommand(context.Background(), "false", nil, nil)
+	if err != nil {
+		t.Fatalf("RunHostCommand() error = %v", err)
+	}
+	if result.Error == nil {
+		t.Fatal("RunHostCommand() command error = nil, want non-nil")
+	}
+	if result.ExitCode != 23 {
+		t.Errorf("RunHostCommand() exit code = %d, want 23", result.ExitCode)
+	}
+	if result.Stderr != "helper failure\n" {
+		t.Errorf("RunHostCommand() stderr = %q, want %q", result.Stderr, "helper failure\n")
+	}
+}
 
-			if tt.check != nil && result != nil {
-				tt.check(t, result)
-			}
-		})
+func TestRunHostCommandStartFailure(t *testing.T) {
+	originalExecCommand := execCommandContext
+	execCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, filepath.Join(t.TempDir(), "missing-command"))
+	}
+	t.Cleanup(func() {
+		execCommandContext = originalExecCommand
+	})
+
+	result, err := RunHostCommand(context.Background(), "echo", nil, nil)
+	if err != nil {
+		t.Fatalf("RunHostCommand() error = %v", err)
+	}
+	if result.Error == nil {
+		t.Fatal("RunHostCommand() command error = nil, want non-nil")
+	}
+}
+
+func TestRunHostCommandTimeout(t *testing.T) {
+	useCommandHelper(t, "sleep")
+
+	start := time.Now()
+	result, err := RunHostCommand(context.Background(), "sleep", []string{"10"}, &RunHostCommandOptions{
+		Timeout: 20 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("RunHostCommand() error = %v", err)
+	}
+	if result.Error == nil {
+		t.Fatal("RunHostCommand() command error = nil, want timeout error")
+	}
+	if elapsed := time.Since(start); elapsed >= time.Second {
+		t.Errorf("RunHostCommand() elapsed = %v, want less than 1s", elapsed)
+	}
+}
+
+func TestRunHostCommandRejectsEmptyCommand(t *testing.T) {
+	result, err := RunHostCommand(context.Background(), "", nil, nil)
+	if err == nil {
+		t.Fatal("RunHostCommand() error = nil, want non-nil")
+	}
+	if result != nil {
+		t.Errorf("RunHostCommand() result = %#v, want nil", result)
 	}
 }
 
 func TestRunHostCommandSimple(t *testing.T) {
-	// Skip tests if not running on Linux
-	if runtime.GOOS != "linux" {
-		t.Skip("nsenter tests can only run on Linux")
-	}
+	useCommandHelper(t, "success")
 
-	// Skip if nsenter is not available
-	if !IsNsenterAvailable() {
-		t.Skip("nsenter is not available on this system")
-	}
-
-	// Check permissions
-	testResult, _ := RunHostCommand(context.Background(), "true", nil, nil)
-	if testResult != nil && testResult.Error != nil && strings.Contains(testResult.Stderr, "Permission denied") {
-		t.Skip("Insufficient permissions to run nsenter tests")
-	}
-
-	// Test simple command execution
 	output, err := RunHostCommandSimple("echo", "test")
 	if err != nil {
-		t.Errorf("RunHostCommandSimple() error = %v", err)
-		return
+		t.Fatalf("RunHostCommandSimple() error = %v", err)
 	}
+	if output != "helper stdout\n" {
+		t.Errorf("RunHostCommandSimple() = %q, want %q", output, "helper stdout\n")
+	}
+}
 
-	if !strings.Contains(output, "test") {
-		t.Errorf("expected output to contain 'test', got %s", output)
+func TestRunHostCommandSimpleFailure(t *testing.T) {
+	useCommandHelper(t, "failure")
+
+	output, err := RunHostCommandSimple("false")
+	if err == nil {
+		t.Fatal("RunHostCommandSimple() error = nil, want non-nil")
+	}
+	if output != "" {
+		t.Errorf("RunHostCommandSimple() output = %q, want empty", output)
+	}
+	if !strings.Contains(err.Error(), "helper failure") {
+		t.Errorf("RunHostCommandSimple() error = %q, want helper stderr", err)
 	}
 }
 

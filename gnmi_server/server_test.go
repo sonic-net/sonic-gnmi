@@ -957,6 +957,48 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	}
 	mpi_switch_counter := loadConfig(t, "COUNTERS:oid:0x21000000000000", countersSwitch_id_Byte)
 	loadDB(t, rclient, mpi_switch_counter)
+
+	// VoQ name map
+	fileName = "../testdata/COUNTERS_VOQ_NAME_MAP.txt"
+	countersVoQNameMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_voqname_map := loadConfig(t, "COUNTERS_VOQ_NAME_MAP", countersVoQNameMapByte)
+	loadDB(t, rclient, mpi_voqname_map)
+
+	// VoQ OID counters
+	fileName = "../testdata/COUNTERS:oid:0x160000000092a.txt"
+	countersVoQ92aByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x160000000092a", countersVoQ92aByte)
+	loadDB(t, rclient, mpi_counter)
+
+	fileName = "../testdata/COUNTERS:oid:0x160000000091c.txt"
+	countersVoQ91cByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x160000000091c", countersVoQ91cByte)
+	loadDB(t, rclient, mpi_counter)
+
+	fileName = "../testdata/COUNTERS:oid:0x160000000091d.txt"
+	countersVoQ91dByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x160000000091d", countersVoQ91dByte)
+	loadDB(t, rclient, mpi_counter)
+
+	fileName = "../testdata/COUNTERS:oid:0x160000000091e.txt"
+	countersVoQ91eByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x160000000091e", countersVoQ91eByte)
+	loadDB(t, rclient, mpi_counter)
 }
 
 func prepareConfigDb(t *testing.T, namespace string) {
@@ -1240,6 +1282,48 @@ func prepareDb(t *testing.T, namespace string) {
 	}
 	sid2_counter := loadConfig(t, "COUNTERS:oid:0x54000000004f64", sid2_byte)
 	loadDB(t, rclient, sid2_counter)
+
+	// VoQ name map
+	fileName = "../testdata/COUNTERS_VOQ_NAME_MAP.txt"
+	countersVoQNameMapByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_voqname_map := loadConfig(t, "COUNTERS_VOQ_NAME_MAP", countersVoQNameMapByte)
+	loadDB(t, rclient, mpi_voqname_map)
+
+	// VoQ OID counters
+	fileName = "../testdata/COUNTERS:oid:0x160000000092a.txt"
+	countersVoQ92aByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x160000000092a", countersVoQ92aByte)
+	loadDB(t, rclient, mpi_counter)
+
+	fileName = "../testdata/COUNTERS:oid:0x160000000091c.txt"
+	countersVoQ91cByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x160000000091c", countersVoQ91cByte)
+	loadDB(t, rclient, mpi_counter)
+
+	fileName = "../testdata/COUNTERS:oid:0x160000000091d.txt"
+	countersVoQ91dByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x160000000091d", countersVoQ91dByte)
+	loadDB(t, rclient, mpi_counter)
+
+	fileName = "../testdata/COUNTERS:oid:0x160000000091e.txt"
+	countersVoQ91eByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	mpi_counter = loadConfig(t, "COUNTERS:oid:0x160000000091e", countersVoQ91eByte)
+	loadDB(t, rclient, mpi_counter)
 
 	// Load CONFIG_DB for alias translation
 	prepareConfigDb(t, namespace)
@@ -2527,6 +2611,32 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	countersPortNameMapJsonUpdate := tmp.(map[string]interface{})
 	countersPortNameMapJsonUpdate["test_field"] = "test_value"
 
+	// VoQ test data
+	fileName = "../testdata/COUNTERS:SwitchName_star.txt"
+	countersSwitchNameWildVoQsByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var countersSwitchNameWildVoQsJson interface{}
+	json.Unmarshal(countersSwitchNameWildVoQsByte, &countersSwitchNameWildVoQsJson)
+
+	fileName = "../testdata/COUNTERS:SwitchName_single.txt"
+	countersSwitchNameVoQsByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var countersSwitchNameVoQsJson interface{}
+	json.Unmarshal(countersSwitchNameVoQsByte, &countersSwitchNameVoQsJson)
+
+	fileName = "../testdata/COUNTERS:SwitchName_sysport.txt"
+	countersSystemPortVoQsByte, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		t.Fatalf("read file %v err: %v", fileName, err)
+	}
+	var countersSystemPortVoQsJson interface{}
+	json.Unmarshal(countersSystemPortVoQsByte, &countersSystemPortVoQsJson)
+	// end of VoQ test data
+
 	// for table key subscription
 	fileName = "../testdata/COUNTERS:Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
@@ -3503,6 +3613,57 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernetWildQueuesJson},
 				client.Sync{},
 				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "Ethernet*", "Queues"}, TS: time.Unix(0, 200), Val: countersEthernetWildQueuesJson},
+				client.Sync{},
+			},
+		},
+		{
+			desc: "poll query for COUNTERS/SwitchName*/VoQs",
+			poll: 1,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"COUNTERS", "SwitchName*", "VoQs"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "SwitchName*", "VoQs"}, TS: time.Unix(0, 200), Val: countersSwitchNameWildVoQsJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "SwitchName*", "VoQs"}, TS: time.Unix(0, 200), Val: countersSwitchNameWildVoQsJson},
+				client.Sync{},
+			},
+		},
+		{
+			desc: "poll query for COUNTERS/str2-7804-lc7-1/VoQs",
+			poll: 1,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"COUNTERS", "str2-7804-lc7-1", "VoQs"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "str2-7804-lc7-1", "VoQs"}, TS: time.Unix(0, 200), Val: countersSwitchNameVoQsJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "str2-7804-lc7-1", "VoQs"}, TS: time.Unix(0, 200), Val: countersSwitchNameVoQsJson},
+				client.Sync{},
+			},
+		},
+		{
+			desc: "poll query for COUNTERS/str2-7804-lc7-1|Asic0|Ethernet68/VoQs",
+			poll: 1,
+			q: client.Query{
+				Target:  "COUNTERS_DB",
+				Type:    client.Poll,
+				Queries: []client.Path{{"COUNTERS", "str2-7804-lc7-1|Asic0|Ethernet68", "VoQs"}},
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			},
+			wantNoti: []client.Notification{
+				client.Connected{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "str2-7804-lc7-1|Asic0|Ethernet68", "VoQs"}, TS: time.Unix(0, 200), Val: countersSystemPortVoQsJson},
+				client.Sync{},
+				client.Update{Path: []string{"COUNTERS_DB", "COUNTERS", "str2-7804-lc7-1|Asic0|Ethernet68", "VoQs"}, TS: time.Unix(0, 200), Val: countersSystemPortVoQsJson},
 				client.Sync{},
 			},
 		},

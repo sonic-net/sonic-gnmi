@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -17,6 +18,17 @@ const (
 )
 
 var sonic_db_init bool
+
+func dbConfigFile() string {
+	if path := os.Getenv("DB_CONFIG_PATH"); path != "" {
+		return path
+	}
+	return SONIC_DB_CONFIG_FILE
+}
+
+func dbGlobalConfigFile() string {
+	return filepath.Join(filepath.Dir(dbConfigFile()), filepath.Base(SONIC_DB_GLOBAL_CONFIG_FILE))
+}
 
 // Convert exception to error
 func CatchException(err *error) {
@@ -390,15 +402,16 @@ func DbInit() (err error) {
 		return nil
 	}
 	defer CatchException(&err)
-	if _, ierr := os.Stat(SONIC_DB_GLOBAL_CONFIG_FILE); ierr == nil || os.IsExist(ierr) {
+	globalConfig := dbGlobalConfigFile()
+	if _, ierr := os.Stat(globalConfig); ierr == nil || os.IsExist(ierr) {
 		// If there's global config file, invoke SonicDBConfigInitializeGlobalConfig
 		if !swsscommon.SonicDBConfigIsGlobalInit() {
-			swsscommon.SonicDBConfigInitializeGlobalConfig()
+			swsscommon.SonicDBConfigInitializeGlobalConfig(globalConfig, false)
 		}
 	} else {
 		// If there's no global config file, invoke SonicDBConfigInitialize
 		if !swsscommon.SonicDBConfigIsInit() {
-			swsscommon.SonicDBConfigInitialize()
+			swsscommon.SonicDBConfigInitialize(dbConfigFile())
 		}
 	}
 	sonic_db_init = true

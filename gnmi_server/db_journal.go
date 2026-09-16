@@ -40,6 +40,12 @@ var dbNums = map[string]db.DBNum{
 	"STATE_DB":  db.StateDB,
 }
 
+var hostVarLogPath = HostVarLogPath
+
+func dbJournalPath(database string) string {
+	return filepath.Join(hostVarLogPath, strings.ToLower(database)+".txt")
+}
+
 // NewDbJournal returns a new DbJournal for the specified database.
 func NewDbJournal(database string) (*DbJournal, error) {
 	var err error
@@ -74,7 +80,7 @@ func NewDbJournal(database string) (*DbJournal, error) {
 
 	journal.notifications = journal.ps.Channel()
 
-	journal.fileName = filepath.Join(HostVarLogPath, strings.ToLower(journal.database)+".txt")
+	journal.fileName = dbJournalPath(journal.database)
 	if journal.file, err = os.OpenFile(journal.fileName, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644); err != nil {
 		return nil, err
 	}
@@ -241,6 +247,8 @@ func (dbj *DbJournal) rotateFile() error {
 	}
 
 	if fileStat.Size() >= maxFileSize {
+		journalDir := filepath.Dir(dbj.fileName)
+
 		// Close the journal file and open it as read-only to copy it
 		dbj.file.Close()
 		if dbj.file, err = os.OpenFile(dbj.fileName, os.O_RDONLY, 0644); err != nil {
@@ -248,7 +256,7 @@ func (dbj *DbJournal) rotateFile() error {
 		}
 
 		// Remove a rotated, zipped file if the maxBackups limit is reached
-		files, err := os.ReadDir(HostVarLogPath)
+		files, err := os.ReadDir(journalDir)
 		if err != nil {
 			return err
 		}
@@ -263,13 +271,13 @@ func (dbj *DbJournal) rotateFile() error {
 			}
 		}
 		if count >= maxBackups {
-			if err := os.Remove(filepath.Join(HostVarLogPath, oldest)); err != nil {
+			if err := os.Remove(filepath.Join(journalDir, oldest)); err != nil {
 				return err
 			}
 		}
 
 		// Compress the file
-		zipName := filepath.Join(HostVarLogPath, strings.ToLower(dbj.database)+"_"+time.Now().Format("20060102150405")+".gz")
+		zipName := filepath.Join(journalDir, strings.ToLower(dbj.database)+"_"+time.Now().Format("20060102150405")+".gz")
 		zipFile, err := os.Create(zipName)
 		if err != nil {
 			return err

@@ -2,13 +2,60 @@ package dpuproxy
 
 import (
 	"context"
+	"crypto/tls"
+	"net"
 	"testing"
 
+	system "github.com/openconfig/gnoi/system"
+	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
+
+type testSystemServer struct {
+	system.UnimplementedSystemServer
+}
+
+func (testSystemServer) Time(context.Context, *system.TimeRequest) (*system.TimeResponse, error) {
+	return &system.TimeResponse{Time: 1234567890}, nil
+}
+
+func TestDPUProxyGetConnectionWithSelfSignedTLS(t *testing.T) {
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{
+		Certificates: []tls.Certificate{certificate},
+		ClientAuth:   tls.RequestClientCert,
+		MinVersion:   tls.VersionTLS12,
+	})))
+	system.RegisterSystemServer(server, testSystemServer{})
+	go server.Serve(listener)
+	t.Cleanup(server.Stop)
+
+	host, port, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := NewDPUProxy(nil)
+	conn, err := proxy.getConnection(context.Background(), "0", host, []string{port})
+	if err != nil {
+		t.Fatalf("getConnection() failed against self-signed TLS server: %v", err)
+	}
+	if conn == nil {
+		t.Fatal("getConnection() returned a nil connection")
+	}
+	t.Cleanup(func() { conn.Close() })
+}
 
 func TestExtractTargetMetadata_NoMetadata(t *testing.T) {
 	ctx := context.Background()

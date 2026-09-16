@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -19,11 +20,140 @@ import (
 	"github.com/redis/go-redis/v9"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 )
 
 var testFile string = "/etc/sonic/ut.cp.json"
+
+type checkpointService struct {
+	ssc.FakeClient
+	created string
+	deleted string
+}
+
+func (s *checkpointService) CreateCheckPoint(path string) error {
+	s.created = path
+	return nil
+}
+
+func (s *checkpointService) DeleteCheckPoint(path string) error {
+	s.deleted = path
+	return nil
+}
+
+func TestCheckPointPath(t *testing.T) {
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "/tmp/checkpoint")
+	got, err := checkPointPath()
+	if err != nil {
+		t.Fatalf("checkPointPath() error = %v", err)
+	}
+	if got != "/tmp/checkpoint" {
+		t.Fatalf("checkPointPath() = %q, want /tmp/checkpoint", got)
+	}
+
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "")
+	got, err = checkPointPath()
+	if err != nil {
+		t.Fatalf("checkPointPath() error = %v", err)
+	}
+	if got != CHECK_POINT_PATH {
+		t.Fatalf("checkPointPath() = %q, want %q", got, CHECK_POINT_PATH)
+	}
+
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "tmp/checkpoint")
+	if _, err := checkPointPath(); err == nil {
+		t.Fatal("checkPointPath() accepted a relative path")
+	}
+}
+
+func TestCheckpointPathCallers(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", dir)
+	checkpoint := []byte(`{"TEST_TABLE":{"key":{"field":"sentinel"}}}`)
+	if err := os.WriteFile(filepath.Join(dir, "config.cp.json"), checkpoint, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := &checkpointService{}
+	patches := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+		return service, nil
+	})
+	defer patches.Reset()
+	patches.ApplyFunc(sdcfg.CheckDbMultiNamespace, func() (bool, error) {
+		return false, nil
+	})
+
+	client := &MixedDbClient{}
+	if err := client.SetIncrementalConfig(nil, nil, nil); err != nil {
+		t.Fatalf("SetIncrementalConfig() error = %v", err)
+	}
+	wantCheckpoint := filepath.Join(dir, "config")
+	if service.created != wantCheckpoint {
+		t.Fatalf("CreateCheckPoint() path = %q, want %q", service.created, wantCheckpoint)
+	}
+	if service.deleted != wantCheckpoint {
+		t.Fatalf("DeleteCheckPoint() path = %q, want %q", service.deleted, wantCheckpoint)
+	}
+	got, err := client.jClient.Get([]string{"TEST_TABLE", "key", "field"})
+	if err != nil {
+		t.Fatalf("checkpoint read after SetIncrementalConfig() error = %v", err)
+	}
+	if string(got) != `"sentinel"` {
+		t.Fatalf("checkpoint value after SetIncrementalConfig() = %s, want %q", got, "sentinel")
+	}
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{
+		{Name: "CONFIG_DB"},
+		{Name: "localhost"},
+		{Name: "TEST_TABLE"},
+		{Name: "key"},
+		{Name: "field"},
+	}}
+	readClient := &MixedDbClient{paths: []*gnmipb.Path{path}}
+	values, err := readClient.GetCheckPoint()
+	if err != nil {
+		t.Fatalf("GetCheckPoint() error = %v", err)
+	}
+	if len(values) != 1 {
+		t.Fatalf("GetCheckPoint() returned %d values, want 1", len(values))
+	}
+	if got := string(values[0].Val.GetJsonIetfVal()); got != `"sentinel"` {
+		t.Fatalf("GetCheckPoint() value = %s, want %q", got, "sentinel")
+	}
+}
+
+func TestCheckpointPathCallersRejectRelativePath(t *testing.T) {
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "tmp/checkpoint")
+	dbusCalled := false
+	dbConfigCalled := false
+	patches := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+		dbusCalled = true
+		return nil, errors.New("unexpected D-Bus call")
+	})
+	defer patches.Reset()
+	patches.ApplyFunc(sdcfg.CheckDbMultiNamespace, func() (bool, error) {
+		dbConfigCalled = true
+		return false, errors.New("unexpected database-config call")
+	})
+
+	wantErr := `SONIC_GNMI_CHECKPOINT_DIR must be absolute: "tmp/checkpoint"`
+	client := &MixedDbClient{}
+	if err := client.SetIncrementalConfig(nil, nil, nil); err == nil || err.Error() != wantErr {
+		t.Fatalf("SetIncrementalConfig() error = %v, want %q", err, wantErr)
+	}
+	if _, err := client.GetCheckPoint(); err == nil || err.Error() != wantErr {
+		t.Fatalf("GetCheckPoint() error = %v, want %q", err, wantErr)
+	}
+	client.target = "CONFIG_DB"
+	if _, err := client.Get(nil); err == nil || err.Error() != wantErr {
+		t.Fatalf("Get() error = %v, want %q", err, wantErr)
+	}
+	if dbusCalled || dbConfigCalled {
+		t.Fatalf("relative path reached dependencies: D-Bus = %v, database config = %v", dbusCalled, dbConfigCalled)
+	}
+}
 
 func JsonEqual(a, b []byte) (bool, error) {
 	var j1, j2 interface{}
@@ -833,6 +963,18 @@ func saveAndResetTarget2RedisDb() func() {
 	return func() { Target2RedisDb = orig }
 }
 
+// allRuntimeDbNames returns all DB names from spb.Target_value except OTHERS,
+// suitable for mocking sdcfg.GetDbList in initRedisDbClients tests.
+func allRuntimeDbNames() []string {
+	names := make([]string, 0, len(spb.Target_value))
+	for name := range spb.Target_value {
+		if name != "OTHERS" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 func TestInitRedisDbClients(t *testing.T) {
 	ns := ""
 
@@ -840,10 +982,14 @@ func TestInitRedisDbClients(t *testing.T) {
 		defer saveAndResetTarget2RedisDb()()
 
 		getDbSockCalls := 0
-		patches := gomonkey.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
-			return []string{ns}, nil
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbList, func(_ string) ([]string, error) {
+			return allRuntimeDbNames(), nil
 		})
 		defer patches.Reset()
+
+		patches.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+			return []string{ns}, nil
+		})
 
 		patches.ApplyFunc(sdcfg.GetDbSock, func(dbName string, _ string) (string, error) {
 			getDbSockCalls++
@@ -875,10 +1021,14 @@ func TestInitRedisDbClients(t *testing.T) {
 	t.Run("AllDbsAvailable", func(t *testing.T) {
 		defer saveAndResetTarget2RedisDb()()
 
-		patches := gomonkey.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
-			return []string{ns}, nil
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbList, func(_ string) ([]string, error) {
+			return allRuntimeDbNames(), nil
 		})
 		defer patches.Reset()
+
+		patches.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+			return []string{ns}, nil
+		})
 
 		patches.ApplyFunc(sdcfg.GetDbSock, func(_ string, _ string) (string, error) {
 			return "/var/run/redis/redis.sock", nil
@@ -906,10 +1056,14 @@ func TestInitRedisDbClients(t *testing.T) {
 	t.Run("GetDbAllNamespacesFails", func(t *testing.T) {
 		defer saveAndResetTarget2RedisDb()()
 
-		patches := gomonkey.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
-			return nil, fmt.Errorf("namespace retrieval failed")
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbList, func(_ string) ([]string, error) {
+			return allRuntimeDbNames(), nil
 		})
 		defer patches.Reset()
+
+		patches.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+			return nil, fmt.Errorf("namespace retrieval failed")
+		})
 
 		initRedisDbClients()
 
@@ -926,10 +1080,14 @@ func TestInitRedisDbClients(t *testing.T) {
 			"ASIC_DB":          true,
 		}
 
-		patches := gomonkey.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
-			return []string{ns}, nil
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbList, func(_ string) ([]string, error) {
+			return allRuntimeDbNames(), nil
 		})
 		defer patches.Reset()
+
+		patches.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+			return []string{ns}, nil
+		})
 
 		patches.ApplyFunc(sdcfg.GetDbSock, func(dbName string, _ string) (string, error) {
 			if failingDbs[dbName] {
@@ -953,6 +1111,79 @@ func TestInitRedisDbClients(t *testing.T) {
 			if _, exists := nsMap[dbName]; !exists {
 				t.Errorf("Expected %s to be initialized despite other DBs failing", dbName)
 			}
+		}
+	})
+
+	t.Run("GetDbListFails", func(t *testing.T) {
+		defer saveAndResetTarget2RedisDb()()
+
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbList, func(_ string) ([]string, error) {
+			return nil, fmt.Errorf("DB list retrieval failed")
+		})
+		defer patches.Reset()
+
+		initRedisDbClients()
+
+		if len(Target2RedisDb) != 0 {
+			t.Errorf("Expected Target2RedisDb to be empty when GetDbList fails, got %d entries", len(Target2RedisDb))
+		}
+	})
+
+	t.Run("GetDbListEmpty", func(t *testing.T) {
+		defer saveAndResetTarget2RedisDb()()
+
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbList, func(_ string) ([]string, error) {
+			return []string{}, nil
+		})
+		defer patches.Reset()
+
+		initRedisDbClients()
+
+		if len(Target2RedisDb) != 0 {
+			t.Errorf("Expected Target2RedisDb to be empty when DB list is empty, got %d entries", len(Target2RedisDb))
+		}
+	})
+
+	t.Run("RuntimeDbSetFilters", func(t *testing.T) {
+		defer saveAndResetTarget2RedisDb()()
+
+		// Return only a subset of DBs — CHASSIS_STATE_DB is absent from runtime config
+		patches := gomonkey.ApplyFunc(sdcfg.GetDbList, func(_ string) ([]string, error) {
+			return []string{"CONFIG_DB", "APPL_DB", "STATE_DB"}, nil
+		})
+		defer patches.Reset()
+
+		patches.ApplyFunc(sdcfg.GetDbAllNamespaces, func() ([]string, error) {
+			return []string{ns}, nil
+		})
+
+		getDbSockCalls := 0
+		patches.ApplyFunc(sdcfg.GetDbSock, func(_ string, _ string) (string, error) {
+			getDbSockCalls++
+			return "/var/run/redis/redis.sock", nil
+		})
+
+		initRedisDbClients()
+
+		nsMap, ok := Target2RedisDb[ns]
+		if !ok {
+			t.Fatal("Expected namespace to exist in Target2RedisDb")
+		}
+		// DBs not in the runtime list should be filtered out
+		for _, dbName := range []string{"CHASSIS_STATE_DB", "ASIC_DB", "COUNTERS_DB"} {
+			if _, exists := nsMap[dbName]; exists {
+				t.Errorf("%s should have been filtered by runtimeDbSet", dbName)
+			}
+		}
+		// DBs in the runtime list should be present
+		for _, dbName := range []string{"CONFIG_DB", "APPL_DB", "STATE_DB"} {
+			if _, exists := nsMap[dbName]; !exists {
+				t.Errorf("Expected %s to be initialized", dbName)
+			}
+		}
+		// GetDbSock should only be called for DBs in the runtime set
+		if getDbSockCalls != 3 {
+			t.Errorf("Expected GetDbSock to be called 3 times, got %d", getDbSockCalls)
 		}
 	})
 }
@@ -1608,6 +1839,72 @@ func TestTableData2Msi_SkipsEmptyData(t *testing.T) {
 			t.Errorf("expected Ethernet68 in msi, got %v", msi)
 		}
 	})
+}
+
+func TestTableData2TypedValue_ConfigDBWildcardPreservesTables(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+
+	rclient := Target2RedisDb[""]["CONFIG_DB"]
+	rclient.HSet(context.Background(), "DEVICE_METADATA|localhost", "hostname", "sonic")
+	rclient.HSet(context.Background(), "PORT|Ethernet0", "admin_status", "up", "lanes@", "1,2")
+	rclient.HSet(context.Background(), "NTP_SERVER|10.0.0.1", "NULL", "NULL")
+	rclient.Set(context.Background(), "CONFIG_DB_INITIALIZED", "1", 0)
+
+	tblPath := tablePath{dbNamespace: "", dbName: "CONFIG_DB", tableName: "*", delimitor: "|"}
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "*"}}}
+	client := DbClient{
+		pathG2S:                map[*gnmipb.Path][]tablePath{path: {tblPath}},
+		preserveConfigDBTables: true,
+	}
+	values, err := client.Get(nil)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if len(values) != 1 {
+		t.Fatalf("Get() returned %d values, want 1", len(values))
+	}
+	var got map[string]interface{}
+	if err := json.Unmarshal(values[0].GetVal().GetJsonIetfVal(), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	want := map[string]interface{}{
+		"DEVICE_METADATA": map[string]interface{}{
+			"localhost": map[string]interface{}{"hostname": "sonic"},
+		},
+		"PORT": map[string]interface{}{
+			"Ethernet0": map[string]interface{}{
+				"admin_status": "up",
+				"lanes":        []interface{}{"1", "2"},
+			},
+		},
+		"NTP_SERVER": map[string]interface{}{
+			"10.0.0.1": map[string]interface{}{},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tableData2TypedValue() = %#v, want %#v", got, want)
+	}
+}
+
+func TestDbClientGet_ConfigDBWildcardLegacyBehavior(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+
+	rclient := Target2RedisDb[""]["CONFIG_DB"]
+	rclient.HSet(context.Background(), "PORT|Ethernet0", "admin_status", "up")
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "*"}}}
+	tblPath := tablePath{dbNamespace: "", dbName: "CONFIG_DB", tableName: "*", delimitor: "|"}
+	client := DbClient{pathG2S: map[*gnmipb.Path][]tablePath{path: {tblPath}}}
+	values, err := client.Get(nil)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got := string(values[0].GetVal().GetJsonIetfVal()); got != `{"Ethernet0":{"admin_status":"up"}}` {
+		t.Fatalf("legacy Get() = %s", got)
+	}
 }
 
 func TestSubscribeTableData2TypedValue(t *testing.T) {
@@ -2421,4 +2718,249 @@ func TestHandleTableDataBatchesOpRemove(t *testing.T) {
 	if delCalls != 0 {
 		t.Errorf("DbDelTable called %d times, want 0 (multi-key remove must batch)", delCalls)
 	}
+}
+func TestDbClientOnceRun(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+	ns := ""
+	rclient := Target2RedisDb[ns]["STATE_DB"]
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
+
+	t.Run("Success_ReturnsUpdateAndSync", func(t *testing.T) {
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+		c := DbClient{
+			pathG2S: map[*gnmipb.Path][]tablePath{
+				gnmiPath: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}},
+			},
+		}
+
+		q := queue.NewPriorityQueue(1, false)
+		once := make(chan struct{}, 1)
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		go c.OnceRun(q, once, &wg, nil)
+
+		once <- struct{}{}
+		wg.Wait()
+
+		var gotUpdate, gotSync bool
+		for !q.Empty() {
+			items, _ := q.Get(1)
+			val := items[0].(Value)
+			if val.GetSyncResponse() {
+				gotSync = true
+			} else if val.GetVal() != nil {
+				gotUpdate = true
+			}
+		}
+		if !gotUpdate {
+			t.Errorf("expected update notification")
+		}
+		if !gotSync {
+			t.Errorf("expected sync response")
+		}
+	})
+
+	t.Run("ChannelClosed_ExitsEarly", func(t *testing.T) {
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+		c := DbClient{
+			pathG2S: map[*gnmipb.Path][]tablePath{
+				gnmiPath: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}},
+			},
+		}
+
+		q := queue.NewPriorityQueue(1, false)
+		once := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		close(once)
+		go c.OnceRun(q, once, &wg, nil)
+		wg.Wait()
+
+		if !q.Empty() {
+			t.Errorf("expected no items in queue when channel is closed")
+		}
+	})
+
+	t.Run("NoData_ReturnsSyncOnly", func(t *testing.T) {
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.99"}}}
+		c := DbClient{
+			pathG2S: map[*gnmipb.Path][]tablePath{
+				gnmiPath: {{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.99", delimitor: "|"}},
+			},
+		}
+
+		q := queue.NewPriorityQueue(1, false)
+		once := make(chan struct{}, 1)
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		go c.OnceRun(q, once, &wg, nil)
+
+		once <- struct{}{}
+		wg.Wait()
+
+		var gotSync bool
+		var gotUpdate bool
+		for !q.Empty() {
+			items, _ := q.Get(1)
+			val := items[0].(Value)
+			if val.GetSyncResponse() {
+				gotSync = true
+			} else if val.GetVal() != nil {
+				gotUpdate = true
+			}
+		}
+		if gotUpdate {
+			t.Errorf("did not expect update for non-existent key")
+		}
+		if !gotSync {
+			t.Errorf("expected sync response even with no data")
+		}
+	})
+}
+
+func TestMixedDbClientOnceRun(t *testing.T) {
+	mapkey := ":"
+	cleanup := setupMixedDbRedis(t, mapkey)
+	defer cleanup()
+
+	ns := ""
+	rclient := Target2RedisDb[ns]["STATE_DB"]
+	rclient.HSet(context.Background(), "NEIGH_STATE_TABLE|10.0.0.57", "peerType", "e-BGP")
+
+	t.Run("Success_ReturnsUpdateAndSync", func(t *testing.T) {
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+		tblPaths := []tablePath{{dbNamespace: ns, dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}}
+
+		c := MixedDbClient{
+			mapkey:   mapkey,
+			encoding: gnmipb.Encoding_JSON_IETF,
+			paths:    []*gnmipb.Path{gnmiPath},
+		}
+
+		patches := gomonkey.ApplyPrivateMethod(&c, "getDbtablePath", func(_ *MixedDbClient, _ *gnmipb.Path, _ *gnmipb.Path) ([]tablePath, error) {
+			return tblPaths, nil
+		})
+		defer patches.Reset()
+
+		q := queue.NewPriorityQueue(1, false)
+		once := make(chan struct{}, 1)
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		go c.OnceRun(q, once, &wg, nil)
+
+		once <- struct{}{}
+		wg.Wait()
+
+		var gotUpdate, gotSync bool
+		for !q.Empty() {
+			items, _ := q.Get(1)
+			val := items[0].(Value)
+			if val.GetSyncResponse() {
+				gotSync = true
+			} else if val.GetVal() != nil {
+				gotUpdate = true
+			}
+		}
+		if !gotUpdate {
+			t.Errorf("expected update notification")
+		}
+		if !gotSync {
+			t.Errorf("expected sync response")
+		}
+	})
+
+	t.Run("ChannelClosed_ExitsEarly", func(t *testing.T) {
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+
+		c := MixedDbClient{
+			mapkey:   mapkey,
+			encoding: gnmipb.Encoding_JSON_IETF,
+			paths:    []*gnmipb.Path{gnmiPath},
+		}
+
+		q := queue.NewPriorityQueue(1, false)
+		once := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		close(once)
+		go c.OnceRun(q, once, &wg, nil)
+		wg.Wait()
+
+		if !q.Empty() {
+			t.Errorf("expected no items in queue when channel is closed")
+		}
+	})
+
+	t.Run("GetDbtablePath_Error", func(t *testing.T) {
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "BAD_TABLE"}}}
+
+		c := MixedDbClient{
+			mapkey:   mapkey,
+			encoding: gnmipb.Encoding_JSON_IETF,
+			paths:    []*gnmipb.Path{gnmiPath},
+		}
+
+		patches := gomonkey.ApplyPrivateMethod(&c, "getDbtablePath", func(_ *MixedDbClient, _ *gnmipb.Path, _ *gnmipb.Path) ([]tablePath, error) {
+			return nil, fmt.Errorf("simulated getDbtablePath error")
+		})
+		defer patches.Reset()
+
+		q := queue.NewPriorityQueue(1, false)
+		once := make(chan struct{}, 1)
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		go c.OnceRun(q, once, &wg, nil)
+
+		once <- struct{}{}
+		wg.Wait()
+
+		// Should have a fatal message in the queue
+		if q.Empty() {
+			t.Fatalf("expected fatal message in queue")
+		}
+		items, _ := q.Get(1)
+		val := items[0].(Value)
+		if val.GetSyncResponse() {
+			t.Errorf("expected fatal error, not sync response")
+		}
+	})
+
+	t.Run("TableData2TypedValue_Error", func(t *testing.T) {
+		gnmiPath := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "NEIGH_STATE_TABLE"}, {Name: "10.0.0.57"}}}
+		// Use a tablePath with a missing redis client to trigger error
+		tblPaths := []tablePath{{dbNamespace: "nonexistent_ns", dbName: "STATE_DB", tableName: "NEIGH_STATE_TABLE", tableKey: "10.0.0.57", delimitor: "|"}}
+
+		c := MixedDbClient{
+			mapkey:   mapkey,
+			encoding: gnmipb.Encoding_JSON_IETF,
+			paths:    []*gnmipb.Path{gnmiPath},
+		}
+
+		patches := gomonkey.ApplyPrivateMethod(&c, "getDbtablePath", func(_ *MixedDbClient, _ *gnmipb.Path, _ *gnmipb.Path) ([]tablePath, error) {
+			return tblPaths, nil
+		})
+		defer patches.Reset()
+
+		q := queue.NewPriorityQueue(1, false)
+		once := make(chan struct{}, 1)
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		go c.OnceRun(q, once, &wg, nil)
+
+		once <- struct{}{}
+		wg.Wait()
+
+		// Should have a fatal message in the queue
+		if q.Empty() {
+			t.Fatalf("expected fatal message in queue")
+		}
+	})
 }

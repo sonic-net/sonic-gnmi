@@ -432,6 +432,11 @@ restart: //Remote server might go down, in that case we restart with next destin
 	dst_group   = <name>      ; // name of DestinationGroup
 	report_type = "periodic" / "stream" / "once"
 	report_interval = 1*8DIGIT      ; In millisecond,
+
+	The sonic-telemetry_client YANG model declares the list key as "prefix name",
+	so YANG-validated tooling (config replace, GCU, golden config) spells the same
+	rows TELEMETRY_CLIENT|DestinationGroup|<name> and TELEMETRY_CLIENT|Subscription|<name>.
+	Both spellings are accepted; see matchRowPrefix.
 */
 
 // closeDestGroupClient close client instances for all clientSubscription using
@@ -458,6 +463,21 @@ func setupDestGroupClients(ctx context.Context, destGroupName string) {
 			ClientSubscriptionNameMap[name] = &cs
 		}
 	}
+}
+
+// matchRowPrefix matches a TELEMETRY_CLIENT row key against a row type and returns
+// the row name. The historical spelling joins the row type and the name with "_"
+// (DestinationGroup_HS); the YANG model declares key "prefix name", so config
+// written through YANG-validated tooling joins them with the CONFIG_DB key
+// separator instead (DestinationGroup|HS). Accept both, so hand written config
+// keeps working and dial-out becomes configurable through config replace / GCU.
+func matchRowPrefix(key string, rowType string, separator string) (string, bool) {
+	for _, sep := range []string{"_", separator} {
+		if strings.HasPrefix(key, rowType+sep) {
+			return strings.TrimPrefix(key, rowType+sep), true
+		}
+	}
+	return "", false
 }
 
 // start/stop/update telemetry publist client as requested
@@ -512,8 +532,7 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 				setupDestGroupClients(ctx, grpName)
 			}
 		}
-	} else if strings.HasPrefix(key, "DestinationGroup_") {
-		destGroupName := strings.TrimPrefix(key, "DestinationGroup_")
+	} else if destGroupName, matched := matchRowPrefix(key, "DestinationGroup", separator); matched {
 		if destGroupName == "" {
 			return fmt.Errorf("Empty  Destination Group name %v", key)
 		}
@@ -550,10 +569,9 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 			destGrpNameMap[destGroupName] = dests
 			setupDestGroupClients(ctx, destGroupName)
 		}
-	} else if strings.HasPrefix(key, "Subscription_") {
-		name := strings.TrimPrefix(key, "Subscription_")
+	} else if name, matched := matchRowPrefix(key, "Subscription", separator); matched {
 		if name == "" {
-			return fmt.Errorf("Empty Subscription_ name %v", key)
+			return fmt.Errorf("Empty Subscription name %v", key)
 		}
 		csub, ok := ClientSubscriptionNameMap[name]
 		if ok {
@@ -580,7 +598,7 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 			// TODO: start one subscription publish routine for this request
 			// Only start routine when DestGrp2ClientSubMap is not empty, or ...?
 			cs := clientSubscription{
-				interval: 5000, // default to 5000 milliseconds
+				interval: 5000 * time.Millisecond, // default to 5000 milliseconds
 				name:     name,
 				cancel:   cancel,
 			}

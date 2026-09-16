@@ -21,16 +21,51 @@
 <!--
 - Note we only backport fixes to a release branch, *not* features!
 - Please also provide a reason for the backporting below.
+- If you request a backport/cherry-pick, provide both:
+  1. A GitHub issue or Microsoft ADO work item describing the failure.
+  2. Test evidence from the target release branch(es) requested below,
+     not only from master.
 - e.g.
 - [x] 202006
 -->
 
-- [ ] 201811
-- [ ] 201911
-- [ ] 202006
-- [ ] 202012
-- [ ] 202106
-- [ ] 202111
+- [ ] 202305
+- [ ] 202311
+- [ ] 202405
+- [ ] 202411
+- [ ] 202505
+- [ ] 202511
+- [ ] 202605
+
+Tracking issue/work item for backport/cherry-pick request (GitHub issue or Microsoft ADO):
+Failure type: <!-- day-one issue / regression / other -->
+
+#### Tested branch
+
+<!--
+- Select each branch where the change was tested.
+- If you request a backport/cherry-pick, select the base branch and the tested
+  target release branch(es).
+-->
+
+- [ ] master
+- [ ] 202305
+- [ ] 202311
+- [ ] 202405
+- [ ] 202411
+- [ ] 202505
+- [ ] 202511
+- [ ] 202605
+- [ ] N/A
+
+#### Test result
+
+<!--
+- Provide the tested image version and test evidence for each selected branch.
+- e.g.
+- master: 20260716.01 - <test result or link>
+- 202605: 20260531.42 - <test result or link>
+-->
 
 #### Description for the changelog
 <!--

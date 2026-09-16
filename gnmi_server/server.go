@@ -22,6 +22,7 @@ import (
 	gnsi_pathz_pb "github.com/openconfig/gnsi/pathz"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
+	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
 	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
@@ -122,6 +123,11 @@ func (s *Server) handleOperationalGet(ctx context.Context, req *gnmipb.GetReques
 	authTarget := "gnoi"
 	ctx, err := authenticate(s.config, ctx, authTarget, false)
 	if err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, err
+	}
+
+	if err := checkPathsBlacklist(s.config.PathsBlacklist, prefix, paths); err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, err
 	}
@@ -256,6 +262,13 @@ type Config struct {
 	EnableStreamMultiplexing bool   // Allow multiple Subscribe RPCs on a single TCP connection.
 	SshCredMetaFile          string // Path to JSON file with SSH server credential metadata.
 	ConsoleCredMetaFile      string // Path to JSON file with console credential metadata.
+	// BindAddress is the network address to bind the TCP listener.
+	// When empty, binds to all interfaces (0.0.0.0). Use "127.0.0.1" to
+	// restrict to localhost only (e.g. when running without TLS).
+	BindAddress string
+	// PathsBlacklist rejects Get/Set/Subscribe requests referencing
+	// blacklisted paths. Nil disables enforcement.
+	PathsBlacklist *pathblacklist.Policy
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -541,6 +554,9 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		return nil, errors.New("config not provided")
 	}
 	var providers []certprovider.Provider
+	if err := common_utils.ValidateSharedMemoryKey(); err != nil {
+		return nil, fmt.Errorf("invalid shared-memory configuration: %w", err)
+	}
 	common_utils.InitCounters()
 
 	// Set authorization policy.
@@ -610,7 +626,8 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		if config.GnmiVrf != "" && config.GnmiVrf != "default" {
 			srv.lis, err = createVrfListener(config.GnmiVrf, config.Port)
 		} else {
-			srv.lis, err = net.Listen("tcp", fmt.Sprintf(":%d", config.Port))
+			bindAddr := config.BindAddress
+			srv.lis, err = net.Listen("tcp", fmt.Sprintf("%s:%d", bindAddr, config.Port))
 		}
 		if err != nil {
 			log.Warningf("Failed to open listener port %d: %v; disabling TCP listener", config.Port, err)
@@ -774,6 +791,57 @@ func (srv *Server) Auth(ctx context.Context) (context.Context, error) {
 	return authenticate(srv.config, ctx, "gnmi", false)
 }
 
+// checkRoleAccess enforces the <target>_<mode> role convention against the
+// caller's populated roles. It is shared by all authentication mechanisms
+// (password, JWT, cert) so that write-vs-read authorization is uniformly
+// applied regardless of how the user was authenticated.
+//
+// Return value: nil if the caller has sufficient access for the requested
+// operation, otherwise an error describing the denial.
+//
+// Semantics (preserved from the previous cert-only implementation):
+//   - roles are lowercased-target-prefixed strings, e.g. "gnoi_readonly",
+//     "gnmi_config_db_readwrite"
+//   - postfix "noaccess"  -> deny
+//   - postfix "readonly"  -> allow when writeAccess==false, deny otherwise
+//   - postfix "readwrite" -> allow
+//   - no role for this target and writeAccess==true -> deny (fail closed on writes)
+//   - no role for this target and writeAccess==false -> allow (backwards
+//     compatible with pre-role deployments that only granted authentication)
+func checkRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
+	target = strings.ToLower(target)
+	match := false
+	for _, role := range auth.Roles {
+		role = strings.TrimSpace(role)
+		if !strings.HasPrefix(role, target) {
+			continue
+		}
+		// Extract the postfix from the role
+		// e.g. role=gnmi_config_db_readwrite
+		// e.g. role=gnoi_readonly
+		postfix := strings.TrimPrefix(role, target)
+		postfix = strings.TrimPrefix(postfix, "_")
+		switch postfix {
+		case NoAccessMode:
+			return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, role)
+		case ReadOnlyMode:
+			if writeAccess {
+				return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, role)
+			}
+			match = true
+		case WriteAccessMode:
+			match = true
+		}
+		if match {
+			break
+		}
+	}
+	if !match && writeAccess {
+		return fmt.Errorf("%s does not have write access, target %s", auth.User, target)
+	}
+	return nil
+}
+
 func authenticate(config *Config, ctx context.Context, target string, writeAccess bool) (context.Context, error) {
 	var err error
 	success := false
@@ -781,11 +849,9 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 
 	// Skip authentication for UDS (Unix Domain Socket) connections.
 	// UDS security is enforced at the file-system level via socket permissions.
-	if pr, ok := peer.FromContext(ctx); ok && pr.Addr != nil {
-		if _, isUnix := pr.Addr.(*net.UnixAddr); isUnix {
-			rc.Auth.AuthEnabled = false
-			return ctx, nil
-		}
+	if isUnixPeer(ctx) {
+		rc.Auth.AuthEnabled = false
+		return ctx, nil
 	}
 
 	if !config.UserAuth.Any() {
@@ -812,40 +878,6 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 		if err == nil {
 			success = true
 		}
-		// role must be readwrite to support write access
-		if success && config.ConfigTableName != "" {
-			match := false
-			target = strings.ToLower(target)
-			for _, role := range rc.Auth.Roles {
-				role = strings.TrimSpace(role)
-				if strings.HasPrefix(role, target) {
-					// Extract the postfix from the role
-					// e.g. role=gnmi_config_db_readwrite
-					// e.g. role=gnoi_readonly
-					postfix := strings.TrimPrefix(role, target)
-					postfix = strings.TrimPrefix(postfix, "_")
-					// Check if the role postfix indicates no access, and deny access if true.
-					if postfix == NoAccessMode {
-						return ctx, fmt.Errorf("%s does not have access, target %s, role %s", rc.Auth.User, target, role)
-					} else if postfix == ReadOnlyMode {
-						// ReadOnlyMode is allowed for read access
-						if writeAccess {
-							return ctx, fmt.Errorf("%s does not have access, target %s, role %s", rc.Auth.User, target, role)
-						} else {
-							match = true
-							break
-						}
-					} else if postfix == WriteAccessMode {
-						// WriteAccessMode is allowed for read/write access
-						match = true
-						break
-					}
-				}
-			}
-			if !match && writeAccess {
-				return ctx, fmt.Errorf("%s does not have write access, target %s", rc.Auth.User, target)
-			}
-		}
 	}
 
 	//Allow for future authentication mechanisms here...
@@ -853,9 +885,53 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	if !success {
 		return ctx, status.Error(codes.Unauthenticated, "Unauthenticated")
 	}
+
+	// Role-based authorization: applied uniformly to whichever mechanism
+	// succeeded. Historically this check was nested inside the cert branch,
+	// which allowed password- and JWT-authenticated callers to bypass the
+	// readonly/readwrite gate for gNOI RPCs.
+	//
+	// Guarded by ConfigTableName to preserve existing behavior for
+	// deployments that do not configure a role source (e.g. TACACS-only
+	// setups or upgrade paths where GNMI_CLIENT_CERT is empty).
+	if config.ConfigTableName != "" {
+		if err := checkRoleAccess(&rc.Auth, target, writeAccess); err != nil {
+			return ctx, err
+		}
+	}
+
 	log.V(5).Infof("authenticate user %v, roles %v", rc.Auth.User, rc.Auth.Roles)
 
 	return ctx, nil
+}
+
+func isUnixPeer(ctx context.Context) bool {
+	pr, ok := peer.FromContext(ctx)
+	if !ok || pr.Addr == nil {
+		return false
+	}
+	_, ok = pr.Addr.(*net.UnixAddr)
+	return ok
+}
+
+func containsBGPRunningConfigPath(prefix *gnmipb.Path, paths []*gnmipb.Path) bool {
+	if prefix == nil || prefix.GetTarget() != "SHOW" {
+		return false
+	}
+	for _, path := range paths {
+		// Match the Elem precedence used by the SHOW client router. Deprecated
+		// Element fields do not override an Elem path.
+		elems := append([]*gnmipb.PathElem{}, prefix.GetElem()...)
+		elems = append(elems, path.GetElem()...)
+		names := make([]string, 0, len(elems))
+		for _, elem := range elems {
+			names = append(names, elem.GetName())
+		}
+		if len(names) == 2 && names[0] == "bgp" && names[1] == "running-config" {
+			return true
+		}
+	}
+	return false
 }
 
 // Subscribe implements the gNMI Subscribe RPC.
@@ -986,7 +1062,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	paths := req.GetPath()
 	extensions := req.GetExtension()
 	encoding := req.GetEncoding()
-	log.V(2).Infof("GetRequest paths: %v", paths)
+	log.V(3).Infof("GetRequest paths: %v", paths)
 
 	var dc sdc.Client
 	var err error
@@ -1003,7 +1079,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		dc, err = sdc.NewShowClient(paths, prefix)
 		authTarget = "gnmi_show"
 	} else if targetDbName, ok, _, _ := sdc.IsTargetDb(target); ok {
-		dc, err = sdc.NewDbClient(paths, prefix)
+		dc, err = sdc.NewDbClientForGet(paths, prefix)
 		if err == nil {
 			// For Get requests, validate that all requested keys exist in Redis.
 			// NewDbClient allows non-existent paths (needed for Subscribe to monitor
@@ -1038,6 +1114,16 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 
 	ctx, err = authenticate(s.config, ctx, authTarget, false)
 	if err != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, err
+	}
+	if containsBGPRunningConfigPath(prefix, paths) && !isUnixPeer(ctx) {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, status.Error(codes.PermissionDenied, "BGP running configuration is available only over the Unix domain socket")
+	}
+	// Checked after authenticate so unauthenticated callers get
+	// Unauthenticated instead of a policy result.
+	if err := checkPathsBlacklist(s.config.PathsBlacklist, prefix, paths); err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, err
 	}
@@ -1095,6 +1181,24 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	if s.config.EnableTranslibWrite == false && s.config.EnableNativeWrite == false {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
+	}
+	// Unlike Get/Subscribe this runs before authenticate: the bypass fast
+	// path below executes writes before authenticate is reached, so a later
+	// check could be bypassed. The error is generic, so nothing about the
+	// policy contents is exposed to unauthenticated callers.
+	if s.config.PathsBlacklist.Len() != 0 {
+		setPaths := make([]*gnmipb.Path, 0, len(req.GetDelete())+len(req.GetReplace())+len(req.GetUpdate()))
+		setPaths = append(setPaths, req.GetDelete()...)
+		for _, update := range req.GetReplace() {
+			setPaths = append(setPaths, update.GetPath())
+		}
+		for _, update := range req.GetUpdate() {
+			setPaths = append(setPaths, update.GetPath())
+		}
+		if err := checkPathsBlacklist(s.config.PathsBlacklist, req.GetPrefix(), setPaths); err != nil {
+			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+			return nil, err
+		}
 	}
 	// gNMI path based authorization
 	if s.config.PathzPolicy {

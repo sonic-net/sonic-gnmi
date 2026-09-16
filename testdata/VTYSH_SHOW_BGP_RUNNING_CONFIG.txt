@@ -1,0 +1,9 @@
+Building configuration...
+
+Current configuration:
+!
+router bgp 65100
+ bgp router-id 10.0.0.1
+ neighbor 10.0.0.2 remote-as 65200
+!
+end

@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -48,6 +49,17 @@ const MAX_RETRY_COUNT uint = 5
 const RETRY_DELAY_MILLISECOND uint = 100
 const RETRY_DELAY_FACTOR uint = 2
 const CHECK_POINT_PATH string = "/etc/sonic"
+
+func checkPointPath() (string, error) {
+	if path := os.Getenv("SONIC_GNMI_CHECKPOINT_DIR"); path != "" {
+		if !filepath.IsAbs(path) {
+			return "", fmt.Errorf("SONIC_GNMI_CHECKPOINT_DIR must be absolute: %q", path)
+		}
+		return filepath.Clean(path), nil
+	}
+	return CHECK_POINT_PATH, nil
+}
+
 const ELEM_INDEX_DATABASE = 0
 const ELEM_INDEX_INSTANCE = 1
 const UPDATE_OPERATION = "add"
@@ -240,7 +252,7 @@ func GetTableKeySeparatorByDBKey(target string, dbkey swsscommon.SonicDBKey) (st
 }
 
 func parseJson(str []byte) (interface{}, error) {
-	var res interface{}
+	var res interface{} // nosemgrep: go-unsafe-deserialization-interface -- generic JSON parse for dynamic DB keys
 	err := json.Unmarshal(str, &res)
 	if err != nil {
 		return res, fmt.Errorf("JSON unmarshalling error: %v", err)
@@ -1388,7 +1400,10 @@ with open(filename, 'r') as fp:
 `
 
 func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
-	var err error
+	checkpointPath, err := checkPointPath()
+	if err != nil {
+		return err
+	}
 
 	var sc ssc.Service
 	sc, err = ssc.NewDbusClient()
@@ -1409,12 +1424,12 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		}
 	}
 
-	err = sc.CreateCheckPoint(CHECK_POINT_PATH + "/config")
+	err = sc.CreateCheckPoint(filepath.Join(checkpointPath, "config"))
 	if err != nil {
 		return err
 	}
-	defer sc.DeleteCheckPoint(CHECK_POINT_PATH + "/config")
-	fileName := CHECK_POINT_PATH + "/config.cp.json"
+	defer sc.DeleteCheckPoint(filepath.Join(checkpointPath, "config"))
+	fileName := filepath.Join(checkpointPath, "config.cp.json")
 	c.jClient, err = NewJsonClient(fileName, namespace)
 	if err != nil {
 		return err
@@ -1687,8 +1702,11 @@ func (c *MixedDbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, upd
 
 func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 	var values []*spb.Value
-	var err error
 	ts := time.Now()
+	checkpointPath, err := checkPointPath()
+	if err != nil {
+		return nil, err
+	}
 
 	multiNs, err := sdcfg.CheckDbMultiNamespace()
 	if err != nil {
@@ -1703,7 +1721,7 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 		}
 	}
 
-	fileName := CHECK_POINT_PATH + "/config.cp.json"
+	fileName := filepath.Join(checkpointPath, "config.cp.json")
 	c.jClient, err = NewJsonClient(fileName, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("There's no check point")
@@ -1746,6 +1764,9 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 
 func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	if c.target == "CONFIG_DB" {
+		if _, err := checkPointPath(); err != nil {
+			return nil, err
+		}
 		ret, err := c.GetCheckPoint()
 		if err == nil {
 			return ret, err
@@ -1791,7 +1812,51 @@ func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 }
 
 func (c *MixedDbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
-	return
+	c.w = w
+	defer c.w.Done()
+	c.q = q
+	c.channel = once
+
+	_, more := <-c.channel
+	if !more {
+		log.V(1).Infof("%v once channel closed, exiting OnceRun routine", c)
+		return
+	}
+
+	t1 := time.Now()
+	for _, gnmiPath := range c.paths {
+		tblPaths, err := c.getDbtablePath(gnmiPath, nil)
+		if err != nil {
+			log.V(2).Infof("OnceRun: Unable to get table path due to err: %v", err)
+			putFatalMsg(c.q, fmt.Sprintf("OnceRun error: %v", err))
+			return
+		}
+		val, err, updateReceived := c.tableData2TypedValue(tblPaths, nil)
+		if err != nil {
+			log.V(2).Infof("OnceRun: Unable to create gnmi TypedValue due to err: %v", err)
+			putFatalMsg(c.q, fmt.Sprintf("OnceRun error: %v", err))
+			return
+		}
+		if updateReceived {
+			spbv := &spb.Value{
+				Prefix:       c.prefix,
+				Path:         gnmiPath,
+				Timestamp:    time.Now().UnixNano(),
+				SyncResponse: false,
+				Val:          val,
+			}
+			c.q.Put(Value{spbv})
+			log.V(6).Infof("OnceRun: Added spbv #%v", spbv)
+		}
+	}
+
+	c.q.Put(Value{
+		&spb.Value{
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: true,
+		},
+	})
+	log.V(4).Infof("OnceRun: Sync done, total time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 }
 
 func (c *MixedDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
