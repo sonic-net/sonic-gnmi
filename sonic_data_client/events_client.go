@@ -21,6 +21,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
@@ -243,7 +244,7 @@ func update_stats(evtc *EventClient) {
 			DB:          dbId,
 			DialTimeout: 0,
 		}
-		sdcfg.ApplyRedisPoolSize(opts)
+		redisopts.ApplyPoolSize(opts)
 		rclient = redis.NewClient(opts)
 
 		// Init current values for cumulative keys and clear for absolute

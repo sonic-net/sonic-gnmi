@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/redis/go-redis/v9"
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 )
 
 // RedisClient defines the interface for Redis operations needed by DPU resolver.
@@ -38,6 +38,6 @@ func NewRedisClient(socketPath string, db int) *redis.Client {
 		Password: "", // SONiC Redis has no password
 		DB:       db,
 	}
-	sdcfg.ApplyRedisPoolSize(opts)
+	redisopts.ApplyPoolSize(opts)
 	return redis.NewClient(opts)
 }

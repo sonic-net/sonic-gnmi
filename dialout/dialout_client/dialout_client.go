@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
@@ -665,7 +666,7 @@ func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 			DB:          dbn,
 			DialTimeout: 0,
 		}
-		sdcfg.ApplyRedisPoolSize(optsUnix)
+		redisopts.ApplyPoolSize(optsUnix)
 		redisDb = redis.NewClient(optsUnix)
 	} else {
 		addr, err := sdcfg.GetDbTcpAddr("CONFIG_DB", ns)
@@ -679,7 +680,7 @@ func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 			DB:          dbn,
 			DialTimeout: 0,
 		}
-		sdcfg.ApplyRedisPoolSize(optsTcp)
+		redisopts.ApplyPoolSize(optsTcp)
 		redisDb = redis.NewClient(optsTcp)
 	}
 

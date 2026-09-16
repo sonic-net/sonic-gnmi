@@ -15,6 +15,7 @@ GOROOT ?= $(shell $(GO) env GOROOT)
 # Add new packages here as they become pure-compatible.
 PURE_PACKAGES := \
 	internal/exec \
+	internal/redisopts \
 	pkg/gnoi/debug \
 	pkg/bypass \
 	internal/diskspace \

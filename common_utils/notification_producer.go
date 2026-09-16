@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	log "github.com/golang/glog"
@@ -34,7 +35,7 @@ func GetRedisDBClient() (*redis.Client, error) {
 		DB:          db,
 		DialTimeout: 0,
 	}
-	sdcfg.ApplyRedisPoolSize(opts)
+	redisopts.ApplyPoolSize(opts)
 	rclient := redis.NewClient(opts)
 	if _, err := rclient.Ping(context.Background()).Result(); err != nil {
 		return nil, err

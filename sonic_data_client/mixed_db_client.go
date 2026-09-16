@@ -20,6 +20,7 @@ import (
 	"unsafe"
 
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
@@ -642,7 +643,7 @@ func initRedisDbMap() {
 				DB:          int(dbn),
 				DialTimeout: 0,
 			}
-			sdcfg.ApplyRedisPoolSize(opts)
+			redisopts.ApplyPoolSize(opts)
 			redisDb := redis.NewClient(opts)
 			RedisDbMap[ns+":"+container+":"+dbName] = redisDb
 		}

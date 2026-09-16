@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	log "github.com/golang/glog"
@@ -48,7 +49,7 @@ func (cm *ConnectionManager) PrepareRedis() {
 		DB:          db,
 		DialTimeout: 0,
 	}
-	sdcfg.ApplyRedisPoolSize(opts)
+	redisopts.ApplyPoolSize(opts)
 	rclient = redis.NewClient(opts)
 
 	res, err := rclient.HGetAll(context.Background(), table).Result()

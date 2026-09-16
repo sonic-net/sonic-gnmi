@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
@@ -561,7 +562,7 @@ func useRedisTcpClient() error {
 					DB:          int(dbn),
 					DialTimeout: 0,
 				}
-				sdcfg.ApplyRedisPoolSize(opts)
+				redisopts.ApplyPoolSize(opts)
 				redisDb := redis.NewClient(opts)
 				Target2RedisDb[dbNamespace][dbName] = redisDb
 			}
@@ -598,7 +599,7 @@ func initRedisDbClients() {
 					DB:          int(dbn),
 					DialTimeout: 0,
 				}
-				sdcfg.ApplyRedisPoolSize(opts)
+				redisopts.ApplyPoolSize(opts)
 				redisDb := redis.NewClient(opts)
 				Target2RedisDb[dbNamespace][dbName] = redisDb
 			}

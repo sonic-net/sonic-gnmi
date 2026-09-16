@@ -12,7 +12,7 @@ import (
 	"github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/redis/go-redis/v9"
-	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -80,7 +80,7 @@ func getConfigDbClientDefault() (*redis.Client, error) {
 		DB:          configDbId,
 		DialTimeout: 0,
 	}
-	sdcfg.ApplyRedisPoolSize(opts)
+	redisopts.ApplyPoolSize(opts)
 	client := redis.NewClient(opts)
 	return client, nil
 }
