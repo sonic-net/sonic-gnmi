@@ -32,12 +32,11 @@ func (a *GoRedisAdapter) HGetAll(ctx context.Context, key string) (map[string]st
 // NewRedisClient creates a new Redis client connected to SONiC's Redis instance.
 // It connects via Unix socket to the specified database.
 func NewRedisClient(socketPath string, db int) *redis.Client {
-	opts := &redis.Options{
+	opts := redisopts.New(redis.Options{
 		Network:  "unix",
 		Addr:     socketPath,
 		Password: "", // SONiC Redis has no password
 		DB:       db,
-	}
-	redisopts.ApplyPoolSize(opts)
+	})
 	return redis.NewClient(opts)
 }

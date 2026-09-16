@@ -555,14 +555,13 @@ func useRedisTcpClient() error {
 					continue
 				}
 				// DB connector for direct redis operation
-				opts := &redis.Options{
+				opts := redisopts.New(redis.Options{
 					Network:     "tcp",
 					Addr:        addr,
 					Password:    "", // no password set
 					DB:          int(dbn),
 					DialTimeout: 0,
-				}
-				redisopts.ApplyPoolSize(opts)
+				})
 				redisDb := redis.NewClient(opts)
 				Target2RedisDb[dbNamespace][dbName] = redisDb
 			}
@@ -592,14 +591,13 @@ func initRedisDbClients() {
 					continue
 				}
 				// DB connector for direct redis operation
-				opts := &redis.Options{
+				opts := redisopts.New(redis.Options{
 					Network:     "unix",
 					Addr:        addr,
 					Password:    "", // no password set
 					DB:          int(dbn),
 					DialTimeout: 0,
-				}
-				redisopts.ApplyPoolSize(opts)
+				})
 				redisDb := redis.NewClient(opts)
 				Target2RedisDb[dbNamespace][dbName] = redisDb
 			}

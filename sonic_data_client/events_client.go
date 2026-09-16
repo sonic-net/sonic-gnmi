@@ -237,14 +237,13 @@ func update_stats(evtc *EventClient) {
 			return
 		}
 
-		opts := &redis.Options{
+		opts := redisopts.New(redis.Options{
 			Network:     "tcp",
 			Addr:        addr,
 			Password:    "", // no password set,
 			DB:          dbId,
 			DialTimeout: 0,
-		}
-		redisopts.ApplyPoolSize(opts)
+		})
 		rclient = redis.NewClient(opts)
 
 		// Init current values for cumulative keys and clear for absolute

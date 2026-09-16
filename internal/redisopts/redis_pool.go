@@ -13,6 +13,12 @@ import (
 // client connection pool size.
 const PoolSizeEnvVar = "GNMI_REDIS_POOL_SIZE"
 
+// New returns Redis options with all shared configuration applied.
+func New(opts redis.Options) *redis.Options {
+	ApplyPoolSize(&opts)
+	return &opts
+}
+
 // ApplyPoolSize sets opts.PoolSize from PoolSizeEnvVar when it contains a
 // positive integer. Otherwise, opts is unchanged so go-redis uses its default.
 func ApplyPoolSize(opts *redis.Options) {

@@ -7,6 +7,29 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+func TestNew(t *testing.T) {
+	t.Setenv(PoolSizeEnvVar, "5")
+
+	opts := New(redis.Options{
+		Network: "unix",
+		Addr:    "/var/run/redis/redis.sock",
+		DB:      4,
+	})
+
+	if opts.Network != "unix" {
+		t.Errorf("Network = %q, want unix", opts.Network)
+	}
+	if opts.Addr != "/var/run/redis/redis.sock" {
+		t.Errorf("Addr = %q, want /var/run/redis/redis.sock", opts.Addr)
+	}
+	if opts.DB != 4 {
+		t.Errorf("DB = %d, want 4", opts.DB)
+	}
+	if opts.PoolSize != 5 {
+		t.Errorf("PoolSize = %d, want 5", opts.PoolSize)
+	}
+}
+
 func TestApplyPoolSize(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -73,14 +73,13 @@ func getConfigDbClientDefault() (*redis.Client, error) {
 		}
 	}
 
-	opts := &redis.Options{
+	opts := redisopts.New(redis.Options{
 		Network:     network,
 		Addr:        addr,
 		Password:    "",
 		DB:          configDbId,
 		DialTimeout: 0,
-	}
-	redisopts.ApplyPoolSize(opts)
+	})
 	client := redis.NewClient(opts)
 	return client, nil
 }

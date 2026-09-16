@@ -42,14 +42,13 @@ func (cm *ConnectionManager) PrepareRedis() {
 		log.Errorf("DB err: %v", err)
 		return
 	}
-	opts := &redis.Options{
+	opts := redisopts.New(redis.Options{
 		Network:     "tcp",
 		Addr:        addr,
 		Password:    "",
 		DB:          db,
 		DialTimeout: 0,
-	}
-	redisopts.ApplyPoolSize(opts)
+	})
 	rclient = redis.NewClient(opts)
 
 	res, err := rclient.HGetAll(context.Background(), table).Result()

@@ -659,28 +659,26 @@ func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 		if err != nil {
 			return err
 		}
-		optsUnix := &redis.Options{
+		optsUnix := redisopts.New(redis.Options{
 			Network:     "unix",
 			Addr:        addr,
 			Password:    "", // no password set
 			DB:          dbn,
 			DialTimeout: 0,
-		}
-		redisopts.ApplyPoolSize(optsUnix)
+		})
 		redisDb = redis.NewClient(optsUnix)
 	} else {
 		addr, err := sdcfg.GetDbTcpAddr("CONFIG_DB", ns)
 		if err != nil {
 			return err
 		}
-		optsTcp := &redis.Options{
+		optsTcp := redisopts.New(redis.Options{
 			Network:     "tcp",
 			Addr:        addr,
 			Password:    "", // no password set
 			DB:          dbn,
 			DialTimeout: 0,
-		}
-		redisopts.ApplyPoolSize(optsTcp)
+		})
 		redisDb = redis.NewClient(optsTcp)
 	}
 

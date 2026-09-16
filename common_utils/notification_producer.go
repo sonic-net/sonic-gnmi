@@ -28,14 +28,13 @@ func GetRedisDBClient() (*redis.Client, error) {
 		log.Errorf("DB err: %v", err)
 		return nil, err
 	}
-	opts := &redis.Options{
+	opts := redisopts.New(redis.Options{
 		Network:     "tcp",
 		Addr:        addr,
 		Password:    "", // no password set
 		DB:          db,
 		DialTimeout: 0,
-	}
-	redisopts.ApplyPoolSize(opts)
+	})
 	rclient := redis.NewClient(opts)
 	if _, err := rclient.Ping(context.Background()).Result(); err != nil {
 		return nil, err
