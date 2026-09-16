@@ -21,6 +21,7 @@ import (
 	"unsafe"
 
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
@@ -647,13 +648,14 @@ func initRedisDbMap() {
 				return
 			}
 			// DB connector for direct redis operation
-			redisDb := redis.NewClient(&redis.Options{
+			opts := redisopts.New(redis.Options{
 				Network:     "unix",
 				Addr:        addr,
 				Password:    "", // no password set
 				DB:          int(dbn),
 				DialTimeout: 0,
 			})
+			redisDb := redis.NewClient(opts)
 			RedisDbMap[ns+":"+container+":"+dbName] = redisDb
 		}
 	}
