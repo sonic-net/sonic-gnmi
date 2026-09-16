@@ -15,6 +15,8 @@ service SonicService {
   rpc ImageRemove(ImageRemoveRequest) returns (ImageRemoveResponse) {}
   rpc ImageDefault(ImageDefaultRequest) returns (ImageDefaultResponse) {}
   rpc ClearNeighbors(ClearNeighborsRequest) returns (ClearNeighborsResponse) {}
+  rpc ConfigSave(ConfigSaveRequest) returns (ConfigSaveResponse) {}
+  rpc ConfigReload(ConfigReloadRequest) returns (ConfigReloadResponse) {}
 }
 
 message SonicOutput {
@@ -90,5 +92,33 @@ message ImageDefaultRequest {
 }
 message ImageDefaultResponse {
     SonicOutput output = 1 [(gogoproto.jsontag) = "sonic-image-management:output", (gogoproto.moretags) = "xml:\",comment\""];
+}
+
+// ConfigSave persists the running configuration to the SONiC startup config
+// file (/etc/sonic/config_db.json). The destination is fixed; the request
+// carries no inputs. This mirrors `config save -y` invoked via the host
+// service `org.SONiC.HostService.config.save`.
+message ConfigSaveRequest {
+    message Input {
+    }
+    Input input = 1 [(gogoproto.jsontag) = "sonic-config-mgmt:input", (gogoproto.moretags) = "xml:\",comment\""];
+}
+message ConfigSaveResponse {
+    SonicOutput output = 1 [(gogoproto.jsontag) = "sonic-config-mgmt:output", (gogoproto.moretags) = "xml:\",comment\""];
+}
+
+// ConfigReload reapplies configuration to the running CONFIG_DB. If
+// `config_json` is empty the host service reloads from the current startup
+// config file (/etc/sonic/config_db.json); otherwise the supplied JSON is
+// piped to `config reload -y /dev/stdin`. Backed by the host service
+// `org.SONiC.HostService.config.reload`.
+message ConfigReloadRequest {
+    message Input {
+        string config_json = 1;
+    }
+    Input input = 1 [(gogoproto.jsontag) = "sonic-config-mgmt:input", (gogoproto.moretags) = "xml:\",comment\""];
+}
+message ConfigReloadResponse {
+    SonicOutput output = 1 [(gogoproto.jsontag) = "sonic-config-mgmt:output", (gogoproto.moretags) = "xml:\",comment\""];
 }
 
