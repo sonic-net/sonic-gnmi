@@ -3,6 +3,7 @@ package gnmi
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 
 	log "github.com/golang/glog"
