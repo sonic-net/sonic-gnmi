@@ -24,7 +24,7 @@ func healthzDebugPath() *types.Path {
 	}}
 }
 
-func TestHealthzGetDebugData(t *testing.T) {
+func TestHealthzCheckCollectsDebugData(t *testing.T) {
 	server := newHealthzArtifactTestServer(t)
 	server.config.EnableNativeWrite = true
 	artifactID := "/tmp/dump/healthz.tar.gz"
@@ -45,14 +45,14 @@ func TestHealthzGetDebugData(t *testing.T) {
 	})
 
 	path := healthzDebugPath()
-	response, err := server.Get(context.Background(), &healthz.GetRequest{Path: path})
+	response, err := server.Check(context.Background(), &healthz.CheckRequest{Path: path})
 	if err != nil {
-		t.Fatalf("Get() failed: %v", err)
+		t.Fatalf("Check() failed: %v", err)
 	}
-	if response.GetComponent().GetId() != artifactID || response.GetComponent().GetPath() != path || len(response.GetComponent().GetArtifacts()) != 1 {
-		t.Fatalf("unexpected getDebugData() response: %+v", response)
+	if response.GetStatus().GetId() != artifactID || response.GetStatus().GetPath() != path || len(response.GetStatus().GetArtifacts()) != 1 {
+		t.Fatalf("unexpected Check() response: %+v", response)
 	}
-	file := response.GetComponent().GetArtifacts()[0].GetFile()
+	file := response.GetStatus().GetArtifacts()[0].GetFile()
 	wantHash := sha256.Sum256(content)
 	if file.GetSize() != int64(len(content)) || !bytes.Equal(file.GetHash().GetHash(), wantHash[:]) {
 		t.Fatalf("unexpected artifact metadata: %+v", file)
@@ -69,6 +69,10 @@ func TestHealthzPublicRPCsRequireAuthentication(t *testing.T) {
 			_, err := server.Get(context.Background(), &healthz.GetRequest{Path: healthzDebugPath()})
 			return err
 		},
+		"Check": func() error {
+			_, err := server.Check(context.Background(), &healthz.CheckRequest{Path: healthzDebugPath()})
+			return err
+		},
 		"Acknowledge": func() error {
 			_, err := server.Acknowledge(context.Background(), &healthz.AcknowledgeRequest{Id: "/tmp/dump/artifact"})
 			return err
@@ -80,15 +84,44 @@ func TestHealthzPublicRPCsRequireAuthentication(t *testing.T) {
 	}
 }
 
-func TestHealthzGetDebugDataReportsCollectionFailure(t *testing.T) {
+func TestHealthzCollectDebugDataReportsCollectionFailure(t *testing.T) {
 	server := newHealthzArtifactTestServer(t)
 	patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
 		return &ssc.FakeClientWithError{}, nil
 	})
 	defer patch.Reset()
 
-	response, err := server.getDebugData(context.Background(), healthzDebugPath())
+	response, err := server.collectDebugData(context.Background(), healthzDebugPath())
 	if response != nil || status.Code(err) != codes.Internal || !strings.Contains(err.Error(), "Host service error") {
-		t.Fatalf("getDebugData() = (%+v, %v), want an immediate collection failure", response, err)
+		t.Fatalf("collectDebugData() = (%+v, %v), want an immediate collection failure", response, err)
+	}
+}
+
+func TestHealthzGetDoesNotStartCollection(t *testing.T) {
+	server := newHealthzArtifactTestServer(t)
+	dbusCalls := 0
+	patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+		dbusCalls++
+		return &ssc.FakeClient{}, nil
+	})
+	defer patch.Reset()
+
+	_, err := server.Get(
+		context.Background(), &healthz.GetRequest{Path: healthzDebugPath()},
+	)
+	if status.Code(err) != codes.NotFound || dbusCalls != 0 {
+		t.Fatalf("Get() = %v after %d D-Bus calls, want NotFound without collection", err, dbusCalls)
+	}
+}
+
+func TestHealthzCheckRejectsUnsupportedEventID(t *testing.T) {
+	server := newHealthzArtifactTestServer(t)
+	server.config.EnableNativeWrite = true
+
+	_, err := server.Check(context.Background(), &healthz.CheckRequest{
+		Path: healthzDebugPath(), EventId: "event-123",
+	})
+	if status.Code(err) != codes.Unimplemented {
+		t.Fatalf("Check(event_id) code = %v, want Unimplemented", status.Code(err))
 	}
 }

@@ -184,8 +184,8 @@ func TestLegacyHealthzCollectionRejectsOpaqueDLDDArtifactID(t *testing.T) {
 		return healthzArtifactReady, nil
 	})
 
-	if _, err := server.getDebugData(context.Background(), &types.Path{}); status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("getDebugData() code = %v, want InvalidArgument; err=%v", status.Code(err), err)
+	if _, err := server.collectDebugData(context.Background(), &types.Path{}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("collectDebugData() code = %v, want InvalidArgument; err=%v", status.Code(err), err)
 	}
 }
 
@@ -196,7 +196,7 @@ func TestHealthzReadOnlyServerRejectsMutations(t *testing.T) {
 		call func() error
 	}{
 		{name: "legacy collection", call: func() error {
-			_, err := server.Get(context.Background(), &healthz.GetRequest{Path: healthzDebugPath()})
+			_, err := server.Check(context.Background(), &healthz.CheckRequest{Path: healthzDebugPath()})
 			return err
 		}},
 		{name: "acknowledge", call: func() error {
@@ -217,40 +217,23 @@ func TestHealthzReadOnlyServerRejectsMutations(t *testing.T) {
 	}
 }
 
-func TestHealthzAcknowledgeValidatesBeforeDBus(t *testing.T) {
+func TestHealthzAcknowledgeUsesOpaqueEventID(t *testing.T) {
 	server := newHealthzArtifactTestServer(t)
 	server.config.EnableNativeWrite = true
-	outside := filepath.Join(server.artifactResolver.hostMount, "outside.tar.gz")
-	if err := os.WriteFile(outside, []byte("outside"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, server.artifactResolver.containerPath("/tmp/dump/symlink.tar.gz")); err != nil {
-		t.Fatal(err)
-	}
-	dbusCalls := 0
+	client := &ssc.FakeClient{}
 	patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
-		dbusCalls++
-		return &ssc.FakeClient{}, nil
+		return client, nil
 	})
 	defer patch.Reset()
 
-	for _, test := range []struct {
-		id   string
-		code codes.Code
-	}{
-		{id: "/tmp/dump/bad\x00name", code: codes.InvalidArgument},
-		{id: "/tmp/dump/symlink.tar.gz", code: codes.PermissionDenied},
-	} {
-		if _, err := server.Acknowledge(context.Background(), &healthz.AcknowledgeRequest{Id: test.id}); status.Code(err) != test.code {
-			t.Fatalf("Acknowledge(%q) code = %v, want %v; err=%v", test.id, status.Code(err), test.code, err)
-		}
-	}
-	if dbusCalls != 0 {
-		t.Fatalf("invalid artifacts reached D-Bus %d times", dbusCalls)
+	if response, err := server.Acknowledge(
+		context.Background(), &healthz.AcknowledgeRequest{Id: "event-123"},
+	); err != nil || response == nil {
+		t.Fatalf("Acknowledge() = (%+v, %v), want success", response, err)
 	}
 }
 
-func TestHealthzAcknowledgeContainedArtifact(t *testing.T) {
+func TestHealthzAcknowledgeReportsHostServiceResult(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		client ssc.Service
@@ -262,16 +245,15 @@ func TestHealthzAcknowledgeContainedArtifact(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			server := newHealthzArtifactTestServer(t)
 			server.config.EnableNativeWrite = true
-			artifactID := "/tmp/dump/nested/legacy.tar.gz"
-			writeArtifactTestFile(t, server.artifactResolver, artifactID, []byte("legacy"))
+			eventID := "event-123"
 			patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
 				return test.client, nil
 			})
 			defer patch.Reset()
 
-			response, err := server.Acknowledge(context.Background(), &healthz.AcknowledgeRequest{Id: artifactID})
+			response, err := server.Acknowledge(context.Background(), &healthz.AcknowledgeRequest{Id: eventID})
 			if status.Code(err) != test.code || (test.code == codes.OK && response == nil) {
-				t.Fatalf("Acknowledge(%q) = (%+v, %v), want code %v", artifactID, response, err, test.code)
+				t.Fatalf("Acknowledge(%q) = (%+v, %v), want code %v", eventID, response, err, test.code)
 			}
 		})
 	}

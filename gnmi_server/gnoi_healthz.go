@@ -64,8 +64,8 @@ func isDebugData(p *types.Path) bool {
 	return true
 }
 
-func (srv *HealthzServer) getDebugData(ctx context.Context, p *types.Path) (*healthz.GetResponse, error) {
-	log.Infof("getDebugData() request path: %+v\n", p)
+func (srv *HealthzServer) collectDebugData(ctx context.Context, p *types.Path) (*healthz.ComponentStatus, error) {
+	log.Infof("collectDebugData() request path: %+v\n", p)
 	c := ddComponentAll
 	ll := ddLogLvlAlert
 	elems := p.GetElem()
@@ -116,15 +116,12 @@ func (srv *HealthzServer) getDebugData(ctx context.Context, p *types.Path) (*hea
 		return nil, err
 	}
 
-	log.Infof("Construct Get Response structure\n")
-	resp := &healthz.GetResponse{}
-	resp.Component = &healthz.ComponentStatus{
+	return &healthz.ComponentStatus{
 		Path:      p,
 		Id:        s,
 		Status:    healthz.Status_STATUS_HEALTHY,
 		Artifacts: []*healthz.ArtifactHeader{artifactHeader},
-	}
-	return resp, nil
+	}, nil
 }
 
 // Get implements the corresponding RPC.
@@ -142,11 +139,7 @@ func (srv *HealthzServer) Get(ctx context.Context, req *healthz.GetRequest) (*he
 	path := req.GetPath()
 	log.V(1).Infof("Healthz.Get request path: %+v", path.GetElem())
 	if isDebugData(path) {
-		// Starting a new debug collection requires write access.
-		if !writeEnabled(srv.config) {
-			return nil, healthzReadOnlyError()
-		}
-		return srv.getDebugData(ctx, path)
+		return nil, status.Error(codes.NotFound, "no collected Healthz status is available for this path")
 	}
 	log.Warning("Healthz.Get received unsupported component path")
 	return nil, status.Errorf(codes.Unimplemented, "Healthz.Get is unimplemented for component: [%s].", path.GetElem())
@@ -166,13 +159,6 @@ func (srv *HealthzServer) Acknowledge(ctx context.Context, req *healthz.Acknowle
 	if !writeEnabled(srv.config) {
 		return nil, healthzReadOnlyError()
 	}
-
-	// Pin the validated path before the host service deletes the artifact.
-	artifact, _, err := srv.getArtifactResolver().openLegacy(req.GetId())
-	if err != nil {
-		return nil, err
-	}
-	defer artifact.Close()
 
 	sc, err := ssc.NewDbusClient()
 	if err != nil {
@@ -197,11 +183,29 @@ func (srv *HealthzServer) List(ctx context.Context, req *healthz.ListRequest) (*
 }
 
 func (srv *HealthzServer) Check(ctx context.Context, req *healthz.CheckRequest) (*healthz.CheckResponse, error) {
-	if _, err := authenticate(srv.config, ctx, "gnoi", true); err != nil {
+	ctx, err := authenticate(srv.config, ctx, "gnoi", true)
+	if err != nil {
 		return nil, err
+	}
+	if req == nil || req.GetPath() == nil {
+		return nil, status.Error(codes.InvalidArgument, "Healthz.Check requires a component path")
 	}
 	if !writeEnabled(srv.config) {
 		return nil, healthzReadOnlyError()
 	}
-	return nil, status.Errorf(codes.Unimplemented, "gNOI Healthz Check not implemented")
+	if req.GetEventId() != "" {
+		return nil, status.Error(codes.Unimplemented, "event-specific Healthz checks are not implemented")
+	}
+	if !isDebugData(req.GetPath()) {
+		return nil, status.Errorf(
+			codes.Unimplemented,
+			"Healthz.Check is unimplemented for component: [%s].",
+			req.GetPath().GetElem(),
+		)
+	}
+	component, err := srv.collectDebugData(ctx, req.GetPath())
+	if err != nil {
+		return nil, err
+	}
+	return &healthz.CheckResponse{Status: component}, nil
 }
