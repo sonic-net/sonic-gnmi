@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -7581,5 +7582,491 @@ func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
 		// Serve returned after Stop — correct behavior
 	case <-time.After(2 * time.Second):
 		t.Error("Serve() did not return after Stop()")
+	}
+}
+
+func getFreePort(t *testing.T) int64 {
+	t.Helper()
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("failed to resolve tcp addr: %v", err)
+	}
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatalf("failed to listen on free port: %v", err)
+	}
+	defer l.Close()
+	return int64(l.Addr().(*net.TCPAddr).Port)
+}
+
+func TestGnmiGetTranslibXfmrIntf(t *testing.T) {
+	// 1. Locally defined response structs matching JSON-IETF format
+	type HardwarePortResp struct {
+		HardwarePort string `json:"openconfig-platform-port:hardware-port"`
+	}
+
+	type TransceiverResp struct {
+		Transceiver string `json:"openconfig-platform-transceiver:transceiver"`
+	}
+
+	type P4rtIdResp struct {
+		Id uint32 `json:"openconfig-p4rt:id"`
+	}
+
+	type InFcsErrorsResp struct {
+		InFcsErrors string `json:"openconfig-interfaces:in-fcs-errors"`
+	}
+
+	// Helper to marshal locally defined structs to []byte for runTestGet
+	marshal := func(v interface{}) []byte {
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatalf("Failed to marshal expected value: %v", err)
+		}
+		return b
+	}
+
+	// 2. Server and DB Setup
+	freePort := getFreePort(t)
+	s := createServer(t, freePort)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+
+	// Setup APPL_DB (DB 0)
+	applDbId, _ := sdcfg.GetDbId("APPL_DB", ns)
+	applClient := getRedisClientN(t, applDbId, ns)
+	defer applClient.Close()
+	if err := applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet0", map[string]interface{}{"id": "100"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet P4RT_PORT_ID_TABLE:Ethernet0: %v", err)
+	}
+
+	// Setup COUNTERS_DB (DB 2)
+	countersDbId, _ := sdcfg.GetDbId("COUNTERS_DB", ns)
+	countersClient := getRedisClientN(t, countersDbId, ns)
+	defer countersClient.Close()
+	if err := countersClient.HSet(ctx, "COUNTERS_PORT_NAME_MAP", "Ethernet0", "oid:0x1000000000001").Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS_PORT_NAME_MAP: %v", err)
+	}
+	if err := countersClient.HSet(ctx, "COUNTERS:oid:0x1000000000001", "SAI_PORT_STAT_ETHER_STATS_CRC_ALIGN_ERRORS", "10").Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS:oid:0x1000000000001: %v", err)
+	}
+
+	// Setup CONFIG_DB (DB 4)
+	configDbId, _ := sdcfg.GetDbId("CONFIG_DB", ns)
+	configClient := getRedisClientN(t, configDbId, ns)
+	defer configClient.Close()
+	if err := configClient.HSet(ctx, "PORT|Ethernet0", map[string]interface{}{
+		"index": "1",
+		"lanes": "1,2,3,4",
+		"id":    "100",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet0: %v", err)
+	}
+
+	// Setup STATE_DB (DB 6)
+	stateDbId, _ := sdcfg.GetDbId("STATE_DB", ns)
+	stateClient := getRedisClientN(t, stateDbId, ns)
+	defer stateClient.Close()
+	if err := stateClient.HSet(ctx, "PORT_TABLE:Ethernet0", map[string]interface{}{
+		"index": "1",
+		"lanes": "1,2,3,4",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT_TABLE:Ethernet0: %v", err)
+	}
+	if err := stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", map[string]interface{}{
+		"type": "QSFP28 or later",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet TRANSCEIVER_INFO|Ethernet0: %v", err)
+	}
+	if err := stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet1", map[string]interface{}{
+		"type": "QSFP28 or later",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet TRANSCEIVER_INFO|Ethernet1: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		applClient.Del(cleanupCtx, "P4RT_PORT_ID_TABLE:Ethernet0")
+		countersClient.HDel(cleanupCtx, "COUNTERS_PORT_NAME_MAP", "Ethernet0")
+		countersClient.Del(cleanupCtx, "COUNTERS:oid:0x1000000000001")
+		configClient.Del(cleanupCtx, "PORT|Ethernet0")
+		stateClient.Del(cleanupCtx, "PORT_TABLE:Ethernet0", "TRANSCEIVER_INFO|Ethernet0", "TRANSCEIVER_INFO|Ethernet1")
+	})
+
+	// 3. gRPC Client Setup
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	// 4. Populate expected data objects matching actual DB values
+	hwPortVal := HardwarePortResp{HardwarePort: "1/1"}
+	xcvrVal := TransceiverResp{Transceiver: "Ethernet1"}
+	p4rtIdVal := P4rtIdResp{Id: 100}
+	inFcsErrorsVal := InFcsErrorsResp{InFcsErrors: "10"}
+
+	// 5. Test Scenarios
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		{
+			desc:        "Get OpenConfig Interface hardware-port",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" > elem: <name: "openconfig-platform-port:hardware-port" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(hwPortVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OpenConfig Interface transceiver",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" > elem: <name: "openconfig-platform-transceiver:transceiver" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(xcvrVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OpenConfig Interface P4RT ID State",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" > elem: <name: "openconfig-p4rt:id" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(p4rtIdVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OpenConfig Interface P4RT ID Config",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > > elem: <name: "config" > elem: <name: "openconfig-p4rt:id" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(p4rtIdVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OpenConfig Interface in-fcs-errors counter",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" > elem: <name: "counters" > elem: <name: "in-fcs-errors" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(inFcsErrorsVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OpenConfig Interface List Entry",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > >`,
+			wantRetCode: codes.OK,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+		{
+			desc:        "Get OpenConfig Interface List Entry State",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+		{
+			desc:        "Get OpenConfig Interface P4RT ID Config with Key Variable",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > > elem: <name: "config" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: nil,
+			valTest:     false,
+		},
+	}
+
+	// 6. Run Test Cases
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			path := new(pb.Path)
+			if err := proto.UnmarshalText(td.textPbPath, path); err == nil {
+				path.Target = td.pathTarget
+				req := &pb.GetRequest{
+					Path:     []*pb.Path{path},
+					Encoding: pb.Encoding_JSON_IETF,
+				}
+				if resp, err := gClient.Get(ctx, req); err == nil {
+					printed := false
+					for _, notification := range resp.GetNotification() {
+						for _, update := range notification.GetUpdate() {
+							val := update.GetVal()
+							if val != nil && val.GetJsonIetfVal() != nil {
+								var rawJson interface{}
+								if err := json.Unmarshal(val.GetJsonIetfVal(), &rawJson); err == nil {
+									prettyJson, err := json.MarshalIndent(rawJson, "    ", "  ")
+									if err == nil {
+										t.Logf("[%s/%s] gotVal:\n    %s", t.Name(), td.desc, string(prettyJson))
+										printed = true
+									}
+								}
+							}
+						}
+					}
+					if !printed {
+						t.Logf("[%s/%s] gotVal:\n    {}", t.Name(), td.desc)
+					}
+				}
+			}
+
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
+		})
+	}
+}
+
+func runTestSubscribeIntf(t *testing.T, ctx context.Context, gClient pb.GNMIClient, sPath *pb.Path, pathDesc string, expectedICs []string) {
+	req := &pb.SubscribeRequest{
+		Request: &pb.SubscribeRequest_Subscribe{
+			Subscribe: &pb.SubscriptionList{
+				Prefix:   &pb.Path{Origin: "openconfig", Target: "YANG"},
+				Mode:     pb.SubscriptionList_ONCE,
+				Encoding: pb.Encoding_JSON_IETF,
+				Subscription: []*pb.Subscription{
+					{Path: sPath},
+				},
+			},
+		},
+	}
+
+	stream, err := gClient.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Failed to open stream: %v", err)
+	}
+
+	if err := stream.Send(req); err != nil {
+		t.Fatalf("Failed to send req: %v", err)
+	}
+
+	foundComponents := make(map[string]bool)
+	syncReceived := false
+
+	allExpectedFound := func() bool {
+		for _, expected := range expectedICs {
+			if !foundComponents[expected] {
+				return false
+			}
+		}
+		return true
+	}
+
+	for {
+		// If we already received the sync response and found our expected items, we can exit early.
+		if syncReceived && allExpectedFound() {
+			break
+		}
+
+		resp, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) && allExpectedFound() {
+				break
+			}
+			t.Fatalf("Stream encountered an unexpected error: %v", err)
+		}
+
+		if resp.GetSyncResponse() {
+			t.Log("Received SyncResponse.")
+			syncReceived = true
+			continue
+		}
+
+		notification := resp.GetUpdate()
+		if notification == nil {
+			continue
+		}
+
+		intfName := ""
+		for _, elem := range notification.GetPrefix().GetElem() {
+			if val, ok := elem.GetKey()["name"]; ok && val != "" {
+				intfName = val
+				break
+			}
+		}
+		if intfName == "" {
+			for _, upd := range notification.GetUpdate() {
+				for _, elem := range upd.GetPath().GetElem() {
+					if val, ok := elem.GetKey()["name"]; ok && val != "" {
+						intfName = val
+						break
+					}
+				}
+				if intfName != "" {
+					break
+				}
+			}
+		}
+
+		if intfName != "" {
+			foundComponents[intfName] = true
+		}
+	}
+
+	if !syncReceived {
+		t.Errorf("Test %s failed: Never received gNMI SyncResponse", pathDesc)
+	}
+
+	for _, expected := range expectedICs {
+		if !foundComponents[expected] {
+			t.Errorf("Test %s failed: Expected component %q not found, got components: %v", pathDesc, expected, foundComponents)
+		}
+	}
+}
+
+func TestGnmiSubscribeTranslibXfmrIntf(t *testing.T) {
+	// 1. Prepare global DB configuration for Translib
+	prepareDbTranslib(t)
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ctx := context.Background()
+
+	// 2. Server and DB Setup on dynamic free port
+	freePort := getFreePort(t)
+	s := createServer(t, freePort)
+	go runServer(t, s)
+	defer s.Stop()
+
+	// Setup CONFIG_DB (DB 4)
+	configDbId, _ := sdcfg.GetDbId("CONFIG_DB", ns)
+	configClient := getRedisClientN(t, configDbId, ns)
+	defer configClient.Close()
+	if err := configClient.HSet(ctx, "PORT|Ethernet0", map[string]interface{}{
+		"index": "1",
+		"lanes": "1,2,3,4",
+		"id":    "100",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet0: %v", err)
+	}
+	if err := configClient.HSet(ctx, "PORT|Ethernet4", map[string]interface{}{
+		"index": "4",
+		"lanes": "17,18,19,20",
+		"id":    "104",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet4: %v", err)
+	}
+
+	// Setup STATE_DB (DB 6)
+	stateDbId, _ := sdcfg.GetDbId("STATE_DB", ns)
+	stateClient := getRedisClientN(t, stateDbId, ns)
+	defer stateClient.Close()
+	if err := stateClient.HSet(ctx, "PORT_TABLE:Ethernet0", map[string]interface{}{"index": "1", "lanes": "1,2,3,4"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT_TABLE:Ethernet0: %v", err)
+	}
+	if err := stateClient.HSet(ctx, "PORT_TABLE:Ethernet4", map[string]interface{}{"index": "4", "lanes": "17,18,19,20"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT_TABLE:Ethernet4: %v", err)
+	}
+	if err := stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", map[string]interface{}{"type": "QSFP28"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet TRANSCEIVER_INFO|Ethernet0: %v", err)
+	}
+	if err := stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet4", map[string]interface{}{"type": "QSFP28"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet TRANSCEIVER_INFO|Ethernet4: %v", err)
+	}
+
+	// Setup APPL_DB (DB 0)
+	applDbId, _ := sdcfg.GetDbId("APPL_DB", ns)
+	applClient := getRedisClientN(t, applDbId, ns)
+	defer applClient.Close()
+	if err := applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet0", map[string]interface{}{"id": "100"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet P4RT_PORT_ID_TABLE:Ethernet0: %v", err)
+	}
+	if err := applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet4", map[string]interface{}{"id": "104"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet P4RT_PORT_ID_TABLE:Ethernet4: %v", err)
+	}
+
+	// Setup COUNTERS_DB (DB 2)
+	countersDbId, _ := sdcfg.GetDbId("COUNTERS_DB", ns)
+	countersClient := getRedisClientN(t, countersDbId, ns)
+	defer countersClient.Close()
+	if err := countersClient.HSet(ctx, "COUNTERS_PORT_NAME_MAP", "Ethernet0", "oid:0x100", "Ethernet4", "oid:0x104").Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS_PORT_NAME_MAP: %v", err)
+	}
+	if err := countersClient.HSet(ctx, "COUNTERS:oid:0x100", "SAI_PORT_STAT_ETHER_STATS_CRC_ALIGN_ERRORS", "10").Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS:oid:0x100: %v", err)
+	}
+	if err := countersClient.HSet(ctx, "COUNTERS:oid:0x104", "SAI_PORT_STAT_ETHER_STATS_CRC_ALIGN_ERRORS", "40").Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS:oid:0x104: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		configClient.Del(cleanupCtx, "PORT|Ethernet0", "PORT|Ethernet4")
+		stateClient.Del(cleanupCtx, "PORT_TABLE:Ethernet0", "PORT_TABLE:Ethernet4", "TRANSCEIVER_INFO|Ethernet0", "TRANSCEIVER_INFO|Ethernet4")
+		applClient.Del(cleanupCtx, "P4RT_PORT_ID_TABLE:Ethernet0", "P4RT_PORT_ID_TABLE:Ethernet4")
+		countersClient.Del(cleanupCtx, "COUNTERS:oid:0x100", "COUNTERS:oid:0x104")
+		countersClient.HDel(cleanupCtx, "COUNTERS_PORT_NAME_MAP", "Ethernet0", "Ethernet4")
+	})
+
+	// 3. Connect gRPC Client to the actual dynamic port
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	tds := []struct {
+		desc        string
+		textPbPath  string
+		expectedICs []string
+	}{
+		{
+			desc:        "Get all Interface State (Path Xfmr check)",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" >`,
+			expectedICs: []string{"Ethernet0"},
+		},
+		{
+			desc:        "Get all Interface Config (P4RT Config check)",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > > elem: <name: "config" >`,
+			expectedICs: []string{"Ethernet0"},
+		},
+		{
+			desc:        "Get all Interface Counters (Subtree Xfmr check)",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" > elem: <name: "counters" >`,
+			expectedICs: []string{"Ethernet0"},
+		},
+		{
+			desc:        "Get P4RT ID State for all",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" > elem: <name: "openconfig-p4rt:id" >`,
+			expectedICs: []string{"Ethernet0"},
+		},
+		{
+			desc:        "Get Hardware Port for all",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" > elem: <name: "openconfig-platform-port:hardware-port" >`,
+			expectedICs: []string{"Ethernet0"},
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			path := new(pb.Path)
+			if err := proto.UnmarshalText(td.textPbPath, path); err != nil {
+				t.Fatalf("Failed to parse textPbPath: %v", err)
+			}
+
+			runTestSubscribeIntf(t, ctx, gClient, path, td.desc, td.expectedICs)
+		})
 	}
 }
