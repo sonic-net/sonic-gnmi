@@ -616,8 +616,8 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	orasSrv := &OrasServer{Server: srv}
 	var err error
 
-	// TCP Server (Port > 0)
-	if config.Port > 0 {
+	// TCP Server: Enable if Port > 0, or Port == 0 when UnixSocket is not set
+	if config.Port > 0 || (config.Port == 0 && config.UnixSocket == "") {
 		tcpOpts := append(tlsOpts, commonOpts...)
 		srv.s = grpc.NewServer(tcpOpts...)
 		reflection.Register(srv.s)
@@ -634,6 +634,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			srv.s.Stop()
 			srv.s = nil
 		} else {
+			srv.config.Port = int64(srv.lis.Addr().(*net.TCPAddr).Port)
 			registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
 		}
 	}
@@ -676,7 +677,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 
 	// Require at least one listener
 	if srv.lis == nil && srv.udsListener == nil {
-		return nil, errors.New("no listener configured: port must be > 0 or unix_socket must be set")
+		return nil, errors.New("no listener configured: port must be >= 0 or unix_socket must be set")
 	}
 
 	if *enableConfigDbJournal {
