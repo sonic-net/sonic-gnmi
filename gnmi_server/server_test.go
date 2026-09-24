@@ -8070,3 +8070,115 @@ func TestGnmiSubscribeTranslibXfmrIntf(t *testing.T) {
 		})
 	}
 }
+
+func TestGnmiSubscribeTranslibXfmrIC_wildcard(t *testing.T) {
+	s := createServer(t, 0)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ns, err := sdcfg.GetDbDefaultNamespace()
+	if err != nil {
+		t.Fatalf("Failed to get DB default namespace: %v", err)
+	}
+	ctx := context.Background()
+
+	// Use distinct names for this specific test
+	icInstances := []string{"integrated_circuit67", "integrated_circuit68"}
+
+	configDbId, err := sdcfg.GetDbId("CONFIG_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get DB ID CONIFG DB: %v", err)
+	}
+	configClient := getRedisClientN(t, configDbId, ns)
+
+	stateDbId, err := sdcfg.GetDbId("STATE_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get DB ID STATE DB: %v", err)
+	}
+	stateClient := getRedisClientN(t, stateDbId, ns)
+
+	for _, icName := range icInstances {
+		nodeId := "111"
+		if icName == "integrated_circuit68" {
+			nodeId = "112"
+		}
+		name := icName
+		t.Cleanup(func() {
+			cleanupCtx := context.Background()
+			if err := stateClient.Del(cleanupCtx, "NODE_INFO|"+name).Err(); err != nil {
+				t.Logf("Failed to delete NODE_INFO keys: %v", err)
+			}
+			if err := configClient.Del(cleanupCtx, "NODE_CFG|"+name).Err(); err != nil {
+				t.Logf("Failed to delete NODE_CFG keys: %v", err)
+			}
+			stateClient.Close()
+			configClient.Close()
+		})
+
+		if err := configClient.HSet(ctx, "NODE_CFG|"+icName, map[string]interface{}{"name": icName, "node-id": nodeId}).Err(); err != nil {
+			t.Fatalf("Failed to HSet NODE_CFG: %v", err)
+		}
+
+		if err := stateClient.HSet(ctx, "NODE_INFO|"+icName, map[string]interface{}{
+			"name":    icName,
+			"parent":  "chassis",
+			"type":    "INTEGRATED_CIRCUIT",
+			"node-id": nodeId,
+		}).Err(); err != nil {
+			t.Fatalf("Failed to HSet NODE_INFO: %v", err)
+		}
+	}
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	conn, err := grpc.Dial(targetAddr, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})))
+	if err != nil {
+		t.Fatalf("Dialing failed: %v", err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	tds := []struct {
+		desc string
+		path *pb.Path
+	}{
+		{
+			desc: "Get all IC State (Wildcard expansion check)",
+			path: &pb.Path{
+				Elem: []*pb.PathElem{
+					{Name: "components"},
+					{Name: "component", Key: map[string]string{"name": "*"}},
+					{Name: "integrated-circuit"},
+					{Name: "state"},
+				},
+			},
+		},
+		{
+			desc: "Get all IC (Wildcard expansion check)",
+			path: &pb.Path{
+				Elem: []*pb.PathElem{
+					{Name: "components"},
+					{Name: "component", Key: map[string]string{"name": "*"}},
+				},
+			},
+		},
+		{
+			desc: "Get all Components State (Wildcard expansion check)",
+			path: &pb.Path{
+				Elem: []*pb.PathElem{
+					{Name: "components"},
+					{Name: "component", Key: map[string]string{"name": "*"}},
+					{Name: "state"},
+				},
+			},
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			subCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			runTestSubscribeIntf(t, subCtx, gClient, td.path, td.desc, icInstances)
+		})
+	}
+}
