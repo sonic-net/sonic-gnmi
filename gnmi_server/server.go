@@ -208,6 +208,7 @@ type DebugServer struct {
 // for forward compatibility
 type HealthzServer struct {
 	*Server
+	artifactResolver artifactPathResolver
 	gnoi_healthz_pb.UnimplementedHealthzServer
 }
 
@@ -269,6 +270,10 @@ type Config struct {
 	// PathsBlacklist rejects Get/Set/Subscribe requests referencing
 	// blacklisted paths. Nil disables enforcement.
 	PathsBlacklist *pathblacklist.Policy
+}
+
+func writeEnabled(config *Config) bool {
+	return config != nil && (config.EnableTranslibWrite || config.EnableNativeWrite)
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -367,13 +372,16 @@ func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 	gnsi_pathz_pb.RegisterPathzServer(s, pathzSrv)
 	gnsi_credentialz_pb.RegisterCredentialzServer(s, credentialzSrv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(s, srv)
-	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
+	// Keep Healthz registered so existing-artifact reads remain available when
+	// gNMI Set support is disabled. Handlers independently gate Acknowledge,
+	// Check, and the legacy Get path that starts a new host-side collection.
+	gnoi_healthz_pb.RegisterHealthzServer(s, healthzSrv)
+	if writeEnabled(srv.config) {
 		gnoi_system_pb.RegisterSystemServer(s, srv)
 		gnoi_file_pb.RegisterFileServer(s, fileSrv)
 		gnoi_os_pb.RegisterOSServer(s, osSrv)
 		gnoi_containerz_pb.RegisterContainerzServer(s, containerzSrv)
 		gnoi_debug_pb.RegisterDebugServer(s, debugSrv)
-		gnoi_healthz_pb.RegisterHealthzServer(s, healthzSrv)
 	}
 	// ORAS Pull writes only into an allowlisted staging area inside the
 	// container; it has no relation to the gNMI write paths, so it is not
@@ -685,7 +693,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			return nil, fmt.Errorf("failed to create CONFIG_DB Journal: %v", err)
 		}
 	}
-	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
+	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !writeEnabled(srv.config))
 	return srv, nil
 }
 
@@ -885,21 +893,9 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	if !success {
 		return ctx, status.Error(codes.Unauthenticated, "Unauthenticated")
 	}
-
-	// Role-based authorization: applied uniformly to whichever mechanism
-	// succeeded. Historically this check was nested inside the cert branch,
-	// which allowed password- and JWT-authenticated callers to bypass the
-	// readonly/readwrite gate for gNOI RPCs.
-	//
-	// Guarded by ConfigTableName to preserve existing behavior for
-	// deployments that do not configure a role source (e.g. TACACS-only
-	// setups or upgrade paths where GNMI_CLIENT_CERT is empty).
-	if config.ConfigTableName != "" {
-		if err := checkRoleAccess(&rc.Auth, target, writeAccess); err != nil {
-			return ctx, err
-		}
+	if err := authorizeTargetRoles(rc, target, writeAccess); err != nil {
+		return ctx, err
 	}
-
 	log.V(5).Infof("authenticate user %v, roles %v", rc.Auth.User, rc.Auth.Roles)
 
 	return ctx, nil
@@ -932,6 +928,37 @@ func containsBGPRunningConfigPath(prefix *gnmipb.Path, paths []*gnmipb.Path) boo
 		}
 	}
 	return false
+}
+
+// authorizeTargetRoles applies target authorization after any configured
+// authentication mechanism succeeds. Reads preserve the historical behavior
+// of allowing users with no target-specific role, but an explicit noaccess role
+// always wins. Writes require an explicit target readwrite role.
+func authorizeTargetRoles(rc *common_utils.RequestContext, target string, writeAccess bool) error {
+	target = strings.ToLower(strings.TrimSpace(target))
+	hasReadWrite := false
+	for _, configuredRole := range rc.Auth.Roles {
+		role := strings.ToLower(strings.TrimSpace(configuredRole))
+		if !strings.HasPrefix(role, target) {
+			continue
+		}
+
+		postfix := strings.TrimPrefix(role, target)
+		postfix = strings.TrimPrefix(postfix, "_")
+		switch postfix {
+		case NoAccessMode:
+			return status.Errorf(codes.PermissionDenied,
+				"%s does not have access, target %s, role %s", rc.Auth.User, target, configuredRole)
+		case WriteAccessMode:
+			hasReadWrite = true
+		}
+	}
+
+	if writeAccess && !hasReadWrite {
+		return status.Errorf(codes.PermissionDenied,
+			"%s does not have write access, target %s", rc.Auth.User, target)
+	}
+	return nil
 }
 
 // Subscribe implements the gNMI Subscribe RPC.
@@ -1178,7 +1205,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	}
 
 	common_utils.IncCounter(common_utils.GNMI_SET)
-	if s.config.EnableTranslibWrite == false && s.config.EnableNativeWrite == false {
+	if !writeEnabled(s.config) {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
 	}
