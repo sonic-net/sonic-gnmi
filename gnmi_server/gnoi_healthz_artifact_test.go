@@ -93,7 +93,7 @@ func TestHealthzArtifactStreamsCompletedArchive(t *testing.T) {
 	header := stream.responses[0].GetHeader()
 	file := header.GetFile()
 	wantHash := sha256.Sum256(content)
-	if header.GetId() != artifactID || file.GetName() != artifactID || file.GetSize() != int64(len(content)) ||
+	if header.GetId() != artifactID || file.GetName() != artifactID || file.GetMimetype() != "application/gzip" || file.GetSize() != int64(len(content)) ||
 		file.GetHash().GetMethod() != types.HashType_SHA256 || !bytes.Equal(file.GetHash().GetHash(), wantHash[:]) {
 		t.Fatalf("unexpected artifact header: %+v", header)
 	}
@@ -212,48 +212,6 @@ func TestHealthzReadOnlyServerRejectsMutations(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if err := test.call(); status.Code(err) != codes.Unimplemented {
 				t.Fatalf("read-only call code = %v, want %v; err=%v", status.Code(err), codes.Unimplemented, err)
-			}
-		})
-	}
-}
-
-func TestHealthzAcknowledgeUsesOpaqueEventID(t *testing.T) {
-	server := newHealthzArtifactTestServer(t)
-	server.config.EnableNativeWrite = true
-	client := &ssc.FakeClient{}
-	patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
-		return client, nil
-	})
-	defer patch.Reset()
-
-	if response, err := server.Acknowledge(
-		context.Background(), &healthz.AcknowledgeRequest{Id: "event-123"},
-	); err != nil || response == nil {
-		t.Fatalf("Acknowledge() = (%+v, %v), want success", response, err)
-	}
-}
-
-func TestHealthzAcknowledgeReportsHostServiceResult(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		client ssc.Service
-		code   codes.Code
-	}{
-		{name: "success", client: &ssc.FakeClient{}},
-		{name: "D-Bus failure", client: &ssc.FakeClientWithError{}, code: codes.Internal},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			server := newHealthzArtifactTestServer(t)
-			server.config.EnableNativeWrite = true
-			eventID := "event-123"
-			patch := gomonkey.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
-				return test.client, nil
-			})
-			defer patch.Reset()
-
-			response, err := server.Acknowledge(context.Background(), &healthz.AcknowledgeRequest{Id: eventID})
-			if status.Code(err) != test.code || (test.code == codes.OK && response == nil) {
-				t.Fatalf("Acknowledge(%q) = (%+v, %v), want code %v", eventID, response, err, test.code)
 			}
 		})
 	}

@@ -41,8 +41,9 @@ func buildHealthzArtifactHeader(artifactID string, artifact io.ReadSeeker) (*hea
 		Id: artifactID,
 		ArtifactType: &healthz.ArtifactHeader_File{
 			File: &healthz.FileArtifactType{
-				Name: artifactID,
-				Size: size,
+				Name:     filepath.Base(artifactID),
+				Mimetype: "application/gzip",
+				Size:     size,
 				Hash: &types.HashType{
 					Method: types.HashType_SHA256,
 					Hash:   hasher.Sum(nil),

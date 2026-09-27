@@ -70,6 +70,8 @@ const (
 	DBUS_IMAGE_ACTIVATE
 	DBUS_DOCKER_LOAD
 	DBUS_CONFIG_REPLACE
+	GNOI_HEALTHZ_GET
+	GNOI_HEALTHZ_LIST
 	COUNTER_SIZE
 )
 
@@ -97,6 +99,10 @@ func (c CounterType) String() string {
 		return "GNOI Healthz Check"
 	case GNOI_HEALTHZ_COLLECT:
 		return "GNOI Healthz Collect"
+	case GNOI_HEALTHZ_GET:
+		return "GNOI Healthz Get"
+	case GNOI_HEALTHZ_LIST:
+		return "GNOI Healthz List"
 	case GNSI_CREDZ_SET:
 		return "GNSI Credz Set"
 	case GNSI_CREDZ_CHECKPOINT:
