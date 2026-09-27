@@ -36,7 +36,7 @@ func (srv *FileServer) Get(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.Fil
 // If DPU headers are present (HandleOnNPU mode), it downloads to NPU then uploads to the specified DPU.
 func (srv *FileServer) TransferToRemote(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest) (*gnoi_file_pb.TransferToRemoteResponse, error) {
 	log.Infof("GNOI File TransferToRemote RPC called with request: %+v", req)
-	_, err := authenticate(srv.config, ctx, "gnoi", false)
+	_, err := authenticate(srv.config, ctx, "gnoi", true)
 	if err != nil {
 		log.Errorf("authentication failed in TransferToRemote RPC: %v", err)
 		return nil, err
@@ -50,7 +50,7 @@ func (srv *FileServer) TransferToRemote(ctx context.Context, req *gnoi_file_pb.T
 // It authenticates the request and delegates to the pure Go handler.
 func (srv *FileServer) Put(stream gnoi_file_pb.File_PutServer) error {
 	log.Infof("GNOI File Put RPC called")
-	_, err := authenticate(srv.config, stream.Context(), "gnoi", false)
+	_, err := authenticate(srv.config, stream.Context(), "gnoi", true)
 	if err != nil {
 		log.Errorf("authentication failed in Put RPC: %v", err)
 		return err
@@ -65,7 +65,7 @@ func (srv *FileServer) Remove(ctx context.Context, req *gnoi_file_pb.RemoveReque
 		log.Errorf("Nil request received")
 		return nil, status.Error(codes.InvalidArgument, "Invalid nil request.")
 	}
-	_, err := authenticate(srv.config, ctx, "gnoi", false)
+	_, err := authenticate(srv.config, ctx, "gnoi", true)
 	if err != nil {
 		log.Errorf("authentication failed in Remove RPC: %v", err)
 		return nil, err
