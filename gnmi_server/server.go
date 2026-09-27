@@ -1255,15 +1255,24 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 			return nil, grpc.Errorf(codes.Unimplemented, "GNMI native write is disabled")
 		}
 
-		// Fast path: bypass validation for allowed tables/SKUs
-		allUpdates := append(req.GetReplace(), req.GetUpdate()...)
-		if resp, used, err := bypass.TrySet(ctx, prefix, req.GetDelete(), allUpdates); used {
+		if bypass.IsRequested(ctx) {
+			// Bypass metadata selects an implementation path; it does not grant authority.
+			ctx, err = authenticate(s.config, ctx, "gnmi", true)
 			if err != nil {
 				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-				return nil, status.Error(codes.Internal, err.Error())
+				return nil, err
 			}
-			common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
-			return resp, nil
+
+			// Fast path: bypass validation for allowed tables/SKUs.
+			allUpdates := append(req.GetReplace(), req.GetUpdate()...)
+			if resp, used, err := bypass.TrySet(ctx, prefix, req.GetDelete(), allUpdates); used {
+				if err != nil {
+					common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+					return nil, status.Error(codes.Internal, err.Error())
+				}
+				common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
+				return resp, nil
+			}
 		}
 
 		var targetDbName string
