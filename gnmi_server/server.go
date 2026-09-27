@@ -204,7 +204,7 @@ type DebugServer struct {
 }
 
 // HealthzServer is the server API for System Health service.
-// All implementations must embed UnimplementedSystemServer
+// All implementations must embed UnimplementedHealthzServer
 // for forward compatibility
 type HealthzServer struct {
 	*Server
@@ -372,9 +372,8 @@ func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 	gnsi_pathz_pb.RegisterPathzServer(s, pathzSrv)
 	gnsi_credentialz_pb.RegisterCredentialzServer(s, credentialzSrv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(s, srv)
-	// Keep Healthz registered so existing-artifact reads remain available when
-	// gNMI Set support is disabled. Handlers independently gate Acknowledge,
-	// Check, and the legacy Get path that starts a new host-side collection.
+	// Keep Healthz registered so Get, List, and Artifact reads remain available
+	// when gNMI Set support is disabled. Acknowledge and Check gate writes.
 	gnoi_healthz_pb.RegisterHealthzServer(s, healthzSrv)
 	if writeEnabled(srv.config) {
 		gnoi_system_pb.RegisterSystemServer(s, srv)

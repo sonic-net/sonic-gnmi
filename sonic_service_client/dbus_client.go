@@ -44,6 +44,9 @@ type Service interface {
 	ActivateImage(image string) error
 	FactoryReset(cmd string) (string, error)
 	//Healthz Service APIs
+	HealthzGet(req string) (string, error)
+	HealthzList(req string) (string, error)
+	HealthzAcknowledge(req string) (string, error)
 	HealthzAck(req string) (string, error)
 	HealthzCheck(req string) (string, error)
 	HealthzCollect(req string) (string, error)
@@ -87,6 +90,15 @@ type DbusClient struct {
 	intNamePrefix string
 	channel       chan struct{}
 }
+
+// DbusStatusError retains a host module's numeric status for callers that
+// need to distinguish a missing record from a service failure.
+type DbusStatusError struct {
+	Code    int32
+	Message string
+}
+
+func (e *DbusStatusError) Error() string { return e.Message }
 
 func NewDbusClient() (Service, error) {
 	log.Infof("DbusClient: NewDbusClient")
@@ -148,10 +160,10 @@ func DbusApi(busName string, busPath string, intName string, timeout int, args .
 				}
 				if msg, check := result[1].(string); check {
 					common_utils.IncCounter(common_utils.DBUS_FAIL)
-					return nil, fmt.Errorf("%s", msg)
+					return nil, &DbusStatusError{Code: ret, Message: msg}
 				} else if msg, check := result[1].(map[string]string); check {
 					common_utils.IncCounter(common_utils.DBUS_FAIL)
-					return nil, fmt.Errorf("%s", msg["error"])
+					return nil, &DbusStatusError{Code: ret, Message: msg["error"]}
 				} else {
 					common_utils.IncCounter(common_utils.DBUS_FAIL)
 					return nil, fmt.Errorf("Invalid result message type %v %v", result[1], reflect.TypeOf(result[1]))
@@ -401,8 +413,7 @@ func (c *DbusClient) InstallOS(req string) (string, error) {
 	return strResult, nil
 }
 
-// callHealthz invokes one string-in/string-out debug_info method and records
-// the corresponding gNOI Healthz operation counter.
+// callHealthz invokes one legacy debug_info method and records its counter.
 func (c *DbusClient) callHealthz(method string, counter common_utils.CounterType, req string) (string, error) {
 	modName := "debug_info"
 	busName := c.busNamePrefix + modName
@@ -410,7 +421,7 @@ func (c *DbusClient) callHealthz(method string, counter common_utils.CounterType
 	intName := c.intNamePrefix + modName + "." + method
 
 	common_utils.IncCounter(counter)
-	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, []string{req})
 	if err != nil {
 		return "", err
 	}
@@ -419,6 +430,37 @@ func (c *DbusClient) callHealthz(method string, counter common_utils.CounterType
 		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
 	}
 	return strResult, nil
+}
+
+// callHealthzMetadata invokes one short catalog operation on the host.
+func (c *DbusClient) callHealthzMetadata(method string, counter common_utils.CounterType, req string) (string, error) {
+	modName := "healthz"
+	busName := c.busNamePrefix + modName
+	busPath := c.busPathPrefix + modName
+	intName := c.intNamePrefix + modName + "." + method
+
+	common_utils.IncCounter(counter)
+	result, err := DbusApi(busName, busPath, intName, 10, req)
+	if err != nil {
+		return "", err
+	}
+	strResult, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
+	}
+	return strResult, nil
+}
+
+func (c *DbusClient) HealthzGet(req string) (string, error) {
+	return c.callHealthzMetadata("get", common_utils.GNOI_HEALTHZ_GET, req)
+}
+
+func (c *DbusClient) HealthzList(req string) (string, error) {
+	return c.callHealthzMetadata("list", common_utils.GNOI_HEALTHZ_LIST, req)
+}
+
+func (c *DbusClient) HealthzAcknowledge(req string) (string, error) {
+	return c.callHealthzMetadata("ack", common_utils.GNOI_HEALTHZ_ACK, req)
 }
 
 func (c *DbusClient) HealthzCheck(req string) (string, error) {

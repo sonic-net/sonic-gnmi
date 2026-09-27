@@ -8,8 +8,11 @@ import (
 
 // FakeClient is a mock implementation of the Service interface.
 type FakeClient struct {
-	CollectResponse string
-	Command         chan []string
+	CollectResponse     string
+	HealthzGetResponse  string
+	HealthzListResponse string
+	HealthzAckResponse  string
+	Command             chan []string
 }
 
 func (f *FakeClient) Close() error                         { return nil }
@@ -55,6 +58,27 @@ func (f *FakeClient) InstallOS(req string) (string, error) {
 
 var _ Service = &FakeClient{}
 
+func (f *FakeClient) HealthzGet(req string) (string, error) {
+	if req == "" {
+		return "", fmt.Errorf("request cannot be empty")
+	}
+	return f.HealthzGetResponse, nil
+}
+
+func (f *FakeClient) HealthzList(req string) (string, error) {
+	if req == "" {
+		return "", fmt.Errorf("request cannot be empty")
+	}
+	return f.HealthzListResponse, nil
+}
+
+func (f *FakeClient) HealthzAcknowledge(req string) (string, error) {
+	if req == "" {
+		return "", fmt.Errorf("request cannot be empty")
+	}
+	return f.HealthzAckResponse, nil
+}
+
 // FakeClientWithError simulates failure in specific methods.
 type FakeClientWithError struct {
 	FakeClient
@@ -74,6 +98,9 @@ func (f *FakeClient) HealthzCheck(req string) (string, error) {
 func (f *FakeClient) HealthzCollect(req string) (string, error) {
 	if req == "" {
 		return "", fmt.Errorf("request cannot be empty")
+	}
+	if f.CollectResponse != "" {
+		return f.CollectResponse, nil
 	}
 	return "/tmp/dump/fake-collect-success", nil
 }
