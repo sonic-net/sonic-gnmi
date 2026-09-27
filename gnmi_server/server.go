@@ -1256,7 +1256,8 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		}
 
 		if bypass.IsRequested(ctx) {
-			// Bypass metadata selects an implementation path; it does not grant authority.
+			// Bypass metadata requests the bypass path.
+			// It does not grant write access.
 			ctx, err = authenticate(s.config, ctx, "gnmi", true)
 			if err != nil {
 				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)

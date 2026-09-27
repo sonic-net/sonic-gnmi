@@ -97,7 +97,7 @@ func TestSetBypassCertificateAuthorization(t *testing.T) {
 			wantErr:    true,
 		},
 		{
-			name:       "unknown CA-valid identity denial",
+			name:       "unmapped identity denial",
 			commonName: "unknown",
 			wantErr:    true,
 			wantCode:   codes.Unauthenticated,
@@ -112,7 +112,7 @@ func TestSetBypassCertificateAuthorization(t *testing.T) {
 			response, err := server.Set(bypassCertificateContext(test.commonName), request)
 			if test.wantErr {
 				if err == nil {
-					t.Fatal("Set() succeeded, want authorization error")
+					t.Fatal("Set() succeeded; want access denial")
 				}
 				if test.wantCode != codes.OK && status.Code(err) != test.wantCode {
 					t.Fatalf("Set() error code = %s, want %s", status.Code(err), test.wantCode)

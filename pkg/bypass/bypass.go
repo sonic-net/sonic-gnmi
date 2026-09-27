@@ -133,8 +133,8 @@ func checkAllowedDeletePaths(prefix *gnmipb.Path, deletes []*gnmipb.Path) bool {
 	return true
 }
 
-// IsRequested reports whether gRPC metadata selects the bypass fast path.
-// Callers must authorize the request before invoking TrySet.
+// IsRequested reports whether incoming gRPC metadata contains a bypass request.
+// Callers must complete authentication and the write-access check before calling TrySet.
 func IsRequested(ctx context.Context) bool {
 	if ctx == nil {
 		return false
