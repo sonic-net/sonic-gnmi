@@ -145,12 +145,12 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 
 	defer func() {
 		if err != nil {
-			c.errors++
+			atomic.AddInt64(&c.errors, 1)
 		}
 	}()
 
 	query, err := stream.Recv()
-	c.recvMsg++
+	atomic.AddInt64(&c.recvMsg, 1)
 	if err != nil {
 		if err == io.EOF {
 			return grpc.Errorf(codes.Aborted, "stream EOF received before init")
@@ -293,7 +293,8 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 func (c *Client) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	log.V(1).Infof("Client %s Close, sendMsg %v recvMsg %v errors %v", c, c.sendMsg, c.recvMsg, c.errors)
+	log.V(1).Infof("Client %s Close, sendMsg %v recvMsg %v errors %v", c,
+		atomic.LoadInt64(&c.sendMsg), atomic.LoadInt64(&c.recvMsg), atomic.LoadInt64(&c.errors))
 	if c.closed {
 		return
 	}
@@ -346,7 +347,7 @@ func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 	for {
 		log.V(5).Infof("Client %s blocking on stream.Recv()", c)
 		event, err := stream.Recv()
-		c.recvMsg++
+		atomic.AddInt64(&c.recvMsg, 1)
 
 		switch err {
 		default:
@@ -392,7 +393,7 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 			return err
 		}
 		if err != nil {
-			c.errors++
+			atomic.AddInt64(&c.errors, 1)
 			log.V(1).Infof("%v", err)
 			return fmt.Errorf("unexpected queue Gext(1): %v", err)
 		}
@@ -402,25 +403,25 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 		switch v := items[0].(type) {
 		case sdc.Value:
 			if resp, err = sdc.ValToResp(v); err != nil {
-				c.errors++
+				atomic.AddInt64(&c.errors, 1)
 				return err
 			}
 			val = &v
 		default:
 			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], c)
-			c.errors++
+			atomic.AddInt64(&c.errors, 1)
 		}
 
-		c.sendMsg++
+		atomic.AddInt64(&c.sendMsg, 1)
 		err = stream.Send(resp)
 		if err != nil {
 			log.V(1).Infof("Client %s sending error:%v", c, err)
-			c.errors++
+			atomic.AddInt64(&c.errors, 1)
 			dc.FailedSend()
 			return err
 		}
 
 		dc.SentOne(val)
-		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
+		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, atomic.LoadInt64(&c.sendMsg), resp)
 	}
 }

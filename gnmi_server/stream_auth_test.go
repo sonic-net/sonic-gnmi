@@ -74,6 +74,24 @@ func TestPollSignalDoesNotRaceClose(t *testing.T) {
 	}
 }
 
+func TestCloseReadsCountersConcurrently(t *testing.T) {
+	client := NewClient(nil)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			atomic.AddInt64(&client.sendMsg, 1)
+			atomic.AddInt64(&client.recvMsg, 1)
+			atomic.AddInt64(&client.errors, 1)
+		}
+	}()
+	for i := 0; i < 1000; i++ {
+		client.Close()
+	}
+	wg.Wait()
+}
+
 func TestQueuedPollSignalsArePreserved(t *testing.T) {
 	client := NewClient(nil)
 	client.polled = make(chan struct{}, 1)
