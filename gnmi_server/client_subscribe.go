@@ -210,6 +210,12 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 	} else if (target == "EVENTS") && (mode == gnmipb.SubscriptionList_STREAM) {
 		dc, err = sdc.NewEventClient(paths, prefix, c.logLevel)
 		authTarget = "gnmi_events"
+	} else if target == "RECORDS" {
+		if mode != gnmipb.SubscriptionList_STREAM {
+			return grpc.Errorf(codes.Unimplemented, "RECORDS only supports STREAM mode")
+		}
+		dc, err = sdc.NewRecordsClient(paths, prefix, c.logLevel)
+		authTarget = "gnmi_records"
 	} else if targetDbName, ok, _, _ := sdc.IsTargetDb(target); ok {
 		dc, err = sdc.NewDbClient(paths, prefix)
 		authTarget = "gnmi_" + targetDbName
