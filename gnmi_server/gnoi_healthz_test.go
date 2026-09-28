@@ -210,9 +210,9 @@ func TestHealthzCheckRejectsUnsupportedEventID(t *testing.T) {
 func TestHealthzCatalogLifecycle(t *testing.T) {
 	server := newHealthzArtifactTestServer(t)
 	server.config.EnableNativeWrite = true
-	artifactID := "dldd-0123456789abcdef0123456789abcdef.tar.gz"
-	filePath := server.artifactResolver.containerPath(filepath.Join(server.artifactResolver.dlddDirectory, artifactID))
-	writeArtifactTestFile(t, server.artifactResolver, filepath.Join(server.artifactResolver.dlddDirectory, artifactID), []byte("diagnostics"))
+	artifactID := "healthz-0123456789abcdef0123456789abcdef.tar.gz"
+	filePath := server.artifactResolver.containerPath(filepath.Join(server.artifactResolver.healthzDirectory, artifactID))
+	writeArtifactTestFile(t, server.artifactResolver, filepath.Join(server.artifactResolver.healthzDirectory, artifactID), []byte("diagnostics"))
 	service := &catalogTestService{FakeClient: &ssc.FakeClient{}, events: []healthzCatalogEvent{{
 		ID: artifactID, Component: "chassis", Status: "UNHEALTHY", ObservedAt: 1789056817,
 		ArtifactID: artifactID,

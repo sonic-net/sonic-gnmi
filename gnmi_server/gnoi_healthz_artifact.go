@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	ddFileSegSize            int           = 4096
-	dlddArtifactWaitTimeout  time.Duration = 5 * time.Minute
-	dlddArtifactPollInterval time.Duration = 100 * time.Millisecond
+	ddFileSegSize               int           = 4096
+	healthzArtifactWaitTimeout  time.Duration = 5 * time.Minute
+	healthzArtifactPollInterval time.Duration = 100 * time.Millisecond
 )
 
 func (srv *HealthzServer) getArtifactResolver() artifactPathResolver {
@@ -53,7 +53,7 @@ func buildHealthzArtifactHeader(artifactID string, artifact io.ReadSeeker) (*hea
 	}, nil
 }
 
-func waitForDLDDArtifact(
+func waitForHealthzArtifact(
 	ctx context.Context,
 	resolver artifactPathResolver,
 	artifactID string,
@@ -91,12 +91,12 @@ func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.
 
 	artifactID := req.GetId()
 	log.V(1).Infof("Artifact RPC Get request ID: %+v", artifactID)
-	f, err := waitForDLDDArtifact(
+	f, err := waitForHealthzArtifact(
 		stream.Context(),
 		srv.getArtifactResolver(),
 		artifactID,
-		dlddArtifactWaitTimeout,
-		dlddArtifactPollInterval,
+		healthzArtifactWaitTimeout,
+		healthzArtifactPollInterval,
 	)
 	if err != nil {
 		return err

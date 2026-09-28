@@ -18,14 +18,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const healthzDefaultHostRoot = "/mnt/host"
-
-var healthzHostRoot = healthzDefaultHostRoot
-
-func healthzArtifactPath(path string) string {
-	return filepath.Join(healthzHostRoot, path)
-}
-
 const (
 	compKey          string = "name"
 	ddComponentKey   string = "component"
@@ -42,30 +34,20 @@ func healthzReadOnlyError() error {
 }
 
 func isDebugData(p *types.Path) bool {
-	if p == nil {
+	if p == nil || len(p.GetElem()) != 4 {
 		return false
 	}
 	elems := p.GetElem()
-	log.V(5).Infof("Healthz path elements: %+v", elems)
-	if len(elems) != 4 {
-		return false
+	_, hasComponentName := elems[1].GetKey()[compKey]
+	switch elems[3].GetName() {
+	case ddLogLvlAlert + ddLogLvlSuf, ddLogLvlCritical + ddLogLvlSuf, ddLogLvlAll + ddLogLvlSuf:
+		return elems[0].GetName() == "components" && len(elems[0].GetKey()) == 0 &&
+			elems[1].GetName() == "component" && len(elems[1].GetKey()) == 1 &&
+			hasComponentName &&
+			elems[2].GetName() == "healthz" && len(elems[2].GetKey()) == 0 &&
+			len(elems[3].GetKey()) == 0
 	}
-	if elems[0].GetName() != "components" || len(elems[0].GetKey()) > 0 {
-		return false
-	}
-	if elems[1].GetName() != "component" || len(elems[1].GetKey()) != 1 {
-		return false
-	}
-	if _, ok := elems[1].GetKey()["name"]; !ok {
-		return false
-	}
-	if elems[2].GetName() != "healthz" || len(elems[2].GetKey()) > 0 {
-		return false
-	}
-	if (elems[3].GetName() != ddLogLvlAlert+ddLogLvlSuf && elems[3].GetName() != ddLogLvlCritical+ddLogLvlSuf && elems[3].GetName() != ddLogLvlAll+ddLogLvlSuf) || len(elems[3].GetKey()) > 0 {
-		return false
-	}
-	return true
+	return false
 }
 
 func healthzComponentName(path *types.Path) (string, error) {
@@ -118,47 +100,36 @@ func healthzCatalogError(err error) error {
 }
 
 func healthzEventStatus(event healthzCatalogEvent, allowSummary bool) (*healthz.ComponentStatus, error) {
+	result := &healthz.ComponentStatus{Path: healthzComponentPath(event.Component)}
 	// A parent with child events but no event of its own is an unassessed
 	// container, not an inferred healthy event.
 	if allowSummary && event.ID == "" && event.Status == "UNSPECIFIED" && event.ObservedAt == 0 &&
 		!event.Acknowledged && event.ArtifactID == "" && event.Component != "" && len(event.Children) > 0 {
-		result := &healthz.ComponentStatus{Path: healthzComponentPath(event.Component), Status: healthz.Status_STATUS_UNSPECIFIED}
-		for _, child := range event.Children {
-			childStatus, err := healthzEventStatus(child, true)
-			if err != nil {
-				return nil, err
-			}
-			result.Subcomponents = append(result.Subcomponents, childStatus)
+		result.Status = healthz.Status_STATUS_UNSPECIFIED
+	} else {
+		if event.ID == "" || event.Component == "" || event.ObservedAt <= 0 {
+			return nil, status.Error(codes.Internal, "Healthz host service returned an incomplete event")
 		}
-		return result, nil
-	}
-	if event.ID == "" || event.Component == "" || event.ObservedAt <= 0 {
-		return nil, status.Error(codes.Internal, "Healthz host service returned an incomplete event")
-	}
-	var assessment healthz.Status
-	switch event.Status {
-	case "HEALTHY":
-		assessment = healthz.Status_STATUS_HEALTHY
-	case "UNHEALTHY":
-		assessment = healthz.Status_STATUS_UNHEALTHY
-	default:
-		return nil, status.Errorf(codes.Internal, "Healthz host service returned unknown status %q", event.Status)
-	}
-	result := &healthz.ComponentStatus{
-		Path:         healthzComponentPath(event.Component),
-		Id:           event.ID,
-		Status:       assessment,
-		Acknowledged: event.Acknowledged,
-		Created:      timestamppb.New(time.Unix(event.ObservedAt, 0)),
-	}
-	if event.ArtifactID != "" {
-		result.Artifacts = []*healthz.ArtifactHeader{{
-			Id: event.ArtifactID,
-			ArtifactType: &healthz.ArtifactHeader_File{File: &healthz.FileArtifactType{
-				Name:     filepath.Base(event.ArtifactID),
-				Mimetype: "application/gzip",
-			}},
-		}}
+		switch event.Status {
+		case "HEALTHY":
+			result.Status = healthz.Status_STATUS_HEALTHY
+		case "UNHEALTHY":
+			result.Status = healthz.Status_STATUS_UNHEALTHY
+		default:
+			return nil, status.Errorf(codes.Internal, "Healthz host service returned unknown status %q", event.Status)
+		}
+		result.Id = event.ID
+		result.Acknowledged = event.Acknowledged
+		result.Created = timestamppb.New(time.Unix(event.ObservedAt, 0))
+		if event.ArtifactID != "" {
+			result.Artifacts = []*healthz.ArtifactHeader{{
+				Id: event.ArtifactID,
+				ArtifactType: &healthz.ArtifactHeader_File{File: &healthz.FileArtifactType{
+					Name:     filepath.Base(event.ArtifactID),
+					Mimetype: "application/gzip",
+				}},
+			}}
+		}
 	}
 	for _, child := range event.Children {
 		status, err := healthzEventStatus(child, true)
@@ -170,20 +141,26 @@ func healthzEventStatus(event healthzCatalogEvent, allowSummary bool) (*healthz.
 	return result, nil
 }
 
-func healthzCatalogRequest(request interface{}) (string, error) {
+// callHealthzCatalog handles the shared D-Bus/JSON boundary for Get, List and
+// Acknowledge. Each RPC still owns validation and protobuf conversion.
+func callHealthzCatalog(method func(ssc.Service, string) (string, error), request, result interface{}) error {
 	encoded, err := json.Marshal(request)
 	if err != nil {
-		return "", status.Errorf(codes.Internal, "failed to encode Healthz request: %v", err)
+		return status.Errorf(codes.Internal, "failed to encode Healthz request: %v", err)
 	}
-	return string(encoded), nil
-}
-
-func healthzCatalogClient() (ssc.Service, error) {
 	client, err := ssc.NewDbusClientProvider()
 	if err != nil {
-		return nil, healthzCatalogError(err)
+		return healthzCatalogError(err)
 	}
-	return client, nil
+	defer client.Close()
+	response, err := method(client, string(encoded))
+	if err != nil {
+		return healthzCatalogError(err)
+	}
+	if err := json.Unmarshal([]byte(response), result); err != nil {
+		return status.Errorf(codes.Internal, "invalid Healthz host response: %v", err)
+	}
+	return nil
 }
 
 func (srv *HealthzServer) collectDebugData(ctx context.Context, p *types.Path) (*healthz.ComponentStatus, error) {
@@ -259,22 +236,9 @@ func (srv *HealthzServer) Get(ctx context.Context, req *healthz.GetRequest) (*he
 	if err != nil {
 		return nil, err
 	}
-	request, err := healthzCatalogRequest(map[string]string{"component": component})
-	if err != nil {
-		return nil, err
-	}
-	client, err := healthzCatalogClient()
-	if err != nil {
-		return nil, err
-	}
-	defer client.Close()
-	response, err := client.HealthzGet(request)
-	if err != nil {
-		return nil, healthzCatalogError(err)
-	}
 	var event healthzCatalogEvent
-	if err := json.Unmarshal([]byte(response), &event); err != nil {
-		return nil, status.Errorf(codes.Internal, "invalid Healthz Get response: %v", err)
+	if err := callHealthzCatalog(ssc.Service.HealthzGet, map[string]string{"component": component}, &event); err != nil {
+		return nil, err
 	}
 	if event.Component != component {
 		return nil, status.Error(codes.Internal, "Healthz host service returned a different component")
@@ -302,22 +266,10 @@ func (srv *HealthzServer) Acknowledge(ctx context.Context, req *healthz.Acknowle
 	if err != nil {
 		return nil, err
 	}
-	request, err := healthzCatalogRequest(map[string]string{"component": component, "id": req.GetId()})
-	if err != nil {
-		return nil, err
-	}
-	client, err := healthzCatalogClient()
-	if err != nil {
-		return nil, err
-	}
-	defer client.Close()
-	response, err := client.HealthzAcknowledge(request)
-	if err != nil {
-		return nil, healthzCatalogError(err)
-	}
 	var event healthzCatalogEvent
-	if err := json.Unmarshal([]byte(response), &event); err != nil {
-		return nil, status.Errorf(codes.Internal, "invalid Healthz Acknowledge response: %v", err)
+	if err := callHealthzCatalog(ssc.Service.HealthzAcknowledge,
+		map[string]string{"component": component, "id": req.GetId()}, &event); err != nil {
+		return nil, err
 	}
 	if event.Component != component || event.ID != req.GetId() || !event.Acknowledged {
 		return nil, status.Error(codes.Internal, "Healthz host service returned an inconsistent acknowledgement")
@@ -337,25 +289,12 @@ func (srv *HealthzServer) List(ctx context.Context, req *healthz.ListRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	request, err := healthzCatalogRequest(struct {
+	var events []healthzCatalogEvent
+	if err := callHealthzCatalog(ssc.Service.HealthzList, struct {
 		Component           string `json:"component"`
 		IncludeAcknowledged bool   `json:"include_acknowledged"`
-	}{component, req.GetIncludeAcknowledged()})
-	if err != nil {
+	}{component, req.GetIncludeAcknowledged()}, &events); err != nil {
 		return nil, err
-	}
-	client, err := healthzCatalogClient()
-	if err != nil {
-		return nil, err
-	}
-	defer client.Close()
-	response, err := client.HealthzList(request)
-	if err != nil {
-		return nil, healthzCatalogError(err)
-	}
-	var events []healthzCatalogEvent
-	if err := json.Unmarshal([]byte(response), &events); err != nil {
-		return nil, status.Errorf(codes.Internal, "invalid Healthz List response: %v", err)
 	}
 	result := &healthz.ListResponse{}
 	for _, event := range events {

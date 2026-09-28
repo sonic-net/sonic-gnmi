@@ -13,11 +13,12 @@ import (
 func newArtifactTestResolver(t *testing.T) artifactPathResolver {
 	t.Helper()
 	resolver := artifactPathResolver{
-		hostMount:       t.TempDir(),
-		legacyDirectory: legacyArtifactDirectory,
-		dlddDirectory:   dlddArtifactDirectory,
+		hostMount:        t.TempDir(),
+		legacyDirectory:  legacyArtifactDirectory,
+		dlddDirectory:    dlddArtifactDirectory,
+		healthzDirectory: healthzArtifactDirectory,
 	}
-	for _, directory := range []string{resolver.legacyDirectory, resolver.dlddDirectory} {
+	for _, directory := range []string{resolver.legacyDirectory, resolver.dlddDirectory, resolver.healthzDirectory} {
 		if err := os.MkdirAll(resolver.containerPath(directory), 0755); err != nil {
 			t.Fatalf("failed to create artifact test directory: %v", err)
 		}
@@ -44,12 +45,13 @@ func TestArtifactPathResolverOpensSupportedArtifacts(t *testing.T) {
 		hostPath string
 		content  string
 	}{
+		{id: "healthz-0123456789abcdef0123456789abcdef.tar.gz", content: "healthz"},
 		{id: "dldd-0123456789abcdef0123456789abcdef.tar.gz", content: "dldd"},
 		{id: "/tmp/dump/legacy/healthz.tar.gz", hostPath: "/tmp/dump/legacy/healthz.tar.gz", content: "legacy"},
 	}
 	for _, test := range tests {
 		if test.hostPath == "" {
-			test.hostPath = filepath.Join(resolver.dlddDirectory, test.id)
+			test.hostPath = filepath.Join(resolver.artifactDirectory(test.id), test.id)
 		}
 		wantPath := writeArtifactTestFile(t, resolver, test.hostPath, []byte(test.content))
 		file, gotPath, err := resolver.open(test.id)
@@ -76,6 +78,7 @@ func TestArtifactPathResolverKeepsLegacyAcknowledgementSeparate(t *testing.T) {
 
 	for _, id := range []string{
 		"dldd-0123456789abcdef0123456789abcdef.tar.gz",
+		"healthz-0123456789abcdef0123456789abcdef.tar.gz",
 		"/tmp/dump/nested/../legacy.tar.gz",
 	} {
 		if _, _, err := resolver.openLegacy(id); status.Code(err) != codes.InvalidArgument {
@@ -93,6 +96,8 @@ func TestArtifactPathResolverRejectsUnsafeOrMissingArtifacts(t *testing.T) {
 		{id: "../outside", code: codes.InvalidArgument},
 		{id: "/tmp/dump2/artifact", code: codes.InvalidArgument},
 		{id: "dldd-not-a-generated-identifier.tar.gz", code: codes.InvalidArgument},
+		{id: "healthz-not-a-generated-identifier.tar.gz", code: codes.InvalidArgument},
+		{id: "healthz-44444444444444444444444444444444.tar.gz", code: codes.NotFound},
 		{id: "dldd-44444444444444444444444444444444.tar.gz", code: codes.NotFound},
 	}
 	for _, test := range tests {
@@ -123,6 +128,13 @@ func TestArtifactPathResolverRejectsSymlinks(t *testing.T) {
 	}
 	if _, err := resolver.resolve(opaqueID); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("opaque symlink code = %v, want %v; err=%v", status.Code(err), codes.PermissionDenied, err)
+	}
+	healthzID := "healthz-22222222222222222222222222222222.tar.gz"
+	if err := os.Symlink(outside, resolver.containerPath(filepath.Join(resolver.healthzDirectory, healthzID))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.resolve(healthzID); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("Healthz symlink code = %v, want %v; err=%v", status.Code(err), codes.PermissionDenied, err)
 	}
 
 	linkDir := resolver.containerPath("/tmp/dump/link")
