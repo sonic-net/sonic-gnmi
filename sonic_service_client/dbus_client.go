@@ -413,34 +413,14 @@ func (c *DbusClient) InstallOS(req string) (string, error) {
 	return strResult, nil
 }
 
-// callHealthz invokes one legacy debug_info method and records its counter.
-func (c *DbusClient) callHealthz(method string, counter common_utils.CounterType, req string) (string, error) {
-	modName := "debug_info"
+// callHealthz invokes either the catalog or legacy diagnostic D-Bus method.
+func (c *DbusClient) callHealthz(modName, method string, counter common_utils.CounterType, arg interface{}) (string, error) {
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + "." + method
 
 	common_utils.IncCounter(counter)
-	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, []string{req})
-	if err != nil {
-		return "", err
-	}
-	strResult, ok := result.(string)
-	if !ok {
-		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
-	}
-	return strResult, nil
-}
-
-// callHealthzMetadata invokes one short catalog operation on the host.
-func (c *DbusClient) callHealthzMetadata(method string, counter common_utils.CounterType, req string) (string, error) {
-	modName := "healthz"
-	busName := c.busNamePrefix + modName
-	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + "." + method
-
-	common_utils.IncCounter(counter)
-	result, err := DbusApi(busName, busPath, intName, 10, req)
+	result, err := DbusApi(busName, busPath, intName, 10, arg)
 	if err != nil {
 		return "", err
 	}
@@ -452,27 +432,27 @@ func (c *DbusClient) callHealthzMetadata(method string, counter common_utils.Cou
 }
 
 func (c *DbusClient) HealthzGet(req string) (string, error) {
-	return c.callHealthzMetadata("get", common_utils.GNOI_HEALTHZ_GET, req)
+	return c.callHealthz("healthz", "get", common_utils.GNOI_HEALTHZ_GET, req)
 }
 
 func (c *DbusClient) HealthzList(req string) (string, error) {
-	return c.callHealthzMetadata("list", common_utils.GNOI_HEALTHZ_LIST, req)
+	return c.callHealthz("healthz", "list", common_utils.GNOI_HEALTHZ_LIST, req)
 }
 
 func (c *DbusClient) HealthzAcknowledge(req string) (string, error) {
-	return c.callHealthzMetadata("ack", common_utils.GNOI_HEALTHZ_ACK, req)
+	return c.callHealthz("healthz", "ack", common_utils.GNOI_HEALTHZ_ACK, req)
 }
 
 func (c *DbusClient) HealthzCheck(req string) (string, error) {
-	return c.callHealthz("check", common_utils.GNOI_HEALTHZ_CHECK, req)
+	return c.callHealthz("debug_info", "check", common_utils.GNOI_HEALTHZ_CHECK, []string{req})
 }
 
 func (c *DbusClient) HealthzCollect(req string) (string, error) {
-	return c.callHealthz("collect", common_utils.GNOI_HEALTHZ_COLLECT, req)
+	return c.callHealthz("debug_info", "collect", common_utils.GNOI_HEALTHZ_COLLECT, []string{req})
 }
 
 func (c *DbusClient) HealthzAck(req string) (string, error) {
-	return c.callHealthz("ack", common_utils.GNOI_HEALTHZ_ACK, req)
+	return c.callHealthz("debug_info", "ack", common_utils.GNOI_HEALTHZ_ACK, []string{req})
 }
 
 func (c *DbusClient) ConsoleSet(cmd string) error {

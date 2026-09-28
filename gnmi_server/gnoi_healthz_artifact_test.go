@@ -78,10 +78,10 @@ func TestHealthzArtifactRejectsNilRequest(t *testing.T) {
 
 func TestHealthzArtifactStreamsCompletedArchive(t *testing.T) {
 	server := newHealthzArtifactTestServer(t)
-	artifactID := "dldd-0123456789abcdef0123456789abcdef.tar.gz"
+	artifactID := "healthz-0123456789abcdef0123456789abcdef.tar.gz"
 	content := bytes.Repeat([]byte("x"), 2*ddFileSegSize+1)
 	writeArtifactTestFile(t, server.artifactResolver,
-		filepath.Join(server.artifactResolver.dlddDirectory, artifactID), content)
+		filepath.Join(server.artifactResolver.healthzDirectory, artifactID), content)
 	stream := &artifactTestStream{}
 
 	if err := server.Artifact(&healthz.ArtifactRequest{Id: artifactID}, stream); err != nil {
@@ -113,21 +113,36 @@ func TestHealthzArtifactStreamsCompletedArchive(t *testing.T) {
 	}
 }
 
-func TestWaitForDLDDArtifactAllowsAsynchronousCollection(t *testing.T) {
+func TestHealthzArtifactStreamsExistingDLDDArchive(t *testing.T) {
+	server := newHealthzArtifactTestServer(t)
+	artifactID := "dldd-0123456789abcdef0123456789abcdef.tar.gz"
+	writeArtifactTestFile(t, server.artifactResolver,
+		filepath.Join(server.artifactResolver.dlddDirectory, artifactID), []byte("existing archive"))
+	stream := &artifactTestStream{}
+	if err := server.Artifact(&healthz.ArtifactRequest{Id: artifactID}, stream); err != nil {
+		t.Fatalf("Artifact() failed for an existing DLDD archive: %v", err)
+	}
+	if len(stream.responses) != 3 || stream.responses[0].GetHeader().GetId() != artifactID ||
+		string(stream.responses[1].GetBytes()) != "existing archive" || stream.responses[2].GetTrailer() == nil {
+		t.Fatalf("Artifact() returned an invalid legacy archive stream: %+v", stream.responses)
+	}
+}
+
+func TestWaitForHealthzArtifactAllowsAsynchronousCollection(t *testing.T) {
 	resolver := newArtifactTestResolver(t)
-	artifactID := "dldd-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.gz"
+	artifactID := "healthz-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.gz"
 	written := make(chan error, 1)
 	go func() {
 		time.Sleep(20 * time.Millisecond)
-		path := resolver.containerPath(filepath.Join(resolver.dlddDirectory, artifactID))
+		path := resolver.containerPath(filepath.Join(resolver.healthzDirectory, artifactID))
 		written <- os.WriteFile(path, []byte("ready"), 0644)
 	}()
 
-	file, err := waitForDLDDArtifact(
+	file, err := waitForHealthzArtifact(
 		context.Background(), resolver, artifactID, time.Second, 5*time.Millisecond,
 	)
 	if err != nil {
-		t.Fatalf("waitForDLDDArtifact() failed: %v", err)
+		t.Fatalf("waitForHealthzArtifact() failed: %v", err)
 	}
 	file.Close()
 	if err := <-written; err != nil {
@@ -135,17 +150,17 @@ func TestWaitForDLDDArtifactAllowsAsynchronousCollection(t *testing.T) {
 	}
 }
 
-func TestWaitForDLDDArtifactHonorsCancellation(t *testing.T) {
+func TestWaitForHealthzArtifactHonorsCancellation(t *testing.T) {
 	resolver := newArtifactTestResolver(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := waitForDLDDArtifact(
-		ctx, resolver, "dldd-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.tar.gz",
+	_, err := waitForHealthzArtifact(
+		ctx, resolver, "healthz-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.tar.gz",
 		time.Second, 5*time.Millisecond,
 	)
 	if status.Code(err) != codes.Canceled {
-		t.Fatalf("waitForDLDDArtifact() code = %v, want %v; err=%v",
+		t.Fatalf("waitForHealthzArtifact() code = %v, want %v; err=%v",
 			status.Code(err), codes.Canceled, err)
 	}
 }
