@@ -33,10 +33,53 @@ func bypassCertificateContext(commonName string) context.Context {
 	})
 }
 
+func TestNativeSetTarget(t *testing.T) {
+	tests := []struct {
+		name   string
+		prefix *gnmipb.Path
+		paths  []*gnmipb.Path
+		want   string
+	}{
+		{
+			name:   "prefix target",
+			prefix: &gnmipb.Path{Origin: "sonic-db", Target: "CONFIG_DB"},
+			paths:  []*gnmipb.Path{{Elem: []*gnmipb.PathElem{{Name: "VNET"}, {Name: "blue"}}}},
+			want:   "CONFIG_DB",
+		},
+		{
+			name:   "database in path",
+			prefix: &gnmipb.Path{Origin: "sonic-db"},
+			paths: []*gnmipb.Path{{Elem: []*gnmipb.PathElem{
+				{Name: "CONFIG_DB"},
+				{Name: "localhost"},
+				{Name: "VNET"},
+				{Name: "blue"},
+			}}},
+			want: "CONFIG_DB",
+		},
+		{
+			name:   "conflicting databases",
+			prefix: &gnmipb.Path{Origin: "sonic-db"},
+			paths: []*gnmipb.Path{
+				{Elem: []*gnmipb.PathElem{{Name: "CONFIG_DB"}, {Name: "localhost"}, {Name: "VNET"}}},
+				{Elem: []*gnmipb.PathElem{{Name: "APPL_DB"}, {Name: "localhost"}, {Name: "VNET"}}},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := nativeSetTarget(test.prefix, test.paths); got != test.want {
+				t.Fatalf("nativeSetTarget() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestSetBypassCertificateAuthorization(t *testing.T) {
 	rolesByCommonName := map[string][]string{
-		"mapped-readwrite": {"gnmi_readwrite"},
-		"mapped-readonly":  {"gnmi_readonly"},
+		"mapped-readwrite": {"gnmi_config_db_readwrite"},
+		"mapped-readonly":  {"gnmi_config_db_readonly"},
 	}
 	backend := map[string]string{}
 	backendCalls := 0
