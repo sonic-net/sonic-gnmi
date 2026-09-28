@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 type RecordsClient struct {
 	prefix *gnmipb.Path
 	path   *gnmipb.Path
+	subs   []recordsSubscription
 
 	tailer Tailer
 	parser Parser
@@ -28,17 +30,43 @@ type RecordsClient struct {
 
 // NewRecordsClient builds a RECORDS client for the given subscription paths.
 func NewRecordsClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (Client, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("RECORDS: at least one path is required")
+	}
 	c := &RecordsClient{
 		prefix: prefix,
 		tailer: NewSampleFakeTailer(),
 		parser: PassThroughParser{},
 	}
 	for _, path := range paths {
-		// Only one path is expected; take the last if many (EVENTS precedent).
+		sub, err := parseRecordsPath(path)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateRecordsNamespace(sub.namespace); err != nil {
+			return nil, err
+		}
+		c.subs = append(c.subs, *sub)
+		// Keep last path for encoding (EVENTS precedent).
 		c.path = path
 	}
-	log.V(2).Infof("NewRecordsClient prefix=%v path=%v logLevel=%d", prefix, c.path, logLevel)
+	log.V(2).Infof("NewRecordsClient prefix=%v path=%v subs=%d logLevel=%d", prefix, c.path, len(c.subs), logLevel)
 	return c, nil
+}
+
+// earliestFrom returns the oldest non-zero from= across subscriptions.
+// Zero means live-only (no historical replay).
+func (c *RecordsClient) earliestFrom() time.Time {
+	var earliest time.Time
+	for _, sub := range c.subs {
+		if sub.from.IsZero() {
+			continue
+		}
+		if earliest.IsZero() || sub.from.Before(earliest) {
+			earliest = sub.from
+		}
+	}
+	return earliest
 }
 
 // sampleRecord returns the example Record from the RECORDS design doc.
@@ -125,7 +153,7 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 	out := make(chan RawLine)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- c.tailer.Run(ctx, time.Time{}, out)
+		errCh <- c.tailer.Run(ctx, c.earliestFrom(), out)
 		close(out)
 	}()
 

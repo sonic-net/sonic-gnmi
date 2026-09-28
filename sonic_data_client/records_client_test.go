@@ -29,6 +29,8 @@ func recordsTestPrefix() *gnmipb.Path {
 }
 
 func TestNewRecordsClient(t *testing.T) {
+	withRecordsNamespaces(t, []string{""})
+
 	path := recordsTestPath()
 	prefix := recordsTestPrefix()
 	dc, err := NewRecordsClient([]*gnmipb.Path{path}, prefix, 0)
@@ -44,6 +46,12 @@ func TestNewRecordsClient(t *testing.T) {
 	}
 	if rc.path != path {
 		t.Fatalf("path not set to last subscription path")
+	}
+	if len(rc.subs) != 1 {
+		t.Fatalf("subs = %d, want 1", len(rc.subs))
+	}
+	if rc.subs[0].key != "10.1.0.0/24" {
+		t.Fatalf("parsed key = %q, want 10.1.0.0/24", rc.subs[0].key)
 	}
 	if rc.tailer == nil {
 		t.Fatal("expected default Tailer")
@@ -123,6 +131,8 @@ func TestSampleRecordFields(t *testing.T) {
 }
 
 func TestRecordsClientStreamRunEmitsSampleAndSync(t *testing.T) {
+	withRecordsNamespaces(t, []string{""})
+
 	path := recordsTestPath()
 	prefix := recordsTestPrefix()
 	dc, err := NewRecordsClient([]*gnmipb.Path{path}, prefix, 0)
@@ -221,6 +231,8 @@ func TestRecordsClientStreamRunEmitsSampleAndSync(t *testing.T) {
 }
 
 func TestRecordsClientStubs(t *testing.T) {
+	withRecordsNamespaces(t, []string{""})
+
 	dc, err := NewRecordsClient([]*gnmipb.Path{recordsTestPath()}, recordsTestPrefix(), 0)
 	if err != nil {
 		t.Fatalf("NewRecordsClient: %v", err)
