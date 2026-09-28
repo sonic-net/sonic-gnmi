@@ -23,6 +23,7 @@ import (
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
 	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
 	"github.com/fsnotify/fsnotify"
@@ -313,7 +314,11 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 
 	gnmi.SetCrlExpireDuration(time.Duration(*telemetryCfg.CrlExpireDuration) * time.Second)
 
-	// TODO: After other dependent projects are migrated to ZmqPort, remove ZmqAddress
+	sdc.SetRecordsDir(*telemetryCfg.RecordsDir)
+	if err := sdc.SetRecordsTZ(*telemetryCfg.RecordsTZ); err != nil {
+		return nil, nil, err
+	}
+
 	zmqAddress := *telemetryCfg.ZmqAddress
 	zmqPort := *telemetryCfg.ZmqPort
 	if zmqPort == "" {
