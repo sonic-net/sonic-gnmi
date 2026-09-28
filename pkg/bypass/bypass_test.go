@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-func TestHasBypassHeader(t *testing.T) {
+func TestIsRequested(t *testing.T) {
 	tests := []struct {
 		name     string
 		ctx      context.Context
@@ -67,9 +67,9 @@ func TestHasBypassHeader(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := hasBypassHeader(tt.ctx)
+			result := IsRequested(tt.ctx)
 			if result != tt.expected {
-				t.Errorf("hasBypassHeader() = %v, want %v", result, tt.expected)
+				t.Errorf("IsRequested() = %v, want %v", result, tt.expected)
 			}
 		})
 	}
