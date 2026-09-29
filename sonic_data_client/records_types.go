@@ -47,7 +47,7 @@ type Matcher interface {
 // Subscription captures the fields a gNMI client subscribed to within the
 type Subscription struct {
 	Namespace string
-	DB        string   // "APPL_DB" | "ASIC_DB"
+	DB        string // "APPL_DB" | "ASIC_DB"
 	Table     string
 	Key       string   // empty → whole-table prefix match
 	Ops       []string // empty → all ops
