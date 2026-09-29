@@ -6443,7 +6443,7 @@ func TestServerConfigGnmiVrf(t *testing.T) {
 		GnmiVrf:             "mgmt",
 		Vrf:                 "",
 	}
-	s, err := NewServer(cfg, []grpc.ServerOption{}, []grpc.ServerOption{})
+	s, err := NewServer(cfg, testTLSServerOptions(t), nil)
 	if s != nil {
 		defer func() {
 			s.ForceStop()
@@ -6501,10 +6501,9 @@ func TestValidateNoTLSConfig(t *testing.T) {
 	}
 }
 
-func TestNewServerRejectsNoTLSWithGnmiVrf(t *testing.T) {
+func TestNewServerRejectsPlaintextWithGnmiVrf(t *testing.T) {
 	cfg := &Config{
 		Port:        8082,
-		NoTLS:       true,
 		BindAddress: "127.0.0.1",
 		GnmiVrf:     "mgmt",
 	}
@@ -6521,6 +6520,58 @@ func TestNewServerRejectsNoTLSWithGnmiVrf(t *testing.T) {
 	}
 }
 
+func TestNewServerRejectsPlaintextWildcardBind(t *testing.T) {
+	commonOpts := []grpc.ServerOption{grpc.MaxRecvMsgSize(1024)}
+	s, err := NewServer(&Config{Port: 0}, nil, commonOpts)
+	if err == nil {
+		if s != nil {
+			s.ForceStop()
+		}
+		t.Fatal("expected plaintext wildcard listener to be rejected")
+	}
+	if !strings.Contains(err.Error(), "loopback address") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNewServerAcceptsPlaintextIPv6Loopback(t *testing.T) {
+	probe, err := net.Listen("tcp", net.JoinHostPort("::1", "0"))
+	if err != nil {
+		t.Skipf("IPv6 loopback is unavailable: %v", err)
+	}
+	probe.Close()
+
+	s, err := NewServer(&Config{
+		Port:        0,
+		BindAddress: "::1",
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create plaintext IPv6 loopback listener: %v", err)
+	}
+	defer s.ForceStop()
+
+	addr, ok := s.lis.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("unexpected listener address type %T", s.lis.Addr())
+	}
+	if !addr.IP.IsLoopback() {
+		t.Fatalf("listener is not on IPv6 loopback: %v", addr)
+	}
+}
+
+func testTLSServerOptions(t *testing.T) []grpc.ServerOption {
+	t.Helper()
+	certificate, err := testcert.NewCert()
+	if err != nil {
+		t.Fatalf("could not create test server certificate: %v", err)
+	}
+	return []grpc.ServerOption{
+		grpc.Creds(credentials.NewTLS(&tls.Config{
+			Certificates: []tls.Certificate{certificate},
+		})),
+	}
+}
+
 func TestServerConfigZmqVrf(t *testing.T) {
 	// Test that ZMQ VRF field is properly set in config
 	cfg := &Config{
@@ -6531,7 +6582,7 @@ func TestServerConfigZmqVrf(t *testing.T) {
 		GnmiVrf:             "",
 		Vrf:                 "mgmt",
 	}
-	s, err := NewServer(cfg, []grpc.ServerOption{}, []grpc.ServerOption{})
+	s, err := NewServer(cfg, testTLSServerOptions(t), nil)
 	if s != nil {
 		defer func() {
 			s.ForceStop()
@@ -6569,7 +6620,7 @@ func TestServerConfigGnmiVrfEmptyAndDefault(t *testing.T) {
 				GnmiVrf:             tt.gnmiVrf,
 				Vrf:                 "",
 			}
-			s, err := NewServer(cfg, []grpc.ServerOption{}, []grpc.ServerOption{})
+			s, err := NewServer(cfg, testTLSServerOptions(t), nil)
 			if s != nil {
 				defer func() {
 					s.ForceStop()
@@ -7768,7 +7819,7 @@ func TestTCPListenerFailsUDSContinues(t *testing.T) {
 		UnixSocket: socketPath,
 		Threshold:  100,
 	}
-	s, err := NewServer(cfg, nil, nil)
+	s, err := NewServer(cfg, testTLSServerOptions(t), nil)
 	if err != nil {
 		t.Fatalf("NewServer should succeed with UDS when TCP fails: %v", err)
 	}
@@ -7850,7 +7901,7 @@ func TestBothListenersFail(t *testing.T) {
 		UnixSocket: socketPath,
 		Threshold:  100,
 	}
-	s, err := NewServer(cfg, nil, nil)
+	s, err := NewServer(cfg, testTLSServerOptions(t), nil)
 	if err == nil {
 		s.ForceStop()
 		t.Error("NewServer should fail when both listeners fail")

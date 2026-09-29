@@ -296,7 +296,6 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.GnmiVrf = *telemetryCfg.GnmiVrf
 	cfg.Vrf = *telemetryCfg.Vrf
 	cfg.BindAddress = *telemetryCfg.BindAddress
-	cfg.NoTLS = *telemetryCfg.NoTLS
 	cfg.EnableCrl = *telemetryCfg.EnableCrl
 	cfg.CaCertLnk = *telemetryCfg.CaCertLnk
 	cfg.CaCertFile = *telemetryCfg.CaCert
