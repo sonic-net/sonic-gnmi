@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,32 +120,33 @@ func TestRecordsSubscribeStreamSample(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(gotVals) < 1 {
-		t.Fatal("expected at least one Update with sample Record")
+	var record map[string]interface{}
+	for _, v := range gotVals {
+		payload, err := asJSONObject(v)
+		if err != nil {
+			continue
+		}
+		if _, isEvent := payload["event"]; isEvent {
+			continue
+		}
+		record = payload
+		break
+	}
+	if record == nil {
+		t.Fatalf("expected at least one Record Update among %d updates", len(gotVals))
 	}
 
-	payload, err := asJSONObject(gotVals[0])
-	if err != nil {
-		// Fall back to substring checks if the client decoded oddly.
-		raw := fmt.Sprintf("%v", gotVals[0])
-		for _, key := range []string{"seq", "source", "db", "table", "op", "matched_by"} {
-			if !strings.Contains(raw, key) {
-				t.Errorf("sample payload missing %q: %s", key, raw)
-			}
-		}
-	} else {
-		if payload["source"] != "swss" {
-			t.Errorf("source = %v, want swss", payload["source"])
-		}
-		if payload["db"] != "APPL_DB" {
-			t.Errorf("db = %v, want APPL_DB", payload["db"])
-		}
-		if payload["key"] != "10.1.0.0/24" {
-			t.Errorf("key = %v, want 10.1.0.0/24", payload["key"])
-		}
-		if payload["op"] != "SET" {
-			t.Errorf("op = %v, want SET", payload["op"])
-		}
+	if record["source"] != "swss" {
+		t.Errorf("source = %v, want swss", record["source"])
+	}
+	if record["db"] != "APPL_DB" {
+		t.Errorf("db = %v, want APPL_DB", record["db"])
+	}
+	if record["key"] != "10.1.0.0/24" {
+		t.Errorf("key = %v, want 10.1.0.0/24", record["key"])
+	}
+	if record["op"] != "SET" {
+		t.Errorf("op = %v, want SET", record["op"])
 	}
 	if !gotSync {
 		t.Error("expected sync_response")

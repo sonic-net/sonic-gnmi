@@ -145,6 +145,12 @@ func (m multiTailer) Run(ctx context.Context, from time.Time, out chan<- RawLine
 	return nil
 }
 
+const (
+	recordsEventReplayStart = "replay_start"
+	recordsEventLive        = "live"
+	recordsEventGap         = "gap"
+)
+
 func controlEventName(line string) string {
 	var m struct {
 		Event string `json:"event"`
@@ -284,6 +290,30 @@ func (c *RecordsClient) enqueueRecord(ctx context.Context, r Record) error {
 	return c.putWithBackpressure(ctx, Value{spbv})
 }
 
+// enqueueControlJSON sends an operator control event as a JSON_IETF Notification.
+// These are not recorder lines; they mark replay/live phase and gaps.
+func (c *RecordsClient) enqueueControlJSON(ctx context.Context, jv []byte) error {
+	spbv := &spb.Value{
+		Prefix:    c.prefix,
+		Path:      c.path,
+		Timestamp: time.Now().UnixNano(),
+		Val: &gnmipb.TypedValue{
+			Value: &gnmipb.TypedValue_JsonIetfVal{
+				JsonIetfVal: jv,
+			},
+		},
+	}
+	return c.putWithBackpressure(ctx, Value{spbv})
+}
+
+func (c *RecordsClient) enqueueControlEvent(ctx context.Context, payload map[string]string) error {
+	jv, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return c.enqueueControlJSON(ctx, jv)
+}
+
 func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
 	c.wg = wg
 	defer c.wg.Done()
@@ -303,14 +333,26 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 		}
 	}()
 
+	from := c.earliestFrom()
+	if !from.IsZero() {
+		if err := c.enqueueControlEvent(ctx, map[string]string{
+			"event": recordsEventReplayStart,
+			"from":  from.Format(time.RFC3339Nano),
+		}); err != nil {
+			log.V(1).Infof("RecordsClient replay_start enqueue failed: %v", err)
+			return
+		}
+	}
+
 	out := make(chan RawLine)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- c.tailer.Run(ctx, c.earliestFrom(), out)
+		errCh <- c.tailer.Run(ctx, from, out)
 		close(out)
 	}()
 
 	synced := false
+	liveSent := false
 	lives := 0
 	liveNeeded := 1
 	if m, ok := c.tailer.(multiTailer); ok && len(m.parts) > 0 {
@@ -330,17 +372,39 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 		}
 		return true
 	}
+	sendLive := func() bool {
+		if liveSent {
+			return true
+		}
+		liveSent = true
+		if err := c.enqueueControlEvent(ctx, map[string]string{
+			"event": recordsEventLive,
+		}); err != nil {
+			log.V(1).Infof("RecordsClient live enqueue failed: %v", err)
+			return false
+		}
+		return sendSync()
+	}
 
 	for line := range out {
 		if ctx.Err() != nil {
 			continue // drain so Tailer is not stuck on a send
 		}
 		if line.Source == RecordsSourceControl {
-			if controlEventName(line.Line) == "live" {
+			switch controlEventName(line.Line) {
+			case recordsEventLive:
 				lives++
-				if lives >= liveNeeded && !sendSync() {
+				if lives >= liveNeeded && !sendLive() {
 					cancel()
 				}
+			case recordsEventGap:
+				// Forward the tailer's gap body (reason, source, namespace).
+				if err := c.enqueueControlJSON(ctx, []byte(line.Line)); err != nil {
+					log.V(1).Infof("RecordsClient gap enqueue failed: %v", err)
+					cancel()
+				}
+			default:
+				log.V(2).Infof("RecordsClient ignoring unknown control event: %s", line.Line)
 			}
 			continue
 		}
@@ -362,7 +426,7 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 	if err := <-errCh; err != nil && ctx.Err() == nil {
 		log.V(1).Infof("RecordsClient tailer: %v", err)
 	}
-	if !sendSync() {
+	if !sendLive() {
 		return
 	}
 

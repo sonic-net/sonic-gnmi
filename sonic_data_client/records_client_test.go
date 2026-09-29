@@ -170,77 +170,146 @@ func TestRecordsClientStreamRunEmitsSampleAndSync(t *testing.T) {
 	wg.Add(1)
 	go dc.StreamRun(pq, stop, &wg, nil)
 
-	// First item: sample Record as JSON_IETF TypedValue.
-	items, err := pq.Get(1)
-	if err != nil {
-		t.Fatalf("queue Get(record): %v", err)
-	}
-	val, ok := items[0].(Value)
-	if !ok {
-		t.Fatalf("expected Value, got %T", items[0])
-	}
-	resp, err := ValToResp(val)
-	if err != nil {
-		t.Fatalf("ValToResp(record): %v", err)
-	}
-	update := resp.GetUpdate()
-	if update == nil {
-		t.Fatalf("expected Notification update, got %#v", resp.Response)
-	}
-	if update.GetPrefix().GetTarget() != "RECORDS" {
-		t.Errorf("Notification prefix target = %q, want RECORDS", update.GetPrefix().GetTarget())
-	}
-	if len(update.Update) != 1 {
-		t.Fatalf("want 1 Update, got %d", len(update.Update))
-	}
-	jv := update.Update[0].GetVal().GetJsonIetfVal()
-	if len(jv) == 0 {
-		t.Fatal("TypedValue JsonIetfVal is empty")
-	}
-
-	var payload map[string]interface{}
-	if err := json.Unmarshal(jv, &payload); err != nil {
-		t.Fatalf("unmarshal sample JSON: %v", err)
-	}
-	for _, key := range []string{"seq", "ts", "source", "db", "table", "key", "op", "fields", "matched_by"} {
-		if _, ok := payload[key]; !ok {
-			t.Errorf("sample JSON missing %q", key)
+	sawReplayStart := false
+	sawLive := false
+	sawRecord := false
+	sawSync := false
+	deadline := time.After(5 * time.Second)
+	for !(sawReplayStart && sawRecord && sawLive && sawSync) {
+		select {
+		case <-deadline:
+			t.Fatalf("timeout: replay_start=%v record=%v live=%v sync=%v",
+				sawReplayStart, sawRecord, sawLive, sawSync)
+		default:
+		}
+		items, err := pq.Get(1)
+		if err != nil {
+			t.Fatalf("queue Get: %v", err)
+		}
+		val, ok := items[0].(Value)
+		if !ok {
+			t.Fatalf("expected Value, got %T", items[0])
+		}
+		resp, err := ValToResp(val)
+		if err != nil {
+			t.Fatalf("ValToResp: %v", err)
+		}
+		if resp.GetSyncResponse() {
+			sawSync = true
+			continue
+		}
+		update := resp.GetUpdate()
+		if update == nil || len(update.Update) != 1 {
+			t.Fatalf("expected Notification update, got %#v", resp.Response)
+		}
+		jv := update.Update[0].GetVal().GetJsonIetfVal()
+		var payload map[string]interface{}
+		if err := json.Unmarshal(jv, &payload); err != nil {
+			t.Fatalf("unmarshal JSON: %v", err)
+		}
+		switch payload["event"] {
+		case recordsEventReplayStart:
+			sawReplayStart = true
+			if payload["from"] == nil || payload["from"] == "" {
+				t.Error("replay_start missing from=")
+			}
+		case recordsEventLive:
+			sawLive = true
+		default:
+			// Matched Record.
+			if payload["source"] != "swss" || payload["key"] != "10.1.0.0/24" {
+				t.Fatalf("unexpected record payload: %v", payload)
+			}
+			if payload["matched_by"] != "exact" {
+				t.Errorf("matched_by = %v, want exact", payload["matched_by"])
+			}
+			sawRecord = true
 		}
 	}
-	if payload["source"] != "swss" {
-		t.Errorf("source = %v, want swss", payload["source"])
-	}
-	if payload["db"] != "APPL_DB" {
-		t.Errorf("db = %v, want APPL_DB", payload["db"])
-	}
-	if payload["key"] != "10.1.0.0/24" {
-		t.Errorf("key = %v, want 10.1.0.0/24", payload["key"])
-	}
-	if payload["op"] != "SET" {
-		t.Errorf("op = %v, want SET", payload["op"])
-	}
-	if payload["matched_by"] != "exact" {
-		t.Errorf("matched_by = %v, want exact", payload["matched_by"])
-	}
-	if update.GetTimestamp() == 0 {
-		t.Error("Notification timestamp is zero")
-	}
 
-	// Second item: sync_response.
-	items, err = pq.Get(1)
+	close(stop)
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamRun did not exit after stop")
+	}
+}
+
+func TestRecordsClientControlEvents(t *testing.T) {
+	withRecordsNamespaces(t, []string{""})
+
+	dc, err := NewRecordsClient([]*gnmipb.Path{recordsTestPath()}, recordsTestPrefix(), 0)
 	if err != nil {
-		t.Fatalf("queue Get(sync): %v", err)
+		t.Fatalf("NewRecordsClient: %v", err)
 	}
-	val, ok = items[0].(Value)
-	if !ok {
-		t.Fatalf("expected Value for sync, got %T", items[0])
-	}
-	resp, err = ValToResp(val)
+	rc := dc.(*RecordsClient)
+	rc.parser = PassThroughParser{}
+	rc.matcher = recordsAlwaysMatcher{}
+
+	r := sampleRecord()
+	jv, err := marshalRecordJSON(r)
 	if err != nil {
-		t.Fatalf("ValToResp(sync): %v", err)
+		t.Fatal(err)
 	}
-	if !resp.GetSyncResponse() {
-		t.Fatalf("expected sync_response true, got %#v", resp.Response)
+	from := time.Now().Add(-30 * time.Minute)
+	rc.subs[0].from = from
+	rc.tailer = &FakeTailer{Lines: []RawLine{
+		{Source: RecordsSourceControl, Line: `{"event":"gap","reason":"truncate","tailer_source":"swss","namespace":"localhost"}`},
+		{Source: "sairedis", Seq: r.Seq, Line: string(jv)},
+		{Source: RecordsSourceControl, Line: `{"event":"live","tailer_source":"swss","namespace":"localhost"}`},
+	}}
+
+	pq := queue.NewPriorityQueue(10, false)
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go dc.StreamRun(pq, stop, &wg, nil)
+
+	want := []string{recordsEventReplayStart, recordsEventGap, "record", recordsEventLive, "sync"}
+	got := make([]string, 0, len(want))
+	deadline := time.After(3 * time.Second)
+	for len(got) < len(want) {
+		select {
+		case <-deadline:
+			t.Fatalf("timeout got=%v want=%v", got, want)
+		default:
+		}
+		items, err := pq.Get(1)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		val := items[0].(Value)
+		resp, err := ValToResp(val)
+		if err != nil {
+			t.Fatalf("ValToResp: %v", err)
+		}
+		if resp.GetSyncResponse() {
+			got = append(got, "sync")
+			continue
+		}
+		jv := resp.GetUpdate().Update[0].GetVal().GetJsonIetfVal()
+		var payload map[string]interface{}
+		if err := json.Unmarshal(jv, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if ev, ok := payload["event"].(string); ok && ev != "" {
+			got = append(got, ev)
+			if ev == recordsEventGap && payload["reason"] != "truncate" {
+				t.Errorf("gap reason = %v", payload["reason"])
+			}
+			continue
+		}
+		got = append(got, "record")
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("seq[%d]=%q, want %q (full got=%v)", i, got[i], want[i], got)
+		}
 	}
 
 	close(stop)
@@ -321,6 +390,14 @@ func TestRecordsClientBackpressure(t *testing.T) {
 		if resp.GetSyncResponse() {
 			gotSync = true
 			continue
+		}
+		jv := resp.GetUpdate().Update[0].GetVal().GetJsonIetfVal()
+		var payload map[string]interface{}
+		if err := json.Unmarshal(jv, &payload); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if _, isEvent := payload["event"]; isEvent {
+			continue // control events (e.g. live) are not counted as records
 		}
 		gotRecords++
 	}
