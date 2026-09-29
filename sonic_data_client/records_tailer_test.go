@@ -314,8 +314,9 @@ func TestParseRecordTS(t *testing.T) {
 }
 
 func TestParseRecordsFrom(t *testing.T) {
+	// from= parsing lives in records_path.go (WS1). This locks the forms the
+	// tailer relies on when a subscription hands it a parsed time.
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
-	loc := RecordsLocation()
 	cases := []struct {
 		in      string
 		want    time.Time
@@ -326,15 +327,15 @@ func TestParseRecordsFrom(t *testing.T) {
 		{"-30m", now.Add(-30 * time.Minute), false},
 		{"-2h", now.Add(-2 * time.Hour), false},
 		{"-1d", now.Add(-24 * time.Hour), false},
-		{"-1.5d", now.Add(-36 * time.Hour), false},
 		{"-1h30m", now.Add(-90 * time.Minute), false},
 		{"1700000000", time.Unix(1700000000, 0), false},
 		{"2026-09-26T10:00:00Z", time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC), false},
 		{"2026-09-26T10:00:00+02:00", time.Date(2026, 9, 26, 8, 0, 0, 0, time.UTC), false},
-		{"2026-09-26T10:00:00", time.Date(2026, 9, 26, 10, 0, 0, 0, loc), false},
-		{"2026-09-26T10:00:00.5", time.Date(2026, 9, 26, 10, 0, 0, 500000000, loc), false},
-		{"2026-09-26.10:00:00.000000", time.Date(2026, 9, 26, 10, 0, 0, 0, loc), false},
-		{"2026-09-26", time.Date(2026, 9, 26, 0, 0, 0, 0, loc), false},
+		{"2026-09-26T10:00:00", time.Date(2026, 9, 26, 10, 0, 0, 0, time.Local), false},
+		{"-1.5d", time.Time{}, true},
+		{"2026-09-26T10:00:00.5", time.Time{}, true},
+		{"2026-09-26.10:00:00.000000", time.Time{}, true},
+		{"2026-09-26", time.Time{}, true},
 		{"-", time.Time{}, true},
 		{"-xyz", time.Time{}, true},
 		{"-5x", time.Time{}, true},

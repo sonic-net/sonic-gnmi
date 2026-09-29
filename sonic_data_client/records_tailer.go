@@ -96,9 +96,6 @@ const (
 	recordsDefaultPollInterval = 200 * time.Millisecond
 	recordsDefaultRetryMissing = time.Second
 	recordsReaderBufSize       = 64 << 10
-
-	// maxRelativeDays keeps "-Nd" inside time.Duration's range (~292 years).
-	maxRelativeDays = 100000
 )
 
 var (
@@ -258,70 +255,6 @@ func parseRecordTS(line string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return t, true
-}
-
-// parseRecordsFrom parses the [from=...] path parameter: RFC3339 (with or
-// without zone), epoch seconds, or a relative offset (-30m, -2h, -1d).
-// Empty returns the zero time, meaning live only.
-func parseRecordsFrom(s string, now time.Time) (time.Time, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return time.Time{}, nil
-	}
-	if strings.HasPrefix(s, "-") {
-		d, err := parseRelativeDuration(s[1:])
-		if err != nil {
-			return time.Time{}, fmt.Errorf("records: bad relative from %q: %w", s, err)
-		}
-		return now.Add(-d), nil
-	}
-	if secs, err := strconv.ParseInt(s, 10, 64); err == nil {
-		if secs < 0 {
-			return time.Time{}, fmt.Errorf("records: bad epoch from %q", s)
-		}
-		return time.Unix(secs, 0), nil
-	}
-	// Zoned forms first; then zone-less forms in the records zone.
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t, nil
-		}
-	}
-	for _, layout := range []string{
-		"2006-01-02T15:04:05.999999999",
-		"2006-01-02T15:04:05",
-		"2006-01-02T15:04",
-		recordsFileTSLayout,
-		"2006-01-02.15:04:05",
-		"2006-01-02",
-	} {
-		if t, err := time.ParseInLocation(layout, s, RecordsLocation()); err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("records: cannot parse from=%q (want RFC3339, epoch seconds, or -30m/-2h/-1d)", s)
-}
-
-// parseRelativeDuration accepts Go durations plus a trailing "d" for days.
-func parseRelativeDuration(s string) (time.Duration, error) {
-	if s == "" {
-		return 0, errors.New("empty duration")
-	}
-	if strings.HasSuffix(s, "d") {
-		n, err := strconv.ParseFloat(strings.TrimSuffix(s, "d"), 64)
-		if err != nil || n < 0 || n > maxRelativeDays {
-			return 0, fmt.Errorf("bad day count %q", s)
-		}
-		return time.Duration(n * float64(24*time.Hour)), nil
-	}
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		return 0, err
-	}
-	if d < 0 {
-		return 0, fmt.Errorf("negative duration %q", s)
-	}
-	return d, nil
 }
 
 // ---------------------------------------------------------------------------
