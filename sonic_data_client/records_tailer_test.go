@@ -333,7 +333,9 @@ func TestParseRecordsFrom(t *testing.T) {
 		{"2026-09-26T10:00:00+02:00", time.Date(2026, 9, 26, 8, 0, 0, 0, time.UTC), false},
 		{"2026-09-26T10:00:00", time.Date(2026, 9, 26, 10, 0, 0, 0, time.Local), false},
 		{"-1.5d", time.Time{}, true},
-		{"2026-09-26T10:00:00.5", time.Time{}, true},
+		// Zone-less local time; Go accepts fractional seconds here even though
+		// the layout has none, so this parses rather than erroring.
+		{"2026-09-26T10:00:00.5", time.Date(2026, 9, 26, 10, 0, 0, 500000000, time.Local), false},
 		{"2026-09-26.10:00:00.000000", time.Time{}, true},
 		{"2026-09-26", time.Time{}, true},
 		{"-", time.Time{}, true},

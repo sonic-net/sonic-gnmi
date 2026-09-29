@@ -1,0 +1,87 @@
+[
+  {
+    "ts": "2026-09-27T09:00:01.200000",
+    "source": "swss",
+    "db": "APPL_DB",
+    "table": "ROUTE_TABLE",
+    "key": "10.1.0.0/24",
+    "op": "SET",
+    "fields": {
+      "nexthop": "10.0.0.1",
+      "ifname": "Ethernet0"
+    },
+    "status": "",
+    "matched_by": "key",
+    "raw": "2026-09-27.09:00:01.200000|ROUTE_TABLE:10.1.0.0/24|SET|nexthop:10.0.0.1|ifname:Ethernet0"
+  },
+  {
+    "ts": "2026-09-27T09:00:01.250000",
+    "source": "sairedis",
+    "db": "ASIC_DB",
+    "table": "SAI_OBJECT_TYPE_ROUTE_ENTRY",
+    "key": "{\"dest\":\"10.1.0.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}",
+    "op": "C",
+    "fields": {
+      "SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID": "oid:0x5000000000a3c",
+      "_keys": "[\"{\\\"dest\\\":\\\"10.1.0.0/24\\\",\\\"switch_id\\\":\\\"oid:0x21000000000000\\\",\\\"vr\\\":\\\"oid:0x3000000000022\\\"}\"]"
+    },
+    "status": "",
+    "matched_by": "correlation:ROUTE_TABLE.dest",
+    "raw": "2026-09-27.09:00:01.250000|C|SAI_OBJECT_TYPE_ROUTE_ENTRY||{\"dest\":\"10.1.0.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}|SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID=oid:0x5000000000a3c"
+  },
+  {
+    "ts": "2026-09-27T10:00:00.100000",
+    "source": "swss",
+    "db": "APPL_DB",
+    "table": "ROUTE_TABLE",
+    "key": "10.1.0.0/24",
+    "op": "SET",
+    "fields": {
+      "nexthop": "10.0.0.1,10.0.0.2",
+      "ifname": "Ethernet0,Ethernet4"
+    },
+    "status": "",
+    "matched_by": "key",
+    "raw": "2026-09-27.10:00:00.100000|ROUTE_TABLE:10.1.0.0/24|SET|nexthop:10.0.0.1,10.0.0.2|ifname:Ethernet0,Ethernet4"
+  },
+  {
+    "ts": "2026-09-27T10:00:00.150000",
+    "source": "sairedis",
+    "db": "ASIC_DB",
+    "table": "SAI_OBJECT_TYPE_ROUTE_ENTRY",
+    "key": "{\"dest\":\"10.1.0.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}",
+    "op": "s",
+    "fields": {
+      "SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID": "oid:0x5000000000a3d"
+    },
+    "status": "",
+    "matched_by": "correlation:ROUTE_TABLE.dest",
+    "raw": "2026-09-27.10:00:00.150000|s|SAI_OBJECT_TYPE_ROUTE_ENTRY:{\"dest\":\"10.1.0.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}|SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID=oid:0x5000000000a3d"
+  },
+  {
+    "ts": "2026-09-27T11:00:00.100000",
+    "source": "swss",
+    "db": "APPL_DB",
+    "table": "ROUTE_TABLE",
+    "key": "10.1.0.0/24",
+    "op": "DEL",
+    "fields": {},
+    "status": "",
+    "matched_by": "key",
+    "raw": "2026-09-27.11:00:00.100000|ROUTE_TABLE:10.1.0.0/24|DEL"
+  },
+  {
+    "ts": "2026-09-27T11:00:00.150000",
+    "source": "sairedis",
+    "db": "ASIC_DB",
+    "table": "SAI_OBJECT_TYPE_ROUTE_ENTRY",
+    "key": "{\"dest\":\"10.1.0.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}",
+    "op": "R",
+    "fields": {
+      "_keys": "[\"{\\\"dest\\\":\\\"10.1.0.0/24\\\",\\\"switch_id\\\":\\\"oid:0x21000000000000\\\",\\\"vr\\\":\\\"oid:0x3000000000022\\\"}\"]"
+    },
+    "status": "",
+    "matched_by": "correlation:ROUTE_TABLE.dest",
+    "raw": "2026-09-27.11:00:00.150000|R|SAI_OBJECT_TYPE_ROUTE_ENTRY||{\"dest\":\"10.1.0.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}"
+  }
+]

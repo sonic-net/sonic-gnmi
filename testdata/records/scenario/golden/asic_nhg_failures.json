@@ -1,0 +1,16 @@
+[
+  {
+    "ts": "2026-09-27T10:00:00.180000",
+    "source": "sairedis",
+    "db": "ASIC_DB",
+    "table": "SAI_OBJECT_TYPE_NEXT_HOP_GROUP",
+    "key": "oid:0x5000000000a3c",
+    "op": "r",
+    "fields": {
+      "_response": "E"
+    },
+    "status": "SAI_STATUS_OBJECT_IN_USE",
+    "matched_by": "key",
+    "raw": "2026-09-27.10:00:00.180000|r|SAI_OBJECT_TYPE_NEXT_HOP_GROUP:oid:0x5000000000a3c"
+  }
+]

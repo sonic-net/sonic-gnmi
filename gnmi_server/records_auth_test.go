@@ -5,6 +5,8 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	pb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -88,6 +91,30 @@ func (c *jwtCreds) GetRequestMetadata(context.Context, ...string) (map[string]st
 
 func (c *jwtCreds) RequireTransportSecurity() bool { return true }
 
+// useTempRecordsDir points the RECORDS tailer at an empty temp dir for the
+// test and returns it. Without this the tailer waits for
+// /mnt/host/var/log/swss to appear and the subscription never syncs.
+func useTempRecordsDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	prev := sdc.RecordsDir()
+	sdc.SetRecordsDir(dir)
+	t.Cleanup(func() { sdc.SetRecordsDir(prev) })
+	return dir
+}
+
+// appendLiveRouteRecord writes one swss.rec line matching the E2E
+// subscription path (ROUTE_TABLE/10.1.0.0/24) so the live tail has something
+// to emit. Same pattern as TestRecordsSubscribeStreamSample.
+func appendLiveRouteRecord(t *testing.T, dir string) {
+	t.Helper()
+	stamp := time.Now().Format("2006-01-02.15:04:05.000000")
+	line := stamp + "|ROUTE_TABLE:10.1.0.0/24|SET|nexthop:10.0.0.1|ifname:Ethernet0\n"
+	if err := os.WriteFile(filepath.Join(dir, "swss.rec"), []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func recordsSubscribeReq() *pb.SubscribeRequest {
 	return &pb.SubscribeRequest{
 		Request: &pb.SubscribeRequest_Subscribe{
@@ -109,10 +136,11 @@ func recordsSubscribeReq() *pb.SubscribeRequest {
 	}
 }
 
-// recvRecordsSample waits for one update Notification and a sync_response.
-func recvRecordsSample(t *testing.T, stream pb.GNMI_SubscribeClient) {
+// recvRecordsSample waits for the sync_response (the live tail is up), then
+// appends one record under recordsDir and waits for it to arrive as an update.
+func recvRecordsSample(t *testing.T, stream pb.GNMI_SubscribeClient, recordsDir string) {
 	t.Helper()
-	deadline := time.After(5 * time.Second)
+	deadline := time.After(10 * time.Second)
 	var gotUpdate, gotSync bool
 	for !(gotUpdate && gotSync) {
 		recvDone := make(chan struct{})
@@ -136,6 +164,9 @@ func recvRecordsSample(t *testing.T, stream pb.GNMI_SubscribeClient) {
 			case *pb.SubscribeResponse_Update:
 				gotUpdate = true
 			case *pb.SubscribeResponse_SyncResponse:
+				if !gotSync {
+					appendLiveRouteRecord(t, recordsDir)
+				}
 				gotSync = true
 			}
 		}
@@ -153,6 +184,7 @@ func stubRecordsNamespaces(t *testing.T) *gomonkey.Patches {
 
 func TestRecordsSubscribeAuthPasswordE2E(t *testing.T) {
 	stubRecordsNamespaces(t)
+	recordsDir := useTempRecordsDir(t)
 	mock := gomonkey.ApplyFunc(UserPwAuth, func(username string, passwd string) (bool, error) {
 		return true, nil
 	})
@@ -190,11 +222,12 @@ func TestRecordsSubscribeAuthPasswordE2E(t *testing.T) {
 	if err := stream.Send(recordsSubscribeReq()); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	recvRecordsSample(t, stream)
+	recvRecordsSample(t, stream, recordsDir)
 }
 
 func TestRecordsSubscribeAuthJWTE2E(t *testing.T) {
 	stubRecordsNamespaces(t)
+	recordsDir := useTempRecordsDir(t)
 	GenerateJwtSecretKey()
 	if JwtValidInt == 0 {
 		JwtValidInt = time.Hour
@@ -225,7 +258,7 @@ func TestRecordsSubscribeAuthJWTE2E(t *testing.T) {
 	if err := stream.Send(recordsSubscribeReq()); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	recvRecordsSample(t, stream)
+	recvRecordsSample(t, stream, recordsDir)
 }
 
 func TestRecordsSubscribeAuthRequiredE2E(t *testing.T) {
