@@ -22,11 +22,7 @@ import (
 	log "github.com/golang/glog"
 )
 
-// ---------------------------------------------------------------------------
-// FakeTailer (Day-1 stub, kept for WS1/WS4 tests)
-// ---------------------------------------------------------------------------
-
-// FakeTailer is a Day-1 stub Tailer that emits a fixed list of RawLines then
+// FakeTailer is a  stub Tailer that emits a fixed list of RawLines then
 // returns. FileTailer is the real implementation; FakeTailer stays as a test
 // seam for RecordsClient.
 type FakeTailer struct {

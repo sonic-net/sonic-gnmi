@@ -5,6 +5,8 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/openconfig/gnmi/client"
 	pb "github.com/openconfig/gnmi/proto/gnmi"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 )
 
 func createRecordsQuery(t *testing.T, mode pb.SubscriptionList_Mode, paths ...string) client.Query {
@@ -29,6 +32,11 @@ func createRecordsQuery(t *testing.T, mode pb.SubscriptionList_Mode, paths ...st
 }
 
 func TestRecordsSubscribeStreamSample(t *testing.T) {
+	dir := t.TempDir()
+	prev := sdc.RecordsDir()
+	sdc.SetRecordsDir(dir)
+	t.Cleanup(func() { sdc.SetRecordsDir(prev) })
+
 	s := createServer(t, 18081)
 	go runServer(t, s)
 	defer s.ForceStop()
@@ -67,7 +75,7 @@ func TestRecordsSubscribeStreamSample(t *testing.T) {
 	deadline := time.After(5 * time.Second)
 	for {
 		mu.Lock()
-		ready := len(gotVals) >= 1 && gotSync
+		ready := gotSync
 		mu.Unlock()
 		if ready {
 			break
@@ -75,7 +83,30 @@ func TestRecordsSubscribeStreamSample(t *testing.T) {
 		select {
 		case <-deadline:
 			mu.Lock()
-			t.Fatalf("timeout waiting for sample+sync; updates=%d sync=%v subErr=%v", len(gotVals), gotSync, subErr)
+			t.Fatalf("timeout waiting for sync; updates=%d sync=%v subErr=%v", len(gotVals), gotSync, subErr)
+			mu.Unlock()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
+	stamp := time.Now().Format("2006-01-02.15:04:05.000000")
+	line := stamp + "|ROUTE_TABLE:10.1.0.0/24|SET|nexthop:10.0.0.1|ifname:Ethernet0\n"
+	if err := os.WriteFile(filepath.Join(dir, "swss.rec"), []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline = time.After(5 * time.Second)
+	for {
+		mu.Lock()
+		ready := len(gotVals) >= 1
+		mu.Unlock()
+		if ready {
+			break
+		}
+		select {
+		case <-deadline:
+			mu.Lock()
+			t.Fatalf("timeout waiting for live record; updates=%d sync=%v subErr=%v", len(gotVals), gotSync, subErr)
 			mu.Unlock()
 		case <-time.After(50 * time.Millisecond):
 		}
@@ -104,14 +135,17 @@ func TestRecordsSubscribeStreamSample(t *testing.T) {
 			}
 		}
 	} else {
-		if payload["source"] != "sairedis" {
-			t.Errorf("source = %v, want sairedis", payload["source"])
+		if payload["source"] != "swss" {
+			t.Errorf("source = %v, want swss", payload["source"])
 		}
-		if payload["db"] != "ASIC_DB" {
-			t.Errorf("db = %v, want ASIC_DB", payload["db"])
+		if payload["db"] != "APPL_DB" {
+			t.Errorf("db = %v, want APPL_DB", payload["db"])
 		}
-		if payload["op"] != "c" {
-			t.Errorf("op = %v, want c", payload["op"])
+		if payload["key"] != "10.1.0.0/24" {
+			t.Errorf("key = %v, want 10.1.0.0/24", payload["key"])
+		}
+		if payload["op"] != "SET" {
+			t.Errorf("op = %v, want SET", payload["op"])
 		}
 	}
 	if !gotSync {

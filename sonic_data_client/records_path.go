@@ -18,7 +18,7 @@ const (
 	recordsDBAsic         = "ASIC_DB"
 	recordsTableAsicState = "ASIC_STATE"
 
-	// Operator spelling for the default (empty) SONiC namespace.
+	// Operator spelling for the default SONiC namespace.
 	recordsNamespaceLocalhost = "localhost"
 )
 

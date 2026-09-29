@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -132,8 +134,19 @@ func TestSampleRecordFields(t *testing.T) {
 
 func TestRecordsClientStreamRunEmitsSampleAndSync(t *testing.T) {
 	withRecordsNamespaces(t, []string{""})
+	dir := t.TempDir()
+	prev := RecordsDir()
+	SetRecordsDir(dir)
+	t.Cleanup(func() { SetRecordsDir(prev) })
+	stamp := time.Now().Format(recordsFileTSLayout)
+	body := stamp + "|ROUTE_TABLE:10.1.0.0/24|SET|nexthop:10.0.0.1|ifname:Ethernet0\n" +
+		stamp + "|ROUTE_TABLE:172.31.58.254/32|SET|nexthop:1.1.1.1|ifname:eth0\n"
+	if err := os.WriteFile(filepath.Join(dir, "swss.rec"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	path := recordsTestPath()
+	path.Elem[3].Key = map[string]string{"from": "-1h"}
 	prefix := recordsTestPrefix()
 	dc, err := NewRecordsClient([]*gnmipb.Path{path}, prefix, 0)
 	if err != nil {
@@ -183,21 +196,23 @@ func TestRecordsClientStreamRunEmitsSampleAndSync(t *testing.T) {
 			t.Errorf("sample JSON missing %q", key)
 		}
 	}
-	if payload["source"] != "sairedis" {
-		t.Errorf("source = %v, want sairedis", payload["source"])
+	if payload["source"] != "swss" {
+		t.Errorf("source = %v, want swss", payload["source"])
 	}
-	if payload["db"] != "ASIC_DB" {
-		t.Errorf("db = %v, want ASIC_DB", payload["db"])
+	if payload["db"] != "APPL_DB" {
+		t.Errorf("db = %v, want APPL_DB", payload["db"])
 	}
-	if payload["op"] != "c" {
-		t.Errorf("op = %v, want c", payload["op"])
+	if payload["key"] != "10.1.0.0/24" {
+		t.Errorf("key = %v, want 10.1.0.0/24", payload["key"])
 	}
-	if payload["ts"] != "2026-09-26T10:15:32.123456" {
-		t.Errorf("ts = %v, want 2026-09-26T10:15:32.123456", payload["ts"])
+	if payload["op"] != "SET" {
+		t.Errorf("op = %v, want SET", payload["op"])
 	}
-	wantTS := sampleRecord().TS.UnixNano()
-	if update.GetTimestamp() != wantTS {
-		t.Errorf("Notification timestamp = %d, want record TS %d", update.GetTimestamp(), wantTS)
+	if payload["matched_by"] != "exact" {
+		t.Errorf("matched_by = %v, want exact", payload["matched_by"])
+	}
+	if update.GetTimestamp() == 0 {
+		t.Error("Notification timestamp is zero")
 	}
 
 	// Second item: sync_response.

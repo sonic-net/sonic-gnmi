@@ -22,7 +22,7 @@ type Record struct {
 	MatchedBy string            `json:"matched_by,omitempty"`
 }
 
-// RawLine is one unread recorder line from a Tailer (WS2 → WS1/WS3).
+// RawLine is one unread recorder line from a Tailer
 type RawLine struct {
 	Source string // "swss" | "sairedis"
 	Seq    string
@@ -30,26 +30,21 @@ type RawLine struct {
 }
 
 // Tailer replays from `from` (zero = live only) then tails until ctx is cancelled.
-// WS2 owns the real implementation; WS1 consumes this interface.
 type Tailer interface {
 	Run(ctx context.Context, from time.Time, out chan<- RawLine) error
 }
 
 // Parser turns a RawLine into a Record. false means skip the line.
-// WS3 owns the real implementation; WS1 consumes this interface.
 type Parser interface {
 	Parse(l RawLine) (*Record, bool)
 }
 
 // Matcher decides whether a subscriber wanted a Record; how becomes matched_by.
-// WS3 owns the real implementation; WS1 consumes this interface.
 type Matcher interface {
 	Match(r *Record) (ok bool, how string)
 }
 
 // Subscription captures the fields a gNMI client subscribed to within the
-// RECORDS target.  WS4 (path parsing) builds these from the gNMI path;
-// WS3 (matching) uses them to filter records.
 type Subscription struct {
 	Namespace string
 	DB        string   // "APPL_DB" | "ASIC_DB"

@@ -314,7 +314,7 @@ func TestParseRecordTS(t *testing.T) {
 }
 
 func TestParseRecordsFrom(t *testing.T) {
-	// from= parsing lives in records_path.go (WS1). This locks the forms the
+	// from= parsing lives in records_path.go. This locks the forms the
 	// tailer relies on when a subscription hands it a parsed time.
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
 	cases := []struct {

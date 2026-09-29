@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,14 +15,15 @@ import (
 )
 
 // RecordsClient is a STREAM-only client for the RECORDS target.
-// Day-1 stub: FakeTailer + PassThroughParser emit one sample Record then sync.
+// It tails swss.rec and sairedis.rec and keeps lines RecordsMatcher accepts.
 type RecordsClient struct {
 	prefix *gnmipb.Path
 	path   *gnmipb.Path
 	subs   []recordsSubscription
 
-	tailer Tailer
-	parser Parser
+	tailer  Tailer
+	parser  Parser
+	matcher Matcher
 
 	q       *queue.PriorityQueue
 	channel chan struct{}
@@ -35,9 +37,9 @@ func NewRecordsClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (
 	}
 	c := &RecordsClient{
 		prefix: prefix,
-		tailer: NewSampleFakeTailer(),
-		parser: PassThroughParser{},
+		parser: NewRecordsParser(RecordsLocation()),
 	}
+	var matchSubs []Subscription
 	for _, path := range paths {
 		sub, err := parseRecordsPath(path)
 		if err != nil {
@@ -47,11 +49,102 @@ func NewRecordsClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (
 			return nil, err
 		}
 		c.subs = append(c.subs, *sub)
+		matchSubs = append(matchSubs, subscriptionForMatch(*sub))
 		// Keep last path for encoding (EVENTS precedent).
 		c.path = path
 	}
+	c.matcher = NewRecordsMatcher(matchSubs)
+	tailer, err := newRecordsTailer(c.subs)
+	if err != nil {
+		return nil, err
+	}
+	c.tailer = tailer
 	log.V(2).Infof("NewRecordsClient prefix=%v path=%v subs=%d logLevel=%d", prefix, c.path, len(c.subs), logLevel)
 	return c, nil
+}
+
+// subscriptionForMatch converts a parsed path into the WS3 matcher shape.
+// ASIC_DB paths use table ASIC_STATE and put SAI_OBJECT_TYPE_X[:entry] in the key.
+func subscriptionForMatch(sub recordsSubscription) Subscription {
+	table, key := sub.table, sub.key
+	if sub.db == recordsDBAsic && sub.key != "" {
+		typ, obj, hasObj := strings.Cut(sub.key, ":")
+		table = typ
+		if hasObj {
+			key = obj
+		} else {
+			key = ""
+		}
+	}
+	return Subscription{
+		Namespace: sub.namespace,
+		DB:        sub.db,
+		Table:     table,
+		Key:       key,
+		Ops:       sub.ops,
+	}
+}
+
+// newRecordsTailer opens swss and sairedis tailers for each subscribed namespace.
+// Both sources are read so APPL_DB subscriptions can include correlated SAI lines.
+func newRecordsTailer(subs []recordsSubscription) (Tailer, error) {
+	seen := map[string]bool{}
+	var parts []Tailer
+	for _, sub := range subs {
+		for _, source := range []string{RecordsSourceSwss, RecordsSourceSairedis} {
+			id := sub.namespace + "\x00" + source
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			ft, err := NewFileTailer(RecordsDir(), sub.namespace, source)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, ft)
+		}
+	}
+	if len(parts) == 1 {
+		return parts[0], nil
+	}
+	return multiTailer{parts: parts}, nil
+}
+
+type multiTailer struct {
+	parts []Tailer
+}
+
+func (m multiTailer) Run(ctx context.Context, from time.Time, out chan<- RawLine) error {
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(m.parts))
+	for _, part := range m.parts {
+		wg.Add(1)
+		go func(part Tailer) {
+			defer wg.Done()
+			errCh <- part.Run(ctx, from, out)
+		}(part)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil && ctx.Err() == nil {
+			return err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func controlEventName(line string) string {
+	var m struct {
+		Event string `json:"event"`
+	}
+	if err := json.Unmarshal([]byte(line), &m); err != nil {
+		return ""
+	}
+	return m.Event
 }
 
 // earliestFrom returns the oldest non-zero from= across subscriptions.
@@ -157,14 +250,49 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 		close(out)
 	}()
 
+	synced := false
+	lives := 0
+	liveNeeded := 1
+	if m, ok := c.tailer.(multiTailer); ok && len(m.parts) > 0 {
+		liveNeeded = len(m.parts)
+	}
+	sendSync := func() bool {
+		if synced {
+			return true
+		}
+		synced = true
+		if err := c.q.Put(Value{&spb.Value{
+			Timestamp:    time.Now().UnixNano(),
+			SyncResponse: true,
+		}}); err != nil {
+			log.V(1).Infof("RecordsClient sync enqueue failed: %v", err)
+			return false
+		}
+		return true
+	}
+
 	for line := range out {
 		if ctx.Err() != nil {
 			continue // drain so Tailer is not stuck on a send
+		}
+		if line.Source == RecordsSourceControl {
+			if controlEventName(line.Line) == "live" {
+				lives++
+				if lives >= liveNeeded && !sendSync() {
+					cancel()
+				}
+			}
+			continue
 		}
 		r, ok := c.parser.Parse(line)
 		if !ok || r == nil {
 			continue
 		}
+		ok, how := c.matcher.Match(r)
+		if !ok {
+			continue
+		}
+		r.MatchedBy = how
 		if err := c.enqueueRecord(*r); err != nil {
 			log.V(1).Infof("RecordsClient enqueue failed: %v", err)
 			cancel()
@@ -174,12 +302,7 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 	if err := <-errCh; err != nil && ctx.Err() == nil {
 		log.V(1).Infof("RecordsClient tailer: %v", err)
 	}
-
-	if err := c.q.Put(Value{&spb.Value{
-		Timestamp:    time.Now().UnixNano(),
-		SyncResponse: true,
-	}}); err != nil {
-		log.V(1).Infof("RecordsClient sync enqueue failed: %v", err)
+	if !sendSync() {
 		return
 	}
 

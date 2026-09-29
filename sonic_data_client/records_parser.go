@@ -15,7 +15,7 @@ const recordTSLayout = "2006-01-02T15:04:05.000000"
 
 // PassThroughParser is a Day-1 stub Parser. If Line is JSON for a Record it
 // decodes it; otherwise it returns a minimal Record with Seq/Source/Raw filled
-// from the RawLine. WS3's RecordsParser replaces this for real rec-file lines.
+// from the RawLine.
 type PassThroughParser struct{}
 
 // Parse implements Parser.
@@ -78,7 +78,7 @@ func (PassThroughParser) Parse(l RawLine) (*Record, bool) {
 }
 
 // ---------------------------------------------------------------------------
-// RecordsParser — real WS3 parser for swss.rec and sairedis.rec lines.
+// RecordsParser — parser for swss.rec and sairedis.rec lines.
 // ---------------------------------------------------------------------------
 
 // RecordsParser implements the Parser interface for swss.rec and sairedis.rec lines.
