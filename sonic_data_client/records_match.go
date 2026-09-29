@@ -49,6 +49,20 @@ func (m *RecordsMatcher) matchOne(r *Record, sub *Subscription) (bool, string) {
 
 // directMatch handles the case where the record's DB matches the subscription's DB.
 func (m *RecordsMatcher) directMatch(r *Record, sub *Subscription) (bool, string) {
+	// ASIC_DB records carry the concrete SAI object type in r.Table
+	// (e.g. SAI_OBJECT_TYPE_ROUTE_ENTRY), while the RECORDS path grammar uses
+	// the umbrella table name "ASIC_STATE". Treat "ASIC_STATE" as "any SAI
+	// type", with the optional key acting as a SAI-type or entry-key prefix.
+	if sub.DB == "ASIC_DB" && sub.Table == "ASIC_STATE" {
+		if sub.Key == "" {
+			return true, "prefix"
+		}
+		if strings.HasPrefix(r.Table, sub.Key) || keysEqual(r, sub) {
+			return true, "exact"
+		}
+		return false, ""
+	}
+
 	if r.Table != sub.Table {
 		return false, ""
 	}
