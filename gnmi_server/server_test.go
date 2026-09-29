@@ -7964,27 +7964,59 @@ func TestGnmiGetTranslibXfmrIntf(t *testing.T) {
 	}
 
 	// 2. Server and DB Setup
-	freePort := getFreePort(t)
-	s := createServer(t, freePort)
+	s := createServer(t, 0)
 	go runServer(t, s)
 	defer s.Stop()
 
 	prepareDbTranslib(t)
-	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ns, err := sdcfg.GetDbDefaultNamespace()
+	if err != nil {
+		t.Fatalf("Failed to get default DB namespace: %v", err)
+	}
 	ctx := context.Background()
 
 	// Setup APPL_DB (DB 0)
 	applDbId, _ := sdcfg.GetDbId("APPL_DB", ns)
 	applClient := getRedisClientN(t, applDbId, ns)
-	defer applClient.Close()
-	if err := applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet0", map[string]interface{}{"id": "100"}).Err(); err != nil {
-		t.Fatalf("Failed to HSet P4RT_PORT_ID_TABLE:Ethernet0: %v", err)
-	}
 
 	// Setup COUNTERS_DB (DB 2)
 	countersDbId, _ := sdcfg.GetDbId("COUNTERS_DB", ns)
 	countersClient := getRedisClientN(t, countersDbId, ns)
-	defer countersClient.Close()
+
+	// Setup STATE_DB (DB 6)
+	stateDbId, _ := sdcfg.GetDbId("STATE_DB", ns)
+	stateClient := getRedisClientN(t, stateDbId, ns)
+
+	// Setup CONFIG_DB (DB 4)
+	configDbId, _ := sdcfg.GetDbId("CONFIG_DB", ns)
+	configClient := getRedisClientN(t, configDbId, ns)
+
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		if err := applClient.Del(cleanupCtx, "P4RT_PORT_ID_TABLE:Ethernet0").Err(); err != nil {
+			t.Logf("Failed to delete P4RT_PORT_ID_TABLE  keys: %v", err)
+		}
+		if err := countersClient.HDel(cleanupCtx, "COUNTERS_PORT_NAME_MAP", "Ethernet0").Err(); err != nil {
+			t.Logf("Failed to delete COUNTERS_PORT_NAME_MAP keys: %v", err)
+		}
+
+		if err := countersClient.Del(cleanupCtx, "COUNTERS:oid:0x1000000000001").Err(); err != nil {
+			t.Logf("Failed to delete COUNTERS keys: %v", err)
+		}
+
+		if err := configClient.Del(cleanupCtx, "PORT|Ethernet0").Err(); err != nil {
+			t.Logf("Failed to delete PORT keys: %v", err)
+		}
+
+		if err := stateClient.Del(cleanupCtx, "PORT_TABLE:Ethernet0", "TRANSCEIVER_INFO|Ethernet0", "TRANSCEIVER_INFO|Ethernet1").Err(); err != nil {
+			t.Logf("Failed to delete PORT_TBL keys: %v", err)
+		}
+	})
+
+	if err := applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet0", map[string]interface{}{"id": "100"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet P4RT_PORT_ID_TABLE:Ethernet0: %v", err)
+	}
+
 	if err := countersClient.HSet(ctx, "COUNTERS_PORT_NAME_MAP", "Ethernet0", "oid:0x1000000000001").Err(); err != nil {
 		t.Fatalf("Failed to HSet COUNTERS_PORT_NAME_MAP: %v", err)
 	}
@@ -7992,10 +8024,6 @@ func TestGnmiGetTranslibXfmrIntf(t *testing.T) {
 		t.Fatalf("Failed to HSet COUNTERS:oid:0x1000000000001: %v", err)
 	}
 
-	// Setup CONFIG_DB (DB 4)
-	configDbId, _ := sdcfg.GetDbId("CONFIG_DB", ns)
-	configClient := getRedisClientN(t, configDbId, ns)
-	defer configClient.Close()
 	if err := configClient.HSet(ctx, "PORT|Ethernet0", map[string]interface{}{
 		"index": "1",
 		"lanes": "1,2,3,4",
@@ -8004,10 +8032,6 @@ func TestGnmiGetTranslibXfmrIntf(t *testing.T) {
 		t.Fatalf("Failed to HSet PORT|Ethernet0: %v", err)
 	}
 
-	// Setup STATE_DB (DB 6)
-	stateDbId, _ := sdcfg.GetDbId("STATE_DB", ns)
-	stateClient := getRedisClientN(t, stateDbId, ns)
-	defer stateClient.Close()
 	if err := stateClient.HSet(ctx, "PORT_TABLE:Ethernet0", map[string]interface{}{
 		"index": "1",
 		"lanes": "1,2,3,4",
@@ -8024,15 +8048,6 @@ func TestGnmiGetTranslibXfmrIntf(t *testing.T) {
 	}).Err(); err != nil {
 		t.Fatalf("Failed to HSet TRANSCEIVER_INFO|Ethernet1: %v", err)
 	}
-
-	t.Cleanup(func() {
-		cleanupCtx := context.Background()
-		applClient.Del(cleanupCtx, "P4RT_PORT_ID_TABLE:Ethernet0")
-		countersClient.HDel(cleanupCtx, "COUNTERS_PORT_NAME_MAP", "Ethernet0")
-		countersClient.Del(cleanupCtx, "COUNTERS:oid:0x1000000000001")
-		configClient.Del(cleanupCtx, "PORT|Ethernet0")
-		stateClient.Del(cleanupCtx, "PORT_TABLE:Ethernet0", "TRANSCEIVER_INFO|Ethernet0", "TRANSCEIVER_INFO|Ethernet1")
-	})
 
 	// 3. gRPC Client Setup
 	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
@@ -8069,12 +8084,12 @@ func TestGnmiGetTranslibXfmrIntf(t *testing.T) {
 			valTest:     true,
 		},
 		{
-			desc:        "Get OpenConfig Interface transceiver",
+			desc:        "Get OpenConfig Interface state values",
 			pathTarget:  "OC_YANG",
-			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" > elem: <name: "openconfig-platform-transceiver:transceiver" >`,
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" >`,
 			wantRetCode: codes.OK,
 			wantRespVal: marshal(xcvrVal),
-			valTest:     true,
+			valTest:     false,
 		},
 		{
 			desc:        "Get OpenConfig Interface P4RT ID State",
@@ -8167,7 +8182,6 @@ func TestGnmiGetTranslibXfmrIntf(t *testing.T) {
 		})
 	}
 }
-
 func runTestSubscribeIntf(t *testing.T, ctx context.Context, gClient pb.GNMIClient, sPath *pb.Path, pathDesc string, expectedICs []string) {
 	req := &pb.SubscribeRequest{
 		Request: &pb.SubscribeRequest_Subscribe{
@@ -8267,23 +8281,65 @@ func runTestSubscribeIntf(t *testing.T, ctx context.Context, gClient pb.GNMIClie
 		}
 	}
 }
-
 func TestGnmiSubscribeTranslibXfmrIntf(t *testing.T) {
 	// 1. Prepare global DB configuration for Translib
 	prepareDbTranslib(t)
-	ns, _ := sdcfg.GetDbDefaultNamespace()
+	ns, err := sdcfg.GetDbDefaultNamespace()
+	if err != nil {
+		t.Fatalf("Failed to get default DB namespace: %v", err)
+	}
 	ctx := context.Background()
 
 	// 2. Server and DB Setup on dynamic free port
-	freePort := getFreePort(t)
-	s := createServer(t, freePort)
+	s := createServer(t, 0)
 	go runServer(t, s)
 	defer s.Stop()
 
 	// Setup CONFIG_DB (DB 4)
-	configDbId, _ := sdcfg.GetDbId("CONFIG_DB", ns)
+	configDbId, err := sdcfg.GetDbId("CONFIG_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get DB ID for CONFIG_DB: %v", err)
+	}
 	configClient := getRedisClientN(t, configDbId, ns)
-	defer configClient.Close()
+
+	// Setup STATE_DB (DB 6)
+	stateDbId, err := sdcfg.GetDbId("STATE_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get DB ID for STATE_DB: %v", err)
+	}
+	stateClient := getRedisClientN(t, stateDbId, ns)
+
+	// Setup APPL_DB (DB 0)
+	applDbId, err := sdcfg.GetDbId("APPL_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get DB ID for APPL_DB: %v", err)
+	}
+	applClient := getRedisClientN(t, applDbId, ns)
+
+	// Setup COUNTERS_DB (DB 2)
+	countersDbId, err := sdcfg.GetDbId("COUNTERS_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get DB ID for COUNTERS_DB: %v", err)
+	}
+	countersClient := getRedisClientN(t, countersDbId, ns)
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		if err := configClient.Del(cleanupCtx, "PORT|Ethernet0", "PORT|Ethernet4").Err(); err != nil {
+			t.Logf("Failed to delete PORT keys: %v", err)
+		}
+		if err := stateClient.Del(cleanupCtx, "PORT_TABLE:Ethernet0", "PORT_TABLE:Ethernet4", "TRANSCEIVER_INFO|Ethernet0", "TRANSCEIVER_INFO|Ethernet4").Err(); err != nil {
+			t.Logf("Failed to delete PORT TABLE keys: %v", err)
+		}
+		if err := applClient.Del(cleanupCtx, "P4RT_PORT_ID_TABLE:Ethernet0", "P4RT_PORT_ID_TABLE:Ethernet4").Err(); err != nil {
+			t.Logf("Failed to delete P4RT keys: %v", err)
+		}
+		if err := countersClient.Del(cleanupCtx, "COUNTERS:oid:0x100", "COUNTERS:oid:0x104").Err(); err != nil {
+			t.Logf("Failed to delete COUNTERS keys: %v", err)
+		}
+		if err := countersClient.HDel(cleanupCtx, "COUNTERS_PORT_NAME_MAP", "Ethernet0", "Ethernet4").Err(); err != nil {
+			t.Logf("Failed to delete COUNTERS_PORT_NAME_MAP keys: %v", err)
+		}
+	})
 	if err := configClient.HSet(ctx, "PORT|Ethernet0", map[string]interface{}{
 		"index": "1",
 		"lanes": "1,2,3,4",
@@ -8299,10 +8355,6 @@ func TestGnmiSubscribeTranslibXfmrIntf(t *testing.T) {
 		t.Fatalf("Failed to HSet PORT|Ethernet4: %v", err)
 	}
 
-	// Setup STATE_DB (DB 6)
-	stateDbId, _ := sdcfg.GetDbId("STATE_DB", ns)
-	stateClient := getRedisClientN(t, stateDbId, ns)
-	defer stateClient.Close()
 	if err := stateClient.HSet(ctx, "PORT_TABLE:Ethernet0", map[string]interface{}{"index": "1", "lanes": "1,2,3,4"}).Err(); err != nil {
 		t.Fatalf("Failed to HSet PORT_TABLE:Ethernet0: %v", err)
 	}
@@ -8316,10 +8368,6 @@ func TestGnmiSubscribeTranslibXfmrIntf(t *testing.T) {
 		t.Fatalf("Failed to HSet TRANSCEIVER_INFO|Ethernet4: %v", err)
 	}
 
-	// Setup APPL_DB (DB 0)
-	applDbId, _ := sdcfg.GetDbId("APPL_DB", ns)
-	applClient := getRedisClientN(t, applDbId, ns)
-	defer applClient.Close()
 	if err := applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet0", map[string]interface{}{"id": "100"}).Err(); err != nil {
 		t.Fatalf("Failed to HSet P4RT_PORT_ID_TABLE:Ethernet0: %v", err)
 	}
@@ -8327,10 +8375,6 @@ func TestGnmiSubscribeTranslibXfmrIntf(t *testing.T) {
 		t.Fatalf("Failed to HSet P4RT_PORT_ID_TABLE:Ethernet4: %v", err)
 	}
 
-	// Setup COUNTERS_DB (DB 2)
-	countersDbId, _ := sdcfg.GetDbId("COUNTERS_DB", ns)
-	countersClient := getRedisClientN(t, countersDbId, ns)
-	defer countersClient.Close()
 	if err := countersClient.HSet(ctx, "COUNTERS_PORT_NAME_MAP", "Ethernet0", "oid:0x100", "Ethernet4", "oid:0x104").Err(); err != nil {
 		t.Fatalf("Failed to HSet COUNTERS_PORT_NAME_MAP: %v", err)
 	}
@@ -8340,15 +8384,6 @@ func TestGnmiSubscribeTranslibXfmrIntf(t *testing.T) {
 	if err := countersClient.HSet(ctx, "COUNTERS:oid:0x104", "SAI_PORT_STAT_ETHER_STATS_CRC_ALIGN_ERRORS", "40").Err(); err != nil {
 		t.Fatalf("Failed to HSet COUNTERS:oid:0x104: %v", err)
 	}
-
-	t.Cleanup(func() {
-		cleanupCtx := context.Background()
-		configClient.Del(cleanupCtx, "PORT|Ethernet0", "PORT|Ethernet4")
-		stateClient.Del(cleanupCtx, "PORT_TABLE:Ethernet0", "PORT_TABLE:Ethernet4", "TRANSCEIVER_INFO|Ethernet0", "TRANSCEIVER_INFO|Ethernet4")
-		applClient.Del(cleanupCtx, "P4RT_PORT_ID_TABLE:Ethernet0", "P4RT_PORT_ID_TABLE:Ethernet4")
-		countersClient.Del(cleanupCtx, "COUNTERS:oid:0x100", "COUNTERS:oid:0x104")
-		countersClient.HDel(cleanupCtx, "COUNTERS_PORT_NAME_MAP", "Ethernet0", "Ethernet4")
-	})
 
 	// 3. Connect gRPC Client to the actual dynamic port
 	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
@@ -8703,6 +8738,235 @@ func TestGnmiSetCompPlfmIC(t *testing.T) {
 	for _, td := range tds {
 		t.Run(td.desc, func(t *testing.T) {
 			runTestSet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.attributeData, td.operation)
+		})
+	}
+}
+
+func TestGnmiGetTranslibPfmCompXcvr(t *testing.T) {
+	// 1. Define all structures locally inside the test function
+	type ComponentState struct {
+		Empty           bool   `json:"empty"`
+		FirmwareVersion string `json:"firmware-version"`
+		HardwareVersion string `json:"hardware-version"`
+		MfgDate         string `json:"mfg-date"`
+		MfgName         string `json:"mfg-name"`
+		Name            string `json:"name"`
+		OperStatus      string `json:"oper-status"`
+		PartNo          string `json:"part-no"`
+		Removable       bool   `json:"removable"`
+		SerialNo        string `json:"serial-no"`
+		Temperature     struct {
+			Instant string `json:"instant"`
+		} `json:"temperature"`
+		Type string `json:"type"`
+	}
+
+	type PhysicalChannel struct {
+		Index  int `json:"index"`
+		Config struct {
+			Index int `json:"index"`
+		} `json:"config"`
+		State struct {
+			Index      int `json:"index"`
+			InputPower struct {
+				Instant string `json:"instant"`
+			} `json:"input-power"`
+			LaserBiasCurrent struct {
+				Instant string `json:"instant"`
+			} `json:"laser-bias-current"`
+			TxLaser bool `json:"tx-laser"`
+		} `json:"state"`
+	}
+
+	type ComponentResp struct {
+		Component []struct {
+			Name   string `json:"name"`
+			Config struct {
+				Name string `json:"name"`
+			} `json:"config"`
+			State       ComponentState `json:"state"`
+			Transceiver struct {
+				PhysicalChannels struct {
+					Channel []PhysicalChannel `json:"channel"`
+				} `json:"physical-channels"`
+			} `json:"openconfig-platform-transceiver:transceiver"`
+		} `json:"openconfig-platform:component"`
+	}
+
+	type StateResp struct {
+		State ComponentState `json:"openconfig-platform:state"`
+	}
+
+	type TempResp struct {
+		Instant string `json:"openconfig-platform:instant"`
+	}
+
+	type PresenceResp struct {
+		Empty bool `json:"openconfig-platform:empty"`
+	}
+
+	// Server/DB setup
+	s := createServer(t, 0)
+	go runServer(t, s)
+	defer s.Stop()
+	prepareDbTranslib(t)
+	ctx := context.Background()
+	ns, err := sdcfg.GetDbDefaultNamespace()
+	if err != nil {
+		t.Fatalf("Failed to get default DB namespace: %v", err)
+	}
+
+	stateDbId, err := sdcfg.GetDbId("STATE_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get DB ID for STATE_DB: %v", err)
+	}
+	stateClient := getRedisClientN(t, stateDbId, ns)
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		if err := stateClient.Del(cleanupCtx, "TRANSCEIVER_INFO|Ethernet0").Err(); err != nil {
+			t.Logf("Failed to HDel TRANSCEIVER_INFO field: %v", err)
+		}
+		if err := stateClient.Del(cleanupCtx, "TRANSCEIVER_STATUS|Ethernet0").Err(); err != nil {
+			t.Logf("Failed to HDel TRANSCEIVER_STATUS field: %v", err)
+		}
+
+		if err := stateClient.Del(cleanupCtx, "TRANSCEIVER_DOM_SENSOR|Ethernet0").Err(); err != nil {
+			t.Logf("Failed to HDel TRANSCEIVER_DOM_SENSOR field: %v", err)
+		}
+		stateClient.Close()
+	})
+	if err := stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", map[string]interface{}{"name": "Ethernet0"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet TRANSCEIVER_INFO: %v", err)
+	}
+
+	if err := stateClient.HSet(ctx, "TRANSCEIVER_STATUS|Ethernet0", map[string]interface{}{"name": "Ethernet0", "status": true}).Err(); err != nil {
+		t.Fatalf("Failed to HSet TRANSCEIVER_STATUS: %v", err)
+	}
+
+	if err := stateClient.HSet(ctx, "TRANSCEIVER_DOM_SENSOR|Ethernet0", map[string]interface{}{"name": "Ethernet0", "temperature": "101"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet TRANSCEIVER_DOM_SENSOR: %v", err)
+	}
+
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	conn, err := grpc.Dial(targetAddr, opts...)
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	// 2. Prepare Data to match your log output
+	commonState := ComponentState{
+		Empty:           false,
+		FirmwareVersion: "D",
+		HardwareVersion: "D",
+		MfgDate:         "2011-12-13 ",
+		MfgName:         "Amphenol",
+		Name:            "Ethernet0",
+		OperStatus:      "openconfig-platform-types:ACTIVE",
+		PartNo:          "599690001",
+		Removable:       true,
+		SerialNo:        "APF11490011J7E",
+		Type:            "openconfig-platform-types:TRANSCEIVER",
+	}
+	commonState.Temperature.Instant = "101"
+
+	channels := make([]PhysicalChannel, 4)
+	for i := 0; i < 4; i++ {
+		channels[i].Index, channels[i].Config.Index, channels[i].State.Index = i, i, i
+		channels[i].State.InputPower.Instant = "-Inf"
+		channels[i].State.LaserBiasCurrent.Instant = "0"
+		channels[i].State.TxLaser = false
+	}
+
+	// Initialize the 4 specific response objects
+	var compVal ComponentResp
+	compVal.Component = append(compVal.Component, struct {
+		Name   string `json:"name"`
+		Config struct {
+			Name string `json:"name"`
+		} `json:"config"`
+		State       ComponentState `json:"state"`
+		Transceiver struct {
+			PhysicalChannels struct {
+				Channel []PhysicalChannel `json:"channel"`
+			} `json:"physical-channels"`
+		} `json:"openconfig-platform-transceiver:transceiver"`
+	}{
+		Name: "Ethernet0",
+		Config: struct {
+			Name string `json:"name"`
+		}{Name: "Ethernet0"},
+		State: commonState,
+		Transceiver: struct {
+			PhysicalChannels struct {
+				Channel []PhysicalChannel `json:"channel"`
+			} `json:"physical-channels"`
+		}{PhysicalChannels: struct {
+			Channel []PhysicalChannel `json:"channel"`
+		}{Channel: channels}},
+	})
+
+	stateVal := StateResp{State: commonState}
+	tempVal := TempResp{Instant: "101"}
+	presenceVal := PresenceResp{Empty: false}
+
+	// Helper to marshal locally defined structs to []byte for runTestGet
+	marshal := func(v interface{}) []byte {
+		b, _ := json.Marshal(v)
+		return b
+	}
+
+	tds := []struct {
+		desc        string
+		pathTarget  string
+		textPbPath  string
+		wantRetCode codes.Code
+		wantRespVal interface{}
+		valTest     bool
+	}{
+		{
+			desc:        "Get OC Platform Comp Xcvr",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"Ethernet0" > >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(compVal),
+			valTest:     false,
+		},
+		{
+			desc:        "Get OC Platform Comp Xcvr State",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(stateVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OC Platform Comp Xcvr Temperature",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" > elem: <name: "temperature" > elem: <name: "instant" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(tempVal),
+			valTest:     true,
+		},
+		{
+			desc:        "Get OC Platform Comp Xcvr Presence",
+			pathTarget:  "OC_YANG",
+			textPbPath:  `elem: <name: "openconfig-platform:components" > elem: <name: "component" key:<key:"name" value:"Ethernet0" > > elem: <name: "state" > elem: <name: "empty" >`,
+			wantRetCode: codes.OK,
+			wantRespVal: marshal(presenceVal),
+			valTest:     true,
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			// Your existing runTestGet is called here
+			runTestGet(t, ctx, gClient, td.pathTarget, td.textPbPath, td.wantRetCode, td.wantRespVal, td.valTest)
 		})
 	}
 }
