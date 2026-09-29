@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -12,6 +13,13 @@ import (
 	"github.com/Workiva/go-datastructures/queue"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 )
+
+// recordsAlwaysMatcher accepts every Record (backpressure tests inject FakeTailer lines).
+type recordsAlwaysMatcher struct{}
+
+func (recordsAlwaysMatcher) Match(r *Record) (bool, string) {
+	return true, "exact"
+}
 
 func recordsTestPath() *gnmipb.Path {
 	return &gnmipb.Path{
@@ -60,6 +68,9 @@ func TestNewRecordsClient(t *testing.T) {
 	}
 	if rc.parser == nil {
 		t.Fatal("expected default Parser")
+	}
+	if rc.pq_max != PQ_DEF_SIZE {
+		t.Fatalf("pq_max = %d, want EventClient default %d", rc.pq_max, PQ_DEF_SIZE)
 	}
 }
 
@@ -230,6 +241,94 @@ func TestRecordsClientStreamRunEmitsSampleAndSync(t *testing.T) {
 	}
 	if !resp.GetSyncResponse() {
 		t.Fatalf("expected sync_response true, got %#v", resp.Response)
+	}
+
+	close(stop)
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamRun did not exit after stop")
+	}
+}
+
+func TestRecordsClientBackpressure(t *testing.T) {
+	withRecordsNamespaces(t, []string{""})
+
+	dc, err := NewRecordsClient([]*gnmipb.Path{recordsTestPath()}, recordsTestPrefix(), 0)
+	if err != nil {
+		t.Fatalf("NewRecordsClient: %v", err)
+	}
+	rc := dc.(*RecordsClient)
+	rc.pq_max = 1
+	rc.parser = PassThroughParser{}
+	rc.matcher = recordsAlwaysMatcher{}
+
+	const n = 5
+	lines := make([]RawLine, 0, n)
+	for i := 0; i < n; i++ {
+		r := sampleRecord()
+		r.Seq = fmt.Sprintf("sairedis:test:%d", i)
+		jv, err := marshalRecordJSON(r)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		lines = append(lines, RawLine{Source: "sairedis", Seq: r.Seq, Line: string(jv)})
+	}
+	rc.tailer = &FakeTailer{Lines: lines}
+
+	pq := queue.NewPriorityQueue(10, false)
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go dc.StreamRun(pq, stop, &wg, nil)
+
+	deadline := time.After(2 * time.Second)
+	for rc.Stalls() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("expected at least one stall with pq_max=1 and 5 records")
+		default:
+			time.Sleep(recordsBackpressureTick)
+		}
+	}
+
+	gotRecords := 0
+	gotSync := false
+	drainDeadline := time.After(3 * time.Second)
+	for gotRecords < n || !gotSync {
+		select {
+		case <-drainDeadline:
+			t.Fatalf("drain timeout: records=%d sync=%v stalls=%d", gotRecords, gotSync, rc.Stalls())
+		default:
+		}
+		items, err := pq.Get(1)
+		if err != nil {
+			t.Fatalf("queue Get: %v", err)
+		}
+		val, ok := items[0].(Value)
+		if !ok {
+			t.Fatalf("expected Value, got %T", items[0])
+		}
+		resp, err := ValToResp(val)
+		if err != nil {
+			t.Fatalf("ValToResp: %v", err)
+		}
+		if resp.GetSyncResponse() {
+			gotSync = true
+			continue
+		}
+		gotRecords++
+	}
+	if gotRecords != n {
+		t.Fatalf("records = %d, want %d (backpressure must not drop)", gotRecords, n)
+	}
+	if rc.Stalls() == 0 {
+		t.Fatal("stalls still zero after drain")
 	}
 
 	close(stop)

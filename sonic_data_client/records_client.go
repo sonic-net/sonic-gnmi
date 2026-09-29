@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
@@ -13,6 +14,9 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 )
+
+// How often to re-check the priority queue while applying backpressure.
+const recordsBackpressureTick = 10 * time.Millisecond
 
 // RecordsClient is a STREAM-only client for the RECORDS target.
 // It tails swss.rec and sairedis.rec and keeps lines RecordsMatcher accepts.
@@ -25,7 +29,10 @@ type RecordsClient struct {
 	parser  Parser
 	matcher Matcher
 
-	q       *queue.PriorityQueue
+	q      *queue.PriorityQueue
+	pq_max int // same default as EventClient (PQ_DEF_SIZE)
+	stalls uint64
+
 	channel chan struct{}
 	wg      *sync.WaitGroup
 }
@@ -38,6 +45,7 @@ func NewRecordsClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (
 	c := &RecordsClient{
 		prefix: prefix,
 		parser: NewRecordsParser(RecordsLocation()),
+		pq_max: PQ_DEF_SIZE,
 	}
 	var matchSubs []Subscription
 	for _, path := range paths {
@@ -209,7 +217,56 @@ func marshalRecordJSON(r Record) ([]byte, error) {
 	return json.Marshal(payload)
 }
 
-func (c *RecordsClient) enqueueRecord(r Record) error {
+// Stalls returns how many times StreamRun had to wait because the outbound
+// priority queue was at pq_max. Live records are delayed, never dropped: the
+// file still holds them while we apply backpressure.
+func (c *RecordsClient) Stalls() uint64 {
+	return atomic.LoadUint64(&c.stalls)
+}
+
+// waitForQueueSpace blocks until Len() < pq_max, or ctx/stop is cancelled.
+// Unlike EventClient (which drops on overflow), RECORDS never drops: disk is
+// the durable queue, so we stall the Tailer via the unbuffered out channel.
+func (c *RecordsClient) waitForQueueSpace(ctx context.Context) error {
+	if c.q == nil {
+		return fmt.Errorf("RECORDS: queue not set")
+	}
+	max := c.pq_max
+	if max <= 0 {
+		max = PQ_DEF_SIZE
+	}
+	if c.q.Len() < max {
+		return nil
+	}
+
+	atomic.AddUint64(&c.stalls, 1)
+	log.V(2).Infof("RecordsClient queue full (len=%d max=%d); applying backpressure (stalls=%d)",
+		c.q.Len(), max, atomic.LoadUint64(&c.stalls))
+
+	ticker := time.NewTicker(recordsBackpressureTick)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.channel:
+			return context.Canceled
+		case <-ticker.C:
+			if c.q.Len() < max {
+				return nil
+			}
+		}
+	}
+}
+
+func (c *RecordsClient) putWithBackpressure(ctx context.Context, val Value) error {
+	if err := c.waitForQueueSpace(ctx); err != nil {
+		return err
+	}
+	return c.q.Put(val)
+}
+
+func (c *RecordsClient) enqueueRecord(ctx context.Context, r Record) error {
 	jv, err := marshalRecordJSON(r)
 	if err != nil {
 		return err
@@ -224,7 +281,7 @@ func (c *RecordsClient) enqueueRecord(r Record) error {
 			},
 		},
 	}
-	return c.q.Put(Value{spbv})
+	return c.putWithBackpressure(ctx, Value{spbv})
 }
 
 func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
@@ -232,6 +289,9 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 	defer c.wg.Done()
 	c.q = q
 	c.channel = stop
+	if c.pq_max <= 0 {
+		c.pq_max = PQ_DEF_SIZE
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -261,7 +321,7 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 			return true
 		}
 		synced = true
-		if err := c.q.Put(Value{&spb.Value{
+		if err := c.putWithBackpressure(ctx, Value{&spb.Value{
 			Timestamp:    time.Now().UnixNano(),
 			SyncResponse: true,
 		}}); err != nil {
@@ -293,7 +353,7 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 			continue
 		}
 		r.MatchedBy = how
-		if err := c.enqueueRecord(*r); err != nil {
+		if err := c.enqueueRecord(ctx, *r); err != nil {
 			log.V(1).Infof("RecordsClient enqueue failed: %v", err)
 			cancel()
 			continue
@@ -306,7 +366,7 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 		return
 	}
 
-	log.V(2).Infof("RecordsClient emitted records via Tailer/Parser; waiting for stop")
+	log.V(2).Infof("RecordsClient emitted records via Tailer/Parser stalls=%d; waiting for stop", c.Stalls())
 	<-c.channel
 	log.V(2).Infof("RecordsClient stop received")
 }
