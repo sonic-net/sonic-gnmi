@@ -238,6 +238,7 @@ type Config struct {
 	ConfigTableName     string
 	GnmiVrf             string
 	Vrf                 string
+	NoTLS               bool
 	EnableCrl           bool
 	// Path to the directory where image is stored.
 	ImgDir     string
@@ -544,6 +545,20 @@ func createVrfListener(vrf string, port int64) (net.Listener, error) {
 	return listener, nil
 }
 
+// ValidateNoTLSConfig ensures cleartext TCP listeners remain local-only.
+func ValidateNoTLSConfig(bindAddress, gnmiVrf string) error {
+	ip := net.ParseIP(bindAddress)
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf(
+			"--noTLS requires --bind_address to be a loopback address (e.g. 127.0.0.1 or ::1) " +
+				"to prevent cleartext gRPC exposure over the network")
+	}
+	if gnmiVrf != "" && gnmiVrf != "default" {
+		return fmt.Errorf("--noTLS cannot be used with non-default --gnmi_vrf %q; configure TLS for network-reachable VRF listeners", gnmiVrf)
+	}
+	return nil
+}
+
 // tlsOpts contains TLS credentials and is used only for the TCP listener.
 // commonOpts contains interceptors, keepalive params, etc. and is used for both listeners.
 //
@@ -552,6 +567,11 @@ func createVrfListener(vrf string, port int64) (net.Listener, error) {
 func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*Server, error) {
 	if config == nil {
 		return nil, errors.New("config not provided")
+	}
+	if config.NoTLS {
+		if err := ValidateNoTLSConfig(config.BindAddress, config.GnmiVrf); err != nil {
+			return nil, err
+		}
 	}
 	var providers []certprovider.Provider
 	if err := common_utils.ValidateSharedMemoryKey(); err != nil {

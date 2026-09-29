@@ -6434,6 +6434,53 @@ func TestServerConfigGnmiVrf(t *testing.T) {
 	}
 }
 
+func TestValidateNoTLSConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		bindAddress string
+		gnmiVrf     string
+		wantErr     bool
+	}{
+		{"loopback default namespace", "127.0.0.1", "", false},
+		{"loopback default vrf", "::1", "default", false},
+		{"missing bind address", "", "", true},
+		{"network bind address", "10.0.0.1", "", true},
+		{"management vrf", "127.0.0.1", "mgmt", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateNoTLSConfig(tt.bindAddress, tt.gnmiVrf)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestNewServerRejectsNoTLSWithGnmiVrf(t *testing.T) {
+	cfg := &Config{
+		Port:        8082,
+		NoTLS:       true,
+		BindAddress: "127.0.0.1",
+		GnmiVrf:     "mgmt",
+	}
+
+	s, err := NewServer(cfg, nil, nil)
+	if err == nil {
+		if s != nil {
+			s.ForceStop()
+		}
+		t.Fatal("expected noTLS management VRF configuration to be rejected")
+	}
+	if !strings.Contains(err.Error(), "non-default --gnmi_vrf") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestServerConfigZmqVrf(t *testing.T) {
 	// Test that ZMQ VRF field is properly set in config
 	cfg := &Config{
