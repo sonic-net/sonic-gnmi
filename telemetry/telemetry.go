@@ -23,6 +23,7 @@ import (
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
 	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
 	"github.com/fsnotify/fsnotify"
@@ -77,6 +78,8 @@ type TelemetryConfig struct {
 	IntManFile               *string
 	CertzMetaFile            *string
 	ImgDirPath               *string
+	RecordsDir               *string
+	RecordsTZ                *string
 	AuthzMetaFile            *string
 	AuthPolicyEnabled        *bool
 	AuthzPolicyFile          *string
@@ -209,6 +212,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		EnableCrl:                fs.Bool("enable_crl", false, "Enable certificate revocation list"),
 		CrlExpireDuration:        fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
 		ImgDirPath:               fs.String("img_dir", "/tmp/host_tmp", "Directory path where image will be transferred."),
+		RecordsDir:               fs.String("records_dir", sdc.RecordsDefaultDir, "Directory holding orchagent swss.rec/sairedis.rec files for the RECORDS target."),
+		RecordsTZ:                fs.String("records_tz", "", "IANA timezone of the zone-less timestamps in the record files. Default: process local zone."),
 		CaCert:                   fs.String("ca_crt", "", "CA certificate for client certificate validation. Optional."),
 		ServerCert:               fs.String("server_crt", "", "TLS server certificate"),
 		ServerKey:                fs.String("server_key", "", "TLS server private key"),
@@ -312,6 +317,11 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.CertzMetaFile = *telemetryCfg.CertzMetaFile
 
 	gnmi.SetCrlExpireDuration(time.Duration(*telemetryCfg.CrlExpireDuration) * time.Second)
+
+	sdc.SetRecordsDir(*telemetryCfg.RecordsDir)
+	if err := sdc.SetRecordsTZ(*telemetryCfg.RecordsTZ); err != nil {
+		return nil, nil, err
+	}
 
 	// TODO: After other dependent projects are migrated to ZmqPort, remove ZmqAddress
 	zmqAddress := *telemetryCfg.ZmqAddress
