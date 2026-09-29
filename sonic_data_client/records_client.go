@@ -29,12 +29,19 @@ type RecordsClient struct {
 	parser  Parser
 	matcher Matcher
 
-	q      *queue.PriorityQueue
-	pq_max int // same default as EventClient (PQ_DEF_SIZE)
-	stalls uint64
+	q       *queue.PriorityQueue
+	pq_max  int // same default as EventClient (PQ_DEF_SIZE)
+	stalls  uint64
+	matched uint64 // records that passed Matcher and were enqueued
+	sent    uint64 // Notifications successfully written by Client.send
+	failed  uint64 // stream.Send failures reported via FailedSend
 
 	channel chan struct{}
 	wg      *sync.WaitGroup
+
+	cancel    context.CancelFunc
+	runDone   chan struct{} // closed when StreamRun exits
+	closeOnce sync.Once
 }
 
 // NewRecordsClient builds a RECORDS client for the given subscription paths.
@@ -230,6 +237,21 @@ func (c *RecordsClient) Stalls() uint64 {
 	return atomic.LoadUint64(&c.stalls)
 }
 
+// Matched returns how many Records passed the Matcher and were enqueued.
+func (c *RecordsClient) Matched() uint64 {
+	return atomic.LoadUint64(&c.matched)
+}
+
+// Sent returns how many Notifications Client.send successfully wrote.
+func (c *RecordsClient) Sent() uint64 {
+	return atomic.LoadUint64(&c.sent)
+}
+
+// Failed returns how many stream.Send failures were reported via FailedSend.
+func (c *RecordsClient) Failed() uint64 {
+	return atomic.LoadUint64(&c.failed)
+}
+
 // waitForQueueSpace blocks until Len() < pq_max, or ctx/stop is cancelled.
 // Unlike EventClient (which drops on overflow), RECORDS never drops: disk is
 // the durable queue, so we stall the Tailer via the unbuffered out channel.
@@ -323,7 +345,11 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 		c.pq_max = PQ_DEF_SIZE
 	}
 
+	c.runDone = make(chan struct{})
+	defer close(c.runDone)
+
 	ctx, cancel := context.WithCancel(context.Background())
+	c.cancel = cancel
 	defer cancel()
 	go func() {
 		select {
@@ -334,6 +360,8 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 	}()
 
 	from := c.earliestFrom()
+	log.V(2).Infof("RecordsClient StreamRun prefix=%v path=%v from=%v subs=%d",
+		c.prefix, c.path, from, len(c.subs))
 	if !from.IsZero() {
 		if err := c.enqueueControlEvent(ctx, map[string]string{
 			"event": recordsEventReplayStart,
@@ -422,6 +450,7 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 			cancel()
 			continue
 		}
+		atomic.AddUint64(&c.matched, 1)
 	}
 	if err := <-errCh; err != nil && ctx.Err() == nil {
 		log.V(1).Infof("RecordsClient tailer: %v", err)
@@ -430,9 +459,14 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 		return
 	}
 
-	log.V(2).Infof("RecordsClient emitted records via Tailer/Parser stalls=%d; waiting for stop", c.Stalls())
-	<-c.channel
-	log.V(2).Infof("RecordsClient stop received")
+	log.V(2).Infof("RecordsClient waiting for stop matched=%d stalls=%d sent=%d failed=%d",
+		c.Matched(), c.Stalls(), c.Sent(), c.Failed())
+	select {
+	case <-c.channel:
+	case <-ctx.Done():
+	}
+	log.V(2).Infof("RecordsClient stop received matched=%d stalls=%d sent=%d failed=%d",
+		c.Matched(), c.Stalls(), c.Sent(), c.Failed())
 }
 
 func (c *RecordsClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
@@ -456,12 +490,29 @@ func (c *RecordsClient) Capabilities() []gnmipb.ModelData {
 	return nil
 }
 
+// Close cancels an in-flight StreamRun (if any) and waits for it to exit.
+// Safe to call more than once; a no-op if StreamRun never started.
 func (c *RecordsClient) Close() error {
+	c.closeOnce.Do(func() {
+		if c.cancel != nil {
+			c.cancel()
+		}
+		if c.runDone != nil {
+			<-c.runDone
+		}
+	})
 	return nil
 }
 
+// SentOne is called by Client.send after a Notification is written to the stream.
 func (c *RecordsClient) SentOne(val *Value) {
+	if val == nil {
+		return
+	}
+	atomic.AddUint64(&c.sent, 1)
 }
 
+// FailedSend is called by Client.send when stream.Send fails.
 func (c *RecordsClient) FailedSend() {
+	atomic.AddUint64(&c.failed, 1)
 }

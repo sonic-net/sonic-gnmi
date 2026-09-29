@@ -447,5 +447,103 @@ func TestRecordsClientStubs(t *testing.T) {
 		t.Errorf("Close: %v", err)
 	}
 	rc.SentOne(nil)
+	if rc.Sent() != 0 {
+		t.Errorf("SentOne(nil) should not count, got %d", rc.Sent())
+	}
+	rc.SentOne(&Value{})
 	rc.FailedSend()
+	if rc.Sent() != 1 || rc.Failed() != 1 {
+		t.Errorf("sent=%d failed=%d, want 1/1", rc.Sent(), rc.Failed())
+	}
+}
+
+func TestRecordsClientSentFailedAndClose(t *testing.T) {
+	withRecordsNamespaces(t, []string{""})
+
+	dc, err := NewRecordsClient([]*gnmipb.Path{recordsTestPath()}, recordsTestPrefix(), 0)
+	if err != nil {
+		t.Fatalf("NewRecordsClient: %v", err)
+	}
+	rc := dc.(*RecordsClient)
+	rc.parser = PassThroughParser{}
+	rc.matcher = recordsAlwaysMatcher{}
+
+	r := sampleRecord()
+	jv, err := marshalRecordJSON(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc.tailer = &FakeTailer{Lines: []RawLine{
+		{Source: "sairedis", Seq: r.Seq, Line: string(jv)},
+		{Source: RecordsSourceControl, Line: `{"event":"live","tailer_source":"sairedis","namespace":"localhost"}`},
+	}}
+
+	pq := queue.NewPriorityQueue(10, false)
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go dc.StreamRun(pq, stop, &wg, nil)
+
+	// Drain until sync so StreamRun is sitting in the final wait.
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timeout waiting for sync")
+		default:
+		}
+		items, err := pq.Get(1)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		val := items[0].(Value)
+		resp, err := ValToResp(val)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.GetSyncResponse() {
+			break
+		}
+		rc.SentOne(&val)
+	}
+	if rc.Matched() != 1 {
+		t.Fatalf("matched=%d, want 1", rc.Matched())
+	}
+	if rc.Sent() < 1 {
+		t.Fatalf("sent=%d, want at least the record", rc.Sent())
+	}
+	rc.FailedSend()
+	if rc.Failed() != 1 {
+		t.Fatalf("failed=%d, want 1", rc.Failed())
+	}
+
+	// Close should cancel StreamRun without needing close(stop).
+	closed := make(chan struct{})
+	go func() {
+		if err := rc.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not return within 2s")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamRun did not exit after Close")
+	}
+
+	// Idempotent.
+	if err := rc.Close(); err != nil {
+		t.Errorf("second Close: %v", err)
+	}
 }
