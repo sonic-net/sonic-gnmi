@@ -46,3 +46,14 @@ type Parser interface {
 type Matcher interface {
 	Match(r *Record) (ok bool, how string)
 }
+
+// Subscription captures the fields a gNMI client subscribed to within the
+// RECORDS target.  WS4 (path parsing) builds these from the gNMI path;
+// WS3 (matching) uses them to filter records.
+type Subscription struct {
+	Namespace string
+	DB        string   // "APPL_DB" | "ASIC_DB"
+	Table     string
+	Key       string   // empty → whole-table prefix match
+	Ops       []string // empty → all ops
+}
