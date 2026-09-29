@@ -67,7 +67,7 @@ func NewRecordsClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (
 		}
 		c.subs = append(c.subs, *sub)
 		matchSubs = append(matchSubs, subscriptionForMatch(*sub))
-		// Keep last path for encoding (EVENTS precedent).
+		// Fallback path for control events / unknown match index.
 		c.path = path
 	}
 	c.matcher = NewRecordsMatcher(matchSubs)
@@ -378,14 +378,23 @@ func (c *RecordsClient) putWithBackpressure(ctx context.Context, val Value) erro
 	return c.q.Put(val)
 }
 
-func (c *RecordsClient) enqueueRecord(ctx context.Context, r Record) error {
+// encodePath returns the gNMI path for the subscription that matched, or the
+// session fallback (last subscribe path) when the index is unknown.
+func (c *RecordsClient) encodePath(subIdx int) *gnmipb.Path {
+	if subIdx >= 0 && subIdx < len(c.subs) && c.subs[subIdx].path != nil {
+		return c.subs[subIdx].path
+	}
+	return c.path
+}
+
+func (c *RecordsClient) enqueueRecord(ctx context.Context, r Record, subIdx int) error {
 	jv, err := marshalRecordJSON(r)
 	if err != nil {
 		return err
 	}
 	spbv := &spb.Value{
 		Prefix:    c.prefix,
-		Path:      c.path,
+		Path:      c.encodePath(subIdx),
 		Timestamp: r.TS.UnixNano(),
 		Val: &gnmipb.TypedValue{
 			Value: &gnmipb.TypedValue_JsonIetfVal{
@@ -531,7 +540,7 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 			continue
 		}
 		r.MatchedBy = how
-		if err := c.enqueueRecord(ctx, *r); err != nil {
+		if err := c.enqueueRecord(ctx, *r, subIdx); err != nil {
 			log.V(1).Infof("RecordsClient enqueue failed: %v", err)
 			cancel()
 			continue

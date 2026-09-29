@@ -550,3 +550,135 @@ func TestRecordsClientSentFailedAndClose(t *testing.T) {
 		t.Errorf("second Close: %v", err)
 	}
 }
+
+func recordsNeighPath() *gnmipb.Path {
+	return &gnmipb.Path{
+		Elem: []*gnmipb.PathElem{
+			{Name: "RECORDS"},
+			{Name: "localhost"},
+			{Name: "APPL_DB"},
+			{Name: "NEIGH_TABLE"},
+		},
+	}
+}
+
+func applRecord(table, key string) Record {
+	ts, _ := time.ParseInLocation(recordTSLayout, "2026-09-26T10:15:32.123456", time.Local)
+	return Record{
+		Seq:    "swss:1:0",
+		TS:     ts,
+		Source: "swss",
+		DB:     "APPL_DB",
+		Table:  table,
+		Key:    key,
+		Op:     "SET",
+		Fields: map[string]string{"ifname": "Ethernet0"},
+	}
+}
+
+// TestRecordsClientEncodePathPerSubscription checks multi-path STREAM updates echo
+// the matching subscription path (not always the last path).
+func TestRecordsClientEncodePathPerSubscription(t *testing.T) {
+	withRecordsNamespaces(t, []string{""})
+
+	routePath := recordsTestPath()
+	neighPath := recordsNeighPath()
+	dc, err := NewRecordsClient([]*gnmipb.Path{routePath, neighPath}, recordsTestPrefix(), 0)
+	if err != nil {
+		t.Fatalf("NewRecordsClient: %v", err)
+	}
+	rc := dc.(*RecordsClient)
+	rc.parser = PassThroughParser{}
+	// Keep the real RecordsMatcher so each record attributes to the right sub.
+
+	route := applRecord("ROUTE_TABLE", "10.1.0.0/24")
+	neigh := applRecord("NEIGH_TABLE", "Ethernet0:10.0.0.2")
+	routeJV, err := marshalRecordJSON(route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	neighJV, err := marshalRecordJSON(neigh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc.tailer = &FakeTailer{Lines: []RawLine{
+		{Source: "swss", Seq: route.Seq, Line: string(routeJV)},
+		{Source: "swss", Seq: neigh.Seq, Line: string(neighJV)},
+		{Source: RecordsSourceControl, Line: `{"event":"live","tailer_source":"swss","namespace":"localhost"}`},
+	}}
+
+	pq := queue.NewPriorityQueue(10, false)
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go dc.StreamRun(pq, stop, &wg, nil)
+
+	wantByTable := map[string]*gnmipb.Path{
+		"ROUTE_TABLE": routePath,
+		"NEIGH_TABLE": neighPath,
+	}
+	gotTables := map[string]bool{}
+	deadline := time.After(3 * time.Second)
+	for len(gotTables) < 2 {
+		select {
+		case <-deadline:
+			t.Fatalf("timeout waiting for both records; got %v", gotTables)
+		default:
+		}
+		items, err := pq.Get(1)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		val := items[0].(Value)
+		resp, err := ValToResp(val)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.GetSyncResponse() {
+			break
+		}
+		upd := resp.GetUpdate()
+		if upd == nil || len(upd.Update) != 1 {
+			t.Fatalf("expected update, got %#v", resp.Response)
+		}
+		jv := upd.Update[0].GetVal().GetJsonIetfVal()
+		var payload map[string]interface{}
+		if err := json.Unmarshal(jv, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload["event"] != nil {
+			continue
+		}
+		table, _ := payload["table"].(string)
+		want, ok := wantByTable[table]
+		if !ok {
+			t.Fatalf("unexpected table %q in %v", table, payload)
+		}
+		gotPath := upd.Update[0].GetPath()
+		if fmt.Sprint(pathElemNames(gotPath)) != fmt.Sprint(pathElemNames(want)) {
+			t.Errorf("table %s: path elems = %v, want %v",
+				table, pathElemNames(gotPath), pathElemNames(want))
+		}
+		// Regression: must not always use the last subscribe path (NEIGH).
+		if table == "ROUTE_TABLE" && fmt.Sprint(pathElemNames(gotPath)) == fmt.Sprint(pathElemNames(neighPath)) {
+			t.Errorf("ROUTE_TABLE incorrectly encoded with last (NEIGH) path")
+		}
+		gotTables[table] = true
+	}
+
+	if rc.SubMatched(0) != 1 || rc.SubMatched(1) != 1 {
+		t.Errorf("subMatched = [%d, %d], want [1, 1]", rc.SubMatched(0), rc.SubMatched(1))
+	}
+
+	close(stop)
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamRun did not exit after stop")
+	}
+}
