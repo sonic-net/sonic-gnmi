@@ -35,6 +35,8 @@ type RecordsClient struct {
 	matched uint64 // records that passed Matcher and were enqueued
 	sent    uint64 // Notifications successfully written by Client.send
 	failed  uint64 // stream.Send failures reported via FailedSend
+	// subMatched[i] is matches attributed to c.subs[i] (same length as subs).
+	subMatched []uint64
 
 	channel chan struct{}
 	wg      *sync.WaitGroup
@@ -74,7 +76,9 @@ func NewRecordsClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (
 		return nil, err
 	}
 	c.tailer = tailer
+	c.subMatched = make([]uint64, len(c.subs))
 	log.V(2).Infof("NewRecordsClient prefix=%v path=%v subs=%d logLevel=%d", prefix, c.path, len(c.subs), logLevel)
+	c.logSubscriptions("NewRecordsClient")
 	return c, nil
 }
 
@@ -252,6 +256,86 @@ func (c *RecordsClient) Failed() uint64 {
 	return atomic.LoadUint64(&c.failed)
 }
 
+// SubMatched returns matches attributed to subscription i (0 if out of range).
+func (c *RecordsClient) SubMatched(i int) uint64 {
+	if i < 0 || i >= len(c.subMatched) {
+		return 0
+	}
+	return atomic.LoadUint64(&c.subMatched[i])
+}
+
+func (c *RecordsClient) logSubscriptions(stage string) {
+	for i, sub := range c.subs {
+		fromStr := "live-only"
+		if !sub.from.IsZero() {
+			fromStr = sub.from.Format(time.RFC3339Nano)
+		}
+		ops := "all"
+		if len(sub.ops) > 0 {
+			ops = strings.Join(sub.ops, ",")
+		}
+		log.V(2).Infof("RecordsClient %s sub[%d] ns=%s db=%s table=%s key=%q ops=%s from=%s",
+			stage, i, sub.namespace, sub.db, sub.table, sub.key, ops, fromStr)
+	}
+}
+
+func (c *RecordsClient) logTailerFiles(stage string) {
+	switch t := c.tailer.(type) {
+	case *FileTailer:
+		log.V(2).Infof("RecordsClient %s file=%s source=%s", stage, t.LivePath(), t.Source())
+	case multiTailer:
+		for i, part := range t.parts {
+			if ft, ok := part.(*FileTailer); ok {
+				log.V(2).Infof("RecordsClient %s file[%d]=%s source=%s", stage, i, ft.LivePath(), ft.Source())
+			}
+		}
+	default:
+		log.V(2).Infof("RecordsClient %s tailer=%T (no file paths)", stage, c.tailer)
+	}
+}
+
+func (c *RecordsClient) logTailerStats(stage string) {
+	switch t := c.tailer.(type) {
+	case *FileTailer:
+		st := t.Stats()
+		log.V(2).Infof("RecordsClient %s file=%s opened=%d emitted=%d skipped=%d dropped=%d rotations=%d gaps=%d replayed=%d",
+			stage, t.LivePath(), st.FilesOpened, st.LinesEmitted, st.LinesSkipped, st.LinesDropped, st.Rotations, st.Gaps, st.ReplayedFiles)
+	case multiTailer:
+		for i, part := range t.parts {
+			ft, ok := part.(*FileTailer)
+			if !ok {
+				continue
+			}
+			st := ft.Stats()
+			log.V(2).Infof("RecordsClient %s file[%d]=%s opened=%d emitted=%d skipped=%d dropped=%d rotations=%d gaps=%d replayed=%d",
+				stage, i, ft.LivePath(), st.FilesOpened, st.LinesEmitted, st.LinesSkipped, st.LinesDropped, st.Rotations, st.Gaps, st.ReplayedFiles)
+		}
+	}
+}
+
+func (c *RecordsClient) logSessionSummary(stage string) {
+	log.V(2).Infof("RecordsClient %s matched=%d stalls=%d sent=%d failed=%d",
+		stage, c.Matched(), c.Stalls(), c.Sent(), c.Failed())
+	for i, sub := range c.subs {
+		log.V(2).Infof("RecordsClient %s sub[%d] matched=%d ns=%s db=%s table=%s key=%q",
+			stage, i, c.SubMatched(i), sub.namespace, sub.db, sub.table, sub.key)
+	}
+	c.logTailerStats(stage)
+}
+
+// matchRecord runs the Matcher and returns which subscription index hit (-1 if unknown).
+func (c *RecordsClient) matchRecord(r *Record) (ok bool, how string, subIdx int) {
+	if rm, is := c.matcher.(*RecordsMatcher); is {
+		return rm.matchWithIndex(r)
+	}
+	ok, how = c.matcher.Match(r)
+	// Custom matchers have no index; with a single sub, attribute the hit to it.
+	if ok && len(c.subs) == 1 {
+		return ok, how, 0
+	}
+	return ok, how, -1
+}
+
 // waitForQueueSpace blocks until Len() < pq_max, or ctx/stop is cancelled.
 // Unlike EventClient (which drops on overflow), RECORDS never drops: disk is
 // the durable queue, so we stall the Tailer via the unbuffered out channel.
@@ -360,8 +444,10 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 	}()
 
 	from := c.earliestFrom()
-	log.V(2).Infof("RecordsClient StreamRun prefix=%v path=%v from=%v subs=%d",
-		c.prefix, c.path, from, len(c.subs))
+	c.logSubscriptions("StreamRun")
+	c.logTailerFiles("StreamRun")
+	log.V(2).Infof("RecordsClient StreamRun prefix=%v earliest_from=%v subs=%d",
+		c.prefix, from, len(c.subs))
 	if !from.IsZero() {
 		if err := c.enqueueControlEvent(ctx, map[string]string{
 			"event": recordsEventReplayStart,
@@ -440,7 +526,7 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 		if !ok || r == nil {
 			continue
 		}
-		ok, how := c.matcher.Match(r)
+		ok, how, subIdx := c.matchRecord(r)
 		if !ok {
 			continue
 		}
@@ -451,6 +537,9 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 			continue
 		}
 		atomic.AddUint64(&c.matched, 1)
+		if subIdx >= 0 && subIdx < len(c.subMatched) {
+			atomic.AddUint64(&c.subMatched[subIdx], 1)
+		}
 	}
 	if err := <-errCh; err != nil && ctx.Err() == nil {
 		log.V(1).Infof("RecordsClient tailer: %v", err)
@@ -459,14 +548,12 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 		return
 	}
 
-	log.V(2).Infof("RecordsClient waiting for stop matched=%d stalls=%d sent=%d failed=%d",
-		c.Matched(), c.Stalls(), c.Sent(), c.Failed())
+	c.logSessionSummary("waiting-for-stop")
 	select {
 	case <-c.channel:
 	case <-ctx.Done():
 	}
-	log.V(2).Infof("RecordsClient stop received matched=%d stalls=%d sent=%d failed=%d",
-		c.Matched(), c.Stalls(), c.Sent(), c.Failed())
+	c.logSessionSummary("stopped")
 }
 
 func (c *RecordsClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, wg *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {

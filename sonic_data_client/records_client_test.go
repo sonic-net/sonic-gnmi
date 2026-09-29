@@ -509,6 +509,9 @@ func TestRecordsClientSentFailedAndClose(t *testing.T) {
 	if rc.Matched() != 1 {
 		t.Fatalf("matched=%d, want 1", rc.Matched())
 	}
+	if rc.SubMatched(0) != 1 {
+		t.Fatalf("sub[0] matched=%d, want 1", rc.SubMatched(0))
+	}
 	if rc.Sent() < 1 {
 		t.Fatalf("sent=%d, want at least the record", rc.Sent())
 	}

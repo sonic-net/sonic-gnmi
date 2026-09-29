@@ -20,15 +20,21 @@ func NewRecordsMatcher(subs []Subscription) *RecordsMatcher {
 // Match checks a Record against all subscriptions.
 // Returns (true, how) on the first hit, or (false, "") on miss.
 func (m *RecordsMatcher) Match(r *Record) (ok bool, how string) {
+	ok, how, _ = m.matchWithIndex(r)
+	return
+}
+
+// matchWithIndex is Match plus the index of the subscription that hit (-1 on miss).
+func (m *RecordsMatcher) matchWithIndex(r *Record) (ok bool, how string, idx int) {
 	for i := range m.subs {
 		if hit, reason := m.matchOne(r, &m.subs[i]); hit {
 			if !opsFilterPass(r, &m.subs[i]) {
 				continue
 			}
-			return true, reason
+			return true, reason, i
 		}
 	}
-	return false, ""
+	return false, "", -1
 }
 
 // matchOne evaluates a single Record against a single Subscription.
