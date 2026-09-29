@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -267,11 +266,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	}
 
 	if *telemetryCfg.NoTLS {
-		ip := net.ParseIP(*telemetryCfg.BindAddress)
-		if ip == nil || !ip.IsLoopback() {
-			return nil, nil, fmt.Errorf(
-				"--noTLS requires --bind_address to be a loopback address (e.g. 127.0.0.1 or ::1) " +
-					"to prevent cleartext gRPC exposure over the network")
+		if err := gnmi.ValidateNoTLSConfig(*telemetryCfg.BindAddress, *telemetryCfg.GnmiVrf); err != nil {
+			return nil, nil, err
 		}
 	}
 
@@ -300,6 +296,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.GnmiVrf = *telemetryCfg.GnmiVrf
 	cfg.Vrf = *telemetryCfg.Vrf
 	cfg.BindAddress = *telemetryCfg.BindAddress
+	cfg.NoTLS = *telemetryCfg.NoTLS
 	cfg.EnableCrl = *telemetryCfg.EnableCrl
 	cfg.CaCertLnk = *telemetryCfg.CaCertLnk
 	cfg.CaCertFile = *telemetryCfg.CaCert
