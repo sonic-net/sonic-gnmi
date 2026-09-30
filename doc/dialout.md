@@ -99,11 +99,70 @@ One example configuration:
 # dialout_client_cli and dialout_server_cli
 dialout_client_cli is the program running inside SONiC system to collect telemetry data based on the configuration and stream data to collectors. The service has been integrated as part of SONiC.
 
-In case some development testing is wanted, it may be manually started with command "/usr/sbin/dialout_client_cli -insecure -logtostderr -v 1".
+## Production TLS
+
+Run the client with collector certificate verification enabled (the default):
+
+```sh
+/usr/sbin/dialout_client_cli -logtostderr -v 2
+```
+
+The `docker-sonic-gnmi` and `docker-sonic-telemetry` production launchers must not
+pass `-insecure`. Destinations and subscriptions come from `TELEMETRY_CLIENT` in
+ConfigDB; the client does not have a `--destination` flag.
+
+Before upgrading from a launcher that passed `-insecure`:
+
+* Provision the collector's issuing CA into the **container's** system trust
+  store. Installing it only on the SONiC host does not automatically make it
+  trusted inside the container. For a customized Debian-based image, install
+  approved PEM CA certificates under `/usr/local/share/ca-certificates/` with
+  `.crt` extensions and run `update-ca-certificates` during image preparation.
+  Use the deployment's supported image or certificate-mount mechanism so trust
+  persists across container replacement.
+* Ensure the collector serves its certificate and required intermediates. Its
+  certificate must be valid for server authentication and contain the matching
+  IP SAN when connecting to an IP address. For manual testing against an IP with
+  a DNS certificate, `--server_name=collector.example` selects the DNS identity
+  to verify; it does not disable verification or add a trusted CA. This override
+  applies to all destinations in that client process.
+* Linux Go also supports administrator-provided `SSL_CERT_FILE` and
+  `SSL_CERT_DIR`. They must reference readable certificate files/directories
+  **inside the container** and be supplied to the client process by the
+  deployment. `SSL_CERT_FILE` replaces the default bundle-file search, but
+  certificate directories are still loaded; it is not a CA pinning mechanism.
+* Restart the client after changing root certificates. Go caches system roots;
+  reconnecting or changing a subscription is not a reliable trust-store reload.
+* Check collector receipt and client connection-failure logs, not only process
+  health. Untrusted, expired or identity-mismatched certificates will stop
+  delivery. The client retries destinations without falling back to insecure
+  TLS. A connection failure can be reported as a dial timeout.
+
+Inbound telemetry/gNMI `ca_crt` settings authenticate clients of that separate
+server; they do not configure this outbound client's trust. This CLI does not
+load a client certificate/key for mutual TLS.
+
+## Development-only exception
+
+An isolated development client may explicitly disable collector verification:
+
+```sh
+/usr/sbin/dialout_client_cli -insecure -logtostderr -v 1
+```
+
+This emits a warning and accepts untrusted collector certificates. Traffic is
+encrypted, but the collector's identity is not authenticated: an on-path attacker
+can receive subscribed telemetry. Do not use this option in production or as a
+fallback when provisioning a trusted collector fails.
 
 dialout_server_cli is the testing program prepared for verifying the dialout service.
 
-Below is one example testing scenario:
+Below is an **insecure development-only** example using synthetic test data.
+For verified testing instead, provision the collector CA in the client container,
+omit the client's `-insecure`, and start the collector with
+`-server_crt /path/to/collector.crt -server_key /path/to/collector.key` in place of
+its `-insecure`. The collector's `-allow_no_client_auth` is separate: it allows
+this client, which does not present a client certificate, to connect.
 * dialout_client_cli has been started on SONiC, but the collectors are not up.
 
 ```
@@ -173,7 +232,6 @@ ok    github.com/jipanyang/sonic-telemetry/dialout/dialout_client 26.233s
 ```
 # Performance and Scale Test
 To be provided
-
 
 
 

@@ -18,7 +18,6 @@ import (
 	sds "github.com/sonic-net/sonic-gnmi/dialout/dialout_server"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
-	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
 	gclient "github.com/openconfig/gnmi/client/gnmi"
 	pb "github.com/openconfig/gnmi/proto/gnmi"
@@ -60,11 +59,7 @@ func loadDB(t *testing.T, rclient *redis.Client, mpi map[string]interface{}) {
 	}
 }
 
-func createServer(t *testing.T, cfg *sds.Config) *sds.Server {
-	certificate, err := testcert.NewCert()
-	if err != nil {
-		t.Fatalf("could not load server key pair: %s", err)
-	}
+func createServer(t *testing.T, cfg *sds.Config, certificate tls.Certificate) *sds.Server {
 	tlsCfg := &tls.Config{
 		ClientAuth:   tls.RequestClientCert,
 		Certificates: []tls.Certificate{certificate},
@@ -300,7 +295,7 @@ const (
 
 var s1, s2 *sds.Server
 
-func serverOp(t *testing.T, sop ServerOp) {
+func serverOp(t *testing.T, sop ServerOp, certificate tls.Certificate) {
 	cfg := &sds.Config{Port: 8080}
 	var tmpStore []*pb.SubscribeResponse
 	switch sop {
@@ -309,12 +304,12 @@ func serverOp(t *testing.T, sop ServerOp) {
 	case S2Stop:
 		s2.Stop()
 	case S1Start:
-		s1 = createServer(t, cfg)
+		s1 = createServer(t, cfg, certificate)
 		s1.SetDataStore(&tmpStore)
 		go runServer(t, s1)
 	case S2Start:
 		cfg.Port = 8081
-		s2 = createServer(t, cfg)
+		s2 = createServer(t, cfg, certificate)
 		s2.SetDataStore(&tmpStore)
 		go runServer(t, s2)
 	}
@@ -352,12 +347,14 @@ func TestGNMIDialOutPublish(t *testing.T) {
 
 	_ = countersEthernetWildcardPfcByte
 
+	ca := newDialoutTestCA(t)
+	certificate := ca.serverCertificate(t, nil)
 	clientCfg := ClientConfig{
 		SrcIp:          "",
 		RetryInterval:  5 * time.Second,
 		Encoding:       pb.Encoding_JSON_IETF,
 		Unidirectional: true,
-		TLS:            &tls.Config{InsecureSkipVerify: true},
+		TLS:            &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: ca.pool},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -488,8 +485,8 @@ func TestGNMIDialOutPublish(t *testing.T) {
 	defer rclient.Close()
 	for _, tt := range tests {
 		prepareDb(t)
-		serverOp(t, S1Start)
-		serverOp(t, S2Start)
+		serverOp(t, S1Start, certificate)
+		serverOp(t, S2Start, certificate)
 		t.Run(tt.desc, func(t *testing.T) {
 			var store []*pb.SubscribeResponse
 			if tt.collector == "s1" {
@@ -502,7 +499,7 @@ func TestGNMIDialOutPublish(t *testing.T) {
 				exe_cmd(t, cmd)
 			}
 			time.Sleep(time.Millisecond * 500)
-			serverOp(t, tt.sop)
+			serverOp(t, tt.sop, certificate)
 			for _, update := range tt.updates {
 				switch update.op {
 				case "hdel":
@@ -535,8 +532,8 @@ func TestGNMIDialOutPublish(t *testing.T) {
 				}
 			}
 		})
-		serverOp(t, S1Stop)
-		serverOp(t, S2Stop)
+		serverOp(t, S1Stop, certificate)
+		serverOp(t, S2Stop, certificate)
 	}
 	cancel()
 

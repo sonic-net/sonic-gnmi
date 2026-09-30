@@ -279,7 +279,7 @@ check_gotest: $(DBCONFG) $(ENVFILE) $(GOCOV) $(GOCOV_XML)
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 40m $(TEST_FLAGS) -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 40m $(TEST_FLAGS) -coverprofile=coverage-pathz_authorizer.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/pathz_authorizer -coverpkg ../...
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
-	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test $(TEST_FLAGS) -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/dialout/dialout_client
+	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test $(TEST_FLAGS) -coverprofile=coverage-dialout.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG)
 endif
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-data.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_data_client
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-dbus.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/sonic_service_client
@@ -312,7 +312,8 @@ INTEGRATION_ENV_PKGS := \
 
 # Dialout package (conditional)
 INTEGRATION_DIALOUT_PKG := \
-	github.com/sonic-net/sonic-gnmi/dialout/dialout_client
+	github.com/sonic-net/sonic-gnmi/dialout/dialout_client \
+	github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
 
 # Memory leak test packages that require CGO/SONiC dependencies and special sanitizer flags
 # Note: sonic_data_client and telemetry excluded due to underlying libyang memory leaks in test environment
