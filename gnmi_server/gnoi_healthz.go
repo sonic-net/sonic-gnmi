@@ -87,6 +87,9 @@ type healthzCatalogEvent struct {
 }
 
 func healthzCatalogError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return status.Errorf(codes.DeadlineExceeded, "Healthz host service timeout: %v", err)
+	}
 	var dbusErr *ssc.DbusStatusError
 	if errors.As(err, &dbusErr) {
 		switch syscall.Errno(dbusErr.Code) {
@@ -107,7 +110,7 @@ func healthzEventStatus(event healthzCatalogEvent, allowSummary bool) (*healthz.
 		!event.Acknowledged && event.ArtifactID == "" && event.Component != "" && len(event.Children) > 0 {
 		result.Status = healthz.Status_STATUS_UNSPECIFIED
 	} else {
-		if event.ID == "" || event.Component == "" || event.ObservedAt <= 0 {
+		if event.ID == "" || event.Component == "" || event.ObservedAt < 0 {
 			return nil, status.Error(codes.Internal, "Healthz host service returned an incomplete event")
 		}
 		switch event.Status {
@@ -295,6 +298,9 @@ func (srv *HealthzServer) List(ctx context.Context, req *healthz.ListRequest) (*
 		IncludeAcknowledged bool   `json:"include_acknowledged"`
 	}{component, req.GetIncludeAcknowledged()}, &events); err != nil {
 		return nil, err
+	}
+	if events == nil {
+		return nil, status.Error(codes.Internal, "Healthz host service returned a null event list")
 	}
 	result := &healthz.ListResponse{}
 	for _, event := range events {

@@ -30,6 +30,19 @@ type legacyCollectionService struct {
 	artifactID string
 }
 
+type cancelAfterOpenContext struct {
+	context.Context
+	errCalls int
+}
+
+func (ctx *cancelAfterOpenContext) Err() error {
+	ctx.errCalls++
+	if ctx.errCalls >= 2 {
+		return context.Canceled
+	}
+	return nil
+}
+
 func (service *legacyCollectionService) HealthzCollect(string) (string, error) {
 	return service.artifactID, nil
 }
@@ -73,6 +86,16 @@ func TestHealthzArtifactRejectsNilRequest(t *testing.T) {
 	server := newHealthzArtifactTestServer(t)
 	if err := server.Artifact(nil, &artifactTestStream{}); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("Artifact(nil) code = %v, want %v; err=%v", status.Code(err), codes.InvalidArgument, err)
+	}
+}
+
+func TestHealthzArtifactHeaderUsesGenericMimeForLegacyFile(t *testing.T) {
+	header, err := buildHealthzArtifactHeader("/tmp/dump/diagnostic", bytes.NewReader([]byte("data")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if header.GetFile().GetName() != "diagnostic" || header.GetFile().GetMimetype() != "application/octet-stream" {
+		t.Fatalf("unexpected legacy file metadata: %+v", header.GetFile())
 	}
 }
 
@@ -140,9 +163,39 @@ func TestWaitForHealthzArtifactAllowsAsynchronousCollection(t *testing.T) {
 
 	file, err := waitForHealthzArtifact(
 		context.Background(), resolver, artifactID, time.Second, 5*time.Millisecond,
+		func(string) (string, error) { return "PENDING", nil },
 	)
 	if err != nil {
 		t.Fatalf("waitForHealthzArtifact() failed: %v", err)
+	}
+	file.Close()
+	if err := <-written; err != nil {
+		t.Fatalf("failed to create asynchronous artifact: %v", err)
+	}
+}
+
+func TestWaitForHealthzArtifactRetriesStatusTimeout(t *testing.T) {
+	resolver := newArtifactTestResolver(t)
+	artifactID := "healthz-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.gz"
+	path := resolver.containerPath(filepath.Join(resolver.healthzDirectory, artifactID))
+	checked := make(chan struct{}, 1)
+	written := make(chan error, 1)
+	go func() {
+		<-checked
+		time.Sleep(20 * time.Millisecond)
+		written <- os.WriteFile(path, []byte("ready"), 0644)
+	}()
+
+	file, err := waitForHealthzArtifact(context.Background(), resolver, artifactID,
+		time.Second, 5*time.Millisecond, func(string) (string, error) {
+			select {
+			case checked <- struct{}{}:
+			default:
+			}
+			return "", status.Error(codes.DeadlineExceeded, "host status call timed out")
+		})
+	if err != nil {
+		t.Fatalf("waitForHealthzArtifact() failed after a transient status timeout: %v", err)
 	}
 	file.Close()
 	if err := <-written; err != nil {
@@ -157,11 +210,125 @@ func TestWaitForHealthzArtifactHonorsCancellation(t *testing.T) {
 
 	_, err := waitForHealthzArtifact(
 		ctx, resolver, "healthz-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.tar.gz",
-		time.Second, 5*time.Millisecond,
+		time.Second, 5*time.Millisecond, nil,
 	)
 	if status.Code(err) != codes.Canceled {
 		t.Fatalf("waitForHealthzArtifact() code = %v, want %v; err=%v",
 			status.Code(err), codes.Canceled, err)
+	}
+}
+
+func TestWaitForHealthzArtifactChecksCancellationAfterOpen(t *testing.T) {
+	resolver := newArtifactTestResolver(t)
+	artifactID := "healthz-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.tar.gz"
+	writeArtifactTestFile(t, resolver, filepath.Join(resolver.healthzDirectory, artifactID), []byte("ready"))
+	ctx := &cancelAfterOpenContext{Context: context.Background()}
+	file, err := waitForHealthzArtifact(ctx, resolver, artifactID, time.Second, time.Millisecond, nil)
+	if file != nil || status.Code(err) != codes.Canceled {
+		t.Fatalf("waitForHealthzArtifact() = (%v, %v), want canceled after opening", file, err)
+	}
+}
+
+func TestWaitForHealthzArtifactCancelsDuringStatusCheck(t *testing.T) {
+	resolver := newArtifactTestResolver(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	done := make(chan error, 1)
+	go func() {
+		_, err := waitForHealthzArtifact(ctx, resolver,
+			"healthz-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.tar.gz", 5*time.Second, time.Millisecond,
+			func(string) (string, error) {
+				close(entered)
+				<-release
+				return "PENDING", nil
+			})
+		done <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("artifact status check did not start")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if status.Code(err) != codes.Canceled {
+			t.Fatalf("canceled status check code = %v, want %v; err=%v", status.Code(err), codes.Canceled, err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Artifact wait stayed blocked in the status check after cancellation")
+	}
+}
+
+func TestHealthzArtifactChecksCancellationBeforeHashing(t *testing.T) {
+	server := newHealthzArtifactTestServer(t)
+	artifactID := "healthz-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.tar.gz"
+	path := writeArtifactTestFile(t, server.artifactResolver,
+		filepath.Join(server.artifactResolver.healthzDirectory, artifactID), []byte("ready"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(waitForHealthzArtifact,
+		func(context.Context, artifactPathResolver, string, time.Duration, time.Duration,
+			func(string) (string, error)) (*os.File, error) {
+			cancel()
+			return os.Open(path)
+		})
+	stream := &artifactTestStream{ctx: ctx}
+	err := server.Artifact(&healthz.ArtifactRequest{Id: artifactID}, stream)
+	if status.Code(err) != codes.Canceled || len(stream.responses) != 0 {
+		t.Fatalf("Artifact(canceled before hash) = %v after %d responses, want Canceled", err, len(stream.responses))
+	}
+}
+
+func TestWaitForHealthzArtifactReopensAfterCompletion(t *testing.T) {
+	resolver := newArtifactTestResolver(t)
+	artifactID := "healthz-dddddddddddddddddddddddddddddddd.tar.gz"
+	file, err := waitForHealthzArtifact(context.Background(), resolver, artifactID,
+		time.Second, time.Millisecond, func(string) (string, error) {
+			path := resolver.containerPath(filepath.Join(resolver.healthzDirectory, artifactID))
+			return "COMPLETED", os.WriteFile(path, []byte("ready"), 0644)
+		})
+	if err != nil {
+		t.Fatalf("waitForHealthzArtifact() failed after completion: %v", err)
+	}
+	file.Close()
+}
+
+func TestHealthzArtifactReturnsPromptNotFoundForMissingReservation(t *testing.T) {
+	server := newHealthzArtifactTestServer(t)
+	useCatalogTestService(t, &ssc.FakeClient{
+		HealthzArtifactStatusResponse: `{"state":"MISSING"}`,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	stream := &artifactTestStream{ctx: ctx}
+
+	err := server.Artifact(&healthz.ArtifactRequest{
+		Id: "healthz-cccccccccccccccccccccccccccccccc.tar.gz",
+	}, stream)
+	if status.Code(err) != codes.NotFound || len(stream.responses) != 0 {
+		t.Fatalf("Artifact(missing) = %v after %d responses, want prompt NotFound", err, len(stream.responses))
+	}
+}
+
+func TestHealthzArtifactFailsWhenCompletedArchiveIsNotMounted(t *testing.T) {
+	server := newHealthzArtifactTestServer(t)
+	useCatalogTestService(t, &ssc.FakeClient{
+		HealthzArtifactStatusResponse: `{"state":"COMPLETED"}`,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	stream := &artifactTestStream{ctx: ctx}
+	err := server.Artifact(&healthz.ArtifactRequest{
+		Id: "healthz-cccccccccccccccccccccccccccccccc.tar.gz",
+	}, stream)
+	if status.Code(err) != codes.Internal || len(stream.responses) != 0 {
+		t.Fatalf("Artifact(unmounted completed archive) = %v after %d responses, want Internal", err, len(stream.responses))
 	}
 }
 

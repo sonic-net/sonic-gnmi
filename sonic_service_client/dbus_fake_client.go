@@ -8,11 +8,12 @@ import (
 
 // FakeClient is a mock implementation of the Service interface.
 type FakeClient struct {
-	CollectResponse     string
-	HealthzGetResponse  string
-	HealthzListResponse string
-	HealthzAckResponse  string
-	Command             chan []string
+	CollectResponse               string
+	HealthzGetResponse            string
+	HealthzListResponse           string
+	HealthzAckResponse            string
+	HealthzArtifactStatusResponse string
+	Command                       chan []string
 }
 
 func (f *FakeClient) Close() error                         { return nil }
@@ -77,6 +78,13 @@ func (f *FakeClient) HealthzAcknowledge(req string) (string, error) {
 		return "", fmt.Errorf("request cannot be empty")
 	}
 	return f.HealthzAckResponse, nil
+}
+
+func (f *FakeClient) HealthzArtifactStatus(req string) (string, error) {
+	if req == "" {
+		return "", fmt.Errorf("request cannot be empty")
+	}
+	return f.HealthzArtifactStatusResponse, nil
 }
 
 // FakeClientWithError simulates failure in specific methods.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,14 @@ type catalogTestService struct {
 	*ssc.FakeClient
 	events []healthzCatalogEvent
 	acks   int
+}
+
+type catalogNullListService struct {
+	*catalogTestService
+}
+
+func (*catalogNullListService) HealthzList(string) (string, error) {
+	return "null", nil
 }
 
 func (service *catalogTestService) HealthzGet(raw string) (string, error) {
@@ -339,5 +348,35 @@ func TestHealthzComponentPathAndMissingEvent(t *testing.T) {
 	}
 	if _, err := server.List(context.Background(), &healthz.ListRequest{Path: healthzTestComponentPath()}); err != nil {
 		t.Fatalf("List(empty) failed: %v", err)
+	}
+}
+
+func TestHealthzListRejectsNullHostResponse(t *testing.T) {
+	server := newHealthzArtifactTestServer(t)
+	useCatalogTestService(t, &catalogNullListService{&catalogTestService{FakeClient: &ssc.FakeClient{}}})
+
+	response, err := server.List(context.Background(), &healthz.ListRequest{Path: healthzTestComponentPath()})
+	if response != nil || status.Code(err) != codes.Internal {
+		t.Fatalf("List(null) = (%+v, %v), want Internal", response, err)
+	}
+}
+
+func TestHealthzCatalogTimeoutMapsDeadlineExceeded(t *testing.T) {
+	err := healthzCatalogError(fmt.Errorf("D-Bus timeout: %w", context.DeadlineExceeded))
+	if status.Code(err) != codes.DeadlineExceeded {
+		t.Fatalf("healthzCatalogError(timeout) = %v, want DeadlineExceeded", err)
+	}
+}
+
+func TestHealthzEventStatusAcceptsEpochZero(t *testing.T) {
+	event := healthzCatalogEvent{ID: "epoch-event", Component: "chassis", Status: "UNHEALTHY", ObservedAt: 0}
+	got, err := healthzEventStatus(event, true)
+	if err != nil || got.GetId() != event.ID || got.GetStatus() != healthz.Status_STATUS_UNHEALTHY ||
+		got.GetCreated() == nil || got.GetCreated().CheckValid() != nil || got.GetCreated().AsTime().Unix() != 0 {
+		t.Fatalf("epoch-zero event conversion = (%+v, %v), want a valid unhealthy event", got, err)
+	}
+	event.ObservedAt = -1
+	if _, err := healthzEventStatus(event, true); status.Code(err) != codes.Internal {
+		t.Fatalf("negative event timestamp code = %v, want Internal", status.Code(err))
 	}
 }
