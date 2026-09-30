@@ -46,11 +46,15 @@ func (m *RecordsMatcher) matchOne(r *Record, sub *Subscription) (bool, string) {
 		return m.directMatch(r, sub)
 	}
 
+	// Forward correlation only: an APPL_DB subscription also sees the
+	// correlated SAI (ASIC_DB) records so the subscriber can trace an
+	// APPL_DB write through to the ASIC.
+	//
+	// Reverse correlation (ASIC_DB sub seeing APPL_DB records) is
+	// intentionally disabled — subscribers that ask for ASIC_DB data
+	// expect only sairedis.rec records.
 	if sub.DB == "APPL_DB" && r.DB == "ASIC_DB" {
 		return m.correlateApplToSai(r, sub)
-	}
-	if sub.DB == "ASIC_DB" && r.DB == "APPL_DB" {
-		return m.correlateSaiToAppl(r, sub)
 	}
 
 	return false, ""
@@ -213,33 +217,9 @@ func (m *RecordsMatcher) correlateApplToSai(r *Record, sub *Subscription) (bool,
 	return false, ""
 }
 
-// correlateSaiToAppl checks if a swss record matches an ASIC_DB subscription (reverse).
-func (m *RecordsMatcher) correlateSaiToAppl(r *Record, sub *Subscription) (bool, string) {
-	for _, rule := range correlationRules {
-		if sub.Table != rule.SaiType {
-			continue
-		}
-		if r.Table != rule.ApplTable {
-			continue
-		}
-
-		if sub.Key == "" {
-			return true, "reverse-correlation:" + rule.SaiType
-		}
-
-		subVal := extractJsonField(sub.Key, rule.MatchField)
-		if subVal == "" {
-			continue
-		}
-
-		applKey := extractApplKeyPart(r.Key, &rule)
-
-		if valuesEqual(applKey, subVal) {
-			return true, "reverse-correlation:" + rule.SaiType + "." + rule.MatchField
-		}
-	}
-	return false, ""
-}
+// correlateSaiToAppl was removed: ASIC_DB subscriptions must only return
+// sairedis.rec records. Reverse correlation was incorrectly pulling APPL_DB
+// (swss.rec) records into ASIC_DB subscription results.
 
 // extractJsonField parses a JSON string and returns the value of a specific field.
 func extractJsonField(jsonKey string, field string) string {

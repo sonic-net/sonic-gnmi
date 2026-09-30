@@ -144,20 +144,41 @@ func TestCorrelationNoRuleForOidType(t *testing.T) {
 	}
 }
 
-func TestReverseCorrelation(t *testing.T) {
+// TestAsicDbSubDoesNotReturnApplDbRecords verifies that subscribing to
+// ASIC_DB does NOT pull in APPL_DB (swss.rec) records via reverse
+// correlation. This was the bug: "Path for ASIC db is getting records
+// from APPL_DB. It should only return data from ASIC_DB."
+func TestAsicDbSubDoesNotReturnApplDbRecords(t *testing.T) {
 	m := NewRecordsMatcher([]Subscription{
-		{DB: "ASIC_DB", Table: "SAI_OBJECT_TYPE_ROUTE_ENTRY",
-			Key: `{"dest":"10.1.0.0/24","switch_id":"oid:0x21000000000000","vr":"oid:0x3000000000022"}`},
+		{DB: "ASIC_DB", Table: "SAI_OBJECT_TYPE_ROUTE_ENTRY", Key: ""},
 	})
 
+	// swss.rec ROUTE_TABLE record — must NOT match an ASIC_DB subscription
 	r := mkRecord("swss", "APPL_DB", "ROUTE_TABLE", "10.1.0.0/24", "SET", "")
 
 	ok, how := m.Match(r)
-	if !ok {
-		t.Error("expected reverse correlation hit")
+	if ok {
+		t.Errorf("ASIC_DB subscription must NOT return APPL_DB records, got how=%q", how)
 	}
-	if how != "reverse-correlation:SAI_OBJECT_TYPE_ROUTE_ENTRY.dest" {
-		t.Errorf("how = %q", how)
+}
+
+// TestApplDbSubDoesReturnAsicDbViaCorrelation confirms forward correlation
+// still works: APPL_DB subscription sees correlated SAI records.
+func TestApplDbSubDoesReturnAsicDbViaCorrelation(t *testing.T) {
+	m := NewRecordsMatcher([]Subscription{
+		{DB: "APPL_DB", Table: "ROUTE_TABLE", Key: "10.1.0.0/24"},
+	})
+
+	r := mkRecord("sairedis", "ASIC_DB", "SAI_OBJECT_TYPE_ROUTE_ENTRY",
+		`{"dest":"10.1.0.0/24","switch_id":"oid:0x21000000000000","vr":"oid:0x3000000000022"}`,
+		"c", "")
+
+	ok, how := m.Match(r)
+	if !ok {
+		t.Error("APPL_DB subscription should see correlated ASIC_DB records")
+	}
+	if how != "correlation:ROUTE_TABLE.dest" {
+		t.Errorf("how = %q, want correlation:ROUTE_TABLE.dest", how)
 	}
 }
 
