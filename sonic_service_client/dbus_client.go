@@ -47,6 +47,7 @@ type Service interface {
 	HealthzGet(req string) (string, error)
 	HealthzList(req string) (string, error)
 	HealthzAcknowledge(req string) (string, error)
+	HealthzArtifactStatus(req string) (string, error)
 	HealthzAck(req string) (string, error)
 	HealthzCheck(req string) (string, error)
 	HealthzCollect(req string) (string, error)
@@ -176,7 +177,7 @@ func DbusApi(busName string, busPath string, intName string, timeout int, args .
 	case <-time.After(time.Duration(timeout) * time.Second):
 		log.V(2).Infof("DbusApi: timeout")
 		common_utils.IncCounter(common_utils.DBUS_FAIL)
-		return nil, fmt.Errorf("Timeout %v", timeout)
+		return nil, fmt.Errorf("Timeout %v: %w", timeout, context.DeadlineExceeded)
 	}
 }
 
@@ -441,6 +442,10 @@ func (c *DbusClient) HealthzList(req string) (string, error) {
 
 func (c *DbusClient) HealthzAcknowledge(req string) (string, error) {
 	return c.callHealthz("healthz", "ack", common_utils.GNOI_HEALTHZ_ACK, req)
+}
+
+func (c *DbusClient) HealthzArtifactStatus(req string) (string, error) {
+	return c.callHealthz("healthz", "artifact_status", common_utils.GNOI_HEALTHZ_ARTIFACT_STATUS, req)
 }
 
 func (c *DbusClient) HealthzCheck(req string) (string, error) {

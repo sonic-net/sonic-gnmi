@@ -1246,6 +1246,7 @@ func TestHealthzCatalogDbusMethods(t *testing.T) {
 		{"get", "get", Service.HealthzGet},
 		{"list", "list", Service.HealthzList},
 		{"ack", "ack", Service.HealthzAcknowledge},
+		{"artifact status", "artifact_status", Service.HealthzArtifactStatus},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			request := `{"component":"chassis"}`

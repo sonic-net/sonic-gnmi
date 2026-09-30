@@ -6,11 +6,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	log "github.com/golang/glog"
 	"github.com/openconfig/gnoi/healthz"
 	types "github.com/openconfig/gnoi/types"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -37,12 +39,16 @@ func buildHealthzArtifactHeader(artifactID string, artifact io.ReadSeeker) (*hea
 	if _, err := artifact.Seek(0, io.SeekStart); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to reset artifact file pointer: %v", err)
 	}
+	mimeType := "application/octet-stream"
+	if strings.HasSuffix(artifactID, ".tar.gz") {
+		mimeType = "application/gzip"
+	}
 	return &healthz.ArtifactHeader{
 		Id: artifactID,
 		ArtifactType: &healthz.ArtifactHeader_File{
 			File: &healthz.FileArtifactType{
 				Name:     filepath.Base(artifactID),
-				Mimetype: "application/gzip",
+				Mimetype: mimeType,
 				Size:     size,
 				Hash: &types.HashType{
 					Method: types.HashType_SHA256,
@@ -59,16 +65,80 @@ func waitForHealthzArtifact(
 	artifactID string,
 	timeout time.Duration,
 	interval time.Duration,
+	checkState func(string) (string, error),
 ) (*os.File, error) {
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
+	returnOpen := func(file *os.File) (*os.File, error) {
+		if err := ctx.Err(); err != nil {
+			file.Close()
+			return nil, status.FromContextError(err).Err()
+		}
+		return file, nil
+	}
+	var lastStatusCheck time.Time
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, status.FromContextError(err).Err()
+		}
 		file, _, err := resolver.open(artifactID)
 		if err == nil {
-			return file, nil
+			return returnOpen(file)
 		}
 		if filepath.IsAbs(artifactID) || status.Code(err) != codes.NotFound {
 			return nil, err
+		}
+		if checkState != nil && strings.HasPrefix(artifactID, "healthz-") &&
+			time.Since(lastStatusCheck) >= time.Second {
+			type stateResult struct {
+				state string
+				err   error
+			}
+			result := make(chan stateResult, 1)
+			// The D-Bus call has its own timeout; let a canceled RPC return first.
+			go func() {
+				state, err := checkState(artifactID)
+				result <- stateResult{state, err}
+			}()
+			var state string
+			select {
+			case <-ctx.Done():
+				return nil, status.FromContextError(ctx.Err()).Err()
+			case <-deadline.C:
+				return nil, status.Error(codes.NotFound, "artifact was not ready before the wait deadline")
+			case outcome := <-result:
+				state, err = outcome.state, outcome.err
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, status.FromContextError(err).Err()
+			}
+			if err != nil {
+				if status.Code(err) == codes.DeadlineExceeded {
+					// Archive submission can outlast one host status call.
+					lastStatusCheck = time.Now()
+					continue
+				}
+				return nil, err
+			}
+			switch state {
+			case "MISSING":
+				return nil, status.Error(codes.NotFound, "artifact not found")
+			case "PENDING":
+			case "COMPLETED":
+				// Publication can finish during the status call. Reopen once before
+				// reporting a completed archive that the container cannot access.
+				file, _, err := resolver.open(artifactID)
+				if err == nil {
+					return returnOpen(file)
+				}
+				if status.Code(err) != codes.NotFound {
+					return nil, err
+				}
+				return nil, status.Error(codes.Internal, "completed Healthz artifact is unavailable in gNMI")
+			default:
+				return nil, status.Errorf(codes.Internal, "invalid Healthz artifact state %q", state)
+			}
+			lastStatusCheck = time.Now()
 		}
 		select {
 		case <-ctx.Done():
@@ -78,6 +148,17 @@ func waitForHealthzArtifact(
 		case <-time.After(interval):
 		}
 	}
+}
+
+func healthzArtifactState(artifactID string) (string, error) {
+	var result struct {
+		State string `json:"state"`
+	}
+	if err := callHealthzCatalog(ssc.Service.HealthzArtifactStatus,
+		map[string]string{"artifact_id": artifactID}, &result); err != nil {
+		return "", err
+	}
+	return result.State, nil
 }
 
 func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.Healthz_ArtifactServer) error {
@@ -97,14 +178,21 @@ func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.
 		artifactID,
 		healthzArtifactWaitTimeout,
 		healthzArtifactPollInterval,
+		healthzArtifactState,
 	)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+	if err := stream.Context().Err(); err != nil {
+		return status.FromContextError(err).Err()
+	}
 	artifactHeader, err := buildHealthzArtifactHeader(artifactID, f)
 	if err != nil {
 		return err
+	}
+	if err := stream.Context().Err(); err != nil {
+		return status.FromContextError(err).Err()
 	}
 
 	header := &healthz.ArtifactResponse{
