@@ -7,6 +7,7 @@
     "key": "oid:0x5000000000a3c",
     "op": "r",
     "fields": {
+      "_entry": "oid:0x5000000000a3c",
       "_response": "E"
     },
     "status": "SAI_STATUS_OBJECT_IN_USE",

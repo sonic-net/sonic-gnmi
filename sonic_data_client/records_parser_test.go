@@ -134,8 +134,11 @@ func TestParseSairedisCreate(t *testing.T) {
 	if r.Status != "" {
 		t.Errorf("Status = %q, want empty", r.Status)
 	}
-	if r.Key[0] != '{' {
-		t.Errorf("Key should be JSON, got %q", r.Key)
+	if r.Key != "dest=10.1.0.0/24,nh=oid:0x5000000000a3c" {
+		t.Errorf("Key = %q, want dest=10.1.0.0/24,nh=oid:0x5000000000a3c", r.Key)
+	}
+	if r.Fields["_entry"] == "" || r.Fields["_entry"][0] != '{' {
+		t.Errorf("_entry should keep the raw JSON key, got %q", r.Fields["_entry"])
 	}
 }
 

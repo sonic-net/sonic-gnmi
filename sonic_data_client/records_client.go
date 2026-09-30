@@ -532,23 +532,28 @@ func (c *RecordsClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, wg
 			}
 			continue
 		}
-		r, ok := c.parser.Parse(line)
-		if !ok || r == nil {
-			continue
+		// One line can carry several records (bulk sairedis ops, E re-emits).
+		var recs []*Record
+		if bp, isBulk := c.parser.(BulkParser); isBulk {
+			recs = bp.ParseAll(line)
+		} else if r, ok := c.parser.Parse(line); ok && r != nil {
+			recs = []*Record{r}
 		}
-		ok, how, subIdx := c.matchRecord(r)
-		if !ok {
-			continue
-		}
-		r.MatchedBy = how
-		if err := c.enqueueRecord(ctx, *r, subIdx); err != nil {
-			log.V(1).Infof("RecordsClient enqueue failed: %v", err)
-			cancel()
-			continue
-		}
-		atomic.AddUint64(&c.matched, 1)
-		if subIdx >= 0 && subIdx < len(c.subMatched) {
-			atomic.AddUint64(&c.subMatched[subIdx], 1)
+		for _, r := range recs {
+			ok, how, subIdx := c.matchRecord(r)
+			if !ok {
+				continue
+			}
+			r.MatchedBy = how
+			if err := c.enqueueRecord(ctx, *r, subIdx); err != nil {
+				log.V(1).Infof("RecordsClient enqueue failed: %v", err)
+				cancel()
+				break
+			}
+			atomic.AddUint64(&c.matched, 1)
+			if subIdx >= 0 && subIdx < len(c.subMatched) {
+				atomic.AddUint64(&c.subMatched[subIdx], 1)
+			}
 		}
 	}
 	if err := <-errCh; err != nil && ctx.Err() == nil {

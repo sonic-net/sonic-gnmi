@@ -303,19 +303,25 @@ func TestGoldenRouteCorrelationInterleaves(t *testing.T) {
 			t.Errorf("[%d] sairedis matched_by = %s", i, h)
 		}
 	}
-	// Bulk records carry all their entry keys as a JSON array in _keys, and
-	// key is the first of them.
+	// Route-entry keys are rendered dest=<prefix>[,nh=<oid>]; bulk records are
+	// split one per entry and tagged, with the raw JSON key kept in _entry.
 	for _, r := range recs {
-		if r.Op != "C" && r.Op != "R" {
+		if r.Source != RecordsSourceSairedis {
 			continue
 		}
-		var keys []string
-		if err := json.Unmarshal([]byte(r.Fields["_keys"]), &keys); err != nil {
-			t.Errorf("bulk %s record: _keys is not a JSON array: %v", r.Op, err)
-			continue
+		if !strings.HasPrefix(r.Key, "dest=10.1.0.0/24") {
+			t.Errorf("%s record key = %q, want dest=10.1.0.0/24...", r.Op, r.Key)
 		}
-		if len(keys) == 0 || keys[0] != r.Key || !strings.Contains(keys[0], `"dest":"10.1.0.0/24"`) {
-			t.Errorf("bulk %s record: key=%q _keys=%v", r.Op, r.Key, keys)
+		if !strings.HasPrefix(r.Fields["_entry"], `{"dest":"10.1.0.0/24"`) {
+			t.Errorf("%s record lacks raw _entry: %v", r.Op, r.Fields)
+		}
+		if r.Op == "C" || r.Op == "R" {
+			if r.Fields["_bulk_index"] != "0" || r.Fields["_bulk_count"] != "1" {
+				t.Errorf("bulk %s record tags: %v", r.Op, r.Fields)
+			}
+		}
+		if r.Op == "C" && !strings.HasSuffix(r.Key, ",nh=oid:0x5000000000a3c") {
+			t.Errorf("C record should carry nh=: %q", r.Key)
 		}
 	}
 }

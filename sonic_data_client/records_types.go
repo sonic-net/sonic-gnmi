@@ -39,6 +39,13 @@ type Parser interface {
 	Parse(l RawLine) (*Record, bool)
 }
 
+// BulkParser is an optional extension of Parser for lines that yield several
+// Records (bulk sairedis ops emit one Record per entry). RecordsClient uses
+// ParseAll when the Parser implements it, so no record is folded away.
+type BulkParser interface {
+	ParseAll(l RawLine) []*Record
+}
+
 // Matcher decides whether a subscriber wanted a Record; how becomes matched_by.
 type Matcher interface {
 	Match(r *Record) (ok bool, how string)

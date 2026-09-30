@@ -22,7 +22,8 @@
     "key": "{\"ip\":\"10.0.0.1\",\"rif\":\"oid:0x6000000000a10\",\"switch_id\":\"oid:0x21000000000000\"}",
     "op": "c",
     "fields": {
-      "SAI_NEIGHBOR_ENTRY_ATTR_DST_MAC_ADDRESS": "00:11:22:33:44:55"
+      "SAI_NEIGHBOR_ENTRY_ATTR_DST_MAC_ADDRESS": "00:11:22:33:44:55",
+      "_entry": "{\"ip\":\"10.0.0.1\",\"rif\":\"oid:0x6000000000a10\",\"switch_id\":\"oid:0x21000000000000\"}"
     },
     "status": "",
     "matched_by": "correlation:NEIGH_TABLE.ip",
@@ -62,7 +63,9 @@
     "table": "SAI_OBJECT_TYPE_NEIGHBOR_ENTRY",
     "key": "{\"ip\":\"10.0.0.1\",\"rif\":\"oid:0x6000000000a10\",\"switch_id\":\"oid:0x21000000000000\"}",
     "op": "r",
-    "fields": {},
+    "fields": {
+      "_entry": "{\"ip\":\"10.0.0.1\",\"rif\":\"oid:0x6000000000a10\",\"switch_id\":\"oid:0x21000000000000\"}"
+    },
     "status": "",
     "matched_by": "correlation:NEIGH_TABLE.ip",
     "raw": "2026-09-27.11:00:01.250000|r|SAI_OBJECT_TYPE_NEIGHBOR_ENTRY:{\"ip\":\"10.0.0.1\",\"rif\":\"oid:0x6000000000a10\",\"switch_id\":\"oid:0x21000000000000\"}"

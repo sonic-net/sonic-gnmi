@@ -203,7 +203,7 @@ func (m *RecordsMatcher) correlateApplToSai(r *Record, sub *Subscription) (bool,
 			return true, "correlation:" + rule.ApplTable
 		}
 
-		val := extractJsonField(r.Key, rule.MatchField)
+		val := saiEntryField(r, rule.MatchField)
 		if val == "" {
 			continue
 		}
@@ -220,6 +220,27 @@ func (m *RecordsMatcher) correlateApplToSai(r *Record, sub *Subscription) (bool,
 // correlateSaiToAppl was removed: ASIC_DB subscriptions must only return
 // sairedis.rec records. Reverse correlation was incorrectly pulling APPL_DB
 // (swss.rec) records into ASIC_DB subscription results.
+
+// saiEntryField returns one field of a SAI entry key. The raw JSON entry key is
+// kept in Fields["_entry"] (the operator-facing Key may be the key=value
+// rendering, e.g. "dest=10.1.0.0/24,nh=oid:..."); records built without it
+// still work when Key itself is JSON, and a key=value Key is read directly.
+func saiEntryField(r *Record, field string) string {
+	if raw, ok := r.Fields["_entry"]; ok {
+		if v := extractJsonField(raw, field); v != "" {
+			return v
+		}
+	}
+	if v := extractJsonField(r.Key, field); v != "" {
+		return v
+	}
+	for _, kv := range strings.Split(r.Key, ",") {
+		if strings.HasPrefix(kv, field+"=") {
+			return kv[len(field)+1:]
+		}
+	}
+	return ""
+}
 
 // extractJsonField parses a JSON string and returns the value of a specific field.
 func extractJsonField(jsonKey string, field string) string {
@@ -255,7 +276,32 @@ func filterPass(r *Record, sub *Subscription) bool {
 	if sub.Filter == "" {
 		return true
 	}
-	return strings.Contains(r.Raw, sub.Filter)
+	return strings.Contains(filterText(r), sub.Filter)
+}
+
+// filterText is what filter= is matched against. For a record split out of a
+// bulk line, Raw is the whole line shared by every sibling entry, so matching
+// it would let a filter for one dest (or vr) accept all of them. Bulk records
+// are therefore matched on their own text: the rendered key, the raw entry
+// key and their own attributes. Single-op records use the line as before.
+func filterText(r *Record) string {
+	if _, bulk := r.Fields["_bulk_count"]; !bulk {
+		return r.Raw
+	}
+	var b strings.Builder
+	b.WriteString(r.Key)
+	b.WriteByte('|')
+	b.WriteString(r.Fields["_entry"])
+	for k, v := range r.Fields {
+		if strings.HasPrefix(k, "_") {
+			continue
+		}
+		b.WriteByte('|')
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(v)
+	}
+	return b.String()
 }
 
 // opsFilterPass checks whether a record's operation passes the subscription's ops filter.

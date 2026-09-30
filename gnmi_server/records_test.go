@@ -94,10 +94,22 @@ func TestRecordsSubscribeStreamSample(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Wait for a Record update, not just any update: the {"event":"live"}
+	// marker is delivered before the sync and must not satisfy this wait.
+	haveRecord := func() bool {
+		for _, v := range gotVals {
+			if payload, err := asJSONObject(v); err == nil {
+				if _, isEvent := payload["event"]; !isEvent {
+					return true
+				}
+			}
+		}
+		return false
+	}
 	deadline = time.After(5 * time.Second)
 	for {
 		mu.Lock()
-		ready := len(gotVals) >= 1
+		ready := haveRecord()
 		mu.Unlock()
 		if ready {
 			break

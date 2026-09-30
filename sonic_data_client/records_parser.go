@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,9 +84,10 @@ func (PassThroughParser) Parse(l RawLine) (*Record, bool) {
 
 // RecordsParser implements the Parser interface for swss.rec and sairedis.rec lines.
 type RecordsParser struct {
-	// lastSairedis holds the most recently parsed sairedis record so that
-	// a following E|<status> line can be attached to it.
-	lastSairedis *Record
+	// lastSairedis holds the Records of the most recently parsed sairedis
+	// line (one per entry for bulk ops) so a following E|<status> line can be
+	// attached to each of them.
+	lastSairedis []*Record
 
 	// loc is the timezone used to parse the localtime timestamps in the rec files.
 	// The gnmi container inherits the host timezone.
@@ -190,23 +192,147 @@ func (p *RecordsParser) parseSwss(l RawLine) (*Record, bool) {
 	return r, true
 }
 
-// parseSairedis parses a sairedis.rec line.
-// Format: timestamp|opcode|key|attr=val|attr=val|...
+// saiKeyFallbackLen bounds how much of an unrecognised entry key is copied
+// into dest= so an unexpected recorder format still yields a readable key.
+const saiKeyFallbackLen = 128
+
+// saiEntry is one object within a sairedis line: a single-op line has exactly
+// one, a bulk line (upper-case opcode) has one per "||" group.
+type saiEntry struct {
+	key   string            // raw entry key: JSON for entry types, oid:0x.. for objects
+	attrs map[string]string // attr=val pairs belonging to this entry
+}
+
+// parseAttrs turns attr=val tokens into a map, skipping blanks and malformed tokens.
+func parseAttrs(tokens []string, into map[string]string) {
+	for _, av := range tokens {
+		if av == "" {
+			continue
+		}
+		idx := strings.IndexByte(av, '=')
+		if idx < 0 {
+			continue
+		}
+		into[av[:idx]] = av[idx+1:]
+	}
+}
+
+// saiEntries splits a sairedis line into its entries.
+//
+// Single op:  ts|c|SAI_OBJECT_TYPE_X:<key>|attr=val|...
+// Bulk op:    ts|C|SAI_OBJECT_TYPE_X||<key1>|attr=val|...||<key2>|attr=val|...
+//
+// In the bulk form the object type is stated once and each "||" group carries
+// its own key and attributes, so attributes are per entry, never per line.
+func saiEntries(line string, parts []string, isBulk bool, objKey string) []saiEntry {
+	if !isBulk {
+		e := saiEntry{key: objKey, attrs: make(map[string]string)}
+		parseAttrs(parts[3:], e.attrs)
+		return []saiEntry{e}
+	}
+	groups := strings.Split(line, "||")
+	if len(groups) < 2 {
+		// Upper-case opcode but no "||" groups: treat like a single op.
+		e := saiEntry{key: objKey, attrs: make(map[string]string)}
+		parseAttrs(parts[3:], e.attrs)
+		return []saiEntry{e}
+	}
+	entries := make([]saiEntry, 0, len(groups)-1)
+	for _, g := range groups[1:] {
+		toks := strings.Split(g, "|")
+		e := saiEntry{key: toks[0], attrs: make(map[string]string)}
+		parseAttrs(toks[1:], e.attrs)
+		entries = append(entries, e)
+	}
+	return entries
+}
+
+// formatSaiKey renders the operator-facing key for one SAI entry as key=value
+// pairs.
+//
+// SAI_OBJECT_TYPE_ROUTE_ENTRY: "dest=<prefix>" with the prefix canonicalised
+// (IPv4 or IPv6, host bits zeroed, IPv6 compressed), plus ",nh=<oid>" when
+// SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID is present (creates and sets; removes carry
+// no attributes). If the entry key is not the JSON shape we expect, the first
+// saiKeyFallbackLen characters of the raw key go into dest= unchanged, so the
+// record is still identifiable and nothing is dropped.
+//
+// Other object types keep their canonical JSON (entry types) or oid (objects).
+func formatSaiKey(saiType, rawKey string, attrs map[string]string) string {
+	switch saiType {
+	case "SAI_OBJECT_TYPE_ROUTE_ENTRY":
+		dest := ""
+		if len(rawKey) > 0 && rawKey[0] == '{' {
+			var m map[string]string
+			if err := json.Unmarshal([]byte(rawKey), &m); err == nil {
+				dest = m["dest"]
+			}
+		}
+		if dest == "" {
+			fb := rawKey
+			if len(fb) > saiKeyFallbackLen {
+				fb = fb[:saiKeyFallbackLen]
+			}
+			dest = fb
+		} else {
+			dest = normaliseCIDR(dest)
+		}
+		key := "dest=" + dest
+		if nh, ok := attrs["SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID"]; ok && nh != "" {
+			key += ",nh=" + nh
+		}
+		return key
+	}
+	return normaliseEntryKey(rawKey)
+}
+
+// ParseAll is Parse for lines that may yield several Records: a bulk sairedis
+// line produces one Record per entry, and an E line re-emits every Record of
+// the operation it reports on. RecordsClient prefers this over Parse.
+func (p *RecordsParser) ParseAll(l RawLine) []*Record {
+	if len(l.Line) == 0 {
+		return nil
+	}
+	switch l.Source {
+	case "swss":
+		if r, ok := p.parseSwss(l); ok {
+			return []*Record{r}
+		}
+		return nil
+	case "sairedis":
+		return p.parseSairedisAll(l)
+	default:
+		log.V(4).Infof("records_parser: unknown source %q", l.Source)
+		return nil
+	}
+}
+
+// parseSairedis returns the first Record of the line (Parser interface).
 func (p *RecordsParser) parseSairedis(l RawLine) (*Record, bool) {
+	recs := p.parseSairedisAll(l)
+	if len(recs) == 0 {
+		return nil, false
+	}
+	return recs[0], true
+}
+
+// parseSairedisAll parses a sairedis.rec line into one Record per entry.
+// Format: timestamp|opcode|key|attr=val|attr=val|...   (see saiEntries for bulk)
+func (p *RecordsParser) parseSairedisAll(l RawLine) []*Record {
 	line := l.Line
 
 	if isSkippableLine(line) {
-		return nil, false
+		return nil
 	}
 
 	parts := strings.Split(line, "|")
 	if len(parts) < 2 {
-		return nil, false
+		return nil
 	}
 
 	ts, ok := p.parseTimestamp(parts[0])
 	if !ok {
-		return nil, false
+		return nil
 	}
 
 	opcode := parts[1]
@@ -216,77 +342,65 @@ func (p *RecordsParser) parseSairedis(l RawLine) (*Record, bool) {
 	}
 
 	if len(parts) < 3 {
-		return nil, false
+		return nil
 	}
 
-	rawKey := parts[2]
-
-	saiType, objKey := splitSaiKey(rawKey)
+	saiType, objKey := splitSaiKey(parts[2])
 	if saiType == "" {
-		return nil, false
+		return nil
 	}
 
-	fields := make(map[string]string)
+	isBulk := len(opcode) == 1 && opcode[0] >= 'A' && opcode[0] <= 'Z'
+	entries := saiEntries(line, parts, isBulk, objKey)
 
-	isBulk := len(opcode) == 1 && opcode[0] >= 'A' && opcode[0] <= 'Z' && opcode[0] != 'E'
-
-	if isBulk {
-		bulkKeys := parseBulkKeys(line)
-		if len(bulkKeys) > 1 {
-			fields["_keys"] = strings.Join(bulkKeys, ",")
+	recs := make([]*Record, 0, len(entries))
+	for i, e := range entries {
+		fields := e.attrs
+		fields["_entry"] = e.key
+		if isBulk {
+			fields["_bulk_index"] = strconv.Itoa(i)
+			fields["_bulk_count"] = strconv.Itoa(len(entries))
 		}
-		for _, av := range parts[3:] {
-			if av == "" {
-				continue
-			}
-			idx := strings.IndexByte(av, '=')
-			if idx < 0 {
-				continue
-			}
-			fields[av[:idx]] = av[idx+1:]
-		}
-	} else {
-		for _, av := range parts[3:] {
-			if av == "" {
-				continue
-			}
-			idx := strings.IndexByte(av, '=')
-			if idx < 0 {
-				continue
-			}
-			fields[av[:idx]] = av[idx+1:]
-		}
+		recs = append(recs, &Record{
+			Seq:    l.Seq,
+			TS:     ts,
+			Source: "sairedis",
+			DB:     "ASIC_DB",
+			Table:  saiType,
+			Key:    formatSaiKey(saiType, e.key, e.attrs),
+			Op:     opcode,
+			Fields: fields,
+			Status: "",
+			Raw:    line,
+		})
 	}
 
-	normKey := normaliseEntryKey(objKey)
-
-	r := &Record{
-		Seq:    l.Seq,
-		TS:     ts,
-		Source: "sairedis",
-		DB:     "ASIC_DB",
-		Table:  saiType,
-		Key:    normKey,
-		Op:     opcode,
-		Fields: fields,
-		Status: "",
-		Raw:    line,
-	}
-
-	p.lastSairedis = r
-
-	return r, true
+	p.lastSairedis = recs
+	return recs
 }
 
-// handleELine processes a sairedis E|<status> failure line.
-func (p *RecordsParser) handleELine(l RawLine, ts time.Time, parts []string) (*Record, bool) {
-	status := ""
-	if len(parts) >= 3 {
-		status = parts[2]
+// handleELine processes a sairedis E failure line and re-emits every Record
+// of the preceding operation with Status set and _response=E.
+//
+// Single op:  ts|E|<status>
+// Bulk op:    ts|E|<overall status>||<status entry 0>||<status entry 1>...
+//
+// For a bulk failure each re-emitted Record gets its own entry status (a bulk
+// remove can fail on one entry with ITEM_NOT_FOUND while the rest succeed);
+// the overall status is kept in Fields["_bulk_status"]. If the per-entry list
+// does not line up with the entries we hold, every Record gets the overall
+// status.
+func (p *RecordsParser) handleELine(l RawLine, ts time.Time, parts []string) []*Record {
+	groups := strings.Split(l.Line, "||")
+	head := strings.Split(groups[0], "|")
+	overall := ""
+	if len(head) >= 3 {
+		overall = head[2]
 	}
+	perEntry := groups[1:]
 
-	if p.lastSairedis == nil {
-		r := &Record{
+	if len(p.lastSairedis) == 0 {
+		return []*Record{{
 			Seq:    l.Seq,
 			TS:     ts,
 			Source: "sairedis",
@@ -295,28 +409,33 @@ func (p *RecordsParser) handleELine(l RawLine, ts time.Time, parts []string) (*R
 			Key:    "",
 			Op:     "E",
 			Fields: map[string]string{"_response": "E"},
-			Status: status,
+			Status: overall,
 			Raw:    l.Line,
+		}}
+	}
+
+	usePerEntry := len(perEntry) == len(p.lastSairedis)
+	out := make([]*Record, 0, len(p.lastSairedis))
+	for i, prev := range p.lastSairedis {
+		attached := *prev
+		attached.Status = overall
+		if usePerEntry && perEntry[i] != "" {
+			attached.Status = perEntry[i]
 		}
-		return r, true
+		attached.Seq = l.Seq
+		newFields := make(map[string]string, len(attached.Fields)+2)
+		for k, v := range attached.Fields {
+			newFields[k] = v
+		}
+		newFields["_response"] = "E"
+		if len(perEntry) > 0 {
+			newFields["_bulk_status"] = overall
+		}
+		attached.Fields = newFields
+		out = append(out, &attached)
 	}
-
-	attached := *p.lastSairedis
-	attached.Status = status
-	attached.Seq = l.Seq
-	if attached.Fields == nil {
-		attached.Fields = make(map[string]string)
-	}
-	newFields := make(map[string]string, len(attached.Fields)+1)
-	for k, v := range attached.Fields {
-		newFields[k] = v
-	}
-	newFields["_response"] = "E"
-	attached.Fields = newFields
-
 	p.lastSairedis = nil
-
-	return &attached, true
+	return out
 }
 
 // splitSaiKey splits a sairedis key like "SAI_OBJECT_TYPE_ROUTE_ENTRY:{...}" into
@@ -395,22 +514,6 @@ func normaliseIP(s string) string {
 		return s
 	}
 	return ip.String()
-}
-
-// parseBulkKeys extracts all keys from a bulk sairedis line.
-func parseBulkKeys(line string) []string {
-	groups := strings.Split(line, "||")
-	var keys []string
-	for _, g := range groups {
-		parts := strings.Split(g, "|")
-		for _, part := range parts {
-			if strings.HasPrefix(part, "SAI_") {
-				keys = append(keys, part)
-				break
-			}
-		}
-	}
-	return keys
 }
 
 // isSkippableLine returns true for lines that should not be parsed.

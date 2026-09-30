@@ -15,7 +15,9 @@ Line shapes follow the real samples collected from the VS
     (plan risk #2) and a real-shape Q|<api>|SAI_STATUS_... failure is
     included alongside them;
   * a "#|logrotate on: ..." banner opens every rotated sairedis file;
-  * swss.rec DEL carries no fields.
+  * swss.rec DEL carries no fields;
+  * SAI_OBJECT_TYPE_ROUTE_ENTRY keys are rendered "dest=<prefix>[,nh=<oid>]",
+    one record per bulk entry, raw JSON key kept in fields["_entry"].
 """
 import gzip
 import json
@@ -208,26 +210,48 @@ def swss_rec(raw, matched_by):
     return rec(raw, "swss", "APPL_DB", table, key, parts[2], fields, matched_by)
 
 
-def sai_rec(raw, matched_by, status="", extra_fields=None):
+def route_key(raw_key, attrs):
+    """Operator-facing key for SAI_OBJECT_TYPE_ROUTE_ENTRY: dest=<prefix>[,nh=<oid>]."""
+    try:
+        dest = json.loads(raw_key)["dest"]
+    except Exception:
+        dest = raw_key[:128]
+    key = "dest=" + dest
+    if attrs.get("SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID"):
+        key += ",nh=" + attrs["SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID"]
+    return key
+
+
+def sai_recs(raw, matched_by, status="", extra_fields=None):
+    """One golden record per entry of a sairedis line (bulk lines yield several)."""
     parts = raw.split("|")
     op = parts[1]
     if op.isupper():          # bulk: type once, then ||key|attrs groups
         table = parts[2]
         groups = raw.split("||")[1:]
-        keys = [g.split("|", 1)[0] for g in groups]
-        key = keys[0]
-        fields = {}
-        for g in groups:
-            for a in g.split("|")[1:]:
-                k, v = a.split("=", 1)
-                fields[k] = v
-        fields["_keys"] = json.dumps(keys, separators=(",", ":"))
+        entries = [(g.split("|", 1)[0], g.split("|")[1:]) for g in groups]
     else:
         table, key = parts[2].split(":", 1)
-        fields = dict(a.split("=", 1) for a in parts[3:])
-    if extra_fields:
-        fields.update(extra_fields)
-    return rec(raw, "sairedis", "ASIC_DB", table, key, op, fields, matched_by, status)
+        entries = [(key, parts[3:])]
+    out = []
+    for i, (key, avs) in enumerate(entries):
+        fields = dict(a.split("=", 1) for a in avs if a)
+        fields["_entry"] = key
+        if op.isupper():
+            fields["_bulk_index"] = str(i)
+            fields["_bulk_count"] = str(len(entries))
+        if extra_fields:
+            fields.update(extra_fields)
+        shown = route_key(key, fields) if table == "SAI_OBJECT_TYPE_ROUTE_ENTRY" else key
+        out.append(rec(raw, "sairedis", "ASIC_DB", table, shown, op, fields, matched_by, status))
+    return out
+
+
+def sai_rec(raw, matched_by, status="", extra_fields=None):
+    """Single-entry convenience wrapper around sai_recs."""
+    recs = sai_recs(raw, matched_by, status, extra_fields)
+    assert len(recs) == 1, raw[:80]
+    return recs[0]
 
 
 CORR_ROUTE = "correlation:ROUTE_TABLE.dest"

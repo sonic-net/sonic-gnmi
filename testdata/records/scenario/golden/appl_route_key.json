@@ -19,11 +19,13 @@
     "source": "sairedis",
     "db": "ASIC_DB",
     "table": "SAI_OBJECT_TYPE_ROUTE_ENTRY",
-    "key": "{\"dest\":\"10.1.0.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}",
+    "key": "dest=10.1.0.0/24,nh=oid:0x5000000000a3c",
     "op": "C",
     "fields": {
       "SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID": "oid:0x5000000000a3c",
-      "_keys": "[\"{\\\"dest\\\":\\\"10.1.0.0/24\\\",\\\"switch_id\\\":\\\"oid:0x21000000000000\\\",\\\"vr\\\":\\\"oid:0x3000000000022\\\"}\"]"
+      "_entry": "{\"dest\":\"10.1.0.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}",
+      "_bulk_index": "0",
+      "_bulk_count": "1"
     },
     "status": "",
     "matched_by": "correlation:ROUTE_TABLE.dest",
@@ -49,10 +51,11 @@
     "source": "sairedis",
     "db": "ASIC_DB",
     "table": "SAI_OBJECT_TYPE_ROUTE_ENTRY",
-    "key": "{\"dest\":\"10.1.0.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}",
+    "key": "dest=10.1.0.0/24,nh=oid:0x5000000000a3d",
     "op": "s",
     "fields": {
-      "SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID": "oid:0x5000000000a3d"
+      "SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID": "oid:0x5000000000a3d",
+      "_entry": "{\"dest\":\"10.1.0.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}"
     },
     "status": "",
     "matched_by": "correlation:ROUTE_TABLE.dest",
@@ -75,10 +78,12 @@
     "source": "sairedis",
     "db": "ASIC_DB",
     "table": "SAI_OBJECT_TYPE_ROUTE_ENTRY",
-    "key": "{\"dest\":\"10.1.0.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}",
+    "key": "dest=10.1.0.0/24",
     "op": "R",
     "fields": {
-      "_keys": "[\"{\\\"dest\\\":\\\"10.1.0.0/24\\\",\\\"switch_id\\\":\\\"oid:0x21000000000000\\\",\\\"vr\\\":\\\"oid:0x3000000000022\\\"}\"]"
+      "_entry": "{\"dest\":\"10.1.0.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}",
+      "_bulk_index": "0",
+      "_bulk_count": "1"
     },
     "status": "",
     "matched_by": "correlation:ROUTE_TABLE.dest",
