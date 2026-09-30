@@ -31,6 +31,9 @@ func (m *RecordsMatcher) matchWithIndex(r *Record) (ok bool, how string, idx int
 			if !opsFilterPass(r, &m.subs[i]) {
 				continue
 			}
+			if !filterPass(r, &m.subs[i]) {
+				continue
+			}
 			return true, reason, i
 		}
 	}
@@ -55,6 +58,20 @@ func (m *RecordsMatcher) matchOne(r *Record, sub *Subscription) (bool, string) {
 
 // directMatch handles the case where the record's DB matches the subscription's DB.
 func (m *RecordsMatcher) directMatch(r *Record, sub *Subscription) (bool, string) {
+	// ASIC_DB records carry the concrete SAI object type in r.Table
+	// (e.g. SAI_OBJECT_TYPE_ROUTE_ENTRY), while the RECORDS path grammar uses
+	// the umbrella table name "ASIC_STATE". Treat "ASIC_STATE" as "any SAI
+	// type", with the optional key acting as a SAI-type or entry-key prefix.
+	if sub.DB == "ASIC_DB" && sub.Table == "ASIC_STATE" {
+		if sub.Key == "" {
+			return true, "prefix"
+		}
+		if strings.HasPrefix(r.Table, sub.Key) || keysEqual(r, sub) {
+			return true, "exact"
+		}
+		return false, ""
+	}
+
 	if r.Table != sub.Table {
 		return false, ""
 	}
@@ -248,6 +265,17 @@ func valuesEqual(a, b string) bool {
 		return true
 	}
 	return false
+}
+
+// filterPass reports whether the record's raw text contains the subscription's
+// filter substring. An empty filter matches everything. This is the ASIC_DB
+// filter=<string> option: show only records whose recorder line contains the
+// given text.
+func filterPass(r *Record, sub *Subscription) bool {
+	if sub.Filter == "" {
+		return true
+	}
+	return strings.Contains(r.Raw, sub.Filter)
 }
 
 // opsFilterPass checks whether a record's operation passes the subscription's ops filter.

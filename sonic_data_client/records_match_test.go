@@ -247,3 +247,40 @@ func TestCIDRNormalisationInMatch(t *testing.T) {
 		t.Errorf("CIDR normalisation should make these match, got ok=%v how=%q", ok, how)
 	}
 }
+
+func TestAsicStateMatchesAnySaiType(t *testing.T) {
+	m := NewRecordsMatcher([]Subscription{
+		{DB: "ASIC_DB", Table: "ASIC_STATE"},
+	})
+	r := mkRecord("sairedis", "ASIC_DB", "SAI_OBJECT_TYPE_ROUTE_ENTRY", "x", "c", "")
+	if ok, how := m.Match(r); !ok || how != "prefix" {
+		t.Errorf("ASIC_STATE should match any SAI type, got ok=%v how=%q", ok, how)
+	}
+}
+
+func TestFilterMatch(t *testing.T) {
+	m := NewRecordsMatcher([]Subscription{
+		{DB: "ASIC_DB", Table: "ASIC_STATE", Filter: "NEXT_HOP_GROUP"},
+	})
+	hit := mkRecord("sairedis", "ASIC_DB", "SAI_OBJECT_TYPE_NEXT_HOP_GROUP", "oid:0x1", "r", "SAI_STATUS_OBJECT_IN_USE")
+	hit.Raw = "2026-01-01.00:00:00.0|r|SAI_OBJECT_TYPE_NEXT_HOP_GROUP:oid:0x1|"
+	if ok, _ := m.Match(hit); !ok {
+		t.Error("expected filter hit: raw contains NEXT_HOP_GROUP")
+	}
+	miss := mkRecord("sairedis", "ASIC_DB", "SAI_OBJECT_TYPE_ROUTE_ENTRY", "x", "c", "")
+	miss.Raw = "2026-01-01.00:00:00.0|c|SAI_OBJECT_TYPE_ROUTE_ENTRY:{}|"
+	if ok, _ := m.Match(miss); ok {
+		t.Error("expected filter miss: raw does not contain NEXT_HOP_GROUP")
+	}
+}
+
+func TestFilterEmptyMatchesAll(t *testing.T) {
+	m := NewRecordsMatcher([]Subscription{
+		{DB: "ASIC_DB", Table: "ASIC_STATE", Filter: ""},
+	})
+	r := mkRecord("sairedis", "ASIC_DB", "SAI_OBJECT_TYPE_ROUTE_ENTRY", "x", "c", "")
+	r.Raw = "anything"
+	if ok, _ := m.Match(r); !ok {
+		t.Error("empty filter should match all")
+	}
+}

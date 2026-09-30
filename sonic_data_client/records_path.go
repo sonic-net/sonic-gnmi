@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	recordsParamFrom = "from"
-	recordsParamOps  = "ops"
+	recordsParamFrom   = "from"
+	recordsParamOps    = "ops"
+	recordsParamFilter = "filter"
 
 	recordsDBAppl         = "APPL_DB"
 	recordsDBAsic         = "ASIC_DB"
@@ -33,6 +34,7 @@ type recordsSubscription struct {
 	key       string // empty => whole table / type prefix
 	from      time.Time
 	ops       []string // empty => all ops
+	filter    string   // empty => no raw-text substring filter
 }
 
 // recordsGetNamespaces lists configured DB namespaces. Overridable in tests.
@@ -47,9 +49,10 @@ func parseRecordsPath(path *gnmipb.Path) (*recordsSubscription, error) {
 	}
 
 	var (
-		names   []string
-		fromStr string
-		opsStr  string
+		names     []string
+		fromStr   string
+		opsStr    string
+		filterStr string
 	)
 	for _, e := range path.GetElem() {
 		if e == nil {
@@ -65,6 +68,8 @@ func parseRecordsPath(path *gnmipb.Path) (*recordsSubscription, error) {
 				fromStr = v
 			case recordsParamOps:
 				opsStr = v
+			case recordsParamFilter:
+				filterStr = v
 			}
 		}
 	}
@@ -115,6 +120,7 @@ func parseRecordsPath(path *gnmipb.Path) (*recordsSubscription, error) {
 		return nil, err
 	}
 	sub.ops = ops
+	sub.filter = filterStr
 
 	return sub, nil
 }

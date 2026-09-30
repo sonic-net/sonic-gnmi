@@ -51,4 +51,5 @@ type Subscription struct {
 	Table     string
 	Key       string   // empty → whole-table prefix match
 	Ops       []string // empty → all ops
+	Filter    string   // empty → no raw-text substring filter
 }

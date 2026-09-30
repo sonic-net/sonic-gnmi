@@ -101,6 +101,7 @@ func subscriptionForMatch(sub recordsSubscription) Subscription {
 		Table:     table,
 		Key:       key,
 		Ops:       sub.ops,
+		Filter:    sub.filter,
 	}
 }
 
