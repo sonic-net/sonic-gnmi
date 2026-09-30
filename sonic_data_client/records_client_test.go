@@ -440,8 +440,9 @@ func TestRecordsClientStubs(t *testing.T) {
 	if err := rc.Set(nil, nil, nil); err != nil {
 		t.Errorf("Set: %v", err)
 	}
-	if caps := rc.Capabilities(); caps != nil {
-		t.Errorf("Capabilities = %v, want nil", caps)
+	caps := rc.Capabilities()
+	if len(caps) != 1 || caps[0].Name != "RECORDS" {
+		t.Errorf("Capabilities = %v, want [{Name:RECORDS ...}]", caps)
 	}
 	if err := rc.Close(); err != nil {
 		t.Errorf("Close: %v", err)

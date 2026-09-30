@@ -583,8 +583,17 @@ func (c *RecordsClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, upd
 	return nil
 }
 
+// Advertised via gNMI Capabilities so clients (e.g. gnmic) discover the RECORDS target.
+var recordsSupportedModels = []gnmipb.ModelData{
+	{
+		Name:         "RECORDS",
+		Organization: "SONiC",
+		Version:      "0.1.0",
+	},
+}
+
 func (c *RecordsClient) Capabilities() []gnmipb.ModelData {
-	return nil
+	return recordsSupportedModels
 }
 
 // Close cancels an in-flight StreamRun (if any) and waits for it to exit.
