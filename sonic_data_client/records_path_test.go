@@ -59,6 +59,28 @@ func TestParseRecordsPathWithoutRECORDSElem(t *testing.T) {
 	}
 }
 
+func TestParseRecordsPathAPPLDatabaseWideFrom(t *testing.T) {
+	fixed := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	prev := recordsNow
+	recordsNow = func() time.Time { return fixed }
+	defer func() { recordsNow = prev }()
+
+	sub, err := parseRecordsPath(recordsPath(
+		"RECORDS",
+		"localhost",
+		&gnmipb.PathElem{Name: "APPL_DB", Key: map[string]string{"from": "-30m"}},
+	))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if sub.db != "APPL_DB" || sub.table != "" || sub.key != "" {
+		t.Fatalf("got db=%q table=%q key=%q", sub.db, sub.table, sub.key)
+	}
+	if want := fixed.Add(-30 * time.Minute); !sub.from.Equal(want) {
+		t.Fatalf("from = %v, want %v", sub.from, want)
+	}
+}
+
 func TestParseRecordsPathASICWithOps(t *testing.T) {
 	sub, err := parseRecordsPath(recordsPath(
 		"RECORDS", "localhost", "ASIC_DB", "ASIC_STATE",
@@ -143,6 +165,7 @@ func TestParseRecordsPathErrors(t *testing.T) {
 	}{
 		{"short", recordsPath("RECORDS", "localhost"), "path must be"},
 		{"badDB", recordsPath("localhost", "CONFIG_DB", "ROUTE_TABLE"), "DB must be"},
+		{"missingAsicTable", recordsPath("RECORDS", "localhost", "ASIC_DB"), "ASIC_STATE"},
 		{"badAsicTable", recordsPath("localhost", "ASIC_DB", "ROUTE_TABLE"), "ASIC_STATE"},
 		{"badFrom", recordsPath(&gnmipb.PathElem{Name: "localhost", Key: map[string]string{"from": "yesterday"}}, "APPL_DB", "T"), "invalid from"},
 		{"badOps", recordsPath(&gnmipb.PathElem{Name: "localhost", Key: map[string]string{"ops": "SET,"}}, "APPL_DB", "T"), "invalid ops"},

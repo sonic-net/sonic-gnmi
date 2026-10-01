@@ -607,6 +607,63 @@ func TestRecordsMatcherDirectMatchPrecedesCorrelation(t *testing.T) {
 	}
 }
 
+func TestRecordsMatcherAPPLDatabaseWide(t *testing.T) {
+	m := NewRecordsMatcher([]Subscription{{DB: "APPL_DB"}})
+
+	for _, record := range []*Record{
+		{Source: "swss", DB: "APPL_DB", Table: "ROUTE_TABLE", Key: "10.1.0.0/24", Op: "SET"},
+		{Source: "swss", DB: "APPL_DB", Table: "NEIGH_TABLE", Key: "Ethernet0:10.0.0.1", Op: "SET"},
+	} {
+		ok, how := m.Match(record)
+		if !ok || how != "database" {
+			t.Errorf("%s match = (%v, %q), want (true, database)", record.Table, ok, how)
+		}
+	}
+
+	asic := &Record{
+		Source: "sairedis",
+		DB:     "ASIC_DB",
+		Table:  "SAI_OBJECT_TYPE_ROUTE_ENTRY",
+		Key:    `{"dest":"10.1.0.0/24"}`,
+		Op:     "c",
+	}
+	if ok, how := m.Match(asic); ok {
+		t.Errorf("database-wide APPL subscription matched ASIC record via %q", how)
+	}
+}
+
+func TestRecordsSources(t *testing.T) {
+	tests := []struct {
+		name string
+		sub  recordsSubscription
+		want []string
+	}{
+		{
+			name: "database-wide APPL reads only swss",
+			sub:  recordsSubscription{db: recordsDBAppl},
+			want: []string{RecordsSourceSwss},
+		},
+		{
+			name: "table APPL also reads sairedis for correlation",
+			sub:  recordsSubscription{db: recordsDBAppl, table: "ROUTE_TABLE"},
+			want: []string{RecordsSourceSwss, RecordsSourceSairedis},
+		},
+		{
+			name: "ASIC reads only sairedis",
+			sub:  recordsSubscription{db: recordsDBAsic, table: recordsTableAsicState},
+			want: []string{RecordsSourceSairedis},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := recordsSources(tt.sub); fmt.Sprint(got) != fmt.Sprint(tt.want) {
+				t.Errorf("recordsSources() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestRecordsClientEncodePathPerSubscription checks multi-path STREAM updates echo
 // the matching subscription path (not always the last path).
 func TestRecordsClientEncodePathPerSubscription(t *testing.T) {

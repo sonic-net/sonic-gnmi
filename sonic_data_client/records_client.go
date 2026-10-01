@@ -105,13 +105,26 @@ func subscriptionForMatch(sub recordsSubscription) Subscription {
 	}
 }
 
-// newRecordsTailer opens swss and sairedis tailers for each subscribed namespace.
-// Both sources are read so APPL_DB subscriptions can include correlated SAI lines.
+// recordsSources returns only the recorder families a subscription can use.
+// A table-specific APPL_DB subscription also reads sairedis for forward
+// correlation; a database-wide APPL_DB subscription intentionally does not.
+func recordsSources(sub recordsSubscription) []string {
+	switch {
+	case sub.db == recordsDBAsic:
+		return []string{RecordsSourceSairedis}
+	case sub.db == recordsDBAppl && sub.table == "":
+		return []string{RecordsSourceSwss}
+	default:
+		return []string{RecordsSourceSwss, RecordsSourceSairedis}
+	}
+}
+
+// newRecordsTailer opens the required recorder families for each namespace.
 func newRecordsTailer(subs []recordsSubscription) (Tailer, error) {
 	seen := map[string]bool{}
 	var parts []Tailer
 	for _, sub := range subs {
-		for _, source := range []string{RecordsSourceSwss, RecordsSourceSairedis} {
+		for _, source := range recordsSources(sub) {
 			id := sub.namespace + "\x00" + source
 			if seen[id] {
 				continue

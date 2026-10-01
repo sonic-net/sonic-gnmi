@@ -25,12 +25,13 @@ const (
 
 // recordsSubscription is one parsed RECORDS subscribe path.
 //
-//	/RECORDS/<namespace>/<DB>/<TABLE>[/<key elements...>][from=<when>][ops=<list>]
+//	/RECORDS/<namespace>/APPL_DB[/<TABLE>[/<key elements...>]][from=<when>][ops=<list>]
+//	/RECORDS/<namespace>/ASIC_DB/ASIC_STATE[/<key elements...>][from=<when>][ops=<list>]
 type recordsSubscription struct {
 	path      *gnmipb.Path
 	namespace string
 	db        string
-	table     string
+	table     string // empty APPL_DB table => whole database
 	key       string // empty => whole table / type prefix
 	from      time.Time
 	ops       []string // empty => all ops
@@ -79,16 +80,19 @@ func parseRecordsPath(path *gnmipb.Path) (*recordsSubscription, error) {
 		names = names[1:]
 	}
 
-	// <namespace>/<DB>/<TABLE> required.
-	if len(names) < 3 {
-		return nil, fmt.Errorf("RECORDS: path must be /RECORDS/<namespace>/<DB>/<TABLE>[/<key>...][from=][ops=], got %v", pathElemNames(path))
+	// APPL_DB permits a database-wide subscription without a table. ASIC_DB
+	// still requires ASIC_STATE.
+	if len(names) < 2 {
+		return nil, fmt.Errorf("RECORDS: path must be /RECORDS/<namespace>/<DB>[/<TABLE>[/<key>...]][from=][ops=], got %v", pathElemNames(path))
 	}
 
 	sub := &recordsSubscription{
 		path:      path,
 		namespace: names[0],
 		db:        names[1],
-		table:     names[2],
+	}
+	if len(names) > 2 {
+		sub.table = names[2]
 	}
 	if len(names) > 3 {
 		sub.key = strings.Join(names[3:], "/")
@@ -96,7 +100,7 @@ func parseRecordsPath(path *gnmipb.Path) (*recordsSubscription, error) {
 
 	switch sub.db {
 	case recordsDBAppl:
-		// table is free-form (ROUTE_TABLE, NEIGH_TABLE, ...)
+		// Table is optional. Empty means every table in swss.rec.
 	case recordsDBAsic:
 		if sub.table != recordsTableAsicState {
 			return nil, fmt.Errorf("RECORDS: ASIC_DB table must be %s, got %q", recordsTableAsicState, sub.table)

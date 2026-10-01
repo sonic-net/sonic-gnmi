@@ -79,6 +79,12 @@ func (m *RecordsMatcher) matchOne(r *Record, sub *Subscription) (bool, string) {
 
 // directMatch handles the case where the record's DB matches the subscription's DB.
 func (m *RecordsMatcher) directMatch(r *Record, sub *Subscription) (bool, string) {
+	// An APPL_DB path without a table is a database-wide subscription. It
+	// matches every swss.rec table but does not correlate into ASIC_DB.
+	if sub.DB == "APPL_DB" && sub.Table == "" {
+		return true, "database"
+	}
+
 	// ASIC_DB records carry the concrete SAI object type in r.Table
 	// (e.g. SAI_OBJECT_TYPE_ROUTE_ENTRY), while the RECORDS path grammar uses
 	// the umbrella table name "ASIC_STATE". Treat "ASIC_STATE" as "any SAI
