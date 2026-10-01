@@ -90,6 +90,8 @@ func main() {
 	err := runTelemetry(os.Args)
 	if err != nil {
 		log.Errorf("Unable to setup telemetry config due to err: %v", err)
+		log.Flush()
+		os.Exit(1)
 	}
 }
 
@@ -228,7 +230,9 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
-	fs.Parse(os.Args[1:])
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		return nil, nil, err
+	}
 
 	var defUserAuth gnmi.AuthTypes
 	if *telemetryCfg.GnmiTranslibWrite {
@@ -342,10 +346,18 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	if !*telemetryCfg.Insecure {
 		cfg.GetOptions = gnmi.SrvAdvConfig
 	}
-	if *telemetryCfg.CaCert == "" && telemetryCfg.UserAuth.Enabled("cert") {
+	if telemetryCfg.UserAuth.Enabled("cert") && (*telemetryCfg.NoTLS || *telemetryCfg.CaCert == "") {
 		telemetryCfg.UserAuth.Unset("cert")
-		log.V(2).Info("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
+		tcpEnabled := cfg.Port > 0 || (cfg.Port == 0 && cfg.UnixSocket == "")
+		if *telemetryCfg.NoTLS && tcpEnabled && !telemetryCfg.UserAuth.Any() {
+			return nil, nil, fmt.Errorf(
+				"--client_auth cert cannot authenticate a --noTLS TCP listener; " +
+					"configure password or jwt authentication, use --port 0 for UDS-only access, " +
+					"or explicitly select --client_auth none for unauthenticated development")
+		}
+		log.Warning("client_auth mode cert requires TLS and ca_crt. Disabling cert mode authentication.")
 	}
+	cfg.UserAuth = telemetryCfg.UserAuth
 
 	if *telemetryCfg.PathsBlacklistFile != "" {
 		blacklistFile, err := os.Open(*telemetryCfg.PathsBlacklistFile)
@@ -559,11 +571,6 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 					continue
 				}
 				tlsCfg.ClientCAs = certPool
-			} else {
-				if telemetryCfg.UserAuth.Enabled("cert") {
-					telemetryCfg.UserAuth.Unset("cert")
-					log.Warning("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
-				}
 			}
 
 			atomic.StoreInt32(&certLoaded, 1) // Certs have loaded
@@ -588,11 +595,9 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			if *telemetryCfg.IdleConnDuration > 0 { // non inf case
 				commonOpts = append(commonOpts, grpc.KeepaliveParams(keep_alive_params))
 			}
-
-			cfg.UserAuth = telemetryCfg.UserAuth
-
-			gnmi.GenerateJwtSecretKey()
 		}
+
+		gnmi.GenerateJwtSecretKey()
 
 		commonOpts = append(commonOpts,
 			grpc.MaxRecvMsgSize(*telemetryCfg.MaxRecvMsgSize),

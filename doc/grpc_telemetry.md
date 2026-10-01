@@ -140,6 +140,37 @@ Usage of ./telemetry:
 ```
 root@ASW:~# ./telemetry --port 8080 --server_crt /etc/tls/publickey.cer --server_key /etc/tls/private.key --allow_no_client_auth --logtostderr
 ```
+
+### Application authentication on local listeners
+
+`--noTLS` disables transport encryption, not configured application
+authentication. Password and JWT authentication selected with `--client_auth`
+remain enforced on the loopback TCP listener, including gNOI File RPCs.
+Certificate authentication requires TLS and a client CA; it cannot authenticate
+a cleartext peer even if `--ca_crt` is supplied.
+
+For a noTLS TCP listener, certificate authentication is disabled only when
+another selected mechanism remains available. Certificate-only noTLS startup
+fails before opening listeners and exits with a nonzero status. For example:
+
+```sh
+telemetry --port 8080 --unix_socket "" --noTLS \
+  --bind_address 127.0.0.1 --client_auth password,jwt
+```
+
+This does not make passwords confidential on cleartext transport. Use
+authenticated TLS for production network access. Loopback routing alone does
+not authorize local users.
+
+UDS-only operation (`--port 0 --unix_socket /var/run/gnmi/gnmi.sock`) retains
+its existing filesystem-permission security contract and does not require a
+TLS client certificate. With both TCP and UDS configured, an incompatible
+certificate-only noTLS TCP configuration fails startup rather than silently
+falling back to UDS. Deliberate `--client_auth none` development mode remains
+unauthenticated; noTLS does not implicitly select it. Existing TLS/ephemeral-TLS
+handling of certificate authentication without a client CA is unchanged by
+this noTLS correction.
+
 ## GetRequest/GetResponse
 The [gnmi_get](https://github.com/jipanyang/gnxi/tree/master/gnmi_get) tool may be used.
 
