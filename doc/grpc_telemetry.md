@@ -149,6 +149,9 @@ remain enforced on the loopback TCP listener, including gNOI File RPCs.
 Certificate authentication requires TLS and a client CA; it cannot authenticate
 a cleartext peer even if `--ca_crt` is supplied.
 
+When either translib or native writes are enabled and `--client_auth` is
+omitted, password and JWT remain the default application-authentication modes.
+
 For a noTLS TCP listener, certificate authentication is disabled only when
 another selected mechanism remains available. Certificate-only noTLS startup
 fails before opening listeners and exits with a nonzero status. For example:
