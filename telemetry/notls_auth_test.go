@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -101,7 +103,7 @@ func TestNoTLSAuthenticationConfiguration(t *testing.T) {
 }
 
 func TestNoTLSFileRPCAuthentication(t *testing.T) {
-	for _, mode := range []string{"password", "jwt", "native-default", "none", "uds-only"} {
+	for _, mode := range []string{"password", "jwt", "native-default", "none", "tls-no-ca", "uds-only"} {
 		t.Run(mode, func(t *testing.T) {
 			if os.Getenv("SONIC_GNMI_NOTLS_RPC_TEST") != mode {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -120,6 +122,8 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 			switch mode {
 			case "native-default":
 				extraArgs = []string{"-gnmi_native_write=true"}
+			case "tls-no-ca":
+				extraArgs = []string{"-noTLS=false", "-insecure", "-allow_no_client_auth", "-client_auth", "cert"}
 			case "uds-only":
 				extraArgs = []string{"-port", "0", "-unix_socket", socket, "-client_auth", "cert"}
 			}
@@ -129,7 +133,6 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 			}
 			cfg.EnableTranslibWrite = mode != "native-default"
 			cfg.EnableNativeWrite = true
-			cfg.ConfigTableName = "GNMI_CLIENT_CERT"
 			if mode != "uds-only" {
 				cfg.Port = 0 // Let the real server allocate an isolated TCP port.
 			}
@@ -157,13 +160,13 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 			patches.ApplyMethod(reflect.TypeOf(&interceptors.ServerChain{}), "GetServerOptions",
 				func(*interceptors.ServerChain) []grpc.ServerOption { return nil })
 			patches.ApplyFunc(gnmi.UserPwAuth, func(username, password string) (bool, error) {
-				if (username == "fixture" || username == "denied") && password == "fixture-password" {
+				if (username == "fixture" || username == "denied" || username == "unprivileged") && password == "fixture-password" {
 					return true, nil
 				}
 				return false, errors.New("invalid fixture credentials")
 			})
 			patches.ApplyFunc(user.Lookup, func(username string) (*user.User, error) {
-				if username != "fixture" && username != "denied" {
+				if username != "fixture" && username != "denied" && username != "unprivileged" {
 					return nil, errors.New("unknown fixture user")
 				}
 				return &user.User{Username: username}, nil
@@ -171,6 +174,9 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 			patches.ApplyFunc(gnmi.GetUserRoles, func(usr *user.User) ([]string, error) {
 				if usr.Username == "denied" {
 					return []string{"gnoi_noaccess"}, nil
+				}
+				if usr.Username == "unprivileged" {
+					return []string{"sonic_linux"}, nil
 				}
 				return []string{"gnoi_readonly"}, nil
 			})
@@ -211,8 +217,12 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
+			transportCredentials := credentials.TransportCredentials(insecure.NewCredentials())
+			if mode == "tls-no-ca" {
+				transportCredentials = credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})
+			}
 			conn, err := grpc.DialContext(ctx, address, grpc.WithBlock(),
-				grpc.WithTransportCredentials(insecure.NewCredentials()))
+				grpc.WithTransportCredentials(transportCredentials))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -233,15 +243,20 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 				}
 			}
 
-			if mode == "none" || mode == "uds-only" {
+			if mode == "uds-only" {
 				check(ctx, codes.InvalidArgument)
+				return
+			}
+			if mode == "none" || mode == "tls-no-ca" {
+				check(ctx, codes.Unauthenticated)
 				return
 			}
 			check(ctx, codes.Unauthenticated)
 			if mode == "password" || mode == "native-default" {
 				check(metadata.NewOutgoingContext(ctx, metadata.Pairs("username", "fixture", "password", "wrong")), codes.Unauthenticated)
 				check(metadata.NewOutgoingContext(ctx, metadata.Pairs("username", "fixture", "password", "fixture-password")), codes.InvalidArgument)
-				check(metadata.NewOutgoingContext(ctx, metadata.Pairs("username", "denied", "password", "fixture-password")), codes.Unknown)
+				check(metadata.NewOutgoingContext(ctx, metadata.Pairs("username", "denied", "password", "fixture-password")), codes.PermissionDenied)
+				check(metadata.NewOutgoingContext(ctx, metadata.Pairs("username", "unprivileged", "password", "fixture-password")), codes.PermissionDenied)
 				if mode == "password" {
 					return
 				}
@@ -253,6 +268,13 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 			}
 			check(metadata.NewOutgoingContext(ctx, metadata.Pairs("access_token", "invalid")), codes.Unauthenticated)
 			check(metadata.NewOutgoingContext(ctx, metadata.Pairs("access_token", token.Token.AccessToken)), codes.InvalidArgument)
+			for _, username := range []string{"denied", "unprivileged"} {
+				token, err := authClient.Authenticate(ctx, &spb_jwt.AuthenticateRequest{Username: username, Password: "fixture-password"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				check(metadata.NewOutgoingContext(ctx, metadata.Pairs("access_token", token.Token.AccessToken)), codes.PermissionDenied)
+			}
 			claims := &gnmi.Claims{Username: "fixture", StandardClaims: jwt.StandardClaims{ExpiresAt: time.Now().Add(time.Hour).Unix()}}
 			forged, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(make([]byte, 16))
 			if err != nil {
