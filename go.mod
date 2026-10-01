@@ -39,14 +39,14 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	mvdan.cc/sh/v3 v3.8.0
-	oras.land/oras-go/v2 v2.6.0
+	oras.land/oras-go/v2 v2.6.2
 )
 
 require (
 	cel.dev/expr v0.25.1 // indirect
 	github.com/antchfx/jsonquery v1.1.4 // indirect
 	github.com/antchfx/xmlquery v1.3.1 // indirect
-	github.com/antchfx/xpath v1.1.10 // indirect
+	github.com/antchfx/xpath v1.3.6 // indirect
 	github.com/cenkalti/backoff/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
@@ -65,7 +65,7 @@ require (
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go4.org/intern v0.0.0-20211027215823-ae77deb06f29 // indirect
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
-	golang.org/x/sync v0.21.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.39.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260414002931-afd174a4e478 // indirect
