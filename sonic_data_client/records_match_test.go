@@ -182,6 +182,46 @@ func TestApplDbSubDoesReturnAsicDbViaCorrelation(t *testing.T) {
 	}
 }
 
+func TestDirectMatchPrecedesCorrelationInEitherSubscriptionOrder(t *testing.T) {
+	appl := Subscription{DB: "APPL_DB", Table: "ROUTE_TABLE", Key: "10.1.0.0/24"}
+	asic := Subscription{DB: "ASIC_DB", Table: "SAI_OBJECT_TYPE_ROUTE_ENTRY"}
+	record := mkRecord("sairedis", "ASIC_DB", "SAI_OBJECT_TYPE_ROUTE_ENTRY",
+		`{"dest":"10.1.0.0/24","switch_id":"oid:0x21000000000000"}`, "c", "")
+
+	tests := []struct {
+		name    string
+		subs    []Subscription
+		wantIdx int
+	}{
+		{
+			name:    "APPL correlation listed first",
+			subs:    []Subscription{appl, asic},
+			wantIdx: 1,
+		},
+		{
+			name:    "ASIC direct match listed first",
+			subs:    []Subscription{asic, appl},
+			wantIdx: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewRecordsMatcher(tt.subs)
+			ok, how, idx := m.matchWithIndex(record)
+			if !ok {
+				t.Fatal("expected SAI record to match")
+			}
+			if idx != tt.wantIdx {
+				t.Errorf("matched subscription %d, want direct ASIC subscription %d", idx, tt.wantIdx)
+			}
+			if how != "prefix" {
+				t.Errorf("matched_by = %q, want direct prefix match", how)
+			}
+		})
+	}
+}
+
 func TestOpsFilterPass(t *testing.T) {
 	m := NewRecordsMatcher([]Subscription{
 		{DB: "APPL_DB", Table: "ROUTE_TABLE", Key: "", Ops: []string{"SET"}},

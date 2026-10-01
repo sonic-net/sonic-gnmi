@@ -67,7 +67,7 @@ func NewRecordsClient(paths []*gnmipb.Path, prefix *gnmipb.Path, logLevel int) (
 		}
 		c.subs = append(c.subs, *sub)
 		matchSubs = append(matchSubs, subscriptionForMatch(*sub))
-		// Fallback path for control events / unknown match index.
+		// Fallback path for records from custom matchers with no match index.
 		c.path = path
 	}
 	c.matcher = NewRecordsMatcher(matchSubs)
@@ -162,6 +162,14 @@ const (
 	recordsEventLive        = "live"
 	recordsEventGap         = "gap"
 )
+
+// recordsControlPath is session-scoped rather than tied to any one
+// subscription, so control events do not appear to overwrite the last path.
+func recordsControlPath() *gnmipb.Path {
+	return &gnmipb.Path{
+		Elem: []*gnmipb.PathElem{{Name: "RECORDS"}},
+	}
+}
 
 func controlEventName(line string) string {
 	var m struct {
@@ -411,7 +419,7 @@ func (c *RecordsClient) enqueueRecord(ctx context.Context, r Record, subIdx int)
 func (c *RecordsClient) enqueueControlJSON(ctx context.Context, jv []byte) error {
 	spbv := &spb.Value{
 		Prefix:    c.prefix,
-		Path:      c.path,
+		Path:      recordsControlPath(),
 		Timestamp: time.Now().UnixNano(),
 		Val: &gnmipb.TypedValue{
 			Value: &gnmipb.TypedValue_JsonIetfVal{

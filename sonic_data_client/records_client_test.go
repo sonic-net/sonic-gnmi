@@ -577,6 +577,36 @@ func applRecord(table, key string) Record {
 	}
 }
 
+func TestRecordsMatcherDirectMatchPrecedesCorrelation(t *testing.T) {
+	appl := Subscription{DB: "APPL_DB", Table: "ROUTE_TABLE", Key: "10.1.0.0/24"}
+	asic := Subscription{DB: "ASIC_DB", Table: "SAI_OBJECT_TYPE_ROUTE_ENTRY"}
+	record := &Record{
+		Source: "sairedis",
+		DB:     "ASIC_DB",
+		Table:  "SAI_OBJECT_TYPE_ROUTE_ENTRY",
+		Key:    `{"dest":"10.1.0.0/24","switch_id":"oid:0x21000000000000"}`,
+		Op:     "c",
+	}
+
+	for _, tt := range []struct {
+		name    string
+		subs    []Subscription
+		wantIdx int
+	}{
+		{name: "APPL first", subs: []Subscription{appl, asic}, wantIdx: 1},
+		{name: "ASIC first", subs: []Subscription{asic, appl}, wantIdx: 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewRecordsMatcher(tt.subs)
+			ok, how, idx := m.matchWithIndex(record)
+			if !ok || idx != tt.wantIdx || how != "prefix" {
+				t.Errorf("match = (%v, %q, %d), want (true, prefix, %d)",
+					ok, how, idx, tt.wantIdx)
+			}
+		})
+	}
+}
+
 // TestRecordsClientEncodePathPerSubscription checks multi-path STREAM updates echo
 // the matching subscription path (not always the last path).
 func TestRecordsClientEncodePathPerSubscription(t *testing.T) {
@@ -619,11 +649,13 @@ func TestRecordsClientEncodePathPerSubscription(t *testing.T) {
 		"NEIGH_TABLE": neighPath,
 	}
 	gotTables := map[string]bool{}
+	gotControl := false
 	deadline := time.After(3 * time.Second)
-	for len(gotTables) < 2 {
+	for len(gotTables) < 2 || !gotControl {
 		select {
 		case <-deadline:
-			t.Fatalf("timeout waiting for both records; got %v", gotTables)
+			t.Fatalf("timeout waiting for records and control event; records=%v control=%v",
+				gotTables, gotControl)
 		default:
 		}
 		items, err := pq.Get(1)
@@ -648,6 +680,11 @@ func TestRecordsClientEncodePathPerSubscription(t *testing.T) {
 			t.Fatal(err)
 		}
 		if payload["event"] != nil {
+			gotPath := upd.Update[0].GetPath()
+			if got := fmt.Sprint(pathElemNames(gotPath)); got != "[RECORDS]" {
+				t.Errorf("control event path = %s, want neutral [RECORDS]", got)
+			}
+			gotControl = true
 			continue
 		}
 		table, _ := payload["table"].(string)

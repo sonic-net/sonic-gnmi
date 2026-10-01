@@ -24,20 +24,37 @@ func (m *RecordsMatcher) Match(r *Record) (ok bool, how string) {
 	return
 }
 
-// matchWithIndex is Match plus the index of the subscription that hit (-1 on miss).
+// matchWithIndex is Match plus the index of the subscription that hit (-1 on
+// miss). Direct DB matches take precedence over correlation, independent of
+// subscription order, so one recorder line is emitted at most once.
 func (m *RecordsMatcher) matchWithIndex(r *Record) (ok bool, how string, idx int) {
+	// First pass: prefer a subscription for the record's own DB.
 	for i := range m.subs {
-		if hit, reason := m.matchOne(r, &m.subs[i]); hit {
-			if !opsFilterPass(r, &m.subs[i]) {
-				continue
-			}
-			if !filterPass(r, &m.subs[i]) {
-				continue
-			}
+		sub := &m.subs[i]
+		if r.DB != sub.DB {
+			continue
+		}
+		if hit, reason := m.directMatch(r, sub); hit && recordFiltersPass(r, sub) {
+			return true, reason, i
+		}
+	}
+
+	// Second pass: use forward correlation only when no direct subscription
+	// matched. Reverse correlation remains disabled in matchOne.
+	for i := range m.subs {
+		sub := &m.subs[i]
+		if r.DB == sub.DB {
+			continue
+		}
+		if hit, reason := m.matchOne(r, sub); hit && recordFiltersPass(r, sub) {
 			return true, reason, i
 		}
 	}
 	return false, "", -1
+}
+
+func recordFiltersPass(r *Record, sub *Subscription) bool {
+	return opsFilterPass(r, sub) && filterPass(r, sub)
 }
 
 // matchOne evaluates a single Record against a single Subscription.
