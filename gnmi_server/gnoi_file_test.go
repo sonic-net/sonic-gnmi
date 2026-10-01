@@ -10,6 +10,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	gnoi_common "github.com/openconfig/gnoi/common"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	gnoifile "github.com/sonic-net/sonic-gnmi/pkg/gnoi/file"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 
@@ -18,6 +19,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -75,7 +77,7 @@ func TestGnoiFileServer(t *testing.T) {
 	// authenticate hook fires before the handler, and that handler errors
 	// surface as gRPC status codes through the server stack.
 	t.Run("Stat Fails with Auth Error", func(t *testing.T) {
-		patch := gomonkey.ApplyFuncReturn(authenticate, nil, status.Error(codes.Unauthenticated, "unauth"))
+		patch := gomonkey.ApplyFuncReturn(authorizeFileRead, nil, status.Error(codes.Unauthenticated, "unauth"))
 		defer patch.Reset()
 
 		req := &gnoi_file_pb.StatRequest{Path: "/tmp/test.txt"}
@@ -89,7 +91,7 @@ func TestGnoiFileServer(t *testing.T) {
 		// Smoke test: an authenticated request reaches HandleStat and a
 		// handler-level error (empty path -> InvalidArgument) propagates
 		// through the server stack as the matching gRPC status code.
-		patch := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+		patch := gomonkey.ApplyFuncReturn(authorizeFileRead, context.Background(), nil)
 		defer patch.Reset()
 
 		req := &gnoi_file_pb.StatRequest{Path: ""}
@@ -328,7 +330,7 @@ func TestGnoiFileServer(t *testing.T) {
 	})
 
 	t.Run("Get_Fails_With_Auth_Error", func(t *testing.T) {
-		patch := gomonkey.ApplyFuncReturn(authenticate, nil, status.Error(codes.Unauthenticated, "unauthenticated"))
+		patch := gomonkey.ApplyFuncReturn(authorizeFileRead, nil, status.Error(codes.Unauthenticated, "unauthenticated"))
 		defer patch.Reset()
 
 		stream, err := client.Get(context.Background(), &gnoi_file_pb.GetRequest{})
@@ -347,7 +349,7 @@ func TestGnoiFileServer(t *testing.T) {
 		// propagates through the server stack as the matching gRPC
 		// status code. Behavior coverage for HandleGet lives in
 		// pkg/gnoi/file/get_test.go.
-		patch := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+		patch := gomonkey.ApplyFuncReturn(authorizeFileRead, context.Background(), nil)
 		defer patch.Reset()
 
 		stream, err := client.Get(context.Background(), &gnoi_file_pb.GetRequest{})
@@ -387,7 +389,65 @@ func TestGnoiFileServer(t *testing.T) {
 		err := fs.Put(mockStream)
 		assert.NoError(t, err)
 	})
+}
 
+func TestAuthorizeFileRead(t *testing.T) {
+	tcpContext := func() context.Context {
+		return peer.NewContext(context.Background(), &peer.Peer{
+			Addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 50052},
+		})
+	}
+	unixContext := func() context.Context {
+		return peer.NewContext(context.Background(), &peer.Peer{
+			Addr: &net.UnixAddr{Name: "/tmp/gnmi.sock", Net: "unix"},
+		})
+	}
+
+	t.Run("UDS uses filesystem authorization", func(t *testing.T) {
+		if _, err := authorizeFileRead(&Config{}, unixContext()); err != nil {
+			t.Fatalf("UDS File read should succeed: %v", err)
+		}
+	})
+
+	t.Run("TCP requires application authentication", func(t *testing.T) {
+		_, err := authorizeFileRead(&Config{}, tcpContext())
+		if status.Code(err) != codes.Unauthenticated {
+			t.Fatalf("File read returned %v, want Unauthenticated", err)
+		}
+	})
+
+	tests := []struct {
+		name  string
+		roles []string
+		code  codes.Code
+	}{
+		{name: "missing role", code: codes.PermissionDenied},
+		{name: "unrelated role", roles: []string{"gnmi_readonly"}, code: codes.PermissionDenied},
+		{name: "explicit deny", roles: []string{"gnoi_noaccess"}, code: codes.PermissionDenied},
+		{name: "explicit deny overrides read", roles: []string{"gnoi_readonly", "gnoi_noaccess"}, code: codes.PermissionDenied},
+		{name: "read role", roles: []string{"gnoi_readonly"}, code: codes.OK},
+		{name: "write role", roles: []string{"gnoi_readwrite"}, code: codes.OK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patch := gomonkey.ApplyFunc(authenticate,
+				func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+					rc, ctx := common_utils.GetContext(ctx)
+					rc.Auth = common_utils.AuthInfo{
+						User:        "fixture",
+						AuthEnabled: true,
+						Roles:       tt.roles,
+					}
+					return ctx, nil
+				})
+			defer patch.Reset()
+
+			_, err := authorizeFileRead(&Config{UserAuth: AuthTypes{"password": true}}, tcpContext())
+			if status.Code(err) != tt.code {
+				t.Fatalf("File read returned %v, want %v", err, tt.code)
+			}
+		})
+	}
 }
 
 // Mock stream for Put testing

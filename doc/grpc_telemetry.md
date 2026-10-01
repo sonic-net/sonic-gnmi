@@ -165,14 +165,22 @@ This does not make passwords confidential on cleartext transport. Use
 authenticated TLS for production network access. Loopback routing alone does
 not authorize local users.
 
+gNOI File.Stat and File.Get apply an additional authorization boundary on TCP
+listeners. They require application authentication and an explicit
+`gnoi_readonly` or `gnoi_readwrite` role. Authenticated users without a gNOI
+role, users with `gnoi_noaccess`, and TCP listeners with no usable application
+authentication are denied. This includes ephemeral TLS without a client CA and
+deliberate `--client_auth none` mode. Other RPCs retain their existing
+authorization behavior.
+
 UDS-only operation (`--port 0 --unix_socket /var/run/gnmi/gnmi.sock`) retains
 its existing filesystem-permission security contract and does not require a
 TLS client certificate. With both TCP and UDS configured, an incompatible
 certificate-only noTLS TCP configuration fails startup rather than silently
 falling back to UDS. Deliberate `--client_auth none` development mode remains
-unauthenticated; noTLS does not implicitly select it. Existing TLS/ephemeral-TLS
-handling of certificate authentication without a client CA is unchanged by
-this noTLS correction.
+unauthenticated for RPCs that permit it; noTLS does not implicitly select it.
+UDS File.Stat and File.Get continue to rely on socket directory and socket
+permissions instead of application credentials.
 
 ## GetRequest/GetResponse
 The [gnmi_get](https://github.com/jipanyang/gnxi/tree/master/gnmi_get) tool may be used.
