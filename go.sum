@@ -3262,6 +3262,8 @@ github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802 h1:WXFwJlWOJINlwly
 github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802/go.mod h1:M/EcuapNQgvzxo1DDXHK4tx3QpYM/uG4l591v33jG2A=
 github.com/openconfig/gnoi v0.3.0 h1:ieThHVx5rRwAt6lqKOKzoA3pcr5FE5Xs40GJ7wNqshs=
 github.com/openconfig/gnoi v0.3.0/go.mod h1:bv+Cln0d052XT0KnHKAe3MekHKpSl2z5g/TJCD8gbkM=
+github.com/openconfig/gnoi v0.8.0 h1:fwZm4zlwoY5i7KALTpVhpAv53Y3YskleoTpg1IUCa+c=
+github.com/openconfig/gnoi v0.8.0/go.mod h1:/kbYAWyBjQ08oahe7VGG8lAJc+yIfXdD7CF/T8RUjl0=
 github.com/openconfig/gnsi v1.9.0 h1:DokjN2rvzrP9/sMexBtigq6XkeKO8cPzzQmF8HQcVLQ=
 github.com/openconfig/gnsi v1.9.0/go.mod h1:mvfo1wUBFfojkHrD8kKqVV8Epoyq1Vt1Qpkj2hif6ow=
 github.com/openconfig/goyang v0.0.0-20200115183954-d0a48929f0ea/go.mod h1:dhXaV0JgHJzdrHi2l+w0fZrwArtXL7jEFoiqLEdmkvU=
