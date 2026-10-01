@@ -44,7 +44,8 @@ func setupNoTLSAuthTest(t *testing.T, extraArgs ...string) (*TelemetryConfig, *g
 		gnmi.SetCrlExpireDuration(originalCRL)
 	})
 	os.Args = append([]string{"test", "-port", "8080", "-unix_socket", "",
-		"-noTLS", "-bind_address", "127.0.0.1", "-gnmi_translib_write=false"}, extraArgs...)
+		"-noTLS", "-bind_address", "127.0.0.1", "-gnmi_translib_write=false",
+		"-gnmi_native_write=false"}, extraArgs...)
 	return setupFlags(flag.NewFlagSet(t.Name(), flag.ContinueOnError))
 }
 
@@ -64,7 +65,8 @@ func TestNoTLSAuthenticationConfiguration(t *testing.T) {
 		{"mixed with CA", []string{"-client_auth", "cert,jwt", "-ca_crt", "unused.pem"}, gnmi.AuthTypes{"jwt": true}, false},
 		{"explicit none", []string{"-client_auth", "none"}, gnmi.AuthTypes{}, false},
 		{"readonly default", nil, gnmi.AuthTypes{}, false},
-		{"write default", []string{"-gnmi_translib_write=true"}, gnmi.AuthTypes{"password": true, "jwt": true}, false},
+		{"translib write default", []string{"-gnmi_translib_write=true"}, gnmi.AuthTypes{"password": true, "jwt": true}, false},
+		{"native write default", []string{"-gnmi_native_write=true"}, gnmi.AuthTypes{"password": true, "jwt": true}, false},
 		{"UDS only", []string{"-port", "0", "-unix_socket", "/tmp/test.sock", "-client_auth", "cert"}, gnmi.AuthTypes{}, false},
 		{"UDS only negative port", []string{"-port", "-1", "-unix_socket", "/tmp/test.sock", "-client_auth", "cert"}, gnmi.AuthTypes{}, false},
 		{"dual listener certificate only", []string{"-unix_socket", "/tmp/test.sock", "-client_auth", "cert"}, nil, true},
@@ -99,7 +101,7 @@ func TestNoTLSAuthenticationConfiguration(t *testing.T) {
 }
 
 func TestNoTLSFileRPCAuthentication(t *testing.T) {
-	for _, mode := range []string{"password", "jwt", "none", "uds-only"} {
+	for _, mode := range []string{"password", "jwt", "native-default", "none", "uds-only"} {
 		t.Run(mode, func(t *testing.T) {
 			if os.Getenv("SONIC_GNMI_NOTLS_RPC_TEST") != mode {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -115,14 +117,17 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 			}
 			extraArgs := []string{"-client_auth", mode}
 			socket := filepath.Join(t.TempDir(), "gnmi.sock")
-			if mode == "uds-only" {
+			switch mode {
+			case "native-default":
+				extraArgs = []string{"-gnmi_native_write=true"}
+			case "uds-only":
 				extraArgs = []string{"-port", "0", "-unix_socket", socket, "-client_auth", "cert"}
 			}
 			telemetryCfg, cfg, err := setupNoTLSAuthTest(t, extraArgs...)
 			if err != nil {
 				t.Fatal(err)
 			}
-			cfg.EnableTranslibWrite = true
+			cfg.EnableTranslibWrite = mode != "native-default"
 			cfg.EnableNativeWrite = true
 			cfg.ConfigTableName = "GNMI_CLIENT_CERT"
 			if mode != "uds-only" {
@@ -233,11 +238,13 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 				return
 			}
 			check(ctx, codes.Unauthenticated)
-			if mode == "password" {
+			if mode == "password" || mode == "native-default" {
 				check(metadata.NewOutgoingContext(ctx, metadata.Pairs("username", "fixture", "password", "wrong")), codes.Unauthenticated)
 				check(metadata.NewOutgoingContext(ctx, metadata.Pairs("username", "fixture", "password", "fixture-password")), codes.InvalidArgument)
 				check(metadata.NewOutgoingContext(ctx, metadata.Pairs("username", "denied", "password", "fixture-password")), codes.Unknown)
-				return
+				if mode == "password" {
+					return
+				}
 			}
 			authClient := spb_jwt.NewSonicJwtServiceClient(conn)
 			token, err := authClient.Authenticate(ctx, &spb_jwt.AuthenticateRequest{Username: "fixture", Password: "fixture-password"})

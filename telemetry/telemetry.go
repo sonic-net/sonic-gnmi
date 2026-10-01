@@ -235,8 +235,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	}
 
 	var defUserAuth gnmi.AuthTypes
-	if *telemetryCfg.GnmiTranslibWrite {
-		//In read/write mode we want to enable auth by default.
+	if *telemetryCfg.GnmiTranslibWrite || *telemetryCfg.GnmiNativeWrite {
+		// In any read/write mode we want to enable auth by default.
 		defUserAuth = gnmi.AuthTypes{"password": true, "cert": false, "jwt": true}
 	} else {
 		defUserAuth = gnmi.AuthTypes{"jwt": false, "password": false, "cert": false}
