@@ -810,8 +810,17 @@ func (srv *Server) Auth(ctx context.Context) (context.Context, error) {
 //   - no role for this target and writeAccess==false -> allow (backwards
 //     compatible with pre-role deployments that only granted authentication)
 func checkRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
+	return checkRoleAccessWithRequirement(auth, target, writeAccess, false)
+}
+
+func checkRequiredRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
+	return checkRoleAccessWithRequirement(auth, target, writeAccess, true)
+}
+
+func checkRoleAccessWithRequirement(auth *common_utils.AuthInfo, target string, writeAccess, requireRole bool) error {
 	target = strings.ToLower(target)
-	match := false
+	readAllowed := false
+	writeAllowed := false
 	for _, role := range auth.Roles {
 		role = strings.TrimSpace(role)
 		if !strings.HasPrefix(role, target) {
@@ -826,19 +835,17 @@ func checkRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess boo
 		case NoAccessMode:
 			return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, role)
 		case ReadOnlyMode:
-			if writeAccess {
-				return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, role)
-			}
-			match = true
+			readAllowed = true
 		case WriteAccessMode:
-			match = true
-		}
-		if match {
-			break
+			readAllowed = true
+			writeAllowed = true
 		}
 	}
-	if !match && writeAccess {
+	if writeAccess && !writeAllowed {
 		return fmt.Errorf("%s does not have write access, target %s", auth.User, target)
+	}
+	if requireRole && !readAllowed {
+		return fmt.Errorf("%s does not have read access, target %s", auth.User, target)
 	}
 	return nil
 }
@@ -897,7 +904,7 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	// setups or upgrade paths where GNMI_CLIENT_CERT is empty).
 	if config.ConfigTableName != "" {
 		if err := checkRoleAccess(&rc.Auth, target, writeAccess); err != nil {
-			return ctx, err
+			return ctx, status.Error(codes.PermissionDenied, err.Error())
 		}
 	}
 

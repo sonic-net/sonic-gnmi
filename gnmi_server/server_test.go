@@ -6988,20 +6988,20 @@ func TestAuthenticate(t *testing.T) {
 	gnmiTable.Hset("certname1", "role@", "sonic_linux,gnmi_noaccess,linux_sonic")
 	// Call authenticate to verify the user's role. This should fail if the role is "gnmi_noaccess".
 	_, err = authenticate(cfg, ctx, "gnmi", true)
-	if err == nil {
-		t.Errorf("authenticate with noaccess role should fail: %v", err)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Errorf("authenticate with noaccess role returned %v, want PermissionDenied", err)
 	}
 	// Call authenticate to verify the user's role. This should fail if the role is "gnmi_noaccess".
 	_, err = authenticate(cfg, ctx, "gnmi", false)
-	if err == nil {
-		t.Errorf("authenticate with noaccess role should fail: %v", err)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Errorf("authenticate with noaccess role returned %v, want PermissionDenied", err)
 	}
 
 	gnmiTable.Hset("certname1", "role@", "sonic_linux,gnmi_readonly,linux_sonic")
 	// Call authenticate to verify the user's role. This should fail if the role is "gnmi_readonly".
 	_, err = authenticate(cfg, ctx, "gnmi", true)
-	if err == nil {
-		t.Errorf("authenticate with readonly role should fail: %v", err)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Errorf("authenticate with readonly role returned %v, want PermissionDenied", err)
 	}
 	// Call authenticate to verify the user's role. This should pass if the role is "gnmi_readonly".
 	_, err = authenticate(cfg, ctx, "gnmi", false)
@@ -7024,8 +7024,8 @@ func TestAuthenticate(t *testing.T) {
 	gnmiTable.Hset("certname1", "role@", "sonic_linux,linux_sonic")
 	// Call authenticate to verify the user's role. This should faile if the role is empty.
 	_, err = authenticate(cfg, ctx, "gnmi", true)
-	if err == nil {
-		t.Errorf("authenticate with empty role should fail: %v", err)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Errorf("authenticate with empty role returned %v, want PermissionDenied", err)
 	}
 	// Call authenticate to verify the user's role. This should faile if the role is empty.
 	_, err = authenticate(cfg, ctx, "gnmi", false)
@@ -7034,6 +7034,29 @@ func TestAuthenticate(t *testing.T) {
 	}
 
 	cancel()
+}
+
+func TestCheckRoleAccessMultipleRoles(t *testing.T) {
+	auth := &common_utils.AuthInfo{
+		User:  "fixture",
+		Roles: []string{"gnoi_readonly", "gnoi_readwrite"},
+	}
+	if err := checkRoleAccess(auth, "gnoi", true); err != nil {
+		t.Fatalf("readwrite role should grant write access regardless of role order: %v", err)
+	}
+
+	for _, roles := range [][]string{
+		{"gnoi_noaccess", "gnoi_readwrite"},
+		{"gnoi_readwrite", "gnoi_noaccess"},
+	} {
+		auth.Roles = roles
+		if err := checkRoleAccess(auth, "gnoi", false); err == nil {
+			t.Fatalf("noaccess role should override read access for roles %v", roles)
+		}
+		if err := checkRoleAccess(auth, "gnoi", true); err == nil {
+			t.Fatalf("noaccess role should override write access for roles %v", roles)
+		}
+	}
 }
 
 func createUDSCtx() (context.Context, context.CancelFunc) {
