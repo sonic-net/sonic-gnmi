@@ -85,6 +85,8 @@ type TelemetryConfig struct {
 	MaxRecvMsgSize           *int
 	MaxSendMsgSize           *int
 	PathsBlacklistFile       *string
+	RecordsDir               *string
+	RecordsTZ                *string
 }
 
 func main() {
@@ -226,6 +228,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		MaxRecvMsgSize:           fs.Int("max_recv_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can receive"),
 		MaxSendMsgSize:           fs.Int("max_send_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can send"),
 		PathsBlacklistFile:       fs.String("paths_blacklist", "", "File with blacklisted gNMI paths, one 'TARGET PATH' entry per line. Requests referencing these paths are rejected. Empty disables the blacklist."),
+		RecordsDir:               fs.String("records_dir", sdc.RecordsDefaultDir, "Directory holding orchagent swss.rec/sairedis.rec files for the RECORDS target."),
+		RecordsTZ:                fs.String("records_tz", "", "IANA timezone of the zone-less timestamps in the record files. Default: process local zone."),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
