@@ -3,9 +3,9 @@ package common_utils
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	log "github.com/golang/glog"
@@ -28,16 +28,14 @@ func GetRedisDBClient() (*redis.Client, error) {
 		log.Errorf("DB err: %v", err)
 		return nil, err
 	}
-	rclient := redis.NewClient(&redis.Options{
+	opts := redisopts.New(redis.Options{
 		Network:     "tcp",
 		Addr:        addr,
 		Password:    "", // no password set
 		DB:          db,
 		DialTimeout: 0,
 	})
-	if rclient == nil {
-		return nil, fmt.Errorf("Cannot create redis client.")
-	}
+	rclient := redis.NewClient(opts)
 	if _, err := rclient.Ping(context.Background()).Result(); err != nil {
 		return nil, err
 	}

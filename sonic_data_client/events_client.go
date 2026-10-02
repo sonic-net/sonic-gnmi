@@ -21,6 +21,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
@@ -236,13 +237,14 @@ func update_stats(evtc *EventClient) {
 			return
 		}
 
-		rclient = redis.NewClient(&redis.Options{
+		opts := redisopts.New(redis.Options{
 			Network:     "tcp",
 			Addr:        addr,
 			Password:    "", // no password set,
 			DB:          dbId,
 			DialTimeout: 0,
 		})
+		rclient = redis.NewClient(opts)
 
 		// Init current values for cumulative keys and clear for absolute
 		for _, key := range STATS_CUMULATIVE_KEYS {

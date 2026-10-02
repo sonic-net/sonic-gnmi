@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	log "github.com/golang/glog"
@@ -41,15 +42,20 @@ func (cm *ConnectionManager) PrepareRedis() {
 		log.Errorf("DB err: %v", err)
 		return
 	}
-	rclient = redis.NewClient(&redis.Options{
+	opts := redisopts.New(redis.Options{
 		Network:     "tcp",
 		Addr:        addr,
 		Password:    "",
 		DB:          db,
 		DialTimeout: 0,
 	})
+	rclient = redis.NewClient(opts)
 
-	res, _ := rclient.HGetAll(context.Background(), "TELEMETRY_CONNECTIONS").Result()
+	res, err := rclient.HGetAll(context.Background(), table).Result()
+	if err != nil {
+		log.Errorf("Failed to read %s for cleanup: %v", table, err)
+		return
+	}
 
 	if res == nil {
 		return

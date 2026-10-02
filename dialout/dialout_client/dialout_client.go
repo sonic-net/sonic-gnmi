@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
@@ -658,25 +659,27 @@ func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 		if err != nil {
 			return err
 		}
-		redisDb = redis.NewClient(&redis.Options{
+		optsUnix := redisopts.New(redis.Options{
 			Network:     "unix",
 			Addr:        addr,
 			Password:    "", // no password set
 			DB:          dbn,
 			DialTimeout: 0,
 		})
+		redisDb = redis.NewClient(optsUnix)
 	} else {
 		addr, err := sdcfg.GetDbTcpAddr("CONFIG_DB", ns)
 		if err != nil {
 			return err
 		}
-		redisDb = redis.NewClient(&redis.Options{
+		optsTcp := redisopts.New(redis.Options{
 			Network:     "tcp",
 			Addr:        addr,
 			Password:    "", // no password set
 			DB:          dbn,
 			DialTimeout: 0,
 		})
+		redisDb = redis.NewClient(optsTcp)
 	}
 
 	separator, err := sdc.GetTableKeySeparator("CONFIG_DB", ns)

@@ -75,6 +75,7 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 	 if printf '%s\n' "$$GO_MOD_VER" "$$GO_CUR_VER" | sort -V | head -1 | grep -qx "$$GO_MOD_VER"; then \
 	   $(GO) mod tidy; \
 	 fi
+	$(GO) mod edit -require=golang.org/x/term@v0.43.0
 	$(GO) mod vendor
 	$(GO) mod download github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2
 	cp -r $(GOPATH)/pkg/mod/github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2/* vendor/github.com/google/gnxi/
@@ -493,5 +494,3 @@ diff-cover: coverage.xml test-results/coverage-pure.xml
 		--compare-branch $(TARGET_BRANCH) \
 		--src-roots . \
 		--fail-under $(DIFF_COVER_THRESHOLD)
-
-

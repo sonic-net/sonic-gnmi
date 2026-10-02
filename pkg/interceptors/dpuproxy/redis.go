@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 )
 
 // RedisClient defines the interface for Redis operations needed by DPU resolver.
@@ -31,10 +32,11 @@ func (a *GoRedisAdapter) HGetAll(ctx context.Context, key string) (map[string]st
 // NewRedisClient creates a new Redis client connected to SONiC's Redis instance.
 // It connects via Unix socket to the specified database.
 func NewRedisClient(socketPath string, db int) *redis.Client {
-	return redis.NewClient(&redis.Options{
+	opts := redisopts.New(redis.Options{
 		Network:  "unix",
 		Addr:     socketPath,
 		Password: "", // SONiC Redis has no password
 		DB:       db,
 	})
+	return redis.NewClient(opts)
 }
