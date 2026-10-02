@@ -13,6 +13,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // ClientKey is the key used in the server's client map for duplicate detection.
@@ -33,9 +34,12 @@ type Client struct {
 	recvMsg                  int64
 	errors                   int64
 	polled                   chan struct{}
+	pollStop                 chan struct{}
+	pollSenders              sync.WaitGroup
 	stop                     chan struct{}
 	once                     chan struct{}
 	mu                       sync.RWMutex
+	closed                   bool
 	q                        *queue.PriorityQueue
 	subscribe                *gnmipb.SubscriptionList
 	// Wait for all sub go routine to finish
@@ -48,6 +52,10 @@ type Client struct {
 const logLevelError int = 3
 const logLevelDebug int = 7
 const logLevelMax int = logLevelDebug
+
+// subscribeReauthInterval bounds the lifetime of an established stream after
+// its credentials or authorization are revoked.
+const subscribeReauthInterval = time.Minute
 
 var connectionManager *ConnectionManager
 var connectionManagerMu sync.Mutex // Protects connectionManager initialization
@@ -137,12 +145,12 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 
 	defer func() {
 		if err != nil {
-			c.errors++
+			atomic.AddInt64(&c.errors, 1)
 		}
 	}()
 
 	query, err := stream.Recv()
-	c.recvMsg++
+	atomic.AddInt64(&c.recvMsg, 1)
 	if err != nil {
 		if err == io.EOF {
 			return grpc.Errorf(codes.Aborted, "stream EOF received before init")
@@ -242,6 +250,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 		go dc.StreamRun(c.q, c.stop, &c.w, c.subscribe)
 	case gnmipb.SubscriptionList_POLL:
 		c.polled = make(chan struct{}, 1)
+		c.pollStop = make(chan struct{})
 		c.polled <- struct{}{}
 		c.w.Add(1)
 		go dc.PollRun(c.q, c.polled, &c.w, c.subscribe)
@@ -255,12 +264,27 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 	}
 
 	log.V(1).Infof("Client %s running", c)
+	reauthStop := make(chan struct{})
+	reauthErr := make(chan error, 1)
+	go monitorAuthentication(stream.Context(), subscribeReauthInterval, func() error {
+		_, err := authenticate(config, stream.Context(), authTarget, false)
+		return err
+	}, c.Close, reauthStop, reauthErr)
 	go c.recv(stream)
 	err = c.send(stream, dc)
+	close(reauthStop)
 	c.Close()
 	// Wait until all child go routines exited
 	c.w.Wait()
-	return grpc.Errorf(codes.InvalidArgument, "%s", err)
+	select {
+	case err = <-reauthErr:
+		return err
+	default:
+	}
+	if err != nil {
+		return grpc.Errorf(codes.InvalidArgument, "%s", err)
+	}
+	return nil
 }
 
 // Closing of client queue is triggered upon end of stream receive or stream error
@@ -269,15 +293,23 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 func (c *Client) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	log.V(1).Infof("Client %s Close, sendMsg %v recvMsg %v errors %v", c, c.sendMsg, c.recvMsg, c.errors)
+	log.V(1).Infof("Client %s Close, sendMsg %v recvMsg %v errors %v", c,
+		atomic.LoadInt64(&c.sendMsg), atomic.LoadInt64(&c.recvMsg), atomic.LoadInt64(&c.errors))
+	if c.closed {
+		return
+	}
+	c.closed = true
 	if c.q != nil {
-		if c.q.Disposed() {
-			return
+		if !c.q.Disposed() {
+			c.q.Dispose()
 		}
-		c.q.Dispose()
 	}
 	if c.stop != nil {
 		close(c.stop)
+	}
+	if c.pollStop != nil {
+		close(c.pollStop)
+		c.pollSenders.Wait()
 	}
 	if c.polled != nil {
 		close(c.polled)
@@ -287,13 +319,35 @@ func (c *Client) Close() {
 	}
 }
 
+// signalPoll registers the sender while holding c.mu so Close cannot close
+// the poll channel concurrently. A blocked send is canceled by Close.
+func (c *Client) signalPoll() bool {
+	c.mu.RLock()
+	if c.closed || c.polled == nil {
+		c.mu.RUnlock()
+		return false
+	}
+	poll := c.polled
+	pollStop := c.pollStop
+	c.pollSenders.Add(1)
+	c.mu.RUnlock()
+	defer c.pollSenders.Done()
+
+	select {
+	case poll <- struct{}{}:
+		return true
+	case <-pollStop:
+		return false
+	}
+}
+
 func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 	defer c.Close()
 
 	for {
 		log.V(5).Infof("Client %s blocking on stream.Recv()", c)
 		event, err := stream.Recv()
-		c.recvMsg++
+		atomic.AddInt64(&c.recvMsg, 1)
 
 		switch err {
 		default:
@@ -319,7 +373,9 @@ func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 			if _, ok := event.Request.(*gnmipb.SubscribeRequest_Poll); !ok {
 				return
 			}
-			c.polled <- struct{}{}
+			if !c.signalPoll() {
+				return
+			}
 			continue
 		}
 		log.V(1).Infof("Client %s received invalid event: %s", c, event)
@@ -337,7 +393,7 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 			return err
 		}
 		if err != nil {
-			c.errors++
+			atomic.AddInt64(&c.errors, 1)
 			log.V(1).Infof("%v", err)
 			return fmt.Errorf("unexpected queue Gext(1): %v", err)
 		}
@@ -347,25 +403,25 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 		switch v := items[0].(type) {
 		case sdc.Value:
 			if resp, err = sdc.ValToResp(v); err != nil {
-				c.errors++
+				atomic.AddInt64(&c.errors, 1)
 				return err
 			}
 			val = &v
 		default:
 			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], c)
-			c.errors++
+			atomic.AddInt64(&c.errors, 1)
 		}
 
-		c.sendMsg++
+		atomic.AddInt64(&c.sendMsg, 1)
 		err = stream.Send(resp)
 		if err != nil {
 			log.V(1).Infof("Client %s sending error:%v", c, err)
-			c.errors++
+			atomic.AddInt64(&c.errors, 1)
 			dc.FailedSend()
 			return err
 		}
 
 		dc.SentOne(val)
-		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg, resp)
+		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, atomic.LoadInt64(&c.sendMsg), resp)
 	}
 }
