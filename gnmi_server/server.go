@@ -1385,6 +1385,7 @@ func (s *Server) Capabilities(ctx context.Context, req *gnmipb.CapabilityRequest
 	var targetDbName string
 	dc, _ = sdc.NewMixedDbClient(nil, nil, "", gnmipb.Encoding_JSON_IETF, s.config.ZmqPort, s.config.Vrf, &targetDbName)
 	supportedModels = append(supportedModels, dc.Capabilities()...)
+	supportedModels = append(supportedModels, (&sdc.RecordsClient{}).Capabilities()...)
 
 	suppModels := make([]*gnmipb.ModelData, len(supportedModels))
 
