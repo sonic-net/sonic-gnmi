@@ -401,13 +401,15 @@ func (c *DbusClient) InstallOS(req string) (string, error) {
 	return strResult, nil
 }
 
-func (c *DbusClient) HealthzCheck(req string) (string, error) {
+// callHealthz invokes one string-in/string-out debug_info method and records
+// the corresponding gNOI Healthz operation counter.
+func (c *DbusClient) callHealthz(method string, counter common_utils.CounterType, req string) (string, error) {
 	modName := "debug_info"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".check"
+	intName := c.intNamePrefix + modName + "." + method
 
-	common_utils.IncCounter(common_utils.GNOI_HEALTHZ_CHECK)
+	common_utils.IncCounter(counter)
 	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
 	if err != nil {
 		return "", err
@@ -417,42 +419,18 @@ func (c *DbusClient) HealthzCheck(req string) (string, error) {
 		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
 	}
 	return strResult, nil
+}
+
+func (c *DbusClient) HealthzCheck(req string) (string, error) {
+	return c.callHealthz("check", common_utils.GNOI_HEALTHZ_CHECK, req)
 }
 
 func (c *DbusClient) HealthzCollect(req string) (string, error) {
-	modName := "debug_info"
-	busName := c.busNamePrefix + modName
-	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".collect"
-
-	common_utils.IncCounter(common_utils.GNOI_HEALTHZ_COLLECT)
-	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
-	if err != nil {
-		return "", err
-	}
-	strResult, ok := result.(string)
-	if !ok {
-		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
-	}
-	return strResult, nil
+	return c.callHealthz("collect", common_utils.GNOI_HEALTHZ_COLLECT, req)
 }
 
 func (c *DbusClient) HealthzAck(req string) (string, error) {
-	modName := "debug_info"
-	busName := c.busNamePrefix + modName
-	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".ack"
-
-	common_utils.IncCounter(common_utils.GNOI_HEALTHZ_ACK)
-	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 10, req)
-	if err != nil {
-		return "", err
-	}
-	strResult, ok := result.(string)
-	if !ok {
-		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
-	}
-	return strResult, nil
+	return c.callHealthz("ack", common_utils.GNOI_HEALTHZ_ACK, req)
 }
 
 func (c *DbusClient) ConsoleSet(cmd string) error {
