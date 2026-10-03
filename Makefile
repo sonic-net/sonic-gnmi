@@ -131,29 +131,20 @@ go-deps-clean:
 	$(RM) -r vendor
 
 sonic-gnmi: $(GO_DEPS) $(FORMAT_CHECK)
+	mkdir -p $(BUILD_DIR)
 # advancetls 1.0.0 release need following patch to build by go-1.19
 	patch -d vendor -p0 < patches/0002-Fix-advance-tls-build-with-go-119.patch
 # build service first which depends on advancetls
 # add support for fsnotify closewrite event
 	patch -d vendor -p0 < patches/0004-CloseWrite-event-support.patch
-ifeq ($(CROSS_BUILD_ENVIRON),y)
-	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
+	$(GO) build -o $(BUILD_DIR)/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
-	$(GO) build -o ${GOBIN}/dialout_client_cli -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
+	$(GO) build -o $(BUILD_DIR)/dialout_client_cli -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
 endif
-	$(GO) build -o ${GOBIN}/gnoi_client -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
-	$(GO) build -o ${GOBIN}/gnmi_dump -mod=vendor github.com/sonic-net/sonic-gnmi/gnmi_dump
-else
-	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
-ifneq ($(ENABLE_DIALOUT_VALUE),0)
-	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
-endif
-	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
-	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/gnmi_dump
-	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/gnoi_openconfig_client
-	$(GO) install -mod=vendor github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/gnoi_sonic_client
-
-endif
+	$(GO) build -o $(BUILD_DIR)/gnoi_client -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
+	$(GO) build -o $(BUILD_DIR)/gnmi_dump -mod=vendor github.com/sonic-net/sonic-gnmi/gnmi_dump
+	$(GO) build -o $(BUILD_DIR)/gnoi_openconfig_client -mod=vendor github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/gnoi_openconfig_client
+	$(GO) build -o $(BUILD_DIR)/gnoi_sonic_client -mod=vendor github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/gnoi_sonic_client
 
 # download and apply patch for gnmi client
 # use the already-vendored crypto (no longer need the old 2019 override;
@@ -166,8 +157,8 @@ endif
 	git apply patches/0003-Fix-client-json-parsing-issue.patch
 
 # Manually adding patched client packages and their dependencies
-# to vendor/modules.txt. This satisfies 'go install -mod=vendor' lookup checks,
-# which are required after manual patching/copying of gnxi and gnmi-cli code.
+# to vendor/modules.txt. This satisfies vendor lookup checks after manually
+# patching and copying gnxi and gnmi-cli code.
 	echo "github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2" >> vendor/modules.txt
 	echo "github.com/google/gnxi/gnmi_get" >> vendor/modules.txt
 	echo "github.com/google/gnxi/gnmi_set" >> vendor/modules.txt
@@ -176,15 +167,9 @@ endif
 	echo "golang.org/x/crypto/ssh/terminal" >> vendor/modules.txt
 	echo "github.com/openconfig/gnmi/cmd/gnmi_cli" >> vendor/modules.txt
 
-ifeq ($(CROSS_BUILD_ENVIRON),y)
-	$(GO) build -o ${GOBIN}/gnmi_get -mod=vendor github.com/google/gnxi/gnmi_get
-	$(GO) build -o ${GOBIN}/gnmi_set -mod=vendor github.com/google/gnxi/gnmi_set
-	$(GO) build -o ${GOBIN}/gnmi_cli -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
-else
-	$(GO) install -mod=vendor github.com/google/gnxi/gnmi_get
-	$(GO) install -mod=vendor github.com/google/gnxi/gnmi_set
-	$(GO) install -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
-endif
+	$(GO) build -o $(BUILD_DIR)/gnmi_get -mod=vendor github.com/google/gnxi/gnmi_get
+	$(GO) build -o $(BUILD_DIR)/gnmi_set -mod=vendor github.com/google/gnxi/gnmi_set
+	$(GO) build -o $(BUILD_DIR)/gnmi_cli -mod=vendor github.com/openconfig/gnmi/cmd/gnmi_cli
 
 swsscommon_wrap:
 	make -C swsscommon
@@ -449,31 +434,22 @@ $(FORMAT_CHECK): $(GO_FILES)
 	fi
 	touch $@
 
-install:
-	$(INSTALL) -D $(BUILD_DIR)/telemetry $(DESTDIR)/usr/sbin/telemetry
+PRODUCT_BINARIES := telemetry gnmi_get gnmi_set gnmi_cli gnoi_client \
+	gnoi_openconfig_client gnoi_sonic_client gnmi_dump
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
-	$(INSTALL) -D $(BUILD_DIR)/dialout_client_cli $(DESTDIR)/usr/sbin/dialout_client_cli
+PRODUCT_BINARIES += dialout_client_cli
 endif
-	$(INSTALL) -D $(BUILD_DIR)/gnmi_get $(DESTDIR)/usr/sbin/gnmi_get
-	$(INSTALL) -D $(BUILD_DIR)/gnmi_set $(DESTDIR)/usr/sbin/gnmi_set
-	$(INSTALL) -D $(BUILD_DIR)/gnmi_cli $(DESTDIR)/usr/sbin/gnmi_cli
-	$(INSTALL) -D $(BUILD_DIR)/gnoi_client $(DESTDIR)/usr/sbin/gnoi_client
-	$(INSTALL) -D $(BUILD_DIR)/gnoi_openconfig_client $(DESTDIR)/usr/sbin/gnoi_openconfig_client
-	$(INSTALL) -D $(BUILD_DIR)/gnoi_sonic_client $(DESTDIR)/usr/sbin/gnoi_sonic_client
-	$(INSTALL) -D $(BUILD_DIR)/gnmi_dump $(DESTDIR)/usr/sbin/gnmi_dump
+
+install:
+	@set -e; for binary in $(PRODUCT_BINARIES); do \
+		$(INSTALL) -D $(BUILD_DIR)/$$binary $(DESTDIR)/usr/sbin/$$binary; \
+	done
 
 
 deinstall:
-	rm $(DESTDIR)/usr/sbin/telemetry
-ifneq ($(ENABLE_DIALOUT_VALUE),0)
-	rm $(DESTDIR)/usr/sbin/dialout_client_cli
-endif
-	rm $(DESTDIR)/usr/sbin/gnmi_get
-	rm $(DESTDIR)/usr/sbin/gnmi_set
-	rm $(DESTDIR)/usr/sbin/gnoi_client
-	rm $(DESTDIR)/usr/sbin/gnoi_openconfig_client
-	rm $(DESTDIR)/usr/sbin/gnoi_sonic_client
-	rm $(DESTDIR)/usr/sbin/gnmi_dump
+	@set -e; for binary in $(PRODUCT_BINARIES); do \
+		rm $(DESTDIR)/usr/sbin/$$binary; \
+	done
 
 
 TARGET_BRANCH ?= origin/master
