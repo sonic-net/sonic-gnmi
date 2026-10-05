@@ -36,11 +36,6 @@ jobs:
       uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
     - name: Set up Go
-      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-      with:
-        go-version: '1.25'
-
-    - name: Set up Go
       uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
       with:
         go-version: '1.25'
@@ -65,6 +60,16 @@ jobs:
       with:
         config-file: ./.github/codeql/codeql-config.yml
         languages: ${{ matrix.language }}
+        build-mode: manual
+
+    # sonic-gnmi cannot autobuild on ubuntu-latest (vendor patches, CGO, sonic-slave).
+    # Build canonical pure packages the same way as Azure StaticChecks/Test pure_tests.
+    - name: Build for CodeQL
+      run: |
+        set -euxo pipefail
+        go mod download
+        go mod tidy
+        make -f pure.mk build-test
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
