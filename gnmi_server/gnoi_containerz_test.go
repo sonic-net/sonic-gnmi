@@ -283,7 +283,7 @@ func TestDeploySuccessPreservesLoadAndResponseSequence(t *testing.T) {
 	}
 	if success.ImageTransferSuccess.Name != "../../sensitive-image-name" ||
 		success.ImageTransferSuccess.Tag != "latest" ||
-		success.ImageTransferSuccess.ImageSize != 0 {
+		success.ImageTransferSuccess.ImageSize != uint64(len("container image")) {
 		t.Errorf("success response = %+v", success.ImageTransferSuccess)
 	}
 }

@@ -30,6 +30,17 @@ type containerzImageLoader interface {
 	Close() error
 }
 
+type containerzCountingWriter struct {
+	containerzTemporaryFile
+	bytesWritten uint64
+}
+
+func (w *containerzCountingWriter) Write(data []byte) (int, error) {
+	n, err := w.containerzTemporaryFile.Write(data)
+	w.bytesWritten += uint64(n)
+	return n, err
+}
+
 type containerzDeployDependencies struct {
 	authenticate      func(*Config, context.Context, string, bool) (context.Context, error)
 	createTempFile    func(string, string) (containerzTemporaryFile, error)
@@ -118,7 +129,8 @@ func (c *ContainerzServer) Deploy(
 		}
 	}()
 
-	if err := dependencies.downloadRemote(ctx, downloadRequest, tempFile); err != nil {
+	downloadWriter := &containerzCountingWriter{containerzTemporaryFile: tempFile}
+	if err := dependencies.downloadRemote(ctx, downloadRequest, downloadWriter); err != nil {
 		code := codes.Internal
 		if errors.Is(err, download.ErrInvalidRequest) {
 			code = codes.InvalidArgument
@@ -170,7 +182,7 @@ func (c *ContainerzServer) Deploy(
 			ImageTransferSuccess: &gnoi_containerz_pb.ImageTransferSuccess{
 				Name:      imageTransfer.Name,
 				Tag:       imageTransfer.Tag,
-				ImageSize: 0,
+				ImageSize: downloadWriter.bytesWritten,
 			},
 		},
 	}
