@@ -26,6 +26,7 @@ type containerzTemporaryFile interface {
 
 type containerzImageLoader interface {
 	LoadDockerImage(string) error
+	Close() error
 }
 
 type containerzDeployDependencies struct {
@@ -127,8 +128,26 @@ func (c *ContainerzServer) Deploy(
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to create D-Bus client: %v", err)
 	}
+	imageLoaderClosed := false
+	defer func() {
+		if imageLoaderClosed {
+			return
+		}
+		if closeErr := imageLoader.Close(); closeErr != nil {
+			result = appendContainerzInternalFailure(
+				result,
+				"failed to close D-Bus client",
+				closeErr,
+			)
+		}
+	}()
 	if err := imageLoader.LoadDockerImage(localPath); err != nil {
 		return status.Errorf(codes.Internal, "failed to load docker image: %v", err)
+	}
+	closeErr := imageLoader.Close()
+	imageLoaderClosed = true
+	if closeErr != nil {
+		return status.Errorf(codes.Internal, "failed to close D-Bus client: %v", closeErr)
 	}
 	log.V(2).Info("gNOI: Containerz image load completed")
 

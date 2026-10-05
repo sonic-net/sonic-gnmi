@@ -65,11 +65,16 @@ type dummyLogServer struct {
 }
 
 type fakeContainerzImageLoader struct {
-	load func(string) error
+	load  func(string) error
+	close func() error
 }
 
 func (f *fakeContainerzImageLoader) LoadDockerImage(path string) error {
 	return f.load(path)
+}
+
+func (f *fakeContainerzImageLoader) Close() error {
+	return f.close()
 }
 
 type trackingTempFile struct {
@@ -92,6 +97,7 @@ type deployFixture struct {
 	downloadErr     error
 	newLoaderErr    error
 	loadErr         error
+	closeLoaderErr  error
 	removeErr       error
 	createTempErr   error
 	authenticateErr error
@@ -155,6 +161,10 @@ func (f *deployFixture) dependencies(t *testing.T) *containerzDeployDependencies
 					f.loadedPath = path
 					return f.loadErr
 				},
+				close: func() error {
+					f.events = append(f.events, "dbus-close")
+					return f.closeLoaderErr
+				},
 			}, nil
 		},
 		removeFile: func(path string) error {
@@ -215,7 +225,7 @@ func TestDeploySuccessPreservesLoadAndResponseSequence(t *testing.T) {
 		t.Fatalf("Deploy() error = %v", err)
 	}
 
-	wantEvents := []string{"download", "close", "dbus", "load", "remove", "send"}
+	wantEvents := []string{"download", "close", "dbus", "load", "dbus-close", "remove", "send"}
 	if !reflect.DeepEqual(fixture.events, wantEvents) {
 		t.Errorf("events = %v, want %v", fixture.events, wantEvents)
 	}
@@ -344,15 +354,23 @@ func TestDeployCleansUpAtEveryFailureStage(t *testing.T) {
 			configure: func(fixture *deployFixture, _ *dummyDeployServer) {
 				fixture.loadErr = errors.New("load failed")
 			},
-			wantEvents: []string{"download", "close", "dbus", "load", "remove"},
+			wantEvents: []string{"download", "close", "dbus", "load", "dbus-close", "remove"},
 			wantError:  "load failed",
+		},
+		{
+			name: "D-Bus client close",
+			configure: func(fixture *deployFixture, _ *dummyDeployServer) {
+				fixture.closeLoaderErr = errors.New("dbus close failed")
+			},
+			wantEvents: []string{"download", "close", "dbus", "load", "dbus-close", "remove"},
+			wantError:  "dbus close failed",
 		},
 		{
 			name: "cleanup",
 			configure: func(fixture *deployFixture, _ *dummyDeployServer) {
 				fixture.removeErr = errors.New("cleanup failed")
 			},
-			wantEvents: []string{"download", "close", "dbus", "load", "remove"},
+			wantEvents: []string{"download", "close", "dbus", "load", "dbus-close", "remove"},
 			wantError:  "cleanup failed",
 			fileExists: true,
 		},
@@ -361,7 +379,7 @@ func TestDeployCleansUpAtEveryFailureStage(t *testing.T) {
 			configure: func(_ *deployFixture, stream *dummyDeployServer) {
 				stream.sendErr = errors.New("send failed")
 			},
-			wantEvents: []string{"download", "close", "dbus", "load", "remove", "send"},
+			wantEvents: []string{"download", "close", "dbus", "load", "dbus-close", "remove", "send"},
 			wantError:  "send failed",
 		},
 	}
@@ -400,8 +418,9 @@ func TestDeployCleansUpAtEveryFailureStage(t *testing.T) {
 
 func TestDeployReportsPrimaryAndCleanupFailures(t *testing.T) {
 	fixture := &deployFixture{
-		loadErr:   errors.New("load failed"),
-		removeErr: errors.New("cleanup failed"),
+		loadErr:        errors.New("load failed"),
+		closeLoaderErr: errors.New("dbus close failed"),
+		removeErr:      errors.New("cleanup failed"),
 	}
 	server := newContainerzTestServer(fixture.dependencies(t))
 	stream := &dummyDeployServer{
@@ -415,7 +434,7 @@ func TestDeployReportsPrimaryAndCleanupFailures(t *testing.T) {
 	if status.Code(err) != codes.Internal {
 		t.Fatalf("Deploy() code = %v, want Internal", status.Code(err))
 	}
-	for _, message := range []string{"load failed", "cleanup failed"} {
+	for _, message := range []string{"load failed", "dbus close failed", "cleanup failed"} {
 		if !strings.Contains(err.Error(), message) {
 			t.Errorf("Deploy() error = %v, want %q", err, message)
 		}
