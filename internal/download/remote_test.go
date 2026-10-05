@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -244,6 +245,43 @@ func TestNewRemoteClientDisablesAmbientHTTPState(t *testing.T) {
 	}
 }
 
+func TestNewRemoteClientTranslatesDefaultKnownHostsFiles(t *testing.T) {
+	client := newRemoteClientWithHostPath(func(path string) string {
+		return "/mnt/host" + path
+	})
+	want := []string{
+		"/mnt/host/etc/ssh/ssh_known_hosts",
+		"/mnt/host/root/.ssh/known_hosts",
+	}
+	if !reflect.DeepEqual(client.knownHostsFiles, want) {
+		t.Errorf("known-host files = %v, want %v", client.knownHostsFiles, want)
+	}
+}
+
+func TestRemoteClientHTTPClosesIdleConnections(t *testing.T) {
+	transport := &closeTrackingRoundTripper{
+		roundTrip: func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("image")),
+				Header:     make(http.Header),
+			}, nil
+		},
+	}
+	client := newRemoteClient()
+	client.httpTransport = transport
+
+	if err := client.download(context.Background(), Request{
+		Protocol: ProtocolHTTP,
+		Path:     "http://example.com/image.tar",
+	}, io.Discard); err != nil {
+		t.Fatalf("Download() error = %v", err)
+	}
+	if got := transport.closeCalls.Load(); got != 1 {
+		t.Errorf("CloseIdleConnections() calls = %d, want 1", got)
+	}
+}
+
 func TestRemoteClientHTTPRejectsRedirectWithoutForwardingCredentials(t *testing.T) {
 	var redirectedRequests atomic.Int32
 	redirectTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -391,6 +429,23 @@ func TestRemoteClientHonorsContextCancellation(t *testing.T) {
 	}
 }
 
+func TestRemoteClientEnforcesTransferTimeout(t *testing.T) {
+	client := newRemoteClient()
+	client.timeout = 20 * time.Millisecond
+	client.httpTransport = roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})
+
+	err := client.download(context.Background(), Request{
+		Protocol: ProtocolHTTP,
+		Path:     "http://example.com/image.tar",
+	}, io.Discard)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Download() error = %v, want context.DeadlineExceeded", err)
+	}
+}
+
 func TestRemoteClientRejectsInvalidKnownHostsBeforeDial(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -478,12 +533,17 @@ func TestRemoteClientRejectsUntrustedSSHKeysBeforeAuthentication(t *testing.T) {
 
 			err := client.download(context.Background(), Request{
 				Protocol: ProtocolSFTP,
-				Path:     requestedAddress + ":/image.tar",
-				Username: "user",
+				Path:     requestedAddress + ":/secret-path/image.tar",
+				Username: "secret-user",
 				Password: "password",
 			}, io.Discard)
 			if err == nil || !strings.Contains(err.Error(), "host-key") {
 				t.Fatalf("Download() error = %v, want host-key verification error", err)
+			}
+			for _, secret := range []string{"secret-path", "secret-user", "password"} {
+				if strings.Contains(err.Error(), secret) {
+					t.Fatalf("Download() error exposed %q: %v", secret, err)
+				}
 			}
 			if got := server.authCalls.Load(); got != 0 {
 				t.Errorf("authentication attempts = %d, want 0", got)
@@ -525,6 +585,222 @@ func TestRemoteClientSFTPSuccessWithAliasAndNonDefaultPort(t *testing.T) {
 	}
 }
 
+func TestRemoteClientSFTPResolvesHomeRelativePath(t *testing.T) {
+	content := []byte("sftp home image")
+	homeDirectory := t.TempDir()
+	imagesDirectory := filepath.Join(homeDirectory, "images")
+	if err := os.Mkdir(imagesDirectory, 0700); err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(imagesDirectory, "image.tar"), content, 0600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	server := startSSHTestServerWithSFTPDirectory(t, homeDirectory)
+	const requestedAddress = "download.example:2222"
+	client := remoteClientForSSHServer(server)
+	client.knownHostsFiles = []string{
+		writeKnownHosts(t, requestedAddress, server.signer.PublicKey(), false),
+	}
+
+	var destination bytes.Buffer
+	err := client.download(context.Background(), Request{
+		Protocol: ProtocolSFTP,
+		Path:     requestedAddress + ":~/images/image.tar",
+		Username: "user",
+		Password: "password",
+	}, &destination)
+	if err != nil {
+		t.Fatalf("Download() error = %v", err)
+	}
+	if !bytes.Equal(destination.Bytes(), content) {
+		t.Errorf("Download() content = %q, want %q", destination.Bytes(), content)
+	}
+}
+
+func TestRemoteClientSFTPPreservesHomeRelativeDotSegments(t *testing.T) {
+	content := []byte("symlink-aware image")
+	homeDirectory := t.TempDir()
+	targetDirectory := filepath.Join(homeDirectory, "target")
+	nestedDirectory := filepath.Join(targetDirectory, "nested")
+	if err := os.MkdirAll(nestedDirectory, 0700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(homeDirectory, "image.tar"), []byte("lexically cleaned image"), 0600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDirectory, "image.tar"), content, 0600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.Symlink(nestedDirectory, filepath.Join(homeDirectory, "link")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	server := startSSHTestServerWithSFTPDirectory(t, homeDirectory)
+	const requestedAddress = "download.example:2222"
+	client := remoteClientForSSHServer(server)
+	client.knownHostsFiles = []string{
+		writeKnownHosts(t, requestedAddress, server.signer.PublicKey(), false),
+	}
+
+	var destination bytes.Buffer
+	err := client.download(context.Background(), Request{
+		Protocol: ProtocolSFTP,
+		Path:     requestedAddress + ":~/link/../image.tar",
+		Username: "user",
+		Password: "password",
+	}, &destination)
+	if err != nil {
+		t.Fatalf("Download() error = %v", err)
+	}
+	if !bytes.Equal(destination.Bytes(), content) {
+		t.Errorf("Download() content = %q, want %q", destination.Bytes(), content)
+	}
+}
+
+func TestRemoteClientSFTPCancellationDuringHomeResolution(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+
+	lister := &blockingRealPathLister{
+		started: started,
+		release: release,
+	}
+	server := startSSHTestServerWithSFTPHandlers(t, sftp.Handlers{
+		FileList: lister,
+	})
+	const requestedAddress = "download.example:2222"
+	client := remoteClientForSSHServer(server)
+	client.knownHostsFiles = []string{
+		writeKnownHosts(t, requestedAddress, server.signer.PublicKey(), false),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- client.download(ctx, Request{
+			Protocol: ProtocolSFTP,
+			Path:     requestedAddress + ":~/image.tar",
+			Username: "user",
+			Password: "password",
+		}, io.Discard)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for SFTP home resolution")
+	}
+	cancel()
+
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Download() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for canceled SFTP download")
+	}
+}
+
+func TestRemoteClientSFTPSizeLimit(t *testing.T) {
+	remotePath := filepath.Join(t.TempDir(), "image.tar")
+	if err := os.WriteFile(remotePath, []byte("123456"), 0600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	server := startSSHTestServer(t, nil)
+	const requestedAddress = "download.example:2222"
+	client := remoteClientForSSHServer(server)
+	client.knownHostsFiles = []string{
+		writeKnownHosts(t, requestedAddress, server.signer.PublicKey(), false),
+	}
+
+	err := client.download(context.Background(), Request{
+		Protocol: ProtocolSFTP,
+		Path:     requestedAddress + ":" + remotePath,
+		Username: "user",
+		Password: "password",
+		MaxSize:  5,
+	}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "size limit") {
+		t.Fatalf("Download() error = %v, want size limit error", err)
+	}
+}
+
+func TestResolveSFTPRemotePath(t *testing.T) {
+	tests := []struct {
+		name       string
+		remotePath string
+		getwd      func() (string, error)
+		want       string
+		wantErr    bool
+	}{
+		{
+			name:       "absolute path",
+			remotePath: "/images/image.tar",
+			getwd: func() (string, error) {
+				t.Fatal("Getwd() called for an absolute path")
+				return "", nil
+			},
+			want: "/images/image.tar",
+		},
+		{
+			name:       "home directory",
+			remotePath: "~",
+			getwd:      func() (string, error) { return "/home/user", nil },
+			want:       "/home/user",
+		},
+		{
+			name:       "home-relative path",
+			remotePath: "~/images/image.tar",
+			getwd:      func() (string, error) { return "/home/user", nil },
+			want:       "/home/user/images/image.tar",
+		},
+		{
+			name:       "home-relative path preserves dot segments",
+			remotePath: "~/link/../image.tar",
+			getwd:      func() (string, error) { return "/home/user", nil },
+			want:       "/home/user/link/../image.tar",
+		},
+		{
+			name:       "root home-relative path",
+			remotePath: "~/image.tar",
+			getwd:      func() (string, error) { return "/", nil },
+			want:       "/image.tar",
+		},
+		{
+			name:       "resolution failure",
+			remotePath: "~/images/image.tar",
+			getwd:      func() (string, error) { return "", errors.New("remote-secret") },
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveSFTPRemotePath(tt.remotePath, tt.getwd)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("resolveSFTPRemotePath() expected error, got nil")
+				}
+				if strings.Contains(err.Error(), "remote-secret") {
+					t.Fatalf("resolveSFTPRemotePath() exposed server error: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveSFTPRemotePath() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("resolveSFTPRemotePath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRemoteClientSCPSuccessQuotesRemotePath(t *testing.T) {
 	content := []byte("scp image")
 	server := startSSHTestServer(t, content)
@@ -560,10 +836,72 @@ func TestRemoteClientSCPSuccessQuotesRemotePath(t *testing.T) {
 	}
 }
 
+func TestRemoteClientSCPExpandsHomeWithoutCommandInjection(t *testing.T) {
+	server := startSSHTestServer(t, []byte("scp image"))
+	const requestedAddress = "download.example:2222"
+	client := remoteClientForSSHServer(server)
+	client.knownHostsFiles = []string{
+		writeKnownHosts(t, requestedAddress, server.signer.PublicKey(), false),
+	}
+
+	const remotePath = `~/images/image'; touch /tmp/injected; echo '.tar`
+	if err := client.download(context.Background(), Request{
+		Protocol: ProtocolSCP,
+		Path:     requestedAddress + ":" + remotePath,
+		Username: "user",
+		Password: "password",
+	}, io.Discard); err != nil {
+		t.Fatalf("Download() error = %v", err)
+	}
+
+	select {
+	case command := <-server.commands:
+		const want = `scp -f -- "$HOME"/'images/image'"'"'; touch /tmp/injected; echo '"'"'.tar'`
+		if command != want {
+			t.Errorf("SCP command = %q, want %q", command, want)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for SCP command")
+	}
+}
+
+func TestRemoteClientSCPSizeLimit(t *testing.T) {
+	server := startSSHTestServer(t, []byte("123456"))
+	const requestedAddress = "download.example:2222"
+	client := remoteClientForSSHServer(server)
+	client.knownHostsFiles = []string{
+		writeKnownHosts(t, requestedAddress, server.signer.PublicKey(), false),
+	}
+
+	err := client.download(context.Background(), Request{
+		Protocol: ProtocolSCP,
+		Path:     requestedAddress + ":/image.tar",
+		Username: "user",
+		Password: "password",
+		MaxSize:  5,
+	}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "size limit") {
+		t.Fatalf("Download() error = %v, want size limit error", err)
+	}
+}
+
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+type closeTrackingRoundTripper struct {
+	roundTrip  func(*http.Request) (*http.Response, error)
+	closeCalls atomic.Int32
+}
+
+func (t *closeTrackingRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return t.roundTrip(request)
+}
+
+func (t *closeTrackingRoundTripper) CloseIdleConnections() {
+	t.closeCalls.Add(1)
 }
 
 type readCloser struct {
@@ -594,16 +932,56 @@ func (zeroReader) Read([]byte) (int, error) {
 	return 0, nil
 }
 
+type blockingRealPathLister struct {
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (l *blockingRealPathLister) Filelist(*sftp.Request) (sftp.ListerAt, error) {
+	return nil, errors.New("unexpected SFTP list request")
+}
+
+func (l *blockingRealPathLister) RealPath(string) (string, error) {
+	l.started <- struct{}{}
+	<-l.release
+	return "", errors.New("SFTP connection closed")
+}
+
 type sshTestServer struct {
-	address   string
-	signer    ssh.Signer
-	authCalls atomic.Int32
-	commands  chan string
-	listener  net.Listener
-	scpData   []byte
+	address              string
+	signer               ssh.Signer
+	authCalls            atomic.Int32
+	commands             chan string
+	listener             net.Listener
+	scpData              []byte
+	sftpWorkingDirectory string
+	sftpHandlers         *sftp.Handlers
 }
 
 func startSSHTestServer(t *testing.T, scpData []byte) *sshTestServer {
+	return startSSHTestServerWithOptions(t, scpData, "", nil)
+}
+
+func startSSHTestServerWithSFTPDirectory(
+	t *testing.T,
+	workingDirectory string,
+) *sshTestServer {
+	return startSSHTestServerWithOptions(t, nil, workingDirectory, nil)
+}
+
+func startSSHTestServerWithSFTPHandlers(
+	t *testing.T,
+	handlers sftp.Handlers,
+) *sshTestServer {
+	return startSSHTestServerWithOptions(t, nil, "", &handlers)
+}
+
+func startSSHTestServerWithOptions(
+	t *testing.T,
+	scpData []byte,
+	sftpWorkingDirectory string,
+	sftpHandlers *sftp.Handlers,
+) *sshTestServer {
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -612,11 +990,13 @@ func startSSHTestServer(t *testing.T, scpData []byte) *sshTestServer {
 	}
 
 	server := &sshTestServer{
-		address:  listener.Addr().String(),
-		signer:   newSigner(t),
-		commands: make(chan string, 1),
-		listener: listener,
-		scpData:  scpData,
+		address:              listener.Addr().String(),
+		signer:               newSigner(t),
+		commands:             make(chan string, 1),
+		listener:             listener,
+		scpData:              scpData,
+		sftpWorkingDirectory: sftpWorkingDirectory,
+		sftpHandlers:         sftpHandlers,
 	}
 	config := &ssh.ServerConfig{
 		PasswordCallback: func(_ ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
@@ -676,7 +1056,20 @@ func (s *sshTestServer) serveSession(channel ssh.Channel, requests <-chan *ssh.R
 				return
 			}
 			_ = request.Reply(true, nil)
-			server, err := sftp.NewServer(channel)
+			if s.sftpHandlers != nil {
+				server := sftp.NewRequestServer(channel, *s.sftpHandlers)
+				_ = server.Serve()
+				_ = server.Close()
+				return
+			}
+			options := []sftp.ServerOption{}
+			if s.sftpWorkingDirectory != "" {
+				options = append(
+					options,
+					sftp.WithServerWorkingDirectory(s.sftpWorkingDirectory),
+				)
+			}
+			server, err := sftp.NewServer(channel, options...)
 			if err != nil {
 				return
 			}

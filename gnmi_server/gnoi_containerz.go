@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"path/filepath"
 
 	log "github.com/golang/glog"
 	gnoi_common_pb "github.com/openconfig/gnoi/common"
@@ -30,11 +31,12 @@ type containerzImageLoader interface {
 }
 
 type containerzDeployDependencies struct {
-	authenticate   func(*Config, context.Context, string, bool) (context.Context, error)
-	createTempFile func(string, string) (containerzTemporaryFile, error)
-	downloadRemote func(context.Context, download.Request, io.Writer) error
-	newImageLoader func() (containerzImageLoader, error)
-	removeFile     func(string) error
+	authenticate      func(*Config, context.Context, string, bool) (context.Context, error)
+	createTempFile    func(string, string) (containerzTemporaryFile, error)
+	downloadRemote    func(context.Context, download.Request, io.Writer) error
+	newImageLoader    func() (containerzImageLoader, error)
+	removeFile        func(string) error
+	translateHostPath func(string) string
 }
 
 func (c *ContainerzServer) resolvedDeployDependencies() containerzDeployDependencies {
@@ -79,11 +81,16 @@ func (c *ContainerzServer) Deploy(
 		downloadRequest.Protocol,
 	)
 
-	tempFile, err := dependencies.createTempFile("/tmp", "containerz-image-*.tar")
+	const hostTempDirectory = "/tmp"
+	tempFile, err := dependencies.createTempFile(
+		dependencies.translateHostPath(hostTempDirectory),
+		"containerz-image-*.tar",
+	)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to create temporary image file: %v", err)
 	}
 	localPath := tempFile.Name()
+	hostVisiblePath := filepath.Join(hostTempDirectory, filepath.Base(localPath))
 	fileClosed := false
 	cleanupPending := true
 	defer func() {
@@ -118,10 +125,11 @@ func (c *ContainerzServer) Deploy(
 		}
 		return status.Errorf(code, "failed to download image: %v", err)
 	}
-	if err := tempFile.Close(); err != nil {
+	err = tempFile.Close()
+	fileClosed = true
+	if err != nil {
 		return status.Errorf(codes.Internal, "failed to close temporary image file: %v", err)
 	}
-	fileClosed = true
 	log.V(2).Info("gNOI: Containerz image download completed")
 
 	imageLoader, err := dependencies.newImageLoader()
@@ -141,7 +149,7 @@ func (c *ContainerzServer) Deploy(
 			)
 		}
 	}()
-	if err := imageLoader.LoadDockerImage(localPath); err != nil {
+	if err := imageLoader.LoadDockerImage(hostVisiblePath); err != nil {
 		return status.Errorf(codes.Internal, "failed to load docker image: %v", err)
 	}
 	closeErr := imageLoader.Close()

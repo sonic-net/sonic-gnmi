@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/pkg/sftp"
+	"github.com/sonic-net/sonic-gnmi/pkg/hostfs"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -67,10 +68,18 @@ type remoteTarget struct {
 }
 
 func newRemoteClient() *remoteClient {
+	return newRemoteClientWithHostPath(hostfs.Translate)
+}
+
+func newRemoteClientWithHostPath(translateHostPath func(string) string) *remoteClient {
 	dialer := &net.Dialer{}
+	knownHostsFiles := make([]string, 0, len(defaultKnownHostsFiles))
+	for _, knownHostsFile := range defaultKnownHostsFiles {
+		knownHostsFiles = append(knownHostsFiles, translateHostPath(knownHostsFile))
+	}
 	return &remoteClient{
 		httpTransport:   newHTTPTransport(),
-		knownHostsFiles: append([]string(nil), defaultKnownHostsFiles...),
+		knownHostsFiles: knownHostsFiles,
 		dialContext:     dialer.DialContext,
 		timeout:         defaultRemoteTimeout,
 	}
@@ -272,6 +281,9 @@ func (c *remoteClient) downloadHTTP(
 	if transport == nil {
 		transport = newHTTPTransport()
 	}
+	if idleConnectionCloser, ok := transport.(interface{ CloseIdleConnections() }); ok {
+		defer idleConnectionCloser.CloseIdleConnections()
+	}
 	client := &http.Client{
 		Transport: transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -456,7 +468,14 @@ func downloadSFTP(
 	}
 	defer sftpClient.Close()
 
-	remoteFile, err := sftpClient.Open(remotePath)
+	resolvedRemotePath, err := resolveSFTPRemotePath(remotePath, sftpClient.Getwd)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return err
+	}
+	remoteFile, err := sftpClient.Open(resolvedRemotePath)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
@@ -485,7 +504,7 @@ func downloadSCP(
 	destination io.Writer,
 	maxSize int64,
 ) error {
-	command := "scp -f -- " + shellQuote(remotePath)
+	command := "scp -f -- " + scpRemoteArgument(remotePath)
 	session, err := client.NewSession()
 	if err != nil {
 		return errors.New("failed to start SCP session")
@@ -582,6 +601,42 @@ func downloadSCP(
 			return errors.New("invalid SCP response")
 		}
 	}
+}
+
+func resolveSFTPRemotePath(
+	remotePath string,
+	getWorkingDirectory func() (string, error),
+) (string, error) {
+	if remotePath != "~" && !strings.HasPrefix(remotePath, "~/") {
+		return remotePath, nil
+	}
+
+	workingDirectory, err := getWorkingDirectory()
+	if err != nil || !strings.HasPrefix(workingDirectory, "/") {
+		return "", errors.New("failed to resolve remote SFTP home")
+	}
+	if remotePath == "~" || remotePath == "~/" {
+		return workingDirectory, nil
+	}
+	suffix := strings.TrimPrefix(remotePath, "~/")
+	if workingDirectory == "/" {
+		return "/" + suffix, nil
+	}
+	return strings.TrimSuffix(workingDirectory, "/") + "/" + suffix, nil
+}
+
+func scpRemoteArgument(remotePath string) string {
+	if remotePath == "~" {
+		return `"$HOME"`
+	}
+	if strings.HasPrefix(remotePath, "~/") {
+		suffix := strings.TrimPrefix(remotePath, "~/")
+		if suffix == "" {
+			return `"$HOME"/`
+		}
+		return `"$HOME"/` + shellQuote(suffix)
+	}
+	return shellQuote(remotePath)
 }
 
 func shellQuote(value string) string {

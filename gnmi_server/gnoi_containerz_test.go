@@ -79,12 +79,17 @@ func (f *fakeContainerzImageLoader) Close() error {
 
 type trackingTempFile struct {
 	*os.File
-	events *[]string
+	events   *[]string
+	closeErr error
 }
 
 func (f *trackingTempFile) Close() error {
 	*f.events = append(*f.events, "close")
-	return f.File.Close()
+	closeErr := f.File.Close()
+	if f.closeErr != nil {
+		return f.closeErr
+	}
+	return closeErr
 }
 
 type deployFixture struct {
@@ -95,6 +100,7 @@ type deployFixture struct {
 	tempPattern     string
 	tempMode        os.FileMode
 	downloadErr     error
+	closeTempErr    error
 	newLoaderErr    error
 	loadErr         error
 	closeLoaderErr  error
@@ -105,6 +111,7 @@ type deployFixture struct {
 
 func (f *deployFixture) dependencies(t *testing.T) *containerzDeployDependencies {
 	t.Helper()
+	hostTempDirectory := t.TempDir()
 
 	return &containerzDeployDependencies{
 		authenticate: func(
@@ -119,15 +126,19 @@ func (f *deployFixture) dependencies(t *testing.T) *containerzDeployDependencies
 			if f.createTempErr != nil {
 				return nil, f.createTempErr
 			}
-			if directory != "/tmp" {
-				t.Errorf("CreateTemp() directory = %q, want /tmp", directory)
+			if directory != hostTempDirectory {
+				t.Errorf("CreateTemp() directory = %q, want %q", directory, hostTempDirectory)
 			}
 			f.tempPattern = pattern
-			file, err := os.CreateTemp(t.TempDir(), pattern)
+			file, err := os.CreateTemp(directory, pattern)
 			if err != nil {
 				return nil, err
 			}
-			return &trackingTempFile{File: file, events: &f.events}, nil
+			return &trackingTempFile{
+				File:     file,
+				events:   &f.events,
+				closeErr: f.closeTempErr,
+			}, nil
 		},
 		downloadRemote: func(
 			_ context.Context,
@@ -173,6 +184,12 @@ func (f *deployFixture) dependencies(t *testing.T) *containerzDeployDependencies
 				return f.removeErr
 			}
 			return os.Remove(path)
+		},
+		translateHostPath: func(path string) string {
+			if path != "/tmp" {
+				t.Errorf("translateHostPath() path = %q, want /tmp", path)
+			}
+			return hostTempDirectory
 		},
 	}
 }
@@ -247,8 +264,12 @@ func TestDeploySuccessPreservesLoadAndResponseSequence(t *testing.T) {
 	if strings.Contains(fixture.tempPattern, "sensitive-image-name") {
 		t.Errorf("temporary file pattern contains caller image name: %q", fixture.tempPattern)
 	}
-	if fixture.loadedPath == "" || fixture.loadedPath != fixture.downloadPath {
-		t.Errorf("loaded path = %q, downloaded path = %q", fixture.loadedPath, fixture.downloadPath)
+	wantLoadedPath := filepath.Join("/tmp", filepath.Base(fixture.downloadPath))
+	if fixture.loadedPath != wantLoadedPath {
+		t.Errorf("loaded path = %q, want host-visible path %q", fixture.loadedPath, wantLoadedPath)
+	}
+	if fixture.loadedPath == fixture.downloadPath {
+		t.Errorf("loaded path must differ from container-visible path %q", fixture.downloadPath)
 	}
 	if _, err := os.Stat(fixture.downloadPath); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("temporary file still exists after success: %v", err)
@@ -340,6 +361,14 @@ func TestDeployCleansUpAtEveryFailureStage(t *testing.T) {
 			},
 			wantEvents: []string{"download", "close", "remove"},
 			wantError:  "download failed",
+		},
+		{
+			name: "temporary file close",
+			configure: func(fixture *deployFixture, _ *dummyDeployServer) {
+				fixture.closeTempErr = errors.New("file close failed")
+			},
+			wantEvents: []string{"download", "close", "remove"},
+			wantError:  "file close failed",
 		},
 		{
 			name: "D-Bus client creation",

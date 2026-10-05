@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/sonic-net/sonic-gnmi/internal/download"
+	"github.com/sonic-net/sonic-gnmi/pkg/hostfs"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 )
 
@@ -17,6 +18,7 @@ func defaultContainerzDeployDependencies() containerzDeployDependencies {
 		newImageLoader: func() (containerzImageLoader, error) {
 			return ssc.NewDbusClient()
 		},
-		removeFile: os.Remove,
+		removeFile:        os.Remove,
+		translateHostPath: hostfs.Translate,
 	}
 }
