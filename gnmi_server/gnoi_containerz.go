@@ -37,26 +37,10 @@ type containerzDeployDependencies struct {
 }
 
 func (c *ContainerzServer) resolvedDeployDependencies() containerzDeployDependencies {
-	dependencies := defaultContainerzDeployDependencies()
-	if c.deployDependencies == nil {
-		return dependencies
+	if c.deployDependencies != nil {
+		return *c.deployDependencies
 	}
-	if c.deployDependencies.authenticate != nil {
-		dependencies.authenticate = c.deployDependencies.authenticate
-	}
-	if c.deployDependencies.createTempFile != nil {
-		dependencies.createTempFile = c.deployDependencies.createTempFile
-	}
-	if c.deployDependencies.downloadRemote != nil {
-		dependencies.downloadRemote = c.deployDependencies.downloadRemote
-	}
-	if c.deployDependencies.newImageLoader != nil {
-		dependencies.newImageLoader = c.deployDependencies.newImageLoader
-	}
-	if c.deployDependencies.removeFile != nil {
-		dependencies.removeFile = c.deployDependencies.removeFile
-	}
-	return dependencies
+	return defaultContainerzDeployDependencies()
 }
 
 // Deploy downloads a container image and asks HostService to load it.

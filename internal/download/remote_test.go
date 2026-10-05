@@ -136,6 +136,9 @@ func TestParseRemoteTarget(t *testing.T) {
 				if err == nil {
 					t.Fatal("parseRemoteTarget() expected error, got nil")
 				}
+				if !errors.Is(err, ErrInvalidRequest) {
+					t.Fatalf("parseRemoteTarget() error = %v, want ErrInvalidRequest", err)
+				}
 				if strings.Contains(err.Error(), tt.request.Path) {
 					t.Fatalf("parseRemoteTarget() error exposed remote path: %v", err)
 				}
@@ -235,6 +238,9 @@ func TestNewRemoteClientDisablesAmbientHTTPState(t *testing.T) {
 	}
 	if transport.TLSClientConfig != nil && transport.TLSClientConfig.InsecureSkipVerify {
 		t.Error("HTTP transport must verify TLS certificates")
+	}
+	if transport.DialTLSContext != nil {
+		t.Error("HTTP transport must use the standard verified TLS dial path")
 	}
 }
 
@@ -350,6 +356,25 @@ func TestRemoteClientHTTPReadFailureIsNotSuccessAndIsSanitized(t *testing.T) {
 		if strings.Contains(err.Error(), secret) {
 			t.Fatalf("Download() error exposed %q: %v", secret, err)
 		}
+	}
+}
+
+func TestRemoteClientHTTPStopsAfterRepeatedEmptyReads(t *testing.T) {
+	client := NewRemoteClient()
+	client.HTTPTransport = roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       &readCloser{Reader: zeroReader{}},
+			Header:     make(http.Header),
+		}, nil
+	})
+
+	err := client.Download(context.Background(), Request{
+		Protocol: ProtocolHTTP,
+		Path:     "http://example.com/image.tar",
+	}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "no progress") {
+		t.Fatalf("Download() error = %v, want no-progress error", err)
 	}
 }
 
@@ -561,6 +586,12 @@ func (r *failingReader) Read(p []byte) (int, error) {
 	n := copy(p, r.data)
 	r.data = r.data[n:]
 	return n, nil
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read([]byte) (int, error) {
+	return 0, nil
 }
 
 type sshTestServer struct {

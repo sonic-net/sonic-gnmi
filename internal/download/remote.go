@@ -53,7 +53,7 @@ type Request struct {
 	MaxSize  int64
 }
 
-// RemoteClient downloads remote files without publishing partial local files.
+// RemoteClient streams remote files into a caller-owned destination.
 type RemoteClient struct {
 	HTTPTransport   http.RoundTripper
 	KnownHostsFiles []string
@@ -252,9 +252,18 @@ func containsControl(value string) bool {
 }
 
 func newHTTPTransport() *http.Transport {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = nil
-	return transport
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	return &http.Transport{
+		DialContext:           dialer.DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}
 }
 
 func (c *RemoteClient) downloadHTTP(
@@ -626,10 +635,12 @@ func copyRemoteData(
 ) error {
 	buffer := make([]byte, 32*1024)
 	var total int64
+	emptyReads := 0
 
 	for {
 		count, readErr := source.Read(buffer)
 		if count > 0 {
+			emptyReads = 0
 			total += int64(count)
 			if maxSize > 0 && total > maxSize {
 				return sizeLimitError(maxSize)
@@ -650,6 +661,10 @@ func copyRemoteData(
 		if count == 0 {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return ctxErr
+			}
+			emptyReads++
+			if emptyReads >= 100 {
+				return errors.New("remote transfer made no progress")
 			}
 		}
 	}
