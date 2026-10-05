@@ -191,7 +191,8 @@ type OSServer struct {
 
 // ContainerzServer is the server API for Containerz service.
 type ContainerzServer struct {
-	server *Server
+	server             *Server
+	deployDependencies *containerzDeployDependencies
 	gnoi_containerz_pb.UnimplementedContainerzServer
 }
 

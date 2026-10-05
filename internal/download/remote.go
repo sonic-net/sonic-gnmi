@@ -31,6 +31,9 @@ var defaultKnownHostsFiles = []string{
 	"/root/.ssh/known_hosts",
 }
 
+// ErrInvalidRequest identifies a remote download request that cannot be used.
+var ErrInvalidRequest = errors.New("invalid remote download request")
+
 // Protocol identifies a supported remote download protocol.
 type Protocol string
 
@@ -81,6 +84,19 @@ func DownloadRemote(ctx context.Context, request Request, destination io.Writer)
 	return NewRemoteClient().Download(ctx, request, destination)
 }
 
+// ValidateRemoteRequest verifies request syntax without starting a transfer.
+func ValidateRemoteRequest(request Request) error {
+	if _, err := parseRemoteTarget(request); err != nil {
+		return err
+	}
+	if (request.Protocol == ProtocolSFTP || request.Protocol == ProtocolSCP) &&
+		request.Password != "" &&
+		request.Username == "" {
+		return invalidRequestError("SSH username is required when a password is supplied")
+	}
+	return nil
+}
+
 // Download streams a remote file into destination.
 func (c *RemoteClient) Download(ctx context.Context, request Request, destination io.Writer) error {
 	if ctx == nil {
@@ -108,16 +124,16 @@ func (c *RemoteClient) Download(ctx context.Context, request Request, destinatio
 	case ProtocolSFTP, ProtocolSCP:
 		return c.downloadSSH(ctx, request, target, destination)
 	default:
-		return errors.New("unsupported remote download protocol")
+		return invalidRequestError("unsupported protocol")
 	}
 }
 
 func parseRemoteTarget(request Request) (remoteTarget, error) {
 	if request.MaxSize < 0 {
-		return remoteTarget{}, errors.New("remote download size limit must not be negative")
+		return remoteTarget{}, invalidRequestError("size limit must not be negative")
 	}
 	if request.Path == "" || containsControl(request.Path) {
-		return remoteTarget{}, errors.New("invalid remote download path")
+		return remoteTarget{}, invalidRequestError("invalid path")
 	}
 
 	switch request.Protocol {
@@ -133,25 +149,25 @@ func parseRemoteTarget(request Request) (remoteTarget, error) {
 			remotePath: remotePath,
 		}, nil
 	default:
-		return remoteTarget{}, errors.New("unsupported remote download protocol")
+		return remoteTarget{}, invalidRequestError("unsupported protocol")
 	}
 }
 
 func parseHTTPTarget(protocol Protocol, path string) (remoteTarget, error) {
 	parsedURL, err := url.ParseRequestURI(path)
 	if err != nil || parsedURL.Opaque != "" || parsedURL.Host == "" {
-		return remoteTarget{}, errors.New("invalid HTTP download URL")
+		return remoteTarget{}, invalidRequestError("invalid HTTP URL")
 	}
 
 	expectedScheme := strings.ToLower(string(protocol))
 	if !strings.EqualFold(parsedURL.Scheme, expectedScheme) {
-		return remoteTarget{}, errors.New("HTTP download URL scheme does not match protocol")
+		return remoteTarget{}, invalidRequestError("HTTP URL scheme does not match protocol")
 	}
 	if parsedURL.User != nil {
-		return remoteTarget{}, errors.New("HTTP download URL must not contain credentials")
+		return remoteTarget{}, invalidRequestError("HTTP URL must not contain credentials")
 	}
 	if parsedURL.Hostname() == "" || strings.Contains(parsedURL.Host, `\`) {
-		return remoteTarget{}, errors.New("invalid HTTP download URL authority")
+		return remoteTarget{}, invalidRequestError("invalid HTTP URL authority")
 	}
 
 	parsedURL.Scheme = expectedScheme
@@ -167,21 +183,21 @@ func parseSSHTarget(path string) (string, string, error) {
 		bracketedHost = true
 		closingBracket := strings.IndexByte(path, ']')
 		if closingBracket <= 1 || closingBracket+1 >= len(path) || path[closingBracket+1] != ':' {
-			return "", "", errors.New("invalid SSH download path")
+			return "", "", invalidRequestError("invalid SSH path")
 		}
 		host = path[1:closingBracket]
 		remainder = path[closingBracket+2:]
 		if parsedHost, _, found := strings.Cut(host, "%"); !found {
 			if net.ParseIP(host) == nil {
-				return "", "", errors.New("invalid SSH download host")
+				return "", "", invalidRequestError("invalid SSH host")
 			}
 		} else if net.ParseIP(parsedHost) == nil {
-			return "", "", errors.New("invalid SSH download host")
+			return "", "", invalidRequestError("invalid SSH host")
 		}
 	} else {
 		separator := strings.IndexByte(path, ':')
 		if separator <= 0 {
-			return "", "", errors.New("invalid SSH download path")
+			return "", "", invalidRequestError("invalid SSH path")
 		}
 		host = path[:separator]
 		remainder = path[separator+1:]
@@ -191,7 +207,7 @@ func parseSSHTarget(path string) (string, string, error) {
 		strings.ContainsAny(host, `/\[]`) ||
 		(!bracketedHost && strings.Contains(host, ":")) ||
 		containsControl(host) {
-		return "", "", errors.New("invalid SSH download host")
+		return "", "", invalidRequestError("invalid SSH host")
 	}
 
 	port := defaultSSHPort
@@ -199,21 +215,25 @@ func parseSSHTarget(path string) (string, string, error) {
 	if !validSSHRemotePath(remotePath) {
 		portSeparator := strings.IndexByte(remainder, ':')
 		if portSeparator <= 0 {
-			return "", "", errors.New("invalid SSH download path")
+			return "", "", invalidRequestError("invalid SSH path")
 		}
 
 		portNumber, err := strconv.Atoi(remainder[:portSeparator])
 		if err != nil || portNumber < 1 || portNumber > 65535 {
-			return "", "", errors.New("invalid SSH download port")
+			return "", "", invalidRequestError("invalid SSH port")
 		}
 		port = strconv.Itoa(portNumber)
 		remotePath = remainder[portSeparator+1:]
 		if !validSSHRemotePath(remotePath) {
-			return "", "", errors.New("invalid SSH download path")
+			return "", "", invalidRequestError("invalid SSH path")
 		}
 	}
 
 	return net.JoinHostPort(host, port), remotePath, nil
+}
+
+func invalidRequestError(message string) error {
+	return fmt.Errorf("%w: %s", ErrInvalidRequest, message)
 }
 
 func validSSHRemotePath(path string) bool {
@@ -301,7 +321,7 @@ func (c *RemoteClient) downloadSSH(
 	destination io.Writer,
 ) error {
 	if request.Password != "" && request.Username == "" {
-		return errors.New("SSH username is required when a password is supplied")
+		return invalidRequestError("SSH username is required when a password is supplied")
 	}
 
 	hostKeyCallback, err := loadHostKeyCallback(c.KnownHostsFiles)

@@ -4,26 +4,72 @@ package gnmi
 
 import (
 	"context"
-	"crypto/rand"
+	"errors"
 	"fmt"
-	"strings"
+	"io"
+	"math"
 
 	log "github.com/golang/glog"
+	gnoi_common_pb "github.com/openconfig/gnoi/common"
 	gnoi_containerz_pb "github.com/openconfig/gnoi/containerz"
 	gnoi_types_pb "github.com/openconfig/gnoi/types"
-	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
+	"github.com/sonic-net/sonic-gnmi/internal/download"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-// Deploy receives the image and download information and downloads the file using sonic_service_client.
-func (c *ContainerzServer) Deploy(stream gnoi_containerz_pb.Containerz_DeployServer) error {
+type containerzTemporaryFile interface {
+	io.Writer
+	Close() error
+	Name() string
+}
+
+type containerzImageLoader interface {
+	LoadDockerImage(string) error
+}
+
+type containerzDeployDependencies struct {
+	authenticate   func(*Config, context.Context, string, bool) (context.Context, error)
+	createTempFile func(string, string) (containerzTemporaryFile, error)
+	downloadRemote func(context.Context, download.Request, io.Writer) error
+	newImageLoader func() (containerzImageLoader, error)
+	removeFile     func(string) error
+}
+
+func (c *ContainerzServer) resolvedDeployDependencies() containerzDeployDependencies {
+	dependencies := defaultContainerzDeployDependencies()
+	if c.deployDependencies == nil {
+		return dependencies
+	}
+	if c.deployDependencies.authenticate != nil {
+		dependencies.authenticate = c.deployDependencies.authenticate
+	}
+	if c.deployDependencies.createTempFile != nil {
+		dependencies.createTempFile = c.deployDependencies.createTempFile
+	}
+	if c.deployDependencies.downloadRemote != nil {
+		dependencies.downloadRemote = c.deployDependencies.downloadRemote
+	}
+	if c.deployDependencies.newImageLoader != nil {
+		dependencies.newImageLoader = c.deployDependencies.newImageLoader
+	}
+	if c.deployDependencies.removeFile != nil {
+		dependencies.removeFile = c.deployDependencies.removeFile
+	}
+	return dependencies
+}
+
+// Deploy downloads a container image and asks HostService to load it.
+func (c *ContainerzServer) Deploy(
+	stream gnoi_containerz_pb.Containerz_DeployServer,
+) (result error) {
 	log.V(2).Info("gNOI: Containerz Deploy called")
 
 	ctx := stream.Context()
+	dependencies := c.resolvedDeployDependencies()
 
 	// Authenticate the client using the server's config.
-	_, err := authenticate(c.server.config, ctx, "gnoi", true)
+	_, err := dependencies.authenticate(c.server.config, ctx, "gnoi", true)
 	if err != nil {
 		return err
 	}
@@ -39,75 +85,81 @@ func (c *ContainerzServer) Deploy(stream gnoi_containerz_pb.Containerz_DeploySer
 		return status.Errorf(codes.InvalidArgument, "first DeployRequest must be ImageTransfer")
 	}
 
-	var reqDump strings.Builder
-	reqDump.WriteString("Received DeployRequest:\n")
-	reqDump.WriteString("  Name: " + imageTransfer.Name + "\n")
-	reqDump.WriteString("  Tag: " + imageTransfer.Tag + "\n")
-	var hostname, remotePath, username, password, protocol string
-	if rd := imageTransfer.RemoteDownload; rd != nil {
-		reqDump.WriteString("  RemoteDownload:\n")
-		reqDump.WriteString("    Path: " + rd.Path + "\n")
-		reqDump.WriteString("    Protocol: " + rd.Protocol.String() + "\n")
-		protocol = rd.Protocol.String()
-		if rd.Credentials != nil {
-			username = rd.Credentials.Username
-			reqDump.WriteString("    Username: " + username + "\n")
-			if clear, ok := rd.Credentials.Password.(*gnoi_types_pb.Credentials_Cleartext); ok {
-				password = clear.Cleartext
-			}
+	downloadRequest, err := newContainerzDownloadRequest(imageTransfer)
+	if err != nil {
+		return status.Errorf(codes.InvalidArgument, "invalid remote download request: %v", err)
+	}
+	log.V(2).Infof(
+		"gNOI: Containerz downloading image with protocol %s",
+		downloadRequest.Protocol,
+	)
+
+	tempFile, err := dependencies.createTempFile("/tmp", "containerz-image-*.tar")
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to create temporary image file: %v", err)
+	}
+	localPath := tempFile.Name()
+	fileClosed := false
+	cleanupPending := true
+	defer func() {
+		if !cleanupPending {
+			return
 		}
-		// Parse <host>:<remote-path>
-		parts := strings.SplitN(rd.Path, ":", 2)
-		if len(parts) == 2 {
-			hostname = parts[0]
-			remotePath = parts[1]
-		} else {
-			return status.Errorf(codes.InvalidArgument, "invalid remote download path: %s", rd.Path)
+		if cleanupErr := dependencies.removeFile(localPath); cleanupErr != nil {
+			result = appendContainerzInternalFailure(
+				result,
+				"failed to remove temporary image file",
+				cleanupErr,
+			)
 		}
-	}
-	log.V(2).Info(reqDump.String())
+	}()
+	defer func() {
+		if fileClosed {
+			return
+		}
+		if closeErr := tempFile.Close(); closeErr != nil {
+			result = appendContainerzInternalFailure(
+				result,
+				"failed to close temporary image file",
+				closeErr,
+			)
+		}
+	}()
 
-	// Use sonic_service_client to download the file to a local path (e.g., /tmp/<name>-<random>.tar)
-	// Use crypto/rand for a random suffix if common_utils.RandString is not available
-	randomBytes := make([]byte, 6)
-	_, err = rand.Read(randomBytes)
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to generate random suffix: %v", err)
+	if err := dependencies.downloadRemote(ctx, downloadRequest, tempFile); err != nil {
+		code := codes.Internal
+		if errors.Is(err, download.ErrInvalidRequest) {
+			code = codes.InvalidArgument
+		}
+		return status.Errorf(code, "failed to download image: %v", err)
 	}
-	randomSuffix := fmt.Sprintf("%x", randomBytes)
-	localPath := "/tmp/" + imageTransfer.Name + "-" + randomSuffix + ".tar"
+	if err := tempFile.Close(); err != nil {
+		return status.Errorf(codes.Internal, "failed to close temporary image file: %v", err)
+	}
+	fileClosed = true
+	log.V(2).Info("gNOI: Containerz image download completed")
 
-	dbusClient, err := ssc.NewDbusClient()
+	imageLoader, err := dependencies.newImageLoader()
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to create dbus client: %v", err)
+		return status.Errorf(codes.Internal, "failed to create D-Bus client: %v", err)
 	}
-	err = dbusClient.DownloadFile(hostname, username, password, remotePath, localPath, protocol)
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to download file: %v", err)
-	}
-	log.V(2).Infof("Downloaded file to %s", localPath)
-
-	// After download, load the docker image using dbusClient.LoadDockerImage
-	err = dbusClient.LoadDockerImage(localPath)
-	if err != nil {
+	if err := imageLoader.LoadDockerImage(localPath); err != nil {
 		return status.Errorf(codes.Internal, "failed to load docker image: %v", err)
 	}
-	log.V(2).Infof("Loaded docker image from %s", localPath)
+	log.V(2).Info("gNOI: Containerz image load completed")
 
-	// Clean up the local file after loading the image
-	err = dbusClient.RemoveFile(localPath)
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to remove local file: %v", err)
+	if err := dependencies.removeFile(localPath); err != nil {
+		cleanupPending = false
+		return status.Errorf(codes.Internal, "failed to remove temporary image file: %v", err)
 	}
-	log.V(2).Infof("Removed local file %s", localPath)
+	cleanupPending = false
 
-	// Respond with success (dummy, real implementation should load the image, etc.)
 	resp := &gnoi_containerz_pb.DeployResponse{
 		Response: &gnoi_containerz_pb.DeployResponse_ImageTransferSuccess{
 			ImageTransferSuccess: &gnoi_containerz_pb.ImageTransferSuccess{
 				Name:      imageTransfer.Name,
 				Tag:       imageTransfer.Tag,
-				ImageSize: 0, // You can fill this with the actual file size if needed
+				ImageSize: 0,
 			},
 		},
 	}
@@ -116,6 +168,69 @@ func (c *ContainerzServer) Deploy(stream gnoi_containerz_pb.Containerz_DeploySer
 	}
 
 	return nil
+}
+
+func newContainerzDownloadRequest(
+	imageTransfer *gnoi_containerz_pb.ImageTransfer,
+) (download.Request, error) {
+	remoteDownload := imageTransfer.GetRemoteDownload()
+	if remoteDownload == nil {
+		return download.Request{}, errors.New("RemoteDownload is required")
+	}
+
+	var protocol download.Protocol
+	switch remoteDownload.GetProtocol() {
+	case gnoi_common_pb.RemoteDownload_SFTP:
+		protocol = download.ProtocolSFTP
+	case gnoi_common_pb.RemoteDownload_HTTP:
+		protocol = download.ProtocolHTTP
+	case gnoi_common_pb.RemoteDownload_HTTPS:
+		protocol = download.ProtocolHTTPS
+	case gnoi_common_pb.RemoteDownload_SCP:
+		protocol = download.ProtocolSCP
+	default:
+		return download.Request{}, errors.New("unsupported protocol")
+	}
+
+	if imageTransfer.GetImageSize() > math.MaxInt64 {
+		return download.Request{}, errors.New("image size exceeds supported range")
+	}
+
+	request := download.Request{
+		Protocol: protocol,
+		Path:     remoteDownload.GetPath(),
+		MaxSize:  int64(imageTransfer.GetImageSize()),
+	}
+	if credentials := remoteDownload.GetCredentials(); credentials != nil {
+		request.Username = credentials.GetUsername()
+		switch password := credentials.Password.(type) {
+		case nil:
+		case *gnoi_types_pb.Credentials_Cleartext:
+			if password != nil {
+				request.Password = password.Cleartext
+			}
+		case *gnoi_types_pb.Credentials_Hashed:
+			return download.Request{}, errors.New("hashed credentials are not supported")
+		default:
+			return download.Request{}, errors.New("unsupported credential type")
+		}
+	}
+
+	if err := download.ValidateRemoteRequest(request); err != nil {
+		return download.Request{}, err
+	}
+	return request, nil
+}
+
+func appendContainerzInternalFailure(current error, message string, cause error) error {
+	failure := fmt.Sprintf("%s: %v", message, cause)
+	if current == nil {
+		return status.Error(codes.Internal, failure)
+	}
+	if currentStatus, ok := status.FromError(current); ok {
+		return status.Errorf(codes.Internal, "%s; %s", currentStatus.Message(), failure)
+	}
+	return status.Errorf(codes.Internal, "%v; %s", current, failure)
 }
 
 // Remove is a placeholder implementation for the Remove RPC.
