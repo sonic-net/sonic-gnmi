@@ -53,12 +53,11 @@ type Request struct {
 	MaxSize  int64
 }
 
-// RemoteClient streams remote files into a caller-owned destination.
-type RemoteClient struct {
-	HTTPTransport   http.RoundTripper
-	KnownHostsFiles []string
-	DialContext     func(context.Context, string, string) (net.Conn, error)
-	Timeout         time.Duration
+type remoteClient struct {
+	httpTransport   http.RoundTripper
+	knownHostsFiles []string
+	dialContext     func(context.Context, string, string) (net.Conn, error)
+	timeout         time.Duration
 }
 
 type remoteTarget struct {
@@ -67,21 +66,19 @@ type remoteTarget struct {
 	remotePath string
 }
 
-// NewRemoteClient returns a client with bounded transfers, normal TLS
-// verification, no ambient HTTP proxy, and OpenSSH known-host verification.
-func NewRemoteClient() *RemoteClient {
+func newRemoteClient() *remoteClient {
 	dialer := &net.Dialer{}
-	return &RemoteClient{
-		HTTPTransport:   newHTTPTransport(),
-		KnownHostsFiles: append([]string(nil), defaultKnownHostsFiles...),
-		DialContext:     dialer.DialContext,
-		Timeout:         defaultRemoteTimeout,
+	return &remoteClient{
+		httpTransport:   newHTTPTransport(),
+		knownHostsFiles: append([]string(nil), defaultKnownHostsFiles...),
+		dialContext:     dialer.DialContext,
+		timeout:         defaultRemoteTimeout,
 	}
 }
 
 // DownloadRemote streams a remote file into destination.
 func DownloadRemote(ctx context.Context, request Request, destination io.Writer) error {
-	return NewRemoteClient().Download(ctx, request, destination)
+	return newRemoteClient().download(ctx, request, destination)
 }
 
 // ValidateRemoteRequest verifies request syntax without starting a transfer.
@@ -97,8 +94,7 @@ func ValidateRemoteRequest(request Request) error {
 	return nil
 }
 
-// Download streams a remote file into destination.
-func (c *RemoteClient) Download(ctx context.Context, request Request, destination io.Writer) error {
+func (c *remoteClient) download(ctx context.Context, request Request, destination io.Writer) error {
 	if ctx == nil {
 		return errors.New("download context is required")
 	}
@@ -111,7 +107,7 @@ func (c *RemoteClient) Download(ctx context.Context, request Request, destinatio
 		return err
 	}
 
-	timeout := c.Timeout
+	timeout := c.timeout
 	if timeout <= 0 {
 		timeout = defaultRemoteTimeout
 	}
@@ -266,13 +262,13 @@ func newHTTPTransport() *http.Transport {
 	}
 }
 
-func (c *RemoteClient) downloadHTTP(
+func (c *remoteClient) downloadHTTP(
 	ctx context.Context,
 	request Request,
 	target remoteTarget,
 	destination io.Writer,
 ) error {
-	transport := c.HTTPTransport
+	transport := c.httpTransport
 	if transport == nil {
 		transport = newHTTPTransport()
 	}
@@ -323,7 +319,7 @@ func (c *RemoteClient) downloadHTTP(
 	return nil
 }
 
-func (c *RemoteClient) downloadSSH(
+func (c *remoteClient) downloadSSH(
 	ctx context.Context,
 	request Request,
 	target remoteTarget,
@@ -333,7 +329,7 @@ func (c *RemoteClient) downloadSSH(
 		return invalidRequestError("SSH username is required when a password is supplied")
 	}
 
-	hostKeyCallback, err := loadHostKeyCallback(c.KnownHostsFiles)
+	hostKeyCallback, err := loadHostKeyCallback(c.knownHostsFiles)
 	if err != nil {
 		return err
 	}
@@ -359,7 +355,7 @@ func (c *RemoteClient) downloadSSH(
 		config.Auth = []ssh.AuthMethod{ssh.Password(request.Password)}
 	}
 
-	dialContext := c.DialContext
+	dialContext := c.dialContext
 	if dialContext == nil {
 		dialer := &net.Dialer{}
 		dialContext = dialer.DialContext

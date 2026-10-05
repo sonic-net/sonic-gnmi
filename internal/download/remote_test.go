@@ -172,7 +172,7 @@ func TestRemoteClientHTTPSuccess(t *testing.T) {
 	defer server.Close()
 
 	var destination bytes.Buffer
-	err := NewRemoteClient().Download(context.Background(), Request{
+	err := newRemoteClient().download(context.Background(), Request{
 		Protocol: ProtocolHTTP,
 		Path:     server.URL + "/image.tar",
 		Username: "user",
@@ -195,7 +195,7 @@ func TestRemoteClientHTTPDoesNotSendPasswordWithoutUsername(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := NewRemoteClient().Download(context.Background(), Request{
+	err := newRemoteClient().download(context.Background(), Request{
 		Protocol: ProtocolHTTP,
 		Path:     server.URL + "/image.tar",
 		Password: "must-not-be-sent",
@@ -211,11 +211,11 @@ func TestRemoteClientHTTPSSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewRemoteClient()
-	client.HTTPTransport = server.Client().Transport
+	client := newRemoteClient()
+	client.httpTransport = server.Client().Transport
 
 	var destination bytes.Buffer
-	err := client.Download(context.Background(), Request{
+	err := client.download(context.Background(), Request{
 		Protocol: ProtocolHTTPS,
 		Path:     server.URL + "/image.tar",
 	}, &destination)
@@ -228,10 +228,10 @@ func TestRemoteClientHTTPSSuccess(t *testing.T) {
 }
 
 func TestNewRemoteClientDisablesAmbientHTTPState(t *testing.T) {
-	client := NewRemoteClient()
-	transport, ok := client.HTTPTransport.(*http.Transport)
+	client := newRemoteClient()
+	transport, ok := client.httpTransport.(*http.Transport)
 	if !ok {
-		t.Fatalf("HTTPTransport type = %T, want *http.Transport", client.HTTPTransport)
+		t.Fatalf("HTTP transport type = %T, want *http.Transport", client.httpTransport)
 	}
 	if transport.Proxy != nil {
 		t.Error("HTTP transport must not use proxy environment variables")
@@ -259,7 +259,7 @@ func TestRemoteClientHTTPRejectsRedirectWithoutForwardingCredentials(t *testing.
 	}))
 	defer server.Close()
 
-	err := NewRemoteClient().Download(context.Background(), Request{
+	err := newRemoteClient().download(context.Background(), Request{
 		Protocol: ProtocolHTTP,
 		Path:     server.URL + "/token-in-path",
 		Username: "user",
@@ -283,7 +283,7 @@ func TestRemoteClientHTTPStatusErrorIsSanitized(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := NewRemoteClient().Download(context.Background(), Request{
+	err := newRemoteClient().download(context.Background(), Request{
 		Protocol: ProtocolHTTP,
 		Path:     server.URL + "/token-in-path",
 	}, io.Discard)
@@ -317,7 +317,7 @@ func TestRemoteClientHTTPSizeLimit(t *testing.T) {
 			defer server.Close()
 
 			var destination bytes.Buffer
-			err := NewRemoteClient().Download(context.Background(), Request{
+			err := newRemoteClient().download(context.Background(), Request{
 				Protocol: ProtocolHTTP,
 				Path:     server.URL + "/image.tar",
 				MaxSize:  5,
@@ -330,8 +330,8 @@ func TestRemoteClientHTTPSizeLimit(t *testing.T) {
 }
 
 func TestRemoteClientHTTPReadFailureIsNotSuccessAndIsSanitized(t *testing.T) {
-	client := NewRemoteClient()
-	client.HTTPTransport = roundTripperFunc(func(*http.Request) (*http.Response, error) {
+	client := newRemoteClient()
+	client.httpTransport = roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Body: &readCloser{
@@ -345,7 +345,7 @@ func TestRemoteClientHTTPReadFailureIsNotSuccessAndIsSanitized(t *testing.T) {
 	})
 
 	var destination bytes.Buffer
-	err := client.Download(context.Background(), Request{
+	err := client.download(context.Background(), Request{
 		Protocol: ProtocolHTTP,
 		Path:     "http://example.com/token-in-path",
 	}, &destination)
@@ -360,8 +360,8 @@ func TestRemoteClientHTTPReadFailureIsNotSuccessAndIsSanitized(t *testing.T) {
 }
 
 func TestRemoteClientHTTPStopsAfterRepeatedEmptyReads(t *testing.T) {
-	client := NewRemoteClient()
-	client.HTTPTransport = roundTripperFunc(func(*http.Request) (*http.Response, error) {
+	client := newRemoteClient()
+	client.httpTransport = roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       &readCloser{Reader: zeroReader{}},
@@ -369,7 +369,7 @@ func TestRemoteClientHTTPStopsAfterRepeatedEmptyReads(t *testing.T) {
 		}, nil
 	})
 
-	err := client.Download(context.Background(), Request{
+	err := client.download(context.Background(), Request{
 		Protocol: ProtocolHTTP,
 		Path:     "http://example.com/image.tar",
 	}, io.Discard)
@@ -382,7 +382,7 @@ func TestRemoteClientHonorsContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := NewRemoteClient().Download(ctx, Request{
+	err := newRemoteClient().download(ctx, Request{
 		Protocol: ProtocolHTTP,
 		Path:     "http://example.com/image.tar",
 	}, io.Discard)
@@ -418,14 +418,14 @@ func TestRemoteClientRejectsInvalidKnownHostsBeforeDial(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := NewRemoteClient()
-			client.KnownHostsFiles = []string{tt.prepare(t)}
-			client.DialContext = func(context.Context, string, string) (net.Conn, error) {
+			client := newRemoteClient()
+			client.knownHostsFiles = []string{tt.prepare(t)}
+			client.dialContext = func(context.Context, string, string) (net.Conn, error) {
 				t.Fatal("DialContext() called before known-host data was validated")
 				return nil, errors.New("unexpected dial")
 			}
 
-			err := client.Download(context.Background(), Request{
+			err := client.download(context.Background(), Request{
 				Protocol: ProtocolSFTP,
 				Path:     "download.example:/image.tar",
 				Username: "user",
@@ -474,9 +474,9 @@ func TestRemoteClientRejectsUntrustedSSHKeysBeforeAuthentication(t *testing.T) {
 			server := startSSHTestServer(t, nil)
 			const requestedAddress = "download.example:2222"
 			client := remoteClientForSSHServer(server)
-			client.KnownHostsFiles = []string{tt.knownHosts(t, server, requestedAddress)}
+			client.knownHostsFiles = []string{tt.knownHosts(t, server, requestedAddress)}
 
-			err := client.Download(context.Background(), Request{
+			err := client.download(context.Background(), Request{
 				Protocol: ProtocolSFTP,
 				Path:     requestedAddress + ":/image.tar",
 				Username: "user",
@@ -502,13 +502,13 @@ func TestRemoteClientSFTPSuccessWithAliasAndNonDefaultPort(t *testing.T) {
 	server := startSSHTestServer(t, nil)
 	const requestedAddress = "download.example:2222"
 	client := remoteClientForSSHServer(server)
-	client.KnownHostsFiles = []string{
+	client.knownHostsFiles = []string{
 		filepath.Join(t.TempDir(), "missing-known-hosts"),
 		writeKnownHosts(t, requestedAddress, server.signer.PublicKey(), false),
 	}
 
 	var destination bytes.Buffer
-	err := client.Download(context.Background(), Request{
+	err := client.download(context.Background(), Request{
 		Protocol: ProtocolSFTP,
 		Path:     requestedAddress + ":" + remotePath,
 		Username: "user",
@@ -530,13 +530,13 @@ func TestRemoteClientSCPSuccessQuotesRemotePath(t *testing.T) {
 	server := startSSHTestServer(t, content)
 	const requestedAddress = "download.example:2222"
 	client := remoteClientForSSHServer(server)
-	client.KnownHostsFiles = []string{
+	client.knownHostsFiles = []string{
 		writeKnownHosts(t, requestedAddress, server.signer.PublicKey(), false),
 	}
 
 	const remotePath = `/images/image'; touch /tmp/injected; echo '.tar`
 	var destination bytes.Buffer
-	err := client.Download(context.Background(), Request{
+	err := client.download(context.Background(), Request{
 		Protocol: ProtocolSCP,
 		Path:     requestedAddress + ":" + remotePath,
 		Username: "user",
@@ -736,10 +736,10 @@ func readSCPAck(reader io.Reader) error {
 	return nil
 }
 
-func remoteClientForSSHServer(server *sshTestServer) *RemoteClient {
-	client := NewRemoteClient()
-	client.Timeout = 5 * time.Second
-	client.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+func remoteClientForSSHServer(server *sshTestServer) *remoteClient {
+	client := newRemoteClient()
+	client.timeout = 5 * time.Second
+	client.dialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, network, server.address)
 	}
 	return client
