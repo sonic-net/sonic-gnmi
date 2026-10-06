@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -617,27 +616,15 @@ var testHealthzCases = []struct {
 			srv := newHealthzArtifactTestServer()
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/valid.txt"}
 			content := []byte("this is valid test content")
+			realPath := "/mnt/host/tmp/dump/valid.txt"
 
-			file, err := os.CreateTemp(t.TempDir(), "healthz-artifact-*")
-			if err != nil {
-				t.Fatalf("failed to create temp file: %v", err)
+			if err := os.MkdirAll(filepath.Dir(realPath), 0755); err != nil {
+				t.Fatalf("failed to create artifact directory: %v", err)
 			}
-			defer file.Close()
-			if _, err := file.Write(content); err != nil {
-				t.Fatalf("failed to write temp file: %v", err)
+			if err := os.WriteFile(realPath, content, 0644); err != nil {
+				t.Fatalf("failed to write artifact: %v", err)
 			}
-			if _, err := file.Seek(0, io.SeekStart); err != nil {
-				t.Fatalf("failed to reset temp file: %v", err)
-			}
-
-			patch := gomonkey.ApplyFunc(os.Open, func(path string) (*os.File, error) {
-				want := filepath.Join("/mnt/host", filepath.Clean(req.GetId()))
-				if path != want {
-					t.Fatalf("os.Open(%q), want %q", path, want)
-				}
-				return file, nil
-			})
-			defer patch.Reset()
+			defer os.Remove(realPath)
 
 			mockStream := &healthzArtifactTestStream{ctx: ctx}
 
