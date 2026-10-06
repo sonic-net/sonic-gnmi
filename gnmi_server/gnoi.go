@@ -7,15 +7,18 @@ import (
 	log "github.com/golang/glog"
 	spb "github.com/sonic-net/sonic-gnmi/proto/gnoi"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	transutil "github.com/sonic-net/sonic-gnmi/transl_utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"os/user"
+	"strings"
 	"time"
 )
 
 const (
-	stateDB string = "STATE_DB"
+	stateDB             string = "STATE_DB"
+	defaultConfigDBPath string = "/etc/sonic/config_db.json"
 )
 
 func (srv *Server) Authenticate(ctx context.Context, req *spb_jwt.AuthenticateRequest) (*spb_jwt.AuthenticateResponse, error) {
@@ -244,4 +247,54 @@ func (srv *Server) ImageDefault(ctx context.Context, req *spb.ImageDefaultReques
 	}
 
 	return resp, nil
+}
+
+// ConfigSave persists the running configuration to the SONiC startup config
+// file (defaultConfigDBPath) via the host service `config.save` D-Bus method.
+func (srv *Server) ConfigSave(ctx context.Context, req *spb.ConfigSaveRequest) (*spb.ConfigSaveResponse, error) {
+	ctx, err := authenticate(srv.config, ctx, "gnoi", true)
+	if err != nil {
+		return nil, err
+	}
+	log.V(1).Info("gNOI: Sonic ConfigSave")
+
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if err := sc.ConfigSave(defaultConfigDBPath); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &spb.ConfigSaveResponse{Output: &spb.SonicOutput{}}, nil
+}
+
+// ConfigReload reapplies configuration via the host service `config.reload` D-Bus
+// method. Empty config_json reloads from the startup file; otherwise the supplied
+// JSON is validated and piped into `config reload -y /dev/stdin`. Payload is never
+// logged (may contain credentials); only a boolean marker is.
+func (srv *Server) ConfigReload(ctx context.Context, req *spb.ConfigReloadRequest) (*spb.ConfigReloadResponse, error) {
+	ctx, err := authenticate(srv.config, ctx, "gnoi", true)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := req.GetInput().GetConfigJson()
+	inline := strings.TrimSpace(cfg) != ""
+	log.V(1).Infof("gNOI: Sonic ConfigReload inline=%t", inline)
+
+	if inline {
+		var probe interface{}
+		if err := json.Unmarshal([]byte(cfg), &probe); err != nil {
+			return nil, status.Error(codes.InvalidArgument, "config_json is not valid JSON")
+		}
+	}
+
+	sc, err := ssc.NewDbusClient()
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if err := sc.ConfigReload(cfg); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &spb.ConfigReloadResponse{Output: &spb.SonicOutput{}}, nil
 }

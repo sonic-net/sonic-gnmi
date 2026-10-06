@@ -119,6 +119,10 @@ func main() {
 			sonic.Refresh(conn, ctx)
 		case "clearNeighbors":
 			sonic.ClearNeighbors(conn, ctx)
+		case "configSave":
+			sonic.ConfigSave(conn, ctx)
+		case "configReload":
+			sonic.ConfigReload(conn, ctx)
 		default:
 			panic("Invalid RPC Name")
 		}
