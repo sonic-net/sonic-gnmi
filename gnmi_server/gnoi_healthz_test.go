@@ -631,7 +631,7 @@ var testHealthzCases = []struct {
 			}
 
 			patch := gomonkey.ApplyFunc(os.Open, func(path string) (*os.File, error) {
-				want := healthzArtifactPath(req.GetId())
+				want := filepath.Join("/mnt/host", filepath.Clean(req.GetId()))
 				if path != want {
 					t.Fatalf("os.Open(%q), want %q", path, want)
 				}
