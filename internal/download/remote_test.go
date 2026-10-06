@@ -894,6 +894,25 @@ func TestRemoteClientSCPSuccessQuotesRemotePath(t *testing.T) {
 	}
 }
 
+func TestWaitForSCPCompletionIgnoresInputCloseError(t *testing.T) {
+	stdin := &errorCloser{err: errors.New("channel already closed")}
+	waitCalled := false
+
+	err := waitForSCPCompletion(context.Background(), stdin, func() error {
+		waitCalled = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("waitForSCPCompletion() error = %v", err)
+	}
+	if !stdin.closed {
+		t.Error("waitForSCPCompletion() did not close input")
+	}
+	if !waitCalled {
+		t.Error("waitForSCPCompletion() did not wait for session status")
+	}
+}
+
 func TestRemoteClientSCPExpandsHomeWithoutCommandInjection(t *testing.T) {
 	server := startSSHTestServer(t, []byte("scp image"))
 	const requestedAddress = "download.example:2222"
@@ -968,6 +987,16 @@ type readCloser struct {
 
 func (r *readCloser) Close() error {
 	return nil
+}
+
+type errorCloser struct {
+	err    error
+	closed bool
+}
+
+func (c *errorCloser) Close() error {
+	c.closed = true
+	return c.err
 }
 
 type failingReader struct {

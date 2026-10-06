@@ -589,19 +589,26 @@ func downloadSCP(
 					errors.New("failed to acknowledge SCP file completion"),
 				)
 			}
-			if err := stdin.Close(); err != nil {
-				return preferContextError(ctx, errors.New("failed to close SCP input stream"))
-			}
-			if err := session.Wait(); err != nil {
-				return preferContextError(ctx, errors.New("SCP transfer failed"))
-			}
-			return nil
+			return waitForSCPCompletion(ctx, stdin, session.Wait)
 		case 'D', 'E':
 			return errors.New("SCP directories are not supported")
 		default:
 			return errors.New("invalid SCP response")
 		}
 	}
+}
+
+func waitForSCPCompletion(
+	ctx context.Context,
+	stdin io.Closer,
+	wait func() error,
+) error {
+	// The server may close the channel after the final ACK; Wait is authoritative.
+	_ = stdin.Close()
+	if err := wait(); err != nil {
+		return preferContextError(ctx, errors.New("SCP transfer failed"))
+	}
+	return nil
 }
 
 func resolveSFTPRemotePath(
