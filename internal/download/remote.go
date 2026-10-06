@@ -458,6 +458,13 @@ func closeOnContextDone(ctx context.Context, closer io.Closer) func() {
 	}
 }
 
+func preferContextError(ctx context.Context, fallback error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fallback
+}
+
 func downloadSFTP(
 	ctx context.Context,
 	client *ssh.Client,
@@ -467,33 +474,24 @@ func downloadSFTP(
 ) error {
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
-		return errors.New("failed to start SFTP transfer")
+		return preferContextError(ctx, errors.New("failed to start SFTP transfer"))
 	}
 	defer sftpClient.Close()
 
 	resolvedRemotePath, err := resolveSFTPRemotePath(remotePath, sftpClient.Getwd)
 	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
-		return err
+		return preferContextError(ctx, err)
 	}
 	remoteFile, err := sftpClient.Open(resolvedRemotePath)
 	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
-		return errors.New("failed to open remote SFTP file")
+		return preferContextError(ctx, errors.New("failed to open remote SFTP file"))
 	}
 	defer remoteFile.Close()
 
 	if maxSize > 0 {
 		info, err := remoteFile.Stat()
 		if err != nil {
-			return errors.New("failed to inspect remote SFTP file")
+			return preferContextError(ctx, errors.New("failed to inspect remote SFTP file"))
 		}
 		if info.Size() > maxSize {
 			return sizeLimitError(maxSize)
@@ -513,55 +511,49 @@ func downloadSCP(
 	command := "scp -f -- " + scpRemoteArgument(remotePath)
 	session, err := client.NewSession()
 	if err != nil {
-		return errors.New("failed to start SCP session")
+		return preferContextError(ctx, errors.New("failed to start SCP session"))
 	}
 	defer session.Close()
 
 	stdin, err := session.StdinPipe()
 	if err != nil {
-		return errors.New("failed to start SCP input stream")
+		return preferContextError(ctx, errors.New("failed to start SCP input stream"))
 	}
 	stdout, err := session.StdoutPipe()
 	if err != nil {
-		return errors.New("failed to start SCP output stream")
+		return preferContextError(ctx, errors.New("failed to start SCP output stream"))
 	}
 	session.Stderr = io.Discard
 
 	if err := session.Start(command); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
-		return errors.New("failed to start SCP transfer")
+		return preferContextError(ctx, errors.New("failed to start SCP transfer"))
 	}
 	if err := writeSCPAck(stdin); err != nil {
-		return errors.New("failed to acknowledge SCP transfer")
+		return preferContextError(ctx, errors.New("failed to acknowledge SCP transfer"))
 	}
 
 	reader := bufio.NewReaderSize(stdout, maxSCPControlLine)
 	for {
 		recordType, err := reader.ReadByte()
 		if err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return ctxErr
-			}
-			return errors.New("invalid SCP response")
+			return preferContextError(ctx, errors.New("invalid SCP response"))
 		}
 
 		switch recordType {
 		case 1, 2:
 			_, _ = readSCPControlLine(reader)
-			return errors.New("SCP server rejected download")
+			return preferContextError(ctx, errors.New("SCP server rejected download"))
 		case 'T':
 			if _, err := readSCPControlLine(reader); err != nil {
-				return err
+				return preferContextError(ctx, err)
 			}
 			if err := writeSCPAck(stdin); err != nil {
-				return errors.New("failed to acknowledge SCP metadata")
+				return preferContextError(ctx, errors.New("failed to acknowledge SCP metadata"))
 			}
 		case 'C':
 			controlLine, err := readSCPControlLine(reader)
 			if err != nil {
-				return err
+				return preferContextError(ctx, err)
 			}
 			size, err := parseSCPFileControl(controlLine)
 			if err != nil {
@@ -571,7 +563,7 @@ func downloadSCP(
 				return sizeLimitError(maxSize)
 			}
 			if err := writeSCPAck(stdin); err != nil {
-				return errors.New("failed to acknowledge SCP file")
+				return preferContextError(ctx, errors.New("failed to acknowledge SCP file"))
 			}
 			if err := copyExactRemoteData(ctx, destination, reader, size); err != nil {
 				return err
@@ -579,26 +571,29 @@ func downloadSCP(
 
 			status, err := reader.ReadByte()
 			if err != nil {
-				return errors.New("invalid SCP file completion response")
+				return preferContextError(ctx, errors.New("invalid SCP file completion response"))
 			}
 			if status != 0 {
 				if status == 1 || status == 2 {
 					_, _ = readSCPControlLine(reader)
-					return errors.New("SCP server reported a transfer failure")
+					return preferContextError(
+						ctx,
+						errors.New("SCP server reported a transfer failure"),
+					)
 				}
 				return errors.New("invalid SCP file completion response")
 			}
 			if err := writeSCPAck(stdin); err != nil {
-				return errors.New("failed to acknowledge SCP file completion")
+				return preferContextError(
+					ctx,
+					errors.New("failed to acknowledge SCP file completion"),
+				)
 			}
 			if err := stdin.Close(); err != nil {
-				return errors.New("failed to close SCP input stream")
+				return preferContextError(ctx, errors.New("failed to close SCP input stream"))
 			}
 			if err := session.Wait(); err != nil {
-				if ctxErr := ctx.Err(); ctxErr != nil {
-					return ctxErr
-				}
-				return errors.New("SCP transfer failed")
+				return preferContextError(ctx, errors.New("SCP transfer failed"))
 			}
 			return nil
 		case 'D', 'E':

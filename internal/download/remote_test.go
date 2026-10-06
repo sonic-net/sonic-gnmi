@@ -715,6 +715,54 @@ func TestRemoteClientSFTPCancellationDuringHomeResolution(t *testing.T) {
 	}
 }
 
+func TestRemoteClientSFTPCancellationDuringStat(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+
+	handlers := sftp.InMemHandler()
+	handlers.FileGet = staticFileReader{data: []byte("container image")}
+	handlers.FileList = &blockingStatLister{
+		started: started,
+		release: release,
+	}
+	server := startSSHTestServerWithSFTPHandlers(t, handlers)
+	const requestedAddress = "download.example:2222"
+	client := remoteClientForSSHServer(server)
+	client.knownHostsFiles = []string{
+		writeKnownHosts(t, requestedAddress, server.signer.PublicKey(), false),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- client.download(ctx, Request{
+			Protocol: ProtocolSFTP,
+			Path:     requestedAddress + ":/image.tar",
+			Username: "user",
+			Password: "password",
+			MaxSize:  1024,
+		}, io.Discard)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for SFTP Stat")
+	}
+	cancel()
+
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Download() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for canceled SFTP download")
+	}
+}
+
 func TestRemoteClientSFTPSizeLimit(t *testing.T) {
 	remotePath := filepath.Join(t.TempDir(), "image.tar")
 	if err := os.WriteFile(remotePath, []byte("123456"), 0600); err != nil {
@@ -955,6 +1003,28 @@ func (l *blockingRealPathLister) RealPath(string) (string, error) {
 	l.started <- struct{}{}
 	<-l.release
 	return "", errors.New("SFTP connection closed")
+}
+
+type staticFileReader struct {
+	data []byte
+}
+
+func (r staticFileReader) Fileread(*sftp.Request) (io.ReaderAt, error) {
+	return bytes.NewReader(r.data), nil
+}
+
+type blockingStatLister struct {
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (l *blockingStatLister) Filelist(request *sftp.Request) (sftp.ListerAt, error) {
+	if request.Method != "Stat" {
+		return nil, fmt.Errorf("unexpected SFTP list request %q", request.Method)
+	}
+	l.started <- struct{}{}
+	<-l.release
+	return nil, errors.New("SFTP connection closed")
 }
 
 type sshTestServer struct {
