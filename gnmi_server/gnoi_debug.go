@@ -17,6 +17,8 @@ var (
 	handleDebugRequest = debugservice.HandleCommandRequest
 )
 
+const debugAdminRole = "admin"
+
 type authenticatedDebugStream struct {
 	debugpb.Debug_DebugServer
 	ctx context.Context
@@ -56,11 +58,10 @@ func debugAccessLevel(auth *common_utils.AuthInfo) (debugservice.AccessLevel, er
 	if access.noAccess {
 		return 0, status.Error(codes.PermissionDenied, "Debug access is denied")
 	}
-	if access.readWrite {
-		return debugservice.AccessReadWrite, nil
+	for _, role := range auth.Roles {
+		if role == debugAdminRole {
+			return debugservice.AccessReadWrite, nil
+		}
 	}
-	if access.readOnly {
-		return debugservice.AccessReadOnly, nil
-	}
-	return 0, status.Error(codes.PermissionDenied, "Debug requires an explicit gNOI role")
+	return 0, status.Error(codes.PermissionDenied, "Debug requires the admin role")
 }

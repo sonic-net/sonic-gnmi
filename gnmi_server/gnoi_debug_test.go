@@ -30,12 +30,12 @@ func TestDebugAccessLevel(t *testing.T) {
 	}{
 		{
 			name:     "authentication disabled",
-			auth:     common_utils.AuthInfo{User: "local", Roles: []string{"gnoi_readwrite"}},
+			auth:     common_utils.AuthInfo{User: "local", Roles: []string{"admin"}},
 			wantCode: codes.Unauthenticated,
 		},
 		{
 			name:     "missing principal",
-			auth:     common_utils.AuthInfo{AuthEnabled: true, Roles: []string{"gnoi_readwrite"}},
+			auth:     common_utils.AuthInfo{AuthEnabled: true, Roles: []string{"admin"}},
 			wantCode: codes.Unauthenticated,
 		},
 		{
@@ -53,38 +53,65 @@ func TestDebugAccessLevel(t *testing.T) {
 			wantCode: codes.PermissionDenied,
 		},
 		{
-			name: "read only",
+			name: "gnoi read only",
 			auth: common_utils.AuthInfo{
 				AuthEnabled: true,
 				User:        "operator",
 				Roles:       []string{"gnoi_readonly"},
 			},
-			want: debugservice.AccessReadOnly,
+			wantCode: codes.PermissionDenied,
 		},
 		{
-			name: "read write",
+			name: "gnoi read write",
 			auth: common_utils.AuthInfo{
 				AuthEnabled: true,
 				User:        "operator",
 				Roles:       []string{"gnoi_readwrite"},
 			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "admin",
+			auth: common_utils.AuthInfo{
+				AuthEnabled: true,
+				User:        "admin-user",
+				Roles:       []string{"admin"},
+			},
 			want: debugservice.AccessReadWrite,
 		},
 		{
-			name: "noaccess dominates later readwrite",
+			name: "admin role must be exact",
 			auth: common_utils.AuthInfo{
 				AuthEnabled: true,
-				User:        "operator",
-				Roles:       []string{"gnoi_noaccess", "gnoi_readwrite"},
+				User:        "admin-user",
+				Roles:       []string{" admin "},
 			},
 			wantCode: codes.PermissionDenied,
 		},
 		{
-			name: "noaccess dominates earlier readwrite",
+			name: "admin role is case sensitive",
 			auth: common_utils.AuthInfo{
 				AuthEnabled: true,
-				User:        "operator",
-				Roles:       []string{"gnoi_readwrite", "gnoi_noaccess"},
+				User:        "admin-user",
+				Roles:       []string{"Admin"},
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "noaccess dominates later admin",
+			auth: common_utils.AuthInfo{
+				AuthEnabled: true,
+				User:        "admin-user",
+				Roles:       []string{"gnoi_noaccess", "admin"},
+			},
+			wantCode: codes.PermissionDenied,
+		},
+		{
+			name: "noaccess dominates earlier admin",
+			auth: common_utils.AuthInfo{
+				AuthEnabled: true,
+				User:        "admin-user",
+				Roles:       []string{"admin", "gnoi_noaccess"},
 			},
 			wantCode: codes.PermissionDenied,
 		},
@@ -135,8 +162,8 @@ func TestDebugAuthenticatesOnce(t *testing.T) {
 		rc, authenticatedCtx := common_utils.GetContext(ctx)
 		rc.Auth = common_utils.AuthInfo{
 			AuthEnabled: true,
-			User:        "operator",
-			Roles:       []string{"gnoi_readwrite"},
+			User:        "admin-user",
+			Roles:       []string{"admin"},
 		}
 		return authenticatedCtx, nil
 	}
@@ -149,7 +176,7 @@ func TestDebugAuthenticatesOnce(t *testing.T) {
 			t.Fatalf("access = %v, want read-write", access)
 		}
 		rc, _ := common_utils.GetContext(stream.Context())
-		if rc.Auth.User != "operator" {
+		if rc.Auth.User != "admin-user" {
 			t.Fatalf("authenticated principal not propagated: %+v", rc.Auth)
 		}
 		return handlerErr
@@ -187,7 +214,7 @@ func TestDebugDeniesBeforeHandler(t *testing.T) {
 		rc.Auth = common_utils.AuthInfo{
 			AuthEnabled: true,
 			User:        "operator",
-			Roles:       []string{"gnmi_readwrite"},
+			Roles:       []string{"gnoi_readwrite"},
 		}
 		return authenticatedCtx, nil
 	}

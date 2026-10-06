@@ -9,9 +9,10 @@ The gNOI Debug RPC exposes a small set of server-defined diagnostic actions.
 Clients select an action by its canonical command text. They cannot select an
 executable, operating-system user, namespace, or arbitrary arguments.
 
-Debug requires authentication and an explicit `gnoi_readonly` or
-`gnoi_readwrite` role. `gnoi_noaccess` always denies the request. The RPC does
-not run when authentication is disabled, including on the local Unix socket.
+Debug requires authentication, a named principal, and the exact `admin` role.
+The `gnoi_readonly` and `gnoi_readwrite` roles do not grant Debug access.
+`gnoi_noaccess` always denies the request. The RPC does not run when
+authentication is disabled, including on the local Unix socket.
 
 ## Policy
 
