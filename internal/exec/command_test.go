@@ -97,6 +97,9 @@ func TestRunCommandUsesStructuredShellFreePlan(t *testing.T) {
 		"-p", "NoNewPrivileges=true",
 		"--working-directory=/",
 		"--setenv=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"-p", "RuntimeMaxSec=10s",
+		"-p", "KillMode=control-group",
+		"-p", "KillSignal=SIGKILL",
 		"-Pq",
 		"--uid=admin",
 		"--",
@@ -235,7 +238,9 @@ func TestRunCommandEnforcesTimeout(t *testing.T) {
 	original := execCommandWithContext
 	t.Cleanup(func() { execCommandWithContext = original })
 
+	var gotArgs []string
 	execCommandWithContext = func(ctx context.Context, name string, args ...string) ExecutableCommand {
+		gotArgs = append([]string(nil), args...)
 		return &mockCommand{
 			stdout: io.NopCloser(bytes.NewReader(nil)),
 			stderr: io.NopCloser(bytes.NewReader(nil)),
@@ -256,6 +261,18 @@ func TestRunCommandEnforcesTimeout(t *testing.T) {
 	}
 	if code != FAILED_TO_RUN {
 		t.Fatalf("unexpected exit code: %d", code)
+	}
+	for _, want := range []string{"RuntimeMaxSec=20ms", "KillMode=control-group", "KillSignal=SIGKILL"} {
+		found := false
+		for _, arg := range gotArgs {
+			if arg == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("missing systemd runtime property %q in %q", want, gotArgs)
+		}
 	}
 }
 

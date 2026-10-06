@@ -27,7 +27,6 @@ var (
 		"-p", "NoNewPrivileges=true",
 		"--working-directory=/",
 		"--setenv=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"-Pq",
 	}
 	validUser = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 
@@ -95,13 +94,19 @@ func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, p
 	ctx, cancel := context.WithTimeout(ctx, plan.Timeout)
 	defer cancel()
 
-	fullArgs := make([]string, 0, 2+len(plan.Namespaces)+1+len(systemdRunArgs)+4+len(plan.Args))
+	fullArgs := make([]string, 0, 2+len(plan.Namespaces)+1+len(systemdRunArgs)+11+len(plan.Args))
 	fullArgs = append(fullArgs, "--target", "1")
 	for _, namespace := range plan.Namespaces {
 		fullArgs = append(fullArgs, "--"+namespace)
 	}
 	fullArgs = append(fullArgs, systemdPath)
 	fullArgs = append(fullArgs, systemdRunArgs...)
+	fullArgs = append(fullArgs,
+		"-p", "RuntimeMaxSec="+plan.Timeout.String(),
+		"-p", "KillMode=control-group",
+		"-p", "KillSignal=SIGKILL",
+		"-Pq",
+	)
 	fullArgs = append(fullArgs, "--uid="+plan.User, "--", plan.Executable)
 	fullArgs = append(fullArgs, plan.Args...)
 
