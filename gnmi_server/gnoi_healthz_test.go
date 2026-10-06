@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -867,15 +868,20 @@ func TestHealthzArtifactAuthorizationPrecedesRequestAndFileHandling(t *testing.T
 		return nil, fmt.Errorf("os.Open must not be called after authorization denial")
 	})
 
-	for _, id := range []string{"/invalid/path/file.txt", "/tmp/dump/artifact.txt"} {
-		err := srv.Artifact(&healthz.ArtifactRequest{Id: id}, stream)
+	requests := []*healthz.ArtifactRequest{
+		nil,
+		{Id: "/invalid/path/file.txt"},
+		{Id: "/tmp/dump/artifact.txt"},
+	}
+	for _, req := range requests {
+		err := srv.Artifact(req, stream)
 		if err != authErr {
-			t.Errorf("Artifact(%q) error = %v, want exact authentication error %v", id, err, authErr)
+			t.Errorf("Artifact(%v) error = %v, want exact authentication error %v", req, err, authErr)
 		}
 	}
 
-	if authCalls != 2 {
-		t.Errorf("authenticate called %d times, want 2", authCalls)
+	if authCalls != len(requests) {
+		t.Errorf("authenticate called %d times, want %d", authCalls, len(requests))
 	}
 	if openCalls != 0 {
 		t.Errorf("os.Open called %d times after authorization denial, want 0", openCalls)
