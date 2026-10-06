@@ -23,6 +23,29 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type healthzArtifactTestStream struct {
+	healthz.Healthz_ArtifactServer
+	ctx       context.Context
+	responses []*healthz.ArtifactResponse
+	send      func(*healthz.ArtifactResponse) error
+}
+
+func (s *healthzArtifactTestStream) Context() context.Context {
+	return s.ctx
+}
+
+func (s *healthzArtifactTestStream) Send(resp *healthz.ArtifactResponse) error {
+	s.responses = append(s.responses, resp)
+	if s.send != nil {
+		return s.send(resp)
+	}
+	return nil
+}
+
+func newHealthzArtifactTestServer() *HealthzServer {
+	return &HealthzServer{Server: &Server{config: &Config{}}}
+}
+
 var testHealthzCases = []struct {
 	desc string
 	f    func(ctx context.Context, t *testing.T, sc healthz.HealthzClient)
@@ -553,13 +576,9 @@ var testHealthzCases = []struct {
 	{
 		desc: "TestHealthzArtifact_FileNotFound",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
+			srv := newHealthzArtifactTestServer()
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/nonexistent_file.txt"}
-
-			// Use a dummy stream where Send does nothing
-			mockStream := &struct {
-				healthz.Healthz_ArtifactServer
-			}{}
+			mockStream := &healthzArtifactTestStream{ctx: ctx}
 
 			err := srv.Artifact(req, mockStream)
 			if err == nil {
@@ -577,13 +596,9 @@ var testHealthzCases = []struct {
 	{
 		desc: "TestHealthzArtifact_InvalidPath",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
+			srv := newHealthzArtifactTestServer()
 			req := &healthz.ArtifactRequest{Id: "/invalid/path/file.txt"}
-
-			// Use a dummy stream where Send does nothing
-			mockStream := &struct {
-				healthz.Healthz_ArtifactServer
-			}{}
+			mockStream := &healthzArtifactTestStream{ctx: ctx}
 
 			err := srv.Artifact(req, mockStream)
 			if err == nil {
@@ -598,32 +613,58 @@ var testHealthzCases = []struct {
 	{
 		desc: "TestHealthzArtifact_ValidPath",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
-			// Prepare a temporary valid file under /tmp/dump
-			tmpDir := "/tmp/dump"
-			_ = os.MkdirAll(tmpDir, 0755)
-			filePath := filepath.Join(tmpDir, "valid.txt")
+			srv := newHealthzArtifactTestServer()
+			req := &healthz.ArtifactRequest{Id: "/tmp/dump/valid.txt"}
 			content := []byte("this is valid test content")
-			if err := os.WriteFile(filePath, content, 0644); err != nil {
+
+			file, err := os.CreateTemp(t.TempDir(), "healthz-artifact-*")
+			if err != nil {
+				t.Fatalf("failed to create temp file: %v", err)
+			}
+			defer file.Close()
+			if _, err := file.Write(content); err != nil {
 				t.Fatalf("failed to write temp file: %v", err)
 			}
-			defer os.Remove(filePath)
+			if _, err := file.Seek(0, io.SeekStart); err != nil {
+				t.Fatalf("failed to reset temp file: %v", err)
+			}
 
-			req := &healthz.ArtifactRequest{Id: filePath}
-			mockStream := &struct {
-				healthz.Healthz_ArtifactServer
-			}{}
+			patch := gomonkey.ApplyFunc(os.Open, func(path string) (*os.File, error) {
+				want := healthzArtifactPath(req.GetId())
+				if path != want {
+					t.Fatalf("os.Open(%q), want %q", path, want)
+				}
+				return file, nil
+			})
+			defer patch.Reset()
 
-			err := srv.Artifact(req, mockStream)
-			if err == nil {
-				t.Fatalf("expected success, got error: %v", err)
+			mockStream := &healthzArtifactTestStream{ctx: ctx}
+
+			if err := srv.Artifact(req, mockStream); err != nil {
+				t.Fatalf("Artifact() returned error: %v", err)
+			}
+			if len(mockStream.responses) != 3 {
+				t.Fatalf("Artifact() sent %d responses, want 3", len(mockStream.responses))
+			}
+			if _, ok := mockStream.responses[0].Contents.(*healthz.ArtifactResponse_Header); !ok {
+				t.Fatalf("first response is %T, want header", mockStream.responses[0].Contents)
+			}
+			bytesResp, ok := mockStream.responses[1].Contents.(*healthz.ArtifactResponse_Bytes)
+			if !ok {
+				t.Fatalf("second response is %T, want bytes", mockStream.responses[1].Contents)
+			}
+			if string(bytesResp.Bytes) != string(content) {
+				t.Fatalf("streamed content = %q, want %q", bytesResp.Bytes, content)
+			}
+			if _, ok := mockStream.responses[2].Contents.(*healthz.ArtifactResponse_Trailer); !ok {
+				t.Fatalf("third response is %T, want trailer", mockStream.responses[2].Contents)
 			}
 		},
 	},
 	{
 		desc: "TestHealthzArtifact_SeekFailure",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
+			srv := newHealthzArtifactTestServer()
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/seek_fail.txt"}
 
 			realPath := "/mnt/host/tmp/dump/seek_fail.txt"
@@ -637,7 +678,7 @@ var testHealthzCases = []struct {
 				},
 			)
 			defer patch.Reset()
-			mockStream := &struct{ healthz.Healthz_ArtifactServer }{}
+			mockStream := &healthzArtifactTestStream{ctx: ctx}
 			err := srv.Artifact(req, mockStream)
 			if err == nil {
 				t.Fatalf("expected seek failure, got nil")
@@ -651,7 +692,7 @@ var testHealthzCases = []struct {
 	{
 		desc: "TestHealthzArtifact_HeaderSendFailure",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
+			srv := newHealthzArtifactTestServer()
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/header_fail.txt"}
 
 			// Create a valid file
@@ -660,26 +701,15 @@ var testHealthzCases = []struct {
 			_ = os.WriteFile(realPath, []byte("dummy data for header test"), 0644)
 			defer os.Remove(realPath)
 
-			// Define a mock stream struct
-			type mockArtifactStream struct {
-				healthz.Healthz_ArtifactServer
-				sendCount int
-			}
-			mockStream := &mockArtifactStream{}
-
-			// Patch Send() to simulate header send failure
-			patch := gomonkey.ApplyMethod(
-				reflect.TypeOf(mockStream), "Send",
-				func(_ *mockArtifactStream, resp *healthz.ArtifactResponse) error {
-					mockStream.sendCount++
-					// Fail only for header message
+			mockStream := &healthzArtifactTestStream{
+				ctx: ctx,
+				send: func(resp *healthz.ArtifactResponse) error {
 					if _, ok := resp.Contents.(*healthz.ArtifactResponse_Header); ok {
 						return fmt.Errorf("simulated header send failure")
 					}
 					return nil
 				},
-			)
-			defer patch.Reset()
+			}
 
 			err := srv.Artifact(req, mockStream)
 			if err == nil {
@@ -691,15 +721,15 @@ var testHealthzCases = []struct {
 				t.Errorf("expected Unknown error for header send failure, got %v", st.Code())
 			}
 
-			if mockStream.sendCount != 1 {
-				t.Errorf("expected Send to be called once (for header), got %d", mockStream.sendCount)
+			if len(mockStream.responses) != 1 {
+				t.Errorf("expected Send to be called once (for header), got %d", len(mockStream.responses))
 			}
 		},
 	},
 	{
 		desc: "TestHealthzArtifact_TrailerSendFailure",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
+			srv := newHealthzArtifactTestServer()
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/trailer_fail.txt"}
 
 			// Prepare a valid file
@@ -708,21 +738,15 @@ var testHealthzCases = []struct {
 			_ = os.WriteFile(realPath, []byte("dummy file"), 0644)
 			defer os.Remove(realPath)
 
-			// Mock stream (any struct implementing the interface)
-			mockStream := &struct{ healthz.Healthz_ArtifactServer }{}
-
-			// Patch Send() on the interface type to simulate trailer failure
-			patch := gomonkey.ApplyMethod(
-				reflect.TypeOf(mockStream), "Send",
-				func(_ *struct{ healthz.Healthz_ArtifactServer }, resp *healthz.ArtifactResponse) error {
-					// Fail only for trailer
+			mockStream := &healthzArtifactTestStream{
+				ctx: ctx,
+				send: func(resp *healthz.ArtifactResponse) error {
 					if _, ok := resp.Contents.(*healthz.ArtifactResponse_Trailer); ok {
 						return fmt.Errorf("simulated trailer send failure")
 					}
 					return nil
 				},
-			)
-			defer patch.Reset()
+			}
 
 			err := srv.Artifact(req, mockStream)
 			if err == nil {
@@ -738,7 +762,7 @@ var testHealthzCases = []struct {
 	{
 		desc: "TestHealthzArtifact_FileReadFailure",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
+			srv := newHealthzArtifactTestServer()
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/read_fail.txt"}
 
 			realPath := "/mnt/host/tmp/dump/read_fail.txt"
@@ -761,7 +785,7 @@ var testHealthzCases = []struct {
 			)
 			defer patch.Reset()
 
-			mockStream := &struct{ healthz.Healthz_ArtifactServer }{}
+			mockStream := &healthzArtifactTestStream{ctx: ctx}
 
 			err = srv.Artifact(req, mockStream)
 			if err == nil {
@@ -777,7 +801,7 @@ var testHealthzCases = []struct {
 	{
 		desc: "TestHealthzArtifact_ChunkSendFailure",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
-			srv := &HealthzServer{}
+			srv := newHealthzArtifactTestServer()
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/chunk_fail.txt"}
 
 			realPath := "/mnt/host/tmp/dump/chunk_fail.txt"
@@ -785,25 +809,15 @@ var testHealthzCases = []struct {
 			_ = os.WriteFile(realPath, make([]byte, 8192), 0644) // file > ddFileSegSize (4096)
 			defer os.Remove(realPath)
 
-			// Named struct for clarity
-			type mockArtifactStream struct {
-				healthz.Healthz_ArtifactServer
-				sendCount int
-			}
-			mockStream := &mockArtifactStream{}
-
-			// Patch Send() to fail during chunk data (not header/trailer)
-			patch := gomonkey.ApplyMethod(
-				reflect.TypeOf(mockStream), "Send",
-				func(_ *mockArtifactStream, resp *healthz.ArtifactResponse) error {
-					mockStream.sendCount++
+			mockStream := &healthzArtifactTestStream{
+				ctx: ctx,
+				send: func(resp *healthz.ArtifactResponse) error {
 					if _, ok := resp.Contents.(*healthz.ArtifactResponse_Bytes); ok {
 						return fmt.Errorf("simulated chunk send failure")
 					}
 					return nil
 				},
-			)
-			defer patch.Reset()
+			}
 
 			err := srv.Artifact(req, mockStream)
 			if err == nil {
@@ -815,11 +829,60 @@ var testHealthzCases = []struct {
 				t.Errorf("expected Unknown for chunk send failure, got %v", st.Code())
 			}
 
-			if mockStream.sendCount < 2 {
-				t.Errorf("expected Send called for header + chunk, got %d", mockStream.sendCount)
+			if len(mockStream.responses) < 2 {
+				t.Errorf("expected Send called for header + chunk, got %d", len(mockStream.responses))
 			}
 		},
 	},
+}
+
+func TestHealthzArtifactAuthorizationPrecedesRequestAndFileHandling(t *testing.T) {
+	srv := newHealthzArtifactTestServer()
+	streamCtx := context.WithValue(context.Background(), struct{}{}, "artifact-auth")
+	stream := &healthzArtifactTestStream{ctx: streamCtx}
+	authErr := status.Error(codes.PermissionDenied, "artifact read denied")
+
+	authCalls := 0
+	openCalls := 0
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(authenticate, func(config *Config, ctx context.Context, target string, writeAccess bool) (context.Context, error) {
+		authCalls++
+		if config != srv.config {
+			t.Errorf("authenticate config = %p, want %p", config, srv.config)
+		}
+		if ctx != streamCtx {
+			t.Errorf("authenticate context = %v, want stream context %v", ctx, streamCtx)
+		}
+		if target != "gnoi" {
+			t.Errorf("authenticate target = %q, want gnoi", target)
+		}
+		if writeAccess {
+			t.Error("authenticate requested write access, want read access")
+		}
+		return ctx, authErr
+	})
+	patches.ApplyFunc(os.Open, func(string) (*os.File, error) {
+		openCalls++
+		return nil, fmt.Errorf("os.Open must not be called after authorization denial")
+	})
+
+	for _, id := range []string{"/invalid/path/file.txt", "/tmp/dump/artifact.txt"} {
+		err := srv.Artifact(&healthz.ArtifactRequest{Id: id}, stream)
+		if err != authErr {
+			t.Errorf("Artifact(%q) error = %v, want exact authentication error %v", id, err, authErr)
+		}
+	}
+
+	if authCalls != 2 {
+		t.Errorf("authenticate called %d times, want 2", authCalls)
+	}
+	if openCalls != 0 {
+		t.Errorf("os.Open called %d times after authorization denial, want 0", openCalls)
+	}
+	if len(stream.responses) != 0 {
+		t.Errorf("stream sent %d responses after authorization denial, want 0", len(stream.responses))
+	}
 }
 
 // TestHealthzServer tests implementation of gnoi.Healthz server.
