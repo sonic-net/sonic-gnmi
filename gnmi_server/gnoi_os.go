@@ -243,7 +243,7 @@ func (srv *OSServer) removeIncompleteTransfer(imgPath string) {
 // Install implements correspondig RPC
 func (srv *OSServer) Install(stream ospb.OS_InstallServer) error {
 	ctx := stream.Context()
-	ctx, err := authenticate(srv.config, ctx, "gnoi", false)
+	ctx, err := authenticate(srv.config, ctx, "gnoi", true)
 	if err != nil {
 		return err
 	}

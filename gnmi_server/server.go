@@ -486,6 +486,62 @@ func (srv *Server) Auth(ctx context.Context) (context.Context, error) {
 	return authenticate(srv.config, ctx, "gnmi", false)
 }
 
+// checkRoleAccess enforces the <target>_<mode> role convention against the
+// caller's populated roles. It is shared by all authentication mechanisms
+// (password, JWT, cert) so that write-vs-read authorization is uniformly
+// applied regardless of how the user was authenticated.
+//
+// Return value: nil if the caller has sufficient access for the requested
+// operation, otherwise an error describing the denial.
+//
+// Semantics (preserved from the previous cert-only implementation):
+//   - roles are lowercased-target-prefixed strings, e.g. "gnoi_readonly",
+//     "gnmi_config_db_readwrite"
+//   - postfix "noaccess"  -> deny
+//   - postfix "readonly"  -> allow when writeAccess==false, deny otherwise
+//   - postfix "readwrite" -> allow
+//   - no role for this target and writeAccess==true -> deny (fail closed on writes)
+//   - no role for this target and writeAccess==false -> allow (backwards
+//     compatible with pre-role deployments that only granted authentication)
+func checkRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
+	target = strings.ToLower(target)
+	match := false
+	var accessErr error
+	for _, role := range auth.Roles {
+		role = strings.TrimSpace(role)
+		if !strings.HasPrefix(role, target) {
+			continue
+		}
+		// Extract the postfix from the role
+		// e.g. role=gnmi_config_db_readwrite
+		// e.g. role=gnoi_readonly
+		postfix := strings.TrimPrefix(role, target)
+		postfix = strings.TrimPrefix(postfix, "_")
+		switch postfix {
+		case NoAccessMode:
+			return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, role)
+		case ReadOnlyMode:
+			if !match {
+				match = true
+				if writeAccess {
+					accessErr = fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, role)
+				}
+			}
+		case WriteAccessMode:
+			if !match {
+				match = true
+			}
+		}
+	}
+	if accessErr != nil {
+		return accessErr
+	}
+	if !match && writeAccess {
+		return fmt.Errorf("%s does not have write access, target %s", auth.User, target)
+	}
+	return nil
+}
+
 func authenticate(config *Config, ctx context.Context, target string, writeAccess bool) (context.Context, error) {
 	var err error
 	success := false
@@ -497,56 +553,29 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	}
 
 	rc.Auth.AuthEnabled = true
+	clearAuthIdentity := func() {
+		rc.Auth.User = ""
+		rc.Auth.Roles = nil
+	}
 	if config.UserAuth.Enabled("password") {
+		clearAuthIdentity()
 		ctx, err = BasicAuthenAndAuthor(ctx)
 		if err == nil {
 			success = true
 		}
 	}
 	if !success && config.UserAuth.Enabled("jwt") {
+		clearAuthIdentity()
 		_, ctx, err = JwtAuthenAndAuthor(ctx)
 		if err == nil {
 			success = true
 		}
 	}
 	if !success && config.UserAuth.Enabled("cert") {
+		clearAuthIdentity()
 		ctx, err = ClientCertAuthenAndAuthor(ctx, config.ConfigTableName, config.EnableCrl)
 		if err == nil {
 			success = true
-		}
-		// role must be readwrite to support write access
-		if success && config.ConfigTableName != "" {
-			match := false
-			target = strings.ToLower(target)
-			for _, role := range rc.Auth.Roles {
-				role = strings.TrimSpace(role)
-				if strings.HasPrefix(role, target) {
-					// Extract the postfix from the role
-					// e.g. role=gnmi_config_db_readwrite
-					// e.g. role=gnoi_readonly
-					postfix := strings.TrimPrefix(role, target)
-					postfix = strings.TrimPrefix(postfix, "_")
-					// Check if the role postfix indicates no access, and deny access if true.
-					if postfix == NoAccessMode {
-						return ctx, fmt.Errorf("%s does not have access, target %s, role %s", rc.Auth.User, target, role)
-					} else if postfix == ReadOnlyMode {
-						// ReadOnlyMode is allowed for read access
-						if writeAccess {
-							return ctx, fmt.Errorf("%s does not have access, target %s, role %s", rc.Auth.User, target, role)
-						} else {
-							match = true
-							break
-						}
-					} else if postfix == WriteAccessMode {
-						// WriteAccessMode is allowed for read/write access
-						match = true
-						break
-					}
-				}
-			}
-			if !match && writeAccess {
-				return ctx, fmt.Errorf("%s does not have write access, target %s", rc.Auth.User, target)
-			}
 		}
 	}
 
@@ -555,6 +584,15 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	if !success {
 		return ctx, status.Error(codes.Unauthenticated, "Unauthenticated")
 	}
+
+	// Role-based authorization: applied uniformly to whichever mechanism
+	// succeeded. Historically this check was nested inside the cert branch,
+	// which allowed password- and JWT-authenticated callers to bypass the
+	// readonly/readwrite gate for gNOI RPCs.
+	if err := checkRoleAccess(&rc.Auth, target, writeAccess); err != nil {
+		return ctx, err
+	}
+
 	log.V(5).Infof("authenticate user %v, roles %v", rc.Auth.User, rc.Auth.Roles)
 
 	return ctx, nil
