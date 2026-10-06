@@ -13,14 +13,14 @@ require (
 	github.com/go-redis/redismock/v9 v9.2.0
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gogo/protobuf v1.3.2
-	github.com/golang/glog v1.2.4
+	github.com/golang/glog v1.2.5
 	github.com/golang/mock v1.7.0-rc.1 // no stable v1.7.0; forced by cloud.google.com/go/spanner transitive dep
 	github.com/golang/protobuf v1.5.4
 	github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2
 	github.com/google/go-cmp v0.7.0
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/kylelemons/godebug v1.1.0
-	github.com/maruel/natural v1.1.1
+	github.com/maruel/natural v1.3.0
 	github.com/msteinert/pam v0.0.0-20201130170657-e61372126161
 	github.com/openconfig/gnmi v0.14.1
 	github.com/openconfig/gnoi v0.3.0
