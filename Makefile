@@ -328,7 +328,7 @@ check_memleak_junit: $(DBCONFG) $(ENVFILE)
 	@echo "Running memory leak tests with JUnit XML output..."
 	@mkdir -p test-results
 	CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" \
-		sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-memleak-standard.xml \
+		sudo -E env PATH="$(dir $(GO)):$$PATH" $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-memleak-standard.xml \
 		--format testname \
 		-- -mod=vendor $(MEMCHECK_FLAGS) -v $(MEMLEAK_STANDARD_PKGS)
 	@echo ""
@@ -362,7 +362,7 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE)
 	@if [ -n "$(INTEGRATION_BASIC_PKGS)" ]; then \
 		echo "Running basic integration tests..."; \
 		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" \
-			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-basic.xml \
+			sudo -E env PATH="$(dir $(GO)):$$PATH" $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-basic.xml \
 			--format testname \
 			-- -race -timeout 40m $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-basic.txt \
 			-covermode=atomic -mod=vendor -v $(INTEGRATION_BASIC_PKGS); \
@@ -375,7 +375,7 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE)
 			sudo -E $(GO) test -run=^$$ -mod=vendor $(BLD_FLAGS) $(INTEGRATION_ENV_PKGS) 2>&1 || true; \
 		echo "Running environment-dependent integration tests..."; \
 		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
-			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-env.xml \
+			sudo -E env PATH="$(dir $(GO)):$$PATH" $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-env.xml \
 			--format testname \
 			-- -race -timeout 40m $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-env.txt \
 			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
@@ -386,7 +386,7 @@ ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	@if [ -n "$(INTEGRATION_DIALOUT_PKG)" ]; then \
 		echo "Running dialout integration tests..."; \
 		CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) \
-			sudo -E $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-dialout.xml \
+			sudo -E env PATH="$(dir $(GO)):$$PATH" $(shell sudo $(GO) env GOPATH)/bin/gotestsum --junitfile test-results/junit-integration-dialout.xml \
 			--format testname \
 			-- $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-dialout.txt \
 			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG); \
@@ -493,5 +493,4 @@ diff-cover: coverage.xml test-results/coverage-pure.xml
 		--compare-branch $(TARGET_BRANCH) \
 		--src-roots . \
 		--fail-under $(DIFF_COVER_THRESHOLD)
-
 
