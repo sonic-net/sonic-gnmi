@@ -38,6 +38,7 @@ You can also build a debian package and install it:
 * See [SONiC gRPC telemetry](./doc/grpc_telemetry.md) for how to run dial-in mode system telemetry server
 * See [SONiC telemetry in dial-out mode](./doc/dialout.md) for how to run dial-out mode system telemetry client
 * See [gNMI Usage Examples](./doc/gNMI_usage_examples.md) for gNMI client usage examples.
+* See [gNOI Debug actions](./doc/gnoi_debug.md) for the Debug RPC policy and supported actions.
 
 ## Streaming events
 SONiC publishes events of interest via gNMI.

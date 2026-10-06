@@ -12,321 +12,316 @@ import (
 	"time"
 )
 
-// --- Test chanWriter ---
-
-func TestChanWriter(t *testing.T) {
-	ch := make(chan string, 1)
-	writer := &chanWriter{ch: ch}
-
-	testString := "hello world"
-	p := []byte(testString)
-
-	n, err := writer.Write(p)
-	if err != nil {
-		t.Fatalf("Write() returned an unexpected error: %v", err)
-	}
-	if n != len(p) {
-		t.Fatalf("Write() returned an incorrect length: got %d, want %d", n, len(p))
-	}
-
-	select {
-	case received := <-ch:
-		if received != testString {
-			t.Errorf("Channel received incorrect string: got %q, want %q", received, testString)
-		}
-	case <-time.After(1 * time.Second):
-		t.Fatal("Timed out waiting for channel write")
-	}
-}
-
-// --- Test outputReaderToChannel ---
-
-// mockErrorReader always returns an error on Read.
-type mockErrorReader struct{}
-
-func (r *mockErrorReader) Read(p []byte) (n int, err error) {
-	return 0, errors.New("forced read error")
-}
-
-func TestOutputReaderToChannel(t *testing.T) {
-	testCases := []struct {
-		name        string
-		reader      io.Reader
-		byteLimit   int64
-		expectedOut []string
-		expectErr   bool
-	}{
-		{
-			name:        "Success without byte limit",
-			reader:      strings.NewReader("line1\nline2"),
-			byteLimit:   0,
-			expectedOut: []string{"line1\nline2"},
-			expectErr:   false,
-		},
-		{
-			name:        "Success with byte limit",
-			reader:      strings.NewReader("some buffered data"),
-			byteLimit:   5,
-			expectedOut: []string{"some ", "buffe", "red d", "ata"}, // io.CopyBuffer behavior
-			expectErr:   false,
-		},
-		{
-			name:        "Empty reader",
-			reader:      strings.NewReader(""),
-			byteLimit:   0,
-			expectedOut: []string{},
-			expectErr:   false,
-		},
-		{
-			name:        "Error on read",
-			reader:      &mockErrorReader{},
-			byteLimit:   0,
-			expectedOut: []string{},
-			expectErr:   true,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			outCh := make(chan string, 10)
-
-			err := outputReaderToChannel(tc.reader, outCh, tc.byteLimit)
-			close(outCh)
-
-			var receivedOut []string
-			for s := range outCh {
-				receivedOut = append(receivedOut, s)
-			}
-
-			if tc.expectErr && err == nil {
-				t.Error("Expected an error, but got nil")
-			}
-			if !tc.expectErr && err != nil {
-				t.Errorf("Did not expect an error, but got: %v", err)
-			}
-
-			// For CopyBuffer, the chunks are not guaranteed, so we join them for comparison.
-			if !reflect.DeepEqual(strings.Join(receivedOut, ""), strings.Join(tc.expectedOut, "")) {
-				t.Errorf("Mismatched output:\ngot:  %q\nwant: %q", receivedOut, tc.expectedOut)
-			}
-		})
-	}
-}
-
-// --- Test RunCommand ---
-
-// mockCmd is a mock for exec.Cmd
-type mockCmd struct {
+type mockCommand struct {
 	stdout    io.ReadCloser
 	stderr    io.ReadCloser
 	startErr  error
 	waitErr   error
 	stdoutErr error
 	stderrErr error
+	waitCalls *int
+	waitFunc  func() error
 }
 
-func (c *mockCmd) StdoutPipe() (io.ReadCloser, error) { return c.stdout, c.stdoutErr }
-func (c *mockCmd) StderrPipe() (io.ReadCloser, error) { return c.stderr, c.stderrErr }
-func (c *mockCmd) Start() error                       { return c.startErr }
-func (c *mockCmd) Wait() error                        { return c.waitErr }
-
-// mockReadCloser helps wrap an io.Reader into an io.ReadCloser
-type mockReadCloser struct {
-	io.Reader
+func (c *mockCommand) StdoutPipe() (io.ReadCloser, error) { return c.stdout, c.stdoutErr }
+func (c *mockCommand) StderrPipe() (io.ReadCloser, error) { return c.stderr, c.stderrErr }
+func (c *mockCommand) Start() error                       { return c.startErr }
+func (c *mockCommand) Wait() error {
+	if c.waitCalls != nil {
+		*c.waitCalls++
+	}
+	if c.waitFunc != nil {
+		return c.waitFunc()
+	}
+	return c.waitErr
 }
 
-func (m *mockReadCloser) Close() error { return nil }
-
-// mockExitError implements the error interface, along with the custom exit error interface
 type mockExitError struct {
 	code int
 }
 
-func (e mockExitError) Error() string  { return fmt.Sprintf("exit code %d", e.code) }
+func (e *mockExitError) Error() string { return fmt.Sprintf("exit code %d", e.code) }
 func (e *mockExitError) ExitCode() int { return e.code }
 
-func TestRunCommand(t *testing.T) {
-	originalExecCommand := execCommandWithContext
-	defer func() { execCommandWithContext = originalExecCommand }()
+type errorReadCloser struct {
+	err error
+}
 
-	testCases := []struct {
-		name             string
-		mock             mockCmd
-		cmdStr           string
-		roleAccount      string
-		ctx              context.Context
-		expectedExitCode int
-		expectErr        bool
-		expectedStdout   string
-		expectedStderr   string
-		expectedArgs     []string
-	}{
-		{
-			name: "Successful execution with default user",
-			mock: mockCmd{
-				stdout:   io.NopCloser(strings.NewReader("OK")),
-				stderr:   io.NopCloser(strings.NewReader("")),
-				startErr: nil,
-				waitErr:  nil,
-			},
-			cmdStr:           "echo 'test'",
-			roleAccount:      "",
-			ctx:              context.Background(),
-			expectedExitCode: 0,
-			expectErr:        false,
-			expectedStdout:   "OK",
-			expectedStderr:   "",
-			expectedArgs:     []string{"--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "systemd-run", "-p", "ProtectSystem=strict", "-p", "PrivateDevices=true", "-Pq", "--uid=admin", "sh", "-c", "echo 'test'"},
-		},
-		{
-			name: "Successful execution with custom user",
-			mock: mockCmd{
-				stdout:   io.NopCloser(bytes.NewReader([]byte("Data"))),
-				stderr:   io.NopCloser(bytes.NewReader(nil)),
-				startErr: nil,
-				waitErr:  nil,
-			},
-			cmdStr:           "ls",
-			roleAccount:      "testuser",
-			ctx:              context.Background(),
-			expectedExitCode: 0,
-			expectErr:        false,
-			expectedStdout:   "Data",
-			expectedStderr:   "",
-			expectedArgs:     []string{"--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "systemd-run", "-p", "ProtectSystem=strict", "-p", "PrivateDevices=true", "-Pq", "--uid=testuser", "sh", "-c", "ls"},
-		},
-		{
-			name: "Command fails with non-zero exit code",
-			mock: mockCmd{
-				stdout:   io.NopCloser(strings.NewReader("")),
-				stderr:   io.NopCloser(strings.NewReader("Command not found")),
-				startErr: nil,
-				waitErr:  &mockExitError{code: 127},
-			},
-			cmdStr:           "invalid-cmd",
-			roleAccount:      "admin",
-			ctx:              context.Background(),
-			expectedExitCode: 127,
-			expectErr:        false, // ExitError is not a framework error
-			expectedStdout:   "",
-			expectedStderr:   "Command not found",
-		},
-		{
-			name: "Start fails",
-			mock: mockCmd{
-				startErr: errors.New("failed to start"),
-			},
-			cmdStr:           "any",
-			roleAccount:      "admin",
-			ctx:              context.Background(),
-			expectedExitCode: FAILED_TO_RUN,
-			expectErr:        true,
-		},
-		{
-			name: "StdoutPipe fails",
-			mock: mockCmd{
-				stdoutErr: errors.New("stdout pipe failed"),
-			},
-			cmdStr:           "any",
-			roleAccount:      "admin",
-			ctx:              context.Background(),
-			expectedExitCode: FAILED_TO_RUN,
-			expectErr:        true,
-		},
-		{
-			name: "StderrPipe fails",
-			mock: mockCmd{
-				stderrErr: errors.New("stderr pipe failed"),
-			},
-			cmdStr:           "any",
-			roleAccount:      "admin",
-			ctx:              context.Background(),
-			expectedExitCode: FAILED_TO_RUN,
-			expectErr:        true,
-		},
-		{
-			name: "Wait fails with generic error",
-			mock: mockCmd{
-				stdout:   io.NopCloser(strings.NewReader("")),
-				stderr:   io.NopCloser(strings.NewReader("")),
-				startErr: nil,
-				waitErr:  errors.New("wait failed unexpectedly"),
-			},
-			cmdStr:           "any",
-			roleAccount:      "admin",
-			ctx:              context.Background(),
-			expectedExitCode: FAILED_TO_RUN,
-			expectErr:        true,
-		},
-		{
-			name: "Context cancellation",
-			mock: mockCmd{
-				stdout:   io.NopCloser(strings.NewReader("")),
-				stderr:   io.NopCloser(strings.NewReader("")),
-				startErr: nil,
-				waitErr:  context.Canceled,
-			},
-			cmdStr:      "sleep 10",
-			roleAccount: "admin",
-			ctx: func() context.Context {
-				ctx, cancel := context.WithCancel(context.Background())
-				cancel() // Immediately cancel
-				return ctx
-			}(),
-			expectedExitCode: FAILED_TO_RUN,
-			expectErr:        true, // Expect context.Canceled error
-		},
+func (r *errorReadCloser) Read([]byte) (int, error) { return 0, r.err }
+func (r *errorReadCloser) Close() error             { return nil }
+
+func validPlan() ExecutionPlan {
+	return ExecutionPlan{
+		Executable:  "/usr/bin/uptime",
+		User:        "admin",
+		Namespaces:  []string{"mount"},
+		Timeout:     10 * time.Second,
+		OutputLimit: 64 * 1024,
+	}
+}
+
+func TestRunCommandUsesStructuredShellFreePlan(t *testing.T) {
+	original := execCommandWithContext
+	t.Cleanup(func() { execCommandWithContext = original })
+
+	var gotName string
+	var gotArgs []string
+	execCommandWithContext = func(ctx context.Context, name string, args ...string) ExecutableCommand {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return &mockCommand{
+			stdout: io.NopCloser(strings.NewReader("OK")),
+			stderr: io.NopCloser(strings.NewReader("")),
+		}
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			var capturedArgs []string
-			execCommandWithContext = func(ctx context.Context, command string, args ...string) ExecutableCommand {
-				capturedArgs = append(capturedArgs, args...)
-				return &tc.mock
+	outCh := make(chan string, 10)
+	errCh := make(chan string, 10)
+	code, err := RunCommand(context.Background(), outCh, errCh, validPlan())
+	if err != nil {
+		t.Fatalf("RunCommand() error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("unexpected exit code: %d", code)
+	}
+	if gotName != "/usr/bin/nsenter" {
+		t.Fatalf("unexpected executable: %q", gotName)
+	}
+	wantArgs := []string{
+		"--target", "1", "--mount",
+		"/usr/bin/systemd-run",
+		"-p", "ProtectSystem=strict",
+		"-p", "ProtectHome=true",
+		"-p", "PrivateDevices=true",
+		"-p", "PrivateTmp=true",
+		"-p", "NoNewPrivileges=true",
+		"--working-directory=/",
+		"--setenv=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"-Pq",
+		"--uid=admin",
+		"--",
+		"/usr/bin/uptime",
+	}
+	if !reflect.DeepEqual(gotArgs, wantArgs) {
+		t.Fatalf("unexpected args:\ngot:  %q\nwant: %q", gotArgs, wantArgs)
+	}
+	for _, arg := range gotArgs {
+		if arg == "sh" || arg == "-c" {
+			t.Fatalf("shell argument reached executor: %q", gotArgs)
+		}
+	}
+	if got := strings.Join(drainChannel(outCh), ""); got != "OK" {
+		t.Fatalf("unexpected stdout: %q", got)
+	}
+	if got := strings.Join(drainChannel(errCh), ""); got != "" {
+		t.Fatalf("unexpected stderr: %q", got)
+	}
+}
+
+func TestRunCommandAppendsValidatedArguments(t *testing.T) {
+	original := execCommandWithContext
+	t.Cleanup(func() { execCommandWithContext = original })
+
+	var gotArgs []string
+	execCommandWithContext = func(ctx context.Context, name string, args ...string) ExecutableCommand {
+		gotArgs = append([]string(nil), args...)
+		return &mockCommand{
+			stdout: io.NopCloser(strings.NewReader("")),
+			stderr: io.NopCloser(strings.NewReader("")),
+		}
+	}
+
+	plan := validPlan()
+	plan.Executable = "/usr/bin/ps"
+	plan.Args = []string{"-ef"}
+	outCh := make(chan string, 10)
+	errCh := make(chan string, 10)
+	if _, err := RunCommand(context.Background(), outCh, errCh, plan); err != nil {
+		t.Fatalf("RunCommand() error: %v", err)
+	}
+	if got := gotArgs[len(gotArgs)-2:]; !reflect.DeepEqual(got, []string{"/usr/bin/ps", "-ef"}) {
+		t.Fatalf("unexpected command tail: %q", got)
+	}
+}
+
+func TestRunCommandEnforcesTotalOutputLimit(t *testing.T) {
+	original := execCommandWithContext
+	t.Cleanup(func() { execCommandWithContext = original })
+
+	execCommandWithContext = func(ctx context.Context, name string, args ...string) ExecutableCommand {
+		return &mockCommand{
+			stdout: io.NopCloser(strings.NewReader("1234567890")),
+			stderr: io.NopCloser(strings.NewReader("abcdefghij")),
+		}
+	}
+
+	plan := validPlan()
+	plan.OutputLimit = 7
+	outCh := make(chan string, 10)
+	errCh := make(chan string, 10)
+	if _, err := RunCommand(context.Background(), outCh, errCh, plan); err != nil {
+		t.Fatalf("RunCommand() error: %v", err)
+	}
+	total := len(strings.Join(drainChannel(outCh), "")) + len(strings.Join(drainChannel(errCh), ""))
+	if total != 7 {
+		t.Fatalf("expected exactly 7 emitted bytes, got %d", total)
+	}
+}
+
+func TestRunCommandRejectsInvalidPlanBeforeExecution(t *testing.T) {
+	original := execCommandWithContext
+	t.Cleanup(func() { execCommandWithContext = original })
+
+	calls := 0
+	execCommandWithContext = func(ctx context.Context, name string, args ...string) ExecutableCommand {
+		calls++
+		return &mockCommand{}
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*ExecutionPlan)
+	}{
+		{name: "relative executable", mutate: func(p *ExecutionPlan) { p.Executable = "uptime" }},
+		{name: "empty user", mutate: func(p *ExecutionPlan) { p.User = "" }},
+		{name: "invalid user", mutate: func(p *ExecutionPlan) { p.User = "root --property=X" }},
+		{name: "unknown namespace", mutate: func(p *ExecutionPlan) { p.Namespaces = []string{"user"} }},
+		{name: "zero timeout", mutate: func(p *ExecutionPlan) { p.Timeout = 0 }},
+		{name: "zero output limit", mutate: func(p *ExecutionPlan) { p.OutputLimit = 0 }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan := validPlan()
+			tt.mutate(&plan)
+			outCh := make(chan string, 1)
+			errCh := make(chan string, 1)
+			if _, err := RunCommand(context.Background(), outCh, errCh, plan); err == nil {
+				t.Fatal("expected invalid plan to fail")
 			}
-
-			outCh := make(chan string, 10)
-			errCh := make(chan string, 10)
-
-			exitCode, err := RunCommand(tc.ctx, outCh, errCh, tc.roleAccount, 0, tc.cmdStr)
-
-			if exitCode != tc.expectedExitCode {
-				t.Errorf("Expected exit code %d, but got %d", tc.expectedExitCode, exitCode)
-			}
-
-			if tc.expectErr && err == nil {
-				t.Error("Expected an error, but got nil")
-			}
-			if !tc.expectErr && err != nil {
-				t.Errorf("Did not expect an error, but got: %v", err)
-			}
-
-			if tc.expectedArgs != nil && !reflect.DeepEqual(capturedArgs, tc.expectedArgs) {
-				t.Errorf("Mismatched arguments:\ngot:  %q\nwant: %q", capturedArgs, tc.expectedArgs)
-			}
-
-			if tc.expectedStdout != "" {
-				var stdout bytes.Buffer
-				for s := range outCh {
-					stdout.WriteString(s)
-				}
-
-				if stdout.String() != tc.expectedStdout {
-					t.Errorf("Mismatched stdout:\ngot:  %q\nwant: %q", stdout.String(), tc.expectedStdout)
-				}
-			}
-
-			if tc.expectedStderr != "" {
-				var stderr bytes.Buffer
-				for s := range errCh {
-					stderr.WriteString(s)
-				}
-
-				if stderr.String() != tc.expectedStderr {
-					t.Errorf("Mismatched stderr:\ngot:  %q\nwant: %q", stderr.String(), tc.expectedStderr)
-				}
+			if calls != 0 {
+				t.Fatalf("executor called for invalid plan: %d", calls)
 			}
 		})
 	}
+}
+
+func TestRunCommandReturnsExitStatus(t *testing.T) {
+	original := execCommandWithContext
+	t.Cleanup(func() { execCommandWithContext = original })
+
+	execCommandWithContext = func(ctx context.Context, name string, args ...string) ExecutableCommand {
+		return &mockCommand{
+			stdout: io.NopCloser(bytes.NewReader(nil)),
+			stderr: io.NopCloser(strings.NewReader("failed")),
+			waitErr: &mockExitError{
+				code: 42,
+			},
+		}
+	}
+
+	outCh := make(chan string, 10)
+	errCh := make(chan string, 10)
+	code, err := RunCommand(context.Background(), outCh, errCh, validPlan())
+	if err != nil {
+		t.Fatalf("RunCommand() error: %v", err)
+	}
+	if code != 42 {
+		t.Fatalf("unexpected exit code: %d", code)
+	}
+}
+
+func TestRunCommandEnforcesTimeout(t *testing.T) {
+	original := execCommandWithContext
+	t.Cleanup(func() { execCommandWithContext = original })
+
+	execCommandWithContext = func(ctx context.Context, name string, args ...string) ExecutableCommand {
+		return &mockCommand{
+			stdout: io.NopCloser(bytes.NewReader(nil)),
+			stderr: io.NopCloser(bytes.NewReader(nil)),
+			waitFunc: func() error {
+				<-ctx.Done()
+				return ctx.Err()
+			},
+		}
+	}
+
+	plan := validPlan()
+	plan.Timeout = 20 * time.Millisecond
+	outCh := make(chan string, 1)
+	errCh := make(chan string, 1)
+	code, err := RunCommand(context.Background(), outCh, errCh, plan)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RunCommand() error = %v, want deadline exceeded", err)
+	}
+	if code != FAILED_TO_RUN {
+		t.Fatalf("unexpected exit code: %d", code)
+	}
+}
+
+func TestRunCommandWaitsAfterOutputError(t *testing.T) {
+	original := execCommandWithContext
+	t.Cleanup(func() { execCommandWithContext = original })
+
+	waitCalls := 0
+	readErr := errors.New("read")
+	execCommandWithContext = func(ctx context.Context, name string, args ...string) ExecutableCommand {
+		return &mockCommand{
+			stdout:    &errorReadCloser{err: readErr},
+			stderr:    io.NopCloser(bytes.NewReader(nil)),
+			waitCalls: &waitCalls,
+		}
+	}
+
+	outCh := make(chan string, 10)
+	errCh := make(chan string, 10)
+	code, err := RunCommand(context.Background(), outCh, errCh, validPlan())
+	if !errors.Is(err, readErr) {
+		t.Fatalf("RunCommand() error = %v, want read error", err)
+	}
+	if code != FAILED_TO_RUN {
+		t.Fatalf("unexpected exit code: %d", code)
+	}
+	if waitCalls != 1 {
+		t.Fatalf("Wait() calls = %d, want 1", waitCalls)
+	}
+}
+
+func TestRunCommandReturnsInfrastructureErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  *mockCommand
+	}{
+		{name: "stdout pipe", cmd: &mockCommand{stdoutErr: errors.New("stdout")}},
+		{name: "stderr pipe", cmd: &mockCommand{stdout: io.NopCloser(bytes.NewReader(nil)), stderrErr: errors.New("stderr")}},
+		{name: "start", cmd: &mockCommand{stdout: io.NopCloser(bytes.NewReader(nil)), stderr: io.NopCloser(bytes.NewReader(nil)), startErr: errors.New("start")}},
+		{name: "wait", cmd: &mockCommand{stdout: io.NopCloser(bytes.NewReader(nil)), stderr: io.NopCloser(bytes.NewReader(nil)), waitErr: errors.New("wait")}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := execCommandWithContext
+			t.Cleanup(func() { execCommandWithContext = original })
+			execCommandWithContext = func(ctx context.Context, name string, args ...string) ExecutableCommand {
+				return tt.cmd
+			}
+			outCh := make(chan string, 10)
+			errCh := make(chan string, 10)
+			code, err := RunCommand(context.Background(), outCh, errCh, validPlan())
+			if err == nil {
+				t.Fatal("expected infrastructure error")
+			}
+			if code != FAILED_TO_RUN {
+				t.Fatalf("unexpected exit code: %d", code)
+			}
+		})
+	}
+}
+
+func drainChannel(ch <-chan string) []string {
+	var values []string
+	for value := range ch {
+		values = append(values, value)
+	}
+	return values
 }

@@ -6870,6 +6870,10 @@ func TestClientCertAuthenAndAuthor(t *testing.T) {
 	if err != nil {
 		t.Errorf("CommonNameMatch with correct cert name should success: %v", err)
 	}
+	rc, _ := common_utils.GetContext(ctx)
+	if rc.Auth.User != "certname1" {
+		t.Errorf("authenticated user = %q, want certname1", rc.Auth.User)
+	}
 
 	cancel()
 

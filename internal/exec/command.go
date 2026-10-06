@@ -2,54 +2,42 @@ package exec
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 )
 
 const (
 	FAILED_TO_RUN = -1
-	NSENTER_CMD   = "nsenter"
-	DEFAULT_ACC   = "admin"
+	nsenterPath   = "/usr/bin/nsenter"
+	systemdPath   = "/usr/bin/systemd-run"
 )
 
 var (
-	NSENTER_ARGS = []string{
-		"--target",
-		"1",
-		"--mount",
-		"--uts",
-		"--ipc",
-		"--net",
-		"--pid",
-	}
-	SYSTEMD_RUN_ARGS = []string{
-		"systemd-run",
-		"-p",
-		"ProtectSystem=strict",
-		"-p",
-		"PrivateDevices=true",
+	systemdRunArgs = []string{
+		"-p", "ProtectSystem=strict",
+		"-p", "ProtectHome=true",
+		"-p", "PrivateDevices=true",
+		"-p", "PrivateTmp=true",
+		"-p", "NoNewPrivileges=true",
+		"--working-directory=/",
+		"--setenv=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"-Pq",
 	}
-	SHELL_ARGS = []string{
-		"sh",
-		"-c",
-	}
+	validUser = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 
-	USER_AND_CMD = 2
-	// Length required for nsenter's args, user args, shell args, the user, the command
-	STATIC_ARG_LEN = len(NSENTER_ARGS) + len(SYSTEMD_RUN_ARGS) + len(SHELL_ARGS) + USER_AND_CMD
-
-	// Allow DI for mocking
 	execCommandWithContext = func(ctx context.Context, name string, args ...string) ExecutableCommand {
-		// Below is passed through AST validation + whitelist sanitisation, and is as safe as possible
+		// The executable and argv come from a compiled action policy.
 		// nosemgrep:dangerous-exec-command
 		return exec.CommandContext(ctx, name, args...)
 	}
 )
 
-// Interface containing the methods we use from the exec.Cmd struct
 type ExecutableCommand interface {
 	Start() error
 	Wait() error
@@ -57,63 +45,67 @@ type ExecutableCommand interface {
 	StdoutPipe() (io.ReadCloser, error)
 }
 
-// Interface containing methods used from exec.ExitError
 type ExitError interface {
 	ExitCode() int
 }
 
-// Small wrapper to provide io.Writer interface impl for channel
-type chanWriter struct {
-	ch chan<- string
+type outputLimiter struct {
+	mu        sync.Mutex
+	remaining int64
 }
 
-func (w *chanWriter) Write(p []byte) (n int, err error) {
-	w.ch <- string(p)
+type limitedChannelWriter struct {
+	ch      chan<- string
+	limiter *outputLimiter
+}
+
+func (w *limitedChannelWriter) Write(p []byte) (int, error) {
+	w.limiter.mu.Lock()
+	defer w.limiter.mu.Unlock()
+
+	emit := int64(len(p))
+	if emit > w.limiter.remaining {
+		emit = w.limiter.remaining
+	}
+	if emit > 0 {
+		w.ch <- string(p[:emit])
+		w.limiter.remaining -= emit
+	}
+
+	// Report the full input as consumed so the pipes continue to drain after
+	// the response limit is reached.
 	return len(p), nil
 }
 
-// Reads from reader, piping into the provided channel until EOF.
-func outputReaderToChannel(reader io.Reader, outCh chan<- string, byteLimit int64) error {
-	writer := &chanWriter{
-		ch: outCh,
-	}
-
-	// nil by default, unless valid limit provided
-	var buf []byte
-	if byteLimit > 0 {
-		buf = make([]byte, byteLimit)
-	}
-
-	_, err := io.CopyBuffer(writer, reader, buf)
-
+func outputReaderToChannel(reader io.Reader, outCh chan<- string, limiter *outputLimiter) error {
+	_, err := io.Copy(&limitedChannelWriter{ch: outCh, limiter: limiter}, reader)
 	return err
 }
 
-// Runs a specified command on the host device.
-//
-// Takes channels for stdout and stderr, which are copied in real time during execution.
-// Optionally runs command as the specified user (default is 'admin'), and has an optional byte limit for responses.
-//
-// Returns status code of the operation, with optional error.
-func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string) (int, error) {
+func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, plan ExecutionPlan) (int, error) {
 	defer func() {
 		close(outCh)
 		close(errCh)
 	}()
 
-	fullArgs := make([]string, 0, STATIC_ARG_LEN)
-	fullArgs = append(fullArgs, NSENTER_ARGS...)
-	fullArgs = append(fullArgs, SYSTEMD_RUN_ARGS...)
-	account := roleAccount
-	if account == "" {
-		account = DEFAULT_ACC
+	if err := validatePlan(plan); err != nil {
+		return FAILED_TO_RUN, err
 	}
-	fullArgs = append(fullArgs, fmt.Sprintf("--uid=%s", account))
-	fullArgs = append(fullArgs, SHELL_ARGS...)
-	fullArgs = append(fullArgs, cmd)
 
-	command := execCommandWithContext(ctx, NSENTER_CMD, fullArgs...)
+	ctx, cancel := context.WithTimeout(ctx, plan.Timeout)
+	defer cancel()
 
+	fullArgs := make([]string, 0, 2+len(plan.Namespaces)+1+len(systemdRunArgs)+4+len(plan.Args))
+	fullArgs = append(fullArgs, "--target", "1")
+	for _, namespace := range plan.Namespaces {
+		fullArgs = append(fullArgs, "--"+namespace)
+	}
+	fullArgs = append(fullArgs, systemdPath)
+	fullArgs = append(fullArgs, systemdRunArgs...)
+	fullArgs = append(fullArgs, "--uid="+plan.User, "--", plan.Executable)
+	fullArgs = append(fullArgs, plan.Args...)
+
+	command := execCommandWithContext(ctx, nsenterPath, fullArgs...)
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		return FAILED_TO_RUN, err
@@ -122,35 +114,77 @@ func RunCommand(ctx context.Context, outCh chan<- string, errCh chan<- string, r
 	if err != nil {
 		return FAILED_TO_RUN, err
 	}
-
-	err = command.Start()
-	if err != nil {
+	if err := command.Start(); err != nil {
 		return FAILED_TO_RUN, err
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(2)
+	limiter := &outputLimiter{remaining: plan.OutputLimit}
+	readErrors := make(chan error, 2)
 	go func() {
-		outputReaderToChannel(stdout, outCh, byteLimit)
-		wg.Done()
+		readErrors <- outputReaderToChannel(stdout, outCh, limiter)
 	}()
 	go func() {
-		outputReaderToChannel(stderr, errCh, byteLimit)
-		wg.Done()
+		readErrors <- outputReaderToChannel(stderr, errCh, limiter)
 	}()
-	wg.Wait()
 
-	err = command.Wait()
-	if err != nil {
-		switch err.(type) {
-		case ExitError:
-			// If the command fails, just return exit code - no issue with the infrastructure
-			castErr := err.(ExitError)
-			return castErr.ExitCode(), nil
-		default:
-			return FAILED_TO_RUN, err
+	var readErr error
+	for range 2 {
+		if err := <-readErrors; err != nil && readErr == nil {
+			readErr = err
+			cancel()
+			_ = stdout.Close()
+			_ = stderr.Close()
 		}
 	}
 
+	waitErr := command.Wait()
+	if readErr != nil {
+		return FAILED_TO_RUN, readErr
+	}
+	if waitErr != nil {
+		var exitErr ExitError
+		if errors.As(waitErr, &exitErr) {
+			return exitErr.ExitCode(), nil
+		}
+		return FAILED_TO_RUN, waitErr
+	}
+
 	return 0, nil
+}
+
+func validatePlan(plan ExecutionPlan) error {
+	if !filepath.IsAbs(plan.Executable) || filepath.Clean(plan.Executable) != plan.Executable {
+		return fmt.Errorf("execution plan requires a clean absolute executable path")
+	}
+	if strings.ContainsRune(plan.Executable, '\x00') {
+		return fmt.Errorf("execution plan executable contains a NUL byte")
+	}
+	if !validUser.MatchString(plan.User) {
+		return fmt.Errorf("execution plan contains invalid user %q", plan.User)
+	}
+	if plan.Timeout <= 0 {
+		return fmt.Errorf("execution plan timeout must be positive")
+	}
+	if plan.OutputLimit <= 0 {
+		return fmt.Errorf("execution plan output limit must be positive")
+	}
+
+	seenNamespaces := make(map[string]struct{}, len(plan.Namespaces))
+	for _, namespace := range plan.Namespaces {
+		switch namespace {
+		case "mount", "uts", "ipc", "net", "pid", "cgroup", "time":
+		default:
+			return fmt.Errorf("execution plan contains unsupported namespace %q", namespace)
+		}
+		if _, exists := seenNamespaces[namespace]; exists {
+			return fmt.Errorf("execution plan contains duplicate namespace %q", namespace)
+		}
+		seenNamespaces[namespace] = struct{}{}
+	}
+	for _, arg := range plan.Args {
+		if strings.ContainsRune(arg, '\x00') {
+			return fmt.Errorf("execution plan argument contains a NUL byte")
+		}
+	}
+	return nil
 }

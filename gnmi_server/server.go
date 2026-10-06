@@ -36,6 +36,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_containerz_pb "github.com/openconfig/gnoi/containerz"
+	gnoi_debug_pb "github.com/openconfig/gnoi/debug"
 	"github.com/openconfig/gnoi/factory_reset"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"google.golang.org/grpc/credentials"
@@ -47,7 +48,6 @@ import (
 	gnsi_certz_pb "github.com/openconfig/gnsi/certz"
 	gnsi_credentialz_pb "github.com/openconfig/gnsi/credentialz"
 	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
-	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 	gnoi_oras_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/oras"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"google.golang.org/grpc"
@@ -198,8 +198,7 @@ type ContainerzServer struct {
 // DebugServer is the server API for Debug service.
 type DebugServer struct {
 	*Server
-	readWhitelist  []string
-	writeWhitelist []string
+	policy *gnoi_debug.Policy
 	gnoi_debug_pb.UnimplementedDebugServer
 }
 
@@ -602,11 +601,14 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	srv.gnsiAuthz = authzSrv
 	pathzSrv := NewGNSIPathzServer(srv)
 	srv.gnsiPathz = pathzSrv
-	readWhitelist, writeWhitelist := gnoi_debug.ConstructWhitelists()
+	debugPolicy, policyErr := gnoi_debug.LoadPolicy(gnoi_debug.PolicyFilePath)
+	if policyErr != nil {
+		log.Errorf("gNOI Debug policy unavailable: %v", policyErr)
+		debugPolicy = gnoi_debug.NewUnavailablePolicy(policyErr)
+	}
 	debugSrv := &DebugServer{
-		Server:         srv,
-		readWhitelist:  readWhitelist,
-		writeWhitelist: writeWhitelist,
+		Server: srv,
+		policy: debugPolicy,
 	}
 	certzSrv := NewGNSICertzServer(srv)
 	srv.gnsiCertz = certzSrv
@@ -810,37 +812,40 @@ func (srv *Server) Auth(ctx context.Context) (context.Context, error) {
 //   - no role for this target and writeAccess==false -> allow (backwards
 //     compatible with pre-role deployments that only granted authentication)
 func checkRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
-	target = strings.ToLower(target)
-	match := false
-	for _, role := range auth.Roles {
-		role = strings.TrimSpace(role)
-		if !strings.HasPrefix(role, target) {
-			continue
-		}
-		// Extract the postfix from the role
-		// e.g. role=gnmi_config_db_readwrite
-		// e.g. role=gnoi_readonly
-		postfix := strings.TrimPrefix(role, target)
-		postfix = strings.TrimPrefix(postfix, "_")
-		switch postfix {
-		case NoAccessMode:
-			return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, role)
-		case ReadOnlyMode:
-			if writeAccess {
-				return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, role)
-			}
-			match = true
-		case WriteAccessMode:
-			match = true
-		}
-		if match {
-			break
-		}
+	access := resolveTargetRoleAccess(auth, target)
+	if access.noAccess {
+		return fmt.Errorf("%s does not have access, target %s", auth.User, target)
 	}
-	if !match && writeAccess {
+	if writeAccess && !access.readWrite {
 		return fmt.Errorf("%s does not have write access, target %s", auth.User, target)
 	}
 	return nil
+}
+
+type targetRoleAccess struct {
+	noAccess  bool
+	readOnly  bool
+	readWrite bool
+}
+
+func resolveTargetRoleAccess(auth *common_utils.AuthInfo, target string) targetRoleAccess {
+	var access targetRoleAccess
+	if auth == nil {
+		return access
+	}
+
+	prefix := strings.ToLower(target) + "_"
+	for _, role := range auth.Roles {
+		switch strings.TrimSpace(role) {
+		case prefix + NoAccessMode:
+			access.noAccess = true
+		case prefix + ReadOnlyMode:
+			access.readOnly = true
+		case prefix + WriteAccessMode:
+			access.readWrite = true
+		}
+	}
+	return access
 }
 
 func authenticate(config *Config, ctx context.Context, target string, writeAccess bool) (context.Context, error) {
