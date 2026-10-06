@@ -2,17 +2,21 @@
 
 Before deploying this version on systems that expose Debug, migrate
 `/etc/sonic/command_whitelist.yaml` to the version 1 `enabled_actions` schema
-and restart the service. The previous schema leaves Debug registered but
-unavailable.
+and restart the service. The previous schema leaves Debug registered on the
+Unix domain socket but unavailable.
 
 The gNOI Debug RPC exposes a small set of server-defined diagnostic actions.
 Clients select an action by its canonical command text. They cannot select an
 executable, operating-system user, namespace, or arbitrary arguments.
 
-Debug requires authentication, a named principal, and the exact `admin` role.
-The `gnoi_readonly` and `gnoi_readwrite` roles do not grant Debug access.
-`gnoi_noaccess` always denies the request. The RPC does not run when
-authentication is disabled, including on the local Unix socket.
+Debug is registered only on the Unix domain socket configured by
+`--unix_socket` (default `/var/run/gnmi/gnmi.sock`). It is not registered on the
+TCP/TLS gRPC server, and the handler rejects any non-Unix peer as a second
+boundary.
+
+Unix socket access is controlled by the socket directory and file permissions.
+The server creates the socket with mode `0660`; local UDS connections do not
+use the network authentication or role checks.
 
 ## Policy
 

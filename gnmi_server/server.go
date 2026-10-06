@@ -355,10 +355,11 @@ func (i AuthTypes) Unset(mode string) error {
 	return nil
 }
 
-// registerAllServices registers all gNMI and gNOI services on the given gRPC server.
-func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
+// registerSharedServices registers services exposed on both TCP and UDS.
+// gNOI Debug is registered separately on UDS only.
+func registerSharedServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 	osSrv *OSServer, containerzSrv *ContainerzServer,
-	debugSrv *DebugServer, healthzSrv *HealthzServer, orasSrv *OrasServer, certzSrv *GNSICertzServer, authzSrv *GNSIAuthzServer, pathzSrv *GNSIPathzServer, credentialzSrv *GNSICredentialzServer) {
+	healthzSrv *HealthzServer, orasSrv *OrasServer, certzSrv *GNSICertzServer, authzSrv *GNSIAuthzServer, pathzSrv *GNSIPathzServer, credentialzSrv *GNSICredentialzServer) {
 	gnmipb.RegisterGNMIServer(s, srv)
 	factory_reset.RegisterFactoryResetServer(s, srv)
 	gnsi_certz_pb.RegisterCertzServer(s, certzSrv)
@@ -371,7 +372,6 @@ func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 		gnoi_file_pb.RegisterFileServer(s, fileSrv)
 		gnoi_os_pb.RegisterOSServer(s, osSrv)
 		gnoi_containerz_pb.RegisterContainerzServer(s, containerzSrv)
-		gnoi_debug_pb.RegisterDebugServer(s, debugSrv)
 		gnoi_healthz_pb.RegisterHealthzServer(s, healthzSrv)
 	}
 	// ORAS Pull writes only into an allowlisted staging area inside the
@@ -601,14 +601,17 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	srv.gnsiAuthz = authzSrv
 	pathzSrv := NewGNSIPathzServer(srv)
 	srv.gnsiPathz = pathzSrv
-	debugPolicy, policyErr := gnoi_debug.LoadPolicy(gnoi_debug.PolicyFilePath)
-	if policyErr != nil {
-		log.Errorf("gNOI Debug policy unavailable: %v", policyErr)
-		debugPolicy = gnoi_debug.NewUnavailablePolicy(policyErr)
-	}
-	debugSrv := &DebugServer{
-		Server: srv,
-		policy: debugPolicy,
+	var debugSrv *DebugServer
+	if config.UnixSocket != "" {
+		debugPolicy, policyErr := gnoi_debug.LoadPolicy(gnoi_debug.PolicyFilePath)
+		if policyErr != nil {
+			log.Errorf("gNOI Debug policy unavailable: %v", policyErr)
+			debugPolicy = gnoi_debug.NewUnavailablePolicy(policyErr)
+		}
+		debugSrv = &DebugServer{
+			Server: srv,
+			policy: debugPolicy,
+		}
 	}
 	certzSrv := NewGNSICertzServer(srv)
 	srv.gnsiCertz = certzSrv
@@ -637,7 +640,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			srv.s = nil
 		} else {
 			srv.config.Port = int64(srv.lis.Addr().(*net.TCPAddr).Port)
-			registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
+			registerSharedServices(srv.s, srv, fileSrv, osSrv, containerzSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
 		}
 	}
 
@@ -671,7 +674,10 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 					srv.udsServer.Stop()
 					srv.udsServer = nil
 				} else {
-					registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
+					registerSharedServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
+					if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
+						gnoi_debug_pb.RegisterDebugServer(srv.udsServer, debugSrv)
+					}
 				}
 			}
 		}

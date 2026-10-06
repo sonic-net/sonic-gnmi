@@ -6344,19 +6344,27 @@ func TestServerDualListener(t *testing.T) {
 	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 
 	cfg := &Config{
-		Port:       8181,
-		UnixSocket: socketPath,
-		Threshold:  100,
+		Port:              8181,
+		UnixSocket:        socketPath,
+		EnableNativeWrite: true,
+		Threshold:         100,
 	}
 	s, err := NewServer(cfg, tlsOpts, nil)
 	if err != nil {
 		t.Fatalf("Failed to create dual-listener server: %v", err)
 	}
 	if s.s == nil {
-		t.Error("TCP server should not be nil")
+		t.Fatal("TCP server should not be nil")
 	}
 	if s.udsServer == nil {
-		t.Error("UDS server should not be nil")
+		t.Fatal("UDS server should not be nil")
+	}
+	const debugServiceName = "gnoi.debug.Debug"
+	if _, ok := s.s.GetServiceInfo()[debugServiceName]; ok {
+		t.Errorf("%s should not be registered on the TCP server", debugServiceName)
+	}
+	if _, ok := s.udsServer.GetServiceInfo()[debugServiceName]; !ok {
+		t.Errorf("%s should be registered on the UDS server", debugServiceName)
 	}
 
 	// Test Address() returns both addresses
