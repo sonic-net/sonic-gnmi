@@ -174,6 +174,12 @@ func parseHTTPTarget(protocol Protocol, path string) (remoteTarget, error) {
 	if parsedURL.Hostname() == "" || strings.Contains(parsedURL.Host, `\`) {
 		return remoteTarget{}, invalidRequestError("invalid HTTP URL authority")
 	}
+	if port := parsedURL.Port(); port != "" {
+		portNumber, err := strconv.Atoi(port)
+		if err != nil || portNumber < 1 || portNumber > 65535 {
+			return remoteTarget{}, invalidRequestError("invalid HTTP port")
+		}
+	}
 
 	parsedURL.Scheme = expectedScheme
 	return remoteTarget{httpURL: parsedURL}, nil

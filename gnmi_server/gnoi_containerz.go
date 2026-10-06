@@ -148,6 +148,15 @@ func (c *ContainerzServer) Deploy(
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to close temporary image file: %v", err)
 	}
+	if declaredSize := imageTransfer.GetImageSize(); declaredSize != 0 &&
+		downloadWriter.bytesWritten != declaredSize {
+		return status.Errorf(
+			codes.DataLoss,
+			"downloaded image size %d does not match declared image size %d",
+			downloadWriter.bytesWritten,
+			declaredSize,
+		)
+	}
 	log.V(2).Info("gNOI: Containerz image download completed")
 
 	imageLoader, err := dependencies.newImageLoader()

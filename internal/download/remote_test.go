@@ -94,6 +94,16 @@ func TestParseRemoteTarget(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "zero HTTP port",
+			request: Request{Protocol: ProtocolHTTP, Path: "http://example.com:0/image.tar"},
+			wantErr: true,
+		},
+		{
+			name:    "out of range HTTP port",
+			request: Request{Protocol: ProtocolHTTPS, Path: "https://example.com:65536/image.tar"},
+			wantErr: true,
+		},
+		{
 			name:    "missing SSH host",
 			request: Request{Protocol: ProtocolSFTP, Path: ":/images/image.tar"},
 			wantErr: true,

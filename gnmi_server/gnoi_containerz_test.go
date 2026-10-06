@@ -83,6 +83,8 @@ type trackingTempFile struct {
 	closeErr error
 }
 
+const testContainerImage = "container image"
+
 func (f *trackingTempFile) Close() error {
 	*f.events = append(*f.events, "close")
 	closeErr := f.File.Close()
@@ -158,7 +160,7 @@ func (f *deployFixture) dependencies(t *testing.T) *containerzDeployDependencies
 			if f.downloadErr != nil {
 				return f.downloadErr
 			}
-			_, err := io.WriteString(destination, "container image")
+			_, err := io.WriteString(destination, testContainerImage)
 			return err
 		},
 		newImageLoader: func() (containerzImageLoader, error) {
@@ -256,7 +258,7 @@ func TestDeploySuccessPreservesLoadAndResponseSequence(t *testing.T) {
 			deployRequest(&gnoi_containerz_pb.ImageTransfer{
 				Name:      "../../sensitive-image-name",
 				Tag:       "latest",
-				ImageSize: 123,
+				ImageSize: uint64(len(testContainerImage)),
 				RemoteDownload: &gnoi_common_pb.RemoteDownload{
 					Path:          "https://download.example/image.tar?token=sensitive",
 					Protocol:      gnoi_common_pb.RemoteDownload_HTTPS,
@@ -289,8 +291,12 @@ func TestDeploySuccessPreservesLoadAndResponseSequence(t *testing.T) {
 	if fixture.downloadRequest.Username != "user" || fixture.downloadRequest.Password != "password" {
 		t.Error("download credentials were not preserved")
 	}
-	if fixture.downloadRequest.MaxSize != 123 {
-		t.Errorf("download size limit = %d, want 123", fixture.downloadRequest.MaxSize)
+	if fixture.downloadRequest.MaxSize != int64(len(testContainerImage)) {
+		t.Errorf(
+			"download size limit = %d, want %d",
+			fixture.downloadRequest.MaxSize,
+			len(testContainerImage),
+		)
 	}
 	if fixture.tempMode != 0600 {
 		t.Errorf("temporary file mode = %o, want 600", fixture.tempMode)
@@ -317,7 +323,7 @@ func TestDeploySuccessPreservesLoadAndResponseSequence(t *testing.T) {
 	}
 	if success.ImageTransferSuccess.Name != "../../sensitive-image-name" ||
 		success.ImageTransferSuccess.Tag != "latest" ||
-		success.ImageTransferSuccess.ImageSize != uint64(len("container image")) {
+		success.ImageTransferSuccess.ImageSize != uint64(len(testContainerImage)) {
 		t.Errorf("success response = %+v", success.ImageTransferSuccess)
 	}
 }
@@ -457,6 +463,17 @@ func TestDeployCleansUpAtEveryFailureStage(t *testing.T) {
 			wantError:  "file close failed",
 		},
 		{
+			name: "declared image size mismatch",
+			configure: func(_ *deployFixture, stream *dummyDeployServer) {
+				transfer := validImageTransfer()
+				transfer.ImageSize++
+				stream.recvQueue[0] = deployRequest(transfer)
+			},
+			wantEvents: []string{"download", "close", "remove"},
+			wantError:  "does not match declared image size",
+			wantCode:   codes.DataLoss,
+		},
+		{
 			name: "D-Bus client creation",
 			configure: func(fixture *deployFixture, _ *dummyDeployServer) {
 				fixture.newLoaderErr = errors.New("dbus failed")
@@ -590,6 +607,17 @@ func TestDeployRejectsInvalidRemoteDownloadBeforeCreatingTempFile(t *testing.T) 
 				Tag:  "latest",
 				RemoteDownload: &gnoi_common_pb.RemoteDownload{
 					Path:     "not-a-url",
+					Protocol: gnoi_common_pb.RemoteDownload_HTTPS,
+				},
+			},
+		},
+		{
+			name: "out of range HTTP port",
+			transfer: &gnoi_containerz_pb.ImageTransfer{
+				Name: "image",
+				Tag:  "latest",
+				RemoteDownload: &gnoi_common_pb.RemoteDownload{
+					Path:     "https://download.example:65536/image.tar",
 					Protocol: gnoi_common_pb.RemoteDownload_HTTPS,
 				},
 			},
@@ -758,7 +786,7 @@ func validImageTransfer() *gnoi_containerz_pb.ImageTransfer {
 	return &gnoi_containerz_pb.ImageTransfer{
 		Name:      "image",
 		Tag:       "latest",
-		ImageSize: 1024,
+		ImageSize: uint64(len(testContainerImage)),
 		RemoteDownload: &gnoi_common_pb.RemoteDownload{
 			Path:     "download.example:/image.tar",
 			Protocol: gnoi_common_pb.RemoteDownload_SFTP,
