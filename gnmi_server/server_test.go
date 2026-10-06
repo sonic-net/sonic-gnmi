@@ -6329,10 +6329,6 @@ func TestServerUnixSocketServeAndStop(t *testing.T) {
 }
 
 func TestServerDualListener(t *testing.T) {
-	// Test creating a server with both TCP and UDS listeners
-	socketPath := "/tmp/gnmi_test_dual.sock"
-	os.Remove(socketPath)
-
 	certificate, err := testcert.NewCert()
 	if err != nil {
 		t.Fatalf("could not load server key pair: %s", err)
@@ -6343,41 +6339,77 @@ func TestServerDualListener(t *testing.T) {
 	}
 	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
 
-	cfg := &Config{
-		Port:              8181,
-		UnixSocket:        socketPath,
-		EnableNativeWrite: true,
-		Threshold:         100,
-	}
-	s, err := NewServer(cfg, tlsOpts, nil)
-	if err != nil {
-		t.Fatalf("Failed to create dual-listener server: %v", err)
-	}
-	if s.s == nil {
-		t.Fatal("TCP server should not be nil")
-	}
-	if s.udsServer == nil {
-		t.Fatal("UDS server should not be nil")
-	}
-	const debugServiceName = "gnoi.debug.Debug"
-	if _, ok := s.s.GetServiceInfo()[debugServiceName]; ok {
-		t.Errorf("%s should not be registered on the TCP server", debugServiceName)
-	}
-	if _, ok := s.udsServer.GetServiceInfo()[debugServiceName]; !ok {
-		t.Errorf("%s should be registered on the UDS server", debugServiceName)
+	tests := []struct {
+		name                string
+		port                int64
+		enableNativeWrite   bool
+		wantOpenConfigDebug bool
+	}{
+		{
+			name:                "write enabled",
+			port:                8181,
+			enableNativeWrite:   true,
+			wantOpenConfigDebug: true,
+		},
+		{
+			name: "write disabled",
+			port: 8182,
+		},
 	}
 
-	// Test Address() returns both addresses
-	addr := s.Address()
-	if !strings.Contains(addr, "8181") {
-		t.Errorf("Address should contain TCP port, got: %s", addr)
-	}
-	if !strings.Contains(addr, socketPath) {
-		t.Errorf("Address should contain socket path, got: %s", addr)
-	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			socketPath := fmt.Sprintf("/tmp/gnmi_test_dual_%d.sock", tc.port)
+			os.Remove(socketPath)
+			t.Cleanup(func() { os.Remove(socketPath) })
 
-	s.ForceStop()
-	os.Remove(socketPath)
+			cfg := &Config{
+				Port:              tc.port,
+				UnixSocket:        socketPath,
+				EnableNativeWrite: tc.enableNativeWrite,
+				Threshold:         100,
+			}
+			s, err := NewServer(cfg, tlsOpts, nil)
+			if err != nil {
+				t.Fatalf("Failed to create dual-listener server: %v", err)
+			}
+			t.Cleanup(s.ForceStop)
+
+			if s.s == nil {
+				t.Fatal("TCP server should not be nil")
+			}
+			if s.udsServer == nil {
+				t.Fatal("UDS server should not be nil")
+			}
+
+			const (
+				openConfigDebugService = "gnoi.debug.Debug"
+				sonicDebugService      = "gnoi.sonic.Debug"
+			)
+			tcpServices := s.s.GetServiceInfo()
+			udsServices := s.udsServer.GetServiceInfo()
+			if _, ok := tcpServices[openConfigDebugService]; ok {
+				t.Errorf("%s should not be registered on the TCP server", openConfigDebugService)
+			}
+			if _, ok := udsServices[openConfigDebugService]; ok != tc.wantOpenConfigDebug {
+				t.Errorf("%s UDS registration = %t, want %t", openConfigDebugService, ok, tc.wantOpenConfigDebug)
+			}
+			if _, ok := tcpServices[sonicDebugService]; !ok {
+				t.Errorf("%s should remain registered on the TCP server", sonicDebugService)
+			}
+			if _, ok := udsServices[sonicDebugService]; !ok {
+				t.Errorf("%s should remain registered on the UDS server", sonicDebugService)
+			}
+
+			addr := s.Address()
+			if !strings.Contains(addr, fmt.Sprintf("%d", tc.port)) {
+				t.Errorf("Address should contain TCP port, got: %s", addr)
+			}
+			if !strings.Contains(addr, socketPath) {
+				t.Errorf("Address should contain socket path, got: %s", addr)
+			}
+		})
+	}
 }
 
 func TestNilServerStop(t *testing.T) {
