@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"path/filepath"
 
 	log "github.com/golang/glog"
@@ -18,6 +17,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+const maxContainerImageSize int64 = 4 * 1024 * 1024 * 1024
 
 type containerzTemporaryFile interface {
 	io.Writer
@@ -132,7 +133,12 @@ func (c *ContainerzServer) Deploy(
 	downloadWriter := &containerzCountingWriter{containerzTemporaryFile: tempFile}
 	if err := dependencies.downloadRemote(ctx, downloadRequest, downloadWriter); err != nil {
 		code := codes.Internal
-		if errors.Is(err, download.ErrInvalidRequest) {
+		switch {
+		case errors.Is(err, context.Canceled):
+			code = codes.Canceled
+		case errors.Is(err, context.DeadlineExceeded):
+			code = codes.DeadlineExceeded
+		case errors.Is(err, download.ErrInvalidRequest):
 			code = codes.InvalidArgument
 		}
 		return status.Errorf(code, "failed to download image: %v", err)
@@ -215,14 +221,22 @@ func newContainerzDownloadRequest(
 		return download.Request{}, errors.New("unsupported protocol")
 	}
 
-	if imageTransfer.GetImageSize() > math.MaxInt64 {
-		return download.Request{}, errors.New("image size exceeds supported range")
+	imageSize := imageTransfer.GetImageSize()
+	if imageSize > uint64(maxContainerImageSize) {
+		return download.Request{}, fmt.Errorf(
+			"image size exceeds maximum of %d bytes",
+			maxContainerImageSize,
+		)
+	}
+	maxSize := maxContainerImageSize
+	if imageSize != 0 {
+		maxSize = int64(imageSize)
 	}
 
 	request := download.Request{
 		Protocol: protocol,
 		Path:     remoteDownload.GetPath(),
-		MaxSize:  int64(imageTransfer.GetImageSize()),
+		MaxSize:  maxSize,
 	}
 	if credentials := remoteDownload.GetCredentials(); credentials != nil {
 		request.Username = credentials.GetUsername()

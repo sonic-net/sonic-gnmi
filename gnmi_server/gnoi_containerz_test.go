@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -381,6 +380,21 @@ func TestNewContainerzDownloadRequestSupportsEveryGNOIProtocol(t *testing.T) {
 	}
 }
 
+func TestNewContainerzDownloadRequestUsesDefaultImageSizeLimit(t *testing.T) {
+	request, err := newContainerzDownloadRequest(&gnoi_containerz_pb.ImageTransfer{
+		RemoteDownload: &gnoi_common_pb.RemoteDownload{
+			Path:     "https://download.example/image.tar",
+			Protocol: gnoi_common_pb.RemoteDownload_HTTPS,
+		},
+	})
+	if err != nil {
+		t.Fatalf("newContainerzDownloadRequest() error = %v", err)
+	}
+	if request.MaxSize != maxContainerImageSize {
+		t.Errorf("size limit = %d, want %d", request.MaxSize, maxContainerImageSize)
+	}
+}
+
 func TestDeployCleansUpAtEveryFailureStage(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -406,6 +420,24 @@ func TestDeployCleansUpAtEveryFailureStage(t *testing.T) {
 			wantEvents: []string{"download", "close", "remove"},
 			wantError:  "invalid",
 			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name: "download canceled",
+			configure: func(fixture *deployFixture, _ *dummyDeployServer) {
+				fixture.downloadErr = context.Canceled
+			},
+			wantEvents: []string{"download", "close", "remove"},
+			wantError:  context.Canceled.Error(),
+			wantCode:   codes.Canceled,
+		},
+		{
+			name: "download deadline exceeded",
+			configure: func(fixture *deployFixture, _ *dummyDeployServer) {
+				fixture.downloadErr = context.DeadlineExceeded
+			},
+			wantEvents: []string{"download", "close", "remove"},
+			wantError:  context.DeadlineExceeded.Error(),
+			wantCode:   codes.DeadlineExceeded,
 		},
 		{
 			name: "download and temporary file close",
@@ -582,11 +614,11 @@ func TestDeployRejectsInvalidRemoteDownloadBeforeCreatingTempFile(t *testing.T) 
 			},
 		},
 		{
-			name: "image size overflow",
+			name: "image size exceeds server limit",
 			transfer: &gnoi_containerz_pb.ImageTransfer{
 				Name:      "image",
 				Tag:       "latest",
-				ImageSize: uint64(math.MaxInt64) + 1,
+				ImageSize: uint64(maxContainerImageSize) + 1,
 				RemoteDownload: &gnoi_common_pb.RemoteDownload{
 					Path:     "https://download.example/image.tar",
 					Protocol: gnoi_common_pb.RemoteDownload_HTTPS,
