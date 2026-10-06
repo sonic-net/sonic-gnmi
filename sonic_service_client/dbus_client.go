@@ -33,10 +33,6 @@ type Service interface {
 	DeleteCheckPoint(cpName string) error
 	StopService(service string) error
 	RestartService(service string) error
-	// File services APIs
-	GetFileStat(path string) (map[string]string, error)
-	DownloadFile(hostname, username, password, remotePath, localPath, protocol string) error
-	RemoveFile(path string) error
 	// Image services APIs
 	DownloadImage(url string, save_as string) error
 	InstallImage(where string) error
@@ -255,40 +251,6 @@ func (c *DbusClient) RestartService(service string) error {
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".restart_service"
 	_, err := DbusApi(busName, busPath, intName, 240, service)
-	return err
-}
-
-func (c *DbusClient) GetFileStat(path string) (map[string]string, error) {
-	common_utils.IncCounter(common_utils.DBUS_FILE_STAT)
-	modName := "file"
-	busName := c.busNamePrefix + modName
-	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".get_file_stat"
-	result, err := DbusApi(busName, busPath, intName, 60, path)
-	if err != nil {
-		return nil, err
-	}
-	data, _ := result.(map[string]string)
-	return data, nil
-}
-
-func (c *DbusClient) DownloadFile(hostname, username, password, remotePath, localPath, protocol string) error {
-	common_utils.IncCounter(common_utils.DBUS_FILE_DOWNLOAD)
-	modName := "file"
-	busName := c.busNamePrefix + modName
-	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".download"
-	_, err := DbusApi(busName, busPath, intName, 900, hostname, username, password, remotePath, localPath, protocol)
-	return err
-}
-
-func (c *DbusClient) RemoveFile(path string) error {
-	common_utils.IncCounter(common_utils.DBUS_FILE_REMOVE)
-	modName := "file"
-	busName := c.busNamePrefix + modName
-	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".remove"
-	_, err := DbusApi(busName, busPath, intName, 60, path)
 	return err
 }
 
