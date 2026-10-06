@@ -3,6 +3,7 @@ package gnmi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -214,6 +215,40 @@ func TestContainerzServer_Unimplemented(t *testing.T) {
 	}
 }
 
+func TestResolvedDeployDependenciesUsesDefaults(t *testing.T) {
+	dependencies := (&ContainerzServer{}).resolvedDeployDependencies()
+	if dependencies.authenticate == nil ||
+		dependencies.createTempFile == nil ||
+		dependencies.downloadRemote == nil ||
+		dependencies.newImageLoader == nil ||
+		dependencies.removeFile == nil ||
+		dependencies.translateHostPath == nil {
+		t.Fatal("default Containerz dependencies are incomplete")
+	}
+}
+
+func TestDefaultContainerzDependencies(t *testing.T) {
+	dependencies := defaultContainerzDeployDependencies()
+	tempFile, err := dependencies.createTempFile(t.TempDir(), "containerz-default-*")
+	if err != nil {
+		t.Fatalf("createTempFile() error = %v", err)
+	}
+	path := tempFile.Name()
+	if err := tempFile.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+	imageLoader, err := dependencies.newImageLoader()
+	if err != nil {
+		t.Fatalf("newImageLoader() error = %v", err)
+	}
+	if err := imageLoader.Close(); err != nil {
+		t.Fatalf("imageLoader.Close() error = %v", err)
+	}
+}
+
 func TestDeploySuccessPreservesLoadAndResponseSequence(t *testing.T) {
 	fixture := &deployFixture{}
 	server := newContainerzTestServer(fixture.dependencies(t))
@@ -352,6 +387,7 @@ func TestDeployCleansUpAtEveryFailureStage(t *testing.T) {
 		configure  func(*deployFixture, *dummyDeployServer)
 		wantEvents []string
 		wantError  string
+		wantCode   codes.Code
 		fileExists bool
 	}{
 		{
@@ -361,6 +397,24 @@ func TestDeployCleansUpAtEveryFailureStage(t *testing.T) {
 			},
 			wantEvents: []string{"download", "close", "remove"},
 			wantError:  "download failed",
+		},
+		{
+			name: "invalid download request",
+			configure: func(fixture *deployFixture, _ *dummyDeployServer) {
+				fixture.downloadErr = fmt.Errorf("invalid: %w", download.ErrInvalidRequest)
+			},
+			wantEvents: []string{"download", "close", "remove"},
+			wantError:  "invalid",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
+			name: "download and temporary file close",
+			configure: func(fixture *deployFixture, _ *dummyDeployServer) {
+				fixture.downloadErr = errors.New("download failed")
+				fixture.closeTempErr = errors.New("file close failed")
+			},
+			wantEvents: []string{"download", "close", "remove"},
+			wantError:  "file close failed",
 		},
 		{
 			name: "temporary file close",
@@ -426,8 +480,12 @@ func TestDeployCleansUpAtEveryFailureStage(t *testing.T) {
 			server := newContainerzTestServer(fixture.dependencies(t))
 
 			err := server.Deploy(stream)
-			if status.Code(err) != codes.Internal || !strings.Contains(err.Error(), tt.wantError) {
-				t.Fatalf("Deploy() error = %v, want Internal containing %q", err, tt.wantError)
+			wantCode := tt.wantCode
+			if wantCode == codes.OK {
+				wantCode = codes.Internal
+			}
+			if status.Code(err) != wantCode || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("Deploy() error = %v, want %v containing %q", err, wantCode, tt.wantError)
 			}
 			if !reflect.DeepEqual(fixture.events, tt.wantEvents) {
 				t.Errorf("events = %v, want %v", fixture.events, tt.wantEvents)
@@ -624,6 +682,26 @@ func TestDeployRequestAndAuthenticationErrors(t *testing.T) {
 				t.Fatalf("Deploy() error = %v, want %v containing %q", err, tt.wantCode, tt.wantError)
 			}
 		})
+	}
+}
+
+func TestAppendContainerzInternalFailureWithoutPrimaryError(t *testing.T) {
+	err := appendContainerzInternalFailure(nil, "cleanup failed", errors.New("remove failed"))
+	if status.Code(err) != codes.Internal || !strings.Contains(err.Error(), "cleanup failed: remove failed") {
+		t.Fatalf("appendContainerzInternalFailure() error = %v", err)
+	}
+}
+
+func TestAppendContainerzInternalFailureWithPlainPrimaryError(t *testing.T) {
+	err := appendContainerzInternalFailure(
+		errors.New("primary failed"),
+		"cleanup failed",
+		errors.New("remove failed"),
+	)
+	if status.Code(err) != codes.Internal ||
+		!strings.Contains(err.Error(), "primary failed") ||
+		!strings.Contains(err.Error(), "cleanup failed: remove failed") {
+		t.Fatalf("appendContainerzInternalFailure() error = %v", err)
 	}
 }
 
