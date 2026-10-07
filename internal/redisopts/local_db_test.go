@@ -50,6 +50,17 @@ func TestLocalDBReturnsEndpointErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("empty socket", func(t *testing.T) {
+		patch := gomonkey.ApplyFunc(sdcfg.GetDbSock, func(string, string) (string, error) {
+			return "", nil
+		})
+		defer patch.Reset()
+
+		if _, err := LocalDB("STATE_DB", ""); err == nil {
+			t.Fatal("LocalDB succeeded with an empty socket path")
+		}
+	})
+
 	t.Run("database id", func(t *testing.T) {
 		patches := gomonkey.ApplyFunc(sdcfg.GetDbSock, func(string, string) (string, error) {
 			return "/var/run/redis/redis.sock", nil

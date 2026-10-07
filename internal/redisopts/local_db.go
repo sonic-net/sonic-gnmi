@@ -15,6 +15,9 @@ func LocalDB(dbName, namespace string) (*redis.Options, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get %s socket for namespace %q: %w", dbName, namespace, err)
 	}
+	if addr == "" {
+		return nil, fmt.Errorf("get %s socket for namespace %q: empty socket path", dbName, namespace)
+	}
 
 	dbID, err := sdcfg.GetDbId(dbName, namespace)
 	if err != nil {
