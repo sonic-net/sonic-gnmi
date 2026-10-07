@@ -18,23 +18,11 @@ const (
 
 func GetRedisDBClient() (*redis.Client, error) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
-	addr, err := sdcfg.GetDbTcpAddr(dbName, ns)
+	opts, err := redisopts.LocalDB(dbName, ns)
 	if err != nil {
-		log.Errorf("Addr err: %v", err)
+		log.Errorf("Redis endpoint err: %v", err)
 		return nil, err
 	}
-	db, err := sdcfg.GetDbId("STATE_DB", ns)
-	if err != nil {
-		log.Errorf("DB err: %v", err)
-		return nil, err
-	}
-	opts := redisopts.New(redis.Options{
-		Network:     "tcp",
-		Addr:        addr,
-		Password:    "", // no password set
-		DB:          db,
-		DialTimeout: 0,
-	})
 	rclient := redis.NewClient(opts)
 	if _, err := rclient.Ping(context.Background()).Result(); err != nil {
 		return nil, err

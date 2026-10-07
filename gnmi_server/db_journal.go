@@ -57,15 +57,11 @@ func NewDbJournal(database string) (*DbJournal, error) {
 	}
 
 	ns, _ := sdcfg.GetDbDefaultNamespace()
-	addr, _ := sdcfg.GetDbTcpAddr(journal.database, ns)
-	dbId, _ := sdcfg.GetDbId(journal.database, ns)
-	journal.rc = db.TransactionalRedisClientWithOpts(redisopts.New(redis.Options{
-		Network:     "tcp",
-		Addr:        addr,
-		Password:    "",
-		DB:          dbId,
-		DialTimeout: 0,
-	}))
+	opts, err := redisopts.LocalDB(journal.database, ns)
+	if err != nil {
+		return nil, err
+	}
+	journal.rc = db.TransactionalRedisClientWithOpts(opts)
 
 	if err = journal.init(); err != nil {
 		return nil, err

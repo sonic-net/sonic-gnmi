@@ -32,23 +32,11 @@ func (cm *ConnectionManager) GetThreshold() int {
 
 func (cm *ConnectionManager) PrepareRedis() {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
-	addr, err := sdcfg.GetDbTcpAddr("STATE_DB", ns)
+	opts, err := redisopts.LocalDB("STATE_DB", ns)
 	if err != nil {
-		log.Errorf("Addr err: %v", err)
+		log.Errorf("Redis endpoint err: %v", err)
 		return
 	}
-	db, err := sdcfg.GetDbId("STATE_DB", ns)
-	if err != nil {
-		log.Errorf("DB err: %v", err)
-		return
-	}
-	opts := redisopts.New(redis.Options{
-		Network:     "tcp",
-		Addr:        addr,
-		Password:    "",
-		DB:          db,
-		DialTimeout: 0,
-	})
 	rclient = redis.NewClient(opts)
 
 	res, err := rclient.HGetAll(context.Background(), table).Result()
