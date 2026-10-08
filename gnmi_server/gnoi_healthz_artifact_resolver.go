@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -49,39 +50,17 @@ func (r artifactPathResolver) openLegacy(artifactID string) (*os.File, string, e
 	return r.open(artifactID)
 }
 
-// open validates containment and pins the artifact beneath an os.Root.
+// open pins every path component beneath the trusted host mount without
+// following symbolic links, including ancestors of the artifact directory.
 func (r artifactPathResolver) open(artifactID string) (*os.File, string, error) {
 	containerPath, err := r.resolve(artifactID)
 	if err != nil {
 		return nil, "", err
 	}
 
-	artifactDirectory := r.artifactDirectory(artifactID)
-	containerDirectory := r.containerPath(filepath.Clean(artifactDirectory))
-	relativePath, err := filepath.Rel(containerDirectory, containerPath)
-	if err != nil || relativePath == "." || filepath.IsAbs(relativePath) ||
-		relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
-		return nil, "", status.Error(codes.InvalidArgument, "artifact path is outside the allowed directory")
-	}
-
-	root, err := os.OpenRoot(containerDirectory)
+	file, err := openArtifactPath(r.hostMount, containerPath)
 	if err != nil {
-		return nil, "", artifactPathError(err)
-	}
-	defer root.Close()
-
-	file, err := root.Open(relativePath)
-	if err != nil {
-		return nil, "", artifactPathError(err)
-	}
-	info, err := file.Stat()
-	if err != nil {
-		file.Close()
-		return nil, "", artifactPathError(err)
-	}
-	if !info.Mode().IsRegular() {
-		file.Close()
-		return nil, "", status.Error(codes.InvalidArgument, "artifact is not a regular file")
+		return nil, "", err
 	}
 	return file, containerPath, nil
 }
@@ -112,9 +91,6 @@ func (r artifactPathResolver) resolve(artifactID string) (string, error) {
 	if !isPathWithin(containerDirectory, containerPath) {
 		return "", status.Error(codes.InvalidArgument, "artifact path is outside the allowed directory")
 	}
-	if err := validateArtifactPath(containerDirectory, containerPath); err != nil {
-		return "", err
-	}
 	return containerPath, nil
 }
 
@@ -141,40 +117,56 @@ func isPathWithin(root, candidate string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func validateArtifactPath(root, candidate string) error {
-	rootInfo, err := os.Lstat(root)
+func openArtifactPath(mount, candidate string) (*os.File, error) {
+	if !isPathWithin(mount, candidate) {
+		return nil, status.Error(codes.InvalidArgument, "artifact path is outside the host mount")
+	}
+	directoryFlags := unix.O_RDONLY | unix.O_DIRECTORY | unix.O_NOFOLLOW | unix.O_CLOEXEC
+	directoryFD, err := unix.Open(mount, directoryFlags, 0)
 	if err != nil {
-		return artifactPathError(err)
+		return nil, artifactOpenError(unix.AT_FDCWD, mount, err)
 	}
-	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
-		return status.Error(codes.PermissionDenied, "artifact directory is not a trusted directory")
-	}
+	defer func() { unix.Close(directoryFD) }()
 
-	rel, err := filepath.Rel(root, candidate)
-	if err != nil || rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return status.Error(codes.InvalidArgument, "artifact path is outside the allowed directory")
-	}
-
-	current := root
-	parts := strings.Split(rel, string(filepath.Separator))
-	for index, part := range parts {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
+	relativePath, _ := filepath.Rel(mount, candidate)
+	parts := strings.Split(relativePath, string(filepath.Separator))
+	for _, part := range parts[:len(parts)-1] {
+		nextFD, err := unix.Openat(directoryFD, part, directoryFlags, 0)
 		if err != nil {
-			return artifactPathError(err)
+			return nil, artifactOpenError(directoryFD, part, err)
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return status.Error(codes.PermissionDenied, "artifact path must not contain symbolic links")
-		}
-		if index < len(parts)-1 && !info.IsDir() {
-			return status.Error(codes.InvalidArgument, "artifact path contains a non-directory component")
-		}
-		if index == len(parts)-1 && !info.Mode().IsRegular() {
-			return status.Error(codes.InvalidArgument, "artifact is not a regular file")
-		}
+		unix.Close(directoryFD)
+		directoryFD = nextFD
 	}
+	name := parts[len(parts)-1]
+	fd, err := unix.Openat(directoryFD, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, artifactOpenError(directoryFD, name, err)
+	}
+	file := os.NewFile(uintptr(fd), candidate)
+	info, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return nil, artifactPathError(err)
+	}
+	if !info.Mode().IsRegular() {
+		file.Close()
+		return nil, status.Error(codes.InvalidArgument, "artifact is not a regular file")
+	}
+	return file, nil
+}
 
-	return nil
+func artifactOpenError(parentFD int, name string, err error) error {
+	// Linux returns ENOTDIR for a directory symlink opened with O_NOFOLLOW.
+	var info unix.Stat_t
+	if err == unix.ELOOP || (err == unix.ENOTDIR &&
+		unix.Fstatat(parentFD, name, &info, unix.AT_SYMLINK_NOFOLLOW) == nil && info.Mode&unix.S_IFMT == unix.S_IFLNK) {
+		return status.Error(codes.PermissionDenied, "artifact path must not contain symbolic links")
+	}
+	if err == unix.ENOTDIR {
+		return status.Error(codes.InvalidArgument, "artifact path contains a non-directory component")
+	}
+	return artifactPathError(err)
 }
 
 func artifactPathError(err error) error {

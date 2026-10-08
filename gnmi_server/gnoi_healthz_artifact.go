@@ -30,11 +30,30 @@ func (srv *HealthzServer) getArtifactResolver() artifactPathResolver {
 	return srv.artifactResolver
 }
 
-func buildHealthzArtifactHeader(artifactID string, artifact io.ReadSeeker) (*healthz.ArtifactHeader, error) {
-	hasher := sha256.New()
-	size, err := io.Copy(hasher, artifact)
+func buildHealthzArtifactHeader(ctx context.Context, artifactID string, artifact io.ReadSeeker) (*healthz.ArtifactHeader, error) {
+	// Fix the transfer size before hashing, including for larger legacy archives.
+	size, err := artifact.Seek(0, io.SeekEnd)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to hash artifact: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to determine artifact size: %v", err)
+	}
+	if _, err := artifact.Seek(0, io.SeekStart); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to reset artifact file pointer: %v", err)
+	}
+	hasher := sha256.New()
+	buf := make([]byte, 32*1024)
+	for remaining := size; remaining > 0; {
+		if err := ctx.Err(); err != nil {
+			return nil, status.FromContextError(err).Err()
+		}
+		n, err := io.ReadFull(artifact, buf[:min(int64(len(buf)), remaining)])
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to hash artifact: %v", err)
+		}
+		hasher.Write(buf[:n])
+		remaining -= int64(n)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, status.FromContextError(err).Err()
 	}
 	if _, err := artifact.Seek(0, io.SeekStart); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to reset artifact file pointer: %v", err)
@@ -88,7 +107,7 @@ func waitForHealthzArtifact(
 		if filepath.IsAbs(artifactID) || status.Code(err) != codes.NotFound {
 			return nil, err
 		}
-		if checkState != nil && strings.HasPrefix(artifactID, "healthz-") &&
+		if checkState != nil && opaqueArtifactIDPattern.MatchString(artifactID) &&
 			time.Since(lastStatusCheck) >= time.Second {
 			type stateResult struct {
 				state string
@@ -187,7 +206,7 @@ func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.
 	if err := stream.Context().Err(); err != nil {
 		return status.FromContextError(err).Err()
 	}
-	artifactHeader, err := buildHealthzArtifactHeader(artifactID, f)
+	artifactHeader, err := buildHealthzArtifactHeader(stream.Context(), artifactID, f)
 	if err != nil {
 		return err
 	}
@@ -207,17 +226,17 @@ func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.
 
 	buf := make([]byte, ddFileSegSize)
 	sentContent := false
-	for {
+	for remaining := artifactHeader.GetFile().GetSize(); remaining > 0; {
 		if err := stream.Context().Err(); err != nil {
 			return status.FromContextError(err).Err()
 		}
-		n, err := f.Read(buf)
-		if err == io.EOF {
-			break
-		}
+		n, err := io.ReadFull(f, buf[:min(int64(len(buf)), remaining)])
 		if err != nil {
 			log.Errorf("failed to read artifact: %v", err)
 			return status.Errorf(codes.Internal, "artifact read error: %v", err)
+		}
+		if err := stream.Context().Err(); err != nil {
+			return status.FromContextError(err).Err()
 		}
 		content := &healthz.ArtifactResponse{
 			Contents: &healthz.ArtifactResponse_Bytes{
@@ -228,7 +247,11 @@ func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.
 			log.Errorf("failed to send artifact data: %v", err)
 			return err
 		}
+		remaining -= int64(n)
 		sentContent = true
+	}
+	if err := stream.Context().Err(); err != nil {
+		return status.FromContextError(err).Err()
 	}
 	// Healthz requires one or more bytes/proto messages between the header and
 	// trailer. Preserve that protocol ordering even for a valid empty file.
@@ -239,6 +262,9 @@ func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.
 			log.Errorf("failed to send empty artifact data: %v", err)
 			return err
 		}
+	}
+	if err := stream.Context().Err(); err != nil {
+		return status.FromContextError(err).Err()
 	}
 
 	trailer := &healthz.ArtifactResponse{
