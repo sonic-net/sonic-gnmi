@@ -213,7 +213,7 @@ func (srv *HealthzServer) collectDebugData(ctx context.Context, p *types.Path) (
 	defer f.Close()
 	log.V(2).Infof("Healthz container artifact path: %q", filePath)
 
-	artifactHeader, err := buildHealthzArtifactHeader(s, f)
+	artifactHeader, err := buildHealthzArtifactHeader(ctx, s, f)
 	if err != nil {
 		return nil, err
 	}

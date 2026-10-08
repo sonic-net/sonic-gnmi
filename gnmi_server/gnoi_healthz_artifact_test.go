@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,6 +24,19 @@ type artifactTestStream struct {
 	ctx       context.Context
 	responses []*healthz.ArtifactResponse
 	send      func(*healthz.ArtifactResponse) error
+}
+
+type artifactReaderHook struct {
+	io.ReadSeeker
+	readHook func()
+}
+
+func (reader *artifactReaderHook) Read(buf []byte) (int, error) {
+	n, err := reader.ReadSeeker.Read(buf)
+	if reader.readHook != nil {
+		reader.readHook()
+	}
+	return n, err
 }
 
 type legacyCollectionService struct {
@@ -57,7 +71,15 @@ func (stream *artifactTestStream) Context() context.Context {
 }
 
 func (stream *artifactTestStream) Send(response *healthz.ArtifactResponse) error {
-	stream.responses = append(stream.responses, response)
+	// Real gRPC serializes each frame before Send returns. Keep test frames
+	// independent of the buffer that Artifact reuses for its next read.
+	stored := response
+	if data, ok := response.Contents.(*healthz.ArtifactResponse_Bytes); ok {
+		stored = &healthz.ArtifactResponse{
+			Contents: &healthz.ArtifactResponse_Bytes{Bytes: bytes.Clone(data.Bytes)},
+		}
+	}
+	stream.responses = append(stream.responses, stored)
 	if stream.send != nil {
 		return stream.send(response)
 	}
@@ -90,7 +112,7 @@ func TestHealthzArtifactRejectsNilRequest(t *testing.T) {
 }
 
 func TestHealthzArtifactHeaderUsesGenericMimeForLegacyFile(t *testing.T) {
-	header, err := buildHealthzArtifactHeader("/tmp/dump/diagnostic", bytes.NewReader([]byte("data")))
+	header, err := buildHealthzArtifactHeader(context.Background(), "/tmp/dump/diagnostic", bytes.NewReader([]byte("data")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,10 +121,139 @@ func TestHealthzArtifactHeaderUsesGenericMimeForLegacyFile(t *testing.T) {
 	}
 }
 
+func TestHealthzArtifactHeaderCancelsDuringHashing(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reads := 0
+	reader := &artifactReaderHook{ReadSeeker: bytes.NewReader(make([]byte, 64*1024)), readHook: func() {
+		reads++
+		cancel()
+	}}
+	header, err := buildHealthzArtifactHeader(ctx, "diagnostic", reader)
+	if header != nil || status.Code(err) != codes.Canceled || reads != 1 {
+		t.Fatalf("header hashing = (%v, %v) after %d reads, want cancellation after first read", header, err, reads)
+	}
+}
+
+func TestHealthzArtifactHeaderBoundsGrowthAndRejectsTruncation(t *testing.T) {
+	content := bytes.Repeat([]byte("original"), 8192)
+	for _, grow := range []bool{false, true} {
+		name := "truncation"
+		if grow {
+			name = "growth"
+		}
+		t.Run(name, func(t *testing.T) {
+			underlying := bytes.NewReader(content)
+			reader := &artifactReaderHook{ReadSeeker: underlying}
+			reader.readHook = func() {
+				reader.readHook = nil
+				offset, err := underlying.Seek(0, io.SeekCurrent)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if grow {
+					underlying.Reset(append(bytes.Clone(content), bytes.Repeat([]byte("extra"), 8192)...))
+				} else {
+					underlying.Reset(content[:offset])
+				}
+				if _, err := underlying.Seek(offset, io.SeekStart); err != nil {
+					t.Fatal(err)
+				}
+			}
+			header, err := buildHealthzArtifactHeader(context.Background(), "diagnostic", reader)
+			if !grow {
+				if header != nil || status.Code(err) != codes.Internal {
+					t.Fatalf("truncated header hashing = (%v, %v), want Internal", header, err)
+				}
+				return
+			}
+			wantHash := sha256.Sum256(content)
+			if err != nil || header.GetFile().GetSize() != int64(len(content)) ||
+				!bytes.Equal(header.GetFile().GetHash().GetHash(), wantHash[:]) {
+				t.Fatalf("growing header hashing = (%v, %v), want initial size and hash", header, err)
+			}
+		})
+	}
+}
+
+func TestHealthzArtifactHeaderPreservesLargeLegacyArchives(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	const size = 51 * 1024 * 1024
+	if err := file.Truncate(size); err != nil {
+		t.Fatal(err)
+	}
+	header, err := buildHealthzArtifactHeader(context.Background(), "/tmp/dump/large", file)
+	if err != nil || header.GetFile().GetSize() != size {
+		t.Fatalf("large legacy header = (%v, %v), want size %d", header, err, size)
+	}
+}
+
+func TestHealthzArtifactHandlesFileChangesAfterHeader(t *testing.T) {
+	for _, grow := range []bool{false, true} {
+		name := "truncation"
+		if grow {
+			name = "growth"
+		}
+		t.Run(name, func(t *testing.T) {
+			server := newHealthzArtifactTestServer(t)
+			artifactID := "dldd-0123456789abcdef0123456789abcdef.tar.gz"
+			content := []byte("initial archive")
+			path := writeArtifactTestFile(t, server.artifactResolver,
+				filepath.Join(server.artifactResolver.dlddDirectory, artifactID), content)
+			stream := &artifactTestStream{send: func(response *healthz.ArtifactResponse) error {
+				if response.GetHeader() == nil {
+					return nil
+				}
+				if grow {
+					return os.WriteFile(path, append(bytes.Clone(content), []byte("extra")...), 0644)
+				}
+				return os.Truncate(path, 0)
+			}}
+			err := server.Artifact(&healthz.ArtifactRequest{Id: artifactID}, stream)
+			if !grow {
+				if status.Code(err) != codes.Internal || len(stream.responses) != 1 {
+					t.Fatalf("Artifact(truncated) = %v after %d responses, want Internal without trailer", err, len(stream.responses))
+				}
+				return
+			}
+			if err != nil || len(stream.responses) != 3 || !bytes.Equal(stream.responses[1].GetBytes(), content) ||
+				stream.responses[0].GetHeader().GetFile().GetSize() != int64(len(content)) {
+				t.Fatalf("Artifact(growing) = %v with %d responses, want only initial bytes", err, len(stream.responses))
+			}
+		})
+	}
+}
+
+func TestHealthzArtifactCancelsDuringStreaming(t *testing.T) {
+	server := newHealthzArtifactTestServer(t)
+	artifactID := "healthz-0123456789abcdef0123456789abcdef.tar.gz"
+	writeArtifactTestFile(t, server.artifactResolver,
+		filepath.Join(server.artifactResolver.healthzDirectory, artifactID), make([]byte, 2*ddFileSegSize))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stream := &artifactTestStream{ctx: ctx, send: func(response *healthz.ArtifactResponse) error {
+		if _, ok := response.Contents.(*healthz.ArtifactResponse_Bytes); ok {
+			cancel()
+		}
+		return nil
+	}}
+	err := server.Artifact(&healthz.ArtifactRequest{Id: artifactID}, stream)
+	if status.Code(err) != codes.Canceled || len(stream.responses) != 2 {
+		t.Fatalf("Artifact(canceled during stream) = %v after %d responses, want Canceled without trailer", err, len(stream.responses))
+	}
+}
+
 func TestHealthzArtifactStreamsCompletedArchive(t *testing.T) {
 	server := newHealthzArtifactTestServer(t)
 	artifactID := "healthz-0123456789abcdef0123456789abcdef.tar.gz"
-	content := bytes.Repeat([]byte("x"), 2*ddFileSegSize+1)
+	content := make([]byte, 2*ddFileSegSize+1)
+	for index := range content {
+		content[index] = byte(index*31 + index/ddFileSegSize)
+	}
 	writeArtifactTestFile(t, server.artifactResolver,
 		filepath.Join(server.artifactResolver.healthzDirectory, artifactID), content)
 	stream := &artifactTestStream{}
@@ -152,25 +303,29 @@ func TestHealthzArtifactStreamsExistingDLDDArchive(t *testing.T) {
 }
 
 func TestWaitForHealthzArtifactAllowsAsynchronousCollection(t *testing.T) {
-	resolver := newArtifactTestResolver(t)
-	artifactID := "healthz-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.gz"
-	written := make(chan error, 1)
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		path := resolver.containerPath(filepath.Join(resolver.healthzDirectory, artifactID))
-		written <- os.WriteFile(path, []byte("ready"), 0644)
-	}()
+	for _, prefix := range []string{"healthz-", "dldd-"} {
+		t.Run(prefix, func(t *testing.T) {
+			resolver := newArtifactTestResolver(t)
+			artifactID := prefix + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.gz"
+			written := make(chan error, 1)
+			go func() {
+				time.Sleep(20 * time.Millisecond)
+				path := resolver.containerPath(filepath.Join(resolver.artifactDirectory(artifactID), artifactID))
+				written <- os.WriteFile(path, []byte("ready"), 0644)
+			}()
 
-	file, err := waitForHealthzArtifact(
-		context.Background(), resolver, artifactID, time.Second, 5*time.Millisecond,
-		func(string) (string, error) { return "PENDING", nil },
-	)
-	if err != nil {
-		t.Fatalf("waitForHealthzArtifact() failed: %v", err)
-	}
-	file.Close()
-	if err := <-written; err != nil {
-		t.Fatalf("failed to create asynchronous artifact: %v", err)
+			file, err := waitForHealthzArtifact(
+				context.Background(), resolver, artifactID, time.Second, 5*time.Millisecond,
+				func(string) (string, error) { return "PENDING", nil },
+			)
+			if err != nil {
+				t.Fatalf("waitForHealthzArtifact() failed: %v", err)
+			}
+			file.Close()
+			if err := <-written; err != nil {
+				t.Fatalf("failed to create asynchronous artifact: %v", err)
+			}
+		})
 	}
 }
 
@@ -300,19 +455,23 @@ func TestWaitForHealthzArtifactReopensAfterCompletion(t *testing.T) {
 }
 
 func TestHealthzArtifactReturnsPromptNotFoundForMissingReservation(t *testing.T) {
-	server := newHealthzArtifactTestServer(t)
-	useCatalogTestService(t, &ssc.FakeClient{
-		HealthzArtifactStatusResponse: `{"state":"MISSING"}`,
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	stream := &artifactTestStream{ctx: ctx}
+	for _, prefix := range []string{"healthz-", "dldd-"} {
+		t.Run(prefix, func(t *testing.T) {
+			server := newHealthzArtifactTestServer(t)
+			useCatalogTestService(t, &ssc.FakeClient{
+				HealthzArtifactStatusResponse: `{"state":"MISSING"}`,
+			})
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			stream := &artifactTestStream{ctx: ctx}
 
-	err := server.Artifact(&healthz.ArtifactRequest{
-		Id: "healthz-cccccccccccccccccccccccccccccccc.tar.gz",
-	}, stream)
-	if status.Code(err) != codes.NotFound || len(stream.responses) != 0 {
-		t.Fatalf("Artifact(missing) = %v after %d responses, want prompt NotFound", err, len(stream.responses))
+			err := server.Artifact(&healthz.ArtifactRequest{
+				Id: prefix + "cccccccccccccccccccccccccccccccc.tar.gz",
+			}, stream)
+			if status.Code(err) != codes.NotFound || len(stream.responses) != 0 {
+				t.Fatalf("Artifact(missing) = %v after %d responses, want prompt NotFound", err, len(stream.responses))
+			}
+		})
 	}
 }
 
