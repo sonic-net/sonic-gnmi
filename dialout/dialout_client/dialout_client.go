@@ -80,7 +80,423 @@ var (
 
 	// map for storing name of clientSubscription which are users of the destination group
 	DestGrp2ClientSubMap = make(map[string][]string)
+
+	// Track client connections that need reconnection due to network changes
+	networkChangeTrigger = make(chan struct{}, 16)
 )
+
+var newRetryInterval = 30 * time.Second
+
+// deviceInfoCache caches hostname and mgmt IP and updates dynamically
+type deviceInfoCache struct {
+	mu       sync.RWMutex
+	hostname string
+	mgmtIP   string
+	updateCh chan struct{}
+	stopCh   chan struct{}
+	initOnce sync.Once // ensure init only once
+}
+
+var globalDeviceInfo = &deviceInfoCache{
+	updateCh: make(chan struct{}, 16),
+	stopCh:   make(chan struct{}),
+}
+
+// init starts monitoring
+func init() {
+	go globalDeviceInfo.startMonitoring()
+}
+
+// ensureInitialized ensures the cache is initialized
+func (d *deviceInfoCache) ensureInitialized() {
+	d.initOnce.Do(func() {
+		d.refresh()
+		log.V(2).Infof("Device info cache initialized with hostname: %s, mgmt IP: %s", d.hostname, d.mgmtIP)
+	})
+}
+
+func (d *deviceInfoCache) startMonitoring() {
+	// start monitoring
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-d.stopCh
+		cancel()
+	}()
+
+	monitorHostnameAndMgmtIPChanges(ctx, d.updateCh)
+}
+
+func (d *deviceInfoCache) refresh() {
+	hostname, mgmtIP, err := getHostnameAndMgmtIP()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if err != nil {
+		log.V(2).Infof("Failed to refresh device info: %v", err)
+		return
+	}
+
+	oldHostname := d.hostname
+	oldMgmtIP := d.mgmtIP
+
+	if hostname != "" && hostname != oldHostname {
+		d.hostname = hostname
+		log.V(2).Infof("Hostname updated from '%s' to '%s'", oldHostname, hostname)
+	}
+
+	if mgmtIP != "" && mgmtIP != oldMgmtIP {
+		d.mgmtIP = mgmtIP
+		log.V(2).Infof("Mgmt IP updated from '%s' to '%s'", oldMgmtIP, mgmtIP)
+
+		// Trigger reconnection for all clients when mgmt IP changes
+		select {
+		case networkChangeTrigger <- struct{}{}:
+			log.V(2).Infof("Network change detected, triggering reconnection for all clients")
+		default:
+		}
+	}
+}
+
+func (d *deviceInfoCache) Get() (string, string) {
+	// ensureInitialized
+	d.ensureInitialized()
+
+	// check for update
+	select {
+	case <-d.updateCh:
+		d.refresh()
+	default:
+	}
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	// default value is : unknown
+	hostname := d.hostname
+	if hostname == "" {
+		hostname = "unknown"
+	}
+
+	mgmtIP := d.mgmtIP
+	if mgmtIP == "" {
+		mgmtIP = "unknown"
+	}
+
+	return hostname, mgmtIP
+}
+
+// getHostnameAndMgmtIP from db
+func getHostnameAndMgmtIP() (string, string, error) {
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	stateDbn, err := sdcfg.GetDbId("STATE_DB", ns)
+	if err != nil {
+		return "", "", err
+	}
+
+	var redisDb *redis.Client
+	if sdc.UseRedisLocalTcpPort == false {
+		addr, err := sdcfg.GetDbSock("STATE_DB", ns)
+		if err != nil {
+			return "", "", err
+		}
+		optsUnix := redisopts.New(redis.Options{
+			Network:     "unix",
+			Addr:        addr,
+			Password:    "", // no password set
+			DB:          stateDbn,
+			DialTimeout: 0,
+		})
+		redisDb = redis.NewClient(optsUnix)
+	} else {
+		addr, err := sdcfg.GetDbTcpAddr("STATE_DB", ns)
+		if err != nil {
+			return "", "", err
+		}
+		optsTcp := redisopts.New(redis.Options{
+			Network:     "tcp",
+			Addr:        addr,
+			Password:    "", // no password set
+			DB:          stateDbn,
+			DialTimeout: 0,
+		})
+		redisDb = redis.NewClient(optsTcp)
+	}
+	defer redisDb.Close()
+
+	// get IP from NETWORK_INFO_TABLE|eth0
+	networkInfoKey := "NETWORK_INFO_TABLE|eth0"
+	networkInfo, err := redisDb.HGetAll(context.Background(), networkInfoKey).Result()
+	if err != nil {
+		log.V(2).Infof("Failed to get network info from %s: %v", networkInfoKey, err)
+		return "unknown", "unknown", err
+	}
+
+	mgmtIP, ipExists := networkInfo["ip"]
+	if !ipExists {
+		log.V(2).Infof("Failed to get device ip from : %v", networkInfo)
+		mgmtIP = "unknown"
+	}
+
+	// get hostname from DEVICE_METADATA|localhost
+	configDbn, err := sdcfg.GetDbId("CONFIG_DB", ns)
+	if err != nil {
+		return "", "", err
+	}
+	var configRedisDb *redis.Client
+	if sdc.UseRedisLocalTcpPort == false {
+		addr, err := sdcfg.GetDbSock("CONFIG_DB", ns)
+		if err != nil {
+			return "", "", err
+		}
+		optsUnix := redisopts.New(redis.Options{
+			Network:     "unix",
+			Addr:        addr,
+			Password:    "", // no password set
+			DB:          configDbn,
+			DialTimeout: 0,
+		})
+		configRedisDb = redis.NewClient(optsUnix)
+	} else {
+		addr, err := sdcfg.GetDbTcpAddr("CONFIG_DB", ns)
+		if err != nil {
+			return "", "", err
+		}
+		optsTcp := redisopts.New(redis.Options{
+			Network:     "tcp",
+			Addr:        addr,
+			Password:    "", // no password set
+			DB:          configDbn,
+			DialTimeout: 0,
+		})
+		configRedisDb = redis.NewClient(optsTcp)
+	}
+	defer configRedisDb.Close()
+
+	deviceMetadataKey := "DEVICE_METADATA|localhost"
+	deviceMetadata, err := configRedisDb.HGetAll(context.Background(), deviceMetadataKey).Result()
+	if err != nil {
+		log.V(2).Infof("Failed to get device metadata from %s: %v", deviceMetadataKey, err)
+		return "unknown", "unknown", err
+	}
+
+	hostname, hostnameExists := deviceMetadata["hostname"]
+	if !hostnameExists {
+		log.V(2).Infof("Failed to get device hostname from : %v", deviceMetadata)
+		hostname = "unknown"
+	}
+
+	log.V(3).Infof("Retrieved from db hostname: %s, mgmt IP: %s", hostname, mgmtIP)
+	return hostname, mgmtIP, nil
+}
+
+// monitorHostnameAndMgmtIPChanges monitor changes of hostname and mgmtip
+func monitorHostnameAndMgmtIPChanges(ctx context.Context, updateChan chan<- struct{}) {
+	ns, _ := sdcfg.GetDbDefaultNamespace()
+	stateDbn, err := sdcfg.GetDbId("STATE_DB", ns)
+	if err != nil {
+		log.V(1).Infof("Failed to get STATE_DB id: %v", err)
+		return
+	}
+
+	var redisDb *redis.Client
+	if sdc.UseRedisLocalTcpPort == false {
+		addr, err := sdcfg.GetDbSock("STATE_DB", ns)
+		if err != nil {
+			log.V(1).Infof("Failed to get STATE_DB sock: %v", err)
+			return
+		}
+		optsUnix := redisopts.New(redis.Options{
+			Network:     "unix",
+			Addr:        addr,
+			Password:    "", // no password set
+			DB:          stateDbn,
+			DialTimeout: 0,
+		})
+		redisDb = redis.NewClient(optsUnix)
+	} else {
+		addr, err := sdcfg.GetDbTcpAddr("STATE_DB", ns)
+		if err != nil {
+			log.V(1).Infof("Failed to get STATE_DB tcp addr: %v", err)
+			return
+		}
+		optsTcp := redisopts.New(redis.Options{
+			Network:     "tcp",
+			Addr:        addr,
+			Password:    "", // no password set
+			DB:          stateDbn,
+			DialTimeout: 0,
+		})
+		redisDb = redis.NewClient(optsTcp)
+	}
+	defer redisDb.Close()
+
+	pattern := "__keyspace@" + strconv.Itoa(int(stateDbn)) + "__:NETWORK_INFO_TABLE|eth0"
+	pubsub := redisDb.PSubscribe(ctx, pattern)
+	defer pubsub.Close()
+
+	msgi, err := pubsub.ReceiveTimeout(ctx, time.Second)
+	if err != nil {
+		log.V(1).Infof("psubscribe to %s failed %v", pattern, err)
+		return
+	}
+	subscr := msgi.(*redis.Subscription)
+	if subscr.Channel != pattern {
+		log.V(1).Infof("psubscribe to %s failed", pattern)
+		return
+	}
+	log.V(2).Infof("Psubscribe to network info succeeded: %v", subscr)
+
+	configDbn, err := sdcfg.GetDbId("CONFIG_DB", ns)
+	if err != nil {
+		log.V(1).Infof("Failed to get CONFIG_DB id: %v", err)
+		return
+	}
+	var configRedisDb *redis.Client
+	if sdc.UseRedisLocalTcpPort == false {
+		addr, err := sdcfg.GetDbSock("CONFIG_DB", ns)
+		if err != nil {
+			log.V(1).Infof("Failed to get CONFIG_DB sock: %v", err)
+			return
+		}
+		optsUnix := redisopts.New(redis.Options{
+			Network:     "unix",
+			Addr:        addr,
+			Password:    "", // no password set
+			DB:          configDbn,
+			DialTimeout: 0,
+		})
+		configRedisDb = redis.NewClient(optsUnix)
+	} else {
+		addr, err := sdcfg.GetDbTcpAddr("CONFIG_DB", ns)
+		if err != nil {
+			log.V(1).Infof("Failed to get CONFIG_DB tcp addr: %v", err)
+			return
+		}
+		optsTcp := redisopts.New(redis.Options{
+			Network:     "tcp",
+			Addr:        addr,
+			Password:    "", // no password set
+			DB:          configDbn,
+			DialTimeout: 0,
+		})
+		configRedisDb = redis.NewClient(optsTcp)
+	}
+	defer configRedisDb.Close()
+
+	configPattern := "__keyspace@" + strconv.Itoa(int(configDbn)) + "__:DEVICE_METADATA|localhost"
+	configPubsub := configRedisDb.PSubscribe(ctx, configPattern)
+	defer configPubsub.Close()
+
+	configMsgi, err := configPubsub.ReceiveTimeout(ctx, time.Second)
+	if err != nil {
+		log.V(1).Infof("psubscribe to %s failed %v", configPattern, err)
+		return
+	}
+	configSubscr := configMsgi.(*redis.Subscription)
+	if configSubscr.Channel != configPattern {
+		log.V(1).Infof("psubscribe to %s failed", configPattern)
+		return
+	}
+	log.V(2).Infof("Psubscribe to device metadata succeeded: %v", configSubscr)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			msg, err := pubsub.ReceiveTimeout(ctx, time.Millisecond*100)
+			if err == nil {
+				if subMsg, ok := msg.(*redis.Message); ok {
+					if subMsg.Payload == "del" || subMsg.Payload == "hset" || subMsg.Payload == "hdel" {
+						log.V(3).Infof("Network info changed: %v", subMsg)
+						select {
+						case updateChan <- struct{}{}:
+							log.V(3).Infof("Sent update notification for network info")
+						default:
+							log.V(3).Infof("Update channel full, skipping notification")
+						}
+					}
+				}
+			}
+
+			configMsg, err := configPubsub.ReceiveTimeout(ctx, time.Millisecond*100)
+			if err == nil {
+				if subMsg, ok := configMsg.(*redis.Message); ok {
+					if subMsg.Payload == "del" || subMsg.Payload == "hset" || subMsg.Payload == "hdel" {
+						log.V(3).Infof("Device metadata changed: %v", subMsg)
+						select {
+						case updateChan <- struct{}{}:
+							log.V(3).Infof("Sent update notification for device metadata")
+						default:
+							log.V(3).Infof("Update channel full, skipping notification")
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// addDeviceInfoToResp add DeviceInfo into Path of resp
+func addDeviceInfoToResp(resp *gpb.SubscribeResponse) {
+	if resp == nil {
+		return
+	}
+	// skip SyncResponse
+	if resp.GetSyncResponse() {
+		return
+	}
+	deviceInfo := &gpb.PathElem{
+		Name: "DeviceInfo",
+		Key:  map[string]string{},
+	}
+
+	hostname, mgmtIP := globalDeviceInfo.Get()
+	deviceInfo.Key["HostName"] = hostname
+	deviceInfo.Key["MgmtIp"] = mgmtIP
+
+	if u := resp.GetUpdate(); u != nil && u.Update != nil {
+		for _, up := range u.Update {
+			if up != nil && up.Path != nil {
+				tmpPath := &gpb.Path{}
+				tmpPath.Elem = append(up.Path.Elem, deviceInfo)
+				up.Path = tmpPath
+			}
+		}
+	}
+}
+
+// Add function to handle network change reconnection
+func handleNetworkChange(ctx context.Context) {
+	for {
+		select {
+		case <-networkChangeTrigger:
+			log.V(1).Infof("Network change detected, reconnecting all clients")
+
+			configMu.Lock()
+			// Close and reopen all client subscriptions
+			for name, cs := range ClientSubscriptionNameMap {
+				log.V(1).Infof("Reconnecting client %s due to network change", name)
+				cs.Close()
+				cs.cancel()
+
+				// Recreate context
+				newCtx, cancel := context.WithCancel(context.Background())
+				cs.cancel = cancel
+
+				// Reinitialize
+				err := cs.NewInstance(newCtx)
+				if err != nil {
+					log.V(1).Infof("Failed to reconnect client %s after network change: %v", name, err)
+				}
+			}
+			configMu.Unlock()
+
+		case <-ctx.Done():
+			return
+		}
+	}
+}
 
 type Destination struct {
 	Addrs string
@@ -116,14 +532,14 @@ type clientSubscription struct {
 	interval      time.Duration // report interval
 
 	// Running time data
-	cMu    sync.Mutex
-	client *Client              // GNMIDialOutClient
-	dc     sdc.Client           // SONiC data client
-	stop   chan struct{}        // Inform publishRun routine to stop
-	q      *queue.PriorityQueue // for data passing among go routine
-	w      sync.WaitGroup       // Wait for all sub go routine to finish
-	opened bool                 // whether there is opened instance for this client subscription
-	cancel context.CancelFunc
+	cMu     sync.Mutex
+	clients map[string]*Client   // GNMIDialOutClient map, key as dest addr
+	dc      sdc.Client           // SONiC data client
+	stop    chan struct{}        // Inform publishRun routine to stop
+	q       *queue.PriorityQueue // for data passing among go routine
+	w       sync.WaitGroup       // Wait for all sub go routine to finish
+	opened  bool                 // whether there is opened instance for this client subscription
+	cancel  context.CancelFunc
 
 	conTryCnt uint64 //Number of time trying to connect
 	sendMsg   uint64
@@ -138,10 +554,8 @@ type Client struct {
 	mu      sync.Mutex
 	client  spb.GNMIDialOutClient
 	publish spb.GNMIDialOut_PublishClient
+	dest    string // destination address
 
-	// dataChan chan struct{} //to pass data struct pointer
-	//
-	// synced  sync.WaitGroup
 	sendMsg uint64
 	recvMsg uint64
 }
@@ -162,10 +576,13 @@ func (cs *clientSubscription) Close() {
 			cs.q.Dispose()
 		}
 	}
-	if cs.client != nil {
 
-		cs.client.Close() // Close GNMIDialOutClient
+	// Close all clients
+	for addr, client := range cs.clients {
+		log.V(2).Infof("Closing client for %s", addr)
+		client.Close()
 	}
+	cs.clients = make(map[string]*Client)
 	cs.opened = false
 	log.V(2).Infof("Closed %v", cs)
 }
@@ -210,8 +627,10 @@ func (cs *clientSubscription) NewInstance(ctx context.Context) error {
 	return nil
 }
 
-// send runs until process Queue returns an error.
-func (cs *clientSubscription) send(stream spb.GNMIDialOut_PublishClient) error {
+// send runs until process Queue returns an error ( Periodic )
+func (cs *clientSubscription) send(stream spb.GNMIDialOut_PublishClient, client *Client) error {
+	var lastUpdTimeSec float64 = 0
+	var threshold float64 = 10
 	for {
 		items, err := cs.q.Get(1)
 
@@ -222,7 +641,7 @@ func (cs *clientSubscription) send(stream spb.GNMIDialOut_PublishClient) error {
 		if err != nil {
 			cs.errors++
 			log.V(1).Infof("%v", err)
-			return fmt.Errorf("unexpected queue Gext(1): %v", err)
+			return fmt.Errorf("unexpected queue Get(1): %v", err)
 		}
 
 		var resp *gpb.SubscribeResponse
@@ -235,16 +654,116 @@ func (cs *clientSubscription) send(stream spb.GNMIDialOut_PublishClient) error {
 		default:
 			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], cs)
 			cs.errors++
+			continue
 		}
 
 		cs.sendMsg++
+		client.sendMsg++
+		addDeviceInfoToResp(resp)
+		log.V(6).Infof("cs %s sending to %s resp after addDeviceInfoToResp \n\t%v ", cs.name, client.dest, resp)
 		err = stream.Send(resp)
 		if err != nil {
-			log.V(1).Infof("Client %s sending error:%v", cs, err)
+			log.V(1).Infof("Client %s to %s sending error:%v", cs, client.dest, err)
 			cs.errors++
 			return err
 		}
-		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", cs, cs.sendMsg, resp)
+
+		if strings.Contains(cs.name, "METADATA") || strings.Contains(cs.destGroupName, "METADATA") {
+			if update := resp.GetUpdate(); update != nil {
+				updateTsSec := time.Duration(update.Timestamp).Seconds()
+				diffTime := updateTsSec - lastUpdTimeSec
+				if lastUpdTimeSec == 0 || diffTime >= threshold {
+					log.V(2).Infof("### METADATA related Client %s to %s done sending, msg count %d, msg %v", cs, client.dest, client.sendMsg, resp)
+					log.V(2).Infof("### METADATA related Client diffTime(%v), threshold(%v), updateTsSec(%v), curTimeSec(%v)", diffTime, threshold, updateTsSec, lastUpdTimeSec)
+					lastUpdTimeSec = updateTsSec
+				}
+			}
+		} else {
+			log.V(3).Infof("### Client %s to %s done sending, msg count %d, msg %v", cs, client.dest, client.sendMsg, resp)
+		}
+	}
+}
+
+// streamSend (Stream mode) with reconnection support
+func (cs *clientSubscription) streamSend(failedAddrs map[string]bool, reconnectTrigger chan string) error {
+	var lastUpdTimeSec float64 = 0
+	var threshold float64 = 10
+
+	for {
+		items, err := cs.q.Get(1)
+
+		if items == nil {
+			log.V(1).Infof("%v", err)
+			return err
+		}
+		if err != nil {
+			cs.errors++
+			log.V(1).Infof("%v", err)
+			return fmt.Errorf("unexpected queue Get(1): %v", err)
+		}
+
+		var resp *gpb.SubscribeResponse
+		switch v := items[0].(type) {
+		case sdc.Value:
+			if resp, err = sdc.ValToResp(v); err != nil {
+				cs.errors++
+				return err
+			}
+		default:
+			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], cs)
+			cs.errors++
+			continue
+		}
+
+		addDeviceInfoToResp(resp)
+
+		// Send to all clients
+		cs.cMu.Lock()
+		for addr, client := range cs.clients {
+
+			log.V(6).Infof("cs %s sending to %s resp after addDeviceInfoToResp \n\t%v ", cs.name, addr, resp)
+			err = client.publish.Send(resp)
+			if err != nil {
+				log.V(1).Infof("Client %s to %s sending error:%v", cs, addr, err)
+				cs.errors++
+				failedAddrs[addr] = true
+				// Trigger immediate reconnection
+				select {
+				case reconnectTrigger <- addr:
+					log.V(1).Infof("Triggered reconnection for %s", addr)
+				default:
+					log.V(1).Infof("Reconnection trigger channel full for %s", addr)
+				}
+			} else {
+				cs.sendMsg++
+				client.sendMsg++
+
+				// Logging
+				if strings.Contains(cs.name, "METADATA") || strings.Contains(cs.destGroupName, "METADATA") {
+					if resp == nil {
+						continue
+					}
+					update := resp.GetUpdate()
+					if update == nil {
+						continue
+					}
+					duration := time.Duration(update.Timestamp)
+					updateTsSec := duration.Seconds()
+					diffTime := updateTsSec - lastUpdTimeSec
+					if lastUpdTimeSec == 0 || diffTime >= threshold {
+						log.V(2).Infof("### METADATA related Client %s to %s done sending, msg count %d, msg %v",
+							cs, addr, client.sendMsg, resp)
+						log.V(2).Infof("### METADATA related Client diffTime(%v), threshold(%v), updateTsSec(%v), curTimeSec(%v)",
+							diffTime, threshold, updateTsSec, lastUpdTimeSec)
+						lastUpdTimeSec = updateTsSec
+					}
+				} else {
+					log.V(3).Infof("### Client %s to %s done sending, msg count %d, msg %v",
+						cs, addr, client.sendMsg, resp)
+				}
+			}
+		}
+		cs.cMu.Unlock()
 	}
 }
 
@@ -257,7 +776,7 @@ func (cs *clientSubscription) String() string {
 // newClient returns a new initialized GNMIDialout client.
 // it connects to destination and publish service
 // TODO: TLS credential support
-func newClient(ctx context.Context, dest Destination) (*Client, error) {
+func newClient(ctx context.Context, addr string) (*Client, error) {
 	timeout := clientCfg.RetryInterval
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -268,14 +787,15 @@ func newClient(ctx context.Context, dest Destination) (*Client, error) {
 	if clientCfg.TLS != nil {
 		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(clientCfg.TLS)))
 	}
-	conn, err := grpc.DialContext(ctx, dest.Addrs, opts...)
+	conn, err := grpc.DialContext(ctx, addr, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("Dial to (%s, timeout %v): %v", dest, timeout, err)
+		return nil, fmt.Errorf("Dial to (%s, timeout %v): %v", addr, timeout, err)
 	}
 	cl := spb.NewGNMIDialOutClient(conn)
 	return &Client{
 		conn:   conn,
 		client: cl,
+		dest:   addr,
 	}, nil
 }
 
@@ -283,59 +803,216 @@ func newClient(ctx context.Context, dest Destination) (*Client, error) {
 // or fatal error of any client go routine .
 // it will cause cancle of client context and exit of the send goroutines.
 func (c *Client) Close() error {
-	return c.conn.Close()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conn != nil {
+		return c.conn.Close()
+	}
+	return nil
+}
+
+// Helper function for reconnection attempts
+func attemptReconnection(ctx context.Context, cs *clientSubscription, addr string, failedAddrs *map[string]bool, reconnectTrigger chan string) {
+	log.V(3).Infof("Attempting to reconnect to %s for %v", addr, cs.name)
+
+	c, err := newClient(ctx, addr)
+	if err != nil {
+		log.V(1).Infof("Reconnection to %s failed for %v: %v", addr, cs.name, err)
+		return
+	}
+
+	pub, err := c.client.Publish(ctx)
+	if err != nil {
+		log.V(1).Infof("Publish to %s for %v failed during reconnection: %v", addr, cs.name, err)
+		c.Close()
+		return
+	}
+	c.publish = pub
+
+	cs.cMu.Lock()
+	cs.clients[addr] = c
+	delete(*failedAddrs, addr)
+	cs.cMu.Unlock()
+
+	log.V(1).Infof("Reconnected to %s successfully for %v", addr, cs.name)
+
+	if cs.reportType == Periodic {
+		cs.w.Add(1)
+		go func(client *Client) {
+			defer cs.w.Done()
+			defer func() {
+				cs.cMu.Lock()
+				delete(cs.clients, client.dest)
+				(*failedAddrs)[client.dest] = true
+				cs.cMu.Unlock()
+				client.Close()
+				// Trigger reconnection on exit
+				select {
+				case reconnectTrigger <- client.dest:
+				default:
+				}
+			}()
+			err = cs.send(pub, client)
+			if err != nil {
+				log.V(1).Infof("Client %v to %s send error after reconnection: %v", cs.name, client.dest, err)
+			}
+		}(c)
+	} else if cs.reportType == Stream {
+		// For Stream mode, just add the client to the map
+		// The streamSend goroutine will handle sending to all clients
+		log.V(1).Infof("Stream mode: Added reconnected client for %s", addr)
+	}
 }
 
 func publishRun(ctx context.Context, cs *clientSubscription, dests []Destination) {
-	var err error
-	var c *Client
-	var destNum, destIdx int
-	destNum = len(dests)
-	destIdx = 0
-
-restart: //Remote server might go down, in that case we restart with next destination in the group
 	cs.cMu.Lock()
 	cs.stop = make(chan struct{}, 1)
 	cs.q = queue.NewPriorityQueue(1, false)
 	cs.opened = true
-	cs.client = nil
+	cs.clients = make(map[string]*Client)
 	cs.cMu.Unlock()
 
 	cs.conTryCnt++
-	dest := dests[destIdx]
-	destIdx = (destIdx + 1) % destNum
-	c, err = newClient(ctx, dest)
-	select {
-	case <-ctx.Done():
-		cs.Close()
-		log.V(1).Infof("%v: %v, cs.conTryCnt %v", cs, err, cs.conTryCnt)
-		return
-	default:
-	}
-	if err != nil {
-		log.V(1).Infof("Dialout connection for %v failed for %v, %v cs.conTryCnt %v", dest, cs.name, err, cs.conTryCnt)
-		goto restart
+
+	// Map to track failed addresses that need reconnection
+	failedAddrs := make(map[string]bool)
+
+	// Channel to trigger immediate reconnection
+	reconnectTrigger := make(chan string, 16)
+
+	// Channel to detect network changes for this specific client
+	clientNetworkChange := make(chan struct{}, 1)
+
+	// Monitor network changes for this client
+	go func() {
+		for {
+			select {
+			case <-networkChangeTrigger:
+				log.V(1).Infof("Network change detected for client %s, preparing reconnection", cs.name)
+				select {
+				case clientNetworkChange <- struct{}{}:
+				default:
+				}
+			case <-cs.stop:
+				return
+			}
+		}
+	}()
+
+	// Create connections to all destinations
+	for _, dest := range dests {
+		addr := dest.Addrs
+		go func(addr string) {
+			c, err := newClient(ctx, addr)
+			if err != nil {
+				log.V(1).Infof("Dialout connection for %s failed for %v, %v cs.conTryCnt %v", addr, cs.name, err, cs.conTryCnt)
+				cs.cMu.Lock()
+				failedAddrs[addr] = true
+				cs.cMu.Unlock()
+				select {
+				case reconnectTrigger <- addr:
+				default:
+				}
+				return
+			}
+
+			pub, err := c.client.Publish(ctx)
+			if err != nil {
+				log.V(1).Infof("Publish to %s for %v failed: %v", addr, cs.name, err)
+				c.Close()
+				cs.cMu.Lock()
+				failedAddrs[addr] = true
+				cs.cMu.Unlock()
+				select {
+				case reconnectTrigger <- addr:
+				default:
+				}
+				return
+			}
+			c.publish = pub
+
+			cs.cMu.Lock()
+			cs.clients[addr] = c
+			delete(failedAddrs, addr)
+			cs.cMu.Unlock()
+
+			log.V(1).Infof("Dialout service connected to %s successfully for %v", addr, cs.name)
+
+			if cs.reportType == Periodic {
+				cs.w.Add(1)
+				go func(client *Client) {
+					defer cs.w.Done()
+					defer func() {
+						cs.cMu.Lock()
+						delete(cs.clients, client.dest)
+						failedAddrs[client.dest] = true
+						cs.cMu.Unlock()
+						client.Close()
+						// Trigger reconnection on exit
+						select {
+						case reconnectTrigger <- client.dest:
+						default:
+						}
+					}()
+					err = cs.send(pub, client)
+					if err != nil {
+						log.V(1).Infof("Client %v to %s send error: %v", cs.name, client.dest, err)
+					}
+				}(c)
+			}
+		}(addr)
 	}
 
-	log.V(1).Infof("Dialout service connected to %v successfully for %v", dest, cs.name)
-	pub, err := c.client.Publish(ctx)
-	if err != nil {
-		log.V(1).Infof("Publish to %v for %v failed: %v, retrying", dest, cs.name, err)
-		c.Close()
-		cs.Close()
-		goto restart
-	}
+	// Dedicated reconnection goroutine with network change handling
+	go func() {
+		ticker := time.NewTicker(newRetryInterval)
+		defer ticker.Stop()
 
-	cs.cMu.Lock()
-	if cs.client == nil {
-		cs.client = c
-	} else {
-		log.V(1).Infof("connection to %v already exists for %v, exiting publishRun", dest, cs)
-		c.Close()
-		cs.cMu.Unlock()
-		return
-	}
-	cs.cMu.Unlock()
+		for {
+			select {
+			case addr := <-reconnectTrigger:
+				log.V(3).Infof("Immediate reconnection triggered for %s", addr)
+				go attemptReconnection(ctx, cs, addr, &failedAddrs, reconnectTrigger)
+
+			case <-clientNetworkChange:
+				log.V(1).Infof("Network change detected for client %s, reconnecting all destinations", cs.name)
+				// Close all existing connections
+				cs.cMu.Lock()
+				for addr, client := range cs.clients {
+					client.Close()
+					delete(cs.clients, addr)
+					failedAddrs[addr] = true
+				}
+				cs.cMu.Unlock()
+
+				// Trigger reconnection for all addresses
+				for _, dest := range dests {
+					select {
+					case reconnectTrigger <- dest.Addrs:
+						log.V(1).Infof("NetworkChange Immediate reconnection triggered for %v", dest.Addrs)
+					default:
+					}
+				}
+
+			case <-ticker.C:
+				// Periodic check for failed addresses
+				cs.cMu.Lock()
+				for addr := range failedAddrs {
+					if _, exists := cs.clients[addr]; !exists {
+						log.V(1).Infof("Periodic reconnection check for %s", addr)
+						go attemptReconnection(ctx, cs, addr, &failedAddrs, reconnectTrigger)
+					}
+				}
+				cs.cMu.Unlock()
+
+			case <-cs.stop:
+				return
+			}
+		}
+	}()
+
+	// Wait a bit for connections to establish
+	time.Sleep(100 * time.Millisecond)
 
 	switch cs.reportType {
 	case Periodic:
@@ -344,10 +1021,9 @@ restart: //Remote server might go down, in that case we restart with next destin
 			default:
 				spbValues, err := cs.dc.Get(nil)
 				if err != nil {
-					// TODO: need to inform
 					log.V(2).Infof("Data read error %v for %v", err, cs)
+					time.Sleep(cs.interval)
 					continue
-					//return nil, status.Error(codes.NotFound, err.Error())
 				}
 				var updates []*gpb.Update
 				var spbValue *spb.Value
@@ -367,42 +1043,65 @@ restart: //Remote server might go down, in that case we restart with next destin
 				}
 				response := &gpb.SubscribeResponse{Response: rs}
 
-				log.V(6).Infof("cs %s sending \n\t%v \n To %s", cs.name, response, dest)
-				err = pub.Send(response)
-				if err != nil {
-					log.V(1).Infof("Client %v pub Send error:%v, cs.conTryCnt %v", cs.name, err, cs.conTryCnt)
-					cs.Close()
-					// Retry
-					goto restart
+				// Send to all clients
+				cs.cMu.Lock()
+				for addr, client := range cs.clients {
+
+					log.V(6).Infof("cs %s sending \n\t%v \n To %s", cs.name, response, addr)
+					err = client.publish.Send(response)
+					if err != nil {
+						log.V(1).Infof("Client %v to %s pub Send error:%v, cs.conTryCnt %v", cs.name, addr, err, cs.conTryCnt)
+						failedAddrs[addr] = true
+						// Trigger immediate reconnection on send error
+						select {
+						case reconnectTrigger <- addr:
+						default:
+						}
+					} else {
+						cs.sendMsg++
+						client.sendMsg++
+						delete(failedAddrs, addr)
+					}
 				}
-				log.V(6).Infof("cs %s to  %s done", cs.name, dest)
-				cs.sendMsg++
-				c.sendMsg++
+				cs.cMu.Unlock()
+
+				log.V(6).Infof("cs %s done sending to all destinations", cs.name)
 
 				time.Sleep(cs.interval)
 			case <-cs.stop:
-				log.V(1).Infof("%v exiting publishRun routine for destination %s", cs, dest)
+				log.V(1).Infof("%v exiting publishRun routine", cs)
 				return
 			}
 		}
 	case Stream:
-		select {
-		default:
-			cs.w.Add(1)
-			go cs.dc.StreamRun(cs.q, cs.stop, &cs.w, nil)
-			time.Sleep(100 * time.Millisecond)
-			err = cs.send(pub)
-			if err != nil {
-				log.V(1).Infof("Client %v pub Send error:%v, cs.conTryCnt %v", cs.name, err, cs.conTryCnt)
-			}
-			cs.Close()
-			cs.w.Wait()
-			// Don't restart immediatly
-			time.Sleep(clientCfg.RetryInterval)
-			goto restart
+		log.V(1).Infof("### publishRun Stream cs.name(%v)", cs.name)
 
+		cs.w.Add(1)
+		go cs.dc.StreamRun(cs.q, cs.stop, &cs.w, nil)
+
+		time.Sleep(100 * time.Millisecond)
+
+		sendErrChan := make(chan error, 1)
+
+		cs.w.Add(1)
+		go func() {
+			defer cs.w.Done()
+			// Pass failedAddrs and reconnectTrigger to streamSend
+			err := cs.streamSend(failedAddrs, reconnectTrigger)
+			if err != nil {
+				log.V(1).Infof("Client %v stream send error: %v, cs.conTryCnt %v", cs.name, err, cs.conTryCnt)
+				select {
+				case sendErrChan <- err:
+				default:
+				}
+			}
+		}()
+
+		select {
+		case <-sendErrChan:
+			log.V(1).Infof("%v stream send error, reconnection triggered", cs.name)
 		case <-cs.stop:
-			log.V(1).Infof("%v exiting publishRun routine for destination %s", cs, dest)
+			log.V(1).Infof("%v exiting publishRun routine", cs)
 			return
 		}
 	default:
@@ -665,6 +1364,10 @@ func processTelemetryClientConfig(ctx context.Context, redisDb *redis.Client, ke
 // read configDB data for telemetry client and start publishing service for client subscription
 func DialOutRun(ctx context.Context, ccfg *ClientConfig) error {
 	clientCfg = ccfg
+
+	// Start network change handler
+	go handleNetworkChange(ctx)
+
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	dbn, err := sdcfg.GetDbId("CONFIG_DB", ns)
 	if err != nil {
