@@ -3,14 +3,44 @@ package client
 //This file contains dummy tests for the sake of coverage and will be removed later
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
+	"github.com/agiledragon/gomonkey/v2"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/redis/go-redis/v9"
+	"github.com/sonic-net/sonic-gnmi/localredis"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 )
+
+func TestUpdateStatsReturnsWhenOptionsFail(t *testing.T) {
+	wantErr := errors.New("local Redis options failed")
+	calls := 0
+	patches := gomonkey.ApplyFunc(localredis.Options, func(dbName, namespace string) (*redis.Options, error) {
+		calls++
+		if dbName != "COUNTERS_DB" {
+			t.Errorf("Options database = %q, want COUNTERS_DB", dbName)
+		}
+		return nil, wantErr
+	})
+	defer patches.Reset()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	evtc := &EventClient{
+		wg:       &wg,
+		counters: map[string]uint64{MISSED: 1},
+	}
+
+	update_stats(evtc)
+
+	if calls != 1 {
+		t.Fatalf("Options called %d times, want 1", calls)
+	}
+}
 
 func TestDummyEventClient(t *testing.T) {
 	evtc := &EventClient{}

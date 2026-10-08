@@ -1,13 +1,40 @@
 package gnmi
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/sonic-net/sonic-gnmi/localredis"
 )
+
+func TestNewDbJournalReturnsOptionsError(t *testing.T) {
+	wantErr := errors.New("local Redis options failed")
+	calls := 0
+	patches := gomonkey.ApplyFunc(localredis.Options, func(dbName, namespace string) (*redis.Options, error) {
+		calls++
+		if dbName != "CONFIG_DB" {
+			t.Errorf("Options database = %q, want CONFIG_DB", dbName)
+		}
+		return nil, wantErr
+	})
+	defer patches.Reset()
+
+	journal, err := NewDbJournal("CONFIG_DB")
+	if journal != nil {
+		t.Fatal("NewDbJournal returned a journal after Options failed")
+	}
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("NewDbJournal error = %v, want %v", err, wantErr)
+	}
+	if calls != 1 {
+		t.Fatalf("Options called %d times, want 1", calls)
+	}
+}
 
 func TestNewDbJournal(t *testing.T) {
 	tests := []struct {
