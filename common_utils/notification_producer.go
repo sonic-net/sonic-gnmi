@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
+	"github.com/sonic-net/sonic-gnmi/localredis"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	log "github.com/golang/glog"
@@ -18,7 +18,7 @@ const (
 
 func GetRedisDBClient() (*redis.Client, error) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
-	opts, err := redisopts.LocalDB(dbName, ns)
+	opts, err := localredis.Options(dbName, ns)
 	if err != nil {
 		log.Errorf("Redis endpoint err: %v", err)
 		return nil, err

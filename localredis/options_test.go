@@ -1,4 +1,4 @@
-package redisopts
+package localredis
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
 
-func TestLocalDBUsesConfiguredUnixSocket(t *testing.T) {
+func TestOptionsUsesConfiguredUnixSocket(t *testing.T) {
 	patches := gomonkey.ApplyFunc(sdcfg.GetDbSock, func(dbName, namespace string) (string, error) {
 		if dbName != "STATE_DB" || namespace != "asic0" {
 			t.Fatalf("GetDbSock(%q, %q), want STATE_DB, asic0", dbName, namespace)
@@ -23,9 +23,9 @@ func TestLocalDBUsesConfiguredUnixSocket(t *testing.T) {
 		return 6, nil
 	})
 
-	opts, err := LocalDB("STATE_DB", "asic0")
+	opts, err := Options("STATE_DB", "asic0")
 	if err != nil {
-		t.Fatalf("LocalDB returned error: %v", err)
+		t.Fatalf("Options returned error: %v", err)
 	}
 	if opts.Network != "unix" {
 		t.Fatalf("Network = %q, want unix", opts.Network)
@@ -38,15 +38,15 @@ func TestLocalDBUsesConfiguredUnixSocket(t *testing.T) {
 	}
 }
 
-func TestLocalDBReturnsEndpointErrors(t *testing.T) {
+func TestOptionsReturnsEndpointErrors(t *testing.T) {
 	t.Run("socket", func(t *testing.T) {
 		patch := gomonkey.ApplyFunc(sdcfg.GetDbSock, func(string, string) (string, error) {
 			return "", errors.New("no socket")
 		})
 		defer patch.Reset()
 
-		if _, err := LocalDB("STATE_DB", ""); err == nil {
-			t.Fatal("LocalDB succeeded without a socket")
+		if _, err := Options("STATE_DB", ""); err == nil {
+			t.Fatal("Options succeeded without a socket")
 		}
 	})
 
@@ -56,8 +56,8 @@ func TestLocalDBReturnsEndpointErrors(t *testing.T) {
 		})
 		defer patch.Reset()
 
-		if _, err := LocalDB("STATE_DB", ""); err == nil {
-			t.Fatal("LocalDB succeeded with an empty socket path")
+		if _, err := Options("STATE_DB", ""); err == nil {
+			t.Fatal("Options succeeded with an empty socket path")
 		}
 	})
 
@@ -70,8 +70,8 @@ func TestLocalDBReturnsEndpointErrors(t *testing.T) {
 			return -1, errors.New("no database")
 		})
 
-		if _, err := LocalDB("STATE_DB", ""); err == nil {
-			t.Fatal("LocalDB succeeded without a database ID")
+		if _, err := Options("STATE_DB", ""); err == nil {
+			t.Fatal("Options succeeded without a database ID")
 		}
 	})
 }

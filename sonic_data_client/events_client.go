@@ -21,7 +21,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
+	"github.com/sonic-net/sonic-gnmi/localredis"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
@@ -226,7 +226,7 @@ func update_stats(evtc *EventClient) {
 	/* Populate counters from DB for cumulative counters. */
 	if !evtc.isStopped() {
 		ns, _ := sdcfg.GetDbDefaultNamespace()
-		opts, err := redisopts.LocalDB("COUNTERS_DB", ns)
+		opts, err := localredis.Options("COUNTERS_DB", ns)
 		if err != nil {
 			log.Errorf("Redis endpoint error:  %v", err)
 			return

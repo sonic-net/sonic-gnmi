@@ -15,7 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/Azure/sonic-mgmt-common/translib/db"
-	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
+	"github.com/sonic-net/sonic-gnmi/localredis"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
 
@@ -57,7 +57,7 @@ func NewDbJournal(database string) (*DbJournal, error) {
 	}
 
 	ns, _ := sdcfg.GetDbDefaultNamespace()
-	opts, err := redisopts.LocalDB(journal.database, ns)
+	opts, err := localredis.Options(journal.database, ns)
 	if err != nil {
 		return nil, err
 	}
