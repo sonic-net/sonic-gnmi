@@ -23,6 +23,7 @@ import (
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
 	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 
 	"github.com/fsnotify/fsnotify"
@@ -84,6 +85,8 @@ type TelemetryConfig struct {
 	MaxRecvMsgSize           *int
 	MaxSendMsgSize           *int
 	PathsBlacklistFile       *string
+	RecordsDir               *string
+	RecordsTZ                *string
 }
 
 func main() {
@@ -225,6 +228,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		MaxRecvMsgSize:           fs.Int("max_recv_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can receive"),
 		MaxSendMsgSize:           fs.Int("max_send_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can send"),
 		PathsBlacklistFile:       fs.String("paths_blacklist", "", "File with blacklisted gNMI paths, one 'TARGET PATH' entry per line. Requests referencing these paths are rejected. Empty disables the blacklist."),
+		RecordsDir:               fs.String("records_dir", sdc.RecordsDefaultDir, "Directory holding orchagent swss.rec/sairedis.rec files for the RECORDS target."),
+		RecordsTZ:                fs.String("records_tz", "", "IANA timezone of the zone-less timestamps in the record files. Default: process local zone."),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -313,7 +318,11 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 
 	gnmi.SetCrlExpireDuration(time.Duration(*telemetryCfg.CrlExpireDuration) * time.Second)
 
-	// TODO: After other dependent projects are migrated to ZmqPort, remove ZmqAddress
+	sdc.SetRecordsDir(*telemetryCfg.RecordsDir)
+	if err := sdc.SetRecordsTZ(*telemetryCfg.RecordsTZ); err != nil {
+		return nil, nil, err
+	}
+
 	zmqAddress := *telemetryCfg.ZmqAddress
 	zmqPort := *telemetryCfg.ZmqPort
 	if zmqPort == "" {
