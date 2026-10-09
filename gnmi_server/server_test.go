@@ -9831,3 +9831,184 @@ func TestGnmiGetOpenconfigInterfacesAttributes(t *testing.T) {
 		})
 	}
 }
+
+func TestGnmiGetWildcardTranslibXfmrIntf(t *testing.T) {
+	// Create server on a unique port
+	s := createServer(t, 0)
+	go runServer(t, s)
+	defer s.Stop()
+
+	prepareDbTranslib(t)
+	ns, err := sdcfg.GetDbDefaultNamespace()
+	if err != nil {
+		t.Fatalf("Failed to get default DB namespace: %v", err)
+	}
+	ctx := context.Background()
+
+	// --- DB 4 (ConfigDB) Setup ---
+	// Wildcard discovery starts here. If EthernetX isn't in PORT table, it won't be found.
+	configDbId, err := sdcfg.GetDbId("CONFIG_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get CONFIG DB ID: %v", err)
+	}
+	configClient := getRedisClientN(t, configDbId, ns)
+	// --- DB 6 (StateDB) Setup ---
+	stateDbId, err := sdcfg.GetDbId("STATE_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get STATE DB ID: %v", err)
+	}
+	stateClient := getRedisClientN(t, stateDbId, ns)
+	// --- DB 0 (ApplDB) Setup ---
+	applDbId, err := sdcfg.GetDbId("APPL_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get APPL DB ID: %v", err)
+	}
+	applClient := getRedisClientN(t, applDbId, ns)
+	// --- DB 2 (CountersDB) Setup ---
+	countersDbId, err := sdcfg.GetDbId("COUNTERS_DB", ns)
+	if err != nil {
+		t.Fatalf("Failed to get COUNTERS DB ID: %v", err)
+	}
+	countersClient := getRedisClientN(t, countersDbId, ns)
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		if err := configClient.Del(cleanupCtx, "CONFIG_DB_INITIALIZED", "PORT|Ethernet0", "PORT|Ethernet4").Err(); err != nil {
+			t.Logf("Failed to delete CONFIG_DB_INIT keys: %v", err)
+		}
+		if err := stateClient.Del(cleanupCtx, "STATE_DB_INITIALIZED", "PORT_TABLE:Ethernet0", "PORT_TABLE:Ethernet4", "TRANSCEIVER_INFO|Ethernet0", "TRANSCEIVER_INFO|Ethernet4").Err(); err != nil {
+			t.Logf("Failed to delete STATE_DB_INITIALIZED keys: %v", err)
+		}
+		if err := applClient.Del(cleanupCtx, "P4RT_PORT_ID_TABLE:Ethernet0", "P4RT_PORT_ID_TABLE:Ethernet4").Err(); err != nil {
+			t.Logf("Failed to delete P4RT_PORT_ID_TABLE keys: %v", err)
+		}
+		if err := countersClient.Del(cleanupCtx, "COUNTERS:oid:0x100", "COUNTERS:oid:0x104").Err(); err != nil {
+			t.Logf("Failed to delete COUNTERS keys: %v", err)
+		}
+		if err := countersClient.HDel(cleanupCtx, "COUNTERS_PORT_NAME_MAP", "Ethernet0", "Ethernet4").Err(); err != nil {
+			t.Logf("Failed to delete COUNTERS PORT NAME MAP  keys: %v", err)
+		}
+		configClient.Close()
+		stateClient.Close()
+		applClient.Close()
+		countersClient.Close()
+	})
+	configClient.Set(ctx, "CONFIG_DB_INITIALIZED", "1", 0)
+
+	// Ethernet0 entry
+	if err := configClient.HSet(ctx, "PORT|Ethernet0", map[string]interface{}{
+		"index": "0",
+		"lanes": "1,2,3,4",
+		"id":    "100",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet0: %v", err)
+	}
+	// Ethernet4 entry
+	if err := configClient.HSet(ctx, "PORT|Ethernet4", map[string]interface{}{
+		"index": "4",
+		"lanes": "17,18,19,20",
+		"id":    "104",
+	}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet4: %v", err)
+	}
+
+	stateClient.Set(ctx, "STATE_DB_INITIALIZED", "1", 0)
+
+	// Port Table entries (used by hardware-port transformer)
+	if err := stateClient.HSet(ctx, "PORT_TABLE:Ethernet0", map[string]interface{}{"index": "0", "lanes": "1,2,3,4"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet0: %v", err)
+	}
+
+	if err := stateClient.HSet(ctx, "PORT_TABLE:Ethernet4", map[string]interface{}{"index": "4", "lanes": "17,18,19,20"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet PORT|Ethernet4: %v", err)
+	}
+
+	// Transceiver info (used by physical-channel transformer)
+	// Note: many platforms use | as separator for TRANSCEIVER_INFO even in StateDB
+	if err := stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet0", map[string]interface{}{"type": "QSFP28"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet TRANSCEIVER_INFO|Ethernet0: %v", err)
+	}
+
+	if err := stateClient.HSet(ctx, "TRANSCEIVER_INFO|Ethernet4", map[string]interface{}{"type": "QSFP28"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet TRANSCEIVER_INFO|Ethernet4: %v", err)
+	}
+
+	// Used for P4RT State ID lookups
+	if err := applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet0", map[string]interface{}{"id": "100"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet P4RT_PORT_ID_TABLE:Ethernet0: %v", err)
+	}
+
+	if err := applClient.HSet(ctx, "P4RT_PORT_ID_TABLE:Ethernet4", map[string]interface{}{"id": "104"}).Err(); err != nil {
+		t.Fatalf("Failed to HSet P4RT_PORT_ID_TABLE:Ethernet4: %v", err)
+	}
+
+	// Map names to OIDs
+	if err := countersClient.HSet(ctx, "COUNTERS_PORT_NAME_MAP", "Ethernet0", "oid:0x100", "Ethernet4", "oid:0x104").Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS_PORT_NAME_MAP: %v", err)
+	}
+
+	// Actual counter data for the transformer
+	if err := countersClient.HSet(ctx, "COUNTERS:oid:0x100", "SAI_PORT_STAT_ETHER_STATS_CRC_ALIGN_ERRORS", "10").Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS:oid:0x100: %v", err)
+	}
+
+	if err := countersClient.HSet(ctx, "COUNTERS:oid:0x104", "SAI_PORT_STAT_ETHER_STATS_CRC_ALIGN_ERRORS", "40").Err(); err != nil {
+		t.Fatalf("Failed to HSet COUNTERS:oid:0x104: %v", err)
+	}
+
+	// gNMI Client connection
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", s.config.Port)
+	conn, err := grpc.Dial(targetAddr, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})))
+	if err != nil {
+		t.Fatalf("Dialing to %q failed: %v", targetAddr, err)
+	}
+	defer conn.Close()
+	gClient := pb.NewGNMIClient(conn)
+
+	// var emptyRespVal interface{}
+	tds := []struct {
+		desc        string
+		textPbPath  string
+		expectedICs []string
+	}{
+		{
+			desc:        "Wildcard Get all Interface State (Path Xfmr check)",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"*" > > elem: <name: "state" >`,
+			expectedICs: []string{"Ethernet0", "Ethernet4"},
+		},
+		{
+			desc:        "Wildcard Get all Interface Config (P4RT Config check)",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"*" > > elem: <name: "config" >`,
+			expectedICs: []string{"Ethernet0", "Ethernet4"},
+		},
+		{
+			desc:        "Wildcard Get all Interface Counters (Subtree Xfmr check)",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"*" > > elem: <name: "state" > elem: <name: "counters" >`,
+			expectedICs: []string{"Ethernet0", "Ethernet4"},
+		},
+		{
+			desc:        "Wildcard Get P4RT ID State for all",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"*" > > elem: <name: "state" > elem: <name: "openconfig-p4rt:id" >`,
+			expectedICs: []string{"Ethernet0", "Ethernet4"},
+		},
+		{
+			desc:        "Wildcard Get Hardware Port for all",
+			textPbPath:  `elem: <name: "openconfig-interfaces:interfaces" > elem: <name: "interface" key:<key:"name" value:"*" > > elem: <name: "state" > elem: <name: "openconfig-platform-port:hardware-port" >`,
+			expectedICs: []string{"Ethernet0", "Ethernet4"},
+		},
+	}
+
+	for _, td := range tds {
+		t.Run(td.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			path := new(pb.Path)
+			if err := proto.UnmarshalText(td.textPbPath, path); err != nil {
+				t.Fatalf("Failed to parse textPbPath: %v", err)
+			}
+			path.Target = "OC_YANG"
+
+			runTestSubscribeIntf(t, ctx, gClient, path, td.desc, td.expectedICs)
+		})
+	}
+}
