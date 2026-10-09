@@ -23,22 +23,6 @@ func TestDbJournalPath(t *testing.T) {
 	}
 }
 
-func TestHealthzArtifactPath(t *testing.T) {
-	original := healthzHostRoot
-	t.Cleanup(func() { healthzHostRoot = original })
-
-	healthzHostRoot = healthzDefaultHostRoot
-	if got := healthzArtifactPath("/tmp/dump/debug.tar.gz"); got != "/mnt/host/tmp/dump/debug.tar.gz" {
-		t.Fatalf("healthzArtifactPath() = %q, want /mnt/host/tmp/dump/debug.tar.gz", got)
-	}
-
-	healthzHostRoot = t.TempDir()
-	want := filepath.Join(healthzHostRoot, "tmp/dump/debug.tar.gz")
-	if got := healthzArtifactPath("/tmp/dump/debug.tar.gz"); got != want {
-		t.Fatalf("healthzArtifactPath() = %q, want %q", got, want)
-	}
-}
-
 func TestDbJournalRotationUsesFileDirectory(t *testing.T) {
 	original := hostVarLogPath
 	t.Cleanup(func() { hostVarLogPath = original })

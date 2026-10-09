@@ -1004,6 +1004,93 @@ func TestHealthzAck_Success(t *testing.T) {
 	}
 }
 
+func TestHealthzCatalogDbusMethods(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		method string
+		call   func(Service, string) (string, error)
+	}{
+		{"get", "get", Service.HealthzGet},
+		{"list", "list", Service.HealthzList},
+		{"ack", "ack", Service.HealthzAcknowledge},
+		{"artifact status", "artifact_status", Service.HealthzArtifactStatus},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := `{"component":"chassis"}`
+			patch := gomonkey.ApplyFunc(DbusApi, func(bus, path, method string, timeout int, args ...interface{}) (interface{}, error) {
+				if bus != "org.SONiC.HostService.healthz" || path != "/org/SONiC/HostService/healthz" ||
+					method != "org.SONiC.HostService.healthz."+test.method || timeout != 10 ||
+					len(args) != 1 || args[0] != request {
+					t.Fatalf("unexpected Healthz D-Bus call: %q %q %q %d %+v", bus, path, method, timeout, args)
+				}
+				return `{"id":"event-1"}`, nil
+			})
+			defer patch.Reset()
+			client, err := NewDbusClient()
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := test.call(client, request)
+			if err != nil || response != `{"id":"event-1"}` {
+				t.Fatalf("Healthz %s = (%q, %v)", test.name, response, err)
+			}
+		})
+	}
+}
+
+func TestLegacyHealthzDbusUsesStringArray(t *testing.T) {
+	for _, test := range []struct {
+		method string
+		call   func(Service, string) (string, error)
+	}{
+		{"collect", Service.HealthzCollect},
+		{"check", Service.HealthzCheck},
+		{"ack", Service.HealthzAck},
+	} {
+		t.Run(test.method, func(t *testing.T) {
+			request := `{"component":"chassis"}`
+			patch := gomonkey.ApplyFunc(DbusApi, func(bus, path, method string, timeout int, args ...interface{}) (interface{}, error) {
+				if bus != "org.SONiC.HostService.debug_info" || path != "/org/SONiC/HostService/debug_info" ||
+					method != "org.SONiC.HostService.debug_info."+test.method || timeout != 10 || len(args) != 1 {
+					t.Fatalf("unexpected legacy Healthz D-Bus call: %q %q %q %d %+v", bus, path, method, timeout, args)
+				}
+				values, ok := args[0].([]string)
+				if !ok || len(values) != 1 || values[0] != request {
+					t.Fatalf("legacy Healthz argument = %#v, want []string{%q}", args[0], request)
+				}
+				return "ok", nil
+			})
+			defer patch.Reset()
+			client, err := NewDbusClient()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := test.call(client, request); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestDbusApiPreservesHostStatusCode(t *testing.T) {
+	busPatch := gomonkey.ApplyFunc(dbus.SystemBus, func() (*dbus.Conn, error) {
+		return &dbus.Conn{}, nil
+	})
+	defer busPatch.Reset()
+	callPatch := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(_ *dbus.Object, _ string, _ dbus.Flags, ch chan *dbus.Call, _ ...interface{}) *dbus.Call {
+		call := &dbus.Call{Body: []interface{}{int32(2), "event not found"}}
+		ch <- call
+		return call
+	})
+	defer callPatch.Reset()
+
+	_, err := DbusApi("org.SONiC.HostService.healthz", "/org/SONiC/HostService/healthz", "org.SONiC.HostService.healthz.get", 10, `{"component":"chassis"}`)
+	var hostError *DbusStatusError
+	if !errors.As(err, &hostError) || hostError.Code != 2 || hostError.Message != "event not found" {
+		t.Fatalf("D-Bus missing event error = %v, want status code 2", err)
+	}
+}
+
 func TestInstallOSSuccess(t *testing.T) {
 	req := "stable"
 
