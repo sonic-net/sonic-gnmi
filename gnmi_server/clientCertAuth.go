@@ -260,6 +260,9 @@ func PopulateAuthStructByCommonName(certCommonName string, auth *common_utils.Au
 	if serviceConfigTableName == "" {
 		return status.Errorf(codes.Unauthenticated, "Service config table name should not be empty")
 	}
+	// A context can outlive a certificate-role mapping. Do not let a prior
+	// successful lookup authorize a stream after that mapping is removed.
+	auth.Roles = nil
 
 	var configDbConnector = swsscommon.NewConfigDBConnector()
 	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
