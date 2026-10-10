@@ -12,7 +12,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/redis/go-redis/v9"
-	"github.com/sonic-net/sonic-gnmi/internal/localredis"
+	"github.com/sonic-net/sonic-gnmi/localredis"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 )
 

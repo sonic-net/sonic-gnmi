@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/sonic-net/sonic-gnmi/internal/localredis"
+	"github.com/sonic-net/sonic-gnmi/localredis"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	log "github.com/golang/glog"
