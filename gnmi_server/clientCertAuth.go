@@ -261,7 +261,7 @@ func PopulateAuthStructByCommonName(certCommonName string, auth *common_utils.Au
 		return status.Errorf(codes.Unauthenticated, "Service config table name should not be empty")
 	}
 
-	var configDbConnector = swsscommon.NewConfigDBConnector()
+	var configDbConnector = swsscommon.NewConfigDBConnector(true)
 	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 	configDbConnector.Connect(false)
 

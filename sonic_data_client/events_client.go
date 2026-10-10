@@ -21,7 +21,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
+	"github.com/sonic-net/sonic-gnmi/internal/localredis"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
@@ -226,24 +226,21 @@ func update_stats(evtc *EventClient) {
 	/* Populate counters from DB for cumulative counters. */
 	if !evtc.isStopped() {
 		ns, _ := sdcfg.GetDbDefaultNamespace()
-		addr, err := sdcfg.GetDbTcpAddr("COUNTERS_DB", ns)
+		addr, err := sdcfg.GetDbSock("COUNTERS_DB", ns)
 		if err != nil {
-			log.Errorf("Address error:  %v", err)
+			log.Errorf("Redis socket error:  %v", err)
 			return
 		}
-		dbId, err := sdcfg.GetDbId("COUNTERS_DB", ns)
+		dbID, err := sdcfg.GetDbId("COUNTERS_DB", ns)
 		if err != nil {
-			log.Errorf("DB error:  %v", err)
+			log.Errorf("Redis DB error:  %v", err)
 			return
 		}
-
-		opts := redisopts.New(redis.Options{
-			Network:     "tcp",
-			Addr:        addr,
-			Password:    "", // no password set,
-			DB:          dbId,
-			DialTimeout: 0,
-		})
+		opts, err := localredis.Options(addr, dbID)
+		if err != nil {
+			log.Errorf("Redis endpoint error:  %v", err)
+			return
+		}
 		rclient = redis.NewClient(opts)
 
 		// Init current values for cumulative keys and clear for absolute
