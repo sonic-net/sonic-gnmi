@@ -8,31 +8,30 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/redis/go-redis/v9"
-	"github.com/sonic-net/sonic-gnmi/localredis"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
 
-func TestNewDbJournalReturnsOptionsError(t *testing.T) {
-	wantErr := errors.New("local Redis options failed")
+func TestNewDbJournalReturnsSocketLookupError(t *testing.T) {
+	wantErr := errors.New("local Redis socket lookup failed")
 	calls := 0
-	patches := gomonkey.ApplyFunc(localredis.Options, func(dbName, namespace string) (*redis.Options, error) {
+	patches := gomonkey.ApplyFunc(sdcfg.GetDbSock, func(dbName, namespace string) (string, error) {
 		calls++
 		if dbName != "CONFIG_DB" {
-			t.Errorf("Options database = %q, want CONFIG_DB", dbName)
+			t.Errorf("GetDbSock database = %q, want CONFIG_DB", dbName)
 		}
-		return nil, wantErr
+		return "", wantErr
 	})
 	defer patches.Reset()
 
 	journal, err := NewDbJournal("CONFIG_DB")
 	if journal != nil {
-		t.Fatal("NewDbJournal returned a journal after Options failed")
+		t.Fatal("NewDbJournal returned a journal after socket lookup failed")
 	}
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("NewDbJournal error = %v, want %v", err, wantErr)
 	}
 	if calls != 1 {
-		t.Fatalf("Options called %d times, want 1", calls)
+		t.Fatalf("GetDbSock called %d times, want 1", calls)
 	}
 }
 

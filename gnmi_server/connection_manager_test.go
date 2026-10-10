@@ -5,19 +5,18 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/redis/go-redis/v9"
-	"github.com/sonic-net/sonic-gnmi/localredis"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
 
-func TestPrepareRedisReturnsWhenOptionsFail(t *testing.T) {
-	wantErr := errors.New("local Redis options failed")
+func TestPrepareRedisReturnsWhenSocketLookupFails(t *testing.T) {
+	wantErr := errors.New("local Redis socket lookup failed")
 	calls := 0
-	patches := gomonkey.ApplyFunc(localredis.Options, func(dbName, namespace string) (*redis.Options, error) {
+	patches := gomonkey.ApplyFunc(sdcfg.GetDbSock, func(dbName, namespace string) (string, error) {
 		calls++
 		if dbName != "STATE_DB" {
-			t.Errorf("Options database = %q, want STATE_DB", dbName)
+			t.Errorf("GetDbSock database = %q, want STATE_DB", dbName)
 		}
-		return nil, wantErr
+		return "", wantErr
 	})
 	defer patches.Reset()
 
@@ -30,9 +29,9 @@ func TestPrepareRedisReturnsWhenOptionsFail(t *testing.T) {
 	(&ConnectionManager{}).PrepareRedis()
 
 	if calls != 1 {
-		t.Fatalf("Options called %d times, want 1", calls)
+		t.Fatalf("GetDbSock called %d times, want 1", calls)
 	}
 	if rclient != nil {
-		t.Fatal("PrepareRedis created a client after Options failed")
+		t.Fatal("PrepareRedis created a client after socket lookup failed")
 	}
 }

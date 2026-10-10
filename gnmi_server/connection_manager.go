@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sonic-net/sonic-gnmi/localredis"
+	"github.com/sonic-net/sonic-gnmi/internal/localredis"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	log "github.com/golang/glog"
@@ -32,7 +32,17 @@ func (cm *ConnectionManager) GetThreshold() int {
 
 func (cm *ConnectionManager) PrepareRedis() {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
-	opts, err := localredis.Options("STATE_DB", ns)
+	addr, err := sdcfg.GetDbSock("STATE_DB", ns)
+	if err != nil {
+		log.Errorf("Redis socket err: %v", err)
+		return
+	}
+	dbID, err := sdcfg.GetDbId("STATE_DB", ns)
+	if err != nil {
+		log.Errorf("Redis DB err: %v", err)
+		return
+	}
+	opts, err := localredis.Options(addr, dbID)
 	if err != nil {
 		log.Errorf("Redis endpoint err: %v", err)
 		return

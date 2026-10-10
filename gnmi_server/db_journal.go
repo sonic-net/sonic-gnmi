@@ -15,7 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/Azure/sonic-mgmt-common/translib/db"
-	"github.com/sonic-net/sonic-gnmi/localredis"
+	"github.com/sonic-net/sonic-gnmi/internal/localredis"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
 
@@ -57,7 +57,15 @@ func NewDbJournal(database string) (*DbJournal, error) {
 	}
 
 	ns, _ := sdcfg.GetDbDefaultNamespace()
-	opts, err := localredis.Options(journal.database, ns)
+	addr, err := sdcfg.GetDbSock(journal.database, ns)
+	if err != nil {
+		return nil, err
+	}
+	dbID, err := sdcfg.GetDbId(journal.database, ns)
+	if err != nil {
+		return nil, err
+	}
+	opts, err := localredis.Options(addr, dbID)
 	if err != nil {
 		return nil, err
 	}

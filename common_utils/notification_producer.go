@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/sonic-net/sonic-gnmi/localredis"
+	"github.com/sonic-net/sonic-gnmi/internal/localredis"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	log "github.com/golang/glog"
@@ -18,7 +18,17 @@ const (
 
 func GetRedisDBClient() (*redis.Client, error) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
-	opts, err := localredis.Options(dbName, ns)
+	addr, err := sdcfg.GetDbSock(dbName, ns)
+	if err != nil {
+		log.Errorf("Redis socket err: %v", err)
+		return nil, err
+	}
+	dbID, err := sdcfg.GetDbId(dbName, ns)
+	if err != nil {
+		log.Errorf("Redis DB err: %v", err)
+		return nil, err
+	}
+	opts, err := localredis.Options(addr, dbID)
 	if err != nil {
 		log.Errorf("Redis endpoint err: %v", err)
 		return nil, err
