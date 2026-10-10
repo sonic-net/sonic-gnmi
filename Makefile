@@ -298,7 +298,7 @@ endif
 
 # Integration test packages - basic ones (no special environment needed)
 INTEGRATION_BASIC_PKGS := \
-	github.com/sonic-net/sonic-gnmi/localredis \
+	github.com/sonic-net/sonic-gnmi/internal/localredis \
 	github.com/sonic-net/sonic-gnmi/sonic_db_config \
 	github.com/sonic-net/sonic-gnmi/sonic_service_client \
 	github.com/sonic-net/sonic-gnmi/telemetry \

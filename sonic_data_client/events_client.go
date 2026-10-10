@@ -21,7 +21,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/sonic-net/sonic-gnmi/localredis"
+	"github.com/sonic-net/sonic-gnmi/internal/localredis"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 

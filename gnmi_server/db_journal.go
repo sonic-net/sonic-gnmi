@@ -15,7 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/Azure/sonic-mgmt-common/translib/db"
-	"github.com/sonic-net/sonic-gnmi/localredis"
+	"github.com/sonic-net/sonic-gnmi/internal/localredis"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
 

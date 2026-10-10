@@ -6,7 +6,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/redis/go-redis/v9"
-	"github.com/sonic-net/sonic-gnmi/localredis"
+	"github.com/sonic-net/sonic-gnmi/internal/localredis"
 )
 
 func TestPrepareRedisReturnsWhenOptionsFail(t *testing.T) {
