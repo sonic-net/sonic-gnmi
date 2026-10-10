@@ -8,30 +8,44 @@ import (
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
 
-func TestPrepareRedisReturnsWhenSocketLookupFails(t *testing.T) {
-	wantErr := errors.New("local Redis socket lookup failed")
-	calls := 0
-	patches := gomonkey.ApplyFunc(sdcfg.GetDbSock, func(dbName, namespace string) (string, error) {
-		calls++
-		if dbName != "STATE_DB" {
-			t.Errorf("GetDbSock database = %q, want STATE_DB", dbName)
-		}
-		return "", wantErr
-	})
-	defer patches.Reset()
-
-	previousClient := rclient
-	rclient = nil
-	defer func() {
-		rclient = previousClient
-	}()
-
-	(&ConnectionManager{}).PrepareRedis()
-
-	if calls != 1 {
-		t.Fatalf("GetDbSock called %d times, want 1", calls)
+func TestPrepareRedisReturnsWhenOptionsAreUnavailable(t *testing.T) {
+	tests := []struct {
+		name      string
+		socket    string
+		socketErr error
+		dbID      int
+		dbErr     error
+	}{
+		{name: "SocketLookupError", socketErr: errors.New("local Redis socket lookup failed")},
+		{name: "DbLookupError", socket: "/var/run/redis/redis.sock", dbErr: errors.New("local Redis DB lookup failed")},
+		{name: "EmptySocket", dbID: 6},
 	}
-	if rclient != nil {
-		t.Fatal("PrepareRedis created a client after socket lookup failed")
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			patches := gomonkey.NewPatches()
+			patches.ApplyFunc(sdcfg.GetDbSock, func(dbName, namespace string) (string, error) {
+				if dbName != "STATE_DB" {
+					t.Errorf("GetDbSock database = %q, want STATE_DB", dbName)
+				}
+				return test.socket, test.socketErr
+			})
+			patches.ApplyFunc(sdcfg.GetDbId, func(dbName, namespace string) (int, error) {
+				return test.dbID, test.dbErr
+			})
+			defer patches.Reset()
+
+			previousClient := rclient
+			rclient = nil
+			defer func() {
+				rclient = previousClient
+			}()
+
+			(&ConnectionManager{}).PrepareRedis()
+
+			if rclient != nil {
+				t.Fatal("PrepareRedis created a client without valid Redis options")
+			}
+		})
 	}
 }
