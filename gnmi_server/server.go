@@ -36,6 +36,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_containerz_pb "github.com/openconfig/gnoi/containerz"
+	gnoi_debug_pb "github.com/openconfig/gnoi/debug"
 	"github.com/openconfig/gnoi/factory_reset"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"google.golang.org/grpc/credentials"
@@ -47,7 +48,6 @@ import (
 	gnsi_certz_pb "github.com/openconfig/gnsi/certz"
 	gnsi_credentialz_pb "github.com/openconfig/gnsi/credentialz"
 	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
-	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 	gnoi_oras_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/oras"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"google.golang.org/grpc"
@@ -199,8 +199,7 @@ type ContainerzServer struct {
 // DebugServer is the server API for Debug service.
 type DebugServer struct {
 	*Server
-	readWhitelist  []string
-	writeWhitelist []string
+	policy *gnoi_debug.Policy
 	gnoi_debug_pb.UnimplementedDebugServer
 }
 
@@ -357,10 +356,11 @@ func (i AuthTypes) Unset(mode string) error {
 	return nil
 }
 
-// registerAllServices registers all gNMI and gNOI services on the given gRPC server.
-func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
+// registerSharedServices registers services exposed on both TCP and UDS.
+// gNOI Debug is registered separately on UDS only.
+func registerSharedServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 	osSrv *OSServer, containerzSrv *ContainerzServer,
-	debugSrv *DebugServer, healthzSrv *HealthzServer, orasSrv *OrasServer, certzSrv *GNSICertzServer, authzSrv *GNSIAuthzServer, pathzSrv *GNSIPathzServer, credentialzSrv *GNSICredentialzServer) {
+	healthzSrv *HealthzServer, orasSrv *OrasServer, certzSrv *GNSICertzServer, authzSrv *GNSIAuthzServer, pathzSrv *GNSIPathzServer, credentialzSrv *GNSICredentialzServer) {
 	gnmipb.RegisterGNMIServer(s, srv)
 	factory_reset.RegisterFactoryResetServer(s, srv)
 	gnsi_certz_pb.RegisterCertzServer(s, certzSrv)
@@ -373,7 +373,6 @@ func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 		gnoi_file_pb.RegisterFileServer(s, fileSrv)
 		gnoi_os_pb.RegisterOSServer(s, osSrv)
 		gnoi_containerz_pb.RegisterContainerzServer(s, containerzSrv)
-		gnoi_debug_pb.RegisterDebugServer(s, debugSrv)
 		gnoi_healthz_pb.RegisterHealthzServer(s, healthzSrv)
 	}
 	// ORAS Pull writes only into an allowlisted staging area inside the
@@ -603,11 +602,17 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	srv.gnsiAuthz = authzSrv
 	pathzSrv := NewGNSIPathzServer(srv)
 	srv.gnsiPathz = pathzSrv
-	readWhitelist, writeWhitelist := gnoi_debug.ConstructWhitelists()
-	debugSrv := &DebugServer{
-		Server:         srv,
-		readWhitelist:  readWhitelist,
-		writeWhitelist: writeWhitelist,
+	var debugSrv *DebugServer
+	if config.UnixSocket != "" {
+		debugPolicy, policyErr := gnoi_debug.LoadPolicy(gnoi_debug.PolicyFilePath)
+		if policyErr != nil {
+			log.Errorf("gNOI Debug policy unavailable: %v", policyErr)
+			debugPolicy = gnoi_debug.NewUnavailablePolicy(policyErr)
+		}
+		debugSrv = &DebugServer{
+			Server: srv,
+			policy: debugPolicy,
+		}
 	}
 	certzSrv := NewGNSICertzServer(srv)
 	srv.gnsiCertz = certzSrv
@@ -636,7 +641,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			srv.s = nil
 		} else {
 			srv.config.Port = int64(srv.lis.Addr().(*net.TCPAddr).Port)
-			registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
+			registerSharedServices(srv.s, srv, fileSrv, osSrv, containerzSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
 		}
 	}
 
@@ -670,7 +675,10 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 					srv.udsServer.Stop()
 					srv.udsServer = nil
 				} else {
-					registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
+					registerSharedServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
+					if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
+						gnoi_debug_pb.RegisterDebugServer(srv.udsServer, debugSrv)
+					}
 				}
 			}
 		}
@@ -811,37 +819,40 @@ func (srv *Server) Auth(ctx context.Context) (context.Context, error) {
 //   - no role for this target and writeAccess==false -> allow (backwards
 //     compatible with pre-role deployments that only granted authentication)
 func checkRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
-	target = strings.ToLower(target)
-	match := false
-	for _, role := range auth.Roles {
-		role = strings.TrimSpace(role)
-		if !strings.HasPrefix(role, target) {
-			continue
-		}
-		// Extract the postfix from the role
-		// e.g. role=gnmi_config_db_readwrite
-		// e.g. role=gnoi_readonly
-		postfix := strings.TrimPrefix(role, target)
-		postfix = strings.TrimPrefix(postfix, "_")
-		switch postfix {
-		case NoAccessMode:
-			return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, role)
-		case ReadOnlyMode:
-			if writeAccess {
-				return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, role)
-			}
-			match = true
-		case WriteAccessMode:
-			match = true
-		}
-		if match {
-			break
-		}
+	access := resolveTargetRoleAccess(auth, target)
+	if access.noAccess {
+		return fmt.Errorf("%s does not have access, target %s", auth.User, target)
 	}
-	if !match && writeAccess {
+	if writeAccess && !access.readWrite {
 		return fmt.Errorf("%s does not have write access, target %s", auth.User, target)
 	}
 	return nil
+}
+
+type targetRoleAccess struct {
+	noAccess  bool
+	readOnly  bool
+	readWrite bool
+}
+
+func resolveTargetRoleAccess(auth *common_utils.AuthInfo, target string) targetRoleAccess {
+	var access targetRoleAccess
+	if auth == nil {
+		return access
+	}
+
+	prefix := strings.ToLower(target) + "_"
+	for _, role := range auth.Roles {
+		switch strings.TrimSpace(role) {
+		case prefix + NoAccessMode:
+			access.noAccess = true
+		case prefix + ReadOnlyMode:
+			access.readOnly = true
+		case prefix + WriteAccessMode:
+			access.readWrite = true
+		}
+	}
+	return access
 }
 
 func authenticate(config *Config, ctx context.Context, target string, writeAccess bool) (context.Context, error) {

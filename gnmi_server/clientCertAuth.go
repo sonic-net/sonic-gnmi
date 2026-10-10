@@ -133,6 +133,7 @@ func ClientCertAuthenAndAuthor(ctx context.Context, serviceConfigTableName strin
 	if len(username) == 0 {
 		return ctx, status.Error(codes.Unauthenticated, "invalid username in certificate common name.")
 	}
+	rc.Auth.User = username
 
 	if serviceConfigTableName != "" {
 		if err := PopulateAuthStructByCommonName(username, &rc.Auth, serviceConfigTableName); err != nil {
