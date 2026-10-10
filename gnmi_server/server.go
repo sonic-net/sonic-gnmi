@@ -545,10 +545,25 @@ func createVrfListener(vrf string, port int64) (net.Listener, error) {
 	return listener, nil
 }
 
+// ValidateNoTLSConfig ensures cleartext TCP listeners remain local-only.
+func ValidateNoTLSConfig(bindAddress, gnmiVrf string) error {
+	ip := net.ParseIP(bindAddress)
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf(
+			"--noTLS requires --bind_address to be a loopback address (e.g. 127.0.0.1 or ::1) " +
+				"to prevent cleartext gRPC exposure over the network")
+	}
+	if gnmiVrf != "" && gnmiVrf != "default" {
+		return fmt.Errorf("--noTLS cannot be used with non-default --gnmi_vrf %q; configure TLS for network-reachable VRF listeners", gnmiVrf)
+	}
+	return nil
+}
+
 // tlsOpts contains TLS credentials and is used only for the TCP listener.
 // commonOpts contains interceptors, keepalive params, etc. and is used for both listeners.
 //
-// When config.Port > 0, a TCP listener is created with TLS.
+// When TCP is enabled without TLS credentials, the listener is restricted to
+// loopback in the default VRF.
 // When config.UnixSocket is set, an additional UDS listener is created without TLS.
 func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*Server, error) {
 	if config == nil {
@@ -557,6 +572,12 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	var providers []certprovider.Provider
 	if err := common_utils.ValidateSharedMemoryKey(); err != nil {
 		return nil, fmt.Errorf("invalid shared-memory configuration: %w", err)
+	}
+	tcpEnabled := config.Port > 0 || (config.Port == 0 && config.UnixSocket == "")
+	if tcpEnabled && len(tlsOpts) == 0 {
+		if err := ValidateNoTLSConfig(config.BindAddress, config.GnmiVrf); err != nil {
+			return nil, err
+		}
 	}
 	common_utils.InitCounters()
 
@@ -618,7 +639,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	var err error
 
 	// TCP Server: Enable if Port > 0, or Port == 0 when UnixSocket is not set
-	if config.Port > 0 || (config.Port == 0 && config.UnixSocket == "") {
+	if tcpEnabled {
 		tcpOpts := append(tlsOpts, commonOpts...)
 		srv.s = grpc.NewServer(tcpOpts...)
 		reflection.Register(srv.s)
@@ -627,8 +648,8 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		if config.GnmiVrf != "" && config.GnmiVrf != "default" {
 			srv.lis, err = createVrfListener(config.GnmiVrf, config.Port)
 		} else {
-			bindAddr := config.BindAddress
-			srv.lis, err = net.Listen("tcp", fmt.Sprintf("%s:%d", bindAddr, config.Port))
+			listenAddress := net.JoinHostPort(config.BindAddress, fmt.Sprintf("%d", config.Port))
+			srv.lis, err = net.Listen("tcp", listenAddress)
 		}
 		if err != nil {
 			log.Warningf("Failed to open listener port %d: %v; disabling TCP listener", config.Port, err)
