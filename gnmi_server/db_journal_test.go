@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/redis/go-redis/v9"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
 
