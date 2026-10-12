@@ -863,19 +863,26 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	}
 
 	rc.Auth.AuthEnabled = true
+	clearAuthIdentity := func() {
+		rc.Auth.User = ""
+		rc.Auth.Roles = nil
+	}
 	if config.UserAuth.Enabled("password") {
+		clearAuthIdentity()
 		ctx, err = BasicAuthenAndAuthor(ctx)
 		if err == nil {
 			success = true
 		}
 	}
 	if !success && config.UserAuth.Enabled("jwt") {
+		clearAuthIdentity()
 		_, ctx, err = JwtAuthenAndAuthor(ctx)
 		if err == nil {
 			success = true
 		}
 	}
 	if !success && config.UserAuth.Enabled("cert") {
+		clearAuthIdentity()
 		ctx, err = ClientCertAuthenAndAuthor(ctx, config.ConfigTableName, config.EnableCrl)
 		if err == nil {
 			success = true
@@ -892,14 +899,8 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	// succeeded. Historically this check was nested inside the cert branch,
 	// which allowed password- and JWT-authenticated callers to bypass the
 	// readonly/readwrite gate for gNOI RPCs.
-	//
-	// Guarded by ConfigTableName to preserve existing behavior for
-	// deployments that do not configure a role source (e.g. TACACS-only
-	// setups or upgrade paths where GNMI_CLIENT_CERT is empty).
-	if config.ConfigTableName != "" {
-		if err := checkRoleAccess(&rc.Auth, target, writeAccess); err != nil {
-			return ctx, err
-		}
+	if err := checkRoleAccess(&rc.Auth, target, writeAccess); err != nil {
+		return ctx, err
 	}
 
 	log.V(5).Infof("authenticate user %v, roles %v", rc.Auth.User, rc.Auth.Roles)
