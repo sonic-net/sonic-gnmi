@@ -2,7 +2,7 @@ package common_utils
 
 import "testing"
 
-func TestRetiredFileServiceCounterSlotsRemainStable(t *testing.T) {
+func TestRetiredCounterSlotsRemainStable(t *testing.T) {
 	tests := []struct {
 		counter CounterType
 		ordinal int
@@ -12,6 +12,10 @@ func TestRetiredFileServiceCounterSlotsRemainStable(t *testing.T) {
 		{DBUS_FILE_DOWNLOAD, 24, "DBUS file download"},
 		{DBUS_FILE_REMOVE, 25, "DBUS file remove"},
 		{DBUS_IMAGE_DOWNLOAD, 26, "DBUS image download"},
+		{DBUS_IMAGE_INSTALL, 27, "DBUS image install"},
+		{DBUS_IMAGE_LIST, 28, "DBUS image list"},
+		{DBUS_IMAGE_ACTIVATE, 29, "DBUS image activate"},
+		{DBUS_DOCKER_LOAD, 30, "DBUS docker load"},
 		{DBUS_CONFIG_REPLACE, 31, "DBUS config replace"},
 	}
 
