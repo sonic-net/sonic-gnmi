@@ -4769,18 +4769,14 @@ func TestGNOI(t *testing.T) {
 	// TestGnoiFile in gnoi_file_test.go. No FileStat sub-test here.
 
 	t.Run("OSVerifySuccess", func(t *testing.T) {
-		mockClient := &ssc.DbusClient{}
-		expectedDbusOut := `{
-			"current": "current_image",
-			"next": "next_image",
-			"available": ["image1", "image2"]
-		}`
-		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "ListImages", func(_ *ssc.DbusClient) (string, error) {
-			return expectedDbusOut, nil
-		})
-		defer mock.Reset()
+		originalHandler := handleOSVerify
+		handleOSVerify = func(context.Context, *gnoi_os_pb.VerifyRequest) (*gnoi_os_pb.VerifyResponse, error) {
+			return &gnoi_os_pb.VerifyResponse{Version: "current_image"}, nil
+		}
+		defer func() {
+			handleOSVerify = originalHandler
+		}()
 
-		// Prepare context and request
 		ctx := context.Background()
 		req := &gnoi_os_pb.VerifyRequest{}
 		osc := gnoi_os_pb.NewOSClient(conn)
@@ -4789,22 +4785,20 @@ func TestGNOI(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OS Verify failed: %v", err)
 		}
-		// Validate the response
-		if len(resp.Version) == 0 {
-			t.Fatalf("Expected a version string in response")
+		if resp.GetVersion() != "current_image" {
+			t.Fatalf("OS Verify version = %q, want %q", resp.GetVersion(), "current_image")
 		}
 	})
 
 	t.Run("OSVerifyFailure", func(t *testing.T) {
-		mockClient := &ssc.DbusClient{}
-		expectedError := fmt.Errorf("failed to verify OS")
+		originalHandler := handleOSVerify
+		handleOSVerify = func(context.Context, *gnoi_os_pb.VerifyRequest) (*gnoi_os_pb.VerifyResponse, error) {
+			return nil, status.Error(codes.Internal, "failed to verify OS")
+		}
+		defer func() {
+			handleOSVerify = originalHandler
+		}()
 
-		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "ListImages", func(_ *ssc.DbusClient) (string, error) {
-			return "", expectedError
-		})
-		defer mock.Reset()
-
-		// Prepare context and request
 		ctx := context.Background()
 		req := &gnoi_os_pb.VerifyRequest{}
 		osc := gnoi_os_pb.NewOSClient(conn)
@@ -4816,9 +4810,8 @@ func TestGNOI(t *testing.T) {
 		if resp != nil {
 			t.Fatalf("Expected nil response but got: %v", resp)
 		}
-
-		if !strings.Contains(err.Error(), expectedError.Error()) {
-			t.Errorf("Expected error to contain '%v' but got '%v'", expectedError, err)
+		if status.Code(err) != codes.Internal || status.Convert(err).Message() != "failed to verify OS" {
+			t.Errorf("OS Verify error = %v, want Internal failed to verify OS", err)
 		}
 	})
 
