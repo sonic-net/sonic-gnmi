@@ -85,6 +85,9 @@ var (
 	// Mutex to protect ClearMappings from racing with init functions
 	clearMappingsMu sync.RWMutex
 
+	// Per-namespace buffer pool name to oid (COUNTERS_BUFFER_POOL_NAME_MAP in COUNTERS_DB)
+	countersBufferPoolNameByNamespace map[string]map[string]string
+
 	// path2TFuncTbl is used to populate trie tree which is reponsible
 	// for virtual path to real data path translation
 	pathTransFuncTbl = []pathTransFunc{
@@ -135,6 +138,12 @@ var (
 		}, { // specific field stats for PORT_PHY_ATTR for one or all Ethernet ports (no alias translation)
 			path:      []string{"COUNTERS_DB", "PORT_PHY_ATTR", "Ethernet*", "*"},
 			transFunc: v2rTranslate(v2rPortPhyAttrFieldStats),
+		}, { // Buffer pool watermarks - bare path returns all pools
+			path:      []string{"COUNTERS_DB", "BUFFER_POOL_WATERMARKS"},
+			transFunc: v2rTranslate(v2rBufferPoolWatermarks),
+		}, { // Buffer pool watermarks - specific pool or wildcard
+			path:      []string{"COUNTERS_DB", "BUFFER_POOL_WATERMARKS", "*"},
+			transFunc: v2rTranslate(v2rBufferPoolWatermarks),
 		},
 	}
 )
@@ -184,6 +193,7 @@ func initCountersPGNameMap() error {
 			initErr = err
 			return
 		}
+		local := make(map[string]map[string]string)
 		for pg, oid := range pgOidMap {
 			// pg is in format of "Ethernet64:7"
 			pg_parts := strings.Split(pg, ":")
@@ -191,11 +201,12 @@ func initCountersPGNameMap() error {
 				initErr = fmt.Errorf("invalid pg name %v", pg)
 				return
 			}
-			if _, ok := countersPGNameMap[pg_parts[0]]; !ok {
-				countersPGNameMap[pg_parts[0]] = make(map[string]string)
+			if _, ok := local[pg_parts[0]]; !ok {
+				local[pg_parts[0]] = make(map[string]string)
 			}
-			countersPGNameMap[pg_parts[0]][pg_parts[1]] = oid
+			local[pg_parts[0]][pg_parts[1]] = oid
 		}
+		countersPGNameMap = local
 	})
 	return initErr
 }
@@ -368,6 +379,47 @@ func initDebugNameSwitchStatMap() error {
 		}
 	}
 	return nil
+}
+
+func initCountersBufferPoolNameMap() error {
+	clearMappingsMu.Lock()
+	defer clearMappingsMu.Unlock()
+
+	dbName := "COUNTERS_DB"
+	redis_client_map, err := GetRedisClientsForDb(dbName)
+	if err != nil {
+		return err
+	}
+	local := make(map[string]map[string]string)
+	for namespace, redisDb := range redis_client_map {
+		_, err := redisDb.Ping(context.Background()).Result()
+		if err != nil {
+			log.V(1).Infof("Can not connect to %v in namespace %v, err: %v", dbName, namespace, err)
+			return err
+		}
+		fv, err := redisDb.HGetAll(context.Background(), "COUNTERS_BUFFER_POOL_NAME_MAP").Result()
+		if err != nil {
+			log.V(2).Infof("redis HGetAll failed for COUNTERS_DB in namespace %v, table COUNTERS_BUFFER_POOL_NAME_MAP: %v", namespace, err)
+			return err
+		}
+		if len(fv) == 0 {
+			continue
+		}
+		poolMap := make(map[string]string, len(fv))
+		for k, v := range fv {
+			poolMap[k] = v
+		}
+		local[namespace] = poolMap
+	}
+	countersBufferPoolNameByNamespace = local
+	return nil
+}
+
+func bufferPoolJSONKey(namespace, poolName string) string {
+	if namespace == "" {
+		return poolName
+	}
+	return poolName + "-" + namespace
 }
 
 // Get the mapping between sonic interface name and oids of their PFC-WD enabled queues in COUNTERS_DB
@@ -1331,6 +1383,7 @@ func ClearMappings() {
 	initAliasMapOnce = sync.Once{}
 	initCountersPfcwdNameMapOnce = sync.Once{}
 	initCountersFabricPortNameMapOnce = sync.Once{}
+	countersBufferPoolNameByNamespace = nil
 }
 
 func InitCountersPortNameMap() error       { return initCountersPortNameMap() }
@@ -1512,6 +1565,57 @@ func v2rSystemPortVoQStats(paths []string) ([]tablePath, error) {
 		}
 	}
 	log.V(6).Infof("v2rSystemPortVoQStats: %v", tblPaths)
+	return tblPaths, nil
+}
+
+// v2rBufferPoolWatermarks resolves /BUFFER_POOL_WATERMARKS[/*|/<pool>]
+// to COUNTERS:<oid> rows via COUNTERS_BUFFER_POOL_NAME_MAP.
+// Bare and wildcard forms return all pools keyed by pool name.
+func v2rBufferPoolWatermarks(paths []string) ([]tablePath, error) {
+	if err := initCountersBufferPoolNameMap(); err != nil {
+		return nil, err
+	}
+	var tblPaths []tablePath
+	allPools := uint(len(paths)) <= KeyIdx || paths[KeyIdx] == "*"
+	if allPools {
+		for ns, pools := range countersBufferPoolNameByNamespace {
+			separator, _ := GetTableKeySeparator(paths[DbIdx], ns)
+			for poolName, oid := range pools {
+				tblPaths = append(tblPaths, tablePath{
+					dbNamespace:  ns,
+					dbName:       paths[DbIdx],
+					tableName:    "COUNTERS",
+					tableKey:     oid,
+					delimitor:    separator,
+					jsonTableKey: bufferPoolJSONKey(ns, poolName),
+				})
+			}
+		}
+		if len(tblPaths) == 0 {
+			return nil, fmt.Errorf("no buffer pools in COUNTERS_BUFFER_POOL_NAME_MAP")
+		}
+	} else {
+		key := paths[KeyIdx]
+		for ns, pools := range countersBufferPoolNameByNamespace {
+			oid, ok := pools[key]
+			if !ok {
+				continue
+			}
+			separator, _ := GetTableKeySeparator(paths[DbIdx], ns)
+			tblPaths = append(tblPaths, tablePath{
+				dbNamespace:  ns,
+				dbName:       paths[DbIdx],
+				tableName:    "COUNTERS",
+				tableKey:     oid,
+				delimitor:    separator,
+				jsonTableKey: bufferPoolJSONKey(ns, key),
+			})
+		}
+		if len(tblPaths) == 0 {
+			return nil, fmt.Errorf("%v not found in COUNTERS_BUFFER_POOL_NAME_MAP", key)
+		}
+	}
+	log.V(6).Infof("v2rBufferPoolWatermarks: %v", tblPaths)
 	return tblPaths, nil
 }
 
