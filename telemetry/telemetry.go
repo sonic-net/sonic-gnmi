@@ -21,6 +21,7 @@ import (
 
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
+	"github.com/sonic-net/sonic-gnmi/pkg/dpuephemeraltls"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
 	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
@@ -53,6 +54,7 @@ type TelemetryConfig struct {
 	ZmqAddress               *string
 	ZmqPort                  *string
 	Insecure                 *bool
+	DPUEphemeralTLS          *bool
 	NoTLS                    *bool
 	AllowNoClientCert        *bool
 	JwtRefInt                *uint64
@@ -193,6 +195,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		ZmqAddress:               fs.String("zmq_address", "", "Orchagent ZMQ address, deprecated, please use zmq_port."),
 		ZmqPort:                  fs.String("zmq_port", "", "Orchagent ZMQ port, when not set or empty string telemetry server will switch to Redis based communication channel."),
 		Insecure:                 fs.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!"),
+		DPUEphemeralTLS:          fs.Bool("dpu_ephemeral_tls", false, "Generate a self-signed TLS certificate for DPU host communication"),
 		NoTLS:                    fs.Bool("noTLS", false, "disable TLS, for testing only!"),
 		AllowNoClientCert:        fs.Bool("allow_no_client_auth", false, "When set, a client certificate is optional, but a certificate provided by the client must be valid."),
 		JwtRefInt:                fs.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed."),
@@ -275,7 +278,17 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		}
 	}
 
-	if !*telemetryCfg.NoTLS && !*telemetryCfg.Insecure {
+	if *telemetryCfg.NoTLS && *telemetryCfg.DPUEphemeralTLS {
+		return nil, nil, fmt.Errorf("dpu_ephemeral_tls cannot be combined with noTLS")
+	}
+	if *telemetryCfg.Insecure && *telemetryCfg.DPUEphemeralTLS {
+		return nil, nil, fmt.Errorf("dpu_ephemeral_tls cannot be combined with insecure")
+	}
+	if *telemetryCfg.DPUEphemeralTLS && (*telemetryCfg.ServerCert != "" || *telemetryCfg.ServerKey != "") {
+		return nil, nil, fmt.Errorf("dpu_ephemeral_tls cannot be combined with server_crt or server_key")
+	}
+
+	if !*telemetryCfg.NoTLS && !*telemetryCfg.Insecure && !*telemetryCfg.DPUEphemeralTLS {
 		switch {
 		case *telemetryCfg.ServerCert == "":
 			return nil, nil, fmt.Errorf("serverCert must be set.")
@@ -339,7 +352,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	if cfg.CertzMetaFile == "" {
 		cfg.CertzMetaFile = "/keys/grpc-version.json"
 	}
-	if !*telemetryCfg.Insecure {
+	if !*telemetryCfg.Insecure && !*telemetryCfg.DPUEphemeralTLS {
 		cfg.GetOptions = gnmi.SrvAdvConfig
 	}
 	if *telemetryCfg.CaCert == "" && telemetryCfg.UserAuth.Enabled("cert") {
@@ -483,7 +496,12 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 		if !*telemetryCfg.NoTLS {
 			var certificate tls.Certificate
 			var err error
-			if *telemetryCfg.Insecure {
+			if *telemetryCfg.DPUEphemeralTLS {
+				certificate, err = dpuephemeraltls.New(time.Now())
+				if err != nil {
+					log.Exitf("could not generate DPU ephemeral certificate: %s", err)
+				}
+			} else if *telemetryCfg.Insecure {
 				certificate, err = testcert.NewCert()
 				if err != nil {
 					log.Errorf("could not load server key pair: %s", err)
