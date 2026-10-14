@@ -38,7 +38,7 @@ func TestDPUProxyGetConnectionWithSelfSignedTLS(t *testing.T) {
 		ClientAuth:   tls.RequestClientCert,
 		MinVersion:   tls.VersionTLS12,
 	})))
-	system.RegisterSystemServer(server, testSystemServer{})
+	system.RegisterSystemServer(server, &testSystemServer{})
 	go server.Serve(listener)
 	t.Cleanup(server.Stop)
 

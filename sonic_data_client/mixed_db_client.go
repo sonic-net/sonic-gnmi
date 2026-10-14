@@ -132,7 +132,7 @@ func getDpuAddress(dpuId string) (string, error) {
 	// Find DPU address by DPU ID from CONFIG_DB
 	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
 
-	var configDbConnector = swsscommon.NewConfigDBConnector()
+	var configDbConnector = swsscommon.NewConfigDBConnector(true)
 	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 	configDbConnector.Connect(false)
 

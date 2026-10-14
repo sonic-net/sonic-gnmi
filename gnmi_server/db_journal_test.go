@@ -1,13 +1,60 @@
 package gnmi
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/redis/go-redis/v9"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
+
+func TestNewDbJournalReturnsWhenOptionsAreUnavailable(t *testing.T) {
+	socketErr := errors.New("local Redis socket lookup failed")
+	dbErr := errors.New("local Redis DB lookup failed")
+	tests := []struct {
+		name      string
+		socket    string
+		socketErr error
+		dbID      int
+		dbErr     error
+		wantErr   error
+	}{
+		{name: "SocketLookupError", socketErr: socketErr, wantErr: socketErr},
+		{name: "DbLookupError", socket: "/var/run/redis/redis.sock", dbErr: dbErr, wantErr: dbErr},
+		{name: "EmptySocket", dbID: 4},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			patches := gomonkey.NewPatches()
+			patches.ApplyFunc(sdcfg.GetDbSock, func(dbName, namespace string) (string, error) {
+				if dbName != "CONFIG_DB" {
+					t.Errorf("GetDbSock database = %q, want CONFIG_DB", dbName)
+				}
+				return test.socket, test.socketErr
+			})
+			patches.ApplyFunc(sdcfg.GetDbId, func(dbName, namespace string) (int, error) {
+				return test.dbID, test.dbErr
+			})
+			defer patches.Reset()
+
+			journal, err := NewDbJournal("CONFIG_DB")
+			if journal != nil {
+				t.Fatal("NewDbJournal returned a journal without valid Redis options")
+			}
+			if err == nil {
+				t.Fatal("NewDbJournal succeeded without valid Redis options")
+			}
+			if test.wantErr != nil && !errors.Is(err, test.wantErr) {
+				t.Fatalf("NewDbJournal error = %v, want %v", err, test.wantErr)
+			}
+		})
+	}
+}
 
 func TestNewDbJournal(t *testing.T) {
 	tests := []struct {
