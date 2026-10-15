@@ -301,7 +301,7 @@ func TestGnoiFileServer(t *testing.T) {
 		assert.Equal(t, codes.PermissionDenied, status.Code(err))
 	})
 
-	t.Run("Remove_Fails_With_RemoveFile_Error", func(t *testing.T) {
+	t.Run("Remove_Fails_With_OS_Remove_Error", func(t *testing.T) {
 		patches := gomonkey.NewPatches()
 		defer patches.Reset()
 
