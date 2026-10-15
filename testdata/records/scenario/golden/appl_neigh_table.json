@@ -1,0 +1,73 @@
+[
+  {
+    "ts": "2026-09-27T09:00:00.100000",
+    "source": "swss",
+    "db": "APPL_DB",
+    "table": "NEIGH_TABLE",
+    "key": "Ethernet0:10.0.0.1",
+    "op": "SET",
+    "fields": {
+      "neigh": "00:11:22:33:44:55",
+      "family": "IPv4"
+    },
+    "status": "",
+    "matched_by": "prefix",
+    "raw": "2026-09-27.09:00:00.100000|NEIGH_TABLE:Ethernet0:10.0.0.1|SET|neigh:00:11:22:33:44:55|family:IPv4"
+  },
+  {
+    "ts": "2026-09-27T09:00:00.150000",
+    "source": "sairedis",
+    "db": "ASIC_DB",
+    "table": "SAI_OBJECT_TYPE_NEIGHBOR_ENTRY",
+    "key": "{\"ip\":\"10.0.0.1\",\"rif\":\"oid:0x6000000000a10\",\"switch_id\":\"oid:0x21000000000000\"}",
+    "op": "c",
+    "fields": {
+      "SAI_NEIGHBOR_ENTRY_ATTR_DST_MAC_ADDRESS": "00:11:22:33:44:55",
+      "_entry": "{\"ip\":\"10.0.0.1\",\"rif\":\"oid:0x6000000000a10\",\"switch_id\":\"oid:0x21000000000000\"}"
+    },
+    "status": "",
+    "matched_by": "correlation:NEIGH_TABLE.ip",
+    "raw": "2026-09-27.09:00:00.150000|c|SAI_OBJECT_TYPE_NEIGHBOR_ENTRY:{\"ip\":\"10.0.0.1\",\"rif\":\"oid:0x6000000000a10\",\"switch_id\":\"oid:0x21000000000000\"}|SAI_NEIGHBOR_ENTRY_ATTR_DST_MAC_ADDRESS=00:11:22:33:44:55"
+  },
+  {
+    "ts": "2026-09-27T10:00:02.300000",
+    "source": "swss",
+    "db": "APPL_DB",
+    "table": "NEIGH_TABLE",
+    "key": "Ethernet0:fe80::1",
+    "op": "SET",
+    "fields": {
+      "neigh": "00:aa:bb:cc:dd:ee",
+      "family": "IPv6"
+    },
+    "status": "",
+    "matched_by": "prefix",
+    "raw": "2026-09-27.10:00:02.300000|NEIGH_TABLE:Ethernet0:fe80::1|SET|neigh:00:aa:bb:cc:dd:ee|family:IPv6"
+  },
+  {
+    "ts": "2026-09-27T11:00:01.200000",
+    "source": "swss",
+    "db": "APPL_DB",
+    "table": "NEIGH_TABLE",
+    "key": "Ethernet0:10.0.0.1",
+    "op": "DEL",
+    "fields": {},
+    "status": "",
+    "matched_by": "prefix",
+    "raw": "2026-09-27.11:00:01.200000|NEIGH_TABLE:Ethernet0:10.0.0.1|DEL"
+  },
+  {
+    "ts": "2026-09-27T11:00:01.250000",
+    "source": "sairedis",
+    "db": "ASIC_DB",
+    "table": "SAI_OBJECT_TYPE_NEIGHBOR_ENTRY",
+    "key": "{\"ip\":\"10.0.0.1\",\"rif\":\"oid:0x6000000000a10\",\"switch_id\":\"oid:0x21000000000000\"}",
+    "op": "r",
+    "fields": {
+      "_entry": "{\"ip\":\"10.0.0.1\",\"rif\":\"oid:0x6000000000a10\",\"switch_id\":\"oid:0x21000000000000\"}"
+    },
+    "status": "",
+    "matched_by": "correlation:NEIGH_TABLE.ip",
+    "raw": "2026-09-27.11:00:01.250000|r|SAI_OBJECT_TYPE_NEIGHBOR_ENTRY:{\"ip\":\"10.0.0.1\",\"rif\":\"oid:0x6000000000a10\",\"switch_id\":\"oid:0x21000000000000\"}"
+  }
+]
