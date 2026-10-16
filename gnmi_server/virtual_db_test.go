@@ -19,7 +19,6 @@ func TestVirtualDbSyncOnce(t *testing.T) {
 		{"countersQueueNameMap", sdc.InitCountersQueueNameMap},
 		{"countersPGNameMap", sdc.InitCountersPGNameMap},
 		{"countersFabricPortNameMap", sdc.InitCountersFabricPortNameMap},
-		{"countersSidMap", sdc.InitCountersSidMap},
 		{"countersAclRuleMap", sdc.InitCountersAclRuleMap},
 	}
 
@@ -80,7 +79,6 @@ func TestVirtualDbSyncOnceError(t *testing.T) {
 		{"countersQueueNameMap", sdc.InitCountersQueueNameMap},
 		{"countersPGNameMap", sdc.InitCountersPGNameMap},
 		{"countersFabricPortNameMap", sdc.InitCountersFabricPortNameMap},
-		{"countersSidMap", sdc.InitCountersSidMap},
 		{"countersAclRuleMap", sdc.InitCountersAclRuleMap},
 	}
 
@@ -129,7 +127,6 @@ func TestVirtualDbSyncOnceConcurrent(t *testing.T) {
 		{"countersQueueNameMap", sdc.InitCountersQueueNameMap},
 		{"countersPGNameMap", sdc.InitCountersPGNameMap},
 		{"countersFabricPortNameMap", sdc.InitCountersFabricPortNameMap},
-		{"countersSidMap", sdc.InitCountersSidMap},
 		{"countersAclRuleMap", sdc.InitCountersAclRuleMap},
 	}
 
