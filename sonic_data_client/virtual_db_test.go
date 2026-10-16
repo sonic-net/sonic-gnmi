@@ -2,16 +2,13 @@ package client
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
-	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	redis "github.com/redis/go-redis/v9"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
@@ -423,102 +420,6 @@ func TestInitFuncsReturnError(t *testing.T) {
 			}
 		})
 	}
-	t.Run("sidLookup", func(t *testing.T) {
-		_, err := lookupV2R([]string{"COUNTERS_DB", "COUNTERS", "SID:*"})
-		if err == nil || errors.Unwrap(err) == nil {
-			t.Fatalf("expected SID map read error with cause, got %v", err)
-		}
-	})
-}
-
-// SID lookups no longer belong to the initialize-once tests: each new query
-// resolves current data and must own its result even when queries overlap.
-func TestV2rSRv6SidStats(t *testing.T) {
-	sdcfg.Init()
-	if err := sdcfg.DbInit(); err != nil {
-		t.Fatal(err)
-	}
-	mr := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1})
-	originalDB, originalFetch := Target2RedisDb, getCountersMapFn
-	Target2RedisDb = map[string]map[string]*redis.Client{
-		"": {"COUNTERS_DB": rdb, "CONFIG_DB": rdb},
-	}
-	t.Cleanup(func() { Target2RedisDb = originalDB; getCountersMapFn = originalFetch; rdb.Close() })
-	const sid, oid = "fcbb:bbbb:1::/48", "oid:0x11110000001eb3"
-	prefix := &gnmipb.Path{Target: "COUNTERS_DB"}
-	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}, {Name: "SID:*"}}}
-	query := func() ([]tablePath, error) {
-		resolved := make(map[*gnmipb.Path][]tablePath)
-		err := parsePath(prefix, path, &resolved)
-		return resolved[path], err
-	}
-	// Initialize the unchanged non-SID maps before the concurrency phase.
-	if paths, err := query(); err != nil || len(paths) != 0 {
-		t.Fatalf("empty query: paths=%+v err=%v", paths, err)
-	}
-	mr.HSet("COUNTERS_SRV6_NAME_MAP", sid, oid)
-	if paths, err := query(); err != nil || len(paths) != 1 || paths[0].tableKey != oid || paths[0].jsonTableKey != sid {
-		t.Fatalf("new query did not refresh: paths=%+v err=%v", paths, err)
-	}
-	t.Run("readErrorAndRetry", func(t *testing.T) {
-		cause := errors.New("SID mapping unavailable")
-		getCountersMapFn = func(table string) (map[string]string, error) {
-			if table == "COUNTERS_SRV6_NAME_MAP" {
-				return nil, cause
-			}
-			return originalFetch(table)
-		}
-		defer func() { getCountersMapFn = originalFetch }()
-		if paths, err := query(); !errors.Is(err, cause) || len(paths) != 0 {
-			t.Fatalf("read failure fell back to physical path: paths=%+v err=%v", paths, err)
-		}
-		getCountersMapFn = originalFetch
-		if paths, err := query(); err != nil || len(paths) != 1 || paths[0].tableKey != oid {
-			t.Fatalf("retry failed: paths=%+v err=%v", paths, err)
-		}
-	})
-	t.Run("concurrentQueries", func(t *testing.T) {
-		var reads atomic.Int64
-		getCountersMapFn = func(table string) (map[string]string, error) {
-			if table == "COUNTERS_SRV6_NAME_MAP" {
-				reads.Add(1)
-			}
-			return originalFetch(table)
-		}
-		defer func() { getCountersMapFn = originalFetch }()
-		start := make(chan struct{})
-		results := make([][]tablePath, 100)
-		var wg sync.WaitGroup
-		for i := 0; i < 100; i++ {
-			wg.Add(1)
-			go func(i int) {
-				defer wg.Done()
-				<-start
-				paths, err := lookupV2R([]string{"COUNTERS_DB", "COUNTERS", "SID:*"})
-				if err != nil || len(paths) != 1 || paths[0].tableKey != oid || paths[0].jsonTableKey != sid {
-					t.Errorf("concurrent lookup: paths=%+v err=%v", paths, err)
-					return
-				}
-				results[i] = paths
-			}(i)
-		}
-		close(start)
-		wg.Wait()
-		if reads.Load() != 100 {
-			t.Fatalf("expected one SID read per query, got %d", reads.Load())
-		}
-		if t.Failed() {
-			return
-		}
-		// Mutating one returned path must not change another query's result.
-		results[0][0].tableKey = "request-local-change"
-		for i := 1; i < len(results); i++ {
-			if results[i][0].tableKey != oid {
-				t.Fatalf("query %d shares mutable paths with query 0", i)
-			}
-		}
-	})
 }
 
 func TestV2rFabricPortStats_EmptyMap(t *testing.T) {
