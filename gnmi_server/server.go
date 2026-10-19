@@ -820,19 +820,22 @@ func (srv *Server) Auth(ctx context.Context) (context.Context, error) {
 //     compatible with pre-role deployments that only granted authentication)
 func checkRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
 	access := resolveTargetRoleAccess(auth, target)
-	if access.noAccess {
-		return fmt.Errorf("%s does not have access, target %s", auth.User, target)
+	if access.noAccessRole != "" {
+		return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, access.noAccessRole)
 	}
 	if writeAccess && !access.readWrite {
+		if access.readOnlyRole != "" {
+			return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, access.readOnlyRole)
+		}
 		return fmt.Errorf("%s does not have write access, target %s", auth.User, target)
 	}
 	return nil
 }
 
 type targetRoleAccess struct {
-	noAccess  bool
-	readOnly  bool
-	readWrite bool
+	noAccessRole string
+	readOnlyRole string
+	readWrite    bool
 }
 
 func resolveTargetRoleAccess(auth *common_utils.AuthInfo, target string) targetRoleAccess {
@@ -843,11 +846,12 @@ func resolveTargetRoleAccess(auth *common_utils.AuthInfo, target string) targetR
 
 	prefix := strings.ToLower(target) + "_"
 	for _, role := range auth.Roles {
-		switch strings.TrimSpace(role) {
+		role = strings.TrimSpace(role)
+		switch role {
 		case prefix + NoAccessMode:
-			access.noAccess = true
+			access.noAccessRole = role
 		case prefix + ReadOnlyMode:
-			access.readOnly = true
+			access.readOnlyRole = role
 		case prefix + WriteAccessMode:
 			access.readWrite = true
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"testing"
 
 	debugpb "github.com/openconfig/gnoi/debug"
@@ -78,10 +79,27 @@ func TestCheckRoleAccessNoAccessDominates(t *testing.T) {
 		auth := &common_utils.AuthInfo{User: "operator", Roles: roles}
 		if err := checkRoleAccess(auth, "gnoi", false); err == nil {
 			t.Fatalf("read access allowed for roles %q", roles)
+		} else if !strings.Contains(err.Error(), "gnoi_noaccess") {
+			t.Fatalf("read denial %q does not identify the noaccess role", err)
 		}
 		if err := checkRoleAccess(auth, "gnoi", true); err == nil {
 			t.Fatalf("write access allowed for roles %q", roles)
+		} else if !strings.Contains(err.Error(), "gnoi_noaccess") {
+			t.Fatalf("write denial %q does not identify the noaccess role", err)
 		}
+	}
+}
+
+func TestCheckRoleAccessReadOnlyDenialIncludesRole(t *testing.T) {
+	const role = "gnmi_config_db_readonly"
+	auth := &common_utils.AuthInfo{User: "operator", Roles: []string{role}}
+
+	err := checkRoleAccess(auth, "gnmi_CONFIG_DB", true)
+	if err == nil {
+		t.Fatal("write access allowed for a read-only role")
+	}
+	if !strings.Contains(err.Error(), role) {
+		t.Fatalf("write denial %q does not identify the read-only role", err)
 	}
 }
 
