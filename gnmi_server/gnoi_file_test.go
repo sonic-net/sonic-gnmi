@@ -423,6 +423,8 @@ func TestAuthorizeFileRead(t *testing.T) {
 	}{
 		{name: "missing role", code: codes.PermissionDenied},
 		{name: "unrelated role", roles: []string{"gnmi_readonly"}, code: codes.PermissionDenied},
+		{name: "missing target separator", roles: []string{"gnoireadonly"}, code: codes.PermissionDenied},
+		{name: "unknown target role", roles: []string{"gnoi_other"}, code: codes.PermissionDenied},
 		{name: "explicit deny", roles: []string{"gnoi_noaccess"}, code: codes.PermissionDenied},
 		{name: "explicit deny overrides read", roles: []string{"gnoi_readonly", "gnoi_noaccess"}, code: codes.PermissionDenied},
 		{name: "read role", roles: []string{"gnoi_readonly"}, code: codes.OK},

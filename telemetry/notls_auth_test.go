@@ -25,6 +25,7 @@ import (
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
+	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -140,6 +141,16 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 			patches := gomonkey.ApplyFunc(interceptors.NewServerChain, func() (*interceptors.ServerChain, error) {
 				return &interceptors.ServerChain{}, nil
 			})
+			t.Cleanup(patches.Reset)
+			if mode == "tls-no-ca" {
+				certificate, err := testcert.NewCert()
+				if err != nil {
+					t.Fatal(err)
+				}
+				patches.ApplyFunc(testcert.NewCert, func() (tls.Certificate, error) {
+					return certificate, nil
+				})
+			}
 			db := miniredis.RunT(t)
 			var dbClients []*redis.Client
 			var dbMu sync.Mutex
@@ -180,8 +191,6 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 				}
 				return []string{"gnoi_readonly"}, nil
 			})
-			t.Cleanup(patches.Reset)
-
 			ready := make(chan string, 1)
 			patches.ApplyMethod(reflect.TypeOf(&gnmi.Server{}), "Address", func(*gnmi.Server) string {
 				address := fmt.Sprintf("127.0.0.1:%d", cfg.Port)
