@@ -165,13 +165,10 @@ func TestAuthenticateRoleAccessMixedAuth(t *testing.T) {
 	defer mockJwtAuth.Reset()
 
 	certCalls := 0
-	certStartedClean := false
+	certStartedFresh := false
 	mockCertMapping := gomonkey.ApplyFunc(PopulateAuthStructByCommonName, func(certCommonName string, auth *common_utils.AuthInfo, serviceConfigTableName string) error {
 		certCalls++
-		certStartedClean = auth.User == "" && len(auth.Roles) == 0
-		if !certStartedClean {
-			return nil
-		}
+		certStartedFresh = auth.User == certCommonName && len(auth.Roles) == 0
 		return status.Error(codes.Unauthenticated, "unmapped certificate")
 	})
 	defer mockCertMapping.Reset()
@@ -198,8 +195,8 @@ func TestAuthenticateRoleAccessMixedAuth(t *testing.T) {
 	if !jwtStartedClean {
 		t.Error("JWT authentication inherited identity state from the rejected password attempt")
 	}
-	if !certStartedClean {
-		t.Error("certificate authentication inherited identity state from a rejected fallback attempt")
+	if !certStartedFresh {
+		t.Error("certificate authentication inherited stale identity state from a rejected fallback attempt")
 	}
 }
 
