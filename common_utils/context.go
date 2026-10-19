@@ -67,6 +67,7 @@ const (
 	DBUS_FILE_REMOVE
 	DBUS_IMAGE_DOWNLOAD
 	DBUS_IMAGE_INSTALL
+	// Retain the retired image-list slot to preserve the shared-memory counter ABI.
 	DBUS_IMAGE_LIST
 	DBUS_IMAGE_ACTIVATE
 	DBUS_DOCKER_LOAD

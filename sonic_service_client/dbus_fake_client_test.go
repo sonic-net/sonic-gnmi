@@ -25,9 +25,6 @@ func TestFakeClientMethods(t *testing.T) {
 
 	assert.NoError(t, client.DownloadImage("http://example.com/image", "image.bin"))
 	assert.NoError(t, client.InstallImage("ONIE"))
-	img, err := client.ListImages()
-	assert.NoError(t, err)
-	assert.Equal(t, "image1", img)
 	assert.NoError(t, client.ActivateImage("image1"))
 	assert.NoError(t, client.LoadDockerImage("docker-image"))
 

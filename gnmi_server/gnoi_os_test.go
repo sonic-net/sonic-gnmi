@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/agiledragon/gomonkey/v2"
 	ospb "github.com/openconfig/gnoi/os"
+	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -764,6 +765,146 @@ func newTestOSServer() *OSServer {
 		},
 		backend: &MockOSBackend{InstallOSFunc: mockTransferReadySuccess},
 		ImgDir:  "/tmp",
+	}
+}
+
+func TestOSServerVerifyRejectsBeforeDelegation(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	authErr := status.Error(codes.PermissionDenied, "access denied")
+	patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, target string, write bool) (context.Context, error) {
+		if target != "gnoi" || write {
+			t.Fatalf("authenticate() target = %q, write = %t; want gnoi, false", target, write)
+		}
+		return ctx, authErr
+	})
+
+	dbusCalled := false
+	patches.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+		dbusCalled = true
+		return nil, errors.New("unexpected D-Bus construction")
+	})
+
+	nativeCalled := false
+	originalHandler := handleOSVerify
+	handleOSVerify = func(context.Context, *ospb.VerifyRequest) (*ospb.VerifyResponse, error) {
+		nativeCalled = true
+		return &ospb.VerifyResponse{Version: "unexpected"}, nil
+	}
+	defer func() {
+		handleOSVerify = originalHandler
+	}()
+
+	srv := &OSServer{Server: &Server{config: &Config{}}}
+	resp, err := srv.Verify(context.Background(), &ospb.VerifyRequest{})
+	if resp != nil {
+		t.Fatalf("Verify() response = %#v, want nil", resp)
+	}
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("Verify() code = %v, want %v", status.Code(err), codes.PermissionDenied)
+	}
+	if nativeCalled {
+		t.Error("Verify() delegated after authentication failed")
+	}
+	if dbusCalled {
+		t.Error("Verify() constructed a D-Bus client after authentication failed")
+	}
+}
+
+func TestOSServerVerifyDelegatesAfterAuthorization(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	var callOrder []string
+	patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, target string, write bool) (context.Context, error) {
+		callOrder = append(callOrder, "authenticate")
+		if target != "gnoi" || write {
+			t.Fatalf("authenticate() target = %q, write = %t; want gnoi, false", target, write)
+		}
+		return ctx, nil
+	})
+
+	patches.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+		callOrder = append(callOrder, "dbus")
+		return nil, errors.New("unexpected D-Bus construction")
+	})
+
+	req := &ospb.VerifyRequest{}
+	originalHandler := handleOSVerify
+	handleOSVerify = func(_ context.Context, gotReq *ospb.VerifyRequest) (*ospb.VerifyResponse, error) {
+		callOrder = append(callOrder, "native")
+		if gotReq != req {
+			t.Fatalf("native handler request = %p, want %p", gotReq, req)
+		}
+		return &ospb.VerifyResponse{Version: "SONiC-OS-20261012.01"}, nil
+	}
+	defer func() {
+		handleOSVerify = originalHandler
+	}()
+
+	srv := &OSServer{Server: &Server{config: &Config{}}}
+	resp, err := srv.Verify(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Verify() error = %v", err)
+	}
+	if resp.GetVersion() != "SONiC-OS-20261012.01" {
+		t.Fatalf("Verify() version = %q, want %q", resp.GetVersion(), "SONiC-OS-20261012.01")
+	}
+	if got, want := strings.Join(callOrder, ","), "authenticate,native"; got != want {
+		t.Errorf("Verify() call order = %q, want %q", got, want)
+	}
+}
+
+func TestOSServerVerifyPropagatesNativeStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		code codes.Code
+	}{
+		{name: "internal", code: codes.Internal},
+		{name: "canceled", code: codes.Canceled},
+		{name: "deadline exceeded", code: codes.DeadlineExceeded},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patches := gomonkey.NewPatches()
+			defer patches.Reset()
+
+			patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+				return ctx, nil
+			})
+
+			dbusCalled := false
+			patches.ApplyFunc(ssc.NewDbusClient, func() (ssc.Service, error) {
+				dbusCalled = true
+				return nil, errors.New("unexpected D-Bus construction")
+			})
+
+			nativeErr := status.Error(tt.code, "native verify failure")
+			originalHandler := handleOSVerify
+			handleOSVerify = func(context.Context, *ospb.VerifyRequest) (*ospb.VerifyResponse, error) {
+				return nil, nativeErr
+			}
+			defer func() {
+				handleOSVerify = originalHandler
+			}()
+
+			srv := &OSServer{Server: &Server{config: &Config{}}}
+			resp, err := srv.Verify(context.Background(), &ospb.VerifyRequest{})
+			if resp != nil {
+				t.Fatalf("Verify() response = %#v, want nil", resp)
+			}
+			if status.Code(err) != tt.code {
+				t.Fatalf("Verify() code = %v, want %v", status.Code(err), tt.code)
+			}
+			if status.Convert(err).Message() != "native verify failure" {
+				t.Errorf("Verify() message = %q, want %q", status.Convert(err).Message(), "native verify failure")
+			}
+			if dbusCalled {
+				t.Error("Verify() constructed a D-Bus client")
+			}
+		})
 	}
 }
 
