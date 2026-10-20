@@ -18,7 +18,6 @@ func TestCheckTargetAccess(t *testing.T) {
 		{name: "readonly write denies", roles: []string{"gnmi_readonly"}, write: true, requireRole: true, wantError: true},
 		{name: "readwrite write allows", roles: []string{"gnmi_readwrite"}, write: true, requireRole: true},
 		{name: "target noaccess denies", roles: []string{"gnmi_config_db_readwrite", "gnmi_config_db_noaccess"}, target: "gnmi_CONFIG_DB", write: true, requireRole: true, wantError: true},
-		{name: "service noaccess denies scoped target", roles: []string{"gnmi_config_db_readwrite", "gnmi_noaccess"}, target: "gnmi_CONFIG_DB", write: true, requireRole: true, wantError: true},
 	}
 
 	for _, test := range tests {
@@ -32,6 +31,32 @@ func TestCheckTargetAccess(t *testing.T) {
 				t.Fatalf("error = %v, wantError %t", err, test.wantError)
 			}
 		})
+	}
+}
+
+func TestCheckTargetAccessUsesExactTargetRoles(t *testing.T) {
+	err := CheckTargetAccess(
+		"test-user",
+		[]string{"gnmi_noaccess", "gnmi_config_db_readwrite"},
+		"gnmi_CONFIG_DB",
+		true,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("CheckTargetAccess() error = %v, want nil", err)
+	}
+}
+
+func TestCheckAuthorizationTargetAccessUsesServiceLevelDenial(t *testing.T) {
+	err := CheckAuthorizationTargetAccess(
+		"test-user",
+		[]string{"gnmi_noaccess", "gnmi_config_db_readwrite"},
+		"gnmi_CONFIG_DB",
+		true,
+		true,
+	)
+	if err == nil {
+		t.Fatal("CheckAuthorizationTargetAccess() error = nil, want denial")
 	}
 }
 

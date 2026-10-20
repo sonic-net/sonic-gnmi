@@ -1132,6 +1132,7 @@ func TestLegacyRoleAccessCompatibility(t *testing.T) {
 	tests := []struct {
 		name      string
 		roles     []string
+		target    string
 		write     bool
 		wantError bool
 	}{
@@ -1141,11 +1142,21 @@ func TestLegacyRoleAccessCompatibility(t *testing.T) {
 		{name: "readonly write remains denied", roles: []string{"gnmi_readonly"}, write: true, wantError: true},
 		{name: "readwrite write remains allowed", roles: []string{"gnmi_readwrite"}, write: true},
 		{name: "noaccess read remains denied", roles: []string{"gnmi_noaccess"}, wantError: true},
+		{
+			name:   "service noaccess does not override scoped readwrite",
+			roles:  []string{"gnmi_noaccess", "gnmi_config_db_readwrite"},
+			target: "gnmi_CONFIG_DB",
+			write:  true,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := rpcauthz.CheckTargetAccess("test-user", test.roles, "gnmi", test.write, false)
+			target := test.target
+			if target == "" {
+				target = "gnmi"
+			}
+			err := rpcauthz.CheckTargetAccess("test-user", test.roles, target, test.write, false)
 			if got := err != nil; got != test.wantError {
 				t.Fatalf("error = %v, wantError %t", err, test.wantError)
 			}

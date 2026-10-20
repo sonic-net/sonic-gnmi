@@ -17,7 +17,8 @@ type targetRoleAccess struct {
 	readWrite    bool
 }
 
-// CheckTargetAccess evaluates the existing <target>_<mode> role convention.
+// CheckTargetAccess evaluates roles for the exact target, preserving legacy
+// handler authorization semantics.
 func CheckTargetAccess(
 	user string,
 	roles []string,
@@ -25,7 +26,40 @@ func CheckTargetAccess(
 	writeAccess bool,
 	requireRole bool,
 ) error {
-	access := resolveAuthorizationTargetRoleAccess(roles, target)
+	return checkTargetAccess(
+		user,
+		target,
+		writeAccess,
+		requireRole,
+		resolveTargetRoleAccess(roles, target),
+	)
+}
+
+// CheckAuthorizationTargetAccess evaluates roles for central authorization,
+// where a service-level noaccess role also denies scoped service targets.
+func CheckAuthorizationTargetAccess(
+	user string,
+	roles []string,
+	target string,
+	writeAccess bool,
+	requireRole bool,
+) error {
+	return checkTargetAccess(
+		user,
+		target,
+		writeAccess,
+		requireRole,
+		resolveAuthorizationTargetRoleAccess(roles, target),
+	)
+}
+
+func checkTargetAccess(
+	user string,
+	target string,
+	writeAccess bool,
+	requireRole bool,
+	access targetRoleAccess,
+) error {
 	if access.noAccessRole != "" {
 		return fmt.Errorf("%s does not have access, target %s, role %s", user, target, access.noAccessRole)
 	}

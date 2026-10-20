@@ -149,7 +149,7 @@ func authorizeRPCTarget(
 	if target == "" {
 		target = authorization.target
 	}
-	if rpcauthz.CheckTargetAccess(auth.user, auth.roles, target, authorization.write, true) != nil {
+	if rpcauthz.CheckAuthorizationTargetAccess(auth.user, auth.roles, target, authorization.write, true) != nil {
 		return ctx, status.Error(codes.PermissionDenied, "RPC access denied")
 	}
 
@@ -278,7 +278,7 @@ func checkCompletedRPCAuthorization(ctx context.Context, user string, roles []st
 		return status.Error(codes.PermissionDenied, "RPC access denied")
 	}
 
-	if rpcauthz.CheckTargetAccess(user, roles, target, decision.authorization.write, true) != nil {
+	if rpcauthz.CheckAuthorizationTargetAccess(user, roles, target, decision.authorization.write, true) != nil {
 		return status.Error(codes.PermissionDenied, "RPC access denied")
 	}
 	return nil
