@@ -2,11 +2,10 @@ package gnmi
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"reflect"
-	"strings"
 
+	"github.com/sonic-net/sonic-gnmi/internal/rpcauthz"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -15,9 +14,6 @@ import (
 
 const (
 	gnmiClientCertTable = "GNMI_CLIENT_CERT"
-	WriteAccessMode     = "readwrite"
-	ReadOnlyMode        = "readonly"
-	NoAccessMode        = "noaccess"
 )
 
 type rpcAuthorization struct {
@@ -153,14 +149,13 @@ func authorizeRPCTarget(
 	if target == "" {
 		target = authorization.target
 	}
-	access := resolveAuthorizationTargetRoleAccess(auth.roles, target)
-	if checkResolvedRoleAccess(auth.user, target, authorization.write, access, true) != nil {
+	if rpcauthz.CheckTargetAccess(auth.user, auth.roles, target, authorization.write, true) != nil {
 		return ctx, status.Error(codes.PermissionDenied, "RPC access denied")
 	}
 
 	decision := rpcAuthorizationDecision{
 		authorization: authorization,
-		target:        normalizeAuthorizationTarget(target),
+		target:        rpcauthz.NormalizeTarget(target),
 		route:         requestTarget.route,
 	}
 	return context.WithValue(ctx, rpcAuthorizationContextKey{}, decision), nil
@@ -207,7 +202,7 @@ func (i *rpcAuthorizationInterceptor) StreamInterceptor() grpc.StreamServerInter
 			if !authorization.bufferFirstRequest {
 				return status.Error(codes.Internal, "RPC target resolver is not configured")
 			}
-			if !authorizationRoleCouldAccessService(auth.roles, authorization.target, authorization.write) {
+			if !rpcauthz.CanAccessService(auth.roles, authorization.target, authorization.write) {
 				return status.Error(codes.PermissionDenied, "RPC access denied")
 			}
 			bufferedRequest = rpcAuthorizationFirstStreamRequest(info.FullMethod)
@@ -279,148 +274,12 @@ func rpcAuthorizationSetBypassOnly(ctx context.Context) bool {
 
 func checkCompletedRPCAuthorization(ctx context.Context, user string, roles []string, target string) error {
 	decision, ok := rpcAuthorizationFromContext(ctx)
-	if !ok || decision.target != normalizeAuthorizationTarget(target) {
+	if !ok || decision.target != rpcauthz.NormalizeTarget(target) {
 		return status.Error(codes.PermissionDenied, "RPC access denied")
 	}
 
-	access := resolveAuthorizationTargetRoleAccess(roles, target)
-	if checkResolvedRoleAccess(user, target, decision.authorization.write, access, true) != nil {
+	if rpcauthz.CheckTargetAccess(user, roles, target, decision.authorization.write, true) != nil {
 		return status.Error(codes.PermissionDenied, "RPC access denied")
 	}
 	return nil
-}
-
-func checkResolvedRoleAccess(user, target string, writeAccess bool, access targetRoleAccess, requireRole bool) error {
-	if access.noAccessRole != "" {
-		return fmt.Errorf("%s does not have access, target %s, role %s", user, target, access.noAccessRole)
-	}
-	if writeAccess && !access.readWrite {
-		if access.readOnlyRole != "" {
-			return fmt.Errorf("%s does not have access, target %s, role %s", user, target, access.readOnlyRole)
-		}
-		return fmt.Errorf("%s does not have write access, target %s", user, target)
-	}
-	if requireRole && access.readOnlyRole == "" && !access.readWrite {
-		return fmt.Errorf("%s does not have read access, target %s", user, target)
-	}
-	return nil
-}
-
-type targetRoleAccess struct {
-	noAccessRole string
-	readOnlyRole string
-	readWrite    bool
-}
-
-func resolveTargetRoleAccess(roles []string, target string) targetRoleAccess {
-	var access targetRoleAccess
-	prefix := strings.ToLower(target) + "_"
-	for _, role := range roles {
-		role = strings.TrimSpace(role)
-		switch role {
-		case prefix + NoAccessMode:
-			access.noAccessRole = role
-		case prefix + ReadOnlyMode:
-			access.readOnlyRole = role
-		case prefix + WriteAccessMode:
-			access.readWrite = true
-		}
-	}
-	return access
-}
-
-func normalizeAuthorizationTarget(target string) string {
-	return strings.ToLower(strings.TrimSpace(target))
-}
-
-func authorizationServiceTarget(target string) string {
-	target = normalizeAuthorizationTarget(target)
-	if separator := strings.IndexByte(target, '_'); separator >= 0 {
-		return target[:separator]
-	}
-	return target
-}
-
-func resolveAuthorizationTargetRoleAccess(roles []string, target string) targetRoleAccess {
-	access := resolveTargetRoleAccess(roles, target)
-	serviceTarget := authorizationServiceTarget(target)
-	if serviceTarget == normalizeAuthorizationTarget(target) {
-		return access
-	}
-
-	serviceAccess := resolveTargetRoleAccess(roles, serviceTarget)
-	if serviceAccess.noAccessRole != "" {
-		access.noAccessRole = serviceAccess.noAccessRole
-	}
-	return access
-}
-
-func authorizationRoleCouldAccessService(roles []string, serviceTarget string, writeAccess bool) bool {
-	serviceTarget = normalizeAuthorizationTarget(serviceTarget)
-	if resolveTargetRoleAccess(roles, serviceTarget).noAccessRole != "" {
-		return false
-	}
-
-	accessByTarget := make(map[string]targetRoleAccess)
-	for _, role := range roles {
-		target, mode, ok := splitAuthorizationRole(role)
-		if !ok ||
-			!validAuthorizationRoleTarget(target, serviceTarget) ||
-			authorizationServiceTarget(target) != serviceTarget {
-			continue
-		}
-		access := accessByTarget[target]
-		switch mode {
-		case NoAccessMode:
-			access.noAccessRole = role
-		case WriteAccessMode:
-			access.readWrite = true
-		case ReadOnlyMode:
-			access.readOnlyRole = role
-		}
-		accessByTarget[target] = access
-	}
-
-	for _, access := range accessByTarget {
-		if access.noAccessRole != "" {
-			continue
-		}
-		if access.readWrite || (!writeAccess && access.readOnlyRole != "") {
-			return true
-		}
-	}
-	return false
-}
-
-func validAuthorizationRoleTarget(target, serviceTarget string) bool {
-	normalizedTarget := normalizeAuthorizationTarget(target)
-	if target != normalizedTarget {
-		return false
-	}
-	target = normalizedTarget
-	serviceTarget = normalizeAuthorizationTarget(serviceTarget)
-	if target == serviceTarget {
-		return true
-	}
-	scope, ok := strings.CutPrefix(target, serviceTarget+"_")
-	if !ok || scope == "" {
-		return false
-	}
-	for _, segment := range strings.Split(scope, "_") {
-		if segment == "" {
-			return false
-		}
-	}
-	return true
-}
-
-func splitAuthorizationRole(role string) (string, string, bool) {
-	role = strings.TrimSpace(role)
-	for _, mode := range []string{NoAccessMode, ReadOnlyMode, WriteAccessMode} {
-		suffix := "_" + mode
-		if strings.HasSuffix(role, suffix) && len(role) > len(suffix) {
-			return strings.TrimSuffix(role, suffix), mode, true
-		}
-	}
-	return "", "", false
 }

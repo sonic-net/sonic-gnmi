@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/sonic-net/sonic-gnmi/internal/gnmidbpath"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
-	"github.com/sonic-net/sonic-gnmi/sonic_data_client/dbpath"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -202,7 +202,7 @@ func authorizationNativeTarget(prefix *gnmipb.Path, paths []*gnmipb.Path) string
 	if target := prefix.GetTarget(); target != "" {
 		return target
 	}
-	resolution, err := dbpath.Resolve(prefix, paths)
+	resolution, err := gnmidbpath.Resolve(prefix, paths)
 	if err != nil {
 		return ""
 	}
@@ -210,7 +210,7 @@ func authorizationNativeTarget(prefix *gnmipb.Path, paths []*gnmipb.Path) string
 }
 
 func authorizationNativeDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path) (string, error) {
-	resolution, err := dbpath.Resolve(prefix, paths)
+	resolution, err := gnmidbpath.Resolve(prefix, paths)
 	if err != nil {
 		return "", err
 	}
@@ -220,7 +220,7 @@ func authorizationNativeDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path) (str
 	return resolution.Database, nil
 }
 
-func validateAuthorizationNativePrefixTarget(target string, resolution dbpath.Resolution) error {
+func validateAuthorizationNativePrefixTarget(target string, resolution gnmidbpath.Resolution) error {
 	if target == "" {
 		return nil
 	}
@@ -238,7 +238,7 @@ func validateAuthorizationNativePrefixTarget(target string, resolution dbpath.Re
 }
 
 func authorizationDatabaseTarget(target string) (string, bool, error) {
-	database, _, known, malformed := dbpath.ParseTarget(target)
+	database, _, known, malformed := gnmidbpath.ParseTarget(target)
 	if !known {
 		return "", false, nil
 	}

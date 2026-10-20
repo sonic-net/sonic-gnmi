@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sonic-net/sonic-gnmi/internal/gnmidbpath"
 	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
-	"github.com/sonic-net/sonic-gnmi/sonic_data_client/dbpath"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	"github.com/Workiva/go-datastructures/queue"
@@ -589,7 +589,7 @@ func GetRedisClientsForDb(target string) (redis_client_map map[string]*redis.Cli
 // returns: 1. DbName (string) 2. Is DbName valid (bool)
 //  3. DbNamespace (string) 4. Is DbNamespace present in Target (bool)
 func IsTargetDb(target string) (string, bool, string, bool) {
-	dbName, qualifier, known, malformed := dbpath.ParseTarget(target)
+	dbName, qualifier, known, malformed := gnmidbpath.ParseTarget(target)
 	dbNameSpaceExist := false
 	dbNamespace, _ := sdcfg.GetDbDefaultNamespace()
 	isMultiNamespace, _ := sdcfg.CheckDbMultiNamespace()

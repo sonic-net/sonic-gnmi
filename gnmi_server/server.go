@@ -21,6 +21,7 @@ import (
 	"github.com/Azure/sonic-mgmt-common/translib"
 	gnsi_pathz_pb "github.com/openconfig/gnsi/pathz"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/internal/rpcauthz"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
 	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
 	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
@@ -854,8 +855,7 @@ func checkRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess boo
 		user = auth.User
 		roles = auth.Roles
 	}
-	access := resolveTargetRoleAccess(roles, target)
-	return checkResolvedRoleAccess(user, target, writeAccess, access, false)
+	return rpcauthz.CheckTargetAccess(user, roles, target, writeAccess, false)
 }
 
 func authenticate(config *Config, ctx context.Context, target string, writeAccess bool) (context.Context, error) {

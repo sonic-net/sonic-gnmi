@@ -257,8 +257,9 @@ func TestSetBypassOnlyAuthorizationDoesNotFallback(t *testing.T) {
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("Set() error = %v, want InvalidArgument", err)
 	}
-	if response != nil {
-		t.Fatalf("Set() response = %v, want nil", response)
+	setResponse, ok := response.(*gnmipb.SetResponse)
+	if !ok || setResponse != nil {
+		t.Fatalf("Set() response = %v (%T), want nil *gnmipb.SetResponse", response, response)
 	}
 	if trySetCalls != 1 {
 		t.Fatalf("bypass TrySet calls = %d, want 1", trySetCalls)

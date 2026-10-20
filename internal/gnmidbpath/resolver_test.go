@@ -1,4 +1,4 @@
-package dbpath
+package gnmidbpath
 
 import (
 	"testing"

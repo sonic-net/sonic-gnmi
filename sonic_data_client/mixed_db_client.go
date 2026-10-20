@@ -21,9 +21,9 @@ import (
 	"unsafe"
 
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/internal/gnmidbpath"
 	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
-	"github.com/sonic-net/sonic-gnmi/sonic_data_client/dbpath"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
@@ -527,7 +527,7 @@ func (c *MixedDbClient) DbBatchDelTable(table string, keys []string) error {
 // The third element is the node name, which is DASH_QOS.
 // ParseDatabase is used get database target and SonicDBKey from GNMI prefix and path
 func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path) (string, swsscommon.SonicDBKey, error) {
-	resolution, err := dbpath.Resolve(prefix, paths)
+	resolution, err := gnmidbpath.Resolve(prefix, paths)
 	if err != nil {
 		return "", nil, err
 	}

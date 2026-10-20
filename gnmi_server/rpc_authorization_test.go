@@ -10,6 +10,7 @@ import (
 	"time"
 
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	"github.com/sonic-net/sonic-gnmi/internal/rpcauthz"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -1144,8 +1145,7 @@ func TestLegacyRoleAccessCompatibility(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			access := resolveTargetRoleAccess(test.roles, "gnmi")
-			err := checkResolvedRoleAccess("test-user", "gnmi", test.write, access, false)
+			err := rpcauthz.CheckTargetAccess("test-user", test.roles, "gnmi", test.write, false)
 			if got := err != nil; got != test.wantError {
 				t.Fatalf("error = %v, wantError %t", err, test.wantError)
 			}
