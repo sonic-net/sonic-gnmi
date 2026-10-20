@@ -21,6 +21,7 @@ import (
 	"unsafe"
 
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/internal/gnmidbpath"
 	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
@@ -60,8 +61,6 @@ func checkPointPath() (string, error) {
 	return CHECK_POINT_PATH, nil
 }
 
-const ELEM_INDEX_DATABASE = 0
-const ELEM_INDEX_INSTANCE = 1
 const UPDATE_OPERATION = "add"
 const DELETE_OPERATION = "remove"
 const REPLACE_OPERATION = "replace"
@@ -528,68 +527,36 @@ func (c *MixedDbClient) DbBatchDelTable(table string, keys []string) error {
 // The third element is the node name, which is DASH_QOS.
 // ParseDatabase is used get database target and SonicDBKey from GNMI prefix and path
 func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path) (string, swsscommon.SonicDBKey, error) {
-	if len(paths) == 0 {
-		return "", nil, status.Error(codes.Unimplemented, "No valid path")
+	resolution, err := gnmidbpath.Resolve(prefix, paths)
+	if err != nil {
+		return "", nil, err
 	}
-	target := ""
+
+	target := resolution.Database
 	namespace := sdcfg.SONIC_DEFAULT_NAMESPACE
 	container := sdcfg.SONIC_DEFAULT_CONTAINER
-	prev_instance := ""
-	for _, path := range paths {
-		if path.GetElem() != nil {
-			elems := path.GetElem()
-			if prefix != nil {
-				elems = append(prefix.GetElem(), elems...)
-			}
-			if elems == nil {
-				return "", nil, status.Error(codes.Unimplemented, "No valid elem")
-			}
-			if len(elems) < 2 {
-				return "", nil, status.Error(codes.Unimplemented, "Invalid elem length")
-			}
-			// Get target from the first element
-			if target == "" {
-				target = elems[ELEM_INDEX_DATABASE].GetName()
-			} else if target != elems[ELEM_INDEX_DATABASE].GetName() {
-				return "", nil, status.Error(codes.Unimplemented, "Target conflict in path")
-			}
-			elem_name := elems[ELEM_INDEX_INSTANCE].GetName()
-			if prev_instance == "" {
-				prev_instance = elem_name
-			} else if prev_instance != elem_name {
-				return "", nil, status.Error(codes.Unimplemented, "Namespace/container conflict in path")
-			}
-			if c.namespace_cnt > 1 && c.container_cnt > 1 {
-				// Support smartswitch with multiple asic NPU
-				// The elelement can be "localhost", "asic0", "asic1", ..., "dpu0", "dpu1", ...
-				if elem_name != HOSTNAME {
-					// Try namespace
-					dbkey1, ok := sdcfg.GetDbInstanceFromTarget(elem_name, sdcfg.SONIC_DEFAULT_CONTAINER)
-					if ok {
-						namespace = elem_name
-						swsscommon.DeleteSonicDBKey(dbkey1)
-					} else {
-						// Try container
-						dbkey2, ok := sdcfg.GetDbInstanceFromTarget(sdcfg.SONIC_DEFAULT_NAMESPACE, elem_name)
-						if ok {
-							container = elem_name
-							swsscommon.DeleteSonicDBKey(dbkey2)
-						} else {
-							return "", nil, fmt.Errorf("Unsupported namespace/container %s", elem_name)
-						}
-					}
+	instance := resolution.Instance
+	if c.namespace_cnt > 1 && c.container_cnt > 1 {
+		// Support smartswitch with multiple asic NPU.
+		if instance != HOSTNAME {
+			dbkey1, ok := sdcfg.GetDbInstanceFromTarget(instance, sdcfg.SONIC_DEFAULT_CONTAINER)
+			if ok {
+				namespace = instance
+				swsscommon.DeleteSonicDBKey(dbkey1)
+			} else {
+				dbkey2, ok := sdcfg.GetDbInstanceFromTarget(sdcfg.SONIC_DEFAULT_NAMESPACE, instance)
+				if ok {
+					container = instance
+					swsscommon.DeleteSonicDBKey(dbkey2)
+				} else {
+					return "", nil, fmt.Errorf("Unsupported namespace/container %s", instance)
 				}
-			} else if c.namespace_cnt > 1 {
-				// Get namespace from the second element
-				namespace = elem_name
-			} else if c.container_cnt > 1 {
-				// Get container from the second element
-				container = elem_name
 			}
 		}
-	}
-	if target == "" {
-		return "", nil, status.Error(codes.Unimplemented, "No target specified in path")
+	} else if c.namespace_cnt > 1 {
+		namespace = instance
+	} else if c.container_cnt > 1 {
+		container = instance
 	}
 	// GNMI path uses localhost as default namespace
 	if namespace == HOSTNAME {

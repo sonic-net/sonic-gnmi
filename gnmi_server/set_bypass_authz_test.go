@@ -11,6 +11,8 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
@@ -180,5 +182,89 @@ func TestSetBypassCertificateAuthorization(t *testing.T) {
 				t.Fatalf("bypass backend changed = %t, want %t", changed, test.wantBackendCalls == 1)
 			}
 		})
+	}
+}
+
+func TestSetBypassOnlyAuthorizationDoesNotFallback(t *testing.T) {
+	mixedClientCalls := 0
+	trySetCalls := 0
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(PopulateAuthStructByCommonName, func(commonName string, auth *common_utils.AuthInfo, _ string) error {
+		if commonName != "mapped-readwrite" {
+			return status.Error(codes.Unauthenticated, "certificate identity is not mapped")
+		}
+		auth.User = commonName
+		auth.Roles = []string{"gnmi_config_db_readwrite"}
+		return nil
+	})
+	patches.ApplyFunc(bypass.TrySet, func(
+		context.Context,
+		*gnmipb.Path,
+		[]*gnmipb.Path,
+		[]*gnmipb.Update,
+	) (*gnmipb.SetResponse, bool, error) {
+		trySetCalls++
+		return nil, false, nil
+	})
+	patches.ApplyFunc(sdc.NewMixedDbClient, func(
+		[]*gnmipb.Path,
+		*gnmipb.Path,
+		string,
+		gnmipb.Encoding,
+		string,
+		string,
+		*string,
+	) (sdc.Client, error) {
+		mixedClientCalls++
+		return nil, status.Error(codes.Internal, "unexpected mixed DB client creation")
+	})
+
+	server := &Server{
+		config: &Config{
+			EnableNativeWrite: true,
+			ConfigTableName:   gnmiClientCertTable,
+			UserAuth:          AuthTypes{"cert": true},
+		},
+		SaveStartupConfig: saveOnSetDisabled,
+		ReqFromMaster:     ReqFromMasterDisabledMA,
+	}
+	request := &gnmipb.SetRequest{
+		Prefix: &gnmipb.Path{Origin: "sonic-db", Target: "CONFIG_DB"},
+		Update: []*gnmipb.Update{{
+			Path: &gnmipb.Path{
+				Elem: []*gnmipb.PathElem{
+					{Name: "VNET"},
+					{Name: "blue"},
+				},
+			},
+		}},
+	}
+
+	authorization, unsupported := configuredRPCAuthorizationInterceptor(server.config)
+	if unsupported != "" || authorization == nil {
+		t.Fatalf("configuredRPCAuthorizationInterceptor() = (%v, %q), want enabled", authorization, unsupported)
+	}
+	response, err := authorization.UnaryInterceptor()(
+		bypassCertificateContext("mapped-readwrite"),
+		request,
+		&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Set"},
+		func(ctx context.Context, request interface{}) (interface{}, error) {
+			return server.Set(ctx, request.(*gnmipb.SetRequest))
+		},
+	)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("Set() error = %v, want InvalidArgument", err)
+	}
+	setResponse, ok := response.(*gnmipb.SetResponse)
+	if !ok || setResponse != nil {
+		t.Fatalf("Set() response = %v (%T), want nil *gnmipb.SetResponse", response, response)
+	}
+	if trySetCalls != 1 {
+		t.Fatalf("bypass TrySet calls = %d, want 1", trySetCalls)
+	}
+	if mixedClientCalls != 0 {
+		t.Fatalf("NewMixedDbClient calls = %d, want 0", mixedClientCalls)
 	}
 }

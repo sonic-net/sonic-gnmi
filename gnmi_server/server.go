@@ -21,6 +21,7 @@ import (
 	"github.com/Azure/sonic-mgmt-common/translib"
 	gnsi_pathz_pb "github.com/openconfig/gnsi/pathz"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/internal/rpcauthz"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
 	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
 	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
@@ -287,10 +288,6 @@ func (d *DBusOSBackend) InstallOS(req string) (string, error) {
 
 var AuthLock sync.Mutex
 var maMu sync.Mutex
-
-const WriteAccessMode = "readwrite"
-const ReadOnlyMode = "readonly"
-const NoAccessMode = "noaccess"
 
 func (i AuthTypes) String() string {
 	if i["none"] {
@@ -580,6 +577,18 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	}
 	common_utils.InitCounters()
 
+	rpcAuthorization, unsupportedMode := configuredRPCAuthorizationInterceptor(config)
+	if unsupportedMode != "" {
+		log.Warningf("Central RPC authorization disabled: %s", unsupportedMode)
+	}
+	if rpcAuthorization != nil {
+		authorizationOpts := []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(rpcAuthorization.UnaryInterceptor()),
+			grpc.ChainStreamInterceptor(rpcAuthorization.StreamInterceptor()),
+		}
+		commonOpts = append(authorizationOpts, commonOpts...)
+	}
+
 	// Set authorization policy.
 	var authzWatcher *authz.FileWatcherInterceptor
 	if config.AuthzPolicy {
@@ -840,44 +849,13 @@ func (srv *Server) Auth(ctx context.Context) (context.Context, error) {
 //   - no role for this target and writeAccess==false -> allow (backwards
 //     compatible with pre-role deployments that only granted authentication)
 func checkRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
-	access := resolveTargetRoleAccess(auth, target)
-	if access.noAccessRole != "" {
-		return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, access.noAccessRole)
+	user := ""
+	var roles []string
+	if auth != nil {
+		user = auth.User
+		roles = auth.Roles
 	}
-	if writeAccess && !access.readWrite {
-		if access.readOnlyRole != "" {
-			return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, access.readOnlyRole)
-		}
-		return fmt.Errorf("%s does not have write access, target %s", auth.User, target)
-	}
-	return nil
-}
-
-type targetRoleAccess struct {
-	noAccessRole string
-	readOnlyRole string
-	readWrite    bool
-}
-
-func resolveTargetRoleAccess(auth *common_utils.AuthInfo, target string) targetRoleAccess {
-	var access targetRoleAccess
-	if auth == nil {
-		return access
-	}
-
-	prefix := strings.ToLower(target) + "_"
-	for _, role := range auth.Roles {
-		role = strings.TrimSpace(role)
-		switch role {
-		case prefix + NoAccessMode:
-			access.noAccessRole = role
-		case prefix + ReadOnlyMode:
-			access.readOnlyRole = role
-		case prefix + WriteAccessMode:
-			access.readWrite = true
-		}
-	}
-	return access
+	return rpcauthz.CheckTargetAccess(user, roles, target, writeAccess, false)
 }
 
 func authenticate(config *Config, ctx context.Context, target string, writeAccess bool) (context.Context, error) {
@@ -889,6 +867,13 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	// UDS security is enforced at the file-system level via socket permissions.
 	if isUnixPeer(ctx) {
 		rc.Auth.AuthEnabled = false
+		return ctx, nil
+	}
+
+	if rpcAuthorizationCompleted(ctx) {
+		if err := checkCompletedRPCAuthorization(ctx, rc.Auth.User, rc.Auth.Roles, target); err != nil {
+			return ctx, err
+		}
 		return ctx, nil
 	}
 
@@ -1039,20 +1024,7 @@ func (s *Server) checkEncodingAndModel(encoding gnmipb.Encoding, models []*gnmip
 }
 
 func ParseOrigin(paths []*gnmipb.Path) (string, error) {
-	origin := ""
-	if len(paths) == 0 {
-		return origin, nil
-	}
-	for i, path := range paths {
-		if i == 0 {
-			origin = path.Origin
-		} else {
-			if origin != path.Origin {
-				return "", status.Error(codes.Unimplemented, "Origin conflict in path")
-			}
-		}
-	}
-	return origin, nil
+	return authorizationPathOrigin(paths)
 }
 
 func IsNativeOrigin(origin string) bool {
@@ -1060,24 +1032,7 @@ func IsNativeOrigin(origin string) bool {
 }
 
 func nativeSetTarget(prefix *gnmipb.Path, paths []*gnmipb.Path) string {
-	if target := prefix.GetTarget(); target != "" {
-		return target
-	}
-
-	var target string
-	prefixElems := elemNames(prefix)
-	for _, path := range paths {
-		elems := append(append([]string(nil), prefixElems...), elemNames(path)...)
-		if len(elems) == 0 {
-			return ""
-		}
-		if target == "" {
-			target = elems[0]
-		} else if target != elems[0] {
-			return ""
-		}
-	}
-	return target
+	return authorizationNativeTarget(prefix, paths)
 }
 
 // Get implements the Get RPC in gNMI spec.
@@ -1334,6 +1289,10 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 				common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
 				return resp, nil
 			}
+		}
+		if rpcAuthorizationSetBypassOnly(ctx) {
+			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+			return nil, status.Error(codes.InvalidArgument, "bypass request is not eligible on this device")
 		}
 
 		var targetDbName string
