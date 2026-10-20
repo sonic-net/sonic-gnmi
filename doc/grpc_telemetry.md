@@ -4,6 +4,7 @@
    * [Data available in SONiC](#data-available-in-sonic)
    * [SONiC system telemetry software architecture](#sonic-system-telemetry-software-architecture)
    * [Get and Set audit records](#get-and-set-audit-records)
+   * [Certificate RPC authorization](#certificate-rpc-authorization)
    * [gRPC operations for system telemetry in SONiC](#grpc-operations-for-system-telemetry-in-sonic)
       * [Usage of SONiC telemetry server binary](#usage-of-sonic-telemetry-server-binary)
       * [GetRequest/GetResponse](#getrequestgetresponse)
@@ -100,6 +101,45 @@ map and `RPC_COMPLETION_SUMMARY` path as other RPCs, with 60 records/hour and bu
 60 instead of PR #723's default one record per 10 seconds. A suppressed Get
 does not reach the glog sink; its common summary reports method, code, and
 suppressed count.
+
+# Certificate RPC authorization
+
+When `cert` is the only enabled authentication mode and `config_table_name` is
+`GNMI_CLIENT_CERT`, unary and streaming RPCs pass through a central
+authorization interceptor before the completion logger, DPU proxy, or service
+handler. The interceptor preserves the existing certificate Common Name to
+role mapping. `readonly` roles allow classified reads, `readwrite` roles allow
+reads and writes, and `noaccess`, unknown roles, and unclassified RPC methods
+are denied. A service-level `noaccess` role takes precedence over a scoped
+allow for the selected target.
+
+Protobuf service descriptors identify method names and streaming shape but do
+not identify whether a method changes device state. The initial gNMI and gNOI
+slice therefore uses one explicit method registry plus pure gNMI request-target
+resolution. Unary Get and Set requests are authorized for their selected target
+before the inner interceptor chain. Native `sonic-db` target resolution shares
+the same path resolver as `MixedDbClient`; conflicting prefix/path targets and
+malformed database-target formats fail before the inner chain. A structurally
+valid ConfigDB bypass request remains an explicit bypass-only route and cannot
+fall through to a differently routed backend.
+
+Subscribe first rejects mapped identities that cannot authorize any gNMI
+target after applying `noaccess` precedence per candidate target. Malformed
+role names do not qualify. It then receives and buffers the first
+`SubscriptionList`, authorizes its selected target, and only then invokes the
+inner chain; the handler receives the buffered request unchanged. OPERATIONAL
+Get uses the gNOI role scope, while Subscribe has no gNOI alternate route.
+
+The authorized context carries the registry read/write classification and the
+selected target. Retained handler checks verify that their routed target
+matches that decision, but they are no longer the first authorization boundary.
+A role for one scoped gNMI target cannot authorize another target, and a gNOI
+role cannot authorize an ordinary gNMI request.
+
+Other authentication configurations keep their existing handler behavior.
+Cert authentication without `GNMI_CLIENT_CERT`, and mixed cert plus
+password/JWT authentication, are not covered by this slice and emit a startup
+warning instead of changing behavior.
 
 # gRPC operations for system telemetry in SONiC
 As mentioned at the beginning, SONiC gRPC data telemetry is largely based on gNMI protocol,  the GetRquest/GetResponse and SubscribeRequest/SubscribeResponse RPC have been implemented. Since SONiC doesn't have complete YANG data model yet, the DB, TABLE, KEY and Field path hierarchy is used as path to uniquely identify the configuration/state and counter data.

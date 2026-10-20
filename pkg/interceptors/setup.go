@@ -69,8 +69,9 @@ func NewServerChain() (*ServerChain, error) {
 // GetServerOptions returns gRPC server options with all interceptors configured.
 func (sc *ServerChain) GetServerOptions() []grpc.ServerOption {
 	return []grpc.ServerOption{
-		grpc.UnaryInterceptor(sc.chain.UnaryInterceptor()),
-		grpc.StreamInterceptor(sc.chain.StreamInterceptor()),
+		// Chain options let the gNMI server prepend authorization before proxying.
+		grpc.ChainUnaryInterceptor(sc.chain.UnaryInterceptor()),
+		grpc.ChainStreamInterceptor(sc.chain.StreamInterceptor()),
 	}
 }
 

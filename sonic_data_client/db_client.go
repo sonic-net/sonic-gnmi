@@ -14,6 +14,7 @@ import (
 
 	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
+	"github.com/sonic-net/sonic-gnmi/sonic_data_client/dbpath"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	"github.com/Workiva/go-datastructures/queue"
@@ -588,25 +589,22 @@ func GetRedisClientsForDb(target string) (redis_client_map map[string]*redis.Cli
 // returns: 1. DbName (string) 2. Is DbName valid (bool)
 //  3. DbNamespace (string) 4. Is DbNamespace present in Target (bool)
 func IsTargetDb(target string) (string, bool, string, bool) {
-	targetname := strings.Split(target, "/")
-	dbName := targetname[0]
+	dbName, qualifier, known, malformed := dbpath.ParseTarget(target)
 	dbNameSpaceExist := false
 	dbNamespace, _ := sdcfg.GetDbDefaultNamespace()
 	isMultiNamespace, _ := sdcfg.CheckDbMultiNamespace()
 
-	if len(targetname) > 2 {
+	if malformed {
 		log.V(1).Infof("target format is not correct")
 		return dbName, false, dbNamespace, dbNameSpaceExist
 	}
 	// ASIC Suffix is only used in case if device is multi-asic/namespace
-	if isMultiNamespace && len(targetname) > 1 {
-		dbNamespace = targetname[1]
+	if isMultiNamespace && strings.Contains(target, "/") {
+		dbNamespace = qualifier
 		dbNameSpaceExist = true
 	}
-	for name, _ := range spb.Target_value {
-		if name == dbName {
-			return dbName, true, dbNamespace, dbNameSpaceExist
-		}
+	if known {
+		return dbName, true, dbNamespace, dbNameSpaceExist
 	}
 
 	return dbName, false, dbNamespace, dbNameSpaceExist
