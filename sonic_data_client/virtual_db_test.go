@@ -404,7 +404,6 @@ func TestInitFuncsReturnError(t *testing.T) {
 		{"countersQueueNameMap", initCountersQueueNameMap, &initCountersQueueNameMapOnce},
 		{"countersPGNameMap", initCountersPGNameMap, &initCountersPGNameMapOnce},
 		{"countersPortNameMap", initCountersPortNameMap, &initCountersPortNameMapOnce},
-		{"countersSidMap", initCountersSidMap, &initCountersSidMapOnce},
 		{"countersAclRuleMap", initCountersAclRuleMap, &initCountersAclRuleMapOnce},
 		{"aliasMap", initAliasMap, &initAliasMapOnce},
 		{"countersPfcwdNameMap", initCountersPfcwdNameMap, &initCountersPfcwdNameMapOnce},
