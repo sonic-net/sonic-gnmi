@@ -840,6 +840,14 @@ func (srv *Server) Auth(ctx context.Context) (context.Context, error) {
 //   - no role for this target and writeAccess==false -> allow (backwards
 //     compatible with pre-role deployments that only granted authentication)
 func checkRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
+	return checkRoleAccessWithRequirement(auth, target, writeAccess, false)
+}
+
+func checkRequiredRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
+	return checkRoleAccessWithRequirement(auth, target, writeAccess, true)
+}
+
+func checkRoleAccessWithRequirement(auth *common_utils.AuthInfo, target string, writeAccess, requireRole bool) error {
 	access := resolveTargetRoleAccess(auth, target)
 	if access.noAccessRole != "" {
 		return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, access.noAccessRole)
@@ -849,6 +857,9 @@ func checkRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess boo
 			return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, access.readOnlyRole)
 		}
 		return fmt.Errorf("%s does not have write access, target %s", auth.User, target)
+	}
+	if requireRole && access.readOnlyRole == "" && !access.readWrite {
+		return fmt.Errorf("%s does not have read access, target %s", auth.User, target)
 	}
 	return nil
 }
@@ -936,7 +947,7 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	// which allowed password- and JWT-authenticated callers to bypass the
 	// readonly/readwrite gate for gNOI RPCs.
 	if err := checkRoleAccess(&rc.Auth, target, writeAccess); err != nil {
-		return ctx, err
+		return ctx, status.Error(codes.PermissionDenied, err.Error())
 	}
 
 	log.V(5).Infof("authenticate user %v, roles %v", rc.Auth.User, rc.Auth.Roles)
