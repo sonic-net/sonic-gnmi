@@ -192,6 +192,9 @@ func (val Value) GetTimestamp() int64 {
 }
 
 type DbClient struct {
+	// Set before workers start; dynamic counters use subscription-owned Redis connections.
+	subscriptionContext    context.Context
+	dynamic                *dynamicCounterReader
 	prefix                 *gnmipb.Path
 	pathG2S                map[*gnmipb.Path][]tablePath
 	preserveConfigDBTables bool
@@ -260,6 +263,13 @@ func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync
 	defer c.w.Done()
 	c.q = q
 	c.channel = stop
+	if err := c.prepareDynamicCounters(stop); err != nil {
+		enqueueFatalMsg(c, err.Error())
+		return
+	}
+	if c.dynamic != nil {
+		defer func() { c.dynamic.close(); <-c.dynamic.done }()
+	}
 
 	if subscribe.GetSubscription() == nil {
 		log.V(2).Infof("No incoming subscription, it is considered a dialout connection.")
@@ -287,7 +297,11 @@ func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync
 			} else if subMode == gnmipb.SubscriptionMode_ON_CHANGE {
 				c.w.Add(1)
 				c.synced.Add(1)
-				go streamOnChangeSubscription(c, sub.GetPath())
+				if dynamicCounterMap(c.prefix, sub.GetPath()) != "" {
+					go streamDynamicCounters(c, sub.GetPath(), 0, subscribe.GetUpdatesOnly())
+				} else {
+					go streamOnChangeSubscription(c, sub.GetPath())
+				}
 			} else {
 				enqueueFatalMsg(c, fmt.Sprintf("unsupported subscription mode, %v", subMode))
 				return
@@ -307,12 +321,23 @@ func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync
 	})
 	log.V(2).Infof("%v Synced", c.pathG2S)
 
-	<-c.channel
+	if c.dynamic != nil {
+		select {
+		case <-c.channel:
+		case <-c.dynamic.ctx.Done():
+		}
+	} else {
+		<-c.channel
+	}
 	log.V(1).Infof("Exiting StreamRun routine for Client %v", c)
 }
 
 // streamOnChangeSubscription implements Subscription "ON_CHANGE STREAM" mode
 func streamOnChangeSubscription(c *DbClient, gnmiPath *gnmipb.Path) {
+	if dynamicCounterMap(c.prefix, gnmiPath) != "" {
+		streamDynamicCounters(c, gnmiPath, 0, false)
+		return
+	}
 	tblPaths := c.pathG2S[gnmiPath]
 	log.V(2).Infof("streamOnChangeSubscription gnmiPath: %v", gnmiPath)
 
@@ -339,6 +364,10 @@ func streamSampleSubscription(c *DbClient, sub *gnmipb.Subscription, updateOnly 
 	}
 
 	gnmiPath := sub.GetPath()
+	if dynamicCounterMap(c.prefix, gnmiPath) != "" {
+		streamDynamicCounters(c, gnmiPath, samplingInterval, updateOnly)
+		return
+	}
 	tblPaths := c.pathG2S[gnmiPath]
 	log.V(2).Infof("streamSampleSubscription gnmiPath: %v", gnmiPath)
 	if len(tblPaths) > 0 && tblPaths[0].field != "" {
@@ -357,11 +386,28 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 	defer c.w.Done()
 	c.q = q
 	c.channel = poll
+	if err := c.prepareDynamicCounters(nil); err != nil {
+		enqueueFatalMsg(c, err.Error())
+		return
+	}
+	if c.dynamic != nil {
+		defer func() { c.dynamic.close(); <-c.dynamic.done }()
+	}
 
 	prevUpdates := make(map[string]bool)
+	previousCounters := make(map[*gnmipb.Path]map[string]interface{})
+	var cancelled <-chan struct{}
+	if c.dynamic != nil {
+		cancelled = c.dynamic.ctx.Done()
+	}
 
 	for {
-		_, more := <-c.channel
+		var more bool
+		select {
+		case _, more = <-c.channel:
+		case <-cancelled:
+			return
+		}
 		if !more {
 			log.V(1).Infof("%v poll channel closed, exiting pollDb routine", c)
 			return
@@ -369,8 +415,33 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 		t1 := time.Now()
 
 		for gnmiPath, tblPaths := range c.pathG2S {
+			var val *gnmipb.TypedValue
+			var err error
+			var updateReceived bool
+			if dynamicCounterMap(c.prefix, gnmiPath) != "" {
+				var current map[string]interface{}
+				_, current, err = c.dynamic.snapshot(c.prefix, gnmiPath)
+				updateReceived = len(current) > 0
+				if err == nil && updateReceived {
+					val, err = Msi2TypedValue(current)
+				}
+				if err != nil {
+					enqueueFatalMsg(c, err.Error())
+					return
+				}
+				deleted := dynamicCounterDeletes(c.prefix, gnmiPath, previousCounters[gnmiPath], current)
+				if len(deleted) > 0 {
+					c.q.Put(Value{&spb.Value{Prefix: c.prefix, Timestamp: time.Now().UnixNano(), Delete: deleted}})
+				}
+				if updateReceived {
+					c.q.Put(Value{&spb.Value{Prefix: c.prefix, Path: gnmiPath, Timestamp: time.Now().UnixNano(), Val: val}})
+				}
+				previousCounters[gnmiPath] = current
+				continue
+			} else {
+				val, err, updateReceived = subscribeTableData2TypedValue(tblPaths, nil)
+			}
 			pathKey := fmt.Sprintf("%v", gnmiPath)
-			val, err, updateReceived := subscribeTableData2TypedValue(tblPaths, nil)
 			if !updateReceived { // No updates sent for missing data
 				if prevUpdate, exists := prevUpdates[pathKey]; exists && prevUpdate {
 					log.V(6).Infof("Delete received for message for %v", gnmiPath)
@@ -782,10 +853,6 @@ func parsePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath)
 		if err != nil {
 			log.Errorf("Could not create CountersDebugNameSwitchStatMap: %v", err)
 		}
-		err = initCountersAclRuleMap()
-		if err != nil {
-			log.Errorf("Could not create CountersAclRuleMap: %v", err)
-		}
 		err = initCountersVoQNameMap()
 		if err != nil {
 			log.Errorf("Could not create CountersVoQNameMap: %v", err)
@@ -819,8 +886,8 @@ func parsePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath)
 		log.V(5).Infof("v2r from %v to %+v ", stringSlice, tblPaths)
 		return nil
 	} else {
-		var sidErr *sidMapReadError
-		if errors.As(err, &sidErr) {
+		var mapErr *counterMapReadError
+		if errors.As(err, &mapErr) {
 			return err
 		}
 		log.V(5).Infof("v2r lookup failed for %v %v", stringSlice, err)

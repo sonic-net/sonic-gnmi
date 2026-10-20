@@ -404,7 +404,6 @@ func TestInitFuncsReturnError(t *testing.T) {
 		{"countersQueueNameMap", initCountersQueueNameMap, &initCountersQueueNameMapOnce},
 		{"countersPGNameMap", initCountersPGNameMap, &initCountersPGNameMapOnce},
 		{"countersPortNameMap", initCountersPortNameMap, &initCountersPortNameMapOnce},
-		{"countersAclRuleMap", initCountersAclRuleMap, &initCountersAclRuleMapOnce},
 		{"aliasMap", initAliasMap, &initAliasMapOnce},
 		{"countersPfcwdNameMap", initCountersPfcwdNameMap, &initCountersPfcwdNameMapOnce},
 		{"countersFabricPortNameMap", initCountersFabricPortNameMap, &initCountersFabricPortNameMapOnce},
@@ -504,9 +503,9 @@ func TestV2rEthPortQueStats_EmptyMap(t *testing.T) {
 
 func TestV2rAclRuleStats_EmptyMap(t *testing.T) {
 	sdcfg.Init()
-	origMap := countersAclRuleMap
-	countersAclRuleMap = map[string]string{}
-	defer func() { countersAclRuleMap = origMap }()
+	origFetch := getCountersMapFn
+	getCountersMapFn = func(string) (map[string]string, error) { return map[string]string{}, nil }
+	defer func() { getCountersMapFn = origFetch }()
 
 	paths := []string{"COUNTERS_DB", "COUNTERS", "ACL_RULE*"}
 	tblPaths, err := v2rAclRuleStats(paths)
