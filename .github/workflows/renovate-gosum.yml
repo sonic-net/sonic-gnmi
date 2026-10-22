@@ -1,0 +1,80 @@
+# Renovate cannot update go.sum here: go.mod replaces sonic-mgmt-common with
+# ../sonic-mgmt-common, which does not exist in Renovate's checkout. This job
+# checks out sonic-mgmt-common beside sonic-gnmi, as azure-pipelines.yml does,
+# runs go mod tidy, and pushes the result to the Renovate branch.
+#
+# A push made with GITHUB_TOKEN starts no workflow runs, so CodeQL and Semgrep
+# are dispatched on the new commit; workflow_dispatch is the exception to that
+# rule. The commit is authored as github-actions[bot], which renovate.json lists
+# in gitIgnoredAuthors so Renovate keeps managing the branch.
+
+name: Renovate go.sum
+
+on:
+  pull_request:
+    branches:
+      - 'master'
+      - '202[0-9][0-9][0-9]'
+
+permissions:
+  contents: read
+
+jobs:
+  tidy:
+    if: >-
+      github.event.pull_request.user.login == 'renovate[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'renovate/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout sonic-gnmi
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.head_ref }}
+          path: sonic-gnmi
+
+      - name: Checkout sonic-mgmt-common
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: sonic-net/sonic-mgmt-common
+          ref: ${{ github.base_ref }}
+          path: sonic-mgmt-common
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: sonic-gnmi/go.mod
+          cache: false
+
+      - name: Tidy and push
+        working-directory: sonic-gnmi
+        env:
+          BRANCH: ${{ github.head_ref }}
+          BASE: ${{ github.base_ref }}
+          GH_TOKEN: ${{ github.token }}
+          # Fail rather than raise the go directive past the build container's Go
+          GOTOOLCHAIN: local
+        run: |
+          set -euo pipefail
+          go_directive=$(sed -n 's/^go //p' go.mod)
+          go mod tidy
+          if [ "$(sed -n 's/^go //p' go.mod)" != "${go_directive}" ]; then
+            echo "go mod tidy changed the go directive from ${go_directive}; this update needs a newer Go than the build container has" >&2
+            exit 1
+          fi
+          if git diff --quiet -- go.mod go.sum; then
+            echo "go.mod and go.sum are already tidy"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Update go.sum' \
+            -m 'Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>' \
+            -- go.mod go.sum
+          git push origin "HEAD:${BRANCH}"
+          gh workflow run -R "${GITHUB_REPOSITORY}" codeql-analysis.yml --ref "${BRANCH}" -f build_branch="${BASE}"
+          gh workflow run -R "${GITHUB_REPOSITORY}" semgrep.yml --ref "${BRANCH}"
