@@ -2,7 +2,6 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["local>sonic-net/sonic-pipelines//renovate/default"],
   "ignoreDeps": ["go"],
-  "minimumReleaseAge": "7 days",
   "gitIgnoredAuthors": ["41898282+github-actions[bot]@users.noreply.github.com"],
   "suppressNotifications": ["artifactErrors"],
   "vulnerabilityAlerts": {
@@ -34,6 +33,7 @@
         "google.golang.org/grpc/security/advancedtls"
       ],
       "groupName": null,
+      "minimumReleaseAge": "7 days",
       "dependencyDashboardApproval": true
     }
   ]

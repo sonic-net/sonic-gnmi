@@ -1,12 +1,14 @@
 # Renovate cannot update go.sum here: go.mod replaces sonic-mgmt-common with
 # ../sonic-mgmt-common, which does not exist in Renovate's checkout. This job
 # checks out sonic-mgmt-common beside sonic-gnmi, as azure-pipelines.yml does,
-# runs go mod tidy, and pushes the result to the Renovate branch.
+# runs go mod tidy, and commits the result to the Renovate branch.
 #
-# A push made with GITHUB_TOKEN starts no workflow runs, so CodeQL and Semgrep
-# are dispatched on the new commit; workflow_dispatch is the exception to that
-# rule. The commit is authored as github-actions[bot], which renovate.json lists
-# in gitIgnoredAuthors so Renovate keeps managing the branch.
+# The commit is made through the GitHub API, so GitHub signs it; the merge robot
+# merges a Renovate PR only when every commit on it is signed by GitHub. It is
+# authored as github-actions[bot], which renovate.json lists in gitIgnoredAuthors
+# so Renovate keeps managing the branch. A commit made with GITHUB_TOKEN starts
+# no workflow runs, so CodeQL and Semgrep are dispatched on the new commit;
+# workflow_dispatch is the exception to that rule.
 
 name: Renovate go.sum
 
@@ -35,6 +37,7 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
           path: sonic-gnmi
+          persist-credentials: false
 
       - name: Checkout sonic-mgmt-common
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -50,7 +53,7 @@ jobs:
           go-version-file: sonic-gnmi/go.mod
           cache: false
 
-      - name: Tidy and push
+      - name: Tidy and commit
         working-directory: sonic-gnmi
         env:
           BRANCH: ${{ github.head_ref }}
@@ -70,11 +73,19 @@ jobs:
             echo "go.mod and go.sum are already tidy"
             exit 0
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Update go.sum' \
-            -m 'Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>' \
-            -- go.mod go.sum
-          git push origin "HEAD:${BRANCH}"
+          # expectedHeadOid fails the commit if Renovate moved the branch meanwhile
+          jq -n --arg repo "${GITHUB_REPOSITORY}" --arg branch "${BRANCH}" --arg head "$(git rev-parse HEAD)" \
+            --rawfile mod <(base64 -w0 go.mod) --rawfile sum <(base64 -w0 go.sum) '{
+              query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+              variables: { input: {
+                branch: { repositoryNameWithOwner: $repo, branchName: $branch },
+                expectedHeadOid: $head,
+                message: {
+                  headline: "Update go.sum",
+                  body: "Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+                },
+                fileChanges: { additions: [ { path: "go.mod", contents: $mod }, { path: "go.sum", contents: $sum } ] }
+              } }
+            }' | gh api graphql --input -
           gh workflow run -R "${GITHUB_REPOSITORY}" codeql-analysis.yml --ref "${BRANCH}" -f build_branch="${BASE}"
           gh workflow run -R "${GITHUB_REPOSITORY}" semgrep.yml --ref "${BRANCH}"
