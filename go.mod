@@ -23,14 +23,15 @@ require (
 	github.com/maruel/natural v1.1.1
 	github.com/msteinert/pam v0.0.0-20201130170657-e61372126161
 	github.com/openconfig/gnmi v0.14.1
-	github.com/openconfig/gnoi v0.3.0
+	github.com/openconfig/gnoi v0.4.0
 	github.com/openconfig/gnsi v1.9.0
 	github.com/openconfig/ygot v0.7.1
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
+	github.com/pkg/sftp v1.13.11
 	github.com/redis/go-redis/v9 v9.14.1
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/crypto v0.52.0
+	golang.org/x/crypto v0.54.0
 	golang.org/x/net v0.55.0
 	golang.org/x/term v0.43.0
 	google.golang.org/grpc v1.82.1
@@ -38,9 +39,10 @@ require (
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
-	mvdan.cc/sh/v3 v3.8.0
 	oras.land/oras-go/v2 v2.6.0
 )
+
+require golang.org/x/time v0.11.0
 
 require (
 	cel.dev/expr v0.25.1 // indirect
@@ -57,6 +59,7 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-redis/redis/v7 v7.4.1 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/openconfig/goyang v0.0.0-20200309174518-a00bece872fc // indirect
 	github.com/philopon/go-toposort v0.0.0-20170620085441-9be86dbd762f // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
@@ -66,7 +69,7 @@ require (
 	go4.org/intern v0.0.0-20211027215823-ae77deb06f29 // indirect
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
 	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.39.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260414002931-afd174a4e478 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
+	"github.com/sonic-net/sonic-gnmi/internal/localredis"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	log "github.com/golang/glog"
@@ -18,23 +18,21 @@ const (
 
 func GetRedisDBClient() (*redis.Client, error) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
-	addr, err := sdcfg.GetDbTcpAddr(dbName, ns)
+	addr, err := sdcfg.GetDbSock(dbName, ns)
 	if err != nil {
-		log.Errorf("Addr err: %v", err)
+		log.Errorf("Redis socket err: %v", err)
 		return nil, err
 	}
-	db, err := sdcfg.GetDbId("STATE_DB", ns)
+	dbID, err := sdcfg.GetDbId(dbName, ns)
 	if err != nil {
-		log.Errorf("DB err: %v", err)
+		log.Errorf("Redis DB err: %v", err)
 		return nil, err
 	}
-	opts := redisopts.New(redis.Options{
-		Network:     "tcp",
-		Addr:        addr,
-		Password:    "", // no password set
-		DB:          db,
-		DialTimeout: 0,
-	})
+	opts, err := localredis.Options(addr, dbID)
+	if err != nil {
+		log.Errorf("Redis endpoint err: %v", err)
+		return nil, err
+	}
 	rclient := redis.NewClient(opts)
 	if _, err := rclient.Ping(context.Background()).Result(); err != nil {
 		return nil, err

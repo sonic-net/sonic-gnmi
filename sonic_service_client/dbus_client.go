@@ -33,14 +33,9 @@ type Service interface {
 	DeleteCheckPoint(cpName string) error
 	StopService(service string) error
 	RestartService(service string) error
-	// File services APIs
-	GetFileStat(path string) (map[string]string, error)
-	DownloadFile(hostname, username, password, remotePath, localPath, protocol string) error
-	RemoveFile(path string) error
 	// Image services APIs
 	DownloadImage(url string, save_as string) error
 	InstallImage(where string) error
-	ListImages() (string, error)
 	ActivateImage(image string) error
 	FactoryReset(cmd string) (string, error)
 	//Healthz Service APIs
@@ -258,40 +253,6 @@ func (c *DbusClient) RestartService(service string) error {
 	return err
 }
 
-func (c *DbusClient) GetFileStat(path string) (map[string]string, error) {
-	common_utils.IncCounter(common_utils.DBUS_FILE_STAT)
-	modName := "file"
-	busName := c.busNamePrefix + modName
-	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".get_file_stat"
-	result, err := DbusApi(busName, busPath, intName, 60, path)
-	if err != nil {
-		return nil, err
-	}
-	data, _ := result.(map[string]string)
-	return data, nil
-}
-
-func (c *DbusClient) DownloadFile(hostname, username, password, remotePath, localPath, protocol string) error {
-	common_utils.IncCounter(common_utils.DBUS_FILE_DOWNLOAD)
-	modName := "file"
-	busName := c.busNamePrefix + modName
-	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".download"
-	_, err := DbusApi(busName, busPath, intName, 900, hostname, username, password, remotePath, localPath, protocol)
-	return err
-}
-
-func (c *DbusClient) RemoveFile(path string) error {
-	common_utils.IncCounter(common_utils.DBUS_FILE_REMOVE)
-	modName := "file"
-	busName := c.busNamePrefix + modName
-	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".remove"
-	_, err := DbusApi(busName, busPath, intName, 60, path)
-	return err
-}
-
 func (c *DbusClient) DownloadImage(url string, save_as string) error {
 	common_utils.IncCounter(common_utils.DBUS_IMAGE_DOWNLOAD)
 	modName := "image_service"
@@ -310,24 +271,6 @@ func (c *DbusClient) InstallImage(where string) error {
 	intName := c.intNamePrefix + modName + ".install"
 	_, err := DbusApi(busName, busPath, intName /*timeout=*/, 900, where)
 	return err
-}
-
-func (c *DbusClient) ListImages() (string, error) {
-	common_utils.IncCounter(common_utils.DBUS_IMAGE_LIST)
-	modName := "image_service"
-	busName := c.busNamePrefix + modName
-	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".list_images"
-	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 60)
-	if err != nil {
-		return "", err
-	}
-	strResult, ok := result.(string)
-	if !ok {
-		return "", fmt.Errorf("Invalid result type %v %v", result, reflect.TypeOf(result))
-	}
-	log.V(2).Infof("ListImages: %v", result)
-	return strResult, nil
 }
 
 func (c *DbusClient) ActivateImage(image string) error {

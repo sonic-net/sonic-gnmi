@@ -2,10 +2,10 @@ package gnmi
 
 import (
 	"context"
-	stdjson "encoding/json"
 	"fmt"
 	log "github.com/golang/glog"
 	ospb "github.com/openconfig/gnoi/os"
+	gnoios "github.com/sonic-net/sonic-gnmi/pkg/gnoi/os"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -20,6 +20,7 @@ import (
 var (
 	sem                sync.Mutex
 	totalBytesReceived = make(map[string]uint64)
+	handleOSVerify     = gnoios.HandleVerify
 )
 
 func (srv *OSServer) processTransferReq(req *ospb.InstallRequest) *ospb.InstallResponse {
@@ -446,36 +447,5 @@ func (srv *OSServer) Verify(ctx context.Context, req *ospb.VerifyRequest) (*ospb
 	}
 
 	log.V(1).Info("gNOI: Verify")
-	dbus, err := ssc.NewDbusClient()
-	if err != nil {
-		log.V(2).Infof("Failed to create dbus client: %v", err)
-		return nil, err
-	}
-	defer dbus.Close()
-
-	image_json, err := dbus.ListImages()
-	if err != nil {
-		log.V(2).Infof("Failed to list images: %v", err)
-		return nil, err
-	}
-
-	images := make(map[string]interface{})
-	err = stdjson.Unmarshal([]byte(image_json), &images)
-	if err != nil {
-		log.V(2).Infof("Failed to unmarshal images: %v", err)
-		return nil, err
-	}
-
-	current, exists := images["current"]
-	if !exists {
-		return nil, status.Errorf(codes.Internal, "Key 'current' not found in images")
-	}
-	current_image, ok := current.(string)
-	if !ok {
-		return nil, status.Errorf(codes.Internal, "Failed to assert current image as string")
-	}
-	resp := &ospb.VerifyResponse{
-		Version: current_image,
-	}
-	return resp, nil
+	return handleOSVerify(ctx, req)
 }
