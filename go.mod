@@ -4,7 +4,7 @@ go 1.25.9
 
 require (
 	github.com/Azure/sonic-mgmt-common v0.0.0-00010101000000-000000000000
-	github.com/Workiva/go-datastructures v1.0.50
+	github.com/Workiva/go-datastructures v1.0.54
 	github.com/agiledragon/gomonkey/v2 v2.8.0
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/c9s/goprocinfo v0.0.0-20191125144613-4acdd056c72d
@@ -23,8 +23,8 @@ require (
 	github.com/maruel/natural v1.1.1
 	github.com/msteinert/pam v0.0.0-20201130170657-e61372126161
 	github.com/openconfig/gnmi v0.14.1
-	github.com/openconfig/gnoi v0.4.0
-	github.com/openconfig/gnsi v1.9.0
+	github.com/openconfig/gnoi v0.4.1
+	github.com/openconfig/gnsi v1.9.1
 	github.com/openconfig/ygot v0.7.1
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
@@ -36,7 +36,7 @@ require (
 	golang.org/x/term v0.43.0
 	google.golang.org/grpc v1.82.1
 	google.golang.org/grpc/security/advancedtls v1.0.0
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	oras.land/oras-go/v2 v2.6.0
@@ -84,5 +84,5 @@ replace (
 	golang.org/x/crypto => golang.org/x/crypto v0.52.0
 	golang.org/x/sys => golang.org/x/sys v0.45.0
 	google.golang.org/grpc => google.golang.org/grpc v1.82.1
-	google.golang.org/protobuf => google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf => google.golang.org/protobuf v1.36.12
 )
