@@ -69,23 +69,26 @@ jobs:
             echo "go mod tidy changed the go directive from ${go_directive}; this update needs a newer Go than the build container has" >&2
             exit 1
           fi
-          if git diff --quiet -- go.mod go.sum; then
+          if ! git diff --quiet -- go.mod go.sum; then
+            # expectedHeadOid fails the commit if Renovate moved the branch meanwhile
+            jq -n --arg repo "${GITHUB_REPOSITORY}" --arg branch "${BRANCH}" --arg head "$(git rev-parse HEAD)" \
+              --rawfile mod <(base64 -w0 go.mod) --rawfile sum <(base64 -w0 go.sum) '{
+                query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+                variables: { input: {
+                  branch: { repositoryNameWithOwner: $repo, branchName: $branch },
+                  expectedHeadOid: $head,
+                  message: {
+                    headline: "Update go.sum",
+                    body: "Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+                  },
+                  fileChanges: { additions: [ { path: "go.mod", contents: $mod }, { path: "go.sum", contents: $sum } ] }
+                } }
+              }' | gh api graphql --input -
+          elif [ "$(git log -1 --format=%ae)" != '41898282+github-actions[bot]@users.noreply.github.com' ]; then
             echo "go.mod and go.sum are already tidy"
             exit 0
           fi
-          # expectedHeadOid fails the commit if Renovate moved the branch meanwhile
-          jq -n --arg repo "${GITHUB_REPOSITORY}" --arg branch "${BRANCH}" --arg head "$(git rev-parse HEAD)" \
-            --rawfile mod <(base64 -w0 go.mod) --rawfile sum <(base64 -w0 go.sum) '{
-              query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
-              variables: { input: {
-                branch: { repositoryNameWithOwner: $repo, branchName: $branch },
-                expectedHeadOid: $head,
-                message: {
-                  headline: "Update go.sum",
-                  body: "Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
-                },
-                fileChanges: { additions: [ { path: "go.mod", contents: $mod }, { path: "go.sum", contents: $sum } ] }
-              } }
-            }' | gh api graphql --input -
+          # The head is now a fixup commit: this run's, or that of an earlier run that
+          # failed or was canceled before dispatching, so a rerun dispatches as well
           gh workflow run -R "${GITHUB_REPOSITORY}" codeql-analysis.yml --ref "${BRANCH}" -f build_branch="${BASE}"
           gh workflow run -R "${GITHUB_REPOSITORY}" semgrep.yml --ref "${BRANCH}"
