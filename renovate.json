@@ -1,0 +1,33 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["local>sonic-net/sonic-pipelines//renovate/default"],
+  "ignoreDeps": ["go"],
+  "gitIgnoredAuthors": ["41898282+github-actions[bot]@users.noreply.github.com"],
+  "suppressNotifications": ["artifactErrors"],
+  "vulnerabilityAlerts": {
+    "groupName": "{{{datasource}}} security updates{{#if (or isMajor (includes (split 'github.com/antchfx/jsonquery github.com/antchfx/xmlquery github.com/antchfx/xpath github.com/fsnotify/fsnotify github.com/golang/glog github.com/google/gnxi github.com/openconfig/gnmi github.com/openconfig/goyang github.com/openconfig/ygot google.golang.org/grpc/security/advancedtls' ' ') depName))}} for {{{depName}}}{{/if}}"
+  },
+  "packageRules": [
+    {
+      "description": "Modules the build patches in vendor/, through this repository's patches or sonic-mgmt-common's patches/apply.sh. A bump has to refresh the patch, so it opens on its own, and only on dashboard approval. A security update still opens, on its own (see vulnerabilityAlerts above, which repeats this list), and the patched-module label keeps the preset from labeling it automerge.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "github.com/antchfx/jsonquery",
+        "github.com/antchfx/xmlquery",
+        "github.com/antchfx/xpath",
+        "github.com/fsnotify/fsnotify",
+        "github.com/golang/glog",
+        "github.com/google/gnxi",
+        "github.com/openconfig/gnmi",
+        "github.com/openconfig/goyang",
+        "github.com/openconfig/ygot",
+        "google.golang.org/grpc/security/advancedtls"
+      ],
+      "groupName": null,
+      "minimumReleaseAge": "7 days",
+      "dependencyDashboardApproval": true,
+      "addLabels": ["patched-module"],
+      "prBodyNotes": ["The build patches this module in `vendor/`, through this repository's `patches/` or sonic-mgmt-common's `patches/apply.sh`. A patch that still applies may no longer be correct for the new version, so check each one against it. This update is never labeled `automerge`."]
+    }
+  ]
+}
