@@ -4,14 +4,14 @@ go 1.25.9
 
 require (
 	github.com/Azure/sonic-mgmt-common v0.0.0-00010101000000-000000000000
-	github.com/Workiva/go-datastructures v1.0.50
-	github.com/agiledragon/gomonkey/v2 v2.8.0
-	github.com/alicebob/miniredis/v2 v2.35.0
+	github.com/Workiva/go-datastructures v1.1.8
+	github.com/agiledragon/gomonkey/v2 v2.14.3
+	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/c9s/goprocinfo v0.0.0-20191125144613-4acdd056c72d
 	github.com/dgrijalva/jwt-go v3.2.1-0.20210802184156-9742bd7fca1c+incompatible
 	github.com/fsnotify/fsnotify v1.4.9
 	github.com/go-redis/redismock/v9 v9.2.0
-	github.com/godbus/dbus/v5 v5.1.0
+	github.com/godbus/dbus/v5 v5.2.4
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/glog v1.2.5
 	github.com/golang/mock v1.7.0-rc.1 // no stable v1.7.0; forced by cloud.google.com/go/spanner transitive dep
@@ -20,20 +20,20 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/kylelemons/godebug v1.1.0
-	github.com/maruel/natural v1.1.1
+	github.com/maruel/natural v1.3.0
 	github.com/msteinert/pam v0.0.0-20201130170657-e61372126161
 	github.com/openconfig/gnmi v0.14.1
-	github.com/openconfig/gnoi v0.4.0
+	github.com/openconfig/gnoi v0.8.0
 	github.com/openconfig/gnsi v1.9.0
 	github.com/openconfig/ygot v0.7.1
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/pkg/sftp v1.13.11
-	github.com/redis/go-redis/v9 v9.14.1
-	github.com/stretchr/testify v1.11.1
+	github.com/redis/go-redis/v9 v9.23.0
+	github.com/stretchr/testify v1.12.1
 	golang.org/x/crypto v0.54.0
 	golang.org/x/net v0.55.0
-	golang.org/x/term v0.43.0
+	golang.org/x/term v0.47.0
 	google.golang.org/grpc v1.82.1
 	google.golang.org/grpc/security/advancedtls v1.0.0
 	google.golang.org/protobuf v1.36.11
@@ -42,7 +42,7 @@ require (
 	oras.land/oras-go/v2 v2.6.0
 )
 
-require golang.org/x/time v0.11.0
+require golang.org/x/time v0.16.0
 
 require (
 	cel.dev/expr v0.25.1 // indirect
@@ -82,7 +82,7 @@ replace (
 	github.com/golang/glog => github.com/golang/glog v1.2.4
 	github.com/openconfig/gnmi => github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
 	golang.org/x/crypto => golang.org/x/crypto v0.52.0
-	golang.org/x/sys => golang.org/x/sys v0.45.0
+	golang.org/x/sys => golang.org/x/sys v0.49.0
 	google.golang.org/grpc => google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf => google.golang.org/protobuf v1.36.11
 )
