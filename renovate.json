@@ -7,18 +7,9 @@
   "vulnerabilityAlerts": {
     "groupName": "{{{datasource}}} security updates{{#if (or isMajor (includes (split 'github.com/antchfx/jsonquery github.com/antchfx/xmlquery github.com/antchfx/xpath github.com/fsnotify/fsnotify github.com/golang/glog github.com/google/gnxi github.com/openconfig/gnmi github.com/openconfig/goyang github.com/openconfig/ygot google.golang.org/grpc/security/advancedtls' ' ') depName))}} for {{{depName}}}{{/if}}"
   },
-  "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Module versions the Makefile names when it copies files into vendor/",
-      "managerFilePatterns": ["/^Makefile$/"],
-      "matchStrings": ["(?<depName>golang\\.org/x/(?:crypto|term))@(?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
-      "datasourceTemplate": "go"
-    }
-  ],
   "packageRules": [
     {
-      "description": "Modules the Makefile patches, directly or through sonic-mgmt-common's patches/apply.sh. A bump has to refresh the patch, so it opens on its own, and only on dashboard approval. A security update still opens, on its own (see vulnerabilityAlerts above, which repeats this list), and the vendor-pin label keeps the preset from labeling it automerge.",
+      "description": "Modules the build patches in vendor/, through this repository's patches or sonic-mgmt-common's patches/apply.sh. A bump has to refresh the patch, so it opens on its own, and only on dashboard approval. A security update still opens, on its own (see vulnerabilityAlerts above, which repeats this list), and the patched-module label keeps the preset from labeling it automerge.",
       "matchManagers": ["gomod"],
       "matchPackageNames": [
         "github.com/antchfx/jsonquery",
@@ -35,8 +26,8 @@
       "groupName": null,
       "minimumReleaseAge": "7 days",
       "dependencyDashboardApproval": true,
-      "addLabels": ["vendor-pin"],
-      "prBodyNotes": ["This module is also copied into `vendor/` at a pinned version, by the `Makefile` or by sonic-mgmt-common's `patches/apply.sh`, and may be patched there. Move that pin, and refresh any patch, with this update, or the build keeps the old code. A security update to it is therefore never labeled `automerge`."]
+      "addLabels": ["patched-module"],
+      "prBodyNotes": ["The build patches this module in `vendor/`, through this repository's `patches/` or sonic-mgmt-common's `patches/apply.sh`. A patch that still applies may no longer be correct for the new version, so check each one against it. This update is never labeled `automerge`."]
     }
   ]
 }
