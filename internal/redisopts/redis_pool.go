@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/Azure/sonic-mgmt-common/redis_auth"
 	log "github.com/golang/glog"
 	"github.com/redis/go-redis/v9"
 )
@@ -16,6 +17,7 @@ const PoolSizeEnvVar = "GNMI_REDIS_POOL_SIZE"
 // New returns Redis options with all shared configuration applied.
 func New(opts redis.Options) *redis.Options {
 	ApplyPoolSize(&opts)
+	opts.Dialer = redis_auth.WrapDialer(opts.Dialer, opts.DialTimeout, opts.TLSConfig)
 	return &opts
 }
 
