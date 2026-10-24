@@ -21,7 +21,7 @@ require (
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/kylelemons/godebug v1.1.0
 	github.com/maruel/natural v1.1.1
-	github.com/msteinert/pam v0.0.0-20201130170657-e61372126161
+	github.com/msteinert/pam/v2 v2.1.0
 	github.com/openconfig/gnmi v0.14.1
 	github.com/openconfig/gnoi v0.4.0
 	github.com/openconfig/gnsi v1.9.0
