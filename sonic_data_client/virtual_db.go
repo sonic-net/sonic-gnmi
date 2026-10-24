@@ -47,12 +47,6 @@ var (
 	// VoQ OID to namespace map (which Redis namespace holds the counter data for each OID)
 	countersVoQOidNamespaceMap = make(map[string]string)
 
-	// MY_SID prefix to oid map in COUNTERS table of COUNTERS_DB
-	countersSidMap = make(map[string]string)
-
-	// ACL table:rule name to oid map in COUNTERS table of COUNTERS_DB
-	countersAclRuleMap = make(map[string]string)
-
 	// SONiC interface name to priority group indices and then to oid (from COUNTERS table of COUNTERS_DB)
 	countersPGNameMap = make(map[string]map[string]string)
 
@@ -76,8 +70,6 @@ var (
 	initCountersPortNameMapOnce       sync.Once
 	initCountersQueueNameMapOnce      sync.Once
 	initCountersPGNameMapOnce         sync.Once
-	initCountersSidMapOnce            sync.Once
-	initCountersAclRuleMapOnce        sync.Once
 	initAliasMapOnce                  sync.Once
 	initCountersPfcwdNameMapOnce      sync.Once
 	initCountersFabricPortNameMapOnce sync.Once
@@ -207,36 +199,6 @@ func initCountersPortNameMap() error {
 	initCountersPortNameMapOnce.Do(func() {
 		var err error
 		countersPortNameMap, err = getCountersMapFn("COUNTERS_PORT_NAME_MAP")
-		if err != nil {
-			initErr = err
-		}
-	})
-	return initErr
-}
-
-func initCountersSidMap() error {
-	clearMappingsMu.RLock()
-	defer clearMappingsMu.RUnlock()
-	var initErr error
-	initCountersSidMapOnce.Do(func() {
-		var err error
-		countersSidMap, err = getCountersMapFn("COUNTERS_SRV6_NAME_MAP")
-		if err != nil {
-			initErr = err
-		}
-	})
-	return initErr
-}
-
-func initCountersAclRuleMap() error {
-	clearMappingsMu.RLock()
-	defer clearMappingsMu.RUnlock()
-	var initErr error
-	initCountersAclRuleMapOnce.Do(func() {
-		var err error
-		// ACL_COUNTER_RULE_MAP is a hash in COUNTERS_DB:
-		//   "DATAACL:RULE_1" -> "oid:0x9000000000711"
-		countersAclRuleMap, err = getCountersMapFn("ACL_COUNTER_RULE_MAP")
 		if err != nil {
 			initErr = err
 		}
@@ -1026,9 +988,34 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 	return tblPaths, nil
 }
 
+// counterMapReadError distinguishes a failed Redis read from an unmatched virtual
+// path, which may otherwise fall back to a physical database path.
+type counterMapReadError struct {
+	err error
+}
+
+func (e *counterMapReadError) Error() string { return e.err.Error() }
+func (e *counterMapReadError) Unwrap() error { return e.err }
+
+// A missing entry is still eligible for legacy physical-path fallback during
+// initial lookup, but represents an empty result when refreshing a subscription.
+type counterMapEntryMissing struct{ message string }
+
+func (e *counterMapEntryMissing) Error() string { return e.message }
+
 // Populate real data paths from paths like
 // [COUNTERS_DB COUNTERS SID*] or [COUNTERS_DB COUNTERS SID:fcbb:bbbb:1::/48]
 func v2rSRv6SidStats(paths []string) ([]tablePath, error) {
+	// SID mappings can appear after the first query. Use one local snapshot per
+	// lookup rather than caching an empty or stale map for the process lifetime.
+	countersSidMap, err := getCountersMapFn("COUNTERS_SRV6_NAME_MAP")
+	if err != nil {
+		return nil, &counterMapReadError{err: err}
+	}
+	return srv6SidPaths(paths, countersSidMap)
+}
+
+func srv6SidPaths(paths []string, countersSidMap map[string]string) ([]tablePath, error) {
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // All SID Counters
 		for sid, oid := range countersSidMap {
@@ -1063,7 +1050,7 @@ func v2rSRv6SidStats(paths []string) ([]tablePath, error) {
 			tblPaths = append(tblPaths, tblPath)
 		} else {
 			log.V(2).Infof("SID:%v doesn't exist in counter oid map!", sid)
-			return nil, fmt.Errorf("SID:%v doesn't exist in counter oid map!", sid)
+			return nil, &counterMapEntryMissing{fmt.Sprintf("SID:%v doesn't exist in counter oid map!", sid)}
 		}
 	}
 	return tblPaths, nil
@@ -1073,8 +1060,14 @@ func v2rSRv6SidStats(paths []string) ([]tablePath, error) {
 // [COUNTERS_DB COUNTERS ACL_RULE*] or
 // [COUNTERS_DB COUNTERS ACL_RULE:DATAACL:RULE_1]
 func v2rAclRuleStats(paths []string) ([]tablePath, error) {
-	clearMappingsMu.RLock()
-	defer clearMappingsMu.RUnlock()
+	countersAclRuleMap, err := getCountersMapFn("ACL_COUNTER_RULE_MAP")
+	if err != nil {
+		return nil, &counterMapReadError{err: err}
+	}
+	return aclRulePaths(paths, countersAclRuleMap)
+}
+
+func aclRulePaths(paths []string, countersAclRuleMap map[string]string) ([]tablePath, error) {
 	var tblPaths []tablePath
 
 	// Wildcard: list all ACL rules in the map
@@ -1118,7 +1111,7 @@ func v2rAclRuleStats(paths []string) ([]tablePath, error) {
 		return tblPaths, nil
 	}
 
-	return nil, fmt.Errorf("ACL_RULE:%v doesn't exist in counter oid map!", ruleName)
+	return nil, &counterMapEntryMissing{fmt.Sprintf("ACL_RULE:%v doesn't exist in counter oid map!", ruleName)}
 }
 
 // Populate real data paths from paths like
@@ -1314,7 +1307,6 @@ func ClearMappings() {
 		countersQueueNameMap,
 		countersVoQNameMap,
 		countersVoQOidNamespaceMap,
-		countersAclRuleMap,
 	}
 	for _, counterMap := range counterMaps {
 		for entry := range counterMap {
@@ -1326,8 +1318,6 @@ func ClearMappings() {
 	initCountersPortNameMapOnce = sync.Once{}
 	initCountersQueueNameMapOnce = sync.Once{}
 	initCountersPGNameMapOnce = sync.Once{}
-	initCountersSidMapOnce = sync.Once{}
-	initCountersAclRuleMapOnce = sync.Once{}
 	initAliasMapOnce = sync.Once{}
 	initCountersPfcwdNameMapOnce = sync.Once{}
 	initCountersFabricPortNameMapOnce = sync.Once{}
@@ -1336,8 +1326,6 @@ func ClearMappings() {
 func InitCountersPortNameMap() error       { return initCountersPortNameMap() }
 func InitCountersQueueNameMap() error      { return initCountersQueueNameMap() }
 func InitCountersPGNameMap() error         { return initCountersPGNameMap() }
-func InitCountersSidMap() error            { return initCountersSidMap() }
-func InitCountersAclRuleMap() error        { return initCountersAclRuleMap() }
 func InitCountersFabricPortNameMap() error { return initCountersFabricPortNameMap() }
 
 // parseVoQName parses VoQ name in format "str2-7804-lc7-1|Asic0|Ethernet84:3"
