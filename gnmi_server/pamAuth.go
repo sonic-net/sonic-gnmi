@@ -17,11 +17,13 @@ import (
 
 // sshAuthAddr is the address of the local sshd used to validate credentials.
 // The gnmi container runs with host networking, so this reaches the host sshd.
-const sshAuthAddr = "127.0.0.1:22"
+// It is a var (not a const) so tests can point it at an in-process server.
+var sshAuthAddr = "127.0.0.1:22"
 
 // sshAuthTimeout bounds both the TCP connect and the SSH handshake/auth phase
-// so a rogue listener cannot hang the auth path indefinitely.
-const sshAuthTimeout = 5 * time.Second
+// so a rogue listener cannot hang the auth path indefinitely. It is a var so
+// tests can shorten it.
+var sshAuthTimeout = 5 * time.Second
 
 // sshHostKeyPaths lists candidate public host key files for the local sshd, in
 // preference order. The gnmi container mounts the host root read-only at
