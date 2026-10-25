@@ -1,0 +1,94 @@
+# Renovate cannot update go.sum here: go.mod replaces sonic-mgmt-common with
+# ../sonic-mgmt-common, which does not exist in Renovate's checkout. This job
+# checks out sonic-mgmt-common beside sonic-gnmi, as azure-pipelines.yml does,
+# runs go mod tidy, and commits the result to the Renovate branch.
+#
+# The commit is made through the GitHub API, so GitHub signs it; the merge robot
+# merges a Renovate PR only when every commit on it is signed by GitHub. It is
+# authored as github-actions[bot], which renovate.json lists in gitIgnoredAuthors
+# so Renovate keeps managing the branch. A commit made with GITHUB_TOKEN starts
+# no workflow runs, so CodeQL and Semgrep are dispatched on the new commit;
+# workflow_dispatch is the exception to that rule.
+
+name: Renovate go.sum
+
+on:
+  pull_request:
+    branches:
+      - 'master'
+      - '202[0-9][0-9][0-9]'
+
+permissions:
+  contents: read
+
+jobs:
+  tidy:
+    if: >-
+      github.event.pull_request.user.login == 'renovate[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'renovate/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout sonic-gnmi
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.head_ref }}
+          path: sonic-gnmi
+          persist-credentials: false
+
+      - name: Checkout sonic-mgmt-common
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: sonic-net/sonic-mgmt-common
+          ref: ${{ github.base_ref }}
+          path: sonic-mgmt-common
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: sonic-gnmi/go.mod
+          cache: false
+
+      - name: Tidy and commit
+        working-directory: sonic-gnmi
+        env:
+          BRANCH: ${{ github.head_ref }}
+          BASE: ${{ github.base_ref }}
+          GH_TOKEN: ${{ github.token }}
+          # Fail rather than raise the go directive past the build container's Go
+          GOTOOLCHAIN: local
+        run: |
+          set -euo pipefail
+          go_directive=$(sed -n 's/^go //p' go.mod)
+          go mod tidy
+          if [ "$(sed -n 's/^go //p' go.mod)" != "${go_directive}" ]; then
+            echo "go mod tidy changed the go directive from ${go_directive}; this update needs a newer Go than the build container has" >&2
+            exit 1
+          fi
+          if ! git diff --quiet -- go.mod go.sum; then
+            # expectedHeadOid fails the commit if Renovate moved the branch meanwhile
+            jq -n --arg repo "${GITHUB_REPOSITORY}" --arg branch "${BRANCH}" --arg head "$(git rev-parse HEAD)" \
+              --rawfile mod <(base64 -w0 go.mod) --rawfile sum <(base64 -w0 go.sum) '{
+                query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+                variables: { input: {
+                  branch: { repositoryNameWithOwner: $repo, branchName: $branch },
+                  expectedHeadOid: $head,
+                  message: {
+                    headline: "Update go.sum",
+                    body: "Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+                  },
+                  fileChanges: { additions: [ { path: "go.mod", contents: $mod }, { path: "go.sum", contents: $sum } ] }
+                } }
+              }' | gh api graphql --input -
+          elif [ "$(git log -1 --format=%ae)" != '41898282+github-actions[bot]@users.noreply.github.com' ]; then
+            echo "go.mod and go.sum are already tidy"
+            exit 0
+          fi
+          # The head is now a fixup commit: this run's, or that of an earlier run that
+          # failed or was canceled before dispatching, so a rerun dispatches as well
+          gh workflow run -R "${GITHUB_REPOSITORY}" codeql-analysis.yml --ref "${BRANCH}" -f build_branch="${BASE}"
+          gh workflow run -R "${GITHUB_REPOSITORY}" semgrep.yml --ref "${BRANCH}"

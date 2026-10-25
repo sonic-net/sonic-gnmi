@@ -69,6 +69,10 @@ ENABLE_DIALOUT_VALUE = 0
 endif
 
 GO_DEPS := vendor/.done
+# Directory and version of a module as go.mod selects it, after any replace, so
+# a copy into vendor/ moves with go.mod
+MOD_DIR = $$($(GO) list -mod=mod -m -f '{{.Dir}}' $(1))
+MOD_VERSION = $$($(GO) list -mod=mod -m -f '{{with .Replace}}{{.Version}}{{else}}{{.Version}}{{end}}' $(1))
 PATCHES := $(wildcard patches/*.patch)
 PATCHES += $(shell find $(MGMT_COMMON_DIR)/patches -type f)
 
@@ -84,29 +88,28 @@ $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
 	   $(GO) mod tidy; \
 	 fi
 	$(GO) mod vendor
-	$(GO) mod download github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2
-	gnxi_dir=$$($(GO) list -mod=mod -m -f '{{.Dir}}' github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2) && \
+	$(GO) mod download github.com/google/gnxi golang.org/x/crypto golang.org/x/term github.com/openconfig/gnmi
+	gnxi_dir=$(call MOD_DIR,github.com/google/gnxi) && \
 		cp -r "$$gnxi_dir"/* vendor/github.com/google/gnxi/ && \
 		chmod -R u+w vendor/github.com/google/gnxi
 
 # x/crypto/ssh/terminal imports x/term in v0.24.0+; gnmi_cli uses ssh/terminal
 # but go mod vendor omits both because the unpatched code doesn't import them.
 # Copy both explicitly so gnmi_cli can compile after patches are applied.
-# Also copy cmd/gnmi_cli and cli from the pinned gnmi module (go mod vendor omits
+# Also copy cmd/gnmi_cli and cli from the gnmi module (go mod vendor omits
 # cmd packages that are not imported by any package in this module).
-	$(GO) mod download golang.org/x/term@v0.43.0
+# Each copy comes from the version go.mod selects.
 	mkdir -p vendor/golang.org/x/crypto/ssh/terminal vendor/golang.org/x/term
-	crypto_dir=$$($(GO) list -mod=mod -m -f '{{.Dir}}' golang.org/x/crypto@v0.52.0) && \
+	crypto_dir=$(call MOD_DIR,golang.org/x/crypto) && \
 		cp "$$crypto_dir"/ssh/terminal/terminal.go vendor/golang.org/x/crypto/ssh/terminal/
-	term_dir=$$($(GO) list -mod=mod -m -f '{{.Dir}}' golang.org/x/term@v0.43.0) && \
+	term_dir=$(call MOD_DIR,golang.org/x/term) && \
 		rsync -r --chmod=u+w --exclude=testdata --exclude='*_test.go' \
 		"$$term_dir"/ vendor/golang.org/x/term/
 	python3 -c 'import re, sys; txt=open("vendor/modules.txt").read(); pkg="golang.org/x/term\n"; m=re.search(r"^(# golang\.org/x/term [^\n]+\n## explicit[^\n]*\n)", txt, re.MULTILINE) if pkg not in txt else None; sys.exit("ERROR: golang.org/x/term block not found in vendor/modules.txt") if pkg not in txt and not m else None; open("vendor/modules.txt","w").write(txt[:m.end()]+pkg+txt[m.end():]) if m else None'
-	$(GO) mod download github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802
 	mkdir -p vendor/github.com/openconfig/gnmi/cmd/gnmi_cli \
 		vendor/github.com/openconfig/gnmi/cli \
 		vendor/github.com/openconfig/gnmi/client/flags
-	gnmi_dir=$$($(GO) list -mod=mod -m -f '{{.Dir}}' github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802) && \
+	gnmi_dir=$(call MOD_DIR,github.com/openconfig/gnmi) && \
 		cp "$$gnmi_dir"/cmd/gnmi_cli/gnmi_cli.go vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/ && \
 		cp "$$gnmi_dir"/cli/cli.go vendor/github.com/openconfig/gnmi/cli/ && \
 		cp "$$gnmi_dir"/client/flags/intmap.go \
@@ -168,7 +171,7 @@ endif
 # Manually adding patched client packages and their dependencies
 # to vendor/modules.txt. This satisfies 'go install -mod=vendor' lookup checks,
 # which are required after manual patching/copying of gnxi and gnmi-cli code.
-	echo "github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2" >> vendor/modules.txt
+	echo "github.com/google/gnxi $(call MOD_VERSION,github.com/google/gnxi)" >> vendor/modules.txt
 	echo "github.com/google/gnxi/gnmi_get" >> vendor/modules.txt
 	echo "github.com/google/gnxi/gnmi_set" >> vendor/modules.txt
 	echo "github.com/openconfig/gnmi/cli" >> vendor/modules.txt
