@@ -2,6 +2,8 @@ package common_utils
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"syscall"
 	"unsafe"
 )
@@ -18,8 +20,30 @@ var (
 	memMode = 0x380
 )
 
+func sharedMemoryKey() (int, error) {
+	value := os.Getenv("SONIC_GNMI_SHM_KEY")
+	if value == "" {
+		return memKey, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 32)
+	if err != nil || parsed <= 0 {
+		return 0, fmt.Errorf("invalid SONIC_GNMI_SHM_KEY %q", value)
+	}
+	return int(parsed), nil
+}
+
+// ValidateSharedMemoryKey verifies the configured key without accessing shared memory.
+func ValidateSharedMemoryKey() error {
+	_, err := sharedMemoryKey()
+	return err
+}
+
 func SetMemCounters(counters *[int(COUNTER_SIZE)]uint64) error {
-	shmid, _, err := syscall.Syscall(syscall.SYS_SHMGET, uintptr(memKey), uintptr(memSize), uintptr(memMode))
+	key, err := sharedMemoryKey()
+	if err != nil {
+		return err
+	}
+	shmid, _, err := syscall.Syscall(syscall.SYS_SHMGET, uintptr(key), uintptr(memSize), uintptr(memMode))
 	if int(shmid) == -1 {
 		return fmt.Errorf("syscall error, err: %v\n", err)
 	}
@@ -41,7 +65,11 @@ func SetMemCounters(counters *[int(COUNTER_SIZE)]uint64) error {
 }
 
 func GetMemCounters(counters *[int(COUNTER_SIZE)]uint64) error {
-	shmid, _, err := syscall.Syscall(syscall.SYS_SHMGET, uintptr(memKey), uintptr(memSize), uintptr(memMode))
+	key, err := sharedMemoryKey()
+	if err != nil {
+		return err
+	}
+	shmid, _, err := syscall.Syscall(syscall.SYS_SHMGET, uintptr(key), uintptr(memSize), uintptr(memMode))
 	if int(shmid) == -1 {
 		return fmt.Errorf("syscall error, err: %v\n", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sonic-net/sonic-gnmi/internal/localredis"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 
 	log "github.com/golang/glog"
@@ -31,25 +32,28 @@ func (cm *ConnectionManager) GetThreshold() int {
 
 func (cm *ConnectionManager) PrepareRedis() {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
-	addr, err := sdcfg.GetDbTcpAddr("STATE_DB", ns)
+	addr, err := sdcfg.GetDbSock("STATE_DB", ns)
 	if err != nil {
-		log.Errorf("Addr err: %v", err)
+		log.Errorf("Redis socket err: %v", err)
 		return
 	}
-	db, err := sdcfg.GetDbId("STATE_DB", ns)
+	dbID, err := sdcfg.GetDbId("STATE_DB", ns)
 	if err != nil {
-		log.Errorf("DB err: %v", err)
+		log.Errorf("Redis DB err: %v", err)
 		return
 	}
-	rclient = redis.NewClient(&redis.Options{
-		Network:     "tcp",
-		Addr:        addr,
-		Password:    "",
-		DB:          db,
-		DialTimeout: 0,
-	})
+	opts, err := localredis.Options(addr, dbID)
+	if err != nil {
+		log.Errorf("Redis endpoint err: %v", err)
+		return
+	}
+	rclient = redis.NewClient(opts)
 
-	res, _ := rclient.HGetAll(context.Background(), "TELEMETRY_CONNECTIONS").Result()
+	res, err := rclient.HGetAll(context.Background(), table).Result()
+	if err != nil {
+		log.Errorf("Failed to read %s for cleanup: %v", table, err)
+		return
+	}
 
 	if res == nil {
 		return

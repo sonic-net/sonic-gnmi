@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"unsafe"
 
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
@@ -47,6 +49,17 @@ const MAX_RETRY_COUNT uint = 5
 const RETRY_DELAY_MILLISECOND uint = 100
 const RETRY_DELAY_FACTOR uint = 2
 const CHECK_POINT_PATH string = "/etc/sonic"
+
+func checkPointPath() (string, error) {
+	if path := os.Getenv("SONIC_GNMI_CHECKPOINT_DIR"); path != "" {
+		if !filepath.IsAbs(path) {
+			return "", fmt.Errorf("SONIC_GNMI_CHECKPOINT_DIR must be absolute: %q", path)
+		}
+		return filepath.Clean(path), nil
+	}
+	return CHECK_POINT_PATH, nil
+}
+
 const ELEM_INDEX_DATABASE = 0
 const ELEM_INDEX_INSTANCE = 1
 const UPDATE_OPERATION = "add"
@@ -119,7 +132,7 @@ func getDpuAddress(dpuId string) (string, error) {
 	// Find DPU address by DPU ID from CONFIG_DB
 	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
 
-	var configDbConnector = swsscommon.NewConfigDBConnector()
+	var configDbConnector = swsscommon.NewConfigDBConnector(true)
 	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 	configDbConnector.Connect(false)
 
@@ -635,13 +648,14 @@ func initRedisDbMap() {
 				return
 			}
 			// DB connector for direct redis operation
-			redisDb := redis.NewClient(&redis.Options{
+			opts := redisopts.New(redis.Options{
 				Network:     "unix",
 				Addr:        addr,
 				Password:    "", // no password set
 				DB:          int(dbn),
 				DialTimeout: 0,
 			})
+			redisDb := redis.NewClient(opts)
 			RedisDbMap[ns+":"+container+":"+dbName] = redisDb
 		}
 	}
@@ -1386,7 +1400,10 @@ with open(filename, 'r') as fp:
 `
 
 func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*gnmipb.Update, update []*gnmipb.Update) error {
-	var err error
+	checkpointPath, err := checkPointPath()
+	if err != nil {
+		return err
+	}
 
 	var sc ssc.Service
 	sc, err = ssc.NewDbusClient()
@@ -1407,12 +1424,12 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		}
 	}
 
-	err = sc.CreateCheckPoint(CHECK_POINT_PATH + "/config")
+	err = sc.CreateCheckPoint(filepath.Join(checkpointPath, "config"))
 	if err != nil {
 		return err
 	}
-	defer sc.DeleteCheckPoint(CHECK_POINT_PATH + "/config")
-	fileName := CHECK_POINT_PATH + "/config.cp.json"
+	defer sc.DeleteCheckPoint(filepath.Join(checkpointPath, "config"))
+	fileName := filepath.Join(checkpointPath, "config.cp.json")
 	c.jClient, err = NewJsonClient(fileName, namespace)
 	if err != nil {
 		return err
@@ -1685,8 +1702,11 @@ func (c *MixedDbClient) Set(delete []*gnmipb.Path, replace []*gnmipb.Update, upd
 
 func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 	var values []*spb.Value
-	var err error
 	ts := time.Now()
+	checkpointPath, err := checkPointPath()
+	if err != nil {
+		return nil, err
+	}
 
 	multiNs, err := sdcfg.CheckDbMultiNamespace()
 	if err != nil {
@@ -1701,7 +1721,7 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 		}
 	}
 
-	fileName := CHECK_POINT_PATH + "/config.cp.json"
+	fileName := filepath.Join(checkpointPath, "config.cp.json")
 	c.jClient, err = NewJsonClient(fileName, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("There's no check point")
@@ -1744,6 +1764,9 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 
 func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	if c.target == "CONFIG_DB" {
+		if _, err := checkPointPath(); err != nil {
+			return nil, err
+		}
 		ret, err := c.GetCheckPoint()
 		if err == nil {
 			return ret, err

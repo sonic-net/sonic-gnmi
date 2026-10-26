@@ -3,14 +3,43 @@ package client
 //This file contains dummy tests for the sake of coverage and will be removed later
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
+	"github.com/agiledragon/gomonkey/v2"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
+	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
+
+func TestUpdateStatsReturnsWhenSocketLookupFails(t *testing.T) {
+	wantErr := errors.New("local Redis socket lookup failed")
+	calls := 0
+	patches := gomonkey.ApplyFunc(sdcfg.GetDbSock, func(dbName, namespace string) (string, error) {
+		calls++
+		if dbName != "COUNTERS_DB" {
+			t.Errorf("GetDbSock database = %q, want COUNTERS_DB", dbName)
+		}
+		return "", wantErr
+	})
+	defer patches.Reset()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	evtc := &EventClient{
+		wg:       &wg,
+		counters: map[string]uint64{MISSED: 1},
+	}
+
+	update_stats(evtc)
+
+	if calls != 1 {
+		t.Fatalf("GetDbSock called %d times, want 1", calls)
+	}
+}
 
 func TestDummyEventClient(t *testing.T) {
 	evtc := &EventClient{}

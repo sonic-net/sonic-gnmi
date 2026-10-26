@@ -117,7 +117,7 @@ func (c *ShowClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 				}},
 		})
 	}
-	log.V(6).Infof("Getting #%v", values)
+	log.V(6).Infof("Get returned %d SHOW value(s)", len(values))
 	log.V(4).Infof("Get done, total time taken: %v ms", int64(time.Since(ts)/time.Millisecond))
 	return values, nil
 }

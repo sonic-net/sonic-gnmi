@@ -2,12 +2,31 @@ package dbconfig
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 )
+
+func TestDbConfigFiles(t *testing.T) {
+	t.Setenv("DB_CONFIG_PATH", "/tmp/redis/database_config.json")
+	if got := dbConfigFile(); got != "/tmp/redis/database_config.json" {
+		t.Fatalf("dbConfigFile() = %q, want /tmp/redis/database_config.json", got)
+	}
+	if got := dbGlobalConfigFile(); got != filepath.FromSlash("/tmp/redis/database_global.json") {
+		t.Fatalf("dbGlobalConfigFile() = %q, want /tmp/redis/database_global.json", got)
+	}
+
+	t.Setenv("DB_CONFIG_PATH", "")
+	if got := dbConfigFile(); got != SONIC_DB_CONFIG_FILE {
+		t.Fatalf("dbConfigFile() = %q, want %q", got, SONIC_DB_CONFIG_FILE)
+	}
+	if got := dbGlobalConfigFile(); got != SONIC_DB_GLOBAL_CONFIG_FILE {
+		t.Fatalf("dbGlobalConfigFile() = %q, want %q", got, SONIC_DB_GLOBAL_CONFIG_FILE)
+	}
+}
 
 func TestGetDb(t *testing.T) {
 	ns, _ := GetDbDefaultNamespace()

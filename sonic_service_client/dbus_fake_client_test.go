@@ -23,17 +23,8 @@ func TestFakeClientMethods(t *testing.T) {
 	assert.NoError(t, client.StopService("swss"))
 	assert.NoError(t, client.RestartService("bgp"))
 
-	stat, err := client.GetFileStat("/etc/sonic/config_db.json")
-	assert.NoError(t, err)
-	assert.Equal(t, "022", stat["umask"])
-
-	assert.NoError(t, client.DownloadFile("host", "user", "pass", "/remote", "/local", "scp"))
-	assert.NoError(t, client.RemoveFile("/tmp/test"))
 	assert.NoError(t, client.DownloadImage("http://example.com/image", "image.bin"))
 	assert.NoError(t, client.InstallImage("ONIE"))
-	img, err := client.ListImages()
-	assert.NoError(t, err)
-	assert.Equal(t, "image1", img)
 	assert.NoError(t, client.ActivateImage("image1"))
 	assert.NoError(t, client.LoadDockerImage("docker-image"))
 

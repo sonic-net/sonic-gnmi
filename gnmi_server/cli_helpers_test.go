@@ -26,7 +26,7 @@ const (
 	QueryTimeout = 10
 )
 
-func MockNSEnterBGPSummary(t *testing.T, fileName string) *gomonkey.Patches {
+func MockNSEnterCommand(t *testing.T, fileName string) *gomonkey.Patches {
 	fileContentBytes, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -36,6 +36,16 @@ func MockNSEnterBGPSummary(t *testing.T, fileName string) *gomonkey.Patches {
 	})
 	patches.ApplyMethod(reflect.TypeOf(&exec.Cmd{}), "CombinedOutput", func(_ *exec.Cmd) ([]byte, error) {
 		return fileContentBytes, nil
+	})
+	return patches
+}
+
+func MockNSEnterCommandError(commandErr error) *gomonkey.Patches {
+	patches := gomonkey.ApplyFunc(exec.Command, func(name string, args ...string) *exec.Cmd {
+		return &exec.Cmd{}
+	})
+	patches.ApplyMethod(reflect.TypeOf(&exec.Cmd{}), "CombinedOutput", func(_ *exec.Cmd) ([]byte, error) {
+		return nil, commandErr
 	})
 	return patches
 }

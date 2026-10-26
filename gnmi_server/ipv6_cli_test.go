@@ -114,7 +114,7 @@ func TestGetIPv6BGPSummary(t *testing.T) {
 		}
 		var patches *gomonkey.Patches
 		if test.mockOutputFile != "" {
-			patches = MockNSEnterBGPSummary(t, test.mockOutputFile)
+			patches = MockNSEnterCommand(t, test.mockOutputFile)
 		}
 
 		t.Run(test.desc, func(t *testing.T) {
