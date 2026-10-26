@@ -332,10 +332,32 @@ func TestWorkerRefusesRootAndInvalidAccount(t *testing.T) {
 func TestPOSIXACLIsEnforcedByActualUnprivilegedOpen(t *testing.T) {
 	store := testStore(t)
 	path := ExportRoot + "/acl-private.bin"
-	physical := store.physical(path)
-	if err := os.WriteFile(physical, []byte("synthetic secret"), 0600); err != nil {
+	content := []byte("synthetic image")
+	upload, err := store.Create(path)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer upload.Abort()
+	if _, err := upload.File.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := upload.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	assertReadable := func() {
+		t.Helper()
+		file, err := store.Open(path)
+		if err != nil {
+			t.Fatalf("valid service-owned artifact is not readable: %v", err)
+		}
+		defer file.Close()
+		data, err := io.ReadAll(file)
+		if err != nil || !bytes.Equal(data, content) {
+			t.Fatalf("artifact read: data=%q error=%v", data, err)
+		}
+	}
+	assertReadable()
+	ancestor := store.physical("/host")
 	var acl bytes.Buffer
 	if err := binary.Write(&acl, binary.LittleEndian, uint32(2)); err != nil {
 		t.Fatal(err)
@@ -343,21 +365,29 @@ func TestPOSIXACLIsEnforcedByActualUnprivilegedOpen(t *testing.T) {
 	for _, entry := range []struct {
 		Tag, Perm uint16
 		ID        uint32
-	}{{1, 6, ^uint32(0)}, {2, 0, 65534}, {4, 0, ^uint32(0)},
-		{16, 0, ^uint32(0)}, {32, 0, ^uint32(0)}} {
+	}{{1, 7, ^uint32(0)}, {2, 0, 65534}, {4, 5, ^uint32(0)},
+		{16, 5, ^uint32(0)}, {32, 5, ^uint32(0)}} {
 		if err := binary.Write(&acl, binary.LittleEndian, entry); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := unix.Setxattr(physical, "system.posix_acl_access", acl.Bytes(), 0); err != nil {
+	if err := unix.Setxattr(ancestor, "system.posix_acl_access", acl.Bytes(), 0); err != nil {
 		if errors.Is(err, unix.ENOTSUP) {
 			t.Skip("test filesystem has no POSIX ACL support")
 		}
 		t.Fatal(err)
 	}
-	if file, err := store.Open(path); file != nil || !errors.Is(err, os.ErrPermission) {
+	file, err := store.Open(path)
+	if file != nil {
+		defer file.Close()
+	}
+	if file != nil || !errors.Is(err, os.ErrPermission) {
 		t.Fatalf("ACL bypass by root parent process: file=%v error=%v", file, err)
 	}
+	if err := unix.Removexattr(ancestor, "system.posix_acl_access"); err != nil {
+		t.Fatal(err)
+	}
+	assertReadable()
 }
 
 func TestUnsafeStoreIsNotRepermissioned(t *testing.T) {
