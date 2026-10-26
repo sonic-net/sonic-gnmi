@@ -544,10 +544,25 @@ func createVrfListener(vrf string, port int64) (net.Listener, error) {
 	return listener, nil
 }
 
+// ValidateNoTLSConfig ensures cleartext TCP listeners remain local-only.
+func ValidateNoTLSConfig(bindAddress, gnmiVrf string) error {
+	ip := net.ParseIP(bindAddress)
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf(
+			"--noTLS requires --bind_address to be a loopback address (e.g. 127.0.0.1 or ::1) " +
+				"to prevent cleartext gRPC exposure over the network")
+	}
+	if gnmiVrf != "" && gnmiVrf != "default" {
+		return fmt.Errorf("--noTLS cannot be used with non-default --gnmi_vrf %q; configure TLS for network-reachable VRF listeners", gnmiVrf)
+	}
+	return nil
+}
+
 // tlsOpts contains TLS credentials and is used only for the TCP listener.
 // commonOpts contains interceptors, keepalive params, etc. and is used for both listeners.
 //
-// When config.Port > 0, a TCP listener is created with TLS.
+// When TCP is enabled without TLS credentials, the listener is restricted to
+// loopback in the default VRF.
 // When config.UnixSocket is set, an additional UDS listener is created without TLS.
 func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*Server, error) {
 	if config == nil {
@@ -556,6 +571,12 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	var providers []certprovider.Provider
 	if err := common_utils.ValidateSharedMemoryKey(); err != nil {
 		return nil, fmt.Errorf("invalid shared-memory configuration: %w", err)
+	}
+	tcpEnabled := config.Port > 0 || (config.Port == 0 && config.UnixSocket == "")
+	if tcpEnabled && len(tlsOpts) == 0 {
+		if err := ValidateNoTLSConfig(config.BindAddress, config.GnmiVrf); err != nil {
+			return nil, err
+		}
 	}
 	common_utils.InitCounters()
 
@@ -623,7 +644,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	var err error
 
 	// TCP Server: Enable if Port > 0, or Port == 0 when UnixSocket is not set
-	if config.Port > 0 || (config.Port == 0 && config.UnixSocket == "") {
+	if tcpEnabled {
 		tcpOpts := append(tlsOpts, commonOpts...)
 		srv.s = grpc.NewServer(tcpOpts...)
 		reflection.Register(srv.s)
@@ -632,8 +653,8 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		if config.GnmiVrf != "" && config.GnmiVrf != "default" {
 			srv.lis, err = createVrfListener(config.GnmiVrf, config.Port)
 		} else {
-			bindAddr := config.BindAddress
-			srv.lis, err = net.Listen("tcp", fmt.Sprintf("%s:%d", bindAddr, config.Port))
+			listenAddress := net.JoinHostPort(config.BindAddress, fmt.Sprintf("%d", config.Port))
+			srv.lis, err = net.Listen("tcp", listenAddress)
 		}
 		if err != nil {
 			log.Warningf("Failed to open listener port %d: %v; disabling TCP listener", config.Port, err)
@@ -819,20 +840,34 @@ func (srv *Server) Auth(ctx context.Context) (context.Context, error) {
 //   - no role for this target and writeAccess==false -> allow (backwards
 //     compatible with pre-role deployments that only granted authentication)
 func checkRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
+	return checkRoleAccessWithRequirement(auth, target, writeAccess, false)
+}
+
+func checkRequiredRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
+	return checkRoleAccessWithRequirement(auth, target, writeAccess, true)
+}
+
+func checkRoleAccessWithRequirement(auth *common_utils.AuthInfo, target string, writeAccess, requireRole bool) error {
 	access := resolveTargetRoleAccess(auth, target)
-	if access.noAccess {
-		return fmt.Errorf("%s does not have access, target %s", auth.User, target)
+	if access.noAccessRole != "" {
+		return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, access.noAccessRole)
 	}
 	if writeAccess && !access.readWrite {
+		if access.readOnlyRole != "" {
+			return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, access.readOnlyRole)
+		}
 		return fmt.Errorf("%s does not have write access, target %s", auth.User, target)
+	}
+	if requireRole && access.readOnlyRole == "" && !access.readWrite {
+		return fmt.Errorf("%s does not have read access, target %s", auth.User, target)
 	}
 	return nil
 }
 
 type targetRoleAccess struct {
-	noAccess  bool
-	readOnly  bool
-	readWrite bool
+	noAccessRole string
+	readOnlyRole string
+	readWrite    bool
 }
 
 func resolveTargetRoleAccess(auth *common_utils.AuthInfo, target string) targetRoleAccess {
@@ -843,11 +878,12 @@ func resolveTargetRoleAccess(auth *common_utils.AuthInfo, target string) targetR
 
 	prefix := strings.ToLower(target) + "_"
 	for _, role := range auth.Roles {
-		switch strings.TrimSpace(role) {
+		role = strings.TrimSpace(role)
+		switch role {
 		case prefix + NoAccessMode:
-			access.noAccess = true
+			access.noAccessRole = role
 		case prefix + ReadOnlyMode:
-			access.readOnly = true
+			access.readOnlyRole = role
 		case prefix + WriteAccessMode:
 			access.readWrite = true
 		}
@@ -911,7 +947,7 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	// which allowed password- and JWT-authenticated callers to bypass the
 	// readonly/readwrite gate for gNOI RPCs.
 	if err := checkRoleAccess(&rc.Auth, target, writeAccess); err != nil {
-		return ctx, err
+		return ctx, status.Error(codes.PermissionDenied, err.Error())
 	}
 
 	log.V(5).Infof("authenticate user %v, roles %v", rc.Auth.User, rc.Auth.Roles)
