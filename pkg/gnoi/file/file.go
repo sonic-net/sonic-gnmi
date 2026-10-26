@@ -146,7 +146,7 @@ func handleTransferToRemoteLocal(
 		if os.IsPermission(err) {
 			return nil, status.Error(codes.PermissionDenied, "image artifact access denied")
 		}
-		return nil, status.Errorf(codes.Internal, "download failed: %v", err)
+		return nil, imageOperationError("download failed", err)
 	}
 
 	// Build response with MD5 hash
@@ -321,9 +321,9 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 		if err != nil {
 			return status.Errorf(codes.Internal, "resolve managed-image store: %v", err)
 		}
-		upload, err = (imageexport.Store{HostRoot: root}).Create(remotePath)
+		upload, err = (imageexport.Store{HostRoot: root}).CreateContext(stream.Context(), remotePath)
 		if err != nil {
-			return status.Errorf(codes.Internal, "create managed image: %v", err)
+			return imageOperationError("create managed image", err)
 		}
 		f = upload.File
 	} else {
@@ -379,8 +379,8 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 	}
 
 	if upload != nil {
-		if err := upload.Commit(); err != nil {
-			return status.Errorf(codes.Internal, "publish managed image: %v", err)
+		if err := upload.CommitContext(stream.Context()); err != nil {
+			return imageOperationError("publish managed image", err)
 		}
 		return stream.SendAndClose(&gnoi_file_pb.PutResponse{})
 	}

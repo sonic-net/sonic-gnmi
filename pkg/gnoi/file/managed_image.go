@@ -3,6 +3,7 @@ package file
 import (
 	"context"
 	"crypto/md5"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,7 +12,16 @@ import (
 	log "github.com/golang/glog"
 	"github.com/sonic-net/sonic-gnmi/internal/download"
 	"github.com/sonic-net/sonic-gnmi/internal/imageexport"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+func imageOperationError(operation string, err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return status.FromContextError(err).Err()
+	}
+	return status.Errorf(codes.Internal, "%s: %v", operation, err)
+}
 
 func abortImage(upload *imageexport.Upload) {
 	if err := upload.Abort(); err != nil {
@@ -48,7 +58,7 @@ func downloadAndHashImage(ctx context.Context, url, logical string) ([]byte, err
 		if err != nil {
 			return nil, err
 		}
-		upload, err = (imageexport.Store{HostRoot: root}).Create(logical)
+		upload, err = (imageexport.Store{HostRoot: root}).CreateContext(ctx, logical)
 		if err != nil {
 			return nil, err
 		}
@@ -67,7 +77,7 @@ func downloadAndHashImage(ctx context.Context, url, logical string) ([]byte, err
 		return nil, err
 	}
 	if upload != nil {
-		if err := upload.Commit(); err != nil {
+		if err := upload.CommitContext(ctx); err != nil {
 			return nil, err
 		}
 	} else if err := legacy.Commit(legacy.permissions); err != nil {

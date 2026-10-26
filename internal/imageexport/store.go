@@ -278,13 +278,14 @@ type Upload struct {
 }
 
 func (s Store) Create(path string) (*Upload, error) {
+	return s.CreateContext(context.Background(), path)
+}
+
+func (s Store) CreateContext(ctx context.Context, path string) (*Upload, error) {
 	if _, err := Parts(path, false); err != nil {
 		return nil, err
 	}
-	if err := s.Prepare(); err != nil {
-		return nil, err
-	}
-	file, token, err := s.request("create", path, "")
+	file, token, err := s.requestContext(ctx, "create", path, "")
 	if err != nil {
 		return nil, err
 	}
@@ -292,6 +293,13 @@ func (s Store) Create(path string) (*Upload, error) {
 }
 
 func (u *Upload) Commit() error {
+	return u.CommitContext(context.Background())
+}
+
+func (u *Upload) CommitContext(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := u.File.Sync(); err != nil {
 		return err
 	}
@@ -300,7 +308,7 @@ func (u *Upload) Commit() error {
 	if closeErr != nil {
 		return closeErr
 	}
-	_, _, err := u.store.request("publish", u.path, u.token)
+	_, _, err := u.store.requestContext(ctx, "publish", u.path, u.token)
 	u.committed = err == nil
 	return err
 }
@@ -309,11 +317,13 @@ func (u *Upload) Abort() error {
 	if u.committed {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	var closeErr error
 	if !u.closed {
 		closeErr = u.File.Close()
 		u.closed = true
 	}
-	_, _, err := u.store.request("abort", u.path, u.token)
+	_, _, err := u.store.requestContext(ctx, "abort", u.path, u.token)
 	return errors.Join(closeErr, err)
 }

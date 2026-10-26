@@ -1504,8 +1504,8 @@ func TestHandleTransferToRemote_EdgeCases(t *testing.T) {
 		}
 
 		st, ok := status.FromError(err)
-		if !ok || st.Code() != codes.Internal {
-			t.Errorf("Expected Internal error from timeout, got %v", err)
+		if !ok || st.Code() != codes.DeadlineExceeded {
+			t.Errorf("Expected DeadlineExceeded error from timeout, got %v", err)
 		}
 	})
 }
