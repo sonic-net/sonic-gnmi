@@ -27,20 +27,20 @@ func (d *legacyDirectory) private(info unix.Stat_t) bool {
 	return false
 }
 
-func (d *legacyDirectory) checkFinal() (os.FileMode, error) {
+func (d *legacyDirectory) checkFinal() (*unix.Stat_t, error) {
 	var info unix.Stat_t
 	err := unix.Fstatat(int(d.file.Fd()), d.name, &info, unix.AT_SYMLINK_NOFOLLOW)
 	if errors.Is(err, unix.ENOENT) {
-		return 0644, nil
+		return nil, nil
 	}
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	if d.private(info) || info.Mode&unix.S_IFMT == unix.S_IFLNK ||
 		info.Mode&unix.S_IFMT == unix.S_IFREG && info.Nlink != 1 {
-		return 0, os.ErrPermission
+		return nil, os.ErrPermission
 	}
-	return os.FileMode(info.Mode & 0777), nil
+	return &info, nil
 }
 
 func pinLegacyDirectory(path string, create bool) (*legacyDirectory, error) {
@@ -119,6 +119,7 @@ type legacyUpload struct {
 	directory   *legacyDirectory
 	temp        string
 	permissions os.FileMode
+	owner       *unix.Stat_t
 	closed      bool
 	published   bool
 }
@@ -128,7 +129,7 @@ func createLegacyUpload(path string) (*legacyUpload, error) {
 	if err != nil {
 		return nil, err
 	}
-	permissions, err := directory.checkFinal()
+	owner, err := directory.checkFinal()
 	if err != nil {
 		directory.file.Close()
 		return nil, err
@@ -139,11 +140,20 @@ func createLegacyUpload(path string) (*legacyUpload, error) {
 		directory.file.Close()
 		return nil, err
 	}
+	permissions := os.FileMode(0644)
+	if owner != nil {
+		permissions = os.FileMode(owner.Mode & 0777)
+	}
 	return &legacyUpload{File: file, directory: directory, temp: filepath.Base(file.Name()),
-		permissions: permissions}, nil
+		permissions: permissions, owner: owner}, nil
 }
 
 func (u *legacyUpload) Commit(permissions os.FileMode) error {
+	if u.owner != nil {
+		if err := u.File.Chown(int(u.owner.Uid), int(u.owner.Gid)); err != nil {
+			return err
+		}
+	}
 	if err := u.File.Chmod(permissions); err != nil {
 		return err
 	}

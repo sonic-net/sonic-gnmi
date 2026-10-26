@@ -464,7 +464,7 @@ func HandleTransferToRemoteForDPUStreaming(
 		Request: &gnoi_file_pb.PutRequest_Open{
 			Open: &gnoi_file_pb.PutRequest_Details{
 				RemoteFile:  localPath,
-				Permissions: 0644,
+				Permissions: 0,
 			},
 		},
 	}

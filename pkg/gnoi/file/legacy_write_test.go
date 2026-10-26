@@ -172,3 +172,43 @@ func TestLegacyFinalSwapCannotTruncateOrRemovePublishedImage(t *testing.T) {
 		t.Fatalf("atomic publication followed final symlink: data=%q error=%v", actual, err)
 	}
 }
+
+func TestLegacyHTTPOverwritePreservesNonRootOwnership(t *testing.T) {
+	store := realImageStore(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte("replacement"))
+	}))
+	defer server.Close()
+	for _, mode := range []os.FileMode{0600, 0640} {
+		destination := filepath.Join(store.HostRoot, "tmp", "owned.bin")
+		if err := os.MkdirAll(filepath.Dir(destination), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(destination, []byte("original"), mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chown(destination, 65532, 65531); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(destination, mode); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := HandleTransferToRemote(context.Background(), &gnoi_file_pb.TransferToRemoteRequest{
+			LocalPath:      "/tmp/owned.bin",
+			RemoteDownload: &common.RemoteDownload{Path: server.URL, Protocol: common.RemoteDownload_HTTP},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		var info unix.Stat_t
+		if err := unix.Stat(destination, &info); err != nil {
+			t.Fatal(err)
+		}
+		if info.Uid != 65532 || info.Gid != 65531 || info.Mode&0777 != uint32(mode) {
+			t.Fatalf("ownership/mode changed during overwrite: %+v", info)
+		}
+		data, err := os.ReadFile(destination)
+		if err != nil || string(data) != "replacement" {
+			t.Fatalf("replacement not published: data=%q error=%v", data, err)
+		}
+	}
+}

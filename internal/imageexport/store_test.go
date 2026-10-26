@@ -23,6 +23,19 @@ func TestImageWorkerProcess(t *testing.T) {
 	for index, argument := range os.Args {
 		if argument == "--" && len(os.Args[index+1:]) == 4 {
 			args := os.Args[index+1:]
+			if failure := os.Getenv("SONIC_IMAGE_TEST_CREATE_RESPONSE"); failure != "" && args[1] == "create" {
+				fd, _, err := workerOperation(args[0], args[1], args[2], args[3])
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer unix.Close(fd)
+				if failure == "mismatch" {
+					if err := unix.Sendmsg(3, []byte("OK "+strings.Repeat("f", 32)), unix.UnixRights(fd), nil, 0); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return
+			}
 			ServeWorker(3, args[0], args[1], args[2], args[3])
 			return
 		}

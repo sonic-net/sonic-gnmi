@@ -4,6 +4,8 @@ package imageexport
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -100,7 +102,7 @@ func (s Store) request(operation, path, token string) (*os.File, string, error) 
 	return s.requestContext(context.Background(), operation, path, token)
 }
 
-func (s Store) requestContext(parent context.Context, operation, path, token string) (*os.File, string, error) {
+func (s Store) requestContext(parent context.Context, operation, path, token string) (source *os.File, resultToken string, resultErr error) {
 	if err := parent.Err(); err != nil {
 		return nil, "", err
 	}
@@ -136,6 +138,16 @@ func (s Store) requestContext(parent context.Context, operation, path, token str
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return nil, "", fmt.Errorf("start managed-image worker: %w", err)
+	}
+	if operation == "create" {
+		defer func() {
+			if resultErr != nil {
+				upload := Upload{store: s, path: path, token: token, closed: true}
+				if err := upload.Abort(); err != nil {
+					resultErr = errors.Join(resultErr, fmt.Errorf("reclaim failed managed-image creation: %w", err))
+				}
+			}
+		}()
 	}
 	child.Close()
 	payload, ancillary := make([]byte, 128), make([]byte, unix.CmsgSpace(4))
@@ -182,11 +194,10 @@ func (s Store) requestContext(parent context.Context, operation, path, token str
 		!strings.HasPrefix(response, "OK") || len(descriptors) != expectedFDs {
 		return nil, "", fmt.Errorf("managed-image worker failed: %s", stderr.String())
 	}
-	resultToken := strings.TrimSpace(strings.TrimPrefix(response, "OK"))
-	if operation == "create" && !tokenPattern.MatchString(resultToken) {
+	resultToken = strings.TrimSpace(strings.TrimPrefix(response, "OK"))
+	if operation == "create" && (!tokenPattern.MatchString(resultToken) || resultToken != token) {
 		return nil, "", fmt.Errorf("invalid managed-image staging response")
 	}
-	var source *os.File
 	if expectedFDs == 1 {
 		source = os.NewFile(uintptr(descriptors[0]), path)
 		descriptors = nil
@@ -285,7 +296,12 @@ func (s Store) CreateContext(ctx context.Context, path string) (*Upload, error) 
 	if _, err := Parts(path, false); err != nil {
 		return nil, err
 	}
-	file, token, err := s.requestContext(ctx, "create", path, "")
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return nil, err
+	}
+	token := hex.EncodeToString(random[:])
+	file, _, err := s.requestContext(ctx, "create", path, token)
 	if err != nil {
 		return nil, err
 	}

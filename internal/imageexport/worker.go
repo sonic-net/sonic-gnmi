@@ -1,8 +1,6 @@
 package imageexport
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -174,11 +172,9 @@ func workerOperation(root, operation, path, token string) (int, string, error) {
 		return -1, "", err
 	}
 	if operation == "create" {
-		var random [16]byte
-		if _, err := rand.Read(random[:]); err != nil {
-			return -1, "", err
+		if !tokenPattern.MatchString(token) {
+			return -1, "", os.ErrPermission
 		}
-		token = hex.EncodeToString(random[:])
 		fd, err := unix.Openat(staging, token,
 			unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0600)
 		if err != nil {

@@ -5,9 +5,11 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"golang.org/x/sys/unix"
 )
 
@@ -107,5 +109,63 @@ func TestUploadCommitRejectsAlreadyCanceledContext(t *testing.T) {
 	}
 	if upload.closed || upload.committed {
 		t.Fatal("already canceled commit modified upload state")
+	}
+}
+
+func TestCreateCancellationAfterDescriptorReceiptReclaimsStaging(t *testing.T) {
+	store := testStore(t)
+	for attempt := 0; attempt < 3; attempt++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		receivedFD := -1
+		patches := gomonkey.NewPatches()
+		patches.ApplyFunc(unix.Recvmsg, func(fd int, payload, ancillary []byte, flags int) (int, int, int, unix.Sockaddr, error) {
+			patches.Reset()
+			n, ancillaryN, resultFlags, address, err := unix.Recvmsg(fd, payload, ancillary, flags)
+			messages, parseErr := unix.ParseSocketControlMessage(ancillary[:ancillaryN])
+			if parseErr == nil {
+				for _, message := range messages {
+					rights, rightsErr := unix.ParseUnixRights(&message)
+					if rightsErr == nil && len(rights) == 1 {
+						receivedFD = rights[0]
+					}
+				}
+			}
+			cancel()
+			return n, ancillaryN, resultFlags, address, err
+		})
+		upload, err := store.CreateContext(ctx, ExportRoot+"/canceled.bin")
+		patches.Reset()
+		cancel()
+		if upload != nil || !errors.Is(err, context.Canceled) || receivedFD < 0 {
+			t.Fatalf("cancel after receiving descriptor: upload=%v receivedFD=%d error=%v", upload, receivedFD, err)
+		}
+		if _, err := unix.FcntlInt(uintptr(receivedFD), unix.F_GETFD, 0); !errors.Is(err, unix.EBADF) {
+			t.Fatalf("received descriptor leaked after cancellation: %v", err)
+		}
+		entries, err := os.ReadDir(store.physical(StoreRoot + "/staging"))
+		if err != nil || len(entries) != 0 {
+			t.Fatalf("canceled creation left staging: entries=%v error=%v", entries, err)
+		}
+	}
+}
+
+func TestCreateFailedResponseReclaimsParentSelectedToken(t *testing.T) {
+	for _, failure := range []string{"missing", "mismatch"} {
+		t.Run(failure, func(t *testing.T) {
+			store := testStore(t)
+			command := newWorkerCommand
+			newWorkerCommand = func(ctx context.Context, args ...string) *exec.Cmd {
+				cmd := command(ctx, args...)
+				cmd.Env = append(cmd.Env, "SONIC_IMAGE_TEST_CREATE_RESPONSE="+failure)
+				return cmd
+			}
+			if upload, err := store.Create(ExportRoot + "/failed.bin"); upload != nil || err == nil {
+				t.Fatalf("failed worker response accepted: upload=%v error=%v", upload, err)
+			}
+			entries, err := os.ReadDir(store.physical(StoreRoot + "/staging"))
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("failed response left staging: entries=%v error=%v", entries, err)
+			}
+		})
 	}
 }
