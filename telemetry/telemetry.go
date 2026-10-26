@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -90,6 +89,8 @@ func main() {
 	err := runTelemetry(os.Args)
 	if err != nil {
 		log.Errorf("Unable to setup telemetry config due to err: %v", err)
+		log.Flush()
+		os.Exit(1)
 	}
 }
 
@@ -152,6 +153,13 @@ func getGlogFlagsMap() map[string]bool {
 	}
 }
 
+func tlsClientAuthPolicy(allowNoClientCert bool) tls.ClientAuthType {
+	if allowNoClientCert {
+		return tls.VerifyClientCertIfGiven
+	}
+	return tls.RequireAndVerifyClientCert
+}
+
 func parseOSArgs() ([]string, []string) {
 	glogFlags := []string{os.Args[0]}
 	telemetryFlags := []string{os.Args[0]}
@@ -187,7 +195,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		ZmqPort:                  fs.String("zmq_port", "", "Orchagent ZMQ port, when not set or empty string telemetry server will switch to Redis based communication channel."),
 		Insecure:                 fs.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!"),
 		NoTLS:                    fs.Bool("noTLS", false, "disable TLS, for testing only!"),
-		AllowNoClientCert:        fs.Bool("allow_no_client_auth", false, "When set, telemetry server will request but not require a client certificate."),
+		AllowNoClientCert:        fs.Bool("allow_no_client_auth", false, "When set, a client certificate is optional, but a certificate provided by the client must be valid."),
 		JwtRefInt:                fs.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed."),
 		JwtValInt:                fs.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for."),
 		GnmiTranslibWrite:        fs.Bool("gnmi_translib_write", gnmi.ENABLE_TRANSLIB_WRITE, "Enable gNMI translib write for management framework"),
@@ -221,11 +229,13 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
-	fs.Parse(os.Args[1:])
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		return nil, nil, err
+	}
 
 	var defUserAuth gnmi.AuthTypes
-	if *telemetryCfg.GnmiTranslibWrite {
-		//In read/write mode we want to enable auth by default.
+	if *telemetryCfg.GnmiTranslibWrite || *telemetryCfg.GnmiNativeWrite {
+		// In any read/write mode we want to enable auth by default.
 		defUserAuth = gnmi.AuthTypes{"password": true, "cert": false, "jwt": true}
 	} else {
 		defUserAuth = gnmi.AuthTypes{"jwt": false, "password": false, "cert": false}
@@ -260,11 +270,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	}
 
 	if *telemetryCfg.NoTLS {
-		ip := net.ParseIP(*telemetryCfg.BindAddress)
-		if ip == nil || !ip.IsLoopback() {
-			return nil, nil, fmt.Errorf(
-				"--noTLS requires --bind_address to be a loopback address (e.g. 127.0.0.1 or ::1) " +
-					"to prevent cleartext gRPC exposure over the network")
+		if err := gnmi.ValidateNoTLSConfig(*telemetryCfg.BindAddress, *telemetryCfg.GnmiVrf); err != nil {
+			return nil, nil, err
 		}
 	}
 
@@ -335,10 +342,18 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	if !*telemetryCfg.Insecure {
 		cfg.GetOptions = gnmi.SrvAdvConfig
 	}
-	if *telemetryCfg.CaCert == "" && telemetryCfg.UserAuth.Enabled("cert") {
+	if telemetryCfg.UserAuth.Enabled("cert") && (*telemetryCfg.NoTLS || *telemetryCfg.CaCert == "") {
 		telemetryCfg.UserAuth.Unset("cert")
-		log.V(2).Info("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
+		tcpEnabled := cfg.Port > 0 || (cfg.Port == 0 && cfg.UnixSocket == "")
+		if *telemetryCfg.NoTLS && tcpEnabled && !telemetryCfg.UserAuth.Any() {
+			return nil, nil, fmt.Errorf(
+				"--client_auth cert cannot authenticate a --noTLS TCP listener; " +
+					"configure password or jwt authentication, use --port 0 for UDS-only access, " +
+					"or explicitly select --client_auth none for unauthenticated development")
+		}
+		log.Warning("client_auth mode cert requires TLS and ca_crt. Disabling cert mode authentication.")
 	}
+	cfg.UserAuth = telemetryCfg.UserAuth
 
 	if *telemetryCfg.PathsBlacklistFile != "" {
 		blacklistFile, err := os.Open(*telemetryCfg.PathsBlacklistFile)
@@ -511,7 +526,7 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			}
 
 			tlsCfg := &tls.Config{
-				ClientAuth:               tls.RequireAndVerifyClientCert,
+				ClientAuth:               tlsClientAuthPolicy(*telemetryCfg.AllowNoClientCert),
 				Certificates:             []tls.Certificate{certificate},
 				MinVersion:               tls.VersionTLS12,
 				SessionTicketsDisabled:   true,
@@ -525,13 +540,6 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 				},
-			}
-
-			if *telemetryCfg.AllowNoClientCert {
-				// RequestClientCert will ask client for a certificate but won't
-				// require it to proceed. If certificate is provided, it will be
-				// verified.
-				tlsCfg.ClientAuth = tls.RequestClientCert
 			}
 
 			if *telemetryCfg.CaCert != "" {
@@ -559,11 +567,6 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 					continue
 				}
 				tlsCfg.ClientCAs = certPool
-			} else {
-				if telemetryCfg.UserAuth.Enabled("cert") {
-					telemetryCfg.UserAuth.Unset("cert")
-					log.Warning("client_auth mode cert requires ca_crt option. Disabling cert mode authentication.")
-				}
 			}
 
 			atomic.StoreInt32(&certLoaded, 1) // Certs have loaded
@@ -588,11 +591,9 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			if *telemetryCfg.IdleConnDuration > 0 { // non inf case
 				commonOpts = append(commonOpts, grpc.KeepaliveParams(keep_alive_params))
 			}
-
-			cfg.UserAuth = telemetryCfg.UserAuth
-
-			gnmi.GenerateJwtSecretKey()
 		}
+
+		gnmi.GenerateJwtSecretKey()
 
 		commonOpts = append(commonOpts,
 			grpc.MaxRecvMsgSize(*telemetryCfg.MaxRecvMsgSize),

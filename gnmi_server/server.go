@@ -36,6 +36,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	gnmi_extpb "github.com/openconfig/gnmi/proto/gnmi_ext"
 	gnoi_containerz_pb "github.com/openconfig/gnoi/containerz"
+	gnoi_debug_pb "github.com/openconfig/gnoi/debug"
 	"github.com/openconfig/gnoi/factory_reset"
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"google.golang.org/grpc/credentials"
@@ -47,7 +48,6 @@ import (
 	gnsi_certz_pb "github.com/openconfig/gnsi/certz"
 	gnsi_credentialz_pb "github.com/openconfig/gnsi/credentialz"
 	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
-	gnoi_debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 	gnoi_oras_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/oras"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"google.golang.org/grpc"
@@ -191,15 +191,15 @@ type OSServer struct {
 
 // ContainerzServer is the server API for Containerz service.
 type ContainerzServer struct {
-	server *Server
+	server             *Server
+	deployDependencies *containerzDeployDependencies
 	gnoi_containerz_pb.UnimplementedContainerzServer
 }
 
 // DebugServer is the server API for Debug service.
 type DebugServer struct {
 	*Server
-	readWhitelist  []string
-	writeWhitelist []string
+	policy *gnoi_debug.Policy
 	gnoi_debug_pb.UnimplementedDebugServer
 }
 
@@ -356,10 +356,11 @@ func (i AuthTypes) Unset(mode string) error {
 	return nil
 }
 
-// registerAllServices registers all gNMI and gNOI services on the given gRPC server.
-func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
+// registerSharedServices registers services exposed on both TCP and UDS.
+// gNOI Debug is registered separately on UDS only.
+func registerSharedServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 	osSrv *OSServer, containerzSrv *ContainerzServer,
-	debugSrv *DebugServer, healthzSrv *HealthzServer, orasSrv *OrasServer, certzSrv *GNSICertzServer, authzSrv *GNSIAuthzServer, pathzSrv *GNSIPathzServer, credentialzSrv *GNSICredentialzServer) {
+	healthzSrv *HealthzServer, orasSrv *OrasServer, certzSrv *GNSICertzServer, authzSrv *GNSIAuthzServer, pathzSrv *GNSIPathzServer, credentialzSrv *GNSICredentialzServer) {
 	gnmipb.RegisterGNMIServer(s, srv)
 	factory_reset.RegisterFactoryResetServer(s, srv)
 	gnsi_certz_pb.RegisterCertzServer(s, certzSrv)
@@ -372,7 +373,6 @@ func registerAllServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 		gnoi_file_pb.RegisterFileServer(s, fileSrv)
 		gnoi_os_pb.RegisterOSServer(s, osSrv)
 		gnoi_containerz_pb.RegisterContainerzServer(s, containerzSrv)
-		gnoi_debug_pb.RegisterDebugServer(s, debugSrv)
 		gnoi_healthz_pb.RegisterHealthzServer(s, healthzSrv)
 	}
 	// ORAS Pull writes only into an allowlisted staging area inside the
@@ -544,10 +544,25 @@ func createVrfListener(vrf string, port int64) (net.Listener, error) {
 	return listener, nil
 }
 
+// ValidateNoTLSConfig ensures cleartext TCP listeners remain local-only.
+func ValidateNoTLSConfig(bindAddress, gnmiVrf string) error {
+	ip := net.ParseIP(bindAddress)
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf(
+			"--noTLS requires --bind_address to be a loopback address (e.g. 127.0.0.1 or ::1) " +
+				"to prevent cleartext gRPC exposure over the network")
+	}
+	if gnmiVrf != "" && gnmiVrf != "default" {
+		return fmt.Errorf("--noTLS cannot be used with non-default --gnmi_vrf %q; configure TLS for network-reachable VRF listeners", gnmiVrf)
+	}
+	return nil
+}
+
 // tlsOpts contains TLS credentials and is used only for the TCP listener.
 // commonOpts contains interceptors, keepalive params, etc. and is used for both listeners.
 //
-// When config.Port > 0, a TCP listener is created with TLS.
+// When TCP is enabled without TLS credentials, the listener is restricted to
+// loopback in the default VRF.
 // When config.UnixSocket is set, an additional UDS listener is created without TLS.
 func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*Server, error) {
 	if config == nil {
@@ -556,6 +571,12 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	var providers []certprovider.Provider
 	if err := common_utils.ValidateSharedMemoryKey(); err != nil {
 		return nil, fmt.Errorf("invalid shared-memory configuration: %w", err)
+	}
+	tcpEnabled := config.Port > 0 || (config.Port == 0 && config.UnixSocket == "")
+	if tcpEnabled && len(tlsOpts) == 0 {
+		if err := ValidateNoTLSConfig(config.BindAddress, config.GnmiVrf); err != nil {
+			return nil, err
+		}
 	}
 	common_utils.InitCounters()
 
@@ -602,11 +623,17 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	srv.gnsiAuthz = authzSrv
 	pathzSrv := NewGNSIPathzServer(srv)
 	srv.gnsiPathz = pathzSrv
-	readWhitelist, writeWhitelist := gnoi_debug.ConstructWhitelists()
-	debugSrv := &DebugServer{
-		Server:         srv,
-		readWhitelist:  readWhitelist,
-		writeWhitelist: writeWhitelist,
+	var debugSrv *DebugServer
+	if config.UnixSocket != "" {
+		debugPolicy, policyErr := gnoi_debug.LoadPolicy(gnoi_debug.PolicyFilePath)
+		if policyErr != nil {
+			log.Errorf("gNOI Debug policy unavailable: %v", policyErr)
+			debugPolicy = gnoi_debug.NewUnavailablePolicy(policyErr)
+		}
+		debugSrv = &DebugServer{
+			Server: srv,
+			policy: debugPolicy,
+		}
 	}
 	certzSrv := NewGNSICertzServer(srv)
 	srv.gnsiCertz = certzSrv
@@ -616,8 +643,8 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	orasSrv := &OrasServer{Server: srv}
 	var err error
 
-	// TCP Server (Port > 0)
-	if config.Port > 0 {
+	// TCP Server: Enable if Port > 0, or Port == 0 when UnixSocket is not set
+	if tcpEnabled {
 		tcpOpts := append(tlsOpts, commonOpts...)
 		srv.s = grpc.NewServer(tcpOpts...)
 		reflection.Register(srv.s)
@@ -626,15 +653,16 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		if config.GnmiVrf != "" && config.GnmiVrf != "default" {
 			srv.lis, err = createVrfListener(config.GnmiVrf, config.Port)
 		} else {
-			bindAddr := config.BindAddress
-			srv.lis, err = net.Listen("tcp", fmt.Sprintf("%s:%d", bindAddr, config.Port))
+			listenAddress := net.JoinHostPort(config.BindAddress, fmt.Sprintf("%d", config.Port))
+			srv.lis, err = net.Listen("tcp", listenAddress)
 		}
 		if err != nil {
 			log.Warningf("Failed to open listener port %d: %v; disabling TCP listener", config.Port, err)
 			srv.s.Stop()
 			srv.s = nil
 		} else {
-			registerAllServices(srv.s, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
+			srv.config.Port = int64(srv.lis.Addr().(*net.TCPAddr).Port)
+			registerSharedServices(srv.s, srv, fileSrv, osSrv, containerzSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
 		}
 	}
 
@@ -668,7 +696,10 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 					srv.udsServer.Stop()
 					srv.udsServer = nil
 				} else {
-					registerAllServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, debugSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
+					registerSharedServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
+					if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
+						gnoi_debug_pb.RegisterDebugServer(srv.udsServer, debugSrv)
+					}
 				}
 			}
 		}
@@ -676,7 +707,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 
 	// Require at least one listener
 	if srv.lis == nil && srv.udsListener == nil {
-		return nil, errors.New("no listener configured: port must be > 0 or unix_socket must be set")
+		return nil, errors.New("no listener configured: port must be >= 0 or unix_socket must be set")
 	}
 
 	if *enableConfigDbJournal {
@@ -791,6 +822,75 @@ func (srv *Server) Auth(ctx context.Context) (context.Context, error) {
 	return authenticate(srv.config, ctx, "gnmi", false)
 }
 
+// checkRoleAccess enforces the <target>_<mode> role convention against the
+// caller's populated roles. It is shared by all authentication mechanisms
+// (password, JWT, cert) so that write-vs-read authorization is uniformly
+// applied regardless of how the user was authenticated.
+//
+// Return value: nil if the caller has sufficient access for the requested
+// operation, otherwise an error describing the denial.
+//
+// Semantics (preserved from the previous cert-only implementation):
+//   - roles are lowercased-target-prefixed strings, e.g. "gnoi_readonly",
+//     "gnmi_config_db_readwrite"
+//   - postfix "noaccess"  -> deny
+//   - postfix "readonly"  -> allow when writeAccess==false, deny otherwise
+//   - postfix "readwrite" -> allow
+//   - no role for this target and writeAccess==true -> deny (fail closed on writes)
+//   - no role for this target and writeAccess==false -> allow (backwards
+//     compatible with pre-role deployments that only granted authentication)
+func checkRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
+	return checkRoleAccessWithRequirement(auth, target, writeAccess, false)
+}
+
+func checkRequiredRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
+	return checkRoleAccessWithRequirement(auth, target, writeAccess, true)
+}
+
+func checkRoleAccessWithRequirement(auth *common_utils.AuthInfo, target string, writeAccess, requireRole bool) error {
+	access := resolveTargetRoleAccess(auth, target)
+	if access.noAccessRole != "" {
+		return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, access.noAccessRole)
+	}
+	if writeAccess && !access.readWrite {
+		if access.readOnlyRole != "" {
+			return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, access.readOnlyRole)
+		}
+		return fmt.Errorf("%s does not have write access, target %s", auth.User, target)
+	}
+	if requireRole && access.readOnlyRole == "" && !access.readWrite {
+		return fmt.Errorf("%s does not have read access, target %s", auth.User, target)
+	}
+	return nil
+}
+
+type targetRoleAccess struct {
+	noAccessRole string
+	readOnlyRole string
+	readWrite    bool
+}
+
+func resolveTargetRoleAccess(auth *common_utils.AuthInfo, target string) targetRoleAccess {
+	var access targetRoleAccess
+	if auth == nil {
+		return access
+	}
+
+	prefix := strings.ToLower(target) + "_"
+	for _, role := range auth.Roles {
+		role = strings.TrimSpace(role)
+		switch role {
+		case prefix + NoAccessMode:
+			access.noAccessRole = role
+		case prefix + ReadOnlyMode:
+			access.readOnlyRole = role
+		case prefix + WriteAccessMode:
+			access.readWrite = true
+		}
+	}
+	return access
+}
+
 func authenticate(config *Config, ctx context.Context, target string, writeAccess bool) (context.Context, error) {
 	var err error
 	success := false
@@ -798,11 +898,9 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 
 	// Skip authentication for UDS (Unix Domain Socket) connections.
 	// UDS security is enforced at the file-system level via socket permissions.
-	if pr, ok := peer.FromContext(ctx); ok && pr.Addr != nil {
-		if _, isUnix := pr.Addr.(*net.UnixAddr); isUnix {
-			rc.Auth.AuthEnabled = false
-			return ctx, nil
-		}
+	if isUnixPeer(ctx) {
+		rc.Auth.AuthEnabled = false
+		return ctx, nil
 	}
 
 	if !config.UserAuth.Any() {
@@ -812,56 +910,29 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	}
 
 	rc.Auth.AuthEnabled = true
+	clearAuthIdentity := func() {
+		rc.Auth.User = ""
+		rc.Auth.Roles = nil
+	}
 	if config.UserAuth.Enabled("password") {
+		clearAuthIdentity()
 		ctx, err = BasicAuthenAndAuthor(ctx)
 		if err == nil {
 			success = true
 		}
 	}
 	if !success && config.UserAuth.Enabled("jwt") {
+		clearAuthIdentity()
 		_, ctx, err = JwtAuthenAndAuthor(ctx)
 		if err == nil {
 			success = true
 		}
 	}
 	if !success && config.UserAuth.Enabled("cert") {
+		clearAuthIdentity()
 		ctx, err = ClientCertAuthenAndAuthor(ctx, config.ConfigTableName, config.EnableCrl)
 		if err == nil {
 			success = true
-		}
-		// role must be readwrite to support write access
-		if success && config.ConfigTableName != "" {
-			match := false
-			target = strings.ToLower(target)
-			for _, role := range rc.Auth.Roles {
-				role = strings.TrimSpace(role)
-				if strings.HasPrefix(role, target) {
-					// Extract the postfix from the role
-					// e.g. role=gnmi_config_db_readwrite
-					// e.g. role=gnoi_readonly
-					postfix := strings.TrimPrefix(role, target)
-					postfix = strings.TrimPrefix(postfix, "_")
-					// Check if the role postfix indicates no access, and deny access if true.
-					if postfix == NoAccessMode {
-						return ctx, fmt.Errorf("%s does not have access, target %s, role %s", rc.Auth.User, target, role)
-					} else if postfix == ReadOnlyMode {
-						// ReadOnlyMode is allowed for read access
-						if writeAccess {
-							return ctx, fmt.Errorf("%s does not have access, target %s, role %s", rc.Auth.User, target, role)
-						} else {
-							match = true
-							break
-						}
-					} else if postfix == WriteAccessMode {
-						// WriteAccessMode is allowed for read/write access
-						match = true
-						break
-					}
-				}
-			}
-			if !match && writeAccess {
-				return ctx, fmt.Errorf("%s does not have write access, target %s", rc.Auth.User, target)
-			}
 		}
 	}
 
@@ -870,9 +941,47 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	if !success {
 		return ctx, status.Error(codes.Unauthenticated, "Unauthenticated")
 	}
+
+	// Role-based authorization: applied uniformly to whichever mechanism
+	// succeeded. Historically this check was nested inside the cert branch,
+	// which allowed password- and JWT-authenticated callers to bypass the
+	// readonly/readwrite gate for gNOI RPCs.
+	if err := checkRoleAccess(&rc.Auth, target, writeAccess); err != nil {
+		return ctx, status.Error(codes.PermissionDenied, err.Error())
+	}
+
 	log.V(5).Infof("authenticate user %v, roles %v", rc.Auth.User, rc.Auth.Roles)
 
 	return ctx, nil
+}
+
+func isUnixPeer(ctx context.Context) bool {
+	pr, ok := peer.FromContext(ctx)
+	if !ok || pr.Addr == nil {
+		return false
+	}
+	_, ok = pr.Addr.(*net.UnixAddr)
+	return ok
+}
+
+func containsBGPRunningConfigPath(prefix *gnmipb.Path, paths []*gnmipb.Path) bool {
+	if prefix == nil || prefix.GetTarget() != "SHOW" {
+		return false
+	}
+	for _, path := range paths {
+		// Match the Elem precedence used by the SHOW client router. Deprecated
+		// Element fields do not override an Elem path.
+		elems := append([]*gnmipb.PathElem{}, prefix.GetElem()...)
+		elems = append(elems, path.GetElem()...)
+		names := make([]string, 0, len(elems))
+		for _, elem := range elems {
+			names = append(names, elem.GetName())
+		}
+		if len(names) == 2 && names[0] == "bgp" && names[1] == "running-config" {
+			return true
+		}
+	}
+	return false
 }
 
 // Subscribe implements the gNMI Subscribe RPC.
@@ -961,6 +1070,27 @@ func IsNativeOrigin(origin string) bool {
 	return origin == "sonic-db"
 }
 
+func nativeSetTarget(prefix *gnmipb.Path, paths []*gnmipb.Path) string {
+	if target := prefix.GetTarget(); target != "" {
+		return target
+	}
+
+	var target string
+	prefixElems := elemNames(prefix)
+	for _, path := range paths {
+		elems := append(append([]string(nil), prefixElems...), elemNames(path)...)
+		if len(elems) == 0 {
+			return ""
+		}
+		if target == "" {
+			target = elems[0]
+		} else if target != elems[0] {
+			return ""
+		}
+	}
+	return target
+}
+
 // Get implements the Get RPC in gNMI spec.
 func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
 	common_utils.IncCounter(common_utils.GNMI_GET)
@@ -1020,7 +1150,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		dc, err = sdc.NewShowClient(paths, prefix)
 		authTarget = "gnmi_show"
 	} else if targetDbName, ok, _, _ := sdc.IsTargetDb(target); ok {
-		dc, err = sdc.NewDbClient(paths, prefix)
+		dc, err = sdc.NewDbClientForGet(paths, prefix)
 		if err == nil {
 			// For Get requests, validate that all requested keys exist in Redis.
 			// NewDbClient allows non-existent paths (needed for Subscribe to monitor
@@ -1057,6 +1187,10 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	if err != nil {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, err
+	}
+	if containsBGPRunningConfigPath(prefix, paths) && !isUnixPeer(ctx) {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, status.Error(codes.PermissionDenied, "BGP running configuration is available only over the Unix domain socket")
 	}
 	// Checked after authenticate so unauthenticated callers get
 	// Unauthenticated instead of a policy result.
@@ -1191,15 +1325,26 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 			return nil, grpc.Errorf(codes.Unimplemented, "GNMI native write is disabled")
 		}
 
-		// Fast path: bypass validation for allowed tables/SKUs
-		allUpdates := append(req.GetReplace(), req.GetUpdate()...)
-		if resp, used, err := bypass.TrySet(ctx, prefix, req.GetDelete(), allUpdates); used {
+		bypassTarget := nativeSetTarget(prefix, paths)
+		if bypass.IsRequested(ctx) && strings.EqualFold(bypassTarget, "CONFIG_DB") {
+			// Bypass metadata requests the bypass path.
+			// It does not grant write access.
+			ctx, err = authenticate(s.config, ctx, "gnmi_"+bypassTarget, true)
 			if err != nil {
 				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-				return nil, status.Error(codes.Internal, err.Error())
+				return nil, err
 			}
-			common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
-			return resp, nil
+
+			// Fast path: bypass validation for allowed tables/SKUs.
+			allUpdates := append(req.GetReplace(), req.GetUpdate()...)
+			if resp, used, err := bypass.TrySet(ctx, prefix, req.GetDelete(), allUpdates); used {
+				if err != nil {
+					common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+					return nil, status.Error(codes.Internal, err.Error())
+				}
+				common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
+				return resp, nil
+			}
 		}
 
 		var targetDbName string
