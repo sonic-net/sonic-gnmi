@@ -206,7 +206,7 @@ security: $(GOSEC)
 check-tags:
 	@echo "Checking pure build-tag placement..."
 	@set -e; \
-	files=$$(find $(PURE_ROOTS) -type f -name '*.go' -exec grep -l '^//go:build .*pure' {} + 2>/dev/null || true); \
+	files=$$(find $(PURE_ROOTS) -type f -name '*.go' -exec grep -El '^[[:blank:]]*//(go:build[[:blank:]]+|[[:blank:]]*\+build[[:blank:]]+).*pure' {} + 2>/dev/null || true); \
 	for file in $$files; do \
 		case "$$file" in \
 			internal/adaptors/*/provider_*.go) \
@@ -218,6 +218,10 @@ check-tags:
 		exit 1; \
 	done
 	@echo "Pure build-tag placement is clean."
+
+.PHONY: check-tags-test
+check-tags-test:
+	python3 tools/test/test_pure_tags.py
 
 # List pure packages
 .PHONY: list-packages
@@ -235,7 +239,7 @@ list-packages:
 
 # Full CI pipeline
 .PHONY: ci
-ci: clean check-tags lint build-test test
+ci: clean check-tags check-tags-test lint build-test test
 	@echo ""
 	@echo "============================================="
 	@echo "✅ Pure CI completed successfully!"
@@ -258,7 +262,7 @@ ci: clean check-tags lint build-test test
 # Note: The Azure pipeline now calls gotestsum directly with set -euo pipefail
 # This target is kept for local testing convenience
 .PHONY: junit-xml
-junit-xml: clean check-tags build-test
+junit-xml: clean check-tags check-tags-test build-test
 	@$(MAKE) -f pure.mk $(GOTESTSUM) $(GOCOV) $(GOCOV_XML)
 	@echo "Running pure package tests with JUnit XML output..."
 	@mkdir -p test-results
@@ -289,7 +293,7 @@ junit-xml: clean check-tags build-test
 
 # Quick check for development
 .PHONY: quick
-quick: check-tags fmt-check vet build-test
+quick: check-tags check-tags-test fmt-check vet build-test
 	@echo "Quick validation complete for pure packages"
 
 # Help target
@@ -316,6 +320,7 @@ help:
 	@echo "  bench            - Run benchmarks"
 	@echo "  security         - Run security scan"
 	@echo "  check-tags       - Restrict pure tags to internal adaptors"
+	@echo "  check-tags-test  - Test pure build-tag placement checks"
 	@echo "  mod-verify       - Verify go modules"
 	@echo "  list-packages    - List pure packages"
 	@echo "  clean            - Clean build artifacts"
