@@ -110,6 +110,38 @@ func TestManagedImagePutGetStatWithProductionWorker(t *testing.T) {
 	assertNoPrivateStaging(t, store)
 }
 
+func TestManagedImageStatPermissionsRoundTrip(t *testing.T) {
+	store := realImageStore(t)
+	path := imageexport.ExportRoot + "/roundtrip.bin"
+	content := []byte("private image")
+	digest := md5.Sum(content)
+	for _, permissions := range []uint32{0600, 600} {
+		put := newMockPutStream()
+		put.addOpenRequest(path, permissions)
+		put.addContentRequest(content)
+		put.addHashRequest(digest[:])
+		if err := HandlePut(put); err != nil {
+			t.Fatal(err)
+		}
+		response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: path})
+		if err != nil || len(response.Stats) != 1 {
+			t.Fatalf("Stat: response=%v error=%v", response, err)
+		}
+		permissions = response.Stats[0].Permissions
+		replacement := newMockPutStream()
+		replacement.addOpenRequest(path, permissions)
+		replacement.addContentRequest(content)
+		replacement.addHashRequest(digest[:])
+		if err := HandlePut(replacement); err != nil {
+			t.Fatalf("Put rejected Stat permissions %d: %v", permissions, err)
+		}
+	}
+	info, err := os.Stat(filepath.Join(store.HostRoot, path))
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("non-private round-trip mode: info=%v error=%v", info, err)
+	}
+}
+
 func TestManagedImagePutFailureDoesNotPublish(t *testing.T) {
 	store := realImageStore(t)
 	path := imageexport.ExportRoot + "/failed.bin"
@@ -160,6 +192,46 @@ func TestManagedImageHTTPTransferAndRollback(t *testing.T) {
 			t.Fatalf("failed transfer damaged published image: data=%q error=%v", data, readErr)
 		}
 		assertNoPrivateStaging(t, store)
+	}
+}
+
+func TestManagedRemoveAndReadCancellationUseProductionWorker(t *testing.T) {
+	store := realImageStore(t)
+	path := imageexport.ExportRoot + "/sonic.bin"
+	content := []byte("private image")
+	digest := md5.Sum(content)
+	put := newMockPutStream()
+	put.addOpenRequest(path, 0)
+	put.addContentRequest(content)
+	put.addHashRequest(digest[:])
+	if err := HandlePut(put); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	response, err := HandleStat(ctx, &gnoi_file_pb.StatRequest{Path: path})
+	if status.Code(err) != codes.Canceled || response != nil {
+		t.Fatalf("Stat did not propagate cancellation: response=%v error=%v", response, err)
+	}
+	get := newFakeGetServer()
+	get.ctx = ctx
+	if err := HandleGet(&gnoi_file_pb.GetRequest{RemoteFile: path}, get); status.Code(err) != codes.Canceled || len(get.responses) != 0 {
+		t.Fatalf("Get did not propagate cancellation: %v", err)
+	}
+	if _, err := HandleFileRemove(ctx, &gnoi_file_pb.RemoveRequest{RemoteFile: path}); status.Code(err) != codes.Canceled {
+		t.Fatalf("Remove did not propagate cancellation: %v", err)
+	}
+	source, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.Close()
+	if _, err := HandleFileRemove(context.Background(), &gnoi_file_pb.RemoveRequest{RemoteFile: path}); err != nil {
+		t.Fatal(err)
+	}
+	assertReadDenied(t, context.Background(), path)
+	if _, err := HandleFileRemove(context.Background(), &gnoi_file_pb.RemoveRequest{RemoteFile: imageexport.ExportRoot}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("fixed export root was removable: %v", err)
 	}
 }
 

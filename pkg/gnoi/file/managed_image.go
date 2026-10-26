@@ -30,7 +30,7 @@ func managedImageDestination(path string) (bool, error) {
 	return false, nil
 }
 
-func downloadAndHashImage(ctx context.Context, url, logical, physical string) ([]byte, error) {
+func downloadAndHashImage(ctx context.Context, url, logical string) ([]byte, error) {
 	managed, err := managedImageDestination(logical)
 	if err != nil {
 		return nil, err
@@ -42,6 +42,7 @@ func downloadAndHashImage(ctx context.Context, url, logical, physical string) ([
 	defer body.Close()
 	var target *os.File
 	var upload *imageexport.Upload
+	var legacy *legacyUpload
 	if managed {
 		root, err := readPathRoot()
 		if err != nil {
@@ -54,30 +55,22 @@ func downloadAndHashImage(ctx context.Context, url, logical, physical string) ([
 		defer abortImage(upload)
 		target = upload.File
 	} else {
-		// Authorized upgrade/configuration writes are not file-read exports.
-		if err := os.MkdirAll(filepath.Dir(physical), 0755); err != nil {
-			return nil, err
-		}
-		target, err = os.OpenFile(physical, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		legacy, err = createLegacyUpload(logical)
 		if err != nil {
 			return nil, err
 		}
-		defer target.Close()
+		defer legacy.Abort()
+		target = legacy.File
 	}
 	hasher := md5.New() // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
 	if _, err := io.Copy(io.MultiWriter(target, hasher), body); err != nil {
-		if upload == nil {
-			if removeErr := os.Remove(physical); removeErr != nil {
-				log.Errorf("Failed to remove incomplete transfer: %v", removeErr)
-			}
-		}
 		return nil, err
 	}
 	if upload != nil {
 		if err := upload.Commit(); err != nil {
 			return nil, err
 		}
-	} else if err := target.Close(); err != nil {
+	} else if err := legacy.Commit(legacy.permissions); err != nil {
 		return nil, err
 	}
 	return hasher.Sum(nil), nil

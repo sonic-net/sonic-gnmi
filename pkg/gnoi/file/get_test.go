@@ -78,18 +78,58 @@ func useTempRoot(t *testing.T, base string) (logical, physical string) {
 	root := t.TempDir()
 	prevRoot := hostRoot
 	previousOpen := openImageFile
+	previousStats := imageStats
 	hostRoot = root
-	t.Cleanup(func() { hostRoot, openImageFile = prevRoot, previousOpen })
+	t.Cleanup(func() { hostRoot, openImageFile, imageStats = prevRoot, previousOpen, previousStats })
 
 	// Handler tests consume authorized descriptors; real UID/ACL enforcement is
 	// exercised separately by internal/imageexport's credential-drop tests.
-	openImageFile = func(root, path string) (*os.File, error) {
+	openImageFile = func(_ context.Context, root, path string) (*os.File, error) {
 		source, err := os.OpenFile(filepath.Join(root, strings.TrimPrefix(path, "/")),
 			os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
 		if os.IsNotExist(err) || os.IsPermission(err) {
 			return nil, os.ErrPermission
 		}
 		return source, err
+	}
+	imageStats = func(ctx context.Context, path string) ([]imageexport.Metadata, error) {
+		source, err := openReadPathContext(ctx, translatePathForContainer(path))
+		if err != nil {
+			return nil, err
+		}
+		defer source.Close()
+		info, err := source.Stat()
+		if err != nil {
+			return nil, err
+		}
+		if !info.IsDir() {
+			return []imageexport.Metadata{imageexport.Describe(path, info)}, nil
+		}
+		entries, err := source.ReadDir(-1)
+		if err != nil {
+			return nil, err
+		}
+		var result []imageexport.Metadata
+		for _, entry := range entries {
+			logical := filepath.Join(path, entry.Name())
+			if sensitiveReadPath(logical) {
+				continue
+			}
+			child, err := openReadPathContext(ctx, translatePathForContainer(logical))
+			if os.IsPermission(err) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			info, err := child.Stat()
+			child.Close()
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, imageexport.Describe(logical, info))
+		}
+		return result, nil
 	}
 
 	physTmp := filepath.Join(root, strings.TrimPrefix(base, "/"))

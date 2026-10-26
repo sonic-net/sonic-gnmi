@@ -1,16 +1,24 @@
 package file
 
 import (
+	"context"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/sonic-net/sonic-gnmi/internal/imageexport"
 )
 
-var openImageFile = func(root, path string) (*os.File, error) {
-	return (imageexport.Store{HostRoot: root}).Open(path)
+var openImageFile = func(ctx context.Context, root, path string) (*os.File, error) {
+	return (imageexport.Store{HostRoot: root}).OpenContext(ctx, path)
+}
+
+var imageStats = func(ctx context.Context, path string) ([]imageexport.Metadata, error) {
+	root, err := readPathRoot()
+	if err != nil {
+		return nil, err
+	}
+	return (imageexport.Store{HostRoot: root}).Stat(ctx, path)
 }
 
 func sensitiveReadPath(path string) bool {
@@ -29,7 +37,7 @@ func readPathRoot() (string, error) {
 	return filepath.EvalSymlinks(hostRoot)
 }
 
-func openReadPath(path string) (*os.File, error) {
+func openReadPathContext(ctx context.Context, path string) (*os.File, error) {
 	root, err := readPathRoot()
 	if err != nil {
 		return nil, err
@@ -45,28 +53,5 @@ func openReadPath(path string) (*os.File, error) {
 	if sensitiveReadPath(logical) {
 		return nil, os.ErrPermission
 	}
-	return openImageFile(root, filepath.Clean(logical))
-}
-
-func statReadPath(path string) (os.FileInfo, error) {
-	source, err := openReadPath(path)
-	if err != nil {
-		return nil, err
-	}
-	defer source.Close()
-	return source.Stat()
-}
-
-func readDirPath(path string) ([]os.DirEntry, error) {
-	source, err := openReadPath(path)
-	if err != nil {
-		return nil, err
-	}
-	defer source.Close()
-	entries, err := source.ReadDir(-1)
-	if err != nil {
-		return nil, err
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
-	return entries, nil
+	return openImageFile(ctx, root, filepath.Clean(logical))
 }

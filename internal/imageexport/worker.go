@@ -101,11 +101,29 @@ func workerOperation(root, operation, path, token string) (int, string, error) {
 	if os.Geteuid() == 0 || os.Getegid() == 0 || os.Getuid() != os.Geteuid() || len(groups) != 0 {
 		return -1, "", os.ErrPermission
 	}
-	parts, err := Parts(path, operation == "open")
+	parts, err := Parts(path, operation == "open" || operation == "stat")
 	if err != nil {
 		return -1, "", err
 	}
 	store := Store{HostRoot: root}
+	if operation == "abort" {
+		if !tokenPattern.MatchString(token) {
+			return -1, "", os.ErrPermission
+		}
+		staging, err := openDirectory(store.physical(StoreRoot+"/staging"), unix.AT_FDCWD)
+		if err != nil {
+			return -1, "", err
+		}
+		defer unix.Close(staging)
+		if err := checkOwned(staging, os.Geteuid(), os.Getegid(), 0700, true); err != nil {
+			return -1, "", err
+		}
+		err = unix.Unlinkat(staging, token, 0)
+		if errors.Is(err, unix.ENOENT) {
+			err = nil
+		}
+		return -1, "", err
+	}
 	images, err := openDirectory(store.physical(ExportRoot), unix.AT_FDCWD)
 	if err != nil {
 		return -1, "", err
@@ -118,7 +136,33 @@ func workerOperation(root, operation, path, token string) (int, string, error) {
 		fd, err := openArtifact(images, parts)
 		return fd, "", err
 	}
-	if operation != "create" && operation != "publish" && operation != "abort" {
+	if operation == "stat" {
+		fd, err := statArtifacts(images, parts, path)
+		return fd, "", err
+	}
+	if operation == "remove" {
+		parent, err := artifactParent(images, parts[:len(parts)-1], false)
+		if err != nil {
+			return -1, "", err
+		}
+		defer unix.Close(parent)
+		source, err := openArtifact(parent, parts[len(parts)-1:])
+		if err != nil {
+			return -1, "", err
+		}
+		var info unix.Stat_t
+		err = unix.Fstat(source, &info)
+		unix.Close(source)
+		if err != nil {
+			return -1, "", err
+		}
+		flags := 0
+		if info.Mode&unix.S_IFMT == unix.S_IFDIR {
+			flags = unix.AT_REMOVEDIR
+		}
+		return -1, "", unix.Unlinkat(parent, parts[len(parts)-1], flags)
+	}
+	if operation != "create" && operation != "publish" {
 		return -1, "", os.ErrPermission
 	}
 	staging, err := openDirectory(store.physical(StoreRoot+"/staging"), unix.AT_FDCWD)
@@ -150,13 +194,6 @@ func workerOperation(root, operation, path, token string) (int, string, error) {
 	if !tokenPattern.MatchString(token) {
 		return -1, "", os.ErrPermission
 	}
-	if operation == "abort" {
-		err := unix.Unlinkat(staging, token, 0)
-		if errors.Is(err, unix.ENOENT) {
-			err = nil
-		}
-		return -1, "", err
-	}
 	source, err := unix.Openat(staging, token, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return -1, "", err
@@ -181,10 +218,8 @@ func ServeWorker(socket int, root, operation, path, token string) int {
 		defer unix.Close(fd)
 	}
 	if err != nil {
-		denied := errors.Is(err, os.ErrPermission) || errors.Is(err, unix.ENOENT) ||
-			errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENXIO)
 		response := "DENIED"
-		if !denied {
+		if !accessDenied(err) {
 			response = "ERROR"
 			fmt.Fprintln(os.Stderr, "Managed-image operation failed:", err)
 		}

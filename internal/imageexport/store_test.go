@@ -103,6 +103,13 @@ func testStore(t *testing.T) Store {
 	newWorkerCommand = func(ctx context.Context, args ...string) *exec.Cmd {
 		flags := []string{"-test.run=^TestImageWorkerProcess$"}
 		if coverDirectory != "" {
+			credential, err := (Store{HostRoot: root}).credentials()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chown(coverDirectory, int(credential.Uid), int(credential.Gid)); err != nil {
+				t.Fatal(err)
+			}
 			flags = append(flags, "-test.gocoverdir="+coverDirectory)
 		}
 		command := exec.CommandContext(ctx, worker, append(append(flags, "--"), args...)...)
@@ -143,6 +150,7 @@ func TestPrivateImagePublicationWithRealCredentialDrop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	defer func() {
 		if err := upload.Abort(); err != nil {
 			t.Error(err)
@@ -176,6 +184,24 @@ func TestPrivateImagePublicationWithRealCredentialDrop(t *testing.T) {
 	}
 	if attributes.Uid != 65534 || attributes.Gid != 65534 || attributes.Mode&0777 != 0600 {
 		t.Fatalf("image is not privately owned by the service identity: %v", attributes)
+	}
+}
+
+func TestAbortWithoutImagesDirectory(t *testing.T) {
+	store := testStore(t)
+	upload, err := store.Create(ExportRoot + "/aborted.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(store.physical(ExportRoot)); err != nil {
+		t.Fatal(err)
+	}
+	if err := upload.Abort(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(store.physical(StoreRoot + "/staging"))
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("abandoned staging: entries=%v error=%v", entries, err)
 	}
 }
 

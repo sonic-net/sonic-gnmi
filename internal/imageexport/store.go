@@ -85,7 +85,7 @@ func (s Store) credentials() (*syscall.Credential, error) {
 		}
 		uid, uidErr := strconv.ParseUint(fields[2], 10, 32)
 		gid, gidErr := strconv.ParseUint(fields[3], 10, 32)
-		if uidErr != nil || gidErr != nil || uid == 0 || gid == 0 {
+		if uidErr != nil || gidErr != nil || uid == 0 || gid == 0 || uid == 1<<32-1 || gid == 1<<32-1 {
 			return nil, fmt.Errorf("invalid managed-image service identity")
 		}
 		result = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
@@ -97,12 +97,24 @@ func (s Store) credentials() (*syscall.Credential, error) {
 }
 
 func (s Store) request(operation, path, token string) (*os.File, string, error) {
-	if _, err := Parts(path, operation == "open"); err != nil {
+	return s.requestContext(context.Background(), operation, path, token)
+}
+
+func (s Store) requestContext(parent context.Context, operation, path, token string) (*os.File, string, error) {
+	if err := parent.Err(); err != nil {
+		return nil, "", err
+	}
+	if _, err := Parts(path, operation == "open" || operation == "stat"); err != nil {
 		return nil, "", err
 	}
 	credential, err := s.credentials()
 	if err != nil {
 		return nil, "", err
+	}
+	if operation != "abort" {
+		if err := s.PrepareContext(parent); err != nil {
+			return nil, "", err
+		}
 	}
 	pair, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
@@ -115,7 +127,7 @@ func (s Store) request(operation, path, token string) (*os.File, string, error) 
 		&unix.Timeval{Sec: 30}); err != nil {
 		return nil, "", err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	cmd := newWorkerCommand(ctx, s.HostRoot, operation, path, token)
 	cmd.ExtraFiles = []*os.File{child}
@@ -152,6 +164,9 @@ func (s Store) request(operation, path, token string) (*os.File, string, error) 
 			descriptors = append(descriptors, rights...)
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
+	}
 	if receiveErr != nil {
 		return nil, "", fmt.Errorf("receive managed-image descriptor: %w", receiveErr)
 	}
@@ -160,7 +175,7 @@ func (s Store) request(operation, path, token string) (*os.File, string, error) 
 		return nil, "", os.ErrPermission
 	}
 	expectedFDs := 0
-	if operation == "open" || operation == "create" {
+	if operation == "open" || operation == "create" || operation == "stat" {
 		expectedFDs = 1
 	}
 	if waitErr != nil || flags&(unix.MSG_TRUNC|unix.MSG_CTRUNC) != 0 ||
@@ -180,11 +195,27 @@ func (s Store) request(operation, path, token string) (*os.File, string, error) 
 }
 
 func (s Store) Open(path string) (*os.File, error) {
-	source, _, err := s.request("open", path, "")
+	return s.OpenContext(context.Background(), path)
+}
+
+func (s Store) OpenContext(ctx context.Context, path string) (*os.File, error) {
+	source, _, err := s.requestContext(ctx, "open", path, "")
 	return source, err
 }
 
+func (s Store) Remove(ctx context.Context, path string) error {
+	_, _, err := s.requestContext(ctx, "remove", path, "")
+	return err
+}
+
 func (s Store) Prepare() error {
+	return s.PrepareContext(context.Background())
+}
+
+func (s Store) PrepareContext(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	credential, err := s.credentials()
 	if err != nil {
 		return err
@@ -212,12 +243,7 @@ func (s Store) Prepare() error {
 		return err
 	}
 	defer unix.Close(base)
-	for _, name := range []string{"images", "staging"} {
-		if err := ensureDirectory(base, name, int(credential.Uid), int(credential.Gid), 0700); err != nil {
-			return err
-		}
-	}
-	return nil
+	return prepareOwnership(ctx, base, credential.Uid, credential.Gid)
 }
 
 func ensureDirectory(parent int, name string, uid, gid int, mode uint32) error {

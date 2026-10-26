@@ -53,11 +53,11 @@ func TestReadDirectoryListingFiltersUnavailableArtifacts(t *testing.T) {
 		}
 	}
 	previous := openImageFile
-	openImageFile = func(root, path string) (*os.File, error) {
+	openImageFile = func(ctx context.Context, root, path string) (*os.File, error) {
 		if filepath.Base(path) == "private.bin" {
 			return nil, os.ErrPermission
 		}
-		return previous(root, path)
+		return previous(ctx, root, path)
 	}
 	response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: logical})
 	if err != nil {
@@ -70,7 +70,7 @@ func TestReadDirectoryListingFiltersUnavailableArtifacts(t *testing.T) {
 
 func TestApprovedImageWorkerDenialsReturnNoMetadataOrContents(t *testing.T) {
 	logical, _ := useTempHostRoot(t)
-	openImageFile = func(string, string) (*os.File, error) { return nil, os.ErrPermission }
+	openImageFile = func(context.Context, string, string) (*os.File, error) { return nil, os.ErrPermission }
 	assertReadDenied(t, context.Background(), filepath.Join(logical, "image.bin"))
 }
 

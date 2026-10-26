@@ -57,16 +57,6 @@ var maxFileSize int64 = defaultMaxFileSize
 // (the generated function is tiny and gets inlined, defeating gomonkey).
 var newFileClient = gnoi_file_pb.NewFileClient
 
-// fsStat / fsReadDir are package-level seams over protected file access.
-// Tests override them to exercise error branches that the root-on-tmpfs
-// test environment can't otherwise reach: permission-denied (root bypasses
-// DAC) and TOCTOU races (path removed between Stat and ReadDir). Production
-// callers validate the opened object against the sensitive-path block-list.
-var (
-	fsStat    = statReadPath
-	fsReadDir = readDirPath
-)
-
 // HandleTransferToRemote implements the complete logic for the TransferToRemote RPC.
 // It validates the request, checks for DPU metadata, and routes accordingly.
 //
@@ -146,16 +136,12 @@ func handleTransferToRemoteLocal(
 		return nil, status.Error(codes.InvalidArgument, "remote download path (URL) cannot be empty")
 	}
 
-	// Container path translation: prepend /mnt/host to access host filesystem
-	// Only apply if /mnt/host exists (running in container) and path doesn't already have it
-	translatedPath := translatePathForContainer(localPath)
-
 	// Create context with timeout for download operation
 	downloadCtx, cancel := context.WithTimeout(ctx, downloadTimeout)
 	defer cancel()
 
 	// Hash incoming bytes, never reopen a caller-selected host path as root.
-	hashBytes, err := downloadAndHashImage(downloadCtx, url, localPath, translatedPath)
+	hashBytes, err := downloadAndHashImage(downloadCtx, url, localPath)
 	if err != nil {
 		if os.IsPermission(err) {
 			return nil, status.Error(codes.PermissionDenied, "image artifact access denied")
@@ -315,6 +301,9 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 			permissions = 0644
 		}
 	}
+	if managed && permissions == 600 {
+		permissions = 0600
+	}
 	if managed && permissions != 0600 {
 		return status.Error(codes.InvalidArgument, "managed images require private mode 0600")
 	}
@@ -324,19 +313,8 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 		return status.Errorf(codes.InvalidArgument, "invalid remote_file: %v", err)
 	}
 
-	// Step 3: Container path translation
-	translatedPath := translatePathForContainer(remotePath)
-
-	// Step 4: Create temp file for atomic write
-	tempPath := translatedPath + ".tmp"
-	// Ensure parent dir exists so callers don't need an out-of-band mkdir.
-	// Mirrors the behavior of typical file-upload servers; the alternative
-	// is forcing every gNOI client to pre-create parent dirs via SSH or
-	// another channel, which defeats the purpose of File.Put as a
-	// self-contained upload primitive. Runs after validatePath (Step 2) and
-	// translatePathForContainer (Step 3) so no privilege escalation risk
-	// beyond what the existing whitelist already accepts.
 	var upload *imageexport.Upload
+	var legacy *legacyUpload
 	var f *os.File
 	if managed {
 		root, err := readPathRoot()
@@ -349,27 +327,17 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 		}
 		f = upload.File
 	} else {
-		if err := os.MkdirAll(filepath.Dir(tempPath), 0755); err != nil {
-			return status.Errorf(codes.Internal, "failed to create parent dir: %v", err)
-		}
-		f, err = os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		legacy, err = createLegacyUpload(remotePath)
 		if err != nil {
-			return status.Errorf(codes.Internal, "failed to create temp file: %v", err)
+			return status.Errorf(codes.Internal, "create legacy upload: %v", err)
 		}
+		f = legacy.File
+		defer legacy.Abort()
 	}
 	defer func() {
 		if upload != nil {
 			abortImage(upload)
 			return
-		}
-		if closeErr := f.Close(); closeErr != nil {
-			log.Errorf("Failed to close temp file %s: %v", tempPath, closeErr)
-		}
-		// Only remove if file still exists (indicates failure path)
-		if _, err := os.Stat(tempPath); err == nil {
-			if rmErr := os.Remove(tempPath); rmErr != nil {
-				log.Errorf("Failed to cleanup temp file %s: %v", tempPath, rmErr)
-			}
 		}
 	}()
 
@@ -417,19 +385,8 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 		return stream.SendAndClose(&gnoi_file_pb.PutResponse{})
 	}
 
-	// Step 7: Close the temp file before renaming
-	if err := f.Close(); err != nil {
-		return status.Errorf(codes.Internal, "failed to close temp file: %v", err)
-	}
-
-	// Step 8: Set permissions on temp file
-	if err := os.Chmod(tempPath, os.FileMode(permissions)); err != nil {
-		return status.Errorf(codes.Internal, "failed to set permissions: %v", err)
-	}
-
-	// Step 9: Atomic rename to final path
-	if err := os.Rename(tempPath, translatedPath); err != nil {
-		return status.Errorf(codes.Internal, "failed to rename file: %v", err)
+	if err := legacy.Commit(os.FileMode(permissions)); err != nil {
+		return status.Errorf(codes.Internal, "publish legacy upload: %v", err)
 	}
 
 	// Step 10: Send success response
@@ -598,12 +555,35 @@ func HandleFileRemove(ctx context.Context, req *gnoi_file_pb.RemoveRequest) (*gn
 		log.Errorf("Denied: %v", err)
 		return nil, status.Error(codes.PermissionDenied, "only files in /tmp/ or /var/tmp/ can be removed")
 	}
+	translatedPath := translatePathForContainer(remoteFile)
+	if _, err := imageexport.Parts(remoteFile, false); err == nil {
+		root, err := readPathRoot()
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "resolve managed-image store: %v", err)
+		}
+		if err := (imageexport.Store{HostRoot: root}).Remove(ctx, remoteFile); err != nil {
+			if os.IsPermission(err) {
+				return nil, status.Error(codes.PermissionDenied, "image artifact access denied")
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, status.FromContextError(err).Err()
+			}
+			return nil, status.Errorf(codes.Internal, "remove managed image: %v", err)
+		}
+		return &gnoi_file_pb.RemoveResponse{}, nil
+	} else {
+		directory, err := pinLegacyDirectory(remoteFile, false)
+		if err != nil {
+			code := codes.PermissionDenied
+			if os.IsNotExist(err) {
+				code = codes.NotFound
+			}
+			return nil, status.Errorf(code, "resolve removal destination: %v", err)
+		}
+		defer directory.file.Close()
+		translatedPath = fmt.Sprintf("/proc/self/fd/%d/%s", directory.file.Fd(), directory.name)
+	}
 
-	// NEW: map host path to container path if needed.
-	// translatePathForContainer will prepend /mnt/host inside the gnmi container
-	// when appropriate, so files created on the DUT in /tmp/ are visible.
-	localPath := remoteFile
-	translatedPath := translatePathForContainer(localPath)
 	log.Infof("HandleFileRemove removing file: remote=%s translated=%s", remoteFile, translatedPath)
 
 	// Attempt remove and map errors to gRPC status codes for testable behavior.
@@ -707,14 +687,16 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 		return nil, status.Errorf(codes.InvalidArgument,
 			"path must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", reqPath)
 	}
-	translatedPath := translatePathForContainer(cleanReqPath)
 	if sensitiveReadPath(cleanReqPath) {
 		log.Warning("Denied File.Stat access outside managed image exports")
 		return nil, status.Error(codes.PermissionDenied, "image artifact access denied")
 	}
 
-	info, err := fsStat(translatedPath)
+	entries, err := imageStats(ctx, cleanReqPath)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, status.FromContextError(err).Err()
+		}
 		if os.IsNotExist(err) {
 			return nil, status.Errorf(codes.NotFound, "path not found: %s", reqPath)
 		}
@@ -724,55 +706,18 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 		return nil, status.Errorf(codes.Internal, "failed to stat %s: %v", reqPath, err)
 	}
 
-	resp := &gnoi_file_pb.StatResponse{}
-
-	if !info.IsDir() {
-		statInfo, err := statInfoFromFileInfo(cleanReqPath, info)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "%v", err)
-		}
-		resp.Stats = []*gnoi_file_pb.StatInfo{statInfo}
-		return resp, nil
-	}
-
-	// Directory: list immediate children (non-recursive).
-	entries, err := fsReadDir(translatedPath)
-	if err != nil {
-		// The directory may have been removed between the os.Stat above
-		// and this ReadDir; surface that as NotFound, not Internal, so
-		// transient races don't look like server errors.
-		if os.IsNotExist(err) {
-			return nil, status.Errorf(codes.NotFound, "path not found: %s", reqPath)
-		}
-		if os.IsPermission(err) {
-			return nil, status.Errorf(codes.PermissionDenied, "permission denied reading directory: %s", reqPath)
-		}
-		return nil, status.Errorf(codes.Internal, "failed to read directory %s: %v", reqPath, err)
-	}
-
 	stats := make([]*gnoi_file_pb.StatInfo, 0, len(entries))
 	for _, entry := range entries {
-		childReportPath := filepath.Join(cleanReqPath, entry.Name())
-		if sensitiveReadPath(childReportPath) {
-			log.V(2).Info("File.Stat omitted a blocked entry")
-			continue
+		if err := ctx.Err(); err != nil {
+			return nil, status.FromContextError(err).Err()
 		}
-		entryInfo, err := fsStat(translatePathForContainer(childReportPath))
+		statInfo, err := statInfoFromFileInfo(entry.Path, entry)
 		if err != nil {
-			// Entry vanished between ReadDir and Info (race): skip it
-			// rather than failing the whole listing.
-			log.Warningf("HandleStat: skipping %s/%s: %v", reqPath, entry.Name(), err)
-			continue
-		}
-		statInfo, err := statInfoFromFileInfo(childReportPath, entryInfo)
-		if err != nil {
-			log.Warningf("HandleStat: skipping %s: %v", childReportPath, err)
-			continue
+			return nil, status.Errorf(codes.Internal, "encode image metadata: %v", err)
 		}
 		stats = append(stats, statInfo)
 	}
-	resp.Stats = stats
-	return resp, nil
+	return &gnoi_file_pb.StatResponse{Stats: stats}, nil
 }
 
 // HandleGet implements the complete logic for the gNOI File.Get RPC.
@@ -817,8 +762,11 @@ func HandleGet(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.File_GetServer)
 		return status.Error(codes.PermissionDenied, "image artifact access denied")
 	}
 
-	f, err := openReadPath(translatedPath)
+	f, err := openReadPathContext(stream.Context(), translatedPath)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return status.FromContextError(err).Err()
+		}
 		if os.IsNotExist(err) {
 			return status.Errorf(codes.NotFound, "file not found: %s", remoteFile)
 		}

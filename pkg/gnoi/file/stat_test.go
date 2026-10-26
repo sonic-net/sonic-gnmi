@@ -198,22 +198,34 @@ func TestStatInfoFromFileInfo_PermissionsOctalAsDecimal(t *testing.T) {
 	}
 }
 
-// withFsStat installs a fake fsStat for the duration of the test. Tests
-// use this to cover error branches (permission denied, generic Internal)
-// that the root-on-tmpfs environment can't trigger via real os.Stat.
+// Inject worker outcomes without bypassing the production credential-drop tests.
 func withFsStat(t *testing.T, fake func(string) (os.FileInfo, error)) {
 	t.Helper()
-	prev := fsStat
-	fsStat = fake
-	t.Cleanup(func() { fsStat = prev })
+	prev := imageStats
+	imageStats = func(_ context.Context, path string) ([]imageexport.Metadata, error) {
+		info, err := fake(path)
+		if err != nil {
+			return nil, err
+		}
+		if info.IsDir() {
+			return nil, nil
+		}
+		return []imageexport.Metadata{imageexport.Describe(path, info)}, nil
+	}
+	t.Cleanup(func() { imageStats = prev })
 }
 
 // withFsReadDir is the os.ReadDir equivalent of withFsStat.
 func withFsReadDir(t *testing.T, fake func(string) ([]os.DirEntry, error)) {
 	t.Helper()
-	prev := fsReadDir
-	fsReadDir = fake
-	t.Cleanup(func() { fsReadDir = prev })
+	prev := imageStats
+	imageStats = func(ctx context.Context, path string) ([]imageexport.Metadata, error) {
+		if _, err := fake(path); err != nil {
+			return nil, err
+		}
+		return prev(ctx, path)
+	}
+	t.Cleanup(func() { imageStats = prev })
 }
 
 func TestHandleStat_StatPermissionDenied(t *testing.T) {
