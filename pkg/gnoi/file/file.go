@@ -22,6 +22,7 @@ import (
 	"github.com/openconfig/gnoi/types"
 	"github.com/sonic-net/sonic-gnmi/internal/download"
 	"github.com/sonic-net/sonic-gnmi/internal/hash"
+	"github.com/sonic-net/sonic-gnmi/internal/imageexport"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -153,17 +154,13 @@ func handleTransferToRemoteLocal(
 	downloadCtx, cancel := context.WithTimeout(ctx, downloadTimeout)
 	defer cancel()
 
-	// Download file from URL with timeout and size limit
-	if err := download.DownloadHTTP(downloadCtx, url, translatedPath, maxFileSize); err != nil {
-		return nil, status.Errorf(codes.Internal, "download failed: %v", err)
-	}
-
-	// Calculate MD5 hash of downloaded file
-	hashBytes, err := hash.CalculateMD5(translatedPath)
+	// Hash incoming bytes, never reopen a caller-selected host path as root.
+	hashBytes, err := downloadAndHashImage(downloadCtx, url, localPath, translatedPath)
 	if err != nil {
-		// Clean up the downloaded file since we can't verify it
-		os.Remove(translatedPath)
-		return nil, status.Errorf(codes.Internal, "hash calculation failed: %v", err)
+		if os.IsPermission(err) {
+			return nil, status.Error(codes.PermissionDenied, "image artifact access denied")
+		}
+		return nil, status.Errorf(codes.Internal, "download failed: %v", err)
 	}
 
 	// Build response with MD5 hash
@@ -307,9 +304,19 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 	}
 
 	permissions := openMsg.GetPermissions()
+	managed, err := managedImageDestination(remotePath)
+	if err != nil {
+		return status.Error(codes.PermissionDenied, "image artifact access denied")
+	}
 	if permissions == 0 {
-		// Default to 0644 if not specified
-		permissions = 0644
+		if managed {
+			permissions = 0600
+		} else {
+			permissions = 0644
+		}
+	}
+	if managed && permissions != 0600 {
+		return status.Error(codes.InvalidArgument, "managed images require private mode 0600")
 	}
 
 	// Step 2: Validate path is in allowed directories
@@ -329,14 +336,32 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 	// self-contained upload primitive. Runs after validatePath (Step 2) and
 	// translatePathForContainer (Step 3) so no privilege escalation risk
 	// beyond what the existing whitelist already accepts.
-	if err := os.MkdirAll(filepath.Dir(tempPath), 0755); err != nil {
-		return status.Errorf(codes.Internal, "failed to create parent dir: %v", err)
-	}
-	f, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to create temp file: %v", err)
+	var upload *imageexport.Upload
+	var f *os.File
+	if managed {
+		root, err := readPathRoot()
+		if err != nil {
+			return status.Errorf(codes.Internal, "resolve managed-image store: %v", err)
+		}
+		upload, err = (imageexport.Store{HostRoot: root}).Create(remotePath)
+		if err != nil {
+			return status.Errorf(codes.Internal, "create managed image: %v", err)
+		}
+		f = upload.File
+	} else {
+		if err := os.MkdirAll(filepath.Dir(tempPath), 0755); err != nil {
+			return status.Errorf(codes.Internal, "failed to create parent dir: %v", err)
+		}
+		f, err = os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			return status.Errorf(codes.Internal, "failed to create temp file: %v", err)
+		}
 	}
 	defer func() {
+		if upload != nil {
+			abortImage(upload)
+			return
+		}
 		if closeErr := f.Close(); closeErr != nil {
 			log.Errorf("Failed to close temp file %s: %v", tempPath, closeErr)
 		}
@@ -383,6 +408,13 @@ func HandlePut(stream gnoi_file_pb.File_PutServer) error {
 		} else {
 			return status.Error(codes.InvalidArgument, "message must contain contents or hash")
 		}
+	}
+
+	if upload != nil {
+		if err := upload.Commit(); err != nil {
+			return status.Errorf(codes.Internal, "publish managed image: %v", err)
+		}
+		return stream.SendAndClose(&gnoi_file_pb.PutResponse{})
 	}
 
 	// Step 7: Close the temp file before renaming
@@ -668,10 +700,6 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 	}
 
 	cleanReqPath := filepath.Clean(reqPath)
-	if sensitiveReadPath(cleanReqPath) {
-		log.Warning("Denied File.Stat access to a sensitive pathname")
-		return nil, status.Error(codes.PermissionDenied, "sensitive pathname access denied")
-	}
 	// Reject /mnt/host-prefixed inputs to avoid double-prefixing in
 	// translatePathForContainer (e.g. "/mnt/host/tmp/x" → "/mnt/host/mnt/host/tmp/x").
 	// Clients should pass host-visible paths like /tmp/..., /etc/..., /host/...
@@ -680,6 +708,10 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 			"path must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", reqPath)
 	}
 	translatedPath := translatePathForContainer(cleanReqPath)
+	if sensitiveReadPath(cleanReqPath) {
+		log.Warning("Denied File.Stat access outside managed image exports")
+		return nil, status.Error(codes.PermissionDenied, "image artifact access denied")
+	}
 
 	info, err := fsStat(translatedPath)
 	if err != nil {
@@ -774,18 +806,18 @@ func HandleGet(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.File_GetServer)
 	}
 
 	cleanPath := filepath.Clean(remoteFile)
-	if sensitiveReadPath(cleanPath) {
-		log.Warning("Denied File.Get access to a sensitive pathname")
-		return status.Error(codes.PermissionDenied, "sensitive pathname access denied")
-	}
 	if cleanPath == "/mnt/host" || strings.HasPrefix(cleanPath, "/mnt/host/") {
 		return status.Errorf(codes.InvalidArgument,
 			"remote_file must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", remoteFile)
 	}
 
 	translatedPath := translatePathForContainer(cleanPath)
+	if sensitiveReadPath(cleanPath) {
+		log.Warning("Denied File.Get access outside managed image exports")
+		return status.Error(codes.PermissionDenied, "image artifact access denied")
+	}
 
-	f, err := openReadPath(translatedPath, os.O_RDONLY)
+	f, err := openReadPath(translatedPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return status.Errorf(codes.NotFound, "file not found: %s", remoteFile)

@@ -28,7 +28,7 @@ import (
 
 func transferTestPath(t *testing.T, name string) (logical, physical string) {
 	t.Helper()
-	logicalDir, physicalDir := useTempHostRoot(t)
+	logicalDir, physicalDir := useTempWriteRoot(t)
 	return filepath.Join(logicalDir, name), filepath.Join(physicalDir, name)
 }
 
@@ -2306,11 +2306,10 @@ func TestHandleTransferToRemote_NPU_Fallback(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Mock download.DownloadHTTP to succeed for NPU path
-	patches.ApplyFunc(download.DownloadHTTP,
-		func(ctx context.Context, url, localPath string, maxSize int64) error {
-			// Create a test file
-			return os.WriteFile(localPath, []byte("test content"), 0644)
+	// Transfer hashes the incoming bytes without reopening the host file.
+	patches.ApplyFunc(download.DownloadHTTPStreaming,
+		func(ctx context.Context, url string, maxSize int64) (io.ReadCloser, int64, error) {
+			return io.NopCloser(strings.NewReader("test content")), 12, nil
 		})
 
 	ctx := context.Background() // No DPU metadata - should call handleTransferToRemoteLocal

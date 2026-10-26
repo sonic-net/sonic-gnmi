@@ -40,6 +40,42 @@ You can also build a debian package and install it:
 * See [gNMI Usage Examples](./doc/gNMI_usage_examples.md) for gNMI client usage examples.
 * See [gNOI Debug actions](./doc/gnoi_debug.md) for the Debug RPC policy and supported actions.
 
+### Managed gNOI image files
+
+File.Get and File.Stat expose only managed image artifacts under
+`/host/sonic-image-exports/images`, not arbitrary host files. This restriction
+applies independently of caller role; existing RPC authentication and write
+authorization remain required.
+
+Deploy the companion sonic-host-services data package that provisions the
+non-login host `sonic-image` account. The gNMI package installs
+`/usr/sbin/sonic-image-worker`; both services use the host account's numeric
+UID/GID, including when gNMI runs in a container. Missing/invalid credentials
+or a missing worker fail closed with an explicit runtime error.
+
+Publish images with File.Put or File.TransferToRemote to a path such as
+`/host/sonic-image-exports/images/release/sonic.bin`. Managed Put permissions
+default to `0600`; other requested modes are rejected. Names start with an
+ASCII letter/digit and contain only letters, digits, dots, underscores and
+hyphens (128 characters per component, at most 16 components). Files are
+privately staged and atomically published only after a successful transfer
+and, for Put, hash verification.
+
+The fixed store is root-controlled; its images/staging directories are
+`sonic-image`-owned mode `0700`, and published files are single-link regular
+files owned by that account with mode `0600`. Do not manually copy artifacts
+into this tree. Workers drop root and supplementary groups before accessing
+files and transfer already-open descriptors over a private socket. Actual
+kernel traversal permissions and ACLs apply. Symlinks, hardlinks, root-owned
+files and unavailable artifacts are denied; directory listings omit denied
+children. Missing and inaccessible artifacts have identical read denials.
+
+Authorized legacy upgrade/configuration writes outside this private store
+are preserved, but do not become read exports. HTTP transfer hashes are
+calculated from incoming bytes, never by reopening a caller-selected host
+path as root. The account database and root-controlled mount/store
+configuration remain trusted; a hostile local OS root is outside this policy.
+
 ## Streaming events
 SONiC publishes events of interest via gNMI.
 Sample events could be bgp-state change, link-state change.

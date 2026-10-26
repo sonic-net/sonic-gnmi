@@ -4,11 +4,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	"github.com/sonic-net/sonic-gnmi/internal/imageexport"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -30,25 +30,7 @@ import (
 //   - logical:  what the test should put in StatRequest.Path
 //   - physical: where the test should actually create files/dirs
 func statTestRoot(t *testing.T) (logical, physical string) {
-	t.Helper()
-	physBase := "/tmp"
-	if _, err := os.Stat("/mnt/host"); err == nil {
-		physBase = "/mnt/host/tmp"
-		if err := os.MkdirAll(physBase, 0755); err != nil {
-			t.Fatalf("ensure /mnt/host/tmp: %v", err)
-		}
-	}
-	phys, err := os.MkdirTemp(physBase, "stat-test-*")
-	if err != nil {
-		t.Fatalf("mkdir temp: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(phys) })
-
-	logi := phys
-	if strings.HasPrefix(phys, "/mnt/host") {
-		logi = strings.TrimPrefix(phys, "/mnt/host")
-	}
-	return logi, phys
+	return useTempHostRoot(t)
 }
 
 func TestHandleStat_NilRequest(t *testing.T) {
@@ -86,8 +68,8 @@ func TestHandleStat_NotFound(t *testing.T) {
 	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{
 		Path: filepath.Join(logi, "definitely-does-not-exist-zzzz-9876543"),
 	})
-	if err == nil || status.Code(err) != codes.NotFound {
-		t.Fatalf("expected NotFound, got %v", err)
+	if err == nil || status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected uniform PermissionDenied, got %v", err)
 	}
 }
 
@@ -238,7 +220,7 @@ func TestHandleStat_StatPermissionDenied(t *testing.T) {
 	withFsStat(t, func(path string) (os.FileInfo, error) {
 		return nil, &os.PathError{Op: "stat", Path: path, Err: os.ErrPermission}
 	})
-	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
+	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: imageexport.ExportRoot + "/x"})
 	if err == nil || status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("expected PermissionDenied, got %v", err)
 	}
@@ -250,7 +232,7 @@ func TestHandleStat_StatGenericError(t *testing.T) {
 	withFsStat(t, func(path string) (os.FileInfo, error) {
 		return nil, &os.PathError{Op: "stat", Path: path, Err: os.ErrInvalid}
 	})
-	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
+	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: imageexport.ExportRoot + "/x"})
 	if err == nil || status.Code(err) != codes.Internal {
 		t.Fatalf("expected Internal, got %v", err)
 	}
@@ -276,7 +258,7 @@ func TestHandleStat_ReadDirNotExistRace(t *testing.T) {
 	withFsReadDir(t, func(path string) ([]os.DirEntry, error) {
 		return nil, &os.PathError{Op: "readdirent", Path: path, Err: os.ErrNotExist}
 	})
-	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
+	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: imageexport.ExportRoot + "/x"})
 	if err == nil || status.Code(err) != codes.NotFound {
 		t.Fatalf("expected NotFound on race, got %v", err)
 	}
@@ -287,7 +269,7 @@ func TestHandleStat_ReadDirPermissionDenied(t *testing.T) {
 	withFsReadDir(t, func(path string) ([]os.DirEntry, error) {
 		return nil, &os.PathError{Op: "readdirent", Path: path, Err: os.ErrPermission}
 	})
-	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
+	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: imageexport.ExportRoot + "/x"})
 	if err == nil || status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("expected PermissionDenied, got %v", err)
 	}
@@ -298,7 +280,7 @@ func TestHandleStat_ReadDirGenericError(t *testing.T) {
 	withFsReadDir(t, func(path string) ([]os.DirEntry, error) {
 		return nil, &os.PathError{Op: "readdirent", Path: path, Err: os.ErrInvalid}
 	})
-	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/tmp/x"})
+	_, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: imageexport.ExportRoot + "/x"})
 	if err == nil || status.Code(err) != codes.Internal {
 		t.Fatalf("expected Internal, got %v", err)
 	}

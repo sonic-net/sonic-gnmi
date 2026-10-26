@@ -134,6 +134,7 @@ go-deps-clean:
 	$(RM) -r vendor
 
 sonic-gnmi: $(GO_DEPS) $(FORMAT_CHECK)
+	$(GO) build -o ${GOBIN}/sonic-image-worker -mod=vendor github.com/sonic-net/sonic-gnmi/cmd/sonic-image-worker
 # advancetls 1.0.0 release need following patch to build by go-1.19
 	patch -d vendor -p0 < patches/0002-Fix-advance-tls-build-with-go-119.patch
 # build service first which depends on advancetls
@@ -453,6 +454,7 @@ $(FORMAT_CHECK): $(GO_FILES)
 	touch $@
 
 install:
+	$(INSTALL) -D -m 0755 $(BUILD_DIR)/sonic-image-worker $(DESTDIR)/usr/sbin/sonic-image-worker
 	$(INSTALL) -D $(BUILD_DIR)/telemetry $(DESTDIR)/usr/sbin/telemetry
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	$(INSTALL) -D $(BUILD_DIR)/dialout_client_cli $(DESTDIR)/usr/sbin/dialout_client_cli
@@ -467,6 +469,7 @@ endif
 
 
 deinstall:
+	rm $(DESTDIR)/usr/sbin/sonic-image-worker
 	rm $(DESTDIR)/usr/sbin/telemetry
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	rm $(DESTDIR)/usr/sbin/dialout_client_cli

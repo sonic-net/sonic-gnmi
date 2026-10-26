@@ -127,12 +127,29 @@ stages:
         make -f pure.mk junit-xml
       displayName: 'Run pure package tests'
 
+    - bash: |
+        set -euo pipefail
+        export PATH=$PATH:/usr/local/go/bin
+        cd sonic-gnmi
+        sudo env "PATH=$PATH" "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" \
+          build/tools/bin/gotestsum-v1.12.3 \
+          --junitfile test-results/junit-imageexport.xml --format testname -- \
+          -gcflags="all=-N -l" -v -race -count=1 -covermode=atomic \
+          -coverprofile=test-results/coverage-imageexport.txt \
+          ./internal/imageexport ./pkg/gnoi/file ./cmd/sonic-image-worker
+        awk '!/\/internal\/imageexport\/|\/pkg\/gnoi\/file\/|\/cmd\/sonic-image-worker\//' \
+          test-results/coverage-pure.txt > test-results/coverage-combined.txt
+        tail -n +2 test-results/coverage-imageexport.txt >> test-results/coverage-combined.txt
+        build/tools/bin/gocov-v1.1.0 convert test-results/coverage-combined.txt |
+          build/tools/bin/gocov-xml-v1.1.0 -source "$PWD" > test-results/coverage-pure.xml
+      displayName: 'Test real image-worker credential drops and private publication'
+
     - task: PublishTestResults@2
       displayName: 'Publish pure package test results'
       condition: always()
       inputs:
         testResultsFormat: 'JUnit'
-        testResultsFiles: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-pure.xml'
+        testResultsFiles: '$(System.DefaultWorkingDirectory)/sonic-gnmi/test-results/junit-*.xml'
         failTaskOnFailedTests: true
         publishRunAttachments: true
         testRunTitle: 'Pure package tests'

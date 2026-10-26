@@ -13,6 +13,7 @@ import (
 
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	"github.com/openconfig/gnoi/types"
+	"github.com/sonic-net/sonic-gnmi/internal/imageexport"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -62,33 +63,36 @@ func (s *fakeGetServer) SetHeader(metadata.MD) error  { return nil }
 func (s *fakeGetServer) SendHeader(metadata.MD) error { return nil }
 func (s *fakeGetServer) SetTrailer(metadata.MD)       {}
 
-// useTempHostRoot points hostRoot at a fresh t.TempDir() and restores it
-// when the test ends. Returns (logical, physical):
-//
-//   - logical  is the path to use in RemoteFile / Path requests; it has
-//     the hostRoot prefix stripped, so it looks like a normal SONiC path
-//     (e.g. "/tmp/get-test-123").
-//   - physical is the on-disk path under the injected hostRoot where the
-//     test should create fixtures (regular files, fifos, sparse files,
-//     ...).
-//
-// Behavior matches translatePathForContainer: hostRoot is the prefix the
-// handler will glue back on. So a fixture written to
-// `<hostRoot>/tmp/foo` is reached by RemoteFile=`/tmp/foo`.
-//
-// The injected root is /tmp-rooted (`/tmp/...` is in validatePath's
-// whitelist so the handler accepts the logical path).
+// useTempHostRoot creates an isolated managed read export. Legacy authorized
+// write tests use useTempWriteRoot so they do not bypass the real image worker.
 func useTempHostRoot(t *testing.T) (logical, physical string) {
+	return useTempRoot(t, imageexport.ExportRoot)
+}
+
+func useTempWriteRoot(t *testing.T) (logical, physical string) {
+	return useTempRoot(t, "/tmp")
+}
+
+func useTempRoot(t *testing.T, base string) (logical, physical string) {
 	t.Helper()
 	root := t.TempDir()
 	prevRoot := hostRoot
+	previousOpen := openImageFile
 	hostRoot = root
-	t.Cleanup(func() { hostRoot = prevRoot })
+	t.Cleanup(func() { hostRoot, openImageFile = prevRoot, previousOpen })
 
-	// Build <root>/tmp/get-test-XXXX so the handler-visible logical path
-	// (after stripping <root>) starts with /tmp/, which validatePath
-	// accepts.
-	physTmp := filepath.Join(root, "tmp")
+	// Handler tests consume authorized descriptors; real UID/ACL enforcement is
+	// exercised separately by internal/imageexport's credential-drop tests.
+	openImageFile = func(root, path string) (*os.File, error) {
+		source, err := os.OpenFile(filepath.Join(root, strings.TrimPrefix(path, "/")),
+			os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
+		if os.IsNotExist(err) || os.IsPermission(err) {
+			return nil, os.ErrPermission
+		}
+		return source, err
+	}
+
+	physTmp := filepath.Join(root, strings.TrimPrefix(base, "/"))
 	if err := os.MkdirAll(physTmp, 0755); err != nil {
 		t.Fatalf("mkdir %s: %v", physTmp, err)
 	}
@@ -159,8 +163,8 @@ func TestHandleGet_NotFound(t *testing.T) {
 	err := HandleGet(&gnoi_file_pb.GetRequest{
 		RemoteFile: filepath.Join(logi, "no-such-file"),
 	}, newFakeGetServer())
-	if err == nil || status.Code(err) != codes.NotFound {
-		t.Fatalf("expected NotFound, got %v", err)
+	if err == nil || status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected uniform PermissionDenied, got %v", err)
 	}
 }
 
