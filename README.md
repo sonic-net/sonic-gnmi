@@ -11,6 +11,34 @@ This repository contains implementation for the sonic system telemetry services:
 
 Install __go__ in your system https://golang.org/doc/install. Requires golang1.8+.
 
+### Standalone database-config tests
+
+With the Go version declared in `go.mod`, run:
+
+```sh
+CGO_ENABLED=0 go test -tags=pure ./internal/adaptors/dbconfig
+```
+
+These tests read temporary JSON fixtures without SWSS, Redis, or system
+configuration changes. The pure provider supports the default namespace.
+It rejects global and `INCLUDES` configuration.
+
+For formatting, CGO-disabled compilation, and race tests:
+
+```sh
+make -f pure.mk PACKAGES=internal/adaptors/dbconfig fmt-check test
+```
+
+Race tests require CGO and a C compiler, but not SONiC libraries. Normal builds
+still use SWSS and preserve `DB_CONFIG_PATH` and the legacy `sonic_db_config`
+APIs. In the SONiC build environment, run both provider and legacy tests:
+
+```sh
+go test -gcflags=all=-l ./internal/adaptors/dbconfig ./sonic_db_config
+```
+
+The existing pure and normal CI jobs include these tests.
+
 ## Installing
 
 To install dial-in mode system telemetry server, run
