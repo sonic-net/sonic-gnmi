@@ -10,6 +10,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const maxReadPathLength = 4096
+
 var errReadFileType = errors.New("not a regular file or directory")
 
 func openPublicReadRoot() (*os.File, error) {
@@ -26,15 +28,21 @@ func openPublicReadRoot() (*os.File, error) {
 	return os.NewFile(uintptr(fd), root), nil
 }
 
-func openPublicReadFile(path string) (*os.File, error) {
+func openPublicReadFile(path string, links *int) (*os.File, error) {
+	if len(path) >= maxReadPathLength {
+		return nil, unix.ENAMETOOLONG
+	}
+	if links == nil {
+		links = new(int)
+	}
 	root, err := openPublicReadRoot()
 	if err != nil {
 		return nil, err
 	}
-	return walkPublicReadFile([]*os.File{root}, path)
+	return walkPublicReadFile([]*os.File{root}, path, links)
 }
 
-func openPublicReadChild(parent *os.File, name string) (*os.File, error) {
+func openPublicReadChild(parent *os.File, name string, links int) (*os.File, error) {
 	if name == "" || name == "." || name == ".." || strings.Contains(name, "/") {
 		return nil, os.ErrPermission
 	}
@@ -90,11 +98,11 @@ func openPublicReadChild(parent *os.File, name string) (*os.File, error) {
 	}
 	stack := directories
 	directories = nil
-	return walkPublicReadFile(stack, name)
+	return walkPublicReadFile(stack, name, &links)
 }
 
 // Walk the original path so resolving a symlink cannot skip a private ancestor.
-func walkPublicReadFile(directories []*os.File, path string) (_ *os.File, err error) {
+func walkPublicReadFile(directories []*os.File, path string, links *int) (_ *os.File, err error) {
 	defer func() {
 		if errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.ELOOP) {
 			err = os.ErrPermission
@@ -106,16 +114,15 @@ func walkPublicReadFile(directories []*os.File, path string) (_ *os.File, err er
 		}
 	}()
 	pending := strings.Split(path, "/")
-	links := 0
 	for len(pending) != 0 {
-		current := directories[len(directories)-1]
-		if err := checkPublicReadMode(current, 0001); err != nil {
-			return nil, err
-		}
 		part := pending[0]
 		pending = pending[1:]
 		if part == "" || part == "." {
 			continue
+		}
+		current := directories[len(directories)-1]
+		if err := checkPublicReadMode(current, 0001); err != nil {
+			return nil, err
 		}
 		if part == ".." {
 			if len(directories) == 1 {
@@ -136,14 +143,14 @@ func walkPublicReadFile(directories []*os.File, path string) (_ *os.File, err er
 			return nil, err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			links++
+			*links += 1
 			buffer := make([]byte, 4096)
 			n, err := unix.Readlinkat(fd, "", buffer)
 			pinned.Close()
 			if err != nil {
 				return nil, err
 			}
-			if links > 40 || n == len(buffer) {
+			if *links > 40 || n == len(buffer) {
 				return nil, os.ErrPermission
 			}
 			target := string(buffer[:n])

@@ -199,7 +199,7 @@ func TestStatInfoFromFileInfo_PermissionsOctalAsDecimal(t *testing.T) {
 func withFsOpenRead(t *testing.T, fake func(string) (*os.File, error)) {
 	t.Helper()
 	prev := fsOpenRead
-	fsOpenRead = fake
+	fsOpenRead = func(path string, _ *int) (*os.File, error) { return fake(path) }
 	t.Cleanup(func() { fsOpenRead = prev })
 }
 

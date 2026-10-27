@@ -659,6 +659,9 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 	if reqPath == "" {
 		return nil, status.Error(codes.InvalidArgument, "path cannot be empty")
 	}
+	if len(reqPath) >= maxReadPathLength {
+		return nil, status.Errorf(codes.InvalidArgument, "path must be shorter than %d bytes", maxReadPathLength)
+	}
 	if !filepath.IsAbs(reqPath) {
 		return nil, status.Errorf(codes.InvalidArgument, "path must be absolute, got: %s", reqPath)
 	}
@@ -671,7 +674,8 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 		return nil, status.Errorf(codes.InvalidArgument,
 			"path must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", reqPath)
 	}
-	file, err := fsOpenRead(reqPath)
+	var directoryLinks int
+	file, err := fsOpenRead(reqPath, &directoryLinks)
 	if err != nil {
 		if os.IsNotExist(err) || os.IsPermission(err) {
 			return nil, status.Error(codes.PermissionDenied, "file read access denied")
@@ -713,7 +717,11 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 	stats := make([]*gnoi_file_pb.StatInfo, 0, len(entries))
 	for _, entry := range entries {
 		childReportPath := strings.TrimRight(reqPath, "/") + "/" + entry.Name()
-		child, err := openPublicReadChild(file, entry.Name())
+		if len(childReportPath) >= maxReadPathLength {
+			log.Warningf("HandleStat: skipping %s: path exceeds the read-path length limit", entry.Name())
+			continue
+		}
+		child, err := openPublicReadChild(file, entry.Name(), directoryLinks)
 		if err != nil {
 			log.Warningf("HandleStat: skipping %s/%s: %v", reqPath, entry.Name(), err)
 			continue
@@ -761,6 +769,9 @@ func HandleGet(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.File_GetServer)
 	if remoteFile == "" {
 		return status.Error(codes.InvalidArgument, "remote_file cannot be empty")
 	}
+	if len(remoteFile) >= maxReadPathLength {
+		return status.Errorf(codes.InvalidArgument, "remote_file must be shorter than %d bytes", maxReadPathLength)
+	}
 	if !filepath.IsAbs(remoteFile) {
 		return status.Errorf(codes.InvalidArgument, "remote_file must be absolute, got: %s", remoteFile)
 	}
@@ -771,7 +782,7 @@ func HandleGet(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.File_GetServer)
 			"remote_file must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", remoteFile)
 	}
 
-	f, err := fsOpenRead(remoteFile)
+	f, err := fsOpenRead(remoteFile, nil)
 	if err != nil {
 		if os.IsNotExist(err) || os.IsPermission(err) {
 			return status.Error(codes.PermissionDenied, "file read access denied")

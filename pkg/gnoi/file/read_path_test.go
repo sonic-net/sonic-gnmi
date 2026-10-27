@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
@@ -313,7 +315,7 @@ func TestPublicReadUsesValidatedDescriptor(t *testing.T) {
 			}
 			open := fsOpenRead
 			withFsOpenRead(t, func(path string) (*os.File, error) {
-				descriptor, err := open(path)
+				descriptor, err := open(path, nil)
 				if err != nil {
 					return nil, err
 				}
@@ -432,15 +434,111 @@ func TestPublicStatUsesValidatedDirectory(t *testing.T) {
 	}
 }
 
+func TestPublicStatSharesParentSymlinkBudget(t *testing.T) {
+	for _, parentLinks := range []int{38, 39, 40, 41} {
+		t.Run(fmt.Sprint(parentLinks), func(t *testing.T) {
+			logical, physical := useTempHostRoot(t)
+			if err := os.Mkdir(filepath.Join(physical, "listing"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"image", "listing/direct"} {
+				if err := os.WriteFile(filepath.Join(physical, name), []byte("public"), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.Symlink("image", filepath.Join(physical, "child-target")); err != nil {
+				t.Fatal(err)
+			}
+			for name, target := range map[string]string{
+				"one": "../image", "another-one": "../image", "two": "../child-target",
+			} {
+				if err := os.Symlink(target, filepath.Join(physical, "listing", name)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for i := 0; i < parentLinks; i++ {
+				target := fmt.Sprintf("parent-%02d", i+1)
+				if i == parentLinks-1 {
+					target = "listing"
+				}
+				if err := os.Symlink(target, filepath.Join(physical, fmt.Sprintf("parent-%02d", i))); err != nil {
+					t.Fatal(err)
+				}
+			}
+			request := logical + "/parent-00"
+			if parentLinks > 40 {
+				assertReadDenied(t, request)
+				return
+			}
+			want := map[string]bool{"direct": true}
+			if parentLinks <= 39 {
+				want["one"], want["another-one"] = true, true
+			}
+			if parentLinks <= 38 {
+				want["two"] = true
+			}
+			response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: request})
+			if err != nil || len(response.GetStats()) != len(want) {
+				t.Fatalf("parent links=%d: response=%v error=%v want=%v", parentLinks, response, err, want)
+			}
+			for _, entry := range response.Stats {
+				if !want[filepath.Base(entry.Path)] {
+					t.Fatalf("listed a path beyond the request symlink budget: %v", entry)
+				}
+				assertPublicRead(t, entry.Path, []byte("public"))
+			}
+		})
+	}
+}
+
+func TestPublicReadRejectsOverlongRawPaths(t *testing.T) {
+	withFsOpenRead(t, func(path string) (*os.File, error) {
+		t.Fatal("overlong raw path reached the filesystem")
+		return nil, os.ErrInvalid
+	})
+	for _, path := range []string{
+		strings.Repeat("/", 4096),
+		strings.Repeat("/", 128*1024),
+		"/" + strings.Repeat("\u00e9", 2048),
+	} {
+		response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: path})
+		if status.Code(err) != codes.InvalidArgument || response != nil {
+			t.Fatalf("overlong Stat: response=%v error=%v", response, err)
+		}
+		stream := newFakeGetServer()
+		if err := HandleGet(&gnoi_file_pb.GetRequest{RemoteFile: path}, stream); status.Code(err) != codes.InvalidArgument || len(stream.responses) != 0 {
+			t.Fatalf("overlong Get: responses=%v error=%v", stream.responses, err)
+		}
+		if file, err := openPublicReadFile(path, nil); !errors.Is(err, unix.ENAMETOOLONG) || file != nil {
+			t.Fatalf("overlong guard: file=%v error=%v", file, err)
+		}
+	}
+}
+
+func TestPublicReadPathLengthBoundary(t *testing.T) {
+	logical, physical := useTempHostRoot(t)
+	if err := os.WriteFile(filepath.Join(physical, "image"), []byte("public"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	path := logical + "/image"
+	request := strings.Repeat("/", 4095-len(path)) + path
+	assertPublicRead(t, request, []byte("public"))
+	directory := strings.Repeat("/", 4095-len(logical)) + logical
+	response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: directory})
+	if err != nil || len(response.GetStats()) != 0 {
+		t.Fatalf("listed a child whose reported path exceeds the raw-path limit: %v %v", response, err)
+	}
+}
+
 func TestPublicReadChildBoundaries(t *testing.T) {
 	logical, physical := useTempHostRoot(t)
-	parent, err := openPublicReadFile(logical)
+	parent, err := openPublicReadFile(logical, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer parent.Close()
 	for _, name := range []string{"", ".", "..", "../image", "child/image"} {
-		if file, err := openPublicReadChild(parent, name); !os.IsPermission(err) || file != nil {
+		if file, err := openPublicReadChild(parent, name, 0); !os.IsPermission(err) || file != nil {
 			t.Fatalf("invalid child name %q: file=%v error=%v", name, file, err)
 		}
 	}
@@ -454,7 +552,7 @@ func TestPublicReadChildBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 20; i++ {
-		if file, err := openPublicReadChild(outside, "image"); !os.IsPermission(err) || file != nil {
+		if file, err := openPublicReadChild(outside, "image", 0); !os.IsPermission(err) || file != nil {
 			t.Fatalf("outside host root: file=%v error=%v", file, err)
 		}
 	}
@@ -465,14 +563,14 @@ func TestPublicReadChildBoundaries(t *testing.T) {
 	if err := os.Chmod(physical, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if file, err := openPublicReadChild(parent, "image"); !os.IsPermission(err) || file != nil {
+	if file, err := openPublicReadChild(parent, "image", 0); !os.IsPermission(err) || file != nil {
 		t.Fatalf("private pinned parent: file=%v error=%v", file, err)
 	}
 	if err := os.Chmod(physical, 0755); err != nil {
 		t.Fatal(err)
 	}
 	setPublicReadDenyACL(t, physical, true)
-	if file, err := openPublicReadChild(parent, "image"); !os.IsPermission(err) || file != nil {
+	if file, err := openPublicReadChild(parent, "image", 0); !os.IsPermission(err) || file != nil {
 		t.Fatalf("ACL-restricted pinned parent: file=%v error=%v", file, err)
 	}
 }
