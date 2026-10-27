@@ -112,9 +112,6 @@ func (c *Client) String() string {
 func (c *Client) populateDbPathSubscrition(sublist *gnmipb.SubscriptionList) ([]*gnmipb.Path, error) {
 	var paths []*gnmipb.Path
 
-	prefix := sublist.GetPrefix()
-	log.V(6).Infof("prefix : %#v SubscribRequest : %#v", prefix, sublist)
-
 	subscriptions := sublist.GetSubscription()
 	if subscriptions == nil {
 		return nil, fmt.Errorf("No Subscription")
@@ -158,7 +155,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 		return grpc.Errorf(grpc.Code(err), "received error from client")
 	}
 
-	log.V(2).Infof("Client %s recieved initial query %v", c, query)
+	log.V(2).Infof("Client %s received initial subscription", c)
 
 	c.subscribe = query.GetSubscribe()
 	extensions := query.GetExtension()
@@ -369,7 +366,7 @@ func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 		}
 
 		if c.subscribe.Mode == gnmipb.SubscriptionList_POLL {
-			log.V(3).Infof("Client %s received Poll event: %v", c, event)
+			log.V(3).Infof("Client %s received Poll event", c)
 			if _, ok := event.Request.(*gnmipb.SubscribeRequest_Poll); !ok {
 				return
 			}
@@ -378,7 +375,7 @@ func (c *Client) recv(stream gnmipb.GNMI_SubscribeServer) {
 			}
 			continue
 		}
-		log.V(1).Infof("Client %s received invalid event: %s", c, event)
+		log.V(1).Infof("Client %s received invalid subscription event", c)
 	}
 }
 

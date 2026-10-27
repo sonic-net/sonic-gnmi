@@ -1029,14 +1029,14 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 			}
 			err = c.makeJSON_redis(table_msi, &key, op, fv)
 			if err != nil {
-				log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
+				log.V(2).Info("Failed to render Redis fields")
 				return err
 			}
 		} else if (tblPath.tableKey != "" && !useKey) || tblPath.tableName == dbkey {
 			if c.encoding == gnmipb.Encoding_JSON_IETF {
 				err = c.makeJSON_redis(msi, nil, op, fv)
 				if err != nil {
-					log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
+					log.V(2).Info("Failed to render Redis fields")
 					return err
 				}
 			} else if c.encoding == gnmipb.Encoding_PROTO {
@@ -1044,7 +1044,7 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 				if ok {
 					(*msi)["pb"] = []byte(value)
 				} else {
-					return fmt.Errorf("No proto bytes found in redis %v", fv)
+					return fmt.Errorf("No proto bytes found in redis")
 				}
 			}
 		} else {
@@ -1054,11 +1054,11 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 			key = keys[1]
 			err = c.makeJSON_redis(msi, &key, op, fv)
 			if err != nil {
-				log.V(2).Infof("makeJSON err %s for fv %v", err, fv)
+				log.V(2).Info("Failed to render Redis fields")
 				return err
 			}
 		}
-		log.V(6).Infof("Added idex %v fv %v ", idx, fv)
+		log.V(6).Infof("Added Redis entry %d", idx)
 	}
 	return nil
 }
@@ -1067,8 +1067,8 @@ func (c *MixedDbClient) msi2TypedValue(msi map[string]interface{}) (*gnmipb.Type
 	if c.encoding == gnmipb.Encoding_JSON_IETF {
 		jv, err := emitJSON(&msi)
 		if err != nil {
-			log.V(2).Infof("emitJSON err %s for  %v", err, msi)
-			return nil, fmt.Errorf("emitJSON err %s for  %v", err, msi)
+			log.V(2).Info("Failed to encode JSON read response")
+			return nil, fmt.Errorf("Failed to encode JSON read response")
 		}
 		return &gnmipb.TypedValue{
 			Value: &gnmipb.TypedValue_JsonIetfVal{
@@ -1082,7 +1082,7 @@ func (c *MixedDbClient) msi2TypedValue(msi map[string]interface{}) (*gnmipb.Type
 					ProtoBytes: value.([]byte),
 				}}, nil
 		} else {
-			return nil, fmt.Errorf("No proto bytes found in msi %v", msi)
+			return nil, fmt.Errorf("No proto bytes found in msi")
 		}
 	} else {
 		return nil, fmt.Errorf("Unknown encoding %v", c.encoding)
@@ -1773,7 +1773,7 @@ func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 		if err == nil {
 			return ret, err
 		}
-		log.V(6).Infof("Error #%v", err)
+		log.V(6).Info("Failed to resolve read path")
 	}
 
 	var values []*spb.Value
@@ -1835,7 +1835,7 @@ func (c *MixedDbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *s
 		}
 		val, err, updateReceived := c.tableData2TypedValue(tblPaths, nil)
 		if err != nil {
-			log.V(2).Infof("OnceRun: Unable to create gnmi TypedValue due to err: %v", err)
+			log.V(2).Info("OnceRun: Unable to create gNMI TypedValue")
 			putFatalMsg(c.q, fmt.Sprintf("OnceRun error: %v", err))
 			return
 		}
@@ -1903,7 +1903,7 @@ func (c *MixedDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *s
 					prevUpdates[pathKey] = false
 				}
 			} else if err != nil {
-				log.V(2).Infof("Unable to create gnmi TypedValue due to err: %v", err)
+				log.V(2).Info("Unable to create gNMI TypedValue")
 				return
 			} else {
 				spbv := &spb.Value{
@@ -2148,7 +2148,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 
 				// Do not log errors if stop is signaled
 				if _, activeCh := <-c.channel; activeCh {
-					log.V(2).Infof("pubsub.ReceiveTimeout err %v", err)
+					log.V(2).Info("Failed to receive database subscription event")
 				}
 
 				continue
@@ -2163,7 +2163,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 					fp := map[string]interface{}{}
 					//fp["DEL"] = ""
 					if len(subscr.Channel) < prefixLen {
-						log.V(2).Infof("Invalid psubscribe channel notification %v, shorter than %v", subscr.Channel, prefixLen)
+						log.V(2).Infof("Invalid psubscribe channel notification, shorter than %v", prefixLen)
 						continue
 					}
 					key := subscr.Channel[prefixLen:]
@@ -2181,7 +2181,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 				} else {
 					tblPath := tblPath
 					if len(subscr.Channel) < prefixLen {
-						log.V(2).Infof("Invalid psubscribe channel notification %v, shorter than %v", subscr.Channel, prefixLen)
+						log.V(2).Infof("Invalid psubscribe channel notification, shorter than %v", prefixLen)
 						continue
 					}
 					tblPath.tableKey = subscr.Channel[prefixLen:]
@@ -2197,7 +2197,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 				}
 				msi = newMsi
 			} else {
-				log.V(2).Infof("Invalid psubscribe payload notification:  %v", subscr.Payload)
+				log.V(2).Info("Invalid psubscribe operation notification")
 				continue
 			}
 
@@ -2232,7 +2232,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 
 	// Helper to handle fatal case.
 	handleFatalMsg := func(msg string) {
-		log.V(1).Infof("%s", msg)
+		log.V(1).Info("Database subscription failed")
 		putFatalMsg(c.q, msg)
 		signalSync()
 	}
@@ -2301,12 +2301,12 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 
 		msgi, err := pubsub.ReceiveTimeout(context.Background(), time.Second)
 		if err != nil {
-			handleFatalMsg(fmt.Sprintf("psubscribe to %s failed for %v", pattern, tblPath))
+			handleFatalMsg("Database subscription failed")
 			return
 		}
 		subscr := msgi.(*redis.Subscription)
 		if subscr.Channel != pattern {
-			handleFatalMsg(fmt.Sprintf("psubscribe to %s failed for %v", pattern, tblPath))
+			handleFatalMsg("Database subscription failed")
 			return
 		}
 		log.V(2).Info("Psubscribe succeeded")
