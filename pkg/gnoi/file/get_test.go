@@ -13,7 +13,6 @@ import (
 
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	"github.com/openconfig/gnoi/types"
-	"github.com/sonic-net/sonic-gnmi/internal/imageexport"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -63,82 +62,45 @@ func (s *fakeGetServer) SetHeader(metadata.MD) error  { return nil }
 func (s *fakeGetServer) SendHeader(metadata.MD) error { return nil }
 func (s *fakeGetServer) SetTrailer(metadata.MD)       {}
 
-// useTempHostRoot creates an isolated managed read export. Legacy authorized
-// write tests use useTempWriteRoot so they do not bypass the real image worker.
+// useTempHostRoot points hostRoot at a fresh t.TempDir() and restores it
+// when the test ends. Returns (logical, physical):
+//
+//   - logical  is the path to use in RemoteFile / Path requests; it has
+//     the hostRoot prefix stripped, so it looks like a normal SONiC path
+//     (e.g. "/tmp/get-test-123").
+//   - physical is the on-disk path under the injected hostRoot where the
+//     test should create fixtures (regular files, fifos, sparse files,
+//     ...).
+//
+// Behavior matches translatePathForContainer: hostRoot is the prefix the
+// handler will glue back on. So a fixture written to
+// `<hostRoot>/tmp/foo` is reached by RemoteFile=`/tmp/foo`.
+//
+// The injected root is /tmp-rooted (`/tmp/...` is in validatePath's
+// whitelist so the handler accepts the logical path).
 func useTempHostRoot(t *testing.T) (logical, physical string) {
-	return useTempRoot(t, imageexport.ExportRoot)
-}
-
-func useTempWriteRoot(t *testing.T) (logical, physical string) {
-	return useTempRoot(t, "/tmp")
-}
-
-func useTempRoot(t *testing.T, base string) (logical, physical string) {
 	t.Helper()
 	root := t.TempDir()
+	if err := os.Chmod(root, 0755); err != nil {
+		t.Fatal(err)
+	}
 	prevRoot := hostRoot
-	previousOpen := openImageFile
-	previousStats := imageStats
 	hostRoot = root
-	t.Cleanup(func() { hostRoot, openImageFile, imageStats = prevRoot, previousOpen, previousStats })
+	t.Cleanup(func() { hostRoot = prevRoot })
 
-	// Handler tests consume authorized descriptors; real UID/ACL enforcement is
-	// exercised separately by internal/imageexport's credential-drop tests.
-	openImageFile = func(_ context.Context, root, path string) (*os.File, error) {
-		source, err := os.OpenFile(filepath.Join(root, strings.TrimPrefix(path, "/")),
-			os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
-		if os.IsNotExist(err) || os.IsPermission(err) {
-			return nil, os.ErrPermission
-		}
-		return source, err
-	}
-	imageStats = func(ctx context.Context, path string) ([]imageexport.Metadata, error) {
-		source, err := openReadPathContext(ctx, translatePathForContainer(path))
-		if err != nil {
-			return nil, err
-		}
-		defer source.Close()
-		info, err := source.Stat()
-		if err != nil {
-			return nil, err
-		}
-		if !info.IsDir() {
-			return []imageexport.Metadata{imageexport.Describe(path, info)}, nil
-		}
-		entries, err := source.ReadDir(-1)
-		if err != nil {
-			return nil, err
-		}
-		var result []imageexport.Metadata
-		for _, entry := range entries {
-			logical := filepath.Join(path, entry.Name())
-			if sensitiveReadPath(logical) {
-				continue
-			}
-			child, err := openReadPathContext(ctx, translatePathForContainer(logical))
-			if os.IsPermission(err) {
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			info, err := child.Stat()
-			child.Close()
-			if err != nil {
-				return nil, err
-			}
-			result = append(result, imageexport.Describe(logical, info))
-		}
-		return result, nil
-	}
-
-	physTmp := filepath.Join(root, strings.TrimPrefix(base, "/"))
+	// Build <root>/tmp/get-test-XXXX so the handler-visible logical path
+	// (after stripping <root>) starts with /tmp/, which validatePath
+	// accepts.
+	physTmp := filepath.Join(root, "tmp")
 	if err := os.MkdirAll(physTmp, 0755); err != nil {
 		t.Fatalf("mkdir %s: %v", physTmp, err)
 	}
 	phys, err := os.MkdirTemp(physTmp, "get-test-*")
 	if err != nil {
 		t.Fatalf("mkdir temp under %s: %v", physTmp, err)
+	}
+	if err := os.Chmod(phys, 0755); err != nil {
+		t.Fatal(err)
 	}
 	logi := strings.TrimPrefix(phys, root)
 	return logi, phys

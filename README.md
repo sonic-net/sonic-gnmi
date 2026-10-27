@@ -40,62 +40,19 @@ You can also build a debian package and install it:
 * See [gNMI Usage Examples](./doc/gNMI_usage_examples.md) for gNMI client usage examples.
 * See [gNOI Debug actions](./doc/gnoi_debug.md) for the Debug RPC policy and supported actions.
 
-### Managed gNOI image files
+### gNOI file read permissions
 
-File.Get and File.Stat expose only managed image artifacts under
-`/host/sonic-image-exports/images`, not arbitrary host files. This restriction
-applies independently of caller role; existing RPC authentication and write
-authorization remain required.
+File.Get and File.Stat expose only world-readable regular files. Ancestor
+directories must be world-searchable; listing a directory also requires world
+read/search permissions. Stat listings omit private children. Missing and
+inaccessible paths return the same read denial.
 
-Deploy the companion sonic-host-services data package that provisions the
-non-login host `sonic-image` account. The gNMI package installs
-`/usr/sbin/sonic-image-worker`; both services use the host account's numeric
-UID/GID, including when gNMI runs in a container. Missing/invalid credentials
-or a missing worker fail closed with an explicit runtime error.
-
-Publish images with File.Put or File.TransferToRemote to a path such as
-`/host/sonic-image-exports/images/release/sonic.bin`. Managed Put permissions
-default to `0600`; both numeric `0600` (384) and Stat's decimal-octal `600`
-are accepted for this private mode. Other requested modes are rejected.
-Names start with an ASCII letter/digit and contain only letters, digits, dots, underscores and
-hyphens (128 characters per component, at most 16 components). Files are
-privately staged and atomically published only after a successful transfer
-and, for Put, hash verification.
-
-The fixed store is root-controlled; its images/staging directories are
-`sonic-image`-owned mode `0700`, and published files are single-link regular
-files owned by that account with mode `0600`. Do not manually copy artifacts
-into this tree. Workers drop root and supplementary groups before accessing
-files and transfer already-open descriptors over a private socket. Actual
-kernel traversal permissions and ACLs apply. Symlinks, hardlinks, root-owned
-files and unavailable artifacts are denied; directory listings omit denied
-children. Missing and inaccessible artifacts have identical read denials.
-
-Both services share a root-only ownership journal and lock. Upgrades and
-rollbacks that change the host account's numeric IDs trigger verified
-ownership migration before reads or uploads. The complete images/staging
-trees are validated first; only private directories and single-link regular
-files belonging to the recorded identities are migrated through pinned
-descriptors. Root/unknown owners, symlinks, special files and unsafe modes
-fail closed for administrator investigation, not recursive chown. A durable
-in-progress journal supports interruption and rollback. Deploy both updates;
-older implementations do not support this journal.
-
-Stat validates a directory and its immediate children in one unprivileged
-worker, returning metadata through a private descriptor rather than one
-process per child. RPC cancellation/deadlines stop the worker and also apply
-while waiting for the ownership lock. Managed Remove uses the same
-unprivileged path checks; fixed store roots and the ownership journal/lock
-cannot be removed through gNOI.
-
-Authorized legacy upgrade/configuration writes outside this private store
-are preserved, but do not become read exports. Their parent components are
-opened without following symlinks and pinned for staging, atomic publication
-and cleanup. Final symlink/hardlink aliases and private-store aliases are
-rejected; legacy Remove uses the same parent protections. HTTP transfer hashes are
-calculated from incoming bytes, never by reopening a caller-selected host
-path as root. The account database and root-controlled mount/store
-configuration remain trusted; a hostile local OS root is outside this policy.
+The check applies regardless of caller role, including when the server runs as
+root. Reads use the validated descriptor; symlink targets must remain inside
+the host filesystem view. Extended access ACLs are conservatively denied rather
+than assuming mode bits alone establish public access. Put, TransferToRemote,
+Remove, authentication and role authorization are unchanged. No managed-image
+store, helper process or companion HostService change is required.
 
 ## Streaming events
 SONiC publishes events of interest via gNMI.

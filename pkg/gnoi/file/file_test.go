@@ -28,7 +28,7 @@ import (
 
 func transferTestPath(t *testing.T, name string) (logical, physical string) {
 	t.Helper()
-	logicalDir, physicalDir := useTempWriteRoot(t)
+	logicalDir, physicalDir := useTempHostRoot(t)
 	return filepath.Join(logicalDir, name), filepath.Join(physicalDir, name)
 }
 
@@ -1504,8 +1504,8 @@ func TestHandleTransferToRemote_EdgeCases(t *testing.T) {
 		}
 
 		st, ok := status.FromError(err)
-		if !ok || st.Code() != codes.DeadlineExceeded {
-			t.Errorf("Expected DeadlineExceeded error from timeout, got %v", err)
+		if !ok || st.Code() != codes.Internal {
+			t.Errorf("Expected Internal error from timeout, got %v", err)
 		}
 	})
 }
@@ -2306,10 +2306,11 @@ func TestHandleTransferToRemote_NPU_Fallback(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	// Transfer hashes the incoming bytes without reopening the host file.
-	patches.ApplyFunc(download.DownloadHTTPStreaming,
-		func(ctx context.Context, url string, maxSize int64) (io.ReadCloser, int64, error) {
-			return io.NopCloser(strings.NewReader("test content")), 12, nil
+	// Mock download.DownloadHTTP to succeed for NPU path
+	patches.ApplyFunc(download.DownloadHTTP,
+		func(ctx context.Context, url, localPath string, maxSize int64) error {
+			// Create a test file
+			return os.WriteFile(localPath, []byte("test content"), 0644)
 		})
 
 	ctx := context.Background() // No DPU metadata - should call handleTransferToRemoteLocal
