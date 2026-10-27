@@ -49,7 +49,11 @@ inaccessible paths return the same read denial.
 
 Resolution is bounded to raw paths shorter than 4096 bytes, 40 symlinks and
 64 descriptors per ancestor stack, plus a fixed number of anchor/target
-handles. Entries exceeding these safety limits are not exposed.
+handles. A listing captures and validates its pinned ancestor stack once, then
+shares that immutable prefix across child lookups. Each child has independent
+traversal state and a copy of the remaining symlink budget; following links may
+retain one additional bounded ancestor stack. Entries exceeding these safety
+limits are not exposed.
 
 The check applies regardless of caller role, including when the server runs as
 root. Reads use the validated descriptor; symlink targets must remain inside

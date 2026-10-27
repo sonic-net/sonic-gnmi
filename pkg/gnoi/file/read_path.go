@@ -43,13 +43,16 @@ func openPublicReadFile(path string, links *int) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return walkPublicReadFile([]*os.File{root}, path, links)
+	return walkPublicReadFile([]*os.File{root}, path, links, 0)
 }
 
-func openPublicReadChild(parent *os.File, name string, links int) (*os.File, error) {
-	if name == "" || name == "." || name == ".." || strings.Contains(name, "/") {
-		return nil, os.ErrPermission
+func closePublicReadDirectories(directories []*os.File) {
+	for _, directory := range directories {
+		directory.Close()
 	}
+}
+
+func openPublicReadAncestors(parent *os.File) ([]*os.File, error) {
 	root, err := openPublicReadRoot()
 	if err != nil {
 		return nil, err
@@ -64,11 +67,7 @@ func openPublicReadChild(parent *os.File, name string, links int) (*os.File, err
 		return nil, err
 	}
 	directories := []*os.File{os.NewFile(uintptr(fd), parent.Name())}
-	defer func() {
-		for _, directory := range directories {
-			directory.Close()
-		}
-	}()
+	defer func() { closePublicReadDirectories(directories) }()
 	// Recover a pinned root-to-parent stack without reopening the request path.
 	// Relative symlinks can then traverse .. while absolute links use the host root.
 	for {
@@ -105,21 +104,38 @@ func openPublicReadChild(parent *os.File, name string, links int) (*os.File, err
 	}
 	stack := directories
 	directories = nil
-	return walkPublicReadFile(stack, name, &links)
+	return stack, nil
+}
+
+func openPublicReadChild(directories []*os.File, name string, links int) (*os.File, error) {
+	if name == "" || name == "." || name == ".." || strings.Contains(name, "/") {
+		return nil, os.ErrPermission
+	}
+	stack := append([]*os.File(nil), directories...)
+	return walkPublicReadFile(stack, name, &links, len(stack))
 }
 
 // Walk the original path so resolving a symlink cannot skip a private ancestor.
-func walkPublicReadFile(directories []*os.File, path string, links *int) (_ *os.File, err error) {
+func walkPublicReadFile(directories []*os.File, path string, links *int, borrowed int) (_ *os.File, err error) {
 	defer func() {
 		if errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENAMETOOLONG) {
 			err = os.ErrPermission
 		}
 	}()
-	defer func() {
-		for _, directory := range directories {
-			directory.Close()
+	// A listing owns its shared prefix; each child owns only newly opened ancestors.
+	truncate := func(length int) {
+		for len(directories) > length {
+			last := len(directories) - 1
+			if last >= borrowed {
+				directories[last].Close()
+			}
+			directories = directories[:last]
 		}
-	}()
+		if borrowed > length {
+			borrowed = length
+		}
+	}
+	defer func() { truncate(0) }()
 	pending := strings.Split(path, "/")
 	for len(pending) != 0 {
 		part := pending[0]
@@ -135,8 +151,7 @@ func walkPublicReadFile(directories []*os.File, path string, links *int) (_ *os.
 			if len(directories) == 1 {
 				return nil, os.ErrPermission
 			}
-			current.Close()
-			directories = directories[:len(directories)-1]
+			truncate(len(directories) - 1)
 			continue
 		}
 		fd, err := unix.Openat(int(current.Fd()), part, unix.O_PATH|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
@@ -162,10 +177,7 @@ func walkPublicReadFile(directories []*os.File, path string, links *int) (_ *os.
 			}
 			target := string(buffer[:n])
 			if filepath.IsAbs(target) {
-				for _, directory := range directories[1:] {
-					directory.Close()
-				}
-				directories = directories[:1]
+				truncate(1)
 			}
 			pending = append(strings.Split(target, "/"), pending...)
 			continue

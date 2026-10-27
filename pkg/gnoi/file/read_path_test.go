@@ -5,12 +5,14 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/codes"
@@ -435,6 +437,180 @@ func TestPublicStatUsesValidatedDirectory(t *testing.T) {
 	}
 }
 
+func TestPublicStatReusesValidatedAncestry(t *testing.T) {
+	logical, physical := useTempHostRoot(t)
+	for depth := 1 + len(strings.Split(strings.Trim(logical, "/"), "/")); depth < 64; depth++ {
+		logical, physical = logical+"/d", filepath.Join(physical, "d")
+		if err := os.Mkdir(physical, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const entries = 1000
+	for i := 0; i < entries; i++ {
+		if err := os.WriteFile(filepath.Join(physical, fmt.Sprintf("image-%04d", i)), []byte("public"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	opens, queries := 0, 0
+	openPatch, queryPatch := gomonkey.NewPatches(), gomonkey.NewPatches()
+	defer openPatch.Reset()
+	defer queryPatch.Reset()
+	var countOpen func(int, string, int, uint32) (int, error)
+	countOpen = func(dirfd int, path string, flags int, mode uint32) (int, error) {
+		opens++
+		openPatch.Reset()
+		defer openPatch.ApplyFunc(unix.Openat, countOpen)
+		return unix.Openat(dirfd, path, flags, mode)
+	}
+	var countQuery func(string, string, []byte) (int, error)
+	countQuery = func(path, attribute string, destination []byte) (int, error) {
+		queries++
+		queryPatch.Reset()
+		defer queryPatch.ApplyFunc(unix.Getxattr, countQuery)
+		return unix.Getxattr(path, attribute, destination)
+	}
+	openPatch.ApplyFunc(unix.Openat, countOpen)
+	queryPatch.ApplyFunc(unix.Getxattr, countQuery)
+	response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: logical})
+	if err != nil || len(response.GetStats()) != entries {
+		t.Fatalf("deep listing: entries=%d error=%v", len(response.GetStats()), err)
+	}
+	if opens < entries || queries < 2*entries || opens > entries+2*64 || queries > 2*entries+2*64 {
+		t.Fatalf("listing repeated ancestor work: openat=%d (limit %d), ACL queries=%d (limit %d)",
+			opens, entries+2*64, queries, 2*entries+2*64)
+	}
+	after, err := os.ReadDir("/proc/self/fd")
+	if err != nil || len(before) != len(after) {
+		t.Fatalf("listing leaked descriptors: before=%d after=%d error=%v", len(before), len(after), err)
+	}
+	t.Logf("1000 entries at 64 ancestors: openat=%d, ACL queries=%d", opens, queries)
+}
+
+func TestPublicReadChildTraversalIsolation(t *testing.T) {
+	logical, physical := useTempHostRoot(t)
+	for _, directory := range []string{"listing", "branch/sub", "private"} {
+		if err := os.MkdirAll(filepath.Join(physical, directory), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{"image", "listing/image", "private/image"} {
+		if err := os.WriteFile(filepath.Join(physical, path), []byte("public"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(physical, "private"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{
+		"absolute": logical + "/branch/sub/../../image",
+		"detour":   "../branch/sub/../../listing/image",
+		"up":       "../image",
+		"private":  "../private/image",
+		"loop":     "loop",
+		"escape":   "/../image",
+	} {
+		if err := os.Symlink(target, filepath.Join(physical, "listing", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	parent, err := openPublicReadFile(logical+"/listing", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parent.Close()
+	directories, err := openPublicReadAncestors(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closePublicReadDirectories(directories)
+	original := append([]*os.File(nil), directories...)
+	before, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		for _, name := range []string{"absolute", "detour", "up", "private", "loop", "escape", "image"} {
+			child, err := openPublicReadChild(directories, name, 38)
+			if name == "private" || name == "loop" || name == "escape" {
+				if !os.IsPermission(err) || child != nil {
+					t.Fatalf("restricted child %s: file=%v error=%v", name, child, err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("child %s after sibling traversal: %v", name, err)
+				}
+				content, err := io.ReadAll(child)
+				child.Close()
+				if err != nil || string(content) != "public" {
+					t.Fatalf("child %s: content=%q error=%v", name, content, err)
+				}
+			}
+			for index, directory := range directories {
+				if directory != original[index] {
+					t.Fatalf("child %s changed shared ancestor %d", name, index)
+				}
+				if _, err := directory.Stat(); err != nil {
+					t.Fatalf("child %s closed shared ancestor %d: %v", name, index, err)
+				}
+			}
+		}
+	}
+	after, err := os.ReadDir("/proc/self/fd")
+	if err != nil || len(before) != len(after) {
+		t.Fatalf("child traversal leaked descriptors: before=%d after=%d error=%v", len(before), len(after), err)
+	}
+}
+
+func TestPublicStatRejectsInvalidatedAncestry(t *testing.T) {
+	for _, invalidation := range []string{"private", "ACL", "closed"} {
+		t.Run(invalidation, func(t *testing.T) {
+			logical, physical := useTempHostRoot(t)
+			if err := os.Mkdir(filepath.Join(physical, "listing"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(physical, "listing", "image"), []byte("public"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			readDir := fsReadDir
+			fsReadDir = func(file *os.File) ([]os.DirEntry, error) {
+				entries, err := readDir(file)
+				if err != nil {
+					return nil, err
+				}
+				switch invalidation {
+				case "private":
+					if err := os.Chmod(physical, 0700); err != nil {
+						t.Fatal(err)
+					}
+				case "ACL":
+					setPublicReadDenyACL(t, physical, true)
+				case "closed":
+					if err := file.Close(); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return entries, nil
+			}
+			t.Cleanup(func() { fsReadDir = readDir })
+			response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: logical + "/listing"})
+			want := codes.PermissionDenied
+			if invalidation == "closed" {
+				want = codes.Internal
+			}
+			if status.Code(err) != want || response != nil {
+				t.Fatalf("invalidated ancestry %s: response=%v error=%v", invalidation, response, err)
+			}
+			if want == codes.PermissionDenied && status.Convert(err).Message() != "file read access denied" {
+				t.Fatalf("nonuniform ancestry denial: %v", err)
+			}
+		})
+	}
+}
+
 func TestPublicStatSharesParentSymlinkBudget(t *testing.T) {
 	for _, parentLinks := range []int{38, 39, 40, 41} {
 		t.Run(fmt.Sprint(parentLinks), func(t *testing.T) {
@@ -573,8 +749,8 @@ func TestPublicReadDirectoryBudget(t *testing.T) {
 			assertReadDenied(t, deep)
 			assertReadDenied(t, filepath.Dir(deep)+"/private")
 			assertReadDenied(t, filepath.Dir(deep)+"/missing")
-			if file, err := openPublicReadChild(parent, "image", 0); !os.IsPermission(err) || file != nil {
-				t.Fatalf("deep child ancestry: file=%v error=%v", file, err)
+			if directories, err := openPublicReadAncestors(parent); !os.IsPermission(err) || directories != nil {
+				t.Fatalf("deep child ancestry: directories=%v error=%v", directories, err)
 			}
 		}
 		after, err := os.ReadDir("/proc/self/fd")
@@ -630,8 +806,13 @@ func TestPublicReadChildBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer parent.Close()
+	directories, err := openPublicReadAncestors(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closePublicReadDirectories(directories)
 	for _, name := range []string{"", ".", "..", "../image", "child/image"} {
-		if file, err := openPublicReadChild(parent, name, 0); !os.IsPermission(err) || file != nil {
+		if file, err := openPublicReadChild(directories, name, 0); !os.IsPermission(err) || file != nil {
 			t.Fatalf("invalid child name %q: file=%v error=%v", name, file, err)
 		}
 	}
@@ -645,8 +826,8 @@ func TestPublicReadChildBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 20; i++ {
-		if file, err := openPublicReadChild(outside, "image", 0); !os.IsPermission(err) || file != nil {
-			t.Fatalf("outside host root: file=%v error=%v", file, err)
+		if directories, err := openPublicReadAncestors(outside); !os.IsPermission(err) || directories != nil {
+			t.Fatalf("outside host root: directories=%v error=%v", directories, err)
 		}
 	}
 	after, err := os.ReadDir("/proc/self/fd")
@@ -656,15 +837,15 @@ func TestPublicReadChildBoundaries(t *testing.T) {
 	if err := os.Chmod(physical, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if file, err := openPublicReadChild(parent, "image", 0); !os.IsPermission(err) || file != nil {
-		t.Fatalf("private pinned parent: file=%v error=%v", file, err)
+	if directories, err := openPublicReadAncestors(parent); !os.IsPermission(err) || directories != nil {
+		t.Fatalf("private pinned parent: directories=%v error=%v", directories, err)
 	}
 	if err := os.Chmod(physical, 0755); err != nil {
 		t.Fatal(err)
 	}
 	setPublicReadDenyACL(t, physical, true)
-	if file, err := openPublicReadChild(parent, "image", 0); !os.IsPermission(err) || file != nil {
-		t.Fatalf("ACL-restricted pinned parent: file=%v error=%v", file, err)
+	if directories, err := openPublicReadAncestors(parent); !os.IsPermission(err) || directories != nil {
+		t.Fatalf("ACL-restricted pinned parent: directories=%v error=%v", directories, err)
 	}
 }
 

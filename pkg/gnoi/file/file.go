@@ -714,6 +714,15 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 		return nil, status.Errorf(codes.Internal, "failed to read directory %s: %v", reqPath, err)
 	}
 
+	directories, err := openPublicReadAncestors(file)
+	if err != nil {
+		if os.IsNotExist(err) || os.IsPermission(err) {
+			return nil, status.Error(codes.PermissionDenied, "file read access denied")
+		}
+		return nil, status.Errorf(codes.Internal, "failed to validate directory ancestry: %v", err)
+	}
+	defer closePublicReadDirectories(directories)
+
 	stats := make([]*gnoi_file_pb.StatInfo, 0, len(entries))
 	for _, entry := range entries {
 		childReportPath := strings.TrimRight(reqPath, "/") + "/" + entry.Name()
@@ -721,7 +730,7 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 			log.Warningf("HandleStat: skipping %s: path exceeds the read-path length limit", entry.Name())
 			continue
 		}
-		child, err := openPublicReadChild(file, entry.Name(), directoryLinks)
+		child, err := openPublicReadChild(directories, entry.Name(), directoryLinks)
 		if err != nil {
 			log.Warningf("HandleStat: skipping %s/%s: %v", reqPath, entry.Name(), err)
 			continue
