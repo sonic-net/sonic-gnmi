@@ -73,6 +73,35 @@ func TestPublicReadPermissions(t *testing.T) {
 	assertReadDenied(t, filepath.Join(logical, "missing.bin"))
 }
 
+func TestPublicStatSpecialFile(t *testing.T) {
+	logical, physical := useTempHostRoot(t)
+	path := filepath.Join(physical, "fifo")
+	if err := unix.Mkfifo(path, 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []os.FileMode{0644, 0600} {
+		t.Run(mode.String(), func(t *testing.T) {
+			if err := os.Chmod(path, mode); err != nil {
+				t.Fatal(err)
+			}
+			request := logical + "/fifo"
+			if mode&0004 == 0 {
+				assertReadDenied(t, request)
+				return
+			}
+			response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: request})
+			if status.Code(err) != codes.FailedPrecondition || response != nil {
+				t.Fatalf("public FIFO Stat: response=%v error=%v", response, err)
+			}
+			stream := newFakeGetServer()
+			err = HandleGet(&gnoi_file_pb.GetRequest{RemoteFile: request}, stream)
+			if status.Code(err) != codes.FailedPrecondition || len(stream.responses) != 0 {
+				t.Fatalf("public FIFO Get: responses=%v error=%v", stream.responses, err)
+			}
+		})
+	}
+}
+
 func TestPublicReadHostRootMapping(t *testing.T) {
 	useTempHostRoot(t)
 	response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: "/"})
@@ -390,6 +419,45 @@ func TestPublicStatPreservesOriginalPaths(t *testing.T) {
 				}
 			}
 			t.Fatalf("missing original round-trip path %q: %v", reported, response)
+		})
+	}
+}
+
+func TestPublicStatFiltersContainerInternalChildPaths(t *testing.T) {
+	logical, physical := useTempHostRoot(t)
+	depth := len(strings.Split(strings.Trim(logical, "/"), "/")) + 1
+	target := strings.TrimSuffix(strings.Repeat("target/", depth), "/")
+	for _, directory := range []string{target, "mnt"} {
+		if err := os.MkdirAll(filepath.Join(physical, directory), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"host", "hostile", "image"} {
+		if err := os.WriteFile(filepath.Join(physical, "mnt", name), []byte("public"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(target, filepath.Join(physical, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	assertPublicRead(t, logical+"/mnt/host", []byte("public"))
+	request := logical + "/alias/" + strings.Repeat("../", depth) + "mnt"
+	stream := newFakeGetServer()
+	if err := HandleGet(&gnoi_file_pb.GetRequest{RemoteFile: request + "/host"}, stream); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("fixture child must fail Get's forbidden-prefix check: %v", err)
+	}
+	for _, suffix := range []string{"", "/", "//"} {
+		t.Run(fmt.Sprintf("trailing-slashes-%d", len(suffix)), func(t *testing.T) {
+			response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: request + suffix})
+			if err != nil || len(response.GetStats()) != 2 {
+				t.Fatalf("filtered listing: response=%v error=%v", response, err)
+			}
+			for _, entry := range response.Stats {
+				if filepath.Base(entry.Path) == "host" {
+					t.Fatalf("listed a path rejected by Get validation: %v", entry)
+				}
+				assertPublicRead(t, entry.Path, []byte("public"))
+			}
 		})
 	}
 }

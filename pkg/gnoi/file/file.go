@@ -666,11 +666,10 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 		return nil, status.Errorf(codes.InvalidArgument, "path must be absolute, got: %s", reqPath)
 	}
 
-	cleanReqPath := filepath.Clean(reqPath)
 	// Reject /mnt/host-prefixed inputs to avoid double-prefixing in
 	// translatePathForContainer (e.g. "/mnt/host/tmp/x" → "/mnt/host/mnt/host/tmp/x").
 	// Clients should pass host-visible paths like /tmp/..., /etc/..., /host/...
-	if cleanReqPath == "/mnt/host" || strings.HasPrefix(cleanReqPath, "/mnt/host/") {
+	if isContainerInternalReadPath(reqPath) {
 		return nil, status.Errorf(codes.InvalidArgument,
 			"path must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", reqPath)
 	}
@@ -679,6 +678,9 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 	if err != nil {
 		if os.IsNotExist(err) || os.IsPermission(err) {
 			return nil, status.Error(codes.PermissionDenied, "file read access denied")
+		}
+		if errors.Is(err, errReadFileType) {
+			return nil, status.Errorf(codes.FailedPrecondition, "path is not a regular file or directory: %s", reqPath)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to stat %s: %v", reqPath, err)
 	}
@@ -728,6 +730,10 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 		childReportPath := strings.TrimRight(reqPath, "/") + "/" + entry.Name()
 		if len(childReportPath) >= maxReadPathLength {
 			log.Warningf("HandleStat: skipping %s: path exceeds the read-path length limit", entry.Name())
+			continue
+		}
+		if isContainerInternalReadPath(childReportPath) {
+			log.Warningf("HandleStat: skipping %s: path is container-internal", childReportPath)
 			continue
 		}
 		child, err := openPublicReadChild(directories, entry.Name(), directoryLinks)
@@ -785,8 +791,7 @@ func HandleGet(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.File_GetServer)
 		return status.Errorf(codes.InvalidArgument, "remote_file must be absolute, got: %s", remoteFile)
 	}
 
-	cleanPath := filepath.Clean(remoteFile)
-	if cleanPath == "/mnt/host" || strings.HasPrefix(cleanPath, "/mnt/host/") {
+	if isContainerInternalReadPath(remoteFile) {
 		return status.Errorf(codes.InvalidArgument,
 			"remote_file must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", remoteFile)
 	}

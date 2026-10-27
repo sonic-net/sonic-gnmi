@@ -18,6 +18,11 @@ const (
 
 var errReadFileType = errors.New("not a regular file or directory")
 
+func isContainerInternalReadPath(path string) bool {
+	clean := filepath.Clean(path)
+	return clean == "/mnt/host" || strings.HasPrefix(clean, "/mnt/host/")
+}
+
 func openPublicReadRoot() (*os.File, error) {
 	root := hostRoot
 	if _, err := os.Stat(root); os.IsNotExist(err) {
