@@ -37,11 +37,14 @@ func TestNewServerChainStartsWithCompletionLogger(t *testing.T) {
 		}
 	}()
 
-	if len(serverChain.chain.interceptors) < 2 {
+	if len(serverChain.chain.interceptors) < 3 {
 		t.Fatalf("server chain has %d interceptors, want completion logger and DPU proxy", len(serverChain.chain.interceptors))
 	}
 	if _, ok := serverChain.chain.interceptors[0].(*rpcCompletionLogger); !ok {
 		t.Fatalf("first server interceptor is %T, want *rpcCompletionLogger", serverChain.chain.interceptors[0])
+	}
+	if _, ok := serverChain.chain.interceptors[1].(*secretRedactor); !ok {
+		t.Fatal("redaction must precede the DPU proxy")
 	}
 }
 

@@ -180,7 +180,7 @@ func (c *TranslClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	/* The values structure at the end is returned and then updates in notitications as
 	specified in the proto file in the server.go */
 
-	log.V(6).Infof("TranslClient : Getting #%v", values)
+	log.V(6).Infof("TranslClient: retrieved %d values", len(values))
 	log.V(4).Infof("TranslClient :Get done, total time taken: %v ms", int64(time.Since(ts)/time.Millisecond))
 
 	return values, nil
@@ -190,7 +190,7 @@ func (c *TranslClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 func processGetWorker(pathChan <-chan pathFromGetReq, valueChan chan<- *spb.Value, errChan chan<- error, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for path := range pathChan {
-		log.Infof("getWorker processing path: %v", path)
+		log.V(6).Info("getWorker processing path")
 		val, resp, err := translProcessGetFunc(path.uri, nil, path.c.ctx, path.c.encoding)
 		if err != nil {
 			errChan <- err
@@ -352,7 +352,7 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 
 	for i, pInfo := range subSupport {
 		sub := subscribe.Subscription[pInfo.ID]
-		log.V(6).Infof("Start Sub: %v", sub)
+		log.V(6).Info("Starting translated subscription")
 		pathStr := pInfo.Path
 
 		switch sub.Mode {
@@ -389,7 +389,7 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 			return
 		}
 
-		log.V(6).Infof("subscribe_mode %v for path %s", subscribe_mode, pathStr)
+		log.V(6).Infof("subscribe_mode %v", subscribe_mode)
 		if subscribe_mode == gnmipb.SubscriptionMode_SAMPLE {
 			interval := int(sub.SampleInterval)
 			minInterval := pInfo.MinInterval * int(time.Second)
@@ -432,7 +432,7 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 				addTimer(intervalToTickerInfoMap, int(sub.HeartbeatInterval), sub, pathStr, true)
 			}
 		}
-		log.V(6).Infof("End Sub: %v", sub)
+		log.V(6).Info("Translated subscription initialized")
 	}
 	close(subChan)
 
@@ -497,7 +497,7 @@ func (c *TranslClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *
 			go processSubWorker(tickSubChan, wg)
 		}
 		for _, tick := range ticks {
-			log.V(6).Infof("tick, heartbeat: %t, path: %s\n", tick.heartbeat, c.path2URI[tick.sub.Path])
+			log.V(6).Infof("tick, heartbeat: %t", tick.heartbeat)
 			ts := translSubscriber{
 				client:      c,
 				session:     ss,

@@ -18,13 +18,11 @@ type JsonClient struct {
 func DecodeJsonTable(database map[string]interface{}, tableName string) (map[string]interface{}, error) {
 	vtable, ok := database[tableName]
 	if !ok {
-		log.V(2).Infof("Invalid database %v -> %v", tableName, database)
-		return nil, fmt.Errorf("Invalid database %v -> %v", tableName, database)
+		return nil, fmt.Errorf("Invalid database table")
 	}
 	v, ok := vtable.(map[string]interface{})
 	if !ok {
-		log.V(2).Infof("Invalid table %v", vtable)
-		return nil, fmt.Errorf("Invalid table %v", vtable)
+		return nil, fmt.Errorf("Invalid table representation")
 	}
 	return v, nil
 }
@@ -32,13 +30,11 @@ func DecodeJsonTable(database map[string]interface{}, tableName string) (map[str
 func DecodeJsonEntry(table map[string]interface{}, entryName string) (map[string]interface{}, error) {
 	ventry, ok := table[entryName]
 	if !ok {
-		log.V(2).Infof("Invalid entry %v", table)
-		return nil, fmt.Errorf("Invalid entry %v", table)
+		return nil, fmt.Errorf("Entry not found")
 	}
 	v, ok := ventry.(map[string]interface{})
 	if !ok {
-		log.V(2).Infof("Invalid entry %v", ventry)
-		return nil, fmt.Errorf("Invalid entry %v", ventry)
+		return nil, fmt.Errorf("Invalid entry representation")
 	}
 	return v, nil
 }
@@ -46,8 +42,7 @@ func DecodeJsonEntry(table map[string]interface{}, entryName string) (map[string
 func DecodeJsonField(entry map[string]interface{}, fieldName string) (*string, []interface{}, error) {
 	vfield, ok := entry[fieldName]
 	if !ok {
-		log.V(2).Infof("Invalid entry %v", entry)
-		return nil, nil, fmt.Errorf("Invalid entry %v", entry)
+		return nil, nil, fmt.Errorf("Field not found")
 	}
 	str, ok := vfield.(string)
 	if ok {
@@ -57,7 +52,7 @@ func DecodeJsonField(entry map[string]interface{}, fieldName string) (*string, [
 	if ok {
 		return nil, list, nil
 	}
-	return nil, nil, fmt.Errorf("Invalid field %v", vfield)
+	return nil, nil, fmt.Errorf("Invalid field representation")
 }
 
 func DecodeJsonListItem(list []interface{}, index string) (*string, error) {
@@ -75,7 +70,7 @@ func DecodeJsonListItem(list []interface{}, index string) (*string, error) {
 	if ok {
 		return &str, nil
 	}
-	return nil, fmt.Errorf("Invalid item %v", vitem)
+	return nil, fmt.Errorf("Invalid list item representation")
 }
 
 func NewJsonClient(fileName string, nameSpace string) (*JsonClient, error) {
@@ -211,7 +206,7 @@ func (c *JsonClient) Get(path []string) ([]byte, error) {
 			return nil, fmt.Errorf("Invalid db table Path %v", path)
 		}
 	default:
-		log.V(2).Infof("Invalid db table Path %v", path)
+		log.V(2).Info("Invalid database table path")
 		return nil, fmt.Errorf("Invalid db table Path %v", path)
 	}
 	return jv, nil

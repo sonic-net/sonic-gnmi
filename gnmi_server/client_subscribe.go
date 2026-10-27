@@ -125,7 +125,7 @@ func (c *Client) populateDbPathSubscrition(sublist *gnmipb.SubscriptionList) ([]
 		paths = append(paths, path)
 	}
 
-	log.V(6).Infof("gnmi Paths : %v", paths)
+	log.V(6).Infof("gnmi path count: %d", len(paths))
 	return paths, nil
 }
 
@@ -408,7 +408,7 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 			}
 			val = &v
 		default:
-			log.V(1).Infof("Unknown data type %v for %s in queue", items[0], c)
+			log.V(1).Infof("Unknown data type %T for %s in queue", items[0], c)
 			c.errors.Add(1)
 		}
 
@@ -422,6 +422,6 @@ func (c *Client) send(stream gnmipb.GNMI_SubscribeServer, dc sdc.Client) error {
 		}
 
 		dc.SentOne(val)
-		log.V(5).Infof("Client %s done sending, msg count %d, msg %v", c, c.sendMsg.Load(), resp)
+		log.V(5).Infof("Client %s done sending, msg count %d", c, c.sendMsg.Load())
 	}
 }

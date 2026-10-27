@@ -23,9 +23,8 @@ func checkPathsBlacklist(policy *pathblacklist.Policy, prefix *gnmipb.Path, path
 	}
 	for _, path := range paths {
 		req := normalizeRequestPath(prefix, path)
-		if entry, ok := policy.Match(req); ok {
-			log.V(2).Infof("Rejecting request: target %q path %v matched paths blacklist entry %q",
-				req.Target, req.Elems, entry)
+		if _, ok := policy.Match(req); ok {
+			log.V(2).Info("Rejecting request: paths blacklist match")
 			return status.Error(codes.PermissionDenied, "request path is blocked by policy")
 		}
 	}

@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -309,27 +310,29 @@ func requestPaths(req interface{}) []string {
 	switch request := req.(type) {
 	case *gnmipb.GetRequest:
 		for _, path := range request.GetPath() {
-			paths = append(paths, formatRequestPath(path))
+			paths = append(paths, formatRequestPath(path, request.GetPrefix()))
 		}
 	case *gnmipb.SetRequest:
 		for _, path := range request.GetDelete() {
-			paths = append(paths, formatRequestPath(path))
+			paths = append(paths, formatRequestPath(path, request.GetPrefix()))
 		}
 		for _, update := range request.GetReplace() {
-			paths = append(paths, formatRequestPath(update.GetPath()))
+			paths = append(paths, formatRequestPath(update.GetPath(), request.GetPrefix()))
 		}
 		for _, update := range request.GetUpdate() {
-			paths = append(paths, formatRequestPath(update.GetPath()))
+			paths = append(paths, formatRequestPath(update.GetPath(), request.GetPrefix()))
 		}
 	}
 	return paths
 }
 
-func formatRequestPath(path *gnmipb.Path) string {
+func formatRequestPath(path *gnmipb.Path, prefix ...*gnmipb.Path) string {
 	if path == nil {
 		return "<invalid>"
 	}
 
+	path = proto.Clone(path).(*gnmipb.Path)
+	redactPath(path, pathNames(prefix...))
 	schemaPath := &gnmipb.Path{Elem: make([]*gnmipb.PathElem, 0, len(path.GetElem()))}
 	for _, elem := range path.GetElem() {
 		if elem == nil {

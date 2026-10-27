@@ -71,7 +71,7 @@ func ToStatus(err error) *status.Status {
 		return nil
 	}
 
-	log.V(3).Infof("Translib error type=%T; value=%v", err, err)
+	log.V(3).Infof("Translib error type=%T", err)
 	code := codes.Unknown
 	data := "Operation failed"
 	var s *status.Status
@@ -117,7 +117,7 @@ func ToStatus(err error) *status.Status {
 		s = status.New(code, data)
 	}
 	if log.V(3) {
-		log.Infof("gRPC status code=%v; msg=%v", s.Code(), s.Message())
+		log.Infof("gRPC status code=%v", s.Code())
 	}
 	return s
 }
@@ -193,7 +193,7 @@ func TranslProcessGet(uriPath string, op *string, ctx context.Context, encoding 
 	if rc.BundleVersion != nil {
 		nver, err := translib.NewVersion(*rc.BundleVersion)
 		if err != nil {
-			log.V(2).Infof("GET operation failed with error =%v", err.Error())
+			log.V(2).Infof("GET operation failed: %T", err)
 			return nil, nil, err
 		}
 		req.ClientVersion = nver
@@ -206,7 +206,7 @@ func TranslProcessGet(uriPath string, op *string, ctx context.Context, encoding 
 	if isTranslibSuccess(err1) {
 		data = resp.Payload
 	} else {
-		log.V(2).Infof("GET operation failed with error =%v, %v", resp.ErrSrc, err1.Error())
+		log.V(2).Infof("GET operation failed, source=%v, error type=%T", resp.ErrSrc, err1)
 		return nil, nil, err1
 	}
 

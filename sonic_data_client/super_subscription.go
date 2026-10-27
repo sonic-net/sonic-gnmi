@@ -54,7 +54,7 @@ func createSuperSubscription(subscription *gnmipb.SubscriptionList) *superSubscr
 	}
 	if _, ok := superSubs.subs[newSuperSub]; ok {
 		// This should never happen.
-		log.V(0).Infof("Super Subscription (%p) for %v already exists but a new has been created!", newSuperSub, subscription)
+		log.V(0).Infof("Super Subscription (%p) already exists but a new has been created!", newSuperSub)
 	}
 	superSubs.subs[newSuperSub] = true
 	return newSuperSub
@@ -143,7 +143,7 @@ func (ss *superSubscription) populateTickers(intervalToTickerInfoMap map[int][]*
 	return nil
 }
 func (ss *superSubscription) String() string {
-	return fmt.Sprintf("[{%p} NumClients=%d, SharedUpdates=%d, ExclusiveUpdates=%d, Request=%v]", ss, len(ss.clients), ss.sharedUpdates.Load(), ss.exclusiveUpdates.Load(), ss.request)
+	return fmt.Sprintf("[{%p} NumClients=%d, SharedUpdates=%d, ExclusiveUpdates=%d]", ss, len(ss.clients), ss.sharedUpdates.Load(), ss.exclusiveUpdates.Load())
 }
 
 // ------------- TranslClient Methods -------------

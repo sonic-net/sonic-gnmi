@@ -276,7 +276,7 @@ func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync
 			len(subscribe.GetSubscription()))
 
 		for _, sub := range subscribe.GetSubscription() {
-			log.V(2).Infof("Sub mode: %v, path: %v", sub.GetMode(), sub.GetPath())
+			log.V(2).Infof("Sub mode: %v", sub.GetMode())
 			subMode := sub.GetMode()
 
 			if subMode == gnmipb.SubscriptionMode_SAMPLE {
@@ -304,7 +304,7 @@ func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync
 			SyncResponse: true,
 		},
 	})
-	log.V(2).Infof("%v Synced", c.pathG2S)
+	log.V(2).Info("Subscription synced")
 
 	<-c.channel
 	log.V(1).Infof("Exiting StreamRun routine for Client %v", c)
@@ -313,7 +313,7 @@ func (c *DbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync
 // streamOnChangeSubscription implements Subscription "ON_CHANGE STREAM" mode
 func streamOnChangeSubscription(c *DbClient, gnmiPath *gnmipb.Path) {
 	tblPaths := c.pathG2S[gnmiPath]
-	log.V(2).Infof("streamOnChangeSubscription gnmiPath: %v", gnmiPath)
+	log.V(2).Info("Starting on-change subscription")
 
 	if len(tblPaths) > 0 && tblPaths[0].field != "" {
 		if len(tblPaths) > 1 {
@@ -339,7 +339,7 @@ func streamSampleSubscription(c *DbClient, sub *gnmipb.Subscription, updateOnly 
 
 	gnmiPath := sub.GetPath()
 	tblPaths := c.pathG2S[gnmiPath]
-	log.V(2).Infof("streamSampleSubscription gnmiPath: %v", gnmiPath)
+	log.V(2).Info("Starting sample subscription")
 	if len(tblPaths) > 0 && tblPaths[0].field != "" {
 		if len(tblPaths) > 1 {
 			dbFieldMultiSubscribe(c, gnmiPath, false, samplingInterval, updateOnly)
@@ -372,7 +372,7 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 			val, err, updateReceived := subscribeTableData2TypedValue(tblPaths, nil)
 			if !updateReceived { // No updates sent for missing data
 				if prevUpdate, exists := prevUpdates[pathKey]; exists && prevUpdate {
-					log.V(6).Infof("Delete received for message for %v", gnmiPath)
+					log.V(6).Info("Subscription delete received")
 					spbv := &spb.Value{
 						Timestamp:    time.Now().UnixNano(),
 						Prefix:       c.prefix,
@@ -385,7 +385,7 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 						},
 					}
 					c.q.Put(Value{spbv})
-					log.V(6).Infof("Added spbv #%v", spbv)
+					log.V(6).Info("Added subscription notification")
 					prevUpdates[pathKey] = false
 				}
 			} else if err != nil {
@@ -401,7 +401,7 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 				}
 				c.q.Put(Value{spbv})
 				prevUpdates[pathKey] = true
-				log.V(6).Infof("Added spbv #%v", spbv)
+				log.V(6).Info("Added subscription notification")
 			}
 		}
 		spbv := &spb.Value{
@@ -409,7 +409,7 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 			SyncResponse: true,
 		}
 		c.q.Put(Value{spbv})
-		log.V(6).Infof("Added spbv #%v", spbv)
+		log.V(6).Info("Added subscription notification")
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
 }
@@ -443,7 +443,7 @@ func (c *DbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *sync.W
 				Val:          val,
 			}
 			c.q.Put(Value{spbv})
-			log.V(6).Infof("OnceRun: Added spbv #%v", spbv)
+			log.V(6).Info("OnceRun: added subscription notification")
 		}
 	}
 
@@ -805,7 +805,7 @@ func parsePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath)
 	elems := fullPath.GetElem()
 	if elems != nil {
 		for i, elem := range elems {
-			log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
+			log.V(6).Infof("Path element index: %d", i)
 			stringSlice = append(stringSlice, elem.GetName())
 		}
 	}
@@ -819,10 +819,10 @@ func parsePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath)
 			tblPaths[i].isVirtualPath = true
 		}
 		(*pathG2S)[path] = tblPaths
-		log.V(5).Infof("v2r from %v to %+v ", stringSlice, tblPaths)
+		log.V(5).Infof("Virtual path resolved to %d table paths", len(tblPaths))
 		return nil
 	} else {
-		log.V(5).Infof("v2r lookup failed for %v %v", stringSlice, err)
+		log.V(5).Info("Virtual path lookup failed")
 	}
 
 	tblPath.dbNamespace = dbNamespace
@@ -845,12 +845,12 @@ func parsePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath)
 		tblPath.tableKey = stringSlice[2] + tblPath.delimitor + stringSlice[3]
 		tblPath.field = stringSlice[4]
 	default:
-		log.V(2).Infof("Invalid db table Path %v", stringSlice)
+		log.V(2).Info("Invalid database table path")
 		return fmt.Errorf("Invalid db table Path %v", stringSlice)
 	}
 
 	(*pathG2S)[path] = []tablePath{tblPath}
-	log.V(5).Infof("tablePath %+v", tblPath)
+	log.V(5).Info("Resolved database table path")
 	return nil
 }
 
@@ -940,7 +940,7 @@ func ensureKeysExistInRedis(pathG2S *map[*gnmipb.Path][]tablePath) error {
 				return fmt.Errorf("redis Exists op failed for %v: %v", key, err)
 			}
 			if n != 1 {
-				log.V(2).Infof("No valid entry found on %v with key %v", tblPath.dbName, key)
+				log.V(2).Info("Database entry not found")
 				return fmt.Errorf("No valid entry found on %v with key %v", tblPath.dbName, key)
 			}
 		}
@@ -1025,7 +1025,7 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 		}
 		dbkeys, err = redisDb.Keys(context.Background(), pattern).Result()
 		if err != nil {
-			log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
+			log.V(2).Info("Redis Keys failed")
 			return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
 		}
 	} else {
@@ -1038,28 +1038,28 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 	// Asked to use jsonField and jsonTableKey in the final json value
 	if tblPath.jsonField != "" && tblPath.jsonTableKey != "" {
 		val, err := redisDb.HGet(context.Background(), dbkeys[0], tblPath.field).Result()
-		log.V(4).Infof("Data pulled for key %s and field %s", dbkeys[0], tblPath.field)
+		log.V(4).Info("Retrieved scalar database value")
 		if err != nil {
-			log.V(3).Infof("redis HGet failed for %v %v", tblPath, err)
+			log.V(3).Info("Redis HGet failed")
 			// ignore non-existing field which was derived from virtual path
 			return nil
 		}
 		fv = map[string]string{tblPath.jsonField: val}
 		makeJSON_redis(msi, &tblPath.jsonTableKey, op, fv)
-		log.V(6).Infof("Added JSON key %v with %d field(s)", tblPath.jsonTableKey, len(fv))
+		log.V(6).Infof("Added JSON entry with %d fields", len(fv))
 		return nil
 	}
 
 	for idx, dbkey := range dbkeys {
 		fv, err = redisDb.HGetAll(context.Background(), dbkey).Result()
 		if err != nil {
-			log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
+			log.V(2).Info("Redis HGetAll failed")
 			return err
 		}
-		log.V(4).Infof("Data pulled for dbkey %s with %d field(s)", dbkey, len(fv))
+		log.V(4).Infof("Retrieved database entry with %d fields", len(fv))
 
 		if len(fv) == 0 {
-			log.V(6).Infof("No data for dbkey %s, skipping", dbkey)
+			log.V(6).Info("Skipping empty database entry")
 			continue
 		}
 
@@ -1078,7 +1078,7 @@ func TableData2Msi(tblPath *tablePath, useKey bool, op *string, msi *map[string]
 			err = makeJSON_redis(msi, &key, op, fv)
 		}
 		if err != nil {
-			log.V(2).Infof("makeJSON failed for dbkey %s: %v", dbkey, err)
+			log.V(2).Info("makeJSON failed")
 			return err
 		}
 		log.V(6).Infof("Added Redis result %d with %d field(s)", idx, len(fv))
@@ -1112,7 +1112,7 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 		if tblPath.jsonField == "" {
 			if tblPath.field != "" {
 				if len(tblPaths) != 1 {
-					log.V(2).Infof("WARNING: more than one path exists for field granularity query: %v", tblPaths)
+					log.V(2).Info("WARNING: multiple paths for scalar query")
 				}
 				var key string
 				if tblPath.tableKey != "" {
@@ -1125,7 +1125,7 @@ func tableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.TypedValue,
 				if err != nil {
 					return nil, err
 				}
-				log.V(4).Infof("Data pulled for key %s and field %s", key, tblPath.field)
+				log.V(4).Info("Retrieved scalar database value")
 				return &gnmipb.TypedValue{
 					Value: &gnmipb.TypedValue_StringVal{
 						StringVal: val,
@@ -1210,7 +1210,7 @@ func subscribeTableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.Ty
 		if tblPath.jsonField == "" {
 			if tblPath.field != "" {
 				if len(tblPaths) != 1 {
-					log.V(2).Infof("WARNING: more than one path exists for field granularity query: %v", tblPaths)
+					log.V(2).Info("WARNING: multiple paths for scalar query")
 				}
 				var key string
 				if tblPath.tableKey != "" {
@@ -1221,10 +1221,10 @@ func subscribeTableData2TypedValue(tblPaths []tablePath, op *string) (*gnmipb.Ty
 
 				val, err := redisDb.HGet(context.Background(), key, tblPath.field).Result()
 				if err != nil {
-					log.V(2).Infof("redis HGet failed for %v, data does not exist", tblPath)
+					log.V(2).Info("Redis HGet failed; data does not exist")
 					continue
 				}
-				log.V(4).Infof("Data pulled for key %s and field %s: %s", key, tblPath.field, val)
+				log.V(4).Info("Retrieved scalar subscription value")
 				return &gnmipb.TypedValue{
 					Value: &gnmipb.TypedValue_StringVal{
 						StringVal: val,
@@ -1290,10 +1290,10 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 					// ignore non-existing field which was derived from virtual path
 					continue
 				}
-				log.V(2).Infof("%v doesn't exist with key %v in db", tblPath.field, key)
+				log.V(2).Info("Database field does not exist")
 				val = ""
 			} else if err != nil {
-				log.V(1).Infof(" redis HGet error on %v with key %v", tblPath.field, key)
+				log.V(1).Info("Redis HGet error")
 				val = ""
 			}
 
@@ -1306,7 +1306,7 @@ func dbFieldMultiSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, in
 			path2ValueMap[tblPath] = val
 			fv := map[string]string{tblPath.jsonField: val}
 			msi[tblPath.jsonTableKey] = fv
-			log.V(6).Infof("new value %v for %v", val, tblPath)
+			log.V(6).Info("Read changed subscription value")
 		}
 
 		return msi
@@ -1383,10 +1383,10 @@ func dbFieldSubscribe(c *DbClient, gnmiPath *gnmipb.Path, onChange bool, interva
 	readVal := func() string {
 		newVal, err := redisDb.HGet(context.Background(), key, tblPath.field).Result()
 		if err == redis.Nil {
-			log.V(2).Infof("%v doesn't exist with key %v in db", tblPath.field, key)
+			log.V(2).Info("Database field does not exist")
 			newVal = ""
 		} else if err != nil {
-			log.V(1).Infof(" redis HGet error on %v with key %v", tblPath.field, key)
+			log.V(1).Info("Redis HGet error")
 			newVal = ""
 		}
 
@@ -1457,7 +1457,7 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 	prefixLen := rsd.prefixLen
 	msi := make(map[string]interface{})
 
-	log.V(2).Infof("Starting dbSingleTableKeySubscribe routine for %+v", tblPath)
+	log.V(2).Info("Starting single-entry subscription")
 
 	for {
 		select {
@@ -1530,7 +1530,7 @@ func dbSingleTableKeySubscribe(c *DbClient, rsd redisSubData, updateChannel chan
 			}
 
 		case <-c.channel:
-			log.V(2).Infof("Stopping dbSingleTableKeySubscribe routine for %+v", tblPath)
+			log.V(2).Info("Stopping single-entry subscription")
 			return
 		}
 	}
@@ -1557,7 +1557,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 
 	// Helper to handle fatal case.
 	handleFatalMsg := func(msg string) {
-		log.V(1).Infof("%s", msg)
+		log.V(1).Info("Database subscription failed")
 		enqueueFatalMsg(c, msg)
 		signalSync()
 	}
@@ -1616,7 +1616,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 			handleFatalMsg(fmt.Sprintf("psubscribe to %s failed for %v", pattern, tblPath))
 			return
 		}
-		log.V(2).Infof("Psubscribe succeeded for %v: %v", tblPath, subscr)
+		log.V(2).Info("Psubscribe succeeded")
 
 		err = TableData2Msi(&tblPath, false, nil, &msiAll)
 		if err != nil {
@@ -1659,7 +1659,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 	for {
 		select {
 		case updatedTable := <-updateChannel:
-			log.V(6).Infof("update received: %v", updatedTable)
+			log.V(6).Info("Subscription update received")
 			if interval == 0 {
 				// on-change mode, send the updated data.
 				if err := sendMsiData(updatedTable); err != nil {
@@ -1690,7 +1690,7 @@ func dbTableKeySubscribe(c *DbClient, gnmiPath *gnmipb.Path, interval time.Durat
 			intervalTicker = GetIntervalTicker()(interval)
 
 		case <-c.channel:
-			log.V(1).Infof("Stopping dbTableKeySubscribe routine for %v ", c.pathG2S)
+			log.V(1).Info("Stopping table subscription")
 			return
 		}
 	}

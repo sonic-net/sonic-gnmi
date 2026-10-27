@@ -169,7 +169,7 @@ func (ts *translSubscriber) processResponses(q *queue.PriorityQueue) {
 			}
 
 			if err := ts.notify(v); err != nil {
-				log.Warning(err)
+				log.Warning("Failed to build subscription notification")
 				enqueFatalMsgTranslib(c, "Internal error")
 				return
 			}
@@ -200,7 +200,7 @@ func (ts *translSubscriber) notify(v *translib.SubscribeResponse) error {
 			ts.client.superSub.exclusiveUpdates.Add(1)
 		}
 	}
-	log.V(6).Infof("Added spbv %#v", spbv)
+	log.V(6).Info("Added subscription notification")
 	return nil
 }
 
@@ -338,7 +338,7 @@ func (c *ygotCache) msgBuilder(v *translib.SubscribeResponse, ts *translSubscrib
 	old := c.values[v.Path]
 	c.values[v.Path] = v.Update
 	ts.rcvdPaths[v.Path] = true
-	log.V(2).Infof("%s updated; old=%p, new=%p, filterDups=%v", v.Path, old, v.Update, ts.filterDups)
+	log.V(2).Infof("Subscription updated; old=%p, new=%p, filterDups=%v", old, v.Update, ts.filterDups)
 	if ts.filterMsgs {
 		log.V(2).Infof("Msg suppressed due to updates_only")
 		return nil, nil
@@ -372,7 +372,7 @@ func (c *ygotCache) deleteMsgBuilder(ts *translSubscriber) (*gnmipb.Notification
 	var deletePaths []*gnmipb.Path
 	for path := range c.values {
 		if !ts.rcvdPaths[path] {
-			log.V(3).Infof("%s deleted", path)
+			log.V(3).Info("Subscription path deleted")
 			deletePaths = append(deletePaths, c.toDeletePath(path))
 			delete(c.values, path)
 		}

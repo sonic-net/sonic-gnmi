@@ -794,7 +794,7 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 	elems := fullPath.GetElem()
 	if elems != nil {
 		for i, elem := range elems {
-			log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
+			log.V(6).Infof("Path element index: %d", i)
 			if i != 0 {
 				buffer.WriteString(separator)
 			}
@@ -868,7 +868,7 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 		if tblPath.operation == opRemove {
 			res, err := redisDb.Keys(context.Background(), tblPath.tableName+"*").Result()
 			if err != nil || len(res) < 1 {
-				log.V(2).Infof("Invalid db table Path %v %v", c.target, dbPath)
+				log.V(2).Info("Invalid database table path")
 				return nil, fmt.Errorf("Failed to find %v %v %v %v", c.target, dbPath, err, res)
 			}
 		}
@@ -905,7 +905,7 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 		}
 		tblPath.index = index
 	default:
-		log.V(2).Infof("Invalid db table Path %v", dbPath)
+		log.V(2).Info("Invalid database table path")
 		return nil, fmt.Errorf("Invalid db table Path %v", dbPath)
 	}
 
@@ -987,7 +987,7 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 		pattern = "*" + tblPath.delimitor + "*"
 		dbkeys, err = redisDb.Keys(context.Background(), pattern).Result()
 		if err != nil {
-			log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
+			log.V(2).Info("Redis Keys failed")
 			return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
 		}
 	} else if tblPath.tableKey == "" {
@@ -1000,7 +1000,7 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 		}
 		dbkeys, err = redisDb.Keys(context.Background(), pattern).Result()
 		if err != nil {
-			log.V(2).Infof("redis Keys failed for %v, pattern %s", tblPath, pattern)
+			log.V(2).Info("Redis Keys failed")
 			return fmt.Errorf("redis Keys failed for %v, pattern %s %v", tblPath, pattern, err)
 		}
 	} else {
@@ -1011,7 +1011,7 @@ func (c *MixedDbClient) tableData2Msi(tblPath *tablePath, useKey bool, op *strin
 	for idx, dbkey := range dbkeys {
 		fv, err = redisDb.HGetAll(context.Background(), dbkey).Result()
 		if err != nil {
-			log.V(2).Infof("redis HGetAll failed for  %v, dbkey %s", tblPath, dbkey)
+			log.V(2).Info("Redis HGetAll failed")
 			return err
 		}
 
@@ -1104,7 +1104,7 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 			// table path includes table, key and field
 			if tblPath.field != "" {
 				if len(tblPaths) != 1 {
-					log.V(2).Infof("WARNING: more than one path exists for field granularity query: %v", tblPaths)
+					log.V(2).Info("WARNING: multiple paths for scalar query")
 				}
 				var key string
 				if tblPath.tableKey != "" {
@@ -1118,7 +1118,7 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 					field := tblPath.field + "@"
 					val, err := redisDb.HGet(context.Background(), key, field).Result()
 					if err != nil {
-						log.V(2).Infof("redis HGet failed for %v, data does not exist", tblPath)
+						log.V(2).Info("Redis HGet failed; data does not exist")
 						continue
 					}
 					slice := strings.Split(val, ",")
@@ -1152,7 +1152,7 @@ func (c *MixedDbClient) tableData2TypedValue(tblPaths []tablePath, op *string) (
 								JsonIetfVal: []byte(output),
 							}}, nil, true
 					}
-					log.V(2).Infof("redis HGet failed for %v, data does not exist", tblPath)
+					log.V(2).Info("Redis HGet failed; data does not exist")
 					continue
 				}
 			}
@@ -1442,14 +1442,14 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		if err != nil {
 			return err
 		}
-		log.V(2).Infof("Path #%v", fullPath)
+		log.V(2).Info("Processing database path")
 
 		stringSlice := []string{}
 		elems := fullPath.GetElem()
 		if elems != nil {
 			for i, elem := range elems {
 				// TODO: Usage of key field
-				log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
+				log.V(6).Infof("Path element index: %d", i)
 				stringSlice = append(stringSlice, elem.GetName())
 			}
 			err := c.jClient.Remove(stringSlice)
@@ -1475,14 +1475,14 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		if err != nil {
 			return err
 		}
-		log.V(2).Infof("Path #%v", fullPath)
+		log.V(2).Info("Processing database path")
 
 		stringSlice := []string{}
 		elems := fullPath.GetElem()
 		if elems != nil {
 			for i, elem := range elems {
 				// TODO: Usage of key field
-				log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
+				log.V(6).Infof("Path element index: %d", i)
 				stringSlice = append(stringSlice, elem.GetName())
 			}
 			t := path.GetVal()
@@ -1517,14 +1517,14 @@ func (c *MixedDbClient) SetIncrementalConfig(delete []*gnmipb.Path, replace []*g
 		if err != nil {
 			return err
 		}
-		log.V(2).Infof("Path #%v", fullPath)
+		log.V(2).Info("Processing database path")
 
 		stringSlice := []string{}
 		elems := fullPath.GetElem()
 		if elems != nil {
 			for i, elem := range elems {
 				// TODO: Usage of key field
-				log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
+				log.V(6).Infof("Path element index: %d", i)
 				stringSlice = append(stringSlice, elem.GetName())
 			}
 			t := path.GetVal()
@@ -1726,20 +1726,20 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 	if err != nil {
 		return nil, fmt.Errorf("There's no check point")
 	}
-	log.V(2).Infof("Getting #%v", c.jClient.jsonData)
+	log.V(2).Info("Reading configuration checkpoint")
 	for _, path := range c.paths {
 		fullPath, err := c.gnmiFullPath(c.prefix, path)
 		if err != nil {
 			return nil, err
 		}
-		log.V(2).Infof("Path #%v", fullPath)
+		log.V(2).Info("Processing database path")
 
 		stringSlice := []string{}
 		elems := fullPath.GetElem()
 		if elems != nil {
 			for i, elem := range elems {
 				// TODO: Usage of key field
-				log.V(6).Infof("index %d elem : %#v %#v", i, elem.GetName(), elem.GetKey())
+				log.V(6).Infof("Path element index: %d", i)
 				stringSlice = append(stringSlice, elem.GetName())
 			}
 			jv, err := c.jClient.Get(stringSlice)
@@ -1806,7 +1806,7 @@ func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 		}
 	}
 
-	log.V(6).Infof("Getting #%v", values)
+	log.V(6).Infof("Retrieved %d values", len(values))
 	log.V(4).Infof("Get done, total time taken: %v ms", int64(time.Since(ts)/time.Millisecond))
 	return values, nil
 }
@@ -1827,7 +1827,7 @@ func (c *MixedDbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *s
 	for _, gnmiPath := range c.paths {
 		tblPaths, err := c.getDbtablePath(gnmiPath, nil)
 		if err != nil {
-			log.V(2).Infof("OnceRun: Unable to get table path due to err: %v", err)
+			log.V(2).Info("OnceRun: unable to get table path")
 			putFatalMsg(c.q, fmt.Sprintf("OnceRun error: %v", err))
 			return
 		}
@@ -1846,7 +1846,7 @@ func (c *MixedDbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *s
 				Val:          val,
 			}
 			c.q.Put(Value{spbv})
-			log.V(6).Infof("OnceRun: Added spbv #%v", spbv)
+			log.V(6).Info("OnceRun: added subscription notification")
 		}
 	}
 
@@ -1878,13 +1878,13 @@ func (c *MixedDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *s
 			pathKey := fmt.Sprintf("%v", gnmiPath)
 			tblPaths, err := c.getDbtablePath(gnmiPath, nil)
 			if err != nil {
-				log.V(2).Infof("Unable to get table path due to err: %v", err)
+				log.V(2).Info("Unable to get table path")
 				return
 			}
 			val, err, updateReceived := c.tableData2TypedValue(tblPaths, nil)
 			if !updateReceived {
 				if prevUpdate, exists := prevUpdates[pathKey]; exists && prevUpdate {
-					log.V(6).Infof("Delete received for message for %v", gnmiPath)
+					log.V(6).Info("Subscription delete received")
 					spbv := &spb.Value{
 						Timestamp:    time.Now().UnixNano(),
 						Prefix:       c.prefix,
@@ -1897,7 +1897,7 @@ func (c *MixedDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *s
 						},
 					}
 					c.q.Put(Value{spbv})
-					log.V(6).Infof("Added spbv #%v", spbv)
+					log.V(6).Info("Added subscription notification")
 					prevUpdates[pathKey] = false
 				}
 			} else if err != nil {
@@ -1913,7 +1913,7 @@ func (c *MixedDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *s
 				}
 				c.q.Put(Value{spbv})
 				prevUpdates[pathKey] = true
-				log.V(6).Infof("Added spbv #%v", spbv)
+				log.V(6).Info("Added subscription notification")
 			}
 		}
 
@@ -1922,7 +1922,7 @@ func (c *MixedDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *s
 			SyncResponse: true,
 		}
 		c.q.Put(Value{spbv})
-		log.V(6).Infof("Added spbv #%v", spbv)
+		log.V(6).Info("Added subscription notification")
 		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
 	}
 }
@@ -1949,7 +1949,7 @@ func (c *MixedDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w 
 			len(subscribe.GetSubscription()))
 
 		for _, sub := range subscribe.GetSubscription() {
-			log.V(2).Infof("Sub mode: %v, path: %v", sub.GetMode(), sub.GetPath())
+			log.V(2).Infof("Sub mode: %v", sub.GetMode())
 			subMode := sub.GetMode()
 
 			if subMode == gnmipb.SubscriptionMode_SAMPLE {
@@ -1977,7 +1977,7 @@ func (c *MixedDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w 
 			SyncResponse: true,
 		},
 	})
-	log.V(2).Infof("%v Synced", c.pathG2S)
+	log.V(2).Info("Subscription synced")
 
 	<-c.channel
 	log.V(1).Infof("Exiting StreamRun routine for Client %v", c)
@@ -1993,7 +1993,7 @@ func (c *MixedDbClient) streamOnChangeSubscription(gnmiPath *gnmipb.Path) {
 		c.w.Done()
 		return
 	}
-	log.V(2).Infof("streamOnChangeSubscription gnmiPath: %v", gnmiPath)
+	log.V(2).Info("Starting on-change subscription")
 
 	if tblPaths[0].field != "" {
 		go c.dbFieldSubscribe(gnmiPath, true, time.Millisecond*200)
@@ -2021,7 +2021,7 @@ func (c *MixedDbClient) streamSampleSubscription(sub *gnmipb.Subscription, updat
 		c.w.Done()
 		return
 	}
-	log.V(2).Infof("streamSampleSubscription gnmiPath: %v", gnmiPath)
+	log.V(2).Info("Starting sample subscription")
 	if tblPaths[0].field != "" {
 		c.dbFieldSubscribe(gnmiPath, false, samplingInterval)
 	} else {
@@ -2062,10 +2062,10 @@ func (c *MixedDbClient) dbFieldSubscribe(gnmiPath *gnmipb.Path, onChange bool, i
 	readVal := func() string {
 		newVal, err := redisDb.HGet(context.Background(), key, tblPath.field).Result()
 		if err == redis.Nil {
-			log.V(2).Infof("%v doesn't exist with key %v in db", tblPath.field, key)
+			log.V(2).Info("Database field does not exist")
 			newVal = ""
 		} else if err != nil {
-			log.V(1).Infof(" redis HGet error on %v with key %v", tblPath.field, key)
+			log.V(1).Info("Redis HGet error")
 			newVal = ""
 		}
 
@@ -2130,7 +2130,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 	prefixLen := rsd.prefixLen
 	msi := make(map[string]interface{})
 
-	log.V(2).Infof("Starting dbSingleTableKeySubscribe routine for %+v", tblPath)
+	log.V(2).Info("Starting single-entry subscription")
 
 	for {
 		select {
@@ -2204,7 +2204,7 @@ func (c *MixedDbClient) dbSingleTableKeySubscribe(rsd redisSubData, updateChanne
 			}
 
 		case <-c.channel:
-			log.V(2).Infof("Stopping dbSingleTableKeySubscribe routine for %+v", tblPath)
+			log.V(2).Info("Stopping single-entry subscription")
 			return
 		}
 	}
@@ -2307,7 +2307,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 			handleFatalMsg(fmt.Sprintf("psubscribe to %s failed for %v", pattern, tblPath))
 			return
 		}
-		log.V(2).Infof("Psubscribe succeeded for %v: %v", tblPath, subscr)
+		log.V(2).Info("Psubscribe succeeded")
 
 		err = c.tableData2Msi(&tblPath, false, nil, &msiAll)
 		if err != nil {
@@ -2350,7 +2350,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 
 		select {
 		case updatedTable := <-updateChannel:
-			log.V(6).Infof("update received: %v", updatedTable)
+			log.V(6).Info("Subscription update received")
 			if interval == 0 {
 				// on-change mode, send the updated data.
 				if err := sendMsiData(updatedTable); err != nil {
@@ -2378,7 +2378,7 @@ func (c *MixedDbClient) dbTableKeySubscribe(gnmiPath *gnmipb.Path, interval time
 			}
 			intervalTicker = GetIntervalTicker()(interval)
 		case <-c.channel:
-			log.V(1).Infof("Stopping dbTableKeySubscribe routine for %v ", c.pathG2S)
+			log.V(1).Info("Stopping table subscription")
 			return
 		}
 	}
