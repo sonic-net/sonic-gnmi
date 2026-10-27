@@ -47,6 +47,10 @@ directories must be world-searchable; listing a directory also requires world
 read/search permissions. Stat listings omit private children. Missing and
 inaccessible paths return the same read denial.
 
+Resolution is bounded to raw paths shorter than 4096 bytes, 40 symlinks and
+64 descriptors per ancestor stack, plus a fixed number of anchor/target
+handles. Entries exceeding these safety limits are not exposed.
+
 The check applies regardless of caller role, including when the server runs as
 root. Reads use the validated descriptor; symlink targets must remain inside
 the host filesystem view. Extended access ACLs are conservatively denied rather

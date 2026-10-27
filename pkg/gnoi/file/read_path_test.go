@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -527,6 +528,86 @@ func TestPublicReadPathLengthBoundary(t *testing.T) {
 	response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: directory})
 	if err != nil || len(response.GetStats()) != 0 {
 		t.Fatalf("listed a child whose reported path exceeds the raw-path limit: %v %v", response, err)
+	}
+}
+
+func TestPublicReadComponentLength(t *testing.T) {
+	logical, physical := useTempHostRoot(t)
+	for _, name := range []string{strings.Repeat("a", 255), strings.Repeat("\u00e9", 127) + "a"} {
+		if err := os.WriteFile(filepath.Join(physical, name), []byte("public"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		assertPublicRead(t, logical+"/"+name, []byte("public"))
+		assertReadDenied(t, logical+"/"+name+"a")
+	}
+}
+
+func TestPublicReadDirectoryBudget(t *testing.T) {
+	if root := os.Getenv("F053_FD_BUDGET_ROOT"); root != "" {
+		hostRoot = root
+		if err := unix.Setrlimit(unix.RLIMIT_NOFILE, &unix.Rlimit{Cur: 1024, Max: 1024}); err != nil {
+			t.Fatal(err)
+		}
+		deep, edge := os.Getenv("F053_FD_BUDGET_DEEP"), os.Getenv("F053_FD_BUDGET_EDGE")
+		if data, err := os.ReadFile(root + deep); err != nil || string(data) != "public" {
+			t.Fatalf("ordinary open under RLIMIT_NOFILE=1024: data=%q error=%v", data, err)
+		}
+		assertPublicRead(t, edge, []byte("public"))
+		parent, err := os.Open(filepath.Dir(root + deep))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer parent.Close()
+		before, err := os.ReadDir("/proc/self/fd")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 20; i++ {
+			assertReadDenied(t, deep)
+			assertReadDenied(t, filepath.Dir(deep)+"/private")
+			assertReadDenied(t, filepath.Dir(deep)+"/missing")
+			if file, err := openPublicReadChild(parent, "image", 0); !os.IsPermission(err) || file != nil {
+				t.Fatalf("deep child ancestry: file=%v error=%v", file, err)
+			}
+		}
+		after, err := os.ReadDir("/proc/self/fd")
+		if err != nil || len(before) != len(after) {
+			t.Fatalf("depth rejection leaked descriptors: before=%d after=%d error=%v", len(before), len(after), err)
+		}
+		assertReadDenied(t, os.Getenv("F053_FD_BUDGET_NEXT"))
+		assertPublicRead(t, edge, []byte("public"))
+		return
+	}
+	logical, physical := useTempHostRoot(t)
+	edgeLevels := 63 - (1 + len(strings.Split(strings.Trim(logical, "/"), "/")))
+	var edge, next string
+	for level := 1; level <= 1050; level++ {
+		logical, physical = logical+"/d", filepath.Join(physical, "d")
+		if err := os.Mkdir(physical, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if level == edgeLevels || level == edgeLevels+1 {
+			if err := os.WriteFile(filepath.Join(physical, "image"), []byte("public"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if level == edgeLevels {
+				edge = logical + "/image"
+			} else {
+				next = logical + "/image"
+			}
+		}
+	}
+	for name, mode := range map[string]os.FileMode{"image": 0644, "private": 0600} {
+		if err := os.WriteFile(filepath.Join(physical, name), []byte("public"), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command := exec.Command(os.Args[0], "-test.run=^TestPublicReadDirectoryBudget$")
+	command.Env = append(os.Environ(), "F053_FD_BUDGET_ROOT="+hostRoot,
+		"F053_FD_BUDGET_DEEP="+logical+"/image", "F053_FD_BUDGET_EDGE="+edge,
+		"F053_FD_BUDGET_NEXT="+next)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("low-descriptor-limit regression: %v\n%s", err, output)
 	}
 }
 

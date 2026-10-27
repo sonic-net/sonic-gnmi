@@ -10,7 +10,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const maxReadPathLength = 4096
+const (
+	maxReadPathLength = 4096
+	// Leave descriptor headroom for unrelated server I/O.
+	maxReadDirectories = 64
+)
 
 var errReadFileType = errors.New("not a regular file or directory")
 
@@ -79,6 +83,9 @@ func openPublicReadChild(parent *os.File, name string, links int) (*os.File, err
 		if os.SameFile(info, rootInfo) {
 			break
 		}
+		if len(directories) >= maxReadDirectories {
+			return nil, os.ErrPermission
+		}
 		fd, err := unix.Openat(int(current.Fd()), "..", unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 		if err != nil {
 			return nil, err
@@ -104,7 +111,7 @@ func openPublicReadChild(parent *os.File, name string, links int) (*os.File, err
 // Walk the original path so resolving a symlink cannot skip a private ancestor.
 func walkPublicReadFile(directories []*os.File, path string, links *int) (_ *os.File, err error) {
 	defer func() {
-		if errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.ELOOP) {
+		if errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENAMETOOLONG) {
 			err = os.ErrPermission
 		}
 	}()
@@ -131,6 +138,9 @@ func walkPublicReadFile(directories []*os.File, path string, links *int) (_ *os.
 			current.Close()
 			directories = directories[:len(directories)-1]
 			continue
+		}
+		if len(directories) >= maxReadDirectories {
+			return nil, os.ErrPermission
 		}
 		fd, err := unix.Openat(int(current.Fd()), part, unix.O_PATH|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		if err != nil {
