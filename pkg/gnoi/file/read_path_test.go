@@ -553,6 +553,13 @@ func TestPublicReadDirectoryBudget(t *testing.T) {
 			t.Fatalf("ordinary open under RLIMIT_NOFILE=1024: data=%q error=%v", data, err)
 		}
 		assertPublicRead(t, edge, []byte("public"))
+		listing, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: filepath.Dir(edge)})
+		if err != nil || len(listing.GetStats()) != 3 {
+			t.Fatalf("exact-limit directory listing: %v %v", listing, err)
+		}
+		for _, entry := range listing.Stats {
+			assertPublicRead(t, entry.Path, []byte("public"))
+		}
 		parent, err := os.Open(filepath.Dir(root + deep))
 		if err != nil {
 			t.Fatal(err)
@@ -579,7 +586,7 @@ func TestPublicReadDirectoryBudget(t *testing.T) {
 		return
 	}
 	logical, physical := useTempHostRoot(t)
-	edgeLevels := 63 - (1 + len(strings.Split(strings.Trim(logical, "/"), "/")))
+	edgeLevels := 64 - (1 + len(strings.Split(strings.Trim(logical, "/"), "/")))
 	var edge, next string
 	for level := 1; level <= 1050; level++ {
 		logical, physical = logical+"/d", filepath.Join(physical, "d")
@@ -592,6 +599,11 @@ func TestPublicReadDirectoryBudget(t *testing.T) {
 			}
 			if level == edgeLevels {
 				edge = logical + "/image"
+				for name, target := range map[string]string{"relative": "image", "absolute": edge} {
+					if err := os.Symlink(target, filepath.Join(physical, name)); err != nil {
+						t.Fatal(err)
+					}
+				}
 			} else {
 				next = logical + "/image"
 			}

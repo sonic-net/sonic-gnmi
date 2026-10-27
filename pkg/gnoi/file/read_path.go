@@ -139,9 +139,6 @@ func walkPublicReadFile(directories []*os.File, path string, links *int) (_ *os.
 			directories = directories[:len(directories)-1]
 			continue
 		}
-		if len(directories) >= maxReadDirectories {
-			return nil, os.ErrPermission
-		}
 		fd, err := unix.Openat(int(current.Fd()), part, unix.O_PATH|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		if err != nil {
 			return nil, err
@@ -174,6 +171,10 @@ func walkPublicReadFile(directories []*os.File, path string, links *int) (_ *os.
 			continue
 		}
 		if info.IsDir() {
+			if len(directories) >= maxReadDirectories {
+				pinned.Close()
+				return nil, os.ErrPermission
+			}
 			directories = append(directories, pinned)
 			continue
 		}
