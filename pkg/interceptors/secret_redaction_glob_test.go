@@ -14,12 +14,20 @@ import (
 func TestSecretRedactionAmbiguousTableGlob(t *testing.T) {
 	for _, pattern := range []string{"SNMP_COMMUNIT?", "NTP_KE?", "SNMP_TRAP_*", "[S]NMP_COMMUNITY",
 		`NTP_K\EY`, "NTP_KE[Z-A]", "SNMP_COMMUNIT[Z-A]", "NTP_K[E-]x]Y",
-		"SNMP_COMMUNITY|prefix", "SNMP_COMMUNITY|*"} {
-		for _, native := range []bool{false, true} {
-			prefix := &pb.Path{Target: "CONFIG_DB"}
+		"SNMP_COMMUNITY|prefix", "SNMP_COMMUNITY|*", "SNMP_COMMUNITY?*", "SNMP_TRAP_CONFIG?*", "NTP_KEY?*"} {
+		for _, route := range []struct {
+			target, origin string
+			native         bool
+		}{
+			{"CONFIG_DB", "", false},
+			{"CONFIG_DB/ns", "sonic-db", false},
+			{"", "sonic-db", true},
+			{"UNRECOGNIZED_DB", "sonic-db", true},
+			{"CONFIG_DB/ns/extra", "sonic-db", true},
+		} {
+			prefix := &pb.Path{Target: route.target, Origin: route.origin}
 			path := testPath(pattern)
-			if native {
-				prefix = &pb.Path{Origin: "sonic-db"}
+			if route.native {
 				path = testPath("CONFIG_DB", "localhost", pattern)
 			}
 			_, err := (&secretRedactor{}).UnaryInterceptor()(context.Background(),
@@ -73,5 +81,24 @@ func TestSecretRedactionPreservesSafeTableQueries(t *testing.T) {
 		})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatal("ambiguous path encoding did not fail closed")
+	}
+	for _, prefix := range []*pb.Path{
+		{Target: "CONFIG_DB", Element: []string{"PORT"}},
+		{Target: "CONFIG_DB", Elem: []*pb.PathElem{{Name: "PORT"}}},
+	} {
+		path := testPath("NTP_KE?")
+		if len(prefix.Elem) > 0 {
+			path = &pb.Path{Element: []string{"NTP_KE?"}}
+		}
+		_, err := (&secretRedactor{}).UnaryInterceptor()(context.Background(),
+			&pb.GetRequest{Prefix: prefix, Path: []*pb.Path{path}},
+			&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
+			func(context.Context, interface{}) (interface{}, error) {
+				t.Error("cross-prefix mixed encodings reached retrieval")
+				return &pb.GetResponse{}, nil
+			})
+		if status.Code(err) != codes.InvalidArgument {
+			t.Fatal("cross-prefix mixed encodings did not fail closed")
+		}
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	pb "github.com/openconfig/gnmi/proto/gnmi"
+	spb "github.com/sonic-net/sonic-gnmi/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -24,9 +25,11 @@ type secretRedactor struct{}
 
 func (*secretRedactor) UnaryInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		native := false
 		if info.FullMethod == gnmiGetMethod {
 			if request, ok := req.(*pb.GetRequest); ok {
-				if err := validateReadPaths(request.GetPrefix(), request.GetPath()); err != nil {
+				native = nativeRead(request.GetPrefix(), request.GetPath(), false)
+				if err := validateReadPaths(request.GetPrefix(), request.GetPath(), false); err != nil {
 					return nil, err
 				}
 			}
@@ -44,7 +47,7 @@ func (*secretRedactor) UnaryInterceptor() grpc.UnaryServerInterceptor {
 		}
 		out := proto.Clone(value).(*pb.GetResponse)
 		for _, notification := range out.Notification {
-			if err := redactNotification(notification); err != nil {
+			if err := redactNotification(notification, native); err != nil {
 				return nil, err
 			}
 		}
@@ -63,6 +66,8 @@ func (*secretRedactor) StreamInterceptor() grpc.StreamServerInterceptor {
 
 type redactingStream struct {
 	grpc.ServerStream
+	native     bool
+	subscribed bool
 }
 
 func (s *redactingStream) RecvMsg(msg interface{}) error {
@@ -75,7 +80,14 @@ func (s *redactingStream) RecvMsg(msg interface{}) error {
 		for _, entry := range sub.Subscription {
 			paths = append(paths, entry.GetPath())
 		}
-		return validateReadPaths(sub.Prefix, paths)
+		native := nativeRead(sub.Prefix, paths, true)
+		if s.subscribed && native != s.native {
+			return status.Error(codes.InvalidArgument, "subscription route changed")
+		}
+		if !s.subscribed {
+			s.native, s.subscribed = native, true
+		}
+		return validateReadPaths(sub.Prefix, paths, true)
 	}
 	return nil
 }
@@ -86,7 +98,7 @@ func (s *redactingStream) SendMsg(msg interface{}) error {
 		return invalidSecretResponse()
 	}
 	out := proto.Clone(value).(*pb.SubscribeResponse)
-	if err := redactNotification(out.GetUpdate()); err != nil {
+	if err := redactNotification(out.GetUpdate(), s.native); err != nil {
 		return err
 	}
 	// Deprecated in-band errors can contain backend values, too.
@@ -116,14 +128,22 @@ func localName(name string) string {
 }
 
 func pathNames(paths ...*pb.Path) []string {
-	names := rawPathNames(paths...)
+	return readPathNames(false, paths...)
+}
+
+func readPathNames(native bool, paths ...*pb.Path) []string {
+	names := rawPathNames(native, paths...)
 	for i := range names {
-		names[i] = localName(names[i])
+		if native && i == 3 && names[2] == "snmp-community" {
+			names[i] = "@entry"
+		} else {
+			names[i] = localName(names[i])
+		}
 	}
 	return names
 }
 
-func rawPathNames(paths ...*pb.Path) []string {
+func rawPathNames(native bool, paths ...*pb.Path) []string {
 	var names []string
 	for _, path := range paths {
 		for _, name := range path.GetElement() {
@@ -131,20 +151,52 @@ func rawPathNames(paths ...*pb.Path) []string {
 		}
 		for _, elem := range path.GetElem() {
 			names = append(names, elem.GetName())
+			// Native Redis expands "key" after the DB and instance elements.
+			if native && len(names) > 2 {
+				if key, ok := elem.GetKey()["key"]; ok {
+					names = append(names, key)
+				}
+			}
 		}
 	}
 	return names
 }
 
-func validateReadPaths(prefix *pb.Path, paths []*pb.Path) error {
+func readOrigin(prefix *pb.Path, paths []*pb.Path) string {
+	if origin := prefix.GetOrigin(); origin != "" {
+		return origin
+	}
+	if len(paths) > 0 {
+		return paths[0].GetOrigin()
+	}
+	return ""
+}
+
+func nativeRead(prefix *pb.Path, paths []*pb.Path, subscribe bool) bool {
+	return readOrigin(prefix, paths) == "sonic-db" && (subscribe || !legacyReadTarget(prefix.GetTarget()))
+}
+
+func legacyReadTarget(target string) bool {
+	parts := strings.Split(target, "/")
+	_, valid := spb.Target_value[parts[0]]
+	return target != "OTHERS" && len(parts) <= 2 && valid
+}
+
+func validateReadPaths(prefix *pb.Path, paths []*pb.Path, subscribe bool) error {
 	for _, readPath := range paths {
-		if mixedPath(prefix) || mixedPath(readPath) {
+		if mixedPath(prefix) || mixedPath(readPath) ||
+			(len(prefix.GetElement()) > 0 && len(readPath.GetElem()) > 0) ||
+			(len(prefix.GetElem()) > 0 && len(readPath.GetElement()) > 0) {
 			return status.Error(codes.InvalidArgument, "ambiguous gNMI path encoding")
 		}
-		names := rawPathNames(prefix, readPath)
+		origin := readOrigin(prefix, []*pb.Path{readPath})
 		db := strings.SplitN(prefix.GetTarget(), "/", 2)[0]
 		table := 0
-		legacy := strings.HasSuffix(db, "_DB")
+		legacy := legacyReadTarget(prefix.GetTarget()) && (!subscribe || origin == "")
+		if !legacy && origin != "sonic-db" {
+			continue
+		}
+		names := rawPathNames(!legacy, prefix, readPath)
 		if !legacy {
 			if len(names) < 3 || !strings.HasSuffix(names[0], "_DB") {
 				continue
@@ -167,7 +219,7 @@ func validateReadPaths(prefix *pb.Path, paths []*pb.Path) error {
 		// Legacy CONFIG_DB/* retains table names in its root-shaped result.
 		// Other table globs flatten them, losing the provenance needed to
 		// distinguish credential keys and contextual "value"/"Community" leaves.
-		if legacy && db == "CONFIG_DB" && pattern == "*" && len(names) == 1 {
+		if !subscribe && legacy && db == "CONFIG_DB" && pattern == "*" && len(names) == 1 {
 			continue
 		}
 		pattern = conservativeTablePattern(pattern)
@@ -181,19 +233,11 @@ func validateReadPaths(prefix *pb.Path, paths []*pb.Path) error {
 	return nil
 }
 
-// Redis ranges can consume an apparent closing bracket as a range endpoint.
-// Widen from the first class onward instead of parsing incompatible syntax.
+// Redis globs can consume key separators and unusual range endpoints.
+// Widen from the first metacharacter instead of parsing incompatible syntax.
 func conservativeTablePattern(pattern string) string {
-	for i := 0; i < len(pattern); i++ {
-		switch pattern[i] {
-		case '\\':
-			if i+1 == len(pattern) {
-				return "*"
-			}
-			i++
-		case '[':
-			return pattern[:i] + "*"
-		}
+	if i := strings.IndexAny(pattern, "*?[\\"); i >= 0 {
+		return pattern[:i] + "*"
 	}
 	return pattern
 }
@@ -252,7 +296,7 @@ func secretScope(names []string) bool {
 	return false
 }
 
-func redactNotification(n *pb.Notification) error {
+func redactNotification(n *pb.Notification, native bool) error {
 	if n == nil {
 		return nil
 	}
@@ -266,7 +310,7 @@ func redactNotification(n *pb.Notification) error {
 		if mixedPath(update.Path) {
 			return invalidSecretResponse()
 		}
-		names := pathNames(n.Prefix, update.Path)
+		names := readPathNames(native, n.Prefix, update.Path)
 		if err := redactValue(update.Val, names); err != nil {
 			return err
 		}
@@ -284,15 +328,15 @@ func redactNotification(n *pb.Notification) error {
 				}
 			}
 		}
-		redactPath(update.Path, pathNames(n.Prefix))
+		redactPath(update.Path, readPathNames(native, n.Prefix), native)
 	}
 	for _, path := range n.Delete {
 		if mixedPath(path) {
 			return invalidSecretResponse()
 		}
-		redactPath(path, pathNames(n.Prefix))
+		redactPath(path, readPathNames(native, n.Prefix), native)
 	}
-	redactPath(n.Prefix, nil)
+	redactPath(n.Prefix, nil, native)
 	return nil
 }
 
@@ -450,7 +494,7 @@ func redactBGP(text string) string {
 	return bgpPassword.ReplaceAllString(text, "${1}${2} "+redacted)
 }
 
-func redactPath(path *pb.Path, prefix []string) {
+func redactPath(path *pb.Path, prefix []string, native bool) {
 	if path == nil {
 		return
 	}
@@ -473,6 +517,14 @@ func redactPath(path *pb.Path, prefix []string) {
 		elem.Name = redactName(name, localName(name) == "snmp-community-list" &&
 			(len(elem.Key) > 0 || hasName(names, "sonic-snmp")))
 		names = append(names, localName(name))
+		if native && len(names) > 2 {
+			if key, ok := elem.Key["key"]; ok {
+				if names[len(names)-1] == "snmp-community" {
+					elem.Key["key"] = redacted
+				}
+				names = append(names, localName(key))
+			}
+		}
 		for key := range elem.Key {
 			if secretField(append(append([]string(nil), names...), localName(key))) {
 				elem.Key[key] = redacted

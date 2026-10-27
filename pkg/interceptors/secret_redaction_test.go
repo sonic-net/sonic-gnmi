@@ -24,9 +24,13 @@ const syntheticSecret = "synthetic-only-credential"
 
 type secretFixtureServer struct {
 	pb.UnimplementedGNMIServer
+	response *pb.GetResponse
 }
 
-func (*secretFixtureServer) Get(_ context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
+func (s *secretFixtureServer) Get(_ context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
+	if s.response != nil {
+		return proto.Clone(s.response).(*pb.GetResponse), nil
+	}
 	// Synthetic backend retrieval; no SONiC configuration is read.
 	data := map[string]interface{}{
 		"TACPLUS_SERVER": map[string]interface{}{
@@ -57,7 +61,8 @@ func TestSecretRedactionWire(t *testing.T) {
 	t.Cleanup(func() { _ = chain.Close() })
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer(chain.GetServerOptions()...)
-	pb.RegisterGNMIServer(server, &secretFixtureServer{})
+	backend := &secretFixtureServer{}
+	pb.RegisterGNMIServer(server, backend)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
 	t.Cleanup(func() { _ = listener.Close() })
@@ -100,7 +105,8 @@ func TestSecretRedactionWire(t *testing.T) {
 		})
 	}
 	for _, readPrefix := range []*pb.Path{prefix, {Target: "CONFIG_DB"}} {
-		for _, pattern := range []string{"NTP_KE?", "NTP_KE[Z-A]", "NTP_K[E-]x]Y", "SNMP_COMMUNITY|prefix", "SNMP_COMMUNITY|*"} {
+		for _, pattern := range []string{"NTP_KE?", "NTP_KE[Z-A]", "NTP_K[E-]x]Y", "SNMP_COMMUNITY|prefix",
+			"SNMP_COMMUNITY|*", "SNMP_COMMUNITY?*", "NTP_KEY?*"} {
 			stream, err := client.Subscribe(ctx)
 			if err != nil {
 				t.Fatal(err)
@@ -115,7 +121,82 @@ func TestSecretRedactionWire(t *testing.T) {
 				t.Fatal(err)
 			}
 			if _, err := stream.Recv(); status.Code(err) != codes.InvalidArgument {
-				t.Fatal("ambiguous table glob reached streaming retrieval")
+				t.Error("ambiguous table glob reached streaming retrieval")
+			}
+		}
+	}
+	for _, read := range []struct{ prefix, path *pb.Path }{
+		{&pb.Path{Target: "CONFIG_DB", Element: []string{"PORT"}}, testPath("NTP_KE?")},
+		{&pb.Path{Target: "CONFIG_DB", Origin: "sonic-db"}, testPath("CONFIG_DB", "localhost", "NTP_KE?")},
+		{&pb.Path{Target: "CONFIG_DB"}, &pb.Path{Origin: "sonic-db", Elem: testPath("CONFIG_DB", "localhost", "NTP_KE?").Elem}},
+		{&pb.Path{Target: "CONFIG_DB"}, testPath("*")},
+	} {
+		for _, mode := range []pb.SubscriptionList_Mode{pb.SubscriptionList_ONCE, pb.SubscriptionList_POLL, pb.SubscriptionList_STREAM} {
+			stream, err := client.Subscribe(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = stream.Send(&pb.SubscribeRequest{Request: &pb.SubscribeRequest_Subscribe{
+				Subscribe: &pb.SubscriptionList{
+					Prefix: read.prefix, Mode: mode, Subscription: []*pb.Subscription{{Path: read.path}},
+				},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := stream.Recv(); status.Code(err) != codes.InvalidArgument {
+				t.Error("subscription routing ambiguity reached retrieval")
+			}
+		}
+	}
+	for _, fixture := range []struct {
+		path   *pb.Path
+		value  *pb.TypedValue
+		public string
+	}{
+		{testPath("ASIC_DB", "localhost", "ASIC_STATE", "SAI_OBJECT_TYPE_MACSEC_SA:fixture"),
+			&pb.TypedValue{Value: &pb.TypedValue_StringVal{StringVal: syntheticSecret}}, redacted},
+		{testPath("CONFIG_DB", "localhost", "SNMP_COMMUNITY"),
+			&pb.TypedValue{Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"TYPE":"RO"}`)}}, `"TYPE":"RO"`},
+	} {
+		key := syntheticSecret + "|suffix-password"
+		if fixture.public == redacted {
+			key = "SAI_MACSEC_SA_ATTR_SAK"
+		}
+		fixture.path.Elem[len(fixture.path.Elem)-1].Key = map[string]string{"key": key}
+		for _, target := range []string{"", "UNRECOGNIZED_DB", "CONFIG_DB/ns/extra"} {
+			readPrefix := &pb.Path{Origin: "sonic-db", Target: target}
+			backend.response = &pb.GetResponse{Notification: []*pb.Notification{{
+				Prefix: readPrefix, Update: []*pb.Update{{Path: fixture.path, Val: fixture.value}},
+			}}}
+			assertValue := func(response proto.Message) {
+				t.Helper()
+				wire, err := proto.Marshal(response)
+				if err != nil || strings.Contains(string(wire), syntheticSecret) || !strings.Contains(string(wire), fixture.public) {
+					t.Error("native key component leaked a credential or lost public data")
+				}
+			}
+			response, err := client.Get(ctx, &pb.GetRequest{Prefix: readPrefix, Path: []*pb.Path{fixture.path}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertValue(response)
+			stream, err := client.Subscribe(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := stream.Send(&pb.SubscribeRequest{Request: &pb.SubscribeRequest_Subscribe{
+				Subscribe: &pb.SubscriptionList{Prefix: readPrefix, Subscription: []*pb.Subscription{{Path: fixture.path}}},
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			notification, err := stream.Recv()
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertValue(notification)
+			if _, err := stream.Recv(); err != io.EOF {
+				t.Fatal("expected end of synthetic stream")
 			}
 		}
 	}
@@ -244,15 +325,33 @@ func TestSecretRedactionPreservesNonSecrets(t *testing.T) {
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("non-secret fields changed")
 	}
-	for _, val := range []*pb.TypedValue{
-		{Value: &pb.TypedValue_StringVal{StringVal: "7"}},
-		{Value: &pb.TypedValue_UintVal{UintVal: 7}},
+	for _, path := range []*pb.Path{
+		testPath("TACPLUS_SERVER", "192.0.2.1", "priority"),
+		testPath("CONFIG_DB", "localhost", "TACPLUS_SERVER", "192.0.2.1", "priority"),
+		testPath("system", "aaa", "config", "timestamp"),
 	} {
-		in.Notification[0].Update[0].Path = testPath("TACPLUS_SERVER", "192.0.2.1", "priority")
-		in.Notification[0].Update[0].Val = val
-		if _, err := redactTestGet(in); err != nil {
-			t.Fatal("non-secret scalar field rejected")
+		for _, val := range []*pb.TypedValue{
+			{Value: &pb.TypedValue_StringVal{StringVal: "7"}},
+			{Value: &pb.TypedValue_AsciiVal{AsciiVal: "7"}},
+			{Value: &pb.TypedValue_UintVal{UintVal: 7}},
+			{Value: &pb.TypedValue_BytesVal{BytesVal: []byte("7")}},
+		} {
+			in.Notification[0].Update[0].Path = path
+			in.Notification[0].Update[0].Val = val
+			out, err := redactTestGet(in)
+			if err != nil || !proto.Equal(out.Notification[0].Update[0].Val, val) {
+				t.Fatal("non-secret scalar field changed or rejected")
+			}
 		}
+	}
+	in.Notification[0].Update[0].Path = &pb.Path{Elem: []*pb.PathElem{
+		{Name: "system"}, {Name: "aaa"}, {Name: "server-group", Key: map[string]string{"key": "future-password"}},
+	}}
+	value := &pb.TypedValue{Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"priority":"7"}`)}}
+	in.Notification[0].Update[0].Val = value
+	out, err = redactTestGet(in)
+	if err != nil || !proto.Equal(out.Notification[0].Update[0].Val, value) {
+		t.Fatal("translated list key was interpreted as a native schema component")
 	}
 }
 
@@ -269,6 +368,37 @@ func TestSecretRedactionFailClosed(t *testing.T) {
 		out, err := redactTestGet(response)
 		if out != nil || status.Code(err) != codes.DataLoss || strings.Contains(err.Error(), syntheticSecret) {
 			t.Fatal("unsafe representation did not fail closed")
+		}
+	}
+}
+
+func TestSecretRedactionUnsafeNotifications(t *testing.T) {
+	mixed := testPath("password")
+	mixed.Element = []string{"PORT"}
+	for _, notification := range []*pb.Notification{
+		{Prefix: mixed},
+		{Update: []*pb.Update{{Path: mixed}}},
+		{Delete: []*pb.Path{mixed}},
+		{Update: []*pb.Update{{Path: testPath("password"),
+			Val: &pb.TypedValue{Value: &pb.TypedValue_UintVal{UintVal: 1}}}}},
+		{Update: []*pb.Update{{Path: testPath("password"),
+			Val: &pb.TypedValue{Value: &pb.TypedValue_LeaflistVal{LeaflistVal: &pb.ScalarArray{
+				Element: []*pb.TypedValue{{Value: &pb.TypedValue_UintVal{UintVal: 1}}},
+			}}}}}},
+		{Update: []*pb.Update{{Path: testPath("TACPLUS_SERVER"),
+			Val: &pb.TypedValue{Value: &pb.TypedValue_StringVal{StringVal: syntheticSecret}}}}},
+		{Update: []*pb.Update{{Path: testPath("CONFIG_DB"),
+			Val: &pb.TypedValue{Value: &pb.TypedValue_AsciiVal{AsciiVal: syntheticSecret}}}}},
+		{Update: []*pb.Update{{Path: testPath("CONFIG_DB"),
+			Val: &pb.TypedValue{Value: &pb.TypedValue_JsonVal{JsonVal: []byte(`"synthetic-only-credential"`)}}}}},
+		{Update: []*pb.Update{{Path: testPath("password"),
+			Value: &pb.Value{Type: pb.Encoding_JSON, Value: []byte(`{"password":`)}}}},
+		{Update: []*pb.Update{{Path: testPath("password"),
+			Value: &pb.Value{Type: pb.Encoding_BYTES, Value: []byte(syntheticSecret)}}}},
+	} {
+		out, err := redactTestGet(&pb.GetResponse{Notification: []*pb.Notification{notification}})
+		if out != nil || status.Code(err) != codes.DataLoss || strings.Contains(err.Error(), syntheticSecret) {
+			t.Fatal("unsafe notification did not fail closed")
 		}
 	}
 }
