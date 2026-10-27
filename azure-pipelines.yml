@@ -124,7 +124,7 @@ stages:
         export PATH=$PATH:/usr/local/go/bin
         cd sonic-gnmi
         go mod tidy
-        make -f pure.mk junit-xml
+        make -f pure.mk ci-report
       displayName: 'Run pure package tests'
 
     - task: PublishTestResults@2
@@ -169,7 +169,7 @@ stages:
         set -euo pipefail
         cd sonic-gnmi
         make all
-        $(UNIT_TEST_FLAG) make check_memleak_junit
+        $(UNIT_TEST_FLAG) make test-memleak
       displayName: 'Run memory-leak tests'
 
     - task: PublishTestResults@2
@@ -204,7 +204,7 @@ stages:
         set -euo pipefail
         cd sonic-gnmi
         make all
-        $(UNIT_TEST_FLAG) make check_gotest_junit
+        $(UNIT_TEST_FLAG) make test-integration
       displayName: "Run integration tests"
 
     - task: PublishTestResults@2

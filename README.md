@@ -34,6 +34,19 @@ You can also build a debian package and install it:
     dpkg-buildpackage -rfakeroot -b -us -uc
     popd
 
+## Testing
+
+Run `make -f pure.mk ci-report` for pure package boundary checks, compilation,
+race-enabled tests and CI report generation. Keep `sonic-mgmt-common` checked
+out beside this repository for the local module replacement.
+
+In the provisioned SONiC build environment, run `make all` first, then
+`ENABLE_TRANSLIB_WRITE=y make test-integration` or
+`ENABLE_TRANSLIB_WRITE=y make test-memleak`.
+These commands produce local reports; Azure YAML publishes them.
+The existing `junit-xml`, `check_gotest_junit` and `check_memleak_junit`
+entrypoints remain compatible.
+
 ## Running
 * See [SONiC gRPC telemetry](./doc/grpc_telemetry.md) for how to run dial-in mode system telemetry server
 * See [SONiC telemetry in dial-out mode](./doc/dialout.md) for how to run dial-out mode system telemetry client
