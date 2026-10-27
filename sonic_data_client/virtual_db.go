@@ -714,6 +714,19 @@ func v2rSwitchPacketIntegrityDrop(paths []string) ([]tablePath, error) {
 	return tblPaths, nil
 }
 
+// resolvePortName maps a user supplied port key to a SONiC port name.
+// A key that is itself a physical port name takes precedence over an alias
+// of another port. Callers must hold clearMappingsMu.
+func resolvePortName(key string) string {
+	if _, ok := port2namespaceMap[key]; ok {
+		return key
+	}
+	if val, ok := alias2nameMap[key]; ok {
+		return val
+	}
+	return key
+}
+
 // Populate real data paths from paths like
 // [COUNTER_DB COUNTERS Ethernet*] or [COUNTER_DB COUNTERS Ethernet68]
 func v2rEthPortStats(paths []string) ([]tablePath, error) {
@@ -745,12 +758,8 @@ func v2rEthPortStats(paths []string) ([]tablePath, error) {
 			tblPaths = append(tblPaths, tblPath)
 		}
 	} else { //single port
-		var alias, name string
-		alias = paths[KeyIdx]
-		name = alias
-		if val, ok := alias2nameMap[alias]; ok {
-			name = val
-		}
+		alias := paths[KeyIdx]
+		name := resolvePortName(alias)
 		oid, ok := countersPortNameMap[name]
 		if !ok {
 			return nil, fmt.Errorf("%v not a valid sonic interface. Vendor alias is %v", name, alias)
@@ -840,12 +849,8 @@ func v2rEthPortFieldStats(paths []string) ([]tablePath, error) {
 			tblPaths = append(tblPaths, tblPath)
 		}
 	} else { //single port
-		var alias, name string
-		alias = paths[KeyIdx]
-		name = alias
-		if val, ok := alias2nameMap[alias]; ok {
-			name = val
-		}
+		alias := paths[KeyIdx]
+		name := resolvePortName(alias)
 		oid, ok := countersPortNameMap[name]
 		if !ok {
 			return nil, fmt.Errorf(" %v not a valid sonic interface. Vendor alias is %v ", name, alias)
@@ -905,10 +910,7 @@ func v2rEthPortPfcwdStats(paths []string) ([]tablePath, error) {
 		}
 	} else { // pfcwd counters on single port
 		alias := paths[KeyIdx]
-		name := alias
-		if val, ok := alias2nameMap[alias]; ok {
-			name = val
-		}
+		name := resolvePortName(alias)
 		namespace, ok := port2namespaceMap[name]
 		if !ok {
 			return nil, fmt.Errorf("%v does not have namespace associated", name)
@@ -994,10 +996,7 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 		}
 	} else { //queues on single port
 		alias := paths[KeyIdx]
-		name := alias
-		if val, ok := alias2nameMap[alias]; ok {
-			name = val
-		}
+		name := resolvePortName(alias)
 		namespace, ok := port2namespaceMap[name]
 		if !ok {
 			return nil, fmt.Errorf("%v does not have namespace associated", name)

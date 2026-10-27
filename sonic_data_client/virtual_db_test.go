@@ -503,6 +503,32 @@ func TestV2rEthPortQueStats_EmptyMap(t *testing.T) {
 	}
 }
 
+func TestV2rEthPortQueStats_PhysicalNameBeatsAlias(t *testing.T) {
+	sdcfg.Init()
+	origQ, origA, origNS := countersQueueNameMap, alias2nameMap, port2namespaceMap
+	countersQueueNameMap = map[string]string{
+		"Ethernet47:0": "oid:47",
+		"Ethernet48:0": "oid:48",
+	}
+	// Ethernet47 has alias "Ethernet48", which collides with physical Ethernet48.
+	alias2nameMap = map[string]string{"Ethernet48": "Ethernet47", "Ethernet49/1": "Ethernet48"}
+	port2namespaceMap = map[string]string{"Ethernet47": "", "Ethernet48": ""}
+	defer func() { countersQueueNameMap, alias2nameMap, port2namespaceMap = origQ, origA, origNS }()
+
+	tblPaths, err := v2rEthPortQueStats([]string{"COUNTERS_DB", "COUNTERS", "Ethernet48", "Queues"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tblPaths) == 0 || tblPaths[0].tableKey != "oid:48" {
+		t.Errorf("expected physical Ethernet48 (oid:48), got %+v", tblPaths)
+	}
+
+	tblPaths, err = v2rEthPortQueStats([]string{"COUNTERS_DB", "COUNTERS", "Ethernet49/1", "Queues"})
+	if err != nil || len(tblPaths) == 0 || tblPaths[0].tableKey != "oid:48" {
+		t.Errorf("alias lookup should still work, got %+v, %v", tblPaths, err)
+	}
+}
+
 func TestV2rAclRuleStats_EmptyMap(t *testing.T) {
 	sdcfg.Init()
 	origMap := countersAclRuleMap
