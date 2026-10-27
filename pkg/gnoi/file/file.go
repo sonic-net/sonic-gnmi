@@ -687,7 +687,7 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 	resp := &gnoi_file_pb.StatResponse{}
 
 	if !info.IsDir() {
-		statInfo, err := statInfoFromFileInfo(cleanReqPath, info)
+		statInfo, err := statInfoFromFileInfo(reqPath, info)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "%v", err)
 		}
@@ -712,8 +712,8 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 
 	stats := make([]*gnoi_file_pb.StatInfo, 0, len(entries))
 	for _, entry := range entries {
-		childReportPath := filepath.Join(cleanReqPath, entry.Name())
-		child, err := fsOpenRead(childReportPath)
+		childReportPath := strings.TrimRight(reqPath, "/") + "/" + entry.Name()
+		child, err := openPublicReadChild(file, entry.Name())
 		if err != nil {
 			log.Warningf("HandleStat: skipping %s/%s: %v", reqPath, entry.Name(), err)
 			continue

@@ -12,13 +12,7 @@ import (
 
 var errReadFileType = errors.New("not a regular file or directory")
 
-// Walk the original path so resolving a symlink cannot skip a private ancestor.
-func openPublicReadFile(path string) (_ *os.File, err error) {
-	defer func() {
-		if errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.ELOOP) {
-			err = os.ErrPermission
-		}
-	}()
+func openPublicReadRoot() (*os.File, error) {
 	root := hostRoot
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		root = "/"
@@ -29,7 +23,83 @@ func openPublicReadFile(path string) (_ *os.File, err error) {
 	if err != nil {
 		return nil, err
 	}
-	directories := []*os.File{os.NewFile(uintptr(fd), root)}
+	return os.NewFile(uintptr(fd), root), nil
+}
+
+func openPublicReadFile(path string) (*os.File, error) {
+	root, err := openPublicReadRoot()
+	if err != nil {
+		return nil, err
+	}
+	return walkPublicReadFile([]*os.File{root}, path)
+}
+
+func openPublicReadChild(parent *os.File, name string) (*os.File, error) {
+	if name == "" || name == "." || name == ".." || strings.Contains(name, "/") {
+		return nil, os.ErrPermission
+	}
+	root, err := openPublicReadRoot()
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	rootInfo, err := root.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fd, err := unix.Openat(int(parent.Fd()), ".", unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	directories := []*os.File{os.NewFile(uintptr(fd), parent.Name())}
+	defer func() {
+		for _, directory := range directories {
+			directory.Close()
+		}
+	}()
+	// Recover a pinned root-to-parent stack without reopening the request path.
+	// Relative symlinks can then traverse .. while absolute links use the host root.
+	for {
+		current := directories[len(directories)-1]
+		if err := checkPublicReadMode(current, 0001); err != nil {
+			return nil, err
+		}
+		info, err := current.Stat()
+		if err != nil {
+			return nil, err
+		}
+		if os.SameFile(info, rootInfo) {
+			break
+		}
+		fd, err := unix.Openat(int(current.Fd()), "..", unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+		if err != nil {
+			return nil, err
+		}
+		ancestor := os.NewFile(uintptr(fd), "..")
+		directories = append(directories, ancestor)
+		ancestorInfo, err := ancestor.Stat()
+		if err != nil {
+			return nil, err
+		}
+		if os.SameFile(info, ancestorInfo) {
+			return nil, os.ErrPermission
+		}
+	}
+	for i, j := 0, len(directories)-1; i < j; i, j = i+1, j-1 {
+		directories[i], directories[j] = directories[j], directories[i]
+	}
+	stack := directories
+	directories = nil
+	return walkPublicReadFile(stack, name)
+}
+
+// Walk the original path so resolving a symlink cannot skip a private ancestor.
+func walkPublicReadFile(directories []*os.File, path string) (_ *os.File, err error) {
+	defer func() {
+		if errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.ELOOP) {
+			err = os.ErrPermission
+		}
+	}()
 	defer func() {
 		for _, directory := range directories {
 			directory.Close()

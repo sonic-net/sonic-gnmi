@@ -341,3 +341,180 @@ func TestPublicReadUsesValidatedDescriptor(t *testing.T) {
 		})
 	}
 }
+
+func TestPublicStatPreservesOriginalPaths(t *testing.T) {
+	logical, physical := useTempHostRoot(t)
+	for _, directory := range []string{"target/sub", "target/list", "list"} {
+		if err := os.MkdirAll(filepath.Join(physical, directory), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	content := []byte("the symlink-selected file")
+	for path, data := range map[string][]byte{
+		"target/list/entry": content, "target/entry": content,
+		"list/entry": []byte("decoy"), "entry": []byte("another decoy"),
+	} {
+		if err := os.WriteFile(filepath.Join(physical, path), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("target/sub", filepath.Join(physical, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, path, reported string
+		count                int
+	}{
+		{"regular", "/alias/../list/entry", "/alias/../list/entry", 1},
+		{"directory", "/alias/../list", "/alias/../list/entry", 1},
+		{"symlink-parent", "/alias/..", "/alias/../entry", 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: logical + test.path})
+			if err != nil || len(response.GetStats()) != test.count {
+				t.Fatalf("Stat: response=%v error=%v", response, err)
+			}
+			reported := logical + test.reported
+			for _, entry := range response.Stats {
+				if entry.Path == reported {
+					if entry.Size != uint64(len(content)) {
+						t.Fatalf("wrong inode metadata: %v", entry)
+					}
+					assertPublicRead(t, entry.Path, content)
+					return
+				}
+			}
+			t.Fatalf("missing original round-trip path %q: %v", reported, response)
+		})
+	}
+}
+
+func TestPublicStatUsesValidatedDirectory(t *testing.T) {
+	for _, mode := range []os.FileMode{0644, 0600} {
+		t.Run(mode.String(), func(t *testing.T) {
+			logical, physical := useTempHostRoot(t)
+			directory := filepath.Join(physical, "listing")
+			if err := os.Mkdir(directory, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(directory, "entry"), []byte("public"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(directory, "private"), []byte("secret"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			readDir := fsReadDir
+			fsReadDir = func(file *os.File) ([]os.DirEntry, error) {
+				entries, err := readDir(file)
+				if err != nil {
+					return nil, err
+				}
+				if err := os.Rename(directory, directory+"-moved"); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(directory, 0755); err != nil {
+					t.Fatal(err)
+				}
+				for _, name := range []string{"entry", "private"} {
+					if err := os.WriteFile(filepath.Join(directory, name), []byte("unrelated replacement contents"), mode); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return entries, nil
+			}
+			t.Cleanup(func() { fsReadDir = readDir })
+			response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: logical + "/listing"})
+			if err != nil || len(response.GetStats()) != 1 ||
+				response.Stats[0].Path != logical+"/listing/entry" || response.Stats[0].Size != 6 {
+				t.Fatalf("directory replacement changed metadata: %v %v", response, err)
+			}
+		})
+	}
+}
+
+func TestPublicReadChildBoundaries(t *testing.T) {
+	logical, physical := useTempHostRoot(t)
+	parent, err := openPublicReadFile(logical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parent.Close()
+	for _, name := range []string{"", ".", "..", "../image", "child/image"} {
+		if file, err := openPublicReadChild(parent, name); !os.IsPermission(err) || file != nil {
+			t.Fatalf("invalid child name %q: file=%v error=%v", name, file, err)
+		}
+	}
+	outside, err := os.Open("/tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer outside.Close()
+	before, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 20; i++ {
+		if file, err := openPublicReadChild(outside, "image"); !os.IsPermission(err) || file != nil {
+			t.Fatalf("outside host root: file=%v error=%v", file, err)
+		}
+	}
+	after, err := os.ReadDir("/proc/self/fd")
+	if err != nil || len(before) != len(after) {
+		t.Fatalf("rejected ancestry leaked descriptors: before=%d after=%d error=%v", len(before), len(after), err)
+	}
+	if err := os.Chmod(physical, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if file, err := openPublicReadChild(parent, "image"); !os.IsPermission(err) || file != nil {
+		t.Fatalf("private pinned parent: file=%v error=%v", file, err)
+	}
+	if err := os.Chmod(physical, 0755); err != nil {
+		t.Fatal(err)
+	}
+	setPublicReadDenyACL(t, physical, true)
+	if file, err := openPublicReadChild(parent, "image"); !os.IsPermission(err) || file != nil {
+		t.Fatalf("ACL-restricted pinned parent: file=%v error=%v", file, err)
+	}
+}
+
+func TestPublicStatChildSymlinkPolicy(t *testing.T) {
+	logical, physical := useTempHostRoot(t)
+	for _, name := range []string{"listing", "private-dir", "acl-dir"} {
+		if err := os.Mkdir(filepath.Join(physical, name), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, mode := range map[string]os.FileMode{"public": 0644, "private": 0600} {
+		if err := os.WriteFile(filepath.Join(physical, name), []byte("image"), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"private-dir", "acl-dir"} {
+		if err := os.Symlink("../public", filepath.Join(physical, name, "link")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(physical, "private-dir"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	setPublicReadDenyACL(t, filepath.Join(physical, "acl-dir"), true)
+	for name, target := range map[string]string{
+		"relative": "../public", "absolute": logical + "/public",
+		"private": "../private", "private-ancestor": "../private-dir/link",
+		"acl-ancestor": "../acl-dir/link", "escape": "/../public", "loop": "loop",
+	} {
+		if err := os.Symlink(target, filepath.Join(physical, "listing", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: logical + "/listing"})
+	if err != nil || len(response.GetStats()) != 2 {
+		t.Fatalf("public symlink listing: %v %v", response, err)
+	}
+	for _, entry := range response.Stats {
+		if entry.Path != logical+"/listing/relative" && entry.Path != logical+"/listing/absolute" {
+			t.Fatalf("private or out-of-root entry exposed: %v", entry)
+		}
+		assertPublicRead(t, entry.Path, []byte("image"))
+	}
+}
