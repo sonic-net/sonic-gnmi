@@ -3,11 +3,14 @@ package interceptors
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"path"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -23,6 +26,40 @@ const redacted = "REDACTED"
 
 type secretRedactor struct{}
 
+type readRedactor struct {
+	communityID func(string) string
+}
+
+func newReadRedactor() (*readRedactor, error) {
+	var key [32]byte
+	if _, err := io.ReadFull(rand.Reader, key[:]); err != nil {
+		return nil, invalidSecretResponse()
+	}
+	return &readRedactor{communityID: func(identifier string) string {
+		// Match dictionary keys with the legacy backend's positional components.
+		components := strings.Split(identifier, "|")
+		for i, component := range components {
+			mac := hmac.New(sha256.New, key[:])
+			mac.Write([]byte(component))
+			components[i] = redacted + "_" + hex.EncodeToString(mac.Sum(nil))
+		}
+		return strings.Join(components, "|")
+	}}, nil
+}
+
+func (r *readRedactor) redactString(value string, names []string) string {
+	for len(names) > 0 {
+		if _, err := strconv.Atoi(names[len(names)-1]); err != nil {
+			break
+		}
+		names = names[:len(names)-1]
+	}
+	if len(names) > 0 && names[len(names)-1] == "name" && hasName(names, "snmp-community") {
+		return r.communityID(value)
+	}
+	return redacted
+}
+
 type readRoute int
 
 const (
@@ -34,6 +71,7 @@ const (
 func (*secretRedactor) UnaryInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		route := routeTranslated
+		var redactor *readRedactor
 		if info.FullMethod == gnmiGetMethod {
 			if request, ok := req.(*pb.GetRequest); ok {
 				route = responseRoute(request.GetPrefix(), request.GetPath(), false)
@@ -45,6 +83,11 @@ func (*secretRedactor) UnaryInterceptor() grpc.UnaryServerInterceptor {
 					normalizeNativeRead(request.Prefix, request.Path)
 					req = request
 				}
+			}
+			var err error
+			redactor, err = newReadRedactor()
+			if err != nil {
+				return nil, err
 			}
 		}
 		resp, err := handler(ctx, req)
@@ -60,7 +103,7 @@ func (*secretRedactor) UnaryInterceptor() grpc.UnaryServerInterceptor {
 		}
 		out := proto.Clone(value).(*pb.GetResponse)
 		for _, notification := range out.Notification {
-			if err := redactNotification(notification, route); err != nil {
+			if err := redactor.redactNotification(notification, route); err != nil {
 				return nil, err
 			}
 		}
@@ -73,12 +116,17 @@ func (*secretRedactor) StreamInterceptor() grpc.StreamServerInterceptor {
 		if info.FullMethod != "/gnmi.gNMI/Subscribe" {
 			return handler(srv, stream)
 		}
-		return readError(handler(srv, &redactingStream{ServerStream: stream}))
+		redactor, err := newReadRedactor()
+		if err != nil {
+			return err
+		}
+		return readError(handler(srv, &redactingStream{ServerStream: stream, redactor: redactor}))
 	}
 }
 
 type redactingStream struct {
 	grpc.ServerStream
+	redactor   *readRedactor
 	route      readRoute
 	subscribed bool
 }
@@ -127,7 +175,7 @@ func (s *redactingStream) SendMsg(msg interface{}) error {
 		return invalidSecretResponse()
 	}
 	out := proto.Clone(value).(*pb.SubscribeResponse)
-	if err := redactNotification(out.GetUpdate(), s.route); err != nil {
+	if err := s.redactor.redactNotification(out.GetUpdate(), s.route); err != nil {
 		return err
 	}
 	// Deprecated in-band errors can contain backend values, too.
@@ -389,7 +437,7 @@ func nativeJSONTable(name string) bool {
 	return name == strings.ToUpper(name) && nativeSecretTable(localName(name))
 }
 
-func redactNotification(n *pb.Notification, route readRoute) error {
+func (r *readRedactor) redactNotification(n *pb.Notification, route readRoute) error {
 	if n == nil {
 		return nil
 	}
@@ -422,13 +470,13 @@ func redactNotification(n *pb.Notification, route readRoute) error {
 		}
 		table := ((route == routeLegacy && len(names) == 1) || (route == routeNative && len(names) == 3)) &&
 			nativeSecretTable(names[len(names)-1])
-		if err := redactValue(update.Val, names, route, table); err != nil {
+		if err := r.redactValue(update.Val, names, route, table); err != nil {
 			return err
 		}
 		if update.Value != nil {
 			switch update.Value.Type {
 			case pb.Encoding_JSON, pb.Encoding_JSON_IETF:
-				data, err := redactJSON(update.Value.Value, names, route, table)
+				data, err := r.redactJSON(update.Value.Value, names, route, table)
 				if err != nil {
 					return err
 				}
@@ -439,7 +487,7 @@ func redactNotification(n *pb.Notification, route readRoute) error {
 				}
 			}
 		}
-		redactPath(update.Path, prefixNames, route, communityEnd)
+		r.redactPath(update.Path, prefixNames, route, communityEnd)
 	}
 	for _, path := range n.Delete {
 		if mixedPath(path) {
@@ -449,12 +497,12 @@ func redactNotification(n *pb.Notification, route readRoute) error {
 		if end > prefixEnd {
 			prefixEnd = end
 		}
-		redactPath(path, prefixNames, route, end)
+		r.redactPath(path, prefixNames, route, end)
 	}
 	if len(n.Update) == 0 && len(n.Delete) == 0 {
 		prefixEnd = len(prefixNames)
 	}
-	redactPath(n.Prefix, nil, route, prefixEnd)
+	r.redactPath(n.Prefix, nil, route, prefixEnd)
 	return nil
 }
 
@@ -493,26 +541,26 @@ func publicCommunityType(value *pb.TypedValue, deprecated *pb.Value) bool {
 		deprecated.Type == pb.Encoding_JSON_IETF) && jsonEnum(deprecated.Value))
 }
 
-func redactValue(value *pb.TypedValue, names []string, route readRoute, table bool) error {
+func (r *readRedactor) redactValue(value *pb.TypedValue, names []string, route readRoute, table bool) error {
 	if value == nil {
 		return nil
 	}
 	switch v := value.Value.(type) {
 	case *pb.TypedValue_JsonVal:
-		data, err := redactJSON(v.JsonVal, names, route, table)
+		data, err := r.redactJSON(v.JsonVal, names, route, table)
 		if err != nil {
 			return err
 		}
 		v.JsonVal = data
 	case *pb.TypedValue_JsonIetfVal:
-		data, err := redactJSON(v.JsonIetfVal, names, route, table)
+		data, err := r.redactJSON(v.JsonIetfVal, names, route, table)
 		if err != nil {
 			return err
 		}
 		v.JsonIetfVal = data
 	case *pb.TypedValue_StringVal:
 		if secretField(names) {
-			v.StringVal = redacted
+			v.StringVal = r.redactString(v.StringVal, names)
 		} else if bgpConfig(names) {
 			v.StringVal = redactBGP(v.StringVal)
 		} else if (secretScope(names) && !knownFieldPath(names)) || databaseRoot(names) {
@@ -520,7 +568,7 @@ func redactValue(value *pb.TypedValue, names []string, route readRoute, table bo
 		}
 	case *pb.TypedValue_AsciiVal:
 		if secretField(names) {
-			v.AsciiVal = redacted
+			v.AsciiVal = r.redactString(v.AsciiVal, names)
 		} else if bgpConfig(names) {
 			v.AsciiVal = redactBGP(v.AsciiVal)
 		} else if (secretScope(names) && !knownFieldPath(names)) || databaseRoot(names) {
@@ -528,7 +576,7 @@ func redactValue(value *pb.TypedValue, names []string, route readRoute, table bo
 		}
 	case *pb.TypedValue_LeaflistVal:
 		for _, element := range v.LeaflistVal.GetElement() {
-			if err := redactValue(element, names, route, table); err != nil {
+			if err := r.redactValue(element, names, route, table); err != nil {
 				return err
 			}
 		}
@@ -573,7 +621,7 @@ func databaseRoot(names []string) bool {
 	return false
 }
 
-func redactJSON(data []byte, names []string, route readRoute, table bool) ([]byte, error) {
+func (r *readRedactor) redactJSON(data []byte, names []string, route readRoute, table bool) ([]byte, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	var value interface{}
@@ -588,7 +636,7 @@ func redactJSON(data []byte, names []string, route readRoute, table bool) ([]byt
 		(databaseRoot(names) || (secretScope(names) && !knownFieldPath(names))) {
 		return nil, invalidSecretResponse()
 	}
-	value = redactObject(value, names, route, table)
+	value = r.redactObject(value, names, route, table)
 	out, err := json.Marshal(value)
 	if err != nil {
 		return nil, invalidSecretResponse()
@@ -596,26 +644,24 @@ func redactJSON(data []byte, names []string, route readRoute, table bool) ([]byt
 	return out, nil
 }
 
-func redactObject(value interface{}, names []string, route readRoute, table bool) interface{} {
+func (r *readRedactor) redactObject(value interface{}, names []string, route readRoute, table bool) interface{} {
 	if secretField(names) {
+		if text, ok := value.(string); ok {
+			return r.redactString(text, names)
+		}
 		return redacted
 	}
 	switch data := value.(type) {
 	case map[string]interface{}:
 		out := make(map[string]interface{}, len(data))
-		keys := make([]string, 0, len(data))
 		for key := range data {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for i, key := range keys {
 			childNames := append(append([]string(nil), names...), localName(key))
 			outKey := key
 			childTable := route != routeTranslated && !hasName(names, "@entry") && nativeJSONTable(key)
 			// Native table identifiers are data, not credential leaf names.
 			if table {
 				if names[len(names)-1] == "snmp-community" {
-					outKey = redacted + "_" + strconv.Itoa(i)
+					outKey = r.communityID(key)
 				}
 				childNames[len(childNames)-1] = "@entry"
 				childTable = false
@@ -624,7 +670,7 @@ func redactObject(value interface{}, names []string, route readRoute, table bool
 					continue
 				}
 			}
-			out[outKey] = redactObject(data[key], childNames, route, childTable)
+			out[outKey] = r.redactObject(data[key], childNames, route, childTable)
 		}
 		return out
 	case []interface{}:
@@ -633,7 +679,7 @@ func redactObject(value interface{}, names []string, route readRoute, table bool
 			if table {
 				childNames = append(append([]string(nil), names...), "@entry")
 			}
-			data[i] = redactObject(item, childNames, route, false)
+			data[i] = r.redactObject(item, childNames, route, false)
 		}
 	case string:
 		if bgpConfig(names) {
@@ -653,26 +699,26 @@ func redactBGP(text string) string {
 	return bgpPassword.ReplaceAllString(text, "${1}${2} "+redacted)
 }
 
-func redactPath(path *pb.Path, prefix []string, route readRoute, communityEnd int) {
+func (r *readRedactor) redactPath(path *pb.Path, prefix []string, route readRoute, communityEnd int) {
 	if path == nil {
 		return
 	}
 	names := append([]string(nil), prefix...)
 	redactName := func(name string, schemaList bool) string {
 		if route == routeLegacy && hasName(names, "snmp-community") && len(names) < communityEnd {
-			return redacted
+			return r.communityID(name)
 		}
 		if route == routeLegacy && communityEnd > 0 && len(names) > 0 && names[0] == "snmp-community" {
 			return name
 		}
 		if route == routeNative {
 			if len(names) == 3 && names[2] == "snmp-community" {
-				return redacted
+				return r.communityID(name)
 			}
 			return name
 		}
 		if len(names) > 0 && names[len(names)-1] == "snmp-community" && !schemaList {
-			return redacted
+			return r.communityID(name)
 		}
 		return name
 	}
@@ -691,14 +737,15 @@ func redactPath(path *pb.Path, prefix []string, route readRoute, communityEnd in
 		if route == routeNative && len(names) > 2 {
 			if key, ok := elem.Key["key"]; ok {
 				if len(names) == 3 && names[2] == "snmp-community" {
-					elem.Key["key"] = redacted
+					elem.Key["key"] = r.communityID(key)
 				}
 				names = append(names, localName(key))
 			}
 		}
 		for key := range elem.Key {
-			if secretField(append(append([]string(nil), names...), localName(key))) {
-				elem.Key[key] = redacted
+			fieldNames := append(append([]string(nil), names...), localName(key))
+			if secretField(fieldNames) {
+				elem.Key[key] = r.redactString(elem.Key[key], fieldNames)
 			}
 		}
 	}

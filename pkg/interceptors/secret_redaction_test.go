@@ -318,6 +318,9 @@ func TestSecretRedactionWire(t *testing.T) {
 			}
 		}
 	})
+	t.Run("CommunityIdentity", func(t *testing.T) {
+		testCommunityIdentityWire(t, client, backend)
+	})
 }
 
 func assertRedactedWire(t *testing.T, msg proto.Message) {
@@ -351,6 +354,14 @@ func redactTestGet(response *pb.GetResponse) (*pb.GetResponse, error) {
 		return nil, err
 	}
 	return result.(*pb.GetResponse), nil
+}
+
+func redactTestNotification(n *pb.Notification, route readRoute) error {
+	redactor, err := newReadRedactor()
+	if err != nil {
+		return err
+	}
+	return redactor.redactNotification(n, route)
 }
 
 func TestSecretRedactionInventory(t *testing.T) {

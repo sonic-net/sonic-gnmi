@@ -2,9 +2,12 @@ package interceptors
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	pb "github.com/openconfig/gnmi/proto/gnmi"
 	"google.golang.org/grpc"
@@ -12,6 +15,280 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
+
+func testCommunityIdentityWire(t *testing.T, client pb.GNMIClient, backend *secretFixtureServer) {
+	identifiers := []string{"fixture-alpha", "fixture-zeta", "Fixture-alpha", "fixture:alpha",
+		"fixture-alpha||fixture-zeta", redacted + "_" + strings.Repeat("0", 64),
+		"fixture_alpha", "another:alpha", "fixture-zeta|TYPE"}
+	for _, route := range []readRoute{routeNative, routeLegacy, routeTranslated} {
+		t.Run([]string{"translated", "legacy", "native"}[route], func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			prefix := &pb.Path{}
+			table := testPath("SNMP_COMMUNITY")
+			switch route {
+			case routeNative:
+				prefix.Origin = "sonic-db"
+				table = testPath("CONFIG_DB", "localhost", "SNMP_COMMUNITY")
+			case routeLegacy:
+				prefix.Target = "CONFIG_DB"
+			case routeTranslated:
+				table = testPath("sonic-snmp:sonic-snmp", "SNMP_COMMUNITY", "SNMP_COMMUNITY_LIST")
+			}
+			payload := func(entries []string, snapshot bool) *pb.TypedValue {
+				dictionary := make(map[string]interface{})
+				var list []interface{}
+				for _, identifier := range entries {
+					enum := "RO"
+					if snapshot && identifier == identifiers[1] {
+						enum = "RW"
+					}
+					dictionary[identifier] = map[string]string{"TYPE": enum}
+					list = append(list, map[string]string{"name": identifier, "TYPE": enum})
+				}
+				var value interface{} = dictionary
+				if route == routeTranslated {
+					value = list
+				}
+				data, _ := json.Marshal(value)
+				return &pb.TypedValue{Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: data}}
+			}
+			notifications := []*pb.Notification{
+				{Prefix: proto.Clone(prefix).(*pb.Path), Update: []*pb.Update{{
+					Path: proto.Clone(table).(*pb.Path), Val: payload(identifiers, true),
+				}}},
+				{Prefix: proto.Clone(prefix).(*pb.Path), Update: []*pb.Update{{
+					Path: proto.Clone(table).(*pb.Path), Val: payload(identifiers[1:2], false),
+				}}},
+			}
+			for i, identifier := range identifiers {
+				path := proto.Clone(table).(*pb.Path)
+				switch route {
+				case routeNative:
+					if i%2 == 0 {
+						path.Elem[len(path.Elem)-1].Key = map[string]string{"key": identifier}
+					} else {
+						path.Elem = append(path.Elem, &pb.PathElem{Name: identifier})
+					}
+				case routeLegacy:
+					for _, component := range strings.Split(identifier, "|") {
+						path.Elem = append(path.Elem, &pb.PathElem{Name: component})
+					}
+				case routeTranslated:
+					path.Elem[len(path.Elem)-1].Key = map[string]string{"name": identifier}
+				}
+				if i%2 != 0 && route != routeTranslated {
+					path.Element, path.Elem = rawPathNames(false, path), nil
+				}
+				relativePrefix := proto.Clone(prefix).(*pb.Path)
+				entry := &pb.Update{Path: path, Val: &pb.TypedValue{
+					Value: &pb.TypedValue_JsonVal{JsonVal: []byte(`{"TYPE":"RO"}`)},
+				}}
+				if i%2 != 0 {
+					entry.Val = nil
+					entry.Value = &pb.Value{Type: pb.Encoding_JSON, Value: []byte(`{"TYPE":"RO"}`)}
+					relativePrefix.Elem, relativePrefix.Element = path.Elem, path.Element
+					entry.Path = &pb.Path{}
+				}
+				updates := []*pb.Update{entry}
+				if route == routeTranslated {
+					namePath := proto.Clone(entry.Path).(*pb.Path)
+					namePath.Elem = append(namePath.Elem, &pb.PathElem{Name: "name"})
+					scalar := &pb.Update{Path: namePath, Val: &pb.TypedValue{
+						Value: &pb.TypedValue_StringVal{StringVal: identifier},
+					}}
+					encoded, _ := json.Marshal(identifier)
+					switch i % 4 {
+					case 1:
+						scalar.Val.Value = &pb.TypedValue_AsciiVal{AsciiVal: identifier}
+					case 2:
+						scalar.Val.Value = &pb.TypedValue_JsonVal{JsonVal: encoded}
+					case 3:
+						scalar.Val = nil
+						scalar.Value = &pb.Value{Type: pb.Encoding_JSON_IETF, Value: encoded}
+					}
+					updates = append(updates, scalar)
+				}
+				notifications = append(notifications, &pb.Notification{Prefix: relativePrefix, Update: updates},
+					&pb.Notification{Prefix: proto.Clone(prefix).(*pb.Path), Delete: []*pb.Path{proto.Clone(path).(*pb.Path)}})
+			}
+			backend.get = nil
+			backend.response = &pb.GetResponse{Notification: notifications}
+			check := func(response []*pb.Notification) string {
+				t.Helper()
+				if len(response) != len(notifications) {
+					t.Fatal("missing snapshot or delta notifications")
+				}
+				for _, notification := range response {
+					wire, err := proto.Marshal(notification)
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, identifier := range identifiers {
+						if strings.Contains(string(wire), identifier) {
+							t.Fatal("serialized notification contains a synthetic community")
+						}
+					}
+				}
+				decode := func(update *pb.Update) map[string]string {
+					t.Helper()
+					data := update.GetVal().GetJsonIetfVal()
+					if route == routeTranslated {
+						var list []map[string]string
+						if err := json.Unmarshal(data, &list); err != nil {
+							t.Fatal(err)
+						}
+						out := make(map[string]string)
+						for _, entry := range list {
+							out[entry["name"]] = entry["TYPE"]
+						}
+						return out
+					}
+					var dictionary map[string]map[string]string
+					if err := json.Unmarshal(data, &dictionary); err != nil {
+						t.Fatal(err)
+					}
+					out := make(map[string]string)
+					for identifier, fields := range dictionary {
+						out[identifier] = fields["TYPE"]
+					}
+					return out
+				}
+				snapshot := decode(response[0].Update[0])
+				if len(snapshot) != len(identifiers) {
+					t.Fatal("distinct communities collapsed in the snapshot")
+				}
+				target := ""
+				for identifier, enum := range snapshot {
+					if enum == "RW" {
+						target = identifier
+					}
+				}
+				delta := decode(response[1].Update[0])
+				if target == "" || len(delta) != 1 || delta[target] != "RO" {
+					t.Fatal("single-entry delta changed community identity")
+				}
+				pathIdentity := func(prefix, path *pb.Path) string {
+					if route == routeTranslated {
+						for _, part := range []*pb.Path{prefix, path} {
+							for _, elem := range part.GetElem() {
+								if value, ok := elem.Key["name"]; ok {
+									return value
+								}
+							}
+						}
+						return ""
+					}
+					names := rawPathNames(route == routeNative, prefix, path)
+					start := 1
+					if route == routeNative {
+						start = 3
+					}
+					return strings.Join(names[start:], "|")
+				}
+				seen := make(map[string]bool)
+				for i := range identifiers {
+					entry, deleted := response[2+2*i], response[3+2*i]
+					identity := pathIdentity(entry.Prefix, entry.Update[0].Path)
+					if _, ok := snapshot[identity]; !ok || seen[identity] {
+						t.Fatal("entry path did not preserve a distinct snapshot identity")
+					}
+					seen[identity] = true
+					if pathIdentity(deleted.Prefix, deleted.Delete[0]) != identity {
+						t.Fatal("delete did not match the entry identity")
+					}
+					if route == routeTranslated {
+						scalar := entry.Update[1]
+						name := scalar.GetVal().GetStringVal()
+						if i%4 == 1 {
+							name = scalar.GetVal().GetAsciiVal()
+						} else if i%4 >= 2 {
+							data := scalar.GetVal().GetJsonVal()
+							if scalar.Value != nil {
+								data = scalar.Value.Value
+							}
+							if err := json.Unmarshal(data, &name); err != nil {
+								t.Fatal(err)
+							}
+						}
+						if name != identity {
+							t.Fatal("scalar name did not match the list and path identity")
+						}
+					}
+				}
+				return target
+			}
+			previous := ""
+			for i := 0; i < 2; i++ {
+				result, err := client.Get(ctx, &pb.GetRequest{Prefix: prefix, Path: []*pb.Path{table}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				identity := check(result.Notification)
+				if identity == previous {
+					t.Fatal("community identity was shared across Get RPCs")
+				}
+				previous = identity
+			}
+			for _, mode := range []pb.SubscriptionList_Mode{pb.SubscriptionList_STREAM, pb.SubscriptionList_POLL} {
+				stream, err := client.Subscribe(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := stream.Send(&pb.SubscribeRequest{Request: &pb.SubscribeRequest_Subscribe{
+					Subscribe: &pb.SubscriptionList{Prefix: prefix, Mode: mode,
+						Subscription: []*pb.Subscription{{Path: table}}},
+				}}); err != nil {
+					t.Fatal(err)
+				}
+				var received []*pb.Notification
+				for {
+					message, err := stream.Recv()
+					if err == io.EOF {
+						break
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					received = append(received, message.GetUpdate())
+				}
+				identity := check(received)
+				if identity == previous {
+					t.Fatal("community identity was shared across read scopes")
+				}
+				previous = identity
+			}
+		})
+	}
+}
+
+func TestSecretRedactionEntropyFailure(t *testing.T) {
+	reader := rand.Reader
+	rand.Reader = strings.NewReader("")
+	defer func() { rand.Reader = reader }()
+	called := false
+	value, err := (&secretRedactor{}).UnaryInterceptor()(context.Background(), &pb.GetRequest{},
+		&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
+		func(context.Context, interface{}) (interface{}, error) {
+			called = true
+			return &pb.GetResponse{}, nil
+		})
+	if called || value != nil || status.Code(err) != codes.DataLoss {
+		t.Fatal("entropy failure did not stop Get before backend dispatch")
+	}
+	err = (&secretRedactor{}).StreamInterceptor()(nil, nil,
+		&grpc.StreamServerInfo{FullMethod: "/gnmi.gNMI/Subscribe"},
+		func(interface{}, grpc.ServerStream) error { called = true; return nil })
+	if called || status.Code(err) != codes.DataLoss {
+		t.Fatal("entropy failure did not stop Subscribe before backend dispatch")
+	}
+	value, err = (&secretRedactor{}).UnaryInterceptor()(context.Background(), nil,
+		&grpc.UnaryServerInfo{FullMethod: "/gnoi.jwt.Jwt/Authenticate"},
+		func(context.Context, interface{}) (interface{}, error) { return syntheticSecret, nil })
+	if err != nil || value != syntheticSecret {
+		t.Fatal("entropy failure changed authentication RPCs")
+	}
+}
 
 func TestSecretRedactionSNMPKeys(t *testing.T) {
 	for i, data := range []string{
@@ -26,7 +303,7 @@ func TestSecretRedactionSNMPKeys(t *testing.T) {
 		if i > 0 {
 			route = routeTranslated
 		}
-		err := redactNotification(response.Notification[0], route)
+		err := redactTestNotification(response.Notification[0], route)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -122,7 +399,7 @@ func TestSecretRedactionCommunityComponents(t *testing.T) {
 						update.Value = &pb.Value{Type: pb.Encoding_JSON, Value: data}
 					}
 					n := &pb.Notification{Prefix: prefix, Update: []*pb.Update{update}}
-					if err := redactNotification(n, routeLegacy); err != nil {
+					if err := redactTestNotification(n, routeLegacy); err != nil {
 						t.Fatal(err)
 					}
 					wire, _ := proto.Marshal(n)
@@ -131,7 +408,7 @@ func TestSecretRedactionCommunityComponents(t *testing.T) {
 					}
 					outNames := rawPathNames(false, n.Prefix, update.Path)
 					for i, name := range outNames {
-						if i > 0 && !(field && i == len(outNames)-1) && name != redacted {
+						if i > 0 && !(field && i == len(outNames)-1) && !strings.HasPrefix(name, redacted+"_") {
 							t.Fatal("community component was not masked")
 						}
 					}
@@ -158,7 +435,7 @@ func TestSecretRedactionCommunityComponents(t *testing.T) {
 		path.Elem[len(path.Elem)-1].Key = map[string]string{"key": "TYPE"}
 		n := &pb.Notification{Prefix: prefix, Update: []*pb.Update{{Path: path, Val: value}},
 			Delete: []*pb.Path{proto.Clone(path).(*pb.Path)}}
-		if err := redactNotification(n, route); err != nil {
+		if err := redactTestNotification(n, route); err != nil {
 			t.Fatal(err)
 		}
 		wire, _ := proto.Marshal(n)
@@ -177,7 +454,7 @@ func TestSecretRedactionCommunityUnknownRepresentation(t *testing.T) {
 		n := &pb.Notification{Update: []*pb.Update{{
 			Path: testPath("SNMP_COMMUNITY", "fixture", "TYPE"), Val: value,
 		}}}
-		if status.Code(redactNotification(n, routeLegacy)) != codes.DataLoss {
+		if status.Code(redactTestNotification(n, routeLegacy)) != codes.DataLoss {
 			t.Fatal("unproven public TYPE representation was accepted")
 		}
 	}

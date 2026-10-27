@@ -333,7 +333,8 @@ func formatRequestPath(path *gnmipb.Path, prefix ...*gnmipb.Path) string {
 
 	path = proto.Clone(path).(*gnmipb.Path)
 	names := pathNames(prefix...)
-	redactPath(path, names, routeLegacy, len(names)+len(rawPathNames(false, path)))
+	redactor := &readRedactor{communityID: func(string) string { return redacted }}
+	redactor.redactPath(path, names, routeLegacy, len(names)+len(rawPathNames(false, path)))
 	schemaPath := &gnmipb.Path{Elem: make([]*gnmipb.PathElem, 0, len(path.GetElem()))}
 	for _, elem := range path.GetElem() {
 		if elem == nil {
