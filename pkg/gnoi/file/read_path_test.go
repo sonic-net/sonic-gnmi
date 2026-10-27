@@ -17,12 +17,14 @@ import (
 func assertReadDenied(t *testing.T, path string) {
 	t.Helper()
 	response, err := HandleStat(context.Background(), &gnoi_file_pb.StatRequest{Path: path})
-	if status.Code(err) != codes.PermissionDenied || response != nil {
+	if status.Code(err) != codes.PermissionDenied || response != nil ||
+		status.Convert(err).Message() != "file read access denied" {
 		t.Fatalf("Stat(%q): response=%v error=%v", path, response, err)
 	}
 	stream := newFakeGetServer()
 	err = HandleGet(&gnoi_file_pb.GetRequest{RemoteFile: path}, stream)
-	if status.Code(err) != codes.PermissionDenied || len(stream.responses) != 0 {
+	if status.Code(err) != codes.PermissionDenied || len(stream.responses) != 0 ||
+		status.Convert(err).Message() != "file read access denied" {
 		t.Fatalf("Get(%q): responses=%v error=%v", path, stream.responses, err)
 	}
 }
@@ -116,6 +118,85 @@ func TestPublicReadRequiresTraversableParents(t *testing.T) {
 	assertReadDenied(t, filepath.Join(logical, "private", "missing.bin"))
 }
 
+func TestPublicReadThroughSearchOnlyDirectory(t *testing.T) {
+	logical, physical := useTempHostRoot(t)
+	parent := filepath.Join(physical, "search-only")
+	if err := os.Mkdir(parent, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(parent, 0755) })
+	file := filepath.Join(parent, "image")
+	if err := os.WriteFile(file, []byte("public"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(parent, 0111); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(file); err != nil || string(data) != "public" {
+		t.Fatalf("ordinary open through search-only directory: %q %v", data, err)
+	}
+	assertPublicRead(t, filepath.Join(logical, "search-only", "image"), []byte("public"))
+	assertReadDenied(t, filepath.Join(logical, "search-only"))
+}
+
+func TestPublicReadChecksOriginalSymlinkAncestors(t *testing.T) {
+	logical, physical := useTempHostRoot(t)
+	if err := os.WriteFile(filepath.Join(physical, "image"), []byte("public"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	private := filepath.Join(physical, "private")
+	if err := os.Mkdir(private, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../image", filepath.Join(private, "link")); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(logical, "private", "link")
+	assertPublicRead(t, path, []byte("public"))
+	if err := os.Chmod(private, 0700); err != nil {
+		t.Fatal(err)
+	}
+	assertReadDenied(t, path)
+	assertReadDenied(t, logical+"/private/../image")
+	if err := os.Symlink("private/../image", filepath.Join(physical, "detour")); err != nil {
+		t.Fatal(err)
+	}
+	assertReadDenied(t, filepath.Join(logical, "detour"))
+	if err := os.Chmod(private, 0755); err != nil {
+		t.Fatal(err)
+	}
+	setPublicReadDenyACL(t, private, true)
+	assertReadDenied(t, path)
+	if err := unix.Removexattr(private, "system.posix_acl_access"); err != nil {
+		t.Fatal(err)
+	}
+	assertPublicRead(t, path, []byte("public"))
+}
+
+func TestPublicReadPrefixProbesAndLinkLimits(t *testing.T) {
+	logical, physical := useTempHostRoot(t)
+	if err := os.WriteFile(filepath.Join(physical, "secret"), []byte("private"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"secret/child", "missing/child"} {
+		assertReadDenied(t, logical+"/"+path)
+	}
+	for name, target := range map[string]string{"loop": "loop", "escape": "../../.."} {
+		if err := os.Symlink(target, filepath.Join(physical, name)); err != nil {
+			t.Fatal(err)
+		}
+		assertReadDenied(t, filepath.Join(logical, name))
+	}
+	if err := os.Symlink(filepath.Join(logical, "secret"), filepath.Join(physical, "absolute")); err != nil {
+		t.Fatal(err)
+	}
+	assertReadDenied(t, filepath.Join(logical, "absolute"))
+	if err := os.Chmod(filepath.Join(physical, "secret"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	assertPublicRead(t, filepath.Join(logical, "absolute"), []byte("private"))
+}
+
 func TestPublicReadChecksSymlinkTargets(t *testing.T) {
 	logical, physical := useTempHostRoot(t)
 	for _, item := range []struct {
@@ -181,26 +262,10 @@ func TestPublicReadRejectsAccessACLs(t *testing.T) {
 			path := filepath.Join(logical, "image")
 			assertPublicRead(t, path, []byte("image"))
 			aclPath := file
-			owner, other := uint16(6), uint16(4)
 			if target == "ancestor" {
-				aclPath, owner, other = physical, 7, 5
+				aclPath = physical
 			}
-			acl := binary.LittleEndian.AppendUint32(nil, 2)
-			for _, entry := range []struct {
-				tag, perm uint16
-				id        uint32
-			}{{1, owner, ^uint32(0)}, {2, 0, 65534}, {4, other, ^uint32(0)},
-				{16, other, ^uint32(0)}, {32, other, ^uint32(0)}} {
-				acl = binary.LittleEndian.AppendUint16(acl, entry.tag)
-				acl = binary.LittleEndian.AppendUint16(acl, entry.perm)
-				acl = binary.LittleEndian.AppendUint32(acl, entry.id)
-			}
-			if err := unix.Setxattr(aclPath, "system.posix_acl_access", acl, 0); err != nil {
-				if errors.Is(err, unix.ENOTSUP) {
-					t.Skip("test filesystem has no POSIX ACL support")
-				}
-				t.Fatal(err)
-			}
+			setPublicReadDenyACL(t, aclPath, target == "ancestor")
 			assertReadDenied(t, path)
 			if err := unix.Removexattr(aclPath, "system.posix_acl_access"); err != nil {
 				t.Fatal(err)
@@ -210,6 +275,29 @@ func TestPublicReadRejectsAccessACLs(t *testing.T) {
 	}
 }
 
+func setPublicReadDenyACL(t *testing.T, path string, directory bool) {
+	t.Helper()
+	owner, other := uint16(6), uint16(4)
+	if directory {
+		owner, other = 7, 5
+	}
+	acl := binary.LittleEndian.AppendUint32(nil, 2)
+	for _, entry := range []struct {
+		tag, perm uint16
+		id        uint32
+	}{{1, owner, ^uint32(0)}, {2, 0, 65534}, {4, other, ^uint32(0)},
+		{16, other, ^uint32(0)}, {32, other, ^uint32(0)}} {
+		acl = binary.LittleEndian.AppendUint16(acl, entry.tag)
+		acl = binary.LittleEndian.AppendUint16(acl, entry.perm)
+		acl = binary.LittleEndian.AppendUint32(acl, entry.id)
+	}
+	if err := unix.Setxattr(path, "system.posix_acl_access", acl, 0); err != nil {
+		if errors.Is(err, unix.ENOTSUP) {
+			t.Skip("test filesystem has no POSIX ACL support")
+		}
+		t.Fatal(err)
+	}
+}
 func TestPublicReadUsesValidatedDescriptor(t *testing.T) {
 	for _, operation := range []string{"Get", "Stat"} {
 		t.Run(operation, func(t *testing.T) {

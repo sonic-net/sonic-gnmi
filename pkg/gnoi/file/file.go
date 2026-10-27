@@ -671,7 +671,7 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 		return nil, status.Errorf(codes.InvalidArgument,
 			"path must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", reqPath)
 	}
-	file, err := fsOpenRead(cleanReqPath)
+	file, err := fsOpenRead(reqPath)
 	if err != nil {
 		if os.IsNotExist(err) || os.IsPermission(err) {
 			return nil, status.Error(codes.PermissionDenied, "file read access denied")
@@ -771,7 +771,7 @@ func HandleGet(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.File_GetServer)
 			"remote_file must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", remoteFile)
 	}
 
-	f, err := fsOpenRead(cleanPath)
+	f, err := fsOpenRead(remoteFile)
 	if err != nil {
 		if os.IsNotExist(err) || os.IsPermission(err) {
 			return status.Error(codes.PermissionDenied, "file read access denied")

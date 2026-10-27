@@ -12,42 +12,48 @@ import (
 
 var errReadFileType = errors.New("not a regular file or directory")
 
-// Check the target inode and pin each publicly traversable ancestor, rather
-// than checking permissions on a pathname and then reopening a different file.
-func openPublicReadFile(path string) (*os.File, error) {
+// Walk the original path so resolving a symlink cannot skip a private ancestor.
+func openPublicReadFile(path string) (_ *os.File, err error) {
+	defer func() {
+		if errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.ELOOP) {
+			err = os.ErrPermission
+		}
+	}()
 	root := hostRoot
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		root = "/"
 	} else if err != nil {
 		return nil, err
 	}
-	root, err := filepath.EvalSymlinks(root)
+	fd, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := filepath.EvalSymlinks(filepath.Join(root, path))
-	if err != nil {
-		return nil, err
-	}
-	relative, err := filepath.Rel(root, resolved)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, "../") {
-		return nil, os.ErrPermission
-	}
-	current, err := os.Open(root)
-	if err != nil {
-		return nil, err
-	}
+	directories := []*os.File{os.NewFile(uintptr(fd), root)}
 	defer func() {
-		if current != nil {
-			current.Close()
+		for _, directory := range directories {
+			directory.Close()
 		}
 	}()
-	for _, part := range strings.Split(relative, "/") {
-		if part == "." {
-			continue
-		}
+	pending := strings.Split(path, "/")
+	links := 0
+	for len(pending) != 0 {
+		current := directories[len(directories)-1]
 		if err := checkPublicReadMode(current, 0001); err != nil {
 			return nil, err
+		}
+		part := pending[0]
+		pending = pending[1:]
+		if part == "" || part == "." {
+			continue
+		}
+		if part == ".." {
+			if len(directories) == 1 {
+				return nil, os.ErrPermission
+			}
+			current.Close()
+			directories = directories[:len(directories)-1]
+			continue
 		}
 		fd, err := unix.Openat(int(current.Fd()), part, unix.O_PATH|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		if err != nil {
@@ -59,19 +65,42 @@ func openPublicReadFile(path string) (*os.File, error) {
 			pinned.Close()
 			return nil, err
 		}
-		if !info.Mode().IsRegular() && !info.IsDir() {
+		if info.Mode()&os.ModeSymlink != 0 {
+			links++
+			buffer := make([]byte, 4096)
+			n, err := unix.Readlinkat(fd, "", buffer)
 			pinned.Close()
-			return nil, errReadFileType
+			if err != nil {
+				return nil, err
+			}
+			if links > 40 || n == len(buffer) {
+				return nil, os.ErrPermission
+			}
+			target := string(buffer[:n])
+			if filepath.IsAbs(target) {
+				for _, directory := range directories[1:] {
+					directory.Close()
+				}
+				directories = directories[:1]
+			}
+			pending = append(strings.Split(target, "/"), pending...)
+			continue
 		}
-		next, err := os.OpenFile("/proc/self/fd/"+strconv.Itoa(fd), os.O_RDONLY|unix.O_NONBLOCK, 0)
-		pinned.Close()
-		if err != nil {
-			return nil, err
+		if info.IsDir() {
+			directories = append(directories, pinned)
+			continue
 		}
-		current.Close()
-		current = next
+		defer pinned.Close()
+		if len(pending) != 0 {
+			return nil, os.ErrPermission
+		}
+		return openPublicReadTarget(pinned)
 	}
-	info, err := current.Stat()
+	return openPublicReadTarget(directories[len(directories)-1])
+}
+
+func openPublicReadTarget(pinned *os.File) (*os.File, error) {
+	info, err := pinned.Stat()
 	if err != nil {
 		return nil, err
 	}
@@ -79,12 +108,13 @@ func openPublicReadFile(path string) (*os.File, error) {
 	if info.IsDir() {
 		required |= 0001
 	}
-	if err := checkPublicReadMode(current, required); err != nil {
+	if err := checkPublicReadMode(pinned, required); err != nil {
 		return nil, err
 	}
-	result := current
-	current = nil
-	return result, nil
+	if !info.Mode().IsRegular() && !info.IsDir() {
+		return nil, errReadFileType
+	}
+	return os.OpenFile("/proc/self/fd/"+strconv.Itoa(int(pinned.Fd())), os.O_RDONLY|unix.O_NONBLOCK, 0)
 }
 
 func checkPublicReadMode(file *os.File, required os.FileMode) error {
@@ -97,7 +127,7 @@ func checkPublicReadMode(file *os.File, required os.FileMode) error {
 	}
 	// Mode bits cannot describe named-user/group ACL restrictions. Reject
 	// extended access ACLs instead of treating the "other" bits as sufficient.
-	_, err = unix.Fgetxattr(int(file.Fd()), "system.posix_acl_access", nil)
+	_, err = unix.Getxattr("/proc/self/fd/"+strconv.Itoa(int(file.Fd())), "system.posix_acl_access", nil)
 	if errors.Is(err, unix.ENODATA) || errors.Is(err, unix.ENOTSUP) {
 		return nil
 	}
