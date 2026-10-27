@@ -124,6 +124,51 @@ func TestCheckpointPathCallers(t *testing.T) {
 	}
 }
 
+func TestCheckpointNativeKey(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", dir)
+	data := []byte(`{"SNMP_COMMUNITY":{"fixture-public":{"TYPE":"RO"},"synthetic-only-credential":{"TYPE":"RW"}}}`)
+	if err := os.WriteFile(filepath.Join(dir, "config.cp.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	patches := gomonkey.ApplyFunc(sdcfg.CheckDbMultiNamespace, func() (bool, error) { return false, nil })
+	defer patches.Reset()
+	for _, entry := range []struct {
+		key, field, want string
+		prefix           bool
+	}{
+		{key: "fixture-public", want: `{"TYPE":"RO"}`},
+		{key: "fixture-public", field: "TYPE", want: `"RO"`},
+		{key: "fixture-public", field: "TYPE", want: `"RO"`, prefix: true},
+		{key: "missing-fixture"},
+		{key: ""},
+	} {
+		path := &gnmipb.Path{Elem: []*gnmipb.PathElem{
+			{Name: "CONFIG_DB"}, {Name: "localhost"},
+			{Name: "SNMP_COMMUNITY", Key: map[string]string{"key": entry.key}},
+		}}
+		client := &MixedDbClient{}
+		if entry.prefix {
+			client.prefix = path
+			path = &gnmipb.Path{}
+		}
+		if entry.field != "" {
+			path.Elem = append(path.Elem, &gnmipb.PathElem{Name: entry.field})
+		}
+		client.paths = []*gnmipb.Path{path}
+		values, err := client.GetCheckPoint()
+		if entry.want == "" {
+			if err == nil {
+				t.Error("missing checkpoint entry returned broader table data")
+			}
+			continue
+		}
+		if err != nil || len(values) != 1 || string(values[0].Val.GetJsonIetfVal()) != entry.want {
+			t.Error("checkpoint did not honor native key selection")
+		}
+	}
+}
+
 func TestCheckpointPathCallersRejectRelativePath(t *testing.T) {
 	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", "tmp/checkpoint")
 	dbusCalled := false

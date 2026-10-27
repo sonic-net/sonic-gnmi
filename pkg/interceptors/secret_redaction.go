@@ -23,12 +23,20 @@ const redacted = "REDACTED"
 
 type secretRedactor struct{}
 
+type readRoute int
+
+const (
+	routeTranslated readRoute = iota
+	routeLegacy
+	routeNative
+)
+
 func (*secretRedactor) UnaryInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		native := false
+		route := routeTranslated
 		if info.FullMethod == gnmiGetMethod {
 			if request, ok := req.(*pb.GetRequest); ok {
-				native = nativeRead(request.GetPrefix(), request.GetPath(), false)
+				route = responseRoute(request.GetPrefix(), request.GetPath(), false)
 				if err := validateReadPaths(request.GetPrefix(), request.GetPath(), false); err != nil {
 					return nil, err
 				}
@@ -47,7 +55,7 @@ func (*secretRedactor) UnaryInterceptor() grpc.UnaryServerInterceptor {
 		}
 		out := proto.Clone(value).(*pb.GetResponse)
 		for _, notification := range out.Notification {
-			if err := redactNotification(notification, native); err != nil {
+			if err := redactNotification(notification, route); err != nil {
 				return nil, err
 			}
 		}
@@ -66,7 +74,7 @@ func (*secretRedactor) StreamInterceptor() grpc.StreamServerInterceptor {
 
 type redactingStream struct {
 	grpc.ServerStream
-	native     bool
+	route      readRoute
 	subscribed bool
 }
 
@@ -80,12 +88,12 @@ func (s *redactingStream) RecvMsg(msg interface{}) error {
 		for _, entry := range sub.Subscription {
 			paths = append(paths, entry.GetPath())
 		}
-		native := nativeRead(sub.Prefix, paths, true)
-		if s.subscribed && native != s.native {
+		route := responseRoute(sub.Prefix, paths, true)
+		if s.subscribed && route != s.route {
 			return status.Error(codes.InvalidArgument, "subscription route changed")
 		}
 		if !s.subscribed {
-			s.native, s.subscribed = native, true
+			s.route, s.subscribed = route, true
 		}
 		return validateReadPaths(sub.Prefix, paths, true)
 	}
@@ -98,7 +106,7 @@ func (s *redactingStream) SendMsg(msg interface{}) error {
 		return invalidSecretResponse()
 	}
 	out := proto.Clone(value).(*pb.SubscribeResponse)
-	if err := redactNotification(out.GetUpdate(), s.native); err != nil {
+	if err := redactNotification(out.GetUpdate(), s.route); err != nil {
 		return err
 	}
 	// Deprecated in-band errors can contain backend values, too.
@@ -128,17 +136,20 @@ func localName(name string) string {
 }
 
 func pathNames(paths ...*pb.Path) []string {
-	return readPathNames(false, paths...)
+	return readPathNames(routeTranslated, paths...)
 }
 
-func readPathNames(native bool, paths ...*pb.Path) []string {
-	names := rawPathNames(native, paths...)
+func readPathNames(route readRoute, paths ...*pb.Path) []string {
+	names := rawPathNames(route == routeNative, paths...)
 	for i := range names {
-		if native && i == 3 && names[2] == "snmp-community" {
-			names[i] = "@entry"
-		} else {
-			names[i] = localName(names[i])
-		}
+		names[i] = localName(names[i])
+	}
+	table := 0
+	if route == routeNative {
+		table = 2
+	}
+	if route != routeTranslated && len(names) > table+1 && nativeSecretTable(names[table]) {
+		names[table+1] = "@entry"
 	}
 	return names
 }
@@ -172,8 +183,15 @@ func readOrigin(prefix *pb.Path, paths []*pb.Path) string {
 	return ""
 }
 
-func nativeRead(prefix *pb.Path, paths []*pb.Path, subscribe bool) bool {
-	return readOrigin(prefix, paths) == "sonic-db" && (subscribe || !legacyReadTarget(prefix.GetTarget()))
+func responseRoute(prefix *pb.Path, paths []*pb.Path, subscribe bool) readRoute {
+	origin := readOrigin(prefix, paths)
+	if legacyReadTarget(prefix.GetTarget()) && (!subscribe || origin == "") {
+		return routeLegacy
+	}
+	if origin == "sonic-db" {
+		return routeNative
+	}
+	return routeTranslated
 }
 
 func legacyReadTarget(target string) bool {
@@ -205,6 +223,11 @@ func validateReadPaths(prefix *pb.Path, paths []*pb.Path, subscribe bool) error 
 		}
 		if table >= len(names) {
 			continue
+		}
+		for _, name := range names[table:] {
+			if name == "" {
+				return status.Error(codes.InvalidArgument, "empty database path component")
+			}
 		}
 		pattern := names[table]
 		// CONFIG_DB table names cannot contain the Redis key separator.
@@ -296,7 +319,25 @@ func secretScope(names []string) bool {
 	return false
 }
 
-func redactNotification(n *pb.Notification, native bool) error {
+func nativeSecretTable(name string) bool {
+	switch name {
+	case "tacplus", "tacplus-server", "radius", "radius-server", "ldap",
+		"bgp-neighbor", "bgp-peer-group", "snmp-community", "snmp-user",
+		"snmp-trap-config", "macsec-profile", "macsec-egress-sa-table",
+		"macsec-ingress-sa-table", "ntp-key":
+		return true
+	}
+	return false
+}
+
+func nativeJSONTable(name string) bool {
+	if i := strings.IndexByte(name, ':'); i >= 0 {
+		name = name[i+1:]
+	}
+	return name == strings.ToUpper(name) && nativeSecretTable(localName(name))
+}
+
+func redactNotification(n *pb.Notification, route readRoute) error {
 	if n == nil {
 		return nil
 	}
@@ -310,14 +351,16 @@ func redactNotification(n *pb.Notification, native bool) error {
 		if mixedPath(update.Path) {
 			return invalidSecretResponse()
 		}
-		names := readPathNames(native, n.Prefix, update.Path)
-		if err := redactValue(update.Val, names); err != nil {
+		names := readPathNames(route, n.Prefix, update.Path)
+		table := ((route == routeLegacy && len(names) == 1) || (route == routeNative && len(names) == 3)) &&
+			nativeSecretTable(names[len(names)-1])
+		if err := redactValue(update.Val, names, route, table); err != nil {
 			return err
 		}
 		if update.Value != nil {
 			switch update.Value.Type {
 			case pb.Encoding_JSON, pb.Encoding_JSON_IETF:
-				data, err := redactJSON(update.Value.Value, names)
+				data, err := redactJSON(update.Value.Value, names, route, table)
 				if err != nil {
 					return err
 				}
@@ -328,31 +371,31 @@ func redactNotification(n *pb.Notification, native bool) error {
 				}
 			}
 		}
-		redactPath(update.Path, readPathNames(native, n.Prefix), native)
+		redactPath(update.Path, readPathNames(route, n.Prefix), route == routeNative)
 	}
 	for _, path := range n.Delete {
 		if mixedPath(path) {
 			return invalidSecretResponse()
 		}
-		redactPath(path, readPathNames(native, n.Prefix), native)
+		redactPath(path, readPathNames(route, n.Prefix), route == routeNative)
 	}
-	redactPath(n.Prefix, nil, native)
+	redactPath(n.Prefix, nil, route == routeNative)
 	return nil
 }
 
-func redactValue(value *pb.TypedValue, names []string) error {
+func redactValue(value *pb.TypedValue, names []string, route readRoute, table bool) error {
 	if value == nil {
 		return nil
 	}
 	switch v := value.Value.(type) {
 	case *pb.TypedValue_JsonVal:
-		data, err := redactJSON(v.JsonVal, names)
+		data, err := redactJSON(v.JsonVal, names, route, table)
 		if err != nil {
 			return err
 		}
 		v.JsonVal = data
 	case *pb.TypedValue_JsonIetfVal:
-		data, err := redactJSON(v.JsonIetfVal, names)
+		data, err := redactJSON(v.JsonIetfVal, names, route, table)
 		if err != nil {
 			return err
 		}
@@ -375,7 +418,7 @@ func redactValue(value *pb.TypedValue, names []string) error {
 		}
 	case *pb.TypedValue_LeaflistVal:
 		for _, element := range v.LeaflistVal.GetElement() {
-			if err := redactValue(element, names); err != nil {
+			if err := redactValue(element, names, route, table); err != nil {
 				return err
 			}
 		}
@@ -420,7 +463,7 @@ func databaseRoot(names []string) bool {
 	return false
 }
 
-func redactJSON(data []byte, names []string) ([]byte, error) {
+func redactJSON(data []byte, names []string, route readRoute, table bool) ([]byte, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	var value interface{}
@@ -435,7 +478,7 @@ func redactJSON(data []byte, names []string) ([]byte, error) {
 		(databaseRoot(names) || (secretScope(names) && !knownFieldPath(names))) {
 		return nil, invalidSecretResponse()
 	}
-	value = redactObject(value, names)
+	value = redactObject(value, names, route, table)
 	out, err := json.Marshal(value)
 	if err != nil {
 		return nil, invalidSecretResponse()
@@ -443,7 +486,7 @@ func redactJSON(data []byte, names []string) ([]byte, error) {
 	return out, nil
 }
 
-func redactObject(value interface{}, names []string) interface{} {
+func redactObject(value interface{}, names []string, route readRoute, table bool) interface{} {
 	if secretField(names) {
 		return redacted
 	}
@@ -458,23 +501,30 @@ func redactObject(value interface{}, names []string) interface{} {
 		for i, key := range keys {
 			childNames := append(append([]string(nil), names...), localName(key))
 			outKey := key
-			// Native SNMP communities are dictionary keys, not field values.
+			childTable := route != routeTranslated && !hasName(names, "@entry") && nativeJSONTable(key)
 			_, list := data[key].([]interface{})
-			if len(names) > 0 && names[len(names)-1] == "snmp-community" &&
-				!(localName(key) == "snmp-community-list" && list) {
-				outKey = redacted + "_" + strconv.Itoa(i)
+			// Native table identifiers are data, not credential leaf names.
+			if table && !(localName(key) == names[len(names)-1]+"-list" && list) {
+				if names[len(names)-1] == "snmp-community" {
+					outKey = redacted + "_" + strconv.Itoa(i)
+				}
 				childNames[len(childNames)-1] = "@entry"
+				childTable = false
+				if _, entry := data[key].(map[string]interface{}); !entry {
+					out[outKey] = redacted
+					continue
+				}
 			}
-			out[outKey] = redactObject(data[key], childNames)
+			out[outKey] = redactObject(data[key], childNames, route, childTable)
 		}
 		return out
 	case []interface{}:
 		for i, item := range data {
 			childNames := names
-			if len(names) > 0 && names[len(names)-1] == "snmp-community" {
-				childNames = append(append([]string(nil), names...), "@list-entry")
+			if table {
+				childNames = append(append([]string(nil), names...), "@entry")
 			}
-			data[i] = redactObject(item, childNames)
+			data[i] = redactObject(item, childNames, route, false)
 		}
 	case string:
 		if bgpConfig(names) {

@@ -1738,9 +1738,11 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 		elems := fullPath.GetElem()
 		if elems != nil {
 			for i, elem := range elems {
-				// TODO: Usage of key field
 				log.V(6).Infof("Path element index: %d", i)
 				stringSlice = append(stringSlice, elem.GetName())
+				if key, ok := elem.GetKey()["key"]; ok {
+					stringSlice = append(stringSlice, key)
+				}
 			}
 			jv, err := c.jClient.Get(stringSlice)
 			if err != nil {

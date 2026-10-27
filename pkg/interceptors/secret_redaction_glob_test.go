@@ -57,6 +57,29 @@ func TestSecretRedactionSetCompletionPrefix(t *testing.T) {
 	}
 }
 
+func TestSecretRedactionRejectsEmptyDatabaseComponents(t *testing.T) {
+	native := testPath("CONFIG_DB", "localhost", "SNMP_COMMUNITY")
+	native.Elem[2].Key = map[string]string{"key": ""}
+	for _, read := range []struct{ prefix, path *pb.Path }{
+		{&pb.Path{Origin: "sonic-db"}, native},
+		{&pb.Path{Origin: "sonic-db"}, testPath("CONFIG_DB", "localhost", "SNMP_COMMUNITY", "")},
+		{&pb.Path{Origin: "sonic-db", Elem: native.Elem}, testPath("TYPE")},
+		{&pb.Path{Target: "CONFIG_DB"}, testPath("SNMP_COMMUNITY", "")},
+		{&pb.Path{Target: "CONFIG_DB"}, &pb.Path{Element: []string{"SNMP_COMMUNITY", ""}}},
+	} {
+		_, err := (&secretRedactor{}).UnaryInterceptor()(context.Background(),
+			&pb.GetRequest{Prefix: read.prefix, Path: []*pb.Path{read.path}},
+			&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
+			func(context.Context, interface{}) (interface{}, error) {
+				t.Error("empty entry selection reached checkpoint/Redis retrieval")
+				return &pb.GetResponse{}, nil
+			})
+		if status.Code(err) != codes.InvalidArgument {
+			t.Error("empty database component did not fail closed")
+		}
+	}
+}
+
 func TestSecretRedactionPreservesSafeTableQueries(t *testing.T) {
 	for _, name := range []string{"*", "PORT*", "PORT[0-9]*", "VENDOR_LITERAL_TABLE"} {
 		result, err := (&secretRedactor{}).UnaryInterceptor()(context.Background(),

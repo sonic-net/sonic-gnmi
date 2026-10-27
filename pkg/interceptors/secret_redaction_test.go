@@ -130,6 +130,10 @@ func TestSecretRedactionWire(t *testing.T) {
 		{&pb.Path{Target: "CONFIG_DB", Origin: "sonic-db"}, testPath("CONFIG_DB", "localhost", "NTP_KE?")},
 		{&pb.Path{Target: "CONFIG_DB"}, &pb.Path{Origin: "sonic-db", Elem: testPath("CONFIG_DB", "localhost", "NTP_KE?").Elem}},
 		{&pb.Path{Target: "CONFIG_DB"}, testPath("*")},
+		{&pb.Path{Origin: "sonic-db"}, &pb.Path{Elem: []*pb.PathElem{
+			{Name: "CONFIG_DB"}, {Name: "localhost"}, {Name: "SNMP_COMMUNITY", Key: map[string]string{"key": ""}},
+		}}},
+		{&pb.Path{Target: "CONFIG_DB"}, testPath("SNMP_COMMUNITY", "")},
 	} {
 		for _, mode := range []pb.SubscriptionList_Mode{pb.SubscriptionList_ONCE, pb.SubscriptionList_POLL, pb.SubscriptionList_STREAM} {
 			stream, err := client.Subscribe(ctx)
@@ -149,23 +153,41 @@ func TestSecretRedactionWire(t *testing.T) {
 			}
 		}
 	}
+	emptyKey := testPath("SNMP_COMMUNITY")
+	emptyKey.Elem[0].Key = map[string]string{"key": ""}
+	if _, err := client.Get(ctx, &pb.GetRequest{Prefix: prefix, Path: []*pb.Path{emptyKey}}); status.Code(err) != codes.InvalidArgument {
+		t.Error("empty native key reached checkpoint/Redis fallback")
+	}
 	for _, fixture := range []struct {
 		path   *pb.Path
 		value  *pb.TypedValue
 		public string
+		key    string
+		legacy bool
 	}{
 		{testPath("ASIC_DB", "localhost", "ASIC_STATE", "SAI_OBJECT_TYPE_MACSEC_SA:fixture"),
-			&pb.TypedValue{Value: &pb.TypedValue_StringVal{StringVal: syntheticSecret}}, redacted},
+			&pb.TypedValue{Value: &pb.TypedValue_StringVal{StringVal: syntheticSecret}}, redacted, "SAI_MACSEC_SA_ATTR_SAK", false},
 		{testPath("CONFIG_DB", "localhost", "SNMP_COMMUNITY"),
-			&pb.TypedValue{Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"TYPE":"RO"}`)}}, `"TYPE":"RO"`},
+			&pb.TypedValue{Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"TYPE":"RO"}`)}},
+			`"TYPE":"RO"`, syntheticSecret + "|suffix-password", false},
+		{testPath("CONFIG_DB", "localhost", "MACSEC_PROFILE"),
+			&pb.TypedValue{Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"primary_cak":"synthetic-only-credential","primary_ckn":"public-key-name"}`)}},
+			`"primary_ckn":"public-key-name"`, "password", false},
+		{testPath("MACSEC_PROFILE", "password"),
+			&pb.TypedValue{Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"primary_cak":"synthetic-only-credential","primary_ckn":"public-key-name"}`)}},
+			`"primary_ckn":"public-key-name"`, "", true},
 	} {
-		key := syntheticSecret + "|suffix-password"
-		if fixture.public == redacted {
-			key = "SAI_MACSEC_SA_ATTR_SAK"
+		targets := []string{"", "UNRECOGNIZED_DB", "CONFIG_DB/ns/extra"}
+		if fixture.legacy {
+			targets = []string{"CONFIG_DB"}
+		} else {
+			fixture.path.Elem[len(fixture.path.Elem)-1].Key = map[string]string{"key": fixture.key}
 		}
-		fixture.path.Elem[len(fixture.path.Elem)-1].Key = map[string]string{"key": key}
-		for _, target := range []string{"", "UNRECOGNIZED_DB", "CONFIG_DB/ns/extra"} {
+		for _, target := range targets {
 			readPrefix := &pb.Path{Origin: "sonic-db", Target: target}
+			if fixture.legacy {
+				readPrefix.Origin = ""
+			}
 			backend.response = &pb.GetResponse{Notification: []*pb.Notification{{
 				Prefix: readPrefix, Update: []*pb.Update{{Path: fixture.path, Val: fixture.value}},
 			}}}
@@ -226,7 +248,7 @@ func testPath(names ...string) *pb.Path {
 }
 
 func redactTestGet(response *pb.GetResponse) (*pb.GetResponse, error) {
-	result, err := (&secretRedactor{}).UnaryInterceptor()(context.Background(), &pb.GetRequest{},
+	result, err := (&secretRedactor{}).UnaryInterceptor()(context.Background(), &pb.GetRequest{Prefix: &pb.Path{Target: "CONFIG_DB"}},
 		&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
 		func(context.Context, interface{}) (interface{}, error) { return response, nil })
 	if err != nil {
@@ -275,6 +297,57 @@ func TestSecretRedactionInventory(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSecretRedactionEntryIdentifiers(t *testing.T) {
+	for _, entry := range []struct{ table, field string }{
+		{"MACSEC_PROFILE", "primary_cak"}, {"SNMP_USER", "SNMP_USER_AUTH_PASSWORD"},
+		{"BGP_PEER_GROUP", "auth_password"},
+	} {
+		for _, identifier := range []string{"password", "primary_cak", "bind_password", "future-password"} {
+			t.Run(entry.table+"/"+identifier, func(t *testing.T) {
+				data, _ := json.Marshal(map[string]interface{}{
+					entry.table: map[string]interface{}{
+						identifier: map[string]interface{}{entry.field: syntheticSecret, "priority": "7"},
+					},
+				})
+				input := &pb.GetResponse{Notification: []*pb.Notification{{
+					Update: []*pb.Update{{Val: &pb.TypedValue{Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: data}}}},
+				}}}
+				out, err := redactTestGet(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertRedactedWire(t, out)
+				var value map[string]map[string]map[string]string
+				if err := json.Unmarshal(out.Notification[0].Update[0].Val.GetJsonIetfVal(), &value); err != nil {
+					t.Fatal("entry identifiers changed the JSON structure")
+				}
+				if value[entry.table][identifier][entry.field] != redacted {
+					t.Error("credential field was not masked inside the preserved entry")
+				}
+			})
+		}
+	}
+}
+
+func TestSecretRedactionTranslatedCredentialContainers(t *testing.T) {
+	for _, path := range []*pb.Path{nil, testPath("RADIUS")} {
+		data := []byte(`{"RADIUS":{"password":{"cleartext":"synthetic-only-credential"},"passkey":"synthetic-only-credential","priority":"7"}}`)
+		if path != nil {
+			data = []byte(`{"password":{"cleartext":"synthetic-only-credential"},"passkey":"synthetic-only-credential","priority":"7"}`)
+		}
+		response := &pb.GetResponse{Notification: []*pb.Notification{{
+			Update: []*pb.Update{{Path: path, Val: &pb.TypedValue{Value: &pb.TypedValue_JsonVal{JsonVal: data}}}},
+		}}}
+		result, err := (&secretRedactor{}).UnaryInterceptor()(context.Background(), &pb.GetRequest{},
+			&grpc.UnaryServerInfo{FullMethod: gnmiGetMethod},
+			func(context.Context, interface{}) (interface{}, error) { return response, nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertRedactedWire(t, result.(*pb.GetResponse))
 	}
 }
 
