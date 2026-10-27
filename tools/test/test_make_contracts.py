@@ -102,9 +102,6 @@ class MakeContractsTest(unittest.TestCase):
 
     def test_aliases_preserve_operations_and_outputs(self):
         for makefile, old, new, outputs in (
-            ("pure.mk", "junit-xml", "ci-report",
-             ("test-results/junit-pure.xml", "test-results/coverage-pure.txt",
-              "test-results/coverage-pure.xml")),
             ("Makefile", "check_gotest_junit", "test-integration",
              ("test-results/junit-integration-basic.xml",
               "test-results/junit-integration-env.xml",
@@ -123,10 +120,22 @@ class MakeContractsTest(unittest.TestCase):
                 self.assertEqual(
                     [(self.root / path).read_bytes() for path in outputs], expected)
 
+    def test_pure_entrypoint_produces_reports_without_legacy_name(self):
+        self.assert_ok(self.make("pure.mk", "ci-report"))
+        for name, contents in (
+            ("junit-pure.xml", "<testsuites/>"),
+            ("coverage-pure.txt", "mode: atomic\nfixture/file.go:1.1,1.2 1 1\n"),
+            ("coverage-pure.xml", "<coverage/>\n"),
+        ):
+            self.assertEqual((self.root / "test-results" / name).read_text(), contents)
+        result = self.make("pure.mk", "junit-xml")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("No rule to make target", result.stderr)
+
     def test_test_failure_propagates_through_old_and_new_names(self):
         (self.root / "fail").write_text("gotestsum")
         for makefile, targets in (
-            ("pure.mk", ("junit-xml", "ci-report")),
+            ("pure.mk", ("ci-report",)),
             ("Makefile", ("check_gotest_junit", "test-integration",
                           "check_memleak_junit", "test-memleak")),
         ):

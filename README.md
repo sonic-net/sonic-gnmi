@@ -44,7 +44,7 @@ In the provisioned SONiC build environment, run `make all` first, then
 `ENABLE_TRANSLIB_WRITE=y make test-integration` or
 `ENABLE_TRANSLIB_WRITE=y make test-memleak`.
 These commands produce local reports; Azure YAML publishes them.
-The existing `junit-xml`, `check_gotest_junit` and `check_memleak_junit`
+The existing native `check_gotest_junit` and `check_memleak_junit`
 entrypoints remain compatible.
 
 ## Running

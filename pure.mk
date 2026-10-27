@@ -260,11 +260,7 @@ ci: clean check-tags check-tags-test lint build-test test
 
 # Complete pure CI checks, test execution and report generation.
 .PHONY: ci-report
-ci-report: junit-xml
-
-# Compatibility entrypoint used by existing local and downstream callers.
-.PHONY: junit-xml
-junit-xml: clean check-tags check-tags-test build-test
+ci-report: clean check-tags check-tags-test build-test
 	@$(MAKE) -f pure.mk $(GOTESTSUM) $(GOCOV) $(GOCOV_XML)
 	@echo "Running pure package tests with JUnit XML output..."
 	@mkdir -p test-results
@@ -310,7 +306,6 @@ help:
 	@echo "Available targets:"
 	@echo "  ci               - Full CI pipeline (default)"
 	@echo "  ci-report        - Check, build and test pure packages; generate CI reports"
-	@echo "  junit-xml        - Compatibility alias for ci-report"
 	@echo "  quick            - Quick validation (fmt, vet, build)"
 	@echo "  test             - Run tests with coverage"
 	@echo "  test-coverage    - Generate HTML coverage reports"
