@@ -9,6 +9,11 @@
 # so Renovate keeps managing the branch. A commit made with GITHUB_TOKEN starts
 # no workflow runs, so CodeQL and Semgrep are dispatched on the new commit;
 # workflow_dispatch is the exception to that rule.
+#
+# The job fails, and commits nothing, when tidy would not keep a requirement
+# Renovate changed, or would bring back a module Renovate removed: a major
+# update whose import paths the code does not use yet, for example. Committing
+# that would undo the update, and Renovate would push it again, in a loop.
 
 name: Renovate go.sum
 
@@ -38,6 +43,8 @@ jobs:
           ref: ${{ github.head_ref }}
           path: sonic-gnmi
           persist-credentials: false
+          # The merge base with the base branch shows what Renovate changed
+          fetch-depth: 0
 
       - name: Checkout sonic-mgmt-common
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -64,9 +71,29 @@ jobs:
         run: |
           set -euo pipefail
           go_directive=$(sed -n 's/^go //p' go.mod)
+          # Requirements and replacements in a go.mod, one per line
+          requirements() {
+            go mod edit -json "$1" | jq -r '
+              (.Require // [])[] | "\(.Path) \(.Version)",
+              ((.Replace // [])[] | "\(.Old.Path) \(.Old.Version // "") => \(.New.Path) \(.New.Version // "")")' | sort -u
+          }
+          modules() {
+            go mod edit -json "$1" | jq -r '(.Require // [])[].Path' | sort -u
+          }
+          git show "$(git merge-base HEAD "origin/${BASE}")":go.mod > "${RUNNER_TEMP}/base.mod"
+          changed=$(comm -13 <(requirements "${RUNNER_TEMP}/base.mod") <(requirements go.mod))
+          removed=$(comm -23 <(modules "${RUNNER_TEMP}/base.mod") <(modules go.mod))
           go mod tidy
           if [ "$(sed -n 's/^go //p' go.mod)" != "${go_directive}" ]; then
             echo "go mod tidy changed the go directive from ${go_directive}; this update needs a newer Go than the build container has" >&2
+            exit 1
+          fi
+          dropped=$(comm -23 <(echo "${changed}") <(requirements go.mod) | sed '/^$/d')
+          returned=$(comm -12 <(echo "${removed}") <(modules go.mod) | sed '/^$/d')
+          if [ -n "${dropped}${returned}" ]; then
+            printf 'go mod tidy does not keep this update, so the code needs changing with it\n' >&2
+            [ -z "${dropped}" ] || printf 'Requirements tidy removes:\n%s\n' "${dropped}" >&2
+            [ -z "${returned}" ] || printf 'Modules the update removed, which tidy requires again:\n%s\n' "${returned}" >&2
             exit 1
           fi
           if ! git diff --quiet -- go.mod go.sum; then
