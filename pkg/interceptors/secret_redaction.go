@@ -40,6 +40,11 @@ func (*secretRedactor) UnaryInterceptor() grpc.UnaryServerInterceptor {
 				if err := validateReadPaths(request.GetPrefix(), request.GetPath(), false); err != nil {
 					return nil, err
 				}
+				if route == routeNative {
+					request = proto.Clone(request).(*pb.GetRequest)
+					normalizeNativeRead(request.Prefix, request.Path)
+					req = request
+				}
 			}
 		}
 		resp, err := handler(ctx, req)
@@ -95,7 +100,23 @@ func (s *redactingStream) RecvMsg(msg interface{}) error {
 		if !s.subscribed {
 			s.route, s.subscribed = route, true
 		}
-		return validateReadPaths(sub.Prefix, paths, true)
+		if err := validateReadPaths(sub.Prefix, paths, true); err != nil {
+			return err
+		}
+		if route == routeNative {
+			sub = proto.Clone(sub).(*pb.SubscriptionList)
+			for i, entry := range sub.Subscription {
+				paths[i] = entry.GetPath()
+			}
+			normalizeNativeRead(sub.Prefix, paths)
+			for i, entry := range sub.Subscription {
+				if entry == nil {
+					return status.Error(codes.InvalidArgument, "missing subscription")
+				}
+				entry.Path = paths[i]
+			}
+			request.Request = &pb.SubscribeRequest_Subscribe{Subscribe: sub}
+		}
 	}
 	return nil
 }
@@ -198,6 +219,37 @@ func legacyReadTarget(target string) bool {
 	parts := strings.Split(target, "/")
 	_, valid := spb.Target_value[parts[0]]
 	return target != "OTHERS" && len(parts) <= 2 && valid
+}
+
+// Empty Path.Elem makes the native backend ignore the prefix. Materialize
+// the same full scope for local handlers and forwarded read requests.
+func normalizeNativeRead(prefix *pb.Path, paths []*pb.Path) {
+	needed := false
+	for _, p := range paths {
+		needed = needed || len(p.GetElem()) == 0 || len(p.GetElement()) > 0
+	}
+	if !needed {
+		return
+	}
+	elems := func(p *pb.Path) []*pb.PathElem {
+		out := append([]*pb.PathElem(nil), p.GetElem()...)
+		for _, name := range p.GetElement() {
+			out = append(out, &pb.PathElem{Name: name})
+		}
+		return out
+	}
+	base := elems(prefix)
+	for i, p := range paths {
+		if p == nil {
+			p = &pb.Path{}
+			paths[i] = p
+		}
+		p.Elem = append(append([]*pb.PathElem(nil), base...), elems(p)...)
+		p.Element = nil
+	}
+	if prefix != nil {
+		prefix.Elem, prefix.Element = nil, nil
+	}
 }
 
 func validateReadPaths(prefix *pb.Path, paths []*pb.Path, subscribe bool) error {
@@ -344,6 +396,8 @@ func redactNotification(n *pb.Notification, route readRoute) error {
 	if mixedPath(n.Prefix) {
 		return invalidSecretResponse()
 	}
+	prefixNames := readPathNames(route, n.Prefix)
+	prefixEnd := 0
 	for _, update := range n.Update {
 		if update == nil {
 			continue
@@ -352,6 +406,20 @@ func redactNotification(n *pb.Notification, route readRoute) error {
 			return invalidSecretResponse()
 		}
 		names := readPathNames(route, n.Prefix, update.Path)
+		communityEnd := 0
+		if route == routeLegacy && len(names) >= 2 && names[0] == "snmp-community" {
+			communityEnd = len(names)
+			// TYPE is the public RO/RW enum. Other positional suffixes may
+			// be part of a delimiter-containing community, not field names.
+			if len(names) > 2 && names[len(names)-1] == "type" &&
+				publicCommunityType(update.Val, update.Value) {
+				communityEnd--
+			}
+			names = append([]string{"snmp-community", "@entry"}, names[communityEnd:]...)
+		}
+		if communityEnd > prefixEnd {
+			prefixEnd = communityEnd
+		}
 		table := ((route == routeLegacy && len(names) == 1) || (route == routeNative && len(names) == 3)) &&
 			nativeSecretTable(names[len(names)-1])
 		if err := redactValue(update.Val, names, route, table); err != nil {
@@ -371,16 +439,58 @@ func redactNotification(n *pb.Notification, route readRoute) error {
 				}
 			}
 		}
-		redactPath(update.Path, readPathNames(route, n.Prefix), route == routeNative)
+		redactPath(update.Path, prefixNames, route, communityEnd)
 	}
 	for _, path := range n.Delete {
 		if mixedPath(path) {
 			return invalidSecretResponse()
 		}
-		redactPath(path, readPathNames(route, n.Prefix), route == routeNative)
+		end := len(readPathNames(route, n.Prefix, path))
+		if end > prefixEnd {
+			prefixEnd = end
+		}
+		redactPath(path, prefixNames, route, end)
 	}
-	redactPath(n.Prefix, nil, route == routeNative)
+	if len(n.Update) == 0 && len(n.Delete) == 0 {
+		prefixEnd = len(prefixNames)
+	}
+	redactPath(n.Prefix, nil, route, prefixEnd)
 	return nil
+}
+
+func publicCommunityType(value *pb.TypedValue, deprecated *pb.Value) bool {
+	enum := func(s string) bool { return s == "RO" || s == "RW" }
+	jsonEnum := func(data []byte) bool {
+		var s string
+		return json.Unmarshal(data, &s) == nil && enum(s)
+	}
+	if value == nil && deprecated == nil {
+		return false
+	}
+	if value != nil {
+		switch v := value.Value.(type) {
+		case *pb.TypedValue_StringVal:
+			if !enum(v.StringVal) {
+				return false
+			}
+		case *pb.TypedValue_AsciiVal:
+			if !enum(v.AsciiVal) {
+				return false
+			}
+		case *pb.TypedValue_JsonVal:
+			if !jsonEnum(v.JsonVal) {
+				return false
+			}
+		case *pb.TypedValue_JsonIetfVal:
+			if !jsonEnum(v.JsonIetfVal) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return deprecated == nil || ((deprecated.Type == pb.Encoding_JSON ||
+		deprecated.Type == pb.Encoding_JSON_IETF) && jsonEnum(deprecated.Value))
 }
 
 func redactValue(value *pb.TypedValue, names []string, route readRoute, table bool) error {
@@ -502,9 +612,8 @@ func redactObject(value interface{}, names []string, route readRoute, table bool
 			childNames := append(append([]string(nil), names...), localName(key))
 			outKey := key
 			childTable := route != routeTranslated && !hasName(names, "@entry") && nativeJSONTable(key)
-			_, list := data[key].([]interface{})
 			// Native table identifiers are data, not credential leaf names.
-			if table && !(localName(key) == names[len(names)-1]+"-list" && list) {
+			if table {
 				if names[len(names)-1] == "snmp-community" {
 					outKey = redacted + "_" + strconv.Itoa(i)
 				}
@@ -538,18 +647,30 @@ func bgpConfig(names []string) bool {
 	return hasName(names, "bgp") && hasName(names, "running-config")
 }
 
-var bgpPassword = regexp.MustCompile(`(?mi)(^|[ \t])(password|secret)([ \t]+)[^\r\n]*`)
+var bgpPassword = regexp.MustCompile(`(?mi)^([ \t]*(?:no[ \t]+)?(?:(?:neighbor|username)[ \t]+\S+[ \t]+|enable[ \t]+)?)(password|secret)[ \t]+[^\r\n]*`)
 
 func redactBGP(text string) string {
 	return bgpPassword.ReplaceAllString(text, "${1}${2} "+redacted)
 }
 
-func redactPath(path *pb.Path, prefix []string, native bool) {
+func redactPath(path *pb.Path, prefix []string, route readRoute, communityEnd int) {
 	if path == nil {
 		return
 	}
 	names := append([]string(nil), prefix...)
 	redactName := func(name string, schemaList bool) string {
+		if route == routeLegacy && hasName(names, "snmp-community") && len(names) < communityEnd {
+			return redacted
+		}
+		if route == routeLegacy && communityEnd > 0 && len(names) > 0 && names[0] == "snmp-community" {
+			return name
+		}
+		if route == routeNative {
+			if len(names) == 3 && names[2] == "snmp-community" {
+				return redacted
+			}
+			return name
+		}
 		if len(names) > 0 && names[len(names)-1] == "snmp-community" && !schemaList {
 			return redacted
 		}
@@ -564,12 +685,12 @@ func redactPath(path *pb.Path, prefix []string, native bool) {
 			continue
 		}
 		name := elem.Name
-		elem.Name = redactName(name, localName(name) == "snmp-community-list" &&
-			(len(elem.Key) > 0 || hasName(names, "sonic-snmp")))
+		elem.Name = redactName(name, route == routeTranslated &&
+			localName(name) == "snmp-community-list" && hasName(names, "sonic-snmp"))
 		names = append(names, localName(name))
-		if native && len(names) > 2 {
+		if route == routeNative && len(names) > 2 {
 			if key, ok := elem.Key["key"]; ok {
-				if names[len(names)-1] == "snmp-community" {
+				if len(names) == 3 && names[2] == "snmp-community" {
 					elem.Key["key"] = redacted
 				}
 				names = append(names, localName(key))

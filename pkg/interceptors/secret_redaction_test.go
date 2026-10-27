@@ -25,9 +25,13 @@ const syntheticSecret = "synthetic-only-credential"
 type secretFixtureServer struct {
 	pb.UnimplementedGNMIServer
 	response *pb.GetResponse
+	get      func(*pb.GetRequest) (*pb.GetResponse, error)
 }
 
 func (s *secretFixtureServer) Get(_ context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
+	if s.get != nil {
+		return s.get(req)
+	}
 	if s.response != nil {
 		return proto.Clone(s.response).(*pb.GetResponse), nil
 	}
@@ -49,8 +53,20 @@ func (s *secretFixtureServer) Subscribe(stream pb.GNMI_SubscribeServer) error {
 	if err != nil {
 		return err
 	}
-	resp, _ := s.Get(stream.Context(), &pb.GetRequest{Prefix: req.GetSubscribe().GetPrefix()})
-	return stream.Send(&pb.SubscribeResponse{Response: &pb.SubscribeResponse_Update{Update: resp.Notification[0]}})
+	var paths []*pb.Path
+	for _, entry := range req.GetSubscribe().GetSubscription() {
+		paths = append(paths, entry.GetPath())
+	}
+	resp, err := s.Get(stream.Context(), &pb.GetRequest{Prefix: req.GetSubscribe().GetPrefix(), Path: paths})
+	if err != nil {
+		return err
+	}
+	for _, n := range resp.Notification {
+		if err := stream.Send(&pb.SubscribeResponse{Response: &pb.SubscribeResponse_Update{Update: n}}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func TestSecretRedactionWire(t *testing.T) {
@@ -158,7 +174,7 @@ func TestSecretRedactionWire(t *testing.T) {
 	if _, err := client.Get(ctx, &pb.GetRequest{Prefix: prefix, Path: []*pb.Path{emptyKey}}); status.Code(err) != codes.InvalidArgument {
 		t.Error("empty native key reached checkpoint/Redis fallback")
 	}
-	for _, fixture := range []struct {
+	for fixtureIndex, fixture := range []struct {
 		path   *pb.Path
 		value  *pb.TypedValue
 		public string
@@ -176,6 +192,18 @@ func TestSecretRedactionWire(t *testing.T) {
 		{testPath("MACSEC_PROFILE", "password"),
 			&pb.TypedValue{Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"primary_cak":"synthetic-only-credential","primary_ckn":"public-key-name"}`)}},
 			`"primary_ckn":"public-key-name"`, "", true},
+		{testPath("SNMP_COMMUNITY", "fixture", syntheticSecret),
+			&pb.TypedValue{Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"TYPE":"RO"}`)}},
+			`"TYPE":"RO"`, "", true},
+		{testPath("SNMP_COMMUNITY", syntheticSecret, "TYPE"),
+			&pb.TypedValue{Value: &pb.TypedValue_StringVal{StringVal: "RO"}},
+			"TYPE", "", true},
+		{testPath("SNMP_COMMUNITY", "fixture", syntheticSecret, "TYPE"),
+			&pb.TypedValue{Value: &pb.TypedValue_StringVal{StringVal: "RW"}},
+			"TYPE", "", true},
+		{testPath("CONFIG_DB", "localhost", "SNMP_COMMUNITY", syntheticSecret+":SNMP_COMMUNITY_LIST"),
+			&pb.TypedValue{Value: &pb.TypedValue_StringVal{StringVal: "RO"}},
+			"RO", "TYPE", false},
 	} {
 		targets := []string{"", "UNRECOGNIZED_DB", "CONFIG_DB/ns/extra"}
 		if fixture.legacy {
@@ -195,12 +223,13 @@ func TestSecretRedactionWire(t *testing.T) {
 				t.Helper()
 				wire, err := proto.Marshal(response)
 				if err != nil || strings.Contains(string(wire), syntheticSecret) || !strings.Contains(string(wire), fixture.public) {
-					t.Error("native key component leaked a credential or lost public data")
+					t.Errorf("fixture %d: credential present=%t, public data missing=%t",
+						fixtureIndex, strings.Contains(string(wire), syntheticSecret), !strings.Contains(string(wire), fixture.public))
 				}
 			}
 			response, err := client.Get(ctx, &pb.GetRequest{Prefix: readPrefix, Path: []*pb.Path{fixture.path}})
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("fixture %d: %v", fixtureIndex, err)
 			}
 			assertValue(response)
 			stream, err := client.Subscribe(ctx)
@@ -222,6 +251,73 @@ func TestSecretRedactionWire(t *testing.T) {
 			}
 		}
 	}
+	t.Run("native-empty-path-scope", func(t *testing.T) {
+		readPrefix := testPath("CONFIG_DB", "localhost", "SNMP_COMMUNITY")
+		readPrefix.Origin = "sonic-db"
+		readPrefix.Elem[2].Key = map[string]string{"key": "known-fixture"}
+		paths := []*pb.Path{testPath("TYPE"), {}}
+		backend.get = func(req *pb.GetRequest) (*pb.GetResponse, error) {
+			response := &pb.GetResponse{}
+			for _, p := range req.Path {
+				data := `{"SNMP_COMMUNITY":{"synthetic-only-credential":{"TYPE":"RO"}}}`
+				if p.GetElem() != nil {
+					names := rawPathNames(true, req.Prefix, p)
+					if len(names) != 4 && len(names) != 5 {
+						return nil, status.Error(codes.InvalidArgument, "unexpected synthetic read scope")
+					}
+					data = `{"TYPE":"RO"}`
+					if len(names) == 5 {
+						data = `"RO"`
+					}
+				}
+				response.Notification = append(response.Notification, &pb.Notification{
+					Prefix: req.Prefix, Update: []*pb.Update{{Path: p, Val: &pb.TypedValue{
+						Value: &pb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(data)},
+					}}},
+				})
+			}
+			return response, nil
+		}
+		request := &pb.GetRequest{Prefix: readPrefix, Path: paths}
+		before := proto.Clone(request)
+		response, err := client.Get(ctx, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		check := func(message proto.Message) {
+			t.Helper()
+			wire, _ := proto.Marshal(message)
+			if strings.Contains(string(wire), syntheticSecret) || !strings.Contains(string(wire), "RO") {
+				t.Fatal("empty native path escaped its prefix scope")
+			}
+		}
+		check(response)
+		if !proto.Equal(request, before) {
+			t.Fatal("normalization changed the caller's request")
+		}
+		for _, mode := range []pb.SubscriptionList_Mode{pb.SubscriptionList_ONCE, pb.SubscriptionList_POLL, pb.SubscriptionList_STREAM} {
+			stream, err := client.Subscribe(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := stream.Send(&pb.SubscribeRequest{Request: &pb.SubscribeRequest_Subscribe{
+				Subscribe: &pb.SubscriptionList{Prefix: readPrefix, Mode: mode,
+					Subscription: []*pb.Subscription{{Path: paths[0]}, {Path: paths[1]}}},
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			for range paths {
+				reply, err := stream.Recv()
+				if err != nil {
+					t.Fatal(err)
+				}
+				check(reply)
+			}
+			if _, err := stream.Recv(); err != io.EOF {
+				t.Fatal("expected end of synthetic stream")
+			}
+		}
+	})
 }
 
 func assertRedactedWire(t *testing.T, msg proto.Message) {

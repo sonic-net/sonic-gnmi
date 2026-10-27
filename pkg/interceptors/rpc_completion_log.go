@@ -332,7 +332,8 @@ func formatRequestPath(path *gnmipb.Path, prefix ...*gnmipb.Path) string {
 	}
 
 	path = proto.Clone(path).(*gnmipb.Path)
-	redactPath(path, pathNames(prefix...), false)
+	names := pathNames(prefix...)
+	redactPath(path, names, routeLegacy, len(names)+len(rawPathNames(false, path)))
 	schemaPath := &gnmipb.Path{Elem: make([]*gnmipb.PathElem, 0, len(path.GetElem()))}
 	for _, elem := range path.GetElem() {
 		if elem == nil {
