@@ -14,6 +14,14 @@
 # Renovate changed, or would bring back a module Renovate removed: a major
 # update whose import paths the code does not use yet, for example. Committing
 # that would undo the update, and Renovate would push it again, in a loop.
+#
+# It also fails, and commits nothing, when Renovate has twice in a row replaced
+# the fixup with the same content it had before; once can be a rebase someone
+# asked for. Renovate rebuilds its branch when it
+# cannot apply its update to the branch as it stands: it finds each dependency
+# by its line number in the base branch's go.mod, so a tidy that moves lines,
+# on a base branch whose go.mod is not tidy, makes it rebuild the branch on
+# every run. Committing again would start that loop over.
 
 name: Renovate go.sum
 
@@ -36,6 +44,7 @@ jobs:
     permissions:
       contents: write
       actions: write
+      pull-requests: read
     steps:
       - name: Checkout sonic-gnmi
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -66,10 +75,25 @@ jobs:
           BRANCH: ${{ github.head_ref }}
           BASE: ${{ github.base_ref }}
           GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
           # Fail rather than raise the go directive past the build container's Go
           GOTOOLCHAIN: local
         run: |
           set -euo pipefail
+          # The last two force-pushes each replaced a fixup commit with the content that fixup was made on
+          replaced=$(gh api graphql -F owner="${GITHUB_REPOSITORY%/*}" -F name="${GITHUB_REPOSITORY#*/}" -F number="${PR}" -f query='
+            query($owner: String!, $name: String!, $number: Int!) {
+              repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+                timelineItems(last: 2, itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]) { nodes { ... on HeadRefForcePushedEvent {
+                  beforeCommit { oid author { email } parents(first: 1) { nodes { tree { oid } } } } } } } } } }' |
+            jq -r --arg tree "$(git rev-parse 'HEAD^{tree}')" '[.data.repository.pullRequest.timelineItems.nodes[].beforeCommit
+              | select(.author.email == "41898282+github-actions[bot]@users.noreply.github.com"
+                       and .parents.nodes[0].tree.oid == $tree) | .oid] | select(length == 2) | last')
+          if [ -n "${replaced}" ]; then
+            echo "Renovate replaced the go.sum fixup ${replaced} with the same content it had before, so committing again would loop." >&2
+            echo "Renovate rebuilds the branch when tidy moves lines in go.mod, which happens when ${BASE}'s go.mod is not tidy; tidy ${BASE}, then tick the rebase box on this pull request." >&2
+            exit 1
+          fi
           go_directive=$(sed -n 's/^go //p' go.mod)
           # Requirements and replacements in a go.mod, one per line
           requirements() {
