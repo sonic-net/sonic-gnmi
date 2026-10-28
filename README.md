@@ -40,6 +40,28 @@ You can also build a debian package and install it:
 * See [gNMI Usage Examples](./doc/gNMI_usage_examples.md) for gNMI client usage examples.
 * See [gNOI Debug actions](./doc/gnoi_debug.md) for the Debug RPC policy and supported actions.
 
+### gNOI file read permissions
+
+File.Get and File.Stat expose only world-readable regular files. Ancestor
+directories must be world-searchable; listing a directory also requires world
+read/search permissions. Stat listings omit private children. Missing and
+inaccessible paths return the same read denial.
+
+Resolution is bounded to raw paths shorter than 4096 bytes, 40 symlinks and
+64 descriptors per ancestor stack, plus a fixed number of anchor/target
+handles. A listing captures and validates its pinned ancestor stack once, then
+shares that immutable prefix across child lookups. Each child has independent
+traversal state and a copy of the remaining symlink budget; following links may
+retain one additional bounded ancestor stack. Entries exceeding these safety
+limits are not exposed.
+
+The check applies regardless of caller role, including when the server runs as
+root. Reads use the validated descriptor; symlink targets must remain inside
+the host filesystem view. Extended access ACLs are conservatively denied rather
+than assuming mode bits alone establish public access. Put, TransferToRemote,
+Remove, authentication and role authorization are unchanged. No managed-image
+store, helper process or companion HostService change is required.
+
 ## Streaming events
 SONiC publishes events of interest via gNMI.
 Sample events could be bgp-state change, link-state change.
