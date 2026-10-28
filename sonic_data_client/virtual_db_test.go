@@ -441,7 +441,7 @@ func TestV2rFabricPortStats_EmptyMap(t *testing.T) {
 
 func TestResolvePortName(t *testing.T) {
 	origAlias, origNS := alias2nameMap, port2namespaceMap
-	alias2nameMap = map[string]string{"Ethernet48": "Ethernet47"}
+	alias2nameMap = map[string]string{"Ethernet48": "Ethernet47", "Ethernet49/1": "Ethernet48"}
 	port2namespaceMap = map[string]string{"Ethernet47": "", "Ethernet48": ""}
 	defer func() { alias2nameMap, port2namespaceMap = origAlias, origNS }()
 
@@ -451,10 +451,9 @@ func TestResolvePortName(t *testing.T) {
 		want string
 	}{
 		{"physical name wins over alias", "Ethernet48", "Ethernet48"},
-		{"alias falls back when not a physical name", "Ethernet49/1", "Ethernet49/1"},
+		{"alias resolves when not a physical name", "Ethernet49/1", "Ethernet48"},
 		{"unknown key returned unchanged", "bogus", "bogus"},
 	}
-	alias2nameMap["Ethernet49/1"] = "Ethernet48"
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := resolvePortName(tt.key); got != tt.want {
