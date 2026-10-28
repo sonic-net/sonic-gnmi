@@ -79,9 +79,43 @@ stages:
     - bash: |
         set -euo pipefail
         cd sonic-gnmi
-        go mod tidy -diff
+        export LC_ALL=C
+        scratch=$(mktemp -d)
+        trap 'rm -rf -- "$scratch"' EXIT
+        if go mod tidy -diff > "$scratch/head.diff"; then
+          exit 0
+        fi
+        cat "$scratch/head.diff"
+        grep -q '^diff current/go\.' "$scratch/head.diff"
+
+        git fetch --no-tags --depth=1 -- origin "$TARGET_BRANCH"
+        mkdir "$scratch/sonic-gnmi"
+        git archive FETCH_HEAD | tar -x -C "$scratch/sonic-gnmi"
+        ln -s "$(realpath ../sonic-mgmt-common)" "$scratch/sonic-mgmt-common"
+        if (cd "$scratch/sonic-gnmi" && go mod tidy -diff) > "$scratch/base.diff"; then
+          echo "##vso[task.logissue type=error]This change introduces Go module drift."
+          exit 1
+        fi
+        cat "$scratch/base.diff"
+        grep -q '^diff current/go\.' "$scratch/base.diff"
+
+        # Ignore context and line numbers, not new drift on an already untidy target.
+        changes() {
+          awk '/^diff / {file=$2; next}
+               /^[+-]/ && !/^--- / && !/^\+\+\+ / {print file "\t" $0}' "$1" | sort
+        }
+        changes "$scratch/base.diff" > "$scratch/base.changes"
+        changes "$scratch/head.diff" > "$scratch/head.changes"
+        comm -13 "$scratch/base.changes" "$scratch/head.changes" > "$scratch/new.changes"
+        if [ -s "$scratch/new.changes" ]; then
+          cat "$scratch/new.changes"
+          echo "##vso[task.logissue type=error]This change introduces additional Go module drift."
+          exit 1
+        fi
+        echo "##vso[task.logissue type=warning]Go module drift is already present on the target with the same sibling checkout."
       env:
         GOTOOLCHAIN: local
+        TARGET_BRANCH: $(BUILD_BRANCH)
       displayName: 'Check Go module tidiness (no writes)'
 
     - bash: |
