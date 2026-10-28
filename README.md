@@ -40,6 +40,26 @@ Run `make -f pure.mk ci-report` for pure package boundary checks, compilation,
 race-enabled tests and CI report generation. Keep `sonic-mgmt-common` checked
 out beside this repository for the local module replacement.
 
+To run tests or regenerate coverage separately:
+
+```sh
+make -f pure.mk test-pure        # JUnit results and raw Go coverage
+make -f pure.mk report-coverage  # Existing profile to Cobertura; no test run
+```
+
+`ci-report` orders boundary checks, compilation, tests and conversion, including
+under parallel Make. A failed operation stops the aggregate. A new test run
+removes its previous reports; failed tests retain JUnit but discard partial
+coverage. Conversion fails on missing/invalid input or a converter error and
+cannot leave stale XML. Successful report paths remain
+`test-results/junit-pure.xml`, `test-results/coverage-pure.txt` and
+`test-results/coverage-pure.xml`.
+
+The existing per-package `test`, `test-coverage` and `coverage-xml` commands
+still run tests. Neither `ci` nor `ci-report` clears shared Go caches.
+Explicit `make -f pure.mk clean` still clears shared Go build/test caches
+and per-package coverage files.
+
 In the provisioned SONiC build environment, run `make all` first, then
 `ENABLE_TRANSLIB_WRITE=y make test-integration` or
 `ENABLE_TRANSLIB_WRITE=y make test-memleak`.

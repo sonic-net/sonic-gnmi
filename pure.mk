@@ -55,7 +55,7 @@ PACKAGES ?= $(PURE_PACKAGES)
 # Default target
 .DEFAULT_GOAL := ci
 
-# Clean up any build artifacts
+# Explicitly clear Go's shared build/test caches and package coverage artifacts.
 .PHONY: clean
 clean:
 	@echo "Cleaning pure build artifacts..."
@@ -239,7 +239,7 @@ list-packages:
 
 # Full CI pipeline
 .PHONY: ci
-ci: clean check-tags check-tags-test lint build-test test
+ci: check-tags check-tags-test lint build-test test
 	@echo ""
 	@echo "============================================="
 	@echo "✅ Pure CI completed successfully!"
@@ -260,8 +260,18 @@ ci: clean check-tags check-tags-test lint build-test test
 
 # Complete pure CI checks, test execution and report generation.
 .PHONY: ci-report
-ci-report: clean check-tags check-tags-test build-test
-	@$(MAKE) -f pure.mk $(GOTESTSUM) $(GOCOV) $(GOCOV_XML)
+ci-report:
+	@rm -f test-results/junit-pure.xml test-results/coverage-pure.txt test-results/coverage-pure.xml
+	@$(MAKE) -f pure.mk check-tags check-tags-test
+	@$(MAKE) -f pure.mk build-test
+	@$(MAKE) -f pure.mk test-pure
+	@$(MAKE) -f pure.mk report-coverage
+	@echo "Pure CI checks, tests and reports completed."
+
+.PHONY: test-pure
+test-pure:
+	@rm -f test-results/junit-pure.xml test-results/coverage-pure.txt test-results/coverage-pure.xml
+	@$(MAKE) -f pure.mk $(GOTESTSUM)
 	@echo "Running pure package tests with JUnit XML output..."
 	@mkdir -p test-results
 	@CGO_ENABLED=$(RACE_CGO_ENABLED) $(GOTESTSUM) --junitfile test-results/junit-pure.xml \
@@ -269,25 +279,24 @@ ci-report: clean check-tags check-tags-test build-test
 		-- $(PURE_GO_FLAGS) -gcflags="all=-N -l" -v -race \
 		-coverprofile=test-results/coverage-pure.txt \
 		-covermode=atomic \
-		$(addprefix ./,$(PACKAGES))
-	@echo "Converting coverage to Cobertura XML format..."
-	@if [ -f test-results/coverage-pure.txt ]; then \
-		$(GOCOV) convert test-results/coverage-pure.txt | $(GOCOV_XML) -source $(shell pwd) > test-results/coverage-pure.xml; \
-		echo "Coverage XML generated: test-results/coverage-pure.xml"; \
-	fi
-	@echo ""
-	@echo "============================================="
-	@echo "✅ JUnit XML generation completed!"
-	@echo "============================================="
-	@echo "Files generated:"
-	@echo "  - test-results/junit-pure.xml (JUnit test results)"
-	@echo "  - test-results/coverage-pure.txt (Coverage data)"
-	@echo "  - test-results/coverage-pure.xml (Cobertura coverage for Azure)"
-	@echo ""
-	@echo "Tested packages:"
-	@for pkg in $(PACKAGES); do \
-		echo "  - $$pkg"; \
-	done
+		$(addprefix ./,$(PACKAGES)) || { \
+			status=$$?; rm -f test-results/coverage-pure.txt; exit $$status; \
+		}
+
+.PHONY: report-coverage
+report-coverage:
+	@set -e; \
+	rm -f test-results/coverage-pure.xml; \
+	test -s test-results/coverage-pure.txt; \
+	$(MAKE) -f pure.mk $(GOCOV) $(GOCOV_XML); \
+	json=$$(mktemp test-results/coverage-pure-json.XXXXXX); \
+	xml=; \
+	trap 'rm -f "$$json" "$$xml"' EXIT; \
+	xml=$$(mktemp test-results/coverage-pure-xml.XXXXXX); \
+	$(GOCOV) convert test-results/coverage-pure.txt > "$$json"; \
+	$(GOCOV_XML) -source "$(CURDIR)" < "$$json" > "$$xml"; \
+	mv "$$xml" test-results/coverage-pure.xml; \
+	echo "Coverage report generated: test-results/coverage-pure.xml"
 
 # Quick check for development
 .PHONY: quick
@@ -306,6 +315,8 @@ help:
 	@echo "Available targets:"
 	@echo "  ci               - Full CI pipeline (default)"
 	@echo "  ci-report        - Check, build and test pure packages; generate CI reports"
+	@echo "  test-pure        - Run race-enabled pure tests; write JUnit and raw coverage"
+	@echo "  report-coverage  - Convert existing pure coverage without running tests"
 	@echo "  quick            - Quick validation (fmt, vet, build)"
 	@echo "  test             - Run tests with coverage"
 	@echo "  test-coverage    - Generate HTML coverage reports"
@@ -321,7 +332,7 @@ help:
 	@echo "  check-tags-test  - Test pure build-tag placement checks"
 	@echo "  mod-verify       - Verify go modules"
 	@echo "  list-packages    - List pure packages"
-	@echo "  clean            - Clean build artifacts"
+	@echo "  clean            - Clear shared Go build/test caches and package coverage"
 	@echo "  help             - Show this help"
 	@echo ""
 	@echo "Examples:"

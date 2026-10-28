@@ -171,6 +171,7 @@ stages:
         export PATH=$PATH:/usr/local/go/bin
         cd sonic-gnmi
         go mod tidy
+        python3 -m unittest discover -s tools/test -p 'test_*.py' -v
         make -f pure.mk ci-report
       displayName: 'Run pure package tests'
 
