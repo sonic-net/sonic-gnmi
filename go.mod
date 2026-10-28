@@ -7,7 +7,7 @@ require (
 	github.com/Workiva/go-datastructures v1.0.50
 	github.com/agiledragon/gomonkey/v2 v2.8.0
 	github.com/alicebob/miniredis/v2 v2.35.0
-	github.com/c9s/goprocinfo v0.0.0-20191125144613-4acdd056c72d
+	github.com/c9s/goprocinfo v0.0.0-20210130143923-c95fcf8c64a8
 	github.com/dgrijalva/jwt-go v3.2.1-0.20210802184156-9742bd7fca1c+incompatible
 	github.com/fsnotify/fsnotify v1.4.9
 	github.com/go-redis/redismock/v9 v9.2.0
