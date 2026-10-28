@@ -332,6 +332,9 @@ check_memleak: $(DBCONFG) $(ENVFILE)
 	$(SUDO_GO) CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -mod=vendor $(TEST_FLAGS) $(MEMCHECK_FLAGS) -v $(MEMLEAK_STANDARD_PKGS)
 	# sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -mod=vendor $(MEMCHECK_FLAGS) -v $(MEMLEAK_GNMI_SERVER_PKG) -run="$(MEMLEAK_TEST_PATTERN)"
 
+.PHONY: test-memleak
+test-memleak: check_memleak_junit
+
 # JUnit XML output for memory leak tests in Azure Pipelines
 .PHONY: check_memleak_junit
 check_memleak_junit: $(DBCONFG) $(ENVFILE) $(GOTESTSUM)
@@ -355,6 +358,9 @@ check_memleak_junit: $(DBCONFG) $(ENVFILE) $(GOTESTSUM)
 	@echo ""
 	@echo "Note: telemetry, sonic_data_client, and gnmi_server excluded due to libyang memory leaks"
 
+
+.PHONY: test-integration
+test-integration: check_gotest_junit
 
 # JUnit XML output for integration tests in Azure Pipelines
 .PHONY: check_gotest_junit

@@ -13,8 +13,7 @@
     "**/__fixtures__/**",
     "doc/**"
   ],
-  "gitIgnoredAuthors": ["41898282+github-actions[bot]@users.noreply.github.com"],
-  "suppressNotifications": ["artifactErrors"],
+  "suppressNotifications": ["artifactErrors", "prEditedNotification"],
   "vulnerabilityAlerts": {
     "groupName": "{{{datasource}}} security updates{{#if (or isMajor (includes (split 'github.com/antchfx/jsonquery github.com/antchfx/xmlquery github.com/antchfx/xpath github.com/fsnotify/fsnotify github.com/golang/glog github.com/google/gnxi github.com/openconfig/gnmi github.com/openconfig/goyang github.com/openconfig/ygot google.golang.org/grpc/security/advancedtls' ' ') depName))}} for {{{depName}}}{{/if}}"
   },

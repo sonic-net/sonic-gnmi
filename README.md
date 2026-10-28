@@ -62,11 +62,46 @@ You can also build a debian package and install it:
     dpkg-buildpackage -rfakeroot -b -us -uc
     popd
 
+## Testing
+
+Run `make -f pure.mk ci-report` for pure package boundary checks, compilation,
+race-enabled tests and CI report generation. Keep `sonic-mgmt-common` checked
+out beside this repository for the local module replacement.
+
+In the provisioned SONiC build environment, run `make all` first, then
+`ENABLE_TRANSLIB_WRITE=y make test-integration` or
+`ENABLE_TRANSLIB_WRITE=y make test-memleak`.
+These commands produce local reports; Azure YAML publishes them.
+The existing native `check_gotest_junit` and `check_memleak_junit`
+entrypoints remain compatible.
+
 ## Running
 * See [SONiC gRPC telemetry](./doc/grpc_telemetry.md) for how to run dial-in mode system telemetry server
 * See [SONiC telemetry in dial-out mode](./doc/dialout.md) for how to run dial-out mode system telemetry client
 * See [gNMI Usage Examples](./doc/gNMI_usage_examples.md) for gNMI client usage examples.
 * See [gNOI Debug actions](./doc/gnoi_debug.md) for the Debug RPC policy and supported actions.
+
+### gNOI file read permissions
+
+File.Get and File.Stat expose only world-readable regular files. Ancestor
+directories must be world-searchable; listing a directory also requires world
+read/search permissions. Stat listings omit private children. Missing and
+inaccessible paths return the same read denial.
+
+Resolution is bounded to raw paths shorter than 4096 bytes, 40 symlinks and
+64 descriptors per ancestor stack, plus a fixed number of anchor/target
+handles. A listing captures and validates its pinned ancestor stack once, then
+shares that immutable prefix across child lookups. Each child has independent
+traversal state and a copy of the remaining symlink budget; following links may
+retain one additional bounded ancestor stack. Entries exceeding these safety
+limits are not exposed.
+
+The check applies regardless of caller role, including when the server runs as
+root. Reads use the validated descriptor; symlink targets must remain inside
+the host filesystem view. Extended access ACLs are conservatively denied rather
+than assuming mode bits alone establish public access. Put, TransferToRemote,
+Remove, authentication and role authorization are unchanged. No managed-image
+store, helper process or companion HostService change is required.
 
 ## Streaming events
 SONiC publishes events of interest via gNMI.
