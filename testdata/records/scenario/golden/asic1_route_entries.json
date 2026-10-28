@@ -1,0 +1,50 @@
+[
+  {
+    "ts": "2026-09-27T12:00:00.150000",
+    "source": "sairedis",
+    "db": "ASIC_DB",
+    "table": "SAI_OBJECT_TYPE_ROUTE_ENTRY",
+    "key": "dest=10.1.1.0/24,nh=oid:0x4000000000a01",
+    "op": "C",
+    "fields": {
+      "SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID": "oid:0x4000000000a01",
+      "_entry": "{\"dest\":\"10.1.1.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}",
+      "_bulk_index": "0",
+      "_bulk_count": "1"
+    },
+    "status": "",
+    "matched_by": "prefix",
+    "raw": "2026-09-27.12:00:00.150000|C|SAI_OBJECT_TYPE_ROUTE_ENTRY||{\"dest\":\"10.1.1.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}|SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID=oid:0x4000000000a01"
+  },
+  {
+    "ts": "2026-09-27T12:00:01.150000",
+    "source": "sairedis",
+    "db": "ASIC_DB",
+    "table": "SAI_OBJECT_TYPE_ROUTE_ENTRY",
+    "key": "dest=10.1.1.0/24,nh=oid:0x4000000000a02",
+    "op": "s",
+    "fields": {
+      "SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID": "oid:0x4000000000a02",
+      "_entry": "{\"dest\":\"10.1.1.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}"
+    },
+    "status": "",
+    "matched_by": "prefix",
+    "raw": "2026-09-27.12:00:01.150000|s|SAI_OBJECT_TYPE_ROUTE_ENTRY:{\"dest\":\"10.1.1.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}|SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID=oid:0x4000000000a02"
+  },
+  {
+    "ts": "2026-09-27T12:00:02.150000",
+    "source": "sairedis",
+    "db": "ASIC_DB",
+    "table": "SAI_OBJECT_TYPE_ROUTE_ENTRY",
+    "key": "dest=10.1.1.0/24",
+    "op": "R",
+    "fields": {
+      "_entry": "{\"dest\":\"10.1.1.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}",
+      "_bulk_index": "0",
+      "_bulk_count": "1"
+    },
+    "status": "",
+    "matched_by": "prefix",
+    "raw": "2026-09-27.12:00:02.150000|R|SAI_OBJECT_TYPE_ROUTE_ENTRY||{\"dest\":\"10.1.1.0/24\",\"switch_id\":\"oid:0x21000000000000\",\"vr\":\"oid:0x3000000000022\"}"
+  }
+]
