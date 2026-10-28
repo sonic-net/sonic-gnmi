@@ -1,7 +1,7 @@
 # sonic-gnmi Azure Pipelines definition
 #
 # Stage layout:
-#   StaticChecks  - fast language-level checks (gofmt).
+#   StaticChecks  - fast language-level checks (gofmt and module tidiness).
 #   Test          - unit, memory-leak, and integration tests + coverage gate.
 #   Package       - produce amd64 and arm64 .deb artifacts.
 #
@@ -68,13 +68,26 @@ stages:
       clean: true
       displayName: 'Checkout code'
 
+    - checkout: sonic-mgmt-common
+      clean: true
+      displayName: 'Checkout sonic-mgmt-common'
+
     - template: .azure/templates/install-go.yml
       parameters:
         version: $(GO_VERSION)
 
     - bash: |
         set -euo pipefail
+        cd sonic-gnmi
+        go mod tidy -diff
+      env:
+        GOTOOLCHAIN: local
+      displayName: 'Check Go module tidiness (no writes)'
+
+    - bash: |
+        set -euo pipefail
         export PATH=$PATH:/usr/local/go/bin
+        cd sonic-gnmi
         mapfile -t files < <(find . -type f -name '*.go' \
             ! -path './vendor/*' ! -path './build/*' \
             ! -path './patches/*' ! -path './proto/*' \
