@@ -393,3 +393,34 @@ func TestCancelReboot_GetRedisDBClientError(t *testing.T) {
 		t.Errorf("Expected Internal, got %v", st.Code())
 	}
 }
+
+func TestKillProcessRejectsUnauthenticatedWrite(t *testing.T) {
+	srv := &Server{config: &Config{}}
+	req := &syspb.KillProcessRequest{
+		Name:   "snmp",
+		Signal: syspb.KillProcessRequest_SIGNAL_TERM,
+	}
+
+	_, err := srv.KillProcess(context.Background(), req)
+	if status.Code(err) != codes.Unauthenticated {
+		t.Errorf("KillProcess without authentication: got %v, want %v", status.Code(err), codes.Unauthenticated)
+	}
+}
+
+func TestKillProcessAllowsUnixSocketPeer(t *testing.T) {
+	patches := gomonkey.ApplyFuncReturn(KillOrRestartProcess, nil)
+	defer patches.Reset()
+
+	ctx, cancel := createUDSCtx()
+	defer cancel()
+
+	srv := &Server{config: &Config{}}
+	req := &syspb.KillProcessRequest{
+		Name:   "snmp",
+		Signal: syspb.KillProcessRequest_SIGNAL_TERM,
+	}
+
+	if _, err := srv.KillProcess(ctx, req); err != nil {
+		t.Errorf("KillProcess over the protected Unix socket should succeed: %v", err)
+	}
+}

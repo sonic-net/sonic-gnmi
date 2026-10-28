@@ -1,0 +1,17 @@
+{
+  "ACL_TABLE|DATAACL": {
+    "ports@": "Ethernet0,Ethernet4",
+    "type": "L3"
+  },
+  "BGP_NEIGHBOR|10.0.0.1": {
+    "asn": "65000",
+    "name": "leaf"
+  },
+  "DEVICE_METADATA|localhost": {
+    "hostname": "sonic",
+    "type": "ToRRouter"
+  },
+  "NTP_SERVER|10.0.0.1": {
+    "NULL": "NULL"
+  }
+}

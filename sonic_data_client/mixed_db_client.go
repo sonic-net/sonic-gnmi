@@ -21,6 +21,7 @@ import (
 	"unsafe"
 
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
@@ -131,7 +132,7 @@ func getDpuAddress(dpuId string) (string, error) {
 	// Find DPU address by DPU ID from CONFIG_DB
 	// Design doc: https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/ip-address-assigment/smart-switch-ip-address-assignment.md?plain=1
 
-	var configDbConnector = swsscommon.NewConfigDBConnector()
+	var configDbConnector = swsscommon.NewConfigDBConnector(true)
 	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 	configDbConnector.Connect(false)
 
@@ -647,13 +648,14 @@ func initRedisDbMap() {
 				return
 			}
 			// DB connector for direct redis operation
-			redisDb := redis.NewClient(&redis.Options{
+			opts := redisopts.New(redis.Options{
 				Network:     "unix",
 				Addr:        addr,
 				Password:    "", // no password set
 				DB:          int(dbn),
 				DialTimeout: 0,
 			})
+			redisDb := redis.NewClient(opts)
 			RedisDbMap[ns+":"+container+":"+dbName] = redisDb
 		}
 	}

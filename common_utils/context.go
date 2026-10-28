@@ -61,11 +61,13 @@ const (
 	DBUS_CONFIG_RELOAD
 	DBUS_STOP_SERVICE
 	DBUS_RESTART_SERVICE
+	// Retain retired file_service slots to preserve the shared-memory counter ABI.
 	DBUS_FILE_STAT
 	DBUS_FILE_DOWNLOAD
 	DBUS_FILE_REMOVE
 	DBUS_IMAGE_DOWNLOAD
 	DBUS_IMAGE_INSTALL
+	// Retain the retired image-list slot to preserve the shared-memory counter ABI.
 	DBUS_IMAGE_LIST
 	DBUS_IMAGE_ACTIVATE
 	DBUS_DOCKER_LOAD
@@ -125,10 +127,10 @@ func (c CounterType) String() string {
 		return "DBUS file stat"
 	case DBUS_FILE_DOWNLOAD:
 		return "DBUS file download"
-	case DBUS_IMAGE_DOWNLOAD:
-		return "DBUS image download"
 	case DBUS_FILE_REMOVE:
 		return "DBUS file remove"
+	case DBUS_IMAGE_DOWNLOAD:
+		return "DBUS image download"
 	case DBUS_IMAGE_INSTALL:
 		return "DBUS image install"
 	case DBUS_IMAGE_LIST:

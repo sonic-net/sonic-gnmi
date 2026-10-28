@@ -7,6 +7,37 @@
 # Go configuration
 GO ?= go
 GOROOT ?= $(shell $(GO) env GOROOT)
+PURE_CGO_ENABLED ?= 0
+RACE_CGO_ENABLED ?= 1
+PURE_TAG ?= pure
+PURE_GO_FLAGS := -tags=$(PURE_TAG)
+HOST_GOOS = $(shell $(GO) env GOHOSTOS)
+HOST_GOARCH = $(shell $(GO) env GOHOSTARCH)
+HOST_GO_ENV = GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH)
+TOOLS_BIN_DIR := $(abspath build/tools/bin)
+GOTESTSUM := $(TOOLS_BIN_DIR)/gotestsum-v1.12.3
+GOCOV := $(TOOLS_BIN_DIR)/gocov-v1.1.0
+GOCOV_XML := $(TOOLS_BIN_DIR)/gocov-xml-v1.1.0
+GOSEC := $(TOOLS_BIN_DIR)/gosec-v2.28.0
+
+$(TOOLS_BIN_DIR):
+	@mkdir -p $@
+
+$(GOTESTSUM): | $(TOOLS_BIN_DIR)
+	@$(HOST_GO_ENV) GOBIN=$(TOOLS_BIN_DIR) $(GO) install gotest.tools/gotestsum@v1.12.3
+	@mv $(TOOLS_BIN_DIR)/gotestsum $@
+
+$(GOCOV): | $(TOOLS_BIN_DIR)
+	@$(HOST_GO_ENV) GOBIN=$(TOOLS_BIN_DIR) $(GO) install github.com/axw/gocov/gocov@v1.1.0
+	@mv $(TOOLS_BIN_DIR)/gocov $@
+
+$(GOCOV_XML): | $(TOOLS_BIN_DIR)
+	@$(HOST_GO_ENV) GOBIN=$(TOOLS_BIN_DIR) $(GO) install github.com/AlekSi/gocov-xml@v1.1.0
+	@mv $(TOOLS_BIN_DIR)/gocov-xml $@
+
+$(GOSEC): | $(TOOLS_BIN_DIR)
+	@$(HOST_GO_ENV) GOBIN=$(TOOLS_BIN_DIR) $(GO) install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
+	@mv $(TOOLS_BIN_DIR)/gosec $@
 
 # Discover every package under the canonical pure roots. This makes purity a
 # path-based invariant instead of an allowlist that can omit new packages.
@@ -64,17 +95,17 @@ vet:
 	@echo "Running go vet on pure packages..."
 	@set -e; for pkg in $(PACKAGES); do \
 		echo "Vetting $$pkg..."; \
-		(cd $$pkg && $(GO) vet .); \
+		(cd $$pkg && CGO_ENABLED=$(PURE_CGO_ENABLED) $(GO) vet $(PURE_GO_FLAGS) .); \
 	done
 
 # Test - run all tests with coverage
 .PHONY: test
-test:
+test: build-test
 	@echo "Running tests for pure packages..."
 	@set -e; for pkg in $(PACKAGES); do \
 		echo ""; \
 		echo "=== Testing $$pkg ==="; \
-		(cd $$pkg && $(GO) test -gcflags="all=-N -l" -v -race -coverprofile=coverage.out -covermode=atomic .); \
+		(cd $$pkg && CGO_ENABLED=$(RACE_CGO_ENABLED) $(GO) test $(PURE_GO_FLAGS) -gcflags="all=-N -l" -v -race -coverprofile=coverage.out -covermode=atomic .); \
 		if [ -f $$pkg/coverage.out ]; then \
 			echo "Coverage for $$pkg:"; \
 			(cd $$pkg && $(GO) tool cover -func=coverage.out); \
@@ -83,12 +114,12 @@ test:
 
 # Generate coverage files for Azure pipeline integration
 .PHONY: azure-coverage
-azure-coverage:
+azure-coverage: build-test
 	@echo "Generating coverage files for Azure pipeline..."
 	@set -e; for pkg in $(PACKAGES); do \
 		echo "Testing $$pkg..."; \
 		pkgname=$$(echo $$pkg | tr '/' '-'); \
-		$(GO) test -gcflags="all=-N -l" -race -coverprofile=coverage-pure-$$pkgname.txt -covermode=atomic -v ./$$pkg; \
+		CGO_ENABLED=$(RACE_CGO_ENABLED) $(GO) test $(PURE_GO_FLAGS) -gcflags="all=-N -l" -race -coverprofile=coverage-pure-$$pkgname.txt -covermode=atomic -v ./$$pkg; \
 	done
 	@echo "Coverage files generated for Azure pipeline"
 
@@ -106,38 +137,33 @@ test-coverage: test
 
 # Generate XML coverage report for Azure pipelines
 .PHONY: coverage-xml
-coverage-xml: test
+coverage-xml: test $(GOCOV) $(GOCOV_XML)
 	@echo "Generating XML coverage report for Azure..."
-	@set -e; if command -v gocov >/dev/null 2>&1 && command -v gocov-xml >/dev/null 2>&1; then \
-		echo "Converting coverage to XML format..."; \
-		rm -f coverage-*.out; \
-		for pkg in $(PACKAGES); do \
-			if [ -f $$pkg/coverage.out ]; then \
-				pkgname=$$(echo $$pkg | tr '/' '-'); \
-				cp $$pkg/coverage.out coverage-$$pkgname.out; \
-			fi; \
-		done; \
-		if ls coverage-*.out >/dev/null 2>&1; then \
-			trap 'rm -f coverage-*.out coverage-pure.json' EXIT; \
-			gocov convert coverage-*.out > coverage-pure.json; \
-			gocov-xml -source $(shell pwd) < coverage-pure.json > coverage.xml; \
-			echo "XML coverage report generated: coverage.xml"; \
-		else \
-			echo "No coverage files found"; \
+	@set -e; echo "Converting coverage to XML format..."; \
+	 rm -f coverage-*.out; \
+	 for pkg in $(PACKAGES); do \
+		if [ -f $$pkg/coverage.out ]; then \
+			pkgname=$$(echo $$pkg | tr '/' '-'); \
+			cp $$pkg/coverage.out coverage-$$pkgname.out; \
 		fi; \
-	else \
-		echo "Warning: gocov and gocov-xml not available"; \
-		echo "Install with: go install github.com/axw/gocov/gocov@latest"; \
-		echo "              go install github.com/AlekSi/gocov-xml@latest"; \
+	 done; \
+	 if ls coverage-*.out >/dev/null 2>&1; then \
+		trap 'rm -f coverage-*.out coverage-pure.json' EXIT; \
+		$(GOCOV) convert coverage-*.out > coverage-pure.json; \
+		$(GOCOV_XML) -source $(shell pwd) < coverage-pure.json > coverage.xml; \
+		echo "XML coverage report generated: coverage.xml"; \
+	 else \
+		echo "No coverage files found"; \
 	fi
 
 # Build test - ensure the package builds
 .PHONY: build-test
 build-test:
-	@echo "Testing build of pure packages..."
+	@echo "Testing build of pure packages and tests..."
 	@set -e; for pkg in $(PACKAGES); do \
 		echo "Building $$pkg..."; \
-		(cd $$pkg && $(GO) build -v .); \
+		(cd $$pkg && CGO_ENABLED=$(PURE_CGO_ENABLED) $(GO) build $(PURE_GO_FLAGS) -v .); \
+		(cd $$pkg && CGO_ENABLED=$(PURE_CGO_ENABLED) $(GO) test $(PURE_GO_FLAGS) -c -o /dev/null .); \
 	done
 
 # Lint check using basic go tools
@@ -151,7 +177,7 @@ bench:
 	@echo "Running benchmarks for pure packages..."
 	@set -e; for pkg in $(PACKAGES); do \
 		echo "Benchmarking $$pkg..."; \
-		(cd $$pkg && $(GO) test -bench=. -benchmem .); \
+		(cd $$pkg && CGO_ENABLED=$(PURE_CGO_ENABLED) $(GO) test $(PURE_GO_FLAGS) -bench=. -benchmem .); \
 	done
 
 # Module verification
@@ -166,21 +192,38 @@ mod-verify:
 		echo "Go modules are clean"; \
 	fi
 
-# Security scan using gosec if available
+# Security scan using the pinned gosec tool
 .PHONY: security
-security:
+security: $(GOSEC)
 	@echo "Running security scan on pure packages..."
-	@set -e; if command -v gosec >/dev/null 2>&1; then \
-		for pkg in $(PACKAGES); do \
-			echo "Scanning $$pkg..."; \
-			(cd $$pkg && gosec .); \
-		done; \
-	else \
-		echo "gosec not available, skipping security scan"; \
-		echo "Install with: go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest"; \
-	fi
+	@set -e; for pkg in $(PACKAGES); do \
+		echo "Scanning $$pkg..."; \
+		(cd $$pkg && $(GOSEC) -tags=$(PURE_TAG) .); \
+	done
 
-# List vanilla packages
+# Keep pure build constraints under internal/adaptors rather than business logic.
+.PHONY: check-tags
+check-tags:
+	@echo "Checking pure build-tag placement..."
+	@set -e; \
+	files=$$(find $(PURE_ROOTS) -type f -name '*.go' -exec grep -El '^[[:blank:]]*//(go:build[[:blank:]]+|[[:blank:]]*\+build[[:blank:]]+).*pure' {} + 2>/dev/null || true); \
+	for file in $$files; do \
+		case "$$file" in \
+			internal/adaptors/*/provider_*.go) \
+				relative=$${file#internal/adaptors/}; \
+				case "$$relative" in */*/*) ;; *) continue ;; esac; \
+				;; \
+		esac; \
+		echo "Pure build tag is outside a direct internal adaptor provider: $$file"; \
+		exit 1; \
+	done
+	@echo "Pure build-tag placement is clean."
+
+.PHONY: check-tags-test
+check-tags-test:
+	python3 tools/test/test_pure_tags.py
+
+# List pure packages
 .PHONY: list-packages
 list-packages:
 	@echo "Pure packages:"
@@ -196,7 +239,7 @@ list-packages:
 
 # Full CI pipeline
 .PHONY: ci
-ci: clean lint build-test test
+ci: clean check-tags check-tags-test lint build-test test
 	@echo ""
 	@echo "============================================="
 	@echo "✅ Pure CI completed successfully!"
@@ -215,35 +258,21 @@ ci: clean lint build-test test
 	@echo "This validates that these packages can be developed"
 	@echo "and tested without SONiC/CGO dependencies."
 
-# JUnit XML output for Azure Pipelines test reporting
-# Note: The Azure pipeline now calls gotestsum directly with set -euo pipefail
-# This target is kept for local testing convenience
-.PHONY: junit-xml
-junit-xml: clean
-	@echo "Installing gotestsum for JUnit XML generation..."
-	@if ! command -v gotestsum >/dev/null 2>&1; then \
-		$(GO) install gotest.tools/gotestsum@v1.12.3; \
-	fi
-	@echo "Installing gocov tools for coverage conversion..."
-	@if ! command -v gocov >/dev/null 2>&1; then \
-		$(GO) install github.com/axw/gocov/gocov@v1.1.0; \
-	fi
-	@if ! command -v gocov-xml >/dev/null 2>&1; then \
-		$(GO) install github.com/AlekSi/gocov-xml@v1.1.0; \
-	fi
+# Complete pure CI checks, test execution and report generation.
+.PHONY: ci-report
+ci-report: clean check-tags check-tags-test build-test
+	@$(MAKE) -f pure.mk $(GOTESTSUM) $(GOCOV) $(GOCOV_XML)
 	@echo "Running pure package tests with JUnit XML output..."
 	@mkdir -p test-results
-	@export PATH=$(PATH):$(shell $(GO) env GOPATH)/bin && \
-	gotestsum --junitfile test-results/junit-pure.xml \
+	@CGO_ENABLED=$(RACE_CGO_ENABLED) $(GOTESTSUM) --junitfile test-results/junit-pure.xml \
 		--format testname \
-		-- -gcflags="all=-N -l" -v -race \
+		-- $(PURE_GO_FLAGS) -gcflags="all=-N -l" -v -race \
 		-coverprofile=test-results/coverage-pure.txt \
 		-covermode=atomic \
 		$(addprefix ./,$(PACKAGES))
 	@echo "Converting coverage to Cobertura XML format..."
-	@export PATH=$(PATH):$(shell $(GO) env GOPATH)/bin && \
-	if [ -f test-results/coverage-pure.txt ]; then \
-		gocov convert test-results/coverage-pure.txt | gocov-xml -source $(shell pwd) > test-results/coverage-pure.xml; \
+	@if [ -f test-results/coverage-pure.txt ]; then \
+		$(GOCOV) convert test-results/coverage-pure.txt | $(GOCOV_XML) -source $(shell pwd) > test-results/coverage-pure.xml; \
 		echo "Coverage XML generated: test-results/coverage-pure.xml"; \
 	fi
 	@echo ""
@@ -262,7 +291,7 @@ junit-xml: clean
 
 # Quick check for development
 .PHONY: quick
-quick: fmt-check vet build-test
+quick: check-tags check-tags-test fmt-check vet build-test
 	@echo "Quick validation complete for pure packages"
 
 # Help target
@@ -276,7 +305,7 @@ help:
 	@echo ""
 	@echo "Available targets:"
 	@echo "  ci               - Full CI pipeline (default)"
-	@echo "  junit-xml        - Generate JUnit XML for Azure Pipelines"
+	@echo "  ci-report        - Check, build and test pure packages; generate CI reports"
 	@echo "  quick            - Quick validation (fmt, vet, build)"
 	@echo "  test             - Run tests with coverage"
 	@echo "  test-coverage    - Generate HTML coverage reports"
@@ -287,7 +316,9 @@ help:
 	@echo "  lint             - Run linting checks"
 	@echo "  build-test       - Test package builds"
 	@echo "  bench            - Run benchmarks"
-	@echo "  security         - Run security scan (requires gosec)"
+	@echo "  security         - Run security scan"
+	@echo "  check-tags       - Restrict pure tags to internal adaptors"
+	@echo "  check-tags-test  - Test pure build-tag placement checks"
 	@echo "  mod-verify       - Verify go modules"
 	@echo "  list-packages    - List pure packages"
 	@echo "  clean            - Clean build artifacts"

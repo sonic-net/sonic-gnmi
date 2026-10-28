@@ -1841,6 +1841,72 @@ func TestTableData2Msi_SkipsEmptyData(t *testing.T) {
 	})
 }
 
+func TestTableData2TypedValue_ConfigDBWildcardPreservesTables(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+
+	rclient := Target2RedisDb[""]["CONFIG_DB"]
+	rclient.HSet(context.Background(), "DEVICE_METADATA|localhost", "hostname", "sonic")
+	rclient.HSet(context.Background(), "PORT|Ethernet0", "admin_status", "up", "lanes@", "1,2")
+	rclient.HSet(context.Background(), "NTP_SERVER|10.0.0.1", "NULL", "NULL")
+	rclient.Set(context.Background(), "CONFIG_DB_INITIALIZED", "1", 0)
+
+	tblPath := tablePath{dbNamespace: "", dbName: "CONFIG_DB", tableName: "*", delimitor: "|"}
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "*"}}}
+	client := DbClient{
+		pathG2S:                map[*gnmipb.Path][]tablePath{path: {tblPath}},
+		preserveConfigDBTables: true,
+	}
+	values, err := client.Get(nil)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if len(values) != 1 {
+		t.Fatalf("Get() returned %d values, want 1", len(values))
+	}
+	var got map[string]interface{}
+	if err := json.Unmarshal(values[0].GetVal().GetJsonIetfVal(), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	want := map[string]interface{}{
+		"DEVICE_METADATA": map[string]interface{}{
+			"localhost": map[string]interface{}{"hostname": "sonic"},
+		},
+		"PORT": map[string]interface{}{
+			"Ethernet0": map[string]interface{}{
+				"admin_status": "up",
+				"lanes":        []interface{}{"1", "2"},
+			},
+		},
+		"NTP_SERVER": map[string]interface{}{
+			"10.0.0.1": map[string]interface{}{},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tableData2TypedValue() = %#v, want %#v", got, want)
+	}
+}
+
+func TestDbClientGet_ConfigDBWildcardLegacyBehavior(t *testing.T) {
+	cleanup := setupTestTarget2RedisDb(t)
+	defer cleanup()
+
+	rclient := Target2RedisDb[""]["CONFIG_DB"]
+	rclient.HSet(context.Background(), "PORT|Ethernet0", "admin_status", "up")
+
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "*"}}}
+	tblPath := tablePath{dbNamespace: "", dbName: "CONFIG_DB", tableName: "*", delimitor: "|"}
+	client := DbClient{pathG2S: map[*gnmipb.Path][]tablePath{path: {tblPath}}}
+	values, err := client.Get(nil)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got := string(values[0].GetVal().GetJsonIetfVal()); got != `{"Ethernet0":{"admin_status":"up"}}` {
+		t.Fatalf("legacy Get() = %s", got)
+	}
+}
+
 func TestSubscribeTableData2TypedValue(t *testing.T) {
 	cleanup := setupTestTarget2RedisDb(t)
 	defer cleanup()
