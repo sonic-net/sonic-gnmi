@@ -4,24 +4,25 @@
 # runs go mod tidy, and commits the result to the Renovate branch.
 #
 # The commit is made through the GitHub API, so GitHub signs it; the merge robot
-# merges a Renovate PR only when every commit on it is signed by GitHub. It is
-# authored as github-actions[bot], which renovate.json lists in gitIgnoredAuthors
-# so Renovate keeps managing the branch. A commit made with GITHUB_TOKEN starts
-# no workflow runs, so CodeQL and Semgrep are dispatched on the new commit;
-# workflow_dispatch is the exception to that rule.
+# merges a Renovate PR only when every commit on it is signed by GitHub. A commit
+# made with GITHUB_TOKEN starts no workflow runs, so CodeQL and Semgrep are
+# dispatched on the new commit; workflow_dispatch is the exception to that rule.
+#
+# The commit is authored as github-actions[bot], so Renovate treats the branch
+# as edited and stops updating it. Renovate checks a branch it still manages
+# against its own update, finding each dependency by its line number in the
+# base branch's go.mod, and rebuilds the branch when a tidy has moved lines;
+# the rebuilt branch would start this job again, in a loop. Renovate rebuilds
+# an edited branch only when someone ticks the rebase box on the PR.
 #
 # The job fails, and commits nothing, when tidy would not keep a requirement
 # Renovate changed, or would bring back a module Renovate removed: a major
 # update whose import paths the code does not use yet, for example. Committing
-# that would undo the update, and Renovate would push it again, in a loop.
+# that would undo the update.
 #
-# It also fails, and commits nothing, when Renovate has twice in a row replaced
-# the fixup with the same content it had before; once can be a rebase someone
-# asked for. Renovate rebuilds its branch when it
-# cannot apply its update to the branch as it stands: it finds each dependency
-# by its line number in the base branch's go.mod, so a tidy that moves lines,
-# on a base branch whose go.mod is not tidy, makes it rebuild the branch on
-# every run. Committing again would start that loop over.
+# As a backstop, it also fails, and commits nothing, when Renovate has twice in
+# a row replaced the fixup with the same content it had before; once can be a
+# rebase someone asked for. Committing again would start a loop.
 
 name: Renovate go.sum
 
