@@ -18,6 +18,8 @@ func TestPureProviderConfigurationErrors(t *testing.T) {
 	}{
 		{name: "missing", want: "read database configuration"},
 		{name: "malformed", config: "{", want: "parse database configuration"},
+		{name: "boolean id", config: `{"DATABASES":{"CONFIG_DB":{"instance":"redis","id":true,"separator":"|"}}}`, want: "parse database configuration"},
+		{name: "boolean port", config: `{"INSTANCES":{"redis":{"hostname":"localhost","port":true}},"DATABASES":{"CONFIG_DB":{"instance":"redis","id":4,"separator":"|"}}}`, want: "parse database configuration"},
 		{name: "includes", config: `{"INCLUDES":["other.json"]}`, want: "INCLUDES"},
 		{name: "global", config: "{}", global: true, want: "global database configuration"},
 	} {

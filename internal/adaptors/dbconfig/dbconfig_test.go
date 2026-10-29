@@ -117,7 +117,8 @@ func TestProviderRejectsInvalidRequiredFields(t *testing.T) {
 				case "null":
 					fields[field.name] = nil
 				case "wrong type":
-					fields[field.name] = true
+					// SWSS converts booleans to integers; objects are invalid in both providers.
+					fields[field.name] = map[string]interface{}{}
 				}
 				data, err := json.Marshal(config)
 				if err != nil {
