@@ -42,7 +42,10 @@ require (
 	oras.land/oras-go/v2 v2.6.2
 )
 
-require golang.org/x/time v0.11.0
+require (
+	golang.org/x/sys v0.47.0
+	golang.org/x/time v0.11.0
+)
 
 require (
 	cel.dev/expr v0.25.1 // indirect
@@ -68,7 +71,6 @@ require (
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go4.org/intern v0.0.0-20211027215823-ae77deb06f29 // indirect
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/text v0.39.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260414002931-afd174a4e478 // indirect

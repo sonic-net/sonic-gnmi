@@ -258,11 +258,9 @@ ci: clean check-tags check-tags-test lint build-test test
 	@echo "This validates that these packages can be developed"
 	@echo "and tested without SONiC/CGO dependencies."
 
-# JUnit XML output for Azure Pipelines test reporting
-# Note: The Azure pipeline now calls gotestsum directly with set -euo pipefail
-# This target is kept for local testing convenience
-.PHONY: junit-xml
-junit-xml: clean check-tags check-tags-test build-test
+# Complete pure CI checks, test execution and report generation.
+.PHONY: ci-report
+ci-report: clean check-tags check-tags-test build-test
 	@$(MAKE) -f pure.mk $(GOTESTSUM) $(GOCOV) $(GOCOV_XML)
 	@echo "Running pure package tests with JUnit XML output..."
 	@mkdir -p test-results
@@ -307,7 +305,7 @@ help:
 	@echo ""
 	@echo "Available targets:"
 	@echo "  ci               - Full CI pipeline (default)"
-	@echo "  junit-xml        - Generate JUnit XML for Azure Pipelines"
+	@echo "  ci-report        - Check, build and test pure packages; generate CI reports"
 	@echo "  quick            - Quick validation (fmt, vet, build)"
 	@echo "  test             - Run tests with coverage"
 	@echo "  test-coverage    - Generate HTML coverage reports"
