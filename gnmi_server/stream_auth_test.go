@@ -1,7 +1,6 @@
 package gnmi
 
 import (
-	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -193,24 +192,4 @@ func TestMonitorAuthenticationStopsCleanly(t *testing.T) {
 		t.Fatalf("stopping periodic authentication reported error %v", err)
 	default:
 	}
-}
-func TestCloseCancelsSubscriptionBeforeWaitingForPollSenders(t *testing.T) {
-	client := NewClient(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	client.cancelSubscription = cancel
-	client.pollStop = make(chan struct{})
-	client.pollSenders.Add(1)
-	go func() {
-		<-ctx.Done()
-		client.pollSenders.Done()
-	}()
-	done := make(chan struct{})
-	go func() { client.Close(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("Close waited for poll senders before cancelling subscription reads")
-	}
-	client.Close() // Cancellation and resource closure remain idempotent.
 }

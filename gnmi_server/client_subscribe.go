@@ -1,7 +1,6 @@
 package gnmi
 
 import (
-	"context"
 	"fmt"
 	"github.com/Workiva/go-datastructures/queue"
 	log "github.com/golang/glog"
@@ -41,7 +40,6 @@ type Client struct {
 	once                     chan struct{}
 	mu                       sync.RWMutex
 	closed                   bool
-	cancelSubscription       context.CancelFunc
 	q                        *queue.PriorityQueue
 	subscribe                *gnmipb.SubscriptionList
 	// Wait for all sub go routine to finish
@@ -245,17 +243,6 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 		return err
 	}
 
-	if contextual, ok := dc.(interface{ SetSubscriptionContext(context.Context) }); ok {
-		subscriptionContext, cancel := context.WithCancel(stream.Context())
-		defer cancel()
-		c.mu.Lock()
-		c.cancelSubscription = cancel
-		if c.closed {
-			cancel()
-		}
-		c.mu.Unlock()
-		contextual.SetSubscriptionContext(subscriptionContext)
-	}
 	switch mode {
 	case gnmipb.SubscriptionList_STREAM:
 		c.stop = make(chan struct{}, 1)
@@ -312,9 +299,6 @@ func (c *Client) Close() {
 		return
 	}
 	c.closed = true
-	if c.cancelSubscription != nil {
-		c.cancelSubscription()
-	}
 	if c.q != nil {
 		if !c.q.Disposed() {
 			c.q.Dispose()
