@@ -1,0 +1,22 @@
+{
+    "INSTANCES": {
+        "standalone": {
+            "hostname": "db.example",
+            "port": 6388,
+            "unix_socket_path": "/tmp/standalone-redis.sock"
+        }
+    },
+    "DATABASES": {
+        "CONFIG_DB": {
+            "id": 42,
+            "separator": "~",
+            "instance": "standalone"
+        },
+        "STATE_DB": {
+            "id": 43,
+            "separator": "^",
+            "instance": "standalone"
+        }
+    },
+    "VERSION": "1.0"
+}
