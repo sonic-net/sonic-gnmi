@@ -12,9 +12,14 @@ on:
       - 'master'
       - '202[0-9][0-9][0-9]'
   workflow_dispatch:
+    inputs:
+      build_branch:
+        description: 'Branch of sonic-mgmt-common to build against, when the dispatched ref has no counterpart there'
+        required: false
+        type: string
 
 env:
-  BUILD_BRANCH: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.ref || github.ref_name }}
+  BUILD_BRANCH: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.ref || inputs.build_branch || github.ref_name }}
 
 
 jobs:
