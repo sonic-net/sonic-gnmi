@@ -285,10 +285,10 @@ test-pure:
 
 .PHONY: report-coverage
 report-coverage:
+	@rm -f test-results/coverage-pure.xml
+	@test -s test-results/coverage-pure.txt
+	@$(MAKE) -f pure.mk $(GOCOV) $(GOCOV_XML)
 	@set -e; \
-	rm -f test-results/coverage-pure.xml; \
-	test -s test-results/coverage-pure.txt; \
-	$(MAKE) -f pure.mk $(GOCOV) $(GOCOV_XML); \
 	json=$$(mktemp test-results/coverage-pure-json.XXXXXX); \
 	xml=; \
 	trap 'rm -f "$$json" "$$xml"' EXIT; \
