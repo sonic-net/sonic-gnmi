@@ -1,6 +1,7 @@
 package dbconfig
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -87,6 +88,67 @@ func TestDefaultTargetDoesNotInitializeProvider(t *testing.T) {
 	t.Setenv("DB_CONFIG_PATH", filepath.Join(t.TempDir(), "missing.json"))
 	if namespace, found, err := GetDbNamespaceFromTarget(""); err != nil || !found || namespace != "" {
 		t.Errorf("GetDbNamespaceFromTarget(default) = %q, %t, %v; want default, true, nil", namespace, found, err)
+	}
+}
+
+func TestProviderRejectsInvalidRequiredFields(t *testing.T) {
+	for _, field := range []struct {
+		section string
+		object  string
+		name    string
+	}{
+		{"INSTANCES", "redis", "hostname"},
+		{"INSTANCES", "redis", "port"},
+		{"DATABASES", "CONFIG_DB", "instance"},
+		{"DATABASES", "CONFIG_DB", "id"},
+		{"DATABASES", "CONFIG_DB", "separator"},
+	} {
+		for _, invalid := range []string{"missing", "null", "wrong type"} {
+			t.Run(field.name+"/"+invalid, func(t *testing.T) {
+				path := useConfig(t)
+				config := map[string]map[string]map[string]interface{}{
+					"INSTANCES": {"redis": {"hostname": "db.example", "port": 6388}},
+					"DATABASES": {"CONFIG_DB": {"instance": "redis", "id": 0, "separator": "~"}},
+				}
+				fields := config[field.section][field.object]
+				switch invalid {
+				case "missing":
+					delete(fields, field.name)
+				case "null":
+					fields[field.name] = nil
+				case "wrong type":
+					fields[field.name] = true
+				}
+				data, err := json.Marshal(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := DbInit(); err == nil {
+					t.Error("DbInit() accepted an invalid required field")
+				}
+			})
+		}
+	}
+}
+
+func TestProviderAcceptsZeroIDWithoutSocket(t *testing.T) {
+	path := useConfig(t)
+	data := `{"INSTANCES":{"redis":{"hostname":"db.example","port":6388}},
+		"DATABASES":{"APPL_DB":{"instance":"redis","id":0,"separator":":"}}}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := GetDbId("APPL_DB", ""); err != nil || got != 0 {
+		t.Fatalf("GetDbId() = %d, %v; want 0, nil", got, err)
+	}
+	if got, err := GetDbSock("APPL_DB", ""); err != nil || got != "" {
+		t.Errorf("GetDbSock() = %q, %v; want empty, nil", got, err)
+	}
+	if got, err := GetDbTcpAddr("APPL_DB", ""); err != nil || got != "db.example:6388" {
+		t.Errorf("GetDbTcpAddr() = %q, %v; want db.example:6388, nil", got, err)
 	}
 }
 

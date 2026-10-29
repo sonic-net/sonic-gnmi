@@ -45,7 +45,7 @@ func TestPureProviderConfigurationErrors(t *testing.T) {
 
 func TestPureProviderRejectsMissingInstance(t *testing.T) {
 	config := useConfig(t)
-	data := `{"DATABASES":{"CONFIG_DB":{"instance":"missing"}}}`
+	data := `{"DATABASES":{"CONFIG_DB":{"instance":"missing","id":4,"separator":"|"}}}`
 	if err := os.WriteFile(config, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}

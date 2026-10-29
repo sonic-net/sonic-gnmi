@@ -23,15 +23,15 @@ type databaseConfig struct {
 }
 
 type instanceConfig struct {
-	Hostname       string `json:"hostname"`
-	Port           int    `json:"port"`
-	UnixSocketPath string `json:"unix_socket_path"`
+	Hostname       *string `json:"hostname"`
+	Port           *int    `json:"port"`
+	UnixSocketPath string  `json:"unix_socket_path"`
 }
 
 type databaseEntry struct {
-	ID        int    `json:"id"`
-	Separator string `json:"separator"`
-	Instance  string `json:"instance"`
+	ID        *int    `json:"id"`
+	Separator *string `json:"separator"`
+	Instance  *string `json:"instance"`
 }
 
 func (p *fileProvider) initialize() error {
@@ -50,6 +50,16 @@ func (p *fileProvider) initialize() error {
 	}
 	if len(config.Includes) > 0 {
 		return fmt.Errorf("database configuration INCLUDES are not supported by the pure provider")
+	}
+	for name, instance := range config.Instances {
+		if instance.Hostname == nil || instance.Port == nil {
+			return fmt.Errorf("instance %q requires hostname and port", name)
+		}
+	}
+	for name, entry := range config.Databases {
+		if entry.ID == nil || entry.Separator == nil || entry.Instance == nil {
+			return fmt.Errorf("database %q requires id, separator and instance", name)
+		}
 	}
 	p.config = config
 	return nil
@@ -81,7 +91,7 @@ func (p *fileProvider) dbID(name, namespace string) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	return entry.ID, nil
+	return *entry.ID, nil
 }
 
 func (p *fileProvider) dbSeparator(name, namespace string) (string, error) {
@@ -89,7 +99,7 @@ func (p *fileProvider) dbSeparator(name, namespace string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return entry.Separator, nil
+	return *entry.Separator, nil
 }
 
 func (p *fileProvider) dbSocket(name, namespace string) (string, error) {
@@ -105,7 +115,7 @@ func (p *fileProvider) dbHostname(name, namespace string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return instance.Hostname, nil
+	return *instance.Hostname, nil
 }
 
 func (p *fileProvider) dbPort(name, namespace string) (int, error) {
@@ -113,7 +123,7 @@ func (p *fileProvider) dbPort(name, namespace string) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	return instance.Port, nil
+	return *instance.Port, nil
 }
 
 func (p *fileProvider) lookup(name, namespace string) (databaseEntry, instanceConfig, error) {
@@ -124,9 +134,9 @@ func (p *fileProvider) lookup(name, namespace string) (databaseEntry, instanceCo
 	if !ok {
 		return databaseEntry{}, instanceConfig{}, fmt.Errorf("database %q not present in standalone database configuration", name)
 	}
-	instance, ok := p.config.Instances[entry.Instance]
+	instance, ok := p.config.Instances[*entry.Instance]
 	if !ok {
-		return databaseEntry{}, instanceConfig{}, fmt.Errorf("instance %q for database %q not present in standalone database configuration", entry.Instance, name)
+		return databaseEntry{}, instanceConfig{}, fmt.Errorf("instance %q for database %q not present in standalone database configuration", *entry.Instance, name)
 	}
 	return entry, instance, nil
 }
