@@ -359,6 +359,20 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 	c.channel = poll
 
 	prevUpdates := make(map[string]bool)
+	// SID wildcard paths may resolve to no OIDs when the subscription starts.
+	// Keep their logical paths so each Poll can use the current mapping without
+	// changing the subscription's shared pathG2S or other virtual datasets.
+	sidPaths := make(map[*gnmipb.Path][]string)
+	for path := range c.pathG2S {
+		if c.prefix.GetTarget() != "COUNTERS_DB" || c.prefix.GetOrigin() != "" || path.GetOrigin() != "" {
+			continue
+		}
+		elems := gnmiFullPath(c.prefix, path).GetElem()
+		if len(elems) == 2 && elems[0].GetName() == "COUNTERS" &&
+			(elems[1].GetName() == "SID*" || elems[1].GetName() == "SID:*") {
+			sidPaths[path] = []string{"COUNTERS_DB", "COUNTERS", elems[1].GetName()}
+		}
+	}
 
 	for {
 		_, more := <-c.channel
@@ -369,6 +383,14 @@ func (c *DbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.W
 		t1 := time.Now()
 
 		for gnmiPath, tblPaths := range c.pathG2S {
+			if sidPath, ok := sidPaths[gnmiPath]; ok {
+				var err error
+				tblPaths, err = v2rSRv6SidStats(sidPath)
+				if err != nil {
+					enqueueFatalMsg(c, err.Error())
+					return
+				}
+			}
 			pathKey := fmt.Sprintf("%v", gnmiPath)
 			val, err, updateReceived := subscribeTableData2TypedValue(tblPaths, nil)
 			if !updateReceived { // No updates sent for missing data
