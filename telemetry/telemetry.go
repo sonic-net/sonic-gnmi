@@ -342,16 +342,13 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	if !*telemetryCfg.Insecure {
 		cfg.GetOptions = gnmi.SrvAdvConfig
 	}
-	if telemetryCfg.UserAuth.Enabled("cert") && (*telemetryCfg.NoTLS || *telemetryCfg.CaCert == "") {
-		telemetryCfg.UserAuth.Unset("cert")
-		tcpEnabled := cfg.Port > 0 || (cfg.Port == 0 && cfg.UnixSocket == "")
-		if *telemetryCfg.NoTLS && tcpEnabled && !telemetryCfg.UserAuth.Any() {
-			return nil, nil, fmt.Errorf(
-				"--client_auth cert cannot authenticate a --noTLS TCP listener; " +
-					"configure password or jwt authentication, use --port 0 for UDS-only access, " +
-					"or explicitly select --client_auth none for unauthenticated development")
+	if telemetryCfg.UserAuth.Enabled("cert") {
+		if *telemetryCfg.NoTLS {
+			log.Warning("client_auth mode cert requires TLS. Keeping cert mode enabled; certificate authentication will reject noTLS TCP requests.")
+		} else if *telemetryCfg.CaCert == "" {
+			telemetryCfg.UserAuth.Unset("cert")
+			log.Warning("client_auth mode cert requires ca_crt. Disabling cert mode authentication.")
 		}
-		log.Warning("client_auth mode cert requires TLS and ca_crt. Disabling cert mode authentication.")
 	}
 	cfg.UserAuth = telemetryCfg.UserAuth
 
