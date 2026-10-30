@@ -34,8 +34,6 @@ type Service interface {
 	StopService(service string) error
 	RestartService(service string) error
 	// Image services APIs
-	DownloadImage(url string, save_as string) error
-	InstallImage(where string) error
 	ActivateImage(image string) error
 	FactoryReset(cmd string) (string, error)
 	//Healthz Service APIs
@@ -250,26 +248,6 @@ func (c *DbusClient) RestartService(service string) error {
 	busPath := c.busPathPrefix + modName
 	intName := c.intNamePrefix + modName + ".restart_service"
 	_, err := DbusApi(busName, busPath, intName, 240, service)
-	return err
-}
-
-func (c *DbusClient) DownloadImage(url string, save_as string) error {
-	common_utils.IncCounter(common_utils.DBUS_IMAGE_DOWNLOAD)
-	modName := "image_service"
-	busName := c.busNamePrefix + modName
-	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".download"
-	_, err := DbusApi(busName, busPath, intName /*timeout=*/, 900, url, save_as)
-	return err
-}
-
-func (c *DbusClient) InstallImage(where string) error {
-	common_utils.IncCounter(common_utils.DBUS_IMAGE_INSTALL)
-	modName := "image_service"
-	busName := c.busNamePrefix + modName
-	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".install"
-	_, err := DbusApi(busName, busPath, intName /*timeout=*/, 900, where)
 	return err
 }
 

@@ -12,20 +12,18 @@ type FakeClient struct {
 	Command         chan []string
 }
 
-func (f *FakeClient) Close() error                                   { return nil }
-func (f *FakeClient) ConfigReload(fileName string) error             { return nil }
-func (f *FakeClient) ConfigReplace(fileName string) error            { return nil }
-func (f *FakeClient) ConfigSave(fileName string) error               { return nil }
-func (f *FakeClient) ApplyPatchYang(fileName string) error           { return nil }
-func (f *FakeClient) ApplyPatchDb(fileName string) error             { return nil }
-func (f *FakeClient) CreateCheckPoint(cpName string) error           { return nil }
-func (f *FakeClient) DeleteCheckPoint(cpName string) error           { return nil }
-func (f *FakeClient) StopService(service string) error               { return nil }
-func (f *FakeClient) RestartService(service string) error            { return nil }
-func (f *FakeClient) DownloadImage(url string, save_as string) error { return nil }
-func (f *FakeClient) InstallImage(where string) error                { return nil }
-func (f *FakeClient) ActivateImage(image string) error               { return nil }
-func (f *FakeClient) LoadDockerImage(image string) error             { return nil }
+func (f *FakeClient) Close() error                         { return nil }
+func (f *FakeClient) ConfigReload(fileName string) error   { return nil }
+func (f *FakeClient) ConfigReplace(fileName string) error  { return nil }
+func (f *FakeClient) ConfigSave(fileName string) error     { return nil }
+func (f *FakeClient) ApplyPatchYang(fileName string) error { return nil }
+func (f *FakeClient) ApplyPatchDb(fileName string) error   { return nil }
+func (f *FakeClient) CreateCheckPoint(cpName string) error { return nil }
+func (f *FakeClient) DeleteCheckPoint(cpName string) error { return nil }
+func (f *FakeClient) StopService(service string) error     { return nil }
+func (f *FakeClient) RestartService(service string) error  { return nil }
+func (f *FakeClient) ActivateImage(image string) error     { return nil }
+func (f *FakeClient) LoadDockerImage(image string) error   { return nil }
 func (f *FakeClient) FactoryReset(cmd string) (string, error) {
 	if cmd == "" {
 		return "", errors.New("Previous reset is ongoing")
