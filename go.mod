@@ -31,10 +31,10 @@ require (
 	github.com/pkg/sftp v1.13.11
 	github.com/redis/go-redis/v9 v9.14.1
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/crypto v0.54.0
-	golang.org/x/net v0.55.0
+	golang.org/x/crypto v0.56.0
+	golang.org/x/net v0.62.0
 	golang.org/x/term v0.43.0
-	google.golang.org/grpc v1.82.1
+	google.golang.org/grpc v1.83.1
 	google.golang.org/grpc/security/advancedtls v1.0.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v2 v2.4.0
@@ -72,7 +72,7 @@ require (
 	go4.org/intern v0.0.0-20211027215823-ae77deb06f29 // indirect
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
 	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/text v0.39.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260414002931-afd174a4e478 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect
 	inet.af/netaddr v0.0.0-20230525184311-b8eac61e914a // indirect
@@ -83,8 +83,8 @@ replace (
 	// Glog patch needs to be updated to remove this.
 	github.com/golang/glog => github.com/golang/glog v1.2.4
 	github.com/openconfig/gnmi => github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
-	golang.org/x/crypto => golang.org/x/crypto v0.52.0
+	golang.org/x/crypto => golang.org/x/crypto v0.56.0
 	golang.org/x/sys => golang.org/x/sys v0.45.0
-	google.golang.org/grpc => google.golang.org/grpc v1.82.1
+	google.golang.org/grpc => google.golang.org/grpc v1.83.1
 	google.golang.org/protobuf => google.golang.org/protobuf v1.36.11
 )
