@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -337,6 +338,43 @@ func TestNewRepositoryWiresCredential(t *testing.T) {
 	}
 	if c := repo2.Client.(*auth.Client).Credential; c != nil {
 		t.Errorf("expected nil Credential for anonymous, got non-nil")
+	}
+}
+
+// TestNewRepositoryBoundsRedirects guards against a redirect loop making
+// unbounded registry requests: ORAS v2.6.2 replaces a nil CheckRedirect with
+// one that never stops, so newRepository must install its own limit.
+func TestNewRepositoryBoundsRedirects(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := requests.Add(1)
+		http.Redirect(w, r, fmt.Sprintf("/v2/ns/repo/manifests/loop-%d", n), http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	repo, err := newRepository(&oraspb.PullRequest{
+		Registry:   registryHost(t, srv),
+		Repository: "ns/repo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.PlainHTTP = true
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err = repo.Resolve(ctx, "v1")
+	if err == nil {
+		t.Fatal("expected redirect-limit error, got nil")
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("redirect loop was stopped by context, not by the redirect limit: %v", err)
+	}
+	if !strings.Contains(err.Error(), "stopped after 10 redirects") {
+		t.Errorf("expected redirect-limit error, got %v", err)
+	}
+	if got := requests.Load(); got != maxRegistryRedirects {
+		t.Errorf("registry requests: got %d, want %d", got, maxRegistryRedirects)
 	}
 }
 
