@@ -34,7 +34,10 @@ type ForwardableMethod struct {
 	FullMethod  string
 	Description string
 	Mode        ForwardingMode
+	WriteAccess bool
 }
+
+type AuthorizeFunc func(context.Context, bool) (context.Context, error)
 
 // defaultForwardableMethods is the registry of methods that can be processed when DPU headers are present.
 // Methods not in this registry will be rejected with an error when DPU headers are provided.
@@ -48,6 +51,7 @@ var defaultForwardableMethods = []ForwardableMethod{
 		FullMethod:  "/gnoi.file.File/Put",
 		Description: "Upload file to DPU",
 		Mode:        ForwardToDPU,
+		WriteAccess: true,
 	},
 	{
 		FullMethod:  "/gnoi.file.File/TransferToRemote",
@@ -63,6 +67,7 @@ var defaultForwardableMethods = []ForwardableMethod{
 		FullMethod:  "/gnoi.system.System/SetPackage",
 		Description: "Install package on DPU",
 		Mode:        ForwardToDPU,
+		WriteAccess: true,
 	},
 	{
 		FullMethod:  "/gnoi.os.OS/Verify",
@@ -73,6 +78,7 @@ var defaultForwardableMethods = []ForwardableMethod{
 		FullMethod:  "/gnoi.os.OS/Activate",
 		Description: "Activate OS version on DPU",
 		Mode:        ForwardToDPU,
+		WriteAccess: true,
 	},
 	// gRPC reflection methods needed for grpcurl to work with DPU headers
 	{
@@ -109,7 +115,8 @@ func GetDPUConnection(ctx context.Context, dpuIndex string) (*grpc.ClientConn, e
 //
 // Current implementation (Phase 2.1): Actual forwarding to DPU gRPC servers with connection management.
 type DPUProxy struct {
-	resolver *DPUResolver
+	resolver  *DPUResolver
+	authorize AuthorizeFunc
 
 	// Connection management
 	connMu    sync.RWMutex
@@ -128,9 +135,10 @@ type DPUProxy struct {
 
 // NewDPUProxy creates a new DPU proxy interceptor with the given resolver.
 // If resolver is nil, Redis operations will be skipped (for testing).
-func NewDPUProxy(resolver *DPUResolver) *DPUProxy {
+func NewDPUProxy(resolver *DPUResolver, authorize AuthorizeFunc) *DPUProxy {
 	return &DPUProxy{
 		resolver:  resolver,
+		authorize: authorize,
 		conns:     make(map[string]*grpc.ClientConn),
 		connPorts: make(map[string]string),
 	}
@@ -152,15 +160,21 @@ func (p *DPUProxy) GetDPUConnection(ctx context.Context, dpuIndex string) (*grpc
 	return p.getConnection(ctx, dpuInfo.Index, dpuInfo.IPAddress, dpuInfo.GNMIPortsToTry)
 }
 
-// getForwardingMode checks if a method is registered and returns its forwarding mode.
-// Returns the ForwardingMode and a boolean indicating if the method was found.
-func (p *DPUProxy) getForwardingMode(method string) (ForwardingMode, bool) {
+// getForwardingMode returns the mode, write requirement, and registration status.
+func (p *DPUProxy) getForwardingMode(method string) (ForwardingMode, bool, bool) {
 	for _, m := range defaultForwardableMethods {
 		if m.FullMethod == method {
-			return m.Mode, true
+			return m.Mode, m.WriteAccess, true
 		}
 	}
-	return "", false
+	return "", false, false
+}
+
+func (p *DPUProxy) authorizeForwarding(ctx context.Context, writeAccess bool) (context.Context, error) {
+	if p.authorize == nil {
+		return ctx, status.Error(codes.Unauthenticated, "DPU forwarding requires an authorization policy")
+	}
+	return p.authorize(ctx, writeAccess)
 }
 
 // getConnection retrieves or creates a gRPC connection to the specified DPU.
@@ -338,19 +352,17 @@ func (p *DPUProxy) forwardFilePutStream(ctx context.Context, conn *grpc.ClientCo
 		glog.Errorf("[DPUProxy] Failed to create client stream to DPU: %v", err)
 		return status.Errorf(codes.Internal, "failed to create client stream to DPU: %v", err)
 	}
+	defer func() {
+		if err := clientStream.CloseSend(); err != nil {
+			glog.Warningf("[DPUProxy] Error closing send on client stream: %v", err)
+		}
+	}()
 
 	// Channel to signal completion of request forwarding
 	forwardDone := make(chan error, 1)
 
 	// Goroutine to forward requests from client to DPU
 	go func() {
-		defer func() {
-			// Close the send side when done receiving from client
-			if err := clientStream.CloseSend(); err != nil {
-				glog.Warningf("[DPUProxy] Error closing send on client stream: %v", err)
-			}
-		}()
-
 		for {
 			// Receive request from client
 			var req gnoi_file_pb.PutRequest
@@ -407,19 +419,17 @@ func (p *DPUProxy) forwardSetPackageStream(ctx context.Context, conn *grpc.Clien
 		glog.Errorf("[DPUProxy] Failed to create SetPackage client stream to DPU: %v", err)
 		return status.Errorf(codes.Internal, "failed to create SetPackage client stream to DPU: %v", err)
 	}
+	defer func() {
+		if err := clientStream.CloseSend(); err != nil {
+			glog.Warningf("[DPUProxy] Error closing send on SetPackage client stream: %v", err)
+		}
+	}()
 
 	// Channel to signal completion of request forwarding
 	forwardDone := make(chan error, 1)
 
 	// Goroutine to forward requests from client to DPU
 	go func() {
-		defer func() {
-			// Close the send side when done receiving from client
-			if err := clientStream.CloseSend(); err != nil {
-				glog.Warningf("[DPUProxy] Error closing send on SetPackage client stream: %v", err)
-			}
-		}()
-
 		for {
 			// Receive request from client
 			var req system.SetPackageRequest
@@ -475,7 +485,7 @@ func (p *DPUProxy) UnaryInterceptor() grpc.UnaryServerInterceptor {
 		// If DPU routing is requested, validate and route
 		if targetMeta.IsDPUTarget() {
 			// Check forwarding mode for this method
-			mode, found := p.getForwardingMode(info.FullMethod)
+			mode, writeAccess, found := p.getForwardingMode(info.FullMethod)
 			if !found {
 				glog.Warningf("[DPUProxy] Method %s is not registered for DPU routing, rejecting request",
 					info.FullMethod)
@@ -497,6 +507,11 @@ func (p *DPUProxy) UnaryInterceptor() grpc.UnaryServerInterceptor {
 				return handler(ctx, req)
 
 			case ForwardToDPU:
+				var err error
+				ctx, err = p.authorizeForwarding(ctx, writeAccess)
+				if err != nil {
+					return nil, err
+				}
 				// Forward to DPU - existing logic
 				glog.Infof("[DPUProxy] ForwardToDPU mode: routing %s to DPU", info.FullMethod)
 
@@ -571,7 +586,7 @@ func (p *DPUProxy) StreamInterceptor() grpc.StreamServerInterceptor {
 		// If DPU routing is requested, validate and route
 		if targetMeta.IsDPUTarget() {
 			// Check forwarding mode for this method
-			mode, found := p.getForwardingMode(info.FullMethod)
+			mode, writeAccess, found := p.getForwardingMode(info.FullMethod)
 			if !found {
 				glog.Warningf("[DPUProxy] Method %s is not registered for DPU routing, rejecting stream",
 					info.FullMethod)
@@ -593,6 +608,11 @@ func (p *DPUProxy) StreamInterceptor() grpc.StreamServerInterceptor {
 				return handler(srv, ss)
 
 			case ForwardToDPU:
+				var err error
+				ctx, err = p.authorizeForwarding(ctx, writeAccess)
+				if err != nil {
+					return err
+				}
 				// Forward to DPU - existing logic
 				glog.Infof("[DPUProxy] ForwardToDPU mode: routing stream %s to DPU", info.FullMethod)
 

@@ -29,7 +29,7 @@ func TestSetDefaultProxy_And_GetDPUConnection(t *testing.T) {
 	old := defaultProxy
 	defer func() { defaultProxy = old }()
 
-	proxy := NewDPUProxy(nil)
+	proxy := NewDPUProxy(nil, allowTestForwarding)
 	SetDefaultProxy(proxy)
 
 	if defaultProxy != proxy {
@@ -60,7 +60,7 @@ func TestSetDefaultProxy_Nil(t *testing.T) {
 }
 
 func TestDPUProxy_GetDPUConnection_NilResolver(t *testing.T) {
-	proxy := NewDPUProxy(nil)
+	proxy := NewDPUProxy(nil, allowTestForwarding)
 	conn, err := proxy.GetDPUConnection(context.Background(), "0")
 	if err == nil {
 		t.Fatal("expected error with nil resolver")
@@ -74,7 +74,7 @@ func TestDPUProxy_GetDPUConnection_ResolverError(t *testing.T) {
 	stateClient := &mockRedisClient{data: map[string]map[string]string{}}
 	configClient := &mockRedisClient{data: map[string]map[string]string{}}
 	resolver := NewDPUResolver(stateClient, configClient)
-	proxy := NewDPUProxy(resolver)
+	proxy := NewDPUProxy(resolver, allowTestForwarding)
 
 	// DPU "99" doesn't exist in mock data, so GetDPUInfo will fail
 	conn, err := proxy.GetDPUConnection(context.Background(), "99")
@@ -99,7 +99,7 @@ func TestDPUProxy_GetDPUConnection_Unreachable(t *testing.T) {
 		data: map[string]map[string]string{},
 	}
 	resolver := NewDPUResolver(stateClient, configClient)
-	proxy := NewDPUProxy(resolver)
+	proxy := NewDPUProxy(resolver, allowTestForwarding)
 
 	conn, err := proxy.GetDPUConnection(context.Background(), "0")
 	if err == nil {

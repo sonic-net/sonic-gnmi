@@ -25,6 +25,7 @@ import (
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
+	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"google.golang.org/grpc"
@@ -146,7 +147,7 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 				cfg.Port = 0 // Let the real server allocate an isolated TCP port.
 			}
 
-			patches := gomonkey.ApplyFunc(interceptors.NewServerChain, func() (*interceptors.ServerChain, error) {
+			patches := gomonkey.ApplyFunc(interceptors.NewServerChain, func(_ dpuproxy.AuthorizeFunc) (*interceptors.ServerChain, error) {
 				return &interceptors.ServerChain{}, nil
 			})
 			t.Cleanup(patches.Reset)

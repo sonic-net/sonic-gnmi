@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha512"
 	"crypto/tls"
 	"crypto/x509"
@@ -599,7 +600,9 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 
 		// Setup interceptor chain (includes DPU proxy with Redis-based routing)
 		var err error
-		currentServerChain, err = interceptors.NewServerChain()
+		currentServerChain, err = interceptors.NewServerChain(func(ctx context.Context, writeAccess bool) (context.Context, error) {
+			return gnmi.AuthorizeDPUForwarding(cfg, ctx, writeAccess)
+		})
 		if err != nil {
 			log.Errorf("Failed to create interceptor chain: %v", err)
 			return

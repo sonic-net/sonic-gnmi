@@ -167,6 +167,11 @@ This does not make passwords confidential on cleartext transport. Use
 authenticated TLS for production network access. Loopback routing alone does
 not authorize local users.
 
+DPU-routed TCP operations require application authentication and the same
+gNOI read/write authorization checks before DPU lookup or forwarding, including
+streaming uploads and package installation. Unix-socket forwarding retains
+the existing socket-permission boundary.
+
 gNOI File.Stat and File.Get apply an additional authorization boundary on TCP
 listeners. They require application authentication and an explicit
 `gnoi_readonly` or `gnoi_readwrite` role. Authenticated users without a gNOI

@@ -891,6 +891,22 @@ func resolveTargetRoleAccess(auth *common_utils.AuthInfo, target string) targetR
 	return access
 }
 
+// AuthorizeDPUForwarding applies local gNOI authentication and roles before routing.
+func AuthorizeDPUForwarding(config *Config, ctx context.Context, writeAccess bool) (context.Context, error) {
+	ctx, err := authenticate(config, ctx, "gnoi", writeAccess)
+	if err != nil {
+		return ctx, err
+	}
+	if isUnixPeer(ctx) {
+		return ctx, nil
+	}
+	rc, ctx := common_utils.GetContext(ctx)
+	if !rc.Auth.AuthEnabled {
+		return ctx, status.Error(codes.Unauthenticated, "DPU forwarding requires application authentication over TCP")
+	}
+	return ctx, nil
+}
+
 func authenticate(config *Config, ctx context.Context, target string, writeAccess bool) (context.Context, error) {
 	var err error
 	success := false
