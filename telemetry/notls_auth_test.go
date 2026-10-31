@@ -19,11 +19,13 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/alicebob/miniredis/v2"
 	jwt "github.com/dgrijalva/jwt-go"
+	gnmi_pb "github.com/openconfig/gnmi/proto/gnmi"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	"github.com/redis/go-redis/v9"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	gnmi "github.com/sonic-net/sonic-gnmi/gnmi_server"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
+	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	spb_jwt "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"google.golang.org/grpc"
@@ -62,17 +64,17 @@ func TestNoTLSAuthenticationConfiguration(t *testing.T) {
 		{"password", []string{"-client_auth", "password"}, gnmi.AuthTypes{"password": true}, false},
 		{"jwt", []string{"-client_auth", "jwt"}, gnmi.AuthTypes{"jwt": true}, false},
 		{"password and jwt", []string{"-client_auth", "password,jwt"}, gnmi.AuthTypes{"password": true, "jwt": true}, false},
-		{"certificate only", []string{"-client_auth", "cert"}, nil, true},
-		{"certificate only with CA", []string{"-client_auth", "cert", "-ca_crt", "unused.pem"}, nil, true},
-		{"mixed certificate and password", []string{"-client_auth", "cert,password"}, gnmi.AuthTypes{"password": true}, false},
-		{"mixed with CA", []string{"-client_auth", "cert,jwt", "-ca_crt", "unused.pem"}, gnmi.AuthTypes{"jwt": true}, false},
+		{"certificate only", []string{"-client_auth", "cert"}, gnmi.AuthTypes{"cert": true}, false},
+		{"certificate only with CA", []string{"-client_auth", "cert", "-ca_crt", "unused.pem"}, gnmi.AuthTypes{"cert": true}, false},
+		{"mixed certificate and password", []string{"-client_auth", "cert,password"}, gnmi.AuthTypes{"cert": true, "password": true}, false},
+		{"mixed with CA", []string{"-client_auth", "cert,jwt", "-ca_crt", "unused.pem"}, gnmi.AuthTypes{"cert": true, "jwt": true}, false},
 		{"explicit none", []string{"-client_auth", "none"}, gnmi.AuthTypes{}, false},
 		{"readonly default", nil, gnmi.AuthTypes{}, false},
 		{"translib write default", []string{"-gnmi_translib_write=true"}, gnmi.AuthTypes{"password": true, "jwt": true}, false},
 		{"native write default", []string{"-gnmi_native_write=true"}, gnmi.AuthTypes{"password": true, "jwt": true}, false},
-		{"UDS only", []string{"-port", "0", "-unix_socket", "/tmp/test.sock", "-client_auth", "cert"}, gnmi.AuthTypes{}, false},
-		{"UDS only negative port", []string{"-port", "-1", "-unix_socket", "/tmp/test.sock", "-client_auth", "cert"}, gnmi.AuthTypes{}, false},
-		{"dual listener certificate only", []string{"-unix_socket", "/tmp/test.sock", "-client_auth", "cert"}, nil, true},
+		{"UDS only", []string{"-port", "0", "-unix_socket", "/tmp/test.sock", "-client_auth", "cert"}, gnmi.AuthTypes{"cert": true}, false},
+		{"UDS only negative port", []string{"-port", "-1", "-unix_socket", "/tmp/test.sock", "-client_auth", "cert"}, gnmi.AuthTypes{"cert": true}, false},
+		{"dual listener certificate only", []string{"-unix_socket", "/tmp/test.sock", "-client_auth", "cert"}, gnmi.AuthTypes{"cert": true}, false},
 		{"TLS certificate", []string{"-noTLS=false", "-insecure", "-ca_crt", "unused.pem", "-client_auth", "cert"}, gnmi.AuthTypes{"cert": true}, false},
 		{"TLS without CA unchanged", []string{"-noTLS=false", "-insecure", "-client_auth", "cert"}, gnmi.AuthTypes{}, false},
 		{"TLS mixed without CA", []string{"-noTLS=false", "-insecure", "-client_auth", "cert,password"}, gnmi.AuthTypes{"password": true}, false},
@@ -104,7 +106,7 @@ func TestNoTLSAuthenticationConfiguration(t *testing.T) {
 }
 
 func TestNoTLSFileRPCAuthentication(t *testing.T) {
-	for _, mode := range []string{"password", "jwt", "native-default", "none", "tls-no-ca", "uds-only"} {
+	for _, mode := range []string{"cert", "password", "jwt", "cert,password", "cert,jwt", "native-default", "none", "tls-no-ca", "uds-only"} {
 		t.Run(mode, func(t *testing.T) {
 			if os.Getenv("SONIC_GNMI_NOTLS_RPC_TEST") != mode {
 				executable, err := os.Executable()
@@ -113,11 +115,14 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
-				cmd := exec.CommandContext(ctx, executable, "-test.run=^TestNoTLSFileRPCAuthentication/"+mode+"$", "-test.v")
+				cmd := exec.CommandContext(ctx, executable, "-test.run=^TestNoTLSFileRPCAuthentication/"+mode+"$", "-test.v", "-logtostderr")
 				cmd.Env = append(os.Environ(), "SONIC_GNMI_NOTLS_RPC_TEST="+mode)
 				output, err := cmd.CombinedOutput()
 				if err != nil {
 					t.Fatalf("isolated RPC test failed: %v\n%s", err, output)
+				}
+				if mode == "cert" && !strings.Contains(string(output), "Keeping cert mode enabled") {
+					t.Fatalf("missing certificate-only noTLS warning:\n%s", output)
 				}
 				t.Logf("%s", output)
 				return
@@ -142,7 +147,7 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 				cfg.Port = 0 // Let the real server allocate an isolated TCP port.
 			}
 
-			patches := gomonkey.ApplyFunc(interceptors.NewServerChain, func() (*interceptors.ServerChain, error) {
+			patches := gomonkey.ApplyFunc(interceptors.NewServerChain, func(_ dpuproxy.AuthorizeFunc) (*interceptors.ServerChain, error) {
 				return &interceptors.ServerChain{}, nil
 			})
 			t.Cleanup(patches.Reset)
@@ -256,6 +261,15 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 				}
 			}
 
+			if mode == "cert" {
+				check(ctx, codes.Unauthenticated)
+				check(metadata.NewOutgoingContext(ctx, metadata.Pairs("username", "fixture", "password", "fixture-password")), codes.Unauthenticated)
+				_, err := gnmi_pb.NewGNMIClient(conn).Capabilities(ctx, &gnmi_pb.CapabilityRequest{})
+				if status.Code(err) != codes.Unauthenticated {
+					t.Fatalf("Capabilities returned %v, want Unauthenticated", err)
+				}
+				return
+			}
 			if mode == "uds-only" {
 				check(ctx, codes.InvalidArgument)
 				return
@@ -265,12 +279,12 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 				return
 			}
 			check(ctx, codes.Unauthenticated)
-			if mode == "password" || mode == "native-default" {
+			if mode == "password" || mode == "cert,password" || mode == "native-default" {
 				check(metadata.NewOutgoingContext(ctx, metadata.Pairs("username", "fixture", "password", "wrong")), codes.Unauthenticated)
 				check(metadata.NewOutgoingContext(ctx, metadata.Pairs("username", "fixture", "password", "fixture-password")), codes.InvalidArgument)
 				check(metadata.NewOutgoingContext(ctx, metadata.Pairs("username", "denied", "password", "fixture-password")), codes.PermissionDenied)
 				check(metadata.NewOutgoingContext(ctx, metadata.Pairs("username", "unprivileged", "password", "fixture-password")), codes.PermissionDenied)
-				if mode == "password" {
+				if mode != "native-default" {
 					return
 				}
 			}
@@ -295,30 +309,5 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 			}
 			check(metadata.NewOutgoingContext(ctx, metadata.Pairs("access_token", forged)), codes.Unauthenticated)
 		})
-	}
-}
-
-func TestNoTLSCertificateOnlyStartupFails(t *testing.T) {
-	if os.Getenv("SONIC_GNMI_NOTLS_STARTUP_TEST") == "1" {
-		os.Args = []string{"telemetry", "-logtostderr", "-port", "8080", "-noTLS",
-			"-bind_address", "127.0.0.1", "-client_auth", "cert"}
-		main()
-		return
-	}
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, executable, "-test.run=^TestNoTLSCertificateOnlyStartupFails$")
-	cmd.Env = append(os.Environ(), "SONIC_GNMI_NOTLS_STARTUP_TEST=1")
-	output, err := cmd.CombinedOutput()
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
-		t.Fatalf("startup error = %v, want exit status 1\n%s", err, output)
-	}
-	if !strings.Contains(string(output), "cannot authenticate a --noTLS TCP listener") {
-		t.Fatalf("missing actionable startup error:\n%s", output)
 	}
 }

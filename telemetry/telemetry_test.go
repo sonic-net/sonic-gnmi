@@ -1464,14 +1464,14 @@ func TestFlagsNoPortNoUnixSocket(t *testing.T) {
 	}
 }
 
-func TestCertAuthDisabledWhenNoCaCert(t *testing.T) {
-	// When --client_auth includes "cert" but --ca_crt is empty, cert auth must be
+func TestTLSCertAuthDisabledWhenNoCaCert(t *testing.T) {
+	// With TLS, when --client_auth includes "cert" but --ca_crt is empty, cert auth must be
 	// disabled (not fatal) so the server can still start with the remaining auth modes.
 	originalArgs := os.Args
 	defer func() { os.Args = originalArgs }()
 
-	fs := flag.NewFlagSet("testCertAuthDisabledWhenNoCaCert", flag.ContinueOnError)
-	os.Args = []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1", "-client_auth", "cert,password"}
+	fs := flag.NewFlagSet("testTLSCertAuthDisabledWhenNoCaCert", flag.ContinueOnError)
+	os.Args = []string{"cmd", "-port", "8080", "-insecure", "-bind_address", "127.0.0.1", "-client_auth", "cert,password"}
 
 	telemetryCfg, _, err := setupFlags(fs)
 	if err != nil {
