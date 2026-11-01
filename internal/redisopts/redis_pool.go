@@ -5,9 +5,9 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/Azure/sonic-mgmt-common/redis_auth"
 	log "github.com/golang/glog"
 	"github.com/redis/go-redis/v9"
+	"github.com/sonic-net/sonic-swss-common/goext/redisconn"
 )
 
 // PoolSizeEnvVar is the environment variable used to override the Redis
@@ -17,7 +17,7 @@ const PoolSizeEnvVar = "GNMI_REDIS_POOL_SIZE"
 // New returns Redis options with all shared configuration applied.
 func New(opts redis.Options) *redis.Options {
 	ApplyPoolSize(&opts)
-	opts.Dialer = redis_auth.WrapDialer(opts.Dialer, opts.DialTimeout, opts.TLSConfig)
+	opts.Dialer = redisconn.WrapDialer(opts.Dialer, opts.DialTimeout, opts.TLSConfig)
 	return &opts
 }
 
