@@ -277,8 +277,9 @@ $(ENVFILE):
 	tools/test/env.sh | grep -v DB_CONFIG_PATH | tee $@
 
 check_gotest: $(DBCONFG) $(ENVFILE) $(GOCOV) $(GOCOV_XML)
+	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-redisopts.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/internal/redisopts github.com/sonic-net/sonic-gnmi/internal/adaptors/redisconn
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/telemetry
-	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
+	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config github.com/sonic-net/sonic-gnmi/internal/adaptors/dbconfig
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 40m $(TEST_FLAGS) -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 40m $(TEST_FLAGS) -coverprofile=coverage-pathz_authorizer.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/pathz_authorizer -coverpkg ../...
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
@@ -301,7 +302,10 @@ endif
 
 # Integration test packages - basic ones (no special environment needed)
 INTEGRATION_BASIC_PKGS := \
+	github.com/sonic-net/sonic-gnmi/internal/redisopts \
+	github.com/sonic-net/sonic-gnmi/internal/adaptors/redisconn \
 	github.com/sonic-net/sonic-gnmi/sonic_db_config \
+	github.com/sonic-net/sonic-gnmi/internal/adaptors/dbconfig \
 	github.com/sonic-net/sonic-gnmi/sonic_service_client \
 	github.com/sonic-net/sonic-gnmi/telemetry \
 	github.com/sonic-net/sonic-gnmi/sonic_data_client
@@ -331,6 +335,9 @@ check_memleak: $(DBCONFG) $(ENVFILE)
 	$(SUDO_GO) CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -mod=vendor $(TEST_FLAGS) $(MEMCHECK_FLAGS) -v $(MEMLEAK_STANDARD_PKGS)
 	# sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -mod=vendor $(MEMCHECK_FLAGS) -v $(MEMLEAK_GNMI_SERVER_PKG) -run="$(MEMLEAK_TEST_PATTERN)"
 
+.PHONY: test-memleak
+test-memleak: check_memleak_junit
+
 # JUnit XML output for memory leak tests in Azure Pipelines
 .PHONY: check_memleak_junit
 check_memleak_junit: $(DBCONFG) $(ENVFILE) $(GOTESTSUM)
@@ -354,6 +361,9 @@ check_memleak_junit: $(DBCONFG) $(ENVFILE) $(GOTESTSUM)
 	@echo ""
 	@echo "Note: telemetry, sonic_data_client, and gnmi_server excluded due to libyang memory leaks"
 
+
+.PHONY: test-integration
+test-integration: check_gotest_junit
 
 # JUnit XML output for integration tests in Azure Pipelines
 .PHONY: check_gotest_junit
