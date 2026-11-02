@@ -68,6 +68,14 @@ Run `make -f pure.mk ci-report` for pure package boundary checks, compilation,
 race-enabled tests and CI report generation. Keep `sonic-mgmt-common` checked
 out beside this repository for the local module replacement.
 
+The default pure targets discover packages under `internal/`, `pkg/`, `cmd/`
+and `pathz_authorizer/`. To run only the existing path-authorization tests
+without CGO:
+
+```sh
+CGO_ENABLED=0 go test -tags=pure ./pathz_authorizer
+```
+
 To run tests or regenerate coverage separately:
 
 ```sh
