@@ -92,6 +92,16 @@ In the provisioned SONiC build environment, run `make all` first, then
 `ENABLE_TRANSLIB_WRITE=y make test-integration` or
 `ENABLE_TRANSLIB_WRITE=y make test-memleak`.
 These commands produce local reports; Azure YAML publishes them.
+Integration execution writes grouped JUnit results and raw coverage profiles.
+Run `ENABLE_TRANSLIB_WRITE=y make report-coverage` afterward to convert only
+those profiles to `coverage.xml`, without running tests. Use the same
+`ENABLE_DIALOUT` and package-group settings for execution and conversion.
+A failed integration group retains its JUnit results but removes the run's
+raw coverage. Conversion fails on missing/invalid input or a converter error
+and cannot leave stale XML. The old `check_gotest_junit` command still runs
+execution and conversion in order, including under parallel Make.
+The direct `check_gotest` and `check_memleak` variants keep their distinct
+test flags and coverage behavior.
 The existing native `check_gotest_junit` and `check_memleak_junit`
 entrypoints remain compatible.
 
