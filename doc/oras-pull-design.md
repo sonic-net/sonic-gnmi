@@ -2,8 +2,27 @@
 
 **Status:** Draft
 **Author:** Dawei Huang (<daweihuang@microsoft.com>)
-**Last updated:** 2026-05-29
+**Last updated:** 2026-11-02
 **Tracking:** ADO Feature #37984064 (KubeSonic OS image prefetch — ACR-driven gNOI install)
+
+## Current access boundary
+
+`Oras.Pull` requires a Unix domain socket (UDS) peer. TCP peers and requests
+without peer information receive `PermissionDenied` before authentication or
+registry access. UDS directory and socket permissions control caller access.
+ORAS remains registered on TCP; `Pull` rejects non-Unix peers.
+The registry remains caller-selected; this is not a registry allowlist.
+Existing registry proxy behavior is unchanged.
+
+The reversed `File.TransferToRemote` download implementation is disabled and
+returns `Unimplemented` after authentication. Use `File.Put` to stream an upload
+into the target. Validated Containerz HTTP(S) requests return
+`FailedPrecondition` before temporary-file creation or outbound requests,
+including over UDS. Other File operations and
+Containerz non-HTTP protocols are unchanged.
+
+The sections below describe the original service proposal, not permission to
+expose registry pulls over TCP.
 
 ## 1. Problem
 
@@ -13,13 +32,13 @@ from a registry to local disk**, so that a subsequent install step
 (`gnoi.os.Install`, package update, container image swap, …) can run against a
 known-good local copy.
 
-Today the closest thing is SONiC's `gnoi.file.TransferToRemote`. Important
+Historically the closest thing was SONiC's `gnoi.file.TransferToRemote`. Important
 detail: although the upstream openconfig spec defines `TransferToRemote` as
 **upload** (target → remote URL), the SONiC implementation at
 `pkg/gnoi/file/file.go` actually performs a **download** — it HTTP GETs
 `remote_download.path` and writes the bytes into `local_path`. The proto
 message is reused but the semantics are inverted. That works for fetching
-images via a plain HTTP URL, and is what's in use today.
+images via a plain HTTP URL, but that RPC implementation is now disabled.
 
 It does **not** work for OCI/ORAS artifacts, which is what an ACR-backed
 deployment needs. Specifically:
