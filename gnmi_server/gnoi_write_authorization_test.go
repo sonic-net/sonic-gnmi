@@ -118,13 +118,15 @@ func TestGNOIWriteAuthorization(t *testing.T) {
 	}
 
 	handlers := []struct {
-		name             string
-		wantSuccessCalls int
-		invoke           func(context.Context) (int, error)
+		name               string
+		wantSuccessCalls   int
+		wantAuthorizedCode codes.Code
+		invoke             func(context.Context) (int, error)
 	}{
 		{
-			name:             "File.TransferToRemote",
-			wantSuccessCalls: 1,
+			name:               "File.TransferToRemote",
+			wantSuccessCalls:   0,
+			wantAuthorizedCode: codes.Unimplemented,
 			invoke: func(ctx context.Context) (int, error) {
 				backendCalls := 0
 				patch := gomonkey.ApplyFunc(
@@ -245,6 +247,7 @@ func TestGNOIWriteAuthorization(t *testing.T) {
 			commonName: "gnoi-reader",
 			role:       "gnoi_readonly",
 			denied:     true,
+			wantCode:   codes.PermissionDenied,
 		},
 		{
 			name:       "UnknownIdentity",
@@ -265,8 +268,8 @@ func TestGNOIWriteAuthorization(t *testing.T) {
 				t.Run(handler.name, func(t *testing.T) {
 					backendCalls, err := handler.invoke(writeAuthorizationContext(identity.commonName))
 					if !identity.denied {
-						if err != nil {
-							t.Fatalf("mapped gnoi_readwrite identity was denied: %v", err)
+						if status.Code(err) != handler.wantAuthorizedCode {
+							t.Fatalf("authorized status code = %v, want %v: %v", status.Code(err), handler.wantAuthorizedCode, err)
 						}
 						if backendCalls != handler.wantSuccessCalls {
 							t.Fatalf("backend calls = %d, want %d", backendCalls, handler.wantSuccessCalls)
