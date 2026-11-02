@@ -64,6 +64,7 @@ jobs:
           path: sonic-mgmt-common
           persist-credentials: false
 
+      # The go directive, which azure-pipelines.yml keeps within the build container's Go
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
@@ -77,7 +78,7 @@ jobs:
           BASE: ${{ github.base_ref }}
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
-          # Fail rather than raise the go directive past the build container's Go
+          # Fail rather than raise the go directive past the Go installed above
           GOTOOLCHAIN: local
         run: |
           set -euo pipefail
@@ -110,7 +111,7 @@ jobs:
           removed=$(comm -23 <(modules "${RUNNER_TEMP}/base.mod") <(modules go.mod))
           go mod tidy
           if [ "$(sed -n 's/^go //p' go.mod)" != "${go_directive}" ]; then
-            echo "go mod tidy changed the go directive from ${go_directive}; this update needs a newer Go than the build container has" >&2
+            echo "go mod tidy changed the go directive from ${go_directive}; this update needs a newer Go than go.mod names" >&2
             exit 1
           fi
           dropped=$(comm -23 <(echo "${changed}") <(requirements go.mod) | sed '/^$/d')
