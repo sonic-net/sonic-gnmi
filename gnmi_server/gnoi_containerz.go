@@ -88,6 +88,9 @@ func (c *ContainerzServer) Deploy(
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "invalid remote download request: %v", err)
 	}
+	if downloadRequest.Protocol == download.ProtocolHTTP || downloadRequest.Protocol == download.ProtocolHTTPS {
+		return status.Error(codes.FailedPrecondition, "Containerz HTTP(S) downloads are disabled")
+	}
 	log.V(2).Infof(
 		"gNOI: Containerz downloading image with protocol %s",
 		downloadRequest.Protocol,

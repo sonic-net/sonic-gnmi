@@ -134,7 +134,7 @@ func TestGnoiFileServer(t *testing.T) {
 		}
 	})
 
-	t.Run("TransferToRemote DPU Success", func(t *testing.T) {
+	t.Run("TransferToRemote DPU Disabled", func(t *testing.T) {
 		patches := gomonkey.NewPatches()
 		defer patches.Reset()
 
@@ -165,11 +165,11 @@ func TestGnoiFileServer(t *testing.T) {
 		}
 
 		resp, err := fs.TransferToRemote(ctx, req)
-		assert.NoError(t, err)
-		assert.NotNil(t, resp)
+		assert.Equal(t, codes.Unimplemented, status.Code(err))
+		assert.Nil(t, resp)
 	})
 
-	t.Run("TransferToRemote NPU Success", func(t *testing.T) {
+	t.Run("TransferToRemote NPU Disabled", func(t *testing.T) {
 		patches := gomonkey.NewPatches()
 		defer patches.Reset()
 
@@ -195,8 +195,8 @@ func TestGnoiFileServer(t *testing.T) {
 		}
 
 		resp, err := fs.TransferToRemote(ctx, req)
-		assert.NoError(t, err)
-		assert.NotNil(t, resp)
+		assert.Equal(t, codes.Unimplemented, status.Code(err))
+		assert.Nil(t, resp)
 	})
 
 	t.Run("TransferToRemote Fails with Auth Error", func(t *testing.T) {

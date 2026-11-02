@@ -52,8 +52,7 @@ func (srv *FileServer) Get(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.Fil
 	return gnoifile.HandleGet(req, stream)
 }
 
-// TransferToRemote downloads a file from a remote URL.
-// If DPU headers are present (HandleOnNPU mode), it downloads to NPU then uploads to the specified DPU.
+// TransferToRemote is unsupported; File.Put streams uploads to the target.
 func (srv *FileServer) TransferToRemote(ctx context.Context, req *gnoi_file_pb.TransferToRemoteRequest) (*gnoi_file_pb.TransferToRemoteResponse, error) {
 	log.Infof("GNOI File TransferToRemote RPC called with request: %+v", req)
 	_, err := authenticate(srv.config, ctx, "gnoi", true)
@@ -62,8 +61,7 @@ func (srv *FileServer) TransferToRemote(ctx context.Context, req *gnoi_file_pb.T
 		return nil, err
 	}
 
-	// Delegate all logic to the pure handler function
-	return gnoifile.HandleTransferToRemote(ctx, req)
+	return nil, status.Error(codes.Unimplemented, "File.TransferToRemote is not supported; use File.Put to upload files")
 }
 
 // Put implements the gNOI File.Put RPC.
