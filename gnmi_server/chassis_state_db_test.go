@@ -225,8 +225,7 @@ func TestChassisStateDBSample(t *testing.T) {
 						SubMode:        pb.SubscriptionMode_SAMPLE,
 						SampleInterval: 0,
 					},
-				},
-				false),
+				}),
 			wantNoti: []client.Notification{
 				client.Connected{},
 				client.Update{Path: []string{"CHASSIS_STATE_DB", "DPU_STATE"}, TS: time.Unix(0, 200), Val: dpuStateJson},
