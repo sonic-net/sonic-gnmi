@@ -4717,6 +4717,16 @@ func TestCapabilities(t *testing.T) {
 	if len(resp.SupportedModels) == 0 {
 		t.Fatalf("No Supported Models found!")
 	}
+	foundRecords := false
+	for _, m := range resp.SupportedModels {
+		if m.GetName() == "RECORDS" {
+			foundRecords = true
+			break
+		}
+	}
+	if !foundRecords {
+		t.Fatalf("RECORDS missing from SupportedModels")
+	}
 
 }
 
