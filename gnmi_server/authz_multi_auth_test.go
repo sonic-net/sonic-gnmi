@@ -13,7 +13,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -26,6 +28,97 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
+
+func TestAuthenticationDIContextAndShortCircuit(t *testing.T) {
+	type contextKey struct{}
+	for _, roles := range [][]string{{"gnmi_readwrite"}, {"gnmi_readonly"}} {
+		t.Run(roles[0], func(t *testing.T) {
+			ctx := context.Background()
+			rc, ctx := common_utils.GetContext(ctx)
+			bundle := "fixture-version"
+			rc.BundleVersion = &bundle
+			id := rc.ID
+			rc.Auth.User, rc.Auth.Roles = "stale", []string{"gnmi_readwrite"}
+			var calls []string
+			patch := gomonkey.ApplyFunc(BasicAuthenAndAuthor, func(ctx context.Context) (context.Context, error) {
+				calls = append(calls, "password")
+				got, _ := common_utils.GetContext(ctx)
+				if got != rc || got.Auth.User != "" || len(got.Auth.Roles) != 0 {
+					t.Fatal("password received stale identity or a different request context")
+				}
+				got.Auth.User, got.Auth.Roles = "failed", []string{"gnmi_readwrite"}
+				return context.WithValue(ctx, contextKey{}, "derived"), errors.New("rejected")
+			})
+			defer patch.Reset()
+			patch.ApplyFunc(JwtAuthenAndAuthor, func(ctx context.Context) (*spb_jwt.JwtToken, context.Context, error) {
+				calls = append(calls, "jwt")
+				got, _ := common_utils.GetContext(ctx)
+				if ctx.Value(contextKey{}) != "derived" || got != rc || got.Auth.User != "" || len(got.Auth.Roles) != 0 {
+					t.Fatal("JWT lost derived context or inherited failed identity")
+				}
+				got.Auth.User, got.Auth.Roles = "accepted", roles
+				return nil, ctx, nil
+			})
+			patch.ApplyFunc(ClientCertAuthenAndAuthor, func(ctx context.Context, _ string, _ bool) (context.Context, error) {
+				t.Fatal("certificate fallback called after successful JWT authentication")
+				return ctx, nil
+			})
+			cfg := &Config{UserAuth: AuthTypes{"password": true, "jwt": true, "cert": true}}
+			gotCtx, err := authenticate(cfg, ctx, "gnmi", true)
+			wantCode := codes.OK
+			if roles[0] == "gnmi_readonly" {
+				wantCode = codes.PermissionDenied
+			}
+			if status.Code(err) != wantCode || !reflect.DeepEqual(calls, []string{"password", "jwt"}) {
+				t.Fatalf("authenticate: calls=%v err=%v, want %v", calls, err, wantCode)
+			}
+			got, _ := common_utils.GetContext(gotCtx)
+			if got != rc || got.ID != id || got.BundleVersion != &bundle || gotCtx.Value(contextKey{}) != "derived" || got.Auth.User != "accepted" {
+				t.Fatalf("request context changed: %+v", got)
+			}
+		})
+	}
+}
+
+func TestAuthenticationDIConfigAndFailure(t *testing.T) {
+	ctx := context.Background()
+	rc, ctx := common_utils.GetContext(ctx)
+	calls := 0
+	patch := gomonkey.ApplyFunc(BasicAuthenAndAuthor, func(ctx context.Context) (context.Context, error) {
+		calls++
+		rc.Auth.User, rc.Auth.Roles = "last-failed", []string{"gnmi_readwrite"}
+		return ctx, errors.New("credential rejected")
+	})
+	defer patch.Reset()
+	cfg := &Config{UserAuth: AuthTypes{"password": true}}
+	if _, err := authenticate(cfg, ctx, "gnmi", false); status.Code(err) != codes.Unauthenticated || status.Convert(err).Message() != "Unauthenticated" {
+		t.Fatalf("failure result = %v", err)
+	}
+	// Retain the existing final-failure state; only the next attempt clears it.
+	if rc.Auth.User != "last-failed" || !rc.Auth.AuthEnabled {
+		t.Fatalf("unexpected final-failure identity: %+v", rc.Auth)
+	}
+	cfg.UserAuth["none"] = true
+	if _, err := authenticate(cfg, ctx, "gnmi", true); err != nil || rc.Auth.AuthEnabled || calls != 1 {
+		t.Fatalf("updated config not honored: err=%v calls=%d auth=%+v", err, calls, rc.Auth)
+	}
+}
+
+func TestAuthenticationDIAuthInfoCompatibility(t *testing.T) {
+	auth := common_utils.AuthInfo{User: "fixture", AuthEnabled: true, Roles: []string{"gnmi_readonly"}}
+	data, err := json.Marshal(auth)
+	if err != nil || string(data) != `{"User":"fixture","AuthEnabled":true,"Roles":["gnmi_readonly"]}` {
+		t.Fatalf("AuthInfo serialization = %s, err=%v", data, err)
+	}
+	var decoded common_utils.AuthInfo
+	if err := json.Unmarshal(data, &decoded); err != nil || !reflect.DeepEqual(auth, decoded) {
+		t.Fatalf("AuthInfo roundtrip = %+v, err=%v", decoded, err)
+	}
+	err = checkRoleAccess(&auth, "GNMI", true)
+	if _, ok := status.FromError(err); ok || err == nil || err.Error() != "fixture does not have access, target GNMI, role gnmi_readonly" {
+		t.Fatalf("role helper error contract changed: %v", err)
+	}
+}
 
 func newPasswordAuthCtx() context.Context {
 	md := metadata.New(map[string]string{
