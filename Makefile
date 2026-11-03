@@ -373,12 +373,11 @@ check_gotest_junit:
 	@$(MAKE) report-coverage
 
 .PHONY: test-integration
-test-integration:
+test-integration: $(DBCONFG) $(ENVFILE) $(GOTESTSUM)
 	@rm -f coverage.xml \
 		test-results/junit-integration-basic.xml test-results/coverage-integration-basic.txt \
 		test-results/junit-integration-env.xml test-results/coverage-integration-env.txt \
 		test-results/junit-integration-dialout.xml test-results/coverage-integration-dialout.txt
-	@$(MAKE) $(DBCONFG) $(ENVFILE) $(GOTESTSUM)
 	@echo "Running integration tests with JUnit XML output..."
 	@mkdir -p test-results
 	
