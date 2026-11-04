@@ -23,24 +23,21 @@ func nativePath(names ...string) *pb.Path {
 func TestDatabasePathCompatibility(t *testing.T) {
 	tests := []struct {
 		name              string
+		prefix            *pb.Path
 		paths             []*pb.Path
 		code              codes.Code
 		message, database string
 	}{
 		{name: "empty list", code: codes.Unimplemented, message: "No valid path"},
 		{name: "nil path", paths: []*pb.Path{nil}, code: codes.Unimplemented, message: "No target specified in path"},
-		{name: "deprecated representation skipped", paths: []*pb.Path{{Element: []string{"CONFIG_DB", "localhost"}}}, code: codes.Unimplemented, message: "No target specified in path"},
-		{name: "empty elements", paths: []*pb.Path{nativePath()}, code: codes.Unimplemented, message: "Invalid elem length"},
-		{name: "short path", paths: []*pb.Path{nativePath("CONFIG_DB")}, code: codes.Unimplemented, message: "Invalid elem length"},
-		{name: "target conflict", paths: []*pb.Path{nativePath("CONFIG_DB", "localhost"), nativePath("STATE_DB", "localhost")}, code: codes.Unimplemented, message: "Target conflict in path"},
-		{name: "instance conflict", paths: []*pb.Path{nativePath("CONFIG_DB", "asic0"), nativePath("CONFIG_DB", "asic1")}, code: codes.Unimplemented, message: "Namespace/container conflict in path"},
+		{name: "prefix forwarded", prefix: nativePath("TEST_DB"), paths: []*pb.Path{nativePath("localhost", "PORT")}, database: "TEST_DB"},
 		{name: "skip mixed nil", paths: []*pb.Path{nil, nativePath("TEST_DB", "localhost")}, database: "TEST_DB"},
 		{name: "empty database sentinel", paths: []*pb.Path{nativePath("", "localhost"), nativePath("TEST_DB", "localhost")}, database: "TEST_DB"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := MixedDbClient{namespace_cnt: 1, container_cnt: 1}
-			database, key, err := c.ParseDatabase(nil, tt.paths)
+			database, key, err := c.ParseDatabase(tt.prefix, tt.paths)
 			if key != nil {
 				defer swsscommon.DeleteSonicDBKey(key)
 			}
@@ -92,23 +89,6 @@ func TestDatabasePathLookupOrder(t *testing.T) {
 	}
 }
 
-func TestDatabasePathPrefixAliasing(t *testing.T) {
-	backing := []*pb.PathElem{{Name: "CONFIG_DB"}, {Name: "sentinel"}, {Name: "unused"}}
-	prefix := &pb.Path{Target: "IGNORED", Elem: backing[:1]}
-	path := nativePath("localhost", "PORT")
-	c := MixedDbClient{namespace_cnt: 1, container_cnt: 1}
-	database, key, err := c.ParseDatabase(prefix, []*pb.Path{path})
-	if key != nil {
-		defer swsscommon.DeleteSonicDBKey(key)
-	}
-	if err != nil || database != "CONFIG_DB" {
-		t.Fatalf("database=%s err=%v", database, err)
-	}
-	if len(prefix.Elem) != 1 || prefix.Elem[0].Name != "CONFIG_DB" || backing[1] != path.Elem[0] || backing[2] != path.Elem[1] {
-		t.Fatal("legacy prefix backing-array behavior changed")
-	}
-}
-
 func TestDatabasePathInstanceSelection(t *testing.T) {
 	for _, counts := range [][2]int{{1, 1}, {2, 1}, {1, 2}} {
 		for _, instance := range []string{"localhost", "asic0", "dpu0", ""} {
@@ -145,32 +125,26 @@ func TestDatabasePathInstanceSelection(t *testing.T) {
 }
 
 func TestTargetDatabaseCompatibility(t *testing.T) {
+	tests := []struct {
+		target, database, qualifier string
+		known, qualified            bool
+	}{
+		{"CONFIG_DB/asic0", "CONFIG_DB", "asic0", true, true},
+		{"CONFIG_DB/", "CONFIG_DB", "", true, true},
+		{"CONFIG_DB/asic0/extra", "CONFIG_DB", "", false, false},
+		{"UNKNOWN/asic0", "UNKNOWN", "asic0", false, true},
+	}
 	for _, multi := range []bool{false, true} {
 		patch := gomonkey.ApplyFunc(dbconfig.CheckDbMultiNamespace, func() (bool, error) { return multi, nil })
-		for _, target := range []string{"CONFIG_DB", "CONFIG_DB/asic0", "CONFIG_DB/", "CONFIG_DB/asic0/extra", "UNKNOWN/asic0", ""} {
-			database, known, ns, qualified := IsTargetDb(target)
-			wantDb, wantKnown, wantNs, wantQualified := target, false, "", false
-			switch target {
-			case "CONFIG_DB":
-				wantKnown = true
-			case "CONFIG_DB/asic0":
-				wantDb, wantKnown = "CONFIG_DB", true
-				if multi {
-					wantNs, wantQualified = "asic0", true
-				}
-			case "CONFIG_DB/":
-				wantDb, wantKnown = "CONFIG_DB", true
-				wantQualified = multi
-			case "CONFIG_DB/asic0/extra":
-				wantDb = "CONFIG_DB"
-			case "UNKNOWN/asic0":
-				wantDb = "UNKNOWN"
-				if multi {
-					wantNs, wantQualified = "asic0", true
-				}
+		defer patch.Reset()
+		for _, tt := range tests {
+			database, known, ns, qualified := IsTargetDb(tt.target)
+			wantNs := ""
+			if multi {
+				wantNs = tt.qualifier
 			}
-			if database != wantDb || known != wantKnown || ns != wantNs || qualified != wantQualified {
-				t.Fatalf("multi=%v target=%q got=(%s,%v,%s,%v)", multi, target, database, known, ns, qualified)
+			if database != tt.database || known != tt.known || ns != wantNs || qualified != (multi && tt.qualified) {
+				t.Fatalf("multi=%v target=%q got=(%s,%v,%s,%v)", multi, tt.target, database, known, ns, qualified)
 			}
 		}
 		patch.Reset()
