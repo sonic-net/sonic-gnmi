@@ -26,12 +26,35 @@ func TestNewServerChain(t *testing.T) {
 	}
 }
 
+func TestNewServerChainStartsWithCompletionLogger(t *testing.T) {
+	serverChain, err := NewServerChain()
+	if err != nil {
+		t.Fatalf("NewServerChain() failed: %v", err)
+	}
+	defer func() {
+		if closeErr := serverChain.Close(); closeErr != nil {
+			t.Errorf("Failed to close server chain: %v", closeErr)
+		}
+	}()
+
+	if len(serverChain.chain.interceptors) < 2 {
+		t.Fatalf("server chain has %d interceptors, want completion logger and DPU proxy", len(serverChain.chain.interceptors))
+	}
+	if _, ok := serverChain.chain.interceptors[0].(*rpcCompletionLogger); !ok {
+		t.Fatalf("first server interceptor is %T, want *rpcCompletionLogger", serverChain.chain.interceptors[0])
+	}
+}
+
 func TestServerChain_GetServerOptions(t *testing.T) {
 	chain, err := NewServerChain()
 	if err != nil {
 		t.Fatalf("NewServerChain() failed: %v", err)
 	}
-	defer chain.Close()
+	defer func() {
+		if closeErr := chain.Close(); closeErr != nil {
+			t.Errorf("Failed to close server chain: %v", closeErr)
+		}
+	}()
 
 	opts := chain.GetServerOptions()
 	if len(opts) == 0 {

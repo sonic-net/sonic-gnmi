@@ -19,6 +19,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const healthzDefaultHostRoot = "/mnt/host"
+
+var healthzHostRoot = healthzDefaultHostRoot
+
+func healthzArtifactPath(path string) string {
+	return filepath.Join(healthzHostRoot, path)
+}
+
 const (
 	compKey          string = "name"
 	ddComponentKey   string = "component"
@@ -144,7 +152,7 @@ func getDebugData(p *types.Path) (*healthz.GetResponse, error) {
 	if !strings.HasPrefix(cleanPath, allowedDir) {
 		return nil, status.Errorf(codes.InvalidArgument, "Invalid artifact path")
 	}
-	file_path := filepath.Join("/mnt/host", cleanPath)
+	file_path := healthzArtifactPath(cleanPath)
 	fmt.Printf("Artifact filepath inside gnmi container: %s\n", file_path)
 
 	// Stream-hash instead of loading entire file
@@ -208,6 +216,11 @@ func (srv *HealthzServer) Get(ctx context.Context, req *healthz.GetRequest) (*he
 }
 
 func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.Healthz_ArtifactServer) error {
+	_, err := authenticate(srv.config, stream.Context(), "gnoi", false)
+	if err != nil {
+		log.Errorf("Healthz.Artifact authentication failed: %v", err)
+		return err
+	}
 	log.V(1).Infof("Artifact RPC Get request ID: %+v", req.GetId())
 	file := req.GetId()
 	allowedDir := "/tmp/dump"
@@ -215,7 +228,7 @@ func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.
 	if !strings.HasPrefix(cleanPath, allowedDir) {
 		return status.Errorf(codes.InvalidArgument, "Invalid artifact path")
 	}
-	file_path := filepath.Join("/mnt/host", cleanPath)
+	file_path := healthzArtifactPath(cleanPath)
 
 	f, err := os.Open(file_path)
 	if err != nil {

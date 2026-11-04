@@ -1,0 +1,56 @@
+# gNOI Debug actions
+
+Before deploying this version on systems that expose Debug, migrate
+`/etc/sonic/command_whitelist.yaml` to the version 1 `enabled_actions` schema
+and restart the service. The previous schema leaves Debug registered on the
+Unix domain socket but unavailable.
+
+The gNOI Debug RPC exposes a small set of server-defined diagnostic actions.
+Clients select an action by its canonical command text. They cannot select an
+executable, operating-system user, namespace, or arbitrary arguments.
+
+Debug is registered only on the Unix domain socket configured by
+`--unix_socket` (default `/var/run/gnmi/gnmi.sock`). It is not registered on the
+TCP/TLS gRPC server, and the handler rejects any non-Unix peer as a second
+boundary.
+
+Unix socket access is controlled by the socket directory and file permissions.
+The server creates the socket with mode `0660`; local UDS connections do not
+use the network authentication or role checks.
+
+## Policy
+
+The server reads `/etc/sonic/command_whitelist.yaml` at startup. The file uses a
+strict, versioned schema:
+
+```yaml
+version: 1
+enabled_actions:
+  - uptime
+  - process-list
+```
+
+Only action identifiers compiled into the server are valid. Unknown fields,
+unknown or duplicate actions, unsupported versions, malformed YAML, and missing
+files make the policy unavailable. The Debug service remains registered but
+denies execution until the server restarts with a valid policy.
+
+The previous `read_whitelist` and `write_whitelist` keys are not supported.
+
+## Supported actions
+
+| Action ID | Client command | Access | Server command | Runtime limit | Combined response limit |
+|-----------|----------------|--------|----------------|---------------|-------------------------|
+| `uptime` | `uptime` | Read-only | `/usr/bin/uptime` | 10 seconds | 64 KiB |
+| `process-list` | `ps` | Read-only | `/usr/bin/ps -ef` | 10 seconds | 256 KiB |
+
+Client-provided timeout and output limits may reduce the action limits. They
+cannot increase or disable them. `role_account` and shell mode are not
+supported.
+
+Actions run without a shell as `admin` in the fixed host mount namespace
+profile. The executor applies a fixed working directory, a fixed `PATH`,
+systemd sandbox properties, and a systemd-enforced runtime limit that kills the
+action control group when the limit expires. The response limit applies to
+stdout and stderr combined; the action may generate more output than the client
+receives.
