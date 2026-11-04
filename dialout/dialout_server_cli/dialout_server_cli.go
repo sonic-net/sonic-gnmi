@@ -58,6 +58,7 @@ func main() {
 	tlsCfg := &tls.Config{
 		ClientAuth:   tls.RequireAndVerifyClientCert,
 		Certificates: []tls.Certificate{certificate},
+		MinVersion:   tls.VersionTLS13,
 	}
 	if *allowNoClientCert {
 		// RequestClientCert will ask client for a certificate but won't

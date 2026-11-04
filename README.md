@@ -11,6 +11,34 @@ This repository contains implementation for the sonic system telemetry services:
 
 Install __go__ in your system https://golang.org/doc/install. Requires golang1.8+.
 
+### Standalone database-config tests
+
+With the Go version declared in `go.mod`, run:
+
+```sh
+CGO_ENABLED=0 go test -tags=pure ./internal/adaptors/dbconfig
+```
+
+These tests read temporary JSON fixtures without SWSS, Redis, or system
+configuration changes. The pure provider supports the default namespace.
+It rejects global and `INCLUDES` configuration.
+
+For formatting, CGO-disabled compilation, and race tests:
+
+```sh
+make -f pure.mk PACKAGES=internal/adaptors/dbconfig fmt-check test
+```
+
+Race tests require CGO and a C compiler, but not SONiC libraries. Normal builds
+still use SWSS and preserve `DB_CONFIG_PATH` and the legacy `sonic_db_config`
+APIs. In the SONiC build environment, run both provider and legacy tests:
+
+```sh
+go test -gcflags=all=-l ./internal/adaptors/dbconfig ./sonic_db_config
+```
+
+The existing pure and normal CI jobs include these tests.
+
 ## Installing
 
 To install dial-in mode system telemetry server, run
@@ -34,10 +62,66 @@ You can also build a debian package and install it:
     dpkg-buildpackage -rfakeroot -b -us -uc
     popd
 
+## Testing
+
+Run `make -f pure.mk ci-report` for pure package boundary checks, compilation,
+race-enabled tests and CI report generation. Keep `sonic-mgmt-common` checked
+out beside this repository for the local module replacement.
+
+To run tests or regenerate coverage separately:
+
+```sh
+make -f pure.mk test-pure        # JUnit results and raw Go coverage
+make -f pure.mk report-coverage  # Existing profile to Cobertura; no test run
+```
+
+`ci-report` orders boundary checks, compilation, tests and conversion, including
+under parallel Make. A failed operation stops the aggregate. A new test run
+removes its previous reports; failed tests retain JUnit but discard partial
+coverage. Conversion fails on missing/invalid input or a converter error and
+cannot leave stale XML. Successful report paths remain
+`test-results/junit-pure.xml`, `test-results/coverage-pure.txt` and
+`test-results/coverage-pure.xml`.
+
+The existing per-package `test`, `test-coverage` and `coverage-xml` commands
+still run tests. Neither `ci` nor `ci-report` clears shared Go caches.
+Explicit `make -f pure.mk clean` still clears shared Go build/test caches
+and per-package coverage files.
+
+In the provisioned SONiC build environment, run `make all` first, then
+`ENABLE_TRANSLIB_WRITE=y make test-integration` or
+`ENABLE_TRANSLIB_WRITE=y make test-memleak`.
+These commands produce local reports; Azure YAML publishes them.
+The existing native `check_gotest_junit` and `check_memleak_junit`
+entrypoints remain compatible.
+
 ## Running
 * See [SONiC gRPC telemetry](./doc/grpc_telemetry.md) for how to run dial-in mode system telemetry server
 * See [SONiC telemetry in dial-out mode](./doc/dialout.md) for how to run dial-out mode system telemetry client
 * See [gNMI Usage Examples](./doc/gNMI_usage_examples.md) for gNMI client usage examples.
+* See [gNOI Debug actions](./doc/gnoi_debug.md) for the Debug RPC policy and supported actions.
+
+### gNOI file read permissions
+
+File.Get and File.Stat expose only world-readable regular files. Ancestor
+directories must be world-searchable; listing a directory also requires world
+read/search permissions. Stat listings omit private children. Missing and
+inaccessible paths return the same read denial.
+
+Resolution is bounded to raw paths shorter than 4096 bytes, 40 symlinks and
+64 descriptors per ancestor stack, plus a fixed number of anchor/target
+handles. A listing captures and validates its pinned ancestor stack once, then
+shares that immutable prefix across child lookups. Each child has independent
+traversal state and a copy of the remaining symlink budget; following links may
+retain one additional bounded ancestor stack. Entries exceeding these safety
+limits are not exposed.
+
+The check applies regardless of caller role, including when the server runs as
+root. Reads use the validated descriptor; symlink targets must remain inside
+the host filesystem view. Extended access ACLs are conservatively denied rather
+than assuming mode bits alone establish public access. Put, TransferToRemote,
+Remove, authentication and role authorization are unchanged. No managed-image
+store, helper process or companion HostService change is required.
 
 ## Streaming events
 SONiC publishes events of interest via gNMI.

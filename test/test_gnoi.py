@@ -30,17 +30,18 @@ class TestGNOI:
         assert ret == 2, msg
         assert 'Response Notification timeout from Reboot Backend' in msg
 
-    def test_gnoi_killprocess(self):
+    def test_gnoi_killprocess_unauthenticated(self):
         ret, old_cnt = gnmi_dump('DBUS stop service')
         assert ret == 0, 'Fail to read counter'
 
         json_data = '{"name": "snmp", "signal": 1}'
         ret, msg = gnoi_kill_process(json_data)
-        assert ret == 0, msg
+        assert ret != 0, msg
+        assert 'Unauthenticated' in msg
 
         ret, new_cnt = gnmi_dump('DBUS stop service')
         assert ret == 0, 'Fail to read counter'
-        assert new_cnt == old_cnt+1, 'DBUS API is not invoked'
+        assert new_cnt == old_cnt, 'DBUS API invoked unexpectedly'
 
     def test_gnoi_restartprocess_unimplemented(self):
         ret, old_cnt = gnmi_dump('DBUS restart service')
@@ -53,16 +54,17 @@ class TestGNOI:
         assert ret == 0, 'Fail to read counter'
         assert new_cnt == old_cnt, 'DBUS API invoked unexpectedly'
 
-    def test_gnoi_restartprocess_valid(self):
+    def test_gnoi_restartprocess_unauthenticated(self):
         ret, old_cnt = gnmi_dump('DBUS restart service')
         assert ret == 0, 'Fail to read counter'
 
         ret, msg = gnoi_restart_process('{"name": "snmp", "restart": true, "signal": 1}')
-        assert ret == 0, msg
+        assert ret != 0, msg
+        assert 'Unauthenticated' in msg
 
         ret, new_cnt = gnmi_dump('DBUS restart service')
         assert ret == 0, 'Fail to read counter'
-        assert new_cnt == old_cnt+1, 'DBUS API is not invoked'
+        assert new_cnt == old_cnt, 'DBUS API invoked unexpectedly'
 
     def test_gnoi_restartprocess_invalid(self):
         ret, old_cnt = gnmi_dump('DBUS restart service')

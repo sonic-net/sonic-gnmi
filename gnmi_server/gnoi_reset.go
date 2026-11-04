@@ -14,7 +14,7 @@ import (
 
 // Start implements the corresponding RPC.
 func (srv *Server) Start(ctx context.Context, req *factory_reset.StartRequest) (*factory_reset.StartResponse, error) {
-	ctx, err := authenticate(srv.config, ctx, "gnoi", false)
+	ctx, err := authenticate(srv.config, ctx, "gnoi", true)
 	if err != nil {
 		return nil, err
 	}

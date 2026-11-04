@@ -3,6 +3,7 @@
    * [Overview of gRPC system data telemetry in SONiC](#overview-of-grpc-system-data-telemetry-in-sonic)
    * [Data available in SONiC](#data-available-in-sonic)
    * [SONiC system telemetry software architecture](#sonic-system-telemetry-software-architecture)
+   * [Get and Set audit records](#get-and-set-audit-records)
    * [gRPC operations for system telemetry in SONiC](#grpc-operations-for-system-telemetry-in-sonic)
       * [Usage of SONiC telemetry server binary](#usage-of-sonic-telemetry-server-binary)
       * [GetRequest/GetResponse](#getrequestgetresponse)
@@ -67,6 +68,39 @@ For data not available in DBs, Target name "OTHERS" is designated for that categ
 # SONiC system telemetry software architecture
 System telemetry in SONiC supports both dial-in mode and dial-out mode. The DB client takes care of retrieving data from SONiC redis database, while non-DB client serves data outside of redis databases. gRPC dial-in server (gNMI server) is described in this document,
 ![SOFTWARE ARCHITECTURE](img/dial_in_out.png)
+
+# Get and Set audit records
+
+One outer gRPC completion interceptor emits one version 2 `RPC_COMPLETION`
+record for each allowed RPC. The unified record contains `v`, `type`, `method`, `peer_type`,
+`peer`, `principal`, `auth_type`, `path`, `code`, `duration_ms`, and
+`suppressed`. `principal`, `auth_type`, and `path` use empty defaults.
+
+The logger uses only data already available at interceptor entry or completion
+and never serializes the complete request or response. `principal` copies the presented
+TLS peer certificate Common Name without chain, SAN, role, authentication, or
+authorization validation. After the deferred completion handler passes the
+rate limit, one `deriveRequestFields` wrapper performs the only peer-context
+existence check, then delegates address/type, presented CN, transport auth
+method, and redacted path-shape extraction. It is named for the request because
+paths are not peer data. `ygot.PathToSchemaPath` formats each logged path as an
+absolute names-only string. Origin, target, `PathElem.Key` maps, and deprecated
+`Element` values are omitted. Request update values and responses are not
+included. Authenticated principal, the existing `TELEMETRY-*` request ID, and
+auth result are deferred until those values are available in the interceptor
+context.
+
+Other unary and streaming methods use the same record. Peer-derived
+`principal` and `auth_type` are populated when available; `path` remains empty
+outside Get/Set. PR #723 method/code rate limiting and suppression summaries
+remain.
+
+Set records are never rate-limited. Get records use the same method/code bucket
+map and `RPC_COMPLETION_SUMMARY` path as other RPCs, with 60 records/hour and burst
+60 instead of PR #723's default one record per 10 seconds. A suppressed Get
+does not reach the glog sink; its common summary reports method, code, and
+suppressed count.
+
 # gRPC operations for system telemetry in SONiC
 As mentioned at the beginning, SONiC gRPC data telemetry is largely based on gNMI protocol,  the GetRquest/GetResponse and SubscribeRequest/SubscribeResponse RPC have been implemented. Since SONiC doesn't have complete YANG data model yet, the DB, TABLE, KEY and Field path hierarchy is used as path to uniquely identify the configuration/state and counter data.
 
@@ -106,6 +140,48 @@ Usage of ./telemetry:
 ```
 root@ASW:~# ./telemetry --port 8080 --server_crt /etc/tls/publickey.cer --server_key /etc/tls/private.key --allow_no_client_auth --logtostderr
 ```
+
+### Application authentication on local listeners
+
+`--noTLS` disables transport encryption, not configured application
+authentication. Password and JWT authentication selected with `--client_auth`
+remain enforced on the loopback TCP listener, including gNOI File RPCs.
+Certificate authentication requires TLS and a client CA; it cannot authenticate
+a cleartext peer even if `--ca_crt` is supplied.
+
+When either translib or native writes are enabled and `--client_auth` is
+omitted, password and JWT remain the default application-authentication modes.
+
+For a noTLS TCP listener, certificate authentication is disabled only when
+another selected mechanism remains available. Certificate-only noTLS startup
+fails before opening listeners and exits with a nonzero status. For example:
+
+```sh
+telemetry --port 8080 --unix_socket "" --noTLS \
+  --bind_address 127.0.0.1 --client_auth password,jwt
+```
+
+This does not make passwords confidential on cleartext transport. Use
+authenticated TLS for production network access. Loopback routing alone does
+not authorize local users.
+
+gNOI File.Stat and File.Get apply an additional authorization boundary on TCP
+listeners. They require application authentication and an explicit
+`gnoi_readonly` or `gnoi_readwrite` role. Authenticated users without a gNOI
+role, users with `gnoi_noaccess`, and TCP listeners with no usable application
+authentication are denied. This includes ephemeral TLS without a client CA and
+deliberate `--client_auth none` mode. Other RPCs retain their existing
+authorization behavior.
+
+UDS-only operation (`--port 0 --unix_socket /var/run/gnmi/gnmi.sock`) retains
+its existing filesystem-permission security contract and does not require a
+TLS client certificate. With both TCP and UDS configured, an incompatible
+certificate-only noTLS TCP configuration fails startup rather than silently
+falling back to UDS. Deliberate `--client_auth none` development mode remains
+unauthenticated for RPCs that permit it; noTLS does not implicitly select it.
+UDS File.Stat and File.Get continue to rely on socket directory and socket
+permissions instead of application credentials.
+
 ## GetRequest/GetResponse
 The [gnmi_get](https://github.com/jipanyang/gnxi/tree/master/gnmi_get) tool may be used.
 

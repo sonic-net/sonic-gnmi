@@ -44,8 +44,8 @@ const (
 // fixtures (regular files, fifos, oversize sparse files, broken perms, ...)
 // without touching the actual /mnt/host on the test machine.
 //
-// translatePathForContainer is the only consumer; it prepends hostRoot to the
-// caller-supplied logical path when hostRoot exists on disk.
+// Reads and writes translate caller-supplied logical paths beneath hostRoot
+// when it exists on disk.
 var hostRoot = "/mnt/host"
 
 // maxFileSize is the per-RPC size cap. var (not const) so tests can lower it
@@ -56,14 +56,10 @@ var maxFileSize int64 = defaultMaxFileSize
 // (the generated function is tiny and gets inlined, defeating gomonkey).
 var newFileClient = gnoi_file_pb.NewFileClient
 
-// fsStat / fsReadDir are package-level seams over os.Stat and os.ReadDir.
-// Tests override them to exercise error branches that the root-on-tmpfs
-// test environment can't otherwise reach: permission-denied (root bypasses
-// DAC) and TOCTOU races (path removed between Stat and ReadDir). Production
-// callers go through os.* unchanged.
+// Filesystem seams let tests inject read and directory errors.
 var (
-	fsStat    = os.Stat
-	fsReadDir = os.ReadDir
+	fsOpenRead = openPublicReadFile
+	fsReadDir  = func(file *os.File) ([]os.DirEntry, error) { return file.ReadDir(-1) }
 )
 
 // HandleTransferToRemote implements the complete logic for the TransferToRemote RPC.
@@ -663,35 +659,41 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 	if reqPath == "" {
 		return nil, status.Error(codes.InvalidArgument, "path cannot be empty")
 	}
+	if len(reqPath) >= maxReadPathLength {
+		return nil, status.Errorf(codes.InvalidArgument, "path must be shorter than %d bytes", maxReadPathLength)
+	}
 	if !filepath.IsAbs(reqPath) {
 		return nil, status.Errorf(codes.InvalidArgument, "path must be absolute, got: %s", reqPath)
 	}
 
-	cleanReqPath := filepath.Clean(reqPath)
 	// Reject /mnt/host-prefixed inputs to avoid double-prefixing in
 	// translatePathForContainer (e.g. "/mnt/host/tmp/x" → "/mnt/host/mnt/host/tmp/x").
 	// Clients should pass host-visible paths like /tmp/..., /etc/..., /host/...
-	if cleanReqPath == "/mnt/host" || strings.HasPrefix(cleanReqPath, "/mnt/host/") {
+	if isContainerInternalReadPath(reqPath) {
 		return nil, status.Errorf(codes.InvalidArgument,
 			"path must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", reqPath)
 	}
-	translatedPath := translatePathForContainer(cleanReqPath)
-
-	info, err := fsStat(translatedPath)
+	var directoryLinks int
+	file, err := fsOpenRead(reqPath, &directoryLinks)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, status.Errorf(codes.NotFound, "path not found: %s", reqPath)
+		if os.IsNotExist(err) || os.IsPermission(err) {
+			return nil, status.Error(codes.PermissionDenied, "file read access denied")
 		}
-		if os.IsPermission(err) {
-			return nil, status.Errorf(codes.PermissionDenied, "permission denied: %s", reqPath)
+		if errors.Is(err, errReadFileType) {
+			return nil, status.Errorf(codes.FailedPrecondition, "path is not a regular file or directory: %s", reqPath)
 		}
+		return nil, status.Errorf(codes.Internal, "failed to stat %s: %v", reqPath, err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to stat %s: %v", reqPath, err)
 	}
 
 	resp := &gnoi_file_pb.StatResponse{}
 
 	if !info.IsDir() {
-		statInfo, err := statInfoFromFileInfo(cleanReqPath, info)
+		statInfo, err := statInfoFromFileInfo(reqPath, info)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "%v", err)
 		}
@@ -700,7 +702,7 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 	}
 
 	// Directory: list immediate children (non-recursive).
-	entries, err := fsReadDir(translatedPath)
+	entries, err := fsReadDir(file)
 	if err != nil {
 		// The directory may have been removed between the os.Stat above
 		// and this ReadDir; surface that as NotFound, not Internal, so
@@ -714,16 +716,37 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 		return nil, status.Errorf(codes.Internal, "failed to read directory %s: %v", reqPath, err)
 	}
 
+	directories, err := openPublicReadAncestors(file)
+	if err != nil {
+		if os.IsNotExist(err) || os.IsPermission(err) {
+			return nil, status.Error(codes.PermissionDenied, "file read access denied")
+		}
+		return nil, status.Errorf(codes.Internal, "failed to validate directory ancestry: %v", err)
+	}
+	defer closePublicReadDirectories(directories)
+
 	stats := make([]*gnoi_file_pb.StatInfo, 0, len(entries))
 	for _, entry := range entries {
-		entryInfo, err := entry.Info()
+		childReportPath := strings.TrimRight(reqPath, "/") + "/" + entry.Name()
+		if len(childReportPath) >= maxReadPathLength {
+			log.Warningf("HandleStat: skipping %s: path exceeds the read-path length limit", entry.Name())
+			continue
+		}
+		if isContainerInternalReadPath(childReportPath) {
+			log.Warningf("HandleStat: skipping %s: path is container-internal", childReportPath)
+			continue
+		}
+		child, err := openPublicReadChild(directories, entry.Name(), directoryLinks)
 		if err != nil {
-			// Entry vanished between ReadDir and Info (race): skip it
-			// rather than failing the whole listing.
 			log.Warningf("HandleStat: skipping %s/%s: %v", reqPath, entry.Name(), err)
 			continue
 		}
-		childReportPath := filepath.Join(cleanReqPath, entry.Name())
+		entryInfo, err := child.Stat()
+		child.Close()
+		if err != nil {
+			log.Warningf("HandleStat: skipping %s: %v", childReportPath, err)
+			continue
+		}
 		statInfo, err := statInfoFromFileInfo(childReportPath, entryInfo)
 		if err != nil {
 			log.Warningf("HandleStat: skipping %s: %v", childReportPath, err)
@@ -745,7 +768,7 @@ func HandleStat(ctx context.Context, req *gnoi_file_pb.StatRequest) (*gnoi_file_
 // Behavior:
 //   - Validates the request: non-nil, non-empty absolute path, and not
 //     prefixed with /mnt/host (clients pass host-visible paths).
-//   - Translates the path through translatePathForContainer so it works
+//   - Maps the path to the host filesystem and requires public read access,
 //     both inside the gnmi container and on a bare host.
 //   - Rejects directories with FailedPrecondition (the proto requires
 //     a file).
@@ -761,26 +784,31 @@ func HandleGet(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.File_GetServer)
 	if remoteFile == "" {
 		return status.Error(codes.InvalidArgument, "remote_file cannot be empty")
 	}
+	if len(remoteFile) >= maxReadPathLength {
+		return status.Errorf(codes.InvalidArgument, "remote_file must be shorter than %d bytes", maxReadPathLength)
+	}
 	if !filepath.IsAbs(remoteFile) {
 		return status.Errorf(codes.InvalidArgument, "remote_file must be absolute, got: %s", remoteFile)
 	}
 
-	cleanPath := filepath.Clean(remoteFile)
-	if cleanPath == "/mnt/host" || strings.HasPrefix(cleanPath, "/mnt/host/") {
+	if isContainerInternalReadPath(remoteFile) {
 		return status.Errorf(codes.InvalidArgument,
 			"remote_file must be host-visible, not container-internal: %s (drop the /mnt/host prefix)", remoteFile)
 	}
 
-	translatedPath := translatePathForContainer(cleanPath)
-
-	info, err := os.Stat(translatedPath)
+	f, err := fsOpenRead(remoteFile, nil)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return status.Errorf(codes.NotFound, "file not found: %s", remoteFile)
+		if os.IsNotExist(err) || os.IsPermission(err) {
+			return status.Error(codes.PermissionDenied, "file read access denied")
 		}
-		if os.IsPermission(err) {
-			return status.Errorf(codes.PermissionDenied, "permission denied: %s", remoteFile)
+		if errors.Is(err, errReadFileType) {
+			return status.Errorf(codes.FailedPrecondition, "remote_file is not a regular file: %s", remoteFile)
 		}
+		return status.Errorf(codes.Internal, "failed to open %s: %v", remoteFile, err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
 		return status.Errorf(codes.Internal, "failed to stat %s: %v", remoteFile, err)
 	}
 	if info.IsDir() {
@@ -792,15 +820,6 @@ func HandleGet(req *gnoi_file_pb.GetRequest, stream gnoi_file_pb.File_GetServer)
 	if info.Size() > maxFileSize {
 		return status.Errorf(codes.FailedPrecondition, "file %s exceeds maximum size of %d bytes", remoteFile, maxFileSize)
 	}
-
-	f, err := os.Open(translatedPath)
-	if err != nil {
-		if os.IsPermission(err) {
-			return status.Errorf(codes.PermissionDenied, "permission denied opening %s: %v", remoteFile, err)
-		}
-		return status.Errorf(codes.Internal, "failed to open %s: %v", remoteFile, err)
-	}
-	defer f.Close()
 
 	hashCalc := hash.NewStreamingMD5Calculator()
 	buf := make([]byte, 64*1024) // 64 KiB chunks per gNOI proto.

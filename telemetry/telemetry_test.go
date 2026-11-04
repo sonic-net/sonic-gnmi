@@ -57,6 +57,19 @@ func TestRunTelemetry(t *testing.T) {
 	}
 }
 
+func TestRunTelemetryRejectsInvalidSharedMemoryKey(t *testing.T) {
+	originalArgs := os.Args
+	t.Cleanup(func() { os.Args = originalArgs })
+	t.Setenv("SONIC_GNMI_SHM_KEY", "invalid")
+
+	args := []string{"telemetry", "-port", "0", "-noTLS", "-bind_address", "127.0.0.1"}
+	os.Args = args
+	err := runTelemetry(args)
+	if err == nil || !strings.Contains(err.Error(), "invalid SONIC_GNMI_SHM_KEY") {
+		t.Fatalf("runTelemetry() error = %v, want invalid shared-memory key error", err)
+	}
+}
+
 func TestFlags(t *testing.T) {
 	originalArgs := os.Args
 	originalJwtRefreshInt := gnmi.JwtRefreshInt
@@ -106,7 +119,7 @@ func TestFlags(t *testing.T) {
 			"",
 		},
 		{
-			[]string{"cmd", "-port", "8082", "-threshold", "1", "-idle_conn_duration", "1", "-gnmi_vrf", "mgmt", "-vrf", "mgmt", "-noTLS", "-bind_address", "127.0.0.1"},
+			[]string{"cmd", "-port", "8082", "-threshold", "1", "-idle_conn_duration", "1", "-gnmi_vrf", "mgmt", "-vrf", "mgmt", "-insecure"},
 			8082,
 			1,
 			1,
@@ -1487,6 +1500,8 @@ func TestNoTLSRequiresLoopbackAddress(t *testing.T) {
 		{"loopback ipv4", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1"}, false},
 		{"loopback ipv4 alt", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.2"}, false},
 		{"loopback ipv6", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "::1"}, false},
+		{"default vrf", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1", "-gnmi_vrf", "default"}, false},
+		{"management vrf", []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1", "-gnmi_vrf", "mgmt"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1506,4 +1521,53 @@ func TestNoTLSRequiresLoopbackAddress(t *testing.T) {
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
 	m.Run()
+}
+
+func TestPathsBlacklistFlag(t *testing.T) {
+	originalArgs := os.Args
+	defer func() {
+		os.Args = originalArgs
+	}()
+
+	validFile := filepath.Join(t.TempDir(), "blacklist.txt")
+	if err := os.WriteFile(validFile, []byte("COUNTERS_DB /COUNTERS/Ethernet0\n* /SECRET\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	malformedFile := filepath.Join(t.TempDir(), "malformed.txt")
+	if err := os.WriteFile(malformedFile, []byte("COUNTERS_DB\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	baseArgs := []string{"cmd", "-port", "9090", "-noTLS", "-bind_address", "127.0.0.1"}
+
+	tests := []struct {
+		desc    string
+		args    []string
+		wantLen int
+		wantErr bool
+	}{
+		{desc: "valid blacklist file", args: append(baseArgs, "-paths_blacklist", validFile), wantLen: 2},
+		{desc: "flag not passed disables blacklist", args: baseArgs, wantLen: 0},
+		{desc: "missing file", args: append(baseArgs, "-paths_blacklist", "/nonexistent/blacklist.txt"), wantErr: true},
+		{desc: "malformed file", args: append(baseArgs, "-paths_blacklist", malformedFile), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			fs := flag.NewFlagSet("testPathsBlacklist", flag.ContinueOnError)
+			os.Args = tt.args
+			_, cfg, err := setupFlags(fs)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.PathsBlacklist.Len() != tt.wantLen {
+				t.Fatalf("PathsBlacklist.Len() = %d, want %d", cfg.PathsBlacklist.Len(), tt.wantLen)
+			}
+		})
+	}
 }

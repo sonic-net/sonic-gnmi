@@ -21,7 +21,7 @@ var (
 		RetryInterval:  30 * time.Second,
 		Encoding:       gpb.Encoding_JSON_IETF,
 		Unidirectional: true,
-		TLS:            &tls.Config{},
+		TLS:            &tls.Config{MinVersion: tls.VersionTLS13},
 	}
 )
 
