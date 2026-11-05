@@ -41,6 +41,10 @@ func TestNewServerRegistrationAuthorization(t *testing.T) {
 				func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 					inner.Add(1)
 					return handler(ctx, req)
+				}), grpc.ChainStreamInterceptor(
+				func(srv interface{}, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+					inner.Add(1)
+					return handler(srv, stream)
 				})})
 			if err != nil {
 				t.Fatal(err)
@@ -94,8 +98,8 @@ func TestNewServerRegistrationAuthorization(t *testing.T) {
 			if err := stream.CloseSend(); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := stream.Recv(); status.Code(err) != codes.Aborted {
-				t.Fatalf("production Subscribe initial EOF: %v", err)
+			if _, err := stream.Recv(); status.Code(err) != codes.Aborted || inner.Load() != 1 {
+				t.Fatalf("production Subscribe initial EOF: %v inner=%d", err, inner.Load())
 			}
 			if credentials.Load() != 3 {
 				t.Fatalf("credential calls=%d, want Time/Reboot/Subscribe only", credentials.Load())

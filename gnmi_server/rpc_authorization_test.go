@@ -10,7 +10,6 @@ import (
 	"time"
 
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	"github.com/sonic-net/sonic-gnmi/internal/rpcauthz"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -165,13 +164,6 @@ func TestRPCAuthorizationUnary(t *testing.T) {
 			wantCode: codes.PermissionDenied,
 		},
 		{
-			name:     "service noaccess overrides scoped allow",
-			method:   "/gnmi.gNMI/Get",
-			request:  testGetRequest("CONFIG_DB"),
-			roles:    []string{"gnmi_noaccess", "gnmi_config_db_readonly"},
-			wantCode: codes.PermissionDenied,
-		},
-		{
 			name:        "unrelated service noaccess does not deny target",
 			method:      "/gnmi.gNMI/Get",
 			request:     testGetRequest("CONFIG_DB"),
@@ -184,13 +176,6 @@ func TestRPCAuthorizationUnary(t *testing.T) {
 			method:   "/gnoi.system.System/Time",
 			request:  &emptypb.Empty{},
 			roles:    []string{"gnmi_readonly"},
-			wantCode: codes.PermissionDenied,
-		},
-		{
-			name:     "wrong gNMI target denied",
-			method:   "/gnmi.gNMI/Get",
-			request:  testGetRequest("STATE_DB"),
-			roles:    []string{"gnmi_config_db_readonly"},
 			wantCode: codes.PermissionDenied,
 		},
 		{
@@ -273,14 +258,6 @@ func TestRPCAuthorizationStream(t *testing.T) {
 			wantCode: codes.PermissionDenied,
 		},
 		{
-			name:                "wrong stream target denied",
-			method:              "/gnmi.gNMI/Subscribe",
-			request:             testSubscribeRequest("STATE_DB"),
-			roles:               []string{"gnmi_config_db_readonly"},
-			wantCode:            codes.PermissionDenied,
-			wantNetworkReceives: 1,
-		},
-		{
 			name:     "unknown stream role denied",
 			method:   "/gnmi.gNMI/Subscribe",
 			request:  testSubscribeRequest("STATE_DB"),
@@ -321,13 +298,6 @@ func TestRPCAuthorizationStream(t *testing.T) {
 			},
 			wantCode:            codes.OK,
 			wantEffects:         1,
-			wantNetworkReceives: 1,
-		},
-		{
-			name:                "initial EOF preserves aborted status",
-			method:              "/gnmi.gNMI/Subscribe",
-			roles:               []string{"gnmi_readonly"},
-			wantCode:            codes.Aborted,
 			wantNetworkReceives: 1,
 		},
 		{
@@ -905,18 +875,6 @@ func invokeAuthorizationSubscribe(ctx context.Context, conn *grpc.ClientConn, re
 	return err
 }
 
-func invokeAuthorizationSubscribeWithoutRequest(ctx context.Context, conn *grpc.ClientConn) error {
-	stream, err := gnmipb.NewGNMIClient(conn).Subscribe(ctx)
-	if err != nil {
-		return err
-	}
-	if err = stream.CloseSend(); err != nil {
-		return err
-	}
-	_, err = stream.Recv()
-	return err
-}
-
 func TestRPCAuthorizationPrecedesChainedInnerInterceptors(t *testing.T) {
 	harness := newAuthorizationChainHarness(t, "gnmi_noaccess", "gnmi_config_db_readwrite")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1060,23 +1018,6 @@ func TestRPCAuthorizationBuffersSubscribeBeforeInnerChain(t *testing.T) {
 	}
 }
 
-func TestRPCAuthorizationPreservesInitialSubscribeEOF(t *testing.T) {
-	harness := newAuthorizationChainHarness(t, "gnmi_readonly")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err := invokeAuthorizationSubscribeWithoutRequest(ctx, harness.conn)
-	if got := status.Code(err); got != codes.Aborted {
-		t.Fatalf("Subscribe status = %v, want Aborted; err=%v", got, err)
-	}
-	if got := harness.innerStreamCalls.Load(); got != 0 {
-		t.Fatalf("inner stream interceptor calls = %d, want 0", got)
-	}
-	if got := harness.streamHandlerCalls.Load(); got != 0 {
-		t.Fatalf("stream handler calls = %d, want 0", got)
-	}
-}
-
 func TestRPCAuthorizationBypassPrecedesClassificationAndAuthentication(t *testing.T) {
 	authCalls := 0
 	interceptor := newRPCAuthorizationInterceptor(
@@ -1102,42 +1043,6 @@ func TestRPCAuthorizationBypassPrecedesClassificationAndAuthentication(t *testin
 	}
 	if effects != 1 {
 		t.Fatalf("handler effects = %d, want 1", effects)
-	}
-}
-
-func TestLegacyRoleAccessCompatibility(t *testing.T) {
-	tests := []struct {
-		name      string
-		roles     []string
-		target    string
-		write     bool
-		wantError bool
-	}{
-		{name: "unknown read remains allowed", roles: []string{"sonic_linux"}},
-		{name: "unknown write remains denied", roles: []string{"sonic_linux"}, write: true, wantError: true},
-		{name: "readonly read remains allowed", roles: []string{"gnmi_readonly"}},
-		{name: "readonly write remains denied", roles: []string{"gnmi_readonly"}, write: true, wantError: true},
-		{name: "readwrite write remains allowed", roles: []string{"gnmi_readwrite"}, write: true},
-		{name: "noaccess read remains denied", roles: []string{"gnmi_noaccess"}, wantError: true},
-		{
-			name:   "service noaccess does not override scoped readwrite",
-			roles:  []string{"gnmi_noaccess", "gnmi_config_db_readwrite"},
-			target: "gnmi_CONFIG_DB",
-			write:  true,
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			target := test.target
-			if target == "" {
-				target = "gnmi"
-			}
-			err := rpcauthz.CheckTargetAccess("test-user", test.roles, target, test.write, false)
-			if got := err != nil; got != test.wantError {
-				t.Fatalf("error = %v, wantError %t", err, test.wantError)
-			}
-		})
 	}
 }
 

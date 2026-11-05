@@ -17,6 +17,7 @@ func TestCheckTargetAccess(t *testing.T) {
 		{name: "readonly read allows", roles: []string{"gnmi_readonly"}, requireRole: true},
 		{name: "readonly write denies", roles: []string{"gnmi_readonly"}, write: true, requireRole: true, wantError: true},
 		{name: "readwrite write allows", roles: []string{"gnmi_readwrite"}, write: true, requireRole: true},
+		{name: "legacy noaccess read denies", roles: []string{"gnmi_noaccess"}, wantError: true},
 		{name: "target noaccess denies", roles: []string{"gnmi_config_db_readwrite", "gnmi_config_db_noaccess"}, target: "gnmi_CONFIG_DB", write: true, requireRole: true, wantError: true},
 	}
 
