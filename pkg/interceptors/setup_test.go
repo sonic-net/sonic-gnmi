@@ -1,7 +1,20 @@
 package interceptors
 
 import (
+	"context"
+	"net"
+	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 func TestNewServerChain(t *testing.T) {
@@ -26,6 +39,56 @@ func TestNewServerChain(t *testing.T) {
 	}
 }
 
+func TestServerChainLogsOuterAuthorizationDenials(t *testing.T) {
+	var mu sync.Mutex
+	var lines []string
+	logger := newRPCCompletionLogger(func(line string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		lines = append(lines, line)
+		return nil
+	})
+	chain := &ServerChain{completion: logger, chain: NewChain()}
+	// Reproduce NewServer prepending authorization before common options.
+	opts := []grpc.ServerOption{
+		grpc.ChainUnaryInterceptor(func(context.Context, interface{}, *grpc.UnaryServerInfo, grpc.UnaryHandler) (interface{}, error) {
+			return nil, status.Error(codes.PermissionDenied, "denied")
+		}),
+		grpc.ChainStreamInterceptor(func(interface{}, grpc.ServerStream, *grpc.StreamServerInfo, grpc.StreamHandler) error {
+			return status.Error(codes.Unauthenticated, "certificate rejected")
+		}),
+	}
+	s := grpc.NewServer(append(opts, chain.GetServerOptions()...)...)
+	healthpb.RegisterHealthServer(s, health.NewServer())
+	listener := bufconn.Listen(1024 * 1024)
+	go s.Serve(listener)
+	defer s.Stop()
+	defer listener.Close()
+	conn, err := grpc.NewClient("passthrough:///bufconn", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := healthpb.NewHealthClient(conn)
+	if _, err := client.Check(ctx, &healthpb.HealthCheckRequest{}); status.Code(err) != codes.PermissionDenied {
+		t.Fatal(err)
+	}
+	stream, err := client.Watch(ctx, &healthpb.HealthCheckRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Recv(); status.Code(err) != codes.Unauthenticated {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(lines) != 2 || !strings.Contains(lines[0], `"code":"PermissionDenied"`) || !strings.Contains(lines[1], `"code":"Unauthenticated"`) {
+		t.Fatalf("completion records=%v", lines)
+	}
+}
+
 func TestNewServerChainStartsWithCompletionLogger(t *testing.T) {
 	serverChain, err := NewServerChain()
 	if err != nil {
@@ -37,11 +100,8 @@ func TestNewServerChainStartsWithCompletionLogger(t *testing.T) {
 		}
 	}()
 
-	if len(serverChain.chain.interceptors) < 2 {
-		t.Fatalf("server chain has %d interceptors, want completion logger and DPU proxy", len(serverChain.chain.interceptors))
-	}
-	if _, ok := serverChain.chain.interceptors[0].(*rpcCompletionLogger); !ok {
-		t.Fatalf("first server interceptor is %T, want *rpcCompletionLogger", serverChain.chain.interceptors[0])
+	if serverChain.completion == nil || len(serverChain.chain.interceptors) != 1 {
+		t.Fatal("expected outer completion logger and inner proxy chain")
 	}
 }
 
@@ -62,7 +122,7 @@ func TestServerChain_GetServerOptions(t *testing.T) {
 	}
 
 	// Verify we get both unary and stream interceptors
-	expectedOptCount := 2 // unary + stream interceptor
+	expectedOptCount := 4 // outer completion + inner chain, unary and stream
 	if len(opts) != expectedOptCount {
 		t.Errorf("Expected %d server options, got %d", expectedOptCount, len(opts))
 	}

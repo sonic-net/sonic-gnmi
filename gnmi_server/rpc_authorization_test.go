@@ -10,6 +10,7 @@ import (
 	"time"
 
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	filepb "github.com/openconfig/gnoi/file"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -1075,6 +1076,7 @@ type testAuthorizationServerStream struct {
 	ctx       context.Context
 	messages  []proto.Message
 	recvCalls int
+	onReceive func()
 }
 
 func (s *testAuthorizationServerStream) Context() context.Context {
@@ -1083,6 +1085,9 @@ func (s *testAuthorizationServerStream) Context() context.Context {
 
 func (s *testAuthorizationServerStream) RecvMsg(message interface{}) error {
 	s.recvCalls++
+	if s.onReceive != nil {
+		s.onReceive()
+	}
 	if len(s.messages) == 0 {
 		return io.EOF
 	}
@@ -1094,4 +1099,90 @@ func (s *testAuthorizationServerStream) RecvMsg(message interface{}) error {
 	proto.Merge(destination, s.messages[0])
 	s.messages = s.messages[1:]
 	return nil
+}
+
+func TestRPCAuthorizationRefreshesDelayedSubscribe(t *testing.T) {
+	i := testRPCAuthorizationInterceptor("gnmi_state_db_readonly")
+	stream := &testAuthorizationServerStream{ctx: context.Background(), messages: []proto.Message{testSubscribeRequest("STATE_DB")}}
+	stream.onReceive = func() {
+		i.authenticate = func(ctx context.Context) (context.Context, *rpcIdentity, error) {
+			return ctx, &rpcIdentity{user: "revoked", roles: []string{"gnmi_noaccess"}}, nil
+		}
+	}
+	called := false
+	err := i.StreamInterceptor()(nil, stream, &grpc.StreamServerInfo{FullMethod: "/gnmi.gNMI/Subscribe"}, func(interface{}, grpc.ServerStream) error {
+		called = true
+		return nil
+	})
+	if status.Code(err) != codes.PermissionDenied || called {
+		t.Fatalf("delayed Subscribe err=%v handler=%t", err, called)
+	}
+}
+
+type delayedFileServer struct {
+	filepb.UnimplementedFileServer
+	calls atomic.Int32
+}
+
+func (s *delayedFileServer) Get(*filepb.GetRequest, filepb.File_GetServer) error {
+	s.calls.Add(1)
+	return nil
+}
+
+func TestRPCAuthorizationRefreshesGeneratedFileReceive(t *testing.T) {
+	for _, revoked := range []bool{false, true} {
+		t.Run(map[bool]string{false: "allowed", true: "revoked"}[revoked], func(t *testing.T) {
+			var invalid atomic.Bool
+			var credentials atomic.Int32
+			entered := make(chan struct{}, 1)
+			i := newRPCAuthorizationInterceptor(func(ctx context.Context) (context.Context, *rpcIdentity, error) {
+				credentials.Add(1)
+				if invalid.Load() {
+					return ctx, nil, status.Error(codes.Unauthenticated, "mapping removed")
+				}
+				return ctx, &rpcIdentity{user: "reader", roles: []string{"gnoi_readonly"}}, nil
+			}, nil)
+			srv := &delayedFileServer{}
+			s := grpc.NewServer(grpc.ChainStreamInterceptor(i.StreamInterceptor(), func(srv interface{}, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+				entered <- struct{}{}
+				return handler(srv, stream)
+			}))
+			filepb.RegisterFileServer(s, srv)
+			listener := bufconn.Listen(1024 * 1024)
+			go s.Serve(listener)
+			defer s.Stop()
+			defer listener.Close()
+			conn, err := grpc.NewClient("passthrough:///bufconn", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }), grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			stream, err := conn.NewStream(ctx, &grpc.StreamDesc{ServerStreams: true}, "/gnoi.file.File/Get")
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-entered:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			invalid.Store(revoked)
+			if err := stream.SendMsg(&filepb.GetRequest{RemoteFile: "/tmp/test"}); err != nil {
+				t.Fatal(err)
+			}
+			err = stream.RecvMsg(&filepb.GetResponse{})
+			if revoked {
+				if status.Code(err) != codes.Unauthenticated || srv.calls.Load() != 0 {
+					t.Fatalf("revoked File.Get err=%v calls=%d", err, srv.calls.Load())
+				}
+			} else if err != io.EOF || srv.calls.Load() != 1 {
+				t.Fatalf("allowed File.Get err=%v calls=%d", err, srv.calls.Load())
+			}
+			if credentials.Load() != 2 {
+				t.Fatalf("credential calls=%d", credentials.Load())
+			}
+		})
+	}
 }

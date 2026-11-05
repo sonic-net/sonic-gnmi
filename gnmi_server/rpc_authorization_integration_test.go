@@ -187,7 +187,7 @@ func TestCentralSubscribeReauthenticationRefreshesSource(t *testing.T) {
 					}
 					rc.Auth.Roles = []string{"gnmi_noaccess", "gnmi_counters_db_readonly"}
 				}
-				if n > 1 {
+				if n > 2 {
 					select {
 					case refreshed <- struct{}{}:
 					default:
@@ -209,7 +209,7 @@ func TestCentralSubscribeReauthenticationRefreshesSource(t *testing.T) {
 				if _, err := authenticate(cfg, ctx, "gnmi_COUNTERS_DB", false); err != nil {
 					return err
 				}
-				if credentialCalls.Load() != 1 {
+				if credentialCalls.Load() != 2 {
 					t.Fatal("initial handler repeated credentials")
 				}
 				rc, _ := common_utils.GetContext(ctx)
@@ -251,10 +251,10 @@ func TestCentralSubscribeReauthenticationRefreshesSource(t *testing.T) {
 				default:
 					t.Fatal("missing terminal authentication error")
 				}
-				if closed.Load() != 1 || credentialCalls.Load() < 3 {
+				if closed.Load() != 1 || credentialCalls.Load() < 4 {
 					t.Fatalf("closes=%d calls=%d", closed.Load(), credentialCalls.Load())
 				}
-				if rc != initial || rc.ID != initial.ID || rc.BundleVersion != &bundle || !reflect.DeepEqual(rc.Auth.Roles, originalRoles) {
+				if rc == initial || rc.ID != initial.ID || rc.BundleVersion != &bundle || !reflect.DeepEqual(rc.Auth.Roles, originalRoles) {
 					t.Fatalf("periodic check mutated stream identity: %+v", rc)
 				}
 				return nil

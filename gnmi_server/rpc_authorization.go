@@ -4,7 +4,9 @@ import (
 	"context"
 	"io"
 	"reflect"
+	"sync"
 
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/internal/rpcauthz"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -176,6 +178,10 @@ func (i *rpcAuthorizationInterceptor) StreamInterceptor() grpc.StreamServerInter
 				}
 				return status.Error(status.Code(err), "received error from client")
 			}
+			authenticatedCtx, auth, _, err = i.authenticateRPC(common_utils.WithFreshAuth(authenticatedCtx), info.FullMethod)
+			if err != nil {
+				return err
+			}
 			requestTarget, err = rpcAuthorizationRequestTarget(authenticatedCtx, info.FullMethod, bufferedRequest)
 			if err != nil {
 				return err
@@ -185,27 +191,61 @@ func (i *rpcAuthorizationInterceptor) StreamInterceptor() grpc.StreamServerInter
 		if err != nil {
 			return err
 		}
-		return handler(srv, &rpcAuthorizationServerStream{
+		wrapped := &rpcAuthorizationServerStream{
 			ServerStream: stream,
 			ctx:          authorizedCtx,
 			buffered:     bufferedRequest,
-		})
+		}
+		if bufferedRequest == nil {
+			// Generated server-streaming handlers receive their request after the
+			// interceptor starts. Refresh before that first message reaches them.
+			wrapped.refresh = func(ctx context.Context) (context.Context, error) {
+				ctx, identity, _, err := i.authenticateRPC(common_utils.WithFreshAuth(ctx), info.FullMethod)
+				if err != nil {
+					return ctx, err
+				}
+				return authorizeRPCTarget(ctx, identity, authorization, requestTarget)
+			}
+		}
+		return handler(srv, wrapped)
 	}
 }
 
 type rpcAuthorizationServerStream struct {
 	grpc.ServerStream
-	ctx      context.Context
-	buffered proto.Message
+	ctx        context.Context
+	buffered   proto.Message
+	mu         sync.RWMutex
+	refresh    func(context.Context) (context.Context, error)
+	refreshErr error
 }
 
 func (s *rpcAuthorizationServerStream) Context() context.Context {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.ctx
 }
 
 func (s *rpcAuthorizationServerStream) RecvMsg(message interface{}) error {
 	if s.buffered == nil {
-		return s.ServerStream.RecvMsg(message)
+		if s.refreshErr != nil {
+			return s.refreshErr
+		}
+		if err := s.ServerStream.RecvMsg(message); err != nil {
+			return err
+		}
+		if s.refresh != nil {
+			ctx, err := s.refresh(s.Context())
+			s.refresh = nil
+			s.refreshErr = err
+			if err != nil {
+				return err
+			}
+			s.mu.Lock()
+			s.ctx = ctx
+			s.mu.Unlock()
+		}
+		return nil
 	}
 
 	destination, ok := message.(proto.Message)
