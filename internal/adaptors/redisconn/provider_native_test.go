@@ -23,7 +23,9 @@ func TestNewPreservesSuppliedTLSWithDefaultDialer(t *testing.T) {
 	options := redisopts.New(redis.Options{Addr: server.Listener.Addr().String(), TLSConfig: config})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	connection, err := options.Dialer(ctx, "tcp", options.Addr)
+	client := redis.NewClient(options)
+	defer client.Close()
+	connection, err := client.Options().Dialer(ctx, "tcp", options.Addr)
 	if err != nil {
 		t.Fatal(err)
 	}
