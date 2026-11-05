@@ -241,6 +241,18 @@ func pullReference(req *oraspb.PullRequest) string {
 	return req.GetTag()
 }
 
+// maxRegistryRedirects matches net/http's default redirect limit. ORAS v2.6.2
+// installs its own CheckRedirect when the caller does not provide one, which
+// bypasses that default, so newRepository sets an explicit bound.
+const maxRegistryRedirects = 10
+
+func checkRegistryRedirect(_ *http.Request, via []*http.Request) error {
+	if len(via) >= maxRegistryRedirects {
+		return fmt.Errorf("stopped after %d redirects", maxRegistryRedirects)
+	}
+	return nil
+}
+
 func newRepository(req *oraspb.PullRequest) (*remote.Repository, error) {
 	repoRef := fmt.Sprintf("%s/%s", req.GetRegistry(), req.GetRepository())
 	repo, err := remote.NewRepository(repoRef)
@@ -255,7 +267,8 @@ func newRepository(req *oraspb.PullRequest) (*remote.Repository, error) {
 	// route to the registry need no configuration.
 	client := &auth.Client{
 		Client: &http.Client{
-			Transport: retry.NewTransport(http.DefaultTransport),
+			Transport:     retry.NewTransport(http.DefaultTransport),
+			CheckRedirect: checkRegistryRedirect,
 		},
 		Cache: auth.NewCache(),
 	}
