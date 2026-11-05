@@ -1062,6 +1062,289 @@ func (m *ImageDefaultResponse) GetOutput() *SonicOutput {
 	return nil
 }
 
+// ConfigSave persists the running configuration to the SONiC startup config
+// file (/etc/sonic/config_db.json). The destination is fixed; the request
+// carries no inputs. This mirrors `config save -y` invoked via the host
+// service `org.SONiC.HostService.config.save`.
+type ConfigSaveRequest struct {
+	Input                *ConfigSaveRequest_Input `protobuf:"bytes,1,opt,name=input,proto3" json:"sonic-config-mgmt:input" xml:",comment"`
+	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
+	XXX_unrecognized     []byte                   `json:"-"`
+	XXX_sizecache        int32                    `json:"-"`
+}
+
+func (m *ConfigSaveRequest) Reset()         { *m = ConfigSaveRequest{} }
+func (m *ConfigSaveRequest) String() string { return proto.CompactTextString(m) }
+func (*ConfigSaveRequest) ProtoMessage()    {}
+func (*ConfigSaveRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_75b35b752d70e98f, []int{13}
+}
+func (m *ConfigSaveRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ConfigSaveRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ConfigSaveRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ConfigSaveRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ConfigSaveRequest.Merge(m, src)
+}
+func (m *ConfigSaveRequest) XXX_Size() int {
+	return m.Size()
+}
+func (m *ConfigSaveRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_ConfigSaveRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ConfigSaveRequest proto.InternalMessageInfo
+
+func (m *ConfigSaveRequest) GetInput() *ConfigSaveRequest_Input {
+	if m != nil {
+		return m.Input
+	}
+	return nil
+}
+
+type ConfigSaveRequest_Input struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *ConfigSaveRequest_Input) Reset()         { *m = ConfigSaveRequest_Input{} }
+func (m *ConfigSaveRequest_Input) String() string { return proto.CompactTextString(m) }
+func (*ConfigSaveRequest_Input) ProtoMessage()    {}
+func (*ConfigSaveRequest_Input) Descriptor() ([]byte, []int) {
+	return fileDescriptor_75b35b752d70e98f, []int{13, 0}
+}
+func (m *ConfigSaveRequest_Input) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ConfigSaveRequest_Input) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ConfigSaveRequest_Input.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ConfigSaveRequest_Input) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ConfigSaveRequest_Input.Merge(m, src)
+}
+func (m *ConfigSaveRequest_Input) XXX_Size() int {
+	return m.Size()
+}
+func (m *ConfigSaveRequest_Input) XXX_DiscardUnknown() {
+	xxx_messageInfo_ConfigSaveRequest_Input.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ConfigSaveRequest_Input proto.InternalMessageInfo
+
+type ConfigSaveResponse struct {
+	Output               *SonicOutput `protobuf:"bytes,1,opt,name=output,proto3" json:"sonic-config-mgmt:output" xml:",comment"`
+	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
+	XXX_unrecognized     []byte       `json:"-"`
+	XXX_sizecache        int32        `json:"-"`
+}
+
+func (m *ConfigSaveResponse) Reset()         { *m = ConfigSaveResponse{} }
+func (m *ConfigSaveResponse) String() string { return proto.CompactTextString(m) }
+func (*ConfigSaveResponse) ProtoMessage()    {}
+func (*ConfigSaveResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_75b35b752d70e98f, []int{14}
+}
+func (m *ConfigSaveResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ConfigSaveResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ConfigSaveResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ConfigSaveResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ConfigSaveResponse.Merge(m, src)
+}
+func (m *ConfigSaveResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *ConfigSaveResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_ConfigSaveResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ConfigSaveResponse proto.InternalMessageInfo
+
+func (m *ConfigSaveResponse) GetOutput() *SonicOutput {
+	if m != nil {
+		return m.Output
+	}
+	return nil
+}
+
+// ConfigReload reapplies configuration to the running CONFIG_DB. If
+// `config_json` is empty the host service reloads from the current startup
+// config file (/etc/sonic/config_db.json); otherwise the supplied JSON is
+// piped to `config reload -y /dev/stdin`. Backed by the host service
+// `org.SONiC.HostService.config.reload`.
+type ConfigReloadRequest struct {
+	Input                *ConfigReloadRequest_Input `protobuf:"bytes,1,opt,name=input,proto3" json:"sonic-config-mgmt:input" xml:",comment"`
+	XXX_NoUnkeyedLiteral struct{}                   `json:"-"`
+	XXX_unrecognized     []byte                     `json:"-"`
+	XXX_sizecache        int32                      `json:"-"`
+}
+
+func (m *ConfigReloadRequest) Reset()         { *m = ConfigReloadRequest{} }
+func (m *ConfigReloadRequest) String() string { return proto.CompactTextString(m) }
+func (*ConfigReloadRequest) ProtoMessage()    {}
+func (*ConfigReloadRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_75b35b752d70e98f, []int{15}
+}
+func (m *ConfigReloadRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ConfigReloadRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ConfigReloadRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ConfigReloadRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ConfigReloadRequest.Merge(m, src)
+}
+func (m *ConfigReloadRequest) XXX_Size() int {
+	return m.Size()
+}
+func (m *ConfigReloadRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_ConfigReloadRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ConfigReloadRequest proto.InternalMessageInfo
+
+func (m *ConfigReloadRequest) GetInput() *ConfigReloadRequest_Input {
+	if m != nil {
+		return m.Input
+	}
+	return nil
+}
+
+type ConfigReloadRequest_Input struct {
+	ConfigJson           string   `protobuf:"bytes,1,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *ConfigReloadRequest_Input) Reset()         { *m = ConfigReloadRequest_Input{} }
+func (m *ConfigReloadRequest_Input) String() string { return proto.CompactTextString(m) }
+func (*ConfigReloadRequest_Input) ProtoMessage()    {}
+func (*ConfigReloadRequest_Input) Descriptor() ([]byte, []int) {
+	return fileDescriptor_75b35b752d70e98f, []int{15, 0}
+}
+func (m *ConfigReloadRequest_Input) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ConfigReloadRequest_Input) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ConfigReloadRequest_Input.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ConfigReloadRequest_Input) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ConfigReloadRequest_Input.Merge(m, src)
+}
+func (m *ConfigReloadRequest_Input) XXX_Size() int {
+	return m.Size()
+}
+func (m *ConfigReloadRequest_Input) XXX_DiscardUnknown() {
+	xxx_messageInfo_ConfigReloadRequest_Input.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ConfigReloadRequest_Input proto.InternalMessageInfo
+
+func (m *ConfigReloadRequest_Input) GetConfigJson() string {
+	if m != nil {
+		return m.ConfigJson
+	}
+	return ""
+}
+
+type ConfigReloadResponse struct {
+	Output               *SonicOutput `protobuf:"bytes,1,opt,name=output,proto3" json:"sonic-config-mgmt:output" xml:",comment"`
+	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
+	XXX_unrecognized     []byte       `json:"-"`
+	XXX_sizecache        int32        `json:"-"`
+}
+
+func (m *ConfigReloadResponse) Reset()         { *m = ConfigReloadResponse{} }
+func (m *ConfigReloadResponse) String() string { return proto.CompactTextString(m) }
+func (*ConfigReloadResponse) ProtoMessage()    {}
+func (*ConfigReloadResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_75b35b752d70e98f, []int{16}
+}
+func (m *ConfigReloadResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ConfigReloadResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ConfigReloadResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ConfigReloadResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ConfigReloadResponse.Merge(m, src)
+}
+func (m *ConfigReloadResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *ConfigReloadResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_ConfigReloadResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ConfigReloadResponse proto.InternalMessageInfo
+
+func (m *ConfigReloadResponse) GetOutput() *SonicOutput {
+	if m != nil {
+		return m.Output
+	}
+	return nil
+}
+
 func init() {
 	proto.RegisterType((*SonicOutput)(nil), "gnoi.sonic.SonicOutput")
 	proto.RegisterType((*TechsupportRequest)(nil), "gnoi.sonic.TechsupportRequest")
@@ -1084,65 +1367,78 @@ func init() {
 	proto.RegisterType((*ImageDefaultRequest)(nil), "gnoi.sonic.ImageDefaultRequest")
 	proto.RegisterType((*ImageDefaultRequest_Input)(nil), "gnoi.sonic.ImageDefaultRequest.Input")
 	proto.RegisterType((*ImageDefaultResponse)(nil), "gnoi.sonic.ImageDefaultResponse")
+	proto.RegisterType((*ConfigSaveRequest)(nil), "gnoi.sonic.ConfigSaveRequest")
+	proto.RegisterType((*ConfigSaveRequest_Input)(nil), "gnoi.sonic.ConfigSaveRequest.Input")
+	proto.RegisterType((*ConfigSaveResponse)(nil), "gnoi.sonic.ConfigSaveResponse")
+	proto.RegisterType((*ConfigReloadRequest)(nil), "gnoi.sonic.ConfigReloadRequest")
+	proto.RegisterType((*ConfigReloadRequest_Input)(nil), "gnoi.sonic.ConfigReloadRequest.Input")
+	proto.RegisterType((*ConfigReloadResponse)(nil), "gnoi.sonic.ConfigReloadResponse")
 }
 
 func init() { proto.RegisterFile("sonic_gnoi.proto", fileDescriptor_75b35b752d70e98f) }
 
 var fileDescriptor_75b35b752d70e98f = []byte{
-	// 838 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x56, 0xcb, 0x6e, 0xf3, 0x44,
-	0x14, 0x8e, 0x4b, 0x13, 0x35, 0x27, 0x25, 0x7f, 0x99, 0xde, 0x22, 0xd3, 0xc6, 0xc1, 0x6d, 0xa1,
-	0x5c, 0x9c, 0x4a, 0xed, 0xae, 0xcb, 0xb4, 0x42, 0x74, 0x41, 0x41, 0x4e, 0x17, 0xb0, 0x40, 0x91,
-	0x93, 0x4c, 0x9c, 0x91, 0x6c, 0x8f, 0xb1, 0xc7, 0x2d, 0x15, 0x3c, 0x01, 0x4f, 0xc0, 0x96, 0x35,
-	0x82, 0xe7, 0x60, 0xc9, 0x13, 0x58, 0x50, 0x58, 0x79, 0xc9, 0x13, 0xa0, 0xcc, 0x8c, 0x13, 0x3b,
-	0x97, 0xba, 0x1b, 0xba, 0x9b, 0x99, 0xf3, 0xcd, 0xb9, 0x7c, 0xdf, 0xf1, 0x19, 0xc3, 0x56, 0x48,
-	0x3d, 0x32, 0xe8, 0xd9, 0x1e, 0x25, 0x6d, 0x3f, 0xa0, 0x8c, 0x22, 0xe0, 0x6b, 0x7e, 0xac, 0x1a,
-	0x36, 0x61, 0xe3, 0xa8, 0xdf, 0x1e, 0x50, 0xf7, 0xcc, 0xa6, 0x36, 0x3d, 0xe3, 0x90, 0x7e, 0x34,
-	0xe2, 0x3b, 0xbe, 0xe1, 0x2b, 0x71, 0x55, 0xa7, 0x50, 0xeb, 0x4e, 0xee, 0x7d, 0x11, 0x31, 0x3f,
-	0x62, 0x68, 0x0f, 0x2a, 0x21, 0xb3, 0x58, 0x14, 0x36, 0x94, 0x96, 0x72, 0x5a, 0x36, 0xe5, 0x0e,
-	0x7d, 0x06, 0x6f, 0x8b, 0x55, 0x6f, 0x88, 0x99, 0x45, 0x9c, 0xc6, 0x5a, 0x4b, 0x39, 0xad, 0x76,
-	0x8e, 0x92, 0x58, 0x93, 0x06, 0x43, 0x18, 0xfe, 0x8d, 0xb5, 0xfa, 0x77, 0xae, 0x73, 0xa9, 0x7f,
-	0x32, 0xa0, 0xae, 0x8b, 0x3d, 0xa6, 0x9b, 0x9b, 0x02, 0x70, 0xcd, 0xed, 0xfa, 0xcf, 0x0a, 0xa0,
-	0x3b, 0x3c, 0x18, 0x87, 0x91, 0xef, 0xd3, 0x80, 0x99, 0xf8, 0xdb, 0x08, 0x87, 0x0c, 0x79, 0x50,
-	0x26, 0x9e, 0x1f, 0x31, 0x1e, 0xb7, 0x76, 0x7e, 0xdc, 0x9e, 0x95, 0xd4, 0x5e, 0x84, 0xb7, 0x6f,
-	0x26, 0xd8, 0xce, 0x79, 0x12, 0x6b, 0x07, 0x1c, 0x63, 0x84, 0x63, 0xfa, 0x60, 0xb0, 0x19, 0xf0,
-	0x92, 0x7b, 0x5b, 0x92, 0x8d, 0x08, 0xa3, 0xbe, 0x0b, 0x65, 0xee, 0x03, 0x21, 0x58, 0x1f, 0x5a,
-	0x0c, 0xf3, 0xb8, 0x55, 0x93, 0xaf, 0xf5, 0x7f, 0x14, 0xd8, 0xce, 0x05, 0x0d, 0x7d, 0xea, 0x85,
-	0x18, 0x85, 0x50, 0xa1, 0x9c, 0x27, 0x99, 0xe5, 0xfb, 0x2b, 0xb3, 0x14, 0x17, 0xda, 0x82, 0xd5,
-	0xce, 0x45, 0x12, 0x6b, 0x87, 0x2b, 0xf2, 0x14, 0x0e, 0x97, 0x24, 0x2a, 0x43, 0xa9, 0x5f, 0x41,
-	0x45, 0x8a, 0x73, 0x0b, 0x6f, 0xc4, 0x59, 0x6f, 0x44, 0x1c, 0xec, 0x59, 0xae, 0xcc, 0xba, 0x73,
-	0x92, 0xc4, 0x9a, 0x34, 0x19, 0xa9, 0x69, 0x89, 0xc7, 0xba, 0x80, 0x7c, 0x2a, 0x11, 0xfa, 0x5f,
-	0x0a, 0xec, 0x5e, 0x39, 0xd8, 0x0a, 0x6e, 0x31, 0xb1, 0xc7, 0x7d, 0x1a, 0x84, 0xa9, 0x1a, 0x24,
-	0xaf, 0xc6, 0x07, 0xd9, 0x3a, 0x97, 0xde, 0x90, 0x82, 0x7c, 0x94, 0xc4, 0xda, 0x8e, 0x28, 0xd4,
-	0x93, 0x88, 0x22, 0x21, 0xbe, 0x49, 0x85, 0xd8, 0x81, 0xf2, 0x88, 0x06, 0x03, 0x51, 0xd3, 0x86,
-	0x29, 0x36, 0x93, 0x86, 0x1c, 0x59, 0x2e, 0x71, 0x1e, 0x45, 0xc7, 0x99, 0x72, 0x87, 0xea, 0xb0,
-	0x46, 0xfc, 0xc6, 0x5b, 0xfc, 0x6c, 0x8d, 0xf8, 0x13, 0x1c, 0x19, 0x71, 0x4a, 0xd6, 0x05, 0x4e,
-	0xec, 0xf4, 0xdf, 0x14, 0xd8, 0x9b, 0xcf, 0x58, 0xaa, 0xe9, 0xcd, 0xa9, 0xf9, 0xe1, 0x73, 0x55,
-	0xe6, 0x05, 0xfd, 0x38, 0x89, 0xb5, 0xdd, 0xb9, 0x3a, 0x0b, 0x85, 0x3c, 0x9e, 0x0a, 0xa9, 0xc2,
-	0x46, 0x20, 0x3d, 0xca, 0xbe, 0x9b, 0xee, 0xf5, 0x58, 0x81, 0x77, 0xae, 0xa8, 0xff, 0x78, 0x45,
-	0xbd, 0x11, 0xb1, 0x53, 0x41, 0xc6, 0x79, 0x41, 0x8e, 0x72, 0xa9, 0xce, 0xa3, 0xa5, 0x18, 0x46,
-	0x12, 0x6b, 0xfb, 0x22, 0xc9, 0x01, 0x37, 0x1b, 0xae, 0xed, 0x16, 0x7e, 0x18, 0xbd, 0x54, 0x8f,
-	0xc9, 0x28, 0xa0, 0x51, 0x2a, 0x48, 0xd5, 0x94, 0x3b, 0x74, 0x00, 0x55, 0x7a, 0x8f, 0x83, 0x87,
-	0x80, 0x30, 0xcc, 0x45, 0xd9, 0x30, 0x67, 0x07, 0xa8, 0x05, 0xb5, 0x21, 0x0e, 0x19, 0xf1, 0x2c,
-	0x46, 0xa8, 0x27, 0x05, 0xca, 0x1e, 0xe9, 0x11, 0xa0, 0x6c, 0xc6, 0x52, 0x8c, 0xde, 0x9c, 0x18,
-	0xfb, 0xd9, 0x0a, 0x33, 0x13, 0xaa, 0xd3, 0x4e, 0x62, 0xad, 0xb1, 0x58, 0x55, 0x11, 0xfb, 0xfa,
-	0xaf, 0x0a, 0x6c, 0xdf, 0xb8, 0x96, 0x8d, 0x6f, 0xbc, 0x90, 0x59, 0x8e, 0x93, 0x32, 0x4b, 0xf3,
-	0xcc, 0x9e, 0x64, 0xe3, 0x2e, 0xc1, 0x2f, 0x4e, 0x1e, 0x32, 0x01, 0x19, 0xae, 0xe5, 0x59, 0x36,
-	0x9e, 0x84, 0x2c, 0x22, 0xf8, 0x24, 0x25, 0xf8, 0x00, 0xaa, 0xfc, 0x2e, 0xef, 0x5a, 0xd1, 0xdd,
-	0xb3, 0x03, 0xfd, 0x07, 0xd8, 0xc9, 0x87, 0x97, 0x44, 0x0d, 0x5f, 0x4a, 0x54, 0x66, 0xe8, 0x2c,
-	0xa4, 0x58, 0xc8, 0xd6, 0x2f, 0x0a, 0x20, 0x1e, 0xde, 0xc4, 0x2e, 0xbd, 0xc7, 0x2f, 0x99, 0xd2,
-	0x8b, 0xf0, 0xff, 0x8b, 0x2b, 0x65, 0x9e, 0xab, 0xef, 0xa5, 0xb4, 0x69, 0xf4, 0x57, 0xa5, 0x6a,
-	0xda, 0x58, 0xd7, 0x78, 0x64, 0x45, 0x0e, 0x7b, 0x71, 0x63, 0xe5, 0xf1, 0xaf, 0x46, 0x56, 0xda,
-	0x58, 0xd3, 0xf0, 0xaf, 0xc9, 0xd6, 0xf9, 0x8f, 0xeb, 0xb0, 0xc9, 0x9d, 0x75, 0x71, 0x70, 0x4f,
-	0x06, 0x18, 0xdd, 0xc1, 0x9b, 0xee, 0x98, 0x3e, 0x64, 0x5e, 0x4f, 0xd4, 0x7c, 0xfe, 0xf1, 0x57,
-	0xb5, 0x82, 0x67, 0x57, 0x2f, 0xa1, 0xcf, 0x01, 0x66, 0x43, 0x06, 0x1d, 0x3e, 0x3b, 0x2e, 0xd5,
-	0xe6, 0x2a, 0xf3, 0xd4, 0x5d, 0x17, 0x36, 0xb3, 0x1f, 0x23, 0xd2, 0x0a, 0xa6, 0x84, 0xda, 0x5a,
-	0x0d, 0x98, 0x3a, 0xfd, 0x12, 0x6a, 0x99, 0xae, 0xcd, 0x57, 0xbd, 0xf8, 0x31, 0xa9, 0xda, 0x4a,
-	0xfb, 0x42, 0x9a, 0x52, 0xda, 0x25, 0x69, 0xe6, 0x7b, 0x6e, 0x49, 0x9a, 0x73, 0x5d, 0xa1, 0x97,
-	0xd0, 0xd7, 0x50, 0xcf, 0x3f, 0x86, 0xe8, 0xbd, 0xc2, 0xdf, 0x01, 0x55, 0x2f, 0x7e, 0x4b, 0xf5,
-	0x52, 0x67, 0xeb, 0xf7, 0xa7, 0xa6, 0xf2, 0xc7, 0x53, 0x53, 0xf9, 0xf3, 0xa9, 0xa9, 0xfc, 0xf4,
-	0x77, 0xb3, 0xd4, 0xaf, 0xf0, 0xbf, 0xd2, 0x8b, 0xff, 0x02, 0x00, 0x00, 0xff, 0xff, 0x4d, 0x5c,
-	0x3f, 0x62, 0xe4, 0x0a, 0x00, 0x00,
+	// 948 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x57, 0x4f, 0x73, 0xdb, 0x44,
+	0x14, 0x8f, 0x42, 0x1d, 0xe2, 0xe7, 0x90, 0x96, 0x4d, 0xda, 0x66, 0x44, 0x6a, 0x85, 0x6d, 0x03,
+	0xe1, 0x8f, 0xdd, 0x99, 0xf4, 0xd6, 0xa3, 0xd3, 0x61, 0x08, 0x33, 0x14, 0x46, 0xee, 0x01, 0x0e,
+	0x8c, 0x47, 0xb1, 0xd7, 0xf2, 0x76, 0xa4, 0x5d, 0x21, 0xad, 0x62, 0x3a, 0x70, 0xe6, 0x33, 0x70,
+	0xe5, 0xdc, 0xa1, 0x9f, 0x83, 0x23, 0x9f, 0x40, 0x03, 0x81, 0x93, 0x8f, 0x7c, 0x02, 0xc6, 0xbb,
+	0x2b, 0x5b, 0x92, 0x65, 0x2b, 0x33, 0x19, 0x7c, 0xd3, 0xee, 0xfe, 0x76, 0xdf, 0x7b, 0xbf, 0xdf,
+	0xdb, 0x9f, 0xd7, 0x70, 0x27, 0xe2, 0x8c, 0xf6, 0x7b, 0x2e, 0xe3, 0xb4, 0x1d, 0x84, 0x5c, 0x70,
+	0x04, 0xf2, 0x5b, 0x4e, 0x9b, 0x2d, 0x97, 0x8a, 0x51, 0x7c, 0xd1, 0xee, 0x73, 0xff, 0xb1, 0xcb,
+	0x5d, 0xfe, 0x58, 0x42, 0x2e, 0xe2, 0xa1, 0x1c, 0xc9, 0x81, 0xfc, 0x52, 0x5b, 0x31, 0x87, 0x46,
+	0x77, 0xba, 0xef, 0xab, 0x58, 0x04, 0xb1, 0x40, 0xf7, 0x60, 0x2b, 0x12, 0x8e, 0x88, 0xa3, 0x03,
+	0xe3, 0xc8, 0x38, 0xa9, 0xd9, 0x7a, 0x84, 0x3e, 0x87, 0x77, 0xd4, 0x57, 0x6f, 0x40, 0x84, 0x43,
+	0xbd, 0x83, 0xcd, 0x23, 0xe3, 0xa4, 0xde, 0x79, 0x38, 0x49, 0x2c, 0xbd, 0xd0, 0x52, 0x0b, 0xff,
+	0x26, 0xd6, 0xee, 0x0f, 0xbe, 0xf7, 0x14, 0x7f, 0xda, 0xe7, 0xbe, 0x4f, 0x98, 0xc0, 0xf6, 0x8e,
+	0x02, 0x3c, 0x93, 0xeb, 0xf8, 0x57, 0x03, 0xd0, 0x0b, 0xd2, 0x1f, 0x45, 0x71, 0x10, 0xf0, 0x50,
+	0xd8, 0xe4, 0xfb, 0x98, 0x44, 0x02, 0x31, 0xa8, 0x51, 0x16, 0xc4, 0x42, 0xc6, 0x6d, 0x9c, 0x3e,
+	0x6a, 0xcf, 0x4b, 0x6a, 0x2f, 0xc2, 0xdb, 0xe7, 0x53, 0x6c, 0xe7, 0x74, 0x92, 0x58, 0x87, 0x12,
+	0xd3, 0x8a, 0x46, 0x7c, 0xdc, 0x12, 0x73, 0xe0, 0x53, 0x79, 0x5a, 0x49, 0x36, 0x2a, 0x8c, 0xf9,
+	0x1e, 0xd4, 0xe4, 0x19, 0x08, 0xc1, 0xad, 0x81, 0x23, 0x88, 0x8c, 0x5b, 0xb7, 0xe5, 0x37, 0xfe,
+	0xc7, 0x80, 0xbd, 0x5c, 0xd0, 0x28, 0xe0, 0x2c, 0x22, 0x28, 0x82, 0x2d, 0x2e, 0x79, 0xd2, 0x59,
+	0x7e, 0xb0, 0x34, 0x4b, 0xb5, 0xa1, 0xad, 0x58, 0xed, 0x3c, 0x99, 0x24, 0xd6, 0x83, 0x25, 0x79,
+	0xaa, 0x03, 0x4b, 0x12, 0xd5, 0xa1, 0xcc, 0x6f, 0x60, 0x4b, 0x8b, 0xf3, 0x1c, 0x6e, 0xab, 0xb9,
+	0xde, 0x90, 0x7a, 0x84, 0x39, 0xbe, 0xce, 0xba, 0x73, 0x3c, 0x49, 0x2c, 0xbd, 0xd4, 0x4a, 0x97,
+	0x4a, 0x4e, 0xdc, 0x55, 0x90, 0xcf, 0x34, 0x02, 0xff, 0x65, 0xc0, 0xdd, 0x33, 0x8f, 0x38, 0xe1,
+	0x73, 0x42, 0xdd, 0xd1, 0x05, 0x0f, 0xa3, 0x54, 0x0d, 0x9a, 0x57, 0xe3, 0xc3, 0x6c, 0x9d, 0xa5,
+	0x3b, 0xb4, 0x20, 0x1f, 0x4f, 0x12, 0x6b, 0x5f, 0x15, 0xca, 0x34, 0xa2, 0x4a, 0x88, 0xef, 0x52,
+	0x21, 0xf6, 0xa1, 0x36, 0xe4, 0x61, 0x5f, 0xd5, 0xb4, 0x6d, 0xab, 0xc1, 0xb4, 0x21, 0x87, 0x8e,
+	0x4f, 0xbd, 0x57, 0xaa, 0xe3, 0x6c, 0x3d, 0x42, 0xbb, 0xb0, 0x49, 0x83, 0x83, 0xb7, 0xe4, 0xdc,
+	0x26, 0x0d, 0xa6, 0x38, 0x3a, 0x94, 0x94, 0xdc, 0x52, 0x38, 0x35, 0xc2, 0x6f, 0x0c, 0xb8, 0x57,
+	0xcc, 0x58, 0xab, 0xc9, 0x0a, 0x6a, 0x7e, 0xb4, 0xaa, 0xca, 0xbc, 0xa0, 0x9f, 0x4c, 0x12, 0xeb,
+	0x6e, 0xa1, 0xce, 0x4a, 0x21, 0x1f, 0xcd, 0x84, 0x34, 0x61, 0x3b, 0xd4, 0x27, 0xea, 0xbe, 0x9b,
+	0x8d, 0x71, 0x62, 0xc0, 0xbb, 0x67, 0x3c, 0x78, 0x75, 0xc6, 0xd9, 0x90, 0xba, 0xa9, 0x20, 0xa3,
+	0xbc, 0x20, 0x0f, 0x73, 0xa9, 0x16, 0xd1, 0x5a, 0x8c, 0xd6, 0x24, 0xb1, 0xee, 0xab, 0x24, 0xfb,
+	0x72, 0xb9, 0xe5, 0xbb, 0x7e, 0xe5, 0xc5, 0xe8, 0xa5, 0x7a, 0x4c, 0xad, 0x80, 0xc7, 0xa9, 0x20,
+	0x75, 0x5b, 0x8f, 0xd0, 0x21, 0xd4, 0xf9, 0x25, 0x09, 0xc7, 0x21, 0x15, 0x44, 0x8a, 0xb2, 0x6d,
+	0xcf, 0x27, 0xd0, 0x11, 0x34, 0x06, 0x24, 0x12, 0x94, 0x39, 0x82, 0x72, 0xa6, 0x05, 0xca, 0x4e,
+	0xe1, 0x18, 0x50, 0x36, 0x63, 0x2d, 0x46, 0xaf, 0x20, 0xc6, 0xfd, 0x6c, 0x85, 0x19, 0x87, 0xea,
+	0xb4, 0x27, 0x89, 0x75, 0xb0, 0x58, 0x55, 0x15, 0xfb, 0xf8, 0x37, 0x03, 0xf6, 0xce, 0x7d, 0xc7,
+	0x25, 0xe7, 0x2c, 0x12, 0x8e, 0xe7, 0xa5, 0xcc, 0xf2, 0x3c, 0xb3, 0xc7, 0xd9, 0xb8, 0x25, 0xf8,
+	0x45, 0xe7, 0xa1, 0x53, 0x50, 0xcb, 0x77, 0x98, 0xe3, 0x92, 0x69, 0xc8, 0x2a, 0x82, 0x8f, 0x53,
+	0x82, 0x0f, 0xa1, 0x2e, 0xf7, 0xca, 0xae, 0x55, 0xdd, 0x3d, 0x9f, 0xc0, 0x3f, 0xc1, 0x7e, 0x3e,
+	0xbc, 0x26, 0x6a, 0x70, 0x5d, 0xa2, 0x32, 0xa6, 0xb3, 0x90, 0x62, 0x25, 0x5b, 0xaf, 0x0d, 0x40,
+	0x32, 0xbc, 0x4d, 0x7c, 0x7e, 0x49, 0xae, 0xe3, 0xd2, 0x8b, 0xf0, 0xff, 0x8b, 0x2b, 0xa3, 0xc8,
+	0xd5, 0x8f, 0x5a, 0xda, 0x34, 0xfa, 0x5a, 0xa9, 0x9a, 0x35, 0xd6, 0x33, 0x32, 0x74, 0x62, 0x4f,
+	0x5c, 0xbb, 0xb1, 0xf2, 0xf8, 0xb5, 0x91, 0x95, 0x36, 0xd6, 0x2c, 0xfc, 0x5a, 0xd9, 0xfa, 0x59,
+	0xda, 0xdb, 0xf4, 0xde, 0x76, 0x9d, 0x79, 0x5f, 0xad, 0xb6, 0xb7, 0x02, 0xfa, 0x46, 0xf6, 0xf6,
+	0xb6, 0x26, 0x49, 0xd9, 0xd0, 0xfc, 0xe4, 0x75, 0xd9, 0xd0, 0x6b, 0x03, 0xf6, 0x52, 0xeb, 0xf3,
+	0xb8, 0x33, 0x48, 0x19, 0x78, 0xb9, 0xa2, 0x5b, 0x4a, 0xf0, 0x37, 0xe2, 0xe0, 0x24, 0x6d, 0x14,
+	0x0b, 0x1a, 0x6a, 0x5b, 0xef, 0x65, 0xc4, 0x99, 0x6e, 0x15, 0x50, 0x53, 0x5f, 0x44, 0x9c, 0xe1,
+	0x31, 0xec, 0xe7, 0x83, 0xaf, 0x89, 0xa6, 0xd3, 0x37, 0x35, 0xd8, 0x91, 0xe7, 0x74, 0x49, 0x78,
+	0x49, 0xfb, 0x04, 0xbd, 0x80, 0xdb, 0xdd, 0x11, 0x1f, 0x67, 0x1e, 0x59, 0xa8, 0xb9, 0xfa, 0x8d,
+	0x68, 0x5a, 0x15, 0xaf, 0x33, 0xbc, 0x81, 0xbe, 0x04, 0x98, 0xff, 0x16, 0xa1, 0x07, 0x2b, 0x7f,
+	0x55, 0xcd, 0xe6, 0xb2, 0xe5, 0xd9, 0x71, 0x5d, 0xd8, 0xc9, 0x7a, 0x36, 0xb2, 0x2a, 0x7e, 0x4c,
+	0xcc, 0xa3, 0xe5, 0x80, 0xd9, 0xa1, 0x5f, 0x43, 0x23, 0x63, 0x6e, 0xf9, 0xaa, 0x17, 0x3d, 0xd7,
+	0xb4, 0x96, 0xae, 0x2f, 0xa4, 0xa9, 0x1d, 0xa0, 0x24, 0xcd, 0xbc, 0x35, 0x95, 0xa4, 0x59, 0x30,
+	0x0f, 0xbc, 0x81, 0xbe, 0x85, 0xdd, 0xfc, 0x9b, 0x09, 0xbd, 0x5f, 0xf9, 0x6a, 0x34, 0x71, 0xf5,
+	0x93, 0x2b, 0x55, 0x29, 0xbd, 0xaa, 0x45, 0x95, 0x0a, 0xe6, 0x50, 0x54, 0xa9, 0x78, 0xc3, 0x55,
+	0xf9, 0xd9, 0xa6, 0xce, 0x97, 0x5f, 0x72, 0xd7, 0xf2, 0xe5, 0x97, 0xdd, 0x07, 0xbc, 0xd1, 0xb9,
+	0xf3, 0xfb, 0x55, 0xd3, 0xf8, 0xe3, 0xaa, 0x69, 0xfc, 0x79, 0xd5, 0x34, 0x7e, 0xf9, 0xbb, 0xb9,
+	0x71, 0xb1, 0x25, 0xff, 0x60, 0x3d, 0xf9, 0x2f, 0x00, 0x00, 0xff, 0xff, 0x4f, 0x89, 0x27, 0x78,
+	0xaf, 0x0d, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1163,6 +1459,8 @@ type SonicServiceClient interface {
 	ImageRemove(ctx context.Context, in *ImageRemoveRequest, opts ...grpc.CallOption) (*ImageRemoveResponse, error)
 	ImageDefault(ctx context.Context, in *ImageDefaultRequest, opts ...grpc.CallOption) (*ImageDefaultResponse, error)
 	ClearNeighbors(ctx context.Context, in *ClearNeighborsRequest, opts ...grpc.CallOption) (*ClearNeighborsResponse, error)
+	ConfigSave(ctx context.Context, in *ConfigSaveRequest, opts ...grpc.CallOption) (*ConfigSaveResponse, error)
+	ConfigReload(ctx context.Context, in *ConfigReloadRequest, opts ...grpc.CallOption) (*ConfigReloadResponse, error)
 }
 
 type sonicServiceClient struct {
@@ -1227,6 +1525,24 @@ func (c *sonicServiceClient) ClearNeighbors(ctx context.Context, in *ClearNeighb
 	return out, nil
 }
 
+func (c *sonicServiceClient) ConfigSave(ctx context.Context, in *ConfigSaveRequest, opts ...grpc.CallOption) (*ConfigSaveResponse, error) {
+	out := new(ConfigSaveResponse)
+	err := c.cc.Invoke(ctx, "/gnoi.sonic.SonicService/ConfigSave", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sonicServiceClient) ConfigReload(ctx context.Context, in *ConfigReloadRequest, opts ...grpc.CallOption) (*ConfigReloadResponse, error) {
+	out := new(ConfigReloadResponse)
+	err := c.cc.Invoke(ctx, "/gnoi.sonic.SonicService/ConfigReload", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SonicServiceServer is the server API for SonicService service.
 type SonicServiceServer interface {
 	ShowTechsupport(context.Context, *TechsupportRequest) (*TechsupportResponse, error)
@@ -1235,6 +1551,8 @@ type SonicServiceServer interface {
 	ImageRemove(context.Context, *ImageRemoveRequest) (*ImageRemoveResponse, error)
 	ImageDefault(context.Context, *ImageDefaultRequest) (*ImageDefaultResponse, error)
 	ClearNeighbors(context.Context, *ClearNeighborsRequest) (*ClearNeighborsResponse, error)
+	ConfigSave(context.Context, *ConfigSaveRequest) (*ConfigSaveResponse, error)
+	ConfigReload(context.Context, *ConfigReloadRequest) (*ConfigReloadResponse, error)
 }
 
 // UnimplementedSonicServiceServer can be embedded to have forward compatible implementations.
@@ -1258,6 +1576,12 @@ func (*UnimplementedSonicServiceServer) ImageDefault(ctx context.Context, req *I
 }
 func (*UnimplementedSonicServiceServer) ClearNeighbors(ctx context.Context, req *ClearNeighborsRequest) (*ClearNeighborsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ClearNeighbors not implemented")
+}
+func (*UnimplementedSonicServiceServer) ConfigSave(ctx context.Context, req *ConfigSaveRequest) (*ConfigSaveResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ConfigSave not implemented")
+}
+func (*UnimplementedSonicServiceServer) ConfigReload(ctx context.Context, req *ConfigReloadRequest) (*ConfigReloadResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ConfigReload not implemented")
 }
 
 func RegisterSonicServiceServer(s *grpc.Server, srv SonicServiceServer) {
@@ -1372,6 +1696,42 @@ func _SonicService_ClearNeighbors_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SonicService_ConfigSave_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConfigSaveRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SonicServiceServer).ConfigSave(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/gnoi.sonic.SonicService/ConfigSave",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SonicServiceServer).ConfigSave(ctx, req.(*ConfigSaveRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SonicService_ConfigReload_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConfigReloadRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SonicServiceServer).ConfigReload(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/gnoi.sonic.SonicService/ConfigReload",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SonicServiceServer).ConfigReload(ctx, req.(*ConfigReloadRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _SonicService_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "gnoi.sonic.SonicService",
 	HandlerType: (*SonicServiceServer)(nil),
@@ -1399,6 +1759,14 @@ var _SonicService_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ClearNeighbors",
 			Handler:    _SonicService_ClearNeighbors_Handler,
+		},
+		{
+			MethodName: "ConfigSave",
+			Handler:    _SonicService_ConfigSave_Handler,
+		},
+		{
+			MethodName: "ConfigReload",
+			Handler:    _SonicService_ConfigReload_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -2225,6 +2593,223 @@ func (m *ImageDefaultResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *ConfigSaveRequest) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ConfigSaveRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ConfigSaveRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Input != nil {
+		{
+			size, err := m.Input.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintSonicGnoi(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ConfigSaveRequest_Input) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ConfigSaveRequest_Input) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ConfigSaveRequest_Input) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ConfigSaveResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ConfigSaveResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ConfigSaveResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Output != nil {
+		{
+			size, err := m.Output.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintSonicGnoi(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ConfigReloadRequest) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ConfigReloadRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ConfigReloadRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Input != nil {
+		{
+			size, err := m.Input.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintSonicGnoi(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ConfigReloadRequest_Input) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ConfigReloadRequest_Input) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ConfigReloadRequest_Input) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.ConfigJson) > 0 {
+		i -= len(m.ConfigJson)
+		copy(dAtA[i:], m.ConfigJson)
+		i = encodeVarintSonicGnoi(dAtA, i, uint64(len(m.ConfigJson)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ConfigReloadResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ConfigReloadResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ConfigReloadResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Output != nil {
+		{
+			size, err := m.Output.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintSonicGnoi(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintSonicGnoi(dAtA []byte, offset int, v uint64) int {
 	offset -= sovSonicGnoi(v)
 	base := offset
@@ -2593,6 +3178,98 @@ func (m *ImageDefaultResponse) Size() (n int) {
 	return n
 }
 
+func (m *ConfigSaveRequest) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Input != nil {
+		l = m.Input.Size()
+		n += 1 + l + sovSonicGnoi(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *ConfigSaveRequest_Input) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *ConfigSaveResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Output != nil {
+		l = m.Output.Size()
+		n += 1 + l + sovSonicGnoi(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *ConfigReloadRequest) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Input != nil {
+		l = m.Input.Size()
+		n += 1 + l + sovSonicGnoi(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *ConfigReloadRequest_Input) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.ConfigJson)
+	if l > 0 {
+		n += 1 + l + sovSonicGnoi(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *ConfigReloadResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Output != nil {
+		l = m.Output.Size()
+		n += 1 + l + sovSonicGnoi(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
 func sovSonicGnoi(x uint64) (n int) {
 	return (math_bits.Len64(x|1) + 6) / 7
 }
@@ -2685,10 +3362,7 @@ func (m *SonicOutput) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -2775,10 +3449,7 @@ func (m *TechsupportRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -2861,10 +3532,7 @@ func (m *TechsupportRequest_Input) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -2951,10 +3619,7 @@ func (m *TechsupportResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -3037,10 +3702,7 @@ func (m *TechsupportResponse_Output) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -3127,10 +3789,7 @@ func (m *ClearNeighborsRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -3297,10 +3956,7 @@ func (m *ClearNeighborsRequest_Input) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -3387,10 +4043,7 @@ func (m *ClearNeighborsResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -3473,10 +4126,7 @@ func (m *ClearNeighborsResponse_Output) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -3563,10 +4213,7 @@ func (m *CopyConfigRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -3701,10 +4348,7 @@ func (m *CopyConfigRequest_Input) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -3791,10 +4435,7 @@ func (m *CopyConfigResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -3881,10 +4522,7 @@ func (m *ImageInstallRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -3967,10 +4605,7 @@ func (m *ImageInstallRequest_Input) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -4057,10 +4692,7 @@ func (m *ImageInstallResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -4147,10 +4779,7 @@ func (m *ImageRemoveRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -4233,10 +4862,7 @@ func (m *ImageRemoveRequest_Input) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -4323,10 +4949,7 @@ func (m *ImageRemoveResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -4413,10 +5036,7 @@ func (m *ImageDefaultRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -4499,10 +5119,7 @@ func (m *ImageDefaultRequest_Input) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthSonicGnoi
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
@@ -4589,10 +5206,489 @@ func (m *ImageDefaultResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
-			if (iNdEx + skippy) < 0 {
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ConfigSaveRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowSonicGnoi
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ConfigSaveRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ConfigSaveRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Input", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowSonicGnoi
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Input == nil {
+				m.Input = &ConfigSaveRequest_Input{}
+			}
+			if err := m.Input.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipSonicGnoi(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ConfigSaveRequest_Input) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowSonicGnoi
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Input: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Input: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		default:
+			iNdEx = preIndex
+			skippy, err := skipSonicGnoi(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ConfigSaveResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowSonicGnoi
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ConfigSaveResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ConfigSaveResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Output", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowSonicGnoi
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Output == nil {
+				m.Output = &SonicOutput{}
+			}
+			if err := m.Output.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipSonicGnoi(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ConfigReloadRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowSonicGnoi
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ConfigReloadRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ConfigReloadRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Input", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowSonicGnoi
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Input == nil {
+				m.Input = &ConfigReloadRequest_Input{}
+			}
+			if err := m.Input.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipSonicGnoi(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ConfigReloadRequest_Input) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowSonicGnoi
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Input: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Input: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConfigJson", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowSonicGnoi
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ConfigJson = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipSonicGnoi(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ConfigReloadResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowSonicGnoi
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ConfigReloadResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ConfigReloadResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Output", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowSonicGnoi
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthSonicGnoi
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Output == nil {
+				m.Output = &SonicOutput{}
+			}
+			if err := m.Output.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipSonicGnoi(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthSonicGnoi
 			}
 			if (iNdEx + skippy) > l {
