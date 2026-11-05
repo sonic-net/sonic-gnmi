@@ -267,8 +267,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 	reauthStop := make(chan struct{})
 	reauthErr := make(chan error, 1)
 	go monitorAuthentication(stream.Context(), subscribeReauthInterval, func() error {
-		_, err := authenticate(config, stream.Context(), authTarget, false)
-		return err
+		return reauthenticate(config, stream.Context(), authTarget)
 	}, c.Close, reauthStop, reauthErr)
 	go c.recv(stream)
 	err = c.send(stream, dc)

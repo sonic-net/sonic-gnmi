@@ -581,6 +581,18 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	}
 	common_utils.InitCounters()
 
+	rpcAuthorization, unsupportedMode := configuredRPCAuthorizationInterceptor(config)
+	if unsupportedMode != "" {
+		log.Warningf("Central RPC authorization disabled: %s", unsupportedMode)
+	}
+	if rpcAuthorization != nil {
+		authorizationOpts := []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(rpcAuthorization.UnaryInterceptor()),
+			grpc.ChainStreamInterceptor(rpcAuthorization.StreamInterceptor()),
+		}
+		commonOpts = append(authorizationOpts, commonOpts...)
+	}
+
 	// Set authorization policy.
 	var authzWatcher *authz.FileWatcherInterceptor
 	if config.AuthzPolicy {
@@ -855,6 +867,13 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	// UDS security is enforced at the file-system level via socket permissions.
 	if isUnixPeer(ctx) {
 		rc.Auth.AuthEnabled = false
+		return ctx, nil
+	}
+
+	if rpcAuthorizationCompleted(ctx) {
+		if err := checkCompletedRPCAuthorization(ctx, rc.Auth.User, rc.Auth.Roles, target); err != nil {
+			return ctx, err
+		}
 		return ctx, nil
 	}
 
@@ -1279,6 +1298,11 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 				common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
 				return resp, nil
 			}
+		}
+
+		if rpcAuthorizationSetBypassOnly(ctx) {
+			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+			return nil, status.Error(codes.InvalidArgument, "bypass request is not eligible on this device")
 		}
 
 		var targetDbName string

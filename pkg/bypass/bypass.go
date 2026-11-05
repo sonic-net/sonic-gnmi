@@ -149,6 +149,19 @@ func IsRequested(ctx context.Context) bool {
 	return false
 }
 
+// IsAllowedSetRequest reports whether all operations have a structurally valid
+// table target in the bypass allowlist. It does not inspect metadata or device
+// SKU and performs no backend access.
+func IsAllowedSetRequest(prefix *gnmipb.Path, deletes []*gnmipb.Path, updates []*gnmipb.Update) bool {
+	if len(updates) == 0 && len(deletes) == 0 {
+		return false
+	}
+	if len(updates) > 0 && !checkAllowedTables(prefix, updates) {
+		return false
+	}
+	return len(deletes) == 0 || checkAllowedDeletePaths(prefix, deletes)
+}
+
 // checkSKU verifies device SKU matches one of the allowed prefixes
 func checkSKU() bool {
 	rclient, err := getConfigDbClientFunc()

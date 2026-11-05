@@ -4,8 +4,8 @@ package authentication
 
 import (
 	"context"
-	"fmt"
-	"strings"
+
+	"github.com/sonic-net/sonic-gnmi/internal/rpcauthz"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -46,44 +46,8 @@ func Authenticate(ctx context.Context, auth *AuthInfo, target string, writeAcces
 // the RPC caller decides how to map them to a transport status. requireRole
 // distinguishes strict read access from the legacy authenticated-read fallback.
 func CheckRoleAccess(auth *AuthInfo, target string, writeAccess, requireRole bool) error {
-	access := resolveTargetRoleAccess(auth, target)
-	if access.noAccessRole != "" {
-		return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, access.noAccessRole)
+	if auth == nil && !writeAccess && !requireRole {
+		return nil
 	}
-	if writeAccess && !access.readWrite {
-		if access.readOnlyRole != "" {
-			return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, access.readOnlyRole)
-		}
-		return fmt.Errorf("%s does not have write access, target %s", auth.User, target)
-	}
-	if requireRole && access.readOnlyRole == "" && !access.readWrite {
-		return fmt.Errorf("%s does not have read access, target %s", auth.User, target)
-	}
-	return nil
-}
-
-type targetRoleAccess struct {
-	noAccessRole string
-	readOnlyRole string
-	readWrite    bool
-}
-
-func resolveTargetRoleAccess(auth *AuthInfo, target string) targetRoleAccess {
-	var access targetRoleAccess
-	if auth == nil {
-		return access
-	}
-	prefix := strings.ToLower(target) + "_"
-	for _, role := range auth.Roles {
-		role = strings.TrimSpace(role)
-		switch role {
-		case prefix + "noaccess":
-			access.noAccessRole = role
-		case prefix + "readonly":
-			access.readOnlyRole = role
-		case prefix + "readwrite":
-			access.readWrite = true
-		}
-	}
-	return access
+	return rpcauthz.CheckTargetAccess(auth.User, auth.Roles, target, writeAccess, requireRole)
 }
