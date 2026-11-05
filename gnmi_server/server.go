@@ -26,8 +26,6 @@ import (
 	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
 	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
-	spb_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi"
-	spb_jwt_gnoi "github.com/sonic-net/sonic-gnmi/proto/gnoi/jwt"
 	_ "github.com/sonic-net/sonic-gnmi/show_client"
 	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
@@ -45,8 +43,6 @@ import (
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_healthz_pb "github.com/openconfig/gnoi/healthz"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
-	gnsi_authz_pb "github.com/openconfig/gnsi/authz"
-	gnsi_certz_pb "github.com/openconfig/gnsi/certz"
 	gnsi_credentialz_pb "github.com/openconfig/gnsi/credentialz"
 	gnoi_debug "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug"
 	gnoi_oras_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/oras"
@@ -357,35 +353,6 @@ func (i AuthTypes) Unset(mode string) error {
 	return nil
 }
 
-// registerSharedServices registers services exposed on both TCP and UDS.
-// gNOI Debug is registered separately on UDS only.
-func registerSharedServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
-	osSrv *OSServer, containerzSrv *ContainerzServer,
-	healthzSrv *HealthzServer, orasSrv *OrasServer, certzSrv *GNSICertzServer, authzSrv *GNSIAuthzServer, pathzSrv *GNSIPathzServer, credentialzSrv *GNSICredentialzServer) {
-	gnmipb.RegisterGNMIServer(s, srv)
-	factory_reset.RegisterFactoryResetServer(s, srv)
-	gnsi_certz_pb.RegisterCertzServer(s, certzSrv)
-	gnsi_authz_pb.RegisterAuthzServer(s, authzSrv)
-	gnsi_pathz_pb.RegisterPathzServer(s, pathzSrv)
-	gnsi_credentialz_pb.RegisterCredentialzServer(s, credentialzSrv)
-	spb_jwt_gnoi.RegisterSonicJwtServiceServer(s, srv)
-	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
-		gnoi_system_pb.RegisterSystemServer(s, srv)
-		gnoi_file_pb.RegisterFileServer(s, fileSrv)
-		gnoi_os_pb.RegisterOSServer(s, osSrv)
-		gnoi_containerz_pb.RegisterContainerzServer(s, containerzSrv)
-		gnoi_healthz_pb.RegisterHealthzServer(s, healthzSrv)
-	}
-	// ORAS Pull writes only into an allowlisted staging area inside the
-	// container; it has no relation to the gNMI write paths, so it is not
-	// gated by EnableTranslibWrite/EnableNativeWrite.
-	gnoi_oras_pb.RegisterOrasServer(s, orasSrv)
-	if srv.config.EnableTranslibWrite {
-		spb_gnoi.RegisterSonicServiceServer(s, srv)
-	}
-	spb_gnoi.RegisterDebugServer(s, srv)
-}
-
 // SrvTestConfig returns test mTLS server configuration to be used to start gNMI/gNOI server in test environment.
 func SrvTestConfig(cfg *Config) ([]grpc.ServerOption, []certprovider.Provider, error) {
 	cert, err := testcert.NewCert()
@@ -581,6 +548,18 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	}
 	common_utils.InitCounters()
 
+	rpcAuthorization, unsupportedMode := configuredRPCAuthorizationInterceptor(config)
+	if unsupportedMode != "" {
+		log.Warningf("Central RPC authorization disabled: %s", unsupportedMode)
+	}
+	if rpcAuthorization != nil {
+		authorizationOpts := []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(rpcAuthorization.UnaryInterceptor()),
+			grpc.ChainStreamInterceptor(rpcAuthorization.StreamInterceptor()),
+		}
+		commonOpts = append(authorizationOpts, commonOpts...)
+	}
+
 	// Set authorization policy.
 	var authzWatcher *authz.FileWatcherInterceptor
 	if config.AuthzPolicy {
@@ -642,6 +621,11 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	credentialzSrv := NewGNSICredentialzServer(srv)
 	srv.gnsiCredentialz = credentialzSrv
 	orasSrv := &OrasServer{Server: srv}
+	services := serviceImplementations{
+		gnmi: srv, server: srv, file: fileSrv, os: osSrv, containerz: containerzSrv,
+		healthz: healthzSrv, oras: orasSrv, certz: certzSrv, authz: authzSrv,
+		pathz: pathzSrv, credentialz: credentialzSrv, debug: debugSrv,
+	}
 	var err error
 
 	// TCP Server: Enable if Port > 0, or Port == 0 when UnixSocket is not set
@@ -663,7 +647,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			srv.s = nil
 		} else {
 			srv.config.Port = int64(srv.lis.Addr().(*net.TCPAddr).Port)
-			registerSharedServices(srv.s, srv, fileSrv, osSrv, containerzSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
+			registerServices(srv.s, config, services, false)
 		}
 	}
 
@@ -697,10 +681,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 					srv.udsServer.Stop()
 					srv.udsServer = nil
 				} else {
-					registerSharedServices(srv.udsServer, srv, fileSrv, osSrv, containerzSrv, healthzSrv, orasSrv, certzSrv, authzSrv, pathzSrv, credentialzSrv)
-					if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
-						gnoi_debug_pb.RegisterDebugServer(srv.udsServer, debugSrv)
-					}
+					registerServices(srv.udsServer, config, services, true)
 				}
 			}
 		}
@@ -855,6 +836,13 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	// UDS security is enforced at the file-system level via socket permissions.
 	if isUnixPeer(ctx) {
 		rc.Auth.AuthEnabled = false
+		return ctx, nil
+	}
+
+	if rpcAuthorizationCompleted(ctx) {
+		if err := checkCompletedRPCAuthorization(ctx, rc.Auth.User, rc.Auth.Roles, target); err != nil {
+			return ctx, err
+		}
 		return ctx, nil
 	}
 
@@ -1279,6 +1267,11 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 				common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
 				return resp, nil
 			}
+		}
+
+		if rpcAuthorizationSetBypassOnly(ctx) {
+			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+			return nil, status.Error(codes.InvalidArgument, "bypass request is not eligible on this device")
 		}
 
 		var targetDbName string

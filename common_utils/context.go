@@ -168,6 +168,15 @@ func GetUsername(ctx context.Context, username *string) {
 	}
 }
 
+// WithFreshAuth preserves request metadata while giving a credential refresh
+// its own identity storage, rather than mutating an active stream's identity.
+func WithFreshAuth(ctx context.Context) context.Context {
+	rc, ctx := GetContext(ctx)
+	copy := *rc
+	copy.Auth = AuthInfo{}
+	return context.WithValue(ctx, requestContextKey, &copy)
+}
+
 func InitCounters() {
 	for i := 0; i < int(COUNTER_SIZE); i++ {
 		globalCounters[i] = 0
