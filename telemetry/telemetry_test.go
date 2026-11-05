@@ -810,9 +810,6 @@ func TestINotifyCertMonitoringRotation(t *testing.T) {
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
-	defer cancel()
-
 	originalArgs := os.Args
 	defer func() {
 		os.Args = originalArgs
@@ -844,6 +841,10 @@ func TestINotifyCertMonitoringRotation(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
+
+	// Key generation can be slow, so the deadline covers only the wait for the reload
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
+	defer cancel()
 
 	select {
 	case val := <-serverControlSignal:
@@ -916,8 +917,6 @@ func TestINotifyCertMonitoringSlowWrites(t *testing.T) {
 	tempDir := t.TempDir()
 	testServerKeyBackup := filepath.Join(tempDir, "testserver.key.backup")
 	timeoutInterval := time.Duration(30 * time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
-	defer cancel()
 
 	originalArgs := os.Args
 	defer func() {
@@ -957,6 +956,10 @@ func TestINotifyCertMonitoringSlowWrites(t *testing.T) {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
+	// Key generation can be slow, so the deadline covers only the wait for the reload
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
+	defer cancel()
+
 	select {
 	case val := <-serverControlSignal:
 		if val != ServerStart {
@@ -979,8 +982,6 @@ func TestINotifyCertMonitoringMove(t *testing.T) {
 	testServerCertBackup := "../testdata/testserver.cert"
 	testServerKeyBackup := "../testdata/testserver.key"
 	timeoutInterval := time.Duration(30 * time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
-	defer cancel()
 
 	originalArgs := os.Args
 	defer func() {
@@ -1035,6 +1036,10 @@ func TestINotifyCertMonitoringMove(t *testing.T) {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
 
+	// Key generation can be slow, so the deadline covers only the wait for the reload
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
+	defer cancel()
+
 	select {
 	case val := <-serverControlSignal:
 		if val != ServerStart {
@@ -1058,8 +1063,6 @@ func TestINotifyCertMonitoringCopy(t *testing.T) {
 	testServerCertBackup := filepath.Join(tempDir, "testserver.cert.backup")
 	testServerKeyBackup := filepath.Join(tempDir, "testserver.key.backup")
 	timeoutInterval := time.Duration(30 * time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
-	defer cancel()
 
 	originalArgs := os.Args
 	defer func() {
@@ -1108,6 +1111,10 @@ func TestINotifyCertMonitoringCopy(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil, got err %v", err)
 	}
+
+	// Key generation can be slow, so the deadline covers only the wait for the reload
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
+	defer cancel()
 
 	select {
 	case val := <-serverControlSignal:
@@ -1225,8 +1232,6 @@ func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 	testServerKey := filepath.Join(tmpDir, "server.key")
 
 	timeoutInterval := 30
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
-	defer cancel()
 
 	originalArgs := os.Args
 	defer func() {
@@ -1294,6 +1299,10 @@ func TestINotifyCertMonitoringSymlinkRotation(t *testing.T) {
 		t.Fatalf("Failed to update key symlink: %v", err)
 	}
 
+	// Key generation can be slow, so the deadline covers only the wait for the reload
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
+	defer cancel()
+
 	for {
 		select {
 		case val := <-serverControlSignal:
@@ -1327,8 +1336,6 @@ func TestINotifyCertMonitoringCertValidationFails(t *testing.T) {
 	testServerKey := filepath.Join(tmpDir, "server.key")
 
 	timeoutInterval := 30
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
-	defer cancel()
 
 	originalArgs := os.Args
 	defer func() {
@@ -1381,6 +1388,10 @@ func TestINotifyCertMonitoringCertValidationFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to copy key file: %v", err)
 	}
+
+	// Key generation can be slow, so the deadline covers only the wait for the reload
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutInterval)*time.Second)
+	defer cancel()
 
 	select {
 	case val := <-serverControlSignal:
