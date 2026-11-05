@@ -4,7 +4,7 @@ go 1.25.9
 
 require (
 	github.com/Azure/sonic-mgmt-common v0.0.0-00010101000000-000000000000
-	github.com/Workiva/go-datastructures v1.0.50
+	github.com/Workiva/go-datastructures v1.0.54
 	github.com/agiledragon/gomonkey/v2 v2.8.0
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/c9s/goprocinfo v0.0.0-20210130143923-c95fcf8c64a8
