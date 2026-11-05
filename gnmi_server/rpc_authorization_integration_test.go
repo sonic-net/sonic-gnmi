@@ -2,18 +2,107 @@ package gnmi
 
 import (
 	"context"
+	"path/filepath"
 	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
+	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
+	healthzpb "github.com/openconfig/gnoi/healthz"
+	systempb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestNewServerRegistrationAuthorization(t *testing.T) {
+	var credentials, inner atomic.Int32
+	patch := gomonkey.ApplyFunc(ClientCertAuthenAndAuthor, func(ctx context.Context, _ string, _ bool) (context.Context, error) {
+		credentials.Add(1)
+		rc, ctx := common_utils.GetContext(ctx)
+		rc.Auth.User, rc.Auth.Roles = "reader", []string{"gnoi_readonly", "gnmi_readonly"}
+		return ctx, nil
+	})
+	defer patch.Reset()
+	for _, uds := range []bool{false, true} {
+		t.Run(map[bool]string{false: "TCP", true: "UDS"}[uds], func(t *testing.T) {
+			credentials.Store(0)
+			inner.Store(0)
+			cfg := &Config{BindAddress: "127.0.0.1", EnableNativeWrite: true, UserAuth: AuthTypes{"cert": true}, ConfigTableName: gnmiClientCertTable}
+			if uds {
+				cfg.UnixSocket = filepath.Join(t.TempDir(), "gnmi.sock")
+			}
+			srv, err := NewServer(cfg, nil, []grpc.ServerOption{grpc.ChainUnaryInterceptor(
+				func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+					inner.Add(1)
+					return handler(ctx, req)
+				})})
+			if err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- srv.Serve() }()
+			t.Cleanup(func() {
+				srv.ForceStop()
+				select {
+				case err := <-done:
+					if err != nil {
+						t.Error(err)
+					}
+				case <-time.After(time.Second):
+					t.Error("server did not stop")
+				}
+			})
+			address := srv.Address()
+			if uds {
+				address = "unix://" + cfg.UnixSocket
+			}
+			conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			response, err := systempb.NewSystemClient(conn).Time(ctx, &systempb.TimeRequest{})
+			if err != nil || response.GetTime() == 0 {
+				t.Fatalf("production Time: response=%v err=%v", response, err)
+			}
+			_, err = healthzpb.NewHealthzClient(conn).Check(ctx, &healthzpb.CheckRequest{})
+			if uds {
+				if status.Code(err) != codes.Unimplemented || credentials.Load() != 0 || inner.Load() != 2 {
+					t.Fatalf("UDS bypass: %v credentials=%d inner=%d", err, credentials.Load(), inner.Load())
+				}
+				return
+			}
+			if status.Code(err) != codes.PermissionDenied || credentials.Load() != 1 || inner.Load() != 1 {
+				t.Fatalf("explicit deny before credentials/inner: %v credentials=%d inner=%d", err, credentials.Load(), inner.Load())
+			}
+			_, err = systempb.NewSystemClient(conn).Reboot(ctx, &systempb.RebootRequest{})
+			if status.Code(err) != codes.PermissionDenied || inner.Load() != 1 {
+				t.Fatalf("readonly reboot: %v inner=%d", err, inner.Load())
+			}
+			stream, err := gnmipb.NewGNMIClient(conn).Subscribe(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := stream.CloseSend(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := stream.Recv(); status.Code(err) != codes.Aborted {
+				t.Fatalf("production Subscribe initial EOF: %v", err)
+			}
+			if credentials.Load() != 3 {
+				t.Fatalf("credential calls=%d, want Time/Reboot/Subscribe only", credentials.Load())
+			}
+		})
+	}
+}
 
 func TestCentralAuthorizationWithInjectedAuthentication(t *testing.T) {
 	cfg := &Config{UserAuth: AuthTypes{"cert": true}, ConfigTableName: gnmiClientCertTable}
@@ -184,14 +273,33 @@ func TestCentralAuthorizationRejectsUnknownMethodBeforeCredentials(t *testing.T)
 	if i == nil {
 		t.Fatalf("central mode unavailable: %q", reason)
 	}
-	_, err := i.UnaryInterceptor()(context.Background(), nil,
-		&grpc.UnaryServerInfo{FullMethod: "/unclassified.Service/Write"},
-		func(context.Context, interface{}) (interface{}, error) {
-			t.Fatal("unclassified method entered handler")
-			return nil, nil
+	// These were unclassified before declarations moved beside registration.
+	// Explicit declarations must still reject before touching credentials.
+	for _, method := range []string{
+		"/unclassified.Service/Write",
+		"/gnsi.certz.v1.Certz/AddProfile", "/gnsi.certz.v1.Certz/DeleteProfile",
+		"/gnsi.certz.v1.Certz/GetProfileList", "/gnsi.certz.v1.Certz/CanGenerateCSR",
+		"/gnsi.certz.v1.Certz/GetIntegrityManifest", "/gnsi.certz.v1.Certz/Rotate",
+		"/gnsi.authz.v1.Authz/Probe", "/gnsi.authz.v1.Authz/Get", "/gnsi.authz.v1.Authz/Rotate",
+		"/gnsi.pathz.v1.Pathz/Probe", "/gnsi.pathz.v1.Pathz/Get", "/gnsi.pathz.v1.Pathz/Rotate",
+		"/gnsi.credentialz.v1.Credentialz/CanGenerateKey", "/gnsi.credentialz.v1.Credentialz/GetPublicKeys",
+		"/gnsi.credentialz.v1.Credentialz/RotateAccountCredentials", "/gnsi.credentialz.v1.Credentialz/RotateHostParameters",
+		"/gnoi.sonic_jwt.SonicJwtService/Authenticate",
+		"/gnoi.healthz.Healthz/List", "/gnoi.healthz.Healthz/Check",
+		"/gnoi.containerz.Containerz/Remove", "/gnoi.containerz.Containerz/Start", "/gnoi.containerz.Containerz/Stop",
+		"/gnoi.containerz.Containerz/List", "/gnoi.containerz.Containerz/Log", "/gnoi.debug.Debug/Debug",
+	} {
+		t.Run(method, func(t *testing.T) {
+			_, err := i.UnaryInterceptor()(context.Background(), nil,
+				&grpc.UnaryServerInfo{FullMethod: method},
+				func(context.Context, interface{}) (interface{}, error) {
+					t.Fatal("unclassified method entered handler")
+					return nil, nil
+				})
+			if status.Code(err) != codes.PermissionDenied || status.Convert(err).Message() != "RPC access denied" {
+				t.Fatalf("denied method = %v", err)
+			}
 		})
-	if status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("unknown method = %v", err)
 	}
 }
 

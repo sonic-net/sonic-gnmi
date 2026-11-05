@@ -17,55 +17,15 @@ const (
 )
 
 type rpcAuthorization struct {
+	deny               bool
 	target             string
 	write              bool
 	requestTarget      bool
 	bufferFirstRequest bool
 }
 
-// gRPC descriptors identify methods and streaming shape, but do not describe
-// whether an RPC reads or changes device state. Keep that decision in one
-// explicit registry and deny methods that are not classified here.
-var rpcAuthorizations = map[string]rpcAuthorization{
-	"/gnmi.gNMI/Capabilities": {target: "gnmi"},
-	"/gnmi.gNMI/Get":          {target: "gnmi", requestTarget: true},
-	"/gnmi.gNMI/Set":          {target: "gnmi", write: true, requestTarget: true},
-	"/gnmi.gNMI/Subscribe":    {target: "gnmi", requestTarget: true, bufferFirstRequest: true},
-
-	"/gnoi.sonic.Debug/GetSubscribePreferences":  {target: "gnmi"},
-	"/gnoi.sonic.SonicService/ClearNeighbors":    {target: "gnoi", write: true},
-	"/gnoi.sonic.SonicService/CopyConfig":        {target: "gnoi", write: true},
-	"/gnoi.sonic.SonicService/ImageDefault":      {target: "gnoi", write: true},
-	"/gnoi.sonic.SonicService/ImageInstall":      {target: "gnoi", write: true},
-	"/gnoi.sonic.SonicService/ImageRemove":       {target: "gnoi", write: true},
-	"/gnoi.sonic.SonicService/ShowTechsupport":   {target: "gnoi"},
-	"/gnoi.sonic_jwt.SonicJwtService/Refresh":    {target: "gnoi", write: true},
-	"/gnoi.containerz.Containerz/Deploy":         {target: "gnoi", write: true},
-	"/gnoi.factory_reset.FactoryReset/Start":     {target: "gnoi", write: true},
-	"/gnoi.file.File/Get":                        {target: "gnoi"},
-	"/gnoi.file.File/Put":                        {target: "gnoi", write: true},
-	"/gnoi.file.File/Remove":                     {target: "gnoi", write: true},
-	"/gnoi.file.File/Stat":                       {target: "gnoi"},
-	"/gnoi.file.File/TransferToRemote":           {target: "gnoi", write: true},
-	"/gnoi.healthz.Healthz/Acknowledge":          {target: "gnoi", write: true},
-	"/gnoi.healthz.Healthz/Artifact":             {target: "gnoi"},
-	"/gnoi.healthz.Healthz/Get":                  {target: "gnoi"},
-	"/gnoi.os.OS/Activate":                       {target: "gnoi", write: true},
-	"/gnoi.os.OS/Install":                        {target: "gnoi", write: true},
-	"/gnoi.os.OS/Verify":                         {target: "gnoi"},
-	"/gnoi.system.System/CancelReboot":           {target: "gnoi", write: true},
-	"/gnoi.system.System/KillProcess":            {target: "gnoi", write: true},
-	"/gnoi.system.System/Ping":                   {target: "gnoi", write: true},
-	"/gnoi.system.System/Reboot":                 {target: "gnoi", write: true},
-	"/gnoi.system.System/RebootStatus":           {target: "gnoi"},
-	"/gnoi.system.System/SetPackage":             {target: "gnoi", write: true},
-	"/gnoi.system.System/SwitchControlProcessor": {target: "gnoi", write: true},
-	"/gnoi.system.System/Time":                   {target: "gnoi"},
-	"/gnoi.system.System/Traceroute":             {target: "gnoi", write: true},
-	"/sonic.gnoi.oras.v1.Oras/Pull":              {target: "gnoi", write: true},
-}
-
 type rpcAuthorizationInterceptor struct {
+	methods      map[string]rpcAuthorization
 	authenticate func(context.Context) (context.Context, *rpcIdentity, error)
 	bypass       func(context.Context) bool
 }
@@ -115,6 +75,7 @@ func newRPCAuthorizationInterceptor(
 	bypass func(context.Context) bool,
 ) *rpcAuthorizationInterceptor {
 	return &rpcAuthorizationInterceptor{
+		methods:      serviceAuthorizations(),
 		authenticate: authenticate,
 		bypass:       bypass,
 	}
@@ -124,8 +85,8 @@ func (i *rpcAuthorizationInterceptor) authenticateRPC(
 	ctx context.Context,
 	fullMethod string,
 ) (context.Context, *rpcIdentity, rpcAuthorization, error) {
-	authorization, ok := rpcAuthorizations[fullMethod]
-	if !ok {
+	authorization, ok := i.methods[fullMethod]
+	if !ok || authorization.deny {
 		return ctx, nil, rpcAuthorization{}, status.Error(codes.PermissionDenied, "RPC access denied")
 	}
 

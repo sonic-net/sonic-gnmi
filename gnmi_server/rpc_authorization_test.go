@@ -768,6 +768,7 @@ func (s *authorizationOrderServer) Subscribe(stream gnmipb.GNMI_SubscribeServer)
 
 type authorizationChainHarness struct {
 	conn               *grpc.ClientConn
+	credentialCalls    *atomic.Int32
 	innerUnaryCalls    *atomic.Int32
 	innerStreamCalls   *atomic.Int32
 	unaryHandlerCalls  *atomic.Int32
@@ -778,6 +779,12 @@ type authorizationChainHarness struct {
 func newAuthorizationChainHarness(t *testing.T, roles ...string) *authorizationChainHarness {
 	t.Helper()
 	authorization := testRPCAuthorizationInterceptor(roles...)
+	credentialCalls := new(atomic.Int32)
+	authenticate := authorization.authenticate
+	authorization.authenticate = func(ctx context.Context) (context.Context, *rpcIdentity, error) {
+		credentialCalls.Add(1)
+		return authenticate(ctx)
+	}
 	innerUnaryCalls := new(atomic.Int32)
 	innerStreamCalls := new(atomic.Int32)
 	unaryHandlerCalls := new(atomic.Int32)
@@ -808,11 +815,14 @@ func newAuthorizationChainHarness(t *testing.T, roles ...string) *authorizationC
 		grpc.ChainUnaryInterceptor(innerUnary),
 		grpc.ChainStreamInterceptor(innerStream),
 	)
-	gnmipb.RegisterGNMIServer(server, &authorizationOrderServer{
+	registerServices(server, &Config{EnableNativeWrite: true}, serviceImplementations{gnmi: &authorizationOrderServer{
 		unaryCalls:       unaryHandlerCalls,
 		streamCalls:      streamHandlerCalls,
 		subscribeTargets: subscribeTargets,
-	})
+	}, server: &Server{}, file: &FileServer{}, os: &OSServer{}, containerz: &ContainerzServer{},
+		healthz: &HealthzServer{}, oras: &OrasServer{}, certz: &GNSICertzServer{},
+		authz: &GNSIAuthzServer{}, pathz: &GNSIPathzServer{}, credentialz: &GNSICredentialzServer{},
+	}, false)
 
 	listener := bufconn.Listen(1024 * 1024)
 	go func() {
@@ -839,11 +849,44 @@ func newAuthorizationChainHarness(t *testing.T, roles ...string) *authorizationC
 
 	return &authorizationChainHarness{
 		conn:               conn,
+		credentialCalls:    credentialCalls,
 		innerUnaryCalls:    innerUnaryCalls,
 		innerStreamCalls:   innerStreamCalls,
 		unaryHandlerCalls:  unaryHandlerCalls,
 		streamHandlerCalls: streamHandlerCalls,
 		subscribeTargets:   subscribeTargets,
+	}
+}
+
+func TestRegisteredAuthorizationAllowsReadAndRejectsUnsupported(t *testing.T) {
+	h := newAuthorizationChainHarness(t, "gnmi_state_db_readonly", "gnoi_readwrite")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := gnmipb.NewGNMIClient(h.conn).Get(ctx, testGetRequest("STATE_DB")); err != nil {
+		t.Fatalf("registered Get failed: %v", err)
+	}
+	if h.credentialCalls.Load() != 1 || h.innerUnaryCalls.Load() != 1 || h.unaryHandlerCalls.Load() != 1 {
+		t.Fatal("allowed Get did not traverse credentials, inner interceptor and handler exactly once")
+	}
+	for _, method := range []string{
+		"/gnsi.authz.v1.Authz/Get", "/gnoi.sonic_jwt.SonicJwtService/Authenticate", "/gnoi.healthz.Healthz/Check",
+	} {
+		if err := h.conn.Invoke(ctx, method, &emptypb.Empty{}, &emptypb.Empty{}); status.Code(err) != codes.PermissionDenied || status.Convert(err).Message() != "RPC access denied" {
+			t.Fatalf("%s: %v", method, err)
+		}
+	}
+	for _, method := range []string{"/gnsi.authz.v1.Authz/Rotate", "/gnoi.containerz.Containerz/Log"} {
+		stream, err := h.conn.NewStream(ctx, &grpc.StreamDesc{ClientStreams: true, ServerStreams: true}, method)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// No initial message: an explicit deny must not wait for one.
+		if err := stream.RecvMsg(&emptypb.Empty{}); status.Code(err) != codes.PermissionDenied || status.Convert(err).Message() != "RPC access denied" {
+			t.Fatalf("%s: %v", method, err)
+		}
+	}
+	if h.credentialCalls.Load() != 1 || h.innerUnaryCalls.Load() != 1 || h.unaryHandlerCalls.Load() != 1 || h.innerStreamCalls.Load() != 0 || h.streamHandlerCalls.Load() != 0 {
+		t.Fatal("unsupported RPC reached credentials or inner chain")
 	}
 }
 
