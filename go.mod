@@ -30,7 +30,6 @@ require (
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/pkg/sftp v1.13.11
 	github.com/redis/go-redis/v9 v9.14.1
-	github.com/sonic-net/sonic-swss-common v0.0.0-20261105000629-1a2b92b44664
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.54.0
 	golang.org/x/net v0.55.0
@@ -89,6 +88,3 @@ replace (
 	google.golang.org/grpc => google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf => google.golang.org/protobuf v1.36.11
 )
-
-// SONiC builds use the matching native source from the sibling checkout.
-replace github.com/sonic-net/sonic-swss-common => ../sonic-swss-common

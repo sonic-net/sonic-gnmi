@@ -46,11 +46,6 @@ resources:
     name: sonic-net/sonic-mgmt-common
     endpoint: sonic-net
     ref: refs/heads/$(BUILD_BRANCH)
-  - repository: sonic-swss-common
-    type: github
-    name: sonic-net/sonic-swss-common
-    endpoint: sonic-net
-    ref: refs/heads/$(BUILD_BRANCH)
 
 stages:
 - stage: StaticChecks
@@ -72,10 +67,6 @@ stages:
       clean: true
       displayName: 'Checkout sonic-mgmt-common'
 
-    - checkout: sonic-swss-common
-      clean: true
-      displayName: 'Checkout native Redis binding'
-
     - template: .azure/templates/install-go.yml
       parameters:
         version: $(GO_VERSION)
@@ -96,7 +87,6 @@ stages:
         mkdir "$scratch/sonic-gnmi"
         git archive FETCH_HEAD | tar -x -C "$scratch/sonic-gnmi"
         ln -s "$(realpath ../sonic-mgmt-common)" "$scratch/sonic-mgmt-common"
-        ln -s "$(realpath ../sonic-swss-common)" "$scratch/sonic-swss-common"
         if (cd "$scratch/sonic-gnmi" && go mod tidy -diff) > "$scratch/base.diff"; then
           echo "##vso[task.logissue type=error]This change introduces Go module drift."
           exit 1
@@ -166,10 +156,6 @@ stages:
     - checkout: sonic-mgmt-common
       clean: true
       displayName: 'Checkout sonic-mgmt-common'
-
-    - checkout: sonic-swss-common
-      clean: true
-      displayName: 'Checkout native Redis binding'
 
     - template: .azure/templates/install-go.yml
       parameters:

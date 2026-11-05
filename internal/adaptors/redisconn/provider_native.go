@@ -4,8 +4,8 @@ package redisconn
 
 import (
 	"context"
+	"github.com/Azure/sonic-mgmt-common/redisconn"
 	"github.com/redis/go-redis/v9"
-	"github.com/sonic-net/sonic-swss-common/goext/redisconn"
 	"net"
 )
 
