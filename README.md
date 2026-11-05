@@ -64,6 +64,17 @@ You can also build a debian package and install it:
 
 ## Testing
 
+The request-local authentication fallback and role checks can be tested without
+Redis, SWSS, or a running gNMI server:
+
+```sh
+CGO_ENABLED=0 go test -mod=readonly -count=1 ./internal/authentication
+```
+
+The production wrapper supplies the enabled password, JWT, and certificate
+authentication functions. These standalone tests exercise orchestration and role
+decisions, not the credential backends or TCP/UDS authentication configuration.
+
 Run `make -f pure.mk ci-report` for pure package boundary checks, compilation,
 race-enabled tests and CI report generation. Keep `sonic-mgmt-common` checked
 out beside this repository for the local module replacement.

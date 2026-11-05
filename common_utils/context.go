@@ -4,16 +4,12 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
+
+	"github.com/sonic-net/sonic-gnmi/internal/authentication"
 )
 
 // AuthInfo holds data about the authenticated user
-type AuthInfo struct {
-	// Username
-	User        string
-	AuthEnabled bool
-	// Roles
-	Roles []string
-}
+type AuthInfo = authentication.AuthInfo
 
 // RequestContext holds metadata about REST request.
 type RequestContext struct {
