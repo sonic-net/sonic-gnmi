@@ -1,23 +1,11 @@
 package interceptors
 
 import (
-	"context"
 	"testing"
 )
 
-func allowTestForwarding(ctx context.Context, _ bool) (context.Context, error) {
-	return ctx, nil
-}
-
-func TestNewServerChainMissingAuthorization(t *testing.T) {
-	chain, err := NewServerChain(nil)
-	if err == nil || chain != nil {
-		t.Fatalf("NewServerChain(nil) = (%v, %v), want an error and no chain", chain, err)
-	}
-}
-
 func TestNewServerChain(t *testing.T) {
-	chain, err := NewServerChain(allowTestForwarding)
+	chain, err := NewServerChain()
 	if err != nil {
 		t.Fatalf("NewServerChain() failed: %v", err)
 	}
@@ -39,7 +27,7 @@ func TestNewServerChain(t *testing.T) {
 }
 
 func TestNewServerChainStartsWithCompletionLogger(t *testing.T) {
-	serverChain, err := NewServerChain(allowTestForwarding)
+	serverChain, err := NewServerChain()
 	if err != nil {
 		t.Fatalf("NewServerChain() failed: %v", err)
 	}
@@ -58,7 +46,7 @@ func TestNewServerChainStartsWithCompletionLogger(t *testing.T) {
 }
 
 func TestServerChain_GetServerOptions(t *testing.T) {
-	chain, err := NewServerChain(allowTestForwarding)
+	chain, err := NewServerChain()
 	if err != nil {
 		t.Fatalf("NewServerChain() failed: %v", err)
 	}
@@ -88,7 +76,7 @@ func TestServerChain_GetServerOptions(t *testing.T) {
 }
 
 func TestServerChain_Close(t *testing.T) {
-	chain, err := NewServerChain(allowTestForwarding)
+	chain, err := NewServerChain()
 	if err != nil {
 		t.Fatalf("NewServerChain() failed: %v", err)
 	}
@@ -118,7 +106,7 @@ func TestServerChain_CloseNilCleanup(t *testing.T) {
 }
 
 func TestServerChain_GetServerOptionsAfterClose(t *testing.T) {
-	chain, err := NewServerChain(allowTestForwarding)
+	chain, err := NewServerChain()
 	if err != nil {
 		t.Fatalf("NewServerChain() failed: %v", err)
 	}

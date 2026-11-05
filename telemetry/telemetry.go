@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/sha512"
 	"crypto/tls"
 	"crypto/x509"
@@ -345,7 +344,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	}
 	if telemetryCfg.UserAuth.Enabled("cert") {
 		if *telemetryCfg.NoTLS {
-			log.Warning("client_auth mode cert requires TLS. Keeping cert mode enabled; certificate authentication will reject noTLS TCP requests.")
+			log.Warning("client_auth mode cert requires TLS. Keeping cert mode enabled; certificate authentication cannot authenticate noTLS TCP peers.")
 		} else if *telemetryCfg.CaCert == "" {
 			telemetryCfg.UserAuth.Unset("cert")
 			log.Warning("client_auth mode cert requires ca_crt. Disabling cert mode authentication.")
@@ -600,9 +599,7 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 
 		// Setup interceptor chain (includes DPU proxy with Redis-based routing)
 		var err error
-		currentServerChain, err = interceptors.NewServerChain(func(ctx context.Context, writeAccess bool) (context.Context, error) {
-			return gnmi.AuthorizeDPUForwarding(cfg, ctx, writeAccess)
-		})
+		currentServerChain, err = interceptors.NewServerChain()
 		if err != nil {
 			log.Errorf("Failed to create interceptor chain: %v", err)
 			return

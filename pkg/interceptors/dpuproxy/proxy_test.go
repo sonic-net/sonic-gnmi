@@ -19,10 +19,6 @@ type testSystemServer struct {
 	system.UnimplementedSystemServer
 }
 
-func allowTestForwarding(ctx context.Context, _ bool) (context.Context, error) {
-	return ctx, nil
-}
-
 func (testSystemServer) Time(context.Context, *system.TimeRequest) (*system.TimeResponse, error) {
 	return &system.TimeResponse{Time: 1234567890}, nil
 }
@@ -50,7 +46,7 @@ func TestDPUProxyGetConnectionWithSelfSignedTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	conn, err := proxy.getConnection(context.Background(), "0", host, []string{port})
 	if err != nil {
 		t.Fatalf("getConnection() failed against self-signed TLS server: %v", err)
@@ -199,7 +195,7 @@ func TestExtractTargetMetadata_MultipleValues(t *testing.T) {
 }
 
 func TestDPUProxy_UnaryInterceptor_NoMetadata(t *testing.T) {
-	proxy := NewDPUProxy(nil, allowTestForwarding) // No resolver needed for this test
+	proxy := NewDPUProxy(nil) // No resolver needed for this test
 	interceptor := proxy.UnaryInterceptor()
 
 	handlerCalled := false
@@ -225,7 +221,7 @@ func TestDPUProxy_UnaryInterceptor_NoMetadata(t *testing.T) {
 }
 
 func TestDPUProxy_UnaryInterceptor_WithDPUMetadata(t *testing.T) {
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	interceptor := proxy.UnaryInterceptor()
 
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
@@ -261,7 +257,7 @@ func TestDPUProxy_UnaryInterceptor_WithDPUMetadata(t *testing.T) {
 }
 
 func TestDPUProxy_UnaryInterceptor_WithNonDPUMetadata(t *testing.T) {
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	interceptor := proxy.UnaryInterceptor()
 
 	handlerCalled := false
@@ -302,7 +298,7 @@ func (m *mockServerStream) Context() context.Context {
 }
 
 func TestDPUProxy_StreamInterceptor_NoMetadata(t *testing.T) {
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	interceptor := proxy.StreamInterceptor()
 
 	handlerCalled := false
@@ -326,7 +322,7 @@ func TestDPUProxy_StreamInterceptor_NoMetadata(t *testing.T) {
 }
 
 func TestDPUProxy_StreamInterceptor_WithDPUMetadata(t *testing.T) {
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	interceptor := proxy.StreamInterceptor()
 
 	handler := func(srv interface{}, ss grpc.ServerStream) error {
@@ -359,7 +355,7 @@ func TestDPUProxy_StreamInterceptor_WithDPUMetadata(t *testing.T) {
 }
 
 func TestNewDPUProxy(t *testing.T) {
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 
 	if proxy == nil {
 		t.Error("Expected non-nil DPUProxy")
@@ -371,7 +367,7 @@ func TestNewDPUProxy(t *testing.T) {
 }
 
 func TestDPUProxy_UnaryInterceptor_NonForwardableMethod(t *testing.T) {
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	interceptor := proxy.UnaryInterceptor()
 
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
@@ -408,7 +404,7 @@ func TestDPUProxy_UnaryInterceptor_NonForwardableMethod(t *testing.T) {
 }
 
 func TestDPUProxy_StreamInterceptor_NonForwardableMethod(t *testing.T) {
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	interceptor := proxy.StreamInterceptor()
 
 	handler := func(srv interface{}, ss grpc.ServerStream) error {

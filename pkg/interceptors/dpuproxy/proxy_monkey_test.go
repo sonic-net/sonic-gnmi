@@ -64,7 +64,7 @@ func TestDPUProxy_forwardTimeRequest_Success(t *testing.T) {
 		return &mockSystemClient{}
 	})
 
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	req := &system.TimeRequest{}
@@ -84,7 +84,7 @@ func TestDPUProxy_forwardTimeRequest_Success(t *testing.T) {
 }
 
 func TestDPUProxy_forwardTimeRequest_InvalidRequestType(t *testing.T) {
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	// Pass wrong request type (string instead of *system.TimeRequest)
@@ -115,7 +115,7 @@ func TestDPUProxy_forwardTimeRequest_DPUError(t *testing.T) {
 		return &mockSystemClientWithError{}
 	})
 
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	req := &system.TimeRequest{}
@@ -138,10 +138,10 @@ func TestDPUProxy_forwardTimeRequest_DPUError(t *testing.T) {
 }
 
 func TestDPUProxy_getForwardingMode_Success(t *testing.T) {
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 
 	// Test known forwardable method
-	mode, _, found := proxy.getForwardingMode("/gnoi.system.System/Time")
+	mode, found := proxy.getForwardingMode("/gnoi.system.System/Time")
 	if !found {
 		t.Error("Expected to find /gnoi.system.System/Time method")
 	}
@@ -150,7 +150,7 @@ func TestDPUProxy_getForwardingMode_Success(t *testing.T) {
 	}
 
 	// Test HandleLocally method
-	mode, _, found = proxy.getForwardingMode("/gnoi.system.System/Reboot")
+	mode, found = proxy.getForwardingMode("/gnoi.system.System/Reboot")
 	if !found {
 		t.Error("Expected to find /gnoi.system.System/Reboot method")
 	}
@@ -160,85 +160,15 @@ func TestDPUProxy_getForwardingMode_Success(t *testing.T) {
 }
 
 func TestDPUProxy_getForwardingMode_NotFound(t *testing.T) {
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 
 	// Test unknown method
-	mode, _, found := proxy.getForwardingMode("/unknown.Service/Method")
+	mode, found := proxy.getForwardingMode("/unknown.Service/Method")
 	if found {
 		t.Error("Expected not to find unknown method")
 	}
 	if mode != "" {
 		t.Errorf("Expected empty mode for unknown method, got: %v", mode)
-	}
-}
-
-func TestDPUProxyAuthorizesBeforeResolution(t *testing.T) {
-	type authContextKey struct{}
-	methods := []struct {
-		method string
-		stream bool
-		write  bool
-	}{
-		{"/gnoi.system.System/Time", false, false},
-		{"/gnoi.os.OS/Verify", false, false},
-		{"/gnoi.os.OS/Activate", false, true},
-		{"/gnoi.file.File/Put", true, true},
-		{"/gnoi.system.System/SetPackage", true, true},
-	}
-	for _, method := range methods {
-		for _, decision := range []string{"reject", "missing", "allow"} {
-			t.Run(method.method+"/"+decision, func(t *testing.T) {
-				resolver := &DPUResolver{}
-				resolutions := 0
-				patches := gomonkey.ApplyMethod(resolver, "GetDPUInfo", func(_ *DPUResolver, ctx context.Context, _ string) (*DPUInfo, error) {
-					resolutions++
-					if ctx.Value(authContextKey{}) != true {
-						t.Error("resolver did not receive the authenticated context")
-					}
-					return nil, status.Error(codes.NotFound, "fixture DPU not found")
-				})
-				defer patches.Reset()
-				var authorize AuthorizeFunc
-				wantCode := codes.Unauthenticated
-				wantResolutions := 0
-				if decision != "missing" {
-					wantCode = codes.PermissionDenied
-					authorize = func(ctx context.Context, writeAccess bool) (context.Context, error) {
-						if writeAccess != method.write {
-							t.Errorf("writeAccess = %v, want %v", writeAccess, method.write)
-						}
-						if decision == "reject" {
-							return ctx, status.Error(codes.PermissionDenied, "fixture access denied")
-						}
-						return context.WithValue(ctx, authContextKey{}, true), nil
-					}
-					if decision == "allow" {
-						wantCode = codes.NotFound
-						wantResolutions = 1
-					}
-				}
-				proxy := NewDPUProxy(resolver, authorize)
-				ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-					MetadataKeyTargetType, "dpu", MetadataKeyTargetIndex, "0"))
-				var err error
-				if method.stream {
-					err = proxy.StreamInterceptor()(nil, &mockServerStream{ctx: ctx},
-						&grpc.StreamServerInfo{FullMethod: method.method}, func(interface{}, grpc.ServerStream) error {
-							t.Error("forwarded stream reached the local handler")
-							return nil
-						})
-				} else {
-					_, err = proxy.UnaryInterceptor()(ctx, nil,
-						&grpc.UnaryServerInfo{FullMethod: method.method}, func(context.Context, interface{}) (interface{}, error) {
-							t.Error("forwarded RPC reached the local handler")
-							return nil, nil
-						})
-				}
-				if status.Code(err) != wantCode || resolutions != wantResolutions {
-					t.Fatalf("error = %v, resolutions = %d; want %v and %d", err, resolutions, wantCode, wantResolutions)
-				}
-			})
-		}
 	}
 }
 
@@ -344,7 +274,7 @@ func (m *mockSystemClientWithSetPackageError) Traceroute(ctx context.Context, in
 }
 
 func TestDPUProxy_forwardStream_UnknownMethod(t *testing.T) {
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	info := &grpc.StreamServerInfo{FullMethod: "/unknown.Service/Method"}
@@ -376,7 +306,7 @@ func TestDPUProxy_forwardFilePutStream_CreateClientError(t *testing.T) {
 		return &mockFileClientWithError{}
 	})
 
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	err := proxy.forwardFilePutStream(ctx, nil, nil)
@@ -402,7 +332,7 @@ func TestDPUProxy_forwardSetPackageStream_CreateClientError(t *testing.T) {
 		return &mockSystemClientWithSetPackageError{}
 	})
 
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	err := proxy.forwardSetPackageStream(ctx, nil, nil)
@@ -445,7 +375,7 @@ func TestDPUProxy_getConnection_CachedConnection(t *testing.T) {
 		return &mockSystemClient{}
 	})
 
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	// First call should create and cache connection
@@ -474,7 +404,7 @@ func TestDPUProxy_getConnection_NewClientError(t *testing.T) {
 		return nil, status.Error(codes.Internal, "connection failed")
 	})
 
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	conn, err := proxy.getConnection(ctx, "0", "192.168.1.10", []string{"8080", "9339"})
@@ -513,7 +443,7 @@ func TestDPUProxy_getConnection_FirstPortFailsSecondSucceeds(t *testing.T) {
 		return &mockSystemClientConditional{callCount: &callCount}
 	})
 
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	conn, err := proxy.getConnection(ctx, "0", "192.168.1.10", []string{"8080", "9339"})
@@ -555,7 +485,7 @@ func TestDPUProxy_getConnection_HealthCheckFails(t *testing.T) {
 		return &mockSystemClientWithError{}
 	})
 
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	conn, err := proxy.getConnection(ctx, "0", "192.168.1.10", []string{"8080", "9339"})
@@ -638,7 +568,7 @@ func TestDPUProxy_UnaryInterceptor_ForwardToDPU_WithResolver(t *testing.T) {
 		}, nil
 	})
 
-	proxy := NewDPUProxy(resolver, allowTestForwarding)
+	proxy := NewDPUProxy(resolver)
 	interceptor := proxy.UnaryInterceptor()
 
 	handlerCalled := false
@@ -684,7 +614,7 @@ func TestDPUProxy_UnaryInterceptor_ForwardToDPU_ResolverError(t *testing.T) {
 		return nil, status.Error(codes.NotFound, "DPU not found")
 	})
 
-	proxy := NewDPUProxy(resolver, allowTestForwarding)
+	proxy := NewDPUProxy(resolver)
 	interceptor := proxy.UnaryInterceptor()
 
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
@@ -732,7 +662,7 @@ func TestDPUProxy_UnaryInterceptor_ForwardToDPU_DPUUnreachable(t *testing.T) {
 		}, nil
 	})
 
-	proxy := NewDPUProxy(resolver, allowTestForwarding)
+	proxy := NewDPUProxy(resolver)
 	interceptor := proxy.UnaryInterceptor()
 
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
@@ -945,7 +875,7 @@ func TestDPUProxy_forwardFilePutStream_Success(t *testing.T) {
 		return &mockFileClientSuccess{}
 	})
 
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	// Create mock server stream that sends two messages then EOF
@@ -985,7 +915,7 @@ func TestDPUProxy_forwardFilePutStream_StreamSendError(t *testing.T) {
 		return &mockFileClientSuccess{}
 	})
 
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	// Create mock server stream with send error
@@ -1023,7 +953,7 @@ func TestDPUProxy_forwardSetPackageStream_Success(t *testing.T) {
 		return &mockSystemClientSuccessSetPackage{}
 	})
 
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	// Create mock server stream that sends two messages then EOF
@@ -1062,7 +992,7 @@ func TestDPUProxy_forwardSetPackageStream_RecvError(t *testing.T) {
 		return &mockSystemClientSuccessSetPackage{}
 	})
 
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	// Create mock server stream with recv error
@@ -1100,7 +1030,7 @@ func TestDPUProxy_forwardFilePutStream_RecvError(t *testing.T) {
 		return &mockFileClientSuccess{}
 	})
 
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	ctx := context.Background()
 
 	// Create mock server stream with recv error
@@ -1149,7 +1079,7 @@ func TestDPUProxy_StreamInterceptor_ForwardToDPU_GetConnectionError(t *testing.T
 		}, nil
 	})
 
-	proxy := NewDPUProxy(resolver, allowTestForwarding)
+	proxy := NewDPUProxy(resolver)
 	interceptor := proxy.StreamInterceptor()
 
 	handlerCalled := false
@@ -1187,7 +1117,7 @@ func TestDPUProxy_StreamInterceptor_ForwardToDPU_GetConnectionError(t *testing.T
 }
 
 func TestDPUProxy_StreamInterceptor_HandleLocally(t *testing.T) {
-	proxy := NewDPUProxy(nil, allowTestForwarding)
+	proxy := NewDPUProxy(nil)
 	interceptor := proxy.StreamInterceptor()
 
 	handlerCalled := false
@@ -1226,7 +1156,7 @@ func TestDPUProxy_StreamInterceptor_ResolverError(t *testing.T) {
 		return nil, status.Error(codes.NotFound, "DPU not found")
 	})
 
-	proxy := NewDPUProxy(resolver, allowTestForwarding)
+	proxy := NewDPUProxy(resolver)
 	interceptor := proxy.StreamInterceptor()
 
 	handler := func(srv interface{}, ss grpc.ServerStream) error {
@@ -1272,7 +1202,7 @@ func TestDPUProxy_StreamInterceptor_DPUUnreachable(t *testing.T) {
 		}, nil
 	})
 
-	proxy := NewDPUProxy(resolver, allowTestForwarding)
+	proxy := NewDPUProxy(resolver)
 	interceptor := proxy.StreamInterceptor()
 
 	handler := func(srv interface{}, ss grpc.ServerStream) error {

@@ -153,11 +153,11 @@ When either translib or native writes are enabled and `--client_auth` is
 omitted, password and JWT remain the default application-authentication modes.
 
 For a noTLS listener, configured certificate authentication remains enabled.
-The service starts and logs a warning, but certificate-only authentication
-rejects protected TCP RPCs because a cleartext connection cannot present a
-verified TLS certificate. Other selected authentication mechanisms remain
-usable. To authenticate noTLS TCP clients, explicitly select password or JWT,
-for example:
+The service starts and logs a warning, but local handlers that enforce
+certificate-only authentication reject TCP RPCs because a cleartext connection
+cannot present a verified TLS certificate. Other selected authentication
+mechanisms remain usable. To authenticate noTLS TCP clients, explicitly select
+password or JWT, for example:
 
 ```sh
 telemetry --port 8080 --unix_socket "" --noTLS \
@@ -167,19 +167,6 @@ telemetry --port 8080 --unix_socket "" --noTLS \
 This does not make passwords confidential on cleartext transport. Use
 authenticated TLS for production network access. Loopback routing alone does
 not authorize local users.
-
-The five directly proxied RPCs (`System.Time`, `OS.Verify`, `OS.Activate`,
-`File.Put`, and `System.SetPackage`) require application authentication over
-TCP and the existing gNOI read/write authorization checks before DPU lookup
-or forwarding. Unix-socket forwarding retains the existing socket-permission
-boundary.
-
-Handler-managed operations such as `File.TransferToRemote` use `HandleLocally`
-and do not run this forwarding guard. Their local handlers retain existing
-authentication and configuration rules. With writes enabled and explicit
-`--client_auth none`, a valid `File.TransferToRemote` request can still upload
-to a DPU without application credentials. This change does not alter that
-legacy behavior.
 
 gNOI File.Stat and File.Get apply an additional authorization boundary on TCP
 listeners. They require application authentication and an explicit
@@ -191,13 +178,16 @@ authorization behavior.
 
 UDS-only operation (`--port 0 --unix_socket /var/run/gnmi/gnmi.sock`) retains
 its existing filesystem-permission security contract and does not require a
-TLS client certificate. With both TCP and UDS configured, certificate-only
-noTLS authentication rejects protected TCP RPCs while UDS access remains
-available.
+TLS client certificate. With both TCP and UDS configured, local handlers that
+enforce certificate-only noTLS authentication reject TCP RPCs while UDS access
+remains available.
 Deliberate `--client_auth none` development mode remains
 unauthenticated for RPCs that permit it; noTLS does not implicitly select it.
 UDS File.Stat and File.Get continue to rely on socket directory and socket
 permissions instead of application credentials.
+
+This startup change does not add authentication or authorization to directly
+forwarded DPU RPCs; DPU proxy behavior is unchanged.
 
 ## GetRequest/GetResponse
 The [gnmi_get](https://github.com/jipanyang/gnxi/tree/master/gnmi_get) tool may be used.
