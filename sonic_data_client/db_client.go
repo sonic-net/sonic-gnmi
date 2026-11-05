@@ -218,39 +218,6 @@ func NewDbClientForGet(paths []*gnmipb.Path, prefix *gnmipb.Path) (Client, error
 }
 
 func newDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, preserveConfigDBTables bool) (Client, error) {
-	return newResolvedDbClient(paths, prefix, preserveConfigDBTables, nil)
-}
-
-// DatabaseRoute binds a direct target to the concrete namespace selected after
-// authorization. Qualified preserves the virtual-path namespace restriction.
-type DatabaseRoute struct {
-	Database  string
-	Namespace string
-	Qualified bool
-}
-
-func ResolveDatabaseRoute(database, qualifier string, qualified bool) (DatabaseRoute, error) {
-	namespace, _ := sdcfg.GetDbDefaultNamespace()
-	multi, _ := sdcfg.CheckDbMultiNamespace()
-	qualified = qualified && multi
-	if qualified {
-		namespace = qualifier
-	}
-	resolved, ok, err := sdcfg.GetDbNamespaceFromTarget(namespace)
-	if err != nil {
-		return DatabaseRoute{}, fmt.Errorf("Failed to get namespace %v", err)
-	}
-	if !ok {
-		return DatabaseRoute{}, fmt.Errorf("Invalid target dbNameSpace %v", namespace)
-	}
-	return DatabaseRoute{Database: database, Namespace: resolved, Qualified: qualified}, nil
-}
-
-func NewResolvedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, forGet bool, route DatabaseRoute) (Client, error) {
-	return newResolvedDbClient(paths, prefix, forGet, &route)
-}
-
-func newResolvedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, preserveConfigDBTables bool, route *DatabaseRoute) (Client, error) {
 	var client DbClient
 	var err error
 
@@ -267,16 +234,7 @@ func newResolvedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, preserveConf
 	client.prefix = prefix
 	client.pathG2S = make(map[*gnmipb.Path][]tablePath)
 	client.preserveConfigDBTables = preserveConfigDBTables
-	if route == nil {
-		err = populateAllDbtablePath(prefix, paths, &client.pathG2S)
-	} else {
-		for _, path := range paths {
-			if err = parseResolvedPath(prefix, path, &client.pathG2S, route); err != nil {
-				return nil, err
-			}
-		}
-		err = probePathElements(&client.pathG2S)
-	}
+	err = populateAllDbtablePath(prefix, paths, &client.pathG2S)
 
 	if err != nil {
 		return nil, err
@@ -773,33 +731,20 @@ func populateAllDbtablePath(prefix *gnmipb.Path, paths []*gnmipb.Path, pathG2S *
 // Handles COUNTERS_DB initialization and V2R virtual path lookup.
 // Does NOT make any Redis existence checks — see probePathElements and ensureKeysExistInRedis.
 func parsePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath) error {
-	return parseResolvedPath(prefix, path, pathG2S, nil)
-}
-
-func parseResolvedPath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath, route *DatabaseRoute) error {
 	var tblPath tablePath
 
-	var targetDbName, dbNamespace string
-	var targetDbNameSpaceExist bool
-	if route != nil {
-		targetDbName, dbNamespace, targetDbNameSpaceExist = route.Database, route.Namespace, route.Qualified
-	} else {
-		target := prefix.GetTarget()
-		var targetDbNameValid bool
-		var targetDbNameSpace string
-		targetDbName, targetDbNameValid, targetDbNameSpace, targetDbNameSpaceExist = IsTargetDb(target)
-		if !targetDbNameValid {
-			return fmt.Errorf("Invalid target dbName %v", targetDbName)
-		}
-		var ok bool
-		var err error
-		dbNamespace, ok, err = sdcfg.GetDbNamespaceFromTarget(targetDbNameSpace)
-		if err != nil {
-			return fmt.Errorf("Failed to get namespace %v", err)
-		}
-		if !ok {
-			return fmt.Errorf("Invalid target dbNameSpace %v", targetDbNameSpace)
-		}
+	target := prefix.GetTarget()
+	targetDbName, targetDbNameValid, targetDbNameSpace, targetDbNameSpaceExist := IsTargetDb(target)
+	if !targetDbNameValid {
+		return fmt.Errorf("Invalid target dbName %v", targetDbName)
+	}
+
+	dbNamespace, ok, err := sdcfg.GetDbNamespaceFromTarget(targetDbNameSpace)
+	if err != nil {
+		return fmt.Errorf("Failed to get namespace %v", err)
+	}
+	if !ok {
+		return fmt.Errorf("Invalid target dbNameSpace %v", targetDbNameSpace)
 	}
 
 	if targetDbName == "COUNTERS_DB" {

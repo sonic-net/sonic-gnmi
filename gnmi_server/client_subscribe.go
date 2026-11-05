@@ -9,7 +9,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"net"
 	"sync"
@@ -160,13 +159,6 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 	}
 
 	log.V(2).Infof("Client %s recieved initial query %v", c, query)
-	route, routeErr := authorizedRoute(ctx, config, "/gnmi.gNMI/Subscribe", query)
-	if routeErr != nil {
-		return routeErr
-	}
-	if route != nil {
-		query = proto.Clone(query).(*gnmipb.SubscribeRequest)
-	}
 
 	c.subscribe = query.GetSubscribe()
 	extensions := query.GetExtension()
@@ -184,9 +176,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 		return grpc.Errorf(codes.NotFound, "Invalid subscription path: %v %q", err, query)
 	}
 
-	if route != nil {
-		origin = route.origin
-	} else if o, err := ParseOrigin(paths); err != nil {
+	if o, err := ParseOrigin(paths); err != nil {
 		return err // origin conflict within paths
 	} else if len(origin) == 0 {
 		origin = o // Use origin from paths if not given in prefix
@@ -207,11 +197,7 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 	log.V(3).Infof("mode=%v, origin=%q, target=%q", mode, origin, target)
 
 	authTarget := "gnmi"
-	if route != nil {
-		decision, _ := rpcAuthorizationFromContext(ctx)
-		authTarget = decision.target
-		dc, err = route.newClient(ctx, config, prefix, paths, gnmipb.Encoding_JSON_IETF, c.logLevel)
-	} else if origin == "openconfig" {
+	if origin == "openconfig" {
 		dc, err = sdc.NewTranslClient(prefix, paths, ctx, extensions, sdc.TranslWildcardOption{})
 	} else if IsNativeOrigin(origin) {
 		var targetDbName string
@@ -246,11 +232,9 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 
 	defer dc.Close()
 	ctx = stream.Context()
-	if route == nil {
-		ctx, err = authenticate(config, ctx, authTarget, false)
-		if err != nil {
-			return err
-		}
+	ctx, err = authenticate(config, ctx, authTarget, false)
+	if err != nil {
+		return err
 	}
 
 	// Checked after authenticate so unauthenticated callers get

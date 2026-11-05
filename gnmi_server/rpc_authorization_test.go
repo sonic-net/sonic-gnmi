@@ -596,7 +596,7 @@ func TestRPCAuthorizationNativePathsPreserveRequest(t *testing.T) {
 		{Elem: []*gnmipb.PathElem{{Name: "asic0"}, {Name: "OTHER"}}},
 		{Elem: backing[1:]},
 	}
-	_, err := gnmiGetAuthorizationTarget(&gnmipb.GetRequest{Prefix: prefix, Path: paths}, &authorizedRequestRoute{})
+	_, err := gnmiGetAuthorizationTarget(&gnmipb.GetRequest{Prefix: prefix, Path: paths})
 	if status.Code(err) != codes.Unimplemented || status.Convert(err).Message() != "Namespace/container conflict in path" {
 		t.Fatalf("conflicting shared paths must be rejected: %v", err)
 	}

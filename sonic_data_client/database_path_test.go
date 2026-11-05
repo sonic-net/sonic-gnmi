@@ -124,58 +124,6 @@ func TestDatabasePathInstanceSelection(t *testing.T) {
 	}
 }
 
-func TestResolvedDatabaseBindingPreservesLookupOrder(t *testing.T) {
-	var calls [][2]string
-	patch := gomonkey.ApplyFunc(dbconfig.GetDbInstanceFromTarget, func(ns, container string) (swsscommon.SonicDBKey, bool) {
-		calls = append(calls, [2]string{ns, container})
-		if ns == "asic0" || container == "dpu0" {
-			return swsscommon.NewSonicDBKey(), true
-		}
-		return nil, false
-	})
-	defer patch.Reset()
-	c := MixedDbClient{namespace_cnt: 2, container_cnt: 2}
-	key, err := c.materializeDatabaseInstances([]string{"dpu0", "dpu0"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer swsscommon.DeleteSonicDBKey(key)
-	if key.GetNetns() != "" || key.GetContainerName() != "dpu0" {
-		t.Fatalf("binding namespace=%q container=%q", key.GetNetns(), key.GetContainerName())
-	}
-	if !reflect.DeepEqual(calls, [][2]string{{"dpu0", ""}, {"", "dpu0"}, {"dpu0", ""}, {"", "dpu0"}}) {
-		t.Fatalf("lookup order=%v", calls)
-	}
-}
-
-func TestResolvedDatabaseConstructorUsesBinding(t *testing.T) {
-	// Changes in discovery after materialization cannot select a different
-	// namespace/container. No read/write is issued by this constructor test.
-	patch := gomonkey.ApplyFunc(dbconfig.GetDbAllInstances, func() ([]swsscommon.SonicDBKey, error) {
-		key := swsscommon.NewSonicDBKey()
-		key.SetNetns("different")
-		return []swsscommon.SonicDBKey{key}, nil
-	})
-	defer patch.Reset()
-	patch.ApplyFunc(IsTargetDbByDBKey, func(_ string, key swsscommon.SonicDBKey) bool {
-		if key.GetNetns() != "bound" || key.GetContainerName() != "" {
-			t.Fatalf("constructor changed binding: %s/%s", key.GetNetns(), key.GetContainerName())
-		}
-		return true
-	})
-	paths := []*pb.Path{nativePath("STATE_DB", "different", "TABLE")}
-	client, err := NewResolvedMixedDbClient(paths, &pb.Path{Origin: "sonic-db"}, "sonic-db", pb.Encoding_JSON_IETF, "", "",
-		NativeDatabaseBinding{Database: "STATE_DB", Namespace: "bound"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-	actual := client.(*MixedDbClient)
-	if actual.target != "STATE_DB" || actual.dbkey.GetNetns() != "bound" || actual.mapkey != "bound:" {
-		t.Fatalf("constructor did not retain binding: %s %s", actual.target, actual.mapkey)
-	}
-}
-
 func TestTargetDatabaseCompatibility(t *testing.T) {
 	tests := []struct {
 		target, database, qualifier string

@@ -4,7 +4,6 @@ import (
 	"context"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,14 +13,9 @@ import (
 	healthzpb "github.com/openconfig/gnoi/healthz"
 	systempb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
-	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
-	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
-	dbconfig "github.com/sonic-net/sonic-gnmi/sonic_db_config"
-	"github.com/sonic-net/sonic-gnmi/swsscommon"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
@@ -330,203 +324,5 @@ func TestReauthenticateLegacyAndUDS(t *testing.T) {
 	defer cancel()
 	if err := reauthenticate(cfg, uds, "gnmi"); err != nil || calls != 1 {
 		t.Fatalf("UDS called credentials: %v calls=%d", err, calls)
-	}
-}
-
-func TestAuthorizedRequestRejectsChangedOrMissingRoute(t *testing.T) {
-	backendCalls := 0
-	patch := gomonkey.ApplyFunc(sdc.NewDbClientForGet, func([]*gnmipb.Path, *gnmipb.Path) (sdc.Client, error) {
-		backendCalls++
-		return nil, status.Error(codes.Internal, "unexpected legacy backend setup")
-	})
-	defer patch.Reset()
-	patch.ApplyFunc(sdc.NewResolvedDbClient, func([]*gnmipb.Path, *gnmipb.Path, bool, sdc.DatabaseRoute) (sdc.Client, error) {
-		backendCalls++
-		return nil, status.Error(codes.Internal, "unexpected resolved backend setup")
-	})
-	cfg := &Config{UserAuth: AuthTypes{"cert": true}, ConfigTableName: gnmiClientCertTable}
-	srv := &Server{config: cfg}
-	request := testGetRequest("CONFIG_DB")
-	// A directly called central handler must not silently use legacy routing.
-	if _, err := srv.Get(context.Background(), request); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("missing route: %v", err)
-	}
-	i := testRPCAuthorizationInterceptor("gnmi_config_db_readonly")
-	_, err := i.UnaryInterceptor()(context.Background(), request,
-		&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"},
-		func(ctx context.Context, req interface{}) (interface{}, error) {
-			// Simulate an inner interceptor changing the request after authorization.
-			request.Prefix.Target = "STATE_DB"
-			_, err := srv.Get(ctx, request)
-			return nil, err
-		})
-	if status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("changed target: %v", err)
-	}
-	request = testGetRequest("CONFIG_DB")
-	_, err = i.UnaryInterceptor()(context.Background(), request,
-		&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"},
-		func(ctx context.Context, _ interface{}) (interface{}, error) {
-			return srv.Set(ctx, testSetRequest("CONFIG_DB"))
-		})
-	if status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("wrong method: %v", err)
-	}
-	if backendCalls != 0 {
-		t.Fatalf("rejected request created %d backend clients", backendCalls)
-	}
-}
-
-func TestAuthorizedRequestNativeGetAndBypassWrite(t *testing.T) {
-	ctx := context.Background()
-	state := getRedisClientN(t, 6, "")
-	t.Cleanup(func() { state.Close() })
-	config := getConfigDbClient(t, "")
-	t.Cleanup(func() { config.Close() })
-	t.Setenv("REDIS_ADDR", "127.0.0.1:6379")
-	const key = "AUTHORIZED_ROUTE_TEST|entry"
-	if err := state.HSet(ctx, key, "value", "bound-state").Err(); err != nil {
-		t.Fatal(err)
-	}
-	oldSKU, skuErr := config.HGet(ctx, "DEVICE_METADATA|localhost", "hwsku").Result()
-	if err := config.HSet(ctx, "DEVICE_METADATA|localhost", "hwsku", "Cisco-8102-test").Err(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		state.Del(ctx, key)
-		config.Del(ctx, "VNET|authorized-route-test")
-		if skuErr == nil {
-			config.HSet(ctx, "DEVICE_METADATA|localhost", "hwsku", oldSKU)
-		} else {
-			config.HDel(ctx, "DEVICE_METADATA|localhost", "hwsku")
-		}
-	})
-	patch := gomonkey.ApplyFunc(ClientCertAuthenAndAuthor, func(ctx context.Context, _ string, _ bool) (context.Context, error) {
-		rc, ctx := common_utils.GetContext(ctx)
-		rc.Auth.User, rc.Auth.Roles = "writer", []string{"gnmi_state_db_readonly", "gnmi_config_db_readwrite"}
-		return ctx, nil
-	})
-	defer patch.Reset()
-	srv, err := NewServer(&Config{BindAddress: "127.0.0.1", EnableNativeWrite: true, UserAuth: AuthTypes{"cert": true}, ConfigTableName: gnmiClientCertTable}, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv.SaveStartupConfig = saveOnSetDisabled
-	done := make(chan error, 1)
-	go func() { done <- srv.Serve() }()
-	defer func() {
-		srv.ForceStop()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Error(err)
-			}
-		case <-time.After(time.Second):
-			t.Error("server did not stop")
-		}
-	}()
-	conn, err := grpc.NewClient(srv.Address(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-	rpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	client := gnmipb.NewGNMIClient(conn)
-	response, err := client.Get(rpcCtx, &gnmipb.GetRequest{
-		Prefix:   &gnmipb.Path{Origin: "sonic-db"},
-		Path:     []*gnmipb.Path{{Elem: []*gnmipb.PathElem{{Name: "STATE_DB"}, {Name: "localhost"}, {Name: "AUTHORIZED_ROUTE_TEST"}, {Name: "entry"}}}},
-		Encoding: gnmipb.Encoding_JSON_IETF,
-	})
-	if err != nil || len(response.GetNotification()) == 0 {
-		t.Fatalf("native Get response=%v err=%v", response, err)
-	}
-	if !strings.Contains(response.String(), "bound-state") {
-		t.Fatalf("native Get did not return selected database value: %v", response)
-	}
-	writeCtx := metadata.NewOutgoingContext(rpcCtx, metadata.Pairs("x-sonic-ss-bypass-validation", "true"))
-	_, err = client.Set(writeCtx, &gnmipb.SetRequest{
-		Prefix: &gnmipb.Path{Origin: "sonic-db", Target: "CONFIG_DB"},
-		Update: []*gnmipb.Update{{Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "VNET"}, {Name: "authorized-route-test"}}}, Val: &gnmipb.TypedValue{Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"vni":"1000"}`)}}}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if value, err := config.HGet(ctx, "VNET|authorized-route-test", "vni").Result(); err != nil || value != "1000" {
-		t.Fatalf("bypass write value=%q err=%v", value, err)
-	}
-}
-
-func TestAuthorizedRequestNondefaultBypassUsesNativeBinding(t *testing.T) {
-	patch := gomonkey.NewPatches()
-	defer patch.Reset()
-	patch.ApplyFunc(dbconfig.GetDbAllInstances, func() ([]swsscommon.SonicDBKey, error) {
-		key := swsscommon.NewSonicDBKey()
-		key.SetNetns("VNET")
-		return []swsscommon.SonicDBKey{key}, nil
-	})
-	patch.ApplyFunc(sdc.IsTargetDbByDBKey, func(database string, key swsscommon.SonicDBKey) bool {
-		return database == "CONFIG_DB" && key.GetNetns() == "VNET" && key.GetContainerName() == ""
-	})
-	bypassCalls, nativeCalls := 0, 0
-	patch.ApplyFunc(bypass.TrySet, func(context.Context, *gnmipb.Path, []*gnmipb.Path, []*gnmipb.Update) (*gnmipb.SetResponse, bool, error) {
-		bypassCalls++
-		return &gnmipb.SetResponse{}, true, nil
-	})
-	patch.ApplyMethod(reflect.TypeOf(&sdc.MixedDbClient{}), "Set", func(_ *sdc.MixedDbClient, _ []*gnmipb.Path, _ []*gnmipb.Update, updates []*gnmipb.Update) error {
-		nativeCalls++
-		if updates[0].GetPath().GetElem()[1].GetName() != "VNET" {
-			t.Fatal("native operation lost instance")
-		}
-		return nil
-	})
-	srv := &Server{config: &Config{EnableNativeWrite: true, UserAuth: AuthTypes{"cert": true}, ConfigTableName: gnmiClientCertTable}, ReqFromMaster: ReqFromMasterDisabledMA, SaveStartupConfig: saveOnSetDisabled}
-	req := &gnmipb.SetRequest{Prefix: &gnmipb.Path{Origin: "sonic-db", Target: "CONFIG_DB"}, Update: []*gnmipb.Update{{Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "CONFIG_DB"}, {Name: "VNET"}, {Name: "VNET"}, {Name: "blue"}}}, Val: &gnmipb.TypedValue{Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"vni":"1000"}`)}}}}}
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(bypass.MetadataKeyBypassValidation, "true"))
-	_, err := testRPCAuthorizationInterceptor("gnmi_config_db_readwrite").UnaryInterceptor()(ctx, req,
-		&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Set"}, func(ctx context.Context, req interface{}) (interface{}, error) {
-			return srv.Set(ctx, req.(*gnmipb.SetRequest))
-		})
-	if err != nil || bypassCalls != 0 || nativeCalls != 1 {
-		t.Fatalf("nondefault execution err=%v bypass=%d native=%d", err, bypassCalls, nativeCalls)
-	}
-}
-
-func TestAuthorizedRequestEmptyDirectTargetPreservesNoLookup(t *testing.T) {
-	lookups := 0
-	patch := gomonkey.ApplyFunc(dbconfig.CheckDbMultiNamespace, func() (bool, error) { return true, nil })
-	defer patch.Reset()
-	patch.ApplyFunc(dbconfig.GetDbNamespaceFromTarget, func(string) (string, bool, error) {
-		lookups++
-		return "", false, nil
-	})
-	req := &gnmipb.GetRequest{Prefix: &gnmipb.Path{Target: "STATE_DB/missing"}, Encoding: gnmipb.Encoding_JSON_IETF}
-	legacy := &Server{config: &Config{}}
-	want, err := legacy.Get(context.Background(), req)
-	if err != nil {
-		t.Fatalf("legacy empty Get: %v", err)
-	}
-	central := &Server{config: &Config{UserAuth: AuthTypes{"cert": true}, ConfigTableName: gnmiClientCertTable}}
-	got, err := testRPCAuthorizationInterceptor("gnmi_state_db_readonly").UnaryInterceptor()(context.Background(), req,
-		&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"}, func(ctx context.Context, req interface{}) (interface{}, error) {
-			return central.Get(ctx, req.(*gnmipb.GetRequest))
-		})
-	if err != nil || !proto.Equal(want, got.(*gnmipb.GetResponse)) || lookups != 0 {
-		t.Fatalf("empty Get got=%v want=%v err=%v lookups=%d", got, want, err, lookups)
-	}
-	// An explicitly empty SubscriptionList is also accepted without instance lookup.
-	sub := testSubscribeRequest("STATE_DB/missing")
-	sub.GetSubscribe().Subscription = []*gnmipb.Subscription{}
-	target, err := rpcAuthorizationRequestTarget(context.Background(), "/gnmi.gNMI/Subscribe", sub)
-	if err != nil {
-		t.Fatal(err)
-	}
-	client, err := target.execution.newClient(context.Background(), central.config, sub.GetSubscribe().Prefix, nil, gnmipb.Encoding_JSON_IETF, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	client.Close()
-	if lookups != 0 {
-		t.Fatalf("empty Subscribe performed %d lookups", lookups)
 	}
 }

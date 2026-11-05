@@ -7,7 +7,6 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/sonic-net/sonic-gnmi/internal/gnmidbpath"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
-	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -18,33 +17,27 @@ func rpcAuthorizationRequestTarget(
 	fullMethod string,
 	request interface{},
 ) (rpcAuthorizationTarget, error) {
-	route := &authorizedRequestRoute{method: fullMethod, bypassRequested: bypass.IsRequested(ctx)}
 	switch fullMethod {
 	case "/gnmi.gNMI/Get":
 		req, ok := request.(*gnmipb.GetRequest)
 		if !ok {
 			return rpcAuthorizationTarget{}, status.Error(codes.Internal, "unexpected gNMI Get request type")
 		}
-		route.ownedRequest = proto.Clone(req)
-		target, err := gnmiGetAuthorizationTarget(req, route)
-		return rpcAuthorizationTarget{target: target, execution: route}, err
+		target, err := gnmiGetAuthorizationTarget(req)
+		return rpcAuthorizationTarget{target: target}, err
 	case "/gnmi.gNMI/Set":
 		req, ok := request.(*gnmipb.SetRequest)
 		if !ok {
 			return rpcAuthorizationTarget{}, status.Error(codes.Internal, "unexpected gNMI Set request type")
 		}
-		route.ownedRequest = proto.Clone(req)
-		result, err := gnmiSetAuthorizationTarget(ctx, req, route)
-		result.execution = route
-		return result, err
+		return gnmiSetAuthorizationTarget(ctx, req)
 	case "/gnmi.gNMI/Subscribe":
 		req, ok := request.(*gnmipb.SubscribeRequest)
 		if !ok {
 			return rpcAuthorizationTarget{}, status.Error(codes.Internal, "unexpected gNMI Subscribe request type")
 		}
-		route.ownedRequest = proto.Clone(req)
-		target, err := gnmiSubscribeAuthorizationTarget(req, route)
-		return rpcAuthorizationTarget{target: target, execution: route}, err
+		target, err := gnmiSubscribeAuthorizationTarget(req)
+		return rpcAuthorizationTarget{target: target}, err
 	default:
 		return rpcAuthorizationTarget{}, status.Error(codes.Internal, "RPC target resolver is not configured")
 	}
@@ -57,7 +50,7 @@ func rpcAuthorizationFirstStreamRequest(fullMethod string) proto.Message {
 	return nil
 }
 
-func gnmiGetAuthorizationTarget(req *gnmipb.GetRequest, route *authorizedRequestRoute) (string, error) {
+func gnmiGetAuthorizationTarget(req *gnmipb.GetRequest) (string, error) {
 	if req == nil {
 		return "", status.Error(codes.InvalidArgument, "gNMI Get request is required")
 	}
@@ -65,16 +58,13 @@ func gnmiGetAuthorizationTarget(req *gnmipb.GetRequest, route *authorizedRequest
 	target := prefix.GetTarget()
 	switch target {
 	case "OPERATIONAL":
-		route.backend = backendOperational
 		return "gnoi", nil
 	case "OTHERS":
-		route.backend = backendOthers
 		return "gnmi_other", nil
 	case "SHOW":
-		route.backend = backendShow
 		return "gnmi_show", nil
 	}
-	if database, ok, err := authorizationDatabaseTarget(target, route); err != nil {
+	if database, ok, err := authorizationDatabaseTarget(target); err != nil {
 		return "", err
 	} else if ok {
 		return "gnmi_" + database, nil
@@ -88,10 +78,8 @@ func gnmiGetAuthorizationTarget(req *gnmipb.GetRequest, route *authorizedRequest
 			return "", err
 		}
 	}
-	route.origin = origin
 	if origin == "sonic-db" {
-		route.backend = backendNative
-		database, err := authorizationNativeDatabase(prefix, req.GetPath(), route)
+		database, err := authorizationNativeDatabase(prefix, req.GetPath())
 		if err != nil {
 			return "", err
 		}
@@ -100,7 +88,7 @@ func gnmiGetAuthorizationTarget(req *gnmipb.GetRequest, route *authorizedRequest
 	return "gnmi", nil
 }
 
-func gnmiSetAuthorizationTarget(ctx context.Context, req *gnmipb.SetRequest, route *authorizedRequestRoute) (rpcAuthorizationTarget, error) {
+func gnmiSetAuthorizationTarget(ctx context.Context, req *gnmipb.SetRequest) (rpcAuthorizationTarget, error) {
 	if req == nil {
 		return rpcAuthorizationTarget{}, status.Error(codes.InvalidArgument, "gNMI Set request is required")
 	}
@@ -122,22 +110,18 @@ func gnmiSetAuthorizationTarget(ctx context.Context, req *gnmipb.SetRequest, rou
 			return rpcAuthorizationTarget{}, err
 		}
 	}
-	route.origin = origin
 	if origin != "sonic-db" {
 		return rpcAuthorizationTarget{target: "gnmi"}, nil
 	}
 
-	route.backend = backendNative
-	database, err := authorizationNativeDatabase(prefix, paths, route)
+	database, err := authorizationNativeDatabase(prefix, paths)
 	if err == nil {
 		return rpcAuthorizationTarget{target: "gnmi_" + database}, nil
 	}
 	updates := append(append([]*gnmipb.Update(nil), req.GetReplace()...), req.GetUpdate()...)
 	if bypass.IsRequested(ctx) &&
 		strings.EqualFold(prefix.GetTarget(), "CONFIG_DB") &&
-		shortDefaultBypassPaths(prefix, paths) &&
 		bypass.IsAllowedSetRequest(prefix, req.GetDelete(), updates) {
-		route.native = sdc.NativeDatabaseRoute{Database: "CONFIG_DB", Instances: []string{"localhost"}}
 		return rpcAuthorizationTarget{
 			target: "gnmi_CONFIG_DB",
 			route:  rpcAuthorizationRouteSetBypassOnly,
@@ -146,22 +130,7 @@ func gnmiSetAuthorizationTarget(ctx context.Context, req *gnmipb.SetRequest, rou
 	return rpcAuthorizationTarget{}, err
 }
 
-// Short bypass syntax starts with a table, never a native database/instance.
-// Native parse failures must not be reinterpreted as default-database writes.
-func shortDefaultBypassPaths(prefix *gnmipb.Path, paths []*gnmipb.Path) bool {
-	if len(paths) == 0 {
-		return false
-	}
-	for _, path := range paths {
-		elems := append(append([]*gnmipb.PathElem(nil), prefix.GetElem()...), path.GetElem()...)
-		if len(elems) == 0 || !bypass.AllowedTables[elems[0].GetName()] {
-			return false
-		}
-	}
-	return true
-}
-
-func gnmiSubscribeAuthorizationTarget(req *gnmipb.SubscribeRequest, route *authorizedRequestRoute) (string, error) {
+func gnmiSubscribeAuthorizationTarget(req *gnmipb.SubscribeRequest) (string, error) {
 	if req == nil || req.GetSubscribe() == nil {
 		return "", status.Error(codes.InvalidArgument, "first Subscribe request must contain a SubscriptionList")
 	}
@@ -187,13 +156,11 @@ func gnmiSubscribeAuthorizationTarget(req *gnmipb.SubscribeRequest, route *autho
 	}
 
 	target := prefix.GetTarget()
-	route.origin = origin
 	switch {
 	case origin == "openconfig":
 		return "gnmi", nil
 	case origin == "sonic-db":
-		route.backend = backendNative
-		database, err := authorizationNativeDatabase(prefix, paths, route)
+		database, err := authorizationNativeDatabase(prefix, paths)
 		if err != nil {
 			return "", err
 		}
@@ -203,15 +170,13 @@ func gnmiSubscribeAuthorizationTarget(req *gnmipb.SubscribeRequest, route *autho
 	case target == "":
 		return "", status.Error(codes.Unimplemented, "Empty target data not supported")
 	case target == "OTHERS":
-		route.backend = backendOthers
 		return "gnmi_others", nil
 	case target == "SHOW":
 		return "", status.Error(codes.Unimplemented, "SHOW does not support subscribe operations")
 	case target == "EVENTS" && subscription.GetMode() == gnmipb.SubscriptionList_STREAM:
-		route.backend = backendEvents
 		return "gnmi_events", nil
 	}
-	if database, ok, err := authorizationDatabaseTarget(target, route); err != nil {
+	if database, ok, err := authorizationDatabaseTarget(target); err != nil {
 		return "", err
 	} else if ok {
 		return "gnmi_" + database, nil
@@ -233,8 +198,8 @@ func authorizationPathOrigin(paths []*gnmipb.Path) (string, error) {
 	return origin, nil
 }
 
-func authorizationNativeDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path, route *authorizedRequestRoute) (string, error) {
-	resolution, err := resolveAuthorizationNativePaths(prefix, paths, route)
+func authorizationNativeDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path) (string, error) {
+	resolution, err := resolveAuthorizationNativePaths(prefix, paths)
 	if err != nil {
 		return "", err
 	}
@@ -247,27 +212,22 @@ func authorizationNativeDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path, rout
 // Resolve the whole request before authorization without performing backend
 // discovery or changing the request's prefix backing array. Backend callers
 // retain their incremental Append/query ordering and legacy aliasing behavior.
-func resolveAuthorizationNativePaths(prefix *gnmipb.Path, paths []*gnmipb.Path, route *authorizedRequestRoute) (gnmidbpath.Resolution, error) {
+func resolveAuthorizationNativePaths(prefix *gnmipb.Path, paths []*gnmipb.Path) (gnmidbpath.Resolution, error) {
 	if len(paths) == 0 {
 		return gnmidbpath.Resolution{}, status.Error(codes.Unimplemented, "No valid path")
 	}
 	var resolution gnmidbpath.Resolution
-	route.native = sdc.NativeDatabaseRoute{}
 	for _, path := range paths {
 		isolatedPrefix := &gnmipb.Path{Elem: append([]*gnmipb.PathElem(nil), prefix.GetElem()...)}
-		next, processed, err := resolution.Append(isolatedPrefix, path)
+		next, _, err := resolution.Append(isolatedPrefix, path)
 		if err != nil {
 			return gnmidbpath.Resolution{}, err
 		}
 		resolution = next
-		if processed {
-			route.native.Instances = append(route.native.Instances, resolution.Instance)
-		}
 	}
 	if resolution.Database == "" {
 		return gnmidbpath.Resolution{}, status.Error(codes.Unimplemented, "No target specified in path")
 	}
-	route.native.Database = resolution.Database
 	return resolution, nil
 }
 
@@ -288,15 +248,13 @@ func validateAuthorizationNativePrefixTarget(target string, resolution gnmidbpat
 	return nil
 }
 
-func authorizationDatabaseTarget(target string, route *authorizedRequestRoute) (string, bool, error) {
-	database, qualifier, known, malformed := gnmidbpath.ParseTarget(target)
+func authorizationDatabaseTarget(target string) (string, bool, error) {
+	database, _, known, malformed := gnmidbpath.ParseTarget(target)
 	if !known {
 		return "", false, nil
 	}
 	if malformed {
 		return "", false, status.Error(codes.InvalidArgument, "invalid gNMI database target format")
 	}
-	route.backend = backendDatabase
-	route.database, route.qualifier, route.qualified = database, qualifier, strings.Contains(target, "/")
 	return database, true, nil
 }
