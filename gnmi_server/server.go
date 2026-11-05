@@ -117,11 +117,16 @@ func (s *Server) handleOperationalGet(ctx context.Context, req *gnmipb.GetReques
 	// that supplement gNOI services when existing gNOI definitions don't provide
 	// what we need. This allows reusing gnoi_readonly/gnoi_readwrite roles
 	// for operational data access control.
-	authTarget := "gnoi"
-	ctx, err := authenticate(s.config, ctx, authTarget, false)
+	route, err := authorizedRoute(ctx, s.config, "/gnmi.gNMI/Get", req)
 	if err != nil {
-		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, err
+	}
+	if route == nil {
+		ctx, err = authenticate(s.config, ctx, "gnoi", false)
+		if err != nil {
+			common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+			return nil, err
+		}
 	}
 
 	if err := checkPathsBlacklist(s.config.PathsBlacklist, prefix, paths); err != nil {
@@ -1016,6 +1021,11 @@ func nativeSetTarget(prefix *gnmipb.Path, paths []*gnmipb.Path) string {
 // Get implements the Get RPC in gNMI spec.
 func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetResponse, error) {
 	common_utils.IncCounter(common_utils.GNMI_GET)
+	route, routeErr := authorizedRoute(ctx, s.config, "/gnmi.gNMI/Get", req)
+	if routeErr != nil {
+		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+		return nil, routeErr
+	}
 
 	if req.GetType() != gnmipb.GetRequest_ALL {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
@@ -1043,6 +1053,12 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
 		return nil, status.Error(codes.Unimplemented, err.Error())
 	}
+	if route != nil {
+		if _, err := authorizedRoute(ctx, s.config, "/gnmi.gNMI/Get", req); err != nil {
+			return nil, err
+		}
+		req = proto.Clone(req).(*gnmipb.GetRequest)
+	}
 
 	target := ""
 	origin := ""
@@ -1060,12 +1076,14 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	var dc sdc.Client
 	var err error
 	// Handle OPERATIONAL target directly without SONiC routing
-	if target == "OPERATIONAL" {
+	if route != nil && route.backend == backendOperational || route == nil && target == "OPERATIONAL" {
 		return s.handleOperationalGet(ctx, req, paths, prefix)
 	}
 
 	authTarget := "gnmi"
-	if target == "OTHERS" {
+	if route != nil {
+		dc, err = route.newClient(ctx, s.config, prefix, paths, encoding, 0)
+	} else if target == "OTHERS" {
 		dc, err = sdc.NewNonDbClient(paths, prefix)
 		authTarget = "gnmi_other"
 	} else if target == "SHOW" {
@@ -1105,10 +1123,12 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	}
 	defer dc.Close()
 
-	ctx, err = authenticate(s.config, ctx, authTarget, false)
-	if err != nil {
-		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
-		return nil, err
+	if route == nil {
+		ctx, err = authenticate(s.config, ctx, authTarget, false)
+		if err != nil {
+			common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
+			return nil, err
+		}
 	}
 	if containsBGPRunningConfigPath(prefix, paths) && !isUnixPeer(ctx) {
 		common_utils.IncCounter(common_utils.GNMI_GET_FAIL)
@@ -1165,6 +1185,10 @@ func SaveOnSetEnabled() error {
 func saveOnSetDisabled() error { return nil }
 
 func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetResponse, error) {
+	route, routeErr := authorizedRoute(ctx, s.config, "/gnmi.gNMI/Set", req)
+	if routeErr != nil {
+		return nil, routeErr
+	}
 	e := s.ReqFromMaster(req, &s.masterEID)
 	if e != nil {
 		return nil, e
@@ -1215,6 +1239,12 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 		}
 	}
 	var results []*gnmipb.UpdateResult
+	if route != nil {
+		if _, err := authorizedRoute(ctx, s.config, "/gnmi.gNMI/Set", req); err != nil {
+			return nil, err
+		}
+		req = proto.Clone(req).(*gnmipb.SetRequest)
+	}
 
 	/* Fetch the prefix. */
 	prefix := req.GetPrefix()
@@ -1234,7 +1264,9 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	for _, path := range req.GetUpdate() {
 		paths = append(paths, path.GetPath())
 	}
-	if origin == "" {
+	if route != nil {
+		origin = route.origin
+	} else if origin == "" {
 		origin, err = ParseOrigin(paths)
 		if err != nil {
 			return nil, err
@@ -1247,14 +1279,28 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 			return nil, grpc.Errorf(codes.Unimplemented, "GNMI native write is disabled")
 		}
 
-		bypassTarget := nativeSetTarget(prefix, paths)
-		if bypass.IsRequested(ctx) && strings.EqualFold(bypassTarget, "CONFIG_DB") {
+		bypassTarget := ""
+		if route != nil {
+			if err := route.bindNative(); err != nil {
+				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+				return nil, status.Error(codes.NotFound, err.Error())
+			}
+			bypassTarget = route.native.Database
+			if rpcAuthorizationSetBypassOnly(ctx) {
+				bypassTarget = "CONFIG_DB"
+			}
+		} else {
+			bypassTarget = nativeSetTarget(prefix, paths)
+		}
+		if bypass.IsRequested(ctx) && strings.EqualFold(bypassTarget, "CONFIG_DB") && (route == nil || route.usesDefaultInstance()) {
 			// Bypass metadata requests the bypass path.
 			// It does not grant write access.
-			ctx, err = authenticate(s.config, ctx, "gnmi_"+bypassTarget, true)
-			if err != nil {
-				common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-				return nil, err
+			if route == nil {
+				ctx, err = authenticate(s.config, ctx, "gnmi_"+bypassTarget, true)
+				if err != nil {
+					common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+					return nil, err
+				}
 			}
 
 			// Fast path: bypass validation for allowed tables/SKUs.
@@ -1274,16 +1320,24 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 			return nil, status.Error(codes.InvalidArgument, "bypass request is not eligible on this device")
 		}
 
-		var targetDbName string
-		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
-		authTarget = "gnmi_" + targetDbName
+		if route != nil {
+			dc, err = route.newClient(ctx, s.config, prefix, paths, encoding, 0)
+		} else {
+			var targetDbName string
+			dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
+			authTarget = "gnmi_" + targetDbName
+		}
 	} else {
 		if s.config.EnableTranslibWrite == false {
 			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 			return nil, grpc.Errorf(codes.Unimplemented, "Translib write is disabled")
 		}
 		/* Create Transl client. */
-		dc, err = sdc.NewTranslClient(prefix, nil, ctx, extensions)
+		if route != nil {
+			dc, err = route.newClient(ctx, s.config, prefix, paths, encoding, 0)
+		} else {
+			dc, err = sdc.NewTranslClient(prefix, nil, ctx, extensions)
+		}
 	}
 
 	if err != nil {
@@ -1292,10 +1346,12 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	}
 	defer dc.Close()
 
-	ctx, err = authenticate(s.config, ctx, authTarget, true)
-	if err != nil {
-		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
-		return nil, err
+	if route == nil {
+		ctx, err = authenticate(s.config, ctx, authTarget, true)
+		if err != nil {
+			common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
+			return nil, err
+		}
 	}
 	/* DELETE */
 	for _, path := range req.GetDelete() {

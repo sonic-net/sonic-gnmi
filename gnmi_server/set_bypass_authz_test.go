@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func bypassCertificateContext(commonName string) context.Context {
@@ -130,6 +131,8 @@ func TestSetBypassCertificateAuthorization(t *testing.T) {
 		wantErr          bool
 		wantCode         codes.Code
 		wantBackendCalls int
+		instance         string
+		conflict         bool
 	}{
 		{
 			name:             "mapped read-write success",
@@ -147,14 +150,48 @@ func TestSetBypassCertificateAuthorization(t *testing.T) {
 			wantErr:    true,
 			wantCode:   codes.Unauthenticated,
 		},
+		{
+			name:       "instance matching bypass table must not write default database",
+			commonName: "mapped-readwrite",
+			instance:   "VNET",
+			wantErr:    true,
+			wantCode:   codes.NotFound,
+		},
+		{
+			name:       "conflicting native instances cannot become short bypass",
+			commonName: "mapped-readwrite",
+			conflict:   true,
+			wantErr:    true,
+			wantCode:   codes.Unimplemented,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			clear(backend)
 			backendCalls = 0
+			input := proto.Clone(request).(*gnmipb.SetRequest)
+			if test.instance != "" {
+				input.Prefix.Target = ""
+				input.Update[0].Path.Elem = []*gnmipb.PathElem{{Name: "CONFIG_DB"}, {Name: test.instance}, {Name: "VNET"}, {Name: "blue"}}
+			}
+			if test.conflict {
+				input.Update = []*gnmipb.Update{
+					{Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "CONFIG_DB"}, {Name: "VNET"}, {Name: "VNET"}, {Name: "blue"}}}},
+					{Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "CONFIG_DB"}, {Name: "ACL_RULE"}, {Name: "ACL_RULE"}, {Name: "red"}}}},
+				}
+				for _, update := range input.Update {
+					update.Val = &gnmipb.TypedValue{Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"vni":"1000"}`)}}
+				}
+			}
 
-			response, err := server.Set(bypassCertificateContext(test.commonName), request)
+			authorization, _ := configuredRPCAuthorizationInterceptor(server.config)
+			result, err := authorization.UnaryInterceptor()(bypassCertificateContext(test.commonName), input,
+				&grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Set"},
+				func(ctx context.Context, req interface{}) (interface{}, error) {
+					return server.Set(ctx, req.(*gnmipb.SetRequest))
+				})
+			response, _ := result.(*gnmipb.SetResponse)
 			if test.wantErr {
 				if err == nil {
 					t.Fatal("Set() succeeded; want access denial")

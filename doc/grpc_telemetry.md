@@ -112,13 +112,19 @@ require `readonly` or `readwrite`, writes require `readwrite`, and service-level
 Get, Set and Subscribe are authorized for their routed target. Native path
 authorization uses the shared incremental database parser without backend
 discovery or request mutation. Subscribe buffers its first request, checks its
-target, and replays that request to the handler. Completed handler checks reuse
-the initial credentials but still verify the target and roles. Periodic Subscribe
+target, and replays that request to the handler. Central Get, Set and Subscribe
+carry a request-bound execution route: handlers reject changed or missing routes,
+then use the approved backend and database selection without repeating initial
+authentication. Native instance discovery runs after authorization and its binding
+is consumed by the backend constructor. Other authentication modes retain their
+existing routing and authentication paths. Periodic Subscribe
 checks read fresh certificate mapping/CRL state into a separate identity context,
 so revocation terminates the stream without changing its original identity.
 
-A ConfigDB bypass-only Set cannot fall through to another backend if bypass is
-ineligible. Strict File read authorization remains required. UDS uses filesystem
+A central ConfigDB bypass is permitted only for a resolved default namespace and
+container; nondefault instances use their bound native route and invalid instances
+fail without a default-database write. A bypass-only Set cannot fall through to
+another backend if bypass is ineligible. Strict File read authorization remains required. UDS uses filesystem
 permissions; mixed modes and certificate modes without `GNMI_CLIENT_CERT` retain
 legacy behavior (unsupported certificate configurations log a startup warning).
 

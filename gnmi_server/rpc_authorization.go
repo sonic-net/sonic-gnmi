@@ -45,14 +45,16 @@ const (
 )
 
 type rpcAuthorizationTarget struct {
-	target string
-	route  rpcAuthorizationRoute
+	target    string
+	route     rpcAuthorizationRoute
+	execution *authorizedRequestRoute
 }
 
 type rpcAuthorizationDecision struct {
 	authorization rpcAuthorization
 	target        string
 	route         rpcAuthorizationRoute
+	execution     *authorizedRequestRoute
 }
 
 func rpcAuthorizationMode(authModes map[string]bool, configTableName string) (bool, string) {
@@ -118,6 +120,7 @@ func authorizeRPCTarget(
 		authorization: authorization,
 		target:        rpcauthz.NormalizeTarget(target),
 		route:         requestTarget.route,
+		execution:     requestTarget.execution,
 	}
 	return context.WithValue(ctx, rpcAuthorizationContextKey{}, decision), nil
 }

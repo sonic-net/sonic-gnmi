@@ -652,6 +652,102 @@ func init() {
 }
 
 func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string, vrf string, targetDbName *string) (Client, error) {
+	return newMixedDbClient(paths, prefix, origin, encoding, zmqPort, vrf, targetDbName, nil)
+}
+
+// NativeDatabaseRoute is the request syntax already resolved by the authorization
+// boundary. Instances records each processed path's accumulated instance, retaining
+// namespace/container lookup order without interpreting request paths again.
+type NativeDatabaseRoute struct {
+	Database  string
+	Instances []string
+}
+
+type NativeDatabaseBinding struct {
+	Database  string
+	Namespace string
+	Container string
+}
+
+func ResolveNativeDatabaseRoute(route NativeDatabaseRoute) (NativeDatabaseBinding, error) {
+	client := MixedDbClient{}
+	client.countDatabaseInstances()
+	key, err := client.materializeDatabaseInstances(route.Instances)
+	if err != nil {
+		return NativeDatabaseBinding{}, err
+	}
+	defer swsscommon.DeleteSonicDBKey(key)
+	if key.GetNetns() == sdcfg.SONIC_DEFAULT_NAMESPACE && key.GetContainerName() == sdcfg.SONIC_DEFAULT_CONTAINER {
+		for _, instance := range route.Instances {
+			if instance != "" && instance != HOSTNAME {
+				return NativeDatabaseBinding{}, fmt.Errorf("Unsupported namespace/container %s", instance)
+			}
+		}
+	}
+	if !IsTargetDbByDBKey(route.Database, key) {
+		return NativeDatabaseBinding{}, status.Errorf(codes.Unimplemented, "Invalid target: ns %s, container %s", key.GetNetns(), key.GetContainerName())
+	}
+	return NativeDatabaseBinding{Database: route.Database, Namespace: key.GetNetns(), Container: key.GetContainerName()}, nil
+}
+
+func NewResolvedMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort, vrf string, binding NativeDatabaseBinding) (Client, error) {
+	var database string
+	return newMixedDbClient(paths, prefix, origin, encoding, zmqPort, vrf, &database, &binding)
+}
+
+func (c *MixedDbClient) materializeDatabaseInstances(instances []string) (swsscommon.SonicDBKey, error) {
+	namespace, container := sdcfg.SONIC_DEFAULT_NAMESPACE, sdcfg.SONIC_DEFAULT_CONTAINER
+	for _, instance := range instances {
+		if c.namespace_cnt > 1 && c.container_cnt > 1 {
+			if instance == HOSTNAME {
+				continue
+			}
+			key, ok := sdcfg.GetDbInstanceFromTarget(instance, sdcfg.SONIC_DEFAULT_CONTAINER)
+			if ok {
+				namespace = instance
+				swsscommon.DeleteSonicDBKey(key)
+				continue
+			}
+			key, ok = sdcfg.GetDbInstanceFromTarget(sdcfg.SONIC_DEFAULT_NAMESPACE, instance)
+			if !ok {
+				return nil, fmt.Errorf("Unsupported namespace/container %s", instance)
+			}
+			container = instance
+			swsscommon.DeleteSonicDBKey(key)
+		} else if c.namespace_cnt > 1 {
+			namespace = instance
+		} else if c.container_cnt > 1 {
+			container = instance
+		}
+	}
+	if namespace == HOSTNAME {
+		namespace = sdcfg.SONIC_DEFAULT_NAMESPACE
+	}
+	if container == HOSTNAME {
+		container = sdcfg.SONIC_DEFAULT_CONTAINER
+	}
+	key := swsscommon.NewSonicDBKey()
+	key.SetNetns(namespace)
+	key.SetContainerName(container)
+	return key, nil
+}
+
+func (client *MixedDbClient) countDatabaseInstances() {
+	client.namespace_cnt = 1
+	client.container_cnt = 1
+	keys, _ := sdcfg.GetDbAllInstances()
+	for _, key := range keys {
+		if key.GetNetns() != sdcfg.SONIC_DEFAULT_NAMESPACE {
+			client.namespace_cnt++
+		}
+		if key.GetContainerName() != sdcfg.SONIC_DEFAULT_CONTAINER {
+			client.container_cnt++
+		}
+		swsscommon.DeleteSonicDBKey(key)
+	}
+}
+
+func newMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, encoding gnmipb.Encoding, zmqPort string, vrf string, targetDbName *string, binding *NativeDatabaseBinding) (Client, error) {
 	var err error
 
 	// Initialize RedisDbMap for test
@@ -664,19 +760,8 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	}
 
 	// Get namespace count and container count from db config
-	client.namespace_cnt = 1
-	client.container_cnt = 1
-	dbkey_list, _ := sdcfg.GetDbAllInstances()
-	for _, dbkey := range dbkey_list {
-		namespace := dbkey.GetNetns()
-		container := dbkey.GetContainerName()
-		if namespace != sdcfg.SONIC_DEFAULT_NAMESPACE {
-			client.namespace_cnt += 1
-		}
-		if container != sdcfg.SONIC_DEFAULT_CONTAINER {
-			client.container_cnt += 1
-		}
-		swsscommon.DeleteSonicDBKey(dbkey)
+	if binding == nil {
+		client.countDatabaseInstances()
 	}
 	client.prefix = prefix
 	client.target = ""
@@ -692,7 +777,16 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 		return &client, nil
 	}
 
-	target, dbkey, err := client.ParseDatabase(prefix, paths)
+	var target string
+	var dbkey swsscommon.SonicDBKey
+	if binding == nil {
+		target, dbkey, err = client.ParseDatabase(prefix, paths)
+	} else {
+		target = binding.Database
+		dbkey = swsscommon.NewSonicDBKey()
+		dbkey.SetNetns(binding.Namespace)
+		dbkey.SetContainerName(binding.Container)
+	}
 	if err != nil {
 		return nil, err
 	}
