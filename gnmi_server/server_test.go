@@ -1731,7 +1731,7 @@ func createQuery(subListMode pb.SubscriptionList_Mode, target string, queries []
 	for _, qq := range queries {
 		pp, err := ygot.StringToPath(pathToString(qq.Query), ygot.StructuredPath, ygot.StringSlicePath)
 		if err != nil {
-			return nil, fmt.Errorf("invalid query path %q: %v", qq, err)
+			return nil, fmt.Errorf("invalid query path %q: %v", pathToString(qq.Query), err)
 		}
 		s.Subscribe.Subscription = append(
 			s.Subscribe.Subscription,
