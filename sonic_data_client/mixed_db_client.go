@@ -21,6 +21,7 @@ import (
 	"unsafe"
 
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/internal/gnmidbpath"
 	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
@@ -531,34 +532,17 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 	if len(paths) == 0 {
 		return "", nil, status.Error(codes.Unimplemented, "No valid path")
 	}
-	target := ""
+	var resolution gnmidbpath.Resolution
 	namespace := sdcfg.SONIC_DEFAULT_NAMESPACE
 	container := sdcfg.SONIC_DEFAULT_CONTAINER
-	prev_instance := ""
 	for _, path := range paths {
-		if path.GetElem() != nil {
-			elems := path.GetElem()
-			if prefix != nil {
-				elems = append(prefix.GetElem(), elems...)
-			}
-			if elems == nil {
-				return "", nil, status.Error(codes.Unimplemented, "No valid elem")
-			}
-			if len(elems) < 2 {
-				return "", nil, status.Error(codes.Unimplemented, "Invalid elem length")
-			}
-			// Get target from the first element
-			if target == "" {
-				target = elems[ELEM_INDEX_DATABASE].GetName()
-			} else if target != elems[ELEM_INDEX_DATABASE].GetName() {
-				return "", nil, status.Error(codes.Unimplemented, "Target conflict in path")
-			}
-			elem_name := elems[ELEM_INDEX_INSTANCE].GetName()
-			if prev_instance == "" {
-				prev_instance = elem_name
-			} else if prev_instance != elem_name {
-				return "", nil, status.Error(codes.Unimplemented, "Namespace/container conflict in path")
-			}
+		next, processed, err := resolution.Append(prefix, path)
+		if err != nil {
+			return "", nil, err
+		}
+		resolution = next
+		if processed {
+			elem_name := resolution.Instance
 			if c.namespace_cnt > 1 && c.container_cnt > 1 {
 				// Support smartswitch with multiple asic NPU
 				// The elelement can be "localhost", "asic0", "asic1", ..., "dpu0", "dpu1", ...
@@ -588,7 +572,7 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 			}
 		}
 	}
-	if target == "" {
+	if resolution.Database == "" {
 		return "", nil, status.Error(codes.Unimplemented, "No target specified in path")
 	}
 	// GNMI path uses localhost as default namespace
@@ -602,7 +586,7 @@ func (c *MixedDbClient) ParseDatabase(prefix *gnmipb.Path, paths []*gnmipb.Path)
 	dbkey := swsscommon.NewSonicDBKey()
 	dbkey.SetNetns(namespace)
 	dbkey.SetContainerName(container)
-	return target, dbkey, nil
+	return resolution.Database, dbkey, nil
 }
 
 // Initialize RedisDbMap
