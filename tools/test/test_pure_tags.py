@@ -1,3 +1,4 @@
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -33,11 +34,12 @@ class PureTagPlacementTest(unittest.TestCase):
             )
 
     def test_rejects_tagged_business_logic(self):
-        for constraint in CONSTRAINTS:
-            with self.subTest(constraint=constraint):
-                result = self.check_tags("pkg/logic.go", constraint)
-                self.assertNotEqual(result.returncode, 0, result.stdout)
-                self.assertIn("pkg/logic.go", result.stdout)
+        for path in ("pkg/logic.go", "pathz_authorizer/logic.go"):
+            for constraint in CONSTRAINTS:
+                with self.subTest(path=path, constraint=constraint):
+                    result = self.check_tags(path, constraint)
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertIn(path, result.stdout)
 
     def test_accepts_direct_provider(self):
         for constraint in CONSTRAINTS:
@@ -55,6 +57,36 @@ class PureTagPlacementTest(unittest.TestCase):
                 )
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertIn("nested/provider_file.go", result.stdout)
+
+
+class PurePackageDiscoveryTest(unittest.TestCase):
+    def test_discovers_path_authorization_packages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            for path in (
+                "pathz_authorizer/logic.go",
+                "pathz_authorizer/nested/logic.go",
+            ):
+                source = root / path
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text("package fixture\n")
+            env = os.environ.copy()
+            for name in ("MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES", "PACKAGES"):
+                env.pop(name, None)
+            result = subprocess.run(
+                ["make", "-s", "-f", str(MAKEFILE), "list-packages"],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            sections = result.stdout.split("Currently testing packages:\n")
+            self.assertEqual(len(sections), 2, result.stdout)
+            for section in sections:
+                self.assertIn("  - pathz_authorizer\n", section)
+                self.assertIn("  - pathz_authorizer/nested\n", section)
 
 
 if __name__ == "__main__":
