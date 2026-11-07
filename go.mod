@@ -34,7 +34,7 @@ require (
 	golang.org/x/crypto v0.58.0
 	golang.org/x/net v0.62.0
 	golang.org/x/term v0.47.0
-	google.golang.org/grpc v1.83.1
+	google.golang.org/grpc v1.83.2
 	google.golang.org/grpc/security/advancedtls v1.0.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v2 v2.4.0
@@ -85,6 +85,6 @@ replace (
 	github.com/openconfig/gnmi => github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
 	golang.org/x/crypto => golang.org/x/crypto v0.52.0
 	golang.org/x/sys => golang.org/x/sys v0.45.0
-	google.golang.org/grpc => google.golang.org/grpc v1.83.1
+	google.golang.org/grpc => google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf => google.golang.org/protobuf v1.36.11
 )
