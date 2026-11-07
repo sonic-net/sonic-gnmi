@@ -1,0 +1,20 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "debug",
+    srcs = ["debug.pb.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_openconfig_gnoi//types",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//reflect/protoreflect",
+        "@org_golang_google_protobuf//runtime/protoimpl",
+        "@org_golang_google_protobuf//types/known/anypb",
+    ],
+)
+
+source_files()

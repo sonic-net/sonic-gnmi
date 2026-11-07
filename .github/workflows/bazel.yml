@@ -1,0 +1,140 @@
+name: Bazel gNMI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: gNMI source, services and TARs (AMD64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    container:
+      image: debian:trixie-20260918@sha256:9cc080028c43b27d2074d63a5f9caf7166d731494965616c1a6d2827a004585c
+      options: >-
+        --cap-add=SYS_ADMIN
+        --security-opt=apparmor=unconfined
+        --security-opt=systempaths=unconfined
+    defaults:
+      run:
+        shell: bash
+    env:
+      BAZELISK_GITHUB_TOKEN: ""
+    steps:
+      - name: Install execution tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends binutils build-essential ca-certificates gdb git python3 tar
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
+        with:
+          bazelisk-version: 1.29.0
+          bazelisk-cache: true
+          repository-cache: true
+          disk-cache: gnmi-native-amd64
+          cache-version: "8.5.1"
+      - name: Use the maintained registry and preserve cache settings
+        run: |
+          test "$(uname -m)" = x86_64
+          test "$(. /etc/os-release; echo "$VERSION_CODENAME")" = trixie
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('.bazelrc').read_text()
+          main = 'https://raw.githubusercontent.com/securely1g/sonic-bazel-registry/main'
+          assert source.count(main) == 1
+          caches = [line for line in (Path.home() / '.bazelrc').read_text().splitlines()
+                    if line.startswith(('build --disk_cache=', 'common --repository_cache='))]
+          assert len(caches) == 2
+          source += '\n' + '\n'.join(caches) + '\nbuild --spawn_strategy=linux-sandbox\nbuild --strategy=TestRunner=linux-sandbox\ntest --sandbox_fake_username\n'
+          Path('/tmp/gnmi-ci.bazelrc').write_text(source)
+          Path('bazel-evidence').mkdir(exist_ok=True)
+          Path('bazel-evidence/effective.bazelrc').write_text(source)
+          PY
+          echo 'BAZEL_COMMAND=bazel --nosystem_rc --nohome_rc --noworkspace_rc --bazelrc=/tmp/gnmi-ci.bazelrc' >> "$GITHUB_ENV"
+      - name: Verify original vendor patch parity
+        run: python3 tools/bazel/vendor_patches.py --check
+      - name: Verify permission failures as a non-root sandbox user
+        run: |
+          $BAZEL_COMMAND test --nocache_test_results --test_filter='^TestCopyAndRemoveDstError$' \
+            //pkg/gnoi/oras:oras_test 2>&1 | tee bazel-evidence/oras-permissions.log
+      - name: Run original Go, Redis and client fixtures
+        id: source_tests
+        run: |
+          $BAZEL_COMMAND test --local_test_jobs=2 --nocache_test_results //... \
+            2>&1 | tee bazel-evidence/source-tests.log
+          python3 tools/bazel/collect_evidence.py --save-testlogs bazel-evidence/tests
+      - name: Build production outputs and measure incremental behavior
+        id: incremental
+        run: |
+          python3 tools/bazel/check_incremental.py
+          $BAZEL_COMMAND build //dist:runtime_packages.json //dist:sources
+          metadata="$($BAZEL_COMMAND cquery 'config(//dist:runtime_packages.json, target)' --output=files)"
+          cp "$metadata" bazel-evidence/runtime_packages.json
+          source="$($BAZEL_COMMAND cquery 'config(//dist:sources, target)' --output=files)"
+          cp "$source" bazel-evidence/sources.tar
+      - name: Verify generator inputs invalidate only their consumers
+        id: generator
+        run: python3 tools/bazel/check_generator_incremental.py
+      - name: Verify matching detached debug symbols
+        id: debug
+        run: python3 tools/bazel/check_debug.py
+      - name: Verify installed telemetry and its clients
+        id: installed
+        run: |
+          $BAZEL_COMMAND test --nocache_test_results //dist:installed_runtime_test \
+            2>&1 | tee bazel-evidence/installed-runtime.log
+      - name: Preserve ENABLE_DIALOUT=n inventory
+        id: dialout_disabled
+        run: |
+          $BAZEL_COMMAND test --//tools/bazel:enable_dialout=false --nocache_test_results //dist:package_test \
+            2>&1 | tee bazel-evidence/dialout-disabled.log
+          $BAZEL_COMMAND build //dist:runtime //dist:runtime.debug_symbols
+      - name: Build a separate consumer with no host BFD fallback
+        id: consumer
+        run: |
+          mkdir -p /tmp/gnmi-host-canary
+          printf '#!/bin/sh\necho HOST_BFD_CANARY >&2\nexit 97\n' > /tmp/gnmi-host-canary/ld.bfd
+          chmod +x /tmp/gnmi-host-canary/ld.bfd
+          cd tests/consumer
+          $BAZEL_COMMAND build --compilation_mode=fastbuild --strip=always --override_module="sonic-gnmi=$GITHUB_WORKSPACE" \
+            --@io_bazel_rules_go//go/config:tags= \
+            --action_env=PATH=/tmp/gnmi-host-canary:/usr/bin:/bin \
+            //:consumer @sonic_gnmi//dist:runtime @sonic_gnmi//dist:runtime.debug_symbols \
+            @sonic_gnmi//gnoi_yang:server @sonic_gnmi//dist:sources \
+            2>&1 | tee "$GITHUB_WORKSPACE/bazel-evidence/external-consumer.log"
+          $BAZEL_COMMAND test --compilation_mode=fastbuild --strip=always --override_module="sonic-gnmi=$GITHUB_WORKSPACE" \
+            --@io_bazel_rules_go//go/config:tags= \
+            --action_env=PATH=/tmp/gnmi-host-canary:/usr/bin:/bin \
+            --nocache_test_results @sonic_gnmi//dist:package_test @sonic_gnmi//dist:source_test @sonic_gnmi//dist:installed_runtime_test \
+            2>&1 | tee "$GITHUB_WORKSPACE/bazel-evidence/external-contracts.log"
+          python3 "$GITHUB_WORKSPACE/tools/bazel/collect_evidence.py" --save-testlogs "$GITHUB_WORKSPACE/bazel-evidence/external-tests"
+          cp MODULE.bazel.lock "$GITHUB_WORKSPACE/bazel-evidence/consumer-MODULE.bazel.lock"
+      - name: Collect exact source and test evidence
+        if: always()
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_SOURCE_TEST_RESULT: ${{ steps.source_tests.outcome }}
+          CI_INCREMENTAL_RESULT: ${{ steps.incremental.outcome }}
+          CI_INSTALLED_RESULT: ${{ steps.installed.outcome }}
+          CI_GENERATOR_RESULT: ${{ steps.generator.outcome }}
+          CI_DEBUG_RESULT: ${{ steps.debug.outcome }}
+          CI_DIALOUT_DISABLED_RESULT: ${{ steps.dialout_disabled.outcome }}
+          CI_CONSUMER_RESULT: ${{ steps.consumer.outcome }}
+        run: python3 tools/bazel/collect_evidence.py
+      - name: Upload native validation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sonic-gnmi-amd64
+          path: bazel-evidence
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 1

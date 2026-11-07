@@ -1,0 +1,42 @@
+diff --git a/proto/gnmi/BUILD.bazel b/proto/gnmi/BUILD.bazel
+--- a/proto/gnmi/BUILD.bazel
++++ b/proto/gnmi/BUILD.bazel
+@@ -1,3 +1,4 @@
++load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+ load("@io_bazel_rules_go//go:def.bzl", "go_library")
+ 
+ go_library(
+@@ -23,3 +24,12 @@
+     actual = ":gnmi",
+     visibility = ["//visibility:public"],
+ )
++
++proto_library(
++    name = "gnmi_proto",
++    srcs = ["gnmi.proto"],
++    import_prefix = "github.com/openconfig/gnmi",
++    strip_import_prefix = "/",
++    visibility = ["//visibility:public"],
++    deps = ["//proto/gnmi_ext:gnmi_ext_proto", "@com_google_protobuf//:any_proto", "@com_google_protobuf//:descriptor_proto"],
++)
+diff --git a/proto/gnmi_ext/BUILD.bazel b/proto/gnmi_ext/BUILD.bazel
+--- a/proto/gnmi_ext/BUILD.bazel
++++ b/proto/gnmi_ext/BUILD.bazel
+@@ -1,3 +1,4 @@
++load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+ load("@io_bazel_rules_go//go:def.bzl", "go_library")
+ 
+ go_library(
+@@ -17,3 +18,12 @@
+     actual = ":gnmi_ext",
+     visibility = ["//visibility:public"],
+ )
++
++proto_library(
++    name = "gnmi_ext_proto",
++    srcs = ["gnmi_ext.proto"],
++    import_prefix = "github.com/openconfig/gnmi",
++    strip_import_prefix = "/",
++    visibility = ["//visibility:public"],
++    deps = [],
++)

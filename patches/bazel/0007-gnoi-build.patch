@@ -1,0 +1,21 @@
+diff --git a/types/BUILD.bazel b/types/BUILD.bazel
+--- a/types/BUILD.bazel
++++ b/types/BUILD.bazel
+@@ -1,3 +1,4 @@
++load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+ load("@io_bazel_rules_go//go:def.bzl", "go_library")
+ 
+ go_library(
+@@ -11,3 +12,12 @@
+         "@org_golang_google_protobuf//types/descriptorpb",
+     ],
+ )
++
++proto_library(
++    name = "types_proto",
++    srcs = ["types.proto"],
++    import_prefix = "github.com/openconfig/gnoi",
++    strip_import_prefix = "/",
++    visibility = ["//visibility:public"],
++    deps = ["@com_google_protobuf//:descriptor_proto"],
++)

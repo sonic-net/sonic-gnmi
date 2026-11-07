@@ -1,0 +1,113 @@
+load("@gazelle//:def.bzl", "gazelle")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+# gazelle:resolve go github.com/msteinert/pam //tools/bazel/pam
+# gazelle:prefix github.com/sonic-net/sonic-gnmi
+# gazelle:go_naming_convention import
+# gazelle:map_kind go_test native_go_test //tools/bazel:native_test.bzl
+# gazelle:exclude build
+# gazelle:exclude vendor
+# gazelle:exclude swsscommon
+# gazelle:exclude tools
+# gazelle:proto disable_global
+# gazelle:build_tags gnmi_translib_write,gnmi_native_write
+# gazelle:resolve go github.com/sonic-net/sonic-gnmi/swsscommon @sonic_swss_common//goext:swsscommon
+# gazelle:resolve go github.com/Azure/sonic-mgmt-common/translib @sonic_mgmt_common//translib
+# gazelle:resolve go github.com/Azure/sonic-mgmt-common/translib/db @sonic_mgmt_common//translib/db
+# gazelle:resolve go github.com/Azure/sonic-mgmt-common/translib/path @sonic_mgmt_common//translib/path
+# gazelle:resolve go github.com/Azure/sonic-mgmt-common/translib/ocbinds @sonic_mgmt_common//translib/ocbinds
+# gazelle:resolve go github.com/Azure/sonic-mgmt-common/translib/tlerr @sonic_mgmt_common//translib/tlerr
+
+exports_files([
+    "MODULE.bazel",
+    "go.bazel.work",
+    "go.mod",
+    "go.sum",
+    "debian/control",
+    "debian/changelog",
+])
+
+gazelle(name = "gazelle")
+
+exports_files(["testdata/database_config.json"])
+
+filegroup(
+    name = "test_data",
+    srcs = [":" + path for path in glob(
+        [
+            "testdata/**",
+            "test/*.py",
+            "pytest.ini",
+        ],
+        exclude = ["**/*.go"],
+    )],
+    visibility = ["//:__subpackages__"],
+)
+
+source_files()
+
+filegroup(
+    name = "source_files",
+    srcs = [
+        ":owner_source_files",
+        ":test_data",
+        "//common_utils:owner_source_files",
+        "//dialout/dialout_client:owner_source_files",
+        "//dialout/dialout_client_cli:owner_source_files",
+        "//dialout/dialout_server:owner_source_files",
+        "//dialout/dialout_server_cli:owner_source_files",
+        "//dist:owner_source_files",
+        "//gnmi_dump:owner_source_files",
+        "//gnmi_server:owner_source_files",
+        "//gnmi_server/mocks:owner_source_files",
+        "//gnoi_client:owner_source_files",
+        "//gnoi_client/config:owner_source_files",
+        "//gnoi_client/containerz:owner_source_files",
+        "//gnoi_client/factory_reset:owner_source_files",
+        "//gnoi_client/file:owner_source_files",
+        "//gnoi_client/healthz:owner_source_files",
+        "//gnoi_client/os:owner_source_files",
+        "//gnoi_client/sonic:owner_source_files",
+        "//gnoi_client/system:owner_source_files",
+        "//gnoi_client/utils:owner_source_files",
+        "//gnoi_yang:owner_source_files",
+        "//internal/diskspace:owner_source_files",
+        "//internal/download:owner_source_files",
+        "//internal/exec:owner_source_files",
+        "//internal/firmware:owner_source_files",
+        "//internal/hash:owner_source_files",
+        "//internal/redisopts:owner_source_files",
+        "//patches:owner_source_files",
+        "//patches/bazel:owner_source_files",
+        "//pathz_authorizer:owner_source_files",
+        "//pkg/bypass:owner_source_files",
+        "//pkg/exec:owner_source_files",
+        "//pkg/gnoi/debug:owner_source_files",
+        "//pkg/gnoi/file:owner_source_files",
+        "//pkg/gnoi/oras:owner_source_files",
+        "//pkg/gnoi/os:owner_source_files",
+        "//pkg/gnoi/system:owner_source_files",
+        "//pkg/hostfs:owner_source_files",
+        "//pkg/interceptors:owner_source_files",
+        "//pkg/interceptors/dpuproxy:owner_source_files",
+        "//pkg/pathblacklist:owner_source_files",
+        "//pkg/server/operational-handler:owner_source_files",
+        "//proto:owner_source_files",
+        "//proto/gnoi:owner_source_files",
+        "//proto/gnoi/debug:owner_source_files",
+        "//proto/gnoi/jwt:owner_source_files",
+        "//proto/gnoi/oras:owner_source_files",
+        "//show_client:owner_source_files",
+        "//sonic_data_client:owner_source_files",
+        "//sonic_db_config:owner_source_files",
+        "//sonic_service_client:owner_source_files",
+        "//telemetry:owner_source_files",
+        "//test_utils:owner_source_files",
+        "//testdata/tls:owner_source_files",
+        "//tools/bazel:owner_source_files",
+        "//tools/bazel/pam:owner_source_files",
+        "//tools/pyang_plugins:owner_source_files",
+        "//transl_utils:owner_source_files",
+    ],
+    visibility = ["//visibility:public"],
+)

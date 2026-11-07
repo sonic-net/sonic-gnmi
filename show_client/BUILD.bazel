@@ -1,0 +1,34 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "show_client",
+    srcs = [
+        "bgp_cli.go",
+        "chassis_module_cli.go",
+        "clock_cli.go",
+        "interface_cli.go",
+        "interface_transceiver_cli.go",
+        "ipv6_cli.go",
+        "reboot_cause_cli.go",
+        "show_common.go",
+        "show_opts.go",
+        "show_paths.go",
+        "system_health_cli.go",
+        "watermark_telemetry_interval.go",
+    ],
+    importpath = "github.com/sonic-net/sonic-gnmi/show_client",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//sonic_data_client",
+        "//sonic_db_config",
+        "@com_github_golang_glog//:glog",
+        "@com_github_google_shlex//:shlex",
+        "@com_github_maruel_natural//:natural",
+        "@com_github_openconfig_gnmi//proto/gnmi",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+source_files()

@@ -1,0 +1,56 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "dpuproxy",
+    srcs = [
+        "metadata.go",
+        "proxy.go",
+        "redis.go",
+        "resolver.go",
+    ],
+    importpath = "github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/redisopts",
+        "@com_github_golang_glog//:glog",
+        "@com_github_openconfig_gnoi//file",
+        "@com_github_openconfig_gnoi//os",
+        "@com_github_openconfig_gnoi//system",
+        "@com_github_redis_go_redis_v9//:go-redis",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//credentials",
+        "@org_golang_google_grpc//keepalive",
+        "@org_golang_google_grpc//metadata",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+native_go_test(
+    name = "dpuproxy_test",
+    srcs = [
+        "proxy_monkey_test.go",
+        "proxy_test.go",
+        "resolver_integration_test.go",
+        "resolver_test.go",
+        "singleton_test.go",
+    ],
+    embed = [":dpuproxy"],
+    deps = [
+        "//testdata/tls",
+        "@com_github_agiledragon_gomonkey_v2//:gomonkey",
+        "@com_github_alicebob_miniredis_v2//:miniredis",
+        "@com_github_openconfig_gnoi//file",
+        "@com_github_openconfig_gnoi//system",
+        "@com_github_redis_go_redis_v9//:go-redis",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//credentials",
+        "@org_golang_google_grpc//metadata",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+source_files()

@@ -13,14 +13,25 @@ on:
       - '202[0-9][0-9][0-9]'
   workflow_dispatch:
 
-env:
-  BUILD_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.ref_name }}
-
-
 jobs:
   analyze:
     name: Analyze
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    container:
+      image: debian:trixie-20260918@sha256:9cc080028c43b27d2074d63a5f9caf7166d731494965616c1a6d2827a004585c
+      options: >-
+        --cap-add=SYS_ADMIN
+        --security-opt=apparmor=unconfined
+        --security-opt=systempaths=unconfined
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Use the supported Go compiler trace after the generators have run.
+      CODEQL_EXTRACTOR_GO_BUILD_TRACING: 'on'
+      CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
     permissions:
       actions: read
       contents: read
@@ -32,35 +43,40 @@ jobs:
         language: [ 'go' ]
 
     steps:
+    - name: Install native execution tools
+      run: |
+        apt-get update
+        apt-get install -y --no-install-recommends \
+          build-essential binutils ca-certificates curl file git patch pkg-config python3 \
+          python3-dev tar unzip zstd libboost-system-dev libboost-thread-dev \
+          libboost-serialization-dev libhiredis-dev libzmq3-dev cppzmq-dev \
+          nlohmann-json3-dev uuid-dev libpam0g-dev libpcre2-dev
+
     - name: Checkout repository
       uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       with:
+        fetch-depth: 2
         persist-credentials: false
-
-    - name: Set up Go
-      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-      with:
-        go-version: '1.25'
 
     - name: Set up Go
       uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
       with:
-        go-version: '1.25'
+        go-version: '1.25.9'
 
-    # Checkout sonic-mgmt-common repository which is used by sonic-gnmi
-    - name: Checkout sonic-mgmt-common repository
-      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+    - name: Set up Bazel for declared generated inputs
+      uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
       with:
-        repository: sonic-net/sonic-mgmt-common
-        path: sonic-mgmt-common
-        ref: refs/heads/${{ env.BUILD_BRANCH }}
-        persist-credentials: false
+        bazelisk-version: 1.29.0
+        bazelisk-cache: true
+        repository-cache: true
+        disk-cache: gnmi-native-amd64
+        cache-version: '8.5.1'
 
-    # Update go.mod to use local sonic-mgmt-common.
-    # This is the same hack used in the CI pipeline. See lgtm.yml.
-    # We should find a better way to do this.
-    - name: Update go.mod for sonic-mgmt-common
-      run: sed -i 's@replace github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common@replace github.com/Azure/sonic-mgmt-common => ./sonic-mgmt-common@g' go.mod
+    - name: Prepare selected owner libraries and generated sources
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        python3 tools/ci/prepare_codeql.py prepare \
+          --work-dir "$RUNNER_TEMP/gnmi-codeql" --evidence codeql-evidence
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
@@ -68,8 +84,43 @@ jobs:
       with:
         config-file: ./.github/codeql/codeql-config.yml
         languages: ${{ matrix.language }}
+        # CodeQL does not support tracing Bazel's Go compiler actions. The
+        # declared generators above finish before this ordinary Go trace.
+        build-mode: manual
+        db-location: ${{ runner.temp }}/codeql-db
+
+    - name: Compile all native Go and CGo packages for extraction
+      run: |
+        python3 tools/ci/prepare_codeql.py build \
+          --work-dir "$RUNNER_TEMP/gnmi-codeql" --evidence codeql-evidence
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
       with:
         category: "/language:${{matrix.language}}"
+
+    - name: Verify extracted owner and generated source coverage
+      run: |
+        python3 tools/ci/prepare_codeql.py verify \
+          --work-dir "$RUNNER_TEMP/gnmi-codeql" --evidence codeql-evidence \
+          --database "$RUNNER_TEMP/codeql-db/go"
+
+    - name: Retain the actual container extraction database
+      if: always()
+      run: |
+        mkdir -p codeql-evidence/database
+        if [[ -f "$RUNNER_TEMP/codeql-db/go/src.zip" ]]; then
+          cp "$RUNNER_TEMP/codeql-db/go/src.zip" codeql-evidence/database/src.zip
+        fi
+        if [[ -d "$RUNNER_TEMP/codeql-db/go/log" ]]; then
+          cp -a "$RUNNER_TEMP/codeql-db/go/log" codeql-evidence/database/log
+        fi
+
+    - name: Upload compilation and extraction evidence
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: gnmi-codeql-source-coverage
+        path: codeql-evidence
+        if-no-files-found: error
+        retention-days: 14

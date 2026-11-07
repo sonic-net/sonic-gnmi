@@ -1,0 +1,24 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "exec",
+    srcs = ["command.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/internal/exec",
+    visibility = ["//:__subpackages__"],
+)
+
+alias(
+    name = "go_default_library",
+    actual = ":exec",
+    visibility = ["//:__subpackages__"],
+)
+
+native_go_test(
+    name = "exec_test",
+    srcs = ["command_test.go"],
+    embed = [":exec"],
+)
+
+source_files()

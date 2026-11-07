@@ -1,0 +1,24 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "sonic_db_config",
+    srcs = ["db_config.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/sonic_db_config",
+    visibility = ["//visibility:public"],
+    deps = ["@sonic_swss_common//goext:swsscommon"],
+)
+
+native_go_test(
+    name = "sonic_db_config_test",
+    srcs = ["db_config_test.go"],
+    embed = [":sonic_db_config"],
+    deps = [
+        "//test_utils",
+        "@com_github_agiledragon_gomonkey_v2//:gomonkey",
+        "@sonic_swss_common//goext:swsscommon",
+    ],
+)
+
+source_files()

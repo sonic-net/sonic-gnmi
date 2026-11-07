@@ -1,0 +1,29 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "firmware",
+    srcs = ["firmware.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/internal/firmware",
+    visibility = ["//:__subpackages__"],
+    deps = ["@com_github_golang_glog//:glog"],
+)
+
+alias(
+    name = "go_default_library",
+    actual = ":firmware",
+    visibility = ["//:__subpackages__"],
+)
+
+native_go_test(
+    name = "firmware_test",
+    srcs = ["firmware_test.go"],
+    embed = [":firmware"],
+    deps = [
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)
+
+source_files()

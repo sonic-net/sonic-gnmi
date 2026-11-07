@@ -1,0 +1,11 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary")
+
+go_binary(
+    name = "consumer",
+    srcs = ["main.go"],
+    gotags = ["gnmi_translib_write", "gnmi_native_write"],
+    deps = [
+        "@sonic_gnmi//gnmi_server",
+        "@sonic_gnmi//sonic_db_config",
+    ],
+)

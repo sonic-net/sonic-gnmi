@@ -1,0 +1,106 @@
+# gazelle:ignore
+load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files", "strip_prefix")
+load("//tools/bazel:generators.bzl", "gnoi_yang")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+package(default_visibility = ["//visibility:public"])
+
+gnoi_yang(
+    name = "generated",
+    outs = [
+        "generated/client/gnoi_openconfig_client/main.go",
+        "generated/client/gnoi_sonic_client/main.go",
+        "generated/proto/sonic_show_techsupport/sonic_show_techsupport.proto",
+        "generated/server/gnoiyang.go",
+        "generated/server/openconfig_register.go",
+        "generated/server/sonic_register.go",
+        "generated/server/sonic_show_techsupport/sonic_show_techsupport.go",
+    ],
+    models = "@sonic_mgmt_common//models/yang:prepared_models",
+    output_dir = "generated",
+    plugin = "//tools/pyang_plugins:protobuf.py",
+    pyang = "//tools/bazel:pyang",
+    templates = ["//tools/pyang_plugins:templates"],
+)
+
+# Keep the native legacy generator, not protobuf APIv2 regeneration.
+proto_library(
+    name = "sonic_show_techsupport_proto",
+    srcs = ["generated/proto/sonic_show_techsupport/sonic_show_techsupport.proto"],
+    strip_import_prefix = "generated/proto",
+)
+
+go_proto_library(
+    name = "sonic_show_techsupport_go_proto",
+    compilers = ["@io_bazel_rules_go//proto:gofast_grpc"],
+    importpath = "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/proto/sonic_show_techsupport",
+    proto = ":sonic_show_techsupport_proto",
+)
+
+go_library(
+    name = "sonic_show_techsupport_server",
+    srcs = ["generated/server/sonic_show_techsupport/sonic_show_techsupport.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/server/sonic_show_techsupport",
+    deps = [
+        ":sonic_show_techsupport_go_proto",
+        "//transl_utils",
+        "@com_github_gogo_protobuf//jsonpb",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+go_library(
+    name = "server",
+    srcs = [
+        "generated/server/gnoiyang.go",
+        "generated/server/openconfig_register.go",
+        "generated/server/sonic_register.go",
+    ],
+    importpath = "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/server",
+    deps = [
+        ":sonic_show_techsupport_go_proto",
+        ":sonic_show_techsupport_server",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
+
+[go_binary(
+    name = name,
+    srcs = ["generated/client/" + name + "/main.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/build/gnoi_yang/client/" + name,
+    deps = ([":sonic_show_techsupport_go_proto"] if name == "gnoi_sonic_client" else []) + [
+        "@com_github_gogo_protobuf//jsonpb",
+        "@com_github_gogo_protobuf//proto",
+        "@com_github_google_gnxi//utils/credentials",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//metadata",
+    ],
+) for name in [
+    "gnoi_openconfig_client",
+    "gnoi_sonic_client",
+]]
+
+source_files()
+
+filegroup(
+    name = "generated_proto_source",
+    srcs = [":sonic_show_techsupport_go_proto"],
+    output_group = "go_generated_srcs",
+    visibility = ["//visibility:public"],
+)
+
+pkg_files(
+    name = "generated_source_files",
+    srcs = [":generated"],
+    attributes = pkg_attributes(
+        group = "root",
+        mode = "0644",
+        user = "root",
+    ),
+    prefix = "build/gnoi_yang",
+    strip_prefix = strip_prefix.from_pkg("generated"),
+)

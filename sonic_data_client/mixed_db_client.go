@@ -72,7 +72,15 @@ const (
 	opRemove
 )
 
+func getMixedDbWorkPath() string {
+	if dir := os.Getenv("TMPDIR"); dir != "" {
+		return dir
+	}
+	return common_utils.GNMI_WORK_PATH
+}
+
 var (
+	mixedDbWorkPath = getMixedDbWorkPath
 	supportedModels = []gnmipb.ModelData{
 		{
 			Name:         "sonic-db",
@@ -729,7 +737,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	container := dbkey.GetContainerName()
 	client.mapkey = ns + ":" + container
 	client.paths = paths
-	client.workPath = common_utils.GNMI_WORK_PATH
+	client.workPath = mixedDbWorkPath()
 
 	// continer is DPU ID
 	client.zmqClient, err = getZmqClient(container, zmqPort, vrf)

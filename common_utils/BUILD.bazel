@@ -1,0 +1,32 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "common_utils",
+    srcs = [
+        "constants.go",
+        "context.go",
+        "notification_producer.go",
+        "shareMem.go",
+    ],
+    importpath = "github.com/sonic-net/sonic-gnmi/common_utils",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/redisopts",
+        "//sonic_db_config",
+        "@com_github_golang_glog//:glog",
+        "@com_github_redis_go_redis_v9//:go-redis",
+    ],
+)
+
+native_go_test(
+    name = "common_utils_test",
+    srcs = [
+        "notification_producer_test.go",
+        "shareMem_test.go",
+    ],
+    embed = [":common_utils"],
+)
+
+source_files()

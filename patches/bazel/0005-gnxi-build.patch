@@ -1,0 +1,22 @@
+diff --git a/gnmi_get/BUILD.bazel b/gnmi_get/BUILD.bazel
+--- a/gnmi_get/BUILD.bazel
++++ b/gnmi_get/BUILD.bazel
+@@ -13,6 +13,7 @@
+         "@com_github_golang_protobuf//proto",
+         "@com_github_openconfig_gnmi//proto/gnmi",
+         "@org_golang_google_grpc//:grpc",
++        "@org_golang_google_grpc//metadata",
+         "@org_golang_x_net//context",
+     ],
+ )
+diff --git a/gnmi_set/BUILD.bazel b/gnmi_set/BUILD.bazel
+--- a/gnmi_set/BUILD.bazel
++++ b/gnmi_set/BUILD.bazel
+@@ -12,6 +12,7 @@
+         "@com_github_golang_glog//:glog",
+         "@com_github_openconfig_gnmi//proto/gnmi",
+         "@org_golang_google_grpc//:grpc",
++        "@org_golang_google_grpc//metadata",
+         "@org_golang_x_net//context",
+     ],
+ )

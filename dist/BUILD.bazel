@@ -1,0 +1,175 @@
+load("@rules_distroless//distroless:defs.bzl", "flatten")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files", "strip_prefix")
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+
+# gazelle:ignore
+load("@rules_python//python:py_test.bzl", "py_test")
+load("@sonic_build_infra//oci:runtime_packages.bzl", "runtime_packages")
+load("@sonic_build_infra//tar:sonic_deploy_tar.bzl", "sonic_deploy_tar")
+load("//tools/bazel:native_test.bzl", "installed_runtime_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+package(default_visibility = ["//visibility:public"])
+
+installed_runtime_test(name = "installed_runtime_test")
+
+# Match Make's install inventory, keeping ENABLE_DIALOUT=n configurable.
+sonic_deploy_tar(
+    name = "binaries",
+    binaries = {
+        "usr/sbin/telemetry uid=0 gid=0 mode=0755 type=file": "//telemetry",
+        "usr/sbin/gnmi_get uid=0 gid=0 mode=0755 type=file": "@com_github_google_gnxi//gnmi_get",
+        "usr/sbin/gnmi_set uid=0 gid=0 mode=0755 type=file": "@com_github_google_gnxi//gnmi_set",
+        "usr/sbin/gnmi_cli uid=0 gid=0 mode=0755 type=file": "@com_github_openconfig_gnmi//cmd/gnmi_cli",
+        "usr/sbin/gnoi_client uid=0 gid=0 mode=0755 type=file": "//gnoi_client",
+        "usr/sbin/gnoi_openconfig_client uid=0 gid=0 mode=0755 type=file": "//gnoi_yang:gnoi_openconfig_client",
+        "usr/sbin/gnoi_sonic_client uid=0 gid=0 mode=0755 type=file": "//gnoi_yang:gnoi_sonic_client",
+        "usr/sbin/gnmi_dump uid=0 gid=0 mode=0755 type=file": "//gnmi_dump",
+    },
+    force_debug_build = True,
+)
+
+sonic_deploy_tar(
+    name = "dialout",
+    binaries = {"usr/sbin/dialout_client_cli uid=0 gid=0 mode=0755 type=file": "//dialout/dialout_client_cli"},
+    force_debug_build = True,
+)
+
+flatten(
+    name = "runtime",
+    tars = [":binaries"] + select({
+        "//tools/bazel:dialout_enabled": [":dialout"],
+        "//conditions:default": [],
+    }),
+)
+
+flatten(
+    name = "runtime.debug_symbols",
+    tars = [":binaries.debug_symbols"] + select({
+        "//tools/bazel:dialout_enabled": [":dialout.debug_symbols"],
+        "//conditions:default": [],
+    }),
+)
+
+py_test(
+    name = "package_test",
+    srcs = ["package_probe.py"],
+    args = [
+        "$(location :runtime)",
+        "$(location :runtime.debug_symbols)",
+        "$(location @sonic_build_infra//toolchains/binutils:readelf)",
+        "$(location @sonic_build_infra//toolchains/binutils:objcopy)",
+    ] + select({
+        "//tools/bazel:dialout_enabled": ["enabled"],
+        "//conditions:default": ["disabled"],
+    }),
+    data = [
+        ":runtime",
+        ":runtime.debug_symbols",
+        "@sonic_build_infra//toolchains/binutils:objcopy",
+        "@sonic_build_infra//toolchains/binutils:readelf",
+    ],
+    main = "package_probe.py",
+)
+
+runtime_packages(
+    name = "runtime_packages.json",
+    apt_packages = {
+        "@trixie//" + package + ":data": "@trixie//" + package + ":control"
+        for package in [
+            "libpam0g",
+            "libpython3.13",
+        ]
+    },
+    changelog = "//:debian/changelog",
+    control = "//:debian/control",
+    dependencies = [
+        "@sonic_swss_common//:runtime_packages.json",
+        "@libyang//:runtime_packages.json",
+    ],
+    packages = {"sonic-gnmi": ":runtime"},
+    required_paths = {"sonic-gnmi": [
+        "usr/sbin/telemetry",
+        "usr/sbin/gnmi_get",
+        "usr/sbin/gnmi_set",
+        "usr/sbin/gnoi_sonic_client",
+    ]},
+)
+
+source_files()
+
+# Component-owned source and the exact generated files used by its binaries.
+# External dependency sources retain their own package ownership.
+pkg_files(
+    name = "owner_sources",
+    srcs = ["//:source_files"],
+    attributes = pkg_attributes(
+        group = "root",
+        mode = "0644",
+        user = "root",
+    ),
+    strip_prefix = strip_prefix.from_root(),
+)
+
+pkg_files(
+    name = "generated_proto_sources",
+    srcs = [
+        "//gnoi_yang:generated_proto_source",
+        "//proto:generated_proto_source",
+        "//proto/gnoi:generated_proto_source",
+        "//proto/gnoi/oras:generated_proto_source",
+    ],
+    attributes = pkg_attributes(
+        group = "root",
+        mode = "0644",
+        user = "root",
+    ),
+    renames = {
+        "//proto:generated_proto_source": "proto/sonic_internal.pb.go",
+        "//proto/gnoi:generated_proto_source": "proto/gnoi/sonic_debug.pb.go",
+        "//proto/gnoi/oras:generated_proto_source": "proto/gnoi/oras/oras.pb.go",
+        "//gnoi_yang:generated_proto_source": "build/gnoi_yang/proto/sonic_show_techsupport/sonic_show_techsupport.pb.go",
+    },
+)
+
+pkg_tar(
+    name = "sources",
+    srcs = [
+        ":generated_proto_sources",
+        ":owner_sources",
+        "//gnoi_yang:generated_source_files",
+    ],
+    mode = "0644",
+    mtime = 0,
+    owner = "0.0",
+    package_dir = "usr/src/sonic-gnmi",
+    portable_mtime = False,
+)
+
+py_test(
+    name = "source_test",
+    srcs = ["source_probe.py"],
+    args = [
+        "--archive=$(location :sources)",
+        "--anchor=$(location //:MODULE.bazel)",
+        "--owner",
+        "$(rootpaths //:source_files)",
+        "--generated",
+        "$(rootpaths //gnoi_yang:generated)",
+        "--proto=proto/sonic_internal.pb.go=$(location //proto:generated_proto_source)",
+        "--proto=proto/gnoi/sonic_debug.pb.go=$(location //proto/gnoi:generated_proto_source)",
+        "--proto=proto/gnoi/oras/oras.pb.go=$(location //proto/gnoi/oras:generated_proto_source)",
+        "--proto=build/gnoi_yang/proto/sonic_show_techsupport/sonic_show_techsupport.pb.go=$(location //gnoi_yang:generated_proto_source)",
+    ],
+    data = [
+        ":sources",
+        "//:MODULE.bazel",
+        "//:source_files",
+        "//gnoi_yang:generated",
+        "//gnoi_yang:generated_proto_source",
+        "//proto:generated_proto_source",
+        "//proto/gnoi:generated_proto_source",
+        "//proto/gnoi/oras:generated_proto_source",
+    ],
+    main = "source_probe.py",
+)

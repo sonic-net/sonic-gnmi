@@ -225,7 +225,8 @@ def gnmi_subscribe_once_multiple(gnmi_paths, timeout=30):
 
 def gnmi_dump(name):
     path = os.getcwd()
-    cmd = 'sudo ' + path + '/build/bin/gnmi_dump'
+    prefix = '' if os.environ.get('SONIC_TEST_REDIS_MANAGED') == '1' else 'sudo '
+    cmd = prefix + path + '/build/bin/gnmi_dump'
     ret, msg = run_cmd(cmd)
     if ret == 0:
         msg_list = msg.split('\n')

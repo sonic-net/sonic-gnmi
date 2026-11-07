@@ -1,0 +1,11 @@
+common --registry=https://raw.githubusercontent.com/securely1g/sonic-bazel-registry/main
+common --registry=https://bcr.bazel.build
+common --lockfile_mode=update
+build --incompatible_strict_action_env
+build --platforms=@sonic_build_infra//platforms:x86_64_trixie
+build --host_platform=@sonic_build_infra//platforms:x86_64_trixie
+build --compilation_mode=opt
+build --strip=never
+build --@io_bazel_rules_go//go/config:tags=gnmi_translib_write,gnmi_native_write
+test --test_output=errors
+try-import %workspace%/.bazelrc.user

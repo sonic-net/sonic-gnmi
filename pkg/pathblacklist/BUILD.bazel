@@ -1,0 +1,18 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "pathblacklist",
+    srcs = ["pathblacklist.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/pkg/pathblacklist",
+    visibility = ["//visibility:public"],
+)
+
+native_go_test(
+    name = "pathblacklist_test",
+    srcs = ["pathblacklist_test.go"],
+    embed = [":pathblacklist"],
+)
+
+source_files()

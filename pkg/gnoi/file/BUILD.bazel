@@ -1,0 +1,50 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "file",
+    srcs = ["file.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/pkg/gnoi/file",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/download",
+        "//internal/hash",
+        "//pkg/interceptors/dpuproxy",
+        "@com_github_golang_glog//:glog",
+        "@com_github_openconfig_gnoi//common",
+        "@com_github_openconfig_gnoi//file",
+        "@com_github_openconfig_gnoi//types",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//metadata",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+native_go_test(
+    name = "file_test",
+    srcs = [
+        "coverage_boost_test.go",
+        "dpu_monkey_test.go",
+        "file_test.go",
+        "get_test.go",
+        "remove_test.go",
+        "stat_test.go",
+    ],
+    embed = [":file"],
+    deps = [
+        "//internal/download",
+        "//pkg/interceptors/dpuproxy",
+        "@com_github_agiledragon_gomonkey_v2//:gomonkey",
+        "@com_github_openconfig_gnoi//common",
+        "@com_github_openconfig_gnoi//file",
+        "@com_github_openconfig_gnoi//types",
+        "@com_github_stretchr_testify//assert",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//metadata",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+source_files()

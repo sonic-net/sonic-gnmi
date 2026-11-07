@@ -1,0 +1,88 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "sonic_data_client",
+    srcs = [
+        "db_client.go",
+        "events_client.go",
+        "json_client.go",
+        "mixed_db_client.go",
+        "non_db_client.go",
+        "show_client.go",
+        "show_client_helpers.go",
+        "show_client_types.go",
+        "super_subscription.go",
+        "transl_data_client.go",
+        "transl_subscriber.go",
+        "trie.go",
+        "virtual_db.go",
+    ],
+    cdeps = [
+        "@sonic_swss_common//:libswsscommon_shared",
+        "@trixie//python3-dev:python3",
+    ],  # keep
+    cgo = True,
+    copts = [
+        "-Wall",
+        "-Wformat",
+        "-Werror=format-security",
+        "-fPIE",
+    ],  # keep
+    importpath = "github.com/sonic-net/sonic-gnmi/sonic_data_client",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//common_utils",
+        "//internal/redisopts",
+        "//proto",
+        "//sonic_db_config",
+        "//sonic_service_client",
+        "//transl_utils",
+        "@sonic_mgmt_common//translib",
+        "@com_github_c9s_goprocinfo//linux",
+        "@com_github_golang_glog//:glog",
+        "@com_github_golang_protobuf//proto",
+        "@com_github_openconfig_gnmi//proto/gnmi",
+        "@com_github_openconfig_gnmi//proto/gnmi_ext",
+        "@com_github_openconfig_ygot//ygot",
+        "@com_github_redis_go_redis_v9//:go-redis",
+        "@com_github_workiva_go_datastructures//queue",
+        "@in_gopkg_yaml_v2//:yaml_v2",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@sonic_swss_common//goext:swsscommon",
+    ],
+)
+
+native_go_test(
+    name = "sonic_data_client_test",
+    srcs = [
+        "client_test.go",
+        "dummy_client_test.go",
+        "super_subscription_test.go",
+        "table_path_test.go",
+        "transl_data_client_test.go",
+        "transl_subscriber_test.go",
+        "virtual_db_test.go",
+    ],
+    embed = [":sonic_data_client"],
+    deps = [
+        "//proto",
+        "//sonic_db_config",
+        "//sonic_service_client",
+        "//test_utils",
+        "@com_github_agiledragon_gomonkey_v2//:gomonkey",
+        "@com_github_alicebob_miniredis_v2//:miniredis",
+        "@sonic_mgmt_common//translib",
+        "@com_github_google_gnxi//utils/xpath",
+        "@com_github_openconfig_gnmi//proto/gnmi",
+        "@com_github_openconfig_gnmi//proto/gnmi_ext",
+        "@com_github_openconfig_ygot//ygot",
+        "@com_github_redis_go_redis_v9//:go-redis",
+        "@com_github_workiva_go_datastructures//queue",
+        "@sonic_swss_common//goext:swsscommon",
+    ],
+)
+
+source_files()

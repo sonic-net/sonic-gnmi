@@ -308,7 +308,7 @@ var testHealthzCases = []struct {
 			}
 			// Create both host and container path versions
 			dummy_hostfile := "/tmp/dump/fake-collect-success"
-			dummy_containerfile := "/mnt/host/tmp/dump/fake-collect-success"
+			dummy_containerfile := healthzArtifactPath("/tmp/dump/fake-collect-success")
 			dummyData := []byte("dummy log data")
 
 			_ = os.MkdirAll(filepath.Dir(dummy_containerfile), 0755)
@@ -599,8 +599,8 @@ var testHealthzCases = []struct {
 		desc: "TestHealthzArtifact_ValidPath",
 		f: func(ctx context.Context, t *testing.T, sc healthz.HealthzClient) {
 			srv := &HealthzServer{}
-			// Prepare a temporary valid file under /tmp/dump
-			tmpDir := "/tmp/dump"
+			// The caller-local file is distinct from the host artifact path.
+			tmpDir := t.TempDir()
 			_ = os.MkdirAll(tmpDir, 0755)
 			filePath := filepath.Join(tmpDir, "valid.txt")
 			content := []byte("this is valid test content")
@@ -609,7 +609,7 @@ var testHealthzCases = []struct {
 			}
 			defer os.Remove(filePath)
 
-			req := &healthz.ArtifactRequest{Id: filePath}
+			req := &healthz.ArtifactRequest{Id: "/tmp/dump/valid.txt"}
 			mockStream := &struct {
 				healthz.Healthz_ArtifactServer
 			}{}
@@ -626,7 +626,7 @@ var testHealthzCases = []struct {
 			srv := &HealthzServer{}
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/seek_fail.txt"}
 
-			realPath := "/mnt/host/tmp/dump/seek_fail.txt"
+			realPath := healthzArtifactPath("/tmp/dump/seek_fail.txt")
 			_ = os.MkdirAll(filepath.Dir(realPath), 0755)
 			_ = os.WriteFile(realPath, []byte("dummy"), 0644)
 			defer os.Remove(realPath)
@@ -655,7 +655,7 @@ var testHealthzCases = []struct {
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/header_fail.txt"}
 
 			// Create a valid file
-			realPath := "/mnt/host/tmp/dump/header_fail.txt"
+			realPath := healthzArtifactPath("/tmp/dump/header_fail.txt")
 			_ = os.MkdirAll(filepath.Dir(realPath), 0755)
 			_ = os.WriteFile(realPath, []byte("dummy data for header test"), 0644)
 			defer os.Remove(realPath)
@@ -703,7 +703,7 @@ var testHealthzCases = []struct {
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/trailer_fail.txt"}
 
 			// Prepare a valid file
-			realPath := "/mnt/host/tmp/dump/trailer_fail.txt"
+			realPath := healthzArtifactPath("/tmp/dump/trailer_fail.txt")
 			_ = os.MkdirAll(filepath.Dir(realPath), 0755)
 			_ = os.WriteFile(realPath, []byte("dummy file"), 0644)
 			defer os.Remove(realPath)
@@ -741,7 +741,7 @@ var testHealthzCases = []struct {
 			srv := &HealthzServer{}
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/read_fail.txt"}
 
-			realPath := "/mnt/host/tmp/dump/read_fail.txt"
+			realPath := healthzArtifactPath("/tmp/dump/read_fail.txt")
 			_ = os.MkdirAll(filepath.Dir(realPath), 0755)
 			_ = os.WriteFile(realPath, []byte("dummy"), 0644)
 			defer os.Remove(realPath)
@@ -780,7 +780,7 @@ var testHealthzCases = []struct {
 			srv := &HealthzServer{}
 			req := &healthz.ArtifactRequest{Id: "/tmp/dump/chunk_fail.txt"}
 
-			realPath := "/mnt/host/tmp/dump/chunk_fail.txt"
+			realPath := healthzArtifactPath("/tmp/dump/chunk_fail.txt")
 			_ = os.MkdirAll(filepath.Dir(realPath), 0755)
 			_ = os.WriteFile(realPath, make([]byte, 8192), 0644) // file > ddFileSegSize (4096)
 			defer os.Remove(realPath)

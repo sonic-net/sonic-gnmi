@@ -1,0 +1,72 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@rules_distroless//distroless:defs.bzl", "flatten")
+load("@rules_python//python:py_binary.bzl", "py_binary")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+package(default_visibility = ["//visibility:public"])
+
+py_binary(
+    name = "generate_yang",
+    srcs = ["generate_yang.py"],
+)
+
+# pyang 2.4 ships its CLI as a wheel script, not a Python module entry point.
+# Extract that exact upstream script with the registered BSD tar toolchain.
+genrule(
+    name = "pyang_cli",
+    srcs = ["@mgmt_pip//pyang:whl"],
+    outs = ["pyang_cli.py"],
+    cmd = '"$(BSDTAR_BIN)" -xOf "$(location @mgmt_pip//pyang:whl)" pyang-2.4.0.data/scripts/pyang > "$@"',
+    toolchains = ["@bsd_tar_toolchains//:resolved_toolchain"],
+)
+
+py_binary(
+    name = "pyang",
+    srcs = [":pyang_cli"],
+    main = "pyang_cli.py",
+    deps = [
+        "@gnmi_pip//jinja2",
+        "@mgmt_pip//pyang",
+        "@mgmt_pip//setuptools",
+    ],
+)
+
+exports_files([
+    "run_go_tests.py",
+    "installed_probe.py",
+])
+
+flatten(
+    name = "test_runtime",
+    testonly = True,
+    deduplicate = True,
+    tars = [
+        "@sonic_swss_common//tools/bazel/runtime:test_runtime",
+        "@sonic_swss_common//:libswsscommon_pkg",
+        "@sonic_mgmt_common//tools/bazel:test_runtime",
+        "@trixie//libpam0g-dev",
+    ],
+)
+
+bool_flag(
+    name = "enable_dialout",
+    build_setting_default = True,
+)
+
+config_setting(
+    name = "dialout_enabled",
+    flag_values = {":enable_dialout": "true"},
+)
+
+py_binary(
+    name = "pytest",
+    testonly = True,
+    srcs = ["pytest_main.py"],
+    main = "pytest_main.py",
+    deps = [
+        "@gnmi_pip//jsonpatch",
+        "@mgmt_pip//pytest",
+    ],
+)
+
+source_files()

@@ -17,7 +17,6 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"reflect"
@@ -338,7 +337,7 @@ func TestPFCWDErrors(t *testing.T) {
 	})
 	defer mock.Reset()
 
-	fileName := "../testdata/COUNTERS:Ethernet_wildcard_alias_expected.txt"
+	fileName := "../testdata/COUNTERS_Ethernet_wildcard_alias_expected.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -441,7 +440,7 @@ func TestGnmiGetInterfaceCountersVPath(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	prepareDb(t, ns)
 
-	fileName := "../testdata/COUNTERS:Ethernet_wildcard_expected.txt"
+	fileName := "../testdata/COUNTERS_Ethernet_wildcard_expected.txt"
 	interfaceCountersExpectedByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1111,7 +1110,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	mpi_pgname_map := loadConfig(t, "COUNTERS_PG_NAME_MAP", countersPGNameMapByte)
 	loadDB(t, rclient, mpi_pgname_map)
 
-	fileName = "../testdata/COUNTERS:Ethernet68.txt"
+	fileName = "../testdata/COUNTERS_Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1120,7 +1119,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	mpi_counter := loadConfig(t, "COUNTERS:oid:0x1000000000039", countersEthernet68Byte)
 	loadDB(t, rclient, mpi_counter)
 
-	fileName = "../testdata/COUNTERS:Ethernet1.txt"
+	fileName = "../testdata/COUNTERS_Ethernet1.txt"
 	countersEthernet1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1130,7 +1129,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet64:0": "oid:0x1500000000092a"  : queue counter, to work as data noise
-	fileName = "../testdata/COUNTERS:oid:0x1500000000092a.txt"
+	fileName = "../testdata/COUNTERS_oid_0x1500000000092a.txt"
 	counters92aByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1139,7 +1138,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:1": "oid:0x1500000000091c"  : queue counter, for COUNTERS/Ethernet68/Queue vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1500000000091c.txt"
+	fileName = "../testdata/COUNTERS_oid_0x1500000000091c.txt"
 	countersEeth68_1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1148,7 +1147,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:1": "oid:0x1500000000091c"  : periodic queue watermark, for COUNTERS/Ethernet68/Queue vpath test
-	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1500000000091c.txt"
+	fileName = "../testdata/PERIODIC_WATERMARKS_oid_0x1500000000091c.txt"
 	periodicWMEth68_1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1157,7 +1156,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet7:5": "oid:0x150000000001d0"  : queue counter, for COUNTERS/Ethernet7/Queues vpath test
-	fileName = "../testdata/COUNTERS:oid:0x150000000001d0.txt"
+	fileName = "../testdata/COUNTERS_oid_0x150000000001d0.txt"
 	countersEth7_5Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1167,7 +1166,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 
 	// "Ethernet16:5": "oid:0x1a0000000002d2"
 	// PG periodic watermark, for PERIODIC_WATERMARKS/Ethernet16/PriorityGroups vpath test
-	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1a0000000002d2.txt"
+	fileName = "../testdata/PERIODIC_WATERMARKS_oid_0x1a0000000002d2.txt"
 	pgWatermarksEth16_5Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1176,7 +1175,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:3": "oid:0x1500000000091e"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1500000000091e.txt"
+	fileName = "../testdata/COUNTERS_oid_0x1500000000091e.txt"
 	countersEeth68_3Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1185,7 +1184,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:4": "oid:0x1500000000091f"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1500000000091f.txt"
+	fileName = "../testdata/COUNTERS_oid_0x1500000000091f.txt"
 	countersEeth68_4Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1194,7 +1193,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "oid:0x1000000000056"  : port counter, for RATES/PORT vpath test
-	fileName = "../testdata/RATES:oid:Ethernet89.txt"
+	fileName = "../testdata/RATES_oid_Ethernet89.txt"
 	ratesPort0_Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1212,7 +1211,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_fab_name_map)
 
 	// "PORT0": "oid:0x1000000000081"  : Fabric port counter, for COUNTERS/PORT0 vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1000000000081.txt"
+	fileName = "../testdata/COUNTERS_oid_0x1000000000081.txt"
 	countersPort0_Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1221,7 +1220,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_fab_counter_0)
 
 	// "PORT1": "oid:0x1000000000082"  : Fabric port counter, for COUNTERS/PORT1 vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1000000000082.txt"
+	fileName = "../testdata/COUNTERS_oid_0x1000000000082.txt"
 	countersPort1_Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1240,7 +1239,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, aclRuleMap)
 
 	// ACL counter for DATAACL:DEFAULT_RULE -> oid:0x900000000070f
-	fileName = "../testdata/COUNTERS:oid:0x900000000070f.txt"
+	fileName = "../testdata/COUNTERS_oid_0x900000000070f.txt"
 	aclDefaultCounterByte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
@@ -1250,7 +1249,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, aclDefaultCounter)
 
 	// ACL counter for DATAACL:RULE_1 -> oid:0x9000000000711
-	fileName = "../testdata/COUNTERS:oid:0x9000000000711.txt"
+	fileName = "../testdata/COUNTERS_oid_0x9000000000711.txt"
 	aclRule1CounterByte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
@@ -1260,7 +1259,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, aclRule1Counter)
 
 	// Load PORT_PHY_ATTR data for Ethernet68 -> oid:0x1000000000039
-	fileName = "../testdata/PORT_PHY_ATTR:oid:0x1000000000039.txt"
+	fileName = "../testdata/PORT_PHY_ATTR_oid_0x1000000000039.txt"
 	phyAttrEth68Byte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
@@ -1270,7 +1269,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, phyAttrEth68)
 
 	// Load PORT_PHY_ATTR data for Ethernet1 -> oid:0x1000000000003
-	fileName = "../testdata/PORT_PHY_ATTR:oid:0x1000000000003.txt"
+	fileName = "../testdata/PORT_PHY_ATTR_oid_0x1000000000003.txt"
 	phyAttrEth1Byte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
@@ -1288,7 +1287,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_switch_stat_map)
 
 	// "SWITCH_ID": "oid:0x21000000000000"  : Switch integrity drop counter, for COUNTERS/SWITCH_DB vpath test
-	fileName = "../testdata/COUNTERS:oid:0x21000000000000.txt"
+	fileName = "../testdata/COUNTERS_oid_0x21000000000000.txt"
 	countersSwitch_id_Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1306,7 +1305,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_voqname_map)
 
 	// VoQ OID counters
-	fileName = "../testdata/COUNTERS:oid:0x160000000092a.txt"
+	fileName = "../testdata/COUNTERS_oid_0x160000000092a.txt"
 	countersVoQ92aByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1314,7 +1313,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x160000000092a", countersVoQ92aByte)
 	loadDB(t, rclient, mpi_counter)
 
-	fileName = "../testdata/COUNTERS:oid:0x160000000091c.txt"
+	fileName = "../testdata/COUNTERS_oid_0x160000000091c.txt"
 	countersVoQ91cByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1322,7 +1321,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x160000000091c", countersVoQ91cByte)
 	loadDB(t, rclient, mpi_counter)
 
-	fileName = "../testdata/COUNTERS:oid:0x160000000091d.txt"
+	fileName = "../testdata/COUNTERS_oid_0x160000000091d.txt"
 	countersVoQ91dByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1330,7 +1329,7 @@ func initFullCountersDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x160000000091d", countersVoQ91dByte)
 	loadDB(t, rclient, mpi_counter)
 
-	fileName = "../testdata/COUNTERS:oid:0x160000000091e.txt"
+	fileName = "../testdata/COUNTERS_oid_0x160000000091e.txt"
 	countersVoQ91eByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1380,10 +1379,8 @@ func prepareDb(t *testing.T, namespace string) {
 	rclient := getRedisClient(t, namespace)
 	defer rclient.Close()
 	rclient.FlushDB(context.Background())
-	//Enable keysapce notification
-	os.Setenv("PATH", "/usr/bin:/sbin:/bin:/usr/local/bin")
-	cmd := exec.Command("redis-cli", "config", "set", "notify-keyspace-events", "KEA")
-	_, err := cmd.Output()
+	// Enable notifications on the same scoped connection used by this fixture.
+	err := rclient.ConfigSet(context.Background(), "notify-keyspace-events", "KEA").Err()
 	if err != nil {
 		t.Fatal("failed to enable redis keyspace notification ", err)
 	}
@@ -1428,7 +1425,7 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_switch_stat_map := loadConfig(t, "COUNTERS_DEBUG_NAME_SWITCH_STAT_MAP", countersDebugNameSwitchStatMapByte)
 	loadDB(t, rclient, mpi_switch_stat_map)
 
-	fileName = "../testdata/COUNTERS:Ethernet68.txt"
+	fileName = "../testdata/COUNTERS_Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1437,7 +1434,7 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_counter := loadConfig(t, "COUNTERS:oid:0x1000000000039", countersEthernet68Byte)
 	loadDB(t, rclient, mpi_counter)
 
-	fileName = "../testdata/COUNTERS:Ethernet1.txt"
+	fileName = "../testdata/COUNTERS_Ethernet1.txt"
 	countersEthernet1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1447,7 +1444,7 @@ func prepareDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet64:0": "oid:0x1500000000092a"  : queue counter, to work as data noise
-	fileName = "../testdata/COUNTERS:oid:0x1500000000092a.txt"
+	fileName = "../testdata/COUNTERS_oid_0x1500000000092a.txt"
 	counters92aByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1456,7 +1453,7 @@ func prepareDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:1": "oid:0x1500000000091c"  : queue counter, for COUNTERS/Ethernet68/Queues vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1500000000091c.txt"
+	fileName = "../testdata/COUNTERS_oid_0x1500000000091c.txt"
 	countersEeth68_1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1465,7 +1462,7 @@ func prepareDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:1": "oid:0x1500000000091c"  : periodic queue watermark, for COUNTERS/Ethernet68/Queues vpath test
-	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1500000000091c.txt"
+	fileName = "../testdata/PERIODIC_WATERMARKS_oid_0x1500000000091c.txt"
 	periodicWMEth68_1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1474,7 +1471,7 @@ func prepareDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet7:5": "oid:0x150000000001d0"  : queue counter, for COUNTERS/Ethernet7/Queues vpath test
-	fileName = "../testdata/COUNTERS:oid:0x150000000001d0.txt"
+	fileName = "../testdata/COUNTERS_oid_0x150000000001d0.txt"
 	countersEth7_5Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1484,7 +1481,7 @@ func prepareDb(t *testing.T, namespace string) {
 
 	// "Ethernet16:5": "oid:0x1a0000000002d2"
 	// PG periodic watermark, for PERIODIC_WATERMARKS/Ethernet16/PriorityGroups vpath test
-	fileName = "../testdata/PERIODIC_WATERMARKS:oid:0x1a0000000002d2.txt"
+	fileName = "../testdata/PERIODIC_WATERMARKS_oid_0x1a0000000002d2.txt"
 	pgWatermarksEth16_5Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1493,7 +1490,7 @@ func prepareDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:3": "oid:0x1500000000091e"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1500000000091e.txt"
+	fileName = "../testdata/COUNTERS_oid_0x1500000000091e.txt"
 	countersEeth68_3Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1502,7 +1499,7 @@ func prepareDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet68:4": "oid:0x1500000000091f"  : lossless queue counter, for COUNTERS/Ethernet68/Pfcwd vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1500000000091f.txt"
+	fileName = "../testdata/COUNTERS_oid_0x1500000000091f.txt"
 	countersEeth68_4Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1510,7 +1507,7 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x1500000000091f", countersEeth68_4Byte)
 	loadDB(t, rclient, mpi_counter)
 
-	fileName = "../testdata/RATES:oid:Ethernet89.txt"
+	fileName = "../testdata/RATES_oid_Ethernet89.txt"
 	ratesPort0, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1520,8 +1517,8 @@ func prepareDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "PORT0": "oid:0x1000000000081"  : Fabric port counters, for COUNTERS/PORT0 vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1000000000081.txt"
-	fileName = "../testdata/COUNTERS:oid:0x1000000000081.txt"
+	fileName = "../testdata/COUNTERS_oid_0x1000000000081.txt"
+	fileName = "../testdata/COUNTERS_oid_0x1000000000081.txt"
 	countersPort0, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1530,7 +1527,7 @@ func prepareDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "PORT1": "oid:0x1000000000082"  : Fabric port counter, for COUNTERS/PORT1 vpath test
-	fileName = "../testdata/COUNTERS:oid:0x1000000000082.txt"
+	fileName = "../testdata/COUNTERS_oid_0x1000000000082.txt"
 	countersPort1_Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1539,7 +1536,7 @@ func prepareDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "SWITCH_ID": "oid:0x21000000000000"  : Switch integrity drop counter, for COUNTERS/SWITCH_DB vpath test
-	fileName = "../testdata/COUNTERS:oid:0x21000000000000.txt"
+	fileName = "../testdata/COUNTERS_oid_0x21000000000000.txt"
 	countersSwitch_id_Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1566,7 +1563,7 @@ func prepareDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, aclRuleMap)
 
 	// ACL counter for DATAACL:DEFAULT_RULE -> oid:0x900000000070f
-	fileName = "../testdata/COUNTERS:oid:0x900000000070f.txt"
+	fileName = "../testdata/COUNTERS_oid_0x900000000070f.txt"
 	aclDefaultCounterByte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
@@ -1576,7 +1573,7 @@ func prepareDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, aclDefaultCounter)
 
 	// ACL counter for DATAACL:RULE_1 -> oid:0x9000000000711
-	fileName = "../testdata/COUNTERS:oid:0x9000000000711.txt"
+	fileName = "../testdata/COUNTERS_oid_0x9000000000711.txt"
 	aclRule1CounterByte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
@@ -1586,7 +1583,7 @@ func prepareDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, aclRule1Counter)
 
 	// Load PORT_PHY_ATTR data for Ethernet68 -> oid:0x1000000000039
-	fileName = "../testdata/PORT_PHY_ATTR:oid:0x1000000000039.txt"
+	fileName = "../testdata/PORT_PHY_ATTR_oid_0x1000000000039.txt"
 	phyAttrEth68Byte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
@@ -1596,7 +1593,7 @@ func prepareDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, phyAttrEth68)
 
 	// Load PORT_PHY_ATTR data for Ethernet1 -> oid:0x1000000000003
-	fileName = "../testdata/PORT_PHY_ATTR:oid:0x1000000000003.txt"
+	fileName = "../testdata/PORT_PHY_ATTR_oid_0x1000000000003.txt"
 	phyAttrEth1Byte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
@@ -1605,7 +1602,7 @@ func prepareDb(t *testing.T, namespace string) {
 	phyAttrEth1 := loadConfig(t, "PORT_PHY_ATTR:oid:0x1000000000003", phyAttrEth1Byte)
 	loadDB(t, rclient, phyAttrEth1)
 
-	fileName = "../testdata/COUNTERS:oid:0x54000000004f63.txt"
+	fileName = "../testdata/COUNTERS_oid_0x54000000004f63.txt"
 	sid1_byte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1613,7 +1610,7 @@ func prepareDb(t *testing.T, namespace string) {
 	sid1_counter := loadConfig(t, "COUNTERS:oid:0x54000000004f63", sid1_byte)
 	loadDB(t, rclient, sid1_counter)
 
-	fileName = "../testdata/COUNTERS:oid:0x54000000004f64.txt"
+	fileName = "../testdata/COUNTERS_oid_0x54000000004f64.txt"
 	sid2_byte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1631,7 +1628,7 @@ func prepareDb(t *testing.T, namespace string) {
 	loadDB(t, rclient, mpi_voqname_map)
 
 	// VoQ OID counters
-	fileName = "../testdata/COUNTERS:oid:0x160000000092a.txt"
+	fileName = "../testdata/COUNTERS_oid_0x160000000092a.txt"
 	countersVoQ92aByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1639,7 +1636,7 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x160000000092a", countersVoQ92aByte)
 	loadDB(t, rclient, mpi_counter)
 
-	fileName = "../testdata/COUNTERS:oid:0x160000000091c.txt"
+	fileName = "../testdata/COUNTERS_oid_0x160000000091c.txt"
 	countersVoQ91cByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1647,7 +1644,7 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x160000000091c", countersVoQ91cByte)
 	loadDB(t, rclient, mpi_counter)
 
-	fileName = "../testdata/COUNTERS:oid:0x160000000091d.txt"
+	fileName = "../testdata/COUNTERS_oid_0x160000000091d.txt"
 	countersVoQ91dByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1655,7 +1652,7 @@ func prepareDb(t *testing.T, namespace string) {
 	mpi_counter = loadConfig(t, "COUNTERS:oid:0x160000000091d", countersVoQ91dByte)
 	loadDB(t, rclient, mpi_counter)
 
-	fileName = "../testdata/COUNTERS:oid:0x160000000091e.txt"
+	fileName = "../testdata/COUNTERS_oid_0x160000000091e.txt"
 	countersVoQ91eByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -1674,12 +1671,10 @@ func prepareDbTranslib(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	rclient := getRedisClient(t, ns)
 	rclient.FlushDB(context.Background())
-	rclient.Close()
+	defer rclient.Close()
 
-	//Enable keysapce notification
-	os.Setenv("PATH", "/usr/bin:/sbin:/bin:/usr/local/bin")
-	cmd := exec.Command("redis-cli", "config", "set", "notify-keyspace-events", "KEA")
-	_, err := cmd.Output()
+	// Enable notifications on the same scoped connection used by this fixture.
+	err := rclient.ConfigSet(context.Background(), "notify-keyspace-events", "KEA").Err()
 	if err != nil {
 		t.Fatal("failed to enable redis keyspace notification ", err)
 	}
@@ -2188,99 +2183,99 @@ func runGnmiTestGet(t *testing.T, namespace string) {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:Ethernet68.txt"
+	fileName = "../testdata/COUNTERS_Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:Ethernet68:Pfcwd.txt"
+	fileName = "../testdata/COUNTERS_Ethernet68_Pfcwd.txt"
 	countersEthernet68PfcwdByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:Ethernet68:Pfcwd_alias.txt"
+	fileName = "../testdata/COUNTERS_Ethernet68_Pfcwd_alias.txt"
 	countersEthernet68PfcwdAliasByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_alias_expected.txt"
+	fileName = "../testdata/COUNTERS_Ethernet_wildcard_alias_expected.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX_alias.txt"
+	fileName = "../testdata/COUNTERS_Ethernet_wildcard_PFC_7_RX_alias.txt"
 	countersEthernetWildcardPfcByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Pfcwd_alias_expected.txt"
+	fileName = "../testdata/COUNTERS_Ethernet_wildcard_Pfcwd_alias_expected.txt"
 	countersEthernetWildcardPfcwdByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:PORT0.txt"
+	fileName = "../testdata/COUNTERS_PORT0.txt"
 	countersFabricPort0Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:PORT_wildcard" + namespace + ".txt"
+	fileName = "../testdata/COUNTERS_PORT_wildcard" + namespace + ".txt"
 	countersFabricPortWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:SWITCH_ID.txt"
+	fileName = "../testdata/COUNTERS_SWITCH_ID.txt"
 	countersSwitchIdByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:SWITCH_wildcard" + namespace + ".txt"
+	fileName = "../testdata/COUNTERS_SWITCH_wildcard" + namespace + ".txt"
 	countersSwitchWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:SID_wildcard.json"
+	fileName = "../testdata/COUNTERS_SID_wildcard.json"
 	countersSidWildcardByte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:SID_single_entry.json"
+	fileName = "../testdata/COUNTERS_SID_single_entry.json"
 	countersSidSingleEntryByte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 
 	// ACL counters test vectors
-	fileName = "../testdata/COUNTERS:ACL_wildcard.json"
+	fileName = "../testdata/COUNTERS_ACL_wildcard.json"
 	countersAclWildcardByte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/COUNTERS:ACL_single_entry.json"
+	fileName = "../testdata/COUNTERS_ACL_single_entry.json"
 	countersAclSingleEntryByte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
 	}
 
 	// PORT_PHY_ATTR test vectors
-	fileName = "../testdata/PORT_PHY_ATTR:Ethernet_wildcard_expected.json"
+	fileName = "../testdata/PORT_PHY_ATTR_Ethernet_wildcard_expected.json"
 	phyAttrWildcardByte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
 	}
 
-	fileName = "../testdata/PORT_PHY_ATTR:Ethernet_single_entry.json"
+	fileName = "../testdata/PORT_PHY_ATTR_Ethernet_single_entry.json"
 	phyAttrSingleEntryByte, err := os.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
@@ -2885,7 +2880,7 @@ func createQueueCountersJsonObjects(ethNum int, queueNum int, updatedCounters ma
 
 	ethName := fmt.Sprintf("Ethernet%d", ethNum)
 	queueName := fmt.Sprintf("%s:%d", ethName, queueNum)
-	queueFile := fmt.Sprintf("../testdata/COUNTERS:%s:Queues_expected.txt", ethName)
+	queueFile := fmt.Sprintf("../testdata/COUNTERS_%s_Queues_expected.txt", ethName)
 	queueCountersByte, err := ioutil.ReadFile(queueFile)
 	if err != nil {
 		err = fmt.Errorf("read file %v err: %v", queueFile, err)
@@ -2899,7 +2894,7 @@ func createQueueCountersJsonObjects(ethNum int, queueNum int, updatedCounters ma
 
 	// Alias translation
 	queueAliasName := fmt.Sprintf("%s/1:%d", ethName, queueNum)
-	queueAliasFile := fmt.Sprintf("../testdata/COUNTERS:%s:Queues_alias_expected.txt", ethName)
+	queueAliasFile := fmt.Sprintf("../testdata/COUNTERS_%s_Queues_alias_expected.txt", ethName)
 	queueAliasCountersByte, err := ioutil.ReadFile(queueAliasFile)
 	if err != nil {
 		err = fmt.Errorf("read file %v err: %v", queueAliasFile, err)
@@ -2950,7 +2945,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	countersPortNameMapJsonUpdate["test_field"] = "test_value"
 
 	// VoQ test data
-	fileName = "../testdata/COUNTERS:SwitchName_star.txt"
+	fileName = "../testdata/COUNTERS_SwitchName_star.txt"
 	countersSwitchNameWildVoQsByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -2958,7 +2953,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	var countersSwitchNameWildVoQsJson interface{}
 	json.Unmarshal(countersSwitchNameWildVoQsByte, &countersSwitchNameWildVoQsJson)
 
-	fileName = "../testdata/COUNTERS:SwitchName_single.txt"
+	fileName = "../testdata/COUNTERS_SwitchName_single.txt"
 	countersSwitchNameVoQsByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -2966,7 +2961,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	var countersSwitchNameVoQsJson interface{}
 	json.Unmarshal(countersSwitchNameVoQsByte, &countersSwitchNameVoQsJson)
 
-	fileName = "../testdata/COUNTERS:SwitchName_sysport.txt"
+	fileName = "../testdata/COUNTERS_SwitchName_sysport.txt"
 	countersSystemPortVoQsByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -2976,7 +2971,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	// end of VoQ test data
 
 	// for table key subscription
-	fileName = "../testdata/COUNTERS:Ethernet68.txt"
+	fileName = "../testdata/COUNTERS_Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -2990,7 +2985,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	countersEthernet68JsonUpdate["test_field"] = "test_value"
 
 	// for table key subscription
-	fileName = "../testdata/RATES:oid:Ethernet89.txt"
+	fileName = "../testdata/RATES_oid_Ethernet89.txt"
 	ratesEthernet89Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -3012,7 +3007,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	countersEthernet68JsonPfcUpdate["SAI_PORT_STAT_PFC_7_RX_PKTS"] = "4"
 
 	// for Ethernet68/Pfcwd subscription
-	fileName = "../testdata/COUNTERS:Ethernet68:Pfcwd.txt"
+	fileName = "../testdata/COUNTERS_Ethernet68_Pfcwd.txt"
 	countersEthernet68PfcwdByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -3030,7 +3025,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	countersEthernet68PfcwdPollUpdate := tmp4
 
 	// (use vendor alias) for Ethernet68/1 Pfcwd subscription
-	fileName = "../testdata/COUNTERS:Ethernet68:Pfcwd_alias.txt"
+	fileName = "../testdata/COUNTERS_Ethernet68_Pfcwd_alias.txt"
 	countersEthernet68PfcwdAliasByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -3047,7 +3042,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	tmp5.(map[string]interface{})["Ethernet68/1:3"].(map[string]interface{})["PFC_WD_QUEUE_STATS_DEADLOCK_DETECTED"] = "1"
 	countersEthernet68PfcwdAliasPollUpdate := tmp5
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_alias_expected.txt"
+	fileName = "../testdata/COUNTERS_Ethernet_wildcard_alias_expected.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -3057,7 +3052,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	// Will have "test_field" : "test_value" in Ethernet68,
 	countersEtherneWildcardJsonUpdate := map[string]interface{}{"Ethernet68/1": countersEthernet68JsonUpdate}
 
-	fileName = "../testdata/RATES:Ethernet_wildcard_alias_expected.txt"
+	fileName = "../testdata/RATES_Ethernet_wildcard_alias_expected.txt"
 	ratesEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -3077,7 +3072,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	json.Unmarshal(countersEthernetWildcardByte, &countersFieldUpdate)
 	countersFieldUpdate["Ethernet68/1"] = countersEthernet68JsonPfcUpdate
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX_alias.txt"
+	fileName = "../testdata/COUNTERS_Ethernet_wildcard_PFC_7_RX_alias.txt"
 	countersEthernetWildcardPfcByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -3095,7 +3090,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	allPortPfcJsonUpdate["Ethernet68/1"] = pfc7Map
 
 	// for Ethernet*/Pfcwd subscription
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Pfcwd_alias_expected.txt"
+	fileName = "../testdata/COUNTERS_Ethernet_wildcard_Pfcwd_alias_expected.txt"
 	countersEthernetWildPfcwdByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -3111,7 +3106,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 
 	var countersSidCountersWildcardJson interface{}
 	// for SID* subscription
-	fileName = "../testdata/COUNTERS:SID_wildcard.json"
+	fileName = "../testdata/COUNTERS_SID_wildcard.json"
 	countersSidWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -3124,7 +3119,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 
 	// ACL counters wildcard + single entry update for subscriptions
 	var countersAclCountersWildcardJson interface{}
-	fileName = "../testdata/COUNTERS:ACL_wildcard.json"
+	fileName = "../testdata/COUNTERS_ACL_wildcard.json"
 	countersAclWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
@@ -3143,7 +3138,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 
 	// PORT_PHY_ATTR wildcard + single entry update for subscriptions
 	var phyAttrWildcardJson interface{}
-	fileName = "../testdata/PORT_PHY_ATTR:Ethernet_wildcard_expected.json"
+	fileName = "../testdata/PORT_PHY_ATTR_Ethernet_wildcard_expected.json"
 	phyAttrWildcardJsonByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("failed to open %s, err: %v", fileName, err)
@@ -3161,7 +3156,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	singlePhyAttrJsonUpdate := make(map[string]interface{})
 	singlePhyAttrJsonUpdate["Ethernet68"] = tmp
 
-	fileName = "../testdata/COUNTERS:Ethernet_wildcard_Queues_alias_expected.txt"
+	fileName = "../testdata/COUNTERS_Ethernet_wildcard_Queues_alias_expected.txt"
 	countersEthernetWildQueuesByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -3201,7 +3196,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 
 	///////////////////////////////////////////////////////////////////////////////////////////////
 
-	fileName = "../testdata/PERIODIC_WATERMARKS:Ethernet_wildcard:PriorityGroups_alias_expected.txt"
+	fileName = "../testdata/PERIODIC_WATERMARKS_Ethernet_wildcard_PriorityGroups_alias_expected.txt"
 	pgWatermarksEthernetWildByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -3209,7 +3204,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	var pgWatermarksEthernetWildJson interface{}
 	json.Unmarshal(pgWatermarksEthernetWildByte, &pgWatermarksEthernetWildJson)
 
-	fileName = "../testdata/PERIODIC_WATERMARKS:Ethernet16:PriorityGroups_expected.txt"
+	fileName = "../testdata/PERIODIC_WATERMARKS_Ethernet16_PriorityGroups_expected.txt"
 	pgWatermarksEthernet16Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -3226,7 +3221,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	pgWatermarksEthernet16JsonUpdate["Ethernet16:5"] = eth16_5
 
 	// Alias translation for query PERIODIC_WATERMARKS:Ethernet16/1:PriorityGroups
-	fileName = "../testdata/PERIODIC_WATERMARKS:Ethernet16:PriorityGroups_alias_expected.txt"
+	fileName = "../testdata/PERIODIC_WATERMARKS_Ethernet16_PriorityGroups_alias_expected.txt"
 	pgWatermarksEthernet16AliasByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -5799,9 +5794,9 @@ func TestClient(t *testing.T) {
 	defer mock3.Reset()
 
 	mock4 := gomonkey.ApplyFunc(sdc.C_deinit_subs, func(h unsafe.Pointer) {
-		mutexDeInit.RLock()
+		mutexDeInit.Lock()
 		deinit_done = true
-		mutexDeInit.RUnlock()
+		mutexDeInit.Unlock()
 	})
 	defer mock4.Reset()
 
@@ -5857,9 +5852,9 @@ func TestClient(t *testing.T) {
 		event_index = 0
 		mutexIdx.RUnlock()
 
-		mutexDeInit.RLock()
+		mutexDeInit.Lock()
 		deinit_done = false
-		mutexDeInit.RUnlock()
+		mutexDeInit.Unlock()
 
 		t.Run(tt.desc, func(t *testing.T) {
 			c := client.New()
@@ -5916,13 +5911,23 @@ func TestClient(t *testing.T) {
 		if testNum == 1 {
 			mock5.Reset()
 		}
-		time.Sleep(time.Millisecond * 1000)
-
-		mutexDeInit.Lock()
-		if deinit_done == false {
-			t.Errorf("Events client deinit *NOT* called.")
+		// C_recv_evt may still be waiting for its two-second subscriber
+		// timeout when the client closes. Require the actual cleanup instead
+		// of checking after a shorter fixed sleep.
+		deadline := time.Now().Add(2*time.Millisecond*time.Duration(rcv_timeout) + time.Second)
+		for {
+			mutexDeInit.RLock()
+			done := deinit_done
+			mutexDeInit.RUnlock()
+			if done {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Errorf("Events client deinit *NOT* called.")
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
-		mutexDeInit.Unlock()
 		// t.Log("END of a TEST")
 	}
 
@@ -6070,7 +6075,7 @@ func TestGNMINative(t *testing.T) {
 
 	// This test is used for single database configuration
 	// Run tests not marked with multidb
-	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'not multidb and not multins'")
+	cmd := test_utils.PytestCommand(path, "not multidb and not multins")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)
@@ -6121,7 +6126,7 @@ func TestGNMINativeMultiDB(t *testing.T) {
 
 	// This test is used for multiple database configuration
 	// Run tests marked with multidb
-	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'multidb'")
+	cmd := test_utils.PytestCommand(path, "multidb")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)
@@ -6172,7 +6177,7 @@ func TestGNMINativeMultiNamespace(t *testing.T) {
 
 	// This test is used for multiple namespaces configuration
 	// Run tests marked with multins
-	cmd := exec.Command("bash", "-c", "cd "+path+" && "+"pytest -m 'multins'")
+	cmd := test_utils.PytestCommand(path, "multins")
 	if result, err := cmd.Output(); err != nil {
 		fmt.Println(string(result))
 		t.Errorf("Fail to execute pytest: %v", err)
@@ -6220,7 +6225,7 @@ func TestServerNegativePortFails(t *testing.T) {
 
 func TestServerUnixSocketOnly(t *testing.T) {
 	// Test creating a UDS-only server (no TCP listener)
-	socketPath := "/tmp/gnmi_test_uds_only.sock"
+	socketPath := filepath.Join(t.TempDir(), "gnmi_test_uds_only.sock")
 	os.Remove(socketPath) // Ensure clean state
 
 	cfg := &Config{
@@ -6262,7 +6267,7 @@ func TestServerUnixSocketOnly(t *testing.T) {
 
 func TestServerUnixSocketStop(t *testing.T) {
 	// Test graceful Stop() on UDS server
-	socketPath := "/tmp/gnmi_test_uds_stop.sock"
+	socketPath := filepath.Join(t.TempDir(), "gnmi_test_uds_stop.sock")
 	os.Remove(socketPath)
 
 	cfg := &Config{
@@ -6286,7 +6291,7 @@ func TestServerUnixSocketStop(t *testing.T) {
 
 func TestServerUnixSocketServeAndStop(t *testing.T) {
 	// Test that Serve() returns when Stop() is called
-	socketPath := "/tmp/gnmi_test_uds_serve.sock"
+	socketPath := filepath.Join(t.TempDir(), "gnmi_test_uds_serve.sock")
 	os.Remove(socketPath)
 
 	cfg := &Config{
@@ -6330,7 +6335,7 @@ func TestServerUnixSocketServeAndStop(t *testing.T) {
 
 func TestServerDualListener(t *testing.T) {
 	// Test creating a server with both TCP and UDS listeners
-	socketPath := "/tmp/gnmi_test_dual.sock"
+	socketPath := filepath.Join(t.TempDir(), "gnmi_test_dual.sock")
 	os.Remove(socketPath)
 
 	certificate, err := testcert.NewCert()
@@ -7208,7 +7213,7 @@ func TestConfigDbJournal(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
 			// Clear the DbJournal file
-			err := os.Remove(HostVarLogPath + "/config_db.txt")
+			err := os.Remove(hostVarLogPath + "/config_db.txt")
 			if err != nil {
 				t.Fatalf("Failed to remove journal file: %v", err)
 			}
@@ -7219,7 +7224,7 @@ func TestConfigDbJournal(t *testing.T) {
 			time.Sleep(500 * time.Millisecond)
 
 			// Verify the contents of the file
-			file, err := os.Open(HostVarLogPath + "/config_db.txt")
+			file, err := os.Open(hostVarLogPath + "/config_db.txt")
 			if err != nil {
 				t.Fatalf("Failed to open file: %v", err)
 			}
@@ -7238,7 +7243,7 @@ func TestConfigDbJournal(t *testing.T) {
 func init() {
 	// Enable logs at UT setup
 	flag.Lookup("v").Value.Set("10")
-	flag.Lookup("log_dir").Value.Set("/tmp/telemetrytest")
+	flag.Lookup("log_dir").Value.Set(filepath.Join(os.TempDir(), "telemetrytest"))
 
 	// Inform gNMI server to use redis tcp localhost connection
 	sdc.UseRedisLocalTcpPort = true
@@ -7247,6 +7252,17 @@ func init() {
 
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
+	// Keep journal and host-artifact writes inside this suite's private tree.
+	root, err := os.MkdirTemp("", "gnmi-suite-")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(root)
+	hostVarLogPath = filepath.Join(root, "log")
+	healthzHostRoot = filepath.Join(root, "host")
+	if err := os.MkdirAll(hostVarLogPath, 0755); err != nil {
+		panic(err)
+	}
 	m.Run()
 }
 
@@ -7668,7 +7684,7 @@ func TestTCPListenerFailsUDSContinues(t *testing.T) {
 	}
 	defer blocker.Close()
 
-	socketPath := "/tmp/gnmi_test_tcp_fail_uds.sock"
+	socketPath := filepath.Join(t.TempDir(), "gnmi_test_tcp_fail_uds.sock")
 	os.Remove(socketPath)
 	defer os.Remove(socketPath)
 
@@ -7772,7 +7788,7 @@ func TestBothListenersFail(t *testing.T) {
 func TestServeBlocksWhenOneListenerCloses(t *testing.T) {
 	// Verify that Serve() does not return when only one listener fails;
 	// it should keep blocking until all listeners have stopped.
-	socketPath := "/tmp/gnmi_test_serve_block.sock"
+	socketPath := filepath.Join(t.TempDir(), "gnmi_test_serve_block.sock")
 	os.Remove(socketPath)
 	defer os.Remove(socketPath)
 
@@ -7870,7 +7886,7 @@ func TestUDSBindFailsTCPContinues(t *testing.T) {
 }
 
 func TestServeUDSErrorDoesNotStopTCP(t *testing.T) {
-	socketPath := "/tmp/gnmi_test_uds_serve_err.sock"
+	socketPath := filepath.Join(t.TempDir(), "gnmi_test_uds_serve_err.sock")
 	os.Remove(socketPath)
 	defer os.Remove(socketPath)
 

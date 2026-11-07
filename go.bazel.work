@@ -1,0 +1,13 @@
+go 1.25.9
+
+use .
+
+// Keep application dependencies at the native go.mod selection when Bazel's
+// own Gazelle/rules_go tool modules request newer versions in their graph.
+replace github.com/fsnotify/fsnotify => github.com/fsnotify/fsnotify v1.4.9
+replace golang.org/x/net => golang.org/x/net v0.55.0
+
+// Keep the existing application selections on the declared Go 1.25 SDK.
+// rules_go otherwise raises these runtime libraries through its build-tool graph.
+replace golang.org/x/text => golang.org/x/text v0.39.0
+replace golang.org/x/sync => golang.org/x/sync v0.21.0

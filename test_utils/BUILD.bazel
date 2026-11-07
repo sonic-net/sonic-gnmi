@@ -1,0 +1,15 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "test_utils",
+    srcs = [
+        "memcheck_disable.go",
+        "test_utils.go",
+    ],
+    cgo = True,
+    importpath = "github.com/sonic-net/sonic-gnmi/test_utils",
+    visibility = ["//visibility:public"],
+)
+
+source_files()

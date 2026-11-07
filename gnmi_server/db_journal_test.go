@@ -154,7 +154,7 @@ func TestDbJournalRotateFile(t *testing.T) {
 	// Fill the file a few times to make sure rotate is working correctly
 	for i := 0; i < maxBackups+2; i++ {
 		// Make sure the file was created and open it
-		file, err := os.OpenFile(HostVarLogPath+"/config_db.txt", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
+		file, err := os.OpenFile(hostVarLogPath+"/config_db.txt", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
 		if err != nil {
 			t.Fatalf("Failed to open DbJournal file: %v", err)
 		}
@@ -171,7 +171,7 @@ func TestDbJournalRotateFile(t *testing.T) {
 		time.Sleep(1 * time.Second)
 
 		// Make sure the file was rotated
-		fileStat, err := os.Stat(HostVarLogPath + "/config_db.txt")
+		fileStat, err := os.Stat(hostVarLogPath + "/config_db.txt")
 		if err != nil {
 			t.Fatalf("Couldn't find DbJournal file: %v", err)
 		}
@@ -182,7 +182,7 @@ func TestDbJournalRotateFile(t *testing.T) {
 
 	zippedFiles := 0
 	journalFiles := 0
-	files, err := os.ReadDir(HostVarLogPath)
+	files, err := os.ReadDir(hostVarLogPath)
 	if err != nil {
 		t.Fatalf("Failed to read HostVarLog dir: %v", err)
 	}

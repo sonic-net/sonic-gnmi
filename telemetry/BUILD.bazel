@@ -1,0 +1,51 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "telemetry_lib",
+    srcs = ["telemetry.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/telemetry",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//common_utils",
+        "//gnmi_server",
+        "//pkg/interceptors",
+        "//pkg/pathblacklist",
+        "//testdata/tls",
+        "@com_github_fsnotify_fsnotify//:fsnotify",
+        "@com_github_golang_glog//:glog",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials",
+        "@org_golang_google_grpc//keepalive",
+        "@sonic_swss_common//goext:swsscommon",
+    ],
+)
+
+go_binary(
+    name = "telemetry",
+    embed = [":telemetry_lib"],
+    # Preserve the selected SONiC profile when consumed outside this workspace.
+    gotags = ["gnmi_translib_write", "gnmi_native_write"],
+    visibility = ["//visibility:public"],
+)
+
+native_go_test(
+    name = "telemetry_test",
+    srcs = [
+        "client_auth_test.go",
+        "telemetry_test.go",
+    ],
+    embed = [":telemetry_lib"],
+    deps = [
+        "//gnmi_server",
+        "//test_utils",
+        "//testdata/tls",
+        "@com_github_agiledragon_gomonkey_v2//:gomonkey",
+        "@com_github_fsnotify_fsnotify//:fsnotify",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials",
+    ],
+)
+
+source_files()

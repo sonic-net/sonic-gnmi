@@ -25,7 +25,13 @@ import (
 	"github.com/sonic-net/sonic-gnmi/test_utils"
 )
 
-var testFile string = "/etc/sonic/ut.cp.json"
+var testFile = func() string {
+	root, err := checkPointPath()
+	if err != nil {
+		panic(err)
+	}
+	return filepath.Join(root, "ut.cp.json")
+}()
 
 type checkpointService struct {
 	ssc.FakeClient
@@ -1217,7 +1223,7 @@ func TestUseRedisTcpClient(t *testing.T) {
 			if dbName == "CHASSIS_STATE_DB" {
 				return "", fmt.Errorf("DB CHASSIS_STATE_DB not found")
 			}
-			return "127.0.0.1:6379", nil
+			return test_utils.TestRedisAddress(), nil
 		})
 
 		err := useRedisTcpClient()
@@ -1273,7 +1279,7 @@ func setupTestTarget2RedisDb(t *testing.T) func() {
 		return []string{ns}, nil
 	})
 	patches.ApplyFunc(sdcfg.GetDbTcpAddr, func(dbName string, _ string) (string, error) {
-		return "127.0.0.1:6379", nil
+		return test_utils.TestRedisAddress(), nil
 	})
 
 	err := useRedisTcpClient()

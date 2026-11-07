@@ -1,0 +1,38 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "sonic_service_client",
+    srcs = [
+        "dbus_client.go",
+        "dbus_fake_client.go",
+    ],
+    importpath = "github.com/sonic-net/sonic-gnmi/sonic_service_client",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//common_utils",
+        "@com_github_godbus_dbus_v5//:dbus",
+        "@com_github_golang_glog//:glog",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+native_go_test(
+    name = "sonic_service_client_test",
+    srcs = [
+        "dbus_client_test.go",
+        "dbus_fake_client_test.go",
+    ],
+    embed = [":sonic_service_client"],
+    deps = [
+        "@com_github_agiledragon_gomonkey_v2//:gomonkey",
+        "@com_github_godbus_dbus_v5//:dbus",
+        "@com_github_stretchr_testify//assert",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+source_files()
