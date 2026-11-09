@@ -255,6 +255,12 @@ stages:
         $(UNIT_TEST_FLAG) make test-integration
       displayName: "Run integration tests"
 
+    - bash: |
+        set -euo pipefail
+        cd sonic-gnmi
+        $(UNIT_TEST_FLAG) make report-coverage
+      displayName: "Generate integration coverage report"
+
     - task: PublishTestResults@2
       displayName: 'Publish integration test results'
       condition: always()
