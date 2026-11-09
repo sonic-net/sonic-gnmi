@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"reflect"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/sonic-net/sonic-gnmi/common_utils"
@@ -19,7 +21,6 @@ const (
 )
 
 type rpcAuthorization struct {
-	deny               bool
 	target             string
 	write              bool
 	requestTarget      bool
@@ -27,7 +28,7 @@ type rpcAuthorization struct {
 }
 
 type rpcAuthorizationInterceptor struct {
-	methods      map[string]rpcAuthorization
+	services     map[string]serviceRegistration
 	authenticate func(context.Context) (context.Context, *rpcIdentity, error)
 	bypass       func(context.Context) bool
 }
@@ -77,7 +78,7 @@ func newRPCAuthorizationInterceptor(
 	bypass func(context.Context) bool,
 ) *rpcAuthorizationInterceptor {
 	return &rpcAuthorizationInterceptor{
-		methods:      serviceAuthorizations(),
+		services:     serviceAuthorizations(),
 		authenticate: authenticate,
 		bypass:       bypass,
 	}
@@ -87,9 +88,20 @@ func (i *rpcAuthorizationInterceptor) authenticateRPC(
 	ctx context.Context,
 	fullMethod string,
 ) (context.Context, *rpcIdentity, rpcAuthorization, error) {
-	authorization, ok := i.methods[fullMethod]
-	if !ok || authorization.deny {
+	serviceName, method, valid := strings.Cut(strings.TrimPrefix(fullMethod, "/"), "/")
+	service, known := i.services[serviceName]
+	if !strings.HasPrefix(fullMethod, "/") || !valid || method == "" || strings.Contains(method, "/") || !known || service.target == "" || slices.Contains(service.denied, method) {
 		return ctx, nil, rpcAuthorization{}, status.Error(codes.PermissionDenied, "RPC access denied")
+	}
+	authorization := rpcAuthorization{target: service.target, write: !slices.Contains(service.readOnly, method)}
+	// These RPCs resolve a narrower target from their request, independently of
+	// the service's default access level. Do not infer request shape from names.
+	switch fullMethod {
+	case "/gnmi.gNMI/Get", "/gnmi.gNMI/Set":
+		authorization.requestTarget = true
+	case "/gnmi.gNMI/Subscribe":
+		authorization.requestTarget = true
+		authorization.bufferFirstRequest = true
 	}
 
 	authenticatedCtx, auth, err := i.authenticate(ctx)

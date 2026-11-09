@@ -188,10 +188,11 @@ func TestRPCAuthorizationUnary(t *testing.T) {
 			wantCode: codes.PermissionDenied,
 		},
 		{
-			name:     "unclassified method denied",
-			method:   "/gnmi.gNMI/Unclassified",
-			roles:    []string{"gnmi_readwrite"},
-			wantCode: codes.PermissionDenied,
+			name:        "new method requires readwrite",
+			method:      "/gnmi.gNMI/Unclassified",
+			roles:       []string{"gnmi_readwrite"},
+			wantCode:    codes.OK,
+			wantEffects: 1,
 		},
 	}
 
@@ -303,10 +304,11 @@ func TestRPCAuthorizationStream(t *testing.T) {
 			wantNetworkReceives: 1,
 		},
 		{
-			name:     "unclassified stream denied",
-			method:   "/gnoi.file.File/Unclassified",
-			roles:    []string{"gnoi_readwrite"},
-			wantCode: codes.PermissionDenied,
+			name:        "new stream requires readwrite",
+			method:      "/gnoi.file.File/Unclassified",
+			roles:       []string{"gnoi_readwrite"},
+			wantCode:    codes.OK,
+			wantEffects: 1,
 		},
 	}
 
@@ -859,6 +861,90 @@ func TestRegisteredAuthorizationAllowsReadAndRejectsUnsupported(t *testing.T) {
 	}
 	if h.credentialCalls.Load() != 1 || h.innerUnaryCalls.Load() != 1 || h.unaryHandlerCalls.Load() != 1 || h.innerStreamCalls.Load() != 0 || h.streamHandlerCalls.Load() != 0 {
 		t.Fatal("unsupported RPC reached credentials or inner chain")
+	}
+}
+
+// Register new methods without adding permission declarations. A Get/List name
+// must not turn them into read-only operations; only explicit exceptions do that.
+func TestRegisteredAuthorizationDefaultReadWrite(t *testing.T) {
+	for _, role := range []string{"gnoi_readonly", "gnoi_readwrite", "gnmi_readwrite"} {
+		t.Run(role, func(t *testing.T) {
+			authorization := testRPCAuthorizationInterceptor(role)
+			var effects atomic.Int32
+			server := grpc.NewServer(grpc.UnaryInterceptor(authorization.UnaryInterceptor()), grpc.StreamInterceptor(authorization.StreamInterceptor()))
+			for _, service := range []string{"gnoi.healthz.Healthz", "gnoi.future.Healthz"} {
+				desc := grpc.ServiceDesc{ServiceName: service, HandlerType: (*interface{})(nil)}
+				for _, method := range []string{"Get", "GetFuture", "List"} {
+					fullMethod := "/" + service + "/" + method
+					desc.Methods = append(desc.Methods, grpc.MethodDesc{MethodName: method, Handler: func(srv interface{}, ctx context.Context, decode func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+						request := new(emptypb.Empty)
+						if err := decode(request); err != nil {
+							return nil, err
+						}
+						return interceptor(ctx, request, &grpc.UnaryServerInfo{Server: srv, FullMethod: fullMethod}, func(context.Context, interface{}) (interface{}, error) {
+							effects.Add(1)
+							return &emptypb.Empty{}, nil
+						})
+					}})
+				}
+				desc.Streams = []grpc.StreamDesc{{StreamName: "ListFuture", ServerStreams: true, Handler: func(_ interface{}, stream grpc.ServerStream) error {
+					if err := stream.RecvMsg(new(emptypb.Empty)); err != nil {
+						return err
+					}
+					effects.Add(1)
+					return stream.SendMsg(&emptypb.Empty{})
+				}}}
+				server.RegisterService(&desc, &struct{}{})
+			}
+			listener := bufconn.Listen(1024 * 1024)
+			go func() { _ = server.Serve(listener) }()
+			t.Cleanup(func() { server.Stop(); _ = listener.Close() })
+			conn, err := grpc.NewClient("passthrough:///bufconn", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }), grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			for _, service := range []string{"gnoi.healthz.Healthz", "gnoi.future.Healthz"} {
+				for _, method := range []string{"Get", "GetFuture", "List", "ListFuture"} {
+					before := effects.Load()
+					fullMethod := "/" + service + "/" + method
+					want := codes.PermissionDenied
+					if service == "gnoi.healthz.Healthz" && method != "List" && (role == "gnoi_readwrite" || role == "gnoi_readonly" && method == "Get") {
+						want = codes.OK
+					}
+					if method == "ListFuture" {
+						var stream grpc.ClientStream
+						stream, err = conn.NewStream(ctx, &grpc.StreamDesc{ServerStreams: true}, fullMethod)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if err := stream.SendMsg(&emptypb.Empty{}); err != nil && err != io.EOF {
+							t.Fatal(err)
+						}
+						err = stream.RecvMsg(&emptypb.Empty{})
+					} else {
+						err = conn.Invoke(ctx, fullMethod, &emptypb.Empty{}, &emptypb.Empty{})
+					}
+					if status.Code(err) != want {
+						t.Errorf("%s: %v, want %v", fullMethod, err, want)
+					}
+					wantEffects := int32(0)
+					if want == codes.OK {
+						wantEffects = 1
+					}
+					if effects.Load()-before != wantEffects {
+						t.Errorf("%s: handler effects=%d, want %d", fullMethod, effects.Load()-before, wantEffects)
+					}
+				}
+			}
+			// An unregistered wire method never enters the interceptors: gRPC's
+			// Unimplemented remains distinct from an authorization denial.
+			if err := conn.Invoke(ctx, "/gnoi.healthz.Healthz/NotRegistered", &emptypb.Empty{}, &emptypb.Empty{}); status.Code(err) != codes.Unimplemented {
+				t.Fatalf("unregistered method: %v", err)
+			}
+		})
 	}
 }
 

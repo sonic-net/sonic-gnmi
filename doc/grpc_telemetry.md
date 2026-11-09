@@ -105,9 +105,14 @@ suppressed count.
 
 When `cert` is the only enabled authentication mode and `config_table_name` is
 `GNMI_CLIENT_CERT`, central authorization runs before inner interceptors and
-service handlers. The existing CN mapping supplies roles: classified reads
-require `readonly` or `readwrite`, writes require `readwrite`, and service-level
-`noaccess` overrides scoped allows. Unknown roles and unclassified RPCs are denied.
+service handlers. The existing CN mapping supplies roles. Methods on a known
+service target require `readwrite` by default, including newly added methods.
+Only explicit read-only exceptions accept `readonly` or `readwrite`; a Get/List
+name alone does not grant read access. Explicitly denied methods and services
+without an authorization target remain denied, even for readwrite identities.
+Service-level `noaccess` overrides scoped allows. Unknown roles and unknown
+service targets are denied. These rules do not register new RPCs: an unregistered
+method still returns gRPC `Unimplemented` before reaching the interceptor.
 
 Get, Set and Subscribe are authorized for their routed target. Native path
 authorization uses the shared incremental database parser without backend
