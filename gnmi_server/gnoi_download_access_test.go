@@ -46,7 +46,7 @@ func TestFileTransferToRemoteDisabledBeforeDownload(t *testing.T) {
 	previous := http.DefaultTransport
 	http.DefaultTransport = transport
 	t.Cleanup(func() { http.DefaultTransport = previous })
-	server := &FileServer{Server: &Server{config: &Config{}}}
+	server := newFileServer(&Config{})
 
 	for name, ctx := range downloadPeerContexts() {
 		for _, target := range []string{"local", "DPU"} {

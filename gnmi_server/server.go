@@ -42,7 +42,6 @@ import (
 	gnoi_system_pb "github.com/openconfig/gnoi/system"
 	"google.golang.org/grpc/credentials"
 
-	gnoi_file_pb "github.com/openconfig/gnoi/file"
 	gnoi_healthz_pb "github.com/openconfig/gnoi/healthz"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
 	gnsi_authz_pb "github.com/openconfig/gnsi/authz"
@@ -165,14 +164,6 @@ func (s *Server) handleOperationalGet(ctx context.Context, req *gnmipb.GetReques
 	}
 
 	return &gnmipb.GetResponse{Notification: notifications}, nil
-}
-
-// FileServer is the server API for File service.
-// All implementations must embed UnimplementedFileServer
-// for forward compatibility
-type FileServer struct {
-	*Server
-	gnoi_file_pb.UnimplementedFileServer
 }
 
 // OSBackend defines the interface for the OS installation backend service.
@@ -611,7 +602,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	}
 
 	// Create service servers (shared between TCP and UDS)
-	fileSrv := &FileServer{Server: srv}
+	fileSrv := newFileServer(config)
 	osBackend := &DBusOSBackend{}
 	osSrv := &OSServer{
 		Server:  srv,
