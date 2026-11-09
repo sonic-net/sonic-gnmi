@@ -207,7 +207,11 @@ func (i *rpcAuthorizationInterceptor) StreamInterceptor() grpc.StreamServerInter
 				return authorizeRPCTarget(ctx, identity, authorization, requestTarget)
 			}
 		}
-		return handler(srv, wrapped)
+		err = handler(srv, wrapped)
+		if wrapped.refreshErr != nil {
+			return wrapped.refreshErr
+		}
+		return err
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	filepb "github.com/openconfig/gnoi/file"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
+	gnoifile "github.com/sonic-net/sonic-gnmi/pkg/gnoi/file"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -866,10 +867,10 @@ func invokeAuthorizationSubscribe(ctx context.Context, conn *grpc.ClientConn, re
 	if err != nil {
 		return err
 	}
-	if err = stream.Send(request); err != nil {
+	if err = stream.Send(request); err != nil && err != io.EOF {
 		return err
 	}
-	if err = stream.CloseSend(); err != nil {
+	if err = stream.CloseSend(); err != nil && err != io.EOF {
 		return err
 	}
 	_, err = stream.Recv()
@@ -1122,6 +1123,64 @@ func TestRPCAuthorizationRefreshesDelayedSubscribe(t *testing.T) {
 type delayedFileServer struct {
 	filepb.UnimplementedFileServer
 	calls atomic.Int32
+}
+
+func (s *delayedFileServer) Put(stream filepb.File_PutServer) error {
+	return gnoifile.HandlePut(stream)
+}
+
+func TestRPCAuthorizationPreservesDelayedPutRefreshError(t *testing.T) {
+	for _, want := range []codes.Code{codes.Unauthenticated, codes.PermissionDenied, codes.InvalidArgument} {
+		t.Run(want.String(), func(t *testing.T) {
+			var received atomic.Bool
+			entered := make(chan struct{}, 1)
+			i := newRPCAuthorizationInterceptor(func(ctx context.Context) (context.Context, *rpcIdentity, error) {
+				if received.Load() && want == codes.Unauthenticated {
+					return ctx, nil, status.Error(codes.Unauthenticated, "mapping removed")
+				}
+				roles := []string{"gnoi_readwrite"}
+				if received.Load() && want == codes.PermissionDenied {
+					roles = []string{"gnoi_noaccess"}
+				}
+				return ctx, &rpcIdentity{user: "writer", roles: roles}, nil
+			}, nil)
+			s := grpc.NewServer(grpc.ChainStreamInterceptor(i.StreamInterceptor(), func(srv interface{}, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+				entered <- struct{}{}
+				return handler(srv, stream)
+			}))
+			filepb.RegisterFileServer(s, &delayedFileServer{})
+			listener := bufconn.Listen(1024 * 1024)
+			go s.Serve(listener)
+			defer s.Stop()
+			defer listener.Close()
+			conn, err := grpc.NewClient("passthrough:///bufconn", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }), grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			stream, err := filepb.NewFileClient(conn).Put(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-entered:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			received.Store(true)
+			// An empty request cannot create a file. Without revocation, the
+			// real handler's InvalidArgument must remain unchanged.
+			if err := stream.Send(&filepb.PutRequest{}); err != nil {
+				t.Fatal(err)
+			}
+			_, err = stream.CloseAndRecv()
+			if status.Code(err) != want {
+				t.Fatalf("wire status=%v, want %v: %v", status.Code(err), want, err)
+			}
+		})
+	}
 }
 
 func (s *delayedFileServer) Get(*filepb.GetRequest, filepb.File_GetServer) error {
