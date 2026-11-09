@@ -67,7 +67,7 @@ func TestServiceRegistrationInventory(t *testing.T) {
 	}
 }
 
-func TestServiceAuthorizationExceptions(t *testing.T) {
+func TestServiceDeclarationCoverage(t *testing.T) {
 	seen := map[string]bool{}
 	for _, service := range serviceRegistrations(serviceImplementations{
 		gnmi: &Server{}, server: &Server{}, file: &FileServer{}, os: &OSServer{},
@@ -84,30 +84,25 @@ func TestServiceAuthorizationExceptions(t *testing.T) {
 		}
 		seen[service.name] = true
 		registered, ok := info[service.name]
-		if !ok {
-			t.Fatalf("%s: generated service does not match registration", service.name)
+		if !ok || len(registered.Methods) != len(service.methods) {
+			t.Fatalf("%s: generated methods %v do not match declarations %v", service.name, registered.Methods, service.methods)
 		}
-		methods := map[string]bool{}
 		for _, method := range registered.Methods {
-			methods[method.Name] = true
-		}
-		if service.target != "" && service.target != "gnmi" && service.target != "gnoi" {
-			t.Errorf("%s has unknown target %q", service.name, service.target)
-		}
-		exceptions := map[string]bool{}
-		for _, method := range append(append([]string{}, service.readOnly...), service.denied...) {
-			if !methods[method] || exceptions[method] {
-				t.Errorf("%s/%s: missing method or duplicate/conflicting exception", service.name, method)
+			permission, ok := service.methods[method.Name]
+			t.Logf("DECLARATION /%s/%s deny=%t target=%q write=%t requestTarget=%t bufferFirstRequest=%t", service.name, method.Name,
+				permission.deny, permission.target, permission.write, permission.requestTarget, permission.bufferFirstRequest)
+			if !ok {
+				t.Errorf("%s/%s has no declaration", service.name, method.Name)
+			} else if permission.deny && permission != (rpcAuthorization{deny: true}) || !permission.deny && permission.target == "" {
+				t.Errorf("%s/%s has an ambiguous declaration: %+v", service.name, method.Name, permission)
 			}
-			exceptions[method] = true
 		}
 	}
 	// Each interceptor owns its map; modifying one cannot change another server.
 	first := testRPCAuthorizationInterceptor("gnmi_readonly")
 	second := testRPCAuthorizationInterceptor("gnmi_readonly")
-	first.services["gnmi.gNMI"].readOnly[0] = "Changed"
-	delete(first.services, "gnoi.file.File")
-	if second.services["gnmi.gNMI"].readOnly[0] != "Capabilities" || second.services["gnoi.file.File"].target != "gnoi" {
+	delete(first.methods, "/gnmi.gNMI/Get")
+	if _, ok := second.methods["/gnmi.gNMI/Get"]; !ok {
 		t.Fatal("authorization declarations are shared across server instances")
 	}
 }

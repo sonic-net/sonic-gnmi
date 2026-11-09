@@ -39,100 +39,137 @@ type serviceImplementations struct {
 type serviceRegistration struct {
 	name         string
 	register     func(*grpc.Server)
-	target       string
-	readOnly     []string
-	denied       []string
+	methods      map[string]rpcAuthorization
 	writeEnabled bool
 	translibOnly bool
 	udsOnly      bool
 }
 
-// Known service targets require readwrite by default. Keep only read-only and
-// denied exceptions beside registration; names such as Get/List imply no access
-// level. An empty target denies the service in central mode. Legacy modes and
-// UDS retain their existing handlers, including explicitly denied methods.
+// Generated descriptors define method names and stream shapes, not access
+// intent. Keep each explicit permission next to its generated registration.
+// Denied methods remain available to legacy modes and UDS as before.
 func serviceRegistrations(impl serviceImplementations) []serviceRegistration {
 	return []serviceRegistration{
 		{
 			name:     "gnmi.gNMI",
 			register: func(s *grpc.Server) { gnmi.RegisterGNMIServer(s, impl.gnmi) },
-			target:   "gnmi", readOnly: []string{"Capabilities", "Get", "Subscribe"},
+			methods: map[string]rpcAuthorization{
+				"Capabilities": {target: "gnmi"},
+				"Get":          {target: "gnmi", requestTarget: true},
+				"Set":          {target: "gnmi", write: true, requestTarget: true},
+				"Subscribe":    {target: "gnmi", requestTarget: true, bufferFirstRequest: true},
+			},
 		},
 		{
 			name:     "gnoi.factory_reset.FactoryReset",
 			register: func(s *grpc.Server) { factory_reset.RegisterFactoryResetServer(s, impl.server) },
-			target:   "gnoi",
+			methods:  map[string]rpcAuthorization{"Start": {target: "gnoi", write: true}},
 		},
 		{
 			name:     "gnsi.certz.v1.Certz",
 			register: func(s *grpc.Server) { certz.RegisterCertzServer(s, impl.certz) },
-			denied:   []string{"AddProfile", "DeleteProfile", "GetProfileList", "CanGenerateCSR", "GetIntegrityManifest", "Rotate"},
+			methods: map[string]rpcAuthorization{
+				"AddProfile": {deny: true}, "DeleteProfile": {deny: true},
+				"GetProfileList": {deny: true}, "CanGenerateCSR": {deny: true},
+				"GetIntegrityManifest": {deny: true}, "Rotate": {deny: true},
+			},
 		},
 		{
 			name:     "gnsi.authz.v1.Authz",
 			register: func(s *grpc.Server) { authz.RegisterAuthzServer(s, impl.authz) },
-			denied:   []string{"Probe", "Get", "Rotate"},
+			methods: map[string]rpcAuthorization{
+				"Probe": {deny: true}, "Get": {deny: true}, "Rotate": {deny: true},
+			},
 		},
 		{
 			name:     "gnsi.pathz.v1.Pathz",
 			register: func(s *grpc.Server) { pathz.RegisterPathzServer(s, impl.pathz) },
-			denied:   []string{"Probe", "Get", "Rotate"},
+			methods: map[string]rpcAuthorization{
+				"Probe": {deny: true}, "Get": {deny: true}, "Rotate": {deny: true},
+			},
 		},
 		{
 			name:     "gnsi.credentialz.v1.Credentialz",
 			register: func(s *grpc.Server) { credentialz.RegisterCredentialzServer(s, impl.credentialz) },
-			denied:   []string{"CanGenerateKey", "GetPublicKeys", "RotateAccountCredentials", "RotateHostParameters"},
+			methods: map[string]rpcAuthorization{
+				"CanGenerateKey": {deny: true}, "GetPublicKeys": {deny: true},
+				"RotateAccountCredentials": {deny: true}, "RotateHostParameters": {deny: true},
+			},
 		},
 		{
 			name:     "gnoi.sonic_jwt.SonicJwtService",
 			register: func(s *grpc.Server) { jwt.RegisterSonicJwtServiceServer(s, impl.server) },
-			target:   "gnoi", denied: []string{"Authenticate"},
+			methods: map[string]rpcAuthorization{
+				"Authenticate": {deny: true}, "Refresh": {target: "gnoi", write: true},
+			},
 		},
 		{
 			name: "gnoi.system.System", writeEnabled: true,
 			register: func(s *grpc.Server) { system.RegisterSystemServer(s, impl.server) },
-			target:   "gnoi", readOnly: []string{"Time", "RebootStatus"},
+			methods: map[string]rpcAuthorization{
+				"Time": {target: "gnoi"}, "RebootStatus": {target: "gnoi"},
+				"SwitchControlProcessor": {target: "gnoi", write: true},
+				"Reboot":                 {target: "gnoi", write: true}, "CancelReboot": {target: "gnoi", write: true},
+				"KillProcess": {target: "gnoi", write: true}, "Ping": {target: "gnoi", write: true},
+				"Traceroute": {target: "gnoi", write: true}, "SetPackage": {target: "gnoi", write: true},
+			},
 		},
 		{
 			name: "gnoi.file.File", writeEnabled: true,
 			register: func(s *grpc.Server) { file.RegisterFileServer(s, impl.file) },
-			target:   "gnoi", readOnly: []string{"Stat", "Get"},
+			methods: map[string]rpcAuthorization{
+				"Stat": {target: "gnoi"}, "Get": {target: "gnoi"},
+				"Put": {target: "gnoi", write: true}, "Remove": {target: "gnoi", write: true},
+				"TransferToRemote": {target: "gnoi", write: true},
+			},
 		},
 		{
 			name: "gnoi.os.OS", writeEnabled: true,
 			register: func(s *grpc.Server) { os.RegisterOSServer(s, impl.os) },
-			target:   "gnoi", readOnly: []string{"Verify"},
+			methods: map[string]rpcAuthorization{
+				"Install": {target: "gnoi", write: true}, "Activate": {target: "gnoi", write: true}, "Verify": {target: "gnoi"},
+			},
 		},
 		{
 			name: "gnoi.containerz.Containerz", writeEnabled: true,
 			register: func(s *grpc.Server) { containerz.RegisterContainerzServer(s, impl.containerz) },
-			target:   "gnoi", denied: []string{"Remove", "Start", "Stop", "List", "Log"},
+			methods: map[string]rpcAuthorization{
+				"Deploy": {target: "gnoi", write: true}, "Remove": {deny: true},
+				"Start": {deny: true}, "Stop": {deny: true}, "List": {deny: true}, "Log": {deny: true},
+			},
 		},
 		{
 			name: "gnoi.healthz.Healthz", writeEnabled: true,
 			register: func(s *grpc.Server) { healthz.RegisterHealthzServer(s, impl.healthz) },
-			target:   "gnoi", readOnly: []string{"Get", "Artifact"}, denied: []string{"List", "Check"},
+			methods: map[string]rpcAuthorization{
+				"Get": {target: "gnoi"}, "Artifact": {target: "gnoi"}, "Acknowledge": {target: "gnoi", write: true},
+				"List": {deny: true}, "Check": {deny: true},
+			},
 		},
 		{
 			// ORAS writes only to an allowlisted staging area, independently of gNMI write enablement.
 			name:     "sonic.gnoi.oras.v1.Oras",
 			register: func(s *grpc.Server) { oras.RegisterOrasServer(s, impl.oras) },
-			target:   "gnoi",
+			methods:  map[string]rpcAuthorization{"Pull": {target: "gnoi", write: true}},
 		},
 		{
 			name: "gnoi.sonic.SonicService", translibOnly: true,
 			register: func(s *grpc.Server) { sonic.RegisterSonicServiceServer(s, impl.server) },
-			target:   "gnoi", readOnly: []string{"ShowTechsupport"},
+			methods: map[string]rpcAuthorization{
+				"ShowTechsupport": {target: "gnoi"}, "CopyConfig": {target: "gnoi", write: true},
+				"ImageInstall": {target: "gnoi", write: true}, "ImageRemove": {target: "gnoi", write: true},
+				"ImageDefault": {target: "gnoi", write: true}, "ClearNeighbors": {target: "gnoi", write: true},
+			},
 		},
 		{
 			name:     "gnoi.sonic.Debug",
 			register: func(s *grpc.Server) { sonic.RegisterDebugServer(s, impl.server) },
-			target:   "gnmi", readOnly: []string{"GetSubscribePreferences"},
+			methods:  map[string]rpcAuthorization{"GetSubscribePreferences": {target: "gnmi"}},
 		},
 		{
 			name: "gnoi.debug.Debug", writeEnabled: true, udsOnly: true,
 			register: func(s *grpc.Server) { debug.RegisterDebugServer(s, impl.debug) },
-			denied:   []string{"Debug"},
+			methods:  map[string]rpcAuthorization{"Debug": {deny: true}},
 		},
 	}
 }
@@ -146,10 +183,12 @@ func registerServices(s *grpc.Server, config *Config, impl serviceImplementation
 	}
 }
 
-func serviceAuthorizations() map[string]serviceRegistration {
-	services := make(map[string]serviceRegistration)
+func serviceAuthorizations() map[string]rpcAuthorization {
+	methods := make(map[string]rpcAuthorization)
 	for _, service := range serviceRegistrations(serviceImplementations{}) {
-		services[service.name] = service
+		for method, permission := range service.methods {
+			methods["/"+service.name+"/"+method] = permission
+		}
 	}
-	return services
+	return methods
 }
