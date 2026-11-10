@@ -137,7 +137,7 @@ func TestFlags(t *testing.T) {
 			"",
 		},
 		{
-			[]string{"cmd", "-port", "8081", "-threshold", "1", "-idle_conn_duration", "1", "-server_crt", "../testdata/certs/testserver.cert"},
+			[]string{"cmd", "-port", "8081", "-threshold", "1", "-idle_conn_duration", "1", "-server_crt", "../../testdata/certs/testserver.cert"},
 			8081,
 			1,
 			1,
@@ -192,8 +192,8 @@ func TestFlags(t *testing.T) {
 }
 
 func TestStartGNMIServer(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
+	testServerCert := "../../testdata/certs/testserver.cert"
+	testServerKey := "../../testdata/certs/testserver.key"
 	timeoutInterval := 3
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
@@ -263,8 +263,8 @@ func TestStartGNMIServer(t *testing.T) {
 }
 
 func TestStartGNMIServerGracefulStop(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
+	testServerCert := "../../testdata/certs/testserver.cert"
+	testServerKey := "../../testdata/certs/testserver.key"
 	timeoutInterval := 15
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
@@ -483,8 +483,8 @@ func createCACert(certPath string) error {
 }
 
 func TestSHA512Checksum(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
+	testServerCert := "../../testdata/certs/testserver.cert"
+	testServerKey := "../../testdata/certs/testserver.key"
 
 	originalArgs := os.Args
 	defer func() {
@@ -541,9 +541,9 @@ func TestSHA512Checksum(t *testing.T) {
 }
 
 func TestStartGNMIServerCACert(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
-	testServerCACert := "../testdata/certs/testserver.pem"
+	testServerCert := "../../testdata/certs/testserver.cert"
+	testServerKey := "../../testdata/certs/testserver.key"
+	testServerCACert := "../../testdata/certs/testserver.pem"
 
 	originalArgs := os.Args
 	defer func() {
@@ -604,9 +604,9 @@ func TestStartGNMIServerCACert(t *testing.T) {
 }
 
 func TestStartGNMIServerCreateWatcherError(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
-	testServerCACert := "../testdata/certs/testserver.pem"
+	testServerCert := "../../testdata/certs/testserver.cert"
+	testServerKey := "../../testdata/certs/testserver.key"
+	testServerCACert := "../../testdata/certs/testserver.pem"
 
 	originalArgs := os.Args
 	defer func() {
@@ -659,8 +659,8 @@ func TestStartGNMIServerCreateWatcherError(t *testing.T) {
 }
 
 func TestStartGNMIServerSlowCerts(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
+	testServerCert := "../../testdata/certs/testserver.cert"
+	testServerKey := "../../testdata/certs/testserver.key"
 
 	originalArgs := os.Args
 	defer func() {
@@ -728,9 +728,9 @@ func TestStartGNMIServerSlowCerts(t *testing.T) {
 }
 
 func TestStartGNMIServerSlowCACerts(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
-	testServerCACert := "../testdata/certs/testserver.pem"
+	testServerCert := "../../testdata/certs/testserver.cert"
+	testServerKey := "../../testdata/certs/testserver.key"
+	testServerCACert := "../../testdata/certs/testserver.pem"
 
 	originalArgs := os.Args
 	defer func() {
@@ -804,8 +804,8 @@ func TestStartGNMIServerSlowCACerts(t *testing.T) {
 }
 
 func TestINotifyCertMonitoringRotation(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
+	testServerCert := "../../testdata/certs/testserver.cert"
+	testServerKey := "../../testdata/certs/testserver.key"
 	timeoutInterval := 30
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
@@ -859,8 +859,8 @@ func TestINotifyCertMonitoringRotation(t *testing.T) {
 }
 
 func TestINotifyCertMonitoringDeletion(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
+	testServerCert := "../../testdata/certs/testserver.cert"
+	testServerKey := "../../testdata/certs/testserver.key"
 	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
@@ -912,8 +912,8 @@ func TestINotifyCertMonitoringDeletion(t *testing.T) {
 }
 
 func TestINotifyCertMonitoringSlowWrites(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
+	testServerCert := "../../testdata/certs/testserver.cert"
+	testServerKey := "../../testdata/certs/testserver.key"
 	tempDir := t.TempDir()
 	testServerKeyBackup := filepath.Join(tempDir, "testserver.key.backup")
 	timeoutInterval := time.Duration(30 * time.Second)
@@ -977,10 +977,10 @@ func TestINotifyCertMonitoringSlowWrites(t *testing.T) {
 }
 
 func TestINotifyCertMonitoringMove(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
-	testServerCertBackup := "../testdata/testserver.cert"
-	testServerKeyBackup := "../testdata/testserver.key"
+	testServerCert := "../../testdata/certs/testserver.cert"
+	testServerKey := "../../testdata/certs/testserver.key"
+	testServerCertBackup := "../../testdata/testserver.cert"
+	testServerKeyBackup := "../../testdata/testserver.key"
 	timeoutInterval := time.Duration(30 * time.Second)
 
 	originalArgs := os.Args
@@ -1057,8 +1057,8 @@ func TestINotifyCertMonitoringMove(t *testing.T) {
 }
 
 func TestINotifyCertMonitoringCopy(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
+	testServerCert := "../../testdata/certs/testserver.cert"
+	testServerKey := "../../testdata/certs/testserver.key"
 	tempDir := t.TempDir()
 	testServerCertBackup := filepath.Join(tempDir, "testserver.cert.backup")
 	testServerKeyBackup := filepath.Join(tempDir, "testserver.key.backup")
@@ -1133,8 +1133,8 @@ func TestINotifyCertMonitoringCopy(t *testing.T) {
 }
 
 func TestINotifyCertMonitoringErrors(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
+	testServerCert := "../../testdata/certs/testserver.cert"
+	testServerKey := "../../testdata/certs/testserver.key"
 	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
@@ -1182,8 +1182,8 @@ func TestINotifyCertMonitoringErrors(t *testing.T) {
 
 // Temporarily disabling this function due to flakiness, Zain will later fix this function
 func DisabledTestINotifyCertMonitoringAddWatcherError(t *testing.T) {
-	testServerCert := "../testdata/certs/testserver.cert"
-	testServerKey := "../testdata/certs/testserver.key"
+	testServerCert := "../../testdata/certs/testserver.cert"
+	testServerKey := "../../testdata/certs/testserver.key"
 	timeoutInterval := time.Duration(30 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()

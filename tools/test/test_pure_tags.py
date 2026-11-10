@@ -16,6 +16,21 @@ CONSTRAINTS = (
 
 
 class PureTagPlacementTest(unittest.TestCase):
+    def test_native_command_keeps_other_packages_in_pure_suite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            for name in ("internal/logic", "pkg/logic", "cmd/telemetry", "cmd/other", "cmd/telemetry/subpackage"):
+                package = root / name
+                package.mkdir(parents=True, exist_ok=True)
+                (package / "main.go").write_text("package fixture\n")
+            result = subprocess.run(
+                ["make", "-s", "-f", str(MAKEFILE), "list-packages"],
+                cwd=root, capture_output=True, text=True, check=True,
+            )
+            packages = {line.strip()[2:] for line in result.stdout.splitlines()
+                        if line.strip().startswith("- ")}
+            self.assertEqual(packages, {"internal/logic", "pkg/logic", "cmd/other", "cmd/telemetry/subpackage"})
+
     def check_tags(self, path, constraint):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
