@@ -82,6 +82,17 @@ func (sc *ServerChain) GetServerOptions() []grpc.ServerOption {
 	}
 }
 
+// GetServerOptionsWithAuthorization explicitly inserts the server-owned gate.
+func (sc *ServerChain) GetServerOptionsWithAuthorization(auth Interceptor) []grpc.ServerOption {
+	if auth == nil {
+		return sc.GetServerOptions()
+	}
+	return []grpc.ServerOption{
+		grpc.ChainUnaryInterceptor(sc.completion.UnaryInterceptor(), auth.UnaryInterceptor(), sc.proxy.UnaryInterceptor()),
+		grpc.ChainStreamInterceptor(sc.completion.StreamInterceptor(), auth.StreamInterceptor(), sc.proxy.StreamInterceptor()),
+	}
+}
+
 // Close cleanly shuts down all managed resources.
 // This should be called during server shutdown to prevent resource leaks.
 func (sc *ServerChain) Close() error {

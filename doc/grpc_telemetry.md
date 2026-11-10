@@ -101,6 +101,27 @@ map and `RPC_COMPLETION_SUMMARY` path as other RPCs, with 60 records/hour and bu
 does not reach the glog sink; its common summary reports method, code, and
 suppressed count.
 
+# Certificate RPC authorization
+
+For cert-only `GNMI_CLIENT_CERT`, production constructs an explicit chain:
+completion logging, server-owned auth, then DPU proxying. Known service targets
+require readwrite by default; only gNMI Get and Subscribe permit readonly.
+`rpc_policy.go` declares service targets and RO/Deny exceptions. Unknown services
+and explicit denies remain closed; other authentication modes retain legacy behavior.
+
+The gate resolves gNMI request targets before inner dispatch. Handlers reuse the
+private target-bound identity and still enforce any stricter write requirement;
+resource-specific checks and File service dependencies remain unchanged. Subscribe
+checks its first request and refreshes credentials periodically. Other streams
+revalidate before exposing their first successfully received message, retaining
+the original authentication error. This does not prevent all pre-receive setup.
+
+Native DB/instance availability remains a backend check. Native path conflicts
+cannot fall back to short table-relative bypass, and an ineligible short bypass
+cannot fall through to native execution. UDS uses its existing permissions.
+`NewServerWithChain` owns auth construction; its caller owns chain cleanup and
+must not also supply the same chain through opaque common server options.
+
 # gRPC operations for system telemetry in SONiC
 As mentioned at the beginning, SONiC gRPC data telemetry is largely based on gNMI protocol,  the GetRquest/GetResponse and SubscribeRequest/SubscribeResponse RPC have been implemented. Since SONiC doesn't have complete YANG data model yet, the DB, TABLE, KEY and Field path hierarchy is used as path to uniquely identify the configuration/state and counter data.
 

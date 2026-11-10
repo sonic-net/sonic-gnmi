@@ -23,6 +23,7 @@ import (
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/internal/authentication"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
+	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
 	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
 	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
@@ -558,6 +559,16 @@ func ValidateNoTLSConfig(bindAddress, gnmiVrf string) error {
 // loopback in the default VRF.
 // When config.UnixSocket is set, an additional UDS listener is created without TLS.
 func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*Server, error) {
+	return newServer(config, tlsOpts, commonOpts, nil)
+}
+
+// NewServerWithChain orders completion, server-owned auth and proxying.
+// The caller owns chain.Close and must not also pass its options in commonOpts.
+func NewServerWithChain(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption, chain *interceptors.ServerChain) (*Server, error) {
+	return newServer(config, tlsOpts, commonOpts, chain)
+}
+
+func newServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption, chain *interceptors.ServerChain) (*Server, error) {
 	if config == nil {
 		return nil, errors.New("config not provided")
 	}
@@ -572,6 +583,16 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		}
 	}
 	common_utils.InitCounters()
+	gate := configuredRPCAuth(config)
+	if chain != nil {
+		var auth interceptors.Interceptor
+		if gate != nil {
+			auth = gate
+		}
+		commonOpts = append(chain.GetServerOptionsWithAuthorization(auth), commonOpts...)
+	} else if gate != nil {
+		commonOpts = append([]grpc.ServerOption{grpc.ChainUnaryInterceptor(gate.UnaryInterceptor()), grpc.ChainStreamInterceptor(gate.StreamInterceptor())}, commonOpts...)
+	}
 
 	// Set authorization policy.
 	var authzWatcher *authz.FileWatcherInterceptor
@@ -854,6 +875,9 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 		//No Auth enabled
 		rc.Auth.AuthEnabled = false
 		return ctx, nil
+	}
+	if _, ok := ctx.Value(rpcDecisionKey{}).(rpcDecision); ok {
+		return ctx, checkRPCDecision(ctx, target, writeAccess)
 	}
 
 	var methods []authentication.Method
@@ -1273,6 +1297,9 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 			}
 		}
 
+		if decision, ok := ctx.Value(rpcDecisionKey{}).(rpcDecision); ok && decision.bypassOnly {
+			return nil, status.Error(codes.PermissionDenied, "authorized bypass request cannot fall back to native routing")
+		}
 		var targetDbName string
 		dc, err = sdc.NewMixedDbClient(paths, prefix, origin, encoding, s.config.ZmqPort, s.config.Vrf, &targetDbName)
 		authTarget = "gnmi_" + targetDbName
