@@ -5,7 +5,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,38 +16,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type gateInterceptor struct {
-	allow atomic.Bool
-	calls *[]string
-}
-
-func (g *gateInterceptor) UnaryInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, next grpc.UnaryHandler) (interface{}, error) {
-		if !g.allow.Load() {
-			return nil, status.Error(codes.PermissionDenied, "denied")
-		}
-		*g.calls = append(*g.calls, "gate")
-		return next(ctx, req)
-	}
-}
-
-func (g *gateInterceptor) StreamInterceptor() grpc.StreamServerInterceptor {
-	return func(srv interface{}, stream grpc.ServerStream, _ *grpc.StreamServerInfo, next grpc.StreamHandler) error {
-		if !g.allow.Load() {
-			return status.Error(codes.Unauthenticated, "revoked")
-		}
-		*g.calls = append(*g.calls, "gate")
-		return next(srv, stream)
-	}
-}
-
-func TestServerChainLogsChainedDenials(t *testing.T) {
+func TestServerChainLogsProxyErrors(t *testing.T) {
 	var mu sync.Mutex
 	var lines []string
-	var innerCalls []string
-	completed := make(chan struct{}, 4)
+	var proxyCalls []string
+	completed := make(chan struct{}, 3)
+	proxy := &mockInterceptor{name: "proxy", calls: &proxyCalls, shouldError: true}
 	chain := &ServerChain{
-		chain: NewChain(&mockInterceptor{name: "inner", calls: &innerCalls}),
+		proxy: proxy,
 		completion: newRPCCompletionLogger(func(line string) error {
 			mu.Lock()
 			defer mu.Unlock()
@@ -57,10 +32,7 @@ func TestServerChainLogsChainedDenials(t *testing.T) {
 			return nil
 		}),
 	}
-	// The public composition entry keeps logging outside middleware and the
-	// inner chain behind it. Each test request uses a distinct method/status bucket.
-	gate := &gateInterceptor{calls: &innerCalls}
-	srv := grpc.NewServer(chain.GetServerOptions(gate)...)
+	srv := grpc.NewServer(chain.GetServerOptions()...)
 	healthpb.RegisterHealthServer(srv, health.NewServer())
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -76,56 +48,40 @@ func TestServerChainLogsChainedDenials(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	client := healthpb.NewHealthClient(conn)
-	if _, err := client.Check(ctx, &healthpb.HealthCheckRequest{}); status.Code(err) != codes.PermissionDenied {
+	if _, err := client.Check(ctx, &healthpb.HealthCheckRequest{}); status.Code(err) != codes.Unknown {
 		t.Fatal(err)
 	}
 	stream, err := client.Watch(ctx, &healthpb.HealthCheckRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := stream.Recv(); status.Code(err) != codes.Unauthenticated {
+	if _, err := stream.Recv(); status.Code(err) != codes.Unknown {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
 		select {
 		case <-completed:
 		case <-ctx.Done():
-			t.Fatal("denied RPC did not complete")
+			t.Fatal("RPC did not complete")
 		}
 	}
-	// Both denied RPCs have completed before checking the untouched inner chain.
-	if len(innerCalls) != 0 {
-		t.Fatalf("denied RPC entered inner chain: %v", innerCalls)
-	}
-	gate.allow.Store(true)
+	proxy.shouldError = false
 	if _, err := client.Check(ctx, &healthpb.HealthCheckRequest{}); err != nil {
 		t.Fatal(err)
 	}
-	streamCtx, stopStream := context.WithCancel(ctx)
-	stream, err = client.Watch(streamCtx, &healthpb.HealthCheckRequest{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := stream.Recv(); err != nil {
-		t.Fatal(err)
-	}
-	stopStream()
-	_, _ = stream.Recv()
-	for i := 0; i < 2; i++ {
-		select {
-		case <-completed:
-		case <-ctx.Done():
-			t.Fatal("allowed RPC did not complete")
-		}
+	select {
+	case <-completed:
+	case <-ctx.Done():
+		t.Fatal("successful RPC did not complete")
 	}
 	// Stop joins active RPCs before inspecting the call recorder and final logs.
 	srv.Stop()
-	if strings.Join(innerCalls, ",") != "gate,inner,gate,inner" {
-		t.Fatalf("allowed RPC order: %v", innerCalls)
+	if len(proxyCalls) != 3 {
+		t.Fatalf("proxy calls: %v", proxyCalls)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(lines) != 4 || !strings.Contains(lines[0], `"code":"PermissionDenied"`) || !strings.Contains(lines[1], `"code":"Unauthenticated"`) || !strings.Contains(lines[2], `"code":"OK"`) {
+	if len(lines) != 3 || !strings.Contains(lines[0], `"code":"Unknown"`) || !strings.Contains(lines[1], `"code":"Unknown"`) || !strings.Contains(lines[2], `"code":"OK"`) {
 		t.Fatalf("completion records: %v", lines)
 	}
 }
@@ -144,8 +100,8 @@ func TestNewServerChain(t *testing.T) {
 	if chain == nil {
 		t.Fatal("NewServerChain() returned nil chain")
 	}
-	if chain.chain == nil {
-		t.Error("ServerChain has nil internal chain")
+	if chain.proxy == nil {
+		t.Error("ServerChain has nil proxy")
 	}
 	if chain.cleanup == nil {
 		t.Error("ServerChain has nil cleanup function")
@@ -163,7 +119,7 @@ func TestNewServerChainStartsWithCompletionLogger(t *testing.T) {
 		}
 	}()
 
-	if serverChain.completion == nil || len(serverChain.chain.interceptors) != 1 {
+	if serverChain.completion == nil || serverChain.proxy == nil {
 		t.Fatal("expected outer completion logger and inner DPU proxy")
 	}
 }
@@ -217,7 +173,6 @@ func TestServerChain_Close(t *testing.T) {
 
 func TestServerChain_CloseNilCleanup(t *testing.T) {
 	chain := &ServerChain{
-		chain:   NewChain(),
 		cleanup: nil,
 	}
 

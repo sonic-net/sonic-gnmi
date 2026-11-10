@@ -8,7 +8,7 @@ import (
 
 // ServerChain represents a configured interceptor chain with cleanup capabilities.
 type ServerChain struct {
-	chain      *Chain
+	proxy      Interceptor
 	completion *rpcCompletionLogger
 	cleanup    func() error
 }
@@ -36,7 +36,6 @@ func NewServerChain() (*ServerChain, error) {
 
 	// Keep completion logging outside the DPU proxy so it records forwarded and rejected RPCs.
 	completion := newRPCCompletionLogger(sink)
-	chain := NewChain(dpuProxy)
 
 	// Create cleanup function to close Redis clients
 	cleanup := func() error {
@@ -63,28 +62,23 @@ func NewServerChain() (*ServerChain, error) {
 	}
 
 	return &ServerChain{
-		chain:      chain,
+		proxy:      dpuProxy,
 		completion: completion,
 		cleanup:    cleanup,
 	}, nil
 }
 
-// GetServerOptions orders completion logging, supplied middleware, then proxying.
-// Pass middleware here rather than registering it as a separate server option.
-func (sc *ServerChain) GetServerOptions(middleware ...Interceptor) []grpc.ServerOption {
-	unary := []grpc.UnaryServerInterceptor{sc.completion.UnaryInterceptor()}
-	stream := []grpc.StreamServerInterceptor{sc.completion.StreamInterceptor()}
-	for _, interceptor := range middleware {
-		unary = append(unary, interceptor.UnaryInterceptor())
-		stream = append(stream, interceptor.StreamInterceptor())
-	}
-	for _, interceptor := range sc.chain.interceptors {
-		unary = append(unary, interceptor.UnaryInterceptor())
-		stream = append(stream, interceptor.StreamInterceptor())
-	}
+// GetServerOptions keeps completion logging outside DPU proxying.
+func (sc *ServerChain) GetServerOptions() []grpc.ServerOption {
 	return []grpc.ServerOption{
-		grpc.ChainUnaryInterceptor(unary...),
-		grpc.ChainStreamInterceptor(stream...),
+		grpc.ChainUnaryInterceptor(
+			sc.completion.UnaryInterceptor(),
+			sc.proxy.UnaryInterceptor(),
+		),
+		grpc.ChainStreamInterceptor(
+			sc.completion.StreamInterceptor(),
+			sc.proxy.StreamInterceptor(),
+		),
 	}
 }
 
