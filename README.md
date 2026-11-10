@@ -64,6 +64,10 @@ You can also build a debian package and install it:
 
 ## Testing
 
+See [Test layout](tests/README.md) for unit, integration and E2E boundaries,
+fixture placement and existing execution entrypoints. Python service integration
+tests live in `tests/integration/`; Go package tests stay beside their source.
+
 The telemetry command lives in `cmd/telemetry`; its installed binary is still
 named `telemetry`. Build it in the SONiC build environment with `make all`.
 Its native tests remain part of `make test-integration`, not the pure-package
