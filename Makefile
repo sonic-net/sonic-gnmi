@@ -140,14 +140,14 @@ sonic-gnmi: $(GO_DEPS) $(FORMAT_CHECK)
 # add support for fsnotify closewrite event
 	patch -d vendor -p0 < patches/0004-CloseWrite-event-support.patch
 ifeq ($(CROSS_BUILD_ENVIRON),y)
-	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
+	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/cmd/telemetry
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	$(GO) build -o ${GOBIN}/dialout_client_cli -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
 endif
 	$(GO) build -o ${GOBIN}/gnoi_client -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
 	$(GO) build -o ${GOBIN}/gnmi_dump -mod=vendor github.com/sonic-net/sonic-gnmi/gnmi_dump
 else
-	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
+	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/cmd/telemetry
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
 endif
@@ -277,7 +277,7 @@ $(ENVFILE):
 	tools/test/env.sh | grep -v DB_CONFIG_PATH | tee $@
 
 check_gotest: $(DBCONFG) $(ENVFILE) $(GOCOV) $(GOCOV_XML)
-	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/telemetry
+	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/cmd/telemetry
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config github.com/sonic-net/sonic-gnmi/internal/adaptors/dbconfig
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 40m $(TEST_FLAGS) -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 40m $(TEST_FLAGS) -coverprofile=coverage-pathz_authorizer.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/pathz_authorizer -coverpkg ../...
@@ -304,7 +304,7 @@ INTEGRATION_BASIC_PKGS := \
 	github.com/sonic-net/sonic-gnmi/sonic_db_config \
 	github.com/sonic-net/sonic-gnmi/internal/adaptors/dbconfig \
 	github.com/sonic-net/sonic-gnmi/sonic_service_client \
-	github.com/sonic-net/sonic-gnmi/telemetry \
+	github.com/sonic-net/sonic-gnmi/cmd/telemetry \
 	github.com/sonic-net/sonic-gnmi/sonic_data_client
 
 # Integration test packages that need special environment

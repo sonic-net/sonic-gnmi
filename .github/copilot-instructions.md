@@ -10,7 +10,7 @@ sonic-gnmi implements the gNMI (gRPC Network Management Interface) and gNOI (gRP
 sonic-gnmi/
 ├── gnmi_server/         # gNMI server implementation
 ├── gnoi_client/         # gNOI client utilities
-├── telemetry/           # Telemetry service entry point
+├── cmd/telemetry/       # Telemetry service entry point (native dependencies)
 ├── dialout/             # Dial-out telemetry client
 ├── sonic_data_client/   # SONiC-specific data providers
 ├── sonic_db_config/     # Database configuration handling
@@ -62,7 +62,7 @@ sonic-gnmi/
 # See https://golang.org/doc/install
 
 # Install telemetry server
-go get -u github.com/sonic-net/sonic-gnmi/telemetry
+go install github.com/sonic-net/sonic-gnmi/cmd/telemetry
 
 # Install dial-out client
 go get -u github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli

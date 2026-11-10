@@ -1,8 +1,8 @@
 # pure.mk - Simple CI for canonical Go packages without SONiC dependencies
 # Usage: make -f pure.mk ci
 #
-# Every Go package under internal/, pkg/, and cmd/ must remain pure. Packages
-# outside those canonical roots may depend on the SONiC build environment.
+# Go packages under internal/, pkg/, and cmd/ must remain pure, except the
+# native telemetry entry point, which is covered by Makefile integration tests.
 
 # Go configuration
 GO ?= go
@@ -39,15 +39,15 @@ $(GOSEC): | $(TOOLS_BIN_DIR)
 	@$(HOST_GO_ENV) GOBIN=$(TOOLS_BIN_DIR) $(GO) install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
 	@mv $(TOOLS_BIN_DIR)/gosec $@
 
-# Discover every package under the canonical pure roots. This makes purity a
-# path-based invariant instead of an allowlist that can omit new packages.
+# Discover packages under the pure roots, excluding only the native command
+# entry point. New packages (including other commands) remain covered by default.
 PURE_ROOTS := internal pkg cmd
-PURE_PACKAGES := $(shell \
+PURE_PACKAGES := $(filter-out cmd/telemetry,$(shell \
 	for root in $(PURE_ROOTS); do \
 		if [ -d "$$root" ]; then \
 			find "$$root" -type f -name '*.go' -print; \
 		fi; \
-	done | sed 's|/[^/]*$$||' | sort -u)
+	done | sed 's|/[^/]*$$||' | sort -u))
 
 # You can test specific packages by setting PACKAGES=pkg/specific/package
 PACKAGES ?= $(PURE_PACKAGES)
