@@ -1,8 +1,8 @@
 # pure.mk - Simple CI for canonical Go packages without SONiC dependencies
 # Usage: make -f pure.mk ci
 #
-# Every Go package under internal/, pkg/, and cmd/ must remain pure. Packages
-# outside those canonical roots may depend on the SONiC build environment.
+# Every Go package under internal/, pkg/, cmd/, and pathz_authorizer/ must
+# remain pure. Packages outside these roots may depend on the SONiC build environment.
 
 # Go configuration
 GO ?= go
@@ -41,7 +41,7 @@ $(GOSEC): | $(TOOLS_BIN_DIR)
 
 # Discover every package under the canonical pure roots. This makes purity a
 # path-based invariant instead of an allowlist that can omit new packages.
-PURE_ROOTS := internal pkg cmd
+PURE_ROOTS := internal pkg cmd pathz_authorizer
 PURE_PACKAGES := $(shell \
 	for root in $(PURE_ROOTS); do \
 		if [ -d "$$root" ]; then \
