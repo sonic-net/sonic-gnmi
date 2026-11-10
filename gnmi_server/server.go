@@ -580,6 +580,12 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		}
 	}
 	common_utils.InitCounters()
+	if centralRPCAuth(config) {
+		commonOpts = append([]grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(rpcUnaryAuth(config)),
+			grpc.ChainStreamInterceptor(rpcStreamAuth(config)),
+		}, commonOpts...)
+	}
 
 	// Set authorization policy.
 	var authzWatcher *authz.FileWatcherInterceptor
@@ -849,6 +855,10 @@ func checkRequiredRoleAccess(auth *common_utils.AuthInfo, target string, writeAc
 }
 
 func authenticate(config *Config, ctx context.Context, target string, writeAccess bool) (context.Context, error) {
+	if ctx.Value(rpcTargetKey{}) != nil {
+		// Handler checks still authenticate; never mutate a shared stream identity.
+		ctx = common_utils.WithFreshAuth(ctx)
+	}
 	rc, ctx := common_utils.GetContext(ctx)
 
 	// Skip authentication for UDS (Unix Domain Socket) connections.
@@ -882,6 +892,14 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	ctx, err := authentication.Authenticate(ctx, &rc.Auth, target, writeAccess, methods...)
 	if err != nil {
 		return ctx, err
+	}
+	if access, ok := ctx.Value(rpcTargetKey{}).(rpcTarget); ok {
+		if !strings.EqualFold(access.target, target) {
+			return ctx, rpcDenied()
+		}
+		if err := checkRPCIdentity(ctx, target, writeAccess || access.write); err != nil {
+			return ctx, err
+		}
 	}
 
 	log.V(5).Infof("authenticate user %v, roles %v", rc.Auth.User, rc.Auth.Roles)
@@ -1278,6 +1296,11 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 				}
 				common_utils.IncCounter(common_utils.GNMI_SET_BYPASS)
 				return resp, nil
+			}
+			if ctx.Value(rpcTargetKey{}) != nil {
+				if _, err := rpcNativeTarget(prefix, paths); err != nil {
+					return nil, status.Error(codes.PermissionDenied, "authorized bypass request cannot fall back to native routing")
+				}
 			}
 		}
 

@@ -168,6 +168,14 @@ func GetUsername(ctx context.Context, username *string) {
 	}
 }
 
+// WithFreshAuth gives a refresh its own identity without changing stream state.
+func WithFreshAuth(ctx context.Context) context.Context {
+	rc, ctx := GetContext(ctx)
+	copy := *rc
+	copy.Auth = AuthInfo{}
+	return context.WithValue(ctx, requestContextKey, &copy)
+}
+
 func InitCounters() {
 	for i := 0; i < int(COUNTER_SIZE); i++ {
 		globalCounters[i] = 0

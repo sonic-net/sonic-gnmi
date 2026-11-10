@@ -1,8 +1,62 @@
 package interceptors
 
 import (
+	"context"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
+	"net"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 )
+
+func TestServerChainLogsAuthorizationDenial(t *testing.T) {
+	var mu sync.Mutex
+	var lines []string
+	chain := &ServerChain{chain: NewChain(), completion: newRPCCompletionLogger(func(line string) error { mu.Lock(); defer mu.Unlock(); lines = append(lines, line); return nil })}
+	opts := []grpc.ServerOption{grpc.ChainUnaryInterceptor(func(context.Context, interface{}, *grpc.UnaryServerInfo, grpc.UnaryHandler) (interface{}, error) {
+		return nil, status.Error(codes.PermissionDenied, "denied")
+	}), grpc.ChainStreamInterceptor(func(interface{}, grpc.ServerStream, *grpc.StreamServerInfo, grpc.StreamHandler) error {
+		return status.Error(codes.Unauthenticated, "revoked")
+	})}
+	srv := grpc.NewServer(append(opts, chain.GetServerOptions()...)...)
+	healthpb.RegisterHealthServer(srv, health.NewServer())
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Serve(lis)
+	defer srv.Stop()
+	defer lis.Close()
+	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	client := healthpb.NewHealthClient(conn)
+	if _, err := client.Check(ctx, &healthpb.HealthCheckRequest{}); status.Code(err) != codes.PermissionDenied {
+		t.Fatal(err)
+	}
+	stream, err := client.Watch(ctx, &healthpb.HealthCheckRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Recv(); status.Code(err) != codes.Unauthenticated {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(lines) != 2 || !strings.Contains(lines[0], `"code":"PermissionDenied"`) || !strings.Contains(lines[1], `"code":"Unauthenticated"`) {
+		t.Fatalf("denial records: %v", lines)
+	}
+}
 
 func TestNewServerChain(t *testing.T) {
 	chain, err := NewServerChain()
@@ -37,11 +91,11 @@ func TestNewServerChainStartsWithCompletionLogger(t *testing.T) {
 		}
 	}()
 
-	if len(serverChain.chain.interceptors) < 2 {
-		t.Fatalf("server chain has %d interceptors, want completion logger and DPU proxy", len(serverChain.chain.interceptors))
+	if len(serverChain.chain.interceptors) != 1 {
+		t.Fatalf("inner chain has %d interceptors, want DPU proxy", len(serverChain.chain.interceptors))
 	}
-	if _, ok := serverChain.chain.interceptors[0].(*rpcCompletionLogger); !ok {
-		t.Fatalf("first server interceptor is %T, want *rpcCompletionLogger", serverChain.chain.interceptors[0])
+	if serverChain.completion == nil {
+		t.Fatal("outer completion logger is missing")
 	}
 }
 
@@ -62,7 +116,7 @@ func TestServerChain_GetServerOptions(t *testing.T) {
 	}
 
 	// Verify we get both unary and stream interceptors
-	expectedOptCount := 2 // unary + stream interceptor
+	expectedOptCount := 4 // outer completion and inner proxy, unary + stream
 	if len(opts) != expectedOptCount {
 		t.Errorf("Expected %d server options, got %d", expectedOptCount, len(opts))
 	}
