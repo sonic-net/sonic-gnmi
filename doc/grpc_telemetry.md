@@ -101,6 +101,36 @@ map and `RPC_COMPLETION_SUMMARY` path as other RPCs, with 60 records/hour and bu
 does not reach the glog sink; its common summary reports method, code, and
 suppressed count.
 
+# Certificate RPC authorization
+
+When `cert` is the only enabled authentication mode and `config_table_name` is
+`GNMI_CLIENT_CERT`, central authorization runs before inner interceptors and
+service handlers. The existing CN mapping supplies roles: only gNMI Get and
+Subscribe accept `readonly`; other permitted RPCs require `readwrite` by default.
+`rpc_policy.go` contains trusted service targets and RO/Deny exceptions, not a
+complete method catalog. Unknown services, explicit denies and missing roles
+are denied; service-level `noaccess` overrides scoped allows.
+
+Production uses `NewServerWithChain` to compose completion logging, the internally
+created auth interceptor, and DPU proxying in that order. The original `NewServer`
+entry still creates the auth gate without a proxy chain. Existing handler checks
+reuse the completed target-bound identity rather than checking credentials again;
+a stricter handler write requirement still applies. Other authentication modes
+retain the legacy path. The caller retains ownership of chain cleanup.
+
+Get, Set and Subscribe are authorized for their routed target. Native path
+authorization uses the shared incremental database parser without backend
+discovery or request mutation. Subscribe buffers its first request, checks its
+target, and replays that request to the handler. Completed handler checks reuse
+the initial credentials but still verify the target and roles. Periodic Subscribe
+checks read fresh certificate mapping/CRL state into a separate identity context,
+so revocation terminates the stream without changing its original identity.
+
+A ConfigDB bypass-only Set cannot fall through to another backend if bypass is
+ineligible. Strict File read authorization remains required. UDS uses filesystem
+permissions; mixed modes and certificate modes without `GNMI_CLIENT_CERT` retain
+legacy behavior (unsupported certificate configurations log a startup warning).
+
 # gRPC operations for system telemetry in SONiC
 As mentioned at the beginning, SONiC gRPC data telemetry is largely based on gNMI protocol,  the GetRquest/GetResponse and SubscribeRequest/SubscribeResponse RPC have been implemented. Since SONiC doesn't have complete YANG data model yet, the DB, TABLE, KEY and Field path hierarchy is used as path to uniquely identify the configuration/state and counter data.
 

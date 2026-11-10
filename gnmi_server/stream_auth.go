@@ -4,8 +4,27 @@ import (
 	"time"
 
 	log "github.com/golang/glog"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"golang.org/x/net/context"
 )
+
+func reauthenticate(config *Config, ctx context.Context, target string) error {
+	if rpcAuthorizationCompleted(ctx) && !isUnixPeer(ctx) {
+		// Initial interceptor-to-handler entry reuses the completed decision.
+		// Periodic checks must refresh the credential source instead.
+		ctx = common_utils.WithFreshAuth(ctx)
+		rc, ctx := common_utils.GetContext(ctx)
+		rc.Auth.AuthEnabled = true
+		ctx, err := ClientCertAuthenAndAuthor(ctx, config.ConfigTableName, config.EnableCrl)
+		if err != nil {
+			return err
+		}
+		rc, _ = common_utils.GetContext(ctx)
+		return checkCompletedRPCAuthorization(ctx, rc.Auth.User, rc.Auth.Roles, target)
+	}
+	_, err := authenticate(config, ctx, target, false)
+	return err
+}
 
 // monitorAuthentication periodically revalidates the credentials and current
 // authorization of a long-lived Subscribe stream. Report failures before

@@ -176,8 +176,13 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 				dbMu.Unlock()
 				return client, nil
 			})
-			patches.ApplyMethod(reflect.TypeOf(&interceptors.ServerChain{}), "GetServerOptions",
-				func(*interceptors.ServerChain) []grpc.ServerOption { return nil })
+			patches.ApplyMethod(reflect.TypeOf(&interceptors.ServerChain{}), "GetServerOptionsWithAuthorization",
+				func(_ *interceptors.ServerChain, auth interceptors.Interceptor) []grpc.ServerOption {
+					if auth == nil {
+						return nil
+					}
+					return []grpc.ServerOption{grpc.ChainUnaryInterceptor(auth.UnaryInterceptor()), grpc.ChainStreamInterceptor(auth.StreamInterceptor())}
+				})
 			patches.ApplyFunc(gnmi.UserPwAuth, func(username, password string) (bool, error) {
 				if (username == "fixture" || username == "denied" || username == "unprivileged") && password == "fixture-password" {
 					return true, nil
