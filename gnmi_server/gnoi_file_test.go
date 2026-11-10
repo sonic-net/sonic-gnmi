@@ -39,11 +39,7 @@ func createFileServer(t *testing.T, port int) (*grpc.Server, string) {
 	}
 
 	s := grpc.NewServer()
-	fileServer := &FileServer{
-		Server: &Server{
-			config: &Config{}, // Add config fields if required
-		},
-	}
+	fileServer := newFileServer(&Config{})
 	gnoi_file_pb.RegisterFileServer(s, fileServer)
 
 	go func() {
@@ -147,11 +143,7 @@ func TestGnoiFileServer(t *testing.T) {
 				return &gnoi_file_pb.TransferToRemoteResponse{}, nil
 			})
 
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 
 		// Create context with DPU metadata (lines 117, 120, 125-126)
 		md := metadata.New(map[string]string{
@@ -182,11 +174,7 @@ func TestGnoiFileServer(t *testing.T) {
 				return &gnoi_file_pb.TransferToRemoteResponse{}, nil
 			})
 
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 
 		ctx := context.Background() // No DPU metadata - should call regular function
 
@@ -238,11 +226,7 @@ func TestGnoiFileServer(t *testing.T) {
 		// ensure cleanup if the handler didn't remove it for any reason
 		defer func() { _ = os.Remove(tmpPath) }()
 
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 		req := &gnoi_file_pb.RemoveRequest{RemoteFile: tmpPath}
 		resp, err := fs.Remove(context.Background(), req)
 
@@ -256,11 +240,7 @@ func TestGnoiFileServer(t *testing.T) {
 	})
 
 	t.Run("Remove_Fails_NilRequest", func(t *testing.T) {
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 		_, err := fs.Remove(context.Background(), nil)
 		assert.Error(t, err)
 		assert.Equal(t, codes.InvalidArgument, status.Code(err))
@@ -272,11 +252,7 @@ func TestGnoiFileServer(t *testing.T) {
 
 		patches.ApplyFuncReturn(authenticate, nil, nil)
 
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 		req := &gnoi_file_pb.RemoveRequest{RemoteFile: ""}
 		_, err := fs.Remove(context.Background(), req)
 
@@ -291,11 +267,7 @@ func TestGnoiFileServer(t *testing.T) {
 		// Simulate auth failure
 		patches.ApplyFuncReturn(authenticate, nil, status.Error(codes.PermissionDenied, "unauthenticated"))
 
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 		req := &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/test.txt"}
 		_, err := fs.Remove(context.Background(), req)
 
@@ -316,11 +288,7 @@ func TestGnoiFileServer(t *testing.T) {
 		// Patch NewDbusClient to return an erring client if needed by the handler branch later.
 		patches.ApplyFuncReturn(ssc.NewDbusClient, &ssc.FakeClientWithError{}, nil)
 
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 		req := &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/bad.txt"}
 		_, err := fs.Remove(context.Background(), req)
 
@@ -375,11 +343,7 @@ func TestGnoiFileServer(t *testing.T) {
 				return nil
 			})
 
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 
 		// Create a mock stream
 		mockStream := &mockPutStream{
@@ -404,13 +368,13 @@ func TestAuthorizeFileRead(t *testing.T) {
 	}
 
 	t.Run("UDS uses filesystem authorization", func(t *testing.T) {
-		if _, err := authorizeFileRead(&Config{}, unixContext()); err != nil {
-			t.Fatalf("UDS File read should succeed: %v", err)
+		if _, err := newFileServer(&Config{}).Stat(unixContext(), &gnoi_file_pb.StatRequest{}); status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("UDS File read should reach request validation: %v", err)
 		}
 	})
 
 	t.Run("TCP requires application authentication", func(t *testing.T) {
-		_, err := authorizeFileRead(&Config{}, tcpContext())
+		_, err := newFileServer(&Config{}).Stat(tcpContext(), &gnoi_file_pb.StatRequest{})
 		if status.Code(err) != codes.Unauthenticated {
 			t.Fatalf("File read returned %v, want Unauthenticated", err)
 		}
@@ -427,8 +391,8 @@ func TestAuthorizeFileRead(t *testing.T) {
 		{name: "unknown target role", roles: []string{"gnoi_other"}, code: codes.PermissionDenied},
 		{name: "explicit deny", roles: []string{"gnoi_noaccess"}, code: codes.PermissionDenied},
 		{name: "explicit deny overrides read", roles: []string{"gnoi_readonly", "gnoi_noaccess"}, code: codes.PermissionDenied},
-		{name: "read role", roles: []string{"gnoi_readonly"}, code: codes.OK},
-		{name: "write role", roles: []string{"gnoi_readwrite"}, code: codes.OK},
+		{name: "read role", roles: []string{"gnoi_readonly"}, code: codes.InvalidArgument},
+		{name: "write role", roles: []string{"gnoi_readwrite"}, code: codes.InvalidArgument},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -444,7 +408,7 @@ func TestAuthorizeFileRead(t *testing.T) {
 				})
 			defer patch.Reset()
 
-			_, err := authorizeFileRead(&Config{UserAuth: AuthTypes{"password": true}}, tcpContext())
+			_, err := newFileServer(&Config{UserAuth: AuthTypes{"password": true}}).Stat(tcpContext(), &gnoi_file_pb.StatRequest{})
 			if status.Code(err) != tt.code {
 				t.Fatalf("File read returned %v, want %v", err, tt.code)
 			}

@@ -138,7 +138,7 @@ func TestGNOIWriteAuthorization(t *testing.T) {
 				)
 				defer patch.Reset()
 
-				srv := &FileServer{Server: &Server{config: cfg}}
+				srv := newFileServer(cfg)
 				_, err := srv.TransferToRemote(ctx, &filepb.TransferToRemoteRequest{})
 				return backendCalls, err
 			},
@@ -157,7 +157,7 @@ func TestGNOIWriteAuthorization(t *testing.T) {
 				)
 				defer patch.Reset()
 
-				srv := &FileServer{Server: &Server{config: cfg}}
+				srv := newFileServer(cfg)
 				err := srv.Put(&writeAuthorizationPutStream{ctx: ctx})
 				return backendCalls, err
 			},
@@ -176,7 +176,7 @@ func TestGNOIWriteAuthorization(t *testing.T) {
 				)
 				defer patch.Reset()
 
-				srv := &FileServer{Server: &Server{config: cfg}}
+				srv := newFileServer(cfg)
 				_, err := srv.Remove(ctx, &filepb.RemoveRequest{RemoteFile: "/tmp/test"})
 				return backendCalls, err
 			},
