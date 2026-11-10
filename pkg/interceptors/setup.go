@@ -8,8 +8,9 @@ import (
 
 // ServerChain represents a configured interceptor chain with cleanup capabilities.
 type ServerChain struct {
-	chain   *Chain
-	cleanup func() error
+	proxy      Interceptor
+	completion *rpcCompletionLogger
+	cleanup    func() error
 }
 
 // NewServerChain creates a complete interceptor chain for the gNMI server.
@@ -34,7 +35,7 @@ func NewServerChain() (*ServerChain, error) {
 	})
 
 	// Keep completion logging outside the DPU proxy so it records forwarded and rejected RPCs.
-	chain := NewChain(newRPCCompletionLogger(sink), dpuProxy)
+	completion := newRPCCompletionLogger(sink)
 
 	// Create cleanup function to close Redis clients
 	cleanup := func() error {
@@ -61,16 +62,23 @@ func NewServerChain() (*ServerChain, error) {
 	}
 
 	return &ServerChain{
-		chain:   chain,
-		cleanup: cleanup,
+		proxy:      dpuProxy,
+		completion: completion,
+		cleanup:    cleanup,
 	}, nil
 }
 
-// GetServerOptions returns gRPC server options with all interceptors configured.
+// GetServerOptions keeps completion logging outside DPU proxying.
 func (sc *ServerChain) GetServerOptions() []grpc.ServerOption {
 	return []grpc.ServerOption{
-		grpc.UnaryInterceptor(sc.chain.UnaryInterceptor()),
-		grpc.StreamInterceptor(sc.chain.StreamInterceptor()),
+		grpc.ChainUnaryInterceptor(
+			sc.completion.UnaryInterceptor(),
+			sc.proxy.UnaryInterceptor(),
+		),
+		grpc.ChainStreamInterceptor(
+			sc.completion.StreamInterceptor(),
+			sc.proxy.StreamInterceptor(),
+		),
 	}
 }
 
