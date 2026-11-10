@@ -31,8 +31,8 @@ func TestNewServerChain(t *testing.T) {
 	if chain == nil {
 		t.Fatal("NewServerChain() returned nil chain")
 	}
-	if chain.chain == nil {
-		t.Error("ServerChain has nil internal chain")
+	if chain.proxy == nil {
+		t.Error("ServerChain has nil proxy")
 	}
 	if chain.cleanup == nil {
 		t.Error("ServerChain has nil cleanup function")
@@ -48,17 +48,9 @@ func TestServerChainLogsOuterAuthorizationDenials(t *testing.T) {
 		lines = append(lines, line)
 		return nil
 	})
-	chain := &ServerChain{completion: logger, chain: NewChain()}
-	// Reproduce NewServer prepending authorization before common options.
-	opts := []grpc.ServerOption{
-		grpc.ChainUnaryInterceptor(func(context.Context, interface{}, *grpc.UnaryServerInfo, grpc.UnaryHandler) (interface{}, error) {
-			return nil, status.Error(codes.PermissionDenied, "denied")
-		}),
-		grpc.ChainStreamInterceptor(func(interface{}, grpc.ServerStream, *grpc.StreamServerInfo, grpc.StreamHandler) error {
-			return status.Error(codes.Unauthenticated, "certificate rejected")
-		}),
-	}
-	s := grpc.NewServer(append(opts, chain.GetServerOptions()...)...)
+	var proxyCalls []string
+	chain := &ServerChain{completion: logger, proxy: &mockInterceptor{name: "proxy", calls: &proxyCalls}}
+	s := grpc.NewServer(chain.GetServerOptionsWithAuthorization(&denyAuthorization{})...)
 	healthpb.RegisterHealthServer(s, health.NewServer())
 	listener := bufconn.Listen(1024 * 1024)
 	go s.Serve(listener)
@@ -82,10 +74,27 @@ func TestServerChainLogsOuterAuthorizationDenials(t *testing.T) {
 	if _, err := stream.Recv(); status.Code(err) != codes.Unauthenticated {
 		t.Fatal(err)
 	}
+	s.Stop()
+	if len(proxyCalls) != 0 {
+		t.Fatalf("denied RPC entered proxy: %v", proxyCalls)
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	if len(lines) != 2 || !strings.Contains(lines[0], `"code":"PermissionDenied"`) || !strings.Contains(lines[1], `"code":"Unauthenticated"`) {
 		t.Fatalf("completion records=%v", lines)
+	}
+}
+
+type denyAuthorization struct{}
+
+func (*denyAuthorization) UnaryInterceptor() grpc.UnaryServerInterceptor {
+	return func(context.Context, interface{}, *grpc.UnaryServerInfo, grpc.UnaryHandler) (interface{}, error) {
+		return nil, status.Error(codes.PermissionDenied, "denied")
+	}
+}
+func (*denyAuthorization) StreamInterceptor() grpc.StreamServerInterceptor {
+	return func(interface{}, grpc.ServerStream, *grpc.StreamServerInfo, grpc.StreamHandler) error {
+		return status.Error(codes.Unauthenticated, "certificate rejected")
 	}
 }
 
@@ -100,7 +109,7 @@ func TestNewServerChainStartsWithCompletionLogger(t *testing.T) {
 		}
 	}()
 
-	if serverChain.completion == nil || len(serverChain.chain.interceptors) != 1 {
+	if serverChain.completion == nil || serverChain.proxy == nil {
 		t.Fatal("expected outer completion logger and inner proxy chain")
 	}
 }
@@ -122,7 +131,7 @@ func TestServerChain_GetServerOptions(t *testing.T) {
 	}
 
 	// Verify we get both unary and stream interceptors
-	expectedOptCount := 4 // outer completion + inner chain, unary and stream
+	expectedOptCount := 2 // explicit unary and stream chains
 	if len(opts) != expectedOptCount {
 		t.Errorf("Expected %d server options, got %d", expectedOptCount, len(opts))
 	}
@@ -154,7 +163,6 @@ func TestServerChain_Close(t *testing.T) {
 
 func TestServerChain_CloseNilCleanup(t *testing.T) {
 	chain := &ServerChain{
-		chain:   NewChain(),
 		cleanup: nil,
 	}
 

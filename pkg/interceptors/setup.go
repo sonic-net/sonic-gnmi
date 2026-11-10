@@ -8,7 +8,7 @@ import (
 
 // ServerChain represents a configured interceptor chain with cleanup capabilities.
 type ServerChain struct {
-	chain      *Chain
+	proxy      Interceptor
 	completion *rpcCompletionLogger
 	cleanup    func() error
 }
@@ -36,7 +36,6 @@ func NewServerChain() (*ServerChain, error) {
 
 	// Keep completion logging outside the DPU proxy so it records forwarded and rejected RPCs.
 	completion := newRPCCompletionLogger(sink)
-	chain := NewChain(dpuProxy)
 
 	// Create cleanup function to close Redis clients
 	cleanup := func() error {
@@ -63,21 +62,29 @@ func NewServerChain() (*ServerChain, error) {
 	}
 
 	return &ServerChain{
-		chain:      chain,
+		proxy:      dpuProxy,
 		completion: completion,
 		cleanup:    cleanup,
 	}, nil
 }
 
-// GetServerOptions returns gRPC server options with all interceptors configured.
+// GetServerOptions keeps completion logging outside DPU proxying.
 func (sc *ServerChain) GetServerOptions() []grpc.ServerOption {
 	return []grpc.ServerOption{
-		// gRPC runs the single interceptor before chained interceptors, including
-		// authorization prepended by NewServer. Proxying stays inside authorization.
-		grpc.UnaryInterceptor(sc.completion.UnaryInterceptor()),
-		grpc.StreamInterceptor(sc.completion.StreamInterceptor()),
-		grpc.ChainUnaryInterceptor(sc.chain.UnaryInterceptor()),
-		grpc.ChainStreamInterceptor(sc.chain.StreamInterceptor()),
+		grpc.ChainUnaryInterceptor(sc.completion.UnaryInterceptor(), sc.proxy.UnaryInterceptor()),
+		grpc.ChainStreamInterceptor(sc.completion.StreamInterceptor(), sc.proxy.StreamInterceptor()),
+	}
+}
+
+// GetServerOptionsWithAuthorization inserts the server's authorization gate
+// between completion logging and proxying. A nil gate keeps the legacy chain.
+func (sc *ServerChain) GetServerOptionsWithAuthorization(auth Interceptor) []grpc.ServerOption {
+	if auth == nil {
+		return sc.GetServerOptions()
+	}
+	return []grpc.ServerOption{
+		grpc.ChainUnaryInterceptor(sc.completion.UnaryInterceptor(), auth.UnaryInterceptor(), sc.proxy.UnaryInterceptor()),
+		grpc.ChainStreamInterceptor(sc.completion.StreamInterceptor(), auth.StreamInterceptor(), sc.proxy.StreamInterceptor()),
 	}
 }
 

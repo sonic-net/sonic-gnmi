@@ -19,7 +19,6 @@ const (
 )
 
 type rpcAuthorization struct {
-	deny               bool
 	target             string
 	write              bool
 	requestTarget      bool
@@ -27,7 +26,6 @@ type rpcAuthorization struct {
 }
 
 type rpcAuthorizationInterceptor struct {
-	methods      map[string]rpcAuthorization
 	authenticate func(context.Context) (context.Context, *rpcIdentity, error)
 	bypass       func(context.Context) bool
 }
@@ -77,7 +75,6 @@ func newRPCAuthorizationInterceptor(
 	bypass func(context.Context) bool,
 ) *rpcAuthorizationInterceptor {
 	return &rpcAuthorizationInterceptor{
-		methods:      serviceAuthorizations(),
 		authenticate: authenticate,
 		bypass:       bypass,
 	}
@@ -87,9 +84,17 @@ func (i *rpcAuthorizationInterceptor) authenticateRPC(
 	ctx context.Context,
 	fullMethod string,
 ) (context.Context, *rpcIdentity, rpcAuthorization, error) {
-	authorization, ok := i.methods[fullMethod]
-	if !ok || authorization.deny {
+	target, write := rpcAccess(fullMethod)
+	if target == "" {
 		return ctx, nil, rpcAuthorization{}, status.Error(codes.PermissionDenied, "RPC access denied")
+	}
+	authorization := rpcAuthorization{target: target, write: write}
+	switch fullMethod {
+	case "/gnmi.gNMI/Get", "/gnmi.gNMI/Set":
+		authorization.requestTarget = true
+	case "/gnmi.gNMI/Subscribe":
+		authorization.requestTarget = true
+		authorization.bufferFirstRequest = true
 	}
 
 	authenticatedCtx, auth, err := i.authenticate(ctx)

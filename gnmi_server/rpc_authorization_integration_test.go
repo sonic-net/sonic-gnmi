@@ -2,17 +2,22 @@ package gnmi
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
+	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	healthzpb "github.com/openconfig/gnoi/healthz"
 	systempb "github.com/openconfig/gnoi/system"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
+	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -21,23 +26,51 @@ import (
 )
 
 func TestNewServerRegistrationAuthorization(t *testing.T) {
-	var credentials, inner atomic.Int32
+	var credentials, inner, proxy atomic.Int32
+	var readonly atomic.Bool
+	completed := make(chan string, 16)
 	patch := gomonkey.ApplyFunc(ClientCertAuthenAndAuthor, func(ctx context.Context, _ string, _ bool) (context.Context, error) {
 		credentials.Add(1)
 		rc, ctx := common_utils.GetContext(ctx)
-		rc.Auth.User, rc.Auth.Roles = "reader", []string{"gnoi_readonly", "gnmi_readonly"}
+		role := "gnoi_readwrite"
+		if readonly.Load() {
+			role = "gnoi_readonly"
+		}
+		rc.Auth.User, rc.Auth.Roles = "reader", []string{role, "gnmi_readonly"}
 		return ctx, nil
 	})
 	defer patch.Reset()
+	patch.ApplyFunc(log.Infof, func(format string, args ...interface{}) {
+		line := fmt.Sprintf(format, args...)
+		if strings.HasPrefix(line, "RPC_COMPLETION ") {
+			completed <- line
+		}
+	})
+	patch.ApplyMethod(reflect.TypeOf(&dpuproxy.DPUProxy{}), "UnaryInterceptor", func(*dpuproxy.DPUProxy) grpc.UnaryServerInterceptor {
+		return func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, h grpc.UnaryHandler) (interface{}, error) {
+			proxy.Add(1)
+			if !isUnixPeer(ctx) && (!rpcAuthorizationCompleted(ctx) || credentials.Load() != 1) {
+				t.Error("proxy entered before exactly one central authentication")
+			}
+			return h(ctx, req)
+		}
+	})
 	for _, uds := range []bool{false, true} {
 		t.Run(map[bool]string{false: "TCP", true: "UDS"}[uds], func(t *testing.T) {
 			credentials.Store(0)
+			readonly.Store(false)
 			inner.Store(0)
+			proxy.Store(0)
 			cfg := &Config{BindAddress: "127.0.0.1", EnableNativeWrite: true, UserAuth: AuthTypes{"cert": true}, ConfigTableName: gnmiClientCertTable}
 			if uds {
 				cfg.UnixSocket = filepath.Join(t.TempDir(), "gnmi.sock")
 			}
-			srv, err := NewServer(cfg, nil, []grpc.ServerOption{grpc.ChainUnaryInterceptor(
+			chain, err := interceptors.NewServerChain()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer chain.Close()
+			srv, err := NewServerWithChain(cfg, nil, []grpc.ServerOption{grpc.ChainUnaryInterceptor(
 				func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 					inner.Add(1)
 					return handler(ctx, req)
@@ -45,7 +78,7 @@ func TestNewServerRegistrationAuthorization(t *testing.T) {
 				func(srv interface{}, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 					inner.Add(1)
 					return handler(srv, stream)
-				})})
+				})}, chain)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -77,18 +110,39 @@ func TestNewServerRegistrationAuthorization(t *testing.T) {
 			if err != nil || response.GetTime() == 0 {
 				t.Fatalf("production Time: response=%v err=%v", response, err)
 			}
+			select {
+			case line := <-completed:
+				if !strings.Contains(line, `"code":"OK"`) {
+					t.Fatal(line)
+				}
+			case <-ctx.Done():
+				t.Fatal("missing allowed completion")
+			}
 			_, err = healthzpb.NewHealthzClient(conn).Check(ctx, &healthzpb.CheckRequest{})
+			select {
+			case line := <-completed:
+				want := `"code":"PermissionDenied"`
+				if uds {
+					want = `"code":"Unimplemented"`
+				}
+				if !strings.Contains(line, want) {
+					t.Fatal(line)
+				}
+			case <-ctx.Done():
+				t.Fatal("missing denied completion")
+			}
 			if uds {
 				if status.Code(err) != codes.Unimplemented || credentials.Load() != 0 || inner.Load() != 2 {
 					t.Fatalf("UDS bypass: %v credentials=%d inner=%d", err, credentials.Load(), inner.Load())
 				}
 				return
 			}
-			if status.Code(err) != codes.PermissionDenied || credentials.Load() != 1 || inner.Load() != 1 {
+			if status.Code(err) != codes.PermissionDenied || credentials.Load() != 1 || inner.Load() != 1 || proxy.Load() != 1 {
 				t.Fatalf("explicit deny before credentials/inner: %v credentials=%d inner=%d", err, credentials.Load(), inner.Load())
 			}
+			readonly.Store(true)
 			_, err = systempb.NewSystemClient(conn).Reboot(ctx, &systempb.RebootRequest{})
-			if status.Code(err) != codes.PermissionDenied || inner.Load() != 1 {
+			if status.Code(err) != codes.PermissionDenied || inner.Load() != 1 || proxy.Load() != 1 {
 				t.Fatalf("readonly reboot: %v inner=%d", err, inner.Load())
 			}
 			stream, err := gnmipb.NewGNMIClient(conn).Subscribe(ctx)
@@ -104,13 +158,40 @@ func TestNewServerRegistrationAuthorization(t *testing.T) {
 			if credentials.Load() != 3 {
 				t.Fatalf("credential calls=%d, want Time/Reboot/Subscribe only", credentials.Load())
 			}
+			for i := 0; i < 2; i++ {
+				select {
+				case <-completed:
+				case <-ctx.Done():
+					t.Fatal("missing completion")
+				}
+			}
 		})
+	}
+	// The original three-argument constructor still creates its own gate even
+	// without a logging/proxy chain supplied by the production caller.
+	srv, err := NewServer(&Config{BindAddress: "127.0.0.1", EnableNativeWrite: true, UserAuth: AuthTypes{"cert": true}, ConfigTableName: gnmiClientCertTable}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Serve()
+	defer srv.ForceStop()
+	conn, err := grpc.NewClient(srv.Address(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	before := credentials.Load()
+	_, err = healthzpb.NewHealthzClient(conn).Check(ctx, &healthzpb.CheckRequest{})
+	if status.Code(err) != codes.PermissionDenied || credentials.Load() != before {
+		t.Fatalf("no-chain early denial: %v", err)
 	}
 }
 
 func TestCentralAuthorizationWithInjectedAuthentication(t *testing.T) {
 	cfg := &Config{UserAuth: AuthTypes{"cert": true}, ConfigTableName: gnmiClientCertTable}
-	roles := []string{"gnoi_readonly"}
+	roles := []string{"gnoi_readwrite"}
 	calls := 0
 	patch := gomonkey.ApplyFunc(ClientCertAuthenAndAuthor, func(ctx context.Context, table string, crl bool) (context.Context, error) {
 		calls++
@@ -145,6 +226,15 @@ func TestCentralAuthorizationWithInjectedAuthentication(t *testing.T) {
 	if _, err := authorizeFileRead(cfg, authorized); status.Code(err) != codes.PermissionDenied || calls != 1 {
 		t.Fatalf("completed authorization did not revalidate roles: err=%v calls=%d", err, calls)
 	}
+	// A completed read decision must not authorize a stricter write handler.
+	roles = []string{"gnmi_config_db_readonly"}
+	_, err = interceptor.UnaryInterceptor()(context.Background(), testGetRequest("CONFIG_DB"), &grpc.UnaryServerInfo{FullMethod: "/gnmi.gNMI/Get"}, func(ctx context.Context, _ interface{}) (interface{}, error) {
+		_, err := authenticate(cfg, ctx, "gnmi_CONFIG_DB", true)
+		return nil, err
+	})
+	if status.Code(err) != codes.PermissionDenied || calls != 2 {
+		t.Fatalf("completed read escalated to write: %v calls=%d", err, calls)
+	}
 	// Mixed mode must still use the legacy credential orchestration and its status mapping.
 	cfg.UserAuth["password"] = true
 	if i, _ := configuredRPCAuthorizationInterceptor(cfg); i != nil {
@@ -155,7 +245,7 @@ func TestCentralAuthorizationWithInjectedAuthentication(t *testing.T) {
 		rc.Auth.User, rc.Auth.Roles = "legacy", []string{"gnoi_readonly"}
 		return ctx, nil
 	})
-	if _, err := authenticate(cfg, context.Background(), "gnoi", true); status.Code(err) != codes.PermissionDenied || calls != 1 {
+	if _, err := authenticate(cfg, context.Background(), "gnoi", true); status.Code(err) != codes.PermissionDenied || calls != 2 {
 		t.Fatalf("mixed mode changed fallback/denial: err=%v cert calls=%d", err, calls)
 	}
 }

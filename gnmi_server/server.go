@@ -23,6 +23,7 @@ import (
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/internal/authentication"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
+	"github.com/sonic-net/sonic-gnmi/pkg/interceptors"
 	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
 	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
 	spb "github.com/sonic-net/sonic-gnmi/proto"
@@ -533,6 +534,16 @@ func ValidateNoTLSConfig(bindAddress, gnmiVrf string) error {
 // loopback in the default VRF.
 // When config.UnixSocket is set, an additional UDS listener is created without TLS.
 func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption) (*Server, error) {
+	return newServer(config, tlsOpts, commonOpts, nil)
+}
+
+// NewServerWithChain composes completion, server-owned authorization and proxying.
+// The caller owns chain.Close and must not also pass chain options in commonOpts.
+func NewServerWithChain(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption, chain *interceptors.ServerChain) (*Server, error) {
+	return newServer(config, tlsOpts, commonOpts, chain)
+}
+
+func newServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.ServerOption, chain *interceptors.ServerChain) (*Server, error) {
 	if config == nil {
 		return nil, errors.New("config not provided")
 	}
@@ -552,7 +563,13 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	if unsupportedMode != "" {
 		log.Warningf("Central RPC authorization disabled: %s", unsupportedMode)
 	}
-	if rpcAuthorization != nil {
+	if chain != nil {
+		var auth interceptors.Interceptor
+		if rpcAuthorization != nil {
+			auth = rpcAuthorization
+		}
+		commonOpts = append(chain.GetServerOptionsWithAuthorization(auth), commonOpts...)
+	} else if rpcAuthorization != nil {
 		authorizationOpts := []grpc.ServerOption{
 			grpc.ChainUnaryInterceptor(rpcAuthorization.UnaryInterceptor()),
 			grpc.ChainStreamInterceptor(rpcAuthorization.StreamInterceptor()),
@@ -842,6 +859,11 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 	if rpcAuthorizationCompleted(ctx) {
 		if err := checkCompletedRPCAuthorization(ctx, rc.Auth.User, rc.Auth.Roles, target); err != nil {
 			return ctx, err
+		}
+		if writeAccess {
+			if err := checkRequiredRoleAccess(&rc.Auth, target, true); err != nil {
+				return ctx, status.Error(codes.PermissionDenied, err.Error())
+			}
 		}
 		return ctx, nil
 	}

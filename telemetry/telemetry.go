@@ -605,9 +605,7 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 			return
 		}
 
-		commonOpts = append(commonOpts, currentServerChain.GetServerOptions()...)
-
-		s, err := gnmi.NewServer(cfg, tlsOpts, commonOpts)
+		s, err := gnmi.NewServerWithChain(cfg, tlsOpts, commonOpts, currentServerChain)
 		if err != nil {
 			log.Errorf("Failed to create gNMI server: %v", err)
 			return

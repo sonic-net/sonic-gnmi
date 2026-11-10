@@ -67,7 +67,7 @@ func TestServiceRegistrationInventory(t *testing.T) {
 	}
 }
 
-func TestServiceDeclarationCoverage(t *testing.T) {
+func TestServicePolicyExceptions(t *testing.T) {
 	seen := map[string]bool{}
 	for _, service := range serviceRegistrations(serviceImplementations{
 		gnmi: &Server{}, server: &Server{}, file: &FileServer{}, os: &OSServer{},
@@ -84,25 +84,22 @@ func TestServiceDeclarationCoverage(t *testing.T) {
 		}
 		seen[service.name] = true
 		registered, ok := info[service.name]
-		if !ok || len(registered.Methods) != len(service.methods) {
-			t.Fatalf("%s: generated methods %v do not match declarations %v", service.name, registered.Methods, service.methods)
+		if !ok {
+			t.Fatalf("%s: mismatched generated registration", service.name)
 		}
+		methods := map[string]bool{}
 		for _, method := range registered.Methods {
-			permission, ok := service.methods[method.Name]
-			t.Logf("DECLARATION /%s/%s deny=%t target=%q write=%t requestTarget=%t bufferFirstRequest=%t", service.name, method.Name,
-				permission.deny, permission.target, permission.write, permission.requestTarget, permission.bufferFirstRequest)
-			if !ok {
-				t.Errorf("%s/%s has no declaration", service.name, method.Name)
-			} else if permission.deny && permission != (rpcAuthorization{deny: true}) || !permission.deny && permission.target == "" {
-				t.Errorf("%s/%s has an ambiguous declaration: %+v", service.name, method.Name, permission)
+			methods[method.Name] = true
+		}
+		for method := range rpcPolicies[service.name].exceptions {
+			if !methods[method] {
+				t.Errorf("%s/%s exception has no registered method", service.name, method)
 			}
 		}
 	}
-	// Each interceptor owns its map; modifying one cannot change another server.
-	first := testRPCAuthorizationInterceptor("gnmi_readonly")
-	second := testRPCAuthorizationInterceptor("gnmi_readonly")
-	delete(first.methods, "/gnmi.gNMI/Get")
-	if _, ok := second.methods["/gnmi.gNMI/Get"]; !ok {
-		t.Fatal("authorization declarations are shared across server instances")
+	for service := range rpcPolicies {
+		if !seen[service] {
+			t.Errorf("policy for unregistered service %s", service)
+		}
 	}
 }

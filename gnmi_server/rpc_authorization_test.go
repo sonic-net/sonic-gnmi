@@ -151,12 +151,11 @@ func TestRPCAuthorizationUnary(t *testing.T) {
 			wantEffects: 1,
 		},
 		{
-			name:        "readonly gNOI status allowed",
-			method:      "/gnoi.system.System/RebootStatus",
-			request:     &emptypb.Empty{},
-			roles:       []string{"gnoi_readonly"},
-			wantCode:    codes.OK,
-			wantEffects: 1,
+			name:     "readonly gNOI status denied",
+			method:   "/gnoi.system.System/RebootStatus",
+			request:  &emptypb.Empty{},
+			roles:    []string{"gnoi_readonly"},
+			wantCode: codes.PermissionDenied,
 		},
 		{
 			name:     "readonly gNOI mutation denied",
@@ -188,10 +187,11 @@ func TestRPCAuthorizationUnary(t *testing.T) {
 			wantCode: codes.PermissionDenied,
 		},
 		{
-			name:     "unclassified method denied",
-			method:   "/gnmi.gNMI/Unclassified",
-			roles:    []string{"gnmi_readwrite"},
-			wantCode: codes.PermissionDenied,
+			name:        "new known-service method requires readwrite",
+			method:      "/gnmi.gNMI/Unclassified",
+			roles:       []string{"gnmi_readwrite"},
+			wantCode:    codes.OK,
+			wantEffects: 1,
 		},
 	}
 
@@ -303,10 +303,11 @@ func TestRPCAuthorizationStream(t *testing.T) {
 			wantNetworkReceives: 1,
 		},
 		{
-			name:     "unclassified stream denied",
-			method:   "/gnoi.file.File/Unclassified",
-			roles:    []string{"gnoi_readwrite"},
-			wantCode: codes.PermissionDenied,
+			name:        "new known-service stream requires readwrite",
+			method:      "/gnoi.file.File/Unclassified",
+			roles:       []string{"gnoi_readwrite"},
+			wantCode:    codes.OK,
+			wantEffects: 1,
 		},
 	}
 
@@ -641,10 +642,10 @@ func TestCompletedRPCAuthorizationNarrowsTarget(t *testing.T) {
 			wantCode:      codes.OK,
 		},
 		{
-			name:          "registry read classification allows status",
+			name:          "default write classification allows status",
 			method:        "/gnoi.system.System/RebootStatus",
 			request:       &emptypb.Empty{},
-			roles:         []string{"gnoi_readonly"},
+			roles:         []string{"gnoi_readwrite"},
 			handlerTarget: "gnoi",
 			wantCode:      codes.OK,
 		},
@@ -953,6 +954,18 @@ func TestRPCAuthorizationRejectsAmbiguousTargetsBeforeInnerInterceptors(t *testi
 	if got := status.Code(err); got != codes.InvalidArgument {
 		t.Fatalf("conflicting Set status = %v, want InvalidArgument; err=%v", got, err)
 	}
+	collision := &gnmipb.SetRequest{Prefix: &gnmipb.Path{Origin: "sonic-db", Target: "CONFIG_DB"}}
+	for _, table := range []string{"VNET", "ACL_RULE"} {
+		collision.Update = append(collision.Update, &gnmipb.Update{
+			Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "CONFIG_DB"}, {Name: table}, {Name: table}, {Name: "key"}}},
+			Val:  &gnmipb.TypedValue{Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(`{"field":"value"}`)}},
+		})
+	}
+	bypassCtx := metadata.NewOutgoingContext(ctx, metadata.Pairs(bypass.MetadataKeyBypassValidation, "true"))
+	_, err = gnmipb.NewGNMIClient(harness.conn).Set(bypassCtx, collision)
+	if status.Code(err) != codes.Unimplemented {
+		t.Fatalf("full-native collision became bypass: %v", err)
+	}
 
 	malformedGet := &gnmipb.GetRequest{
 		Prefix: &gnmipb.Path{Target: "CONFIG_DB/asic0/extra"},
@@ -1199,7 +1212,7 @@ func TestRPCAuthorizationRefreshesGeneratedFileReceive(t *testing.T) {
 				if invalid.Load() {
 					return ctx, nil, status.Error(codes.Unauthenticated, "mapping removed")
 				}
-				return ctx, &rpcIdentity{user: "reader", roles: []string{"gnoi_readonly"}}, nil
+				return ctx, &rpcIdentity{user: "reader", roles: []string{"gnoi_readwrite"}}, nil
 			}, nil)
 			srv := &delayedFileServer{}
 			s := grpc.NewServer(grpc.ChainStreamInterceptor(i.StreamInterceptor(), func(srv interface{}, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {

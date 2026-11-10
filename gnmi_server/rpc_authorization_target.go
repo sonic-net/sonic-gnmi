@@ -122,6 +122,14 @@ func gnmiSetAuthorizationTarget(ctx context.Context, req *gnmipb.SetRequest) (rp
 	if bypass.IsRequested(ctx) &&
 		strings.EqualFold(prefix.GetTarget(), "CONFIG_DB") &&
 		bypass.IsAllowedSetRequest(prefix, req.GetDelete(), updates) {
+		// Only table-relative paths may use this fallback. A DB-first path
+		// must not turn a database/instance conflict into default-DB bypass.
+		for _, path := range paths {
+			elems := append(append([]*gnmipb.PathElem(nil), prefix.GetElem()...), path.GetElem()...)
+			if len(elems) == 0 || !bypass.AllowedTables[elems[0].GetName()] {
+				return rpcAuthorizationTarget{}, err
+			}
+		}
 		return rpcAuthorizationTarget{
 			target: "gnmi_CONFIG_DB",
 			route:  rpcAuthorizationRouteSetBypassOnly,

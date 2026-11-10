@@ -105,9 +105,18 @@ suppressed count.
 
 When `cert` is the only enabled authentication mode and `config_table_name` is
 `GNMI_CLIENT_CERT`, central authorization runs before inner interceptors and
-service handlers. The existing CN mapping supplies roles: classified reads
-require `readonly` or `readwrite`, writes require `readwrite`, and service-level
-`noaccess` overrides scoped allows. Unknown roles and unclassified RPCs are denied.
+service handlers. The existing CN mapping supplies roles: only gNMI Get and
+Subscribe accept `readonly`; other permitted RPCs require `readwrite` by default.
+`rpc_policy.go` contains trusted service targets and RO/Deny exceptions, not a
+complete method catalog. Unknown services, explicit denies and missing roles
+are denied; service-level `noaccess` overrides scoped allows.
+
+Production uses `NewServerWithChain` to compose completion logging, the internally
+created auth interceptor, and DPU proxying in that order. The original `NewServer`
+entry still creates the auth gate without a proxy chain. Existing handler checks
+reuse the completed target-bound identity rather than checking credentials again;
+a stricter handler write requirement still applies. Other authentication modes
+retain the legacy path. The caller retains ownership of chain cleanup.
 
 Get, Set and Subscribe are authorized for their routed target. Native path
 authorization uses the shared incremental database parser without backend
