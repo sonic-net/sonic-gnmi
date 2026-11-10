@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,30 +17,50 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type gateInterceptor struct {
+	allow atomic.Bool
+	calls *[]string
+}
+
+func (g *gateInterceptor) UnaryInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, next grpc.UnaryHandler) (interface{}, error) {
+		if !g.allow.Load() {
+			return nil, status.Error(codes.PermissionDenied, "denied")
+		}
+		*g.calls = append(*g.calls, "gate")
+		return next(ctx, req)
+	}
+}
+
+func (g *gateInterceptor) StreamInterceptor() grpc.StreamServerInterceptor {
+	return func(srv interface{}, stream grpc.ServerStream, _ *grpc.StreamServerInfo, next grpc.StreamHandler) error {
+		if !g.allow.Load() {
+			return status.Error(codes.Unauthenticated, "revoked")
+		}
+		*g.calls = append(*g.calls, "gate")
+		return next(srv, stream)
+	}
+}
+
 func TestServerChainLogsChainedDenials(t *testing.T) {
 	var mu sync.Mutex
 	var lines []string
 	var innerCalls []string
+	completed := make(chan struct{}, 4)
 	chain := &ServerChain{
 		chain: NewChain(&mockInterceptor{name: "inner", calls: &innerCalls}),
 		completion: newRPCCompletionLogger(func(line string) error {
 			mu.Lock()
 			defer mu.Unlock()
 			lines = append(lines, line)
+			completed <- struct{}{}
 			return nil
 		}),
 	}
-	// Middleware prepended by the caller must run before the inner chain, but
-	// its failures must still produce exactly one completion record per RPC.
-	opts := []grpc.ServerOption{
-		grpc.ChainUnaryInterceptor(func(context.Context, interface{}, *grpc.UnaryServerInfo, grpc.UnaryHandler) (interface{}, error) {
-			return nil, status.Error(codes.PermissionDenied, "denied")
-		}),
-		grpc.ChainStreamInterceptor(func(interface{}, grpc.ServerStream, *grpc.StreamServerInfo, grpc.StreamHandler) error {
-			return status.Error(codes.Unauthenticated, "revoked")
-		}),
-	}
-	srv := grpc.NewServer(append(opts, chain.GetServerOptions()...)...)
+	// The public composition entry keeps logging outside middleware and the
+	// inner chain behind it. Each test request uses a distinct method/status bucket.
+	gate := &gateInterceptor{calls: &innerCalls}
+	srv := grpc.NewServer(chain.GetServerOptions(gate)...)
 	healthpb.RegisterHealthServer(srv, health.NewServer())
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -65,14 +86,46 @@ func TestServerChainLogsChainedDenials(t *testing.T) {
 	if _, err := stream.Recv(); status.Code(err) != codes.Unauthenticated {
 		t.Fatal(err)
 	}
-	// Stop joins active RPCs before inspecting the inner-chain call recorder.
-	srv.Stop()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-completed:
+		case <-ctx.Done():
+			t.Fatal("denied RPC did not complete")
+		}
+	}
+	// Both denied RPCs have completed before checking the untouched inner chain.
 	if len(innerCalls) != 0 {
 		t.Fatalf("denied RPC entered inner chain: %v", innerCalls)
 	}
+	gate.allow.Store(true)
+	if _, err := client.Check(ctx, &healthpb.HealthCheckRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	streamCtx, stopStream := context.WithCancel(ctx)
+	stream, err = client.Watch(streamCtx, &healthpb.HealthCheckRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Recv(); err != nil {
+		t.Fatal(err)
+	}
+	stopStream()
+	_, _ = stream.Recv()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-completed:
+		case <-ctx.Done():
+			t.Fatal("allowed RPC did not complete")
+		}
+	}
+	// Stop joins active RPCs before inspecting the call recorder and final logs.
+	srv.Stop()
+	if strings.Join(innerCalls, ",") != "gate,inner,gate,inner" {
+		t.Fatalf("allowed RPC order: %v", innerCalls)
+	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(lines) != 2 || !strings.Contains(lines[0], `"code":"PermissionDenied"`) || !strings.Contains(lines[1], `"code":"Unauthenticated"`) {
+	if len(lines) != 4 || !strings.Contains(lines[0], `"code":"PermissionDenied"`) || !strings.Contains(lines[1], `"code":"Unauthenticated"`) || !strings.Contains(lines[2], `"code":"OK"`) {
 		t.Fatalf("completion records: %v", lines)
 	}
 }
@@ -132,7 +185,7 @@ func TestServerChain_GetServerOptions(t *testing.T) {
 	}
 
 	// Verify we get both unary and stream interceptors
-	expectedOptCount := 4 // outer completion + inner chain, unary and stream
+	expectedOptCount := 2 // one explicit gRPC chain for unary and one for stream
 	if len(opts) != expectedOptCount {
 		t.Errorf("Expected %d server options, got %d", expectedOptCount, len(opts))
 	}

@@ -69,14 +69,22 @@ func NewServerChain() (*ServerChain, error) {
 	}, nil
 }
 
-// GetServerOptions returns gRPC server options with all interceptors configured.
-func (sc *ServerChain) GetServerOptions() []grpc.ServerOption {
+// GetServerOptions orders completion logging, supplied middleware, then proxying.
+// Pass middleware here rather than registering it as a separate server option.
+func (sc *ServerChain) GetServerOptions(middleware ...Interceptor) []grpc.ServerOption {
+	unary := []grpc.UnaryServerInterceptor{sc.completion.UnaryInterceptor()}
+	stream := []grpc.StreamServerInterceptor{sc.completion.StreamInterceptor()}
+	for _, interceptor := range middleware {
+		unary = append(unary, interceptor.UnaryInterceptor())
+		stream = append(stream, interceptor.StreamInterceptor())
+	}
+	for _, interceptor := range sc.chain.interceptors {
+		unary = append(unary, interceptor.UnaryInterceptor())
+		stream = append(stream, interceptor.StreamInterceptor())
+	}
 	return []grpc.ServerOption{
-		// Single interceptors wrap all chained middleware, including early denials.
-		grpc.UnaryInterceptor(sc.completion.UnaryInterceptor()),
-		grpc.StreamInterceptor(sc.completion.StreamInterceptor()),
-		grpc.ChainUnaryInterceptor(sc.chain.UnaryInterceptor()),
-		grpc.ChainStreamInterceptor(sc.chain.StreamInterceptor()),
+		grpc.ChainUnaryInterceptor(unary...),
+		grpc.ChainStreamInterceptor(stream...),
 	}
 }
 
