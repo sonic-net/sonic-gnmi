@@ -9,7 +9,7 @@ profiles alone do not establish whether a test is a unit, integration or E2E tes
 | Go package integration tests | Beside the package when they need package-private setup | Multiple components or real dependencies; document the required environment. Existing mixed files need case-by-case separation before moving. |
 | Python service integration tests | `tests/integration/` | CLI requests against a service started by the Go test harness, with its configured databases and backend substitutes. |
 | Test tooling | `tools/test/` | Environment scripts and checks of repository test/build rules, including `test_pure_tags.py`. |
-| Artifact E2E tests | A separate test repository | A built/deployed product exercised through protocols and supported configuration, without importing product internals. That repository is not created by this layout. |
+| Artifact E2E tests | `tests/e2e/` | The packaged telemetry executable exercised through real TLS/gRPC, private Redis and files, without importing product internals. |
 
 Go package tests stay with their implementation: moving them to `tests/unit/`
 creates a different Go package, even with the same package declaration. Do not
@@ -74,8 +74,8 @@ Separate mixed unit/integration cases only after identifying their setup and
 private-symbol dependencies. Retain the same assertions, marker selections and
 test coverage; moving a file must not silently drop it from an existing runner.
 
-Independent auth E2E tests should consume an identified binary, package or image
-and record both product and test revisions. Exercise real TLS/gRPC, Redis,
-configuration and CRL inputs; do not import internal handlers or substitute
-successful authentication. Their repository name, owner and execution integration
-remain separate decisions.
+Artifact auth E2E consumes the amd64 package from the same CI job and records
+product/test revisions and package/executable hashes. Its dedicated pytest config
+and entrypoint are described in [E2E README](e2e/README.md). Root pytest discovery
+excludes this suite so the existing Go integration harness does not load its
+fixtures. Do not import internal handlers or substitute successful authentication.

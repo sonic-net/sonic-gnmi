@@ -1,0 +1,7 @@
+pytest==8.3.5
+grpcio==1.71.0
+grpcio-tools==1.71.0
+protobuf==5.29.4
+cryptography==44.0.2
+redis==5.2.1
+pygnmi==0.8.15
