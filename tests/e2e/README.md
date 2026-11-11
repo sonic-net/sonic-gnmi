@@ -1,5 +1,29 @@
 # Packaged telemetry authentication E2E
 
+## First Go-native case (local, opt-in)
+
+`auth_test.go` adds one `TestCertificateReadonlyGet` case behind the `e2e` build
+tag. Go generates real certificates, owns Redis and the packaged telemetry process,
+and calls the public gNMI stub over mTLS. A separate control CN performs readiness;
+the readonly identity sends only Get and must receive the seeded `Private` value.
+It uses no Python fixture or product server imports. Default Go tests exclude it.
+
+Inside a newly owned disposable native-runtime container with private network/IPC,
+extract the identified CI `.deb`, set its executable path and verified hash, then:
+
+```sh
+TELEMETRY_BIN=/artifact/usr/sbin/telemetry TELEMETRY_SHA256=<verified-sha256> \
+  CGO_ENABLED=0 go test -mod=vendor -tags=e2e -count=1 -timeout=2m -json \
+  ./tests/e2e -run '^TestCertificateReadonlyGet$'
+```
+
+The caller supplies the same native libraries/YANG environment as below and removes
+the owned container on timeout/cancellation. The test restores database configuration,
+reaps subprocesses, removes temporary certificates and checks the live executable
+hash. This first Go case is local-only; the existing seven-case Python CI is unchanged.
+
+## Existing Python CI
+
 The existing Azure amd64 Package job runs this suite after building and publishing
 its `.deb`. The tests execute **that package's `/usr/sbin/telemetry`**, never
 `build/bin/telemetry`, a new Go test server or substituted authentication functions.
