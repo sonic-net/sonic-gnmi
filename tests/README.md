@@ -9,7 +9,7 @@ profiles alone do not establish whether a test is a unit, integration or E2E tes
 | Go package integration tests | Beside the package when they need package-private setup | Multiple components or real dependencies; document the required environment. Existing mixed files need case-by-case separation before moving. |
 | Python service integration tests | `tests/integration/` | CLI requests against a service started by the Go test harness, with its configured databases and backend substitutes. |
 | Test tooling | `tools/test/` | Environment scripts and checks of repository test/build rules, including `test_pure_tags.py`. |
-| Artifact E2E tests | `tests/e2e/` | The packaged telemetry executable exercised through real TLS/gRPC, private Redis and files, without importing product internals. |
+| DI RPC integration tests | `tests/rpc/` | Selected production service, injected data reader, real TLS/gRPC and Redis role lookup; not packaged-process E2E. |
 
 Go package tests stay with their implementation: moving them to `tests/unit/`
 creates a different Go package, even with the same package declaration. Do not
@@ -74,8 +74,8 @@ Separate mixed unit/integration cases only after identifying their setup and
 private-symbol dependencies. Retain the same assertions, marker selections and
 test coverage; moving a file must not silently drop it from an existing runner.
 
-Artifact auth E2E consumes the amd64 package from the same CI job and records
-product/test revisions and package/executable hashes. Its single Go example and
-entrypoint are described in [E2E README](e2e/README.md). The `e2e` build tag keeps
-it outside default Go tests; no Python fixtures are loaded by root pytest.
-Do not import internal handlers or substitute successful authentication.
+The DI auth example reuses the native build environment and records source hashes.
+Its service/server/client boundaries and checkpoint lifecycle are described in
+[RPC README](rpc/README.md). The opt-in `e2e` tag keeps it outside default Go tests;
+no Python fixtures are loaded by root pytest. Data can be injected, but successful
+authentication must not be substituted in auth-chain tests.

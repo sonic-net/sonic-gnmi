@@ -73,10 +73,10 @@ named `telemetry`. Build it in the SONiC build environment with `make all`.
 Its native tests remain part of `make test-integration`, not the pure-package
 suite. Existing binary paths, command-line flags and Debian packaging are unchanged.
 
-[Artifact E2E tests](tests/e2e/README.md) exercise the packaged telemetry executable
-through real TLS/gRPC, private Redis and files, without importing server internals.
+[RPC integration tests](tests/rpc/README.md) compose a selected production service
+with injected data dependencies, real TLS/gRPC and private Redis role mappings.
 The amd64 package job runs one Go readonly Get example and publishes JUnit,
-raw Go results, product/test revisions, package/executable hashes and cleanup logs.
+raw Go results, source hashes and cleanup logs. This is not package/startup E2E.
 
 The request-local authentication fallback and role checks can be tested without
 Redis, SWSS, or a running gNMI server:
