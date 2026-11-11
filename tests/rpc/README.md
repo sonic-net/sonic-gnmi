@@ -2,16 +2,15 @@
 
 `TestCertificateReadonlyGet` registers only a Get service. The real production
 Get handler authenticates the TLS client certificate and looks up its role in
-private Redis; an injected reader supplies `Private`. This is RPC integration,
+private Redis; the production database reader reads testcase-seeded `Private`
+from that same Redis. This is RPC integration,
 not validation of a packaged telemetry executable or its startup path.
 
 ## Composition
 
-- `gnmi.NewGetService(config, databaseGet)` owns service dependencies, reusing the
-  production Get handler. Nil selects production database access. The injected
-  reader cannot select the authorization target or provide authentication results.
-  The current seam handles explicit database targets (the example uses
-  `Prefix.Target=CONFIG_DB`); native sonic-db path routing stays unchanged.
+- `gnmi.NewGetService(config)` exposes the production Get handler and its normal
+  database reader (the example uses `Prefix.Target=CONFIG_DB`). There is no
+  injected data reader or replacement response. Native routing stays unchanged.
   Other RPCs on this narrow service return Unimplemented; pathz-enabled standalone
   construction is rejected rather than silently bypassing policy.
 - `testutil.StartServer(t, tlsConfig, register, options...)` only owns listener/server
@@ -22,10 +21,12 @@ not validation of a packaged telemetry executable or its startup path.
 - `testutil.NewFixture(t)` starts one empty private Redis and owns checkpoint,
   rollback and shutdown. It seeds no role, device metadata or initialization marker.
   `testutil.NewCertificateAuthority(t)` supplies PKI separately. Cases explicitly
-  HSET their own role mappings. There is no control identity or readiness RPC:
+  HSET their own role mappings and query data. There is no control identity or readiness RPC:
   the registered listener already exists, and the case's bounded RPC establishes TLS.
 - `native_test.go` explicitly connects the existing production SWSS adapter to the
   fixture socket using DB connection metadata, not Redis table initialization.
+  It temporarily points the existing process-global data-client map at the same
+  real Redis client and restores that map on group teardown; no read methods are mocked.
   Native imports remain confined to the RPC tests; `testutil` uses only Go and
   go-redis and can compile with CGO disabled. This does not yet remove the existing
   `gnmi_server` package's native imports or their startup side effects.
@@ -75,7 +76,7 @@ go test -mod=vendor -tags=e2e -count=1 -timeout=2m ./tests/rpc
 ```
 
 They verify restoration between cases, extra cleanup ordering, group abort after
-failed rollback, and real noaccess/unmapped RPC denial before the reader executes.
+failed rollback, and real noaccess/unmapped RPC denial with no response data.
 The readonly example remains one positive case, not a complete auth suite. The
 previous artifact example and Python suite are outside this scope; their CI PASS
 does not qualify this DI revision.

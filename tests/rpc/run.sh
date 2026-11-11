@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Native RPC integration: selected production service + injected data reader.
+# Native RPC integration: selected production service and private Redis.
 set -euo pipefail
 repo=$(realpath "$(dirname "$0")/../..")
 results="$repo/test-results/auth-rpc"

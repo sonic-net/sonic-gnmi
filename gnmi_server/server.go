@@ -90,7 +90,6 @@ type Server struct {
 	// This is nil if UnixSocket is not configured.
 	udsListener   net.Listener
 	config        *Config
-	databaseGet   DatabaseGetFactory
 	cMu           sync.Mutex
 	clients       map[ClientKey]*Client
 	certProviders []certprovider.Provider
@@ -1062,7 +1061,7 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 	encoding := req.GetEncoding()
 	log.V(3).Infof("GetRequest paths: %v", paths)
 
-	var dc GetReader
+	var dc sdc.Client
 	var err error
 	// Handle OPERATIONAL target directly without SONiC routing
 	if target == "OPERATIONAL" {
@@ -1077,12 +1076,8 @@ func (s *Server) Get(ctx context.Context, req *gnmipb.GetRequest) (*gnmipb.GetRe
 		dc, err = sdc.NewShowClient(paths, prefix)
 		authTarget = "gnmi_show"
 	} else if targetDbName, ok, _, _ := sdc.IsTargetDb(target); ok {
-		if s.databaseGet != nil {
-			dc, err = s.databaseGet(paths, prefix)
-		} else {
-			dc, err = sdc.NewDbClientForGet(paths, prefix)
-		}
-		if err == nil && s.databaseGet == nil {
+		dc, err = sdc.NewDbClientForGet(paths, prefix)
+		if err == nil {
 			// For Get requests, validate that all requested keys exist in Redis.
 			// NewDbClient allows non-existent paths (needed for Subscribe to monitor
 			// future data per gNMI spec), but Get should return NOT_FOUND immediately

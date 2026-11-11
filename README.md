@@ -74,7 +74,7 @@ Its native tests remain part of `make test-integration`, not the pure-package
 suite. Existing binary paths, command-line flags and Debian packaging are unchanged.
 
 [RPC integration tests](tests/rpc/README.md) compose a selected production service
-with injected data dependencies, real TLS/gRPC and private Redis role mappings.
+with real TLS/gRPC and private Redis for role mappings and normal Get data reads.
 The amd64 package job runs one Go readonly Get example and publishes JUnit,
 raw Go results, source hashes and cleanup logs. This is not package/startup E2E.
 

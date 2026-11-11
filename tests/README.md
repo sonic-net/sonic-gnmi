@@ -9,7 +9,7 @@ profiles alone do not establish whether a test is a unit, integration or E2E tes
 | Go package integration tests | Beside the package when they need package-private setup | Multiple components or real dependencies; document the required environment. Existing mixed files need case-by-case separation before moving. |
 | Python service integration tests | `tests/integration/` | CLI requests against a service started by the Go test harness, with its configured databases and backend substitutes. |
 | Test tooling | `tools/test/` | Environment scripts and checks of repository test/build rules, including `test_pure_tags.py`. |
-| DI RPC integration tests | `tests/rpc/` | Selected production service, injected data reader, real TLS/gRPC and Redis role lookup; not packaged-process E2E. |
+| RPC integration tests | `tests/rpc/` | Selected production service, normal database reader, real TLS/gRPC and Redis role lookup; not packaged-process E2E. |
 
 Go package tests stay with their implementation: moving them to `tests/unit/`
 creates a different Go package, even with the same package declaration. Do not
