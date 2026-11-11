@@ -75,8 +75,8 @@ suite. Existing binary paths, command-line flags and Debian packaging are unchan
 
 [Artifact E2E tests](tests/e2e/README.md) exercise the packaged telemetry executable
 through real TLS/gRPC, private Redis and files, without importing server internals.
-The amd64 package job runs seven authentication/authorization cases and publishes
-JUnit, product/test revisions, package/executable hashes and cleanup evidence.
+The amd64 package job runs one Go readonly Get example and publishes JUnit,
+raw Go results, product/test revisions, package/executable hashes and cleanup logs.
 
 The request-local authentication fallback and role checks can be tested without
 Redis, SWSS, or a running gNMI server:

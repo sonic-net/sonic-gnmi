@@ -75,7 +75,7 @@ private-symbol dependencies. Retain the same assertions, marker selections and
 test coverage; moving a file must not silently drop it from an existing runner.
 
 Artifact auth E2E consumes the amd64 package from the same CI job and records
-product/test revisions and package/executable hashes. Its dedicated pytest config
-and entrypoint are described in [E2E README](e2e/README.md). Root pytest discovery
-excludes this suite so the existing Go integration harness does not load its
-fixtures. Do not import internal handlers or substitute successful authentication.
+product/test revisions and package/executable hashes. Its single Go example and
+entrypoint are described in [E2E README](e2e/README.md). The `e2e` build tag keeps
+it outside default Go tests; no Python fixtures are loaded by root pytest.
+Do not import internal handlers or substitute successful authentication.
