@@ -62,6 +62,31 @@ def write_source(relative, content):
     return digest(path)
 
 
+def vendor_owner(bazel, execution, vendor, module, target):
+    """Use the same patched Go source owner as the configured Bazel graph."""
+    output = bazel("cquery", ["config(" + target + ", target)", "--output=starlark",
+                              "--starlark:expr=target.label.workspace_root"])
+    # The existing runner retains stdout and diagnostics in one query log.
+    roots = [line for line in output.splitlines() if line.startswith("external/")]
+    assert len(roots) == 1 and re.fullmatch(r"external/[A-Za-z0-9_.+~-]+", roots[0]), roots
+    # cquery fetches the repository without necessarily adding it to the
+    # execution symlink forest. Read the complete patched source from the
+    # output base, where Bazel stores its fetched repositories.
+    source = execution.parent.parent / roots[0]
+    assert re.search(r"(?m)^module\s+" + re.escape(module) + r"\s*$",
+                     (source / "go.mod").read_text()), (module, source)
+    destination = vendor / module
+    # go mod vendor can select a different upstream revision. Replace its
+    # complete module directory so obsolete source files cannot survive.
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(source, destination)
+    hashes = {str(path.relative_to(destination)): digest(path)
+              for path in sorted(destination.rglob("*")) if path.is_file()}
+    assert any(name.endswith(".go") for name in hashes), module
+    return {"target": target, "repository": roots[0], "source_sha256": hashes}
+
+
 def prepare(work, evidence):
     assert platform.machine() == "x86_64"
     assert "VERSION_CODENAME=trixie" in Path("/etc/os-release").read_text()
@@ -156,19 +181,17 @@ def prepare(work, evidence):
     run(["go", "mod", "tidy"], cwd=ROOT, env=env, log=evidence / "go-tidy.log")
     run(["go", "mod", "vendor"], cwd=ROOT, env=env, log=evidence / "go-vendor.log")
     vendor = ROOT / "vendor"
-    for module, version in [("github.com/openconfig/ygot", "v0.7.1"),
-                            ("github.com/openconfig/goyang", "v0.0.0-20200309174518-a00bece872fc")]:
-        downloaded = json.loads(run(["go", "mod", "download", "-json", module + "@" + version],
-                                    cwd=ROOT, env=env).stdout)
-        shutil.copytree(downloaded["Dir"], vendor / module, dirs_exist_ok=True)
+    report["shared_go_owners"] = {
+        module: vendor_owner(bazel, execution, vendor, module, target)
+        for module, target in [
+            ("github.com/openconfig/ygot", "@com_github_openconfig_ygot//ygot:ygot"),
+            ("github.com/openconfig/goyang", "@com_github_openconfig_goyang//pkg/yang:yang"),
+        ]
+    }
     for path in vendor.rglob("*"):
         if path.is_file() or path.is_dir():
             path.chmod(path.stat().st_mode | 0o200)
     for module, patches in [
-        # The owner's 0001 patch changes only BUILD.bazel, which ordinary Go
-        # does not consume. Preserve all selected Go-source patches here.
-        ("github.com/openconfig/ygot", ["ygot/ygot.patch"]),
-        ("github.com/openconfig/goyang", ["goyang/goyang.patch"]),
         ("github.com/antchfx/jsonquery", ["jsonquery.patch"]),
         ("github.com/antchfx/xmlquery", ["xmlquery.patch"]),
         ("github.com/antchfx/xpath", ["xpath.patch"]),

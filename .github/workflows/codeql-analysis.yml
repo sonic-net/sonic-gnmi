@@ -72,6 +72,9 @@ jobs:
         disk-cache: gnmi-native-amd64
         cache-version: '8.5.1'
 
+    - name: Test the shared Go source handoff
+      run: python3 -B -m unittest discover -s tools/ci -p 'prepare_codeql_test.py' -v
+
     - name: Prepare selected owner libraries and generated sources
       run: |
         git config --global --add safe.directory "$GITHUB_WORKSPACE"
