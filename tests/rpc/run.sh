@@ -12,7 +12,7 @@ source_sha=$(git -c safe.directory="$repo" rev-parse HEAD)
 [[ -z "${BUILD_SOURCEVERSION:-}" || "$source_sha" == "$BUILD_SOURCEVERSION" ]]
 {
     printf 'source_sha=%s\nsource_ref=%s\nbuild_id=%s\n' "$source_sha" "${BUILD_SOURCEBRANCH:-local}" "${BUILD_BUILDID:-local}"
-    sha256sum tests/rpc/*.go gnmi_server/get_service.go gnmi_server/server.go
+    sha256sum tests/rpc/*.go tests/rpc/testutil/*.go gnmi_server/get_service.go gnmi_server/server.go
     go version
 } > "$results/source.txt"
 reporter="$repo/build/tools/bin/gotestsum-v1.13.0"

@@ -1,6 +1,6 @@
 //go:build e2e
 
-package rpc_test
+package testutil
 
 import (
 	"crypto/ecdsa"
@@ -15,13 +15,13 @@ import (
 	"time"
 )
 
-type authority struct {
+type CertificateAuthority struct {
 	cert *x509.Certificate
 	key  *ecdsa.PrivateKey
 	pool *x509.CertPool
 }
 
-func newAuthority(t *testing.T) *authority {
+func NewCertificateAuthority(t *testing.T) *CertificateAuthority {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	check(t, err)
@@ -34,7 +34,7 @@ func newAuthority(t *testing.T) *authority {
 	check(t, err)
 	pool := x509.NewCertPool()
 	pool.AddCert(cert)
-	return &authority{cert: cert, key: key, pool: pool}
+	return &CertificateAuthority{cert: cert, key: key, pool: pool}
 }
 
 func serial(t *testing.T) *big.Int {
@@ -44,7 +44,7 @@ func serial(t *testing.T) *big.Int {
 	return n
 }
 
-func (a *authority) issue(t *testing.T, name string, usage x509.ExtKeyUsage) tls.Certificate {
+func (a *CertificateAuthority) issue(t *testing.T, name string, usage x509.ExtKeyUsage) tls.Certificate {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	check(t, err)
@@ -57,4 +57,14 @@ func (a *authority) issue(t *testing.T, name string, usage x509.ExtKeyUsage) tls
 	der, err := x509.CreateCertificate(rand.Reader, cert, a.cert, &key.PublicKey, a.key)
 	check(t, err)
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+}
+
+func (a *CertificateAuthority) ServerTLS(t *testing.T) *tls.Config {
+	return &tls.Config{Certificates: []tls.Certificate{a.issue(t, "server", x509.ExtKeyUsageServerAuth)},
+		ClientCAs: a.pool, ClientAuth: tls.RequireAndVerifyClientCert, MinVersion: tls.VersionTLS12}
+}
+
+func (a *CertificateAuthority) ClientTLS(t *testing.T, name string) *tls.Config {
+	return &tls.Config{Certificates: []tls.Certificate{a.issue(t, name, x509.ExtKeyUsageClientAuth)},
+		RootCAs: a.pool, MinVersion: tls.VersionTLS12}
 }

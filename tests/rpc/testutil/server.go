@@ -1,6 +1,6 @@
 //go:build e2e
 
-package rpc_test
+package testutil
 
 import (
 	"crypto/tls"
@@ -12,11 +12,11 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-type runningServer struct{ address string }
+type RunningServer struct{ Address string }
 
 // startServer owns transport only. Registration and business dependencies belong
 // to the caller; no service or interceptor is implicitly installed.
-func startServer(t *testing.T, tlsConfig *tls.Config, register func(*grpc.Server), options ...grpc.ServerOption) *runningServer {
+func StartServer(t *testing.T, tlsConfig *tls.Config, register func(*grpc.Server), options ...grpc.ServerOption) *RunningServer {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	check(t, err)
@@ -36,16 +36,7 @@ func startServer(t *testing.T, tlsConfig *tls.Config, register func(*grpc.Server
 	})
 	register(server)
 	go func() { done <- server.Serve(listener) }()
-	return &runningServer{address: listener.Addr().String()}
-}
-
-func newClient(t *testing.T, address string, tlsConfig *tls.Config) *grpc.ClientConn {
-	t.Helper()
-	connection, err := grpc.NewClient(address,
-		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)), grpc.WithDisableRetry())
-	check(t, err)
-	t.Cleanup(func() { check(t, connection.Close()) })
-	return connection
+	return &RunningServer{Address: listener.Addr().String()}
 }
 
 func check(t *testing.T, err error) {

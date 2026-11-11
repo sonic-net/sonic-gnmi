@@ -14,14 +14,21 @@ not validation of a packaged telemetry executable or its startup path.
   `Prefix.Target=CONFIG_DB`); native sonic-db path routing stays unchanged.
   Other RPCs on this narrow service return Unimplemented; pathz-enabled standalone
   construction is rejected rather than silently bypassing policy.
-- `startServer(t, tlsConfig, register, options...)` only owns listener/server
+- `testutil.StartServer(t, tlsConfig, register, options...)` only owns listener/server
   lifecycle. The caller registers the minimum services and supplies interceptors
   explicitly. It does not construct service dependencies or a client.
-- `newClient(t, address, tlsConfig)` creates a standard grpc-go connection and
+- `testutil.NewClientConn(t, address, tlsConfig)` creates a standard grpc-go connection and
   registers cleanup. Tests choose the generated gNMI/gNOI stub themselves.
-- `newEnvironment(t)` composes private Redis and a real CA. Server/client factories
-  remain independently callable. A separate control identity performs readiness
-  using Get; case clients never send an implicit Capabilities RPC.
+- `testutil.NewFixture(t)` starts one empty private Redis and owns checkpoint,
+  rollback and shutdown. It seeds no role, device metadata or initialization marker.
+  `testutil.NewCertificateAuthority(t)` supplies PKI separately. Cases explicitly
+  HSET their own role mappings. There is no control identity or readiness RPC:
+  the registered listener already exists, and the case's bounded RPC establishes TLS.
+- `native_test.go` explicitly connects the existing production SWSS adapter to the
+  fixture socket using DB connection metadata, not Redis table initialization.
+  Native imports remain confined to the RPC tests; `testutil` uses only Go and
+  go-redis and can compile with CGO disabled. This does not yet remove the existing
+  `gnmi_server` package's native imports or their startup side effects.
 
 ## Group and case ownership
 
@@ -63,6 +70,7 @@ source hashes and cleanup/test output. No Python client dependency is required.
 Fixture/DI regression checks are separate from the single example:
 
 ```sh
+CGO_ENABLED=0 go test -mod=vendor -tags=e2e -count=1 ./tests/rpc/testutil
 go test -mod=vendor -tags=e2e -count=1 -timeout=2m ./tests/rpc
 ```
 
