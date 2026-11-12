@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -41,48 +42,48 @@ const (
 )
 
 type TelemetryConfig struct {
-	UserAuth                 gnmi.AuthTypes
-	Port                     *int
-	UnixSocket               *string
-	LogLevel                 *int
-	CaCert                   *string
-	ServerCert               *string
-	ServerKey                *string
-	ConfigTableName          *string
-	ZmqAddress               *string
-	ZmqPort                  *string
-	Insecure                 *bool
-	NoTLS                    *bool
-	AllowNoClientCert        *bool
-	JwtRefInt                *uint64
-	JwtValInt                *uint64
-	GnmiTranslibWrite        *bool
-	GnmiNativeWrite          *bool
-	Threshold                *int
-	StreamingThreshold       *int
-	UnaryThreshold           *int
-	WithMasterArbitration    *bool
-	WithSaveOnSet            *bool
-	IdleConnDuration         *int
-	GnmiVrf                  *string
-	Vrf                      *string
-	BindAddress              *string
-	EnableCrl                *bool
-	CrlExpireDuration        *int
-	CaCertLnk                *string
-	ServerCertLnk            *string
-	ServerKeyLnk             *string
-	CertCRLConfig            *string
-	IntManFile               *string
-	CertzMetaFile            *string
-	ImgDirPath               *string
-	AuthzMetaFile            *string
-	AuthPolicyEnabled        *bool
-	AuthzPolicyFile          *string
-	EnableStreamMultiplexing *bool
-	MaxRecvMsgSize           *int
-	MaxSendMsgSize           *int
-	PathsBlacklistFile       *string
+	UserAuth              gnmi.AuthTypes
+	Port                  *int
+	UnixSocket            *string
+	LogLevel              *int
+	CaCert                *string
+	ServerCert            *string
+	ServerKey             *string
+	ConfigTableName       *string
+	ZmqAddress            *string
+	ZmqPort               *string
+	Insecure              *bool
+	NoTLS                 *bool
+	AllowNoClientCert     *bool
+	JwtRefInt             *uint64
+	JwtValInt             *uint64
+	GnmiTranslibWrite     *bool
+	GnmiNativeWrite       *bool
+	Threshold             *int
+	StreamingThreshold    *int
+	UnaryThreshold        *int
+	WithMasterArbitration *bool
+	WithSaveOnSet         *bool
+	IdleConnDuration      *int
+	GnmiVrf               *string
+	Vrf                   *string
+	BindAddress           *string
+	EnableCrl             *bool
+	CrlExpireDuration     *int
+	CaCertLnk             *string
+	ServerCertLnk         *string
+	ServerKeyLnk          *string
+	CertCRLConfig         *string
+	IntManFile            *string
+	CertzMetaFile         *string
+	ImgDirPath            *string
+	AuthzMetaFile         *string
+	AuthPolicyEnabled     *bool
+	AuthzPolicyFile       *string
+	MaxConcurrentStreams  *int
+	MaxRecvMsgSize        *int
+	MaxSendMsgSize        *int
+	PathsBlacklistFile    *string
 }
 
 func main() {
@@ -186,46 +187,46 @@ func parseOSArgs() ([]string, []string) {
 
 func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	telemetryCfg := &TelemetryConfig{
-		UserAuth:                 gnmi.AuthTypes{"password": false, "cert": false, "jwt": false},
-		Port:                     fs.Int("port", -1, "port to listen on"),
-		UnixSocket:               fs.String("unix_socket", "/var/run/gnmi/gnmi.sock", "Unix socket path for local connections without TLS (set to empty to disable)"),
-		LogLevel:                 fs.Int("v", 2, "log level of process"),
-		ConfigTableName:          fs.String("config_table_name", "", "Config table name"),
-		ZmqAddress:               fs.String("zmq_address", "", "Orchagent ZMQ address, deprecated, please use zmq_port."),
-		ZmqPort:                  fs.String("zmq_port", "", "Orchagent ZMQ port, when not set or empty string telemetry server will switch to Redis based communication channel."),
-		Insecure:                 fs.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!"),
-		NoTLS:                    fs.Bool("noTLS", false, "disable TLS, for testing only!"),
-		AllowNoClientCert:        fs.Bool("allow_no_client_auth", false, "When set, a client certificate is optional, but a certificate provided by the client must be valid."),
-		JwtRefInt:                fs.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed."),
-		JwtValInt:                fs.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for."),
-		GnmiTranslibWrite:        fs.Bool("gnmi_translib_write", gnmi.ENABLE_TRANSLIB_WRITE, "Enable gNMI translib write for management framework"),
-		GnmiNativeWrite:          fs.Bool("gnmi_native_write", gnmi.ENABLE_NATIVE_WRITE, "Enable gNMI native write"),
-		Threshold:                fs.Int("threshold", 100, "max number of client connections"),
-		WithMasterArbitration:    fs.Bool("with-master-arbitration", false, "Enables master arbitration policy."),
-		WithSaveOnSet:            fs.Bool("with-save-on-set", false, "Enables save-on-set."),
-		IdleConnDuration:         fs.Int("idle_conn_duration", 5, "Seconds before server closes idle connections"),
-		GnmiVrf:                  fs.String("gnmi_vrf", "", "VRF name for gNMI server binding."),
-		Vrf:                      fs.String("vrf", "", "VRF name for ZMQ client binding."),
-		BindAddress:              fs.String("bind_address", "", "Address to bind the gRPC TCP listener. Empty binds all interfaces. Use 127.0.0.1 to restrict to localhost."),
-		EnableCrl:                fs.Bool("enable_crl", false, "Enable certificate revocation list"),
-		CrlExpireDuration:        fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
-		ImgDirPath:               fs.String("img_dir", "/tmp/host_tmp", "Directory path where image will be transferred."),
-		CaCert:                   fs.String("ca_crt", "", "CA certificate for client certificate validation. Optional."),
-		ServerCert:               fs.String("server_crt", "", "TLS server certificate"),
-		ServerKey:                fs.String("server_key", "", "TLS server private key"),
-		CaCertLnk:                fs.String("ca_cert_lnk", "/keys/ca_cert.lnk", "Path for CA certificate symlink"),
-		ServerCertLnk:            fs.String("server_cert_lnk", "/keys/server_cert.lnk", "Path for Server certificate symlink"),
-		ServerKeyLnk:             fs.String("server_key_lnk", "/keys/server_key.lnk", "Path for Server key symlink"),
-		IntManFile:               fs.String("integrity_manifest_file", "", "Full path name of integrity manifest file."),
-		CertCRLConfig:            fs.String("cert_crl_dir", "/mtls/crl", "Directory for CRL files"),
-		CertzMetaFile:            fs.String("grpc_meta", "/keys/grpc-version.json", "gRPC credentials metadata JSON file"),
-		AuthzMetaFile:            fs.String("authz_meta", "/keys/authz-version.json", "authz policy metadata JSON file"),
-		AuthPolicyEnabled:        fs.Bool("authz_policy_enabled", false, "Enable authz policy. Require insecure flag to be false."),
-		AuthzPolicyFile:          fs.String("authorization_policy_file", "/keys/authorization_policy.json", "Full path name of the JSON authorization policy file."),
-		EnableStreamMultiplexing: fs.Bool("enable_stream_multiplexing", false, "Allow multiple Subscribe RPCs on a single TCP connection via HTTP/2 stream multiplexing"),
-		MaxRecvMsgSize:           fs.Int("max_recv_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can receive"),
-		MaxSendMsgSize:           fs.Int("max_send_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can send"),
-		PathsBlacklistFile:       fs.String("paths_blacklist", "", "File with blacklisted gNMI paths, one 'TARGET PATH' entry per line. Requests referencing these paths are rejected. Empty disables the blacklist."),
+		UserAuth:              gnmi.AuthTypes{"password": false, "cert": false, "jwt": false},
+		Port:                  fs.Int("port", -1, "port to listen on"),
+		UnixSocket:            fs.String("unix_socket", "/var/run/gnmi/gnmi.sock", "Unix socket path for local connections without TLS (set to empty to disable)"),
+		LogLevel:              fs.Int("v", 2, "log level of process"),
+		ConfigTableName:       fs.String("config_table_name", "", "Config table name"),
+		ZmqAddress:            fs.String("zmq_address", "", "Orchagent ZMQ address, deprecated, please use zmq_port."),
+		ZmqPort:               fs.String("zmq_port", "", "Orchagent ZMQ port, when not set or empty string telemetry server will switch to Redis based communication channel."),
+		Insecure:              fs.Bool("insecure", false, "Skip providing TLS cert and key, for testing only!"),
+		NoTLS:                 fs.Bool("noTLS", false, "disable TLS, for testing only!"),
+		AllowNoClientCert:     fs.Bool("allow_no_client_auth", false, "When set, a client certificate is optional, but a certificate provided by the client must be valid."),
+		JwtRefInt:             fs.Uint64("jwt_refresh_int", 900, "Seconds before JWT expiry the token can be refreshed."),
+		JwtValInt:             fs.Uint64("jwt_valid_int", 3600, "Seconds that JWT token is valid for."),
+		GnmiTranslibWrite:     fs.Bool("gnmi_translib_write", gnmi.ENABLE_TRANSLIB_WRITE, "Enable gNMI translib write for management framework"),
+		GnmiNativeWrite:       fs.Bool("gnmi_native_write", gnmi.ENABLE_NATIVE_WRITE, "Enable gNMI native write"),
+		Threshold:             fs.Int("threshold", 100, "max number of client connections"),
+		WithMasterArbitration: fs.Bool("with-master-arbitration", false, "Enables master arbitration policy."),
+		WithSaveOnSet:         fs.Bool("with-save-on-set", false, "Enables save-on-set."),
+		IdleConnDuration:      fs.Int("idle_conn_duration", 5, "Seconds before server closes idle connections"),
+		GnmiVrf:               fs.String("gnmi_vrf", "", "VRF name for gNMI server binding."),
+		Vrf:                   fs.String("vrf", "", "VRF name for ZMQ client binding."),
+		BindAddress:           fs.String("bind_address", "", "Address to bind the gRPC TCP listener. Empty binds all interfaces. Use 127.0.0.1 to restrict to localhost."),
+		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
+		CrlExpireDuration:     fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
+		ImgDirPath:            fs.String("img_dir", "/tmp/host_tmp", "Directory path where image will be transferred."),
+		CaCert:                fs.String("ca_crt", "", "CA certificate for client certificate validation. Optional."),
+		ServerCert:            fs.String("server_crt", "", "TLS server certificate"),
+		ServerKey:             fs.String("server_key", "", "TLS server private key"),
+		CaCertLnk:             fs.String("ca_cert_lnk", "/keys/ca_cert.lnk", "Path for CA certificate symlink"),
+		ServerCertLnk:         fs.String("server_cert_lnk", "/keys/server_cert.lnk", "Path for Server certificate symlink"),
+		ServerKeyLnk:          fs.String("server_key_lnk", "/keys/server_key.lnk", "Path for Server key symlink"),
+		IntManFile:            fs.String("integrity_manifest_file", "", "Full path name of integrity manifest file."),
+		CertCRLConfig:         fs.String("cert_crl_dir", "/mtls/crl", "Directory for CRL files"),
+		CertzMetaFile:         fs.String("grpc_meta", "/keys/grpc-version.json", "gRPC credentials metadata JSON file"),
+		AuthzMetaFile:         fs.String("authz_meta", "/keys/authz-version.json", "authz policy metadata JSON file"),
+		AuthPolicyEnabled:     fs.Bool("authz_policy_enabled", false, "Enable authz policy. Require insecure flag to be false."),
+		AuthzPolicyFile:       fs.String("authorization_policy_file", "/keys/authorization_policy.json", "Full path name of the JSON authorization policy file."),
+		MaxConcurrentStreams:  fs.Int("max_concurrent_streams", 8, "Maximum concurrent HTTP/2 streams (RPCs) per client connection; further RPCs wait client-side for a free slot. 0 means unlimited"),
+		MaxRecvMsgSize:        fs.Int("max_recv_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can receive"),
+		MaxSendMsgSize:        fs.Int("max_send_msg_size", 4*1024*1024, "Maximum message size in bytes that the server can send"),
+		PathsBlacklistFile:    fs.String("paths_blacklist", "", "File with blacklisted gNMI paths, one 'TARGET PATH' entry per line. Requests referencing these paths are rejected. Empty disables the blacklist."),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -256,6 +257,11 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	switch {
 	case *telemetryCfg.Threshold < 0:
 		return nil, nil, fmt.Errorf("threshold must be >= 0.")
+	}
+
+	switch {
+	case *telemetryCfg.MaxConcurrentStreams < 0 || int64(*telemetryCfg.MaxConcurrentStreams) > math.MaxUint32:
+		return nil, nil, fmt.Errorf("max_concurrent_streams must be between 0 and %d, 0 meaning unlimited", uint32(math.MaxUint32))
 	}
 
 	switch {
@@ -369,7 +375,6 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.AuthzMetaFile = string(*telemetryCfg.AuthzMetaFile)
 	cfg.AuthzPolicy = *telemetryCfg.AuthPolicyEnabled && !*telemetryCfg.Insecure
 	cfg.AuthzPolicyFile = string(*telemetryCfg.AuthzPolicyFile)
-	cfg.EnableStreamMultiplexing = *telemetryCfg.EnableStreamMultiplexing
 	return telemetryCfg, cfg, nil
 }
 
@@ -595,6 +600,7 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 		commonOpts = append(commonOpts,
 			grpc.MaxRecvMsgSize(*telemetryCfg.MaxRecvMsgSize),
 			grpc.MaxSendMsgSize(*telemetryCfg.MaxSendMsgSize),
+			grpc.MaxConcurrentStreams(uint32(*telemetryCfg.MaxConcurrentStreams)),
 		)
 
 		// Setup interceptor chain (includes DPU proxy with Redis-based routing)
