@@ -3,14 +3,77 @@ package download
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"testing"
 )
+
+func TestDownloadTrustedTLS(t *testing.T) {
+	testCase := os.Getenv("GNOI_TRUSTED_TLS_TEST")
+	if testCase == "" {
+		for _, name := range []string{"trusted hostname", "untrusted CA", "hostname mismatch"} {
+			t.Run(name, func(t *testing.T) {
+				// Each process gets a fresh system root pool, without changing
+				// production TLS configuration or relying on the machine's CAs.
+				cmd := exec.Command(os.Args[0], "-test.run=^TestDownloadTrustedTLS$")
+				cmd.Env = append(os.Environ(), "GNOI_TRUSTED_TLS_TEST="+name)
+				if output, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("%v: %s", err, output)
+				}
+			})
+		}
+		return
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("TLS image bytes"))
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "roots.pem")
+	var roots []byte
+	if testCase != "untrusted CA" {
+		roots = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	}
+	if err := os.WriteFile(certPath, roots, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SSL_CERT_FILE", certPath)
+	t.Setenv("SSL_CERT_DIR", dir)
+	t.Setenv("HTTPS_PROXY", "http://proxy.invalid:1")
+	// httptest's certificate is valid for example.com, not this pinned IP's
+	// invented hostname. A hostname mismatch must still fail with a trusted CA.
+	host := "example.com"
+	if testCase == "hostname mismatch" {
+		host = "mismatch.example"
+	}
+	_, portText, _ := net.SplitHostPort(server.Listener.Addr().String())
+	port, _ := strconv.Atoi(portText)
+	policy, _ := json.Marshal(map[string]interface{}{
+		"origins": []map[string]interface{}{{
+			"scheme": "https", "host": host, "port": port, "addresses": []string{"127.0.0.1"},
+		}},
+	})
+	policyPath := filepath.Join(dir, "policy.json")
+	if err := os.WriteFile(policyPath, policy, 0600); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "image")
+	err := DownloadTrusted(context.Background(), "https://"+host+":"+portText+"/image", policyPath, dst, 100)
+	data, readErr := os.ReadFile(dst)
+	if testCase == "trusted hostname" {
+		if err != nil || readErr != nil || string(data) != "TLS image bytes" {
+			t.Fatalf("download=%v, read=%v, payload=%q", err, readErr, data)
+		}
+	} else if err == nil || !os.IsNotExist(readErr) {
+		t.Fatalf("TLS failure must reject without destination: download=%v, read=%v", err, readErr)
+	}
+}
 
 func TestDownloadTrusted(t *testing.T) {
 	requests := 0
