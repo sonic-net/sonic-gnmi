@@ -43,7 +43,7 @@ The existing pure and normal CI jobs include these tests.
 
 To install dial-in mode system telemetry server, run
 
-    go get -u github.com/sonic-net/sonic-gnmi/telemetry
+    go install github.com/sonic-net/sonic-gnmi/cmd/telemetry
 
 To install dial-out mode system telemetry client, run
 
@@ -63,6 +63,33 @@ You can also build a debian package and install it:
     popd
 
 ## Testing
+
+See [Test layout](tests/README.md) for unit, integration and E2E boundaries,
+fixture placement and existing execution entrypoints. Python service integration
+tests live in `tests/integration/`; Go package tests stay beside their source.
+
+The telemetry command lives in `cmd/telemetry`; its installed binary is still
+named `telemetry`. Build it in the SONiC build environment with `make all`.
+Its native tests remain part of `make test-integration`, not the pure-package
+suite. Existing binary paths, command-line flags and Debian packaging are unchanged.
+
+An independent E2E test repository should exercise the built binary through its
+TLS/gRPC endpoint and public configuration, rather than importing server internals.
+Pin both the tested build revision and test revision. Test-generated certificates,
+private Redis/configuration and a local CRL endpoint can supply real auth inputs;
+the production authentication and authorization implementations should still run.
+This layout change does not add that E2E suite or a cross-repository CI trigger.
+
+The request-local authentication fallback and role checks can be tested without
+Redis, SWSS, or a running gNMI server:
+
+```sh
+CGO_ENABLED=0 go test -mod=readonly -count=1 ./internal/authentication
+```
+
+The production wrapper supplies the enabled password, JWT, and certificate
+authentication functions. These standalone tests exercise orchestration and role
+decisions, not the credential backends or TCP/UDS authentication configuration.
 
 Run `make -f pure.mk ci-report` for pure package boundary checks, compilation,
 race-enabled tests and CI report generation. Keep `sonic-mgmt-common` checked
@@ -92,6 +119,16 @@ In the provisioned SONiC build environment, run `make all` first, then
 `ENABLE_TRANSLIB_WRITE=y make test-integration` or
 `ENABLE_TRANSLIB_WRITE=y make test-memleak`.
 These commands produce local reports; Azure YAML publishes them.
+Integration execution writes grouped JUnit results and raw coverage profiles.
+Run `ENABLE_TRANSLIB_WRITE=y make report-coverage` afterward to convert only
+those profiles to `coverage.xml`, without running tests. Use the same
+`ENABLE_DIALOUT` and package-group settings for execution and conversion.
+A failed integration group retains its JUnit results but removes the run's
+raw coverage. Conversion fails on missing/invalid input or a converter error
+and cannot leave stale XML. The old `check_gotest_junit` command still runs
+execution and conversion in order, including under parallel Make.
+The direct `check_gotest` and `check_memleak` variants keep their distinct
+test flags and coverage behavior.
 The existing native `check_gotest_junit` and `check_memleak_junit`
 entrypoints remain compatible.
 

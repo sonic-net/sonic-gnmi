@@ -21,6 +21,7 @@ import (
 	"github.com/Azure/sonic-mgmt-common/translib"
 	gnsi_pathz_pb "github.com/openconfig/gnsi/pathz"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/internal/authentication"
 	"github.com/sonic-net/sonic-gnmi/pkg/bypass"
 	"github.com/sonic-net/sonic-gnmi/pkg/pathblacklist"
 	operationalhandler "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler"
@@ -164,14 +165,6 @@ func (s *Server) handleOperationalGet(ctx context.Context, req *gnmipb.GetReques
 	}
 
 	return &gnmipb.GetResponse{Notification: notifications}, nil
-}
-
-// FileServer is the server API for File service.
-// All implementations must embed UnimplementedFileServer
-// for forward compatibility
-type FileServer struct {
-	*Server
-	gnoi_file_pb.UnimplementedFileServer
 }
 
 // OSBackend defines the interface for the OS installation backend service.
@@ -610,7 +603,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	}
 
 	// Create service servers (shared between TCP and UDS)
-	fileSrv := &FileServer{Server: srv}
+	fileSrv := newFileServer(config)
 	osBackend := &DBusOSBackend{}
 	osSrv := &OSServer{
 		Server:  srv,
@@ -840,60 +833,14 @@ func (srv *Server) Auth(ctx context.Context) (context.Context, error) {
 //   - no role for this target and writeAccess==false -> allow (backwards
 //     compatible with pre-role deployments that only granted authentication)
 func checkRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
-	return checkRoleAccessWithRequirement(auth, target, writeAccess, false)
+	return authentication.CheckRoleAccess(auth, target, writeAccess, false)
 }
 
 func checkRequiredRoleAccess(auth *common_utils.AuthInfo, target string, writeAccess bool) error {
-	return checkRoleAccessWithRequirement(auth, target, writeAccess, true)
-}
-
-func checkRoleAccessWithRequirement(auth *common_utils.AuthInfo, target string, writeAccess, requireRole bool) error {
-	access := resolveTargetRoleAccess(auth, target)
-	if access.noAccessRole != "" {
-		return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, access.noAccessRole)
-	}
-	if writeAccess && !access.readWrite {
-		if access.readOnlyRole != "" {
-			return fmt.Errorf("%s does not have access, target %s, role %s", auth.User, target, access.readOnlyRole)
-		}
-		return fmt.Errorf("%s does not have write access, target %s", auth.User, target)
-	}
-	if requireRole && access.readOnlyRole == "" && !access.readWrite {
-		return fmt.Errorf("%s does not have read access, target %s", auth.User, target)
-	}
-	return nil
-}
-
-type targetRoleAccess struct {
-	noAccessRole string
-	readOnlyRole string
-	readWrite    bool
-}
-
-func resolveTargetRoleAccess(auth *common_utils.AuthInfo, target string) targetRoleAccess {
-	var access targetRoleAccess
-	if auth == nil {
-		return access
-	}
-
-	prefix := strings.ToLower(target) + "_"
-	for _, role := range auth.Roles {
-		role = strings.TrimSpace(role)
-		switch role {
-		case prefix + NoAccessMode:
-			access.noAccessRole = role
-		case prefix + ReadOnlyMode:
-			access.readOnlyRole = role
-		case prefix + WriteAccessMode:
-			access.readWrite = true
-		}
-	}
-	return access
+	return authentication.CheckRoleAccess(auth, target, writeAccess, true)
 }
 
 func authenticate(config *Config, ctx context.Context, target string, writeAccess bool) (context.Context, error) {
-	var err error
-	success := false
 	rc, ctx := common_utils.GetContext(ctx)
 
 	// Skip authentication for UDS (Unix Domain Socket) connections.
@@ -909,45 +856,24 @@ func authenticate(config *Config, ctx context.Context, target string, writeAcces
 		return ctx, nil
 	}
 
-	rc.Auth.AuthEnabled = true
-	clearAuthIdentity := func() {
-		rc.Auth.User = ""
-		rc.Auth.Roles = nil
-	}
+	var methods []authentication.Method
 	if config.UserAuth.Enabled("password") {
-		clearAuthIdentity()
-		ctx, err = BasicAuthenAndAuthor(ctx)
-		if err == nil {
-			success = true
-		}
+		methods = append(methods, BasicAuthenAndAuthor)
 	}
-	if !success && config.UserAuth.Enabled("jwt") {
-		clearAuthIdentity()
-		_, ctx, err = JwtAuthenAndAuthor(ctx)
-		if err == nil {
-			success = true
-		}
+	if config.UserAuth.Enabled("jwt") {
+		methods = append(methods, func(ctx context.Context) (context.Context, error) {
+			_, ctx, err := JwtAuthenAndAuthor(ctx)
+			return ctx, err
+		})
 	}
-	if !success && config.UserAuth.Enabled("cert") {
-		clearAuthIdentity()
-		ctx, err = ClientCertAuthenAndAuthor(ctx, config.ConfigTableName, config.EnableCrl)
-		if err == nil {
-			success = true
-		}
+	if config.UserAuth.Enabled("cert") {
+		methods = append(methods, func(ctx context.Context) (context.Context, error) {
+			return ClientCertAuthenAndAuthor(ctx, config.ConfigTableName, config.EnableCrl)
+		})
 	}
-
-	//Allow for future authentication mechanisms here...
-
-	if !success {
-		return ctx, status.Error(codes.Unauthenticated, "Unauthenticated")
-	}
-
-	// Role-based authorization: applied uniformly to whichever mechanism
-	// succeeded. Historically this check was nested inside the cert branch,
-	// which allowed password- and JWT-authenticated callers to bypass the
-	// readonly/readwrite gate for gNOI RPCs.
-	if err := checkRoleAccess(&rc.Auth, target, writeAccess); err != nil {
-		return ctx, status.Error(codes.PermissionDenied, err.Error())
+	ctx, err := authentication.Authenticate(ctx, &rc.Auth, target, writeAccess, methods...)
+	if err != nil {
+		return ctx, err
 	}
 
 	log.V(5).Infof("authenticate user %v, roles %v", rc.Auth.User, rc.Auth.Roles)

@@ -35,8 +35,10 @@ variables:
       value: $(Build.SourceBranchName)
   - name: UNIT_TEST_FLAG
     value: 'ENABLE_TRANSLIB_WRITE=y'
-  - name: GO_VERSION
-    value: '1.25.9'
+  # Go comes from the sonic-slave container for the target branch and is never
+  # downloaded, so a go.mod that needs a newer Go fails instead
+  - name: GOTOOLCHAIN
+    value: local
 
 
 resources:
@@ -56,7 +58,11 @@ stages:
     timeoutInMinutes: 10
 
     pool:
+      name: sonicso1ES-amd64
       vmImage: ubuntu-22.04
+
+    container:
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:$(BUILD_BRANCH)
 
     steps:
     - checkout: self
@@ -66,10 +72,6 @@ stages:
     - checkout: sonic-mgmt-common
       clean: true
       displayName: 'Checkout sonic-mgmt-common'
-
-    - template: .azure/templates/install-go.yml
-      parameters:
-        version: $(GO_VERSION)
 
     - bash: |
         set -euo pipefail
@@ -109,7 +111,6 @@ stages:
         fi
         echo "##vso[task.logissue type=warning]Go module drift is already present on the target with the same sibling checkout."
       env:
-        GOTOOLCHAIN: local
         TARGET_BRANCH: $(BUILD_BRANCH)
       displayName: 'Check Go module tidiness (no writes)'
 
@@ -146,7 +147,11 @@ stages:
     timeoutInMinutes: 15
 
     pool:
+      name: sonicso1ES-amd64
       vmImage: ubuntu-22.04
+
+    container:
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:$(BUILD_BRANCH)
 
     steps:
     - checkout: self
@@ -156,10 +161,6 @@ stages:
     - checkout: sonic-mgmt-common
       clean: true
       displayName: 'Checkout sonic-mgmt-common'
-
-    - template: .azure/templates/install-go.yml
-      parameters:
-        version: $(GO_VERSION)
 
     - bash: |
         set -euo pipefail
@@ -200,7 +201,7 @@ stages:
       vmImage: ubuntu-22.04
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:latest
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:$(BUILD_BRANCH)
 
     steps:
     - template: .azure/templates/setup-test-env.yml
@@ -234,7 +235,7 @@ stages:
       vmImage: ubuntu-22.04
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:latest
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:$(BUILD_BRANCH)
 
     steps:
     - template: .azure/templates/setup-test-env.yml
@@ -248,6 +249,12 @@ stages:
         make all
         $(UNIT_TEST_FLAG) make test-integration
       displayName: "Run integration tests"
+
+    - bash: |
+        set -euo pipefail
+        cd sonic-gnmi
+        $(UNIT_TEST_FLAG) make report-coverage
+      displayName: "Generate integration coverage report"
 
     - task: PublishTestResults@2
       displayName: 'Publish integration test results'
@@ -318,7 +325,7 @@ stages:
       vmImage: ubuntu-22.04
 
     container:
-      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:latest
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:$(BUILD_BRANCH)
 
     steps:
     - template: .azure/templates/build-deb.yml

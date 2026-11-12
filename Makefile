@@ -140,14 +140,14 @@ sonic-gnmi: $(GO_DEPS) $(FORMAT_CHECK)
 # add support for fsnotify closewrite event
 	patch -d vendor -p0 < patches/0004-CloseWrite-event-support.patch
 ifeq ($(CROSS_BUILD_ENVIRON),y)
-	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
+	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/cmd/telemetry
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	$(GO) build -o ${GOBIN}/dialout_client_cli -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
 endif
 	$(GO) build -o ${GOBIN}/gnoi_client -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
 	$(GO) build -o ${GOBIN}/gnmi_dump -mod=vendor github.com/sonic-net/sonic-gnmi/gnmi_dump
 else
-	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
+	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/cmd/telemetry
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
 endif
@@ -278,7 +278,7 @@ $(ENVFILE):
 
 check_gotest: $(DBCONFG) $(ENVFILE) $(GOCOV) $(GOCOV_XML)
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-redisopts.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/internal/redisopts github.com/sonic-net/sonic-gnmi/internal/adaptors/redisconn
-	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/telemetry
+	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/cmd/telemetry
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config github.com/sonic-net/sonic-gnmi/internal/adaptors/dbconfig
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 40m $(TEST_FLAGS) -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 40m $(TEST_FLAGS) -coverprofile=coverage-pathz_authorizer.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/pathz_authorizer -coverpkg ../...
@@ -307,7 +307,7 @@ INTEGRATION_BASIC_PKGS := \
 	github.com/sonic-net/sonic-gnmi/sonic_db_config \
 	github.com/sonic-net/sonic-gnmi/internal/adaptors/dbconfig \
 	github.com/sonic-net/sonic-gnmi/sonic_service_client \
-	github.com/sonic-net/sonic-gnmi/telemetry \
+	github.com/sonic-net/sonic-gnmi/cmd/telemetry \
 	github.com/sonic-net/sonic-gnmi/sonic_data_client
 
 # Integration test packages that need special environment
@@ -320,6 +320,13 @@ INTEGRATION_ENV_PKGS := \
 # Dialout package (conditional)
 INTEGRATION_DIALOUT_PKG := \
 	github.com/sonic-net/sonic-gnmi/dialout/dialout_client
+
+INTEGRATION_PROFILES := \
+	$(if $(strip $(INTEGRATION_BASIC_PKGS)),test-results/coverage-integration-basic.txt) \
+	$(if $(strip $(INTEGRATION_ENV_PKGS)),test-results/coverage-integration-env.txt)
+ifneq ($(ENABLE_DIALOUT_VALUE),0)
+INTEGRATION_PROFILES += $(if $(strip $(INTEGRATION_DIALOUT_PKG)),test-results/coverage-integration-dialout.txt)
+endif
 
 # Memory leak test packages that require CGO/SONiC dependencies and special sanitizer flags
 # Note: sonic_data_client and telemetry excluded due to underlying libyang memory leaks in test environment
@@ -362,12 +369,18 @@ check_memleak_junit: $(DBCONFG) $(ENVFILE) $(GOTESTSUM)
 	@echo "Note: telemetry, sonic_data_client, and gnmi_server excluded due to libyang memory leaks"
 
 
-.PHONY: test-integration
-test-integration: check_gotest_junit
-
-# JUnit XML output for integration tests in Azure Pipelines
+# Compatibility aggregate: execute tests, then convert their coverage.
 .PHONY: check_gotest_junit
-check_gotest_junit: $(DBCONFG) $(ENVFILE) $(GOTESTSUM) $(GOCOV) $(GOCOV_XML)
+check_gotest_junit:
+	@$(MAKE) test-integration
+	@$(MAKE) report-coverage
+
+.PHONY: test-integration
+test-integration: $(DBCONFG) $(ENVFILE) $(GOTESTSUM)
+	@rm -f coverage.xml \
+		test-results/junit-integration-basic.xml test-results/coverage-integration-basic.txt \
+		test-results/junit-integration-env.xml test-results/coverage-integration-env.txt \
+		test-results/junit-integration-dialout.xml test-results/coverage-integration-dialout.txt
 	@echo "Running integration tests with JUnit XML output..."
 	@mkdir -p test-results
 	
@@ -382,7 +395,9 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE) $(GOTESTSUM) $(GOCOV) $(GOCOV_XML)
 			$(GOTESTSUM) --junitfile test-results/junit-integration-basic.xml \
 			--format testname \
 			-- -race -timeout 40m $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-basic.txt \
-			-covermode=atomic -mod=vendor -v $(INTEGRATION_BASIC_PKGS); \
+			-covermode=atomic -mod=vendor -v $(INTEGRATION_BASIC_PKGS) || { \
+				status=$$?; rm -f $(INTEGRATION_PROFILES); exit $$status; \
+			}; \
 	fi
 	
 	# Run packages needing special environment
@@ -395,7 +410,9 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE) $(GOTESTSUM) $(GOCOV) $(GOCOV_XML)
 			$(GOTESTSUM) --junitfile test-results/junit-integration-env.xml \
 			--format testname \
 			-- -race -timeout 40m $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-env.txt \
-			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
+			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS) || { \
+				status=$$?; rm -f $(INTEGRATION_PROFILES); exit $$status; \
+			}; \
 	fi
 	
 	# Run dialout package if enabled
@@ -406,22 +423,15 @@ ifneq ($(ENABLE_DIALOUT_VALUE),0)
 			$(GOTESTSUM) --junitfile test-results/junit-integration-dialout.xml \
 			--format testname \
 			-- $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-dialout.txt \
-			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG); \
+			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG) || { \
+				status=$$?; rm -f $(INTEGRATION_PROFILES); exit $$status; \
+			}; \
 	fi
 endif
 
-	@echo "Generating coverage.xml..."
-	@for file in test-results/coverage-*.txt; do \
-		if [ -f "$$file" ]; then \
-			grep -v -e "/mocks/" -e "proto/" "$$file" > "$$file.filtered" 2>/dev/null || true; \
-		fi; \
-	done
-	$(GOCOV) convert test-results/coverage-*.txt.filtered | $(GOCOV_XML) -source $(shell pwd) > coverage.xml
-	@rm -f test-results/coverage-*.txt.filtered
-
 	@echo ""
 	@echo "============================================="
-	@echo "Integration JUnit XML generation completed!"
+	@echo "Integration test execution completed!"
 	@echo "============================================="
 	@echo "Files generated:"
 	@echo "  - test-results/junit-integration-basic.xml (Basic packages)"
@@ -429,7 +439,7 @@ endif
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	@echo "  - test-results/junit-integration-dialout.xml (Dialout package)"
 endif
-	@echo "  - coverage.xml (Cobertura coverage report)"
+	@echo "  - test-results/coverage-integration-*.txt (Raw Go coverage)"
 	@echo ""
 	@echo "Tested packages:"
 	@echo "Basic packages:"
@@ -441,6 +451,27 @@ ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	@for pkg in $(INTEGRATION_DIALOUT_PKG); do echo "  - $$pkg"; done
 endif
 
+.PHONY: report-coverage
+report-coverage:
+	@rm -f coverage.xml
+	@test -n "$(strip $(INTEGRATION_PROFILES))"
+	@for file in $(INTEGRATION_PROFILES); do \
+		test -s "$$file" || { echo "Missing or empty coverage profile: $$file" >&2; exit 1; }; \
+	done
+	@$(MAKE) $(GOCOV) $(GOCOV_XML)
+	@set -e; \
+	json=; xml=; filtered=; \
+	trap 'rm -f $$filtered "$$json" "$$xml"' EXIT; \
+	for file in $(INTEGRATION_PROFILES); do \
+		filtered="$$filtered $$file.filtered"; \
+		grep -v -e "/mocks/" -e "proto/" "$$file" > "$$file.filtered"; \
+	done; \
+	json=$$(mktemp test-results/coverage-integration-json.XXXXXX); \
+	xml=$$(mktemp coverage.xml.XXXXXX); \
+	$(GOCOV) convert $$filtered > "$$json"; \
+	$(GOCOV_XML) -source "$(CURDIR)" < "$$json" > "$$xml"; \
+	mv "$$xml" coverage.xml; \
+	echo "Coverage report generated: coverage.xml"
 
 clean:
 	$(RM) -r build
