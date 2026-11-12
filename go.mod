@@ -31,7 +31,7 @@ require (
 	github.com/pkg/sftp v1.13.11
 	github.com/redis/go-redis/v9 v9.14.1
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/crypto v0.58.0
+	golang.org/x/crypto v0.59.0
 	golang.org/x/net v0.62.0
 	golang.org/x/term v0.47.0
 	google.golang.org/grpc v1.83.2
@@ -83,7 +83,7 @@ replace (
 	// Glog patch needs to be updated to remove this.
 	github.com/golang/glog => github.com/golang/glog v1.2.4
 	github.com/openconfig/gnmi => github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
-	golang.org/x/crypto => golang.org/x/crypto v0.52.0
+	golang.org/x/crypto => golang.org/x/crypto v0.59.0
 	golang.org/x/sys => golang.org/x/sys v0.45.0
 	google.golang.org/grpc => google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf => google.golang.org/protobuf v1.36.11
