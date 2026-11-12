@@ -8,9 +8,16 @@
 # when an update needs a newer Go, and fails when the container's Go is too old.
 #
 # The commit is made through the GitHub API, so GitHub signs it; the merge robot
-# merges a Renovate PR only when every commit on it is signed by GitHub. A commit
-# made with GITHUB_TOKEN starts no workflow runs, so CodeQL and Semgrep are
-# dispatched on the new commit; workflow_dispatch is the exception to that rule.
+# merges a Renovate PR only when every commit on it is signed by GitHub. The
+# commit's pull_request runs wait for approval, since github-actions[bot] is not
+# a collaborator, and the merge robot approves them.
+#
+# Any workflow with a contents: write token can make a commit authored by
+# github-actions[bot] and signed by GitHub, so that alone does not show this job
+# made it. The job uploads an artifact named renovate-fixup-<commit>, which only
+# this run can do: the merge robot accepts a github-actions[bot] commit only when
+# a run that Renovate's push of the commit before it started, for this PR, has
+# recorded it that way.
 #
 # The commit is authored as github-actions[bot], so Renovate treats the branch
 # as edited and stops updating it. Renovate checks a branch it still manages
@@ -24,10 +31,6 @@
 # major update whose import paths the code does not use yet, for example.
 # Committing that would undo the update. Tidy raising a requirement further, for
 # another module that needs it, keeps the update.
-#
-# As a backstop, it also fails, and commits nothing, when Renovate has twice in
-# a row replaced the fixup with the same content it had before; once can be a
-# rebase someone asked for. Committing again would start a loop.
 
 name: Renovate go.sum
 
@@ -42,20 +45,21 @@ permissions:
 
 jobs:
   tidy:
+    # Only on Renovate's own push: the merge robot accepts a fixup only from such a run
     if: >-
       github.event.pull_request.user.login == 'renovate[bot]' &&
+      github.actor == 'renovate[bot]' && github.triggering_actor == 'renovate[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       startsWith(github.head_ref, 'renovate/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: write
-      pull-requests: read
     steps:
       - name: Checkout sonic-gnmi
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.head_ref }}
+          # The commit Renovate pushed; the fixup fails if the branch has moved since
+          ref: ${{ github.event.pull_request.head.sha }}
           path: sonic-gnmi
           persist-credentials: false
           # The merge base with the base branch shows what Renovate changed
@@ -75,12 +79,12 @@ jobs:
         run: docker pull --quiet "${IMAGE}"
 
       - name: Tidy and commit
+        id: tidy
         working-directory: sonic-gnmi
         env:
           BRANCH: ${{ github.head_ref }}
           BASE: ${{ github.base_ref }}
           GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
           IMAGE: sonicdev-microsoft.azurecr.io/sonic-slave-trixie:${{ github.base_ref }}
         run: |
           set -euo pipefail
@@ -91,20 +95,6 @@ jobs:
               -v "${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}" -v "${RUNNER_TEMP}:${RUNNER_TEMP}" \
               -w "${PWD}" "${IMAGE}" go "$@"
           }
-          # The last two force-pushes each replaced a fixup commit with the content that fixup was made on
-          replaced=$(gh api graphql -F owner="${GITHUB_REPOSITORY%/*}" -F name="${GITHUB_REPOSITORY#*/}" -F number="${PR}" -f query='
-            query($owner: String!, $name: String!, $number: Int!) {
-              repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-                timelineItems(last: 2, itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]) { nodes { ... on HeadRefForcePushedEvent {
-                  beforeCommit { oid author { email } parents(first: 1) { nodes { tree { oid } } } } } } } } } }' |
-            jq -r --arg tree "$(git rev-parse 'HEAD^{tree}')" '[.data.repository.pullRequest.timelineItems.nodes[].beforeCommit
-              | select(.author.email == "41898282+github-actions[bot]@users.noreply.github.com"
-                       and .parents.nodes[0].tree.oid == $tree) | .oid] | select(length == 2) | last')
-          if [ -n "${replaced}" ]; then
-            echo "Renovate replaced the go.sum fixup ${replaced} with the same content it had before, so committing again would loop." >&2
-            echo "Renovate rebuilds the branch when tidy moves lines in go.mod, which happens when ${BASE}'s go.mod is not tidy; tidy ${BASE}, then tick the rebase box on this pull request." >&2
-            exit 1
-          fi
           # Requirements and replacements in a go.mod, one per line
           requirements() {
             go mod edit -json "$1" | jq -r '
@@ -136,9 +126,12 @@ jobs:
             [ -z "${returned}" ] || printf 'Modules the update removed, which tidy requires again:\n%s\n' "${returned}" >&2
             exit 1
           fi
-          if ! git diff --quiet -- go.mod go.sum; then
-            # expectedHeadOid fails the commit if Renovate moved the branch meanwhile
-            jq -n --arg repo "${GITHUB_REPOSITORY}" --arg branch "${BRANCH}" --arg head "$(git rev-parse HEAD)" \
+          if git diff --quiet -- go.mod go.sum; then
+            echo "go.mod and go.sum are already tidy"
+            exit 0
+          fi
+          # expectedHeadOid fails the commit if Renovate moved the branch meanwhile
+          oid=$(jq -n --arg repo "${GITHUB_REPOSITORY}" --arg branch "${BRANCH}" --arg head "$(git rev-parse HEAD)" \
               --rawfile mod <(base64 -w0 go.mod) --rawfile sum <(base64 -w0 go.sum) '{
                 query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
                 variables: { input: {
@@ -150,12 +143,15 @@ jobs:
                   },
                   fileChanges: { additions: [ { path: "go.mod", contents: $mod }, { path: "go.sum", contents: $sum } ] }
                 } }
-              }' | gh api graphql --input -
-          elif [ "$(git log -1 --format=%ae)" != '41898282+github-actions[bot]@users.noreply.github.com' ]; then
-            echo "go.mod and go.sum are already tidy"
-            exit 0
-          fi
-          # The head is now a fixup commit: this run's, or that of an earlier run that
-          # failed or was canceled before dispatching, so a rerun dispatches as well
-          gh workflow run -R "${GITHUB_REPOSITORY}" codeql-analysis.yml --ref "${BRANCH}" -f build_branch="${BASE}"
-          gh workflow run -R "${GITHUB_REPOSITORY}" semgrep.yml --ref "${BRANCH}"
+              }' | gh api graphql --input - --jq '.data.createCommitOnBranch.commit.oid')
+          echo "${oid}" > "${RUNNER_TEMP}/fixup"
+          echo "oid=${oid}" >> "${GITHUB_OUTPUT}"
+
+      # The merge robot accepts the fixup only with this run's record of it
+      - name: Record the fixup commit
+        if: steps.tidy.outputs.oid != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: renovate-fixup-${{ steps.tidy.outputs.oid }}
+          path: ${{ runner.temp }}/fixup
+          retention-days: 90
