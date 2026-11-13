@@ -9,6 +9,10 @@ on:
       - '202[0-9][0-1][0-9]'
   workflow_dispatch: {}
 
+# The merge robot approves this workflow's runs on a Renovate go.sum fixup
+permissions:
+  contents: read
+
 jobs:
   semgrep:
     if: github.repository_owner == 'sonic-net'
