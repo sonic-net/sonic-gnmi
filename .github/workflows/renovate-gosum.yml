@@ -98,8 +98,20 @@ jobs:
           # Requirements and replacements in a go.mod, one per line
           requirements() {
             go mod edit -json "$1" | jq -r '
-              (.Require // [])[] | "\(.Path) \(.Version)",
+              ((.Require // [])[] | "\(.Path) \(.Version)"),
               ((.Replace // [])[] | "\(.Old.Path) \(.Old.Version // "") => \(.New.Path) \(.New.Version // "")")' | sort -u
+          }
+          # Succeeds if Go module version $1 is lower than $2 (semver precedence:
+          # a prerelease or pseudo-version sorts below its release; sort -V does not)
+          lower() {
+            python3 -I - "$1" "$2" <<'PY'
+          import sys
+          def key(v):
+              core, _, pre = v.lstrip("v").split("+")[0].partition("-")
+              ids = tuple((0, int(i), "") if i.isdigit() else (1, 0, i) for i in pre.split(".")) if pre else ()
+              return tuple(int(x) for x in core.split(".")), not pre, ids
+          sys.exit(0 if key(sys.argv[1]) < key(sys.argv[2]) else 1)
+          PY
           }
           modules() {
             go mod edit -json "$1" | jq -r '(.Require // [])[].Path' | sort -u
@@ -115,7 +127,7 @@ jobs:
             case "${line}" in *" => "*) grep -qxF -- "${line}" <<<"${after}" || echo "${line}"; continue ;; esac
             read -r path version <<<"${line}"
             now=$(awk -v p="${path}" '$1 == p && NF == 2 { print $2 }' <<<"${after}")
-            if [ -z "${now}" ] || [ "$(printf '%s\n' "${version}" "${now}" | sort -V | head -n1)" != "${version}" ]; then
+            if [ -z "${now}" ] || lower "${now}" "${version}"; then
               echo "${path} ${version}"
             fi
           done)
