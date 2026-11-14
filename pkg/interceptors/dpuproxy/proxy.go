@@ -407,19 +407,17 @@ func (p *DPUProxy) forwardSetPackageStream(ctx context.Context, conn *grpc.Clien
 		glog.Errorf("[DPUProxy] Failed to create SetPackage client stream to DPU: %v", err)
 		return status.Errorf(codes.Internal, "failed to create SetPackage client stream to DPU: %v", err)
 	}
+	defer func() {
+		if err := clientStream.CloseSend(); err != nil {
+			glog.Warningf("[DPUProxy] Error closing send on SetPackage client stream: %v", err)
+		}
+	}()
 
 	// Channel to signal completion of request forwarding
 	forwardDone := make(chan error, 1)
 
 	// Goroutine to forward requests from client to DPU
 	go func() {
-		defer func() {
-			// Close the send side when done receiving from client
-			if err := clientStream.CloseSend(); err != nil {
-				glog.Warningf("[DPUProxy] Error closing send on SetPackage client stream: %v", err)
-			}
-		}()
-
 		for {
 			// Receive request from client
 			var req system.SetPackageRequest

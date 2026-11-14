@@ -5,12 +5,14 @@ package system
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	log "github.com/golang/glog"
 	syspb "github.com/openconfig/gnoi/system"
+	"github.com/sonic-net/sonic-gnmi/internal/download"
 	"github.com/sonic-net/sonic-gnmi/pkg/exec"
 	"github.com/sonic-net/sonic-gnmi/pkg/interceptors/dpuproxy"
 	"google.golang.org/grpc/codes"
@@ -82,15 +84,9 @@ func HandleSetPackage(ctx context.Context, req *syspb.SetPackageRequest) (*syspb
 	}
 
 	// Validate required fields
-	if pkg.Package.Filename == "" {
+	if pkg.Package.GetFilename() == "" {
 		log.Errorf("Filename is missing in package request")
 		return nil, status.Errorf(codes.InvalidArgument, "filename is missing in package request")
-	}
-
-	// Reject RemoteDownload - require local image
-	if pkg.Package.RemoteDownload != nil {
-		log.Errorf("RemoteDownload is not supported - image must be local")
-		return nil, status.Errorf(codes.InvalidArgument, "remote download is not supported, image must be local")
 	}
 
 	// Validate filename is absolute path
@@ -99,10 +95,33 @@ func HandleSetPackage(ctx context.Context, req *syspb.SetPackageRequest) (*syspb
 		return nil, status.Errorf(codes.InvalidArgument, "filename must be an absolute path")
 	}
 
+	filename := pkg.Package.Filename
+	if remote := pkg.Package.RemoteDownload; remote != nil {
+		if err := validateRemoteDownload(remote); err != nil {
+			return nil, err
+		}
+		// SetPackage is forwarded to the DPU before this handler. Staging and
+		// policy therefore belong to the receiving host, not the NPU proxy.
+		stagingRoot := "/var/tmp"
+		if info, err := os.Stat("/mnt/host"); err == nil && info.IsDir() {
+			stagingRoot = "/mnt/host/var/tmp"
+		}
+		dir, err := os.MkdirTemp(stagingRoot, "gnoi-setpackage-")
+		if err != nil {
+			return nil, status.Error(codes.Internal, "cannot create package staging directory")
+		}
+		defer os.RemoveAll(dir)
+		staged := filepath.Join(dir, "image.bin")
+		if err := download.DownloadTrusted(ctx, remote.Path, download.TrustedPolicyPath, staged, 4*1024*1024*1024); err != nil {
+			return nil, status.Errorf(codes.FailedPrecondition, "remote package download rejected or failed: %v", err)
+		}
+		filename = strings.TrimPrefix(staged, "/mnt/host")
+	}
+
 	// Resolve version: use provided version, or auto-resolve from image binary
 	version := pkg.Package.Version
 	if version == "" {
-		resolved, err := getBinaryVersion(ctx, pkg.Package.Filename)
+		resolved, err := getBinaryVersion(ctx, filename)
 		if err != nil {
 			log.Errorf("Failed to resolve version from image %s: %v", pkg.Package.Filename, err)
 			return nil, status.Errorf(codes.Internal, "failed to resolve version from image: %v", err)
@@ -116,7 +135,7 @@ func HandleSetPackage(ctx context.Context, req *syspb.SetPackageRequest) (*syspb
 		pkg.Package.Filename, version, pkg.Package.Activate)
 
 	// Install the package using sonic-installer
-	if err := installPackage(ctx, pkg.Package.Filename); err != nil {
+	if err := installPackage(ctx, filename); err != nil {
 		log.Errorf("Failed to install package %s: %v", pkg.Package.Filename, err)
 		return nil, status.Errorf(codes.Internal, "failed to install package: %v", err)
 	}

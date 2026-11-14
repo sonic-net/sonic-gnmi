@@ -53,20 +53,21 @@ func TestHandleSetPackageValidation(t *testing.T) {
 			wantErr: false, // Version is auto-resolved from image; no longer rejected
 		},
 		{
-			name: "remote download not supported",
+			name: "remote protocol mismatch",
 			req: &syspb.SetPackageRequest{
 				Request: &syspb.SetPackageRequest_Package{
 					Package: &syspb.Package{
 						Filename: "/path/to/image.bin",
 						Version:  "test-version",
 						RemoteDownload: &common.RemoteDownload{
-							Path: "http://example.com/image.bin",
+							Path:     "http://example.com/image.bin",
+							Protocol: common.RemoteDownload_SFTP,
 						},
 					},
 				},
 			},
 			wantErr: true,
-			errMsg:  "remote download is not supported",
+			errMsg:  "remote protocol does not match URL",
 		},
 		{
 			name: "relative path not allowed",
