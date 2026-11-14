@@ -1,0 +1,5 @@
+{
+    "SAI_COUNTER_STAT_PACKETS": "50",
+    "SAI_COUNTER_STAT_BYTES": "1000",
+    "RX_PPS": "25.00"
+}
