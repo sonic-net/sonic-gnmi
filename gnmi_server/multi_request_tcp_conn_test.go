@@ -11,40 +11,12 @@ import (
 
 	pb "github.com/openconfig/gnmi/proto/gnmi"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
-	testcert "github.com/sonic-net/sonic-gnmi/testdata/tls"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
-func createServerWithStreamMultiplexing(t *testing.T, port int64) *Server {
-	t.Helper()
-	certificate, err := testcert.NewCert()
-	if err != nil {
-		t.Fatalf("could not load server key pair: %s", err)
-	}
-	tlsCfg := &tls.Config{
-		ClientAuth:   tls.RequestClientCert,
-		Certificates: []tls.Certificate{certificate},
-	}
-
-	tlsOpts := []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsCfg))}
-	cfg := &Config{
-		Port:                     port,
-		EnableTranslibWrite:      true,
-		EnableNativeWrite:        true,
-		Threshold:                100,
-		ImgDir:                   "/tmp",
-		EnableStreamMultiplexing: true,
-	}
-	s, err := NewServer(cfg, tlsOpts, nil)
-	if err != nil {
-		t.Fatalf("Failed to create gNMI server: %v", err)
-	}
-	return s
-}
-
 func TestMultipleStreamsOnSameTCPConn(t *testing.T) {
-	s := createServerWithStreamMultiplexing(t, 8081)
+	s := createServer(t, 8081)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -373,7 +345,7 @@ collectLoop:
 }
 
 func TestMixedModeStreamsOnSameTCPConn(t *testing.T) {
-	s := createServerWithStreamMultiplexing(t, 8082)
+	s := createServer(t, 8082)
 	go runServer(t, s)
 	defer s.ForceStop()
 
@@ -607,122 +579,4 @@ collectLoop:
 	if activeClients == 2 && len(uniqueAddrs) == 1 && pollUpdates >= 1 && onChangeUpdates >= 1 {
 		t.Logf("SUCCESS: Mixed POLL + ON_CHANGE streams coexist on same TCP connection!")
 	}
-}
-
-// TestMultipleStreamsDuplicateCloseWithoutFlag verifies that when EnableStreamMultiplexing is false (default),
-// the legacy behavior is preserved: a second Subscribe from the same peer closes the first.
-func TestMultipleStreamsDuplicateCloseWithoutFlag(t *testing.T) {
-	// Use createServer (not createServerWithStreamMultiplexing) — EnableStreamMultiplexing defaults to false
-	s := createServer(t, 8081)
-	go runServer(t, s)
-	defer s.ForceStop()
-
-	ns, _ := sdcfg.GetDbDefaultNamespace()
-	prepareDb(t, ns)
-
-	time.Sleep(time.Millisecond * 100)
-
-	tlsConfig := &tls.Config{InsecureSkipVerify: true}
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
-	conn, err := grpc.Dial("127.0.0.1:8081", opts...)
-	if err != nil {
-		t.Fatalf("Failed to dial: %v", err)
-	}
-	defer conn.Close()
-
-	gClient := pb.NewGNMIClient(conn)
-	ctx := context.Background()
-
-	// Open first stream
-	stream1, err := gClient.Subscribe(ctx)
-	if err != nil {
-		t.Fatalf("Failed to create Subscribe stream #1: %v", err)
-	}
-
-	req1 := &pb.SubscribeRequest{
-		Request: &pb.SubscribeRequest_Subscribe{
-			Subscribe: &pb.SubscriptionList{
-				Prefix: &pb.Path{Target: "STATE_DB"},
-				Mode:   pb.SubscriptionList_POLL,
-				Subscription: []*pb.Subscription{
-					{
-						Path: &pb.Path{
-							Elem: []*pb.PathElem{
-								{Name: "NEIGH_STATE_TABLE"},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	if err := stream1.Send(req1); err != nil {
-		t.Fatalf("Failed to send SubscribeRequest on stream1: %v", err)
-	}
-	t.Logf("Sent SubscribeRequest on stream #1 for STATE_DB")
-
-	// Drain stream1's initial responses (update + sync) so the buffer is empty
-	for {
-		resp, err := stream1.Recv()
-		if err != nil {
-			t.Fatalf("Unexpected error draining stream1: %v", err)
-		}
-		if resp.GetSyncResponse() {
-			t.Logf("Stream1 initial sync received, buffer drained")
-			break
-		}
-	}
-
-	// Verify 1 active client
-	s.cMu.Lock()
-	clientsBefore := len(s.clients)
-	s.cMu.Unlock()
-	t.Logf("Active clients before stream2: %d", clientsBefore)
-
-	if clientsBefore != 1 {
-		t.Errorf("Expected 1 active client before stream2, got %d", clientsBefore)
-	}
-
-	// Open second stream from the same connection — should close the first
-	stream2, err := gClient.Subscribe(ctx)
-	if err != nil {
-		t.Fatalf("Failed to create Subscribe stream #2: %v", err)
-	}
-
-	req2 := &pb.SubscribeRequest{
-		Request: &pb.SubscribeRequest_Subscribe{
-			Subscribe: &pb.SubscriptionList{
-				Prefix: &pb.Path{Target: "STATE_DB"},
-				Mode:   pb.SubscriptionList_POLL,
-				Subscription: []*pb.Subscription{
-					{
-						Path: &pb.Path{
-							Elem: []*pb.PathElem{
-								{Name: "NEIGH_STATE_TABLE"},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	if err := stream2.Send(req2); err != nil {
-		t.Fatalf("Failed to send SubscribeRequest on stream2: %v", err)
-	}
-	t.Logf("Sent SubscribeRequest on stream #2 for STATE_DB")
-
-	// Wait for stream2 to be registered and stream1 to be closed
-	time.Sleep(time.Millisecond * 500)
-
-	// Stream1 should have been closed by the duplicate detection.
-	// Buffer is empty (we drained it), so Recv should return an error.
-	_, err = stream1.Recv()
-	if err == nil {
-		t.Errorf("Expected stream1 to be closed by duplicate detection, but Recv succeeded")
-	} else {
-		t.Logf("Stream1 correctly closed: %v", err)
-	}
-
-	stream2.CloseSend()
-	t.Logf("SUCCESS: Legacy duplicate-close behavior works when EnableStreamMultiplexing is disabled")
 }
