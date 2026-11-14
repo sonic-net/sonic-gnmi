@@ -9,12 +9,15 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/alicebob/miniredis/v2/server"
 	"github.com/google/gnxi/utils/xpath"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/redis/go-redis/v9"
@@ -2011,6 +2014,112 @@ func TestSubscribeTableData2TypedValue(t *testing.T) {
 			t.Errorf("expected updateReceived=false")
 		}
 	})
+}
+
+func TestPollRunSIDRefresh(t *testing.T) {
+	for _, selector := range []string{"SID*", "SID:*"} {
+		t.Run(selector, func(t *testing.T) {
+			sdcfg.Init()
+			mr := miniredis.RunT(t)
+			rdb := redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1})
+			defer rdb.Close()
+			clients := gomonkey.ApplyFuncReturn(GetRedisClientsForDb, map[string]*redis.Client{"": rdb}, nil)
+			defer clients.Reset()
+			original := Target2RedisDb
+			Target2RedisDb = map[string]map[string]*redis.Client{"": {"COUNTERS_DB": rdb}}
+			defer func() { Target2RedisDb = original }()
+			path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "COUNTERS"}, {Name: selector}}}
+			ordinary := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "COUNTERS_PORT_NAME_MAP"}}}
+			mr.HSet("COUNTERS_PORT_NAME_MAP", "Ethernet0", "oid:0xport")
+			client, err := NewDbClient([]*gnmipb.Path{path, ordinary}, &gnmipb.Path{Target: "COUNTERS_DB"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := client.(*DbClient)
+			q := queue.NewPriorityQueue(8, false)
+			poll := make(chan struct{}, 1)
+			var wg sync.WaitGroup
+			wg.Add(1)
+			go c.PollRun(q, poll, &wg, nil)
+			defer func() { close(poll); wg.Wait(); q.Dispose(); client.Close() }()
+			batch := func() []Value {
+				t.Helper()
+				poll <- struct{}{}
+				var result []Value
+				deadline := time.Now().Add(3 * time.Second)
+				for time.Now().Before(deadline) {
+					if q.Empty() {
+						time.Sleep(time.Millisecond)
+						continue
+					}
+					items, err := q.Get(1)
+					if err != nil {
+						t.Fatal(err)
+					}
+					v := items[0].(Value)
+					result = append(result, v)
+					if v.GetSyncResponse() || v.GetFatal() != "" {
+						return result
+					}
+				}
+				t.Fatal("POLL response did not complete")
+				return nil
+			}
+			initial := batch()
+			if len(initial) != 2 || initial[0].GetPath() != ordinary || !initial[1].GetSyncResponse() {
+				t.Fatalf("initial empty SID / mixed ordinary response: %v", initial)
+			}
+			const sid = "fcbb:bbbb:1::/48"
+			for _, oid := range []string{"oid:0x1", "oid:0x2"} {
+				mr.HSet("COUNTERS_SRV6_NAME_MAP", sid, oid)
+				mr.HSet("COUNTERS:"+oid, "SAI_COUNTER_STAT_PACKETS", oid)
+				found := false
+				for _, v := range batch() {
+					if len(v.GetDelete()) > 0 || v.GetFatal() != "" {
+						t.Fatalf("unexpected delete/error: %v", v)
+					}
+					if v.GetPath() == path {
+						var payload map[string]map[string]string
+						if err := json.Unmarshal(v.GetVal().GetJsonIetfVal(), &payload); err != nil {
+							t.Fatal(err)
+						}
+						found = payload[sid]["SAI_COUNTER_STAT_PACKETS"] == oid
+					}
+				}
+				if !found {
+					t.Fatal("same subscription did not refresh SID mapping")
+				}
+			}
+			mr.HDel("COUNTERS_SRV6_NAME_MAP", sid)
+			deleted := false
+			for _, v := range batch() {
+				deleted = deleted || len(v.GetDelete()) > 0
+			}
+			if !deleted {
+				t.Fatal("existing deletion behavior lost")
+			}
+			if len(c.pathG2S[path]) != 0 {
+				t.Fatal("initial subscription paths were mutated")
+			}
+			mr.Server().SetPreHook(func(peer *server.Peer, cmd string, args ...string) bool {
+				if strings.EqualFold(cmd, "hgetall") && len(args) > 0 && args[0] == "COUNTERS_SRV6_NAME_MAP" {
+					peer.WriteError("ERR SID read failure")
+					return true
+				}
+				return false
+			})
+			fatal := false
+			for _, v := range batch() {
+				fatal = fatal || strings.Contains(v.GetFatal(), "SID read failure")
+				if len(v.GetDelete()) > 0 {
+					t.Fatal("read failure produced a delete")
+				}
+			}
+			if !fatal {
+				t.Fatal("SID refresh failure was not reported")
+			}
+		})
+	}
 }
 
 func TestPollRunDeleteTracking(t *testing.T) {
