@@ -133,6 +133,11 @@ func checkAllowedDeletePaths(prefix *gnmipb.Path, deletes []*gnmipb.Path) bool {
 	return true
 }
 
+// IsAllowedSetRequest checks path shape only, without SKU/database discovery.
+func IsAllowedSetRequest(prefix *gnmipb.Path, deletes []*gnmipb.Path, updates []*gnmipb.Update) bool {
+	return len(deletes)+len(updates) > 0 && checkAllowedDeletePaths(prefix, deletes) && checkAllowedTables(prefix, updates)
+}
+
 // IsRequested reports whether incoming gRPC metadata contains a bypass request.
 // Callers must complete authentication and the write-access check before calling TrySet.
 func IsRequested(ctx context.Context) bool {

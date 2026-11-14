@@ -267,6 +267,13 @@ func (c *Client) Run(stream gnmipb.GNMI_SubscribeServer, config *Config) (err er
 	reauthStop := make(chan struct{})
 	reauthErr := make(chan error, 1)
 	go monitorAuthentication(stream.Context(), subscribeReauthInterval, func() error {
+		if stream.Context().Value(rpcTargetKey{}) != nil {
+			ctx, err := rpcCredentials(config, stream.Context())
+			if err != nil {
+				return err
+			}
+			return checkRPCIdentity(ctx, authTarget, false)
+		}
 		_, err := authenticate(config, stream.Context(), authTarget, false)
 		return err
 	}, c.Close, reauthStop, reauthErr)
