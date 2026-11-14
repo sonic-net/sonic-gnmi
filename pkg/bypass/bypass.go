@@ -45,6 +45,8 @@ const (
 	defaultRedisSocket = "/var/run/redis/redis.sock"
 	defaultRedisTCP    = "127.0.0.1:6379"
 	configDbId         = 4
+	// Bound queued commands; this does not bound the size of one entry or the RPC.
+	writeBatchSize = 256
 )
 
 // getConfigDbClientFunc allows mocking in tests
@@ -243,6 +245,19 @@ func Apply(ctx context.Context, prefix *gnmipb.Path, updates []*gnmipb.Update) e
 			if err := json.Unmarshal(jsonVal, &bulkData); err != nil {
 				return fmt.Errorf("bypass: failed to unmarshal bulk JSON: %v", err)
 			}
+			pipe := rclient.Pipeline()
+			flush := func() error {
+				if pipe.Len() == 0 {
+					return nil
+				}
+				cmds, err := pipe.Exec(ctx)
+				for _, cmd := range cmds {
+					if cmd.Err() != nil {
+						return fmt.Errorf("bypass: HSet failed for %s: %w", cmd.Args()[1], cmd.Err())
+					}
+				}
+				return err
+			}
 			for entryKey, entryFields := range bulkData {
 				redisKey := table + "|" + entryKey
 				fields := convertToRedisFields(entryFields)
@@ -250,10 +265,17 @@ func Apply(ctx context.Context, prefix *gnmipb.Path, updates []*gnmipb.Update) e
 				if len(fields) == 0 {
 					fields["NULL"] = "NULL"
 				}
-				if _, err := rclient.HSet(context.Background(), redisKey, fields).Result(); err != nil {
-					return fmt.Errorf("bypass: HSet failed for %s: %v", redisKey, err)
+				pipe.HSet(ctx, redisKey, fields)
+				if pipe.Len() == writeBatchSize {
+					if err := flush(); err != nil {
+						return err
+					}
 				}
-				glog.V(2).Infof("Bypass: wrote %s with %d fields", redisKey, len(fields))
+			}
+			// Pipelining is not a transaction: other commands in a failed batch
+			// may have applied. Never submit the next batch/update after an error.
+			if err := flush(); err != nil {
+				return err
 			}
 			continue
 		}

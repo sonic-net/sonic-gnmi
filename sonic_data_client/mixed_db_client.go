@@ -1762,6 +1762,68 @@ func (c *MixedDbClient) GetCheckPoint() ([]*spb.Value, error) {
 	return values, nil
 }
 
+// getConfigKeys batches only explicit JSON entry reads. Field/table queries and
+// keyed PathElems keep the existing parser. The caller first tries its checkpoint.
+func (c *MixedDbClient) getConfigKeys() ([]*spb.Value, bool, error) {
+	if c.target != "CONFIG_DB" || c.encoding != gnmipb.Encoding_JSON_IETF || len(c.paths) < 2 {
+		return nil, false, nil
+	}
+	separator, err := GetTableKeySeparatorByDBKey(c.target, c.dbkey)
+	if err != nil {
+		return nil, true, err
+	}
+	keys := make([]string, 0, len(c.paths))
+	for _, path := range c.paths {
+		fullPath, err := c.gnmiFullPath(c.prefix, path)
+		if err != nil {
+			return nil, true, err
+		}
+		elems := fullPath.GetElem()
+		if len(elems) != 2 || elems[0].GetName() == "" || elems[1].GetName() == "" ||
+			len(elems[0].GetKey()) != 0 || len(elems[1].GetKey()) != 0 {
+			return nil, false, nil
+		}
+		keys = append(keys, elems[0].GetName()+separator+elems[1].GetName())
+	}
+	rc, ok := RedisDbMap[c.mapkey+":"+c.target]
+	if !ok {
+		return nil, true, fmt.Errorf("Redis Client not present for dbName %v mapkey %v", c.target, c.mapkey)
+	}
+	const readBatchSize = 256
+	values := make([]*spb.Value, 0, len(keys))
+	ts := time.Now().UnixNano()
+	for start := 0; start < len(keys); start += readBatchSize {
+		end := start + readBatchSize
+		if end > len(keys) {
+			end = len(keys)
+		}
+		pipe := rc.Pipeline()
+		cmds := make([]*redis.MapStringStringCmd, 0, end-start)
+		for _, key := range keys[start:end] {
+			cmds = append(cmds, pipe.HGetAll(context.Background(), key))
+		}
+		if _, err := pipe.Exec(context.Background()); err != nil {
+			return nil, true, err
+		}
+		for i, cmd := range cmds {
+			msi := make(map[string]interface{})
+			if err := c.makeJSON_redis(&msi, nil, nil, cmd.Val()); err != nil {
+				return nil, true, err
+			}
+			path := c.paths[start+i]
+			if len(msi) == 0 {
+				return nil, true, fmt.Errorf("No valid entry found for path %v", path)
+			}
+			val, err := c.msi2TypedValue(msi)
+			if err != nil {
+				return nil, true, err
+			}
+			values = append(values, &spb.Value{Prefix: c.prefix, Path: path, Timestamp: ts, Val: val})
+		}
+	}
+	return values, true, nil
+}
+
 func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 	if c.target == "CONFIG_DB" {
 		if _, err := checkPointPath(); err != nil {
@@ -1772,6 +1834,10 @@ func (c *MixedDbClient) Get(w *sync.WaitGroup) ([]*spb.Value, error) {
 			return ret, err
 		}
 		log.V(6).Infof("Error #%v", err)
+	}
+
+	if values, handled, err := c.getConfigKeys(); handled {
+		return values, err
 	}
 
 	var values []*spb.Value
