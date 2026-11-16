@@ -98,9 +98,19 @@ func TestHealthzArtifactAuthenticatesBeforeResolving(t *testing.T) {
 	server := newHealthzArtifactTestServer(t)
 	server.config.UserAuth = AuthTypes{"jwt": true}
 
-	err := server.Artifact(&healthz.ArtifactRequest{Id: "../invalid"}, &artifactTestStream{})
-	if status.Code(err) != codes.Unauthenticated {
-		t.Fatalf("Artifact() code = %v, want %v; err=%v", status.Code(err), codes.Unauthenticated, err)
+	for _, req := range []*healthz.ArtifactRequest{
+		nil,
+		{Id: "../invalid"},
+		{Id: "healthz-0123456789abcdef0123456789abcdef.tar.gz"},
+	} {
+		stream := &artifactTestStream{}
+		err := server.Artifact(req, stream)
+		if status.Code(err) != codes.Unauthenticated {
+			t.Errorf("Artifact(%v) code = %v, want %v; err=%v", req, status.Code(err), codes.Unauthenticated, err)
+		}
+		if len(stream.responses) != 0 {
+			t.Errorf("Artifact(%v) sent %d responses before authentication", req, len(stream.responses))
+		}
 	}
 }
 

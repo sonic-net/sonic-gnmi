@@ -2,157 +2,119 @@ package debug
 
 import (
 	"context"
-	"sync"
-	"time"
+	"errors"
 
+	debugpb "github.com/openconfig/gnoi/debug"
 	exec "github.com/sonic-net/sonic-gnmi/internal/exec"
-	debug_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/debug"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-var (
-	// Allow DI for mocking
-	runCommand = func(ctx context.Context, outCh chan<- string, errCh chan<- string, roleAccount string, byteLimit int64, cmd string) (int, error) {
-		return exec.RunCommand(ctx, outCh, errCh, roleAccount, byteLimit, cmd)
-	}
-)
+var runCommand = exec.RunCommand
 
-// HandleCommandRequest implements the logic for the Debug RPC, per the gNOI spec.
-// It validates the request, then runs the command on the host, streaming responses
-// back to the client.
-//
-// Responses are streamed to the client in the following order:
-//   - Request: 1, beginning of execution
-//   - Data ([]byte): 0 - many, during execution
-//   - Status: 1, upon completion
-//
-// Returns:
-//   - Error with appropriate gRPC status code on failure
-func HandleCommandRequest(
-	req *debug_pb.DebugRequest,
-	stream debug_pb.Debug_DebugServer,
-	whitelist []string,
-) error {
-	ctx := stream.Context()
+type commandResult struct {
+	exitCode int
+	err      error
+}
 
-	// Validate request
+func HandleCommandRequest(req *debugpb.DebugRequest, stream debugpb.Debug_DebugServer, policy *Policy, access AccessLevel) error {
 	if req == nil {
-		return status.Error(codes.InvalidArgument, "request cannot be nil")
+		return status.Error(codes.InvalidArgument, "request is required")
+	}
+	if len(req.GetCommand()) == 0 {
+		return status.Error(codes.InvalidArgument, "command is required")
+	}
+	switch req.GetMode() {
+	case debugpb.DebugRequest_MODE_CLI:
+	case debugpb.DebugRequest_MODE_SHELL:
+		return status.Error(codes.Unimplemented, "shell mode is not supported")
+	default:
+		return status.Error(codes.InvalidArgument, "CLI mode is required")
+	}
+	if req.GetRoleAccount() != "" {
+		return status.Error(codes.InvalidArgument, "role_account is not supported")
 	}
 
-	command := req.GetCommand()
-	if command == nil {
-		return status.Error(codes.InvalidArgument, "command cannot be nil")
+	plan, err := policy.Resolve(string(req.GetCommand()), access, req.GetTimeout(), req.GetByteLimit())
+	switch {
+	case errors.Is(err, ErrPolicyUnavailable):
+		return status.Error(codes.FailedPrecondition, "Debug command policy is unavailable")
+	case errors.Is(err, ErrInvalidRequest):
+		return status.Error(codes.InvalidArgument, "invalid Debug request")
+	case errors.Is(err, ErrRejected):
+		return status.Error(codes.PermissionDenied, "Debug action is not permitted")
+	case err != nil:
+		return status.Error(codes.Internal, "failed to resolve Debug action")
 	}
 
-	err := ValidateCommand(string(command), whitelist)
-	if err != nil {
-		return status.Errorf(codes.PermissionDenied, "command failed validation: %v", err)
+	if err := sendReqInResponse(stream, req); err != nil {
+		return err
 	}
 
-	// Optional args
-	byteLimit := req.GetByteLimit()
-	roleAccount := req.GetRoleAccount()
-	timeout := req.GetTimeout()
-	if timeout > 0 {
-		timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout))
-		defer cancel()
-		ctx = timeoutCtx
-	}
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
+	outCh := make(chan string)
+	errCh := make(chan string)
+	resultCh := make(chan commandResult, 1)
+	go func() {
+		exitCode, err := runCommand(ctx, outCh, errCh, plan)
+		resultCh <- commandResult{exitCode: exitCode, err: err}
+	}()
 
-	mode := req.GetMode()
-	var wg sync.WaitGroup
-	outCh := make(chan string, 100)
-	errCh := make(chan string, 100)
-
-	switch mode {
-	case debug_pb.DebugRequest_MODE_CLI:
-		// 1. Send request, indicating start of execution
-		err := sendReqInResponse(stream, req)
-		if err != nil {
-			return status.Errorf(codes.FailedPrecondition, "Failed to run command '%s': '%v'", command, err)
-		}
-
-		// 2. Send stdout/stderr
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			streamDataInChannel(ctx, stream, outCh)
-		}()
-		go func() {
-			defer wg.Done()
-			streamDataInChannel(ctx, stream, errCh)
-		}()
-
-		exitCode, err := runCommand(ctx, outCh, errCh, roleAccount, byteLimit, string(command))
-		if err != nil {
-			return status.Errorf(codes.FailedPrecondition, "Failed to run command '%s': '%v'", command, err)
-		}
-		wg.Wait()
-
-		// 3. Send status (with exit code), indicating completion
-		sendStatusInResponse(stream, exitCode)
-
-	case debug_pb.DebugRequest_MODE_SHELL:
-		return status.Error(codes.Unimplemented, "mode SHELL is currently unimplemented")
-	case debug_pb.DebugRequest_MODE_UNSPECIFIED:
-		return status.Error(codes.InvalidArgument, "mode cannot be UNSPECIFIED")
-	}
-
-	return nil
-}
-
-// Helper to send all data held within a channel to stream, in succession.
-// If the context completes, or the stream breaks, will abort early.
-// Otherwise, will run till the channel is closed by the writer.
-func streamDataInChannel(ctx context.Context, stream debug_pb.Debug_DebugServer, ch <-chan string) {
-	for {
+	var sendErr error
+	for outCh != nil || errCh != nil {
 		select {
-		case <-ctx.Done():
-			return
-		case data, ok := <-ch:
+		case data, ok := <-outCh:
 			if !ok {
-				return
+				outCh = nil
+				continue
 			}
-
-			if err := sendDataInResponse(stream, data); err != nil {
-				return
+			if sendErr == nil {
+				sendErr = sendDataInResponse(stream, data)
+				if sendErr != nil {
+					cancel()
+				}
+			}
+		case data, ok := <-errCh:
+			if !ok {
+				errCh = nil
+				continue
+			}
+			if sendErr == nil {
+				sendErr = sendDataInResponse(stream, data)
+				if sendErr != nil {
+					cancel()
+				}
 			}
 		}
 	}
+
+	result := <-resultCh
+	if sendErr != nil {
+		return sendErr
+	}
+	if result.err != nil {
+		return status.Error(codes.FailedPrecondition, "failed to execute Debug action")
+	}
+	return sendStatusInResponse(stream, int32(result.exitCode))
 }
 
-// Helper functions to hide creation of nested res structs
-
-func sendReqInResponse(stream debug_pb.Debug_DebugServer, req *debug_pb.DebugRequest) error {
-	return stream.Send(
-		&debug_pb.DebugResponse{
-			Response: &debug_pb.DebugResponse_Request{
-				Request: req,
-			},
-		},
-	)
+func sendReqInResponse(stream debugpb.Debug_DebugServer, req *debugpb.DebugRequest) error {
+	return stream.Send(&debugpb.DebugResponse{
+		Response: &debugpb.DebugResponse_Request{Request: req},
+	})
 }
 
-func sendDataInResponse(stream debug_pb.Debug_DebugServer, data string) error {
-	return stream.Send(
-		&debug_pb.DebugResponse{
-			Response: &debug_pb.DebugResponse_Data{
-				Data: []byte(data),
-			},
-		},
-	)
+func sendDataInResponse(stream debugpb.Debug_DebugServer, data string) error {
+	return stream.Send(&debugpb.DebugResponse{
+		Response: &debugpb.DebugResponse_Data{Data: []byte(data)},
+	})
 }
 
-func sendStatusInResponse(stream debug_pb.Debug_DebugServer, exitCode int) error {
-	return stream.Send(
-		&debug_pb.DebugResponse{
-			Response: &debug_pb.DebugResponse_Status{
-				Status: &debug_pb.DebugStatus{
-					Code: int32(exitCode),
-				},
-			},
+func sendStatusInResponse(stream debugpb.Debug_DebugServer, exitCode int32) error {
+	return stream.Send(&debugpb.DebugResponse{
+		Response: &debugpb.DebugResponse_Status{
+			Status: &debugpb.DebugStatus{Code: exitCode},
 		},
-	)
+	})
 }

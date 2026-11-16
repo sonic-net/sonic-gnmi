@@ -4,8 +4,8 @@ package os
 
 import (
 	"context"
-	"fmt"
 	"strings"
+	"time"
 
 	log "github.com/golang/glog"
 	gnoi_os_pb "github.com/openconfig/gnoi/os"
@@ -14,32 +14,45 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// HandleVerify implements the business logic for OS.Verify RPC using sonic-installer.
-// It executes 'sonic-installer list' command and parses the output to get the current version.
-func HandleVerify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) (*gnoi_os_pb.VerifyResponse, error) {
-	log.V(1).Info("HandleVerify: executing sonic-installer list")
+const (
+	sonicInstallerPath          = "/usr/local/bin/sonic-installer"
+	verifyOperationTimeout      = 60 * time.Second
+	verifyCommandFailureMessage = "failed to query current SONiC image"
+	verifyTimeoutMessage        = "OS Verify operation timed out"
+)
 
-	// Execute sonic-installer list command
-	result, err := exec.RunHostCommand(ctx, "sonic-installer", []string{"list"}, nil)
+type hostCommandRunner func(context.Context, string, []string, *exec.RunHostCommandOptions) (*exec.CommandResult, error)
+
+// HandleVerify implements the business logic for OS.Verify RPC using sonic-installer.
+func HandleVerify(ctx context.Context, _ *gnoi_os_pb.VerifyRequest) (*gnoi_os_pb.VerifyResponse, error) {
+	return handleVerify(ctx, verifyOperationTimeout, exec.RunHostCommand)
+}
+
+func handleVerify(ctx context.Context, timeout time.Duration, run hostCommandRunner) (*gnoi_os_pb.VerifyResponse, error) {
+	log.V(1).Info("HandleVerify: querying the current SONiC image")
+
+	operationCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	result, err := run(operationCtx, sonicInstallerPath, []string{"list"}, &exec.RunHostCommandOptions{
+		Timeout: timeout,
+	})
 	if err != nil {
-		log.Errorf("HandleVerify: failed to run sonic-installer: %v", err)
-		return nil, status.Errorf(codes.Internal, "failed to execute sonic-installer: %v", err)
+		log.Error("HandleVerify: host command executor failed")
+		return nil, verifyCommandError(ctx, operationCtx)
+	}
+
+	if result == nil {
+		log.Error("HandleVerify: host command executor returned no result")
+		return nil, verifyCommandError(ctx, operationCtx)
 	}
 
 	if result.Error != nil {
-		log.Errorf("HandleVerify: sonic-installer failed with exit code %d: %v, stderr: %s",
-			result.ExitCode, result.Error, result.Stderr)
-		return nil, status.Errorf(codes.Internal,
-			"sonic-installer failed with exit code %d: %s", result.ExitCode, result.Stderr)
+		log.Errorf("HandleVerify: host command failed with exit code %d", result.ExitCode)
+		return nil, verifyCommandError(ctx, operationCtx)
 	}
 
-	// Parse the output to extract current version
-	currentVersion, err := parseCurrentVersion(result.Stdout)
-	if err != nil {
-		log.Errorf("HandleVerify: failed to parse sonic-installer output: %v", err)
-		return nil, status.Errorf(codes.Internal, "failed to parse version information: %v", err)
-	}
-
+	currentVersion := parseCurrentVersion(result.Stdout)
 	log.V(1).Infof("HandleVerify: current version is %s", currentVersion)
 
 	return &gnoi_os_pb.VerifyResponse{
@@ -47,29 +60,29 @@ func HandleVerify(ctx context.Context, req *gnoi_os_pb.VerifyRequest) (*gnoi_os_
 	}, nil
 }
 
-// parseCurrentVersion parses the output of 'sonic-installer list' to extract the current version.
-// Expected format:
-// Current: SONiC-OS-20250610.08
-// Next: SONiC-OS-20250610.08
-// Available:
-// SONiC-OS-20250610.08
-// SONiC-OS-master.0-dirty-20251103.214532
-func parseCurrentVersion(output string) (string, error) {
-	lines := strings.Split(output, "\n")
+func verifyCommandError(requestCtx, operationCtx context.Context) error {
+	switch requestCtx.Err() {
+	case context.Canceled:
+		return status.Error(codes.Canceled, "OS Verify request canceled")
+	case context.DeadlineExceeded:
+		return status.Error(codes.DeadlineExceeded, "OS Verify request deadline exceeded")
+	}
 
-	for _, line := range lines {
+	if operationCtx.Err() == context.DeadlineExceeded {
+		return status.Error(codes.DeadlineExceeded, verifyTimeoutMessage)
+	}
+
+	return status.Error(codes.Internal, verifyCommandFailureMessage)
+}
+
+func parseCurrentVersion(output string) string {
+	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Current:") {
-			// Extract version after "Current: "
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				version := strings.TrimSpace(parts[1])
-				if version != "" {
-					return version, nil
-				}
-			}
+		label, version, ok := strings.Cut(line, ":")
+		if ok && strings.EqualFold(strings.TrimSpace(label), "Current") {
+			return strings.TrimSpace(version)
 		}
 	}
 
-	return "", fmt.Errorf("could not find 'Current:' line in sonic-installer output")
+	return ""
 }

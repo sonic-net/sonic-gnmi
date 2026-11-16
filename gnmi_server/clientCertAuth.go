@@ -133,6 +133,7 @@ func ClientCertAuthenAndAuthor(ctx context.Context, serviceConfigTableName strin
 	if len(username) == 0 {
 		return ctx, status.Error(codes.Unauthenticated, "invalid username in certificate common name.")
 	}
+	rc.Auth.User = username
 
 	if serviceConfigTableName != "" {
 		if err := PopulateAuthStructByCommonName(username, &rc.Auth, serviceConfigTableName); err != nil {
@@ -260,8 +261,11 @@ func PopulateAuthStructByCommonName(certCommonName string, auth *common_utils.Au
 	if serviceConfigTableName == "" {
 		return status.Errorf(codes.Unauthenticated, "Service config table name should not be empty")
 	}
+	// A context can outlive a certificate-role mapping. Do not let a prior
+	// successful lookup authorize a stream after that mapping is removed.
+	auth.Roles = nil
 
-	var configDbConnector = swsscommon.NewConfigDBConnector()
+	var configDbConnector = swsscommon.NewConfigDBConnector(true)
 	defer swsscommon.DeleteConfigDBConnector_Native(configDbConnector.ConfigDBConnector_Native)
 	configDbConnector.Connect(false)
 

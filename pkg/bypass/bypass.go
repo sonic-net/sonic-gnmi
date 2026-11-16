@@ -90,7 +90,7 @@ func getConfigDbClientDefault() (*redis.Client, error) {
 // 2. SKU matches allowed prefixes
 // 3. All target tables are in the allowlist
 func ShouldBypass(ctx context.Context, prefix *gnmipb.Path, updates []*gnmipb.Update) bool {
-	if !hasBypassHeader(ctx) {
+	if !IsRequested(ctx) {
 		return false
 	}
 	if !checkSKU() {
@@ -105,7 +105,7 @@ func ShouldBypass(ctx context.Context, prefix *gnmipb.Path, updates []*gnmipb.Up
 // ShouldBypassDelete checks if delete paths should use the fast bypass path.
 // Same conditions as ShouldBypass but for delete operations.
 func ShouldBypassDelete(ctx context.Context, prefix *gnmipb.Path, deletes []*gnmipb.Path) bool {
-	if !hasBypassHeader(ctx) {
+	if !IsRequested(ctx) {
 		return false
 	}
 	if !checkSKU() {
@@ -133,8 +133,9 @@ func checkAllowedDeletePaths(prefix *gnmipb.Path, deletes []*gnmipb.Path) bool {
 	return true
 }
 
-// hasBypassHeader checks gRPC metadata for bypass header
-func hasBypassHeader(ctx context.Context) bool {
+// IsRequested reports whether incoming gRPC metadata contains a bypass request.
+// Callers must complete authentication and the write-access check before calling TrySet.
+func IsRequested(ctx context.Context) bool {
 	if ctx == nil {
 		return false
 	}
