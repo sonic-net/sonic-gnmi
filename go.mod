@@ -48,7 +48,7 @@ require (
 	cel.dev/expr v0.25.1 // indirect
 	github.com/antchfx/jsonquery v1.1.4 // indirect
 	github.com/antchfx/xmlquery v1.3.1 // indirect
-	github.com/antchfx/xpath v1.1.10 // indirect
+	github.com/antchfx/xpath v1.3.6 // indirect
 	github.com/cenkalti/backoff/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
