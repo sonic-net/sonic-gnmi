@@ -5,8 +5,10 @@ package bypass
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -14,6 +16,120 @@ import (
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc/metadata"
 )
+
+type batchHook struct {
+	sizes []int
+}
+
+func (h *batchHook) DialHook(next redis.DialHook) redis.DialHook          { return next }
+func (h *batchHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook { return next }
+func (h *batchHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return func(ctx context.Context, cmds []redis.Cmder) error {
+		if len(cmds) > 0 && cmds[0].Name() == "hset" {
+			h.sizes = append(h.sizes, len(cmds))
+		}
+		return next(ctx, cmds)
+	}
+}
+
+func TestApplyBulkPipeline(t *testing.T) {
+	for _, count := range []int{0, 1, 255, 256, 257, 513} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			mr := miniredis.RunT(t)
+			hook := &batchHook{}
+			original := getConfigDbClientFunc
+			t.Cleanup(func() { getConfigDbClientFunc = original })
+			getConfigDbClientFunc = func() (*redis.Client, error) {
+				c := redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1})
+				c.AddHook(hook)
+				return c, nil
+			}
+			bulk := map[string]interface{}{}
+			for i := 0; i < count; i++ {
+				bulk[fmt.Sprint(i)] = map[string]interface{}{"endpoint": "192.0.2.1", "members": []string{"a", "b"}}
+			}
+			data, _ := json.Marshal(bulk)
+			path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "CONFIG_DB"}, {Name: "localhost"}, {Name: "VNET_ROUTE_TUNNEL"}}}
+			if err := Apply(context.Background(), nil, []*gnmipb.Update{{Path: path, Val: &gnmipb.TypedValue{Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: data}}}}); err != nil {
+				t.Fatal(err)
+			}
+			if len(hook.sizes) != (count+255)/256 {
+				t.Fatalf("pipeline batches=%v, count=%d", hook.sizes, count)
+			}
+			for _, size := range hook.sizes {
+				if size > 256 {
+					t.Fatalf("unbounded pipeline: %d", size)
+				}
+			}
+			for i := 0; i < count; i++ {
+				key := "VNET_ROUTE_TUNNEL|" + fmt.Sprint(i)
+				if mr.HGet(key, "endpoint") != "192.0.2.1" || mr.HGet(key, "members@") != "a,b" {
+					t.Fatalf("wrong stored fields for %s", key)
+				}
+			}
+		})
+	}
+}
+
+func TestApplyBulkPipelineErrorStopsLaterUpdates(t *testing.T) {
+	mr := miniredis.RunT(t)
+	mr.Set("VNET|bad", "not-a-hash")
+	original := getConfigDbClientFunc
+	t.Cleanup(func() { getConfigDbClientFunc = original })
+	getConfigDbClientFunc = func() (*redis.Client, error) {
+		return redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1}), nil
+	}
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "CONFIG_DB"}, {Name: "localhost"}, {Name: "VNET"}}}
+	update := func(data string) *gnmipb.Update {
+		return &gnmipb.Update{Path: path, Val: &gnmipb.TypedValue{Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: []byte(data)}}}
+	}
+	err := Apply(context.Background(), nil, []*gnmipb.Update{update(`{"bad":{"vni":"1"},"good":{}}`), update(`{"later":{"vni":"2"}}`)})
+	if err == nil || !strings.Contains(err.Error(), "VNET|bad") {
+		t.Fatalf("missing key-specific error: %v", err)
+	}
+	if mr.Exists("VNET|later") {
+		t.Fatal("continued after failed batch")
+	}
+	if mr.HGet("VNET|good", "NULL") != "NULL" {
+		t.Fatal("pipeline should apply valid command in the failed batch")
+	}
+}
+
+func TestApplyBulkPipelineStopsAfterFailedBatch(t *testing.T) {
+	mr := miniredis.RunT(t)
+	hook := &batchHook{}
+	original := getConfigDbClientFunc
+	t.Cleanup(func() { getConfigDbClientFunc = original })
+	getConfigDbClientFunc = func() (*redis.Client, error) {
+		c := redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1})
+		c.AddHook(hook)
+		return c, nil
+	}
+	bulk := map[string]interface{}{}
+	for i := 0; i < 513; i++ {
+		key := fmt.Sprint(i)
+		mr.Set("VNET|"+key, "wrong-type")
+		bulk[key] = map[string]string{"vni": "1"}
+	}
+	data, _ := json.Marshal(bulk)
+	path := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "CONFIG_DB"}, {Name: "localhost"}, {Name: "VNET"}}}
+	updates := []*gnmipb.Update{{Path: path, Val: &gnmipb.TypedValue{Value: &gnmipb.TypedValue_JsonIetfVal{JsonIetfVal: data}}}}
+	if err := Apply(context.Background(), nil, updates); err == nil {
+		t.Fatal("expected WRONGTYPE error")
+	}
+	if len(hook.sizes) != 1 || hook.sizes[0] != 256 {
+		t.Fatalf("submitted more than the failed batch: %v", hook.sizes)
+	}
+	mr.FlushAll()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := Apply(ctx, nil, updates); err == nil {
+		t.Fatal("cancelled request succeeded")
+	}
+	if len(mr.Keys()) != 0 {
+		t.Fatal("cancelled request wrote keys")
+	}
+}
 
 func TestIsRequested(t *testing.T) {
 	tests := []struct {

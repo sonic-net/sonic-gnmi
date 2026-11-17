@@ -15,6 +15,7 @@ import (
 
 	"github.com/Workiva/go-datastructures/queue"
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/gnxi/utils/xpath"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/redis/go-redis/v9"
@@ -26,6 +27,121 @@ import (
 )
 
 var testFile string = "/etc/sonic/ut.cp.json"
+
+type readBatchHook struct{ sizes []int }
+
+func (h *readBatchHook) DialHook(next redis.DialHook) redis.DialHook          { return next }
+func (h *readBatchHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook { return next }
+func (h *readBatchHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return func(ctx context.Context, cmds []redis.Cmder) error {
+		if len(cmds) > 0 && cmds[0].Name() == "hgetall" {
+			h.sizes = append(h.sizes, len(cmds))
+		}
+		return next(ctx, cmds)
+	}
+}
+
+func TestMixedDbClientGetPipelinedKeys(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rc := redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1})
+	defer rc.Close()
+	hook := &readBatchHook{}
+	rc.AddHook(hook)
+	orig := RedisDbMap
+	RedisDbMap = map[string]*redis.Client{"test:CONFIG_DB": rc}
+	defer func() { RedisDbMap = orig }()
+	patches := gomonkey.ApplyFunc(sdcfg.CheckDbMultiNamespace, func() (bool, error) { return false, nil })
+	defer patches.Reset()
+	patches.ApplyFunc(GetTableKeySeparatorByDBKey, func(string, swsscommon.SonicDBKey) (string, error) { return "|", nil })
+	t.Setenv("SONIC_GNMI_CHECKPOINT_DIR", t.TempDir())
+	dbkey := swsscommon.NewSonicDBKey()
+	defer swsscommon.DeleteSonicDBKey(dbkey)
+	c := &MixedDbClient{mapkey: "test", target: "CONFIG_DB", dbkey: dbkey, encoding: gnmipb.Encoding_JSON_IETF}
+	for i := 0; i < 513; i++ {
+		key := fmt.Sprint(i)
+		mr.HSet("VNET_ROUTE_TUNNEL|"+key, "endpoint", key, "members@", "a,b", "NULL", "NULL")
+		c.paths = append(c.paths, &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "CONFIG_DB"}, {Name: "localhost"}, {Name: "VNET_ROUTE_TUNNEL"}, {Name: key}}})
+	}
+	values, err := c.Get(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 513 {
+		t.Fatalf("values=%d", len(values))
+	}
+	if !reflect.DeepEqual(hook.sizes, []int{256, 256, 1}) {
+		t.Fatalf("pipeline batches=%v", hook.sizes)
+	}
+	for i, v := range values {
+		var got map[string]interface{}
+		if err := json.Unmarshal(v.Val.GetJsonIetfVal(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got["endpoint"] != fmt.Sprint(i) || !reflect.DeepEqual(got["members"], []interface{}{"a", "b"}) {
+			t.Fatalf("path %d: %v", i, got)
+		}
+		if _, ok := got["NULL"]; ok {
+			t.Fatal("NULL placeholder leaked")
+		}
+		if v.Path != c.paths[i] {
+			t.Fatal("response path order changed")
+		}
+	}
+	// Prefix-relative duplicate paths preserve multiplicity and field conversion.
+	c.prefix = &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "CONFIG_DB"}, {Name: "localhost"}}}
+	entry := &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "VNET_ROUTE_TUNNEL"}, {Name: "0"}}}
+	c.paths = []*gnmipb.Path{entry, entry}
+	values, err = c.Get(nil)
+	if err != nil || len(values) != 2 || !reflect.DeepEqual(values[0].Val, values[1].Val) {
+		t.Fatalf("duplicate paths: %v %v", values, err)
+	}
+	// Errors must not turn into partial or successful replies.
+	mr.Del("VNET_ROUTE_TUNNEL|0")
+	if values, err = c.Get(nil); err == nil || values != nil {
+		t.Fatalf("missing key: %v %v", values, err)
+	}
+	mr.Set("VNET_ROUTE_TUNNEL|0", "wrong-type")
+	if values, err = c.Get(nil); err == nil || values != nil {
+		t.Fatalf("wrong type: %v %v", values, err)
+	}
+	// A checkpoint takes precedence even when Redis contains the wrong type.
+	checkpoint := filepath.Join(os.Getenv("SONIC_GNMI_CHECKPOINT_DIR"), "config.cp.json")
+	if err := os.WriteFile(checkpoint, []byte(`{"VNET_ROUTE_TUNNEL":{"0":{"endpoint":"checkpoint"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	hook.sizes = nil
+	values, err = c.Get(nil)
+	if err != nil || len(values) != 2 || len(hook.sizes) != 0 {
+		t.Fatalf("checkpoint not preferred: %v %v batches=%v", values, err, hook.sizes)
+	}
+	if string(values[0].Val.GetJsonIetfVal()) != `{"endpoint":"checkpoint"}` {
+		t.Fatalf("checkpoint value: %s", values[0].Val.GetJsonIetfVal())
+	}
+}
+
+func TestMixedDbClientGetPipelineEligibility(t *testing.T) {
+	patches := gomonkey.ApplyFunc(GetTableKeySeparatorByDBKey, func(string, swsscommon.SonicDBKey) (string, error) { return "|", nil })
+	defer patches.Reset()
+	path := func(elems ...string) *gnmipb.Path {
+		p := &gnmipb.Path{}
+		for _, elem := range elems {
+			p.Elem = append(p.Elem, &gnmipb.PathElem{Name: elem})
+		}
+		return p
+	}
+	entry := path("CONFIG_DB", "localhost", "PORT", "Ethernet0")
+	for _, other := range []*gnmipb.Path{
+		path("CONFIG_DB", "localhost", "PORT"),
+		path("CONFIG_DB", "localhost", "PORT", "Ethernet0", "admin_status"),
+		path("CONFIG_DB", "localhost", "PORT", "Ethernet0", "members", "0"),
+		{Elem: []*gnmipb.PathElem{{Name: "CONFIG_DB"}, {Name: "localhost"}, {Name: "PORT", Key: map[string]string{"key": "Ethernet0"}}}},
+	} {
+		c := MixedDbClient{target: "CONFIG_DB", encoding: gnmipb.Encoding_JSON_IETF, paths: []*gnmipb.Path{entry, other}}
+		if _, handled, err := c.getConfigKeys(); handled || err != nil {
+			t.Fatalf("non-entry query captured: %v %v", other, err)
+		}
+	}
+}
 
 type checkpointService struct {
 	ssc.FakeClient
