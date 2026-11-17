@@ -551,6 +551,39 @@ func ValidateNoTLSConfig(bindAddress, gnmiVrf string) error {
 	return nil
 }
 
+// NewGNMIHandler returns the original gNMI service implementation for direct
+// registration with a caller-owned gRPC server. It initializes Get, Set and
+// Subscribe state without creating listeners, other services or DB journals.
+// Transport settings in config are ignored. The caller owns transport security,
+// serving and shutdown; Stop and ForceStop do not stop the caller's gRPC server.
+// Pathz and Authz policies require NewServer's service/interceptor assembly and
+// are rejected here rather than silently bypassed.
+func NewGNMIHandler(config *Config) (*Server, error) {
+	if config == nil {
+		return nil, errors.New("config not provided")
+	}
+	if config.PathzPolicy || config.AuthzPolicy {
+		return nil, errors.New("standalone gNMI handler does not support PathzPolicy or AuthzPolicy; use NewServer")
+	}
+	if err := common_utils.ValidateSharedMemoryKey(); err != nil {
+		return nil, fmt.Errorf("invalid shared-memory configuration: %w", err)
+	}
+	return newGNMIHandler(config), nil
+}
+
+// newGNMIHandler initializes the state shared by standalone and hosted handlers.
+// NewServer supplies policy dependencies before exposing the hosted handler.
+func newGNMIHandler(config *Config) *Server {
+	common_utils.InitCounters()
+	return &Server{
+		config:            config,
+		clients:           map[ClientKey]*Client{},
+		SaveStartupConfig: saveOnSetDisabled,
+		ReqFromMaster:     ReqFromMasterDisabledMA,
+		masterEID:         uint128{High: 0, Low: 0},
+	}
+}
+
 // tlsOpts contains TLS credentials and is used only for the TCP listener.
 // commonOpts contains interceptors, keepalive params, etc. and is used for both listeners.
 //
@@ -561,7 +594,6 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 	if config == nil {
 		return nil, errors.New("config not provided")
 	}
-	var providers []certprovider.Provider
 	if err := common_utils.ValidateSharedMemoryKey(); err != nil {
 		return nil, fmt.Errorf("invalid shared-memory configuration: %w", err)
 	}
@@ -571,7 +603,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			return nil, err
 		}
 	}
-	common_utils.InitCounters()
+	srv := newGNMIHandler(config)
 
 	// Set authorization policy.
 	var authzWatcher *authz.FileWatcherInterceptor
@@ -587,20 +619,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 		}
 	}
 
-	s := grpc.NewServer(commonOpts...)
-	reflection.Register(s)
-
-	srv := &Server{
-		config:            config,
-		clients:           map[ClientKey]*Client{},
-		certProviders:     providers,
-		SaveStartupConfig: saveOnSetDisabled,
-		// ReqFromMaster point to a function that is called to verify if
-		// the request comes from a master controller.
-		ReqFromMaster: ReqFromMasterDisabledMA,
-		masterEID:     uint128{High: 0, Low: 0},
-		authzWatcher:  authzWatcher,
-	}
+	srv.authzWatcher = authzWatcher
 
 	// Create service servers (shared between TCP and UDS)
 	fileSrv := newFileServer(config)
@@ -773,7 +792,7 @@ func (srv *Server) ForceStop() {
 		srv.udsServer.Stop()
 	}
 	// Cleanup UDS socket file
-	if srv.config != nil && srv.config.UnixSocket != "" {
+	if srv.udsListener != nil && srv.config != nil && srv.config.UnixSocket != "" {
 		os.Remove(srv.config.UnixSocket)
 	}
 }
@@ -787,7 +806,7 @@ func (srv *Server) Stop() {
 		srv.udsServer.GracefulStop()
 	}
 	// Cleanup UDS socket file
-	if srv.config != nil && srv.config.UnixSocket != "" {
+	if srv.udsListener != nil && srv.config != nil && srv.config.UnixSocket != "" {
 		os.Remove(srv.config.UnixSocket)
 	}
 }
@@ -1495,6 +1514,8 @@ func cleanupProviders(ps []certprovider.Provider) {
 
 // Cleanup stops the gNMI/gNOI server and does required cleanup.
 func (srv *Server) Cleanup() {
-	srv.s.Stop()
+	if srv.s != nil {
+		srv.s.Stop()
+	}
 	cleanupProviders(srv.certProviders)
 }
