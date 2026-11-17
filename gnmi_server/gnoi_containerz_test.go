@@ -56,10 +56,6 @@ func (d *dummyDeployServer) Context() context.Context {
 	return context.Background()
 }
 
-type dummyListServer struct {
-	gnoi_containerz_pb.Containerz_ListServer
-}
-
 type dummyLogServer struct {
 	gnoi_containerz_pb.Containerz_LogServer
 }
@@ -199,18 +195,6 @@ func (f *deployFixture) dependencies(t *testing.T) *containerzDeployDependencies
 func TestContainerzServer_Unimplemented(t *testing.T) {
 	server := &ContainerzServer{}
 
-	if _, err := server.Remove(context.Background(), &gnoi_containerz_pb.RemoveRequest{}); status.Code(err) != codes.Unimplemented {
-		t.Errorf("Remove() code = %v, want %v", status.Code(err), codes.Unimplemented)
-	}
-	if err := server.List(&gnoi_containerz_pb.ListRequest{}, &dummyListServer{}); status.Code(err) != codes.Unimplemented {
-		t.Errorf("List() code = %v, want %v", status.Code(err), codes.Unimplemented)
-	}
-	if _, err := server.Start(context.Background(), &gnoi_containerz_pb.StartRequest{}); status.Code(err) != codes.Unimplemented {
-		t.Errorf("Start() code = %v, want %v", status.Code(err), codes.Unimplemented)
-	}
-	if _, err := server.Stop(context.Background(), &gnoi_containerz_pb.StopRequest{}); status.Code(err) != codes.Unimplemented {
-		t.Errorf("Stop() code = %v, want %v", status.Code(err), codes.Unimplemented)
-	}
 	if err := server.Log(&gnoi_containerz_pb.LogRequest{}, &dummyLogServer{}); status.Code(err) != codes.Unimplemented {
 		t.Errorf("Log() code = %v, want %v", status.Code(err), codes.Unimplemented)
 	}
