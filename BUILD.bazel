@@ -21,6 +21,7 @@ load("//tools/bazel:source_files.bzl", "source_files")
 exports_files([
     "MODULE.bazel",
     "go.bazel.work",
+    "go.bazel.work.sum",
     "go.mod",
     "go.sum",
     "debian/control",

@@ -99,9 +99,7 @@ def main():
 
     def bazel(root, operation, targets, extra=(), log_suffix=""):
         rc = work / (root.name + ".bazelrc")
-        text = (root / ".bazelrc").read_text().replace(
-            "https://raw.githubusercontent.com/securely1g/sonic-bazel-registry/main",
-            "https://raw.githubusercontent.com/securely1g/sonic-bazel-registry/" + pins["registry"])
+        text = (root / ".bazelrc").read_text()
         home_rc = Path.home() / ".bazelrc"
         if home_rc.exists():
             text += "\n" + "\n".join(line for line in home_rc.read_text().splitlines()

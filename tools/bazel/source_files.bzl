@@ -28,6 +28,7 @@ def source_files():
                 "go.mod",
                 "go.sum",
                 "go.bazel.work",
+                "go.bazel.work.sum",
                 "MODULE.bazel",
                 ".bazelrc",
                 ".bazelversion",

@@ -1,13 +1,12 @@
 {
-  "registry": "8afeb55fde7c6df392a85ba32a6cdaa8547788ab",
   "owners": {
     "sonic-swss-common": {
       "revision": "f7fda40c02b3a8b4bbbff3d17fca3dff83f4cbad",
       "sha256": "99d14ebc95226f23b1d409ecd5156cda013259cbf9323dbaa6e41b8570f9050c"
     },
     "sonic-mgmt-common": {
-      "revision": "af147e78654ad423ea0a2af268dfd0b71092b38b",
-      "sha256": "46db8d279e598457cc24cb2abf5b9313b2cb5ab1daf23aace72a9b39944e9424"
+      "revision": "f5361ba8b88cde7ec59bdb4652a986c68d66da64",
+      "sha256": "d4e8ac22f2e38852fbc2878a0e205fb293aff1021673905aea0ab1ec473898a1"
     }
   },
   "baseline": {

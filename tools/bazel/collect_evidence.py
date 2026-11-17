@@ -28,7 +28,7 @@ def main():
         return
     evidence = Path('bazel-evidence')
     evidence.mkdir(exist_ok=True)
-    for name in ['MODULE.bazel.lock', 'go.mod', 'go.sum', 'go.bazel.work', 'requirements_lock.txt']:
+    for name in ['MODULE.bazel.lock', 'go.mod', 'go.sum', 'go.bazel.work', 'go.bazel.work.sum', 'requirements_lock.txt']:
         source = Path(name)
         if source.is_file():
             shutil.copyfile(source, evidence / source.name)

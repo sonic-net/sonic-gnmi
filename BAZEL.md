@@ -59,9 +59,9 @@ registry plus BCR. Management Common `1.0.1-05f83dcab8fe2e1a0e0fc37ac172b289d696
 and the public goyang/ygot owners are available there. The separate consumer
 selects the same Management Common, SWSS Common and build-infra owners as the
 source root; no temporary registry selection is needed for these checks.
-The independent subscription-race reproduction retains its historical owner
-inputs so it can compare the original baseline; it is separate evidence from
-the source-root and installed-consumer checks.
+The independent subscription-race reproduction uses landed owner sources and
+their maintained registry configuration while comparing the original baseline.
+It is separate evidence from the source-root and installed-consumer checks.
 
 A consuming Bzlmod root supplies its Go SDK and the exported SONiC Go patches.
 `tests/consumer` is a real separate module: it imports gNMI's public server and
