@@ -1,7 +1,7 @@
-# SONiC-telemetry
+# SONiC gNMI/gNOI
 
 ## Description
-This repository contains implementation for the sonic system telemetry services:
+This repository implements SONiC gNMI telemetry and gNOI operational services:
 - dial-in mode system telemetry server: `telemetry`
 - dial-out mode system telemetry client `dialout_client_cli`
 
@@ -9,7 +9,8 @@ This repository contains implementation for the sonic system telemetry services:
 
 ### Prerequisites
 
-Install __go__ in your system https://golang.org/doc/install. Requires golang1.8+.
+Install Go using https://golang.org/doc/install and use the version declared in
+[go.mod](go.mod).
 
 ### Standalone database-config tests
 
@@ -159,6 +160,19 @@ the host filesystem view. Extended access ACLs are conservatively denied rather
 than assuming mode bits alone establish public access. Put, TransferToRemote,
 Remove, authentication and role authorization are unchanged. No managed-image
 store, helper process or companion HostService change is required.
+
+## gNOI Healthz
+
+Healthz uses the independent host-service catalog through `sonic_service_client`
+D-Bus. Get reads the latest stored event; List reads retained events and excludes
+acknowledged entries by default. Acknowledge is idempotent and preserves archives.
+Artifact streams a contained archive with its header, data and trailer. Standard
+component Check remains Unimplemented until a component-specific validation
+procedure exists; legacy diagnostic selectors remain separate compatibility paths.
+
+The upstream gNOI module is pinned to v0.3.0. See the
+[Healthz overview](https://github.com/gregoryboudreau/sonic-host-services/blob/6ce7833401365a228e696d58ff05ceb3a0ddc058/docs/healthz-overview.md)
+for ownership, DLDD's file handoff, event IDs and the exact upstream RPC contract.
 
 ## Streaming events
 SONiC publishes events of interest via gNMI.

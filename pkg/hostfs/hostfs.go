@@ -1,14 +1,9 @@
 // Package hostfs centralizes the small bits of host-filesystem awareness
-// that every SONiC gNOI service needs:
+// that SONiC gNOI services need:
 //
 //   - Validate: the allowlist of writable staging directories on the host.
 //   - Translate: prepend /mnt/host when the caller runs inside the gnmi
 //     container so absolute host paths resolve through the bind mount.
-//
-// Both pkg/gnoi/file and internal/diskspace already implement equivalent
-// logic privately. Those callers are left as-is for now; new services
-// (starting with pkg/gnoi/oras) should depend on this package so we have a
-// single source of truth going forward.
 package hostfs
 
 import (
@@ -18,10 +13,9 @@ import (
 	"strings"
 )
 
-// hostMount is the bind-mount path inside the gnmi container where the
-// host root filesystem is exposed. Exported as a var rather than a const
-// so tests can override it.
-var hostMount = "/mnt/host"
+// HostMount is the bind-mount path inside the gnmi container where the host
+// root filesystem is exposed.
+const HostMount = "/mnt/host"
 
 // AllowedPrefixes is the canonical allowlist of writable host directories
 // for gNOI staging on SONiC. It mirrors pkg/gnoi/file's whitelist:
@@ -34,27 +28,82 @@ var hostMount = "/mnt/host"
 // in a follow-up rather than building parallel lists.
 var AllowedPrefixes = []string{"/tmp/", "/var/tmp/", "/host/"}
 
-// Validate rejects any path that is not absolute, contains a literal ".."
-// segment after cleaning, or falls outside AllowedPrefixes. It does NOT
-// touch the filesystem.
-func Validate(path string) error {
+// Mapper maps logical host paths to the process filesystem. PreserveMapped
+// keeps Translate idempotent for callers such as ORAS that may receive an
+// already-mapped path. File intentionally leaves it false to preserve its
+// historical always-prepend behavior when the mount exists.
+type Mapper struct {
+	Mount          string
+	PreserveMapped bool
+}
+
+// Translate returns the cleaned syscall path for this mapper.
+func (mapper Mapper) Translate(path string) string {
+	cleaned := filepath.Clean(path)
+	if _, err := os.Stat(mapper.Mount); err == nil {
+		if !mapper.PreserveMapped || !strings.HasPrefix(cleaned, mapper.Mount) {
+			return mapper.Mount + cleaned
+		}
+	}
+	return cleaned
+}
+
+// Policy describes a write-path allowlist. RejectRawParentTraversal and
+// RejectNUL opt into the stricter checks used by gNOI File. ExactPaths can
+// grant individual files without broadening Prefixes.
+type Policy struct {
+	Prefixes                 []string
+	ExactPaths               []string
+	RejectRawParentTraversal bool
+	RejectNUL                bool
+	AllowedDescription       string
+}
+
+// Validate rejects paths outside the policy without touching the filesystem.
+func (policy Policy) Validate(path string) error {
+	if policy.RejectNUL && strings.IndexByte(path, 0) >= 0 {
+		return fmt.Errorf("path contains a null byte")
+	}
+	if policy.RejectRawParentTraversal {
+		for _, component := range strings.Split(path, string(filepath.Separator)) {
+			if component == ".." {
+				return fmt.Errorf("path traversal not allowed: %s", path)
+			}
+		}
+	}
+
 	cleaned := filepath.Clean(path)
 	if !filepath.IsAbs(cleaned) {
 		return fmt.Errorf("path must be absolute, got: %s", path)
 	}
-	// filepath.Clean collapses traversals against the absolute root, so a
-	// remaining `..` can only be a literal segment.
-	for _, seg := range strings.Split(cleaned, string(filepath.Separator)) {
-		if seg == ".." {
-			return fmt.Errorf("path traversal not allowed: %s", path)
+	if !policy.RejectRawParentTraversal {
+		for _, component := range strings.Split(cleaned, string(filepath.Separator)) {
+			if component == ".." {
+				return fmt.Errorf("path traversal not allowed: %s", path)
+			}
 		}
 	}
-	for _, prefix := range AllowedPrefixes {
+	for _, exactPath := range policy.ExactPaths {
+		if cleaned == filepath.Clean(exactPath) {
+			return nil
+		}
+	}
+	for _, prefix := range policy.Prefixes {
 		if strings.HasPrefix(cleaned, prefix) {
 			return nil
 		}
 	}
-	return fmt.Errorf("path must be under %v, got: %s", AllowedPrefixes, cleaned)
+	if policy.AllowedDescription != "" {
+		return fmt.Errorf("path must be %s, got: %s", policy.AllowedDescription, cleaned)
+	}
+	return fmt.Errorf("path must be under %v, got: %s", policy.Prefixes, cleaned)
+}
+
+// Validate rejects any path that is not absolute, contains a literal ".."
+// segment after cleaning, or falls outside AllowedPrefixes. It does NOT
+// touch the filesystem.
+func Validate(path string) error {
+	return (Policy{Prefixes: AllowedPrefixes}).Validate(path)
 }
 
 // Translate returns the path that should be used by syscalls on the
@@ -64,11 +113,5 @@ func Validate(path string) error {
 //
 // Translate does NOT validate the path; callers should Validate first.
 func Translate(path string) string {
-	cleaned := filepath.Clean(path)
-	if _, err := os.Stat(hostMount); err == nil {
-		if !strings.HasPrefix(cleaned, hostMount) {
-			return hostMount + cleaned
-		}
-	}
-	return cleaned
+	return (Mapper{Mount: HostMount, PreserveMapped: true}).Translate(path)
 }

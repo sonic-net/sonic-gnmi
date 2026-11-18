@@ -197,10 +197,11 @@ type DebugServer struct {
 }
 
 // HealthzServer is the server API for System Health service.
-// All implementations must embed UnimplementedSystemServer
+// All implementations must embed UnimplementedHealthzServer
 // for forward compatibility
 type HealthzServer struct {
 	*Server
+	artifactResolver artifactPathResolver
 	gnoi_healthz_pb.UnimplementedHealthzServer
 }
 
@@ -262,6 +263,10 @@ type Config struct {
 	// PathsBlacklist rejects Get/Set/Subscribe requests referencing
 	// blacklisted paths. Nil disables enforcement.
 	PathsBlacklist *pathblacklist.Policy
+}
+
+func writeEnabled(config *Config) bool {
+	return config != nil && (config.EnableTranslibWrite || config.EnableNativeWrite)
 }
 
 // DBusOSBackend is a concrete implementation of OSBackend
@@ -361,12 +366,14 @@ func registerSharedServices(s *grpc.Server, srv *Server, fileSrv *FileServer,
 	gnsi_pathz_pb.RegisterPathzServer(s, pathzSrv)
 	gnsi_credentialz_pb.RegisterCredentialzServer(s, credentialzSrv)
 	spb_jwt_gnoi.RegisterSonicJwtServiceServer(s, srv)
-	if srv.config.EnableTranslibWrite || srv.config.EnableNativeWrite {
+	// Keep Healthz registered so Get, List, and Artifact reads remain available
+	// when gNMI Set support is disabled. Acknowledge and Check gate writes.
+	gnoi_healthz_pb.RegisterHealthzServer(s, healthzSrv)
+	if writeEnabled(srv.config) {
 		gnoi_system_pb.RegisterSystemServer(s, srv)
 		gnoi_file_pb.RegisterFileServer(s, fileSrv)
 		gnoi_os_pb.RegisterOSServer(s, osSrv)
 		gnoi_containerz_pb.RegisterContainerzServer(s, containerzSrv)
-		gnoi_healthz_pb.RegisterHealthzServer(s, healthzSrv)
 	}
 	// ORAS Pull writes only into an allowlisted staging area inside the
 	// container; it has no relation to the gNMI write paths, so it is not
@@ -728,7 +735,7 @@ func NewServer(config *Config, tlsOpts []grpc.ServerOption, commonOpts []grpc.Se
 			return nil, fmt.Errorf("failed to create CONFIG_DB Journal: %v", err)
 		}
 	}
-	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !srv.config.EnableTranslibWrite)
+	log.V(1).Infof("Created Server on %s, read-only: %t", srv.Address(), !writeEnabled(srv.config))
 	return srv, nil
 }
 
@@ -1194,7 +1201,7 @@ func (s *Server) Set(ctx context.Context, req *gnmipb.SetRequest) (*gnmipb.SetRe
 	}
 
 	common_utils.IncCounter(common_utils.GNMI_SET)
-	if s.config.EnableTranslibWrite == false && s.config.EnableNativeWrite == false {
+	if !writeEnabled(s.config) {
 		common_utils.IncCounter(common_utils.GNMI_SET_FAIL)
 		return nil, grpc.Errorf(codes.Unimplemented, "GNMI is in read-only mode")
 	}
