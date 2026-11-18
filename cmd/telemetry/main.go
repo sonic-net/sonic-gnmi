@@ -336,6 +336,9 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	if cfg.SrvKeyFile != "" && cfg.SrvKeyLnk == "/keys/server_key.lnk" {
 		cfg.SrvKeyLnk = filepath.Join(filepath.Dir(cfg.SrvKeyFile), "server_key.lnk")
 	}
+	if cfg.SrvCertFile != "" && (cfg.CertzMetaFile == "" || cfg.CertzMetaFile == "/keys/grpc-version.json") {
+		cfg.CertzMetaFile = filepath.Join(filepath.Dir(cfg.SrvCertFile), "grpc-version.json")
+	}
 	if cfg.CertzMetaFile == "" {
 		cfg.CertzMetaFile = "/keys/grpc-version.json"
 	}
@@ -462,6 +465,35 @@ func signalHandler(serverControlSignal chan<- ServerControlValue, sigchannel <-c
 	}
 }
 
+// watchCerts signals serverControlSignal when the server certificate
+// directory changes.
+func watchCerts(telemetryCfg *TelemetryConfig, serverControlSignal chan<- ServerControlValue, certLoaded *int32) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Errorf("Received error when creating fsnotify watcher %v", err)
+		return
+	}
+	go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, nil, certLoaded)
+}
+
+// waitForCerts blocks until the certificates are written or created, or the
+// server is told to stop. It reports whether to retry loading them.
+func waitForCerts(telemetryCfg *TelemetryConfig, serverControlSignal chan ServerControlValue, certLoaded *int32) bool {
+	if !*telemetryCfg.Insecure {
+		watchCerts(telemetryCfg, serverControlSignal, certLoaded)
+	}
+	for {
+		switch <-serverControlSignal {
+		case ServerStop:
+			return false
+		case ServerStart:
+			return true
+		}
+		// A removed or renamed file is not a reason to retry; wait for
+		// the certificates to be written or created.
+	}
+}
+
 func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverControlSignal chan ServerControlValue, stopSignalHandler chan<- bool, wg *sync.WaitGroup) {
 	defer wg.Done()
 
@@ -495,28 +527,13 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 					return
 				}
 			} else {
-				watcher, err := fsnotify.NewWatcher()
-				if err != nil {
-					log.Errorf("Received error when creating fsnotify watcher %v", err)
-				}
-				if watcher != nil {
-					go iNotifyCertMonitoring(watcher, telemetryCfg, serverControlSignal, nil, &certLoaded)
-				}
 				certificate, err = tls.LoadX509KeyPair(*telemetryCfg.ServerCert, *telemetryCfg.ServerKey)
 				if err != nil {
 					computeSHA512Checksum(*telemetryCfg.ServerCert)
 					computeSHA512Checksum(*telemetryCfg.ServerKey)
 					log.Errorf("could not load server key pair: %s", err)
-					for {
-						serverControlValue := <-serverControlSignal
-						if serverControlValue == ServerStop {
-							return // server called to shutdown
-						}
-						if serverControlValue == ServerStart {
-							break // retry loading certs after cert has been written or created
-						}
-						// We don't care if file is deleted here as we will only want to check
-						// if certs have been created or written to, else we will wait again
+					if !waitForCerts(telemetryCfg, serverControlSignal, &certLoaded) {
+						return // server called to shutdown
 					}
 					continue
 				}
@@ -552,18 +569,24 @@ func startGNMIServer(telemetryCfg *TelemetryConfig, cfg *gnmi.Config, serverCont
 					caCertLoaded = false
 				}
 				if !caCertLoaded {
-					for {
-						serverControlValue := <-serverControlSignal
-						if serverControlValue == ServerStop {
-							return // server called to shutdown
-						}
-						if serverControlValue == ServerStart {
-							break // retry loading certs after cert has been written or created
-						}
+					if !waitForCerts(telemetryCfg, serverControlSignal, &certLoaded) {
+						return // server called to shutdown
 					}
 					continue
 				}
 				tlsCfg.ClientCAs = certPool
+			}
+
+			if !*telemetryCfg.Insecure {
+				// Load the credentials on every handshake so that a gNSI Certz
+				// rotation is served without restarting the server.
+				rotatingCfg, err := gnmi.RotatingTLSConfig(cfg, tlsCfg)
+				if err != nil {
+					log.Errorf("Serving the certificates loaded at startup, gNSI Certz rotations will not take effect: %v", err)
+					watchCerts(telemetryCfg, serverControlSignal, &certLoaded)
+				} else {
+					tlsCfg = rotatingCfg
+				}
 			}
 
 			atomic.StoreInt32(&certLoaded, 1) // Certs have loaded
