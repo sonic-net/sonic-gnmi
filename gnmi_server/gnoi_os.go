@@ -15,13 +15,54 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 )
 
+// imgDirReserve is the space a transfer always leaves free in ImgDir. On the
+// switch ImgDir is on /host, next to the installed images and the config.
+const imgDirReserve uint64 = 1 << 30
+
 var (
-	sem                sync.Mutex
-	totalBytesReceived = make(map[string]uint64)
-	handleOSVerify     = gnoios.HandleVerify
+	sem            sync.Mutex
+	handleOSVerify = gnoios.HandleVerify
+
+	// imgDirFreeSpace returns the bytes available to unprivileged writers
+	// on the filesystem holding dir.
+	imgDirFreeSpace = func(dir string) (uint64, error) {
+		var st syscall.Statfs_t
+		if err := syscall.Statfs(dir, &st); err != nil {
+			return 0, err
+		}
+		return st.Bavail * uint64(st.Bsize), nil
+	}
 )
+
+func tooLargeResponse(format string, a ...interface{}) *ospb.InstallResponse {
+	return &ospb.InstallResponse{
+		Response: &ospb.InstallResponse_InstallError{
+			InstallError: &ospb.InstallError{
+				Type:   ospb.InstallError_TOO_LARGE,
+				Detail: fmt.Sprintf(format, a...),
+			},
+		},
+	}
+}
+
+// checkImgDirSpace returns a TOO_LARGE response if writing size more bytes
+// into dir would leave less than imgDirReserve free. A directory whose free
+// space cannot be read is not rejected here; writing to it fails on its own.
+func checkImgDirSpace(dir string, size uint64) *ospb.InstallResponse {
+	free, err := imgDirFreeSpace(dir)
+	if err != nil {
+		log.Warningf("Unable to read free space of %s: %v", dir, err)
+		return nil
+	}
+	if free < imgDirReserve || size > free-imgDirReserve {
+		return tooLargeResponse("%d bytes do not fit in %s: %d bytes free, %d of them reserved",
+			size, dir, free, imgDirReserve)
+	}
+	return nil
+}
 
 func (srv *OSServer) processTransferReq(req *ospb.InstallRequest) *ospb.InstallResponse {
 	log.Infof("processTransferReq: %v", req)
@@ -127,7 +168,9 @@ func (srv *OSServer) processTransferEnd(req *ospb.InstallRequest) *ospb.InstallR
 	return resp
 }
 
-func (srv *OSServer) processTransferContent(transferContent []byte, imgPath string) *ospb.InstallResponse {
+// processTransferContent appends transferContent to imgPath, which already
+// holds received bytes of this transfer.
+func (srv *OSServer) processTransferContent(transferContent []byte, imgPath string, received uint64) *ospb.InstallResponse {
 	log.Infof("processTransferContent: file %v", imgPath)
 
 	// Base directory where the images should reside (e.g., /tmp)
@@ -170,6 +213,11 @@ func (srv *OSServer) processTransferContent(transferContent []byte, imgPath stri
 		}
 	}
 
+	if resp := checkImgDirSpace(dir, uint64(len(transferContent))); resp != nil {
+		log.Errorf("processTransferContent: %s", resp.GetInstallError().GetDetail())
+		return resp
+	}
+
 	// Open the file for writing (create or append)
 	f, err := os.OpenFile(safePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -206,13 +254,12 @@ func (srv *OSServer) processTransferContent(transferContent []byte, imgPath stri
 		}
 	}
 
-	// Update progress (total bytes received)
-	totalBytesReceived[safePath] += uint64(len(transferContent))
-	log.Infof("processTransferContent: complete. Wrote %d bytes to %s", totalBytesReceived[safePath], safePath)
+	received += uint64(len(transferContent))
+	log.Infof("processTransferContent: complete. Wrote %d bytes to %s", received, safePath)
 	return &ospb.InstallResponse{
 		Response: &ospb.InstallResponse_TransferProgress{
 			TransferProgress: &ospb.TransferProgress{
-				BytesReceived: totalBytesReceived[safePath],
+				BytesReceived: received,
 			},
 		},
 	}
@@ -295,6 +342,12 @@ func (srv *OSServer) Install(stream ospb.OS_InstallServer) error {
 		log.Errorf("Install: TransferReady not received. Returning OS Unimplemented (backend not supported)")
 		return status.Errorf(codes.Unimplemented, "OS Install not supported")
 	}
+	if size := transferReq.GetPackageSize(); size > 0 && resp.GetTransferReady() != nil {
+		if tooLarge := checkImgDirSpace(srv.ImgDir, size); tooLarge != nil {
+			log.Errorf("Install: package_size rejected: %s", tooLarge.GetInstallError().GetDetail())
+			resp = tooLarge
+		}
+	}
 
 	if resp != nil {
 		if err := stream.Send(resp); err != nil {
@@ -308,8 +361,13 @@ func (srv *OSServer) Install(stream ospb.OS_InstallServer) error {
 		err = status.Errorf(codes.Aborted, "Failed to process TransferRequest.")
 		return err
 	}
+	if resp.GetValidated() != nil {
+		log.Infof("Install: Version %v is already installed, skipping transfer", transferReq.GetVersion())
+		return nil
+	}
 
 	imgPath := srv.getVersionPath(transferReq.GetVersion())
+	var received uint64
 	imgTransferInitiated := false
 	defer func() {
 		if imgTransferInitiated {
@@ -345,7 +403,14 @@ func (srv *OSServer) Install(stream ospb.OS_InstallServer) error {
 			return status.Errorf(codes.Aborted, "Image already exists: %s", imgPath)
 		}
 		imgTransferInitiated = true
-		resp := srv.processTransferContent(req.GetTransferContent(), imgPath)
+		content := req.GetTransferContent()
+		var resp *ospb.InstallResponse
+		if size := transferReq.GetPackageSize(); size > 0 && uint64(len(content)) > size-received {
+			resp = tooLargeResponse("Received more than the package_size of %d bytes", size)
+		} else {
+			resp = srv.processTransferContent(content, imgPath, received)
+			received = resp.GetTransferProgress().GetBytesReceived()
+		}
 		log.Infof("Install: Response received %v", resp)
 		if resp != nil {
 			if err := stream.Send(resp); err != nil {
