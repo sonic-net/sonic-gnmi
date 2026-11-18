@@ -523,7 +523,7 @@ func TestActivateImageSuccess(t *testing.T) {
 	})
 	defer mock1.Reset()
 	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
-		if method != "org.SONiC.HostService.image_service.set_next_boot" {
+		if method != "org.SONiC.HostService.image_service.set_default" {
 			t.Errorf("Wrong method: %v", method)
 		}
 		if len(args) != 1 {
@@ -560,7 +560,7 @@ func TestActivateImageFail(t *testing.T) {
 	})
 	defer mock1.Reset()
 	mock2 := gomonkey.ApplyMethod(reflect.TypeOf(&dbus.Object{}), "Go", func(obj *dbus.Object, method string, flags dbus.Flags, ch chan *dbus.Call, args ...interface{}) *dbus.Call {
-		if method != "org.SONiC.HostService.image_service.set_next_boot" {
+		if method != "org.SONiC.HostService.image_service.set_default" {
 			t.Errorf("Wrong method: %v", method)
 		}
 		if len(args) != 1 {

@@ -256,7 +256,7 @@ func (c *DbusClient) ActivateImage(image string) error {
 	modName := "image_service"
 	busName := c.busNamePrefix + modName
 	busPath := c.busPathPrefix + modName
-	intName := c.intNamePrefix + modName + ".set_next_boot"
+	intName := c.intNamePrefix + modName + ".set_default"
 	_, err := DbusApi(busName, busPath, intName, 60, image)
 	return err
 }
