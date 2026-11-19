@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"regexp"
+	"strconv"
 	"sync"
 	"time"
 
@@ -64,7 +65,7 @@ func (cm *ConnectionManager) PrepareRedis() {
 	}
 }
 
-func (cm *ConnectionManager) Add(addr net.Addr, query string) (string, bool) {
+func (cm *ConnectionManager) Add(addr net.Addr, query string, streamID uint64) (string, bool) {
 	cm.mu.RLock()                                                 // reading
 	if len(cm.connections) >= cm.threshold && cm.threshold != 0 { // 0 is defined as no threshold
 		log.V(1).Infof("Cannot add another client connection as threshold is already at limit")
@@ -72,7 +73,7 @@ func (cm *ConnectionManager) Add(addr net.Addr, query string) (string, bool) {
 		return "", false
 	}
 	cm.mu.RUnlock()
-	key := createKey(addr, query)
+	key := createKey(addr, query, streamID)
 	log.V(1).Infof("Adding client connection: %s", key)
 	cm.mu.Lock() // writing
 	cm.connections[key] = struct{}{}
@@ -95,11 +96,11 @@ func (cm *ConnectionManager) Remove(key string) bool {
 	return exists
 }
 
-func createKey(addr net.Addr, query string) string {
-	regexStr := "(?:target|element):\"([a-zA-Z0-9-_*]*)\""
-	regex := regexp.MustCompile(regexStr)
-	matches := regex.FindAllStringSubmatch(query, -1)
-	// connectionKeyString will look like "10.0.0.1|OTHERS|proc|uptime|2017-07-04 00:47:20
+var connectionKeyRegex = regexp.MustCompile("(?:target|element):\"([a-zA-Z0-9-_*]*)\"")
+
+func createKey(addr net.Addr, query string, streamID uint64) string {
+	matches := connectionKeyRegex.FindAllStringSubmatch(query, -1)
+	// connectionKeyString will look like "10.0.0.1|OTHERS|proc|uptime|42|2017-07-04 00:47:20
 	connectionKey := addr.String() + "|"
 	for i := 0; i < len(matches); i++ {
 		if len(matches[i]) < 2 {
@@ -108,6 +109,8 @@ func createKey(addr net.Addr, query string) string {
 		connectionKey += matches[i][1] // index 1 contains the value we need
 		connectionKey += "|"
 	}
+	// streamID keeps keys unique when one connection carries several streams.
+	connectionKey += strconv.FormatUint(streamID, 10) + "|"
 	connectionKey += time.Now().UTC().Format(time.RFC3339)
 	return connectionKey
 }
