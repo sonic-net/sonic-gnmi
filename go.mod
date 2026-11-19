@@ -23,7 +23,7 @@ require (
 	github.com/maruel/natural v1.1.1
 	github.com/msteinert/pam v0.0.0-20201130170657-e61372126161
 	github.com/openconfig/gnmi v0.14.1
-	github.com/openconfig/gnoi v0.4.0
+	github.com/openconfig/gnoi v0.4.1
 	github.com/openconfig/gnsi v1.9.0
 	github.com/openconfig/ygot v0.7.1
 	github.com/opencontainers/go-digest v1.0.0
