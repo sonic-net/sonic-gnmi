@@ -1,9 +1,12 @@
 package exec
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -116,6 +119,83 @@ func RunHostCommand(ctx context.Context, command string, args []string, opts *Ru
 	}
 
 	return result, nil
+}
+
+// RunHostCommandStream runs a command on the host like RunHostCommand, but
+// passes each line of its combined stdout and stderr to onLine as soon as it
+// is printed. The command runs until it exits or ctx is done; opts.Timeout is
+// ignored. If onLine returns an error, the command is killed and that error is
+// returned. Otherwise the command's exit code is returned.
+//
+// If opts.Namespaces is empty, the pid namespace is not entered: without it
+// nsenter execs the command instead of forking it, so cancelling ctx kills the
+// command itself and closes the output pipe.
+func RunHostCommandStream(ctx context.Context, command string, args []string, opts *RunHostCommandOptions, onLine func(string) error) (int, error) {
+	if command == "" {
+		return -1, fmt.Errorf("command cannot be empty")
+	}
+	streamOpts := RunHostCommandOptions{}
+	if opts != nil {
+		streamOpts = *opts
+	}
+	if len(streamOpts.Namespaces) == 0 {
+		streamOpts.Namespaces = []string{"mount", "uts", "ipc", "net"}
+	}
+	opts = &streamOpts
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	cmd := execCommandContext(ctx, "nsenter", buildNsenterArgs(opts, command, args)...)
+	if opts.WorkingDir != "" {
+		cmd.Dir = opts.WorkingDir
+	}
+	if len(opts.Environment) > 0 {
+		cmd.Env = append(cmd.Env, opts.Environment...)
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		return -1, err
+	}
+	cmd.Stdout = w
+	cmd.Stderr = w
+	if err := cmd.Start(); err != nil {
+		r.Close()
+		w.Close()
+		return -1, err
+	}
+	w.Close()
+
+	var lineErr error
+	scanner := bufio.NewScanner(r)
+	// Some lines grow long, such as the progress line of a flood ping.
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		if lineErr != nil {
+			continue
+		}
+		if lineErr = onLine(scanner.Text()); lineErr != nil {
+			cancel()
+		}
+	}
+	r.Close()
+	waitErr := cmd.Wait()
+
+	if lineErr != nil {
+		return -1, lineErr
+	}
+	if err := ctx.Err(); err != nil {
+		return -1, err
+	}
+	var exitErr *exec.ExitError
+	if errors.As(waitErr, &exitErr) {
+		return exitErr.ExitCode(), nil
+	}
+	if waitErr != nil {
+		return -1, waitErr
+	}
+	return 0, nil
 }
 
 // RunHostCommandSimple is a simplified version of RunHostCommand that returns only stdout
