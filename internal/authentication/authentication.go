@@ -25,19 +25,26 @@ type Method func(context.Context) (context.Context, error)
 // Authenticate tries the supplied methods in order, then checks the successful
 // identity's roles. The caller supplies enabled methods and owns transport bypasses.
 func Authenticate(ctx context.Context, auth *AuthInfo, target string, writeAccess bool, methods ...Method) (context.Context, error) {
+	ctx, err := authenticateIdentity(ctx, auth, methods...)
+	if err != nil {
+		return ctx, err
+	}
+	if err := CheckRoleAccess(auth, target, writeAccess, false); err != nil {
+		return ctx, status.Error(codes.PermissionDenied, err.Error())
+	}
+	return ctx, nil
+}
+
+func authenticateIdentity(ctx context.Context, auth *AuthInfo, methods ...Method) (context.Context, error) {
 	auth.AuthEnabled = true
 	for _, method := range methods {
 		auth.User = ""
 		auth.Roles = nil
 		var err error
 		ctx, err = method(ctx)
-		if err != nil {
-			continue
+		if err == nil {
+			return ctx, nil
 		}
-		if err := CheckRoleAccess(auth, target, writeAccess, false); err != nil {
-			return ctx, status.Error(codes.PermissionDenied, err.Error())
-		}
-		return ctx, nil
 	}
 	return ctx, status.Error(codes.Unauthenticated, "Unauthenticated")
 }
