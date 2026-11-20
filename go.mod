@@ -3,7 +3,7 @@ module github.com/sonic-net/sonic-gnmi
 go 1.26.0
 
 require (
-	github.com/Azure/sonic-mgmt-common v0.0.0-00010101000000-000000000000
+	github.com/Azure/sonic-mgmt-common v0.0.0-20261106021544-c49a9496f49b
 	github.com/Workiva/go-datastructures v1.0.54
 	github.com/agiledragon/gomonkey/v2 v2.8.0
 	github.com/alicebob/miniredis/v2 v2.35.0
@@ -79,7 +79,6 @@ require (
 )
 
 replace (
-	github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common
 	// Glog patch needs to be updated to remove this.
 	github.com/golang/glog => github.com/golang/glog v1.2.4
 	github.com/openconfig/gnmi => github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
