@@ -65,3 +65,16 @@ func TestApplyPoolSize(t *testing.T) {
 func TestApplyPoolSizeNilOptions(t *testing.T) {
 	ApplyPoolSize(nil)
 }
+
+func TestNewInstallsAuthDialerWithoutChangingEndpoint(t *testing.T) {
+	options := New(redis.Options{Network: "unix", Addr: "/test/redis.sock", DB: 6})
+	if options.Dialer == nil {
+		t.Fatal("automatic authentication dialer was not installed")
+	}
+	if options.Network != "unix" || options.Addr != "/test/redis.sock" || options.DB != 6 {
+		t.Fatal("authentication changed the requested endpoint or database")
+	}
+	if options.Username != "" || options.Password != "" {
+		t.Fatal("credentials were placed in Redis options before connecting")
+	}
+}

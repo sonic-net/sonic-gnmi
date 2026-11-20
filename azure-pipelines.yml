@@ -48,11 +48,6 @@ resources:
     name: sonic-net/sonic-mgmt-common
     endpoint: sonic-net
     ref: refs/heads/$(BUILD_BRANCH)
-  - repository: sonic-swss-common
-    type: github
-    name: sonic-net/sonic-swss-common
-    endpoint: sonic-net
-    ref: refs/heads/$(BUILD_BRANCH)
 
 stages:
 - stage: StaticChecks

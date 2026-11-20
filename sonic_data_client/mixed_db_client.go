@@ -721,7 +721,7 @@ func NewMixedDbClient(paths []*gnmipb.Path, prefix *gnmipb.Path, origin string, 
 	// If target is DPU_APPL_DB, this is multiple database, create DB connector for DPU
 	// If target is original APPL_DB, create DB connector for backward compatibility
 	if target == DPU_APPL_DB_NAME || target == APPL_DB_NAME {
-		client.applDB = swsscommon.NewDBConnector(target, SWSS_TIMEOUT, false, dbkey)
+		client.applDB = swsscommon.NewDBConnector(target, SWSS_TIMEOUT, false, dbkey, target == APPL_DB_NAME)
 	}
 	client.target = target
 	*targetDbName = target
