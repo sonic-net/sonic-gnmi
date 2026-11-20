@@ -300,7 +300,7 @@ func (c *DbusClient) InstallOS(req string) (string, error) {
 	log.Infof("InstallOS: DbusClient called")
 	osMu.Lock()
 	defer osMu.Unlock()
-	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 60, req)
+	result, err := DbusApi(busName, busPath, intName /*timeout=*/, 900, req)
 	if err != nil {
 		if strings.Contains(err.Error(), "ERROR_UNIMPLEMENTED") {
 			log.Infof("InstallOS: Error %v", err)
