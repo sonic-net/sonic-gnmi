@@ -82,6 +82,11 @@ go.mod:
 	$(GO) mod init github.com/sonic-net/sonic-gnmi
 
 $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
+	@# go.mod requires a published sonic-mgmt-common, so Go and Renovate resolve it
+	@# without a checkout beside this one. Build against the checkout when it is there.
+	@if [ -d $(MGMT_COMMON_DIR) ]; then \
+	   $(GO) mod edit -replace github.com/Azure/sonic-mgmt-common=$(MGMT_COMMON_DIR); \
+	 fi
 	@GO_MOD_VER=$$(sed -n 's/^go //p' go.mod) && \
 	 GO_CUR_VER=$$($(GO) env GOVERSION | sed 's/go//') && \
 	 if printf '%s\n' "$$GO_MOD_VER" "$$GO_CUR_VER" | sort -V | head -1 | grep -qx "$$GO_MOD_VER"; then \
