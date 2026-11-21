@@ -983,7 +983,8 @@ func removeModulePrefixFromPathPb(t *testing.T, s string) string {
 func runServer(t *testing.T, s *Server) {
 	//t.Log("Starting RPC server on address:", s.Address())
 	err := s.Serve() // blocks until close
-	if err != nil {
+	// A test can stop the server before this goroutine starts serving.
+	if err != nil && !strings.Contains(err.Error(), grpc.ErrServerStopped.Error()) {
 		t.Fatalf("gRPC server err: %v", err)
 	}
 	//t.Log("Exiting RPC server on address", s.Address())
@@ -1992,7 +1993,7 @@ func TestGnmiSet(t *testing.T) {
 			desc:          "Set OC Interface IPv6 (unprefixed path)",
 			pathTarget:    "OC_YANG",
 			textPbPath:    pathToPb("/interfaces/interface[name=Ethernet0]/subinterfaces/subinterface[index=0]/ipv6/addresses/address"),
-			attributeData: `{"address": [{"ip": "150::1","config": {"ip": "150::1","prefix-length": 80}}]}`,
+			attributeData: `[{"ip": "150::1","config": {"ip": "150::1","prefix-length": 80}}]`,
 			wantRetCode:   codes.OK,
 			operation:     Update,
 		},
@@ -2007,8 +2008,8 @@ func TestGnmiSet(t *testing.T) {
 			desc:       "Create ACL (unprefixed path)",
 			pathTarget: "OC_YANG",
 			textPbPath: pathToPb("/acl/acl-sets/acl-set"),
-			attributeData: `{"acl-set": [{"name": "A001", "type": "ACL_IPV4",
-							"config": {"name": "A001", "type": "ACL_IPV4", "description": "hello, world!"}}]}`,
+			attributeData: `[{"name": "A001", "type": "ACL_IPV4",
+							"config": {"name": "A001", "type": "ACL_IPV4", "description": "hello, world!"}}]`,
 			wantRetCode: codes.OK,
 			operation:   Update,
 		},
@@ -2024,7 +2025,7 @@ func TestGnmiSet(t *testing.T) {
 			desc:          "Replace ACL Description (unprefixed path)",
 			pathTarget:    "OC_YANG",
 			textPbPath:    pathToPb("/acl/acl-sets/acl-set[name=A001][type=ACL_IPV4]/config/description"),
-			attributeData: `{"description": "dummy"}`,
+			attributeData: `"dummy"`,
 			wantRetCode:   codes.OK,
 			operation:     Replace,
 		},
@@ -5001,8 +5002,8 @@ func TestBulkSet(t *testing.T) {
 		req := &pb.SetRequest{
 			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
 			Update: []*pb.Update{
-				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
-				newPbUpdate("interface[name=Ethernet4]/config/mtu", `{"mtu": 9105}`),
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `9104`),
+				newPbUpdate("interface[name=Ethernet4]/config/mtu", `9105`),
 			}}
 		runTestSetRaw(t, ctx, gClient, req, codes.OK)
 	})
@@ -5013,15 +5014,15 @@ func TestBulkSet(t *testing.T) {
 			Replace: []*pb.Update{
 				newPbUpdate(
 					"openconfig-acl:acl/acl-sets/acl-set",
-					`{"acl-set": [{`+aclKeys+`, "config":{`+aclKeys+`}}]}`),
+					`[{`+aclKeys+`, "config":{`+aclKeys+`}}]`),
 			},
 			Update: []*pb.Update{
 				newPbUpdate(
 					"interfaces/interface[name=Ethernet0]/config/description",
-					`{"description": "Bulk update 1"}`),
+					`"Bulk update 1"`),
 				newPbUpdate(
 					"openconfig-interfaces:interfaces/interface[name=Ethernet4]/config/description",
-					`{"description": "Bulk update 2"}`),
+					`"Bulk update 2"`),
 			}}
 		runTestSetRaw(t, ctx, gClient, req, codes.OK)
 	})
@@ -5040,7 +5041,7 @@ func TestBulkSet(t *testing.T) {
 		req := &pb.SetRequest{
 			Delete: []*pb.Path{aclPath1, aclPath2},
 			Update: []*pb.Update{
-				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `9104`),
 			}}
 		runTestSetRaw(t, ctx, gClient, req, codes.Unknown)
 	})
@@ -5049,7 +5050,7 @@ func TestBulkSet(t *testing.T) {
 		req := &pb.SetRequest{
 			Delete: []*pb.Path{aclPath1, aclPath2},
 			Replace: []*pb.Update{
-				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `9104`),
 			}}
 		runTestSetRaw(t, ctx, gClient, req, codes.Unknown)
 	})
@@ -6833,7 +6834,7 @@ func TestMasterArbitration(t *testing.T) {
 		req := &pb.SetRequest{
 			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
 			Update: []*pb.Update{
-				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `9104`),
 			},
 			Extension: []*ext_pb.Extension{maExt0},
 		}
@@ -6855,7 +6856,7 @@ func TestMasterArbitration(t *testing.T) {
 		req := &pb.SetRequest{
 			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
 			Update: []*pb.Update{
-				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `9104`),
 			},
 			Extension: []*ext_pb.Extension{maExt0},
 		}
@@ -6870,7 +6871,7 @@ func TestMasterArbitration(t *testing.T) {
 		req = &pb.SetRequest{
 			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
 			Update: []*pb.Update{
-				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `9104`),
 			},
 			Extension: []*ext_pb.Extension{maExt1},
 		}
@@ -6888,7 +6889,7 @@ func TestMasterArbitration(t *testing.T) {
 		req := &pb.SetRequest{
 			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
 			Update: []*pb.Update{
-				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `9104`),
 			},
 			Extension: []*ext_pb.Extension{maExt0, maExt1, regExt},
 		}
@@ -6910,7 +6911,7 @@ func TestMasterArbitration(t *testing.T) {
 		req := &pb.SetRequest{
 			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
 			Update: []*pb.Update{
-				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `9104`),
 			},
 			Extension: []*ext_pb.Extension{maExt1H0L},
 		}
@@ -6933,7 +6934,7 @@ func TestMasterArbitration(t *testing.T) {
 		req := &pb.SetRequest{
 			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
 			Update: []*pb.Update{
-				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `9104`),
 			},
 			Extension: []*ext_pb.Extension{maExt0},
 		}
@@ -6956,7 +6957,7 @@ func TestMasterArbitration(t *testing.T) {
 		req = &pb.SetRequest{
 			Prefix: &pb.Path{Elem: []*pb.PathElem{{Name: "interfaces"}}},
 			Update: []*pb.Update{
-				newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
+				newPbUpdate("interface[name=Ethernet0]/config/mtu", `9104`),
 			},
 			Extension: []*ext_pb.Extension{},
 		}
@@ -9333,7 +9334,7 @@ func TestGnmiSetCompPlfmIC(t *testing.T) {
 			desc:          "Plfm path update",
 			pathTarget:    "OC_YANG",
 			textPbPath:    pathToPb("openconfig-platform:components/component[name=integrated_circuit67]"),
-			attributeData: `{"component": [{"name": "integrated_circuit67", "config": {"name": "integrated_circuit67"}, "integrated-circuit": {"config": {"node-id": "183930889"}}}]}`,
+			attributeData: `{"name": "integrated_circuit67", "config": {"name": "integrated_circuit67"}, "integrated-circuit": {"config": {"node-id": "183930889"}}}`,
 			wantRetCode:   codes.OK,
 			operation:     Update,
 			valTest:       false,
@@ -10622,7 +10623,7 @@ elem: <name: "openconfig-if-aggregate:aggregation">
 elem: <name: "config">
 elem: <name: "lag-type">
 `
-		attributeData := `{"openconfig-if-aggregate:lag-type": "STATIC"}`
+		attributeData := `"STATIC"`
 
 		runTestSet(t, subCtx, gClient, "OC_YANG",
 			textPbPath,

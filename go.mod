@@ -25,6 +25,7 @@ require (
 	github.com/openconfig/gnmi v0.14.1
 	github.com/openconfig/gnoi v0.4.1
 	github.com/openconfig/gnsi v1.9.0
+	github.com/openconfig/goyang v0.0.0-20200309174518-a00bece872fc
 	github.com/openconfig/ygot v0.7.1
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
@@ -63,7 +64,6 @@ require (
 	github.com/go-redis/redis/v7 v7.4.1 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/kr/fs v0.1.0 // indirect
-	github.com/openconfig/goyang v0.0.0-20200309174518-a00bece872fc // indirect
 	github.com/philopon/go-toposort v0.0.0-20170620085441-9be86dbd762f // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect

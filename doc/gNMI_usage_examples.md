@@ -74,13 +74,27 @@ Gets JSON_IETF values from specified openconfig path.
 
 ### Set:
 
-Sets values using JSON_IETF payload.
+Sets values using JSON_IETF payload. The value is the value of the node at the
+update path, as defined by the gNMI specification: the leaf value for a leaf, the
+container content for a container, an object for a list entry and an array for
+a whole list or leaf-list. Scalar values such as `uint_val` and `string_val` are
+also accepted for leaves.
+
+| Path | Value |
+|------|-------|
+| `.../config/mtu` | `9108` |
+| `.../config` | `{"mtu": 9108}` |
+| `/openconfig-acl:acl/acl-sets/acl-set[name=A1][type=ACL_IPV4]` | `{"config": {"name": "A1", "type": "ACL_IPV4"}}` |
+| `/openconfig-acl:acl/acl-sets/acl-set` | `[{"name": "A1", "type": "ACL_IPV4", "config": {"name": "A1", "type": "ACL_IPV4"}}]` |
+
+A value wrapped in an object keyed by the target node name, as in a RESTCONF
+body (for example `{"mtu": 9108}` for `.../config/mtu`), is not accepted.
 
 #### Input:
     gnmi_set -insecure -username admin -password sonicadmin -update /openconfig-interfaces:interfaces/interface[name=Ethernet0]/config/mtu:@./mtu.json -target_addr localhost:8080 -xpath_target OC-YANG
 
 #### mtu.json:
-    {"mtu": 9108}
+    9108
 
 #### Output:
     == setRequest:
@@ -107,7 +121,7 @@ Sets values using JSON_IETF payload.
         >
       >
       val: <
-        json_ietf_val: "{\"mtu\": 9108}"
+        json_ietf_val: "9108"
       >
     >
 
