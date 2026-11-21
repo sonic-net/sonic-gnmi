@@ -107,10 +107,10 @@ func TestTranslSubscribe(t *testing.T) {
 	acl2Path := "/openconfig-acl:acl/acl-sets/acl-set[name=TWO][type=ACL_IPV4]"
 
 	acl1CreatePb := newPbUpdate("/openconfig-acl:acl/acl-sets/acl-set",
-		`{"acl-set": [{"name": "ONE", "type": "ACL_IPV4", "config": {"name": "ONE", "type": "ACL_IPV4"}}]}`)
+		`[{"name": "ONE", "type": "ACL_IPV4", "config": {"name": "ONE", "type": "ACL_IPV4"}}]`)
 	acl2CreatePb := newPbUpdate("/openconfig-acl:acl/acl-sets/acl-set",
-		`{"acl-set": [{"name": "TWO", "type": "ACL_IPV4", "config": {"name": "TWO", "type": "ACL_IPV4", "description": "foo"}}]}`)
-	acl2DescUpdatePb := newPbUpdate(acl2Path+"/config/description", `{"description": "new"}`)
+		`[{"name": "TWO", "type": "ACL_IPV4", "config": {"name": "TWO", "type": "ACL_IPV4", "description": "foo"}}]`)
+	acl2DescUpdatePb := newPbUpdate(acl2Path+"/config/description", `"new"`)
 
 	acl1DeletePb := strToPath(acl1Path)
 	acl2DeletePb := strToPath(acl2Path)

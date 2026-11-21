@@ -976,8 +976,8 @@ func TestGnsiPathzRunSet(t *testing.T) {
 	req := &gnmipb.SetRequest{
 		Prefix: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
 		Update: []*gnmipb.Update{
-			newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
-			newPbUpdate("interface[name=Ethernet4]/config/mtu", `{"mtu": 9105}`),
+			newPbUpdate("interface[name=Ethernet0]/config/mtu", `9104`),
+			newPbUpdate("interface[name=Ethernet4]/config/mtu", `9105`),
 		}}
 	req = &gnmipb.SetRequest{
 		Prefix: &prefix,
@@ -1033,8 +1033,8 @@ func TestGnsiPathzRunSetErrSPIFFEID(t *testing.T) {
 	req := &gnmipb.SetRequest{
 		Prefix: &gnmipb.Path{Elem: []*gnmipb.PathElem{{Name: "interfaces"}}},
 		Update: []*gnmipb.Update{
-			newPbUpdate("interface[name=Ethernet0]/config/mtu", `{"mtu": 9104}`),
-			newPbUpdate("interface[name=Ethernet4]/config/mtu", `{"mtu": 9105}`),
+			newPbUpdate("interface[name=Ethernet0]/config/mtu", `9104`),
+			newPbUpdate("interface[name=Ethernet4]/config/mtu", `9105`),
 		}}
 	req = &gnmipb.SetRequest{
 		Prefix: &prefix,

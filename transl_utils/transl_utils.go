@@ -9,12 +9,14 @@ import (
 	"strings"
 
 	"github.com/Azure/sonic-mgmt-common/translib"
+	"github.com/Azure/sonic-mgmt-common/translib/ocbinds"
 	pathutil "github.com/Azure/sonic-mgmt-common/translib/path"
 	"github.com/Azure/sonic-mgmt-common/translib/tlerr"
 	log "github.com/golang/glog"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/openconfig/ygot/ygot"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"github.com/sonic-net/sonic-gnmi/transl_utils/restconfbody"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -171,6 +173,12 @@ func ConvertToURI(prefix, path *gnmipb.Path, opts ...pathutil.PathValidatorOpt) 
 	return ygot.PathToString(fullPath)
 }
 
+// setPayload returns the translib body for a Set replace or update. The path
+// of u must have been validated by ConvertToURI, which qualifies its names.
+func setPayload(prefix *gnmipb.Path, u *gnmipb.Update, replace bool) ([]byte, error) {
+	return restconfbody.FromGNMI(ocbinds.SchemaTree["Device"], GnmiTranslFullPath(prefix, u.GetPath()), u.GetVal(), replace)
+}
+
 /* GetTranslibFmtType is a helper that converts gnmi Encoding to supported format types in translib */
 func getTranslFmtType(encoding gnmipb.Encoding) translib.TranslibFmtType {
 
@@ -263,7 +271,10 @@ func TranslProcessReplace(prefix *gnmipb.Path, entry *gnmipb.Update, ctx context
 		return err
 	}
 
-	payload := entry.GetVal().GetJsonIetfVal()
+	payload, err := setPayload(prefix, entry, true)
+	if err != nil {
+		return err
+	}
 	rc, _ := common_utils.GetContext(ctx)
 	req := translib.SetRequest{Path: uri, Payload: payload, User: translib.UserRoles{Name: rc.Auth.User, Roles: rc.Auth.Roles}}
 	if rc.BundleVersion != nil {
@@ -294,7 +305,10 @@ func TranslProcessUpdate(prefix *gnmipb.Path, entry *gnmipb.Update, ctx context.
 		return err
 	}
 
-	payload := entry.GetVal().GetJsonIetfVal()
+	payload, err := setPayload(prefix, entry, false)
+	if err != nil {
+		return err
+	}
 	rc, _ := common_utils.GetContext(ctx)
 	req := translib.SetRequest{Path: uri, Payload: payload, User: translib.UserRoles{Name: rc.Auth.User, Roles: rc.Auth.Roles}}
 	if rc.BundleVersion != nil {
@@ -373,11 +387,8 @@ func TranslProcessBulk(delete []*gnmipb.Path, replace []*gnmipb.Update, update [
 		if err != nil {
 			return err
 		}
-		switch v := r.GetVal().GetValue().(type) {
-		case *gnmipb.TypedValue_JsonIetfVal:
-			payload = v.JsonIetfVal
-		default:
-			return status.Errorf(codes.InvalidArgument, "unsupported value type %T for path %s", v, uri)
+		if payload, err = setPayload(prefix, r, true); err != nil {
+			return err
 		}
 		log.V(5).Infof("Replace path = '%s', payload = %s", uri, payload)
 		bulkReqEntry := translib.BulkRequestEntry{}
@@ -392,11 +403,8 @@ func TranslProcessBulk(delete []*gnmipb.Path, replace []*gnmipb.Update, update [
 		if err != nil {
 			return err
 		}
-		switch v := u.GetVal().GetValue().(type) {
-		case *gnmipb.TypedValue_JsonIetfVal:
-			payload = v.JsonIetfVal
-		default:
-			return status.Errorf(codes.InvalidArgument, "unsupported value type %T for path %s", v, uri)
+		if payload, err = setPayload(prefix, u, false); err != nil {
+			return err
 		}
 		log.V(5).Infof("Update path = '%s', payload = %s", uri, payload)
 		bulkReqEntry := translib.BulkRequestEntry{}
