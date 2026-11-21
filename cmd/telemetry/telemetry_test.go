@@ -1475,6 +1475,33 @@ func TestFlagsNoPortNoUnixSocket(t *testing.T) {
 	}
 }
 
+func TestFlagsCertzMetaFile(t *testing.T) {
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"next to the server certificate", []string{"-server_crt", "/etc/sonic/telemetry/server.cer", "-server_key", "/etc/sonic/telemetry/server.key"}, "/etc/sonic/telemetry/grpc-version.json"},
+		{"explicit grpc_meta", []string{"-server_crt", "/etc/sonic/telemetry/server.cer", "-server_key", "/etc/sonic/telemetry/server.key", "-grpc_meta", "/var/certz/meta.json"}, "/var/certz/meta.json"},
+		{"no server certificate", []string{"-insecure"}, "/keys/grpc-version.json"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := flag.NewFlagSet("testFlagsCertzMetaFile", flag.ContinueOnError)
+			os.Args = append([]string{"cmd", "-port", "8080"}, tc.args...)
+			_, cfg, err := setupFlags(fs)
+			if err != nil {
+				t.Fatalf("setupFlags: %v", err)
+			}
+			if cfg.CertzMetaFile != tc.want {
+				t.Errorf("CertzMetaFile = %q, want %q", cfg.CertzMetaFile, tc.want)
+			}
+		})
+	}
+}
+
 func TestTLSCertAuthDisabledWhenNoCaCert(t *testing.T) {
 	// With TLS, when --client_auth includes "cert" but --ca_crt is empty, cert auth must be
 	// disabled (not fatal) so the server can still start with the remaining auth modes.
