@@ -23,12 +23,11 @@ _spec = importlib.util.spec_from_file_location(
     "native_subscription", Path(__file__).with_name("native_subscription.py"))
 _native = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_native)
-digest, run, unpack, owner = _native.digest, _native.run, _native.unpack, _native.owner
+digest, run, unpack = _native.digest, _native.run, _native.unpack
 
 ROOT = Path(__file__).resolve().parents[2]
 TAGS = "gnmi_translib_write,gnmi_native_write"
-MGMT = {"revision": "05f83dcab8fe2e1a0e0fc37ac172b289d6968e2b",
-        "sha256": "a30cdd092457ec7579c0a6c07632a55f6fca8e749877fabb368d9fb75e41d98e"}
+MGMT_MODULE = "github.com/Azure/sonic-mgmt-common"
 LIBNL_RUNTIME_TARGETS = ["@libnl3//:libnl-3_pkg", "@libnl3//:libnl-route-3_pkg",
                          "@libnl3//:libnl-nf-3_pkg"]
 TARGETS = ["@sonic_swss_common//dist:libswsscommon_sdk",
@@ -150,8 +149,9 @@ def prepare(work, evidence):
                                 *((target, runtime) for target in LIBNL_RUNTIME_TARGETS)]:
         assert len(outputs[target]) == 1
         unpack(outputs[target][0], destination)
-    mgmt = owner(work, "sonic-mgmt-common", MGMT)
-    assert MGMT["revision"] in (ROOT / "MODULE.bazel").read_text()
+    report["management_source"] = vendor_owner(
+        bazel, execution, work, MGMT_MODULE, "@sonic_mgmt_common//dist:codegen")
+    mgmt = work / MGMT_MODULE
     unpack(outputs[TARGETS[3]][0], mgmt)
     include = sdk / "include/libyang"; include.mkdir(parents=True, exist_ok=True)
     for path in outputs[TARGETS[6]]:
@@ -177,7 +177,7 @@ def prepare(work, evidence):
         GOCACHE=str(work / "go-cache"))
     env = dict(os.environ, **environment)
     assert run(["go", "env", "GOVERSION"], cwd=ROOT, env=env).stdout.strip() == "go1.25.9"
-    run(["go", "mod", "edit", "-replace=github.com/Azure/sonic-mgmt-common=" + str(mgmt)], cwd=ROOT, env=env)
+    run(["go", "mod", "edit", "-replace=" + MGMT_MODULE + "=" + str(mgmt)], cwd=ROOT, env=env)
     run(["go", "mod", "tidy"], cwd=ROOT, env=env, log=evidence / "go-tidy.log")
     run(["go", "mod", "vendor"], cwd=ROOT, env=env, log=evidence / "go-vendor.log")
     vendor = ROOT / "vendor"
