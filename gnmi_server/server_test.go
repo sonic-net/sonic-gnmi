@@ -7327,9 +7327,9 @@ func TestGnoiAuthorization(t *testing.T) {
 		t.Errorf("Ping should fail without a destination.")
 	}
 
-	s.Traceroute(new(gnoi_system_pb.TracerouteRequest), new(MockTracerouteServer))
+	err = s.Traceroute(new(gnoi_system_pb.TracerouteRequest), new(MockTracerouteServer))
 	if err == nil {
-		t.Errorf("Traceroute should failed, because not implement.")
+		t.Errorf("Traceroute should fail without a destination.")
 	}
 
 	s.SetPackage(new(MockSetPackageServer))

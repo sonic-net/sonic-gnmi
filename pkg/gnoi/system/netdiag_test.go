@@ -57,6 +57,22 @@ func (s *fakePingStream) Send(r *syspb.PingResponse) error {
 	return nil
 }
 
+type fakeTracerouteStream struct {
+	grpc.ServerStream
+	ctx     context.Context
+	sent    []*syspb.TracerouteResponse
+	sendErr error
+}
+
+func (s *fakeTracerouteStream) Context() context.Context { return s.ctx }
+func (s *fakeTracerouteStream) Send(r *syspb.TracerouteResponse) error {
+	if s.sendErr != nil {
+		return s.sendErr
+	}
+	s.sent = append(s.sent, r)
+	return nil
+}
+
 func wantCode(t *testing.T, err error, code codes.Code) {
 	t.Helper()
 	if status.Code(err) != code {
@@ -288,5 +304,207 @@ func TestHandlePingCancelled(t *testing.T) {
 func TestHandlePingStartFailure(t *testing.T) {
 	useFakeHostRun(t, &fakeHostRun{err: errors.New("nsenter: not found")})
 	err := HandlePing(&syspb.PingRequest{Destination: "10.0.0.1"}, &fakePingStream{ctx: context.Background()})
+	wantCode(t, err, codes.Internal)
+}
+
+func TestTracerouteCommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		req      *syspb.TracerouteRequest
+		wantName string
+		wantArgs []string
+	}{
+		{
+			name:     "defaults",
+			req:      &syspb.TracerouteRequest{Destination: "10.0.0.1"},
+			wantName: "traceroute",
+			wantArgs: []string{"-I", "-m", "30", "10.0.0.1"},
+		},
+		{
+			name: "all options in a VRF",
+			req: &syspb.TracerouteRequest{
+				Destination:     "10.0.0.1",
+				Source:          "10.0.0.2",
+				InitialTtl:      2,
+				MaxTtl:          10,
+				Wait:            1_500_000_000,
+				DoNotFragment:   true,
+				DoNotResolve:    true,
+				L3Protocol:      types.L3Protocol_IPV4,
+				L4Protocol:      syspb.TracerouteRequest_TCP,
+				NetworkInstance: "mgmt",
+			},
+			wantName: "ip",
+			wantArgs: []string{"vrf", "exec", "mgmt", "traceroute", "-n", "-4", "-T", "-f", "2", "-m", "10", "-w", "1.5", "-F", "-s", "10.0.0.2", "10.0.0.1"},
+		},
+		{
+			name:     "UDP with max_ttl -1",
+			req:      &syspb.TracerouteRequest{Destination: "2001:db8::1", MaxTtl: -1, L3Protocol: types.L3Protocol_IPV6, L4Protocol: syspb.TracerouteRequest_UDP},
+			wantName: "traceroute",
+			wantArgs: []string{"-6", "-m", "255", "2001:db8::1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			name, args, err := tracerouteCommand(tt.req)
+			if err != nil {
+				t.Fatalf("tracerouteCommand() error = %v", err)
+			}
+			if name != tt.wantName || !reflect.DeepEqual(args, tt.wantArgs) {
+				t.Errorf("tracerouteCommand() = %q %q, want %q %q", name, args, tt.wantName, tt.wantArgs)
+			}
+		})
+	}
+}
+
+func TestTracerouteCommandRejects(t *testing.T) {
+	for name, req := range map[string]*syspb.TracerouteRequest{
+		"no destination":       {},
+		"option injection":     {Destination: "-n"},
+		"bad source":           {Destination: "10.0.0.1", Source: "a b"},
+		"max_ttl too large":    {Destination: "10.0.0.1", MaxTtl: 256},
+		"max_ttl negative":     {Destination: "10.0.0.1", MaxTtl: -2},
+		"initial above max":    {Destination: "10.0.0.1", InitialTtl: 31},
+		"negative wait":        {Destination: "10.0.0.1", Wait: -1},
+		"unknown l4protocol":   {Destination: "10.0.0.1", L4Protocol: syspb.TracerouteRequest_L4Protocol(7)},
+		"bad network instance": {Destination: "10.0.0.1", NetworkInstance: "-x"},
+	} {
+		if _, _, err := tracerouteCommand(req); err == nil {
+			t.Errorf("%s: tracerouteCommand() error = nil, want error", name)
+		}
+	}
+}
+
+func TestTracerouteParseHops(t *testing.T) {
+	var p tracerouteParser
+	header := p.parse("traceroute to 203.0.113.168 (203.0.113.168), 30 hops max, 60 byte packets")
+	if len(header) != 1 || header[0].DestinationAddress != "203.0.113.168" || header[0].Hops != 30 || header[0].PacketSize != 60 {
+		t.Fatalf("header = %v", header)
+	}
+
+	tests := []struct {
+		line string
+		want []*syspb.TracerouteResponse
+	}{
+		{
+			line: " 1  203.0.113.168  0.724 ms  0.699 ms  0.740 ms",
+			want: []*syspb.TracerouteResponse{
+				{Hop: 1, Address: "203.0.113.168", Rtt: 724000},
+				{Hop: 1, Address: "203.0.113.168", Rtt: 699000},
+				{Hop: 1, Address: "203.0.113.168", Rtt: 740000},
+			},
+		},
+		{
+			line: " 1  router.example.net (203.0.113.168)  0.461 ms  0.443 ms",
+			want: []*syspb.TracerouteResponse{
+				{Hop: 1, Address: "203.0.113.168", Name: "router.example.net", Rtt: 461000},
+				{Hop: 1, Address: "203.0.113.168", Name: "router.example.net", Rtt: 443000},
+			},
+		},
+		{
+			line: " 2  * * *",
+			want: []*syspb.TracerouteResponse{
+				{Hop: 2, State: syspb.TracerouteResponse_NONE},
+				{Hop: 2, State: syspb.TracerouteResponse_NONE},
+				{Hop: 2, State: syspb.TracerouteResponse_NONE},
+			},
+		},
+		{
+			line: " 3  10.1.1.1  1.2 ms !H  10.1.1.2  1.3 ms !<13>  *",
+			want: []*syspb.TracerouteResponse{
+				{Hop: 3, Address: "10.1.1.1", Rtt: 1200000, State: syspb.TracerouteResponse_HOST_UNREACHABLE},
+				{Hop: 3, Address: "10.1.1.2", Rtt: 1300000, State: syspb.TracerouteResponse_ICMP, IcmpCode: 13},
+				{Hop: 3, State: syspb.TracerouteResponse_NONE},
+			},
+		},
+		{
+			line: " 4  2001:db8::1  5.0 ms !F-1400  2001:db8::1 (2001:db8::1)  5.1 ms !X",
+			want: []*syspb.TracerouteResponse{
+				{Hop: 4, Address: "2001:db8::1", Rtt: 5000000, State: syspb.TracerouteResponse_FRAGMENTATION_NEEDED},
+				{Hop: 4, Address: "2001:db8::1", Rtt: 5100000, State: syspb.TracerouteResponse_PROHIBITED},
+			},
+		},
+	}
+	for _, tt := range tests {
+		got := p.parse(tt.line)
+		if len(got) != len(tt.want) {
+			t.Errorf("parse(%q) = %v, want %v", tt.line, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if !proto.Equal(got[i], tt.want[i]) {
+				t.Errorf("parse(%q)[%d] = %v, want %v", tt.line, i, got[i], tt.want[i])
+			}
+		}
+	}
+}
+
+func TestHandleTraceroute(t *testing.T) {
+	f := &fakeHostRun{lines: []string{
+		"traceroute to 203.0.113.168 (203.0.113.168), 4 hops max, 60 byte packets",
+		" 1  203.0.113.168  0.724 ms  0.699 ms  0.740 ms",
+	}}
+	useFakeHostRun(t, f)
+	stream := &fakeTracerouteStream{ctx: context.Background()}
+
+	req := &syspb.TracerouteRequest{Destination: "203.0.113.168", MaxTtl: 4, DoNotResolve: true}
+	if err := HandleTraceroute(req, stream); err != nil {
+		t.Fatalf("HandleTraceroute() error = %v", err)
+	}
+	if f.name != "traceroute" {
+		t.Errorf("command = %q, want traceroute", f.name)
+	}
+	if len(stream.sent) != 4 || stream.sent[0].Hops != 4 || stream.sent[1].Hop != 1 {
+		t.Errorf("responses = %v, want the header and 3 probes", stream.sent)
+	}
+}
+
+func TestHandleTracerouteUnknownHost(t *testing.T) {
+	useFakeHostRun(t, &fakeHostRun{exitCode: 2, lines: []string{
+		"no.such.host.invalid: Name or service not known",
+		"Cannot handle \"host\" cmdline arg `no.such.host.invalid' on position 1 (argc 2)",
+	}})
+	err := HandleTraceroute(&syspb.TracerouteRequest{Destination: "no.such.host.invalid"}, &fakeTracerouteStream{ctx: context.Background()})
+	wantCode(t, err, codes.InvalidArgument)
+}
+
+func TestHandleTracerouteInvalidRequest(t *testing.T) {
+	err := HandleTraceroute(&syspb.TracerouteRequest{}, &fakeTracerouteStream{ctx: context.Background()})
+	wantCode(t, err, codes.InvalidArgument)
+}
+
+func TestHandleTracerouteExitAfterHops(t *testing.T) {
+	useFakeHostRun(t, &fakeHostRun{exitCode: 1, lines: []string{
+		"traceroute to 203.0.113.168 (203.0.113.168), 2 hops max, 60 byte packets",
+		" 1  * * *",
+		" 2  * * *",
+	}})
+	stream := &fakeTracerouteStream{ctx: context.Background()}
+	if err := HandleTraceroute(&syspb.TracerouteRequest{Destination: "203.0.113.168", MaxTtl: 2}, stream); err != nil {
+		t.Fatalf("HandleTraceroute() error = %v", err)
+	}
+	if len(stream.sent) != 7 {
+		t.Errorf("responses = %v, want the header and 6 probes", stream.sent)
+	}
+}
+
+func TestHandleTracerouteSendError(t *testing.T) {
+	useFakeHostRun(t, &fakeHostRun{lines: []string{
+		"traceroute to 203.0.113.168 (203.0.113.168), 4 hops max, 60 byte packets",
+	}})
+	sendErr := status.Error(codes.Unavailable, "client gone")
+	err := HandleTraceroute(&syspb.TracerouteRequest{Destination: "203.0.113.168"}, &fakeTracerouteStream{ctx: context.Background(), sendErr: sendErr})
+	wantCode(t, err, codes.Unavailable)
+}
+
+func TestHandleTracerouteCancelled(t *testing.T) {
+	useFakeHostRun(t, &fakeHostRun{err: context.Canceled})
+	err := HandleTraceroute(&syspb.TracerouteRequest{Destination: "10.0.0.1"}, &fakeTracerouteStream{ctx: context.Background()})
+	wantCode(t, err, codes.Canceled)
+}
+
+func TestHandleTracerouteStartFailure(t *testing.T) {
+	useFakeHostRun(t, &fakeHostRun{err: errors.New("nsenter: not found")})
+	err := HandleTraceroute(&syspb.TracerouteRequest{Destination: "10.0.0.1"}, &fakeTracerouteStream{ctx: context.Background()})
 	wantCode(t, err, codes.Internal)
 }

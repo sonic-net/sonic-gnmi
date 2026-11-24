@@ -309,7 +309,7 @@ func (srv *Server) Ping(req *syspb.PingRequest, stream syspb.System_PingServer) 
 	return system.HandlePing(req, stream)
 }
 
-// Traceroute is unimplemented.
+// Traceroute runs traceroute on the host and streams each probe.
 func (srv *Server) Traceroute(req *syspb.TracerouteRequest, stream syspb.System_TracerouteServer) error {
 	ctx := stream.Context()
 	_, err := authenticate(srv.config, ctx, "gnoi", true)
@@ -317,7 +317,7 @@ func (srv *Server) Traceroute(req *syspb.TracerouteRequest, stream syspb.System_
 		return err
 	}
 	log.V(1).Info("gNOI: Traceroute")
-	return status.Errorf(codes.Unimplemented, "Method system.Traceroute is unimplemented.")
+	return system.HandleTraceroute(req, stream)
 }
 
 func (srv *Server) SetPackage(rs syspb.System_SetPackageServer) error {
