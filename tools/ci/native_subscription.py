@@ -17,6 +17,8 @@ import urllib.request
 
 
 CASE = "TestClientRunConcurrentClose"
+LIBNL_RUNTIME_TARGETS = ["@libnl3//:libnl-3_pkg", "@libnl3//:libnl-route-3_pkg",
+                         "@libnl3//:libnl-nf-3_pkg"]
 # The public CcInfo exposes source and generated headers through its direct dependencies.
 LIBYANG_HEADER_QUERY = 'labels(hdrs, filter("^@@?libyang", deps(@libyang//:public_headers, 1)))'
 
@@ -110,13 +112,18 @@ def main():
         command = shlex.split(os.environ.get("NATIVE_BAZEL_COMMAND", "bazel")) + [
             "--nosystem_rc", "--nohome_rc", "--noworkspace_rc", "--bazelrc=" + str(rc),
             "--output_base=" + str(work / (root.name + "-output")), operation,
-            "--jobs=2", "--host_platform=@sonic_build_infra//platforms:x86_64_trixie",
-            *shlex.split(os.environ.get("NATIVE_BAZEL_FLAGS", "")), *targets, *extra]
+            "--jobs=2", "--host_platform=@sonic_build_infra//platforms:x86_64_trixie"]
+        if root == source:
+            # The source regression can run before the Management Common release is published.
+            command.append("--override_module=sonic-mgmt-common=" + str(mgmt))
+        command += [*shlex.split(os.environ.get("NATIVE_BAZEL_FLAGS", "")), *targets, *extra]
         return run(command, cwd=root, log=evidence / (root.name + "-" + operation + log_suffix + ".log")).stdout
 
-    common_targets = ["//dist:libswsscommon_sdk", "//dist:libswsscommon_pkg", "//:swig_template"]
+    # Select SWSS Common and its runtime dependencies from the canonical gNMI graph.
+    common_targets = ["@sonic_swss_common//dist:libswsscommon_sdk", "@sonic_swss_common//dist:libswsscommon_pkg",
+                      "@sonic_swss_common//:swig_template", *LIBNL_RUNTIME_TARGETS]
     mgmt_targets = ["//dist:codegen", "//dist:runtime", "@libyang//:libyang_pkg", "@libyang//:public_headers"]
-    for root, targets in [(common, common_targets), (mgmt, mgmt_targets)]:
+    for root, targets in [(source, common_targets), (mgmt, mgmt_targets)]:
         bazel(root, "build", targets)
         for target in targets:
             expression = LIBYANG_HEADER_QUERY if target.endswith(":public_headers") else target
@@ -160,8 +167,10 @@ def main():
     if staged.exists():
         assert json.loads(staged.read_text()) == report["owner_output_sha256"]
     else:
-        unpack(outputs["//dist:libswsscommon_sdk"][0], sdk)
-        unpack(outputs["//dist:libswsscommon_pkg"][0], runtime)
+        unpack(outputs["@sonic_swss_common//dist:libswsscommon_sdk"][0], sdk)
+        unpack(outputs["@sonic_swss_common//dist:libswsscommon_pkg"][0], runtime)
+        for target in LIBNL_RUNTIME_TARGETS:
+            unpack(outputs[target][0], runtime)
         unpack(outputs["//dist:runtime"][0], runtime)
         unpack(outputs["@libyang//:libyang_pkg"][0], runtime)
         staged.write_text(json.dumps(report["owner_output_sha256"], sort_keys=True) + "\n")
@@ -179,7 +188,9 @@ def main():
     if not (libdir / "libyang.so").exists():
         (libdir / "libyang.so").symlink_to("libyang.so.3")
     template = tested / "swsscommon/swsscommon.i"
-    shutil.copyfile(outputs["//:swig_template"][0], template)
+    swig_template, = outputs["@sonic_swss_common//:swig_template"]
+    assert digest(swig_template) == digest(common / "pyext/swsscommon.i")
+    shutil.copyfile(swig_template, template)
     run(["swig", "-go", "-cgo", "-c++", "-intgosize", "64", "-I" + str(sdk / "include/swss"),
          "swsscommon.i"], cwd=template.parent, log=evidence / "swig.log")
     environment = dict(os.environ, GOFLAGS="", CGO_ENABLED="1", GOMAXPROCS="2",

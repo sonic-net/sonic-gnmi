@@ -54,14 +54,11 @@ intentionally omitted for gNMI's existing glog1.2.4 selection.
 
 ## Consumers and dependency selection
 
-The root `.bazelrc`, native source CI and CodeQL use the maintained SONiC
-registry plus BCR. Management Common `1.0.1-05f83dcab8fe2e1a0e0fc37ac172b289d6968e2b`
-and the public goyang/ygot owners are available there. The separate consumer
-selects the same Management Common, SWSS Common and build-infra owners as the
-source root; no temporary registry selection is needed for these checks.
-The independent subscription-race reproduction uses landed owner sources and
-their maintained registry configuration while comparing the original baseline.
-It is separate evidence from the source-root and installed-consumer checks.
+The source build, CodeQL and the separate consumer resolve the owner versions
+in `MODULE.bazel` through the sonic-net registry and BCR. The native subscription
+test builds SWSS Common and its three netlink libraries from the same graph.
+It builds Management Common from the pinned source commit, so that test can run
+before the commit is published as a module.
 
 A consuming Bzlmod root supplies its Go SDK and the exported SONiC Go patches.
 `tests/consumer` is a real separate module: it imports gNMI's public server and
