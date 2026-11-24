@@ -4,6 +4,7 @@ package testutil
 
 import (
 	"crypto/tls"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -20,13 +21,18 @@ func StartServer(t *testing.T, tlsConfig *tls.Config, register func(*grpc.Server
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	check(t, err)
+	t.Cleanup(func() { listener.Close() })
 	server := grpc.NewServer(append(options, grpc.Creds(credentials.NewTLS(tlsConfig)))...)
 	done := make(chan error, 1)
+	started := false
 	t.Cleanup(func() {
 		server.Stop()
+		if !started {
+			return
+		}
 		select {
 		case err := <-done:
-			if err != nil {
+			if err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 				t.Errorf("server shutdown: %v", err)
 			}
 		case <-time.After(5 * time.Second):
@@ -35,6 +41,7 @@ func StartServer(t *testing.T, tlsConfig *tls.Config, register func(*grpc.Server
 		t.Log("group cleanup: gRPC server stopped")
 	})
 	register(server)
+	started = true
 	go func() { done <- server.Serve(listener) }()
 	return &RunningServer{Address: listener.Addr().String()}
 }
