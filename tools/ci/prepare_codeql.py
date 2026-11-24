@@ -98,7 +98,7 @@ def prepare(work, evidence):
     registry = "main"
     # Source CI and CodeQL use the maintained registry; MODULE controls owners.
     rc = (ROOT / ".bazelrc").read_text()
-    main = "https://raw.githubusercontent.com/securely1g/sonic-bazel-registry/main"
+    main = "https://raw.githubusercontent.com/sonic-net/sonic-bazel-registry/main"
     assert rc.count(main) == 1
     home = Path.home() / ".bazelrc"
     if home.exists():

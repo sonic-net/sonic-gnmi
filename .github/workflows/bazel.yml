@@ -47,7 +47,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           source = Path('.bazelrc').read_text()
-          main = 'https://raw.githubusercontent.com/securely1g/sonic-bazel-registry/main'
+          main = 'https://raw.githubusercontent.com/sonic-net/sonic-bazel-registry/main'
           assert source.count(main) == 1
           caches = [line for line in (Path.home() / '.bazelrc').read_text().splitlines()
                     if line.startswith(('build --disk_cache=', 'common --repository_cache='))]

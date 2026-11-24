@@ -86,7 +86,7 @@ go_sdk.download(
     version = "1.25.9",
 )
 
-bazel_dep(name = "sonic-swss-common", version = "0.0.9-334389eae54afd1f4f5ee69f89c3a7ad2062ee61", repo_name = "sonic_swss_common")
+bazel_dep(name = "sonic-swss-common", version = "0.0.8-2a4ddd070edb719f2e969a880a5cfff711e64e72", repo_name = "sonic_swss_common")
 
 # CodeQL stages the public native libraries required by Common.
 bazel_dep(name = "libnl3", version = "3.7.0.sonic.10", dev_dependency = True)
