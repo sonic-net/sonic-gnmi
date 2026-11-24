@@ -182,9 +182,6 @@ def main():
     shutil.copyfile(outputs["//:swig_template"][0], template)
     run(["swig", "-go", "-cgo", "-c++", "-intgosize", "64", "-I" + str(sdk / "include/swss"),
          "swsscommon.i"], cwd=template.parent, log=evidence / "swig.log")
-    # Preserve the native neighboring-checkout contract without changing go.mod.
-    neighbor = tested.parent / "sonic-mgmt-common"
-    assert neighbor.resolve() == native_mgmt.resolve()
     environment = dict(os.environ, GOFLAGS="", CGO_ENABLED="1", GOMAXPROCS="2",
         CGO_CFLAGS="-I" + str(sdk / "include") + " -I" + str(sdk / "include/swss"),
         CGO_CXXFLAGS="-I" + str(sdk / "include/swss") + " -w -Wall -fpermissive",
@@ -199,8 +196,10 @@ def main():
             for path in vendor.rglob("*"):
                 if path.is_file() or path.is_dir():
                     path.chmod(path.stat().st_mode | 0o200)
-        # The native go-deps recipe tidies after installing its generated inputs.
-        # Keep those dependency-only edits in this private exact-source snapshot.
+        # Match Make's go-deps recipe in this private source copy. The published
+        # Go module omits the bindings generated into the neighboring checkout.
+        run(["go", "mod", "edit", "-replace=github.com/Azure/sonic-mgmt-common=" + str(native_mgmt)],
+            cwd=tested, env=environment)
         run(["go", "mod", "tidy"], cwd=tested, env=environment, log=evidence / "tidy.log")
         run(["go", "mod", "vendor"], cwd=tested, env=environment, log=evidence / "vendor.log")
         # Match native go-deps: retain module files omitted from ordinary vendor.
@@ -218,10 +217,11 @@ def main():
                               ("github.com/antchfx/xmlquery", "xmlquery.patch"),
                               ("github.com/antchfx/xpath", "xpath.patch")]:
             run(["patch", "-p1", "-i", str(mgmt / "patches" / patch)], cwd=vendor / module)
-        # Native gNMI intentionally omits Common's glog patch for glog 1.2.4.
         for patch in ["gnmi_path.patch", "gnmi_xpath.patch", "0002-Fix-advance-tls-build-with-go-119.patch", "0004-CloseWrite-event-support.patch"]:
             run(["patch", "-p0", "-i", str(tested / "patches" / patch)], cwd=vendor)
         (work / ("vendor-" + head + ".done")).write_text("complete\n")
+    bindings = Path("translib/ocbinds/ocbinds.go")
+    assert digest(vendor / "github.com/Azure/sonic-mgmt-common" / bindings) == digest(native_mgmt / bindings)
     for name in ("go.mod", "go.sum"):
         shutil.copyfile(tested / name, evidence / name)
     report["native_dependency_sha256"] = {name: digest(tested / name) for name in ("go.mod", "go.sum")}
