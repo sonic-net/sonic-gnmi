@@ -108,13 +108,10 @@ func TestNoTLSFileRPCAuthentication(t *testing.T) {
 	for _, mode := range []string{"cert", "password", "jwt", "cert,password", "cert,jwt", "native-default", "none", "tls-no-ca", "uds-only"} {
 		t.Run(mode, func(t *testing.T) {
 			if os.Getenv("SONIC_GNMI_NOTLS_RPC_TEST") != mode {
-				executable, err := os.Executable()
-				if err != nil {
-					t.Fatal(err)
-				}
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
-				cmd := exec.CommandContext(ctx, executable, "-test.run=^TestNoTLSFileRPCAuthentication/"+mode+"$", "-test.v", "-logtostderr")
+				// Under the declared Trixie loader, argv[0] preserves the test launcher.
+				cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestNoTLSFileRPCAuthentication/"+mode+"$", "-test.v", "-logtostderr")
 				cmd.Env = append(os.Environ(), "SONIC_GNMI_NOTLS_RPC_TEST="+mode)
 				output, err := cmd.CombinedOutput()
 				if err != nil {
