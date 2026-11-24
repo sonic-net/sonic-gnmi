@@ -26,7 +26,10 @@ go_binary(
     name = "telemetry",
     embed = [":telemetry_lib"],
     # Preserve the selected SONiC profile when consumed outside this workspace.
-    gotags = ["gnmi_translib_write", "gnmi_native_write"],
+    gotags = [
+        "gnmi_translib_write",
+        "gnmi_native_write",
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -39,13 +42,25 @@ native_go_test(
     ],
     embed = [":telemetry_lib"],
     deps = [
+        "//common_utils",
         "//gnmi_server",
+        "//pkg/interceptors",
+        "//proto/gnoi/jwt",
         "//test_utils",
         "//testdata/tls",
         "@com_github_agiledragon_gomonkey_v2//:gomonkey",
+        "@com_github_alicebob_miniredis_v2//:miniredis",
+        "@com_github_dgrijalva_jwt_go//:jwt-go",
         "@com_github_fsnotify_fsnotify//:fsnotify",
+        "@com_github_openconfig_gnmi//proto/gnmi",
+        "@com_github_openconfig_gnoi//file",
+        "@com_github_redis_go_redis_v9//:go-redis",
         "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//credentials",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_golang_google_grpc//metadata",
+        "@org_golang_google_grpc//status",
     ],
 )
 

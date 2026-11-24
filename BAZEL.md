@@ -8,7 +8,7 @@ and the actual generated protocol/YANG Go files under `/usr/src/sonic-gnmi`,
 with generated paths matching Make and the original test fixtures included.
 External dependency sources remain owned by their respective components. No Debian package producer is added.
 
-Use Bazel 8.5.1 on native Linux AMD64. The component selects Go 1.25.9, the
+Use Bazel 8.5.1 on native Linux AMD64. The component selects Go 1.26.0, the
 shared Trixie C/C++ toolchain and the same pinned APT inputs as Common. Both
 `gnmi_translib_write` and `gnmi_native_write` are enabled by the telemetry
 target itself, matching the selected SONiC image profile even when a consuming
@@ -74,10 +74,7 @@ labels and the remaining root patch declarations. It needs no version overrides 
 owner's Go repository. Root-only development SDK/patch declarations are
 not executed when gNMI is a dependency.
 
-`go.bazel.work` preserves the native fsnotify and x/net versions when Bazel's
-own build-tool modules request newer versions. Consumers use that same file
-with `go_deps.from_file(go_work = "@sonic_gnmi//:go.bazel.work")`. The ordinary
-Make go.mod and its neighboring-checkout replacement remain supported.
+The Bazel workspace imports `go.mod` and keeps fsnotify at Make’s v1.4.9, which the SONiC patch requires. Consumers use `go_deps.from_file(go_work = "@sonic_gnmi//:go.bazel.work")`.
 
 ## Validation and maintenance
 

@@ -13,12 +13,6 @@ go_library(
     ],
 )
 
-alias(
-    name = "go_default_library",
-    actual = ":redisopts",
-    visibility = ["//:__subpackages__"],
-)
-
 native_go_test(
     name = "redisopts_test",
     srcs = ["redis_pool_test.go"],

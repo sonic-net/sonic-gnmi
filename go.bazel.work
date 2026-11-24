@@ -1,17 +1,6 @@
-go 1.25.9
+go 1.26.0
 
 use .
 
-// Keep application dependencies at the native go.mod selection when Bazel's
-// own Gazelle/rules_go tool modules request newer versions in their graph.
+// The SONiC fsnotify patch applies to the version built by Make.
 replace github.com/fsnotify/fsnotify => github.com/fsnotify/fsnotify v1.4.9
-replace golang.org/x/net => golang.org/x/net v0.55.0
-
-// Keep the existing application selections on the declared Go 1.25 SDK.
-// rules_go otherwise raises these runtime libraries through its build-tool graph.
-replace golang.org/x/text => golang.org/x/text v0.39.0
-replace golang.org/x/sync => golang.org/x/sync v0.21.0
-
-// Gazelle builds with the same Go 1.25 SDK as the application.
-replace golang.org/x/mod => golang.org/x/mod v0.38.0
-replace golang.org/x/tools => golang.org/x/tools v0.48.0

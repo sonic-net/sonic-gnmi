@@ -176,7 +176,7 @@ def prepare(work, evidence):
         LD_LIBRARY_PATH=str(sdk / "lib") + ":" + str(libdir),
         GOCACHE=str(work / "go-cache"))
     env = dict(os.environ, **environment)
-    assert run(["go", "env", "GOVERSION"], cwd=ROOT, env=env).stdout.strip() == "go1.25.9"
+    assert run(["go", "env", "GOVERSION"], cwd=ROOT, env=env).stdout.strip() == "go1.26.0"
     run(["go", "mod", "edit", "-replace=" + MGMT_MODULE + "=" + str(mgmt)], cwd=ROOT, env=env)
     run(["go", "mod", "tidy"], cwd=ROOT, env=env, log=evidence / "go-tidy.log")
     run(["go", "mod", "vendor"], cwd=ROOT, env=env, log=evidence / "go-vendor.log")
@@ -285,7 +285,7 @@ def build(work, evidence):
             for name in package.get(key, []):
                 path = directory / name
                 expected[str(path.relative_to(ROOT))] = digest(path)
-    assert {"telemetry/telemetry.go", "gnmi_server/server.go", "swsscommon/swsscommon.go"} <= expected.keys()
+    assert {"cmd/telemetry/main.go", "gnmi_server/server.go", "swsscommon/swsscommon.go"} <= expected.keys()
     assert {p for p in GENERATED if p.endswith(".go")} <= expected.keys()
     cgo = cgo_inputs(packages)
     # Force compiler execution in CodeQL's traced process; owner Bazel builds

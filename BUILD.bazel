@@ -19,9 +19,8 @@ load("//tools/bazel:source_files.bzl", "source_files")
 # gazelle:resolve go github.com/Azure/sonic-mgmt-common/translib/tlerr @sonic_mgmt_common//translib/tlerr
 
 exports_files([
-    "MODULE.bazel",
     "go.bazel.work",
-    "go.bazel.work.sum",
+    "MODULE.bazel",
     "go.mod",
     "go.sum",
     "debian/control",
@@ -37,7 +36,7 @@ filegroup(
     srcs = [":" + path for path in glob(
         [
             "testdata/**",
-            "test/*.py",
+            "tests/integration/*.py",
             "pytest.ini",
         ],
         exclude = ["**/*.go"],
@@ -52,6 +51,7 @@ filegroup(
     srcs = [
         ":owner_source_files",
         ":test_data",
+        "//cmd/telemetry:owner_source_files",
         "//common_utils:owner_source_files",
         "//dialout/dialout_client:owner_source_files",
         "//dialout/dialout_client_cli:owner_source_files",
@@ -72,6 +72,9 @@ filegroup(
         "//gnoi_client/system:owner_source_files",
         "//gnoi_client/utils:owner_source_files",
         "//gnoi_yang:owner_source_files",
+        "//internal/adaptors/dbconfig:owner_source_files",
+        "//internal/authentication:owner_source_files",
+        "//internal/localredis:owner_source_files",
         "//internal/diskspace:owner_source_files",
         "//internal/download:owner_source_files",
         "//internal/exec:owner_source_files",
@@ -95,14 +98,12 @@ filegroup(
         "//pkg/server/operational-handler:owner_source_files",
         "//proto:owner_source_files",
         "//proto/gnoi:owner_source_files",
-        "//proto/gnoi/debug:owner_source_files",
         "//proto/gnoi/jwt:owner_source_files",
         "//proto/gnoi/oras:owner_source_files",
         "//show_client:owner_source_files",
         "//sonic_data_client:owner_source_files",
         "//sonic_db_config:owner_source_files",
         "//sonic_service_client:owner_source_files",
-        "//telemetry:owner_source_files",
         "//test_utils:owner_source_files",
         "//testdata/tls:owner_source_files",
         "//tools/bazel:owner_source_files",

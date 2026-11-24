@@ -10,12 +10,6 @@ go_library(
     deps = ["@com_github_golang_glog//:glog"],
 )
 
-alias(
-    name = "go_default_library",
-    actual = ":firmware",
-    visibility = ["//:__subpackages__"],
-)
-
 native_go_test(
     name = "firmware_test",
     srcs = ["firmware_test.go"],

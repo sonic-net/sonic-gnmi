@@ -1,0 +1,22 @@
+load("//tools/bazel:source_files.bzl", "source_files")
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+
+go_library(
+    name = "localredis",
+    srcs = ["options.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/internal/localredis",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//internal/redisopts",
+        "@com_github_redis_go_redis_v9//:go-redis",
+    ],
+)
+
+native_go_test(
+    name = "localredis_test",
+    srcs = ["options_test.go"],
+    embed = [":localredis"],
+)
+
+source_files()

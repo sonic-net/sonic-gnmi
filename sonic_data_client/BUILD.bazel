@@ -24,6 +24,7 @@ go_library(
         "@trixie//python3-dev:python3",
     ],  # keep
     cgo = True,
+    clinkopts = ["-L/usr/lib -lpthread -lboost_thread -lboost_system -lzmq -lboost_serialization -luuid -lswsscommon"],
     copts = [
         "-Wall",
         "-Wformat",
@@ -34,12 +35,12 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//common_utils",
+        "//internal/localredis",
         "//internal/redisopts",
         "//proto",
         "//sonic_db_config",
         "//sonic_service_client",
         "//transl_utils",
-        "@sonic_mgmt_common//translib",
         "@com_github_c9s_goprocinfo//linux",
         "@com_github_golang_glog//:glog",
         "@com_github_golang_protobuf//proto",
@@ -51,6 +52,7 @@ go_library(
         "@in_gopkg_yaml_v2//:yaml_v2",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//status",
+        "@sonic_mgmt_common//translib",
         "@sonic_swss_common//goext:swsscommon",
     ],
 )
@@ -74,13 +76,13 @@ native_go_test(
         "//test_utils",
         "@com_github_agiledragon_gomonkey_v2//:gomonkey",
         "@com_github_alicebob_miniredis_v2//:miniredis",
-        "@sonic_mgmt_common//translib",
         "@com_github_google_gnxi//utils/xpath",
         "@com_github_openconfig_gnmi//proto/gnmi",
         "@com_github_openconfig_gnmi//proto/gnmi_ext",
         "@com_github_openconfig_ygot//ygot",
         "@com_github_redis_go_redis_v9//:go-redis",
         "@com_github_workiva_go_datastructures//queue",
+        "@sonic_mgmt_common//translib",
         "@sonic_swss_common//goext:swsscommon",
     ],
 )

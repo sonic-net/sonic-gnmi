@@ -42,7 +42,7 @@ TARGETS = (
     "//dist:runtime.debug_symbols",
     "//gnoi_yang:gnoi_openconfig_client",
     "//gnoi_yang:gnoi_sonic_client",
-    "//telemetry",
+    "//cmd/telemetry",
     "//gnoi_client",
     "@sonic_swss_common//dist:libswsscommon_pkg",
     "//gnoi_yang:generated_proto_source",

@@ -188,7 +188,7 @@ def main():
         CGO_CXXFLAGS="-I" + str(sdk / "include/swss") + " -w -Wall -fpermissive",
         CGO_LDFLAGS="-L" + str(sdk / "lib") + " -L" + str(libdir) + " -lswsscommon -lhiredis",
         LD_LIBRARY_PATH=str(sdk / "lib") + ":" + str(libdir))
-    assert run(["go", "env", "GOVERSION"], cwd=tested, env=environment).stdout.strip() == "go1.25.9"
+    assert run(["go", "env", "GOVERSION"], cwd=tested, env=environment).stdout.strip() == "go1.26.0"
     vendor = tested / "vendor"
     if not (work / ("vendor-" + head + ".done")).exists():
         # Go's module cache is read-only; copied generator directories need

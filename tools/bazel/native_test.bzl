@@ -85,7 +85,7 @@ def native_go_test(name, **kwargs):
         timeout = "eternal",
         # These original suites share fixed gRPC or ZMQ test ports. Keep Make's
         # serial execution contract even in a multi-job local test run.
-        tags = ["exclusive"] if native.package_name() in ["gnmi_server", "dialout/dialout_client", "telemetry", "sonic_data_client"] else [],
+        tags = ["exclusive"] if native.package_name() in ["gnmi_server", "dialout/dialout_client", "cmd/telemetry", "sonic_data_client"] else [],
         args = ["--suite=" + native.package_name()] +
                ["--" + key + "=$(location " + value + ")" for key, value in inputs.items()] +
                ["--fixtures", "$(rootpaths //:test_data)"],
@@ -93,7 +93,7 @@ def native_go_test(name, **kwargs):
     )
 
 def installed_runtime_test(name):
-    inputs = _inputs("//telemetry")
+    inputs = _inputs("//cmd/telemetry")
     inputs["clients"] = "//dist:runtime"
     py_test(
         name = name,

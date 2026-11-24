@@ -9,12 +9,6 @@ go_library(
     visibility = ["//:__subpackages__"],
 )
 
-alias(
-    name = "go_default_library",
-    actual = ":hash",
-    visibility = ["//:__subpackages__"],
-)
-
 native_go_test(
     name = "hash_test",
     srcs = ["hash_test.go"],

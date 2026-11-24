@@ -57,7 +57,7 @@ def main():
             'different': sorted(name for name in actual.keys() & expected.keys()
                                 if actual[name] != expected[name]),
         }))
-    for name in ['telemetry/telemetry.go', 'go.mod', 'go.bazel.work', 'go.bazel.work.sum', 'MODULE.bazel',
+    for name in ['cmd/telemetry/main.go', 'go.mod', 'go.bazel.work', 'MODULE.bazel',
                  'proto/sonic_internal.pb.go', 'build/gnoi_yang/server/gnoiyang.go',
                  'pytest.ini', 'testdata/mtls/gold/ca.pem',
                  'testdata/mtls/client_1_key.pem', 'testdata/crl/unrevoked.pem']:

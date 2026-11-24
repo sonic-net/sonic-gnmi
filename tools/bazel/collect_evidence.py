@@ -28,7 +28,7 @@ def main():
         return
     evidence = Path('bazel-evidence')
     evidence.mkdir(exist_ok=True)
-    for name in ['MODULE.bazel.lock', 'go.mod', 'go.sum', 'go.bazel.work', 'go.bazel.work.sum', 'requirements_lock.txt']:
+    for name in ['MODULE.bazel.lock', 'go.mod', 'go.sum', 'go.bazel.work', 'requirements_lock.txt']:
         source = Path(name)
         if source.is_file():
             shutil.copyfile(source, evidence / source.name)
@@ -84,7 +84,7 @@ def main():
         'pull_request_head': head, 'pull_request_base': base,
         'machine': platform.machine(), 'os_release': Path('/etc/os-release').read_text(),
         'target': '@sonic_build_infra//platforms:x86_64_trixie',
-        'bazel': Path('.bazelversion').read_text().strip(), 'go_sdk': '1.25.9',
+        'bazel': Path('.bazelversion').read_text().strip(), 'go_sdk': '1.26.0',
         'consumer_compilation_mode': 'fastbuild', 'consumer_strip': 'always',
         'complete': complete, 'results': results, 'payload_sha256': payloads,
     }
