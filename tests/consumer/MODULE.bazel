@@ -1,7 +1,7 @@
 module(name = "gnmi_external_consumer")
 
 bazel_dep(name = "sonic-gnmi", version = "0.1.0", repo_name = "sonic_gnmi")
-bazel_dep(name = "sonic-mgmt-common", version = "1.0.2-c83630943c1e869107463be4f885fdfcc8321759", repo_name = "sonic_mgmt_common")
+bazel_dep(name = "sonic-mgmt-common", version = "1.0.2-68bfd75e9034ac0981c0f431b54cf8a9a868a2ca", repo_name = "sonic_mgmt_common")
 bazel_dep(name = "sonic-swss-common", version = "0.0.8-2a4ddd070edb719f2e969a880a5cfff711e64e72", repo_name = "sonic_swss_common")
 bazel_dep(name = "sonic-build-infra", version = "0.0.44-35726399908a3beb947174e9359f902077928289", repo_name = "sonic_build_infra")
 bazel_dep(name = "gazelle", version = "0.54.0.sonic.2")

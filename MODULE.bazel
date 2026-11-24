@@ -7,7 +7,7 @@ module(
     ],
 )
 
-bazel_dep(name = "sonic-mgmt-common", version = "1.0.2-c83630943c1e869107463be4f885fdfcc8321759", repo_name = "sonic_mgmt_common")
+bazel_dep(name = "sonic-mgmt-common", version = "1.0.2-68bfd75e9034ac0981c0f431b54cf8a9a868a2ca", repo_name = "sonic_mgmt_common")
 bazel_dep(name = "gazelle", version = "0.54.0.sonic.2")
 bazel_dep(name = "openconfig_goyang", version = "0.0.0.sonic.2-20200309174518-a00bece872fc", repo_name = "com_github_openconfig_goyang")
 bazel_dep(name = "openconfig_ygot", version = "0.7.1.sonic.2", repo_name = "com_github_openconfig_ygot")

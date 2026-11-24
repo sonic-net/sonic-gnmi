@@ -24,7 +24,8 @@ go_library(
         "@trixie//python3-dev:python3",
     ],  # keep
     cgo = True,
-    clinkopts = ["-L/usr/lib -lpthread -lboost_thread -lboost_system -lzmq -lboost_serialization -luuid -lswsscommon"],
+    # The shared Common target supplies the native libraries through CcInfo.
+    clinkopts = [],  # keep
     copts = [
         "-Wall",
         "-Wformat",
