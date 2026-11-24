@@ -4,8 +4,8 @@ load("//tools/bazel:source_files.bzl", "source_files")
 
 go_library(
     name = "telemetry_lib",
-    srcs = ["telemetry.go"],
-    importpath = "github.com/sonic-net/sonic-gnmi/telemetry",
+    srcs = ["main.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/cmd/telemetry",
     visibility = ["//visibility:private"],
     deps = [
         "//common_utils",
@@ -34,6 +34,7 @@ native_go_test(
     name = "telemetry_test",
     srcs = [
         "client_auth_test.go",
+        "notls_auth_test.go",
         "telemetry_test.go",
     ],
     embed = [":telemetry_lib"],

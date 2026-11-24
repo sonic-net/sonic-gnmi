@@ -10,7 +10,7 @@ sonic-gnmi implements the gNMI (gRPC Network Management Interface) and gNOI (gRP
 sonic-gnmi/
 ├── gnmi_server/         # gNMI server implementation
 ├── gnoi_client/         # gNOI client utilities
-├── telemetry/           # Telemetry service entry point
+├── cmd/telemetry/       # Telemetry service entry point (native dependencies)
 ├── dialout/             # Dial-out telemetry client
 ├── sonic_data_client/   # SONiC-specific data providers
 ├── sonic_db_config/     # Database configuration handling
@@ -22,7 +22,7 @@ sonic-gnmi/
 ├── patches/             # Patches for dependencies
 ├── pkg/                 # Go packages
 ├── swsscommon/          # Go bindings for swss-common
-├── test/                # Integration tests
+├── tests/integration/   # Python service integration tests
 ├── test_utils/          # Test utilities
 ├── testdata/            # Test data files
 ├── tools/               # Development tools
@@ -62,7 +62,7 @@ sonic-gnmi/
 # See https://golang.org/doc/install
 
 # Install telemetry server
-go get -u github.com/sonic-net/sonic-gnmi/telemetry
+go install github.com/sonic-net/sonic-gnmi/cmd/telemetry
 
 # Install dial-out client
 go get -u github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
@@ -86,19 +86,23 @@ go test ./...
 # Run specific package tests
 go test ./gnmi_server/ -v
 
-# Integration tests (require Redis and SONiC environment)
-cd test
-pytest -v
+# Integration tests (from repo root in a provisioned SONiC environment)
+make all
+ENABLE_TRANSLIB_WRITE=y make test-integration
 
 # Run with coverage
 go test ./... -coverprofile=coverage.out
 go tool cover -html=coverage.out
 ```
 
-- Go unit tests alongside source code (`*_test.go`)
-- Python integration tests in `test/`
+- Go unit tests alongside source code (`*_test.go`); existing same-package
+  integration tests may also live there when they need private setup.
+- Python integration tests in `tests/integration/`, invoked from the repository
+  root by the Go harness; do not run them from the suite directory.
 - Test utilities in `test_utils/`
 - Test data in `testdata/`
+- See [Test layout](../tests/README.md) for placement rules and the separate
+  artifact-based E2E boundary. Pure/native build profiles are not test levels.
 
 ## PR Guidelines
 

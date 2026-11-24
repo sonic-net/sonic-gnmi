@@ -2,50 +2,88 @@ package gnmi
 
 import (
 	"context"
-	"io"
+	"errors"
 	"net"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/Workiva/go-datastructures/queue"
 	gnmipb "github.com/openconfig/gnmi/proto/gnmi"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	sdc "github.com/sonic-net/sonic-gnmi/sonic_data_client"
+	"google.golang.org/grpc"
 )
 
-// The real client receives EOF while another subscription closes this peer.
-// Unused stream methods remain outside this initial-receive error path.
-type closingSubscribeStream struct {
-	gnmipb.GNMI_SubscribeServer
-	receiving chan struct{}
-	closePeer chan struct{}
+type failingSubscribeStream struct {
+	grpc.ServerStream
+	recvCalled chan struct{}
+	sendErr    error
 }
 
-func (s *closingSubscribeStream) Context() context.Context { return context.Background() }
-
-func (s *closingSubscribeStream) Recv() (*gnmipb.SubscribeRequest, error) {
-	close(s.receiving)
-	<-s.closePeer
-	return nil, io.EOF
+func (s *failingSubscribeStream) Context() context.Context {
+	return context.Background()
 }
 
-func TestClientRunConcurrentClose(t *testing.T) {
-	for i := 0; i < 32; i++ {
-		client := NewClient(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8081})
-		stream := &closingSubscribeStream{receiving: make(chan struct{}), closePeer: make(chan struct{})}
-		var closing sync.WaitGroup
-		closing.Add(1)
+func (s *failingSubscribeStream) Recv() (*gnmipb.SubscribeRequest, error) {
+	close(s.recvCalled)
+	return nil, errors.New("test receive error")
+}
+
+func (s *failingSubscribeStream) Send(*gnmipb.SubscribeResponse) error {
+	return s.sendErr
+}
+
+type testSubscribeQueueItem struct{}
+
+func (testSubscribeQueueItem) Compare(queue.Item) int {
+	return 0
+}
+
+func TestClientCountersAreSafeDuringClose(t *testing.T) {
+	const iterations = 100
+
+	for i := 0; i < iterations; i++ {
+		client := NewClient(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: i})
+		recvCalled := make(chan struct{})
+
+		// Hold Close before it reads the counters, then let Run update them.
+		// The sleep leaves those operations unsynchronized so the race detector
+		// can catch a non-atomic counter access.
+		client.mu.Lock()
+
+		var wg sync.WaitGroup
+		wg.Add(2)
 		go func() {
-			defer closing.Done()
-			<-stream.receiving
-			close(stream.closePeer)
-			for j := 0; j < 64; j++ {
-				client.Close()
-			}
+			defer wg.Done()
+			client.Close()
 		}()
-		err := client.Run(stream, &Config{})
-		closing.Wait()
-		if status.Code(err) != codes.Aborted {
-			t.Fatalf("initial stream EOF: got %v, want Aborted", err)
-		}
+		go func() {
+			defer wg.Done()
+			_ = client.Run(&failingSubscribeStream{recvCalled: recvCalled}, &Config{})
+		}()
+
+		<-recvCalled
+		time.Sleep(time.Millisecond)
+		client.mu.Unlock()
+		wg.Wait()
+	}
+}
+
+func TestClientSendCountersOnSendError(t *testing.T) {
+	client := NewClient(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err := client.q.Put(testSubscribeQueueItem{}); err != nil {
+		t.Fatalf("failed to enqueue test item: %v", err)
+	}
+
+	stream := &failingSubscribeStream{sendErr: errors.New("test send error")}
+	err := client.send(stream, &sdc.DbClient{})
+	if err == nil {
+		t.Fatal("send() returned nil, want send error")
+	}
+	if got := client.sendMsg.Load(); got != 1 {
+		t.Errorf("sendMsg = %d, want 1", got)
+	}
+	if got := client.errors.Load(); got != 2 {
+		t.Errorf("errors = %d, want 2 (unknown queue item and failed send)", got)
 	}
 }

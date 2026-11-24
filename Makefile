@@ -69,6 +69,10 @@ ENABLE_DIALOUT_VALUE = 0
 endif
 
 GO_DEPS := vendor/.done
+# Directory and version of a module as go.mod selects it, after any replace, so
+# a copy into vendor/ moves with go.mod
+MOD_DIR = $$($(GO) list -mod=mod -m -f '{{.Dir}}' $(1))
+MOD_VERSION = $$($(GO) list -mod=mod -m -f '{{with .Replace}}{{.Version}}{{else}}{{.Version}}{{end}}' $(1))
 PATCHES := $(wildcard patches/*.patch)
 PATCHES += $(shell find $(MGMT_COMMON_DIR)/patches -type f)
 
@@ -78,35 +82,39 @@ go.mod:
 	$(GO) mod init github.com/sonic-net/sonic-gnmi
 
 $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap $(GNOI_YANG)
+	@# go.mod requires a published sonic-mgmt-common, so Go and Renovate resolve it
+	@# without a checkout beside this one. Build against the checkout when it is there.
+	@if [ -d $(MGMT_COMMON_DIR) ]; then \
+	   $(GO) mod edit -replace github.com/Azure/sonic-mgmt-common=$(MGMT_COMMON_DIR); \
+	 fi
 	@GO_MOD_VER=$$(sed -n 's/^go //p' go.mod) && \
 	 GO_CUR_VER=$$($(GO) env GOVERSION | sed 's/go//') && \
 	 if printf '%s\n' "$$GO_MOD_VER" "$$GO_CUR_VER" | sort -V | head -1 | grep -qx "$$GO_MOD_VER"; then \
 	   $(GO) mod tidy; \
 	 fi
 	$(GO) mod vendor
-	$(GO) mod download github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2
-	gnxi_dir=$$($(GO) list -mod=mod -m -f '{{.Dir}}' github.com/google/gnxi@v0.0.0-20181220173256-89f51f0ce1e2) && \
+	$(GO) mod download github.com/google/gnxi golang.org/x/crypto golang.org/x/term github.com/openconfig/gnmi
+	gnxi_dir=$(call MOD_DIR,github.com/google/gnxi) && \
 		cp -r "$$gnxi_dir"/* vendor/github.com/google/gnxi/ && \
 		chmod -R u+w vendor/github.com/google/gnxi
 
 # x/crypto/ssh/terminal imports x/term in v0.24.0+; gnmi_cli uses ssh/terminal
 # but go mod vendor omits both because the unpatched code doesn't import them.
 # Copy both explicitly so gnmi_cli can compile after patches are applied.
-# Also copy cmd/gnmi_cli and cli from the pinned gnmi module (go mod vendor omits
+# Also copy cmd/gnmi_cli and cli from the gnmi module (go mod vendor omits
 # cmd packages that are not imported by any package in this module).
-	$(GO) mod download golang.org/x/term@v0.43.0
+# Each copy comes from the version go.mod selects.
 	mkdir -p vendor/golang.org/x/crypto/ssh/terminal vendor/golang.org/x/term
-	crypto_dir=$$($(GO) list -mod=mod -m -f '{{.Dir}}' golang.org/x/crypto@v0.52.0) && \
+	crypto_dir=$(call MOD_DIR,golang.org/x/crypto) && \
 		cp "$$crypto_dir"/ssh/terminal/terminal.go vendor/golang.org/x/crypto/ssh/terminal/
-	term_dir=$$($(GO) list -mod=mod -m -f '{{.Dir}}' golang.org/x/term@v0.43.0) && \
+	term_dir=$(call MOD_DIR,golang.org/x/term) && \
 		rsync -r --chmod=u+w --exclude=testdata --exclude='*_test.go' \
 		"$$term_dir"/ vendor/golang.org/x/term/
 	python3 -c 'import re, sys; txt=open("vendor/modules.txt").read(); pkg="golang.org/x/term\n"; m=re.search(r"^(# golang\.org/x/term [^\n]+\n## explicit[^\n]*\n)", txt, re.MULTILINE) if pkg not in txt else None; sys.exit("ERROR: golang.org/x/term block not found in vendor/modules.txt") if pkg not in txt and not m else None; open("vendor/modules.txt","w").write(txt[:m.end()]+pkg+txt[m.end():]) if m else None'
-	$(GO) mod download github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802
 	mkdir -p vendor/github.com/openconfig/gnmi/cmd/gnmi_cli \
 		vendor/github.com/openconfig/gnmi/cli \
 		vendor/github.com/openconfig/gnmi/client/flags
-	gnmi_dir=$$($(GO) list -mod=mod -m -f '{{.Dir}}' github.com/openconfig/gnmi@v0.0.0-20200617225440-d2b4e6a45802) && \
+	gnmi_dir=$(call MOD_DIR,github.com/openconfig/gnmi) && \
 		cp "$$gnmi_dir"/cmd/gnmi_cli/gnmi_cli.go vendor/github.com/openconfig/gnmi/cmd/gnmi_cli/ && \
 		cp "$$gnmi_dir"/cli/cli.go vendor/github.com/openconfig/gnmi/cli/ && \
 		cp "$$gnmi_dir"/client/flags/intmap.go \
@@ -137,14 +145,14 @@ sonic-gnmi: $(GO_DEPS) $(FORMAT_CHECK)
 # add support for fsnotify closewrite event
 	patch -d vendor -p0 < patches/0004-CloseWrite-event-support.patch
 ifeq ($(CROSS_BUILD_ENVIRON),y)
-	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
+	$(GO) build -o ${GOBIN}/telemetry -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/cmd/telemetry
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	$(GO) build -o ${GOBIN}/dialout_client_cli -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
 endif
 	$(GO) build -o ${GOBIN}/gnoi_client -mod=vendor github.com/sonic-net/sonic-gnmi/gnoi_client
 	$(GO) build -o ${GOBIN}/gnmi_dump -mod=vendor github.com/sonic-net/sonic-gnmi/gnmi_dump
 else
-	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/telemetry
+	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/cmd/telemetry
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	$(GO) install -mod=vendor $(BLD_FLAGS) github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli
 endif
@@ -168,7 +176,7 @@ endif
 # Manually adding patched client packages and their dependencies
 # to vendor/modules.txt. This satisfies 'go install -mod=vendor' lookup checks,
 # which are required after manual patching/copying of gnxi and gnmi-cli code.
-	echo "github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2" >> vendor/modules.txt
+	echo "github.com/google/gnxi $(call MOD_VERSION,github.com/google/gnxi)" >> vendor/modules.txt
 	echo "github.com/google/gnxi/gnmi_get" >> vendor/modules.txt
 	echo "github.com/google/gnxi/gnmi_set" >> vendor/modules.txt
 	echo "github.com/openconfig/gnmi/cli" >> vendor/modules.txt
@@ -274,8 +282,8 @@ $(ENVFILE):
 	tools/test/env.sh | grep -v DB_CONFIG_PATH | tee $@
 
 check_gotest: $(DBCONFG) $(ENVFILE) $(GOCOV) $(GOCOV_XML)
-	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/telemetry
-	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config
+	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-telemetry.txt -covermode=atomic -mod=vendor -v github.com/sonic-net/sonic-gnmi/cmd/telemetry
+	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(GO) test -race $(TEST_FLAGS) -coverprofile=coverage-config.txt -covermode=atomic -v github.com/sonic-net/sonic-gnmi/sonic_db_config github.com/sonic-net/sonic-gnmi/internal/adaptors/dbconfig
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 40m $(TEST_FLAGS) -coverprofile=coverage-gnmi.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/gnmi_server -coverpkg ../...
 	$(SUDO_GO) CGO_LDFLAGS="$(CGO_LDFLAGS)" CGO_CXXFLAGS="$(CGO_CXXFLAGS)" $(TESTENV) $(GO) test -race -timeout 40m $(TEST_FLAGS) -coverprofile=coverage-pathz_authorizer.txt -covermode=atomic -mod=vendor $(BLD_FLAGS) -v github.com/sonic-net/sonic-gnmi/pathz_authorizer -coverpkg ../...
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
@@ -299,8 +307,9 @@ endif
 # Integration test packages - basic ones (no special environment needed)
 INTEGRATION_BASIC_PKGS := \
 	github.com/sonic-net/sonic-gnmi/sonic_db_config \
+	github.com/sonic-net/sonic-gnmi/internal/adaptors/dbconfig \
 	github.com/sonic-net/sonic-gnmi/sonic_service_client \
-	github.com/sonic-net/sonic-gnmi/telemetry \
+	github.com/sonic-net/sonic-gnmi/cmd/telemetry \
 	github.com/sonic-net/sonic-gnmi/sonic_data_client
 
 # Integration test packages that need special environment
@@ -313,6 +322,13 @@ INTEGRATION_ENV_PKGS := \
 # Dialout package (conditional)
 INTEGRATION_DIALOUT_PKG := \
 	github.com/sonic-net/sonic-gnmi/dialout/dialout_client
+
+INTEGRATION_PROFILES := \
+	$(if $(strip $(INTEGRATION_BASIC_PKGS)),test-results/coverage-integration-basic.txt) \
+	$(if $(strip $(INTEGRATION_ENV_PKGS)),test-results/coverage-integration-env.txt)
+ifneq ($(ENABLE_DIALOUT_VALUE),0)
+INTEGRATION_PROFILES += $(if $(strip $(INTEGRATION_DIALOUT_PKG)),test-results/coverage-integration-dialout.txt)
+endif
 
 # Memory leak test packages that require CGO/SONiC dependencies and special sanitizer flags
 # Note: sonic_data_client and telemetry excluded due to underlying libyang memory leaks in test environment
@@ -327,6 +343,9 @@ MEMLEAK_STANDARD_PKGS := \
 check_memleak: $(DBCONFG) $(ENVFILE)
 	$(SUDO_GO) CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -mod=vendor $(TEST_FLAGS) $(MEMCHECK_FLAGS) -v $(MEMLEAK_STANDARD_PKGS)
 	# sudo CGO_LDFLAGS="$(MEMCHECK_CGO_LDFLAGS)" CGO_CXXFLAGS="$(MEMCHECK_CGO_CXXFLAGS)" $(GO) test -mod=vendor $(MEMCHECK_FLAGS) -v $(MEMLEAK_GNMI_SERVER_PKG) -run="$(MEMLEAK_TEST_PATTERN)"
+
+.PHONY: test-memleak
+test-memleak: check_memleak_junit
 
 # JUnit XML output for memory leak tests in Azure Pipelines
 .PHONY: check_memleak_junit
@@ -352,9 +371,18 @@ check_memleak_junit: $(DBCONFG) $(ENVFILE) $(GOTESTSUM)
 	@echo "Note: telemetry, sonic_data_client, and gnmi_server excluded due to libyang memory leaks"
 
 
-# JUnit XML output for integration tests in Azure Pipelines
+# Compatibility aggregate: execute tests, then convert their coverage.
 .PHONY: check_gotest_junit
-check_gotest_junit: $(DBCONFG) $(ENVFILE) $(GOTESTSUM) $(GOCOV) $(GOCOV_XML)
+check_gotest_junit:
+	@$(MAKE) test-integration
+	@$(MAKE) report-coverage
+
+.PHONY: test-integration
+test-integration: $(DBCONFG) $(ENVFILE) $(GOTESTSUM)
+	@rm -f coverage.xml \
+		test-results/junit-integration-basic.xml test-results/coverage-integration-basic.txt \
+		test-results/junit-integration-env.xml test-results/coverage-integration-env.txt \
+		test-results/junit-integration-dialout.xml test-results/coverage-integration-dialout.txt
 	@echo "Running integration tests with JUnit XML output..."
 	@mkdir -p test-results
 	
@@ -369,7 +397,9 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE) $(GOTESTSUM) $(GOCOV) $(GOCOV_XML)
 			$(GOTESTSUM) --junitfile test-results/junit-integration-basic.xml \
 			--format testname \
 			-- -race -timeout 40m $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-basic.txt \
-			-covermode=atomic -mod=vendor -v $(INTEGRATION_BASIC_PKGS); \
+			-covermode=atomic -mod=vendor -v $(INTEGRATION_BASIC_PKGS) || { \
+				status=$$?; rm -f $(INTEGRATION_PROFILES); exit $$status; \
+			}; \
 	fi
 	
 	# Run packages needing special environment
@@ -382,7 +412,9 @@ check_gotest_junit: $(DBCONFG) $(ENVFILE) $(GOTESTSUM) $(GOCOV) $(GOCOV_XML)
 			$(GOTESTSUM) --junitfile test-results/junit-integration-env.xml \
 			--format testname \
 			-- -race -timeout 40m $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-env.txt \
-			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS); \
+			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_ENV_PKGS) || { \
+				status=$$?; rm -f $(INTEGRATION_PROFILES); exit $$status; \
+			}; \
 	fi
 	
 	# Run dialout package if enabled
@@ -393,22 +425,15 @@ ifneq ($(ENABLE_DIALOUT_VALUE),0)
 			$(GOTESTSUM) --junitfile test-results/junit-integration-dialout.xml \
 			--format testname \
 			-- $(TEST_FLAGS) -coverprofile=test-results/coverage-integration-dialout.txt \
-			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG); \
+			-covermode=atomic -mod=vendor $(BLD_FLAGS) -v $(INTEGRATION_DIALOUT_PKG) || { \
+				status=$$?; rm -f $(INTEGRATION_PROFILES); exit $$status; \
+			}; \
 	fi
 endif
 
-	@echo "Generating coverage.xml..."
-	@for file in test-results/coverage-*.txt; do \
-		if [ -f "$$file" ]; then \
-			grep -v -e "/mocks/" -e "proto/" "$$file" > "$$file.filtered" 2>/dev/null || true; \
-		fi; \
-	done
-	$(GOCOV) convert test-results/coverage-*.txt.filtered | $(GOCOV_XML) -source $(shell pwd) > coverage.xml
-	@rm -f test-results/coverage-*.txt.filtered
-
 	@echo ""
 	@echo "============================================="
-	@echo "Integration JUnit XML generation completed!"
+	@echo "Integration test execution completed!"
 	@echo "============================================="
 	@echo "Files generated:"
 	@echo "  - test-results/junit-integration-basic.xml (Basic packages)"
@@ -416,7 +441,7 @@ endif
 ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	@echo "  - test-results/junit-integration-dialout.xml (Dialout package)"
 endif
-	@echo "  - coverage.xml (Cobertura coverage report)"
+	@echo "  - test-results/coverage-integration-*.txt (Raw Go coverage)"
 	@echo ""
 	@echo "Tested packages:"
 	@echo "Basic packages:"
@@ -428,6 +453,27 @@ ifneq ($(ENABLE_DIALOUT_VALUE),0)
 	@for pkg in $(INTEGRATION_DIALOUT_PKG); do echo "  - $$pkg"; done
 endif
 
+.PHONY: report-coverage
+report-coverage:
+	@rm -f coverage.xml
+	@test -n "$(strip $(INTEGRATION_PROFILES))"
+	@for file in $(INTEGRATION_PROFILES); do \
+		test -s "$$file" || { echo "Missing or empty coverage profile: $$file" >&2; exit 1; }; \
+	done
+	@$(MAKE) $(GOCOV) $(GOCOV_XML)
+	@set -e; \
+	json=; xml=; filtered=; \
+	trap 'rm -f $$filtered "$$json" "$$xml"' EXIT; \
+	for file in $(INTEGRATION_PROFILES); do \
+		filtered="$$filtered $$file.filtered"; \
+		grep -v -e "/mocks/" -e "proto/" "$$file" > "$$file.filtered"; \
+	done; \
+	json=$$(mktemp test-results/coverage-integration-json.XXXXXX); \
+	xml=$$(mktemp coverage.xml.XXXXXX); \
+	$(GOCOV) convert $$filtered > "$$json"; \
+	$(GOCOV_XML) -source "$(CURDIR)" < "$$json" > "$$xml"; \
+	mv "$$xml" coverage.xml; \
+	echo "Coverage report generated: coverage.xml"
 
 clean:
 	$(RM) -r build

@@ -15,7 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/Azure/sonic-mgmt-common/translib/db"
-	"github.com/sonic-net/sonic-gnmi/internal/redisopts"
+	"github.com/sonic-net/sonic-gnmi/internal/localredis"
 	sdcfg "github.com/sonic-net/sonic-gnmi/sonic_db_config"
 )
 
@@ -57,15 +57,19 @@ func NewDbJournal(database string) (*DbJournal, error) {
 	}
 
 	ns, _ := sdcfg.GetDbDefaultNamespace()
-	addr, _ := sdcfg.GetDbTcpAddr(journal.database, ns)
-	dbId, _ := sdcfg.GetDbId(journal.database, ns)
-	journal.rc = db.TransactionalRedisClientWithOpts(redisopts.New(redis.Options{
-		Network:     "tcp",
-		Addr:        addr,
-		Password:    "",
-		DB:          dbId,
-		DialTimeout: 0,
-	}))
+	addr, err := sdcfg.GetDbSock(journal.database, ns)
+	if err != nil {
+		return nil, err
+	}
+	dbID, err := sdcfg.GetDbId(journal.database, ns)
+	if err != nil {
+		return nil, err
+	}
+	opts, err := localredis.Options(addr, dbID)
+	if err != nil {
+		return nil, err
+	}
+	journal.rc = db.TransactionalRedisClientWithOpts(opts)
 
 	if err = journal.init(); err != nil {
 		return nil, err
