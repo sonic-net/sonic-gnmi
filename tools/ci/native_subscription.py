@@ -256,6 +256,14 @@ def main():
     baseline = baseline_file.read_bytes()
     assert hashlib.sha256(baseline).hexdigest() == pins["baseline"]["sha256"]
     assert baseline != exact, "The regression must compare against the original unfixed source"
+    # The historical implementation predates the other package tests' polling
+    # and atomic-counter APIs. Keep the original fixture in its control build.
+    fixture = production.with_name("client_run_close_test.go")
+    assert fixture.is_file()
+    replacements = {str(path): "" for path in production.parent.glob("*_test.go") if path != fixture}
+    replacements[str(production)] = str(baseline_file)
+    overlay = test_root / "baseline-overlay.json"
+    overlay.write_text(json.dumps({"Replace": replacements}) + "\n")
     command = ["go", "test", "-race", "-gcflags=all=-l", "-mod=vendor", "-count=3", "-json",
                "-timeout=5m", "-run=^" + CASE + "$", "./gnmi_server", "-args", "-logtostderr=true"]
     # Keep the Unix socket below Linux's 108-byte limit even in long CI paths.
@@ -280,15 +288,14 @@ def main():
             positive = run(command, cwd=tested, env=environment, log=evidence / "fixed.jsonl", check=False)
             events = [json.loads(line) for line in positive.stdout.splitlines() if line.startswith("{")]
             assert positive.returncode == 0 and sum(e.get("Test") == CASE and e.get("Action") == "pass" for e in events) == 3, positive.stdout[-4000:]
-            production.write_bytes(baseline)
-            negative = run(command, cwd=tested, env=environment, log=evidence / "baseline.jsonl", check=False)
+            historical_command = [*command[:2], "-overlay=" + str(overlay), *command[2:]]
+            negative = run(historical_command, cwd=tested, env=environment, log=evidence / "baseline.jsonl", check=False)
             negative_events = [json.loads(line) for line in negative.stdout.splitlines() if line.startswith("{")]
             assert negative.returncode != 0 and any(e.get("Test") == CASE and e.get("Action") == "fail"
                 for e in negative_events), negative.stdout[-4000:]
             for marker in ("DATA RACE", "client_subscribe.go:", "(*Client).Run", "(*Client).Close"):
                 assert marker in negative.stdout, (marker, negative.stdout[-4000:])
         finally:
-            production.write_bytes(exact)
             redis.terminate()
             try: redis.wait(timeout=5)
             except subprocess.TimeoutExpired: redis.kill(); redis.wait()
