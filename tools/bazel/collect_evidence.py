@@ -84,7 +84,7 @@ def main():
         'pull_request_head': head, 'pull_request_base': base,
         'machine': platform.machine(), 'os_release': Path('/etc/os-release').read_text(),
         'target': '@sonic_build_infra//platforms:x86_64_trixie',
-        'bazel': Path('.bazelversion').read_text().strip(), 'go_sdk': '1.26.0',
+        'bazel': Path('.bazelversion').read_text().strip(), 'go_sdk': '1.26.7',
         'consumer_compilation_mode': 'fastbuild', 'consumer_strip': 'always',
         'complete': complete, 'results': results, 'payload_sha256': payloads,
     }

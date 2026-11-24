@@ -8,7 +8,7 @@ and the actual generated protocol/YANG Go files under `/usr/src/sonic-gnmi`,
 with generated paths matching Make and the original test fixtures included.
 External dependency sources remain owned by their respective components. No Debian package producer is added.
 
-Use Bazel 8.5.1 on native Linux AMD64. The component selects Go 1.26.0, the
+Use Bazel 8.5.1 on native Linux AMD64. The component selects Go 1.26.7, the
 shared Trixie C/C++ toolchain and the same pinned APT inputs as Common. Both
 `gnmi_translib_write` and `gnmi_native_write` are enabled by the telemetry
 target itself, matching the selected SONiC image profile even when a consuming

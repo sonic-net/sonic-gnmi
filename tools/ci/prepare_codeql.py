@@ -171,7 +171,7 @@ def prepare(work, evidence):
         LD_LIBRARY_PATH=str(sdk / "lib") + ":" + str(libdir),
         GOCACHE=str(work / "go-cache"))
     env = dict(os.environ, **environment)
-    assert run(["go", "env", "GOVERSION"], cwd=ROOT, env=env).stdout.strip() == "go1.26.0"
+    assert run(["go", "env", "GOVERSION"], cwd=ROOT, env=env).stdout.strip() == "go1.26.7"
     run(["go", "mod", "edit", "-replace=" + MGMT_MODULE + "=" + str(mgmt)], cwd=ROOT, env=env)
     run(["go", "mod", "tidy"], cwd=ROOT, env=env, log=evidence / "go-tidy.log")
     run(["go", "mod", "vendor"], cwd=ROOT, env=env, log=evidence / "go-vendor.log")
