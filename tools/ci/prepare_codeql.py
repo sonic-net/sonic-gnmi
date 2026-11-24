@@ -119,19 +119,14 @@ def prepare(work, evidence):
                    log=evidence / f"inputs-{sequence:02d}-{operation}.log").stdout
 
     bazel("build", TARGETS)
-    hdr_expr = "labels(hdrs, @libyang//:public_headers)"
-    headers = bazel("cquery", [hdr_expr, "--output=label"])
+    headers = bazel("cquery", [_native.LIBYANG_HEADER_QUERY, "--output=label"])
     labels = [line.split()[0] for line in headers.splitlines() if line.startswith("@")]
-    if not labels:
-        hdr_expr = 'labels(hdrs, filter("^@@?libyang", deps(@libyang//:public_headers, 1)))'
-        headers = bazel("cquery", [hdr_expr, "--output=label"])
-        labels = [line.split()[0] for line in headers.splitlines() if line.startswith("@")]
     assert labels
     bazel("build", labels)
     execution = work / "bazel-output/execroot/_main"
     outputs = {}
     for target in TARGETS:
-        expression = (hdr_expr if target.endswith(":public_headers")
+        expression = (_native.LIBYANG_HEADER_QUERY if target.endswith(":public_headers")
                       else "config(" + target + ", target)")
         result = bazel("cquery", [expression, "--output=files"])
         paths = [execution / line for line in result.splitlines()

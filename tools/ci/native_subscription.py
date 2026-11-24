@@ -17,6 +17,8 @@ import urllib.request
 
 
 CASE = "TestClientRunConcurrentClose"
+# The public CcInfo exposes source and generated headers through its direct dependencies.
+LIBYANG_HEADER_QUERY = 'labels(hdrs, filter("^@@?libyang", deps(@libyang//:public_headers, 1)))'
 
 
 def digest(path):
@@ -117,7 +119,7 @@ def main():
     for root, targets in [(common, common_targets), (mgmt, mgmt_targets)]:
         bazel(root, "build", targets)
         for target in targets:
-            expression = "labels(hdrs," + target + ")" if target.endswith(":public_headers") else target
+            expression = LIBYANG_HEADER_QUERY if target.endswith(":public_headers") else target
             if target.endswith(":public_headers"):
                 # A header-only CcInfo need not materialize all its generated
                 # headers when requested alone. Request its declared hdrs too.
