@@ -60,6 +60,8 @@ jobs:
           echo 'BAZEL_COMMAND=bazel --nosystem_rc --nohome_rc --noworkspace_rc --bazelrc=/tmp/gnmi-ci.bazelrc' >> "$GITHUB_ENV"
       - name: Verify original vendor patch parity
         run: python3 tools/bazel/vendor_patches.py --check
+      - name: Check upstream pure build-tag boundaries
+        run: make -f pure.mk check-tags check-tags-test
       - name: Verify permission failures as a non-root sandbox user
         run: |
           $BAZEL_COMMAND test --nocache_test_results --test_filter='^TestCopyAndRemoveDstError$' \
