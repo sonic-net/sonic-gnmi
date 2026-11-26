@@ -9,7 +9,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/c9s/goprocinfo v0.0.0-20210130143923-c95fcf8c64a8
 	github.com/dgrijalva/jwt-go v3.2.1-0.20210802184156-9742bd7fca1c+incompatible
-	github.com/fsnotify/fsnotify v1.4.9
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-redis/redismock/v9 v9.2.0
 	github.com/godbus/dbus/v5 v5.2.4
 	github.com/gogo/protobuf v1.3.2
