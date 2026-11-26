@@ -17,7 +17,7 @@ PYANG  ?= pyang
 GOROOT ?= $(shell $(GO) env GOROOT)
 HOST_GOOS = $(shell $(GO) env GOHOSTOS)
 HOST_GOARCH = $(shell $(GO) env GOHOSTARCH)
-HOST_GO_ENV = GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH)
+HOST_GO_ENV = GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) CGO_ENABLED=0
 GO_BIN_DIR = $(dir $(shell command -v $(GO)))
 SUDO_GO := sudo -H env -i HOME=/root USER=root LOGNAME=root \
 	PATH=$(GO_BIN_DIR):/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -162,7 +162,8 @@ endif
 
 # download and patch crypto and gnxi
 	$(GO) mod download golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413
-	cp -r $(GOPATH)/pkg/mod/golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413/* vendor/golang.org/x/crypto/
+	crypto_dir=$$($(GO) list -mod=mod -m -f '{{.Dir}}' golang.org/x/crypto@v0.0.0-20191206172530-e9b2fee46413) && \
+		cp -r "$$crypto_dir"/* vendor/golang.org/x/crypto/
 	chmod -R u+w vendor
 	patch -d vendor -p0 < patches/gnmi_cli.all.patch
 	patch -d vendor -p0 < patches/gnmi_set.patch

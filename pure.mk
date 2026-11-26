@@ -12,7 +12,7 @@ GO ?= go
 GOROOT ?= $(shell $(GO) env GOROOT)
 HOST_GOOS = $(shell $(GO) env GOHOSTOS)
 HOST_GOARCH = $(shell $(GO) env GOHOSTARCH)
-HOST_GO_ENV = GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH)
+HOST_GO_ENV = GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) CGO_ENABLED=0
 TOOLS_BIN_DIR := $(abspath build/tools/bin)
 GOTESTSUM := $(TOOLS_BIN_DIR)/gotestsum-v1.12.3
 GOCOV := $(TOOLS_BIN_DIR)/gocov-v1.1.0
