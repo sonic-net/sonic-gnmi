@@ -79,7 +79,7 @@ require (
 
 replace (
 	// Glog patch needs to be updated to remove this.
-	github.com/golang/glog => github.com/golang/glog v1.2.4
+	github.com/golang/glog => github.com/golang/glog v1.2.5
 	github.com/openconfig/gnmi => github.com/openconfig/gnmi v0.0.0-20200617225440-d2b4e6a45802
 	golang.org/x/crypto => golang.org/x/crypto v0.59.0
 	golang.org/x/sys => golang.org/x/sys v0.50.0
