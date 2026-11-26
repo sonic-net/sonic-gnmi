@@ -134,7 +134,8 @@ def main():
                 launcher(output, binary)
             environment['SONIC_TEST_NATIVE_BIN'] = str(root / 'clients/usr/sbin')
             private_bin = root / 'bin'; private_bin.mkdir()
-            (private_bin / 'pytest').symlink_to(args.pytest)
+            if args.pytest:
+                (private_bin / 'pytest').symlink_to(args.pytest)
             redis_cli = private_bin / 'redis-cli'
             redis_cli.write_text('#!/bin/sh\nexec ' + shlex.join([
                 str(loader), '--library-path', libpath, str(runtime / 'usr/bin/redis-cli'),

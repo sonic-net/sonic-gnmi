@@ -20,7 +20,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 	"unsafe"
@@ -909,13 +908,10 @@ func TestOSServerVerifyPropagatesNativeStatus(t *testing.T) {
 }
 
 func TestProcessTransferContent_OpenFileError(t *testing.T) {
-	// Mock the os.OpenFile function to simulate a failure
-	patch := gomonkey.ApplyFunc(os.OpenFile, func(name string, flag int, perm os.FileMode) (*os.File, error) {
-		return nil, errors.New("simulated OpenFile failure")
-	})
-	defer patch.Reset()
-
 	srv := newTestOSServer()
+	srv.openImage = func(string) (io.WriteCloser, error) {
+		return nil, errors.New("simulated OpenFile failure")
+	}
 
 	// Call the method under test
 	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
@@ -933,39 +929,27 @@ func TestProcessTransferContent_OpenFileError(t *testing.T) {
 	}
 }
 
+type transferTestFile struct {
+	writeErr error
+	closeErr error
+}
+
+func (f transferTestFile) Write(data []byte) (int, error) {
+	if f.writeErr != nil {
+		return 0, f.writeErr
+	}
+	return len(data), nil
+}
+
+func (f transferTestFile) Close() error {
+	return f.closeErr
+}
+
 func TestProcessTransferContent_WriteError(t *testing.T) {
-	// Create a dummy *os.File
-	f := &os.File{}
-
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
-
-	// Patch os.OpenFile to return our dummy file and no error
-	patches.ApplyFunc(os.OpenFile, func(name string, flag int, perm os.FileMode) (*os.File, error) {
-		return f, nil
-	})
-
-	// Patch (*os.File).Write to return an error for our dummy file only.
-	// For all other files (glog's log files, stderr, etc.), use syscall.Write
-	// directly to bypass the gomonkey patch and avoid glog's error-exit path.
-	patches.ApplyMethod(reflect.TypeOf(f), "Write", func(file *os.File, b []byte) (int, error) {
-		if file == f {
-			return 0, errors.New("simulated Write failure")
-		}
-		// Pass through to the real underlying write (avoids recursion).
-		n, err := syscall.Write(int(file.Fd()), b)
-		if err != nil {
-			return n, &os.PathError{Op: "write", Path: file.Name(), Err: err}
-		}
-		return n, nil
-	})
-
-	// Patch (*os.File).Close to simulate a clean close (no error)
-	patches.ApplyMethod(reflect.TypeOf(f), "Close", func(_ *os.File) error {
-		return nil
-	})
-
 	srv := newTestOSServer()
+	srv.openImage = func(string) (io.WriteCloser, error) {
+		return transferTestFile{writeErr: errors.New("simulated Write failure")}, nil
+	}
 
 	// Call the method being tested
 	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
@@ -988,27 +972,10 @@ func TestProcessTransferContent_WriteError(t *testing.T) {
 }
 
 func TestProcessTransferContent_CloseError(t *testing.T) {
-	f := &os.File{}
-
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
-
-	// Patch os.OpenFile to return dummy file
-	patches.ApplyFunc(os.OpenFile, func(name string, flag int, perm os.FileMode) (*os.File, error) {
-		return f, nil
-	})
-
-	// Patch (*os.File).Write to simulate successful write
-	patches.ApplyMethod(reflect.TypeOf(f), "Write", func(_ *os.File, b []byte) (int, error) {
-		return len(b), nil
-	})
-
-	// Patch (*os.File).Close to simulate error on final close
-	patches.ApplyMethod(reflect.TypeOf(f), "Close", func(_ *os.File) error {
-		return errors.New("simulated Close failure")
-	})
-
 	srv := newTestOSServer()
+	srv.openImage = func(string) (io.WriteCloser, error) {
+		return transferTestFile{closeErr: errors.New("simulated Close failure")}, nil
+	}
 
 	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
 	t.Logf("processTransferContent response=%v", resp)
