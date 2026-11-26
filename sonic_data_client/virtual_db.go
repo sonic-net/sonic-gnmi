@@ -40,9 +40,6 @@ var (
 	// Queue name to oid map in COUNTERS table of COUNTERS_DB
 	countersQueueNameMap = make(map[string]string)
 
-	// MY_SID prefix to oid map in COUNTERS table of COUNTERS_DB
-	countersSidMap = make(map[string]string)
-
 	// ACL table:rule name to oid map in COUNTERS table of COUNTERS_DB
 	countersAclRuleMap = make(map[string]string)
 
@@ -69,7 +66,6 @@ var (
 	initCountersPortNameMapOnce       sync.Once
 	initCountersQueueNameMapOnce      sync.Once
 	initCountersPGNameMapOnce         sync.Once
-	initCountersSidMapOnce            sync.Once
 	initCountersAclRuleMapOnce        sync.Once
 	initAliasMapOnce                  sync.Once
 	initCountersPfcwdNameMapOnce      sync.Once
@@ -197,20 +193,6 @@ func initCountersPortNameMap() error {
 	initCountersPortNameMapOnce.Do(func() {
 		var err error
 		countersPortNameMap, err = getCountersMapFn("COUNTERS_PORT_NAME_MAP")
-		if err != nil {
-			initErr = err
-		}
-	})
-	return initErr
-}
-
-func initCountersSidMap() error {
-	clearMappingsMu.RLock()
-	defer clearMappingsMu.RUnlock()
-	var initErr error
-	initCountersSidMapOnce.Do(func() {
-		var err error
-		countersSidMap, err = getCountersMapFn("COUNTERS_SRV6_NAME_MAP")
 		if err != nil {
 			initErr = err
 		}
@@ -946,9 +928,24 @@ func v2rEthPortQueStats(paths []string) ([]tablePath, error) {
 	return tblPaths, nil
 }
 
+// sidMapReadError distinguishes a failed Redis read from an unmatched virtual
+// path, which may otherwise fall back to a physical database path.
+type sidMapReadError struct {
+	err error
+}
+
+func (e *sidMapReadError) Error() string { return e.err.Error() }
+func (e *sidMapReadError) Unwrap() error { return e.err }
+
 // Populate real data paths from paths like
 // [COUNTERS_DB COUNTERS SID*] or [COUNTERS_DB COUNTERS SID:fcbb:bbbb:1::/48]
 func v2rSRv6SidStats(paths []string) ([]tablePath, error) {
+	// SID mappings can appear after the first query. Use one local snapshot per
+	// lookup rather than caching an empty or stale map for the process lifetime.
+	countersSidMap, err := getCountersMapFn("COUNTERS_SRV6_NAME_MAP")
+	if err != nil {
+		return nil, &sidMapReadError{err: err}
+	}
 	var tblPaths []tablePath
 	if strings.HasSuffix(paths[KeyIdx], "*") { // All SID Counters
 		for sid, oid := range countersSidMap {
@@ -1244,7 +1241,6 @@ func ClearMappings() {
 	initCountersPortNameMapOnce = sync.Once{}
 	initCountersQueueNameMapOnce = sync.Once{}
 	initCountersPGNameMapOnce = sync.Once{}
-	initCountersSidMapOnce = sync.Once{}
 	initCountersAclRuleMapOnce = sync.Once{}
 	initAliasMapOnce = sync.Once{}
 	initCountersPfcwdNameMapOnce = sync.Once{}
@@ -1254,7 +1250,6 @@ func ClearMappings() {
 func InitCountersPortNameMap() error       { return initCountersPortNameMap() }
 func InitCountersQueueNameMap() error      { return initCountersQueueNameMap() }
 func InitCountersPGNameMap() error         { return initCountersPGNameMap() }
-func InitCountersSidMap() error            { return initCountersSidMap() }
 func InitCountersAclRuleMap() error        { return initCountersAclRuleMap() }
 func InitCountersFabricPortNameMap() error { return initCountersFabricPortNameMap() }
 

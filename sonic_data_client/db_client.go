@@ -4,6 +4,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"reflect"
@@ -144,6 +145,27 @@ type tablePath struct {
 	jsonDelimitor string
 	jsonField     string
 	isVirtualPath bool
+}
+
+// String omits request payloads so tablePath can be logged as valid text.
+func (p tablePath) String() string {
+	operation := fmt.Sprintf("unknown(%d)", p.operation)
+	switch p.operation {
+	case opAdd:
+		operation = "add"
+	case opRemove:
+		operation = "remove"
+	}
+
+	return fmt.Sprintf(
+		"tablePath{namespace=%+q db=%+q table=%+q key=%+q field=%+q operation=%+q index=%d json_bytes=%d proto_bytes=%d virtual=%t}",
+		p.dbNamespace, p.dbName, p.tableName, p.tableKey, p.field, operation,
+		p.index, len(p.jsonValue), len(p.protoValue), p.isVirtualPath,
+	)
+}
+
+func (p tablePath) GoString() string {
+	return p.String()
 }
 
 type Value struct {
@@ -673,10 +695,6 @@ func parsePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath)
 		if err != nil {
 			log.Errorf("Could not create CountersDebugNameSwitchStatMap: %v", err)
 		}
-		err = initCountersSidMap()
-		if err != nil {
-			log.Errorf("Could not create CountersSidMap: %v", err)
-		}
 		err = initCountersAclRuleMap()
 		if err != nil {
 			log.Errorf("Could not create CountersAclRuleMap: %v", err)
@@ -710,6 +728,10 @@ func parsePath(prefix, path *gnmipb.Path, pathG2S *map[*gnmipb.Path][]tablePath)
 		log.V(5).Infof("v2r from %v to %+v ", stringSlice, tblPaths)
 		return nil
 	} else {
+		var sidErr *sidMapReadError
+		if errors.As(err, &sidErr) {
+			return err
+		}
 		log.V(5).Infof("v2r lookup failed for %v %v", stringSlice, err)
 	}
 
